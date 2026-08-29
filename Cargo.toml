@@ -1,20 +1,19 @@
 [workspace]
 resolver = "2"
-# Glob picks up the closed-source `atomcode-codingplan-crypto` overlay
+# Glob picks up the closed-source `rustcode-codingplan-crypto` overlay
 # the official build pipeline drops into `crates/` (see the stub at
-# `crates/atomcode-codingplan-crypto/`). Adding any future crate is also
+# `crates/rustcode-codingplan-crypto/`). Adding any future crate is also
 # a no-toml-edit operation.
 members = ["crates/*"]
-# `atomcode-codingplan-crypto` is intentionally absent from default-members:
-# the stub is wired into atomcode-auth via an optional dep behind the
+# `rustcode-codingplan-crypto` is intentionally absent from default-members:
+# the stub is wired into rustcode-auth via an optional dep behind the
 # final binary's `codingplan-crypto` feature, so a default `cargo build`
 # from the workspace root has no reason to compile it. The official build
-# picks it up explicitly via `--features atomcode/codingplan-crypto`.
+# picks it up explicitly via `--features rustcode/codingplan-crypto`.
 default-members = [
-    "crates/atomcode-cli",
-    "crates/atomcode-daemon",
-    "crates/atomcode-telemetry",
-    "crates/atomcode-tuix",
+    "crates/rustcode-cli",
+    "crates/rustcode-daemon",
+    "crates/rustcode-tuix",
 ]
 
 [profile.release]
@@ -31,7 +30,7 @@ debug = "line-tables-only" # Smaller binaries, faster linker
 version = "5.0.9"
 edition = "2021"
 license = "MIT"
-repository = "https://atomgit.com/atomgit_atomcode/atomcode"
+repository = "https://gitcode.com/SecLab/RustCode"
 description = "Open-source terminal AI coding agent"
 
 [workspace.dependencies]

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Build and push the AtomCode Daemon image for multiple architectures
+# Build and push the RustCode Daemon image for multiple architectures
 # (linux/amd64 + linux/arm64), so NAS / home-server users can pull one
 # multi-arch image on both x86 and ARM hardware.
 #
@@ -25,18 +25,18 @@ if [ -z "$IMAGE" ]; then
         /^\[/ { in_section = 0 }
         in_section && /^version *=/ { print $2; exit }
     ' Cargo.toml)
-    IMAGE="atomcode-daemon:v${VERSION}"
+    IMAGE="rustcode-daemon:v${VERSION}"
 fi
 echo "==> Image: ${IMAGE}"
 
 # --- 1. Build daemon binaries for both Linux arches ---
-# release.sh cross-compiles atomcode-daemon for x64 and arm64 into dist/v*/
+# release.sh cross-compiles rustcode-daemon for x64 and arm64 into dist/v*/
 echo "==> Building Linux x64 + arm64 daemon binaries..."
-ATOMCODE_INCLUDE_DAEMON=1 ./scripts/release.sh
+RUSTCODE_INCLUDE_DAEMON=1 ./scripts/release.sh
 
 # --- 2. Sanity-check both artifacts exist ---
-X64_BIN=$(ls dist/v*/atomcode-daemon-*-linux-x64 2>/dev/null | head -1 || true)
-ARM_BIN=$(ls dist/v*/atomcode-daemon-*-linux-arm64 2>/dev/null | head -1 || true)
+X64_BIN=$(ls dist/v*/rustcode-daemon-*-linux-x64 2>/dev/null | head -1 || true)
+ARM_BIN=$(ls dist/v*/rustcode-daemon-*-linux-arm64 2>/dev/null | head -1 || true)
 if [ -z "$X64_BIN" ] || [ -z "$ARM_BIN" ]; then
     echo "ERROR: missing daemon artifacts (x64: ${X64_BIN:-none}, arm64: ${ARM_BIN:-none})." >&2
     echo "       Install musl cross toolchain and re-run: brew install FiloSottile/musl-cross/musl-cross" >&2

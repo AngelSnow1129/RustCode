@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ACP stdio smoke test: drives `atomcode acp` over stdin/stdout.
+"""ACP stdio smoke test: drives `rustcode acp` over stdin/stdout.
 
 The protocol router pins ONE protocol version per connection (from the first
 `initialize`), so v1 and v2 are exercised on two separate agent processes:
@@ -11,15 +11,15 @@ The protocol router pins ONE protocol version per connection (from the first
   JSON-RPC error; session/close releases the live runtime but leaves the
   session in history (per protocol); session/delete removes it again.
 
-Hermetic: each agent runs with a fresh empty ATOMCODE_HOME, so no user state
+Hermetic: each agent runs with a fresh empty RUSTCODE_HOME, so no user state
 leaks in and failures surface as a clean JSON-RPC error or process exit
 instead of a hang. The server may push notifications (e.g. `session/update`
 right after `session/new`); the client skips them and waits for the matching
 response, exactly like a real ACP client must.
 
 Usage:
-    python3 scripts/acp_smoke.py                  # uses target/debug/atomcode
-    python3 scripts/acp_smoke.py path/to/atomcode # explicit binary
+    python3 scripts/acp_smoke.py                  # uses target/debug/rustcode
+    python3 scripts/acp_smoke.py path/to/rustcode # explicit binary
     python3 scripts/acp_smoke.py --help
 
 Requires Python 3 (stdlib only). Exit code 0 on success, 1 on any failure.
@@ -44,12 +44,12 @@ def usage():
 
 
 class Agent:
-    """One `atomcode acp` subprocess with a fresh, empty ATOMCODE_HOME."""
+    """One `rustcode acp` subprocess with a fresh, empty RUSTCODE_HOME."""
 
     def __init__(self, binary):
         self.tmp_home = tempfile.mkdtemp(prefix="acp-smoke-home-")
         env = dict(os.environ)
-        env["ATOMCODE_HOME"] = self.tmp_home
+        env["RUSTCODE_HOME"] = self.tmp_home
         self.proc = subprocess.Popen(
             [binary, "acp"],
             stdin=subprocess.PIPE,
@@ -173,7 +173,7 @@ def smoke_v2(a: Agent):
     result = r["result"]
     assert result["protocolVersion"] == 2, r
     assert isinstance(result.get("capabilities"), dict), r
-    assert result.get("info", {}).get("name") == "atomcode", r
+    assert result.get("info", {}).get("name") == "rustcode", r
     print("v2 initialize: ok")
     new = a.request("session/new", {"cwd": "/tmp", "mcpServers": []})
     assert "result" in new, f"session/new failed: {new}"
@@ -208,12 +208,12 @@ def main(argv=None):
     if len(argv) > 1:
         print("usage: python3 scripts/acp_smoke.py [binary]", file=sys.stderr)
         return 2
-    binary = argv[0] if argv else "target/debug/atomcode"
+    binary = argv[0] if argv else "target/debug/rustcode"
     if not os.path.isfile(binary):
         print(
             f"binary not found: {binary}\n"
-            "build it first with `cargo build -p atomcode`, or pass the path:\n"
-            "  python3 scripts/acp_smoke.py path/to/atomcode",
+            "build it first with `cargo build -p rustcode`, or pass the path:\n"
+            "  python3 scripts/acp_smoke.py path/to/rustcode",
             file=sys.stderr,
         )
         return 2

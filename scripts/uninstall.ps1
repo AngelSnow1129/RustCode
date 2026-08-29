@@ -1,10 +1,10 @@
-# AtomCode uninstaller — PowerShell
+# RustCode uninstaller — PowerShell
 #
-#   irm https://atomgit.com/atomgit_atomcode/atomcode/raw/main/uninstall.ps1 | iex
+#   irm https://gitcode.com/SecLab/RustCode/raw/main/uninstall.ps1 | iex
 #
 # Flags (pass via param):
 #   -Yes              skip prompts; use defaults (G1=yes, G2=no, G3=yes)
-#   -Purge            delete everything including %USERPROFILE%\.atomcode
+#   -Purge            delete everything including %USERPROFILE%\.rustcode
 #   -KeepData         only delete binary + PATH entry
 #   -DryRun           print plan, do nothing
 #   -PrintManifest    emit manifest used for parity tests, exit
@@ -18,7 +18,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Group2Files = @("auth.toml","mcp.json","config.toml","ATOMCODE.md")
+$Group2Files = @("auth.toml","mcp.json","config.toml","RUSTCODE.md")
 $Group3Files = @("history","input_history.txt","recent_dirs.txt","codingplan_sync.json","device_id")
 $Group3Dirs  = @("staged","telemetry","plugins","commands","skills")
 $Group3Prefixes = @("notice.")
@@ -34,15 +34,15 @@ if ($PrintManifest) {
 if ($Purge -and $KeepData) { Write-Error "-Purge conflicts with -KeepData"; exit 2 }
 
 # locate install dir
-$InstallDir = if ($env:ATOMCODE_PREFIX) { $env:ATOMCODE_PREFIX } else { Join-Path $env:LOCALAPPDATA "AtomCode" }
-$Binary = Join-Path $InstallDir "atomcode.exe"
+$InstallDir = if ($env:RUSTCODE_PREFIX) { $env:RUSTCODE_PREFIX } else { Join-Path $env:LOCALAPPDATA "RustCode" }
+$Binary = Join-Path $InstallDir "rustcode.exe"
 
-$DataDir = if ($env:ATOMCODE_HOME) { $env:ATOMCODE_HOME } else { Join-Path $env:USERPROFILE ".atomcode" }
+$DataDir = if ($env:RUSTCODE_HOME) { $env:RUSTCODE_HOME } else { Join-Path $env:USERPROFILE ".rustcode" }
 
 # plan
 Write-Host "Will remove (Group 1):"
 if (Test-Path $Binary) { Write-Host "  $Binary" }
-foreach ($f in @("atomcode.exe.bak",".atomcode.rolling",".atomcode.download",".atomcode.writable-probe")) {
+foreach ($f in @("rustcode.exe.bak",".rustcode.rolling",".rustcode.download",".rustcode.writable-probe")) {
     $p = Join-Path $InstallDir $f
     if (Test-Path $p) { Write-Host "  $p" }
 }
@@ -100,7 +100,7 @@ if ($cur) {
     $entries = $cur -split ';'
     $kept = $entries | Where-Object {
         $_.TrimEnd('\').ToLower() -ne $InstallDir.TrimEnd('\').ToLower() -and
-        $_.TrimEnd('\').ToLower() -ne ($env:LOCALAPPDATA + '\AtomCode').ToLower()
+        $_.TrimEnd('\').ToLower() -ne ($env:LOCALAPPDATA + '\RustCode').ToLower()
     }
     if ($kept.Count -ne $entries.Count) {
         [Environment]::SetEnvironmentVariable("Path", ($kept -join ';'), "User")
@@ -114,7 +114,7 @@ if (Test-Path $Binary) {
         Remove-Item -Force $Binary
         Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
     } catch {
-        Write-Error "could not remove $Binary — close any running atomcode.exe and re-run."
+        Write-Error "could not remove $Binary — close any running rustcode.exe and re-run."
         exit 4
     }
 }

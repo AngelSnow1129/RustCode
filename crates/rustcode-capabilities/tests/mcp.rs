@@ -1,0 +1,469 @@
+//! End-to-end tests for the `mcp` capability, using the in-tree `mcp-test-server`
+//! stdio fixture (a minimal MCP server: `initialize` + `tools/list` [one `echo`
+//! tool] + `tools/call`). Exercises the real ported transport/registry, the kernel
+//! `Tool` adapter, and the kernel Tool-contract conformance gate.
+#![cfg(feature = "mcp")]
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use rustcode_capabilities::mcp::config::{McpConfigSource, McpServerConfig, McpTransportConfig};
+use rustcode_capabilities::mcp::{McpRegistry, McpToolAdapter, ServerStatus, CONNECT_TIMEOUT};
+use rustcode_kernel::conformance;
+use rustcode_kernel::tool::{ProgressSink, RiskLevel, Tool, ToolContext};
+use tokio_util::sync::CancellationToken;
+
+// Redirect RUSTCODE_HOME to a throwaway temp dir before any test in this binary runs,
+// so a test that resolves the user mcp.json without setting its own RUSTCODE_HOME never
+// touches the developer's real home. Inherited shell values are replaced.
+#[ctor::ctor]
+fn _isolate_rustcode_home() {
+    rustcode_kernel::test_support::isolate_home();
+}
+
+/// A stdio server config pointing at the in-tree `mcp-test-server` fixture binary.
+fn test_server_config(name: &str) -> McpServerConfig {
+    test_server_config_with_env(name, BTreeMap::new())
+}
+
+fn test_server_config_with_env(name: &str, env: BTreeMap<String, String>) -> McpServerConfig {
+    test_server_config_with_env_and_timeout(name, env, 5_000)
+}
+
+fn test_server_config_with_env_and_timeout(
+    name: &str,
+    env: BTreeMap<String, String>,
+    timeout_ms: u64,
+) -> McpServerConfig {
+    McpServerConfig {
+        name: name.to_string(),
+        source: McpConfigSource::Project,
+        disabled: false,
+        config: McpTransportConfig::Stdio {
+            command: env!("CARGO_BIN_EXE_mcp-test-server").to_string(),
+            args: vec![],
+            env,
+            timeout_ms: Some(timeout_ms),
+        },
+        trust: false,
+        auto_approve: vec![],
+    }
+}
+
+fn spawn_count(path: &std::path::Path) -> usize {
+    std::fs::read_to_string(path)
+        .map(|contents| contents.lines().count())
+        .unwrap_or_default()
+}
+
+fn ctx() -> ToolContext {
+    ToolContext {
+        working_dir: std::env::temp_dir(),
+        cancel: CancellationToken::new(),
+        progress: ProgressSink::noop(),
+        requester: None,
+    }
+}
+
+/// The core happy path: connect a stdio server, discover its tool, wrap it as a
+/// kernel `Tool`, and call it — asserting the `mcp__{server}__{tool}` naming, the
+/// always-`Risky` classification, and the round-tripped echo output.
+#[tokio::test]
+async fn registry_connect_discover_and_call_echo() {
+    let registry = McpRegistry::new();
+    registry
+        .add_server(test_server_config("testsrv"))
+        .await
+        .expect("stdio MCP server should connect");
+    let registry = registry.share();
+
+    let infos = registry.list_all_tools().await;
+    assert_eq!(infos.len(), 1, "test server exposes exactly one tool");
+    assert_eq!(infos[0].tool_name, "echo");
+
+    let adapter = McpToolAdapter::new(registry, infos.into_iter().next().unwrap()).unwrap();
+    assert_eq!(adapter.name(), "mcp__testsrv__echo");
+    assert_eq!(
+        adapter.risk("{}"),
+        RiskLevel::Risky,
+        "external MCP tools must always be Risky so approval middleware gates them"
+    );
+
+    let result = adapter.execute(r#"{"message":"hi"}"#, &ctx()).await;
+    assert!(!result.is_error, "echo call should succeed: {result:?}");
+    assert_eq!(result.content, "echo:hi");
+}
+
+#[tokio::test]
+async fn stdio_reconnects_once_after_server_exit_for_concurrent_calls() {
+    let temp = tempfile::tempdir().unwrap();
+    let marker = temp.path().join("exit-once");
+    let counter = temp.path().join("spawn-count");
+    let env = BTreeMap::from([
+        (
+            "MCP_TEST_EXIT_ONCE_MARKER".to_string(),
+            marker.display().to_string(),
+        ),
+        (
+            "MCP_TEST_SPAWN_COUNTER".to_string(),
+            counter.display().to_string(),
+        ),
+    ]);
+
+    let registry = McpRegistry::new();
+    registry
+        .add_server(test_server_config_with_env("recover", env))
+        .await
+        .expect("stdio MCP server should connect");
+    let registry = registry.share();
+    assert_eq!(spawn_count(&counter), 1);
+
+    let first = registry.call_tool("recover", "echo", serde_json::json!({ "message": "first" }));
+    let second = registry.call_tool(
+        "recover",
+        "echo",
+        serde_json::json!({ "message": "second" }),
+    );
+    let (first, second) = tokio::join!(first, second);
+
+    let outcomes = [first, second];
+    assert_eq!(
+        outcomes.iter().filter(|result| result.is_ok()).count(),
+        1,
+        "the call handled by the replacement process should succeed"
+    );
+    let uncertain = outcomes
+        .iter()
+        .find_map(|result| result.as_ref().err())
+        .expect("the call sent to the dying process must not be replayed");
+    assert!(
+        uncertain.to_string().contains("result is unknown"),
+        "unexpected error: {uncertain:#}"
+    );
+    assert_eq!(
+        spawn_count(&counter),
+        2,
+        "initial process plus exactly one replacement should be spawned"
+    );
+    assert_eq!(
+        registry.server_statuses().await,
+        vec![("recover".to_string(), ServerStatus::Connected)]
+    );
+}
+
+#[tokio::test]
+async fn stdio_timeout_uses_one_deadline_without_replaying_tool() {
+    let temp = tempfile::tempdir().unwrap();
+    let calls = temp.path().join("tool-call-count");
+    let spawns = temp.path().join("spawn-count");
+    let reconnect_delay = temp.path().join("delay-reconnect-initialize");
+    let env = BTreeMap::from([
+        ("MCP_TEST_READ_DELAY_MS".to_string(), "350".to_string()),
+        (
+            "MCP_TEST_TOOL_RESPONSE_DELAY_MS".to_string(),
+            "350".to_string(),
+        ),
+        (
+            "MCP_TEST_TOOL_CALL_COUNTER".to_string(),
+            calls.display().to_string(),
+        ),
+        (
+            "MCP_TEST_SPAWN_COUNTER".to_string(),
+            spawns.display().to_string(),
+        ),
+        (
+            "MCP_TEST_INITIALIZE_DELAY_MARKER".to_string(),
+            reconnect_delay.display().to_string(),
+        ),
+        (
+            "MCP_TEST_INITIALIZE_DELAY_MS".to_string(),
+            "300".to_string(),
+        ),
+    ]);
+    let registry = McpRegistry::new();
+    registry
+        .add_server(test_server_config_with_env_and_timeout(
+            "shared-deadline",
+            env,
+            500,
+        ))
+        .await
+        .expect("stdio MCP server should connect");
+    std::fs::write(&reconnect_delay, "delay replacement only").unwrap();
+
+    let message = "x".repeat(4 * 1024 * 1024);
+    let started = tokio::time::Instant::now();
+    let result = registry
+        .call_tool(
+            "shared-deadline",
+            "echo",
+            serde_json::json!({ "message": message }),
+        )
+        .await;
+    let elapsed = started.elapsed();
+    let error = match result {
+        Err(error) => error,
+        Ok(_) => panic!("write and response delays must share one deadline"),
+    };
+
+    assert!(
+        error.to_string().contains("result is unknown"),
+        "timed out tool result must stay unknown: {error:#}"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_millis(700),
+        "the foreground tool call must not wait for the delayed reconnect: {elapsed:?}"
+    );
+    assert_eq!(spawn_count(&calls), 1, "the tool must run only once");
+
+    let mut recovered = false;
+    for _ in 0..100 {
+        if registry.server_statuses().await
+            == vec![("shared-deadline".to_string(), ServerStatus::Connected)]
+        {
+            recovered = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(
+        recovered,
+        "stdio connection should recover in the background"
+    );
+    assert_eq!(
+        registry
+            .list_tools_for_server("shared-deadline")
+            .await
+            .len(),
+        1,
+        "the recovered process must remain usable after the recovery task exits"
+    );
+    assert_eq!(spawn_count(&spawns), 2, "the client should only reconnect");
+}
+
+#[tokio::test]
+async fn stdio_marks_server_failed_when_retry_connection_also_dies() {
+    let temp = tempfile::tempdir().unwrap();
+    let counter = temp.path().join("spawn-count");
+    let env = BTreeMap::from([
+        (
+            "MCP_TEST_EXIT_ON_EVERY_TOOLS_LIST".to_string(),
+            "1".to_string(),
+        ),
+        (
+            "MCP_TEST_SPAWN_COUNTER".to_string(),
+            counter.display().to_string(),
+        ),
+    ]);
+
+    let registry = McpRegistry::new();
+    registry
+        .add_server(test_server_config_with_env("always-dies", env))
+        .await
+        .expect("stdio MCP server should connect");
+
+    assert!(
+        registry
+            .list_tools_for_server("always-dies")
+            .await
+            .is_empty(),
+        "tools/list should fail after exactly one reconnect"
+    );
+    assert_eq!(spawn_count(&counter), 2);
+    assert!(matches!(
+        registry.server_statuses().await.as_slice(),
+        [(name, ServerStatus::Failed(_))] if name == "always-dies"
+    ));
+}
+
+#[tokio::test]
+async fn concurrent_failures_reconnect_the_generation_that_actually_failed() {
+    let temp = tempfile::tempdir().unwrap();
+    let exits = temp.path().join("remaining-exits");
+    let counter = temp.path().join("spawn-count");
+    std::fs::write(&exits, "2").unwrap();
+    let env = BTreeMap::from([
+        (
+            "MCP_TEST_EXIT_TOOL_CALLS_COUNTER".to_string(),
+            exits.display().to_string(),
+        ),
+        (
+            "MCP_TEST_SPAWN_COUNTER".to_string(),
+            counter.display().to_string(),
+        ),
+    ]);
+
+    let registry = McpRegistry::new();
+    registry
+        .add_server(test_server_config_with_env("two-exits", env))
+        .await
+        .expect("stdio MCP server should connect");
+    let registry = registry.share();
+
+    let first = registry.call_tool(
+        "two-exits",
+        "echo",
+        serde_json::json!({ "message": "first" }),
+    );
+    let second = registry.call_tool(
+        "two-exits",
+        "echo",
+        serde_json::json!({ "message": "second" }),
+    );
+    let (first, second) = tokio::join!(first, second);
+
+    for result in [first, second] {
+        let error = result.expect_err("fixture should terminate both tool calls");
+        assert!(
+            error.to_string().contains("result is unknown"),
+            "sent tool calls must not be replayed: {error:#}"
+        );
+    }
+    let mut recovered = false;
+    for _ in 0..100 {
+        if spawn_count(&counter) == 3
+            && registry.server_statuses().await
+                == vec![("two-exits".to_string(), ServerStatus::Connected)]
+        {
+            recovered = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(
+        recovered,
+        "each distinct failed generation should get one replacement"
+    );
+}
+
+#[tokio::test]
+async fn status_detects_an_exited_child_before_the_next_request() {
+    let env = BTreeMap::from([(
+        "MCP_TEST_EXIT_AFTER_INITIALIZED".to_string(),
+        "1".to_string(),
+    )]);
+    let registry = McpRegistry::new();
+    registry
+        .add_server(test_server_config_with_env("already-exited", env))
+        .await
+        .expect("initialize handshake should complete before fixture exits");
+
+    let mut observed = false;
+    for _ in 0..20 {
+        if matches!(
+            registry.server_statuses().await.as_slice(),
+            [(name, ServerStatus::Failed(_))] if name == "already-exited"
+        ) {
+            observed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert!(
+        observed,
+        "status should inspect the child instead of reporting a stale Connected state"
+    );
+}
+
+/// A malformed-arguments call must surface as a tool error (`is_error`), never a
+/// panic — the kernel PANIC CONTRACT.
+#[tokio::test]
+async fn adapter_maps_bad_arguments_to_tool_error() {
+    let registry = McpRegistry::new();
+    registry
+        .add_server(test_server_config("testsrv"))
+        .await
+        .expect("stdio MCP server should connect");
+    let registry = registry.share();
+    let infos = registry.list_all_tools().await;
+    let adapter = McpToolAdapter::new(registry, infos.into_iter().next().unwrap()).unwrap();
+
+    let result = adapter.execute("not json", &ctx()).await;
+    assert!(
+        result.is_error,
+        "invalid JSON args must become a tool error"
+    );
+    assert!(result.content.contains("invalid MCP tool arguments"));
+}
+
+/// Every discovered MCP tool must satisfy the kernel `Tool` contract (stable
+/// name/description/schema, deterministic risk, execute that terminates without
+/// panicking). This is the gate the spec requires for each surfaced tool.
+#[tokio::test]
+async fn adapter_passes_kernel_tool_conformance() {
+    let registry = McpRegistry::new();
+    registry
+        .add_server(test_server_config("conf"))
+        .await
+        .expect("stdio MCP server should connect");
+    let registry = registry.share();
+    let infos = registry.list_all_tools().await;
+    let adapter: Arc<dyn Tool> =
+        Arc::new(McpToolAdapter::new(registry, infos.into_iter().next().unwrap()).unwrap());
+
+    let report = conformance::tool::check(adapter, &[r#"{"message":"x"}"#]).await;
+    report.assert_conformant();
+}
+
+/// Write a trust store file that marks `project_dir` as trusted.
+/// Mirrors the format written by `mcp::trust::trust_project`.
+fn write_trusted_store(store_path: &std::path::Path, project_dir: &std::path::Path) {
+    let key = rustcode_capabilities::mcp::registry::project_trust_key(project_dir);
+    let store = serde_json::json!({
+        "version": 1,
+        "projects": {
+            key: { "path": project_dir.display().to_string() }
+        }
+    });
+    std::fs::write(store_path, serde_json::to_vec_pretty(&store).unwrap()).unwrap();
+}
+
+/// Background config loading discovers a trusted project's tools without imposing
+/// session-transition policy on the capability layer.
+#[tokio::test]
+#[serial_test::serial]
+async fn background_registry_reads_project_mcp_json() {
+    let home = tempfile::tempdir().unwrap();
+    // SAFETY: edition 2021; this is the only test that reads global MCP config, and
+    // it only ever points RUSTCODE_HOME at an empty dir (no user mcp.json), so a
+    // concurrent `load_mcp_config` still resolves to "no user servers".
+    std::env::set_var("RUSTCODE_HOME", home.path());
+
+    let project = tempfile::tempdir().unwrap();
+
+    // Pre-trust the project so the security gate allows its servers through.
+    // Point RUSTCODE_MCP_TRUST_STORE at a store inside our isolated home dir.
+    let trust_store = home.path().join("mcp_trust.json");
+    // SAFETY: test-only env mutation; #[serial] prevents concurrent tests from
+    // racing on this variable.
+    unsafe {
+        std::env::set_var("RUSTCODE_MCP_TRUST_STORE", &trust_store);
+    }
+    write_trusted_store(&trust_store, project.path());
+
+    let server = env!("CARGO_BIN_EXE_mcp-test-server");
+    let mcp_json = serde_json::json!({
+        "mcpServers": { "proj": { "command": server, "args": [], "timeout_ms": 5000 } }
+    });
+    std::fs::write(project.path().join(".mcp.json"), mcp_json.to_string()).unwrap();
+
+    let registry = McpRegistry::from_config_background(project.path()).share();
+    registry.wait_for_initial_connections(CONNECT_TIMEOUT).await;
+    let adapters: Vec<Arc<dyn Tool>> = registry
+        .list_all_tools()
+        .await
+        .into_iter()
+        .map(|info| Arc::new(McpToolAdapter::new(registry.clone(), info).unwrap()) as Arc<dyn Tool>)
+        .collect();
+
+    let names: Vec<String> = adapters.iter().map(|a| a.name().to_string()).collect();
+    assert!(
+        names.iter().any(|n| n == "mcp__proj__echo"),
+        "background discovery should surface the project server's echo tool; got {names:?}"
+    );
+    let statuses = registry.server_statuses().await;
+    assert!(
+        statuses.iter().any(|(n, _)| n == "proj"),
+        "the connected server should appear in server_statuses"
+    );
+}

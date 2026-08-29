@@ -31,8 +31,8 @@
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange" alt="rust">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
-  <a href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank">
-    <img src="https://atomgit.com/atomgit_atomcode/atomcode/star/badge.svg" alt="AtomGit Star"/>
+  <a href="https://gitcode.com/SecLab/RustCode" target="_blank">
+    <img src="https://gitcode.com/SecLab/RustCode/star/badge.svg" alt="AtomGit Star"/>
   </a>
 </p>
 
@@ -42,7 +42,7 @@
 
 ---
 
-AtomCode is an AI coding agent that lives in your terminal. Give it a task in natural language, and it will read your codebase, edit files, run commands, and verify its work — autonomously.
+RustCode is an AI coding agent that lives in your terminal. Give it a task in natural language, and it will read your codebase, edit files, run commands, and verify its work — autonomously.
 
 Think of it as an open-source alternative to Claude Code / Cursor Agent, but running entirely in your terminal and connecting to any OpenAI-compatible API.
 
@@ -100,11 +100,11 @@ Connect to any LLM that supports OpenAI's function-calling API:
 
 ### Sessions & Login
 
-- **Persistent sessions** — every conversation is saved; continue the last session with `atomcode --continue` / `-c`, or resume/switch inside the TUI with `/resume`
-- **AtomGit OAuth login** — `/login` (or `atomcode login`) pairs your CLI with your AtomGit account
+- **Persistent sessions** — every conversation is saved; continue the last session with `rustcode --continue` / `-c`, or resume/switch inside the TUI with `/resume`
+- **AtomGit OAuth login** — `/login` (or `rustcode login`) pairs your CLI with your AtomGit account
 - **SSO login** — `/login-with-sso` for GitCode internal users
-- **Headless mode** — `atomcode -p "..."` runs a single prompt non-interactively and streams the reply on stdout (Claude Code `-p` style); approval-required `bash` calls are auto-approved, while other approval-required tools are denied
-- **Daemon mode** — `atomcode-daemon` exposes an HTTP API for session history and SSE streaming chat
+- **Headless mode** — `rustcode -p "..."` runs a single prompt non-interactively and streams the reply on stdout (Claude Code `-p` style); approval-required `bash` calls are auto-approved, while other approval-required tools are denied
+- **Daemon mode** — `rustcode-daemon` exposes an HTTP API for session history and SSE streaming chat
 
 ### Terminal UI
 
@@ -120,7 +120,7 @@ Connect to any LLM that supports OpenAI's function-calling API:
 
 ### Web UI
 
-- **`/webui`** (in the TUI) or **`atomcode webui`** (CLI) launches a local browser UI as an alternative to the terminal interface — same agent, same sessions, rendered in your browser
+- **`/webui`** (in the TUI) or **`rustcode webui`** (CLI) launches a local browser UI as an alternative to the terminal interface — same agent, same sessions, rendered in your browser
 - **Loopback only** — the server binds to `127.0.0.1` and uses a one-time token; nothing is exposed to the network
 - **`/webui stop`** stops the in-process server (a later `/webui` restarts it)
 
@@ -157,13 +157,13 @@ See [Permission Model](./docs/security/permission-model.md) for the full design 
 For Windows PowerShell users:
 
 ```powershell
-irm https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/install.ps1 | iex
+irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.ps1 | iex
 ```
 
 For Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC users:
 
 ```bash
-curl -fsSL https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/install.sh | sh
+curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.sh | sh
 ```
 
 Both scripts download the official prebuilt binary for the latest release
@@ -171,20 +171,20 @@ Both scripts download the official prebuilt binary for the latest release
 As official builds they include the request signer, so `/login` can claim the
 free CodingPlan models (see "About the official CodingPlan" below).
 
-Environment variable overrides: `ATOMCODE_VERSION` pins a release tag,
-`ATOMCODE_PREFIX` picks the install directory (see the script headers for
+Environment variable overrides: `RUSTCODE_VERSION` pins a release tag,
+`RUSTCODE_PREFIX` picks the install directory (see the script headers for
 details).
 
 ### From Source
 
 ```bash
-git clone https://atomgit.com/atomgit_atomcode/atomcode.git
-cd atomcode
+git clone https://gitcode.com/SecLab/RustCode.git
+cd rustcode
 ```
 
 #### WebUI build (required for the webui feature — runs before the Rust build)
 
-The `atomcode webui` browser UI is embedded into the binary from `webui/dist/`,
+The `rustcode webui` browser UI is embedded into the binary from `webui/dist/`,
 which is gitignored (not committed). The Rust build needs no Node.js toolchain
 and succeeds without it, but a binary built without `webui/dist/` serves
 `webui not built` for every webui page. To get a working webui, build the
@@ -203,34 +203,34 @@ cd ..
 Skip this step if you don't use the webui. The release scripts build the
 frontend automatically before `cargo build`. After rebuilding the frontend,
 force a daemon recompile so the new bundle is re-embedded (`cargo clean -p
-atomcode-daemon`) — cargo does not track changes under `webui/dist/`. Then
+rustcode-daemon`) — cargo does not track changes under `webui/dist/`. Then
 build and install:
 
 ```bash
-cargo install --path crates/atomcode-cli --locked
+cargo install --path crates/rustcode-cli --locked
 ```
 
-The binary will be generated at `target/release/atomcode` and installed to
-`~/.cargo/bin/atomcode` for macOS / Linux / HarmonyOS PC and `$env:USERPROFILE/.cargo/bin/atomcode.exe`
+The binary will be generated at `target/release/rustcode` and installed to
+`~/.cargo/bin/rustcode` for macOS / Linux / HarmonyOS PC and `$env:USERPROFILE/.cargo/bin/rustcode.exe`
 for Windows. Make sure that `~/.cargo/bin` (or `%USERPROFILE%\.cargo\bin` on Windows) is
 in your `PATH`.
 
 To compile without installing, run:
 
 ```bash
-# Builds only the CLI package (`atomcode`) — skips the standalone
-# `atomcode-daemon` binary and other workspace members
-cargo build --release -p atomcode
+# Builds only the CLI package (`rustcode`) — skips the standalone
+# `rustcode-daemon` binary and other workspace members
+cargo build --release -p rustcode
 ```
 
-and the binary will be generated at `target/release/atomcode`.
+and the binary will be generated at `target/release/rustcode`.
 
 ### About the official CodingPlan (closed-source signer)
 
-`crates/atomcode-codingplan-crypto/` in this repository is an open-source
+`crates/rustcode-codingplan-crypto/` in this repository is an open-source
 placeholder. The real request-signing implementation is closed-source and is
 only overlaid by the official release pipeline, so a self-built binary cannot
-sign requests to AtomCode's official service. Binaries installed via the
+sign requests to RustCode's official service. Binaries installed via the
 official installer above (or the package managers below) are official builds
 and include the signer. In practice this means:
 
@@ -238,42 +238,42 @@ and include the signer. In practice this means:
   binaries. Signing is kept closed-source to prevent the free plan from being
   abused outside official builds.
 - Connecting your **own API providers** is unaffected: any provider configured
-  under `providers.*` in `~/.atomcode/config.toml` (DeepSeek, OpenAI, or any
+  under `providers.*` in `~/.rustcode/config.toml` (DeepSeek, OpenAI, or any
   OpenAI-compatible endpoint) works without the signer.
 
 ### Package Managers
 
-AtomCode CLI can also be installed via the following package managers:
+RustCode CLI can also be installed via the following package managers:
 
 ```bash
 # Install using npm
-npm install -g @atomgit.com/atomcode
+npm install -g @atomgit.com/rustcode
 
 # Install using Homebrew
-brew install --cask atomcode
+brew install --cask rustcode
 ```
 
 ### Shell Completion
 
-AtomCode can generate completion scripts for Bash, Zsh, Fish, PowerShell, and
+RustCode can generate completion scripts for Bash, Zsh, Fish, PowerShell, and
 Elvish. For example:
 
 ```bash
 # Bash (current session)
-source <(atomcode completion bash)
+source <(rustcode completion bash)
 
 # Zsh (persistent)
 mkdir -p ~/.zfunc
-atomcode completion zsh > ~/.zfunc/_atomcode
+rustcode completion zsh > ~/.zfunc/_rustcode
 # Also add `fpath=(~/.zfunc $fpath)` before `compinit` in ~/.zshrc.
 
 # Fish (persistent)
 mkdir -p ~/.config/fish/completions
-atomcode completion fish > ~/.config/fish/completions/atomcode.fish
+rustcode completion fish > ~/.config/fish/completions/rustcode.fish
 ```
 
-For PowerShell, run `atomcode completion powershell | Out-String |
-Invoke-Expression`. Run `atomcode completion --help` for the complete shell
+For PowerShell, run `rustcode completion powershell | Out-String |
+Invoke-Expression`. Run `rustcode completion --help` for the complete shell
 list. This affects command-line completion only; inside the TUI, `Tab` completes
 input and `Shift+Tab` cycles execution mode.
 
@@ -286,8 +286,8 @@ input and `Shift+Tab` cycles execution mode.
 
 ### Permissions — don't run with `sudo`
 
-Run AtomCode as your **normal user**, never with `sudo`. AtomCode keeps its
-config, sessions, and logs under `~/.atomcode`; running once as root leaves
+Run RustCode as your **normal user**, never with `sudo`. RustCode keeps its
+config, sessions, and logs under `~/.rustcode`; running once as root leaves
 root-owned files there, so every later non-root start fails at runtime init with:
 
 ```
@@ -298,8 +298,8 @@ coding runtime assemble failed: Permission denied (os error 13)
 this, reclaim ownership and stop using `sudo`:
 
 ```bash
-sudo chown -R "$(id -un):$(id -gn)" ~/.atomcode
-atomcode        # start WITHOUT sudo
+sudo chown -R "$(id -un):$(id -gn)" ~/.rustcode
+rustcode        # start WITHOUT sudo
 ```
 
 On a Linux guest, a working directory on a VirtualBox shared folder
@@ -309,37 +309,37 @@ than using `sudo`.
 
 ### Uninstall
 
-Remove AtomCode and (optionally) its data:
+Remove RustCode and (optionally) its data:
 
 ```bash
-atomcode uninstall                # interactive: per-group prompts
-atomcode uninstall --keep-data    # only remove binary + PATH edit
-atomcode uninstall --purge        # remove everything, including ~/.atomcode
-atomcode uninstall --dry-run      # show plan, change nothing
+rustcode uninstall                # interactive: per-group prompts
+rustcode uninstall --keep-data    # only remove binary + PATH edit
+rustcode uninstall --purge        # remove everything, including ~/.rustcode
+rustcode uninstall --dry-run      # show plan, change nothing
 ```
 
 If the binary is already broken or missing:
 
 ```bash
-curl -fsSL https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/uninstall.sh | sh
+curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/uninstall.sh | sh
 # Windows:
-irm https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/uninstall.ps1 | iex
+irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/uninstall.ps1 | iex
 ```
 
-By default credentials (`auth.toml`, `mcp.json`, `config.toml`, `ATOMCODE.md`) are kept; pass `--purge` to remove them too.
+By default credentials (`auth.toml`, `mcp.json`, `config.toml`, `RUSTCODE.md`) are kept; pass `--purge` to remove them too.
 
 ## Quick Start
 
 ### 1. First Run
 
 ```bash
-atomcode
+rustcode
 ```
 
 On first run, a setup wizard will guide you through configuring your LLM provider:
 
 ```
-Welcome to AtomCode! Let's set up your first provider.
+Welcome to RustCode! Let's set up your first provider.
 
 Select provider:
   [1] Claude (Anthropic)
@@ -350,7 +350,7 @@ Select provider:
 
 ### 2. Configuration
 
-Config is stored at `~/.atomcode/config.toml`. A minimal single-provider
+Config is stored at `~/.rustcode/config.toml`. A minimal single-provider
 setup looks like this:
 
 ```toml
@@ -371,7 +371,7 @@ Ollama, plus the `[datalog]` section, lives at
 [`docs/config.example.toml`](docs/config.example.toml) — copy and edit the
 bits you need.
 
-After editing `config.toml` by hand, run `/reload` inside atomcode to pick
+After editing `config.toml` by hand, run `/reload` inside rustcode to pick
 up the changes without restarting.
 
 ### 3. Start Coding
@@ -379,19 +379,19 @@ up the changes without restarting.
 ```bash
 # Open in your project directory
 cd your-project
-atomcode
+rustcode
 
 # Or specify directory
-atomcode -C /path/to/project
+rustcode -C /path/to/project
 
 # Or specify model
-atomcode --model gpt-4o
+rustcode --model gpt-4o
 
 # Headless (single prompt, reply on stdout)
-atomcode -p "Explain the agent loop in this repo"
+rustcode -p "Explain the agent loop in this repo"
 
 # Read prompt from file
-atomcode --prompt-file task.md
+rustcode --prompt-file task.md
 ```
 
 In headless mode, approval-required `bash` calls are auto-approved and logged to stderr; other approval-required tools are denied.
@@ -435,8 +435,8 @@ Then just type what you want:
 
 > **Terminal compatibility for newline chords:**
 >
-> - `Shift+Enter` and `Ctrl+Enter` need a terminal that speaks the Kitty keyboard protocol — kitty, WezTerm, Alacritty, iTerm2 ≥3.5, Windows Terminal ≥1.21. Older terminals (and Windows, where atomcode doesn't enable the protocol) collapse them to plain `Enter` (which sends the message) — use `\` + `Enter`, which works everywhere.
-> - AtomCode enables the Kitty keyboard protocol only for known-compatible terminals. Generic web terminals such as JumpServer use legacy key reporting by default. Set `ATOMCODE_KITTY=1` to force it on or `ATOMCODE_KITTY=0` to force it off.
+> - `Shift+Enter` and `Ctrl+Enter` need a terminal that speaks the Kitty keyboard protocol — kitty, WezTerm, Alacritty, iTerm2 ≥3.5, Windows Terminal ≥1.21. Older terminals (and Windows, where rustcode doesn't enable the protocol) collapse them to plain `Enter` (which sends the message) — use `\` + `Enter`, which works everywhere.
+> - RustCode enables the Kitty keyboard protocol only for known-compatible terminals. Generic web terminals such as JumpServer use legacy key reporting by default. Set `RUSTCODE_KITTY=1` to force it on or `RUSTCODE_KITTY=0` to force it off.
 > - `Alt+Enter` works at the byte level on most terminals, but **Windows Terminal binds it to "toggle full screen" by default** — remove that binding under Settings → Actions to free it up.
 > - Xshell does not support the Kitty protocol; in its keymap settings, map a free chord to send `ESC, Enter` (`\x1b\r`) to get the same effect, or paste multi-line text via the clipboard (bracketed paste is enabled).
 
@@ -444,7 +444,7 @@ Then just type what you want:
 > Windows Terminal and conhost bind `Ctrl+V` to their own `paste` action, which only forwards `CF_UNICODETEXT` from the clipboard — an image-only clipboard sends nothing, so the in-app `Ctrl+V` handler never fires. Two ways out:
 >
 > 1. Use **`/paste`** — the slash command pulls the clipboard image and attaches it as `[Image #N]`. Works in every terminal, including Windows Terminal, PowerShell 7, conhost, and git bash. The TUI's bottom-right hint on Windows says `Image in clipboard · /paste` automatically.
-> 2. If you want `Ctrl+V` muscle memory: open Windows Terminal `settings.json` (`Ctrl+,` → "Open JSON file") and either delete the `{ "command": "paste", "keys": "ctrl+v" }` entry under `"actions"`, or rebind it to `ctrl+shift+v`. After a restart, `Ctrl+V` passes through to atomcode.
+> 2. If you want `Ctrl+V` muscle memory: open Windows Terminal `settings.json` (`Ctrl+,` → "Open JSON file") and either delete the `{ "command": "paste", "keys": "ctrl+v" }` entry under `"actions"`, or rebind it to `ctrl+shift+v`. After a restart, `Ctrl+V` passes through to rustcode.
 >
 > Git Bash (MinTTY) doesn't intercept `Ctrl+V`, so it works there out of the box.
 
@@ -537,26 +537,26 @@ Type `/` in the TUI to browse the full list with live completion; `/help` shows 
 |---------|--------|
 | `/init` | Create or improve the active project instruction file, following the current language and optional custom prompt |
 | `/config` | Show config path |
-| `/reload` | Reload `~/.atomcode/config.toml` from disk |
-| `/upgrade` | Upgrade atomcode to latest (subcommand: `rollback`) |
+| `/reload` | Reload `~/.rustcode/config.toml` from disk |
+| `/upgrade` | Upgrade rustcode to latest (subcommand: `rollback`) |
 | `/setup` | First run: install the recommended skill and run it |
 | `/welcome` | Re-run the onboarding wizard |
 | `/language` | Switch display and default Git commit-message language |
-| `/guide <question>` | Ask atomcode-guide how to use AtomCode |
+| `/guide <question>` | Ask rustcode-guide how to use RustCode |
 | `/keys` | Show keyboard shortcuts |
 | `/help` | Show commands & shortcuts |
-| `/quit`, `/exit` | Exit AtomCode (or Ctrl+C ×2) |
+| `/quit`, `/exit` | Exit RustCode (or Ctrl+C ×2) |
 
 > **AtomGit Issues.** `/issue` has been removed. After `/login`, ask in natural
-> language—for example, “Create an AtomGit issue for this bug”—and AtomCode uses
+> language—for example, “Create an AtomGit issue for this bug”—and RustCode uses
 > its built-in `atomgit_issue` tool. Reading issues is automatic; creating an
 > issue or adding, editing, or deleting comments still requires approval.
 >
-> **Plugin commands.** Beyond the built-ins above, plugins can register their own slash commands. For example, install the official channel plugin to get `/wechat` (shows the AtomCode WeChat community group QR code):
+> **Plugin commands.** Beyond the built-ins above, plugins can register their own slash commands. For example, install the official channel plugin to get `/wechat` (shows the RustCode WeChat community group QR code):
 >
 > ```text
-> /plugin marketplace add https://atomgit.com/atomgit_atomcode/AtomCode-Channel
-> /plugin install weixin@atomcode-channel
+> /plugin marketplace add https://gitcode.com/SecLab/RustCode-Channel
+> /plugin install weixin@rustcode-channel
 > ```
 
 ### Custom Commands
@@ -567,8 +567,8 @@ Beyond built-ins and plugin commands, you can define your own slash commands as 
 
 | Location                                                     | Scope                                                |
 | ------------------------------------------------------------ | ---------------------------------------------------- |
-| `$ATOMCODE_HOME/commands/` (default `~/.atomcode/commands/`) | Global — applies to every project                    |
-| `<project>/.atomcode/commands/`                              | Project-level — overrides same-named global commands |
+| `$RUSTCODE_HOME/commands/` (default `~/.rustcode/commands/`) | Global — applies to every project                    |
+| `<project>/.rustcode/commands/`                              | Project-level — overrides same-named global commands |
 | `plugins/<name>/commands/`                                   | Plugin-contributed — installed via `/plugin install` |
 
 **File format:**
@@ -604,9 +604,9 @@ Cover: function signature & parameters, core business logic, data flow & side ef
 **Example: create a code-review command**
 
 ```bash
-mkdir -p .atomcode/commands
+mkdir -p .rustcode/commands
 
-cat > .atomcode/commands/codereview.md << 'EOF'
+cat > .rustcode/commands/codereview.md << 'EOF'
 ---
 name: codereview
 description: Review the current git diff
@@ -624,22 +624,22 @@ Run `/help commands` to list all loaded custom commands.
 
 ## Architecture
 
-AtomCode is a layered Rust workspace:
+RustCode is a layered Rust workspace:
 
 ```
-atomcode/
+rustcode/
   crates/
-    atomcode-kernel/        # Neutral agent loop and runtime traits
-    atomcode-capabilities/  # Providers, tools, MCP, skills, sessions, memory
-    atomcode-coding/        # Coding specialization and CodingRuntime lifecycle
-    atomcode-review/        # Review specialization
-    atomcode-tuix/          # Terminal UI
-    atomcode-cli/           # TUI and headless entry point
-    atomcode-daemon/        # HTTP/SSE/WebSocket transport + legacy session importer
+    rustcode-kernel/        # Neutral agent loop and runtime traits
+    rustcode-capabilities/  # Providers, tools, MCP, skills, sessions, memory
+    rustcode-coding/        # Coding specialization and CodingRuntime lifecycle
+    rustcode-review/        # Review specialization
+    rustcode-tuix/          # Terminal UI
+    rustcode-cli/           # TUI and headless entry point
+    rustcode-daemon/        # HTTP/SSE/WebSocket transport + legacy session importer
 ```
 
 The coding path is `CLI/TUI/daemon → CodingRuntime → kernel`. The retired core
-agent protocol and `atomcode-bridge` are no longer part of the runtime path.
+agent protocol and `rustcode-bridge` are no longer part of the runtime path.
 
 ### Design Principles
 
@@ -651,11 +651,11 @@ agent protocol and `atomcode-bridge` are no longer part of the runtime path.
 
 4. **Context-aware** — token-budget-aware conversation windowing, project file-tree injection, and per-turn system reminders keep the model focused without exceeding context limits.
 
-5. **Directed dependencies** — kernel stays neutral; capabilities and coding stay free of `atomcode-core`; legacy session data is handled at an explicit compatibility boundary rather than as a runtime fallback.
+5. **Directed dependencies** — kernel stays neutral; capabilities and coding stay free of `rustcode-core`; legacy session data is handled at an explicit compatibility boundary rather than as a runtime fallback.
 
 ## Project Instruction File
 
-Create a `.atomcode.md` file in your project root to give AtomCode persistent context:
+Create a `.rustcode.md` file in your project root to give RustCode persistent context:
 
 ```markdown
 # Project Instructions
@@ -667,9 +667,9 @@ This is a Vue 3 + TypeScript project using Pinia for state management.
 - Run `npm run lint` after editing .vue/.ts files
 ```
 
-AtomCode reads this file automatically and includes it in the system prompt. AtomCode also supports `AGENTS.md` (the [open standard](https://agents.md/) for AI coding agents) as an alternative — if both files exist, `.atomcode.md` takes priority.
+RustCode reads this file automatically and includes it in the system prompt. RustCode also supports `AGENTS.md` (the [open standard](https://agents.md/) for AI coding agents) as an alternative — if both files exist, `.rustcode.md` takes priority.
 
-Run `/init` to analyze the repository and create or improve the active instruction file. Its output follows the current `/language`. To append organization-specific requirements, set **Custom /init prompt file** in `/config`, or add `init_prompt_file = "prompts/init.md"` to `$ATOMCODE_HOME/config.toml`; relative paths resolve from `$ATOMCODE_HOME`.
+Run `/init` to analyze the repository and create or improve the active instruction file. Its output follows the current `/language`. To append organization-specific requirements, set **Custom /init prompt file** in `/config`, or add `init_prompt_file = "prompts/init.md"` to `$RUSTCODE_HOME/config.toml`; relative paths resolve from `$RUSTCODE_HOME`.
 
 ## Development
 
@@ -682,8 +682,8 @@ Run `/init` to analyze the repository and create or improve the active instructi
 ### Build from Source
 
 ```bash
-git clone https://atomgit.com/atomgit_atomcode/atomcode.git
-cd atomcode
+git clone https://gitcode.com/SecLab/RustCode.git
+cd rustcode
 
 # Debug build (fast compilation, slower runtime)
 cargo build
@@ -696,17 +696,17 @@ cargo build --release
 
 ```bash
 # Run the TUI directly (debug mode)
-cargo run -p atomcode-cli
+cargo run -p rustcode-cli
 
 # With arguments
-cargo run -p atomcode-cli -- -C /path/to/project
-cargo run -p atomcode-cli -- --model gpt-4o
+cargo run -p rustcode-cli -- -C /path/to/project
+cargo run -p rustcode-cli -- --model gpt-4o
 
 # Headless mode
-cargo run -p atomcode-cli -- -p "summarize this repo"
+cargo run -p rustcode-cli -- -p "summarize this repo"
 
 # Daemon (HTTP API)
-cargo run -p atomcode-daemon
+cargo run -p rustcode-daemon
 ```
 
 ### Testing
@@ -716,11 +716,11 @@ cargo run -p atomcode-daemon
 cargo test
 
 # Run tests for a specific crate
-cargo test -p atomcode-capabilities
-cargo test -p atomcode-tuix
+cargo test -p rustcode-capabilities
+cargo test -p rustcode-tuix
 
 # Run a specific test
-cargo test -p atomcode-capabilities test_name
+cargo test -p rustcode-capabilities test_name
 ```
 
 ### Useful Commands
@@ -736,20 +736,20 @@ cargo fmt
 cargo clippy
 
 # Build and install to ~/.cargo/bin
-cargo install --path crates/atomcode-cli
+cargo install --path crates/rustcode-cli
 ```
 
 ## Contributing
 
-Contributions are welcome! AtomCode is in active development.
+Contributions are welcome! RustCode is in active development.
 
 ### How to Contribute
 
 1. **Fork** the repository on AtomGit
 2. **Clone** your fork locally:
    ```bash
-   git clone https://atomgit.com/<your-username>/atomcode.git
-   cd atomcode
+   git clone https://atomgit.com/<your-username>/rustcode.git
+   cd rustcode
    ```
 3. **Create a branch** for your change:
    ```bash
@@ -789,43 +789,43 @@ Contributions are welcome! AtomCode is in active development.
 
 ### Where to Start
 
-- **Add a new tool** — implement the `Tool` trait in `crates/atomcode-capabilities/src/tools/`
-- **Add a new provider** — implement `LlmProvider` in `crates/atomcode-capabilities/src/provider/`
-- **Improve the UI** — rendering lives in `crates/atomcode-tuix/src/render/`
-- **Fix bugs** — check [Issues](https://atomgit.com/atomgit_atomcode/atomcode/issues) for open bugs
+- **Add a new tool** — implement the `Tool` trait in `crates/rustcode-capabilities/src/tools/`
+- **Add a new provider** — implement `LlmProvider` in `crates/rustcode-capabilities/src/provider/`
+- **Improve the UI** — rendering lives in `crates/rustcode-tuix/src/render/`
+- **Fix bugs** — check [Issues](https://gitcode.com/SecLab/RustCode/issues) for open bugs
 
 ### Non-Rust Contributions
 
 Don't know Rust? No problem! There are many ways to contribute without writing Rust code:
 
-- **📝 Documentation** — Improve the README, fix typos, enhance the [official docs site](https://atomcode.atomgit.com/docs/en/), or add examples. Docs live in the root `docs/` directory, `site/docs/`, and the main README files.
+- **📝 Documentation** — Improve the README, fix typos, enhance the [official docs site](https://rustcode.atomgit.com/docs/en/), or add examples. Docs live in the root `docs/` directory, `site/docs/`, and the main README files.
 - **🌐 Localization & Translation** — Help translate the docs site, README, or UI strings into more languages. Check `site/docs/` for existing translations.
-- **🧩 Skills & Plugins** — Create new [skills](https://gitcode.com/atomgit_atomcode/atomcode-skills) (Markdown + JSON, no Rust needed) that extend AtomCode's capabilities. Skills are loaded from `~/.atomcode/skills/`.
-- **🐛 Bug Reports** — Found a bug? Open an [Issue](https://atomgit.com/atomgit_atomcode/atomcode/issues) with clear reproduction steps, screenshots, and environment info. High-quality bug reports are invaluable.
+- **🧩 Skills & Plugins** — Create new [skills](https://gitcode.com/SecLab/RustCode-skills) (Markdown + JSON, no Rust needed) that extend RustCode's capabilities. Skills are loaded from `~/.rustcode/skills/`.
+- **🐛 Bug Reports** — Found a bug? Open an [Issue](https://gitcode.com/SecLab/RustCode/issues) with clear reproduction steps, screenshots, and environment info. High-quality bug reports are invaluable.
 - **🧪 Test Cases & Examples** — Add test scenarios, example projects, or usage demos that help validate features and onboard new users.
 - **💬 Community Support** — Help answer questions in the community group, write tutorials, or create video guides.
 
-Every contribution, code or not, makes AtomCode better for everyone. When in doubt, open an Issue or start a Discussion!
+Every contribution, code or not, makes RustCode better for everyone. When in doubt, open an Issue or start a Discussion!
 
 ## Community
 
 ---
 
-Scan the QR code below with WeChat to join the AtomCode community group — share feedback, report issues, and talk to other users and maintainers:
+Scan the QR code below with WeChat to join the RustCode community group — share feedback, report issues, and talk to other users and maintainers:
 
 <p align="center">
-  <img src="https://cdn-news.gitcode.com/news/AtomCode_qun.png" alt="AtomCode WeChat community QR code" width="220">
+  <img src="https://cdn-news.gitcode.com/news/RustCode_qun.png" alt="RustCode WeChat community QR code" width="220">
 </p>
 
 ## Donate
 
 ---
 
-☕ AtomCode is free, and the Coding Plan is free too. If it's saved you a bit of time, consider buying the author a coffee — it keeps us motivated to keep making it better.
+☕ RustCode is free, and the Coding Plan is free too. If it's saved you a bit of time, consider buying the author a coffee — it keeps us motivated to keep making it better.
 
 <p align="center">
-  <img src="https://cdn-news.gitcode.com/news/alipay_1782981974317.png" alt="AtomCode Alipay donate QR code" width="220">
-  <img src="https://cdn-news.gitcode.com/news/wechatpay_1782982603403.png" alt="AtomCode WeChat Pay donate QR code" width="240">
+  <img src="https://cdn-news.gitcode.com/news/alipay_1782981974317.png" alt="RustCode Alipay donate QR code" width="220">
+  <img src="https://cdn-news.gitcode.com/news/wechatpay_1782982603403.png" alt="RustCode WeChat Pay donate QR code" width="240">
 </p>
 
 ## License

@@ -1,23 +1,23 @@
 #!/bin/sh
-# AtomCode installer — curl | sh
+# RustCode installer — curl | sh
 #
-#   curl -fsSL https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.sh | sh
 #
 # Env overrides:
-#   ATOMCODE_VERSION   release tag to install (default: latest release, auto-detected
+#   RUSTCODE_VERSION   release tag to install (default: latest release, auto-detected
 #                        from the AtomGit API)
-#   ATOMCODE_PREFIX    install dir (absolute path; default: /usr/local/bin if writable,
+#   RUSTCODE_PREFIX    install dir (absolute path; default: /usr/local/bin if writable,
 #                        else ~/.local/bin). On HarmonyOS as non-root, default is ~/.local/bin.
 # IMPORTANT: when changing install paths, the PATH-rc edit format, or filenames here,
 # also update scripts/uninstall.sh AND
-# crates/atomcode-cli/src/uninstall/paths.rs. The CI parity test guards
+# crates/rustcode-cli/src/uninstall/paths.rs. The CI parity test guards
 # the manifest, but binary path / rc-edit format are not checked.
 set -eu
 
-# Fallback version used only when ATOMCODE_VERSION is unset and the API lookup fails.
+# Fallback version used only when RUSTCODE_VERSION is unset and the API lookup fails.
 DEFAULT_VERSION="v5.0.2"
-REPO_BASE="https://atomgit.com/atomgit_atomcode/atomcode/releases/download"
-REPO_LATEST_API="https://api.atomgit.com/api/v5/repos/atomgit_atomcode/atomcode/releases/latest"
+REPO_BASE="https://gitcode.com/SecLab/RustCode/releases/download"
+REPO_LATEST_API="https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest"
 
 # --- detect platform ---
 uname_s=$(uname -s)
@@ -42,8 +42,8 @@ case "$uname_m" in
 esac
 
 # --- pick install dir ---
-if [ -n "${ATOMCODE_PREFIX:-}" ]; then
-    PREFIX="$ATOMCODE_PREFIX"
+if [ -n "${RUSTCODE_PREFIX:-}" ]; then
+    PREFIX="$RUSTCODE_PREFIX"
 elif [ "$os" = "ohos" ] || [ "$os" = "windows" ]; then
     # Windows shells (MSYS/Git-Bash/Cygwin) have no sudo and a system /usr/local/bin under
     # the MSYS root; install into the user's home instead (always writable, no elevation).
@@ -59,7 +59,7 @@ mkdir -p "$PREFIX"
 
 # --- referral invite code handling ---
 # Priority: env var > --invite= arg
-INVITE="${ATOMCODE_INVITE:-}"
+INVITE="${RUSTCODE_INVITE:-}"
 
 # Parse --invite=ABC12345 or --invite ABC12345 from command-line arguments.
 # Use while+shift instead of for+shift — for iterates a snapshot of $@.
@@ -72,8 +72,8 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -n "$INVITE" ]; then
-  ATOMCODE_DIR="${ATOMCODE_HOME:-$HOME/.atomcode}"
-  mkdir -p "$ATOMCODE_DIR"
+  RUSTCODE_DIR="${RUSTCODE_HOME:-$HOME/.rustcode}"
+  mkdir -p "$RUSTCODE_DIR"
 
   # Generate install_uuid (prefer uuidgen, fallback to /proc or /dev/urandom)
   INSTALL_UUID=""
@@ -89,7 +89,7 @@ if [ -n "$INVITE" ]; then
 
   # Validate invite code: 8 alphanumeric chars
   if echo "$INVITE" | grep -qE '^[A-Za-z0-9]{8}$'; then
-    cat > "$ATOMCODE_DIR/pending_invite" <<EOF
+    cat > "$RUSTCODE_DIR/pending_invite" <<EOF
 invite_code=${INVITE}
 install_uuid=${INSTALL_UUID}
 attempted_at=$(date +%s)
@@ -103,7 +103,7 @@ fi
 # --- download ---
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-DEST="$TMP/atomcode${ext}"
+DEST="$TMP/rustcode${ext}"
 
 # Pick download tool: $_fetch streams a URL to stdout (for the API lookup),
 # $_down saves a URL to a file (for the binary).
@@ -119,17 +119,17 @@ else
 fi
 
 # --- resolve version ---
-# Honor ATOMCODE_VERSION if set; otherwise auto-detect the latest release tag
+# Honor RUSTCODE_VERSION if set; otherwise auto-detect the latest release tag
 # from the API, falling back to DEFAULT_VERSION if the lookup yields nothing.
-if [ -n "${ATOMCODE_VERSION:-}" ]; then
-    VERSION="$ATOMCODE_VERSION"
+if [ -n "${RUSTCODE_VERSION:-}" ]; then
+    VERSION="$RUSTCODE_VERSION"
 else
     echo "==> Detecting latest version"
     VERSION=$($_fetch "$REPO_LATEST_API" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
     [ -n "$VERSION" ] || VERSION="$DEFAULT_VERSION"
 fi
 
-BIN_NAME="atomcode-${VERSION}-${os}-${arch}${ext}"
+BIN_NAME="rustcode-${VERSION}-${os}-${arch}${ext}"
 URL="${REPO_BASE}/${VERSION}/${BIN_NAME}"
 
 echo "==> Downloading $BIN_NAME"
@@ -147,15 +147,15 @@ fi
 chmod +x "$DEST"
 
 # --- install ---
-TARGET="$PREFIX/atomcode${ext}"
+TARGET="$PREFIX/rustcode${ext}"
 if [ "$os" = "windows" ]; then
-    # No sudo on MSYS/Git-Bash, and PREFIX is the user's own dir. A running atomcode.exe locks
+    # No sudo on MSYS/Git-Bash, and PREFIX is the user's own dir. A running rustcode.exe locks
     # the file on NTFS, so `mv` can fail with a lock error — surface a clear hint instead of a
-    # raw `set -e` abort (mirrors install.ps1's "close any running atomcode.exe" guidance).
+    # raw `set -e` abort (mirrors install.ps1's "close any running rustcode.exe" guidance).
     echo "==> Installing to $TARGET"
     if ! mv "$DEST" "$TARGET"; then
         echo "Error: could not write $TARGET." >&2
-        echo "       If atomcode is already running, close it and re-run this installer." >&2
+        echo "       If rustcode is already running, close it and re-run this installer." >&2
         exit 1
     fi
 elif [ -e "$TARGET" ] && [ ! -w "$TARGET" ]; then
@@ -178,7 +178,7 @@ if [ "$os" = "windows" ]; then
     echo ""
     echo "Note: installed for this Unix shell (MSYS/MinGW/Git-Bash/Cygwin)."
     echo "      For a system-wide Windows install (cmd / PowerShell PATH), use instead:"
-    echo "      powershell -c \"irm https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/install.ps1 | iex\""
+    echo "      powershell -c \"irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.ps1 | iex\""
 fi
 
 case ":$PATH:" in
@@ -197,19 +197,19 @@ case ":$PATH:" in
             # Match the COMPLETE export line we manage (grep -x = whole line, -F =
             # fixed string), not a bare substring of "$PREFIX". A `grep -qF "$PREFIX"`
             # false-positives when the rc merely MENTIONS the prefix as a substring
-            # (e.g. an "AtomCodeBackup" path), silently skipping the real PATH add.
+            # (e.g. an "RustCodeBackup" path), silently skipping the real PATH add.
             if [ -f "$RC" ] && grep -qxF "$LINE" "$RC" 2>/dev/null; then
                 # Already present, skip
                 :
             else
                 echo "" >> "$RC"
-                echo "# Added by AtomCode installer" >> "$RC"
+                echo "# Added by RustCode installer" >> "$RC"
                 echo "$LINE" >> "$RC"
                 echo ""
                 echo "Added $PREFIX to PATH in $RC"
             fi
             echo ""
-            echo "To start using atomcode right now, run:"
+            echo "To start using rustcode right now, run:"
             echo ""
             echo "    source $RC"
             echo ""

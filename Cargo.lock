@@ -197,18 +197,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compression"
-version = "0.4.41"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0f9ee0f6e02ffd7ad5816e9464499fba7b3effd01123b515c41d1697c43dad1"
-dependencies = [
- "compression-codecs",
- "compression-core",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
 name = "async-io"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -310,372 +298,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "atomcode"
-version = "5.0.9"
-dependencies = [
- "agent-client-protocol",
- "anyhow",
- "assert_cmd",
- "async-trait",
- "atomcode-auth",
- "atomcode-capabilities",
- "atomcode-coding",
- "atomcode-codingplan",
- "atomcode-config",
- "atomcode-daemon",
- "atomcode-kernel",
- "atomcode-telemetry",
- "atomcode-tuix",
- "atomcode-updater",
- "clap",
- "clap_complete",
- "crossterm",
- "ctor",
- "dirs",
- "is-terminal",
- "libc",
- "mimalloc",
- "predicates",
- "reqwest",
- "serde",
- "serde_json",
- "serial_test",
- "sysinfo",
- "tempfile",
- "tokio",
- "toml 0.8.23",
- "toml_edit",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
- "which",
- "windows-sys 0.61.2",
- "winreg",
- "winresource",
-]
-
-[[package]]
-name = "atomcode-auth"
-version = "5.0.9"
-dependencies = [
- "anyhow",
- "atomcode-codingplan-crypto",
- "atomcode-config",
- "atomcode-telemetry",
- "fs2",
- "libc",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "toml 0.8.23",
- "tracing",
- "url",
- "uuid",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "atomcode-capabilities"
-version = "5.0.9"
-dependencies = [
- "anyhow",
- "async-stream",
- "async-trait",
- "atomcode-auth",
- "atomcode-config",
- "atomcode-kernel",
- "base64",
- "bytes",
- "chardetng",
- "chrono",
- "ctor",
- "dirs",
- "encoding_rs",
- "fs2",
- "futures",
- "getrandom 0.2.17",
- "globset",
- "grep",
- "httpdate",
- "hyper",
- "ignore",
- "libc",
- "regex",
- "reqwest",
- "rustls",
- "rustls-native-certs",
- "serde",
- "serde_json",
- "serial_test",
- "sha2",
- "similar",
- "sysinfo",
- "tar",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tokio-util",
- "toml 0.8.23",
- "tracing",
- "tree-sitter",
- "tree-sitter-bash",
- "tree-sitter-c",
- "tree-sitter-c-sharp",
- "tree-sitter-cpp",
- "tree-sitter-go",
- "tree-sitter-html",
- "tree-sitter-java",
- "tree-sitter-javascript",
- "tree-sitter-php",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
- "url",
- "uuid",
- "which",
- "windows-sys 0.61.2",
- "wiremock",
- "zeroize",
- "zstd",
-]
-
-[[package]]
-name = "atomcode-clix"
-version = "5.0.9"
-dependencies = [
- "anyhow",
- "async-trait",
- "atomcode-capabilities",
- "atomcode-coding",
- "atomcode-config",
- "atomcode-kernel",
- "atomcode-review",
- "atomcode-telemetry",
- "clap",
- "futures",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "toml 0.8.23",
-]
-
-[[package]]
-name = "atomcode-coding"
-version = "5.0.9"
-dependencies = [
- "async-trait",
- "atomcode-capabilities",
- "atomcode-config",
- "atomcode-kernel",
- "atomcode-review",
- "atomcode-telemetry",
- "chrono",
- "ctor",
- "dirs",
- "futures",
- "serde",
- "serde_json",
- "serial_test",
- "tempfile",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "atomcode-codingplan"
-version = "5.0.9"
-dependencies = [
- "anyhow",
- "atomcode-auth",
- "atomcode-config",
- "atomcode-telemetry",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "atomcode-codingplan-crypto"
-version = "0.1.0"
-
-[[package]]
-name = "atomcode-config"
-version = "5.0.9"
-dependencies = [
- "anyhow",
- "atomcode-telemetry",
- "dirs",
- "fs2",
- "libc",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "toml 0.8.23",
- "toml_edit",
- "url",
- "winreg",
-]
-
-[[package]]
-name = "atomcode-daemon"
-version = "5.0.9"
-dependencies = [
- "anyhow",
- "async-trait",
- "atomcode-auth",
- "atomcode-capabilities",
- "atomcode-coding",
- "atomcode-codingplan",
- "atomcode-config",
- "atomcode-kernel",
- "atomcode-telemetry",
- "axum",
- "ctor",
- "futures",
- "mime_guess",
- "qrcode",
- "regex",
- "reqwest",
- "rust-embed",
- "serde",
- "serde_json",
- "serial_test",
- "sha2",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower-http 0.5.2",
- "tracing",
- "uuid",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "atomcode-kernel"
-version = "5.0.9"
-dependencies = [
- "async-trait",
- "futures",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "atomcode-review"
-version = "5.0.9"
-dependencies = [
- "async-trait",
- "atomcode-capabilities",
- "atomcode-kernel",
- "futures",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "atomcode-telemetry"
-version = "5.0.9"
-dependencies = [
- "anyhow",
- "chrono",
- "dirs",
- "filetime",
- "flate2",
- "fs2",
- "futures",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "url",
- "uuid",
- "wiremock",
-]
-
-[[package]]
-name = "atomcode-tuix"
-version = "5.0.9"
-dependencies = [
- "anyhow",
- "arboard",
- "atomcode-auth",
- "atomcode-capabilities",
- "atomcode-coding",
- "atomcode-codingplan",
- "atomcode-config",
- "atomcode-daemon",
- "atomcode-kernel",
- "atomcode-telemetry",
- "atomcode-updater",
- "base64",
- "chrono",
- "clipboard-win",
- "crossterm",
- "ctor",
- "dirs",
- "fs2",
- "futures",
- "ignore",
- "image",
- "libc",
- "objc2-app-kit",
- "objc2-foundation",
- "png 0.17.16",
- "qrcode",
- "rand 0.8.7",
- "reqwest",
- "serde",
- "serde_json",
- "serial_test",
- "sha2",
- "tempfile",
- "tokio",
- "tokio-util",
- "toml 0.8.23",
- "unicode-segmentation",
- "unicode-width",
- "urlencoding",
- "uuid",
- "vte",
- "zeroize",
-]
-
-[[package]]
-name = "atomcode-updater"
-version = "5.0.9"
-dependencies = [
- "anyhow",
- "atomcode-config",
- "chrono",
- "futures",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "wiremock",
 ]
 
 [[package]]
@@ -953,23 +575,6 @@ name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
-
-[[package]]
-name = "compression-codecs"
-version = "0.4.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb7b51a7d9c967fc26773061ba86150f19c50c0d65c887cb1fbe295fd16619b7"
-dependencies = [
- "compression-core",
- "flate2",
- "memchr",
-]
-
-[[package]]
-name = "compression-core"
-version = "0.4.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75984efb6ed102a0d42db99afb6c1948f0380d1d91808d5529916e6c08b49d8d"
 
 [[package]]
 name = "concurrent-queue"
@@ -3064,6 +2669,341 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustcode"
+version = "5.0.9"
+dependencies = [
+ "agent-client-protocol",
+ "anyhow",
+ "assert_cmd",
+ "async-trait",
+ "clap",
+ "clap_complete",
+ "crossterm",
+ "ctor",
+ "dirs",
+ "is-terminal",
+ "libc",
+ "mimalloc",
+ "predicates",
+ "reqwest",
+ "rustcode-auth",
+ "rustcode-capabilities",
+ "rustcode-coding",
+ "rustcode-codingplan",
+ "rustcode-config",
+ "rustcode-daemon",
+ "rustcode-kernel",
+ "rustcode-tuix",
+ "rustcode-updater",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sysinfo",
+ "tempfile",
+ "tokio",
+ "toml 0.8.23",
+ "toml_edit",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "which",
+ "windows-sys 0.61.2",
+ "winreg",
+ "winresource",
+]
+
+[[package]]
+name = "rustcode-auth"
+version = "5.0.9"
+dependencies = [
+ "anyhow",
+ "fs2",
+ "libc",
+ "reqwest",
+ "rustcode-codingplan-crypto",
+ "rustcode-config",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "toml 0.8.23",
+ "tracing",
+ "url",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rustcode-capabilities"
+version = "5.0.9"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "base64",
+ "bytes",
+ "chardetng",
+ "chrono",
+ "ctor",
+ "dirs",
+ "encoding_rs",
+ "fs2",
+ "futures",
+ "getrandom 0.2.17",
+ "globset",
+ "grep",
+ "httpdate",
+ "hyper",
+ "ignore",
+ "libc",
+ "regex",
+ "reqwest",
+ "rustcode-auth",
+ "rustcode-config",
+ "rustcode-kernel",
+ "rustls",
+ "rustls-native-certs",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2",
+ "similar",
+ "sysinfo",
+ "tar",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.23",
+ "tracing",
+ "tree-sitter",
+ "tree-sitter-bash",
+ "tree-sitter-c",
+ "tree-sitter-c-sharp",
+ "tree-sitter-cpp",
+ "tree-sitter-go",
+ "tree-sitter-html",
+ "tree-sitter-java",
+ "tree-sitter-javascript",
+ "tree-sitter-php",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+ "url",
+ "uuid",
+ "which",
+ "windows-sys 0.61.2",
+ "wiremock",
+ "zeroize",
+ "zstd",
+]
+
+[[package]]
+name = "rustcode-clix"
+version = "5.0.9"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "futures",
+ "rustcode-capabilities",
+ "rustcode-coding",
+ "rustcode-config",
+ "rustcode-kernel",
+ "rustcode-review",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "rustcode-coding"
+version = "5.0.9"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "ctor",
+ "dirs",
+ "futures",
+ "rustcode-capabilities",
+ "rustcode-config",
+ "rustcode-kernel",
+ "rustcode-review",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "rustcode-codingplan"
+version = "5.0.9"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "rustcode-auth",
+ "rustcode-config",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "rustcode-codingplan-crypto"
+version = "0.1.0"
+
+[[package]]
+name = "rustcode-config"
+version = "5.0.9"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "fs2",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.8.23",
+ "toml_edit",
+ "url",
+ "uuid",
+ "winreg",
+]
+
+[[package]]
+name = "rustcode-daemon"
+version = "5.0.9"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "ctor",
+ "futures",
+ "mime_guess",
+ "qrcode",
+ "regex",
+ "reqwest",
+ "rust-embed",
+ "rustcode-auth",
+ "rustcode-capabilities",
+ "rustcode-coding",
+ "rustcode-codingplan",
+ "rustcode-config",
+ "rustcode-kernel",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower-http 0.5.2",
+ "tracing",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rustcode-kernel"
+version = "5.0.9"
+dependencies = [
+ "async-trait",
+ "futures",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "rustcode-review"
+version = "5.0.9"
+dependencies = [
+ "async-trait",
+ "futures",
+ "rustcode-capabilities",
+ "rustcode-kernel",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "rustcode-tuix"
+version = "5.0.9"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "base64",
+ "chrono",
+ "clipboard-win",
+ "crossterm",
+ "ctor",
+ "dirs",
+ "fs2",
+ "futures",
+ "ignore",
+ "image",
+ "libc",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "png 0.17.16",
+ "qrcode",
+ "rand 0.8.7",
+ "reqwest",
+ "rustcode-auth",
+ "rustcode-capabilities",
+ "rustcode-coding",
+ "rustcode-codingplan",
+ "rustcode-config",
+ "rustcode-daemon",
+ "rustcode-kernel",
+ "rustcode-updater",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.23",
+ "unicode-segmentation",
+ "unicode-width",
+ "urlencoding",
+ "uuid",
+ "vte",
+ "zeroize",
+]
+
+[[package]]
+name = "rustcode-updater"
+version = "5.0.9"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "futures",
+ "reqwest",
+ "rustcode-config",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "wiremock",
+]
+
+[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3938,18 +3878,13 @@ version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
 dependencies = [
- "async-compression",
  "bitflags 2.11.0",
  "bytes",
- "futures-core",
  "futures-util",
  "http",
  "http-body",
- "http-body-util",
  "iri-string",
  "pin-project-lite",
- "tokio",
- "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Windows cross-build script for AtomCode.
+# Windows cross-build script for RustCode.
 #
 # Produces Windows .exe release artifacts that can be installed by install.ps1.
 #
@@ -23,10 +23,10 @@
 #   brew install mingw-w64
 #
 # Environment:
-#   ATOMCODE_VERSION=vX.Y.Z       Override version. Defaults to Cargo.toml.
-#   ATOMCODE_WINDOWS_TARGETS=x64  Comma-separated: x64,arm64,all. Defaults to x64.
-#   ATOMCODE_INCLUDE_DAEMON=1     Also build atomcode-daemon.exe.
-#   ATOMCODE_USE_MIRROR=1         Use rsproxy.cn (ByteDance) mirror for faster
+#   RUSTCODE_VERSION=vX.Y.Z       Override version. Defaults to Cargo.toml.
+#   RUSTCODE_WINDOWS_TARGETS=x64  Comma-separated: x64,arm64,all. Defaults to x64.
+#   RUSTCODE_INCLUDE_DAEMON=1     Also build rustcode-daemon.exe.
+#   RUSTCODE_USE_MIRROR=1         Use rsproxy.cn (ByteDance) mirror for faster
 #                                 crates.io downloads in China.
 
 set -euo pipefail
@@ -39,19 +39,19 @@ if [ -x "$HOME/.cargo/bin/rustc" ]; then
 fi
 
 # --- China mirror (rsproxy.cn by ByteDance) ---
-# When ATOMCODE_USE_MIRROR=1, set rustup + cargo to use the fast domestic mirror.
+# When RUSTCODE_USE_MIRROR=1, set rustup + cargo to use the fast domestic mirror.
 # This dramatically speeds up crate downloads and rustup target installs.
-if [ "${ATOMCODE_USE_MIRROR:-0}" = "1" ]; then
+if [ "${RUSTCODE_USE_MIRROR:-0}" = "1" ]; then
     export RUSTUP_DIST_SERVER="https://rsproxy.cn"
     export RUSTUP_UPDATE_ROOT="https://rsproxy.cn/rustup"
 
     CARGO_CONFIG="$HOME/.cargo/config.toml"
-    MIRROR_MARKER="# atomcode-mirror-rsproxy"
+    MIRROR_MARKER="# rustcode-mirror-rsproxy"
     if [ ! -f "$CARGO_CONFIG" ] || ! grep -q "$MIRROR_MARKER" "$CARGO_CONFIG" 2>/dev/null; then
         echo "[mirror] Configuring rsproxy.cn (ByteDance) for crates.io ..."
         mkdir -p "$(dirname "$CARGO_CONFIG")"
         cat >> "$CARGO_CONFIG" <<'MIRROR_EOF'
-# atomcode-mirror-rsproxy
+# rustcode-mirror-rsproxy
 [source.crates-io]
 replace-with = 'rsproxy-sparse'
 
@@ -67,7 +67,7 @@ MIRROR_EOF
     fi
 fi
 
-VERSION="${ATOMCODE_VERSION:-}"
+VERSION="${RUSTCODE_VERSION:-}"
 if [ -z "$VERSION" ]; then
     CARGO_VERSION=$(awk -F'"' '
         /^\[workspace\.package\]/ { in_section = 1; next }
@@ -80,7 +80,7 @@ if [ -z "$VERSION" ]; then
 fi
 
 if [ -z "$VERSION" ]; then
-    echo "Could not determine version. Set ATOMCODE_VERSION=v1.2.3."
+    echo "Could not determine version. Set RUSTCODE_VERSION=v1.2.3."
     exit 1
 fi
 
@@ -88,7 +88,7 @@ case "$VERSION" in
     v[0-9]*) ;;
     *)
         echo "Refusing to release with non-vX.Y.Z version: '$VERSION'"
-        echo "Set ATOMCODE_VERSION=v1.2.3 if you really mean to."
+        echo "Set RUSTCODE_VERSION=v1.2.3 if you really mean to."
         exit 1
         ;;
 esac
@@ -96,15 +96,15 @@ esac
 DIST="${ROOT}/dist/${VERSION}"
 mkdir -p "$DIST"
 
-INCLUDE_DAEMON="${ATOMCODE_INCLUDE_DAEMON:-0}"
-CARGO_PKG_ARGS=(-p atomcode)
+INCLUDE_DAEMON="${RUSTCODE_INCLUDE_DAEMON:-0}"
+CARGO_PKG_ARGS=(-p rustcode)
 if [ "$INCLUDE_DAEMON" = "1" ]; then
-    CARGO_PKG_ARGS+=(-p atomcode-daemon)
+    CARGO_PKG_ARGS+=(-p rustcode-daemon)
 fi
 
 want_target() {
     local name="$1"
-    local requested="${ATOMCODE_WINDOWS_TARGETS:-x64}"
+    local requested="${RUSTCODE_WINDOWS_TARGETS:-x64}"
     [ "$requested" = "all" ] && return 0
     case ",${requested}," in
         *",${name},"*) return 0 ;;
@@ -116,8 +116,8 @@ copy_daemon() {
     [ "$INCLUDE_DAEMON" = "1" ] || return 0
     local target="$1"
     local suffix="$2"
-    local src="target/${target}/release/atomcode-daemon.exe"
-    local dst="${DIST}/atomcode-daemon-${VERSION}-${suffix}.exe"
+    local src="target/${target}/release/rustcode-daemon.exe"
+    local dst="${DIST}/rustcode-daemon-${VERSION}-${suffix}.exe"
     cp "$src" "$dst"
     echo "  -> $dst"
 }
@@ -137,8 +137,8 @@ build_windows_x64() {
     rustup target add "$target" >/dev/null
     cargo build --release --target "$target" "${CARGO_PKG_ARGS[@]}"
 
-    local out="${DIST}/atomcode-${VERSION}-${suffix}.exe"
-    cp "target/${target}/release/atomcode.exe" "$out"
+    local out="${DIST}/rustcode-${VERSION}-${suffix}.exe"
+    cp "target/${target}/release/rustcode.exe" "$out"
     echo "  -> $out"
     copy_daemon "$target" "$suffix"
 }
@@ -158,15 +158,15 @@ build_windows_arm64() {
     rustup target add "$target" >/dev/null
     cargo build --release --target "$target" "${CARGO_PKG_ARGS[@]}"
 
-    local out="${DIST}/atomcode-${VERSION}-${suffix}.exe"
-    cp "target/${target}/release/atomcode.exe" "$out"
+    local out="${DIST}/rustcode-${VERSION}-${suffix}.exe"
+    cp "target/${target}/release/rustcode.exe" "$out"
     echo "  -> $out"
     copy_daemon "$target" "$suffix"
 }
 
-echo "=== AtomCode Windows Release ${VERSION} ==="
+echo "=== RustCode Windows Release ${VERSION} ==="
 echo "Artifacts: ${DIST}"
-echo "Targets: ${ATOMCODE_WINDOWS_TARGETS:-x64}"
+echo "Targets: ${RUSTCODE_WINDOWS_TARGETS:-x64}"
 echo ""
 
 # Build the embedded webui frontend so the binary embeds the latest UI.
@@ -204,8 +204,8 @@ fi
 echo ""
 echo "=== SHA256 ==="
 cd "$DIST"
-shasum -a 256 atomcode-*windows-*.exe | tee checksums-windows.txt
+shasum -a 256 rustcode-*windows-*.exe | tee checksums-windows.txt
 
 echo ""
 echo "Done. Windows artifacts:"
-ls -lh atomcode-*windows-*.exe checksums-windows.txt
+ls -lh rustcode-*windows-*.exe checksums-windows.txt

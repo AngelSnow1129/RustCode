@@ -31,7 +31,7 @@ esac
 DIST="dist/${VERSION}"
 mkdir -p "$DIST"
 
-echo "=== AtomCode Linux Release ${VERSION} ==="
+echo "=== RustCode Linux Release ${VERSION} ==="
 echo "Target: ${TARGET}"
 echo "Architecture: ${ARCH}"
 echo ""
@@ -66,17 +66,17 @@ cargo build --release --target "$TARGET"
 
 # Copy binaries
 echo "[2/2] Copying artifacts..."
-cp "target/${TARGET}/release/atomcode" "${DIST}/atomcode-${VERSION}-${SUFFIX}"
-cp "target/${TARGET}/release/atomcode-daemon" "${DIST}/atomcode-daemon-${VERSION}-${SUFFIX}"
-echo "  -> ${DIST}/atomcode-${VERSION}-${SUFFIX}"
-echo "  -> ${DIST}/atomcode-daemon-${VERSION}-${SUFFIX}"
+cp "target/${TARGET}/release/rustcode" "${DIST}/rustcode-${VERSION}-${SUFFIX}"
+cp "target/${TARGET}/release/rustcode-daemon" "${DIST}/rustcode-daemon-${VERSION}-${SUFFIX}"
+echo "  -> ${DIST}/rustcode-${VERSION}-${SUFFIX}"
+echo "  -> ${DIST}/rustcode-daemon-${VERSION}-${SUFFIX}"
 
 # Package
 echo ""
 echo "=== Packaging ==="
 cd "$DIST"
 rm -f *${SUFFIX}*.tar.gz 2>/dev/null
-for f in atomcode-*${SUFFIX} atomcode-daemon-*${SUFFIX}; do
+for f in rustcode-*${SUFFIX} rustcode-daemon-*${SUFFIX}; do
     [ -f "$f" ] || continue
     chmod +x "$f"
     tar czf "${f}.tar.gz" "$f"

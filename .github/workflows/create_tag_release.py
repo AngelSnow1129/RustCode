@@ -7,7 +7,7 @@ import sys
 from urllib import error, parse, request
 
 REPO_OWNER = "bangxu"
-REPO_NAME = "atomcode"
+REPO_NAME = "rustcode"
 ACCESS_TOKEN = ""
 API_HOST = "https://api.gitcode.com"
 BODY_TEMPLATE = """
@@ -22,13 +22,13 @@ cd ~/.local/bin
 # 通过 Finder 打开目录
 open .
 
-# 将下载后的 atomcode-xxx 文件放入到目录，重命名为 atomcode
+# 将下载后的 rustcode-xxx 文件放入到目录，重命名为 rustcode
 
-# 设置 atomcode 的运行权限
-chmod +x atomcode
+# 设置 rustcode 的运行权限
+chmod +x rustcode
 ```
 
-最后，在终端中输入 atomcode 并运行即可
+最后，在终端中输入 rustcode 并运行即可
 """
 
 
@@ -95,7 +95,7 @@ def send_request(url: str, method: str = "GET", payload: dict | None = None) -> 
 def create_tag_release(args: argparse.Namespace) -> dict:
     base_url = f"{API_HOST}/api/v5/repos/{args.owner}/{args.repo}/releases"
     url = f"{base_url}?access_token={parse.quote(args.access_token)}"
-    body = args.body or BODY_TEMPLATE.replace("atomcode-v2.3.x", args.tag_name)
+    body = args.body or BODY_TEMPLATE.replace("rustcode-v2.3.x", args.tag_name)
 
     payload = {
         "tag_name": args.tag_name,

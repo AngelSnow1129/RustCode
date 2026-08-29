@@ -31,8 +31,8 @@
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange" alt="rust">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
-    <a href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank">
-    <img src="https://atomgit.com/atomgit_atomcode/atomcode/star/badge.svg" alt="AtomGit Star"/>
+    <a href="https://gitcode.com/SecLab/RustCode" target="_blank">
+    <img src="https://gitcode.com/SecLab/RustCode/star/badge.svg" alt="AtomGit Star"/>
   </a>
 </p>
 
@@ -42,7 +42,7 @@
 
 ---
 
-AtomCode 是一款住在你终端里的 AI 编码助手。用自然语言给它一个任务，它会自动阅读代码、编辑文件、执行命令、验证结果——全程自主完成。
+RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它一个任务，它会自动阅读代码、编辑文件、执行命令、验证结果——全程自主完成。
 
 你可以把它理解为 Claude Code / Cursor Agent 的开源替代品，完全运行在终端里，并且可以接入任何兼容 OpenAI 接口的模型。
 
@@ -92,7 +92,7 @@ AtomCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 | Claude（Anthropic）  |       支持       | Claude Sonnet 4.5/4.6、Opus 4.6                    |
 | OpenAI               |       支持       | GPT-4o、GPT-4.1                                    |
 | DeepSeek             |       支持       | DeepSeek V3、DeepSeek R1、DeepSeek V4              |
-| 智谱（GLM）          |       支持       | GLM-4、GLM-5、GLM-5.2（AtomCode Pro 套餐专属模型） |
+| 智谱（GLM）          |       支持       | GLM-4、GLM-5、GLM-5.2（RustCode Pro 套餐专属模型） |
 | 通义千问（阿里）     |       支持       | Qwen-Plus、Qwen-Max                                |
 | SiliconFlow          |       支持       | 多种开源模型                                       |
 | Ollama（本地）       |     部分支持     | Llama 3、Qwen2 等                                  |
@@ -100,11 +100,11 @@ AtomCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 ### 会话与登录
 
-- **持久化会话** —— 每次对话都会保存；命令行可用 `atomcode --continue` 或 `-c` 继续上一次会话，在 TUI 内可用 `/resume` 恢复或切换
-- **AtomGit OAuth 登录** —— `/login`（或 `atomcode login`）将 CLI 与你的 AtomGit 账号绑定
+- **持久化会话** —— 每次对话都会保存；命令行可用 `rustcode --continue` 或 `-c` 继续上一次会话，在 TUI 内可用 `/resume` 恢复或切换
+- **AtomGit OAuth 登录** —— `/login`（或 `rustcode login`）将 CLI 与你的 AtomGit 账号绑定
 - **SSO 登录** —— `/login-with-sso`，GitCode 内部用户使用
-- **Headless 模式** —— `atomcode -p "..."` 非交互式跑一条 prompt，结果直接输出到 stdout（类似 Claude Code 的 `-p`）；需要确认的 `bash` 会自动批准，其他需要确认的工具会被拒绝
-- **Daemon 模式** —— `atomcode-daemon` 提供 HTTP API，用于查询会话历史和 SSE 流式对话
+- **Headless 模式** —— `rustcode -p "..."` 非交互式跑一条 prompt，结果直接输出到 stdout（类似 Claude Code 的 `-p`）；需要确认的 `bash` 会自动批准，其他需要确认的工具会被拒绝
+- **Daemon 模式** —— `rustcode-daemon` 提供 HTTP API，用于查询会话历史和 SSE 流式对话
 
 ### 终端 UI
 
@@ -120,7 +120,7 @@ AtomCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 ### Web UI
 
-- **`/webui`**（TUI 内）或 **`atomcode webui`**（命令行）会在浏览器里打开一个本地 Web 界面，作为终端界面之外的另一种选择——同一个 agent、同一份会话，渲染在浏览器中
+- **`/webui`**（TUI 内）或 **`rustcode webui`**（命令行）会在浏览器里打开一个本地 Web 界面，作为终端界面之外的另一种选择——同一个 agent、同一份会话，渲染在浏览器中
 - **仅本地回环** —— server 绑定 `127.0.0.1` 并使用一次性 token，不对网络暴露
 - **`/webui stop`** 停止进程内 server（之后再次 `/webui` 会重新启动）
 
@@ -157,31 +157,31 @@ AtomCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 Windows PowerShell 用户：
 
 ```powershell
-irm https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/install.ps1 | iex
+irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.ps1 | iex
 ```
 
 Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC 用户：
 
 ```bash
-curl -fsSL https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/install.sh | sh
+curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.sh | sh
 ```
 
 两个脚本都会下载最新版本的官方预编译二进制（从 AtomGit API 自动探测），安装并写入 `PATH`。
 官方构建包含请求签名器，因此 `/login` 可以领取免费的 CodingPlan 模型（见下文「关于官方 CodingPlan」）。
 
-环境变量覆盖项：`ATOMCODE_VERSION` 用于固定某个发布版本，`ATOMCODE_PREFIX` 用于指定安装目录
+环境变量覆盖项：`RUSTCODE_VERSION` 用于固定某个发布版本，`RUSTCODE_PREFIX` 用于指定安装目录
 （详见脚本头部注释）。
 
 ### 从源码构建
 
 ```bash
-git clone https://atomgit.com/atomgit_atomcode/atomcode.git
-cd atomcode
+git clone https://gitcode.com/SecLab/RustCode.git
+cd rustcode
 ```
 
 #### WebUI 构建（使用 webui 功能时需要 —— 在 Rust 构建之前进行）
 
-`atomcode webui` 浏览器 UI 从 `webui/dist/` 嵌入二进制，该目录被 gitignore、并未提交。
+`rustcode webui` 浏览器 UI 从 `webui/dist/` 嵌入二进制，该目录被 gitignore、并未提交。
 Rust 构建本身不需要 Node.js 工具链，缺少该目录也能编译通过，但构建出的二进制在所有
 webui 页面上都会返回 `webui not built`。如需可用的 webui，请在 Rust 构建之前先构建前端：
 
@@ -197,69 +197,69 @@ cd ..
 
 不使用 webui 可跳过这一步（发布脚本会在 `cargo build` 前自动构建前端）。
 注意 cargo 不会跟踪 `webui/dist/` 的变化：重新构建前端后，需强制重编 daemon crate
-（`cargo clean -p atomcode-daemon`）才会重新嵌入新 bundle。然后构建并安装：
+（`cargo clean -p rustcode-daemon`）才会重新嵌入新 bundle。然后构建并安装：
 
 ```bash
-cargo install --path crates/atomcode-cli --locked
+cargo install --path crates/rustcode-cli --locked
 ```
 
-编译产物位于 `target/release/atomcode`。在 macOS / Linux / HarmonyOS PC 其被安装到 `~/.cargo/bin/atomcode`，
-在 Windows 系统上其被安装到 `$env:USERPROFILE/.cargo/bin/atomcode.exe`。请确保 `~/.cargo/bin`
+编译产物位于 `target/release/rustcode`。在 macOS / Linux / HarmonyOS PC 其被安装到 `~/.cargo/bin/rustcode`，
+在 Windows 系统上其被安装到 `$env:USERPROFILE/.cargo/bin/rustcode.exe`。请确保 `~/.cargo/bin`
 （或 `%USERPROFILE%\.cargo\bin`）已经被添加到 `PATH` 环境变量中。
 
 如果只想要编译，不要安装，运行：
 
 ```bash
-# 只编译 CLI 包（`atomcode`）—— 跳过独立的
-# `atomcode-daemon` 二进制和其他 workspace 成员
-cargo build --release -p atomcode
+# 只编译 CLI 包（`rustcode`）—— 跳过独立的
+# `rustcode-daemon` 二进制和其他 workspace 成员
+cargo build --release -p rustcode
 ```
 
-编译产物会在 `target/release/atomcode` 生成。
+编译产物会在 `target/release/rustcode` 生成。
 
 ### 关于官方 CodingPlan（闭源签名）
 
-本仓库中的 `crates/atomcode-codingplan-crypto/` 是一个开源占位实现。真正的请求签名实现是闭源的，
-只由官方发布流水线覆盖注入，因此自行构建的二进制无法对 AtomCode 官方服务进行请求签名。
+本仓库中的 `crates/rustcode-codingplan-crypto/` 是一个开源占位实现。真正的请求签名实现是闭源的，
+只由官方发布流水线覆盖注入，因此自行构建的二进制无法对 RustCode 官方服务进行请求签名。
 通过上方官方安装脚本（或下方包管理器）安装的二进制是官方构建，包含签名器。实际影响：
 
 - 自行构建的二进制中，`/login` 无法领取官方**免费 CodingPlan 模型**。签名保持闭源是为了防止
   免费计划在官方构建之外被滥用。
-- 连接**你自己的 API 提供商**不受影响：在 `~/.atomcode/config.toml` 的 `providers.*` 下配置的
+- 连接**你自己的 API 提供商**不受影响：在 `~/.rustcode/config.toml` 的 `providers.*` 下配置的
   任意提供商（DeepSeek、OpenAI 或任意 OpenAI 兼容端点）无需签名器即可使用。
 
 ### 包管理器安装
 
-除了从源码构建外，AtomCode CLI 也可以通过以下包管理器安装：
+除了从源码构建外，RustCode CLI 也可以通过以下包管理器安装：
 
 ```bash
 # 使用 npm 安装
-npm install -g @atomgit.com/atomcode
+npm install -g @atomgit.com/rustcode
 
 # 使用 Homebrew 安装
-brew install --cask atomcode
+brew install --cask rustcode
 ```
 
 ### Shell 补全
 
-AtomCode 可为 Bash、Zsh、Fish、PowerShell 和 Elvish 生成补全脚本。例如：
+RustCode 可为 Bash、Zsh、Fish、PowerShell 和 Elvish 生成补全脚本。例如：
 
 ```bash
 # Bash（当前会话）
-source <(atomcode completion bash)
+source <(rustcode completion bash)
 
 # Zsh（持久生效）
 mkdir -p ~/.zfunc
-atomcode completion zsh > ~/.zfunc/_atomcode
+rustcode completion zsh > ~/.zfunc/_rustcode
 # 同时在 ~/.zshrc 的 `compinit` 之前加入：fpath=(~/.zfunc $fpath)
 
 # Fish（持久生效）
 mkdir -p ~/.config/fish/completions
-atomcode completion fish > ~/.config/fish/completions/atomcode.fish
+rustcode completion fish > ~/.config/fish/completions/rustcode.fish
 ```
 
-PowerShell 可运行 `atomcode completion powershell | Out-String |
-Invoke-Expression`。完整 Shell 列表见 `atomcode completion --help`。该能力只作用于
+PowerShell 可运行 `rustcode completion powershell | Out-String |
+Invoke-Expression`。完整 Shell 列表见 `rustcode completion --help`。该能力只作用于
 外部命令行；TUI 内仍由 `Tab` 完成输入补全、`Shift+Tab` 切换执行模式。
 
 ### 依赖
@@ -269,8 +269,8 @@ Invoke-Expression`。完整 Shell 列表见 `atomcode completion --help`。该�
 
 ### 权限 —— 不要用 `sudo` 启动
 
-请用**普通用户**运行 AtomCode，切勿 `sudo`。AtomCode 把配置、会话、日志都放在
-`~/.atomcode`；一旦用 root 跑过一次，就会在那里留下 root 属主的文件，之后非 root
+请用**普通用户**运行 RustCode，切勿 `sudo`。RustCode 把配置、会话、日志都放在
+`~/.rustcode`；一旦用 root 跑过一次，就会在那里留下 root 属主的文件，之后非 root
 启动会在运行时初始化阶段报错：
 
 ```
@@ -281,8 +281,8 @@ coding runtime assemble failed: Permission denied (os error 13)
 并停止使用 `sudo`：
 
 ```bash
-sudo chown -R "$(id -un):$(id -gn)" ~/.atomcode
-atomcode        # 不要再加 sudo
+sudo chown -R "$(id -un):$(id -gn)" ~/.rustcode
+rustcode        # 不要再加 sudo
 ```
 
 在 Linux 客户机上，工作目录若在 VirtualBox 共享文件夹（`/media/sf_*`，属主
@@ -291,37 +291,37 @@ atomcode        # 不要再加 sudo
 
 ### 卸载
 
-移除 AtomCode 及（可选）其数据：
+移除 RustCode 及（可选）其数据：
 
 ```bash
-atomcode uninstall                # 交互模式：分组询问
-atomcode uninstall --keep-data    # 仅删除二进制 + PATH 配置
-atomcode uninstall --purge        # 一并删除 ~/.atomcode/
-atomcode uninstall --dry-run      # 仅打印计划，不实际删除
+rustcode uninstall                # 交互模式：分组询问
+rustcode uninstall --keep-data    # 仅删除二进制 + PATH 配置
+rustcode uninstall --purge        # 一并删除 ~/.rustcode/
+rustcode uninstall --dry-run      # 仅打印计划，不实际删除
 ```
 
 二进制已损坏或丢失时使用兜底脚本：
 
 ```bash
-curl -fsSL https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/uninstall.sh | sh
+curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/uninstall.sh | sh
 # Windows:
-irm https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/uninstall.ps1 | iex
+irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/uninstall.ps1 | iex
 ```
 
-默认保留凭据（`auth.toml`、`mcp.json`、`config.toml`、`ATOMCODE.md`），传 `--purge` 才会一起清除。
+默认保留凭据（`auth.toml`、`mcp.json`、`config.toml`、`RUSTCODE.md`），传 `--purge` 才会一起清除。
 
 ## 快速开始
 
 ### 1. 首次运行
 
 ```bash
-atomcode
+rustcode
 ```
 
 首次运行会有一个向导帮你配置模型：
 
 ```
-Welcome to AtomCode! Let's set up your first provider.
+Welcome to RustCode! Let's set up your first provider.
 
 Select provider:
   [1] Claude (Anthropic)
@@ -332,7 +332,7 @@ Select provider:
 
 ### 2. 配置
 
-配置文件位于 `~/.atomcode/config.toml`，最小单 provider 样例：
+配置文件位于 `~/.rustcode/config.toml`，最小单 provider 样例：
 
 ```toml
 default_provider = "deepseek"
@@ -350,7 +350,7 @@ context_window = 64000
 SiliconFlow / OpenRouter / Ollama，以及 `[datalog]` 段）见
 [`docs/config.example.toml`](docs/config.example.toml)——拷出来按需改。
 
-手动改完 `config.toml` 后，在 atomcode 里执行 `/reload` 重新加载配置，
+手动改完 `config.toml` 后，在 rustcode 里执行 `/reload` 重新加载配置，
 不用重启。
 
 ### 3. 开始编码
@@ -358,19 +358,19 @@ SiliconFlow / OpenRouter / Ollama，以及 `[datalog]` 段）见
 ```bash
 # 在项目目录下启动
 cd your-project
-atomcode
+rustcode
 
 # 或指定目录
-atomcode -C /path/to/project
+rustcode -C /path/to/project
 
 # 或指定模型
-atomcode --model gpt-4o
+rustcode --model gpt-4o
 
 # Headless 模式（单条 prompt，结果输出到 stdout）
-atomcode -p "简要说明这个仓库的 agent loop"
+rustcode -p "简要说明这个仓库的 agent loop"
 
 # 从文件读取 prompt
-atomcode --prompt-file task.md
+rustcode --prompt-file task.md
 ```
 
 在 headless 模式下，需要确认的 `bash` 会自动批准并写到 stderr；其他需要确认的工具会被拒绝。
@@ -414,8 +414,8 @@ atomcode --prompt-file task.md
 
 > **换行快捷键的终端兼容性：**
 >
-> - `Shift+Enter`、`Ctrl+Enter` 需要终端支持 Kitty 键盘协议 — kitty、WezTerm、Alacritty、iTerm2 ≥3.5、Windows Terminal ≥1.21。不支持的终端（以及 Windows，atomcode 在其上不启用该协议）会把它们退化成普通 `Enter`（直接发送消息）—— 请改用 `\` + `Enter`，它在所有终端都生效。
-> - AtomCode 仅在明确兼容的终端中自动启用 Kitty 键盘协议。JumpServer 等通用 WebTerminal 默认使用传统键盘上报；可通过 `ATOMCODE_KITTY=1` 强制开启，或用 `ATOMCODE_KITTY=0` 强制关闭。
+> - `Shift+Enter`、`Ctrl+Enter` 需要终端支持 Kitty 键盘协议 — kitty、WezTerm、Alacritty、iTerm2 ≥3.5、Windows Terminal ≥1.21。不支持的终端（以及 Windows，rustcode 在其上不启用该协议）会把它们退化成普通 `Enter`（直接发送消息）—— 请改用 `\` + `Enter`，它在所有终端都生效。
+> - RustCode 仅在明确兼容的终端中自动启用 Kitty 键盘协议。JumpServer 等通用 WebTerminal 默认使用传统键盘上报；可通过 `RUSTCODE_KITTY=1` 强制开启，或用 `RUSTCODE_KITTY=0` 强制关闭。
 > - `Alt+Enter` 在多数终端的字节层面就能工作，但 **Windows Terminal 默认把它绑给"切换全屏"** — 在 设置 → 操作 中删掉那条绑定即可释放。
 > - Xshell 不支持 Kitty 协议；可在键盘映射设置中把某个空闲组合映射为发送 `ESC, Enter`（`\x1b\r`）达到同样效果，或直接从剪贴板粘贴多行文本（已启用 bracketed paste）。
 
@@ -423,7 +423,7 @@ atomcode --prompt-file task.md
 > Windows Terminal 和 conhost 默认把 `Ctrl+V` 绑给它们自己的 `paste` action — 这个 action 只会从剪贴板读 `CF_UNICODETEXT`，剪贴板上只有图片时它什么都不会发，应用里的 `Ctrl+V` 处理器根本收不到事件。两种解法：
 >
 > 1. 使用 **`/paste`** —— 这个斜杠命令直接读取剪贴板图片并以 `[Image #N]` 的形式附加到输入框，在 Windows Terminal、PowerShell 7、conhost、git bash 等所有终端里都能正常工作。Windows 版的 TUI 右下角会自动显示 `剪贴板有图片 · /paste 粘贴` 作为提示。
-> 2. 若想保留 `Ctrl+V` 的肌肉记忆：打开 Windows Terminal 的 `settings.json`（`Ctrl+,` → 右下角"打开 JSON 文件"），在 `"actions"` 数组里删掉 `{ "command": "paste", "keys": "ctrl+v" }`，或把它改绑到 `ctrl+shift+v`。重启 Windows Terminal 后，`Ctrl+V` 就能透传给 atomcode 了。
+> 2. 若想保留 `Ctrl+V` 的肌肉记忆：打开 Windows Terminal 的 `settings.json`（`Ctrl+,` → 右下角"打开 JSON 文件"），在 `"actions"` 数组里删掉 `{ "command": "paste", "keys": "ctrl+v" }`，或把它改绑到 `ctrl+shift+v`。重启 Windows Terminal 后，`Ctrl+V` 就能透传给 rustcode 了。
 >
 > Git Bash（MinTTY）不拦截 `Ctrl+V`，开箱即用。
 
@@ -516,23 +516,23 @@ atomcode --prompt-file task.md
 |---------|--------|
 | `/init` | 按当前语言及可选自定义提示词，创建或完善当前生效的项目指令文件 |
 | `/config` | 显示配置文件路径 |
-| `/reload` | 从磁盘重新加载 `~/.atomcode/config.toml` |
-| `/upgrade` | 升级 atomcode 到最新版（子命令：`rollback`） |
+| `/reload` | 从磁盘重新加载 `~/.rustcode/config.toml` |
+| `/upgrade` | 升级 rustcode 到最新版（子命令：`rollback`） |
 | `/setup` | 首次运行：安装推荐 skill 并执行 |
 | `/welcome` | 重新运行引导向导 |
 | `/language` | 切换显示语言及默认 Git 提交消息语言 |
-| `/guide <问题>` | 向 atomcode-guide 询问使用方式 |
+| `/guide <问题>` | 向 rustcode-guide 询问使用方式 |
 | `/keys` | 查看键盘快捷键 |
 | `/help` | 查看命令与快捷键 |
-| `/quit`、`/exit` | 退出 AtomCode（或连按 Ctrl+C） |
+| `/quit`、`/exit` | 退出 RustCode（或连按 Ctrl+C） |
 
-> **AtomGit Issue**：`/issue` 已移除。执行 `/login` 后，直接用自然语言提出需求即可，例如“为这个 Bug 创建一个 AtomGit Issue”，AtomCode 会调用内置的 `atomgit_issue` 工具。读取 Issue 可直接执行；创建 Issue，以及新增、编辑或删除评论仍需权限确认。
+> **AtomGit Issue**：`/issue` 已移除。执行 `/login` 后，直接用自然语言提出需求即可，例如“为这个 Bug 创建一个 AtomGit Issue”，RustCode 会调用内置的 `atomgit_issue` 工具。读取 Issue 可直接执行；创建 Issue，以及新增、编辑或删除评论仍需权限确认。
 >
-> **插件命令**：除了上面的内置命令，插件还能注册自己的斜杠命令。例如安装官方频道插件后即可使用 `/wechat`（显示 AtomCode 微信用户群二维码）：
+> **插件命令**：除了上面的内置命令，插件还能注册自己的斜杠命令。例如安装官方频道插件后即可使用 `/wechat`（显示 RustCode 微信用户群二维码）：
 >
 > ```text
-> /plugin marketplace add https://atomgit.com/atomgit_atomcode/AtomCode-Channel
-> /plugin install weixin@atomcode-channel
+> /plugin marketplace add https://gitcode.com/SecLab/RustCode-Channel
+> /plugin install weixin@rustcode-channel
 > ```
 
 ### 自定义命令
@@ -543,8 +543,8 @@ atomcode --prompt-file task.md
 
 | 位置                                                         | 作用域                                  |
 | ------------------------------------------------------------ | --------------------------------------- |
-| `$ATOMCODE_HOME/commands/`（默认为 `~/.atomcode/commands/`） | 全局 —— 所有项目生效                    |
-| `<project>/.atomcode/commands/`                              | 项目级 —— 覆盖同名的全局命令            |
+| `$RUSTCODE_HOME/commands/`（默认为 `~/.rustcode/commands/`） | 全局 —— 所有项目生效                    |
+| `<project>/.rustcode/commands/`                              | 项目级 —— 覆盖同名的全局命令            |
 | `plugins/<name>/commands/`                                   | 插件贡献 —— 通过 `/plugin install` 安装 |
 
 **文件格式**：
@@ -580,9 +580,9 @@ $ARGUMENTS
 **示例：创建一个审查命令**
 
 ```bash
-mkdir -p .atomcode/commands
+mkdir -p .rustcode/commands
 
-cat > .atomcode/commands/codereview.md << 'EOF'
+cat > .rustcode/commands/codereview.md << 'EOF'
 ---
 name: codereview
 description: 对当前 git diff 进行代码审查
@@ -600,22 +600,22 @@ EOF
 
 ## 架构
 
-AtomCode 是一个分层的 Rust workspace：
+RustCode 是一个分层的 Rust workspace：
 
 ```
-atomcode/
+rustcode/
   crates/
-    atomcode-kernel/        # 中立 agent 循环与运行时 trait
-    atomcode-capabilities/  # provider、tools、MCP、skills、session、memory
-    atomcode-coding/        # coding 专业化与 CodingRuntime 生命周期
-    atomcode-review/        # 代码评审专业化
-    atomcode-tuix/          # 终端 UI
-    atomcode-cli/           # TUI 与 headless 入口
-    atomcode-daemon/        # HTTP/SSE/WebSocket 传输层及历史 session importer
+    rustcode-kernel/        # 中立 agent 循环与运行时 trait
+    rustcode-capabilities/  # provider、tools、MCP、skills、session、memory
+    rustcode-coding/        # coding 专业化与 CodingRuntime 生命周期
+    rustcode-review/        # 代码评审专业化
+    rustcode-tuix/          # 终端 UI
+    rustcode-cli/           # TUI 与 headless 入口
+    rustcode-daemon/        # HTTP/SSE/WebSocket 传输层及历史 session importer
 ```
 
 coding 主调用链是 `CLI/TUI/daemon → CodingRuntime → kernel`。已经退役的 core agent
-协议和 `atomcode-bridge` 不再位于运行时路径中。
+协议和 `rustcode-bridge` 不再位于运行时路径中。
 
 ### 设计原则
 
@@ -631,7 +631,7 @@ coding 主调用链是 `CLI/TUI/daemon → CodingRuntime → kernel`。已经退
 
 ## 项目指令文件
 
-在项目根目录创建 `.atomcode.md` 文件，给 AtomCode 提供持久化上下文：
+在项目根目录创建 `.rustcode.md` 文件，给 RustCode 提供持久化上下文：
 
 ```markdown
 # Project Instructions
@@ -643,9 +643,9 @@ coding 主调用链是 `CLI/TUI/daemon → CodingRuntime → kernel`。已经退
 - 编辑 .vue/.ts 文件后运行 `npm run lint`
 ```
 
-AtomCode 会自动读取这个文件并注入到系统提示中。AtomCode 也支持 `AGENTS.md`（AI 编程代理的[开放标准](https://agents.md/)）作为替代——如果两个文件同时存在，`.atomcode.md` 优先。
+RustCode 会自动读取这个文件并注入到系统提示中。RustCode 也支持 `AGENTS.md`（AI 编程代理的[开放标准](https://agents.md/)）作为替代——如果两个文件同时存在，`.rustcode.md` 优先。
 
-运行 `/init` 可分析仓库并创建或完善当前生效的项目指令文件，生成语言跟随当前 `/language`。如需追加团队自定义要求，可在 `/config` 中设置“自定义 /init 提示词文件”，或在 `$ATOMCODE_HOME/config.toml` 中添加 `init_prompt_file = "prompts/init.md"`；相对路径基于 `$ATOMCODE_HOME` 解析。
+运行 `/init` 可分析仓库并创建或完善当前生效的项目指令文件，生成语言跟随当前 `/language`。如需追加团队自定义要求，可在 `/config` 中设置“自定义 /init 提示词文件”，或在 `$RUSTCODE_HOME/config.toml` 中添加 `init_prompt_file = "prompts/init.md"`；相对路径基于 `$RUSTCODE_HOME` 解析。
 
 ## 开发
 
@@ -658,8 +658,8 @@ AtomCode 会自动读取这个文件并注入到系统提示中。AtomCode 也�
 ### 从源码构建
 
 ```bash
-git clone https://atomgit.com/atomgit_atomcode/atomcode.git
-cd atomcode
+git clone https://gitcode.com/SecLab/RustCode.git
+cd rustcode
 
 # Debug 构建（编译快、运行慢）
 cargo build
@@ -672,17 +672,17 @@ cargo build --release
 
 ```bash
 # 直接运行 TUI（debug 模式）
-cargo run -p atomcode-cli
+cargo run -p rustcode-cli
 
 # 带参数
-cargo run -p atomcode-cli -- -C /path/to/project
-cargo run -p atomcode-cli -- --model gpt-4o
+cargo run -p rustcode-cli -- -C /path/to/project
+cargo run -p rustcode-cli -- --model gpt-4o
 
 # Headless 模式
-cargo run -p atomcode-cli -- -p "总结一下这个仓库"
+cargo run -p rustcode-cli -- -p "总结一下这个仓库"
 
 # Daemon（HTTP API）
-cargo run -p atomcode-daemon
+cargo run -p rustcode-daemon
 ```
 
 ### 测试
@@ -692,11 +692,11 @@ cargo run -p atomcode-daemon
 cargo test
 
 # 运行指定 crate 的测试
-cargo test -p atomcode-capabilities
-cargo test -p atomcode-tuix
+cargo test -p rustcode-capabilities
+cargo test -p rustcode-tuix
 
 # 运行指定的用例
-cargo test -p atomcode-capabilities test_name
+cargo test -p rustcode-capabilities test_name
 ```
 
 ### 常用命令
@@ -712,20 +712,20 @@ cargo fmt
 cargo clippy
 
 # 构建并安装到 ~/.cargo/bin
-cargo install --path crates/atomcode-cli
+cargo install --path crates/rustcode-cli
 ```
 
 ## 贡献指南
 
-欢迎贡献！AtomCode 正在积极迭代中。
+欢迎贡献！RustCode 正在积极迭代中。
 
 ### 如何贡献
 
 1. 在 AtomGit 上 **Fork** 仓库
 2. 克隆你的 fork：
    ```bash
-   git clone https://atomgit.com/<你的用户名>/atomcode.git
-   cd atomcode
+   git clone https://atomgit.com/<你的用户名>/rustcode.git
+   cd rustcode
    ```
 3. 创建分支：
    ```bash
@@ -765,43 +765,43 @@ cargo install --path crates/atomcode-cli
 
 ### 从哪里上手
 
-- **新增工具** —— 在 `crates/atomcode-capabilities/src/tools/` 下实现 `Tool` trait
-- **新增模型提供方** —— 在 `crates/atomcode-capabilities/src/provider/` 下实现 `LlmProvider`
-- **改进 UI** —— 渲染相关代码在 `crates/atomcode-tuix/src/render/`
-- **修 Bug** —— 到 [Issues](https://atomgit.com/atomgit_atomcode/atomcode/issues) 上挑一个
+- **新增工具** —— 在 `crates/rustcode-capabilities/src/tools/` 下实现 `Tool` trait
+- **新增模型提供方** —— 在 `crates/rustcode-capabilities/src/provider/` 下实现 `LlmProvider`
+- **改进 UI** —— 渲染相关代码在 `crates/rustcode-tuix/src/render/`
+- **修 Bug** —— 到 [Issues](https://gitcode.com/SecLab/RustCode/issues) 上挑一个
 
 ### 非 Rust 贡献者
 
 不会 Rust？没关系！有很多方式可以不写 Rust 代码就能参与贡献：
 
-- **📝 文档** — 改进 README、修正错别字、完善[官方文档站](https://atomcode.atomgit.com/docs/zh/)、添加使用示例。文档位于 `site/` 目录和 README 文件中。
+- **📝 文档** — 改进 README、修正错别字、完善[官方文档站](https://rustcode.atomgit.com/docs/zh/)、添加使用示例。文档位于 `site/` 目录和 README 文件中。
 - **🌐 本地化与翻译** — 帮助将文档站、README 或界面文案翻译成更多语言。查看 `site/docs/` 了解现有翻译。
-- **🧩 Skills 与插件** — 创建新的 [skill](https://gitcode.com/atomgit_atomcode/atomcode-skills)（Markdown + JSON，无需 Rust），扩展 AtomCode 的能力。Skill 从 `~/.atomcode/skills/` 加载。
-- **🐛 Bug 报告** — 发现 Bug？在 [Issues](https://atomgit.com/atomgit_atomcode/atomcode/issues) 中提交清晰的复现步骤、截图和环境信息。高质量的 Bug 报告非常宝贵。
+- **🧩 Skills 与插件** — 创建新的 [skill](https://gitcode.com/SecLab/RustCode-skills)（Markdown + JSON，无需 Rust），扩展 RustCode 的能力。Skill 从 `~/.rustcode/skills/` 加载。
+- **🐛 Bug 报告** — 发现 Bug？在 [Issues](https://gitcode.com/SecLab/RustCode/issues) 中提交清晰的复现步骤、截图和环境信息。高质量的 Bug 报告非常宝贵。
 - **🧪 测试用例与示例** — 添加测试场景、示例项目或使用演示，帮助验证功能并帮助新用户上手。
 - **💬 社区支持** — 在社区群中回答问题、编写教程或制作视频指南。
 
-每一份贡献，无论是代码还是非代码，都能让 AtomCode 变得更好。不确定从哪里开始？开一个 Issue 或发起讨论吧！
+每一份贡献，无论是代码还是非代码，都能让 RustCode 变得更好。不确定从哪里开始？开一个 Issue 或发起讨论吧！
 
 ## 社区交流
 
 ---
 
-用微信扫描下方二维码加入 AtomCode 用户群，反馈问题、分享使用心得，和其他用户、维护者一起交流：
+用微信扫描下方二维码加入 RustCode 用户群，反馈问题、分享使用心得，和其他用户、维护者一起交流：
 
 <p align="center">
-  <img src="https://cdn-news.gitcode.com/news/AtomCode_qun.png" alt="AtomCode 微信用户群二维码" width="220">
+  <img src="https://cdn-news.gitcode.com/news/RustCode_qun.png" alt="RustCode 微信用户群二维码" width="220">
 </p>
 
 ## 打赏
 
 ---
 
-☕ AtomCode 免费用，Coding Plan 也不收费。如果它帮你省下了一点时间，欢迎请作者喝杯咖啡，让我们更有动力把它做下去。
+☕ RustCode 免费用，Coding Plan 也不收费。如果它帮你省下了一点时间，欢迎请作者喝杯咖啡，让我们更有动力把它做下去。
 
 <p align="center">
-  <img src="https://cdn-news.gitcode.com/news/alipay_1782981974317.png" alt="AtomCode 支付宝赞赏码" width="220">
-  <img src="https://cdn-news.gitcode.com/news/wechatpay_1782982603403.png" alt="AtomCode 微信赞赏码" width="240">
+  <img src="https://cdn-news.gitcode.com/news/alipay_1782981974317.png" alt="RustCode 支付宝赞赏码" width="220">
+  <img src="https://cdn-news.gitcode.com/news/wechatpay_1782982603403.png" alt="RustCode 微信赞赏码" width="240">
 </p>
 
 ## 许可证

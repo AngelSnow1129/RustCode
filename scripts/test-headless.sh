@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AtomCode headless-mode smoke tests
+# RustCode headless-mode smoke tests
 #
 # Headless mode is triggered by `-p / --prompt`. The legacy `--headless`
 # flag was removed in Task #5 — clap should now reject it.
@@ -7,7 +7,7 @@
 # Usage: ./scripts/test-headless.sh
 #
 # Optional environment:
-#   ATOMCODE_TEST_PROVIDER   Provider name to use for live (network) tests
+#   RUSTCODE_TEST_PROVIDER   Provider name to use for live (network) tests
 #                            (e.g. "openai", "kimi"). When unset, only the
 #                            offline CLI-surface tests run and the
 #                            network-dependent tests are skipped.
@@ -22,7 +22,7 @@ set -euo pipefail
 # Always run from project root
 cd "$(dirname "$0")/.."
 
-BIN="./target/debug/atomcode"
+BIN="./target/debug/rustcode"
 if [ ! -x "$BIN" ]; then
     echo "fatal: $BIN not found. Run: cargo build" >&2
     exit 2
@@ -38,7 +38,7 @@ else
     exit 2
 fi
 
-TMPDIR_T=$(mktemp -d /tmp/atomcode-headless-XXXXXX)
+TMPDIR_T=$(mktemp -d /tmp/rustcode-headless-XXXXXX)
 trap 'rm -rf "$TMPDIR_T"' EXIT INT TERM
 
 PASSED=0
@@ -60,11 +60,11 @@ run_atom() {
     "$TIMEOUT_BIN" "$secs" "$BIN" "$@" </dev/null >"$out" 2>"$err"
 }
 
-echo "=== AtomCode Headless Smoke Tests ==="
+echo "=== RustCode Headless Smoke Tests ==="
 echo "  Binary  : $BIN"
 echo "  Timeout : $TIMEOUT_BIN"
 echo "  TmpDir  : $TMPDIR_T"
-echo "  Provider: ${ATOMCODE_TEST_PROVIDER:-<unset — network tests will be skipped>}"
+echo "  Provider: ${RUSTCODE_TEST_PROVIDER:-<unset — network tests will be skipped>}"
 echo ""
 
 ###############################################################################
@@ -112,14 +112,14 @@ echo ""
 ###############################################################################
 # Network-gated tests — require a configured provider.
 ###############################################################################
-if [ -z "${ATOMCODE_TEST_PROVIDER:-}" ]; then
-    skip "T1: -p emits stdout                  (needs ATOMCODE_TEST_PROVIDER)"
-    skip "T2: stdout has no decoration markers (needs ATOMCODE_TEST_PROVIDER)"
-    skip "T3: -v stderr has log/diagnostic output (needs ATOMCODE_TEST_PROVIDER)"
-    skip "T3b: default headless stderr is clean    (needs ATOMCODE_TEST_PROVIDER)"
-    skip "T4: -p does not block on stdin       (needs ATOMCODE_TEST_PROVIDER)"
+if [ -z "${RUSTCODE_TEST_PROVIDER:-}" ]; then
+    skip "T1: -p emits stdout                  (needs RUSTCODE_TEST_PROVIDER)"
+    skip "T2: stdout has no decoration markers (needs RUSTCODE_TEST_PROVIDER)"
+    skip "T3: -v stderr has log/diagnostic output (needs RUSTCODE_TEST_PROVIDER)"
+    skip "T3b: default headless stderr is clean    (needs RUSTCODE_TEST_PROVIDER)"
+    skip "T4: -p does not block on stdin       (needs RUSTCODE_TEST_PROVIDER)"
 else
-    PROV="$ATOMCODE_TEST_PROVIDER"
+    PROV="$RUSTCODE_TEST_PROVIDER"
 
     ###########################################################################
     # T1: -p succeeds and emits non-empty stdout

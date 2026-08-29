@@ -1,15 +1,15 @@
-# AtomCode Docker 镜像
+# RustCode Docker 镜像
 
 本目录包含两种 Docker 镜像：
 
-- **Dockerfile-Daemon** - 用于部署 AtomCode Daemon 后台服务
-- **Dockerfile-TUI** - 用于在 macOS/Windows 上体验 Linux 版本的 AtomCode TUI
+- **Dockerfile-Daemon** - 用于部署 RustCode Daemon 后台服务
+- **Dockerfile-TUI** - 用于在 macOS/Windows 上体验 Linux 版本的 RustCode TUI
 
 ---
 
-## AtomCode TUI 镜像
+## RustCode TUI 镜像
 
-用于在 macOS 或 Windows 上体验 Linux 版本的 AtomCode 终端界面。
+用于在 macOS 或 Windows 上体验 Linux 版本的 RustCode 终端界面。
 
 ### 构建镜像
 
@@ -19,39 +19,39 @@ brew install FiloSottile/musl-cross/musl-cross
 ./scripts/release.sh
 
 # 2. 构建 Docker 镜像
-docker build -t atomcode -f docker/Dockerfile-TUI .
+docker build -t rustcode -f docker/Dockerfile-TUI .
 ```
 
 ### 运行容器
 
 ```bash
 # 基本运行
-docker run --rm -it atomcode
+docker run --rm -it rustcode
 
 # 挂载配置和项目目录
 docker run --rm -it \
-  -v ~/.atomcode:/root/.atomcode \
+  -v ~/.rustcode:/root/.rustcode \
   -v $(pwd):/workspace \
-  atomcode
+  rustcode
 
 # 指定工作目录
 docker run --rm -it \
-  -v ~/.atomcode:/root/.atomcode \
+  -v ~/.rustcode:/root/.rustcode \
   -v /path/to/project:/workspace \
-  atomcode
+  rustcode
 
 # 传递环境变量（API Key）
 docker run --rm -it \
   -e ANTHROPIC_API_KEY=your-api-key \
-  -v ~/.atomcode:/root/.atomcode \
-  atomcode
+  -v ~/.rustcode:/root/.rustcode \
+  rustcode
 ```
 
 > **注意**: TUI 模式需要 `-it` 参数来启用交互式终端。
 
 ---
 
-## AtomCode Daemon 镜像
+## RustCode Daemon 镜像
 
 ## 构建镜像
 
@@ -64,7 +64,7 @@ docker run --rm -it \
 然后构建 Docker 镜像：
 
 ```bash
-docker build -t atomcode-daemon:v5.0.3 -f docker/Dockerfile-Daemon .
+docker build -t rustcode-daemon:v5.0.3 -f docker/Dockerfile-Daemon .
 ```
 
 ### 多架构构建（amd64 + arm64）
@@ -74,12 +74,12 @@ docker build -t atomcode-daemon:v5.0.3 -f docker/Dockerfile-Daemon .
 一键构建并推送多架构镜像：
 
 ```bash
-docker/build-multiarch.sh                      # 默认镜像名 atomcode-daemon:v<版本>，构建并推送
-docker/build-multiarch.sh myrepo/atomcode:v1   # 指定镜像名
+docker/build-multiarch.sh                      # 默认镜像名 rustcode-daemon:v<版本>，构建并推送
+docker/build-multiarch.sh myrepo/rustcode:v1   # 指定镜像名
 BUILD_ONLY=1 docker/build-multiarch.sh         # 构建并加载当前主机架构，不推送
 ```
 
-脚本会自动调用 `scripts/release.sh`（`ATOMCODE_INCLUDE_DAEMON=1`）交叉编译 x64 + arm64 两种 daemon 产物后交给 buildx。前置条件：安装 musl 交叉编译工具链（`brew install FiloSottile/musl-cross/musl-cross`）。
+脚本会自动调用 `scripts/release.sh`（`RUSTCODE_INCLUDE_DAEMON=1`）交叉编译 x64 + arm64 两种 daemon 产物后交给 buildx。前置条件：安装 musl 交叉编译工具链（`brew install FiloSottile/musl-cross/musl-cross`）。
 
 ### 推送到华为云 SWR
 
@@ -87,14 +87,14 @@ BUILD_ONLY=1 docker/build-multiarch.sh         # 构建并加载当前主机架�
 
 ```bash
 # 标记镜像
-docker tag atomcode-daemon:v5.0.3 swr.cn-north-4.myhuaweicloud.com/gitcode-be/atomcode-daemon:v5.0.3
+docker tag rustcode-daemon:v5.0.3 swr.cn-north-4.myhuaweicloud.com/gitcode-be/rustcode-daemon:v5.0.3
 
 # 使用 buildx 构建并推送（推荐）
-docker buildx build --provenance=false --platform linux/amd64 -t swr.cn-north-4.myhuaweicloud.com/gitcode-be/atomcode-daemon:v5.0.3 --push -f docker/Dockerfile-Daemon .
+docker buildx build --provenance=false --platform linux/amd64 -t swr.cn-north-4.myhuaweicloud.com/gitcode-be/rustcode-daemon:v5.0.3 --push -f docker/Dockerfile-Daemon .
 
 # 或者先构建再推送
-docker build --provenance=false -t swr.cn-north-4.myhuaweicloud.com/gitcode-be/atomcode-daemon:v5.0.3 -f docker/Dockerfile-Daemon .
-docker push swr.cn-north-4.myhuaweicloud.com/gitcode-be/atomcode-daemon:v5.0.3
+docker build --provenance=false -t swr.cn-north-4.myhuaweicloud.com/gitcode-be/rustcode-daemon:v5.0.3 -f docker/Dockerfile-Daemon .
+docker push swr.cn-north-4.myhuaweicloud.com/gitcode-be/rustcode-daemon:v5.0.3
 ```
 
 > **注意**: 如果不添加 `--provenance=false`，推送时会报错: `Invalid image, fail to parse 'manifest.json'`
@@ -104,38 +104,38 @@ docker push swr.cn-north-4.myhuaweicloud.com/gitcode-be/atomcode-daemon:v5.0.3
 ### 基本运行
 
 ```bash
-docker run -d --name atomcode-daemon \
+docker run -d --name rustcode-daemon \
   -p 13456:13456 \
-  atomcode-daemon:v5.0.3
+  rustcode-daemon:v5.0.3
 ```
 
 ### 挂载配置文件
 
 ```bash
-docker run -d --name atomcode-daemon \
+docker run -d --name rustcode-daemon \
   -p 13456:13456 \
-  -v /path/to/config.toml:/root/.atomcode/config.toml \
-  atomcode-daemon:v5.0.3
+  -v /path/to/config.toml:/root/.rustcode/config.toml \
+  rustcode-daemon:v5.0.3
 ```
 
 ### 挂载项目目录
 
 ```bash
-docker run -d --name atomcode-daemon \
+docker run -d --name rustcode-daemon \
   -p 13456:13456 \
-  -v /path/to/config.toml:/root/.atomcode/config.toml \
+  -v /path/to/config.toml:/root/.rustcode/config.toml \
   -v /path/to/project:/workspace \
-  atomcode-daemon:v5.0.3
+  rustcode-daemon:v5.0.3
 ```
 
 ### 传递环境变量
 
 ```bash
-docker run -d --name atomcode-daemon \
+docker run -d --name rustcode-daemon \
   -p 13456:13456 \
   -e ANTHROPIC_API_KEY=your-api-key \
-  -v $(pwd)/config.toml:/root/.atomcode/config.toml \
-  atomcode-daemon:v5.0.3
+  -v $(pwd)/config.toml:/root/.rustcode/config.toml \
+  rustcode-daemon:v5.0.3
 ```
 
 ## 验证服务
@@ -145,17 +145,17 @@ docker run -d --name atomcode-daemon \
 curl http://localhost:13456/
 
 # 查看日志
-docker logs atomcode-daemon
+docker logs rustcode-daemon
 ```
 
 ## 常用命令
 
 ```bash
-docker start atomcode-daemon     # 启动
-docker stop atomcode-daemon      # 停止
-docker restart atomcode-daemon   # 重启
-docker rm -f atomcode-daemon     # 删除
-docker logs -f atomcode-daemon   # 查看日志
+docker start rustcode-daemon     # 启动
+docker stop rustcode-daemon      # 停止
+docker restart rustcode-daemon   # 重启
+docker rm -f rustcode-daemon     # 删除
+docker logs -f rustcode-daemon   # 查看日志
 ```
 
 ---
@@ -194,9 +194,9 @@ curl http://localhost:13456/health
 ### 群晖 Container Manager
 
 1. 打开「Container Manager」→「项目」→「新增」。
-2. 项目名称填写 `atomcode`，路径选择完整 AtomCode 仓库中的 `docker/` 目录；默认 compose 使用 `..` 作为镜像构建上下文，因此不能只复制单个 compose 文件。
+2. 项目名称填写 `rustcode`，路径选择完整 RustCode 仓库中的 `docker/` 目录；默认 compose 使用 `..` 作为镜像构建上下文，因此不能只复制单个 compose 文件。
 3. 来源选择「使用 docker-compose.yml」，确认后启动项目。
-4. 在「容器」页确认 `atomcode-daemon` 状态为运行中。
+4. 在「容器」页确认 `rustcode-daemon` 状态为运行中。
 
 ### 威联通 Container Station
 

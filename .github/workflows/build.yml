@@ -47,8 +47,8 @@ jobs:
 
           mkdir -p dist
 
-          cp target/aarch64-apple-darwin/release/atomcode dist/atomcode-${TAG_NAME}-darwin-arm64
-          cp target/x86_64-apple-darwin/release/atomcode dist/atomcode-${TAG_NAME}-darwin-x64
+          cp target/aarch64-apple-darwin/release/rustcode dist/rustcode-${TAG_NAME}-darwin-arm64
+          cp target/x86_64-apple-darwin/release/rustcode dist/rustcode-${TAG_NAME}-darwin-x64
 
           chmod +x dist/*
 
@@ -75,8 +75,8 @@ jobs:
 
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
-            --file-name=atomcode-${TAG_NAME}-darwin-arm64 \
-            --file-path=dist/atomcode-${TAG_NAME}-darwin-arm64 \
+            --file-name=rustcode-${TAG_NAME}-darwin-arm64 \
+            --file-path=dist/rustcode-${TAG_NAME}-darwin-arm64 \
             --access-token=${{ secrets.ACCESS_TOKEN }}
 
       # 1️⃣1️⃣ 上传 x86_64
@@ -87,8 +87,8 @@ jobs:
 
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
-            --file-name=atomcode-${TAG_NAME}-darwin-x64 \
-            --file-path=dist/atomcode-${TAG_NAME}-darwin-x64 \
+            --file-name=rustcode-${TAG_NAME}-darwin-x64 \
+            --file-path=dist/rustcode-${TAG_NAME}-darwin-x64 \
             --access-token=${{ secrets.ACCESS_TOKEN }}
 
   build-linux:
@@ -144,8 +144,8 @@ jobs:
 
           mkdir -p dist
 
-          cp target/x86_64-unknown-linux-musl/release/atomcode dist/atomcode-${TAG_NAME}-linux-x64
-          cp target/aarch64-unknown-linux-musl/release/atomcode dist/atomcode-${TAG_NAME}-linux-arm64
+          cp target/x86_64-unknown-linux-musl/release/rustcode dist/rustcode-${TAG_NAME}-linux-x64
+          cp target/aarch64-unknown-linux-musl/release/rustcode dist/rustcode-${TAG_NAME}-linux-arm64
 
           chmod +x dist/*
 
@@ -153,8 +153,8 @@ jobs:
       - name: Strip binaries
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          strip dist/atomcode-${TAG_NAME}-linux-x64 || true
-          aarch64-linux-musl-strip dist/atomcode-${TAG_NAME}-linux-arm64 || true
+          strip dist/rustcode-${TAG_NAME}-linux-x64 || true
+          aarch64-linux-musl-strip dist/rustcode-${TAG_NAME}-linux-arm64 || true
 
       # 9️⃣ 安装 Python
       - name: Setup Python
@@ -170,8 +170,8 @@ jobs:
 
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
-            --file-name=atomcode-${TAG_NAME}-linux-x64 \
-            --file-path=dist/atomcode-${TAG_NAME}-linux-x64 \
+            --file-name=rustcode-${TAG_NAME}-linux-x64 \
+            --file-path=dist/rustcode-${TAG_NAME}-linux-x64 \
             --access-token=${{ secrets.ACCESS_TOKEN }}
 
       # 1️⃣1️⃣ 上传 ARM64
@@ -182,8 +182,8 @@ jobs:
 
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
-            --file-name=atomcode-${TAG_NAME}-linux-arm64 \
-            --file-path=dist/atomcode-${TAG_NAME}-linux-arm64 \
+            --file-name=rustcode-${TAG_NAME}-linux-arm64 \
+            --file-path=dist/rustcode-${TAG_NAME}-linux-arm64 \
             --access-token=${{ secrets.ACCESS_TOKEN }}
 
   build-windows:
@@ -229,8 +229,8 @@ jobs:
 
           mkdir -p dist
 
-          cp target/aarch64-pc-windows-msvc/release/atomcode.exe dist/atomcode-${TAG_NAME}-windows-arm64.exe
-          cp target/x86_64-pc-windows-msvc/release/atomcode.exe dist/atomcode-${TAG_NAME}-windows-x64.exe
+          cp target/aarch64-pc-windows-msvc/release/rustcode.exe dist/rustcode-${TAG_NAME}-windows-arm64.exe
+          cp target/x86_64-pc-windows-msvc/release/rustcode.exe dist/rustcode-${TAG_NAME}-windows-x64.exe
 
       # 7️⃣ 安装 Python
       - name: Setup Python
@@ -247,8 +247,8 @@ jobs:
 
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
-            --file-name=atomcode-${TAG_NAME}-windows-arm64.exe \
-            --file-path=dist/atomcode-${TAG_NAME}-windows-arm64.exe \
+            --file-name=rustcode-${TAG_NAME}-windows-arm64.exe \
+            --file-path=dist/rustcode-${TAG_NAME}-windows-arm64.exe \
             --access-token=${{ secrets.ACCESS_TOKEN }}
 
       # 9️⃣ 上传 x86_64
@@ -260,8 +260,8 @@ jobs:
 
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
-            --file-name=atomcode-${TAG_NAME}-windows-x64.exe \
-            --file-path=dist/atomcode-${TAG_NAME}-windows-x64.exe \
+            --file-name=rustcode-${TAG_NAME}-windows-x64.exe \
+            --file-path=dist/rustcode-${TAG_NAME}-windows-x64.exe \
             --access-token=${{ secrets.ACCESS_TOKEN }}
 
   distro-pm-check:
@@ -282,7 +282,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build with distro-pm feature
-        run: cargo build -p atomcode --features distro-pm
+        run: cargo build -p rustcode --features distro-pm
 
       - name: Test distro-pm gating
-        run: cargo test -p atomcode-updater --lib --features distro-pm
+        run: cargo test -p rustcode-updater --lib --features distro-pm

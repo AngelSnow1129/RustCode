@@ -1,0 +1,60 @@
+//! Rustcode disk/TOML config system.
+//!
+//! Leaf crate — depends only on serde/toml/anyhow + a few small vendored helpers, so
+//! every stack layer can read `config.toml` without depending on a runtime/driver
+//! crate. It deliberately owns no HTTP client, no reqwest and no reporting pipeline.
+//! See `docs/superpowers/plans/2026-07-11-extract-rustcode-config.md`.
+
+/// UI language selection (`Config.language`).
+pub mod locale;
+
+/// Localization message tables + `t()`/`Msg`.
+pub mod i18n;
+
+/// Vendored leaf helpers (home-dir resolution, vision heuristic) config needs.
+pub mod util;
+
+/// `[network.proxy]` config types + process-env proxy policy. HTTP-owning crates
+/// apply this policy to their own reqwest builders.
+pub mod proxy;
+
+/// Every server address the client talks to, each overridable by env with
+/// today's value as the default.
+pub mod endpoints;
+
+/// Every name this build occupies locally — config dir, ports, executables,
+/// self-update scratch files. The local-resources companion to `endpoints`.
+pub mod distribution;
+
+/// TLS-version policy for the explicit process-wide env ceiling and the
+/// endpoint-scoped first-party fallback latch. Pure URL/env/atomic logic; HTTP
+/// clients remain in their owning leaf/provider crates.
+pub mod tls;
+
+/// The `LspServerConfig` config type (`Config.lsp.servers`). The LSP runtime is
+/// owned by `rustcode-capabilities::codeintel::lsp`.
+pub mod lsp_registry;
+
+/// The disk/TOML config system: [`Config`](config::Config) + all sub-configs,
+/// load/save and paths.
+pub mod config;
+
+/// Non-telemetry data types (SessionMode, CliOverride, repo-origin detection)
+/// carried over after the reporting crate was removed. No reporting behavior.
+pub mod telemetry_legacy;
+
+/// Transactional, cross-process-safe access to `config.toml`.
+pub mod store;
+
+/// Safe, UI-neutral catalog of editable non-provider settings.
+pub mod settings;
+
+/// Pure parsers for OS system-proxy descriptions: Windows ProxyServer/ProxyOverride
+/// and macOS `scutil --proxy` output → normalized HTTP(S)_PROXY / NO_PROXY values.
+pub mod system_proxy;
+
+/// Local scheduled-task model, file store, and next-run calculator.
+pub mod schedule;
+
+pub use config::{provider::ProviderConfig, Config};
+pub use store::{ConfigCommit, ConfigRevision, ConfigSnapshot, ConfigStore};
