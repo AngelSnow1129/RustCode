@@ -1,9 +1,9 @@
 {
-  "name": "atomcode-tools",
-  "displayName": "%atomcode.displayName%",
-  "description": "%atomcode.description%",
+  "name": "rustcode-tools",
+  "displayName": "%rustcode.displayName%",
+  "description": "%rustcode.description%",
   "version": "0.1.4",
-  "publisher": "atomcode-tools",
+  "publisher": "rustcode-tools",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,7 +21,7 @@
     "ai",
     "coding",
     "agent",
-    "atomcode",
+    "rustcode",
     "llm"
   ],
   "icon": "resources/icon.png",
@@ -33,75 +33,75 @@
   "contributes": {
     "commands": [
       {
-        "command": "atomcode.openSidebar",
-        "title": "%atomcode.commands.openSidebar.title%",
+        "command": "rustcode.openSidebar",
+        "title": "%rustcode.commands.openSidebar.title%",
         "icon": "$(hubot)"
       },
       {
-        "command": "atomcode.openTab",
-        "title": "%atomcode.commands.openTab.title%",
+        "command": "rustcode.openTab",
+        "title": "%rustcode.commands.openTab.title%",
         "icon": "$(hubot)"
       },
       {
-        "command": "atomcode.openPreferredLocation",
-        "title": "%atomcode.commands.openPreferredLocation.title%",
+        "command": "rustcode.openPreferredLocation",
+        "title": "%rustcode.commands.openPreferredLocation.title%",
         "icon": "$(hubot)"
       },
       {
-        "command": "atomcode.focusInput",
-        "title": "%atomcode.commands.focusInput.title%",
+        "command": "rustcode.focusInput",
+        "title": "%rustcode.commands.focusInput.title%",
         "icon": "$(edit)"
       },
       {
-        "command": "atomcode.newConversation",
-        "title": "%atomcode.commands.newConversation.title%",
+        "command": "rustcode.newConversation",
+        "title": "%rustcode.commands.newConversation.title%",
         "icon": "$(add)"
       },
       {
-        "command": "atomcode.explain",
-        "title": "%atomcode.commands.explain.title%",
-        "shortTitle": "%atomcode.commands.explain.shortTitle%",
+        "command": "rustcode.explain",
+        "title": "%rustcode.commands.explain.title%",
+        "shortTitle": "%rustcode.commands.explain.shortTitle%",
         "icon": "$(question)"
       },
       {
-        "command": "atomcode.fix",
-        "title": "%atomcode.commands.fix.title%",
-        "shortTitle": "%atomcode.commands.fix.shortTitle%",
+        "command": "rustcode.fix",
+        "title": "%rustcode.commands.fix.title%",
+        "shortTitle": "%rustcode.commands.fix.shortTitle%",
         "icon": "$(wrench)"
       },
       {
-        "command": "atomcode.optimize",
-        "title": "%atomcode.commands.optimize.title%",
-        "shortTitle": "%atomcode.commands.optimize.shortTitle%",
+        "command": "rustcode.optimize",
+        "title": "%rustcode.commands.optimize.title%",
+        "shortTitle": "%rustcode.commands.optimize.shortTitle%",
         "icon": "$(rocket)"
       },
       {
-        "command": "atomcode.addToChat",
-        "title": "%atomcode.commands.addToChat.title%",
-        "shortTitle": "%atomcode.commands.addToChat.shortTitle%",
+        "command": "rustcode.addToChat",
+        "title": "%rustcode.commands.addToChat.title%",
+        "shortTitle": "%rustcode.commands.addToChat.shortTitle%",
         "icon": "$(comment-add)"
       },
       {
-        "command": "atomcode.stop",
-        "title": "%atomcode.commands.stop.title%",
+        "command": "rustcode.stop",
+        "title": "%rustcode.commands.stop.title%",
         "icon": "$(stop-circle)"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "atomcode",
+          "id": "rustcode",
           "title": "AtomCode",
           "icon": "resources/icon.svg"
         }
       ]
     },
     "views": {
-      "atomcode": [
+      "rustcode": [
         {
           "type": "webview",
-          "id": "atomcode.chatView",
-          "name": "%atomcode.views.chat.name%",
+          "id": "rustcode.chatView",
+          "name": "%rustcode.views.chat.name%",
           "icon": "resources/icon.svg"
         }
       ]
@@ -109,22 +109,22 @@
     "menus": {
       "editor/context": [
         {
-          "command": "atomcode.explain",
+          "command": "rustcode.explain",
           "group": "atomcode@1",
           "when": "editorHasSelection"
         },
         {
-          "command": "atomcode.fix",
+          "command": "rustcode.fix",
           "group": "atomcode@2",
           "when": "editorHasSelection"
         },
         {
-          "command": "atomcode.optimize",
+          "command": "rustcode.optimize",
           "group": "atomcode@3",
           "when": "editorHasSelection"
         },
         {
-          "command": "atomcode.addToChat",
+          "command": "rustcode.addToChat",
           "group": "atomcode@4",
           "when": "editorHasSelection"
         }
@@ -133,79 +133,79 @@
     "configuration": {
       "title": "AtomCode",
       "properties": {
-        "atomcode.daemon.port": {
+        "rustcode.daemon.port": {
           "type": "number",
           "default": 13456,
-          "description": "%atomcode.configuration.daemon.port.description%"
+          "description": "%rustcode.configuration.daemon.port.description%"
         },
-        "atomcode.daemon.autoStart": {
+        "rustcode.daemon.autoStart": {
           "type": "boolean",
           "default": true,
-          "description": "%atomcode.configuration.daemon.autoStart.description%"
+          "description": "%rustcode.configuration.daemon.autoStart.description%"
         },
-        "atomcode.daemon.binaryPath": {
+        "rustcode.daemon.binaryPath": {
           "type": "string",
           "default": "",
-          "description": "%atomcode.configuration.daemon.binaryPath.description%"
+          "description": "%rustcode.configuration.daemon.binaryPath.description%"
         },
-        "atomcode.preferredLocation": {
+        "rustcode.preferredLocation": {
           "type": "string",
           "enum": [
             "sidebar",
             "panel"
           ],
           "default": "sidebar",
-          "description": "%atomcode.configuration.preferredLocation.description%"
+          "description": "%rustcode.configuration.preferredLocation.description%"
         },
-        "atomcode.chat.fontFamily": {
+        "rustcode.chat.fontFamily": {
           "type": "string",
           "default": "",
-          "description": "%atomcode.configuration.chat.fontFamily.description%"
+          "description": "%rustcode.configuration.chat.fontFamily.description%"
         },
-        "atomcode.autoSave": {
+        "rustcode.autoSave": {
           "type": "boolean",
           "default": true,
-          "description": "%atomcode.configuration.autoSave.description%"
+          "description": "%rustcode.configuration.autoSave.description%"
         },
-        "atomcode.sendWithCtrlEnter": {
+        "rustcode.sendWithCtrlEnter": {
           "type": "boolean",
           "default": false,
-          "description": "%atomcode.configuration.sendWithCtrlEnter.description%"
+          "description": "%rustcode.configuration.sendWithCtrlEnter.description%"
         },
-        "atomcode.fontSize": {
+        "rustcode.fontSize": {
           "type": "number",
           "default": 13,
-          "description": "%atomcode.configuration.fontSize.description%"
+          "description": "%rustcode.configuration.fontSize.description%"
         },
-        "atomcode.showInlineHints": {
+        "rustcode.showInlineHints": {
           "type": "boolean",
           "default": true,
-          "description": "%atomcode.configuration.showInlineHints.description%"
+          "description": "%rustcode.configuration.showInlineHints.description%"
         }
       }
     },
     "keybindings": [
       {
-        "command": "atomcode.focusInput",
+        "command": "rustcode.focusInput",
         "key": "ctrl+escape",
         "mac": "cmd+escape"
       },
       {
-        "command": "atomcode.openTab",
+        "command": "rustcode.openTab",
         "key": "ctrl+shift+escape",
         "mac": "cmd+shift+escape"
       },
       {
-        "command": "atomcode.explain",
+        "command": "rustcode.explain",
         "key": "ctrl+shift+alt+e",
         "mac": "cmd+shift+alt+e",
         "when": "editorHasSelection"
       },
       {
-        "command": "atomcode.newConversation",
+        "command": "rustcode.newConversation",
         "key": "ctrl+shift+alt+n",
         "mac": "cmd+shift+alt+n",
-        "when": "atomcode.chatFocused"
+        "when": "rustcode.chatFocused"
       }
     ]
   },

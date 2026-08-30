@@ -153,7 +153,7 @@ function isPermissionDecision(value: unknown): value is PermissionDecision {
 }
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'atomcode.chatView';
+  public static readonly viewType = 'rustcode.chatView';
   private _view?: vscode.WebviewView;
   private _panels = new Map<string, vscode.WebviewPanel>();
   private _webviewPanels = new Map<vscode.Webview, vscode.WebviewPanel>();
@@ -190,7 +190,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // `{{fontStyle}}` injection in `_getHtml`.
     this._settingsWatcher = vscode.workspace.onDidChangeConfiguration((e) => {
       if (
-        e.affectsConfiguration('atomcode.chat.fontFamily') ||
+        e.affectsConfiguration('rustcode.chat.fontFamily') ||
         e.affectsConfiguration('chatEditor.fontFamily')
       ) {
         this._broadcastChromeFont();
@@ -258,7 +258,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private _findAtomCodeTabGroup(): vscode.ViewColumn | undefined {
     for (const group of vscode.window.tabGroups.all) {
       if (group.tabs.some(t => t.input instanceof vscode.TabInputWebview
-            && (t.input as vscode.TabInputWebview).viewType.includes('atomcode.chatTab'))) {
+            && (t.input as vscode.TabInputWebview).viewType.includes('rustcode.chatTab'))) {
         return group.viewColumn;
       }
     }
@@ -280,7 +280,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const column = this._findAtomCodeTabGroup() ?? vscode.ViewColumn.Beside;
 
     const panel = vscode.window.createWebviewPanel(
-      'atomcode.chatTab',
+      'rustcode.chatTab',
       'AtomCode',
       column,
       {
@@ -439,12 +439,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   public async openInSidebar() {
-    await vscode.commands.executeCommand('workbench.view.extension.atomcode');
-    await vscode.commands.executeCommand('atomcode.chatView.focus');
+    await vscode.commands.executeCommand('workbench.view.extension.rustcode');
+    await vscode.commands.executeCommand('rustcode.chatView.focus');
   }
 
   public async openPreferredLocation() {
-    const preferred = vscode.workspace.getConfiguration('atomcode').get<string>('preferredLocation', 'sidebar');
+    const preferred = vscode.workspace.getConfiguration('rustcode').get<string>('preferredLocation', 'sidebar');
     if (preferred === 'panel') {
       this.openInTab();
     } else {
@@ -614,7 +614,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this._setupWebviewMessageHandler(webviewView.webview, 'sidebar');
 
     webviewView.onDidChangeVisibility(() => {
-      vscode.commands.executeCommand('setContext', 'atomcode.chatFocused', webviewView.visible);
+      vscode.commands.executeCommand('setContext', 'rustcode.chatFocused', webviewView.visible);
       if (webviewView.visible) void this._sendSetupState(webviewView.webview);
     });
   }
@@ -708,7 +708,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           await this.openInSidebar();
           break;
         case 'openSettings':
-          vscode.commands.executeCommand('workbench.action.openSettings', 'atomcode');
+          vscode.commands.executeCommand('workbench.action.openSettings', 'rustcode');
           break;
         case 'openFile':
           if (msg.path) {
@@ -3056,7 +3056,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // `documentElement.style`, which could not clear a value that lives in a stylesheet rule.
     html = html.replace(
       /\{\{fontStyle\}\}/g,
-      `<style id="atomcode-chat-font">${font ? `:root{--app-monospace-font-family:${font};}` : ''}</style>`,
+      `<style id="rustcode-chat-font">${font ? `:root{--app-monospace-font-family:${font};}` : ''}</style>`,
     );
 
     return html;
@@ -3065,19 +3065,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
 /**
  * Read the chat monospace font from config and sanitize it for safe inlining into a
- * `<style>` block. Precedence: `atomcode.chat.fontFamily` (our own setting) > VS Code's
+ * `<style>` block. Precedence: `rustcode.chat.fontFamily` (our own setting) > VS Code's
  * `chatEditor.fontFamily`. Returns `undefined` when neither is set (fall back to the CSS
  * default, i.e. `editor.fontFamily`). The sanitizer strips anything that could break out of
  * the CSS value (`<`, `>`, `{`, `}`, `;`, `:`, backslash, …) — a font-family value only ever
  * needs letters, digits, spaces, quotes, commas, dots and hyphens.
  */
 function resolveChatFontFamily(): string | undefined {
-  // Scoped reads, matching the rest of this file (`getConfiguration('atomcode')`): our own
+  // Scoped reads, matching the rest of this file (`getConfiguration('rustcode')`): our own
   // key, else VS Code's built-in `chatEditor.fontFamily`. `editor.fontFamily` is deliberately
   // NOT read here — it already reaches the webview as `--vscode-editor-font-family` (the CSS
   // default), so an empty result correctly falls through to it with no override.
   const raw =
-    vscode.workspace.getConfiguration('atomcode').get<string>('chat.fontFamily', '').trim() ||
+    vscode.workspace.getConfiguration('rustcode').get<string>('chat.fontFamily', '').trim() ||
     vscode.workspace.getConfiguration('chatEditor').get<string>('fontFamily', '').trim();
   if (!raw) {
     return undefined;

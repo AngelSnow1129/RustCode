@@ -84,6 +84,14 @@ pub mod process_utils;
 /// `core::tool::strip_verbatim_prefix` (L1 must not depend on `core`).
 pub mod pathnorm;
 
+/// Unified outbound HTTP: the ONE client factory (TLS trust roots / proxy /
+/// timeouts / UA / redirects), the non-LLM external-service config, and the
+/// `brief`+`detail` error pair. Pulled in by every feature that performs egress
+/// (`provider`, `web`, `atomgit`, `mcp`) — never enabled directly, so a lean build
+/// with none of them compiles no HTTP stack at all. See [`egress`].
+#[cfg(feature = "egress")]
+pub mod egress;
+
 /// Proxy policy for outbound HTTP clients — a self-contained mirror of
 /// `core::proxy` (reads the process `RUSTCODE_PROXY_MODE` env) so native clients
 /// honor `no_proxy` without `capabilities` depending on `core`. Compiled

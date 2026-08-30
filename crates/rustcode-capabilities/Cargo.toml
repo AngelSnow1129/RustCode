@@ -65,6 +65,10 @@ httpdate = { version = "1", optional = true }
 # we can downcast to it. provider-only.
 hyper = { version = "1", optional = true }
 getrandom = { version = "0.2", optional = true }
+# The `egress` module's `SecretString` wrapper zeroizes on drop. Already a NON-optional
+# unix dependency (the `askpass` password cache, see the `[target]` section below);
+# declared here as optional so Windows builds get it exactly when `egress` is on.
+zeroize = { version = "1", optional = true }
 tracing = { version = "0.1", optional = true }
 bytes = { version = "1", optional = true }
 async-stream = { version = "0.3", optional = true }
@@ -143,18 +147,25 @@ tar = { version = "0.4", optional = true }
 default = ["provider", "tools"]
 # Real LlmProvider adapters (OpenAI-compatible: GLM / DeepSeek / …). `dirs` resolves the
 # wire-dump output dir (config_dir()/wire-dump) for the byte-level RUSTCODE_WIRE_DUMP.
-provider = ["dep:reqwest", "dep:rustls-native-certs", "dep:rustls", "dep:bytes", "dep:async-stream", "dep:dirs", "dep:httpdate", "dep:rustcode-auth", "dep:rustcode-config", "dep:getrandom", "dep:tracing", "dep:fs2", "dep:hyper"]
+provider = ["egress", "dep:reqwest", "dep:rustls-native-certs", "dep:rustls", "dep:bytes", "dep:async-stream", "dep:dirs", "dep:httpdate", "dep:rustcode-auth", "dep:rustcode-config", "dep:getrandom", "dep:tracing", "dep:fs2", "dep:hyper"]
+# Unified outbound-HTTP client factory + external-service config (`egress` module):
+# ONE home for TLS trust-root layering (issue #514), proxy policy, timeouts, UA and
+# redirect policy, so every egress call site (provider / web_fetch / web_search /
+# atomgit / mcp) shares a single auditable policy instead of 8 divergent builders.
+# Never enabled directly — pulled in by each feature that performs outbound HTTP
+# (a lean build with none of them compiles NO egress code and no HTTP stack).
+egress = ["dep:reqwest", "dep:rustls", "dep:rustls-native-certs", "dep:tracing", "dep:zeroize", "dep:thiserror"]
 # Real neutral coding Tools (fs read/write/edit/list + bash + grep/glob) + a generic
 # approval middleware. Pulls fs/process/io tokio features + the search stack.
 tools = ["dep:ignore", "dep:regex", "dep:grep", "dep:globset", "dep:encoding_rs", "dep:chardetng", "dep:tokio-util", "dep:similar", "dep:tree-sitter", "dep:tree-sitter-bash", "dep:sha2", "dep:dirs", "tokio/fs", "tokio/process", "tokio/io-util"]
 # Network tools (web_fetch / web_search). Opt-in on top of `tools` — pulls the HTTP stack
 # (reqwest + url + tokio/net for SSRF DNS checks). NOT in default: a tools-only embedder
 # that wants no network egress skips it.
-web = ["tools", "dep:reqwest", "dep:url", "tokio/net"]
+web = ["tools", "egress", "dep:reqwest", "dep:url", "tokio/net"]
 # AtomGit REST tools (atomgit_repo / atomgit_pr / atomgit_issue). Opt-in on top of
 # `tools`; pulls the async HTTP stack (reqwest). NOT in default — an embedder that
 # wants no AtomGit egress skips it.
-atomgit = ["tools", "dep:reqwest", "dep:rustcode-auth"]
+atomgit = ["tools", "egress", "dep:reqwest", "dep:rustcode-auth"]
 # Code-intelligence tools (tree-sitter symbol extraction): list_symbols / read_symbol.
 # Opt-in (NOT default) — pulls 12 tree-sitter grammar crates (heavy C compilation).
 codeintel = [
@@ -196,7 +207,7 @@ e2e = ["provider"]
 # listener is std::net (no tokio/net needed).
 mcp = [
     "dep:anyhow", "dep:sha2", "dep:uuid", "dep:dirs", "dep:toml", "dep:tempfile",
-    "dep:reqwest", "reqwest/blocking", "dep:url",
+    "egress", "dep:reqwest", "reqwest/blocking", "dep:url",
     "tokio/process", "tokio/io-util",
 ]
 # Session persistence + cross-session recall: two-tier on-disk store

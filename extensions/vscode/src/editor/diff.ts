@@ -24,7 +24,7 @@ export class DiffContentProvider implements vscode.TextDocumentContentProvider {
 export async function showDiff(filePath: string, originalContent: string) {
   DiffContentProvider.storeOriginal(filePath, originalContent);
 
-  const originalUri = vscode.Uri.parse(`atomcode-original:${path.basename(filePath)}?${filePath}`);
+  const originalUri = vscode.Uri.parse(`rustcode-original:${path.basename(filePath)}?${filePath}`);
   const modifiedUri = vscode.Uri.file(filePath);
 
   await vscode.commands.executeCommand('vscode.diff',

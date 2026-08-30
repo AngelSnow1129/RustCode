@@ -1162,10 +1162,10 @@ async function testAuthFileWatcherRefreshesSetupState() {
   let refreshes = 0;
   unsafeProvider._sendSetupState = async () => { refreshes += 1; };
 
-  unsafeProvider._watchAtomCodeAuth('/tmp/atomcode/auth.toml');
+  unsafeProvider._watchAtomCodeAuth('/tmp/rustcode/auth.toml');
 
   assert.equal(fileWatchers.length, 1);
-  assert.equal(fileWatchers[0].pattern.base, '/tmp/atomcode');
+  assert.equal(fileWatchers[0].pattern.base, '/tmp/rustcode');
   assert.equal(fileWatchers[0].pattern.pattern, 'auth.toml');
   fileWatchers[0].delete?.();
   await new Promise((resolve) => setTimeout(resolve, 150));
@@ -1186,7 +1186,7 @@ async function testStaleSetupRefreshCannotOverwriteNewerAuthState() {
       return Promise.resolve({
         logged_in: true,
         expired: false,
-        auth_path: '/tmp/atomcode/auth.toml',
+        auth_path: '/tmp/rustcode/auth.toml',
         user: { id: 'new-user' },
       });
     },
@@ -1199,7 +1199,7 @@ async function testStaleSetupRefreshCannotOverwriteNewerAuthState() {
       }],
     }),
     getConfig: () => Promise.resolve({
-      path: '/tmp/atomcode/config.toml', default_provider: 'main', provider_count: 1,
+      path: '/tmp/rustcode/config.toml', default_provider: 'main', provider_count: 1,
       providers: [], network: {}, telemetry: {},
     }),
     listModels: () => Promise.resolve([]),
@@ -1219,7 +1219,7 @@ async function testStaleSetupRefreshCannotOverwriteNewerAuthState() {
   resolveFirstAuth({
     logged_in: false,
     expired: false,
-    auth_path: '/tmp/atomcode/auth.toml',
+    auth_path: '/tmp/rustcode/auth.toml',
     user: null,
   });
   await staleRefresh;
@@ -1282,7 +1282,7 @@ async function testDisposedPanelCannotBlockNewPanelSetupState() {
     authStatus: async () => ({
       logged_in: true,
       expired: false,
-      auth_path: '/tmp/atomcode/auth.toml',
+      auth_path: '/tmp/rustcode/auth.toml',
       user: { id: 'user-1' },
     }),
     listProviders: async () => ({
@@ -1294,7 +1294,7 @@ async function testDisposedPanelCannotBlockNewPanelSetupState() {
       }],
     }),
     getConfig: async () => ({
-      path: '/tmp/atomcode/config.toml', default_provider: 'main', provider_count: 1,
+      path: '/tmp/rustcode/config.toml', default_provider: 'main', provider_count: 1,
       providers: [], network: {}, telemetry: {},
     }),
     listModels: async () => [],

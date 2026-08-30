@@ -6,7 +6,7 @@ export class StatusBarManager {
 
   constructor() {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    this.item.command = 'atomcode.openPreferredLocation';
+    this.item.command = 'rustcode.openPreferredLocation';
     this.item.tooltip = vscode.l10n.t('AtomCode: Click to open chat');
     this.update(false);
     this.item.show();

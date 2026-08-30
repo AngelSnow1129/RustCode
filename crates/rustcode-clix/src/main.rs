@@ -13,26 +13,7 @@
 
 mod code;
 
-/// Build the OpenAI-compatible provider used by the standalone `review` agent.
-///
-/// Mirrors `rustcode_review::build_review_agent`'s internal construction so the
-/// reviewer can be handed to `build_review_agent_with`.
-fn build_review_provider(
-    cfg: &rustcode_review::ReviewAgentConfig,
-) -> Result<Arc<dyn rustcode_kernel::provider::LlmProvider>, String> {
-    use rustcode_capabilities::provider::{OpenAiCompatConfig, OpenAiCompatProvider};
-    let mut pc = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
-    pc.context_window = cfg.context_window;
-    // Byte-idle liveness follows the review config's stream_timeout (mirrors
-    // `rustcode_review::build_review_agent`), not the adapter's hardcoded 120s.
-    pc.idle_timeout = cfg.stream_timeout;
-    OpenAiCompatProvider::new(pc)
-        .map(|p| Arc::new(p) as Arc<dyn rustcode_kernel::provider::LlmProvider>)
-        .map_err(|e| e.message)
-}
-
 use anyhow::{bail, Context, Result};
-use std::sync::Arc;
 
 use rustcode_kernel::agent::Agent;
 use rustcode_kernel::event::{AgentCommand, AgentEvent, StopReason};
@@ -399,7 +380,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
 
     // The standalone reviewer used to wrap its provider in a telemetry metering
     // decorator. The reporting pipeline is gone, so it now uses the bare provider.
-    let provider = build_review_provider(&cfg).map_err(|e| anyhow::anyhow!(e))?;
+    let provider = code::build_review_provider(&cfg).map_err(|e| anyhow::anyhow!(e))?;
 
     // ONE wall-clock cancel token + ONE timer shared by the first review pass AND the
     // coverage re-review pass. `--max-duration` is documented as the cap on the WHOLE

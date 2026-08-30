@@ -57,7 +57,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // 4. Register diff content provider
   const diffProvider = new DiffContentProvider();
   context.subscriptions.push(
-    vscode.workspace.registerTextDocumentContentProvider('atomcode-original', diffProvider)
+    vscode.workspace.registerTextDocumentContentProvider('rustcode-original', diffProvider)
   );
 
   // 5. Register CodeAction provider (for all languages)
@@ -69,49 +69,49 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 6. Register commands before daemon startup. Command handlers surface daemon errors in the chat UI.
   const cmds = [
-    vscode.commands.registerCommand('atomcode.openSidebar', async () => {
+    vscode.commands.registerCommand('rustcode.openSidebar', async () => {
       await runCommand(vscode.l10n.t('open AtomCode sidebar'), () => extensionState.chatProvider.openInSidebar());
     }),
 
-    vscode.commands.registerCommand('atomcode.openTab', () => {
+    vscode.commands.registerCommand('rustcode.openTab', () => {
       extensionState.chatProvider.openInTab();
     }),
 
-    vscode.commands.registerCommand('atomcode.openPreferredLocation', async () => {
+    vscode.commands.registerCommand('rustcode.openPreferredLocation', async () => {
       await runCommand(vscode.l10n.t('open AtomCode'), () => extensionState.chatProvider.openPreferredLocation());
     }),
 
-    vscode.commands.registerCommand('atomcode.focusInput', async () => {
+    vscode.commands.registerCommand('rustcode.focusInput', async () => {
       await runCommand(vscode.l10n.t('focus AtomCode input'), () => extensionState.chatProvider.focusInput());
     }),
 
-    vscode.commands.registerCommand('atomcode.newConversation', async () => {
+    vscode.commands.registerCommand('rustcode.newConversation', async () => {
       await runCommand(vscode.l10n.t('start a new AtomCode conversation'), () => extensionState.chatProvider.newConversation());
     }),
 
-    vscode.commands.registerCommand('atomcode.stop', () => {
+    vscode.commands.registerCommand('rustcode.stop', () => {
       extensionState.chatProvider.stopGeneration();
     }),
 
-    vscode.commands.registerCommand('atomcode.explain', async () => {
+    vscode.commands.registerCommand('rustcode.explain', async () => {
       const ctx = getEditorContext();
       const prompt = buildContextualPrompt(getQuickActionPrompt('explain', vscode.env.language), ctx, vscode.env.language);
       await runCommand(vscode.l10n.t('explain the selected code'), () => extensionState.chatProvider.sendEditorCommandMessage(prompt));
     }),
 
-    vscode.commands.registerCommand('atomcode.fix', async () => {
+    vscode.commands.registerCommand('rustcode.fix', async () => {
       const ctx = getEditorContext();
       const prompt = buildContextualPrompt(getQuickActionPrompt('fix', vscode.env.language), ctx, vscode.env.language);
       await runCommand(vscode.l10n.t('fix the selected code'), () => extensionState.chatProvider.sendEditorCommandMessage(prompt));
     }),
 
-    vscode.commands.registerCommand('atomcode.optimize', async () => {
+    vscode.commands.registerCommand('rustcode.optimize', async () => {
       const ctx = getEditorContext();
       const prompt = buildContextualPrompt(getQuickActionPrompt('optimize', vscode.env.language), ctx, vscode.env.language);
       await runCommand(vscode.l10n.t('optimize the selected code'), () => extensionState.chatProvider.sendEditorCommandMessage(prompt));
     }),
 
-    vscode.commands.registerCommand('atomcode.addToChat', async () => {
+    vscode.commands.registerCommand('rustcode.addToChat', async () => {
       const ctx = getEditorContext();
       if (!ctx.selection || !ctx.filePath) return;
       await runCommand(vscode.l10n.t('add selection to chat'), () => extensionState.chatProvider.addToChat({
@@ -128,7 +128,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Register panel serializer for cross-restart tab restoration
   context.subscriptions.push(
-    vscode.window.registerWebviewPanelSerializer('atomcode.chatTab', {
+    vscode.window.registerWebviewPanelSerializer('rustcode.chatTab', {
       async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: any) {
         const sessionId = state?.sessionId as string | undefined;
         const projectHash = state?.projectHash as string | undefined;
@@ -139,7 +139,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Register openSessionInTab command (called from webview)
   context.subscriptions.push(
-    vscode.commands.registerCommand('atomcode.openSessionInTab', async (sessionId?: string, projectHash?: string) => {
+    vscode.commands.registerCommand('rustcode.openSessionInTab', async (sessionId?: string, projectHash?: string) => {
       await extensionState.chatProvider.openSessionInTab(sessionId, projectHash);
     })
   );
@@ -168,8 +168,8 @@ export async function activate(context: vscode.ExtensionContext) {
   // 11. Listen for config changes
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('atomcode')) {
-        const newConfig = vscode.workspace.getConfiguration('atomcode');
+      if (e.affectsConfiguration('rustcode')) {
+        const newConfig = vscode.workspace.getConfiguration('rustcode');
         const newPort = newConfig.get<number>('daemon.port', 13456);
         if (newPort !== config.daemonPort) {
           vscode.window.showInformationMessage(vscode.l10n.t('AtomCode: Restart VS Code to apply port change.'));

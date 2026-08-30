@@ -162,11 +162,13 @@ impl Tool for WebSearchTool {
 
 impl WebSearchTool {
     fn client() -> Result<reqwest::Client, String> {
-        crate::proxy::apply_async_proxy_policy(reqwest::Client::builder())
-            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)")
-            .build()
-            .map_err(|e| format!("failed to build HTTP client: {e}"))
+        // Shared egress policy: proxy, the #514 trust-root layering, the idle-pool
+        // policy, and — new here — a connect budget. Only the UA is search-specific:
+        // a real browser UA, since many sources 403 a generic/bot UA.
+        let spec = crate::egress::client::browser_spec()
+            .with_request_timeout(Some(Duration::from_secs(REQUEST_TIMEOUT_SECS)));
+        crate::egress::client::build_http_client(&spec)
+            .map_err(|e| format!("web_search: {e}"))
     }
 
     /// Exa MCP backend: POST a JSON-RPC `tools/call` (`web_search_exa`) and read the

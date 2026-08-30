@@ -83,14 +83,14 @@ AtomCode 提供面向开发流程的辅助能力，包括代码理解、上下�
 
 | 设置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `atomcode.daemon.port` | `13456` | 本地服务端口 |
-| `atomcode.daemon.autoStart` | `true` | 是否启用本地服务 |
-| `atomcode.daemon.binaryPath` | — | 自定义服务路径 |
-| `atomcode.preferredLocation` | `sidebar` | 默认打开位置 |
-| `atomcode.autoSave` | `true` | 操作前自动保存 |
-| `atomcode.sendWithCtrlEnter` | `false` | Ctrl+Enter 发送 |
-| `atomcode.fontSize` | `13` | 聊天面板字号 |
-| `atomcode.showInlineHints` | `true` | 显示内联 diff 提示 |
+| `rustcode.daemon.port` | `13456` | 本地服务端口 |
+| `rustcode.daemon.autoStart` | `true` | 是否启用本地服务 |
+| `rustcode.daemon.binaryPath` | — | 自定义服务路径 |
+| `rustcode.preferredLocation` | `sidebar` | 默认打开位置 |
+| `rustcode.autoSave` | `true` | 操作前自动保存 |
+| `rustcode.sendWithCtrlEnter` | `false` | Ctrl+Enter 发送 |
+| `rustcode.fontSize` | `13` | 聊天面板字号 |
+| `rustcode.showInlineHints` | `true` | 显示内联 diff 提示 |
 
 ---
 
@@ -102,7 +102,7 @@ AtomCode 通过本地运行的辅助服务与 VS Code 进行通信，用于处�
 - 扩展不会在后台执行未授权行为
 - 用户发送消息、使用选区命令或附加文件时，相关输入、选区或文件内容会进入请求上下文
 - 本地服务会根据用户配置调用对应的模型服务提供方
-- 本地服务仅用于提升交互体验，随扩展自动启动，也可通过 `atomcode daemon` 手动运行
+- 本地服务仅用于提升交互体验，随扩展自动启动，也可通过 `rustcode daemon` 手动运行
 
 ---
 

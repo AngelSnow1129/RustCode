@@ -23,10 +23,12 @@ pub struct AtomgitClient {
 impl AtomgitClient {
     /// Build the client. Errors only if the TLS/HTTP stack fails to initialise.
     pub fn new(cfg: AtomgitConfig) -> Result<Self, String> {
-        let http = crate::proxy::apply_async_proxy_policy(reqwest::Client::builder())
-            .user_agent(cfg.user_agent)
-            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-            .build()
+        // Shared egress policy (proxy + #514 trust roots + pool idle). Only the UA
+        // and the request budget are AtomGit-specific.
+        let spec = crate::egress::client::HttpClientSpec::default()
+            .with_user_agent(cfg.user_agent)
+            .with_request_timeout(Some(Duration::from_secs(REQUEST_TIMEOUT_SECS)));
+        let http = crate::egress::client::build_http_client(&spec)
             .map_err(|e| format!("failed to build AtomGit HTTP client: {e}"))?;
         let base_url = cfg.base_url.trim_end_matches('/').to_string();
         Ok(Self {

@@ -225,7 +225,7 @@ export class DaemonProcess {
     const binary = this.findBinary(port);
     if (!binary) {
       vscode.window.showErrorMessage(
-        'AtomCode daemon not found for this platform. Reinstall the AtomCode extension, install atomcode, or set atomcode.daemon.binaryPath in settings.'
+        'RustCode daemon not found for this platform. Reinstall the RustCode extension, install rustcode, or set rustcode.daemon.binaryPath in settings.'
       );
       return false;
     }

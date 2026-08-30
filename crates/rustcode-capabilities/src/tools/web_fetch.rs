@@ -10,7 +10,6 @@ use super::{err, ok};
 use async_trait::async_trait;
 use rustcode_kernel::tool::{Tool, ToolContext, ToolResult};
 use futures::StreamExt;
-use reqwest::redirect::Policy;
 use serde::Deserialize;
 use serde_json::json;
 use std::net::{IpAddr, SocketAddr};
@@ -528,19 +527,19 @@ async fn validate_host(url: &Url) -> Result<Vec<SocketAddr>, String> {
 /// change the host and the resolve override is fixed at builder time; `resolve_to_addrs`
 /// keeps the URL's port / SNI / TLS cert hostname intact — only the dialed address is pinned.
 fn build_client(host: &str, pinned: &[SocketAddr]) -> Result<reqwest::Client, String> {
-    let mut builder = crate::proxy::apply_async_proxy_policy(reqwest::Client::builder())
-        // Follow redirects MANUALLY so every hop re-runs scheme + IP checks; the built-in
-        // follower would let a 302 rebind to 127.0.0.1 after the start URL passed.
-        .redirect(Policy::none())
-        .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        // A real browser UA — many sites (docs hosts, forges) 403 a generic/bot UA.
-        .user_agent(BROWSER_UA);
-    if !pinned.is_empty() {
-        builder = builder.resolve_to_addrs(host, pinned);
-    }
-    builder
-        .build()
+    // Shared egress policy (issue #514 trust roots + proxy + pool policy). Only three
+    // things are web_fetch-specific:
+    let spec = crate::egress::client::browser_spec()
+        // 1. Follow redirects MANUALLY so every hop re-runs scheme + IP checks; the
+        //    built-in follower would let a 302 rebind to 127.0.0.1 after the start
+        //    URL passed.
+        .with_no_redirects()
+        .with_connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+        .with_request_timeout(Some(Duration::from_secs(REQUEST_TIMEOUT_SECS)));
+    // 2. A browser UA (part of `browser_spec`) — many sites 403 a generic/bot UA.
+    // 3. The DNS pin, which `build_pinned_http_client` applies on top while still
+    //    running the #514 webpki-base backstop.
+    crate::egress::client::build_pinned_http_client(&spec, host, pinned)
         .map_err(|e| format!("web_fetch: failed to build HTTP client: {e}"))
 }
 

@@ -34,12 +34,12 @@ function testVSCodeManifestUsesNlsPlaceholders() {
   const packageJson = readFileSync(join(root, 'package.json'), 'utf8');
 
   assert.match(packageJson, /"l10n":\s*"\.\/l10n"/);
-  assert.match(packageJson, /"title":\s*"%atomcode\.commands\.openSidebar\.title%"/);
-  assert.match(packageJson, /"shortTitle":\s*"%atomcode\.commands\.explain\.shortTitle%"/);
-  assert.match(packageJson, /"shortTitle":\s*"%atomcode\.commands\.fix\.shortTitle%"/);
-  assert.match(packageJson, /"shortTitle":\s*"%atomcode\.commands\.optimize\.shortTitle%"/);
-  assert.match(packageJson, /"shortTitle":\s*"%atomcode\.commands\.addToChat\.shortTitle%"/);
-  assert.match(packageJson, /"description":\s*"%atomcode\.configuration\.daemon\.port\.description%"/);
+  assert.match(packageJson, /"title":\s*"%rustcode\.commands\.openSidebar\.title%"/);
+  assert.match(packageJson, /"shortTitle":\s*"%rustcode\.commands\.explain\.shortTitle%"/);
+  assert.match(packageJson, /"shortTitle":\s*"%rustcode\.commands\.fix\.shortTitle%"/);
+  assert.match(packageJson, /"shortTitle":\s*"%rustcode\.commands\.optimize\.shortTitle%"/);
+  assert.match(packageJson, /"shortTitle":\s*"%rustcode\.commands\.addToChat\.shortTitle%"/);
+  assert.match(packageJson, /"description":\s*"%rustcode\.configuration\.daemon\.port\.description%"/);
   assert.ok(existsSync(join(root, 'package.nls.json')));
   assert.ok(existsSync(join(root, 'package.nls.zh-cn.json')));
 }
