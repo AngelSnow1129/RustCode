@@ -181,7 +181,7 @@ fn sr_scan(
     let mut modified = Vec::new();
     let mut scanned = 0usize;
     for entry in walk.flatten() {
-        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
         let path = entry.path();

@@ -192,7 +192,7 @@ internal class DaemonSupervisorEngine(
         control: DaemonControl,
         health: HealthResponse,
     ): CompletableFuture<DaemonReady> {
-        if (health.service != "atomcode-daemon") {
+        if (health.service != "rustcode-daemon") {
             return failed(
                 ConnectionErrorKind.PortUsedByNonAtomCode,
                 "Port ${settings.host}:${settings.port} is used by ${health.service.ifBlank { "another service" }}.",
@@ -308,9 +308,9 @@ internal class DaemonSupervisorEngine(
                 val health = attempt.health
                 val exit = completedExit(process)
                 when {
-                    health != null && health.service == "atomcode-daemon" && !expectation.mismatches(health) ->
+                    health != null && health.service == "rustcode-daemon" && !expectation.mismatches(health) ->
                         CompletableFuture.completedFuture(DaemonReady(key, health.version))
-                    health != null && health.service == "atomcode-daemon" -> {
+                    health != null && health.service == "rustcode-daemon" -> {
                         terminateOwnedProcess(key, process)
                         failed(ConnectionErrorKind.IncompatibleDaemon, expectation.mismatchMessage(health))
                     }
@@ -362,9 +362,9 @@ internal class DaemonSupervisorEngine(
         return control.health()
             .handle { health, _ -> health }
             .thenCompose { health ->
-                if (health?.service == "atomcode-daemon" && !expectation.mismatches(health)) {
+                if (health?.service == "rustcode-daemon" && !expectation.mismatches(health)) {
                     CompletableFuture.completedFuture(DaemonReady(key, health.version))
-                } else if (health?.service == "atomcode-daemon") {
+                } else if (health?.service == "rustcode-daemon") {
                     failed(ConnectionErrorKind.IncompatibleDaemon, expectation.mismatchMessage(health))
                 } else {
                     val detail = SecretRedactor.redact(exit.stderr).ifBlank { "no daemon diagnostics" }

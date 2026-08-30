@@ -10,7 +10,7 @@ The picker opens on `(current)`, so an accidental double Esc plus Enter is a no-
 > per-session shadow-Git implementation had no disk quota or object collection and
 > could exhaust the system disk. Rewind points now persist independently of Git
 > trees, so conversation Rewind remains available without creating
-> `~/.atomcode/rewind` objects. Code restoration may return only after a bounded,
+> `~/.rustcode/rewind` objects. Code restoration may return only after a bounded,
 > project-shared snapshot design is implemented and reviewed separately.
 > The retained compatibility backend routes every Git child through Windows
 > `CREATE_NO_WINDOW`; this is defense in depth and does not re-enable capture.
@@ -31,7 +31,7 @@ The following historical v1 workspace layout is retained only for compatibility
 and cleanup; v5.0.5 does not initialize or write it:
 
 ```text
-~/.atomcode/rewind/<project-hash>/
+~/.rustcode/rewind/<project-hash>/
 ```
 
 Existing code must not treat the presence of an old object store as evidence that
@@ -43,8 +43,8 @@ for an interrupted v5.0.3 code-Rewind transaction, then drops the backend again.
 Operators must preserve the store whenever AtomCode reports a pending-Rewind
 recovery failure or any `*.rewind.txn.json` sidecar still exists under the native
 sessions root. After those transaction sidecars are absent and AtomCode is
-stopped, they may remove `$ATOMCODE_HOME/rewind` (or `~/.atomcode/rewind` when
-`ATOMCODE_HOME` is unset). This removes only historical code checkpoints; native
+stopped, they may remove `$RUSTCODE_HOME/rewind` (or `~/.rustcode/rewind` when
+`RUSTCODE_HOME` is unset). This removes only historical code checkpoints; native
 conversation sessions are stored separately and remain available.
 
 ## Per-turn data

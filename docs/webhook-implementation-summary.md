@@ -235,7 +235,7 @@ atomcode -p "test" 2>&1 | grep -i webhook
 ### 10. 完整配置示例
 
 ```toml
-# ~/.atomcode/hooks/hooks.toml
+# ~/.rustcode/hooks/hooks.toml
 
 # 脚本 Hook
 [[hooks]]

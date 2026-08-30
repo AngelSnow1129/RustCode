@@ -421,7 +421,7 @@ frontend change.
    account's static base URL) and `system_prompt`, beyond the fields listed there.
 2. Task 5's blast radius is real: ~230 direct provider-field reads across ~12 files
    (notably `atomcode-tuix/src/event_loop/mod.rs`, `atomcode-coding/src/{runtime,
-   config,provider_factory,parts}.rs`, `atomcode-daemon/src/api_provider.rs`,
+   config,provider_factory,parts}.rs`, `rustcode-daemon/src/api_provider.rs`,
    `atomcode-codingplan/src/setup.rs`). Migrate **incrementally** behind an
    `active_provider()`-compatible wrapper (plan Task 4 step 3), converting consumer
    clusters one at a time with their own test runs — not one big-bang commit.

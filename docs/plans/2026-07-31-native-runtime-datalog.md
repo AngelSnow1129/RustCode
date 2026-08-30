@@ -27,7 +27,7 @@ success, failure, and denied tool results even when there is no next LLM request
 reason and duration and drains queued writes.
 
 The configured root follows the historical rules: omitted directory uses
-`$ATOMCODE_HOME/datalog`; `~/...` expands against the real user home; absolute paths
+`$RUSTCODE_HOME/datalog`; `~/...` expands against the real user home; absolute paths
 remain fixed; relative paths resolve from the runtime working directory. A sanitized
 project basename plus an eight-character stable SHA-256 suffix is always appended.
 All directory creation and writes are best-effort: logging must never reject a prompt,

@@ -288,7 +288,7 @@ atomcode 版务实：bundle 实质是**一份可分发的 driver 配置 profile*
 
 1. Codex MVP 用 `codex exec`（一次性）还是直接上 `app-server`（多轮/流式）？—— 建议 exec 起步。
 2. 工具命名规则：`subagent_<name>` 还是 `<kind>_<name>`？对弱模型哪个更清晰？
-3. profile 配置放哪层：项目级 `.atomcode` vs 全局 config vs 两者？信任粒度如何？
+3. profile 配置放哪层：项目级 `.rustcode` vs 全局 config vs 两者？信任粒度如何？
 4. 是否需要"工具过滤透传"（限制外部 agent 只用某些工具）——CC 支持 `--allowedTools`，Codex 支持度需核实。
 5. 结果回填：只回汇总文本，还是也把外部 agent 的文件改动 diff 摘要带回？
 

@@ -264,7 +264,7 @@ impl McpRegistry {
             .map(|aliases| {
                 aliases
                     .iter()
-                    .filter_map(|(alias, (owner, _))| (owner == server).then(|| alias.clone()))
+                    .filter(|&(alias, (owner, _))| (owner == server)).map(|(alias, (owner, _))| alias.clone())
                     .collect()
             })
             .unwrap_or_default()
@@ -294,9 +294,7 @@ impl McpRegistry {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let servers: std::collections::BTreeSet<String> = aliases
             .iter()
-            .filter_map(|(alias, (server, _))| {
-                mounted.contains(alias.as_str()).then(|| server.clone())
-            })
+            .filter(|&(alias, (server, _))| mounted.contains(alias.as_str())).map(|(alias, (server, _))| server.clone())
             .collect();
         drop(aliases);
         if servers.is_empty() {

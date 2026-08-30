@@ -2851,7 +2851,7 @@ impl RunningAgent {
                     // v1. The empty body returns instantly, so the generic 3/6/9s tier
                     // would be pure wasted latency. A VISIBLE Warning tells the user a
                     // retry is underway (a silent re-open reads as "nothing happened").
-                    let wait = (((empty_retries + 1) / 2).min(3)) as u64;
+                    let wait = (empty_retries.div_ceil(2).min(3)) as u64;
                     // Distinguish a GARBLED response (adapter dropped unparseable chunks)
                     // from a truly EMPTY one — different upstream faults, different wording.
                     let notice = if saw_malformed {

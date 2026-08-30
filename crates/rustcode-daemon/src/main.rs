@@ -11,14 +11,13 @@
 // daemon will attempt to re-attach to the parent console for stderr output.
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
-use rustcode_daemon::{run_server, ServerOpts};
-use rustcode_telemetry::{CliOverride, SessionMode};
+use rustcode_daemon::{client_mode::ClientMode, run_server, ServerOpts};
 
 /// Default idle timeout in seconds (30 minutes) before the daemon self-shuts
 /// down when no client activity is observed.
 const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 30 * 60;
 
-fn parse_daemon_args() -> (String, u16, CliOverride, u64, SessionMode) {
+fn parse_daemon_args() -> (String, u16, u64, ClientMode) {
     const DEFAULT_HOST: &str = "127.0.0.1";
     // Shared with `rustcode daemon --port`'s clap default, which used to carry
     // its own `13456` literal.
@@ -26,7 +25,6 @@ fn parse_daemon_args() -> (String, u16, CliOverride, u64, SessionMode) {
 
     let mut host: Option<String> = None;
     let mut port: Option<u16> = None;
-    let mut no_telemetry = false;
     let mut idle_timeout: Option<u64> = None;
     let mut client_mode: Option<String> = None;
 
@@ -56,11 +54,6 @@ fn parse_daemon_args() -> (String, u16, CliOverride, u64, SessionMode) {
             continue;
         }
 
-        if arg == "--no-telemetry" {
-            no_telemetry = true;
-            continue;
-        }
-
         if arg == "--idle-timeout" {
             if let Some(value) = args.next() {
                 idle_timeout = value.parse().ok();
@@ -86,12 +79,6 @@ fn parse_daemon_args() -> (String, u16, CliOverride, u64, SessionMode) {
         }
     }
 
-    let cli_override = if no_telemetry {
-        CliOverride { disabled: true }
-    } else {
-        CliOverride::default()
-    };
-
     // Allow env var override: RUSTCODE_DAEMON_IDLE_TIMEOUT=<seconds>
     // 0 = disabled; non-zero values are clamped to a minimum of 60s to prevent
     // accidental rapid cycling from misconfigured environments.
@@ -109,18 +96,19 @@ fn parse_daemon_args() -> (String, u16, CliOverride, u64, SessionMode) {
         raw_timeout.max(60)
     };
 
+    // Startup default for the client identity. Per-request overrides arrive via
+    // the `x-rustcode-client` header and win over this value.
     let mode = match client_mode.as_deref() {
-        Some("vscode") => SessionMode::Vscode,
-        Some("jetbrains") => SessionMode::Jetbrains,
-        Some("webui") => SessionMode::Webui,
-        Some("rustcode-air") => SessionMode::RustcodeAir,
-        _ => SessionMode::Ide,
+        Some("vscode") => ClientMode::Vscode,
+        Some("jetbrains") => ClientMode::Jetbrains,
+        Some("webui") => ClientMode::Webui,
+        Some("rustcode-air") => ClientMode::RustcodeAir,
+        _ => ClientMode::Ide,
     };
 
     (
         host.unwrap_or_else(|| DEFAULT_HOST.to_string()),
         port.unwrap_or(DEFAULT_PORT),
-        cli_override,
         timeout,
         mode,
     )
@@ -159,7 +147,7 @@ async fn main() {
         tracing::warn!("[session] Failed to migrate legacy sessions: {error}");
     }
 
-    let (host, port, cli_override, idle_timeout_secs, startup_mode) = parse_daemon_args();
+    let (host, port, idle_timeout_secs, startup_mode) = parse_daemon_args();
 
     let token_store = rustcode_daemon::auth_token::WebuiTokenStore::new();
     let daemon_token = rustcode_daemon::resolve_daemon_token(
@@ -170,7 +158,6 @@ async fn main() {
     if let Err(e) = run_server(ServerOpts {
         host,
         port,
-        cli_override,
         idle_timeout_secs,
         startup_mode,
         webui_tokens: Some(token_store),

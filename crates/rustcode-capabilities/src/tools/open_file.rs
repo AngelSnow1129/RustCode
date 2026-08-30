@@ -229,7 +229,7 @@ pub async fn open_local_path(target: &Path) -> Result<String, String> {
         OpenStrategy::Headless(reason) => {
             return Err(format!(
                 "open_file: cannot open in GUI: {reason}.\n\nFile path for manual viewing:\n  {}",
-                crate::pathnorm::to_display(&target)
+                crate::pathnorm::to_display(target)
             ));
         }
     };
@@ -246,13 +246,13 @@ pub async fn open_local_path(target: &Path) -> Result<String, String> {
     match cmd.spawn() {
         Ok(_child) => Ok(format!(
             "Opened {} via `{}`.",
-            crate::pathnorm::to_display(&target),
+            crate::pathnorm::to_display(target),
             strategy_command_name(&strategy)
         )),
         Err(e) => Err(format!(
             "open_file: failed to launch `{}`: {e}.\n\nFile path for manual viewing:\n  {}",
             strategy_command_name(&strategy),
-            crate::pathnorm::to_display(&target)
+            crate::pathnorm::to_display(target)
         )),
     }
 }

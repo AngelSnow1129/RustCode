@@ -12,9 +12,28 @@
 //! (some gateways need none).
 
 mod code;
-mod tel;
+
+/// Build the OpenAI-compatible provider used by the standalone `review` agent.
+///
+/// Mirrors `rustcode_review::build_review_agent`'s internal construction so the
+/// reviewer can be handed to `build_review_agent_with`.
+fn build_review_provider(
+    cfg: &rustcode_review::ReviewAgentConfig,
+) -> Result<Arc<dyn rustcode_kernel::provider::LlmProvider>, String> {
+    use rustcode_capabilities::provider::{OpenAiCompatConfig, OpenAiCompatProvider};
+    let mut pc = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
+    pc.context_window = cfg.context_window;
+    // Byte-idle liveness follows the review config's stream_timeout (mirrors
+    // `rustcode_review::build_review_agent`), not the adapter's hardcoded 120s.
+    pc.idle_timeout = cfg.stream_timeout;
+    OpenAiCompatProvider::new(pc)
+        .map(|p| Arc::new(p) as Arc<dyn rustcode_kernel::provider::LlmProvider>)
+        .map_err(|e| e.message)
+}
 
 use anyhow::{bail, Context, Result};
+use std::sync::Arc;
+
 use rustcode_kernel::agent::Agent;
 use rustcode_kernel::event::{AgentCommand, AgentEvent, StopReason};
 use rustcode_review::{
@@ -78,9 +97,6 @@ struct ReviewArgs {
     /// Config file path (default: ~/.rustcode/config.toml).
     #[arg(long)]
     config: Option<PathBuf>,
-    /// Disable anonymous usage telemetry for this invocation.
-    #[arg(long = "no-telemetry")]
-    no_telemetry: bool,
     /// FULLY override the reviewer system prompt with this text (replaces the built-in
     /// persona entirely — you must then tell the model about its tools + report_finding).
     #[arg(long)]
@@ -381,14 +397,9 @@ async fn review(args: ReviewArgs) -> Result<()> {
     };
     let model_label = cfg.model.clone();
 
-    // Telemetry: the standalone reviewer runs its own kernel loop with NO turn-level
-    // TelemetryHook, so we wrap its provider with a metering decorator — otherwise its LLM
-    // rounds (the review's whole token spend) are invisible. A disabled sink no-ops; flushed
-    // to disk after the run.
-    let telemetry = tel::build_sink(args.config.as_deref(), args.no_telemetry);
-    tel::maybe_show_notice(telemetry.is_enabled());
-    let provider = tel::build_review_provider(&cfg).map_err(|e| anyhow::anyhow!(e))?;
-    let provider = tel::meter_provider(provider, &telemetry, &cfg.base_url, &cfg.model);
+    // The standalone reviewer used to wrap its provider in a telemetry metering
+    // decorator. The reporting pipeline is gone, so it now uses the bare provider.
+    let provider = build_review_provider(&cfg).map_err(|e| anyhow::anyhow!(e))?;
 
     // ONE wall-clock cancel token + ONE timer shared by the first review pass AND the
     // coverage re-review pass. `--max-duration` is documented as the cap on the WHOLE
@@ -505,9 +516,6 @@ async fn review(args: ReviewArgs) -> Result<()> {
             incomplete_reasons.join("; ")
         );
     }
-
-    // Drain telemetry to disk AFTER all LLM work (first pass + any coverage re-review).
-    telemetry.shutdown(tel::FLUSH_TIMEOUT).await;
 
     sort_findings(&mut findings);
 

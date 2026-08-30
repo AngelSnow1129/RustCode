@@ -113,9 +113,9 @@
 │            (JSON 配置旧 hook)          (TOML 配置 ScriptHook)     │
 │  ┌─────────────────────────┐    ┌──────────────────────────┐    │
 │  │ Env:                    │    │ Env:                     │    │
-│  │  ATOMCODE_HOOK_EVENT    │    │  ATOMCODE_HOOK_TYPE      │    │
-│  │  ATOMCODE_HOOK_CONTEXT  │    │  ATOMCODE_TOOL_NAME      │    │
-│  │  ATOMCODE_TOOL_NAME     │    │  ATOMCODE_WORKSPACE      │    │
+│  │  RUSTCODE_HOOK_EVENT    │    │  RUSTCODE_HOOK_TYPE      │    │
+│  │  RUSTCODE_HOOK_CONTEXT  │    │  RUSTCODE_TOOL_NAME      │    │
+│  │  RUSTCODE_TOOL_NAME     │    │  RUSTCODE_WORKSPACE      │    │
 │  │  CLAUDE_PLUGIN_ROOT     │    │                          │    │
 │  │                         │    │ stdin:                   │    │
 │  │ stdin:                  │    │  完整的上下文 JSON         │    │
@@ -153,8 +153,8 @@ HookEngine::load_all(&working_dir)
 │                                             ─▶ engine.register_*()
 │
 ├─ 2. TOML 配置 (新系统)
-│   ├─ ~/.atomcode/hooks/hooks.toml     ─┐
-│   └─ .atomcode/hooks/hooks.toml        └─▶ HooksConfig::from_dir()
+│   ├─ ~/.rustcode/hooks/hooks.toml     ─┐
+│   └─ .rustcode/hooks/hooks.toml        └─▶ HooksConfig::from_dir()
 │                                             ─▶ register_hooks_to_engine()
 │                                             ─▶ ScriptHook / WebhookHook
 │

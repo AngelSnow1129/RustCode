@@ -17,7 +17,6 @@ use clap_complete::Shell;
 mod headless_json;
 mod schedule_cmd;
 mod schedule_os;
-mod telemetry_cmd;
 mod vision;
 use rustcode::uninstall;
 
@@ -39,11 +38,7 @@ use rustcode_capabilities::mcp::{
 use rustcode_config::config::Config;
 
 use rustcode_auth as auth;
-use rustcode_telemetry::{
-    config::{resolve, ProcessEnv},
-    event::SessionMode,
-    notice, CliOverride, CurrentContext, Event, Telemetry,
-};
+
 
 /// Set to `true` at the start of `run_headless` so the panic hook and the
 /// top-level error handler can skip TUI cleanup. In headless mode raw mode
@@ -384,9 +379,6 @@ fn build_i18n_command() -> clap::Command {
         })
         .mut_arg("verbose", |a| a.help(t(Msg::CliHelpVerbose).into_owned()))
         .mut_arg("dev", |a| a.help(t(Msg::CliHelpDev).into_owned()))
-        .mut_arg("no_telemetry", |a| {
-            a.help(t(Msg::CliHelpNoTelemetry).into_owned())
-        })
         .mut_arg("dangerously_skip_permissions", |a| {
             a.help(t(Msg::CliHelpDangerouslySkipPermissions).into_owned())
         });
@@ -403,9 +395,6 @@ fn build_i18n_command() -> clap::Command {
         .mut_subcommand("mcp", |s| s.about(t(Msg::CliAboutMcp).into_owned()))
         .mut_subcommand("daemon", |s| s.about(t(Msg::CliAboutDaemon).into_owned()))
         .mut_subcommand("webui", |s| s.about(t(Msg::CliAboutWebui).into_owned()))
-        .mut_subcommand("telemetry", |s| {
-            s.about(t(Msg::CliAboutTelemetry).into_owned())
-        })
         .mut_subcommand("plugin", |s| s.about(t(Msg::CliAboutPlugin).into_owned()))
         .mut_subcommand("uninstall", |s| {
             s.about(t(Msg::CliAboutUninstall).into_owned())
@@ -488,7 +477,6 @@ fn should_try_sync_upgrade() -> bool {
                 | "rollback"
                 | "uninstall"
                 | "mcp"
-                | "telemetry"
                 | "completion"
                 | "--version"
                 | "-V"
@@ -786,10 +774,6 @@ struct Cli {
     #[arg(long)]
     dev: bool,
 
-    /// Disable telemetry for this invocation.
-    #[arg(long = "no-telemetry", default_value_t = false, global = true)]
-    pub no_telemetry: bool,
-
     /// Skip all permission prompts — auto-approve every tool call (bash,
     /// file edits, MCP, etc.). Equivalent to Claude Code's
     /// --dangerously-skip-permissions. The TUI shows a red ⚠ BYPASS
@@ -864,11 +848,6 @@ enum Commands {
         /// 绑定地址（默认 127.0.0.1；用 0.0.0.0 暴露到局域网/外网，注意仅 token 保护、无 TLS）
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
-    },
-    /// Telemetry controls
-    Telemetry {
-        #[command(subcommand)]
-        action: TelemetryAction,
     },
     /// Manage skill/command plugins (mirrors `claude plugin ...`).
     /// Operates on `$RUSTCODE_HOME/plugins/` shared with the TUI's `/plugin`
@@ -972,7 +951,6 @@ fn is_completion_invocation(args: impl IntoIterator<Item = std::ffi::OsString>) 
             | "-v"
             | "--verbose"
             | "--dev"
-            | "--no-telemetry"
             | "-y"
             | "--dangerously-skip-permissions" => {}
             // Root options that consume the following argv item.
@@ -1138,27 +1116,6 @@ enum McpCli {
         /// Server key in mcpServers.
         name: String,
     },
-}
-
-#[derive(clap::Subcommand)]
-pub enum TelemetryAction {
-    /// Show current telemetry state and queue stats
-    Status,
-    /// Enable telemetry (writes to ~/.rustcode/config.toml)
-    Enable,
-    /// Disable telemetry (writes to ~/.rustcode/config.toml)
-    Disable,
-    /// Print pending queued events (never-sent)
-    Dump {
-        #[arg(long, default_value_t = 50)]
-        last: usize,
-        #[arg(long)]
-        pretty: bool,
-    },
-    /// Clear queued events (does not change enabled state)
-    Clear,
-    /// Recover legacy .partial files after all older RustCode processes stop
-    Recover,
 }
 
 /// Environment variable set by this process for its re-exec'd child, so
@@ -1349,21 +1306,9 @@ async fn async_main() {
         );
     } // end `if !is_backup`
 
-    // Set a minimal pre-telemetry panic hook (replaced after telemetry init in run()).
-    std::panic::set_hook(Box::new(|info| {
-        write_crash_log(info);
-        restore_terminal_if_tui();
-        eprintln!("\nRustCode crashed: {}", info);
-        if let Some(location) = info.location() {
-            eprintln!(
-                "  at {}:{}:{}",
-                location.file(),
-                location.line(),
-                location.column()
-            );
-        }
-        eprintln!("\nPlease report this at: https://gitcode.com/SecLab/RustCode/issues");
-    }));
+    // Install a minimal panic hook (no network, no telemetry) that writes
+    // the crash to stderr and the durable panic log.
+    install_crash_panic_hook();
 
     match run().await {
         Ok(code) => std::process::exit(code),
@@ -1447,51 +1392,21 @@ async fn run() -> Result<i32> {
 
     let is_admin = rustcode_capabilities::process_utils::is_running_as_admin();
 
-    // ── Telemetry init ────────────────────────────────────────────────────────
-    // Load config early (before subcommand dispatch) so we can read the
-    // [telemetry] section AND seed the offline verdict + note before any
-    // tool/persona/provider assembly. Failure to load config is non-fatal;
-    // telemetry will operate on defaults (enabled, built-in endpoint).
+    // ── Early config / offline seed ─────────────────────────────────────────
+    // Load config early (before subcommand dispatch) so we can seed the
+    // offline verdict + note before any tool/persona/provider assembly.
+    // Failure to load config is non-fatal.
     let config_path_for_tel = cli.config.clone().unwrap_or_else(Config::default_path);
     let early_config = if config_path_for_tel.exists() {
         Config::load(&config_path_for_tel).ok()
     } else {
         None
     };
-    let telemetry_cfg = early_config
-        .as_ref()
-        .map(|c| c.telemetry.clone())
-        .unwrap_or_default();
 
-    // Seed the offline verdict + note ONCE from config + env, before any tool/telemetry assembly.
+    // Seed the offline verdict + note ONCE from config + env, before any
+    // tool/provider assembly.
     rustcode_config::config::offline::seed_offline_from_config(early_config.as_ref());
-    let rustcode_dir = Config::config_dir();
-    let cli_override = CliOverride {
-        disabled: cli.no_telemetry,
-    };
-    let resolved = resolve(
-        &telemetry_cfg,
-        &cli_override,
-        rustcode_dir.clone(),
-        &ProcessEnv,
-        rustcode_config::config::offline::is_offline_active(),
-    );
-
-    // First-run notice: only show when telemetry would be active.
-    if resolved.state.is_enabled() {
-        if let Ok(true) = notice::should_show_and_mark(&resolved.rustcode_dir) {
-            eprintln!("{}", notice::NOTICE_TEXT);
-        }
-    }
-
-    let telemetry = Telemetry::init(resolved.clone(), env!("CARGO_PKG_VERSION").into());
-    install_panic_hook(telemetry.clone());
-
-    // Emit install_completed if this is the first launch after a referral install
-    telemetry
-        .maybe_emit_install_completed(&resolved.rustcode_dir)
-        .await;
-    // ── End telemetry init ────────────────────────────────────────────────────
+    // ── End early config / offline seed ──────────────────────────────────────
 
     // Handle subcommands. Most are self-contained (`handle_command` runs
     // and exits); `Login` (and its hidden alias `Codingplan`) run the
@@ -1532,42 +1447,17 @@ async fn run() -> Result<i32> {
                 // Emits open_rustcode (mode=headless) then take_codingplan
                 // (emitted internally by run_codingplan_core via coding_plan::run).
                 HEADLESS_MODE.store(true, Ordering::Relaxed);
-                let repo = rustcode_telemetry::detect_repo_origin(
-                    &std::env::current_dir().unwrap_or_default(),
-                );
-                telemetry.set_account_id(auth::get_stored_auth().map(|a| a.user.id.to_string()));
-                let scope_ctx = CurrentContext {
-                    repo_origin: Some(repo),
-                    mode: Some(SessionMode::Headless),
-                    ..CurrentContext::current()
-                };
-                // Emit the open event inside the async task-local scope — this
-                // is a cheap, non-blocking mpsc send.
-                let dsp = cli.dangerously_skip_permissions;
-                let tel_for_event = telemetry.clone();
-                CurrentContext::scope(scope_ctx.clone(), || async move {
-                    tel_for_event.track(Event::OpenRustcode {
-                        dangerously_skip_permissions: dsp,
-                    });
-                })
-                .await;
                 // The OAuth + claim flow is fully synchronous and builds a
                 // `reqwest::blocking` client, which stands up its own tokio
                 // runtime. Running it directly on an async worker thread panics
                 // when that inner runtime is dropped ("Cannot drop a runtime in
                 // a context where blocking is not allowed"). Move it onto a
                 // dedicated blocking thread — the same convention the plugin
-                // bootstrap uses — and re-establish the telemetry task-local
-                // there, since spawn_blocking threads don't inherit it.
+                // bootstrap uses.
                 let outcome = {
-                    let telemetry = telemetry.clone();
-                    tokio::task::spawn_blocking(move || {
-                        CurrentContext::scope_blocking(scope_ctx, || {
-                            run_codingplan_core(Some(&telemetry))
-                        })
-                    })
-                    .await
-                    .unwrap_or_else(|e| Err(anyhow::anyhow!("codingplan login task failed: {e}")))
+                    tokio::task::spawn_blocking(move || run_codingplan_core())
+                        .await
+                        .unwrap_or_else(|e| Err(anyhow::anyhow!("codingplan login task failed: {e}")))
                 };
                 match outcome {
                     Ok(report) => {
@@ -1604,13 +1494,10 @@ async fn run() -> Result<i32> {
                             .and_then(|s| s.parse().ok())
                     })
                     .unwrap_or(30 * 60);
-                let startup_mode = match client.as_deref() {
-                    Some("vscode") => rustcode_telemetry::SessionMode::Vscode,
-                    Some("jetbrains") => rustcode_telemetry::SessionMode::Jetbrains,
-                    Some("webui") => rustcode_telemetry::SessionMode::Webui,
-                    Some("rustcode-air") => rustcode_telemetry::SessionMode::RustcodeAir,
-                    _ => rustcode_telemetry::SessionMode::Ide,
-                };
+                // `--client` is NOT telemetry: the daemon uses it for permission
+                // enforcement and the Webui interactive-input path.
+                let startup_mode =
+                    rustcode_daemon::client_mode::resolve_client_mode(client.as_deref().unwrap_or("ide"));
                 let token_store = rustcode_daemon::auth_token::WebuiTokenStore::new();
                 let daemon_token = rustcode_daemon::resolve_daemon_token(
                     std::env::var("RUSTCODE_DAEMON_TOKEN").ok(),
@@ -1619,9 +1506,6 @@ async fn run() -> Result<i32> {
                 let res = rustcode_daemon::run_server(rustcode_daemon::ServerOpts {
                     host: "127.0.0.1".to_string(),
                     port,
-                    cli_override: CliOverride {
-                        disabled: cli.no_telemetry,
-                    },
                     idle_timeout_secs: idle,
                     startup_mode,
                     webui_tokens: Some(token_store),
@@ -1632,9 +1516,6 @@ async fn run() -> Result<i32> {
                     daemon_token_file: Some(daemon_token),
                 })
                 .await;
-                telemetry
-                    .shutdown(std::time::Duration::from_millis(500))
-                    .await;
                 if let Err(e) = res {
                     eprintln!("Fatal: daemon server error: {e:#}");
                     return Ok(1);
@@ -1654,41 +1535,11 @@ async fn run() -> Result<i32> {
                 eprintln!("{msg}");
                 // server 是后台 task；保持进程存活直到用户 Ctrl+C
                 let _ = tokio::signal::ctrl_c().await;
-                // Shutdown telemetry after Ctrl+C.
-                telemetry
-                    .shutdown(std::time::Duration::from_millis(500))
-                    .await;
-                return Ok(0);
-            }
-            Commands::Telemetry { action } => {
-                HEADLESS_MODE.store(true, Ordering::Relaxed);
-                let config_file_path = Config::default_path();
-                match action {
-                    TelemetryAction::Status => {
-                        telemetry_cmd::status(&rustcode_dir, &telemetry_cfg)?
-                    }
-                    TelemetryAction::Enable => telemetry_cmd::enable(&config_file_path)?,
-                    TelemetryAction::Disable => {
-                        telemetry_cmd::disable(&config_file_path, &telemetry).await?
-                    }
-                    TelemetryAction::Dump { last, pretty } => {
-                        telemetry_cmd::dump(&rustcode_dir, last, pretty)?
-                    }
-                    TelemetryAction::Clear => telemetry_cmd::clear(&rustcode_dir)?,
-                    TelemetryAction::Recover => telemetry_cmd::recover(&rustcode_dir)?,
-                }
-                // Flush telemetry before exiting.
-                telemetry
-                    .shutdown(std::time::Duration::from_millis(500))
-                    .await;
                 return Ok(0);
             }
             Commands::Setup { force } => {
                 HEADLESS_MODE.store(true, Ordering::Relaxed);
                 let exit_code = run_setup_command(force);
-                telemetry
-                    .shutdown(std::time::Duration::from_millis(500))
-                    .await;
                 return Ok(exit_code);
             }
             Commands::Acp => {
@@ -1712,8 +1563,6 @@ async fn run() -> Result<i32> {
                     &config,
                     &working_dir,
                     cli.provider.as_deref(),
-                    // No telemetry injection into ACP sessions (each is independent).
-                    None,
                     cli.dangerously_skip_permissions,
                     // ACP sessions are interactive: approval prompts park until the
                     // client answers (not fail-closed like headless -p).
@@ -1827,7 +1676,6 @@ async fn run() -> Result<i32> {
                                     &cfg,
                                     &dir,
                                     provider.as_deref(),
-                                    None,
                                     skip,
                                     true,
                                 );
@@ -1859,7 +1707,6 @@ async fn run() -> Result<i32> {
                                     &cfg,
                                     &dir,
                                     provider.as_deref(),
-                                    None,
                                     skip,
                                     true,
                                 );
@@ -1871,10 +1718,6 @@ async fn run() -> Result<i32> {
                         );
                         resolver
                     });
-                // Flush telemetry before the long-running stdio loop.
-                telemetry
-                    .shutdown(std::time::Duration::from_millis(500))
-                    .await;
                 return rustcode::acp::serve_stdio(rustcode::acp::AcpServeOptions {
                     engine: Some(engine),
                     provider_factory: Some(provider_factory),
@@ -1893,19 +1736,10 @@ async fn run() -> Result<i32> {
                 // every Ok to 0, which would report every scheduled run as success.
                 HEADLESS_MODE.store(true, Ordering::Relaxed);
                 let code = schedule_cmd::handle_schedule(sub).await?;
-                telemetry
-                    .shutdown(std::time::Duration::from_millis(500))
-                    .await;
                 return Ok(code);
             }
             other => {
-                let result = handle_command(other, &telemetry).await.map(|_| 0);
-                // Flush any events emitted by the subcommand (e.g. login_success)
-                // before the process exits. Bounded by the same 500ms budget as
-                // other exit paths.
-                telemetry
-                    .shutdown(std::time::Duration::from_millis(500))
-                    .await;
+                let result = handle_command(other).await.map(|_| 0);
                 return result;
             }
         }
@@ -2057,7 +1891,6 @@ async fn run() -> Result<i32> {
         &config,
         &working_dir,
         cli.provider.as_deref(),
-        Some(telemetry.clone()),
         cli.dangerously_skip_permissions,
         // Interactive (TUI) ⇒ approvals park until answered; headless (`-p`) keeps the
         // fail-closed timeout so an unanswered approval can't park the run forever.
@@ -2138,7 +1971,6 @@ async fn run() -> Result<i32> {
     // `--provider` is applied to that config above, so the override remains authoritative
     // for live views and subsequent runtime respawns without being persisted to disk.
     let runtime_spawn_override: rustcode_tuix::RuntimeSpawnOverride = {
-        let tel = telemetry.clone();
         // Capture the bypass flag so in-TUI re-spawns also honor
         // --dangerously-skip-permissions — not just the launch handle.
         let skip_perms = cli.dangerously_skip_permissions;
@@ -2150,7 +1982,6 @@ async fn run() -> Result<i32> {
                     config,
                     working_dir,
                     None,
-                    Some(tel.clone()),
                     skip_perms,
                     // In-TUI re-spawns (/session, /bg, /resume) are always interactive.
                     true,
@@ -2192,43 +2023,7 @@ async fn run() -> Result<i32> {
     // login action this run; login()/logout() update it later as needed.
     // mode: Headless when a prompt is supplied (-p / --prompt-file);
     //       Tui when the user launches the interactive terminal UI.
-    let repo = rustcode_telemetry::detect_repo_origin(
-        &std::env::current_dir().unwrap_or_else(|_| working_dir.clone()),
-    );
-    telemetry.set_account_id(auth::get_stored_auth().map(|a| a.user.id.to_string()));
-    let session_mode = if effective_prompt.is_some() {
-        SessionMode::Headless
-    } else {
-        SessionMode::Tui
-    };
-    // Launch-level fallback: any telemetry emitted outside a mode-bearing
-    // CurrentContext scope (e.g. an un-scoped spawned task) attributes to this
-    // process mode instead of `null`. Per-scope mode still overrides it.
-    telemetry.set_default_mode(Some(session_mode));
-    // Bind telemetry to the continued session's id (if any). A fresh run needs
-    // nothing here: the agent bootstraps telemetry + header + datalog from its
-    // own session id. The TUI manages its own binding via
-    // `bind_telemetry_to_session`.
-    if let Some(ref s) = session_to_continue {
-        if let Ok(uuid) = uuid::Uuid::parse_str(s.id.as_str()) {
-            telemetry.set_session_id(uuid);
-        }
-    }
-    let scope_ctx = CurrentContext {
-        repo_origin: Some(repo),
-        mode: Some(session_mode),
-        ..CurrentContext::current()
-    };
-
-    let result = CurrentContext::scope(scope_ctx, || async {
-        // Emit open_rustcode once at agent-flow entry. Meta-commands
-        // (--version, --help, --update, login, logout, status, upgrade,
-        // rollback, telemetry) return via handle_command before reaching
-        // this point and must NOT emit open_rustcode.
-        telemetry.track(Event::OpenRustcode {
-            dangerously_skip_permissions: cli.dangerously_skip_permissions,
-        });
-
+    let result = async {
         // Language for the on-exit resume hint (mirrors the resolved UI locale).
         let hint_zh = cli
             .lang
@@ -2243,9 +2038,9 @@ async fn run() -> Result<i32> {
             let verbose = cli.verbose || force_verbose;
             let capture = false;
             // Don't `?`-propagate here: an error must still fall through to the
-            // telemetry.shutdown() below, otherwise this session's un-drained
-            // mpsc events are lost. Capture the Result and let it bubble up only
-            // *after* the flush. The run routes through the native runtime handle.
+            // end of the session so its Result is returned. Capture the Result
+            // and let it bubble up only after the run completes. The run routes
+            // through the native runtime handle.
             let notifications_cfg = config.notifications.clone();
             let engine_runtime = native_headless_runtime
                 .take()
@@ -2342,7 +2137,6 @@ async fn run() -> Result<i32> {
                 working_dir,
                 session_to_continue,
                 startup_notice,
-                telemetry.clone(),
                 cli.dangerously_skip_permissions,
                 is_admin,
             )
@@ -2359,16 +2153,8 @@ async fn run() -> Result<i32> {
             tui_result
         };
 
-        // Flush telemetry on EVERY exit path — Ok and Err alike. Both session
-        // arms above return their Result into `exit_code` instead of using `?`,
-        // so an errored TUI/headless run still drains the in-memory mpsc queue
-        // here before the error bubbles up to async_main's exit(1). Without this
-        // the tail of any session that ended in an error was silently dropped.
-        telemetry
-            .shutdown(std::time::Duration::from_millis(500))
-            .await;
         exit_code
-    })
+    }
     .await;
 
     result
@@ -2650,7 +2436,6 @@ pub(crate) fn runtime_config_from(
     config: &rustcode_config::config::Config,
     working_dir: &std::path::Path,
     provider_override: Option<&str>,
-    telemetry: Option<std::sync::Arc<rustcode_telemetry::Telemetry>>,
     dangerously_skip_permissions: bool,
     interactive: bool,
 ) -> rustcode_coding::CodingRuntimeConfig {
@@ -2658,7 +2443,6 @@ pub(crate) fn runtime_config_from(
         config,
         working_dir,
         provider_override,
-        telemetry,
         dangerously_skip_permissions,
         interactive,
     );
@@ -3352,7 +3136,7 @@ fn run_setup_command(force: bool) -> i32 {
 }
 
 /// Handle subcommands (login, logout, status)
-async fn handle_command(cmd: Commands, telemetry: &std::sync::Arc<Telemetry>) -> Result<()> {
+async fn handle_command(cmd: Commands) -> Result<()> {
     // Subcommands never enter TUI, so tell the panic hook to skip terminal
     // cleanup — otherwise `disable_raw_mode` panics on Windows with
     // "initial console mode not set" because raw mode was never enabled.
@@ -3373,7 +3157,6 @@ async fn handle_command(cmd: Commands, telemetry: &std::sync::Arc<Telemetry>) ->
         }
         Commands::Logout => {
             auth::logout()?;
-            telemetry.set_account_id(None);
             println!("  You have been logged out.");
             Ok(())
         }
@@ -3413,9 +3196,6 @@ async fn handle_command(cmd: Commands, telemetry: &std::sync::Arc<Telemetry>) ->
             // Hidden alias for Login — `run()` intercepts both before
             // handle_command is called, so this arm is unreachable.
             unreachable!("Codingplan is handled inline in run() before handle_command")
-        }
-        Commands::Telemetry { .. } => {
-            unreachable!("Telemetry is handled inline in run() before handle_command")
         }
         Commands::Daemon { .. } => {
             unreachable!("Daemon is handled inline in run() before handle_command")
@@ -4151,9 +3931,7 @@ fn run_rollback_cli() -> Result<()> {
 /// `coding_plan::setup` orchestrator, persists the config on success,
 /// and returns the rendered human-readable report — the caller decides
 /// whether to print it to stdout or stash it for the TUI to surface.
-fn run_codingplan_core(
-    telemetry: Option<&std::sync::Arc<rustcode_telemetry::Telemetry>>,
-) -> Result<String> {
+fn run_codingplan_core() -> Result<String> {
     let path = Config::default_path();
     // Missing config is legitimate on first install — start from defaults
     // so the flow can still add AtomGit providers to a fresh config.toml.
@@ -4173,19 +3951,17 @@ fn run_codingplan_core(
     // do itself.
     let mut report = rustcode_codingplan::run(
         &mut config,
-        telemetry,
         rustcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
     )?;
     if report.auth_expired {
         use rustcode_config::i18n::{t, Msg};
         print!("{}", t(Msg::CpReauthAfter401));
-        match rustcode_auth::login(telemetry)
+        match rustcode_auth::login()
             .and_then(|auth| rustcode_auth::save_auth(&auth).map(|_| auth))
         {
             Ok(_) => {
                 report = rustcode_codingplan::run(
                     &mut config,
-                    telemetry,
                     rustcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
                 )?;
             }
@@ -4239,12 +4015,11 @@ static CRASH_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 /// durable **before** the hook returns and the runtime calls `abort()`
 /// (`panic = "abort"` in the release profile).
 ///
-/// Why this exists: with `abort`, neither of the existing report paths
-/// survives a crash — stderr is lost when the terminal window closes (Windows
-/// resize crash), and `Telemetry::track` is async (mpsc → background tokio
-/// writer), so abort kills the writer mid-segment and the `.partial` queue file
-/// is discarded. A blocking, fsync'd file write is the only sink that survives.
-/// Best-effort: every step swallows errors so the hook never re-panics.
+/// Why this exists: with `abort`, stderr is lost when the terminal window
+/// closes (Windows resize crash), and any other reporting path similarly
+/// fails to flush. A blocking, fsync'd file write is the only sink that
+/// survives a crash. Best-effort: every step swallows errors so the hook
+/// never re-panics.
 fn write_crash_log(info: &std::panic::PanicHookInfo<'_>) {
     use std::io::Write;
     use std::sync::atomic::Ordering;
@@ -4297,54 +4072,24 @@ fn write_crash_log(info: &std::panic::PanicHookInfo<'_>) {
     let _ = f.sync_all();
 }
 
-/// Install the telemetry-aware panic hook. Replaces the minimal pre-init hook
-/// set in `main()` so panics are both reported cleanly to the terminal AND
-/// sent as a `Panic` telemetry event before the process exits.
-fn install_panic_hook(telemetry: std::sync::Arc<rustcode_telemetry::Telemetry>) {
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        // Durable crash log FIRST — before restore_terminal / async telemetry /
-        // abort, any of which can lose the panic on Windows (see write_crash_log).
+/// Install a minimal panic hook that writes the crash to stderr and the
+/// durable panic log (no network, no telemetry). Replaces the default
+/// std hook so crashes are reported cleanly even before any subsystem
+/// is initialized.
+fn install_crash_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
         write_crash_log(info);
         restore_terminal_if_tui();
-        let home = rustcode_config::util::real_home_dir();
-        let cwd = std::env::current_dir().ok();
-        let loc = info
-            .location()
-            .map(|l| format!("{}:{}", l.file(), l.line()))
-            .unwrap_or_else(|| "unknown".into());
-        let msg = info
-            .payload()
-            .downcast_ref::<&str>()
-            .map(|s| s.to_string())
-            .or_else(|| info.payload().downcast_ref::<String>().cloned())
-            .unwrap_or_default();
-        let bt = std::backtrace::Backtrace::force_capture().to_string();
-        let scrubbed_loc =
-            rustcode_telemetry::scrub::scrub_path(&loc, home.as_deref(), cwd.as_deref());
-        let scrubbed_msg = rustcode_telemetry::scrub::truncate_head(
-            &rustcode_telemetry::scrub::scrub_path(&msg, home.as_deref(), cwd.as_deref()),
-            rustcode_telemetry::scrub::HEAD_MAX,
-        );
-        let frames =
-            rustcode_telemetry::scrub::backtrace_top_k(&bt, 5, home.as_deref(), cwd.as_deref());
-        telemetry.track(rustcode_telemetry::Event::Panic {
-            location: scrubbed_loc,
-            message_head: scrubbed_msg,
-            thread: std::thread::current().name().unwrap_or("unknown").into(),
-            backtrace_top_5: frames,
-            error_kind: Some("panic".to_string()),
-            error_data: Some(
-                serde_json::json!({
-                    "session_duration_secs": telemetry.uptime().as_secs() as u32,
-                    "turns_completed": null,
-                    "last_tool_name": null,
-                    "last_event": null,
-                })
-                .to_string(),
-            ),
-        });
-        default_hook(info);
+        eprintln!("\nRustCode crashed: {}", info);
+        if let Some(location) = info.location() {
+            eprintln!(
+                "  at {}:{}:{}",
+                location.file(),
+                location.line(),
+                location.column()
+            );
+        }
+        eprintln!("\nPlease report this at: https://gitcode.com/SecLab/RustCode/issues");
     }));
 }
 
@@ -4524,7 +4269,7 @@ mod tests {
             |args: &[&str]| is_completion_invocation(args.iter().map(std::ffi::OsString::from));
 
         assert!(invocation(&["completion", "zsh"]));
-        assert!(invocation(&["--no-telemetry", "completion", "fish"]));
+        assert!(invocation(&["--config", "/tmp/config.toml", "completion", "fish"]));
         assert!(invocation(&[
             "--config",
             "/tmp/config.toml",
@@ -4634,7 +4379,7 @@ mod tests {
         let wd = PathBuf::from("/tmp/x");
 
         // No override → the config default (gateway), no reasoning_history set.
-        let def = runtime_config_from(&config, &wd, None, None, false, false);
+        let def = runtime_config_from(&config, &wd, None, false, false);
         assert_eq!(def.base_url, "https://llm-api.atomgit.com/v1");
         assert_eq!(def.model, "gw-model");
         assert_eq!(def.provider_name, "gateway");
@@ -4642,7 +4387,7 @@ mod tests {
 
         // `--provider direct` → that provider's endpoint/model/key + its per-provider
         // reasoning_history override, NOT the default.
-        let ov = runtime_config_from(&config, &wd, Some("direct"), None, false, false);
+        let ov = runtime_config_from(&config, &wd, Some("direct"), false, false);
         assert_eq!(ov.base_url, "https://api.deepseek.com");
         assert_eq!(ov.model, "direct-model");
         assert_eq!(ov.provider_name, "direct");
@@ -4672,7 +4417,6 @@ mod tests {
             &config,
             std::path::Path::new("/tmp"),
             None,
-            None,
             false,
             true,
         );
@@ -4685,7 +4429,6 @@ mod tests {
         let empty_runtime_cfg = runtime_config_from(
             &rustcode_config::config::Config::default(),
             std::path::Path::new("/tmp"),
-            None,
             None,
             false,
             true,
@@ -4728,7 +4471,6 @@ mod tests {
             &config,
             std::path::Path::new("/tmp"),
             None,
-            None,
             false,
             true,
         );
@@ -4761,7 +4503,7 @@ mod tests {
         let wd = PathBuf::from("/tmp/x");
 
         // Default (headless / ACP / daemon behavior): checkpoint stays off.
-        let mut cfg = runtime_config_from(&config, &wd, None, None, false, true);
+        let mut cfg = runtime_config_from(&config, &wd, None, false, true);
         assert!(!cfg.round_cap_checkpoint, "defaults off");
         assert!(
             !cfg.agent_config().round_cap_checkpoint,

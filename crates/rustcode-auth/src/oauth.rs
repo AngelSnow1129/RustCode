@@ -1059,7 +1059,7 @@ fn accept_callback_until_stopped(
             let key = parts.next()?;
             let value = parts
                 .next()
-                .map(|v| urlencoding_decode(v))
+                .map(urlencoding_decode)
                 .unwrap_or_default();
             Some((key.to_string(), value))
         })
@@ -1550,7 +1550,7 @@ fn parse_pasted_callback(input: &str) -> Result<(String, String)> {
             let key = parts.next()?;
             let value = parts
                 .next()
-                .map(|v| urlencoding_decode(v))
+                .map(urlencoding_decode)
                 .unwrap_or_default();
             Some((key.to_string(), value))
         })

@@ -206,6 +206,7 @@ impl LlmProvider for AnthropicProvider {
         let idle = self.cfg.idle_timeout;
         let open_timeout = self.cfg.open_timeout;
         let rate_limit_retry_owner = options.rate_limit_retry_owner;
+        let extra_headers = self.cfg.extra_headers.clone();
         let resp = open_stream(
             &client,
             &url,
@@ -216,6 +217,7 @@ impl LlmProvider for AnthropicProvider {
             &policy,
             rate_limit_retry_owner,
             open_timeout,
+            &extra_headers,
         )
         .await?;
 
@@ -268,7 +270,7 @@ impl LlmProvider for AnthropicProvider {
                                 // immediate retry does not slam a gateway resetting under load.
                                 tokio::time::sleep(retry::compute_backoff(stream_attempt, &policy)).await;
                                 if let Ok(fresh) =
-                                    open_stream(&client, &url, &body, &api_key, &anthropic_version, &session_id, &policy, rate_limit_retry_owner, open_timeout).await
+                                    open_stream(&client, &url, &body, &api_key, &anthropic_version, &session_id, &policy, rate_limit_retry_owner, open_timeout, &extra_headers).await
                                 {
                                     stream_attempt += 1;
                                     resp = fresh;
@@ -333,6 +335,7 @@ async fn open_stream(
     policy: &RetryPolicy,
     rate_limit_retry_owner: rustcode_kernel::provider::RateLimitRetryOwner,
     open_timeout: Duration,
+    extra_headers: &Option<std::collections::HashMap<String, String>>,
 ) -> Result<reqwest::Response, ProviderError> {
     let mut attempt = 1u32;
     loop {
@@ -346,7 +349,7 @@ async fn open_stream(
             req = req.header("x-rustcode-session-id", session_id);
         }
         // Self-hosted gateway custom headers (never log values). Sourced from config only.
-        if let Some(headers) = &self.cfg.extra_headers {
+        if let Some(headers) = extra_headers {
             for (name, value) in headers {
                 req = req.header(name.as_str(), value.as_str());
             }
@@ -670,7 +673,7 @@ fn format_assistant_message(m: &Message, echo_thinking: bool) -> Value {
     let echoable = |b: &rustcode_kernel::message::ReasoningBlock| {
         echo_thinking && b.provider.as_deref() == Some("anthropic")
     };
-    let has_echo = m.reasoning_blocks.iter().any(|b| echoable(b));
+    let has_echo = m.reasoning_blocks.iter().any(&echoable);
     if m.tool_calls.is_empty() && !has_echo {
         // Pure-text assistant turn — keep it a STRING.
         return json!({ "role": "assistant", "content": m.text });

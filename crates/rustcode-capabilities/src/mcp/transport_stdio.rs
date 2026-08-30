@@ -477,12 +477,9 @@ impl StdioClient {
                          duplicate side effects, and stdio recovery continues in the background",
                     );
                 }
-                if let Err(reconnect_error) = self
+                self
                     .reconnect_after_failure(attempt.generation, &attempt.error)
-                    .await
-                {
-                    return Err(reconnect_error);
-                }
+                    .await?;
                 match self.send_request(method, params).await {
                     Ok(value) => Ok(value),
                     Err(retry) => {

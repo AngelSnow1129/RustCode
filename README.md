@@ -46,6 +46,20 @@ RustCode is an AI coding agent that lives in your terminal. Give it a task in na
 
 Think of it as an open-source alternative to Claude Code / Cursor Agent, but running entirely in your terminal and connecting to any OpenAI-compatible API.
 
+---
+
+> **Fork notice.** This repository is a secondary-development fork of
+> [SecLab/RustCode](https://gitcode.com/SecLab/RustCode) (origin
+> `atomgit_atomcode/atomcode`). Relative to upstream it (1) renames the product
+> to `rustcode` (crates, binaries, config dir `~/.rustcode`, `RUSTCODE_*` env
+> vars); (2) removes **all** telemetry/analytics — the `rustcode-telemetry`
+> crate and every reporting call site are gone; (3) decouples the LLM client from
+> the upstream AtomGit signing gateway and adds `openai-compatible` /
+> `anthropic-compatible` provider types plus `extra_headers` / `proxy` config for
+> self-hosted endpoints. The original MIT license and copyright (© 2026 Yubang
+> Xu) are preserved in [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md), with
+> full attribution in [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md).
+
 ## Features
 
 ### Agent Loop
@@ -148,7 +162,10 @@ See [Permission Model](./docs/security/permission-model.md) for the full design 
 
 ### Privacy
 
-- 📊 Anonymous telemetry (opt-out) — see [docs/telemetry.md](docs/telemetry.md)
+- [CHECK] Zero telemetry — this fork (RustCode) has removed the entire reporting
+  pipeline (`rustcode-telemetry` crate deleted). No events, usage stats, or crash
+  reports are sent anywhere. See [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)
+  and [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md) for provenance.
 
 ## Installation
 

@@ -134,9 +134,9 @@
 - Modify: `crates/atomcode-coding/src/runtime.rs`
 - Modify as required: `crates/atomcode-cli/src/main.rs`
 - Modify as required: `crates/atomcode-cli/src/acp/engine.rs`
-- Modify as required: `crates/atomcode-daemon/src/live_api.rs`
-- Modify as required: `crates/atomcode-daemon/src/native_live.rs`
-- Modify as required: `crates/atomcode-daemon/src/commands.rs`
+- Modify as required: `crates/rustcode-daemon/src/live_api.rs`
+- Modify as required: `crates/rustcode-daemon/src/native_live.rs`
+- Modify as required: `crates/rustcode-daemon/src/commands.rs`
 
 **Steps:**
 
@@ -151,7 +151,7 @@
    ```bash
    cargo test -p atomcode-coding --offline
    cargo test -p atomcode --offline
-   cargo test -p atomcode-daemon --offline
+   cargo test -p rustcode-daemon --offline
    ```
 
 7. Commit:
@@ -163,12 +163,12 @@
 ### Task 6: Add versioned daemon account/model APIs
 
 **Files:**
-- Create: `crates/atomcode-daemon/src/api_provider_account.rs`
-- Create: `crates/atomcode-daemon/src/api_model.rs`
-- Modify: `crates/atomcode-daemon/src/lib.rs`
-- Modify: `crates/atomcode-daemon/src/api_config.rs`
-- Preserve: `crates/atomcode-daemon/src/api_provider.rs`
-- Update: `crates/atomcode-daemon/README.md`
+- Create: `crates/rustcode-daemon/src/api_provider_account.rs`
+- Create: `crates/rustcode-daemon/src/api_model.rs`
+- Modify: `crates/rustcode-daemon/src/lib.rs`
+- Modify: `crates/rustcode-daemon/src/api_config.rs`
+- Preserve: `crates/rustcode-daemon/src/api_provider.rs`
+- Update: `crates/rustcode-daemon/README.md`
 
 **Steps:**
 
@@ -180,8 +180,8 @@
 6. Run:
 
    ```bash
-   cargo test -p atomcode-daemon api_provider --offline
-   cargo test -p atomcode-daemon api_model --offline
+   cargo test -p rustcode-daemon api_provider --offline
+   cargo test -p rustcode-daemon api_model --offline
    ```
 
 7. Commit:
@@ -249,7 +249,7 @@
 **Files:**
 - Create: `crates/atomcode-config/src/config/model_catalog.rs`
 - Modify: `crates/atomcode-config/src/config/provider_preset.rs`
-- Modify: `crates/atomcode-daemon/src/api_provider_account.rs`
+- Modify: `crates/rustcode-daemon/src/api_provider_account.rs`
 - Test: relevant config and daemon modules
 
 **Steps:**
@@ -274,7 +274,7 @@
 ### Task 10: Cross-surface acceptance and documentation
 
 **Files:**
-- Update: `crates/atomcode-daemon/README.md`
+- Update: `crates/rustcode-daemon/README.md`
 - Update or create: `docs/testing/provider-accounts-model-profiles-acceptance.md`
 - Update user-facing configuration documentation discovered during implementation
 

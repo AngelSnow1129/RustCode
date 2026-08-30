@@ -17,7 +17,7 @@ Exactly 7 event types, each with a common "envelope" of identifiers/metadata.
 
 | Field | Meaning |
 |---|---|
-| `device_id` | UUIDv4 generated on first run, stored at `~/.atomcode/device_id`. Persists across login/logout. Resets only if you delete `~/.atomcode/`. |
+| `device_id` | UUIDv4 generated on first run, stored at `~/.rustcode/device_id`. Persists across login/logout. Resets only if you delete `~/.rustcode/`. |
 | `account_id` | Your AtomGit user ID — only included when logged in. |
 | `session_id` | Per process launch (CLI) or per conversation session (daemon). |
 | `mode` | Event source: `headless` (non-interactive CLI), `tui` (interactive CLI), `ide` (daemon process serving IDE integrations). |
@@ -53,10 +53,10 @@ If you find any of the above leaking in a real event, please file an issue at
 
 Any one of these works (higher precedence overrides lower):
 
-1. `export ATOMCODE_TELEMETRY=0` (environment, single process)
+1. `export RUSTCODE_TELEMETRY=0` (environment, single process)
 2. `export DO_NOT_TRACK=1` (industry-standard signal)
 3. `atomcode --no-telemetry <command>` (single invocation)
-4. `atomcode telemetry disable` (persistent — writes to `~/.atomcode/config.toml`)
+4. `atomcode telemetry disable` (persistent — writes to `~/.rustcode/config.toml`)
 
 `atomcode telemetry status` shows which rule applies.
 
@@ -76,7 +76,7 @@ Telemetry: enabled
 or, if disabled:
 
 ```
-Telemetry: disabled (reason: env:ATOMCODE_TELEMETRY=0)
+Telemetry: disabled (reason: env:RUSTCODE_TELEMETRY=0)
 ```
 
 The reason string matches the output of `atomcode telemetry status`.
@@ -108,8 +108,8 @@ The daemon and CLI share the same on-disk identity and queue:
 
 | Path | Purpose |
 |---|---|
-| `~/.atomcode/device_id` | Stable device UUID (created on first run by whichever process starts first) |
-| `~/.atomcode/telemetry/queue/` | NDJSON event queue — both processes write segments concurrently using a claim-based mechanism to avoid corruption |
+| `~/.rustcode/device_id` | Stable device UUID (created on first run by whichever process starts first) |
+| `~/.rustcode/telemetry/queue/` | NDJSON event queue — both processes write segments concurrently using a claim-based mechanism to avoid corruption |
 
 New AtomCode versions mark and lock active `.partial` segments. A marked file
 left by an interrupted process is validated and recovered automatically while
@@ -123,7 +123,7 @@ inactive ready, partial, and quarantined data while skipping files locked by a
 running process.
 
 No daemon-specific files are introduced. Both processes read the same
-`~/.atomcode/config.toml` for the `[telemetry].enabled` setting.
+`~/.rustcode/config.toml` for the `[telemetry].enabled` setting.
 
 ### Filtering daemon events
 

@@ -51,7 +51,7 @@ fn format_version(v: (u64, u64, u64)) -> String {
 
 /// Apply the process proxy policy to an async reqwest builder. Self-contained
 /// over the config leaf's proxy env machinery — mirrors the identical per-layer
-/// helpers in `rustcode-capabilities`/`rustcode-telemetry`.
+/// helpers in `rustcode-capabilities`.
 fn apply_async_proxy_policy(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     rustcode_config::proxy::ensure_runtime_initialized();
     let builder = if std::env::var(rustcode_config::proxy::MODE_ENV)

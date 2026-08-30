@@ -287,7 +287,6 @@ async fn exec_native_compact(
     arg: &str,
     session: NativeCommandSession,
     working_dir: &std::path::Path,
-    telemetry: Arc<rustcode_telemetry::Telemetry>,
 ) -> anyhow::Result<CommandResult> {
     let config =
         rustcode_config::config::Config::load(&rustcode_config::config::Config::default_path())?;
@@ -304,7 +303,7 @@ async fn exec_native_compact(
     // yielding a kernel-native `LlmProvider` directly — no core provider, no adapter.
     // `build` may do blocking auth I/O (gateway token), so run it off the async runtime.
     let coding_cfg = crate::kernel_runtime::coding_config_from_runtime(
-        &crate::live_api::chat_runtime_config(&config, &resolved, working_dir, telemetry),
+        &crate::live_api::chat_runtime_config(&config, &resolved, working_dir),
     );
     let factory = crate::runtime_host::coding_provider_factory();
     let provider = tokio::task::spawn_blocking(move || factory.build(&coding_cfg, None))
@@ -441,12 +440,11 @@ async fn exec_compact(
     session_id: Option<&str>,
     provider: Option<&str>,
     arg: &str,
-    telemetry: Arc<rustcode_telemetry::Telemetry>,
 ) -> anyhow::Result<CommandResult> {
     let sid = session_id.ok_or_else(|| anyhow::anyhow!("session_id required for compact"))?;
     let native = load_native_command_session(working_dir, project_hash, sid)?
         .ok_or_else(|| anyhow::anyhow!("session {sid:?} not found"))?;
-    exec_native_compact(provider, arg, native, working_dir, telemetry).await
+    exec_native_compact(provider, arg, native, working_dir).await
 }
 
 fn exec_whoami() -> anyhow::Result<CommandResult> {
@@ -814,7 +812,6 @@ pub(crate) async fn run_command(
                 req.session_id.as_deref(),
                 req.provider.as_deref(),
                 &req.arg,
-                state.telemetry.clone(),
             )
             .await
         }

@@ -346,6 +346,8 @@ pub(crate) fn chat_runtime_config(
         // auxiliary model request until that driver renders the suggestion.
         next_prompt_suggestions: false,
         lsp: rustcode_coding::config::lsp_settings_from_config(&config.lsp),
+        extra_headers: p.and_then(|p| p.extra_headers.clone()),
+        proxy: p.and_then(|p| p.proxy.clone()),
     }
 }
 
@@ -1684,7 +1686,7 @@ async fn preprocess_live_caption(
 
 pub(crate) async fn live_message(
     State(state): State<AppState>,
-    Extension(_client_mode): Extension<rustcode_config::telemetry_legacy::SessionMode>,
+    Extension(_client_mode): Extension<crate::client_mode::ClientMode>,
     Json(req): Json<LiveMessageReq>,
 ) -> impl IntoResponse {
     let working_dir = { state.project.read().await.working_dir.clone() };

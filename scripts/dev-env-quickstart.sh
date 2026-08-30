@@ -21,7 +21,7 @@
 # 镜像说明:
 #   - Rust 工具链与 crates.io 均走 rsproxy.cn (字节) 国内镜像
 #   - opencode 二进制经 GitHub 镜像站 ghfast.top 加速下载 (可改 GITHUB_MIRROR 变量)
-#   - 与仓库 scripts/macos-release-windows.sh 中 ATOMCODE_USE_MIRROR=1 一致
+#   - 与仓库 scripts/macos-release-windows.sh 中 RUSTCODE_USE_MIRROR=1 一致
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -232,8 +232,8 @@ echo ""
 echo -e "${C_GREEN}${C_BOLD}开发环境就绪 ✅${C_RESET}"
 echo ""
 echo "  快速开始:"
-echo "    cargo run -p atomcode-cli          # 运行 TUI (debug)"
-echo "    cargo run -p atomcode-cli -- -p \"...\"  # headless 模式"
+echo "    cargo run -p rustcode-cli          # 运行 TUI (debug)"
+echo "    cargo run -p rustcode-cli -- -p \"...\"  # headless 模式"
 echo "    cargo test                         # 跑测试"
 echo "    cargo clippy                       # lint"
 echo "    opencode                          # 启动 opencode (可直连 OpenCode Zen)"

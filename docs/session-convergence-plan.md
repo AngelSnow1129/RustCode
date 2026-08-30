@@ -48,7 +48,7 @@ S4d 才停止。
 
 ## 3. 迁移前存储与调用关系
 
-同一 `$ATOMCODE_HOME/sessions/<project_hash>/` bucket 中存在两套存储：
+同一 `$RUSTCODE_HOME/sessions/<project_hash>/` bucket 中存在两套存储：
 
 | 文件 | 当前 writer | 当前 reader | 当前职责 |
 |---|---|---|---|

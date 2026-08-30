@@ -459,8 +459,7 @@ pub(crate) fn sanitize_next_prompt_suggestion(raw: &str) -> Option<String> {
         .trim();
     let lower = suggestion.to_ascii_lowercase();
     let char_count = suggestion.chars().count();
-    if char_count < 2
-        || char_count > 80
+    if !(2..=80).contains(&char_count)
         || matches!(lower.as_str(), "<none>" | "none" | "no suggestion")
         || suggestion
             .chars()

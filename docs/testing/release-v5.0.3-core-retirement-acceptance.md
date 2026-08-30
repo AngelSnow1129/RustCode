@@ -42,15 +42,15 @@ crates/atomcode-core/tests/fixtures/session/legacy_minimal.json
 迁移至：
 
 ```text
-crates/atomcode-daemon/tests/fixtures/session/legacy_full.json
-crates/atomcode-daemon/tests/fixtures/session/legacy_minimal.json
+crates/rustcode-daemon/tests/fixtures/session/legacy_full.json
+crates/rustcode-daemon/tests/fixtures/session/legacy_minimal.json
 ```
 
 同步修改：
 
-- `crates/atomcode-daemon/src/legacy_convert.rs`
-- `crates/atomcode-daemon/src/lib.rs`
-- `crates/atomcode-daemon/tests/legacy_turn_boundary_repair.rs`
+- `crates/rustcode-daemon/src/legacy_convert.rs`
+- `crates/rustcode-daemon/src/lib.rs`
+- `crates/rustcode-daemon/tests/legacy_turn_boundary_repair.rs`
 
 验收条件：
 
@@ -124,13 +124,13 @@ session_404_recovery.jsonl
 
 #### E. 删除失效 build script 和 proxy facade
 
-`atomcode-core/build.rs` 注入的 `ATOMCODE_BUILD_ID` 已无有效消费者；真正 CLI build ID 由 `atomcode-cli/build.rs` 提供。
+`atomcode-core/build.rs` 注入的 `RUSTCODE_BUILD_ID` 已无有效消费者；真正 CLI build ID 由 `atomcode-cli/build.rs` 提供。
 
 `atomcode-core::proxy` 同样已无生产调用方。各 HTTP 客户端已经在自己的 owner crate 中应用 proxy/TLS policy，不需要再迁移 core proxy。
 
 验收条件：
 
-- [x] CLI build script 仍独立提供 `ATOMCODE_BUILD_ID`
+- [x] CLI build script 仍独立提供 `RUSTCODE_BUILD_ID`
 - [x] core build script 和 proxy facade 已删除
 - [ ] proxy/TLS 真机矩阵通过
 
@@ -163,7 +163,7 @@ session_404_recovery.jsonl
 验证：
 
 ```bash
-cargo test -p atomcode-daemon
+cargo test -p rustcode-daemon
 cargo test -p atomcode-capabilities
 cargo test -p atomcode-coding
 cargo test -p atomcode
@@ -210,7 +210,7 @@ git diff --check
 
 执行测试前：
 
-- [ ] 备份 `~/.atomcode`
+- [ ] 备份 `~/.rustcode`
 - [ ] 记录测试二进制 commit SHA
 - [ ] 记录操作系统、终端和网络/代理环境
 - [ ] release 构建确认使用预期 crypto feature
@@ -346,7 +346,7 @@ git diff --check
 - [ ] system proxy 覆盖登录、CodingPlan、provider、MCP、updater
 - [ ] explicit HTTP/HTTPS proxy 重启后生效
 - [ ] no_proxy 确实绕过系统代理
-- [ ] `ATOMCODE_TLS_MAX=1.2` 对 AtomGit 登录和 provider 生效
+- [ ] `RUSTCODE_TLS_MAX=1.2` 对 AtomGit 登录和 provider 生效
 - [ ] Windows 默认 SChannel 可以登录和聊天
 - [ ] Windows 能访问 `acs.atomgit.com`
 - [ ] Windows 能访问 `llm-api.atomgit.com`
@@ -361,7 +361,7 @@ git diff --check
 
 - [x] `cargo check --workspace --all-targets`
 - [x] `atomcode` lib：52 tests
-- [x] `atomcode-daemon` lib：202 tests
+- [x] `rustcode-daemon` lib：202 tests
 - [x] `atomcode-tuix` lib：1633 tests
 - [x] `atomcode-capabilities` lib：1094 tests
 - [x] 迁移后的 session fixture invariants：8 tests

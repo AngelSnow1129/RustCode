@@ -1008,7 +1008,7 @@ fn decode_utf16_output(bytes: &[u8]) -> Option<String> {
     } else if bytes.starts_with(&[0xFE, 0xFF]) {
         (false, &bytes[2..], true)
     } else {
-        if bytes.len() < 8 || bytes.len() % 2 != 0 {
+        if bytes.len() < 8 || !bytes.len().is_multiple_of(2) {
             return None;
         }
         let pairs = bytes.len() / 2;
@@ -1034,7 +1034,7 @@ fn decode_utf16_output(bytes: &[u8]) -> Option<String> {
     if body.len() % 2 != 0 {
         return None;
     }
-    let units = body.chunks_exact(2).map(|pair| {
+    let units = body.as_chunks::<2>().0.iter().map(|pair| {
         if little_endian {
             u16::from_le_bytes([pair[0], pair[1]])
         } else {
@@ -2179,7 +2179,7 @@ const READ_ONLY_BASH_ALLOWLIST: &[&str] = &[
 fn parse_bash(command: &str) -> Option<tree_sitter::Tree> {
     use std::cell::RefCell;
     thread_local! {
-        static PARSER: RefCell<Option<tree_sitter::Parser>> = RefCell::new(None);
+        static PARSER: RefCell<Option<tree_sitter::Parser>> = const { RefCell::new(None) };
     }
     PARSER.with(|slot| {
         let mut opt = slot.borrow_mut();
@@ -2420,11 +2420,10 @@ fn redirect_is_readonly(redirect_node: tree_sitter::Node, src: &[u8]) -> bool {
                 }
             }
             // A numeric target: safe ONLY as an fd-dup (`2>&1`); a plain `> 9` writes file "9".
-            "number" => {
-                if !is_fd_dup {
+            "number"
+                if !is_fd_dup => {
                     return false;
                 }
-            }
             _ => {}
         }
     }

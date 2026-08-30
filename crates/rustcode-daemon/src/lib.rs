@@ -29,6 +29,7 @@ mod api_auth;
 mod api_codingplan;
 mod api_config;
 mod api_provider;
+pub mod client_mode;
 pub mod approval_mode;
 mod commands;
 pub(crate) mod kernel_runtime;
@@ -60,10 +61,7 @@ pub use live_api::live_switch_session;
 pub mod auth_token;
 mod daemon_token_file;
 pub mod permission_bridge;
-mod telemetry_scope;
 pub mod webui;
-
-pub(crate) use telemetry_scope::daemon_scope;
 
 /// 解析 daemon 本地 token：`RUSTCODE_DAEMON_TOKEN`（非空则原样用）否则随机 mint。
 /// 无论哪种来源，都会登记进 `store` 使其有效，并返回 token 字符串。
@@ -103,10 +101,7 @@ use rustcode_capabilities::mcp::McpRegistry;
 use rustcode_capabilities::session::{SessionManager as NativeSessionManager, SessionStoreError};
 use rustcode_coding::CodingRuntimeEvent;
 use rustcode_config::config::Config;
-use rustcode_config::telemetry_legacy::config::{resolve, ProcessEnv};
-use rustcode_config::telemetry_legacy::{
-    detect_repo_origin, CliOverride, RepoOrigin, SessionMode, TelemetryState,
-};
+use crate::client_mode::{resolve_client_mode, ClientMode};
 
 const CHAT_REQUEST_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 
@@ -621,8 +616,6 @@ pub struct AppState {
     pub(crate) login_start_lock: Arc<Mutex<()>>,
     /// Process-unique generation for invalidating daemon-owned operation IDs.
     pub(crate) daemon_instance_id: Arc<str>,
-    /// Repo origin detected at daemon launch (R4.2)
-    pub repo_origin: RepoOrigin,
     /// Sender to trigger graceful shutdown via POST /shutdown (R7.1, R7.2)
     pub shutdown_tx: watch::Sender<bool>,
     /// Timestamp (unix ms) of last non-health HTTP request — used for idle timeout
@@ -1251,24 +1244,11 @@ async fn activity_tracker_middleware(
         .get("x-rustcode-client")
         .and_then(|v| v.to_str().ok())
         .map(resolve_client_mode)
-        .unwrap_or(SessionMode::Ide);
+        .unwrap_or(ClientMode::Ide);
     let mut req = req;
     req.extensions_mut().insert(client_mode);
 
     next.run(req).await
-}
-
-/// Map X-RustCode-Client header value to SessionMode.
-/// Unknown values fall back to Ide.
-fn resolve_client_mode(header: &str) -> SessionMode {
-    match header {
-        "channel" => SessionMode::Channel,
-        "vscode" => SessionMode::Vscode,
-        "jetbrains" => SessionMode::Jetbrains,
-        "webui" => SessionMode::Webui,
-        "rustcode-air" => SessionMode::RustcodeAir,
-        _ => SessionMode::Ide,
-    }
 }
 
 fn is_loopback_origin(origin: &HeaderValue, _request_parts: &RequestParts) -> bool {
@@ -1299,17 +1279,17 @@ fn is_loopback_authority(authority: &str) -> bool {
 /// Token-protected webui mode is always interactive. Local known clients are
 /// also allowed on loopback because their UI can answer `/chat/permission`.
 fn client_interactive_permission(
-    client_mode: SessionMode,
+    client_mode: ClientMode,
     enforce_token: bool,
     bind_host: &str,
 ) -> bool {
     enforce_token
         || (matches!(
             client_mode,
-            SessionMode::Channel
-                | SessionMode::Webui
-                | SessionMode::Vscode
-                | SessionMode::Jetbrains
+            ClientMode::Channel
+                | ClientMode::Webui
+                | ClientMode::Vscode
+                | ClientMode::Jetbrains
         ) && is_loopback_authority(bind_host))
 }
 
@@ -1794,12 +1774,10 @@ pub(crate) fn update_project_state(project: &mut ProjectState, new_path: &std::p
 /// POST /cd - Change working directory (like /cd command)
 async fn change_dir(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<SessionMode>,
+    axum::Extension(client_mode): axum::Extension<ClientMode>,
     Json(req): Json<ChangeDirRequest>,
 ) -> impl IntoResponse {
-    let state_clone = state.clone();
-    daemon_scope(&state, None, client_mode, || async move {
-        let state = state_clone;
+    let state = state.clone();
         let mut project = state.project.write().await;
 
         // Handle "-" to go back to previous directory
@@ -1942,8 +1920,6 @@ async fn change_dir(
             current_dir: new_path,
             project_hash: hash,
         })
-    })
-    .await
 }
 
 /// GET /projects - List all projects (historical, from sessions directory)
@@ -2848,12 +2824,11 @@ async fn repair_session(
 /// DELETE /projects/:hash/sessions/:id - Delete a session
 async fn delete_session(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<SessionMode>,
+    axum::Extension(client_mode): axum::Extension<ClientMode>,
     Path((hash, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let session_uuid = uuid::Uuid::parse_str(&id).ok();
-    let state_clone = state.clone();
-    daemon_scope(&state, session_uuid, client_mode, || async move {
+    let state = state.clone();
         if !valid_project_bucket(&hash) {
             tracing::warn!(project_bucket = %hash, "rejected invalid session delete request");
             return delete_session_api_error(
@@ -2985,8 +2960,6 @@ async fn delete_session(
                 .into_response()
             }
         }
-    })
-    .await
 }
 
 /// Rename request body
@@ -3009,13 +2982,12 @@ fn rename_session_file(
 /// PATCH /projects/:hash/sessions/:id/rename - Rename a session
 async fn rename_session(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<SessionMode>,
+    axum::Extension(client_mode): axum::Extension<ClientMode>,
     Path((hash, id)): Path<(String, String)>,
     Json(req): Json<RenameRequest>,
 ) -> impl IntoResponse {
     let session_uuid = uuid::Uuid::parse_str(&id).ok();
-    let state_clone = state.clone();
-    daemon_scope(&state, session_uuid, client_mode, || async move {
+    let state = state.clone();
         match rename_session_file(&hash, &id, &req.name) {
             Ok(()) => {
                 let msg = format!("Session {} renamed to '{}'", id, req.name);
@@ -3026,8 +2998,6 @@ async fn rename_session(
                 (StatusCode::NOT_FOUND, Json(msg)).into_response()
             }
         }
-    })
-    .await
 }
 
 /// Model info for API response
@@ -4263,10 +4233,10 @@ impl ChatRuntimeProjector {
 /// POST /chat - Stream chat response with SSE
 async fn chat_stream(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<SessionMode>,
+    axum::Extension(client_mode): axum::Extension<ClientMode>,
     Json(mut req): Json<ChatRequest>,
 ) -> axum::response::Response {
-    // Parse session UUID for telemetry scope
+    // Parse session UUID (keys the pending user-input answer map)
     let session_uuid = req
         .session_id
         .as_deref()
@@ -4320,7 +4290,7 @@ async fn chat_stream(
     let interactive_permission =
         client_interactive_permission(client_mode, state.enforce_token, &state.bind_host);
     // Only the WebUI currently implements the typed `/chat/user-input` response endpoint.
-    let interactive_user_input = matches!(client_mode, SessionMode::Webui);
+    let interactive_user_input = matches!(client_mode, ClientMode::Webui);
 
     let chat_session_id = session_uuid.map(|u| u.to_string()).unwrap_or_default();
     let cleanup_op = operation_id.clone();
@@ -4520,7 +4490,6 @@ async fn process_chat_request(
     // CodingRuntime builds its own MCP; this per-project cache is warmed by
     // the /context, /compact and /live paths, not the chat turn.
     _mcp_cache: Arc<RwLock<HashMap<PathBuf, CachedMcpRegistry>>>,
-    telemetry: Arc<Telemetry>,
     pending_permissions: permission_bridge::PermissionResponders,
     pending_user_inputs: permission_bridge::UserInputResponders,
     interactive_permission: bool,
@@ -4550,7 +4519,7 @@ async fn process_chat_request(
         .working_dir
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     // Remember the request's working dir so the cross-bucket redirect below can
-    // be detected when refreshing the telemetry repo_origin.
+    // be detected when the turn is redirected to the session home bucket.
     let requested_working_dir = working_dir.clone();
 
     // Resolve which session this turn continues. Bucket-scoped lookup first (the
@@ -4601,7 +4570,6 @@ async fn process_chat_request(
             &config,
             provider_config.accepts_images(),
             &working_dir,
-            telemetry.clone(),
             Some(&session_id),
             &req.message,
             &images,
@@ -4654,21 +4622,11 @@ async fn process_chat_request(
         return Ok(());
     }
 
-    // Capture CurrentContext so the inner spawn inherits mode/repo_origin/session_id.
-    // The cross-bucket continuation redirect above moves the turn to the
-    // session's own home directory; refresh repo_origin so telemetry for the
-    // turn reflects the repo the runtime actually executes in, not the request's
-    // workspace.
-    let mut tel_ctx = CurrentContext::current();
-    if working_dir != requested_working_dir {
-        tel_ctx.repo_origin = Some(detect_repo_origin(&working_dir));
-    }
-
     // Run turn(s) in a background task on the native kernel stack; the
     // downstream native-event → ChatEvent projector shapes the HTTP stream.
     {
         let mut runtime_cfg =
-            live_api::chat_runtime_config(&config, &provider_name, &working_dir, telemetry.clone());
+            live_api::chat_runtime_config(&config, &provider_name, &working_dir);
         runtime_cfg.dangerously_skip_permissions = approval_mode
             == crate::approval_mode::ApprovalMode::Auto
             || (approval_mode == crate::approval_mode::ApprovalMode::Build
@@ -4801,15 +4759,14 @@ struct StopChatResponse {
 /// POST /chat/stop - Stop a running chat session
 async fn stop_chat(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<SessionMode>,
+    axum::Extension(client_mode): axum::Extension<ClientMode>,
     Json(req): Json<StopChatRequest>,
 ) -> impl IntoResponse {
     let session_uuid = uuid::Uuid::parse_str(&req.session_id).ok();
-    let state_clone = state.clone();
-    daemon_scope(&state, session_uuid, client_mode, || async move {
+    let state = state.clone();
         // The legacy payload field is named `session_id`, but WebUI sends its
         // first-turn request id here. The registry intentionally resolves both.
-        if state_clone.active_chats.stop_alias(&req.session_id).await {
+        if state.active_chats.stop_alias(&req.session_id).await {
             (
                 axum::http::StatusCode::OK,
                 Json(StopChatResponse {
@@ -4826,8 +4783,6 @@ async fn stop_chat(
                 }),
             )
         }
-    })
-    .await
 }
 
 /// GET /chat/active - Return list of session IDs currently generating
@@ -5121,7 +5076,7 @@ async fn shutdown_signal(mut shutdown_rx: watch::Receiver<bool>) {
     }
 }
 
-/// Install a stderr-only panic hook (no telemetry / network). It prints a
+/// Install a stderr-only panic hook (no network reporting). It prints a
 /// short, non-sensitive panic summary to stderr and then delegates to the
 /// previous hook so the default output is preserved.
 fn install_panic_hook() {
@@ -5303,16 +5258,13 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
         let opts = ServerOpts {
             host: host.to_string(),
             port: actual_port,
-            // 与 parse_daemon_args 的“无 --no-telemetry”默认一致。
-            cli_override: CliOverride::default(),
             // 0 = 关闭 idle 看门狗（见 spawn_idle_timeout_task：idle_timeout_secs==0 直接 return）。
             // 进程内 webui 应随主程序常驻，不能自行 idle 关停。
             idle_timeout_secs: 0,
-            // 进程内 webui（TUI `/webui`、`rustcode webui`）的会话开启事件应归因到 webui，
-            // 而非 parse_daemon_args 的默认 Ide。run_server 启动时据此发 OpenRustcode{mode:webui}，
-            // 让"webui 会话开启数"可被统计——逐请求的 X-RustCode-Client 头只覆盖会话内事件，
-            // 覆盖不到会话级的 open。宿主进程（TUI/CLI）自身的 OpenRustcode 早已单独上报，互不影响。
-            startup_mode: SessionMode::Webui,
+            // 进程内 webui（TUI `/webui`、`rustcode webui`）的客户端身份应标记为 webui，
+            // 而非 parse_daemon_args 的默认 Ide：进程内启动没有 X-RustCode-Client 请求头，
+            // 只能在此声明，供 client_interactive_permission() 等按客户端分支的逻辑使用。
+            startup_mode: ClientMode::Webui,
             // 传入同一 store：server 进入 webui 模式（enforce_token=true）并用它校验 token。
             webui_tokens: Some(tokens.clone()),
             // 进程内启动：抑制启动横幅，避免污染 TUI 画面。
@@ -5471,10 +5423,9 @@ pub async fn ensure_app_server(
     let opts = ServerOpts {
         host: host.to_string(),
         port: actual_port,
-        cli_override: CliOverride::default(),
         // 随主程序常驻，关闭 idle 看门狗。
         idle_timeout_secs: 0,
-        startup_mode: SessionMode::Webui,
+        startup_mode: ClientMode::Webui,
         // None → enforce_token=false（daemon 模式，不要 Bearer）。
         webui_tokens: None,
         // 进程内启动：抑制启动横幅，避免污染 TUI 画面。
@@ -6020,19 +5971,18 @@ pub struct ServerOpts {
     pub host: String,
     /// Bind port (e.g. `13456`).
     pub port: u16,
-    /// Telemetry CLI override (e.g. `--no-telemetry`).
-    pub cli_override: CliOverride,
     /// Idle timeout in seconds; `0` disables the idle-shutdown watchdog.
     pub idle_timeout_secs: u64,
-    /// Session mode reported to telemetry on startup.
-    pub startup_mode: SessionMode,
+    /// Client identity the daemon was started with (`--client`; per-request
+    /// overrides come from `x-rustcode-client`).
+    pub startup_mode: ClientMode,
     /// webui token 存储；进程内启动器传入以共享同一 store，独立二进制传 None。
     pub webui_tokens: Option<auth_token::WebuiTokenStore>,
     /// 启动时的工作目录覆盖。进程内 `rustcode webui` 传入其启动 cwd，使 daemon
     /// 初始项目目录为用户实际运行命令的目录，而非 config 里陈旧的 default_workdir。
     /// 独立二进制 / VSCode 传 None（沿用 config 默认）。
     pub working_dir_override: Option<PathBuf>,
-    /// 安静模式：不向 stdout/stderr 打印启动横幅（telemetry 状态、监听地址、API
+    /// 安静模式：不向 stdout/stderr 打印启动横幅（监听地址、API
     /// 端点清单等）。TUI 内 `/webui` 进程内启动时为 true，避免污染 ratatui 画面；
     /// 独立二进制为 false，保留完整启动信息。
     pub quiet: bool,
@@ -6051,7 +6001,7 @@ pub struct ServerOpts {
 ///
 /// Shared by the standalone `rustcode-daemon` binary and (in the future) the
 /// main `rustcode` program's in-process `/webui` server. This performs the full
-/// bootstrap sequence (config load, telemetry init, repo-origin detection,
+/// bootstrap sequence (config load, MCP registry init,
 /// MCP registry init, `AppState` construction) before binding and serving.
 ///
 /// Note: early bootstrap that is process-global (panic hook, Windows console
@@ -6063,9 +6013,7 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     let ServerOpts {
         host,
         port,
-        cli_override,
         idle_timeout_secs,
-        startup_mode,
         webui_tokens,
         quiet,
         working_dir_override,
@@ -6076,7 +6024,7 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
 
     // Step 1: Load config (R1.1, R1.5) — tolerate errors, fallback to default.
     // Also seed the offline verdict + note ONCE from config + env here, before
-    // telemetry init and any tool/provider assembly (Step 4).
+    // any tool/provider assembly (Step 4).
     let startup_config = match Config::load(&Config::default_path()) {
         Ok(c) => Some(c),
         Err(e) => {
@@ -6087,12 +6035,10 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     // Seed the offline verdict + note ONCE from config + env, before any tool/provider assembly.
     rustcode_config::config::offline::seed_offline_from_config(startup_config.as_ref());
 
-    // Initialize the stderr-only panic hook (no telemetry / network).
+    // Initialize the stderr-only panic hook (no network reporting).
     install_panic_hook();
 
-    // Precompute repo_origin for the AppState.
     let project_state = init_project_state(working_dir_override);
-    let repo_origin = detect_repo_origin(&project_state.working_dir);
 
     // Initialize MCP registry from project working directory config
     // This reads both $RUSTCODE_HOME/mcp.json (user-level) and <project>/.mcp.json (project-level)
@@ -6113,7 +6059,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         login_sessions: Arc::new(RwLock::new(HashMap::new())),
         login_start_lock: Arc::new(Mutex::new(())),
         daemon_instance_id: Arc::from(uuid::Uuid::new_v4().to_string()),
-        repo_origin: repo_origin.clone(),
         shutdown_tx: shutdown_tx.clone(),
         last_activity: last_activity.clone(),
         active_connections: active_connections.clone(),
@@ -7132,7 +7077,6 @@ mod tests {
             login_sessions: Arc::new(RwLock::new(HashMap::new())),
             login_start_lock: Arc::new(Mutex::new(())),
             daemon_instance_id: Arc::from("chat-test-instance"),
-            repo_origin: detect_repo_origin(&working_dir),
             shutdown_tx,
             last_activity: Arc::new(std::sync::atomic::AtomicI64::new(now_unix_ms())),
             active_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -7233,14 +7177,14 @@ mod tests {
 
         let first = chat_stream(
             State(state.clone()),
-            axum::Extension(SessionMode::Vscode),
+            axum::Extension(ClientMode::Vscode),
             Json(request("request-a")),
         )
         .await
         .into_response();
         let second = chat_stream(
             State(state.clone()),
-            axum::Extension(SessionMode::Vscode),
+            axum::Extension(ClientMode::Vscode),
             Json(request("request-b")),
         )
         .await
@@ -7267,7 +7211,7 @@ mod tests {
         let session_id = "22222222-2222-4222-8222-222222222222";
         let response = chat_stream(
             State(state.clone()),
-            axum::Extension(SessionMode::Vscode),
+            axum::Extension(ClientMode::Vscode),
             Json(ChatRequest {
                 message: "hold this turn".into(),
                 working_dir: Some(home._dir.path().to_path_buf()),
@@ -7589,6 +7533,8 @@ mod tests {
             api_key: Some("test-key".into()),
             model: model.into(),
             base_url: Some(base_url),
+            extra_headers: None,
+            proxy: None,
             system_prompt: None,
             supports_vision: None,
             user_agent: None,
@@ -8743,46 +8689,46 @@ mod channel_mode_tests {
 
     #[test]
     fn resolve_channel_header() {
-        assert_eq!(resolve_client_mode("channel"), SessionMode::Channel);
-        assert_eq!(resolve_client_mode("vscode"), SessionMode::Vscode);
-        assert_eq!(resolve_client_mode("jetbrains"), SessionMode::Jetbrains);
-        assert_eq!(resolve_client_mode("nope"), SessionMode::Ide);
+        assert_eq!(resolve_client_mode("channel"), ClientMode::Channel);
+        assert_eq!(resolve_client_mode("vscode"), ClientMode::Vscode);
+        assert_eq!(resolve_client_mode("jetbrains"), ClientMode::Jetbrains);
+        assert_eq!(resolve_client_mode("nope"), ClientMode::Ide);
     }
 
     #[test]
     fn known_clients_interactive_on_loopback_or_token() {
         assert!(client_interactive_permission(
-            SessionMode::Ide,
+            ClientMode::Ide,
             true,
             "0.0.0.0"
         ));
         assert!(client_interactive_permission(
-            SessionMode::Channel,
+            ClientMode::Channel,
             false,
             "127.0.0.1"
         ));
         assert!(client_interactive_permission(
-            SessionMode::Vscode,
+            ClientMode::Vscode,
             false,
             "127.0.0.1"
         ));
         assert!(client_interactive_permission(
-            SessionMode::Jetbrains,
+            ClientMode::Jetbrains,
             false,
             "localhost:17321"
         ));
         assert!(!client_interactive_permission(
-            SessionMode::Channel,
+            ClientMode::Channel,
             false,
             "0.0.0.0"
         ));
         assert!(!client_interactive_permission(
-            SessionMode::Vscode,
+            ClientMode::Vscode,
             false,
             "0.0.0.0"
         ));
         assert!(!client_interactive_permission(
-            SessionMode::Ide,
+            ClientMode::Ide,
             false,
             "127.0.0.1"
         ));

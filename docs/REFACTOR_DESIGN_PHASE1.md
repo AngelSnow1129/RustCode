@@ -100,7 +100,7 @@ mapping-table change if overruled (see §2.7).
 | `atomcode-codingplan` | `rustcode-codingplan` | |
 | `atomcode-codingplan-crypto` | `rustcode-codingplan-crypto` | not in `default-members`; feature `rustcode/codingplan-crypto` |
 | `atomcode-config` | `rustcode-config` | |
-| `atomcode-daemon` | `rustcode-daemon` | |
+| `rustcode-daemon` | `rustcode-daemon` | |
 | `atomcode-kernel` | `rustcode-kernel` | |
 | `atomcode-review` | `rustcode-review` | |
 | `atomcode-telemetry` | **[DELETED]** | OBJECTIVE-2 |
@@ -116,7 +116,7 @@ feature wiring), and install/release scripts.
 | Old | New | Defined at |
 |-----|-----|-----------|
 | `atomcode` | `rustcode` | `crates/rustcode-cli/Cargo.toml` |
-| `atomcode-daemon` | `rustcode-daemon` | `crates/rustcode-daemon/Cargo.toml` |
+| `rustcode-daemon` | `rustcode-daemon` | `crates/rustcode-daemon/Cargo.toml` |
 | `atomcodex` | `rustcodex` | `crates/rustcode-clix/Cargo.toml` |
 | `mcp-test-server` | unchanged | `crates/rustcode-capabilities/Cargo.toml` |
 
@@ -126,30 +126,30 @@ Single highest-leverage file: **`crates/rustcode-config/src/distribution.rs`**.
 
 | Constant | Old | New |
 |----------|-----|-----|
-| `HOME_ENV` | `ATOMCODE_HOME` | `RUSTCODE_HOME` |
-| `HOME_DIR_NAME` | `.atomcode` | `.rustcode` |
-| `PROCESS_NAMES` | `["atomcode","atomcode-daemon"]` | `["rustcode","rustcode-daemon"]` |
+| `HOME_ENV` | `RUSTCODE_HOME` | `RUSTCODE_HOME` |
+| `HOME_DIR_NAME` | `.rustcode` | `.rustcode` |
+| `PROCESS_NAMES` | `["atomcode","rustcode-daemon"]` | `["rustcode","rustcode-daemon"]` |
 | `WINDOWS_INSTALL_DIR` | `AtomCode` | `RustCode` |
 | `RELEASE_ASSET_PREFIX` | `atomcode` | `rustcode` |
-| `UPDATE_TEMP_PREFIX` | `.atomcode` | `.rustcode` |
+| `UPDATE_TEMP_PREFIX` | `.rustcode` | `.rustcode` |
 
 Derived, must move together (uninstaller scans what the updater creates):
 `update_download_name()`, `update_rolling_name()`, `update_probe_name()`.
 
-Also in scope: `docker/Dockerfile-*` (user `atomcode`, `/usr/local/bin/atomcode-daemon`,
+Also in scope: `docker/Dockerfile-*` (user `atomcode`, `/usr/local/bin/rustcode-daemon`,
 `ENTRYPOINT`), `docker/build-multiarch.sh` artifact globs, `docker/README.md`,
 `.github/workflows/build.yml` (`dist/atomcode-*`), `scripts/install.sh|ps1`,
 `scripts/uninstall.sh|ps1`, `scripts/release*.sh`, `latest.json`.
 
 ### 2.4 Environment variables
 
-Rule: `ATOMCODE_X` -> `RUSTCODE_X` for all 125 names. Exceptions:
+Rule: `RUSTCODE_X` -> `RUSTCODE_X` for all 125 names. Exceptions:
 
 | Var | Action |
 |-----|--------|
-| `ATOMCODE_TELEMETRY` | **DELETE** (OBJECTIVE-2) |
-| `ATOMCODE_TELEMETRY_ENDPOINT` | **DELETE** (OBJECTIVE-2) |
-| `ATOMCODE_TEST_EP_{WHOLE,ABSENT,URL,LIST,BOOL}` | rename mechanically (test-local) |
+| `RUSTCODE_TELEMETRY` | **DELETE** (OBJECTIVE-2) |
+| `RUSTCODE_TELEMETRY_ENDPOINT` | **DELETE** (OBJECTIVE-2) |
+| `RUSTCODE_TEST_EP_{WHOLE,ABSENT,URL,LIST,BOOL}` | rename mechanically (test-local) |
 
 [DECISION D2] **No legacy fallback.** A clean fork does not read `ATOMCODE_*` after the
 rename. `RUSTCODE_HOME` unset falls back to `~/.rustcode` only. This is a breaking change for
@@ -180,7 +180,7 @@ RUSTCODE_HOME  RUSTCODE_BRAND_NAME  RUSTCODE_OAUTH_PROVIDER_NAME
 | `atomcode-v1:` (ACP cursor) | `rustcode-v1:` | `cli/src/acp/discovery.rs` |
 | `x-atomcode-session-id` (header) | `x-rustcode-session-id` | `openai_compat.rs`, `anthropic.rs`, `ollama.rs` |
 
-[DECISION D3] Same as D2: **rename with no compatibility read.** Existing `~/.atomcode`
+[DECISION D3] Same as D2: **rename with no compatibility read.** Existing `~/.rustcode`
 sessions become unreadable. Documented as breaking; no importer is added (adding one would
 contradict the "reduce importers" rule in `AGENTS.md`).
 
@@ -273,7 +273,7 @@ dependency anywhere in `Cargo.toml` or `Cargo.lock` ([CHECK] grep over all `*.to
 4. **`rustcode-config` is a leaf that currently depends on `rustcode-telemetry`.**
    Removing it is a dependency-direction improvement, not just a deletion (§3.5).
 
-5. **Offline/notice coupling.** `ATOMCODE_OFFLINE` and the "first-run notice" logic are
+5. **Offline/notice coupling.** `RUSTCODE_OFFLINE` and the "first-run notice" logic are
    entangled with telemetry init (`main.rs:1450-1494`). Offline mode must survive; only its
    telemetry branch goes.
 
@@ -750,7 +750,7 @@ module edits). C serialized after B removes the only real conflict.
 | Change | Blast radius | Risk | Mitigation |
 |--------|--------------|------|------------|
 | Crate rename | 14 `Cargo.toml`, `Cargo.lock`, ~439 `.rs` files by import path | Low (mechanical) | single `sed` pass + `cargo check` after each crate batch |
-| `RUSTCODE_HOME` / `.rustcode` | every user's existing install | **High (data)** | D2/D3: document as breaking; no silent read of `~/.atomcode` |
+| `RUSTCODE_HOME` / `.rustcode` | every user's existing install | **High (data)** | D2/D3: document as breaking; no silent read of `~/.rustcode` |
 | Telemetry crate deletion | 24 files, 9 crates | Medium | the four non-obvious items in §3.4 are the failure modes; each has a named check |
 | `SessionMode` type removal from daemon | daemon HTTP API | Medium | local `ClientMode` enum, **wire tags unchanged** |
 | `[telemetry]` key left in old configs | config loader | Low | D4: must still load; regression test |
@@ -833,7 +833,7 @@ cargo run -p rustcode-cli -- --model <model> -p "reply with the single word: ok"
 | ID | Item | Kind |
 |----|------|------|
 | D1 | Product name `rustcode` — confirm or override | **Decision** |
-| D2 | No legacy `ATOMCODE_*` / `~/.atomcode` fallback (breaking) | **Decision** |
+| D2 | No legacy `ATOMCODE_*` / `~/.rustcode` fallback (breaking) | **Decision** |
 | D3 | Wire-key rename with no compatibility read (existing sessions unreadable) | **Decision** |
 | D4 | A stale `[telemetry]` config section must still load | **Decision** |
 | D5 | AtomGit signer retained but host-gated; not removed | Decision |

@@ -668,11 +668,7 @@ pub fn repair_json(s: &str) -> String {
                 } else {
                     right_is_close = false;
                 }
-            } else if mask[i] && (rchars[i] == '}' || rchars[i] == ']') {
-                right_is_close = true;
-            } else {
-                right_is_close = false;
-            }
+            } else { right_is_close = mask[i] && (rchars[i] == '}' || rchars[i] == ']'); }
         }
         result = rchars
             .into_iter()
@@ -884,8 +880,8 @@ pub fn extract_edit_file_args(raw: &str) -> Option<serde_json::Value> {
     }
 
     let replace_all = raw.contains("\"replace_all\"")
-        && raw.rfind("true").map_or(false, |t| {
-            raw.rfind("\"replace_all\"").map_or(false, |r| t > r)
+        && raw.rfind("true").is_some_and(|t| {
+            raw.rfind("\"replace_all\"").is_some_and(|r| t > r)
         });
 
     Some(serde_json::json!({
@@ -950,9 +946,9 @@ const TASK_SUBTASK_KEYS: &[&str] =
 pub fn extract_task_args(raw: &str) -> Option<serde_json::Value> {
     // Scope to the tasks array so a stray earlier key can't seed a phantom object.
     let region = match raw.find("\"tasks\"") {
-        Some(p) => match raw[p..].find('[') {
-            Some(b) => &raw[p + b..],
-            None => return None,
+        Some(p) => {
+            let b = raw[p..].find('[')?;
+            &raw[p + b..]
         },
         None => raw,
     };

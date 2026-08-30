@@ -239,7 +239,7 @@ impl LifecycleHooks for DatalogHook {
         state.rounds = state.rounds.max(ctx.round);
         let record = serde_json::json!({
             "step": ctx.round,
-            "session_id": ctx.session_id.as_deref().map(|id| id.as_ref()).unwrap_or(""),
+            "session_id": ctx.session_id.as_deref().map(|id| id).unwrap_or(""),
             "turn_id": ctx.turn_id,
             "request_id": ctx.request_id,
             "model": self.model,

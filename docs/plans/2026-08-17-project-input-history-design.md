@@ -4,7 +4,7 @@
 
 **Goal:** Keep at most 200 prompt-history entries per working directory, preserve the legacy global history as read-only fallback, and prevent concurrent TUI windows from overwriting each other.
 
-**Architecture:** TUI remains the sole owner of input history. New history lives under a project-hash namespace derived with the existing native session hash. The legacy `~/.atomcode/history` file is never migrated or written: it only fills unused capacity until the project owns 200 entries. Working-directory commits rebind the foreground `History` after saving its pending entries.
+**Architecture:** TUI remains the sole owner of input history. New history lives under a project-hash namespace derived with the existing native session hash. The legacy `~/.rustcode/history` file is never migrated or written: it only fills unused capacity until the project owns 200 entries. Working-directory commits rebind the foreground `History` after saving its pending entries.
 
 **Tech Stack:** Rust, serde JSONL, fs2 file locks, same-directory atomic replacement, existing `SessionManager::project_hash`.
 
@@ -13,10 +13,10 @@
 ## Persisted layout and compatibility
 
 ```text
-$ATOMCODE_HOME/history                    # legacy, read-only
-$ATOMCODE_HOME/history-v2/<hash>/entries.jsonl
-$ATOMCODE_HOME/history-v2/<hash>/write.lock
-$ATOMCODE_HOME/history-v2/<hash>/images/
+$RUSTCODE_HOME/history                    # legacy, read-only
+$RUSTCODE_HOME/history-v2/<hash>/entries.jsonl
+$RUSTCODE_HOME/history-v2/<hash>/write.lock
+$RUSTCODE_HOME/history-v2/<hash>/images/
 ```
 
 - Project entries are newest authority and capped on disk at 200.
@@ -63,9 +63,9 @@ $ATOMCODE_HOME/history-v2/<hash>/images/
 ## Verification
 
 ```bash
-env -u ATOMCODE_HOME cargo test -p atomcode-tuix input::history --lib
-env -u ATOMCODE_HOME cargo test -p atomcode-tuix working_dir_projection --lib
-env -u ATOMCODE_HOME cargo test -p atomcode-tuix --lib
+env -u RUSTCODE_HOME cargo test -p atomcode-tuix input::history --lib
+env -u RUSTCODE_HOME cargo test -p atomcode-tuix working_dir_projection --lib
+env -u RUSTCODE_HOME cargo test -p atomcode-tuix --lib
 ```
 
 Windows-specific locking and replacement behavior should additionally be exercised by CI or a Windows build host.

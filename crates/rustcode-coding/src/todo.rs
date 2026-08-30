@@ -108,11 +108,11 @@ fn contains_word(text: &str, signal: &str) -> bool {
         let before_ok = text[..start]
             .chars()
             .next_back()
-            .map_or(true, |c| !c.is_ascii_alphanumeric());
+            .is_none_or(|c| !c.is_ascii_alphanumeric());
         let after_ok = text[end..]
             .chars()
             .next()
-            .map_or(true, |c| !c.is_ascii_alphanumeric());
+            .is_none_or(|c| !c.is_ascii_alphanumeric());
         if before_ok && after_ok {
             return true;
         }

@@ -4,8 +4,8 @@
 
 本清单分区说明：
 - **A–C、E–G** 是默认行为或默认开启的功能，直接启动即可测。
-- **B 区（daemon kernel 引擎路径）** 需要 `ATOMCODE_DAEMON_ENGINE=kernel` 环境变量，且必须**新会话**才走 kernel 路径。
-- **C 区（memory 工具）** 默认开启；设 `ATOMCODE_MEMORY_TOOL=0` 可关闭。
+- **B 区（daemon kernel 引擎路径）** 需要 `RUSTCODE_DAEMON_ENGINE=kernel` 环境变量，且必须**新会话**才走 kernel 路径。
+- **C 区（memory 工具）** 默认开启；设 `RUSTCODE_MEMORY_TOOL=0` 可关闭。
 - **D 区（prompt 行为）** 靠观察弱模型（deepseek-v4-flash）在上下文/回合压力下的反应，无法用断言验收，需真机感性判断。
 - **I 区（内部重构）** 不需逐条功能测，只需整体回归 sanity：构建通过、启动正常、基本 chat 流程不炸即可。
 
@@ -15,7 +15,7 @@
 
 - [ ] 使用**已编译的 release/v5.0.0 二进制**，确认 `atomcode --version` 输出 v5.0.0
 - [ ] **默认引擎**（v2，无需任何 env）用于 A、C、D、E、F、G、H、I 区测试
-- [ ] **B 区**：`export ATOMCODE_DAEMON_ENGINE=kernel`，每次测试前**新建会话**（已存在会话会走旧路径）
+- [ ] **B 区**：`export RUSTCODE_DAEMON_ENGINE=kernel`，每次测试前**新建会话**（已存在会话会走旧路径）
 - [ ] **D 区行为测试**：配置弱模型 `deepseek-v4-flash`（或类似弱模型），构造上下文高压/回合数接近上限场景
 - [ ] webui 测试需要 `atomcode daemon` 在后台运行，打开 `http://localhost:<port>`
 - [ ] Windows 专项（F 区 /desktop 不闪 console）：需 Windows 机器
@@ -55,7 +55,7 @@ edit_file 产生的 diff 现在是真实 unified diff，带行号 gutter，红�
 
 todo 面板固定在输入框上方，执行中多行显示，全部完成后隐藏，无颜色装饰（colorless）。
 
-- [ ] 启用 `ATOMCODE_TODO` 环境变量，发起一个多步骤任务（让模型在多轮使用 todowrite 工具）：
+- [ ] 启用 `RUSTCODE_TODO` 环境变量，发起一个多步骤任务（让模型在多轮使用 todowrite 工具）：
   确认 todo 面板**固定在输入框正上方**，显示类似 `☑ Todos · N/M` 的标题行
 - [ ] 面板中 in-progress 任务**加粗**显示，pending 任务普通显示，completed 任务**无颜色**（不带装饰色）
 - [ ] 任务全部完成后（M/M done）：确认 todo 面板**自动消失**，不再显示
@@ -94,12 +94,12 @@ todo 面板固定在输入框上方，执行中多行显示，全部完成后隐
 
 ---
 
-## §7 daemon kernel 引擎路径 [P0 opt-in] ⚠️ 需 `ATOMCODE_DAEMON_ENGINE=kernel`
+## §7 daemon kernel 引擎路径 [P0 opt-in] ⚠️ 需 `RUSTCODE_DAEMON_ENGINE=kernel`
 
 > 每次测试**必须新建会话**，已有会话不受影响（kernel 路径只对新对话生效）。
-> 测完后 `unset ATOMCODE_DAEMON_ENGINE` 回到默认路径，跑一遍相同用例做 A/B 对比。
+> 测完后 `unset RUSTCODE_DAEMON_ENGINE` 回到默认路径，跑一遍相同用例做 A/B 对比。
 
-- [ ] `export ATOMCODE_DAEMON_ENGINE=kernel`，启动 daemon，打开 webui **新建会话**，发一条消息：
+- [ ] `export RUSTCODE_DAEMON_ENGINE=kernel`，启动 daemon，打开 webui **新建会话**，发一条消息：
   确认流式回复正常显示，无报错
 - [ ] **工具调用**：让模型 `read_file` 读一个存在的文件：确认工具结果正常返回，webui 显示正常
 - [ ] **Usage / Context-stats 显示**：确认 webui 状态面板中有 token 用量统计（非全零）
@@ -110,14 +110,14 @@ todo 面板固定在输入框上方，执行中多行显示，全部完成后隐
 - [ ] **ReloadConfig 切换**：在 kernel 路径下 `/model` 切换模型：确认切换成功，下一轮对话走新模型
 - [ ] **ChangeDir**：执行 `/cd /tmp`：确认 working directory 更新，工具调用以新目录为基准
 - [ ] **审批 round-trip**：触发需审批工具 → 按 `y` → 工具执行 → 确认正常流转，不卡住
-- [ ] **A/B 对比**：`unset ATOMCODE_DAEMON_ENGINE`，重复以上核心步骤（发消息/工具调用/审批）：
+- [ ] **A/B 对比**：`unset RUSTCODE_DAEMON_ENGINE`，重复以上核心步骤（发消息/工具调用/审批）：
   确认行为一致，无明显差异
 
 ---
 
 ## §8 model-facing memory 工具 [P1]
 
-> 默认开启（`ATOMCODE_MEMORY_TOOL` 未设或设为 `1`）。
+> 默认开启（`RUSTCODE_MEMORY_TOOL` 未设或设为 `1`）。
 
 - [ ] 打开新对话，让模型调用 `memory` 工具记录一条信息（如"使用 tabs 缩进"），操作：`remember`、scope=`project`：
   确认工具调用成功，模型回复确认已记录
@@ -128,7 +128,7 @@ todo 面板固定在输入框上方，执行中多行显示，全部完成后隐
 - [ ] **TUI 直连命令**：输入 `/remember 我喜欢 TypeScript`：确认成功写入，提示已记录
 - [ ] 输入 `/forget TypeScript`：确认成功删除
 - [ ] 输入 `/memory`：确认列出当前所有记忆条目（或提示为空）
-- [ ] **关闭 memory 工具**：设 `ATOMCODE_MEMORY_TOOL=0` 重启，在新会话中让模型调用 memory 工具：
+- [ ] **关闭 memory 工具**：设 `RUSTCODE_MEMORY_TOOL=0` 重启，在新会话中让模型调用 memory 工具：
   确认工具**不在工具列表中**，模型无法调用
 
 ---
@@ -211,7 +211,7 @@ todo 面板固定在输入框上方，执行中多行显示，全部完成后隐
 - [ ] **启动正常**：`atomcode` 冷启动，显示欢迎界面和输入框，无 panic
 - [ ] **基本 chat 流程**：发一条消息，模型正常回复，工具调用可用，会话可保存
 - [ ] **会话持久化**：退出后重新进入，`/resume` 能恢复历史会话
-- [ ] **配置加载**：`~/.atomcode/config.toml`（或等效路径）中的设置（如 `ui.theme`）正常生效
+- [ ] **配置加载**：`~/.rustcode/config.toml`（或等效路径）中的设置（如 `ui.theme`）正常生效
 - [ ] **daemon 模式**：`atomcode daemon` 启动正常，webui 可访问
 - [ ] **v1 引擎已退役**：运行 `atomcode --engine v1 chat`（或类似旧参数）：
   确认命令被拒绝或报告 `--engine v1` 已不支持，**不能正常启动 v1 路径**
@@ -239,7 +239,7 @@ P0 核心链路 + 最高价值 P1 场景：
 - [ ] §2.1（edit_file diff 有行号 gutter）
 - [ ] §3.1（todo 面板固定在输入框上方）
 - [ ] §5.1（审批 Y 后正文不丢失）
-- [ ] §7（ATOMCODE_DAEMON_ENGINE=kernel 新会话能聊天）
+- [ ] §7（RUSTCODE_DAEMON_ENGINE=kernel 新会话能聊天）
 - [ ] §8.1–8.3（memory 工具 remember/list/去重）
 - [ ] §10.1（/init 触发 agent 生成 AGENTS.md）
 - [ ] §12.3（webui 刷新中断不丢之前轮次）
@@ -251,7 +251,7 @@ P0 核心链路 + 最高价值 P1 场景：
 ## 备注
 
 - 相关分支：`release/v5.0.0`，基于 `v4.26.0` tag，共 122 个提交
-- kernel 路径默认关闭：`ATOMCODE_DAEMON_ENGINE=kernel` 为 opt-in，v5.0.0 默认仍走旧 v2 bridge 路径
-- memory 工具路径：project memory 存储于 `.atomcode/memory.md`（项目根），global memory 存储于 `$ATOMCODE_HOME/memory.md`
+- kernel 路径默认关闭：`RUSTCODE_DAEMON_ENGINE=kernel` 为 opt-in，v5.0.0 默认仍走旧 v2 bridge 路径
+- memory 工具路径：project memory 存储于 `.rustcode/memory.md`（项目根），global memory 存储于 `$RUSTCODE_HOME/memory.md`
 - diff 渲染使用 `similar` crate 计算真实 unified diff；行号 gutter 宽度按最大行号自适应
 - bash 命令渲染：`format_shell_command` 函数在 `event_loop/mod.rs`；`PAD_COL=2` 对应 `  └` 缩进（2 空格 + 字形 + 空格，共 4 列）

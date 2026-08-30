@@ -39,10 +39,6 @@ pub mod lsp_registry;
 /// load/save and paths.
 pub mod config;
 
-/// Non-telemetry data types (SessionMode, CliOverride, repo-origin detection)
-/// carried over after the reporting crate was removed. No reporting behavior.
-pub mod telemetry_legacy;
-
 /// Transactional, cross-process-safe access to `config.toml`.
 pub mod store;
 
@@ -55,6 +51,11 @@ pub mod system_proxy;
 
 /// Local scheduled-task model, file store, and next-run calculator.
 pub mod schedule;
+
+/// Pure helpers for session/client tagging and git repo-origin detection.
+/// No network I/O; re-homes the survivors of the removed `telemetry_legacy`
+/// module.
+pub mod session_mode;
 
 pub use config::{provider::ProviderConfig, Config};
 pub use store::{ConfigCommit, ConfigRevision, ConfigSnapshot, ConfigStore};

@@ -462,7 +462,7 @@ mod tests {
         let working_dir = tempfile::tempdir().unwrap();
         let config = rustcode_config::config::Config::default();
         let cfg =
-            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, None, false, true);
+            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, false, false);
         let (control_tx, mut event_rx, mut state_rx) = spawn_native_runtime_for_session_deferred(
             cfg,
             "deferred-test".into(),
@@ -497,7 +497,7 @@ mod tests {
         let working_dir = tempfile::tempdir().unwrap();
         let config = rustcode_config::config::Config::default();
         let mut cfg =
-            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, None, false, true);
+            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, false, false);
         cfg.provider_name = "main".into();
         cfg.api_key = "test".into();
         cfg.base_url = "http://127.0.0.1:9/v1".into();
@@ -557,7 +557,7 @@ mod tests {
         let working_dir = tempfile::tempdir().unwrap();
         let config = rustcode_config::config::Config::default();
         let cfg = || {
-            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, None, false, true)
+            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, false, false)
         };
         let snapshot = || rustcode_kernel::message::SessionSnapshot::new(Vec::new());
         let (first_tx, _first_events, mut first_state) = spawn_native_runtime_for_session_deferred(

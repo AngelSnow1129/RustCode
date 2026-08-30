@@ -12,9 +12,8 @@ async fn chat_requires_token_health_is_public() {
         rustcode_daemon::run_server(rustcode_daemon::ServerOpts {
             host: "127.0.0.1".into(),
             port,
-            cli_override: rustcode_telemetry::CliOverride { disabled: true },
             idle_timeout_secs: 0,
-            startup_mode: rustcode_telemetry::SessionMode::Ide,
+            startup_mode: rustcode_daemon::client_mode::ClientMode::Ide,
             webui_tokens: {
                 let store = rustcode_daemon::auth_token::WebuiTokenStore::new();
                 store.insert("it-token".to_string());

@@ -125,8 +125,8 @@ When the user says "ship a new version", "cut a release", or "tag it".
       <h2 id="skill-directories">Skill directories</h2>
       <p>AtomCode loads skills from a few well-known locations:</p>
       <ul>
-        <li><strong>Global</strong>: <code>~/.atomcode/skills/</code></li>
-        <li><strong>Project-level</strong>: <code>.atomcode/skills/</code> at the current working directory or any ancestor (if present)</li>
+        <li><strong>Global</strong>: <code>~/.rustcode/skills/</code></li>
+        <li><strong>Project-level</strong>: <code>.rustcode/skills/</code> at the current working directory or any ancestor (if present)</li>
       </ul>
       <p>Project-level skills override same-named globals, so you can define the same name with different flows per project.</p>
 
@@ -160,7 +160,7 @@ When the user says "ship a new version", "cut a release", or "tag it".
           <tr><th>Scenario</th><th>Where it belongs</th></tr>
         </thead>
         <tbody>
-          <tr><td>Always-on project conventions (tech stack, code style, commands)</td><td><a href="./project-instructions.html"><code>.atomcode.md</code></a></td></tr>
+          <tr><td>Always-on project conventions (tech stack, code style, commands)</td><td><a href="./project-instructions.html"><code>.rustcode.md</code></a></td></tr>
           <tr><td>A specific workflow that needs to be triggered explicitly</td><td>Skill</td></tr>
           <tr><td>A one-off ad-hoc requirement</td><td>Just write it in the prompt</td></tr>
         </tbody>

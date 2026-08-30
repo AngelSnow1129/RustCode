@@ -54,7 +54,7 @@
 ### Task 4: Unified `/cost` projection
 
 **Files:**
-- Modify: `crates/atomcode-daemon/src/commands.rs`
+- Modify: `crates/rustcode-daemon/src/commands.rs`
 - Modify: `crates/atomcode-tuix/src/event_loop/commands.rs`
 - Modify: `crates/atomcode-tuix/src/session.rs`
 - Modify: `crates/atomcode-tuix/src/i18n` files as required.

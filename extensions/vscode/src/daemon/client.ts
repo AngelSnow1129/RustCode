@@ -32,20 +32,20 @@ import {
   AppendSessionMessagesResponse,
 } from './types';
 
-/** `$ATOMCODE_HOME` or `~/.atomcode` — mirrors process.ts's `atomcodeHome()`. */
-function atomcodeHome(): string {
-  const env = process.env.ATOMCODE_HOME;
-  return env && env.length > 0 ? env : path.join(os.homedir(), '.atomcode');
+/** `$RUSTCODE_HOME` or `~/.rustcode` — mirrors process.ts's `rustcodeHome()`. */
+function rustcodeHome(): string {
+  const env = process.env.RUSTCODE_HOME;
+  return env && env.length > 0 ? env : path.join(os.homedir(), '.rustcode');
 }
 
 /**
- * Read the local daemon token from `<atomcodeHome()>/daemon-<port>.json`.
+ * Read the local daemon token from `<rustcodeHome()>/daemon-<port>.json`.
  * Returns the token string if present, or `undefined` on any error (file
  * absent, malformed JSON, empty/missing token field).
  */
 export function readDaemonToken(port: number): string | undefined {
   try {
-    const raw = fs.readFileSync(path.join(atomcodeHome(), `daemon-${port}.json`), 'utf-8');
+    const raw = fs.readFileSync(path.join(rustcodeHome(), `daemon-${port}.json`), 'utf-8');
     const info = JSON.parse(raw) as { token?: string };
     return info.token && info.token.length > 0 ? info.token : undefined;
   } catch {

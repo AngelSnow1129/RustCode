@@ -258,6 +258,8 @@ mod tests {
             ephemeral: false,
             capable_model: None,
             retry_max_attempts: None,
+            extra_headers: None,
+            proxy: None,
         }
     }
 

@@ -70,9 +70,6 @@ pub struct CodeArgs {
     /// Config file path (default: ~/.rustcode/config.toml).
     #[arg(long)]
     pub config: Option<PathBuf>,
-    /// Disable anonymous usage telemetry for this invocation.
-    #[arg(long = "no-telemetry")]
-    pub no_telemetry: bool,
     /// Max seconds to wait for each stream event (liveness guard).
     #[arg(long, default_value_t = 180)]
     pub stream_timeout: u64,
@@ -84,6 +81,24 @@ pub struct SessionsArgs {
     /// Project directory (default: current directory).
     #[arg(long, default_value = ".")]
     pub dir: PathBuf,
+}
+
+/// Build the OpenAI-compatible provider used by the standalone `review` agent.
+///
+/// Mirrors `rustcode_review::build_review_agent`'s internal construction so the
+/// reviewer can be handed to `build_review_agent_with`.
+pub fn build_review_provider(
+    cfg: &rustcode_review::ReviewAgentConfig,
+) -> Result<Arc<dyn rustcode_kernel::provider::LlmProvider>, String> {
+    use rustcode_capabilities::provider::{OpenAiCompatConfig, OpenAiCompatProvider};
+    let mut pc = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
+    pc.context_window = cfg.context_window;
+    // Byte-idle liveness follows the review config's stream_timeout (mirrors
+    // `rustcode_review::build_review_agent`), not the adapter's hardcoded 120s.
+    pc.idle_timeout = cfg.stream_timeout;
+    OpenAiCompatProvider::new(pc)
+        .map(|p| Arc::new(p) as Arc<dyn rustcode_kernel::provider::LlmProvider>)
+        .map_err(|e| e.message)
 }
 
 pub fn sessions(args: SessionsArgs) -> Result<()> {
@@ -153,11 +168,6 @@ pub async fn code(args: CodeArgs) -> Result<()> {
     cfg.preferred_language = selected.language;
     cfg.context_window = entry.and_then(|e| e.context_window).unwrap_or(128_000);
     cfg.stream_timeout = std::time::Duration::from_secs(args.stream_timeout);
-    // Telemetry reporting was removed; `build_sink` is a no-op stub and the consent
-    // notice only fires when a sink reports enabled (never now). Kept call shape so
-    // exit-path `shutdown` calls below stay stable.
-    let telemetry = crate::tel::build_sink(args.config.as_deref(), args.no_telemetry);
-    crate::tel::maybe_show_notice(telemetry.is_enabled());
 
     // Session mode: --resume <id> / --continue (latest) / fresh.
     let session = if let Some(id) = &args.resume {
@@ -259,7 +269,6 @@ pub async fn code(args: CodeArgs) -> Result<()> {
         handle.submit(UserInput::from(p)).await?;
         let outcome = drive_turn(&handle, &mut events, &mut input, args.yolo, &mut sigint).await;
         finish(handle, task, session_id).await?;
-        telemetry.shutdown(crate::tel::FLUSH_TIMEOUT).await;
         return match outcome {
             Some(TurnOutcome::Completed(StopReason::Stopped)) => Ok(()),
             Some(TurnOutcome::Completed(other)) => {
@@ -315,7 +324,6 @@ pub async fn code(args: CodeArgs) -> Result<()> {
         }
     }
     let r = finish(handle, task, session_id).await;
-    telemetry.shutdown(crate::tel::FLUSH_TIMEOUT).await;
     r
 }
 

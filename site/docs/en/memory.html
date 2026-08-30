@@ -76,7 +76,7 @@
 
   <main class="dmain prose-docs">
 <h1 id="persistent-memory">Persistent Memory</h1>
-      <p class="lede">Use <code>/remember</code> to capture stray preferences, conventions, and commands. AtomCode injects them into the system prompt on every turn. It complements <a href="./project-instructions.html"><code>.atomcode.md</code> project instructions</a>: instructions are for full specs; memory is for the "oh, I should tell it about that" facts.</p>
+      <p class="lede">Use <code>/remember</code> to capture stray preferences, conventions, and commands. AtomCode injects them into the system prompt on every turn. It complements <a href="./project-instructions.html"><code>.rustcode.md</code> project instructions</a>: instructions are for full specs; memory is for the "oh, I should tell it about that" facts.</p>
 
       <h2 id="command-overview">Command overview</h2>
       <table>
@@ -97,8 +97,8 @@
           <tr><th>Scope</th><th>Path</th></tr>
         </thead>
         <tbody>
-          <tr><td>Global</td><td><code>~/.atomcode/memory.md</code> (or <code>$ATOMCODE_HOME/memory.md</code>)</td></tr>
-          <tr><td>Project</td><td><code>&lt;project_root&gt;/.atomcode/memory.md</code></td></tr>
+          <tr><td>Global</td><td><code>~/.rustcode/memory.md</code> (or <code>$RUSTCODE_HOME/memory.md</code>)</td></tr>
+          <tr><td>Project</td><td><code>&lt;project_root&gt;/.rustcode/memory.md</code></td></tr>
         </tbody>
       </table>
       <p>The format is plain Markdown — one entry per <code>- </code>-prefixed list item. Use <code>/remember</code> or hand-edit; AtomCode rereads on the next turn. <strong>Lines not starting with <code>- </code> are ignored</strong>, so feel free to add comments, blank lines, or grouping headings without affecting entries.</p>
@@ -154,17 +154,17 @@ The user has asked you to remember these facts and preferences:
   (removed 1 matching entry)
 
 &gt; /memory
-  [Global] (/Users/alice/.atomcode/memory.md)
+  [Global] (/Users/alice/.rustcode/memory.md)
     - run tests before committing
     - don't git push on your own — let me confirm manually
-  [Project] (/Users/alice/code/myrepo/.atomcode/memory.md)
+  [Project] (/Users/alice/code/myrepo/.rustcode/memory.md)
     - when CI fails, check .github/workflows/ci.yml lines 78-92 first</code></pre>
 
       <h2 id="memory-vs-project-instructions-vs-session-history">Memory vs project instructions vs session history</h2>
       <p>AtomCode offers three ways to persist "context", each with a different role:</p>
       <table>
         <thead>
-          <tr><th></th><th><code>.atomcode.md</code></th><th>Memory (memory.md)</th><th>Sessions (<code>/resume</code>)</th></tr>
+          <tr><th></th><th><code>.rustcode.md</code></th><th>Memory (memory.md)</th><th>Sessions (<code>/resume</code>)</th></tr>
         </thead>
         <tbody>
           <tr><td>Best for</td><td>Full specs, tech stack, detailed conventions</td><td>Stray facts, personal preferences, command cheats</td><td>Past conversation + tool calls</td></tr>
@@ -176,11 +176,11 @@ The user has asked you to remember these facts and preferences:
       </table>
       <p>Typical combinations:</p>
       <ul>
-        <li><strong>Team conventions</strong> in <code>.atomcode.md</code> (commit it; shared by everyone)</li>
+        <li><strong>Team conventions</strong> in <code>.rustcode.md</code> (commit it; shared by everyone)</li>
         <li><strong>Personal preferences</strong> via <code>/remember --global</code> (only on your machine)</li>
-        <li><strong>Project-specific footguns</strong> via <code>/remember</code> (lives in the project's local <code>.atomcode/memory.md</code>; commit or gitignore your call)</li>
+        <li><strong>Project-specific footguns</strong> via <code>/remember</code> (lives in the project's local <code>.rustcode/memory.md</code>; commit or gitignore your call)</li>
       </ul>
-      <p>Whether to commit <code>.atomcode/memory.md</code>: if the team also uses AtomCode and the memory is project knowledge (footguns, conventions), commit it; if it's personal notes, add it to <code>.gitignore</code>.</p>
+      <p>Whether to commit <code>.rustcode/memory.md</code>: if the team also uses AtomCode and the memory is project knowledge (footguns, conventions), commit it; if it's personal notes, add it to <code>.gitignore</code>.</p>
 
       <h2 id="next-steps">Next steps</h2>
       <ul>

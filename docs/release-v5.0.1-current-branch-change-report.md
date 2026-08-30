@@ -98,7 +98,7 @@ BridgeConfig
 atomcode_core::agent::AgentClient
 atomcode_core::agent::AgentCommand
 atomcode_core::agent::AgentEvent
-ATOMCODE_DAEMON_ENGINE
+RUSTCODE_DAEMON_ENGINE
 DaemonRuntimeEvent::Legacy
 DaemonRuntimeEvent::Native
 ```
@@ -142,7 +142,7 @@ CLI/headless、clix 和 daemon 对无法交互处理的非 approval request 统�
 native runtime：
 
 - kernel 增加 `Requester` 和 `ToolContext.request`；
-- capability 注册 `request_user_input`，默认关闭，由 `ATOMCODE_REQUEST_USER_INPUT` 控制；
+- capability 注册 `request_user_input`，默认关闭，由 `RUSTCODE_REQUEST_USER_INPUT` 控制；
 - 工具名始终进入 coding allowlist，实际 mount 仍以环境开关和注册结果为准；
 - persona 提示与工具开关保持一致；
 - runtime 关联 request id，并在 cancel/reload/shutdown 时 fail-closed；
@@ -220,7 +220,7 @@ bridge stream timeout、core turn runner、hook integration 等旧链路测试�
 
 | 命令 | 结果 | 覆盖 |
 |---|---|---|
-| `cargo check -p atomcode -p atomcode-daemon -p atomcode-clix --all-targets` | 通过 | CLI、daemon、clix 及依赖链 all-target 编译 |
+| `cargo check -p atomcode -p rustcode-daemon -p atomcode-clix --all-targets` | 通过 | CLI、daemon、clix 及依赖链 all-target 编译 |
 | `cargo test -p atomcode-capabilities -p atomcode-kernel -p atomcode-coding -p atomcode-tuix request_user_input` | 通过 | capability 10 项、persona 1 项；其余同名过滤项无失败 |
 | `cargo test -p atomcode-tuix user_input` | 19/19 通过 | single/multiple/text、自定义文本、Submit、Esc、Ctrl+C、bypass、render |
 | `npm run test:webview` | 通过 | webview test runner 全部通过；可见 31 项 node:test 断言通过，并包含静默 provider queue regression |

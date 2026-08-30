@@ -34,7 +34,7 @@ https://github.com/settings/developers
 不要把 secret 写进仓库文件。建议只通过环境变量提供：
 
 ```bash
-export ATOMCODE_GITHUB_MCP_CLIENT_ID="<your-github-oauth-client-id>"
+export RUSTCODE_GITHUB_MCP_CLIENT_ID="<your-github-oauth-client-id>"
 export GITHUB_MCP_CLIENT_SECRET="<your-github-oauth-client-secret>"
 ```
 
@@ -54,7 +54,7 @@ atomcode mcp add-github-oauth github
 atomcode mcp add-github-oauth github --global
 ```
 
-也可以手写 `.mcp.json` 或 `~/.atomcode/mcp.json`：
+也可以手写 `.mcp.json` 或 `~/.rustcode/mcp.json`：
 
 ```json
 {
@@ -83,14 +83,14 @@ atomcode mcp add-github-oauth github --global
 
 ```bash
 atomcode mcp login github \
-  --client-id "$ATOMCODE_GITHUB_MCP_CLIENT_ID" \
+  --client-id "$RUSTCODE_GITHUB_MCP_CLIENT_ID" \
   --client-secret-env GITHUB_MCP_CLIENT_SECRET
 ```
 
 如果配置中已经写了 `client_secret_env`，也可以：
 
 ```bash
-atomcode mcp login github --client-id "$ATOMCODE_GITHUB_MCP_CLIENT_ID"
+atomcode mcp login github --client-id "$RUSTCODE_GITHUB_MCP_CLIENT_ID"
 ```
 
 登录过程：
@@ -103,7 +103,7 @@ atomcode mcp login github --client-id "$ATOMCODE_GITHUB_MCP_CLIENT_ID"
 可以检查 token 是否保存：
 
 ```bash
-cat ~/.atomcode/mcp_auth.toml
+cat ~/.rustcode/mcp_auth.toml
 ```
 
 不要把该文件内容贴到日志、issue 或 PR 中。
@@ -171,7 +171,7 @@ atomcode mcp add-github-oauth github --global
 确认已设置：
 
 ```bash
-echo "$ATOMCODE_GITHUB_MCP_CLIENT_ID"
+echo "$RUSTCODE_GITHUB_MCP_CLIENT_ID"
 echo "$GITHUB_MCP_CLIENT_SECRET"
 ```
 
@@ -179,7 +179,7 @@ echo "$GITHUB_MCP_CLIENT_SECRET"
 
 ```bash
 atomcode mcp login github \
-  --client-id "$ATOMCODE_GITHUB_MCP_CLIENT_ID" \
+  --client-id "$RUSTCODE_GITHUB_MCP_CLIENT_ID" \
   --client-secret-env GITHUB_MCP_CLIENT_SECRET
 ```
 
@@ -205,7 +205,7 @@ GitHub Remote MCP 首次 `tools/list` 可能较慢。建议在 MCP 配置里设�
 ```bash
 atomcode mcp logout github
 atomcode mcp login github \
-  --client-id "$ATOMCODE_GITHUB_MCP_CLIENT_ID" \
+  --client-id "$RUSTCODE_GITHUB_MCP_CLIENT_ID" \
   --client-secret-env GITHUB_MCP_CLIENT_SECRET
 ```
 
@@ -213,14 +213,14 @@ atomcode mcp login github \
 
 ```bash
 cat .mcp.json
-cat ~/.atomcode/mcp.json
+cat ~/.rustcode/mcp.json
 ```
 
-项目级 `.mcp.json` 会覆盖同名的全局 `~/.atomcode/mcp.json` server。
+项目级 `.mcp.json` 会覆盖同名的全局 `~/.rustcode/mcp.json` server。
 
 ## 9. 安全注意事项
 
 - 不要提交 GitHub OAuth `Client secret`。
-- 不要提交 `~/.atomcode/mcp_auth.toml`。
+- 不要提交 `~/.rustcode/mcp_auth.toml`。
 - 对写操作工具保持审批，例如创建分支、改文件、发评论、创建 PR 等。
 - 需要最小权限时，应在 GitHub OAuth App 和组织策略中限制授权范围。

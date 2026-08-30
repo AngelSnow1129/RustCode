@@ -142,6 +142,11 @@ pub struct CodingAgentConfig {
     /// Disable TLS certificate verification (self-signed / internal gateways).
     /// Sourced from `ProviderConfig::skip_tls_verify`; default false.
     pub skip_tls_verify: bool,
+    /// Arbitrary extra HTTP headers for the resolved provider (self-hosted
+    /// gateway auth/tenant). Sourced from `ProviderConfig::extra_headers`.
+    pub extra_headers: Option<std::collections::HashMap<String, String>>,
+    /// Per-provider forward proxy override. Sourced from `ProviderConfig::proxy`.
+    pub proxy: Option<String>,
     /// Max attempts (including the first request) for provider OPEN retries;
     /// when set, also caps kernel-owned HTTP 429 recovery. `None` preserves
     /// each layer's default.
@@ -193,6 +198,8 @@ pub struct CodingRuntimeConfig {
     pub credential_shell_policy: rustcode_capabilities::tools::CredentialShellPolicy,
     pub user_agent: Option<String>,
     pub skip_tls_verify: bool,
+    pub extra_headers: Option<std::collections::HashMap<String, String>>,
+    pub proxy: Option<String>,
     /// Max attempts (including the first request) for provider OPEN retries;
     /// when set, also caps kernel-owned HTTP 429 recovery. `None` preserves
     /// each layer's default.
@@ -312,6 +319,8 @@ impl CodingRuntimeConfig {
             ),
             user_agent: r.and_then(|r| r.user_agent.clone()),
             skip_tls_verify: r.map(|r| r.skip_tls_verify).unwrap_or(false),
+            extra_headers: r.and_then(|r| r.extra_headers.clone()),
+            proxy: r.and_then(|r| r.proxy.clone()),
             retry_max_attempts: r.and_then(|r| r.retry_max_attempts),
             loop_max_rounds: resolve_loop_max_rounds(
                 config.loop_config.max_rounds,
@@ -774,6 +783,8 @@ impl CodingAgentConfig {
             credential_shell_policy: Default::default(),
             user_agent: None,
             skip_tls_verify: false,
+            extra_headers: None,
+            proxy: None,
             retry_max_attempts: None,
             subagent_config: None,
             subagent_fast_provider: None,

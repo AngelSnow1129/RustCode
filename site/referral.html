@@ -528,8 +528,8 @@ const T = {
   'announcement.thanks': { zh: '再次感谢每一位同路人。代码改变世界，而你们改变了 AtomCode。', en: 'Thank you again to everyone who joined us on this journey. Code changes the world, and you changed AtomCode.' },
   'announcement.signature': { zh: 'AtomGit 开发者社区', en: 'AtomGit Developer Community' },
   'announcement.signature.date': { zh: '2026 年 7 月 30 日', en: 'July 30, 2026' },
-  'resource.atomcode.title': { zh: 'AtomCode 主站', en: 'AtomCode Website' },
-  'resource.atomcode.desc': { zh: '了解产品最新动态与版本发布。', en: 'See the latest product updates and releases.' },
+  'resource.rustcode.title': { zh: 'AtomCode 主站', en: 'AtomCode Website' },
+  'resource.rustcode.desc': { zh: '了解产品最新动态与版本发布。', en: 'See the latest product updates and releases.' },
   'resource.atomgit.title': { zh: 'AtomGit 社区', en: 'AtomGit Community' },
   'resource.atomgit.desc': { zh: '参与开源协作、提交 Issue 与 PR。', en: 'Collaborate on open source, issues, and pull requests.' },
   'resource.appeal.title': { zh: '奖励与申诉咨询', en: 'Rewards and Appeals' },
@@ -912,7 +912,7 @@ function renderAnnouncement(targetId) {
     '<p>' + esc(t('announcement.thanks')) + '</p>' +
     '<footer class="announcement-signature"><strong>' + esc(t('announcement.signature')) + '</strong><span>' + esc(t('announcement.signature.date')) + '</span></footer></div></article>' +
     '<div class="resource-grid">' +
-    resourceCard('↗', 'https://atomcode.atomgit.com/', 'resource.atomcode.title', 'resource.atomcode.desc') +
+    resourceCard('↗', 'https://atomcode.atomgit.com/', 'resource.rustcode.title', 'resource.rustcode.desc') +
     resourceCard('↗', 'https://atomgit.com/atomgit_atomcode/atomcode', 'resource.atomgit.title', 'resource.atomgit.desc') +
     '<a class="resource-card" href="mailto:linjy@gitcode.com"><span class="resource-icon">✉</span><h3>' + esc(t('resource.appeal.title')) + '</h3><p>linjy@gitcode.com</p></a></div>';
 }

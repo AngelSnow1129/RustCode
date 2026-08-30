@@ -165,7 +165,7 @@ atomcode --dangerously-skip-permissions</code></pre>
         <li><code>Enter</code> 发送消息</li>
         <li><code>\</code> 后接 <code>Enter</code> 换行 —— 所有终端通用(行尾反斜杠会被识别为续行)</li>
         <li><code>Shift+Enter</code> / <code>Ctrl+Enter</code> 换行(需要 Kitty 键盘协议: kitty / WezTerm / Alacritty / iTerm2 ≥3.5 / Windows Terminal ≥1.21;Windows 上不可用)</li>
-        <li>JumpServer 等通用 WebTerminal 默认使用传统键盘上报。可设置 <code>ATOMCODE_KITTY=1</code> 强制启用 Kitty 键盘增强，或设置 <code>ATOMCODE_KITTY=0</code> 强制关闭。</li>
+        <li>JumpServer 等通用 WebTerminal 默认使用传统键盘上报。可设置 <code>RUSTCODE_KITTY=1</code> 强制启用 Kitty 键盘增强，或设置 <code>RUSTCODE_KITTY=0</code> 强制关闭。</li>
         <li><code>Alt+Enter</code> 换行(多数终端可用,但 Windows Terminal 默认绑给"切换全屏",需在设置里解绑)</li>
         <li>输入框高度会随内容自动增长</li>
       </ul>
@@ -188,7 +188,7 @@ atomcode --dangerously-skip-permissions</code></pre>
         <li>项目根目录下的<strong>所有文件和目录</strong> — 文件、目录都能选;目录用尾随 <code>/</code> 标识。</li>
         <li><strong>尊重 <code>.gitignore</code></strong>(以及全局 ignore、<code>.git/info/exclude</code>),被忽略的路径不会出现在菜单里。</li>
         <li><strong><code>.git/</code> 内部内容</strong>不出现在候选里 — 几乎没人想 <code>@</code> 引用 git 元数据。</li>
-        <li><strong>隐藏文件保留</strong> — <code>.env</code>、<code>.atomcode.md</code> 这类点开头文件能正常命中(只要没被 gitignore 屏蔽)。</li>
+        <li><strong>隐藏文件保留</strong> — <code>.env</code>、<code>.rustcode.md</code> 这类点开头文件能正常命中(只要没被 gitignore 屏蔽)。</li>
         <li><strong>跨级模糊匹配</strong> — 一旦你开始打过滤字符,匹配会穿透多级目录(不只是当前 scope 的直接子项)。空过滤时只显示当前 scope 的直接子项。</li>
         <li><strong>排序</strong>:当前 scope 的直接子项优先 → 目录优先于文件 → 字母序。</li>
       </ul>

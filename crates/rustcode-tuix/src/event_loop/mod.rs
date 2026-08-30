@@ -183,6 +183,10 @@ fn deactivate_runtime_provider(ctx: &LoopCtx) -> Result<(), rustcode_coding::Run
 pub(crate) fn deactivate_runtime_provider_after_logout(
     ctx: &mut LoopCtx,
 ) -> Result<bool, rustcode_coding::RuntimeUnavailable> {
+    // Current AtomGit credential observation (tokens never enter UI state). After
+    // logout this reflects the freshly-read credential file; falls back to the
+    // "no auth" observation when the file is unreadable.
+    let auth = AuthObservation::read_checked().unwrap_or(AuthObservation { user_id: None });
     let availability = ctx.runtime.ui_availability();
     if availability == RuntimeUiAvailability::Starting
         && provider_requires_atomgit_auth(&ctx.config)
@@ -11229,6 +11233,8 @@ mod external_config_tests {
                     base_url: None,
                     user_agent: None,
                     skip_tls_verify: false,
+                    extra_headers: None,
+                    proxy: None,
                     enterprise_url: None,
                     ephemeral: false,
                 },

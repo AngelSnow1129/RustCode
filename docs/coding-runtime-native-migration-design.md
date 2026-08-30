@@ -104,7 +104,7 @@ driver 不再发送 core `AgentCommand`，不再消费 core `AgentEvent`。daemo
 - `atomcode-bridge` crate；
 - core `AgentClient/AgentCommand/AgentEvent` driver 协议；
 - daemon `KernelDriver/KernelToWebui` 重复实现；
-- `ATOMCODE_DAEMON_ENGINE` 双路径开关；
+- `RUSTCODE_DAEMON_ENGINE` 双路径开关；
 - TUI `RuntimeEndpoint { legacy, native }` 双控制面；
 - daemon `DaemonRuntimeEvent::{Legacy, Native}` 混合事件流；
 - live runtime 中的 core ↔ kernel command/event/message 转换；
@@ -1080,7 +1080,7 @@ DaemonRuntimeEvent::Native
 atomcode_core::agent::AgentClient
 atomcode_core::agent::AgentCommand
 atomcode_core::agent::AgentEvent
-ATOMCODE_DAEMON_ENGINE
+RUSTCODE_DAEMON_ENGINE
 ```
 
 kernel `AgentCommand/AgentEvent`、native `CodingRuntimeEvent` 和独立 legacy session importer 应按目标

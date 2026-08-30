@@ -217,11 +217,11 @@ fn text_mentions_exact_name(text: &str, name: &str) -> bool {
         let before_ok = text[..start]
             .chars()
             .next_back()
-            .map_or(true, |ch| !is_name_char(ch));
+            .is_none_or(|ch| !is_name_char(ch));
         let after_ok = text[end..]
             .chars()
             .next()
-            .map_or(true, |ch| !is_name_char(ch));
+            .is_none_or(|ch| !is_name_char(ch));
         before_ok && after_ok
     })
 }

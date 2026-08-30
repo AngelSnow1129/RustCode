@@ -10,15 +10,15 @@ The Hooks system allows you to insert custom logic at key execution points in At
 
 ```bash
 # Global hooks (apply to all projects)
-mkdir -p ~/.atomcode/hooks
+mkdir -p ~/.rustcode/hooks
 
 # Project-level hooks (only apply to current project, override same-name global hook)
-mkdir -p .atomcode/hooks
+mkdir -p .rustcode/hooks
 ```
 
 **Step 2**: Write a hook script
 
-Create `~/.atomcode/hooks/my_hook.sh`:
+Create `~/.rustcode/hooks/my_hook.sh`:
 
 ```bash
 #!/bin/bash
@@ -42,12 +42,12 @@ echo "ok"
 Make it executable:
 
 ```bash
-chmod +x ~/.atomcode/hooks/my_hook.sh
+chmod +x ~/.rustcode/hooks/my_hook.sh
 ```
 
 **Step 3**: Configure `hooks.toml`
 
-Create `~/.atomcode/hooks/hooks.toml`:
+Create `~/.rustcode/hooks/hooks.toml`:
 
 ```toml
 [[hooks]]
@@ -227,7 +227,7 @@ Authorization = "Bearer AUDIT_TOKEN"
 
 Compatible with Claude Code plugin's `.hooks.json`. Load paths:
 
-- `~/.atomcode/hooks.json` — Global
+- `~/.rustcode/hooks.json` — Global
 - `<project>/.hooks.json` — Project (overrides same-name global)
 
 ```json
@@ -248,7 +248,7 @@ Supported `event` values: `pre_tool_use`, `post_tool_use`, `post_tool_use_failur
 
 > **Case/style-insensitive:** the loader accepts both CC PascalCase (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `SessionStart`, `UserPromptSubmit`) and snake_case (`pre_tool_use`, `post_tool_use_failure`, `session_start`, …) — the two spellings are equivalent.
 
-Hooks receive context via environment variables (`ATOMCODE_HOOK_EVENT`, `ATOMCODE_HOOK_CONTEXT`, `ATOMCODE_TOOL_NAME`, etc.). The stdout protocol varies by event:
+Hooks receive context via environment variables (`RUSTCODE_HOOK_EVENT`, `RUSTCODE_HOOK_CONTEXT`, `RUSTCODE_TOOL_NAME`, etc.). The stdout protocol varies by event:
 
 - **`pre_tool_use`** — output `{"action":"allow"}` / `{"action":"block","reason":"..."}` / `{"action":"modify","args":{...}}` (`args` replaces the tool-call arguments)
 - **`user_prompt_submit`** — output `{"decision":"block","reason":"..."}` to block submission, or `{"hookSpecificOutput":{"additionalContext":"..."}}` to inject extra context; plain-text stdout is treated as an additionalContext injection
@@ -304,9 +304,9 @@ JSON CC 兼容 Hook 通过环境变量接收（TOML ScriptHook 不适用，TOML 
 
 ```bash
 # 导出环境变量模拟运行环境（仅 JSON CC 格式）
-export ATOMCODE_HOOK_EVENT="post_tool_use"
-export ATOMCODE_TOOL_NAME="read_file"
-export ATOMCODE_HOOK_CONTEXT='{"tool_name":"read_file"}'
+export RUSTCODE_HOOK_EVENT="post_tool_use"
+export RUSTCODE_TOOL_NAME="read_file"
+export RUSTCODE_HOOK_CONTEXT='{"tool_name":"read_file"}'
 python path/to/hook.py
 ```
 

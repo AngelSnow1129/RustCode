@@ -79,14 +79,14 @@ AgentLoop / TurnRunner
 
 ### JSON CC 兼容配置（`.hooks.json`）
 
-- 加载路径：`~/.atomcode/hooks.json`（全局）+ `<project>/.hooks.json`（项目）
+- 加载路径：`~/.rustcode/hooks.json`（全局）+ `<project>/.hooks.json`（项目）
 - 支持 event：`pre_tool_use`、`post_tool_use`、`session_start`、`session_end`、`user_prompt_submit`
-- 协议：环境变量（`ATOMCODE_HOOK_EVENT`、`ATOMCODE_HOOK_CONTEXT` 等），stdout 输出 CC JSON
+- 协议：环境变量（`RUSTCODE_HOOK_EVENT`、`RUSTCODE_HOOK_CONTEXT` 等），stdout 输出 CC JSON
 - 项目 hooks **覆盖**同名全局 hooks
 
 ### TOML 配置（`hooks.toml`）
 
-- 加载路径：`~/.atomcode/hooks/hooks.toml` + `<project>/.atomcode/hooks/hooks.toml`
+- 加载路径：`~/.rustcode/hooks/hooks.toml` + `<project>/.rustcode/hooks/hooks.toml`
 - 三段式结构：
   - `[[hooks]]` → ScriptHook（4 种 trigger: `pre_tool`/`post_tool`/`post_turn`/`system_prompt`）
   - `[[webhooks]]` → WebhookHook（11 种 trigger, contains 匹配, 逗号分隔）

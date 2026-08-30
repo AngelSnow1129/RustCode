@@ -81,8 +81,8 @@
       <h2 id="配置文件位置">配置文件位置</h2>
       <p>默认路径:</p>
       <ul>
-        <li>macOS / Linux / HarmonyOS PC:<code>~/.atomcode/config.toml</code></li>
-        <li>Windows:<code>%USERPROFILE%\.atomcode\config.toml</code></li>
+        <li>macOS / Linux / HarmonyOS PC:<code>~/.rustcode/config.toml</code></li>
+        <li>Windows:<code>%USERPROFILE%\.rustcode\config.toml</code></li>
       </ul>
       <p>也可以通过 <code>--config /path/to/config.toml</code> 指定任意路径。首次运行时,若该文件不存在,3 步启动向导会引导你完成初始化。</p>
 
@@ -111,7 +111,7 @@ context_window = 64000</code></pre>
           <tr><td><code>default_workdir</code></td><td>string?</td><td>默认工作目录。用 <code>/cd</code> 切换目录时自动写回这里,下次启动恢复</td></tr>
           <tr><td><code>providers</code></td><td>table</td><td>provider 名到 <a href="#provider-config">ProviderConfig</a> 的映射</td></tr>
           <tr><td><code>vision_preprocessor_provider</code></td><td>string?</td><td>当主 provider 不支持图片但用户 attach 了图时,把图片转交给这里指定的 provider 做 OCR / 描述,结果以文本形式 splice 给主模型。详见 <a href="#vision-preprocessor">视觉预处理器</a></td></tr>
-          <tr><td><code>init_prompt_file</code></td><td>string?</td><td>追加到内置 <code>/init</code> 提示词后的 UTF-8 文件。相对路径基于 <code>$ATOMCODE_HOME</code> 解析，最大 64 KiB；也可以在 <code>/config</code> 中编辑。</td></tr>
+          <tr><td><code>init_prompt_file</code></td><td>string?</td><td>追加到内置 <code>/init</code> 提示词后的 UTF-8 文件。相对路径基于 <code>$RUSTCODE_HOME</code> 解析，最大 64 KiB；也可以在 <code>/config</code> 中编辑。</td></tr>
         </tbody>
       </table>
 
@@ -123,7 +123,7 @@ context_window = 64000</code></pre>
         </thead>
         <tbody>
           <tr><td><code>type</code></td><td>string</td><td>是</td><td>provider 协议类型,目前支持 <code>openai</code>、<code>claude</code>、<code>ollama</code></td></tr>
-          <tr><td><code>api_key</code></td><td>string?</td><td>视情况</td><td>API Key。支持明文密钥、环境变量语法（如 <code>$MY_KEY</code> 或 <code>${MY_KEY:-default}</code>）、环境变量名（如 <code>MY_KEY</code>），或留空自动回退标准环境变量（如 <code>OPENAI_API_KEY</code> / <code>ANTHROPIC_API_KEY</code>）。<code>ollama</code> 可不填。OAuth 登录的 provider 不含此字段，token 从 <code>~/.atomcode/auth.toml</code> 自动读取</td></tr>
+          <tr><td><code>api_key</code></td><td>string?</td><td>视情况</td><td>API Key。支持明文密钥、环境变量语法（如 <code>$MY_KEY</code> 或 <code>${MY_KEY:-default}</code>）、环境变量名（如 <code>MY_KEY</code>），或留空自动回退标准环境变量（如 <code>OPENAI_API_KEY</code> / <code>ANTHROPIC_API_KEY</code>）。<code>ollama</code> 可不填。OAuth 登录的 provider 不含此字段，token 从 <code>~/.rustcode/auth.toml</code> 自动读取</td></tr>
           <tr><td><code>model</code></td><td>string</td><td>是</td><td>模型名,比如 <code>deepseek-chat</code>、<code>gpt-4o</code>、<code>claude-sonnet-4-6</code></td></tr>
           <tr><td><code>base_url</code></td><td>string</td><td>是</td><td>API 基地址,需指向实际接口。例:<code>https://api.deepseek.com/v1</code>、<code>http://localhost:11434</code></td></tr>
           <tr><td><code>context_window</code></td><td>integer</td><td>否</td><td>模型上下文窗口(tokens),默认 64000。<code>ollama</code> 默认 8000</td></tr>
@@ -156,7 +156,7 @@ api_key = "ANTHROPIC_API_KEY" # 自动从环境变量 ANTHROPIC_API_KEY 中读�
             <li><code>openai</code> / <code>openai-compat</code>：读取 <code>OPENAI_API_KEY</code></li>
             <li><code>claude</code> / <code>anthropic</code>：读取 <code>ANTHROPIC_API_KEY</code></li>
             <li><code>ollama</code>：读取 <code>OLLAMA_API_KEY</code></li>
-            <li>通用后备：读取 <code>ATOMCODE_API_KEY</code></li>
+            <li>通用后备：读取 <code>RUSTCODE_API_KEY</code></li>
           </ul>
         </li>
       </ul>
@@ -276,7 +276,7 @@ max_rounds = 200</code></pre>
       <pre><code>[tools.todo]
 enabled = true
 eager = "auto"</code></pre>
-      <p><code>eager</code> 支持 <code>auto</code>、<code>preferred</code>、<code>always</code>。Auto 会对 DeepSeek V4 Flash 在新任务首轮增加高权重提醒，其他模型保持原行为；Preferred 对所有模型启用该提醒；Always 会在没有活跃任务列表时要求先调用 <code>todowrite</code>：OpenAI-compatible 与 Anthropic provider 会强制指定该工具，不支持 named-tool selection 的 adapter 仍会收到强指令提醒。设置 <code>enabled = false</code> 会一起关闭工具、提示词和 Todo hooks；修改这个总开关后需要重启当前 runtime。环境变量 <code>ATOMCODE_TODO</code> 仍可覆盖该开关。</p>
+      <p><code>eager</code> 支持 <code>auto</code>、<code>preferred</code>、<code>always</code>。Auto 会对 DeepSeek V4 Flash 在新任务首轮增加高权重提醒，其他模型保持原行为；Preferred 对所有模型启用该提醒；Always 会在没有活跃任务列表时要求先调用 <code>todowrite</code>：OpenAI-compatible 与 Anthropic provider 会强制指定该工具，不支持 named-tool selection 的 adapter 仍会收到强指令提醒。设置 <code>enabled = false</code> 会一起关闭工具、提示词和 Todo hooks；修改这个总开关后需要重启当前 runtime。环境变量 <code>RUSTCODE_TODO</code> 仍可覆盖该开关。</p>
 
       <h2 id="vision-preprocessor">视觉预处理器</h2>
       <p>当当前 active provider 的模型不支持图片输入(纯文本模型,比如 DeepSeek-V3 / Kimi),用户却 <a href="./basic-usage.html#image-attach">attach 了图片</a>时,AtomCode 不会直接拒绝,而是会把图片转给一个独立的"视觉预处理 provider"做 OCR + 描述,把结果以文本形式 splice 进用户消息里再发给主模型。</p>
@@ -305,7 +305,7 @@ base_url = "https://api.siliconflow.cn/v1"</code></pre>
 
       <h2 id="编辑配置的三种方式">编辑配置的三种方式</h2>
       <ul>
-        <li><strong>手动编辑</strong> —— 直接用你喜欢的编辑器打开 <code>~/.atomcode/config.toml</code>。</li>
+        <li><strong>手动编辑</strong> —— 直接用你喜欢的编辑器打开 <code>~/.rustcode/config.toml</code>。</li>
         <li><strong>TUI 内 <code>/config</code></strong> —— 可直接搜索和修改安全配置。其中动态的“最大重试次数（当前模型）”会把 <code>retry_max_attempts</code> 写入当前模型；连续按两次 Delete 可恢复默认值。</li>
         <li><strong>TUI 内 <code>/provider</code></strong> —— 交互式管理供应商账号及其模型，改动会自动落盘。</li>
       </ul>

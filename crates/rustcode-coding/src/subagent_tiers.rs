@@ -66,6 +66,8 @@ mod tests {
             thinking_enabled: None,
             thinking_budget: None,
             skip_tls_verify: false,
+            extra_headers: None,
+            proxy: None,
             ephemeral: false,
             capable_model: capable,
             retry_max_attempts: None,

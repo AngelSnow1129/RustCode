@@ -31,7 +31,7 @@ CLI / TUI / daemon / background / ACP / clix code
 
 ```text
 L3  drivers / services
-    atomcode-cli  atomcode-tuix  atomcode-daemon  atomcode-clix  ACP
+    atomcode-cli  atomcode-tuix  rustcode-daemon  atomcode-clix  ACP
                               │
                               ▼
 L2                     atomcode-coding
@@ -68,7 +68,7 @@ L0                     atomcode-kernel
 | `atomcode-auth` | leaf | 登录、OAuth 与凭据生命周期 |
 | `atomcode-cli` | L3 | 可执行程序入口、参数解析、headless/TUI/ACP 等入口协调 |
 | `atomcode-tuix` | L3 | retained-mode 终端 UI、事件循环、modal、命令与 runtime 事件投影 |
-| `atomcode-daemon` | L3 | HTTP/WebUI/live hub、headless runtime 接入及历史 session 单向导入 |
+| `rustcode-daemon` | L3 | HTTP/WebUI/live hub、headless runtime 接入及历史 session 单向导入 |
 | `atomcode-clix` | L3 | 独立 coding CLI driver |
 | `atomcode-review` | L2/L3 | 基于 kernel + capabilities 的独立代码审查 agent |
 | `atomcode-telemetry` | service | 遥测事件、配置和上报 |
@@ -127,7 +127,7 @@ runtime 重建或切换时必须保持 session、cwd、provider、审批、gatew
 
 ### daemon / WebUI
 
-`atomcode-daemon` 通过 `CodingRuntime` 提供 headless chat，并通过 live hub 复用 TUI
+`rustcode-daemon` 通过 `CodingRuntime` 提供 headless chat，并通过 live hub 复用 TUI
 附加的运行时。WebUI/HTTP DTO 是传输和展示投影，不是运行时状态的权威来源。
 
 ### ACP / clix / background

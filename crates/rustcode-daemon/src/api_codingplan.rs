@@ -6,12 +6,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use rustcode_auth as auth;
 use rustcode_codingplan as coding_plan;
-use rustcode_config::telemetry_legacy::{CodingplanResult, SessionMode};
-
 use crate::{
-    api_auth::{pending_invite_for_login, poll_login_session, LoginPollStep},
+    api_auth::{poll_login_session, LoginPollStep},
     api_config::{config_response, load_config, update_config},
-    daemon_scope, json_error, AppState,
+    client_mode::ClientMode,
+    json_error, AppState,
 };
 
 // ============================================================================
@@ -322,175 +321,163 @@ fn codingplan_usage_error(context: &'static str, error: anyhow::Error) -> axum::
 /// POST /codingplan/setup - Runs CodingPlan provider setup.
 pub(crate) async fn codingplan_setup(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<rustcode_config::telemetry_legacy::SessionMode>,
+    axum::Extension(client_mode): axum::Extension<ClientMode>,
     Json(req): Json<CodingPlanSetupRequest>,
 ) -> impl IntoResponse {
-    let state_clone = state.clone();
-    daemon_scope(&state, None, client_mode, || async move {
-        let state = state_clone;
-        // Check if already logged in
-        let is_logged_in = tokio::task::spawn_blocking(|| auth::get_valid_token().is_ok())
-            .await
-            .unwrap_or(false);
+    let state = state.clone();
+    // Check if already logged in
+    let is_logged_in = tokio::task::spawn_blocking(|| auth::get_valid_token().is_ok())
+        .await
+        .unwrap_or(false);
 
-        if !is_logged_in {
-            // Not logged in — check if a login_id was provided
-            match req.login_id {
-                None => {
-                    
-                    return json_error(
-                        StatusCode::UNAUTHORIZED,
-                        "Not logged in. Call /auth/login/start first.",
-                    )
-                    .into_response();
-                }
-                Some(login_id) => {
-                    match poll_login_session(&state, &login_id).await {
-                        Ok(result) => match result.step {
-                            LoginPollStep::Authorized {
-                                user,
-                                newly_authorized,
-                            } => {
-                                // Newly authorized: account storage is handled by auth.
-                            }
-                            step => {
-                                let (status, message) = match step {
-                                    LoginPollStep::Pending => (
-                                        StatusCode::CONFLICT,
-                                        "Login still pending. Poll the login endpoint until authorized."
-                                            .to_string(),
-                                    ),
-                                    LoginPollStep::Expired => (
-                                        StatusCode::GONE,
-                                        "Login session expired".to_string(),
-                                    ),
-                                    LoginPollStep::Cancelled => (
-                                        StatusCode::GONE,
-                                        "Login session was cancelled".to_string(),
-                                    ),
-                                    LoginPollStep::Failed { message, .. } => {
-                                        (StatusCode::INTERNAL_SERVER_ERROR, message)
-                                    }
-                                    LoginPollStep::Retryable { message, .. } => {
-                                        (StatusCode::SERVICE_UNAVAILABLE, message)
-                                    }
-                                    LoginPollStep::Authorized { .. } => unreachable!(),
-                                };
-                                
-                                return json_error(status, message).into_response();
-                            }
-                        },
-                        Err(error) => {
-                            let message = error.message;
-                            
-                            return json_error(error.status, message).into_response();
+    if !is_logged_in {
+        // Not logged in — check if a login_id was provided
+        match req.login_id {
+            None => {
+                
+                return json_error(
+                    StatusCode::UNAUTHORIZED,
+                    "Not logged in. Call /auth/login/start first.",
+                )
+                .into_response();
+            }
+            Some(login_id) => {
+                match poll_login_session(&state, &login_id).await {
+                    Ok(result) => match result.step {
+                        LoginPollStep::Authorized {
+                            user,
+                            newly_authorized,
+                        } => {
+                            // Newly authorized: account storage is handled by auth.
                         }
+                        step => {
+                            let (status, message) = match step {
+                                LoginPollStep::Pending => (
+                                    StatusCode::CONFLICT,
+                                    "Login still pending. Poll the login endpoint until authorized."
+                                        .to_string(),
+                                ),
+                                LoginPollStep::Expired => (
+                                    StatusCode::GONE,
+                                    "Login session expired".to_string(),
+                                ),
+                                LoginPollStep::Cancelled => (
+                                    StatusCode::GONE,
+                                    "Login session was cancelled".to_string(),
+                                ),
+                                LoginPollStep::Failed { message, .. } => {
+                                    (StatusCode::INTERNAL_SERVER_ERROR, message)
+                                }
+                                LoginPollStep::Retryable { message, .. } => {
+                                    (StatusCode::SERVICE_UNAVAILABLE, message)
+                                }
+                                LoginPollStep::Authorized { .. } => unreachable!(),
+                            };
+                            
+                            return json_error(status, message).into_response();
+                        }
+                    },
+                    Err(error) => {
+                        let message = error.message;
+                        
+                        return json_error(error.status, message).into_response();
                     }
                 }
             }
         }
+    }
 
-        // At this point, the user is logged in. Run CodingPlan setup.
-        let mut config = match load_config() {
-            Ok(c) => c,
+    // At this point, the user is logged in. Run CodingPlan setup.
+    let mut config = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            
+            return json_error(StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
+        }
+    };
+
+    // coding_plan::setup::run uses blocking HTTP internally; keep it off
+    // the async runtime worker threads.
+    let setup_result = tokio::task::spawn_blocking(move || {
+        // step_login will see is_logged_in() == true and skip.
+        // Pass None for tel — we emit TakeCodingplan externally in this handler.
+        // Background / cross-client sync: preserve the model this client is on
+        // (never clobber another client's selection — see a63f6591).
+        let report = coding_plan::run(
+            &mut config,
+            coding_plan::DefaultModelPolicy::PreservePrevious,
+        )?;
+        Ok::<_, anyhow::Error>((config, report))
+    })
+    .await;
+
+    let (mut config, report) = match setup_result {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => {
+            
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("CodingPlan setup failed: {:#}", e),
+            )
+            .into_response();
+        }
+        Err(e) => {
+            
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("CodingPlan setup task failed: {:#}", e),
+            )
+            .into_response();
+        }
+    };
+
+    // Persist config if setup succeeded
+    if report.should_persist_config() {
+        config = match update_config(|latest| {
+            coding_plan::merge_successful_config(
+                latest,
+                &config,
+                &report,
+                coding_plan::DefaultModelPolicy::PreservePrevious,
+            )
+        }) {
+            Ok(config) => config,
             Err(e) => {
                 
                 return json_error(StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
             }
         };
-
-        // coding_plan::setup::run uses blocking HTTP internally; keep it off
-        // the async runtime worker threads.
-        let setup_result = tokio::task::spawn_blocking(move || {
-            // step_login will see is_logged_in() == true and skip.
-            // Pass None for tel — we emit TakeCodingplan externally in this handler.
-            // Background / cross-client sync: preserve the model this client is on
-            // (never clobber another client's selection — see a63f6591).
-            let report = coding_plan::run(
-                &mut config,
-                None,
-                coding_plan::DefaultModelPolicy::PreservePrevious,
-            )?;
-            Ok::<_, anyhow::Error>((config, report))
-        })
-        .await;
-
-        let (mut config, report) = match setup_result {
-            Ok(Ok(v)) => v,
-            Ok(Err(e)) => {
-                
-                return json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("CodingPlan setup failed: {:#}", e),
-                )
-                .into_response();
-            }
-            Err(e) => {
-                
-                return json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("CodingPlan setup task failed: {:#}", e),
-                )
-                .into_response();
-            }
-        };
-
-        // Determine result type based on report
-        let result_type = if report.should_persist_config() {
-            CodingplanResult::Success
-        } else {
-            CodingplanResult::Fail
-        };
-
-        // Persist config if setup succeeded
-        if report.should_persist_config() {
-            config = match update_config(|latest| {
-                coding_plan::merge_successful_config(
-                    latest,
-                    &config,
-                    &report,
-                    coding_plan::DefaultModelPolicy::PreservePrevious,
-                )
-            }) {
-                Ok(config) => config,
-                Err(e) => {
-                    
-                    return json_error(StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
-                }
-            };
-            if let Err(e) = coding_plan::write_last_sync_now() {
-                
-                return json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to write CodingPlan sync marker: {:#}", e),
-                )
-                .into_response();
-            }
+        if let Err(e) = coding_plan::write_last_sync_now() {
+            
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write CodingPlan sync marker: {:#}", e),
+            )
+            .into_response();
         }
+    }
 
-        // Emit TakeCodingplan exactly once on the success path
-        
+    // Emit TakeCodingplan exactly once on the success path
+    
 
-        // Build response
-        let report_text = report.render();
-        let steps = SetupSteps {
-            login: step_info_from_result(&report.login),
-            claim: step_info_from_result(&report.claim),
-            models: step_info_from_result(&report.models),
-            status: step_info_from_result(&report.status),
-        };
+    // Build response
+    let report_text = report.render();
+    let steps = SetupSteps {
+        login: step_info_from_result(&report.login),
+        claim: step_info_from_result(&report.claim),
+        models: step_info_from_result(&report.models),
+        status: step_info_from_result(&report.status),
+    };
 
-        let config_resp = config_response(&config);
-        Json(CodingPlanSetupResponse {
-            success: report.should_persist_config(),
-            report_text,
-            default_provider: config_resp.default_provider,
-            providers: config_resp.providers,
-            steps,
-        })
-        .into_response()
+    let config_resp = config_response(&config);
+    Json(CodingPlanSetupResponse {
+        success: report.should_persist_config(),
+        report_text,
+        default_provider: config_resp.default_provider,
+        providers: config_resp.providers,
+        steps,
     })
-    .await
+    .into_response()
 }
 
 /// Convert a StepResult to a StepInfo for JSON serialization.
@@ -529,7 +516,7 @@ static AUTO_SYNC_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 /// Deliberately fire-and-forget: the login poll response must not wait for the
 /// claim/models network round-trips. Failures are logged / telemetry-tracked
 /// but never fail the login itself.
-pub(crate) fn sync_codingplan_after_login(state: AppState, client_mode: SessionMode) {
+pub(crate) fn sync_codingplan_after_login(state: AppState, client_mode: ClientMode) {
     if AUTO_SYNC_IN_FLIGHT
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -540,72 +527,68 @@ pub(crate) fn sync_codingplan_after_login(state: AppState, client_mode: SessionM
     let state_for_scope = state.clone();
     tokio::spawn(async move {
         let _reset = AutoSyncReset;
-        daemon_scope(&state, None, client_mode, || async move {
-            let mut config = match load_config() {
-                Ok(c) => c,
-                Err(e) => {
-                    
-                    tracing::warn!(error = %e, "codingplan auto-sync: config load failed");
-                    return;
-                }
-            };
-
-            let setup_result = tokio::task::spawn_blocking(move || {
-                // Background / cross-client sync: preserve the model this client is on
-                // (never clobber another client's selection — see a63f6591).
-                let report = coding_plan::run(
-                    &mut config,
-                    None,
-                    coding_plan::DefaultModelPolicy::PreservePrevious,
-                )?;
-                Ok::<_, anyhow::Error>((config, report))
-            })
-            .await;
-
-            let (config, report) = match setup_result {
-                Ok(Ok(v)) => v,
-                Ok(Err(e)) => {
-                    
-                    tracing::warn!(error = ?e, "codingplan auto-sync after login failed");
-                    return;
-                }
-                Err(e) => {
-                    tracing::error!(error = ?e, "codingplan auto-sync task panicked");
-                    return;
-                }
-            };
-
-            if !report.should_persist_config() {
-                // e.g. claim refused / empty model list — leave existing
-                // config untouched; the user can still set up providers
-                // manually.
-                tracing::info!(
-                    report = %report.render(),
-                    "codingplan auto-sync after login did not persist config"
-                );
-                return;
-            }
-
-            if let Err(e) = update_config(|latest| {
-                coding_plan::merge_successful_config(
-                    latest,
-                    &config,
-                    &report,
-                    coding_plan::DefaultModelPolicy::PreservePrevious,
-                )
-            }) {
+        let mut config = match load_config() {
+            Ok(c) => c,
+            Err(e) => {
                 
-                tracing::warn!(error = %e, "codingplan auto-sync: config merge failed");
+                tracing::warn!(error = %e, "codingplan auto-sync: config load failed");
                 return;
             }
-            if let Err(e) = coding_plan::write_last_sync_now() {
-                tracing::warn!(error = ?e, "codingplan auto-sync: sync marker write failed");
-            }
+        };
 
-            
-            tracing::info!("codingplan auto-sync after login completed");
+        let setup_result = tokio::task::spawn_blocking(move || {
+            // Background / cross-client sync: preserve the model this client is on
+            // (never clobber another client's selection — see a63f6591).
+            let report = coding_plan::run(
+                &mut config,
+                coding_plan::DefaultModelPolicy::PreservePrevious,
+            )?;
+            Ok::<_, anyhow::Error>((config, report))
         })
         .await;
+
+        let (config, report) = match setup_result {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                
+                tracing::warn!(error = ?e, "codingplan auto-sync after login failed");
+                return;
+            }
+            Err(e) => {
+                tracing::error!(error = ?e, "codingplan auto-sync task panicked");
+                return;
+            }
+        };
+
+        if !report.should_persist_config() {
+            // e.g. claim refused / empty model list — leave existing
+            // config untouched; the user can still set up providers
+            // manually.
+            tracing::info!(
+                report = %report.render(),
+                "codingplan auto-sync after login did not persist config"
+            );
+            return;
+        }
+
+        if let Err(e) = update_config(|latest| {
+            coding_plan::merge_successful_config(
+                latest,
+                &config,
+                &report,
+                coding_plan::DefaultModelPolicy::PreservePrevious,
+            )
+        }) {
+            
+            tracing::warn!(error = %e, "codingplan auto-sync: config merge failed");
+            return;
+        }
+        if let Err(e) = coding_plan::write_last_sync_now() {
+            tracing::warn!(error = ?e, "codingplan auto-sync: sync marker write failed");
+        }
+
+        
+        tracing::info!("codingplan auto-sync after login completed");
     });
 }
 

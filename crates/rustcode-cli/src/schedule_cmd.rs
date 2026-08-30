@@ -500,7 +500,7 @@ async fn run_task(id: &str) -> Result<i32> {
     //    out-of-workspace bash regardless of permission_mode — no human is present.
     let mode = mode_from_str(&task.permission_mode);
     let runtime_cfg = crate::runtime_config_from(
-        &config, &cwd, None, None,  // no per-task telemetry arc needed
+        &config, &cwd, None,
         false, // dangerously_skip_permissions=false — scheduled: never full bypass
         false, // headless: fail-closed approval timeout
     );

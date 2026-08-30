@@ -136,7 +136,7 @@ impl Tool for WebFetchTool {
                     // IP(s) (single hop, no redirect follow) so SSRF protection still holds;
                     // curl's mainstream TLS fingerprint often passes where rustls is reset.
                     if let Some((code, ct, body, hit_cap)) = curl_fallback(&url, &pinned).await {
-                        return render_body(&url.to_string(), code, ct, body, hit_cap, fmt, max);
+                        return render_body(url.as_ref(), code, ct, body, hit_cap, fmt, max);
                     }
                     // Surface the REAL cause (TLS handshake / connection reset / DNS) — reqwest's
                     // top-level Display is opaque ("error sending request for url (…)").
@@ -669,7 +669,6 @@ fn tokenize_html(html: &str) -> Vec<HtmlToken> {
         }
         if let Some(rest) = inner_trim.strip_prefix('/') {
             let name = rest
-                .trim()
                 .split_whitespace()
                 .next()
                 .unwrap_or("")

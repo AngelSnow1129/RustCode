@@ -1110,7 +1110,7 @@ pub(crate) async fn prepare_with_plugin_hook_source_reusing_lease(
 ) -> io::Result<CodingParts> {
     let hooks = source
         .load()
-        .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+        .map_err(|error| io::Error::other(error))?;
     prepare_with_plugin_hooks_reusing_lease(cfg, opts, hooks, reuse_lease, stage_fresh).await
 }
 

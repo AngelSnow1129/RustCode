@@ -165,7 +165,7 @@ atomcode --dangerously-skip-permissions</code></pre>
         <li><code>Enter</code> sends the message.</li>
         <li><code>\</code> then <code>Enter</code> inserts a newline — works in every terminal (a trailing backslash makes the line a continuation).</li>
         <li><code>Shift+Enter</code> / <code>Ctrl+Enter</code> insert a newline (requires Kitty keyboard protocol: kitty / WezTerm / Alacritty / iTerm2 ≥3.5 / Windows Terminal ≥1.21; not available on Windows).</li>
-        <li>Generic web terminals use legacy key reporting by default. Set <code>ATOMCODE_KITTY=1</code> to force Kitty keyboard enhancement on, or <code>ATOMCODE_KITTY=0</code> to force it off.</li>
+        <li>Generic web terminals use legacy key reporting by default. Set <code>RUSTCODE_KITTY=1</code> to force Kitty keyboard enhancement on, or <code>RUSTCODE_KITTY=0</code> to force it off.</li>
         <li><code>Alt+Enter</code> inserts a newline (works in most terminals, but Windows Terminal binds it to "toggle fullscreen" by default — unbind in settings).</li>
         <li>The input area grows with content.</li>
       </ul>
@@ -188,7 +188,7 @@ atomcode --dangerously-skip-permissions</code></pre>
         <li><strong>All files and directories</strong> under the project root — both files and dirs can be selected; dirs are marked with a trailing <code>/</code>.</li>
         <li><strong>Honours <code>.gitignore</code></strong> (and global ignore, <code>.git/info/exclude</code>); ignored paths never appear.</li>
         <li><strong><code>.git/</code> internals are excluded</strong> — almost nobody wants to <code>@</code>-reference git metadata.</li>
-        <li><strong>Dotfiles stay</strong> — <code>.env</code>, <code>.atomcode.md</code>, and other dot-prefixed files are matchable (provided gitignore doesn't suppress them).</li>
+        <li><strong>Dotfiles stay</strong> — <code>.env</code>, <code>.rustcode.md</code>, and other dot-prefixed files are matchable (provided gitignore doesn't suppress them).</li>
         <li><strong>Cross-level fuzzy matching</strong> — once you start typing a filter, matches reach across directory levels (not just the current scope's direct children). With an empty filter only the current scope's direct children are shown.</li>
         <li><strong>Ordering</strong>: direct children of the current scope first → directories before files → alphabetical.</li>
       </ul>

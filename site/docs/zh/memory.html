@@ -76,7 +76,7 @@
 
   <main class="dmain prose-docs">
 <h1 id="永久记忆">永久记忆</h1>
-      <p class="lede">用 <code>/remember</code> 把零碎的偏好、约定、命令记下来,AtomCode 会在每一轮对话的系统提示里把它们带给模型。和 <a href="./project-instructions.html"><code>.atomcode.md</code> 项目指令文件</a> 互补:指令文件适合写整篇规范,记忆适合积累那些"突然想起来该告诉它"的零散事实。</p>
+      <p class="lede">用 <code>/remember</code> 把零碎的偏好、约定、命令记下来,AtomCode 会在每一轮对话的系统提示里把它们带给模型。和 <a href="./project-instructions.html"><code>.rustcode.md</code> 项目指令文件</a> 互补:指令文件适合写整篇规范,记忆适合积累那些"突然想起来该告诉它"的零散事实。</p>
 
       <h2 id="命令总览">命令总览</h2>
       <table>
@@ -97,8 +97,8 @@
           <tr><th>作用域</th><th>路径</th></tr>
         </thead>
         <tbody>
-          <tr><td>全局</td><td><code>~/.atomcode/memory.md</code>(或 <code>$ATOMCODE_HOME/memory.md</code>)</td></tr>
-          <tr><td>项目</td><td><code>&lt;project_root&gt;/.atomcode/memory.md</code></td></tr>
+          <tr><td>全局</td><td><code>~/.rustcode/memory.md</code>(或 <code>$RUSTCODE_HOME/memory.md</code>)</td></tr>
+          <tr><td>项目</td><td><code>&lt;project_root&gt;/.rustcode/memory.md</code></td></tr>
         </tbody>
       </table>
       <p>格式是普通 Markdown,每行一条 <code>- </code> 开头的列表项。可以用 <code>/remember</code> 也可以直接手编辑——AtomCode 在下一轮会重新读取。<strong>非 <code>- </code> 开头的行会被忽略</strong>,所以可以加注释、空行、标题分组,记忆条目本身不受影响。</p>
@@ -154,17 +154,17 @@ The user has asked you to remember these facts and preferences:
   (removed 1 matching entry)
 
 &gt; /memory
-  [Global] (/Users/alice/.atomcode/memory.md)
+  [Global] (/Users/alice/.rustcode/memory.md)
     - 改完代码先跑测试再 commit
     - 不要主动 git push,让我手动确认
-  [Project] (/Users/alice/code/myrepo/.atomcode/memory.md)
+  [Project] (/Users/alice/code/myrepo/.rustcode/memory.md)
     - CI 失败时先看 .github/workflows/ci.yml 第 78-92 行</code></pre>
 
       <h2 id="记忆-vs-项目指令文件-vs-会话历史">记忆 vs 项目指令文件 vs 会话历史</h2>
       <p>AtomCode 提供了三种持久化"上下文"的方式,各自定位不同:</p>
       <table>
         <thead>
-          <tr><th></th><th><code>.atomcode.md</code></th><th>记忆(memory.md)</th><th>会话(<code>/resume</code>)</th></tr>
+          <tr><th></th><th><code>.rustcode.md</code></th><th>记忆(memory.md)</th><th>会话(<code>/resume</code>)</th></tr>
         </thead>
         <tbody>
           <tr><td>适合内容</td><td>整篇规范、技术栈、详细约定</td><td>零散事实、个人偏好、命令速查</td><td>过去的对话和工具调用</td></tr>
@@ -176,11 +176,11 @@ The user has asked you to remember these facts and preferences:
       </table>
       <p>典型组合:</p>
       <ul>
-        <li><strong>团队规范</strong> 写在 <code>.atomcode.md</code> 里(进 git,所有人共享)</li>
+        <li><strong>团队规范</strong> 写在 <code>.rustcode.md</code> 里(进 git,所有人共享)</li>
         <li><strong>个人偏好</strong> 用 <code>/remember --global</code>(只在你本机)</li>
-        <li><strong>项目特定坑</strong> 用 <code>/remember</code>(留在项目本地的 <code>.atomcode/memory.md</code>,可以选择是否进 git)</li>
+        <li><strong>项目特定坑</strong> 用 <code>/remember</code>(留在项目本地的 <code>.rustcode/memory.md</code>,可以选择是否进 git)</li>
       </ul>
-      <p>关于 <code>.atomcode/memory.md</code> 是否提交进 git:如果团队都用 AtomCode 且记忆是项目知识(如踩过的坑、约定),可以提交;如果是个人开发笔记,可以加进 <code>.gitignore</code>。</p>
+      <p>关于 <code>.rustcode/memory.md</code> 是否提交进 git:如果团队都用 AtomCode 且记忆是项目知识(如踩过的坑、约定),可以提交;如果是个人开发笔记,可以加进 <code>.gitignore</code>。</p>
 
       <h2 id="下一步">下一步</h2>
       <ul>

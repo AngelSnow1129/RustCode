@@ -803,7 +803,7 @@ pub(crate) fn cmp_finding(a: &Finding, b: &Finding) -> std::cmp::Ordering {
 /// Sort by priority ascending (`P0` most severe) then confidence descending. `Px` strings
 /// sort lexically in severity order, so a plain string compare is correct.
 fn sort_findings(findings: &mut [Finding]) {
-    findings.sort_by(|a, b| cmp_finding(a, b));
+    findings.sort_by(cmp_finding);
 }
 
 fn render_findings(findings: &[Finding], changed_files: usize) -> String {

@@ -292,17 +292,14 @@ impl CatalogScan {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum StorageOwner {
+    #[default]
     Unconfirmed,
     Legacy,
     Native,
 }
 
-impl Default for StorageOwner {
-    fn default() -> Self {
-        Self::Unconfirmed
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

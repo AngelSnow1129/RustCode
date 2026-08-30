@@ -233,7 +233,7 @@ fn path_is_noncode_doc(raw: &str) -> bool {
 /// commands (incl. `git`, which has no build subcommand), never enumerates build commands, so
 /// a real check of any language always counts.
 fn bash_verifies(cmd: &str) -> bool {
-    cmd.split(|c| c == '|' || c == ';' || c == '&')
+    cmd.split(['|', ';', '&'])
         .map(str::trim)
         .filter(|seg| !seg.is_empty())
         .any(segment_is_work)
@@ -332,11 +332,10 @@ fn unverified_edit(convo: &Conversation, workspace: &Path) -> Option<NudgedEdit>
                         bash_after_edit = false;
                     }
                     // Only a real check counts — a read-only/navigation command does NOT verify.
-                    Some("bash") => {
-                        if bash_cmds.get(id).is_some_and(|c| bash_verifies(c)) {
+                    Some("bash")
+                        if bash_cmds.get(id).is_some_and(|c| bash_verifies(c)) => {
                             bash_after_edit = true;
                         }
-                    }
                     _ => {}
                 }
             }

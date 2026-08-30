@@ -257,15 +257,15 @@ export class DaemonProcess {
     return false;
   }
 
-  /** `$ATOMCODE_HOME` or `~/.atomcode` — mirrors the daemon's `Config::config_dir()`. */
-  private atomcodeHome(): string {
-    const env = process.env.ATOMCODE_HOME;
-    return env && env.length > 0 ? env : path.join(os.homedir(), '.atomcode');
+  /** `$RUSTCODE_HOME` or `~/.rustcode` — mirrors the daemon's `Config::config_dir()`. */
+  private rustcodeHome(): string {
+    const env = process.env.RUSTCODE_HOME;
+    return env && env.length > 0 ? env : path.join(os.homedir(), '.rustcode');
   }
 
   /** Pidfile the daemon writes: `<home>/daemon-<port>.json`, keyed by port. */
   private pidfilePath(port: number): string {
-    return path.join(this.atomcodeHome(), `daemon-${port}.json`);
+    return path.join(this.rustcodeHome(), `daemon-${port}.json`);
   }
 
   /**
@@ -274,7 +274,7 @@ export class DaemonProcess {
    * can't kill it — the recovery gap that made the port stay stuck through restarts and
    * reinstalls. Uses the daemon's own pidfile to identify the target and force-kills it
    * ONLY after validating (a) health is genuinely dead now — a transient blip must not
-   * kill a daemon other windows are using, and (b) the pid is live AND an atomcode image
+   * kill a daemon other windows are using, and (b) the pid is live AND a rustcode image
    * — so a reused pid is never mis-killed. Best-effort; any failure falls through to a
    * normal spawn (no worse than today).
    */
@@ -305,8 +305,8 @@ export class DaemonProcess {
     } catch {
       return; // dead pid → stale pidfile, ignore
     }
-    // (b) Validate it's actually an atomcode daemon before killing (PID-reuse guard).
-    if (!this.isAtomcodeProcess(pid)) {
+    // (b) Validate it's actually a rustcode daemon before killing (PID-reuse guard).
+    if (!this.isRustcodeProcess(pid)) {
       return;
     }
 
@@ -335,8 +335,8 @@ export class DaemonProcess {
     }
   }
 
-  /** Best-effort check that `pid`'s image is an atomcode daemon (guards PID reuse). */
-  private isAtomcodeProcess(pid: number): boolean {
+  /** Best-effort check that `pid`'s image is a rustcode daemon (guards PID reuse). */
+  private isRustcodeProcess(pid: number): boolean {
     try {
       if (process.platform === 'win32') {
         const out = child_process.execFileSync(
@@ -344,31 +344,31 @@ export class DaemonProcess {
           ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'],
           { encoding: 'utf-8', windowsHide: true }
         );
-        return /atomcode/i.test(out);
+        return /rustcode/i.test(out);
       }
       const out = child_process.execFileSync('ps', ['-p', String(pid), '-o', 'comm='], {
         encoding: 'utf-8',
       });
-      return /atomcode/i.test(out);
+      return /rustcode/i.test(out);
     } catch {
       return false; // can't verify → don't kill (safe default)
     }
   }
 
   /**
-   * Find the atomcode binary. Returns the path and args to start the daemon.
+   * Find the rustcode binary. Returns the path and args to start the daemon.
    *
    * Search order:
    * 1. User-configured binaryPath
-   * 2. Bundled standalone atomcode-daemon in the extension package
-   * 3. `atomcode` in PATH (uses `atomcode daemon` subcommand)
+   * 2. Bundled standalone rustcode-daemon in the extension package
+   * 3. `rustcode` in PATH (uses `rustcode daemon` subcommand)
    * 4. Common install locations
    * 5. Workspace build outputs (for developers)
    */
   private findBinary(port: number): DaemonBinary | undefined {
     const portArgs = ['--port', String(port), '--client', 'vscode'];
 
-    // 1. User-configured path (could be atomcode or atomcode-daemon)
+    // 1. User-configured path (could be rustcode or rustcode-daemon)
     if (this.configBinaryPath && fs.existsSync(this.configBinaryPath)) {
       const name = path.basename(this.configBinaryPath);
       if (name.includes('daemon')) {
@@ -377,7 +377,7 @@ export class DaemonProcess {
       return { path: this.configBinaryPath, args: ['daemon', ...portArgs] };
     }
 
-    // 2. Bundled standalone atomcode-daemon binary
+    // 2. Bundled standalone rustcode-daemon binary
     const bundled = this.findBundledDaemon();
     if (bundled) {
       return { path: bundled, args: portArgs };
@@ -385,7 +385,7 @@ export class DaemonProcess {
 
     // 3. Check PATH via `which` (Unix) or `where` (Windows)
     try {
-      const command = process.platform === 'win32' ? 'where atomcode' : 'which atomcode 2>/dev/null';
+      const command = process.platform === 'win32' ? 'where rustcode' : 'which rustcode 2>/dev/null';
       const resolved = child_process.execSync(command, { encoding: 'utf-8', windowsHide: true }).trim();
       if (resolved) {
         // On Windows, 'where' returns all matches, take first line
@@ -399,23 +399,23 @@ export class DaemonProcess {
     const home: string = os.homedir();
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
 
-    // 4. Common install locations (atomcode main binary with daemon subcommand)
-    const atomcodePaths = [
-      path.join(home, '.atomcode', 'bin', 'atomcode'),
-      path.join(home, '.cargo', 'bin', 'atomcode'),
-      '/usr/local/bin/atomcode',
+    // 4. Common install locations (rustcode main binary with daemon subcommand)
+    const rustcodePaths = [
+      path.join(home, '.rustcode', 'bin', 'rustcode'),
+      path.join(home, '.cargo', 'bin', 'rustcode'),
+      '/usr/local/bin/rustcode',
     ];
-    for (const p of atomcodePaths) {
+    for (const p of rustcodePaths) {
       if (fs.existsSync(p)) {
         return { path: p, args: ['daemon', ...portArgs] };
       }
     }
 
-    // 5. Standalone atomcode-daemon binary (fallback)
+    // 5. Standalone rustcode-daemon binary (fallback)
     const daemonPaths = [
-      path.join(home, '.atomcode', 'bin', 'atomcode-daemon'),
-      path.join(home, '.cargo', 'bin', 'atomcode-daemon'),
-      '/usr/local/bin/atomcode-daemon',
+      path.join(home, '.rustcode', 'bin', 'rustcode-daemon'),
+      path.join(home, '.cargo', 'bin', 'rustcode-daemon'),
+      '/usr/local/bin/rustcode-daemon',
     ];
     for (const p of daemonPaths) {
       if (fs.existsSync(p)) {
@@ -427,14 +427,14 @@ export class DaemonProcess {
     // Warn the user so they know a dev build is being used instead of the
     // bundled daemon that should have shipped with the extension.
     const devPaths = [
-      path.join(workspaceRoot, 'target', 'release', 'atomcode-daemon'),
-      path.join(workspaceRoot, 'target', 'debug', 'atomcode-daemon'),
+      path.join(workspaceRoot, 'target', 'release', 'rustcode-daemon'),
+      path.join(workspaceRoot, 'target', 'debug', 'rustcode-daemon'),
     ];
     for (const p of devPaths) {
       if (fs.existsSync(p)) {
-        console.warn(`[AtomCode] Using dev build daemon: ${p}. The bundled daemon was not found — the extension package may be missing resources/bin/<platform>/atomcode-daemon.`);
+        console.warn(`[AtomCode] Using dev build daemon: ${p}. The bundled daemon was not found — the extension package may be missing resources/bin/<platform>/rustcode-daemon.`);
         vscode.window.showWarningMessage(
-          `AtomCode is using a development build of the daemon (${p}). The bundled daemon was not found. Reinstall the extension or set atomcode.daemon.binaryPath in settings.`
+          `AtomCode is using a development build of the daemon (${p}). The bundled daemon was not found. Reinstall the extension or set rustcode.daemon.binaryPath in settings.`
         );
         return { path: p, args: portArgs };
       }
@@ -449,7 +449,7 @@ export class DaemonProcess {
       return undefined;
     }
 
-    const executable = process.platform === 'win32' ? 'atomcode-daemon.exe' : 'atomcode-daemon';
+    const executable = process.platform === 'win32' ? 'rustcode-daemon.exe' : 'rustcode-daemon';
     const bundled = path.join(this.extensionUri.fsPath, 'resources', 'bin', platformDir, executable);
     if (!fs.existsSync(bundled)) {
       return undefined;

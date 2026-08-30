@@ -106,7 +106,7 @@
       </ul>
 
       <h2 id="configuration">Configuration</h2>
-      <p>Tune the subagent pool in <code>~/.atomcode/config.toml</code>:</p>
+      <p>Tune the subagent pool in <code>~/.rustcode/config.toml</code>:</p>
       <pre><code>[subagent]
 max_concurrent = 3     # parallel subagents at once (min 1)
 timeout_secs   = 900   # per-subtask wall-clock limit, seconds (min 30)
@@ -121,11 +121,11 @@ max_rounds     = 200   # per-subtask model-round cap (0 = unbounded)</code></pre
           <tr><td><code>max_rounds</code></td><td>200</td><td>Model-round high-water mark per subtask; <code>0</code> = unbounded</td></tr>
         </tbody>
       </table>
-      <p>Environment overrides: <code>ATOMCODE_SUBAGENT_TIMEOUT</code> and <code>ATOMCODE_SUBAGENT_MAX_ROUNDS</code> take precedence over the config values.</p>
+      <p>Environment overrides: <code>RUSTCODE_SUBAGENT_TIMEOUT</code> and <code>RUSTCODE_SUBAGENT_MAX_ROUNDS</code> take precedence over the config values.</p>
 
       <h2 id="turning-it-off">Turning it off</h2>
       <p>The <code>task</code> tool is enabled by default. To remove it entirely, set:</p>
-      <pre><code>ATOMCODE_SUBAGENT=0 atomcode</code></pre>
+      <pre><code>RUSTCODE_SUBAGENT=0 atomcode</code></pre>
       <p>Any of <code>0</code>, <code>false</code>, or <code>off</code> disables it; unset (or any other value) leaves it on.</p>
 
       <h2 id="related">Related</h2>

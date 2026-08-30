@@ -18,7 +18,7 @@ not remove or alter the upstream notice on inherited code.
 ## What changed relative to upstream
 
 1. **Rebranding (OBJECTIVE-1):** all `atomcode-*` crates, binaries
-   (`atomcode`, `atomcode-daemon`, `atomcodex`), the `~/.atomcode` config
+   (`atomcode`, `rustcode-daemon`, `atomcodex`), the `~/.rustcode` config
    directory, and `ATOMCODE_*` environment variables were renamed to the
    `rustcode` identity. On-disk wire-contract keys (`atomcode-v1:`,
    `atomcode-rewind-v1`, `atomcode.*`) were migrated to `rustcode.*` (no

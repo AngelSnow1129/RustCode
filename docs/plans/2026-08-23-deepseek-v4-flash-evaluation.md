@@ -49,7 +49,7 @@
 1. Write a fake AtomCode executable that records arguments/environment and returns
    configurable success, delay, stderr, and failure outcomes.
 2. Write failing tests proving both candidates launch concurrently, receive distinct
-   `ATOMCODE_HOME`/working directories, survive peer failure, and time out cleanly.
+   `RUSTCODE_HOME`/working directories, survive peer failure, and time out cleanly.
 3. Implement `run` with an asyncio pair barrier and a semaphore over pairs.
 4. Invoke AtomCode with `--provider`, `--config`, `--prompt-file`, `-C`, `--verbose`,
    `--dev`, and `--no-telemetry`; add `-y` only for explicitly trusted agent fixtures.

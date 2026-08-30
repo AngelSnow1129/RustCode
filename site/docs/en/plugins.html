@@ -80,7 +80,7 @@
 
       <h2 id="core-concepts">Core concepts</h2>
       <ul>
-        <li><strong>Marketplace</strong> — a git repository whose root contains <code>.atomcode-plugin/marketplace.json</code> or <code>.claude-plugin/marketplace.json</code>, declaring the plugins it provides.</li>
+        <li><strong>Marketplace</strong> — a git repository whose root contains <code>.rustcode-plugin/marketplace.json</code> or <code>.claude-plugin/marketplace.json</code>, declaring the plugins it provides.</li>
         <li><strong>Plugin</strong> — an entry in a marketplace. It can be a subdirectory of the same repo, or it can point to an <strong>external git repository</strong> (<code>url</code> / <code>github</code> / <code>git</code>) or a <strong>local path</strong> (<code>local</code>).</li>
         <li><strong>Skill / Command / Hook</strong> — the three asset types a plugin contributes. Skills and commands are namespaced with <code>plugin-name:</code> (to avoid collisions); hooks fire on events.</li>
       </ul>
@@ -131,7 +131,7 @@ atomcode plugin install &lt;plugin&gt;@&lt;marketplace&gt;
 atomcode plugin list
 atomcode plugin uninstall &lt;plugin&gt;@&lt;marketplace&gt;
 atomcode plugin marketplace remove|update|list</code></pre>
-      <p>The CLI and TUI share the <code>~/.atomcode/plugins/</code> directory; anything installed on one side is visible on the other immediately.</p>
+      <p>The CLI and TUI share the <code>~/.rustcode/plugins/</code> directory; anything installed on one side is visible on the other immediately.</p>
 
       <h3 id="after-install">After install</h3>
       <ul>
@@ -141,7 +141,7 @@ atomcode plugin marketplace remove|update|list</code></pre>
       </ul>
 
       <h2 id="directory-layout">Directory layout</h2>
-      <pre><code>~/.atomcode/plugins/
+      <pre><code>~/.rustcode/plugins/
 ├── marketplaces.json              # Registered marketplace metadata
 ├── installed_plugins.json         # Status records for installed plugins
 ├── marketplaces/
@@ -152,7 +152,7 @@ atomcode plugin marketplace remove|update|list</code></pre>
     └── &lt;marketplace&gt;/&lt;plugin&gt;/    # Clones of plugins from external sources</code></pre>
 
       <h2 id="pluginjson-shape">plugin.json shape</h2>
-      <p>The <code>plugin.json</code> in each plugin's root (or its <code>.claude-plugin/</code> / <code>.atomcode-plugin/</code> subdirectory):</p>
+      <p>The <code>plugin.json</code> in each plugin's root (or its <code>.claude-plugin/</code> / <code>.rustcode-plugin/</code> subdirectory):</p>
       <pre><code>{
   "name": "my-plugin",
   "version": "1.0.0",
@@ -233,7 +233,7 @@ atomcode plugin marketplace remove|update|list</code></pre>
       <p>Hook command strings can reference these environment variables (injected by the executor):</p>
       <ul>
         <li><code>${CLAUDE_PLUGIN_ROOT}</code> — absolute path of the plugin install directory (CC compatible).</li>
-        <li><code>${ATOMCODE_PLUGIN_ROOT}</code> — same thing, atomcode alias.</li>
+        <li><code>${RUSTCODE_PLUGIN_ROOT}</code> — same thing, atomcode alias.</li>
       </ul>
       <p>These are <strong>real environment variables</strong> expanded by the shell itself, not string substitutions — install paths with spaces, quotes, <code>$</code>, or <code>;</code> won't break the command.</p>
 

@@ -853,7 +853,7 @@ bridge fallback 已删除         否
 4. TUI 新建、后台化、恢复 runtime 时 native handle 与 legacy client 同步切换；
 5. `/compact [focus]` 不再构造 core `AgentCommand`；
 6. 全仓搜索不存在 legacy `AgentCommand::Compact/CoreCmd::Compact`；
-7. `atomcode-coding`、`atomcode-bridge`、`atomcode-tuix`、`atomcode-daemon`
+7. `atomcode-coding`、`atomcode-bridge`、`atomcode-tuix`、`rustcode-daemon`
    受影响测试通过；
 8. 实际可行时运行更广 workspace check。
 
@@ -905,11 +905,11 @@ WebUI 离线 session 路径和 bridge fallback 均尚未退役**。
 - `cargo test -p atomcode-coding runtime::tests`：2 passed；
 - `cargo test -p atomcode-bridge runtime_control_tests`：1 passed；
 - `cargo test -p atomcode-tuix resume_restores_the_native_handle_for_that_runtime`：1 passed；
-- `cargo test -p atomcode-daemon shutdown_maps_directly`：1 passed；
+- `cargo test -p rustcode-daemon shutdown_maps_directly`：1 passed；
 - `cargo test -p atomcode-core --lib`：1555 passed，1 ignored；
 - `cargo test -p atomcode-kernel --test compaction`：13 passed；
 - `cargo check -p atomcode-coding -p atomcode-bridge -p atomcode-tuix \
-  -p atomcode-daemon -p atomcode`：通过。
+  -p rustcode-daemon -p atomcode`：通过。
 
 仓库当前全量 `cargo fmt --all -- --check` 会报告大量与本切片无关的既有格式差异，
 因此没有执行会重写全仓的格式化；新增 `runtime.rs` 已单文件 rustfmt。
@@ -1288,7 +1288,7 @@ atomcode-bridge
 atomcode-core
 atomcode-cli
 atomcode-tuix
-atomcode-daemon
+rustcode-daemon
 ```
 
 不影响 kernel compaction strategy、anchor 算法和 WebUI 离线压缩实现。

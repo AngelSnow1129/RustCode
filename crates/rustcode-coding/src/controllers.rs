@@ -624,7 +624,7 @@ fn parse_evaluator_response(text: &str) -> GoalResult {
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .last()
+        .next_back()
         .unwrap_or("");
     if line.is_empty() {
         // Empty / whitespace-only evaluator output means the model returned no
@@ -698,7 +698,7 @@ fn parse_followup_class(text: &str) -> FollowupClass {
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .last()
+        .next_back()
         .unwrap_or("")
         .to_ascii_lowercase();
     // Strip an optional `class:` label, then match the LEADING keyword — tolerant of

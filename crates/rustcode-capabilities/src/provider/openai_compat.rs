@@ -328,6 +328,7 @@ fn build_http_client(
                 connect_timeout,
                 skip_tls_verify,
                 user_agent,
+                proxy.clone(),
                 force_tls12,
                 false,
             )
@@ -584,6 +585,7 @@ impl LlmProvider for OpenAiCompatProvider {
         let idle = self.cfg.idle_timeout;
         let open_timeout = self.cfg.open_timeout;
         let rate_limit_retry_owner = options.rate_limit_retry_owner;
+        let extra_headers = self.cfg.extra_headers.clone();
         let resp = match open_stream(
             &client,
             &url,
@@ -594,6 +596,7 @@ impl LlmProvider for OpenAiCompatProvider {
             &policy,
             rate_limit_retry_owner,
             open_timeout,
+            &extra_headers,
         )
         .await
         {
@@ -690,7 +693,7 @@ impl LlmProvider for OpenAiCompatProvider {
                                     }
                                 }
                                 if let Ok(fresh) =
-                                    open_stream(&client, &url, &body_bytes, &signer, &api_key, &session_id, &policy, rate_limit_retry_owner, open_timeout).await
+                                    open_stream(&client, &url, &body_bytes, &signer, &api_key, &session_id, &policy, rate_limit_retry_owner, open_timeout, &extra_headers).await
                                 {
                                     stream_attempt += 1;
                                     resp = fresh;
@@ -772,6 +775,7 @@ async fn open_stream(
     policy: &RetryPolicy,
     rate_limit_retry_owner: rustcode_kernel::provider::RateLimitRetryOwner,
     open_timeout: Duration,
+    extra_headers: &Option<std::collections::HashMap<String, String>>,
 ) -> Result<reqwest::Response, ProviderError> {
     let mut attempt = 1u32;
     let mut tls12_probe = false;
@@ -810,7 +814,7 @@ async fn open_stream(
         }
         req = apply_openrouter_attribution(url, req);
         // Self-hosted gateway custom headers (never log values). Sourced from config only.
-        if let Some(headers) = &self.cfg.extra_headers {
+        if let Some(headers) = extra_headers {
             for (name, value) in headers {
                 req = req.header(name.as_str(), value.as_str());
             }
@@ -4051,7 +4055,7 @@ mod tests {
     fn build_http_client_builds_with_webpki_base_no_ssl_cert_file() {
         std::env::remove_var("SSL_CERT_FILE");
         // Plain build must succeed on the webpki base roots.
-        assert!(build_http_client(std::time::Duration::from_secs(5), false, None, false).is_ok());
+        assert!(build_http_client(std::time::Duration::from_secs(5), false, None, None, false).is_ok());
     }
 
     #[test]
@@ -4069,7 +4073,7 @@ mod tests {
         )
         .unwrap();
         std::env::set_var("SSL_CERT_FILE", &cert_path);
-        let built = build_http_client(std::time::Duration::from_secs(5), false, None, false);
+        let built = build_http_client(std::time::Duration::from_secs(5), false, None, None, false);
         std::env::remove_var("SSL_CERT_FILE");
         assert!(
             built.is_ok(),
@@ -4125,6 +4129,6 @@ mod tests {
     fn build_http_client_skip_tls_verify_still_builds() {
         std::env::remove_var("SSL_CERT_FILE");
         // Root loading happens before the danger_accept path.
-        assert!(build_http_client(std::time::Duration::from_secs(5), true, None, false).is_ok());
+        assert!(build_http_client(std::time::Duration::from_secs(5), true, None, None, false).is_ok());
     }
 }

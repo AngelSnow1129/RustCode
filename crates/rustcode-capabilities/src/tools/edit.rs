@@ -346,7 +346,7 @@ fn closest_match_hint(content: &str, old_string: &str) -> String {
         let score = common_prefix_chars(&wanted_lower, &trimmed.to_lowercase());
         if best
             .as_ref()
-            .map_or(true, |(_, _, current)| score > *current)
+            .is_none_or(|(_, _, current)| score > *current)
         {
             best = Some((index + 1, line, score));
         }

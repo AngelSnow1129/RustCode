@@ -218,12 +218,7 @@ fn path_in_review_scope(rel: &Path, allowed: &HashSet<PathBuf>) -> bool {
 /// Longest existing prefix of `p`, used to catch symlink escapes without requiring
 /// the final path (or glob tail) to exist.
 fn existing_prefix(p: &Path) -> Option<&Path> {
-    for candidate in p.ancestors() {
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
+    p.ancestors().find(|&candidate| candidate.exists()).map(|v| v as _)
 }
 
 /// Lexical normalization: drop `.` and resolve `..` against prior components.

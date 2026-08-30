@@ -191,17 +191,17 @@ Turn 级别：
 
 ### 示例 1：启用工具调用审计
 
-创建 `~/.atomcode/hooks/audit.sh`：
+创建 `~/.rustcode/hooks/audit.sh`：
 ```bash
 #!/bin/bash
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
 TURN=$(echo "$INPUT" | jq -r '.turn_number')
-echo "[$(date)] Turn #$TURN: $TOOL_NAME" >> ~/.atomcode/audit.log
+echo "[$(date)] Turn #$TURN: $TOOL_NAME" >> ~/.rustcode/audit.log
 echo "ok"
 ```
 
-配置 `~/.atomcode/hooks/hooks.toml`：
+配置 `~/.rustcode/hooks/hooks.toml`：
 ```toml
 [[hooks]]
 name = "audit"

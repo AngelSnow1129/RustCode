@@ -862,6 +862,8 @@ pub(crate) async fn create_provider(Json(req): Json<CreateProviderRequest>) -> i
         ephemeral: false,
         capable_model: None,
         retry_max_attempts: None,
+        extra_headers: None,
+        proxy: None,
     };
 
     let mut is_new = false;

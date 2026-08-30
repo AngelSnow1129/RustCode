@@ -21,7 +21,7 @@
 | `/live` 终态 | `Chat.tsx:1316-1351`（`case 'state'`） | `state` 携带 `running`/`stop_reason`/`message`，经 `reduceLiveLifecycle` 得 `lifecycle.terminal`，为真即回合结束（`:1350` `onLiveTurnDone`）。`snapshot`（`:1165`）只确立会话并恢复消息，**不是**终态事件 |
 | busy 状态 | `Chat.tsx:431-442` | `busy` state + `busyRef` 同步镜像（SSE 回调异步安全） |
 | 前端设置面板 | `webui/src/settings.tsx` | `SettingsSection = 'theme'\|'language'\|'model'\|'remote'`；持久化走 localStorage |
-| `/config` 返回 | `crates/atomcode-daemon/src/api_config.rs:38` | `ConfigResponse { path, default_provider, default_workdir, providers }` —— 当前不含 notifications 段 |
+| `/config` 返回 | `crates/rustcode-daemon/src/api_config.rs:38` | `ConfigResponse { path, default_provider, default_workdir, providers }` —— 当前不含 notifications 段 |
 | 通知配置 | `crates/atomcode-config/src/config/mod.rs:1181` | `NotificationConfig { enabled, min_duration_secs(默认8), terminal, system, bell, background_only }`；`skip_serializing`，由 `render_notifications_section` 手动写盘 |
 | 设置注册 | `crates/atomcode-config/src/settings.rs:155-170` | `notifications.enabled`、`notifications.bell` 已注册，`ApplyPolicy::NextTurn` |
 | TUI 触发 | `tuix/event_loop/mod.rs:21867`、`:22086` | `notify_turn_finished(TurnNotification { duration, turn_count, tool_call_count, stop_reason, ... })` |
@@ -170,7 +170,7 @@ n.onclick = () => {
 
 ### 5.1 `/config` 暴露 notifications 段（推荐一期做）
 
-`crates/atomcode-daemon/src/api_config.rs`：`ConfigResponse` 增加
+`crates/rustcode-daemon/src/api_config.rs`：`ConfigResponse` 增加
 `notifications: NotificationConfigInfo`（enabled/min_duration_secs/bell）。收益：前端
 `loadPrefs()` 可读后端配置，`min_duration_secs` 与 TUI 一致。
 
@@ -213,8 +213,8 @@ n.onclick = () => {
 | `webui/src/settings.tsx` | 修改 |
 | `webui/src/i18n.ts` | 修改 |
 | `webui/src/api.ts` | 修改 |
-| `crates/atomcode-daemon/src/api_config.rs` | 修改（5.1） |
-| `crates/atomcode-daemon/src/lib.rs`（ConfigResponse 定义） | 修改（5.1） |
+| `crates/rustcode-daemon/src/api_config.rs` | 修改（5.1） |
+| `crates/rustcode-daemon/src/lib.rs`（ConfigResponse 定义） | 修改（5.1） |
 
 ## 验证
 
@@ -229,4 +229,4 @@ n.onclick = () => {
    前台不弹；第二标签同会话不重复弹；点击通知跳回 `?session=` 恢复；
    `--host 0.0.0.0` 下设置面板提示不可用；
 4. 回归：TUI 通知不受影响（跑长任务验证 OS 通知仍触发）；
-5. 若做 5.1：`cargo test -p atomcode-daemon` 的 api_config 相关测试。
+5. 若做 5.1：`cargo test -p rustcode-daemon` 的 api_config 相关测试。

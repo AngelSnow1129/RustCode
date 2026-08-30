@@ -1,6 +1,6 @@
 # AtomCode MCP 集成说明
 
-> AtomCode 实现了 **MCP（Model Context Protocol）客户端**：通过 `.mcp.json` / `~/.atomcode/mcp.json` 连接外部 MCP server，把它们的 **tools** 暴露成与内建工具一致的可调用工具（含审批链路）。
+> AtomCode 实现了 **MCP（Model Context Protocol）客户端**：通过 `.mcp.json` / `~/.rustcode/mcp.json` 连接外部 MCP server，把它们的 **tools** 暴露成与内建工具一致的可调用工具（含审批链路）。
 >
 > 实现位于 **`crates/atomcode-capabilities/src/mcp/`**（L1 能力层，`mcp` Cargo feature，非 default），零 `atomcode-core` 依赖。
 
@@ -14,7 +14,7 @@
 # 写进项目根 .mcp.json（默认当前目录）
 atomcode mcp add playwright npx @playwright/mcp@latest
 
-# 写进用户级 ~/.atomcode/mcp.json
+# 写进用户级 ~/.rustcode/mcp.json
 atomcode mcp add playwright npx -y @playwright/mcp@latest --global
 
 # 指定项目目录
@@ -25,7 +25,7 @@ atomcode mcp add playwright npx @playwright/mcp@latest -C /path/to/repo
 
 ### 1.2 手写配置（HTTP 只能走这条）
 
-项目根 `.mcp.json` 或用户级 `~/.atomcode/mcp.json`，顶层键 `mcpServers`（兼容旧键 `servers`）：
+项目根 `.mcp.json` 或用户级 `~/.rustcode/mcp.json`，顶层键 `mcpServers`（兼容旧键 `servers`）：
 
 ```json
 {
@@ -62,18 +62,18 @@ atomcode mcp login github --client-secret-env GITHUB_MCP_CLIENT_SECRET
 atomcode mcp logout github                       # 删除已存凭证
 ```
 
-TUI 里等价的是 `/mcp login <server>` / `/mcp logout <server>`。token 存 `~/.atomcode/mcp_auth.toml`（0600），后续 HTTP 请求自动加 `Authorization: Bearer`；过期且有 refresh token 会自动刷新，刷新失败需重新 login。**后台连接不会自动弹浏览器**，必须显式登录。
+TUI 里等价的是 `/mcp login <server>` / `/mcp logout <server>`。token 存 `~/.rustcode/mcp_auth.toml`（0600），后续 HTTP 请求自动加 `Authorization: Bearer`；过期且有 refresh token 会自动刷新，刷新失败需重新 login。**后台连接不会自动弹浏览器**，必须显式登录。
 
 ### 1.4 ⚠️ 项目信任门（容易踩的一步）
 
-**项目级 `.mcp.json` 里的 server，在未信任的项目里根本不会连**，状态显示 `blocked: untrusted project`（`registry.rs::partition_by_trust`）。用户级 `~/.atomcode/mcp.json` 不受此限。
+**项目级 `.mcp.json` 里的 server，在未信任的项目里根本不会连**，状态显示 `blocked: untrusted project`（`registry.rs::partition_by_trust`）。用户级 `~/.rustcode/mcp.json` 不受此限。
 
 ```
 /mcp trust        # 信任当前项目
 /mcp untrust      # 撤销
 ```
 
-信任记录在 `~/.atomcode/mcp_trust.json`（可用 `ATOMCODE_MCP_TRUST_STORE` 覆盖路径，测试用）。daemon 侧对应 `POST /live/mcp/trust`。
+信任记录在 `~/.rustcode/mcp_trust.json`（可用 `RUSTCODE_MCP_TRUST_STORE` 覆盖路径，测试用）。daemon 侧对应 `POST /live/mcp/trust`。
 
 ### 1.5 生效
 
@@ -198,7 +198,7 @@ MCP 总开关：`CodingRuntimeConfig.mcp` 默认 `true`；`atomcode-clix` 提供
 | `tool.rs` | `McpToolAdapter`：远端工具 → kernel `Tool`，风险等级与审批 |
 | `util.rs` | 本地 home/config-dir 与控制台辅助 |
 
-消费侧：装配在 `atomcode-coding/src/parts.rs`；`/mcp` 斜杠命令在 `atomcode-tuix/src/event_loop/commands.rs`；CLI 子命令在 `atomcode-cli/src/main.rs`；daemon 端点在 `atomcode-daemon/src/lib.rs`。
+消费侧：装配在 `atomcode-coding/src/parts.rs`；`/mcp` 斜杠命令在 `atomcode-tuix/src/event_loop/commands.rs`；CLI 子命令在 `atomcode-cli/src/main.rs`；daemon 端点在 `rustcode-daemon/src/lib.rs`。
 
 ---
 
@@ -238,7 +238,7 @@ cargo test -p atomcode-capabilities --features mcp
 ### 9.3 真实生态 server
 
 ```bash
-cat > ~/.atomcode/mcp.json << 'EOF'
+cat > ~/.rustcode/mcp.json << 'EOF'
 {
   "mcpServers": {
     "filesystem": {

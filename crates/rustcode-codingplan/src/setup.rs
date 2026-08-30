@@ -1391,6 +1391,8 @@ fn build_codingplan_provider(entry: &ModelEntry) -> ProviderConfig {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(codingplan_llm_base_url),
         ),
+        extra_headers: None,
+        proxy: None,
         system_prompt: None,
         // Prefer the gateway's explicit per-model capability. `None` is kept
         // for older models-v2 payloads so the existing model-name heuristic

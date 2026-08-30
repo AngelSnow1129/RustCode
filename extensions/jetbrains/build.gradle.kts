@@ -118,11 +118,11 @@ tasks {
     val repoRoot = layout.projectDirectory.dir("../..").asFile.toPath().normalize()
     val bundledDaemonDir = layout.buildDirectory.dir("generated/bundledDaemon")
     val daemonTargets = listOf(
-        DaemonTarget("darwin-arm64", "atomcode-daemon", "ATOMCODE_DAEMON_DARWIN_ARM64", "aarch64-apple-darwin"),
-        DaemonTarget("darwin-x64", "atomcode-daemon", "ATOMCODE_DAEMON_DARWIN_X64", "x86_64-apple-darwin"),
-        DaemonTarget("linux-x64", "atomcode-daemon", "ATOMCODE_DAEMON_LINUX_X64", "x86_64-unknown-linux-gnu"),
-        DaemonTarget("linux-arm64", "atomcode-daemon", "ATOMCODE_DAEMON_LINUX_ARM64", "aarch64-unknown-linux-gnu"),
-        DaemonTarget("win32-x64", "atomcode-daemon.exe", "ATOMCODE_DAEMON_WIN32_X64", "x86_64-pc-windows-msvc"),
+        DaemonTarget("darwin-arm64", "rustcode-daemon", "RUSTCODE_DAEMON_DARWIN_ARM64", "aarch64-apple-darwin"),
+        DaemonTarget("darwin-x64", "rustcode-daemon", "RUSTCODE_DAEMON_DARWIN_X64", "x86_64-apple-darwin"),
+        DaemonTarget("linux-x64", "rustcode-daemon", "RUSTCODE_DAEMON_LINUX_X64", "x86_64-unknown-linux-gnu"),
+        DaemonTarget("linux-arm64", "rustcode-daemon", "RUSTCODE_DAEMON_LINUX_ARM64", "aarch64-unknown-linux-gnu"),
+        DaemonTarget("win32-x64", "rustcode-daemon.exe", "RUSTCODE_DAEMON_WIN32_X64", "x86_64-pc-windows-msvc"),
     )
     val currentTargetId = currentDaemonTargetId()
     val currentDaemonTarget = daemonTargets.firstOrNull { it.id == currentTargetId }

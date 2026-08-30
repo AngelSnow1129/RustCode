@@ -3483,7 +3483,7 @@ fn spawn_runtime_owner_with_optional_agent(
                         let original_steer_input = matches!(receipt, SubmitReceipt::Steered { .. })
                             .then(|| input.clone());
                         if !pending_local_context.is_empty() {
-                            let prefix = pending_local_context.drain(..).collect::<Vec<_>>().join("\n\n");
+                            let prefix = std::mem::take(&mut pending_local_context).join("\n\n");
                             input.text = if input.text.is_empty() {
                                 prefix
                             } else {
@@ -8689,6 +8689,8 @@ mod tests {
             thinking_enabled: None,
             thinking_budget: None,
             skip_tls_verify: false,
+            extra_headers: None,
+            proxy: None,
             ephemeral: false,
             capable_model: Some(rank),
             retry_max_attempts: None,

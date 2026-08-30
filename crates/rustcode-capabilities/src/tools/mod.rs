@@ -139,7 +139,7 @@ pub fn coding_tool_names() -> &'static [&'static str] {
     // default-features `cargo test` would assert a never-registered tool is mounted.
     #[cfg(feature = "memory")]
     {
-        return &[
+        &[
             "read_file",
             "write_file",
             "edit_file",
@@ -154,7 +154,7 @@ pub fn coding_tool_names() -> &'static [&'static str] {
             "fetch_output",
             "memory",
             "request_user_input",
-        ];
+        ]
     }
     #[cfg(not(feature = "memory"))]
     {

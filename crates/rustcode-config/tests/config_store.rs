@@ -9,6 +9,8 @@ fn provider(model: &str) -> ProviderConfig {
         model: model.into(),
         base_url: Some("https://example.test/v1".into()),
         system_prompt: None,
+        extra_headers: None,
+        proxy: None,
         supports_vision: None,
         user_agent: None,
         context_window: 128_000,

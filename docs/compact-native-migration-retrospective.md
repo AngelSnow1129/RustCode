@@ -494,7 +494,7 @@ kernel `AgentCommand::Compact`、kernel `CompactionStarted/Compacted` 和 clix �
 ```text
 cargo test -p atomcode-coding                         104 个单元测试及集成/doc tests 通过
 cargo test -p atomcode-bridge                         47 passed
-cargo test -p atomcode-daemon                         135 passed
+cargo test -p rustcode-daemon                         135 passed
 cargo test -p atomcode --bin atomcode                 24 passed
 cargo test -p atomcode-tuix compaction_               10 passed
 cargo test -p atomcode-config format_compaction       4 passed

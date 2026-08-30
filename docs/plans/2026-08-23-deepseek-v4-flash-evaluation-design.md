@@ -10,7 +10,7 @@ blind-judges qualitative results and writes the final report.
 ## Architectural boundary
 
 The evaluator is an external harness over AtomCode's existing headless CLI. Every
-candidate run owns an independent process, `ATOMCODE_HOME`, session, and writable
+candidate run owns an independent process, `RUSTCODE_HOME`, session, and writable
 fixture. It selects a configured model through `--provider`; it does not add a
 second live-agent owner, reload providers inside a live runtime, or change kernel,
 coding-runtime, provider, session, or persistence contracts.

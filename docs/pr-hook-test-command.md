@@ -31,10 +31,10 @@ Testing hook: my-hook
 - 显示 hook 的完整元信息（事件类型、命令、超时时间、matcher、plugin 路径）
 - 构建模拟的 `HookContext` 环境（含测试用的 session_id、tool_name、tool_args）
 - 以 hook 自身配置的 timeout 执行命令，环境变量与真实运行时完全一致
-  - `ATOMCODE_HOOK_EVENT` — 事件名
-  - `ATOMCODE_HOOK_CONTEXT` — JSON 序列化的完整上下文
-  - `ATOMCODE_TOOL_NAME` — 当前工具名
-  - `CLAUDE_PLUGIN_ROOT` / `ATOMCODE_PLUGIN_ROOT` — 插件根目录
+  - `RUSTCODE_HOOK_EVENT` — 事件名
+  - `RUSTCODE_HOOK_CONTEXT` — JSON 序列化的完整上下文
+  - `RUSTCODE_TOOL_NAME` — 当前工具名
+  - `CLAUDE_PLUGIN_ROOT` / `RUSTCODE_PLUGIN_ROOT` — 插件根目录
 - 展示详细的执行结果：**stdout / stderr / 退出码 / 耗时 / 超时状态**
 - 若指定名称未找到，列出所有可用 hook 供参考
 

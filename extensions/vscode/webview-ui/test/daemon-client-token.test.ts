@@ -6,9 +6,9 @@ import { readDaemonToken } from '../../src/daemon/client';
 
 function testReadDaemonTokenReturnsTokenFromFile() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-token-test-'));
-  const savedHome = process.env.ATOMCODE_HOME;
+  const savedHome = process.env.RUSTCODE_HOME;
   try {
-    process.env.ATOMCODE_HOME = home;
+    process.env.RUSTCODE_HOME = home;
     fs.writeFileSync(
       path.join(home, 'daemon-13456.json'),
       JSON.stringify({ pid: 1, port: 13456, token: 'tok-xyz' }),
@@ -16,9 +16,9 @@ function testReadDaemonTokenReturnsTokenFromFile() {
     assert.equal(readDaemonToken(13456), 'tok-xyz');
   } finally {
     if (savedHome === undefined) {
-      delete process.env.ATOMCODE_HOME;
+      delete process.env.RUSTCODE_HOME;
     } else {
-      process.env.ATOMCODE_HOME = savedHome;
+      process.env.RUSTCODE_HOME = savedHome;
     }
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -26,15 +26,15 @@ function testReadDaemonTokenReturnsTokenFromFile() {
 
 function testReadDaemonTokenReturnsUndefinedWhenFileMissing() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-token-test-'));
-  const savedHome = process.env.ATOMCODE_HOME;
+  const savedHome = process.env.RUSTCODE_HOME;
   try {
-    process.env.ATOMCODE_HOME = home;
+    process.env.RUSTCODE_HOME = home;
     assert.equal(readDaemonToken(19999), undefined);
   } finally {
     if (savedHome === undefined) {
-      delete process.env.ATOMCODE_HOME;
+      delete process.env.RUSTCODE_HOME;
     } else {
-      process.env.ATOMCODE_HOME = savedHome;
+      process.env.RUSTCODE_HOME = savedHome;
     }
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -42,9 +42,9 @@ function testReadDaemonTokenReturnsUndefinedWhenFileMissing() {
 
 function testReadDaemonTokenReturnsUndefinedWhenTokenFieldMissing() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-token-test-'));
-  const savedHome = process.env.ATOMCODE_HOME;
+  const savedHome = process.env.RUSTCODE_HOME;
   try {
-    process.env.ATOMCODE_HOME = home;
+    process.env.RUSTCODE_HOME = home;
     fs.writeFileSync(
       path.join(home, 'daemon-13456.json'),
       JSON.stringify({ pid: 1, port: 13456 }),
@@ -52,27 +52,27 @@ function testReadDaemonTokenReturnsUndefinedWhenTokenFieldMissing() {
     assert.equal(readDaemonToken(13456), undefined);
   } finally {
     if (savedHome === undefined) {
-      delete process.env.ATOMCODE_HOME;
+      delete process.env.RUSTCODE_HOME;
     } else {
-      process.env.ATOMCODE_HOME = savedHome;
+      process.env.RUSTCODE_HOME = savedHome;
     }
     fs.rmSync(home, { recursive: true, force: true });
   }
 }
 
 function testReadDaemonTokenUsesAtomcodeHomeFallback() {
-  // When ATOMCODE_HOME is unset, falls back to ~/.atomcode — we can't easily
+  // When RUSTCODE_HOME is unset, falls back to ~/.atomcode — we can't easily
   // write there in a test, so just verify the function returns undefined
   // (no file at that path) rather than throwing.
-  const savedHome = process.env.ATOMCODE_HOME;
+  const savedHome = process.env.RUSTCODE_HOME;
   try {
-    delete process.env.ATOMCODE_HOME;
+    delete process.env.RUSTCODE_HOME;
     // Should not throw; returns undefined if file absent
     const result = readDaemonToken(19998);
     assert.equal(result === undefined || typeof result === 'string', true);
   } finally {
     if (savedHome !== undefined) {
-      process.env.ATOMCODE_HOME = savedHome;
+      process.env.RUSTCODE_HOME = savedHome;
     }
   }
 }

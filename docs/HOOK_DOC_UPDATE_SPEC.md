@@ -65,7 +65,7 @@ AgentLoop / TurnRunner
 
 ### 2.4 配置体系
 
-#### A. JSON 配置（CC 兼容，`~/.atomcode/hooks.json` + `<project>/.hooks.json`）
+#### A. JSON 配置（CC 兼容，`~/.rustcode/hooks.json` + `<project>/.hooks.json`）
 
 ```json
 {
@@ -83,11 +83,11 @@ AgentLoop / TurnRunner
 
 支持的 event 值：`pre_tool_use`、`post_tool_use`、`session_start`、`session_end`、`user_prompt_submit`、`notification`（notification 被静默跳过）。
 
-**重要**：JSON 配置是 CC (Claude Code) 兼容层，环境变量协议 (`ATOMCODE_HOOK_EVENT`、`ATOMCODE_HOOK_CONTEXT`、`ATOMCODE_TOOL_NAME` 等)，stdout 解析 `PreHookResult` JSON。
+**重要**：JSON 配置是 CC (Claude Code) 兼容层，环境变量协议 (`RUSTCODE_HOOK_EVENT`、`RUSTCODE_HOOK_CONTEXT`、`RUSTCODE_TOOL_NAME` 等)，stdout 解析 `PreHookResult` JSON。
 
 项目 hooks **覆盖**同名全局 hooks（而非追加）。
 
-#### B. TOML 配置（新系统，`~/.atomcode/hooks/hooks.toml` + `<project>/.atomcode/hooks/hooks.toml`）
+#### B. TOML 配置（新系统，`~/.rustcode/hooks/hooks.toml` + `<project>/.rustcode/hooks/hooks.toml`）
 
 ```toml
 # === ScriptHook（TOML hooks 段） ===

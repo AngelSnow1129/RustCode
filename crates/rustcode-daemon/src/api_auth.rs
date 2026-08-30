@@ -11,6 +11,7 @@ use rustcode_auth as auth;
 use rustcode_config::config::Config;
 
 use crate::{
+    client_mode::ClientMode,
     coded_json_error, json_error,
     login_state::{
         ApplyPoll, BeginPoll, LoginRecord, LoginStateSnapshot, PollCompletion,
@@ -48,13 +49,6 @@ pub(crate) struct LoginPollError {
     pub code: &'static str,
     pub message: String,
     pub retryable: bool,
-}
-
-pub(crate) fn pending_invite_for_login() -> (Option<String>, Option<uuid::Uuid>) {
-    match rustcode_config::telemetry_legacy::load_pending_invite(&Config::config_dir()) {
-        Some(invite) => (Some(invite.invite_code), Some(invite.install_uuid)),
-        None => (None, None),
-    }
 }
 
 // ============================================================================
@@ -246,7 +240,7 @@ pub(crate) async fn auth_login_start(
 /// POST /auth/login/:login_id/poll - Polls one OAuth login session.
 pub(crate) async fn auth_login_poll(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<rustcode_config::telemetry_legacy::SessionMode>,
+    axum::Extension(client_mode): axum::Extension<ClientMode>,
     Path(login_id): Path<String>,
 ) -> impl IntoResponse {
     let state_inner = state.clone();
@@ -308,28 +302,27 @@ pub(crate) async fn auth_login_cancel(
 /// POST /auth/logout - Logs out (removes stored auth).
 pub(crate) async fn auth_logout(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<rustcode_config::telemetry_legacy::SessionMode>,
+    axum::Extension(_client_mode): axum::Extension<ClientMode>,
 ) -> impl IntoResponse {
     let state_inner = state.clone();
     match auth::logout() {
         Ok(()) => {
             // Return auth status after logout
-                let auth_path = auth::auth_file_path();
-                Json(AuthStatusResponse {
-                    logged_in: false,
-                    expired: false,
-                    auth_path: auth_path.to_string_lossy().to_string(),
-                    user: None,
-                    token: None,
-                })
-                .into_response()
-            }
-            Err(e) => json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Logout failed: {:#}", e),
-            )
-            .into_response(),
+            let auth_path = auth::auth_file_path();
+            Json(AuthStatusResponse {
+                logged_in: false,
+                expired: false,
+                auth_path: auth_path.to_string_lossy().to_string(),
+                user: None,
+                token: None,
+            })
+            .into_response()
         }
+        Err(e) => json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Logout failed: {:#}", e),
+        )
+        .into_response(),
     }
 }
 
@@ -381,7 +374,7 @@ pub(crate) async fn poll_login_session(
                         message: "Login service is temporarily unavailable".to_string(),
                     }
                 }
-                Ok(auth::PollOutcome::Authorized) => match session.finish(None) {
+                Ok(auth::PollOutcome::Authorized) => match session.finish() {
                     Err(error) => {
                         tracing::warn!(error = ?error, "OAuth token exchange failed");
                         PollCompletion::Failed {
