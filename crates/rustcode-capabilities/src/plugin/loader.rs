@@ -18,7 +18,7 @@ pub struct InstalledPluginAssets {
 }
 
 impl InstalledPluginAssets {
-    /// Primary skills directory — the first entry from the manifest's
+    /// Primary skills directory -- the first entry from the manifest's
     /// `skills` field, or the default `"skills"` when absent.
     pub fn skills_dir(&self) -> PathBuf {
         self.plugin_dir.join(self.manifest.skills_path())
@@ -59,7 +59,7 @@ pub struct PluginCcHook {
     pub command: String,
     /// CC timeout in SECONDS (the consumer converts to ms; `None` ⇒ its default).
     pub timeout_secs: Option<u64>,
-    /// Plugin install dir — exported as `CLAUDE_PLUGIN_ROOT`/`RUSTCODE_PLUGIN_ROOT`.
+    /// Plugin install dir -- exported as `CLAUDE_PLUGIN_ROOT`/`RUSTCODE_PLUGIN_ROOT`.
     pub plugin_root: PathBuf,
 }
 
@@ -88,23 +88,23 @@ fn expand_cc_hooks(cc_map: &CCHooksMap, plugin_root: &Path) -> Vec<PluginCcHook>
 
 /// Parse a CC-format hooks file. `None` on missing/malformed (skip, never wedge).
 ///
-/// Accepts two equivalent shapes — the bare event map and the settings-style
-/// `{ "hooks": { … } }` wrapper used by `~/.claude/settings.json` and several
+/// Accepts two equivalent shapes -- the bare event map and the settings-style
+/// `{ "hooks": { ... } }` wrapper used by `~/.claude/settings.json` and several
 /// third-party plugins (e.g. superpowers' `hooks/hooks.json`):
 ///
 /// ```json
-/// { "SessionStart": [ { "hooks": [ … ] } ] }
+/// { "SessionStart": [ { "hooks": [ ... ] } ] }
 /// ```
 /// vs.
 /// ```json
-/// { "hooks": { "SessionStart": [ { "hooks": [ … ] } ] } }
+/// { "hooks": { "SessionStart": [ { "hooks": [ ... ] } ] } }
 /// ```
 fn load_cc_hooks_file(path: &Path) -> Option<CCHooksMap> {
     let raw = std::fs::read_to_string(path).ok()?;
     if let Ok(map) = serde_json::from_str::<CCHooksMap>(&raw) {
         return Some(map);
     }
-    // Wrapped form: `{ "hooks": { … } }`. Deserialize into a helper and unwrap.
+    // Wrapped form: `{ "hooks": { ... } }`. Deserialize into a helper and unwrap.
     #[derive(serde::Deserialize)]
     struct HooksWrapper {
         hooks: CCHooksMap,
@@ -128,7 +128,7 @@ pub fn plugin_file_cc_hooks(plugin_dir: &Path) -> Vec<PluginCcHook> {
     Vec::new()
 }
 
-/// Drop duplicate hooks by `(event, matcher, command)`, keeping first occurrence —
+/// Drop duplicate hooks by `(event, matcher, command)`, keeping first occurrence --
 /// so a plugin declaring the same hook both inline and in a file never double-fires.
 /// The matcher key normalizes `None` and `Some("")` to the same empty string so they
 /// collapse correctly (matching the hash normalization in `plugin_hook_set_hash`).
@@ -152,7 +152,7 @@ fn plugin_file_cc_hooks_for(plugin_dir: &Path, manifest: &PluginManifest) -> Vec
     if let Some(super::manifest::HooksField::Path(p)) = &manifest.hooks {
         let path = plugin_dir.join(p);
         if path.exists() {
-            // Declared path is authoritative when present — do NOT fall back to
+            // Declared path is authoritative when present -- do NOT fall back to
             // the default drill if it fails to parse (that would load hooks the
             // plugin never declared under this path).
             return load_cc_hooks_file(&path)
@@ -177,7 +177,7 @@ fn plugin_all_cc_hooks(assets: &InstalledPluginAssets) -> Vec<PluginCcHook> {
     dedup_hooks(hooks)
 }
 
-/// Flatten every installed plugin's CC hooks (inline + file) — but ONLY for
+/// Flatten every installed plugin's CC hooks (inline + file) -- but ONLY for
 /// plugins whose current hook-set hash the user has trusted. Untrusted plugins'
 /// hooks are withheld (see `installed_plugin_hook_trust_status` for surfacing).
 pub fn installed_plugin_cc_hooks() -> Vec<PluginCcHook> {
@@ -269,7 +269,7 @@ pub fn iter_installed_plugin_assets_for(working_dir: &Path) -> Vec<InstalledPlug
                     // AND the plugin_dir itself contains a SKILL.md, the directory IS
                     // the skill (common with git-subdir installs from CC marketplaces
                     // like claude-plugins-official). Without this, skills_path()
-                    // defaults to "skills" and the loader looks for <dir>/skills/ —
+                    // defaults to "skills" and the loader looks for <dir>/skills/ --
                     // which doesn't exist, so the installed skill is silently ignored.
                     if manifest.skills.is_none() && abs.join("SKILL.md").exists() {
                         manifest.skills = Some(super::manifest::PathOrList::One("./".into()));
@@ -290,7 +290,7 @@ pub fn iter_installed_plugin_assets_for(working_dir: &Path) -> Vec<InstalledPlug
     for scope in [InstallScope::Project, InstallScope::Local] {
         // When `working_dir` is the plugin home itself (e.g. running from
         // `$HOME`), the project scope's installed_plugins.json IS the user
-        // scope's file — enumerating it again would duplicate every plugin.
+        // scope's file -- enumerating it again would duplicate every plugin.
         if paths::scope_state_file_aliases_user_scope(working_dir, &scope) {
             continue;
         }
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn file_cc_hooks_parses_wrapped_settings_format() {
-        // Claude Code settings.json / superpowers style: outer `{ "hooks": { … } }`.
+        // Claude Code settings.json / superpowers style: outer `{ "hooks": { ... } }`.
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         std::fs::create_dir_all(dir.join("hooks")).unwrap();
@@ -565,7 +565,7 @@ mod tests {
         crate::plugin::marketplace::add_marketplace(&format!("file://{}", repo.display())).unwrap();
         crate::plugin::installer::install("hp", "hp", InstallScope::User).unwrap();
 
-        // Untrusted by default → no hooks loaded, but status reports it.
+        // Untrusted by default -> no hooks loaded, but status reports it.
         assert!(installed_plugin_cc_hooks().is_empty());
         let status = installed_plugin_hook_trust_status();
         let e = status
@@ -576,7 +576,7 @@ mod tests {
         assert!(!e.trusted);
         assert_eq!(e.events, vec!["SessionStart".to_string()]);
 
-        // Trust → hooks load.
+        // Trust -> hooks load.
         crate::plugin::hook_trust::trust(&e.plugin_id, &e.hash).unwrap();
         assert_eq!(installed_plugin_cc_hooks().len(), 1);
     }
@@ -623,7 +623,7 @@ mod tests {
             "untrusted before migration"
         );
 
-        // Upgrade boundary → grandfather blesses the existing plugin.
+        // Upgrade boundary -> grandfather blesses the existing plugin.
         ensure_migrated();
         assert_eq!(
             installed_plugin_cc_hooks().len(),

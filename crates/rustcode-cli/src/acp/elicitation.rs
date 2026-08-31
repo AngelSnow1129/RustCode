@@ -8,11 +8,11 @@
 //! [`handle_request_user_input`], which:
 //!
 //! 1. parses the payload (single question or a `questions` batch, ≤4);
-//! 2. builds a flat form `requestedSchema` (one property per question —
-//!    `single` → enum string, `multiple` → multi-select, `text` → free text);
+//! 2. builds a flat form `requestedSchema` (one property per question --
+//!    `single` -> enum string, `multiple` -> multi-select, `text` -> free text);
 //! 3. sends `elicitation/create` (session-scoped) to the client **only when**
 //!    the client advertised `clientCapabilities.elicitation.form` at
-//!    initialize; otherwise it fails closed exactly like today — the kernel
+//!    initialize; otherwise it fails closed exactly like today -- the kernel
 //!    round-trip is answered with `Null`, and the tool returns its
 //!    "interactive questions are not supported" result;
 //! 4. maps the client's `accept` content back to `UserInputResponse`
@@ -44,8 +44,8 @@ const BATCH_PROPERTY_PREFIX: &str = "q";
 ///
 /// One property per question, named `answer` for a single question and
 /// `q1..qN` for a batch; every property is required. The property schema
-/// follows the tool's `mode`: `single` → enum string, `multiple` →
-/// multi-select, `text` → free-text string. Question text becomes the
+/// follows the tool's `mode`: `single` -> enum string, `multiple` ->
+/// multi-select, `text` -> free-text string. Question text becomes the
 /// property title so the client can render it.
 pub fn build_form_schema(reqs: &[UserInputRequest]) -> ElicitationSchema {
     let is_batch = reqs.len() > 1;
@@ -122,7 +122,7 @@ fn single_answer(value: &ElicitationContentValue, mode: UserInputMode) -> UserIn
 
 /// Map the client's `accept` content back to the kernel's wire response.
 ///
-/// Single question → a bare `UserInputResponse`; batch → `{ "responses": [
+/// Single question -> a bare `UserInputResponse`; batch -> `{ "responses": [
 /// ... ] }` (the shape `request_user_input::format_batch_result` expects).
 /// Unknown properties and non-string values degrade per-question to declined.
 fn accept_content_to_response(
@@ -159,8 +159,8 @@ fn accept_content_to_response(
 ///
 /// This function must NEVER propagate its error: it runs inside the spawned
 /// prompt turn, and returning `Err` there tears the whole ACP connection down.
-/// Any failure — client declined, cancelled, sent an unexpected action, or a
-/// transport error — answers the kernel with a declined result (fail closed)
+/// Any failure -- client declined, cancelled, sent an unexpected action, or a
+/// transport error -- answers the kernel with a declined result (fail closed)
 /// and keeps the turn going.
 pub async fn handle_request_user_input(
     cx: &ConnectionTo<Client>,
@@ -171,8 +171,8 @@ pub async fn handle_request_user_input(
     form_supported: bool,
 ) {
     if !form_supported {
-        // Same behavior as before elicitation: `Null` round-trip → the tool's
-        // `null_result` ("interactive questions are not supported…").
+        // Same behavior as before elicitation: `Null` round-trip -> the tool's
+        // `null_result` ("interactive questions are not supported...").
         let _ = runtime.respond(req_id, serde_json::Value::Null).await;
         return;
     }

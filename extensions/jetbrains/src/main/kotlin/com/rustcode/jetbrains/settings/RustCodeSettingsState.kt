@@ -6,20 +6,20 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 
-enum class AtomCodeContextLevel {
+enum class RustCodeContextLevel {
     Minimal,
     CurrentFile,
     ProjectContext,
 }
 
-data class AtomCodeSettings(
+data class RustCodeSettings(
     var daemonBinaryPath: String = "",
     var host: String = "127.0.0.1",
     var port: Int = 13456,
     var autoStart: Boolean = true,
     var requestTimeoutMs: Int = 30_000,
     var autoSaveBeforeRead: Boolean = true,
-    var contextLevel: AtomCodeContextLevel = AtomCodeContextLevel.Minimal,
+    var contextLevel: RustCodeContextLevel = RustCodeContextLevel.Minimal,
     var allowSelectedTextContext: Boolean = true,
     var sendRelativePathWithSelection: Boolean = true,
     var sendWithCtrlEnter: Boolean = false,
@@ -28,29 +28,29 @@ data class AtomCodeSettings(
 )
 
 @Service(Service.Level.APP)
-@State(name = "AtomCodeSettings", storages = [Storage("atomcode.xml")])
-class AtomCodeSettingsState : PersistentStateComponent<AtomCodeSettings> {
-    private var state = AtomCodeSettings()
+@State(name = "RustCodeSettings", storages = [Storage("rustcode.xml")])
+class RustCodeSettingsState : PersistentStateComponent<RustCodeSettings> {
+    private var state = RustCodeSettings()
 
-    override fun getState(): AtomCodeSettings = state
+    override fun getState(): RustCodeSettings = state
 
-    override fun loadState(state: AtomCodeSettings) {
+    override fun loadState(state: RustCodeSettings) {
         this.state = state.normalized()
     }
 
-    fun update(block: (AtomCodeSettings) -> Unit) {
+    fun update(block: (RustCodeSettings) -> Unit) {
         val next = state.copy()
         block(next)
         state = next.normalized()
     }
 
     companion object {
-        fun getInstance(): AtomCodeSettingsState =
-            ApplicationManager.getApplication().getService(AtomCodeSettingsState::class.java)
+        fun getInstance(): RustCodeSettingsState =
+            ApplicationManager.getApplication().getService(RustCodeSettingsState::class.java)
     }
 }
 
-internal fun AtomCodeSettings.normalized(): AtomCodeSettings {
+internal fun RustCodeSettings.normalized(): RustCodeSettings {
     if (host.isBlank()) host = "127.0.0.1"
     if (port <= 0) port = 13456
     if (requestTimeoutMs <= 0) requestTimeoutMs = 30_000

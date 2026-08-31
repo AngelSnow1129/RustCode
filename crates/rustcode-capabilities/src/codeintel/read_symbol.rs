@@ -1,4 +1,4 @@
-//! `read_symbol` — read the full source of a named symbol (function/class/struct/…)
+//! `read_symbol` -- read the full source of a named symbol (function/class/struct/...)
 //! via tree-sitter, with line numbers. Non-destructive ⇒ always `Safe`.
 
 use super::lang::Lang;
@@ -25,7 +25,7 @@ impl Tool for ReadSymbolTool {
     }
     fn description(&self) -> &str {
         "Read the complete source of a single symbol (function / class / struct / method) \
-         by name, with line numbers. More precise than read_file — returns exactly the \
+         by name, with line numbers. More precise than read_file -- returns exactly the \
          symbol. Use list_symbols first to discover names. Relative paths resolve against \
          the working directory."
     }
@@ -39,7 +39,7 @@ impl Tool for ReadSymbolTool {
             "required": ["file_path", "symbol"]
         })
     }
-    // read-only → risk() defaults to Safe.
+    // read-only -> risk() defaults to Safe.
     async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -61,14 +61,14 @@ impl Tool for ReadSymbolTool {
 fn render(path: &Path, display: &str, symbol: &str) -> ToolResult {
     let lang = match Lang::detect(path) {
         Some(l) => l,
-        // NOT an error — same reasoning as `list_symbols`: no bundled grammar is a capability
-        // boundary, not a failure. Point at the tool that does work — but ONLY when the file
+        // NOT an error -- same reasoning as `list_symbols`: no bundled grammar is a capability
+        // boundary, not a failure. Point at the tool that does work -- but ONLY when the file
         // exists (this branch owns the existence check for unsupported types, since `detect`
         // runs before the read below); a missing/typo'd path must stay an error.
         None => {
             return if path.is_file() {
                 ok(format!(
-                    "no symbol index for {display} — no tree-sitter grammar is bundled for this \
+                    "no symbol index for {display} -- no tree-sitter grammar is bundled for this \
                      file type. Read it with read_file instead."
                 ))
             } else {

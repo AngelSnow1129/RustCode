@@ -157,7 +157,7 @@ const RULE_DOCS: &[(&str, &str)] = &[
 ];
 
 /// Rule name for a changed file path, or `None` when no rule applies.
-/// Matches the lowercased base name against the ordered table — first hit wins.
+/// Matches the lowercased base name against the ordered table -- first hit wins.
 pub fn match_rule(path: &str) -> Option<&'static str> {
     let base = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
     MATCHERS
@@ -269,18 +269,18 @@ fn wildcard_match(pattern: &str, s: &str) -> bool {
             }
         }
     }
-    // Pattern ended with `*` (last part empty) — anything left matches.
+    // Pattern ended with `*` (last part empty) -- anything left matches.
     true
 }
 
-/// A lockfile / dependency manifest / markdown doc / recipe scaffold — low review value
+/// A lockfile / dependency manifest / markdown doc / recipe scaffold -- low review value
 /// (formatters/tools own it, or prose/metadata with no executable logic). "No finding" is
 /// expected. Single source of truth reused by the impact plan (skip as a review target) and
 /// the CLI coverage backstop (don't re-review). Aligns with service DefaultIgnorePatterns.
 pub fn is_low_signal_file(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     let base = lower.rsplit('/').next().unwrap_or(&lower);
-    lower.ends_with(".lock") // Cargo.lock, poetry.lock, Gemfile.lock, …
+    lower.ends_with(".lock") // Cargo.lock, poetry.lock, Gemfile.lock, ...
         || lower.ends_with("cargo.lock")
         || lower.ends_with("go.sum")
         || lower.ends_with("package-lock.json")

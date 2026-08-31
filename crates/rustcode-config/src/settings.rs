@@ -492,7 +492,7 @@ mod tests {
     /// Provider config, model selection and credentials have their own deliberate UIs and must
     /// never be editable through this generic catalog.
     ///
-    /// That is a claim about what a setting IS — its id and path — not about the words it can
+    /// That is a claim about what a setting IS -- its id and path -- not about the words it can
     /// be found by. The two were checked together against one blob, which made the catalog
     /// unable to hold a setting that merely *talks about* the forbidden concepts:
     /// `coding.shell_guard_policy` is the guard that protects credential files, and listing
@@ -500,7 +500,7 @@ mod tests {
     /// that alias read as a credential leak and failed the suite.
     ///
     /// So: identity is checked against every word, search text only against the ones that name
-    /// a secret's VALUE. No setting needs "api_key" or "token" to be discoverable — those
+    /// a secret's VALUE. No setting needs "api_key" or "token" to be discoverable -- those
     /// appearing in a label means a secret is being edited here, whatever the id says.
     #[test]
     fn catalog_excludes_provider_model_and_credentials() {

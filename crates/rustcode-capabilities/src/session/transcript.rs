@@ -1,8 +1,8 @@
-//! `TranscriptHook` — appends ONE raw record per completed turn to `<id>.jsonl`, the
+//! `TranscriptHook` -- appends ONE raw record per completed turn to `<id>.jsonl`, the
 //! never-compacted ground truth for cross-session recall.
 //!
 //! It ACCUMULATES the turn across rounds (`on_model_response`) and FLUSHES exactly once
-//! at the turn's terminal (`turn_complete`) — so it is robust to compaction (it never
+//! at the turn's terminal (`turn_complete`) -- so it is robust to compaction (it never
 //! diffs history post-hoc) AND it captures EVERY terminal (normal stop, error, cancel,
 //! timeout, fuse), because `turn_complete` fires on all of them. Tool RESULTS are paired
 //! to the turn's calls BY `tool_call_id` from the live conversation at flush time.
@@ -20,10 +20,10 @@ use super::{now_ms, snapshot::SnapshotPersistenceStatus, SessionManager, Session
 
 pub const RECORD_VERSION: u32 = 1;
 
-/// One completed turn, RAW (no redaction) — one JSON object per `<id>.jsonl` line.
+/// One completed turn, RAW (no redaction) -- one JSON object per `<id>.jsonl` line.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TurnRecord {
-    /// `.jsonl` RECORD SCHEMA VERSION — same forward-compat seam as
+    /// `.jsonl` RECORD SCHEMA VERSION -- same forward-compat seam as
     /// `SessionMeta.v`: new records write 1, pre-version lines read as 0
     /// (`serde(default)`); additive fields keep the `v`, breaking changes bump it.
     #[serde(default)]
@@ -32,7 +32,7 @@ pub struct TurnRecord {
     /// older records leave it absent instead of fabricating a send time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<i64>,
-    /// epoch MILLISECONDS, UTC — stamped by L1 at flush.
+    /// epoch MILLISECONDS, UTC -- stamped by L1 at flush.
     pub ts: i64,
     /// Human-readable RFC-3339 mirror of `ts` (display / debug).
     pub iso: String,
@@ -41,7 +41,7 @@ pub struct TurnRecord {
     pub turn_id: u64,
     /// RESERVED for `/undo`: a turn rewound past by a later `/undo` stays in the
     /// transcript (decision: kept, not deleted) flagged `undone`. v1 always writes
-    /// `false` — the marking mechanism is DEFERRED with the rest of `/undo` wiring
+    /// `false` -- the marking mechanism is DEFERRED with the rest of `/undo` wiring
     /// (the append-only jsonl needs a side index or a rewrite pass to set it after the
     /// fact); the field + the recall display are forward-compatible for when it lands.
     #[serde(default)]
@@ -135,7 +135,7 @@ impl TranscriptHook {
 
     /// Build the record from the buffer + harvest tool results from `convo` by id, then
     /// append it. Returns the buffer to None. A turn with NO assistant text and NO tools
-    /// (a rejected prompt, or a turn that failed before any model output) is dropped —
+    /// (a rejected prompt, or a turn that failed before any model output) is dropped --
     /// nothing meaningful happened to record.
     fn flush(&self, convo: &Conversation) {
         let buffer = { self.lock().take() };
@@ -257,7 +257,7 @@ impl LifecycleHooks for TranscriptHook {
     }
 
     /// The turn TERMINATED (any reason): write its one transcript line. Fires on every
-    /// terminal — normal stop AND error/cancel/timeout/fuse — so an errored turn that
+    /// terminal -- normal stop AND error/cancel/timeout/fuse -- so an errored turn that
     /// produced partial output is still recorded.
     async fn turn_complete(&self, convo: &Conversation, _reason: &StopReason, _ctx: &TurnCtx) {
         self.flush(convo);
@@ -375,7 +375,7 @@ mod tests {
         let (h, _d) = hook("s1");
         let mut text = "blocked prompt".to_string();
         h.user_prompt_submit(&mut text).await.unwrap();
-        // No on_model_response (prompt rejected / instant fail) → terminal.
+        // No on_model_response (prompt rejected / instant fail) -> terminal.
         let convo = Conversation::new();
         h.turn_complete(&convo, &StopReason::PromptRejected, &TurnCtx::default())
             .await;

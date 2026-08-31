@@ -50,7 +50,7 @@ impl InstalledTxn {
         self.backup_dir.join(safe)
     }
 
-    /// Append the RustCode local-scope marker to `.gitignore`. Idempotent —
+    /// Append the RustCode local-scope marker to `.gitignore`. Idempotent --
     /// returns without writing if the marker (any of 4 syntactic variants) is
     /// already present. Otherwise backs up existing file (if any) and appends.
     pub fn append_gitignore(&mut self, project_root: &std::path::Path) -> SetupResult<()> {
@@ -82,7 +82,7 @@ impl InstalledTxn {
     }
 
     /// Roll back all writes in LIFO order. Returns `Clean` on full success,
-    /// `Partial` otherwise. Consumes `self` — sets `finalized=true` so Drop
+    /// `Partial` otherwise. Consumes `self` -- sets `finalized=true` so Drop
     /// is a no-op.
     pub fn rollback(mut self) -> RollbackOutcome {
         let outcome = self.rollback_in_place();
@@ -108,7 +108,7 @@ impl InstalledTxn {
             RollbackOutcome::Clean
         } else {
             let hint = format!(
-                "Some files were not restored. Backup remains at {} — restore manually with `cp -r`",
+                "Some files were not restored. Backup remains at {} -- restore manually with `cp -r`",
                 self.backup_dir.display()
             );
             RollbackOutcome::Partial {
@@ -121,7 +121,7 @@ impl InstalledTxn {
 
     /// Commit the transaction: marks finalized, best-effort cleans backup_dir,
     /// and `mem::forget`s self to prevent Drop's rollback. The returned
-    /// summary is currently empty — T24 (orchestrator) populates it.
+    /// summary is currently empty -- T24 (orchestrator) populates it.
     pub fn commit(mut self) -> InstalledSummary {
         self.finalized = true;
         // Best-effort cleanup of backup_dir; failure is non-fatal.
@@ -245,7 +245,7 @@ mod tests {
         {
             let mut txn = InstalledTxn::new(dir.path().to_path_buf()).unwrap();
             txn.append_gitignore(dir.path()).unwrap();
-        } // Drop without commit — rollback should fire.
+        } // Drop without commit -- rollback should fire.
         let content = std::fs::read_to_string(&gi).unwrap();
         assert!(
             !content.contains(".rustcode/local/"),

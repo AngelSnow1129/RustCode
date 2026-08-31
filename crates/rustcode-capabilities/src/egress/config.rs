@@ -1,7 +1,7 @@
 //! Configuration for NON-LLM outbound services (search, forges, gateways).
 //!
-//! Deliberately shaped like an LLM provider config — `base_url` + credential +
-//! `custom_headers` + timeout — so every outbound endpoint in the product is
+//! Deliberately shaped like an LLM provider config -- `base_url` + credential +
+//! `custom_headers` + timeout -- so every outbound endpoint in the product is
 //! configured, validated and redacted the same way instead of each tool inventing
 //! its own env-var convention.
 
@@ -20,7 +20,7 @@ use zeroize::Zeroize;
 pub struct SecretString(String);
 
 impl SecretString {
-    /// Wrap a credential. Prefer sourcing it from config or the environment —
+    /// Wrap a credential. Prefer sourcing it from config or the environment --
     /// never a literal in code.
     pub fn new(raw: impl Into<String>) -> Self {
         Self(raw.into())
@@ -83,7 +83,7 @@ pub struct ExternalServiceConfig {
     /// self-hosted endpoints don't) and is distinct from "misconfigured".
     pub api_key: Option<SecretString>,
     /// Arbitrary extra headers (tenant ids, gateway auth). Sourced from config
-    /// only — never hardcoded.
+    /// only -- never hardcoded.
     pub custom_headers: HashMap<String, String>,
     /// Whole-request budget override. `None` falls back to
     /// [`DEFAULT_REQUEST_TIMEOUT`](super::client::DEFAULT_REQUEST_TIMEOUT).
@@ -94,7 +94,7 @@ impl ExternalServiceConfig {
     /// Whether this service can actually be called.
     ///
     /// Callers use it to decide between "don't register the tool at all" and
-    /// "register it and fail at request time" — the former is what we want, so a
+    /// "register it and fail at request time" -- the former is what we want, so a
     /// missing credential produces a clean absence instead of a runtime error the
     /// model then has to work around.
     pub fn is_configured(&self) -> bool {

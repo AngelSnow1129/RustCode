@@ -10,10 +10,10 @@ use std::fs::File;
 use std::path::PathBuf;
 
 fn main() {
-    // Only pack when the `setup` feature is on — its `seeds.rs` is the sole `include_bytes!`
+    // Only pack when the `setup` feature is on -- its `seeds.rs` is the sole `include_bytes!`
     // consumer of the archive, compiled only under that feature. Cargo sets CARGO_FEATURE_SETUP
     // when the feature is active (build scripts CAN read features). The zstd/tar build-deps
-    // still compile regardless — Cargo can't feature-gate [build-dependencies] — but a lean
+    // still compile regardless -- Cargo can't feature-gate [build-dependencies] -- but a lean
     // (no-setup) build then skips the packing work and the empty-archive I/O.
     if std::env::var_os("CARGO_FEATURE_SETUP").is_some() {
         pack_setup_seeds();
@@ -29,7 +29,7 @@ fn pack_setup_seeds() {
     println!("cargo:rerun-if-changed=assets/setup-seeds");
 
     if !seeds_dir.exists() {
-        // No seeds yet → write empty archive so include_bytes! works.
+        // No seeds yet -> write empty archive so include_bytes! works.
         let f = File::create(&out_path).expect("create empty tar.zst");
         let zstd_enc = zstd::Encoder::new(f, 3).expect("zstd encoder");
         let mut tar = tar::Builder::new(zstd_enc);

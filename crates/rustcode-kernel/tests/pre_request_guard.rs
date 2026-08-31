@@ -2,7 +2,7 @@
 //! not mutate / insert / delete WITHIN the stored history, or this round's outgoing wire
 //! prefix diverges from prior rounds and the provider's prefix cache misses. The hook
 //! runs on a per-request clone (storage is always safe), so a non-append projection is
-//! invisible to history-byte tests for a THIRD-PARTY hook — the kernel surfaces it at
+//! invisible to history-byte tests for a THIRD-PARTY hook -- the kernel surfaces it at
 //! runtime as a Warning instead.
 
 use async_trait::async_trait;
@@ -15,7 +15,7 @@ use rustcode_kernel::testkit::{MockProvider, TailReminderHook};
 use rustcode_kernel::tool::ToolRegistry;
 use std::sync::Arc;
 
-/// Rewrites the FIRST message every round — a PREFIX mutation that poisons the wire cache.
+/// Rewrites the FIRST message every round -- a PREFIX mutation that poisons the wire cache.
 struct PrefixMutatingHook;
 #[async_trait]
 impl LifecycleHooks for PrefixMutatingHook {

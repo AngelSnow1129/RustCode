@@ -3,21 +3,21 @@
 /// Strip ANSI escape sequences and C0/C1 control codes except tab/newline/CR.
 ///
 /// Defends against:
-/// - CSI sequences (\x1b[...) — can clear screen, move cursor, query position
-/// - OSC sequences (\x1b]...\x07 or \x1b]...\x1b\\) — can set terminal title,
+/// - CSI sequences (\x1b[...) -- can clear screen, move cursor, query position
+/// - OSC sequences (\x1b]...\x07 or \x1b]...\x1b\\) -- can set terminal title,
 ///   manipulate clipboard, or write to hyperlink targets
-/// - C0 controls (0x00..0x1F) except \t \n \r — can ring bell, backspace, etc.
-/// - C1 controls (0x80..0x9F in UTF-8 as U+0080..U+009F) — alternate CSI forms
+/// - C0 controls (0x00..0x1F) except \t \n \r -- can ring bell, backspace, etc.
+/// - C1 controls (0x80..0x9F in UTF-8 as U+0080..U+009F) -- alternate CSI forms
 /// - Bare ESC (\x1b not followed by a recognised intro)
 pub fn scrub_controls(input: &str) -> String {
     scrub_inner(input, false)
 }
 
 /// Same as [`scrub_controls`] but preserves CSI sequences whose final
-/// byte is `m` — i.e. **SGR (Select Graphic Rendition)**: colour,
+/// byte is `m` -- i.e. **SGR (Select Graphic Rendition)**: colour,
 /// bold, italic, underline, strikethrough, faint, reverse-video, etc.
 ///
-/// SGR is purely cosmetic — it changes how subsequent text is drawn
+/// SGR is purely cosmetic -- it changes how subsequent text is drawn
 /// but never moves the cursor, queries terminal state, touches the
 /// clipboard, sets the window title, or otherwise reaches outside
 /// the display rectangle. Allowing it through is what `less`, `git`,
@@ -26,11 +26,11 @@ pub fn scrub_controls(input: &str) -> String {
 /// rows that render in the terminal's theme red) survive sanitisation
 /// without each caller having to roll its own emission path.
 ///
-/// Use this on **trusted** output — strings the app itself builds
+/// Use this on **trusted** output -- strings the app itself builds
 /// (slash-command return text, status lines, setup reports). Do NOT
 /// use it on text that came from a remote LLM or any other untrusted
 /// channel: SGR can still be used to hide content (faint, black-on-
-/// black) or impersonate UI chrome (✓ in green next to a lie), so
+/// black) or impersonate UI chrome ([+] in green next to a lie), so
 /// LLM streams continue to go through the strict [`scrub_controls`].
 pub fn scrub_controls_keep_sgr(input: &str) -> String {
     scrub_inner(input, true)
@@ -45,7 +45,7 @@ fn scrub_inner(input: &str, keep_sgr: bool) -> String {
             '\t' | '\n' | '\r' => out.push(c),
             '\x00'..='\x1F' => {
                 if c == '\x1B' {
-                    // ESC — consume one of: CSI, OSC, SS2, SS3, or lone byte
+                    // ESC -- consume one of: CSI, OSC, SS2, SS3, or lone byte
                     match chars.peek() {
                         Some(&'[') => {
                             chars.next(); // consume [
@@ -62,7 +62,7 @@ fn scrub_inner(input: &str, keep_sgr: bool) -> String {
                                     break;
                                 }
                             }
-                            // SGR (CSI ... m) is pure presentation —
+                            // SGR (CSI ... m) is pure presentation --
                             // when the caller asked to keep SGR, emit
                             // the buffered sequence verbatim. Other
                             // CSI finals (cursor moves, DSR queries,
@@ -97,7 +97,7 @@ fn scrub_inner(input: &str, keep_sgr: bool) -> String {
                 // other C0: drop
             }
             '\u{0080}'..='\u{009F}' => {
-                // C1 controls — some terminals interpret these as CSI alternatives.
+                // C1 controls -- some terminals interpret these as CSI alternatives.
                 // For U+009B (alt CSI introducer), consume the full sequence up to
                 // its final byte so the payload cannot reach the terminal as literal
                 // text. Other C1 controls are dropped as-is.
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn c1_controls_removed() {
-        // \x9b = CSI alternate form — introducer AND payload must be stripped
+        // \x9b = CSI alternate form -- introducer AND payload must be stripped
         assert_eq!(scrub_controls("a\u{009b}2Jb"), "ab");
     }
 
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn keep_sgr_preserves_multi_param_sgr() {
-        // SGR can carry multiple parameters in one sequence —
+        // SGR can carry multiple parameters in one sequence --
         // e.g. `\x1b[1;31m` = bold + red. Verify both the
         // separator and the parameter chain pass through intact.
         assert_eq!(

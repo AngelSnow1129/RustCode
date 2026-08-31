@@ -1,5 +1,5 @@
 //! A tool that reports progress mid-execution via `ctx.progress.emit(..)` must reach the
-//! driver as `AgentEvent::ToolProgress`, tagged with the executing call's id — the generic
+//! driver as `AgentEvent::ToolProgress`, tagged with the executing call's id -- the generic
 //! seam an L2 sub-agent / parallel-edit tool builds on for child-task progress.
 
 use async_trait::async_trait;

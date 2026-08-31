@@ -25,4 +25,4 @@ Delete、Left、Right、Home 和 End；协议字段继续使用 Left/Right 切�
 - 窄屏且光标位于 URL 末尾时显示 URL 尾部和左省略号；
 - 光标位于中间时同时显示左右省略号；
 - 宽屏时显示完整值；
-- 既有 Provider Panel 测试与 `atomcode-tuix` 库测试保持通过。
+- 既有 Provider Panel 测试与 `rustcode-tuix` 库测试保持通过。

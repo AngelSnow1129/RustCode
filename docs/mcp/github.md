@@ -1,10 +1,10 @@
 # GitHub MCP OAuth 使用说明
 
-本文说明如何在 AtomCode 中配置 GitHub Remote MCP，并通过 OAuth 登录后使用 GitHub MCP tools。
+本文说明如何在 RustCode 中配置 GitHub Remote MCP，并通过 OAuth 登录后使用 GitHub MCP tools。
 
 ## 1. 前置条件
 
-- 已构建或安装 `atomcode`。
+- 已构建或安装 `rustcode`。
 - 有可访问 GitHub 的浏览器环境。
 - GitHub 账号具备访问目标仓库/组织的权限。
 
@@ -21,13 +21,13 @@ https://github.com/settings/developers
 1. 进入 `OAuth Apps`。
 2. 点击 `New OAuth App` / `Register a new application`。
 3. 填写：
-   - `Application name`：例如 `AtomCode MCP Local`
+   - `Application name`：例如 `RustCode MCP Local`
    - `Homepage URL`：`http://127.0.0.1`
    - `Authorization callback URL`：`http://127.0.0.1/callback`
 4. 创建完成后，复制 `Client ID`。
 5. 生成并复制 `Client secret`。
 
-> AtomCode 登录时会使用本地随机端口，例如 `http://127.0.0.1:<random-port>/callback`。GitHub 对 loopback redirect URL 支持随机端口，OAuth App 中 callback 写 `http://127.0.0.1/callback` 即可。
+> RustCode 登录时会使用本地随机端口，例如 `http://127.0.0.1:<random-port>/callback`。GitHub 对 loopback redirect URL 支持随机端口，OAuth App 中 callback 写 `http://127.0.0.1/callback` 即可。
 
 ## 3. 配置环境变量
 
@@ -45,13 +45,13 @@ export GITHUB_MCP_CLIENT_SECRET="<your-github-oauth-client-secret>"
 项目级配置：
 
 ```bash
-atomcode mcp add-github-oauth github
+rustcode mcp add-github-oauth github
 ```
 
 或全局配置：
 
 ```bash
-atomcode mcp add-github-oauth github --global
+rustcode mcp add-github-oauth github --global
 ```
 
 也可以手写 `.mcp.json` 或 `~/.rustcode/mcp.json`：
@@ -82,7 +82,7 @@ atomcode mcp add-github-oauth github --global
 执行：
 
 ```bash
-atomcode mcp login github \
+rustcode mcp login github \
   --client-id "$RUSTCODE_GITHUB_MCP_CLIENT_ID" \
   --client-secret-env GITHUB_MCP_CLIENT_SECRET
 ```
@@ -90,7 +90,7 @@ atomcode mcp login github \
 如果配置中已经写了 `client_secret_env`，也可以：
 
 ```bash
-atomcode mcp login github --client-id "$RUSTCODE_GITHUB_MCP_CLIENT_ID"
+rustcode mcp login github --client-id "$RUSTCODE_GITHUB_MCP_CLIENT_ID"
 ```
 
 登录过程：
@@ -98,7 +98,7 @@ atomcode mcp login github --client-id "$RUSTCODE_GITHUB_MCP_CLIENT_ID"
 1. 终端会打印 GitHub 授权 URL，并尝试打开浏览器。
 2. 在浏览器中授权 OAuth App。
 3. GitHub 回调到本地 `127.0.0.1:<random-port>/callback`。
-4. AtomCode 保存 token 到本机配置目录下的 `mcp_auth.toml`。
+4. RustCode 保存 token 到本机配置目录下的 `mcp_auth.toml`。
 
 可以检查 token 是否保存：
 
@@ -108,12 +108,12 @@ cat ~/.rustcode/mcp_auth.toml
 
 不要把该文件内容贴到日志、issue 或 PR 中。
 
-## 6. 在 AtomCode TUI 中验证
+## 6. 在 RustCode TUI 中验证
 
-启动 AtomCode：
+启动 RustCode：
 
 ```bash
-atomcode
+rustcode
 ```
 
 在 TUI 中执行：
@@ -130,7 +130,7 @@ atomcode
 - `/mcp` 能看到 `github` 状态为 connected。
 - `/mcp tools github` 能列出 `mcp__github__...` 工具，例如 issue、pull request、repository、file 相关工具。
 
-首次连接时 GitHub MCP 的 `tools/list` 可能较慢。如果设置了 `timeout_ms: 60000`，AtomCode 的外层 tools/list 超时会按该配置加少量余量等待。
+首次连接时 GitHub MCP 的 `tools/list` 可能较慢。如果设置了 `timeout_ms: 60000`，RustCode 的外层 tools/list 超时会按该配置加少量余量等待。
 
 ## 7. 调用 GitHub MCP
 
@@ -146,7 +146,7 @@ atomcode
 用 GitHub MCP 列出我能访问的仓库，先只读，不要做任何修改。
 ```
 
-当模型调用 MCP 工具时，AtomCode 会展示工具审批。确认参数无误后批准执行。
+当模型调用 MCP 工具时，RustCode 会展示工具审批。确认参数无误后批准执行。
 
 ## 8. 常见问题
 
@@ -155,13 +155,13 @@ atomcode
 说明还没有写入 `github` 这个 MCP server 配置。先执行：
 
 ```bash
-atomcode mcp add-github-oauth github
+rustcode mcp add-github-oauth github
 ```
 
 或写入全局配置：
 
 ```bash
-atomcode mcp add-github-oauth github --global
+rustcode mcp add-github-oauth github --global
 ```
 
 ### missing field `access_token`
@@ -178,7 +178,7 @@ echo "$GITHUB_MCP_CLIENT_SECRET"
 并使用：
 
 ```bash
-atomcode mcp login github \
+rustcode mcp login github \
   --client-id "$RUSTCODE_GITHUB_MCP_CLIENT_ID" \
   --client-secret-env GITHUB_MCP_CLIENT_SECRET
 ```
@@ -203,8 +203,8 @@ GitHub Remote MCP 首次 `tools/list` 可能较慢。建议在 MCP 配置里设�
 可以删除 GitHub 的 MCP token 后重新登录：
 
 ```bash
-atomcode mcp logout github
-atomcode mcp login github \
+rustcode mcp logout github
+rustcode mcp login github \
   --client-id "$RUSTCODE_GITHUB_MCP_CLIENT_ID" \
   --client-secret-env GITHUB_MCP_CLIENT_SECRET
 ```

@@ -2,9 +2,9 @@
 //!
 //! The kernel proves the wire prefix is byte-stable / append-only with NoopHooks
 //! (`rustcode-kernel/tests/cache_prefix.rs`). This test re-proves it through the
-//! REAL assembly — every coding hook (MemoryHook rewriting the leading-system run,
+//! REAL assembly -- every coding hook (MemoryHook rewriting the leading-system run,
 //! Snapshot/Transcript, CurrentDate's tail projection, VerifyCadence)
-//! plus the full toolset — which is exactly where the project's historical cache
+//! plus the full toolset -- which is exactly where the project's historical cache
 //! breaks lived: the system/persona rebuilt per round, skill/tool reorder, or memory
 //! re-injected each turn.
 
@@ -69,7 +69,7 @@ fn is_strict_prefix(a: &str, b: &str) -> bool {
     a.len() < b.len() && b.as_bytes().starts_with(a.as_bytes())
 }
 
-/// Leading run of System messages — the persona plus any MemoryHook-injected block.
+/// Leading run of System messages -- the persona plus any MemoryHook-injected block.
 fn leading_system(messages: &[Message]) -> &[Message] {
     let n = messages
         .iter()
@@ -106,13 +106,13 @@ async fn full_assembly_wire_prefix_is_cacheable_across_turns() {
     let home = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
     std::env::set_var("RUSTCODE_HOME", home.path());
-    // A memory the MemoryHook injects into the leading-system run — the run that must
+    // A memory the MemoryHook injects into the leading-system run -- the run that must
     // then stay FROZEN across every subsequent round/turn.
     std::fs::write(home.path().join("memory.md"), "- the user prefers tabs\n").unwrap();
 
     let cfg = cfg(project.path());
     // Deterministic toolset: pin skills to an (empty) temp dir, MCP off, web off.
-    // Memory ON — the hook that rewrites the leading-system run is the main risk.
+    // Memory ON -- the hook that rewrites the leading-system run is the main risk.
     let opts = PrepareOptions {
         session: SessionMode::Disabled,
         tools: true,
@@ -130,7 +130,7 @@ async fn full_assembly_wire_prefix_is_cacheable_across_turns() {
     };
     let mut parts = prepare(&cfg, opts).await.unwrap();
 
-    // Two text-only turns → one recorded provider call each.
+    // Two text-only turns -> one recorded provider call each.
     let provider = Arc::new(RecordingProvider::new(vec![
         text_turn("answer one"),
         text_turn("answer two"),
@@ -165,13 +165,13 @@ async fn full_assembly_wire_prefix_is_cacheable_across_turns() {
     );
 
     for (i, (msgs, tools, _opts)) in calls.iter().enumerate() {
-        // (1) tool block frozen byte-for-byte — no skill/MCP/tool reorder across calls.
+        // (1) tool block frozen byte-for-byte -- no skill/MCP/tool reorder across calls.
         assert_eq!(
             tool_block_repr(tools),
             frozen_tools,
             "tool block must be byte-identical on call {i} (frozen, no reorder)"
         );
-        // (2) leading system run (persona + MEMORY block) byte-identical — NOT rebuilt
+        // (2) leading system run (persona + MEMORY block) byte-identical -- NOT rebuilt
         //     or re-injected per round/turn (the historical cache break).
         assert_eq!(
             history_repr(leading_system(msgs)),
@@ -180,7 +180,7 @@ async fn full_assembly_wire_prefix_is_cacheable_across_turns() {
         );
     }
 
-    // (3) append-only: each call's stored history is a STRICT byte prefix of the next — no head
+    // (3) append-only: each call's stored history is a STRICT byte prefix of the next -- no head
     //     mutation, no mid-session rewrite. (No ephemeral date tail to strip: the per-round
     //     status reminder was removed; the date now lives in the frozen persona prefix.)
     for w in calls.windows(2) {
@@ -195,7 +195,7 @@ async fn full_assembly_wire_prefix_is_cacheable_across_turns() {
 
 /// CROSS-ASSEMBLY determinism: two INDEPENDENT assemblies (a fresh `HashMap` seed
 /// each, the way two separate PROCESSES would differ) must emit a byte-identical
-/// tool block + leading-system run. This is the cross-process system-hash property —
+/// tool block + leading-system run. This is the cross-process system-hash property --
 /// the guard against the historical skill/tool `HashMap`-iteration-order cache break
 /// (the fix was ordered registration). Without it, a second process keys a different
 /// prefix and never hits the first's cache.
@@ -216,7 +216,7 @@ async fn tool_block_and_system_are_deterministic_across_independent_assemblies()
         extra_mcp_servers: Vec::new(),
         external_subagents: Vec::new(),
         memory: true,
-        web: true, // include web tools too — more tools = a stronger ordering check
+        web: true, // include web tools too -- more tools = a stronger ordering check
         review: false,
         subagents: rustcode_coding::SubagentPolicy::Disabled,
         request_user_input: true,

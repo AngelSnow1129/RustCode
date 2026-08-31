@@ -1,17 +1,17 @@
-//! `rustcodex code` — the new stack's first INTERACTIVE coding-agent driver (D layer).
+//! `rustcodex code` -- the new stack's first INTERACTIVE coding-agent driver (D layer).
 //!
-//! Drives the FULL assembly (`rustcode_coding::prepare` → `assemble`): web + skills +
+//! Drives the FULL assembly (`rustcode_coding::prepare` -> `assemble`): web + skills +
 //! mcp + session persistence/recall + memory, zero `rustcode-core`. The driver owns
 //! exactly what the engine deliberately left to it:
 //! - the approval UX (the typed `ApprovalRequest`/`ApprovalResponse` round-trip),
 //! - slash commands (`/remember` `/forget` `/memory` `/compact` `/mcp` `/sessions`),
 //! - rendering the event stream (text deltas, tool trace, turn outcome),
-//! - Ctrl-C → `Cancel` (one LONG-LIVED SIGINT listener feeds a channel, so it works
-//!   mid-stream, at the approval prompt — where the kernel flushes the pending
-//!   round-trip to deny — and at the idle prompt, where it exits gracefully).
+//! - Ctrl-C -> `Cancel` (one LONG-LIVED SIGINT listener feeds a channel, so it works
+//!   mid-stream, at the approval prompt -- where the kernel flushes the pending
+//!   round-trip to deny -- and at the idle prompt, where it exits gracefully).
 //!
 //! Everything else (persistence, resume, memory injection, compaction timing,
-//! turn-id continuity) happens inside the engine — this loop is deliberately thin.
+//! turn-id continuity) happens inside the engine -- this loop is deliberately thin.
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
@@ -75,7 +75,7 @@ pub struct CodeArgs {
     pub stream_timeout: u64,
 }
 
-/// `rustcodex sessions` — list this project's resumable sessions, newest first.
+/// `rustcodex sessions` -- list this project's resumable sessions, newest first.
 #[derive(Parser)]
 pub struct SessionsArgs {
     /// Project directory (default: current directory).
@@ -152,7 +152,7 @@ pub async fn code(args: CodeArgs) -> Result<()> {
     if crate::is_signing_gateway(&base_url) {
         bail!(
             "provider base_url '{base_url}' needs RustCode's proprietary request signing, \
-             which rustcodex cannot produce — use a plain OpenAI-compatible endpoint"
+             which rustcodex cannot produce -- use a plain OpenAI-compatible endpoint"
         );
     }
     let api_key = crate::first_nonempty([
@@ -175,7 +175,7 @@ pub async fn code(args: CodeArgs) -> Result<()> {
     } else if args.continue_latest {
         let latest = SessionManager::for_project(&dir)
             .latest()
-            .context("no session to continue in this project — start one without --continue")?;
+            .context("no session to continue in this project -- start one without --continue")?;
         SessionMode::Resume(latest.id)
     } else {
         SessionMode::Fresh
@@ -219,7 +219,7 @@ pub async fn code(args: CodeArgs) -> Result<()> {
         rate_limit_source: None,
     };
 
-    eprintln!("preparing ({model}) …");
+    eprintln!("preparing ({model}) ...");
     let runtime = CodingRuntime::start(CodingRuntimeStart {
         agent: cfg,
         prepare: opts,
@@ -261,7 +261,7 @@ pub async fn code(args: CodeArgs) -> Result<()> {
     let mut sigint = spawn_sigint_listener();
 
     // One-shot: a single turn, then exit (still persisted). A failed turn must
-    // exit NON-ZERO — `--yolo -p` is the CI mode, and CI needs the signal.
+    // exit NON-ZERO -- `--yolo -p` is the CI mode, and CI needs the signal.
     if let Some(p) = args.prompt {
         handle
             .wait_mcp_ready(rustcode_capabilities::mcp::CONNECT_TIMEOUT)
@@ -281,23 +281,23 @@ pub async fn code(args: CodeArgs) -> Result<()> {
         };
     }
 
-    eprintln!("interactive mode — /help for commands, /quit to exit");
+    eprintln!("interactive mode -- /help for commands, /quit to exit");
     loop {
         eprint!("› ");
         let line = tokio::select! {
-            // An stdin IO error must still take the graceful-exit path (Shutdown →
+            // An stdin IO error must still take the graceful-exit path (Shutdown ->
             // session_end), not `?` out past finish(). Rare (EOF is Ok(None)), and
-            // the agent is idle here so nothing is mid-write — but exit cleanly.
+            // the agent is idle here so nothing is mid-write -- but exit cleanly.
             l = input.next_line() => match l {
                 Ok(Some(l)) => l,
                 Ok(None) => break,
                 Err(e) => {
-                    eprintln!("[stdin error: {e} — exiting]");
+                    eprintln!("[stdin error: {e} -- exiting]");
                     break;
                 }
             },
             _ = sigint.recv() => {
-                eprintln!("\n(exiting — session saved; /quit next time, or just Ctrl-C again)");
+                eprintln!("\n(exiting -- session saved; /quit next time, or just Ctrl-C again)");
                 break;
             }
         };
@@ -312,14 +312,14 @@ pub async fn code(args: CodeArgs) -> Result<()> {
             }
         }
         if handle.submit(UserInput::from(line)).await.is_err() {
-            eprintln!("[agent terminated — exiting]");
+            eprintln!("[agent terminated -- exiting]");
             break;
         }
         if drive_turn(&handle, &mut events, &mut input, args.yolo, &mut sigint)
             .await
             .is_none()
         {
-            eprintln!("[agent terminated — exiting]");
+            eprintln!("[agent terminated -- exiting]");
             break;
         }
     }
@@ -327,7 +327,7 @@ pub async fn code(args: CodeArgs) -> Result<()> {
     r
 }
 
-/// One process-wide SIGINT listener feeding a channel — every prompt/select in the
+/// One process-wide SIGINT listener feeding a channel -- every prompt/select in the
 /// driver listens on the SAME receiver, so no signal lands in a re-registration gap
 /// and no await-point is deaf to Ctrl-C.
 fn spawn_sigint_listener() -> tokio::sync::mpsc::UnboundedReceiver<()> {
@@ -353,14 +353,14 @@ async fn finish(
     let _ = handle.shutdown().await;
     let _ = task.await;
     if let Some(id) = session_id {
-        eprintln!("session saved — resume with: rustcodex code --resume {id}");
+        eprintln!("session saved -- resume with: rustcodex code --resume {id}");
     }
     Ok(())
 }
 
 /// Drive ONE turn: render events until `TurnComplete`; answer approval requests
 /// (interactive, or auto-allow under --yolo); Ctrl-C (via the shared SIGINT channel)
-/// cancels the turn — the kernel also unparks a pending approval, fail-closed.
+/// cancels the turn -- the kernel also unparks a pending approval, fail-closed.
 /// Returns the runtime-owned completion variant, or `None` when the agent task died.
 #[derive(Debug, PartialEq, Eq)]
 enum TurnOutcome {
@@ -390,14 +390,14 @@ async fn drive_turn(
     use std::io::Write;
     let mut streamed = false;
     // Once a cancel is in flight, any approval Request still buffered in the event
-    // channel is ALREADY flushed-to-deny inside the kernel — auto-answer Null
+    // channel is ALREADY flushed-to-deny inside the kernel -- auto-answer Null
     // instead of parking the user on a prompt for a decision that no longer exists.
     let mut cancelled = false;
     loop {
         let ev = tokio::select! {
             ev = events.recv() => match ev { Some(ev) => ev.event, None => return None },
             _ = sigint.recv() => {
-                eprintln!("\n[cancelling …]");
+                eprintln!("\n[cancelling ...]");
                 cancelled = true;
                 let _ = handle.cancel().await;
                 continue;
@@ -411,13 +411,13 @@ async fn drive_turn(
             }
             CodingRuntimeEvent::Agent(AgentEvent::ToolStarted { call }) => {
                 eprintln!(
-                    "  → {} {}",
+                    "  -> {} {}",
                     call.name,
                     crate::tool_hint(&call.name, &call.arguments)
                 );
             }
             CodingRuntimeEvent::Agent(AgentEvent::ToolResult { result }) => {
-                let mark = if result.is_error { "✗" } else { "✓" };
+                let mark = if result.is_error { "[x]" } else { "[+]" };
                 eprintln!("    {mark} ({} chars)", result.content.chars().count());
             }
             CodingRuntimeEvent::Request(request) if request.kind == APPROVAL_KIND && !cancelled => {
@@ -426,9 +426,9 @@ async fn drive_turn(
                         let _ = handle.respond(request.id, value).await;
                     }
                     ApprovalAnswer::Cancelled => {
-                        // Ctrl-C at the approval prompt: cancel the TURN — the kernel
+                        // Ctrl-C at the approval prompt: cancel the TURN -- the kernel
                         // flushes this very round-trip to Null (deny) and unparks.
-                        eprintln!("\n[cancelling …]");
+                        eprintln!("\n[cancelling ...]");
                         cancelled = true;
                         let _ = handle.cancel().await;
                     }
@@ -436,7 +436,7 @@ async fn drive_turn(
             }
             CodingRuntimeEvent::Request(request) => {
                 // Unknown kind, or a stale approval after cancel: fail closed
-                // (Null → deny semantics; a flushed id no-ops harmlessly).
+                // (Null -> deny semantics; a flushed id no-ops harmlessly).
                 let _ = handle.respond(request.id, serde_json::Value::Null).await;
             }
             CodingRuntimeEvent::Agent(AgentEvent::Error { message, .. }) => {
@@ -466,11 +466,11 @@ async fn drive_turn(
             }
             CodingRuntimeEvent::CompactionStarted { trigger } => {
                 // The kernel fires this ONLY when a real drain/summary (a multi-second
-                // LLM call) will run — manual `/compact`, overflow tier 2, OR an auto
+                // LLM call) will run -- manual `/compact`, overflow tier 2, OR an auto
                 // compaction that escalated past the high-water mark. Show a progress
                 // line for ALL of them so a headless run isn't silently blocked.
                 let _ = &trigger;
-                eprintln!("[compacting …]");
+                eprintln!("[compacting ...]");
             }
             CodingRuntimeEvent::CompactionFinished {
                 completion: rustcode_coding::runtime::CompactionCompletion::Completed(outcome),
@@ -480,7 +480,7 @@ async fn drive_turn(
                     if outcome.committed {
                         ""
                     } else {
-                        " — refused (no gain)"
+                        " -- refused (no gain)"
                     }
                 );
             }
@@ -510,7 +510,7 @@ async fn drive_turn(
 
 enum ApprovalAnswer {
     Respond(serde_json::Value),
-    /// Ctrl-C at the prompt — the caller cancels the turn instead of responding.
+    /// Ctrl-C at the prompt -- the caller cancels the turn instead of responding.
     Cancelled,
 }
 
@@ -519,10 +519,10 @@ enum ApprovalAnswer {
 ///
 /// SAFETY OF THE READ (the must-fix from review): the prompt shares stdin with the
 /// REPL, so a pasted block / typed-ahead text could be sitting in the buffer and
-/// would otherwise be consumed AS the answer — a stray buffered "y" would silently
+/// would otherwise be consumed AS the answer -- a stray buffered "y" would silently
 /// ALLOW a tool call the user never saw. Two layers of defense:
 /// 1. DRAIN every already-buffered line before showing the prompt (discarded with
-///    a notice — they were never going to be sent anyway);
+///    a notice -- they were never going to be sent anyway);
 /// 2. the escalating answer is a DELIBERATE WORD: `always` (not a single letter a
 ///    stray buffered character could spell). `y`/`yes` allow once; everything else
 ///    denies (fail-closed).
@@ -534,10 +534,10 @@ async fn approval_decision(
 ) -> ApprovalAnswer {
     let req: ApprovalRequest = match serde_json::from_value(payload.clone()) {
         Ok(r) => r,
-        Err(_) => return ApprovalAnswer::Respond(serde_json::Value::Null), // malformed → fail closed
+        Err(_) => return ApprovalAnswer::Respond(serde_json::Value::Null), // malformed -> fail closed
     };
     if yolo {
-        // The audit line is the ONLY record of what was auto-allowed — UNABRIDGED.
+        // The audit line is the ONLY record of what was auto-allowed -- UNABRIDGED.
         eprintln!("  [yolo] auto-allow {} {}", req.tool, req.args);
         return ApprovalAnswer::Respond(
             serde_json::to_value(ApprovalResponse::allow()).unwrap_or(serde_json::Value::Null),
@@ -551,7 +551,7 @@ async fn approval_decision(
         discarded += 1;
     }
     if discarded > 0 {
-        eprintln!("  (discarded {discarded} typed-ahead line(s) — an approval prompt needs a fresh answer)");
+        eprintln!("  (discarded {discarded} typed-ahead line(s) -- an approval prompt needs a fresh answer)");
     }
     eprintln!(
         "  approval needed: {} {}",
@@ -584,7 +584,7 @@ enum SlashOutcome {
 }
 
 /// Handle a `/command`. Memory commands write through `MemoryStore` (the engine
-/// injects/reconciles at the NEXT session start — production semantics); `/compact`
+/// injects/reconciles at the NEXT session start -- production semantics); `/compact`
 /// goes to the agent (queued to the turn boundary if one is running).
 fn handle_slash(cmd: &str, dir: &std::path::Path, handle: &CodingRuntimeHandle) -> SlashOutcome {
     let (name, rest) = match cmd.split_once(char::is_whitespace) {
@@ -617,7 +617,7 @@ fn handle_slash(cmd: &str, dir: &std::path::Path, handle: &CodingRuntimeHandle) 
             };
             match store.append(text) {
                 Ok(()) => eprintln!(
-                    "  remembered ({}) — injected from the next session start",
+                    "  remembered ({}) -- injected from the next session start",
                     if global { "global" } else { "project" }
                 ),
                 Err(e) => eprintln!("  failed to write memory: {e}"),
@@ -655,7 +655,7 @@ fn handle_slash(cmd: &str, dir: &std::path::Path, handle: &CodingRuntimeHandle) 
                     .unwrap_or_else(|| "project".into()),
             );
             if merged.is_empty() {
-                eprintln!("  (memory is empty — /remember <fact>)");
+                eprintln!("  (memory is empty -- /remember <fact>)");
             } else {
                 eprintln!("{merged}");
             }
@@ -683,7 +683,7 @@ fn handle_slash(cmd: &str, dir: &std::path::Path, handle: &CodingRuntimeHandle) 
         _ => {
             // Warn-and-SKIP: a typo'd /quti must not silently burn a model turn
             // (and, under --yolo, execute whatever the model makes of it).
-            eprintln!("  unknown command /{name} — /help (a leading '/' is command space)");
+            eprintln!("  unknown command /{name} -- /help (a leading '/' is command space)");
             SlashOutcome::Handled
         }
     }
@@ -702,7 +702,7 @@ fn split_global_flag(rest: &str) -> (bool, &str) {
     (false, rest)
 }
 
-/// epoch ms → `YYYY-MM-DD HH:MM UTC` (dependency-free; UTC — labeled as such, while
+/// epoch ms -> `YYYY-MM-DD HH:MM UTC` (dependency-free; UTC -- labeled as such, while
 /// the engine's StatusReminderHook shows the MODEL local date; negative ms clamp to epoch).
 fn fmt_ts(ms: i64) -> String {
     use std::time::{Duration, UNIX_EPOCH};
@@ -712,7 +712,7 @@ fn fmt_ts(ms: i64) -> String {
     match t.duration_since(UNIX_EPOCH) {
         Ok(d) => {
             let secs = d.as_secs();
-            // days since epoch → Y-M-D (civil from days, Howard Hinnant's algorithm).
+            // days since epoch -> Y-M-D (civil from days, Howard Hinnant's algorithm).
             let days = (secs / 86_400) as i64;
             let (y, m, dd) = civil_from_days(days);
             let rem = secs % 86_400;
@@ -726,7 +726,7 @@ fn fmt_ts(ms: i64) -> String {
     }
 }
 
-/// Days-since-epoch → (year, month, day), Gregorian. Hinnant's `civil_from_days`.
+/// Days-since-epoch -> (year, month, day), Gregorian. Hinnant's `civil_from_days`.
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;

@@ -57,13 +57,13 @@ pub enum CodingRuntimeEvent {
         generation: RuntimeGeneration,
         event: rustcode_capabilities::team::TeamEvent,
     },
-    /// Vision (VL) preprocessing recognised the turn's image(s) — the driver
-    /// renders a "✓ VL recognised image, returned N chars" status line.
+    /// Vision (VL) preprocessing recognised the turn's image(s) -- the driver
+    /// renders a "[+] VL recognised image, returned N chars" status line.
     VisionPreprocessSuccess {
         vl_model: String,
         char_count: usize,
     },
-    /// Vision (VL) preprocessing failed — the driver surfaces a warning and
+    /// Vision (VL) preprocessing failed -- the driver surfaces a warning and
     /// re-attaches the images it remembers from submit so the user can retry
     /// without re-pasting from the clipboard.
     VisionPreprocessFailed {
@@ -650,12 +650,12 @@ pub enum ProviderUnavailableReason {
 impl fmt::Display for ProviderUnavailableReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotConfigured => f.write_str("no provider configured — run /login or /provider"),
+            Self::NotConfigured => f.write_str("no provider configured -- run /login or /provider"),
             Self::AuthenticationRequired => {
-                f.write_str("provider authentication required — run /login")
+                f.write_str("provider authentication required -- run /login")
             }
             Self::UnsupportedBuild => f.write_str(
-                "this build cannot access the AtomGit gateway — use an official build or switch provider",
+                "this build cannot access the AtomGit gateway -- use an official build or switch provider",
             ),
         }
     }
@@ -731,7 +731,7 @@ impl RuntimeEventEmitter {
 
 /// Inputs needed to build the first runtime generation without a bridge dependency.
 /// Injected hook that rewrites a user turn's `(text, images)` before it is
-/// sent to the model — the seam for vision (VL) preprocessing.
+/// sent to the model -- the seam for vision (VL) preprocessing.
 ///
 /// When the active model can't accept images, the implementation replaces
 /// them with a VL-generated text description and returns empty images; a
@@ -743,8 +743,8 @@ impl RuntimeEventEmitter {
 ///
 /// Runs on the async owner task with the turn already marked in-progress, so
 /// it never blocks the (fire-and-forget) submit call or the UI spinner. It
-/// DOES hold the runtime's owner loop for its duration — controls (cancel,
-/// compact) queue until it returns — matching the retired bridge's behavior.
+/// DOES hold the runtime's owner loop for its duration -- controls (cancel,
+/// compact) queue until it returns -- matching the retired bridge's behavior.
 #[async_trait::async_trait]
 pub trait ImagePreprocessor: Send + Sync {
     /// `supports_vision` is the runtime's resolved main-turn capability (honours
@@ -754,8 +754,8 @@ pub trait ImagePreprocessor: Send + Sync {
     /// gateway pins it to the same upstream account.
     ///
     /// Returns the rewritten input plus an optional [`VisionNotice`] the
-    /// runtime turns into a user-visible status line (the "✓ VL recognised
-    /// image …" toast / a failure warning). `None` = nothing to surface
+    /// runtime turns into a user-visible status line (the "[+] VL recognised
+    /// image ..." toast / a failure warning). `None` = nothing to surface
     /// (vision-capable model or no images).
     async fn preprocess(
         &self,
@@ -767,14 +767,14 @@ pub trait ImagePreprocessor: Send + Sync {
 }
 
 /// Result of a vision preprocessing pass, surfaced to the user as a status
-/// line by the runtime (the driver deliberately can't render directly — it
+/// line by the runtime (the driver deliberately can't render directly -- it
 /// runs on the owner task, not the UI loop).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VisionNotice {
-    /// VL converted the image(s) to text — show the "recognised" toast.
+    /// VL converted the image(s) to text -- show the "recognised" toast.
     Recognised { vl_model: String, char_count: usize },
     /// VL failed (images were cleared from the model request + a failure
-    /// marker folded into the text) — the driver surfaces a warning and
+    /// marker folded into the text) -- the driver surfaces a warning and
     /// re-attaches the images it remembers from submit (the runtime doesn't
     /// carry them, so image↔marker pairing stays authoritative on the driver).
     Failed { reason: String },
@@ -1062,8 +1062,8 @@ impl CompactionOutcome {
 
     /// Whether this is a silent, cache-friendly in-place tool-output fold: an
     /// AUTOMATIC compaction that only stubbed stale tool results with no turns drained
-    /// (`removed_messages == 0`). This is invisible transcript maintenance — the
-    /// "Tool output folded · saved ~N tok" mark is noise that also misreads as "wasting
+    /// (`removed_messages == 0`). This is invisible transcript maintenance -- the
+    /// "Tool output folded . saved ~N tok" mark is noise that also misreads as "wasting
     /// tokens" when it is in fact SAVING context. The daemon/webui projectors call this to
     /// suppress the mark, keeping it only for real drains (`removed_messages > 0`) and
     /// manual/overflow compactions (other triggers). An auto drain/summarize normally
@@ -2795,7 +2795,7 @@ fn spawn_runtime_owner_with_optional_agent(
                 biased;
                 team_event = team_event_rx.recv() => {
                     // Team runs persist across turns, so gate their events by the TEAM
-                    // manager's own generation (advanced only at `begin_generation` — an
+                    // manager's own generation (advanced only at `begin_generation` -- an
                     // agent rebuild/retask), NOT the per-turn runtime `generation`. A turn
                     // bump that does not rebuild the agent (compaction suspend, stop) would
                     // otherwise drop every subsequent team event and wipe the team panel.
@@ -3145,7 +3145,7 @@ fn spawn_runtime_owner_with_optional_agent(
                             // empty stream). This is NOT a failure of the agent's
                             // work and NOT a provider error: the evaluator simply
                             // produced nothing to judge. End the goal as Stopped
-                            // (not Failed) and skip the red ControllerWarning —
+                            // (not Failed) and skip the red ControllerWarning --
                             // repeatedly yelling about an empty verdict made the
                             // agent spin in pointless retries (issue #17).
                             if let Some(state) = goal.as_mut() {
@@ -3355,7 +3355,7 @@ fn spawn_runtime_owner_with_optional_agent(
                         // A persistent goal (paused at its round cap, OR already
                         // satisfied) re-engages on the next user message: resume it
                         // into Pursuing so the follow-up advances the goal and the
-                        // badge shows `◎ <cond> · round 1` again rather than a stale
+                        // badge shows `* <cond> . round 1` again rather than a stale
                         // "已达成". Only `/goal clear` (or a superseding `/goal`, or an
                         // error) removes it. Ended/Pursuing are untouched.
                         //
@@ -3367,7 +3367,7 @@ fn spawn_runtime_owner_with_optional_agent(
                         // user message. PausedAtCap (not yet done) always continues its
                         // original condition. For a Satisfied (done) goal, ask the model
                         // whether the follow-up CONTINUES it, is a NEW goal, or is just
-                        // chit-chat (NotAGoal → don't re-engage). `decision`: None = leave
+                        // chit-chat (NotAGoal -> don't re-engage). `decision`: None = leave
                         // the goal as-is; Some(None) = resume keeping the condition;
                         // Some(Some(text)) = resume RE-TASKED to the new message.
                         let mut recovery_context = None;
@@ -3377,12 +3377,12 @@ fn spawn_runtime_owner_with_optional_agent(
                         {
                             // PausedAtCap intentionally resumes even on an empty submit:
                             // it isn't done, so any nudge should let it keep going. The
-                            // Satisfied arm below deliberately does NOT — a done goal must
+                            // Satisfied arm below deliberately does NOT -- a done goal must
                             // not be re-tasked by an empty message.
                             Some(GoalPhase::Paused | GoalPhase::PausedAtCap) => Some(None),
                             Some(GoalPhase::Satisfied) if input.text.trim().is_empty() => {
                                 // Fast-path: an empty / whitespace-only submit obviously
-                                // isn't a new goal — don't spend a classifier call (or
+                                // isn't a new goal -- don't spend a classifier call (or
                                 // block the loop) on it; leave the goal Satisfied.
                                 None
                             }
@@ -3492,7 +3492,7 @@ fn spawn_runtime_owner_with_optional_agent(
                         }
                         // Vision (VL) preprocessing: when the turn carries images and a
                         // preprocessor is installed, rewrite `(text, images)` before the
-                        // kernel turn — a non-vision model gets a VL text description with
+                        // kernel turn -- a non-vision model gets a VL text description with
                         // images cleared; a vision model passes through. Awaited HERE (turn
                         // already marked in-progress above, spinner showing) so the
                         // multi-second VL call never blocks the caller. `None` preprocessor
@@ -5442,7 +5442,7 @@ fn spawn_runtime_owner_with_optional_agent(
                             let controller_id = next_controller_id;
                             // Start immediately on the configured default so goal start never
                             // blocks the owner loop on a network round-trip. The round budget
-                            // scales per plan (Pro 1000 → 300, Lite 800 → 240) from the account's
+                            // scales per plan (Pro 1000 -> 300, Lite 800 -> 240) from the account's
                             // live request quota, resolved OFF the loop and applied via a self-sent
                             // AdjustGoalRounds; env override wins and any miss keeps the default.
                             let next = GoalState::new(
@@ -6099,7 +6099,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                         if let Some(why) = stop_reason {
                                             // A cap fired (round budget, or the optional time cap).
                                             // This is "ran out of budget", NOT "the evaluator judged
-                                            // the work unfinished" — the note names the budget and
+                                            // the work unfinished" -- the note names the budget and
                                             // how to continue, and never claims "goal not met".
                                             let note = goal_cap_stop_note(why, state.max_rounds);
                                             state.pause_at_cap(note.clone());
@@ -6217,7 +6217,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                                 held_turn = None;
                                                 completion_reason = StopReason::ProviderError;
                                                 let _ = runtime_event_tx.send(CodingRuntimeEvent::GoalChanged(state.progress()));
-                                                let _ = runtime_event_tx.send(CodingRuntimeEvent::ControllerWarning("goal paused after repeated provider/timeout failures — check provider/network status, or run /compact if context is full, then continue".into()));
+                                                let _ = runtime_event_tx.send(CodingRuntimeEvent::ControllerWarning("goal paused after repeated provider/timeout failures -- check provider/network status, or run /compact if context is full, then continue".into()));
                                             }
                                         } else {
                                             state.finish(
@@ -7871,8 +7871,8 @@ impl Error for RuntimeUnavailable {}
 
 /// Resolve the `/goal` round cap at goal start. An explicit `RUSTCODE_GOAL_MAX_ROUNDS`
 /// wins and skips the network (its value is already baked into `config_default`).
-/// Otherwise size the budget from the account's live request quota — a share of the
-/// tightest rolling window's `call_limit` — fetched best-effort through the host
+/// Otherwise size the budget from the account's live request quota -- a share of the
+/// tightest rolling window's `call_limit` -- fetched best-effort through the host
 /// source with a short timeout. Any miss (no source, fetch error/timeout, no usable
 /// window, non-CodingPlan user) falls back to `config_default` so `/goal` never blocks.
 async fn resolve_goal_round_cap(
@@ -8134,12 +8134,12 @@ mod tests {
     // short-circuit to the config default.
     #[tokio::test]
     async fn goal_round_cap_derives_from_live_plan_quota() {
-        // Pro window (call_limit 1000) → 30% = 300, overriding the passed default.
+        // Pro window (call_limit 1000) -> 30% = 300, overriding the passed default.
         let pro: Arc<dyn crate::rate_limit::RateLimitWindowSource> = Arc::new(FakeQuotaSource {
             result: Ok(vec![quota_window(1000)]),
         });
         assert_eq!(resolve_goal_round_cap(Some(&pro), 777).await, 300);
-        // Lite window (800) → 240.
+        // Lite window (800) -> 240.
         let lite: Arc<dyn crate::rate_limit::RateLimitWindowSource> = Arc::new(FakeQuotaSource {
             result: Ok(vec![quota_window(800)]),
         });
@@ -8346,7 +8346,7 @@ mod tests {
             config: &CodingAgentConfig,
             _session_id: Option<&str>,
         ) -> Result<Arc<dyn LlmProvider>, crate::ProviderBuildError> {
-            if config.base_url.contains("llm-api.atomgit.com") {
+            if config.base_url.contains("gateway.test.example") {
                 Err(crate::ProviderBuildError::SourceBuildGatewayUnsupported {
                     base_url: config.base_url.clone(),
                 })
@@ -8549,7 +8549,7 @@ mod tests {
         }
     }
 
-    /// A provider whose stream yields NO text — simulating an evaluator that
+    /// A provider whose stream yields NO text -- simulating an evaluator that
     /// returns an empty response (issue #17). The goal must end as `Stopped`
     /// (not `Failed`) and must NOT emit a `ControllerWarning` spam line.
     struct GoalInconclusiveProviderFactory;
@@ -8582,7 +8582,7 @@ mod tests {
     }
 
     /// A provider that answers the goal EVALUATOR with `Verdict: yes` (so a goal reaches
-    /// Satisfied) but the follow-up CLASSIFIER with a configured `Class:` line —
+    /// Satisfied) but the follow-up CLASSIFIER with a configured `Class:` line --
     /// distinguished by the system prompt. Lets a test drive to Satisfied and then
     /// exercise a specific classifier verdict on the next submit.
     struct ClassifierProvider {
@@ -9912,7 +9912,7 @@ mod tests {
         }
 
         // The budget-exhausted terminal must PAUSE the goal (still registered,
-        // PausedAtCap) instead of clearing it — clearing would force a from-scratch
+        // PausedAtCap) instead of clearing it -- clearing would force a from-scratch
         // re-run after the user compacts and continues.
         let mut saw_paused_at_cap = false;
         let mut saw_turn_finished = false;
@@ -10823,7 +10823,7 @@ mod tests {
 
     #[test]
     fn silent_auto_tool_fold_only_for_auto_in_place_stubbing() {
-        // Auto + no messages drained = pure in-place tool-output stubbing → silent.
+        // Auto + no messages drained = pure in-place tool-output stubbing -> silent.
         let auto_stub = CompactionOutcome::from_kernel(
             CompactTrigger::Auto { utilization: 0.5 },
             1,
@@ -10835,7 +10835,7 @@ mod tests {
         );
         assert!(auto_stub.is_silent_auto_tool_fold());
 
-        // Auto drain (messages removed) is a real reduction → keep the mark.
+        // Auto drain (messages removed) is a real reduction -> keep the mark.
         let auto_drain = CompactionOutcome::from_kernel(
             CompactTrigger::Auto { utilization: 0.8 },
             1,
@@ -11746,7 +11746,7 @@ mod tests {
     #[tokio::test]
     async fn source_build_gateway_gap_starts_awaiting_provider_and_can_switch() {
         let mut start = native_start(false);
-        start.agent.base_url = "https://llm-api.atomgit.com/v1".into();
+        start.agent.base_url = "https://gateway.test.example/v1".into();
         start.provider_factory = Arc::new(SourceBuildGatewayFactory);
 
         let runtime =
@@ -11782,14 +11782,14 @@ mod tests {
     #[tokio::test]
     async fn required_source_build_gateway_gap_remains_startup_error() {
         let mut start = native_start(false);
-        start.agent.base_url = "https://llm-api.atomgit.com/v1".into();
+        start.agent.base_url = "https://gateway.test.example/v1".into();
         start.provider_factory = Arc::new(SourceBuildGatewayFactory);
 
         assert!(matches!(
             CodingRuntime::start_with_bootstrap(start, ProviderBootstrap::Required).await,
             Err(RuntimeStartError::Provider(
                 crate::ProviderBuildError::SourceBuildGatewayUnsupported { base_url }
-            )) if base_url == "https://llm-api.atomgit.com/v1"
+            )) if base_url == "https://gateway.test.example/v1"
         ));
     }
 
@@ -12171,7 +12171,7 @@ mod tests {
     }
 
     // The installed preprocessor runs on an image-carrying submit, and its
-    // rewritten `(text, images)` — not the raw input — is what reaches the
+    // rewritten `(text, images)` -- not the raw input -- is what reaches the
     // kernel. This is the seam that restores TUI VL image recognition.
     #[tokio::test]
     async fn image_submit_runs_installed_preprocessor_before_kernel() {
@@ -12212,7 +12212,7 @@ mod tests {
         assert!(called.load(Ordering::Acquire), "preprocessor must have run");
 
         // The recognition notice must be emitted so the driver can render the
-        // "✓ VL recognised image, returned N chars" status line.
+        // "[+] VL recognised image, returned N chars" status line.
         let mut saw_success = false;
         while let Ok(ev) = runtime_events.try_recv() {
             if let CodingRuntimeEvent::VisionPreprocessSuccess { char_count, .. } = ev {
@@ -15122,7 +15122,7 @@ mod tests {
     // with phase=Satisfied (not clear it).  The last GoalChanged event must carry
     // phase==Satisfied and active==false.
     //
-    // NOTE: This test validates the *event contract only* — it observes the
+    // NOTE: This test validates the *event contract only* -- it observes the
     // GoalChanged(phase=Satisfied) event, which fires before any potential
     // goal=None clearing, so it was green even before the keep-goal-on-Met fix
     // and does NOT falsify the in-memory keep-goal change.  The falsifying
@@ -15242,7 +15242,7 @@ mod tests {
                 })
                 .unwrap();
             if attempt == 0 {
-                // First round: evaluator says NotMet → continuation dispatched.
+                // First round: evaluator says NotMet -> continuation dispatched.
                 assert!(matches!(
                     tokio::time::timeout(std::time::Duration::from_secs(2), kernel_commands.recv())
                         .await
@@ -15339,7 +15339,7 @@ mod tests {
                 })
                 .unwrap();
             if attempt == 0 {
-                // First round: evaluator says NotMet → continuation dispatched.
+                // First round: evaluator says NotMet -> continuation dispatched.
                 assert!(matches!(
                     tokio::time::timeout(std::time::Duration::from_secs(2), kernel_commands.recv())
                         .await
@@ -15523,7 +15523,7 @@ mod tests {
     }
 
     // Classifier says NEW-GOAL: the satisfied goal re-engages AND re-tasks its
-    // condition to the follow-up (badge shows the NEW question · round 1).
+    // condition to the follow-up (badge shows the NEW question . round 1).
     #[tokio::test]
     async fn submit_while_satisfied_new_goal_retasks_condition() {
         let (handle, mut kernel_commands, kernel_events, mut runtime_events, _w, _l, _a) =
@@ -15610,7 +15610,7 @@ mod tests {
         handle.shutdown().await.unwrap();
     }
 
-    // Classifier says NOT-A-GOAL (chit-chat): the goal is NOT re-engaged — the message
+    // Classifier says NOT-A-GOAL (chit-chat): the goal is NOT re-engaged -- the message
     // runs as an ordinary turn and no GoalChanged(Pursuing) is emitted.
     #[tokio::test]
     async fn submit_while_satisfied_not_a_goal_does_not_reengage() {
@@ -15696,7 +15696,7 @@ mod tests {
     }
 
     // Fast-path: an empty / whitespace-only submit after a Satisfied goal skips the
-    // classifier entirely and does NOT re-engage — no GoalChanged(Pursuing).
+    // classifier entirely and does NOT re-engage -- no GoalChanged(Pursuing).
     #[tokio::test]
     async fn submit_while_satisfied_empty_input_skips_classifier() {
         let (handle, mut kernel_commands, kernel_events, mut runtime_events, _w, _l, _a) =
@@ -15739,7 +15739,7 @@ mod tests {
         .await
         .expect("satisfied turn did not finish");
 
-        // Whitespace-only submit → fast-path, no classifier, no re-engage.
+        // Whitespace-only submit -> fast-path, no classifier, no re-engage.
         handle.submit(UserInput::from("   ")).await.unwrap();
         let mut saw_goal_changed_pursuing = false;
         let mut saw_send_message = false;

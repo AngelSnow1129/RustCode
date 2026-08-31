@@ -79,14 +79,14 @@ impl LlmProvider for MockProvider {
 
 /// One-shot scripted provider for the FALLIBLE-stream claims: it either fails to
 /// OPEN (returns `Err`) or yields a fixed event script ONCE (a single turn). A
-/// richer adversarial mock is a separate later task — this stays minimal.
+/// richer adversarial mock is a separate later task -- this stays minimal.
 pub struct ScriptedProvider {
     open_error: Option<ProviderError>,
     events: Mutex<Option<Vec<StreamEvent>>>,
 }
 
 impl ScriptedProvider {
-    /// `chat_stream` returns `Err(e)` — a failed open.
+    /// `chat_stream` returns `Err(e)` -- a failed open.
     pub fn open_error(e: ProviderError) -> Self {
         Self {
             open_error: Some(e),
@@ -221,7 +221,7 @@ impl LlmProvider for StallThenProvider {
     ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
         let n = self.calls.fetch_add(1, Ordering::SeqCst);
         if n < self.stall_calls {
-            // Open OK, then never yield → the kernel's stream idle-timeout fires.
+            // Open OK, then never yield -> the kernel's stream idle-timeout fires.
             Ok(Box::pin(futures::stream::pending::<StreamEvent>()))
         } else {
             let events = self.events.lock().unwrap().take().unwrap_or_default();
@@ -233,13 +233,13 @@ impl LlmProvider for StallThenProvider {
 /// Scripted, RICH-recording provider for prefix-cache regression tests. Unlike
 /// `MockProvider` (which snapshots only `(role, text)` and discards tools /
 /// tool_calls), this records the FULL `(Vec<Message>, Vec<ToolDef>, ChatOptions)`
-/// it received on every `chat_stream` call — so a test can byte-compare the exact
+/// it received on every `chat_stream` call -- so a test can byte-compare the exact
 /// wire prefix (history + tool block) the provider saw across rounds and turns,
 /// AND assert which neutral `ChatOptions` reached the provider on each call.
 ///
 /// Each call pops the next scripted `Vec<StreamEvent>`; an empty queue yields a
-/// bare `Done { truncated: false }`. This drives multi-round turns (call 1 → a
-/// ToolCall then Done; call 2 → TextDelta then Done → no calls → turn ends) and
+/// bare `Done { truncated: false }`. This drives multi-round turns (call 1 -> a
+/// ToolCall then Done; call 2 -> TextDelta then Done -> no calls -> turn ends) and
 /// multi-turn sessions.
 pub struct RecordingProvider {
     turns: Mutex<VecDeque<Vec<StreamEvent>>>,
@@ -261,7 +261,7 @@ impl RecordingProvider {
     }
     /// Shared handle to the recorded calls; clone before moving the provider into
     /// the builder so the test can inspect what the LLM saw afterwards. Each entry
-    /// is `(messages, tools, options)` — the `.0`/`.1` history/tool-block view is
+    /// is `(messages, tools, options)` -- the `.0`/`.1` history/tool-block view is
     /// unchanged; `.2` is the neutral `ChatOptions` that reached the provider.
     pub fn calls(&self) -> CallLog {
         self.calls.clone()
@@ -270,7 +270,7 @@ impl RecordingProvider {
     pub fn recorded(&self) -> Vec<(Vec<Message>, Vec<ToolDef>, ChatOptions)> {
         self.calls.lock().unwrap().clone()
     }
-    /// Just the `ChatOptions` received on each call, in call order — convenience
+    /// Just the `ChatOptions` received on each call, in call order -- convenience
     /// for tests that only assert which options reached the provider.
     pub fn recorded_options(&self) -> Vec<ChatOptions> {
         self.calls
@@ -311,14 +311,14 @@ impl LlmProvider for RecordingProvider {
 }
 
 /// A provider whose stream OPENS OK, optionally yields a FIXED prefix of events,
-/// then PENDS FOREVER (never resolves, never ends) — modelling a TCP half-open /
+/// then PENDS FOREVER (never resolves, never ends) -- modelling a TCP half-open /
 /// model stall where the connection is alive but no further tokens arrive. Used
 /// by the stream-timeout liveness test: without a `stream_timeout` the kernel's
 /// `stream.next().await` parks the turn forever; with one it cleanly fails.
 ///
 /// Implemented by chaining the scripted prefix with `futures::stream::pending()`,
 /// which is a stream that NEVER yields (its `poll_next` is always `Poll::Pending`)
-/// and never terminates — so the consumer's `next()` await never completes.
+/// and never terminates -- so the consumer's `next()` await never completes.
 pub struct SilentStreamProvider {
     prefix: Mutex<Option<Vec<StreamEvent>>>,
 }
@@ -348,14 +348,14 @@ impl LlmProvider for SilentStreamProvider {
     ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
         let prefix = self.prefix.lock().unwrap().take().unwrap_or_default();
         // The scripted prefix, then a stream that is forever Pending and never
-        // ends → the consumer's next await after the prefix parks forever.
+        // ends -> the consumer's next await after the prefix parks forever.
         let stream = futures::stream::iter(prefix).chain(futures::stream::pending());
         Ok(Box::pin(stream))
     }
 }
 
 /// Always opens OK and yields the SAME non-empty stop response (`TextDelta(text)`
-/// then `Done`) on EVERY call — a model that produces a normal, CONTENT-BEARING
+/// then `Done`) on EVERY call -- a model that produces a normal, CONTENT-BEARING
 /// stop (no tool calls) every round, forever. Distinct from `MockProvider::new(
 /// vec![])` (a CONTENT-FREE `Done`, which the kernel now treats as a transient
 /// empty-200 and RETRIES): this is a legitimate completion, so it exercises the
@@ -451,13 +451,13 @@ impl Tool for CountingTool {
 }
 
 /// A shared, LATE-BOUND handle to the session's `commands` sender. The session's
-/// `cmd_tx` only exists AFTER `spawn()`, but a tool must be mounted BEFORE — this
+/// `cmd_tx` only exists AFTER `spawn()`, but a tool must be mounted BEFORE -- this
 /// slot bridges that: a test creates it, builds an [`InjectCommandTool`] over a
 /// clone, spawns, then fills the slot with `handle.commands.clone()`.
 pub type DeferredCommands = Arc<Mutex<Option<UnboundedSender<AgentCommand>>>>;
 
 /// A tool that, the FIRST time it executes, INJECTS a pre-configured
-/// `AgentCommand` back into the session over a LATE-BOUND `commands` handle — a
+/// `AgentCommand` back into the session over a LATE-BOUND `commands` handle -- a
 /// DETERMINISTIC mid-turn injection point. Because the kernel runs `execute`
 /// between the assistant's tool_call and the round completing, the injected
 /// command is delivered while the turn is still in flight (the mid-turn select),
@@ -497,7 +497,7 @@ impl Tool for InjectCommandTool {
                 let _ = tx.send(cmd);
             }
             // Yield repeatedly so the turn future stays PENDING for a window after
-            // the command is enqueued — this guarantees the session's mid-turn
+            // the command is enqueued -- this guarantees the session's mid-turn
             // `tokio::select!` gets polled while the turn is still in flight and
             // drains the just-injected command (the deterministic mid-turn proof).
             // Without this, an all-ready mock turn can run to completion in a single
@@ -515,7 +515,7 @@ impl Tool for InjectCommandTool {
     }
 }
 
-/// A risky tool — declares RiskLevel::Risky. (Pretends to write; does nothing.)
+/// A risky tool -- declares RiskLevel::Risky. (Pretends to write; does nothing.)
 pub struct RiskyWriteTool;
 
 #[async_trait]
@@ -606,7 +606,7 @@ impl ToolMiddleware for ApprovalMiddleware {
         tool: &Arc<dyn Tool>,
         rt: &RequestCtx,
     ) -> BeforeOutcome {
-        // Safe call (arg-aware) → no approval.
+        // Safe call (arg-aware) -> no approval.
         if tool.risk(&call.arguments) == RiskLevel::Safe {
             return BeforeOutcome::Proceed;
         }
@@ -625,7 +625,7 @@ impl ToolMiddleware for ApprovalMiddleware {
         if decision.get("decision").and_then(|d| d.as_str()) != Some("allow") {
             return BeforeOutcome::deny("denied");
         }
-        // "remember" → cache the grant so the same command is not asked again.
+        // "remember" -> cache the grant so the same command is not asked again.
         if decision.get("remember").and_then(|r| r.as_bool()) == Some(true) {
             self.granted.lock().unwrap().insert(key);
         }
@@ -633,7 +633,7 @@ impl ToolMiddleware for ApprovalMiddleware {
     }
 }
 
-/// Records every lifecycle callback it receives — used to prove the kernel wires
+/// Records every lifecycle callback it receives -- used to prove the kernel wires
 /// the FULL LifecycleHooks surface (no dead methods).
 pub struct RecorderHook {
     pub log: Arc<Mutex<Vec<String>>>,
@@ -706,8 +706,8 @@ impl LifecycleHooks for RecorderHook {
 
 /// Projects current context-utilization back into the request as a TAIL reminder
 /// so the LLM perceives its own budget pressure. Reads the latest meta from
-/// history and appends ONE synthetic message at the END — never mutating history
-/// → prefix-cache safe.
+/// history and appends ONE synthetic message at the END -- never mutating history
+/// -> prefix-cache safe.
 pub struct BudgetReminderHook;
 
 #[async_trait]
@@ -725,7 +725,7 @@ impl LifecycleHooks for BudgetReminderHook {
 
 /// Projects the current round budget back into the request as a TAIL reminder so
 /// the LLM can wrap up before the hard cap. Appends one synthetic message at the
-/// END — never mutates history → prefix-cache safe.
+/// END -- never mutates history -> prefix-cache safe.
 pub struct RoundBudgetHook;
 
 #[async_trait]
@@ -788,7 +788,7 @@ impl Tool for DangerousBashTool {
     }
 }
 
-/// Drops all tool calls from the response — proves the kernel HONORS
+/// Drops all tool calls from the response -- proves the kernel HONORS
 /// on_model_response edits to tool_calls (a dropped call will not execute).
 pub struct DropToolsHook;
 
@@ -799,7 +799,7 @@ impl LifecycleHooks for DropToolsHook {
     }
 }
 
-/// Rewrites a tool call's args in `before` — proves ToolMiddleware can mutate the call.
+/// Rewrites a tool call's args in `before` -- proves ToolMiddleware can mutate the call.
 pub struct ArgRewriteMiddleware;
 
 #[async_trait]
@@ -815,7 +815,7 @@ impl ToolMiddleware for ArgRewriteMiddleware {
     }
 }
 
-/// Blocks every tool in `before` — proves a blocked tool emits no ghost ToolStarted.
+/// Blocks every tool in `before` -- proves a blocked tool emits no ghost ToolStarted.
 pub struct BlockToolMiddleware;
 
 #[async_trait]
@@ -830,7 +830,7 @@ impl ToolMiddleware for BlockToolMiddleware {
     }
 }
 
-/// Blocks every prompt in user_prompt_submit — proves a prompt can be rejected.
+/// Blocks every prompt in user_prompt_submit -- proves a prompt can be rejected.
 pub struct RejectPromptHook;
 
 #[async_trait]
@@ -840,7 +840,7 @@ impl LifecycleHooks for RejectPromptHook {
     }
 }
 
-/// Transforms the tool result in `after` — proves the after-chain (absorbs post_tool).
+/// Transforms the tool result in `after` -- proves the after-chain (absorbs post_tool).
 pub struct TruncateMiddleware;
 
 #[async_trait]
@@ -857,7 +857,7 @@ impl ToolMiddleware for TruncateMiddleware {
 
 /// On `session_start` AND `turn_start`, appends `marker` to a SHARED log and pushes
 /// a `[marker]` system message into the conversation. Two of these (sharing a log)
-/// prove a `HookChain` fans out to BOTH hooks in registration order — the case that
+/// prove a `HookChain` fans out to BOTH hooks in registration order -- the case that
 /// was structurally impossible when the Agent held a single hook.
 pub struct MarkerHook {
     marker: String,
@@ -912,7 +912,7 @@ impl LifecycleHooks for TailReminderHook {
 }
 
 /// `user_prompt_submit` APPENDS `suffix` to the prompt text and records that it
-/// ran into a shared log — proving text mutations chain into later hooks and that
+/// ran into a shared log -- proving text mutations chain into later hooks and that
 /// a hook AFTER a blocker is never reached (its name is absent from the log).
 pub struct RewritePromptHook {
     name: String,
@@ -1016,15 +1016,15 @@ impl LifecycleHooks for ObservingTurnEndHook {
 
 // ── REPLACEABLE compaction strategy doubles (claim 23) ───────────────────────
 //
-// Two SAME-trait, DIFFERENT-behavior `CompactionStrategy` impls — the explicit
+// Two SAME-trait, DIFFERENT-behavior `CompactionStrategy` impls -- the explicit
 // proof that the compaction seam is replaceable. Both only PROPOSE a
 // `CompactionPlan` from a read-only `CompactionView`; the kernel remains the sole
 // writer (`Conversation::apply_plan`), so neither can corrupt the sacred floor,
-// net-loss, or cache-epoch invariants. A third double (`NeverShrinks…`) proves
+// net-loss, or cache-epoch invariants. A third double (`NeverShrinks...`) proves
 // the net-loss guard refuses a non-shrinking plan.
 
 /// "Summarize old turns" shape: drain `[sacred_floor .. len - keep_recent)` into a
-/// single synthetic summary message. Carries the cold-summary compaction shape —
+/// single synthetic summary message. Carries the cold-summary compaction shape --
 /// it removes whole old messages and replaces them with one short summary, so a
 /// committed plan reduces the MESSAGE COUNT (and bytes).
 pub struct SummarizeOldestStrategy {
@@ -1040,7 +1040,7 @@ impl CompactionStrategy for SummarizeOldestStrategy {
         // `keep_recent` messages.
         let drain_to = len.saturating_sub(self.keep_recent);
         if drain_to <= floor {
-            // Nothing eligible to drain → noop.
+            // Nothing eligible to drain -> noop.
             return CompactionPlan::noop();
         }
         let n = drain_to - floor;
@@ -1061,9 +1061,9 @@ impl CompactionStrategy for SummarizeOldestStrategy {
 }
 
 /// "Microcompact tool results" shape: rewrite the text of OLDER tool-result
-/// messages (`tool_call_id.is_some()`) — every tool result EXCEPT the most recent
-/// one — to a short `[elided]` stub, IN PLACE (no drain). Carries the in-place
-/// microcompact shape — it keeps the MESSAGE COUNT unchanged but shrinks bytes by
+/// messages (`tool_call_id.is_some()`) -- every tool result EXCEPT the most recent
+/// one -- to a short `[elided]` stub, IN PLACE (no drain). Carries the in-place
+/// microcompact shape -- it keeps the MESSAGE COUNT unchanged but shrinks bytes by
 /// stubbing stale tool output.
 pub struct StubToolResultsStrategy;
 
@@ -1079,7 +1079,7 @@ impl CompactionStrategy for StubToolResultsStrategy {
             .map(|(i, _)| i)
             .collect();
         if tool_idxs.len() <= 1 {
-            // 0 or 1 tool result → nothing "older than the most recent" to stub.
+            // 0 or 1 tool result -> nothing "older than the most recent" to stub.
             return CompactionPlan::noop();
         }
         // Rewrite every tool result EXCEPT the last (most recent) one to a stub.
@@ -1103,7 +1103,7 @@ impl CompactionStrategy for StubToolResultsStrategy {
 
 /// A strategy whose plan NEVER shrinks the conversation: it proposes a drain whose
 /// inserted summary is LONGER than the bytes it removes (so `apply_plan`'s net-loss
-/// guard must REFUSE it → committed=false, epoch unchanged). Proves a bad/ineffective
+/// guard must REFUSE it -> committed=false, epoch unchanged). Proves a bad/ineffective
 /// strategy cannot burn a cache epoch or mutate history.
 pub struct NeverShrinksStrategy;
 
@@ -1116,7 +1116,7 @@ impl CompactionStrategy for NeverShrinksStrategy {
             return CompactionPlan::noop();
         }
         // Drain exactly ONE message past the floor, but insert a summary far larger
-        // than any plausible drained message → net BIGGER → refused.
+        // than any plausible drained message -> net BIGGER -> refused.
         CompactionPlan {
             drain_from: floor,
             drain_to: floor + 1,
@@ -1132,21 +1132,21 @@ impl CompactionStrategy for NeverShrinksStrategy {
 // A SUBAGENT is NOT a kernel concept. It is an L2 PATTERN: a parent agent spawns a
 // child agent for an isolated sub-task by mounting a `Tool` whose `execute` BUILDS
 // and RUNS a child `Agent`. These doubles prove the kernel supports that purely BY
-// COMPOSITION — using ONLY `Agent` + `Tool` + `run_to_completion` and the two new
+// COMPOSITION -- using ONLY `Agent` + `Tool` + `run_to_completion` and the two new
 // builder seams (`working_dir`, `cancel_token`). The kernel gains NO "subagent"
 // type. See `tests/subagent.rs`.
 
 /// A tool that, in `execute`, BUILDS a fresh child `Agent` and runs it to
 /// completion on the parent's tool args (the "subtask"). It is the WHOLE subagent
-/// pattern: a Tool running a child Agent via the existing one-shot adapter — no new
+/// pattern: a Tool running a child Agent via the existing one-shot adapter -- no new
 /// kernel concept.
 ///
-/// It carries no shared mutable provider state of its own — instead it holds two
+/// It carries no shared mutable provider state of its own -- instead it holds two
 /// FACTORIES (`Fn() -> ...`) so each `execute` mints a FRESH child provider and a
 /// FRESH `MountedTools` (neither is `Clone`, and a child session consumes its
 /// provider/tools). The child is built with:
-/// * `.working_dir(child_dir)` when `child_dir` is `Some` (SEAM 1 — dir isolation),
-/// * `.cancel_token(ctx.cancel.child_token())` ALWAYS (SEAM 2 — the parent's
+/// * `.working_dir(child_dir)` when `child_dir` is `Some` (SEAM 1 -- dir isolation),
+/// * `.cancel_token(ctx.cancel.child_token())` ALWAYS (SEAM 2 -- the parent's
 ///   per-turn cancel propagates into the DETACHED child task), then
 /// * `run_to_completion(args, AllowAll)`.
 ///
@@ -1215,7 +1215,7 @@ impl Tool for SubAgentTool {
         // DETACH the child run onto its own `tokio::spawn` task, then await its
         // JoinHandle. This is the load-bearing shape for the cancel-propagation
         // claim: if the PARENT's tool future is dropped on cancel, this awaited
-        // JoinHandle is dropped too — but the spawned run task KEEPS RUNNING
+        // JoinHandle is dropped too -- but the spawned run task KEEPS RUNNING
         // (a dropped JoinHandle detaches, it does NOT abort). So the child's command
         // channel stays open (no future-drop teardown), and the ONLY thing that can
         // stop the still-running child is the cancel TOKEN cascading in via the
@@ -1267,7 +1267,7 @@ impl Tool for SubAgentTool {
 }
 
 /// A tool whose result content is exactly the `working_dir` it saw in its
-/// `ToolContext` — so a test can assert WHICH dir the (child) agent's tool context
+/// `ToolContext` -- so a test can assert WHICH dir the (child) agent's tool context
 /// reported. Proves SEAM 1 is per-agent, not process-global.
 pub struct WorkingDirProbeTool;
 
@@ -1298,7 +1298,7 @@ impl Tool for WorkingDirProbeTool {
 /// `execute` on the child's own cancel token. When the parent is cancelled, the
 /// parent's per-turn token (whose child the child-agent's cancel_token is) fires,
 /// the child's per-turn token (a grandchild) fires, this tool observes it, and
-/// `observed` flips — proving cancel propagated into the DETACHED child task.
+/// `observed` flips -- proving cancel propagated into the DETACHED child task.
 pub struct BlockUntilCancelTool {
     pub observed: Arc<AtomicBool>,
 }
@@ -1332,7 +1332,7 @@ impl Tool for BlockUntilCancelTool {
     }
 }
 
-/// A `LifecycleHooks` that returns a FIXED `on_rate_limit` verdict — lets tests
+/// A `LifecycleHooks` that returns a FIXED `on_rate_limit` verdict -- lets tests
 /// drive the kernel's 429 branch (wait-and-retry vs pause) without any network
 /// or usage data.
 pub struct ScriptedRateLimitHook {
@@ -1367,7 +1367,7 @@ pub struct DeferredSteerProvider {
     inject_on_call: usize,
     /// The steer text to inject.
     inject_text: String,
-    /// Deferred command sender — filled by the test after `handle = agent.spawn()`.
+    /// Deferred command sender -- filled by the test after `handle = agent.spawn()`.
     inject_cmd: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::event::AgentCommand>>>>,
     call_count: std::sync::atomic::AtomicUsize,
 }
@@ -1433,7 +1433,7 @@ impl LlmProvider for DeferredSteerProvider {
         // re-schedules the current task; the outer select! might pick `turn` again
         // (it is immediately re-ready after yield_now), causing a race. A real sleep
         // means `turn` is genuinely NOT ready for at least 1ms, so the outer select!
-        // MUST pick cmd_rx if data is present — eliminating the race.
+        // MUST pick cmd_rx if data is present -- eliminating the race.
         let yielding = futures::stream::once(async {
             tokio::time::sleep(std::time::Duration::from_millis(1)).await;
             None::<StreamEvent>

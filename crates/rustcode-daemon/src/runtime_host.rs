@@ -48,7 +48,7 @@ pub struct CodingPlanRateLimitSource;
 #[async_trait]
 impl RateLimitWindowSource for CodingPlanRateLimitSource {
     fn applies_to(&self, base_url: &str) -> bool {
-        rustcode_capabilities::provider::is_atomgit_gateway(base_url)
+        rustcode_capabilities::provider::is_codingplan_gateway(base_url)
     }
 
     async fn fetch_windows(&self) -> Result<Vec<RateLimitWindow>, String> {
@@ -79,5 +79,5 @@ pub fn coding_plan_rate_limit_source() -> Arc<dyn RateLimitWindowSource> {
 }
 
 pub fn coding_provider_factory() -> Arc<dyn rustcode_coding::CodingProviderFactory> {
-    rustcode_coding::atomgit_provider_factory(rustcode_auth::RUSTCODE_USER_AGENT)
+    rustcode_coding::codingplan_provider_factory(rustcode_auth::RUSTCODE_USER_AGENT)
 }

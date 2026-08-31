@@ -229,7 +229,7 @@ fn build_turn_terminal_notification_text(
             .and_then(|s| s.to_str())
             .filter(|s| !s.is_empty())
         {
-            body = format!("{} · {}", scope, body);
+            body = format!("{} . {}", scope, body);
         }
     }
     (title, body)
@@ -250,12 +250,12 @@ fn build_turn_system_notification_text(turn: &TurnNotification<'_>) -> (Cow<'sta
         NotifyStopReason::TurnLimit => "Stopped",
         NotifyStopReason::StepLimit => "Stopped",
     };
-    let mut body = format!("{} · {}", status, fmt_duration(turn.duration));
+    let mut body = format!("{} . {}", status, fmt_duration(turn.duration));
     if turn.turn_count > 0 {
-        body.push_str(&format!(" · {} rounds", turn.turn_count));
+        body.push_str(&format!(" . {} rounds", turn.turn_count));
     }
     if turn.tool_call_count > 0 {
-        body.push_str(&format!(" · {} tools", turn.tool_call_count));
+        body.push_str(&format!(" . {} tools", turn.tool_call_count));
     }
     (title, body)
 }
@@ -275,10 +275,10 @@ fn build_approval_notification_text(
         .and_then(|s| s.to_str())
         .filter(|s| !s.is_empty())
     {
-        body.push_str(&format!(" · {}", scope));
+        body.push_str(&format!(" . {}", scope));
     }
     if let Some(detail) = approval.detail.filter(|s| !s.trim().is_empty()) {
-        body.push_str(&format!(" · {}", detail.trim()));
+        body.push_str(&format!(" . {}", detail.trim()));
     }
     (title, body)
 }
@@ -441,7 +441,7 @@ fn macos_terminal_bundle_id(app: Option<TerminalApp>) -> Option<&'static str> {
 
 // Only the macOS branch of `spawn_system_notification` calls this (to
 // find `terminal-notifier`). Linux uses notify-send unconditionally and
-// Windows shells out to powershell.exe — neither needs PATH lookup.
+// Windows shells out to powershell.exe -- neither needs PATH lookup.
 // Kept callable on every platform because `missing_executable_lookup_
 // returns_none` is a portable unit test of PATH-iteration semantics.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -560,7 +560,7 @@ mod tests {
             working_dir: Some(Path::new("/tmp/demo")),
         });
         assert_eq!(title, "RustCode done");
-        assert_eq!(body, "Done · 12.0s · 3 rounds · 5 tools");
+        assert_eq!(body, "Done . 12.0s . 3 rounds . 5 tools");
     }
 
     #[test]
@@ -577,7 +577,7 @@ mod tests {
             },
         );
         assert_eq!(title, "RustCode done");
-        assert_eq!(body, "Done · 49.0s · 4 rounds · 9 tools");
+        assert_eq!(body, "Done . 49.0s . 4 rounds . 9 tools");
     }
 
     #[test]
@@ -595,7 +595,7 @@ mod tests {
         );
         assert!(body.contains("3 rounds"));
         assert!(body.contains("5 tools"));
-        assert!(body.starts_with("demo · Done"));
+        assert!(body.starts_with("demo . Done"));
     }
 
     #[test]
@@ -650,7 +650,7 @@ mod tests {
     fn apple_terminal_has_no_native_terminal_notification_path() {
         let plan = NotificationPlan {
             title: Cow::Borrowed("RustCode done"),
-            body: "Done · 12.0s".into(),
+            body: "Done . 12.0s".into(),
             terminal_id: "rustcode-task",
             visibility: VisibilityPolicy::BackgroundOnlyBestEffort,
             emit_terminal: true,

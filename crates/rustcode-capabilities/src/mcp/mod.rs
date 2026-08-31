@@ -5,7 +5,7 @@
 //! Ported from `rustcode-core::mcp` into L1 with ZERO dependency on core:
 //! - the Tool adapter ([`tool`]) targets the kernel trait,
 //! - the home/config-dir + console helpers are local ([`util`]),
-//! - the core telemetry block is dropped — a driver re-attaches it by observing
+//! - the core telemetry block is dropped -- a driver re-attaches it by observing
 //!   [`McpConnectEvent`] (cross-cutting telemetry lives on a seam, not hard-coded
 //!   in the registry).
 //!
@@ -48,9 +48,9 @@ pub use types::*;
 /// Default bound used by callers that explicitly require initial MCP readiness.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Register MCP tool adapters into `reg`; returns their `mcp__…` names so the
+/// Register MCP tool adapters into `reg`; returns their `mcp__...` names so the
 /// assembler can chain them into [`ToolRegistry::mount`]. MCP tools are discovered
-/// at runtime, so there is no static `mcp_tool_names()` — the caller mounts exactly
+/// at runtime, so there is no static `mcp_tool_names()` -- the caller mounts exactly
 /// the names returned here.
 pub fn register_mcp_tools(reg: &mut ToolRegistry, adapters: Vec<Arc<dyn Tool>>) -> Vec<String> {
     let mut names = Vec::with_capacity(adapters.len());

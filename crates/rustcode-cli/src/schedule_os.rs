@@ -377,7 +377,7 @@ fn get_uid() -> u32 {
     }
 }
 
-// ---- current() — platform selector ----
+// ---- current() -- platform selector ----
 
 #[cfg(target_os = "macos")]
 pub fn current() -> anyhow::Result<Box<dyn OsScheduler + Send + Sync>> {
@@ -410,7 +410,7 @@ pub fn current() -> anyhow::Result<Box<dyn OsScheduler + Send + Sync>> {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub fn current() -> anyhow::Result<Box<dyn OsScheduler + Send + Sync>> {
-    // Fallback for other platforms — returns SystemdTimer as best-effort.
+    // Fallback for other platforms -- returns SystemdTimer as best-effort.
     let root = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?
         .join(".config/systemd/user");
@@ -618,7 +618,7 @@ mod tests {
 
     #[test]
     fn launchd_calendar_translation() {
-        // Daily 09:30 → {Hour:9, Minute:30}
+        // Daily 09:30 -> {Hour:9, Minute:30}
         let d = launchd_calendar(&Schedule::Daily {
             time: "09:30".into(),
         })
@@ -631,7 +631,7 @@ mod tests {
                 weekday: None
             }
         );
-        // Interval 30min → StartInterval 1800
+        // Interval 30min -> StartInterval 1800
         assert_eq!(
             launchd_calendar(&Schedule::Interval { every_minutes: 30 }).unwrap(),
             LaunchdTrigger::Interval(1800)
@@ -996,9 +996,9 @@ mod tests {
         };
         let task = sample_task("lt_idem");
 
-        // First install — must succeed.
+        // First install -- must succeed.
         sched.install(&task).unwrap();
-        // Second install — must also succeed (bootout before bootstrap makes it idempotent).
+        // Second install -- must also succeed (bootout before bootstrap makes it idempotent).
         sched.install(&task).unwrap();
 
         // Both installs must have issued a bootout call (best-effort pre-cleanup).

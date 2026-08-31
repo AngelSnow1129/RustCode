@@ -303,7 +303,7 @@ mod tests {
         );
         assert_eq!(
             serde_json::from_str::<Value>(&waited.content).unwrap()["members"][0]["result"],
-            "abcde…"
+            "abcde..."
         );
         let result = tool
             .execute(
@@ -311,7 +311,7 @@ mod tests {
                 &ctx(),
             )
             .await;
-        assert!(result.content.contains("abcde…"));
+        assert!(result.content.contains("abcde..."));
 
         let blocked = tool.execute(r#"{"action":"delegate","tasks":[{"description":"block","prompt":"wait","role":"explorer"}]}"#, &ctx()).await;
         let blocked_value = serde_json::from_str::<Value>(&blocked.content).unwrap();
@@ -347,17 +347,17 @@ mod tests {
     #[test]
     fn risk_is_safe_for_read_only_roles_and_risky_for_workers() {
         let tool = tool(100);
-        // 只读角色（explorer）delegate → Safe。
+        // 只读角色（explorer）delegate -> Safe。
         assert_eq!(
             tool.risk(r#"{"action":"delegate","tasks":[{"description":"read","prompt":"inspect","role":"explorer"}]}"#),
             RiskLevel::Safe
         );
-        // worker 角色（rust，带 scope）delegate → Risky。
+        // worker 角色（rust，带 scope）delegate -> Risky。
         assert_eq!(
             tool.risk(r#"{"action":"delegate","tasks":[{"description":"edit","prompt":"change","role":"rust","scope":["src/**"]}]}"#),
             RiskLevel::Risky
         );
-        // 非 delegate 动作（status/wait）→ Safe。
+        // 非 delegate 动作（status/wait）-> Safe。
         assert_eq!(tool.risk(r#"{"action":"status"}"#), RiskLevel::Safe);
         assert_eq!(
             tool.risk(r#"{"action":"wait","run_id":"team-1-1","timeout_secs":1}"#),
@@ -392,7 +392,7 @@ mod tests {
     #[tokio::test]
     async fn delegate_rejects_empty_description_or_prompt() {
         let tool = tool(100);
-        // description/prompt 为空 → task_spec 拒绝。
+        // description/prompt 为空 -> task_spec 拒绝。
         let empty = tool
             .execute(
                 r#"{"action":"delegate","tasks":[{"description":"","prompt":"","role":"explorer"}]}"#,
@@ -401,7 +401,7 @@ mod tests {
             .await;
         assert!(empty.is_error);
         assert!(empty.content.contains("must not be empty"));
-        // 只缺 prompt → 同样拒绝。
+        // 只缺 prompt -> 同样拒绝。
         let no_prompt = tool
             .execute(
                 r#"{"action":"delegate","tasks":[{"description":"read","prompt":"","role":"explorer"}]}"#,
@@ -410,7 +410,7 @@ mod tests {
             .await;
         assert!(no_prompt.is_error);
         assert!(no_prompt.content.contains("must not be empty"));
-        // 空任务数组 → delegate 拒绝。
+        // 空任务数组 -> delegate 拒绝。
         let no_tasks = tool
             .execute(r#"{"action":"delegate","tasks":[]}"#, &ctx())
             .await;

@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.ui
 
-import com.rustcode.jetbrains.i18n.AtomCodeBundle
+import com.rustcode.jetbrains.i18n.RustCodeBundle
 import java.util.Locale
 
 internal data class GearMenuLabels(
@@ -23,19 +23,19 @@ internal data class GearMenuLabels(
 
 internal fun gearMenuLabels(locale: Locale = Locale.getDefault()): GearMenuLabels =
     GearMenuLabels(
-        connectStart = AtomCodeBundle.message(locale, "gear.connectStart"),
-        provider = AtomCodeBundle.message(locale, "gear.provider"),
-        createProvider = AtomCodeBundle.message(locale, "gear.createProvider"),
-        editProvider = AtomCodeBundle.message(locale, "gear.editProvider"),
-        deleteProvider = AtomCodeBundle.message(locale, "gear.deleteProvider"),
-        thinkingSettings = AtomCodeBundle.message(locale, "gear.thinkingSettings"),
-        login = AtomCodeBundle.message(locale, "gear.login"),
-        codingPlanSetup = AtomCodeBundle.message(locale, "gear.codingPlanSetup"),
-        sessionHistory = AtomCodeBundle.message(locale, "gear.sessionHistory"),
-        renameSession = AtomCodeBundle.message(locale, "gear.renameSession"),
-        deleteSession = AtomCodeBundle.message(locale, "gear.deleteSession"),
-        refreshSessions = AtomCodeBundle.message(locale, "gear.refreshSessions"),
-        openChanges = AtomCodeBundle.message(locale, "gear.openChanges"),
-        diagnostics = AtomCodeBundle.message(locale, "gear.diagnostics"),
-        settings = AtomCodeBundle.message(locale, "gear.settings"),
+        connectStart = RustCodeBundle.message(locale, "gear.connectStart"),
+        provider = RustCodeBundle.message(locale, "gear.provider"),
+        createProvider = RustCodeBundle.message(locale, "gear.createProvider"),
+        editProvider = RustCodeBundle.message(locale, "gear.editProvider"),
+        deleteProvider = RustCodeBundle.message(locale, "gear.deleteProvider"),
+        thinkingSettings = RustCodeBundle.message(locale, "gear.thinkingSettings"),
+        login = RustCodeBundle.message(locale, "gear.login"),
+        codingPlanSetup = RustCodeBundle.message(locale, "gear.codingPlanSetup"),
+        sessionHistory = RustCodeBundle.message(locale, "gear.sessionHistory"),
+        renameSession = RustCodeBundle.message(locale, "gear.renameSession"),
+        deleteSession = RustCodeBundle.message(locale, "gear.deleteSession"),
+        refreshSessions = RustCodeBundle.message(locale, "gear.refreshSessions"),
+        openChanges = RustCodeBundle.message(locale, "gear.openChanges"),
+        diagnostics = RustCodeBundle.message(locale, "gear.diagnostics"),
+        settings = RustCodeBundle.message(locale, "gear.settings"),
     )

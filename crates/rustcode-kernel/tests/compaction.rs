@@ -6,11 +6,11 @@
 //!
 //!   * the kernel DEFAULT never compacts (NoCompaction + None threshold),
 //!   * an INJECTED strategy + threshold fires at the TASK BOUNDARY (on a new user
-//!     message, before the turn runs — NEVER mid-loop),
+//!     message, before the turn runs -- NEVER mid-loop),
 //!   * a serializable `AgentCommand::Compact` triggers manual compaction
 //!     regardless of threshold,
 //!   * a net-loss plan is REFUSED (no epoch burn, history byte-identical),
-//!   * TWO same-trait, different-behavior strategies produce DIFFERENT effects —
+//!   * TWO same-trait, different-behavior strategies produce DIFFERENT effects --
 //!     the explicit replaceability proof,
 //!   * a committed compaction opens a NEW cache epoch while preserving the
 //!     byte-identical system prefix.
@@ -147,7 +147,7 @@ async fn default_kernel_never_compacts() {
         );
     }
 
-    // Epoch never bumped; history only grew (3 turns → ≥ system+3*(user+assistant)).
+    // Epoch never bumped; history only grew (3 turns -> ≥ system+3*(user+assistant)).
     let snap = snapshot(&mut handle).await;
     assert_eq!(
         snap.cache_epoch, 0,
@@ -179,7 +179,7 @@ async fn estimates_utilization_when_provider_omits_usage() {
         RecordingProvider::new(vec![
             vec![
                 StreamEvent::TextDelta("ok".into()),
-                // NOTE: no StreamEvent::Usage on purpose — usage.prompt stays 0.
+                // NOTE: no StreamEvent::Usage on purpose -- usage.prompt stays 0.
                 StreamEvent::Done { truncated: false },
             ],
             vec![
@@ -200,7 +200,7 @@ async fn estimates_utilization_when_provider_omits_usage() {
         .spawn();
 
     // A long first prompt (~1200 chars ≈ 300 estimated tokens) is far over the
-    // 0.5 * 100 = 50-token threshold — but ONLY if the byte estimate kicks in. With
+    // 0.5 * 100 = 50-token threshold -- but ONLY if the byte estimate kicks in. With
     // usage omitted, the buggy path records utilization 0.0 and never compacts.
     let long_prompt = "fill the context window with a long first user prompt ".repeat(24);
     let e1 = drive_turn_collect(&mut handle, &long_prompt).await;
@@ -232,7 +232,7 @@ async fn injected_strategy_compacts_at_task_boundary() {
     use rustcode_kernel::tool::ToolCall;
     let provider = Arc::new(
         RecordingProvider::new(vec![
-            // Turn 1, round 1: an echo tool call → kernel runs echo and pushes a
+            // Turn 1, round 1: an echo tool call -> kernel runs echo and pushes a
             // tool-result message (drainable middle history).
             vec![
                 StreamEvent::ToolCall(ToolCall {
@@ -345,7 +345,7 @@ async fn injected_strategy_compacts_at_task_boundary() {
 
 // ── 3. MANUAL Compact COMMAND TRIGGERS REGARDLESS OF THRESHOLD ───────────────
 // No threshold configured; after a turn builds drainable history, send
-// AgentCommand::Compact { focus: None } → Compacted with an epoch bump (the
+// AgentCommand::Compact { focus: None } -> Compacted with an epoch bump (the
 // strategy shrinks).
 #[tokio::test]
 async fn manual_compact_command_triggers_regardless_of_threshold() {
@@ -360,7 +360,7 @@ async fn manual_compact_command_triggers_regardless_of_threshold() {
         .provider(provider)
         .tools(registry().mount(&["echo"]))
         .persona(PERSONA)
-        // NO compact_threshold → auto NEVER fires, only manual. keep_recent: 0 so
+        // NO compact_threshold -> auto NEVER fires, only manual. keep_recent: 0 so
         // the single post-floor assistant message is drainable.
         .compaction(Arc::new(SummarizeOldestStrategy { keep_recent: 0 }))
         .build()
@@ -386,7 +386,7 @@ async fn manual_compact_command_triggers_regardless_of_threshold() {
     let (epoch, committed) = comp.expect("manual Compact must emit a Compacted event");
     assert!(
         committed,
-        "the strategy shrinks → manual compaction commits"
+        "the strategy shrinks -> manual compaction commits"
     );
     assert_eq!(epoch, 1, "manual committed compaction opens epoch 1");
 
@@ -514,7 +514,7 @@ async fn manual_compaction_checkpoint_failure_keeps_live_conversation_unchanged(
 
 // ── 3b. MANUAL Compact ANNOUNCES (CompactionStarted) BEFORE THE RESULT ───────
 // A `/compact` that WILL summarize drainable history emits `CompactionStarted` (the
-// driver's "compacting…" progress line) BEFORE the terminal `Compacted` — so the UI
+// driver's "compacting..." progress line) BEFORE the terminal `Compacted` -- so the UI
 // can show progress during the (real, possibly slow) summary work.
 #[tokio::test]
 async fn manual_compact_emits_started_before_compacted_when_summarizing() {
@@ -568,16 +568,16 @@ async fn manual_compact_emits_started_before_compacted_when_summarizing() {
                 ..
             }
         ),
-        "the strategy shrinks → committed"
+        "the strategy shrinks -> committed"
     );
 
     handle.commands.send(AgentCommand::Shutdown).unwrap();
     let _ = handle.task.await;
 }
 
-// ── 3c. A NO-OP MANUAL Compact STAYS SILENT (no spurious "compacting…") ───────
+// ── 3c. A NO-OP MANUAL Compact STAYS SILENT (no spurious "compacting...") ───────
 // When the strategy won't summarize (nothing older than the kept tail), the kernel
-// must NOT emit `CompactionStarted` — so a driver never shows "compacting…" ahead of
+// must NOT emit `CompactionStarted` -- so a driver never shows "compacting..." ahead of
 // "nothing to compact". This is the fix for the short-conversation divergence.
 #[tokio::test]
 async fn manual_compact_stays_silent_when_nothing_to_summarize() {
@@ -592,7 +592,7 @@ async fn manual_compact_stays_silent_when_nothing_to_summarize() {
         .provider(provider)
         .tools(registry().mount(&["echo"]))
         .persona(PERSONA)
-        // keep_recent huge → nothing drainable → plan is a noop → will_summarize=false.
+        // keep_recent huge -> nothing drainable -> plan is a noop -> will_summarize=false.
         .compaction(Arc::new(SummarizeOldestStrategy { keep_recent: 100 }))
         .build()
         .spawn();
@@ -616,7 +616,7 @@ async fn manual_compact_stays_silent_when_nothing_to_summarize() {
         !events
             .iter()
             .any(|e| matches!(e, AgentEvent::CompactionStarted { .. })),
-        "a no-op /compact must NOT announce 'compacting…'"
+        "a no-op /compact must NOT announce 'compacting...'"
     );
     assert!(
         matches!(
@@ -633,8 +633,8 @@ async fn manual_compact_stays_silent_when_nothing_to_summarize() {
     let _ = handle.task.await;
 }
 
-// ── 4. NET-LOSS PLAN IS REFUSED — NO EPOCH BUMP ──────────────────────────────
-// Inject a strategy whose plan does NOT shrink → Compacted { committed: false },
+// ── 4. NET-LOSS PLAN IS REFUSED -- NO EPOCH BUMP ──────────────────────────────
+// Inject a strategy whose plan does NOT shrink -> Compacted { committed: false },
 // cache_epoch unchanged, history byte-identical.
 #[tokio::test]
 async fn net_loss_plan_is_refused_no_epoch_bump() {
@@ -695,17 +695,17 @@ async fn net_loss_plan_is_refused_no_epoch_bump() {
     let _ = handle.task.await;
 }
 
-// ── 5. REPLACEABILITY — TWO STRATEGIES DIFFER ────────────────────────────────
+// ── 5. REPLACEABILITY -- TWO STRATEGIES DIFFER ────────────────────────────────
 // Build two agents over the SAME starting history, one with SummarizeOldestStrategy,
 // one with StubToolResultsStrategy, then a manual Compact each. The two
 // same-trait strategies must produce DIFFERENT effects:
-//   * SummarizeOldest drains+summarizes → FEWER messages, with a synthetic summary;
+//   * SummarizeOldest drains+summarizes -> FEWER messages, with a synthetic summary;
 //   * StubToolResults keeps the message COUNT but rewrites an older tool-result
 //     text to the `[elided]` stub.
 // This is the explicit proof the compaction seam is replaceable.
 #[tokio::test]
 async fn replaceability_two_strategies_differ() {
-    // A turn that calls `echo` (round 1) then stops (round 2) — produces an
+    // A turn that calls `echo` (round 1) then stops (round 2) -- produces an
     // assistant + a tool-result message in history; a second turn adds another
     // tool-result so there are >=2 tool results (needed by StubToolResults).
     fn build_history_turns() -> Vec<Vec<StreamEvent>> {
@@ -780,7 +780,7 @@ async fn replaceability_two_strategies_differ() {
     let summarized = run(Arc::new(SummarizeOldestStrategy { keep_recent: 1 })).await;
     let stubbed = run(Arc::new(StubToolResultsStrategy)).await;
 
-    // SummarizeOldest → committed (epoch bumped), FEWER messages than baseline,
+    // SummarizeOldest -> committed (epoch bumped), FEWER messages than baseline,
     // and a synthetic summary present.
     assert_eq!(
         summarized.cache_epoch, 1,
@@ -805,7 +805,7 @@ async fn replaceability_two_strategies_differ() {
         "SummarizeOldest must NOT produce an [elided] stub"
     );
 
-    // StubToolResults → committed (epoch bumped), SAME message count as baseline,
+    // StubToolResults -> committed (epoch bumped), SAME message count as baseline,
     // and an older tool-result text rewritten to the [elided] stub.
     assert_eq!(stubbed.cache_epoch, 1, "StubToolResults commit bumps epoch");
     assert_eq!(
@@ -838,7 +838,7 @@ async fn replaceability_two_strategies_differ() {
     );
 }
 
-// ── BUG 2 — auto-compaction must NOT re-fire on the STALE pressure it relieved ─
+// ── BUG 2 -- auto-compaction must NOT re-fire on the STALE pressure it relieved ─
 // `should_compact` reads the last assistant's frozen `meta.utilization`. Before the
 // fix, a committed compaction left that high utilization untouched, so when the
 // NEXT turn appends no fresh assistant (here: a mid-stream Error early-return), the
@@ -847,7 +847,7 @@ async fn replaceability_two_strategies_differ() {
 // ratio on commit, so the relieved pressure is reflected and the re-fire is gone.
 //
 // Drive entirely via the public API. Turn 1 builds drainable, high-utilization
-// history. Turn 2's boundary fires compaction (committed) — but turn 2 itself
+// history. Turn 2's boundary fires compaction (committed) -- but turn 2 itself
 // early-returns on a mid-stream Error, appending NO fresh assistant, so the only
 // pressure fact at the turn-3 boundary is the (now-relieved) surviving assistant.
 // Turn 3's boundary must therefore NOT re-fire. Assert exactly ONE committed
@@ -858,9 +858,9 @@ async fn committed_compaction_relieves_pressure_and_does_not_refire() {
     use rustcode_kernel::tool::ToolCall;
     let provider = Arc::new(
         RecordingProvider::new(vec![
-            // Turn 1, round 1: an echo tool call with a LONG arg → the kernel runs
+            // Turn 1, round 1: an echo tool call with a LONG arg -> the kernel runs
             // echo and pushes a long tool-result message (the bulk of drainable
-            // history, so the byte-reduction ratio is large → relief is decisive).
+            // history, so the byte-reduction ratio is large -> relief is decisive).
             vec![
                 StreamEvent::ToolCall(ToolCall {
                     id: "c1".into(),
@@ -880,7 +880,7 @@ async fn committed_compaction_relieves_pressure_and_does_not_refire() {
                 }),
                 StreamEvent::Done { truncated: false },
             ],
-            // Turn 2: a mid-stream Error → the turn early-returns and pushes NO
+            // Turn 2: a mid-stream Error -> the turn early-returns and pushes NO
             // assistant message. So after turn 2 the only assistant in history is
             // the (compaction-relieved) turn-1 final assistant.
             vec![StreamEvent::Error(ProviderError {
@@ -902,17 +902,17 @@ async fn committed_compaction_relieves_pressure_and_does_not_refire() {
         .tools(registry().mount(&["echo"]))
         .persona(PERSONA)
         // keep_recent: 1 keeps the high-util final assistant so its meta carries
-        // forward — the exact condition under which the stale-pressure re-fire bit.
+        // forward -- the exact condition under which the stale-pressure re-fire bit.
         .compaction(Arc::new(SummarizeOldestStrategy { keep_recent: 1 }))
         .compact_threshold(0.8)
         .build()
         .spawn();
 
-    // Send #1: builds high-util drainable history (no compaction — no prior meta).
+    // Send #1: builds high-util drainable history (no compaction -- no prior meta).
     let e1 = drive_turn_collect(&mut handle, "the original task to build history").await;
     assert!(compacted_events(&e1).is_empty(), "turn 1 must not compact");
 
-    // Send #2: boundary fires compaction (prior util 0.9 >= 0.8) → committed. The
+    // Send #2: boundary fires compaction (prior util 0.9 >= 0.8) -> committed. The
     // turn then errors out, appending no fresh assistant.
     let e2 = drive_turn_collect(&mut handle, "second prompt").await;
     let c2 = compacted_events(&e2);
@@ -920,7 +920,7 @@ async fn committed_compaction_relieves_pressure_and_does_not_refire() {
     assert!(c2[0].4, "and it is committed");
 
     // Send #3: boundary reads the RELIEVED utilization (scaled below 0.8 on the
-    // surviving assistant) → must NOT re-fire, even though no NEW assistant turn
+    // surviving assistant) -> must NOT re-fire, even though no NEW assistant turn
     // produced fresh usage in between.
     let e3 = drive_turn_collect(&mut handle, "third prompt").await;
     assert!(
@@ -932,7 +932,7 @@ async fn committed_compaction_relieves_pressure_and_does_not_refire() {
     let _ = handle.task.await;
 }
 
-// ── BUG 3 — mid-turn Snapshot / SendMessage are QUEUED, not dropped ───────────
+// ── BUG 3 -- mid-turn Snapshot / SendMessage are QUEUED, not dropped ───────────
 // Before the fix the mid-turn select matched `Snapshot => {}` and
 // `SendMessage { .. } => {}` as no-ops: a driver issuing Snapshot mid-turn HUNG
 // (its reply never came) and a mid-turn SendMessage (the user's next prompt)
@@ -943,7 +943,7 @@ async fn committed_compaction_relieves_pressure_and_does_not_refire() {
 // tool BETWEEN the assistant's tool_call and the round completing, so the command
 // arrives while the turn is in flight.
 
-// (a) A mid-turn Snapshot IS received (after the turn) — the driver does not hang.
+// (a) A mid-turn Snapshot IS received (after the turn) -- the driver does not hang.
 #[tokio::test]
 async fn mid_turn_snapshot_is_queued_and_delivered_after_turn() {
     use rustcode_kernel::testkit::DeferredCommands;
@@ -962,7 +962,7 @@ async fn mid_turn_snapshot_is_queued_and_delivered_after_turn() {
         RecordingProvider::new(vec![
             // Round 1: call `inject` (which sends Snapshot mid-turn), then end the
             // round. The kernel runs the tool, then loops to round 2 (a provider
-            // await point) — the mid-turn select drains the injected Snapshot there.
+            // await point) -- the mid-turn select drains the injected Snapshot there.
             vec![
                 StreamEvent::ToolCall(ToolCall {
                     id: "i1".into(),
@@ -1027,7 +1027,7 @@ async fn mid_turn_snapshot_is_queued_and_delivered_after_turn() {
 
 // (b) A mid-turn SendMessage is FOLDED INTO the current turn's next round (Task 2
 // steer-drain semantics): the second prompt is NOT lost and NOT deferred to a new
-// turn — the kernel responds to it within the SAME turn.
+// turn -- the kernel responds to it within the SAME turn.
 #[tokio::test]
 async fn mid_turn_send_message_is_folded_into_current_turn() {
     use rustcode_kernel::testkit::DeferredCommands;
@@ -1058,7 +1058,7 @@ async fn mid_turn_send_message_is_folded_into_current_turn() {
                 StreamEvent::Done { truncated: false },
             ],
             // Turn 1, round 2: SECOND-PROMPT has been folded in as a real user message.
-            // Final answer → turn 1 completes. No turn 2 — the steer was handled here.
+            // Final answer -> turn 1 completes. No turn 2 -- the steer was handled here.
             vec![
                 StreamEvent::TextDelta("both done".into()),
                 StreamEvent::Done { truncated: false },
@@ -1100,7 +1100,7 @@ async fn mid_turn_send_message_is_folded_into_current_turn() {
     );
 
     // The steered prompt actually entered history and was sent to the provider in
-    // turn 1 round 2 — proof it was not lost.
+    // turn 1 round 2 -- proof it was not lost.
     let second_prompt_reached = {
         let recorded = calls.lock().unwrap();
         recorded.iter().any(|call| {
@@ -1125,7 +1125,7 @@ async fn mid_turn_send_message_is_folded_into_current_turn() {
 }
 
 // ── 6. CACHE MODEL: COMMITTED COMPACTION OPENS A NEW EPOCH, SYSTEM PREFIX FROZEN
-// Across a committed compaction, cache_epoch goes N→N+1 and messages[0] (system)
+// Across a committed compaction, cache_epoch goes N->N+1 and messages[0] (system)
 // is byte-identical before/after.
 #[tokio::test]
 async fn compaction_opens_new_epoch_preserving_system_prefix() {
@@ -1171,7 +1171,7 @@ async fn compaction_opens_new_epoch_preserving_system_prefix() {
     assert_eq!(
         after.cache_epoch,
         before.cache_epoch + 1,
-        "epoch goes N → N+1 on a committed compaction"
+        "epoch goes N -> N+1 on a committed compaction"
     );
     assert_eq!(
         after.messages[0], system_before,
@@ -1182,8 +1182,8 @@ async fn compaction_opens_new_epoch_preserving_system_prefix() {
     let _ = handle.task.await;
 }
 
-// (c) A mid-turn Compact is QUEUED and runs at the turn boundary — the documented
-// cache-safe trigger point — instead of silently vanishing (the old no-op arm). A
+// (c) A mid-turn Compact is QUEUED and runs at the turn boundary -- the documented
+// cache-safe trigger point -- instead of silently vanishing (the old no-op arm). A
 // TUI user's /compact during streaming must eventually happen.
 #[tokio::test]
 async fn mid_turn_compact_is_queued_and_runs_at_turn_boundary() {
@@ -1262,7 +1262,7 @@ async fn mid_turn_compact_is_queued_and_runs_at_turn_boundary() {
     assert!(saw_turn_complete, "the in-flight turn completes first");
     assert!(
         compacted.expect("Compacted event must arrive"),
-        "the strategy shrinks → the queued compaction commits"
+        "the strategy shrinks -> the queued compaction commits"
     );
 
     handle.commands.send(AgentCommand::Shutdown).unwrap();

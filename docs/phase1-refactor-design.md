@@ -26,7 +26,7 @@
 
 | 目标 | 现状（2026-08-30 实测） | 真实剩余工作量 |
 |---|---|---|
-| O1 重命名 | `crates/` 内 `atomcode` 命中 **0**。包/二进制/配置目录/env 前缀全部落地 | 小：仅 `extensions/` 类名与 `site/` 品牌字符串收尾 |
+| O1 重命名 | `crates/` 内 `rustcode` 命中 **0**。包/二进制/配置目录/env 前缀全部落地 | 小：仅 `extensions/` 类名与 `site/` 品牌字符串收尾 |
 | O2 零遥测 | 上报运行时已删；第三方埋点 SDK 依赖 **0 命中**；代码内仅剩注释 | 小：文档口径（`docs/telemetry.md`、`README.zh-CN.md`）与注释 |
 | O3 LLM 解耦 | kernel 已有中立 `LlmProvider`（含**非流式 `chat()` 默认实现**）；capabilities 已有三套适配器 + SSE 解码器 + `LlmError` + `egress` 出站工厂 | 中：超时配置下沉、适配器错误构造迁移、装配层收口 |
 | O4 合规 | 存在**两套**许可档案 | 小但必须先做：去重 + 删除模板 MIT 正文 |
@@ -135,11 +135,11 @@ tokio   = { version = "1", features = ["rt", "macros", "sync", "time"] }
 | 区域 | 文件数 / 命中数 | 性质 | 处置建议 |
 |---|---|---|---|
 | `crates/` | 0 / 0 | 已干净 | 无需处理 |
-| `extensions/jetbrains` | — / 645 | Kotlin **类名** `AtomCode*` + 品牌字符串；包路径已改 `com.rustcode.jetbrains` | 类名级 rename（需 IDE 符号重构，本机无法编译验证） |
-| `extensions/vscode` | — / 200 | 同上（`AtomCode-Client` UA 头、`AtomCode` 进程名）；command ID 已改 `rustcode.*` | 同上 |
+| `extensions/jetbrains` | — / 645 | Kotlin **类名** `RustCode*` + 品牌字符串；包路径已改 `com.rustcode.jetbrains` | 类名级 rename（需 IDE 符号重构，本机无法编译验证） |
+| `extensions/vscode` | — / 200 | 同上（`RustCode-Client` UA 头、`RustCode` 进程名）；command ID 已改 `rustcode.*` | 同上 |
 | `site/` | 51 / 1493 | 纯品牌字符串 | sed + 人工抽查首页 |
 | `docs/` | 150 / 3111 | 绝大多数在 `docs/plans/**` 等**历史记录**中 | **不动**；只改仍在描述当前架构的条目 |
-| `packages/` | 5 / 80 | npm 包 `atomcode` / bin `atomcode.js` / homebrew 脚本 | 发布通道改名，需与 release 矩阵同步 |
+| `packages/` | 5 / 80 | npm 包 `rustcode` / bin `rustcode.js` / homebrew 脚本 | 发布通道改名，需与 release 矩阵同步 |
 | `evals/` | 4 / 28 | 评测脚本中的品牌词 | 顺带 |
 | `scripts/` | 1 / 2 | `dev-env-quickstart.sh` | 顺带 |
 | `examples/` | 1 / 1 | `hooks.toml` 注释 | 顺带 |
@@ -195,7 +195,7 @@ STEP A9  packages/ 发布通道改名（独立批次）
 
 | # | 文件 | 内容 | 动作 |
 |---|---|---|---|
-| B10 | `docs/telemetry.md` | 整篇仍在描述 "AtomCode ships anonymous usage telemetry by default"、队列目录、`atomcode telemetry disable` 子命令 | **删除**，或改写为"本项目零遥测"的单页声明 |
+| B10 | `docs/telemetry.md` | 整篇仍在描述 "RustCode ships anonymous usage telemetry by default"、队列目录、`rustcode telemetry disable` 子命令 | **删除**，或改写为"本项目零遥测"的单页声明 |
 | B10b | `README.zh-CN.md:151` | "匿名遥测（默认开启，可关闭）" —— 与零遥测事实**直接矛盾** | 改写为零遥测声明（注意该行含 Emoji，一并清除） |
 | B10c | `site/docs/en/headless-daemon.html`、`site/docs/zh/headless-daemon.html` | 旧遥测口径 + `--no-telemetry` 说明 | 改写 |
 | B11 | `kernel/src/{hook.rs:10,227,295,320; message.rs:385; event.rs:365; agent.rs:1739,2140; conformance/provider.rs:29}`、`kernel/tests/{turn_complete.rs:4, hook_a2_surface.rs:14}`、`tuix/src/event_loop/{commands.rs:4056,8887,9017; mod.rs:9469}`、`cli/src/main.rs:{835,1136,1361,1363,2020,2118,4009}` | 仅**注释**里出现 telemetry 字样（多为"telemetry/datalog 的 home seam"这类词义歧义） | 只改注释为中性描述，**不动语义** |
@@ -442,11 +442,11 @@ STEP C7  文档：docs/config.example.toml 补 timeout / retry / model_mapping �
 
 | 位置 | 文件 | 判定 |
 |---|---|---|
-| `LICENSE` | 本项目 MIT，双版权行 `Copyright (c) 2026 Yubang Xu` + `Copyright (c) 2026 The rustcode authors (fork of atomcode)`；正文指向 `docs/licenses/` | [OK] 但需随去重结果定稿 |
-| `docs/ORIGINAL_LICENSE.md` | 上游 atomcode 的**诚实占位**（无许可正文） | [OK] 语义正确 |
+| `LICENSE` | 本项目 MIT，双版权行 `Copyright (c) 2026 Yubang Xu` + `Copyright (c) 2026 The rustcode authors (fork of rustcode)`；正文指向 `docs/licenses/` | [OK] 但需随去重结果定稿 |
+| `docs/ORIGINAL_LICENSE.md` | 上游 rustcode 的**诚实占位**（无许可正文） | [OK] 语义正确 |
 | `docs/UPSTREAM_RUSTCODE_LICENSE.md` | 前身 `SecLab/RustCode`（Yubang Xu）MIT 全文 | [OK] |
 | `docs/THIRD_PARTY_NOTICES.md` / `docs/UPSTREAM_CREDITS.md` | 存在 | 需与 `docs/licenses/` 内同名文件去重 |
-| `docs/licenses/README.md` | 许可链图：atomcode -> RustCode -> rustcode | [OK] 内容正确 |
+| `docs/licenses/README.md` | 许可链图：rustcode -> RustCode -> rustcode | [OK] 内容正确 |
 | `docs/licenses/LICENSE-MIT-FORK.md` | 本 fork MIT | 与根 `LICENSE` 重复 |
 | `docs/licenses/LICENSE-MIT-PREDECESSOR.md` | 前身 MIT | 与 `docs/UPSTREAM_RUSTCODE_LICENSE.md` 重复 |
 | `docs/licenses/LICENSE-MIT-ORIGINAL.md` | 声明占位，**但附了模板 MIT 正文** | **[ERROR] 见 5.2** |
@@ -456,7 +456,7 @@ STEP C7  文档：docs/config.example.toml 补 timeout / retry / model_mapping �
 
 `docs/licenses/LICENSE-MIT-ORIGINAL.md` 第 26-50 行在 `---` 之后附了一份以
 `Copyright (c) [YEAR] [UPSTREAM_AUTHOR]` 为版权行的 MIT 模板正文，文件标题却是
-`# LICENSE - MIT (Original Upstream: atomcode)`。
+`# LICENSE - MIT (Original Upstream: rustcode)`。
 
 风险：自动化合规扫描与人工阅读都可能把它当成上游许可原文；`[YEAR] [UPSTREAM_AUTHOR]`
 是从模板**重构**出来的，而上游文本从未独立取得。这违反 `AGENTS.md` 的
@@ -471,7 +471,7 @@ STEP C7  文档：docs/config.example.toml 补 timeout / retry / model_mapping �
 LICENSE                              本 fork 的 MIT（双版权行 + fork 声明）—— 唯一生效许可
 docs/licenses/README.md              许可链图 + 索引（唯一索引页）
 docs/licenses/LICENSE-MIT-PREDECESSOR.md   前身 SecLab/RustCode 的 MIT 全文（逐字）
-docs/licenses/LICENSE-MIT-ORIGINAL.md      上游 atomcode 的 MIT —— 占位，无正文，待取得后逐字补入
+docs/licenses/LICENSE-MIT-ORIGINAL.md      上游 rustcode 的 MIT —— 占位，无正文，待取得后逐字补入
 docs/licenses/THIRD-PARTY-NOTICES.md       依赖声明（cargo license 从 Cargo.lock 生成）+ 上游溯源
 docs/licenses/UPSTREAM-CREDITS.md          上游致谢
 ```
@@ -483,7 +483,7 @@ docs/licenses/UPSTREAM-CREDITS.md          上游致谢
 ### 5.4 执行要点
 
 1. **[ERROR] 不得删除或改写任何既有版权行**，包括 `Copyright (c) 2026 Yubang Xu`。
-2. 上游 atomcode 真实许可文本**未取得**之前，只能保留占位，**绝不臆造**。
+2. 上游 rustcode 真实许可文本**未取得**之前，只能保留占位，**绝不臆造**。
 3. 新编写模块（如本轮新增的配置结构）**不逐文件加版权头**，避免与既有风格割裂；只在 `THIRD-PARTY-NOTICES.md` 统一声明。
 4. 去重时保留 `docs/licenses/README.md` 的许可链图 —— 它是唯一把三段关系讲清的地方。
 
@@ -617,7 +617,7 @@ cargo test --workspace --lib -j 1 --no-fail-fast         [6 FAILED]
 | R1 | 工作区 dirty 且有并发写入方，批量改动放大冲突 | 高 | 独立分支；每 Agent 交付即 `cargo check`；改前重读；禁 git 写操作（commit/stash/reset/clean） |
 | R2 | 机械重命名漏改语义依赖（X4 已实证） | 高 | 改完必跑全量 `--lib`；对 fixture / 过滤串 / golden 常量单独人工核对 |
 | R3 | `docs/licenses/` 与顶层四件套内容漂移 | 中 | BATCH-1 去重到单一事实源，交叉引用一次收敛 |
-| R4 | 上游 atomcode 许可文本缺失 | 中 | 保持占位，绝不臆造；取得后逐字补入 `LICENSE-MIT-ORIGINAL.md` |
+| R4 | 上游 rustcode 许可文本缺失 | 中 | 保持占位，绝不臆造；取得后逐字补入 `LICENSE-MIT-ORIGINAL.md` |
 | R5 | 在 kernel 上叠第二套 trait 破坏架构约束 | 中 | 已在 4.2 明令禁止；评审重点检查 |
 | R6 | 超时语义混淆（HTTP 层 vs kernel round-trip） | 中 | 配置键命名区分；`config.rs:56` 的 doc 注释补充对照说明 |
 | R7 | `extensions/` 类名 rename 本机无法编译验证 | 中 | 只出规格文档，不落盘；交付说明标注"两侧命名尚未统一" |
@@ -648,7 +648,7 @@ cargo test --workspace --lib -j 1 --no-fail-fast         [6 FAILED]
 
 ### 建议项
 
-7. **[建议] `extensions/` 的 `AtomCode*` 类名与 `site/` 品牌字符串是否纳入本次范围**（845 + 1493 处，
+7. **[建议] `extensions/` 的 `RustCode*` 类名与 `site/` 品牌字符串是否纳入本次范围**（845 + 1493 处，
    本机无法编译验证；本方案建议只出规格文档，不落盘）。
 8. **[建议] 是否补 CI 门禁**（`ci.yml`：fmt -> clippy -> test）。
 9. **[建议] 会话数据策略**：`~/.rustcode` 保持不变（推荐，无迁移风险），还是做一次性目录迁移？

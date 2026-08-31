@@ -39,9 +39,9 @@ interface SettingsCtx {
 
 const Ctx = createContext<SettingsCtx | null>(null);
 
-const THEME_KEY = 'atomcode.theme';
-const LANG_KEY = 'atomcode.lang';
-const FONT_SCALE_KEY = 'atomcode.fontScale';
+const THEME_KEY = 'rustcode.theme';
+const LANG_KEY = 'rustcode.lang';
+const FONT_SCALE_KEY = 'rustcode.fontScale';
 
 function readTheme(): Theme {
   try {
@@ -50,7 +50,7 @@ function readTheme(): Theme {
   } catch {
     /* ignore */
   }
-  // Default to the warm-ivory light theme (claude.ai look) when the user
+  // Default to the warm-ivory light theme (warm-ivory look) when the user
   // hasn't picked one; they can still switch to dark/system in settings.
   return 'light';
 }

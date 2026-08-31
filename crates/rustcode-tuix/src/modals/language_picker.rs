@@ -1,6 +1,6 @@
 // crates/rustcode-tuix/src/modals/language_picker.rs
 //
-// `/language` modal — language picker.
+// `/language` modal -- language picker.
 //
 // Lists available locales with the current one pre-selected.
 // Up/Down navigates, Enter selects (persists config + reloads the
@@ -116,7 +116,7 @@ mod tests {
     /// Switching to zh_CN renders a Chinese confirmation line that
     /// includes the success checkmark + the picked label + the locale
     /// code. Regression guard for "no feedback after picking
-    /// a language" — the Enter handler is supposed to push a
+    /// a language" -- the Enter handler is supposed to push a
     /// CommandOutput line with these three markers visible, in the
     /// freshly-picked locale.
     #[test]
@@ -127,7 +127,7 @@ mod tests {
             label: "简体中文",
             locale: "zh_CN",
         });
-        assert!(msg.contains("✓"), "missing checkmark: {}", msg);
+        assert!(msg.contains("[+]"), "missing checkmark: {}", msg);
         assert!(msg.contains("简体中文"), "missing label: {}", msg);
         assert!(msg.contains("zh_CN"), "missing locale code: {}", msg);
         assert!(msg.contains("已切换"), "missing '已切换' verb: {}", msg);
@@ -142,7 +142,7 @@ mod tests {
             label: "English",
             locale: "en",
         });
-        assert!(msg.contains("✓"), "missing checkmark: {}", msg);
+        assert!(msg.contains("[+]"), "missing checkmark: {}", msg);
         assert!(msg.contains("English"), "missing label: {}", msg);
         assert!(msg.contains("(en)"), "missing locale code: {}", msg);
         assert!(

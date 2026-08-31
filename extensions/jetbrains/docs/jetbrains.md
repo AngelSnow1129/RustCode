@@ -21,7 +21,7 @@ RustCode for JetBrains brings the local RustCode coding agent into IntelliJ-base
 1. Open `Settings | Plugins`.
 2. Choose the gear menu.
 3. Select `Install Plugin from Disk...`.
-4. Select the signed `atomcode-jetbrains-<version>-signed.zip` file.
+4. Select the signed `rustcode-jetbrains-<version>-signed.zip` file.
 5. Restart the IDE if prompted.
 
 ## Open RustCode
@@ -114,14 +114,14 @@ Use `RustCode: Open Changes` to inspect project changes that RustCode can use du
 - If the daemon fails to start, configure a daemon binary path or install RustCode separately.
 - If provider requests fail, verify the provider type, model, base URL, and API key.
 - If context is missing, check the context level and selected-text context settings.
-- If telemetry should be disabled, set `ATOMCODE_TELEMETRY=0`, `DO_NOT_TRACK=1`, or run `atomcode telemetry disable`.
+- If telemetry should be disabled, set `RUSTCODE_TELEMETRY=0`, `DO_NOT_TRACK=1`, or run `rustcode telemetry disable`.
 
 ## Support
 
 Report issues at:
 
-`https://atomgit.com/atomgit_atomcode/atomcode/issues`
+`https://gitcode.com/SecLab/RustCode/issues`
 
 Source code:
 
-`https://atomgit.com/atomgit_atomcode/atomcode`
+`https://gitcode.com/SecLab/RustCode`

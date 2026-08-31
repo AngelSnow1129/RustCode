@@ -6,7 +6,7 @@
 //! For each call it: (1) lets a `Safe` call (arg-aware) through untouched; (2) for a
 //! `Risky` call, returns `Ok` if the injected [`PermissionStore`] already granted it;
 //! (3) otherwise round-trips the driver via `rt.request(kind, {tool, args})` and maps
-//! the decision → allow-once (`Ok`) / allow-always (`Ok` + remember) / deny (`Err`,
+//! the decision -> allow-once (`Ok`) / allow-always (`Ok` + remember) / deny (`Err`,
 //! which blocks the call). The driver owns the actual allow/deny UX; the store + the
 //! request `kind` are injected. Register this BEFORE any arg-rewriting middleware so
 //! the user approves the bytes that actually execute (see the [`ToolMiddleware`]
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-/// The default `AgentEvent::Request.kind` of an approval round-trip — what a driver
+/// The default `AgentEvent::Request.kind` of an approval round-trip -- what a driver
 /// matches on to render the approval prompt (overridable via
 /// [`ApprovalMiddleware::with_kind`]).
 pub const APPROVAL_KIND: &str = "approval";
@@ -77,17 +77,17 @@ impl ApprovalResponse {
 pub enum PermissionDecision {
     /// Allow this one call.
     AllowOnce,
-    /// Allow AND remember — the store caches the grant so the identical call is not
+    /// Allow AND remember -- the store caches the grant so the identical call is not
     /// asked again this session.
     AllowAlways,
-    /// Deny — the middleware blocks the call with `Err`.
+    /// Deny -- the middleware blocks the call with `Err`.
     Deny,
 }
 
 impl PermissionDecision {
     /// Parse a driver `Respond` value. Accepts `{"decision":"allow"|"allow_always"|
     /// "deny", "remember":bool}`. Anything unrecognized / `Null` (a crashed or
-    /// timed-out driver) is treated as `Deny` — FAIL CLOSED.
+    /// timed-out driver) is treated as `Deny` -- FAIL CLOSED.
     pub fn from_value(v: &serde_json::Value) -> Self {
         let decision = v.get("decision").and_then(|x| x.as_str()).unwrap_or("deny");
         let remember = v.get("remember").and_then(|x| x.as_bool()).unwrap_or(false);
@@ -113,7 +113,7 @@ pub fn parse_permission_decision(s: &str) -> PermissionDecision {
 
 /// Session-scoped grant cache. The middleware consults it before round-tripping and
 /// records `AllowAlways` grants into it. Pluggable so a specialization can back it
-/// with anything (in-memory, persisted, per-project policy, …).
+/// with anything (in-memory, persisted, per-project policy, ...).
 pub trait PermissionStore: Send + Sync {
     /// Has this exact `(tool, args)` key already been granted "always"?
     fn is_granted(&self, key: &str) -> bool;
@@ -121,7 +121,7 @@ pub trait PermissionStore: Send + Sync {
     fn grant(&self, key: &str);
 }
 
-/// Default in-memory grant cache — one session's "remember" set.
+/// Default in-memory grant cache -- one session's "remember" set.
 #[derive(Default)]
 pub struct InMemoryPermissionStore {
     granted: Mutex<HashSet<String>>,
@@ -189,12 +189,12 @@ impl ApprovalMiddleware {
     }
 }
 
-/// The fail-closed `Deny` for a DEGRADED approval round-trip — a `Null` response, which
+/// The fail-closed `Deny` for a DEGRADED approval round-trip -- a `Null` response, which
 /// the kernel emits when the driver's oneshot sender was dropped, the bounded round-trip
 /// timed out, or the turn was cancelled (see `RequestCtx::request` / `cancel_pending`). A
 /// genuine user "deny" arrives as `{"decision":"deny"}` (non-null); this is NOT that. We
-/// fail closed either way, but surface the difference — on stderr AND in the deny reason
-/// the model/UI sees — so an internal channel failure can be told apart from a real user
+/// fail closed either way, but surface the difference -- on stderr AND in the deny reason
+/// the model/UI sees -- so an internal channel failure can be told apart from a real user
 /// denial (issue #173). SHARED by every gate that round-trips the driver so the contract +
 /// wording can never drift between copies.
 pub fn approval_channel_failure_deny(tool_name: &str) -> BeforeOutcome {
@@ -204,7 +204,7 @@ pub fn approval_channel_failure_deny(tool_name: &str) -> BeforeOutcome {
     );
     BeforeOutcome::deny(format!(
         "approval unresolved for '{tool_name}': no decision received (driver disconnected, \
-         timed out, or cancelled) — internal channel failure, not a user denial"
+         timed out, or cancelled) -- internal channel failure, not a user denial"
     ))
 }
 
@@ -212,9 +212,9 @@ pub fn approval_channel_failure_deny(tool_name: &str) -> BeforeOutcome {
 /// from the exported typed [`ApprovalRequest`] contract so the wire shape can never drift.
 /// Returns the parsed [`PermissionDecision`], or `Err(BeforeOutcome::Deny)` when the
 /// round-trip DEGRADED to `Null` (fail closed via [`approval_channel_failure_deny`]). The
-/// decision→outcome MAPPING stays with each caller (they diverge: the generic gate
-/// remembers `AllowAlways` in its store and maps allow→`Proceed`, while a hook-forced ask
-/// maps allow→`Allow` to short-circuit downstream gates), so only the shared round-trip +
+/// decision->outcome MAPPING stays with each caller (they diverge: the generic gate
+/// remembers `AllowAlways` in its store and maps allow->`Proceed`, while a hook-forced ask
+/// maps allow->`Allow` to short-circuit downstream gates), so only the shared round-trip +
 /// degraded-path handling is factored here.
 pub async fn request_approval_decision(
     rt: &RequestCtx,
@@ -253,7 +253,7 @@ impl ToolMiddleware for ApprovalMiddleware {
             return BeforeOutcome::Proceed;
         }
         match request_approval_decision(rt, &self.kind, call, tool.name()).await {
-            Err(degraded) => degraded, // Null → fail closed (channel failure, not a user deny).
+            Err(degraded) => degraded, // Null -> fail closed (channel failure, not a user deny).
             Ok(PermissionDecision::AllowOnce) => BeforeOutcome::Proceed,
             Ok(PermissionDecision::AllowAlways) => {
                 self.store.grant(&key);
@@ -262,7 +262,7 @@ impl ToolMiddleware for ApprovalMiddleware {
             Ok(PermissionDecision::Deny) => {
                 // Deny reason goes back to the model as the tool result; it made the call, so
                 // don't echo its full arguments back (token waste + the arg preview already
-                // renders in the tool header). Name the tool and the policy — that's the signal.
+                // renders in the tool header). Name the tool and the policy -- that's the signal.
                 BeforeOutcome::deny(format!("denied by approval policy: {}", tool.name()))
             }
         }
@@ -304,7 +304,7 @@ mod tests {
     }
     fn safe_call() -> ToolCall {
         // read_file is Safe; use a risk-Safe tool's args. We reuse the write tool's
-        // risk via a Safe arg? No — write is always Risky. Use ReadFileTool instead.
+        // risk via a Safe arg? No -- write is always Risky. Use ReadFileTool instead.
         ToolCall {
             id: "2".into(),
             name: "read_file".into(),
@@ -313,7 +313,7 @@ mod tests {
     }
 
     /// REGRESSION: "总是 / Always" must be tool-wide for file-mutation tools (v1
-    /// parity) — approving one edit auto-approves every later edit this session —
+    /// parity) -- approving one edit auto-approves every later edit this session --
     /// while `bash` stays per-command so approving one destructive command never
     /// blanket-approves another. The bug: the grant key included the full args, so
     /// each distinct edit re-prompted ("Always" degraded to "allow once").
@@ -395,7 +395,7 @@ mod tests {
         let mw = ApprovalMiddleware::in_memory();
         let tool: Arc<dyn Tool> = Arc::new(crate::tools::read::ReadFileTool::default());
         let mut call = safe_call();
-        // Safe → Proceed without ever awaiting the driver (which never responds here).
+        // Safe -> Proceed without ever awaiting the driver (which never responds here).
         assert!(!mw.before(&mut call, &tool, &rt).await.is_deny());
     }
 
@@ -414,8 +414,8 @@ mod tests {
 
     #[tokio::test]
     async fn risky_call_denied_when_driver_silent() {
-        // No driver drains the request → the bounded round-trip times out → Null →
-        // Deny → Err (fail closed). The deny reason must mark this as an INTERNAL
+        // No driver drains the request -> the bounded round-trip times out -> Null ->
+        // Deny -> Err (fail closed). The deny reason must mark this as an INTERNAL
         // channel failure (not a user denial) for observability (issue #173).
         let (tx, _rx) = unbounded_channel::<AgentEvent>();
         let rt = RequestCtx::new(tx, Some(Duration::from_millis(20)));

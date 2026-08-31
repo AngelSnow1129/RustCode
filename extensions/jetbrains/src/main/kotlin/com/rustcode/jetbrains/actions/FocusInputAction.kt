@@ -15,7 +15,7 @@ class FocusInputAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.getData(CommonDataKeys.PROJECT) ?: return
-        ToolWindowManager.getInstance(project).getToolWindow("AtomCode")?.activate {
+        ToolWindowManager.getInstance(project).getToolWindow("RustCode")?.activate {
             findChatPanel(project)?.focusInput()
         }
     }

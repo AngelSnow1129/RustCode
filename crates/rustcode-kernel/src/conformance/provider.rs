@@ -1,16 +1,16 @@
 //! Conformance harness for the [`LlmProvider`] seam.
 //!
 //! Two entry points:
-//! * [`check`] — drives an arbitrary provider through a minimal request and verifies the
+//! * [`check`] -- drives an arbitrary provider through a minimal request and verifies the
 //!   contract clauses that hold REGARDLESS of scenario: stable model identity, a stream
-//!   that OPENS (`Ok`) or FAILS CLEANLY (`Err(ProviderError)`) without panicking, and —
-//!   crucially — a stream that TERMINATES (the kernel's turn loop consumes it to
+//!   that OPENS (`Ok`) or FAILS CLEANLY (`Err(ProviderError)`) without panicking, and --
+//!   crucially -- a stream that TERMINATES (the kernel's turn loop consumes it to
 //!   completion each turn; a non-terminating stream parks the agent forever).
-//! * [`check_stream_reconstruction`] — a PURE checker over a `Vec<StreamEvent>` for the
+//! * [`check_stream_reconstruction`] -- a PURE checker over a `Vec<StreamEvent>` for the
 //!   streaming-tool-call contract: concatenating `ToolCallDelta.arguments` per `index`
 //!   must reproduce the complete `StreamEvent::ToolCall` the kernel actually EXECUTES.
 //!   An adapter feeds its DECODED events (e.g. an SSE fixture run through its decoder)
-//!   into this — so the kernel's stream contract is verified against the real decoder
+//!   into this -- so the kernel's stream contract is verified against the real decoder
 //!   without a live backend.
 
 use super::{catch_async, catch_sync, with_timeout, ConformanceReport, DEFAULT_CHECK_TIMEOUT};
@@ -90,16 +90,16 @@ pub async fn check(provider: Arc<dyn LlmProvider>) -> ConformanceReport {
                 Err(t) => r.record(
                     "stream_terminates",
                     false,
-                    format!("the stream {t} — a provider stream MUST terminate (the kernel drains it to completion each turn; a half-open / silent stream parks the agent forever)"),
+                    format!("the stream {t} -- a provider stream MUST terminate (the kernel drains it to completion each turn; a half-open / silent stream parks the agent forever)"),
                 ),
             }
         }
-        Ok(Ok(Err(e))) => r.record("open_failed_cleanly", true, format!("chat_stream returned Err — a clean failed open is conformant: {}", e.message)),
-        Ok(Err(p)) => r.record("chat_stream_no_panic", false, format!("chat_stream panicked on open: {p} — a failed open must return Err(ProviderError), never panic")),
-        Err(t) => r.record("chat_stream_opens", false, format!("chat_stream {t} on open — opening the stream must not block unboundedly")),
+        Ok(Ok(Err(e))) => r.record("open_failed_cleanly", true, format!("chat_stream returned Err -- a clean failed open is conformant: {}", e.message)),
+        Ok(Err(p)) => r.record("chat_stream_no_panic", false, format!("chat_stream panicked on open: {p} -- a failed open must return Err(ProviderError), never panic")),
+        Err(t) => r.record("chat_stream_opens", false, format!("chat_stream {t} on open -- opening the stream must not block unboundedly")),
     }
 
-    // chat_stream must HANDLE non-default ChatOptions — the adapter MAPS each neutral
+    // chat_stream must HANDLE non-default ChatOptions -- the adapter MAPS each neutral
     // knob onto its wire format or IGNORES it, but must never panic (the kernel forwards
     // options verbatim). Open with a fully-populated request; the stream is then dropped
     // (we only assert the open itself doesn't panic on the options).
@@ -113,23 +113,23 @@ pub async fn check(provider: Arc<dyn LlmProvider>) -> ConformanceReport {
     let opts_fut = async { provider.chat_stream(&messages, &tools, &loud).await };
     match with_timeout(DEFAULT_CHECK_TIMEOUT, catch_async(opts_fut)).await {
         Ok(Ok(Ok(_stream))) => r.record("chat_stream_handles_options", true, ""),
-        Ok(Ok(Err(_e))) => r.record("chat_stream_handles_options", true, "returned Err on non-default options (clean — an adapter may reject an option it cannot honor)"),
-        Ok(Err(p)) => r.record("chat_stream_handles_options", false, format!("chat_stream panicked on non-default ChatOptions: {p} — an adapter must MAP or IGNORE each neutral knob, never panic")),
-        Err(t) => r.record("chat_stream_handles_options", false, format!("chat_stream {t} on non-default options — opening must not block unboundedly")),
+        Ok(Ok(Err(_e))) => r.record("chat_stream_handles_options", true, "returned Err on non-default options (clean -- an adapter may reject an option it cannot honor)"),
+        Ok(Err(p)) => r.record("chat_stream_handles_options", false, format!("chat_stream panicked on non-default ChatOptions: {p} -- an adapter must MAP or IGNORE each neutral knob, never panic")),
+        Err(t) => r.record("chat_stream_handles_options", false, format!("chat_stream {t} on non-default options -- opening must not block unboundedly")),
     }
 
     r
 }
 
-/// PURE checker for STREAM WELL-FORMEDNESS over a captured `Vec<StreamEvent>` — the
+/// PURE checker for STREAM WELL-FORMEDNESS over a captured `Vec<StreamEvent>` -- the
 /// terminal-event + error-shape invariants the kernel's drain loop relies on. Like
 /// [`check_stream_reconstruction`], an adapter feeds its DECODED events (e.g. an SSE
 /// fixture run through its decoder) in, so these hold against the real decoder without a
 /// live backend. Checks:
-/// * `no_events_after_terminal` — a `Done`/`Error` terminal is the LAST event (an event
-///   after the turn has ended is processed as if mid-turn → undefined behavior).
-/// * `at_most_one_done` — `Done` (end-of-stream) is emitted at most once.
-/// * `midstream_error_has_no_http_status` — a `StreamEvent::Error` (mid-stream) carries
+/// * `no_events_after_terminal` -- a `Done`/`Error` terminal is the LAST event (an event
+///   after the turn has ended is processed as if mid-turn -> undefined behavior).
+/// * `at_most_one_done` -- `Done` (end-of-stream) is emitted at most once.
+/// * `midstream_error_has_no_http_status` -- a `StreamEvent::Error` (mid-stream) carries
 ///   `http_status == None`; `http_status` is reserved for an OPEN failure's non-2xx code.
 pub fn check_stream_wellformed(events: &[StreamEvent]) -> ConformanceReport {
     let mut r = ConformanceReport::new("LlmProvider stream", "<events>");
@@ -183,7 +183,7 @@ pub fn check_stream_wellformed(events: &[StreamEvent]) -> ConformanceReport {
 /// to delta indices BY ORDER (the i-th streamed index ↔ the i-th complete call), the
 /// same way an index-buffering decoder flushes at finish.
 ///
-/// A stream with NO `ToolCallDelta` is trivially conformant — an adapter that cannot
+/// A stream with NO `ToolCallDelta` is trivially conformant -- an adapter that cannot
 /// stream tool calls simply emits the complete `ToolCall` and the path is unchanged.
 pub fn check_stream_reconstruction(events: &[StreamEvent]) -> ConformanceReport {
     use std::collections::BTreeMap;
@@ -222,7 +222,7 @@ pub fn check_stream_reconstruction(events: &[StreamEvent]) -> ConformanceReport 
         r.record(
             "no_delta_stream_ok",
             true,
-            "no ToolCallDelta emitted — a provider that cannot stream tool calls is conformant (the complete-ToolCall path is unchanged)",
+            "no ToolCallDelta emitted -- a provider that cannot stream tool calls is conformant (the complete-ToolCall path is unchanged)",
         );
         return r;
     }

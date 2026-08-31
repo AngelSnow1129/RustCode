@@ -1,4 +1,4 @@
-//! `trace_callers` — reverse call graph (who calls a symbol), BFS to a depth. `Safe`.
+//! `trace_callers` -- reverse call graph (who calls a symbol), BFS to a depth. `Safe`.
 
 use super::index::CodeIndex;
 use super::{canonical, display_path, err, ok};
@@ -91,7 +91,7 @@ fn render(index: &CodeIndex, root: &Path, symbol: &str, depth: usize) -> ToolRes
                 if let Some(node) = g.node(*caller_id) {
                     let indent = "  ".repeat(*d);
                     out.push_str(&format!(
-                        "{}[depth {}] {} ({:?}) — {}\n",
+                        "{}[depth {}] {} ({:?}) -- {}\n",
                         indent,
                         d,
                         node.name,

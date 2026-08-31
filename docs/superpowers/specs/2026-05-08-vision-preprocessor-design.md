@@ -6,7 +6,7 @@
 
 ## 背景
 
-AtomCode 已支持 `MessageContent::MultiPart { text, images }`：用户在 TUIX 通过 Ctrl+V 粘图，图像 base64 暂存进 `state.pending_images`，提交时随这一条用户消息一起进会话。
+RustCode 已支持 `MessageContent::MultiPart { text, images }`：用户在 TUIX 通过 Ctrl+V 粘图，图像 base64 暂存进 `state.pending_images`，提交时随这一条用户消息一起进会话。
 
 发送侧在 `OpenAiProvider::format_messages` 按 `supports_vision`（`ProviderConfig::accepts_images()` 派生）路由：
 
@@ -30,7 +30,7 @@ CodingPlan 用户的常见组合是「主模型 = DeepSeek-V4-flash 或 Qwen3.6 
 1. 不改 provider trait、不改 `accepts_images()`、不改 `coding_plan/setup.rs`、不改 `Conversation` 结构 —— 纯加性。
 2. 不做 VL 结果缓存（同图重复识别）—— 命中率低、复杂度高。
 3. 不提供 `/vl on|off` slash 命令 —— 配置项已经够用。
-4. 不解决「`/codingplan` 刷新时清掉用户手加的 `AtomGit-Qwen-...` provider」的问题 —— 现有 `is_codingplan_provider_name` 行为保留；测试期手动重加。后续作为 follow-up（需要给 coding-plan setup 加"用户保留标记"机制）。
+4. 不解决「`/codingplan` 刷新时清掉用户手加的 `RustCode-Qwen-...` provider」的问题 —— 现有 `is_codingplan_provider_name` 行为保留；测试期手动重加。后续作为 follow-up（需要给 coding-plan setup 加"用户保留标记"机制）。
 5. 不支持把图片转 OCR 后还保留原图给 vision-capable 主模型走双通路 —— 只在主模型 `!accepts_images()` 时触发，触发即替代。
 
 ## 总体架构
@@ -38,7 +38,7 @@ CodingPlan 用户的常见组合是「主模型 = DeepSeek-V4-flash 或 Qwen3.6 
 新增一个独立模块；其余文件最小改动：
 
 ```
-crates/atomcode-core/src/
+crates/rustcode-core/src/
   vision_preprocessor.rs        # 新增：VL 预处理入口 + 内部一次性调用
   agent/mod.rs                  # 改：handle_send_message 里调一次预处理
   config/mod.rs                 # 改：Config 加 vision_preprocessor_provider 字段
@@ -50,7 +50,7 @@ crates/atomcode-core/src/
 ## 公开接口
 
 ```rust
-// crates/atomcode-core/src/vision_preprocessor.rs
+// crates/rustcode-core/src/vision_preprocessor.rs
 
 pub enum PreprocessOutcome {
     /// 不需要做预处理：未配置、主 provider 已支持视觉、images 为空 —— 上层走原路径。
@@ -139,7 +139,7 @@ vision_preprocessor::maybe_preprocess(config, &*provider, &clean, &images)
 
 ## Config 改动
 
-`crates/atomcode-core/src/config/mod.rs` 顶层 `Config` 新增字段：
+`crates/rustcode-core/src/config/mod.rs` 顶层 `Config` 新增字段：
 
 ```rust
 /// Provider key (matches `Config.providers` HashMap key) of a vision-language
@@ -148,7 +148,7 @@ vision_preprocessor::maybe_preprocess(config, &*provider, &clean, &images)
 /// images either go directly to a vision-capable main provider, or get
 /// degraded to `"[image attached]"` placeholder by the existing path.
 ///
-/// Example value: `"AtomGit-Qwen-Qwen3-VL-32B-Instruct"`.
+/// Example value: `"RustCode-Qwen-Qwen3-VL-32B-Instruct"`.
 #[serde(default)]
 pub vision_preprocessor_provider: Option<String>,
 ```
@@ -210,7 +210,7 @@ VL 调用通常 1–3s，主模型在等待期间无任何输出，用户体验�
 
 ## 测试
 
-**单元测试**（`crates/atomcode-core/src/vision_preprocessor.rs` 内 `#[cfg(test)] mod tests`）：
+**单元测试**（`crates/rustcode-core/src/vision_preprocessor.rs` 内 `#[cfg(test)] mod tests`）：
 
 用 wiremock（项目其它 provider 测试已在用）启假 OpenAI 后端，覆盖以下用例：
 
@@ -227,9 +227,9 @@ VL 调用通常 1–3s，主模型在等待期间无任何输出，用户体验�
 
 **集成手测**（实现 PR 描述的 Test plan 部分需列出）：
 
-1. `cargo run -p atomcode-cli --release` 进 TUI。
-2. `/codingplan` 安装 AtomGit provider 列表；手动加 `AtomGit-Qwen-Qwen3-VL-32B-Instruct` 到 `~/.atomcode/config.toml`。
-3. 在 `[default]` 段加 `vision_preprocessor_provider = "AtomGit-Qwen-Qwen3-VL-32B-Instruct"`。
+1. `cargo run -p rustcode-cli --release` 进 TUI。
+2. `/codingplan` 安装 AtomGit provider 列表；手动加 `RustCode-Qwen-Qwen3-VL-32B-Instruct` 到 `~/.rustcode/config.toml`。
+3. 在 `[default]` 段加 `vision_preprocessor_provider = "RustCode-Qwen-Qwen3-VL-32B-Instruct"`。
 4. `/model AtomGit-DeepSeek-V4-flash`（或其它 `!accepts_images()` 的 entry）。
 5. Ctrl+V 粘一张代码截图，附 caption "解释这段代码"，回车。
 6. 期望：
@@ -247,5 +247,5 @@ VL 调用通常 1–3s，主模型在等待期间无任何输出，用户体验�
 1. **临时构造 OpenAiProvider 的成本**：每次调用都新建 reqwest client + 解析 ProviderConfig。在 1–3s 的 VL 调用本身耗时面前完全可忽略；不预先缓存 provider 实例换来"配置改了立即生效"，简单。
 2. **30s 超时**：图片描述应该几秒就够，30s 是兜底防止卡死。如果实测发现某些大图（4K 截图）确实需要 10s+ 才能出第一个 token，再调整。
 3. **Notice event 类型未敲定**：如设计 §UX 所述，留给实现期决定是否新增 `AgentEvent::VisionPreprocessing` 还是复用现有 Notice。这影响 TUIX 渲染细节，不影响核心逻辑。
-4. **`/codingplan` 刷新会清掉用户手加的 AtomGit-Qwen-VL provider**：明确不在本 design 范围解决。测试期重跑 `/codingplan` 后需要手动重加；用户也可以把 VL provider 命名为非 `AtomGit-` 前缀（如 `vl-qwen3`）规避清洗逻辑——这是临时 workaround。后续 follow-up issue 再设计「用户保留 provider 标记」机制。
+4. **`/codingplan` 刷新会清掉用户手加的 RustCode-Qwen-VL provider**：明确不在本 design 范围解决。测试期重跑 `/codingplan` 后需要手动重加；用户也可以把 VL provider 命名为非 `AtomGit-` 前缀（如 `vl-qwen3`）规避清洗逻辑——这是临时 workaround。后续 follow-up issue 再设计「用户保留 provider 标记」机制。
 5. **VL 输出可能很长**：4K 截图详细识别可能产出 1–2K token 的描述。这部分计入主对话历史，会侵占主模型的 ctx_budget。已知风险，但是用户主动选择 VL 路径的代价；如果未来发现普遍超长，可以加截断（如 2000 字符封顶）。当前不做。

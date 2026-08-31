@@ -1,7 +1,7 @@
-//! `grep` — regex content search under a directory, gitignore-aware. Read-only ⇒
+//! `grep` -- regex content search under a directory, gitignore-aware. Read-only ⇒
 //! always `Safe`. Smart-case (case-insensitive unless the pattern has an uppercase
 //! letter); an invalid regex falls back to a literal search. Build/VCS/cache dirs and
-//! `.log` files are skipped. Neutral core — the production graph/semantic annotations
+//! `.log` files are skipped. Neutral core -- the production graph/semantic annotations
 //! are dropped.
 
 use super::read::lenient_usize;
@@ -18,11 +18,11 @@ const DEFAULT_MAX_RESULTS: usize = 50;
 const DEFAULT_CONTEXT: usize = 3;
 const MAX_CONTEXT: usize = 10;
 const MAX_DISPLAY_LINE: usize = 1000;
-/// Hard upper cap on `max_results` — bounds the in-memory result buffer even if a
+/// Hard upper cap on `max_results` -- bounds the in-memory result buffer even if a
 /// caller sends an enormous value.
 const MAX_RESULTS_CAP: usize = 10_000;
 /// Per-file heap cap for the searcher's line buffer. Without it the searcher would
-/// grow the buffer to hold the LONGEST single line — a multi-MB minified bundle or a
+/// grow the buffer to hold the LONGEST single line -- a multi-MB minified bundle or a
 /// one-line giant log would still buffer whole and OOM a small machine. Past this, the
 /// file's search errors and is skipped: the absolute memory guard, independent of the
 /// per-line default.
@@ -67,12 +67,12 @@ impl Tool for GrepTool {
             "required": ["pattern"]
         })
     }
-    /// No side effects — a pure read. Makes it `parallel_safe` (concurrent
+    /// No side effects -- a pure read. Makes it `parallel_safe` (concurrent
     /// execution) and allowed in plan mode.
     fn read_only_hint(&self) -> bool {
         true
     }
-    // read-only → risk() defaults to Safe.
+    // read-only -> risk() defaults to Safe.
     async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -123,7 +123,7 @@ impl Tool for GrepTool {
                 "No matches found for '{pattern}' in {display_path} ({files} files searched)"
             )),
             Ok((lines, matches, _)) => {
-                // Cap on the real MATCH count — not total output rows, which also include
+                // Cap on the real MATCH count -- not total output rows, which also include
                 // context + `--` separators (that over-reported "capped" with any context).
                 let capped = matches >= max;
                 let mut out = lines.join("\n");
@@ -140,7 +140,7 @@ impl Tool for GrepTool {
 /// Returns (formatted match+context lines, match count, files searched). Stops once
 /// `max` matches are collected. Each file is searched by a STREAMING searcher (never
 /// loads the whole file into memory; `heap_limit` caps the per-line buffer), so a huge
-/// file — or a huge single line — can't OOM the process.
+/// file -- or a huge single line -- can't OOM the process.
 fn search(
     root: &std::path::Path,
     matcher: &RegexMatcher,
@@ -217,7 +217,7 @@ fn render_line(bytes: &[u8]) -> String {
     let line = cow.strip_suffix('\n').unwrap_or(&cow);
     let line = line.strip_suffix('\r').unwrap_or(line);
     if line.chars().count() > MAX_DISPLAY_LINE {
-        line.chars().take(MAX_DISPLAY_LINE).collect::<String>() + "…"
+        line.chars().take(MAX_DISPLAY_LINE).collect::<String>() + "..."
     } else {
         line.to_string()
     }
@@ -349,7 +349,7 @@ mod tests {
     async fn invalid_regex_falls_back_to_literal() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a.txt"), "value = foo(bar)\n").unwrap();
-        // "foo(bar" is an invalid regex (unbalanced paren) → literal fallback finds it.
+        // "foo(bar" is an invalid regex (unbalanced paren) -> literal fallback finds it.
         let r = GrepTool
             .execute(r#"{"pattern":"foo(bar"}"#, &ctx(d.path()))
             .await;
@@ -360,7 +360,7 @@ mod tests {
     #[tokio::test]
     async fn context_lines_are_marked_and_groups_separated() {
         let d = tempfile::tempdir().unwrap();
-        // 10 lines, matches on line 2 and line 8 → two non-contiguous groups at context 1.
+        // 10 lines, matches on line 2 and line 8 -> two non-contiguous groups at context 1.
         let content = (1..=10)
             .map(|i| match i {
                 2 => "NEEDLE two".to_string(),
@@ -449,7 +449,7 @@ mod tests {
     #[tokio::test]
     async fn capped_message_counts_matches_not_output_rows() {
         let d = tempfile::tempdir().unwrap();
-        // 3 scattered matches at context 3 → ~23 output ROWS but only 3 MATCHES.
+        // 3 scattered matches at context 3 -> ~23 output ROWS but only 3 MATCHES.
         let lines: Vec<String> = (1..=30)
             .map(|i| {
                 if i % 10 == 5 {
@@ -460,7 +460,7 @@ mod tests {
             })
             .collect();
         std::fs::write(d.path().join("f.txt"), lines.join("\n") + "\n").unwrap();
-        // max_results 10: output rows (23) >= 10 but matches (3) < 10 → must NOT report capped.
+        // max_results 10: output rows (23) >= 10 but matches (3) < 10 -> must NOT report capped.
         let r = GrepTool
             .execute(
                 r#"{"pattern":"HIT","max_results":10,"context":3}"#,

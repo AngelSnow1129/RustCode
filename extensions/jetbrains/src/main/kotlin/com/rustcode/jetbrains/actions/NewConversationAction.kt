@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.actions
 
-import com.rustcode.jetbrains.ui.ensureAtomCodeChatContent
+import com.rustcode.jetbrains.ui.ensureRustCodeChatContent
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -16,9 +16,9 @@ class NewConversationAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.getData(CommonDataKeys.PROJECT) ?: return
-        ToolWindowManager.getInstance(project).getToolWindow("AtomCode")?.activate {
-            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("AtomCode") ?: return@activate
-            ensureAtomCodeChatContent(project, toolWindow).startNewConversation()
+        ToolWindowManager.getInstance(project).getToolWindow("RustCode")?.activate {
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("RustCode") ?: return@activate
+            ensureRustCodeChatContent(project, toolWindow).startNewConversation()
         }
     }
 }

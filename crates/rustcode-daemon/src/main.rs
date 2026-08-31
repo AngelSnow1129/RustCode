@@ -1,4 +1,4 @@
-//! RustCode API Service — standalone binary entrypoint.
+//! RustCode API Service -- standalone binary entrypoint.
 //!
 //! This is a thin shell around [`rustcode_daemon::run_server`]: it parses CLI
 //! arguments, performs process-global bootstrap (Windows console attach, legacy

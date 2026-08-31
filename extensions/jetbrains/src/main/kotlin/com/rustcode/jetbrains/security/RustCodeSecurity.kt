@@ -10,7 +10,7 @@ enum class PathSensitivity {
     Block,
 }
 
-object AtomCodeTokenFactory {
+object RustCodeTokenFactory {
     private val random = SecureRandom()
 
     fun createToken(): String {

@@ -14,9 +14,9 @@
 // monotonic timestamps).
 //
 // Format: `+{elapsed_us} [{CAT}] {tid} {message}`
-//   elapsed_us — microseconds since the first log event in this process
-//   CAT        — 2-4 char category (IN, KEY, PH, THR, REN, RD, QUE)
-//   tid        — short thread name or id (so `event_loop` vs `tuix-render`
+//   elapsed_us -- microseconds since the first log event in this process
+//   CAT        -- 2-4 char category (IN, KEY, PH, THR, REN, RD, QUE)
+//   tid        -- short thread name or id (so `event_loop` vs `tuix-render`
 //                is visible at a glance)
 
 use std::fs::{File, OpenOptions};
@@ -42,7 +42,7 @@ fn sink() -> Option<&'static Mutex<File>> {
     //     worker emits FOOT+REN+THR per paint (~3 traces)
     //   - under IME burst (8 chars in 100µs), that's 50+ mutex ops
     //     from two threads. Lock queueing added 1-3ms of main-thread
-    //     stall per burst, which the user perceives as "吞字" —
+    //     stall per burst, which the user perceives as "吞字" --
     //     characters logically accepted but visually delayed.
     //
     // Now: opt-in only. Default build ships no trace overhead at all
@@ -70,7 +70,7 @@ fn origin() -> Instant {
     *ORIGIN.get_or_init(Instant::now)
 }
 
-/// Low-level write. Don't call directly — use the `tuix_trace!` macro.
+/// Low-level write. Don't call directly -- use the `tuix_trace!` macro.
 pub fn write_line(cat: &str, args: std::fmt::Arguments<'_>) {
     let Some(sink) = sink() else {
         return;
@@ -83,16 +83,16 @@ pub fn write_line(cat: &str, args: std::fmt::Arguments<'_>) {
     }
 }
 
-/// `tuix_trace!("CAT", "fmt {}", args)` — compiles to a cheap `enabled()`
+/// `tuix_trace!("CAT", "fmt {}", args)` -- compiles to a cheap `enabled()`
 /// check when the env var is unset. Use short 2-4 char categories so
 /// log lines remain grep-able by column:
-///   IN  — input event entering handle_input
-///   KEY — key-handler outcome (Redraw / Commit / NoOp)
-///   PH  — UiPhase transition (Streaming → Idle, etc.)
-///   QUE — type-ahead queue push / pop
-///   THR — InputThrottle paint/park decision
-///   REN — render worker command processed
-///   RD  — raw reader thread event
+///   IN  -- input event entering handle_input
+///   KEY -- key-handler outcome (Redraw / Commit / NoOp)
+///   PH  -- UiPhase transition (Streaming -> Idle, etc.)
+///   QUE -- type-ahead queue push / pop
+///   THR -- InputThrottle paint/park decision
+///   REN -- render worker command processed
+///   RD  -- raw reader thread event
 #[macro_export]
 macro_rules! tuix_trace {
     ($cat:expr, $($arg:tt)*) => {{

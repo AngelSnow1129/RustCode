@@ -1,11 +1,11 @@
-//! Conformance harnesses for the kernel's four EXTENSION SEAMS — the reusable
+//! Conformance harnesses for the kernel's four EXTENSION SEAMS -- the reusable
 //! contract-checkers a third party runs against its OWN implementation of a seam.
 //!
 //! The kernel is an embeddable SDK whose behavior is extended by plugging code into
 //! four seams: a [`LlmProvider`](crate::provider::LlmProvider), a
 //! [`Tool`](crate::tool::Tool), a [`ToolMiddleware`](crate::middleware::ToolMiddleware),
 //! and [`LifecycleHooks`](crate::hook::LifecycleHooks). Each seam carries a CONTRACT
-//! (documented on its trait) that the kernel's turn loop RELIES ON — stable metadata
+//! (documented on its trait) that the kernel's turn loop RELIES ON -- stable metadata
 //! for prompt-cache safety, deterministic risk for approval caching, a stream that
 //! terminates, a must-not-panic posture, a gating middleware that honors the request
 //! timeout instead of parking forever. A third-party adapter / tool / middleware / hook
@@ -24,13 +24,13 @@
 //! an L2 specialization runs the tool/middleware/hook harnesses against its own
 //! extensions; the kernel's own `tests/conformance.rs` runs all four against the
 //! `testkit` doubles (a conforming double must pass; an adversarial double must FAIL a
-//! specific named check — proving the harness has teeth).
+//! specific named check -- proving the harness has teeth).
 //!
 //! PANIC-CATCH NOTE: the "must-not-panic" contract is made EXECUTABLE by running each
 //! injected call inside `catch_unwind`. This works under the default `cargo test`
 //! (unwind) profile, where a panicking impl is caught and reported as a failed check.
 //! Under the `panic = "abort"` release profile `catch_unwind` is a no-op and a panic
-//! aborts the process — so run conformance under `cargo test`, not a release binary.
+//! aborts the process -- so run conformance under `cargo test`, not a release binary.
 
 use std::future::Future;
 use std::time::Duration;
@@ -51,7 +51,7 @@ pub struct CheckOutcome {
     /// Stable identifier of the contract clause (e.g. `"name_stable"`).
     pub name: &'static str,
     pub passed: bool,
-    /// Human-readable explanation — the WHY of the contract on failure, or any
+    /// Human-readable explanation -- the WHY of the contract on failure, or any
     /// observed value worth surfacing on success.
     pub detail: String,
 }
@@ -94,7 +94,7 @@ impl ConformanceReport {
         self.checks.iter().filter(|c| !c.passed).collect()
     }
 
-    /// Panic with a readable, multi-line explanation if any check failed — the
+    /// Panic with a readable, multi-line explanation if any check failed -- the
     /// one-line gate a downstream crate uses to assert its impl is conformant.
     pub fn assert_conformant(&self) {
         if self.passed() {
@@ -103,7 +103,7 @@ impl ConformanceReport {
         let lines: Vec<String> = self
             .failures()
             .iter()
-            .map(|c| format!("  ✗ {}: {}", c.name, c.detail))
+            .map(|c| format!("  [x] {}: {}", c.name, c.detail))
             .collect();
         panic!(
             "{} conformance FAILED for `{}` ({} of {} checks failed):\n{}",
@@ -167,7 +167,7 @@ pub(crate) async fn run_void<F: Future<Output = ()>>(
         Ok(Err(p)) => report.record(
             name,
             false,
-            format!("panicked: {p} — see the seam's must-not-panic PANIC CONTRACT"),
+            format!("panicked: {p} -- see the seam's must-not-panic PANIC CONTRACT"),
         ),
         Err(t) => report.record(name, false, t),
     }

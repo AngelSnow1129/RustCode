@@ -5,7 +5,7 @@
 // - maybeNotifyTurnFinished 负责收集浏览器全局（Notification/BroadcastChannel/
 //   document.visibilityState/localStorage）并执行副作用；
 // - 去重：localStorage 时间戳是权威（跨标签共享），BroadcastChannel 只作即时信号；
-// - 标题/正文文案镜像 atomcode-capabilities/src/notify.rs，保证跨端一致。
+// - 标题/正文文案镜像 rustcode-capabilities/src/notify.rs，保证跨端一致。
 
 export interface NotificationPrefs {
   /** 总开关，默认 true。 */
@@ -29,9 +29,9 @@ export interface TurnFinishedInfo {
   dedupeKey?: string;
 }
 
-const PREFS_KEY = 'atomcode.webui_notify';
-const LAST_NOTIFY_KEY = 'atomcode.webui_last_notify';
-const CHANNEL_NAME = 'atomcode-webui-notify';
+const PREFS_KEY = 'rustcode.webui_notify';
+const LAST_NOTIFY_KEY = 'rustcode.webui_last_notify';
+const CHANNEL_NAME = 'rustcode-webui-notify';
 const DEDUP_WINDOW_MS = 5000;
 const MESSAGE_SNIPPET_MAX = 120;
 
@@ -87,7 +87,7 @@ export function savePrefs(prefs: NotificationPrefs): void {
 
 /**
  * 从 `/config` 种入 daemon 默认值：仅当用户**未显式设置**过偏好时生效
- * （localStorage 无 `atomcode.webui_notify` 键）。让与 TUI 共享的
+ * （localStorage 无 `rustcode.webui_notify` 键）。让与 TUI 共享的
  * `notifications.enabled` / `min_duration_secs` 对 webui 生效，同时
  * 用户一旦在设置面板改过则不再被后端默认值覆盖。
  */
@@ -231,16 +231,16 @@ function fmtDuration(ms: number): string {
 function titleForStopReason(stopReason?: string): string {
   switch (stopReason) {
     case 'natural':
-      return 'AtomCode done';
+      return 'RustCode done';
     case 'cancelled':
-      return 'AtomCode cancelled';
+      return 'RustCode cancelled';
     case 'error':
-      return 'AtomCode failed';
+      return 'RustCode failed';
     case 'turn_limit':
     case 'step_limit':
-      return 'AtomCode stopped';
+      return 'RustCode stopped';
     default:
-      return 'AtomCode finished';
+      return 'RustCode finished';
   }
 }
 

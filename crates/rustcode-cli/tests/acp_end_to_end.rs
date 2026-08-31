@@ -1,19 +1,19 @@
 //! End-to-end integration test: an in-process ACP client drives the fully-wired
-//! agent through `initialize → session/new → session/prompt` over a duplex
+//! agent through `initialize -> session/new -> session/prompt` over a duplex
 //! [`Channel`] (no subprocess, no network), backed by a scripted stub provider.
 //!
 //! Harness decision (Task 1 spike): the `agent-client-protocol` crate exposes
 //! `Channel::duplex() -> (Channel, Channel)`, two endpoints wired to each other,
 //! each implementing `ConnectTo<R>` for any role. We run the real agent
 //! (`rustcode::acp::serve_over`) over one endpoint and a `Client.builder()` over
-//! the other — the same handlers production uses, just over an in-memory pipe.
+//! the other -- the same handlers production uses, just over an in-memory pipe.
 //!
 //! The stub is `rustcode_kernel::testkit::MockProvider`, the kernel's own
-//! scriptable `LlmProvider` (exported unconditionally — no feature flag). It is
+//! scriptable `LlmProvider` (exported unconditionally -- no feature flag). It is
 //! injected via `AcpServeOptions.provider_factory`, so each session gets a
 //! factory-built stub and the agent never touches the network. The fact that
 //! `session/new` returns a sessionId at all proves the real
-//! `prepare → assemble → spawn` pipeline ran with the injected stub.
+//! `prepare -> assemble -> spawn` pipeline ran with the injected stub.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,7 +48,7 @@ impl CodingProviderFactory for StubProviderFactory {
 }
 
 /// A dummy, non-routable engine config. The provider is injected, so none of
-/// these reach the network — `base_url` is never dialed.
+/// these reach the network -- `base_url` is never dialed.
 fn dummy_engine() -> EngineConfig {
     let mut config = rustcode_coding::CodingAgentConfig::new(
         "test-key",
@@ -72,7 +72,7 @@ async fn initialize_new_prompt_streams_and_stops() {
     // an empty RUSTCODE_HOME means no global memory.md, no hooks.json, no MCP.
     let home = tempfile::tempdir().expect("home tempdir");
     std::env::set_var("RUSTCODE_HOME", home.path());
-    // A clean working dir with no `.mcp.json` → no MCP servers spawned.
+    // A clean working dir with no `.mcp.json` -> no MCP servers spawned.
     let cwd = tempfile::tempdir().expect("cwd tempdir");
 
     // 1. Stub provider scripted for ONE user turn: text "hello", then a normal
@@ -126,7 +126,7 @@ async fn initialize_new_prompt_streams_and_stops() {
                 .send_request(InitializeRequest::new(ProtocolVersion::V1))
                 .block_task()
                 .await?;
-            // session/new — capturing a sessionId proves prepare/assemble/spawn
+            // session/new -- capturing a sessionId proves prepare/assemble/spawn
             // ran with the INJECTED stub provider.
             let new = conn
                 .send_request(NewSessionRequest::new(cwd_path_in_client.clone()))
@@ -272,9 +272,9 @@ async fn initialize_new_prompt_streams_and_stops() {
     agent_task.abort();
 }
 
-/// Persisted conversation lifecycle: create → prompt → close → list shows the
-/// persisted history → `session/resume` reconnects to the SAME session (no
-/// replay, per v1) → the next prompt continues on the restored context →
+/// Persisted conversation lifecycle: create -> prompt -> close -> list shows the
+/// persisted history -> `session/resume` reconnects to the SAME session (no
+/// replay, per v1) -> the next prompt continues on the restored context ->
 /// `session/delete` removes it from history. Error cases: unknown session ids,
 /// non-ACP ids, and cwd mismatches all fail closed with JSON-RPC errors.
 #[tokio::test]
@@ -368,7 +368,7 @@ async fn resume_reconnects_to_persisted_session() {
                 .await?;
             serde_json::to_value(&resumed).unwrap();
 
-            // Turn 2 (after resume) — proves the live session was rebuilt.
+            // Turn 2 (after resume) -- proves the live session was rebuilt.
             let second = conn
                 .send_request(PromptRequest::new(
                     sid.clone(),
@@ -443,7 +443,7 @@ async fn resume_reconnects_to_persisted_session() {
 /// poisons the NEXT prompt on the same session (the second prompt would read the
 /// stale `TurnComplete` first and finish instantly with no streamed content).
 ///
-/// Turn 1 scripts a mid-stream `StreamEvent::Error` (cleanly fails the turn → an
+/// Turn 1 scripts a mid-stream `StreamEvent::Error` (cleanly fails the turn -> an
 /// `AgentEvent::Error` followed by `TurnComplete{ProviderError}`). Turn 2 on the
 /// SAME session scripts a normal `"hello"` + end_turn. The test asserts turn 2 is
 /// NOT poisoned: it ends `end_turn` AND streams the "hello" chunk.
@@ -561,10 +561,10 @@ async fn error_turn_does_not_poison_next_prompt_on_same_session() {
 }
 
 /// Draft v2 end-to-end: a `Client.v2()` drives the SAME wired agent (the
-/// protocol router negotiates v2 on this connection) through initialize →
-/// session/new → session/prompt. The v2 lifecycle is exercised: `session/prompt`
+/// protocol router negotiates v2 on this connection) through initialize ->
+/// session/new -> session/prompt. The v2 lifecycle is exercised: `session/prompt`
 /// acks immediately with `{}`, then `state_update` notifications stream
-/// `running` → chunks → `idle` with `end_turn`.
+/// `running` -> chunks -> `idle` with `end_turn`.
 #[tokio::test]
 #[serial_test::serial]
 async fn v2_client_negotiates_and_runs_prompt_lifecycle() {
@@ -761,7 +761,7 @@ async fn v2_client_negotiates_and_runs_prompt_lifecycle() {
 /// Session config options over the wired agent: `session/new` advertises the
 /// execution modes plus the `mode` / `reasoning_effort` config options, and
 /// `session/set_config_option` switches the runtime mode and reloads the
-/// provider for the effort — both on a real kernel session.
+/// provider for the effort -- both on a real kernel session.
 #[tokio::test]
 #[serial_test::serial]
 async fn session_config_options_mode_and_effort() {
@@ -1322,7 +1322,7 @@ async fn message_ids_advance_per_model_round_within_a_turn() {
     agent_task.abort();
 }
 
-/// `request_user_input` → `elicitation/create` (form) round-trip (P1-3).
+/// `request_user_input` -> `elicitation/create` (form) round-trip (P1-3).
 ///
 /// The client advertises `clientCapabilities.elicitation.form`; the stub model
 /// calls the `request_user_input` tool; the agent forwards it as an ACP
@@ -1626,7 +1626,7 @@ async fn additional_directories_round_trip_and_validation() {
                     "initialize must advertise additionalDirectories: {init_json}"
                 );
 
-                // session/new with two extra roots → accepted; list reports them.
+                // session/new with two extra roots -> accepted; list reports them.
                 let new = conn
                     .send_request(
                         NewSessionRequest::new(cwd_path.clone()).additional_directories(vec![
@@ -1651,7 +1651,7 @@ async fn additional_directories_round_trip_and_validation() {
                     "session/list must report the extra roots"
                 );
 
-                // A relative additionalDirectories entry → invalid params.
+                // A relative additionalDirectories entry -> invalid params.
                 let bad = conn
                     .send_request(
                         NewSessionRequest::new(cwd_path.clone()).additional_directories(vec![
@@ -1682,9 +1682,9 @@ async fn additional_directories_round_trip_and_validation() {
 }
 
 /// v2 approval shape (P2-4 方案 A): a Risky tool call (destructive bash)
-/// triggers a `session/request_permission` built from the **v2** schema —
+/// triggers a `session/request_permission` built from the **v2** schema --
 /// required `title` plus structured `subject.toolCall` plus the three standard
-/// options — instead of the v1 wire shape; the client's `allow_once` feeds the
+/// options -- instead of the v1 wire shape; the client's `allow_once` feeds the
 /// kernel and the turn ends normally with `end_turn`.
 #[tokio::test]
 #[serial_test::serial]
@@ -1693,7 +1693,7 @@ async fn v2_approval_uses_v2_request_shape() {
     std::env::set_var("RUSTCODE_HOME", home.path());
     let cwd = tempfile::tempdir().expect("cwd tempdir");
 
-    // Destructive bash → Risky → approval round-trip. The target path does not
+    // Destructive bash -> Risky -> approval round-trip. The target path does not
     // exist, so the (allowed) tool call is harmless. Extra scripts keep the
     // kernel's post-tool closing calls fed.
     let stub: Arc<MockProvider> = Arc::new(
@@ -1884,7 +1884,7 @@ async fn v2_approval_uses_v2_request_shape() {
 /// config catalog as `config_options`; right after, the agent broadcasts the
 /// slash-command surface as `available_commands_update` (v2 `Text` input).
 /// `session/set_config_option` applies the `mode` select, broadcasts the full
-/// updated catalog as `config_option_update`, and returns it in the response —
+/// updated catalog as `config_option_update`, and returns it in the response --
 /// all through the v2 wire shape (`configId`, not v1 `id`).
 #[tokio::test]
 #[serial_test::serial]

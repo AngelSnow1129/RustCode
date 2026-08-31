@@ -6,7 +6,7 @@
 //! (macOS Terminal.app, Windows conhost), returns `None` and the
 //! caller falls back to the legacy dark palette.
 //!
-//! Must be called with raw mode active — otherwise the response is
+//! Must be called with raw mode active -- otherwise the response is
 //! line-buffered by the kernel and never reaches us within the timeout.
 
 use std::time::Duration;
@@ -65,12 +65,12 @@ fn detect_light_unix(timeout: Duration) -> Option<bool> {
     //     time the DA1 reply arrives.
     //   * DA1 is supported by virtually every terminal (xterm, VTE,
     //     Konsole, kitty, WezTerm, Alacritty, Windows Terminal, tmux/
-    //     screen passthrough, …) and round-trips in ~1 RTT.
+    //     screen passthrough, ...) and round-trips in ~1 RTT.
     //
-    // So instead of betting a fixed timeout against the reply latency —
+    // So instead of betting a fixed timeout against the reply latency --
     // which a high-latency SSH session (or tmux passthrough) reliably
     // beats, leaving `]11;rgb:ffff/ffff/ffff\` to leak into the input
-    // box once the crossterm reader thread starts — we drain until the
+    // box once the crossterm reader thread starts -- we drain until the
     // DA1 terminator (`c`) and KNOW the OSC 11 reply is fully consumed.
     // The wait is exactly one round-trip on a responsive terminal; only
     // a terminal that answers NEITHER query pays the absolute cap below.
@@ -103,7 +103,7 @@ fn detect_light_unix(timeout: Duration) -> Option<bool> {
         // owned by stdin for the process lifetime.
         let nread = unsafe { poll_read(fd, deadline, &mut chunk) };
         if nread == 0 {
-            break; // timeout / EOF — terminal answered neither query
+            break; // timeout / EOF -- terminal answered neither query
         }
         got_any = true;
         buf.extend_from_slice(&chunk[..nread]);
@@ -121,7 +121,7 @@ fn detect_light_unix(timeout: Duration) -> Option<bool> {
 }
 
 /// True when `buf` contains a complete Primary Device Attributes (DA1)
-/// reply: `ESC [ … c`, where the parameter bytes between `[` and the
+/// reply: `ESC [ ... c`, where the parameter bytes between `[` and the
 /// final `c` are only digits, `;`, or `?` (the DA1 reply shape, e.g.
 /// `ESC [ ? 6 2 ; c`). Used as the drain anchor in [`detect_light_unix`]:
 /// because terminals answer queries in order, seeing the DA1 terminator
@@ -140,7 +140,7 @@ fn has_da1_terminator(buf: &[u8]) -> bool {
                     return true;
                 }
                 // DA1 params are digits / ';' / '?'. Anything else means
-                // this CSI isn't a DA1 reply — stop scanning this one.
+                // this CSI isn't a DA1 reply -- stop scanning this one.
                 if !(b.is_ascii_digit() || b == b';' || b == b'?') {
                     break;
                 }
@@ -201,7 +201,7 @@ unsafe fn poll_read(fd: i32, deadline: std::time::Instant, out: &mut [u8]) -> us
 pub(crate) fn parse_osc11_response(bytes: &[u8]) -> Option<bool> {
     // Allow non-UTF-8 prefix bytes (a stray keystroke could be any
     // byte); slice to the start of `rgb:` and parse from there as
-    // ASCII (which it is — the OSC 11 reply is pure ASCII).
+    // ASCII (which it is -- the OSC 11 reply is pure ASCII).
     let needle = b"rgb:";
     let rgb_pos = bytes.windows(needle.len()).position(|w| w == needle)?;
     let after = std::str::from_utf8(&bytes[rgb_pos + needle.len()..]).ok()?;
@@ -223,10 +223,10 @@ pub(crate) fn parse_osc11_response(bytes: &[u8]) -> Option<bool> {
 /// Parse one OSC 11 colour component. xterm returns 4 hex chars (16-bit
 /// precision); some emulators return 2 (8-bit) or even 1. Reads
 /// hex-digit-prefix-only and normalises to 0..=255 based on observed
-/// width — so `rgb:ff/ff/ff` and `rgb:ffff/ffff/ffff` both come out
+/// width -- so `rgb:ff/ff/ff` and `rgb:ffff/ffff/ffff` both come out
 /// as 255.0.
 ///
-/// Mirror cfg gate of `parse_osc11_response` — only that function and
+/// Mirror cfg gate of `parse_osc11_response` -- only that function and
 /// the tests reach this helper, so Windows non-test builds would
 /// otherwise flag it as dead code.
 #[cfg(any(unix, test))]
@@ -236,7 +236,7 @@ fn parse_hex_component(s: &str) -> Option<f64> {
         return None;
     }
     let val = u32::from_str_radix(&hex, 16).ok()?;
-    // 4-char hex → max 0xFFFF = 65535; 2-char → 0xFF = 255; 1-char → 0xF = 15.
+    // 4-char hex -> max 0xFFFF = 65535; 2-char -> 0xFF = 255; 1-char -> 0xF = 15.
     let max = (1u64 << (4 * hex.len())).saturating_sub(1) as u32;
     if max == 0 {
         return None;
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn threshold_one_above_50_percent_grey_is_light() {
-        // 129/255 → luminance just over 128 → light.
+        // 129/255 -> luminance just over 128 -> light.
         let response = b"\x1b]11;rgb:8181/8181/8181\x07";
         assert_eq!(parse_osc11_response(response), Some(true));
     }
@@ -338,15 +338,15 @@ mod tests {
     #[test]
     fn luminance_weights_green_more_than_red_or_blue() {
         // Rec. 709: G dominates. Pure green should be brighter than
-        // pure red. (255 * 0.7152 = 182.4 > 128 → light.)
+        // pure red. (255 * 0.7152 = 182.4 > 128 -> light.)
         let pure_green = b"\x1b]11;rgb:0000/ffff/0000\x07";
         assert_eq!(parse_osc11_response(pure_green), Some(true));
 
-        // Pure red: 255 * 0.2126 = 54.2 → dark.
+        // Pure red: 255 * 0.2126 = 54.2 -> dark.
         let pure_red = b"\x1b]11;rgb:ffff/0000/0000\x07";
         assert_eq!(parse_osc11_response(pure_red), Some(false));
 
-        // Pure blue: 255 * 0.0722 = 18.4 → dark.
+        // Pure blue: 255 * 0.0722 = 18.4 -> dark.
         let pure_blue = b"\x1b]11;rgb:0000/0000/ffff\x07";
         assert_eq!(parse_osc11_response(pure_blue), Some(false));
     }

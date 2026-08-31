@@ -161,14 +161,14 @@ native SessionManager / snapshot / transcript
 禁止从 native 数据反向写回 core JSON，也禁止让 importer DTO 进入 kernel、coding runtime
 或公共 session API。只有历史格式消费者归零后，才能删除该 importer。
 
-## `atomcode-core` 状态
+## `rustcode-core` 状态
 
-`atomcode-core` 已从 workspace 和生产依赖中退役，当前不存在现役的
-`crates/atomcode-core`：
+`rustcode-core` 已从 workspace 和生产依赖中退役，当前不存在现役的
+`crates/rustcode-core`：
 
 - core legacy `AgentClient/AgentCommand/AgentEvent` 和 v1 engine 已退役；
-- `atomcode-bridge`、双 endpoint、v1/v2 选择开关和 core driver fallback 已退役；
-- 生产代码不得重新创建 `atomcode-core` facade、兼容 crate 或第二 runtime owner；
+- `rustcode-bridge`、双 endpoint、v1/v2 选择开关和 core driver fallback 已退役；
+- 生产代码不得重新创建 `rustcode-core` facade、兼容 crate 或第二 runtime owner；
 - 源码注释中出现“ported from core”“retired core”表示历史来源，不表示运行时依赖；
 - daemon 的历史 JSON importer 是当前唯一允许保留的 core 格式兼容面。
 

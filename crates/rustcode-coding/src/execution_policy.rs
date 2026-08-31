@@ -540,7 +540,7 @@ mod tests {
     fn an_empty_follow_up_message_does_not_clear_the_active_restriction() {
         // An image-only steer arrives as a non-synthetic user message whose text was
         // moved out for vision preprocessing, so it is empty. The per-turn policy must
-        // still derive from the last user message that actually expressed intent — the
+        // still derive from the last user message that actually expressed intent -- the
         // restriction set earlier in the turn survives rather than being silently dropped.
         let messages = vec![
             Message::user("最后只改代码，禁止编译和执行脚本"),

@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 
 class DaemonSupervisorReducerTest {
     @Test
-    fun `probe succeeded with atomcode daemon enters ready state`() {
+    fun `probe succeeded with rustcode daemon enters ready state`() {
         val model = reduceDaemonSupervisor(
             DaemonSupervisorModel(state = DaemonSupervisorState.Probing),
             DaemonSupervisorAction.ProbeSucceeded(

@@ -5,17 +5,17 @@ set -euo pipefail
 # Package release binaries into tar.gz archives for Homebrew-cask.
 #
 # Environment:
-#   ATOMGIT_TOKEN      GitCode/AtomGit personal access token (required)
-#   ATOMGIT_OWNER       repo owner (default: atomgit_rustcode)
-#   ATOMGIT_REF         branch/tag for version detection (default: main)
-#   ATOMGIT_VERSION     override version (skip API detection)
+#   GITCODE_TOKEN      GitCode personal access token (required)
+#   GITCODE_OWNER       repo owner (default: SecLab)
+#   GITCODE_REF         branch/tag for version detection (default: main)
+#   GITCODE_VERSION     override version (skip API detection)
 
-B="https://api.atomgit.com/api/v5"
-: "${ATOMGIT_TOKEN:?ATOMGIT_TOKEN is required}"
-T="$ATOMGIT_TOKEN"
-o="${ATOMGIT_OWNER:-atomgit_rustcode}"
+B="https://api.gitcode.com/api/v5"
+: "${GITCODE_TOKEN:?GITCODE_TOKEN is required}"
+T="$GITCODE_TOKEN"
+o="${GITCODE_OWNER:-SecLab}"
 r="rustcode"
-ref="${ATOMGIT_REF:-main}"
+ref="${GITCODE_REF:-main}"
 
 # ── helpers (same pattern as ci-release scripts) ──
 et(){
@@ -24,7 +24,7 @@ et(){
     j=jq-macos-amd64; [[ $(uname -m) == arm64 ]] && j=jq-macos-arm64
     g="https://github.com/jqlang/jq/releases/download/jq-1.7.1/$j"
     d=$(mktemp -d) || return 1; p=$d/jq
-    for u in "${ATOMGIT_JQ_URL:-}" "$g" "https://ghfast.top/$g"; do
+    for u in "${GITCODE_JQ_URL:-}" "$g" "https://ghfast.top/$g"; do
         [[ $u ]] || continue
         curl -fsSL --connect-timeout 40 --retry 3 "$u" -o "$p" || continue
         s=$(stat -f%z "$p" 2>/dev/null || echo 0)
@@ -77,8 +77,8 @@ upl(){
 # ── version ──
 et || exit 1
 
-if [ -n "${ATOMGIT_VERSION:-}" ]; then
-    tag="v${ATOMGIT_VERSION#v}"
+if [ -n "${GITCODE_VERSION:-}" ]; then
+    tag="v${GITCODE_VERSION#v}"
 else
     j=$(fct) || { echo "Error: failed to fetch Cargo.toml"; exit 1; }
     jq -e .error_code <<<"$j" &>/dev/null && { echo "Error fetching Cargo.toml: $(echo "$j" | jq -r .message)"; exit 1; }
@@ -93,7 +93,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 # ── platforms ──
 PLATFORMS="darwin-arm64 darwin-x64 linux-arm64 linux-x64"
-DOWNLOAD_BASE="https://atomgit.com/$o/$r/releases/download/${tag}"
+DOWNLOAD_BASE="https://gitcode.com/$o/$r/releases/download/${tag}"
 
 # ── download raw binaries ──
 echo "[1/4] Downloading raw binaries ..."

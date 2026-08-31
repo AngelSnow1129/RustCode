@@ -1,4 +1,4 @@
-//! `glob` — find files by glob pattern under a base directory, gitignore-aware.
+//! `glob` -- find files by glob pattern under a base directory, gitignore-aware.
 //! Read-only ⇒ always `Safe`. Standard glob semantics (`**` crosses directories, `*`
 //! does not) via `globset` with `literal_separator(true)`. Build/VCS/cache dirs are
 //! skipped; results sorted, capped at 100.
@@ -44,12 +44,12 @@ impl Tool for GlobTool {
             "required": ["pattern"]
         })
     }
-    /// No side effects — a pure read. Makes it `parallel_safe` (concurrent
+    /// No side effects -- a pure read. Makes it `parallel_safe` (concurrent
     /// execution) and allowed in plan mode.
     fn read_only_hint(&self) -> bool {
         true
     }
-    // read-only → risk() defaults to Safe.
+    // read-only -> risk() defaults to Safe.
     async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -61,7 +61,7 @@ impl Tool for GlobTool {
         };
         // Models routinely paste an absolute path straight into `pattern` (e.g.
         // `G:/VR2024/keystore/*`) with no `path` base. Without honoring that, the walk
-        // would run in the working dir and silently match nothing — making an existing
+        // would run in the working dir and silently match nothing -- making an existing
         // file look like it "does not exist". An absolute prefix in the pattern wins
         // over `path`; otherwise fall back to `path` (default: the working dir).
         let (base, match_pattern) = match split_absolute_base(&a.pattern) {
@@ -170,7 +170,7 @@ fn split_absolute_base(pattern: &str) -> Option<(PathBuf, String)> {
         return None;
     };
     let rest = pattern[sep + 1..].replace('\\', "/");
-    // A trailing separator (a pasted directory path) leaves no remainder — list the
+    // A trailing separator (a pasted directory path) leaves no remainder -- list the
     // directory's direct children rather than building an empty matcher that matches
     // nothing (which would falsely report "No files matching").
     let rest = if rest.is_empty() {
@@ -193,7 +193,7 @@ mod tests {
         let (base, rest) = split_absolute_base("G:/VR2024/keystore/*").unwrap();
         assert_eq!(base, PathBuf::from("G:/VR2024/keystore"));
         assert_eq!(rest, "*");
-        // Windows drive, backslashes + recursive glob → remainder normalized to `/`.
+        // Windows drive, backslashes + recursive glob -> remainder normalized to `/`.
         let (base, rest) = split_absolute_base(r"G:\VR2024\**\*.jks").unwrap();
         assert_eq!(base, PathBuf::from(r"G:\VR2024"));
         assert_eq!(rest, "**/*.jks");
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn split_absolute_base_expands_leading_tilde() {
-        // A `~/…` base is absolute (home-relative), NOT a cwd-relative walk — parity
+        // A `~/...` base is absolute (home-relative), NOT a cwd-relative walk -- parity
         // with the `path` arg. Assert relative to the same home the code reads.
         if let Some(home) = crate::pathutil::home_dir() {
             let (base, rest) = split_absolute_base("~/proj/**/*.rs").unwrap();
@@ -236,7 +236,7 @@ mod tests {
         }
     }
 
-    /// Same recovery clue as `grep`/`list_directory` — glob failed on the identical guessed
+    /// Same recovery clue as `grep`/`list_directory` -- glob failed on the identical guessed
     /// path in the reported session.
     #[tokio::test]
     async fn missing_base_dir_error_carries_the_nearest_existing_ancestor() {

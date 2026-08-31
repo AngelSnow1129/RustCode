@@ -2,16 +2,16 @@
 //!
 //! The two ACP chains previously duplicated the entire turn loop
 //! (`run_prompt_turn` in `dispatch.rs` vs `run_prompt_turn_v2` in `v2.rs`):
-//! the same event-loop skeleton — session resolution, `submit`, the
+//! the same event-loop skeleton -- session resolution, `submit`, the
 //! `$/cancel_request` watcher, approval/elicitation/unknown-request handling,
 //! todo/plan bookkeeping, `Usage` message-id advancement, auto-title, and the
-//! drain-`Error`-then-`TurnFinished` discipline — was written twice with only
+//! drain-`Error`-then-`TurnFinished` discipline -- was written twice with only
 //! the wire shapes differing. This module owns that skeleton once.
 //!
 //! [`TurnWire`] is the per-protocol surface the driver needs: each chain
 //! implements it as a thin struct holding its own `cx`/session-id/responder,
 //! translating neutral kernel events to its own `session/update` wire shape.
-//! The driver is deliberately protocol-agnostic — it never mentions v1 or v2
+//! The driver is deliberately protocol-agnostic -- it never mentions v1 or v2
 //! schema types, session ids, or responders.
 
 use std::collections::HashMap;
@@ -43,11 +43,11 @@ pub(crate) trait TurnWire {
 
     /// Send one update to the client, wrapped in the chain's session
     /// notification type. Failures propagate (a dead transport tears the
-    /// connection — reserved for genuine transport death, per the loops' rule).
+    /// connection -- reserved for genuine transport death, per the loops' rule).
     fn notify(&self, update: Self::Update) -> Result<(), agent_client_protocol::Error>;
 
     /// The optional `running` state update the chain emits when the turn
-    /// starts (v2: `state_update(running)`; v1: none — its response is the
+    /// starts (v2: `state_update(running)`; v1: none -- its response is the
     /// ack).
     fn running_update(&self) -> Option<Self::Update>;
 
@@ -55,8 +55,8 @@ pub(crate) trait TurnWire {
     /// `true` when the command was handled: the chain replied via its own
     /// notification/response (using `msg_id` for any chunk) and the turn ends
     /// without a kernel round-trip. Returns `false` when the prompt must reach
-    /// the kernel whole (not a slash command, an unknown `/…`, or attachment
-    /// prompts — a local handler would silently drop attachments).
+    /// the kernel whole (not a slash command, an unknown `/...`, or attachment
+    /// prompts -- a local handler would silently drop attachments).
     /// v1 executes its slash command table locally; v2 sends slash input to
     /// the kernel and never intercepts.
     async fn try_slash(
@@ -111,7 +111,7 @@ pub(crate) trait TurnWire {
 
     /// Terminal response for a prompt on an unknown session:
     /// v1 answers the deferred responder with an internal error; v2 emits
-    /// idle(`other`). No message id exists yet — the session lookup precedes
+    /// idle(`other`). No message id exists yet -- the session lookup precedes
     /// id allocation.
     fn unknown_session(&mut self) -> Result<(), agent_client_protocol::Error>;
 
@@ -141,19 +141,19 @@ pub(crate) trait TurnWire {
 /// unknown kernel requests fail closed; `AgentError` is drained so its
 /// trailing `TurnComplete` cannot poison the next turn; `Usage` advances the
 /// message id and accumulates session usage), derives the auto-title, and maps
-/// the terminal through [`TurnWire::finish`]. All wire shapes — notifications,
+/// the terminal through [`TurnWire::finish`]. All wire shapes -- notifications,
 /// event translation, approval/elicitation round-trips, plan/title updates,
-/// and final response — are delegated to `wire`.
+/// and final response -- are delegated to `wire`.
 /// Message shape is per-chain, so slash interception is a per-chain hook
 /// too: [`TurnWire::try_slash`] runs before the kernel submission, after the
-/// turn's message id is allocated — v1 executes its local slash command table
+/// turn's message id is allocated -- v1 executes its local slash command table
 /// and answers the turn itself; v2 sends slash input to the kernel and never
 /// intercepts.
 ///
 /// # Error discipline
 ///
 /// The `cx.send_notification` failures propagate (transport death tears the
-/// whole connection — the established rule); approval/elicitation round-trip
+/// whole connection -- the established rule); approval/elicitation round-trip
 /// failures never do (single-call events; fail closed and keep the turn).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_turn<W: TurnWire>(
@@ -226,7 +226,7 @@ pub(crate) async fn run_turn<W: TurnWire>(
     // request's cancellation marker; a watcher task reacts by cancelling the
     // kernel turn (same effect as `session/cancel`). The kernel emits a
     // Cancelled terminal, the loop drains it, and the chain reports its
-    // `cancelled` stop reason — never an error. The watcher exits via
+    // `cancelled` stop reason -- never an error. The watcher exits via
     // `done_tx` when the turn ends, so it never leaks into a later turn.
     let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
     let cancel_runtime = runtime.clone();
@@ -242,10 +242,10 @@ pub(crate) async fn run_turn<W: TurnWire>(
 
     // The kernel ALWAYS emits a trailing `TurnComplete` after an `Error` (see
     // kernel `finish_turn`). We must DRAIN that `TurnComplete` rather than
-    // return on the `Error` — otherwise it stays buffered in the session's
+    // return on the `Error` -- otherwise it stays buffered in the session's
     // events channel and poisons the NEXT prompt.
     let mut last_error: Option<String> = None;
-    // Tool call id → (name, args) for `todowrite`/`todo`, so a completed
+    // Tool call id -> (name, args) for `todowrite`/`todo`, so a completed
     // result can fold its arguments into the session's todo history.
     let mut todo_started: HashMap<String, (String, String)> = HashMap::new();
 
@@ -276,7 +276,7 @@ pub(crate) async fn run_turn<W: TurnWire>(
             }
             Some(CodingRuntimeEvent::TurnFinished(completion)) => break Ok(completion),
             Some(CodingRuntimeEvent::Agent(AgentEvent::Error { message, .. })) => {
-                // Do NOT break — keep looping so the trailing `TurnComplete`
+                // Do NOT break -- keep looping so the trailing `TurnComplete`
                 // is consumed and cannot poison the next turn on this session.
                 last_error = Some(message);
             }
@@ -323,7 +323,7 @@ pub(crate) async fn run_turn<W: TurnWire>(
                         if let Some(state) = map.get_mut(sid) {
                             // Both chains accumulate session usage here (the
                             // v1 `/usage` text and the shared catalog both read
-                            // it; v2 previously skipped the accumulation — the
+                            // it; v2 previously skipped the accumulation -- the
                             // driver unifies it).
                             state.usage.0 += u64::from(meta.tokens.prompt);
                             state.usage.1 += u64::from(meta.tokens.completion);
@@ -360,13 +360,13 @@ pub(crate) async fn run_turn<W: TurnWire>(
     // TurnFinished is authoritative. Budget/loop fuses may emit an AgentError
     // diagnostic immediately before their typed terminal; the chain must still
     // map to its own typed terminal instead of misreporting an internal
-    // provider failure. Stop the `$/cancel_request` watcher now — a late
+    // provider failure. Stop the `$/cancel_request` watcher now -- a late
     // cancellation must not leak into the next turn on this session.
     let _ = done_tx.send(());
     // Auto-title: once per session, derive a display title from the first real
     // user prompt and broadcast it. Slash turns return before reaching here
     // (handled in the v1 wrapper), so the text arriving here is a real user
-    // message (or an unknown `/…` that fell through to the kernel);
+    // message (or an unknown `/...` that fell through to the kernel);
     // attachment-only turns have empty text and never title the session.
     if let Some(title) = derive_title(&text) {
         let mut map = sessions.lock().await;

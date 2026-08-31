@@ -15,7 +15,7 @@ use rustcode_kernel::testkit::AlwaysStopProvider;
 use rustcode_kernel::tool::{ProgressSink, Tool, ToolContext, ToolRegistry};
 use tokio_util::sync::CancellationToken;
 
-/// Provider factory that always stops with the given text — every difficulty
+/// Provider factory that always stops with the given text -- every difficulty
 /// routes to the same scripted provider, so no network and no flaky timing.
 fn always_stop_providers(
     text: &'static str,
@@ -23,7 +23,7 @@ fn always_stop_providers(
     Arc::new(move |_difficulty| Arc::new(AlwaysStopProvider::new(text)) as Arc<dyn LlmProvider>)
 }
 
-/// Empty tool mount — the scripted provider never calls tools.
+/// Empty tool mount -- the scripted provider never calls tools.
 fn empty_tools() -> Arc<dyn Fn(TeamPermission) -> rustcode_kernel::tool::MountedTools + Send + Sync>
 {
     Arc::new(|_permission| ToolRegistry::new().mount(&[]))
@@ -49,8 +49,8 @@ fn tool_ctx() -> ToolContext {
     }
 }
 
-/// Runner end-to-end: a single member task runs a REAL agent turn (builder →
-/// provider → run_to_completion) and returns a completed outcome whose text is
+/// Runner end-to-end: a single member task runs a REAL agent turn (builder ->
+/// provider -> run_to_completion) and returns a completed outcome whose text is
 /// the provider's output. The progress hook must have emitted activity.
 #[tokio::test]
 async fn runner_completes_a_single_member_task() {
@@ -119,8 +119,8 @@ async fn runner_worker_role_completes_with_scope() {
     assert!(outcome.output.contains("worker done"));
 }
 
-/// Manager + tool + runner 联动：delegate 两个任务 → wait 到终态 →
-/// result 聚合出 completed=2。验证全链路（TeamTool → TeamRunManager →
+/// Manager + tool + runner 联动：delegate 两个任务 -> wait 到终态 ->
+/// result 聚合出 completed=2。验证全链路（TeamTool -> TeamRunManager ->
 /// TeamRunnerFactory job）真实跑通。
 #[tokio::test]
 async fn team_tool_delegates_waits_and_aggregates_end_to_end() {
@@ -196,7 +196,7 @@ async fn concurrent_cap_queues_and_completes_all_members() {
     let tool = TeamTool::new(manager, runner.job_factory(), runner.model_factory());
     let ctx = tool_ctx();
 
-    // 5 个任务，max_concurrent=2 → 3 个排队，最终全部完成。
+    // 5 个任务，max_concurrent=2 -> 3 个排队，最终全部完成。
     let delegated = tool
         .execute(
             r#"{"action":"delegate","tasks":[

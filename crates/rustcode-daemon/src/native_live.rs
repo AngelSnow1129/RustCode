@@ -55,7 +55,7 @@ pub fn register_embedded_runtime(
         .unwrap_or_else(|error| error.into_inner()) = Some(binding.clone());
     // Seed the daemon's project state to the shared TUI's working dir so the webui footer
     // + session list match it. A no-op if the server hasn't started yet (DAEMON_PROJECT is
-    // None) — that case is covered by `init_project_state` reading the embedded binding at
+    // None) -- that case is covered by `init_project_state` reading the embedded binding at
     // startup; this call handles an ALREADY-running (persistent) daemon, where the embed
     // happens after init. `/cd` keeps it current afterward via the same `live_set_working_dir`.
     crate::live_set_working_dir(binding.working_dir.clone());

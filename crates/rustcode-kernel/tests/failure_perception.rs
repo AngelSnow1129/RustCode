@@ -1,4 +1,4 @@
-//! CLAIM 27: FAILURE PERCEPTION — a failed turn can never look like an empty
+//! CLAIM 27: FAILURE PERCEPTION -- a failed turn can never look like an empty
 //! SUCCESS.
 //!
 //! Three coupled defects are closed:
@@ -7,7 +7,7 @@
 //!       cancel / prompt-rejected / runaway offer_continuation continuation).
 //!   (2) `run_to_completion`'s `Outcome` now carries `stop: StopReason` and
 //!       `error: Option<String>`; it no longer swallows `AgentEvent::Error`. A
-//!       failed run yields `Outcome { stop: ProviderError/.., error: Some(..) }` —
+//!       failed run yields `Outcome { stop: ProviderError/.., error: Some(..) }` --
 //!       NOT an empty success (the SWE-bench-grader-facing fix).
 //!   (3) The `offer_continuation` continuation loop is now BOUNDED by a default-ON fuse
 //!       (`max_continuations = Some(50)`); a `offer_continuation` hook that always
@@ -338,7 +338,7 @@ async fn failed_open_run_to_completion_reports_error_not_empty_success() {
 async fn max_rounds_stop_reason() {
     let mut reg = ToolRegistry::new();
     reg.register(Arc::new(EchoTool));
-    // Every round the model emits a tool call → never stops on its own → the
+    // Every round the model emits a tool call -> never stops on its own -> the
     // max_rounds fuse must trip. Provide enough scripted rounds to exceed the cap.
     let mut turns = Vec::new();
     for i in 0..10 {
@@ -431,10 +431,10 @@ impl LifecycleHooks for AlwaysContinueHook {
 
 #[tokio::test]
 async fn turn_end_continuation_fuse_stops_runaway() {
-    // The provider returns a content-bearing no-tool-call response → the model
-    // "wants to stop" every round, but the always-continue hook keeps injecting →
+    // The provider returns a content-bearing no-tool-call response -> the model
+    // "wants to stop" every round, but the always-continue hook keeps injecting ->
     // only the fuse can break the loop. `AlwaysStopProvider` yields `TextDelta`+`Done`
-    // every round (a REAL stop, not a content-free `Done` — which the kernel now
+    // every round (a REAL stop, not a content-free `Done` -- which the kernel now
     // treats as an empty-200 and retries), exactly modelling this.
     let reg = ToolRegistry::new();
     let provider = Arc::new(AlwaysStopProvider::new("(stop)"));
@@ -443,7 +443,7 @@ async fn turn_end_continuation_fuse_stops_runaway() {
         .provider(provider)
         .tools(reg.mount(&[] as &[&str]))
         .hooks(Arc::new(AlwaysContinueHook))
-        // max_rounds None (the default) → ONLY the continuation fuse can stop this.
+        // max_rounds None (the default) -> ONLY the continuation fuse can stop this.
         .build()
         .spawn();
     handle.commands.send(send("go")).unwrap();
@@ -483,7 +483,7 @@ async fn turn_end_continuation_fuse_stops_runaway() {
 #[tokio::test]
 async fn turn_end_continuation_fuse_is_configurable() {
     let reg = ToolRegistry::new();
-    // A content-bearing stop every round (see the runaway test) — a content-free
+    // A content-bearing stop every round (see the runaway test) -- a content-free
     // `Done` would now be retried as an empty-200 instead of looping the fuse.
     let provider = Arc::new(AlwaysStopProvider::new("(stop)"));
 
@@ -520,7 +520,7 @@ async fn turn_end_continuation_fuse_is_configurable() {
 async fn cancel_reason() {
     let reg = ToolRegistry::new();
     // The provider opens then PENDS forever after a delta, so the turn is parked
-    // mid-stream when Cancel arrives → the mid-stream cancel path fires.
+    // mid-stream when Cancel arrives -> the mid-stream cancel path fires.
     let provider = Arc::new(rustcode_kernel::testkit::SilentStreamProvider::new(vec![
         StreamEvent::TextDelta("thinking".into()),
     ]));
@@ -604,7 +604,7 @@ async fn timeout_reason() {
 
 // ── round-cap checkpoint (round_cap_checkpoint = true) ───────────────────────
 
-/// Build a MockProvider that always calls the "echo" tool — so a max_rounds fuse
+/// Build a MockProvider that always calls the "echo" tool -- so a max_rounds fuse
 /// will always trip. Provides `n` scripted tool-calling rounds (mirroring the
 /// `max_rounds_stop_reason` test's scaffolding).
 fn scripted_tool_rounds(n: usize) -> Arc<MockProvider> {
@@ -628,8 +628,8 @@ fn echo_tools() -> rustcode_kernel::tool::MountedTools {
 #[tokio::test]
 async fn round_cap_checkpoint_continue_rearms_then_stop() {
     // Cap = 2; 5 scripted tool-calling rounds. At round 3 (> cap 2) the first
-    // checkpoint fires: we answer continue → cap grows to 4. At round 5 (> cap 4)
-    // the second checkpoint fires: we answer stop → MaxRounds.
+    // checkpoint fires: we answer continue -> cap grows to 4. At round 5 (> cap 4)
+    // the second checkpoint fires: we answer stop -> MaxRounds.
     let provider = scripted_tool_rounds(5);
     let mut handle = Agent::builder()
         .provider(provider)
@@ -655,7 +655,7 @@ async fn round_cap_checkpoint_continue_rearms_then_stop() {
                     if kind == rustcode_kernel::ROUND_CAP_CHECKPOINT_KIND =>
                 {
                     checkpoints += 1;
-                    let cont = checkpoints == 1; // first → continue, second → stop
+                    let cont = checkpoints == 1; // first -> continue, second -> stop
                     handle
                         .commands
                         .send(AgentCommand::Respond {
@@ -730,7 +730,7 @@ async fn round_cap_checkpoint_null_response_stops_fail_closed() {
     outcome.expect("round_cap_checkpoint_null_response_stops_fail_closed must not hang");
     assert!(
         matches!(stop, Some(StopReason::MaxRounds)),
-        "Null response → fail-closed stop must be MaxRounds; got {stop:?}"
+        "Null response -> fail-closed stop must be MaxRounds; got {stop:?}"
     );
 }
 

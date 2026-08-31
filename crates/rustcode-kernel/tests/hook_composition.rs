@@ -1,6 +1,6 @@
 //! CLAIM 19: COMPOSABLE LifecycleHooks via `HookChain`.
 //!
-//! Before this, the Agent held exactly ONE `Arc<dyn LifecycleHooks>` — so two
+//! Before this, the Agent held exactly ONE `Arc<dyn LifecycleHooks>` -- so two
 //! capabilities that BOTH need a lifecycle hook (codeintel + compaction +
 //! redaction) could not coexist: a structural foreclosure. Hooks are now a
 //! composable LIST with a documented ordering + short-circuit contract, fanned out
@@ -169,7 +169,7 @@ async fn user_prompt_submit_short_circuits_on_first_block() {
         errors.iter().any(|e| e.contains("policy violation")),
         "the blocked prompt must surface an Error carrying the block reason; errors = {errors:?}"
     );
-    // The prompt never entered the loop → the provider was never called.
+    // The prompt never entered the loop -> the provider was never called.
     assert_eq!(
         calls.lock().unwrap().len(),
         0,
@@ -177,7 +177,7 @@ async fn user_prompt_submit_short_circuits_on_first_block() {
     );
 }
 
-/// `offer_continuation`: hook A → None, hook B → Some("continue-B"), hook C → Some("continue-C").
+/// `offer_continuation`: hook A -> None, hook B -> Some("continue-B"), hook C -> Some("continue-C").
 /// Assert the loop continues with the FIRST Some ("continue-B"), C's Some is
 /// ignored this round, and A/B/C ALL observed offer_continuation (observation runs for all).
 #[tokio::test]
@@ -185,9 +185,9 @@ async fn turn_end_first_some_wins() {
     let log = Arc::new(Mutex::new(Vec::<String>::new()));
     let mut reg = ToolRegistry::new();
     reg.register(Arc::new(EchoTool));
-    // Round 1: model stops (no tool calls) → offer_continuation fires → B injects "continue-B".
-    // Round 2: model stops again → offer_continuation fires; this time each hook has already
-    // observed once so they return None → the turn completes.
+    // Round 1: model stops (no tool calls) -> offer_continuation fires -> B injects "continue-B".
+    // Round 2: model stops again -> offer_continuation fires; this time each hook has already
+    // observed once so they return None -> the turn completes.
     let provider = Arc::new(RecordingProvider::new(vec![
         vec![
             StreamEvent::TextDelta("first".into()),

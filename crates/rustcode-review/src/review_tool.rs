@@ -1,4 +1,4 @@
-//! `code_review` — run the read-only review specialization as a SUB-AGENT tool.
+//! `code_review` -- run the read-only review specialization as a SUB-AGENT tool.
 //!
 //! This makes the [review agent](crate::build_review_agent) a CAPABILITY any host agent can
 //! mount (e.g. the coding agent): on call it computes the current git diff in the tool's
@@ -7,7 +7,7 @@
 //! structured findings. Read-only ⇒ [`Safe`](rustcode_kernel::tool::RiskLevel::Safe).
 //!
 //! The provider is SHARED from the host agent (filled at the host's assembly via
-//! [`SharedReviewProvider`]) rather than constructed fresh from a config — so the reviewer
+//! [`SharedReviewProvider`]) rather than constructed fresh from a config -- so the reviewer
 //! reuses the host's already-built, possibly request-SIGNED provider and can reach a
 //! signing gateway (the exact case `rustcode-clix`'s `review` subcommand has to refuse).
 //!
@@ -51,13 +51,13 @@ pub const REVIEW_ACTIVITY_MARKER: char = '\u{1e}';
 
 pub(crate) struct ReviewProgressHook {
     progress: ProgressSink,
-    /// Optional stage label — the deep-mode dimension id (e.g. `security`) or
-    /// `verify` — shown in the activity line so concurrent reviewers are
+    /// Optional stage label -- the deep-mode dimension id (e.g. `security`) or
+    /// `verify` -- shown in the activity line so concurrent reviewers are
     /// distinguishable. `None` for the single reviewer.
     label: Option<String>,
     /// Running count of `report_finding` calls the reviewer has made so far, so
     /// the activity line shows the review accumulating results ("2 findings")
-    /// instead of a static "thinking" — the user's "can't tell what it's doing"
+    /// instead of a static "thinking" -- the user's "can't tell what it's doing"
     /// complaint. Counts CALLS, not deduped findings, so it may slightly exceed
     /// the final report count; fine for a live progress hint.
     findings: AtomicU32,
@@ -72,10 +72,10 @@ impl ReviewProgressHook {
         }
     }
 
-    /// Emit the current activity line: `review[ [label]] · K findings · <tail>`,
+    /// Emit the current activity line: `review[ [label]] . K findings . <tail>`,
     /// carrying the stage label + running finding count around whatever the
     /// reviewer is doing right now (`tail`). The round/round-cap is deliberately
-    /// not shown — it read as noise (`round 3/200`) without telling the user what
+    /// not shown -- it read as noise (`round 3/200`) without telling the user what
     /// the review was actually doing.
     fn emit(&self, tail: &str) {
         let line = review_activity_line(
@@ -118,7 +118,7 @@ impl LifecycleHooks for ReviewProgressHook {
 }
 
 /// Build the ephemeral review activity line (the text AFTER the marker):
-/// `review[ [label]] · K findings · <tail>`. An optional stage `label`
+/// `review[ [label]] . K findings . <tail>`. An optional stage `label`
 /// (deep-mode dimension id, or `verify`) is shown in brackets so concurrent
 /// reviewers are distinguishable; `findings`==0 omits the count (pluralized
 /// otherwise); an empty `tail` is dropped so there is never a dangling
@@ -138,7 +138,7 @@ fn review_activity_line(label: Option<&str>, findings: u32, tail: &str) -> Strin
     if !tail.is_empty() {
         segments.push(tail.to_string());
     }
-    segments.join(" · ")
+    segments.join(" . ")
 }
 
 fn summarize_review_tool_call(name: &str, arguments: &str) -> String {
@@ -149,18 +149,18 @@ fn summarize_review_tool_call(name: &str, arguments: &str) -> String {
         .map(|value| value.lines().next().unwrap_or_default().trim())
         .filter(|value| !value.is_empty());
     match detail {
-        Some(detail) => format!("{name} · {}", detail.chars().take(100).collect::<String>()),
+        Some(detail) => format!("{name} . {}", detail.chars().take(100).collect::<String>()),
         None => name.to_string(),
     }
 }
 
 /// Shared slot for the host agent's provider. The tool is built at PREPARE time (before the
 /// provider exists), so the host fills this at ASSEMBLE time and the tool reads it per call.
-/// `None` until set → the tool reports it is unwired rather than constructing a fresh
+/// `None` until set -> the tool reports it is unwired rather than constructing a fresh
 /// (possibly unsigned) provider that can't reach the host's gateway.
 pub type SharedReviewProvider = Arc<RwLock<Option<Arc<dyn LlmProvider>>>>;
 
-/// What the tool needs to assemble the child reviewer — everything EXCEPT `working_dir`,
+/// What the tool needs to assemble the child reviewer -- everything EXCEPT `working_dir`,
 /// which is read live from each call's [`ToolContext`] so the review follows `/cd`.
 #[derive(Clone)]
 pub struct ReviewToolConfig {
@@ -454,12 +454,12 @@ impl Tool for ReviewTool {
                 },
                 "paths": { "type": "array", "items": { "type": "string" }, "description": "Optional repo-relative path filters." },
                 "confirm_scope": { "type": "string", "description": "Opaque token from a preflight. Pass only after explicit user confirmation." },
-                "depth": { "type": "string", "enum": ["single", "deep", "deep+verify"], "description": "Review depth — choose by the change's risk/scope. `single` (default, omit): routine or low-risk edits (docs, formatting, small localized fixes, config). `deep`: substantive multi-file / logic changes, refactors, or concurrency — fans out one reviewer per concern dimension (correctness/security/performance/tests) and merges findings. `deep+verify`: high-risk, security-sensitive, or correctness-critical changes, or when the user asks for a thorough/high-confidence review — additionally runs one verify pass per finding to cull false positives. `deep`/`deep+verify` cost several× more, so escalate only when warranted." }
+                "depth": { "type": "string", "enum": ["single", "deep", "deep+verify"], "description": "Review depth -- choose by the change's risk/scope. `single` (default, omit): routine or low-risk edits (docs, formatting, small localized fixes, config). `deep`: substantive multi-file / logic changes, refactors, or concurrency -- fans out one reviewer per concern dimension (correctness/security/performance/tests) and merges findings. `deep+verify`: high-risk, security-sensitive, or correctness-critical changes, or when the user asks for a thorough/high-confidence review -- additionally runs one verify pass per finding to cull false positives. `deep`/`deep+verify` cost severalx more, so escalate only when warranted." }
             }
         })
     }
     // The child reviewer mounts NO mutating tools (read/grep/codeintel/report_finding only),
-    // so this sub-agent call cannot change the workspace → Safe.
+    // so this sub-agent call cannot change the workspace -> Safe.
     async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
         let a: Args = if args.trim().is_empty() {
             Args::default()
@@ -478,7 +478,7 @@ impl Tool for ReviewTool {
         // 1. Compute the exact diff in the LIVE working dir (follows /cd), then stop before
         // launching the child when the deterministic preflight says the scope is large.
         ctx.progress
-            .emit(format!("{REVIEW_ACTIVITY_MARKER}review · preparing diff"));
+            .emit(format!("{REVIEW_ACTIVITY_MARKER}review . preparing diff"));
         let scoped = match git_diff(&ctx.working_dir, &scope, &a.paths) {
             Ok(d) => d,
             Err(e) => return err(format!("code_review: {e}")),
@@ -502,7 +502,7 @@ impl Tool for ReviewTool {
             return ok(manifest.render_confirmation());
         }
         ctx.progress.emit(format!(
-            "{REVIEW_ACTIVITY_MARKER}review · analyzing {} file(s)",
+            "{REVIEW_ACTIVITY_MARKER}review . analyzing {} file(s)",
             manifest.files
         ));
 
@@ -596,8 +596,8 @@ impl Tool for ReviewTool {
         if a.wants_verify() && !merged.is_empty() {
             // One verify agent per finding, capped. Keep a finding when its verify
             // agent re-reports a corresponding finding (or fails open on error/cancel).
-            // Snapshot only the candidate findings (cheap Finding clones); the task —
-            // which embeds the whole diff — is rendered lazily inside each closure, so
+            // Snapshot only the candidate findings (cheap Finding clones); the task --
+            // which embeds the whole diff -- is rendered lazily inside each closure, so
             // at most `VERIFY_CONCURRENCY` copies of the diff are live at once.
             let candidates: Vec<Finding> = merged.iter().map(|m| m.finding.clone()).collect();
             let keep = run_verify(merged.len(), VERIFY_CONCURRENCY, |i| {
@@ -790,7 +790,7 @@ fn fnv1a64(first: &[u8], second: &[u8]) -> u64 {
 
 /// Loose path match between a diff's changed-file path and a finding's `file_path` (which a
 /// model may give relative, `./`-prefixed, or absolute). Equal, or one is a suffix of the
-/// other AT a path-segment (`/`) boundary — so a bare `a.rs` still matches `crates/x/a.rs`,
+/// other AT a path-segment (`/`) boundary -- so a bare `a.rs` still matches `crates/x/a.rs`,
 /// but `lib.rs` does NOT falsely match `mylib.rs`.
 pub(crate) fn paths_match(changed: &str, finding: &str) -> bool {
     let c = changed.trim_start_matches("./");
@@ -825,7 +825,7 @@ fn sort_findings(findings: &mut [Finding]) {
 fn render_findings(findings: &[Finding], changed_files: usize) -> String {
     if findings.is_empty() {
         return format!(
-            "Code review complete — no issues found across {changed_files} changed file(s)."
+            "Code review complete -- no issues found across {changed_files} changed file(s)."
         );
     }
     let mut out = format!(
@@ -835,7 +835,7 @@ fn render_findings(findings: &[Finding], changed_files: usize) -> String {
     );
     for (i, f) in findings.iter().take(MAX_FINDINGS_RENDER).enumerate() {
         out.push_str(&format!(
-            "\n{}. [{} · conf {:.2}] {}:{}-{}\n   {}\n",
+            "\n{}. [{} . conf {:.2}] {}:{}-{}\n   {}\n",
             i + 1,
             f.priority,
             f.confidence,
@@ -856,7 +856,7 @@ fn render_findings(findings: &[Finding], changed_files: usize) -> String {
     }
     if findings.len() > MAX_FINDINGS_RENDER {
         out.push_str(&format!(
-            "\n… and {} more (showing the top {} by priority).\n",
+            "\n... and {} more (showing the top {} by priority).\n",
             findings.len() - MAX_FINDINGS_RENDER,
             MAX_FINDINGS_RENDER
         ));
@@ -871,7 +871,7 @@ fn render_incomplete_review(
     error: Option<&str>,
 ) -> String {
     let mut out = format!(
-        "Code review incomplete ({stop:?}) — coverage is partial, not a clean review. \
+        "Code review incomplete ({stop:?}) -- coverage is partial, not a clean review. \
          {} confirmed finding(s) across {changed_files} changed file(s).",
         findings.len()
     );
@@ -933,33 +933,33 @@ mod tests {
 
     #[test]
     fn review_activity_line_composes_label_findings_and_tail() {
-        // No label, no findings → bare marker text + tail (round is never shown).
+        // No label, no findings -> bare marker text + tail (round is never shown).
         assert_eq!(
             review_activity_line(None, 0, "thinking"),
-            "review · thinking"
+            "review . thinking"
         );
         // Singular finding, no label.
         assert_eq!(
             review_activity_line(None, 1, "thinking"),
-            "review · 1 finding · thinking"
+            "review . 1 finding . thinking"
         );
         // Plural findings + a tool tail (which file it read).
         assert_eq!(
-            review_activity_line(None, 2, "read_file · a.rs"),
-            "review · 2 findings · read_file · a.rs"
+            review_activity_line(None, 2, "read_file . a.rs"),
+            "review . 2 findings . read_file . a.rs"
         );
         // A deep-mode stage label appears in brackets so concurrent agents differ.
         assert_eq!(
-            review_activity_line(Some("security"), 2, "read_file · a.rs"),
-            "review [security] · 2 findings · read_file · a.rs"
+            review_activity_line(Some("security"), 2, "read_file . a.rs"),
+            "review [security] . 2 findings . read_file . a.rs"
         );
         assert_eq!(
             review_activity_line(Some("verify"), 0, "thinking"),
-            "review [verify] · thinking"
+            "review [verify] . thinking"
         );
         // Empty tail / empty label collapse cleanly (no dangling separator).
         assert_eq!(review_activity_line(None, 0, ""), "review");
-        assert_eq!(review_activity_line(Some(""), 4, ""), "review · 4 findings");
+        assert_eq!(review_activity_line(Some(""), 4, ""), "review . 4 findings");
     }
 
     #[test]
@@ -994,7 +994,7 @@ mod tests {
         assert!(empty.contains("no issues found across 3"), "{empty}");
         let one = render_findings(&[finding("P1", 0.8, "src/a.rs", "unchecked unwrap")], 1);
         assert!(one.contains("1 finding(s)"), "{one}");
-        assert!(one.contains("[P1 · conf 0.80] src/a.rs:1-2"), "{one}");
+        assert!(one.contains("[P1 . conf 0.80] src/a.rs:1-2"), "{one}");
         assert!(one.contains("unchecked unwrap"), "{one}");
     }
 
@@ -1116,10 +1116,10 @@ mod tests {
         )
         .await;
 
-        // No `round 3/…` noise — just what the review is doing.
+        // No `round 3/...` noise -- just what the review is doing.
         assert_eq!(
             seen.lock().unwrap().as_slice(),
-            &[format!("{REVIEW_ACTIVITY_MARKER}review · thinking")]
+            &[format!("{REVIEW_ACTIVITY_MARKER}review . thinking")]
         );
     }
 
@@ -1147,7 +1147,7 @@ mod tests {
 
         assert_eq!(
             seen.lock().unwrap().last().map(String::as_str),
-            Some("\u{1e}review [security] · read_file · src/compaction.rs")
+            Some("\u{1e}review [security] . read_file . src/compaction.rs")
         );
     }
 
@@ -1183,11 +1183,11 @@ mod tests {
         LifecycleHooks::on_model_response(&hook, &mut r2).await;
         assert_eq!(
             seen.lock().unwrap().last().map(String::as_str),
-            Some("\u{1e}review · 1 finding · reporting finding"),
+            Some("\u{1e}review . 1 finding . reporting finding"),
             "the reported finding is counted and the tool tail reads cleanly"
         );
 
-        // A later round keeps thinking — the accumulated count persists.
+        // A later round keeps thinking -- the accumulated count persists.
         LifecycleHooks::pre_request(
             &hook,
             &mut Vec::new(),
@@ -1200,7 +1200,7 @@ mod tests {
         .await;
         assert_eq!(
             seen.lock().unwrap().last().map(String::as_str),
-            Some("\u{1e}review · 1 finding · thinking"),
+            Some("\u{1e}review . 1 finding . thinking"),
             "the running finding count carries across rounds, even while thinking"
         );
 
@@ -1223,7 +1223,7 @@ mod tests {
         LifecycleHooks::on_model_response(&hook, &mut r4).await;
         assert_eq!(
             seen.lock().unwrap().last().map(String::as_str),
-            Some("\u{1e}review · 3 findings · reporting finding"),
+            Some("\u{1e}review . 3 findings . reporting finding"),
             "multiple findings in one round accumulate and pluralize"
         );
     }
@@ -1493,7 +1493,7 @@ mod tests {
         std::fs::write(root.join("a.rs"), "fn main() {}\n").unwrap();
         git(root, &["add", "."]);
         git(root, &["commit", "-qm", "init"]);
-        // A working-tree change → `git diff HEAD` is non-empty.
+        // A working-tree change -> `git diff HEAD` is non-empty.
         std::fs::write(
             root.join("a.rs"),
             "fn main() { let x: Option<i32> = None; x.unwrap(); }\n",
@@ -1534,12 +1534,12 @@ mod tests {
         let progress = progress.lock().unwrap();
         assert_eq!(
             progress.first().map(String::as_str),
-            Some("\u{1e}review · preparing diff")
+            Some("\u{1e}review . preparing diff")
         );
         assert!(
             progress
                 .iter()
-                .any(|message| message == "\u{1e}review · analyzing 1 file(s)"),
+                .any(|message| message == "\u{1e}review . analyzing 1 file(s)"),
             "progress must expose the pre-review phase: {progress:?}"
         );
     }
@@ -1563,7 +1563,7 @@ mod tests {
             .as_str()
             .expect("depth description");
         // The guidance says WHEN to pick each depth (by risk/scope), not just what
-        // they do — so the model can self-select instead of always defaulting.
+        // they do -- so the model can self-select instead of always defaulting.
         assert!(depth_desc.contains("risk"), "{depth_desc}");
         assert!(depth_desc.contains("security"), "{depth_desc}");
         assert!(
@@ -1615,8 +1615,8 @@ mod tests {
 
         let res = tool.execute(r#"{"depth":"deep+verify"}"#, &ctx).await;
 
-        // 4 dimensions report the same finding → merged to 1; each finding's
-        // verify agent (ScriptedReviewProvider) re-reports it → kept, dropped 0.
+        // 4 dimensions report the same finding -> merged to 1; each finding's
+        // verify agent (ScriptedReviewProvider) re-reports it -> kept, dropped 0.
         assert!(!res.is_error, "deep+verify should succeed: {}", res.content);
         assert!(
             res.content.contains("Deep review"),
@@ -1665,7 +1665,7 @@ mod tests {
             "deep header present: {}",
             res.content
         );
-        // All four dimensions report the same finding → merged to ONE.
+        // All four dimensions report the same finding -> merged to ONE.
         assert!(
             res.content.contains("1 finding(s)") || res.content.contains("1 finding"),
             "identical findings across dimensions must dedup to one: {}",
@@ -1692,7 +1692,7 @@ mod tests {
         git(root, &["add", "."]);
         git(root, &["commit", "-qm", "init"]);
 
-        // No working-tree change → clean. Provider must NOT be needed (early return).
+        // No working-tree change -> clean. Provider must NOT be needed (early return).
         let provider: SharedReviewProvider = Arc::new(RwLock::new(None));
         let tool = ReviewTool::new(provider, ReviewToolConfig::default());
         let ctx = ToolContext {

@@ -19,13 +19,13 @@
 
 **D2 — PermissionDecision 归 capabilities（daemon 消费者脱 core::tool）**
 - `capabilities::tools::approval` 加 `pub fn parse_permission_decision(s: &str) -> PermissionDecision`（`"allow"→AllowOnce`、`"always_allow"→AllowAlways`、`_→Deny`——逐字对齐 core 版 wire 语义，仅变体名 Allow→AllowOnce）。从 `capabilities::tools` re-export。
-- daemon 三文件：`atomcode_core::tool::{PermissionDecision, parse_permission_decision}` → `atomcode_capabilities::tools::{...}`；把 `PermissionDecision::Allow` 全部改 `::AllowOnce`（~10 处）。daemon 不用 `Ask`，无缺口。
+- daemon 三文件：`rustcode_core::tool::{PermissionDecision, parse_permission_decision}` → `rustcode_capabilities::tools::{...}`；把 `PermissionDecision::Allow` 全部改 `::AllowOnce`（~10 处）。daemon 不用 `Ask`，无缺口。
 - 完成后：`core::tool` 外部代码消费者归零（仅余注释）。
 
 **D3 — 删掉整个球**
 - 删 `core::{tool, conversation, provider, ctx}` 模块目录 + `lib.rs` 声明（第 18/19/29/35 行）+ `ctx::file_store` + 任何 orphan 测试文件（`cargo test --workspace --no-run` 抓）。
 - 验证存活 core（process_utils/graph/lsp/plugin/proxy/semantic/skill/skill_render/stream/trace/turn/fs_atomic）编译绿；workspace 绿。
-- daemon `Cargo.toml` 的 `atomcode-core` 依赖**保留**（仍用 `core::stream::TokenUsage` 等），不动。
+- daemon `Cargo.toml` 的 `rustcode-core` 依赖**保留**（仍用 `core::stream::TokenUsage` 等），不动。
 
 ## 3. 关键决策
 
@@ -51,11 +51,11 @@
 
 - **中低风险**：D1/D2 是符号搬迁 + 改名，编译器驱动；D3 是删除，`cargo test --workspace --no-run` 兜 orphan 测试。
 - 每刀独立 commit，坏了单独回滚。D3 前 D1/D2 已绿，删除若炸（漏了某处引用）编译器立刻指出。
-- ⚠️ **orphan 测试**：删 conversation/tool 可能留下 `crates/atomcode-core/tests/*.rs` 引用被删模块（如 `set_messages_resume_test.rs` 用 core::ctx）——D3 必须一并删/改，靠 `--no-run` 抓。
+- ⚠️ **orphan 测试**：删 conversation/tool 可能留下 `crates/rustcode-core/tests/*.rs` 引用被删模块（如 `set_messages_resume_test.rs` 用 core::ctx）——D3 必须一并删/改，靠 `--no-run` 抓。
 
 ## 7. 非目标（YAGNI）
 
 - 不动存活 core 模块的功能（stream/proxy/plugin/skill/graph/…）——只搬 2 个符号进来。
-- 不删 daemon 的 `atomcode-core` 依赖（仍用 core::stream 等）。
+- 不删 daemon 的 `rustcode-core` 依赖（仍用 core::stream 等）。
 - 不继续退役其它 core 模块（stream/proxy/plugin/skill…→L1）——那是后续 E/F/G，core 删 D 后仍存活为中等大小 crate。
 - 不改 capabilities 已有的 PermissionDecision 变体/from_value（只加 wire 解析器）。

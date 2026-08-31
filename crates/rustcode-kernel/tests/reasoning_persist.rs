@@ -6,7 +6,7 @@
 //! "(no reasoning recorded)" placeholder, and a history full of placeholders made thinking
 //! models echo it back and stall. v2 has ONE `Message` with a `reasoning: Option<String>`
 //! field that the loop sets UNCONDITIONALLY (regardless of tool_calls), so a final answer's
-//! reasoning rides the stored message — there is no variant that can silently drop it.
+//! reasoning rides the stored message -- there is no variant that can silently drop it.
 //!
 //! This drives a final-answer round (reasoning + text, NO tool calls) and confirms the
 //! NEXT request's history carries that assistant message's real reasoning.
@@ -38,13 +38,13 @@ async fn drive(handle: &mut rustcode_kernel::agent::AgentHandle, text: &str) {
 #[tokio::test]
 async fn final_answer_reasoning_is_persisted_on_the_stored_message() {
     let provider = Arc::new(RecordingProvider::new(vec![
-        // Turn 1: a thinking model's FINAL answer — reasoning + text, NO tool calls.
+        // Turn 1: a thinking model's FINAL answer -- reasoning + text, NO tool calls.
         vec![
             StreamEvent::Reasoning("step 1, step 2, therefore 5".into()),
             StreamEvent::TextDelta("the answer is 5".into()),
             StreamEvent::Done { truncated: false },
         ],
-        // Turn 2: anything — its recorded request carries turn 1's stored assistant message.
+        // Turn 2: anything -- its recorded request carries turn 1's stored assistant message.
         vec![
             StreamEvent::TextDelta("ok".into()),
             StreamEvent::Done { truncated: false },
@@ -79,7 +79,7 @@ async fn final_answer_reasoning_is_persisted_on_the_stored_message() {
 
     assert!(
         answer.tool_calls.is_empty(),
-        "it is a final answer — no tool calls"
+        "it is a final answer -- no tool calls"
     );
     assert_eq!(
         answer.reasoning.as_deref(),
@@ -92,12 +92,12 @@ async fn final_answer_reasoning_is_persisted_on_the_stored_message() {
 /// Qwen3-VL via a gateway whose reasoning-parser never sees a closing `</think>`, so the
 /// whole answer lands in `reasoning_content` and `content` is empty). The turn would
 /// otherwise render BLANK. The kernel must PROMOTE the reasoning to the body: surface it
-/// live (a TextDelta) AND store it as `content` so it persists for context — gated tightly
+/// live (a TextDelta) AND store it as `content` so it persists for context -- gated tightly
 /// to empty-content + no-tool-calls + a real stop, so a normal model is never affected.
 #[tokio::test]
 async fn reasoning_only_turn_is_promoted_to_the_answer() {
     let provider = Arc::new(RecordingProvider::new(vec![
-        // Turn 1: ONLY reasoning, NO content body, NO tool calls — the misrouted answer.
+        // Turn 1: ONLY reasoning, NO content body, NO tool calls -- the misrouted answer.
         vec![
             StreamEvent::Reasoning("目录下有 2 个文件：a.png 和 b.png。".into()),
             StreamEvent::Done { truncated: false },
@@ -135,7 +135,7 @@ async fn reasoning_only_turn_is_promoted_to_the_answer() {
     let _ = h.task.await;
 
     // (1) LIVE: the answer must reach the driver as body text (TextDelta), not stay hidden
-    // in the reasoning channel — otherwise the user sees a blank turn.
+    // in the reasoning channel -- otherwise the user sees a blank turn.
     assert!(
         live_text.contains("目录下有 2 个文件"),
         "misrouted reasoning must be surfaced as live body text; got {live_text:?}"

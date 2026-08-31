@@ -13,9 +13,9 @@ import javax.swing.JSpinner
 import javax.swing.JTextField
 import javax.swing.SpinnerNumberModel
 
-class AtomCodeConfigurable : Configurable {
+class RustCodeConfigurable : Configurable {
     private var panel: JPanel? = null
-    private val settings = AtomCodeSettingsState.getInstance()
+    private val settings = RustCodeSettingsState.getInstance()
 
     private lateinit var daemonPath: JTextField
     private lateinit var host: JTextField
@@ -23,7 +23,7 @@ class AtomCodeConfigurable : Configurable {
     private lateinit var autoStart: JCheckBox
     private lateinit var autoSaveBeforeRead: JCheckBox
     private lateinit var timeout: JSpinner
-    private lateinit var contextLevel: JComboBox<AtomCodeContextLevel>
+    private lateinit var contextLevel: JComboBox<RustCodeContextLevel>
     private lateinit var allowSelection: JCheckBox
     private lateinit var sendRelativePath: JCheckBox
     private lateinit var sendWithCtrlEnter: JCheckBox
@@ -41,7 +41,7 @@ class AtomCodeConfigurable : Configurable {
         autoStart = JCheckBox("Auto-start daemon after user action")
         autoSaveBeforeRead = JCheckBox("Auto-save files before RustCode reads them")
         timeout = JSpinner(SpinnerNumberModel(30_000, 1_000, 300_000, 1_000))
-        contextLevel = JComboBox(AtomCodeContextLevel.entries.toTypedArray())
+        contextLevel = JComboBox(RustCodeContextLevel.entries.toTypedArray())
         allowSelection = JCheckBox("Allow selected text context")
         sendRelativePath = JCheckBox("Send relative path with selection")
         sendWithCtrlEnter = JCheckBox("Use Ctrl+Enter to send chat messages")
@@ -90,7 +90,7 @@ class AtomCodeConfigurable : Configurable {
             it.autoSaveBeforeRead = autoSaveBeforeRead.isSelected
             it.requestTimeoutMs = timeout.value as Int
             it.chatFontSize = chatFontSize.value as Int
-            it.contextLevel = contextLevel.selectedItem as AtomCodeContextLevel
+            it.contextLevel = contextLevel.selectedItem as RustCodeContextLevel
             it.allowSelectedTextContext = allowSelection.isSelected
             it.sendRelativePathWithSelection = sendRelativePath.isSelected
             it.sendWithCtrlEnter = sendWithCtrlEnter.isSelected

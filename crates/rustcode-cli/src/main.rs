@@ -1,4 +1,4 @@
-// Swap in mimalloc on Windows — the default HeapAlloc is the biggest single
+// Swap in mimalloc on Windows -- the default HeapAlloc is the biggest single
 // contributor to per-keystroke render latency (hundreds of small Line/Span
 // clones per frame). No-op on macOS/Linux where the system allocator is fine.
 #[cfg(target_os = "windows")]
@@ -46,21 +46,21 @@ use rustcode_auth as auth;
 static HEADLESS_MODE: AtomicBool = AtomicBool::new(false);
 
 /// Set once the startup synchronous upgrade check has run this launch, so the
-/// post-parse detached stager can skip a redundant second `latest.json` fetch —
+/// post-parse detached stager can skip a redundant second `latest.json` fetch --
 /// the sync path already checked (and applied, if newer) on this same launch.
 static SYNC_UPGRADE_CHECKED: AtomicBool = AtomicBool::new(false);
 
 /// Restore terminal state if (and only if) we ever entered TUI mode.
-/// No-op in headless mode — see [`HEADLESS_MODE`].
+/// No-op in headless mode -- see [`HEADLESS_MODE`].
 ///
 /// TUI mode (v4.23.2+) runs entirely in the primary screen via the
-/// append-only RetainedRenderer — we never emit `\x1b[?1049h`, so there
+/// append-only RetainedRenderer -- we never emit `\x1b[?1049h`, so there
 /// is no `LeaveAlternateScreen` counterpart to issue here.
 ///
 /// On the GRACEFUL path mouse mode, cursor visibility, autowrap, DECSTBM
 /// and the Kitty keyboard protocol are restored by `RetainedRenderer` /
 /// `TerminalGuard` Drops. But the release profile sets `panic = "abort"`,
-/// so on a crash NO destructor unwinds and none of those Drops run —
+/// so on a crash NO destructor unwinds and none of those Drops run --
 /// this hook is the only cleanup that executes. Disabling raw mode alone
 /// left the Kitty protocol armed, so the parent shell echoed every
 /// post-crash keypress as a literal `[27u` / `[99;5u` CSI-u report. We
@@ -132,7 +132,7 @@ fn restore_terminal_if_tui() {
 /// "remembered" path). The previous implementation silently substituted the
 /// first entry of recent_dirs for the user's cwd, which made commands like
 /// `rustcode -p "describe this project"` operate on whatever directory the
-/// TUI happened to visit last — a violation of least surprise. recent_dirs
+/// TUI happened to visit last -- a violation of least surprise. recent_dirs
 /// remains a TUI picker convenience only; it must never override cwd.
 fn resolve_working_dir(cli_dir: Option<PathBuf>) -> PathBuf {
     if let Some(d) = cli_dir {
@@ -143,12 +143,12 @@ fn resolve_working_dir(cli_dir: Option<PathBuf>) -> PathBuf {
 }
 
 /// The on-exit "how to resume this session" hint, mirroring codex's
-/// `To continue this session, run …`. Headless shows the `-p … --resume <id>`
+/// `To continue this session, run ...`. Headless shows the `-p ... --resume <id>`
 /// form (what continues a pipe run); the TUI shows the `resume <id>` subcommand.
 /// Pure so the wording/forms are unit-tested.
 fn resume_hint_line(session_id: &str, headless: bool, zh: bool) -> String {
     let cmd = if headless {
-        format!("{BIN_NAME} -p \"…\" --resume {session_id}")
+        format!("{BIN_NAME} -p \"...\" --resume {session_id}")
     } else {
         format!("{BIN_NAME} resume {session_id}")
     };
@@ -190,7 +190,7 @@ fn resolve_in_catalog(
 /// any newlines with spaces and appending "..." when truncated.
 ///
 /// Used for headless-mode log lines on stderr. **Counts characters, not bytes**,
-/// so multi-byte UTF-8 (e.g. CJK) is safe — `&s[..N]` would panic when N falls
+/// so multi-byte UTF-8 (e.g. CJK) is safe -- `&s[..N]` would panic when N falls
 /// inside a multi-byte char.
 fn truncate_log_line(s: &str, max_chars: usize) -> String {
     let single_line: String = s.chars().map(|c| if c == '\n' { ' ' } else { c }).collect();
@@ -267,7 +267,7 @@ fn is_dev_mode() -> bool {
 /// True when the currently-running binary's filename ends in `.bak`.
 /// `self_update::replace_binary` renames the previous version to
 /// `rustcode.bak` (or `rustcode.exe.bak`) during an upgrade so the user
-/// can roll back. Running that backup must NOT auto-upgrade — otherwise
+/// can roll back. Running that backup must NOT auto-upgrade -- otherwise
 /// rolling back is impossible: any launch of `.bak` would just overwrite
 /// itself with the latest version again.
 ///
@@ -308,7 +308,7 @@ fn scan_argv_for_lang() -> Option<String> {
 /// locale) and `brand_name` / `oauth_provider_name` (for `{brand}` / `{oauth}`
 /// placeholder substitution in help text).
 ///
-/// Single read + parse of the default config file — not three independent
+/// Single read + parse of the default config file -- not three independent
 /// scans. Env overrides (`RUSTCODE_BRAND_NAME` / `RUSTCODE_OAUTH_PROVIDER_NAME`)
 /// are honoured so a `--help` launched under those env vars renders the
 /// env-chosen brand, matching the post-load behaviour. Never an error path:
@@ -487,7 +487,7 @@ fn should_try_sync_upgrade() -> bool {
     // Load config once to honor both `auto_update = false` and `offline_mode`.
     // Runs pre-seed, so offline is resolved directly rather than via the process
     // verdict. Env wins over config; only forced On skips. Failure to load = assume
-    // defaults (auto_update true, offline Off) — fresh installs benefit.
+    // defaults (auto_update true, offline Off) -- fresh installs benefit.
     let path = rustcode_config::config::Config::default_path();
     let offline_mode = if path.exists() {
         if let Ok(cfg) = rustcode_config::config::Config::load(&path) {
@@ -534,7 +534,7 @@ async fn sync_stage_and_apply_if_newer() {
         while let Some(ev) = rx.recv().await {
             match ev {
                 UpgradeEvent::ManifestFetched { version } => {
-                    eprintln!("✨ New version available: {}", version);
+                    eprintln!("[*] New version available: {}", version);
                 }
                 UpgradeEvent::Downloading { bytes, total } => {
                     let pct = if total == 0 {
@@ -554,7 +554,7 @@ async fn sync_stage_and_apply_if_newer() {
                     }
                 }
                 UpgradeEvent::Verifying => {
-                    eprintln!("\n✓ Verifying sha256");
+                    eprintln!("\n[+] Verifying sha256");
                 }
                 _ => {}
             }
@@ -567,7 +567,7 @@ async fn sync_stage_and_apply_if_newer() {
     )
     .await;
 
-    // Wait briefly for the progress consumer to drain — it closes when
+    // Wait briefly for the progress consumer to drain -- it closes when
     // the sender drops at the end of prepare_deferred_upgrade.
     let _ = progress.await;
 
@@ -577,8 +577,8 @@ async fn sync_stage_and_apply_if_newer() {
             // binary on this same invocation.
             match self_update::apply_pending_upgrade() {
                 Ok(Some(applied)) => {
-                    eprintln!("✓ Upgrading to {}...", applied.version);
-                    // Save the CURRENT version (before upgrade) so TUI can show "Upgraded old → new"
+                    eprintln!("[+] Upgrading to {}...", applied.version);
+                    // Save the CURRENT version (before upgrade) so TUI can show "Upgraded old -> new"
                     std::env::set_var(UPGRADED_FROM_ENV, &current);
                     match self_update::re_exec_self(Some(&applied.exe)) {
                         Ok(_infallible) => unreachable!("re_exec_self returned Ok"),
@@ -592,7 +592,7 @@ async fn sync_stage_and_apply_if_newer() {
                     }
                 }
                 _ => {
-                    // Stage succeeded but apply didn't — weird, just continue.
+                    // Stage succeeded but apply didn't -- weird, just continue.
                 }
             }
         }
@@ -600,7 +600,7 @@ async fn sync_stage_and_apply_if_newer() {
             // Already latest, no-op.
         }
         Ok(Err(_)) | Err(_) => {
-            // Network error or 120 s timeout. Don't spam the user —
+            // Network error or 120 s timeout. Don't spam the user --
             // `/upgrade` will surface the real error if they ask.
             eprintln!("Note: could not check for updates at startup (will retry in background).");
         }
@@ -609,13 +609,13 @@ async fn sync_stage_and_apply_if_newer() {
 
 /// Spawn a detached copy of this binary that runs the upgrade-prep worker
 /// and exits. "Detached" means:
-///   * New session on Unix (`setsid`) — parent's Ctrl+C goes to parent's
+///   * New session on Unix (`setsid`) -- parent's Ctrl+C goes to parent's
 ///     foreground process group only; the child is in its own and ignores it.
 ///   * `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW` on Windows, same idea
-///   * stdin/stdout/stderr → /dev/null so the child can't scribble over the
+///   * stdin/stdout/stderr -> /dev/null so the child can't scribble over the
 ///     parent's terminal and has no reason to stay attached to it.
 ///
-/// Does NOT wait for the child (we intentionally don't — that would recreate
+/// Does NOT wait for the child (we intentionally don't -- that would recreate
 /// the cancel-on-exit problem we're trying to solve). If spawning fails we
 /// just drop the error; auto-upgrade is best-effort.
 fn spawn_detached_upgrade_prep() {
@@ -635,11 +635,11 @@ fn spawn_detached_upgrade_prep() {
         use std::os::unix::process::CommandExt;
         unsafe {
             cmd.pre_exec(|| {
-                // SAFETY(pre_exec): runs in the forked child before exec —
+                // SAFETY(pre_exec): runs in the forked child before exec --
                 // async-signal-safe libc ONLY. No allocation, locks, panics, or
                 // non-reentrant calls, or the child can deadlock. libc::setsid() is safe.
                 // Detach from parent's controlling terminal / process group.
-                // Return value ignored — setsid only fails when caller is
+                // Return value ignored -- setsid only fails when caller is
                 // already a process group leader (not our case post-fork).
                 libc::setsid();
                 Ok(())
@@ -670,7 +670,7 @@ const VERSION: &str = concat!(
 /// repeated as a literal. It reaches the user in three places that must agree:
 /// the `Usage:` line, the `--help` header, and the `complete -F` registration a
 /// generated completion script installs. Renaming the bin used to leave all
-/// three claiming the old name — and shell completion bound to a command that
+/// three claiming the old name -- and shell completion bound to a command that
 /// no longer exists.
 const BIN_NAME: &str = env!("CARGO_BIN_NAME");
 
@@ -690,8 +690,8 @@ struct Cli {
     continue_last: bool,
 
     /// Resume a SPECIFIC session by id or name (vs `--continue` = the last one).
-    /// Headless: `-p "…" --resume <id>`. Interactive: `--resume <id>` (no `-p`)
-    /// launches the TUI resumed on it — same as the `resume` subcommand.
+    /// Headless: `-p "..." --resume <id>`. Interactive: `--resume <id>` (no `-p`)
+    /// launches the TUI resumed on it -- same as the `resume` subcommand.
     #[arg(long = "resume", value_name = "ID_OR_NAME", conflicts_with_all = ["continue_last", "ephemeral"])]
     resume: Option<String>,
 
@@ -713,7 +713,7 @@ struct Cli {
 
     /// FIRST-RUN ONLY: seed the user's config from this file when they don't yet
     /// have one (`~/.rustcode/config.toml` absent). Copies it in once, then never
-    /// touches it again — the user owns the writable copy. On read/parse failure,
+    /// touches it again -- the user owns the writable copy. On read/parse failure,
     /// falls back to normal onboarding (never blocks startup). For offline/managed
     /// deploys (e.g. a bundled `rustcode-default-config.toml` shipped next to the
     /// binary): point this at that file via the launcher. Env: `RUSTCODE_SEED_CONFIG`.
@@ -759,7 +759,7 @@ struct Cli {
     output_format: HeadlessOutputFormat,
 
     /// Show tool calls, token usage, and turn summary on stderr (headless mode only).
-    /// Without this flag, headless output is the assistant reply only — Claude Code -p style.
+    /// Without this flag, headless output is the assistant reply only -- Claude Code -p style.
     #[arg(short = 'v', long)]
     verbose: bool,
 
@@ -771,9 +771,9 @@ struct Cli {
     #[arg(long)]
     dev: bool,
 
-    /// Skip all permission prompts — auto-approve every tool call (bash,
+    /// Skip all permission prompts -- auto-approve every tool call (bash,
     /// file edits, MCP, etc.). Equivalent to Claude Code's
-    /// --dangerously-skip-permissions. The TUI shows a red ⚠ BYPASS
+    /// --dangerously-skip-permissions. The TUI shows a red [!] BYPASS
     /// badge while active. Use in CI/CD, eval harnesses, or when you
     /// trust the agent's built-in safety constraints.
     #[arg(
@@ -793,9 +793,9 @@ enum HeadlessOutputFormat {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Sign in with AtomGit OAuth and claim CodingPlan models in one
-    /// flow: OAuth (if needed) → claim → fetch models → register
-    /// providers → fetch status. Reports each step and exits.
+    /// Sign in with OAuth and claim CodingPlan models in one
+    /// flow: OAuth (if needed) -> claim -> fetch models -> register
+    /// providers -> fetch status. Reports each step and exits.
     Login,
     /// Logout from RustCode
     Logout,
@@ -816,7 +816,7 @@ enum Commands {
     },
     /// Roll back to the previous version (swap with .bak on disk)
     Rollback,
-    /// Hidden alias for `rustcode login` — kept so existing scripts /
+    /// Hidden alias for `rustcode login` -- kept so existing scripts /
     /// muscle memory don't break after `/codingplan` and `rustcode
     /// codingplan` were folded into the unified `/login` flow.
     #[command(hide = true)]
@@ -849,7 +849,7 @@ enum Commands {
     },
     /// Manage skill/command plugins (mirrors `claude plugin ...`).
     /// Operates on `$RUSTCODE_HOME/plugins/` shared with the TUI's `/plugin`
-    /// slash command — anything installed via either path is visible to both.
+    /// slash command -- anything installed via either path is visible to both.
     #[command(subcommand)]
     Plugin(PluginCli),
     /// Uninstall RustCode: remove the binary, PATH edit, and (interactively)
@@ -1068,7 +1068,7 @@ enum MarketplaceCli {
 enum McpCli {
     /// Add or replace a stdio MCP server (`mcpServers.<name>` with `command` + `args`)
     Add {
-        /// Server key (tools appear as `mcp__<name>__…`)
+        /// Server key (tools appear as `mcp__<name>__...`)
         name: String,
         /// Executable and arguments, e.g. `npx @playwright/mcp@latest`
         #[arg(required = true, num_args = 1..)]
@@ -1082,7 +1082,7 @@ enum McpCli {
     },
     /// Add GitHub's remote MCP server using OAuth.
     AddGithubOauth {
-        /// Server key (tools appear as `mcp__<name>__…`)
+        /// Server key (tools appear as `mcp__<name>__...`)
         #[arg(default_value = "github")]
         name: String,
         /// Write `~/.rustcode/mcp.json` instead of `<dir>/.mcp.json`
@@ -1118,7 +1118,7 @@ enum McpCli {
 
 /// Environment variable set by this process for its re-exec'd child, so
 /// the child knows which version it was just upgraded from and can show
-/// a one-time "✓ Upgraded to vX.Y.Z" banner on the welcome screen.
+/// a one-time "[+] Upgraded to vX.Y.Z" banner on the welcome screen.
 /// The child clears this env var after reading it so grandchildren
 /// (spawned tools, subprocesses) don't inherit a stale hint.
 const UPGRADED_FROM_ENV: &str = "RUSTCODE_UPGRADED_FROM";
@@ -1139,18 +1139,18 @@ fn main() {
     }
 
     // Settle where the config tree is before anything reads it, so all eight
-    // resolvers — and every child process that inherits our environment —
+    // resolvers -- and every child process that inherits our environment --
     // agree by construction. Deliberately AFTER the completion fast path: that
     // branch touches no config, and the comment above asks for it to stay bare.
     rustcode_config::distribution::bootstrap_home();
 
     // Run the entire program on a thread with a large, explicit stack.
-    // Rust gives the *main* OS thread the platform-default stack — on
+    // Rust gives the *main* OS thread the platform-default stack -- on
     // Windows that's only ~1 MB (vs 8 MB on Linux/macOS). The TUI event
     // loop, the synchronous codingplan/OAuth work, and the rustls TLS
     // handshakes all run on it via `block_on`, and a deep call chain there
     // can overflow 1 MB. A stack overflow on Windows kills the process via
-    // an OS exception (STATUS_STACK_OVERFLOW) WITHOUT a Rust panic — so it
+    // an OS exception (STATUS_STACK_OVERFLOW) WITHOUT a Rust panic -- so it
     // never reaches the crash-log hook and looks like a silent exit. A
     // 16 MB stack removes that platform asymmetry. (See the Windows
     // post-scan onboarding crash investigation.)
@@ -1171,7 +1171,7 @@ fn real_main() {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         // Worker threads (for `tokio::spawn`ed tasks) get a generous stack
-        // too — same rationale as the main thread above.
+        // too -- same rationale as the main thread above.
         .thread_stack_size(8 * 1024 * 1024)
         .build()
         .expect("failed to build tokio runtime");
@@ -1212,10 +1212,10 @@ async fn async_main() {
             let actual_out_cp = GetConsoleOutputCP();
             if actual_cp != CP_UTF8 || actual_out_cp != CP_UTF8 {
                 let _ = eprintln!(
-                    "\n⚠  Console code pages — input: {} (expected 65001/UTF-8), output: {}.\n\
+                    "\n[!]  Console code pages -- input: {} (expected 65001/UTF-8), output: {}.\n\
                        Chinese/Japanese/Korean IME input/output may show garbled text.\n\
-                       → Use Windows Terminal for native UTF-8 support.\n\
-                       → Or enable Beta: Use Unicode UTF-8 in Region settings.\n",
+                       -> Use Windows Terminal for native UTF-8 support.\n\
+                       -> Or enable Beta: Use Unicode UTF-8 in Region settings.\n",
                     actual_cp, actual_out_cp,
                 );
             }
@@ -1226,7 +1226,7 @@ async fn async_main() {
     // subprocess with this env var set; that subprocess does one full
     // download + verify + `pending.json` write, then exits. Because the
     // subprocess is setsid'd (see `spawn_detached_upgrade_prep`), it
-    // survives Ctrl+C / quit in the parent — which is the whole point,
+    // survives Ctrl+C / quit in the parent -- which is the whole point,
     // since the previous in-process download was tied to the parent's
     // tokio runtime and got cancelled on any quick exit.
     if std::env::var(INTERNAL_PREPARE_UPGRADE_ENV).is_ok() {
@@ -1240,14 +1240,14 @@ async fn async_main() {
     // rollback target; the whole point of keeping `.bak` is for the user
     // to be able to run / keep the old version. The only upgrade path
     // still reachable from a `.bak` launch is the explicit `/upgrade`
-    // slash command inside the TUI — that's user-initiated and fine.
+    // slash command inside the TUI -- that's user-initiated and fine.
     let is_backup = is_running_as_backup();
     let dev_mode = is_dev_mode();
     if dev_mode {
         eprintln!("[dev] auto-update disabled");
     }
 
-    // Bootstrap: if a prior session staged an upgrade, apply it NOW — before
+    // Bootstrap: if a prior session staged an upgrade, apply it NOW -- before
     // we spin up tokio, the TUI, or any other heavy state. On success we
     // re-exec the new binary (Unix: same PID; Windows: child+exit). The user
     // sees one continuous "rustcode" invocation, just 100-300ms longer than
@@ -1260,7 +1260,7 @@ async fn async_main() {
         let current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
         match rustcode_updater::apply_pending_upgrade() {
             Ok(Some(applied)) => {
-                eprintln!("✓ Upgrading to {}...", applied.version);
+                eprintln!("[+] Upgrading to {}...", applied.version);
                 // Pass the CURRENT version (before upgrade) to the re-exec'd child so the TUI
                 // can surface a welcome-screen confirmation exactly once.
                 std::env::set_var(UPGRADED_FROM_ENV, &current_version);
@@ -1278,7 +1278,7 @@ async fn async_main() {
             }
             Ok(None) => {
                 // Nothing was staged by a prior session. Do a fresh synchronous
-                // check → stage → apply so a newly-released version is picked up on
+                // check -> stage -> apply so a newly-released version is picked up on
                 // THIS launch (restores the pre-31daa6ee "one restart upgrades you"
                 // behavior). The everyday no-update case is just a small latest.json
                 // fetch; should_try_sync_upgrade's gates + a 120s timeout keep
@@ -1340,7 +1340,7 @@ async fn run() -> Result<i32> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         // --help renders BEFORE the authoritative Config load, so settle the
         // brand from the pre-scan (default config path + env) just for this
-        // branch. The normal launch path does NOT call set_brand here — it
+        // branch. The normal launch path does NOT call set_brand here -- it
         // waits for the authoritative Config load in run() so --config
         // / --seed-config custom paths surface the real brand, not the
         // default-path pre-scan value.
@@ -1414,7 +1414,7 @@ async fn run() -> Result<i32> {
     let force_verbose = false;
     // Capture the resume intent BEFORE the dispatch below moves `cli.command`.
     // `--resume`/`--continue` are plain flags; the `resume` subcommand is NOT a
-    // terminal command — it falls through to the normal TUI/headless launch with
+    // terminal command -- it falls through to the normal TUI/headless launch with
     // this selector applied (see the launch flow).
     let resume_selector: Option<ResumeSelector> = if let Some(sel) = cli.resume.clone() {
         Some(ResumeSelector::Specific(sel))
@@ -1435,8 +1435,8 @@ async fn run() -> Result<i32> {
             // `-p` to run headless resumed).
             Commands::Resume { .. } => {}
             Commands::Login | Commands::Codingplan => {
-                // Unified login flow: OAuth (if needed) → claim → fetch
-                // models → register providers → fetch status. Falls
+                // Unified login flow: OAuth (if needed) -> claim -> fetch
+                // models -> register providers -> fetch status. Falls
                 // through to TUI startup regardless of outcome. On
                 // success the freshly saved config.toml is picked up by
                 // `Config::load` further down. On failure the TUI opens
@@ -1450,7 +1450,7 @@ async fn run() -> Result<i32> {
                 // runtime. Running it directly on an async worker thread panics
                 // when that inner runtime is dropped ("Cannot drop a runtime in
                 // a context where blocking is not allowed"). Move it onto a
-                // dedicated blocking thread — the same convention the plugin
+                // dedicated blocking thread -- the same convention the plugin
                 // bootstrap uses.
                 let outcome = {
                     tokio::task::spawn_blocking(run_codingplan_core)
@@ -1544,7 +1544,7 @@ async fn run() -> Result<i32> {
                 return Ok(exit_code);
             }
             Commands::Acp => {
-                // stdout is the ACP JSON-RPC channel — no banner or diagnostic output here.
+                // stdout is the ACP JSON-RPC channel -- no banner or diagnostic output here.
                 HEADLESS_MODE.store(true, Ordering::Relaxed);
                 // Load config the same way the TUI path does so provider/model resolution
                 // is identical (honors --provider, --model, and config.toml).
@@ -1754,7 +1754,7 @@ async fn run() -> Result<i32> {
     // that ships a bundled default config): if the user has no config yet and a
     // `--seed-config <path>` (or `RUSTCODE_SEED_CONFIG` env) source is given, copy
     // it into place once. No-op when a config already exists, so it's safe for the
-    // launcher to always pass. Any failure is non-fatal → normal onboarding.
+    // launcher to always pass. Any failure is non-fatal -> normal onboarding.
     let seed_source = cli.seed_config.clone().or_else(|| {
         std::env::var_os("RUSTCODE_SEED_CONFIG")
             .filter(|s| !s.is_empty())
@@ -1776,7 +1776,7 @@ async fn run() -> Result<i32> {
         rustcode_config::config::SeedOutcome::IoError(e) => {
             eprintln!("Warning: --seed-config could not be applied: {e}");
         }
-        // AlreadyConfigured / NoSource → nothing to do, stay quiet.
+        // AlreadyConfigured / NoSource -> nothing to do, stay quiet.
         _ => {}
     }
 
@@ -1808,7 +1808,7 @@ async fn run() -> Result<i32> {
             }
         }
     } else {
-        // No config yet — TUI Welcome screen will guide first-run setup
+        // No config yet -- TUI Welcome screen will guide first-run setup
         (Config::default(), None)
     };
     tracing::info!(
@@ -1843,9 +1843,9 @@ async fn run() -> Result<i32> {
     // Two best-effort hooks (auto-install default skills marketplace
     // on first startup, `git pull` every installed marketplace after a
     // self-upgrade) used to fire here synchronously, blocking the
-    // input box for 1–3s on a warm path (and 5–10s on first clone).
+    // input box for 1-3s on a warm path (and 5-10s on first clone).
     // Both now run as a detached `spawn_blocking` from inside
-    // `rustcode_tuix::run` after the skill registry is constructed —
+    // `rustcode_tuix::run` after the skill registry is constructed --
     // see lib.rs near `spawn_plugin_bootstrap`. Newly-installed skills
     // are picked up by a `skill_registry.reload()` + wake pulse the
     // background task fires on completion, so the slash menu refreshes
@@ -1861,7 +1861,7 @@ async fn run() -> Result<i32> {
 
     // Continue the previous session only when the user explicitly opts
     // in via `-c` / `--continue`. Bare `rustcode` starts a fresh
-    // session — no auto-resume, no scrollback replay. Users who want to
+    // session -- no auto-resume, no scrollback replay. Users who want to
     // pick a specific older session can still use `/resume` inside the
     // TUI.
     let resume_session_id = match &resume_selector {
@@ -1870,7 +1870,7 @@ async fn run() -> Result<i32> {
             match resolve_in_catalog(&catalog, sel) {
                 Some(id) => Some(id),
                 None => anyhow::bail!(
-                    "no session matches id or name {sel:?} in this project — run `{} resume` to list, or check the working directory (-C)",
+                    "no session matches id or name {sel:?} in this project -- run `{} resume` to list, or check the working directory (-C)",
                     BIN_NAME
                 ),
             }
@@ -1919,7 +1919,7 @@ async fn run() -> Result<i32> {
     .await?;
     // The active session id (fresh or resumed) for the on-exit resume hint,
     // captured before the runtime is moved into the headless/TUI arms below.
-    // `None` for an ephemeral run (no persisted session → nothing to resume).
+    // `None` for an ephemeral run (no persisted session -> nothing to resume).
     let active_session_id: Option<String> = native_runtime.session.as_ref().map(|s| s.id.clone());
     tracing::info!(
         target: "rustcode::startup",
@@ -1972,7 +1972,7 @@ async fn run() -> Result<i32> {
     // for live views and subsequent runtime respawns without being persisted to disk.
     let runtime_spawn_override: rustcode_tuix::RuntimeSpawnOverride = {
         // Capture the bypass flag so in-TUI re-spawns also honor
-        // --dangerously-skip-permissions — not just the launch handle.
+        // --dangerously-skip-permissions -- not just the launch handle.
         let skip_perms = cli.dangerously_skip_permissions;
         std::sync::Arc::new(
             move |config: &rustcode_config::config::Config,
@@ -2073,20 +2073,20 @@ async fn run() -> Result<i32> {
         } else {
             // Fire-and-forget: spawn a setsid'd subprocess to stage the next
             // release if one is out. Detached so a Ctrl+C in this parent doesn't
-            // also kill the download — that was the whole reason "exit and come
+            // also kill the download -- that was the whole reason "exit and come
             // back" wasn't picking up v_next on short sessions. Only armed when
             // the user hasn't opted out via `auto_update = false` AND we're not
             // running as `rustcode.bak` (backup should stay pinned; see the
             // `is_running_as_backup` guard up top).
             // In distro-pm (HarmonyBrew) builds the package manager owns
-            // upgrades, so skip spawning the detached prep process entirely —
+            // upgrades, so skip spawning the detached prep process entirely --
             // `prepare_deferred_upgrade` would no-op anyway.
             if config.auto_update
                 && !is_running_as_backup()
                 && !cli.dev
                 && !rustcode_updater::is_package_managed()
                 // Skip when the startup synchronous path already checked (and applied,
-                // if newer) this launch — otherwise both fetch `latest.json`. The
+                // if newer) this launch -- otherwise both fetch `latest.json`. The
                 // detached stager stays as the fallback for launches where the sync
                 // path was skipped (e.g. RUSTCODE_PLAIN).
                 && !SYNC_UPGRADE_CHECKED.load(Ordering::Relaxed)
@@ -2094,13 +2094,13 @@ async fn run() -> Result<i32> {
                 spawn_detached_upgrade_prep();
             }
 
-            // Redirect fd 2 → $RUSTCODE_HOME/stderr.log before the TUI takes
+            // Redirect fd 2 -> $RUSTCODE_HOME/stderr.log before the TUI takes
             // ownership of the terminal. NSPasteboard deprecation warnings
             // (arboard clipboard polling, ~1.5 s interval) and any other
             // rogue C-lib stderr writes would otherwise land at the raw-mode
             // cursor position, painting into the input box.
             //
-            // Only fires here — the TUI branch. Headless (-p/--prompt-file)
+            // Only fires here -- the TUI branch. Headless (-p/--prompt-file)
             // leaves stderr pointing at the real terminal so the user sees
             // actual errors in their shell/CI output.
             redirect_stderr_to_log_file();
@@ -2113,8 +2113,8 @@ async fn run() -> Result<i32> {
                 .expect("native TUI runtime built above");
             let provider_selection = coding_cfg.provider_name.clone();
             let tui_runtime = into_tui_native_runtime(runtime, coding_cfg);
-            // Same as the headless arm: don't `?` — a TUI run that ends in an
-            // error must still reach the shutdown/flush below. Ok(()) → exit 0;
+            // Same as the headless arm: don't `?` -- a TUI run that ends in an
+            // error must still reach the shutdown/flush below. Ok(()) -> exit 0;
             // the error propagates only after the shutdown flush completes.
             // A running session owns its resolved provider/model. Shared config
             // changes only define the default for sessions opened afterwards;
@@ -2243,7 +2243,7 @@ fn into_tui_native_runtime(
 ///
 /// Redirect fd 2 to `$RUSTCODE_HOME/stderr.log` once we know we're
 /// entering interactive TUI mode. plain / headless / piped paths
-/// don't call this — they want stderr to reach the terminal so the
+/// don't call this -- they want stderr to reach the terminal so the
 /// user sees real errors.
 ///
 /// Best-effort: if the home dir can't be created or the file can't
@@ -2253,7 +2253,7 @@ fn into_tui_native_runtime(
 fn redirect_stderr_to_log_file() {
     use std::os::unix::io::AsRawFd;
     // Both halves come from `distribution`, which is what `HOME_ENV`'s doc
-    // comment asks of the resolvers it enumerates — this is one of them. The
+    // comment asks of the resolvers it enumerates -- this is one of them. The
     // fallback is rarely taken (`bootstrap_home` has normally set the variable
     // already), and that is exactly why a literal here is a liability: the one
     // path that reaches it is the one nobody exercises.
@@ -2275,9 +2275,9 @@ fn redirect_stderr_to_log_file() {
         return;
     };
     // Write a session marker so users can see in stderr.log where
-    // each rustcode session starts — helps separate one run's noise
+    // each rustcode session starts -- helps separate one run's noise
     // from another's when grepping for actual problems.
-    // Use epoch seconds (std::time only — no chrono dep needed).
+    // Use epoch seconds (std::time only -- no chrono dep needed).
     let epoch_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -2287,11 +2287,11 @@ fn redirect_stderr_to_log_file() {
     // SAFETY: dup2 swaps the file descriptor table entry for fd 2
     // to point at `file`'s underlying fd. This is a standard, safe
     // operation; the worst case (dup2 fails) is the redirect doesn't
-    // happen and we log nothing — same as the no-redirect baseline.
+    // happen and we log nothing -- same as the no-redirect baseline.
     unsafe {
         libc::dup2(file.as_raw_fd(), libc::STDERR_FILENO);
     }
-    // Intentionally keep `file` alive via the dup2 — the kernel
+    // Intentionally keep `file` alive via the dup2 -- the kernel
     // holds a reference to the underlying inode, so even after
     // `file` is dropped, fd 2 stays pointing at the same file.
     // No need to std::mem::forget.
@@ -2307,7 +2307,7 @@ fn redirect_stderr_to_log_file() {
 /// The persistent tracing log path: `<config_dir>/logs/rustcode.log`. Pure so the
 /// join rule is unit-testable; the config dir is resolved by `Config::config_dir()`
 /// (which is `RUSTCODE_HOME`- AND sudo-aware via `real_home_dir`), so the log lands
-/// next to config/sessions instead of diverging under `sudo` — plain `dirs::home_dir()`
+/// next to config/sessions instead of diverging under `sudo` -- plain `dirs::home_dir()`
 /// there points at root's home, where the user would never find the log.
 fn rustcode_log_path(config_dir: std::path::PathBuf) -> std::path::PathBuf {
     config_dir.join("logs").join("rustcode.log")
@@ -2319,7 +2319,7 @@ const DEFAULT_LOG_DIRECTIVES: &str =
     "info,hyper=warn,hyper_util=warn,h2=warn,rustls=warn,reqwest=warn,tower=warn,mio=warn";
 
 /// Roll size cap for the tracing log. Above this the live file is rotated to a single
-/// `.old` generation, bounding on-disk usage at ~2× this (an always-on `info` log
+/// `.old` generation, bounding on-disk usage at ~2x this (an always-on `info` log
 /// would otherwise append forever across every session).
 const LOG_ROTATE_BYTES: u64 = 5 * 1024 * 1024;
 
@@ -2340,7 +2340,7 @@ fn rotate_log_if_large(path: &std::path::Path) {
 /// to the no-op dispatcher and vanished. This wires them to a file.
 ///
 /// FILE-ONLY BY DESIGN: the TUI owns the terminal, and the stderr redirect only runs
-/// in the detached-daemon path — writing tracing output to real stderr would corrupt
+/// in the detached-daemon path -- writing tracing output to real stderr would corrupt
 /// the interactive display. So we always write to our own file handle, never stderr.
 ///
 /// Fail-open: any error (can't create dir/file, subscriber already set) leaves the
@@ -2381,7 +2381,7 @@ fn init_file_logging() {
         .with_ansi(false) // file, not a terminal
         .with_env_filter(filter)
         .with_writer(std::sync::Mutex::new(file))
-        .try_init(); // Err only if a subscriber is already set — fine, ignore.
+        .try_init(); // Err only if a subscriber is already set -- fine, ignore.
 }
 
 /// Apply launch-time provider/model overrides to the process-owned config.
@@ -2478,7 +2478,7 @@ pub(crate) async fn spawn_native_cli_runtime(
     fork_on_session_in_use: bool,
     // TUI-only opt-in: turn a `max_rounds` hit into the interactive
     // continue/stop checkpoint. The checkpoint render arm lives in the TUI
-    // event loop, so headless (`-p`) callers pass `false` — otherwise the
+    // event loop, so headless (`-p`) callers pass `false` -- otherwise the
     // kernel would emit a checkpoint Request with no requester and fail-closed.
     round_cap_checkpoint: bool,
 ) -> anyhow::Result<(
@@ -2612,7 +2612,7 @@ fn should_fork_busy_continue(
 /// Decide whether to auto-approve a headless approval request.
 ///
 /// A request only reaches this point when a gate (BashWorkspaceGate /
-/// ApprovalMiddleware) already escalated the tool call — i.e. it is NOT
+/// ApprovalMiddleware) already escalated the tool call -- i.e. it is NOT
 /// trivially safe.  `-p` (skip_permissions) blanket-approves bash; scheduled
 /// runs (strict_unattended=true) refuse everything because no human is present
 /// to vet a destructive or out-of-workspace command.
@@ -2795,7 +2795,7 @@ pub(crate) async fn run_native_headless(
                     })?;
                 } else if verbose {
                     eprintln!(
-                        "[tool→ {}] {}",
+                        "[tool-> {}] {}",
                         call.name,
                         truncate_log_line(&call.arguments, 120)
                     );
@@ -2939,34 +2939,34 @@ pub(crate) async fn run_native_headless(
                 let is_coding_plan = !reset_at_display.is_empty() || !reset_label.is_empty();
                 if auto_resuming {
                     eprintln!(
-                        "[rate-limited] auto-continuing in {}s…",
+                        "[rate-limited] auto-continuing in {}s...",
                         secs_until_reset.unwrap_or(0)
                     );
                 } else if !is_coding_plan {
                     let reason = match server_message.as_deref() {
                         Some(message) if !message.trim().is_empty() => {
-                            format!(" — {}", message.trim())
+                            format!(" -- {}", message.trim())
                         }
                         _ => String::new(),
                     };
                     match secs_until_reset {
                         Some(seconds) => eprintln!(
-                            "[rate-limited] HTTP 429{reason} — retry later (in {seconds}s)"
+                            "[rate-limited] HTTP 429{reason} -- retry later (in {seconds}s)"
                         ),
                         None => {
-                            eprintln!("[rate-limited] HTTP 429{reason} — paused, retry later")
+                            eprintln!("[rate-limited] HTTP 429{reason} -- paused, retry later")
                         }
                     }
                 } else if !reset_at_display.is_empty() {
                     eprintln!(
-                        "[rate-limited] 5h window exhausted — resets around {reset_at_display}"
+                        "[rate-limited] 5h window exhausted -- resets around {reset_at_display}"
                     );
                 } else if let Some(seconds) = secs_until_reset {
                     eprintln!(
-                        "[rate-limited] 5h window exhausted — resets in {seconds}s, retry later"
+                        "[rate-limited] 5h window exhausted -- resets in {seconds}s, retry later"
                     );
                 } else {
-                    eprintln!("[rate-limited] 5h window exhausted — paused, retry later");
+                    eprintln!("[rate-limited] 5h window exhausted -- paused, retry later");
                 }
             }
             CodingRuntimeEvent::Request(request) => {
@@ -3138,7 +3138,7 @@ fn run_setup_command(force: bool) -> i32 {
 /// Handle subcommands (login, logout, status)
 async fn handle_command(cmd: Commands) -> Result<()> {
     // Subcommands never enter TUI, so tell the panic hook to skip terminal
-    // cleanup — otherwise `disable_raw_mode` panics on Windows with
+    // cleanup -- otherwise `disable_raw_mode` panics on Windows with
     // "initial console mode not set" because raw mode was never enabled.
     HEADLESS_MODE.store(true, Ordering::Relaxed);
 
@@ -3193,7 +3193,7 @@ async fn handle_command(cmd: Commands) -> Result<()> {
             dry_run,
         }),
         Commands::Codingplan => {
-            // Hidden alias for Login — `run()` intercepts both before
+            // Hidden alias for Login -- `run()` intercepts both before
             // handle_command is called, so this arm is unreachable.
             unreachable!("Codingplan is handled inline in run() before handle_command")
         }
@@ -3226,7 +3226,7 @@ async fn handle_command(cmd: Commands) -> Result<()> {
             let args: Vec<String> = command.into_iter().skip(1).collect();
             merge_stdio_mcp_server_into_json_file(&path, &name, &program, &args)?;
             println!(
-                "  Added MCP server {:?} → {} (stdio: {} + {} arg(s))",
+                "  Added MCP server {:?} -> {} (stdio: {} + {} arg(s))",
                 name,
                 path.display(),
                 program,
@@ -3248,7 +3248,7 @@ async fn handle_command(cmd: Commands) -> Result<()> {
                 "github",
             )?;
             println!(
-                "  Added GitHub OAuth MCP server {:?} → {}",
+                "  Added GitHub OAuth MCP server {:?} -> {}",
                 name,
                 path.display()
             );
@@ -3335,7 +3335,7 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
 
     let cwd = std::env::current_dir().unwrap_or_default();
 
-    // CC hook event → its display / payload name.
+    // CC hook event -> its display / payload name.
     fn event_name(e: HookEvent) -> &'static str {
         match e {
             HookEvent::PreToolUse => "PreToolUse",
@@ -3349,19 +3349,19 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
         }
     }
 
-    // Display the EXACT files cc_hooks loads — via cc_hooks' own resolver, not
+    // Display the EXACT files cc_hooks loads -- via cc_hooks' own resolver, not
     // `Config::config_dir()` (which is sudo-aware and would diverge from what the
     // hook loader actually reads under `sudo`, turning the diagnostic into a lie).
     let project_hooks = project_hooks_path(&cwd);
     let print_paths = || {
         match global_hooks_path() {
             Some(g) => {
-                let mark = if g.exists() { "✓" } else { "✗" };
+                let mark = if g.exists() { "[+]" } else { "[x]" };
                 println!("  {} Global:   {}", mark, g.display());
             }
-            None => println!("  ✗ Global:   (no home directory)"),
+            None => println!("  [x] Global:   (no home directory)"),
         }
-        let p = if project_hooks.exists() { "✓" } else { "✗" };
+        let p = if project_hooks.exists() { "[+]" } else { "[x]" };
         println!("  {} Project:  {}", p, project_hooks.display());
     };
 
@@ -3400,7 +3400,7 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
                 println!("Untrusted plugin hooks (not loaded):");
                 for s in &untrusted {
                     println!(
-                        "  {} — {} hook(s) [{}] · run: rustcode plugin trust {}",
+                        "  {} -- {} hook(s) [{}] . run: rustcode plugin trust {}",
                         s.plugin,
                         s.hook_count,
                         s.events.join(", "),
@@ -3413,31 +3413,31 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
         }
         HookCommands::Test { name } => {
             let hooks = load_hooks_config(&cwd);
-            // cc_hooks hooks carry no name — match by event name or a command substring.
+            // cc_hooks hooks carry no name -- match by event name or a command substring.
             let found = hooks.iter().find(|h| {
                 event_name(h.event).eq_ignore_ascii_case(&name) || h.command.contains(&name)
             });
             match found {
                 None => {
-                    println!("❌ No hook matching '{}' found.", name);
+                    println!("[x] No hook matching '{}' found.", name);
                     if hooks.is_empty() {
                         println!("\n  (No hooks loaded. Check hooks.json / .hooks.json.)");
                     } else {
                         println!("\nAvailable hooks (test by event name or a command substring):");
                         for h in &hooks {
-                            println!("  🔹 {:<16} {}", event_name(h.event), h.command);
+                            println!("  [-] {:<16} {}", event_name(h.event), h.command);
                         }
                     }
                 }
                 Some(hook) => {
-                    println!("\n🔧 Testing Hook ({})", event_name(hook.event));
+                    println!("\n[*] Testing Hook ({})", event_name(hook.event));
                     println!("  Command:   {}", hook.command);
                     println!("  Timeout:   {} ms", hook.timeout_ms);
                     if let Some(ref m) = hook.matcher {
                         println!("  Matcher:   {}", m);
                     }
                     println!();
-                    // CC stdin payload — event-shaped to MATCH what the live runtime pipes
+                    // CC stdin payload -- event-shaped to MATCH what the live runtime pipes
                     // (see cc_hooks lifecycle methods): only tool events carry tool fields,
                     // PostToolUse carries `tool_response`, UserPromptSubmit carries `prompt`.
                     let sid = "test-session-0000";
@@ -3479,19 +3479,19 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
                     let start = std::time::Instant::now();
                     match run_hook_for_test(hook, &payload).await {
                         Some(out) => {
-                            println!("📋 Result:");
+                            println!("[+] Result:");
                             println!("  Duration:  {:?}", start.elapsed());
                             // CC exit-code contract: 0 = ok, 2 = DELIBERATE block (not a
                             // failure), other/signal = the hook broke.
                             let (label, detail) = match out.exit_code {
-                                Some(0) => ("✅ SUCCESS", "exit code 0".to_string()),
+                                Some(0) => ("[+] SUCCESS", "exit code 0".to_string()),
                                 Some(2) => (
-                                    "⛔ BLOCK",
-                                    "exit code 2 — hook requested a block (CC contract)"
+                                    "[!] BLOCK",
+                                    "exit code 2 -- hook requested a block (CC contract)"
                                         .to_string(),
                                 ),
-                                Some(c) => ("❌ FAILURE", format!("exit code {}", c)),
-                                None => ("❌ FAILURE", "terminated by signal".to_string()),
+                                Some(c) => ("[x] FAILURE", format!("exit code {}", c)),
+                                None => ("[x] FAILURE", "terminated by signal".to_string()),
                             };
                             println!("  Status:    {} ({})", label, detail);
                             if !out.stdout.is_empty() {
@@ -3508,9 +3508,9 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
                             }
                         }
                         None => {
-                            println!("📋 Result:");
+                            println!("[+] Result:");
                             println!(
-                                "  ❌ Hook did not complete: it timed out (>{} ms) or failed to spawn.",
+                                "  [x] Hook did not complete: it timed out (>{} ms) or failed to spawn.",
                                 hook.timeout_ms
                             );
                         }
@@ -3634,7 +3634,7 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                     }
                 }
             }
-            // Surface untrusted hooks for the freshly-installed plugin only — they
+            // Surface untrusted hooks for the freshly-installed plugin only -- they
             // will NOT run until the user trusts them (loaded-code trust gate).
             // Filtered by `info.plugin` (the canonical plugin name returned by the
             // installer) so pre-existing untrusted plugins don't produce spurious output.
@@ -3774,9 +3774,9 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
 /// Supports both `plugin@marketplace` (fully qualified) and bare
 /// `plugin` (resolved across all marketplaces).
 enum PluginSpec {
-    /// Explicit `plugin@marketplace` — use as-is.
+    /// Explicit `plugin@marketplace` -- use as-is.
     Qualified { plugin: String, marketplace: String },
-    /// Bare plugin name — needs marketplace resolution.
+    /// Bare plugin name -- needs marketplace resolution.
     Bare { plugin: String },
 }
 
@@ -3802,7 +3802,7 @@ fn parse_plugin_spec(s: &str) -> Result<PluginSpec> {
     }
 }
 
-/// CLI (non-TUI) upgrade driver — prints progress to stdout and
+/// CLI (non-TUI) upgrade driver -- prints progress to stdout and
 /// success/error messages the same way `install.sh` does.
 async fn run_upgrade_cli(force: bool) -> Result<()> {
     use rustcode_updater::{self as self_update, UpgradeEvent, ALREADY_LATEST};
@@ -3821,7 +3821,7 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
                 println!("==> Latest: {}", version);
             }
             UpgradeEvent::Downloading { bytes, total } => {
-                // Debounce to whole percents so we don't spam stdout —
+                // Debounce to whole percents so we don't spam stdout --
                 // piping the CLI through `tee` with 10k updates is no
                 // fun for anyone.
                 let pct = if total == 0 {
@@ -3850,7 +3850,7 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
                 exe: _,
             } => {
                 println!(
-                    "\n✓ Upgraded to {} (previous version kept at {})",
+                    "\n[+] Upgraded to {} (previous version kept at {})",
                     version,
                     backup.display()
                 );
@@ -3858,7 +3858,7 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
             }
             // CLI path never spawns a rollback via this channel and the
             // driver below translates errors into the returned Result
-            // (not a Failed event) — these arms exist only to keep the
+            // (not a Failed event) -- these arms exist only to keep the
             // match exhaustive if the TUI path ever reuses this code.
             UpgradeEvent::Failed(msg) => {
                 if msg.contains(rustcode_updater::PACKAGE_MANAGED) {
@@ -3872,7 +3872,7 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
             }
             UpgradeEvent::RolledBack { exe, backup } => {
                 println!(
-                    "\n✓ Rolled back. exe={}, backup={}",
+                    "\n[+] Rolled back. exe={}, backup={}",
                     exe.display(),
                     backup.display()
                 );
@@ -3891,7 +3891,7 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
                 );
                 Ok(())
             } else if msg.contains(ALREADY_LATEST) {
-                // Friendly path — not an error, just "nothing to do".
+                // Friendly path -- not an error, just "nothing to do".
                 println!("  {}", msg.replace(&format!("{}: ", ALREADY_LATEST), ""));
                 Ok(())
             } else {
@@ -3918,7 +3918,7 @@ fn run_rollback_cli() -> Result<()> {
         }
     };
     println!(
-        "✓ Rolled back. Previous binary is now at {}, other version saved at {}",
+        "[+] Rolled back. Previous binary is now at {}, other version saved at {}",
         summary.exe.display(),
         summary.backup.display()
     );
@@ -3926,24 +3926,24 @@ fn run_rollback_cli() -> Result<()> {
     Ok(())
 }
 
-/// Core CodingPlan flow shared by CLI-exit and CLI→TUI paths. Loads
+/// Core CodingPlan flow shared by CLI-exit and CLI->TUI paths. Loads
 /// the config (or starts from defaults if missing), runs the shared
 /// `coding_plan::setup` orchestrator, persists the config on success,
-/// and returns the rendered human-readable report — the caller decides
+/// and returns the rendered human-readable report -- the caller decides
 /// whether to print it to stdout or stash it for the TUI to surface.
 fn run_codingplan_core() -> Result<String> {
     let path = Config::default_path();
-    // Missing config is legitimate on first install — start from defaults
-    // so the flow can still add AtomGit providers to a fresh config.toml.
+    // Missing config is legitimate on first install -- start from defaults
+    // so the flow can still add CodingPlan providers to a fresh config.toml.
     let mut config = Config::load(&path).unwrap_or_default();
     rustcode_config::proxy::apply_process_proxy_config(&config.network.proxy);
 
     // If the stored token is locally valid (file present, expires_in
     // not yet past) but the server rejects it (revoked, refresh-token
     // dead, etc.), the orchestrator sets `report.auth_expired = true`.
-    // Run OAuth *once* on that path — same flow `rustcode login` would
-    // use — then re-run setup against the fresh token. Without this
-    // the user sees the report ending in "claim failed — run `rustcode
+    // Run OAuth *once* on that path -- same flow `rustcode login` would
+    // use -- then re-run setup against the fresh token. Without this
+    // the user sees the report ending in "claim failed -- run `rustcode
     // login` again" and has to do manually what `codingplan` could
     // do itself.
     let mut report = rustcode_codingplan::run(
@@ -3982,19 +3982,19 @@ fn run_codingplan_core() -> Result<String> {
         }) {
             Ok(_) => true,
             Err(e) => {
-                eprintln!("  ⚠ Failed to save config to {}: {:#}", path.display(), e);
+                eprintln!("  [!] Failed to save config to {}: {:#}", path.display(), e);
                 false
             }
         };
         // Stamp the sync marker alongside the config write. The drift
         // monitor on the TUI side reads this to decide whether to warn
         // about stale provider lists (> 24h + server drift). A failed
-        // marker write is non-fatal — the config already landed; only
+        // marker write is non-fatal -- the config already landed; only
         // the 24h hint would be miscounted, which self-corrects on the
         // next successful run.
         if persisted {
             if let Err(e) = rustcode_codingplan::write_last_sync_now() {
-                eprintln!("  ⚠ Failed to write codingplan sync marker: {:#}", e);
+                eprintln!("  [!] Failed to write codingplan sync marker: {:#}", e);
             }
         }
     }
@@ -4025,7 +4025,7 @@ fn write_crash_log(info: &std::panic::PanicHookInfo<'_>) {
     // Same `logs/` dir as [`rustcode_log_path`], so it must resolve the same
     // way: that one goes through `Config::config_dir()`, this one used to hard-
     // code `~/.rustcode`, and with `$RUSTCODE_HOME` set the two split into
-    // different trees — `rustcode.log` where the user configured it, the crash
+    // different trees -- `rustcode.log` where the user configured it, the crash
     // report somewhere they never look.
     //
     // This also drops the old give-up-if-no-home arm: with nothing resolvable
@@ -4149,10 +4149,10 @@ mod tests {
 
     #[test]
     fn resume_hint_line_forms_match_headless_vs_tui_and_language() {
-        // Headless continues a pipe run with `-p … --resume <id>`.
+        // Headless continues a pipe run with `-p ... --resume <id>`.
         assert_eq!(
             resume_hint_line("abc", true, false),
-            "To resume this session, run: rustcode -p \"…\" --resume abc"
+            "To resume this session, run: rustcode -p \"...\" --resume abc"
         );
         // TUI shows the `resume <id>` subcommand (codex parity).
         assert_eq!(
@@ -4168,7 +4168,7 @@ mod tests {
 
     #[test]
     fn resume_flag_and_subcommand_parse() {
-        // `-p "…" --resume <id>` → headless resume.
+        // `-p "..." --resume <id>` -> headless resume.
         let c = Cli::try_parse_from(["rustcode", "-p", "hi", "--resume", "sid"]).unwrap();
         assert_eq!(c.resume.as_deref(), Some("sid"));
         // `resume <id>` subcommand.
@@ -4177,7 +4177,7 @@ mod tests {
             c.command,
             Some(Commands::Resume { session: Some(s) }) if s == "sid"
         ));
-        // bare `resume` → most recent.
+        // bare `resume` -> most recent.
         let c = Cli::try_parse_from(["rustcode", "resume"]).unwrap();
         assert!(matches!(
             c.command,
@@ -4340,8 +4340,8 @@ mod tests {
     #[test]
     fn verbose_tool_chunk_strips_ephemeral_activity_marker() {
         assert_eq!(
-            format_verbose_tool_chunk("\u{1e}review · 2 findings · read_file"),
-            "[progress] review · 2 findings · read_file\n"
+            format_verbose_tool_chunk("\u{1e}review . 2 findings . read_file"),
+            "[progress] review . 2 findings . read_file\n"
         );
     }
 
@@ -4365,10 +4365,10 @@ mod tests {
 
     #[test]
     fn runtime_config_honors_provider_override() {
-        // Regression: engine-v2 headless `--provider X` was silently ignored —
+        // Regression: engine-v2 headless `--provider X` was silently ignored --
         // runtime_config_from read `default_provider` directly instead of routing
         // through `active_provider`, so the runtime picked the config default
-        // (e.g. an AtomGit gateway needing a signer this build lacks) and a
+        // (e.g. a gateway needing a signer this build lacks) and a
         // `--provider deepseek` run hit the wrong endpoint and failed.
         let toml_str = r#"
             default_provider = "gateway"
@@ -4376,7 +4376,7 @@ mod tests {
             [providers.gateway]
             type = "openai"
             model = "gw-model"
-            base_url = "https://llm-api.atomgit.com/v1"
+            base_url = "https://gateway.test.example/v1"
 
             [providers.direct]
             type = "openai"
@@ -4388,14 +4388,14 @@ mod tests {
         let config: rustcode_config::config::Config = toml::from_str(toml_str).unwrap();
         let wd = PathBuf::from("/tmp/x");
 
-        // No override → the config default (gateway), no reasoning_history set.
+        // No override -> the config default (gateway), no reasoning_history set.
         let def = runtime_config_from(&config, &wd, None, false, false);
-        assert_eq!(def.base_url, "https://llm-api.atomgit.com/v1");
+        assert_eq!(def.base_url, "https://gateway.test.example/v1");
         assert_eq!(def.model, "gw-model");
         assert_eq!(def.provider_name, "gateway");
         assert_eq!(def.reasoning_history, None);
 
-        // `--provider direct` → that provider's endpoint/model/key + its per-provider
+        // `--provider direct` -> that provider's endpoint/model/key + its per-provider
         // reasoning_history override, NOT the default.
         let ov = runtime_config_from(&config, &wd, Some("direct"), false, false);
         assert_eq!(ov.base_url, "https://api.deepseek.com");
@@ -4488,7 +4488,7 @@ mod tests {
         // opted in at the TUI spawn sites by flipping `round_cap_checkpoint` on
         // the runtime config. A direct test of the async CLI factory
         // (`spawn_native_cli_runtime`/`spawn_deferred_tui_runtime`) isn't
-        // feasible here — both need a live runtime + provider bootstrap — so we
+        // feasible here -- both need a live runtime + provider bootstrap -- so we
         // pin the propagation seam those sites rely on: the field defaults off
         // and `agent_config()` copies it through to the kernel-facing config.
         let toml_str = r#"
@@ -4557,7 +4557,7 @@ mod tests {
 
     #[test]
     fn mixed_ascii_cjk_truncates_at_char_boundary() {
-        // 8 chars: ['a','b','c','计','算','d','e','f']; max 5 → "abc计算..."
+        // 8 chars: ['a','b','c','计','算','d','e','f']; max 5 -> "abc计算..."
         assert_eq!(truncate_log_line("abc计算def", 5), "abc计算...");
     }
 
@@ -4697,7 +4697,7 @@ mod tests {
     }
 
     /// CJK content (common in Chinese reasoning models) must not break the
-    /// single-line invariant — every char-level chunk just appends.
+    /// single-line invariant -- every char-level chunk just appends.
     #[test]
     fn cjk_chunks_stream_correctly() {
         let mut buf = String::new();
@@ -4718,12 +4718,12 @@ mod tests {
         format_thinking_chunk(&mut buf, &mut open, "I should");
         format_thinking_chunk(&mut buf, &mut open, " check");
         format_thinking_chunk(&mut buf, &mut open, " the file");
-        // Now a non-reasoning event arrives → close, then emit it.
+        // Now a non-reasoning event arrives -> close, then emit it.
         close_thinking_chunk(&mut buf, &mut open);
-        buf.push_str("[tool→ read_file]\n");
+        buf.push_str("[tool-> read_file]\n");
         assert_eq!(
             buf,
-            "[thinking] I should check the file\n[tool→ read_file]\n"
+            "[thinking] I should check the file\n[tool-> read_file]\n"
         );
     }
 }

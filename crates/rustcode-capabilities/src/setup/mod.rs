@@ -1,6 +1,6 @@
-//! Setup wizard — install seed files (skills/commands/hooks/MCP) to `$RUSTCODE_HOME/`.
+//! Setup wizard -- install seed files (skills/commands/hooks/MCP) to `$RUSTCODE_HOME/`.
 //!
-//! Simplified pipeline: lock → scan → install all seeds → setup-state → report.
+//! Simplified pipeline: lock -> scan -> install all seeds -> setup-state -> report.
 
 pub mod error;
 pub mod fs_atomic;
@@ -34,14 +34,14 @@ impl RunOptions {
 use crate::setup::install::{InstalledSummary, ReloadDirective};
 use crate::setup::seeds::ensure_seeds_extracted;
 
-/// Simplified pipeline: lock → scan → install all embedded seeds → setup-state → report.
+/// Simplified pipeline: lock -> scan -> install all embedded seeds -> setup-state -> report.
 ///
-/// This is a synchronous function — all operations (lock, scan, install, state write)
+/// This is a synchronous function -- all operations (lock, scan, install, state write)
 /// are blocking. If called from an async context, use `tokio::task::spawn_blocking`.
 pub fn run(opts: RunOptions) -> SetupResult<SetupReport> {
     let started = std::time::Instant::now();
 
-    // 1. Lock — RAII; released on function exit / panic.
+    // 1. Lock -- RAII; released on function exit / panic.
     let _lock = lock::SetupLock::acquire(&opts.project_root, opts.force).map_err(|e| match e {
         lock::LockError::Held {
             pid,
@@ -141,11 +141,11 @@ fn install_directory_skills_from_seeds(
                     ));
                     continue;
                 }
-                // Hash differs or --force → remove old and reinstall.
+                // Hash differs or --force -> remove old and reinstall.
                 if force {
                     tracing::info!(skill = %name, "forced reinstall of seed skill");
                 } else {
-                    tracing::info!(skill = %name, "seed skill updated — reinstalling");
+                    tracing::info!(skill = %name, "seed skill updated -- reinstalling");
                 }
                 let _ = std::fs::remove_dir_all(&dest);
             }

@@ -3,7 +3,7 @@
 //!
 //! The ACP session surface exposes an execution mode (mapped to the kernel
 //! [`RuntimeMode`]) and a config-option catalog (model / mode /
-//! reasoning_effort selects). This module owns the wire → kernel mapping for
+//! reasoning_effort selects). This module owns the wire -> kernel mapping for
 //! both, the shared catalog-apply logic, and the handlers that broadcast the
 //! resulting `current_mode_update` / `config_option_update` notifications.
 
@@ -170,7 +170,7 @@ pub const REASONING_EFFORT_CONFIG_ID: &str = "reasoning_effort";
 
 /// Reasoning effort tiers accepted for [`REASONING_EFFORT_CONFIG_ID`]. Values
 /// follow the TUI `/effort` ladder: `off` (no opinion, API default), `high`,
-/// `max`. Like qwen-code, only the value's legality is checked here — whether
+/// `max`. Like qwen-code, only the value's legality is checked here -- whether
 /// the active provider/model honours it is the adapter's call (it may clamp or
 /// ignore; the kernel `ReasoningEffort` doc says an adapter MAY ignore it).
 pub const REASONING_EFFORT_TIERS: [&str; 3] = ["off", "high", "max"];
@@ -495,7 +495,7 @@ mod tests {
 
     /// The protocol allows `session/set_mode` and `session/set_config_option`
     /// at any time, including while a prompt turn is generating. A running
-    /// turn holds the session's events receiver for its whole duration — the
+    /// turn holds the session's events receiver for its whole duration -- the
     /// switches must complete without touching it (no deadlock) and must
     /// commit state without disturbing the turn.
     #[tokio::test]
@@ -549,7 +549,7 @@ mod tests {
                     }
                     _ => {}
                 }
-                // Both switch kinds observed → the control loop may exit; the
+                // Both switch kinds observed -> the control loop may exit; the
                 // handle lives on in the session state, so the channel never
                 // closes on its own.
                 if set_mode && reprepare {
@@ -571,7 +571,7 @@ mod tests {
             .await
             .expect("mode switch completes while a turn is running");
 
-        // 2. `session/set_config_option` (reasoning_effort → provider reload) during the turn.
+        // 2. `session/set_config_option` (reasoning_effort -> provider reload) during the turn.
         let req = SetSessionConfigOptionRequest::new(
             SessionId::new("acp-1"),
             REASONING_EFFORT_CONFIG_ID,
@@ -647,7 +647,7 @@ mod tests {
         ]
     }
 
-    /// Sessions seeded with [`test_catalog`] (no live control receiver — only
+    /// Sessions seeded with [`test_catalog`] (no live control receiver -- only
     /// for paths that reject before touching the kernel).
     fn sessions_with_catalog(entries: Vec<(&str, &str)>) -> crate::acp::sessions::Sessions {
         let map: std::collections::HashMap<String, SessionState> = entries
@@ -921,7 +921,7 @@ mod tests {
         let agent_sessions = Arc::clone(&sessions);
         // Records the value the resolver was asked to apply. The stub runtime
         // cannot complete a real reassemble, so the handler surfaces an error
-        // *from the reload step* — which is exactly the contract under test:
+        // *from the reload step* -- which is exactly the contract under test:
         // a legal effort is accepted, forwarded to the resolver, and reaches
         // the provider reload (it is not rejected by value validation).
         let seen_effort: Arc<std::sync::Mutex<Option<String>>> =

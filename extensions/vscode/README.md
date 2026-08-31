@@ -39,7 +39,7 @@ RustCode 提供面向开发流程的辅助能力，包括代码理解、上下�
 
 1. 安装扩展并打开 Activity Bar 中的 RustCode 面板
 2. 首次使用选择模型配置方式：
-   - **AtomGit 登录** → 同步 CodingPlan 模型（推荐）
+   - **平台登录** → 同步 CodingPlan 模型（推荐）
    - **手动添加** → 填写 provider name / model / base URL / API key
 3. 在输入框描述任务，或选中代码使用右键菜单
 4. 查看建议并手动确认是否应用变更
@@ -142,6 +142,6 @@ RustCode 通过本地运行的辅助服务与 VS Code 进行通信，用于处�
 
 ## 链接
 
-- [官网](https://atomcode.atomgit.com/)
-- [源码仓库](https://atomgit.com/atomgit_atomcode/atomcode)
-- [MIT License](https://atomgit.com/atomgit_atomcode/atomcode/blob/main/LICENSE)
+- [官网](https://gitcode.com/SecLab/RustCode)
+- [源码仓库](https://gitcode.com/SecLab/RustCode)
+- [MIT License](https://gitcode.com/SecLab/RustCode/blob/main/LICENSE)

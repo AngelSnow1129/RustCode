@@ -30,7 +30,7 @@ impl ThinkStripper {
         self.carry.len()
     }
 
-    /// Reset to the pristine state. Call between turns — otherwise an
+    /// Reset to the pristine state. Call between turns -- otherwise an
     /// unclosed `<think>` from a previous turn (model got cancelled, got
     /// an error mid-stream, switched provider, etc.) leaves `inside=true`
     /// and silently swallows every TextDelta of the next turn. Symptom:
@@ -265,11 +265,11 @@ mod tests {
 
     /// Regression: an unclosed `<think>` from a previous turn would leave
     /// `inside=true` and swallow the entire next turn's text. The real-world
-    /// trigger is a provider switch mid-turn (e.g. GLM → Kimi): GLM embeds
-    /// thinking as `<think>…</think>` in content, Kimi routes it through
+    /// trigger is a provider switch mid-turn (e.g. GLM -> Kimi): GLM embeds
+    /// thinking as `<think>...</think>` in content, Kimi routes it through
     /// `reasoning_content` (plain content with no `<think>` tag). If the
     /// GLM turn cancels with an open tag and no one calls `reset()`, every
-    /// Kimi TextDelta afterward disappears — user sees blank assistant
+    /// Kimi TextDelta afterward disappears -- user sees blank assistant
     /// bubbles while datalog shows the LLM actually returned text.
     #[test]
     fn reset_clears_stuck_inside_state() {

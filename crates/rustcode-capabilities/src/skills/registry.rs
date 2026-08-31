@@ -1,5 +1,5 @@
 //! Discover + index skills from a set of directories. Neutral: the caller supplies the
-//! directories (the standard `~/.claude/skills` etc. precedence is a driver concern —
+//! directories (the standard `~/.claude/skills` etc. precedence is a driver concern --
 //! see [`standard_skill_dirs`]). Ported from production `skill.rs` `SkillRegistry`.
 
 use super::skill::{parse_skill_dir, parse_skill_file, Skill};
@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Skills indexed by name. `BTreeMap` for deterministic (sorted) order — the skill list
+/// Skills indexed by name. `BTreeMap` for deterministic (sorted) order -- the skill list
 /// is injected into the system prompt, so a stable order keeps the prompt prefix
 /// byte-identical (prompt-prefix caching), same rationale as the kernel ToolRegistry.
 pub struct SkillRegistry {
@@ -21,7 +21,7 @@ impl SkillRegistry {
         }
     }
 
-    /// Load from `dirs` in LOW→HIGH priority order (a later dir's same-named skill wins).
+    /// Load from `dirs` in LOW->HIGH priority order (a later dir's same-named skill wins).
     /// Each dir is scanned for flat `*.md` files AND `*/SKILL.md` subdirectories; parse
     /// failures are skipped.
     pub fn load(dirs: &[PathBuf]) -> Self {
@@ -38,10 +38,10 @@ impl SkillRegistry {
     }
 
     /// Scan `dir` for skills, recursing into grouping subdirectories. A subdir holding a
-    /// `SKILL.md` is a skill (NOT descended into — its own files are skill resources); a
+    /// `SKILL.md` is a skill (NOT descended into -- its own files are skill resources); a
     /// subdir without one is a grouping directory whose nested skills are discovered
     /// recursively, so `skills/GROUP/SUB/SKILL.md` is still found. Flat `*.md`
-    /// slash-commands are TOP-LEVEL only (depth 0) — a skill's own `*.md` are resources,
+    /// slash-commands are TOP-LEVEL only (depth 0) -- a skill's own `*.md` are resources,
     /// not separate commands. `depth` is bounded to guard against symlink cycles.
     fn scan_skill_dir(&mut self, dir: &Path, namespace: Option<&str>, depth: usize) {
         const MAX_DEPTH: usize = 8;
@@ -80,7 +80,7 @@ impl SkillRegistry {
     /// sub-menu display and submit the *unqualified* name for skills whose
     /// bare name is unique (see `build_skill_menu_items`). Without this
     /// fallback, `get("rustcode-smoke-test")` misses the `skills:`-prefixed
-    /// key — so every user invocation of a file skill either errors with a
+    /// key -- so every user invocation of a file skill either errors with a
     /// bogus "unknown skill" (menu path) or is silently sent to the model as
     /// plain `$name` text (typed path). The model path is unaffected because
     /// the injected catalog carries the fully-qualified name.
@@ -89,8 +89,8 @@ impl SkillRegistry {
     /// way the menu is: `build_skill_menu_items` lists only user-invocable
     /// skills and shows the bare name when it is unique among THEM, so a lone
     /// user-invocable match wins even if a hidden (`user-invocable: false`)
-    /// skill shares the bare name. Only a genuinely ambiguous bare name — zero
-    /// or several user-invocable matches — returns `None`; the menu shows the
+    /// skill shares the bare name. Only a genuinely ambiguous bare name -- zero
+    /// or several user-invocable matches -- returns `None`; the menu shows the
     /// qualified form there, which resolves via the exact-match branch.
     pub fn get(&self, name: &str) -> Option<Arc<Skill>> {
         if let Some(skill) = self.skills.get(name) {
@@ -139,13 +139,13 @@ impl SkillRegistry {
     }
 
     /// Clear and reload from the standard home+project skill dirs (the `/skills`
-    /// slash-menu source), under the `skills:` namespace — matching the driver's
+    /// slash-menu source), under the `skills:` namespace -- matching the driver's
     /// slash-command convention. Mirrors core `SkillRegistry::reload`.
     ///
     /// Returns per-skill load warnings for signature compatibility with core's
     /// `reload` (driver call sites surface them). Currently always empty: this loader
-    /// silently skips unparseable skills — the SAME behavior the runtime skill path
-    /// uses — so no parse warnings are collected.
+    /// silently skips unparseable skills -- the SAME behavior the runtime skill path
+    /// uses -- so no parse warnings are collected.
     pub fn reload(&mut self, working_dir: &Path) -> Vec<String> {
         self.skills.clear();
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -232,7 +232,7 @@ impl Default for SkillRegistry {
     }
 }
 
-/// The standard skill directories (LOW→HIGH priority), Claude-Code-compatible. A driver
+/// The standard skill directories (LOW->HIGH priority), Claude-Code-compatible. A driver
 /// may pass this to [`SkillRegistry::load`] or supply its own. `home` = user home dir;
 /// `project` = the workspace root.
 pub fn standard_skill_dirs(home: &Path, project: &Path) -> Vec<PathBuf> {
@@ -240,7 +240,7 @@ pub fn standard_skill_dirs(home: &Path, project: &Path) -> Vec<PathBuf> {
         home.join(".claude/commands"),
         home.join(".rustcode/commands"),
         home.join(".claude/skills"),
-        // `.agents/skills` — cross-agent shared convention (opencode et al.). Between
+        // `.agents/skills` -- cross-agent shared convention (opencode et al.). Between
         // `.claude` and `.rustcode` so rustcode-native skills win a same-name collision.
         home.join(".agents/skills"),
         home.join(".rustcode/skills"),
@@ -257,7 +257,7 @@ pub fn standard_skill_dirs(home: &Path, project: &Path) -> Vec<PathBuf> {
 /// equivalent of `~/.rustcode`), so EVERY user-level `~/.rustcode/*` entry
 /// (`skills` AND `commands`) is rebased onto it; other products' dirs (`.claude`,
 /// `.agents`) and all project-relative dirs stay put. An empty `RUSTCODE_HOME` is
-/// treated as unset — mirroring [`rustcode_config`]'s `Config::config_dir` — so a
+/// treated as unset -- mirroring [`rustcode_config`]'s `Config::config_dir` -- so a
 /// stray `RUSTCODE_HOME=` never rebases skills onto a bogus relative `skills` path.
 pub fn runtime_skill_dirs(home: &Path, project: &Path) -> Vec<PathBuf> {
     let dirs = standard_skill_dirs(home, project);
@@ -319,7 +319,7 @@ mod tests {
             None => std::env::remove_var("RUSTCODE_HOME"),
         }
 
-        // Empty RUSTCODE_HOME must be treated as unset — NOT redirected to a bogus
+        // Empty RUSTCODE_HOME must be treated as unset -- NOT redirected to a bogus
         // relative `skills` path (regression: `PathBuf::from("").join("skills")`).
         assert!(!dirs.iter().any(|d| d == std::path::Path::new("skills")));
         assert_eq!(dirs, standard_skill_dirs(home.path(), project.path()));
@@ -346,7 +346,7 @@ mod tests {
     }
 
     /// A namespaced file skill (`skills:rustcode-smoke-test`) must resolve by
-    /// its bare name — the exact spelling the `$` trigger and `/skills` menu
+    /// its bare name -- the exact spelling the `$` trigger and `/skills` menu
     /// submit. Regression for the reported "first `$rustcode-smoke-test` errors
     /// with 未知技能, second runs it as plain text" bug.
     #[test]
@@ -361,9 +361,9 @@ mod tests {
         let mut reg = SkillRegistry::new();
         reg.load_dir(d.path(), Some("skills"));
 
-        // Stored under the namespaced key…
+        // Stored under the namespaced key...
         assert!(reg.get("skills:rustcode-smoke-test").is_some());
-        // …but the bare name the menu submits must resolve too.
+        // ...but the bare name the menu submits must resolve too.
         assert_eq!(
             reg.get("rustcode-smoke-test").map(|s| s.name.clone()),
             Some("skills:rustcode-smoke-test".to_string())
@@ -405,8 +405,8 @@ mod tests {
 
     /// The `$`/`/skills` menu lists only user-invocable skills and shows a bare
     /// name when unique AMONG THEM. So a hidden (`user-invocable: false`) skill
-    /// sharing the bare name must NOT make the menu-shown bare name ambiguous —
-    /// otherwise the "menu shows it but resolve fails → 未知技能" bug returns.
+    /// sharing the bare name must NOT make the menu-shown bare name ambiguous --
+    /// otherwise the "menu shows it but resolve fails -> 未知技能" bug returns.
     #[test]
     fn get_bare_name_prefers_sole_user_invocable_over_hidden() {
         let mut reg = SkillRegistry::new();
@@ -459,7 +459,7 @@ mod tests {
         let home = Path::new("/home/u");
         let project = Path::new("/proj");
         let dirs = standard_skill_dirs(home, project);
-        // `.agents/skills` is the cross-agent shared convention (opencode et al.) —
+        // `.agents/skills` is the cross-agent shared convention (opencode et al.) --
         // scanned at BOTH user and project level so shared skills load directly.
         assert!(
             dirs.contains(&home.join(".agents/skills")),

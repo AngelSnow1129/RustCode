@@ -1,4 +1,4 @@
-# atomcode release/v5.0.0 —— 真机验收测试清单
+# rustcode release/v5.0.0 —— 真机验收测试清单
 
 对应改动：v4.26.0 → v5.0.0，共 122 个提交，涵盖 A–I 九个变更区。
 
@@ -13,11 +13,11 @@
 
 ## 环境准备
 
-- [ ] 使用**已编译的 release/v5.0.0 二进制**，确认 `atomcode --version` 输出 v5.0.0
+- [ ] 使用**已编译的 release/v5.0.0 二进制**，确认 `rustcode --version` 输出 v5.0.0
 - [ ] **默认引擎**（v2，无需任何 env）用于 A、C、D、E、F、G、H、I 区测试
 - [ ] **B 区**：`export RUSTCODE_DAEMON_ENGINE=kernel`，每次测试前**新建会话**（已存在会话会走旧路径）
 - [ ] **D 区行为测试**：配置弱模型 `deepseek-v4-flash`（或类似弱模型），构造上下文高压/回合数接近上限场景
-- [ ] webui 测试需要 `atomcode daemon` 在后台运行，打开 `http://localhost:<port>`
+- [ ] webui 测试需要 `rustcode daemon` 在后台运行，打开 `http://localhost:<port>`
 - [ ] Windows 专项（F 区 /desktop 不闪 console）：需 Windows 机器
 
 ---
@@ -153,7 +153,7 @@ todo 面板固定在输入框上方，执行中多行显示，全部完成后隐
 
 `/init` 命令现在把分析请求提交给 agent，由模型自己分析仓库、生成 AGENTS.md。
 
-- [ ] 在一个**没有 AGENTS.md** 的项目目录启动 atomcode，执行 `/init`：
+- [ ] 在一个**没有 AGENTS.md** 的项目目录启动 rustcode，执行 `/init`：
   确认 TUI 开始一个 agent 轮次（可见 streaming 输出），模型开始分析仓库
 - [ ] 等 agent 完成后：确认项目根目录生成了 `AGENTS.md` 文件，内容是针对该项目的结构描述（而非静态模板）
 - [ ] 在**已有 AGENTS.md** 的目录执行 `/init`：确认 agent 同样运行（不是静态拒绝），可以更新或重写该文件
@@ -179,7 +179,7 @@ todo 面板固定在输入框上方，执行中多行显示，全部完成后隐
 - [ ] **侧栏登录指示真实有效性**：
   - 在**已登录**状态下打开 webui：侧栏登录状态显示为已登录（绿色/勾选）
   - **token 过期或从未登录**时：侧栏显示未登录或过期状态，与实际认证状态一致
-- [ ] **系统临时目录过滤**：在 `/tmp` 下启动一个 atomcode 会话，打开 webui 项目列表：
+- [ ] **系统临时目录过滤**：在 `/tmp` 下启动一个 rustcode 会话，打开 webui 项目列表：
   确认 `/tmp`、`/private/tmp`（macOS）等系统临时目录**不出现在侧栏项目列表**中
 - [ ] **无会话目录过滤**：在侧栏查看项目列表：确认从未有过任何会话的目录不出现
 
@@ -189,7 +189,7 @@ todo 面板固定在输入框上方，执行中多行显示，全部完成后隐
 
 - [ ] **开流瞬态失败自动重建**：
   模拟或等待一次网络连接偶发中断（如 VPN 重连、网络切换），导致请求失败：
-  确认 atomcode **自动重试**（不需要 `/login` 刷新），下一次请求正常；日志/界面无需用户干预
+  确认 rustcode **自动重试**（不需要 `/login` 刷新），下一次请求正常；日志/界面无需用户干预
 - [ ] **os error 110 / TimedOut 归类为瞬态**：
   在高延迟网络环境（可用 `tc` 或慢代理模拟）发起请求，若触发 `TimedOut (os error 110)`：
   确认被当作瞬态传输错误处理（自动重试或友好提示），而非报出红色永久错误
@@ -208,15 +208,15 @@ todo 面板固定在输入框上方，执行中多行显示，全部完成后隐
 > 不需逐条功能测，验证整体链路没坏即可。
 
 - [ ] **构建通过**：`cargo build --release` 无错误（0 error, 0 warn 阻塞）
-- [ ] **启动正常**：`atomcode` 冷启动，显示欢迎界面和输入框，无 panic
+- [ ] **启动正常**：`rustcode` 冷启动，显示欢迎界面和输入框，无 panic
 - [ ] **基本 chat 流程**：发一条消息，模型正常回复，工具调用可用，会话可保存
 - [ ] **会话持久化**：退出后重新进入，`/resume` 能恢复历史会话
 - [ ] **配置加载**：`~/.rustcode/config.toml`（或等效路径）中的设置（如 `ui.theme`）正常生效
-- [ ] **daemon 模式**：`atomcode daemon` 启动正常，webui 可访问
-- [ ] **v1 引擎已退役**：运行 `atomcode --engine v1 chat`（或类似旧参数）：
+- [ ] **daemon 模式**：`rustcode daemon` 启动正常，webui 可访问
+- [ ] **v1 引擎已退役**：运行 `rustcode --engine v1 chat`（或类似旧参数）：
   确认命令被拒绝或报告 `--engine v1` 已不支持，**不能正常启动 v1 路径**
 - [ ] **/issue 已删除**：输入 `/issue`：确认提示"未知命令"或该命令不存在，**不能正常执行**
-- [ ] **fixissue 功能已删除**：确认无 `atomcode fixissue` 子命令（或等效命令）
+- [ ] **fixissue 功能已删除**：确认无 `rustcode fixissue` 子命令（或等效命令）
 
 ---
 

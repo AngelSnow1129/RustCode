@@ -41,4 +41,4 @@ RustCode classifies sensitive paths such as private keys, `.env` files, credenti
 
 ## Contact
 
-For privacy questions, contact `RustCode@atomgit.com`.
+For privacy questions, contact `rustcode@rustcode.dev`.

@@ -2,22 +2,22 @@
 
 ## 改动概述
 
-实现了 `atomcode hook test <name>` 命令，目前该命令只是一个打印 TODO 的空壳，现改为实际执行指定 hook 并展示详细结果。
+实现了 `rustcode hook test <name>` 命令，目前该命令只是一个打印 TODO 的空壳，现改为实际执行指定 hook 并展示详细结果。
 
 ## 涉及文件
 
 | 文件 | 改动 |
 |------|------|
-| `crates/atomcode-core/src/hook/json_config.rs` | 新增 `load_hooks_config_with_names()` 公共函数，保留 hook 名称信息 |
-| `crates/atomcode-core/src/hook/config_loader.rs` | 新增 `load_script_hooks_with_names()` 函数，支持按名称查找 TOML 配置的 hook |
-| `crates/atomcode-core/src/hook/engine.rs` | 新增 `list_hook_names()` 方法，为测试命令提供可用 hook 列表 |
-| `crates/atomcode-cli/src/main.rs` | 替换 `HookCommands::Test` 存根为完整实现 |
+| `crates/rustcode-core/src/hook/json_config.rs` | 新增 `load_hooks_config_with_names()` 公共函数，保留 hook 名称信息 |
+| `crates/rustcode-core/src/hook/config_loader.rs` | 新增 `load_script_hooks_with_names()` 函数，支持按名称查找 TOML 配置的 hook |
+| `crates/rustcode-core/src/hook/engine.rs` | 新增 `list_hook_names()` 方法，为测试命令提供可用 hook 列表 |
+| `crates/rustcode-cli/src/main.rs` | 替换 `HookCommands::Test` 存根为完整实现 |
 
 ## 改动的价值
 
-### 1. `atomcode hook test <name>` 命令
+### 1. `rustcode hook test <name>` 命令
 
-**之前**：执行 `atomcode hook test my-hook` 只会打印：
+**之前**：执行 `rustcode hook test my-hook` 只会打印：
 ```
 Testing hook: my-hook
 (TODO: Implement hook testing)
@@ -46,7 +46,7 @@ Testing hook: my-hook
 
 ```bash
 # 测试一个名为 "check-bash" 的 hook
-$ atomcode hook test check-bash
+$ rustcode hook test check-bash
 
 🔧 Testing Hook: check-bash
   Event:     pre_tool_use
@@ -65,7 +65,7 @@ $ atomcode hook test check-bash
 
 ```bash
 # 查找不存在的 hook 时
-$ atomcode hook test nonexistent
+$ rustcode hook test nonexistent
 
 ❌ Hook 'nonexistent' not found.
 
@@ -76,7 +76,7 @@ Available hooks:
 
 ```bash
 # 超时场景
-$ atomcode hook test slow-hook
+$ rustcode hook test slow-hook
 
 🔧 Testing Hook: slow-hook
   Event:     pre_tool_use
@@ -90,10 +90,10 @@ $ atomcode hook test slow-hook
 
 ## 改动行数
 
-- `crates/atomcode-core/src/hook/json_config.rs`: +48 行
-- `crates/atomcode-core/src/hook/config_loader.rs`: +34 行
-- `crates/atomcode-core/src/hook/engine.rs`: +29 行
-- `crates/atomcode-cli/src/main.rs`: -5 行 / +133 行（后续修复 +219 行 / -44 行）
+- `crates/rustcode-core/src/hook/json_config.rs`: +48 行
+- `crates/rustcode-core/src/hook/config_loader.rs`: +34 行
+- `crates/rustcode-core/src/hook/engine.rs`: +29 行
+- `crates/rustcode-cli/src/main.rs`: -5 行 / +133 行（后续修复 +219 行 / -44 行）
 
 ## 兼容性
 

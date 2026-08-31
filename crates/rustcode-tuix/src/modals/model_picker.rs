@@ -1,6 +1,6 @@
 // crates/rustcode-tuix/src/modals/model_picker.rs
 //
-// `/model` modal — provider list picker.
+// `/model` modal -- provider list picker.
 //
 // Holds the provider list sorted alphabetically with the current default
 // first. Up/Down navigates, Enter selects (persists to config + notifies
@@ -124,7 +124,7 @@ impl ModelPicker {
         // Group models from the same account together (design §8). Bring the
         // current selection's WHOLE account group to the top (current first
         // within it) so switching between siblings is easy and the group stays
-        // intact — never split the default out of its group.
+        // intact -- never split the default out of its group.
         let grouped = grouped_selection_ids(config);
         let cur = config.effective_model_selection().unwrap_or_default();
         let models = config.logical_models();
@@ -344,18 +344,18 @@ fn build_menu_payload(p: &ModelPicker, ctx: &LoopCtx) -> MenuPayload {
     // renders as blank space and looks like the modal hung).
     if p.filtered.is_empty() {
         let label = if p.providers.is_empty() {
-            "(no models configured — use /provider add)".to_string()
+            "(no models configured -- use /provider add)".to_string()
         } else if p.query.is_empty() {
             "(no models match)".to_string()
         } else {
-            format!("(no models match \"{}\" — Backspace to clear)", p.query)
+            format!("(no models match \"{}\" -- Backspace to clear)", p.query)
         };
         return MenuPayload {
             items: vec![(label, String::new())],
             selected: 0,
             kind: crate::render::MenuKind::TwoColumn {
                 row_prefix: "",
-                selected_marker: "▸",
+                selected_marker: ">",
             },
         };
     }
@@ -369,7 +369,7 @@ fn build_menu_payload(p: &ModelPicker, ctx: &LoopCtx) -> MenuPayload {
                 .get(id)
                 .map(|m| {
                     let name = m.display_name.as_deref().unwrap_or(&m.model);
-                    format!("{} · {}", m.account, name)
+                    format!("{} . {}", m.account, name)
                 })
                 .unwrap_or_default();
             (id.clone(), desc)
@@ -380,7 +380,7 @@ fn build_menu_payload(p: &ModelPicker, ctx: &LoopCtx) -> MenuPayload {
         selected: p.selected,
         kind: crate::render::MenuKind::TwoColumn {
             row_prefix: "",
-            selected_marker: "▸",
+            selected_marker: ">",
         },
     }
 }
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn open_lists_new_schema_model_profiles() {
-        // One account, two model profiles — the picker lists them by selection
+        // One account, two model profiles -- the picker lists them by selection
         // id, current default first, and filters by wire model name.
         let config: Config = serde_json::from_value(serde_json::json!({
             "default_model": "acc/coder",

@@ -1,7 +1,7 @@
 import { render } from 'preact';
 import { App } from './app';
 import { SettingsProvider } from './settings';
-// Bundled serif for the landing greeting (close to claude.ai's display serif).
+// Bundled serif for the landing greeting (close to a warm-ivory display serif).
 import '@fontsource/source-serif-4/400.css';
 import '@fontsource/source-serif-4/500.css';
 import './styles/theme.css';

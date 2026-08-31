@@ -30,11 +30,11 @@ fn default_version() -> u32 {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TrustEntry {
-    /// Absolute project dir — audit/display only; matching is by the map key hash.
+    /// Absolute project dir -- audit/display only; matching is by the map key hash.
     path: String,
 }
 
-/// Location of the trust store file. Honors `RUSTCODE_MCP_TRUST_STORE` (test seam) —
+/// Location of the trust store file. Honors `RUSTCODE_MCP_TRUST_STORE` (test seam) --
 /// the same env var and default path (`config_dir()/mcp_trust.json`) as core.
 pub fn trust_store_path() -> PathBuf {
     if let Ok(p) = std::env::var("RUSTCODE_MCP_TRUST_STORE") {

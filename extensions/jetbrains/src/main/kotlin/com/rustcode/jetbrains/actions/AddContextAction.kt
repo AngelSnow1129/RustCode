@@ -17,6 +17,6 @@ class AddContextAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.getData(CommonDataKeys.PROJECT) ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
-        EditorAtomCodeActions.addEditorContext(project, editor)
+        EditorRustCodeActions.addEditorContext(project, editor)
     }
 }

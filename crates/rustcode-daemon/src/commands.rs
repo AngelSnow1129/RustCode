@@ -298,8 +298,8 @@ async fn exec_native_compact(
     }
 
     // Build the summarizing provider via the SAME native chain `/chat` uses
-    // (chat_runtime_config → coding_config_from_runtime → coding_provider_factory().build),
-    // yielding a kernel-native `LlmProvider` directly — no core provider, no adapter.
+    // (chat_runtime_config -> coding_config_from_runtime -> coding_provider_factory().build),
+    // yielding a kernel-native `LlmProvider` directly -- no core provider, no adapter.
     // `build` may do blocking auth I/O (gateway token), so run it off the async runtime.
     let coding_cfg = crate::kernel_runtime::coding_config_from_runtime(
         &crate::live_api::chat_runtime_config(&config, &resolved, working_dir),
@@ -343,7 +343,7 @@ fn exec_undo(
 /// provider reported on the most recent assistant turn (`meta.used_tokens`), or
 /// 0 before any assistant turn. Mirrors kernel `Conversation::last_pressure`'s
 /// used-tokens read, but works directly off a persisted snapshot so `/context`
-/// reflects what the live (native) turn actually sent — no parallel tool assembly.
+/// reflects what the live (native) turn actually sent -- no parallel tool assembly.
 pub(crate) fn snapshot_used_tokens(messages: &[rustcode_kernel::message::Message]) -> u32 {
     use rustcode_kernel::message::Role;
     messages
@@ -862,7 +862,7 @@ mod tests {
     fn snapshot_used_tokens_reads_latest_assistant_meta() {
         use rustcode_kernel::message::{Message, MessageMeta};
 
-        // No assistant turn yet → zero.
+        // No assistant turn yet -> zero.
         assert_eq!(snapshot_used_tokens(&[Message::user("hi")]), 0);
 
         // The most recent assistant meta's recorded prompt tokens win.

@@ -159,7 +159,7 @@ class SseParserTest {
         val raw = """
             {
               "logged_in": true,
-              "auth_path": "/Users/example/.atomcode/auth.toml",
+              "auth_path": "/Users/example/.rustcode/auth.toml",
               "user": {
                 "id": "u1",
                 "username": "danmingzhen",
@@ -180,7 +180,7 @@ class SseParserTest {
         val token = raw.jsonNestedObject("token")
 
         assertEquals(true, raw.jsonBoolean("logged_in"))
-        assertEquals("/Users/example/.atomcode/auth.toml", raw.jsonString("auth_path"))
+        assertEquals("/Users/example/.rustcode/auth.toml", raw.jsonString("auth_path"))
         assertEquals("打码", user?.jsonString("name"))
         assertEquals("danmingzhen", user?.jsonString("username"))
         assertEquals(604800, token?.jsonInt("expires_in"))
@@ -191,7 +191,7 @@ class SseParserTest {
     fun parsesDaemonSmokeProvidersPayloadShape() {
         val raw = """
             {
-              "default_provider": "AtomGit-deepseek-v4-flash",
+              "default_provider": "mygateway-deepseek-v4-flash",
               "providers": [
                 {
                   "base_url": "https://api.deepseek.com/v1",
@@ -210,14 +210,14 @@ class SseParserTest {
                   "type": "openai"
                 },
                 {
-                  "base_url": "https://llm-api.atomgit.com/v1",
+                  "base_url": "https://gateway.test.example/v1",
                   "context_window": 1000000,
                   "ephemeral": false,
                   "has_api_key": false,
                   "is_default": true,
                   "max_tokens": null,
                   "model": "deepseek-v4-flash",
-                  "name": "AtomGit-deepseek-v4-flash",
+                  "name": "mygateway-deepseek-v4-flash",
                   "reasoning_effort": "max",
                   "thinking_budget": null,
                   "thinking_enabled": null,
@@ -231,12 +231,12 @@ class SseParserTest {
 
         val providers = raw.jsonArrayObjects("providers")
 
-        assertEquals("AtomGit-deepseek-v4-flash", raw.jsonString("default_provider"))
+        assertEquals("mygateway-deepseek-v4-flash", raw.jsonString("default_provider"))
         assertEquals(2, providers.size)
         assertEquals("agentgate", providers[0].jsonString("name"))
         assertEquals(true, providers[0].jsonBoolean("has_api_key"))
         assertEquals(false, providers[0].jsonBoolean("is_default"))
-        assertEquals("AtomGit-deepseek-v4-flash", providers[1].jsonString("name"))
+        assertEquals("mygateway-deepseek-v4-flash", providers[1].jsonString("name"))
         assertEquals("deepseek-v4-flash", providers[1].jsonString("model"))
         assertEquals(true, providers[1].jsonBoolean("is_default"))
         assertEquals(null, providers[1].jsonBoolean("thinking_enabled"))
@@ -248,7 +248,7 @@ class SseParserTest {
         val models = """
             [
               {"provider":"agentgate","model":"deepseek-v4-pro","provider_type":"openai","is_default":false,"effort_applicable":true,"reasoning_effort":null},
-              {"provider":"AtomGit-deepseek-v4-flash","model":"deepseek-v4-flash","provider_type":"openai","is_default":true,"effort_applicable":true,"reasoning_effort":"max"}
+              {"provider":"mygateway-deepseek-v4-flash","model":"deepseek-v4-flash","provider_type":"openai","is_default":true,"effort_applicable":true,"reasoning_effort":"max"}
             ]
         """.trimIndent()
         val sessions = """
@@ -257,7 +257,7 @@ class SseParserTest {
                 "project_hash": "4cd349a275768311",
                 "id": "04a07cdb-7958-4c78-99b3-548c9c9d3f6b",
                 "name": "\u603b\u7ed3\u4fee\u6539\u7684\u5185\u5bb9\uff0c\u63d0\u4ea4\u4ee3\u7801",
-                "working_dir": "/Users/example/atomcode",
+                "working_dir": "/Users/example/rustcode",
                 "created_at": 1781187197,
                 "updated_at": 1781187246,
                 "message_count": 8,

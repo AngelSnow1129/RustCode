@@ -4,7 +4,7 @@
 //! 都回退到 `index.html`，交给前端 SPA 路由。
 //!
 //! dev 模式（设置 `RUSTCODE_WEBUI_DEV=http://localhost:5173`）下应改为反代/
-//! 重定向到 vite dev server——后续任务实现。
+//! 重定向到 vite dev server----后续任务实现。
 
 use axum::{
     http::{header, StatusCode, Uri},

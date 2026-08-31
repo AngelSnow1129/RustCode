@@ -11,7 +11,7 @@ pub struct SystemProxy {
 }
 
 /// Normalize a proxy authority to a URL reqwest accepts: prepend `http://`
-/// unless a scheme is already present. Empty/blank → `None`.
+/// unless a scheme is already present. Empty/blank -> `None`.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn normalize_proxy(value: &str) -> Option<String> {
     let v = value.trim();
@@ -27,7 +27,7 @@ fn normalize_proxy(value: &str) -> Option<String> {
 
 /// Parse a Windows `ProxyServer` value into `(http, https)` proxy URLs.
 /// Two forms: a bare `host:port` (applies to all schemes) or a
-/// `scheme=host:port;…` list. Only `http`/`https` schemes are surfaced.
+/// `scheme=host:port;...` list. Only `http`/`https` schemes are surfaced.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn parse_win_proxy_server(raw: &str) -> (Option<String>, Option<String>) {
     let raw = raw.trim();

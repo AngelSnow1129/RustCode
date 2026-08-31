@@ -127,7 +127,7 @@ tasks {
     val currentTargetId = currentDaemonTargetId()
     val currentDaemonTarget = daemonTargets.firstOrNull { it.id == currentTargetId }
 
-    // The AtomGit gateway signer is supplied only by build-official.sh. Never run a
+    // The gateway signer is supplied only by build-official.sh. Never run a
     // plain Cargo build here: it would overwrite the official daemon with the stub
     // implementation at the exact same target/release path.
     val verifyOfficialDaemonForRunIde by registering {
@@ -156,7 +156,7 @@ tasks {
             }
             if (process.exitValue() != 0) {
                 throw GradleException(
-                    "target/release/$executable does not contain the official AtomGit signer. " +
+                    "target/release/$executable does not contain the official gateway signer. " +
                         "Run ./build-official.sh again before runIde."
                 )
             }

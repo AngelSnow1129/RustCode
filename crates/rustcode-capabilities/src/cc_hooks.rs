@@ -2,12 +2,12 @@
 //!
 //! The legacy `rustcode-core` engine shipped a full CC-parity hook engine
 //! (spawn an external command per lifecycle event, speak CC's stdin/stdout JSON
-//! contract). The new default v2/kernel engine never ran it — it lives in core,
+//! contract). The new default v2/kernel engine never ran it -- it lives in core,
 //! which L1 may not depend on. This module PORTS that executor onto the kernel's
 //! seams ([`LifecycleHooks`] + [`ToolMiddleware`]) so user/plugin CC hooks run on
 //! the default engine again.
 //!
-//! ONE [`CCExternalHooks`] instance implements BOTH traits — register it as a
+//! ONE [`CCExternalHooks`] instance implements BOTH traits -- register it as a
 //! lifecycle hook AND as a tool middleware (it carries the same loaded config):
 //! - [`LifecycleHooks`]: `session_start` / `session_end` / `user_prompt_submit`,
 //!   plus `turn_complete` (mapped to the CC `Stop` / `StopFailure` terminal events)
@@ -19,12 +19,12 @@
 //! that port is additive.
 //!
 //! GRACEFUL BY DESIGN: a hook that times out, fails to spawn, or emits garbage is a
-//! silent continue — a broken hook never wedges the turn. Only an explicit `deny` /
+//! silent continue -- a broken hook never wedges the turn. Only an explicit `deny` /
 //! `block` decision, or a bare exit `2` that carries a DELIBERATE reason (per CC's
 //! contract), stops a tool / prompt. A bare exit `2` with no output, or whose stderr
 //! is just a command launch failure (e.g. a plugin's `python3 "$CLAUDE_PLUGIN_ROOT/
-//! x.py"` whose path doesn't resolve → python `can't open file` → exit 2), is treated
-//! as a broken hook and does NOT block — see [`deliberate_block_reason`]. Any other
+//! x.py"` whose path doesn't resolve -> python `can't open file` -> exit 2), is treated
+//! as a broken hook and does NOT block -- see [`deliberate_block_reason`]. Any other
 //! non-zero exit is a non-blocking error and the turn proceeds.
 
 use std::collections::{BTreeMap, HashMap};
@@ -47,7 +47,7 @@ use crate::tools::{request_approval_decision, PermissionDecision, APPROVAL_KIND}
 
 // ───────────────────────────── event + config ─────────────────────────────
 
-/// The lifecycle events this port surfaces. A subset of CC's full surface — the
+/// The lifecycle events this port surfaces. A subset of CC's full surface -- the
 /// high-value events real plugins use. (PreCompact / subagent / batch etc. need
 /// new kernel seams and are out of scope here.) `Stop` / `StopFailure` cover the
 /// turn-terminal pair: every turn end fires EXACTLY ONE of them.
@@ -117,8 +117,8 @@ pub struct HookConfig {
 
 impl HookConfig {
     /// Build a config from a Claude-Code plugin's INLINE manifest hook (a `plugin.json`
-    /// `hooks` entry). The driver resolves these from installed plugins — which L1 cannot
-    /// reach — and feeds them in via [`CCExternalHooks::load_with_extra`]. `event_name` is
+    /// `hooks` entry). The driver resolves these from installed plugins -- which L1 cannot
+    /// reach -- and feeds them in via [`CCExternalHooks::load_with_extra`]. `event_name` is
     /// CC PascalCase (or the legacy snake_case); `timeout_secs` is CC's SECONDS (converted
     /// to ms, default 10s). Returns `None` for an unsupported event (the caller skips it).
     pub fn from_plugin_spec(
@@ -169,10 +169,10 @@ struct HookEntry {
 
 fn load_hooks_file(path: &Path) -> Vec<HookConfig> {
     let Ok(raw) = std::fs::read_to_string(path) else {
-        return Vec::new(); // missing file → no hooks (not an error).
+        return Vec::new(); // missing file -> no hooks (not an error).
     };
     let Ok(parsed) = serde_json::from_str::<HooksFile>(&raw) else {
-        return Vec::new(); // malformed → skip the file rather than wedge startup.
+        return Vec::new(); // malformed -> skip the file rather than wedge startup.
     };
     parsed
         .hooks
@@ -203,7 +203,7 @@ fn rustcode_home() -> Option<PathBuf> {
 /// The GLOBAL hooks file `load_hooks_config` reads
 /// (`$RUSTCODE_HOME`/`~/.rustcode` + `/hooks.json`), or `None` when no home resolves.
 /// Exposed so diagnostics (`rustcode hooks paths`/`list`) show EXACTLY the file that is
-/// loaded — which under `sudo` is NOT the sudo-aware `Config::config_dir()` this module
+/// loaded -- which under `sudo` is NOT the sudo-aware `Config::config_dir()` this module
 /// deliberately does not use.
 pub fn global_hooks_path() -> Option<PathBuf> {
     rustcode_home().map(|h| h.join("hooks.json"))
@@ -226,11 +226,11 @@ pub fn load_hooks_config(project_dir: &Path) -> Vec<HookConfig> {
 
 /// Tool-name matcher. `None`/empty/`"*"` = all. Otherwise a `|`-separated list of
 /// alternatives, each a glob where `*` matches any run of chars (incl. empty) and every
-/// other char is literal — covering the patterns real hooks use: exact (`Bash`),
+/// other char is literal -- covering the patterns real hooks use: exact (`Bash`),
 /// alternation (`Edit|Write`), and wildcards (`mcp__github__*`, `Notebook*`). Stays
 /// zero-dependency and backward compatible with the legacy trailing-`*` form
 /// (`edit_*` still matches `edit_file`). Full regex (`.`, `[...]`, `()`) is NOT
-/// supported — such a matcher is treated literally and simply won't match.
+/// supported -- such a matcher is treated literally and simply won't match.
 fn matches_tool(matcher: &Option<String>, tool_name: &str) -> bool {
     let Some(pat) = matcher.as_deref() else {
         return true;
@@ -242,7 +242,7 @@ fn matches_tool(matcher: &Option<String>, tool_name: &str) -> bool {
 }
 
 /// Glob match where `*` matches any run (including empty) and every other byte is
-/// literal. Linear two-pointer scan with a star-backtrack mark — no exponential blowup.
+/// literal. Linear two-pointer scan with a star-backtrack mark -- no exponential blowup.
 fn glob_match(pat: &str, s: &str) -> bool {
     let (pb, sb) = (pat.as_bytes(), s.as_bytes());
     let (mut p, mut si) = (0usize, 0usize);
@@ -290,10 +290,10 @@ fn shell_command(command: &str) -> tokio::process::Command {
 
 /// Run one hook: pipe `stdin_json` to it (CC's `json.load(sys.stdin)` contract),
 /// honor the timeout, and return `(exit_code, stdout, stderr)`. `exit_code` is the
-/// process exit status — `None` when the child was killed by a signal. stderr is
+/// process exit status -- `None` when the child was killed by a signal. stderr is
 /// captured (not discarded) so callers can (a) surface a real block reason and
 /// (b) tell a DELIBERATE exit-2 block from a hook that merely failed to launch (see
-/// [`deliberate_block_reason`]). The OUTER `None` (timeout / spawn-failure) → the
+/// [`deliberate_block_reason`]). The OUTER `None` (timeout / spawn-failure) -> the
 /// caller treats it as a silent continue.
 async fn run_command_hook(
     hook: &HookConfig,
@@ -308,7 +308,7 @@ async fn run_command_hook(
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        // Drop the future on timeout → kill the subprocess instead of leaking it.
+        // Drop the future on timeout -> kill the subprocess instead of leaking it.
         .kill_on_drop(true);
     // Suppress the Windows console-window flash when the parent has no console
     // (daemon/clawbot); no-op off Windows.
@@ -323,7 +323,7 @@ async fn run_command_hook(
         if let Some(mut stdin) = child.stdin.take() {
             // BEST-EFFORT delivery: a hook that ignores its stdin (echo, a simple exit,
             // an observation-only PostToolUse hook) may ALREADY have exited, so this
-            // write races the child and can fail with EPIPE. That is expected — it must
+            // write races the child and can fail with EPIPE. That is expected -- it must
             // NOT discard the hook's real exit code / stdout, so swallow the result.
             let _ = stdin.write_all(stdin_json.as_bytes()).await;
             // Explicit shutdown so a `read`/`json.load(sys.stdin)` returns now
@@ -367,11 +367,11 @@ pub async fn run_hook_for_test(hook: &HookConfig, payload: &Value) -> Option<Hoo
         })
 }
 
-/// CC's exit-code contract: exit **2** (and only 2) requests a BLOCK — stop the tool
+/// CC's exit-code contract: exit **2** (and only 2) requests a BLOCK -- stop the tool
 /// or prompt. Every other code, INCLUDING other non-zero codes (a hook crash, a
 /// generic error), is a NON-blocking signal: the tool/prompt proceeds. Matching this
 /// exactly is what keeps the module's promise that a merely-broken hook (one that runs
-/// but exits non-zero) never wedges the turn — only an explicit `2` or a parsed
+/// but exits non-zero) never wedges the turn -- only an explicit `2` or a parsed
 /// `deny`/`block` decision stops anything.
 fn exit_requests_block(code: Option<i32>) -> bool {
     code == Some(2)
@@ -379,8 +379,8 @@ fn exit_requests_block(code: Option<i32>) -> bool {
 
 /// Did the hook COMMAND fail to launch / run, rather than the hook program
 /// deliberately deciding to block? CC maps a bare exit `2` to "block", but a
-/// misconfigured command often *also* exits 2 incidentally — most notably
-/// `python3 "$CLAUDE_PLUGIN_ROOT/script.py"` ("can't open file ... [Errno 2]" →
+/// misconfigured command often *also* exits 2 incidentally -- most notably
+/// `python3 "$CLAUDE_PLUGIN_ROOT/script.py"` ("can't open file ... [Errno 2]" ->
 /// exit 2) when a plugin hook's path doesn't resolve. Treating that as a deliberate
 /// block wedges EVERY prompt / tool for everyone who installed that plugin. So when
 /// stderr carries an interpreter/shell launch-failure signature we classify it as a
@@ -389,7 +389,7 @@ fn exit_requests_block(code: Option<i32>) -> bool {
 /// human-written block reason is very unlikely to contain verbatim.
 fn is_hook_launch_failure(stderr: &str) -> bool {
     const SIGNATURES: &[&str] = &[
-        "can't open file",     // python3 missing/unreadable script → exit 2
+        "can't open file",     // python3 missing/unreadable script -> exit 2
         "command not found",   // sh: <cmd>: command not found
         "cannot execute",      // sh: cannot execute binary file
         "ModuleNotFoundError", // python missing dependency
@@ -403,10 +403,10 @@ fn is_hook_launch_failure(stderr: &str) -> bool {
 /// parsed JSON decision) and decide whether it is a DELIBERATE block. Returns
 /// `Some(reason)` only when the hook genuinely meant to block; `None` when it should
 /// be treated as a non-blocking broken / no-op hook. A deliberate CC block hook
-/// communicates a reason (on stdout, or — per CC's UserPromptSubmit convention — on
+/// communicates a reason (on stdout, or -- per CC's UserPromptSubmit convention -- on
 /// stderr). A hook that exits 2 with NO output at all, or whose stderr is just an
 /// interpreter/shell launch failure (see [`is_hook_launch_failure`]), is broken, not
-/// deliberate — so the prompt / tool proceeds instead of being wedged.
+/// deliberate -- so the prompt / tool proceeds instead of being wedged.
 fn deliberate_block_reason(stdout: &str, stderr: &str) -> Option<String> {
     let out = stdout.trim();
     let err = stderr.trim();
@@ -478,15 +478,15 @@ pub struct CCExternalHooks {
     /// CC `session_id` stamped into every payload. Empty when the agent has no
     /// persistent session (the driver supplies it via [`with_session_id`]).
     session_id: String,
-    /// CC `transcript_path` — the session's append-only JSONL transcript file,
+    /// CC `transcript_path` -- the session's append-only JSONL transcript file,
     /// when the driver persists one. `None` for one-shot runs (the Stop /
     /// StopFailure payload then carries `null`).
     transcript_path: Option<String>,
-    /// Whether any PostToolUse / PostToolUseFailure hook is configured — gates the
-    /// call→tool bookkeeping below so the (common) no-PostToolUse path allocates
+    /// Whether any PostToolUse / PostToolUseFailure hook is configured -- gates the
+    /// call->tool bookkeeping below so the (common) no-PostToolUse path allocates
     /// nothing.
     has_post_tool_hooks: bool,
-    /// `tool_call_id → tool_name`, populated by `before` so PostToolUse /
+    /// `tool_call_id -> tool_name`, populated by `before` so PostToolUse /
     /// PostToolUseFailure `after` (which the kernel does not hand a tool name) can
     /// honor tool-name matchers. An entry is recorded only for a call that will RUN
     /// (gate ≠ Deny) and removed by `after`, so the map never outlives a turn's
@@ -522,7 +522,7 @@ impl CCExternalHooks {
     }
 
     /// Like [`load`](Self::load), but APPEND `extra` hooks the driver resolved out of band
-    /// — e.g. plugin-contributed inline hooks ([`HookConfig::from_plugin_spec`]), which
+    /// -- e.g. plugin-contributed inline hooks ([`HookConfig::from_plugin_spec`]), which
     /// live behind the plugin loader that L1 cannot depend on. File hooks come first, then
     /// the extras (order only affects context-injection order; the gate fold is
     /// order-independent). An empty `extra` makes this identical to `load`.
@@ -541,14 +541,14 @@ impl CCExternalHooks {
     }
 
     /// Stamp the CC `transcript_path` (the session's append-only JSONL transcript,
-    /// resolved by the driver). Builder-style; leave unset for one-shot runs — the
+    /// resolved by the driver). Builder-style; leave unset for one-shot runs -- the
     /// Stop / StopFailure payload then carries `null`.
     pub fn with_transcript_path(mut self, path: impl Into<String>) -> Self {
         self.transcript_path = Some(path.into());
         self
     }
 
-    /// True when no hooks are configured — callers skip registration so the
+    /// True when no hooks are configured -- callers skip registration so the
     /// common no-hooks path adds zero overhead.
     pub fn is_empty(&self) -> bool {
         self.hooks.is_empty()
@@ -567,7 +567,7 @@ impl CCExternalHooks {
 /// CC `StopFailure` fires when a turn ends BECAUSE of an API/provider failure;
 /// every other terminal (normal stop, safety fuses, user cancel, rate-limit
 /// pause) is a plain `Stop`. ProviderError + Timeout are the "API 出错" terminals
-/// the issue asks to surface. Tool errors mid-turn NEVER map here — the kernel
+/// the issue asks to surface. Tool errors mid-turn NEVER map here -- the kernel
 /// routes those to `on_error` and the turn continues (it ends with a real
 /// terminal reason instead), so a failed tool call must not light the failure
 /// lamp for a turn that then completes normally.
@@ -575,7 +575,7 @@ fn stop_is_failure(reason: &StopReason) -> bool {
     matches!(reason, StopReason::ProviderError | StopReason::Timeout)
 }
 
-/// PostToolUse matcher resolution: when we know the tool name (the usual case — `before`
+/// PostToolUse matcher resolution: when we know the tool name (the usual case -- `before`
 /// recorded it) honor it like any other matcher; when we DON'T (the call was denied or
 /// never reached our `before`), only an all-tools matcher (`None`/`"*"`) may fire.
 fn post_tool_matches(matcher: &Option<String>, tool_name: Option<&str>) -> bool {
@@ -627,7 +627,7 @@ impl LifecycleHooks for CCExternalHooks {
             "cwd": self.cwd,
         })
         .to_string();
-        // Run matching hooks CONCURRENTLY — the payload is built once (every hook sees the
+        // Run matching hooks CONCURRENTLY -- the payload is built once (every hook sees the
         // same original prompt), so there is no feed-forward between them. Fold the results
         // in config order: the first block (a `block` decision or a bare exit 2) wins; the
         // rest contribute injected context. (CC likewise runs UserPromptSubmit hooks in
@@ -638,7 +638,7 @@ impl LifecycleHooks for CCExternalHooks {
         let mut injected: Vec<String> = Vec::new();
         for out in outs {
             let Some((exit_code, stdout, stderr)) = out else {
-                continue; // timeout / spawn failure → silent continue.
+                continue; // timeout / spawn failure -> silent continue.
             };
             let decided =
                 last_json_line(&stdout).and_then(|v| serde_json::from_value::<Decision>(v).ok());
@@ -659,10 +659,10 @@ impl LifecycleHooks for CCExternalHooks {
                 }
             }
             // No parsed decision: CC's exit-code contract takes over. Exit 2 blocks the
-            // prompt — but ONLY when the hook communicated a deliberate reason. A hook
+            // prompt -- but ONLY when the hook communicated a deliberate reason. A hook
             // that exits 2 with no output, or whose stderr is just an interpreter/shell
             // launch failure (e.g. a plugin's `python3 "$CLAUDE_PLUGIN_ROOT/x.py"` whose
-            // path doesn't resolve → python "can't open file" → exit 2), is BROKEN, not a
+            // path doesn't resolve -> python "can't open file" -> exit 2), is BROKEN, not a
             // deliberate block; it must not wedge every prompt. Any other exit code is
             // non-blocking, so its stdout is treated as injected context.
             if decided.is_none() {
@@ -670,7 +670,7 @@ impl LifecycleHooks for CCExternalHooks {
                     if let Some(reason) = deliberate_block_reason(&stdout, &stderr) {
                         return Err(reason);
                     }
-                    // Broken / no-op exit-2 hook → fall through as non-blocking.
+                    // Broken / no-op exit-2 hook -> fall through as non-blocking.
                 }
                 let trimmed = stdout.trim();
                 if !trimmed.is_empty() {
@@ -692,7 +692,7 @@ impl LifecycleHooks for CCExternalHooks {
             "cwd": self.cwd,
         })
         .to_string();
-        // Observation only — fire all matching hooks concurrently and ignore output.
+        // Observation only -- fire all matching hooks concurrently and ignore output.
         let matched = self.matching(HookEvent::SessionEnd, None);
         futures::future::join_all(matched.iter().map(|h| run_command_hook(h, &payload))).await;
     }
@@ -700,7 +700,7 @@ impl LifecycleHooks for CCExternalHooks {
     /// CC's turn-terminal pair: EVERY turn end fires EXACTLY ONE of `Stop` /
     /// `StopFailure`. The kernel funnels every terminal (normal stop, safety
     /// fuses, provider error, stream timeout, cancel) through this single hook,
-    /// so a plugin sees the turn's true outcome — never a stale or missing event.
+    /// so a plugin sees the turn's true outcome -- never a stale or missing event.
     /// `StopFailure` (the "API 出错" signal) is reserved for a turn that ended
     /// BECAUSE of a provider/stream failure; everything else is a plain `Stop`.
     /// The payload also carries the kernel `stop_reason` so a plugin can refine
@@ -713,7 +713,7 @@ impl LifecycleHooks for CCExternalHooks {
         };
         let matched = self.matching(event, None);
         // CC parity: `stop_hook_active` tells a terminal hook whether ANOTHER
-        // Stop/StopFailure hook is configured and will fire alongside it — the
+        // Stop/StopFailure hook is configured and will fire alongside it -- the
         // recursion-suppression flag CC hooks use (a Stop hook that triggers a
         // new prompt checks it to avoid re-entering itself).
         let stop_hook_active = matched.len() > 1;
@@ -726,7 +726,7 @@ impl LifecycleHooks for CCExternalHooks {
             "cwd": self.cwd,
         })
         .to_string();
-        // Observation only — fire all matching hooks concurrently and ignore output.
+        // Observation only -- fire all matching hooks concurrently and ignore output.
         futures::future::join_all(matched.iter().map(|h| run_command_hook(h, &payload))).await;
     }
 }
@@ -737,12 +737,12 @@ impl CCExternalHooks {
     /// driver renders its normal approval prompt. A `Null` response (driver gone / timed
     /// out / cancelled) fails CLOSED as `Deny`, distinguishable in the reason from a real
     /// user denial (matching `ApprovalMiddleware`). Approval returns `Allow` so it
-    /// short-circuits the downstream auto-approve gates — the point of an explicit "ask".
+    /// short-circuits the downstream auto-approve gates -- the point of an explicit "ask".
     /// A hook-forced ask is NOT remembered (no grant store here): "always" behaves like
-    /// "allow once", so the ask keeps prompting — the intended semantics of a forced ask.
+    /// "allow once", so the ask keeps prompting -- the intended semantics of a forced ask.
     async fn resolve_ask(&self, call: &ToolCall, rt: &RequestCtx) -> BeforeOutcome {
         match request_approval_decision(rt, APPROVAL_KIND, call, &call.name).await {
-            Err(degraded) => degraded, // Null → fail closed (shared channel-failure deny).
+            Err(degraded) => degraded, // Null -> fail closed (shared channel-failure deny).
             Ok(PermissionDecision::AllowOnce | PermissionDecision::AllowAlways) => {
                 BeforeOutcome::Allow {
                     reason: Some("approved (hook ask)".into()),
@@ -780,8 +780,8 @@ impl ToolMiddleware for CCExternalHooks {
         // Fold across matching hooks: most-restrictive gate wins
         // (Deny > Ask > Allow > Proceed); the last `updatedInput` rewrite of `call.arguments`
         // wins. SEQUENTIAL (unlike the fire-and-forget session_* events) so the gate can
-        // SHORT-CIRCUIT on the first Deny — a denied call must not keep spawning the
-        // remaining hooks — and so the rewrite order is deterministic.
+        // SHORT-CIRCUIT on the first Deny -- a denied call must not keep spawning the
+        // remaining hooks -- and so the rewrite order is deterministic.
         let mut gate = BeforeOutcome::Proceed;
         for hook in self.matching(HookEvent::PreToolUse, Some(&call.name)) {
             let Some((exit_code, stdout, stderr)) = run_command_hook(hook, &payload).await else {
@@ -832,8 +832,8 @@ impl ToolMiddleware for CCExternalHooks {
                 gate = stronger(gate, this);
             } else if exit_requests_block(exit_code) {
                 // CC exit-code contract: exit 2 (and ONLY 2) blocks. Other non-zero codes
-                // are non-blocking errors → the tool proceeds (a broken hook must not wedge
-                // the turn — the spawn/timeout paths already continue). A bare exit 2 only
+                // are non-blocking errors -> the tool proceeds (a broken hook must not wedge
+                // the turn -- the spawn/timeout paths already continue). A bare exit 2 only
                 // denies when the hook gave a deliberate reason: an exit-2 with no output,
                 // or one whose stderr is just a command launch failure (e.g. a plugin's
                 // python script path didn't resolve), is broken, not a deny, so the tool
@@ -849,7 +849,7 @@ impl ToolMiddleware for CCExternalHooks {
         }
         // Resolve a folded `ask` (CC `permissionDecision:"ask"`) into a REAL approval
         // prompt. The kernel has no L0 approval mechanism (it treats `Ask` as a no-op), so
-        // — like `BashWorkspaceGate` / `WriteApprovalGate` — we round-trip the driver here
+        // -- like `BashWorkspaceGate` / `WriteApprovalGate` -- we round-trip the driver here
         // and map the decision. This middleware runs BEFORE the downstream auto-approve
         // gates, so returning `Allow` on approval short-circuits them: an explicit hook
         // "ask" forces a prompt even for an in-workspace edit or a Safe read, which would
@@ -859,7 +859,7 @@ impl ToolMiddleware for CCExternalHooks {
             gate = self.resolve_ask(call, rt).await;
         }
         // Remember this call's tool name for PostToolUse / PostToolUseFailure `after`
-        // (kernel hands it no tool name), but ONLY for a call that will actually run — a
+        // (kernel hands it no tool name), but ONLY for a call that will actually run -- a
         // Deny here means the tool is blocked, so its post-tool hook must not fire.
         // `after` removes the entry.
         if self.has_post_tool_hooks && !gate.is_deny() {
@@ -885,7 +885,7 @@ impl ToolMiddleware for CCExternalHooks {
             .ok()
             .and_then(|mut m| m.remove(&result.call_id));
         // A failed tool call (`is_error`) fires PostToolUseFailure instead of
-        // PostToolUse, so a plugin can branch on success vs failure — but the payload
+        // PostToolUse, so a plugin can branch on success vs failure -- but the payload
         // and the rewrite/block semantics stay identical for both.
         let event = if result.is_error {
             HookEvent::PostToolUseFailure
@@ -1020,7 +1020,7 @@ mod tests {
             "PreToolUse",
             Some("Bash".into()),
             "echo hi".into(),
-            Some(3), // CC seconds → 3000 ms
+            Some(3), // CC seconds -> 3000 ms
             PathBuf::from("/plugins/foo"),
         )
         .unwrap();
@@ -1029,7 +1029,7 @@ mod tests {
         assert_eq!(h.timeout_ms, 3_000);
         assert_eq!(h.plugin_root.as_deref(), Some(Path::new("/plugins/foo")));
 
-        // Omitted timeout → default; legacy snake_case event still parses.
+        // Omitted timeout -> default; legacy snake_case event still parses.
         let h2 = HookConfig::from_plugin_spec("post_tool_use", None, "x".into(), None, "/p".into())
             .unwrap();
         assert_eq!(h2.event, HookEvent::PostToolUse);
@@ -1042,7 +1042,7 @@ mod tests {
             .unwrap();
         assert_eq!(h4.event, HookEvent::StopFailure);
 
-        // Unsupported event → None (caller skips it).
+        // Unsupported event -> None (caller skips it).
         assert!(
             HookConfig::from_plugin_spec("PreCompact", None, "x".into(), None, "/p".into())
                 .is_none()
@@ -1051,10 +1051,10 @@ mod tests {
 
     #[test]
     fn stop_vs_stop_failure_terminal_mapping() {
-        // API/provider failure terminals → StopFailure ("API 出错" lamp).
+        // API/provider failure terminals -> StopFailure ("API 出错" lamp).
         assert!(stop_is_failure(&StopReason::ProviderError));
         assert!(stop_is_failure(&StopReason::Timeout));
-        // Every other terminal → plain Stop.
+        // Every other terminal -> plain Stop.
         for reason in [
             StopReason::Stopped,
             StopReason::MaxRounds,
@@ -1070,7 +1070,7 @@ mod tests {
         }
     }
 
-    /// End-to-end: `turn_complete` dispatches EXACTLY ONE terminal event — `Stop`
+    /// End-to-end: `turn_complete` dispatches EXACTLY ONE terminal event -- `Stop`
     /// on a normal stop, `StopFailure` on an API/provider failure. Each hook greps
     /// its own stdin for its `hook_event_name` and touches a marker file when it
     /// fires, so we observe which subscriber ran.
@@ -1111,7 +1111,7 @@ mod tests {
         };
         let convo = Conversation::new();
 
-        // Normal terminal → ONLY the Stop hook fires.
+        // Normal terminal -> ONLY the Stop hook fires.
         cc.turn_complete(&convo, &StopReason::Stopped, &ctx).await;
         assert!(stop_marker.exists(), "Stop hook must fire on a normal stop");
         assert!(
@@ -1119,7 +1119,7 @@ mod tests {
             "StopFailure must NOT fire on a normal stop"
         );
 
-        // Provider-error terminal → ONLY the StopFailure hook fires.
+        // Provider-error terminal -> ONLY the StopFailure hook fires.
         let _ = std::fs::remove_file(&stop_marker);
         cc.turn_complete(&convo, &StopReason::ProviderError, &ctx)
             .await;
@@ -1219,7 +1219,7 @@ mod tests {
         )
         .unwrap();
         let hooks = load_hooks_config(dir.path());
-        // `b` disabled, `c` unknown event → only `a` survives.
+        // `b` disabled, `c` unknown event -> only `a` survives.
         assert_eq!(hooks.len(), 1);
         assert_eq!(hooks[0].event, HookEvent::PreToolUse);
         assert_eq!(hooks[0].matcher.as_deref(), Some("bash"));
@@ -1302,7 +1302,7 @@ mod tests {
         // not be silently dropped. Previously the kernel no-op'd `BeforeOutcome::Ask`, so an
         // "ask" hook let the call auto-approve (esp. an in-workspace edit or a Safe read).
         // Now the middleware round-trips the driver itself. With a SILENT driver the bounded
-        // round-trip times out → Null → Deny (fail closed), marked as an internal channel
+        // round-trip times out -> Null -> Deny (fail closed), marked as an internal channel
         // failure so it's distinguishable from a real user denial. Before the fix this
         // assertion would have been `Proceed`.
         let hook = HookConfig {
@@ -1398,11 +1398,11 @@ mod tests {
         assert!(!exit_requests_block(Some(0)));
         assert!(!exit_requests_block(Some(1)));
         assert!(!exit_requests_block(Some(127)));
-        assert!(!exit_requests_block(None)); // killed by signal → non-blocking
+        assert!(!exit_requests_block(None)); // killed by signal -> non-blocking
     }
 
     /// A PreToolUse hook that runs but exits NON-2 (a crash / generic error) with no
-    /// JSON decision must NOT block — a merely-broken hook can't wedge every tool call.
+    /// JSON decision must NOT block -- a merely-broken hook can't wedge every tool call.
     #[tokio::test]
     async fn before_non2_exit_does_not_block() {
         let hook = HookConfig {
@@ -1506,7 +1506,7 @@ mod tests {
         }
     }
 
-    /// A bare exit 2 with NO output is a broken / no-op hook, not a deliberate block —
+    /// A bare exit 2 with NO output is a broken / no-op hook, not a deliberate block --
     /// it must NOT wedge the tool. (Regression: v4.25.4 blocked every prompt/tool when a
     /// plugin's UserPromptSubmit hook exited 2 incidentally.)
     #[tokio::test]
@@ -1519,8 +1519,8 @@ mod tests {
     }
 
     /// Exit 2 whose stderr is a command launch failure (the real incident: a plugin's
-    /// `python3 "$CLAUDE_PLUGIN_ROOT/x.py"` whose path didn't resolve → python prints
-    /// "can't open file ..." and exits 2) is a broken hook → must NOT block.
+    /// `python3 "$CLAUDE_PLUGIN_ROOT/x.py"` whose path didn't resolve -> python prints
+    /// "can't open file ..." and exits 2) is a broken hook -> must NOT block.
     #[tokio::test]
     async fn before_launch_failure_exit_2_does_not_block() {
         let out = run_before(
@@ -1556,8 +1556,8 @@ mod tests {
     }
 
     /// REGRESSION (v4.25.4): a UserPromptSubmit hook that exits 2 WITHOUT a deliberate
-    /// reason — either silently, or with only a command launch failure on stderr (a
-    /// plugin's `python3 "$CLAUDE_PLUGIN_ROOT/x.py"` whose path didn't resolve) — is a
+    /// reason -- either silently, or with only a command launch failure on stderr (a
+    /// plugin's `python3 "$CLAUDE_PLUGIN_ROOT/x.py"` whose path didn't resolve) -- is a
     /// broken hook and must NOT wedge the user's prompt.
     #[tokio::test]
     async fn user_prompt_broken_exit_2_does_not_block() {
@@ -1587,14 +1587,14 @@ mod tests {
 
     #[test]
     fn launch_failure_vs_deliberate_reason() {
-        // Launch failures → not a deliberate block.
+        // Launch failures -> not a deliberate block.
         assert!(deliberate_block_reason("", "can't open file '/x.py': [Errno 2]").is_none());
         assert!(deliberate_block_reason("", "python3: command not found").is_none());
         assert!(deliberate_block_reason("", "ModuleNotFoundError: No module named 'x'").is_none());
-        // Empty output → not a deliberate block.
+        // Empty output -> not a deliberate block.
         assert!(deliberate_block_reason("", "").is_none());
         assert!(deliberate_block_reason("  ", " \n").is_none());
-        // A real reason (stdout or stderr) → deliberate block, surfaced verbatim.
+        // A real reason (stdout or stderr) -> deliberate block, surfaced verbatim.
         assert_eq!(
             deliberate_block_reason("nope, blocked", "").as_deref(),
             Some("nope, blocked")
@@ -1638,7 +1638,7 @@ mod tests {
         let rt = RequestCtx::new(tx, Some(Duration::from_millis(50)));
         let tool: Arc<dyn Tool> = Arc::new(rustcode_kernel::testkit::EchoTool);
 
-        // before() records call_id "1" → "bash"; after() then matches matcher "bash".
+        // before() records call_id "1" -> "bash"; after() then matches matcher "bash".
         let mut call = ToolCall {
             id: "1".into(),
             name: "bash".into(),
@@ -1657,7 +1657,7 @@ mod tests {
             "matcher 'bash' must fire for tool bash"
         );
 
-        // A different tool ("grep") does NOT match matcher "bash" → output untouched.
+        // A different tool ("grep") does NOT match matcher "bash" -> output untouched.
         let mut call = ToolCall {
             id: "2".into(),
             name: "grep".into(),

@@ -5,29 +5,29 @@ read-only LSP phase.
 
 **Goal:** Add an opt-in, read-only `lsp` model tool with definition, references, hover, and diagnostics operations that starts only locally installed language servers on first use and degrades without failing the turn.
 
-**Architecture:** `atomcode-capabilities` owns the neutral LSP protocol client, workspace-scoped manager, and tool. `atomcode-coding` maps `[lsp]` configuration into a neutral settings DTO and injects one manager-backed tool into the runtime-owned tool registry. Kernel and drivers remain unaware of LSP processes; dropping the runtime-owned tool graph terminates spawned children.
+**Architecture:** `rustcode-capabilities` owns the neutral LSP protocol client, workspace-scoped manager, and tool. `rustcode-coding` maps `[lsp]` configuration into a neutral settings DTO and injects one manager-backed tool into the runtime-owned tool registry. Kernel and drivers remain unaware of LSP processes; dropping the runtime-owned tool graph terminates spawned children.
 
-**Tech Stack:** Rust, Tokio stdio processes, LSP JSON-RPC, serde/serde_json, existing AtomCode kernel tool API.
+**Tech Stack:** Rust, Tokio stdio processes, LSP JSON-RPC, serde/serde_json, existing RustCode kernel tool API.
 
 ---
 
 ### Task 1: Define protocol queries with deterministic tests
 
 **Files:**
-- Modify: `crates/atomcode-capabilities/src/codeintel/lsp/client.rs`
-- Modify: `crates/atomcode-capabilities/src/codeintel/lsp/types.rs`
+- Modify: `crates/rustcode-capabilities/src/codeintel/lsp/client.rs`
+- Modify: `crates/rustcode-capabilities/src/codeintel/lsp/types.rs`
 
 **Steps:**
 1. Extend the injected mock LSP transport to answer hover, definition, and references requests.
 2. Add failing tests asserting zero-based wire positions and normalized results.
 3. Add read-only client query methods with bounded request timeouts.
-4. Run `cargo test -p atomcode-capabilities --features lsp codeintel::lsp::client`.
+4. Run `cargo test -p rustcode-capabilities --features lsp codeintel::lsp::client`.
 
 ### Task 2: Make the manager workspace-safe and failure-tolerant
 
 **Files:**
-- Modify: `crates/atomcode-capabilities/src/codeintel/lsp/manager.rs`
-- Modify: `crates/atomcode-capabilities/src/codeintel/lsp/registry.rs`
+- Modify: `crates/rustcode-capabilities/src/codeintel/lsp/manager.rs`
+- Modify: `crates/rustcode-capabilities/src/codeintel/lsp/registry.rs`
 
 **Steps:**
 1. Add tests proving clients/failures are keyed by normalized workspace root plus language rather than extension alone.
@@ -39,9 +39,9 @@ read-only LSP phase.
 ### Task 3: Add the unified read-only `lsp` tool
 
 **Files:**
-- Create: `crates/atomcode-capabilities/src/codeintel/lsp_tool.rs`
-- Modify: `crates/atomcode-capabilities/src/codeintel/mod.rs`
-- Modify: `crates/atomcode-capabilities/src/codeintel/diagnostics.rs`
+- Create: `crates/rustcode-capabilities/src/codeintel/lsp_tool.rs`
+- Modify: `crates/rustcode-capabilities/src/codeintel/mod.rs`
+- Modify: `crates/rustcode-capabilities/src/codeintel/diagnostics.rs`
 
 **Steps:**
 1. Add failing schema/validation/degradation tests for `definition`, `references`, `hover`, and `diagnostics`.
@@ -54,11 +54,11 @@ read-only LSP phase.
 ### Task 4: Wire configuration into the runtime owner
 
 **Files:**
-- Modify: `crates/atomcode-capabilities/Cargo.toml`
-- Modify: `crates/atomcode-coding/Cargo.toml`
-- Modify: `crates/atomcode-coding/src/config.rs`
-- Modify: `crates/atomcode-coding/src/assemble.rs`
-- Modify: `crates/atomcode-coding/src/parts.rs`
+- Modify: `crates/rustcode-capabilities/Cargo.toml`
+- Modify: `crates/rustcode-coding/Cargo.toml`
+- Modify: `crates/rustcode-coding/src/config.rs`
+- Modify: `crates/rustcode-coding/src/assemble.rs`
+- Modify: `crates/rustcode-coding/src/parts.rs`
 
 **Steps:**
 1. Add tests mapping `Config.lsp` into a neutral LSP settings DTO.
@@ -74,7 +74,7 @@ read-only LSP phase.
 
 **Steps:**
 1. Run `cargo fmt --all -- --check`, formatting only this change if required.
-2. Run `cargo test -p atomcode-capabilities --features lsp codeintel`.
-3. Run `cargo test -p atomcode-coding`.
+2. Run `cargo test -p rustcode-capabilities --features lsp codeintel`.
+3. Run `cargo test -p rustcode-coding`.
 4. Run targeted daemon/CLI configuration tests if the shared runtime config changed their compilation surface.
 5. Inspect `git diff` for lifecycle ownership, missing terminal states, accidental default-on behavior, and unrelated changes.

@@ -1,8 +1,8 @@
-# atomcode-tuix Retained-mode 渲染重写计划
+# rustcode-tuix Retained-mode 渲染重写计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 atomcode-tuix 从 immediate-mode（"UiLine 事件直接变 ANSI bytes"）改造成 retained-mode（"UiLine 变化更新内存 screen buffer，独立 render loop 按节奏 diff + emit"），消除 Ink Phase 1 之后仍残留的 5 类固有 bug（footer/body 交界漂移、submit 4ms 空窗、terminal state drift、无 full-repaint 能力、scroll 出屏幕的 body 无法 recover）。对齐 CC / Ink 的渲染架构。
+**Goal:** 把 rustcode-tuix 从 immediate-mode（"UiLine 事件直接变 ANSI bytes"）改造成 retained-mode（"UiLine 变化更新内存 screen buffer，独立 render loop 按节奏 diff + emit"），消除 Ink Phase 1 之后仍残留的 5 类固有 bug（footer/body 交界漂移、submit 4ms 空窗、terminal state drift、无 full-repaint 能力、scroll 出屏幕的 body 无法 recover）。对齐 CC / Ink 的渲染架构。
 
 **Architecture:** 新增 `render/screen.rs` 实现 W×H cell buffer + damage tracking + cell-level diff。新增 `render/frame_loop.rs` 独立 render loop 按 16ms 节奏消费更新 + 单次 `stdout.write` emit。现有 `AnsiRenderer` 改造成只"更新 Screen model"，不再直接写 stdout。body 进 buffer（bounded scrollback），footer 按绝对行写入固定区域。DECSTBM 去除 —— body 和 footer 同在一个 buffer 里，不再需要滚动区域分割。
 
@@ -96,7 +96,7 @@ body 进 Screen 的 top 部分（rows `[0, H - footer_rows)`），footer 占 row
 ### Phase 0: Cell 结构扩容 + 辅助函数
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/render/cell.rs`
+- Modify: `crates/rustcode-tuix/src/render/cell.rs`
 
 - [ ] **Step 0.1: Cell 加 bg 字段**（为未来可能的 bg color，但**目前 always None**，不影响现有用法）
 
@@ -146,7 +146,7 @@ pub fn diff_cells(
 ### Phase 1: Screen struct
 
 **Files:**
-- Create: `crates/atomcode-tuix/src/render/screen.rs`
+- Create: `crates/rustcode-tuix/src/render/screen.rs`
 
 - [ ] **Step 1.1: Screen struct 定义**
 
@@ -366,8 +366,8 @@ mod tests {
 **目的**：让 `Screen` 能被现有 event loop 使用，**先不引入异步 render loop**（Phase 5 再引入节奏），保持简单。
 
 **Files:**
-- Create: `crates/atomcode-tuix/src/render/retained.rs`
-- Modify: `crates/atomcode-tuix/src/render/mod.rs`
+- Create: `crates/rustcode-tuix/src/render/retained.rs`
+- Modify: `crates/rustcode-tuix/src/render/mod.rs`
 
 - [ ] **Step 2.1: RetainedRenderer impl Renderer**
 
@@ -492,12 +492,12 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
 }
 ```
 
-- [ ] **Step 2.2: 把 retained 作为 feature-flagged 备选** — 不替换 AnsiRenderer。用环境变量 `ATOMCODE_TUIX_RETAINED=1` 或 startup arg 选择。
+- [ ] **Step 2.2: 把 retained 作为 feature-flagged 备选** — 不替换 AnsiRenderer。用环境变量 `RUSTCODE_TUIX_RETAINED=1` 或 startup arg 选择。
 
 ```rust
 // lib.rs 里 run() 中：
 let inner: Box<dyn Renderer> = if caps.tty {
-    if std::env::var("ATOMCODE_TUIX_RETAINED").ok().as_deref() == Some("1") {
+    if std::env::var("RUSTCODE_TUIX_RETAINED").ok().as_deref() == Some("1") {
         Box::new(RetainedRenderer::new(caps))
     } else {
         Box::new(AnsiRenderer::new(caps))
@@ -505,12 +505,12 @@ let inner: Box<dyn Renderer> = if caps.tty {
 } else { ... };
 ```
 
-- [ ] **Step 2.3: smoke test** — `ATOMCODE_TUIX_RETAINED=1 cargo run`。只验证能启动 + 看到 input box。body 不画（Phase 4），菜单不画（Phase 3.5），streaming 不画（Phase 4）。验证渲染 pipeline 通了。
+- [ ] **Step 2.3: smoke test** — `RUSTCODE_TUIX_RETAINED=1 cargo run`。只验证能启动 + 看到 input box。body 不画（Phase 4），菜单不画（Phase 3.5），streaming 不画（Phase 4）。验证渲染 pipeline 通了。
 
 ### Phase 3: footer widget 完整迁移
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/render/retained.rs`
+- Modify: `crates/rustcode-tuix/src/render/retained.rs`
 
 - [ ] **Step 3.1: `paint_footer` 完整实现**，对齐现有 `AnsiRenderer::draw_footer_here_with_prev_cursor`
 
@@ -537,7 +537,7 @@ let inner: Box<dyn Renderer> = if caps.tty {
 ### Phase 4: body widget + scrollback
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/render/retained.rs`
+- Modify: `crates/rustcode-tuix/src/render/retained.rs`
 
 - [ ] **Step 4.1: body 写入用 scroll_up + draw**
 
@@ -576,7 +576,7 @@ markdown 渲染继续用 `crate::markdown::render_line`，返回的 String 直�
 ### Phase 5: async render loop + 16ms coalesce
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/render/retained.rs` 或新 `render/frame_loop.rs`
+- Modify: `crates/rustcode-tuix/src/render/retained.rs` 或新 `render/frame_loop.rs`
 
 - [ ] **Step 5.1: 把 flush_frame 改成 "标记 dirty"，不立即 emit**
 
@@ -597,7 +597,7 @@ flush_deferred 目前是旧 InputThrottle 用。改语义为"如果 dirty 则 em
 
 ### Phase 6: 切换默认 + 清理
 
-- [ ] **Step 6.1: `ATOMCODE_TUIX_RETAINED` 默认 on**，保留 `=0` 能切回 AnsiRenderer
+- [ ] **Step 6.1: `RUSTCODE_TUIX_RETAINED` 默认 on**，保留 `=0` 能切回 AnsiRenderer
 - [ ] **Step 6.2: 跑全套手测 checklist**（见 Verification 下）
 - [ ] **Step 6.3: 删掉 DECSTBM 相关 dead code** — `sync_scroll_region` / `clear_scroll_region` / `emit_footer_absolute` / `emit_footer_diff`
 - [ ] **Step 6.4: 删掉 AnsiRenderer 或保留作为 fallback**（看 Phase 6 完测情况）
@@ -609,14 +609,14 @@ flush_deferred 目前是旧 InputThrottle 用。改语义为"如果 dirty 则 em
 **测试 gate**（每 phase 必须过）：
 
 1. `cargo build --workspace` 干净
-2. `cargo test -p atomcode-tuix --lib` 全绿（目标保持 170+ 通过）
+2. `cargo test -p rustcode-tuix --lib` 全绿（目标保持 170+ 通过）
 3. Phase 3 后: byte cost test assert 字节量不回退
 4. Phase 4 后: streaming byte test assert 不回退
 5. Phase 5 后: 新增"帧间无空窗"测试
 
 **手测 checklist**（Phase 6 必走）：
 
-- [ ] 启动 `atomcode --tuix` — welcome + input box
+- [ ] 启动 `rustcode --tuix` — welcome + input box
 - [ ] 打字中英文混合 — "你好 hello 世界"
 - [ ] `/` 菜单弹出 → Down/Up → Enter
 - [ ] `/model` 切换模型
@@ -645,13 +645,13 @@ flush_deferred 目前是旧 InputThrottle 用。改语义为"如果 dirty 则 em
 
 已熟悉，Phase 执行中主要改这几个：
 
-- `crates/atomcode-tuix/src/render/ansi.rs` — 现有 immediate-mode，Phase 6 后变 dead code 或删
-- `crates/atomcode-tuix/src/render/cell.rs` — Cell/diff/serialize，Phase 0 小改
-- `crates/atomcode-tuix/src/render/screen.rs` — **新，Phase 1 核心**
-- `crates/atomcode-tuix/src/render/retained.rs` — **新，Phase 2-5 核心**
-- `crates/atomcode-tuix/src/render/mod.rs` — 加 pub mod，保留 Renderer trait 不动
-- `crates/atomcode-tuix/src/lib.rs` — run() 里根据 env 选 renderer
-- `crates/atomcode-tuix/src/event_loop/mod.rs` — Phase 5 加 16ms tick 调 flush_deferred
+- `crates/rustcode-tuix/src/render/ansi.rs` — 现有 immediate-mode，Phase 6 后变 dead code 或删
+- `crates/rustcode-tuix/src/render/cell.rs` — Cell/diff/serialize，Phase 0 小改
+- `crates/rustcode-tuix/src/render/screen.rs` — **新，Phase 1 核心**
+- `crates/rustcode-tuix/src/render/retained.rs` — **新，Phase 2-5 核心**
+- `crates/rustcode-tuix/src/render/mod.rs` — 加 pub mod，保留 Renderer trait 不动
+- `crates/rustcode-tuix/src/lib.rs` — run() 里根据 env 选 renderer
+- `crates/rustcode-tuix/src/event_loop/mod.rs` — Phase 5 加 16ms tick 调 flush_deferred
 
 ---
 

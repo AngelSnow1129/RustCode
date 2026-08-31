@@ -8,7 +8,7 @@
 //! (`http_status`, `retry_after_secs`, `code`).
 //!
 //! Scope note: this is the TAXONOMY, not a rewrite. The existing adapter error
-//! construction (including the shared [`super::friendly_http_error`] wording —
+//! construction (including the shared [`super::friendly_http_error`] wording --
 //! the 401/402 headlines, the CodingPlan 403 hint, and the literal `HTTP 429: `
 //! prefix the kernel rate-limit path strips) is load-bearing and stays exactly
 //! as-is.
@@ -30,7 +30,7 @@ pub enum LlmError {
     /// the response's real `Retry-After` header when the server sent one.
     #[error("rate limited (HTTP 429); retry after {retry_after_secs:?}s")]
     RateLimited { retry_after_secs: Option<u64> },
-    /// We sent something the endpoint refuses — malformed arguments, unknown
+    /// We sent something the endpoint refuses -- malformed arguments, unknown
     /// model, context overflow (HTTP 400/404/422).
     #[error("invalid request (HTTP {status}): {detail}")]
     InvalidRequest { status: u16, detail: String },
@@ -43,10 +43,10 @@ pub enum LlmError {
     /// An established response went quiet for longer than the idle budget.
     #[error("stream idle for {0:?}")]
     IdleTimeout(Duration),
-    /// A 2xx body we could not interpret (bad JSON, missing `choices`, …).
+    /// A 2xx body we could not interpret (bad JSON, missing `choices`, ...).
     #[error("response decode failure: {0}")]
     Decode(String),
-    /// The provider was built wrong (invalid proxy URL, missing base URL, …).
+    /// The provider was built wrong (invalid proxy URL, missing base URL, ...).
     #[error("provider misconfiguration: {0}")]
     Config(String),
 }
@@ -57,7 +57,7 @@ impl LlmError {
     /// Deliberately conservative for `Decode`: a body this request produced as
     /// unparseable will be unparseable again, and re-sending risks duplicating
     /// an already-executed side effect. `Auth` / `InvalidRequest` / `Config` are
-    /// terminal for the same reason — nothing about a retry changes them.
+    /// terminal for the same reason -- nothing about a retry changes them.
     pub fn retryable(&self) -> bool {
         match self {
             // A rejected credential never becomes valid by asking again; the user
@@ -76,7 +76,7 @@ impl LlmError {
     ///
     /// `None` + `retryable` ⇒ [`LlmError::Transport`] (a transient network class);
     /// `None` + terminal ⇒ [`LlmError::Decode`] (a response we could not make
-    /// sense of — the usual shape of a mid-stream failure, which carries no HTTP
+    /// sense of -- the usual shape of a mid-stream failure, which carries no HTTP
     /// status because the status arrived with the headers long before).
     pub fn from_provider(e: &ProviderError, status: Option<u16>) -> Self {
         let detail = e.message.clone();
@@ -110,7 +110,7 @@ impl From<LlmError> for ProviderError {
     /// `retry_after_secs` (the authoritative rate-limit countdown), and `code`
     /// (structured branching, e.g. `context_length_exceeded`).
     ///
-    /// The 429 message keeps the literal `HTTP 429: ` prefix — the kernel's
+    /// The 429 message keeps the literal `HTTP 429: ` prefix -- the kernel's
     /// rate-limit recovery strips exactly that prefix to recover the server's
     /// own wording, so it must not be reworded here.
     fn from(e: LlmError) -> Self {

@@ -8,7 +8,7 @@
 //!   - Usage is LAST-WINS in the kernel: the adapter buffers the final `usage` chunk
 //!     and emits exactly one [`StreamEvent::Usage`] near `Done`.
 //!   - There is NO explicit cache field on this path (OpenAI-compatible caching is
-//!     automatic), so prefix BYTE-STABILITY is the only cache lever — the request
+//!     automatic), so prefix BYTE-STABILITY is the only cache lever -- the request
 //!     body is built from ordered `serde_json` literals (BTreeMap-backed `Map`, no
 //!     `preserve_order`), with no timestamps/uuids, so the same `(messages, tools)`
 //!     always serialize identically.
@@ -39,14 +39,14 @@ use std::time::Duration;
 /// to a public "RustCode" app entry on openrouter.ai (rankings / app page).
 ///
 /// Per OpenRouter's app-attribution contract:
-///   - `HTTP-Referer` is the app's STABLE identifier (primary domain) — it alone
+///   - `HTTP-Referer` is the app's STABLE identifier (primary domain) -- it alone
 ///     creates the app page;
 ///   - `X-OpenRouter-Title` is the display name on the rankings;
 ///   - `X-OpenRouter-Categories` places the app in the marketplace categories.
 ///
 /// These are sent ONLY when the request actually targets `openrouter.ai` (see
-/// [`is_openrouter_url`]) so other OpenAI-compatible endpoints — including
-/// AtomGit's own signing gateway — never receive them.
+/// [`is_openrouter_url`]) so other OpenAI-compatible endpoints -- including
+/// AtomGit's own signing gateway -- never receive them.
 pub const OPENROUTER_ATTRIBUTION_HEADERS: &[(&str, &str); 3] = &[
     ("HTTP-Referer", "https://gitcode.com/SecLab/RustCode"),
     ("X-OpenRouter-Title", "RustCode"),
@@ -54,10 +54,10 @@ pub const OPENROUTER_ATTRIBUTION_HEADERS: &[(&str, &str); 3] = &[
 ];
 
 /// True when `url` targets the OpenRouter API (any path under the `openrouter.ai`
-/// host). Used to gate the attribution headers — they are meaningless, and would
+/// host). Used to gate the attribution headers -- they are meaningless, and would
 /// only leak product identity, on any other OpenAI-compatible endpoint.
 ///
-/// Hand-rolled host extraction (no `url` crate — that dep is optional to this
+/// Hand-rolled host extraction (no `url` crate -- that dep is optional to this
 /// crate, pulled only by `web`/`mcp`, while the provider adapter compiles under
 /// `provider` alone). The label-aware suffix match reuses
 /// [`rustcode_config::endpoints::host_matches_domain`] so it agrees with the rest
@@ -67,7 +67,7 @@ pub fn is_openrouter_url(url: &str) -> bool {
     // Host = the authority minus path/query/fragment...
     let host_port = authority.split(['/', '?', '#']).next().unwrap_or(authority);
     // ...minus any `userinfo@` prefix. Without this, a crafted
-    // `https://openrouter.ai:x@evil.com/…` would parse the userinfo `openrouter.ai`
+    // `https://openrouter.ai:x@evil.com/...` would parse the userinfo `openrouter.ai`
     // as the host and leak the attribution headers to `evil.com`.
     let host_port = host_port
         .rsplit_once('@')
@@ -80,7 +80,7 @@ pub fn is_openrouter_url(url: &str) -> bool {
 
 /// Attach the OpenRouter app-attribution headers to `req` when `url` targets
 /// OpenRouter. Credit real user traffic to the public "RustCode" app entry so
-/// it can appear in openrouter.ai rankings. Gated to `openrouter.ai` only —
+/// it can appear in openrouter.ai rankings. Gated to `openrouter.ai` only --
 /// the headers are meaningless on any other OpenAI-compatible endpoint and
 /// would only leak product identity there.
 fn apply_openrouter_attribution(
@@ -102,7 +102,7 @@ fn apply_openrouter_attribution(
 // ---------------------------------------------------------------------------
 
 /// Construction-time config for an OpenAI-compatible provider. The kernel never sees
-/// any of this — it enters the adapter here, off the `LlmProvider` contract.
+/// any of this -- it enters the adapter here, off the `LlmProvider` contract.
 #[derive(Clone)]
 pub struct OpenAiCompatConfig {
     pub api_key: String,
@@ -128,7 +128,7 @@ pub struct OpenAiCompatConfig {
     pub idle_timeout: Duration,
     pub connect_timeout: Duration,
     /// Per-ATTEMPT first-byte (TTFB) watchdog for the OPEN call. A gateway that
-    /// accepts the connection but never responds would otherwise hang FOREVER —
+    /// accepts the connection but never responds would otherwise hang FOREVER --
     /// no overall request timeout is set here (deliberately: a streaming response
     /// must not be capped). Applied to EACH attempt, not to the retry loop as a
     /// whole, so a slow-but-alive gateway still gets the full budget. `send()`
@@ -147,7 +147,7 @@ pub struct OpenAiCompatConfig {
     /// MUST be injected here rather than read from a local `CARGO_PKG_VERSION`.
     pub user_agent: Option<String>,
     /// Arbitrary extra HTTP headers sent on every request (self-hosted gateway
-    /// auth/tenant headers). Sourced from config only — never hardcoded.
+    /// auth/tenant headers). Sourced from config only -- never hardcoded.
     pub extra_headers: Option<std::collections::HashMap<String, String>>,
     /// Per-provider forward proxy override; if set, replaces the process-wide
     /// proxy policy for this client. Respects `skip_tls_verify`.
@@ -158,10 +158,10 @@ pub struct OpenAiCompatConfig {
     /// Whether the target model can accept image (`image_url`) content. When
     /// FALSE, a user message carrying images is DEGRADED to a plain-text string
     /// (caption kept, image bytes dropped) instead of a multimodal `content`
-    /// array — re-sending a historical image to a text-only model 400s the whole
+    /// array -- re-sending a historical image to a text-only model 400s the whole
     /// request (`glm-5.2 is not a multimodal model`) on every resumed turn.
     /// `new()` DEFAULTS this from the model name (`model_suggests_vision`), so
-    /// every construction site — including ACP/review/clix and coding assembly —
+    /// every construction site -- including ACP/review/clix and coding assembly --
     /// is correct without extra wiring.
     pub supports_vision: bool,
 }
@@ -232,8 +232,8 @@ pub struct OpenAiCompatProvider {
     policy: ReasoningPolicy,
     /// The HTTP client, held behind a rebuild seam. A pooled keep-alive connection
     /// that the gateway/LB silently half-closed can be handed back out, fail on the
-    /// first request (write ok, read → ConnectionReset), and — because every retry
-    /// reuses the SAME pool — keep failing until the client is rebuilt with an empty
+    /// first request (write ok, read -> ConnectionReset), and -- because every retry
+    /// reuses the SAME pool -- keep failing until the client is rebuilt with an empty
     /// pool. That rebuild used to require a manual `/login`; [`SwappableClient`] lets
     /// the open path do it automatically on a transient-transport retry.
     client: std::sync::Arc<SwappableClient>,
@@ -242,7 +242,7 @@ pub struct OpenAiCompatProvider {
     /// spawns the owning Agent. Forwarded as the `x-rustcode-session-id` header so a
     /// gateway can pin the conversation to one upstream for prefix-cache affinity.
     /// `OnceLock` (not a lock-on-read mutex) because the id is constant for the
-    /// provider's life — a `/session` switch rebuilds the provider, never re-binds.
+    /// provider's life -- a `/session` switch rebuilds the provider, never re-binds.
     /// Unset ⇒ header omitted (session-less sub-agent / summary).
     session_id: std::sync::OnceLock<String>,
     /// Set once this provider's gateway has rejected a `reasoning_effort` value
@@ -353,14 +353,14 @@ fn build_http_client(
         Err(first) => {
             // BACKSTOP (issue #514): even with the per-cert probe in `add_trusted_roots`,
             // a poisoned SSL_CERT_FILE (or any other trust-root surprise) rejected by
-            // rustls at `.build()` aborts the ENTIRE client — leaving every provider dead
+            // rustls at `.build()` aborts the ENTIRE client -- leaving every provider dead
             // on startup with an opaque "builder error". Rather than a total outage, retry
             // ONCE with the INFALLIBLE webpki base only. Public-CA endpoints (the gateway,
             // model APIs) still work; only a corporate MITM root would be lost, and a
             // request-time TLS error is far better than a client that never builds.
             tracing::warn!(
                 "http client build failed with the OS/SSL_CERT_FILE trust roots ({}); \
-                 retrying with the webpki base only — a custom/corporate root may be ignored (issue #514)",
+                 retrying with the webpki base only -- a custom/corporate root may be ignored (issue #514)",
                 first.message
             );
             build_http_client_inner(
@@ -416,7 +416,7 @@ fn build_http_client_inner(
     // TLS trust (issue #514): webpki base roots are always present so `.build()`
     // never hard-fails on certs; layer the OS native store (corporate MITM CAs)
     // and SSL_CERT_FILE on top, additively and best-effort. This is the DEFAULT
-    // v2 provider path. Mirrors `core::provider::add_trusted_roots` — kept
+    // v2 provider path. Mirrors `core::provider::add_trusted_roots` -- kept
     // crate-local because capabilities does not depend on core.
     // Skip the rustls root-layering on Windows: the native-tls (SChannel) default backend
     // trusts the Windows system store natively, and re-feeding certs through native-tls's
@@ -430,8 +430,8 @@ fn build_http_client_inner(
     }
     builder.build().map_err(|e| ProviderError {
         retryable: false,
-        // reqwest's builder-error `Display` is a bare "builder error" — the real
-        // reason (bad cert, invalid header, …) lives in its `source()` chain, so
+        // reqwest's builder-error `Display` is a bare "builder error" -- the real
+        // reason (bad cert, invalid header, ...) lives in its `source()` chain, so
         // walk it (shared `retry::err_chain`) or the message is useless (issue #514).
         message: format!("http client build failed: {}", retry::err_chain(&e)),
         ..Default::default()
@@ -441,7 +441,7 @@ fn build_http_client_inner(
 /// Add the OS native root store and `SSL_CERT_FILE` (if set) to the builder's
 /// trusted roots, ON TOP of the built-in webpki roots. Best-effort: unparseable
 /// certs, an unreadable/malformed `SSL_CERT_FILE`, or native-store load errors
-/// are warned and skipped — NEVER fatal (the webpki base guarantees a working
+/// are warned and skipped -- NEVER fatal (the webpki base guarantees a working
 /// client). Mirrors `core::provider::add_trusted_roots`; codex-style graceful
 /// `load_native_certs`. See issue #514.
 fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
@@ -454,7 +454,7 @@ fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuil
             native.certs.len()
         );
     }
-    // `reqwest::Certificate::from_der` does NOT validate under rustls — it just stores
+    // `reqwest::Certificate::from_der` does NOT validate under rustls -- it just stores
     // the bytes and defers validation to `rustls::RootCertStore::add` INSIDE `.build()`,
     // which aborts the WHOLE client on the first cert rustls rejects (a legacy OS root
     // without X509v3 extensions is enough). Pre-filter each cert through the same rustls
@@ -480,7 +480,7 @@ fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuil
     //    for cross-platform certainty. reqwest's `Certificate` is validated only
     //    at `.build()`; unlike the native loop above we do NOT pre-probe these
     //    (no DER in hand from `from_pem_bundle`), so a MALFORMED SSL_CERT_FILE
-    //    still poisons `.build()` — but the `build_http_client` BACKSTOP catches
+    //    still poisons `.build()` -- but the `build_http_client` BACKSTOP catches
     //    that and rebuilds on the webpki base (never a panic; the file is then
     //    ignored with a warning rather than killing the client). See #514.
     let Some(path) = std::env::var_os("SSL_CERT_FILE").filter(|p| !p.is_empty()) else {
@@ -509,7 +509,7 @@ fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuil
 
 /// An HTTP client held behind a rebuild seam. `get()` hands out the current client
 /// (cheap: `reqwest::Client` is `Arc` inside); `rebuild()` constructs a fresh client
-/// — hence a brand-new, EMPTY connection pool — and atomically swaps it in. This is
+/// -- hence a brand-new, EMPTY connection pool -- and atomically swaps it in. This is
 /// the automatic form of the manual `/login` remedy for the "poisoned pool" failure:
 /// once a keep-alive connection is silently half-closed, only a fresh pool recovers,
 /// because every reuse of the old pool re-hands-out the dead socket.
@@ -531,9 +531,9 @@ impl SwappableClient {
         })
     }
 
-    /// The current client (clone is an `Arc` bump — the pool is shared). Poison-tolerant:
+    /// The current client (clone is an `Arc` bump -- the pool is shared). Poison-tolerant:
     /// the guarded `reqwest::Client` is ALWAYS a valid client, so a lock poisoned by an
-    /// unrelated panic must not turn every subsequent request into a hard panic — that would
+    /// unrelated panic must not turn every subsequent request into a hard panic -- that would
     /// re-create the exact "wedged until restart" failure this seam exists to prevent.
     pub(crate) fn get(&self) -> reqwest::Client {
         self.current
@@ -591,8 +591,8 @@ impl LlmProvider for OpenAiCompatProvider {
         };
 
         // Open the stream. A hard failure here returns `Err` (not a stream of one
-        // Error event) so the kernel's agent-layer open retry — which keys off the
-        // returned `ProviderError` — still applies.
+        // Error event) so the kernel's agent-layer open retry -- which keys off the
+        // returned `ProviderError` -- still applies.
         let policy = self.cfg.retry.clone();
         let client = self.client.clone();
         let url = self.url.clone();
@@ -623,7 +623,7 @@ impl LlmProvider for OpenAiCompatProvider {
         {
             Ok(r) => r,
             // Gateway rejected `reasoning_effort`. Remember it for the session
-            // (next send strips the field up front → succeeds) and surface one
+            // (next send strips the field up front -> succeeds) and surface one
             // actionable error instead of the raw `field ReasoningEffort invalid`.
             // Guarded on `!effort_known_unsupported` so we never loop: once the
             // field is stripped, any further 400 is a different problem.
@@ -638,7 +638,7 @@ impl LlmProvider for OpenAiCompatProvider {
         let s = async_stream::stream! {
             // v1 parity (core/openai.rs ~676): a chunked body that dies BEFORE any
             // replay-sensitive event has reached the consumer is safe to redo
-            // wholesale — metadata may repeat, but no text/tool-call/UI delta was
+            // wholesale -- metadata may repeat, but no text/tool-call/UI delta was
             // committed. Common cause: gateways that reset the
             // connection under load (surfaces as "error decoding response body" /
             // "unexpected EOF during chunk size line"). Once replay-sensitive output
@@ -685,7 +685,7 @@ impl LlmProvider for OpenAiCompatProvider {
                             return;
                         }
                         Ok(Some(Err(e))) => {
-                            // No replay-sensitive output reached the consumer yet → re-open
+                            // No replay-sensitive output reached the consumer yet -> re-open
                             // the whole request transparently (bounded by MAX_STREAM_ATTEMPTS).
                             if !emitted_replay_sensitive && stream_attempt < MAX_STREAM_ATTEMPTS {
                                 reconnect_attempts += 1;
@@ -769,13 +769,13 @@ impl LlmProvider for OpenAiCompatProvider {
 
     /// NON-STREAMING override (spec [STREAMING]).
     ///
-    /// Uses the backend's real non-streaming verb — `stream: false`, one request,
-    /// one JSON object — which skips the SSE handshake, the per-chunk framing and
+    /// Uses the backend's real non-streaming verb -- `stream: false`, one request,
+    /// one JSON object -- which skips the SSE handshake, the per-chunk framing and
     /// the incremental decode. Same contract as the kernel's default fold:
     /// `finish_reason: "length"` ⇒ [`FinishReason::Length`], a non-empty
     /// `tool_calls[]` ⇒ [`FinishReason::ToolCalls`], otherwise
     /// [`FinishReason::Stop`]. Every failure (transport, HTTP error, undecodable
-    /// body) returns `Err` — never a panic, never a half-filled success.
+    /// body) returns `Err` -- never a panic, never a half-filled success.
     async fn chat(
         &self,
         messages: &[Message],
@@ -836,7 +836,7 @@ impl LlmProvider for OpenAiCompatProvider {
             message: format!("response body read failed: {}", retry::err_chain(&e)),
             ..Default::default()
         })?;
-        // A 2xx body we cannot interpret is a Decode failure — NOT a panic and
+        // A 2xx body we cannot interpret is a Decode failure -- NOT a panic and
         // NOT an empty success. Classified through the shared taxonomy.
         parse_chat_completion(&text).map_err(|detail| super::LlmError::Decode(detail).into())
     }
@@ -897,7 +897,7 @@ fn parse_chat_completion(text: &str) -> Result<ChatResponse, String> {
 }
 
 /// `content` is a STRING on a strict OpenAI endpoint, but several compatible
-/// gateways return the multimodal ARRAY form (`[{"type":"text","text":…}]`) even
+/// gateways return the multimodal ARRAY form (`[{"type":"text","text":...}]`) even
 /// for a text-only answer. Both are read as text; anything else ⇒ empty.
 fn wire_content_text(content: Option<&Value>) -> String {
     match content {
@@ -916,7 +916,7 @@ fn non_empty_str(v: Option<&Value>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-/// One `tool_calls[]` entry → a kernel [`ToolCall`]. `None` for an entry with
+/// One `tool_calls[]` entry -> a kernel [`ToolCall`]. `None` for an entry with
 /// neither an id nor a name (a degenerate fragment nothing could execute).
 /// `arguments` is forwarded as the raw JSON STRING the kernel expects; a gateway
 /// that already parsed it into an object is re-serialized rather than dropped.
@@ -1008,7 +1008,7 @@ async fn open_stream(
                 None
             }
         };
-        // Stable session id → lets the forwarding gateway pin this conversation to
+        // Stable session id -> lets the forwarding gateway pin this conversation to
         // one upstream for prefix-cache affinity. Empty ⇒ omitted (sub-agent/summary).
         if !session_id.is_empty() {
             req = req.header("x-rustcode-session-id", session_id);
@@ -1022,7 +1022,7 @@ async fn open_stream(
         }
         let was_capped = tls12_probe || rustcode_config::tls::should_cap_url(url);
         // TTFB watchdog for THIS attempt. `send()` resolves as soon as the response
-        // HEAD arrives, so wrapping it never truncates a slow streaming body — it only
+        // HEAD arrives, so wrapping it never truncates a slow streaming body -- it only
         // bounds the wait for a gateway that accepted the connection then went silent.
         let sent = match tokio::time::timeout(open_timeout, req.send()).await {
             Ok(r) => r,
@@ -1102,13 +1102,13 @@ async fn open_stream(
                         attempt += 1;
                         continue;
                     }
-                    // Capture the real `Retry-After` BEFORE `text()` consumes `resp` — the
+                    // Capture the real `Retry-After` BEFORE `text()` consumes `resp` -- the
                     // authoritative rate-limit countdown for the self-heal (vs scraping text).
                     let retry_after_secs =
                         retry::parse_retry_after(resp.headers()).map(|d| d.as_secs());
                     let text = resp.text().await.unwrap_or_default();
                     // Standard multi-shape extraction (detail / error / top-level message)
-                    // so a clean human message surfaces for EVERY vendor — not just the
+                    // so a clean human message surfaces for EVERY vendor -- not just the
                     // OpenAI `error` object. GLM returns top-level `{"code","message"}`.
                     let detail = extract_error_detail(&text);
                     let envelope = serde_json::from_str::<serde_json::Value>(&text).ok();
@@ -1129,10 +1129,10 @@ async fn open_stream(
                     // A managed-endpoint TLS-1.2 probe is warranted by either a
                     // connect failure (a TLS-1.3-hostile middlebox resetting the
                     // handshake) OR a post-handshake record corruption
-                    // (BadRecordMac/DecryptError) — both curable by a 1.2 cap.
+                    // (BadRecordMac/DecryptError) -- both curable by a 1.2 cap.
                     // The corruption trigger needs no is_connect: it lands AFTER
                     // the handshake. We escalate on the FIRST corruption rather
-                    // than a repeat — a MAC failure is active record corruption (a
+                    // than a repeat -- a MAC failure is active record corruption (a
                     // stale pooled socket surfaces as ConnectionReset via
                     // chain_has_transient_io, NOT a MAC failure), and tls.rs
                     // already treats 1.2 as the known-good ceiling for these
@@ -1189,7 +1189,7 @@ async fn open_stream(
 /// `supports_vision` gates image content: when FALSE, a user message's images are
 /// dropped and only its caption text is sent (as a STRING). This is what keeps a
 /// resumed conversation whose history contains an image from 400ing against a
-/// text-only model (`glm-5.2 is not a multimodal model`) on every turn — v1
+/// text-only model (`glm-5.2 is not a multimodal model`) on every turn -- v1
 /// `OpenAiProvider::format_messages` had the same degrade; the v2 port lost it.
 fn format_messages(
     messages: &[Message],
@@ -1212,13 +1212,13 @@ fn format_messages(
                     // Text-only (no images), OR a vision-incapable target: `content`
                     // stays a STRING. For the vision-incapable case the image bytes are
                     // dropped and only the caption (with our `[Image #N]` marker) survives
-                    // — a multimodal array here 400s the whole request on a text model.
+                    // -- a multimodal array here 400s the whole request on a text model.
                     out.push(json!({ "role": "user", "content": m.text }));
                 } else {
-                    // Multimodal: `content` becomes an array — text part first (if any),
+                    // Multimodal: `content` becomes an array -- text part first (if any),
                     // then each image as an OpenAI `image_url` base64 data URL. NOTE on
                     // compatibility: OpenAI/DeepSeek accept an image-only message (no text
-                    // part); a stricter server might require text — that's a provider
+                    // part); a stricter server might require text -- that's a provider
                     // contract, not ours. `json!()` escapes any special chars in the data
                     // URL to valid JSON; the provider unescapes on decode.
                     let mut parts: Vec<Value> = Vec::with_capacity(m.images.len() + 1);
@@ -1227,7 +1227,7 @@ fn format_messages(
                     }
                     for img in &m.images {
                         // Harden the wire shape at this L1 boundary (the kernel only stores
-                        // + forwards): an image with no payload carries no information → skip
+                        // + forwards): an image with no payload carries no information -> skip
                         // it rather than emit a degenerate `data:...;base64,` URL; an empty
                         // media_type falls back to a generic type so the URL stays well-formed.
                         if img.data.is_empty() {
@@ -1243,7 +1243,7 @@ fn format_messages(
                             "image_url": { "url": format!("data:{media_type};base64,{}", img.data) },
                         }));
                     }
-                    // Degenerate input (all images had empty data AND no text) → fall back
+                    // Degenerate input (all images had empty data AND no text) -> fall back
                     // to a STRING so we never emit an empty content array a server rejects.
                     if parts.is_empty() {
                         out.push(json!({ "role": "user", "content": m.text }));
@@ -1266,12 +1266,12 @@ fn format_messages(
                             // `arguments` is a RAW json string. VALID json passes through
                             // VERBATIM (OpenAI expects a string here; no re-parse keeps the
                             // request prefix byte-stable across turns for the prefix cache).
-                            // Only INVALID json is repaired here — e.g. a weak model's
-                            // unescaped Windows path (`C:\Users\…`, where `\U` is not a legal
+                            // Only INVALID json is repaired here -- e.g. a weak model's
+                            // unescaped Windows path (`C:\Users\...`, where `\U` is not a legal
                             // JSON escape) that got stored into history. Without this, replaying
                             // that history to a strict gateway (`json.loads(arguments)`) 400s the
                             // ENTIRE request, every turn. Mirrors v1 core's openai.rs guard:
-                            // repair, then wrap-as-`{"input":…}` if still unsalvageable, so we
+                            // repair, then wrap-as-`{"input":...}` if still unsalvageable, so we
                             // never put non-JSON on the wire.
                             let args = if serde_json::from_str::<Value>(&tc.arguments).is_ok() {
                                 tc.arguments.clone()
@@ -1346,7 +1346,7 @@ fn build_request_body(
     }
     if supports_tool_choice(model) {
         match &options.tool_choice {
-            ToolChoice::Auto => {} // omit → byte-identical to "no opinion"
+            ToolChoice::Auto => {} // omit -> byte-identical to "no opinion"
             ToolChoice::Required => {
                 body.insert("tool_choice".into(), json!("required"));
             }
@@ -1366,7 +1366,7 @@ fn build_request_body(
             body.insert("reasoning_effort".into(), json!(effort_str(effort)));
         }
     }
-    // Kimi-family `thinking` object — only when configured (omitted otherwise so non-Kimi
+    // Kimi-family `thinking` object -- only when configured (omitted otherwise so non-Kimi
     // gateways don't 400 on an unknown top-level key). Port of v1's `thinking_body_value`.
     if let Some(thinking) =
         thinking_body_value(cfg.thinking_type.as_deref(), cfg.thinking_keep.as_deref())
@@ -1476,7 +1476,7 @@ pub fn reason_effort_applicable(model: &str) -> bool {
 
 /// True when an OPEN failure is a 400 specifically complaining about
 /// `reasoning_effort`. Gateways hosting DeepSeek-V4 don't agree on the value
-/// enum — DeepSeek's own API takes `max`, but SenseNova's returns
+/// enum -- DeepSeek's own API takes `max`, but SenseNova's returns
 /// `field ReasoningEffort invalid, should be one of: low, medium, high, xhigh,
 /// none`. Matched narrowly (400 + the field name in either casing) so an
 /// unrelated 400 is never misrouted into the effort-strip path.
@@ -1493,8 +1493,8 @@ fn is_reasoning_effort_rejection(e: &ProviderError) -> bool {
 fn effort_unsupported_error() -> ProviderError {
     ProviderError {
         retryable: false,
-        message: "当前模型/网关不支持「强度」(reasoning_effort) 设置，已为本会话自动禁用——请重新发送。\
-                  (Provider rejected reasoning_effort; auto-disabled for this session — resend to continue.)"
+        message: "当前模型/网关不支持「强度」(reasoning_effort) 设置，已为本会话自动禁用----请重新发送。\
+                  (Provider rejected reasoning_effort; auto-disabled for this session -- resend to continue.)"
             .to_string(),
         http_status: Some(400),
         ..Default::default()
@@ -1551,17 +1551,17 @@ fn truncate_msg(s: &str) -> String {
     while end > 0 && !s.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}…", &s[..end])
+    format!("{}...", &s[..end])
 }
 
 /// Extract a human-readable error detail from a provider's JSON error body, covering
 /// the common envelope shapes so a clean message surfaces regardless of vendor:
-/// - FastAPI / AtomGit-gateway: `{"detail":{"message":…}}` or `{"detail":"…"}`
+/// - FastAPI / AtomGit-gateway: `{"detail":{"message":...}}` or `{"detail":"..."}`
 /// - OpenAI / Anthropic: `{"error":{"message","type","code"}}` (kept as the tagged
 ///   `[type/code] message` form via [`parse_error_obj`])
-/// - Top-level `{"code","message"}` (e.g. GLM `{"code":"1113","message":"余额不足…"}`)
+/// - Top-level `{"code","message"}` (e.g. GLM `{"code":"1113","message":"余额不足..."}`)
 /// Falls back to the truncated raw body when nothing parses. Mirrors
-/// `rustcode_core::provider::extract_error_message`'s shape list (kept LOCAL — L1 must
+/// `rustcode_core::provider::extract_error_message`'s shape list (kept LOCAL -- L1 must
 /// not depend on core). Previously only the `error` object was handled, so GLM-style
 /// top-level `message` bodies dumped raw JSON into the user-facing error.
 fn extract_error_detail(text: &str) -> String {
@@ -1601,7 +1601,7 @@ fn parse_error_obj(err: &serde_json::Value) -> String {
         .get("type")
         .and_then(|t| t.as_str())
         .filter(|s| !s.is_empty());
-    // `code` may be a string OR a number (vendors differ) — normalize to a string.
+    // `code` may be a string OR a number (vendors differ) -- normalize to a string.
     let code = err.get("code").and_then(|c| match c {
         serde_json::Value::String(s) if !s.is_empty() => Some(s.clone()),
         serde_json::Value::Number(n) => Some(n.to_string()),
@@ -1656,7 +1656,7 @@ const MAX_TOOL_CALL_DELTAS: usize = 20000;
 
 /// Stateful Server-Sent-Events decoder. Feed it raw byte chunks; it returns whole
 /// kernel `StreamEvent`s. Splitting tool-call assembly + usage buffering out here (vs
-/// inline in the network loop) makes the wire→event mapping deterministic and
+/// inline in the network loop) makes the wire->event mapping deterministic and
 /// testable from recorded bytes.
 struct SseDecoder {
     buf: Vec<u8>,
@@ -1739,8 +1739,8 @@ impl SseDecoder {
         if data == "[DONE]" {
             // Same finalization as a stream EOF: flush any accumulated tool
             // calls, then usage + Done. `finish()` does exactly this (and is a
-            // no-op if already done). Calling it here — instead of emitting
-            // only usage + Done — closes the gap where a gateway that reports
+            // no-op if already done). Calling it here -- instead of emitting
+            // only usage + Done -- closes the gap where a gateway that reports
             // ONLY `finish_reason:""` (never a real non-empty reason) and ends
             // with `[DONE]` would otherwise drop its buffered tool call, since
             // "" is treated as non-terminal and never triggers the flush above.
@@ -1754,7 +1754,7 @@ impl SseDecoder {
             Ok(c) => c,
             Err(_) => {
                 // A non-empty, non-`[DONE]` `data:` payload that is not valid JSON is
-                // garbage from the gateway — comment (`:`) / blank / empty-`data:`
+                // garbage from the gateway -- comment (`:`) / blank / empty-`data:`
                 // keepalives were already filtered above. Surface it as a content-free
                 // Malformed SIGNAL so the kernel retries it with a distinct "格式异常"
                 // notice, instead of silently dropping it (which looked identical to a
@@ -1776,7 +1776,7 @@ impl SseDecoder {
                 out.push(StreamEvent::ResponseModel(model.to_string()));
             }
         }
-        // A mid-stream provider error chunk: surface it (code + reason) and TERMINATE —
+        // A mid-stream provider error chunk: surface it (code + reason) and TERMINATE --
         // mid-stream is non-recoverable. (Previously such chunks were silently dropped.)
         if let Some(err) = &chunk.error {
             out.push(StreamEvent::Error(ProviderError {
@@ -1840,7 +1840,7 @@ impl SseDecoder {
                         delta_args = args;
                     }
                 }
-                // Emit the STREAMING fragment for live display — the WHOLE ToolCall is
+                // Emit the STREAMING fragment for live display -- the WHOLE ToolCall is
                 // still buffered + emitted at finish_reason for EXECUTION. Skip a no-op
                 // fragment that carried nothing new this chunk.
                 if delta_id.is_some() || delta_name.is_some() || !delta_args.is_empty() {
@@ -1855,7 +1855,7 @@ impl SseDecoder {
         }
         // Only a NON-EMPTY finish_reason is terminal. SenseNova's free
         // `deepseek-v4-flash` sends `"finish_reason":""` (empty string, not
-        // null) on EVERY chunk — including the reasoning and tool_call-fragment
+        // null) on EVERY chunk -- including the reasoning and tool_call-fragment
         // chunks that precede the real `"tool_calls"`. Arming `seen_finish` on
         // the empty string makes the `if self.seen_finish { return }` guard
         // above discard every subsequent tool_call delta, so the whole call is
@@ -2293,7 +2293,7 @@ mod tests {
             2,
             "rebuild attempted the builder"
         );
-        let _still_usable = sc.get(); // does not panic → old client retained
+        let _still_usable = sc.get(); // does not panic -> old client retained
     }
 
     // ---- request building ----
@@ -2368,7 +2368,7 @@ mod tests {
 
     #[test]
     fn user_without_images_stays_a_content_string() {
-        // Byte-identical to the pre-multimodal path → a no-image conversation's prefix
+        // Byte-identical to the pre-multimodal path -> a no-image conversation's prefix
         // cache is unperturbed.
         let out = format_messages(&[Message::user("hi")], ReasoningPolicy::Exclude, true);
         assert_eq!(out[0], json!({"role":"user","content":"hi"}));
@@ -2395,7 +2395,7 @@ mod tests {
     /// Ported from v1 `multipart_degrades_to_text_when_target_is_text_only`:
     /// a resumed conversation whose history carries an image, sent to a TEXT-ONLY
     /// model (supports_vision=false), must degrade the image message to a plain
-    /// STRING (caption kept, image bytes dropped) — a multimodal `content` array
+    /// STRING (caption kept, image bytes dropped) -- a multimodal `content` array
     /// 400s the whole request (`glm-5.2 is not a multimodal model`) every turn.
     #[test]
     fn user_images_degrade_to_string_when_target_is_text_only() {
@@ -2453,7 +2453,7 @@ mod tests {
     #[test]
     fn empty_image_data_is_skipped_and_degrades_to_string() {
         use rustcode_kernel::message::ImageContent;
-        // An empty-data image carries nothing → skipped; with no text either, the message
+        // An empty-data image carries nothing -> skipped; with no text either, the message
         // degrades to a plain STRING content (never an empty content array a server rejects).
         let m = Message::user_with_images(
             "",
@@ -2512,7 +2512,7 @@ mod tests {
     fn assistant_tool_call_invalid_json_args_repaired_before_send() {
         // A weak model emitted an unescaped Windows path, so the stored arguments
         // string is INVALID JSON (`\U` is not a legal JSON escape). v1 repaired such
-        // args before re-sending them in history; v2 must too — otherwise a strict
+        // args before re-sending them in history; v2 must too -- otherwise a strict
         // gateway (vLLM `json.loads(arguments)`) 400s the whole request on replay.
         let m = Message::assistant(
             "",
@@ -2560,7 +2560,7 @@ mod tests {
     #[test]
     fn assistant_tool_call_unsalvageable_args_wrapped_as_valid_json() {
         // If repair can't recover valid JSON, wrap the raw text in a valid object so the
-        // request still parses downstream — never put non-JSON on the wire.
+        // request still parses downstream -- never put non-JSON on the wire.
         let m = Message::assistant(
             "",
             vec![ToolCall {
@@ -2809,7 +2809,7 @@ mod tests {
 
     #[test]
     fn reasoning_effort_max_reaches_wire() {
-        // DeepSeek V4 accepts "max" beyond low/medium/high — the `/effort max` path.
+        // DeepSeek V4 accepts "max" beyond low/medium/high -- the `/effort max` path.
         let mut cfg = OpenAiCompatConfig::new("k", "https://x", "deepseek-v4-flash");
         cfg.supports_reasoning_effort = true;
         let opts = ChatOptions {
@@ -3043,7 +3043,7 @@ mod tests {
         );
 
         // Keepalive comments, blank lines, and empty `data:` payloads are normal SSE
-        // noise — they must NOT be flagged malformed.
+        // noise -- they must NOT be flagged malformed.
         let mut d2 = SseDecoder::new();
         let noise = d2.feed(b": keepalive ping\n\ndata: \n");
         assert!(
@@ -3087,15 +3087,15 @@ mod tests {
     #[test]
     fn sse_empty_string_finish_reason_does_not_drop_tool_calls() {
         // SenseNova's free `deepseek-v4-flash` sends `"finish_reason":""` (EMPTY
-        // STRING, not null) on EVERY streaming chunk — reasoning AND tool_call
-        // fragments — and only the real `"tool_calls"` on the final chunk
+        // STRING, not null) on EVERY streaming chunk -- reasoning AND tool_call
+        // fragments -- and only the real `"tool_calls"` on the final chunk
         // (captured from the live wire 2026-07-20). Setting `seen_finish` on the
         // empty string made the decoder discard every later tool_call delta
         // (the `if self.seen_finish { return }` guard), so a real web_search
         // call vanished and the model showed "0 工具".
         let mut d = SseDecoder::new();
         let mut ev = Vec::new();
-        // reasoning chunk carrying finish_reason:"" — must NOT arm seen_finish
+        // reasoning chunk carrying finish_reason:"" -- must NOT arm seen_finish
         ev.extend(d.feed(line(json!({"choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"searching"},"finish_reason":""}]})).as_bytes()));
         // tool_call fragments, each ALSO carrying finish_reason:""
         ev.extend(d.feed(line(json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_915","function":{"name":"web_search","arguments":""}}]},"finish_reason":""}]})).as_bytes()));
@@ -3127,7 +3127,7 @@ mod tests {
         // `finish_reason:""` (never a real non-empty reason) and terminates with
         // `data: [DONE]` must still get its accumulated tool call flushed. Since
         // "" is (correctly) non-terminal, the flush now has to happen at [DONE]
-        // — which mirrors the stream-EOF `finish()` path.
+        // -- which mirrors the stream-EOF `finish()` path.
         let mut d = SseDecoder::new();
         let mut ev = Vec::new();
         ev.extend(d.feed(line(json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"web_search","arguments":"{\"q\":\"x\"}"}}]},"finish_reason":""}]})).as_bytes()));
@@ -3367,7 +3367,7 @@ mod tests {
         ev.extend(
             d.feed(line(json!({"id":"resp_xyz","choices":[{"delta":{"content":"a"}}]})).as_bytes()),
         );
-        // same id repeats on later chunks — must NOT re-emit.
+        // same id repeats on later chunks -- must NOT re-emit.
         ev.extend(
             d.feed(line(json!({"id":"resp_xyz","choices":[{"delta":{"content":"b"}}]})).as_bytes()),
         );
@@ -3483,7 +3483,7 @@ mod tests {
 
     #[test]
     fn extract_error_detail_covers_all_envelope_shapes() {
-        // OpenAI / Anthropic `{"error":{...}}` → tagged "[type/code] message".
+        // OpenAI / Anthropic `{"error":{...}}` -> tagged "[type/code] message".
         let openai = extract_error_detail(
             r#"{"error":{"message":"boom","type":"rate_limit","code":"429"}}"#,
         );
@@ -3504,7 +3504,7 @@ mod tests {
             extract_error_detail(r#"{"code":"1113","message":"余额不足或无可用资源包,请充值。"}"#),
             "[1113] 余额不足或无可用资源包,请充值。"
         );
-        // Non-JSON / unknown shape → raw body (truncated).
+        // Non-JSON / unknown shape -> raw body (truncated).
         assert_eq!(extract_error_detail("plain text error"), "plain text error");
         assert_eq!(
             provider_error_code(&json!({
@@ -3545,7 +3545,7 @@ mod tests {
             "CodingPlan 未领取或已失效（HTTP 403）。请运行 /login 重新登录并领取 CodingPlan。"
         );
         assert!(friendly_http_error(401, "").contains("API key"));
-        // 429 is NOT wrapped (kernel rate-limit path owns it — must keep the
+        // 429 is NOT wrapped (kernel rate-limit path owns it -- must keep the
         // literal `HTTP 429: ` prefix so `rate_limit_server_message` can strip it).
         assert_eq!(friendly_http_error(429, "slow down"), "HTTP 429: slow down");
         // Unknown/other codes keep the original shape (detail is the only signal).
@@ -3613,7 +3613,7 @@ mod tests {
     // ---- mid-stream re-open (v1 parity: retry a body that dies before any event) ----
 
     /// Fully consume one HTTP request (headers + Content-Length body) so the
-    /// client's `send()` always completes — otherwise an unread body can surface
+    /// client's `send()` always completes -- otherwise an unread body can surface
     /// as an OPEN error and mask the mid-stream behaviour under test.
     fn read_http_request(s: &mut std::net::TcpStream) {
         use std::io::Read;
@@ -3650,7 +3650,7 @@ mod tests {
         use std::net::TcpListener;
 
         // Mock gateway: connection #1 opens a chunked 200 then drops the socket
-        // before sending any chunk — reproducing the reported
+        // before sending any chunk -- reproducing the reported
         // "unexpected EOF during chunk size line". Because NOTHING reached the
         // consumer, the provider must transparently re-open (v1 parity); the
         // caller then sees only the successful connection #2 response.
@@ -3658,7 +3658,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
 
         let handle = std::thread::spawn(move || {
-            // #1: chunked 200, then abrupt close with no chunk → mid-stream EOF.
+            // #1: chunked 200, then abrupt close with no chunk -> mid-stream EOF.
             let (mut s1, _) = listener.accept().unwrap();
             read_http_request(&mut s1);
             s1.write_all(
@@ -3789,7 +3789,7 @@ mod tests {
         // attempt before a healthy backend answers. Connections #1 and #2 both
         // open a chunked 200 then close before any chunk (nothing reached the
         // consumer); #3 serves a complete body. With a single reopen this would
-        // surface an error after #2 — the provider must reopen twice and deliver
+        // surface an error after #2 -- the provider must reopen twice and deliver
         // only #3's response.
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -3854,7 +3854,7 @@ mod tests {
         use std::net::TcpListener;
 
         // Once a delta has reached the consumer, a mid-stream EOF must NOT re-open
-        // (that would duplicate output) — it surfaces verbatim. The mock serves a
+        // (that would duplicate output) -- it surfaces verbatim. The mock serves a
         // single chunk carrying one content delta, then drops before the chunked
         // terminator. The provider serves ONLY this one connection.
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -3869,7 +3869,7 @@ mod tests {
             )
             .unwrap();
             // One complete chunk (delivers the delta), then abrupt close before the
-            // `0\r\n\r\n` terminator → mid-stream EOF after an event was emitted.
+            // `0\r\n\r\n` terminator -> mid-stream EOF after an event was emitted.
             s.write_all(format!("{:x}\r\n{payload}\r\n", payload.len()).as_bytes())
                 .unwrap();
             s.flush().unwrap();
@@ -4044,7 +4044,7 @@ mod tests {
         assert!(!is_openrouter_url("https://evilopenrouter.ai/v1"));
         assert!(!is_openrouter_url("https://notopenrouter.ai/v1"));
         assert!(!is_openrouter_url("https://openrouter.ai.evil.com/v1"));
-        // Userinfo spoof: real host is evil.com — the `openrouter.ai:x@` is
+        // Userinfo spoof: real host is evil.com -- the `openrouter.ai:x@` is
         // userinfo, NOT the host. Must not leak attribution headers to evil.com.
         assert!(!is_openrouter_url("https://openrouter.ai:x@evil.com/v1"));
         assert!(!is_openrouter_url("https://openrouter.ai@evil.com/v1"));
@@ -4055,7 +4055,7 @@ mod tests {
     fn apply_openrouter_attribution_only_targets_openrouter() {
         let client = reqwest::Client::new();
 
-        // OpenRouter endpoint → all three attribution headers present.
+        // OpenRouter endpoint -> all three attribution headers present.
         let req = client
             .post("https://openrouter.ai/api/v1/chat/completions")
             .header(reqwest::header::CONTENT_TYPE, "application/json");
@@ -4071,7 +4071,7 @@ mod tests {
             );
         }
 
-        // Non-OpenRouter endpoint → NONE of the attribution headers leak.
+        // Non-OpenRouter endpoint -> NONE of the attribution headers leak.
         let req = client
             .post("https://api.deepseek.com/v1/chat/completions")
             .header(reqwest::header::CONTENT_TYPE, "application/json");
@@ -4167,7 +4167,7 @@ mod tests {
         let bodies_w = bodies.clone();
 
         let handle = std::thread::spawn(move || {
-            // #1: request carries reasoning_effort → gateway 400s rejecting it.
+            // #1: request carries reasoning_effort -> gateway 400s rejecting it.
             let (mut s1, _) = listener.accept().unwrap();
             bodies_w.lock().unwrap().push(read_req_full(&mut s1));
             let err = r#"{"error":{"message":"field ReasoningEffort invalid, should be one of: low, medium, high, xhigh, none","type":"invalid_request_error","code":"3"}}"#;
@@ -4179,7 +4179,7 @@ mod tests {
             s1.flush().unwrap();
             drop(s1);
 
-            // #2: after self-heal the retry must NOT carry reasoning_effort → 200.
+            // #2: after self-heal the retry must NOT carry reasoning_effort -> 200.
             let (mut s2, _) = listener.accept().unwrap();
             bodies_w.lock().unwrap().push(read_req_full(&mut s2));
             let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n";
@@ -4201,7 +4201,7 @@ mod tests {
             ..Default::default()
         };
 
-        // Call 1: 400 → actionable error, effort flagged for the session.
+        // Call 1: 400 -> actionable error, effort flagged for the session.
         let err = provider
             .chat_stream(&[Message::user("hi")], &[], &opts)
             .await
@@ -4222,7 +4222,7 @@ mod tests {
             err.message
         );
 
-        // Call 2: SAME Max options → effort stripped up front → 200 succeeds.
+        // Call 2: SAME Max options -> effort stripped up front -> 200 succeeds.
         let stream = provider
             .chat_stream(&[Message::user("hi")], &[], &opts)
             .await
@@ -4267,7 +4267,7 @@ mod tests {
         // A malformed SSL_CERT_FILE poisons the first `.build()` (rustls rejects the
         // cert). BEFORE the #514 backstop this killed the whole client and left every
         // provider dead on startup with an opaque "builder error". Now it must fall
-        // back to the infallible webpki base and STILL build — resilience over outage.
+        // back to the infallible webpki base and STILL build -- resilience over outage.
         let tmp = tempfile::tempdir().unwrap();
         let cert_path = tmp.path().join("roots.pem");
         std::fs::write(
@@ -4290,7 +4290,7 @@ mod tests {
         // WITHOUT validating under rustls; validation is deferred to
         // `rustls::RootCertStore::add` inside `.build()`, which propagates an error and
         // aborts the ENTIRE client on the first cert it rejects. A single legacy OS root
-        // is therefore enough to take every provider down — which is exactly why
+        // is therefore enough to take every provider down -- which is exactly why
         // `add_trusted_roots` must pre-filter each cert.
         let junk = reqwest::Certificate::from_der(&[0x30, 0x03, 0x02, 0x01, 0x00])
             .expect("from_der stores bytes without validating under rustls");
@@ -4299,7 +4299,7 @@ mod tests {
             .build();
         assert!(
             built.is_err(),
-            "reqwest aborts the whole build on one bad user root — the failure we defend against"
+            "reqwest aborts the whole build on one bad user root -- the failure we defend against"
         );
     }
 
@@ -4316,7 +4316,7 @@ mod tests {
             !probe(vec![0x30, 0x03, 0x02, 0x01, 0x00]),
             "garbage DER must be rejected by the probe (kept out of reqwest's builder)"
         );
-        // A genuine OS root — if the machine has any — must be accepted, so the probe
+        // A genuine OS root -- if the machine has any -- must be accepted, so the probe
         // does not throw away the real trust anchors we need.
         let native = rustls_native_certs::load_native_certs();
         if let Some(good) = native.certs.into_iter().next() {

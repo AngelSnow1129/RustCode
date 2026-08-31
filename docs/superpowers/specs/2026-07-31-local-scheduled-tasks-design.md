@@ -1,4 +1,4 @@
-# 本地定时任务 `atomcode schedule` —— 设计文档(阶段 1)
+# 本地定时任务 `rustcode schedule` —— 设计文档(阶段 1)
 
 - 日期：2026-07-31
 - 分支：feat/schedule-local-tasks（当前基于 release/v5.0.4 顶；实现前可 rebase 到 main）
@@ -7,9 +7,9 @@
 
 ## 背景与目标
 
-桌面端需要"定时/周期任务"能力，复用 atomcode 本地能力、**不走云端**。调研（opencode/codex/oh-my-pi）结论：三家都无原生本地调度，均用"外部 OS 调度器 + headless 单次运行"。atomcode 优势：已有常驻 daemon、headless `-p`、notify、持久 session。Claude Code 的 `/schedule`(routines) 是**云端**；其 **Desktop 本地 scheduled tasks** 才是本目标对标物。
+桌面端需要"定时/周期任务"能力，复用 rustcode 本地能力、**不走云端**。调研（opencode/codex/oh-my-pi）结论：三家都无原生本地调度，均用"外部 OS 调度器 + headless 单次运行"。rustcode 优势：已有常驻 daemon、headless `-p`、notify、持久 session。Claude Code 的 `/schedule`(routines) 是**云端**；其 **Desktop 本地 scheduled tasks** 才是本目标对标物。
 
-**目标**：atomcode 把"外部 cron + headless"这套**收成一等公民**——用户用 `atomcode schedule` 管理任务，atomcode 存定义、到点 headless 执行、结果落成 session + 通知。桌面端/webui UI 后续对接同一份任务 store。
+**目标**：rustcode 把"外部 cron + headless"这套**收成一等公民**——用户用 `rustcode schedule` 管理任务，rustcode 存定义、到点 headless 执行、结果落成 session + 通知。桌面端/webui UI 后续对接同一份任务 store。
 
 ## 已收敛的决策（brainstorming）
 
@@ -25,35 +25,35 @@
 ## 阶段 1 架构
 
 ```
-atomcode schedule add/list/remove/enable/disable   ← 管理任务定义(store CRUD)
-atomcode schedule run <id>                          ← 执行入口(手动 / 外部cron / 阶段2的OS触发)
+rustcode schedule add/list/remove/enable/disable   ← 管理任务定义(store CRUD)
+rustcode schedule run <id>                          ← 执行入口(手动 / 外部cron / 阶段2的OS触发)
         │                                                    │
         ▼ 读写                                                ▼ 载入任务
-  ~/.atomcode/schedules/<id>.json                     复用 headless 执行
+  ~/.rustcode/schedules/<id>.json                     复用 headless 执行
                                                              │ cwd + permission_mode + prompt
                                                              ▼
                                         新建 session(origin=scheduled, schedule_id)
                                                 → 跑 → notify → 回写 last_run_at/last_status
 ```
 
-阶段 1 **不含** OS 调度器注册（阶段 2）；因此阶段 1 结束时，功能闭环但"自动到点"需用户暂用外部 cron 调 `atomcode schedule run <id>`（或等阶段 2）。
+阶段 1 **不含** OS 调度器注册（阶段 2）；因此阶段 1 结束时，功能闭环但"自动到点"需用户暂用外部 cron 调 `rustcode schedule run <id>`（或等阶段 2）。
 
 ## 组件与文件结构
 
-- **`ScheduleTask` 模型 + store**（新模块 `crates/atomcode-config/src/schedule.rs`——config-dir 属主、配置性数据，且 `Config::config_dir()` 就在此 crate）：serde 结构 + `~/.atomcode/schedules/<id>.json` 的 load/save/list/remove（一任务一文件，避免并发 clobber，与 sessions 目录同风格）。纯 I/O + serde，可单测。
+- **`ScheduleTask` 模型 + store**（新模块 `crates/rustcode-config/src/schedule.rs`——config-dir 属主、配置性数据，且 `Config::config_dir()` 就在此 crate）：serde 结构 + `~/.rustcode/schedules/<id>.json` 的 load/save/list/remove（一任务一文件，避免并发 clobber，与 sessions 目录同风格）。纯 I/O + serde，可单测。
 - **下次运行时间计算**（纯函数）：`next_run(schedule, now) -> Option<DateTime>`，供 `schedule list` 显示"下次运行"。纯函数，单测。
-- **CLI 子命令 `schedule`**（`crates/atomcode-cli`）：clap 子命令 add/list/remove/enable/disable/run。
+- **CLI 子命令 `schedule`**（`crates/rustcode-cli`）：clap 子命令 add/list/remove/enable/disable/run。
 - **执行器**（CLI 内，`schedule run <id>`）：复用现有 headless 路径（`run_headless` 及其 completion/notify 机制），注入任务的 `cwd` / `permission_mode` / `prompt`，运行前把新 session 标 `origin=scheduled` + `schedule_id`，运行后按 `notify` 级别发通知、回写 `last_run_at`/`last_status`。
-- **SessionMeta 加 `origin` 字段**（`atomcode-capabilities` / session manager）：`enum SessionOrigin { Manual, Scheduled }`，`#[serde(default)]` 默认 Manual（向后兼容旧会话）。
+- **SessionMeta 加 `origin` 字段**（`rustcode-capabilities` / session manager）：`enum SessionOrigin { Manual, Scheduled }`，`#[serde(default)]` 默认 Manual（向后兼容旧会话）。
 - **会话列表默认过滤**：session catalog 的列举路径（/resume 选择器数据源 + webui 侧栏数据源）默认排除 `origin=Scheduled`（提供一个包含参数以便"定时任务视图"取用）。
 
 ## 任务数据模型
 
-`~/.atomcode/schedules/<id>.json`：
+`~/.rustcode/schedules/<id>.json`：
 ```
 id: String                 // 稳定 id（slug 化 title + 短随机后缀，或 uuid）
 title: String
-prompt: String             // "描述 atomcode 应该做什么"
+prompt: String             // "描述 rustcode 应该做什么"
 cwd: String                // 运行目录（项目）
 schedule: {
   kind: "daily" | "weekly" | "hourly" | "interval" | "cron",
@@ -89,11 +89,11 @@ last_status: Option<"ok" | "error" | "cancelled">
 - **store 单测**：临时目录下 save→load→list→remove 往返；损坏文件被 list 跳过。
 - **session 标记**：`schedule run` 后新 session 的 `origin=Scheduled` + `schedule_id` 正确；catalog 默认列举**不含**该 session、带包含参数时**含**。
 - **执行器**：复用既有 headless 测试脚手架，断言 last_run/last_status 回写 + notify 触发（mock notify）。
-- 回归：`cargo test -p atomcode-cli -p atomcode-config -p atomcode-capabilities` 全绿；既有 session 无 origin 字段仍反序列化为 Manual。
+- 回归：`cargo test -p rustcode-cli -p rustcode-config -p rustcode-capabilities` 全绿；既有 session 无 origin 字段仍反序列化为 Manual。
 
 ## 范围
 
-**IN（阶段 1）**：ScheduleTask 模型 + `~/.atomcode/schedules` store CRUD + `next_run` 计算 + CLI add/list/remove/enable/disable/run + 执行器（复用 headless + session 标记 + notify + last_run 回写）+ SessionMeta `origin` 字段 + 普通列表默认过滤 + 简单频率与 cron 字段。
+**IN（阶段 1）**：ScheduleTask 模型 + `~/.rustcode/schedules` store CRUD + `next_run` 计算 + CLI add/list/remove/enable/disable/run + 执行器（复用 headless + session 标记 + notify + last_run 回写）+ SessionMeta `origin` 字段 + 普通列表默认过滤 + 简单频率与 cron 字段。
 
 **DEFER**：
 - **阶段 2**：三平台 OS 调度器自动注册/注销（launchd/schtasks/systemd-timer/crontab）。

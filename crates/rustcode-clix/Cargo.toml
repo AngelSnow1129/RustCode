@@ -10,10 +10,10 @@ path = "src/main.rs"
 
 [dependencies]
 rustcode-review = { path = "../rustcode-review" }
-rustcode-coding = { path = "../rustcode-coding", features = ["atomgit"] }
+rustcode-coding = { path = "../rustcode-coding" }
 # Direct dep for the D-layer pieces the driver owns: MemoryStore (slash commands),
 # the typed approval wire contract, SessionManager (session listing).
-rustcode-capabilities = { path = "../rustcode-capabilities", features = ["provider", "tools", "session", "memory", "mcp", "atomgit"] }
+rustcode-capabilities = { path = "../rustcode-capabilities", features = ["provider", "tools", "session", "memory", "mcp"] }
 rustcode-kernel = { path = "../rustcode-kernel" }
 rustcode-config = { path = "../rustcode-config" }
 # Standalone telemetry sink (clix is core-decoupled, so it resolves + inits its own,

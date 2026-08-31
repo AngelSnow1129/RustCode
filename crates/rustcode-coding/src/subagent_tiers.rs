@@ -8,7 +8,7 @@
 
 use rustcode_config::config::Config;
 
-/// Resolve `Some((fast_id, capable_id))` — model-selection ids for the subagent tiers, given
+/// Resolve `Some((fast_id, capable_id))` -- model-selection ids for the subagent tiers, given
 /// the current `host_model`, or `None` when routing should NOT engage (⇒ the subagent uses the
 /// current host model for both tiers).
 /// - Only catalog models with `capable_model` set participate; higher rank ⇒ more capable.
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn new_schema_routes_by_per_model_capable_rank_on_one_account() {
         // §14.2: two model profiles on the SAME account, ranked per-model. Tiers
-        // resolve to model-selection ids — no duplicated connection settings.
+        // resolve to model-selection ids -- no duplicated connection settings.
         let c: Config = serde_json::from_value(serde_json::json!({
             "default_model": "acc/cap",
             "provider_accounts": { "acc": { "provider": "deepseek", "api_key": "sk" } },

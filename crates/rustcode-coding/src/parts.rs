@@ -1,19 +1,19 @@
 //! The two-phase FULL assembly: `prepare` (async, does I/O: MCP background-start,
-//! skill loading, session binding) → `assemble` (pure composition, no I/O).
+//! skill loading, session binding) -> `assemble` (pure composition, no I/O).
 //!
 //! WHY two phases (pre-C1 design review, all four confirmed findings):
 //! - **sync/async**: MCP connection is supplemental readiness and must not block a
 //!   session transition. `prepare` starts it; an updatable MountedTools publishes
 //!   discovered tools atomically for the next turn.
 //! - **session_id 单一 owner**: the binding is allocated ONCE here and fanned out to
-//!   the builder + every session hook — no driver hand-threading, no divergence.
+//!   the builder + every session hook -- no driver hand-threading, no divergence.
 //! - **状态句柄外露**: `CodingParts` keeps `Arc`s to the approval middleware (grant
-//!   store) and hooks, so a RESPAWN (B2 model swap → `assemble` again on the SAME
+//!   store) and hooks, so a RESPAWN (B2 model swap -> `assemble` again on the SAME
 //!   parts) preserves every allow-always grant and all hook state.
 //! - **config 不膨胀**: capability inputs live in [`PrepareOptions`], not in
 //!   [`CodingAgentConfig`].
 //!
-//! A `/mcp reload` rebuilds parts (`prepare` again — reconnect is the point) and
+//! A `/mcp reload` rebuilds parts (`prepare` again -- reconnect is the point) and
 //! respawns; a model swap reuses the SAME parts with a new provider.
 
 use std::io;
@@ -101,7 +101,7 @@ impl SubagentPolicy {
     }
 }
 
-/// Capability inputs for [`prepare`] — what to wire beyond the always-on core
+/// Capability inputs for [`prepare`] -- what to wire beyond the always-on core
 /// (fs/bash tools + codeintel). Defaults = the full production-parity agent.
 #[derive(Clone, Debug)]
 pub struct PrepareOptions {
@@ -110,19 +110,19 @@ pub struct PrepareOptions {
     /// normal coding runtime/provider lifecycle but publishes an empty tool
     /// catalog. Headless eval drivers use this to measure model-only behavior.
     pub tools: bool,
-    /// Skill dirs in LOW→HIGH priority order; `None` = the standard home+project
+    /// Skill dirs in LOW->HIGH priority order; `None` = the standard home+project
     /// precedence ([`standard_skill_dirs`]).
     pub skill_dirs: Option<Vec<PathBuf>>,
     /// Plugin-contributed skill directories, each paired with its namespace
     /// (the plugin manifest's `name`). Loaded AFTER `skill_dirs` so plugin
-    /// skills are registered as `<namespace>:<skill-name>` — same convention
+    /// skills are registered as `<namespace>:<skill-name>` -- same convention
     /// the slash menu uses. Empty = no plugin skills. The registry remains
     /// source-neutral; the driver discovers installed-plugin directories and
     /// feeds them in.
     pub plugin_skill_dirs: Vec<(PathBuf, String)>,
     /// Connect MCP servers from `<working_dir>/.mcp.json` (+ global config).
     pub mcp: bool,
-    /// Driver-supplied MCP servers connected alongside config servers — e.g.
+    /// Driver-supplied MCP servers connected alongside config servers -- e.g.
     /// ACP client-injected `mcpServers` from `session/new`. Entries must use
     /// `McpConfigSource::Driver`: they bypass the project trust gate because
     /// the injecting driver is the trust boundary. Ignored when `mcp` is
@@ -135,7 +135,7 @@ pub struct PrepareOptions {
     pub external_subagents: Vec<rustcode_capabilities::subagent::ExternalSubagentProfile>,
     /// Inject `memory.md` (global + project) at session start. KEEP THIS CONSISTENT
     /// across resumes of one session: the injected block is persisted in the
-    /// snapshot, and only a registered MemoryHook reconciles/removes it on resume —
+    /// snapshot, and only a registered MemoryHook reconciles/removes it on resume --
     /// resuming a memory-bearing session with `memory: false` leaves the stale
     /// block frozen in the prefix.
     pub memory: bool,
@@ -184,7 +184,7 @@ impl Default for PrepareOptions {
 /// `bypass` mode survives ONLY when the profile opts in (`allow_dangerous`) AND
 /// the caller's context permits it (`allow_dangerous_context`, false for
 /// non-interactive/headless/scheduled runs); otherwise it is downgraded to
-/// `read-only` — the fail-closed default.
+/// `read-only` -- the fail-closed default.
 pub fn external_subagent_profiles(
     configs: &[rustcode_config::config::ExternalSubagentConfig],
     allow_dangerous_context: bool,
@@ -197,7 +197,7 @@ pub fn external_subagent_profiles(
         }
         let Some(kind) = SubagentKind::from_config_str(&c.kind) else {
             eprintln!(
-                "subagent: skipping external agent `{}` — unknown kind `{}`",
+                "subagent: skipping external agent `{}` -- unknown kind `{}`",
                 c.name, c.kind
             );
             continue;
@@ -245,8 +245,8 @@ pub fn resolve_external_subagents(
     allow_dangerous_context: bool,
 ) -> Vec<rustcode_capabilities::subagent::ExternalSubagentProfile> {
     let mut out = external_subagent_profiles(&sub.external, allow_dangerous_context);
-    // Reserve EVERY explicitly-named instance — including entries that were
-    // dropped for being disabled or having an unknown kind — so a `/config`
+    // Reserve EVERY explicitly-named instance -- including entries that were
+    // dropped for being disabled or having an unknown kind -- so a `/config`
     // convenience switch never silently overrides (or resurrects) an explicit
     // `[[subagent.external]]` the user named the same thing.
     let mut names: std::collections::HashSet<String> =
@@ -282,9 +282,9 @@ fn builtin_external_profile(
     level: &str,
 ) -> Option<rustcode_capabilities::subagent::ExternalSubagentProfile> {
     use rustcode_capabilities::subagent::{ExternalSubagentProfile, PermissionMode};
-    // Reuse the single permission parser (normalizes case + `_`→`-`, so
+    // Reuse the single permission parser (normalizes case + `_`->`-`, so
     // `Read-Only`/`readonly`/`accept_edits` all work like the explicit path).
-    // `off`/`""`/unknown → None; `bypass` is never offered via the switch.
+    // `off`/`""`/unknown -> None; `bypass` is never offered via the switch.
     let permission = PermissionMode::from_config_str(level).filter(|p| !p.is_dangerous())?;
     Some(ExternalSubagentProfile {
         name: name.to_string(),
@@ -296,7 +296,7 @@ fn builtin_external_profile(
     })
 }
 
-/// The session identity + persistence wiring, allocated ONCE by [`prepare`] —
+/// The session identity + persistence wiring, allocated ONCE by [`prepare`] --
 /// the single owner the design review asked for.
 pub struct SessionBinding {
     pub id: String,
@@ -329,7 +329,7 @@ impl Drop for McpWorkGuard {
     }
 }
 
-/// Everything `assemble` composes — and everything a respawn must REUSE so state
+/// Everything `assemble` composes -- and everything a respawn must REUSE so state
 /// survives (approval grants, hook state, session identity).
 pub struct CodingParts {
     registry: ToolRegistry,
@@ -372,7 +372,7 @@ pub struct CodingParts {
     /// Connected MCP servers (None when `opts.mcp` was false or no config exists).
     pub mcp_registry: Option<Arc<McpRegistry>>,
     /// The agent's tool working dir as a LIVE handle (kernel Seam 1b): the driver
-    /// mutates it to implement `/cd` — tools resolve against the new dir from the
+    /// mutates it to implement `/cd` -- tools resolve against the new dir from the
     /// next call. Session/memory/recall stay anchored to the PREPARE-time project
     /// root by design (the per-project stores don't follow a mid-session cd).
     pub shared_cwd: std::sync::Arc<std::sync::RwLock<std::path::PathBuf>>,
@@ -394,7 +394,7 @@ pub struct CodingParts {
     pub(crate) turn_execution_policy: Arc<TurnExecutionPolicy>,
     /// Session grant store for mutating MCP tools the user approved "always" while in
     /// PLAN mode. Owned here (not rebuilt in [`assemble`]) so a respawn / model-swap
-    /// preserves the grants — the same reason the mode flags above are shared.
+    /// preserves the grants -- the same reason the mode flags above are shared.
     pub mcp_plan_grants: std::sync::Arc<dyn rustcode_capabilities::tools::PermissionStore>,
     pub write_approval_grants: std::sync::Arc<dyn rustcode_capabilities::tools::PermissionStore>,
     pub bash_workspace_grants: std::sync::Arc<dyn rustcode_capabilities::tools::PermissionStore>,
@@ -421,21 +421,21 @@ pub struct CodingParts {
     /// User/project CC external hooks (`$RUSTCODE_HOME/hooks.json` + `<root>/.hooks.json`).
     /// ONE instance is registered as BOTH a [`LifecycleHooks`] (already pushed into `hooks`)
     /// and a [`ToolMiddleware`](rustcode_kernel::middleware::ToolMiddleware) (registered by
-    /// [`assemble`], before approval). `None` when no hooks are configured — the common path
+    /// [`assemble`], before approval). `None` when no hooks are configured -- the common path
     /// adds zero overhead (no registration at all).
     pub cc_external_hooks: Option<Arc<CCExternalHooks>>,
     rate_limit_source: Option<Arc<dyn RateLimitWindowSource>>,
 }
 
-/// Phase 1 — gather + connect everything the agent needs (async: MCP connect,
+/// Phase 1 -- gather + connect everything the agent needs (async: MCP connect,
 /// snapshot load, skill-dir scans). Errors only on a broken EXPLICIT persistent
 /// session request whose native aggregate is invalid; everything optional degrades
-/// gracefully (no `.mcp.json` → no MCP tools; empty skill dirs → none).
+/// gracefully (no `.mcp.json` -> no MCP tools; empty skill dirs -> none).
 pub async fn prepare(cfg: &CodingAgentConfig, opts: PrepareOptions) -> io::Result<CodingParts> {
     prepare_with_plugin_hooks(cfg, opts, Vec::new()).await
 }
 
-/// Like [`prepare`], plus `plugin_cc_hooks` — CC hooks contributed INLINE by installed
+/// Like [`prepare`], plus `plugin_cc_hooks` -- CC hooks contributed INLINE by installed
 /// plugins, which the DRIVER resolves through `rustcode-capabilities::plugin` and
 /// threads in here. They are merged with the
 /// user/project `hooks.json` into the one [`CCExternalHooks`] runner. Drivers without a
@@ -540,7 +540,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
 
     // Review-as-capability: a `code_review` sub-agent tool. The provider is filled at
     // assemble (the tool is built here, before the provider exists) via this shared slot,
-    // so the reviewer reuses the host's correctly-built — possibly signed — provider.
+    // so the reviewer reuses the host's correctly-built -- possibly signed -- provider.
     let review_provider: Option<SharedReviewProvider> = if opts.tools && opts.review {
         let slot: SharedReviewProvider = Arc::new(std::sync::RwLock::new(None));
         registry.register(Arc::new(
@@ -630,7 +630,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         };
 
         // Prefer a runtime-injected tier provider, else fall back to the host-provider
-        // slot (filled at assemble — the single-model / same-as-host collapse path). The
+        // slot (filled at assemble -- the single-model / same-as-host collapse path). The
         // tier provider is a SHARED, swap-aware cell ([`TierProvider`]): it builds lazily on
         // first `task` use (startup never pays the reqwest-client cost) and its cache is
         // reset by the runtime on a `/model` swap, so routing re-resolves without a respawn.
@@ -779,7 +779,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     let skills = Arc::new(skills);
     // Render the catalog BEFORE the registry is moved into the tools; injected as a
     // leading system message by SkillCatalogHook below (without it the model never
-    // learns which skills exist — only the use_skill/list_skills tools were mounted).
+    // learns which skills exist -- only the use_skill/list_skills tools were mounted).
     let skill_catalog = skills.render_catalog_prioritizing(&instruction_text);
     if opts.tools {
         register_skill_tools(&mut registry, skills);
@@ -848,7 +848,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
                 .load_native_session_for_resume(&lease)
                 .map_err(io::Error::from)?;
             // A version-mismatched snapshot must FAIL here, not fall through to the
-            // kernel's empty-start seam — that would silently fresh-start under the
+            // kernel's empty-start seam -- that would silently fresh-start under the
             // SAME session id and corrupt on-disk state.
             check_snapshot_version(&loaded.snapshot)?;
             Some(SessionBinding {
@@ -893,35 +893,35 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     }
 
     // Hooks in the CANONICAL ORDER (registration order = HookChain execution order):
-    // 1. SessionContextHook — session_start: inject env + project-instructions + git
+    // 1. SessionContextHook -- session_start: inject env + project-instructions + git
     //    snapshot after persona. Rewrites the leading-system run (like MemoryHook); runs
-    //    FIRST so the order is persona → context → memory.
-    // 2. MemoryHook    — session_start: inject memory.md after the leading-system run
+    //    FIRST so the order is persona -> context -> memory.
+    // 2. MemoryHook    -- session_start: inject memory.md after the leading-system run
     //    (fresh inject / resume reconcile). Both 1 and 2 reconcile by their own header
     //    prefix, so they compose (the insert position is computed live each time).
-    // 2b. SkillCatalogHook — session_start: inject the AVAILABLE SKILLS catalog after
-    //    memory (persona → context → memory → skills). Same header-prefix reconcile.
-    // 2c. McpInstructionsHook — pre_request append-only projection of live,
+    // 2b. SkillCatalogHook -- session_start: inject the AVAILABLE SKILLS catalog after
+    //    memory (persona -> context -> memory -> skills). Same header-prefix reconcile.
+    // 2c. McpInstructionsHook -- pre_request append-only projection of live,
     //     server-scoped instructions for currently mounted MCP tools. Ephemeral:
     //     never persists external server guidance into the session snapshot.
-    // 3. SnapshotHook  — turn_complete: persist .snapshot + .meta.
-    // 4. TranscriptHook— turn_complete: append the .jsonl record. (No coupling with
-    //    3 — the order is fixed purely for determinism.)
-    // 5. VerifyCadenceHook — offer_continuation; FIRST `Some` wins in the chain, so
+    // 3. SnapshotHook  -- turn_complete: persist .snapshot + .meta.
+    // 4. TranscriptHook-- turn_complete: append the .jsonl record. (No coupling with
+    //    3 -- the order is fixed purely for determinism.)
+    // 5. VerifyCadenceHook -- offer_continuation; FIRST `Some` wins in the chain, so
     //    keep it last: any earlier hook's continuation outranks the cadence nudge.
     let mut hooks: Vec<Arc<dyn LifecycleHooks>> = Vec::new();
     let mut compaction_checkpoint: Option<Arc<dyn CompactionCheckpoint>> = None;
     let mut snapshot_hook_handle = None;
     let mut snapshot_persistence_status = None;
-    // Env / project-instructions / git context — unconditional (v1 parity: always present).
+    // Env / project-instructions / git context -- unconditional (v1 parity: always present).
     hooks.push(session_context_hook);
     if opts.memory {
         hooks.push(Arc::new(MemoryHook::for_project(&cfg.working_dir)));
     }
-    // Skill catalog — leading system message (persona → context → memory → skills), so
+    // Skill catalog -- leading system message (persona -> context -> memory -> skills), so
     // the model sees which skills are installed and can trigger one on a description
     // match. `None` (no skills) makes the hook a no-op. Reconciles in place on resume.
-    // Capture whether any skill is installed BEFORE the catalog is moved — SkillFirstHook
+    // Capture whether any skill is installed BEFORE the catalog is moved -- SkillFirstHook
     // (registered below) uses it to stay a no-op when there's nothing to trigger.
     let has_skills = skill_catalog.as_ref().is_some_and(|c| !c.trim().is_empty());
     hooks.push(Arc::new(SkillCatalogHook::new(skill_catalog)));
@@ -950,15 +950,15 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     // Date awareness comes from the frozen date anchor in the persona system prompt (cache-stable,
     // present on EVERY round including round 1), so recall's relative-date resolution has a current
     // date WITHOUT a per-round <system-reminder> tail. The old StatusReminderHook re-injected the
-    // same date every round from round 2 — redundant with the anchor, and it prompted chatty
+    // same date every round from round 2 -- redundant with the anchor, and it prompted chatty
     // mid-tier models to narrate "reminder recorded, continuing" each turn. TRADEOFF: the anchor is
-    // frozen at assemble/reconcile time (spawn, /model swap, resume), NOT refreshed per-round — so a
+    // frozen at assemble/reconcile time (spawn, /model swap, resume), NOT refreshed per-round -- so a
     // session left running continuously across midnight keeps the prior day's date until the next
     // reassemble; the removed hook used to self-correct that live. Accepted as a rare edge vs. the
     // per-round narration cost. (The hook type still exists but is no longer registered.)
     // Pin the workspace root the cadence uses to gate out-of-workspace edits (e.g. a throwaway
     // /tmp write must not arm the "run cargo check" nudge). INVARIANT: this must equal the dir
-    // the edit/write tools resolve relative `file_path` against — they stay in lockstep because
+    // the edit/write tools resolve relative `file_path` against -- they stay in lockstep because
     // `/cd` respawns the agent (rebuilding this hook with the new dir), not by mutating cwd in
     // place. If `/cd` ever moves to an in-place cwd mutation, thread the live cwd in here too.
     hooks.push(turn_execution_policy.clone());
@@ -967,19 +967,19 @@ async fn prepare_with_plugin_hooks_reusing_lease(
             cfg.working_dir.clone(),
             turn_execution_policy.clone(),
         )
-        // Attended (a present human who reviews edits — see CodingAgentConfig::is_attended) →
+        // Attended (a present human who reviews edits -- see CodingAgentConfig::is_attended) ->
         // don't FORCE post-edit checks (codex-style); headless / scheduled keep the cadence.
         // `RUSTCODE_VERIFY` overrides. Weak-model anti-hide discipline (FIX, DON'T HIDE) is a
         // SEPARATE persona block and is unaffected.
         .attended(cfg.is_attended()),
     ));
-    // Todo hook (native runtime path — the live TUI + webui): per-turn <system-reminder> of the
+    // Todo hook (native runtime path -- the live TUI + webui): per-turn <system-reminder> of the
     // current list so the model keeps it accurate after compaction, PLUS an `offer_continuation`
     // that nudges once to close out open items when the model tries to stop. Gated on the SAME
     // RUSTCODE_TODO switch as the todowrite/todo tools + persona guidance (so the reminder never
     // references tools that aren't mounted). Pushed AFTER VerifyCadenceHook so verify's
     // "first Some wins" continuation outranks the todo-completion nudge. This is the ONLY
-    // production registration of TodoHook — every real entrypoint (CLI, daemon, clix) goes
+    // production registration of TodoHook -- every real entrypoint (CLI, daemon, clix) goes
     // through prepare()/assemble() here; `assemble.rs::build_coding_agent` (which also registers
     // it) is reachable only from tests + examples, so there is no double-registration.
     if todo_enabled {
@@ -999,11 +999,11 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     // swap), NOT here in `prepare` (which does not). A prepare-frozen base_url would
     // keep mislabelling an external-model 429 as a CodingPlan quota after a switch.
     // CC external hooks: user/project `hooks.json` + plugin-contributed inline hooks
-    // (`plugin_cc_hooks`, resolved by the host) on the kernel seams — the port of core's
+    // (`plugin_cc_hooks`, resolved by the host) on the kernel seams -- the port of core's
     // CC-parity hook engine onto CodingRuntime. ONE instance serves both seams: pushed here
     // for its LifecycleHooks side (session_start / user_prompt_submit / session_end) and
     // stored in `cc_external_hooks` for its ToolMiddleware side (assemble registers it
-    // before approval). Only when hooks actually exist — no hooks at all registers nothing,
+    // before approval). Only when hooks actually exist -- no hooks at all registers nothing,
     // so the no-hooks path stays free. Its session_start context append sits after the
     // built-in context/status hooks (later = appended after), and it implements no
     // offer_continuation, so VerifyCadenceHook's "first Some wins" contract is untouched.
@@ -1016,7 +1016,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
             // CC `transcript_path` = the session's append-only JSONL transcript, so a
             // Stop/StopFailure hook can open the finished turn's full record. The path
             // resolves even before the file is written; unresolvable (session dir gone)
-            // → left `None` → the payload carries `null`, never a wedge.
+            // -> left `None` -> the payload carries `null`, never a wedge.
             if let Ok(p) = b.manager.jsonl_path(&b.id) {
                 cc = cc.with_transcript_path(p.to_string_lossy().into_owned());
             }
@@ -1356,7 +1356,7 @@ impl CodingParts {
     /// Register an EXTRA driver-contributed tool into the kernel toolset, so it is
     /// both resolvable during a turn AND exposed to the model (added to `tool_names`,
     /// which [`mount`](Self::mount) reads). The `registry` / `tool_names` fields are
-    /// crate-private — this is the supported seam for the runtime to inject
+    /// crate-private -- this is the supported seam for the runtime to inject
     /// a tool the always-on capability set doesn't include.
     ///
     /// Idempotent on name: re-registering the same name (e.g. on a respawn that
@@ -1474,22 +1474,22 @@ async fn publish_connected_mcp_server(
     catalog_publisher.publish(&tool_registry, &refs);
 }
 
-/// Phase 2 — composition: parts + provider → a runnable [`Agent`].
+/// Phase 2 -- composition: parts + provider -> a runnable [`Agent`].
 ///
 /// A session-bound assemble ALWAYS picks up the session's latest on-disk snapshot
 /// (the SnapshotHook persisted one every turn), so calling it again on the SAME
 /// parts with a new provider IS the respawn (B2 model swap / reload): approval
 /// grants, hook state, session identity, AND the conversation all carry over. A
-/// plain re-`assemble` can never rewind a live session — the one respawn footgun
+/// plain re-`assemble` can never rewind a live session -- the one respawn footgun
 /// the design review flagged. Errors:
 /// - a snapshot that exists but can't be read or has an unsupported version
 ///   (continuing would silently fresh-start the SAME session id and corrupt its
-///   transcript/snapshot — the exact "silent fresh start" the Resume contract
+///   transcript/snapshot -- the exact "silent fresh start" the Resume contract
 ///   forbids);
 /// - only an explicitly staged fresh session may have no aggregate yet; every
 ///   resume/reassemble requires metadata, snapshot, and presentation together.
 ///
-/// CONCURRENCY CONTRACT: at most ONE live agent per `CodingParts` — await the old
+/// CONCURRENCY CONTRACT: at most ONE live agent per `CodingParts` -- await the old
 /// `AgentHandle.task` (after `Shutdown`) before re-assembling. The session hooks
 /// hold per-turn state and write per-session files; two live agents on the same
 /// parts would interleave both.
@@ -1499,7 +1499,7 @@ pub fn assemble(
     provider: Arc<dyn LlmProvider>,
 ) -> io::Result<Agent> {
     // Model swap (e.g. `/model`) routes here via the runtime WITHOUT re-running `prepare`,
-    // so re-register `read_file` with the CURRENT model's vision capability — otherwise the
+    // so re-register `read_file` with the CURRENT model's vision capability -- otherwise the
     // PREPARE-time flag goes stale and a text-only model could receive a base64 image (or a
     // VL model none). `register` overwrites by name, so this idempotently refreshes the one
     // tool whose behavior depends on the model. Same model-swap-refresh pattern as the
@@ -1533,7 +1533,7 @@ pub fn assemble(
     }
 
     // A usage-recording decorator over the host provider. Calls made OUTSIDE the host
-    // agent loop — the tier-2 overflow summary AND the `code_review` sub-agent's rounds —
+    // agent loop -- the tier-2 overflow summary AND the `code_review` sub-agent's rounds --
     // never reach the turn-level usage hook, so without this their token spend is invisible.
     // The host loop's PRIMARY provider stays bare below: the turn-level loop already meters
     // it, and wrapping it too would double-count.
@@ -1581,7 +1581,7 @@ pub fn assemble(
 
     // When a session is present, wire the artifact store: register the fetch_output tool
     // so the model can retrieve large outputs, and prepare the middleware that intercepts
-    // oversized tool results and spills them to disk.  No session → no artifact I/O.
+    // oversized tool results and spills them to disk.  No session -> no artifact I/O.
     let artifact_store: Option<Arc<ArtifactStore>> = parts.session.as_ref().and_then(|b| {
         b.manager
             .artifacts_dir(&b.id)
@@ -1630,12 +1630,12 @@ pub fn assemble(
         .middleware(parts.turn_execution_policy.clone())
         // Plan-mode gate BEFORE approval: while active it blocks mutating (Risky)
         // tools outright, so there's no point prompting the user to approve a write
-        // plan mode forbids. Read-only when inactive — zero cost off the plan path.
+        // plan mode forbids. Read-only when inactive -- zero cost off the plan path.
         .middleware(Arc::new(crate::plan_mode::PlanModeGate::new(
             parts.plan_mode.clone(),
             parts.mcp_plan_grants.clone(),
         )))
-        // Plan-mode reminder (ephemeral request tail) — pairs with the gate: the gate
+        // Plan-mode reminder (ephemeral request tail) -- pairs with the gate: the gate
         // blocks mutating TOOLS, this keeps the model PLANNING instead of writing the
         // implementation inline. Shares the same plan_mode flag; cache-safe (tail only).
         .hook(Arc::new(crate::plan_mode::PlanModeReminderHook::new(
@@ -1659,7 +1659,7 @@ pub fn assemble(
         ))
         // Sensitive-path read gate: read tools are Safe (skip approval), so without this an
         // agent could silently read ~/.ssh / .env / creds and leak them to the provider.
-        // Acts ONLY on Safe tools touching a sensitive path → one approval round-trip.
+        // Acts ONLY on Safe tools touching a sensitive path -> one approval round-trip.
         .middleware(Arc::new(SensitivePathGate::with_store(
             parts.sensitive_path_grants.clone(),
         )));
@@ -1673,7 +1673,7 @@ pub fn assemble(
     }
     // CC external hooks (PreToolUse gate). Runs AFTER the hard PlanMode/SensitivePath gates
     // (which must stay un-bypassable by a hook `allow`) but BEFORE every auto-approve
-    // convenience gate — OpenFileWorkspaceGate and especially WriteApprovalGate, which
+    // convenience gate -- OpenFileWorkspaceGate and especially WriteApprovalGate, which
     // auto-`Allow`s in-workspace writes and would short-circuit the chain before a hook ever
     // sees the call (so a PreToolUse hook on edit/write would silently never run). This
     // matches Claude Code, where a PreToolUse hook IS the permission entry point: its
@@ -1705,10 +1705,10 @@ pub fn assemble(
             )
             .with_accept_edits(parts.accept_edits.clone()),
         ))
-        // Workspace-aware approval for DESTRUCTIVE bash (rm/mv/cp/dd/redirect…) whose target
+        // Workspace-aware approval for DESTRUCTIVE bash (rm/mv/cp/dd/redirect...) whose target
         // lands OUTSIDE the workspace: prompt with a per-directory "Always", mirroring
         // WriteApprovalGate for the write tools. In-workspace destructive bash is unchanged
-        // (single-file rm stays Safe→runs; recursive rm still reaches ApprovalMiddleware).
+        // (single-file rm stays Safe->runs; recursive rm still reaches ApprovalMiddleware).
         // BEFORE the generic approval gate so its `Allow` short-circuits the prompt; reads the
         // SAME live cwd handle, so /cd moves the boundary. Mode-independent (accept-edits is for
         // edits only); full Auto bypasses it via the driver auto-answering.
@@ -1716,15 +1716,15 @@ pub fn assemble(
             parts.shared_cwd.clone(),
             parts.bash_workspace_grants.clone(),
         )))
-        // Approval AFTER the CC PreToolUse gate + the write/open auto-approve gates — every
+        // Approval AFTER the CC PreToolUse gate + the write/open auto-approve gates -- every
         // arg-rewrite (CC `updatedInput`) has already applied, so the user approves the exact
         // bytes that run.
         .middleware(parts.approval.clone())
         // LIVE cwd handle (not the immutable pin): /cd mutates parts.shared_cwd.
         .working_dir_shared(parts.shared_cwd.clone())
         .chat_options(cfg.chat_options.clone())
-        // Cache-friendly task-boundary stub + hard-overflow recovery ladder (stub→truncate
-        // →drain+LLM-summary). Stubs old tool results once utilization crosses the threshold
+        // Cache-friendly task-boundary stub + hard-overflow recovery ladder (stub->truncate
+        // ->drain+LLM-summary). Stubs old tool results once utilization crosses the threshold
         // (kept full below it); the overflow tiers fire only on a typed overflow error.
         .compaction(Arc::new(
             rustcode_capabilities::compaction::OverflowCompaction::new(
@@ -1753,7 +1753,7 @@ pub fn assemble(
     }
     builder = builder.round_cap_checkpoint(cfg.round_cap_checkpoint);
     // Approval liveness: `Some(d)` ⇒ fail-closed after `d` (headless); `None` ⇒ PARK until
-    // answered (interactive — a present human must not be auto-denied). The kernel defaults
+    // answered (interactive -- a present human must not be auto-denied). The kernel defaults
     // to unbounded when `.request_timeout` is never set, so None = park.
     if let Some(d) = cfg.request_timeout {
         builder = builder.request_timeout(d);
@@ -1787,7 +1787,7 @@ pub fn assemble(
         builder = builder.session_id(&b.id);
         // Share the parent's `x-rustcode-session-id` with the subagent tier providers so a
         // `task` fan-out's children run within the SAME gateway window as the main
-        // conversation — otherwise each session-less child is a distinct window and GLM-5.2's
+        // conversation -- otherwise each session-less child is a distinct window and GLM-5.2's
         // multi-window guard serializes the strong-tier subtasks. (Single-model users already
         // reuse the host provider, which the kernel binds with this id, so they're unaffected.)
         if let Some(cell) = &cfg.subagent_fast_provider {
@@ -1862,7 +1862,7 @@ pub fn assemble(
     // Ensure the repo's `rustcode` project label after a successful `git push` to a
     // gitcode/atomgit remote. THIS is the production mount: the terminal TUI, daemon, and
     // webui all build their agent here via `parts::assemble`. (`assemble.rs::build_coding_agent`
-    // also mounts it, but that path is reachable only from tests/examples — so before this the
+    // also mounts it, but that path is reachable only from tests/examples -- so before this the
     // middleware never ran for a real session.) Best-effort: every failure is a `tracing::warn`
     // and the turn proceeds. Gated on `atomgit` (its sole consumer).
     #[cfg(feature = "atomgit")]
@@ -1888,7 +1888,7 @@ pub fn assemble(
 }
 
 const RUSTCODE_PERSONA_PREFIX: &str =
-    "You are RustCode, an AI coding agent by AtomGit running the ";
+    "You are RustCode, an AI coding agent running the ";
 const MODEL_CHANGE_CONTEXT_PREFIX: &str = "=== MODEL CHANGE ===";
 
 /// Legacy drivers persist conversation history without the separately supplied
@@ -2064,7 +2064,7 @@ mod tests {
         assert_eq!(profiles[0].permission, PermissionMode::AcceptEdits);
         assert_eq!(profiles[0].model.as_deref(), Some("gpt-5-codex"));
 
-        // off + no explicit → nothing.
+        // off + no explicit -> nothing.
         let empty = resolve_external_subagents(&SubAgentConfig::default(), true);
         assert!(empty.is_empty());
 
@@ -2233,7 +2233,7 @@ mod tests {
         rustcode_config::config::offline::reset_offline_verdict_for_test();
         // Remove RUSTCODE_REQUEST_USER_INPUT so the persona is deterministic regardless
         // of what other tests may have set concurrently (we hold the serial lock, so this
-        // is safe — no other test in this serial group can observe the removal).
+        // is safe -- no other test in this serial group can observe the removal).
         let _rui_guard = std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
         let mut snapshot = SessionSnapshot::new(vec![
             Message::system(coding_persona(
@@ -2527,7 +2527,7 @@ mod tests {
         assert!(parts.mcp_tools_for_server("docs-space").is_empty());
     }
 
-    /// `prepare` with all optional capabilities OFF — keeps the call I/O-free (no MCP
+    /// `prepare` with all optional capabilities OFF -- keeps the call I/O-free (no MCP
     /// connect, no session/skill/home scans) so the test only exercises CC-hook wiring.
     fn io_free_opts() -> PrepareOptions {
         PrepareOptions {
@@ -2963,16 +2963,16 @@ mod tests {
 
     /// `prepare` loads a project `.hooks.json` and exposes the runner via
     /// `cc_external_hooks` (the handle `assemble` registers as a ToolMiddleware) AND
-    /// pushes it onto the lifecycle `hooks`. With no hooks file, neither is registered —
+    /// pushes it onto the lifecycle `hooks`. With no hooks file, neither is registered --
     /// the zero-overhead common path. RUSTCODE_HOME is pinned to an empty temp dir so the
     /// user-level lookup can't pick up a real `~/.rustcode/hooks.json` on the dev box.
     #[tokio::test]
     #[serial_test::serial(rustcode_home)]
     async fn prepare_wires_cc_external_hooks_only_when_present() {
-        let home = tempfile::tempdir().unwrap(); // empty → no user-level hooks
+        let home = tempfile::tempdir().unwrap(); // empty -> no user-level hooks
         std::env::set_var("RUSTCODE_HOME", home.path());
 
-        // No project hooks → nothing wired.
+        // No project hooks -> nothing wired.
         let bare = tempfile::tempdir().unwrap();
         let cfg = CodingAgentConfig::new("k", "http://localhost", "m", bare.path());
         let parts = prepare(&cfg, io_free_opts()).await.unwrap();
@@ -2982,7 +2982,7 @@ mod tests {
         );
         let baseline_hooks = parts.hooks.len();
 
-        // Project .hooks.json present → wired as the middleware handle AND a lifecycle hook.
+        // Project .hooks.json present -> wired as the middleware handle AND a lifecycle hook.
         let proj = tempfile::tempdir().unwrap();
         std::fs::write(
             proj.path().join(".hooks.json"),
@@ -3002,7 +3002,7 @@ mod tests {
         );
     }
 
-    /// A canned provider that reports usage then ends — enough to fold a
+    /// A canned provider that reports usage then ends -- enough to fold a
     /// `TokenUsage` in the response stream.
     struct CannedProvider;
     #[async_trait::async_trait]
@@ -3182,7 +3182,7 @@ mod tests {
     }
 
     /// Unit-test the artifact wiring as `assemble` would build it:
-    /// big tool result → preview+handle stored → fetch_output retrieves full bytes.
+    /// big tool result -> preview+handle stored -> fetch_output retrieves full bytes.
     #[tokio::test]
     async fn artifact_wiring_store_middleware_and_fetch_roundtrip() {
         use rustcode_capabilities::tools::{

@@ -3,17 +3,17 @@
 //!
 //! Two distinct user journeys land here:
 //!
-//! 1. **Fresh install** — rustcode runs for the first time on a host
+//! 1. **Fresh install** -- rustcode runs for the first time on a host
 //!    that has never run it. The marker file
 //!    `$RUSTCODE_HOME/.plugin_bootstrap_v2` does not exist. We `git clone`
 //!    the official `rustcode-plugins-official` marketplace and touch the
 //!    marker.
 //!    Failure (no network, no git on PATH, upstream down) is logged
-//!    to `$RUSTCODE_HOME/stderr.log` and swallowed — startup proceeds
+//!    to `$RUSTCODE_HOME/stderr.log` and swallowed -- startup proceeds
 //!    without skills. Direct file writes avoid stderr-fd leakage into
 //!    the TUI input box on Windows (raw-mode cursor sits at the prompt).
 //!
-//! 2. **Every startup** — we `git pull --ff-only` every installed
+//! 2. **Every startup** -- we `git pull --ff-only` every installed
 //!    marketplace so the plugins stay in sync with the remote.
 //!    This runs on every launch (not just upgrades) so that new
 //!    plugins published to official marketplaces are discovered
@@ -21,10 +21,10 @@
 //!
 //! The marker file makes (1) a one-time event. If the user later runs
 //! `/plugin marketplace remove rustcode`, the marker stays and we
-//! respect their intent — no re-install on subsequent startups. To
+//! respect their intent -- no re-install on subsequent startups. To
 //! force a re-bootstrap, the user can `rm $RUSTCODE_HOME/.plugin_bootstrap_v2`.
 //!
-//! Both functions are best-effort and never propagate errors —
+//! Both functions are best-effort and never propagate errors --
 //! rustcode must remain usable on offline machines, in air-gapped
 //! corporate environments, on systems without git, etc.
 
@@ -44,7 +44,7 @@ use std::io::Write;
 /// and avoids the fd-sharing problem entirely.
 ///
 /// Best-effort: if the home dir can't be resolved or the file can't
-/// be opened, silently drop the line — bootstrap failures are already
+/// be opened, silently drop the line -- bootstrap failures are already
 /// reported through `PluginJobEvent` channels.
 fn log_to_file(msg: &str) {
     let home = Config::config_dir();
@@ -62,7 +62,7 @@ fn log_to_file(msg: &str) {
     let _ = file.write_all(b"\n");
 }
 
-/// Public git URLs for the default marketplaces — the official RustCode
+/// Public git URLs for the default marketplaces -- the official RustCode
 /// plugin registry and the legacy RustCode skills bag. The plugin
 /// installer dispatches on the SOURCE field (the URL we cloned from),
 /// so each URL here is the identity of a bootstrapped "default" entry.
@@ -76,12 +76,12 @@ pub fn default_skills_urls() -> &'static [String] {
 /// Subset of [`default_skills_urls`]: only plugins from marketplaces
 /// listed here are auto-installed (both on fresh bootstrap and after
 /// post-upgrade `git pull`). `rustcode-plugins-official` is purposely
-/// excluded — it is registered for discoverability, not force-installed.
+/// excluded -- it is registered for discoverability, not force-installed.
 fn default_auto_install_urls() -> &'static [String] {
     rustcode_config::endpoints::plugin_auto_install()
 }
 
-/// Versioned bootstrap marker. Bumped v1 → v2 when the default
+/// Versioned bootstrap marker. Bumped v1 -> v2 when the default
 /// marketplace was repointed from the legacy `rustcode-skills` bag to the
 /// official `rustcode-plugins-official` registry, so existing users
 /// re-bootstrap onto the new default exactly once. Bump again when
@@ -91,7 +91,7 @@ const BOOTSTRAP_MARKER_FILENAME: &str = ".plugin_bootstrap_v2";
 /// Entry point for both Plan A (auto-install default skills) and
 /// Plan B (sync marketplaces on every startup). Call once at
 /// startup AFTER `Config::load` and AFTER any pending self-upgrade has
-/// re-exec'd. Synchronous — runs `git` subprocesses inline; budget
+/// re-exec'd. Synchronous -- runs `git` subprocesses inline; budget
 /// roughly 1-3 s on a warm path, longer on first install.
 ///
 /// Returns the list of `PluginJobEvent`s the caller should forward to
@@ -110,7 +110,7 @@ pub fn run_startup_hooks(config: &Config) -> Vec<PluginJobEvent> {
     // the user's shell profile).
     if super::marketplace::find_git().is_err() {
         log_to_file(
-            "⚠ git is not installed or not on PATH. \
+            "[!] git is not installed or not on PATH. \
              Plugin marketplace auto-install and auto-update are disabled. \
              Install git (e.g. `xcode-select --install` on macOS, \
              `sudo apt install git` on Ubuntu) and restart RustCode.",
@@ -132,7 +132,7 @@ pub fn run_startup_hooks(config: &Config) -> Vec<PluginJobEvent> {
 
 fn bootstrap_marker_path() -> std::path::PathBuf {
     // Lives directly under `~/.rustcode/` (the canonical config dir),
-    // not nested under `plugins/` — it's a per-user run-state flag,
+    // not nested under `plugins/` -- it's a per-user run-state flag,
     // not a plugin asset. Same neighbourhood as
     // `.telemetry_notice_shown`.
     Config::config_dir().join(BOOTSTRAP_MARKER_FILENAME)
@@ -159,12 +159,12 @@ fn should_auto_install(source_url: &str) -> bool {
 /// Plan A: clone the default plugin marketplaces into
 /// `$RUSTCODE_HOME/plugins/marketplaces/<name>/` and install every
 /// plugin listed in their manifests. Iterates [`default_skills_urls`].
-/// After this attempt — successful or not — the marker is written so
+/// After this attempt -- successful or not -- the marker is written so
 /// the next startup doesn't try again.
 ///
 /// If a marketplace is already installed (from a prior session or a
 /// manual `/plugin marketplace add`) but its plugins haven't been
-/// installed yet, this bootstraps those plugins too — the marketplace
+/// installed yet, this bootstraps those plugins too -- the marketplace
 /// clone is skipped but the install loop still runs.
 ///
 /// Returns one `PluginJobEvent` per marketplace/plugin actually
@@ -178,7 +178,7 @@ fn maybe_install_default_skills() -> Vec<PluginJobEvent> {
     // cloned by a prior bootstrap that didn't call `install()` (before
     // we added the auto-install loop), or by a manual
     // `/plugin marketplace add`. Either way, the marketplace entry
-    // exists but its plugins may not — we still need to run the install
+    // exists but its plugins may not -- we still need to run the install
     // loop on the already-installed entry.
     let installed = list_marketplaces().unwrap_or_default();
 
@@ -202,7 +202,7 @@ fn maybe_install_default_skills() -> Vec<PluginJobEvent> {
                 let mp_name = info.name.clone();
                 let plugins = info.plugins.clone();
                 log_to_file(&format!(
-                    "✓ Auto-installed plugin marketplace `{}` (commit {}).",
+                    "[+] Auto-installed plugin marketplace `{}` (commit {}).",
                     mp_name,
                     short_commit(&info.git_commit)
                 ));
@@ -213,7 +213,7 @@ fn maybe_install_default_skills() -> Vec<PluginJobEvent> {
             }
             Err(e) => {
                 let msg = auto_install_failure_msg(url, &e);
-                log_to_file(&format!("⚠ {msg}"));
+                log_to_file(&format!("[!] {msg}"));
                 events.push(PluginJobEvent::Failed {
                     op: "auto-install".into(),
                     msg,
@@ -223,21 +223,21 @@ fn maybe_install_default_skills() -> Vec<PluginJobEvent> {
     }
 
     // Mark the bootstrap as attempted. Even on failure we don't want
-    // to retry on every launch — that turns into a flapping network
+    // to retry on every launch -- that turns into a flapping network
     // probe. The user can delete the marker to force a retry.
     touch_marker();
     events
 }
 
 /// Build the message for a failed marketplace auto-install. The actionable
-/// recovery hint (`/plugin marketplace add …`) is placed FIRST, before the
-/// `{e:#}` error chain — the driver renders this as a CALM one-line yellow
+/// recovery hint (`/plugin marketplace add ...`) is placed FIRST, before the
+/// `{e:#}` error chain -- the driver renders this as a CALM one-line yellow
 /// Warning via `msg.lines().next()`, and `{e:#}` is often multi-line (git
 /// stderr), so anything after it would be dropped. Keeping the hint on line 1
 /// guarantees the user still sees how to recover.
 fn auto_install_failure_msg(url: &str, err: &anyhow::Error) -> String {
     format!(
-        "marketplace `{url}` not installed yet — run \
+        "marketplace `{url}` not installed yet -- run \
          `/plugin marketplace add {url}` when ready. Cause: {err:#}"
     )
 }
@@ -254,17 +254,17 @@ fn install_plugins_from_marketplace(
         match install(plugin, mp_name, super::state::InstallScope::User) {
             Ok(pi) => {
                 log_to_file(&format!(
-                    "  ✓ Installed plugin `{}@{}` from marketplace `{mp_name}`.",
+                    "  [+] Installed plugin `{}@{}` from marketplace `{mp_name}`.",
                     pi.plugin, pi.marketplace
                 ));
                 events.push(PluginJobEvent::PluginInstalled(pi));
             }
             Err(e) => {
-                // AlreadyInstalledError is benign — the plugin was
+                // AlreadyInstalledError is benign -- the plugin was
                 // registered during an earlier bootstrap attempt (e.g.
                 // re-run after deleting the marker).
                 let msg = format!("auto-install of plugin `{plugin}@{mp_name}` failed: {e:#}");
-                log_to_file(&format!("  ⚠ {msg}"));
+                log_to_file(&format!("  [!] {msg}"));
                 events.push(PluginJobEvent::Failed {
                     op: "auto-install-plugin".into(),
                     msg,
@@ -281,7 +281,7 @@ fn install_plugins_from_marketplace(
 ///
 /// Returns one `PluginJobEvent` per marketplace whose HEAD actually
 /// moved, plus one `Failed` event per pull error. No-op pulls (HEAD
-/// unchanged) produce no event — keeps the toast lane quiet when
+/// unchanged) produce no event -- keeps the toast lane quiet when
 /// there's nothing the user needs to know about.
 fn refresh_installed_marketplaces() -> Vec<PluginJobEvent> {
     let mut events = Vec::new();
@@ -289,7 +289,7 @@ fn refresh_installed_marketplaces() -> Vec<PluginJobEvent> {
         Ok(l) => l,
         Err(e) => {
             let msg = format!("could not enumerate marketplaces for auto-update: {e:#}");
-            log_to_file(&format!("⚠ {msg}"));
+            log_to_file(&format!("[!] {msg}"));
             events.push(PluginJobEvent::Failed {
                 op: "auto-update".into(),
                 msg,
@@ -308,14 +308,14 @@ fn refresh_installed_marketplaces() -> Vec<PluginJobEvent> {
                     let name = info.name.clone();
                     let plugins = info.plugins.clone();
                     log_to_file(&format!(
-                        "✓ Updated marketplace `{}` ({} → {}).",
+                        "[+] Updated marketplace `{}` ({} -> {}).",
                         entry.name,
                         short_commit(&entry.git_commit),
                         short_commit(&info.git_commit)
                     ));
                     events.push(PluginJobEvent::MarketplaceUpdated(info));
                     if is_auto {
-                        // Only install plugins not already present — avoids
+                        // Only install plugins not already present -- avoids
                         // AlreadyInstalledError noise on every upgrade.
                         let installed = list_installed().unwrap_or_default();
                         let installed_names: std::collections::HashSet<&str> =
@@ -333,7 +333,7 @@ fn refresh_installed_marketplaces() -> Vec<PluginJobEvent> {
             }
             Err(e) => {
                 let msg = format!("auto-update of marketplace `{}` failed: {e:#}", entry.name);
-                log_to_file(&format!("⚠ {msg}"));
+                log_to_file(&format!("[!] {msg}"));
                 events.push(PluginJobEvent::Failed {
                     op: "auto-update".into(),
                     msg,
@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn auto_install_failure_msg_keeps_recovery_hint_on_first_line() {
         // The driver renders this as a one-line Warning (`msg.lines().next()`),
-        // and `{e:#}` is often multi-line git stderr — the actionable
+        // and `{e:#}` is often multi-line git stderr -- the actionable
         // `/plugin marketplace add` hint MUST survive on line 1.
         let err = anyhow::anyhow!("git clone failed")
             .context("stderr line 1\nstderr line 2\nstderr line 3");
@@ -375,7 +375,7 @@ mod tests {
             "recovery hint must be on the first line: {first:?}"
         );
         assert!(first.contains("when ready"), "first line: {first:?}");
-        // The error detail is still present (later in the message) — nothing lost.
+        // The error detail is still present (later in the message) -- nothing lost.
         assert!(
             msg.contains("stderr line 3"),
             "full error retained: {msg:?}"

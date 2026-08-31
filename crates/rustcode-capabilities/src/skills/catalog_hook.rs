@@ -1,9 +1,9 @@
-//! `SkillCatalogHook` — injects the `=== AVAILABLE SKILLS ===` catalog as a leading
+//! `SkillCatalogHook` -- injects the `=== AVAILABLE SKILLS ===` catalog as a leading
 //! `Role::System` message at session start.
 //!
 //! Why this exists: the v2 coding path registered the `use_skill` / `list_skills`
-//! tools but NEVER told the model which skills are installed — so a skill that
-//! should trigger on a description match (brainstorming before creative work, …)
+//! tools but NEVER told the model which skills are installed -- so a skill that
+//! should trigger on a description match (brainstorming before creative work, ...)
 //! was effectively invisible and "basically never fired". The catalog is what the
 //! daemon path already injected inline; this hook brings the coding path to parity
 //! (via the budget-gated, source-ranked [`super::render`]).
@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use rustcode_kernel::hook::LifecycleHooks;
 use rustcode_kernel::message::{Conversation, Message, Role};
 
-/// Injects the pre-rendered skill catalog. `None` catalog (no skills installed) →
+/// Injects the pre-rendered skill catalog. `None` catalog (no skills installed) ->
 /// the hook is a no-op on a fresh session and prunes a stale block on resume.
 pub struct SkillCatalogHook {
     catalog: Option<String>,
@@ -31,7 +31,7 @@ impl SkillCatalogHook {
     }
 }
 
-/// Count of the leading run of `Role::System` messages — the insert point that
+/// Count of the leading run of `Role::System` messages -- the insert point that
 /// lands the catalog right after persona + any context block already injected.
 fn leading_system_count(convo: &Conversation) -> usize {
     convo
@@ -44,8 +44,8 @@ fn leading_system_count(convo: &Conversation) -> usize {
 #[async_trait]
 impl LifecycleHooks for SkillCatalogHook {
     async fn session_start(&self, convo: &mut Conversation, _resumed: bool) {
-        // Position-based reconcile handles fresh (absent → insert) and resume
-        // (present → replace in place, byte-identical when unchanged) uniformly.
+        // Position-based reconcile handles fresh (absent -> insert) and resume
+        // (present -> replace in place, byte-identical when unchanged) uniformly.
         let existing = convo
             .messages
             .iter()
@@ -56,7 +56,7 @@ impl LifecycleHooks for SkillCatalogHook {
                 let at = leading_system_count(convo);
                 convo.messages.insert(at, Message::system(block.clone()));
             }
-            // No skills now but a stale catalog survives a resume → drop it.
+            // No skills now but a stale catalog survives a resume -> drop it.
             (None, Some(i)) => {
                 convo.messages.remove(i);
             }
@@ -95,7 +95,7 @@ mod tests {
         let mut c = convo_with_persona();
         let before = c.messages.len();
         hook.session_start(&mut c, false).await;
-        assert_eq!(c.messages.len(), before, "no skills → nothing injected");
+        assert_eq!(c.messages.len(), before, "no skills -> nothing injected");
     }
 
     #[tokio::test]

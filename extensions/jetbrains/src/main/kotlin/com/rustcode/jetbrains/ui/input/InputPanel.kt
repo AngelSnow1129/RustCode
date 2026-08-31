@@ -413,11 +413,11 @@ class InputPanel(
     }
 
     fun installKeyBindings(sendWithCtrlEnter: Boolean) {
-        val enterAction = "atomcode-input-enter"
-        val ctrlEnterAction = "atomcode-input-ctrl-enter"
-        val shiftEnterAction = "atomcode-input-shift-enter"
-        val tabAction = "atomcode-command-tab"
-        val pasteAction = "atomcode-input-paste"
+        val enterAction = "rustcode-input-enter"
+        val ctrlEnterAction = "rustcode-input-ctrl-enter"
+        val shiftEnterAction = "rustcode-input-shift-enter"
+        val tabAction = "rustcode-command-tab"
+        val pasteAction = "rustcode-input-paste"
         defaultPasteAction = inputArea.actionMap.get(DefaultEditorKit.pasteAction)
 
         inputArea.inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, menuShortcutMask), pasteAction)
@@ -444,8 +444,8 @@ class InputPanel(
         }
         inputArea.repaint()
 
-        inputArea.inputMap.put(KeyStroke.getKeyStroke("UP"), "atomcode-command-up")
-        inputArea.actionMap.put("atomcode-command-up", object : AbstractAction() {
+        inputArea.inputMap.put(KeyStroke.getKeyStroke("UP"), "rustcode-command-up")
+        inputArea.actionMap.put("rustcode-command-up", object : AbstractAction() {
             override fun actionPerformed(e: java.awt.event.ActionEvent?) {
                 if (!moveCommandSelection(-1)) {
                     inputArea.transferFocusBackward()
@@ -453,8 +453,8 @@ class InputPanel(
             }
         })
 
-        inputArea.inputMap.put(KeyStroke.getKeyStroke("DOWN"), "atomcode-command-down")
-        inputArea.actionMap.put("atomcode-command-down", object : AbstractAction() {
+        inputArea.inputMap.put(KeyStroke.getKeyStroke("DOWN"), "rustcode-command-down")
+        inputArea.actionMap.put("rustcode-command-down", object : AbstractAction() {
             override fun actionPerformed(e: java.awt.event.ActionEvent?) {
                 if (!moveCommandSelection(1)) {
                     inputArea.transferFocus()
@@ -462,8 +462,8 @@ class InputPanel(
             }
         })
 
-        inputArea.inputMap.put(KeyStroke.getKeyStroke("ESCAPE"), "atomcode-command-escape")
-        inputArea.actionMap.put("atomcode-command-escape", object : AbstractAction() {
+        inputArea.inputMap.put(KeyStroke.getKeyStroke("ESCAPE"), "rustcode-command-escape")
+        inputArea.actionMap.put("rustcode-command-escape", object : AbstractAction() {
             override fun actionPerformed(e: java.awt.event.ActionEvent?) {
                 hideCommandPopup()
             }

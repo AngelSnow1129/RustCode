@@ -1,7 +1,7 @@
 //! `build_graph(root)` + the shared, lazily-built [`CodeIndex`] the graph tools hold.
 //! Ported from production `graph/indexer.rs` (the build + call-resolution; the
 //! background/incremental indexer + CPU throttling are replaced by a simpler
-//! build-once-then-rebuild-on-mtime-change cache — correct first, optimize later).
+//! build-once-then-rebuild-on-mtime-change cache -- correct first, optimize later).
 
 use super::graph::{CodeGraph, Edge, EdgeKind, SymbolId, SymbolKind, SymbolNode, Visibility};
 use super::lang::Lang;
@@ -38,7 +38,7 @@ fn classify_symbol_kind(ts: &str) -> SymbolKind {
 
 struct RawCall {
     caller_name: String,
-    /// caller's start_line — lets the build reconstruct the caller's exact id via `make_id`
+    /// caller's start_line -- lets the build reconstruct the caller's exact id via `make_id`
     /// instead of a name lookup (removes a scan and fixes wrong-caller attribution).
     caller_line: usize,
     callee_name: String,
@@ -139,10 +139,10 @@ const INDEXED_EXTS: &[&str] = &[
 /// A walked source file + the inputs to its staleness fingerprint.
 struct Walked {
     path: PathBuf,
-    /// mtime in NANOSECONDS — coarse whole seconds would miss a same-second edit and
+    /// mtime in NANOSECONDS -- coarse whole seconds would miss a same-second edit and
     /// serve a stale graph.
     mtime_ns: u128,
-    /// file length — defends against a same-instant edit whose mtime didn't move (content
+    /// file length -- defends against a same-instant edit whose mtime didn't move (content
     /// length almost always changes on a real edit).
     len: u64,
 }
@@ -208,8 +208,8 @@ fn top_component(p: &Path, root: &Path) -> Option<std::ffi::OsString> {
 
 /// Resolve a callee name to a symbol id, preferring closer candidates (production
 /// scoring): same file (4) > same dir (2) > same top-level component (1) > any (0).
-/// (Import-based score 3 is omitted — like production, we do not parse imports yet.)
-/// Ties are broken DETERMINISTICALLY by the smallest (file, start_line) — production's
+/// (Import-based score 3 is omitted -- like production, we do not parse imports yet.)
+/// Ties are broken DETERMINISTICALLY by the smallest (file, start_line) -- production's
 /// tie-break depends on HashMap iteration order, which is not reproducible.
 fn resolve_callee(
     g: &CodeGraph,
@@ -290,7 +290,7 @@ fn build_from_files(root: &Path, files: Vec<Walked>) -> CodeGraph {
     g
 }
 
-/// Build a fresh code graph for `root` (walk → parse → resolve). O(repo), CPU-bound.
+/// Build a fresh code graph for `root` (walk -> parse -> resolve). O(repo), CPU-bound.
 pub fn build_graph(root: &Path) -> CodeGraph {
     let root = super::canonical(root);
     build_from_files(&root, collect_files(&root))
@@ -298,7 +298,7 @@ pub fn build_graph(root: &Path) -> CodeGraph {
 
 /// Shared, lazily-built code index the graph tools hold. `get` returns a cached graph
 /// when the indexed files' (path, mtime) fingerprint is unchanged, else rebuilds. O(repo)
-/// and CPU-bound — call from a blocking context (the tools use `spawn_blocking`).
+/// and CPU-bound -- call from a blocking context (the tools use `spawn_blocking`).
 #[derive(Default)]
 pub struct CodeIndex {
     cache: Mutex<Option<(u64, Arc<CodeGraph>)>>,
@@ -338,7 +338,7 @@ mod tests {
         let g = build_graph(d.path());
         let main = g.find_by_name("main").into_iter().next().expect("main");
         let helper = g.find_by_name("helper").into_iter().next().expect("helper");
-        // main → helper edge exists
+        // main -> helper edge exists
         let callees = g.callees(main.id).expect("callees");
         assert!(
             callees.iter().any(|e| e.to == helper.id),
@@ -373,7 +373,7 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|e| e.to == compute.id),
-            "run → compute across files"
+            "run -> compute across files"
         );
     }
 
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn same_second_edit_triggers_rebuild() {
-        // Overwriting the SAME file (likely the same wall-clock second) must rebuild —
+        // Overwriting the SAME file (likely the same wall-clock second) must rebuild --
         // the fingerprint uses nanos + length, not coarse seconds.
         let d = tempfile::tempdir().unwrap();
         let f = d.path().join("a.rs");
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn tie_break_resolution_is_deterministic() {
-        // Two same-named fns in the same dir → equal score for a same-dir caller → tie,
+        // Two same-named fns in the same dir -> equal score for a same-dir caller -> tie,
         // resolved deterministically to the smallest (file, line) = a_util.rs.
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a_util.rs"), "pub fn dup() {}\n").unwrap();
@@ -431,7 +431,7 @@ mod tests {
                 .as_ref()
                 .map(|f| f.ends_with("a_util.rs"))
                 .unwrap_or(false),
-            "tie → a_util.rs, got {target:?}"
+            "tie -> a_util.rs, got {target:?}"
         );
         // stable across a rebuild
         let g2 = build_graph(d.path());
@@ -453,13 +453,13 @@ mod tests {
         let g2 = idx.get(d.path());
         assert!(
             Arc::ptr_eq(&g1, &g2),
-            "unchanged repo → cached graph reused"
+            "unchanged repo -> cached graph reused"
         );
         assert!(g1.find_by_name("two").is_empty());
-        // change the repo (new mtime via a new file) → rebuild
+        // change the repo (new mtime via a new file) -> rebuild
         std::fs::write(d.path().join("b.rs"), "fn two() {}\n").unwrap();
         let g3 = idx.get(d.path());
-        assert!(!Arc::ptr_eq(&g1, &g3), "changed repo → rebuilt");
+        assert!(!Arc::ptr_eq(&g1, &g3), "changed repo -> rebuilt");
         assert!(
             !g3.find_by_name("two").is_empty(),
             "rebuilt graph sees new symbol"
@@ -502,7 +502,7 @@ mod tests {
 
         assert!(
             a_callees.iter().any(|e| e.to == alpha.id),
-            "a.rs::handler → alpha"
+            "a.rs::handler -> alpha"
         );
         assert!(
             !a_callees.iter().any(|e| e.to == beta.id),
@@ -510,7 +510,7 @@ mod tests {
         );
         assert!(
             b_callees.iter().any(|e| e.to == beta.id),
-            "b.rs::handler → beta"
+            "b.rs::handler -> beta"
         );
         assert!(
             !b_callees.iter().any(|e| e.to == alpha.id),

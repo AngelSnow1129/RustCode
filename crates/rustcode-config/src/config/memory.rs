@@ -10,7 +10,7 @@ pub struct MemoryStore {
 }
 
 /// Resolve the project-scope memory file. `override_dir` = the value of
-/// `RUSTCODE_PROJECT_MEMORY_DIR` (None/empty → default ".rustcode"). A relative value
+/// `RUSTCODE_PROJECT_MEMORY_DIR` (None/empty -> default ".rustcode"). A relative value
 /// nests under `project_root`; an absolute value is used as-is (std `Path::join`
 /// semantics). `memory.md` is appended in either case.
 fn project_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathBuf {

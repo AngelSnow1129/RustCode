@@ -1,4 +1,4 @@
-//! `/usage` — a tabbed CodingPlan usage modal (Current | Overview | Models).
+//! `/usage` -- a tabbed CodingPlan usage modal (Current | Overview | Models).
 
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -37,7 +37,7 @@ pub struct UsageData {
 pub struct UsageModal {
     pub(crate) data: UsageData,
     pub(crate) tab: Tab,
-    /// Transient "copied" notice — set by Ctrl+S, shown in the footer until next redraw.
+    /// Transient "copied" notice -- set by Ctrl+S, shown in the footer until next redraw.
     pub(crate) copy_notice: Option<String>,
 }
 
@@ -93,7 +93,7 @@ impl UsageModal {
 
     /// Build the tab bar string (active = bold, inactive = dim/muted).
     fn tab_bar(&self) -> String {
-        // Palette-independent active/inactive contrast — see modals::tab_chip
+        // Palette-independent active/inactive contrast -- see modals::tab_chip
         // (fixed 256-colours, correct on Solarized Dark and every theme).
         let chip = |tab: Tab, label: &str| crate::modals::tab_chip(label, self.tab == tab);
         let t0 = chip(Tab::Current, &t(Msg::UsageTabCurrent));
@@ -123,7 +123,7 @@ impl UsageModal {
             ));
             rows.push((String::new(), String::new()));
 
-            // Progress bar — coloured green (32) while ok, red (31) when exhausted
+            // Progress bar -- coloured green (32) while ok, red (31) when exhausted
             let bar = progress_bar(w.usage_percent, 24);
             let bar_color = if w.usage_percent >= 100.0 { 31 } else { 32 };
             rows.push((
@@ -167,7 +167,7 @@ impl UsageModal {
                 format!("\x1b[31m{}\x1b[39m", t(Msg::UsagePlanExpired))
             };
             rows.push((
-                format!("  \x1b[1m{}\x1b[22m · {status_label}", plan.plan_name),
+                format!("  \x1b[1m{}\x1b[22m . {status_label}", plan.plan_name),
                 String::new(),
             ));
 
@@ -233,7 +233,7 @@ impl UsageModal {
         lines.join("\n")
     }
 
-    /// The active tab's body lines with colour intact — the single tab-body
+    /// The active tab's body lines with colour intact -- the single tab-body
     /// dispatch shared by the colour-keeping [`active_snapshot_text`] and the
     /// ANSI-stripped [`active_tab_text`].
     ///
@@ -251,7 +251,7 @@ impl UsageModal {
         }
     }
 
-    /// Build Overview tab rows — calendar heatmap + stats block.
+    /// Build Overview tab rows -- calendar heatmap + stats block.
     pub fn overview_lines(&self) -> Vec<String> {
         let m = muted_open();
         let Some(u) = &self.data.usage else {
@@ -302,7 +302,7 @@ impl UsageModal {
                 } else {
                     header_len
                 };
-                // Skip the label if its full name can't fit — avoids a truncated
+                // Skip the label if its full name can't fit -- avoids a truncated
                 // month name at a narrow edge column.
                 if end.saturating_sub(start) < label.chars().count() {
                     continue;
@@ -322,30 +322,30 @@ impl UsageModal {
             ));
 
             // Claude-Code-style calendar. Index 0 = a day in-range with zero
-            // activity (a neutral dark square so the grid stays solid — NOT a
+            // activity (a neutral dark square so the grid stays solid -- NOT a
             // dot, which floated as a "hole" between active days); indexes 1..5 =
-            // a dark→bright coral ramp ending at the #d97757 brand coral. Only
+            // a dark->bright coral ramp ending at the #d97757 brand coral. Only
             // days OUTSIDE the window (leading/trailing padding) render blank.
             // Cells are CELL_W wide so the 60-day grid reads at a comfortable size,
             // and adjacent cells connect.
             // 256-colour (AnsiValue), NOT truecolor: tmux and many terminals
             // drop `38;2;r;g;b`, leaving the block at the default fg (a flat
-            // grey). A dark→bright coral/salmon ramp from the xterm-256 cube
+            // grey). A dark->bright coral/salmon ramp from the xterm-256 cube
             // renders correctly everywhere. Index 0 = in-range-but-zero (neutral
-            // dark square so the grid stays solid); 1..5 = least→most.
+            // dark square so the grid stays solid); 1..5 = least->most.
             // Index 0 = a near-white "empty" square (in-range but zero activity)
-            // — reads as blank and, against the light-pink ramp, is far less
+            // -- reads as blank and, against the light-pink ramp, is far less
             // jarring than a dark hole. Indexes 1..5 = the activity ramp, LIGHT
-            // → DEEP RED so more activity reads as a richer/darker red (à la
+            // -> DEEP RED so more activity reads as a richer/darker red (à la
             // GitHub's "more = darker"). The whole 0..5 sequence darkens
-            // monotonically: empty (lightest) → most (deep red, darkest).
+            // monotonically: empty (lightest) -> most (deep red, darkest).
             const HEAT_RAMP: [u8; 6] = [
-                231, // 0 — no activity (white #ffffff)
-                217, // 1 — least (#ffafaf pale pink)
-                210, // 2 — (#ff8787 salmon pink)
-                174, // 3 — (#d78787 dusty rose)
-                131, // 4 — (#af5f5f muted brick)
-                88,  // 5 — most (#870000 deep red)
+                231, // 0 -- no activity (white #ffffff)
+                217, // 1 -- least (#ffafaf pale pink)
+                210, // 2 -- (#ff8787 salmon pink)
+                174, // 3 -- (#d78787 dusty rose)
+                131, // 4 -- (#af5f5f muted brick)
+                88,  // 5 -- most (#870000 deep red)
             ];
             let full_block: String = "█".repeat(CELL_W);
             let blank_cell: String = " ".repeat(CELL_W);
@@ -361,9 +361,9 @@ impl UsageModal {
                 let mut row = format!("{m}{}\x1b[39m ", weekdays[wd as usize]);
                 for col in 0..=max_week {
                     match grid.get(&(wd, col)).copied() {
-                        // Outside the data window (padding) → blank, clean edges.
+                        // Outside the data window (padding) -> blank, clean edges.
                         None => row.push_str(&blank_cell),
-                        // In-range day → square (level 0 neutral … 5 coral); no
+                        // In-range day -> square (level 0 neutral ... 5 coral); no
                         // trailing gap so adjacent cells connect into a solid grid.
                         Some(level) => {
                             let c = HEAT_RAMP[(level as usize).min(5)];
@@ -400,7 +400,7 @@ impl UsageModal {
         // width. The old `{label:<20}` padded by CHAR COUNT, but CJK labels have
         // different char-count-vs-cell-width ratios (`请求次数` = 4 chars / 8 cells
         // vs `总 Token 数` = 9 chars / 11 cells), so every value started at a
-        // different terminal column — the misalignment reported on `/usage`.
+        // different terminal column -- the misalignment reported on `/usage`.
         let mut pairs: Vec<(String, String)> = Vec::new();
         if let Some(fav) = &overview.favorite_model {
             pairs.push((t(Msg::UsageStatFavorite).into_owned(), fav.clone()));
@@ -642,8 +642,8 @@ impl UsageModal {
 
             rows.push((String::new(), String::new()));
 
-            // Per-model table — the coloured ● also serves as the chart legend.
-            // Columns: ● Model | Tokens | Requests | Share (aligned).
+            // Per-model table -- the coloured * also serves as the chart legend.
+            // Columns: * Model | Tokens | Requests | Share (aligned).
             rows.push((
                 format!(
                     "  {m}  {:<26}{:>10}{:>9}{:>7}\x1b[39m",
@@ -661,7 +661,7 @@ impl UsageModal {
                 let share = format!("{pct}%");
                 rows.push((
                     format!(
-                        "  \x1b[38;5;{color}m●\x1b[39m {model:<26}{m}{:>10}{:>9}{:>7}\x1b[39m",
+                        "  \x1b[38;5;{color}m*\x1b[39m {model:<26}{m}{:>10}{:>9}{:>7}\x1b[39m",
                         humanize_tokens(*tok),
                         req,
                         share
@@ -670,7 +670,7 @@ impl UsageModal {
                 ));
             }
         } else {
-            // Sparkline fallback — per-model coloured sparkline + breakdown
+            // Sparkline fallback -- per-model coloured sparkline + breakdown
             let spark_w = 30usize;
             for (mi, (model, series, tok, req)) in model_stats.iter().enumerate() {
                 let color = model_colors[mi % model_colors.len()];
@@ -681,7 +681,7 @@ impl UsageModal {
                     0
                 };
                 rows.push((
-                    format!("  \x1b[38;5;{color}m● {model}\x1b[39m"),
+                    format!("  \x1b[38;5;{color}m* {model}\x1b[39m"),
                     String::new(),
                 ));
                 rows.push((
@@ -690,7 +690,7 @@ impl UsageModal {
                 ));
                 rows.push((
                     format!(
-                        "    {m}{pct}%  ·  {req} reqs  ·  {}\x1b[39m",
+                        "    {m}{pct}%  .  {req} reqs  .  {}\x1b[39m",
                         humanize_tokens(*tok)
                     ),
                     String::new(),
@@ -741,7 +741,7 @@ impl Modal for UsageModal {
         ctx: &mut LoopCtx,
         renderer: &mut dyn Renderer,
     ) -> Result<ModalAction> {
-        // Ctrl+S — copy active tab as plain text to clipboard
+        // Ctrl+S -- copy active tab as plain text to clipboard
         if code == KeyCode::Char('s') && mods.contains(KeyModifiers::CONTROL) {
             let text = self.active_tab_text(ctx.caps.colors, ctx.caps.unicode_symbols);
             crate::event_loop::commands::copy_text_to_clipboard_osc52(&text);
@@ -752,7 +752,7 @@ impl Modal for UsageModal {
         if let KeyCode::Esc | KeyCode::Char('q') = code {
             return Ok(ModalAction::Close);
         }
-        // Tab / ←→ / 1-3 switch tabs; other keys are no-ops here.
+        // Tab / ←-> / 1-3 switch tabs; other keys are no-ops here.
         self.handle_tab_nav(code);
         let _ = mods;
         // Clear any copy notice on any other keypress
@@ -763,7 +763,7 @@ impl Modal for UsageModal {
 
     fn draw(&self, buf: &Buffer, state: &UiState, ctx: &LoopCtx, renderer: &mut dyn Renderer) {
         let hint = if let Some(notice) = &self.copy_notice {
-            format!("✓ {notice}")
+            format!("[+] {notice}")
         } else {
             t(Msg::UsageFooterHint).into_owned()
         };
@@ -785,7 +785,7 @@ impl Modal for UsageModal {
                     ),
                     String::new(),
                 ));
-                final_items.push((format!("— {} —", hint), String::new()));
+                final_items.push((format!("-- {} --", hint), String::new()));
 
                 // selected past end = nothing highlighted
                 let selected = final_items.len();
@@ -818,9 +818,9 @@ impl Modal for UsageModal {
 
         // Footer hint (or copy confirmation)
         final_items.push((String::new(), String::new()));
-        final_items.push((format!("— {} —", hint), String::new()));
+        final_items.push((format!("-- {} --", hint), String::new()));
 
-        // Nothing is selectable — point selected past the end so nothing is highlighted
+        // Nothing is selectable -- point selected past the end so nothing is highlighted
         let selected = final_items.len();
         let payload = MenuPayload {
             items: final_items,
@@ -853,7 +853,7 @@ fn muted_open() -> &'static str {
     }
 }
 
-/// Render a `label → value` stats block with the value column aligned by DISPLAY
+/// Render a `label -> value` stats block with the value column aligned by DISPLAY
 /// width. Padding is computed from `crate::width::display_width` (CJK-aware), NOT
 /// char count, so mixed-width labels (`请求次数` vs `总 Token 数`) still put every
 /// value at the same terminal column. `muted` is the label's SGR-open colour;
@@ -881,7 +881,7 @@ mod tests {
     use super::*;
     use rustcode_codingplan::usage::{compute_overview, parse_usage};
 
-    // Small inline sample — matches the shape from usage.rs core tests
+    // Small inline sample -- matches the shape from usage.rs core tests
     const SAMPLE: &str = r#"{
       "days": 60, "start_date": "2026-05-18", "end_date": "2026-07-16",
       "models": ["deepseek-v4-flash", "GLM-5.2"],
@@ -956,7 +956,7 @@ mod tests {
         assert_eq!(m.tab, Tab::Overview);
         assert!(m.handle_tab_nav(KeyCode::Char('3')));
         assert_eq!(m.tab, Tab::Models);
-        // Non-nav keys are not consumed — the caller keeps them for other uses.
+        // Non-nav keys are not consumed -- the caller keeps them for other uses.
         assert!(!m.handle_tab_nav(KeyCode::Char('x')));
         assert!(!m.handle_tab_nav(KeyCode::Esc));
         assert_eq!(m.tab, Tab::Models);
@@ -967,7 +967,7 @@ mod tests {
         assert_eq!(UsageModal::hms(0), "00:00:00");
         assert_eq!(UsageModal::hms(3661), "01:01:01");
         assert_eq!(UsageModal::hms(7259), "02:00:59");
-        // Negative → clamp to 0
+        // Negative -> clamp to 0
         assert_eq!(UsageModal::hms(-5), "00:00:00");
     }
 
@@ -1044,9 +1044,9 @@ mod tests {
     #[test]
     fn overview_lines_are_terminal_compatible() {
         // Compatibility guards (default test theme = dark):
-        //  1. Muted labels use SGR 37, NOT SGR 90 — SGR 90 (bright-black) is
+        //  1. Muted labels use SGR 37, NOT SGR 90 -- SGR 90 (bright-black) is
         //     invisible on some dark themes (iTerm2). Regression fence for that.
-        //  2. The heatmap uses 256-colour (38;5), NOT truecolor (38;2) — tmux
+        //  2. The heatmap uses 256-colour (38;5), NOT truecolor (38;2) -- tmux
         //     drops truecolor, leaving the grid a flat grey.
         let m = sample_modal();
         let all = m.overview_lines().join("\n");
@@ -1093,7 +1093,7 @@ mod tests {
             "active tab should be bold + fixed near-white 231 on dark; got: {bar}"
         );
         // Inactive tabs: fixed mid-grey (245), dimmer than active and
-        // palette-independent. Must NOT use SGR 90/37/39 — all broke on
+        // palette-independent. Must NOT use SGR 90/37/39 -- all broke on
         // Solarized Dark (90≈bg, 37 brighter than default, 39=grey default fg).
         assert!(
             bar.contains("\x1b[38;5;245m"),
@@ -1107,7 +1107,7 @@ mod tests {
 
     #[test]
     fn streaming_snapshot_keeps_all_three_tab_labels() {
-        // Default tab is Current; sample_modal has no window → "unavailable".
+        // Default tab is Current; sample_modal has no window -> "unavailable".
         let text = sample_modal().active_snapshot_text(true, true);
 
         assert!(text.contains(t(Msg::UsageTabCurrent).as_ref()));
@@ -1293,7 +1293,7 @@ mod tests {
             .map(|(l, _)| UsageModal::strip_ansi(l))
             .collect::<Vec<_>>()
             .join("\n");
-        // The plan section starts directly at "CodingPlan Pro · Active", no bare "Plan" heading line
+        // The plan section starts directly at "CodingPlan Pro . Active", no bare "Plan" heading line
         assert!(
             !stripped
                 .lines()

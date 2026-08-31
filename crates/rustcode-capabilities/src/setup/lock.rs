@@ -6,7 +6,7 @@
 //! 1. Read `.rustcode/.setup.lock.sentinel` if present. If recorded PID is alive **and**
 //!    its start_time matches, return [`LockError::Held`] (unless `force = true`).
 //!    Stale sentinel is removed.
-//! 2. `try_lock_exclusive` on `.rustcode/.setup.lock` — second rail.
+//! 2. `try_lock_exclusive` on `.rustcode/.setup.lock` -- second rail.
 //! 3. Write a fresh sentinel JSON with current PID, start_time, host, version.
 //!
 //! Drop releases both rails (unlock fs2, rm sentinel) but keeps the `.setup.lock`
@@ -120,7 +120,7 @@ impl SetupLock {
         // - If recorded owner is **alive** and force: do NOT delete sentinel yet; let
         //   fs2 be the authority. If fs2 also held, force genuinely cannot take over
         //   (peer still running). If fs2 is releasable, the alive-check raced and the
-        //   peer just exited — proceed with takeover (re-read in Stage 2 surfaces who).
+        //   peer just exited -- proceed with takeover (re-read in Stage 2 surfaces who).
         // - If recorded owner is **stale** (dead PID or start_time mismatch): delete
         //   sentinel so fs2 isn't confused by a leftover file.
         let sentinel_owner: Option<Sentinel> = read_sentinel(&sentinel_path);
@@ -137,7 +137,7 @@ impl SetupLock {
                 });
             }
             if !owner_alive {
-                // Stale — clean up so fs2 won't see a leftover file from prior crash.
+                // Stale -- clean up so fs2 won't see a leftover file from prior crash.
                 let _ = std::fs::remove_file(&sentinel_path);
             }
             // owner_alive && force: keep sentinel for now; fs2 is the authority.
@@ -156,7 +156,7 @@ impl SetupLock {
             // Covers two race/edge cases:
             //   (a) TOCTOU between our stale-sentinel removal and our fs2 attempt:
             //       a sibling wrote a fresh sentinel + grabbed fs2 in the gap.
-            //   (b) force=true but the live sibling still holds fs2 — force cannot
+            //   (b) force=true but the live sibling still holds fs2 -- force cannot
             //       take over a running peer; report the real PID so the user knows
             //       whom to kill.
             let live_owner = read_sentinel(&sentinel_path);
@@ -175,7 +175,7 @@ impl SetupLock {
         }
 
         // Stage 3: we hold both rails. If force was used against a previously-alive
-        // owner, the peer must have released fs2 between Stage 1 and Stage 2 — warn
+        // owner, the peer must have released fs2 between Stage 1 and Stage 2 -- warn
         // so the operator knows takeover actually fired (the previous version warned
         // unconditionally before fs2 succeeded, which was misleading on failure).
         if force && owner_alive {

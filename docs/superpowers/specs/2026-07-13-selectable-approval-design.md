@@ -2,17 +2,17 @@
 
 - 日期:2026-07-13
 - 状态:已批准(待写实现计划)
-- 范围:`crates/atomcode-tuix`(渲染 + 输入 + 状态)。tuix 以下(决策枚举、审批 plumbing)不改。
+- 范围:`crates/rustcode-tuix`(渲染 + 输入 + 状态)。tuix 以下(决策枚举、审批 plumbing)不改。
 
 ## 背景 / 动机
 
 当前工具审批要求用户**盲敲 `y`/`a`/`n`**:审批提示以 `UiLine::ApprovalPrompt` 塞进正文,渲染成一行 `▶ Waiting for approval: Bash(rm -rf): Y↵Allow A Always N Deny`,由 `handle_approval_key` 读单键映射到决策。问题:①不直观(得记 y/a/n 各是什么);②提示在正文里、决策后要靠脆弱的 `pop_approval_prompt` 擦除正文行(已多次出 bug、被硬化过)。
 
-参照 opencode / codex / 用户提供的 DevEco 截图:它们都用**可选项式**审批(方向键/Enter 选,选中项高亮),钉在底部一块面板里。本设计把 atomcode 的审批改成同类:**footer 区的竖排可选列表**。
+参照 opencode / codex / 用户提供的 DevEco 截图:它们都用**可选项式**审批(方向键/Enter 选,选中项高亮),钉在底部一块面板里。本设计把 rustcode 的审批改成同类:**footer 区的竖排可选列表**。
 
 ## 已定决策(brainstorm 拍板)
 
-1. **排布**:竖排列表(像 codex),每选项一行,选中行 `▸` 前缀 + 反色(atomcode cell 无 bg,用 reverse 模拟填充按钮)。
+1. **排布**:竖排列表(像 codex),每选项一行,选中行 `▸` 前缀 + 反色(rustcode cell 无 bg,用 reverse 模拟填充按钮)。
 2. **交互**:纯键盘(v1 不做鼠标,保留终端原生滚轮/选中复制)。`↑/↓` 移动(环绕)、`Enter` 确认、`Esc` = Deny、保留 `y/a/n` 快捷键(直接选中+确认)。
 3. **位置**:统一固定 —— footer 区一块面板(在 footer 堆叠里,输入框上方),带左侧 warning 色 `▌` 强调条,自包含(重述工具+命令)。
 4. **选项**:仅现有三个决策 —— `Allow once` / `Always allow` / `Deny`。默认选中 `Allow once`(与现在 Enter=Allow 一致)。**不加** deny-with-feedback。
@@ -38,7 +38,7 @@
 
 ### 「Always allow」标签(动态)
 
-atomcode 的 `AllowAlways` 语义取决于审批要求(`atomcode-core::tool::ApprovalRequirement`):
+rustcode 的 `AllowAlways` 语义取决于审批要求(`rustcode-core::tool::ApprovalRequirement`):
 - `RequireApproval` → 授权**整个工具**本会话(`grant_session(tool)`);
 - `RequireApprovalScoped { scope }` → 只授权**该 scope**(`grant_session_scope(scope)`)。
 
@@ -48,10 +48,10 @@ atomcode 的 `AllowAlways` 语义取决于审批要求(`atomcode-core::tool::App
 ### 数据流
 
 ```
-atomcode-core TurnRunner
+rustcode-core TurnRunner
   └─ AgentEvent::ApprovalNeeded { tool_name, reason, call, snapshot }
        ↓ (现有事件流)
-atomcode-tuix event_loop 的 ApprovalNeeded handler
+rustcode-tuix event_loop 的 ApprovalNeeded handler
   1. (不变)bypass 检查 / 落盘 snapshot / push `▸ Tool(detail)` 正文行(永久记录)
   2. (改)不再 push `UiLine::ApprovalPrompt`;改为:
        state.approval_panel = Some(ApprovalPanel { tool, detail, options=build_options(...), selected:0 })
@@ -96,18 +96,18 @@ deliver_approval(现有:local=cmd_tx / sync=LiveSession.approve)→ PermissionDe
 
 | 文件 | 改动 |
 |---|---|
-| `crates/atomcode-tuix/src/state.rs` | `UiState.approval_panel: Option<ApprovalPanel>` + 清空点;`ApprovalPanel`/`ApprovalOption` 类型 |
-| `crates/atomcode-tuix/src/event_loop/mod.rs` | `ApprovalNeeded` handler 改设面板状态(不 push ApprovalPrompt);`handle_approval_key` 扩展方向键/Enter/Esc/y-a-n;`build_approval_options` 纯 fn |
-| `crates/atomcode-tuix/src/render/retained.rs` | `paint_footer` 新增审批区渲染 + 高度;**删除** `UiLine::ApprovalPrompt` 渲染 + `pop_approval_prompt` + `approval_block_rows` |
-| `crates/atomcode-tuix/src/render/plain.rs` | 审批文本回退(非交互) |
-| `crates/atomcode-tuix/src/render/mod.rs` | 视需要删除/调整 `UiLine::ApprovalPrompt` 变体(若无其他用途) |
+| `crates/rustcode-tuix/src/state.rs` | `UiState.approval_panel: Option<ApprovalPanel>` + 清空点;`ApprovalPanel`/`ApprovalOption` 类型 |
+| `crates/rustcode-tuix/src/event_loop/mod.rs` | `ApprovalNeeded` handler 改设面板状态(不 push ApprovalPrompt);`handle_approval_key` 扩展方向键/Enter/Esc/y-a-n;`build_approval_options` 纯 fn |
+| `crates/rustcode-tuix/src/render/retained.rs` | `paint_footer` 新增审批区渲染 + 高度;**删除** `UiLine::ApprovalPrompt` 渲染 + `pop_approval_prompt` + `approval_block_rows` |
+| `crates/rustcode-tuix/src/render/plain.rs` | 审批文本回退(非交互) |
+| `crates/rustcode-tuix/src/render/mod.rs` | 视需要删除/调整 `UiLine::ApprovalPrompt` 变体(若无其他用途) |
 
 ## 备选方案(已否决)
 
 - **横排按钮**(opencode/DevEco 样式):用户选了竖排(选项文字可更描述性)。
 - **保留在正文下方**(现状):用户选了 footer 固定位置(交互选择天生属于 footer;顺带清掉脆弱的 pop 逻辑)。
 - **鼠标点选**:v1 不做(全局鼠标捕获会破坏终端原生滚轮/选中复制;键盘选项已解决核心诉求)。可作后续。
-- **deny-with-feedback**(codex/opencode 有):atomcode 无此决策,YAGNI;需另铺文本输入子态 + plumbing,不在 v1。
+- **deny-with-feedback**(codex/opencode 有):rustcode 无此决策,YAGNI;需另铺文本输入子态 + plumbing,不在 v1。
 
 ## 未决问题
 

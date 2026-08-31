@@ -60,16 +60,16 @@ impl DiffViewer {
 
     /// Fixed geometry for the file-detail view: `(screen_w, panel_height,
     /// content_height)`. The panel renders inline right after the conversation
-    /// (where the input box sits), replacing it — not a full-screen or
+    /// (where the input box sits), replacing it -- not a full-screen or
     /// bottom-pinned overlay. The detail view keeps a tall FIXED height (~75% of
     /// the screen) so a diff has room to scroll; the list/loading/error views
     /// instead fit their content (see `redraw`). `content_height` is the body
-    /// area: `panel_height` minus four chrome rows — a top rule, the title, a
+    /// area: `panel_height` minus four chrome rows -- a top rule, the title, a
     /// blank spacer, and the hint line.
     fn geometry(_is_detail: bool) -> (u16, u16, usize) {
         let (screen_w, screen_h) = crossterm::terminal::size().unwrap_or((80, 24));
         let h = screen_h as usize;
-        // ~75% of the screen. Use `.max(lo).min(h)` rather than `clamp(lo, h)` —
+        // ~75% of the screen. Use `.max(lo).min(h)` rather than `clamp(lo, h)` --
         // the latter PANICS when the terminal is shorter than `lo` (min > max).
         let panel_height = (h * 3 / 4).max(10).min(h);
         let content_height = panel_height.saturating_sub(4).max(1);
@@ -85,8 +85,8 @@ impl DiffViewer {
             return Vec::new();
         };
 
-        // The "Uncommitted changes …" heading is rendered as the panel title
-        // (above the rule); the body always opens with the change summary — even
+        // The "Uncommitted changes ..." heading is rendered as the panel title
+        // (above the rule); the body always opens with the change summary -- even
         // when there are no changes, the framed panel still shows (like CC).
         let mut rows = vec![
             DiffPanelRow::new(vec![
@@ -201,7 +201,7 @@ impl DiffViewer {
                     )));
                 }
                 if file.truncated || file.content == DiffContent::Truncated {
-                    rows.push(notice_row(l("… diff truncated", "… 差异已截断")));
+                    rows.push(notice_row(l("... diff truncated", "... 差异已截断")));
                 }
             }
         }
@@ -220,7 +220,7 @@ impl DiffViewer {
             match &self.view {
                 View::Loading => {
                     let rows = vec![DiffPanelRow::new(vec![DiffPanelSpan::new(
-                        l("Loading repository changes…", "正在读取仓库变更…"),
+                        l("Loading repository changes...", "正在读取仓库变更..."),
                         DiffPanelTone::Muted,
                     )])];
                     let h = fit(&rows);
@@ -279,8 +279,8 @@ impl DiffViewer {
                         title,
                         rows,
                         l(
-                            "↑/↓ to select · Enter to view · Esc to close",
-                            "↑/↓ 选择 · Enter 查看 · Esc 关闭",
+                            "↑/↓ to select . Enter to view . Esc to close",
+                            "↑/↓ 选择 . Enter 查看 . Esc 关闭",
                         )
                         .to_string(),
                         h,
@@ -305,8 +305,8 @@ impl DiffViewer {
                         title,
                         visible,
                         l(
-                            "↑/↓ to scroll · ← to back · Esc to back",
-                            "↑/↓ 滚动 · ← 返回 · Esc 返回",
+                            "↑/↓ to scroll . ← to back . Esc to back",
+                            "↑/↓ 滚动 . ← 返回 . Esc 返回",
                         )
                         .to_string(),
                         panel_h,
@@ -407,7 +407,7 @@ impl Modal for DiffViewer {
         Ok(ModalAction::Continue)
     }
 
-    /// The panel replaces the input box, so it must own every keystroke —
+    /// The panel replaces the input box, so it must own every keystroke --
     /// otherwise typed characters leak into the input buffer (and pop a slash
     /// menu) behind the panel.
     fn captures_all_keys(&self) -> bool {

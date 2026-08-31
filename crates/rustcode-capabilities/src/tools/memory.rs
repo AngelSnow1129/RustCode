@@ -1,4 +1,4 @@
-//! `memory` — let the model persist a durable, non-obvious learning to memory.md so
+//! `memory` -- let the model persist a durable, non-obvious learning to memory.md so
 //! future sessions remember it. Reuses the same store the user's /remember writes to
 //! (`.rustcode/memory.md` per project, `$RUSTCODE_HOME/memory.md` global). Injection is
 //! handled separately by `MemoryHook` at session start; this tool only writes.
@@ -241,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn forget_without_scope_reaches_global_store() {
-        // A global entry must be forgettable via a bare `forget` (no scope) — parity
+        // A global entry must be forgettable via a bare `forget` (no scope) -- parity
         // with the `/forget` command, which scans both stores. Unique keywords avoid
         // colliding with the process-shared (isolated-home) global store.
         let tmp = tempfile::tempdir().unwrap();
@@ -280,7 +280,7 @@ mod tests {
             MemoryTool.risk(r#"{"action":"remember","content":"x"}"#),
             RiskLevel::Safe
         ));
-        // 开审批 → remember Risky, list 仍 Safe
+        // 开审批 -> remember Risky, list 仍 Safe
         std::env::set_var("RUSTCODE_MEMORY_APPROVAL", "1");
         assert!(matches!(
             MemoryTool.risk(r#"{"action":"remember","content":"x"}"#),

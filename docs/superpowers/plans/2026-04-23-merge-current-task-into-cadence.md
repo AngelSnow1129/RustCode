@@ -17,24 +17,24 @@
 
 ## File Structure
 
-- Modify: `crates/atomcode-core/src/agent/discipline.rs` — `reflection_prompt` 新签名 + 现有 reflection_tests 更新 + 新 test
-- Modify: `crates/atomcode-core/src/agent/mod.rs` — discipline 调用点新签名；删 `prev_turn_edited_files` 字段 / init / 赋值 / `render_turn_reminder` 调用点
-- Modify: `crates/atomcode-core/src/ctx/render.rs` — 删 `render_turn_reminder` free fn + 相关测试（保留 `build_messages` 的 `turn_reminder` 形参路径）
-- Modify: `crates/atomcode-core/src/ctx/mod.rs` — 删 `CtxBuilder::render_turn_reminder` trait 默认方法及其 doc
+- Modify: `crates/rustcode-core/src/agent/discipline.rs` — `reflection_prompt` 新签名 + 现有 reflection_tests 更新 + 新 test
+- Modify: `crates/rustcode-core/src/agent/mod.rs` — discipline 调用点新签名；删 `prev_turn_edited_files` 字段 / init / 赋值 / `render_turn_reminder` 调用点
+- Modify: `crates/rustcode-core/src/ctx/render.rs` — 删 `render_turn_reminder` free fn + 相关测试（保留 `build_messages` 的 `turn_reminder` 形参路径）
+- Modify: `crates/rustcode-core/src/ctx/mod.rs` — 删 `CtxBuilder::render_turn_reminder` trait 默认方法及其 doc
 
 ---
 
 ### Task 1: `reflection_prompt` 接收 current_task，插入 verbatim task 段 + 改 Q1
 
 **Files:**
-- Modify: `crates/atomcode-core/src/agent/discipline.rs:135-145` (reflection_prompt body)
-- Modify: `crates/atomcode-core/src/agent/discipline.rs:193-267` (reflection_tests module)
+- Modify: `crates/rustcode-core/src/agent/discipline.rs:135-145` (reflection_prompt body)
+- Modify: `crates/rustcode-core/src/agent/discipline.rs:193-267` (reflection_tests module)
 
 - [ ] **Step 1: 更新现有测试使用新签名（传空 task）**
 
 当前 reflection_prompt 测试都用 `reflection_prompt(N)`。先全部改成 `reflection_prompt(N, "")`，并调整内容断言以匹配"空 task 分支保持原样"。
 
-替换 `crates/atomcode-core/src/agent/discipline.rs` 的 `reflection_prompt_is_language_neutral_and_mentions_delta` 测试为：
+替换 `crates/rustcode-core/src/agent/discipline.rs` 的 `reflection_prompt_is_language_neutral_and_mentions_delta` 测试为：
 
 ```rust
     #[test]
@@ -175,14 +175,14 @@
 - [ ] **Step 3: 运行测试确认失败**
 
 ```bash
-cargo test -p atomcode-core --lib agent::discipline::reflection_tests
+cargo test -p rustcode-core --lib agent::discipline::reflection_tests
 ```
 
 Expected: 新测试 compile 失败（`reflection_prompt` 目前只接受 1 个参数），或 compile 通过后新的 `_verbatim_task_`/`_coherence_check_`/`_truncates_`/`_empty_task_omits_` 四个断言失败。现有 6 个测试因签名变更也会编译失败。
 
 - [ ] **Step 4: 实现新签名 + 任务分支**
 
-把 `crates/atomcode-core/src/agent/discipline.rs` 的 `reflection_prompt` 整体替换为：
+把 `crates/rustcode-core/src/agent/discipline.rs` 的 `reflection_prompt` 整体替换为：
 
 ```rust
 pub(crate) fn reflection_prompt(delta: usize, current_task: &str) -> String {
@@ -234,14 +234,14 @@ pub(crate) fn reflection_prompt(delta: usize, current_task: &str) -> String {
 - [ ] **Step 5: 运行测试确认通过**
 
 ```bash
-cargo test -p atomcode-core --lib agent::discipline::reflection_tests
+cargo test -p rustcode-core --lib agent::discipline::reflection_tests
 ```
 
 Expected: 10 个测试全部通过（6 个原有改写 + 4 个新增）。
 
 - [ ] **Step 6: 更新调用点**
 
-`crates/atomcode-core/src/agent/discipline.rs:31` 当前：
+`crates/rustcode-core/src/agent/discipline.rs:31` 当前：
 
 ```rust
             let msg = reflection_prompt(delta);
@@ -256,7 +256,7 @@ Expected: 10 个测试全部通过（6 个原有改写 + 4 个新增）。
 - [ ] **Step 7: 确保 core crate 通过构建**
 
 ```bash
-cargo build -p atomcode-core
+cargo build -p rustcode-core
 ```
 
 Expected: clean build.
@@ -264,7 +264,7 @@ Expected: clean build.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/atomcode-core/src/agent/discipline.rs
+git add crates/rustcode-core/src/agent/discipline.rs
 git commit -m "feat(discipline): inject verbatim task into cadence reflection"
 ```
 
@@ -273,17 +273,17 @@ git commit -m "feat(discipline): inject verbatim task into cadence reflection"
 ### Task 2: 删除 per-turn `render_turn_reminder` 路径 + `prev_turn_edited_files` 字段
 
 **Files:**
-- Modify: `crates/atomcode-core/src/ctx/render.rs:20-67` (render_turn_reminder 自由函数 + 其 rustdoc)
-- Modify: `crates/atomcode-core/src/ctx/render.rs:927-967` (render_turn_reminder 的 5 个 unit test)
-- Modify: `crates/atomcode-core/src/ctx/mod.rs:72-90` (CtxBuilder::render_turn_reminder trait 方法 + rustdoc)
-- Modify: `crates/atomcode-core/src/agent/mod.rs:310-313` (prev_turn_edited_files 字段声明)
-- Modify: `crates/atomcode-core/src/agent/mod.rs:545` (init)
-- Modify: `crates/atomcode-core/src/agent/mod.rs:805` (赋值)
-- Modify: `crates/atomcode-core/src/agent/mod.rs:929-932` (turn_reminder 计算)
+- Modify: `crates/rustcode-core/src/ctx/render.rs:20-67` (render_turn_reminder 自由函数 + 其 rustdoc)
+- Modify: `crates/rustcode-core/src/ctx/render.rs:927-967` (render_turn_reminder 的 5 个 unit test)
+- Modify: `crates/rustcode-core/src/ctx/mod.rs:72-90` (CtxBuilder::render_turn_reminder trait 方法 + rustdoc)
+- Modify: `crates/rustcode-core/src/agent/mod.rs:310-313` (prev_turn_edited_files 字段声明)
+- Modify: `crates/rustcode-core/src/agent/mod.rs:545` (init)
+- Modify: `crates/rustcode-core/src/agent/mod.rs:805` (赋值)
+- Modify: `crates/rustcode-core/src/agent/mod.rs:929-932` (turn_reminder 计算)
 
 - [ ] **Step 1: 删除 `render_turn_reminder` 相关测试**
 
-在 `crates/atomcode-core/src/ctx/render.rs` 中删除以下五个测试（保留 `apply_model_directives_*` 和其他不相关测试）：
+在 `crates/rustcode-core/src/ctx/render.rs` 中删除以下五个测试（保留 `apply_model_directives_*` 和其他不相关测试）：
 - `render_turn_reminder_empty_when_no_state`
 - `render_turn_reminder_includes_prev_files_only`
 - `render_turn_reminder_includes_current_task_only`
@@ -293,22 +293,22 @@ git commit -m "feat(discipline): inject verbatim task into cadence reflection"
 - [ ] **Step 2: 运行 core 测试确认编译失败（因 render_turn_reminder 还在）**
 
 ```bash
-cargo test -p atomcode-core --lib ctx::render 2>&1 | tail -20
+cargo test -p rustcode-core --lib ctx::render 2>&1 | tail -20
 ```
 
 Expected: 通过（测试文件此时没有引用 render_turn_reminder 的断言了），剩余测试通过。若仍有编译错误说明漏删引用，修掉再继续。
 
 - [ ] **Step 3: 删除自由函数 `render_turn_reminder`**
 
-在 `crates/atomcode-core/src/ctx/render.rs` 删除 L20-67（`Render the per-turn dynamic reminder ...` rustdoc 块 + `pub fn render_turn_reminder(...) -> String { ... }` 整体）。
+在 `crates/rustcode-core/src/ctx/render.rs` 删除 L20-67（`Render the per-turn dynamic reminder ...` rustdoc 块 + `pub fn render_turn_reminder(...) -> String { ... }` 整体）。
 
 - [ ] **Step 4: 删除 trait 方法 `CtxBuilder::render_turn_reminder`**
 
-在 `crates/atomcode-core/src/ctx/mod.rs` 删除 L72-90（从 `/// Render the per-turn dynamic reminder from agent state.` 到闭合 `}`）。
+在 `crates/rustcode-core/src/ctx/mod.rs` 删除 L72-90（从 `/// Render the per-turn dynamic reminder from agent state.` 到闭合 `}`）。
 
 - [ ] **Step 5: 删除 AgentLoop 的 `prev_turn_edited_files` 字段 / init / 赋值**
 
-`crates/atomcode-core/src/agent/mod.rs` 三处删除：
+`crates/rustcode-core/src/agent/mod.rs` 三处删除：
 
 - L310-313 声明：
   ```rust
@@ -333,7 +333,7 @@ Expected: 通过（测试文件此时没有引用 render_turn_reminder 的断言
 
 - [ ] **Step 6: 修改 turn_reminder 计算点**
 
-`crates/atomcode-core/src/agent/mod.rs:929-932` 当前：
+`crates/rustcode-core/src/agent/mod.rs:929-932` 当前：
 
 ```rust
             let system_prompt = self.build_system_prompt();
@@ -376,9 +376,9 @@ Expected: 所有测试通过。重点关注：
 - [ ] **Step 9: Commit**
 
 ```bash
-git add crates/atomcode-core/src/ctx/render.rs \
-        crates/atomcode-core/src/ctx/mod.rs \
-        crates/atomcode-core/src/agent/mod.rs
+git add crates/rustcode-core/src/ctx/render.rs \
+        crates/rustcode-core/src/ctx/mod.rs \
+        crates/rustcode-core/src/agent/mod.rs
 git commit -m "refactor(ctx): drop per-turn render_turn_reminder and prev_turn_edited_files"
 ```
 
@@ -393,7 +393,7 @@ git commit -m "refactor(ctx): drop per-turn render_turn_reminder and prev_turn_e
 在一个小 demo 工作区跑一个长任务（≥ `reflection_cadence=10` 次 tool call），模型用 `claude-opus-4-7` 或 `claude-sonnet-4-6`：
 
 ```bash
-atomcode --provider claude
+rustcode --provider claude
 # 输入一个会触发多次 read/grep/edit 的任务，比如：
 # "找到 src/foo.rs 里的所有 TODO 并改成 FIXME，然后写一个总结"
 ```
@@ -401,9 +401,9 @@ atomcode --provider claude
 在相同工作区下查 datalog：
 
 ```bash
-ls -t ~/.atomcode/datalog/*/llm/*.json | head -20
-grep -l "ORIGINAL TASK" ~/.atomcode/datalog/*/llm/*.json | head -5
-grep -l "System meta" ~/.atomcode/datalog/*/llm/*.json | head -5
+ls -t ~/.rustcode/datalog/*/llm/*.json | head -20
+grep -l "ORIGINAL TASK" ~/.rustcode/datalog/*/llm/*.json | head -5
+grep -l "System meta" ~/.rustcode/datalog/*/llm/*.json | head -5
 ```
 
 Expected: 至少一个 llm request 文件包含 `=== ORIGINAL TASK ===` 块（在第 ≥10 次 tool call 之后）。第一轮 request 不该包含——说明 per-turn 注入已被移除。
@@ -413,7 +413,7 @@ Expected: 至少一个 llm request 文件包含 `=== ORIGINAL TASK ===` 块（�
 同一命题换 `--provider glm`（或 memory 里登记的 GLM 入口）跑一次。
 
 ```bash
-atomcode --provider glm
+rustcode --provider glm
 ```
 
 再 grep 同样 pattern。memory `feedback_cross_model_verify.md` 明确要求 Claude + GLM 双跑。
@@ -452,7 +452,7 @@ diff baseline_score.json after_score.json
 - [ ] **Step 5: final commit（如果有 memory 更新）**
 
 ```bash
-git add /Users/lichao/.claude/projects/-Users-lichao-project-gitcode-ai-atomcode/memory/
+git add /Users/lichao/.claude/projects/-Users-lichao-project-gitcode-ai-rustcode/memory/
 git commit -m "docs(memory): record cross-model verification of cadence-merged task reminder"
 ```
 

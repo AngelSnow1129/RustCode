@@ -49,8 +49,8 @@ fn rust_manifest_as_kv() -> HashMap<String, HashSet<String>> {
 
 fn workspace_root() -> std::path::PathBuf {
     let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop(); // crates/rustcode-cli → crates
-    p.pop(); // crates → workspace root
+    p.pop(); // crates/rustcode-cli -> crates
+    p.pop(); // crates -> workspace root
     p
 }
 

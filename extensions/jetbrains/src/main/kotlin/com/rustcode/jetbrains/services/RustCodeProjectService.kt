@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.services
 
-import com.rustcode.jetbrains.daemon.AtomCodeDaemonClient
+import com.rustcode.jetbrains.daemon.RustCodeDaemonClient
 import com.rustcode.jetbrains.daemon.ApprovalMode
 import com.rustcode.jetbrains.daemon.AuthStatusResponse
 import com.rustcode.jetbrains.daemon.ChatEvent
@@ -21,8 +21,8 @@ import com.rustcode.jetbrains.daemon.SessionDetail
 import com.rustcode.jetbrains.daemon.SessionMeta
 import com.rustcode.jetbrains.daemon.SetupSnapshot
 import com.rustcode.jetbrains.files.FileChangeService
-import com.rustcode.jetbrains.settings.AtomCodeSettings
-import com.rustcode.jetbrains.settings.AtomCodeSettingsState
+import com.rustcode.jetbrains.settings.RustCodeSettings
+import com.rustcode.jetbrains.settings.RustCodeSettingsState
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
@@ -124,11 +124,11 @@ internal class ApprovalModeRuntimeState(initialMode: ApprovalMode = ApprovalMode
 }
 
 @Service(Service.Level.PROJECT)
-class AtomCodeProjectService(private val project: Project) : Disposable {
+class RustCodeProjectService(private val project: Project) : Disposable {
     private val changes = PropertyChangeSupport(this)
-    private val settingsService = AtomCodeSettingsState.getInstance()
+    private val settingsService = RustCodeSettingsState.getInstance()
     private val auth = DaemonAuth(DaemonTokenFile.read(settingsService.state.port))
-    private val daemonSupervisor = AtomCodeDaemonSupervisor.getInstance()
+    private val daemonSupervisor = RustCodeDaemonSupervisor.getInstance()
 
     @Volatile
     var connectionState: ConnectionState = ConnectionState.Idle
@@ -158,7 +158,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
     val fileChangeService = FileChangeService(project)
 
     @Volatile
-    private var activeClient: AtomCodeDaemonClient? = null
+    private var activeClient: RustCodeDaemonClient? = null
 
     @Volatile
     private var activeClientKey: DaemonConnectionKey? = null
@@ -230,7 +230,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
     }
 
     private fun ensureConnectedImpl(
-        settings: AtomCodeSettings,
+        settings: RustCodeSettings,
         key: DaemonConnectionKey,
     ): CompletableFuture<ConnectionState> {
         setConnectionState(ConnectionState.CheckingDaemon)
@@ -468,7 +468,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
         }
     }
 
-    private fun loadSetupSnapshot(client: AtomCodeDaemonClient): CompletableFuture<SetupSnapshot> {
+    private fun loadSetupSnapshot(client: RustCodeDaemonClient): CompletableFuture<SetupSnapshot> {
         val authFuture = client.authStatus().exceptionally { null }
         val providersFuture = client.listProviders().exceptionally { null }
         val modelsFuture = client.listModels().exceptionally { emptyList() }
@@ -500,7 +500,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
         val settings = settingsService.state.copy()
         return daemonSupervisor.ensureReady(settings, auth).thenCompose {
             val client = newClient(settings)
-            AtomCodeLoginCoordinator.getInstance().login(client, onStatus).thenCompose {
+            RustCodeLoginCoordinator.getInstance().login(client, onStatus).thenCompose {
                 loadSetupSnapshot(client)
             }.whenComplete { _, error ->
                 if (error == null) ensureConnected()
@@ -597,7 +597,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
     }
 
     private fun syncProjectDirectory(
-        client: AtomCodeDaemonClient,
+        client: RustCodeDaemonClient,
         version: String,
         key: DaemonConnectionKey,
     ): CompletableFuture<ConnectionState> {
@@ -628,7 +628,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
             }
     }
 
-    private fun refreshApprovalMode(client: AtomCodeDaemonClient): CompletableFuture<Unit> {
+    private fun refreshApprovalMode(client: RustCodeDaemonClient): CompletableFuture<Unit> {
         return client.getApprovalMode().handle { response, _ ->
             if (response == null) return@handle Unit
             approvalModeState.refreshFromDaemon(response.mode)
@@ -694,10 +694,10 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
         )
     }
 
-    private fun newClient(settings: AtomCodeSettings): AtomCodeDaemonClient =
-        AtomCodeDaemonClient(settings.host, settings.port, settings.requestTimeoutMs, DaemonAuth(DaemonTokenFile.read(settings.port)))
+    private fun newClient(settings: RustCodeSettings): RustCodeDaemonClient =
+        RustCodeDaemonClient(settings.host, settings.port, settings.requestTimeoutMs, DaemonAuth(DaemonTokenFile.read(settings.port)))
 
-    private fun getOrCreateClient(): AtomCodeDaemonClient {
+    private fun getOrCreateClient(): RustCodeDaemonClient {
         val settings = settingsService.state.copy()
         val key = DaemonConnectionKey.from(settings)
         activeClient?.takeIf { activeClientKey == key }?.let { return it }
@@ -710,7 +710,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
         }
     }
 
-    private fun activateClient(client: AtomCodeDaemonClient, key: DaemonConnectionKey) {
+    private fun activateClient(client: RustCodeDaemonClient, key: DaemonConnectionKey) {
         synchronized(this) {
             activeClient = client
             activeClientKey = key
@@ -744,8 +744,8 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
     }
 
     companion object {
-        fun getInstance(project: Project): AtomCodeProjectService =
-            project.getService(AtomCodeProjectService::class.java)
+        fun getInstance(project: Project): RustCodeProjectService =
+            project.getService(RustCodeProjectService::class.java)
     }
 }
 

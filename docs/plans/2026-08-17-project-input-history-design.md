@@ -28,8 +28,8 @@ $RUSTCODE_HOME/history-v2/<hash>/images/
 ### Phase 1: Project history storage and concurrency
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/platform.rs`
-- Modify: `crates/atomcode-tuix/src/input/history.rs`
+- Modify: `crates/rustcode-tuix/src/platform.rs`
+- Modify: `crates/rustcode-tuix/src/input/history.rs`
 
 1. Add tests for project path stability, project/legacy blending, the 200-entry cutoff, project-only writes, and two writers merging without lost updates.
 2. Add a project-history path bundle derived from `SessionManager::project_hash(cwd)`.
@@ -41,8 +41,8 @@ $RUSTCODE_HOME/history-v2/<hash>/images/
 ### Phase 2: Runtime working-directory rebinding
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/lib.rs`
-- Modify: `crates/atomcode-tuix/src/event_loop/mod.rs`
+- Modify: `crates/rustcode-tuix/src/lib.rs`
+- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs`
 
 1. Add tests proving startup selects the current cwd and a committed cwd/session switch replaces the history view.
 2. Initialize history from the startup working directory.
@@ -63,9 +63,9 @@ $RUSTCODE_HOME/history-v2/<hash>/images/
 ## Verification
 
 ```bash
-env -u RUSTCODE_HOME cargo test -p atomcode-tuix input::history --lib
-env -u RUSTCODE_HOME cargo test -p atomcode-tuix working_dir_projection --lib
-env -u RUSTCODE_HOME cargo test -p atomcode-tuix --lib
+env -u RUSTCODE_HOME cargo test -p rustcode-tuix input::history --lib
+env -u RUSTCODE_HOME cargo test -p rustcode-tuix working_dir_projection --lib
+env -u RUSTCODE_HOME cargo test -p rustcode-tuix --lib
 ```
 
 Windows-specific locking and replacement behavior should additionally be exercised by CI or a Windows build host.

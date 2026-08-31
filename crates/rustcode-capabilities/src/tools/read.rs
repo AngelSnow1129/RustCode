@@ -1,4 +1,4 @@
-//! `read_file` — read a file (or list a directory) with line numbers and optional
+//! `read_file` -- read a file (or list a directory) with line numbers and optional
 //! slicing. Non-destructive ⇒ always `Safe`. Neutral core ported from the production
 //! reader, minus the coding enrichments (semantic skeleton, read_cache, file_store).
 
@@ -16,18 +16,18 @@ use serde_json::json;
 /// including callers that supplied an offset/limit.
 const MAX_IN_MEMORY_BYTES: u64 = 64 * 1024 * 1024;
 /// Default page size when the caller omits `limit`. Sized SO THE 50 KiB byte budget
-/// (`MAX_READ_OUTPUT_BYTES`) — not the line count — is what usually bounds a page: a
+/// (`MAX_READ_OUTPUT_BYTES`) -- not the line count -- is what usually bounds a page: a
 /// default read returns a substantial window in ONE call instead of truncating early at a
 /// small line cap and forcing pagination round-trips (each re-sends the whole context).
 /// Large CODE files read bare still return a symbol skeleton first (`SKELETON_THRESHOLD`),
 /// so this mainly governs offset reads and large non-code files (logs / JSON). Aligned to
-/// the ~1.5–3k peer baseline (opencode 2000 / oh-my-pi 3000).
+/// the ~1.5-3k peer baseline (opencode 2000 / oh-my-pi 3000).
 const DEFAULT_READ_LIMIT: usize = 1500;
 /// Per-call output budget for a read. `read_file` is EXEMPT from the artifact
-/// head/tail truncation middleware (`ArtifactMiddleware`), so THIS budget — not the
-/// 16 KiB artifact threshold — is what bounds a read, and it may exceed that threshold
+/// head/tail truncation middleware (`ArtifactMiddleware`), so THIS budget -- not the
+/// 16 KiB artifact threshold -- is what bounds a read, and it may exceed that threshold
 /// while keeping full line-based pagination intact. Sized to the ~50 KiB peer baseline
-/// (opencode/oh-my-pi) so a normal window — a symbol, or the default page —
+/// (opencode/oh-my-pi) so a normal window -- a symbol, or the default page --
 /// comes back in ONE call instead of forcing pagination round-trips, each of which
 /// re-sends the whole growing context for nothing. Pathologically long single lines are
 /// still capped by `MAX_LINE_LEN`.
@@ -42,7 +42,7 @@ const SKELETON_THRESHOLD: usize = 300;
 /// `vision` = the active model can SEE images. When true, reading an image file
 /// returns the picture itself (base64) for the model instead of the "binary,
 /// cannot display" text dead-end. The capability is decided at the coding layer
-/// and passed in as a plain flag — this crate stays model-agnostic (and core-free).
+/// and passed in as a plain flag -- this crate stays model-agnostic (and core-free).
 /// Default `false` (text-only).
 #[derive(Default)]
 pub struct ReadFileTool {
@@ -98,11 +98,11 @@ fn render_line(n: usize, line: &str) -> String {
     }
 }
 
-/// Read several disjoint line windows in ONE call — collapses what would otherwise be
+/// Read several disjoint line windows in ONE call -- collapses what would otherwise be
 /// N sequential paginated reads. Ranges render in the order given (no merge/dedup: the
 /// caller asked for exactly these), each under a `[Lines a-b]` header, ALL sharing the
 /// single `MAX_READ_OUTPUT_BYTES` budget so the combined result stays as bounded as a
-/// normal page (keeps the per-turn output small — important for prompt-cache/cold-start).
+/// normal page (keeps the per-turn output small -- important for prompt-cache/cold-start).
 /// When the budget runs out, the still-unshown ranges are reported so the model can
 /// re-request them.
 fn render_multi_range(file_path: &str, text: &str, total: usize, ranges: &[RangeArg]) -> String {
@@ -120,7 +120,7 @@ fn render_multi_range(file_path: &str, text: &str, total: usize, ranges: &[Range
         let start_idx = start - 1;
         if start_idx >= total {
             out.push_str(&format!(
-                "\n[Lines {start}-… : beyond end of file ({total} lines total)]\n"
+                "\n[Lines {start}-... : beyond end of file ({total} lines total)]\n"
             ));
             shown += 1;
             continue;
@@ -142,7 +142,7 @@ fn render_multi_range(file_path: &str, text: &str, total: usize, ranges: &[Range
             body.push_str(&rendered);
         }
         if body.is_empty() {
-            // Not even the first line fit → report overflow instead of an empty section.
+            // Not even the first line fit -> report overflow instead of an empty section.
             budget_hit = true;
             break;
         }
@@ -169,10 +169,10 @@ fn render_multi_range(file_path: &str, text: &str, total: usize, ranges: &[Range
 const MAX_IMAGE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// MIME type for an image file by extension, or `None` if not a recognized raster image.
-/// Gates which binaries `read_file` hands to a vision model — only true images, never a
+/// Gates which binaries `read_file` hands to a vision model -- only true images, never a
 /// PDF / archive / executable (those keep the text recovery hint). The set matches what
 /// the providers actually accept AND the user-paste path (png/jpg/jpeg/gif/webp); BMP is
-/// deliberately EXCLUDED — neither the OpenAI nor Anthropic vision wire format accepts it,
+/// deliberately EXCLUDED -- neither the OpenAI nor Anthropic vision wire format accepts it,
 /// so handing one over would be a hard gateway rejection, strictly worse than the
 /// binary-text dead-end it would replace.
 fn image_media_type(path: &std::path::Path) -> Option<&'static str> {
@@ -210,8 +210,8 @@ struct Args {
 }
 
 /// Deserialize a usize that weak models may send as a float or a string (`50`, `"50"`,
-/// `50.0`, `"50.0"`) instead of an integer. Absent / null / empty → `None`.
-/// Shared with `grep` (max_results/context) — keep this the single source.
+/// `50.0`, `"50.0"`) instead of an integer. Absent / null / empty -> `None`.
+/// Shared with `grep` (max_results/context) -- keep this the single source.
 pub(crate) fn lenient_usize<'de, D>(d: D) -> Result<Option<usize>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -272,7 +272,7 @@ impl Tool for ReadFileTool {
         "read_file"
     }
     fn description(&self) -> &str {
-        "Read a file — or any slice of one — from the filesystem. This is the way to read \
+        "Read a file -- or any slice of one -- from the filesystem. This is the way to read \
          or slice files: prefer it over `bash cat`/`head`/`tail` or a `python`/`awk` script, \
          which return partial content and bypass paging, caching, and history retention. \
          Returns the contents prefixed with 1-based line numbers (`<n>\\t<content>`). By \
@@ -316,18 +316,18 @@ impl Tool for ReadFileTool {
             "required": ["file_path"]
         })
     }
-    /// No side effects — a pure read. Makes it `parallel_safe` (concurrent
+    /// No side effects -- a pure read. Makes it `parallel_safe` (concurrent
     /// execution) and allowed in plan mode.
     fn read_only_hint(&self) -> bool {
         true
     }
     /// Self-capped at `MAX_READ_OUTPUT_BYTES` with 1-based line numbers and offset/limit
-    /// pagination — the artifact head/tail middleware must pass it through WHOLE, or the
+    /// pagination -- the artifact head/tail middleware must pass it through WHOLE, or the
     /// line numbering breaks. This is why the read budget may exceed the artifact threshold.
     fn self_bounds_output(&self) -> bool {
         true
     }
-    // read is non-destructive → risk() defaults to Safe.
+    // read is non-destructive -> risk() defaults to Safe.
     async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -337,7 +337,7 @@ impl Tool for ReadFileTool {
                 ))
             }
         };
-        // Only enforce the top-level `limit` when it actually governs the read — a
+        // Only enforce the top-level `limit` when it actually governs the read -- a
         // multi-range request ignores top-level offset/limit (per-window limits are
         // coerced to ≥1 in render_multi_range), so it must not be rejected here.
         let has_ranges = a.ranges.as_deref().is_some_and(|r| !r.is_empty());
@@ -398,7 +398,7 @@ impl Tool for ReadFileTool {
             }
         };
         if looks_binary(&bytes) {
-            // VISION path: an image file read by a model that can SEE → hand back the
+            // VISION path: an image file read by a model that can SEE -> hand back the
             // picture itself (base64) so it reaches the model on a follow-up user
             // message, instead of the "cannot display" text dead-end. Gated on
             // `self.vision` (model capability) AND a recognized image type AND a sane
@@ -408,7 +408,7 @@ impl Tool for ReadFileTool {
                     let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
                     return ok_with_images(
                         format!(
-                            "[Image: {} ({} bytes) — attached below for the vision model]",
+                            "[Image: {} ({} bytes) -- attached below for the vision model]",
                             a.file_path,
                             bytes.len()
                         ),
@@ -540,7 +540,7 @@ fn binary_recovery_hint(path: &std::path::Path, full_path_str: &str) -> String {
              - bash: `catdoc {q}`"
         ),
         "docx" => format!(
-            "\n\n[Recovery] This is a modern Word (.docx) — a zip containing XML. Run:\n\
+            "\n\n[Recovery] This is a modern Word (.docx) -- a zip containing XML. Run:\n\
              - bash: `unzip -p {q} word/document.xml | sed 's/<[^>]*>//g'`\n\
              - or: `pandoc {q} -t plain`"
         ),
@@ -611,7 +611,7 @@ mod tests {
         // fractional value, accept a non-finite value, or saturate overflow.
         for bad in [
             r#"{"file_path":"x","offset":-5.0}"#,  // negative float
-            r#"{"file_path":"x","offset":-5}"#,    // bare negative int (untagged → f64)
+            r#"{"file_path":"x","offset":-5}"#,    // bare negative int (untagged -> f64)
             r#"{"file_path":"x","limit":"-5"}"#,   // negative as string
             r#"{"file_path":"x","offset":"NaN"}"#, // NaN as string
             r#"{"file_path":"x","offset":"Infinity"}"#,
@@ -699,7 +699,7 @@ mod tests {
             out.contains("[Lines 7-7]") && out.contains("7\tl7"),
             "{out}"
         );
-        // only the requested windows — unrequested lines are absent
+        // only the requested windows -- unrequested lines are absent
         assert!(!out.contains("1\tl1") && !out.contains("5\tl5"), "{out}");
         // rendered in request order
         assert!(out.find("[Lines 2-3]") < out.find("[Lines 7-7]"), "{out}");
@@ -771,7 +771,7 @@ mod tests {
     #[tokio::test]
     async fn ranges_param_reads_multiple_windows_and_bypasses_skeleton() {
         let d = tempfile::tempdir().unwrap();
-        // >300 code symbols → a plain read would return a skeleton; ranges must bypass it.
+        // >300 code symbols -> a plain read would return a skeleton; ranges must bypass it.
         let body = (1..=400)
             .map(|n| format!("fn f{n}() {{}}"))
             .collect::<Vec<_>>()
@@ -835,7 +835,7 @@ mod tests {
 
     #[tokio::test]
     async fn image_file_stays_binary_text_for_text_only_model() {
-        // A text-only model would reject a base64 image / waste tokens → keep the
+        // A text-only model would reject a base64 image / waste tokens -> keep the
         // existing "Binary file" text and attach NO image.
         let d = tempfile::tempdir().unwrap();
         let bytes: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
@@ -854,7 +854,7 @@ mod tests {
     #[tokio::test]
     async fn non_image_binary_stays_text_even_for_vision_model() {
         // A vision model reading a NON-image binary (e.g. a PDF) still gets the text
-        // dead-end + recovery hint — only true images become `images`.
+        // dead-end + recovery hint -- only true images become `images`.
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("report.pdf"), b"%PDF-1.4\0\0\0binary blob").unwrap();
         let r = ReadFileTool::new(true)
@@ -895,7 +895,7 @@ mod tests {
     async fn omitted_limit_uses_a_bounded_page_with_an_actionable_continuation() {
         let d = tempfile::tempdir().unwrap();
         // Just over the 1500-line default page (short lines, so the LINE cap binds before
-        // the 50 KiB byte budget) → one bounded page + an actionable continuation.
+        // the 50 KiB byte budget) -> one bounded page + an actionable continuation.
         let text = (1..=1600)
             .map(|n| format!("line {n}"))
             .collect::<Vec<_>>()
@@ -922,7 +922,7 @@ mod tests {
     async fn read_page_is_bounded_by_its_own_budget_not_the_artifact_threshold() {
         let d = tempfile::tempdir().unwrap();
         // ~200 wide lines (~100 KiB) so the page overflows the 50 KiB read budget and must
-        // paginate — proving the bound is the read budget, not the artifact threshold.
+        // paginate -- proving the bound is the read budget, not the artifact threshold.
         let text = (1..=200)
             .map(|n| format!("line {n} {}", "x".repeat(500)))
             .collect::<Vec<_>>()
@@ -1209,7 +1209,7 @@ mod tests {
     #[tokio::test]
     async fn skeleton_threshold_boundary() {
         let d = tempfile::tempdir().unwrap();
-        // exactly 300 lines (fn + 299 fillers) → total > 300 is false → full read
+        // exactly 300 lines (fn + 299 fillers) -> total > 300 is false -> full read
         let mut at = String::from("fn f() {}\n");
         for _ in 0..299 {
             at.push_str("// x\n");
@@ -1223,7 +1223,7 @@ mod tests {
             "300 lines must NOT skeleton: {}",
             r.content
         );
-        // 301 lines → skeleton
+        // 301 lines -> skeleton
         let mut over = String::from("fn f() {}\n");
         for _ in 0..300 {
             over.push_str("// x\n");

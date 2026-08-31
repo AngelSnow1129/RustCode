@@ -1,7 +1,7 @@
 //! `offline_mode`: a single process-level verdict, seeded once at startup from the
 //! `offline_mode` config value + `RUSTCODE_OFFLINE` env, read everywhere via
 //! `is_offline_active()`. `auto` starts optimistic-online and a lazy network-failure
-//! hook (`mark_network_unreachable`) flips it offline. Default is `Off` — the online
+//! hook (`mark_network_unreachable`) flips it offline. Default is `Off` -- the online
 //! build never enters an offline branch.
 
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,7 @@ pub fn offline_resolved(mode: OfflineMode, env_raw: Option<&str>) -> bool {
 }
 
 /// Seed the process verdict + note from an optional loaded `Config`, reading the
-/// `RUSTCODE_OFFLINE` env override internally. Missing config → defaults (Off / no note).
+/// `RUSTCODE_OFFLINE` env override internally. Missing config -> defaults (Off / no note).
 /// Call once at startup, before any consumer of `is_offline_active()`.
 pub fn seed_offline_from_config(cfg: Option<&super::Config>) {
     let mode = cfg.map(|c| c.offline_mode).unwrap_or_default();
@@ -83,7 +83,7 @@ pub fn is_offline_active() -> bool {
     matches!(VERDICT.load(Ordering::Relaxed), V_OFFLINE | V_AUTO_OFFLINE)
 }
 
-/// Store the environment-level mirror/registry note (blank/whitespace → cleared).
+/// Store the environment-level mirror/registry note (blank/whitespace -> cleared).
 pub fn set_offline_note(note: Option<String>) {
     let cleaned = note.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     *NOTE.lock().unwrap() = cleaned;
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn offline_resolved_truth_table() {
-        // env None → follows mode
+        // env None -> follows mode
         assert!(offline_resolved(OfflineMode::On, None));
         assert!(!offline_resolved(OfflineMode::Off, None));
         assert!(

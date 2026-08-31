@@ -1,6 +1,6 @@
 # DeepSeek V4 Flash paired evaluation
 
-This harness compares the AtomGit and Volcano Engine DeepSeek V4 Flash model
+This harness compares the RustCode and Volcano Engine DeepSeek V4 Flash model
 profiles through separate RustCode headless runtimes. Candidate runs in a pair
 start concurrently and never share a writable session or fixture. Runs use
 `--ephemeral --output-format jsonl`; model-tier cases additionally use `--no-tools`.

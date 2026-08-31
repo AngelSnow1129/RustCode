@@ -1,7 +1,7 @@
-//! Injectable monotonic clock — the kernel's one determinism seam for TIME.
+//! Injectable monotonic clock -- the kernel's one determinism seam for TIME.
 //!
 //! The kernel reads a [`Clock`] ONLY to stamp a turn's `elapsed_ms` (a `MessageMeta`
-//! sidecar — never part of the wire/prefix, never affecting model behavior or the prefix
+//! sidecar -- never part of the wire/prefix, never affecting model behavior or the prefix
 //! cache). That `elapsed_ms` is the kernel's SOLE non-deterministic value: ids are
 //! monotonic counters, cwd is pinnable (`AgentBuilder::working_dir`), and there is no
 //! randomness anywhere. Injecting a [`FixedClock`] therefore makes a whole run's
@@ -15,7 +15,7 @@ pub trait Clock: Send + Sync {
     fn now_millis(&self) -> u64;
 }
 
-/// The real monotonic clock — the kernel default.
+/// The real monotonic clock -- the kernel default.
 pub struct SystemClock {
     origin: Instant,
 }
@@ -41,7 +41,7 @@ impl Clock for SystemClock {
 }
 
 /// A FIXED clock: `now_millis` always returns the same value, so every measured
-/// `elapsed_ms` is `0` — making a run's snapshots reproducible for eval / replay.
+/// `elapsed_ms` is `0` -- making a run's snapshots reproducible for eval / replay.
 pub struct FixedClock(pub u64);
 
 impl Clock for FixedClock {

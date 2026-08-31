@@ -11,11 +11,11 @@ core 中的 conversation、provider、tool、MCP、plugin、skill、LSP、vision
 
 本次收尾已完成物理退役：
 
-- workspace metadata、default members 和 lockfile 中已不存在 `atomcode-core`；
-- CLI、TUI、daemon 已删除对 `atomcode-core` 的直接依赖；
+- workspace metadata、default members 和 lockfile 中已不存在 `rustcode-core`；
+- CLI、TUI、daemon 已删除对 `rustcode-core` 的直接依赖；
 - daemon legacy importer fixture 已迁至 daemon，行为 fixture/invariant tests 已迁至 capabilities/config；
-- proprietary release feature 改由最终 CLI 包的 `atomcode/codingplan-crypto` 持有；
-- 无生产代码引用 `atomcode_core::`，历史说明和迁移注释不构成可达依赖。
+- proprietary release feature 改由最终 CLI 包的 `rustcode/codingplan-crypto` 持有；
+- 无生产代码引用 `rustcode_core::`，历史说明和迁移注释不构成可达依赖。
 
 按四态判定：
 
@@ -24,7 +24,7 @@ core 中的 conversation、provider、tool、MCP、plugin、skill、LSP、vision
 - [x] 未发现 core runtime fallback
 - [x] core crate、依赖、fixture 和发布 feature surface 已删除
 
-因此代码结构已达到“`atomcode-core` 完全退役”。本文未勾选的真机项目仍是 release 验收门槛，不应由本地编译或单测替代。
+因此代码结构已达到“`rustcode-core` 完全退役”。本文未勾选的真机项目仍是 release 验收门槛，不应由本地编译或单测替代。
 
 ## 2. 建议修复范围
 
@@ -35,8 +35,8 @@ core 中的 conversation、provider、tool、MCP、plugin、skill、LSP、vision
 将：
 
 ```text
-crates/atomcode-core/tests/fixtures/session/legacy_full.json
-crates/atomcode-core/tests/fixtures/session/legacy_minimal.json
+crates/rustcode-core/tests/fixtures/session/legacy_full.json
+crates/rustcode-core/tests/fixtures/session/legacy_minimal.json
 ```
 
 迁移至：
@@ -63,21 +63,21 @@ crates/rustcode-daemon/tests/fixtures/session/legacy_minimal.json
 当前官方构建通过：
 
 ```text
---features atomcode-core/codingplan-crypto
+--features rustcode-core/codingplan-crypto
 ```
 
-间接激活 `atomcode-auth/codingplan-crypto`。删除 core 前必须建立由最终发布二进制拥有的明确 feature，例如：
+间接激活 `rustcode-auth/codingplan-crypto`。删除 core 前必须建立由最终发布二进制拥有的明确 feature，例如：
 
 ```toml
-# crates/atomcode-cli/Cargo.toml
+# crates/rustcode-cli/Cargo.toml
 [features]
-codingplan-crypto = ["atomcode-auth/codingplan-crypto"]
+codingplan-crypto = ["rustcode-auth/codingplan-crypto"]
 ```
 
 正式构建改为：
 
 ```text
---features atomcode/codingplan-crypto
+--features rustcode/codingplan-crypto
 ```
 
 验收条件：
@@ -85,21 +85,21 @@ codingplan-crypto = ["atomcode-auth/codingplan-crypto"]
 - [x] 开源默认构建继续使用 stub
 - [ ] proprietary release 构建包含真实签名实现
 - [ ] CodingPlan claim/status 和 AtomGit gateway 请求签名真机通过
-- [x] 发布脚本和 workspace 构建入口不再引用 `atomcode-core/codingplan-crypto`
+- [x] 发布脚本和 workspace 构建入口不再引用 `rustcode-core/codingplan-crypto`
 
-#### C. 物理删除 atomcode-core
+#### C. 物理删除 rustcode-core
 
 删除：
 
-- `crates/atomcode-core/`
-- CLI、TUI、daemon 中的 `atomcode-core` 依赖
-- workspace `default-members` 中的 `crates/atomcode-core`
+- `crates/rustcode-core/`
+- CLI、TUI、daemon 中的 `rustcode-core` 依赖
+- workspace `default-members` 中的 `crates/rustcode-core`
 - `Cargo.lock` 中仅由 core 引入的依赖
 
 验收条件：
 
-- [x] `rg 'atomcode_core::' crates Cargo.toml` 无生产代码引用
-- [x] `cargo metadata` 中不存在 `atomcode-core`
+- [x] `rg 'rustcode_core::' crates Cargo.toml` 无生产代码引用
+- [x] `cargo metadata` 中不存在 `rustcode-core`
 - [x] capabilities、coding、kernel 的依赖方向保持 core-free
 - [x] workspace 全 targets 编译通过
 
@@ -116,17 +116,17 @@ session_404_recovery.jsonl
 
 建议归属：
 
-- prompt/tool-call/result parity：`atomcode-coding` 或 `atomcode-kernel`
-- bash exit marker、shell workaround：`atomcode-capabilities`
-- unified prompt tests：`atomcode-config` 或 `atomcode-coding`
+- prompt/tool-call/result parity：`rustcode-coding` 或 `rustcode-kernel`
+- bash exit marker、shell workaround：`rustcode-capabilities`
+- unified prompt tests：`rustcode-config` 或 `rustcode-coding`
 
 不要为了删除 crate 直接丢弃仍能防回归的测试。
 
 #### E. 删除失效 build script 和 proxy facade
 
-`atomcode-core/build.rs` 注入的 `RUSTCODE_BUILD_ID` 已无有效消费者；真正 CLI build ID 由 `atomcode-cli/build.rs` 提供。
+`rustcode-core/build.rs` 注入的 `RUSTCODE_BUILD_ID` 已无有效消费者；真正 CLI build ID 由 `rustcode-cli/build.rs` 提供。
 
-`atomcode-core::proxy` 同样已无生产调用方。各 HTTP 客户端已经在自己的 owner crate 中应用 proxy/TLS policy，不需要再迁移 core proxy。
+`rustcode-core::proxy` 同样已无生产调用方。各 HTTP 客户端已经在自己的 owner crate 中应用 proxy/TLS policy，不需要再迁移 core proxy。
 
 验收条件：
 
@@ -138,12 +138,12 @@ session_404_recovery.jsonl
 
 修正仍声明 core 持有 config、i18n、LSP、plugin、proxy 的失真注释，重点包括：
 
-- `crates/atomcode-config/src/lib.rs`
-- `crates/atomcode-config/src/proxy.rs`
-- `crates/atomcode-tuix/src/i18n/mod.rs`
-- `crates/atomcode-coding/src/parts.rs`
-- `crates/atomcode-cli/tests/uninstall_integration.rs`
-- `crates/atomcode-tuix/tests/plugin_integration.rs`
+- `crates/rustcode-config/src/lib.rs`
+- `crates/rustcode-config/src/proxy.rs`
+- `crates/rustcode-tuix/src/i18n/mod.rs`
+- `crates/rustcode-coding/src/parts.rs`
+- `crates/rustcode-cli/tests/uninstall_integration.rs`
+- `crates/rustcode-tuix/tests/plugin_integration.rs`
 
 验收条件：
 
@@ -164,9 +164,9 @@ session_404_recovery.jsonl
 
 ```bash
 cargo test -p rustcode-daemon
-cargo test -p atomcode-capabilities
-cargo test -p atomcode-coding
-cargo test -p atomcode
+cargo test -p rustcode-capabilities
+cargo test -p rustcode-coding
+cargo test -p rustcode
 ```
 
 ### 提交 2：物理删除 core
@@ -180,9 +180,9 @@ cargo test -p atomcode
 
 ```bash
 cargo check --workspace --all-targets
-cargo tree -p atomcode-capabilities
-cargo tree -p atomcode-kernel
-rg 'atomcode_core::|atomcode-core' Cargo.toml crates
+cargo tree -p rustcode-capabilities
+cargo tree -p rustcode-kernel
+rg 'rustcode_core::|rustcode-core' Cargo.toml crates
 ```
 
 ### 提交 3：注释和文档收口
@@ -330,13 +330,13 @@ git diff --check
 
 ### 5.10 ACP、clix 与 headless
 
-- [ ] `atomcode acp` 能创建 session 并完成 prompt
+- [ ] `rustcode acp` 能创建 session 并完成 prompt
 - [ ] ACP 图片 prompt 进入 vision 预处理
 - [ ] ACP approval 四种选择映射正确
 - [ ] ACP cancel 只取消目标 session
 - [ ] ACP provider error 不被误报为成功停止
-- [ ] `atomcodex code` 可完成一次读文件和修改文件任务
-- [ ] `atomcodex review` 能读取 diff 并输出 findings
+- [ ] `rustcodex code` 可完成一次读文件和修改文件任务
+- [ ] `rustcodex review` 能读取 diff 并输出 findings
 - [ ] clix 超时或取消有明确非成功终态
 - [ ] headless 遇到必须人工审批的操作时 fail-closed
 
@@ -348,8 +348,8 @@ git diff --check
 - [ ] no_proxy 确实绕过系统代理
 - [ ] `RUSTCODE_TLS_MAX=1.2` 对 AtomGit 登录和 provider 生效
 - [ ] Windows 默认 SChannel 可以登录和聊天
-- [ ] Windows 能访问 `acs.atomgit.com`
-- [ ] Windows 能访问 `llm-api.atomgit.com`
+- [ ] Windows 能访问 `gateway.example.com`
+- [ ] Windows 能访问 `gateway.example.com`
 - [ ] 自动 TLS fallback 只影响 AtomGit endpoint
 - [ ] 外部 provider 不被无条件降级到 TLS 1.2
 - [ ] 版本检查和自更新在 proxy/no_proxy 下均正常
@@ -360,14 +360,14 @@ git diff --check
 退役实现已通过：
 
 - [x] `cargo check --workspace --all-targets`
-- [x] `atomcode` lib：52 tests
+- [x] `rustcode` lib：52 tests
 - [x] `rustcode-daemon` lib：202 tests
-- [x] `atomcode-tuix` lib：1633 tests
-- [x] `atomcode-capabilities` lib：1094 tests
+- [x] `rustcode-tuix` lib：1633 tests
+- [x] `rustcode-capabilities` lib：1094 tests
 - [x] 迁移后的 session fixture invariants：8 tests
 - [x] daemon legacy boundary repair：5 tests
 - [x] config unified prompt：3 tests
-- [x] `cargo check -p atomcode --features codingplan-crypto`
+- [x] `cargo check -p rustcode --features codingplan-crypto`
 - [x] kernel、capabilities 不依赖 core
 - [x] `git diff --check`
 - [ ] `cargo fmt --all -- --check`（workspace 现有未格式化差异；本次新增/迁移文件需保持局部格式检查）
@@ -376,18 +376,18 @@ git diff --check
 `cargo check --workspace --all-targets` 当前有一个与 core 收口无关的 warning：
 
 ```text
-crates/atomcode-kernel/tests/liveness.rs: unused import SilentStreamProvider
+crates/rustcode-kernel/tests/liveness.rs: unused import SilentStreamProvider
 ```
 
 ## 7. 发布门槛
 
-以下条件全部满足后，才可以把状态更新为“atomcode-core 已完全退役”：
+以下条件全部满足后，才可以把状态更新为“rustcode-core 已完全退役”：
 
 - [x] core fixture 已迁往真实 owner
 - [x] proprietary crypto feature 已由发布入口持有
 - [x] CLI、TUI、daemon 不再依赖 core
 - [x] workspace 不再包含 core
-- [x] `crates/atomcode-core` 已删除
+- [x] `crates/rustcode-core` 已删除
 - [x] 无 core runtime fallback
 - [x] legacy importer 仍是单向、fail-closed、可测试的兼容入口
 - [x] workspace 全 targets 编译通过

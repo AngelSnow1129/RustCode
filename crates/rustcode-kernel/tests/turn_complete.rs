@@ -1,10 +1,10 @@
 //! The `turn_complete` terminal hook is the per-turn twin of `session_end`: it fires
-//! EXACTLY ONCE per turn on EVERY terminal path the driver sees a `TurnComplete` for —
-//! normal stop AND error/fuse/cancel — carrying the `StopReason`. This is the seam a
+//! EXACTLY ONCE per turn on EVERY terminal path the driver sees a `TurnComplete` for --
+//! normal stop AND error/fuse/cancel -- carrying the `StopReason`. This is the seam a
 //! per-turn persistence / telemetry hook builds on (run however the turn ended). These
 //! tests prove the `finish_turn` funnel reaches the hook with the RIGHT reason on a
 //! success terminal and an error terminal, and that a prompt BLOCKED before any turn
-//! ran does NOT fire it (no turn → no terminal).
+//! ran does NOT fire it (no turn -> no terminal).
 
 use async_trait::async_trait;
 use rustcode_kernel::agent::Agent;
@@ -79,7 +79,7 @@ async fn fires_once_with_stopped_on_normal_turn() {
 }
 
 /// A mid-stream provider error fires `turn_complete` once with
-/// `StopReason::ProviderError` — the error terminal funnels through the same seam.
+/// `StopReason::ProviderError` -- the error terminal funnels through the same seam.
 #[tokio::test]
 async fn fires_with_provider_error_on_mid_stream_error() {
     let provider = Arc::new(ScriptedProvider::events(vec![
@@ -104,11 +104,11 @@ async fn fires_with_provider_error_on_mid_stream_error() {
 }
 
 /// A prompt BLOCKED by `user_prompt_submit` ran NO turn (no `turn_start` / `TurnStarted`)
-/// — so `turn_complete` must NOT fire, even though the driver still gets a
+/// -- so `turn_complete` must NOT fire, even though the driver still gets a
 /// `TurnComplete { PromptRejected }` event.
 #[tokio::test]
 async fn does_not_fire_when_prompt_is_rejected() {
-    // The provider must never be called — script nothing meaningful.
+    // The provider must never be called -- script nothing meaningful.
     let provider = Arc::new(MockProvider::new(vec![vec![StreamEvent::Done {
         truncated: false,
     }]]));

@@ -1,4 +1,4 @@
-//! Kernel `Tool` adapter — surfaces a discovered MCP tool as a neutral kernel
+//! Kernel `Tool` adapter -- surfaces a discovered MCP tool as a neutral kernel
 //! `Tool`. Replaces core's `tool_adapter.rs` (which targeted the core Tool trait
 //! with its `definition()`/`approval()` model). Here the adapter speaks the kernel
 //! trait directly: split metadata accessors, `risk()` instead of `approval()`, and
@@ -75,7 +75,7 @@ pub struct McpToolAdapter {
     full_name: String,
     description: String,
     schema: serde_json::Value,
-    /// Server-declared `annotations.readOnlyHint` — a read-only tool has no side
+    /// Server-declared `annotations.readOnlyHint` -- a read-only tool has no side
     /// effects, so it is `Safe` (no approval) and allowed during plan mode.
     read_only: bool,
 }
@@ -127,14 +127,14 @@ impl Tool for McpToolAdapter {
         self.schema.clone()
     }
 
-    /// MCP servers are external code, so `Risky` by default — the approval middleware
+    /// MCP servers are external code, so `Risky` by default -- the approval middleware
     /// gates the call (the kernel never sandboxes). EXCEPTION: a server configured
     /// `trust: true`, or a tool on its `autoApprove` allowlist (or granted "Always"),
-    /// is `Safe` so it skips the prompt — this is what makes `.mcp.json` trust actually
+    /// is `Safe` so it skips the prompt -- this is what makes `.mcp.json` trust actually
     /// take effect (it was silently ignored before). The `mcp__{server}__{tool}` name
     /// conveys the origin to the prompt when it does fire.
     fn risk(&self, _args: &str) -> RiskLevel {
-        // A server-declared read-only tool has no side effects → Safe (no approval),
+        // A server-declared read-only tool has no side effects -> Safe (no approval),
         // matching codex's `readOnlyHint` handling. Otherwise trust/auto-approve decide.
         if self.read_only
             || self.registry.is_server_trusted(&self.server)
@@ -153,7 +153,7 @@ impl Tool for McpToolAdapter {
     }
 
     /// "Always" approves THIS tool (`mcp__{server}__{tool}`) regardless of the call's
-    /// arguments — an empty scope keys the grant on the tool name alone. Without this
+    /// arguments -- an empty scope keys the grant on the tool name alone. Without this
     /// the default per-args grant means a differing query re-prompts every time.
     fn always_grant_scope(&self, _args: &str) -> String {
         String::new()
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn read_only_hint_tool_is_safe_even_when_untrusted() {
-        // A server-declared read-only tool (readOnlyHint: true) has no side effects →
+        // A server-declared read-only tool (readOnlyHint: true) has no side effects ->
         // Safe (skips approval) and exposes read_only_hint() for plan mode.
         let reg = Arc::new(McpRegistry::new());
         let mut ro = info("docs", "query");
@@ -266,7 +266,7 @@ mod tests {
     fn always_grant_scope_is_tool_wide_not_per_args() {
         let adapter =
             McpToolAdapter::new(Arc::new(McpRegistry::new()), info("docs", "query")).unwrap();
-        // Same scope regardless of args → "Always" persists across differing calls.
+        // Same scope regardless of args -> "Always" persists across differing calls.
         assert_eq!(
             adapter.always_grant_scope(r#"{"q":"a"}"#),
             adapter.always_grant_scope(r#"{"q":"b"}"#)
@@ -277,7 +277,7 @@ mod tests {
     /// The mounted full name must be a valid OpenAI function name, i.e. only
     /// `[a-zA-Z0-9_-]` (litellm rejects any other character with a 400
     /// `invalid_request_error`). Real MCP servers routinely declare server/tool
-    /// names with spaces, colons, dots — see issue #1289 where a server with
+    /// names with spaces, colons, dots -- see issue #1289 where a server with
     /// such a name broke the whole request.
     #[test]
     fn full_name_sanitizes_characters_opena_llm_rejects() {

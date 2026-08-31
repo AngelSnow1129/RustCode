@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.daemon
 
-import com.rustcode.jetbrains.settings.AtomCodeSettings
+import com.rustcode.jetbrains.settings.RustCodeSettings
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -35,8 +35,8 @@ internal interface DaemonProcessLauncher {
     fun start(): CompletableFuture<DaemonLaunchResult>
 }
 
-internal class AtomCodeDaemonProcess(
-    private val settings: AtomCodeSettings,
+internal class RustCodeDaemonProcess(
+    private val settings: RustCodeSettings,
 ) : DaemonProcessLauncher {
     private companion object {
         val EXTRACTION_LOCK = Any()
@@ -78,7 +78,7 @@ internal class AtomCodeDaemonProcess(
     fun expectedBundledVersion(): String? {
         if (settings.daemonBinaryPath.trim().isNotEmpty()) return null
         if (!hasBundledDaemonResource()) return null
-        val loader = AtomCodeDaemonProcess::class.java.classLoader
+        val loader = RustCodeDaemonProcess::class.java.classLoader
         return loader.getResourceAsStream("resources/bin/daemon-version.txt")?.use { stream ->
             stream.bufferedReader().readText().trim().takeIf { it.isNotBlank() }
         }
@@ -89,7 +89,7 @@ internal class AtomCodeDaemonProcess(
         val platformDir = platformDir() ?: return null
         val executable = executableName("rustcode-daemon")
         val resourcePath = "resources/bin/$platformDir/$executable"
-        val loader = AtomCodeDaemonProcess::class.java.classLoader
+        val loader = RustCodeDaemonProcess::class.java.classLoader
         return loader.getResourceAsStream(resourcePath)?.use { stream ->
             val digest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -154,7 +154,7 @@ internal class AtomCodeDaemonProcess(
         val executable = executableName("rustcode-daemon")
         val resourcePath = "resources/bin/$platformDir/$executable"
         val contentHash = expectedBundledHash() ?: return null
-        val loader = AtomCodeDaemonProcess::class.java.classLoader
+        val loader = RustCodeDaemonProcess::class.java.classLoader
         val destination = Path.of(
             System.getProperty("java.io.tmpdir"),
             "rustcode-jetbrains",
@@ -182,7 +182,7 @@ internal class AtomCodeDaemonProcess(
         val platformDir = platformDir() ?: return false
         val executable = executableName("rustcode-daemon")
         val resourcePath = "resources/bin/$platformDir/$executable"
-        return AtomCodeDaemonProcess::class.java.classLoader.getResource(resourcePath) != null
+        return RustCodeDaemonProcess::class.java.classLoader.getResource(resourcePath) != null
     }
 
     private fun pathBinary(name: String): Path? {

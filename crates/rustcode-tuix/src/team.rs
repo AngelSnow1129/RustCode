@@ -183,7 +183,7 @@ impl TeamProjection {
             }
         }
         format!(
-            "Team: {} run(s) · {completed} completed · {running} running · {failed} failed · {stopped} stopped",
+            "Team: {} run(s) . {completed} completed . {running} running . {failed} failed . {stopped} stopped",
             self.runs.len()
         )
     }
@@ -238,7 +238,7 @@ impl TeamProjection {
             .iter()
             .map(|(member_id, member)| SubtaskItem {
                 // The member id is the stable per-run identity (`reviewer#1`,
-                // `explorer#2`, …). A role label is not unique and BTreeMap
+                // `explorer#2`, ...). A role label is not unique and BTreeMap
                 // iteration order is not the original Task argument order.
                 label: member_id.clone(),
                 description: member.description.clone(),

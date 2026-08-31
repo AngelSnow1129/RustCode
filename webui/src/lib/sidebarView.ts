@@ -1,6 +1,6 @@
 export type SidebarViewMode = 'workspace' | 'flat';
 
-const SIDEBAR_VIEW_STORAGE_KEY = 'atomcode.sidebar.view.v1';
+const SIDEBAR_VIEW_STORAGE_KEY = 'rustcode.sidebar.view.v1';
 
 interface SidebarViewStorage {
   getItem(key: string): string | null;

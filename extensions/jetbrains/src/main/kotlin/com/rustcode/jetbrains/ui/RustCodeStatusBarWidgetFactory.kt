@@ -1,7 +1,7 @@
 package com.rustcode.jetbrains.ui
 
 import com.rustcode.jetbrains.daemon.ConnectionState
-import com.rustcode.jetbrains.services.AtomCodeProjectService
+import com.rustcode.jetbrains.services.RustCodeProjectService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.StatusBarWidget
@@ -11,14 +11,14 @@ import java.awt.event.MouseEvent
 import java.beans.PropertyChangeListener
 import javax.swing.SwingUtilities
 
-class AtomCodeStatusBarWidgetFactory : StatusBarWidgetFactory {
-    override fun getId(): String = AtomCodeStatusBarWidget.ID
+class RustCodeStatusBarWidgetFactory : StatusBarWidgetFactory {
+    override fun getId(): String = RustCodeStatusBarWidget.ID
 
     override fun getDisplayName(): String = "RustCode"
 
     override fun isAvailable(project: Project): Boolean = true
 
-    override fun createWidget(project: Project): StatusBarWidget = AtomCodeStatusBarWidget(project)
+    override fun createWidget(project: Project): StatusBarWidget = RustCodeStatusBarWidget(project)
 
     override fun disposeWidget(widget: StatusBarWidget) {
         widget.dispose()
@@ -27,8 +27,8 @@ class AtomCodeStatusBarWidgetFactory : StatusBarWidgetFactory {
     override fun canBeEnabledOn(statusBar: StatusBar): Boolean = true
 }
 
-private class AtomCodeStatusBarWidget(private val project: Project) : StatusBarWidget, StatusBarWidget.TextPresentation {
-    private val service = AtomCodeProjectService.getInstance(project)
+private class RustCodeStatusBarWidget(private val project: Project) : StatusBarWidget, StatusBarWidget.TextPresentation {
+    private val service = RustCodeProjectService.getInstance(project)
     private var statusBar: StatusBar? = null
     private val listener = PropertyChangeListener {
         SwingUtilities.invokeLater {
@@ -55,40 +55,40 @@ private class AtomCodeStatusBarWidget(private val project: Project) : StatusBarW
 
     override fun getText(): String =
         when (service.connectionState) {
-            is ConnectionState.Ready -> "AtomCode"
-            ConnectionState.Idle -> "AtomCode ○"
+            is ConnectionState.Ready -> "RustCode"
+            ConnectionState.Idle -> "RustCode ○"
             ConnectionState.CheckingDaemon,
             ConnectionState.StartingDaemon,
             ConnectionState.Connecting,
             ConnectionState.SyncingProject,
-            ConnectionState.CheckingProvider -> "AtomCode ..."
+            ConnectionState.CheckingProvider -> "RustCode ..."
             is ConnectionState.SetupRequired,
             is ConnectionState.ProviderMissing,
-            is ConnectionState.Error -> "AtomCode !"
+            is ConnectionState.Error -> "RustCode !"
         }
 
     override fun getTooltipText(): String =
         when (val state = service.connectionState) {
-            is ConnectionState.Ready -> "AtomCode: Connected (${state.daemonVersion}). Click to open chat."
-            ConnectionState.Idle -> "AtomCode: Not connected. Click to open chat."
-            ConnectionState.CheckingDaemon -> "AtomCode: Checking daemon..."
-            ConnectionState.StartingDaemon -> "AtomCode: Starting daemon..."
-            ConnectionState.Connecting -> "AtomCode: Connecting..."
-            ConnectionState.SyncingProject -> "AtomCode: Syncing project..."
-            ConnectionState.CheckingProvider -> "AtomCode: Checking provider..."
-            is ConnectionState.SetupRequired -> "AtomCode: Setup required - ${state.reason}"
-            is ConnectionState.ProviderMissing -> "AtomCode: Provider missing"
-            is ConnectionState.Error -> "AtomCode: ${state.message}"
+            is ConnectionState.Ready -> "RustCode: Connected (${state.daemonVersion}). Click to open chat."
+            ConnectionState.Idle -> "RustCode: Not connected. Click to open chat."
+            ConnectionState.CheckingDaemon -> "RustCode: Checking daemon..."
+            ConnectionState.StartingDaemon -> "RustCode: Starting daemon..."
+            ConnectionState.Connecting -> "RustCode: Connecting..."
+            ConnectionState.SyncingProject -> "RustCode: Syncing project..."
+            ConnectionState.CheckingProvider -> "RustCode: Checking provider..."
+            is ConnectionState.SetupRequired -> "RustCode: Setup required - ${state.reason}"
+            is ConnectionState.ProviderMissing -> "RustCode: Provider missing"
+            is ConnectionState.Error -> "RustCode: ${state.message}"
         }
 
     override fun getAlignment(): Float = 0.5f
 
     override fun getClickConsumer(): Consumer<MouseEvent>? =
         Consumer {
-            openAtomCodeChatTab(project)
+            openRustCodeChatTab(project)
         }
 
     companion object {
-        const val ID = "AtomCodeStatus"
+        const val ID = "RustCodeStatus"
     }
 }

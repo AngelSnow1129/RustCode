@@ -7,7 +7,7 @@
 //!
 //! Design: `docs/plans/2026-08-21-external-agent-subagent-drivers-spec.md`.
 //!
-//! Phase 1 / T1.1 — this file is the pure contract only: types + the
+//! Phase 1 / T1.1 -- this file is the pure contract only: types + the
 //! [`SubagentBackend`] trait. Adapters and process management arrive in later
 //! tasks. Nothing here spawns a process or references an external binary.
 
@@ -42,7 +42,7 @@ pub struct ExternalSubagentProfile {
     /// Whether `Bypass` is permitted for this instance. The config/assembly layer
     /// forces this `false` in non-interactive/scheduled contexts.
     pub allow_dangerous: bool,
-    /// Overall wall-clock ceiling for one delegated run. `None` → adapter default.
+    /// Overall wall-clock ceiling for one delegated run. `None` -> adapter default.
     pub timeout: Option<Duration>,
 }
 
@@ -118,7 +118,7 @@ pub enum PermissionMode {
     AcceptEdits,
     /// Full autonomy within a workspace-write sandbox.
     Auto,
-    /// Bypass approvals and sandbox entirely. DANGEROUS — explicit opt-in only.
+    /// Bypass approvals and sandbox entirely. DANGEROUS -- explicit opt-in only.
     Bypass,
 }
 
@@ -186,7 +186,7 @@ pub type EventSink = Box<dyn Fn(SubagentEvent) + Send + Sync>;
 /// One delegated run: the prompt to hand the external agent and where to run it.
 /// The permission posture is a property of the named backend instance (from its
 /// config profile), NOT of the individual call, so it lives on the backend, not
-/// here. Backends are one-shot in Phase 1 — no multi-turn continuation (that is
+/// here. Backends are one-shot in Phase 1 -- no multi-turn continuation (that is
 /// Phase 4, Codex app-server).
 pub struct SubagentRun {
     /// The task prompt handed to the external agent.
@@ -196,7 +196,7 @@ pub struct SubagentRun {
     /// Optional tool allowlist (only honored when the backend advertises
     /// `capabilities().tool_filter`).
     pub tool_filter: Option<Vec<String>>,
-    /// Cooperative cancellation — cancelling kills the child process tree.
+    /// Cooperative cancellation -- cancelling kills the child process tree.
     pub cancel: CancellationToken,
     /// Optional live-progress sink.
     pub on_event: Option<EventSink>,
@@ -273,7 +273,7 @@ pub enum SubagentError {
     /// The agent's output stream/protocol could not be parsed.
     ProtocolError(String),
     /// The agent ran to exit but reported its OWN failure (e.g. Claude Code
-    /// `is_error: true` — max turns, execution error). Distinct from a
+    /// `is_error: true` -- max turns, execution error). Distinct from a
     /// driver-level failure: the process worked, the agent could not finish.
     AgentError(String),
     /// `Bypass` was requested in a context that forbids it.
@@ -347,7 +347,7 @@ mod tests {
             PermissionMode::from_config_str("readonly"),
             Some(PermissionMode::ReadOnly)
         );
-        // Unknown → None (caller rejects, does not silently default).
+        // Unknown -> None (caller rejects, does not silently default).
         assert_eq!(PermissionMode::from_config_str("yolo"), None);
         // Only Bypass is dangerous.
         assert!(PermissionMode::Bypass.is_dangerous());

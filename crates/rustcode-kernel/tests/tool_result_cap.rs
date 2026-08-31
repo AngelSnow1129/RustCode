@@ -1,6 +1,6 @@
 //! CLAIM 20: KERNEL-OWNED TOOL-RESULT SIZE CAP.
 //!
-//! `ToolResult.content: String` is UNBOUNDED — a runaway mounted tool (a
+//! `ToolResult.content: String` is UNBOUNDED -- a runaway mounted tool (a
 //! `grep -r /`, a cat of a huge file, an infinite generator) can blow the
 //! context window or OOM the host. The kernel CANNOT sandbox (OS/L1 territory),
 //! but it CAN and MUST own the one mechanism at its altitude: a bounded
@@ -86,7 +86,7 @@ async fn drive_and_collect_results(max_cap: Option<usize>, huge_size: usize) -> 
         .await;
 
     // Cross-check: what the model saw next round (the stored Tool message) must
-    // ALSO be capped — assert via the recorded provider calls.
+    // ALSO be capped -- assert via the recorded provider calls.
     let recorded = calls.lock().unwrap();
     // The 2nd recorded call (round 2) carries the stored tool-result message.
     if let Some((messages, _, _)) = recorded.get(1) {
@@ -108,7 +108,7 @@ async fn drive_and_collect_results(max_cap: Option<usize>, huge_size: usize) -> 
 const DEFAULT_CAP: usize = 64 * 1024; // kernel default (~16K tokens per tool output)
 
 // CLAIM 20a: the DEFAULT cap bounds a 1 MiB runaway result to ~64 KiB + marker,
-// not the full 1 MiB — the model and the driver never see the megabyte.
+// not the full 1 MiB -- the model and the driver never see the megabyte.
 #[tokio::test]
 async fn default_cap_bounds_runaway_tool_result() {
     let one_mib = 1024 * 1024;
@@ -150,10 +150,10 @@ async fn builder_configured_smaller_cap_is_honored() {
         body.len()
     );
     assert!(r.content.contains("[truncated:"), "must carry the marker");
-    // Far below default → proves the builder value (not the default) is in force.
+    // Far below default -> proves the builder value (not the default) is in force.
     assert!(
         r.content.len() < 2000,
-        "tiny cap → tiny result; got {}",
+        "tiny cap -> tiny result; got {}",
         r.content.len()
     );
 }
@@ -172,7 +172,7 @@ async fn under_cap_result_is_untouched() {
     assert!(!r.content.contains("truncated"));
 }
 
-// CLAIM 20d: cap=0 means UNBOUNDED — the runaway result passes through whole.
+// CLAIM 20d: cap=0 means UNBOUNDED -- the runaway result passes through whole.
 // (Documented escape hatch; the DEFAULT stays bounded.)
 #[tokio::test]
 async fn cap_zero_is_unbounded() {

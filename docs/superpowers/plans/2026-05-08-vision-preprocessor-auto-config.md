@@ -4,7 +4,7 @@
 
 **Goal:** When `/codingplan` populates the AtomGit-* provider list, automatically set `vision_preprocessor_provider` to the first vision-capable model in the list. Recognizes both vision-language models (e.g. `Qwen3-VL-32B-Instruct`) and OCR models (e.g. `PaddleOCR-2.0`, `GOT-OCR-2.0`). Preserves user-supplied non-AtomGit values; clears stale AtomGit-* references when the list contains no VL candidate.
 
-**Architecture:** Three small additions, all confined to `atomcode-core`: extend the existing `model_name_suggests_vision` heuristic, add VL-detection-and-precedence logic to `coding_plan::setup::step_models_and_register`, surface the outcome in `ModelsInfo` + `SetupReport::render`. No new modules, no agent / TUI changes.
+**Architecture:** Three small additions, all confined to `rustcode-core`: extend the existing `model_name_suggests_vision` heuristic, add VL-detection-and-precedence logic to `coding_plan::setup::step_models_and_register`, surface the outcome in `ModelsInfo` + `SetupReport::render`. No new modules, no agent / TUI changes.
 
 **Tech Stack:** Rust. Reuses `is_codingplan_provider_name`, `model_name_suggests_vision`, `provider_names_for`, all already present in the file under modification.
 
@@ -36,19 +36,19 @@ The `is_codingplan_provider_name` helper (already in `setup.rs`) is the precise 
 
 | File | Action | Responsibility |
 |---|---|---|
-| `crates/atomcode-core/src/provider/mod.rs` | **Modify** | Extend `model_name_suggests_vision` to match `ocr` substring + tests |
-| `crates/atomcode-core/src/coding_plan/setup.rs` | **Modify** | Auto-set logic in `step_models_and_register`; new field on `ModelsInfo`; render line in `SetupReport::render` + tests |
+| `crates/rustcode-core/src/provider/mod.rs` | **Modify** | Extend `model_name_suggests_vision` to match `ocr` substring + tests |
+| `crates/rustcode-core/src/coding_plan/setup.rs` | **Modify** | Auto-set logic in `step_models_and_register`; new field on `ModelsInfo`; render line in `SetupReport::render` + tests |
 
 ---
 
 ## Task 7: Extend `model_name_suggests_vision` to recognize OCR
 
 **Files:**
-- Modify: `crates/atomcode-core/src/provider/mod.rs:298-336` (the `model_name_suggests_vision` function and its tests)
+- Modify: `crates/rustcode-core/src/provider/mod.rs:298-336` (the `model_name_suggests_vision` function and its tests)
 
 - [ ] **Step 1: Update the heuristic body**
 
-In `crates/atomcode-core/src/provider/mod.rs`, locate `pub fn model_name_suggests_vision(name: &str) -> bool` (around line 312) and add an `ocr` clause. The function currently has a chain of `||`. Add this clause anywhere in the chain (before the closing `}`):
+In `crates/rustcode-core/src/provider/mod.rs`, locate `pub fn model_name_suggests_vision(name: &str) -> bool` (around line 312) and add an `ocr` clause. The function currently has a chain of `||`. Add this clause anywhere in the chain (before the closing `}`):
 
 ```rust
         || n.contains("ocr")
@@ -145,8 +145,8 @@ The second test is informational — it documents the trade-off. If a real model
 - [ ] **Step 4: Run tests**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode/
-cargo test -p atomcode-core --lib provider::tests::vision_heuristic
+cd /Users/theo/Documents/workspace/rustcode/
+cargo test -p rustcode-core --lib provider::tests::vision_heuristic
 ```
 
 Expected: all `vision_heuristic_*` tests pass (existing 2 + new 2).
@@ -154,7 +154,7 @@ Expected: all `vision_heuristic_*` tests pass (existing 2 + new 2).
 - [ ] **Step 5: Commit**
 
 ```bash
-cat > /tmp/atomcode-task7-msg.txt <<'EOF'
+cat > /tmp/rustcode-task7-msg.txt <<'EOF'
 feat(provider): include OCR substring in vision-capable heuristic
 
 OCR-on-VLM endpoints (PaddleOCR, GOT-OCR, MonkeyOCR, MinerU-OCR, etc.)
@@ -167,9 +167,9 @@ preprocessor short-circuit, and /codingplan auto-detection (next commit).
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 
-cd /Users/theo/Documents/workspace/atomcode/
-git add crates/atomcode-core/src/provider/mod.rs
-git commit -F /tmp/atomcode-task7-msg.txt -- crates/atomcode-core/src/provider/mod.rs
+cd /Users/theo/Documents/workspace/rustcode/
+git add crates/rustcode-core/src/provider/mod.rs
+git commit -F /tmp/rustcode-task7-msg.txt -- crates/rustcode-core/src/provider/mod.rs
 ```
 
 ---
@@ -177,7 +177,7 @@ git commit -F /tmp/atomcode-task7-msg.txt -- crates/atomcode-core/src/provider/m
 ## Task 8: Auto-set `vision_preprocessor_provider` in `/codingplan`
 
 **Files:**
-- Modify: `crates/atomcode-core/src/coding_plan/setup.rs` — function `step_models_and_register` (around line 422-469) and `ModelsInfo` struct (around line 257-265)
+- Modify: `crates/rustcode-core/src/coding_plan/setup.rs` — function `step_models_and_register` (around line 422-469) and `ModelsInfo` struct (around line 257-265)
 
 - [ ] **Step 1: Add a new variant enum to communicate the outcome**
 
@@ -349,8 +349,8 @@ The render tests in `setup.rs` (around `render_happy_path_has_all_checkmarks`, `
 Run:
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode/
-grep -n "ModelsInfo {" crates/atomcode-core/src/coding_plan/setup.rs
+cd /Users/theo/Documents/workspace/rustcode/
+grep -n "ModelsInfo {" crates/rustcode-core/src/coding_plan/setup.rs
 ```
 
 For each `ModelsInfo {` literal that's `StepResult::Ok(ModelsInfo { ... })` in a test fixture, add `vision_preprocessor: VisionPreprocessorOutcome::UnchangedNone,` (the no-op variant — keeps test output unchanged). Example:
@@ -375,7 +375,7 @@ In the existing `#[cfg(test)] mod tests` block of `setup.rs`, after `step_models
         ModelEntry {
             id: 1,
             is_infinity: 0,
-            is_atomcode_exclusive: 0,
+            is_rustcode_exclusive: 0,
             display_model_name: model.to_string(),
         }
     }
@@ -456,7 +456,7 @@ In the existing `#[cfg(test)] mod tests` block of `setup.rs`, after `step_models
         ];
         let info = run_register(&mut config, models);
         // Second model is the VL candidate (Kimi has no VL hint).
-        let expected = "AtomGit-Qwen-Qwen3-VL-32B-Instruct".to_string();
+        let expected = "RustCode-Qwen-Qwen3-VL-32B-Instruct".to_string();
         assert_eq!(
             info.vision_preprocessor,
             VisionPreprocessorOutcome::AutoSet(expected.clone())
@@ -478,13 +478,13 @@ In the existing `#[cfg(test)] mod tests` block of `setup.rs`, after `step_models
         let mut config = blank_config();
         // Simulate previous /codingplan that set this AtomGit-* key.
         config.vision_preprocessor_provider =
-            Some("AtomGit-Qwen-Qwen2-VL-72B".into());
+            Some("RustCode-Qwen-Qwen2-VL-72B".into());
         let models = vec![
             vl_model_entry("Kimi-K2-Instruct"),
             vl_model_entry("Qwen/Qwen3-VL-32B-Instruct"),
         ];
         let info = run_register(&mut config, models);
-        let expected = "AtomGit-Qwen-Qwen3-VL-32B-Instruct".to_string();
+        let expected = "RustCode-Qwen-Qwen3-VL-32B-Instruct".to_string();
         assert_eq!(
             info.vision_preprocessor,
             VisionPreprocessorOutcome::AutoSet(expected.clone())
@@ -496,7 +496,7 @@ In the existing `#[cfg(test)] mod tests` block of `setup.rs`, after `step_models
     fn vision_preprocessor_cleared_when_stale_atomgit_and_list_has_no_vl() {
         let mut config = blank_config();
         config.vision_preprocessor_provider =
-            Some("AtomGit-Qwen-Qwen2-VL-72B".into());
+            Some("RustCode-Qwen-Qwen2-VL-72B".into());
         let models = vec![vl_model_entry("moonshotai/Kimi-K2-Instruct")];
         let info = run_register(&mut config, models);
         assert_eq!(info.vision_preprocessor, VisionPreprocessorOutcome::Cleared);
@@ -547,8 +547,8 @@ In the existing `#[cfg(test)] mod tests` block of `setup.rs`, after `step_models
 - [ ] **Step 7: Run tests**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode/
-cargo test -p atomcode-core --lib coding_plan
+cd /Users/theo/Documents/workspace/rustcode/
+cargo test -p rustcode-core --lib coding_plan
 ```
 
 Expected: all coding_plan tests pass — existing ones (which now have the new field in `ModelsInfo` literals) plus the 6 new ones.
@@ -560,8 +560,8 @@ If any existing test fails because a `ModelsInfo` literal is incomplete, find it
 The new render-line code adds output for AutoSet / UserSupplied / Cleared variants. Render tests use `UnchangedNone` (no-op), so they should still pass without output changes. Verify:
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode/
-cargo test -p atomcode-core --lib coding_plan::setup::tests::render -- --nocapture
+cd /Users/theo/Documents/workspace/rustcode/
+cargo test -p rustcode-core --lib coding_plan::setup::tests::render -- --nocapture
 ```
 
 Expected: all pass. (The `--nocapture` is just so you eyeball the output if curious.)
@@ -588,18 +588,18 @@ Append to `mod tests`:
                 ],
                 provider_names: vec![
                     "AtomGit-Kimi-K2-Instruct".into(),
-                    "AtomGit-Qwen-Qwen3-VL-32B-Instruct".into(),
+                    "RustCode-Qwen-Qwen3-VL-32B-Instruct".into(),
                 ],
                 default_provider: "AtomGit-Kimi-K2-Instruct".into(),
                 vision_preprocessor: VisionPreprocessorOutcome::AutoSet(
-                    "AtomGit-Qwen-Qwen3-VL-32B-Instruct".into(),
+                    "RustCode-Qwen-Qwen3-VL-32B-Instruct".into(),
                 ),
             }),
             status: StepResult::Skipped("status check skipped for this test".into()),
         };
         let out = report.render();
         assert!(
-            out.contains("Vision preprocessor → AtomGit-Qwen-Qwen3-VL-32B-Instruct"),
+            out.contains("Vision preprocessor → RustCode-Qwen-Qwen3-VL-32B-Instruct"),
             "render must include the auto-detected line: {out}",
         );
         assert!(out.contains("(auto-detected)"));
@@ -643,7 +643,7 @@ Append to `mod tests`:
                 ],
                 provider_names: vec![
                     "AtomGit-Kimi-K2-Instruct".into(),
-                    "AtomGit-Qwen-Qwen3-VL-32B-Instruct".into(),
+                    "RustCode-Qwen-Qwen3-VL-32B-Instruct".into(),
                 ],
                 default_provider: "AtomGit-Kimi-K2-Instruct".into(),
                 vision_preprocessor: VisionPreprocessorOutcome::UserSupplied(
@@ -683,8 +683,8 @@ Append to `mod tests`:
 - [ ] **Step 10: Re-run all coding_plan tests**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode/
-cargo test -p atomcode-core --lib coding_plan
+cd /Users/theo/Documents/workspace/rustcode/
+cargo test -p rustcode-core --lib coding_plan
 ```
 
 Expected: all pass.
@@ -692,9 +692,9 @@ Expected: all pass.
 - [ ] **Step 11: Workspace clippy + build**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode/
+cd /Users/theo/Documents/workspace/rustcode/
 cargo build --workspace --all-targets 2>&1 | tail -20
-cargo clippy -p atomcode-core --lib --all-targets -- -D warnings 2>&1 | tail -30
+cargo clippy -p rustcode-core --lib --all-targets -- -D warnings 2>&1 | tail -30
 ```
 
 Expected: build OK, no NEW clippy warnings introduced by this commit.
@@ -702,7 +702,7 @@ Expected: build OK, no NEW clippy warnings introduced by this commit.
 - [ ] **Step 12: Commit**
 
 ```bash
-cat > /tmp/atomcode-task8-msg.txt <<'EOF'
+cat > /tmp/rustcode-task8-msg.txt <<'EOF'
 feat(coding_plan): auto-set vision_preprocessor_provider from model list
 
 When /codingplan installs the AtomGit provider list, scan for the first
@@ -718,9 +718,9 @@ UnchangedNone is silent to keep output identical for setups without VL.
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 
-cd /Users/theo/Documents/workspace/atomcode/
-git add crates/atomcode-core/src/coding_plan/setup.rs
-git commit -F /tmp/atomcode-task8-msg.txt -- crates/atomcode-core/src/coding_plan/setup.rs
+cd /Users/theo/Documents/workspace/rustcode/
+git add crates/rustcode-core/src/coding_plan/setup.rs
+git commit -F /tmp/rustcode-task8-msg.txt -- crates/rustcode-core/src/coding_plan/setup.rs
 ```
 
 ---
@@ -729,11 +729,11 @@ git commit -F /tmp/atomcode-task8-msg.txt -- crates/atomcode-core/src/coding_pla
 
 This is a verification-only task — no code changes unless verification reveals a regression.
 
-- [ ] **Step 1: Run full atomcode-core tests**
+- [ ] **Step 1: Run full rustcode-core tests**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode/
-cargo test -p atomcode-core --lib 2>&1 | tail -10
+cd /Users/theo/Documents/workspace/rustcode/
+cargo test -p rustcode-core --lib 2>&1 | tail -10
 ```
 
 Expected: pass count equals or exceeds baseline (after Tasks 1–6 we had 1104 passing). New tests from Tasks 7+8 should add ~10. Pre-existing failures unchanged.
@@ -741,7 +741,7 @@ Expected: pass count equals or exceeds baseline (after Tasks 1–6 we had 1104 p
 - [ ] **Step 2: Workspace build**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode/
+cd /Users/theo/Documents/workspace/rustcode/
 cargo build --workspace --all-targets 2>&1 | tail -10
 ```
 
@@ -750,7 +750,7 @@ Expected: success.
 - [ ] **Step 3: Workspace clippy**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode/
+cd /Users/theo/Documents/workspace/rustcode/
 cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tail -30
 ```
 
@@ -761,7 +761,7 @@ Expected: only pre-existing warnings (same as Task 6 reported).
 If verification surfaced a struct-literal that needs the new `vision_preprocessor` field initializer (mirror of the daemon fix in commit `4ce8bc0`), apply it:
 
 ```bash
-cat > /tmp/atomcode-task9-msg.txt <<'EOF'
+cat > /tmp/rustcode-task9-msg.txt <<'EOF'
 fix(coding_plan): missed ModelsInfo literal cleanups
 
 [describe specific fixes here]
@@ -769,9 +769,9 @@ fix(coding_plan): missed ModelsInfo literal cleanups
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 
-cd /Users/theo/Documents/workspace/atomcode/
+cd /Users/theo/Documents/workspace/rustcode/
 git add -A
-git commit -F /tmp/atomcode-task9-msg.txt
+git commit -F /tmp/rustcode-task9-msg.txt
 ```
 
 If no fixups needed, skip this step.
@@ -780,11 +780,11 @@ If no fixups needed, skip this step.
 
 ## Manual Verification (post-merge)
 
-1. Save current `~/.atomcode/config.toml`.
+1. Save current `~/.rustcode/config.toml`.
 2. Edit it to remove the `vision_preprocessor_provider = ...` line so the field becomes None.
-3. Run `cargo run -p atomcode-cli --release -- /codingplan` (or invoke `/codingplan` from inside the TUI).
+3. Run `cargo run -p rustcode-cli --release -- /codingplan` (or invoke `/codingplan` from inside the TUI).
 4. Inspect the `/codingplan` output: expect a `✔ Vision preprocessor → AtomGit-...  (auto-detected)` line if the API returned a VL model in the list.
-5. Confirm `~/.atomcode/config.toml` now contains `vision_preprocessor_provider = "AtomGit-..."`.
+5. Confirm `~/.rustcode/config.toml` now contains `vision_preprocessor_provider = "AtomGit-..."`.
 6. Set the field to your own non-AtomGit value (e.g. `Qwen3-VL-32B-Instruct` from your SiliconFlow setup), re-run /codingplan, and verify it stays untouched + the report says `(user setting kept)`.
 
 ---

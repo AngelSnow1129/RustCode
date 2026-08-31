@@ -5,11 +5,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
-class AtomCodeToolWindowFactoryTest {
+class RustCodeToolWindowFactoryTest {
     @Test
     fun `primary title action opens session history`() {
         assertEquals("Session History", PRIMARY_TITLE_ACTION_TEXT)
-        assertEquals("Open AtomCode session history", PRIMARY_TITLE_ACTION_DESCRIPTION)
+        assertEquals("Open RustCode session history", PRIMARY_TITLE_ACTION_DESCRIPTION)
     }
 
     @Test

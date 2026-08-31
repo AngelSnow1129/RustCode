@@ -51,7 +51,7 @@ pub struct HttpClient {
     /// `Mcp-Session-Id` on the `initialize` response and REJECT later requests that
     /// don't echo it; we capture it from every response and replay it on every request.
     session_id: Arc<Mutex<Option<String>>>,
-    /// Protocol revision the server agreed to in its `initialize` result — the value
+    /// Protocol revision the server agreed to in its `initialize` result -- the value
     /// every later request must echo in `MCP-Protocol-Version`. `None` until the
     /// handshake completes, which is exactly when the spec says not to send the header.
     negotiated_version: Arc<Mutex<Option<String>>>,
@@ -66,7 +66,7 @@ impl HttpClient {
     /// Returns `Err` rather than degrading: the previous implementation used
     /// `unwrap_or_else(|_| reqwest::Client::new())`, which on a build failure
     /// silently produced a client that ignores the proxy policy and the trust-root
-    /// layering — every subsequent MCP request then ran under the wrong network
+    /// layering -- every subsequent MCP request then ran under the wrong network
     /// policy with no signal to the caller. A build failure is rare (the egress
     /// factory falls back to the infallible webpki roots first) but it must be
     /// visible, never swallowed.
@@ -235,7 +235,7 @@ impl HttpClient {
 
         // MCP "Streamable HTTP" servers (deepwiki, context7, etc.) may
         // return responses as `text/event-stream` SSE frames rather than
-        // a single JSON body — the spec lets the server pick whichever
+        // a single JSON body -- the spec lets the server pick whichever
         // content type it sent in its response. We negotiated both via
         // the `Accept` header above, so handle both on the receive side.
         let content_type = response
@@ -342,7 +342,7 @@ impl HttpClient {
             req = req.header(MCP_PROTOCOL_VERSION_HEADER, version);
         }
 
-        // Fire and forget — ignore response
+        // Fire and forget -- ignore response
         let _ = req.send().await;
         Ok(())
     }
@@ -417,7 +417,7 @@ impl Drop for HttpClient {
         };
         drop(guard);
         // The DELETE is async; it needs a Tokio runtime. If dropped outside one (a
-        // non-async shutdown path), skip — session cleanup is only advisory.
+        // non-async shutdown path), skip -- session cleanup is only advisory.
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
             return;
         };
@@ -440,7 +440,7 @@ impl Drop for HttpClient {
 /// Send the MCP session-termination `DELETE`. Mirrors `send_request`'s header handling:
 /// user-supplied headers (incl. a pinned `Mcp-Session-Id` or auth) are applied, and the
 /// captured session id is added only when the user didn't already provide one. Best-effort
-/// — errors are intentionally ignored.
+/// -- errors are intentionally ignored.
 async fn delete_http_session(
     client: reqwest::Client,
     url: String,
@@ -484,13 +484,13 @@ impl McpClient for HttpClient {
             serde_json::from_value(result).context("Failed to parse initialize result")?;
 
         // Record what the server actually agreed to speak. Every request from here on
-        // must label itself with THIS value (not what we asked for) — an older server
+        // must label itself with THIS value (not what we asked for) -- an older server
         // negotiates itself down and would reject its own revision being misreported.
         if !init_result.protocol_version.is_empty() {
             *self.negotiated_version.lock().await = Some(init_result.protocol_version.clone());
         }
 
-        // Send initialized notification (MCP spec requirement — fire and forget)
+        // Send initialized notification (MCP spec requirement -- fire and forget)
         let _ = self.send_notification("notifications/initialized").await;
 
         let mut status = self.status.lock().await;
@@ -545,10 +545,10 @@ impl McpClient for HttpClient {
 /// * a frame's `data:` lines concatenate with `\n` between them,
 /// * leading single space after `data:` is stripped per spec,
 /// * `:`-prefixed comment lines and other field types (`event:`,
-///   `id:`, `retry:`) are ignored — we only care about `data`.
+///   `id:`, `retry:`) are ignored -- we only care about `data`.
 ///
 /// Frames whose data isn't valid JSON, or is a JSON-RPC notification
-/// (no `id`), or has a different `id`, are skipped silently — that
+/// (no `id`), or has a different `id`, are skipped silently -- that
 /// matches what a streaming client should do, and avoids a noisy
 /// error when servers emit informational events alongside the actual
 /// response.
@@ -627,7 +627,7 @@ mod sse_tests {
     #[test]
     fn skips_notifications_picks_matching_id() {
         // First frame is a notification (no id), second is unrelated id,
-        // third matches — must return the third.
+        // third matches -- must return the third.
         let body = "data: {\"jsonrpc\":\"2.0\",\"method\":\"progress\",\"params\":{}}\n\n\
                     data: {\"jsonrpc\":\"2.0\",\"id\":99,\"result\":{}}\n\n\
                     data: {\"jsonrpc\":\"2.0\",\"id\":42,\"result\":{\"hit\":true}}\n\n";
@@ -645,7 +645,7 @@ mod sse_tests {
     #[test]
     fn multi_line_data_concatenates() {
         // SSE spec: multiple `data:` lines in one frame join with `\n`.
-        // JSON allows interior newlines in values? No — the canonical
+        // JSON allows interior newlines in values? No -- the canonical
         // case here is split across two `data:` lines for readability.
         let body = "data: {\"jsonrpc\":\"2.0\",\n\
                     data: \"id\":3,\n\

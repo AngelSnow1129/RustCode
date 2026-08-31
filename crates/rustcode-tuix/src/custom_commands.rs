@@ -3,8 +3,8 @@
 // Custom slash-command registry. Users define commands as `.md` files with
 // YAML-style frontmatter in two locations:
 //
-//   1. `$RUSTCODE_HOME/commands/`          — global (apply to every project)
-//   2. `<project>/.rustcode/commands/`  — project-level (override global
+//   1. `$RUSTCODE_HOME/commands/`          -- global (apply to every project)
+//   2. `<project>/.rustcode/commands/`  -- project-level (override global
 //                                          when names collide)
 //
 // Each file has the shape:
@@ -21,23 +21,23 @@
 //
 // The `args` field controls the command's argument expectation:
 //
-//   `none`     (default) — No argument required. Selecting from the slash menu
+//   `none`     (default) -- No argument required. Selecting from the slash menu
 //                          executes immediately, same as a built-in command.
-//   `optional`           — Argument may be supplied. Menu selection completes
+//   `optional`           -- Argument may be supplied. Menu selection completes
 //                          to `/name ` so the user can type an argument before
 //                          pressing Enter again to execute.
-//   `required`           — Argument is mandatory. Menu selection completes to
+//   `required`           -- Argument is mandatory. Menu selection completes to
 //                          `/name `, and submitting with an empty argument is
 //                          rejected with an error message.
 //
 // Template variables:
 //
-//   `$ARGUMENTS`  /  `${ARGUMENTS}`   — Replaced with the user-provided text
+//   `$ARGUMENTS`  /  `${ARGUMENTS}`   -- Replaced with the user-provided text
 //                                        after the command name (if any).
 //
 // The registry is loaded once at startup (or on `/mcp reload`-style events)
 // and queried by the TUI dispatch loop. Custom commands are NOT LLM-invocable
-// — they are user-invocable via `/command_name` in the input, sending the
+// -- they are user-invocable via `/command_name` in the input, sending the
 // rendered template as a user message to the agent.
 
 use std::collections::HashMap;
@@ -55,7 +55,7 @@ pub struct CustomCommand {
 }
 
 impl CustomCommand {
-    /// The lookup key used in the registry — `"plugin:name"` when namespaced,
+    /// The lookup key used in the registry -- `"plugin:name"` when namespaced,
     /// otherwise just `"name"`.
     pub fn key(&self) -> String {
         match &self.namespace {
@@ -66,9 +66,9 @@ impl CustomCommand {
 
     /// Render the template, replacing `$ARGUMENTS` / `${ARGUMENTS}` with `args`.
     ///
-    /// Normalizes `${ARGUMENTS}` → `$ARGUMENTS` first so the chained
+    /// Normalizes `${ARGUMENTS}` -> `$ARGUMENTS` first so the chained
     /// `.replace()` never re-scans the interpolated `args` for the other
-    /// placeholder — otherwise user input containing a literal
+    /// placeholder -- otherwise user input containing a literal
     /// `${ARGUMENTS}` or `$ARGUMENTS` would cause recursive replacement
     /// and corrupt the output.
     pub fn render(&self, args: &str) -> String {
@@ -107,7 +107,7 @@ impl CustomCommandRegistry {
     pub fn load(project_root: &Path) -> Self {
         let config_dir = rustcode_config::config::Config::config_dir();
         let mut commands = HashMap::new();
-        // Global first — project overrides on second pass.
+        // Global first -- project overrides on second pass.
         Self::load_from_dir(&config_dir.join("commands"), None, &mut commands);
         Self::load_from_dir(
             &project_root.join(".rustcode/commands"),
@@ -123,7 +123,7 @@ impl CustomCommandRegistry {
         Self { commands }
     }
 
-    /// An empty registry — useful for tests or when custom commands are
+    /// An empty registry -- useful for tests or when custom commands are
     /// disabled.
     pub fn empty() -> Self {
         Self {
@@ -203,7 +203,7 @@ impl CustomCommandRegistry {
     }
 
     /// Extract a `key: value` field from frontmatter text. Handles leading
-    /// whitespace but not quoted values — keeps parsing minimal.
+    /// whitespace but not quoted values -- keeps parsing minimal.
     fn extract_field(frontmatter: &str, key: &str) -> Option<String> {
         for line in frontmatter.lines() {
             let line = line.trim();
@@ -223,13 +223,13 @@ impl CustomCommandRegistry {
 
     /// Resolve `name` to a command: by exact key first (`name` or
     /// `plugin:name`), then falling back to a **bare-name** match. Plugin
-    /// commands are keyed `plugin:name` but listed/typed as just `name` — so
+    /// commands are keyed `plugin:name` but listed/typed as just `name` -- so
     /// `/wechat` resolves to `weixin:wechat` when that bare name is unique.
     /// Ambiguous bare names (same command name in two plugins) require the
     /// full `plugin:name`.
     ///
     /// This is the single source of truth for "is `name` a known custom
-    /// command?" — both the TUI submit gate (which decides whether to treat
+    /// command?" -- both the TUI submit gate (which decides whether to treat
     /// `/name` as a slash command vs. a chat message) and [`render`] go
     /// through it, so they can never disagree. Using exact-key [`get`] in the
     /// gate while rendering via the bare-name path here was the bug that sent
@@ -240,7 +240,7 @@ impl CustomCommandRegistry {
             let first = matches.next();
             match matches.next() {
                 None => first,   // unique bare-name match
-                Some(_) => None, // ambiguous → require plugin:name
+                Some(_) => None, // ambiguous -> require plugin:name
             }
         })
     }
@@ -249,7 +249,7 @@ impl CustomCommandRegistry {
     /// `${ARGUMENTS}` with the provided args string. Name resolution follows
     /// [`resolve`].
     ///
-    /// Note: this method does NOT validate `args_requirement` — it always
+    /// Note: this method does NOT validate `args_requirement` -- it always
     /// performs the substitution. Empty-arg validation for `Required` happens
     /// in the dispatch layer (`execute_slash_command_impl`).
     pub fn render(&self, name: &str, args: &str) -> Option<String> {
@@ -380,13 +380,13 @@ mod tests {
             "---\nname: valid\ndescription: Valid cmd\n---\nTemplate",
         )
         .unwrap();
-        // Non-md file — should be skipped
+        // Non-md file -- should be skipped
         std::fs::write(
             cmd_dir.join("skip.txt"),
             "---\nname: skip\ndescription: Skip\n---\nNope",
         )
         .unwrap();
-        // No extension — should be skipped
+        // No extension -- should be skipped
         std::fs::write(
             cmd_dir.join("noext"),
             "---\nname: noext\ndescription: No ext\n---\nNope",
@@ -421,7 +421,7 @@ mod tests {
         .unwrap();
 
         let mut commands = HashMap::new();
-        // Load global first, then project — project should override.
+        // Load global first, then project -- project should override.
         CustomCommandRegistry::load_from_dir(&global_dir, None, &mut commands);
         CustomCommandRegistry::load_from_dir(&project_dir, None, &mut commands);
 
@@ -550,7 +550,7 @@ mod tests {
         // agree, or a plugin command typed as `/wechat` (keyed
         // `weixin:wechat`) passes neither/one and gets sent to the agent
         // as plain text. `get()` is exact-key only and intentionally does
-        // NOT do bare-name fallback — so the gate must use `resolve()`.
+        // NOT do bare-name fallback -- so the gate must use `resolve()`.
         let mut reg = CustomCommandRegistry::empty();
         reg.commands.insert(
             "weixin:wechat".into(),

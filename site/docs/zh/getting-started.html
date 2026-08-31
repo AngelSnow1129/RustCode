@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -82,22 +82,22 @@
       <ul>
         <li><strong>操作系统</strong>:macOS (Apple Silicon 或 Intel)、Linux、Windows、HarmonyOS PC</li>
         <li><strong>Rust 工具链</strong>:1.75+(仅在从源码构建时需要)</li>
-        <li><strong>LLM 模型</strong>:任一支持的 provider 的 API Key,或一个 AtomGit 账号(用于 OAuth 登录)</li>
+        <li><strong>LLM 模型</strong>:任一支持的 provider 的 API Key,或一个 平台 账号(用于 OAuth 登录)</li>
       </ul>
 
       <h2 id="安装">安装</h2>
 
       <h3 id="方式-1一键安装推荐">方式 1:一键安装(推荐)</h3>
       <p>在 macOS 或 Linux 或 HarmonyOS PC 终端执行:</p>
-      <pre><code>curl -fsSL https://raw.atomgit.com/atomgit_rustcode/rustcode/raw/main/scripts/install.sh | sh</code></pre>
+      <pre><code>curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.sh | sh</code></pre>
       <p>脚本会自动下载对应平台的预编译二进制,并放置到 <code>~/.local/bin/rustcode</code>。请确保该目录在 <code>PATH</code> 中。</p>
       <p>在 Windows PowerShell 中执行:</p>
-      <pre><code>irm https://raw.atomgit.com/atomgit_rustcode/rustcode/raw/main/scripts/install.ps1 | iex</code></pre>
+      <pre><code>irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.ps1 | iex</code></pre>
       <p>脚本会自动下载 Windows x64 预编译二进制,并完成 <code>PATH</code> 配置,新开终端即可使用 <code>rustcode</code> 命令。</p>
 
       <h3 id="方式-2通过-npm">方式 2:通过 npm</h3>
       <p>已安装 Node.js 18+ 时,可以直接走 npm 全局安装:</p>
-      <pre><code>npm install -g @atomgit.com/rustcode</code></pre>
+      <pre><code>npm install -g @gitcode.com/rustcode</code></pre>
       <p>包会按当前平台从 <code>optionalDependencies</code> 自动解析对应的预编译二进制(macOS x64 / arm64、Linux x64 / arm64、Windows x64、HarmonyOS arm64),一行命令搞定跨平台安装。</p>
 
       <h3 id="方式-3通过-homebrew">方式 3:通过 Homebrew</h3>
@@ -106,7 +106,7 @@
       <p>Homebrew 会自动下载对应平台的预编译二进制并配置 <code>PATH</code>。</p>
 
       <h3 id="方式-4从源码构建">方式 4:从源码构建</h3>
-      <pre><code>git clone https://atomgit.com/atomgit_rustcode/rustcode.git
+      <pre><code>git clone https://gitcode.com/SecLab/RustCode.git
 cd rustcode
 cargo build --release
 cp target/release/rustcode ~/.local/bin/</code></pre>
@@ -154,13 +154,13 @@ rustcode completion powershell</code></pre>
       <p>选完会立即应用,并写回 <code>~/.rustcode/config.toml</code> 的 <code>locale</code> 字段。之后任意时刻可以用 <code>/language</code> 再改。</p>
 
       <h3 id="第-33-步-配置-想怎么开始">第 3/3 步 · 配置 (想怎么开始?)</h3>
-      <pre><code>  1. 用 AtomGit CodingPlan 一键接入  (推荐 · 免费额度 + 自动配 provider)
+      <pre><code>  1. 用 CodingPlan 一键接入  (推荐 · 免费额度 + 自动配 provider)
   2. 手动配置 provider              (已有 API Key)
   3. 跳过,先进 TUI 探索             (之后再 /login 或 /provider)
 
   1-3 选择 · Enter 确认 · ← 返回 · Esc 跳过</code></pre>
       <ul>
-        <li><strong>CodingPlan</strong> —— 推荐路径,等价于在 TUI 内执行 <code>/login</code>:浏览器唤起 AtomGit OAuth,登录后自动申领免费额度,并把额度模型列表写成 provider 配置。</li>
+        <li><strong>CodingPlan</strong> —— 推荐路径,等价于在 TUI 内执行 <code>/login</code>:浏览器唤起 OAuth,登录后自动申领免费额度,并把额度模型列表写成 provider 配置。</li>
         <li><strong>手动配置</strong> —— 等价于 <code>/provider</code>，先添加供应商账号，再为它添加模型。</li>
         <li><strong>跳过</strong> —— 直接进 TUI 探索,之后再用 <code>/login</code> 或 <code>/provider</code> 完成配置。</li>
       </ul>
@@ -218,7 +218,7 @@ rustcode uninstall --dry-run</code></pre>
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://atomgit.com/atomgit_rustcode/rustcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
     </footer>
   </main>
 </div>

@@ -1,4 +1,4 @@
-//! `parallel_edit_files` — edit several INDEPENDENT files concurrently, each via its own
+//! `parallel_edit_files` -- edit several INDEPENDENT files concurrently, each via its own
 //! child agent (subagent-by-composition). The model supplies, per file, a `path` + a
 //! natural-language `instruction`, plus a cross-file `contract` (shared invariants)
 //! forwarded verbatim to every child. Each child is a fresh kernel [`Agent`] (its own
@@ -6,7 +6,7 @@
 //! run in parallel and their per-file statuses are collected into one result.
 //!
 //! L1 placement: a tool may hold an [`LlmProvider`](rustcode_kernel::provider::LlmProvider)
-//! and spawn child agents — same construction-time-injection pattern as the stateful
+//! and spawn child agents -- same construction-time-injection pattern as the stateful
 //! `change_dir`/`todo` tools. The kernel ([`Agent`] + `run_to_completion`) is L0, so this
 //! needs nothing above the kernel. Because it carries a provider + a tool factory it is
 //! OPT-IN (constructed by the embedder, not part of `register_coding_tools`).
@@ -31,8 +31,8 @@ edit is complete, stop with a one-line summary of what you changed.";
 const DEFAULT_MAX_FILES: usize = 12;
 
 /// Edit multiple files in parallel via child agents. Construct with a provider factory
-/// (a fresh provider per child — a session consumes its provider) and a tools factory
-/// (a fresh `MountedTools` per child — it is not `Clone`); typically mount the L1
+/// (a fresh provider per child -- a session consumes its provider) and a tools factory
+/// (a fresh `MountedTools` per child -- it is not `Clone`); typically mount the L1
 /// `read_file`/`edit_file`/`write_file` tools for the children.
 pub struct ParallelEditTool {
     make_provider: Box<dyn Fn() -> Arc<dyn LlmProvider> + Send + Sync>,
@@ -111,7 +111,7 @@ impl Tool for ParallelEditTool {
         - Files have impl/decl splits that need coordinated edits (use sequential edit_file)\n\
         - You want to read more files first (use read_file)\n\n\
         Each sub-agent sees only its assigned file content + the contract you provide. \
-        Cross-file changes that aren't expressed in `contract` will be missed by the merge — \
+        Cross-file changes that aren't expressed in `contract` will be missed by the merge -- \
         the sub-agents cannot see each other's edits. After all sub-agents settle, the \
         framework runs a build probe (cargo/npm/mvn/go) and surfaces compile errors so you \
         can repair cross-file gaps."
@@ -133,7 +133,7 @@ impl Tool for ParallelEditTool {
                             },
                             "instruction": {
                                 "type": "string",
-                                "description": "Concrete edit description for THIS file. Be specific: what to add/modify/remove and why. The sub-agent sees only this instruction + the file content + the contract — no other context."
+                                "description": "Concrete edit description for THIS file. Be specific: what to add/modify/remove and why. The sub-agent sees only this instruction + the file content + the contract -- no other context."
                             }
                         },
                         "required": ["path", "instruction"]
@@ -161,7 +161,7 @@ impl Tool for ParallelEditTool {
             Ok(a) => a,
             Err(e) => {
                 return err(format!(
-                    "{} (parallel_edit_files arguments must be {{\"files\": [{{\"path\": \"…\", \"instruction\": \"…\"}}, …], \"contract\": \"…\"?}})",
+                    "{} (parallel_edit_files arguments must be {{\"files\": [{{\"path\": \"...\", \"instruction\": \"...\"}}, ...], \"contract\": \"...\"?}})",
                     e
                 ))
             }
@@ -202,7 +202,7 @@ impl Tool for ParallelEditTool {
         // the parent token: if this tool future is dropped on cancel, the still-running
         // child is stopped only by `ctx.cancel.child_token()` cascading in.
         // Dispatch header so the user sees the fan-out begin (v1 SubAgentDispatchStart
-        // parity). Per-file ↻/✓/✗ lines follow via `ctx.progress` → ToolProgress.
+        // parity). Per-file ↻/[+]/[x] lines follow via `ctx.progress` -> ToolProgress.
         ctx.progress
             .emit(format!("并行编辑 {} 个文件(子代理)", a.files.len()));
         let mut handles = Vec::with_capacity(a.files.len());
@@ -226,16 +226,16 @@ impl Tool for ParallelEditTool {
             let child = builder.build();
             let path = f.path.clone();
             // Cheap clone (Arc inside); moved into the child task so it can report the
-            // moment THIS child settles — concurrent, so lines interleave by real
+            // moment THIS child settles -- concurrent, so lines interleave by real
             // completion order, giving live per-file progress instead of a black box.
             let progress = ctx.progress.clone();
             handles.push(tokio::spawn(async move {
                 progress.emit(format!("↻ {path}"));
                 let outcome = child.run_to_completion(task, AutoRespond::AllowAll).await;
                 let icon = if outcome.stop == StopReason::Stopped {
-                    "✓"
+                    "[+]"
                 } else {
-                    "✗"
+                    "[x]"
                 };
                 progress.emit(format!("{icon} {path}"));
                 (path, outcome)
@@ -303,10 +303,10 @@ impl Tool for ParallelEditTool {
         );
         let mut all_success = fail_count == 0;
         for r in &results {
-            let icon = if r.success { "✓" } else { "✗" };
+            let icon = if r.success { "[+]" } else { "[x]" };
             let summary_line = r.summary.lines().next().unwrap_or("").trim();
             summary.push_str(&format!(
-                "  {} {} ({}T) — {}\n",
+                "  {} {} ({}T) -- {}\n",
                 icon, r.path, r.turns_used, summary_line,
             ));
             if !r.success {
@@ -316,7 +316,7 @@ impl Tool for ParallelEditTool {
             }
         }
 
-        // Build verification — best-effort, structural detector (probes
+        // Build verification -- best-effort, structural detector (probes
         // for build-system markers, not model intent). On miss the table
         // is the final answer. The marker probe does blocking `read_dir`,
         // so run it on the blocking pool to keep cancellation responsive.
@@ -328,7 +328,7 @@ impl Tool for ParallelEditTool {
         if let Some((cmd, build_dir)) = build_detect {
             // Platform-appropriate shell: cmd.exe on Windows, sh on Unix (mirrors the
             // bash tool + v1 parallel_edit). Without this the probe spawned `sh`, which
-            // is absent on Windows → the probe silently never ran.
+            // is absent on Windows -> the probe silently never ran.
             #[cfg(windows)]
             let (shell, flag) = ("cmd.exe", "/C");
             #[cfg(not(windows))]
@@ -347,12 +347,12 @@ impl Tool for ParallelEditTool {
                     let err_lines: String =
                         combined.lines().take(15).collect::<Vec<_>>().join("\n");
                     summary.push_str(&format!(
-                        "\n⚠ BUILD ERRORS after merge:\n{}\nFix these before proceeding.\n",
+                        "\n[!] BUILD ERRORS after merge:\n{}\nFix these before proceeding.\n",
                         err_lines
                     ));
                     all_success = false;
                 } else {
-                    summary.push_str("\n✓ Build verification passed.\n");
+                    summary.push_str("\n[+] Build verification passed.\n");
                 }
             }
         }
@@ -418,7 +418,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     /// The build-verification probe runs under `cmd.exe /C` on Windows, where the
-    /// Unix coreutils `head`/`tail` don't exist — so the detected commands must not
+    /// Unix coreutils `head`/`tail` don't exist -- so the detected commands must not
     /// pipe through them (output is already truncated Rust-side for display).
     #[test]
     fn build_commands_are_cross_platform_no_unix_pipes() {
@@ -440,8 +440,8 @@ mod tests {
         }
     }
 
-    /// Stateless scripted provider: `Some(reply)` → one text turn then stop;
-    /// `None` → a terminal open error (simulates a failed child).
+    /// Stateless scripted provider: `Some(reply)` -> one text turn then stop;
+    /// `None` -> a terminal open error (simulates a failed child).
     struct MockProvider {
         reply: Option<String>,
     }
@@ -478,7 +478,7 @@ mod tests {
         // let the post-edit build-verification probe (find_build_command scans
         // working_dir + its immediate subdirs) pick up a stray sibling
         // package.json/Cargo.toml left by another test/tool and run a real, failing
-        // build — spuriously flipping is_error. A dedicated empty dir keeps it inert.
+        // build -- spuriously flipping is_error. A dedicated empty dir keeps it inert.
         let dir = tempfile::tempdir().expect("tempdir").keep();
         ToolContext {
             working_dir: dir,
@@ -519,7 +519,7 @@ mod tests {
     #[tokio::test]
     async fn emits_per_file_dispatch_progress() {
         // Real-time per-file progress (v1 SubAgentDispatch* parity): each child's
-        // start (↻) and settle (✓/✗) is surfaced via ctx.progress so the driver
+        // start (↻) and settle ([+]/[x]) is surfaced via ctx.progress so the driver
         // can stream it (AgentEvent::ToolProgress) instead of a black-box result.
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         let sink = {
@@ -527,7 +527,7 @@ mod tests {
             ProgressSink::new(Arc::new(move |m| c.lock().unwrap().push(m)))
         };
         let ctx = ToolContext {
-            // Isolated empty dir — see `ctx()` for why the shared temp dir is unsafe.
+            // Isolated empty dir -- see `ctx()` for why the shared temp dir is unsafe.
             working_dir: tempfile::tempdir().expect("tempdir").keep(),
             cancel: CancellationToken::new(),
             progress: sink,
@@ -549,13 +549,13 @@ mod tests {
             msgs.iter().any(|m| m.contains("↻") && m.contains("b.rs")),
             "start b.rs: {msgs:?}"
         );
-        // Settle line per file (mock provider stops cleanly → ✓).
+        // Settle line per file (mock provider stops cleanly -> [+]).
         assert!(
-            msgs.iter().any(|m| m.contains("✓") && m.contains("a.rs")),
+            msgs.iter().any(|m| m.contains("[+]") && m.contains("a.rs")),
             "done a.rs: {msgs:?}"
         );
         assert!(
-            msgs.iter().any(|m| m.contains("✓") && m.contains("b.rs")),
+            msgs.iter().any(|m| m.contains("[+]") && m.contains("b.rs")),
             "done b.rs: {msgs:?}"
         );
     }
@@ -571,8 +571,8 @@ mod tests {
             .await;
         assert!(!r.is_error, "{}", r.content);
         assert!(r.content.contains("2 ok, 0 fail (of 2)"), "{}", r.content);
-        assert!(r.content.contains("✓ a.rs"), "{}", r.content);
-        assert!(r.content.contains("✓ b.rs"), "{}", r.content);
+        assert!(r.content.contains("[+] a.rs"), "{}", r.content);
+        assert!(r.content.contains("[+] b.rs"), "{}", r.content);
     }
 
     #[tokio::test]
@@ -613,14 +613,14 @@ mod tests {
 
     #[tokio::test]
     async fn child_failure_is_surfaced_and_marks_error() {
-        // provider returns None → every child fails its open; the row shows ✗ and the
+        // provider returns None -> every child fails its open; the row shows [x] and the
         // overall result is_error.
         let r = tool(None)
             .execute(r#"{"files":[{"path":"a.rs","instruction":"x"},{"path":"b.rs","instruction":"y"}]}"#, &ctx())
             .await;
         assert!(r.is_error, "{}", r.content);
         assert!(r.content.contains("0 ok, 2 fail (of 2)"), "{}", r.content);
-        assert!(r.content.contains("✗ a.rs"), "{}", r.content);
+        assert!(r.content.contains("[x] a.rs"), "{}", r.content);
     }
 
     #[test]

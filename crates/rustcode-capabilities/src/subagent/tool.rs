@@ -1,4 +1,4 @@
-//! `ExternalSubagentTool` — exposes one named external-agent instance as a
+//! `ExternalSubagentTool` -- exposes one named external-agent instance as a
 //! kernel tool the main model can call (`subagent_<name>`), plus the factory
 //! that builds a backend from a profile and the registration helper that probes
 //! the binary and mounts a tool per enabled profile.
@@ -56,7 +56,7 @@ pub fn build_backend(profile: &ExternalSubagentProfile) -> Box<dyn SubagentBacke
 
 /// Whether an EXECUTABLE named `bin` is found on `PATH`. Bare probe (no spawn):
 /// scans `PATH` entries for a matching file (and, on Windows, common extensions).
-/// On Unix the file must also have an execute bit — a plain data file named
+/// On Unix the file must also have an execute bit -- a plain data file named
 /// `codex`/`claude` (e.g. a not-yet-`chmod`ed download) is not a runnable agent,
 /// so it is rejected here rather than surfacing as a spawn `Permission denied`
 /// only when the model first calls the tool.
@@ -138,7 +138,7 @@ fn parse_prompt(args: &str) -> Option<String> {
             .and_then(|p| p.as_str())
             .map(|s| s.to_string())
             .filter(|s| !s.trim().is_empty()),
-        // Not JSON → treat the raw args as the prompt.
+        // Not JSON -> treat the raw args as the prompt.
         Err(_) => Some(trimmed.to_string()),
     }
 }
@@ -181,7 +181,7 @@ impl Tool for ExternalSubagentTool {
 
     fn risk(&self, _args: &str) -> RiskLevel {
         // A read-only instance cannot modify anything; any writing instance runs
-        // an external agent that may edit files → gate it via approval.
+        // an external agent that may edit files -> gate it via approval.
         if self.read_only {
             RiskLevel::Safe
         } else {
@@ -190,7 +190,7 @@ impl Tool for ExternalSubagentTool {
     }
 
     /// One "Always" grant covers the whole instance (every call to this tool),
-    /// not per-prompt — approving the codex-primary subagent once is intentional.
+    /// not per-prompt -- approving the codex-primary subagent once is intentional.
     fn always_grant_scope(&self, _args: &str) -> String {
         self.tool_name.clone()
     }
@@ -259,7 +259,7 @@ pub fn register_external_subagent_tools(
     for profile in profiles {
         if !binary_on_path(profile.kind.binary()) {
             eprintln!(
-                "subagent: `{}` ({}) not registered — binary `{}` not found on PATH",
+                "subagent: `{}` ({}) not registered -- binary `{}` not found on PATH",
                 profile.name,
                 profile.kind,
                 profile.kind.binary()
@@ -270,11 +270,11 @@ pub fn register_external_subagent_tools(
         let tool = ExternalSubagentTool::new(backend, profile.permission);
         let tool_name = tool.name().to_string();
         // Two profiles whose names sanitize to the same tool id would silently
-        // overwrite in the registry (BTreeMap::insert) — the later one winning
+        // overwrite in the registry (BTreeMap::insert) -- the later one winning
         // with a possibly different permission posture. Refuse the collision.
         if !seen.insert(tool_name.clone()) {
             eprintln!(
-                "subagent: `{}` → tool `{tool_name}` collides with an earlier profile; skipped \
+                "subagent: `{}` -> tool `{tool_name}` collides with an earlier profile; skipped \
                  (rename to a distinct instance name)",
                 profile.name
             );

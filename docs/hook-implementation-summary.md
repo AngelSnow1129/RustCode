@@ -2,7 +2,7 @@
 
 ## 概述
 
-AtomCode Hook 系统基于 **HookEngine** 统一引擎架构，支持 13 个 trait 扩展点、3 种配置方式（JSON CC 兼容、TOML ScriptHook、TOML Webhook），以及 6 个内置工程化 Hook。
+RustCode Hook 系统基于 **HookEngine** 统一引擎架构，支持 13 个 trait 扩展点、3 种配置方式（JSON CC 兼容、TOML ScriptHook、TOML Webhook），以及 6 个内置工程化 Hook。
 
 > 系统已从旧架构（`HookRegistry` + `HookExecutor`）完全迁移到 `HookEngine`。旧 `executor.rs` 仍存在但已不再使用，`HookRegistry` 已删除。
 
@@ -12,21 +12,21 @@ AtomCode Hook 系统基于 **HookEngine** 统一引擎架构，支持 13 个 tra
 
 | 文件 | 行数 | 说明 |
 |------|:----:|------|
-| `crates/atomcode-core/src/hook/mod.rs` | ~680 | 13 个 trait 定义、12 个 context 结构体、HookResult/HookEvent 枚举 |
-| `crates/atomcode-core/src/hook/engine.rs` | ~1284 | **HookEngine** — 统一注册/触发引擎、ShellCommandHook 实现、12 个注册槽位 + 12 个触发方法 |
-| `crates/atomcode-core/src/hook/script_runner.rs` | ~449 | **ScriptHook** — TOML 配置加载的外部脚本执行（stdin JSON 协议） |
-| `crates/atomcode-core/src/hook/webhook.rs` | ~748 | **WebhookHook** — HTTP 远程调用，实现 12 个 trait |
-| `crates/atomcode-core/src/hook/async_batcher.rs` | ~534 | **AsyncWebhookBatcher** — 异步批量发送（mpsc 通道 + tokio 后台任务） |
-| `crates/atomcode-core/src/hook/built_in.rs` | ~572 | **6 个内置 Hook** — ToolAuditLogHook、TurnStatsHook、AutoCommitHook 等 |
-| `crates/atomcode-core/src/hook/config_loader.rs` | ~501 | **HooksConfig** — TOML 配置文件加载、Webhook/AsyncWebhook 注册 |
-| `crates/atomcode-core/src/hook/json_config.rs` | ~561 | **JSON 配置加载** — CC 兼容 `.hooks.json` 加载 |
-| `crates/atomcode-core/src/hook/config.rs` | ~175 | 工具名匹配工具函数 |
-| `crates/atomcode-core/src/hook/executor.rs` | ~1115 | ⚠️ **旧 HookExecutor**（已废弃，不再使用，待清理） |
+| `crates/rustcode-core/src/hook/mod.rs` | ~680 | 13 个 trait 定义、12 个 context 结构体、HookResult/HookEvent 枚举 |
+| `crates/rustcode-core/src/hook/engine.rs` | ~1284 | **HookEngine** — 统一注册/触发引擎、ShellCommandHook 实现、12 个注册槽位 + 12 个触发方法 |
+| `crates/rustcode-core/src/hook/script_runner.rs` | ~449 | **ScriptHook** — TOML 配置加载的外部脚本执行（stdin JSON 协议） |
+| `crates/rustcode-core/src/hook/webhook.rs` | ~748 | **WebhookHook** — HTTP 远程调用，实现 12 个 trait |
+| `crates/rustcode-core/src/hook/async_batcher.rs` | ~534 | **AsyncWebhookBatcher** — 异步批量发送（mpsc 通道 + tokio 后台任务） |
+| `crates/rustcode-core/src/hook/built_in.rs` | ~572 | **6 个内置 Hook** — ToolAuditLogHook、TurnStatsHook、AutoCommitHook 等 |
+| `crates/rustcode-core/src/hook/config_loader.rs` | ~501 | **HooksConfig** — TOML 配置文件加载、Webhook/AsyncWebhook 注册 |
+| `crates/rustcode-core/src/hook/json_config.rs` | ~561 | **JSON 配置加载** — CC 兼容 `.hooks.json` 加载 |
+| `crates/rustcode-core/src/hook/config.rs` | ~175 | 工具名匹配工具函数 |
+| `crates/rustcode-core/src/hook/executor.rs` | ~1115 | ⚠️ **旧 HookExecutor**（已废弃，不再使用，待清理） |
 
 ### 调用侧集成
 
-- `crates/atomcode-core/src/agent/mod.rs` — AgentLoop 初始化时调用 `HookEngine::load_all()`
-- `crates/atomcode-core/src/turn/runner.rs` — TurnRunner 在各阶段触发 hook
+- `crates/rustcode-core/src/agent/mod.rs` — AgentLoop 初始化时调用 `HookEngine::load_all()`
+- `crates/rustcode-core/src/turn/runner.rs` — TurnRunner 在各阶段触发 hook
 
 ## 架构概览
 
@@ -113,7 +113,7 @@ AgentLoop / TurnRunner
 
 - **类型安全** — Rust 编译时检查
 - **性能** — 零开销抽象
-- **灵活性** — 可以访问完整的 AtomCode API
+- **灵活性** — 可以访问完整的 RustCode API
 - **可选性** — 脚本 hooks 仍支持快速原型
 
 ### 为什么 Hook 失败不中断流程？

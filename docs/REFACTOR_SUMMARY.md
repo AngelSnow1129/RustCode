@@ -2,15 +2,15 @@
 
 Secondary-development fork of `https://gitcode.com/SecLab/RustCode`. Three objectives delivered:
 
-1. [OBJECTIVE-1] Product rebrand `atomcode` -> `rustcode` (crates, binaries, config dir, env vars).
+1. [OBJECTIVE-1] Product rebrand `rustcode` -> `rustcode` (crates, binaries, config dir, env vars).
 2. [OBJECTIVE-2] Zero telemetry — `rustcode-telemetry` crate deleted, all reporting removed.
 3. [OBJECTIVE-3] LLM provider decoupling — self-hosted OpenAI/Anthropic endpoints.
 
 ## 1. Rebrand (rustcode)
 
-- 14 crates renamed `atomcode-*` -> `rustcode-*` (e.g. `rustcode-cli`, `rustcode-daemon`, `rustcode-coding`, `rustcode-kernel`, `rustcode-capabilities`, `rustcode-config`).
-- Binaries: `atomcode` -> `rustcode`, `rustcode-daemon` -> `rustcode-daemon`, `atomcodex` -> `rustcodex`.
-- Config dir `.rustcode` -> `.rustcode`; env vars `ATOMCODE_*` -> `RUSTCODE_*` (centralized in `rustcode-config/src/distribution.rs`).
+- 14 crates renamed `rustcode-*` -> `rustcode-*` (e.g. `rustcode-cli`, `rustcode-daemon`, `rustcode-coding`, `rustcode-kernel`, `rustcode-capabilities`, `rustcode-config`).
+- Binaries: `rustcode` -> `rustcode`, `rustcode-daemon` -> `rustcode-daemon`, `rustcodex` -> `rustcodex`.
+- Config dir `.rustcode` -> `.rustcode`; env vars `RUSTCODE_*` -> `RUSTCODE_*` (centralized in `rustcode-config/src/distribution.rs`).
 - Wire-contract keys migrated to the `rustcode.*` namespace (no compatibility read of old `~/.rustcode` sessions), per the approved "fresh start" decision.
 - In-code product strings updated; OpenRouter attribution now references `rustcode` / the fork repo.
 
@@ -72,5 +72,5 @@ Notes:
 
 ## Known gaps / follow-ups
 
-- Extension crates under `extensions/` (vscode / jetbrains) still reference `[AtomCode]` logs and the old binary names; they are out of the core rename scope and should be patched in a follow-up if the fork ships them.
+- Extension crates under `extensions/` (vscode / jetbrains) still reference `[RustCode]` logs and the old binary names; they are out of the core rename scope and should be patched in a follow-up if the fork ships them.
 - `docs/telemetry.md` from upstream is now obsolete for this fork (telemetry removed); kept on disk but no longer describes shipping behavior.

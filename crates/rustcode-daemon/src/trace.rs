@@ -4,11 +4,11 @@
 //
 // Format matches the tuix trace: `+{us} [{CAT}] {tid} {message}`. Use
 // short 2-4 char categories so columns stay grep-able:
-//   AGT — agent loop (Cancel intake)
-//   RNR — turn runner (tool select / cancel branches)
-//   TOOL — tool implementations (web_search etc.)
+//   AGT -- agent loop (Cancel intake)
+//   RNR -- turn runner (tool select / cancel branches)
+//   TOOL -- tool implementations (web_search etc.)
 //
-// Opt-in only — `enabled()` is a single atomic load + branch when the
+// Opt-in only -- `enabled()` is a single atomic load + branch when the
 // env var is unset, so leaving trace points scattered through hot paths
 // costs nothing in release.
 
@@ -30,7 +30,7 @@ fn sink() -> Option<&'static Mutex<File>> {
         if path.is_empty() {
             return None;
         }
-        // Append (not truncate) — rustcode_tuix::trace opens with
+        // Append (not truncate) -- rustcode_tuix::trace opens with
         // truncate during reader init; we'd otherwise lose its early
         // events if init order flipped. POSIX O_APPEND keeps writes
         // atomic for our line-sized payloads, so interleaving with

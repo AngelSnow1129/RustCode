@@ -36,8 +36,8 @@ tracking; the existing coding runtime and tool lifecycle remain authoritative.
 
 ## Ownership and failure semantics
 
-Planning policy stays in `atomcode-coding`; todo argument validation and skill catalog
-rendering stay in `atomcode-capabilities`. Project-instruction precedence is read through
+Planning policy stays in `rustcode-coding`; todo argument validation and skill catalog
+rendering stay in `rustcode-capabilities`. Project-instruction precedence is read through
 the existing `SessionContextHook`, so catalog ranking cannot invent a parallel loader.
 Rejected placeholder todos return a normal tool error for correction. Missing or
 unresolvable skill names do not change existing behavior.
@@ -51,5 +51,5 @@ unresolvable skill names do not change existing behavior.
 - Failed todo calls do not alter daemon/TUI command output or the live TUI panel.
 - An explicitly named low-source-rank skill sorts ahead of an unreferenced native skill.
 - Instruction-name matching rejects prefixes and suffix collisions.
-- Run the affected `atomcode-capabilities` and `atomcode-coding` library tests, followed
+- Run the affected `rustcode-capabilities` and `rustcode-coding` library tests, followed
   by the CLI/TUI/daemon compile checks because all production drivers share assembly.

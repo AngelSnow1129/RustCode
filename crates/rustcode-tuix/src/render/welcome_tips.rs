@@ -106,7 +106,7 @@ pub fn tips_from_indices(indices: &[usize]) -> Vec<Tip> {
     out
 }
 
-/// `[PINNED, r1, r2, r3]` — pinned first, then up to 3 distinct random picks.
+/// `[PINNED, r1, r2, r3]` -- pinned first, then up to 3 distinct random picks.
 pub fn choose_tips(rng: &mut impl Rng) -> Vec<Tip> {
     tips_from_indices(&choose_pool_indices(rng))
 }

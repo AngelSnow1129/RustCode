@@ -66,7 +66,7 @@ fn ctx() -> ToolContext {
 }
 
 /// The core happy path: connect a stdio server, discover its tool, wrap it as a
-/// kernel `Tool`, and call it — asserting the `mcp__{server}__{tool}` naming, the
+/// kernel `Tool`, and call it -- asserting the `mcp__{server}__{tool}` naming, the
 /// always-`Risky` classification, and the round-tripped echo output.
 #[tokio::test]
 async fn registry_connect_discover_and_call_echo() {
@@ -366,7 +366,7 @@ async fn status_detects_an_exited_child_before_the_next_request() {
 }
 
 /// A malformed-arguments call must surface as a tool error (`is_error`), never a
-/// panic — the kernel PANIC CONTRACT.
+/// panic -- the kernel PANIC CONTRACT.
 #[tokio::test]
 async fn adapter_maps_bad_arguments_to_tool_error() {
     let registry = McpRegistry::new();

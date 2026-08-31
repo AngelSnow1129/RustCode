@@ -15,12 +15,12 @@ use serde::{Deserialize, Serialize};
 use crate::proxy::ProxyConfig;
 use provider::{ModelProfileConfig, ProviderAccountConfig, ProviderConfig, ResolvedModelConfig};
 
-// DEFAULT_SYSTEM_PROMPT removed — single source of truth is now
+// DEFAULT_SYSTEM_PROMPT removed -- single source of truth is now
 // config/prompt_sections.rs::UNIFIED_PROMPT (~500 tok).
 // Do NOT add prompt rules here. Edit prompt_sections.rs instead.
 
 /// Windows-specific rules appended to the system prompt.
-/// Only injected on Windows builds — macOS/Linux never see these.
+/// Only injected on Windows builds -- macOS/Linux never see these.
 #[allow(clippy::needless_raw_string_hashes)]
 pub const WINDOWS_RULES: &str = r##"\
 
@@ -33,7 +33,7 @@ pub const WINDOWS_RULES: &str = r##"\
 - PowerShell: for complex scripts, use powershell -Command "..."
 - Virtual environments: check for Scripts\\ subdirectory (not bin/)"##;
 
-/// macOS-specific rules (minimal — macOS is the primary dev platform).
+/// macOS-specific rules (minimal -- macOS is the primary dev platform).
 pub const MACOS_RULES: &str = "";
 
 /// Linux-specific rules.
@@ -63,7 +63,7 @@ pub struct CodingConfig {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ShellGuardPolicy {
-    /// No extra credential detection — ordinary tool-approval rules apply.
+    /// No extra credential detection -- ordinary tool-approval rules apply.
     Off,
     /// Prompt for approval on detected credential access; never terminate the turn.
     /// The retired `recover` value maps here. Default.
@@ -121,7 +121,7 @@ impl Default for CodingConfig {
 }
 
 /// /loop command configuration. Persisted as the `[loop_config]` table
-/// (NOT `[loop]` — `loop` is a Rust keyword and is rejected by toml_edit).
+/// (NOT `[loop]` -- `loop` is a Rust keyword and is rejected by toml_edit).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LoopConfig {
@@ -140,7 +140,7 @@ impl Default for LoopConfig {
 /// `max_concurrent` and `max_rounds` are the LIVE knobs: `coding::parts` reads them via
 /// `subagent_runtime_knobs` and wires them into `TaskTool`.
 /// The tool's master ON/OFF is the env gate `RUSTCODE_SUBAGENT`
-/// (default ON, opt out with `RUSTCODE_SUBAGENT=0`) — NOT `enabled` here; `enabled`,
+/// (default ON, opt out with `RUSTCODE_SUBAGENT=0`) -- NOT `enabled` here; `enabled`,
 /// `initial_turns`, and `max_turns` are vestigial from the retired `parallel_edit` dispatch
 /// path and are not currently consulted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,11 +201,11 @@ impl Default for SubAgentConfig {
 }
 
 /// One `[[subagent.external]]` entry: a named external coding agent driven as a
-/// subagent. Plain config data — string enums are validated/converted in the
+/// subagent. Plain config data -- string enums are validated/converted in the
 /// coding layer (which owns the `SubagentKind` / `PermissionMode` types).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExternalSubagentConfig {
-    /// Instance name, e.g. `"codex-primary"` → tool `subagent_codex_primary`.
+    /// Instance name, e.g. `"codex-primary"` -> tool `subagent_codex_primary`.
     pub name: String,
     /// `"codex"` or `"claude-code"`.
     pub kind: String,
@@ -218,7 +218,7 @@ pub struct ExternalSubagentConfig {
     /// Permit the dangerous `bypass` permission mode for this instance.
     #[serde(default)]
     pub allow_dangerous: bool,
-    /// Overall run timeout in seconds (`None` → adapter default).
+    /// Overall run timeout in seconds (`None` -> adapter default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
     /// Set `false` to keep the profile in config but not mount it.
@@ -256,7 +256,7 @@ pub struct Config {
     /// so legacy configs (`default_provider` only) keep working unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
-    /// Per-turn datalog settings. Missing from older configs → defaults to
+    /// Per-turn datalog settings. Missing from older configs -> defaults to
     /// enabled=false, dir="$RUSTCODE_HOME/datalog" (project slug appended underneath).
     ///
     /// `skip_serializing` intentionally suppresses serde's automatic output;
@@ -276,7 +276,7 @@ pub struct Config {
     /// while running and stages any newer version it finds. The stage is
     /// applied on the next startup (see `self_update::apply_pending_upgrade`).
     /// Set to `false` to disable auto-staging entirely; `/upgrade` still
-    /// works manually. Missing from older configs → defaults to `true`.
+    /// works manually. Missing from older configs -> defaults to `true`.
     #[serde(default = "default_true")]
     pub auto_update: bool,
     /// LSP integration configuration.
@@ -290,11 +290,11 @@ pub struct Config {
     /// [`SubAgentConfig`], including a configurable 200-round high-water mark.
     #[serde(default)]
     pub subagent: SubAgentConfig,
-    /// /loop command policy. Missing from older configs → max_rounds=100.
+    /// /loop command policy. Missing from older configs -> max_rounds=100.
     /// TOML section is `[loop_config]` (bare `loop` is a Rust keyword).
     #[serde(default)]
     pub loop_config: LoopConfig,
-    /// `[coding]` turn-level policy. Missing from older configs → max_rounds=0 (unbounded).
+    /// `[coding]` turn-level policy. Missing from older configs -> max_rounds=0 (unbounded).
     #[serde(default)]
     pub coding: CodingConfig,
     /// Tool-specific behavior. Missing from older configs keeps todo enabled with
@@ -303,11 +303,11 @@ pub struct Config {
     pub tools: ToolsConfig,
     /// Provider key (matches a key in `Config.providers`) of a vision-language
     /// model used to preprocess images before forwarding to a non-vision main
-    /// provider. When `None` or empty, image preprocessing is disabled — pasted
+    /// provider. When `None` or empty, image preprocessing is disabled -- pasted
     /// images either go directly to a vision-capable main provider, or get
     /// degraded to `"[image attached]"` placeholder by the existing path.
     ///
-    /// Example value: `"AtomGit-Qwen-Qwen3-VL-32B-Instruct"`.
+    /// Example value: `"RustCode-Qwen-Qwen3-VL-32B-Instruct"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vision_preprocessor_provider: Option<String>,
     /// UI / prompt language override. `None` means auto-detect from the
@@ -322,18 +322,18 @@ pub struct Config {
     /// UI rendering preferences. Currently exposes the light/dark theme
     /// switch driving the TUIX colour palette (markdown headings, code
     /// block syntax highlight, session-name pill). Missing from older
-    /// configs → defaults to `dark` (legacy behaviour).
+    /// configs -> defaults to `dark` (legacy behaviour).
     #[serde(default)]
     pub ui: UiConfig,
     /// Plugin marketplace bootstrap + auto-update behaviour. Missing
-    /// from older configs → both knobs default to `true`, matching the
+    /// from older configs -> both knobs default to `true`, matching the
     /// "ship batteries included" UX: first-startup auto-installs the
     /// official `rustcode-plugins-official` marketplace, and an in-place
     /// version upgrade silently `git pull`s every installed marketplace so
     /// plugins track the binary.
     #[serde(default)]
     pub plugin: PluginConfig,
-    /// Web search backend. Missing from older configs → defaults to the
+    /// Web search backend. Missing from older configs -> defaults to the
     /// `exa` provider (reachable without a VPN, returns LLM-ready result
     /// text). Set `provider = "duckduckgo"` to restore the legacy
     /// HTML-scraping backend.
@@ -342,7 +342,7 @@ pub struct Config {
     /// On Ctrl-C / cancel: `true` (default) ⇒ PRESERVE the partial turn (backfill
     /// dangling tool_calls, inject an interruption marker) so the next message continues
     /// with that context. `false` ⇒ CANCEL = UNDO (the interrupted turn is rolled back).
-    /// Missing from config → `true` (preserve). Set `keep_interrupted_context = false`
+    /// Missing from config -> `true` (preserve). Set `keep_interrupted_context = false`
     /// to restore the legacy undo-on-cancel behaviour.
     #[serde(default = "default_true")]
     pub keep_interrupted_context: bool,
@@ -358,9 +358,9 @@ pub struct Config {
 
     /// Provider sections that failed strict validation during a *tolerant* load
     /// (see [`Self::parse_disk_content_tolerant`]). Held verbatim as raw TOML so
-    /// a later write-back (`/model`, theme change, …) re-emits the user's
+    /// a later write-back (`/model`, theme change, ...) re-emits the user's
     /// malformed `[providers.<name>]` text unchanged instead of silently
-    /// dropping it — they can repair it in place later. Never (de)serialized by
+    /// dropping it -- they can repair it in place later. Never (de)serialized by
     /// serde (`skip`); populated on load and re-emitted by `serialize_for_disk`.
     #[serde(skip)]
     pub quarantined_providers: std::collections::BTreeMap<String, toml::Value>,
@@ -369,7 +369,7 @@ pub struct Config {
 /// Web search backend configuration. Persisted as the `[web_search]` table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchConfig {
-    /// Search backend: `"exa"` (default — MCP API at mcp.exa.ai, reachable
+    /// Search backend: `"exa"` (default -- MCP API at mcp.exa.ai, reachable
     /// without a VPN and returns LLM-ready result text) or `"duckduckgo"`
     /// (legacy HTML scraping of html.duckduckgo.com, blocked in some regions).
     #[serde(default = "default_search_provider")]
@@ -401,7 +401,7 @@ pub struct PluginConfig {
     /// one-time `git clone` of the official `rustcode-plugins-official`
     /// marketplace into `$RUSTCODE_HOME/plugins/marketplaces/`. A marker
     /// file (`~/.rustcode/.plugin_bootstrap_v2`) is touched after the
-    /// first attempt — set or unset — so the install fires exactly
+    /// first attempt -- set or unset -- so the install fires exactly
     /// once per user. A subsequent `/plugin marketplace remove` is
     /// respected; the marker stays in place and the directory is NOT
     /// recreated. To force a re-bootstrap, delete the marker.
@@ -410,7 +410,7 @@ pub struct PluginConfig {
     /// Per-startup sync: when true (default), every startup runs
     /// `git pull --ff-only` on all installed marketplaces so plugins
     /// stay in sync with the remote. Failures (no network, fast-forward
-    /// conflict from local edits) are warned and ignored — never block
+    /// conflict from local edits) are warned and ignored -- never block
     /// startup.
     #[serde(default = "default_true")]
     pub auto_update_marketplaces: bool,
@@ -437,7 +437,7 @@ fn default_ai_session_naming() -> bool {
 }
 
 fn default_terminal_status_glyph() -> bool {
-    // ON by default: a colored status dot (🟢 idle / 🟡 busy / 🔴 approval)
+    // ON by default: a colored status dot ([+] idle / [*] busy / [!] approval)
     // prefixed to the terminal tab title so the user can tell state without
     // switching windows. Off for terminals that render emoji as tofu boxes
     // (tmux, plain VT, some embedded IDE terminals). Read from ctx.config, so
@@ -445,7 +445,7 @@ fn default_terminal_status_glyph() -> bool {
     true
 }
 
-/// UI section of the config — currently just the theme switch driving
+/// UI section of the config -- currently just the theme switch driving
 /// the TUIX colour palette. Persisted as a top-level `[ui]` table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiConfig {
@@ -457,7 +457,7 @@ pub struct UiConfig {
     #[serde(default)]
     pub theme: UiTheme,
     /// Auto-copy a rendered code block's raw source to the clipboard when the
-    /// AI finishes emitting it. OFF by default — it silently overwrote the
+    /// AI finishes emitting it. OFF by default -- it silently overwrote the
     /// user's clipboard on every code-block reply (issue #699 feedback). Env
     /// `RUSTCODE_AUTO_COPY` overrides this when set. Explicit `/copy` is
     /// always available regardless of this setting. Read once at startup (like
@@ -468,7 +468,7 @@ pub struct UiConfig {
     /// off, the session keeps the truncation name.
     #[serde(default = "default_ai_session_naming")]
     pub ai_session_naming: bool,
-    /// Prefix a colored status dot (🟢 idle / 🟡 busy / 🔴 needs-approval) to
+    /// Prefix a colored status dot ([+] idle / [*] busy / [!] needs-approval) to
     /// the terminal tab/window title. Default on; turn off if your terminal
     /// shows emoji as monochrome tofu boxes.
     #[serde(default = "default_terminal_status_glyph")]
@@ -491,7 +491,7 @@ pub struct UiConfig {
     #[serde(default = "default_brand_name")]
     pub brand_name: String,
     /// OAuth provider display name shown in login messages. Default
-    /// `"AtomGit OAuth"`. A distribution sets this to its own name (e.g.
+    /// `"RustCode OAuth"`. A distribution sets this to its own name (e.g.
     /// `"OA OAuth"`) via config or env `RUSTCODE_OAUTH_PROVIDER_NAME`.
     #[serde(default = "default_oauth_provider_name")]
     pub oauth_provider_name: String,
@@ -520,10 +520,10 @@ fn default_brand_name() -> String {
 }
 
 /// Default OAuth provider display name shown in login messages. Upstream
-/// keeps `"AtomGit OAuth"`; a distribution overrides via config
+/// keeps `"RustCode OAuth"`; a distribution overrides via config
 /// `[ui] oauth_provider_name` or env `RUSTCODE_OAUTH_PROVIDER_NAME`.
 fn default_oauth_provider_name() -> String {
-    "AtomGit OAuth".to_string()
+    "RustCode OAuth".to_string()
 }
 
 /// UI colour palette selector.
@@ -542,7 +542,7 @@ pub enum UiTheme {
     Light,
 }
 
-/// Why an attached image can (or cannot) reach a model that will process it —
+/// Why an attached image can (or cannot) reach a model that will process it --
 /// the resolution behind [`Config::can_handle_attached_images`]. Lets the paste
 /// gate tell the user WHY it rejected: nothing configured (switch model / set a
 /// preprocessor) vs. a preprocessor IS set but its name doesn't resolve (a
@@ -550,7 +550,7 @@ pub enum UiTheme {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImageAttachSupport {
     /// The active model accepts images, or `vision_preprocessor_provider`
-    /// resolves — the image will be handled.
+    /// resolves -- the image will be handled.
     Supported,
     /// Active model is text-only and no `vision_preprocessor_provider` is set.
     Unconfigured,
@@ -561,7 +561,7 @@ pub enum ImageAttachSupport {
 
 impl Config {
     /// True iff attaching an image to the active turn will reach a model
-    /// that can process it — either the active provider accepts images
+    /// that can process it -- either the active provider accepts images
     /// directly, or `vision_preprocessor_provider` points at a real entry
     /// in `providers` that will OCR them before forwarding. Used by the
     /// TUIX Ctrl+V paste gate to decide whether to accept the image or
@@ -690,8 +690,8 @@ impl Config {
     }
 
     /// Validate the new-schema provider accounts and model profiles. Returns a
-    /// diagnostic per problem (empty ⇒ valid). Pure — does not mutate. Checks
-    /// account endpoint requirements, model→account referential integrity,
+    /// diagnostic per problem (empty ⇒ valid). Pure -- does not mutate. Checks
+    /// account endpoint requirements, model->account referential integrity,
     /// context/token limits, and `default_model` resolvability. Mixed-schema
     /// loading (Task 3) uses this to quarantine, rather than fail, bad entries.
     pub fn validate_provider_accounts_and_models(&self) -> Vec<String> {
@@ -719,7 +719,7 @@ impl Config {
                 diags.push(format!("model `{id}` is missing `account`"));
             } else if !self.provider_accounts.contains_key(&model.account)
                 // A model may reference a legacy provider (which projects to a
-                // synthetic account of the same id) — that resolves, so accept it.
+                // synthetic account of the same id) -- that resolves, so accept it.
                 && !self.providers.contains_key(&model.account)
             {
                 diags.push(format!(
@@ -747,7 +747,7 @@ impl Config {
     /// The unified account catalog: real `provider_accounts` plus one synthetic
     /// account projected from each legacy `[providers.*]` (design §5). On an
     /// exact id collision the new-schema account wins; see
-    /// [`Self::model_catalog_collisions`] for the diagnostics. Read-only — never
+    /// [`Self::model_catalog_collisions`] for the diagnostics. Read-only -- never
     /// rewrites config.
     pub fn logical_accounts(&self) -> HashMap<String, ProviderAccountConfig> {
         let mut out: HashMap<String, ProviderAccountConfig> = HashMap::new();
@@ -793,7 +793,7 @@ impl Config {
     }
 
     /// Managed status for a concrete model selection, following its owning
-    /// account rather than assuming model ids use the `AtomGit-*` convention.
+    /// account rather than assuming model ids use the `RustCode-*` convention.
     pub fn selection_is_codingplan_managed(&self, selection_id: &str) -> bool {
         if let Some(model) = self.models.get(selection_id) {
             return self.account_is_codingplan_managed(&model.account);
@@ -970,7 +970,7 @@ impl Config {
         })
     }
 
-    /// A legacy-shaped [`ProviderConfig`] view of any selection id — a legacy
+    /// A legacy-shaped [`ProviderConfig`] view of any selection id -- a legacy
     /// `[providers.*]` key OR a new-schema model id (including a folded
     /// CodingPlan model). Consumers that still key off `config.providers`
     /// (the daemon live runtime, `/think`/`/effort`) call this so a new-schema
@@ -980,7 +980,7 @@ impl Config {
     /// caller's own env expansion); new-schema selections are reconstructed via
     /// [`Self::resolve_model`].
     pub fn provider_config_for_selection(&self, selection_id: &str) -> Option<ProviderConfig> {
-        // New-schema entry wins on a colliding id — same precedence as
+        // New-schema entry wins on a colliding id -- same precedence as
         // `resolve_model` / `update_selection_reasoning`, so read and write agree.
         if self.models.contains_key(selection_id) {
             return self
@@ -1163,7 +1163,7 @@ fn name_matches_prefix(name: &str, prefix: &str) -> bool {
 ///
 /// Always includes [`LEGACY_CODINGPLAN_PREFIX`]. A config written before the
 /// prefix changed still holds `AtomGit-*` keys; if those stopped being
-/// recognised they would silently degrade into ordinary custom providers — no
+/// recognised they would silently degrade into ordinary custom providers -- no
 /// plan info, and the next `/login` would leave them behind instead of
 /// replacing them. Recognising both means the next login adopts them on its own.
 fn prefixes_for(configured: &str) -> Vec<String> {
@@ -1185,7 +1185,7 @@ fn codingplan_prefixes() -> &'static [String] {
 /// gateway base_url + OAuth signer, so the projection folds them into one
 /// synthetic account per wire format rather than one account each.
 ///
-/// Single source of truth — `rustcode-codingplan` and `rustcode-tuix` delegate
+/// Single source of truth -- `rustcode-codingplan` and `rustcode-tuix` delegate
 /// here instead of re-implementing the prefix rule.
 pub fn is_codingplan_provider_name(name: &str) -> bool {
     codingplan_prefixes()
@@ -1195,7 +1195,7 @@ pub fn is_codingplan_provider_name(name: &str) -> bool {
 
 /// The synthetic account id a legacy CodingPlan provider folds into. An account
 /// carries exactly one preset (one wire format), so models are grouped by wire
-/// format: openai → `<prefix>`, claude → `<prefix>-anthropic`, ollama →
+/// format: openai -> `<prefix>`, claude -> `<prefix>-anthropic`, ollama ->
 /// `<prefix>-ollama`. Matches the ids the `/login` flow writes into the new
 /// schema, so a re-login is a no-op transition. `pub` so `rustcode-codingplan`
 /// can label the login report by account.
@@ -1239,14 +1239,14 @@ pub fn codingplan_builtin_effort_levels(model: &str) -> Option<Vec<String>> {
 /// from the CodingPlan gateway's `reasoning_effort_levels`, or a custom provider's
 /// own config) is AUTHORITATIVE. The client-side [`codingplan_builtin_effort_levels`]
 /// table is only a FALLBACK for CodingPlan models on older/production servers that
-/// don't advertise the field yet — once the server sends a list, it wins.
+/// don't advertise the field yet -- once the server sends a list, it wins.
 pub fn effective_reasoning_effort_levels(
     codingplan_managed: bool,
     model: &str,
     declared: Option<&[String]>,
 ) -> Option<Vec<String>> {
     // A NON-EMPTY declared list is authoritative. An empty list is "no opinion"
-    // (matching `build_codingplan_provider`'s empty→None filter), so it falls through
+    // (matching `build_codingplan_provider`'s empty->None filter), so it falls through
     // rather than being taken as an authoritative "unrestricted" that would widen a
     // CodingPlan model past its builtin.
     if let Some(levels) = declared.filter(|l| !l.is_empty()) {
@@ -1261,8 +1261,8 @@ pub fn effective_reasoning_effort_levels(
 /// Whether an endpoint exposes a reasoning-effort control, derived purely from CONFIG:
 /// an explicitly configured `reasoning_effort`, OR a non-empty `reasoning_effort_levels`
 /// (server-advertised via `models-v2`, or the CodingPlan builtin already folded into it).
-/// The SINGLE source of truth for every "does this model support effort" gate — the webui
-/// selector, the TUI `/effort`, and the wire capability — so none can disagree, and no
+/// The SINGLE source of truth for every "does this model support effort" gate -- the webui
+/// selector, the TUI `/effort`, and the wire capability -- so none can disagree, and no
 /// hardcoded model name (`deepseek-v4-flash`) is needed anywhere.
 pub fn endpoint_supports_reasoning_effort(
     reasoning_effort: Option<&str>,
@@ -1288,7 +1288,7 @@ pub fn allowed_effort_levels(declared: Option<&[String]>) -> Vec<&'static str> {
         .copied()
         .filter(|level| list.iter().any(|d| d.trim().eq_ignore_ascii_case(level)))
         .collect();
-    // A list naming ONLY unknown tokens filters to nothing — treat that as
+    // A list naming ONLY unknown tokens filters to nothing -- treat that as
     // unrestricted (same as an empty list), NOT "zero levels". Otherwise a typo
     // silently hides every level, and the panel's `effort_levels_from_config`
     // (which derives from this) would round-trip the restriction away.
@@ -1329,7 +1329,7 @@ mod codingplan_prefix_tests {
         assert!(is_codingplan_provider_name("AtomGit"));
         assert!(is_codingplan_provider_name("AtomGit-GLM-5.2"));
         assert!(is_codingplan_provider_name("AtomGit-anthropic"));
-        // A name that merely starts with the letters is not a CodingPlan key —
+        // A name that merely starts with the letters is not a CodingPlan key --
         // the separator is what makes it one.
         assert!(!is_codingplan_provider_name("AtomGitx"));
         assert!(!is_codingplan_provider_name("AtomGit_GLM"));
@@ -1339,8 +1339,8 @@ mod codingplan_prefix_tests {
 
     #[test]
     fn account_ids_group_by_wire_format() {
-        // The rule under test is the grouping — one account per wire format,
-        // all under the configured prefix — not what that prefix happens to
+        // The rule under test is the grouping -- one account per wire format,
+        // all under the configured prefix -- not what that prefix happens to
         // say, which a distribution may replace.
         let prefix = crate::endpoints::codingplan_provider_prefix();
         assert_eq!(codingplan_group_account_id("openai"), prefix);
@@ -1361,7 +1361,7 @@ mod codingplan_prefix_tests {
 
     // `codingplan_prefixes` caches the configured prefix once per process, so
     // the override path is covered through the two pure helpers it is built
-    // from — the same ones the shipped predicate calls, not copies of them.
+    // from -- the same ones the shipped predicate calls, not copies of them.
 
     #[test]
     fn an_override_keeps_the_historical_prefix_in_the_set() {
@@ -1433,7 +1433,7 @@ fn project_legacy_model(account_id: &str, p: &ProviderConfig) -> ModelProfileCon
 ///
 /// Privacy: datalog files contain the full request body (system prompt, messages,
 /// tools). On Unix they are created private (0o700/0o600); Windows has no equivalent
-/// create-mode bit, so files inherit the parent directory's ACLs — safe under the
+/// create-mode bit, so files inherit the parent directory's ACLs -- safe under the
 /// default per-user `dir`, but not if `dir` points at a world-readable location on a
 /// shared machine. Keep `dir` inside your user profile when enabling this.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1444,10 +1444,10 @@ pub struct DatalogConfig {
     /// Root directory under which datalog files are written. The per-project
     /// slug (`<basename>-<hash8>`) is always appended underneath, so two
     /// projects never collide. Accepted forms:
-    /// - `None` (or omitted) → `~/.rustcode/datalog/` (default)
-    /// - Absolute path        → used as-is, not affected by /cd
-    /// - `~/...`              → expanded relative to home, not affected by /cd
-    /// - Relative path        → resolved against working_dir, follows /cd
+    /// - `None` (or omitted) -> `~/.rustcode/datalog/` (default)
+    /// - Absolute path        -> used as-is, not affected by /cd
+    /// - `~/...`              -> expanded relative to home, not affected by /cd
+    /// - Relative path        -> resolved against working_dir, follows /cd
     #[serde(default)]
     pub dir: Option<String>,
 }
@@ -1493,11 +1493,11 @@ pub struct NetworkConfig {
 /// in their config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LspConfig {
-    /// Master switch for read-only LSP code intelligence. Off by default — opt-in only.
+    /// Master switch for read-only LSP code intelligence. Off by default -- opt-in only.
     #[serde(default)]
     pub enabled: bool,
     /// Automatically detect and start language servers from the built-in
-    /// registry. Off by default — even when `enabled = true`, users must
+    /// registry. Off by default -- even when `enabled = true`, users must
     /// explicitly opt in to auto-detect (or list specific `servers`) to
     /// avoid surprising the user with binary spawns.
     #[serde(default)]
@@ -1533,14 +1533,14 @@ impl Default for LspConfig {
 /// time** was `enabled=true, auto_detect=true, delay=150, servers={}`,
 /// and `Config::save()` serialized those literals into
 /// `~/.rustcode/config.toml`. Subsequent loads see explicit `enabled=true`
-/// and ignore the new in-memory default — old installs keep spawning
+/// and ignore the new in-memory default -- old installs keep spawning
 /// rust-analyzer / gopls and surface init failures the user never asked
 /// for.
 ///
 /// Heuristic: if the on-disk LspConfig matches the OLD wizard-written
 /// shape **byte-for-byte** (every field equals its old default), reset
 /// to the new default. Any deviation (custom server, non-default delay,
-/// auto_detect=false) means the user customised it intentionally —
+/// auto_detect=false) means the user customised it intentionally --
 /// leave alone.
 ///
 /// False-positive risk: a user who manually wrote `enabled=true +
@@ -1620,7 +1620,7 @@ pub fn ai_session_naming_enabled(cfg: &Config) -> bool {
 }
 
 /// Resolve the effective todo switch: env `RUSTCODE_TODO` (0/false/off vs 1/true/on)
-/// overrides the config value; absent/empty env → config value.
+/// overrides the config value; absent/empty env -> config value.
 pub fn todo_enabled_from_env(env: Option<&str>, cfg_value: bool) -> bool {
     match env.map(|s| s.trim().to_ascii_lowercase()) {
         Some(v) if v == "0" || v == "false" || v == "off" => false,
@@ -1631,14 +1631,14 @@ pub fn todo_enabled_from_env(env: Option<&str>, cfg_value: bool) -> bool {
 
 /// Resolve the effective `request_user_input` tool switch: DEFAULT-ON semantics.
 /// Returns `false` only when `env` is `Some("")`/`"0"`/`"false"`/`"off"` (case-insensitive,
-/// trimmed).  `None` (unset) or any other value → `true`.
+/// trimmed).  `None` (unset) or any other value -> `true`.
 ///
 /// Opt-out: set `RUSTCODE_REQUEST_USER_INPUT=0` (or `false`/`off`) to disable.
 ///
 /// Called by `rustcode-coding`'s persona gate (`request_user_input_switch_enabled`).
 ///
 /// NOTE: `rustcode-capabilities`' tool-registration gate contains an INTENTIONAL
-/// DUPLICATE of this logic — it cannot call this helper because `rustcode-config` is not
+/// DUPLICATE of this logic -- it cannot call this helper because `rustcode-config` is not
 /// a dependency of the capabilities `tools` feature layer.  If you change the logic here
 /// you MUST mirror the change in
 /// `rustcode-capabilities/src/tools/mod.rs` (the `request_user_input_on` block), and
@@ -1646,7 +1646,7 @@ pub fn todo_enabled_from_env(env: Option<&str>, cfg_value: bool) -> bool {
 pub fn request_user_input_enabled_from_env(env: Option<&str>) -> bool {
     match env.map(|s| s.trim().to_ascii_lowercase()) {
         Some(v) if v == "0" || v == "false" || v == "off" || v.is_empty() => false,
-        _ => true, // default ON — unset, or any other value
+        _ => true, // default ON -- unset, or any other value
     }
 }
 
@@ -1655,7 +1655,7 @@ impl Default for DatalogConfig {
         Self {
             enabled: false,
             // Pre-fill the default root so it round-trips into config.toml on
-            // first save — users see exactly where logs go without having to
+            // first save -- users see exactly where logs go without having to
             // discover that "unset == ~/.rustcode/datalog". Resolver still
             // treats this string the same as `None` (project slug appended).
             dir: Some("~/.rustcode/datalog".to_string()),
@@ -1678,7 +1678,7 @@ impl Default for NotificationConfig {
 
 /// Serialize the `[datalog]` section with help comments so users editing
 /// config.toml by hand can discover the options without reading the source.
-/// `enabled` and `dir` are always emitted as real values — the default `dir`
+/// `enabled` and `dir` are always emitted as real values -- the default `dir`
 /// (`~/.rustcode/datalog`) is shown explicitly so users see exactly where
 /// logs go without having to discover that "unset == default".
 fn render_datalog_section(cfg: &DatalogConfig) -> String {
@@ -1805,18 +1805,18 @@ fn escape_toml(value: &str) -> String {
 /// Always emitted (even on first save) so users discover the feature.
 fn render_instructions_section() -> String {
     let mut out = String::new();
-    out.push_str("\n# Project instructions — customize AI behavior via Markdown files.\n");
-    out.push_str("# RustCode loads instructions from three levels (low → high priority):\n");
+    out.push_str("\n# Project instructions -- customize AI behavior via Markdown files.\n");
+    out.push_str("# RustCode loads instructions from three levels (low -> high priority):\n");
     out.push_str("#\n");
-    out.push_str("#   1. ~/.rustcode/RUSTCODE.md           (global — your personal defaults)\n");
+    out.push_str("#   1. ~/.rustcode/RUSTCODE.md           (global -- your personal defaults)\n");
     out.push_str(
-        "#   2. <project>/.rustcode.md            (project — team-shared, commit to git)\n",
+        "#   2. <project>/.rustcode.md            (project -- team-shared, commit to git)\n",
     );
     out.push_str("#      or <project>/RUSTCODE.md\n");
     out.push_str("#      or <project>/AGENTS.md           (AGENTS.md open standard)\n");
     out.push_str("#      or <project>/CLAUDE.md / claude.md (Claude Code compat)\n");
     out.push_str(
-        "#   3. <project>/.rustcode.user.md       (user — personal per-project, .gitignore)\n",
+        "#   3. <project>/.rustcode.user.md       (user -- personal per-project, .gitignore)\n",
     );
     out.push_str("#\n");
     out.push_str("# Higher priority files appear later in the prompt (recency effect).\n");
@@ -1839,7 +1839,7 @@ fn render_instructions_section() -> String {
 
 fn render_hooks_json_section() -> String {
     let mut out = String::new();
-    out.push_str("\n# Lifecycle hooks — configure in separate JSON files:\n");
+    out.push_str("\n# Lifecycle hooks -- configure in separate JSON files:\n");
     out.push_str("#   ~/.rustcode/hooks.json       (global hooks)\n");
     out.push_str("#   <project>/.hooks.json         (project hooks, override global by name)\n");
     out.push_str("#\n");
@@ -1976,7 +1976,7 @@ impl Config {
     }
 
     pub(crate) fn serialize_for_disk(&self, disk: Option<&Config>) -> Result<String> {
-        // Filter out ephemeral providers (e.g. OAuth /login) — they live in memory only.
+        // Filter out ephemeral providers (e.g. OAuth /login) -- they live in memory only.
         let mut persistent = self.clone();
         persistent.providers.retain(|_, v| !v.ephemeral);
         // Same for ephemeral provider accounts (their api_key is runtime-only),
@@ -1993,7 +1993,7 @@ impl Config {
             .models
             .retain(|_, m| !ephemeral_accounts.contains(&m.account));
         // If `default_model` pointed at a now-stripped ephemeral model, don't
-        // persist a dangling selection — restore the disk value if we have one,
+        // persist a dangling selection -- restore the disk value if we have one,
         // else clear it so `resolve_model(None)` falls back cleanly.
         if let Some(sel) = persistent.default_model.clone() {
             if !persistent.models.contains_key(&sel) && !persistent.providers.contains_key(&sel) {
@@ -2040,12 +2040,12 @@ impl Config {
         let name = selection
             .filter(|s| self.selection_exists(s))
             .or_else(first_catalog)
-            .ok_or_else(|| anyhow::anyhow!("No providers configured — run /login or /provider"))?;
+            .ok_or_else(|| anyhow::anyhow!("No providers configured -- run /login or /provider"))?;
         self.provider_config_for_selection(&name)
-            .ok_or_else(|| anyhow::anyhow!("No providers configured — run /login or /provider"))
+            .ok_or_else(|| anyhow::anyhow!("No providers configured -- run /login or /provider"))
     }
 
-    /// Resolve the rustcode config dir. Pure function for testability —
+    /// Resolve the rustcode config dir. Pure function for testability --
     /// `config_dir()` is a thin wrapper that injects real env + real home.
     ///
     /// `pub(crate)` so [`crate::distribution`] can assert that what
@@ -2080,11 +2080,11 @@ impl Config {
     ///
     /// If `config_path` does NOT yet exist and `seed_source` is a readable, parseable
     /// config, copy it into place so the very first launch is already configured (no
-    /// per-machine setup). The user then owns that writable copy — this NEVER
+    /// per-machine setup). The user then owns that writable copy -- this NEVER
     /// overwrites an existing config, so the launcher can pass the flag unconditionally.
     ///
     /// Every failure mode is non-fatal and returned (not panicked / logged here) so the
-    /// caller can warn and fall back to normal onboarding — a bad seed must never block
+    /// caller can warn and fall back to normal onboarding -- a bad seed must never block
     /// startup. The raw file is copied verbatim (comments/formatting preserved), only
     /// after `Config::load` confirms it parses.
     pub fn seed_user_config(config_path: &Path, seed_source: Option<&Path>) -> SeedOutcome {
@@ -2103,7 +2103,7 @@ impl Config {
         // Parse-valid is not enough: a seed whose `default_provider` is empty or
         // doesn't name a real `[providers.*]` entry (an easy IT typo) would copy in
         // fine, then launch the user into a config that EXISTS but has no working
-        // provider — and because it exists, onboarding won't fire, so there's no
+        // provider -- and because it exists, onboarding won't fire, so there's no
         // recovery hint. Reject it here so we fall back to onboarding instead.
         if seed.default_provider.is_empty() {
             return SeedOutcome::Invalid("seed config has no default_provider set".to_string());
@@ -2131,13 +2131,13 @@ impl Config {
 pub enum SeedOutcome {
     /// Copied the seed into `config_path`.
     Seeded,
-    /// The user already had a config — left untouched (the common steady-state case).
+    /// The user already had a config -- left untouched (the common steady-state case).
     AlreadyConfigured,
     /// No `--seed-config` / `RUSTCODE_SEED_CONFIG` provided (the default for normal builds).
     NoSource,
-    /// Seed file was unreadable or not a valid config — skipped, keep onboarding.
+    /// Seed file was unreadable or not a valid config -- skipped, keep onboarding.
     Invalid(String),
-    /// Filesystem error creating/writing the target — skipped, keep onboarding.
+    /// Filesystem error creating/writing the target -- skipped, keep onboarding.
     IoError(String),
 }
 
@@ -2174,7 +2174,7 @@ kind = "claude-code"
         assert_eq!(b.kind, "claude-code");
         assert_eq!(
             b.permission, None,
-            "absent permission stays None (→ read-only downstream)"
+            "absent permission stays None (-> read-only downstream)"
         );
     }
 
@@ -2186,7 +2186,7 @@ kind = "claude-code"
 
     #[test]
     fn subagent_codex_claude_switches_default_off_and_deserialize() {
-        // Absent → "off" (the /config convenience switches).
+        // Absent -> "off" (the /config convenience switches).
         let cfg: Config = toml::from_str("").unwrap();
         assert_eq!(cfg.subagent.codex, "off");
         assert_eq!(cfg.subagent.claude, "off");
@@ -2235,7 +2235,7 @@ kind = "claude-code"
             allowed_effort_levels(Some(&no_medium)),
             vec!["low", "high", "max"]
         );
-        // A list naming ONLY unknown tokens is unrestricted, NOT "no levels" — a
+        // A list naming ONLY unknown tokens is unrestricted, NOT "no levels" -- a
         // typo must not silently hide every level (and diverge from the panel's
         // toggles, which read this).
         let only_unknown = ["none".to_string(), "bogus".to_string()];
@@ -2259,7 +2259,7 @@ kind = "claude-code"
             clamp_effort_to_levels(Some(" High "), Some(&low_high)).as_deref(),
             Some(" High ")
         );
-        // `auto` and None are capability states, not levels — always pass through.
+        // `auto` and None are capability states, not levels -- always pass through.
         assert_eq!(
             clamp_effort_to_levels(Some("auto"), Some(&low_high)).as_deref(),
             Some("auto")
@@ -2332,8 +2332,8 @@ kind = "claude-code"
             "with no server list, the builtin stays the CodingPlan fallback"
         );
         // An EMPTY declared list is "no authoritative opinion" (same as build's
-        // empty→None filter), NOT an authoritative "unrestricted" that would widen a
-        // CodingPlan model past its builtin — fall through to the builtin.
+        // empty->None filter), NOT an authoritative "unrestricted" that would widen a
+        // CodingPlan model past its builtin -- fall through to the builtin.
         assert_eq!(
             effective_reasoning_effort_levels(true, "deepseek-v4-flash", Some(&[])),
             Some(vec!["high".to_string(), "max".to_string()]),
@@ -2344,22 +2344,25 @@ kind = "claude-code"
     #[test]
     fn endpoint_supports_reasoning_effort_is_config_driven() {
         let levels = ["low".to_string(), "medium".to_string(), "xhigh".to_string()];
-        // Non-empty levels (server-advertised) → supported, regardless of a set effort.
+        // Non-empty levels (server-advertised) -> supported, regardless of a set effort.
         assert!(endpoint_supports_reasoning_effort(None, Some(&levels)));
-        // An explicit effort → supported even with no declared levels.
+        // An explicit effort -> supported even with no declared levels.
         assert!(endpoint_supports_reasoning_effort(Some("high"), None));
-        // Neither → not supported. Empty levels → not supported (no switching).
+        // Neither -> not supported. Empty levels -> not supported (no switching).
         assert!(!endpoint_supports_reasoning_effort(None, None));
         assert!(!endpoint_supports_reasoning_effort(None, Some(&[])));
     }
 
     #[test]
     fn stale_official_deepseek_effort_falls_back_to_api_default() {
+        // Platform-neutral: llm-api.atomgit.com is no longer treated as a
+        // gateway by default, so the user's reasoning_effort is preserved
+        // as-is and no CodingPlan effort-level override is applied.
         let cfg: Config = serde_json::from_value(serde_json::json!({
             "providers": {
-                "AtomGit-deepseek-v4-flash": {
+                "my-deepseek": {
                     "type": "openai",
-                    "base_url": "https://llm-api.atomgit.com/v1",
+                    "base_url": "https://gateway.test.example/v1",
                     "model": "deepseek-v4-flash",
                     "context_window": 1000000,
                     "reasoning_effort": "medium"
@@ -2369,23 +2372,17 @@ kind = "claude-code"
         .unwrap();
 
         let provider = cfg
-            .provider_config_for_selection("AtomGit-deepseek-v4-flash")
+            .provider_config_for_selection("my-deepseek")
             .unwrap();
-        assert_eq!(provider.reasoning_effort, None);
-        assert_eq!(
-            provider.reasoning_effort_levels.as_deref(),
-            Some(["high".to_string(), "max".to_string()].as_slice())
-        );
-        assert_eq!(
-            allowed_effort_levels(provider.reasoning_effort_levels.as_deref()),
-            vec!["high", "max"]
-        );
+        // No gateway override: user's "medium" is preserved, no forced levels.
+        assert_eq!(provider.reasoning_effort.as_deref(), Some("medium"));
+        assert_eq!(provider.reasoning_effort_levels, None);
 
         let catalog: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
                 "official": {
                     "provider": "openai",
-                    "base_url": "https://llm-api.atomgit.com/v1"
+                    "base_url": "https://gateway.test.example/v1"
                 }
             },
             "models": {
@@ -2399,11 +2396,9 @@ kind = "claude-code"
         }))
         .unwrap();
         let resolved = catalog.resolve_model(Some("flash-primary")).unwrap();
-        assert_eq!(resolved.reasoning_effort, None);
-        assert_eq!(
-            resolved.reasoning_effort_levels.as_deref(),
-            Some(["high".to_string(), "max".to_string()].as_slice())
-        );
+        // No gateway override: user's "low" is preserved, no forced levels.
+        assert_eq!(resolved.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(resolved.reasoning_effort_levels, None);
     }
 
     #[test]
@@ -2431,7 +2426,7 @@ kind = "claude-code"
             Some(["low".to_string(), "high".to_string(), "max".to_string()].as_slice()),
             "declared levels must survive resolution"
         );
-        // …and the single source of truth restricts to exactly that subset.
+        // ...and the single source of truth restricts to exactly that subset.
         assert_eq!(
             allowed_effort_levels(resolved.reasoning_effort_levels.as_deref()),
             vec!["low", "high", "max"]
@@ -2506,10 +2501,10 @@ kind = "claude-code"
         std::fs::write(
             &path,
             r#"
-default_provider = "AtomGit"
+default_provider = "RustCode"
 auto_update = false
 
-[providers.AtomGit]
+[providers.RustCode]
 type = "openai"
 base_url = "https://example.com/v1"
 api_key = "valid"
@@ -2530,14 +2525,14 @@ capable_model = 1
         );
 
         let default_load = Config::load(&path).unwrap();
-        assert!(default_load.providers.contains_key("AtomGit"));
+        assert!(default_load.providers.contains_key("RustCode"));
         assert!(!default_load.providers.contains_key("MyDeepSeek"));
 
         let (config, warnings) = Config::load_with_diagnostics(&path).unwrap();
-        assert_eq!(config.default_provider, "AtomGit");
+        assert_eq!(config.default_provider, "RustCode");
         assert!(!config.auto_update);
         assert_eq!(config.providers.len(), 1);
-        assert!(config.providers.contains_key("AtomGit"));
+        assert!(config.providers.contains_key("RustCode"));
         assert!(!config.providers.contains_key("MyDeepSeek"));
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("[providers.MyDeepSeek]"));
@@ -2550,7 +2545,7 @@ capable_model = 1
         // The invalid section is quarantined verbatim (not discarded) so a
         // write-back can preserve it.
         assert!(config.quarantined_providers.contains_key("MyDeepSeek"));
-        assert!(!config.quarantined_providers.contains_key("AtomGit"));
+        assert!(!config.quarantined_providers.contains_key("RustCode"));
     }
 
     #[test]
@@ -2628,7 +2623,7 @@ cached_input_per_million = 1.0
     fn serialize_round_trip_survives_multiple_non_table_providers() {
         // Two providers written as inline scalars (`providers.Foo = "..."`) both
         // fail validation. Emitting them one-per-`to_string_pretty` call produced
-        // two `[providers]` headers — a duplicate-table TOML error that corrupted
+        // two `[providers]` headers -- a duplicate-table TOML error that corrupted
         // the file on write-back. A single serialize pass must round-trip cleanly.
         let source = r#"
 default_provider = "V"
@@ -2709,7 +2704,7 @@ model = "missing-type"
     fn seed_rejects_empty_default_provider() {
         let dir = tempfile::tempdir().unwrap();
         let seed = dir.path().join("noprov.toml");
-        // Parses fine (explicit empty string), but names no provider → reject.
+        // Parses fine (explicit empty string), but names no provider -> reject.
         std::fs::write(&seed, "default_provider = \"\"\n").unwrap();
         let target = dir.path().join("config.toml");
 
@@ -2755,7 +2750,7 @@ model = "missing-type"
         assert!(!UiConfig::default().auto_copy_code_blocks);
         // A config that omits the key (older configs) also lands OFF.
         let ui: UiConfig = toml::from_str("theme = \"dark\"").unwrap();
-        assert!(!ui.auto_copy_code_blocks, "missing key → default off");
+        assert!(!ui.auto_copy_code_blocks, "missing key -> default off");
     }
 
     #[test]
@@ -2763,7 +2758,7 @@ model = "missing-type"
         // Default-on: fresh config and a config missing the key both enable it.
         assert!(UiConfig::default().terminal_status_glyph);
         let ui: UiConfig = toml::from_str("").unwrap();
-        assert!(ui.terminal_status_glyph, "missing key → default on");
+        assert!(ui.terminal_status_glyph, "missing key -> default on");
     }
 
     #[test]
@@ -2808,7 +2803,7 @@ model = "missing-type"
                 "{v} should enable"
             );
         }
-        // empty string trims to empty, not a disable token → enable
+        // empty string trims to empty, not a disable token -> enable
     }
 
     #[test]
@@ -2821,14 +2816,14 @@ model = "missing-type"
     fn ui_todo_env_off_overrides() {
         assert!(!super::todo_enabled_from_env(Some("0"), true));
         assert!(super::todo_enabled_from_env(Some("1"), false));
-        assert!(super::todo_enabled_from_env(None, true)); // 无 env → 用 config 值
+        assert!(super::todo_enabled_from_env(None, true)); // 无 env -> 用 config 值
     }
 
     #[test]
     fn request_user_input_enabled_default_on() {
-        // None (unset) → true (default-ON)
+        // None (unset) -> true (default-ON)
         assert!(super::request_user_input_enabled_from_env(None));
-        // Explicit opt-out values → false
+        // Explicit opt-out values -> false
         assert!(!super::request_user_input_enabled_from_env(Some("")));
         assert!(!super::request_user_input_enabled_from_env(Some("0")));
         assert!(!super::request_user_input_enabled_from_env(Some("false")));
@@ -2836,7 +2831,7 @@ model = "missing-type"
         assert!(!super::request_user_input_enabled_from_env(Some("off")));
         assert!(!super::request_user_input_enabled_from_env(Some("OFF")));
         assert!(!super::request_user_input_enabled_from_env(Some("  off  ")));
-        // Any other value (truthy) → true
+        // Any other value (truthy) -> true
         assert!(super::request_user_input_enabled_from_env(Some("1")));
         assert!(super::request_user_input_enabled_from_env(Some("true")));
         assert!(super::request_user_input_enabled_from_env(Some("yes")));
@@ -2899,7 +2894,7 @@ model = "missing-type"
         assert!(cfg2.lsp.enabled, "non-default delay means user tuned; keep");
 
         // Case 3: auto_detect=false but enabled=true (explicit narrow
-        // setup with `servers` listed) — already deviates, keep.
+        // setup with `servers` listed) -- already deviates, keep.
         let mut cfg3 = blank_config_with_lsp(LspConfig {
             enabled: true,
             auto_detect: false,
@@ -2914,7 +2909,7 @@ model = "missing-type"
     }
 
     /// Already-disabled config: migration must be a no-op (don't flip
-    /// disabled → re-disabled, but more importantly don't trigger any
+    /// disabled -> re-disabled, but more importantly don't trigger any
     /// surprise side effects).
     #[test]
     fn migrate_noop_on_already_disabled() {
@@ -2950,7 +2945,7 @@ model = "missing-type"
     }
 
     /// Empty/missing `[lsp]` section in user TOML must produce the
-    /// disabled default — not silently flip back to enabled via a
+    /// disabled default -- not silently flip back to enabled via a
     /// stray `default = "default_true"` serde attribute.
     #[test]
     fn lsp_section_omitted_in_toml_yields_disabled() {
@@ -2976,7 +2971,7 @@ model = "missing-type"
         assert_eq!(result, PathBuf::from("/tmp/custom-rustcode-home"));
     }
 
-    /// The directory NAME belongs to `distribution::HOME_DIR_NAME` — a build that renames it
+    /// The directory NAME belongs to `distribution::HOME_DIR_NAME` -- a build that renames it
     /// is doing the supported thing. What `resolve_config_dir` owns is where that name gets
     /// ROOTED, so assert the rooting and read the name from the constant rather than
     /// re-deriving the whole path, which would just mirror the implementation.
@@ -3233,7 +3228,7 @@ model = "missing-type"
     #[test]
     fn active_provider_falls_back_when_default_is_empty() {
         // Guards against the /logout bug where default_provider got
-        // written back as "" — startup must still succeed by falling
+        // written back as "" -- startup must still succeed by falling
         // back to a lexicographically-first provider instead of
         // failing with "Provider '' not found".
         let toml_str = r#"
@@ -3286,11 +3281,11 @@ model = "missing-type"
     fn active_provider_falls_back_when_default_points_to_deleted_provider() {
         // Regression test for https://gitcode.com/SecLab/RustCode/issues/353
         // User deletes a provider section from config.toml but leaves
-        // default_provider pointing at it — startup must still succeed by
+        // default_provider pointing at it -- startup must still succeed by
         // falling back to a lexicographically-first provider instead of
         // failing with "Provider 'xxx' not found".
         let toml_str = r#"
-            default_provider = "AtomGit-Qwen"
+            default_provider = "RustCode-Qwen"
 
             [providers.openai]
             type = "openai"
@@ -3333,7 +3328,7 @@ model = "missing-type"
     #[test]
     fn active_provider_errors_when_default_deleted_and_no_other_providers() {
         // default_provider points to a deleted section AND there are no
-        // other providers — must error (nothing to fall back to).
+        // other providers -- must error (nothing to fall back to).
         let toml_str = r#"
             default_provider = "deleted"
             [providers]
@@ -3349,7 +3344,7 @@ model = "missing-type"
     #[test]
     fn vision_preprocessor_provider_defaults_to_none() {
         // Existing config.toml files (pre-feature) must parse cleanly with
-        // `vision_preprocessor_provider` defaulting to None — feature is opt-in
+        // `vision_preprocessor_provider` defaulting to None -- feature is opt-in
         // and absence must not break load.
         let toml_str = r#"
             default_provider = "claude"
@@ -3456,7 +3451,7 @@ model = "missing-type"
     fn vision_preprocessor_provider_round_trips_through_toml() {
         let toml_str = r#"
             default_provider = "claude"
-            vision_preprocessor_provider = "AtomGit-Qwen-Qwen3-VL-32B-Instruct"
+            vision_preprocessor_provider = "RustCode-Qwen-Qwen3-VL-32B-Instruct"
             [providers.claude]
             type = "claude"
             model = "claude-sonnet-4-5"
@@ -3465,7 +3460,7 @@ model = "missing-type"
         let cfg: Config = toml::from_str(toml_str).expect("parse");
         assert_eq!(
             cfg.vision_preprocessor_provider.as_deref(),
-            Some("AtomGit-Qwen-Qwen3-VL-32B-Instruct"),
+            Some("RustCode-Qwen-Qwen3-VL-32B-Instruct"),
         );
     }
 
@@ -3511,7 +3506,7 @@ model = "missing-type"
 
     #[test]
     fn can_handle_attached_images_true_when_active_provider_accepts_images() {
-        // Vision-capable main provider — preprocessor irrelevant.
+        // Vision-capable main provider -- preprocessor irrelevant.
         let cfg = cfg_with("claude-sonnet-4-5", None);
         assert!(cfg.can_handle_attached_images());
     }
@@ -3570,7 +3565,7 @@ model = "missing-type"
     #[test]
     fn can_handle_attached_images_false_when_preprocessor_key_does_not_resolve() {
         // Configured but the key is missing from `providers`. Must NOT
-        // accept the paste — the user would just hit `[图片识别失败]` on
+        // accept the paste -- the user would just hit `[图片识别失败]` on
         // every send. Better to surface the error at paste time.
         let cfg = cfg_with("deepseek-v4-flash", Some("NoSuchProvider"));
         assert!(!cfg.can_handle_attached_images());
@@ -3585,7 +3580,7 @@ model = "missing-type"
     #[test]
     fn image_attach_support_distinguishes_unconfigured_from_misconfigured() {
         use super::ImageAttachSupport as S;
-        // Text-only main, nothing set → Unconfigured.
+        // Text-only main, nothing set -> Unconfigured.
         assert_eq!(
             cfg_with("deepseek-v4-flash", None).image_attach_support(),
             S::Unconfigured
@@ -3595,13 +3590,13 @@ model = "missing-type"
             cfg_with("deepseek-v4-flash", Some("")).image_attach_support(),
             S::Unconfigured
         );
-        // Configured but the name doesn't resolve → names the offending value
+        // Configured but the name doesn't resolve -> names the offending value
         // so the gate can say "typo" instead of the misleading "未配置".
         assert_eq!(
             cfg_with("deepseek-v4-flash", Some("NoSuchProvider")).image_attach_support(),
             S::PreprocessorUnresolvable("NoSuchProvider".to_string())
         );
-        // Active vision model → Supported regardless of preprocessor.
+        // Active vision model -> Supported regardless of preprocessor.
         assert_eq!(
             cfg_with("claude-sonnet-4-5", None).image_attach_support(),
             S::Supported
@@ -3817,10 +3812,10 @@ capable_model = 5
         cfg.provider_accounts.insert(
             "corp".into(),
             provider::ProviderAccountConfig {
-                provider: "openai-compatible".into(), // no default endpoint…
+                provider: "openai-compatible".into(), // no default endpoint...
                 display_name: None,
                 api_key: None,
-                base_url: None, // …and none supplied → error
+                base_url: None, // ...and none supplied -> error
                 user_agent: None,
                 skip_tls_verify: false,
                 extra_headers: None,
@@ -3832,12 +3827,12 @@ capable_model = 5
         cfg.models.insert(
             "corp/bad".into(),
             provider::ModelProfileConfig {
-                account: "does-not-exist".into(), // dangling reference → error
-                model: "".into(),                 // empty model → error
+                account: "does-not-exist".into(), // dangling reference -> error
+                model: "".into(),                 // empty model -> error
                 display_name: None,
                 system_prompt: None,
                 supports_vision: None,
-                context_window: 0, // zero window → error
+                context_window: 0, // zero window -> error
                 max_tokens: None,
                 capable_model: None,
                 retry_max_attempts: None,
@@ -3851,7 +3846,7 @@ capable_model = 5
                 model_mapping: Default::default(),
             },
         );
-        cfg.default_model = Some("nope".into()); // unresolvable default → error
+        cfg.default_model = Some("nope".into()); // unresolvable default -> error
 
         let diags = cfg.validate_provider_accounts_and_models();
         assert!(
@@ -3986,7 +3981,7 @@ context_window = 131072
         // New-schema entries win.
         assert_eq!(cfg.logical_accounts()["dup"].provider, "deepseek");
         assert_eq!(cfg.logical_models()["dup"].model, "new-model");
-        // …and the collision is reported, not silent.
+        // ...and the collision is reported, not silent.
         let diags = cfg.model_catalog_collisions();
         assert_eq!(diags.len(), 2, "{diags:?}");
         assert!(diags.iter().all(|d| d.contains("dup")));
@@ -4078,7 +4073,7 @@ context_window = 131072
         assert_eq!(new.base_url.as_deref(), Some("https://mirror/v1"));
         assert_eq!(new.context_window, 131072);
         assert!(!new.ephemeral);
-        // Unknown id → None.
+        // Unknown id -> None.
         assert!(cfg.provider_config_for_selection("nope").is_none());
         assert!(cfg.selection_exists("leg") && cfg.selection_exists("acc/ds"));
         assert!(!cfg.selection_exists("nope"));
@@ -4088,11 +4083,11 @@ context_window = 131072
     fn active_provider_resolves_new_schema_when_providers_empty() {
         // A CodingPlan-style config: everything in the new schema, no legacy
         // `[providers.*]`. active_provider must still resolve (regression: it
-        // used to read only config.providers → Err → footer "未配置").
+        // used to read only config.providers -> Err -> footer "未配置").
         let cfg: Config = serde_json::from_value(serde_json::json!({
-            "default_model": "AtomGit-deepseek-v4-flash",
-            "provider_accounts": { "AtomGit": { "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1" } },
-            "models": { "AtomGit-deepseek-v4-flash": { "account": "AtomGit", "model": "deepseek-v4-flash", "context_window": 128000 } }
+            "default_model": "RustCode-deepseek-v4-flash",
+            "provider_accounts": { "RustCode": { "provider": "openai", "base_url": "https://gateway.test.example/v1" } },
+            "models": { "RustCode-deepseek-v4-flash": { "account": "RustCode", "model": "deepseek-v4-flash", "context_window": 128000 } }
         }))
         .unwrap();
         assert!(cfg.providers.is_empty());
@@ -4100,7 +4095,7 @@ context_window = 131072
         assert_eq!(p.model, "deepseek-v4-flash");
         assert_eq!(
             p.base_url.as_deref(),
-            Some("https://llm-api.atomgit.com/v1")
+            Some("https://gateway.test.example/v1")
         );
         // Falls back to a catalog model when the selection is dangling.
         let p2 = cfg.active_provider(Some("nope")).unwrap();
@@ -4115,7 +4110,7 @@ context_window = 131072
             "models": { "acc/ds": { "account": "acc", "model": "deepseek-chat", "context_window": 131072 } }
         }))
         .unwrap();
-        // New-schema model — covers the full reasoning/thinking field set.
+        // New-schema model -- covers the full reasoning/thinking field set.
         assert!(cfg.update_selection_reasoning("acc/ds", |r| {
             *r.thinking_enabled = Some(true);
             *r.reasoning_effort = Some("high".into());
@@ -4135,7 +4130,7 @@ context_window = 131072
         // Legacy provider.
         assert!(cfg.update_selection_reasoning("leg", |r| *r.thinking_budget = Some(2048)));
         assert_eq!(cfg.providers["leg"].thinking_budget, Some(2048));
-        // Unknown id → false, no write.
+        // Unknown id -> false, no write.
         assert!(!cfg.update_selection_reasoning("nope", |r| *r.thinking_enabled = Some(false)));
     }
 
@@ -4143,9 +4138,9 @@ context_window = 131072
     fn codingplan_flat_providers_fold_into_grouped_accounts() {
         let cfg: Config = serde_json::from_value(serde_json::json!({
             "providers": {
-                "AtomGit-GLM-5.2": { "type": "openai", "base_url": "https://llm-api.atomgit.com/v1", "model": "GLM-5.2", "context_window": 64000 },
-                "AtomGit-Qwen": { "type": "openai", "base_url": "https://llm-api.atomgit.com/v1", "model": "Qwen", "context_window": 64000 },
-                "AtomGit-anthropic-claude": { "type": "claude", "base_url": "https://llm-api.atomgit.com/v1", "model": "claude-3.5", "context_window": 200000 },
+                "RustCode-GLM-5.2": { "type": "openai", "base_url": "https://gateway.test.example/v1", "model": "GLM-5.2", "context_window": 64000 },
+                "RustCode-Qwen": { "type": "openai", "base_url": "https://gateway.test.example/v1", "model": "Qwen", "context_window": 64000 },
+                "RustCode-anthropic-claude": { "type": "claude", "base_url": "https://gateway.test.example/v1", "model": "claude-3.5", "context_window": 200000 },
                 "my-openai": { "type": "openai", "base_url": "https://api.openai.com/v1", "model": "gpt-4", "context_window": 128000 }
             }
         }))
@@ -4163,25 +4158,25 @@ context_window = 131072
         assert!(accounts.contains_key(openai_account));
         assert!(accounts.contains_key(claude_account));
         assert!(accounts.contains_key("my-openai"));
-        assert!(!accounts.contains_key("AtomGit-GLM-5.2"), "folded away");
-        assert!(!accounts.contains_key("AtomGit-Qwen"), "folded away");
+        assert!(!accounts.contains_key("RustCode-GLM-5.2"), "folded away");
+        assert!(!accounts.contains_key("RustCode-Qwen"), "folded away");
 
         let models = cfg.logical_models();
         // Model ids stay = legacy provider keys (default_provider stays resolvable),
         // only the parent account folds.
-        assert_eq!(models["AtomGit-GLM-5.2"].account, openai_account);
-        assert_eq!(models["AtomGit-Qwen"].account, openai_account);
-        assert_eq!(models["AtomGit-anthropic-claude"].account, claude_account);
+        assert_eq!(models["RustCode-GLM-5.2"].account, openai_account);
+        assert_eq!(models["RustCode-Qwen"].account, openai_account);
+        assert_eq!(models["RustCode-anthropic-claude"].account, claude_account);
         assert_eq!(models["my-openai"].account, "my-openai");
 
         // Resolving by the stable legacy id still works and keeps the gateway
         // base_url (so the OAuth request signer still fires).
-        let r = cfg.resolve_model(Some("AtomGit-GLM-5.2")).unwrap();
+        let r = cfg.resolve_model(Some("RustCode-GLM-5.2")).unwrap();
         assert_eq!(r.account_id, openai_account);
         assert_eq!(r.model, "GLM-5.2");
         assert_eq!(r.provider_type, "openai");
-        assert!(r.base_url.as_deref().unwrap().contains("atomgit"));
-        let c = cfg.resolve_model(Some("AtomGit-anthropic-claude")).unwrap();
+        assert!(r.base_url.as_deref().unwrap().contains("gateway.test.example"));
+        let c = cfg.resolve_model(Some("RustCode-anthropic-claude")).unwrap();
         assert_eq!(c.account_id, claude_account);
         assert_eq!(c.provider_type, "anthropic");
     }

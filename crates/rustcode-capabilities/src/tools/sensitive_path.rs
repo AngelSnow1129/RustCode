@@ -1,8 +1,8 @@
-//! `SensitivePathGate` — require approval before a normally-Safe READ tool touches a
-//! sensitive path (SSH keys, cloud creds, `.env`, …).
+//! `SensitivePathGate` -- require approval before a normally-Safe READ tool touches a
+//! sensitive path (SSH keys, cloud creds, `.env`, ...).
 //!
 //! Kernel approval is risk-based: `read_file` / `grep` / `glob` / `list_dir` are `Safe`, so
-//! they NEVER prompt — meaning an agent can silently read `~/.ssh/id_rsa` or `.env` and the
+//! they NEVER prompt -- meaning an agent can silently read `~/.ssh/id_rsa` or `.env` and the
 //! contents ride a tool result straight to the LLM provider (secret exfiltration). This
 //! gate preserves the existing per-path protection in a native middleware:
 //! it acts ONLY on tools that would otherwise bypass approval (`Safe`) AND whose args name
@@ -25,7 +25,7 @@ use super::approval::{
 };
 
 /// Path fragments that mark a credential store. Matched case-insensitively as substrings of
-/// the raw (JSON) tool arguments — the path rides there for every read tool. Deliberately
+/// the raw (JSON) tool arguments -- the path rides there for every read tool. Deliberately
 /// PATH-shaped (not bare words like "secret") so an ordinary `grep "secret"` over source
 /// does not prompt. A false positive costs ONE approval prompt on an otherwise-Safe read,
 /// so the list errs toward catching real secrets. `.env` is handled specially below.
@@ -54,14 +54,14 @@ const SENSITIVE_MARKERS: &[&str] = &[
     "/.terraform.d",
 ];
 
-/// Placeholder-template `.env` variants committed to version control — they hold only
+/// Placeholder-template `.env` variants committed to version control -- they hold only
 /// dummy values, so reading them is not a secret-exfiltration risk and must not prompt.
 /// Matched as the keyword immediately after `.env.` (e.g. `.env.example`, `.env.sample`).
 const ENV_TEMPLATE_SUFFIXES: &[&str] = &["example", "sample", "template", "dist", "defaults"];
 
 /// True if the raw args reference a sensitive path. `.env` is matched only as a FILENAME
-/// (`.env"`, `.env'`, `.env.local…`) so `"environment"` / `.environment/` do not false-trip.
-/// Placeholder templates (`.env.example`, `.env.sample`, …) are excluded — they are
+/// (`.env"`, `.env'`, `.env.local...`) so `"environment"` / `.environment/` do not false-trip.
+/// Placeholder templates (`.env.example`, `.env.sample`, ...) are excluded -- they are
 /// committed to VCS and hold no real secrets, so prompting on them is pure friction.
 pub fn references_sensitive_path(args: &str) -> bool {
     let a = args.to_ascii_lowercase();
@@ -69,7 +69,7 @@ pub fn references_sensitive_path(args: &str) -> bool {
     if a.contains(".env\"") || a.contains(".env'") {
         return true;
     }
-    // `.env.<suffix>` is sensitive (`.env.local`, `.env.production`, …) UNLESS every
+    // `.env.<suffix>` is sensitive (`.env.local`, `.env.production`, ...) UNLESS every
     // such occurrence is a known non-secret template.
     if env_dot_reference_is_sensitive(&a) {
         return true;
@@ -96,8 +96,8 @@ fn matches_a_marker(lowercased: &str) -> bool {
 /// The credential paths under the CONFIGURED config dir, as lowercased
 /// `/`-separated substrings.
 ///
-/// [`SENSITIVE_MARKERS`] hardcodes the `/.rustcode/…` spelling, which covers the
-/// default location under any home (and the `~/.rustcode/…` form a model is
+/// [`SENSITIVE_MARKERS`] hardcodes the `/.rustcode/...` spelling, which covers the
+/// default location under any home (and the `~/.rustcode/...` form a model is
 /// likely to write). It matches nothing once `$RUSTCODE_HOME` points elsewhere,
 /// so the credentials of exactly the users who moved their config tree would
 /// ride out through a `Safe` read without a prompt. These markers close that.
@@ -109,7 +109,7 @@ fn configured_credential_markers() -> &'static [String] {
     MARKERS.get_or_init(|| credential_markers_for(&crate::paths::config_dir()))
 }
 
-/// Pure core of [`configured_credential_markers`] — takes the dir so the marker
+/// Pure core of [`configured_credential_markers`] -- takes the dir so the marker
 /// shape can be asserted without mutating the process-global `$RUSTCODE_HOME`.
 fn credential_markers_for(config_dir: &Path) -> Vec<String> {
     let dir = config_dir
@@ -145,7 +145,7 @@ fn env_dot_reference_is_sensitive(a: &str) -> bool {
     let mut rest = a;
     while let Some(pos) = rest.find(".env.") {
         let after = &rest[pos + ".env.".len()..];
-        // Leading alphanumeric run is the variant keyword (stops at quote, dot, slash, …).
+        // Leading alphanumeric run is the variant keyword (stops at quote, dot, slash, ...).
         let suffix: String = after
             .chars()
             .take_while(|c| c.is_ascii_alphanumeric())
@@ -174,15 +174,15 @@ fn home_dir() -> Option<PathBuf> {
 /// testable without mutating the process-global env.
 ///
 /// `starts_with` is component-wise, so the second arm covers the `auth/`
-/// DIRECTORY and not the `auth.toml` file — hence the explicit first arm.
+/// DIRECTORY and not the `auth.toml` file -- hence the explicit first arm.
 fn is_credential_path(path: &Path, config_dir: &Path) -> bool {
     path == config_dir.join("auth.toml") || path.starts_with(config_dir.join("auth"))
 }
 
-/// True iff a RESOLVED (absolute, cwd-joined) `path` is sensitive — a system-protected
+/// True iff a RESOLVED (absolute, cwd-joined) `path` is sensitive -- a system-protected
 /// location, a credential dir under the real home, or a secret file by name/extension. This is
 /// the PATH-aware companion to [`references_sensitive_path`] (which substring-matches raw JSON
-/// args): it correctly catches a RELATIVE `.ssh/authorized_keys` or a Windows `…\.ssh\…` once
+/// args): it correctly catches a RELATIVE `.ssh/authorized_keys` or a Windows `...\.ssh\...` once
 /// resolved, which the substring form misses. Faithful port of the legacy (v1) `is_sensitive_path`
 /// so write approval inherits the same protected set.
 pub fn path_is_sensitive(path: &Path) -> bool {
@@ -315,7 +315,7 @@ impl ToolMiddleware for SensitivePathGate {
         tool: &Arc<dyn Tool>,
         rt: &RequestCtx,
     ) -> BeforeOutcome {
-        // Only tools that would otherwise SKIP approval need this — a Risky tool already
+        // Only tools that would otherwise SKIP approval need this -- a Risky tool already
         // round-trips through ApprovalMiddleware, so gating it here would double-prompt.
         if tool.risk(&call.arguments) != RiskLevel::Safe {
             return BeforeOutcome::Proceed;
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn detects_credential_paths_not_ordinary_content() {
-        // Credential stores → flagged.
+        // Credential stores -> flagged.
         assert!(references_sensitive_path(
             r#"{"file_path":"/home/u/.ssh/id_rsa"}"#
         ));
@@ -382,7 +382,7 @@ mod tests {
         assert!(references_sensitive_path(
             r#"{"file_path":"C:\\Users\\u\\.rustcode\\auth.toml"}"#
         ));
-        // Placeholder templates (committed to VCS, no real secrets) → NOT flagged.
+        // Placeholder templates (committed to VCS, no real secrets) -> NOT flagged.
         assert!(
             !references_sensitive_path(r#"{"file_path":"/proj/.env.example"}"#),
             ".env.example is a template"
@@ -406,7 +406,7 @@ mod tests {
             references_sensitive_path(r#"{"file_path":"C:\\Users\\u\\.ssh\\id_ed25519"}"#),
             "windows key"
         );
-        // Ordinary reads / searches → NOT flagged.
+        // Ordinary reads / searches -> NOT flagged.
         assert!(!references_sensitive_path(r#"{"file_path":"src/main.rs"}"#));
         assert!(
             !references_sensitive_path(r#"{"pattern":"secret","path":"src/"}"#),
@@ -419,7 +419,7 @@ mod tests {
     }
 
     fn silent_rt() -> RequestCtx {
-        // No driver drains the request → a bounded round-trip times out → Null → Deny.
+        // No driver drains the request -> a bounded round-trip times out -> Null -> Deny.
         let (tx, _rx) = unbounded_channel();
         RequestCtx::new(tx, Some(Duration::from_millis(20)))
     }
@@ -433,7 +433,7 @@ mod tests {
             name: "read_file".into(),
             arguments: r#"{"file_path":"src/main.rs"}"#.into(),
         };
-        // Ordinary path → Proceed WITHOUT awaiting the (silent) driver.
+        // Ordinary path -> Proceed WITHOUT awaiting the (silent) driver.
         assert!(!gate.before(&mut call, &tool, &silent_rt()).await.is_deny());
     }
 
@@ -481,7 +481,7 @@ mod tests {
         ));
         // The default location is NOT special-cased: with the tree moved, that
         // path is an ordinary file. `SENSITIVE_MARKERS` still covers the raw-arg
-        // spelling — see `the_default_credential_markers_survive_relocation`.
+        // spelling -- see `the_default_credential_markers_survive_relocation`.
         assert!(!is_credential_path(
             Path::new("/home/u/.rustcode/auth.toml"),
             moved
@@ -519,7 +519,7 @@ mod tests {
 
     /// End-to-end through the read gate's own entry point. The `#[ctor]` points
     /// `$RUSTCODE_HOME` at a temp dir for the whole test binary, so this path is
-    /// NOT under `~/.rustcode` and `SENSITIVE_MARKERS` cannot match it — only the
+    /// NOT under `~/.rustcode` and `SENSITIVE_MARKERS` cannot match it -- only the
     /// configured markers can. That is exactly the case that used to slip through.
     #[test]
     fn a_relocated_credential_path_is_flagged_in_raw_args() {
@@ -527,7 +527,7 @@ mod tests {
         assert!(
             !dir.to_string_lossy().contains(".rustcode"),
             "precondition: the harness must have moved the config dir off the \
-             default, else the const markers would carry this test — got {}",
+             default, else the const markers would carry this test -- got {}",
             dir.display()
         );
 
@@ -542,7 +542,7 @@ mod tests {
         let args = serde_json::json!({ "command": format!("cat {}", token.display()) }).to_string();
         assert!(references_sensitive_path(&args), "{args}");
 
-        // Same tree, ordinary file → still no prompt. Pins that the new markers
+        // Same tree, ordinary file -> still no prompt. Pins that the new markers
         // are path-shaped and did not widen into "anything under the config dir".
         let ordinary = dir.join("config.toml");
         let args = serde_json::json!({ "file_path": ordinary.to_string_lossy() }).to_string();

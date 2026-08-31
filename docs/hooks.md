@@ -1,6 +1,6 @@
-# AtomCode Hooks
+# RustCode Hooks
 
-The Hooks system allows you to insert custom logic at key execution points in AtomCode, enabling flexible extensibility.
+The Hooks system allows you to insert custom logic at key execution points in RustCode, enabling flexible extensibility.
 
 ## Quick Start
 
@@ -60,13 +60,13 @@ enabled = true
 timeout_secs = 2
 ```
 
-Done! Hooks are automatically loaded when AtomCode starts.
+Done! Hooks are automatically loaded when RustCode starts.
 
 ---
 
 ## Configuration Overview
 
-AtomCode supports **three** hook implementations, managed via two config files:
+RustCode supports **three** hook implementations, managed via two config files:
 
 | Method | Config file | Implementation | Use case |
 |------|---------|------|---------|
@@ -276,13 +276,13 @@ Built-in hooks auto-register and cannot be disabled via configuration yet (futur
 
 ```bash
 # List loaded hooks
-atomcode hooks list
+rustcode hooks list
 
 # View config paths
-atomcode hooks paths
+rustcode hooks paths
 
 # Test a single hook
-atomcode hooks test my-hook
+rustcode hooks test my-hook
 ```
 ---
 
@@ -324,13 +324,13 @@ python -c "from pathlib import Path; import json; json.load(Path('path/to/hooks.
 
 ```bash
 # 查看当前加载的所有 hook
-atomcode hooks list
+rustcode hooks list
 
 # 查看 hook 配置路径
-atomcode hooks paths
+rustcode hooks paths
 
 # 测试单个 hook 是否正常触发
-atomcode hooks test <hook-name>
+rustcode hooks test <hook-name>
 ```
 
 ### Hook 不触发的 6 步排查清单
@@ -359,7 +359,7 @@ atomcode hooks test <hook-name>
 
 ## Related Docs
 
-- [CLI Guide](./hook-cli-guide.md) — `atomcode hooks` command reference
+- [CLI Guide](./hook-cli-guide.md) — `rustcode hooks` command reference
 - [Complete Timing List](./hook-timing-complete.md) — all hook timings and available configurations
 - [Webhook Guide](./webhook-guide.md) — HTTP remote calls
 - [Async Webhook Guide](./async-webhook-guide.md) — batch async delivery

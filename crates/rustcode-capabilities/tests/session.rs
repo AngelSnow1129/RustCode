@@ -1,6 +1,6 @@
 //! Conformance gates for the `session` capability: the `recall` tool and the three
 //! persistence/injection hooks must each satisfy the kernel seam contracts
-//! (must-not-panic, bounded, meta-preserving, return-shape) — the same gates a
+//! (must-not-panic, bounded, meta-preserving, return-shape) -- the same gates a
 //! third-party provider/tool/hook is held to.
 #![cfg(feature = "session")]
 

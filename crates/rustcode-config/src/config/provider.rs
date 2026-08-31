@@ -10,7 +10,7 @@ pub struct ProviderConfig {
     pub base_url: Option<String>,
     /// Arbitrary extra HTTP headers sent on every request to this provider.
     /// Useful for self-hosted gateways that require custom auth/tenant headers.
-    /// Values are sourced from config only — never hardcoded.
+    /// Values are sourced from config only -- never hardcoded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_headers: Option<std::collections::HashMap<String, String>>,
     /// Optional forward proxy (e.g. `http://corp-proxy:3128`) applied to this
@@ -38,12 +38,12 @@ pub struct ProviderConfig {
     /// If not set, defaults to context_window / 4.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
-    /// Kimi K2.5 / K2.6 thinking control — emitted as `thinking.type`
+    /// Kimi K2.5 / K2.6 thinking control -- emitted as `thinking.type`
     /// in the request body. `"enabled"` | `"disabled"`. K2-thinking is
     /// always on and ignores this. Unset = don't forward the field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_type: Option<String>,
-    /// Kimi K2.6 Preserved Thinking — emitted as `thinking.keep` in the
+    /// Kimi K2.6 Preserved Thinking -- emitted as `thinking.keep` in the
     /// request body. `"all"` to have the server reprocess historical
     /// reasoning_content (more expensive). Unset = default behavior.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -120,12 +120,12 @@ pub struct ProviderConfig {
 ///
 /// The three budgets are deliberately distinct:
 ///
-/// - `connect` — TCP + TLS handshake up to the first response byte. Guards a
+/// - `connect` -- TCP + TLS handshake up to the first response byte. Guards a
 ///   dead gateway / blackholed proxy. Maps to each adapter's `connect_timeout`.
-/// - `request` — the whole OPEN phase (send request -> response headers). Maps to
+/// - `request` -- the whole OPEN phase (send request -> response headers). Maps to
 ///   `open_timeout`. **OpenAI-compatible and Anthropic only**: the Ollama adapter
 ///   has no such seam, so the field is ignored there rather than emulated.
-/// - `idle` — max byte-idle gap INSIDE a stream (and the first-token wait).
+/// - `idle` -- max byte-idle gap INSIDE a stream (and the first-token wait).
 ///   Maps to `idle_timeout`, i.e. the runtime's `stream_timeout`.
 ///
 /// `deny_unknown_fields` is intentional: a typo like `timeout = 30` (a bare
@@ -250,7 +250,7 @@ pub struct ModelProfileConfig {
 }
 
 /// One flattened, immutable resolution of a model selection (design §3.4). This
-/// is the single value provider construction consumes — accounts, presets,
+/// is the single value provider construction consumes -- accounts, presets,
 /// legacy entries, and environment variables are all resolved away by
 /// [`super::Config::resolve_model`]. Carries everything a provider adapter needs
 /// (including the per-model dynamic `base_url` and `system_prompt`, §14.5) but
@@ -314,7 +314,7 @@ impl ResolvedModelConfig {
     /// Lets consumers that still key off `config.providers` (the daemon live
     /// runtime, the TUI `/think`/`/effort` readers) accept a new-schema or
     /// folded-CodingPlan selection without a full schema migration. `ephemeral`
-    /// is always `false` — a resolved selection is a persisted/projected model,
+    /// is always `false` -- a resolved selection is a persisted/projected model,
     /// never a runtime-only provider handle.
     pub fn to_provider_config(&self) -> ProviderConfig {
         ProviderConfig {

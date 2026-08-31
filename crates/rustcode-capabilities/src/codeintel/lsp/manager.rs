@@ -25,7 +25,7 @@ struct ClientKey {
 }
 
 pub struct LspManager {
-    /// (canonical project root, server command/args) → running client. Extensions that
+    /// (canonical project root, server command/args) -> running client. Extensions that
     /// map to the same server share a process, while different workspaces remain isolated.
     clients: Mutex<HashMap<ClientKey, Arc<LspClient>>>,
     /// Only callers starting the same project/language serialize with each other;
@@ -146,7 +146,7 @@ impl LspManager {
         if let Some(error) = self.unavailable.lock().await.get(&key).cloned() {
             return Err(error);
         }
-        // Binary not on PATH → graceful degrade (no error, no spawn).
+        // Binary not on PATH -> graceful degrade (no error, no spawn).
         if which::which(&config.command).is_err() {
             let error = format!(
                 "language server '{}' is not installed or not on PATH",
@@ -333,9 +333,9 @@ mod tests {
     async fn ensure_server_degrades_when_uninstalled() {
         let mgr = LspManager::with_registry(missing_binary_registry());
         let d = tempfile::tempdir().unwrap();
-        // configured but binary missing → false
+        // configured but binary missing -> false
         assert!(!mgr.ensure_server(d.path(), Path::new("a.rs")).await);
-        // unsupported extension → false
+        // unsupported extension -> false
         assert!(!mgr.ensure_server(d.path(), Path::new("a.txt")).await);
         assert!(!mgr.has_servers().await);
     }

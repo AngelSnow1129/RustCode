@@ -161,7 +161,7 @@ impl ConfigPanel {
             }
         })?;
         let committed_value = setting.value(&commit.snapshot.config, &selection);
-        let success_message = format!("✓ {} = {}", setting.id(), committed_value);
+        let success_message = format!("[+] {} = {}", setting.id(), committed_value);
         let outcome = apply_config_panel_commit(
             ctx,
             commit,
@@ -245,9 +245,9 @@ impl ConfigPanel {
                 format!("Press Delete again to reset {id}")
             }
         } else if zh {
-            "↑↓ 选择 · Enter 修改 · Delete 恢复默认 · Esc 返回".to_string()
+            "↑↓ 选择 . Enter 修改 . Delete 恢复默认 . Esc 返回".to_string()
         } else {
-            "↑↓ select · Enter change · Delete reset · Esc close".to_string()
+            "↑↓ select . Enter change . Delete reset . Esc close".to_string()
         };
         let mut items = vec![
             (title, String::new()),
@@ -296,12 +296,12 @@ impl ConfigPanel {
             (
                 setting.label(zh, &ctx.provider_selection),
                 format!(
-                    "{} · {policy}",
+                    "{} . {policy}",
                     setting.value(&ctx.config, &ctx.provider_selection)
                 ),
             )
         }));
-        items.push((format!("— {hint} —"), String::new()));
+        items.push((format!("-- {hint} --"), String::new()));
         MenuPayload {
             items,
             selected: if filtered.is_empty() {

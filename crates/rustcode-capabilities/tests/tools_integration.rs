@@ -155,7 +155,7 @@ async fn approval_denies_risky_write_and_it_is_blocked() {
 
 #[tokio::test]
 async fn safe_tools_run_without_approval_prompt() {
-    // read/grep/glob/list are Safe → DenyAll must NOT block them (approval only gates
+    // read/grep/glob/list are Safe -> DenyAll must NOT block them (approval only gates
     // Risky calls). Pre-seed a file, then have the model read it under DenyAll.
     let d = tempfile::tempdir().unwrap();
     std::fs::write(d.path().join("data.txt"), "alpha\nbeta\n").unwrap();

@@ -1,13 +1,13 @@
-//! CLAIM 17: COOPERATIVE CANCELLATION — a per-turn CancellationToken rides
+//! CLAIM 17: COOPERATIVE CANCELLATION -- a per-turn CancellationToken rides
 //! through ToolContext; `AgentCommand::Cancel` fires it; run_turn polls it at the
 //! stream OPEN, between tools, and inside execute. CANCEL = UNDO: a cancelled turn
 //! is ROLLED BACK to before its user message, so the prompt + any partial
 //! assistant/tool work leaves NO trace in history. (No dangling tool_calls to
-//! repair — the whole turn is gone; the API stays valid trivially. The TUI
+//! repair -- the whole turn is gone; the API stays valid trivially. The TUI
 //! separately restores the prompt to the input box for edit-and-resend.)
 //!
 //! Determinism: cancellation is driven by a COOPERATING test tool that fires
-//! `ctx.cancel.cancel()` from inside its own `execute` — no timing races.
+//! `ctx.cancel.cancel()` from inside its own `execute` -- no timing races.
 
 use async_trait::async_trait;
 use rustcode_kernel::event::{AgentCommand, AgentEvent, StopReason};
@@ -18,7 +18,7 @@ use rustcode_kernel::tool::{Tool, ToolCall, ToolContext, ToolRegistry, ToolResul
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-/// A provider whose `chat_stream` — the OPEN — never resolves: it models a
+/// A provider whose `chat_stream` -- the OPEN -- never resolves: it models a
 /// connection that hangs establishing / awaiting the first response byte (e.g. a
 /// stale keep-alive socket reused after a `/model` switch). The turn blocks at the
 /// open, BEFORE the consume loop, so only a cancel that RACES the open can end it.
@@ -85,7 +85,7 @@ async fn cancel_aborts_a_turn_hung_in_the_stream_open() {
     };
     let reason = tokio::time::timeout(std::time::Duration::from_secs(5), drive)
         .await
-        .expect("Cancel must abort a turn hung in the stream OPEN — it must not hang");
+        .expect("Cancel must abort a turn hung in the stream OPEN -- it must not hang");
     assert_eq!(
         reason,
         Some(StopReason::Cancelled),
@@ -192,7 +192,7 @@ fn tool_call(id: &str, name: &str, args: &str) -> ToolCall {
 // CANCELS the turn. We assert:
 //   * AgentEvent::Cancelled is emitted, immediately followed by TurnComplete;
 //   * echo was NOT executed (no echo ToolResult);
-//   * the cancelled turn leaves NO trace — verified by driving a SECOND turn and
+//   * the cancelled turn leaves NO trace -- verified by driving a SECOND turn and
 //     asserting (via RecordingProvider) that its first request carries neither the
 //     cancelled user message nor either tool_call/result (the whole turn is gone).
 #[tokio::test]
@@ -202,7 +202,7 @@ async fn cancel_between_tools_rolls_back_the_turn() {
     reg.register(Arc::new(EchoTool));
 
     // Turn 1: one round, an assistant message with two tool_calls.
-    // Turn 2: stop immediately (single round) — its FIRST request carries turn 1's
+    // Turn 2: stop immediately (single round) -- its FIRST request carries turn 1's
     // full repaired history, which we inspect for the no-dangling property.
     let provider = Arc::new(RecordingProvider::new(vec![
         vec![
@@ -270,7 +270,7 @@ async fn cancel_between_tools_rolls_back_the_turn() {
 
     // (3) ROLL-BACK: the cancelled turn leaves NO trace. Drive a SECOND turn; its
     // first request carries the post-cancel history, which must contain neither
-    // turn 1's user message nor either tool_call/result — the whole turn is gone.
+    // turn 1's user message nor either tool_call/result -- the whole turn is gone.
     handle
         .commands
         .send(AgentCommand::SendMessage {
@@ -294,7 +294,7 @@ async fn cancel_between_tools_rolls_back_the_turn() {
     );
     // The second turn's first request = calls[1]; it carries the post-cancel history.
     let history = &calls[1].0;
-    assert_no_dangling_tool_calls(history); // trivially holds — turn 1 is gone
+    assert_no_dangling_tool_calls(history); // trivially holds -- turn 1 is gone
     assert!(
         !history.iter().any(|m| m.text.contains("do two things")),
         "cancelled turn's user message must be rolled back: {history:?}"
@@ -462,7 +462,7 @@ async fn shutdown_during_turn_emits_cancel_terminal_and_latest_snapshot() {
 }
 
 /// Assert every assistant tool_call in `messages` has a matching tool-result
-/// (paired by id) — the no-dangling invariant the API requires after a cancel.
+/// (paired by id) -- the no-dangling invariant the API requires after a cancel.
 fn assert_no_dangling_tool_calls(messages: &[Message]) {
     let result_ids: std::collections::HashSet<&str> = messages
         .iter()
@@ -505,7 +505,7 @@ impl rustcode_kernel::middleware::ToolMiddleware for GateMiddleware {
 
 // CLAIM 17 addendum: `AgentCommand::Cancel` must also unblock a turn parked INSIDE a
 // middleware round-trip (an approval prompt the user dismissed). The turn token alone
-// cannot reach it — `request` awaits a oneshot — so Cancel flushes every pending
+// cannot reach it -- `request` awaits a oneshot -- so Cancel flushes every pending
 // request to Null (fail-closed deny). NO request_timeout is configured here: before
 // the fix this test parks forever.
 #[tokio::test]
@@ -542,7 +542,7 @@ async fn cancel_unblocks_pending_middleware_request() {
         let mut reason = None;
         while let Some(ev) = handle.events.recv().await {
             match ev {
-                // The approval Request arrived → the turn is now parked in the
+                // The approval Request arrived -> the turn is now parked in the
                 // middleware await. The user dismisses: Cancel, never Respond.
                 AgentEvent::Request { .. } => {
                     handle.commands.send(AgentCommand::Cancel).unwrap();
@@ -558,7 +558,7 @@ async fn cancel_unblocks_pending_middleware_request() {
     };
     let reason = tokio::time::timeout(std::time::Duration::from_secs(5), drive)
         .await
-        .expect("Cancel must unblock the parked approval await — turn may not hang");
+        .expect("Cancel must unblock the parked approval await -- turn may not hang");
 
     assert_eq!(
         reason,
@@ -569,9 +569,9 @@ async fn cancel_unblocks_pending_middleware_request() {
     let _ = handle.task.await;
 }
 
-// CLAIM 17d (v1 parity — "cancel the WHOLE multi-turn loop, not just one step"):
+// CLAIM 17d (v1 parity -- "cancel the WHOLE multi-turn loop, not just one step"):
 // a Cancel that lands during ONE round of a MULTI-ROUND turn must halt the whole
-// turn — the next round must NOT start. (v1 had a bug where the Cancel handler reset
+// turn -- the next round must NOT start. (v1 had a bug where the Cancel handler reset
 // the token, so a round finishing as UsedTools let the loop continue and the user
 // had to press stop once per round.) Round 1 calls `self_cancel` (fires the per-turn
 // token from inside execute) and finishes as a normal tool round; the loop must
@@ -583,7 +583,7 @@ async fn cancel_mid_round_halts_the_whole_multi_round_turn() {
     reg.register(Arc::new(SelfCancelTool));
 
     // Round 1: a single self_cancel tool call (round finishes as UsedTools).
-    // Round 2: would stream text — but its request must NEVER be issued.
+    // Round 2: would stream text -- but its request must NEVER be issued.
     let provider = Arc::new(RecordingProvider::new(vec![
         vec![
             StreamEvent::ToolCall(tool_call("c_cancel", "self_cancel", "{}")),
@@ -636,9 +636,9 @@ async fn cancel_mid_round_halts_the_whole_multi_round_turn() {
 }
 
 // CLAIM 17e: with `keep_interrupted_context(true)`, a between-tools cancel PRESERVES
-// the interrupted turn — the second turn's first request must still carry turn 1's
+// the interrupted turn -- the second turn's first request must still carry turn 1's
 // user message + assistant tool_calls, and every dangling tool_call must be backfilled
-// with a `(cancelled)` result (no dangling — API stays valid).
+// with a `(cancelled)` result (no dangling -- API stays valid).
 #[tokio::test]
 async fn cancel_preserves_turn_when_keep_interrupted_context() {
     let mut reg = ToolRegistry::new();
@@ -705,7 +705,7 @@ async fn cancel_preserves_turn_when_keep_interrupted_context() {
             .any(|m| m.tool_calls.iter().any(|tc| tc.id == "c_cancel")),
         "preserved: cancelled assistant tool_calls must remain: {history:?}"
     );
-    // (2) still API-valid: every tool_call has a result (c_echo was never run → backfilled).
+    // (2) still API-valid: every tool_call has a result (c_echo was never run -> backfilled).
     assert_no_dangling_tool_calls(history);
     let result_ids: std::collections::HashSet<&str> = history
         .iter()

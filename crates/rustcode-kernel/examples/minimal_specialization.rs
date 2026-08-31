@@ -71,7 +71,7 @@ async fn main() {
     while let Some(ev) = events.recv().await {
         match ev {
             AgentEvent::TextDelta(t) => print!("{t}"),
-            AgentEvent::ToolStarted { call } => println!("[tool→ {}]", call.name),
+            AgentEvent::ToolStarted { call } => println!("[tool-> {}]", call.name),
             AgentEvent::ToolResult { result } => println!("[result: {}]", result.content),
             AgentEvent::Request { id, kind, payload } => {
                 println!("[{kind} for {}]", payload["tool"]);

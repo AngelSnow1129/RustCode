@@ -41,8 +41,8 @@ rustcode-daemon = { path = "../rustcode-daemon" }
 # protocol router keeps the stable v1 chain as the default path.
 agent-client-protocol = { workspace = true, features = ["unstable_protocol_v2", "unstable_elicitation"] }
 rustcode-kernel = { path = "../rustcode-kernel" }
-rustcode-coding = { path = "../rustcode-coding", features = ["atomgit"] }
-rustcode-capabilities = { path = "../rustcode-capabilities", features = ["notify", "setup", "plugin", "mcp", "atomgit", "cc-hooks"] }
+rustcode-coding = { path = "../rustcode-coding" }
+rustcode-capabilities = { path = "../rustcode-capabilities", features = ["notify", "setup", "plugin", "mcp", "cc-hooks"] }
 rustcode-auth = { path = "../rustcode-auth" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

@@ -15,7 +15,7 @@ use std::path::PathBuf;
 /// This function accounts for sudo scenarios where $HOME might be /root
 /// but we want the actual user's home directory.
 ///
-/// Prefer this over `std::env::var("HOME")` — the latter returns `None`
+/// Prefer this over `std::env::var("HOME")` -- the latter returns `None`
 /// on stock Windows and sends us down a fallback path that then hits
 /// `/tmp` (also nonexistent on Windows).
 pub fn home_dir() -> Option<PathBuf> {
@@ -32,7 +32,7 @@ pub fn home_dir() -> Option<PathBuf> {
 ///
 /// On Windows the comparison is case-insensitive because
 /// `canonicalize` may normalise the path to a different casing than
-/// `dirs::home_dir()` returns (e.g. `C:\Users\…` vs `c:\users\…`).
+/// `dirs::home_dir()` returns (e.g. `C:\Users\...` vs `c:\users\...`).
 ///
 /// Used by the status row + welcome page to keep long paths readable.
 pub fn collapse_home(path: &str) -> String {
@@ -55,14 +55,14 @@ fn collapse_home_with(path: &str, home: Option<&std::path::Path>) -> String {
         if !home_str.is_empty() {
             // On Windows the filesystem is case-insensitive.  `canonicalize`
             // may return a path whose drive-letter / user-directory casing
-            // differs from `dirs::home_dir()` (e.g. `C:\USERS\alice\…` vs
+            // differs from `dirs::home_dir()` (e.g. `C:\USERS\alice\...` vs
             // `C:\users\alice`).  Compare case-insensitively on Windows so
             // the prefix is reliably stripped and the status row shows
             // `~/rustcode` instead of the raw `C:\USERS\alice\rustcode`.
             let rest = if cfg!(windows) {
                 // Case-insensitive prefix match on Windows: compare the
                 // lowercased forms, but slice the *original* path at
-                // `home_str.len()` — that offset is where the remainder
+                // `home_str.len()` -- that offset is where the remainder
                 // starts regardless of casing differences.  Using the
                 // lowercase remainder's length (old code: `s.len()`) was
                 // wrong because it equals `path.len() - home_str.len()`,
@@ -80,11 +80,11 @@ fn collapse_home_with(path: &str, home: Option<&std::path::Path>) -> String {
                 if rest.is_empty() {
                     return "~".to_string();
                 }
-                // Always emit forward slashes after `~` — the `~`
+                // Always emit forward slashes after `~` -- the `~`
                 // shortcut is a Unix shell convention and `~\foo`
                 // (the Windows-native form) matches no actual shell:
                 // PowerShell / cmd don't expand `~`, Git Bash / WSL
-                // use `~/`. Mixed `~\…` reads as a typo. Normalising
+                // use `~/`. Mixed `~\...` reads as a typo. Normalising
                 // here keeps every status-row path consistent with
                 // the rest of the TUI (skill paths, command help,
                 // docs) which all reference `~/.rustcode/...`.
@@ -97,23 +97,23 @@ fn collapse_home_with(path: &str, home: Option<&std::path::Path>) -> String {
 
 /// Collapse the user's home-dir prefix to `~` everywhere it appears as the
 /// START of a path token inside a shell COMMAND string (display-only, for the
-/// `● Bash(…)` header). Unlike [`collapse_home`] — which only rewrites a path
-/// anchored at position 0 — a command embeds paths mid-string
+/// `* Bash(...)` header). Unlike [`collapse_home`] -- which only rewrites a path
+/// anchored at position 0 -- a command embeds paths mid-string
 /// (`cat /Users/me/f && grep x /Users/me/g`), so every occurrence is scanned.
 ///
 /// A match qualifies only as a WHOLE path token: `{home}` must be at string
 /// start or preceded by a shell boundary (whitespace / quote / `=` / `(`),
-/// AND immediately followed by `/`, a boundary, or end — so `/Users/me/x` →
-/// `~/x` and bare `/Users/me` → `~`, but `/Users/metoo` is left intact. `:`
+/// AND immediately followed by `/`, a boundary, or end -- so `/Users/me/x` ->
+/// `~/x` and bare `/Users/me` -> `~`, but `/Users/metoo` is left intact. `:`
 /// and `,` are deliberately NOT boundaries: a `~` inside a `PATH`-style
 /// colon list or a `host:/path` isn't shell-expanded there, so collapsing it
 /// would read as misleading. Purely cosmetic: the executed command and the
 /// transcript copy keep the real path.
 pub fn collapse_home_in_command(cmd: &str) -> String {
     // Cache the home lookup: this runs on EVERY bash-row render, including
-    // ~80ms live-spinner ticks. `home_dir()` → `real_home_dir()` can do a
+    // ~80ms live-spinner ticks. `home_dir()` -> `real_home_dir()` can do a
     // `getpwnam_r` NSS lookup under sudo (potentially LDAP/SSSD), so resolving
-    // it once per process — home never changes mid-run — keeps it off the hot path.
+    // it once per process -- home never changes mid-run -- keeps it off the hot path.
     use std::sync::OnceLock;
     static HOME: OnceLock<Option<PathBuf>> = OnceLock::new();
     let home = HOME.get_or_init(home_dir);
@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn collapse_home_in_command_leaves_non_home_prefix_alone() {
-        // `/Users/metoo` shares the `/Users/me` prefix but is a DIFFERENT dir —
+        // `/Users/metoo` shares the `/Users/me` prefix but is a DIFFERENT dir --
         // must not become `~too`.
         let home = std::path::Path::new("/Users/me");
         assert_eq!(
@@ -296,7 +296,7 @@ mod tests {
     /// Simulates the exact scenario reported in issue #356: on Windows 10
     /// the user's home directory is `C:\Users\username` (as returned by
     /// `dirs::home_dir()`) but `canonicalize` produces
-    /// `\\?\C:\Users\username\rustcode` — note the `\\?\` prefix that
+    /// `\\?\C:\Users\username\rustcode` -- note the `\\?\` prefix that
     /// `collapse_home` already strips, **and** a potential case mismatch
     /// between the two paths.  On Windows the filesystem is
     /// case-insensitive so `C:\Users` and `c:\users` refer to the same
@@ -311,14 +311,14 @@ mod tests {
         // canonicalize gives us a different casing.
         let home = std::path::Path::new(r"C:\Users\username");
 
-        // Exact case — should always work
+        // Exact case -- should always work
         assert_eq!(
             collapse_home_with(r"C:\Users\username\rustcode", Some(home)),
             "~/rustcode"
         );
 
         // Home dir uses `C:\Users\username`, canonicalize returns
-        // `C:\USERS\username` — must still collapse to `~/rustcode`.
+        // `C:\USERS\username` -- must still collapse to `~/rustcode`.
         // On non-Windows cfg!(windows) is false so this test verifies
         // the case-sensitive path; the Windows-specific test below
         // covers the case-insensitive branch.

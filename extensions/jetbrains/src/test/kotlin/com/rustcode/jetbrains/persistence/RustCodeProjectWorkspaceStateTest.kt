@@ -4,10 +4,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-class AtomCodeProjectWorkspaceStateTest {
+class RustCodeProjectWorkspaceStateTest {
     @Test
     fun `normalized selects first tab when selected tab is missing`() {
-        val workspace = AtomCodeProjectWorkspace(
+        val workspace = RustCodeProjectWorkspace(
             selectedTabId = "missing",
             tabs = mutableListOf(WorkspaceTabState(tabId = "tab-1")),
         ).normalized()
@@ -17,7 +17,7 @@ class AtomCodeProjectWorkspaceStateTest {
 
     @Test
     fun `normalized removes duplicate tab ids`() {
-        val workspace = AtomCodeProjectWorkspace(
+        val workspace = RustCodeProjectWorkspace(
             tabs = mutableListOf(
                 WorkspaceTabState(tabId = "tab-1", title = "One"),
                 WorkspaceTabState(tabId = "tab-1", title = "Duplicate"),
@@ -47,7 +47,7 @@ class AtomCodeProjectWorkspaceStateTest {
 
     @Test
     fun `upsert tab inserts then replaces existing tab`() {
-        val state = AtomCodeProjectWorkspaceState()
+        val state = RustCodeProjectWorkspaceState()
 
         state.upsertTab(WorkspaceTabState(tabId = "tab-1", title = "First"))
         state.upsertTab(WorkspaceTabState(tabId = "tab-1", title = "Updated"))
@@ -59,7 +59,7 @@ class AtomCodeProjectWorkspaceStateTest {
 
     @Test
     fun `remove selected tab selects next tab`() {
-        val state = AtomCodeProjectWorkspaceState()
+        val state = RustCodeProjectWorkspaceState()
         state.upsertTab(WorkspaceTabState(tabId = "tab-1"))
         state.upsertTab(WorkspaceTabState(tabId = "tab-2"))
         state.selectTab("tab-1")

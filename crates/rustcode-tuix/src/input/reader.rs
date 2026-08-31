@@ -10,12 +10,12 @@ use tokio::sync::mpsc;
 
 use super::{InputEvent, PointerButton, PointerEvent, PointerKind};
 
-/// Burst-aggregation timeouts — how long the burst detector waits for the
+/// Burst-aggregation timeouts -- how long the burst detector waits for the
 /// next event before deciding the burst is over. A two-stage state machine
 /// (DeepSeek-TUI's `paste_burst.rs` prior art) keeps lone keystrokes fast
 /// while still coalescing real pastes:
 ///
-/// - **PENDING** — the *first* peek after a candidate char. Normal typing
+/// - **PENDING** -- the *first* peek after a candidate char. Normal typing
 ///   has human-scale gaps, so this short window expires and the single key
 ///   is emitted with near-zero added latency. Previously the full burst
 ///   timeout ran on *every* keystroke, which added a flat 15 ms per key on
@@ -23,7 +23,7 @@ use super::{InputEvent, PointerButton, PointerEvent, PointerKind};
 ///   is below the ~13-20 ms perception floor, and being non-zero (vs a
 ///   strict `poll(0)`) gives a genuinely chunked first record a moment to
 ///   surface so a real paste isn't misread as a lone key.
-/// - **ACTIVE** — adopted only *after* a 2nd candidate char confirms a
+/// - **ACTIVE** -- adopted only *after* a 2nd candidate char confirms a
 ///   burst. The longer, per-OS bridging window that spans the gaps a
 ///   terminal takes to deliver chunked paste records:
 ///   - **Windows** (PowerShell / Windows Terminal / conhost): bracketed
@@ -31,7 +31,7 @@ use super::{InputEvent, PointerButton, PointerEvent, PointerKind};
 ///     batches with 5-12 ms gaps; a 2 ms window split one logical Ctrl+V
 ///     into 5-10 `[Pasted #N]` placeholders. 15 ms swallows those gaps.
 ///     (Now that PENDING protects typing latency, this could be raised
-///     toward the 60 ms prior-art value — left at 15 ms pending real
+///     toward the 60 ms prior-art value -- left at 15 ms pending real
 ///     Windows verification.)
 ///   - **macOS / Linux**: bracketed paste arrives as one event in
 ///     practice; this only matters for the rare no-bracketed-paste
@@ -45,7 +45,7 @@ const BURST_ACTIVE_TIMEOUT_MS: u64 = 4;
 /// If a Key event could plausibly be part of a paste burst, return the
 /// character it contributes. Enter maps to `\n`, Tab to `\t`, Char(c) to
 /// itself. Modifier-carrying keys (Ctrl/Alt) and non-Press kinds are
-/// excluded — those are commands, not pasted content.
+/// excluded -- those are commands, not pasted content.
 fn paste_candidate_char(ev: &Event) -> Option<char> {
     let Event::Key(KeyEvent {
         kind,
@@ -67,7 +67,7 @@ fn paste_candidate_char(ev: &Event) -> Option<char> {
     }
     match code {
         KeyCode::Char(c) => Some(*c),
-        // Shift+Enter is "insert newline", a user command — never a
+        // Shift+Enter is "insert newline", a user command -- never a
         // paste-burst char. Real pasted newlines arrive as Event::Paste
         // (bracketed paste) or as plain Enter with NO modifier (conhost
         // char-by-char). If we let Shift+Enter in here, the single-event
@@ -89,16 +89,16 @@ fn paste_candidate_char(ev: &Event) -> Option<char> {
 /// as a real `InputEvent::Paste` rather than emitted as individual key
 /// events. Conjuncted conditions:
 ///
-/// 1. **At least 2 chars** — singletons are normal typing.
-/// 2. **Contains `\n`** — the unambiguous "this is multi-line content"
+/// 1. **At least 2 chars** -- singletons are normal typing.
+/// 2. **Contains `\n`** -- the unambiguous "this is multi-line content"
 ///    signal. Bursts of plain printable chars (someone typing fast) get
 ///    handled per-key just fine without aggregation.
-/// 3. **At least one non-whitespace char** — distinguishes a real paste
+/// 3. **At least one non-whitespace char** -- distinguishes a real paste
 ///    from buffered Enter/Tab keystrokes left in the tty input queue at
 ///    startup. Without this guard, two Enters mashed by the user before
 ///    rustcode took over the terminal (e.g. while waiting for a slow
 ///    `cargo build` to finish) get aggregated into `Paste("\n\n")` and
-///    inserted as text — the input box opens with two pre-typed blank
+///    inserted as text -- the input box opens with two pre-typed blank
 ///    lines. Genuine pastes containing only whitespace + newlines are
 ///    vanishingly rare; falling back to per-key submission of those bursts
 ///    is the right trade-off.
@@ -106,9 +106,9 @@ fn paste_candidate_char(ev: &Event) -> Option<char> {
 ///    Defends against the JediTerm IME commit storm reported on Windows:
 ///    every Pinyin candidate selection emitted `<char> + Enter` in rapid
 ///    succession (within the 2ms aggregation window), producing a burst
-///    like `[首, \n, 页, \n, 中, \n, …]`. Old heuristic accepted that as
+///    like `[首, \n, 页, \n, 中, \n, ...]`. Old heuristic accepted that as
 ///    a paste, leaving the buffer with `\n` between every CJK char and
-///    the input row showing `首↵页↵中↵…`. Genuine multi-line pastes
+///    the input row showing `首↵页↵中↵...`. Genuine multi-line pastes
 ///    always have lines with text; IME bursts have exactly 1 text char
 ///    per line. Threshold scoped to 3+ lines so a legitimate 2-line
 ///    paste with two single-char lines (rare but possible) still flows
@@ -151,7 +151,7 @@ pub enum ReaderCommand {
     /// `ack` once it's confirmed idle, so the caller can safely take
     /// over stdin without a race.
     Pause,
-    /// Resume normal event dispatch. No ack — the next keystroke is
+    /// Resume normal event dispatch. No ack -- the next keystroke is
     /// the ack.
     Resume,
     /// Exit the thread. Idempotent; dropping the sender also triggers exit.
@@ -172,7 +172,7 @@ impl ReaderHandle {
     /// disable raw mode and hand stdin to a child process without the
     /// reader stealing bytes.
     ///
-    /// Returns early (Ok) if the reader already exited — callers should
+    /// Returns early (Ok) if the reader already exited -- callers should
     /// treat that as "nothing to pause" rather than an error.
     pub fn pause_blocking(&self) -> std::io::Result<()> {
         let (ack_tx, ack_rx) = stdmpsc::channel();
@@ -183,7 +183,7 @@ impl ReaderHandle {
         {
             return Ok(()); // reader already gone
         }
-        // Bounded wait — if the reader is stuck inside `event::poll` we
+        // Bounded wait -- if the reader is stuck inside `event::poll` we
         // still ACK within the 100ms poll timeout.
         match ack_rx.recv_timeout(Duration::from_secs(2)) {
             Ok(()) => Ok(()),
@@ -194,7 +194,7 @@ impl ReaderHandle {
         }
     }
 
-    /// Resume from Pause. Fire-and-forget — the next keystroke the user
+    /// Resume from Pause. Fire-and-forget -- the next keystroke the user
     /// presses becomes the implicit ack.
     pub fn resume(&self) {
         let _ = self.cmd_tx.send((ReaderCommand::Resume, None));
@@ -208,7 +208,7 @@ impl Drop for ReaderHandle {
             let _ = execute!(std::io::stdout(), DisableFocusChange);
             rustcode_capabilities::notify::set_terminal_focus_state(None);
         }
-        // Let the thread finish on its own — we don't join here because
+        // Let the thread finish on its own -- we don't join here because
         // the reader may be blocked inside `event::poll` for up to 100ms
         // and we'd rather not stall caller shutdown.
         if let Some(join) = self.join.take() {
@@ -294,18 +294,18 @@ fn track_focus_change(focused: bool) -> InputEvent {
 /// spinning up a real TTY.
 #[derive(Debug, PartialEq, Eq)]
 enum PollAction {
-    /// `poll` said "event available" — proceed to `event::read`.
+    /// `poll` said "event available" -- proceed to `event::read`.
     Read,
-    /// No event in this tick and channel still open — loop again.
+    /// No event in this tick and channel still open -- loop again.
     Continue,
-    /// No event and the input channel was dropped — exit the thread.
+    /// No event and the input channel was dropped -- exit the thread.
     Exit,
-    /// `poll` returned `Err` — treat as a transient glitch (Windows
+    /// `poll` returned `Err` -- treat as a transient glitch (Windows
     /// crossterm has been seen to fail `poll`/`read` during terminal
     /// resize). Sleep briefly and loop. Critically, this is NOT
-    /// `Exit` — returning here would kill the reader thread and
-    /// collapse the event loop (`input_rx` closes → `maybe = None`
-    /// → break), which is the "rustcode exits when I resize on
+    /// `Exit` -- returning here would kill the reader thread and
+    /// collapse the event loop (`input_rx` closes -> `maybe = None`
+    /// -> break), which is the "rustcode exits when I resize on
     /// Windows" bug.
     Sleep,
 }
@@ -327,7 +327,7 @@ fn classify_poll(res: std::io::Result<bool>, tx_closed: bool) -> PollAction {
 ///
 /// 40 ms sits between OS autorepeat cadence (~30 ms on macOS / Linux) and
 /// the fastest humans can actually chord Shift+Enter twice (~100+ ms).
-/// Scoped to Enter-with-modifiers only — plain-key autorepeat (Backspace,
+/// Scoped to Enter-with-modifiers only -- plain-key autorepeat (Backspace,
 /// arrows) remains useful and is left untouched.
 const MODIFIER_ENTER_DEDUP: Duration = Duration::from_millis(40);
 
@@ -341,7 +341,7 @@ fn run(
     // protocol's Repeat filtering.
     let mut last_mod_enter: Option<(KeyModifiers, std::time::Instant)> = None;
     loop {
-        // If paused, block on the command channel — no poll, no read, so
+        // If paused, block on the command channel -- no poll, no read, so
         // the child process owns stdin cleanly. Only Resume / Shutdown
         // exit the paused state.
         if paused {
@@ -351,7 +351,7 @@ fn run(
                 }
                 Ok((ReaderCommand::Shutdown, _)) | Err(_) => return,
                 Ok((ReaderCommand::Pause, ack)) => {
-                    // Already paused — just re-ack so the caller unblocks.
+                    // Already paused -- just re-ack so the caller unblocks.
                     if let Some(ack) = ack {
                         let _ = ack.send(());
                     }
@@ -371,7 +371,7 @@ fn run(
                 continue;
             }
             Ok((ReaderCommand::Resume, _)) => {
-                // Already running — ignore.
+                // Already running -- ignore.
             }
             Ok((ReaderCommand::Shutdown, _)) => return,
             Err(TryRecvError::Disconnected) => return,
@@ -421,20 +421,20 @@ fn run(
         // Paste-burst detection for terminals without bracketed paste
         // (Windows conhost, some PowerShell setups). When a user pastes
         // multi-line text there, crossterm emits each character as an
-        // individual `Event::Key` — including embedded Enters, which
+        // individual `Event::Key` -- including embedded Enters, which
         // individually trigger submit and produced "many queued
         // submits". Real bracketed paste lands here as `Event::Paste`
         // and this block is a no-op.
         //
         // Heuristic: if this event is a printable char / Enter / Tab
         // AND more events are ALREADY queued (peek with 0-timeout
-        // poll), we're almost certainly inside a paste burst — real
+        // poll), we're almost certainly inside a paste burst -- real
         // typing has human-scale gaps so the queue is empty on peek.
         // Aggregate consecutive paste-candidate events and emit one
         // synthetic `InputEvent::Paste`. Only triggers when the burst
         // contains an Enter (the unambiguous "this is multi-line
         // pasted text, not typing" signal); burst of chars without
-        // Enter falls through to the normal per-key path — it looks
+        // Enter falls through to the normal per-key path -- it looks
         // the same to the user either way and keeps the heuristic
         // conservative.
         if let Some(c0) = paste_candidate_char(&ev) {
@@ -442,8 +442,8 @@ fn run(
             let mut trailing: Option<Event> = None;
             const BATCH_CAP: usize = 8192;
             // Two-stage burst detection (see BURST_*_TIMEOUT_MS): the first
-            // peek uses the short PENDING window so a lone keystroke — the
-            // common case — is emitted with near-zero latency instead of
+            // peek uses the short PENDING window so a lone keystroke -- the
+            // common case -- is emitted with near-zero latency instead of
             // blocking the reader for the full per-OS timeout on every key.
             // Only once a 2nd candidate char confirms a burst do we widen to
             // the longer ACTIVE window to bridge chunked paste records.
@@ -457,7 +457,7 @@ fn run(
                 // A paste arriving as chunked stdin records gets split into
                 // per-record events; the ACTIVE window bridges the gap a
                 // terminal takes to translate each record. The PENDING
-                // window is non-zero for the same reason — a strict
+                // window is non-zero for the same reason -- a strict
                 // `poll(0)` first peek would miss a burst whose 2nd record
                 // hasn't landed yet and emit it as a lone key.
                 match event::poll(Duration::from_millis(timeout_ms)) {
@@ -470,7 +470,7 @@ fn run(
                 };
                 // Windows crossterm in raw mode emits Press + Release
                 // (and Repeat on autorepeat). Release/Repeat interleaved
-                // with the paste burst used to kill aggregation — the
+                // with the paste burst used to kill aggregation -- the
                 // very next event after 'A' Press is 'A' Release, which
                 // `paste_candidate_char` rejects, so we'd break out with
                 // chars=[A] and never see the rest of the burst. Skip
@@ -501,11 +501,11 @@ fn run(
                     return;
                 }
             } else {
-                // Not a clear paste signature — emit originals per-key.
+                // Not a clear paste signature -- emit originals per-key.
                 // We only kept chars, so reconstruct KeyEvents. The
                 // first event we read is `ev`; subsequent ones we
                 // discarded in favour of `chars`. Rebuild from chars
-                // using a minimal KeyEvent (no modifiers) — this path
+                // using a minimal KeyEvent (no modifiers) -- this path
                 // fires in the rare case where events piled up but
                 // there was no Enter, i.e. fast typing or single-line
                 // paste. Both look the same on screen, so a synthetic
@@ -549,7 +549,7 @@ fn run(
         // large bracketed paste as MULTIPLE `Event::Paste` records with the
         // same 5-12 ms inter-chunk gaps the char-burst detector above bridges
         // for the no-bracketed-paste fallback. Forwarded one-by-one, each
-        // record folds into its own `[Pasted #N]` placeholder downstream — a
+        // record folds into its own `[Pasted #N]` placeholder downstream -- a
         // single Ctrl+V of a long file showed as 29 placeholders (Windows bug
         // report). Concatenate consecutive `Event::Paste` records that arrive
         // within the ACTIVE bridging window into one payload so the buffer
@@ -881,7 +881,7 @@ mod tests {
     }
 
     /// A long bracketed paste arriving as several `Event::Paste` chunks (the
-    /// Windows Terminal / conhost behaviour) collapses into ONE payload — so
+    /// Windows Terminal / conhost behaviour) collapses into ONE payload -- so
     /// the buffer folds it into a single `[Pasted #N]` instead of 29 of them.
     #[test]
     fn coalesces_consecutive_paste_chunks() {
@@ -927,7 +927,7 @@ mod tests {
     }
 
     /// `next` yielding `None` (the bridging window closed with nothing more
-    /// queued — the common single-chunk paste) ends the run cleanly.
+    /// queued -- the common single-chunk paste) ends the run cleanly.
     #[test]
     fn paste_coalesce_ends_when_window_closes() {
         let (out, trailing) = coalesce_paste("solo".to_string(), 1 << 20, || None);
@@ -935,7 +935,7 @@ mod tests {
         assert!(trailing.is_none());
     }
 
-    /// Pause/Resume round trip without touching crossterm — feeds commands
+    /// Pause/Resume round trip without touching crossterm -- feeds commands
     /// directly into the `run` worker via an in-memory channel pair. This
     /// exercises the paused-state ACK path that the OAuth flow depends on
     /// without needing a real TTY.
@@ -954,7 +954,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("pause ACK arrives within 2s");
 
-        // Resend Pause — already paused, the worker must still ACK so
+        // Resend Pause -- already paused, the worker must still ACK so
         // callers don't deadlock on a re-entrant pause.
         let (ack_tx2, ack_rx2) = stdmpsc::channel();
         cmd_tx
@@ -964,7 +964,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("re-entrant pause also ACKs");
 
-        // Resume — should unblock the worker's recv loop.
+        // Resume -- should unblock the worker's recv loop.
         cmd_tx
             .send((ReaderCommand::Resume, None))
             .expect("send resume");
@@ -992,7 +992,7 @@ mod tests {
         assert!(
             win < 80,
             "dedup window {}ms must stay below fastest realistic human \
-             chord repeat (~100ms) so intentional Shift+Enter×2 still works",
+             chord repeat (~100ms) so intentional Shift+Enterx2 still works",
             win
         );
     }
@@ -1002,7 +1002,7 @@ mod tests {
     /// merge into one burst. It no longer has to stay under the human
     /// perception floor: only a *confirmed* burst ever waits this long,
     /// never a lone keystroke (that pays the short PENDING window). The
-    /// old 2 ms value was too tight on Windows — PowerShell stdin
+    /// old 2 ms value was too tight on Windows -- PowerShell stdin
     /// delivery has 5-12 ms gaps that fragmented one logical Ctrl+V into
     /// 5-10 [Pasted #N] placeholders.
     #[test]
@@ -1010,7 +1010,7 @@ mod tests {
         let t = BURST_ACTIVE_TIMEOUT_MS;
         assert!(
             t >= 4,
-            "{}ms must be >= 4ms — at least the Unix baseline so 2-3ms \
+            "{}ms must be >= 4ms -- at least the Unix baseline so 2-3ms \
              SSH delivery gaps don't fragment pastes",
             t
         );
@@ -1024,7 +1024,7 @@ mod tests {
     /// The PENDING first-peek window decides lone-keystroke latency. It
     /// must be small (so typing feels instant) but non-zero (so a
     /// genuinely chunked paste's 2nd record can surface and confirm the
-    /// burst — a strict poll(0) would misread it as a lone key).
+    /// burst -- a strict poll(0) would misread it as a lone key).
     #[test]
     fn burst_pending_timeout_is_small_and_nonzero() {
         assert!(
@@ -1035,7 +1035,7 @@ mod tests {
         );
         assert!(
             BURST_PENDING_TIMEOUT_MS <= BURST_ACTIVE_TIMEOUT_MS,
-            "PENDING ({}ms) must not exceed ACTIVE ({}ms) — it is the \
+            "PENDING ({}ms) must not exceed ACTIVE ({}ms) -- it is the \
              *short* stage of the two-stage state machine",
             BURST_PENDING_TIMEOUT_MS,
             BURST_ACTIVE_TIMEOUT_MS
@@ -1077,7 +1077,7 @@ mod tests {
     /// the single-event else-branch of the burst path reconstructs the
     /// KeyEvent with `KeyModifiers::NONE`, stripping SHIFT, and
     /// `key_action::classify` collapses the result to `Submit` instead
-    /// of `InsertNewline` — i.e. Shift+Enter silently sends the message.
+    /// of `InsertNewline` -- i.e. Shift+Enter silently sends the message.
     #[test]
     fn paste_candidate_rejects_shift_enter() {
         let ev = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
@@ -1119,7 +1119,7 @@ mod tests {
     }
 
     /// Whitespace-only bursts (newline + space, newline + tab) likewise
-    /// fail the "real content" test — same root cause as the buffered-
+    /// fail the "real content" test -- same root cause as the buffered-
     /// Enter case, just with adjacent whitespace instead.
     #[test]
     fn whitespace_only_burst_is_not_paste() {
@@ -1129,7 +1129,7 @@ mod tests {
     }
 
     /// Real multi-line paste (text + embedded newline) must still be
-    /// recognised — that's the entire reason the burst path exists for
+    /// recognised -- that's the entire reason the burst path exists for
     /// terminals without bracketed paste.
     #[test]
     fn text_with_newline_burst_is_paste() {
@@ -1141,7 +1141,7 @@ mod tests {
     }
 
     /// Bursts without any newline fall through to per-key handling
-    /// regardless of length — just fast typing, not a paste signal.
+    /// regardless of length -- just fast typing, not a paste signal.
     #[test]
     fn no_newline_burst_is_not_paste() {
         assert!(!is_paste_burst(&['a', 'b', 'c', 'd']));
@@ -1150,7 +1150,7 @@ mod tests {
     /// Regression: JediTerm IME on Windows commits each Pinyin candidate
     /// as `<char> + Enter`, producing bursts of single-char-per-line.
     /// Old heuristic accepted these as pastes; the buffer ended up with
-    /// `\n` between every CJK char and the input row showed `首↵页↵中↵…`.
+    /// `\n` between every CJK char and the input row showed `首↵页↵中↵...`.
     /// New rule: 3+ lines averaging ≤1 non-newline char per line is the
     /// IME pattern, not a paste.
     #[test]
@@ -1160,15 +1160,15 @@ mod tests {
         assert!(!is_paste_burst(&[
             '首', '\n', '页', '\n', '中', '\n', '的', '\n'
         ]));
-        // Bare CJK without trailing newline — same shape, also rejected.
+        // Bare CJK without trailing newline -- same shape, also rejected.
         assert!(!is_paste_burst(&['首', '\n', '页', '\n', '中']));
         // ASCII char-per-line bursts also caught (rare keyboard
-        // remapping but same root cause — phantom Enter between chars).
+        // remapping but same root cause -- phantom Enter between chars).
         assert!(!is_paste_burst(&['a', '\n', 'b', '\n', 'c', '\n']));
     }
 
     /// 2-line pastes with two short lines must still flow through the
-    /// paste path — the IME-rejection threshold is gated on 3+ lines so
+    /// paste path -- the IME-rejection threshold is gated on 3+ lines so
     /// legitimate short pastes aren't caught as collateral.
     #[test]
     fn two_line_short_paste_still_recognised() {
@@ -1176,7 +1176,7 @@ mod tests {
     }
 
     /// Multi-line paste with substantial text per line stays a paste
-    /// even when CJK is involved — char-per-line check counts NON-newline
+    /// even when CJK is involved -- char-per-line check counts NON-newline
     /// chars, so `你好世界 \n 再见` (7 non-newline + 1 newline = 2 lines,
     /// avg 3.5/line) sails through.
     #[test]
@@ -1200,7 +1200,7 @@ mod tests {
     /// `Err` as `Sleep` (loop again after a short delay), never `Exit`.
     #[test]
     fn classify_poll_err_is_sleep_not_exit() {
-        // Real error construction — ErrorKind doesn't matter, the
+        // Real error construction -- ErrorKind doesn't matter, the
         // classifier treats all Err the same.
         let boom = std::io::Error::new(std::io::ErrorKind::Other, "resize glitch");
         assert_eq!(classify_poll(Err(boom), false), PollAction::Sleep);
@@ -1208,7 +1208,7 @@ mod tests {
         assert_eq!(
             classify_poll(Err(boom), true),
             PollAction::Sleep,
-            "Err must NOT be Exit even when tx is closed — exit path \
+            "Err must NOT be Exit even when tx is closed -- exit path \
              is only for clean shutdown via Ok(false) + closed tx"
         );
     }
@@ -1222,7 +1222,7 @@ mod tests {
         assert_eq!(
             classify_poll(Ok(true), true),
             PollAction::Read,
-            "Ok(true) always reads — caller will notice tx closed on send"
+            "Ok(true) always reads -- caller will notice tx closed on send"
         );
         assert_eq!(classify_poll(Ok(false), false), PollAction::Continue);
         assert_eq!(classify_poll(Ok(false), true), PollAction::Exit);
@@ -1245,7 +1245,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("pause ACK");
 
-        drop(cmd_tx); // Err on next recv → exit
+        drop(cmd_tx); // Err on next recv -> exit
         worker
             .join()
             .expect("paused worker joins after sender drop");

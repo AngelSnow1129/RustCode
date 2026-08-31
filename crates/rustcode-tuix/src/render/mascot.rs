@@ -1,7 +1,7 @@
 //! Baked pixel-art mascot (orange cat) for the welcome banner.
 //!
-//! 9 cells wide × 4 rows. The face/ears/chin come from the offline generator
-//! (`scripts/gen_mascot.py`), but the EYES are hand-tuned: each 2×2 eye is a
+//! 9 cells wide x 4 rows. The face/ears/chin come from the offline generator
+//! (`scripts/gen_mascot.py`), but the EYES are hand-tuned: each 2x2 eye is a
 //! glossy black pupil with a single white highlight in its TOP-LEFT corner
 //! (`w` over `k k k`), and a slightly-darker-orange "eyebrow" (`e`) sits in the
 //! row directly above each eye. NOT read at runtime. Each row is
@@ -20,7 +20,7 @@ pub const MASCOT_ROWS: [&str; 4] = [
     "..o.ooooooooooo...",
 ];
 
-/// Map a legend byte to its 256-color value; `.` (transparent) → None.
+/// Map a legend byte to its 256-color value; `.` (transparent) -> None.
 pub fn mascot_color(subpixel: u8) -> Option<Color> {
     match subpixel {
         b'o' => Some(Color::AnsiValue(202)), // orange       (#ff5f00)
@@ -67,7 +67,7 @@ mod tests {
         assert_eq!(
             eye_row.matches('e').count(),
             4,
-            "eyebrow above each eye (2 cells × 2 eyes)"
+            "eyebrow above each eye (2 cells x 2 eyes)"
         );
     }
 }

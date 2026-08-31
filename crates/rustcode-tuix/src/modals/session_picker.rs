@@ -1,6 +1,6 @@
 // crates/rustcode-tuix/src/modals/session_picker.rs
 //
-// `/resume` modal — prior-sessions picker.
+// `/resume` modal -- prior-sessions picker.
 //
 // Lists all sessions for the current project (pre-filtered to >0 msgs)
 // with type-to-filter search. Up/Down navigates, Enter loads + replays
@@ -91,7 +91,7 @@ impl SessionPicker {
             return;
         }
         if self.search_focused {
-            // Already at the top — stay in the search box.
+            // Already at the top -- stay in the search box.
             return;
         }
         if self.selected == 0 {
@@ -284,13 +284,13 @@ impl SessionPicker {
             // The prepare step is internally bounded: a finite catalog scan, a
             // NON-blocking lease acquire, and a fork-on-busy fallback that only
             // ever meta-locks a fresh fork id (never contended). So a genuinely
-            // busy session forks fast — it does NOT hang here. What actually
+            // busy session forks fast -- it does NOT hang here. What actually
             // takes time is bounded I/O: scanning a large catalog and converging
             // a large session (long tasks re-serialize a big snapshot). The old
             // 15s cap killed that legitimate work mid-flight and then blamed
             // "another process", which is almost never the real cause. Keep only
             // a generous backstop against a truly wedged filesystem, and word the
-            // expiry honestly — we cannot assert the session is in use.
+            // expiry honestly -- we cannot assert the session is in use.
             let result = tokio::time::timeout(
                 std::time::Duration::from_secs(60),
                 tokio::task::spawn_blocking(move || {
@@ -331,13 +331,13 @@ impl SessionPicker {
     }
 
     /// The static key-legend hint advertising the picker's actions
-    /// (`↑↓ move · Enter open · Ctrl+D×2 delete · Type to search · Esc cancel`),
+    /// (`↑↓ move . Enter open . Ctrl+Dx2 delete . Type to search . Esc cancel`),
     /// or `None` for an empty list (nothing to act on). Existence of this legend
     /// is the reported gap: users couldn't tell how to delete a session because
     /// the picker showed no keys.
     ///
     /// NOTE: with the `SessionList` chrome this hint is ALSO rendered as the
-    /// bottom `— … —` row inside the menu, so it's visible even when a
+    /// bottom `-- ... --` row inside the menu, so it's visible even when a
     /// `build_status` warning occupies the status slot; the status-slot copy
     /// (below) is a bonus, gated LOWER priority than any warning.
     fn browse_hint(&self) -> Option<String> {
@@ -380,7 +380,7 @@ impl Modal for SessionPicker {
             KeyCode::Backspace => {
                 backspace_at_cursor(&mut self.query, &mut self.query_cursor_byte);
                 self.update_filter();
-                // Editing the query is editing the search box — pull focus there
+                // Editing the query is editing the search box -- pull focus there
                 // so the caret appears and no session row looks active.
                 self.search_focused = true;
                 self.confirm_delete = None;
@@ -441,7 +441,7 @@ impl Modal for SessionPicker {
             }
             KeyCode::Char(c) if mods.contains(KeyModifiers::CONTROL) && c == 'd' => {
                 // Ctrl+D: delete selected session (with confirmation). Ignored
-                // while the search box holds focus — no session row is marked, so
+                // while the search box holds focus -- no session row is marked, so
                 // there is nothing unambiguous to delete.
                 if self.search_focused {
                     return Ok(ModalAction::Continue);
@@ -511,7 +511,7 @@ impl Modal for SessionPicker {
             KeyCode::Esc => {
                 if self.confirm_delete.is_some() {
                     // Cancel the pending delete. Clear the confirm prompt too,
-                    // otherwise the "Press Ctrl+D again…" footer lingers (and
+                    // otherwise the "Press Ctrl+D again..." footer lingers (and
                     // suppresses the key legend) until the next Up/Down/edit.
                     self.confirm_delete = None;
                     self.delete_status = None;
@@ -601,11 +601,11 @@ impl Modal for SessionPicker {
             ctx.session_preview_result.as_ref(),
         );
         let mut status = build_status(state, ctx);
-        // Delete confirmation/result is the user's own active interaction — it
+        // Delete confirmation/result is the user's own active interaction -- it
         // must always show, overriding any build_status warning. The static key
         // legend is lowest priority: only fill an otherwise-empty hint slot so a
         // no-provider / official-build / usage warning stays visible in the
-        // picker (the legend also renders as the menu's bottom `— … —` row, so
+        // picker (the legend also renders as the menu's bottom `-- ... --` row, so
         // it's never fully hidden even when a warning owns the status slot).
         if let Some(msg) = &self.delete_status {
             status.hint = Some((msg.clone(), crate::render::HintSeverity::Info));
@@ -615,8 +615,8 @@ impl Modal for SessionPicker {
             }
         }
         // The `SessionList` chrome puts the filter query in the (bordered) search
-        // box, so the InputPrompt buffer carries the QUERY — not the main
-        // composer — exactly like `/plugin`.
+        // box, so the InputPrompt buffer carries the QUERY -- not the main
+        // composer -- exactly like `/plugin`.
         renderer.render(UiLine::InputPrompt {
             buf: self.query.clone(),
             cursor_byte: self.query_cursor_byte,
@@ -630,7 +630,7 @@ impl Modal for SessionPicker {
 
 /// The four fixed header rows (title, blank, search query, blank) that the
 /// `SessionList` chrome expects before the session rows begin. Session row
-/// `selected` indices are offset by this in the payload so the `▸` marker
+/// `selected` indices are offset by this in the payload so the `>` marker
 /// lands on the right row (mirrors `plugin_manager`'s `selected_offset`).
 pub(crate) const HEADER_ROWS: usize = 4;
 
@@ -695,7 +695,7 @@ fn build_menu_payload_with_preview(
                 .into_owned()
         };
         items.push((label, String::new()));
-        items.push((format!("— {} —", hint), String::new()));
+        items.push((format!("-- {} --", hint), String::new()));
         return MenuPayload {
             items,
             // No session is selectable. If the search box holds focus (the user
@@ -711,11 +711,11 @@ fn build_menu_payload_with_preview(
         let msgs = crate::i18n::t(crate::i18n::Msg::SessionMsgCount {
             count: s.message_count,
         });
-        let mut metadata = format!("{} · {}", msgs, humanize_age(s.updated_at));
+        let mut metadata = format!("{} . {}", msgs, humanize_age(s.updated_at));
         if current_session
             .is_some_and(|(id, project_bucket)| s.id == id && s.project_bucket == project_bucket)
         {
-            metadata.push_str(" · ");
+            metadata.push_str(" . ");
             metadata.push_str(&crate::i18n::t(crate::i18n::Msg::DirCurrent));
         }
         let is_previewed = !p.search_focused
@@ -732,7 +732,7 @@ fn build_menu_payload_with_preview(
                 Some(Ok(Some(preview))) => {
                     metadata.push('\n');
                     metadata.push_str(&match (&preview.provider_id, &preview.model_id) {
-                        (Some(provider), Some(model)) => format!("{provider} · {model}"),
+                        (Some(provider), Some(model)) => format!("{provider} . {model}"),
                         _ => preview_unavailable_label().to_string(),
                     });
                     for line in &preview.excerpt {
@@ -752,11 +752,11 @@ fn build_menu_payload_with_preview(
         }
         items.push((s.name.clone(), metadata));
     }
-    items.push((format!("— {} —", hint), String::new()));
+    items.push((format!("-- {} --", hint), String::new()));
 
     // When the search box holds focus, mark row 2 (the bordered query field) as
     // selected so it highlights and shows a cursor; no session row is marked.
-    // Otherwise offset the selection past the header chrome so the ▸ marker
+    // Otherwise offset the selection past the header chrome so the > marker
     // lands on the selected session row (rows begin at index HEADER_ROWS).
     let selected = if p.search_focused {
         2
@@ -772,8 +772,8 @@ fn build_menu_payload_with_preview(
 
 fn preview_loading_label() -> &'static str {
     match crate::i18n::current_locale() {
-        crate::i18n::Locale::ZhCn => "正在加载预览…",
-        crate::i18n::Locale::En => "Loading preview…",
+        crate::i18n::Locale::ZhCn => "正在加载预览...",
+        crate::i18n::Locale::En => "Loading preview...",
     }
 }
 
@@ -805,13 +805,13 @@ fn humanize_age(ts_ms: i64) -> String {
 /// so the user sees the prior conversation before continuing.
 ///
 /// `reset = true` clears the screen first (used by `/resume` mid-session
-/// — without this, repeated switches stack body_lines and the worker's
+/// -- without this, repeated switches stack body_lines and the worker's
 /// render-cmd backlog, manifesting as dropped keystrokes "吞字" + 50-150ms
 /// per-keystroke latency). `reset = false` appends to existing scrollback
-/// — used by the CLI auto-continue path at startup, which has the welcome
+/// -- used by the CLI auto-continue path at startup, which has the welcome
 /// banner above the replay and shouldn't wipe it.
 /// Build the inter-turn divider label from a persisted turn stat. `None`
-/// (old session, or a cancelled turn that recorded no stat) → empty label,
+/// (old session, or a cancelled turn that recorded no stat) -> empty label,
 /// which renders as a plain horizontal rule so the visual interval is still
 /// restored. `done` is fixed on replay (the live rotation is cosmetic).
 fn turn_divider_label(stat: Option<&TurnStat>) -> String {
@@ -838,7 +838,7 @@ fn turn_divider_label(stat: Option<&TurnStat>) -> String {
     }
 }
 
-/// The raw markdown of the most recent assistant reply in `messages` — what
+/// The raw markdown of the most recent assistant reply in `messages` -- what
 /// `/copy` / `/copy msg` must target after a `/resume` (or `rustcode -c`,
 /// `/undo`, `/bg` resume) repaints the transcript but never streamed the reply
 /// live. Mirrors the live [`UiState::last_assistant_response`]: the accumulated
@@ -863,7 +863,7 @@ fn last_assistant_reply_markdown(messages: &[rustcode_kernel::message::Message])
     for m in messages {
         match m.role {
             // Turn boundary: seal the turn that just ended (keep the previous
-            // `last` if this turn produced no assistant text — a trailing bare
+            // `last` if this turn produced no assistant text -- a trailing bare
             // user message must not blank out the reply above it).
             Role::User if is_real_user_message(m) => {
                 if !acc.is_empty() {
@@ -898,8 +898,8 @@ pub(crate) fn replay_session(
     reset: bool,
 ) {
     use rustcode_kernel::message::Role;
-    // Bracket the whole replay — the `reset()` screen wipe plus the
-    // line-by-line re-emit of the entire transcript — in ONE DECSET 2026
+    // Bracket the whole replay -- the `reset()` screen wipe plus the
+    // line-by-line re-emit of the entire transcript -- in ONE DECSET 2026
     // synchronized-output envelope. Capable hosts then paint it as a single
     // atomic update instead of visibly blanking the screen and re-scrolling
     // the history (the reported `/resume` flicker). `end_sync()` lands the
@@ -920,11 +920,11 @@ pub(crate) fn replay_session(
     renderer.render(UiLine::TurnSeparator {
         label: resumed.clone(),
     });
-    // Per-turn dividers: the live session draws a `✓ … 工具 · tokens` rule at
+    // Per-turn dividers: the live session draws a `[+] ... 工具 . tokens` rule at
     // every turn end, but only `messages` is persisted. `turn_stats` is anchored
-    // by "message count at turn end" — so as we replay, a divider goes before
+    // by "message count at turn end" -- so as we replay, a divider goes before
     // each new-turn user message (turn boundary), carrying the stored stats when
-    // present (None → plain rule, which still restores the interval for old
+    // present (None -> plain rule, which still restores the interval for old
     // sessions). Without this the previous turn's last output butts straight
     // against the next user input.
     let mut seen_user = false;
@@ -938,7 +938,7 @@ pub(crate) fn replay_session(
     let mut batched_result_ids: std::collections::HashSet<String> =
         std::collections::HashSet::new();
     // Persisted results keyed by call id, so a rebuilt batch child can show its
-    // final `→ N lines` / `→ ✗` suffix (batch metadata itself is never persisted).
+    // final `-> N lines` / `-> [x]` suffix (batch metadata itself is never persisted).
     let mut result_of: std::collections::HashMap<String, (bool, String)> =
         std::collections::HashMap::new();
     for m in &session.messages {
@@ -948,7 +948,7 @@ pub(crate) fn replay_session(
             }
         }
     }
-    // Seed the persistent todo panel + id→title cache BEFORE rendering so a
+    // Seed the persistent todo panel + id->title cache BEFORE rendering so a
     // rebuilt batch's `todo update #N` children can splice in task titles the
     // same way the live path does. (Also resets a prior session's panel/titles.)
     state.active_todos = crate::event_loop::todo_progress_from_messages(&session.messages);
@@ -972,7 +972,7 @@ pub(crate) fn replay_session(
             }
             // A kernel assistant message carries flat `text` + `tool_calls`
             // (empty for a pure text reply). Render the prose first, then each
-            // requested tool call — identical to the old `Text` /
+            // requested tool call -- identical to the old `Text` /
             // `AssistantWithToolCalls` split.
             Role::Assistant => {
                 if !m.text.is_empty() {
@@ -989,7 +989,7 @@ pub(crate) fn replay_session(
                     // Rebuild the grouped "Running N calls" header + child rows
                     // (with folded result suffixes) instead of N standalone tool
                     // rows, and remember the call ids so their individual tool
-                    // RESULT rows are suppressed below — matching the compact live
+                    // RESULT rows are suppressed below -- matching the compact live
                     // batch view the user saw before the resume.
                     let (header, children, edit_displays) =
                         crate::event_loop::build_replay_tool_batch(
@@ -1021,10 +1021,10 @@ pub(crate) fn replay_session(
                     }
                 } else {
                     for tc in &m.tool_calls {
-                        // todowrite → no inline block; the persistent panel is the sole
+                        // todowrite -> no inline block; the persistent panel is the sole
                         // view. Suppress the (successful) tool RESULT below by remembering
                         // the call id. Mirror the live path: only a PARSEABLE call is
-                        // suppressed — a bad one falls through to a normal tool row so its
+                        // suppressed -- a bad one falls through to a normal tool row so its
                         // error still shows.
                         if tc.name == "todowrite"
                             && rustcode_capabilities::tools::todo::parse_todos(&tc.arguments)
@@ -1038,7 +1038,7 @@ pub(crate) fn replay_session(
                         renderer.render(UiLine::ToolCall {
                             name: crate::event_loop::display_tool_name(&tc.name),
                             detail: format_tool_detail(&tc.name, &tc.arguments),
-                            // Colour the resumed `●` by the stored result so a
+                            // Colour the resumed `*` by the stored result so a
                             // reopened transcript keeps its green success dots.
                             outcome: result_of
                                 .get(&tc.id)
@@ -1051,12 +1051,12 @@ pub(crate) fn replay_session(
             // `text` (both the old `ToolResult.output` and `ToolResultRef.summary`
             // land in `text` via `message_to_kernel`). Suppress ONLY a SUCCESSFUL
             // todowrite result (its block already rendered); an errored one still
-            // shows — matches the live path (`suppress_body_echo = … && success`).
+            // shows -- matches the live path (`suppress_body_echo = ... && success`).
             Role::Tool => {
                 let success = !m.is_error;
                 let call_id = m.tool_call_id.as_deref().unwrap_or("");
-                // Suppress a result that is either a (successful) todowrite — the
-                // panel is its sole view — or folded into a rebuilt batch child row.
+                // Suppress a result that is either a (successful) todowrite -- the
+                // panel is its sole view -- or folded into a rebuilt batch child row.
                 let suppressed = (success && todowrite_call_ids.contains(call_id))
                     || batched_result_ids.contains(call_id);
                 if !suppressed {
@@ -1090,7 +1090,7 @@ pub(crate) fn replay_session(
 
     // The transcript is now on screen but was never streamed live, so
     // `last_assistant_response` (which only the live TextDelta path fills)
-    // is empty or — worse, after switching sessions — still holds the PREVIOUS
+    // is empty or -- worse, after switching sessions -- still holds the PREVIOUS
     // session's reply. Restore it from the replayed messages so `/copy` and
     // `/copy msg` copy THIS session's last reply. `response_finalized = true`
     // so the next live turn's first delta clears it instead of appending.
@@ -1113,7 +1113,7 @@ pub(crate) fn replay_session(
         .unwrap_or((0, 0));
     state.restore_context(used, window);
 
-    // The persistent todo panel + id→title cache were seeded BEFORE the render
+    // The persistent todo panel + id->title cache were seeded BEFORE the render
     // loop (so rebuilt batch children could enrich `todo update #N` titles); no
     // second seeding is needed here.
 }
@@ -1207,31 +1207,31 @@ mod tests {
             used_tokens: 0,
             ctx_window: 0,
         };
-        // Persisted stat → the same `✓ … 工具 · tokens` line the live turn showed
+        // Persisted stat -> the same `[+] ... 工具 . tokens` line the live turn showed
         // (locale-independent: digits + glyph appear in both en/zh templates). Token
         // counts render abbreviated (K/M) via `fmt_tokens`, so assert on that form
-        // (1651 → "1.65K") rather than the raw integer.
+        // (1651 -> "1.65K") rather than the raw integer.
         let normal = super::turn_divider_label(Some(&s));
-        assert!(normal.contains('✓'), "got {normal:?}");
+        assert!(normal.contains('+'), "got {normal:?}");
         let tokens = crate::i18n::fmt_tokens(1651);
         assert!(
             normal.contains('3') && normal.contains('5') && normal.contains(&tokens),
             "got {normal:?}"
         );
-        // Errored turn → ✗ variant.
+        // Errored turn -> [x] variant.
         let err = TurnStat {
             errored: true,
             ..s.clone()
         };
-        assert!(super::turn_divider_label(Some(&err)).contains('✗'));
-        // No stat (old session / cancelled turn) → empty label → plain rule.
+        assert!(super::turn_divider_label(Some(&err)).contains('x'));
+        // No stat (old session / cancelled turn) -> empty label -> plain rule.
         assert_eq!(super::turn_divider_label(None), "");
     }
 
     // ── /copy after /resume: last_assistant_reply_markdown ───────────────
     // `replay_session` restores `last_assistant_response` from these so `/copy`
     // / `/copy msg` target the resumed session's last reply (previously empty
-    // after resume → "/copy msg" said "reply is empty" / copied the wrong
+    // after resume -> "/copy msg" said "reply is empty" / copied the wrong
     // session's reply).
 
     #[test]
@@ -1249,7 +1249,7 @@ mod tests {
     #[test]
     fn last_reply_accumulates_text_across_a_tool_call_turn() {
         use rustcode_kernel::message::Message;
-        // One turn: prose → tool call (with text) → prose. Live accumulates all
+        // One turn: prose -> tool call (with text) -> prose. Live accumulates all
         // visible text of the turn, so replay must too.
         let msgs = vec![
             Message::user("q"),
@@ -1267,7 +1267,7 @@ mod tests {
     #[test]
     fn last_reply_keeps_prior_reply_when_session_ends_on_bare_user() {
         use rustcode_kernel::message::Message;
-        // Session ends on a user message the assistant hasn't answered yet —
+        // Session ends on a user message the assistant hasn't answered yet --
         // the reply still on screen is the prior one, so keep it (mirrors live,
         // where the buffer isn't cleared until the next turn's first delta).
         let msgs = vec![
@@ -1299,7 +1299,7 @@ mod tests {
         assert!(h.contains("Esc"), "cancel shortcut must be shown: {h:?}");
         assert!(
             !h.contains("F2"),
-            "rename is removed — F2 must not be advertised: {h:?}"
+            "rename is removed -- F2 must not be advertised: {h:?}"
         );
     }
 
@@ -1549,7 +1549,7 @@ mod tests {
             "hint should echo the user's query so they know which filter is active: {}",
             label
         );
-        // Nothing selectable → selection points past every row (no highlight).
+        // Nothing selectable -> selection points past every row (no highlight).
         assert!(
             payload.selected >= payload.items.len(),
             "empty state must not highlight a row: {}",
@@ -1570,8 +1570,8 @@ mod tests {
 
     #[test]
     fn build_menu_payload_row_order_and_kind() {
-        // The SessionList chrome must emit: title → blank → query → blank →
-        // one row per session → bottom `— … —` hint, and use MenuKind::SessionList.
+        // The SessionList chrome must emit: title -> blank -> query -> blank ->
+        // one row per session -> bottom `-- ... --` hint, and use MenuKind::SessionList.
         let mut p = SessionPicker::open(vec![meta("First task", 12), meta("Second task", 8)]);
         p.query = "task".to_string();
         p.update_filter();
@@ -1593,15 +1593,15 @@ mod tests {
         assert_eq!(payload.items[3], (String::new(), String::new()));
         // Rows 4..: session rows (name, metadata).
         assert_eq!(payload.items[HEADER_ROWS].0, "First task");
-        assert!(payload.items[HEADER_ROWS].1.contains('·'));
+        assert!(payload.items[HEADER_ROWS].1.contains('.'));
         assert_eq!(payload.items[HEADER_ROWS + 1].0, "Second task");
         // Last row: bottom hint wrapped in em-dashes.
         let last = &payload.items[payload.items.len() - 1].0;
         assert!(
-            last.starts_with('—') && last.ends_with('—'),
+            last.starts_with("--") && last.ends_with("--"),
             "last row must be the em-dash-wrapped hint: {last:?}"
         );
-        // Selection is offset past the header so ▸ lands on the selected session.
+        // Selection is offset past the header so > lands on the selected session.
         assert_eq!(payload.selected, HEADER_ROWS);
         p.down();
         let payload2 = build_menu_payload(&p, "rustcode", None);
@@ -1610,20 +1610,20 @@ mod tests {
 
     #[test]
     fn title_string_format() {
-        // Title = "Resume session (n/total · project)" with n = 1-based position
+        // Title = "Resume session (n/total . project)" with n = 1-based position
         // in the CURRENT filtered list, total = total sessions in the project.
         let mut p = SessionPicker::open(vec![meta("a", 1), meta("b", 1), meta("c", 1)]);
-        p.down(); // selected = 1 → position 2
+        p.down(); // selected = 1 -> position 2
         let payload = build_menu_payload(&p, "rustcode", None);
         let title = &payload.items[0].0;
         assert!(
             title.contains("2/3") && title.contains("rustcode"),
-            "title must show 1-based position / total · project: {title:?}"
+            "title must show 1-based position / total . project: {title:?}"
         );
 
         // Filtering shrinks the position range but total stays the project count.
         p.query = "b".to_string();
-        p.update_filter(); // filtered = [b], selected reset to 0 → position 1
+        p.update_filter(); // filtered = [b], selected reset to 0 -> position 1
         let payload = build_menu_payload(&p, "rustcode", None);
         let title = &payload.items[0].0;
         assert!(
@@ -1680,7 +1680,7 @@ mod tests {
         let payload =
             build_menu_payload_with_preview(&p, "project", None, Some(&selection), Some(&result));
         let selected_desc = &payload.items[HEADER_ROWS].1;
-        assert!(selected_desc.contains("provider · model"));
+        assert!(selected_desc.contains("provider . model"));
         assert!(selected_desc.ends_with("first\nsecond"));
         assert!(!payload.items[HEADER_ROWS + 1].1.contains('\n'));
     }
@@ -1737,7 +1737,7 @@ mod tests {
             ),
             Message::tool_result("r1", "file contents", false),
             // A FAILED todowrite (is_error=true): its error result must NOT be
-            // suppressed (parity with live's `… && success` suppression), and
+            // suppressed (parity with live's `... && success` suppression), and
             // its requested state must not replace the last successful panel.
             Message::assistant(
                 "",
@@ -1898,7 +1898,7 @@ mod tests {
                 .any(|l| matches!(l, UiLine::ToolCall { .. })),
             "batched calls must NOT also render as standalone tool rows"
         );
-        // Each result is folded into its child (→ N lines), so no standalone
+        // Each result is folded into its child (-> N lines), so no standalone
         // ToolResult rows survive for the batched calls.
         assert!(
             !rec.lines

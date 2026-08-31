@@ -1,8 +1,8 @@
 package com.rustcode.jetbrains.actions
 
-import com.rustcode.jetbrains.ui.AtomCodeChatPanel
-import com.rustcode.jetbrains.ui.openAtomCodeChatTab
-import com.rustcode.jetbrains.ui.selectedAtomCodeChatPanel
+import com.rustcode.jetbrains.ui.RustCodeChatPanel
+import com.rustcode.jetbrains.ui.openRustCodeChatTab
+import com.rustcode.jetbrains.ui.selectedRustCodeChatPanel
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -17,10 +17,10 @@ class OpenChatAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.getData(CommonDataKeys.PROJECT) ?: return
-        openAtomCodeChatTab(project)
+        openRustCodeChatTab(project)
     }
 }
 
-internal fun findChatPanel(project: com.intellij.openapi.project.Project): AtomCodeChatPanel? {
-    return selectedAtomCodeChatPanel(project)
+internal fun findChatPanel(project: com.intellij.openapi.project.Project): RustCodeChatPanel? {
+    return selectedRustCodeChatPanel(project)
 }

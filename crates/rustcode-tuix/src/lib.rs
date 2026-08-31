@@ -90,7 +90,7 @@ struct TerminalGuard {
 /// enhancement) for this terminal. True only on a real non-Windows TTY
 /// positively identified as compatible. Windows has no `CSI u` decoder and JediTerm
 /// mis-frames mouse reports as kitty key events once the protocol is
-/// armed — both leak raw bytes into the input box (see the call site for
+/// armed -- both leak raw bytes into the input box (see the call site for
 /// the full rationale). Pure so it can be unit-tested without touching
 /// the real stdout. Mirrored by the resume-path gate in
 /// `RetainedRenderer::resume_after_external`.
@@ -147,7 +147,7 @@ impl TerminalGuard {
         // splits the leading ESC from the rest of a CSI-u report. The reader
         // already deduplicates modifier+Enter autorepeat reported as Press.
         //
-        // `execute!` is best-effort — terminals that don't support CSI u
+        // `execute!` is best-effort -- terminals that don't support CSI u
         // (notably Apple Terminal.app, some Linux terminals) ignore the
         // sequence; we just don't set `kbd_flags_pushed` and Drop won't try
         // to pop. Terminals that don't implement disambiguation ignore the
@@ -156,25 +156,25 @@ impl TerminalGuard {
         // WINDOWS EXCLUSION: never push on Windows. crossterm's Windows
         // input backend reads Win32 console KEY_EVENT records (not an ANSI
         // parser), so it already reports Shift+Enter modifiers and autorepeat
-        // (Press/Repeat/Release) natively — the two things this push buys on
-        // Unix — making the protocol pure downside here. Worse, it has no
+        // (Press/Repeat/Release) natively -- the two things this push buys on
+        // Unix -- making the protocol pure downside here. Worse, it has no
         // `CSI u` decoder at all, so once a terminal honours the push and
-        // starts encoding KEYPAD keys as functional codes (numpad 1 →
+        // starts encoding KEYPAD keys as functional codes (numpad 1 ->
         // `ESC[57400u`), ConPTY (VSCode integrated terminal, Windows Terminal)
         // delivers the un-decoded bytes as the literal characters `[57400u`
-        // straight into the input box. Unix crossterm decodes 57400 → '1';
+        // straight into the input box. Unix crossterm decodes 57400 -> '1';
         // Windows can't, so we simply don't ask the terminal to use it.
         //
         // JEDITERM EXCLUSION: same failure class on JetBrains' JediTerm (the
-        // terminal inside DevEco Studio, IDEA, Android Studio, …). Recent
+        // terminal inside DevEco Studio, IDEA, Android Studio, ...). Recent
         // JediTerm advertises the Kitty protocol but mis-implements it: while
         // the progressive-enhancement flags are active it re-frames the
         // terminal's mouse-tracking reports as `CSI <n> u` key events, so a
         // bare mouse *move* over the panel floods stdin with kitty key
         // sequences. crossterm faithfully decodes each `<n>` codepoint to a
         // `Char`, which lands in the input box as a stream of coordinate
-        // gibberish (`#B'#B(#@)…`). The push buys nothing here either — the
-        // IDE terminals deliver Shift+Enter usably without it — so, exactly
+        // gibberish (`#B'#B(#@)...`). The push buys nothing here either -- the
+        // IDE terminals deliver Shift+Enter usably without it -- so, exactly
         // like Windows, we don't arm the protocol. Detection reuses
         // `caps.jediterm` (`TERMINAL_EMULATOR=JetBrains-JediTerm`, with the
         // `RUSTCODE_JEDITERM` override for launchers that drop the env var).
@@ -191,19 +191,19 @@ impl TerminalGuard {
         // is set by `AnsiRenderer` the first time it paints the footer;
         // body writes stream into that region while the footer stays
         // pinned at `[H - footer_rows + 1, H]`. This guard only clears
-        // the screen on entry — the renderer owns scroll-region lifecycle
+        // the screen on entry -- the renderer owns scroll-region lifecycle
         // during normal operation, and this guard's Drop is the
         // belt-and-suspenders reset for panic / abrupt-exit paths where
         // the renderer worker didn't get to run `shutdown()`.
         if caps.tty {
             let stdout = io::stdout();
             let mut out = stdout.lock();
-            // Per-row CUP+EL instead of `\x1b[2J` — iTerm2 3.5+ ignores
+            // Per-row CUP+EL instead of `\x1b[2J` -- iTerm2 3.5+ ignores
             // ED under some states; the renderer paths (reset / resize
             // / resume) all now use EL, so keep startup consistent.
             // Fall back to 24 rows if crossterm can't query size (very
             // rare; a wrong guess just under-clears a few trailing rows
-            // at startup — the renderer will paint over anything below
+            // at startup -- the renderer will paint over anything below
             // that anyway).
             let (_, rows) = crossterm::terminal::size().unwrap_or((80, 24));
             use std::fmt::Write as _;
@@ -251,12 +251,12 @@ impl Drop for TerminalGuard {
 /// testable without a real stdout.
 ///
 /// This is the same cleanup `TerminalGuard::Drop` and
-/// `RetainedRenderer::Drop` perform on the graceful path — but the
+/// `RetainedRenderer::Drop` perform on the graceful path -- but the
 /// release profile sets `panic = "abort"`, so on a crash NO destructor
 /// unwinds and neither Drop ever runs. The panic hook
 /// (`rustcode-cli::restore_terminal_if_tui`) is then the only code with
 /// a chance to undo the mutations, and it previously only disabled raw
-/// mode — leaving the Kitty keyboard protocol armed, so the parent
+/// mode -- leaving the Kitty keyboard protocol armed, so the parent
 /// shell echoed every post-crash keypress as a literal `[27u` / `[99;5u`
 /// CSI-u report (the reported crash artefact).
 ///
@@ -268,13 +268,13 @@ impl Drop for TerminalGuard {
 /// after a graceful shutdown that already sent the same bytes is harmless.
 ///
 /// Bracketed paste is armed by `TerminalGuard`, not the renderer, so it is
-/// NOT in `RetainedRenderer::Drop` — but the abrupt-exit paths that lean on
+/// NOT in `RetainedRenderer::Drop` -- but the abrupt-exit paths that lean on
 /// this sequence (panic hook, signal-restore handler) DO need it off, else
 /// the shell wraps every paste in literal `200~`/`201~`. It is the single
 /// source of truth for "undo everything the TUI armed".
 ///
 /// The Kitty pop uses the `<` introducer (`\x1b[<1u`), never `>`: `>`
-/// would *arm* the protocol on the way out — the very bug this fixes.
+/// would *arm* the protocol on the way out -- the very bug this fixes.
 /// Popping a level we never pushed is a harmless no-op (empty kitty
 /// stack), so this stays unconditional and we needn't thread the
 /// `kbd_flags_pushed` state out of `TerminalGuard`.
@@ -363,12 +363,12 @@ pub async fn run(
     // there instead of at col 0.
     //
     // `RUSTCODE_PLAIN=1` (or any non-empty value) is the user-facing
-    // escape hatch — forces PlainRenderer even on a TTY. Useful for
+    // escape hatch -- forces PlainRenderer even on a TTY. Useful for
     // logging, CI capture, or any environment where the append-only
     // retained renderer's ANSI sequences are unwanted.
     //
     // The trade-off when force_plain is on: no pinned input box, no
-    // live spinner, no slash-menu palette — but text + commands +
+    // live spinner, no slash-menu palette -- but text + commands +
     // agent flow all work, which is the floor.
     let force_plain_env = std::env::var("RUSTCODE_PLAIN")
         .ok()
@@ -379,22 +379,22 @@ pub async fn run(
         .filter(|v| !v.is_empty())
         .is_some();
     // Phase 6 routing matrix (append-only retained renderer):
-    //   RUSTCODE_PLAIN=1   → PlainRenderer (user opt-in, CI-style baseline)
-    //   RUSTCODE_RETAIN=1  → RetainedRenderer (override sticky non-TTY probe)
-    //   tty                → RetainedRenderer (append-only; no DECSTBM)
-    //   non-tty            → PlainRenderer
+    //   RUSTCODE_PLAIN=1   -> PlainRenderer (user opt-in, CI-style baseline)
+    //   RUSTCODE_RETAIN=1  -> RetainedRenderer (override sticky non-TTY probe)
+    //   tty                -> RetainedRenderer (append-only; no DECSTBM)
+    //   non-tty            -> PlainRenderer
     //
-    // `RUSTCODE_RETAIN` exists for hosts where `is_terminal()` lies — the
+    // `RUSTCODE_RETAIN` exists for hosts where `is_terminal()` lies -- the
     // best-known case is pwsh7 on native Win10 conhost: pwsh wraps stdout
     // in a ConPTY pipe even when the parent host is plain conhost, so
     // `std::io::stdout().is_terminal()` returns false. Users see the TUI
     // collapse into PlainRenderer (no input footer) and raw SGR bytes
-    // leak as `[31m...[0m` (raw-mode → VT processing was never enabled).
+    // leak as `[31m...[0m` (raw-mode -> VT processing was never enabled).
     // Setting RUSTCODE_RETAIN=1 forces the retained path and lets the
     // raw-mode init call SetConsoleMode(ENABLE_VIRTUAL_TERMINAL_PROCESSING)
     // via crossterm, which fixes both symptoms.
     //
-    // PLAIN beats RETAIN — if both are set the user explicitly asked for
+    // PLAIN beats RETAIN -- if both are set the user explicitly asked for
     // the cooked-mode baseline.
     let force_plain = force_plain_env;
     let force_retain = force_retain_env && !force_plain;
@@ -418,7 +418,7 @@ pub async fn run(
         caps.bracketed_paste = false;
         caps.tty = false;
     } else if force_retain {
-        // Flip caps positive so TerminalGuard enables raw mode (→
+        // Flip caps positive so TerminalGuard enables raw mode (->
         // VT processing on Win), the reader thread spawns, and the
         // renderer-choice branch picks Retained. If the probe lied
         // about TTY this corrects it; if it didn't lie, this is a
@@ -432,14 +432,14 @@ pub async fn run(
     let (_guard, kbd_enhanced) = TerminalGuard::activate(caps)?;
 
     // Pick the colour palette now that raw mode is on (OSC 11 detection
-    // requires it — otherwise the response is line-buffered and never
+    // requires it -- otherwise the response is line-buffered and never
     // reaches us before timeout).
     //
     // - `Light` / `Dark`: explicit, skip detection.
     // - `Auto`: query the terminal background, falling back to `dark`.
     //   `detect_light` pairs the OSC 11 query with a DA1 query and drains
     //   until the DA1 reply, so the wait is one round-trip on any
-    //   responsive terminal regardless of latency (SSH / tmux included) —
+    //   responsive terminal regardless of latency (SSH / tmux included) --
     //   the `60ms` here is just the first-byte floor (raised internally to
     //   ~400ms so an SSH RTT can't beat it) and never leaks the OSC reply
     //   into the input box. Terminals that answer neither query default to
@@ -479,16 +479,16 @@ pub async fn run(
     // Pick the inner renderer by terminal capability, then wrap it in
     // a `TaskRenderer` so all ANSI I/O happens on a dedicated OS thread.
     // Slow terminals (Mac Terminal.app processing a 4KB footer payload)
-    // no longer block the event loop — the event loop sends `UiLine`s
+    // no longer block the event loop -- the event loop sends `UiLine`s
     // through a channel and moves on.
     //
-    // TTY    → RetainedRenderer (append-only Ink-style cell-diff renderer).
-    // Non-TTY → PlainRenderer (pipe, CI, dumb terminal, RUSTCODE_PLAIN=1).
+    // TTY    -> RetainedRenderer (append-only Ink-style cell-diff renderer).
+    // Non-TTY -> PlainRenderer (pipe, CI, dumb terminal, RUSTCODE_PLAIN=1).
     //
     // Since Phase 5 the retained renderer is fully append-only and no
     // longer relies on DECSTBM scroll regions, so JediTerm and legacy
-    // Windows conhost — the two terminals that previously needed an
-    // alt-screen path — can run retained too. There is no more
+    // Windows conhost -- the two terminals that previously needed an
+    // alt-screen path -- can run retained too. There is no more
     // alt-screen branch here.
     //
     // `is_plain_renderer` is threaded into LoopCtx so non-interactive
@@ -508,7 +508,7 @@ pub async fn run(
         //     unicode_symbols, spinner} (these survive the force_plain
         //     mutation; CI / pipe don't have them);
         // (b) decide whether to suppress UiLine::User echo based on
-        //     `was_real_tty` — true means the kernel does cooked-mode
+        //     `was_real_tty` -- true means the kernel does cooked-mode
         //     echo for us (so re-rendering would duplicate the line),
         //     false means we're piping and need to render it ourselves.
         Box::new(PlainRenderer::with_writer_caps_and_interactive(
@@ -542,7 +542,7 @@ pub async fn run(
     // reads stdin directly). `reader_handle` exposes Pause / Resume so
     // the OAuth login flow (and any future child-process handoff) can
     // stop us from racing the child for stdin bytes. Pipe mode doesn't
-    // need that — no browser handoff there — so it stays as a plain
+    // need that -- no browser handoff there -- so it stays as a plain
     // JoinHandle held separately.
     let (input_tx, input_rx) = mpsc::unbounded_channel();
     let mut reader_handle: Option<reader::ReaderHandle> = None;
@@ -577,7 +577,7 @@ pub async fn run(
 
     // `default_path()` now always returns Some (tempdir fallback lives
     // inside `platform::history_path`), so the explicit else-branch
-    // with a hardcoded Unix path is gone — Windows used to fall here
+    // with a hardcoded Unix path is gone -- Windows used to fall here
     // and then fail to write to `/tmp`.
     let history_start = std::time::Instant::now();
     let history = crate::input::history::History::load_project(
@@ -596,17 +596,17 @@ pub async fn run(
         current_session.id = session_id;
     }
 
-    // Passive "new version available" check. Detached — never blocks
+    // Passive "new version available" check. Detached -- never blocks
     // startup; on any error returns None silently. On a positive hit
     // the task (a) stores the version in the shared mutex and (b) sends
     // a wake pulse so the event loop redraws the status row immediately
     // instead of waiting for the user's next keystroke.
     let update_hint = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
     let (wake_tx, wake_rx) = tokio::sync::mpsc::channel::<()>(1);
-    // Background OAuth poll → event-loop channel. Unbounded so the
+    // Background OAuth poll -> event-loop channel. Unbounded so the
     // poll thread never blocks waiting for the consumer (poll thread
     // is std::thread, can't `await`). One event per spawned task,
-    // capacity is irrelevant — even an unbounded channel is essentially
+    // capacity is irrelevant -- even an unbounded channel is essentially
     // empty here.
     let (oauth_event_tx, oauth_event_rx) =
         tokio::sync::mpsc::unbounded_channel::<crate::event_loop::oauth_poll::OauthEvent>();
@@ -639,14 +639,14 @@ pub async fn run(
     // `main.rs` (see `spawn_detached_upgrade_prep`). Rationale: the old
     // task was tied to this tokio runtime, so any Ctrl+C / quick exit
     // cancelled the download mid-flight and `pending.json` was never
-    // written — making "exit and restart to auto-upgrade" silently do
+    // written -- making "exit and restart to auto-upgrade" silently do
     // nothing. The detached subprocess survives parent exits. Running
     // both would race on `staged_path` (no temp-rename in
     // `download_and_verify`), so the in-process copy is gone entirely.
     //
     // Trade-off: a session that runs through a whole release cycle
     // (>1 h) won't re-stage the newer version mid-session. We accept
-    // that — `/upgrade` still works manually, and the update hint from
+    // that -- `/upgrade` still works manually, and the update hint from
     // the one-shot `version_check` above still surfaces the availability.
 
     // Long-lived progress channel for /upgrade. The sender is cloned
@@ -672,7 +672,7 @@ pub async fn run(
 
     let capability_scan_start = std::time::Instant::now();
     let custom_commands = crate::custom_commands::CustomCommandRegistry::load(&working_dir);
-    // Same Arc the agent loop holds — reload() calls there propagate
+    // Same Arc the agent loop holds -- reload() calls there propagate
     // here automatically, so the slash menu reflects newly-installed
     // skills without re-plumbing.
     let foreground_runtime_id = event_loop::bg_runtime::RuntimeId::new(1);
@@ -693,7 +693,7 @@ pub async fn run(
     //
     // Auto-install of the default skills marketplace + post-self-upgrade
     // `git pull` of every installed marketplace. Both run git subprocesses
-    // inline (1–3s warm, 5–10s on first clone) — keeping them on the
+    // inline (1-3s warm, 5-10s on first clone) -- keeping them on the
     // critical path used to delay the input box by the same amount. Now
     // we hand the work to `spawn_blocking`, refresh the shared
     // `SkillRegistry` once the disk side-effects land, then forward each
@@ -703,9 +703,9 @@ pub async fn run(
     // "marketplace `rustcode` added at abc1234 (3 plugins)" ).
     // The user sees the install land as a regular body row instead of
     // a silent file-system mutation. Worst case the user types `/`
-    // before the install settles — they see an empty / partial menu
+    // before the install settles -- they see an empty / partial menu
     // and the toast arrives a beat later; acceptable trade-off vs.
-    // burning 5–10s on every first launch.
+    // burning 5-10s on every first launch.
     {
         let cfg = config.clone();
         let registry = skill_registry.clone();
@@ -760,7 +760,7 @@ pub async fn run(
     // On failure we degrade gracefully: askpass simply isn't available, sudo
     // will use its own fallback and the TUI will not crash.
     //
-    // The guard MUST outlive run_loop — its Drop removes the socket file.
+    // The guard MUST outlive run_loop -- its Drop removes the socket file.
     // We bind it in the outer `run()` scope and explicitly reference it after
     // `run_loop` returns so the compiler does not drop it early.
     #[cfg(unix)]
@@ -847,7 +847,7 @@ pub async fn run(
         monitor_last_check_at: None,
         usage_slot: std::sync::Arc::new(std::sync::Mutex::new(None)),
         usage_last_check_at: None,
-        // Seed with whatever's on disk now — any NEWER mtime observed
+        // Seed with whatever's on disk now -- any NEWER mtime observed
         // later means another rustcode process resynced and our drift
         // warning (if any) is stale.
         monitor_last_sync_seen: rustcode_codingplan::read_last_sync(),
@@ -902,10 +902,10 @@ pub async fn run(
         loop_ctrl: None,
     };
 
-    // CodingPlan drift monitor — kick off a startup check if the current
+    // CodingPlan drift monitor -- kick off a startup check if the current
     // default provider is CodingPlan-managed. Non-CodingPlan users skip
     // this entirely (no HTTP, no state touched). Check runs in the
-    // background via tokio::spawn → the warning shows up on the next
+    // background via tokio::spawn -> the warning shows up on the next
     // footer repaint once it resolves.
     if event_loop::monitor::is_codingplan_provider(&ctx.config.default_provider) {
         event_loop::monitor::spawn_check(
@@ -924,7 +924,7 @@ pub async fn run(
     let result = run_loop(ctx, renderer.as_mut()).await;
 
     // Must shut down the renderer BEFORE re-exec: the alternate screen is
-    // still active and raw mode is on — if we spawn a child while the
+    // still active and raw mode is on -- if we spawn a child while the
     // terminal is in that state, the new process inherits a garbled TTY.
     renderer.shutdown();
     drop(pipe_reader); // pipe-mode thread exits on next channel send failure
@@ -932,7 +932,7 @@ pub async fn run(
     // If /upgrade succeeded, the live binary has been replaced on disk.
     // Re-exec into the new version so the user gets a seamless upgrade
     // without manually restarting. This mirrors the startup-time upgrade
-    // path in main.rs (apply_pending_upgrade → re_exec_self).
+    // path in main.rs (apply_pending_upgrade -> re_exec_self).
     //
     // The exe path comes from `ExitReason::UpgradeRestart { exe }`, which
     // was captured *before* `replace_binary` renamed the running binary.
@@ -950,7 +950,7 @@ pub async fn run(
             Ok(_infallible) => unreachable!("re_exec_self returned Ok"),
             Err(e) => {
                 // Re-exec failed. The upgrade is on disk, so the user just
-                // needs to start rustcode again — don't treat this as fatal.
+                // needs to start rustcode again -- don't treat this as fatal.
                 eprintln!(
                     "Upgrade applied but re-exec failed ({}). The new version will be used on the next launch.",
                     e
@@ -1020,7 +1020,7 @@ mod panic_restore_tests {
     }
 
     /// The panic hook is the ONLY terminal-cleanup that runs under
-    /// `panic = "abort"` — no Drop (TerminalGuard, RetainedRenderer)
+    /// `panic = "abort"` -- no Drop (TerminalGuard, RetainedRenderer)
     /// unwinds. So the bytes it emits must single-handedly undo every
     /// terminal mutation the TUI armed, or the parent shell is left
     /// echoing CSI-u keypresses as literal `[27u` / `[99;5u` gibberish
@@ -1029,13 +1029,13 @@ mod panic_restore_tests {
     fn panic_restore_sequence_pops_kitty_keyboard_protocol() {
         let s = panic_restore_sequence();
         let text = String::from_utf8_lossy(s);
-        // Kitty keyboard pop — `<` introducer (pop), the fix for the
+        // Kitty keyboard pop -- `<` introducer (pop), the fix for the
         // literal CSI-u echo. Must be present.
         assert!(
             text.contains("\x1b[<1u"),
             "must pop Kitty keyboard flags (CSI < u): {text:?}"
         );
-        // And must NEVER push (`>` introducer) — re-arming on the way
+        // And must NEVER push (`>` introducer) -- re-arming on the way
         // out leaves the shell in CSI-u mode (the exact bug).
         assert!(
             !text.contains("\x1b[>"),

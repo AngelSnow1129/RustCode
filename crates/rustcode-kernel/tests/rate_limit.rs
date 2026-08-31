@@ -1,8 +1,8 @@
 //! CLAIM: 429 responses are routed to the host's on_rate_limit verdict.
 //!
 //! Two behavioural proofs:
-//!   1. Pause  → emits AgentEvent::RateLimited (NOT Error) + TurnComplete{RateLimited}
-//!   2. WaitAndRetry{secs:0} → sleeps 0 s, re-issues the round, turn succeeds with text
+//!   1. Pause  -> emits AgentEvent::RateLimited (NOT Error) + TurnComplete{RateLimited}
+//!   2. WaitAndRetry{secs:0} -> sleeps 0 s, re-issues the round, turn succeeds with text
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
@@ -77,7 +77,7 @@ impl LlmProvider for Once429Provider {
     }
 }
 
-// ── test 1: Pause decision → RateLimited event, no Error, TurnComplete{RateLimited}
+// ── test 1: Pause decision -> RateLimited event, no Error, TurnComplete{RateLimited}
 
 #[tokio::test]
 async fn rate_limit_pause_emits_ratelimited_not_error() {
@@ -310,7 +310,7 @@ async fn empty_mid_stream_429_uses_one_turn_owned_fuse() {
 //    is retried SILENTLY (no banner) so a momentary burst does not spam the UI. ──
 
 /// A host that offers NO rate-limit opinion, so the kernel uses its `from_hint`
-/// fallback — the exact path a generic gateway 429 (no CodingPlan window data)
+/// fallback -- the exact path a generic gateway 429 (no CodingPlan window data)
 /// takes. `on_rate_limit` defaults to `None`.
 struct NoVerdictHook;
 
@@ -334,14 +334,14 @@ async fn first_fallback_429_retries_silently_without_banner() {
     }
 
     // The FIRST transient 429 (no host verdict, no server Retry-After) must be
-    // retried QUIETLY — no rate-limit banner for a one-off blip.
+    // retried QUIETLY -- no rate-limit banner for a one-off blip.
     assert!(
         !collected
             .iter()
             .any(|e| matches!(e, AgentEvent::RateLimited { .. })),
         "first fallback 429 must retry silently (no banner): {collected:?}"
     );
-    // …but the turn still recovers and completes normally.
+    // ...but the turn still recovers and completes normally.
     assert!(
         collected
             .iter()
@@ -368,7 +368,7 @@ async fn first_fallback_429_retries_silently_without_banner() {
 async fn host_verdict_429_still_surfaces_banner_on_first_occurrence() {
     // Quiet-first is scoped to the from_hint FALLBACK. When a host supplies a
     // verdict (e.g. CodingPlan window data), its WaitAndRetry must STILL surface
-    // the banner on the first occurrence — the quiet path must not swallow it.
+    // the banner on the first occurrence -- the quiet path must not swallow it.
     let provider = Arc::new(Once429Provider::new());
     let hook = Arc::new(ScriptedRateLimitHook::new(
         RateLimitDecision::WaitAndRetry { secs: 0 },
@@ -398,10 +398,10 @@ async fn host_verdict_429_still_surfaces_banner_on_first_occurrence() {
     );
 }
 
-/// First OPEN → 429 with NO Retry-After (silent-first eligible); second OPEN →
+/// First OPEN -> 429 with NO Retry-After (silent-first eligible); second OPEN ->
 /// 429 that DOES carry `Retry-After: 0` (surfaces + waits 0s, keeping the test
-/// fast); third OPEN → success. Proves the first blip is silent but a subsequent
-/// 429 still surfaces the banner — i.e. quiet-first does not swallow the sequence.
+/// fast); third OPEN -> success. Proves the first blip is silent but a subsequent
+/// 429 still surfaces the banner -- i.e. quiet-first does not swallow the sequence.
 struct Twice429ThenOkProvider {
     calls: AtomicU32,
 }
@@ -473,7 +473,7 @@ async fn second_fallback_429_surfaces_after_a_silent_first() {
     );
 }
 
-// ── test 2: WaitAndRetry{secs:0} → re-issues round, turn succeeds with "ok" ─
+// ── test 2: WaitAndRetry{secs:0} -> re-issues round, turn succeeds with "ok" ─
 
 #[tokio::test]
 async fn rate_limit_wait_then_resumes_turn() {

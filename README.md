@@ -32,7 +32,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
   <a href="https://gitcode.com/SecLab/RustCode" target="_blank">
-    <img src="https://gitcode.com/SecLab/RustCode/star/badge.svg" alt="AtomGit Star"/>
+    <img src="https://gitcode.com/SecLab/RustCode/star/badge.svg" alt="GitCode Star"/>
   </a>
 </p>
 
@@ -48,15 +48,15 @@ Think of it as an open-source alternative to Claude Code / Cursor Agent, but run
 
 ---
 
-> **Fork notice.** This repository is a secondary-development fork of
-> [SecLab/RustCode](https://gitcode.com/SecLab/RustCode) (origin
-> `atomgit_atomcode/atomcode`). Relative to upstream it (1) renames the product
-> to `rustcode` (crates, binaries, config dir `~/.rustcode`, `RUSTCODE_*` env
-> vars); (2) removes **all** telemetry/analytics — the `rustcode-telemetry`
-> crate and every reporting call site are gone; (3) decouples the LLM client from
-> the upstream AtomGit signing gateway and adds `openai-compatible` /
-> `anthropic-compatible` provider types plus `extra_headers` / `proxy` config for
-> self-hosted endpoints. The original MIT license and copyright (© 2026 Yubang
+> **Fork notice.** This repository (`SecLab/RustCode`) is a secondary-development
+> fork of `atomgit_rustcode/rustcode`. Relative to upstream it (1) renames the
+> product to `rustcode` (crates, binaries, config dir `~/.rustcode`, `RUSTCODE_*`
+> env vars); (2) removes **all** telemetry/analytics — the `rustcode-telemetry`
+> crate and every reporting call site are gone; (3) **fully decouples from any
+> platform** — no host is hard-coded as a signing gateway, no platform-specific
+> REST tools are registered by default, and `/login` is optional: configure a
+> provider directly in `~/.rustcode/config.toml` with your own `base_url` and
+> `api_key` and start coding. The original MIT license and copyright (© 2026 Yubang
 > Xu) are preserved in [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md), with
 > full attribution in [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md).
 
@@ -115,8 +115,8 @@ Connect to any LLM that supports OpenAI's function-calling API:
 ### Sessions & Login
 
 - **Persistent sessions** — every conversation is saved; continue the last session with `rustcode --continue` / `-c`, or resume/switch inside the TUI with `/resume`
-- **AtomGit OAuth login** — `/login` (or `rustcode login`) pairs your CLI with your AtomGit account
-- **SSO login** — `/login-with-sso` for GitCode internal users
+- **OAuth login** — `/login` (or `rustcode login`) pairs your CLI with your platform account
+- **SSO login** — `/login-with-sso` for SSO-enabled deployments
 - **Headless mode** — `rustcode -p "..."` runs a single prompt non-interactively and streams the reply on stdout (Claude Code `-p` style); approval-required `bash` calls are auto-approved, while other approval-required tools are denied
 - **Daemon mode** — `rustcode-daemon` exposes an HTTP API for session history and SSE streaming chat
 
@@ -140,7 +140,7 @@ Connect to any LLM that supports OpenAI's function-calling API:
 
 ### App Remote Access
 
-- **`/app`** (in the TUI) enables mobile remote access — prints a QR code; scan it with the GitCode mobile app from any network to connect to your current session
+- **`/app`** (in the TUI) enables mobile remote access — prints a QR code; scan it with the mobile app from any network to connect to your current session
 - **Any-network reachable** — your PC connects to a public relay via a reverse WSS tunnel; the phone reaches your PC through the relay. No public IP, DDNS, or port forwarding required
 - **Bidirectional real-time sync** — messages from either end appear on the other in real time (streaming replies, tool call cards, token usage)
 - **Remote commands** — the phone can run `/status`, `/cost`, `/diff`, `/whoami` etc., which execute on the desktop and echo results back
@@ -184,7 +184,7 @@ curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.sh |
 ```
 
 Both scripts download the official prebuilt binary for the latest release
-(auto-detected from the AtomGit API), install it, and add it to your `PATH`.
+(auto-detected from the release API), install it, and add it to your `PATH`.
 As official builds they include the request signer, so `/login` can claim the
 free CodingPlan models (see "About the official CodingPlan" below).
 
@@ -264,7 +264,7 @@ RustCode CLI can also be installed via the following package managers:
 
 ```bash
 # Install using npm
-npm install -g @atomgit.com/rustcode
+npm install -g @rustcode/rustcode
 
 # Install using Homebrew
 brew install --cask rustcode
@@ -297,7 +297,7 @@ input and `Shift+Tab` cycles execution mode.
 ### Requirements
 
 - Rust 1.88+ (for building; older Cargo versions cannot parse the current lockfile)
-- An API key from any supported provider (or an AtomGit account for `/login`;
+- An API key from any supported provider (or a platform account for `/login`;
   the free CodingPlan models require an official build — see "About the official
   CodingPlan" above)
 
@@ -514,8 +514,8 @@ Type `/` in the TUI to browse the full list with live completion; `/help` shows 
 | `/model`    | Switch model / provider                                     |
 | `/provider` | Manage providers (add / edit / delete)                      |
 | `/proxy`    | Switch outbound proxy mode                                  |
-| `/login`    | Sign in with AtomGit OAuth and claim CodingPlan free models |
-| `/logout`   | Sign out of AtomGit                                         |
+| `/login`    | Sign in with OAuth and claim CodingPlan free models |
+| `/logout`   | Sign out                                         |
 | `/whoami`   | Show the current logged-in user                             |
 | `/status`   | Show login status and model info                            |
 
@@ -564,9 +564,9 @@ Type `/` in the TUI to browse the full list with live completion; `/help` shows 
 | `/help` | Show commands & shortcuts |
 | `/quit`, `/exit` | Exit RustCode (or Ctrl+C ×2) |
 
-> **AtomGit Issues.** `/issue` has been removed. After `/login`, ask in natural
-> language—for example, “Create an AtomGit issue for this bug”—and RustCode uses
-> its built-in `atomgit_issue` tool. Reading issues is automatic; creating an
+> **平台 Issues.** `/issue` has been removed. After `/login`, ask in natural
+> language—for example, “Create a platform issue for this bug”—and RustCode uses
+> its built-in `platform_issue` tool. Reading issues is automatic; creating an
 > issue or adding, editing, or deleting comments still requires approval.
 >
 > **Plugin commands.** Beyond the built-ins above, plugins can register their own slash commands. For example, install the official channel plugin to get `/wechat` (shows the RustCode WeChat community group QR code):
@@ -762,10 +762,10 @@ Contributions are welcome! RustCode is in active development.
 
 ### How to Contribute
 
-1. **Fork** the repository on AtomGit
+1. **Fork** the repository
 2. **Clone** your fork locally:
    ```bash
-   git clone https://atomgit.com/<your-username>/rustcode.git
+   git clone https://gitcode.com/<your-username>/rustcode.git
    cd rustcode
    ```
 3. **Create a branch** for your change:
@@ -815,7 +815,7 @@ Contributions are welcome! RustCode is in active development.
 
 Don't know Rust? No problem! There are many ways to contribute without writing Rust code:
 
-- **📝 Documentation** — Improve the README, fix typos, enhance the [official docs site](https://rustcode.atomgit.com/docs/en/), or add examples. Docs live in the root `docs/` directory, `site/docs/`, and the main README files.
+- **📝 Documentation** — Improve the README, fix typos, enhance the [official docs site](https://docs.rustcode.dev/docs/en/), or add examples. Docs live in the root `docs/` directory, `site/docs/`, and the main README files.
 - **🌐 Localization & Translation** — Help translate the docs site, README, or UI strings into more languages. Check `site/docs/` for existing translations.
 - **🧩 Skills & Plugins** — Create new [skills](https://gitcode.com/SecLab/RustCode-skills) (Markdown + JSON, no Rust needed) that extend RustCode's capabilities. Skills are loaded from `~/.rustcode/skills/`.
 - **🐛 Bug Reports** — Found a bug? Open an [Issue](https://gitcode.com/SecLab/RustCode/issues) with clear reproduction steps, screenshots, and environment info. High-quality bug reports are invaluable.

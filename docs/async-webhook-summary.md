@@ -4,13 +4,13 @@
 
 ## 概述
 
-已成功实现异步 Webhook 和批量发送功能，使用后台任务处理 Webhook 请求，避免阻塞 AtomCode 主流程。
+已成功实现异步 Webhook 和批量发送功能，使用后台任务处理 Webhook 请求，避免阻塞 RustCode 主流程。
 
 ## 实现内容
 
 ### 1. 核心模块
 
-**文件**: `crates/atomcode-core/src/hook/async_batcher.rs` (~534 行)
+**文件**: `crates/rustcode-core/src/hook/async_batcher.rs` (~534 行)
 
 #### 主要结构
 
@@ -72,7 +72,7 @@ pub struct AsyncWebhookRegistry {
 
 ### 2. WebhookHook 集成
 
-**文件**: `crates/atomcode-core/src/hook/webhook.rs` (更新)
+**文件**: `crates/rustcode-core/src/hook/webhook.rs` (更新)
 
 #### 新增字段
 
@@ -108,7 +108,7 @@ async fn send_webhook(&self, payload: &serde_json::Value) -> Result<WebhookRespo
 
 ### 3. 配置加载
 
-**文件**: `crates/atomcode-core/src/hook/config_loader.rs` (更新)
+**文件**: `crates/rustcode-core/src/hook/config_loader.rs` (更新)
 
 #### hooks.toml 格式
 
@@ -323,7 +323,7 @@ test result: ok. 3 passed; 0 failed
 
 **排查步骤**：
 1. 检查批量配置（batch_size 是否太大）
-2. 查看日志：`atomcode -p "test" 2>&1 | grep -i async`
+2. 查看日志：`rustcode -p "test" 2>&1 | grep -i async`
 3. 减小批量大小和刷新间隔
 
 #### 内存占用过高

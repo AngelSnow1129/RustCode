@@ -1,4 +1,4 @@
-//! Small platform/path helpers for the MCP capability — local replacements for
+//! Small platform/path helpers for the MCP capability -- local replacements for
 //! the `rustcode-core` helpers the ported code used (`Config::config_dir`,
 //! `tool::real_home_dir`, `process_utils::suppress_console_window`), so this
 //! module depends only on the kernel (L0), never on core.
@@ -11,7 +11,7 @@ pub(crate) fn home_dir() -> Option<PathBuf> {
     dirs::home_dir()
 }
 
-/// The rustcode config dir — delegates to the crate-shared [`crate::paths::config_dir`]
+/// The rustcode config dir -- delegates to the crate-shared [`crate::paths::config_dir`]
 /// (one home for the rule + its documented `sudo` divergence).
 pub(crate) fn config_dir() -> PathBuf {
     crate::paths::config_dir()

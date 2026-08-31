@@ -3,7 +3,7 @@
 //! (`rustcode_tuix::commands`). Mirrors qwen-code's channel-filtered registry:
 //! commands are defined once with an `acp: true` flag, the ACP channel
 //! advertises that subset and runs its handlers against session-local state,
-//! and unknown `/…` inputs fall through to the model (supervised turn).
+//! and unknown `/...` inputs fall through to the model (supervised turn).
 //!
 //! Handlers never render TUI chrome; they return plain text that the turn loop
 //! replies with before ending the turn (no model round-trip). Mode / effort /
@@ -80,7 +80,7 @@ pub fn available_acp_commands_v2() -> Vec<agent_client_protocol::schema::v2::Ava
 
 /// Parse `/cmd arg` from a prompt. Returns `(canonical name, argument)` when
 /// the input starts with `/` and names a known ACP command; `None` for
-/// everything else (including unknown `/…` inputs), so the caller keeps the
+/// everything else (including unknown `/...` inputs), so the caller keeps the
 /// kernel turn.
 pub fn parse_slash_command(text: &str) -> Option<(&'static str, &str)> {
     let rest = text.trim_start();
@@ -216,7 +216,7 @@ async fn todo_text(sessions: &Sessions, sid: &SessionId) -> Option<String> {
         )
     };
     if todos.is_empty() {
-        Some("no plan yet — ask the agent to outline steps with the todo tool.".to_string())
+        Some("no plan yet -- ask the agent to outline steps with the todo tool.".to_string())
     } else {
         Some(render_todos_text(&todos, false))
     }
@@ -248,7 +248,7 @@ async fn compact_text(sessions: &Sessions, sid: &SessionId) -> Option<String> {
         (state.runtime.clone(), state.cwd.clone())
     };
     // The kernel compacts the session snapshot; focus is provider-specific and
-    // rarely used — default to the whole conversation.
+    // rarely used -- default to the whole conversation.
     match runtime.compact(None) {
         Ok(()) => Some(format!(
             "compact requested for {}; the next request continues on the compacted context",
@@ -316,7 +316,7 @@ async fn set_config_text(
 /// Map the session's derived todo list to the ACP v1 `plan` update.
 ///
 /// Clients replace the whole plan on every update, so this carries the full
-/// list with current statuses. Todos have no priority concept — every entry is
+/// list with current statuses. Todos have no priority concept -- every entry is
 /// reported as `low` (a stable `PlanEntryPriority` is required on the wire).
 pub fn plan_update_from_todos(todos: &[TodoItem]) -> SessionUpdate {
     use agent_client_protocol::schema::v1::{Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus};
@@ -338,7 +338,7 @@ pub fn plan_update_from_todos(todos: &[TodoItem]) -> SessionUpdate {
 ///
 /// v2 plans are identified by a stable `planId` and every update carries the
 /// full item list (clients replace the plan by id). Todos have no priority
-/// concept, so each entry is `low` — the same stance as the v1 `plan` mapping.
+/// concept, so each entry is `low` -- the same stance as the v1 `plan` mapping.
 /// `plan_id` must be stable for the session's lifetime (one todo list = one plan).
 pub fn plan_update_from_todos_v2(
     todos: &[TodoItem],
@@ -363,7 +363,7 @@ pub fn plan_update_from_todos_v2(
     ))
 }
 
-/// `/help` output — the ACP-usable subset of the single command table.
+/// `/help` output -- the ACP-usable subset of the single command table.
 fn help_text() -> String {
     let mut out = String::from("available commands:\n");
     for c in CommandRegistry::builtin().acp_commands() {
@@ -372,7 +372,7 @@ fn help_text() -> String {
     out
 }
 
-/// `/config` output — where the config file lives (no config handle on the
+/// `/config` output -- where the config file lives (no config handle on the
 /// ACP session, so this mirrors the TUI's path report).
 fn config_text() -> String {
     let home = std::env::var("RUSTCODE_HOME").unwrap_or_else(|_| "~/.rustcode".to_string());
@@ -410,7 +410,7 @@ mod tests {
             parse_slash_command("/model qwen-max"),
             Some(("model", "qwen-max"))
         );
-        // Unknown `/…` inputs keep the turn (no acp entry).
+        // Unknown `/...` inputs keep the turn (no acp entry).
         assert_eq!(parse_slash_command("plain text"), None);
         assert_eq!(parse_slash_command("/nope"), None);
         // Known commands that are not ACP-enabled also fall through.

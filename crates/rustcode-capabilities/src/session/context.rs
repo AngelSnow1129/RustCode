@@ -1,15 +1,15 @@
-//! `SessionContextHook` — injects the per-session "context block" (environment + project
+//! `SessionContextHook` -- injects the per-session "context block" (environment + project
 //! instructions + git snapshot) as ONE leading `Role::System` message at session start,
 //! replacing the former core runtime-injected prompt sections.
 //!
-//! Cache-safe: the block is read ONCE at session start and frozen — a SNAPSHOT of where
+//! Cache-safe: the block is read ONCE at session start and frozen -- a SNAPSHOT of where
 //! the session began, not a live view (the git section says so explicitly). The wire
 //! adapter then coalesces persona + this block + memory into a single system message
 //! (commit `3956f9fc`), so a model never sees more than one system message.
 //!
 //! Identified by [`CONTEXT_HEADER`] so `--resume` can locate it; lands after the
 //! leading-system run (persona). On resume env + project instructions are re-rendered (edits to
-//! AGENTS.md apply, the shell label refreshes), but the saved GIT section is FROZEN — its bytes
+//! AGENTS.md apply, the shell label refreshes), but the saved GIT section is FROZEN -- its bytes
 //! drift on every commit and rewriting them would invalidate prefix caching for the whole
 //! resumed conversation on its first turn. When env/instructions are unchanged the re-rendered
 //! block is byte-identical, so the cache still holds. A full fresh block is inserted only when a
@@ -22,11 +22,11 @@ use rustcode_kernel::hook::LifecycleHooks;
 use rustcode_kernel::message::{Conversation, Message, Role};
 use std::path::PathBuf;
 
-/// First line of the rendered block — how the resume path locates it for in-place refresh.
+/// First line of the rendered block -- how the resume path locates it for in-place refresh.
 const CONTEXT_HEADER: &str = "=== SESSION CONTEXT ===";
 
 /// Separator + marker that begins the git sub-section (always the LAST section, joined onto
-/// the base with a blank line). On resume the saved git bytes — from this marker to the end —
+/// the base with a blank line). On resume the saved git bytes -- from this marker to the end --
 /// are spliced back verbatim so the frozen snapshot survives while env/instructions refresh.
 const GIT_SECTION_SEP: &str = "\n\n=== GIT STATUS";
 
@@ -70,7 +70,7 @@ impl SessionContextHook {
         }
     }
 
-    /// The NON-git portion — header + env + project instructions. Split from the git snapshot
+    /// The NON-git portion -- header + env + project instructions. Split from the git snapshot
     /// because on resume we RE-RENDER this (the user may have edited AGENTS.md, or the shell
     /// changed) while KEEPING the saved git section: git bytes drift on every commit and would
     /// otherwise break the cached prefix (see `session_start`). `GIT_SECTION_SEP` assumes this
@@ -87,7 +87,7 @@ impl SessionContextHook {
     fn env_block(&self) -> String {
         // Report the shell the `bash` tool ACTUALLY uses, so the model's env line agrees
         // with the tool description. On Windows that is Git Bash when present, else
-        // cmd.exe (NOT `$SHELL`, which the tool ignores) — the old hard-coded "cmd.exe"
+        // cmd.exe (NOT `$SHELL`, which the tool ignores) -- the old hard-coded "cmd.exe"
         // lied whenever Git Bash was installed, so the model emitted cmd syntax that then
         // ran in bash and broke. See `crate::tools::bash::windows_bash_active`.
         let shell = if cfg!(windows) {
@@ -107,7 +107,7 @@ impl SessionContextHook {
     }
 
     /// `Some(block)` when `working_dir` is inside a git work tree, else `None`. A
-    /// session-start snapshot (NOT live) — `git status --short` capped at 20 lines.
+    /// session-start snapshot (NOT live) -- `git status --short` capped at 20 lines.
     fn git_snapshot(&self) -> Option<String> {
         if self.git(&["rev-parse", "--is-inside-work-tree"])?.trim() != "true" {
             return None;
@@ -139,7 +139,7 @@ impl SessionContextHook {
         Some(format!(
             "=== GIT STATUS (snapshot at session start, not live) ===\n\
              Branch: {branch}\nHEAD: {head}\n{status}\n\
-             (This is a session-start snapshot — run `git status` for live state.)"
+             (This is a session-start snapshot -- run `git status` for live state.)"
         ))
     }
 
@@ -176,11 +176,11 @@ impl LifecycleHooks for SessionContextHook {
         //
         // The block lives in the leading, cached prefix (it coalesces into the persona system
         // message on the wire). The one part that drifts on nearly every resume is the git
-        // section — a new HEAD after a commit, `git status` after edits — and rewriting it
+        // section -- a new HEAD after a commit, `git status` after edits -- and rewriting it
         // changes the prefix, invalidating the gateway's prefix cache for the WHOLE resumed
-        // conversation on its first turn (observed: HEAD `fcf0b5b6` → `dd526cb4` across a resume
-        // forcing a full re-prefill). Git is a session-start snapshot by design — its header
-        // says "run `git status` for live state" — so freezing it is the intended contract.
+        // conversation on its first turn (observed: HEAD `fcf0b5b6` -> `dd526cb4` across a resume
+        // forcing a full re-prefill). Git is a session-start snapshot by design -- its header
+        // says "run `git status` for live state" -- so freezing it is the intended contract.
         // Env/instructions, by contrast, are stable-or-rarely-edited and SHOULD apply on resume:
         // when they are unchanged the re-rendered base is byte-identical and the cache still
         // holds; when a rule genuinely changed, a one-turn re-prefill is the correct cost.
@@ -199,15 +199,15 @@ impl LifecycleHooks for SessionContextHook {
             Some(i) => {
                 let saved = &convo.messages[i].text;
                 let refreshed = match saved.rfind(GIT_SECTION_SEP) {
-                    // Splice the frozen git bytes (marker → end) onto a freshly rendered base.
+                    // Splice the frozen git bytes (marker -> end) onto a freshly rendered base.
                     // `+ 2` skips the "\n\n" the separator carries so the join isn't doubled.
                     Some(sep) => format!("{}\n\n{}", self.render_base(), &saved[sep + 2..]),
-                    // Saved block carried no git section (not a repo at save time) — just refresh.
+                    // Saved block carried no git section (not a repo at save time) -- just refresh.
                     None => self.render_base(),
                 };
                 convo.messages[i] = Message::system(refreshed);
             }
-            // Legacy/pre-upgrade session that never carried the block — insert a full fresh one.
+            // Legacy/pre-upgrade session that never carried the block -- insert a full fresh one.
             None => convo
                 .messages
                 .insert(leading, Message::system(self.render())),
@@ -257,7 +257,7 @@ mod tests {
 
     #[tokio::test]
     async fn git_section_only_inside_a_repo() {
-        // Not a repo → no git section.
+        // Not a repo -> no git section.
         let bare = tempfile::tempdir().unwrap();
         let h1 = SessionContextHook::with_home(bare.path(), bare.path().join("nohome"));
         assert!(
@@ -265,7 +265,7 @@ mod tests {
             "no git section outside a repo"
         );
 
-        // A repo → git section present.
+        // A repo -> git section present.
         let repo = tempfile::tempdir().unwrap();
         git_init(repo.path());
         let h2 = SessionContextHook::with_home(repo.path(), repo.path().join("nohome"));
@@ -296,7 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn resume_freezes_git_but_refreshes_instructions() {
-        // Not a git repo → the live render carries no git section; the ONLY git section is the
+        // Not a git repo -> the live render carries no git section; the ONLY git section is the
         // frozen one already in the saved block.
         let d = tempfile::tempdir().unwrap();
         // The user edited project instructions AFTER the session was saved.
@@ -355,7 +355,7 @@ mod tests {
 
     #[tokio::test]
     async fn resume_inserts_when_absent() {
-        // Snapshot predates the context hook → insert after the leading system run.
+        // Snapshot predates the context hook -> insert after the leading system run.
         let d = tempfile::tempdir().unwrap();
         let hook = SessionContextHook::with_home(d.path(), d.path().join("nohome"));
         let mut convo = Conversation::new();

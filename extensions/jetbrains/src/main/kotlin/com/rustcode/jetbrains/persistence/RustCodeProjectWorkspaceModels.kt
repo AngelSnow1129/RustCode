@@ -7,17 +7,17 @@ import com.intellij.openapi.components.Storage
 import com.intellij.openapi.project.Project
 
 @Service(Service.Level.PROJECT)
-@State(name = "AtomCodeProjectWorkspace", storages = [Storage("atomcodeWorkspace.xml")])
-class AtomCodeProjectWorkspaceState : PersistentStateComponent<AtomCodeProjectWorkspace> {
-    private var workspace = AtomCodeProjectWorkspace()
+@State(name = "RustCodeProjectWorkspace", storages = [Storage("rustcodeWorkspace.xml")])
+class RustCodeProjectWorkspaceState : PersistentStateComponent<RustCodeProjectWorkspace> {
+    private var workspace = RustCodeProjectWorkspace()
 
-    override fun getState(): AtomCodeProjectWorkspace = workspace
+    override fun getState(): RustCodeProjectWorkspace = workspace
 
-    override fun loadState(state: AtomCodeProjectWorkspace) {
+    override fun loadState(state: RustCodeProjectWorkspace) {
         workspace = state.normalized()
     }
 
-    fun update(block: (AtomCodeProjectWorkspace) -> Unit) {
+    fun update(block: (RustCodeProjectWorkspace) -> Unit) {
         val next = workspace.copy(tabs = workspace.tabs.map { it.copy() }.toMutableList())
         block(next)
         workspace = next.normalized()
@@ -56,12 +56,12 @@ class AtomCodeProjectWorkspaceState : PersistentStateComponent<AtomCodeProjectWo
     }
 
     companion object {
-        fun getInstance(project: Project): AtomCodeProjectWorkspaceState =
-            project.getService(AtomCodeProjectWorkspaceState::class.java)
+        fun getInstance(project: Project): RustCodeProjectWorkspaceState =
+            project.getService(RustCodeProjectWorkspaceState::class.java)
     }
 }
 
-data class AtomCodeProjectWorkspace(
+data class RustCodeProjectWorkspace(
     var selectedTabId: String? = null,
     var tabs: MutableList<WorkspaceTabState> = mutableListOf(),
 )
@@ -82,7 +82,7 @@ data class PersistedContextItem(
     var selectionEndLine: Int? = null,
 )
 
-internal fun AtomCodeProjectWorkspace.normalized(): AtomCodeProjectWorkspace {
+internal fun RustCodeProjectWorkspace.normalized(): RustCodeProjectWorkspace {
     val normalizedTabs = tabs
         .map { it.normalized() }
         .distinctBy { it.tabId }

@@ -4,13 +4,13 @@ use crossterm::style::Color;
 use crate::highlight::theme as md_theme;
 use crate::terminal::TerminalCaps;
 
-/// Basic 16-color palette — SGR 30-37/90-97 only, no truecolor RGB.
+/// Basic 16-color palette -- SGR 30-37/90-97 only, no truecolor RGB.
 ///
 /// **Why 16 colors:** truecolor RGB renders the same pixel regardless of
 /// terminal theme. On Mac Terminal.app's default "Basic" (light) profile,
 /// our old lavender/mint/grays landed on a light background and all but
 /// disappeared. The 16-color SGR palette (30-37, 90-97) is interpreted by
-/// the terminal's own theme engine — each user's colorscheme remaps the
+/// the terminal's own theme engine -- each user's colorscheme remaps the
 /// same escape into theme-appropriate RGB, so rustcode adapts to whatever
 /// terminal theme the user runs.
 ///
@@ -24,7 +24,7 @@ pub struct Palette;
 impl Palette {
     // Using the bright (9X) variants for signal colours rather than the
     // standard (3X) variants. On dark-theme terminals the standard set
-    // (32/33/31/36) renders muddy — "dark green" looks olive-khaki,
+    // (32/33/31/36) renders muddy -- "dark green" looks olive-khaki,
     // "dark cyan" looks desaturated. CC uses bright variants for diff
     // +/- and inline code for the same reason; aligning here so colours
     // read consistently across Mac Terminal / iTerm / Alacritty dark
@@ -42,65 +42,65 @@ impl Palette {
     /// portable across terminals.
     pub const MODE: Color = Color::AnsiValue(104);
 
-    /// Shell-mode (`!`) accent — rustcode's brand **purple** (`#7c3aed` family),
+    /// Shell-mode (`!`) accent -- rustcode's brand **purple** (`#7c3aed` family),
     /// deliberately NOT the reddish global `BRAND` magenta. Terminal chrome has
     /// no 16-colour "purple" (SGR magenta is the red-leaning one), so we use
     /// 256-colour `AnsiValue` like `MODE`. Split light/dark because `AnsiValue`
-    /// is fixed (doesn't track the terminal palette) — the periwinkle that pops
+    /// is fixed (doesn't track the terminal palette) -- the periwinkle that pops
     /// on dark washes out on white.
     ///
-    /// Dark → periwinkle `AnsiValue(104)` (≈`#8787d7`, same hue as the mode
+    /// Dark -> periwinkle `AnsiValue(104)` (≈`#8787d7`, same hue as the mode
     /// badge, so `!` shell mode reads as a sibling of `PLAN`/`auto`).
     pub const SHELL_DARK: Color = Color::AnsiValue(104);
-    /// Light → deeper violet `AnsiValue(56)` (≈`#5f00d7`, close to the `#7c3aed`
+    /// Light -> deeper violet `AnsiValue(56)` (≈`#5f00d7`, close to the `#7c3aed`
     /// brand) so the border / hint keep contrast on a white background.
     pub const SHELL_LIGHT: Color = Color::AnsiValue(56);
 
     /// Muted text on **light** backgrounds. SGR 90 ("bright black") maps
-    /// to a mid-gray on most light themes — contrast against `#FFFFFF`
-    /// lands around 4.5–5:1, comfortably above AA.
+    /// to a mid-gray on most light themes -- contrast against `#FFFFFF`
+    /// lands around 4.5-5:1, comfortably above AA.
     pub const MUTED_LIGHT: Color = Color::DarkGrey; // SGR 90
 
     /// Muted text on **dark** backgrounds. SGR 37 ("regular white") maps
-    /// to a soft light-gray on dark themes — contrast against `#1B1B1B`
-    /// to `#303030` lands around 8–10:1.
+    /// to a soft light-gray on dark themes -- contrast against `#1B1B1B`
+    /// to `#303030` lands around 8-10:1.
     ///
     /// Earlier this was `Color::DarkGrey` (SGR 90) for both modes on the
     /// theory that the terminal's palette would adapt. Reality from
     /// Warp / iTerm2 / Mac Terminal screenshots: most dark themes map
-    /// SGR 90 to ~`#3F3F3F` (≈ 3:1 against the dark bg) — child rows
+    /// SGR 90 to ~`#3F3F3F` (≈ 3:1 against the dark bg) -- child rows
     /// under a tool-batch header rendered almost invisible. Splitting
     /// MUTED into light/dark variants and switching via
     /// `is_light_for_render` recovers readable contrast on both.
     pub const MUTED_DARK: Color = Color::Grey; // SGR 37
 
-    /// Back-compat alias — same value as `MUTED_LIGHT` so old call sites
+    /// Back-compat alias -- same value as `MUTED_LIGHT` so old call sites
     /// that pre-date the dark-mode split keep compiling. New code should
     /// call [`muted_for_current_theme`] instead so the shade tracks the
     /// active palette.
     pub const MUTED: Color = Self::MUTED_LIGHT;
 
     pub const ACCENT: Color = Color::Cyan; // bright cyan (96)
-    pub const BORDER: Color = Color::Cyan; // bright cyan (96) — 蓝绿色边框，和 Accent/prompt glyph 视觉呼应，对比度高于 DarkGrey 不易被背景吞掉
+    pub const BORDER: Color = Color::Cyan; // bright cyan (96) -- 蓝绿色边框，和 Accent/prompt glyph 视觉呼应，对比度高于 DarkGrey 不易被背景吞掉
     /// Warning on **light** backgrounds. Bright yellow (SGR 93 / `Color::Yellow`)
     /// washes out to near-invisible on white; `DarkYellow` (SGR 33, an olive/gold)
     /// keeps ~AA contrast. Mirrors the MUTED light/dark split.
     pub const WARNING_LIGHT: Color = Color::DarkYellow; // SGR 33
-    /// Warning on **dark** backgrounds — bright yellow pops.
+    /// Warning on **dark** backgrounds -- bright yellow pops.
     pub const WARNING_DARK: Color = Color::Yellow; // SGR 93
     /// Back-compat alias (same as the old unconditional value). New code should
     /// call [`warning_for_current_theme`] so the shade tracks the active palette.
     pub const WARNING: Color = Self::WARNING_DARK;
     pub const ERROR: Color = Color::Red; // bright red (91)
     pub const DIFF_ADD: Color = Color::Green; // bright green (92)
-    pub const DIFF_REMOVE: Color = Color::Red; // bright red (91) — paired with Error
+    pub const DIFF_REMOVE: Color = Color::Red; // bright red (91) -- paired with Error
     /// Diff add on **light** backgrounds. `DarkGreen` (SGR 32) is more readable on white.
     pub const DIFF_ADD_LIGHT: Color = Color::DarkGreen; // SGR 32
-    /// Diff add on **dark** backgrounds — keep bright green for contrast.
+    /// Diff add on **dark** backgrounds -- keep bright green for contrast.
     pub const DIFF_ADD_DARK: Color = Color::Green; // SGR 92
     /// Diff remove on **light** backgrounds. `DarkRed` (SGR 31) is more readable on white.
     pub const DIFF_REMOVE_LIGHT: Color = Color::DarkRed; // SGR 31
-    /// Diff remove on **dark** backgrounds — keep bright red for contrast.
+    /// Diff remove on **dark** backgrounds -- keep bright red for contrast.
     pub const DIFF_REMOVE_DARK: Color = Color::Red; // SGR 91
     pub const CODE: Color = Color::Cyan; // bright cyan (96)
 
@@ -112,14 +112,14 @@ impl Palette {
     pub const PANEL_FG_LIGHT: Color = Color::Black;
     /// Foreground paired with [`Role::PanelBg`] on a dark palette. Bright white
     /// (SGR 97): the panel bg is `AnsiValue(236)` (#303030), and a dim ANSI-7 grey
-    /// (SGR 37) reads as low-contrast on it in many dark themes — the echoed user
+    /// (SGR 37) reads as low-contrast on it in many dark themes -- the echoed user
     /// prompt looked washed out. Bright white keeps it legible on the block while
     /// staying explicit (safe for the Windows dark-fallback case, where inheriting a
     /// light terminal's dark default fg would be invisible on this dark panel).
     pub const PANEL_FG_DARK: Color = Color::White;
 
     /// Colour for the **Plan mode badge** (⏸ plan). Orange (`AnsiValue(208)` ≈
-    /// `#ff8700`) — deliberately distinct from the periwinkle MODE color used by
+    /// `#ff8700`) -- deliberately distinct from the periwinkle MODE color used by
     /// AcceptEdits, so the two non-default approval modes are visually separable.
     /// 256-colour (not truecolor) keeps parity with the MODE/SHELL usage and stays
     /// portable across terminals.
@@ -127,23 +127,23 @@ impl Palette {
 
     /// Text-selection highlight background (mouse-drag selection in the
     /// transcript / composer). Claude Code-style: a SOLID bg that REPLACES
-    /// the cell's own bg while PRESERVING its fg — matches native terminal
+    /// the cell's own bg while PRESERVING its fg -- matches native terminal
     /// selection. (SGR-7 reverse, the previous approach, swapped fg/bg per
     /// cell and fragmented into a different bg stripe for every distinct fg
     /// colour once markdown / inline-code colours were in the selection.)
     ///
-    /// Dark → deep blue `AnsiValue(24)` (≈`#005F87`, close to VS Code's
+    /// Dark -> deep blue `AnsiValue(24)` (≈`#005F87`, close to VS Code's
     /// dark selection blue); light fgs stay readable on it.
     pub const SELECTION_BG_DARK: Color = Color::AnsiValue(24);
-    /// Light → pale blue `AnsiValue(153)` (≈`#AFD7FF`, the classic light
+    /// Light -> pale blue `AnsiValue(153)` (≈`#AFD7FF`, the classic light
     /// selection blue); dark fgs stay readable on it.
     pub const SELECTION_BG_LIGHT: Color = Color::AnsiValue(153);
 }
 
 /// Resolve the muted shade for the active palette.
 ///
-/// Light theme → `MUTED_LIGHT` (SGR 90, dark gray on white).
-/// Dark theme  → `MUTED_DARK`  (SGR 37, light gray on dark).
+/// Light theme -> `MUTED_LIGHT` (SGR 90, dark gray on white).
+/// Dark theme  -> `MUTED_DARK`  (SGR 37, light gray on dark).
 ///
 /// Routed through this fn rather than a `const` so role lookups
 /// pick up live theme switches (auto-detect at startup + future
@@ -156,10 +156,10 @@ pub fn muted_for_current_theme() -> Color {
     }
 }
 
-/// Resolve the warning shade for the active palette — the `!` advisory line.
+/// Resolve the warning shade for the active palette -- the `!` advisory line.
 ///
-/// Light theme → `WARNING_LIGHT` (SGR 33 dark yellow, readable on white).
-/// Dark theme  → `WARNING_DARK`  (SGR 93 bright yellow, pops on dark).
+/// Light theme -> `WARNING_LIGHT` (SGR 33 dark yellow, readable on white).
+/// Dark theme  -> `WARNING_DARK`  (SGR 93 bright yellow, pops on dark).
 ///
 /// Bright yellow (the old unconditional value) is near-invisible on light
 /// backgrounds; this split restores contrast, matching `muted_for_current_theme`.
@@ -171,11 +171,11 @@ pub fn warning_for_current_theme() -> Color {
     }
 }
 
-/// Resolve the shell-mode (`!`) accent for the active palette — rustcode's
+/// Resolve the shell-mode (`!`) accent for the active palette -- rustcode's
 /// brand purple, kept readable on both backgrounds.
 ///
-/// Light theme → `SHELL_LIGHT` (deeper violet, contrast on white).
-/// Dark theme  → `SHELL_DARK`  (periwinkle, pops on dark).
+/// Light theme -> `SHELL_LIGHT` (deeper violet, contrast on white).
+/// Dark theme  -> `SHELL_DARK`  (periwinkle, pops on dark).
 pub fn shell_for_current_theme() -> Color {
     if md_theme::is_light_for_render() {
         Palette::SHELL_LIGHT
@@ -186,8 +186,8 @@ pub fn shell_for_current_theme() -> Color {
 
 /// Resolve the diff add shade for the active palette.
 ///
-/// Light theme → `DIFF_ADD_LIGHT` (SGR 32 dark green, readable on white).
-/// Dark theme  → `DIFF_ADD_DARK`  (SGR 92 bright green, pops on dark).
+/// Light theme -> `DIFF_ADD_LIGHT` (SGR 32 dark green, readable on white).
+/// Dark theme  -> `DIFF_ADD_DARK`  (SGR 92 bright green, pops on dark).
 ///
 /// Bright green on light backgrounds lacks contrast; this split matches the
 /// light/dark strategy used by `warning_for_current_theme` and `muted_for_current_theme`.
@@ -201,8 +201,8 @@ pub fn diff_add_for_current_theme() -> Color {
 
 /// Resolve the diff remove shade for the active palette.
 ///
-/// Light theme → `DIFF_REMOVE_LIGHT` (SGR 31 dark red, readable on white).
-/// Dark theme  → `DIFF_REMOVE_DARK`  (SGR 91 bright red, pops on dark).
+/// Light theme -> `DIFF_REMOVE_LIGHT` (SGR 31 dark red, readable on white).
+/// Dark theme  -> `DIFF_REMOVE_DARK`  (SGR 91 bright red, pops on dark).
 ///
 /// Bright red on light backgrounds lacks contrast; this split matches the
 /// light/dark strategy used by `warning_for_current_theme` and `muted_for_current_theme`.
@@ -216,8 +216,8 @@ pub fn diff_remove_for_current_theme() -> Color {
 
 /// Resolve the text-selection highlight background for the active palette.
 ///
-/// Light theme → `SELECTION_BG_LIGHT` (pale blue — dark fgs stay readable).
-/// Dark theme  → `SELECTION_BG_DARK`  (deep blue — light fgs stay readable).
+/// Light theme -> `SELECTION_BG_LIGHT` (pale blue -- dark fgs stay readable).
+/// Dark theme  -> `SELECTION_BG_DARK`  (deep blue -- light fgs stay readable).
 ///
 /// Solid bg (not SGR-7 reverse) matches Claude Code's alt-screen selection:
 /// the cell's fg is preserved, so markdown / inline-code colours inside the
@@ -230,7 +230,7 @@ pub fn selection_bg_for_current_theme() -> Color {
     }
 }
 
-/// Semantic colour role → concrete Color, honouring NO_COLOR etc.
+/// Semantic colour role -> concrete Color, honouring NO_COLOR etc.
 /// Returns None when colours are disabled OR when the role intentionally
 /// uses the terminal's default foreground (so strong/tool-name text just
 /// gets SGR bold without a fixed colour).
@@ -325,14 +325,14 @@ mod tests {
     fn muted_switches_with_theme() {
         let _theme = md_theme::test_lock();
         // Take the theme lock so we don't race other theme-switching
-        // tests in the highlight module — `MODE` is a process-wide
+        // tests in the highlight module -- `MODE` is a process-wide
         // AtomicU8 and parallel test runs would interleave reads.
         use crate::highlight::theme as md_theme;
         md_theme::set_theme_mode(false); // dark
         assert_eq!(
             role(caps(true), Role::Muted),
             Some(Palette::MUTED_DARK),
-            "dark theme must use SGR 37 (regular white) for muted — \
+            "dark theme must use SGR 37 (regular white) for muted -- \
              SGR 90 reads invisible on Warp / iTerm2 / Mac Terminal dark"
         );
         assert_eq!(
@@ -345,7 +345,7 @@ mod tests {
         assert_eq!(
             role(caps(true), Role::Muted),
             Some(Palette::MUTED_LIGHT),
-            "light theme must use SGR 90 (bright black) — `white` would \
+            "light theme must use SGR 90 (bright black) -- `white` would \
              be invisible against the white background"
         );
         assert_eq!(
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(
             role(caps(true), Role::Warning),
             Some(Palette::WARNING_LIGHT),
-            "light theme must use SGR 33 (dark yellow) — bright yellow reads invisible on white"
+            "light theme must use SGR 33 (dark yellow) -- bright yellow reads invisible on white"
         );
         // Distinct shades, else the split is pointless.
         assert_ne!(Palette::WARNING_LIGHT, Palette::WARNING_DARK);
@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(
             role(caps(true), Role::Shell),
             Some(Palette::SHELL_LIGHT),
-            "light theme must use the deeper purple — periwinkle washes out on white"
+            "light theme must use the deeper purple -- periwinkle washes out on white"
         );
         // Distinct shades, else the split is pointless; and never the red magenta.
         assert_ne!(Palette::SHELL_LIGHT, Palette::SHELL_DARK);
@@ -414,7 +414,7 @@ mod tests {
     fn selection_bg_switches_with_theme() {
         let _theme = md_theme::test_lock();
         // Text selection must paint a SOLID theme-aware bg (Claude Code
-        // style) — deep blue on dark so light fgs stay readable, pale blue
+        // style) -- deep blue on dark so light fgs stay readable, pale blue
         // on light so dark fgs stay readable. Distinct shades, else the
         // split is pointless.
         md_theme::set_theme_mode(false); // dark
@@ -431,7 +431,7 @@ mod tests {
     #[test]
     fn secondary_and_toolname_return_none() {
         // These roles deliberately fall through to the terminal's default
-        // foreground — they should return None even when colours are on.
+        // foreground -- they should return None even when colours are on.
         assert!(role(caps(true), Role::Secondary).is_none());
         assert!(role(caps(true), Role::ToolName).is_none());
     }
@@ -460,7 +460,7 @@ mod tests {
     #[test]
     fn panel_fg_on_dark_is_bright_for_contrast_over_the_grey_block() {
         // The dark panel bg is AnsiValue(236) (#303030). A dim ANSI-7 grey fg reads as
-        // low-contrast on it — the user-input echo looked washed out. Keep the paired
+        // low-contrast on it -- the user-input echo looked washed out. Keep the paired
         // dark fg a bright white so the echoed prompt stays legible on the block.
         let _theme = md_theme::test_lock();
         md_theme::set_theme_mode(false);

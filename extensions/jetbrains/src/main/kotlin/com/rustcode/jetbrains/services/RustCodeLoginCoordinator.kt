@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.services
 
-import com.rustcode.jetbrains.daemon.AtomCodeDaemonClient
+import com.rustcode.jetbrains.daemon.RustCodeDaemonClient
 import com.rustcode.jetbrains.daemon.DaemonHttpException
 import com.rustcode.jetbrains.daemon.LoginPollResponse
 import com.rustcode.jetbrains.daemon.LoginStartResponse
@@ -15,12 +15,12 @@ private const val DEFAULT_LOGIN_POLL_DELAY_MS = 2_000L
 
 /** Application-wide single-flight owner for daemon OAuth attempts. */
 @Service(Service.Level.APP)
-class AtomCodeLoginCoordinator {
+class RustCodeLoginCoordinator {
     private val attempts = mutableMapOf<String, LoginAttempt>()
-    private val logger = Logger.getInstance(AtomCodeLoginCoordinator::class.java)
+    private val logger = Logger.getInstance(RustCodeLoginCoordinator::class.java)
 
     fun login(
-        client: AtomCodeDaemonClient,
+        client: RustCodeDaemonClient,
         onStatus: (String) -> Unit,
     ): CompletableFuture<Unit> = login(
         object : LoginTransport {
@@ -46,7 +46,7 @@ class AtomCodeLoginCoordinator {
 
         transport.start()
             .thenCompose { start ->
-                attempt.publish("Opened browser for AtomGit sign-in.")
+                attempt.publish("Opened browser for platform sign-in.")
                 val deadline = System.nanoTime() +
                     TimeUnit.SECONDS.toNanos(start.expiresInSeconds.coerceAtLeast(1).toLong())
                 poll(transport, start.loginId, deadline, attempt::publish)
@@ -158,8 +158,8 @@ class AtomCodeLoginCoordinator {
         ).thenCompose { poll(transport, loginId, deadlineNanos, onStatus) }
 
     companion object {
-        fun getInstance(): AtomCodeLoginCoordinator =
-            ApplicationManager.getApplication().getService(AtomCodeLoginCoordinator::class.java)
+        fun getInstance(): RustCodeLoginCoordinator =
+            ApplicationManager.getApplication().getService(RustCodeLoginCoordinator::class.java)
     }
 }
 

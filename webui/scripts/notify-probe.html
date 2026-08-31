@@ -15,7 +15,7 @@
 <body>
 <h1>浏览器通知能力探针（Notification API Probe）</h1>
 <p>用途：验证 localhost secure context 下 Web Notification API 的权限流与弹窗行为，
-与 atomcode 代码无关。用任意 localhost 静态服务器托管本页即可：
+与 rustcode 代码无关。用任意 localhost 静态服务器托管本页即可：
 <code>python3 -m http.server 8080</code> 后访问 <code>http://127.0.0.1:8080/scripts/notify-probe.html</code>。</p>
 
 <h2>环境检查</h2>
@@ -59,11 +59,11 @@
   }
 
   document.getElementById('notify1').addEventListener('click', () =>
-    show('AtomCode done', { body: 'Done · 60.0s · probe-1', tag: 'probe-1', icon: '/favicon.png' }));
+    show('RustCode done', { body: 'Done · 60.0s · probe-1', tag: 'probe-1', icon: '/favicon.png' }));
   document.getElementById('notify2').addEventListener('click', () =>
-    show('AtomCode done', { body: 'Done · probe-2', tag: 'probe-2' }));
+    show('RustCode done', { body: 'Done · probe-2', tag: 'probe-2' }));
   document.getElementById('notifySame').addEventListener('click', () =>
-    show('AtomCode done', { body: '覆盖版 · probe-1', tag: 'probe-1' }));
+    show('RustCode done', { body: '覆盖版 · probe-1', tag: 'probe-1' }));
 </script>
 </body>
 </html>

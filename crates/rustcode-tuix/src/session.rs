@@ -7,7 +7,7 @@ use rustcode_kernel::message::{
 
 /// Extract legacy cold-summary strings from a kernel message set. Now a
 /// re-export of the shared kernel definition (relocated there so the daemon
-/// transport shares it) — see [`rustcode_kernel::message::cold_summaries_from_messages`].
+/// transport shares it) -- see [`rustcode_kernel::message::cold_summaries_from_messages`].
 pub use rustcode_kernel::message::cold_summaries_from_messages;
 
 /// Build a kernel text message with an explicit role (kernel has role-specific
@@ -146,7 +146,7 @@ impl TuiSession {
         // `view.snapshot` is already kernel (its messages carry the cold-summary
         // synthetics inline). Split those synthetics out into `cold_summaries`
         // and keep only the real messages in `messages`, exactly as the old
-        // `snapshot_to_core` did — so renderers iterating `messages` never see a
+        // `snapshot_to_core` did -- so renderers iterating `messages` never see a
         // cold-summary synthetic (behavioural parity).
         let cold_summaries = cold_summaries_from_messages(&view.snapshot.messages);
         let messages: Vec<Message> = view

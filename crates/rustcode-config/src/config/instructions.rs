@@ -1,13 +1,13 @@
 // crates/rustcode-core/src/config/instructions.rs
 //
-// Three-tier layered instruction system: global → project → user.
+// Three-tier layered instruction system: global -> project -> user.
 //
-// 1. Global:  ~/.rustcode/RUSTCODE.md — personal preferences across all projects
+// 1. Global:  ~/.rustcode/RUSTCODE.md -- personal preferences across all projects
 // 2. Project: <project>/.rustcode.md, RUSTCODE.md, AGENTS.md, CLAUDE.md,
 //             or claude.md (first match wins; AGENTS.md is the open standard
 //             for AI coding agents; CLAUDE.md/claude.md are accepted for
 //             compatibility with projects migrating from Claude Code)
-// 3. User:    <project>/.rustcode.user.md — personal per-project, in .gitignore
+// 3. User:    <project>/.rustcode.user.md -- personal per-project, in .gitignore
 
 use std::path::{Path, PathBuf};
 
@@ -92,7 +92,7 @@ impl LayeredInstructions {
         }
         let content = if content.len() > MAX_INSTRUCTION_SIZE {
             let truncated: String = content.chars().take(MAX_INSTRUCTION_SIZE).collect();
-            format!("{}\n\n[Truncated — file exceeds 1MB]", truncated)
+            format!("{}\n\n[Truncated -- file exceeds 1MB]", truncated)
         } else {
             content
         };
@@ -400,7 +400,7 @@ mod tests {
             LayeredInstructions::try_load(&tmp.path().join("big.md"), InstructionLevel::Global);
         assert!(loaded.is_some());
         let f = loaded.unwrap();
-        assert!(f.content.ends_with("[Truncated — file exceeds 1MB]"));
+        assert!(f.content.ends_with("[Truncated -- file exceeds 1MB]"));
         // Content should be capped around MAX_INSTRUCTION_SIZE + the suffix.
         assert!(f.content.len() < big.len());
     }

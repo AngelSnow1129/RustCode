@@ -1,4 +1,4 @@
-//! `find_references` — whole-word textual references to a symbol across the repo,
+//! `find_references` -- whole-word textual references to a symbol across the repo,
 //! gitignore-aware. Non-destructive ⇒ always `Safe`. Production shells out to ripgrep;
 //! the neutral port does a word-boundary scan with the `ignore` walker (no rg dependency).
 
@@ -42,7 +42,7 @@ impl Tool for FindReferencesTool {
             "required": ["symbol"]
         })
     }
-    // read-only → risk() defaults to Safe.
+    // read-only -> risk() defaults to Safe.
     async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -89,7 +89,7 @@ fn line_has_word(line: &str, word: &str) -> bool {
         if before_ok && after_ok {
             return true;
         }
-        // Advance past the first char of this match — a CHAR-boundary step (a raw +1 byte
+        // Advance past the first char of this match -- a CHAR-boundary step (a raw +1 byte
         // could land inside a multibyte char and panic on the next `line[from..]` slice).
         let step = line[start..]
             .chars()
@@ -131,7 +131,7 @@ fn render(dir: &Path, display_dir: &str, symbol: &str) -> ToolResult {
             if line_has_word(line, symbol) {
                 let mut text = line.trim().to_string();
                 if text.chars().count() > MAX_LINE {
-                    text = text.chars().take(MAX_LINE).collect::<String>() + "…";
+                    text = text.chars().take(MAX_LINE).collect::<String>() + "...";
                 }
                 refs.push(format!("  {}:{}: {}", rel, i + 1, text));
                 if refs.len() >= MAX_REFS {
@@ -189,7 +189,7 @@ mod tests {
         let _ = line_has_word("café_bar é x", "é");
         let _ = line_has_word("aéaéaé", "x");
         assert!(line_has_word("foo 计算 bar", "计算"));
-        assert!(!line_has_word("xé", "x")); // 'é' is a word char → 'x' not a whole word
+        assert!(!line_has_word("xé", "x")); // 'é' is a word char -> 'x' not a whole word
     }
 
     #[tokio::test]

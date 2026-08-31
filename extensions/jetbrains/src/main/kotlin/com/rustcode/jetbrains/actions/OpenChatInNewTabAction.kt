@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.actions
 
-import com.rustcode.jetbrains.ui.openAtomCodeChatTab
+import com.rustcode.jetbrains.ui.openRustCodeChatTab
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -15,6 +15,6 @@ class OpenChatInNewTabAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.getData(CommonDataKeys.PROJECT) ?: return
-        openAtomCodeChatTab(project, newTab = true)
+        openRustCodeChatTab(project, newTab = true)
     }
 }

@@ -47,7 +47,7 @@ impl LoopController {
         }
     }
 
-    /// Decide what to do given current agent idleness. Pure — no side effects.
+    /// Decide what to do given current agent idleness. Pure -- no side effects.
     pub fn decide(&self, idle: bool) -> LoopAction {
         if (self.max_rounds != 0 && self.round >= self.max_rounds) || self.consecutive_failures >= 3
         {

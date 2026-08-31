@@ -62,7 +62,7 @@
 ```text
 driver
   -> core AgentCommand
-  -> atomcode-bridge / daemon adapter
+  -> rustcode-bridge / daemon adapter
   -> kernel
   -> core AgentEvent
   -> driver
@@ -81,7 +81,7 @@ CLI / TUI / daemon / background / ACP / clix
 
 实际删除项：
 
-- 整个 `atomcode-bridge` crate、Cargo 依赖和 lockfile 记录；
+- 整个 `rustcode-bridge` crate、Cargo 依赖和 lockfile 记录；
 - core `agent` driver 协议及 goal、loop、compression、parallel-edit legacy 实现；
 - core v1 `TurnRunner`、permission、loop guard、tool args、datalog、log 旧执行链；
 - CLI、TUI、daemon、background 对 bridge/core legacy command/event 的发送和消费；
@@ -91,13 +91,13 @@ CLI / TUI / daemon / background / ACP / clix
 静态搜索确认生产代码中不存在：
 
 ```text
-atomcode_bridge
+rustcode_bridge
 spawn_bridged_runtime_with_control
 BridgedRuntime
 BridgeConfig
-atomcode_core::agent::AgentClient
-atomcode_core::agent::AgentCommand
-atomcode_core::agent::AgentEvent
+rustcode_core::agent::AgentClient
+rustcode_core::agent::AgentCommand
+rustcode_core::agent::AgentEvent
 RUSTCODE_DAEMON_ENGINE
 DaemonRuntimeEvent::Legacy
 DaemonRuntimeEvent::Native
@@ -156,12 +156,12 @@ native runtime：
 
 ### 3.5 AtomGit/GitCode 网关认证
 
-请求签名逻辑从 bridge/core 下沉到 `atomcode-auth` 和 capabilities provider：
+请求签名逻辑从 bridge/core 下沉到 `rustcode-auth` 和 capabilities provider：
 
 - 网关识别按 HTTPS scheme 和精确 host 判断；
 - OAuth token、user id、timestamp 和随机 nonce 统一参与签名；
 - 源码构建暴露 unavailable signer，不伪造签名成功；
-- 官方构建通过 `atomcode-core/codingplan-crypto -> atomcode-auth/codingplan-crypto` 启用闭源 overlay；
+- 官方构建通过 `rustcode-core/codingplan-crypto -> rustcode-auth/codingplan-crypto` 启用闭源 overlay；
 - `81985e9c` 恢复了迁移中遗漏的 feature 声明和依赖透传。
 
 ### 3.6 TUI 与 VSCode
@@ -199,7 +199,7 @@ VSCode：
 ### 5.1 文档静态验收项不完全一致
 
 迁移设计文档把 `KernelRuntimeAdapter` 列入最终静态零命中项，但当前
-`atomcode-coding/src/runtime.rs` 仍保留同名内部类型。该类型服务于 kernel agent 管理和 compaction，
+`rustcode-coding/src/runtime.rs` 仍保留同名内部类型。该类型服务于 kernel agent 管理和 compaction，
 不依赖 bridge，也不能投递 core legacy command，因此不构成 legacy fallback；但文档的字面验收标准
 与代码不一致，应修正文档或重命名该内部类型。
 
@@ -220,12 +220,12 @@ bridge stream timeout、core turn runner、hook integration 等旧链路测试�
 
 | 命令 | 结果 | 覆盖 |
 |---|---|---|
-| `cargo check -p atomcode -p rustcode-daemon -p atomcode-clix --all-targets` | 通过 | CLI、daemon、clix 及依赖链 all-target 编译 |
-| `cargo test -p atomcode-capabilities -p atomcode-kernel -p atomcode-coding -p atomcode-tuix request_user_input` | 通过 | capability 10 项、persona 1 项；其余同名过滤项无失败 |
-| `cargo test -p atomcode-tuix user_input` | 19/19 通过 | single/multiple/text、自定义文本、Submit、Esc、Ctrl+C、bypass、render |
+| `cargo check -p rustcode -p rustcode-daemon -p rustcode-clix --all-targets` | 通过 | CLI、daemon、clix 及依赖链 all-target 编译 |
+| `cargo test -p rustcode-capabilities -p rustcode-kernel -p rustcode-coding -p rustcode-tuix request_user_input` | 通过 | capability 10 项、persona 1 项；其余同名过滤项无失败 |
+| `cargo test -p rustcode-tuix user_input` | 19/19 通过 | single/multiple/text、自定义文本、Submit、Esc、Ctrl+C、bypass、render |
 | `npm run test:webview` | 通过 | webview test runner 全部通过；可见 31 项 node:test 断言通过，并包含静默 provider queue regression |
 
-编译期间存在一个既有 warning：`atomcode-kernel/tests/liveness.rs` 的 `SilentStreamProvider` unused import。
+编译期间存在一个既有 warning：`rustcode-kernel/tests/liveness.rs` 的 `SilentStreamProvider` unused import。
 该 warning 不影响本次验证结果，但应在后续维护中清理。
 
 ### 6.2 迁移提交父树的补充测试证据
@@ -235,9 +235,9 @@ bridge stream timeout、core turn runner、hook integration 等旧链路测试�
 | 范围 | 结果 |
 |---|---|
 | CLI | 50 个 lib、25 个 main、12 个 integration 测试通过 |
-| atomcode-auth | 33 项通过 |
-| atomcode-capabilities | 748 项通过；唯一 askpass Unix socket 用例因沙箱权限失败，沙箱外单独复核通过 |
-| atomcode-coding | 161 个单测通过 |
+| rustcode-auth | 33 项通过 |
+| rustcode-capabilities | 748 项通过；唯一 askpass Unix socket 用例因沙箱权限失败，沙箱外单独复核通过 |
+| rustcode-coding | 161 个单测通过 |
 | coding integration | assemble、cache prefix、full assembly、overflow recovery、plan mode、sensitive path 通过 |
 | permission grants | 在仓库工作区单独复核通过 |
 | runtime request | request 关联及 shutdown fail-close 定向测试通过 |

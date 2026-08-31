@@ -1,4 +1,4 @@
-//! Content-addressed storage for full tool outputs — large blobs indexed by
+//! Content-addressed storage for full tool outputs -- large blobs indexed by
 //! sha256 hash, one directory per session. Conversation carries only previews;
 //! full outputs live on disk, deduplicated by content.
 
@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// 16 lowercase hex chars of sha256 — deterministic content id (dedup + cache-safe).
+/// 16 lowercase hex chars of sha256 -- deterministic content id (dedup + cache-safe).
 pub fn artifact_id(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut s = String::with_capacity(16);
@@ -38,7 +38,7 @@ impl ArtifactStore {
         let path = self.dir.join(&id);
         if !path.exists() {
             std::fs::create_dir_all(&self.dir)?;
-            // Write to a temp sibling then rename → readers never see a partial file.
+            // Write to a temp sibling then rename -> readers never see a partial file.
             let tmp = self.dir.join(format!("{id}.tmp"));
             std::fs::write(&tmp, bytes)?;
             std::fs::rename(&tmp, &path)?;
@@ -61,7 +61,7 @@ impl ArtifactStore {
         Ok(Some(bytes[start..end].to_vec()))
     }
 
-    /// Byte length of a stored artifact — an O(1) `metadata` stat, so the fetch
+    /// Byte length of a stored artifact -- an O(1) `metadata` stat, so the fetch
     /// pagination hint doesn't re-read the whole (≤4 MiB) blob just for its size.
     /// `Ok(None)` for a missing file or an id that isn't `[0-9a-f]{16}`.
     pub fn size(&self, id: &str) -> std::io::Result<Option<u64>> {
@@ -119,7 +119,7 @@ impl rustcode_kernel::middleware::ToolMiddleware for ArtifactMiddleware {
         tool: Option<&Arc<dyn rustcode_kernel::tool::Tool>>,
     ) -> rustcode_kernel::middleware::AfterOutcome {
         // A tool that bounds and structures its own output (e.g. `read_file`: self-capped,
-        // 1-based line numbers, pagination) must reach the model WHOLE — head/tail
+        // 1-based line numbers, pagination) must reach the model WHOLE -- head/tail
         // truncation would corrupt it. Read the contract off the resolved tool, so this is
         // robust even if an earlier `before` short-circuited the chain with `Allow`.
         if tool.is_some_and(|t| t.self_bounds_output()) {
@@ -137,7 +137,7 @@ impl rustcode_kernel::middleware::ToolMiddleware for ArtifactMiddleware {
         if total > MAX_ARTIFACT_BYTES {
             // Too large to store; inline-truncate only.
             let marker = format!(
-                "\n\n[rustcode: output truncated — {total} bytes total, showing first {} + last {} bytes. \
+                "\n\n[rustcode: output truncated -- {total} bytes total, showing first {} + last {} bytes. \
 Full output unavailable (exceeds {MAX_ARTIFACT_BYTES}-byte artifact ceiling).]\n\n",
                 head.len(),
                 tail.len()
@@ -148,13 +148,13 @@ Full output unavailable (exceeds {MAX_ARTIFACT_BYTES}-byte artifact ceiling).]\n
 
         let marker = match self.store.put(result.content.as_bytes()) {
             Ok(id) => format!(
-                "\n\n[rustcode: output truncated — {total} bytes total, showing first {} + last {} bytes. \
+                "\n\n[rustcode: output truncated -- {total} bytes total, showing first {} + last {} bytes. \
 Full output saved as artifact {id}. To read more: fetch_output(artifact_id=\"{id}\", offset, limit).]\n\n",
                 head.len(),
                 tail.len()
             ),
             Err(_) => format!(
-                "\n\n[rustcode: output truncated — {total} bytes total, showing first {} + last {} bytes. \
+                "\n\n[rustcode: output truncated -- {total} bytes total, showing first {} + last {} bytes. \
 Full output unavailable (could not be saved).]\n\n",
                 head.len(),
                 tail.len()
@@ -184,14 +184,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = super::ArtifactStore::new(dir.path());
         let id = store.put(b"0123456789abcdef").unwrap();
-        // dedup: same bytes → same id, one file
+        // dedup: same bytes -> same id, one file
         assert_eq!(store.put(b"0123456789abcdef").unwrap(), id);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
         // slice
         assert_eq!(store.get(&id, 2, 4).unwrap().unwrap(), b"2345");
-        // offset past end → empty
+        // offset past end -> empty
         assert_eq!(store.get(&id, 100, 4).unwrap().unwrap(), b"");
-        // limit past end → clamped
+        // limit past end -> clamped
         assert_eq!(store.get(&id, 14, 999).unwrap().unwrap(), b"ef");
     }
 
@@ -202,7 +202,7 @@ mod tests {
         let id = store.put(&b"z".repeat(1234)).unwrap();
         assert_eq!(store.size(&id).unwrap(), Some(1234));
         assert_eq!(store.size("0123456789abcdef").unwrap(), None); // absent
-        assert_eq!(store.size("../etc/passwd").unwrap(), None); // traversal → rejected
+        assert_eq!(store.size("../etc/passwd").unwrap(), None); // traversal -> rejected
     }
 
     #[test]
@@ -210,8 +210,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = super::ArtifactStore::new(dir.path());
         assert!(store.get("0123456789abcdef", 0, 10).unwrap().is_none()); // absent
-        assert!(store.get("../etc/passwd", 0, 10).unwrap().is_none()); // traversal → rejected
-        assert!(store.get("XYZ", 0, 10).unwrap().is_none()); // non-hex → rejected
+        assert!(store.get("../etc/passwd", 0, 10).unwrap().is_none()); // traversal -> rejected
+        assert!(store.get("XYZ", 0, 10).unwrap().is_none()); // non-hex -> rejected
     }
 
     #[tokio::test]
@@ -264,7 +264,7 @@ mod tests {
             big.as_bytes()
         );
 
-        // determinism: same output → byte-identical rewritten content
+        // determinism: same output -> byte-identical rewritten content
         let mut r2 = mk();
         mw.after(&mut r2, None).await;
         assert_eq!(r1.content, r2.content);
@@ -404,18 +404,18 @@ artifact is unavailable, re-run the original command instead."
                     .flatten()
                     .unwrap_or(0) as usize;
                 // Clamp the reported window to the artifact so an offset past the
-                // end yields a coherent "at end" hint (never "5000–5000 of 3000").
+                // end yields a coherent "at end" hint (never "5000-5000 of 3000").
                 // `start <= total` holds, so `end` lands in `[start, total]`.
                 let start = parsed.offset.min(total);
                 let end = start.saturating_add(bytes.len()).min(total);
                 let body = String::from_utf8_lossy(&bytes);
                 let hint = if end < total {
                     format!(
-                        "\n\n[showing bytes {start}–{end} of {total}; call fetch_output(artifact_id=\"{}\", offset={end}) for more]",
+                        "\n\n[showing bytes {start}-{end} of {total}; call fetch_output(artifact_id=\"{}\", offset={end}) for more]",
                         parsed.artifact_id
                     )
                 } else {
-                    format!("\n\n[showing bytes {start}–{end} of {total} (end)]")
+                    format!("\n\n[showing bytes {start}-{end} of {total} (end)]")
                 };
                 super::ok(format!("{body}{hint}"))
             }
@@ -489,7 +489,7 @@ mod fetch_output_tests {
             r.content
         );
 
-        // missing artifact → terminal, actionable error, no "fetch" retry wording
+        // missing artifact -> terminal, actionable error, no "fetch" retry wording
         let r = tool
             .execute(
                 r#"{"artifact_id":"0000000000000000","offset":0,"limit":10}"#,
@@ -512,7 +512,7 @@ mod fetch_output_tests {
             r.content
         );
 
-        // offset PAST the end → coherent "at end" hint, not "N–N of <smaller>".
+        // offset PAST the end -> coherent "at end" hint, not "N-N of <smaller>".
         let small = std::sync::Arc::new(ArtifactStore::new(dir.path()));
         let sid = small.put(b"abc").unwrap(); // 3 bytes
         let tool2 = FetchOutputTool::new(small);
@@ -524,7 +524,7 @@ mod fetch_output_tests {
             .await;
         assert!(!r.is_error, "past-end fetch is not an error: {}", r.content);
         assert!(
-            r.content.contains("3–3 of 3 (end)"),
+            r.content.contains("3-3 of 3 (end)"),
             "past-end window clamps to total, coherent hint: {}",
             r.content
         );

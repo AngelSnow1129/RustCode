@@ -3,24 +3,24 @@
 //! Flow:
 //! 1. Fetch `latest.json` manifest (version + per-target sha256/size).
 //! 2. Detect current platform and pick the matching binary entry.
-//! 3. Verify we can write to `current_exe()`'s directory — if not, fail
+//! 3. Verify we can write to `current_exe()`'s directory -- if not, fail
 //!    with a precise message telling the user to re-run with `sudo`.
 //! 4. Download the binary to a sibling temp file, streaming progress.
 //! 5. Verify SHA256 against the manifest. Bail (and delete temp) on
-//!    mismatch — we never touch the live binary until verification
+//!    mismatch -- we never touch the live binary until verification
 //!    passes.
 //! 6. Three-way swap to replace the live binary:
-//!    a. `rustcode` → `.rustcode.rolling`  (Windows allows renaming a running exe)
-//!    b. new binary → `rustcode`            (install the upgrade)
-//!    c. best-effort: remove old `.bak`, then `.rustcode.rolling` → `.bak`
+//!    a. `rustcode` -> `.rustcode.rolling`  (Windows allows renaming a running exe)
+//!    b. new binary -> `rustcode`            (install the upgrade)
+//!    c. best-effort: remove old `.bak`, then `.rustcode.rolling` -> `.bak`
 //!
-//!    Steps a–b are the critical path; step c is best-effort. If the old
+//!    Steps a-b are the critical path; step c is best-effort. If the old
 //!    `.bak` is locked (AV scanner, still-running process, read-only
-//!    attribute), the upgrade still succeeds — the `.rolling` file lingers
+//!    attribute), the upgrade still succeeds -- the `.rolling` file lingers
 //!    and is cleaned up on the next upgrade attempt.
 //!
 //! Rollback swaps the live binary with `.bak` in place, so one backup
-//! always points to "the other version" — the user can toggle by
+//! always points to "the other version" -- the user can toggle by
 //! alternating `/upgrade` and `/upgrade rollback`.
 
 use std::path::{Path, PathBuf};
@@ -50,7 +50,7 @@ const RUSTCODE_USER_AGENT: &str = concat!("rustcode/", env!("CARGO_PKG_VERSION")
 
 /// Leading component of a published release asset. [`binary_filename`] builds
 /// names with it and [`reconcile_after_external_upgrade`] reaps stale staged
-/// downloads by it — the two only work as a pair, so they read one constant.
+/// downloads by it -- the two only work as a pair, so they read one constant.
 const ASSET_PREFIX: &str = rustcode_config::distribution::RELEASE_ASSET_PREFIX;
 
 /// Apply the process proxy policy to the download client: honor `no_proxy` mode,
@@ -73,7 +73,7 @@ fn apply_proxy_policy(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder
 /// Streamed progress events from the upgrade/rollback machinery.
 ///
 /// Sender is always async-owned (the upgrade task); receivers are the
-/// TUI event loop or the CLI `stdout` logger. Events are advisory —
+/// TUI event loop or the CLI `stdout` logger. Events are advisory --
 /// dropping the receiver must never block the upgrade.
 #[derive(Debug, Clone)]
 pub enum UpgradeEvent {
@@ -134,9 +134,9 @@ pub struct RollbackSummary {
 }
 
 /// Return the target tag used in release artifact names
-/// (`darwin-arm64`, `linux-x64`, `windows-x64`, …).
+/// (`darwin-arm64`, `linux-x64`, `windows-x64`, ...).
 ///
-/// `None` means the current platform has no published release — the
+/// `None` means the current platform has no published release -- the
 /// caller must surface a clean "unsupported platform" message rather
 /// than fall through to a 404 download.
 // `target_env = "ohos"` is unknown to the check-cfg lint on toolchains
@@ -146,7 +146,7 @@ pub struct RollbackSummary {
 pub fn detect_target() -> Option<&'static str> {
     // HarmonyOS / OpenHarmony builds report `std::env::consts::OS == "linux"`
     // at runtime, so the OS+ARCH table below would resolve to `linux-arm64`
-    // — a STATIC-musl build that doesn't run on HarmonyOS — and the auto-
+    // -- a STATIC-musl build that doesn't run on HarmonyOS -- and the auto-
     // upgrade would clobber the working DYNAMIC-musl install (the one linked
     // against `/lib/ld-musl-aarch64.so.1`), leaving `permission denied`.
     // The OHOS artifact is compiled for a `*-linux-ohos` target, so pin it to
@@ -204,8 +204,8 @@ pub fn current_exe_path() -> Result<PathBuf> {
 
 /// Sibling path used to stash the previous binary.
 ///
-/// Unix: `rustcode` → `rustcode.bak`.
-/// Windows: `rustcode.exe` → `rustcode.exe.bak`.
+/// Unix: `rustcode` -> `rustcode.bak`.
+/// Windows: `rustcode.exe` -> `rustcode.exe.bak`.
 pub fn backup_path(exe: &Path) -> PathBuf {
     let mut os = exe.as_os_str().to_os_string();
     os.push(".bak");
@@ -286,7 +286,7 @@ fn truncate(s: &str, max_chars: usize) -> String {
         s.to_string()
     } else {
         let head: String = s.chars().take(max_chars).collect();
-        format!("{}…", head)
+        format!("{}...", head)
     }
 }
 
@@ -322,7 +322,7 @@ async fn download_and_verify(
         .with_context(|| format!("GET {}", url))?;
     if !resp.status().is_success() {
         return Err(anyhow!(
-            "downloading {} returned HTTP {} — release may not exist for this platform",
+            "downloading {} returned HTTP {} -- release may not exist for this platform",
             url,
             resp.status()
         ));
@@ -354,7 +354,7 @@ async fn download_and_verify(
             .await
             .context("writing download to disk")?;
         written += chunk.len() as u64;
-        // Ignore send errors — receiver may have been dropped.
+        // Ignore send errors -- receiver may have been dropped.
         let _ = progress.send(UpgradeEvent::Downloading {
             bytes: written,
             total: expected_size,
@@ -377,7 +377,7 @@ async fn download_and_verify(
     if !got.eq_ignore_ascii_case(expected_sha256) {
         let _ = std::fs::remove_file(dest);
         return Err(anyhow!(
-            "checksum mismatch — possible corruption or tampering.\n  expected: {}\n  got:      {}",
+            "checksum mismatch -- possible corruption or tampering.\n  expected: {}\n  got:      {}",
             expected_sha256,
             got
         ));
@@ -403,13 +403,13 @@ fn hex_encode(bytes: &[u8]) -> String {
 /// 1. The file carries a read-only attribute (some AV / SCCM policies
 ///    flag any executable in `%LOCALAPPDATA%` this way). Clear it first.
 /// 2. Windows Defender or another scanner briefly holds the file open
-///    during a real-time scan — typically <500 ms. Retry once with a
+///    during a real-time scan -- typically <500 ms. Retry once with a
 ///    short sleep before giving up.
 /// 3. The file is a still-running rustcode process from a prior upgrade
 ///    where the user didn't restart. Nothing we can do at the code layer;
 ///    the caller proceeds without blocking the upgrade.
 ///
-/// This function is intentionally **best-effort** — a failure to remove
+/// This function is intentionally **best-effort** -- a failure to remove
 /// the stale file must NOT block an upgrade. The three-way swap in
 /// `replace_binary` ensures the upgrade proceeds even if old backups
 /// cannot be deleted.
@@ -458,16 +458,16 @@ fn clear_readonly(path: &Path) {
     let _ = path;
 }
 
-/// Rename `from` → `to`, hardened against the transient failures that make
+/// Rename `from` -> `to`, hardened against the transient failures that make
 /// a naive `std::fs::rename` of a *running* Windows executable fail with
 /// `ERROR_ACCESS_DENIED` (os error 5):
 ///
 ///   * an AV / indexer (Windows Defender real-time scan) briefly holds the
-///     source or destination open without `FILE_SHARE_DELETE` — this clears
+///     source or destination open without `FILE_SHARE_DELETE` -- this clears
 ///     well under a second, so we retry with exponential backoff;
-///   * a read-only attribute on the source — cleared before the first try;
+///   * a read-only attribute on the source -- cleared before the first try;
 ///   * a leftover destination from a prior interrupted upgrade that is
-///     momentarily locked — re-removed before each retry so the implicit
+///     momentarily locked -- re-removed before each retry so the implicit
 ///     `MOVEFILE_REPLACE_EXISTING` doesn't fail on it.
 ///
 /// Cross-platform: on Unix these conditions don't arise, so the first
@@ -497,10 +497,10 @@ where
         match rename(from, to) {
             Ok(()) => return Ok(()),
             // Cross-device: the staged binary lives under the user profile
-            // (e.g. C:\Users\…\.rustcode\staged\) while the running exe may be
-            // on another drive (H:\…). `rename` across volumes can NEVER
+            // (e.g. C:\Users\...\.rustcode\staged\) while the running exe may be
+            // on another drive (H:\...). `rename` across volumes can NEVER
             // succeed (ERROR_NOT_SAME_DEVICE / EXDEV), so don't waste the retry
-            // budget — copy the bytes across and drop the source instead.
+            // budget -- copy the bytes across and drop the source instead.
             Err(e) if is_cross_device_error(&e) => return copy_across_devices(from, to),
             Err(e) => {
                 last_err = Some(e);
@@ -529,7 +529,7 @@ fn is_cross_device_error(e: &std::io::Error) -> bool {
 /// source. Used as the fallback when `rename` reports a cross-device error.
 /// Removing the source is best-effort: once the copy lands, the move has
 /// effectively succeeded, and a lingering staged file is harmless (it is
-/// superseded/cleaned by the next upgrade) — so a locked source must not
+/// superseded/cleaned by the next upgrade) -- so a locked source must not
 /// fail the upgrade.
 fn copy_across_devices(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::copy(from, to)?;
@@ -540,18 +540,18 @@ fn copy_across_devices(from: &Path, to: &Path) -> std::io::Result<()> {
 /// Put `new_bin` in place of `exe`, keeping the previous `exe` as `.bak`.
 ///
 /// Uses a **three-way swap** to avoid ever needing to delete `.bak` as a
-/// prerequisite — the old approach of "delete .bak, then rename exe→.bak"
+/// prerequisite -- the old approach of "delete .bak, then rename exe->.bak"
 /// could fail on Windows when `.bak` is locked (AV scanner, read-only
 /// attribute, still-running process). The swap sequence is:
 ///
-///   1. `exe` → `.rolling`      (Windows allows renaming a running exe)
-///   2. `new_bin` → `exe`        (install new version)
+///   1. `exe` -> `.rolling`      (Windows allows renaming a running exe)
+///   2. `new_bin` -> `exe`        (install new version)
 ///   3. best-effort: delete old `.bak`
-///   4. `.rolling` → `.bak`      (preserve old version for rollback)
+///   4. `.rolling` -> `.bak`      (preserve old version for rollback)
 ///
-/// Steps 1–2 are the critical path; steps 3–4 are best-effort cleanup.
+/// Steps 1-2 are the critical path; steps 3-4 are best-effort cleanup.
 /// If step 4 fails (e.g. old `.bak` is still locked), the upgrade still
-/// succeeds — the `.rolling` file is left behind and will be cleaned up
+/// succeeds -- the `.rolling` file is left behind and will be cleaned up
 /// on the next upgrade attempt.
 ///
 /// On Unix, `rename(2)` within a directory is atomic; on Windows, an
@@ -575,7 +575,7 @@ fn replace_binary(new_bin: &Path, exe: &Path) -> Result<()> {
     // Clean up any leftover .rolling from a prior interrupted upgrade.
     try_remove_stale(&rolling);
 
-    // Step 1: live binary → rolling (Windows allows renaming a running exe).
+    // Step 1: live binary -> rolling (Windows allows renaming a running exe).
     // `robust_rename` retries through transient AV/indexer locks that
     // otherwise surface as ERROR_ACCESS_DENIED (os error 5) here.
     robust_rename(exe, &rolling).with_context(|| {
@@ -586,7 +586,7 @@ fn replace_binary(new_bin: &Path, exe: &Path) -> Result<()> {
         )
     })?;
 
-    // Step 2: new binary → live (the actual upgrade)
+    // Step 2: new binary -> live (the actual upgrade)
     if let Err(e) = robust_rename(new_bin, exe) {
         // Best-effort unwind of step 1 so the user isn't left without
         // a live binary.
@@ -597,11 +597,11 @@ fn replace_binary(new_bin: &Path, exe: &Path) -> Result<()> {
         ));
     }
 
-    // Step 3: best-effort — remove old .bak so we can rename .rolling→.bak.
+    // Step 3: best-effort -- remove old .bak so we can rename .rolling->.bak.
     // Failure is non-fatal; we just leave .rolling behind.
     let bak_removed = try_remove_stale(&backup);
 
-    // Step 4: rolling → .bak (preserve old version for rollback)
+    // Step 4: rolling -> .bak (preserve old version for rollback)
     if bak_removed {
         if let Err(e) = std::fs::rename(&rolling, &backup) {
             // Upgrade succeeded but we couldn't preserve the old version
@@ -630,7 +630,7 @@ fn replace_binary(new_bin: &Path, exe: &Path) -> Result<()> {
 /// Top-level upgrade driver.
 ///
 /// `current_version` is what we're running right now (e.g. `"v4.19.0"`
-/// — callers typically pass `format!("v{}", env!("CARGO_PKG_VERSION"))`).
+/// -- callers typically pass `format!("v{}", env!("CARGO_PKG_VERSION"))`).
 /// When `force` is false and the manifest version is `<=` current, this
 /// returns an error carrying `ALREADY_LATEST` so callers can distinguish
 /// "already up to date" from a real failure.
@@ -670,7 +670,7 @@ pub async fn run_upgrade(
 
     let entry = manifest.binaries.get(target).ok_or_else(|| {
         anyhow!(
-            "manifest has no entry for target {} — this platform may not be in this release",
+            "manifest has no entry for target {} -- this platform may not be in this release",
             target
         )
     })?;
@@ -684,7 +684,7 @@ pub async fn run_upgrade(
 
     // Manual `/upgrade` just installed whatever the current manifest
     // advertises. Any staged upgrade sitting in `staged_dir()` is now
-    // superseded — if we leave `pending.json` in place, the next startup
+    // superseded -- if we leave `pending.json` in place, the next startup
     // might try to "apply" an older (or identical) staged version on top
     // of what we just installed, causing a downgrade or redundant churn.
     // Clear both the pointer and any stray staged binaries.
@@ -727,12 +727,12 @@ pub const ALREADY_LATEST: &str = "ALREADY_LATEST";
 /// Sentinel embedded in the error returned by `run_upgrade` / `run_rollback`
 /// when this binary is a package-manager-managed build (HarmonyBrew).
 /// Callers special-case it to show "use `brew upgrade`" instead of a
-/// generic failure — mirrors the `ALREADY_LATEST` pattern.
+/// generic failure -- mirrors the `ALREADY_LATEST` pattern.
 pub const PACKAGE_MANAGED: &str = "PACKAGE_MANAGED";
 
 /// True when this binary was compiled for package-manager distribution
 /// (the `distro-pm` feature, set by the HarmonyBrew formula). Such builds
-/// must never self-modify the binary — upgrades are the package manager's
+/// must never self-modify the binary -- upgrades are the package manager's
 /// job.
 pub const fn is_package_managed() -> bool {
     cfg!(feature = "distro-pm")
@@ -743,25 +743,25 @@ pub const fn is_package_managed() -> bool {
 // ============================================================================
 //
 // The deferred path solves two problems that `run_upgrade` alone can't:
-//   1. Users whose sessions run for hours/days — they'll never voluntarily
+//   1. Users whose sessions run for hours/days -- they'll never voluntarily
 //      restart just to pick up a new version. A background task can prepare
 //      the staged binary while they work; apply happens whenever they do
 //      restart (which they will, eventually, for unrelated reasons).
 //   2. Users whose sessions are short but who rarely think to run
-//      `/upgrade` — same benefit: the next normal launch carries the bump.
+//      `/upgrade` -- same benefit: the next normal launch carries the bump.
 //
 // Flow:
 //   session N      : prepare_deferred_upgrade()
-//                    → download to ~/.rustcode/staged/<filename>
-//                    → write ~/.rustcode/staged/pending.json
-//                    → (UI surfaces "⟲ vX.Y.Z pending")
+//                    -> download to ~/.rustcode/staged/<filename>
+//                    -> write ~/.rustcode/staged/pending.json
+//                    -> (UI surfaces "⟲ vX.Y.Z pending")
 //   session N exit : no special work; staged files survive any exit path
 //                    (graceful, SIGHUP on terminal close, SIGKILL, power
-//                    loss — all fine, state is on disk)
+//                    loss -- all fine, state is on disk)
 //   session N+1    : apply_pending_upgrade() runs BEFORE tokio starts
-//                    → atomically swaps live binary with staged
-//                    → re-execs self with original argv
-//                    → user sees "✓ Upgraded to vX.Y.Z" on welcome
+//                    -> atomically swaps live binary with staged
+//                    -> re-execs self with original argv
+//                    -> user sees "[+] Upgraded to vX.Y.Z" on welcome
 //
 // A safety circuit-breaker is wired in: if apply succeeds but the new
 // binary fails to start `MAX_APPLY_ATTEMPTS` times in a row, the staged
@@ -796,8 +796,8 @@ pub struct PendingUpgrade {
     pub attempts: u32,
 }
 
-/// Successful apply result — fed into the re-exec handoff so the new
-/// process can render a one-time "✓ Upgraded" banner on the welcome screen.
+/// Successful apply result -- fed into the re-exec handoff so the new
+/// process can render a one-time "[+] Upgraded" banner on the welcome screen.
 #[derive(Debug, Clone)]
 pub struct AppliedUpgrade {
     pub version: String,
@@ -824,7 +824,7 @@ fn staged_binary_path(version: &str, target: &str) -> PathBuf {
     staged_dir().join(binary_filename(version, target))
 }
 
-/// Read `pending.json` if present. Absent file → `Ok(None)`. Corrupt JSON
+/// Read `pending.json` if present. Absent file -> `Ok(None)`. Corrupt JSON
 /// returns an error so callers can delete it and retry; `apply_pending_upgrade`
 /// does exactly that.
 pub fn read_pending() -> Result<Option<PendingUpgrade>> {
@@ -867,7 +867,7 @@ pub async fn fetch_manifest_if_newer(current_version: &str) -> Result<Option<Man
 
 /// Download + verify a new release into `staged_dir()` without touching
 /// the live binary. Writes `pending.json` as the final step so a partial
-/// download (crashed mid-stream) doesn't masquerade as "ready to apply" —
+/// download (crashed mid-stream) doesn't masquerade as "ready to apply" --
 /// the pointer only appears if sha256 passed.
 ///
 /// Returns `Ok(None)` when we're already on the latest version (or newer).
@@ -916,7 +916,7 @@ pub async fn prepare_deferred_upgrade(
 
     let entry = manifest.binaries.get(target).ok_or_else(|| {
         anyhow!(
-            "manifest has no entry for target {} — this platform may not be in this release",
+            "manifest has no entry for target {} -- this platform may not be in this release",
             target
         )
     })?;
@@ -943,10 +943,10 @@ pub async fn prepare_deferred_upgrade(
 /// Bootstrap entry point: called once at the very top of `main()` BEFORE
 /// the tokio runtime, TUI, or any heavy init. Three outcomes:
 ///
-///   * `Ok(None)`                  — no pending upgrade, continue normally.
-///   * `Ok(Some(AppliedUpgrade))`  — staged binary is now live; caller must
+///   * `Ok(None)`                  -- no pending upgrade, continue normally.
+///   * `Ok(Some(AppliedUpgrade))`  -- staged binary is now live; caller must
 ///                                   `re_exec_self` to hand control over.
-///   * `Err(e)`                    — apply failed; caller should log and
+///   * `Err(e)`                    -- apply failed; caller should log and
 ///                                   continue with the OLD binary. We've
 ///                                   already bumped the attempt counter
 ///                                   (or discarded the stage past the cap).
@@ -964,7 +964,7 @@ pub fn apply_pending_upgrade() -> Result<Option<AppliedUpgrade>> {
         Ok(Some(p)) => p,
         Ok(None) => return Ok(None),
         Err(_) => {
-            // Corrupt pointer — nuke it, we can't do anything safe with it.
+            // Corrupt pointer -- nuke it, we can't do anything safe with it.
             clear_pending_pointer();
             return Ok(None);
         }
@@ -1023,7 +1023,7 @@ pub fn apply_pending_upgrade() -> Result<Option<AppliedUpgrade>> {
     ensure_writable(&exe)?;
     replace_binary(&pending.staged_path, &exe)?;
 
-    // Success — pointer is done, file moved into place by replace_binary.
+    // Success -- pointer is done, file moved into place by replace_binary.
     clear_pending_pointer();
 
     Ok(Some(AppliedUpgrade {
@@ -1035,16 +1035,16 @@ pub fn apply_pending_upgrade() -> Result<Option<AppliedUpgrade>> {
 
 /// Replace the current process with a fresh invocation of the live binary,
 /// preserving argv, cwd, and env. On Unix this is `execv` (same PID, old
-/// process image gone). On Windows we spawn a child and exit the parent —
+/// process image gone). On Windows we spawn a child and exit the parent --
 /// a separate PID, but terminal stdio is shared so the user still sees
 /// one continuous "session" from their perspective.
 ///
 /// **Important on Windows:** After `replace_binary` renames the running exe
-/// (e.g. `rustcode.exe` → `.rustcode.rolling`), `std::env::current_exe()`
+/// (e.g. `rustcode.exe` -> `.rustcode.rolling`), `std::env::current_exe()`
 /// may return the *renamed* path (`.rustcode.rolling`) instead of the
 /// original one (`rustcode.exe`). This is because `GetModuleFileNameW`
 /// tracks the on-disk filename. If `override_exe` is provided, it is used
-/// instead of `current_exe()` — callers should capture the exe path
+/// instead of `current_exe()` -- callers should capture the exe path
 /// *before* calling `replace_binary` and pass it here.
 ///
 /// Never returns on the happy path. An `Err` return means the handoff
@@ -1091,7 +1091,7 @@ pub fn re_exec_self(override_exe: Option<&Path>) -> Result<std::convert::Infalli
 /// Parse and compare two `vMAJOR.MINOR.PATCH` strings. Returns true
 /// when `latest > current`. Malformed inputs fall back to a byte-wise
 /// `!=` so we *do* proceed with reinstall when version strings are
-/// shaped unexpectedly — safer than silently refusing to upgrade.
+/// shaped unexpectedly -- safer than silently refusing to upgrade.
 fn is_newer(latest: &str, current: &str) -> bool {
     match (parse_version(latest), parse_version(current)) {
         (Some(a), Some(b)) => a > b,
@@ -1117,7 +1117,7 @@ fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
 
 /// Three-way swap between the live binary and `.bak`, leaving `.bak`
 /// pointing at what was previously live. Calling rollback twice in a
-/// row returns you to the original state — intentional, so users can
+/// row returns you to the original state -- intentional, so users can
 /// toggle between last-two versions without redownloading.
 /// In `distro-pm` builds this returns immediately with an error carrying `PACKAGE_MANAGED` (upgrades are the package manager's job).
 pub fn run_rollback() -> Result<RollbackSummary> {
@@ -1128,7 +1128,7 @@ pub fn run_rollback() -> Result<RollbackSummary> {
     let backup = backup_path(&exe);
     if !backup.exists() {
         return Err(anyhow!(
-            "no backup found at {} — nothing to roll back to",
+            "no backup found at {} -- nothing to roll back to",
             backup.display()
         ));
     }
@@ -1155,7 +1155,7 @@ pub fn run_rollback() -> Result<RollbackSummary> {
     }
     // Step 3: rolling -> backup
     if let Err(e) = std::fs::rename(&rolling, &backup) {
-        // Can't cleanly unwind — the live file is already the old
+        // Can't cleanly unwind -- the live file is already the old
         // version, which is the user-visible outcome they asked for.
         // Surface the orphan so they can clean up manually.
         return Err(anyhow!(
@@ -1287,14 +1287,14 @@ mod tests {
     fn try_remove_stale_returns_false_for_truly_locked_file() {
         // On Unix, an open file can still be unlinked, so true locking
         // is hard to simulate. Instead we test the "nonexistent path"
-        // case — `try_remove_stale` correctly returns true because the
+        // case -- `try_remove_stale` correctly returns true because the
         // file doesn't exist (nothing to remove). To verify the false
         // return, we'd need a platform-specific lock (Windows HANDLE),
         // which isn't feasible in a cross-platform unit test. The
         // important contract is: returns true when nothing needs doing.
         let bogus = std::path::PathBuf::from("/no/such/dir/rustcode.exe.bak");
         assert!(!bogus.exists());
-        // A path that doesn't exist is "already removed" → true
+        // A path that doesn't exist is "already removed" -> true
         assert!(try_remove_stale(&bogus));
     }
 
@@ -1493,7 +1493,7 @@ mod tests {
 
     #[test]
     fn robust_rename_falls_back_to_copy_on_cross_device() {
-        // The reported bug: staged binary under the user profile (C:\…\.rustcode
+        // The reported bug: staged binary under the user profile (C:\...\.rustcode
         // \staged\) vs a running exe on another drive (H:\). `rename` fails with
         // ERROR_NOT_SAME_DEVICE; robust_rename must transparently copy instead of
         // burning its retry budget on a deterministic failure.
@@ -1554,7 +1554,7 @@ mod tests {
     fn replace_binary_succeeds_even_when_bak_cannot_be_removed() {
         // Simulate the Windows ACCESS_DENIED scenario: .bak is locked
         // (here we can't truly lock it, but we make it read-only in a
-        // non-writable parent — on Unix this still works because unlink
+        // non-writable parent -- on Unix this still works because unlink
         // doesn't care about file permissions. The test verifies the
         // three-way swap completes successfully regardless.)
         let tmp = tempfile::tempdir().unwrap();
@@ -1582,7 +1582,7 @@ mod tests {
         // Use a fake exe name that won't collide with the real test
         // binary. run_rollback uses current_exe() which we cannot
         // redirect, so we test the primitive by calling replace_binary
-        // first then rename logic directly — model the three-way swap.
+        // first then rename logic directly -- model the three-way swap.
         let exe = tmp.path().join("rustcode");
         let bak = backup_path(&exe);
         std::fs::write(&exe, b"NEW").unwrap();
@@ -1617,7 +1617,7 @@ mod tests {
     #[test]
     fn pending_attempts_defaults_when_missing() {
         // Older pointer files written before the attempts field existed
-        // must still deserialize — `#[serde(default)]` covers that.
+        // must still deserialize -- `#[serde(default)]` covers that.
         let j = r#"{
             "version": "v4.19.1",
             "staged_path": "/tmp/x",
@@ -1634,7 +1634,7 @@ mod tests {
         // The claim in the name: a staged download is filed under exactly the name it was
         // published as, so `apply_pending_upgrade` and the sweep in `uninstall` can both find
         // it by deriving the name rather than remembering one. Compare against
-        // `binary_filename` for that reason — a literal here would pin one distribution.
+        // `binary_filename` for that reason -- a literal here would pin one distribution.
         let p = staged_binary_path("v4.19.1", "darwin-arm64");
         assert_eq!(
             p.file_name().and_then(|n| n.to_str()),
@@ -1671,7 +1671,7 @@ mod tests {
     /// download_and_verify succeeds when the server omits Content-Length
     /// (chunked transfer encoding).  In production, Content-Length may
     /// differ from the manifest's `size` due to CDN/proxy rewrites,
-    /// manifest-server sync lag, or redirect hops — the old code
+    /// manifest-server sync lag, or redirect hops -- the old code
     /// aborted immediately on such mismatches (issue #380).
     ///
     /// This test validates that when Content-Length is absent (chunked),
@@ -1696,7 +1696,7 @@ mod tests {
             .and(path("/binary"))
             .respond_with(
                 ResponseTemplate::new(200)
-                    // No explicit Content-Length → chunked transfer encoding.
+                    // No explicit Content-Length -> chunked transfer encoding.
                     .set_body_raw(payload.clone(), "application/octet-stream"),
             )
             .mount(&server)

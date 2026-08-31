@@ -6,7 +6,7 @@
 
 ## 1. 背景
 
-`atomcode-core` 正逐模块退役。`core::conversation` 删不掉，因为被 core 内部的 `provider/`、`ctx/`、`vision_preprocessor` 使用，而这些仍被 daemon/cli 消费。Option 1 = 迁走这三块。cluster 调查（见 `docs/superpowers/specs/` 同期 map，或本 spec §2）确认 daemon 对 `core::provider` 的消费有三个**独立**的活：
+`rustcode-core` 正逐模块退役。`core::conversation` 删不掉，因为被 core 内部的 `provider/`、`ctx/`、`vision_preprocessor` 使用，而这些仍被 daemon/cli 消费。Option 1 = 迁走这三块。cluster 调查（见 `docs/superpowers/specs/` 同期 map，或本 spec §2）确认 daemon 对 `core::provider` 的消费有三个**独立**的活：
 
 1. **`/compact` 摘要 provider**（本子项目 A）——最小、最净：纯 swap 到现有 factory，删一个 adapter。
 2. **vision 预处理**（子项目 B）——真实重写。
@@ -17,10 +17,10 @@
 ## 2. 目标状态
 
 - `exec_native_compact`（commands.rs）用 daemon 既有的原生 provider 构造链建 provider：
-  `chat_runtime_config(&config, &resolved_provider, working_dir, telemetry)` → `kernel_runtime::coding_config_from_runtime(&cfg)` → `runtime_host::coding_provider_factory().build(&coding_cfg, None)` → `Arc<dyn atomcode_kernel::provider::LlmProvider>`，直接喂给已是 kernel-native 的 `atomcode_coding::runtime::compact_snapshot`。
+  `chat_runtime_config(&config, &resolved_provider, working_dir, telemetry)` → `kernel_runtime::coding_config_from_runtime(&cfg)` → `runtime_host::coding_provider_factory().build(&coding_cfg, None)` → `Arc<dyn rustcode_kernel::provider::LlmProvider>`，直接喂给已是 kernel-native 的 `rustcode_coding::runtime::compact_snapshot`。
   这与 native `/chat`（native_live.rs:378 用 chat_runtime_config）是**同一条构造链**。
 - **删除 `KernelSummaryProvider` struct + impl（commands.rs:14-74）** 及其对 `legacy_convert::message_to_core` 的桥接使用（原用于 core→kernel 消息转换，native provider 不需要）。
-- `lib.rs:2509` 的 `atomcode_core::provider::openai::OpenAiProvider::reason_effort_applicable(&p.model)` → `atomcode_capabilities::provider::reason_effort_applicable(&p.model)`（Option 2 已把该 fn 放开为 pub 并 re-export）。
+- `lib.rs:2509` 的 `rustcode_core::provider::openai::OpenAiProvider::reason_effort_applicable(&p.model)` → `rustcode_capabilities::provider::reason_effort_applicable(&p.model)`（Option 2 已把该 fn 放开为 pub 并 re-export）。
 - **不碰** vision（live_api.rs 的 `preprocess_image_caption`/`preprocess_live_caption`）、`/chat` preflight（lib.rs:3638）——属 B。**不删** core::provider/ctx/conversation 任何模块——属 C。
 
 ## 3. 关键改动点

@@ -1,5 +1,5 @@
 //! Issue endpoints (capabilities-local; intentionally separate from
-//! `core::atomgit`, which L1 cannot reach — see spec §7). Paths/bodies mirror
+//! `core::atomgit`, which L1 cannot reach -- see spec §7). Paths/bodies mirror
 //! `ag-cli` (pkg/cmd/issue). Comment edit/delete use `/issues/comments/{id}`.
 
 use serde_json::json;

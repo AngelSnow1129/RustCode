@@ -49,8 +49,8 @@ fn socket_path() -> io::Result<PathBuf> {
     // Deliberately `$HOME`-anchored and NOT `$RUSTCODE_HOME`, unlike every other
     // path this process writes: `bind()` caps a unix socket path at `SUN_LEN`
     // (104 bytes on macOS, 108 on Linux) and `$RUSTCODE_HOME` is arbitrary-depth
-    // user input, so honouring it here would break askpass outright — every git
-    // /ssh credential prompt — on a deep config dir. There is nothing to fix:
+    // user input, so honouring it here would break askpass outright -- every git
+    // /ssh credential prompt -- on a deep config dir. There is nothing to fix:
     // the filename is pid-namespaced, so parallel installs never collide, and
     // `run/` is not in `uninstall_manifest()` under either spelling.
     let home = std::env::var("HOME")
@@ -74,9 +74,9 @@ fn gen_token() -> io::Result<String> {
 
 /// Map a password prompt string to a stable cache key.
 ///
-/// - `[sudo]` or `Password:` prefix → `"sudo"`
-/// - `<user>@<host>'s password:` → `"ssh:<host>"`
-/// - anything else → `"generic"`
+/// - `[sudo]` or `Password:` prefix -> `"sudo"`
+/// - `<user>@<host>'s password:` -> `"ssh:<host>"`
+/// - anything else -> `"generic"`
 pub fn key_for_prompt(prompt: &str) -> String {
     if prompt.contains("[sudo]") || prompt.starts_with("Password:") {
         return "sudo".to_string();
@@ -167,9 +167,9 @@ async fn handle_connection(
 
 /// Bind a 0600 Unix-domain socket, generate an auth token, and spawn the
 /// accept loop.  Returns:
-/// - `AskpassEnv`  — set as env vars on child processes (sudo/ssh/…)
-/// - `Receiver`    — the TUI event loop reads `AskpassPrompt`s from here
-/// - `AskpassServerGuard` — removes the socket file on drop
+/// - `AskpassEnv`  -- set as env vars on child processes (sudo/ssh/...)
+/// - `Receiver`    -- the TUI event loop reads `AskpassPrompt`s from here
+/// - `AskpassServerGuard` -- removes the socket file on drop
 ///
 /// Must be called from within a Tokio runtime context.
 pub fn start(
@@ -255,16 +255,16 @@ mod tests {
             if let Some(p) = rx.recv().await {
                 let _ = p.reply.send(Some("secret".to_string()));
             }
-            // If a second prompt arrives, fail by sending None — the test asserts only one came.
+            // If a second prompt arrives, fail by sending None -- the test asserts only one came.
             if let Some(p) = rx.recv().await {
                 let _ = p.reply.send(None);
             }
         });
 
-        // Client #1: miss → prompt → "secret".
+        // Client #1: miss -> prompt -> "secret".
         let pw1 = client_ask(&env, "[sudo] password for x:").await;
         assert_eq!(pw1.as_deref(), Some("secret"));
-        // Client #2: same sudo key → cache hit, no prompt.
+        // Client #2: same sudo key -> cache hit, no prompt.
         let pw2 = client_ask(&env, "[sudo] password for x:").await;
         assert_eq!(pw2.as_deref(), Some("secret"));
     }

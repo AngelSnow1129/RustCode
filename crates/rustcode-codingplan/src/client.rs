@@ -1,7 +1,7 @@
 // crates/rustcode-core/src/coding_plan/client.rs
 //
 // Blocking HTTP client for the three CodingPlan REST endpoints. Reuses the
-// OAuth token already on disk (from `rustcode_auth`) — the token authenticates
+// OAuth token already on disk (from `rustcode_auth`) -- the token authenticates
 // both `atomgit.com` and `api.gitcode.com` (same backend, different front
 // domains). Every request carries `RUSTCODE_USER_AGENT` so AtomGit's
 // API gateway sees a consistent identifier.
@@ -18,7 +18,7 @@ use rustcode_auth as auth;
 /// Apply the process proxy policy to a blocking reqwest client builder, inlined here so the
 /// leaf needs no `rustcode-core` (core's `proxy::apply_blocking_proxy_policy` lived there
 /// because it needs reqwest, which the config leaf can't carry). Honors NoProxy mode; leaves
-/// reqwest's env-based proxy detection intact otherwise. Fail-open (any non-NoProxy → builder).
+/// reqwest's env-based proxy detection intact otherwise. Fail-open (any non-NoProxy -> builder).
 fn apply_blocking_proxy_policy(
     builder: reqwest::blocking::ClientBuilder,
     force_tls12: bool,
@@ -34,7 +34,7 @@ fn apply_blocking_proxy_policy(
         builder
     };
     // Cap at TLS 1.2 when a TLS-1.3-hostile network has been detected/requested
-    // (some paths RST the TLS 1.3 handshake to *.atomgit.com → os error 10054).
+    // (some paths RST the TLS 1.3 handshake to *.atomgit.com -> os error 10054).
     if force_tls12 {
         builder.max_tls_version(reqwest::tls::Version::TLS_1_2)
     } else {
@@ -58,7 +58,7 @@ pub fn api_base_url() -> String {
 /// orchestrator can `downcast_ref::<AuthExpired>()` and decide to
 /// re-run OAuth instead of just printing the failure. Before this
 /// existed `/codingplan` would emit "already logged in" + "claim failed
-/// — run `rustcode login` again" and leave the user to do it manually,
+/// -- run `rustcode login` again" and leave the user to do it manually,
 /// even though `/login` would have fixed it in one step.
 ///
 /// The Display text matches the legacy error string verbatim so
@@ -74,7 +74,7 @@ impl std::fmt::Display for AuthExpired {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "authentication failed ({}) — run `rustcode login` again",
+            "authentication failed ({}) -- run `rustcode login` again",
             self.status
         )
     }
@@ -84,7 +84,7 @@ impl std::error::Error for AuthExpired {}
 
 /// True iff `err` (or any error in its cause chain) is an `AuthExpired`.
 /// Centralised so the orchestrator and shell callers agree on what
-/// "stale token" looks like — anywhere we want to decide "rerun OAuth?"
+/// "stale token" looks like -- anywhere we want to decide "rerun OAuth?"
 /// goes through here.
 pub fn is_auth_expired(err: &anyhow::Error) -> bool {
     err.chain().any(|e| e.is::<AuthExpired>())
@@ -159,7 +159,7 @@ impl Client {
     pub fn from_stored_auth() -> Result<Self> {
         if !auth::is_logged_in() {
             return Err(anyhow!(
-                "not logged in — run `rustcode login` (or the codingplan flow) first"
+                "not logged in -- run `rustcode login` (or the codingplan flow) first"
             ));
         }
         // If the local access token can't be made valid (expired and the
@@ -180,10 +180,10 @@ impl Client {
         // event loop, and without a cap a slow / unreachable gateway
         // hangs the entire UI until the OS eventually gives up (minutes
         // on a VPN flap). 5s connect + 10s total covers every realistic
-        // latency for a healthy path and fails fast otherwise — the
+        // latency for a healthy path and fails fast otherwise -- the
         // error surfaces as a benign "status fetch failed" line next to
         // the rest of the status report.
-        // NOTE: do NOT fall back to `Client::new()` on build failure — that
+        // NOTE: do NOT fall back to `Client::new()` on build failure -- that
         // helper *panics* if the TLS backend / resolver can't initialize,
         // and with `panic = "abort"` (see workspace Cargo.toml) a panic here
         // kills the whole process instead of surfacing as a recoverable
@@ -198,10 +198,10 @@ impl Client {
         })
     }
 
-    /// `POST /coding-plan/claim-v2` — claim a specific CodingPlan tier.
+    /// `POST /coding-plan/claim-v2` -- claim a specific CodingPlan tier.
     /// Server reports `duplicate=true` when the user already holds the
     /// tier (or a higher one); callers should treat that as success and
-    /// stop the cascade rather than retrying lower tiers — those would
+    /// stop the cascade rather than retrying lower tiers -- those would
     /// either also report duplicate or unnecessarily downgrade.
     ///
     /// Body shape: `{"plan_type": "Max" | "Pro" | "Lite"}`. The user
@@ -241,7 +241,7 @@ impl Client {
         })
     }
 
-    /// `GET /coding-plan/models-v2?plan_type=<tier>` — model catalogue
+    /// `GET /coding-plan/models-v2?plan_type=<tier>` -- model catalogue
     /// from the v2 endpoint. Every entry now carries `plan_available`
     /// telling the caller whether the user's tier covers that model;
     /// the renderer uses it to apply strikethrough on locked entries.
@@ -279,7 +279,7 @@ impl Client {
         })
     }
 
-    /// `GET /coding-plan/status-v2` — audit/quota/expiry snapshot. The endpoint
+    /// `GET /coding-plan/status-v2` -- audit/quota/expiry snapshot. The endpoint
     /// uses the shared [`StatusResponse`] envelope.
     pub fn status_v2(&self) -> Result<StatusResponse> {
         let url = format!("{}/coding-plan/status-v2", api_base_url());
@@ -309,7 +309,7 @@ impl Client {
         })
     }
 
-    /// GET the 60-day CodingPlan usage (no date params — server defaults to
+    /// GET the 60-day CodingPlan usage (no date params -- server defaults to
     /// 60 days). Mirrors `status_v2`'s blocking client + bearer auth +
     /// timeout + retry + auth-error promotion.
     pub fn usage(&self) -> Result<crate::usage::UsageResponse> {
@@ -346,19 +346,19 @@ fn truncate_for_error(s: &str, max_chars: usize) -> String {
         s.to_string()
     } else {
         let head: String = s.chars().take(max_chars).collect();
-        format!("{}…", head)
+        format!("{}...", head)
     }
 }
 
 /// Format a non-2xx response from any CodingPlan endpoint into a
 /// user-facing error string. Tries three body shapes in priority order:
 ///
-///   1. Product payload `{"message": "..."}` (non-empty) — shown verbatim
+///   1. Product payload `{"message": "..."}` (non-empty) -- shown verbatim
 ///      (e.g. `全平台日限额已满` from a 429).
 ///   2. Spring default error body `{"timestamp":..,"status":..,"error":..,
-///      "path":".."}` — rendered as `HTTP <code> — 接口暂不可用 (<path>)`
+///      "path":".."}` -- rendered as `HTTP <code> -- 接口暂不可用 (<path>)`
 ///      so the user sees which endpoint 404'd without staring at raw JSON.
-///   3. Raw text fallback — `CodingPlan <descriptor> returned <status> — <body>`
+///   3. Raw text fallback -- `CodingPlan <descriptor> returned <status> -- <body>`
 ///      with a 200-char body cap.
 ///
 /// `descriptor` is a short name for the caller (`claim` / `models` /
@@ -373,12 +373,12 @@ fn format_api_error(descriptor: &str, status: reqwest::StatusCode, body: &str) -
         }
         // Shape 2: Spring error body with `path` (and no usable message).
         if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
-            return format!("HTTP {} — 接口暂不可用 ({})", status.as_u16(), path);
+            return format!("HTTP {} -- 接口暂不可用 ({})", status.as_u16(), path);
         }
     }
     // Shape 3: raw text fallback.
     format!(
-        "CodingPlan {} returned {} — {}",
+        "CodingPlan {} returned {} -- {}",
         descriptor,
         status,
         truncate_for_error(body, 200)
@@ -393,10 +393,10 @@ const CODING_PLAN_RETRY_BACKOFFS: [std::time::Duration; 2] = [
 ];
 
 /// A reqwest error worth retrying: a TRANSPORT-layer failure where the request did not reach
-/// the server (connect / timeout / send), so re-sending is safe even for a POST — the server
+/// the server (connect / timeout / send), so re-sending is safe even for a POST -- the server
 /// never processed the first attempt (an HTTP error STATUS would come back as `Ok(resp)`, not
 /// a send `Err`). Also walks the source chain for a transient transport `io::Error` (a stale
-/// keep-alive reset, etc. — the "error sending request" class).
+/// keep-alive reset, etc. -- the "error sending request" class).
 fn is_transient_send_error(e: &reqwest::Error) -> bool {
     use std::error::Error;
     if e.is_timeout() || e.is_connect() || e.is_request() {
@@ -506,7 +506,7 @@ mod tests {
     }
 
     /// `AuthExpired` must Display identically to the legacy
-    /// `anyhow!("authentication failed (NNN) — run `rustcode login` again")`
+    /// `anyhow!("authentication failed (NNN) -- run `rustcode login` again")`
     /// string so existing renderers / log scrapers / users that grep
     /// for the hint don't see a stealth wording change.
     #[test]
@@ -514,12 +514,12 @@ mod tests {
         let e = AuthExpired { status: 401 };
         assert_eq!(
             e.to_string(),
-            "authentication failed (401) — run `rustcode login` again"
+            "authentication failed (401) -- run `rustcode login` again"
         );
         let e = AuthExpired { status: 403 };
         assert_eq!(
             e.to_string(),
-            "authentication failed (403) — run `rustcode login` again"
+            "authentication failed (403) -- run `rustcode login` again"
         );
     }
 
@@ -553,14 +553,14 @@ mod tests {
     fn format_api_error_uses_path_from_spring_error_body() {
         let body = r#"{"timestamp":"2026-04-23T06:44:11.638+00:00","status":404,"error":"Not Found","path":"/api/v5/coding-plan/claim"}"#;
         let msg = format_api_error("claim", reqwest::StatusCode::NOT_FOUND, body);
-        assert_eq!(msg, "HTTP 404 — 接口暂不可用 (/api/v5/coding-plan/claim)");
+        assert_eq!(msg, "HTTP 404 -- 接口暂不可用 (/api/v5/coding-plan/claim)");
     }
 
     #[test]
     fn format_api_error_path_takes_precedence_when_message_empty() {
         let body = r#"{"message":"","path":"/api/v5/coding-plan/models"}"#;
         let msg = format_api_error("models", reqwest::StatusCode::NOT_FOUND, body);
-        assert_eq!(msg, "HTTP 404 — 接口暂不可用 (/api/v5/coding-plan/models)");
+        assert_eq!(msg, "HTTP 404 -- 接口暂不可用 (/api/v5/coding-plan/models)");
     }
 
     #[test]

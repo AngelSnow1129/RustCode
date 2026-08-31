@@ -58,7 +58,7 @@ pub fn platform_refresh_url() -> String {
 /// happens in one spot rather than at each `Client::new()` site.
 /// Apply the process proxy policy to a blocking reqwest client builder: honor `no_proxy`
 /// mode, otherwise leave reqwest's env-based proxy detection intact. Inlined from the former
-/// `rustcode_core::proxy` so this crate stays a leaf — it reads only the `rustcode_config::proxy`
+/// `rustcode_core::proxy` so this crate stays a leaf -- it reads only the `rustcode_config::proxy`
 /// env contract (no HTTP-stack glue that would pull in core).
 fn apply_blocking_proxy_policy(
     builder: reqwest::blocking::ClientBuilder,
@@ -75,7 +75,7 @@ fn apply_blocking_proxy_policy(
         builder
     };
     // Cap at TLS 1.2 when a TLS-1.3-hostile network has been detected/requested
-    // (some paths RST the TLS 1.3 handshake to acs.atomgit.com → os error 10054).
+    // (some paths RST the TLS 1.3 handshake to acs.atomgit.com -> os error 10054).
     if force_tls12 {
         builder.max_tls_version(reqwest::tls::Version::TLS_1_2)
     } else {
@@ -86,7 +86,7 @@ fn apply_blocking_proxy_policy(
 /// The localized network hint for a login HTTP failure, or `None` when the
 /// error is not connection-level. Connect resets (e.g. Windows os error 10054)
 /// and timeouts mean the endpoint was unreachable on THIS client's path while a
-/// browser may still work — usually a proxy/firewall difference.
+/// browser may still work -- usually a proxy/firewall difference.
 fn network_connect_hint(err: &reqwest::Error) -> Option<std::borrow::Cow<'static, str>> {
     if err.is_connect() || err.is_timeout() {
         Some(rustcode_config::i18n::t(
@@ -99,7 +99,7 @@ fn network_connect_hint(err: &reqwest::Error) -> Option<std::borrow::Cow<'static
 
 /// Wrap a login HTTP `send()` result with a failure context, appending the
 /// network hint as INNER context (below `ctx`) when the error is
-/// connect/timeout — so the display leads with `ctx` and supplements with
+/// connect/timeout -- so the display leads with `ctx` and supplements with
 /// proxy guidance. Shared by the login GET/exchange calls.
 fn with_login_context<T>(result: reqwest::Result<T>, ctx: &'static str) -> Result<T> {
     result.map_err(|e| {
@@ -117,17 +117,17 @@ fn blocking_client() -> Result<reqwest::blocking::Client> {
 }
 
 fn blocking_client_with_tls12(force_tls12: bool) -> Result<reqwest::blocking::Client> {
-    // Hard timeouts here too — the `get_valid_token` path calls
+    // Hard timeouts here too -- the `get_valid_token` path calls
     // `refresh_access_token` synchronously whenever a stored token
     // looks expired, and that runs on the main TUI thread (via
-    // `Client::from_stored_auth` → `/status`, drift monitor, etc.).
+    // `Client::from_stored_auth` -> `/status`, drift monitor, etc.).
     // Without a cap, a slow or unreachable OAuth server would hang
     // the UI indefinitely. Same budget as the coding-plan client.
     //
     // Return `Result` rather than falling back to `Client::new()`: that
     // helper *panics* on TLS/resolver init failure, and with `panic =
     // "abort"` that takes down the whole process. `build()` reports the
-    // same failure as a catchable `Err` — propagate it.
+    // same failure as a catchable `Err` -- propagate it.
     apply_blocking_proxy_policy(reqwest::blocking::Client::builder(), force_tls12)
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(10))
@@ -204,17 +204,17 @@ struct PlatformTokenResponse {
 // ============================================================================
 //
 // The poll loop in `login()` historically did `loop { http_check; sleep(2s) }`
-// with no input handling — Linux/WSL users with broken `xdg-open` had no way
+// with no input handling -- Linux/WSL users with broken `xdg-open` had no way
 // to exit short of Ctrl+C (which kills the whole CLI/TUI). We now print the
 // auth URL up-front for those users and accept ESC during the wait.
 //
 // Cooked mode (set by `suspend_for_external` in the TUI, default everywhere
-// in CLI mode) line-buffers stdin — ESC alone won't reach `read()` until the
+// in CLI mode) line-buffers stdin -- ESC alone won't reach `read()` until the
 // user hits Enter. So while waiting, we temporarily switch stdin to cbreak
 // (non-canonical, no echo) via an RAII `CbreakGuard`, restoring the original
 // termios on every drop path. If `tcgetattr`/`tcsetattr` fail (non-tty stdin
 // from a pipe or CI), the guard returns `None` and the loop falls back to a
-// plain sleep — login still works, ESC just has no effect.
+// plain sleep -- login still works, ESC just has no effect.
 //
 // Windows has no `poll(2)` over stdin and the existing
 // `read_callback_from_stdin_until_stopped` path is already gated off there
@@ -227,19 +227,19 @@ struct PlatformTokenResponse {
 // On Windows `wait_for_esc_or_timeout` always returns `Timeout` (no
 // poll(2) over stdin), so `Cancelled` and `OtherInput` are constructed
 // only on Unix. The variants must still exist on Windows because
-// `classify_input` and its tests reference them — `cargo test` runs on
+// `classify_input` and its tests reference them -- `cargo test` runs on
 // every platform. Suppress the dead-code warning rather than gate the
 // type, so the test surface stays portable.
 #[cfg_attr(target_os = "windows", allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EscOutcome {
-    /// Bare ESC keypress — user cancelled.
+    /// Bare ESC keypress -- user cancelled.
     Cancelled,
     /// poll(2) timed out, or `read` returned 0 / error.
     Timeout,
     /// Some bytes arrived but it wasn't a bare ESC (escape sequence,
     /// stray letter / Enter, paste). Treated identically to Timeout
-    /// at the call site — fall through to the HTTP check.
+    /// at the call site -- fall through to the HTTP check.
     OtherInput,
 }
 
@@ -254,7 +254,7 @@ enum EscOutcome {
 /// ESC. See spec `2026-04-28-show-oauth-url-design.md` §5.
 //
 // Only called from the Unix `wait_for_esc_or_timeout`. Kept callable on
-// Windows because the unit-test module exercises it on every platform —
+// Windows because the unit-test module exercises it on every platform --
 // the logic is byte-pattern matching, no platform deps. `dead_code`
 // suppression scoped to Windows so Unix still gets the warning if a
 // future change makes it genuinely unused there.
@@ -279,7 +279,7 @@ struct CbreakGuard;
 impl CbreakGuard {
     /// Try to switch stdin to cbreak. Returns `None` if stdin isn't a
     /// tty (ENOTTY) or if `tcsetattr` fails. On Windows always returns
-    /// `None` — no equivalent of the Unix poll-based path.
+    /// `None` -- no equivalent of the Unix poll-based path.
     #[cfg(not(target_os = "windows"))]
     fn new() -> Option<Self> {
         use std::os::unix::io::AsRawFd;
@@ -308,7 +308,7 @@ impl CbreakGuard {
 impl Drop for CbreakGuard {
     fn drop(&mut self) {
         // Best-effort restore. If this somehow fails the terminal is
-        // stuck in cbreak — `stty sane` recovers it. Drop runs on every
+        // stuck in cbreak -- `stty sane` recovers it. Drop runs on every
         // exit path including panic so the common case is always clean.
         unsafe {
             libc::tcsetattr(self.fd, libc::TCSANOW, &self.orig);
@@ -321,7 +321,7 @@ impl Drop for CbreakGuard {
 /// with the OAuth `/auth/check` poll cadence.
 ///
 /// On Windows or when the cbreak guard couldn't be established, this
-/// just sleeps and returns `Timeout` — ESC never fires but login still
+/// just sleeps and returns `Timeout` -- ESC never fires but login still
 /// works.
 #[cfg(not(target_os = "windows"))]
 fn wait_for_esc_or_timeout(guard: &Option<CbreakGuard>, timeout: Duration) -> EscOutcome {
@@ -360,7 +360,7 @@ fn wait_for_esc_or_timeout(_guard: &Option<CbreakGuard>, timeout: Duration) -> E
 /// Outcome of one `LoginSession::poll_once` call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PollOutcome {
-    /// User hasn't completed the browser sign-in yet — wait and retry.
+    /// User hasn't completed the browser sign-in yet -- wait and retry.
     Pending,
     /// `/auth/check` reported `valid=true`. Caller should call `finish()`.
     Authorized,
@@ -403,9 +403,9 @@ fn check_once(client: &reqwest::blocking::Client, state: &str) -> Result<PollOut
 ///
 /// 1. Display `session.url()` and (best-effort) `open_browser()`.
 /// 2. Loop `poll_once()` until `Authorized`, sleeping between calls
-///    AT THE CALLER'S CADENCE — this lets the TUI interleave UI events
+///    AT THE CALLER'S CADENCE -- this lets the TUI interleave UI events
 ///    (ESC for cancel) and the CLI use a simple `thread::sleep`.
-/// 3. Call `finish()` to exchange `state` → token.
+/// 3. Call `finish()` to exchange `state` -> token.
 pub struct LoginSession {
     state: String,
     login_url: String,
@@ -422,12 +422,12 @@ impl Drop for LoginSession {
 
 impl LoginSession {
     /// Authorization URL the user must visit. Stable for the lifetime
-    /// of the session — safe to show once and reuse.
+    /// of the session -- safe to show once and reuse.
     pub fn url(&self) -> &str {
         &self.login_url
     }
 
-    /// Best-effort browser launch. Always silent — failures are expected
+    /// Best-effort browser launch. Always silent -- failures are expected
     /// on Linux/WSL where the URL on screen is the user's actual path.
     pub fn open_browser_best_effort(&self) {
         let _ = open_browser(&self.login_url);
@@ -441,7 +441,7 @@ impl LoginSession {
     /// NOTE: this BLOCKS the calling thread for the duration of the HTTP
     /// request (`.join()` on the worker). Interactive wait loops must
     /// prefer [`spawn_poller`](Self::spawn_poller) so a wedged request
-    /// (hung DNS/connect that reqwest's timeout can't interrupt — the
+    /// (hung DNS/connect that reqwest's timeout can't interrupt -- the
     /// Windows "console frozen on cancel" failure mode) can't block the
     /// thread that reads the ESC keystroke. Kept for one-shot callers.
     pub fn poll_once(&self) -> Result<PollOutcome> {
@@ -462,8 +462,8 @@ impl LoginSession {
     /// This is the cancellation-safe counterpart to [`poll_once`](Self::poll_once).
     /// The caller's wait loop stays on a tight, non-blocking cadence (drain
     /// the channel, check for ESC, sleep briefly) so a request that wedges
-    /// at the socket layer — where reqwest's `connect_timeout`/`timeout`
-    /// can't interrupt a blocking `getaddrinfo` — leaks at most this one
+    /// at the socket layer -- where reqwest's `connect_timeout`/`timeout`
+    /// can't interrupt a blocking `getaddrinfo` -- leaks at most this one
     /// background thread instead of freezing the UI thread. That freeze is
     /// the root cause of the Windows "pressing ESC to cancel /login hangs
     /// the console" bug: `poll_once().join()` blocked the only thread that
@@ -479,7 +479,7 @@ impl LoginSession {
         std::thread::spawn(move || {
             let client = match client {
                 // No client (test/degraded session): report Pending once and
-                // stop — mirrors `poll_once`'s `None` arm.
+                // stop -- mirrors `poll_once`'s `None` arm.
                 None => {
                     let _ = tx.send(Ok(PollOutcome::Pending));
                     return;
@@ -490,7 +490,7 @@ impl LoginSession {
                 let outcome = check_once(&client, &state);
                 let stop = !matches!(outcome, Ok(PollOutcome::Pending));
                 // A send error means the caller dropped the receiver
-                // (cancelled or finished) — stop polling and let the thread
+                // (cancelled or finished) -- stop polling and let the thread
                 // exit. If the last request wedged, this thread is already
                 // detached, so no one is blocked on it.
                 if tx.send(outcome).is_err() {
@@ -505,7 +505,7 @@ impl LoginSession {
         rx
     }
 
-    /// Final step: `/auth/token` exchange. Consumes the session — only call
+    /// Final step: `/auth/token` exchange. Consumes the session -- only call
     /// after `poll_once` returned `Authorized`.
     pub fn finish(mut self) -> Result<AuthInfo> {
         let client = self.client.take();
@@ -527,7 +527,7 @@ impl LoginSession {
                 .context("Failed to parse /auth/token response")?;
 
             // `duration_since(UNIX_EPOCH)` only fails when the wall clock
-            // is before 1970 — a misconfigured VM clock at boot is the
+            // is before 1970 -- a misconfigured VM clock at boot is the
             // realistic trigger. Treat that as `created_at = 0`: the
             // expiry check downstream will see the token as immediately
             // stale and force a refresh / re-login rather than panicking
@@ -561,13 +561,23 @@ impl LoginSession {
 
 /// Begin OAuth login: call `/auth/login`, return a session containing
 /// the auth URL + state. Cheap (one HTTP round-trip), never blocks on
-/// user action — separated from polling so callers can render the URL
+/// user action -- separated from polling so callers can render the URL
 /// before yielding control to the wait loop.
 pub fn start_login() -> Result<LoginSession> {
+    // Platform-neutral guard: with no platform server configured there is no
+    // OAuth endpoint to reach. Tell the user to configure a provider directly
+    // instead of attempting a connection to an empty URL.
+    if platform_base_url().is_empty() {
+        return Err(anyhow::anyhow!(
+            "No platform server configured (RUSTCODE_PLATFORM_SERVER is unset). \
+             Skip `/login` and configure a provider directly in ~/.rustcode/config.toml \
+             with your own base_url and api_key."
+        ));
+    }
     std::thread::spawn(move || {
         // First attempt uses the current TLS policy (TLS 1.3 by default). If the
-        // connection is RST at the handshake — the signature of a middlebox that
-        // resets TLS 1.3 to acs.atomgit.com (Windows `os error 10054`) — retry
+        // connection is RST at the handshake -- the signature of a middlebox that
+        // resets TLS 1.3 to acs.atomgit.com (Windows `os error 10054`) -- retry
         // once with a fresh TLS-1.2 client. Only a successful retry latches the
         // managed-endpoint policy for later auth/codingplan/provider clients.
         // Third-party endpoints remain unaffected.
@@ -606,7 +616,7 @@ fn attempt_login(force_tls12: bool) -> Result<LoginSession> {
     let client = blocking_client_with_tls12(force_tls12)?;
     let sent = client
         .get(platform_login_url())
-        .query(&[("provider", "atomgit")])
+        .query(&[("provider", "rustcode")])
         .send();
     let resp = with_login_context(sent, "Failed to call /auth/login")?;
     let resp: PlatformLoginResponse = resp
@@ -619,7 +629,7 @@ fn attempt_login(force_tls12: bool) -> Result<LoginSession> {
     })
 }
 
-/// True iff the error chain carries a reqwest connect-level failure — the class
+/// True iff the error chain carries a reqwest connect-level failure -- the class
 /// that includes a TLS-handshake RST (`os error 10054`). Used to decide whether a
 /// TLS 1.2 downgrade retry is worth attempting; a status/parse error is not.
 fn is_connect_error(err: &anyhow::Error) -> bool {
@@ -647,20 +657,20 @@ fn strip_force_login(url: &str) -> String {
 /// (`rustcode login`, `rustcode codingplan`) and by `setup.rs`'s
 /// `step_login` when the TUI hasn't already pre-flighted login.
 ///
-/// TUI callers should NOT use this — render via `start_login()` +
+/// TUI callers should NOT use this -- render via `start_login()` +
 /// `LoginSession::poll_once()` so the input box stays visible and ESC
 /// is captured through `input_rx` (no termios manipulation needed).
 pub fn login() -> Result<AuthInfo> {
     let session = start_login()?;
 
-    // Always print the URL — `xdg-open` on Linux/WSL silently fails
+    // Always print the URL -- `xdg-open` on Linux/WSL silently fails
     // often enough that we can't rely on it. On the desktop happy path
     // the browser opens *and* the URL stays in scrollback as a backup.
     println!("  Browser didn't open? Open the URL below in any browser to sign in:");
     println!("  {}", session.url());
 
     // Try to enter cbreak so we can detect a bare-ESC keypress. None
-    // (non-tty stdin / tcsetattr failure) → fall back to plain sleep,
+    // (non-tty stdin / tcsetattr failure) -> fall back to plain sleep,
     // and don't advertise an ESC affordance that wouldn't work.
     let cbreak = CbreakGuard::new();
     if cbreak.is_some() {
@@ -732,7 +742,7 @@ fn generate_state() -> String {
 ///
 /// `pub` because TUI modals (e.g. the QR-login onboarding step) need to
 /// invoke the same platform browser launch the CLI flow already does via
-/// `LoginSession::open_browser_best_effort` — callers without a live
+/// `LoginSession::open_browser_best_effort` -- callers without a live
 /// `LoginSession` only carry the URL string, so they go through this
 /// free function directly.
 #[cfg(target_os = "macos")]
@@ -771,11 +781,11 @@ pub fn open_browser(url: &str) -> Result<()> {
             .collect()
     }
 
-    // `ShellExecuteW(NULL, "open", url, …)` is exactly what clicking a hyperlink does:
+    // `ShellExecuteW(NULL, "open", url, ...)` is exactly what clicking a hyperlink does:
     // the URL is a single opaque argument (no shell / command-line parsing at all), so
-    // `?` and `&` in our `…/?token=…&sync=1` URL are pure data, and it reliably routes to
+    // `?` and `&` in our `.../?token=...&sync=1` URL are pure data, and it reliably routes to
     // the default browser whether or not one is already running. The prior `explorer.exe
-    // <url>` was unreliable — when it couldn't resolve the arg as a URL (notably on a cold
+    // <url>` was unreliable -- when it couldn't resolve the arg as a URL (notably on a cold
     // browser launch) it opened a File Explorer *folder* window (Documents / This PC)
     // instead, and `.spawn()` still reported success so the `cmd start` fallback never
     // fired. `cmd /C start "" "<url>"` in turn mishandles `&`. ShellExecuteW sidesteps all
@@ -823,7 +833,7 @@ pub fn open_browser(_url: &str) -> Result<()> {
 /// headless Linux where the user copies the callback URL from their
 /// browser's address bar and pastes it in.
 ///
-/// Kept for potential future fallback use — the platform-broker flow in
+/// Kept for potential future fallback use -- the platform-broker flow in
 /// `login()` is the active callback path now.
 #[allow(dead_code)]
 fn await_callback(port: u16) -> Result<(String, String)> {
@@ -856,7 +866,7 @@ fn await_callback(port: u16) -> Result<(String, String)> {
         });
     }
 
-    // Stdin reader — spawn on Unix **regardless** of listener status. The
+    // Stdin reader -- spawn on Unix **regardless** of listener status. The
     // listener covers the desktop path where the browser hits
     // 127.0.0.1:8765; stdin covers everything else (headless Linux / SSH /
     // Wayland without xdg-open / WSL under X forwarding failure). Earlier
@@ -867,7 +877,7 @@ fn await_callback(port: u16) -> Result<(String, String)> {
     //
     // Must be cancellable: previous revisions used a blocking
     // `stdin.lock().read_line()` + a "zombie thread is harmless" comment.
-    // It wasn't harmless — FD 0 and /dev/tty point to the same terminal
+    // It wasn't harmless -- FD 0 and /dev/tty point to the same terminal
     // device on Unix, so the kernel's line discipline delivers each byte
     // to whichever reader calls `read` first. When the listener won the
     // race, the zombie `read_line` was still blocked; the user's first
@@ -907,7 +917,7 @@ fn await_callback(port: u16) -> Result<(String, String)> {
             });
         }
     }
-    // Drop the original `tx` — the listener and stdin readers each
+    // Drop the original `tx` -- the listener and stdin readers each
     // cloned their own. Without this drop the channel would never
     // close after both readers finish, so `rx.recv()` on an early
     // cancellation would hang.
@@ -925,7 +935,7 @@ fn await_callback(port: u16) -> Result<(String, String)> {
 /// that doesn't parse as a callback URL, `Ok((code, state))` on success.
 ///
 /// Uses `poll(2)` + non-blocking reads so we never sit inside a blocking
-/// `read_line()` — that was the bug behind "first keystroke after login
+/// `read_line()` -- that was the bug behind "first keystroke after login
 /// goes to a zombie stdin thread instead of crossterm". On macOS / Linux,
 /// FD 0 (this thread's read) and /dev/tty (crossterm's read) point to
 /// the same terminal device; whichever syscall lands on a byte first
@@ -938,7 +948,7 @@ fn read_callback_from_stdin_until_stopped(stop: &AtomicBool) -> Result<(String, 
     let stdin = io::stdin();
     let fd = stdin.as_raw_fd();
 
-    // Save original flags so we restore them on exit — leaving stdin
+    // Save original flags so we restore them on exit -- leaving stdin
     // non-blocking after login would break subsequent code that expects
     // the normal blocking shape (e.g. any future CLI prompt helper).
     let orig_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
@@ -984,7 +994,7 @@ fn read_callback_from_stdin_until_stopped(stop: &AtomicBool) -> Result<(String, 
             return Err(anyhow::Error::new(err).context("poll(stdin)"));
         }
         if poll_rc == 0 {
-            continue; // timeout — re-check stop, re-poll
+            continue; // timeout -- re-check stop, re-poll
         }
         // Data available; drain what's there. read(2) in non-blocking
         // mode returns up to one pipe buffer in a single call.
@@ -999,7 +1009,7 @@ fn read_callback_from_stdin_until_stopped(stop: &AtomicBool) -> Result<(String, 
         if n == 0 {
             anyhow::bail!("stdin closed");
         }
-        // Append as UTF-8 (lossy — pasted URLs are ASCII; any weird
+        // Append as UTF-8 (lossy -- pasted URLs are ASCII; any weird
         // bytes in a URL would fail `parse_pasted_callback` anyway).
         line.push_str(&String::from_utf8_lossy(&buf[..n as usize]));
         if line.contains('\n') {
@@ -1061,7 +1071,7 @@ fn accept_callback_until_stopped(
         })
         .collect();
 
-    // Check for error — redirect browser to AtomGit
+    // Check for error -- redirect browser to AtomGit
     if let Some(error) = params.get("error") {
         let error_desc = params
             .get("error_description")
@@ -1083,7 +1093,7 @@ fn accept_callback_until_stopped(
         .container{text-align:center;padding:2rem}h1{color:#7c3aed;margin:0}p{color:#888}\
         .success{color:#22c55e;font-size:4rem}</style></head>\
         <body><div class=\"container\">\
-        <div class=\"success\">✓</div>\
+        <div class=\"success\">[+]</div>\
         <h1>Authorization Successful</h1>\
         <p>You can close this window and return to RustCode.</p>\
         </div></body></html>";
@@ -1121,14 +1131,14 @@ fn urlencoding_decode(s: &str) -> String {
 /// window may already have rotated the token, in which case the newer stored
 /// credential is returned without a second broker call. An in-memory `AuthInfo`
 /// that was never persisted is therefore NOT refreshed in isolation. Account
-/// identity is not enforced here — see [`recover_auth_after_unauthorized`] for
+/// identity is not enforced here -- see [`recover_auth_after_unauthorized`] for
 /// the account-checked recovery entry point.
 pub fn refresh_access_token(auth: &AuthInfo) -> Result<AuthInfo> {
     refresh_auth_if_current(&auth.access_token, None)
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("No refresh_token available — please /login again")]
+#[error("No refresh_token available -- please /login again")]
 struct MissingRefreshToken;
 
 #[derive(Debug, thiserror::Error)]
@@ -1143,7 +1153,7 @@ struct RefreshHttpStatus {
 /// re-authentication prompt rather than a transient decode failure that would
 /// retry-loop forever against a bad response.
 #[derive(Debug, thiserror::Error)]
-#[error("Unexpected broker response — please /login again")]
+#[error("Unexpected broker response -- please /login again")]
 struct UnexpectedBrokerResponse;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1170,7 +1180,7 @@ pub fn classify_auth_recovery_error(error: &anyhow::Error) -> AuthRecoveryFailur
             // transient and every other rejecting status maps to a `/login` prompt
             // rather than an opaque local error (a relocated broker returning 404,
             // a proxy 511, etc.). This deliberately does NOT mirror the retry
-            // module — the two answer different questions, so no sync is required.
+            // module -- the two answer different questions, so no sync is required.
             return if matches!(status.status, 408 | 425 | 429) || status.status >= 500 {
                 AuthRecoveryFailureKind::Transient
             } else if status.status >= 400 {
@@ -1231,7 +1241,7 @@ fn refresh_access_token_unlocked(auth: &AuthInfo) -> Result<AuthInfo> {
 
         // Read the body as text first so a mid-body transport failure surfaces as
         // a (transient) reqwest error, while a fully-received but unparseable 2xx
-        // body becomes a terminal error — not a retryable decode error that would
+        // body becomes a terminal error -- not a retryable decode error that would
         // loop against a deterministically-bad response.
         let body_text = response
             .text()
@@ -1241,7 +1251,7 @@ fn refresh_access_token_unlocked(auth: &AuthInfo) -> Result<AuthInfo> {
 
         // Pre-1970 wall clock would otherwise panic on `unwrap` and lose
         // the refresh result. Falling back to 0 forces the next token
-        // check to refresh again — safer than crashing the broker path.
+        // check to refresh again -- safer than crashing the broker path.
         let created_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
@@ -1289,7 +1299,7 @@ pub fn recover_auth_after_unauthorized(
 ) -> Result<ValidAuthSession> {
     let auth = refresh_auth_if_current(rejected_access_token, Some(expected_user_id))?;
     if auth.access_token.trim().is_empty() || auth.user.id.trim().is_empty() {
-        anyhow::bail!("Invalid auth.toml — please use /login first");
+        anyhow::bail!("Invalid auth.toml -- please use /login first");
     }
     Ok(ValidAuthSession {
         access_token: auth.access_token,
@@ -1305,14 +1315,14 @@ fn refresh_auth_if_current(
     expected_user_id: Option<&str>,
 ) -> Result<AuthInfo> {
     with_auth_lock(|| {
-        let auth = get_stored_auth().context("Not logged in — please use /login first")?;
+        let auth = get_stored_auth().context("Not logged in -- please use /login first")?;
         // Only the account-checked recovery entry point enforces identity. The
         // proactive-refresh path passes `None`: it just needs any currently-valid
         // stored token, so a concurrent login as a different account should be
         // adopted, not turned into a spurious "Login account changed" hard failure.
         if let Some(expected) = expected_user_id {
             if auth.user.id != expected {
-                anyhow::bail!("Login account changed — please retry the request");
+                anyhow::bail!("Login account changed -- please retry the request");
             }
         }
         if auth.access_token != rejected_access_token {
@@ -1323,11 +1333,11 @@ fn refresh_auth_if_current(
 }
 
 fn get_valid_auth_info() -> Result<AuthInfo> {
-    let auth = get_stored_auth().context("Not logged in — please use /login first")?;
+    let auth = get_stored_auth().context("Not logged in -- please use /login first")?;
 
     // Check if token is expired (with 5-minute safety margin)
     if let Some(expires_in) = auth.expires_in {
-        // A pre-1970 wall clock would otherwise panic here — and
+        // A pre-1970 wall clock would otherwise panic here -- and
         // get_valid_token runs on EVERY authenticated API call (atomgit /
         // coding_plan clients), not just /login. Treat that as expired
         // (now = i64::MAX) so it force-refreshes instead of crashing (#45).
@@ -1338,7 +1348,7 @@ fn get_valid_auth_info() -> Result<AuthInfo> {
         let expires_at = auth.created_at + expires_in;
 
         if now >= expires_at - 300 {
-            // Token expired or about to expire — serialize refresh-token
+            // Token expired or about to expire -- serialize refresh-token
             // consumption and re-check auth.toml after taking the lock.
             match refresh_auth_if_current(&auth.access_token, None) {
                 Ok(new_auth) => return Ok(new_auth),
@@ -1346,7 +1356,7 @@ fn get_valid_auth_info() -> Result<AuthInfo> {
             }
         }
     } else if auth.created_at == 0 {
-        // Legacy auth.toml without created_at — no way to know if expired,
+        // Legacy auth.toml without created_at -- no way to know if expired,
         // try refresh if refresh_token is available, otherwise use as-is.
         if auth.refresh_token.is_some() {
             if let Ok(new_auth) = refresh_auth_if_current(&auth.access_token, None) {
@@ -1364,7 +1374,7 @@ fn get_valid_auth_info() -> Result<AuthInfo> {
 pub fn get_valid_auth_session() -> Result<ValidAuthSession> {
     let auth = get_valid_auth_info()?;
     if auth.access_token.trim().is_empty() || auth.user.id.trim().is_empty() {
-        anyhow::bail!("Invalid auth.toml — please use /login first");
+        anyhow::bail!("Invalid auth.toml -- please use /login first");
     }
     Ok(ValidAuthSession {
         access_token: auth.access_token,
@@ -1377,7 +1387,7 @@ pub fn get_valid_auth_session() -> Result<ValidAuthSession> {
 pub fn get_valid_token() -> Result<String> {
     let auth = get_valid_auth_info()?;
     if auth.access_token.trim().is_empty() {
-        anyhow::bail!("Invalid auth.toml — please use /login first");
+        anyhow::bail!("Invalid auth.toml -- please use /login first");
     }
     Ok(auth.access_token)
 }
@@ -1385,16 +1395,16 @@ pub fn get_valid_token() -> Result<String> {
 /// Logout - clear stored auth.
 ///
 /// Core-layer function: does the filesystem work and returns. User-facing
-/// messaging is the caller's job — this was previously `println!`-ing
+/// messaging is the caller's job -- this was previously `println!`-ing
 /// "Logged out successfully" directly, which bypassed the TUI renderer
 /// and bled into the input box area on next repaint, and also produced
 /// a duplicate line in CLI mode where `handle_command` prints its own
-/// confirmation. No `Err` distinguishes "file absent" from "file removed" —
+/// confirmation. No `Err` distinguishes "file absent" from "file removed" --
 /// both are success from the user's perspective ("you're logged out").
 pub fn logout() -> Result<()> {
     let auth_path = auth_file_path();
     // Absent file ⇒ already logged out. Return before touching the lock so a
-    // never-logged-in user's /logout stays a pure no-op — no directory or lock
+    // never-logged-in user's /logout stays a pure no-op -- no directory or lock
     // file created, and no failure on a read-only HOME.
     if !auth_path.exists() {
         return Ok(());
@@ -1446,7 +1456,7 @@ fn with_auth_lock<T>(operation: impl FnOnce() -> Result<T>) -> Result<T> {
     let auth_path = auth_file_path();
     let parent = auth_path
         .parent()
-        .context("Invalid auth file path — please use /login again")?;
+        .context("Invalid auth file path -- please use /login again")?;
     std::fs::create_dir_all(parent).context("Failed to create auth directory")?;
     #[cfg(unix)]
     {
@@ -1495,7 +1505,7 @@ fn save_auth_unlocked(auth: &AuthInfo) -> Result<()> {
     }
 
     // No stdout output here. `save_auth` is called from CLI flows, TUI
-    // slash commands, the daemon, AND the silent in-chat 401 → refresh
+    // slash commands, the daemon, AND the silent in-chat 401 -> refresh
     // path. Printing here would corrupt the TUI input box on the silent
     // refresh path (the cursor sits in the prompt and `println!` bypasses
     // the renderer). CLI callers print their own user-facing success
@@ -1521,7 +1531,7 @@ pub fn current_user() -> Option<UserInfo> {
 /// Parse a user-pasted OAuth callback URL into (code, state).
 ///
 /// Accepts any URL with a query string containing `code` and `state`.
-/// Rejects raw `code` without URL context — state validation is CSRF
+/// Rejects raw `code` without URL context -- state validation is CSRF
 /// protection and we want the full round-trip, not a manually typed code.
 #[allow(dead_code)]
 fn parse_pasted_callback(input: &str) -> Result<(String, String)> {
@@ -1535,7 +1545,7 @@ fn parse_pasted_callback(input: &str) -> Result<(String, String)> {
         .trim();
 
     let query_start = cleaned.find('?').context(
-        "Could not parse callback URL — paste the full http://127.0.0.1:8765/callback?... URL",
+        "Could not parse callback URL -- paste the full http://127.0.0.1:8765/callback?... URL",
     )?;
     let query = &cleaned[query_start + 1..];
 
@@ -1605,7 +1615,7 @@ mod tests {
             rx.recv_timeout(Duration::from_secs(2)).unwrap().unwrap(),
             PollOutcome::Pending
         );
-        // Thread has exited → sender dropped → channel disconnected.
+        // Thread has exited -> sender dropped -> channel disconnected.
         assert!(
             matches!(
                 rx.recv_timeout(Duration::from_secs(2)),
@@ -1626,7 +1636,7 @@ mod tests {
             client: None,
         };
         let rx = session.spawn_poller(Duration::from_millis(10));
-        drop(rx); // caller cancelled before reading — must not panic.
+        drop(rx); // caller cancelled before reading -- must not panic.
     }
 
     #[test]
@@ -1669,7 +1679,7 @@ mod tests {
             AuthRecoveryFailureKind::ReauthenticationRequired
         );
 
-        // A successful-but-unparseable broker body is deterministic → re-login,
+        // A successful-but-unparseable broker body is deterministic -> re-login,
         // not a retryable decode failure.
         let unparseable = anyhow::Error::new(UnexpectedBrokerResponse);
         assert_eq!(
@@ -1858,7 +1868,7 @@ mod tests {
 
     #[test]
     fn classify_input_arrow_key_ignored() {
-        // Up arrow = ESC [ A — three bytes arriving in a single read.
+        // Up arrow = ESC [ A -- three bytes arriving in a single read.
         assert_eq!(classify_input(b"\x1B[A"), EscOutcome::OtherInput);
     }
 
@@ -1949,7 +1959,7 @@ mod tests {
             .timeout(std::time::Duration::from_millis(1))
             .build()
             .unwrap();
-        // 203.0.113.0/24 is TEST-NET-3 (RFC 5737) — guaranteed unroutable, so this
+        // 203.0.113.0/24 is TEST-NET-3 (RFC 5737) -- guaranteed unroutable, so this
         // fails at connect/timeout without depending on any real host.
         let err = client
             .get("http://203.0.113.1:81/")
@@ -1963,7 +1973,7 @@ mod tests {
 
     #[test]
     fn non_network_error_yields_no_hint() {
-        // A decode error is neither connect nor timeout → no hint.
+        // A decode error is neither connect nor timeout -> no hint.
         // Build any reqwest::Error that is not connect/timeout by parsing a bad URL.
         let err = reqwest::blocking::Client::new()
             .get("http://")
@@ -1979,7 +1989,7 @@ mod tests {
             .timeout(std::time::Duration::from_millis(1))
             .build()
             .unwrap();
-        // TEST-NET-3 (RFC 5737) — unroutable, fails at connect/timeout.
+        // TEST-NET-3 (RFC 5737) -- unroutable, fails at connect/timeout.
         let res = client.get("http://203.0.113.1:81/").send();
         let err = super::with_login_context(res, "Failed to call /auth/test").unwrap_err();
         let chain = format!("{err:#}");

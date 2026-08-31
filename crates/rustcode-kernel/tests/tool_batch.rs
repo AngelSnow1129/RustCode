@@ -137,7 +137,7 @@ async fn read_only_tools_run_concurrently() {
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn concurrency_is_capped() {
-    // Use the injectable cap (no process-global env mutation → no race with
+    // Use the injectable cap (no process-global env mutation -> no race with
     // parallel test threads that read the same env var).
     let inflight = Arc::new(AtomicUsize::new(0));
     let peak = Arc::new(AtomicUsize::new(0));
@@ -267,7 +267,7 @@ async fn mutating_tool_is_exclusive_barrier() {
     assert_eq!(
         peak.load(std::sync::atomic::Ordering::SeqCst),
         1,
-        "mutating tool must serialize the batch — nothing ever runs alongside it"
+        "mutating tool must serialize the batch -- nothing ever runs alongside it"
     );
 }
 
@@ -279,8 +279,8 @@ async fn mutating_tool_is_exclusive_barrier() {
 // inside-execute `select! { biased; execute, cancel.cancelled() }` backstop in
 // Phase ②; when cancel fires, each future resolves to the synthetic
 // "(cancelled)" result or is skipped by the pre-execute `is_cancelled()` check.
-// After the drain, `cancelled_during_batch` is true → the batch is closed
-// (ToolBatchCompleted) and `finish_cancelled` runs → `AgentEvent::Cancelled`
+// After the drain, `cancelled_during_batch` is true -> the batch is closed
+// (ToolBatchCompleted) and `finish_cancelled` runs -> `AgentEvent::Cancelled`
 // then `AgentEvent::TurnComplete`.
 //
 // `start_paused = true` so `tokio::time::sleep(10_000 ms)` is virtual: the
@@ -291,7 +291,7 @@ async fn cancel_mid_parallel_batch_rolls_back_cleanly() {
     let inflight = Arc::new(AtomicUsize::new(0));
     let peak = Arc::new(AtomicUsize::new(0));
     let mut reg = ToolRegistry::new();
-    // Two slow read-only probes (10 s virtual time — instantly cancelled).
+    // Two slow read-only probes (10 s virtual time -- instantly cancelled).
     for n in ["a", "b"] {
         reg.register(Arc::new(ConcurrencyProbeTool {
             name: n,
@@ -306,7 +306,7 @@ async fn cancel_mid_parallel_batch_rolls_back_cleanly() {
             StreamEvent::ToolCall(tc("2", "b")),
             StreamEvent::Done { truncated: false },
         ],
-        // Round 2 would only run if the turn weren't cancelled — it must NOT run.
+        // Round 2 would only run if the turn weren't cancelled -- it must NOT run.
         vec![
             StreamEvent::TextDelta("done".into()),
             StreamEvent::Done { truncated: false },
@@ -332,7 +332,7 @@ async fn cancel_mid_parallel_batch_rolls_back_cleanly() {
 
     // Generous outer timeout (5 s real time). With `start_paused`, virtual
     // timers only advance via `tokio::time::advance` or when no real work
-    // remains — the cancel resolves the parked sleeps without any real delay.
+    // remains -- the cancel resolves the parked sleeps without any real delay.
     let _ = tokio::time::timeout(Duration::from_secs(5), async {
         while let Some(ev) = handle.events.recv().await {
             match ev {
@@ -362,11 +362,11 @@ async fn cancel_mid_parallel_batch_rolls_back_cleanly() {
     );
 }
 
-// GUARD 2: Serial approval — two risky tools in one batch produce their
+// GUARD 2: Serial approval -- two risky tools in one batch produce their
 // approval `Request` events SEQUENTIALLY (second only after first is answered).
 //
 // `ApprovalMiddleware.before` runs inside Phase ① (the serial `before`-chain
-// loop), which processes one tool at a time — it awaits `rt.request(…)` and
+// loop), which processes one tool at a time -- it awaits `rt.request(...)` and
 // only moves on after the driver sends `AgentCommand::Respond`. This means the
 // second `Request` is NEVER emitted while the first is still outstanding,
 // regardless of Phase ② concurrency (which comes later).
@@ -404,7 +404,7 @@ async fn approval_requests_are_sequential_not_concurrent() {
 
     let mut reg = ToolRegistry::new();
     // Both tools are non-parallel-safe (read_only_hint=false by default), so
-    // even Phase ② would serialize them — but the serialization we guard here
+    // even Phase ② would serialize them -- but the serialization we guard here
     // happens earlier, in Phase ①'s before-chain.
     reg.register(Arc::new(RiskyWriteTool));
     reg.register(Arc::new(RiskyWriteTool2));
@@ -440,9 +440,9 @@ async fn approval_requests_are_sequential_not_concurrent() {
 
     // Track how many Responds have been sent when each Request arrives.
     // If approval were concurrent, both Requests could arrive before any
-    // Respond — the second Request would arrive with responds_sent == 0.
+    // Respond -- the second Request would arrive with responds_sent == 0.
     // With serial approval, the second Request only arrives after the first
-    // is answered — responds_sent == 1 when the second Request arrives.
+    // is answered -- responds_sent == 1 when the second Request arrives.
     let mut responds_sent: u32 = 0;
     let mut responds_sent_at_second_request: Option<u32> = None;
     let mut request_count: u32 = 0;
@@ -481,11 +481,11 @@ async fn approval_requests_are_sequential_not_concurrent() {
         responds_sent_at_second_request,
         Some(1),
         "second approval Request must only arrive AFTER the first is answered \
-         (responds_sent at arrival of request #2 must be 1, not 0 — serial approval guard)"
+         (responds_sent at arrival of request #2 must be 1, not 0 -- serial approval guard)"
     );
 }
 
-// GUARD 3: Arg-driven parallel_safe — read-only-shaped bash calls overlap.
+// GUARD 3: Arg-driven parallel_safe -- read-only-shaped bash calls overlap.
 //
 // `ArgGatedProbeTool.parallel_safe` returns true iff args contain `"ro":true`,
 // mirroring the real BashTool where the command string determines safety.
@@ -504,7 +504,7 @@ async fn read_only_bash_shaped_calls_overlap() {
             delay_ms: 100,
         }));
     }
-    // Args carry `"ro":true` → parallel_safe returns true → concurrent execution.
+    // Args carry `"ro":true` -> parallel_safe returns true -> concurrent execution.
     let mk = |id: &str, name: &str| {
         StreamEvent::ToolCall(rustcode_kernel::tool::ToolCall {
             id: id.into(),
@@ -542,13 +542,13 @@ async fn read_only_bash_shaped_calls_overlap() {
     );
 }
 
-// GUARD 4: Arg-driven parallel_safe — non-read-only bash call routes to the serial path.
+// GUARD 4: Arg-driven parallel_safe -- non-read-only bash call routes to the serial path.
 //
 // A batch of [r1 (ro), w (non-ro), r2 (ro)] where "w" carries `{"ro":false}` args.
-// `ArgGatedProbeTool.parallel_safe("{"ro":false}")` returns false → write-lock barrier.
+// `ArgGatedProbeTool.parallel_safe("{"ro":false}")` returns false -> write-lock barrier.
 // The barrier itself is already proven by `mutating_tool_is_exclusive_barrier`; this
 // test's job is to confirm arg-gating correctly routes the non-ro call through the
-// serial path WITHOUT breaking the batch — all 3 results must arrive in emission order.
+// serial path WITHOUT breaking the batch -- all 3 results must arrive in emission order.
 // Asserting peak timing under `start_paused` with a mixed batch is flaky; order-of-
 // results is deterministic and sufficient to prove correct routing.
 #[tokio::test(flavor = "current_thread", start_paused = true)]
@@ -571,7 +571,7 @@ async fn non_read_only_bash_shaped_call_serializes() {
             arguments: "{\"ro\":true}".into(),
         })
     };
-    // "w" carries non-ro args → parallel_safe returns false → write-lock barrier.
+    // "w" carries non-ro args -> parallel_safe returns false -> write-lock barrier.
     let wr = StreamEvent::ToolCall(rustcode_kernel::tool::ToolCall {
         id: "2".into(),
         name: "w".into(),
@@ -611,7 +611,7 @@ async fn non_read_only_bash_shaped_call_serializes() {
 
     // All three tools must complete and results must arrive in emission order
     // (r1, w, r2). The executor preserves emission order in ToolResult events
-    // even when some calls run concurrently and some serialized — this proves
+    // even when some calls run concurrently and some serialized -- this proves
     // arg-gating routed the non-ro call correctly without breaking the batch.
     assert_eq!(
         results,

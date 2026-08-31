@@ -59,7 +59,7 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    /// `file:line:col [SEVERITY] code message (source)` — one line per diagnostic.
+    /// `file:line:col [SEVERITY] code message (source)` -- one line per diagnostic.
     pub fn display_line(&self) -> String {
         let code = self
             .code

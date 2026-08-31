@@ -2,14 +2,14 @@
 
 ## Goal
 
-Compare `AtomGit-deepseek-v4-flash` (wire model `deepseek-v4-flash`) and
+Compare `RustCode-deepseek-v4-flash` (wire model `deepseek-v4-flash`) and
 `volcengine/deepseek-v4-flash` (wire model `ep-20260822184526-dbhzk`) at both the
-raw-model and AtomCode coding-agent layers. Runs are paired and concurrent; Codex
+raw-model and RustCode coding-agent layers. Runs are paired and concurrent; Codex
 blind-judges qualitative results and writes the final report.
 
 ## Architectural boundary
 
-The evaluator is an external harness over AtomCode's existing headless CLI. Every
+The evaluator is an external harness over RustCode's existing headless CLI. Every
 candidate run owns an independent process, `RUSTCODE_HOME`, session, and writable
 fixture. It selects a configured model through `--provider`; it does not add a
 second live-agent owner, reload providers inside a live runtime, or change kernel,
@@ -17,8 +17,8 @@ coding-runtime, provider, session, or persistence contracts.
 
 ```text
 case + immutable fixture
-    |-- paired launch --> official DS --> isolated AtomCode runtime --> artifacts
-    `-- paired launch --> Volcano DS  --> isolated AtomCode runtime --> artifacts
+    |-- paired launch --> official DS --> isolated RustCode runtime --> artifacts
+    `-- paired launch --> Volcano DS  --> isolated RustCode runtime --> artifacts
                                                               |
                                               verify + anonymize
                                                               |
@@ -30,7 +30,7 @@ case + immutable fixture
 ## Pairing and concurrency
 
 - A pair always submits the same case to both candidates at nearly the same time.
-- The quick suite uses two pairs concurrently (four AtomCode processes maximum).
+- The quick suite uses two pairs concurrently (four RustCode processes maximum).
 - Stress stages use 1, 4, then 8 pairs (2, 8, and 16 requests).
 - Candidate launch order is randomized per pair. The harness records monotonic
   start/end timestamps; a start skew above 500 ms marks a pair non-strict.
@@ -44,7 +44,7 @@ case + immutable fixture
 
 The raw-model tier has 20 cases: four code-understanding/debugging, four logic or
 algorithm, four code-generation, three instruction-following, three long-context,
-and two tool-schema cases. The AtomCode tier has eight repository-backed cases:
+and two tool-schema cases. The RustCode tier has eight repository-backed cases:
 two local bug fixes, two cross-file features, one diagnosis-only task, one
 behavior-preserving refactor, one long-context task, and one misleading-legacy-path
 task. Each case runs three times per candidate.
@@ -61,10 +61,10 @@ following (15%), agent execution quality (10%), and Codex blind assessment (10%)
 Stability remains a separate result: success and first-attempt success rates,
 P50/P90/P95 latency, retries, 429/5xx/transport/stream/empty-response failures,
 truncation, invalid or repeated tool calls, token usage, and score variance.
-Cache efficiency is reported from AtomCode's provider usage as cached prompt tokens
+Cache efficiency is reported from RustCode's provider usage as cached prompt tokens
 divided by prompt tokens, including mean/P50/P95 and cold-versus-repeat cohorts.
 
-AtomCode's existing retries are part of the end-to-end result, but the harness
+RustCode's existing retries are part of the end-to-end result, but the harness
 distinguishes first-request success from eventual success and records retry cost.
 A capability lead requires at least five points and a paired bootstrap 95%
 confidence interval excluding zero. A stability difference is material at three
@@ -88,7 +88,7 @@ Any explanation of gateway behavior is labeled as inference.
 
 ## Reproducibility and security
 
-The run manifest records AtomCode commit, binary version, config fingerprint,
+The run manifest records RustCode commit, binary version, config fingerprint,
 selection IDs, expected wire-model identifiers, Codex version/model, case hashes,
 concurrency, timeouts, retry policy, timestamps, and random seed. Startup must
 confirm that each selection resolves to the expected account/model; fallback to a

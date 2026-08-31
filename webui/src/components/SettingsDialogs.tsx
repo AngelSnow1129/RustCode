@@ -31,9 +31,6 @@ import {
   type NotificationPrefs,
 } from '../lib/notifications';
 
-// AtomGit 托管 provider 的 LLM 网关地址；其上下文窗口由平台固定，前端禁止修改。
-const ATOMGIT_BASE_URL = 'https://llm-api.atomgit.com/v1';
-
 // 上下文窗口预设（数值与配置一致，显示时按 /1000 换算为「k tokens」）。
 const CONTEXT_WINDOW_PRESETS = [32000, 64000, 128000, 256000, 512000, 1000000];
 
@@ -694,8 +691,6 @@ function ProviderFormDialog({
     || ((type === 'openai' || type === 'openai-compat' || type === 'openai_compat')
       && (custom || isEdit || selectedPreset?.model_source === 'discovery_api'));
 
-  // AtomGit 托管 provider 上下文窗口由平台固定，禁止用户改动。
-  const isAtomGit = editing?.base_url === ATOMGIT_BASE_URL;
   // 当前值若非预设（如旧配置），并入选项首位，避免静默改写。
   const cwOptions = CONTEXT_WINDOW_PRESETS.includes(contextWindow)
     ? CONTEXT_WINDOW_PRESETS
@@ -739,8 +734,7 @@ function ProviderFormDialog({
           base_url: baseUrl.trim(),
           // 仅在用户填写了新 key 时才覆盖；留空保留现有。
           ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
-          // AtomGit 上下文窗口由平台锁定，不下发该字段。
-          ...(isAtomGit ? {} : { context_window: contextWindow }),
+          context_window: contextWindow,
         });
         // PATCH 不处理默认项：若勾选且原本非默认，单独设默认（用新名，改名后旧 key 已不存在）。
         if (setDefault && !editing?.is_default) {
@@ -924,16 +918,12 @@ function ProviderFormDialog({
           <label class="add-model-label">{t('settings.contextWindow')}</label>
           <Select
             value={String(contextWindow)}
-            disabled={isAtomGit}
             options={cwOptions.map((v) => ({
               value: String(v),
               label: `${fmtContextWindow(v)} tokens`,
             }))}
             onChange={(v) => setContextWindow(Number(v))}
           />
-          {isAtomGit && (
-            <span class="field-hint">{t('settings.contextWindowLocked')}</span>
-          )}
         </div>
         <div class="add-model-field">
           <label class="add-model-label">{t('settings.baseUrl')}</label>
@@ -1080,7 +1070,7 @@ export function RemoteAccessDialog({ onClose }: { onClose: () => void }) {
           {/* 使用引导：跳官网对应语言的说明页，新标签打开。 */}
           <a
             class="btn"
-            href={`https://atomcode.atomgit.com/docs/${lang}/webui-remote-access.html`}
+            href={`https://docs.rustcode.dev/${lang}/webui-remote-access.html`}
             target="_blank"
             rel="noreferrer"
           >

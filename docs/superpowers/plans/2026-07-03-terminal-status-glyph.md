@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在终端标签栏/窗口标题前缀一个按状态变化的彩色圆点（🟢 空闲 / 🟡 忙 / 🔴 待确认），让用户不切换到 atomcode 窗口就能看出任务状态。
+**Goal:** 在终端标签栏/窗口标题前缀一个按状态变化的彩色圆点（🟢 空闲 / 🟡 忙 / 🔴 待确认），让用户不切换到 rustcode 窗口就能看出任务状态。
 
 **Architecture:** 全部判断逻辑落在 `title.rs` 的三个纯函数里（映射、组装、决策），返回 `Option<String>` 表达"Suspended 时不动标题"。事件循环里的 `sync_terminal_title` 只做 plumbing：读 `ctx.config.ui.terminal_status_glyph` + `app.state.phase`，调纯函数，变了才 `set_title`。config 加一个默认 `true` 的开关。
 
@@ -10,21 +10,21 @@
 
 ## Global Constraints
 
-- 状态源是现有 `crate::state::UiPhase`（`crates/atomcode-tuix/src/state.rs:33`）四态：`Idle` / `Streaming` / `Approval` / `Suspended`。不新增事件、不新增 phase。
+- 状态源是现有 `crate::state::UiPhase`（`crates/rustcode-tuix/src/state.rs:33`）四态：`Idle` / `Streaming` / `Approval` / `Suspended`。不新增事件、不新增 phase。
 - 圆点映射：`Idle → 🟢`、`Streaming → 🟡`、`Approval → 🔴`、`Suspended → None`（不改标题）。
 - 名字截断逻辑（现有 `session_terminal_title`，`MAX_TITLE_CHARS = 40`）**一字不改**；圆点是独立前缀，不占名字预算。
 - 默认开启（`default_terminal_status_glyph() -> true`），config 键 `ui.terminal_status_glyph` 可关。
 - 开关关闭时行为与今天**完全一致**（纯名字标题，零变化）。
 - Commit message 结尾加：`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 - 当前分支 `release/v4.25.9`，直接在此分支提交（延续该 release 线的既有工作流）。
-- 构建约束：`CARGO_INCREMENTAL=0`，按 package 编译（`-p atomcode-tuix` / `-p atomcode-core`），别全工作区。
+- 构建约束：`CARGO_INCREMENTAL=0`，按 package 编译（`-p rustcode-tuix` / `-p rustcode-core`），别全工作区。
 
 ---
 
 ### Task 1: `title.rs` 纯函数（映射 + 组装 + 决策）
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/title.rs`（顶部加 import；新增三个函数；在 `#[cfg(test)] mod tests` 追加测试）
+- Modify: `crates/rustcode-tuix/src/title.rs`（顶部加 import；新增三个函数；在 `#[cfg(test)] mod tests` 追加测试）
 
 **Interfaces:**
 - Consumes: `crate::state::UiPhase`（现有枚举）；现有 `session_terminal_title(name: &str, fallback: &str) -> String`。
@@ -35,7 +35,7 @@
 
 - [ ] **Step 1: Write the failing tests**
 
-在 `crates/atomcode-tuix/src/title.rs` 的 `mod tests` 里（`FB` 常量已存在 = `"atomcode v9.9.9"`），追加：
+在 `crates/rustcode-tuix/src/title.rs` 的 `mod tests` 里（`FB` 常量已存在 = `"rustcode v9.9.9"`），追加：
 
 ```rust
     use crate::state::UiPhase;
@@ -69,7 +69,7 @@
 
     #[test]
     fn placeholder_name_still_gets_glyph() {
-        // A brand-new idle window shows 🟢 atomcode v9.9.9 (alive + idle).
+        // A brand-new idle window shows 🟢 rustcode v9.9.9 (alive + idle).
         assert_eq!(
             session_terminal_title_with_status("default", FB, Some("🟢")),
             format!("🟢 {FB}"),
@@ -112,14 +112,14 @@
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode
-CARGO_INCREMENTAL=0 cargo test -p atomcode-tuix --lib title::tests 2>&1 | tail -20
+cd /Users/theo/Documents/workspace/rustcode
+CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib title::tests 2>&1 | tail -20
 ```
 Expected: FAIL — `cannot find function phase_status_glyph` / `session_terminal_title_with_status` / `status_title`.
 
 - [ ] **Step 3: Implement the three functions**
 
-在 `crates/atomcode-tuix/src/title.rs` 顶部，`use crate::sanitize::scrub_controls;` 下面加：
+在 `crates/rustcode-tuix/src/title.rs` 顶部，`use crate::sanitize::scrub_controls;` 下面加：
 
 ```rust
 use crate::state::UiPhase;
@@ -170,16 +170,16 @@ pub fn status_title(name: &str, fallback: &str, phase: UiPhase, glyph_enabled: b
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode
-CARGO_INCREMENTAL=0 cargo test -p atomcode-tuix --lib title:: 2>&1 | tail -20
+cd /Users/theo/Documents/workspace/rustcode
+CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib title:: 2>&1 | tail -20
 ```
 Expected: PASS — all `title::tests` (existing + new) green.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode
-git add crates/atomcode-tuix/src/title.rs
+cd /Users/theo/Documents/workspace/rustcode
+git add crates/rustcode-tuix/src/title.rs
 git commit -m "feat(tui): status-glyph title helpers (phase → 🟢/🟡/🔴 prefix)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -190,14 +190,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 2: config 开关 `ui.terminal_status_glyph`
 
 **Files:**
-- Modify: `crates/atomcode-core/src/config/mod.rs`（加默认函数、`UiConfig` 字段、`Default` impl、测试）
+- Modify: `crates/rustcode-core/src/config/mod.rs`（加默认函数、`UiConfig` 字段、`Default` impl、测试）
 
 **Interfaces:**
 - Produces: `UiConfig.terminal_status_glyph: bool`（TOML `ui.terminal_status_glyph`，缺省 `true`）— Task 3 读取。
 
 - [ ] **Step 1: Write the failing test**
 
-在 `crates/atomcode-core/src/config/mod.rs` 的测试模块里（紧挨现有 `auto_copy_code_blocks_defaults_off` 附近，约 `:836`），加：
+在 `crates/rustcode-core/src/config/mod.rs` 的测试模块里（紧挨现有 `auto_copy_code_blocks_defaults_off` 附近，约 `:836`），加：
 
 ```rust
     #[test]
@@ -212,14 +212,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode
-CARGO_INCREMENTAL=0 cargo test -p atomcode-core --lib terminal_status_glyph_defaults_on 2>&1 | tail -20
+cd /Users/theo/Documents/workspace/rustcode
+CARGO_INCREMENTAL=0 cargo test -p rustcode-core --lib terminal_status_glyph_defaults_on 2>&1 | tail -20
 ```
 Expected: FAIL — `no field terminal_status_glyph on type UiConfig` (compile error).
 
 - [ ] **Step 3: Add the default fn, struct field, and Default entry**
 
-在 `crates/atomcode-core/src/config/mod.rs`，`default_ai_session_naming` 函数附近加：
+在 `crates/rustcode-core/src/config/mod.rs`，`default_ai_session_naming` 函数附近加：
 
 ```rust
 fn default_terminal_status_glyph() -> bool {
@@ -251,16 +251,16 @@ fn default_terminal_status_glyph() -> bool {
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode
-CARGO_INCREMENTAL=0 cargo test -p atomcode-core --lib terminal_status_glyph_defaults_on 2>&1 | tail -20
+cd /Users/theo/Documents/workspace/rustcode
+CARGO_INCREMENTAL=0 cargo test -p rustcode-core --lib terminal_status_glyph_defaults_on 2>&1 | tail -20
 ```
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode
-git add crates/atomcode-core/src/config/mod.rs
+cd /Users/theo/Documents/workspace/rustcode
+git add crates/rustcode-core/src/config/mod.rs
 git commit -m "feat(config): add ui.terminal_status_glyph toggle (default on)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -271,8 +271,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 3: 接线 `sync_terminal_title`（phase + config → status_title）
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/event_loop/mod.rs:6546-6553`（`sync_terminal_title` 函数体 + 签名）
-- Modify: `crates/atomcode-tuix/src/event_loop/mod.rs:3817`（调用点，传 `app.state.phase`）
+- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs:6546-6553`（`sync_terminal_title` 函数体 + 签名）
+- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs:3817`（调用点，传 `app.state.phase`）
 
 **Interfaces:**
 - Consumes: `crate::title::status_title`（Task 1）；`ctx.config.ui.terminal_status_glyph`（Task 2）；`crate::state::UiPhase`（现有，`event_loop` 已 import）；`app.state.phase`（现有字段）。
@@ -280,11 +280,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: 改函数签名与函数体**
 
-把 `crates/atomcode-tuix/src/event_loop/mod.rs` 现有的（`:6546` 起）：
+把 `crates/rustcode-tuix/src/event_loop/mod.rs` 现有的（`:6546` 起）：
 
 ```rust
 fn sync_terminal_title(ctx: &LoopCtx, renderer: &mut dyn Renderer, last: &mut Option<String>) {
-    const VERSION_FALLBACK: &str = concat!("atomcode v", env!("CARGO_PKG_VERSION"));
+    const VERSION_FALLBACK: &str = concat!("rustcode v", env!("CARGO_PKG_VERSION"));
     let title = crate::title::session_terminal_title(&ctx.current_session.name, VERSION_FALLBACK);
     if last.as_deref() != Some(title.as_str()) {
         renderer.set_title(title.clone());
@@ -302,7 +302,7 @@ fn sync_terminal_title(
     last: &mut Option<String>,
     phase: UiPhase,
 ) {
-    const VERSION_FALLBACK: &str = concat!("atomcode v", env!("CARGO_PKG_VERSION"));
+    const VERSION_FALLBACK: &str = concat!("rustcode v", env!("CARGO_PKG_VERSION"));
     // `None` = leave the title untouched (Suspended: an external child owns
     // the terminal during /shell, OAuth, etc.).
     let Some(title) = crate::title::status_title(
@@ -330,7 +330,7 @@ fn sync_terminal_title(
 
 - [ ] **Step 2: 改调用点传 phase**
 
-把 `crates/atomcode-tuix/src/event_loop/mod.rs:3817` 的：
+把 `crates/rustcode-tuix/src/event_loop/mod.rs:3817` 的：
 
 ```rust
         sync_terminal_title(&ctx, renderer, &mut last_terminal_title);
@@ -345,8 +345,8 @@ fn sync_terminal_title(
 - [ ] **Step 3: 编译 + 跑 tuix 测试**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode
-CARGO_INCREMENTAL=0 cargo test -p atomcode-tuix --lib 2>&1 | tail -25
+cd /Users/theo/Documents/workspace/rustcode
+CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib 2>&1 | tail -25
 ```
 Expected: 编译通过；`title::tests` 全绿；无因签名改动导致的编译错误。（`app.state.phase` 现字段、`UiPhase` 已在 `event_loop/mod.rs` import——见 `:7750` 等处的 `use crate::state::…`；若报未 import，在文件顶部 `use` 区补 `UiPhase`。）
 
@@ -355,8 +355,8 @@ Expected: 编译通过；`title::tests` 全绿；无因签名改动导致的编�
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode
-git add crates/atomcode-tuix/src/event_loop/mod.rs
+cd /Users/theo/Documents/workspace/rustcode
+git add crates/rustcode-tuix/src/event_loop/mod.rs
 git commit -m "feat(tui): drive terminal title status dot from UI phase + config
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -371,24 +371,24 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 1: 两个 crate 全 lib 测试**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode
-CARGO_INCREMENTAL=0 cargo test -p atomcode-tuix --lib 2>&1 | tail -8
-CARGO_INCREMENTAL=0 cargo test -p atomcode-core --lib 2>&1 | tail -8
+cd /Users/theo/Documents/workspace/rustcode
+CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib 2>&1 | tail -8
+CARGO_INCREMENTAL=0 cargo test -p rustcode-core --lib 2>&1 | tail -8
 ```
 Expected: 两者 `test result: ok`。
 
 - [ ] **Step 2: clippy（改动文件不引入新告警）**
 
 ```bash
-cd /Users/theo/Documents/workspace/atomcode
-CARGO_INCREMENTAL=0 cargo clippy -p atomcode-tuix -p atomcode-core 2>&1 | tail -15
+cd /Users/theo/Documents/workspace/rustcode
+CARGO_INCREMENTAL=0 cargo clippy -p rustcode-tuix -p rustcode-core 2>&1 | tail -15
 ```
 Expected: 无新增 warning/error（预存告警不算）。
 
 - [ ] **Step 3: 真机自检清单（人工，非自动化）**
 
-在支持彩色 emoji 的终端（iTerm2 / WT / VS Code 内置）跑 `cargo run -p atomcode`（或已编译二进制），确认标签栏标题：
-1. 启动后空闲 → `🟢 atomcode v4.25.9`（或会话名）。
+在支持彩色 emoji 的终端（iTerm2 / WT / VS Code 内置）跑 `cargo run -p rustcode`（或已编译二进制），确认标签栏标题：
+1. 启动后空闲 → `🟢 rustcode v4.25.9`（或会话名）。
 2. 发一条消息、模型在跑 → 变 `🟡 …`。
 3. 触发一个需审批的工具（如 edit_file）→ 变 `🔴 …`。
 4. 审批完/回答完回空闲 → 回 `🟢 …`。

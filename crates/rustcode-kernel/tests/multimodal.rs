@@ -1,5 +1,5 @@
 //! Multimodal input: a `SendMessage` carrying images must reach the provider ON the user
-//! message — i.e. the agent threads `images` through `process_send_message` into the
+//! message -- i.e. the agent threads `images` through `process_send_message` into the
 //! conversation (regression guard for the input-side multimodal path).
 
 use rustcode_kernel::agent::Agent;
@@ -56,7 +56,7 @@ async fn send_message_images_reach_the_provider_on_the_user_message() {
     );
 }
 
-/// A tool that returns an inline image — stands in for `read_file` on a picture.
+/// A tool that returns an inline image -- stands in for `read_file` on a picture.
 struct ImageTool;
 #[async_trait::async_trait]
 impl Tool for ImageTool {
@@ -72,7 +72,7 @@ impl Tool for ImageTool {
     async fn execute(&self, _args: &str, _ctx: &ToolContext) -> ToolResult {
         ToolResult {
             call_id: String::new(),
-            content: "[Image: cover.jpg — attached below]".into(),
+            content: "[Image: cover.jpg -- attached below]".into(),
             is_error: false,
             images: vec![ImageContent {
                 media_type: "image/jpeg".into(),
@@ -86,7 +86,7 @@ impl Tool for ImageTool {
 async fn tool_returned_images_reach_the_model_as_a_following_user_message() {
     // Round 1: the model calls the image tool. Round 2: it answers. The image the
     // tool returned must reach the provider ON ROUND 2 as a user-role message (the
-    // only role a provider serializes images on), positioned AFTER the tool result —
+    // only role a provider serializes images on), positioned AFTER the tool result --
     // this is what lets a vision model actually SEE a picture read by read_file.
     let provider = Arc::new(RecordingProvider::new(vec![
         vec![
@@ -147,7 +147,7 @@ async fn tool_returned_images_reach_the_model_as_a_following_user_message() {
         "the exact image the tool returned must be forwarded"
     );
     // Ordering: the image user message must come AFTER the tool result (contiguous
-    // tool_results, then the image) — never interleaved, which would be API-invalid.
+    // tool_results, then the image) -- never interleaved, which would be API-invalid.
     let tool_idx = round2
         .iter()
         .position(|m| m.role == Role::Tool)

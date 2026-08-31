@@ -1,5 +1,5 @@
 //! Injecting a `FixedClock` makes the turn `elapsed_ms` sidecar deterministic (always 0),
-//! so a run's snapshots are byte-reproducible for eval / replay — the kernel's only
+//! so a run's snapshots are byte-reproducible for eval / replay -- the kernel's only
 //! non-deterministic value is time (ids are counters, cwd is pinnable, no randomness).
 
 use rustcode_kernel::agent::Agent;

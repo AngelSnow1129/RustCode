@@ -5,7 +5,7 @@
 #![deny(unsafe_code)]
 
 /// Sentinel only. `0` = "unavailable" (real algorithms start at 1). Never
-/// read in an open-source build — the `codingplan-crypto` feature is off,
+/// read in an open-source build -- the `codingplan-crypto` feature is off,
 /// so this crate is not linked.
 pub const ALGORITHM_VERSION: u8 = 0;
 

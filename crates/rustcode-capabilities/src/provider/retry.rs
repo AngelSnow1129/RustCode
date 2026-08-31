@@ -44,13 +44,13 @@ pub(crate) fn is_attempt_metadata_event(event: &StreamEvent) -> bool {
 
 /// How long an idle keep-alive connection may sit in the pool before we drop
 /// it. reqwest's default is 90s; gateway load balancers commonly close idle
-/// connections sooner. 30s proved too generous against a real gateway — half-open
+/// connections sooner. 30s proved too generous against a real gateway -- half-open
 /// reuse there surfaced as hyper `IncompleteMessage` (see
 /// [`chain_has_incomplete_message`]), a class the old classifier hard-failed.
 /// 15s stays well under observed LB windows while keeping reuse for the
 /// back-to-back requests of a tool loop (their gaps are far below 15s).
 /// The broadened classifier + pool rebuild remain the correctness backstop.
-/// Only affects *idle* connections — an active stream is never reaped.
+/// Only affects *idle* connections -- an active stream is never reaped.
 pub(crate) const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Retry configuration for the open call.
@@ -104,15 +104,15 @@ pub(crate) fn should_retry_open_status(code: u16, owner: RateLimitRetryOwner) ->
 ///
 /// `is_timeout() || is_connect()` alone is too narrow: reqwest only reports
 /// `is_connect()` for failures during connection *establishment*. The common
-/// real-world case — a keep-alive connection that the gateway's load balancer
-/// silently closed on idle-timeout, then we reuse it — surfaces as
+/// real-world case -- a keep-alive connection that the gateway's load balancer
+/// silently closed on idle-timeout, then we reuse it -- surfaces as
 /// "error sending request" with `is_connect() == false`, wrapping an
 /// `io::Error(ConnectionReset)`. That used to be classified non-retryable and
 /// hard-failed (the user-reported "open failed" that `/login` "fixed" by
 /// rebuilding the client's pool). We now also walk the source chain for a
 /// transient transport `io::Error` so the open loop reconnects transparently.
 ///
-/// The same drop can also surface WITHOUT an io cause — as hyper's
+/// The same drop can also surface WITHOUT an io cause -- as hyper's
 /// `IncompleteMessage` ("connection closed before message completed"), which
 /// [`chain_has_incomplete_message`] covers; both forms are unified under
 /// [`is_stale_connection_error`].
@@ -126,11 +126,11 @@ pub(crate) fn is_retryable_reqwest_error(err: &reqwest::Error) -> bool {
 /// True if any error in `err`'s `source()` chain is an `io::Error` whose kind
 /// indicates a dropped/half-open connection (as opposed to a logical failure
 /// like NotFound). Retrying these is safe **only on the OPEN path** (no
-/// response bytes consumed yet) — mid-stream errors stay non-retryable.
+/// response bytes consumed yet) -- mid-stream errors stay non-retryable.
 ///
 /// `TimedOut` (Linux `ETIMEDOUT` / `os error 110`, Windows `10060`) is included:
 /// the kernel gave up on a dead/stalled TCP connection while reading the streamed
-/// body. It's a transport drop just like a reset — re-opening is safe, and it
+/// body. It's a transport drop just like a reset -- re-opening is safe, and it
 /// earns the plain-language notice from [`stream_read_error_message`] instead of
 /// the opaque raw chain.
 pub(crate) fn chain_has_transient_io(err: &(dyn std::error::Error + 'static)) -> bool {
@@ -156,24 +156,24 @@ pub(crate) fn chain_has_transient_io(err: &(dyn std::error::Error + 'static)) ->
 }
 
 /// True if any error in `err`'s `source()` chain is a TLS **record corruption**
-/// failure — a data record whose AEAD tag / MAC did not verify. This covers
+/// failure -- a data record whose AEAD tag / MAC did not verify. This covers
 /// BOTH directions of a mangled record (verified against rustls 0.23 `error.rs`
-/// Display, since we match the rendered chain, not a typed error — L1 avoids a
+/// Display, since we match the rendered chain, not a typed error -- L1 avoids a
 /// rustls dep):
-///   - the PEER rejects a record WE sent → we receive its fatal alert, rendered
-///     `received fatal alert: BadRecordMac` / `… DecryptError`;
-///   - WE fail to authenticate a record the peer (or a middlebox) sent →
+///   - the PEER rejects a record WE sent -> we receive its fatal alert, rendered
+///     `received fatal alert: BadRecordMac` / `... DecryptError`;
+///   - WE fail to authenticate a record the peer (or a middlebox) sent ->
 ///     rustls `Error::DecryptError`, rendered `cannot decrypt peer's message`.
 ///
 /// Both are the signature of a stale/long-lived pooled TLS-1.3 connection whose
 /// state desynced, or a middlebox mangling TLS-1.3 records once the connection
 /// has run for a while ("跑着跑着就 BadRecordMac").
 ///
-/// rustls surfaces these as an `io::Error` of kind `InvalidData` — too broad to
+/// rustls surfaces these as an `io::Error` of kind `InvalidData` -- too broad to
 /// fold into [`chain_has_transient_io`] (a malformed response *body* is also
 /// `InvalidData` and must stay non-retryable). Handshake-negotiation alerts
-/// (`HandshakeFailure`, …) are deliberately excluded: a fresh pool / TLS-1.2
-/// *corruption* escalation is the wrong remedy for those — the `is_connect()`
+/// (`HandshakeFailure`, ...) are deliberately excluded: a fresh pool / TLS-1.2
+/// *corruption* escalation is the wrong remedy for those -- the `is_connect()`
 /// fallback path owns handshake failures.
 ///
 /// The recovery is scoped to the OPEN path (no response bytes consumed yet):
@@ -193,14 +193,14 @@ pub(crate) fn chain_has_tls_corruption(err: &(dyn std::error::Error + 'static)) 
     false
 }
 
-/// True if any error in `err`'s `source()` chain is a hyper `IncompleteMessage` —
+/// True if any error in `err`'s `source()` chain is a hyper `IncompleteMessage` --
 /// the server (or an LB in front of it) closed the connection before the response
 /// message completed. This class does NOT wrap an `io::Error`, so
 /// [`chain_has_transient_io`] cannot see it, and `is_timeout()`/`is_connect()` are
 /// both false for it; it surfaced as a hard-failed
-/// `open failed: … connection closed before message completed` with ZERO retries.
+/// `open failed: ... connection closed before message completed` with ZERO retries.
 ///
-/// CAUTION: this does not prove the server never processed the request — see the
+/// CAUTION: this does not prove the server never processed the request -- see the
 /// replay-risk note on [`is_stale_connection_error`].
 pub(crate) fn chain_has_incomplete_message(err: &(dyn std::error::Error + 'static)) -> bool {
     let mut cur: Option<&(dyn std::error::Error + 'static)> = Some(err);
@@ -216,21 +216,21 @@ pub(crate) fn chain_has_incomplete_message(err: &(dyn std::error::Error + 'stati
 }
 
 /// A pooled connection the peer had already closed (half-open reuse). Rebuilding the
-/// client's connection pool is the ONLY effective remedy — retrying without a rebuild
+/// client's connection pool is the ONLY effective remedy -- retrying without a rebuild
 /// just grabs another dead socket from the same pool.
 ///
 /// REPLAY RISK: neither form proves the server failed to receive or process the
 /// request. Retrying may cause a duplicate inference (and duplicate billing). This is
-/// accepted deliberately — the alternative is a hard failure after the user already
-/// waited minutes — but callers must NOT describe it as a safe/idempotent replay.
+/// accepted deliberately -- the alternative is a hard failure after the user already
+/// waited minutes -- but callers must NOT describe it as a safe/idempotent replay.
 pub(crate) fn is_stale_connection_error(err: &reqwest::Error) -> bool {
     chain_has_transient_io(err) || chain_has_incomplete_message(err)
 }
 
 /// Render an error plus its full `source()` chain as `top: cause: root`.
 /// reqwest's Display for a transport failure is only the opaque shell
-/// ("error sending request for url (…)"); the actionable cause
-/// (`connection reset by peer (os error 54)`, `dns error`, …) lives in the
+/// ("error sending request for url (...)"); the actionable cause
+/// (`connection reset by peer (os error 54)`, `dns error`, ...) lives in the
 /// chain. Surfacing it turns the error line into a self-diagnosing probe.
 pub(crate) fn err_chain(err: &(dyn std::error::Error + 'static)) -> String {
     let mut out = err.to_string();
@@ -246,8 +246,8 @@ pub(crate) fn err_chain(err: &(dyn std::error::Error + 'static)) -> String {
 /// Human-readable message for a mid-stream response-body read failure.
 ///
 /// The raw reqwest chain for a dropped connection ("error decoding response
-/// body: … 远程主机强迫关闭了一个现有的连接。 (os error 10054)") is opaque to
-/// users. For the transient transport class (connection reset/abort/EOF — a
+/// body: ... 远程主机强迫关闭了一个现有的连接。 (os error 10054)") is opaque to
+/// users. For the transient transport class (connection reset/abort/EOF -- a
 /// gateway dropping the connection under load) we LEAD with a Chinese
 /// explanation and append the full cause chain for diagnosis. Logical failures
 /// (e.g. a malformed body) keep the verbatim `stream read error: <chain>` form.
@@ -258,7 +258,7 @@ pub(crate) fn stream_read_error_message(
     // `IncompleteMessage` (connection closed before message completed) belongs to the
     // same transport class: it is a dropped connection, not a malformed body.
     if chain_has_transient_io(err) || chain_has_incomplete_message(err) {
-        // Each recovery mode owns its full lead sentence — the PartialResponse
+        // Each recovery mode owns its full lead sentence -- the PartialResponse
         // case is NOT a bare connection drop (we kept output), so it must not be
         // wrapped in the "网络连接中断" framing that fits RetryExhausted.
         let lead = match recovery {
@@ -280,7 +280,7 @@ pub(crate) fn stream_read_error_message(
     }
 }
 
-/// Windows WSAECONNRESET (`os error 10054`) — a *forced* connection reset — is
+/// Windows WSAECONNRESET (`os error 10054`) -- a *forced* connection reset -- is
 /// most often a corporate proxy/VPN/firewall killing the outbound stream, not a
 /// server fault, so point the user at the actionable cause. Empty for other
 /// transport drops (macOS `os error 54` / Linux `104`), where a proxy hint would
@@ -308,7 +308,7 @@ fn sanitize_proxy_url(raw: &str) -> String {
     };
     // Split off only the query/fragment; the userinfo (and a host never carries
     // an unencoded '@') sits before it. Dropping up to the LAST '@' strips the
-    // credential even when a raw '/' sits inside the password — bounding the
+    // credential even when a raw '/' sits inside the password -- bounding the
     // search at the first '/' would leave `user:pa/ss@` exposed. Over-stripping
     // a stray '@' in a path is harmless (host cosmetically wrong, no leak); a
     // proxy URL has no such path in practice.
@@ -339,14 +339,14 @@ pub(crate) fn effective_proxy_env() -> Option<String> {
 }
 
 /// When a connect failure is really a failure to reach the configured HTTP proxy
-/// (reqwest's CONNECT tunnel could not open its underlying socket — e.g. a local
+/// (reqwest's CONNECT tunnel could not open its underlying socket -- e.g. a local
 /// VPN/proxy client that has been shut down), lead with an actionable Chinese hint
 /// naming the proxy and pointing at `/proxy`. Empty for every other connect
 /// failure, where a proxy hint would misdirect.
 ///
 /// Keyed on hyper-util's locale-independent `TunnelError::ConnectFailed` marker
 /// ("failed to create underlying connection"), emitted ONLY on the proxy-tunnel
-/// path — a direct connect failure never contains it, so this cannot false-fire.
+/// path -- a direct connect failure never contains it, so this cannot false-fire.
 ///
 /// NOTE: the marker is a transitive-dep Display string, not a stable contract.
 /// A future hyper-util bump could reword it; the failure mode is fail-open (the
@@ -357,7 +357,7 @@ pub(crate) fn proxy_unreachable_hint(chain: &str, proxy: Option<&str>) -> String
         return String::new();
     }
     // Name the affected proxy when we can read it, else a generic reference; the
-    // shared tail names the exact `/proxy` menu option (`no_proxy`) to pick —
+    // shared tail names the exact `/proxy` menu option (`no_proxy`) to pick --
     // the bare term "直连" is jargon users won't map to an action.
     let who = match proxy {
         Some(p) if !p.is_empty() => format!("代理 {p}"),
@@ -368,11 +368,11 @@ pub(crate) fn proxy_unreachable_hint(chain: &str, proxy: Option<&str>) -> String
     )
 }
 
-/// The user-facing `open failed: …` message for a connection-open failure,
+/// The user-facing `open failed: ...` message for a connection-open failure,
 /// shared by every provider's `open_error`. Surfaces the full source chain so
 /// the cause (connection reset / dns / proxy) is visible instead of reqwest's
 /// opaque shell, and when the failure is really an unreachable HTTP proxy leads
-/// with an actionable `/proxy` hint. Message-only — callers keep owning the
+/// with an actionable `/proxy` hint. Message-only -- callers keep owning the
 /// `retryable` decision via [`is_retryable_reqwest_error`].
 pub(crate) fn open_failed_message(e: &reqwest::Error) -> String {
     let chain = err_chain(e);
@@ -385,7 +385,7 @@ pub(crate) fn open_failed_message(e: &reqwest::Error) -> String {
 }
 
 /// Parse `Retry-After` (RFC 7231 §7.1.3) into a wait duration. Handles BOTH forms:
-/// delta-seconds (a bare integer) and an HTTP-date (e.g. some Anthropic 429s) — for the
+/// delta-seconds (a bare integer) and an HTTP-date (e.g. some Anthropic 429s) -- for the
 /// date form the wait is `date - now`, clamped to zero for a past date. `None` only when
 /// the header is absent or unparseable as either form.
 pub(crate) fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
@@ -395,7 +395,7 @@ pub(crate) fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<
     if let Ok(secs) = trimmed.parse::<u64>() {
         return Some(Duration::from_secs(secs));
     }
-    // HTTP-date form: wait until that instant (a past date → retry now = ZERO).
+    // HTTP-date form: wait until that instant (a past date -> retry now = ZERO).
     let when = httpdate::parse_http_date(trimmed).ok()?;
     Some(
         when.duration_since(std::time::SystemTime::now())
@@ -408,7 +408,7 @@ pub(crate) fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<
 ///
 /// Jitter exists to DECORRELATE retry timing across concurrent clients so a
 /// shared upstream (the gateway) doesn't see a synchronized retry storm after
-/// an outage — so the production jitter MUST vary per call. The pure math
+/// an outage -- so the production jitter MUST vary per call. The pure math
 /// lives in [`compute_backoff_jittered`] with the jitter position injected,
 /// keeping unit tests reproducible WITHOUT making production deterministic (a
 /// deterministic seed would defeat the anti-thundering-herd purpose).
@@ -417,7 +417,7 @@ pub(crate) fn compute_backoff(attempt: u32, policy: &RetryPolicy) -> Duration {
 }
 
 /// Pure backoff math. `jitter` is the position inside the ±25% window, in
-/// `[0.0, 1.0)`: `0.0` → −25% (earliest), `0.5` → exactly `capped`, `~1.0` →
+/// `[0.0, 1.0)`: `0.0` -> −25% (earliest), `0.5` -> exactly `capped`, `~1.0` ->
 /// +25% (latest). Injected so production passes real randomness while tests
 /// pass fixed fractions and assert exact bounds.
 fn compute_backoff_jittered(attempt: u32, policy: &RetryPolicy, jitter: f64) -> Duration {
@@ -428,7 +428,7 @@ fn compute_backoff_jittered(attempt: u32, policy: &RetryPolicy, jitter: f64) -> 
 
     // ±25% window centered on `capped`: total span = 50% of `capped`.
     // Integer-ms math; for sub-2ms delays the window rounds to 0 (jitter is
-    // meaningless at that scale) and we just return `capped` — never underflow.
+    // meaningless at that scale) and we just return `capped` -- never underflow.
     let capped_ms = capped.as_millis() as u64;
     let window_ms = capped_ms / 2;
     let jitter = jitter.clamp(0.0, 1.0 - f64::EPSILON);
@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn parse_retry_after_http_date_future_is_delta_from_now() {
-        // A future HTTP-date → wait ≈ (date − now). Build it from now so the assertion
+        // A future HTTP-date -> wait ≈ (date − now). Build it from now so the assertion
         // is stable. HTTP-date has 1s resolution; allow slack for test execution time.
         let future = std::time::SystemTime::now() + Duration::from_secs(3600);
         let mut h = HeaderMap::new();
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn parse_retry_after_http_date_past_is_zero() {
-        // A past HTTP-date means "retry now" → ZERO (not None, not an underflow panic).
+        // A past HTTP-date means "retry now" -> ZERO (not None, not an underflow panic).
         let mut h = HeaderMap::new();
         h.insert(
             RETRY_AFTER,
@@ -549,19 +549,19 @@ mod tests {
             base_delay: Duration::from_millis(100),
             max_delay: Duration::from_secs(10),
         };
-        // attempt 1 ≈ 100ms base (±25%); attempt 5 ≈ 1600ms base — strictly larger floor.
+        // attempt 1 ≈ 100ms base (±25%); attempt 5 ≈ 1600ms base -- strictly larger floor.
         let a1 = compute_backoff(1, &policy);
         let a5 = compute_backoff(5, &policy);
         assert!(a5 > a1, "backoff should grow: a1={a1:?} a5={a5:?}");
     }
 
     // Jitter-math tests against the pure `compute_backoff_jittered` (jitter
-    // position injected) — reproducible WITHOUT making production jitter
+    // position injected) -- reproducible WITHOUT making production jitter
     // deterministic, which would defeat the anti-thundering-herd purpose.
 
     #[test]
     fn backoff_jitter_spans_plus_minus_25_percent() {
-        // attempt 1 → capped = base = 1000ms. floor = 750ms, center = 1000ms,
+        // attempt 1 -> capped = base = 1000ms. floor = 750ms, center = 1000ms,
         // max < 1250ms (±25% centered on capped).
         let policy = RetryPolicy {
             max_attempts: 5,
@@ -595,7 +595,7 @@ mod tests {
 
     #[test]
     fn backoff_grows_with_attempts_at_fixed_jitter() {
-        // Hold jitter fixed so the EXPONENTIAL base — not jitter — drives
+        // Hold jitter fixed so the EXPONENTIAL base -- not jitter -- drives
         // monotonicity, regardless of saturation.
         let p = RetryPolicy::default_policy();
         let d1 = compute_backoff_jittered(1, &p, 0.5);
@@ -609,7 +609,7 @@ mod tests {
 
     #[test]
     fn backoff_small_delay_is_safe() {
-        // base 1ms → capped 1ms; ±25% window rounds to 0 but must never
+        // base 1ms -> capped 1ms; ±25% window rounds to 0 but must never
         // underflow, panic, or yield a zero delay regardless of jitter.
         let policy = RetryPolicy {
             max_attempts: 3,
@@ -628,7 +628,7 @@ mod tests {
     #[test]
     fn backoff_random_source_stays_within_window() {
         // Production wrapper draws real randomness; the result must always
-        // stay inside the ±25% window (bounds hold → not flaky).
+        // stay inside the ±25% window (bounds hold -> not flaky).
         let policy = RetryPolicy {
             max_attempts: 5,
             base_delay: Duration::from_millis(1000),
@@ -690,8 +690,8 @@ mod tests {
     fn chain_has_transient_io_detects_connection_timeout() {
         use std::io::{Error, ErrorKind};
         // The reported case: a streamed body read that dies with
-        // `Connection timed out (os error 110)` (Linux ETIMEDOUT → ErrorKind::TimedOut)
-        // must be treated as a transport drop — both for the plain-language message
+        // `Connection timed out (os error 110)` (Linux ETIMEDOUT -> ErrorKind::TimedOut)
+        // must be treated as a transport drop -- both for the plain-language message
         // and for open-path retry.
         let e = Wrap(Error::new(
             ErrorKind::TimedOut,
@@ -715,7 +715,7 @@ mod tests {
     #[test]
     fn chain_has_transient_io_ignores_non_transport_errors() {
         use std::io::{Error, ErrorKind};
-        // NotFound / PermissionDenied are not transport hiccups — must NOT
+        // NotFound / PermissionDenied are not transport hiccups -- must NOT
         // be retried (re-sending won't help and could mask a real fault).
         assert!(!chain_has_transient_io(&Wrap(Error::new(
             ErrorKind::NotFound,
@@ -725,7 +725,7 @@ mod tests {
             ErrorKind::PermissionDenied,
             "pd"
         ))));
-        // An error chain with no io::Error at all → not classified transient.
+        // An error chain with no io::Error at all -> not classified transient.
         #[derive(Debug)]
         struct Plain;
         impl std::fmt::Display for Plain {
@@ -741,9 +741,9 @@ mod tests {
     fn chain_has_tls_corruption_detects_record_mac_and_decrypt_alerts() {
         use std::io::{Error, ErrorKind};
         // A gateway/middlebox mangling a TLS 1.3 data record surfaces as the
-        // peer's fatal alert. rustls maps it to ErrorKind::InvalidData — too
+        // peer's fatal alert. rustls maps it to ErrorKind::InvalidData -- too
         // broad to add to the transient list (a malformed *body* is also
-        // InvalidData) — so we detect the corruption class by its alert
+        // InvalidData) -- so we detect the corruption class by its alert
         // signature instead. Both the AEAD-tag failure (BadRecordMac) and its
         // sibling DecryptError count.
         assert!(chain_has_tls_corruption(&Wrap(Error::new(
@@ -761,7 +761,7 @@ mod tests {
         use std::io::{Error, ErrorKind};
         // The SYMMETRIC direction: a middlebox mangles a record the peer sent
         // US, so OUR rustls fails to authenticate it and returns
-        // Error::DecryptError — which renders "cannot decrypt peer's message"
+        // Error::DecryptError -- which renders "cannot decrypt peer's message"
         // (rustls 0.23 error.rs:991), containing NEITHER "BadRecordMac" nor the
         // token "DecryptError". Must still be classified as corruption.
         assert!(chain_has_tls_corruption(&Wrap(Error::new(
@@ -774,14 +774,14 @@ mod tests {
     fn chain_has_tls_corruption_ignores_logical_and_handshake_failures() {
         use std::io::{Error, ErrorKind};
         // A malformed response body is ALSO InvalidData but is a logical
-        // failure — a fresh connection won't help, so it must NOT be read as
+        // failure -- a fresh connection won't help, so it must NOT be read as
         // TLS corruption (mirrors chain_has_transient_io's InvalidData carve-out).
         assert!(!chain_has_tls_corruption(&Wrap(Error::new(
             ErrorKind::InvalidData,
             "bad frame",
         ))));
         // A handshake-negotiation failure is fatal in a different way: a fresh
-        // pool / TLS-1.2 *corruption* escalation is the wrong remedy — the
+        // pool / TLS-1.2 *corruption* escalation is the wrong remedy -- the
         // existing is_connect() fallback path owns handshake failures.
         assert!(!chain_has_tls_corruption(&Wrap(Error::new(
             ErrorKind::InvalidData,
@@ -864,7 +864,7 @@ mod tests {
         assert!(partial.contains("为避免重复输出或工具执行"));
         assert!(partial.contains("已保留可安全保存的部分回复"));
         assert!(!partial.contains("自动重连仍失败"));
-        // The PartialResponse lead is self-contained — no "网络连接中断" double-中断.
+        // The PartialResponse lead is self-contained -- no "网络连接中断" double-中断.
         assert!(!partial.contains("网络连接中断"));
         // The 10054 hint is cause-scoped, so it rides both recovery modes.
         assert!(partial.contains("公司网络或代理环境"));
@@ -873,7 +873,7 @@ mod tests {
     #[test]
     fn non_10054_transport_drop_omits_the_corporate_network_hint() {
         use std::io::{Error, ErrorKind};
-        // macOS ECONNRESET (os error 54) is a generic transport drop — the
+        // macOS ECONNRESET (os error 54) is a generic transport drop -- the
         // proxy/VPN hint would misdirect, so it must NOT appear.
         let e = Wrap(Error::new(
             ErrorKind::ConnectionReset,
@@ -893,7 +893,7 @@ mod tests {
     #[test]
     fn stream_read_error_message_keeps_verbatim_form_for_logical_errors() {
         use std::io::{Error, ErrorKind};
-        // A non-transport failure (e.g. malformed body) is NOT a network drop —
+        // A non-transport failure (e.g. malformed body) is NOT a network drop --
         // it must keep the verbatim `stream read error:` form, not be mislabeled
         // a connection interruption.
         let e = Wrap(Error::new(ErrorKind::InvalidData, "bad frame"));
@@ -970,7 +970,7 @@ mod tests {
     #[tokio::test]
     async fn incomplete_message_is_retryable_and_stale() {
         let e = incomplete_message_error().await;
-        // Precondition — the ROOT CAUSE of the bug: none of the three existing
+        // Precondition -- the ROOT CAUSE of the bug: none of the three existing
         // predicates can see this error.
         assert!(!e.is_timeout());
         assert!(!e.is_connect());
@@ -989,7 +989,7 @@ mod tests {
             .send()
             .await
             .expect_err("connection refused");
-        // A refused connection also has is_request() == true — which is exactly why
+        // A refused connection also has is_request() == true -- which is exactly why
         // is_request() cannot be used as the predicate.
         assert!(e.is_request());
         assert!(!chain_has_incomplete_message(&e));
@@ -1049,7 +1049,7 @@ mod tests {
     #[test]
     fn proxy_hint_names_the_proxy_and_points_at_slash_proxy() {
         // hyper-util emits "tunnel error: failed to create underlying connection"
-        // ONLY on the proxy CONNECT path — the definitive "we couldn't reach the
+        // ONLY on the proxy CONNECT path -- the definitive "we couldn't reach the
         // proxy" signal.
         let chain = "error sending request for url (https://llm-api.atomgit.com): \
                      tunnel error: failed to create underlying connection: \
@@ -1060,7 +1060,7 @@ mod tests {
             "names the proxy: {hint}"
         );
         // Name the concrete `/proxy` menu option the user must pick, not the
-        // jargon "直连" — users don't know what that means.
+        // jargon "直连" -- users don't know what that means.
         assert!(hint.contains("/proxy"), "points at the command: {hint}");
         assert!(
             hint.contains("no_proxy"),
@@ -1087,7 +1087,7 @@ mod tests {
     #[tokio::test]
     async fn open_failed_message_keeps_the_plain_form_for_a_direct_connect_failure() {
         // A direct (non-proxy) connection refusal never carries the tunnel
-        // marker, so the shared builder must NOT inject the proxy hint — it
+        // marker, so the shared builder must NOT inject the proxy hint -- it
         // stays byte-for-byte `open failed: <chain>`.
         let e = reqwest::Client::new()
             .post("http://127.0.0.1:1/nothing")

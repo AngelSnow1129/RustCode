@@ -255,7 +255,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (this._setupRefreshTimer) clearTimeout(this._setupRefreshTimer);
   }
 
-  private _findAtomCodeTabGroup(): vscode.ViewColumn | undefined {
+  private _findRustCodeTabGroup(): vscode.ViewColumn | undefined {
     for (const group of vscode.window.tabGroups.all) {
       if (group.tabs.some(t => t.input instanceof vscode.TabInputWebview
             && (t.input as vscode.TabInputWebview).viewType.includes('rustcode.chatTab'))) {
@@ -277,7 +277,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     }
 
-    const column = this._findAtomCodeTabGroup() ?? vscode.ViewColumn.Beside;
+    const column = this._findRustCodeTabGroup() ?? vscode.ViewColumn.Beside;
 
     const panel = vscode.window.createWebviewPanel(
       'rustcode.chatTab',
@@ -1847,7 +1847,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       auth = await this._client.authStatus();
       if (!isCurrent()) return;
       post({ type: 'authStatus', auth });
-      this._watchAtomCodeAuth(auth.auth_path);
+      this._watchRustCodeAuth(auth.auth_path);
     } catch (e) {
       if (!isCurrent()) return;
       post({ type: 'setupError', message: this._messageFromError(e) });
@@ -1866,7 +1866,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       config = await this._client.getConfig();
       if (!isCurrent()) return;
       post({ type: 'config', config });
-      this._watchAtomCodeConfig(config.path);
+      this._watchRustCodeConfig(config.path);
     } catch {
       if (!isCurrent()) return;
       // Older daemons may not have P0 APIs; provider fetch error already surfaces enough.
@@ -1896,7 +1896,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  private _watchAtomCodeConfig(configPath: string) {
+  private _watchRustCodeConfig(configPath: string) {
     if (!configPath || this._watchedConfigPath === configPath) return;
     this._atomCodeConfigWatcher?.dispose();
     this._watchedConfigPath = configPath;
@@ -1910,7 +1910,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this._atomCodeConfigWatcher = watcher;
   }
 
-  private _watchAtomCodeAuth(authPath: string) {
+  private _watchRustCodeAuth(authPath: string) {
     if (!authPath || this._watchedAuthPath === authPath) return;
     this._atomCodeAuthWatcher?.dispose();
     this._watchedAuthPath = authPath;
@@ -1985,7 +1985,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (this._loginStartedFromCommand) {
           this._postMessage({
             type: 'assistantMessage',
-            text: vscode.l10n.t('Signed in as {name}.', { name: result.user?.name || result.user?.username || vscode.l10n.t('AtomGit user') }),
+            text: vscode.l10n.t('Signed in as {name}.', { name: result.user?.name || result.user?.username || vscode.l10n.t('Platform user') }),
           });
           this._loginStartedFromCommand = false;
         }
@@ -2031,10 +2031,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (announceInChat) {
         this._postMessage({
           type: 'assistantMessage',
-          text: vscode.l10n.t('Opening AtomGit sign-in in your browser. Complete authorization there, then return to VS Code.'),
+          text: vscode.l10n.t('Opening platform sign-in in your browser. Complete authorization there, then return to VS Code.'),
         });
       }
-      this._broadcastMessage({ type: 'setupWorking', message: vscode.l10n.t('Waiting for AtomGit sign-in...') });
+      this._broadcastMessage({ type: 'setupWorking', message: vscode.l10n.t('Waiting for platform sign-in...') });
 
       await this._cancelLogin();
       const login = await this._client.startLogin(true);
@@ -2072,7 +2072,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (announceInChat) {
           this._postMessage({
             type: 'assistantMessage',
-            text: vscode.l10n.t('Signed in as {name}.', { name: result.user?.name || result.user?.username || vscode.l10n.t('AtomGit user') }),
+            text: vscode.l10n.t('Signed in as {name}.', { name: result.user?.name || result.user?.username || vscode.l10n.t('Platform user') }),
           });
         }
         await this._sendSetupState();
@@ -2391,7 +2391,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     const nextName = await vscode.window.showInputBox({
-      title: vscode.l10n.t('Rename AtomCode session'),
+      title: vscode.l10n.t('Rename RustCode session'),
       prompt: vscode.l10n.t('Enter a new session name'),
       value: currentName || '',
       ignoreFocusOut: true,
@@ -2417,7 +2417,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const label = currentName || sessionId;
     const deleteLabel = vscode.l10n.t('Delete');
     const choice = await vscode.window.showWarningMessage(
-      vscode.l10n.t('Delete AtomCode session "{label}"?', { label }),
+      vscode.l10n.t('Delete RustCode session "{label}"?', { label }),
       { modal: true, detail: vscode.l10n.t('This removes the session from local history.') },
       deleteLabel,
     );
@@ -2479,7 +2479,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const count = sessions.length;
     const label = count === 1
-      ? vscode.l10n.t('Delete AtomCode session "{label}"?', { label: sessions[0].name || sessions[0].sessionId })
+      ? vscode.l10n.t('Delete RustCode session "{label}"?', { label: sessions[0].name || sessions[0].sessionId })
       : vscode.l10n.t('Delete {count} sessions?', { count });
     const deleteLabel = vscode.l10n.t('Delete');
 
@@ -2628,7 +2628,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         try {
           const auth = await this._client.logout();
           this._broadcastMessage({ type: 'authStatus', auth });
-          this._postSlashInfo(vscode.l10n.t('Signed out of AtomGit.'), sessionId, text);
+          this._postSlashInfo(vscode.l10n.t('Signed out.'), sessionId, text);
         } catch (e) {
           this._postSlashInfo(vscode.l10n.t('Unable to sign out: {message}', { message: this._messageFromError(e) }), sessionId, text);
         }
@@ -2638,7 +2638,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           const auth = await this._client.authStatus();
           const authState = classifyAuthDisplayState(auth);
           if (authState === 'expired') {
-            this._postSlashInfo(vscode.l10n.t('AtomGit session expired. Sign in again.'), sessionId, text);
+            this._postSlashInfo(vscode.l10n.t('Session expired. Sign in again.'), sessionId, text);
           } else if (authState === 'signed_in' && auth.user) {
             const name = auth.user.name || auth.user.username || auth.user.email || auth.user.id;
             const lines = [
@@ -2770,7 +2770,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this._getRuntime(sessionId).projectHash = result.project_hash;
       await this._refreshSessions();
     } catch (e) {
-      console.warn(`[AtomCode] Failed to persist local slash command: ${this._messageFromError(e)}`);
+      console.warn(`[RustCode] Failed to persist local slash command: ${this._messageFromError(e)}`);
     }
   }
 

@@ -49,7 +49,7 @@ fn decode_list_cursor(cursor: &str) -> Result<String, AcpError> {
 /// CLI/TUI. Entries are deduplicated by native id (the live entry wins for
 /// cwd), titled from the native `SessionMeta.name` (fallback names are
 /// omitted), sorted by wire id, and paginated cursor-style. Legacy-only core
-/// records are excluded — they cannot be resumed by the native pipeline.
+/// records are excluded -- they cannot be resumed by the native pipeline.
 pub async fn handle_list_sessions(
     sessions: &Sessions,
     req: &ListSessionsRequest,
@@ -66,10 +66,10 @@ pub async fn handle_list_sessions(
     let after: Option<String> = req.cursor.as_deref().map(decode_list_cursor).transpose()?;
 
     let map = sessions.lock().await;
-    // Native id → (cwd, title, additional_directories): live entries win over
+    // Native id -> (cwd, title, additional_directories): live entries win over
     // catalog entries. The live entry reports the roots requested at setup;
     // persisted (closed) entries have none stored (the protocol requires
-    // clients to re-send the full list on load/resume — it is not restored).
+    // clients to re-send the full list on load/resume -- it is not restored).
     let mut merged: std::collections::BTreeMap<
         String,
         (std::path::PathBuf, Option<String>, Vec<std::path::PathBuf>),
@@ -88,7 +88,7 @@ pub async fn handle_list_sessions(
     SessionManager::collapse_fork_lineages(&mut catalog);
     for entry in catalog {
         if entry.presence == CatalogPresence::LegacyOnly {
-            // Historical core JSON only — the native resume pipeline cannot
+            // Historical core JSON only -- the native resume pipeline cannot
             // restore it, so it must not be advertised as resumable history.
             continue;
         }
@@ -245,7 +245,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_paginates_with_cursor_and_rejects_invalid_cursor() {
-        // 3 sessions > page size? No — the page size is 50. Build a table larger
+        // 3 sessions > page size? No -- the page size is 50. Build a table larger
         // than one page by inserting SESSION_LIST_PAGE_SIZE + 2 sessions.
         let entries: Vec<(String, &str)> = (0..SESSION_LIST_PAGE_SIZE + 2)
             .map(|n| (format!("acp-{n:03}"), "/work"))

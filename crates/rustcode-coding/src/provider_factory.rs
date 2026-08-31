@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rustcode_capabilities::provider::{
-    atomgit_request_signer, is_atomgit_gateway, signer_available, AnthropicConfig,
+    codingplan_request_signer, is_codingplan_gateway, signer_available, AnthropicConfig,
     AnthropicProvider, OllamaConfig, OllamaProvider, OpenAiCompatConfig, OpenAiCompatProvider,
     ReasoningPolicy, RequestSigner, RetryPolicy,
 };
@@ -42,14 +42,14 @@ pub trait ProviderAuthenticator: Send + Sync {
     ) -> Result<Option<Arc<dyn RequestSigner>>, ProviderBuildError>;
 }
 
-pub struct AtomGitProviderAuthenticator;
+pub struct CodingPlanProviderAuthenticator;
 
-impl ProviderAuthenticator for AtomGitProviderAuthenticator {
+impl ProviderAuthenticator for CodingPlanProviderAuthenticator {
     fn request_signer(
         &self,
         base_url: &str,
     ) -> Result<Option<Arc<dyn RequestSigner>>, ProviderBuildError> {
-        if !is_atomgit_gateway(base_url) {
+        if !is_codingplan_gateway(base_url) {
             return Ok(None);
         }
         if !signer_available() {
@@ -57,18 +57,18 @@ impl ProviderAuthenticator for AtomGitProviderAuthenticator {
                 base_url: base_url.to_string(),
             });
         }
-        atomgit_request_signer(base_url)
+        codingplan_request_signer(base_url)
             .map(Some)
             .map_err(ProviderBuildError::Authentication)
     }
 }
 
-pub fn atomgit_provider_factory(
+pub fn codingplan_provider_factory(
     default_user_agent: impl Into<String>,
 ) -> Arc<dyn CodingProviderFactory> {
     Arc::new(
         DefaultCodingProviderFactory::new(default_user_agent)
-            .with_authenticator(Arc::new(AtomGitProviderAuthenticator)),
+            .with_authenticator(Arc::new(CodingPlanProviderAuthenticator)),
     )
 }
 
@@ -230,7 +230,7 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
 fn supports_reasoning_effort(cfg: &CodingAgentConfig) -> bool {
     // The capability is already resolved from CONFIG when the CodingAgentConfig is built
     // (`agent_config` / `apply_provider_config` via `endpoint_supports_reasoning_effort`),
-    // so just read it — no hardcoded model name.
+    // so just read it -- no hardcoded model name.
     cfg.supports_reasoning_effort
 }
 
@@ -522,12 +522,12 @@ mod tests {
     fn supports_reasoning_effort_reads_the_config_resolved_capability() {
         // The capability is resolved from CONFIG when the CodingAgentConfig is built
         // (via `endpoint_supports_reasoning_effort`), so this reader just reflects the
-        // field — NO hardcoded model name. (The config-driven derivation itself is
+        // field -- NO hardcoded model name. (The config-driven derivation itself is
         // covered by `endpoint_supports_reasoning_effort_is_config_driven` in the config
         // crate and by `tier_configs_preserve_default_effort_and_capability` below.)
         let mut cfg = config("openai");
         cfg.model = "qwen3.8-27b".into();
-        cfg.provider_name = "AtomGit-qwen3.8-27b".into();
+        cfg.provider_name = "RustCode-qwen3.8-27b".into();
         cfg.supports_reasoning_effort = false;
         assert!(!supports_reasoning_effort(&cfg));
         cfg.supports_reasoning_effort = true;
@@ -569,7 +569,7 @@ mod tests {
     fn tier_capability_follows_server_advertised_levels_without_an_explicit_effort() {
         // The qwen3.8-27b case: the endpoint advertises effort LEVELS but no effort is set
         // yet. `supports_reasoning_effort` must be TRUE (so the wire will send the effort
-        // once the user picks one) — driven by config, not a hardcoded deepseek name.
+        // once the user picks one) -- driven by config, not a hardcoded deepseek name.
         let catalog: rustcode_config::config::Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
                 "custom": { "provider": "openai-compatible", "base_url": "https://example.invalid/v1" }
@@ -587,7 +587,7 @@ mod tests {
         let tier = derive_tier_config_from_resolved(&config("openai"), &resolved);
         assert!(
             tier.supports_reasoning_effort,
-            "advertised levels → wire capability on, even with no explicit effort"
+            "advertised levels -> wire capability on, even with no explicit effort"
         );
         assert_eq!(tier.chat_options.reasoning_effort, None);
     }

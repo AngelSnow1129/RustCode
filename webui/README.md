@@ -1,8 +1,8 @@
-# AtomCode webui
+# RustCode webui
 
-A local browser UI for AtomCode (Preact + Vite + Tailwind), served by the
-`atomcode-daemon` HTTP server. Launch it with `/webui` inside the TUI or
-`atomcode webui` from the CLI — both open a loopback-only page in your browser.
+A local browser UI for RustCode (Preact + Vite + Tailwind), served by the
+`rustcode-daemon` HTTP server. Launch it with `/webui` inside the TUI or
+`rustcode webui` from the CLI — both open a loopback-only page in your browser.
 
 ## Develop the frontend
 
@@ -12,14 +12,14 @@ npm install
 npm run dev          # vite dev server on http://localhost:5173
 ```
 
-For hot reload against a running daemon, set `ATOMCODE_WEBUI_DEV` so the daemon
+For hot reload against a running daemon, set `RUSTCODE_WEBUI_DEV` so the daemon
 redirects page requests to the vite dev server instead of serving the embedded
 bundle:
 
 ```bash
-ATOMCODE_WEBUI_DEV=http://localhost:5173 atomcode webui
+RUSTCODE_WEBUI_DEV=http://localhost:5173 rustcode webui
 # (or run the daemon directly)
-ATOMCODE_WEBUI_DEV=http://localhost:5173 cargo run -p atomcode-daemon -- --port 13456
+RUSTCODE_WEBUI_DEV=http://localhost:5173 cargo run -p rustcode-daemon -- --port 13456
 ```
 
 API calls still hit the daemon; only the static page is redirected, so you keep
@@ -35,7 +35,7 @@ cargo build          # re-embeds webui/dist/ into the binary
 
 The compiled assets in `webui/dist/` are committed to the repo and embedded into
 the binary at build time via `rust-embed` (see
-`crates/atomcode-daemon/src/webui.rs`). After changing frontend code, run
+`crates/rustcode-daemon/src/webui.rs`). After changing frontend code, run
 `npm run build` and commit the updated `dist/` so the embedded bundle stays in
 sync.
 

@@ -67,7 +67,7 @@ fn setup_installs_seeds_in_empty_project() {
     );
 
     // setup-state.json should exist in the project dir.
-    // (Not in user dir — state is per-project.)
+    // (Not in user dir -- state is per-project.)
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn concurrent_runs_second_fails_lock() {
     let proj_b = proj.path().to_path_buf();
 
     // `setup::run` is synchronous. Use std::thread to run two concurrent
-    // invocations — the lock must prevent both from succeeding simultaneously.
+    // invocations -- the lock must prevent both from succeeding simultaneously.
     let (r1, r2) = std::thread::scope(|s| {
         let t1 = s.spawn(|| {
             let o = rustcode_capabilities::setup::RunOptions::new(proj_a);

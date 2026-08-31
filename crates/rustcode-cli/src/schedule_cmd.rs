@@ -1,4 +1,4 @@
-//! `rustcode schedule` subcommand — add / list / remove / enable / disable / sync.
+//! `rustcode schedule` subcommand -- add / list / remove / enable / disable / sync.
 //!
 //! Task 4 will fill in the `Run` arm; for now it returns a non-zero exit
 //! code with an informational message so callers can detect the stub.
@@ -162,7 +162,7 @@ fn parse_schedule(
     )
 }
 
-/// Build a [`ScheduleTask`] from raw CLI arguments.  Pure function — no I/O.
+/// Build a [`ScheduleTask`] from raw CLI arguments.  Pure function -- no I/O.
 ///
 /// `id` = `slug(title)-<first 6 chars of a new UUIDv4>`.
 pub fn build_task(
@@ -229,7 +229,7 @@ fn slug(s: &str) -> String {
 /// Core logic for `schedule add` after the task has been built and saved.
 ///
 /// Installs the task into the OS scheduler.  If install fails the task is
-/// **not** deleted — the caller should log the error and suggest `sync`.
+/// **not** deleted -- the caller should log the error and suggest `sync`.
 fn handle_add_with(os: &dyn OsScheduler, task: &ScheduleTask) -> Result<()> {
     if let Err(e) = os.install(task) {
         eprintln!(
@@ -243,7 +243,7 @@ fn handle_add_with(os: &dyn OsScheduler, task: &ScheduleTask) -> Result<()> {
 
 /// Core logic for `schedule remove`: uninstall (best-effort) then delete.
 fn handle_remove_with(os: &dyn OsScheduler, id: &str) -> Result<()> {
-    // best-effort — don't abort if already absent
+    // best-effort -- don't abort if already absent
     let _ = os.uninstall(id);
     schedule::remove(id).with_context(|| format!("failed to remove task {:?}", id))?;
     Ok(())
@@ -433,7 +433,7 @@ pub(crate) fn mode_from_str(s: &str) -> rustcode_coding::RuntimeMode {
     match s {
         "accept_edits" => rustcode_coding::RuntimeMode::AcceptEdits,
         "auto" => rustcode_coding::RuntimeMode::Auto,
-        _ => rustcode_coding::RuntimeMode::Plan, // plan + unknown → safe default
+        _ => rustcode_coding::RuntimeMode::Plan, // plan + unknown -> safe default
     }
 }
 
@@ -497,15 +497,15 @@ async fn run_task(id: &str) -> Result<i32> {
     // 5. Build runtime config.
     //    Scheduled tasks never do a full bypass (dangerously_skip_permissions=false).
     //    The strict_unattended approver in run_native_headless blocks any dangerous/
-    //    out-of-workspace bash regardless of permission_mode — no human is present.
+    //    out-of-workspace bash regardless of permission_mode -- no human is present.
     let mode = mode_from_str(&task.permission_mode);
     let runtime_cfg = crate::runtime_config_from(
         &config, &cwd, None,
-        false, // dangerously_skip_permissions=false — scheduled: never full bypass
+        false, // dangerously_skip_permissions=false -- scheduled: never full bypass
         false, // headless: fail-closed approval timeout
     );
 
-    // 6. Spawn runtime (Fresh session — no resume).
+    // 6. Spawn runtime (Fresh session -- no resume).
     // Headless path always uses ProviderBootstrap::Required so it fails fast
     // when no provider is configured, mirroring the `-p` / `--prompt` flow.
     let (runtime, agent, _cont) = crate::spawn_native_cli_runtime(
@@ -523,7 +523,7 @@ async fn run_task(id: &str) -> Result<i32> {
     if let Some(ref session_info) = runtime.session {
         let sid = session_info.id.clone();
         let manager = SessionManager::for_project(&agent.working_dir);
-        // Best-effort — don't abort the run if meta update fails.
+        // Best-effort -- don't abort the run if meta update fails.
         let _ = manager.update_meta(&sid, |m| {
             m.origin = SessionOrigin::Scheduled;
         });
@@ -531,7 +531,7 @@ async fn run_task(id: &str) -> Result<i32> {
 
     // 8. Set the runtime mode after spawn.
     //    Scheduled tasks cap Auto at AcceptEdits so the middleware layer does not
-    //    blanket-approve dangerous bash — the strict approver in run_native_headless
+    //    blanket-approve dangerous bash -- the strict approver in run_native_headless
     //    provides the second safety net.  Plan and AcceptEdits pass through unchanged.
     let effective_mode = if mode == rustcode_coding::RuntimeMode::Auto {
         rustcode_coding::RuntimeMode::AcceptEdits
@@ -545,7 +545,7 @@ async fn run_task(id: &str) -> Result<i32> {
         .map_err(anyhow::Error::new)?;
 
     // 9. Build notification config.
-    //    "off" → disabled config; anything else → use the user's config.
+    //    "off" -> disabled config; anything else -> use the user's config.
     let notifications_cfg = if task.notify == "off" {
         rustcode_config::config::NotificationConfig {
             enabled: false,
@@ -557,7 +557,7 @@ async fn run_task(id: &str) -> Result<i32> {
 
     // 10. Run headless with strict unattended approver.
     //    skip_permissions=false: scheduled tasks never do full bypass.
-    //    strict_unattended=true: any tool escalated to approval is denied — no human
+    //    strict_unattended=true: any tool escalated to approval is denied -- no human
     //    is available to vet destructive or out-of-workspace commands.
     //    auto permission_mode is equivalent to accept-edits + strict bash gating.
     let provider_name = runtime_cfg.provider_name.clone();
@@ -572,9 +572,9 @@ async fn run_task(id: &str) -> Result<i32> {
         crate::HeadlessOutputFormat::Text,
         false,
         cwd.clone(),
-        false, // skip_permissions=false — never bypass for scheduled runs
+        false, // skip_permissions=false -- never bypass for scheduled runs
         false, // is_admin=false
-        true,  // strict_unattended=true — deny risky/out-of-workspace bash
+        true,  // strict_unattended=true -- deny risky/out-of-workspace bash
     )
     .await?;
 
@@ -593,7 +593,7 @@ async fn run_task(id: &str) -> Result<i32> {
 /// Format an epoch-seconds timestamp as a human-readable UTC string.
 fn format_epoch(epoch_secs: i64) -> String {
     // Simple UTC formatting without pulling in chrono.
-    // epoch_secs → days/hours/minutes.
+    // epoch_secs -> days/hours/minutes.
     let secs = epoch_secs;
     let s = secs % 60;
     let m = (secs / 60) % 60;
@@ -650,15 +650,15 @@ mod tests {
 
     #[test]
     fn strict_unattended_denies_escalated_bash() {
-        // Normal -p: bash escalated to approval → allow (current behaviour).
+        // Normal -p: bash escalated to approval -> allow (current behaviour).
         assert!(crate::headless_auto_approve(false, false, "bash"));
-        // scheduled (strict): bash escalated to approval (= dangerous/out-of-workspace) → deny.
+        // scheduled (strict): bash escalated to approval (= dangerous/out-of-workspace) -> deny.
         assert!(!crate::headless_auto_approve(true, false, "bash"));
-        // scheduled (strict): non-bash tool needs approval → deny (no human present).
+        // scheduled (strict): non-bash tool needs approval -> deny (no human present).
         assert!(!crate::headless_auto_approve(true, false, "edit_file"));
         // strict + skip_permissions still denies (scheduled never skips, but defensive).
         assert!(!crate::headless_auto_approve(true, true, "bash"));
-        // non-strict + skip_permissions (-p flag) → skip_permissions dominates, any tool allowed.
+        // non-strict + skip_permissions (-p flag) -> skip_permissions dominates, any tool allowed.
         assert!(crate::headless_auto_approve(false, true, "edit_file"));
     }
 
@@ -705,17 +705,17 @@ mod tests {
     fn slug_handles_special_chars() {
         assert_eq!(slug("Hello World!"), "hello-world");
         assert_eq!(slug("  leading-trailing  "), "leading-trailing");
-        // purely punctuation → "task" fallback
+        // purely punctuation -> "task" fallback
         assert_eq!(slug("!!!"), "task");
         // long title gets truncated
         let long = "a".repeat(50);
         assert_eq!(slug(&long).len(), 32);
     }
 
-    // B: ASCII-only slug — non-ASCII characters (CJK etc.) must be dropped.
+    // B: ASCII-only slug -- non-ASCII characters (CJK etc.) must be dropped.
     #[test]
     fn slug_non_ascii_title_falls_back_to_task() {
-        // Purely CJK: no ASCII alphanumeric → fallback "task"
+        // Purely CJK: no ASCII alphanumeric -> fallback "task"
         let s = slug("重要任务");
         assert_eq!(s, "task", "pure non-ASCII slug must be 'task', got: {s}");
         // Mixed ASCII + CJK: only ASCII letters survive
@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn format_epoch_known_date() {
-        // 2026-07-31 09:00:00 UTC — rough sanity check.
+        // 2026-07-31 09:00:00 UTC -- rough sanity check.
         // 2026-07-31 = days since epoch: (2026-1970)*365 + leap_days + day_in_year
         // just check it doesn't panic and contains "2026"
         let s = format_epoch(1785661200);
@@ -814,7 +814,7 @@ mod tests {
         });
     }
 
-    // ── FakeScheduler — records install/uninstall calls ───────────────────────
+    // ── FakeScheduler -- records install/uninstall calls ───────────────────────
 
     use crate::schedule_os::{InstallState, OsScheduler};
     use rustcode_config::schedule::ScheduleTask;
@@ -978,7 +978,7 @@ mod tests {
             rustcode_config::schedule::save(&t_off).unwrap();
 
             let errors = handle_sync_with(&fake).unwrap();
-            // No failures → error count is 0.
+            // No failures -> error count is 0.
             assert_eq!(errors, 0);
 
             assert_eq!(fake.installed(), vec!["sync-on-abc123"]);
@@ -1021,7 +1021,7 @@ mod tests {
     // FakeScheduler status path with None (simulate degraded by using a wrapper).
     #[test]
     fn list_os_unknown_status_when_scheduler_unavailable() {
-        // When os is None, the reg field must be "unknown" — verified by checking
+        // When os is None, the reg field must be "unknown" -- verified by checking
         // the match arm logic directly (no I/O needed).
         let state: Option<InstallState> = None;
         let reg = match state {

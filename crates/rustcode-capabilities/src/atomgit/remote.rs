@@ -12,7 +12,7 @@ pub struct PushTarget {
     pub repo: String,
 }
 
-/// Host → v5 API base. `None` for unsupported hosts.
+/// Host -> v5 API base. `None` for unsupported hosts.
 fn base_url_for(url_lower: &str) -> Option<&'static str> {
     if url_lower.contains("atomgit.com") {
         Some("https://api.atomgit.com/api/v5")
@@ -30,7 +30,7 @@ pub fn parse_push_target(remote_url: &str) -> Option<PushTarget> {
     let lower = remote_url.to_ascii_lowercase();
     let base_url = base_url_for(&lower)?;
     // Locate the host, then take the path after it. The separator is ':' for
-    // scp-form (git@host:owner/repo) or '/' for URL-form (…host/owner/repo).
+    // scp-form (git@host:owner/repo) or '/' for URL-form (...host/owner/repo).
     let host = if lower.contains("atomgit.com") {
         "atomgit.com"
     } else {
@@ -144,10 +144,10 @@ mod tests {
         let p = dir.path();
         git(p, &["init", "-q"]);
 
-        // No origin yet → None (not a crash).
-        assert!(detect_push_target(p).is_none(), "no origin → None");
+        // No origin yet -> None (not a crash).
+        assert!(detect_push_target(p).is_none(), "no origin -> None");
 
-        // A gitcode origin → Some, parsed to owner/repo.
+        // A gitcode origin -> Some, parsed to owner/repo.
         git(
             p,
             &[
@@ -157,13 +157,13 @@ mod tests {
                 "https://gitcode.com/saulcy/order_a_meal.git",
             ],
         );
-        let t = detect_push_target(p).expect("gitcode origin → Some");
+        let t = detect_push_target(p).expect("gitcode origin -> Some");
         assert_eq!(
             (t.owner.as_str(), t.repo.as_str()),
             ("saulcy", "order_a_meal")
         );
 
-        // A non-atomgit origin (github) → None: the middleware skips labelling.
+        // A non-atomgit origin (github) -> None: the middleware skips labelling.
         git(
             p,
             &[
@@ -173,6 +173,6 @@ mod tests {
                 "git@github.com:acme/widget.git",
             ],
         );
-        assert!(detect_push_target(p).is_none(), "github origin → None");
+        assert!(detect_push_target(p).is_none(), "github origin -> None");
     }
 }

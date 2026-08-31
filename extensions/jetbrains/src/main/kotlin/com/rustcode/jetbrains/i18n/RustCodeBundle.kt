@@ -4,8 +4,8 @@ import java.text.MessageFormat
 import java.util.Locale
 import java.util.ResourceBundle
 
-internal object AtomCodeBundle {
-    private const val BUNDLE = "messages.AtomCodeBundle"
+internal object RustCodeBundle {
+    private const val BUNDLE = "messages.RustCodeBundle"
 
     fun message(key: String, vararg params: Any): String =
         message(Locale.getDefault(), key, *params)

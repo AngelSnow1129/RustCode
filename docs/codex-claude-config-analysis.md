@@ -54,7 +54,7 @@ supports_vision = false
 - `G2` (`clippy`): 未执行
 - `G3` (`test`): 未执行
 - `G6` (遥测 grep): 无 `sentry/posthog/segment/analytics` 命中
-- `G7` (`atomcode` grep): 仍有历史名引用（合法）
+- `G7` (`rustcode` grep): 仍有历史名引用（合法）
 - `G8` (`docs/architecture.md`): 已更新为 `rustcode-*`
 
 ## 7. 已知缺口

@@ -3,7 +3,7 @@ package com.rustcode.jetbrains.daemon
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-class AtomCodeDaemonTypesTest {
+class RustCodeDaemonTypesTest {
     @Test
     fun `approval modes keep canonical order display names and wire values`() {
         assertEquals(

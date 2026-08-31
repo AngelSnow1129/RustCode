@@ -315,7 +315,7 @@ impl SelfDeleteStrategy for PlatformSelfDelete {
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "no parent dir"))?;
         let dir_str = install_dir.to_string_lossy().to_string();
 
-        // Use `timeout` for the delay instead of `ping` — it is semantically
+        // Use `timeout` for the delay instead of `ping` -- it is semantically
         // clearer and avoids the "cmd window flashing ping 127.0.0.1" bug
         // reported in gitcode.com/SecLab/RustCode/issues/352.
         // CREATE_NO_WINDOW prevents the console window from appearing at all
@@ -400,7 +400,7 @@ export PATH=\"/Users/test/.local/bin:$PATH\"
 export PATH=\"/Users/test/.local/bin:$PATH\"
 # unrelated comment
 ";
-        // No installer comment → must return None even though prefix matches.
+        // No installer comment -> must return None even though prefix matches.
         assert_eq!(strip_rustcode_path_block(input, PREFIX), None);
     }
 

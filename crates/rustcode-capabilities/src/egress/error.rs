@@ -3,7 +3,7 @@
 //! Modeled on the reference project's `ToolResultBuilder.error(msg, brief=...)` pair:
 //! a UI-facing ONE-LINE summary ([`EgressError::brief`]) and a diagnostic text for
 //! the model / logs ([`EgressError::detail`]). Keeping the two separate is what stops
-//! a 2 MiB HTML error page from being replayed into the conversation — `brief` is what
+//! a 2 MiB HTML error page from being replayed into the conversation -- `brief` is what
 //! the user sees, `detail` is what gets logged, and the wire body is truncated at
 //! [`BODY_EXCERPT_BYTES`] in BOTH.
 
@@ -22,20 +22,20 @@ pub const BODY_EXCERPT_BYTES: usize = 512;
 /// Every way an outbound HTTP call can fail.
 #[derive(Debug, Error)]
 pub enum EgressError {
-    /// The caller's configuration is unusable (empty base url, unparseable proxy, …).
-    /// Not retryable — retrying the same bytes yields the same error.
+    /// The caller's configuration is unusable (empty base url, unparseable proxy, ...).
+    /// Not retryable -- retrying the same bytes yields the same error.
     #[error("invalid egress configuration: {0}")]
     Config(String),
-    /// The HTTP client could not be CONSTRUCTED (bad TLS root, invalid header, …).
+    /// The HTTP client could not be CONSTRUCTED (bad TLS root, invalid header, ...).
     /// Distinct from [`EgressError::Transport`] because a failed build means no
     /// request ever left the process; the #514 backstop lives on this path.
     #[error("failed to build HTTP client: {0}")]
     Build(String),
-    /// The request never completed (DNS, connect, TLS handshake, timeout, …).
+    /// The request never completed (DNS, connect, TLS handshake, timeout, ...).
     #[error("HTTP transport error: {0}")]
     Transport(#[source] reqwest::Error),
     /// The server answered with a non-success status. `body_excerpt` is ALREADY
-    /// truncated to [`BODY_EXCERPT_BYTES`] — see [`EgressError::http`].
+    /// truncated to [`BODY_EXCERPT_BYTES`] -- see [`EgressError::http`].
     #[error("HTTP {status}: {brief}")]
     Http {
         status: u16,
@@ -81,7 +81,7 @@ impl EgressError {
             Self::Build(msg) => format!("[ERROR] egress client unavailable: {msg}"),
             Self::Transport(e) => {
                 // `reqwest::Error`'s Display can be multi-line and carries the full
-                // URL (which may embed an api key in a query string) — keep only the
+                // URL (which may embed an api key in a query string) -- keep only the
                 // first line and cap the length.
                 let first = e.to_string();
                 let first = first.lines().next().unwrap_or_default();
@@ -171,7 +171,7 @@ fn truncate_utf8(s: &str, cap: usize) -> String {
     while end > 0 && !s.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}…[truncated]", &s[..end])
+    format!("{}...[truncated]", &s[..end])
 }
 
 #[cfg(test)]
@@ -212,23 +212,23 @@ mod tests {
     fn http_excerpt_is_truncated_to_512_bytes() {
         // Multi-byte content: proves the cap is BYTES (not chars) and that we never
         // cut mid-char (which would make the result invalid UTF-8).
-        let page = "你".repeat(400); // 3 bytes each → 1200 bytes
+        let page = "你".repeat(400); // 3 bytes each -> 1200 bytes
         assert_eq!(page.len(), 1200);
         let e = EgressError::http(500, "boom", &page);
         let EgressError::Http { body_excerpt, .. } = &e else {
             panic!("expected the Http variant");
         };
         assert!(
-            body_excerpt.len() <= BODY_EXCERPT_BYTES + "…[truncated]".len(),
+            body_excerpt.len() <= BODY_EXCERPT_BYTES + "...[truncated]".len(),
             "excerpt must be bounded: {} bytes",
             body_excerpt.len()
         );
         assert!(
-            body_excerpt.ends_with("…[truncated]"),
+            body_excerpt.ends_with("...[truncated]"),
             "truncation is marked: {body_excerpt:?}"
         );
         // The kept prefix is valid UTF-8 AND lands on a char boundary.
-        let kept = body_excerpt.trim_end_matches("…[truncated]");
+        let kept = body_excerpt.trim_end_matches("...[truncated]");
         assert!(kept.len() <= BODY_EXCERPT_BYTES);
         assert!(kept.len() % 3 == 0, "no split mid char: {}", kept.len());
     }

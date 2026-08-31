@@ -71,7 +71,7 @@ pub enum McpConfigSource {
     /// Supplied at runtime by a driver (e.g. an ACP client injecting
     /// `mcpServers` in `session/new`). The client is the trust boundary for
     /// these servers, so [`crate::mcp::trust::partition_by_trust`] never
-    /// withholds them — only `Project`-source servers are gated on project
+    /// withholds them -- only `Project`-source servers are gated on project
     /// trust.
     Driver,
 }
@@ -182,18 +182,18 @@ pub fn load_mcp_config(project_dir: &Path) -> Result<Vec<McpServerConfig>> {
     Ok(merged.into_values().filter(|c| !c.disabled).collect())
 }
 
-/// Blank out `//` and `/* … */` comments so a JSONC-flavoured config parses.
+/// Blank out `//` and `/* ... */` comments so a JSONC-flavoured config parses.
 ///
 /// Editors (VS Code, Cursor) and our own `.mcp.json.example` all treat this file as
 /// JSONC, so people paste commented configs. Comment bytes are replaced with spaces
 /// rather than removed, and newlines inside block comments are kept, so every surviving
-/// byte stays at its original offset — a `serde_json` parse error still reports the
+/// byte stays at its original offset -- a `serde_json` parse error still reports the
 /// line/column the user sees in their editor.
 ///
 /// String literals are never touched: `"https://mcp.example.com/mcp"` must survive the
 /// `//` in its scheme, and `"a\"//b"` must not end the string at the escaped quote.
 ///
-/// Trailing commas remain invalid — this is comment tolerance, not full JSON5.
+/// Trailing commas remain invalid -- this is comment tolerance, not full JSON5.
 fn strip_json_comments(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -205,7 +205,7 @@ fn strip_json_comments(input: &str) -> String {
 
         if in_string {
             out.push(b);
-            // A backslash escapes the next byte, including `\"` — consume both so an
+            // A backslash escapes the next byte, including `\"` -- consume both so an
             // escaped quote does not look like the end of the string.
             if b == b'\\' && i + 1 < bytes.len() {
                 out.push(bytes[i + 1]);
@@ -269,7 +269,7 @@ fn has_json_comments(text: &str) -> bool {
 ///
 /// A rewrite serialises the parsed `Value` back out, which would silently delete every
 /// comment in the file. Refuse instead: the read path tolerates comments, so the config
-/// still works — it just cannot be edited for you. Losing someone's annotations without
+/// still works -- it just cannot be edited for you. Losing someone's annotations without
 /// telling them is worse than making them edit by hand.
 fn read_json_for_rewrite(path: &Path) -> Result<Value> {
     let text = std::fs::read_to_string(path)
@@ -570,8 +570,8 @@ fn expand_env_vars(s: &str) -> String {
 
 /// Expand a leading `~` (home) in a string.
 ///
-/// - `~/path` → `$HOME/path`
-/// - `~` → `$HOME`
+/// - `~/path` -> `$HOME/path`
+/// - `~` -> `$HOME`
 /// - Other forms (e.g. `~user/...`) are left unchanged.
 fn expand_tilde(s: &str) -> String {
     if s == "~" {
@@ -863,7 +863,7 @@ mod tests {
 
     #[test]
     fn parses_trust_and_auto_approve_from_mcp_json() {
-        // The exact shapes from the bug report — both must be honored, not dropped.
+        // The exact shapes from the bug report -- both must be honored, not dropped.
         let raw: McpConfigFile = serde_json::from_str(
             r#"{"mcpServers":{"my-docs":{"command":"my-docs-server","trust":true,"autoApprove":["query","search"]}}}"#,
         )
@@ -1050,21 +1050,21 @@ mod example_template_tests {
     use super::*;
 
     /// The shipped template is JSONC and tells users to copy it verbatim. If this
-    /// breaks, that instruction is a lie again — which is exactly the bug this
+    /// breaks, that instruction is a lie again -- which is exactly the bug this
     /// comment support was added to fix.
     #[test]
     fn shipped_mcp_json_example_parses_as_is() {
         let example = concat!(env!("CARGO_MANIFEST_DIR"), "/../../.mcp.json.example");
         let path = std::path::Path::new(example);
         if !path.exists() {
-            return; // not a repo checkout (packaged crate) — nothing to assert
+            return; // not a repo checkout (packaged crate) -- nothing to assert
         }
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join(".mcp.json");
         std::fs::copy(path, &target).unwrap();
 
         let configs = load_config_file(&target, McpConfigSource::Project)
-            .expect(".mcp.json.example must parse verbatim — it tells users to copy it as-is");
+            .expect(".mcp.json.example must parse verbatim -- it tells users to copy it as-is");
         // Every template entry ships disabled:true, so nothing is enabled by accident.
         assert!(!configs.is_empty(), "template defines servers");
         assert!(

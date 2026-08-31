@@ -83,8 +83,8 @@ pub(crate) fn parse_unified_diff_files(diff: &str, max_entries: usize) -> Parsed
 }
 
 /// Parse a git unified diff (`@@ -a,b +c,d @@` hunks + ` `/`+`/`-` lines) into
-/// line-numbered entries. Everything before the first `@@` hunk — the `Edited …`
-/// preamble and any `--- `/`+++ ` file headers — is ignored. Stops after
+/// line-numbered entries. Everything before the first `@@` hunk -- the `Edited ...`
+/// preamble and any `--- `/`+++ ` file headers -- is ignored. Stops after
 /// `max_lines` entries.
 pub(crate) fn parse_unified_diff(diff: &str, max_lines: usize) -> Vec<DiffEntry> {
     let mut out: Vec<DiffEntry> = Vec::new();
@@ -113,9 +113,9 @@ pub(crate) fn parse_unified_diff(diff: &str, max_lines: usize) -> Vec<DiffEntry>
             continue;
         }
         if old_ln == 0 && new_ln == 0 {
-            // Preamble before the first hunk: the `Edited …` line and the
+            // Preamble before the first hunk: the `Edited ...` line and the
             // `--- `/`+++ ` file headers (which always precede the first `@@`).
-            // Do NOT skip `---`/`+++`-shaped lines INSIDE a hunk — those are
+            // Do NOT skip `---`/`+++`-shaped lines INSIDE a hunk -- those are
             // deleted/added content (e.g. a `-- ` line diffs to `--- `).
             continue;
         }
@@ -155,7 +155,7 @@ pub(crate) fn parse_unified_diff(diff: &str, max_lines: usize) -> Vec<DiffEntry>
 }
 
 /// Parse the two 1-based start line numbers from a hunk header body
-/// (`rest` = the text after `@@`, e.g. ` -12,3 +14,4 @@ …`).
+/// (`rest` = the text after `@@`, e.g. ` -12,3 +14,4 @@ ...`).
 fn parse_hunk_header(rest: &str) -> Option<(usize, usize)> {
     let mut old_start = None;
     let mut new_start = None;
@@ -185,7 +185,7 @@ pub(crate) fn diff_gutter_width(entries: &[DiffEntry]) -> usize {
         .max(1)
 }
 
-/// Format one diff row as `"  {num:>gutter} {sign} {text}"` — the display line
+/// Format one diff row as `"  {num:>gutter} {sign} {text}"` -- the display line
 /// (WITHOUT color and WITHOUT control-scrubbing; the caller applies the theme
 /// role and scrubs controls). `text` is the raw entry text.
 pub(crate) fn diff_row_text(entry: &DiffEntry, gutter: usize) -> String {
@@ -251,8 +251,8 @@ Edited a.rs (1 replacement)
 
     #[test]
     fn del_line_starting_with_dashes_is_not_dropped_as_a_header() {
-        // A deleted line whose content starts with `--` becomes `---…` in the
-        // diff (sign `-` + content `--…`). It must render as a DELETION, not be
+        // A deleted line whose content starts with `--` becomes `---...` in the
+        // diff (sign `-` + content `--...`). It must render as a DELETION, not be
         // mistaken for a `---` file header and silently dropped (which would also
         // throw off every following line number). Same idea for added `++` lines.
         let diff = "\
@@ -379,7 +379,7 @@ Binary files a/image.png and b/image.png differ";
             },
         ];
         let w = diff_gutter_width(&entries);
-        assert_eq!(w, 2); // largest line number is 10 → width 2
+        assert_eq!(w, 2); // largest line number is 10 -> width 2
         assert_eq!(diff_row_text(&entries[0], w), "   9   ctx");
         assert_eq!(diff_row_text(&entries[1], w), "  10 + added");
         assert_eq!(diff_row_text(&entries[2], w), "  10 - removed");

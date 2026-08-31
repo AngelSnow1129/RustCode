@@ -8,12 +8,12 @@ use rustcode_auth::oauth::{
 
 use super::{RequestSigner, RequestSigningError, SignedAuth};
 
-struct AtomGitRequestSigner {
+struct CodingPlanRequestSigner {
     path: String,
 }
 
 #[async_trait::async_trait]
-impl RequestSigner for AtomGitRequestSigner {
+impl RequestSigner for CodingPlanRequestSigner {
     fn sign(&self, body: &[u8]) -> Result<SignedAuth, RequestSigningError> {
         let auth = get_valid_auth_session()
             .map_err(|error| RequestSigningError::CredentialsUnavailable(error.to_string()))?;
@@ -53,12 +53,12 @@ impl RequestSigner for AtomGitRequestSigner {
     ) -> Result<bool, RequestSigningError> {
         let rejected_token = rejected.bearer.clone().ok_or_else(|| {
             RequestSigningError::CredentialsUnavailable(
-                "AtomGit gateway rejected a request without an OAuth token".to_string(),
+                "gateway rejected a request without an OAuth token".to_string(),
             )
         })?;
         let expected_user_id = rejected.account_id.clone().ok_or_else(|| {
             RequestSigningError::CredentialsUnavailable(
-                "AtomGit gateway auth identity is unavailable".to_string(),
+                "gateway auth identity is unavailable".to_string(),
             )
         })?;
         tokio::task::spawn_blocking(move || {
@@ -83,18 +83,18 @@ impl RequestSigner for AtomGitRequestSigner {
     }
 }
 
-pub fn atomgit_request_signer(base_url: &str) -> Result<Arc<dyn RequestSigner>, String> {
+pub fn codingplan_request_signer(base_url: &str) -> Result<Arc<dyn RequestSigner>, String> {
     let auth = get_stored_auth()
-        .ok_or_else(|| "AtomGit gateway requires login — run `/login` first".to_string())?;
+        .ok_or_else(|| "gateway requires login -- run `/login` first".to_string())?;
     if auth.user.id.is_empty() || auth.access_token.is_empty() {
-        return Err("AtomGit gateway requires login — run `/login` first".to_string());
+        return Err("gateway requires login -- run `/login` first".to_string());
     }
-    Ok(Arc::new(AtomGitRequestSigner {
+    Ok(Arc::new(CodingPlanRequestSigner {
         path: gateway_crypto::canonical_chat_completions_path(base_url),
     }))
 }
 
-pub use gateway_crypto::{is_atomgit_gateway, signer_available};
+pub use gateway_crypto::{is_codingplan_gateway, signer_available};
 
 #[cfg(test)]
 mod tests {
@@ -123,7 +123,7 @@ mod tests {
     fn signer_does_not_reuse_cached_credentials_after_logout() {
         logout().unwrap();
         save_auth(&auth("user-1", "token-1")).unwrap();
-        let signer = atomgit_request_signer("https://api.atomgit.com/v1").unwrap();
+        let signer = codingplan_request_signer("https://gateway.test.example/v1").unwrap();
 
         logout().unwrap();
 
@@ -139,7 +139,7 @@ mod tests {
     fn existing_signer_uses_replacement_auth_snapshot() {
         logout().unwrap();
         save_auth(&auth("user-1", "token-1")).unwrap();
-        let signer = atomgit_request_signer("https://api.atomgit.com/v1").unwrap();
+        let signer = codingplan_request_signer("https://gateway.test.example/v1").unwrap();
 
         save_auth(&auth("user-2", "token-2")).unwrap();
 

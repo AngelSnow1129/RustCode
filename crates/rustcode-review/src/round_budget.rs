@@ -3,12 +3,12 @@
 //! The failure this fixes: on a large/complex diff the reviewer can spend its ENTIRE round
 //! budget in a shallow read/grep exploration loop, never calling `report_finding` and never
 //! emitting a text-only stop. It then hits the `max_rounds` fuse with ZERO findings and the
-//! whole review is scored as a hard failure ("no findings collected") — even though the
+//! whole review is scored as a hard failure ("no findings collected") -- even though the
 //! model saw the problem, it never committed it before running out of rounds.
 //!
 //! The model has no innate awareness of its remaining round budget. This hook projects it:
 //! once rounds cross a threshold it appends an EPHEMERAL reminder (a synthetic user turn,
-//! never stored — see [`pre_request`](rustcode_kernel::hook::LifecycleHooks::pre_request))
+//! never stored -- see [`pre_request`](rustcode_kernel::hook::LifecycleHooks::pre_request))
 //! telling the model to stop broad exploration and report what it already has, escalating to
 //! a hard "final round" nudge on the last executing round. It fabricates no findings; it only
 //! forces the model to commit the ones it already believes in before the cutoff.
@@ -51,7 +51,7 @@ fn final_reminder(round: u32, max: u32) -> String {
         "[review budget] FINAL round ({round} of {max}). This is your last chance to report. \
          Call `report_finding` for every issue you have not yet reported NOW, then write your \
          closing summary. After this round the review is cut off and any unreported finding is \
-         lost — do not start new exploration."
+         lost -- do not start new exploration."
     )
 }
 
@@ -62,14 +62,14 @@ fn soft_reminder(round: u32, max: u32) -> String {
         "[review budget] You have used round {round} of {max}. Stop broad exploration. For \
          every issue you are ALREADY confident about, call `report_finding` immediately, then \
          write your closing summary. Only open a new file when it directly confirms a specific \
-         suspected issue — the review is cut off at round {max} and unreported findings are lost."
+         suspected issue -- the review is cut off at round {max} and unreported findings are lost."
     )
 }
 
 #[async_trait]
 impl LifecycleHooks for RoundBudgetHook {
     async fn pre_request(&self, messages: &mut Vec<Message>, ctx: &TurnCtx) {
-        // No budget → nothing to pressure against.
+        // No budget -> nothing to pressure against.
         let Some(max) = ctx.max_rounds else { return };
         if max == 0 {
             return;
@@ -78,7 +78,7 @@ impl LifecycleHooks for RoundBudgetHook {
         // `pre_request` only runs for round in 1..=max (the fuse returns before it at
         // round > max), so `round >= max` uniquely identifies the last executing round.
         // A one-line stderr trace (same channel as the CLI's `[rules]`/`[scope]` lines)
-        // makes the pressure observable — you can see exactly when landing was forced.
+        // makes the pressure observable -- you can see exactly when landing was forced.
         if round >= max {
             eprintln!("[budget] round {round}/{max}: injected FINAL landing reminder");
             messages.push(Message::synthetic_user(final_reminder(round, max)));
@@ -115,14 +115,14 @@ mod tests {
 
     #[tokio::test]
     async fn no_pressure_before_threshold() {
-        // 27/40 = 0.675 < 0.70 → untouched.
+        // 27/40 = 0.675 < 0.70 -> untouched.
         let msgs = run(27, Some(40)).await;
         assert_eq!(msgs.len(), 2, "no reminder appended below threshold");
     }
 
     #[tokio::test]
     async fn soft_pressure_at_threshold() {
-        // 28/40 = 0.70 → soft reminder appended at the tail.
+        // 28/40 = 0.70 -> soft reminder appended at the tail.
         let msgs = run(28, Some(40)).await;
         assert_eq!(msgs.len(), 3, "one reminder appended");
         let last = msgs.last().unwrap();
@@ -146,7 +146,7 @@ mod tests {
 
     #[tokio::test]
     async fn hard_pressure_on_final_round() {
-        // round == max → the last executing round → hard "final" nudge.
+        // round == max -> the last executing round -> hard "final" nudge.
         let msgs = run(40, Some(40)).await;
         assert_eq!(msgs.len(), 3, "one reminder appended");
         let last = msgs.last().unwrap();
@@ -160,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_op_when_unbounded() {
-        // No round fuse → no budget to pressure against, even at a huge round.
+        // No round fuse -> no budget to pressure against, even at a huge round.
         let msgs = run(9999, None).await;
         assert_eq!(msgs.len(), 2, "unbounded run gets no reminder");
     }

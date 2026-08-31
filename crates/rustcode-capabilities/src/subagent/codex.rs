@@ -5,12 +5,12 @@
 //! shape), while stdout lines are streamed best-effort as progress activity.
 //! Multi-turn / streaming over `codex app-server --stdio` is Phase 4.
 //!
-//! Permission → flags (`codex exec` is non-interactive; the sandbox governs
+//! Permission -> flags (`codex exec` is non-interactive; the sandbox governs
 //! autonomy, there is no on-request approval):
-//! - `ReadOnly`    → `--sandbox read-only`
-//! - `AcceptEdits` → `--sandbox workspace-write`
-//! - `Auto`        → `--sandbox workspace-write`
-//! - `Bypass`      → `--dangerously-bypass-approvals-and-sandbox` (no `--sandbox`)
+//! - `ReadOnly`    -> `--sandbox read-only`
+//! - `AcceptEdits` -> `--sandbox workspace-write`
+//! - `Auto`        -> `--sandbox workspace-write`
+//! - `Bypass`      -> `--dangerously-bypass-approvals-and-sandbox` (no `--sandbox`)
 //!
 //! Phase 1 / T1.3 of the external-agent subagent-driver spec.
 
@@ -129,7 +129,7 @@ fn codex_argv(
 }
 
 /// A temp file path for `-o`; removed on drop. The file is created by codex, not
-/// us — we only own the (unique) path and clean it up.
+/// us -- we only own the (unique) path and clean it up.
 struct TempOutput {
     path: PathBuf,
 }
@@ -195,7 +195,7 @@ fn codex_activity_from_json_line(line: &str) -> Option<String> {
                 .unwrap_or(0);
             Some(format!("edited {n} file(s)"))
         }
-        ("item.completed", "reasoning") => Some("thinking…".to_string()),
+        ("item.completed", "reasoning") => Some("thinking...".to_string()),
         _ => None,
     }
 }
@@ -225,7 +225,7 @@ fn clip(s: &str, max: usize) -> String {
         return s.to_string();
     }
     let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
-    out.push('…');
+    out.push_str("...");
     out
 }
 
@@ -332,7 +332,7 @@ mod tests {
             assert!(
                 argv.windows(2)
                     .any(|w| w == ["--sandbox", "workspace-write"]),
-                "{perm:?} → workspace-write"
+                "{perm:?} -> workspace-write"
             );
         }
     }
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn activity_parses_json_events_and_skips_noise() {
-        // command_execution starts → "$ cmd".
+        // command_execution starts -> "$ cmd".
         assert_eq!(
             codex_activity_from_json_line(
                 r#"{"type":"item.started","item":{"id":"1","type":"command_execution","command":"cargo check"}}"#
@@ -384,9 +384,9 @@ mod tests {
         );
         assert_eq!(
             codex_activity_from_json_line(
-                r#"{"type":"item.completed","item":{"type":"reasoning","text":"…"}}"#
+                r#"{"type":"item.completed","item":{"type":"reasoning","text":"..."}}"#
             ),
-            Some("thinking…".to_string())
+            Some("thinking...".to_string())
         );
         // agent_message (the final answer) is NOT emitted as activity.
         assert_eq!(
@@ -395,7 +395,7 @@ mod tests {
             ),
             None
         );
-        // turn/thread noise + non-JSON → skipped; errors surface.
+        // turn/thread noise + non-JSON -> skipped; errors surface.
         assert_eq!(
             codex_activity_from_json_line(r#"{"type":"turn.started"}"#),
             None
@@ -417,7 +417,7 @@ mod tests {
             ),
             Some("the answer".to_string())
         );
-        // Not an agent_message / not completed / not JSON → None.
+        // Not an agent_message / not completed / not JSON -> None.
         assert_eq!(
             codex_final_message_from_json_line(
                 r#"{"type":"item.completed","item":{"type":"reasoning","text":"x"}}"#
@@ -434,7 +434,7 @@ mod tests {
     }
 
     // Stub `codex`: emits `--json` JSONL events + writes the `-o` final message,
-    // exits 0 — no real Codex, no network. Verifies spawn → JSONL parse → capture.
+    // exits 0 -- no real Codex, no network. Verifies spawn -> JSONL parse -> capture.
     #[cfg(unix)]
     #[tokio::test]
     async fn run_captures_output_from_stub_codex() {
@@ -488,7 +488,7 @@ exit 0
         );
     }
 
-    // Stub that emits an agent_message via JSONL but writes NO `-o` file → the
+    // Stub that emits an agent_message via JSONL but writes NO `-o` file -> the
     // streamed message is the fallback answer (no silent-empty result).
     #[cfg(unix)]
     #[tokio::test]
@@ -559,7 +559,7 @@ exit 0
 
     // Stub that reads its stdin (the prompt) and echoes it into the `-o` final
     // answer. Verifies the end-to-end path: prompt is delivered on stdin (NOT an
-    // argv flag — so it can't be mis-parsed as a flag or show up in `ps`), and
+    // argv flag -- so it can't be mis-parsed as a flag or show up in `ps`), and
     // the `-o` file is the authoritative final answer.
     #[cfg(unix)]
     #[tokio::test]

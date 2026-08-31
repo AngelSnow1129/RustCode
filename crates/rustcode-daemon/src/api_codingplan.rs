@@ -331,7 +331,7 @@ pub(crate) async fn codingplan_setup(
         .unwrap_or(false);
 
     if !is_logged_in {
-        // Not logged in — check if a login_id was provided
+        // Not logged in -- check if a login_id was provided
         match req.login_id {
             None => {
                 return json_error(
@@ -398,9 +398,9 @@ pub(crate) async fn codingplan_setup(
     // the async runtime worker threads.
     let setup_result = tokio::task::spawn_blocking(move || {
         // step_login will see is_logged_in() == true and skip.
-        // Pass None for tel — we emit TakeCodingplan externally in this handler.
+        // Pass None for tel -- we emit TakeCodingplan externally in this handler.
         // Background / cross-client sync: preserve the model this client is on
-        // (never clobber another client's selection — see a63f6591).
+        // (never clobber another client's selection -- see a63f6591).
         let report = coding_plan::run(
             &mut config,
             coding_plan::DefaultModelPolicy::PreservePrevious,
@@ -530,7 +530,7 @@ pub(crate) fn sync_codingplan_after_login(state: AppState, _client_mode: ClientM
 
         let setup_result = tokio::task::spawn_blocking(move || {
             // Background / cross-client sync: preserve the model this client is on
-            // (never clobber another client's selection — see a63f6591).
+            // (never clobber another client's selection -- see a63f6591).
             let report = coding_plan::run(
                 &mut config,
                 coding_plan::DefaultModelPolicy::PreservePrevious,
@@ -552,7 +552,7 @@ pub(crate) fn sync_codingplan_after_login(state: AppState, _client_mode: ClientM
         };
 
         if !report.should_persist_config() {
-            // e.g. claim refused / empty model list — leave existing
+            // e.g. claim refused / empty model list -- leave existing
             // config untouched; the user can still set up providers
             // manually.
             tracing::info!(

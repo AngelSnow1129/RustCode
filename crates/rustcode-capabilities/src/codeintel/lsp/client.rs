@@ -4,7 +4,7 @@
 //! wrapper that wires a child process's stdio. Ported from production `lsp/client.rs`.
 //!
 //! Transport-agnosticism is what makes the protocol DETERMINISTICALLY testable: a test
-//! pairs `connect` with `tokio::io::duplex` + a mock-server coroutine — no real language
+//! pairs `connect` with `tokio::io::duplex` + a mock-server coroutine -- no real language
 //! server needed (see the tests below).
 
 use super::jsonrpc;
@@ -146,7 +146,7 @@ pub struct LspClient {
     writer: SharedWrite,
     position_encoding: Mutex<PositionEncoding>,
     supports_pull_diagnostics: Arc<AtomicBool>,
-    /// path → current document version (didOpen = 1, didChange increments).
+    /// path -> current document version (didOpen = 1, didChange increments).
     opened: Mutex<HashMap<PathBuf, i64>>,
     sync_lock: AsyncMutex<()>,
     root_uri: String,
@@ -244,7 +244,7 @@ impl LspClient {
             child: Mutex::new(None),
         };
 
-        // initialize → await result → initialized.
+        // initialize -> await result -> initialized.
         let init = json!({
             "processId": Value::Null,
             "rootUri": client.root_uri,
@@ -666,7 +666,7 @@ fn handle_publish(params: &Value, diagnostics: &DiagMap) {
     let parsed: Vec<Diagnostic> = items
         .iter()
         .filter_map(|d| {
-            // `range.start.{line,character}` are required by the LSP spec — drop a
+            // `range.start.{line,character}` are required by the LSP spec -- drop a
             // malformed diagnostic rather than inventing a (1,1) position.
             let range = d.get("range")?;
             let start = range.get("start")?;
@@ -838,7 +838,7 @@ mod tests {
         let diags = wait_for_diags(&client, &path).await;
         assert_eq!(diags.len(), 1, "expected one diagnostic");
         assert_eq!(diags[0].message, "boom");
-        assert_eq!(diags[0].line, 5, "0-based line 4 → 1-based 5");
+        assert_eq!(diags[0].line, 5, "0-based line 4 -> 1-based 5");
         assert_eq!(diags[0].column, 9);
         assert_eq!(diags[0].severity, DiagnosticSeverity::Error);
         assert_eq!(diags[0].code.as_deref(), Some("E0001"));
@@ -877,7 +877,7 @@ mod tests {
         // so the response body carries whatever key order serde_json happens to
         // use. That order is not a property of this crate: `preserve_order` is a
         // feature of the shared serde_json, and cargo unifies features across a
-        // build — `-p rustcode-capabilities` leaves it off (BTreeMap, sorted)
+        // build -- `-p rustcode-capabilities` leaves it off (BTreeMap, sorted)
         // while `--workspace` turns it on via agent-client-protocol (IndexMap,
         // insertion order). Comparing the rendered string therefore passes or
         // fails depending on which crates are in the build, not on the client.
@@ -1155,7 +1155,7 @@ mod tests {
         } else {
             "file:///y.rs"
         };
-        // one valid + one missing `range` → only the valid one is kept (no (1,1) ghost).
+        // one valid + one missing `range` -> only the valid one is kept (no (1,1) ghost).
         handle_publish(
             &json!({ "uri": p, "diagnostics": [
                 { "range": {"start":{"line":2,"character":0},"end":{"line":2,"character":1}}, "severity": 1, "message": "ok" },

@@ -5,8 +5,8 @@
 //! every call and pushes a result for each. Two failure modes:
 //!
 //!  (A) **API-INVALIDITY (the load-bearing fix):** two tool_calls with the SAME
-//!      `id` → the kernel would push TWO `tool_result` messages with that same
-//!      `call_id` → an illegal "messages" payload on the next request (every
+//!      `id` -> the kernel would push TWO `tool_result` messages with that same
+//!      `call_id` -> an illegal "messages" payload on the next request (every
 //!      tool_use id must map to EXACTLY ONE tool_result). The gate SKIPS the
 //!      second-same-id call entirely (no execute, no push, no events) so exactly
 //!      one result reaches stored history per id.
@@ -15,10 +15,10 @@
 //!      with the same `(name, arguments)` but DIFFERENT ids each execute, wasting
 //!      cycles. The gate does NOT re-execute the second; it records a stub
 //!      duplicate `ToolResult` for that id (parity preserved: each distinct id
-//!      still gets exactly one result → API-valid).
+//!      still gets exactly one result -> API-valid).
 //!
 //! The dedup KEY is computed from the ORIGINAL `call.name`/`call.arguments` at the
-//! top of the loop — BEFORE any ToolMiddleware `before` chain may rewrite
+//! top of the loop -- BEFORE any ToolMiddleware `before` chain may rewrite
 //! `call.arguments`. Two calls the MODEL emitted identically are duplicates
 //! regardless of what middleware would later do to them. JSON arguments are
 //! canonicalised recursively first, so whitespace and object-key ordering do not
@@ -94,7 +94,7 @@ fn tool_results_for<'a>(
 }
 
 /// Assert every assistant tool_call in `messages` has EXACTLY ONE matching
-/// tool-result (paired by id) — the invariant the API requires (each tool_use id
+/// tool-result (paired by id) -- the invariant the API requires (each tool_use id
 /// maps to exactly one tool_result). A SECOND result for an id is API-invalid.
 fn assert_each_call_has_exactly_one_result(messages: &[Message]) {
     use std::collections::HashMap;
@@ -118,17 +118,17 @@ fn assert_each_call_has_exactly_one_result(messages: &[Message]) {
     }
 }
 
-// CLAIM 21a — MODE A (the load-bearing API-validity fix): an assistant message
+// CLAIM 21a -- MODE A (the load-bearing API-validity fix): an assistant message
 // with TWO tool_calls sharing the SAME id `c1`. The gate must SKIP the second
 // entirely: the driver sees EXACTLY ONE ToolResult for `c1`, and the stored
 // history (inspected via a follow-up turn captured by RecordingProvider) carries
-// EXACTLY ONE tool_result message for `c1` — never the API-invalid duplicate.
+// EXACTLY ONE tool_result message for `c1` -- never the API-invalid duplicate.
 #[tokio::test]
 async fn duplicate_call_id_yields_exactly_one_result() {
     let mut reg = ToolRegistry::new();
     reg.register(Arc::new(EchoTool));
 
-    // Turn 1: two tool_calls with the SAME id. Turn 2: stop immediately — its
+    // Turn 1: two tool_calls with the SAME id. Turn 2: stop immediately -- its
     // first request carries turn 1's stored history, which we inspect.
     let provider = Arc::new(RecordingProvider::new(vec![
         vec![
@@ -172,7 +172,7 @@ async fn duplicate_call_id_yields_exactly_one_result() {
     );
 
     // Stored-history validity: drive turn 2 and inspect the messages the provider
-    // received on its first request (calls[1]) — exactly one tool_result for c1.
+    // received on its first request (calls[1]) -- exactly one tool_result for c1.
     drive_one_turn(&mut handle, "again").await;
     handle.commands.send(AgentCommand::Shutdown).unwrap();
     let _ = handle.task.await;
@@ -195,8 +195,8 @@ async fn duplicate_call_id_yields_exactly_one_result() {
     assert_each_call_has_exactly_one_result(history);
 }
 
-// CLAIM 21b — MODE B (carry production): a COUNTING tool; the model emits two
-// calls `[{c1,count,{}}, {c2,count,{}}]` — same (name,args), DIFFERENT ids. The
+// CLAIM 21b -- MODE B (carry production): a COUNTING tool; the model emits two
+// calls `[{c1,count,{}}, {c2,count,{}}]` -- same (name,args), DIFFERENT ids. The
 // tool must EXECUTE ONLY ONCE (counter==1). BOTH c1 and c2 must receive a
 // ToolResult (c2's is the duplicate stub). Every assistant tool_call id is paired
 // with exactly one result (API-valid, no re-execution).
@@ -231,7 +231,7 @@ async fn same_name_args_different_id_is_not_re_executed_but_still_paired() {
 
     let events = drive_collect(&mut handle, "count twice identically").await;
 
-    // Executed ONLY ONCE — the second (name,args)-identical call was not run.
+    // Executed ONLY ONCE -- the second (name,args)-identical call was not run.
     assert_eq!(
         counter.load(Ordering::SeqCst),
         1,
@@ -340,7 +340,7 @@ async fn reordered_nested_json_is_not_re_executed_or_counted_as_a_batch() {
     assert_eq!(tool_results_for(&events, "c2").len(), 1);
 }
 
-// CLAIM 21c — the gate does NOT over-suppress: two calls with DIFFERENT
+// CLAIM 21c -- the gate does NOT over-suppress: two calls with DIFFERENT
 // (name,args) both execute normally and are each paired. (c1=count{}, c2=echo{}.)
 #[tokio::test]
 async fn distinct_calls_all_execute() {
@@ -353,8 +353,8 @@ async fn distinct_calls_all_execute() {
         vec![
             StreamEvent::ToolCall(tool_call("c1", "count", "{}")),
             StreamEvent::ToolCall(tool_call("c2", "echo", "{\"text\":\"hi\"}")),
-            // A THIRD distinct call: same tool `count` but DIFFERENT args → NOT a
-            // duplicate → must execute (counter reaches 2).
+            // A THIRD distinct call: same tool `count` but DIFFERENT args -> NOT a
+            // duplicate -> must execute (counter reaches 2).
             StreamEvent::ToolCall(tool_call("c3", "count", "{\"k\":\"v\"}")),
             StreamEvent::Done { truncated: false },
         ],
@@ -377,14 +377,14 @@ async fn distinct_calls_all_execute() {
 
     let events = drive_collect(&mut handle, "three distinct things").await;
 
-    // count executed for BOTH distinct-arg calls (c1 + c3) → counter == 2.
+    // count executed for BOTH distinct-arg calls (c1 + c3) -> counter == 2.
     assert_eq!(
         counter.load(Ordering::SeqCst),
         2,
         "two distinct count calls (different args) must both execute"
     );
 
-    // Each of the three ids has exactly one real ToolResult — none are stubs.
+    // Each of the three ids has exactly one real ToolResult -- none are stubs.
     for id in ["c1", "c2", "c3"] {
         let r = tool_results_for(&events, id);
         assert_eq!(r.len(), 1, "{id} must have exactly one ToolResult");
@@ -411,11 +411,11 @@ async fn distinct_calls_all_execute() {
     assert_each_call_has_exactly_one_result(history);
 }
 
-// CLAIM 21d — interplay with cancellation: an assistant message with a same-id
+// CLAIM 21d -- interplay with cancellation: an assistant message with a same-id
 // duplicate `[{c1,echo}, {c1,echo}]` plus a later distinct call `{c2,echo}`. The
 // FIRST c1 executes; the SECOND c1 is skipped by the dedup gate (no dangling
-// tool_call for it — the first's result covers that id). Then a SECOND turn is
-// driven; we assert the stored history has NO dangling and NO duplicate result —
+// tool_call for it -- the first's result covers that id). Then a SECOND turn is
+// driven; we assert the stored history has NO dangling and NO duplicate result --
 // exactly one result per assistant tool_call id.
 #[tokio::test]
 async fn duplicate_id_with_following_call_leaves_no_dangling_or_duplicate() {

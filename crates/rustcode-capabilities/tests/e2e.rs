@@ -10,7 +10,7 @@
 //! GLM example: BASE_URL=https://open.bigmodel.cn/api/paas/v4  MODEL=glm-4-flash
 //!
 //! (Deterministic, network-free integration tests live in tests/http_mock.rs and DO
-//! run by default — those are NOT e2e.)
+//! run by default -- those are NOT e2e.)
 #![cfg(feature = "e2e")]
 
 use futures::StreamExt;
@@ -184,7 +184,7 @@ async fn live_ollama_smoke_streams_text_and_done() {
     );
 }
 
-/// Run a real Agent turn-loop with the provider-agnostic `WireLogHooks` attached —
+/// Run a real Agent turn-loop with the provider-agnostic `WireLogHooks` attached --
 /// proving the GENERAL logging hook fires through the kernel loop (request via
 /// on_request, response via on_model_response), not via any adapter-specific code.
 #[tokio::test]
@@ -206,7 +206,7 @@ async fn live_agent_turn_loop_logs_via_hook() {
     let log_hook: Arc<dyn rustcode_kernel::hook::LifecycleHooks> =
         match std::env::var("RUSTCODE_WIRE_LOG_FILE") {
             Ok(p) => {
-                eprintln!("[live] wire log → file: {p}");
+                eprintln!("[live] wire log -> file: {p}");
                 Arc::new(WireLogHooks::to_file(&p).expect("open wire log file"))
             }
             Err(_) => Arc::new(WireLogHooks::stderr()),
@@ -286,7 +286,7 @@ async fn live_smoke_tool_call_assembles() {
 ///
 /// Proves end-to-end against the LIVE API that when a V4 model returns reasoning + a
 /// tool call in round 1, the kernel stores the reasoning and the adapter ECHOES it back
-/// as `reasoning_content` in round 2 — and the API ACCEPTS it (no HTTP 400 "the
+/// as `reasoning_content` in round 2 -- and the API ACCEPTS it (no HTTP 400 "the
 /// reasoning_content in the thinking mode must be passed back"). Surviving a >=2-round
 /// loop with no error IS the proof the round-trip held; a missing/wrong echo would 400
 /// the second round.
@@ -337,7 +337,7 @@ async fn e2e_multi_round_reasoning_roundtrip_does_not_400() {
     let rounds = Arc::new(Mutex::new(0usize));
     let counter = rounds.clone();
     let log_file = std::env::var("RUSTCODE_WIRE_LOG_FILE").ok().map(|p| {
-        eprintln!("[e2e] wire log → file: {p}");
+        eprintln!("[e2e] wire log -> file: {p}");
         Arc::new(Mutex::new(
             std::fs::OpenOptions::new()
                 .create(true)
@@ -381,8 +381,8 @@ async fn e2e_multi_round_reasoning_roundtrip_does_not_400() {
         outcome.stop, outcome.error, outcome.text
     );
 
-    // CORE invariants (ALWAYS): no 400/error — including the echoed reasoning_content
-    // NOT being rejected in round 2 — and a real final answer.
+    // CORE invariants (ALWAYS): no 400/error -- including the echoed reasoning_content
+    // NOT being rejected in round 2 -- and a real final answer.
     assert!(
         outcome.error.is_none(),
         "reasoning round-trip likely 400'd in round 2: {:?}",
@@ -391,15 +391,15 @@ async fn e2e_multi_round_reasoning_roundtrip_does_not_400() {
     assert!(!outcome.text.trim().is_empty(), "expected a final answer");
 
     // Going multi-round is MODEL-DEPENDENT (V4 may answer directly without the tool),
-    // so we do NOT hard-fail on a single round — that would make this gated test flake
+    // so we do NOT hard-fail on a single round -- that would make this gated test flake
     // on the model's mood, not on our code. When it DID go multi-round, that LIVE-proves
     // the reasoning round-trip survived round 2 with no 400. The DETERMINISTIC, always-2-
     // rounds proof (byte-exact reasoning echo) lives in tests/http_mock.rs.
     if n >= 2 {
-        eprintln!("[e2e] ✓ multi-round reasoning round-trip held over {n} rounds (no 400)");
+        eprintln!("[e2e] [+] multi-round reasoning round-trip held over {n} rounds (no 400)");
     } else {
         eprintln!(
-            "[e2e] NOTE: model answered in {n} round (no tool call) — multi-round NOT \
+            "[e2e] NOTE: model answered in {n} round (no tool call) -- multi-round NOT \
              exercised this run; see tests/http_mock.rs for the deterministic proof"
         );
     }

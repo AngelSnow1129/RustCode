@@ -731,7 +731,7 @@ async fn read_content_length_message(
 ///
 /// If the user has already wrapped the command themselves (e.g.
 /// `command: "cmd"`, `args: ["/C", "npx", ...]`), this function is a
-/// no-op — `cmd` / `cmd.exe` are not in the wrap list.
+/// no-op -- `cmd` / `cmd.exe` are not in the wrap list.
 ///
 /// The core logic is platform-independent (and testable on all platforms);
 /// the `shell` parameter is `"cmd.exe"` on Windows.

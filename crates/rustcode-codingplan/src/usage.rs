@@ -55,7 +55,7 @@ pub struct OverviewStats {
     pub current_streak: usize,
 }
 
-/// `1500 → "1.5k"`, `150_845_370 → "150.8m"`. Below 1000 → the integer.
+/// `1500 -> "1.5k"`, `150_845_370 -> "150.8m"`. Below 1000 -> the integer.
 pub fn humanize_tokens(n: u64) -> String {
     const K: f64 = 1_000.0;
     const M: f64 = 1_000_000.0;
@@ -72,7 +72,7 @@ pub fn humanize_tokens(n: u64) -> String {
     }
 }
 
-/// `(longest, current)` runs of `true`, over flags ordered oldest→newest.
+/// `(longest, current)` runs of `true`, over flags ordered oldest->newest.
 /// `current` is the run ending at the last element (0 if it ends `false`).
 pub fn streaks(active: &[bool]) -> (usize, usize) {
     let mut longest = 0usize;
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn streaks_longest_and_current() {
-        // active flags, oldest→newest
+        // active flags, oldest->newest
         let (longest, current) = streaks(&[true, true, false, true, true, true]);
         assert_eq!(longest, 3);
         assert_eq!(current, 3); // ends active

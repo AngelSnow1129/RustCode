@@ -1,13 +1,13 @@
-//! Plan mode — read-only exploration, no edits.
+//! Plan mode -- read-only exploration, no edits.
 //!
 //! v1 exposed `/plan` (and `SetPlanMode`): the agent explores and presents a plan
 //! WITHOUT mutating anything. This re-implements the ENFORCEMENT on the new stack as
 //! a [`ToolMiddleware`] that, while active, blocks every `Risky` tool (the kernel's
 //! own risk metadata already marks the mutating ones: write/edit/bash). Read-only
-//! tools (read_file, grep, list_*, symbols, web, …) stay available.
+//! tools (read_file, grep, list_*, symbols, web, ...) stay available.
 //!
 //! The flag is an `Arc<AtomicBool>` so `CodingRuntime::set_mode` can toggle it live
-//! without a respawn — like the shared cwd handle.
+//! without a respawn -- like the shared cwd handle.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -26,18 +26,18 @@ use rustcode_kernel::tool::{RiskLevel, Tool, ToolCall};
 /// with the driver to toggle it live.
 ///
 /// Policy while active (mirrors codex `readOnlyHint` + Claude Code's prompt):
-/// - built-in **`Risky`** tools (bash/edit/write) → **hard-blocked** (plan's local
-///   read-only guarantee — the model must present a plan first);
-/// - **MCP tools declared `readOnlyHint: true`** → **allowed** (an external read-only
+/// - built-in **`Risky`** tools (bash/edit/write) -> **hard-blocked** (plan's local
+///   read-only guarantee -- the model must present a plan first);
+/// - **MCP tools declared `readOnlyHint: true`** -> **allowed** (an external read-only
 ///   query has no side effects and is exactly what planning research needs);
-/// - **other MCP tools** (mutating / unannotated, incl. `trust: true` servers) →
+/// - **other MCP tools** (mutating / unannotated, incl. `trust: true` servers) ->
 ///   **prompt** instead of hard-block, so the user can allow a needed external call or
 ///   deny a risky one. A trusted server can't silently write here because we prompt
 ///   regardless of trust.
 pub struct PlanModeGate {
     active: Arc<AtomicBool>,
     /// Session grants for mutating MCP tools the user approved "always" while in plan
-    /// mode — keyed by the tool's full name so a repeat call skips the prompt. Supplied
+    /// mode -- keyed by the tool's full name so a repeat call skips the prompt. Supplied
     /// by `CodingParts` (shared, not rebuilt in `assemble`) so it survives a respawn /
     /// model-swap, matching how the write gate and approval middleware persist grants.
     mcp_grants: Arc<dyn PermissionStore>,
@@ -51,7 +51,7 @@ impl PlanModeGate {
     /// The hard-block message for a built-in mutating tool under plan mode.
     fn blocked(name: &str) -> BeforeOutcome {
         BeforeOutcome::deny(format!(
-            "plan mode is active — `{name}` would modify the workspace and is blocked. Only \
+            "plan mode is active -- `{name}` would modify the workspace and is blocked. Only \
              read-only tools are allowed: explore and present a plan for the user to approve \
              before making changes."
         ))
@@ -71,16 +71,16 @@ impl ToolMiddleware for PlanModeGate {
         }
 
         if call.name.starts_with("mcp__") {
-            // A server-declared read-only external query can't modify anything → proceed.
+            // A server-declared read-only external query can't modify anything -> proceed.
             // It is `Safe`, so the ApprovalMiddleware won't prompt for it either; a later
             // guard (e.g. SensitivePathGate) may still fire if the args touch a secret path,
-            // which is the intended exfiltration guard — same as outside plan mode.
+            // which is the intended exfiltration guard -- same as outside plan mode.
             if tool.read_only_hint() {
                 return BeforeOutcome::Proceed;
             }
             // Mutating / unannotated MCP tool: prompt instead of hard-blocking. Owns the
             // decision (returns Allow/Deny) so the generic ApprovalMiddleware after it
-            // never double-prompts — same pattern as the write gate.
+            // never double-prompts -- same pattern as the write gate.
             if self.mcp_grants.is_granted(&call.name) {
                 return BeforeOutcome::Allow {
                     reason: Some("approved this session".into()),
@@ -103,7 +103,7 @@ impl ToolMiddleware for PlanModeGate {
                     }
                 }
                 PermissionDecision::Deny => BeforeOutcome::deny(format!(
-                    "plan mode: `{}` was not approved — present a plan and switch to build mode \
+                    "plan mode: `{}` was not approved -- present a plan and switch to build mode \
                      to run it.",
                     call.name
                 )),
@@ -124,10 +124,10 @@ impl ToolMiddleware for PlanModeGate {
 /// [`system_reminder`](rustcode_capabilities::reminder::system_reminder) constructor so the
 /// `<system-reminder>` convention lives in ONE place. The [`PlanModeGate`] blocks mutating
 /// TOOLS, but nothing stops the model from writing the implementation straight into its
-/// reply — this keeps it planning. (Ported from core's `plan_mode_turn_reminder`.)
+/// reply -- this keeps it planning. (Ported from core's `plan_mode_turn_reminder`.)
 const PLAN_MODE_REMINDER_BODY: &str = "\
 PLAN MODE is active. Do NOT create, edit, or delete files, and do NOT write out the \
-implementation — not even as code blocks in your reply. Investigate with read-only tools, \
+implementation -- not even as code blocks in your reply. Investigate with read-only tools, \
 then present a concise implementation plan and STOP, waiting for the user to review and \
 switch to build mode. Writing the full solution now defeats the purpose of plan mode.";
 
@@ -174,13 +174,13 @@ mod tests {
     }
 
     /// An rt whose approval requests time out fast (no driver answers in tests),
-    /// degrading to `Null` → `Deny` — so the prompt path resolves instead of hanging.
+    /// degrading to `Null` -> `Deny` -- so the prompt path resolves instead of hanging.
     fn rt_timeout() -> RequestCtx {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         RequestCtx::new(tx, Some(std::time::Duration::from_millis(20)))
     }
 
-    /// A `Safe`, read-only tool with an `mcp__*` name — mimics an MCP tool the server
+    /// A `Safe`, read-only tool with an `mcp__*` name -- mimics an MCP tool the server
     /// annotated `readOnlyHint: true`.
     struct ReadOnlyMcpTool;
     #[async_trait]
@@ -233,7 +233,7 @@ mod tests {
         assert!(!gate.before(&mut safe_call, &safe, &rt()).await.is_deny());
     }
 
-    /// A read-only MCP tool (`readOnlyHint: true`) is ALLOWED in plan mode — an external
+    /// A read-only MCP tool (`readOnlyHint: true`) is ALLOWED in plan mode -- an external
     /// read-only query can't modify anything, and it's exactly what planning research needs.
     #[tokio::test]
     async fn read_only_mcp_allowed_in_plan_mode() {
@@ -252,8 +252,8 @@ mod tests {
         );
     }
 
-    /// A mutating / unannotated MCP tool is NOT hard-blocked in plan mode — it PROMPTS
-    /// (Claude Code parity). With no driver to answer, the prompt times out → deny, but
+    /// A mutating / unannotated MCP tool is NOT hard-blocked in plan mode -- it PROMPTS
+    /// (Claude Code parity). With no driver to answer, the prompt times out -> deny, but
     /// the deny reason proves it went through the approval path ("not approved"), not the
     /// hard-block path ("blocked").
     #[tokio::test]
@@ -284,7 +284,7 @@ mod tests {
         let store = grants();
         // First gate records an "always" grant (as the AllowAlways arm would).
         store.grant("mcp__docs__delete");
-        // A freshly-built gate (post-respawn) sharing the SAME store honors it — and
+        // A freshly-built gate (post-respawn) sharing the SAME store honors it -- and
         // short-circuits BEFORE rt.request, so the no-timeout rt() can't hang.
         let gate = PlanModeGate::new(flag, store);
         let safe: Arc<dyn Tool> = Arc::new(EchoTool);
@@ -307,7 +307,7 @@ mod tests {
         let mut msgs = vec![Message::system("sys"), Message::user("hi")];
         let before = msgs.clone();
 
-        // Build mode: nothing injected — the last user turn stays clean + cacheable.
+        // Build mode: nothing injected -- the last user turn stays clean + cacheable.
         hook.pre_request(&mut msgs, &TurnCtx::default()).await;
         assert_eq!(msgs, before, "build mode must not inject a plan reminder");
 

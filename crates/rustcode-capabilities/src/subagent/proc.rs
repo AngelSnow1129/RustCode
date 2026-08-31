@@ -1,7 +1,7 @@
 //! Managed child process for external-agent drivers.
 //!
 //! A thin wrapper over `tokio::process::Child` that reaps the WHOLE process tree
-//! on cancel/timeout — the external agents (`codex`, `claude`) themselves spawn
+//! on cancel/timeout -- the external agents (`codex`, `claude`) themselves spawn
 //! grandchildren (language servers, tool subprocesses) that a direct-child kill
 //! would orphan. This mirrors the reaping the bash tool already does:
 //!
@@ -31,7 +31,7 @@ pub const STDERR_TAIL_CAP: usize = 2000;
 /// Grace to reap the child AFTER both its pipes have closed. Once stdout+stderr
 /// hit EOF the process is exiting; this bounds the wait for the exit status
 /// WITHOUT re-arming the full run timeout (which would let a wedged post-close
-/// child stall for up to ~2× the configured ceiling). Generous enough for a
+/// child stall for up to ~2x the configured ceiling). Generous enough for a
 /// normal teardown (flush the `-o` file, reap the agent's own subprocesses).
 const POST_DRAIN_GRACE: Duration = Duration::from_secs(30);
 
@@ -128,7 +128,7 @@ impl ManagedChild {
         // No console-window flash per spawn on Windows (headless/daemon). No-op elsewhere.
         crate::process_utils::suppress_console_window(&mut cmd);
 
-        // Unix: setsid in pre_exec so the child leads its own pgroup — killpg then
+        // Unix: setsid in pre_exec so the child leads its own pgroup -- killpg then
         // reaches grandchildren the direct-child kill_on_drop would orphan. Mirror
         // the bash tool exactly (async-signal-safe: setsid only, no alloc/locks).
         #[cfg(unix)]
@@ -291,7 +291,7 @@ pub async fn drain_and_wait<F: FnMut(String)>(
             },
         }
     }
-    // Pipes closed → the process is exiting; reap with a short grace (not the
+    // Pipes closed -> the process is exiting; reap with a short grace (not the
     // full timeout again) while still honoring cancel.
     let outcome = child.wait_or_kill(POST_DRAIN_GRACE, cancel).await?;
     Ok((outcome, stderr_tail))
@@ -324,7 +324,7 @@ pub fn push_tail(tail: &mut String, line: &str) {
 /// cancel/timeout (e.g. the kernel drops the tool's execute future during a
 /// shutdown/abort rather than firing the cancel token), reap the WHOLE tree.
 /// `kill_on_drop` alone only reaps the direct child, orphaning the setsid-pgroup
-/// grandchildren the driven agent spawned — exactly what this exists to prevent.
+/// grandchildren the driven agent spawned -- exactly what this exists to prevent.
 /// Best-effort and idempotent (killpg ESRCH / a closed job handle are ignored).
 impl Drop for ManagedChild {
     fn drop(&mut self) {
@@ -445,7 +445,7 @@ mod tests {
         // Give the signal a moment to propagate.
         tokio::time::sleep(Duration::from_millis(300)).await;
 
-        // kill(gpid, 0) → ESRCH once the grandchild is gone.
+        // kill(gpid, 0) -> ESRCH once the grandchild is gone.
         extern "C" {
             fn kill(pid: i32, sig: i32) -> i32;
         }

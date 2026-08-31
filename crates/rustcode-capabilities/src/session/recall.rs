@@ -1,8 +1,8 @@
-//! `recall` tool — lets the agent retrieve ANY past turn of THIS project, including
+//! `recall` tool -- lets the agent retrieve ANY past turn of THIS project, including
 //! from OTHER sessions, by topic and/or time ("昨天我们讨论过的那个 OAuth 的事").
 //!
 //! Reads the never-compacted `<id>.jsonl` transcripts (the recall ground truth) under
-//! the project's `<project_hash>` bucket — derived from `ToolContext.working_dir`, so the
+//! the project's `<project_hash>` bucket -- derived from `ToolContext.working_dir`, so the
 //! tool needs no session wiring. Matching is keyword/full-text v1 behind a swappable
 //! [`RecallIndex`] so a semantic/embedding backend can drop in later without touching the
 //! tool. Read-only ⇒ `risk = Safe`. The model resolves relative dates ("yesterday") into
@@ -85,7 +85,7 @@ const DEFAULT_LIMIT: usize = 8;
 pub struct RecallTool {
     index: Arc<dyn RecallIndex>,
     /// PINNED sessions dir. `None` (standalone default) derives the project bucket
-    /// from the live `ToolContext.working_dir` at each call — but that value MOVES
+    /// from the live `ToolContext.working_dir` at each call -- but that value MOVES
     /// when the model runs `cd`, silently pointing recall at a different project's
     /// bucket than the one the session hooks write. An assembly that owns a
     /// `SessionManager` pins the root here so recall and persistence always agree.
@@ -115,8 +115,8 @@ impl RecallTool {
     }
 
     /// Pin the sessions dir this tool searches (an assembly passes its
-    /// `SessionManager::root()`), instead of re-deriving it from the live —
-    /// `cd`-movable — working dir at each call.
+    /// `SessionManager::root()`), instead of re-deriving it from the live --
+    /// `cd`-movable -- working dir at each call.
     pub fn with_sessions_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
         self.sessions_dir = Some(dir.into());
         self
@@ -158,7 +158,7 @@ impl RecallTool {
         // a confused "why is nothing here?" lands. Reading those `<id>.jsonl` files gives
         // the exact, full turn (incl. tool I/O) when the keyword digest above isn't enough.
         out.push_str(&format!(
-            "\n(Raw per-turn transcripts: {} — one `<session_id>.jsonl` per session, full \
+            "\n(Raw per-turn transcripts: {} -- one `<session_id>.jsonl` per session, full \
              text incl. tool I/O. The current in-progress turn is appended there only once \
              it finishes.)",
             sessions_dir.display()
@@ -174,13 +174,13 @@ impl Tool for RecallTool {
     }
 
     fn description(&self) -> &str {
-        "Search this project's COMPLETED conversation turns — across all sessions, \
-         including earlier turns of the CURRENT session — by topic and/or time. A turn is \
+        "Search this project's COMPLETED conversation turns -- across all sessions, \
+         including earlier turns of the CURRENT session -- by topic and/or time. A turn is \
          indexed only AFTER it finishes, so the in-progress turn (what is happening right \
          now) is NOT here yet; for that, rely on your own context. Use it to recall a past \
          decision, bug, or approach, even from another session. Resolve relative dates \
          yourself (e.g. 'yesterday') into the `after`/`before` fields using the current \
-         date. Read-only — the result footer shows where the raw per-turn transcripts live \
+         date. Read-only -- the result footer shows where the raw per-turn transcripts live \
          if you need the exact, full text."
     }
 
@@ -189,8 +189,8 @@ impl Tool for RecallTool {
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "keywords / topic to recall" },
-                "after": { "type": "string", "description": "optional lower bound, inclusive — ISO datetime or YYYY-MM-DD (local time)" },
-                "before": { "type": "string", "description": "optional upper bound, exclusive — ISO datetime or YYYY-MM-DD (local time)" },
+                "after": { "type": "string", "description": "optional lower bound, inclusive -- ISO datetime or YYYY-MM-DD (local time)" },
+                "before": { "type": "string", "description": "optional upper bound, exclusive -- ISO datetime or YYYY-MM-DD (local time)" },
                 "limit": { "type": "integer", "description": "max turns to return (default 8)" }
             },
             "required": ["query"]
@@ -374,7 +374,7 @@ fn format_hits(hits: &[&TurnRecord]) -> String {
     );
     for h in hits {
         // CHAR-safe truncation (mirrors `truncate` below): a byte slice `[..8]` would
-        // PANIC if the id has a multi-byte char straddling byte 8 — and session_id is an
+        // PANIC if the id has a multi-byte char straddling byte 8 -- and session_id is an
         // unvalidated string read back from arbitrary on-disk `*.jsonl`. A panic in a
         // Tool::execute aborts the process under panic=abort.
         let short: String = h.session_id.chars().take(8).collect();
@@ -383,7 +383,7 @@ fn format_hits(hits: &[&TurnRecord]) -> String {
             .unwrap_or_else(|| h.iso.clone());
         let undone = if h.undone { " (undone)" } else { "" };
         out.push_str(&format!(
-            "[session {short} · {date}{undone}] {}\n    {}\n",
+            "[session {short} . {date}{undone}] {}\n    {}\n",
             truncate(&h.user, 140),
             truncate(&h.assistant, 240),
         ));
@@ -397,7 +397,7 @@ fn truncate(s: &str, max: usize) -> String {
         return s;
     }
     let cut: String = s.chars().take(max).collect();
-    format!("{cut}…")
+    format!("{cut}...")
 }
 
 #[cfg(test)]
@@ -486,7 +486,7 @@ mod tests {
             ],
         );
         let tool = RecallTool::new();
-        // after = 2*day (inclusive lower), before = 5*day (exclusive upper) → only the 3*day turn.
+        // after = 2*day (inclusive lower), before = 5*day (exclusive upper) -> only the 3*day turn.
         let after = chrono::DateTime::from_timestamp_millis(2 * day)
             .unwrap()
             .to_rfc3339();
@@ -551,7 +551,7 @@ mod tests {
     #[test]
     fn non_ascii_session_id_does_not_panic_on_format() {
         // session_id read back from on-disk jsonl is unvalidated; a multi-byte id whose
-        // byte 8 is mid-codepoint would panic a byte slice — format must be char-safe.
+        // byte 8 is mid-codepoint would panic a byte slice -- format must be char-safe.
         let dir = tempfile::tempdir().unwrap();
         write_jsonl(
             dir.path(),

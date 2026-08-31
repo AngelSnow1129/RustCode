@@ -1,9 +1,9 @@
 //! Diff line-number annotation: prefix every hunk content line with its REAL file line
 //! number (parsed from `@@ -old,len +new,len @@` headers), so the model reports accurate
-//! `line_start`/`line_end` without counting lines itself — a large accuracy win for
+//! `line_start`/`line_end` without counting lines itself -- a large accuracy win for
 //! `report_finding` anchoring.
 //!
-//! Output format (metadata lines are kept verbatim — they carry the file names):
+//! Output format (metadata lines are kept verbatim -- they carry the file names):
 //!
 //! ```text
 //! diff --git a/src/a.rs b/src/a.rs
@@ -74,7 +74,7 @@ pub fn annotate_diff_line_numbers(diff: &str) -> String {
                 old_line += 1;
             }
             b'\\' => {
-                // "\ No newline at end of file" — keep verbatim, advances nothing.
+                // "\ No newline at end of file" -- keep verbatim, advances nothing.
                 out.push_str(line);
                 out.push('\n');
             }
@@ -87,7 +87,7 @@ pub fn annotate_diff_line_numbers(diff: &str) -> String {
         }
     }
 
-    // split('\n') yields a trailing empty segment for a trailing newline — drop the
+    // split('\n') yields a trailing empty segment for a trailing newline -- drop the
     // extra newline we appended for it so the output matches the input's ending.
     if (!diff.ends_with('\n') && out.ends_with('\n'))
         || (diff.ends_with('\n') && out.ends_with("\n\n"))
@@ -97,7 +97,7 @@ pub fn annotate_diff_line_numbers(diff: &str) -> String {
     out
 }
 
-/// Parse `@@ -old_start[,len] +new_start[,len] @@ …` → (old_start, new_start).
+/// Parse `@@ -old_start[,len] +new_start[,len] @@ ...` -> (old_start, new_start).
 fn parse_hunk_header(header: &str) -> Option<(u64, u64)> {
     let rest = header.strip_prefix("@@")?;
     let end = rest.find("@@")?;

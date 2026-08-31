@@ -125,7 +125,7 @@ Turn 级别：
 
 ### 新增文件
 
-1. **`crates/atomcode-core/src/hook/built_in.rs`** (356 行)
+1. **`crates/rustcode-core/src/hook/built_in.rs`** (356 行)
    - 6 个内置工程化 Hook 实现
    - 工具调用审计、Turn 统计、自动提交等
 
@@ -135,7 +135,7 @@ Turn 级别：
 
 ### 修改文件
 
-1. **`crates/atomcode-core/src/hook/mod.rs`** (+345 行)
+1. **`crates/rustcode-core/src/hook/mod.rs`** (+345 行)
    - 新增 8 个 Hook trait 定义
    - 新增 8 个上下文结构体
    - 更新 HookRegistry 支持新类型
@@ -215,7 +215,7 @@ enabled = true
 
 在代码中注册：
 ```rust
-use atomcode_core::hook::built_in::AutoCommitHook;
+use rustcode_core::hook::built_in::AutoCommitHook;
 
 let hook = Arc::new(AutoCommitHook {
     enabled: true,
@@ -227,7 +227,7 @@ registry.register_on_turn_complete_hook(hook);
 ### 示例 3：响应验证 Hook
 
 ```rust
-use atomcode_core::hook::built_in::ResponseValidationHook;
+use rustcode_core::hook::built_in::ResponseValidationHook;
 
 let hook = Arc::new(ResponseValidationHook::new(vec![
     "api_key".to_string(),
@@ -301,6 +301,6 @@ registry.register_on_model_response_hook(hook);
 ### 下一步建议
 
 1. **集成到 AgentLoop** - 在合适的调用点触发新 Hook
-2. **添加 CLI 命令** - `atomcode hooks list` 查看已加载 Hook
+2. **添加 CLI 命令** - `rustcode hooks list` 查看已加载 Hook
 3. **Webhook 支持** - 允许远程 HTTP Hook
 4. **Hook 市场** - 社区共享和下载 Hook

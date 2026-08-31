@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// L3 最小化前端验证：mock atomcode daemon 的 /live SSE 与最小 REST 端点。
+// L3 最小化前端验证：mock rustcode daemon 的 /live SSE 与最小 REST 端点。
 // 让浏览器打开真实 webui SPA 连它，验证「终态事件 → 浏览器通知」全链路，
-// 无需启动完整 atomcode。
+// 无需启动完整 rustcode。
 //
 // 用法：
 //   1. cd webui && npm run build   （先产出 webui/dist，本脚本也会 serve 静态文件）
@@ -130,7 +130,7 @@ const server = createServer(async (req, res) => {
     }
     if (pathname === '/config') {
       return json(res, 200, {
-        path: '/mock/atomcode.toml',
+        path: '/mock/rustcode.toml',
         default_provider: 'mock',
         default_workdir: __dirname,
         providers: [],
@@ -159,7 +159,7 @@ const server = createServer(async (req, res) => {
 });
 
 // 端口自动扫描：与真实 daemon 的 bind_scanning 对齐——首选 PORT，被占时向上
-// 探测（最多 +20）。真实环境里 13457/13458/13459 常被多个 atomcode 实例占用，
+// 探测（最多 +20）。真实环境里 13457/13458/13459 常被多个 rustcode 实例占用，
 // 直接崩在 EADDRINUSE 会让测试工具不可用。
 const MAX_SCAN = 20;
 
@@ -198,7 +198,7 @@ async function bindWithScanning() {
 
 bindWithScanning()
   .then((boundPort) => {
-    console.log(`mock atomcode daemon (webui 验证用) listening on http://127.0.0.1:${boundPort}`);
+    console.log(`mock rustcode daemon (webui 验证用) listening on http://127.0.0.1:${boundPort}`);
     console.log(`  静态根: ${DIST}（若 404 提示未构建，先 cd webui && npm run build）`);
     console.log(`  /live delay=${DELAY_MS}ms stop_reason=${STOP_REASON}`);
     console.log(`  打开: http://127.0.0.1:${boundPort}/?sync=1&session=mock-session`);

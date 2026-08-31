@@ -16,10 +16,10 @@
 
 ### v2 当前行为（已核对）
 
-- OPEN 失败（`crates/atomcode-kernel/src/agent.rs:967`）：429 被 provider 标成 `retryable` → 走 `MAX_PROVIDER_RETRIES=3` 的 3/6/9s 盲重试（`agent.rs:978` 可取消退避）→ 仍失败则 `agent.rs:989` emit `AgentEvent::Error` 红字终止。对 5h 窗口这 ~18s 重试纯属浪费后硬报错。
+- OPEN 失败（`crates/rustcode-kernel/src/agent.rs:967`）：429 被 provider 标成 `retryable` → 走 `MAX_PROVIDER_RETRIES=3` 的 3/6/9s 盲重试（`agent.rs:978` 可取消退避）→ 仍失败则 `agent.rs:989` emit `AgentEvent::Error` 红字终止。对 5h 窗口这 ~18s 重试纯属浪费后硬报错。
 - mid-stream 429（`agent.rs:1135`）：另一个 `Error` 终止点。
 - 退避已是**可取消**的（esc 能断，`agent.rs:978` 的 `select! { cancel vs sleep }`），可复用。
-- 约束：**kernel 不能依赖 core**。reset 时间数据（`rate_limit_windows`）在 `atomcode-core/coding_plan` + usage 轮询里。
+- 约束：**kernel 不能依赖 core**。reset 时间数据（`rate_limit_windows`）在 `rustcode-core/coding_plan` + usage 轮询里。
 
 ## 目标行为（已确认）
 
@@ -36,7 +36,7 @@ kernel 检测 `http_status==429` → 调新 hook 取决策；决策逻辑（含 
 
 ### ② 新增 kernel 接口
 
-`LifecycleHooks`（`crates/atomcode-kernel/src/hook.rs`）新增方法：
+`LifecycleHooks`（`crates/rustcode-kernel/src/hook.rs`）新增方法：
 
 ```rust
 async fn on_rate_limit(&self, _hint: RateLimitHint) -> RateLimitDecision {
@@ -64,7 +64,7 @@ pub enum RateLimitDecision {
 }
 ```
 
-`AgentEvent`（`crates/atomcode-kernel/src/event.rs`）新增变体：
+`AgentEvent`（`crates/rustcode-kernel/src/event.rs`）新增变体：
 
 ```rust
 RateLimited {
@@ -108,7 +108,7 @@ Err(e) if e.http_status == Some(429) => {
 
 1. 取 usage 窗口：
    - TUI：优先读 `usage_monitor` 已轮询的共享 slot（30s 内新鲜）。
-   - daemon/webui：直接 `atomcode_core::coding_plan::client::Client::from_stored_auth().status_v2()` 拉一次。
+   - daemon/webui：直接 `rustcode_core::coding_plan::client::Client::from_stored_auth().status_v2()` 拉一次。
    - 两者无缓存时 fallback 一次 `status_v2()`。
 2. 从 `rate_limit_windows` 找 5h 窗口（月度已无，基本是唯一 / `window_size_seconds <= 18000` 那个），取 `reset_at_display` / `reset_label` / `seconds_until_reset`。
 3. fallback 链：`seconds_until_reset` 拿不到 → 用 `hint.retry_after_secs` → 再 fallback 保守默认（120s，触发 Pause）。
@@ -126,7 +126,7 @@ bridge 把 `AgentEvent::RateLimited` 映射成两边"暂停态"（非 error 样�
 
 ### ⑥ 顺手清理（独立 commit）
 
-月度下线后 `blocking_exhausted_window`（`crates/atomcode-core/src/coding_plan/setup.rs:1050`，过滤 `window_size_seconds/3600 > 5`）成死代码 → 删除/简化，连带相关测试（`setup.rs` 的 `blocking_exhausted_window_detects_hidden_monthly` 等）。**作为独立小 commit，不混进主改动。**
+月度下线后 `blocking_exhausted_window`（`crates/rustcode-core/src/coding_plan/setup.rs:1050`，过滤 `window_size_seconds/3600 > 5`）成死代码 → 删除/简化，连带相关测试（`setup.rs` 的 `blocking_exhausted_window_detects_hidden_monthly` 等）。**作为独立小 commit，不混进主改动。**
 
 ## 测试（TDD）
 
@@ -148,12 +148,12 @@ bridge 把 `AgentEvent::RateLimited` 映射成两边"暂停态"（非 error 样�
 
 ## 受影响文件清单
 
-- `crates/atomcode-kernel/src/hook.rs` — 新 hook 方法 + `RateLimitHint`/`RateLimitDecision`
-- `crates/atomcode-kernel/src/event.rs` — `AgentEvent::RateLimited` + `StopReason::RateLimited`
-- `crates/atomcode-kernel/src/agent.rs` — OPEN(`:967`)/mid-stream(`:1135`) 429 分支
-- `crates/atomcode-kernel/src/testkit.rs` — 可编程限流 hook
+- `crates/rustcode-kernel/src/hook.rs` — 新 hook 方法 + `RateLimitHint`/`RateLimitDecision`
+- `crates/rustcode-kernel/src/event.rs` — `AgentEvent::RateLimited` + `StopReason::RateLimited`
+- `crates/rustcode-kernel/src/agent.rs` — OPEN(`:967`)/mid-stream(`:1135`) 429 分支
+- `crates/rustcode-kernel/src/testkit.rs` — 可编程限流 hook
 - 宿主 hook impl（TUI 侧 + daemon 侧；位置实施时定）
-- bridge 事件映射（`atomcode-bridge`）
-- `crates/atomcode-tuix/...` — footer 暂停态渲染
+- bridge 事件映射（`rustcode-bridge`）
+- `crates/rustcode-tuix/...` — footer 暂停态渲染
 - `webui/src/...` — 暂停卡片 + 倒计时；`webui/src/i18n.ts` zh+en 文案
-- `crates/atomcode-core/src/coding_plan/setup.rs` — 删 `blocking_exhausted_window`（独立 commit）
+- `crates/rustcode-core/src/coding_plan/setup.rs` — 删 `blocking_exhausted_window`（独立 commit）

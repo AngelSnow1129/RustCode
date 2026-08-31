@@ -1,4 +1,4 @@
-//! `write_file` — create or overwrite a file (auto-creating parent dirs). Mutates
+//! `write_file` -- create or overwrite a file (auto-creating parent dirs). Mutates
 //! the filesystem ⇒ always `Risky`. Neutral core ported from the production writer,
 //! minus the coding enrichments (file_history backup, file_store/read_cache
 //! invalidation, LSP notify).
@@ -78,8 +78,8 @@ impl Tool for WriteFileTool {
         let disp = crate::pathnorm::to_display(&path);
         // write_file always writes UTF-8, intentionally: it does a WHOLE-file overwrite
         // (usually a create), so there is no original encoding to preserve. Unlike
-        // `edit_file` — which decodes a GBK/GB18030 file, edits in place, and re-encodes
-        // back to the original encoding (see tools::encoding) — overwriting an existing
+        // `edit_file` -- which decodes a GBK/GB18030 file, edits in place, and re-encodes
+        // back to the original encoding (see tools::encoding) -- overwriting an existing
         // GBK file here converts it to UTF-8. That asymmetry is deliberate; steer legacy-
         // encoding-preserving changes through `edit_file`.
         if let Err(e) = tokio::fs::write(&path, &a.content).await {
@@ -93,10 +93,10 @@ impl Tool for WriteFileTool {
                 let mut m = format!(
                     "Overwrote {disp} (was {old} lines, now {new_lines} lines, {sign}{diff})"
                 );
-                // Warn on a large shrink — the model may have dropped content.
+                // Warn on a large shrink -- the model may have dropped content.
                 if old > 20 && new_lines < old / 2 {
                     m.push_str(&format!(
-                        "\n⚠ WARNING: file shrank by {}%. Verify no important content was lost.",
+                        "\n[!] WARNING: file shrank by {}%. Verify no important content was lost.",
                         100 - (new_lines * 100 / old)
                     ));
                 }

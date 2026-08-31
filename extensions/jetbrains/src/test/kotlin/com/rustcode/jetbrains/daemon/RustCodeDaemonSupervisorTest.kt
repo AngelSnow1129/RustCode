@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.daemon
 
-import com.rustcode.jetbrains.settings.AtomCodeSettings
+import com.rustcode.jetbrains.settings.RustCodeSettings
 import com.rustcode.jetbrains.services.DaemonConnectionException
 import com.rustcode.jetbrains.services.DaemonControl
 import com.rustcode.jetbrains.services.DaemonControlFactory
@@ -18,8 +18,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-class AtomCodeDaemonSupervisorTest {
-    private val settings = AtomCodeSettings(host = "127.0.0.1", port = 13456)
+class RustCodeDaemonSupervisorTest {
+    private val settings = RustCodeSettings(host = "127.0.0.1", port = 13456)
     private val auth = DaemonAuth(null)
 
     @Test
@@ -85,7 +85,7 @@ class AtomCodeDaemonSupervisorTest {
         assertTrue(error is ExecutionException)
         val cause = error.cause
         assertTrue(cause is DaemonConnectionException)
-        assertEquals(ConnectionErrorKind.PortUsedByNonAtomCode, cause.kind)
+        assertEquals(ConnectionErrorKind.PortUsedByNonRustCode, cause.kind)
         assertEquals(0, starts.get())
     }
 
@@ -309,7 +309,7 @@ class AtomCodeDaemonSupervisorTest {
         }.exceptionOrNull()
 
         assertTrue(error is ExecutionException)
-        assertEquals(ConnectionErrorKind.PortUsedByNonAtomCode, (error.cause as DaemonConnectionException).kind)
+        assertEquals(ConnectionErrorKind.PortUsedByNonRustCode, (error.cause as DaemonConnectionException).kind)
         assertTrue(process.destroyed.get())
     }
 

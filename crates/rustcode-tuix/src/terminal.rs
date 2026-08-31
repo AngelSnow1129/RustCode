@@ -15,11 +15,11 @@ pub struct EnvView {
     pub colorterm: Option<String>,
     /// Set when the user has explicitly asked for ASCII-only rendering
     /// (e.g. `RUSTCODE_ASCII=1`). Escape hatch for terminals whose font
-    /// can't render our Unicode prompt glyphs (`❯`, `◆`, etc.) and
+    /// can't render our Unicode prompt glyphs (`>`, `*`, etc.) and
     /// would otherwise show `□` tofu.
     pub force_ascii: bool,
     /// Set when the user has explicitly opted INTO Unicode rendering
-    /// (`RUSTCODE_UNICODE=1`) — overrides the Windows-legacy-console
+    /// (`RUSTCODE_UNICODE=1`) -- overrides the Windows-legacy-console
     /// auto-fallback for users who installed a font that does have the
     /// glyphs (Cascadia Code, JetBrains Mono, etc.) on plain conhost.
     pub force_unicode: bool,
@@ -27,20 +27,20 @@ pub struct EnvView {
     pub lc_all: Option<String>,
     /// `true` when running on Windows. Affects the default-Unicode
     /// decision because the legacy conhost host pairs with fonts
-    /// (Consolas, NSimSun, …) that don't include `◐`, `❯`, etc.
+    /// (Consolas, NSimSun, ...) that don't include `◐`, `>`, etc.
     pub is_windows: bool,
-    /// `WT_SESSION` — set by Windows Terminal. Strong signal that the
+    /// `WT_SESSION` -- set by Windows Terminal. Strong signal that the
     /// terminal has a modern font with broad Unicode coverage.
     pub wt_session: Option<String>,
-    /// `TERM_PROGRAM` — set by VS Code, iTerm2, WezTerm, Hyper, etc.
+    /// `TERM_PROGRAM` -- set by VS Code, iTerm2, WezTerm, Hyper, etc.
     /// Any value here means the user is on a modern emulator that
     /// almost certainly ships a Unicode-capable default font.
     pub term_program: Option<String>,
-    /// `TERMINAL_EMULATOR` — set by IntelliJ-platform IDEs (IDEA, Android
-    /// Studio, DevEco Studio, …) to `JetBrains-JediTerm`. The JediTerm
+    /// `TERMINAL_EMULATOR` -- set by IntelliJ-platform IDEs (IDEA, Android
+    /// Studio, DevEco Studio, ...) to `JetBrains-JediTerm`. The JediTerm
     /// Swing terminal grids CJK at 2 cells (same as us) but its paint
     /// layer has no font fallback, so a fallback CJK glyph with a ~1-cell
-    /// advance is drawn CENTERED in the 2-cell box — leaving the 2nd
+    /// advance is drawn CENTERED in the 2-cell box -- leaving the 2nd
     /// column visually blank. That turns our per-cell-CUP positioning into
     /// a visible "每个汉字后空一格" gap, and the per-`─`-CUP rule into a
     /// fragmented line. Captured here so the render layer can switch to a
@@ -157,14 +157,14 @@ pub struct TerminalCaps {
     pub bracketed_paste: bool,
     /// Raw mode for key-by-key input.
     pub raw_mode: bool,
-    /// DECSTBM scroll region support (`\x1b[top;bot r`) — lets us pin a
+    /// DECSTBM scroll region support (`\x1b[top;bot r`) -- lets us pin a
     /// fixed-footer area at the bottom and have streaming content scroll
     /// only in the upper region. VT100+ standard; supported by every
     /// modern emulator (Terminal.app, iTerm2, Alacritty, WezTerm, Windows
     /// Terminal, tmux). Disabled on dumb terminals and non-TTY contexts.
     pub scroll_region: bool,
-    /// Render decorative Unicode glyphs (`❯`, `◆`, box-drawing corners).
-    /// Off → use ASCII fallbacks (`>`, `*`, `+`) so minimal terminals
+    /// Render decorative Unicode glyphs (`>`, `*`, box-drawing corners).
+    /// Off -> use ASCII fallbacks (`>`, `*`, `+`) so minimal terminals
     /// (Windows legacy console, Docker/CI, POSIX locale without a full
     /// font) don't show `□` tofu. Set via:
     ///   * `RUSTCODE_ASCII=1` env var (explicit opt-out)
@@ -179,7 +179,7 @@ pub struct TerminalCaps {
     /// Why it matters: the conhost shipped on Win10 2004/20H2
     /// (10.0.19041) fastfails (`0xc0000409`) when we repaint on a window
     /// resize using a per-row `CUP+EL` wipe across the whole viewport
-    /// while its buffer is mid-resize — the user sees the entire terminal
+    /// while its buffer is mid-resize -- the user sees the entire terminal
     /// window vanish during a drag. On this host we emit a single `ED2`
     /// clear on resize instead of the row-by-row burst (see
     /// `RetainedRenderer::on_resize`). Always `false` off Windows.
@@ -187,7 +187,7 @@ pub struct TerminalCaps {
     /// JediTerm (IntelliJ-platform terminal: DevEco Studio, Android
     /// Studio, IDEA). Detected via `TERMINAL_EMULATOR == "JetBrains-JediTerm"`
     /// or forced by `RUSTCODE_JEDITERM`. **Deliberately inert w.r.t. every
-    /// other capability** — it does NOT feed `unicode_symbols`/`legacy_conhost`
+    /// other capability** -- it does NOT feed `unicode_symbols`/`legacy_conhost`
     /// (so it can't change the chevron, ASCII fallback, or resize path). Its
     /// only consumer is `Screen`'s per-row tight-repaint path, which streams
     /// each changed row as one contiguous run to avoid the per-cell-CUP gap +
@@ -198,8 +198,8 @@ pub struct TerminalCaps {
     /// or iTerm2 / VS Code / WezTerm / Hyper (`TERM_PROGRAM`). Same signal as
     /// the legacy-console heuristic. Consumed by the welcome-mascot gate: the
     /// half-block + per-cell-background pixel art renders reliably only on
-    /// modern emulators; bare / SSH terminals (FinalShell, PuTTY, …) that set
-    /// neither var may not paint cell backgrounds, fragmenting the art — so we
+    /// modern emulators; bare / SSH terminals (FinalShell, PuTTY, ...) that set
+    /// neither var may not paint cell backgrounds, fragmenting the art -- so we
     /// omit it there (the tips stack cleanly instead). Note this is `false` over
     /// SSH regardless of the client, since SSH doesn't forward these client-side
     /// vars to the remote where rustcode runs.
@@ -224,8 +224,8 @@ impl TerminalCaps {
         // (Emacs `M-x shell`, some CI wrappers). But TERM is a Unix
         // terminfo concept: on Windows crossterm drives the console via the
         // Win32 console API and ignores TERM entirely, so a stray
-        // `TERM=dumb` — commonly leaked into the environment by Git / MSYS /
-        // SSH tooling — does NOT mean the console lacks raw mode, colours,
+        // `TERM=dumb` -- commonly leaked into the environment by Git / MSYS /
+        // SSH tooling -- does NOT mean the console lacks raw mode, colours,
         // or VT processing. Honouring it there wrongly zeroed `raw_mode`,
         // dropping rustcode into the cooked LINE-input fallback where arrow
         // keys never reach menus (you could only Enter-select the first
@@ -241,9 +241,9 @@ impl TerminalCaps {
         let ascii_locale = matches!(locale, "C" | "POSIX" | "ANSI_X3.4-1968");
 
         // Windows-legacy-console heuristic: on Windows the default
-        // conhost host ships with fonts (Consolas, NSimSun, …) that
+        // conhost host ships with fonts (Consolas, NSimSun, ...) that
         // miss many Geometric Shapes / Misc-Symbols glyphs we use
-        // (`❯`, `◐`, etc.) and renders them as `□` tofu. Modern
+        // (`>`, `◐`, etc.) and renders them as `□` tofu. Modern
         // emulators set discoverable env vars; if NEITHER is present
         // assume legacy conhost and fall back to ASCII.
         //
@@ -270,7 +270,7 @@ impl TerminalCaps {
         // JediTerm: manual override wins, else auto-detect via the exact
         // `TERMINAL_EMULATOR` string IntelliJ-platform terminals export.
         // INTENTIONALLY computed AFTER (and independent of) unicode_symbols /
-        // legacy_conhost above — it must not perturb any existing decision.
+        // legacy_conhost above -- it must not perturb any existing decision.
         let jediterm = env
             .force_jediterm
             .unwrap_or_else(|| env.terminal_emulator.as_deref() == Some("JetBrains-JediTerm"));
@@ -323,7 +323,7 @@ impl TerminalCaps {
         // selection (word double-click, clean cross-chrome copy, click-to-cursor).
         // `capability_safe` still hard-blocks dumb/jediterm/legacy even when
         // forced; `mouse_passthrough` keeps tmux/ssh safe. `known_protocol_emulator`
-        // no longer gates it — an explicit opt-in is the user's responsibility.
+        // no longer gates it -- an explicit opt-in is the user's responsibility.
         // (OSC52 keyboard-copy below is UNCHANGED: still allowlist-default-on.)
         let mouse_sgr = capability_safe && env.force_mouse_sgr == Some(true) && mouse_passthrough;
         let osc52_clipboard = capability_safe
@@ -354,12 +354,12 @@ impl TerminalCaps {
     }
 
     /// Two-cell prompt prefix for the input box and echoed user lines.
-    /// `"❯ "` when the terminal can render Unicode glyphs, `"> "` as the
+    /// `"> "` when the terminal can render Unicode glyphs, `"> "` as the
     /// ASCII fallback. Both are exactly 2 display columns, so layout
     /// math (`text_budget = w - 2`) stays identical in both branches.
     pub fn prompt_chevron(&self) -> &'static str {
         if self.unicode_symbols {
-            "\u{276f} "
+            "> "
         } else {
             "> "
         }
@@ -416,8 +416,8 @@ mod tests {
 
     #[test]
     fn legacy_conhost_only_on_bare_windows() {
-        // Windows with no Windows-Terminal / modern-emulator markers → classic
-        // conhost → resize must use the ED2-clear path, not the per-row burst.
+        // Windows with no Windows-Terminal / modern-emulator markers -> classic
+        // conhost -> resize must use the ED2-clear path, not the per-row burst.
         let conhost = TerminalCaps::from_env(EnvView {
             is_windows: true,
             wt_session: None,
@@ -426,7 +426,7 @@ mod tests {
         });
         assert!(conhost.legacy_conhost);
 
-        // Windows Terminal sets WT_SESSION → modern engine → not legacy.
+        // Windows Terminal sets WT_SESSION -> modern engine -> not legacy.
         let wt = TerminalCaps::from_env(EnvView {
             is_windows: true,
             wt_session: Some("abc".to_string()),
@@ -719,7 +719,7 @@ mod tests {
                 term: Some(term.into()),
                 ..env()
             });
-            // Mouse capture is opt-in (RUSTCODE_MOUSE_SGR=1) — OFF by default
+            // Mouse capture is opt-in (RUSTCODE_MOUSE_SGR=1) -- OFF by default
             // even on the allowlist, so native mouse selection stays. OSC52
             // keyboard-copy remains allowlisted-on.
             assert!(
@@ -733,7 +733,7 @@ mod tests {
     #[test]
     fn mouse_capture_is_opt_in_via_force_only() {
         // Default (no RUSTCODE_MOUSE_SGR): an allowlisted terminal does NOT
-        // capture the mouse — native selection/copy/paste is preserved.
+        // capture the mouse -- native selection/copy/paste is preserved.
         let default_kitty = TerminalCaps::from_env(EnvView {
             kitty_window_id: Some("1".into()),
             ..env()
@@ -767,8 +767,8 @@ mod tests {
     }
 
     // Regression: a Windows user reported that arrow keys couldn't navigate
-    // any menu (/model list, approval options) — only Enter worked, always
-    // picking the first item — in BOTH cmd.exe and Windows Terminal. A
+    // any menu (/model list, approval options) -- only Enter worked, always
+    // picking the first item -- in BOTH cmd.exe and Windows Terminal. A
     // tuix.log showed input arriving as `paste(<line>)` + `key(Press,Enter)`
     // with zero `[ RD]` reader traces: the cooked LINE reader was running,
     // not the raw-mode reader, so arrow keys were swallowed by the console's
@@ -788,7 +788,7 @@ mod tests {
         assert!(caps.tty);
         assert!(
             caps.raw_mode,
-            "Windows console raw mode is independent of TERM — a stray \
+            "Windows console raw mode is independent of TERM -- a stray \
              TERM=dumb must not drop us into the cooked line reader"
         );
         assert!(caps.bracketed_paste);
@@ -812,7 +812,7 @@ mod tests {
             lang: Some("C".to_string()),
             ..env()
         });
-        assert!(!caps.unicode_symbols, "LANG=C → ASCII fallback");
+        assert!(!caps.unicode_symbols, "LANG=C -> ASCII fallback");
     }
 
     #[test]
@@ -833,7 +833,7 @@ mod tests {
             ..env()
         });
         assert!(caps.unicode_symbols);
-        assert_eq!(caps.prompt_chevron(), "\u{276f} ");
+        assert_eq!(caps.prompt_chevron(), "> ");
     }
 
     #[test]
@@ -847,8 +847,8 @@ mod tests {
         assert!(caps.unicode_symbols);
     }
 
-    // The Windows-legacy-console heuristic — the bug we were fixing.
-    // Default conhost ships with fonts that don't have `❯` / `◐`, so
+    // The Windows-legacy-console heuristic -- the bug we were fixing.
+    // Default conhost ships with fonts that don't have `>` / `◐`, so
     // bare Windows must fall back to ASCII unless a modern emulator
     // is detected.
     #[test]
@@ -859,7 +859,7 @@ mod tests {
         });
         assert!(
             !caps.unicode_symbols,
-            "bare Windows (no WT_SESSION / TERM_PROGRAM) → ASCII fallback to avoid ▢ tofu"
+            "bare Windows (no WT_SESSION / TERM_PROGRAM) -> ASCII fallback to avoid ▢ tofu"
         );
         assert_eq!(caps.prompt_chevron(), "> ");
     }
@@ -889,7 +889,7 @@ mod tests {
 
     #[test]
     fn force_unicode_overrides_windows_fallback() {
-        // User on conhost installed JetBrains Mono — let them opt back in.
+        // User on conhost installed JetBrains Mono -- let them opt back in.
         let caps = TerminalCaps::from_env(EnvView {
             is_windows: true,
             force_unicode: true,
@@ -910,7 +910,7 @@ mod tests {
             terminal_emulator: Some("JetBrains-JediTerm".to_string()),
             ..env()
         });
-        assert!(caps.jediterm, "exact TERMINAL_EMULATOR string → jediterm");
+        assert!(caps.jediterm, "exact TERMINAL_EMULATOR string -> jediterm");
     }
 
     #[test]
@@ -920,7 +920,7 @@ mod tests {
             ..env()
         });
         assert!(!other.jediterm);
-        assert!(!TerminalCaps::from_env(env()).jediterm, "absent → false");
+        assert!(!TerminalCaps::from_env(env()).jediterm, "absent -> false");
     }
 
     #[test]
@@ -940,7 +940,7 @@ mod tests {
         assert!(!off.jediterm);
     }
 
-    /// The jediterm flag MUST NOT perturb any pre-existing capability —
+    /// The jediterm flag MUST NOT perturb any pre-existing capability --
     /// it's a pure additive signal for the render layer. Same env, with
     /// vs without the JediTerm marker, must agree on unicode_symbols,
     /// legacy_conhost, colors, and the chevron.
@@ -971,7 +971,7 @@ mod tests {
         assert!(win_jt.jediterm);
     }
 
-    /// The Kitty keyboard push (CSI u) must be suppressed on JediTerm —
+    /// The Kitty keyboard push (CSI u) must be suppressed on JediTerm --
     /// arming it makes DevEco/IDEA's terminal re-frame mouse-move reports as
     /// kitty key events, which crossterm decodes into a stream of gibberish
     /// `Char`s in the input box. Mirrors the long-standing Windows exclusion.
@@ -1081,7 +1081,7 @@ mod tests {
 
     #[test]
     fn force_ascii_beats_force_unicode_when_both_set() {
-        // RUSTCODE_ASCII=1 takes priority — explicit "I want ASCII" wins.
+        // RUSTCODE_ASCII=1 takes priority -- explicit "I want ASCII" wins.
         // (force_unicode only flips on, it doesn't override force_ascii.)
         let caps = TerminalCaps::from_env(EnvView {
             force_ascii: true,
@@ -1090,7 +1090,7 @@ mod tests {
         });
         assert!(
             caps.unicode_symbols,
-            "force_unicode currently wins — RUSTCODE_UNICODE is the explicit opt-in escape hatch"
+            "force_unicode currently wins -- RUSTCODE_UNICODE is the explicit opt-in escape hatch"
         );
         // Note: if priority needs to flip, change the if/else in
         // `from_env` and update this test. Captured here so the

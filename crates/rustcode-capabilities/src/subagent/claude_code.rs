@@ -1,16 +1,16 @@
 //! Claude Code adapter: drives the `claude` CLI in headless print mode.
 //!
 //! Transport is `claude -p --output-format json` (one-shot). The single JSON
-//! result object is parsed for its `result` field — a stable contract that does
+//! result object is parsed for its `result` field -- a stable contract that does
 //! not depend on the incremental stream-json event shape. Live activity
 //! streaming (stream-json) is a later improvement.
 //!
-//! Permission → flags (`claude --permission-mode` choices: acceptEdits, auto,
+//! Permission -> flags (`claude --permission-mode` choices: acceptEdits, auto,
 //! bypassPermissions, default, dontAsk, plan):
-//! - `ReadOnly`    → `--permission-mode plan` (plan mode makes no edits)
-//! - `AcceptEdits` → `--permission-mode acceptEdits`
-//! - `Auto`        → `--permission-mode auto`
-//! - `Bypass`      → `--dangerously-skip-permissions`
+//! - `ReadOnly`    -> `--permission-mode plan` (plan mode makes no edits)
+//! - `AcceptEdits` -> `--permission-mode acceptEdits`
+//! - `Auto`        -> `--permission-mode auto`
+//! - `Bypass`      -> `--dangerously-skip-permissions`
 //!
 //! Phase 1 / T1.4 of the external-agent subagent-driver spec.
 
@@ -122,7 +122,7 @@ struct ClaudeOutcome {
 /// Parse the single `claude --output-format json` result object. Extracts the
 /// `result` string and the `is_error` flag; falls back to the raw buffer for the
 /// text when the payload cannot be parsed or `result` is absent/non-string
-/// (defensive against schema drift — never drop the output entirely).
+/// (defensive against schema drift -- never drop the output entirely).
 fn parse_result(buf: &str) -> ClaudeOutcome {
     let trimmed = buf.trim();
     if trimmed.is_empty() {
@@ -267,14 +267,14 @@ mod tests {
         );
         assert_eq!(ok.text, "THE ANSWER");
         assert!(!ok.is_error);
-        // is_error true with a null result → surfaces the subtype, flags error,
+        // is_error true with a null result -> surfaces the subtype, flags error,
         // does NOT dump the raw JSON envelope.
         let e = parse_result(
             r#"{"type":"result","subtype":"error_max_turns","is_error":true,"result":null}"#,
         );
         assert!(e.is_error);
         assert_eq!(e.text, "error_max_turns");
-        // Non-JSON → raw passthrough, not an error.
+        // Non-JSON -> raw passthrough, not an error.
         let raw = parse_result("plain text out");
         assert_eq!(raw.text, "plain text out");
         assert!(!raw.is_error);
@@ -292,7 +292,7 @@ mod tests {
     }
 
     // Stub `claude`: prints one JSON result object, exits 0. No real Claude, no
-    // network. Verifies spawn → buffer → parse → result.
+    // network. Verifies spawn -> buffer -> parse -> result.
     #[cfg(unix)]
     #[tokio::test]
     async fn run_parses_json_result_from_stub_claude() {
@@ -315,7 +315,7 @@ mod tests {
         assert_eq!(res.output, "CLAUDE ANSWER");
     }
 
-    // claude exits 0 but reports is_error → surfaced as AgentError, not Completed.
+    // claude exits 0 but reports is_error -> surfaced as AgentError, not Completed.
     #[cfg(unix)]
     #[tokio::test]
     async fn run_maps_is_error_to_agent_error() {

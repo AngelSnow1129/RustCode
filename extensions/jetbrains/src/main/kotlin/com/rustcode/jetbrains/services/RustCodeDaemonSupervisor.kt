@@ -1,7 +1,7 @@
 package com.rustcode.jetbrains.services
 
-import com.rustcode.jetbrains.daemon.AtomCodeDaemonClient
-import com.rustcode.jetbrains.daemon.AtomCodeDaemonProcess
+import com.rustcode.jetbrains.daemon.RustCodeDaemonClient
+import com.rustcode.jetbrains.daemon.RustCodeDaemonProcess
 import com.rustcode.jetbrains.daemon.ConnectionErrorKind
 import com.rustcode.jetbrains.daemon.DaemonAuth
 import com.rustcode.jetbrains.daemon.DaemonTokenFile
@@ -11,7 +11,7 @@ import com.rustcode.jetbrains.daemon.DaemonProcessLauncher
 import com.rustcode.jetbrains.daemon.HealthResponse
 import com.rustcode.jetbrains.daemon.ManagedDaemonProcess
 import com.rustcode.jetbrains.security.SecretRedactor
-import com.rustcode.jetbrains.settings.AtomCodeSettings
+import com.rustcode.jetbrains.settings.RustCodeSettings
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
@@ -30,7 +30,7 @@ internal data class DaemonEndpointKey(
     val port: Int,
 ) {
     companion object {
-        fun from(settings: AtomCodeSettings): DaemonEndpointKey = DaemonEndpointKey(
+        fun from(settings: RustCodeSettings): DaemonEndpointKey = DaemonEndpointKey(
             host = settings.host,
             port = settings.port,
         )
@@ -44,7 +44,7 @@ internal data class DaemonConnectionKey(
     val requestTimeoutMs: Int,
 ) {
     companion object {
-        fun from(settings: AtomCodeSettings): DaemonConnectionKey = DaemonConnectionKey(
+        fun from(settings: RustCodeSettings): DaemonConnectionKey = DaemonConnectionKey(
             endpoint = DaemonEndpointKey.from(settings),
             binaryPath = settings.daemonBinaryPath.trim(),
             autoStart = settings.autoStart,
@@ -69,11 +69,11 @@ internal interface DaemonControl {
 }
 
 internal fun interface DaemonControlFactory {
-    fun create(settings: AtomCodeSettings, timeoutMs: Int, auth: DaemonAuth): DaemonControl
+    fun create(settings: RustCodeSettings, timeoutMs: Int, auth: DaemonAuth): DaemonControl
 }
 
 internal fun interface DaemonProcessFactory {
-    fun create(settings: AtomCodeSettings): DaemonProcessLauncher
+    fun create(settings: RustCodeSettings): DaemonProcessLauncher
 }
 
 internal class DaemonSupervisorEngine(
@@ -88,7 +88,7 @@ internal class DaemonSupervisorEngine(
     private val ownedProcesses = mutableMapOf<DaemonEndpointKey, ManagedDaemonProcess>()
     private var disposed = false
 
-    fun ensureReady(settings: AtomCodeSettings, auth: DaemonAuth): CompletableFuture<DaemonReady> {
+    fun ensureReady(settings: RustCodeSettings, auth: DaemonAuth): CompletableFuture<DaemonReady> {
         val snapshot = settings.copy()
         val connectionKey = DaemonConnectionKey.from(snapshot)
         val key = connectionKey.endpoint
@@ -129,7 +129,7 @@ internal class DaemonSupervisorEngine(
     }
 
     private fun connect(
-        settings: AtomCodeSettings,
+        settings: RustCodeSettings,
         auth: DaemonAuth,
         key: DaemonEndpointKey,
     ): CompletableFuture<DaemonReady> {
@@ -184,7 +184,7 @@ internal class DaemonSupervisorEngine(
     }
 
     private fun acceptOrRestart(
-        settings: AtomCodeSettings,
+        settings: RustCodeSettings,
         auth: DaemonAuth,
         key: DaemonEndpointKey,
         launcher: DaemonProcessLauncher,
@@ -234,7 +234,7 @@ internal class DaemonSupervisorEngine(
         }
 
     private fun launchAndAwait(
-        settings: AtomCodeSettings,
+        settings: RustCodeSettings,
         auth: DaemonAuth,
         key: DaemonEndpointKey,
         launcher: DaemonProcessLauncher,
@@ -432,26 +432,26 @@ private data class DaemonExpectation(
 }
 
 @Service(Service.Level.APP)
-class AtomCodeDaemonSupervisor : Disposable {
+class RustCodeDaemonSupervisor : Disposable {
     private val engine = DaemonSupervisorEngine(
         controlFactory = DaemonControlFactory { settings, timeoutMs, auth ->
-            val client = AtomCodeDaemonClient(settings.host, settings.port, timeoutMs, auth)
+            val client = RustCodeDaemonClient(settings.host, settings.port, timeoutMs, auth)
             object : DaemonControl {
                 override fun health(): CompletableFuture<HealthResponse> = client.health()
                 override fun shutdown(): CompletableFuture<Boolean> = client.shutdown()
             }
         },
-        processFactory = DaemonProcessFactory(::AtomCodeDaemonProcess),
+        processFactory = DaemonProcessFactory(::RustCodeDaemonProcess),
     )
 
-    internal fun ensureReady(settings: AtomCodeSettings, auth: DaemonAuth): CompletableFuture<DaemonReady> =
+    internal fun ensureReady(settings: RustCodeSettings, auth: DaemonAuth): CompletableFuture<DaemonReady> =
         engine.ensureReady(settings, auth)
 
     override fun dispose() = engine.dispose()
 
     companion object {
-        fun getInstance(): AtomCodeDaemonSupervisor =
-            ApplicationManager.getApplication().getService(AtomCodeDaemonSupervisor::class.java)
+        fun getInstance(): RustCodeDaemonSupervisor =
+            ApplicationManager.getApplication().getService(RustCodeDaemonSupervisor::class.java)
     }
 }
 

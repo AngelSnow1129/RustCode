@@ -16,7 +16,7 @@ fn _isolate_rustcode_home() {
 pub mod askpass;
 pub mod uninstall;
 
-/// ACP (Agent Client Protocol) stdio server — lets rustcode be driven by Zed /
+/// ACP (Agent Client Protocol) stdio server -- lets rustcode be driven by Zed /
 /// multi-agent orchestrators over stdin/stdout. Wired up by the `rustcode acp`
 /// subcommand in `main.rs`; the engine/dispatch/translate/permission internals
 /// live here. Does not depend on `rustcode-core` (v2 stack only).

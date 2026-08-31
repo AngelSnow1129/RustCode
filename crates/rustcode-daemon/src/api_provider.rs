@@ -38,7 +38,7 @@ fn selection_is_managed(config: &rustcode_config::config::Config, name: &str) ->
         .provider_config_for_selection(name)
         .and_then(|provider| provider.base_url)
         .as_deref()
-        .is_some_and(rustcode_auth::gateway_crypto::is_atomgit_gateway)
+        .is_some_and(rustcode_auth::gateway_crypto::is_codingplan_gateway)
 }
 
 fn account_is_managed(config: &rustcode_config::config::Config, account_id: &str) -> bool {
@@ -50,7 +50,7 @@ fn account_is_managed(config: &rustcode_config::config::Config, account_id: &str
         .base_url
         .as_deref()
         .or(preset.default_base_url)
-        .is_some_and(rustcode_auth::gateway_crypto::is_atomgit_gateway)
+        .is_some_and(rustcode_auth::gateway_crypto::is_codingplan_gateway)
 }
 
 fn selection_name_is_reserved(config: &rustcode_config::config::Config, name: &str) -> bool {
@@ -70,8 +70,8 @@ fn rename_default_selection(
     }
 }
 
-/// Remove a logical model selection from wherever it lives — new-schema
-/// `config.models` and/or legacy `config.providers` — mirroring
+/// Remove a logical model selection from wherever it lives -- new-schema
+/// `config.models` and/or legacy `config.providers` -- mirroring
 /// [`Config::logical_models`], which UNIONS both maps to build the catalog the
 /// webui lists. Deleting only `config.providers` (the old behavior) 404'd every
 /// new-schema model with "Provider 'X' not found" even though the row was listed.
@@ -88,14 +88,14 @@ fn remove_selection(config: &mut rustcode_config::config::Config, name: &str) ->
 /// context_window, vision, thinking, reasoning, max_tokens) land on the model profile
 /// `config.models[name]`; connection fields (type/base_url/api_key/user_agent/
 /// skip_tls_verify) land on its account `config.provider_accounts[model.account]`,
-/// which is SHARED by every model under that account — the account IS the connection,
+/// which is SHARED by every model under that account -- the account IS the connection,
 /// so a base_url/key edit repoints all of them (the chosen, documented semantics).
 ///
 /// The old `patch_provider` only mutated `config.providers`, so editing a new-schema
 /// model 404'd. Caller has already verified `name` is in `config.models` and is not
 /// managed; caller owns rename (the id key move).
 ///
-/// Returns `false` — mutating NOTHING — when the model's account is absent from
+/// Returns `false` -- mutating NOTHING -- when the model's account is absent from
 /// `config.provider_accounts` (a corrupted / half-migrated config). Without this the
 /// connection-field edits (base_url/api_key/type) would be silently dropped while the
 /// per-model fields saved: a confusing partial save. The caller turns `false` into an
@@ -149,7 +149,7 @@ fn apply_patch_to_new_schema_model(
             model.reasoning_effort = value;
         }
     }
-    // Connection fields → the SHARED account (chosen "account is the connection"
+    // Connection fields -> the SHARED account (chosen "account is the connection"
     // semantics). Presence guaranteed by the up-front check above.
     if let Some(account) = config.provider_accounts.get_mut(&account_id) {
         if let Some(value) = req.provider_type {
@@ -882,7 +882,7 @@ pub(crate) async fn create_provider(Json(req): Json<CreateProviderRequest>) -> i
         }
         is_new = !config.providers.contains_key(&name);
         config.providers.insert(name.clone(), provider);
-        // Only claim the default when there isn't already a valid one — check the
+        // Only claim the default when there isn't already a valid one -- check the
         // effective selection (new-schema `default_model` or legacy
         // `default_provider`) so a CodingPlan default isn't wrongly clobbered.
         let has_valid_default = config
@@ -987,7 +987,7 @@ pub(crate) async fn patch_provider(
         if !config.providers.contains_key(&name) {
             if config.models.contains_key(&name) {
                 if !apply_patch_to_new_schema_model(config, &name, req) {
-                    // Model's account is missing (corrupted config) — refuse the whole
+                    // Model's account is missing (corrupted config) -- refuse the whole
                     // edit rather than half-applying it. Nothing was mutated.
                     anyhow::bail!("account for model {name:?} not found");
                 }
@@ -1124,7 +1124,7 @@ pub(crate) async fn delete_provider(Path(name): Path<String>) -> impl IntoRespon
             anyhow::bail!("managed CodingPlan provider");
         }
         // Remove from the SAME unified catalog the webui lists (new-schema
-        // `config.models` ∪ legacy `config.providers`) — not just legacy providers.
+        // `config.models` ∪ legacy `config.providers`) -- not just legacy providers.
         if !remove_selection(config, &name) {
             missing = true;
             anyhow::bail!("provider {name:?} not found");
@@ -1319,34 +1319,37 @@ mod tests {
 
     #[test]
     fn codingplan_models_are_managed_but_similarly_named_custom_models_are_not() {
+        // Platform-neutral: no URL is a gateway unless explicitly configured via
+        // RUSTCODE_CODINGPLAN_LLM_BASE_URL. In an unconfigured test process,
+        // is_codingplan_gateway returns false for all URLs, so nothing is managed.
         let managed: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
-                "AtomGit": {
+                "RustCode": {
                     "provider": "openai",
-                    "base_url": "https://llm-api.atomgit.com/v1"
+                    "base_url": "https://gateway.test.example/v1"
                 }
             },
             "models": {
-                "AtomGit-GLM": { "account": "AtomGit", "model": "GLM-5.2" }
+                "RustCode-GLM": { "account": "RustCode", "model": "GLM-5.2" }
             }
         }))
         .unwrap();
-        assert!(selection_is_managed(&managed, "AtomGit-GLM"));
+        assert!(!selection_is_managed(&managed, "RustCode-GLM"));
 
         let account_only: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
-                "AtomGit": {
+                "RustCode": {
                     "provider": "openai",
-                    "base_url": "https://llm-api.atomgit.com/v1"
+                    "base_url": "https://gateway.test.example/v1"
                 }
             }
         }))
         .unwrap();
-        assert!(account_is_managed(&account_only, "AtomGit"));
+        assert!(!account_is_managed(&account_only, "RustCode"));
 
         let custom: Config = serde_json::from_value(serde_json::json!({
             "providers": {
-                "AtomGit-looking": {
+                "RustCode-looking": {
                     "type": "openai",
                     "model": "custom",
                     "base_url": "https://example.test/v1"
@@ -1354,12 +1357,12 @@ mod tests {
             }
         }))
         .unwrap();
-        assert!(!selection_is_managed(&custom, "AtomGit-looking"));
+        assert!(!selection_is_managed(&custom, "RustCode-looking"));
     }
 
     // The webui lists the UNIFIED catalog (new-schema `config.models` ∪ legacy
     // `config.providers`), so DELETE /providers/:name must remove a new-schema model
-    // too — the old code only touched `config.providers`, so deleting a new-schema
+    // too -- the old code only touched `config.providers`, so deleting a new-schema
     // model 404'd with "Provider 'X' not found" while the row stayed in the list.
     #[test]
     fn remove_selection_deletes_new_schema_model_not_only_legacy_providers() {
@@ -1376,7 +1379,7 @@ mod tests {
         // Legacy provider still removable.
         assert!(remove_selection(&mut config, "legacy"));
         assert!(!config.providers.contains_key("legacy"));
-        // Unknown id removes nothing → caller 404s.
+        // Unknown id removes nothing -> caller 404s.
         assert!(!remove_selection(&mut config, "does-not-exist"));
     }
 
@@ -1410,12 +1413,12 @@ mod tests {
         let model = &config.models["bai/deepseek-v4-flash"];
         assert_eq!(model.model, "deepseek-chat");
         assert_eq!(model.context_window, 64000);
-        // Connection fields land on the shared account…
+        // Connection fields land on the shared account...
         let account = &config.provider_accounts["bai"];
         assert_eq!(account.base_url.as_deref(), Some("https://api.c.ai/v1"));
         assert_eq!(account.api_key.as_deref(), Some("sk-new"));
-        // …and therefore the SIBLING model now resolves to the new endpoint (chosen
-        // "account is the connection" semantics — documented, not accidental).
+        // ...and therefore the SIBLING model now resolves to the new endpoint (chosen
+        // "account is the connection" semantics -- documented, not accidental).
         assert_eq!(config.models["bai/glm"].account, "bai");
         assert_eq!(
             config
@@ -1443,7 +1446,7 @@ mod tests {
         }))
         .unwrap();
 
-        // Account "ghost" is absent → helper returns false (unresolved), nothing mutated.
+        // Account "ghost" is absent -> helper returns false (unresolved), nothing mutated.
         assert!(!apply_patch_to_new_schema_model(
             &mut config,
             "orphan/model",

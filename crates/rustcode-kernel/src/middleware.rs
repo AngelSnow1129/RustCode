@@ -4,7 +4,7 @@ use crate::tool::{Tool, ToolCall, ToolResult};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-/// Composable around-tool wrapper — the SINGLE home for TOOL-level concerns
+/// Composable around-tool wrapper -- the SINGLE home for TOOL-level concerns
 /// (rewrite args, gate/approve, transform results). The kernel runs every
 /// middleware's `before` (in registration order) around each tool execution, then
 /// every `after`. Distinct from `LifecycleHooks`, which is TURN-level.
@@ -27,15 +27,15 @@ use std::sync::Arc;
 /// An implementation **MUST NOT panic**. The kernel does **NOT** isolate panics:
 /// under the workspace `panic = "abort"` profile a panic ABORTS THE HOST PROCESS
 /// (and `catch_unwind` is a no-op there), and under an unwind profile a panicking
-/// middleware is not currently caught either — so a panicking `before`/`after`
+/// middleware is not currently caught either -- so a panicking `before`/`after`
 /// takes down the whole session / process. Treat all injected code as
-/// must-not-panic (the SAME trust posture as the tool-sandbox contract — see
+/// must-not-panic (the SAME trust posture as the tool-sandbox contract -- see
 /// [`crate::tool`]): to BLOCK a call, return [`BeforeOutcome::Deny`] from `before`; never panic.
 #[async_trait]
 pub trait ToolMiddleware: Send + Sync {
-    /// Before a tool executes (after lookup). May REWRITE the call (`&mut` — change
+    /// Before a tool executes (after lookup). May REWRITE the call (`&mut` -- change
     /// args; note the tool is already resolved, so rewriting `name` does not
-    /// re-route — this is CC's `updatedInput`), round-trip to the driver via `rt`
+    /// re-route -- this is CC's `updatedInput`), round-trip to the driver via `rt`
     /// (e.g. approval), and returns a [`BeforeOutcome`] GATE decision. The first
     /// middleware to return [`BeforeOutcome::Deny`] blocks; `ToolStarted` then never
     /// fires (no ghost row).
@@ -49,13 +49,13 @@ pub trait ToolMiddleware: Send + Sync {
     }
 
     /// After a tool executes (or is blocked). Transform / observe the result in place
-    /// (truncate / redact — CC's `updatedToolOutput`) and return an [`AfterOutcome`]
+    /// (truncate / redact -- CC's `updatedToolOutput`) and return an [`AfterOutcome`]
     /// CONTINUATION decision. Runs for every middleware in registration order.
     ///
     /// `tool` is the resolved tool that produced the result, or `None` for results with
     /// no execution context (a blocked / stubbed / unknown-tool result). A transformer
     /// keyed on tool identity (e.g. respecting [`Tool::self_bounds_output`]) reads it
-    /// here instead of coordinating state across `before`/`after` — so it is robust even
+    /// here instead of coordinating state across `before`/`after` -- so it is robust even
     /// when an earlier `before` short-circuits the chain with [`BeforeOutcome::Allow`].
     async fn after(&self, _result: &mut ToolResult, _tool: Option<&Arc<dyn Tool>>) -> AfterOutcome {
         AfterOutcome::Proceed
@@ -99,7 +99,7 @@ pub enum BeforeOutcome {
 }
 
 impl BeforeOutcome {
-    /// Block a call with a reason — ergonomic constructor (former `Err(reason)`).
+    /// Block a call with a reason -- ergonomic constructor (former `Err(reason)`).
     pub fn deny(reason: impl Into<String>) -> Self {
         BeforeOutcome::Deny {
             reason: reason.into(),

@@ -1,19 +1,19 @@
 //! ONE home for Windows path normalization in the v2 (L1) stack.
 //!
 //! Two-form model:
-//!   * INTERNAL identity  → native, canonicalized, WITHOUT the `\\?\` verbatim
+//!   * INTERNAL identity  -> native, canonicalized, WITHOUT the `\\?\` verbatim
 //!     prefix. Produced by [`canonicalize`] / [`strip_verbatim`]. Use these
 //!     instead of raw `std::fs::canonicalize`, whose Windows result carries a
 //!     `\\?\` prefix that leaks into working_dir / session hashes / model context
-//!     if not stripped (rustcode's recurring pain — Node gets this free, Rust
+//!     if not stripped (rustcode's recurring pain -- Node gets this free, Rust
 //!     doesn't).
-//!   * BOUNDARY / display → forward slashes. Produced by [`to_display`]. Use it
+//!   * BOUNDARY / display -> forward slashes. Produced by [`to_display`]. Use it
 //!     for every path that crosses into an LLM tool result, the env block, or the
 //!     UI: a raw backslash path breaks when the model pastes it into `bash`
 //!     (Git Bash eats `\U`/`\s`/`\t` as escapes) and reads as noise to the model.
 //!
 //! L1 is `#![deny]`-decoupled from `rustcode-core`, so this is a local copy of the
-//! same logic that lives in `rustcode_core::tool::strip_verbatim_prefix` — the
+//! same logic that lives in `rustcode_core::tool::strip_verbatim_prefix` -- the
 //! established "capabilities keeps its own copies" pattern (see `pathutil`,
 //! `process_utils`, `proxy`).
 
@@ -43,13 +43,13 @@ pub fn strip_verbatim_path(path: &Path) -> PathBuf {
 /// so `C:\Users` and `C:\users` collapse to one entry on Windows/macOS but
 /// distinct paths stay distinct on Linux.
 ///
-/// This is a COMPARISON key only, never persisted — folding on macOS here does
+/// This is a COMPARISON key only, never persisted -- folding on macOS here does
 /// NOT touch the session-bucket hash (`session::hash_path`, which stays as-is to
 /// avoid orphaning existing sessions).
 ///
 /// Mirrors `session::hash_path`'s string normalization (strip `\\?\`, unify
-/// separators, drop a trailing slash) so different spellings of one directory —
-/// `C:\Users`, `C:/Users`, `\\?\C:\Users\` — share a key, then case-folds on
+/// separators, drop a trailing slash) so different spellings of one directory --
+/// `C:\Users`, `C:/Users`, `\\?\C:\Users\` -- share a key, then case-folds on
 /// case-insensitive filesystems. `to_lowercase` (not ASCII) matches `hash_path`.
 pub fn path_case_key(path: &Path) -> String {
     let s = strip_verbatim(&path.to_string_lossy()).into_owned();
@@ -69,7 +69,7 @@ pub fn path_case_key(path: &Path) -> String {
 
 /// `std::fs::canonicalize` with the Windows `\\?\` verbatim prefix stripped, so the
 /// result is a stable NATIVE path safe to store, hash, compare, or hand to another
-/// tool. The single source of path identity — prefer this over raw `canonicalize`
+/// tool. The single source of path identity -- prefer this over raw `canonicalize`
 /// so the prefix can never leak again.
 pub fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
     std::fs::canonicalize(path).map(|p| strip_verbatim_path(&p))
@@ -77,9 +77,9 @@ pub fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
 
 /// Format a path for the LLM / UI / permission BOUNDARY.
 ///
-/// On Windows, convert `\` → `/` (and strip any `\\?\`): the result works
+/// On Windows, convert `\` -> `/` (and strip any `\\?\`): the result works
 /// uniformly for `read_file`, Python, and Git Bash, whereas a raw backslash path
-/// breaks bash invocation. The conversion is LOSSLESS — on Windows `\` is always a
+/// breaks bash invocation. The conversion is LOSSLESS -- on Windows `\` is always a
 /// path separator and is illegal inside a filename. On Unix, `\` is a legal
 /// filename character (not a separator), so the path is returned untouched.
 pub fn to_display(path: &Path) -> String {

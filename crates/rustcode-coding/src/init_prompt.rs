@@ -19,12 +19,12 @@ the top-level directory layout and architecture, key conventions, and any NON-OB
 gotchas a newcomer would trip on.
 
 Write the result with `write_file`, keeping it concise (~200-400 words), actionable, and \
-focused on non-obvious, project-specific information — do NOT include generic advice like \
+focused on non-obvious, project-specific information -- do NOT include generic advice like \
 \"follow existing patterns\" or \"write tests\".
 
-IMPORTANT — pick the RIGHT file: check for an existing project instruction file in this \
-precedence order — `.rustcode.md`, `AGENTS.md`, `CLAUDE.md`. If ONE already EXISTS, read it \
-and improve THAT SAME file in place (it is the file the agent actually loads — writing a \
+IMPORTANT -- pick the RIGHT file: check for an existing project instruction file in this \
+precedence order -- `.rustcode.md`, `AGENTS.md`, `CLAUDE.md`. If ONE already EXISTS, read it \
+and improve THAT SAME file in place (it is the file the agent actually loads -- writing a \
 different filename would be shadowed and never take effect): preserve the useful content, \
 fill gaps, and fix anything stale; do NOT wipe and rewrite it from scratch. Only if NONE of \
 those files exists, create a new `AGENTS.md` at the project root.
@@ -42,7 +42,7 @@ pub const INIT_PROMPT_ZH_CN: &str = "\
 使用 `write_file` 写入结果。内容保持简洁（约 200～400 字）、可执行，并聚焦于不明显的项目特有信息；
 不要写“遵循现有模式”“编写测试”之类通用建议。
 
-重要——选择正确的文件：按 `.rustcode.md`、`AGENTS.md`、`CLAUDE.md` 的优先顺序检查已有项目指令文件。
+重要----选择正确的文件：按 `.rustcode.md`、`AGENTS.md`、`CLAUDE.md` 的优先顺序检查已有项目指令文件。
 如果其中一个已存在，先读取并原地完善同一个文件（代理实际加载的是该文件，另写其他文件会被遮蔽而不生效）；
 保留有用内容、补齐缺失信息并修正过期内容，不要清空后重写。仅当这些文件都不存在时，才在项目根目录创建
 新的 `AGENTS.md`。

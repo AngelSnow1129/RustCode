@@ -18,9 +18,9 @@ use rustcode_kernel::provider::LlmProvider;
 use rustcode_kernel::tool::{MountedTools, ToolRegistry};
 use std::sync::Arc;
 
-/// Assemble a runnable, self-correcting coding agent from `cfg` — the MINIMAL sync
+/// Assemble a runnable, self-correcting coding agent from `cfg` -- the MINIMAL sync
 /// path (tools + codeintel only). For the FULL agent (web / skills / mcp / session
-/// persistence / memory) use the two-phase [`crate::prepare`] → [`crate::assemble`].
+/// persistence / memory) use the two-phase [`crate::prepare`] -> [`crate::assemble`].
 ///
 /// Wires, all through existing kernel seams (no kernel change):
 /// - **provider**: OpenAI-compatible adapter (L1) from the config's creds.
@@ -39,14 +39,14 @@ pub fn build_coding_agent(cfg: CodingAgentConfig) -> Result<Agent, String> {
     // watchdog. Without this, `OpenAiCompatConfig::new`'s hardcoded 120s default
     // stays in effect even when the user raised `RUSTCODE_STREAM_TIMEOUT_SECS`
     // (or relied on the 300s default documented in `config.rs`). Thinking models
-    // (GLM-5.2, DeepSeek V4 Flash, …) go quiet for >2min during hidden reasoning
+    // (GLM-5.2, DeepSeek V4 Flash, ...) go quiet for >2min during hidden reasoning
     // after a large prompt; the 120s ceiling cut them off mid-think and surfaced
     // as a spurious `[Error: stream idle timeout]` even though the connection
     // was healthy. `cfg.stream_timeout` already carries the env-overridable value
     // (default 300s), so propagating it here makes the documented tunable actually
     // govern the L1 watchdog end-to-end.
     provider_cfg.idle_timeout = cfg.stream_timeout;
-    // Text-only models must NOT receive image content — a resumed conversation whose
+    // Text-only models must NOT receive image content -- a resumed conversation whose
     // history contains an image would otherwise 400 every turn. SAME canonical detector
     // as the tool-mount / read_file vision gate above.
     provider_cfg.supports_vision = cfg.supports_vision;
@@ -132,7 +132,7 @@ fn build_coding_agent_from_tools(
         rustcode_capabilities::tools::AtomgitBashGate::new(),
     ));
     let mut builder = builder
-        // Auto-approve in-workspace open_file (it's Risky → would otherwise prompt on every
+        // Auto-approve in-workspace open_file (it's Risky -> would otherwise prompt on every
         // preview). This path pins an immutable working_dir, so the gate pins the same root.
         // BEFORE approval so its `Allow` short-circuits the prompt.
         .middleware(Arc::new(OpenFileWorkspaceGate::pinned(
@@ -153,14 +153,14 @@ fn build_coding_agent_from_tools(
                 cfg.working_dir.clone(),
                 turn_execution_policy,
             )
-            // Attended (a present human who reviews edits — CodingAgentConfig::is_attended) →
+            // Attended (a present human who reviews edits -- CodingAgentConfig::is_attended) ->
             // don't FORCE post-edit checks; headless / scheduled keep the cadence.
             // `RUSTCODE_VERIFY` overrides. (Mirrors parts.rs.)
             .attended(cfg.is_attended()),
         ))
         .working_dir(cfg.working_dir.clone())
-        // Cache-friendly task-boundary stub + hard-overflow recovery ladder (stub→truncate
-        // →drain+LLM-summary). The overflow path is off the normal path (typed error only).
+        // Cache-friendly task-boundary stub + hard-overflow recovery ladder (stub->truncate
+        // ->drain+LLM-summary). The overflow path is off the normal path (typed error only).
         .compaction(Arc::new(
             rustcode_capabilities::compaction::OverflowCompaction::new(
                 rustcode_capabilities::compaction::StubCompaction::default(),
@@ -254,7 +254,7 @@ fn base_coding_tools(
 
 /// Register the shipped AtomGit REST capabilities into a coding tool catalog.
 ///
-/// Both the minimal builder above and the production `parts::prepare → assemble`
+/// Both the minimal builder above and the production `parts::prepare -> assemble`
 /// path use this helper so a feature-enabled build cannot expose different tools
 /// depending on which assembly entry point the driver uses.
 #[cfg(feature = "atomgit")]

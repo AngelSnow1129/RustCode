@@ -72,7 +72,7 @@ export function WelcomeScreen() {
 
   const needsSetup = state.setupRequired || state.providers.length === 0;
   const authUsable = state.auth?.logged_in === true && state.auth.expired !== true;
-  const signedInName = state.auth?.user?.name || state.auth?.user?.username || t('setup.atomgitUser');
+  const signedInName = state.auth?.user?.name || state.auth?.user?.username || t('setup.platformUser');
 
   return (
     <div className="welcome-screen">
@@ -97,7 +97,7 @@ export function WelcomeScreen() {
                 {authUsable ? (
                   <button type="button" className="setup-secondary" onClick={refreshSetupState}>{t('setup.refreshAccount')}</button>
                 ) : (
-                  <button type="button" className="setup-primary" onClick={startLogin}>{t('setup.signInWithAtomGit')}</button>
+                  <button type="button" className="setup-primary" onClick={startLogin}>{t('setup.signInWithPlatform')}</button>
                 )}
               </div>
             </div>

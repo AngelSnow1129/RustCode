@@ -7,7 +7,7 @@
 // in how the returned `SetupReport` is rendered.
 //
 // All three REST endpoints live on `api.gitcode.com` (distinct host from
-// `atomgit.com` where the OAuth flow runs; same backend — the token
+// `atomgit.com` where the OAuth flow runs; same backend -- the token
 // obtained from atomgit OAuth authenticates both). The base URL is
 // configurable via `RUSTCODE_CODINGPLAN_API_BASE`. The shared UA
 // (`RUSTCODE_USER_AGENT`) is honoured by every request so AtomGit's
@@ -19,8 +19,8 @@ pub mod sync_marker;
 pub mod types;
 pub mod usage;
 
-// Gateway request-signing (is_atomgit_gateway / RequestSigner / SignInput / …) lives in
-// `rustcode_auth::gateway_crypto` now — this crate is the CodingPlan REST/usage/setup business
+// Gateway request-signing (is_codingplan_gateway / RequestSigner / SignInput / ...) lives in
+// `rustcode_auth::gateway_crypto` now -- this crate is the CodingPlan REST/usage/setup business
 // layer only. Consumers that need signing import from `rustcode_auth::gateway_crypto` directly.
 
 pub use client::{api_base_url, is_auth_expired, AuthExpired, Client};

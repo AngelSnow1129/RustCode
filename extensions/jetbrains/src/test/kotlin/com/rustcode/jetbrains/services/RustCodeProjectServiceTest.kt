@@ -7,7 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-class AtomCodeProjectServiceTest {
+class RustCodeProjectServiceTest {
     private fun provider(name: String, requiresLogin: Boolean?): ProviderInfo =
         ProviderInfo(
             name = name,

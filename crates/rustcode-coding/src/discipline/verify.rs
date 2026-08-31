@@ -1,4 +1,4 @@
-//! Edit-then-verify discipline — the coding self-correction loop.
+//! Edit-then-verify discipline -- the coding self-correction loop.
 //!
 //! When the model stops (no more tool calls) having EDITED code but not run a successful
 //! build/check afterward, we inject a one-shot nudge to verify before finishing. This is
@@ -8,8 +8,8 @@
 //!
 //! Language-agnostic: detection keys on tool NAMES (edit_file / write_file / bash) and, for
 //! bash, EXCLUDES a small denylist of read-only / navigation commands (`ls`, `echo`, `cat`,
-//! …) so a throwaway `bash ls` after an edit no longer counts as "verified". It never
-//! enumerates build commands (no cargo/npm allowlist) — a real check of ANY language still
+//! ...) so a throwaway `bash ls` after an edit no longer counts as "verified". It never
+//! enumerates build commands (no cargo/npm allowlist) -- a real check of ANY language still
 //! counts. The nudge text lists `cargo check` / `tsc --noEmit` only as examples.
 
 use crate::execution_policy::{execution_policy_for_messages, TurnExecutionPolicy};
@@ -30,24 +30,24 @@ before finishing. Do NOT start a long-running process (dev server, watcher, full
 pub struct VerifyCadenceHook {
     /// The pinned workspace root. An edit whose target resolves OUTSIDE this root (e.g. a
     /// throwaway `/tmp/notes.txt`) is not project code, so it does not arm the verify cadence
-    /// — see [`path_in_workspace_lexical`]. An empty root (the `Default`) treats every edit as
+    /// -- see [`path_in_workspace_lexical`]. An empty root (the `Default`) treats every edit as
     /// in-workspace, preserving the pre-gate behavior for tests / constructions without a cwd.
     workspace: PathBuf,
     execution_policy: Arc<TurnExecutionPolicy>,
     state: Mutex<State>,
-    /// When `true`, the hook does NOT force a post-edit verify continuation — the run is
+    /// When `true`, the hook does NOT force a post-edit verify continuation -- the run is
     /// ATTENDED (interactive TUI), so a present human sees the edit and can ask for a check,
     /// matching codex's "hold off on tests in interactive modes; run them proactively only when
     /// unattended". Default `false` (unattended / headless / scheduled) keeps the forcing
     /// cadence. Set via [`VerifyCadenceHook::attended`], which also honors the `RUSTCODE_VERIFY`
-    /// override (`0`/`off` → always suppress, `1`/`on` → always force).
+    /// override (`0`/`off` -> always suppress, `1`/`on` -> always force).
     suppress_verify_continuation: bool,
 }
 
 #[derive(Default)]
 struct State {
     /// The current real-user turn and tool_call_id we ALREADY nudged for. Including the
-    /// turn start keeps reused provider ids (`call_0`, `e1`, …) from suppressing a later
+    /// turn start keeps reused provider ids (`call_0`, `e1`, ...) from suppressing a later
     /// user's fresh edit.
     nudged_for: Option<NudgedEdit>,
 }
@@ -84,9 +84,9 @@ impl VerifyCadenceHook {
 
     /// Mark whether this run is ATTENDED (interactive). An attended run SUPPRESSES the forced
     /// post-edit verify continuation (a present human can request a check); an unattended run
-    /// keeps forcing it. The `RUSTCODE_VERIFY` env overrides either way — see
+    /// keeps forcing it. The `RUSTCODE_VERIFY` env overrides either way -- see
     /// [`should_suppress_verify`]. Additive builder: existing call sites that don't call this
-    /// keep the default (`false` → force), so behavior is unchanged unless opted in.
+    /// keep the default (`false` -> force), so behavior is unchanged unless opted in.
     pub(crate) fn attended(self, interactive: bool) -> Self {
         let suppress = should_suppress_verify(
             std::env::var("RUSTCODE_VERIFY").ok().as_deref(),
@@ -102,7 +102,7 @@ impl VerifyCadenceHook {
 }
 
 /// Parse the `RUSTCODE_VERIFY` override into an explicit force decision: `0`/`false`/`off`/`no`
-/// → force OFF, `1`/`true`/`on`/`yes` → force ON, anything else / empty / unset → `None` (fall
+/// -> force OFF, `1`/`true`/`on`/`yes` -> force ON, anything else / empty / unset -> `None` (fall
 /// back to the attended default).
 fn parse_verify_env(env: Option<&str>) -> Option<bool> {
     match env?.trim().to_ascii_lowercase().as_str() {
@@ -113,7 +113,7 @@ fn parse_verify_env(env: Option<&str>) -> Option<bool> {
 }
 
 /// Whether to SUPPRESS the forced post-edit verify continuation. The `RUSTCODE_VERIFY` override
-/// wins; otherwise suppress iff the run is attended (interactive) — matching codex's "hold off on
+/// wins; otherwise suppress iff the run is attended (interactive) -- matching codex's "hold off on
 /// tests in interactive modes, run them proactively only when unattended".
 fn should_suppress_verify(env: Option<&str>, interactive: bool) -> bool {
     match parse_verify_env(env) {
@@ -167,13 +167,13 @@ fn lexical_normalize(p: &Path) -> PathBuf {
 /// Relative targets resolve against `workspace` (the tools' cwd) so they are in-workspace by
 /// construction; a leading `~` expands via `$HOME`; absolute targets are `..`/`.`-folded and
 /// prefix-checked. Deliberately does NOT `canonicalize` (that would block on a stale network
-/// mount — the WriteApprovalGate already owns the authoritative canonical decision at write
+/// mount -- the WriteApprovalGate already owns the authoritative canonical decision at write
 /// time), so a symlinked/differently-cased in-workspace path may read as outside; that only ever
 /// SKIPS a nudge (benign), never produces a false /tmp nudge.
 ///
-/// Returns `true` (conservative — keep the cadence, i.e. pre-gate behavior) when we can't
+/// Returns `true` (conservative -- keep the cadence, i.e. pre-gate behavior) when we can't
 /// reliably classify: an empty/unparseable target, or a workspace root that isn't absolute
-/// (a relative root can't anchor a prefix test — an absolute edit path would never match it,
+/// (a relative root can't anchor a prefix test -- an absolute edit path would never match it,
 /// which would silently disable the whole cadence).
 fn path_in_workspace_lexical(raw: &str, workspace: &Path) -> bool {
     let raw = raw.trim();
@@ -184,7 +184,7 @@ fn path_in_workspace_lexical(raw: &str, workspace: &Path) -> bool {
     let expanded: PathBuf = if raw == "~" {
         match std::env::var_os("HOME") {
             Some(h) => PathBuf::from(h),
-            None => return true, // can't expand → don't skip the cadence
+            None => return true, // can't expand -> don't skip the cadence
         }
     } else if let Some(rest) = raw.strip_prefix("~/") {
         match std::env::var_os("HOME") {
@@ -204,11 +204,11 @@ fn path_in_workspace_lexical(raw: &str, workspace: &Path) -> bool {
 
 /// Doc / prose / tabular-data file types for which a compile or type-check is meaningless.
 /// Writing a README, a generated markdown report, a CSV, or a log is NOT "code that must be
-/// verified", so such a write must not arm the "run cargo check" cadence — otherwise a
-/// non-coding turn (e.g. "write my weekly report" → a `.md` file) triggers a bogus nudge and
+/// verified", so such a write must not arm the "run cargo check" cadence -- otherwise a
+/// non-coding turn (e.g. "write my weekly report" -> a `.md` file) triggers a bogus nudge and
 /// the model runs an unrelated project's tests. Deliberately conservative: only clearly
-/// non-source extensions are listed. Anything NOT here still arms — source code AND
-/// build-affecting config (`Cargo.toml`, `package.json`, `tsconfig.json`, …), whose edits a
+/// non-source extensions are listed. Anything NOT here still arms -- source code AND
+/// build-affecting config (`Cargo.toml`, `package.json`, `tsconfig.json`, ...), whose edits a
 /// real check legitimately catches.
 const NONCODE_DOC_EXTS: &[&str] = &[
     "md", "markdown", "mdx", "txt", "text", "rst", "adoc", "asciidoc", "org", "csv", "tsv", "log",
@@ -227,7 +227,7 @@ fn path_is_noncode_doc(raw: &str) -> bool {
 
 /// Whether a post-edit `bash` command plausibly VERIFIES the edit (runs a build / type-check
 /// / test / lint), as opposed to read-only or review commands a model might run instead. A
-/// command verifies iff at least one of its chained segments runs a NON-read-only command —
+/// command verifies iff at least one of its chained segments runs a NON-read-only command --
 /// so `cd sub && cargo test` verifies, but `git diff`, `ls -la`, and `cat x | grep y` (all
 /// read-only, even chained) do not. Language-agnostic: it excludes known no-ops/review
 /// commands (incl. `git`, which has no build subcommand), never enumerates build commands, so
@@ -239,9 +239,9 @@ fn bash_verifies(cmd: &str) -> bool {
         .any(segment_is_work)
 }
 
-/// A single command segment does "work" (plausible verification) if its effective head —
+/// A single command segment does "work" (plausible verification) if its effective head --
 /// after stripping leading `VAR=val` env assignments and known wrappers (`sudo`/`env`/`time`
-/// /`nice`/…) and any path prefix — is NOT a read-only / review command.
+/// /`nice`/...) and any path prefix -- is NOT a read-only / review command.
 fn segment_is_work(seg: &str) -> bool {
     // Read-only / review / aggregation commands. `git` included: `git diff|status|log|show`
     // are review, and git has no build/check subcommand.
@@ -255,7 +255,7 @@ fn segment_is_work(seg: &str) -> bool {
     let mut tokens = seg.split_whitespace();
     loop {
         let Some(tok) = tokens.next() else {
-            return false; // only env-assignments / wrappers, no real command → not work
+            return false; // only env-assignments / wrappers, no real command -> not work
         };
         // Skip a leading `VAR=val` env assignment (`FOO=1 cargo test`).
         if tok.contains('=') && !tok.starts_with('-') {
@@ -263,7 +263,7 @@ fn segment_is_work(seg: &str) -> bool {
         }
         let head = tok.rsplit('/').next().unwrap_or(tok);
         if WRAPPERS.contains(&head) {
-            continue; // `sudo`/`env`/`time` … → look at the wrapped command
+            continue; // `sudo`/`env`/`time` ... -> look at the wrapped command
         }
         return !READONLY.contains(&head);
     }
@@ -279,15 +279,15 @@ fn current_real_user_start(convo: &Conversation) -> usize {
 
 /// Scan the conversation: returns the tool_call_id of the most recent successful edit
 /// IF it has no VERIFYING `bash` after it (i.e. unverified), else `None`. A `bash` that is
-/// merely read-only (`ls`/`echo`/…) does not count — see [`bash_verifies`].
+/// merely read-only (`ls`/`echo`/...) does not count -- see [`bash_verifies`].
 fn unverified_edit(convo: &Conversation, workspace: &Path) -> Option<NudgedEdit> {
     let start = current_real_user_start(convo);
     // Tool-call ids are assigned by the assistant message that precedes the matching
     // tool-result message, so a single forward pass can resolve a result's tool name.
     let mut names: HashMap<&str, &str> = HashMap::new();
-    // bash tool_call id → its command string (to tell a real check from an `ls` dodge).
+    // bash tool_call id -> its command string (to tell a real check from an `ls` dodge).
     let mut bash_cmds: HashMap<&str, String> = HashMap::new();
-    // edit/write tool_call id → its `file_path` (to gate out-of-workspace throwaway writes).
+    // edit/write tool_call id -> its `file_path` (to gate out-of-workspace throwaway writes).
     let mut edit_paths: HashMap<&str, String> = HashMap::new();
     let mut last_edit_id: Option<String> = None;
     let mut bash_after_edit = false;
@@ -316,9 +316,9 @@ fn unverified_edit(convo: &Conversation, workspace: &Path) -> Option<NudgedEdit>
                     continue;
                 };
                 match names.get(id).copied() {
-                    // Only edits WITHIN the workspace arm the cadence — a throwaway write
+                    // Only edits WITHIN the workspace arm the cadence -- a throwaway write
                     // outside the project (e.g. /tmp) is not code to compile-check. A missing
-                    // /unparseable path is treated as in-workspace (conservative — keep the nudge).
+                    // /unparseable path is treated as in-workspace (conservative -- keep the nudge).
                     // A doc/data write (a `.md` report, `.csv`, `.log`) is also skipped: it is
                     // not compilable code, so it must not arm "run cargo check" on a non-coding
                     // turn (see [`path_is_noncode_doc`]).
@@ -331,7 +331,7 @@ fn unverified_edit(convo: &Conversation, workspace: &Path) -> Option<NudgedEdit>
                         last_edit_id = Some(id.to_string());
                         bash_after_edit = false;
                     }
-                    // Only a real check counts — a read-only/navigation command does NOT verify.
+                    // Only a real check counts -- a read-only/navigation command does NOT verify.
                     Some("bash") if bash_cmds.get(id).is_some_and(|c| bash_verifies(c)) => {
                         bash_after_edit = true;
                     }
@@ -375,11 +375,11 @@ fn verify_reminder_already_present(convo: &Conversation, edit: &NudgedEdit) -> b
 #[async_trait]
 impl LifecycleHooks for VerifyCadenceHook {
     /// The hook instance is REUSED across respawns (it lives in `CodingParts`), but
-    /// `nudged_for` is per-CONVERSATION state keyed by tool_call_id — and providers
-    /// with sequential per-conversation ids (`call_0`, `call_1`, …) would collide a
+    /// `nudged_for` is per-CONVERSATION state keyed by tool_call_id -- and providers
+    /// with sequential per-conversation ids (`call_0`, `call_1`, ...) would collide a
     /// FRESH conversation's first edit with the old one's last nudge, wrongly
     /// suppressing it once. A fresh session start resets; a resume keeps the state
-    /// (same conversation → an already-nudged edit must stay nudged).
+    /// (same conversation -> an already-nudged edit must stay nudged).
     async fn session_start(&self, _convo: &mut Conversation, resumed: bool) {
         if !resumed {
             self.state
@@ -394,7 +394,7 @@ impl LifecycleHooks for VerifyCadenceHook {
     }
 
     async fn offer_typed_continuation(&self, convo: &Conversation) -> Option<Continuation> {
-        // Attended (interactive) runs — or an explicit `RUSTCODE_VERIFY=0` — do not FORCE a
+        // Attended (interactive) runs -- or an explicit `RUSTCODE_VERIFY=0` -- do not FORCE a
         // post-edit verify continuation: a present human can ask for the check. Unattended /
         // headless / scheduled runs keep the cadence. (See `should_suppress_verify`.)
         if self.suppress_verify_continuation {
@@ -411,7 +411,7 @@ impl LifecycleHooks for VerifyCadenceHook {
         }
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.nudged_for.as_ref() == Some(&edit) {
-            return None; // already nudged for this exact edit — let the turn stop.
+            return None; // already nudged for this exact edit -- let the turn stop.
         }
         state.nudged_for = Some(edit);
         Some(Continuation::verify_cadence(NUDGE.to_string()))
@@ -468,7 +468,7 @@ mod tests {
         )
     }
 
-    /// Test hook whose workspace is `/` — every absolute path is in-workspace, so path gating
+    /// Test hook whose workspace is `/` -- every absolute path is in-workspace, so path gating
     /// never suppresses these path-agnostic cases (they use relative / empty targets).
     fn hook_any_ws() -> VerifyCadenceHook {
         VerifyCadenceHook::new("/")
@@ -476,9 +476,9 @@ mod tests {
 
     #[test]
     fn should_suppress_verify_resolves_env_and_attendedness() {
-        // No env → follow attendedness: interactive suppresses the forced check, headless forces it.
-        assert!(should_suppress_verify(None, true), "interactive → suppress");
-        assert!(!should_suppress_verify(None, false), "headless → force");
+        // No env -> follow attendedness: interactive suppresses the forced check, headless forces it.
+        assert!(should_suppress_verify(None, true), "interactive -> suppress");
+        assert!(!should_suppress_verify(None, false), "headless -> force");
         // `RUSTCODE_VERIFY` wins in BOTH directions, regardless of attendedness.
         assert!(
             should_suppress_verify(Some("0"), false),
@@ -490,7 +490,7 @@ mod tests {
             "=1 forces even in an interactive run"
         );
         assert!(!should_suppress_verify(Some("on"), true));
-        // Unrecognized / empty → fall back to attendedness (not an override).
+        // Unrecognized / empty -> fall back to attendedness (not an override).
         assert!(should_suppress_verify(Some(""), true));
         assert!(!should_suppress_verify(Some("maybe"), false));
     }
@@ -498,7 +498,7 @@ mod tests {
     #[tokio::test]
     async fn attended_run_suppresses_verify_continuation() {
         // An unverified edit that WOULD nudge unattended must NOT force a continuation when
-        // attended (interactive) — the human present sees the edit and can request a check.
+        // attended (interactive) -- the human present sees the edit and can request a check.
         let hook = hook_any_ws().with_suppression(true);
         let mut convo = Conversation::new();
         convo.messages = vec![assistant_call("e1", "edit_file"), tool_result("e1", false)];
@@ -628,7 +628,7 @@ mod tests {
 
     #[test]
     fn bash_verifies_excludes_readonly_but_counts_real_checks() {
-        // Read-only / review — do NOT verify, even chained or piped.
+        // Read-only / review -- do NOT verify, even chained or piped.
         assert!(!bash_verifies("ls -la"));
         assert!(!bash_verifies("echo done"));
         assert!(!bash_verifies("/usr/bin/cat foo")); // path-stripped head
@@ -640,7 +640,7 @@ mod tests {
             !bash_verifies("cd x && ls"),
             "read-only chained commands do not verify"
         );
-        // Real checks — verify, including behind env prefixes / wrappers / chains.
+        // Real checks -- verify, including behind env prefixes / wrappers / chains.
         assert!(bash_verifies("cargo check"));
         assert!(bash_verifies("tsc --noEmit"));
         assert!(bash_verifies("make test"));
@@ -673,7 +673,7 @@ mod tests {
 
     #[tokio::test]
     async fn write_outside_workspace_does_not_nudge() {
-        // The reported misfire: `write_file` to /tmp is a throwaway file, not project code —
+        // The reported misfire: `write_file` to /tmp is a throwaway file, not project code --
         // it must NOT arm the "run cargo check" cadence.
         let hook = VerifyCadenceHook::new("/home/proj");
         let mut convo = Conversation::new();
@@ -703,7 +703,7 @@ mod tests {
 
     #[tokio::test]
     async fn relative_edit_is_in_workspace_and_nudges() {
-        // Relative targets resolve against the workspace cwd → in-workspace by construction.
+        // Relative targets resolve against the workspace cwd -> in-workspace by construction.
         let hook = VerifyCadenceHook::new("/home/proj");
         let mut convo = Conversation::new();
         convo.messages = vec![
@@ -718,7 +718,7 @@ mod tests {
 
     #[tokio::test]
     async fn relative_parent_escape_out_of_workspace_does_not_nudge() {
-        // `../../tmp/x` lexically escapes the workspace root → outside → no cadence.
+        // `../../tmp/x` lexically escapes the workspace root -> outside -> no cadence.
         let hook = VerifyCadenceHook::new("/home/proj");
         let mut convo = Conversation::new();
         convo.messages = vec![
@@ -733,7 +733,7 @@ mod tests {
 
     #[tokio::test]
     async fn unparseable_edit_path_is_conservatively_in_workspace() {
-        // No file_path in the args (can't classify) → keep the cadence rather than skip it.
+        // No file_path in the args (can't classify) -> keep the cadence rather than skip it.
         let hook = VerifyCadenceHook::new("/home/proj");
         let mut convo = Conversation::new();
         convo.messages = vec![assistant_call("e1", "edit_file"), tool_result("e1", false)];
@@ -748,7 +748,7 @@ mod tests {
         let ws = Path::new("/home/proj");
         // Inside.
         assert!(path_in_workspace_lexical("/home/proj/src/main.rs", ws));
-        assert!(path_in_workspace_lexical("src/main.rs", ws)); // relative → joined to ws
+        assert!(path_in_workspace_lexical("src/main.rs", ws)); // relative -> joined to ws
         assert!(path_in_workspace_lexical("./a/b.rs", ws));
         assert!(path_in_workspace_lexical("/home/proj/./sub/../x.rs", ws)); // normalizes inside
                                                                             // Outside.
@@ -758,13 +758,13 @@ mod tests {
         assert!(!path_in_workspace_lexical("/home/proj/../evil.rs", ws)); // climbs out
                                                                           // Sibling-prefix must not false-match (/home/proj2 is NOT under /home/proj).
         assert!(!path_in_workspace_lexical("/home/proj2/x.rs", ws));
-        // Empty / unparseable → conservative in-workspace.
+        // Empty / unparseable -> conservative in-workspace.
         assert!(path_in_workspace_lexical("", ws));
     }
 
     #[test]
     fn relative_or_empty_workspace_root_disables_gate_conservatively() {
-        // A non-absolute root can't anchor a prefix test — an absolute edit path would never
+        // A non-absolute root can't anchor a prefix test -- an absolute edit path would never
         // match it and the cadence would silently vanish. Bail to "in-workspace" (old behavior)
         // instead, so an absolute /tmp write still nudges rather than being wrongly skipped.
         for root in ["proj", ".", "", "../proj"] {
@@ -789,7 +789,7 @@ mod tests {
     #[tokio::test]
     async fn writing_a_markdown_report_does_not_nudge() {
         // Reported misfire: a non-coding turn that writes a markdown report (a weekly report)
-        // must NOT arm "run cargo check" — a `.md` is prose, not compilable code.
+        // must NOT arm "run cargo check" -- a `.md` is prose, not compilable code.
         let hook = VerifyCadenceHook::new("/home/proj");
         let mut convo = Conversation::new();
         convo.messages = vec![
@@ -804,8 +804,8 @@ mod tests {
 
     #[tokio::test]
     async fn weekly_report_turn_with_verified_scripts_then_md_does_not_nudge() {
-        // The exact reported sequence: throwaway analysis scripts (RUN via node → verified),
-        // then the final markdown report (doc → does not arm). The turn must not nudge, so the
+        // The exact reported sequence: throwaway analysis scripts (RUN via node -> verified),
+        // then the final markdown report (doc -> does not arm). The turn must not nudge, so the
         // model never reaches for a previous coding task's test suite.
         let hook = VerifyCadenceHook::new("/home/proj");
         let mut convo = Conversation::new();
@@ -951,7 +951,7 @@ mod tests {
             hook.offer_continuation(&convo).await.is_none(),
             "same edit, no second nudge"
         );
-        // A NEW edit (different id) appears → nudge again.
+        // A NEW edit (different id) appears -> nudge again.
         convo.messages.push(assistant_call("e2", "edit_file"));
         convo.messages.push(tool_result("e2", false));
         assert!(

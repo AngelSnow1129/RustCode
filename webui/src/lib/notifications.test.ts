@@ -359,7 +359,7 @@ test('loadPrefs: no localStorage → defaults', () => {
 test('loadPrefs: empty storage → defaults', () => {
   withBrowserGlobals(() => {
     const ls = (globalThis as Record<string, unknown>).localStorage as FakeStore;
-    assert.equal(ls.getItem('atomcode.webui_notify'), null);
+    assert.equal(ls.getItem('rustcode.webui_notify'), null);
     assert.deepEqual(loadPrefs(), DEFAULTS);
   });
 });
@@ -367,7 +367,7 @@ test('loadPrefs: empty storage → defaults', () => {
 test('loadPrefs: corrupt JSON → defaults', () => {
   withBrowserGlobals(() => {
     const ls = (globalThis as Record<string, unknown>).localStorage as FakeStore;
-    ls.setItem('atomcode.webui_notify', '{not-json');
+    ls.setItem('rustcode.webui_notify', '{not-json');
     assert.deepEqual(loadPrefs(), DEFAULTS);
   });
 });
@@ -375,7 +375,7 @@ test('loadPrefs: corrupt JSON → defaults', () => {
 test('loadPrefs: partial entry merges defaults', () => {
   withBrowserGlobals(() => {
     const ls = (globalThis as Record<string, unknown>).localStorage as FakeStore;
-    ls.setItem('atomcode.webui_notify', JSON.stringify({ enabled: false }));
+    ls.setItem('rustcode.webui_notify', JSON.stringify({ enabled: false }));
     const prefs = loadPrefs();
     assert.equal(prefs.enabled, false);
     assert.equal(prefs.minDurationSecs, 8);
@@ -393,7 +393,7 @@ test('savePrefs round-trips through loadPrefs', () => {
 test('applyConfigDefaults seeds daemon defaults when user never set prefs', () => {
   withBrowserGlobals(() => {
     const ls = (globalThis as Record<string, unknown>).localStorage as FakeStore;
-    assert.equal(ls.getItem('atomcode.webui_notify'), null);
+    assert.equal(ls.getItem('rustcode.webui_notify'), null);
     applyConfigDefaults({ enabled: false, min_duration_secs: 30 });
     assert.deepEqual(loadPrefs(), { enabled: false, minDurationSecs: 30, backgroundOnly: true });
   });
@@ -411,7 +411,7 @@ test('applyConfigDefaults ignores undefined config', () => {
   withBrowserGlobals(() => {
     const ls = (globalThis as Record<string, unknown>).localStorage as FakeStore;
     applyConfigDefaults(undefined);
-    assert.equal(ls.getItem('atomcode.webui_notify'), null);
+    assert.equal(ls.getItem('rustcode.webui_notify'), null);
   });
 });
 
@@ -542,7 +542,7 @@ test('maybeNotifyTurnFinished: creates a notification with mirrored title/body',
     const { instances } = installNotification('granted');
     maybeNotifyTurnFinished(makeInfo({ stopReason: 'natural', durationMs: 60_000 }));
     assert.equal(instances.length, 1);
-    assert.equal(instances[0].title, 'AtomCode done');
+    assert.equal(instances[0].title, 'RustCode done');
     assert.match(instances[0].options.body as string, /^Done · 60\.0s/);
     assert.equal(instances[0].options.tag, 'session-1');
     assert.equal(instances[0].options.icon, '/favicon.png');
@@ -552,12 +552,12 @@ test('maybeNotifyTurnFinished: creates a notification with mirrored title/body',
 test('maybeNotifyTurnFinished: title mapping for every stop reason', () => {
   withBrowserGlobals(() => {
     const cases: [string | undefined, string, string][] = [
-      ['natural', 'AtomCode done', /^Done/],
-      ['cancelled', 'AtomCode cancelled', /^Cancelled/],
-      ['error', 'AtomCode failed', /^Failed/],
-      ['turn_limit', 'AtomCode stopped', /^Stopped/],
-      ['step_limit', 'AtomCode stopped', /^Stopped/],
-      [undefined, 'AtomCode finished', /^Finished/],
+      ['natural', 'RustCode done', /^Done/],
+      ['cancelled', 'RustCode cancelled', /^Cancelled/],
+      ['error', 'RustCode failed', /^Failed/],
+      ['turn_limit', 'RustCode stopped', /^Stopped/],
+      ['step_limit', 'RustCode stopped', /^Stopped/],
+      [undefined, 'RustCode finished', /^Finished/],
     ];
     // 每个 case 用不同 sessionId：避免上一个 case 写入的 5s 去重记录拦截本 case。
     let i = 0;
@@ -583,7 +583,7 @@ test('maybeNotifyTurnFinished: respects min_duration', () => {
 test('maybeNotifyTurnFinished: respects enabled=false', () => {
   withBrowserGlobals(() => {
     const ls = (globalThis as Record<string, unknown>).localStorage as FakeStore;
-    ls.setItem('atomcode.webui_notify', JSON.stringify({ enabled: false }));
+    ls.setItem('rustcode.webui_notify', JSON.stringify({ enabled: false }));
     const { instances } = installNotification('granted');
     maybeNotifyTurnFinished(makeInfo());
     assert.equal(instances.length, 0);
@@ -615,7 +615,7 @@ test('maybeNotifyTurnFinished: writes dedup record and broadcasts to peers', () 
     resetBroadcastChannels();
     const ls = (globalThis as Record<string, unknown>).localStorage as FakeStore;
     maybeNotifyTurnFinished(makeInfo({ sessionId: 's1' }));
-    const record = JSON.parse(ls.getItem('atomcode.webui_last_notify')!);
+    const record = JSON.parse(ls.getItem('rustcode.webui_last_notify')!);
     assert.equal(record.sessionId, 's1');
     assert.equal(record.dedupeKey, 's1:turn-1');
     assert.equal(typeof record.ts, 'number');
@@ -689,7 +689,7 @@ test('maybeNotifyTurnFinished: peer broadcast outside 5s window allows same sess
     // 隔离变量：把同 tab 权威去重记录也改成 6s 前（否则首次弹窗写入的新记录
     // 会先被 5s 去重窗口拦截，测不到 peer 广播路径）。
     const ls = (globalThis as Record<string, unknown>).localStorage as FakeStore;
-    ls.setItem('atomcode.webui_last_notify', JSON.stringify({
+    ls.setItem('rustcode.webui_last_notify', JSON.stringify({
       sessionId: 's1',
       dedupeKey: 's1:turn-1',
       ts: Date.now() - 6000,

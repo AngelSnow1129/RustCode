@@ -13,7 +13,7 @@ use tokio::task::AbortHandle;
 use tokio_util::sync::CancellationToken;
 
 pub type TeamJob = Pin<Box<dyn Future<Output = TeamMemberOutcome> + Send + 'static>>;
-/// `(activity_text, estimated_output_tokens)` — the runner reports a live token
+/// `(activity_text, estimated_output_tokens)` -- the runner reports a live token
 /// estimate alongside each activity so the panel matches the `task` subagent.
 pub type TeamActivitySink = Arc<dyn Fn(String, u64) + Send + Sync>;
 pub type TeamJobFactory =
@@ -702,7 +702,7 @@ fn truncate_chars(value: &str, max: usize) -> String {
     if value.chars().count() <= max {
         value.to_string()
     } else {
-        value.chars().take(max).collect::<String>() + "…"
+        value.chars().take(max).collect::<String>() + "..."
     }
 }
 
@@ -1395,8 +1395,8 @@ mod tests {
     #[test]
     fn truncate_chars_honors_max_result_chars() {
         assert_eq!(truncate_chars("abc", 5), "abc");
-        assert_eq!(truncate_chars("abcdef", 5), "abcde…");
-        assert_eq!(truncate_chars("你好世界", 3), "你好世…");
+        assert_eq!(truncate_chars("abcdef", 5), "abcde...");
+        assert_eq!(truncate_chars("你好世界", 3), "你好世...");
     }
 
     #[test]

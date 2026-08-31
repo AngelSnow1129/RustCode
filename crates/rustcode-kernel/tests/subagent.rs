@@ -1,12 +1,12 @@
-//! CLAIM 31: SUBAGENTS BY COMPOSITION — the kernel supports a parent agent
+//! CLAIM 31: SUBAGENTS BY COMPOSITION -- the kernel supports a parent agent
 //! spawning a child agent for an isolated sub-task with NO new kernel concept,
 //! using ONLY `Agent` + `Tool` + `run_to_completion` plus the two small builder
 //! seams added for this spike:
 //!
-//!   * SEAM 1 `AgentBuilder::working_dir(PathBuf)` — pins the agent's tool
+//!   * SEAM 1 `AgentBuilder::working_dir(PathBuf)` -- pins the agent's tool
 //!     `ToolContext::working_dir` per-agent instead of reading the process-global
 //!     `current_dir()`, so a child can be dir-scoped independently of its parent.
-//!   * SEAM 2 `AgentBuilder::cancel_token(CancellationToken)` — derives the agent's
+//!   * SEAM 2 `AgentBuilder::cancel_token(CancellationToken)` -- derives the agent's
 //!     per-turn tokens as CHILDREN of an external cancel source, so a parent's
 //!     cancel propagates into a DETACHED child session.
 //!
@@ -52,7 +52,7 @@ fn send(text: &str) -> AgentCommand {
 // A parent mounts a `SubAgentTool`. The parent's provider returns a tool_call to
 // "subagent" (round 1), then stops (round 2). The CHILD has its OWN scripted
 // provider that produces text. We assert the parent received the CHILD's text as
-// the tool RESULT — proving the child Agent actually ran and its Outcome flowed
+// the tool RESULT -- proving the child Agent actually ran and its Outcome flowed
 // back up. Uses ONLY Agent + Tool + run_to_completion (inside SubAgentTool).
 #[tokio::test]
 async fn subagent_composition_parent_runs_child_and_gets_result() {
@@ -118,7 +118,7 @@ async fn subagent_composition_parent_runs_child_and_gets_result() {
     assert_eq!(
         child_result.as_deref(),
         Some(child_output),
-        "the parent's tool result must equal the CHILD agent's output — proving the child \
+        "the parent's tool result must equal the CHILD agent's output -- proving the child \
          ran via run_to_completion and its Outcome flowed back as the tool result"
     );
 }
@@ -134,7 +134,7 @@ async fn subagent_composition_parent_runs_child_and_gets_result() {
 // bound). This PROVES the parent's cancel propagated via `ctx.cancel.child_token()`
 // into the DETACHED, `tokio::spawn`-ed child task and stopped it. It CANNOT be
 // future-drop doing the work: `run_to_completion` spawns the child session as a
-// detached task; dropping the parent's tool future does NOT abort that task — only
+// detached task; dropping the parent's tool future does NOT abort that task -- only
 // the cancel TOKEN can reach in. The outer `timeout` makes a propagation failure
 // FAIL (the child would block forever) rather than hang.
 #[tokio::test]
@@ -189,11 +189,11 @@ async fn subagent_cancel_propagates_into_detached_child() {
         let mut completed = false;
         while let Some(ev) = handle.events.recv().await {
             match ev {
-                // The PARENT's subagent tool has started executing → the child is now
+                // The PARENT's subagent tool has started executing -> the child is now
                 // running (detached) and its blocker is parked (or about to park) on
                 // the child cancel token. Cancel the PARENT. `cancelled()` is
                 // level-triggered, so even if the child reaches its await AFTER the
-                // cancel fires, it returns immediately — race-free.
+                // cancel fires, it returns immediately -- race-free.
                 AgentEvent::ToolStarted { call } if call.name == "subagent" => {
                     if !sent_cancel {
                         sent_cancel = true;
@@ -211,7 +211,7 @@ async fn subagent_cancel_propagates_into_detached_child() {
         // Poll the shared flag (set by the child's tool) under the same outer bound.
         // A spawned task may flip it slightly after the parent's TurnComplete; wait
         // briefly. If propagation FAILED, the child blocks forever and the OUTER
-        // timeout below trips → the test FAILS rather than hangs.
+        // timeout below trips -> the test FAILS rather than hangs.
         while !observed.load(Ordering::SeqCst) {
             tokio::task::yield_now().await;
         }
@@ -219,7 +219,7 @@ async fn subagent_cancel_propagates_into_detached_child() {
     })
     .await
     .expect(
-        "cancel must PROPAGATE into the detached child and stop it — a hang here means the \
+        "cancel must PROPAGATE into the detached child and stop it -- a hang here means the \
          parent's cancel never reached the child (future-drop cannot kill a spawned task)",
     );
 
@@ -244,7 +244,7 @@ async fn subagent_cancel_propagates_into_detached_child() {
 //
 // The child is built with `.working_dir(child_dir)` (a distinct path; no fs access
 // needed, just the value). The child mounts a `WorkingDirProbeTool` whose result is
-// the dir it saw. We assert the parent received the CHILD dir as the tool result —
+// the dir it saw. We assert the parent received the CHILD dir as the tool result --
 // proving SEAM 1 makes working_dir per-agent, not process-global.
 #[tokio::test]
 async fn subagent_working_dir_isolation() {
@@ -260,7 +260,7 @@ async fn subagent_working_dir_isolation() {
                     StreamEvent::ToolCall(tool_call("c_probe", "working_dir_probe", "{}")),
                     StreamEvent::Done { truncated: false },
                 ],
-                // Round 2: the child stops after the probe as a TRUE tool-only child —
+                // Round 2: the child stops after the probe as a TRUE tool-only child --
                 // no answer text AND no reasoning. It streams an EMPTY reasoning delta
                 // purely to mark the provider as having responded (sets
                 // `saw_stream_content`, so it is NOT an empty-200 that the child would
@@ -331,11 +331,11 @@ async fn subagent_working_dir_isolation() {
     assert_eq!(
         probe_result.as_deref(),
         Some(child_dir_str.as_str()),
-        "the child tool must report the CHILD working_dir ({child_dir_str}) — proving \
+        "the child tool must report the CHILD working_dir ({child_dir_str}) -- proving \
          working_dir is per-agent (SEAM 1), not process-global current_dir()"
     );
     // Sanity: the child dir is NOT the process cwd (so the assertion above is
-    // meaningful — it would fail if working_dir were ignored and the process cwd
+    // meaningful -- it would fail if working_dir were ignored and the process cwd
     // were used instead).
     let process_cwd = std::env::current_dir()
         .unwrap_or_default()

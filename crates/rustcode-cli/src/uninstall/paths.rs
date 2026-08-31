@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 /// Return the rustcode data root (`$RUSTCODE_HOME` when set, or
 /// `~/.rustcode/` by default). Routes through [`rustcode_config::config::Config::config_dir`]
-/// so install/setup/skill/plugin/uninstall all agree on a single root —
+/// so install/setup/skill/plugin/uninstall all agree on a single root --
 /// previously this module looked at a separate `RUSTCODE_HOME_OVERRIDE`
 /// variable, which let users customise their data dir but then lose track
 /// of it at uninstall time. One variable, one semantics.
@@ -97,7 +97,7 @@ mod tests {
     #[serial]
     fn rustcode_dir_follows_home() {
         // `rustcode_dir()` is exactly the resolved config root = RUSTCODE_HOME.
-        // (The unset→`~/.rustcode` fallback lives in core and is covered by
+        // (The unset->`~/.rustcode` fallback lives in core and is covered by
         // `Config::resolve_config_dir` tests; here we just verify delegation.)
         // RUSTCODE_HOME is always set in tests (by the test-support ctor, or by a
         // sibling test), so assert `rustcode_dir()` tracks it.

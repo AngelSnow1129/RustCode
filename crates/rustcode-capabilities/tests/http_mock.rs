@@ -1,7 +1,7 @@
 //! Deterministic provider tests against a LOCAL mock HTTP server (no network, no key).
 //! Run by default in CI. Covers:
-//!   - open-call retry (transient 500 → retry → succeed; persistent 500 → exhaust → Err)
-//!   - multi-round turn-loop (round 1 tool call → kernel executes tool → round 2 final
+//!   - open-call retry (transient 500 -> retry -> succeed; persistent 500 -> exhaust -> Err)
+//!   - multi-round turn-loop (round 1 tool call -> kernel executes tool -> round 2 final
 //!     answer), with the general WireLogHooks observing each round.
 #![cfg(feature = "provider")]
 
@@ -207,8 +207,8 @@ async fn agent_outcome_carries_structured_error_code() {
         .run_to_completion("hi", AutoRespond::AllowAll)
         .await;
 
-    // The structured code threads all the way out: adapter → ProviderError →
-    // AgentEvent::Error → Outcome.
+    // The structured code threads all the way out: adapter -> ProviderError ->
+    // AgentEvent::Error -> Outcome.
     assert!(outcome.error.is_some(), "the turn should fail");
     assert_eq!(
         outcome.http_status,
@@ -274,7 +274,7 @@ impl Tool for GetTimeTool {
 #[tokio::test]
 async fn multi_round_tool_loop_executes_tool_and_logs_each_round() {
     let server = MockServer::start().await;
-    // Round 1: the model calls get_time (mounted first + limited → serves once).
+    // Round 1: the model calls get_time (mounted first + limited -> serves once).
     Mock::given(method("POST"))
         .and(path(CHAT_PATH))
         .respond_with(ResponseTemplate::new(200).set_body_string(TOOL_CALL_SSE))
@@ -432,7 +432,7 @@ async fn run_two_round(model: &str, round1_sse: &str) -> Vec<wiremock::Request> 
 
 /// DeepSeek-V4 (Include): the round-1 reasoning the model returned is STORED by the
 /// kernel and ECHOED BACK as `reasoning_content` on the assistant tool-call message in
-/// round 2 — the round-trip DeepSeek-V4 REQUIRES (HTTP 400 "must be passed back" else).
+/// round 2 -- the round-trip DeepSeek-V4 REQUIRES (HTTP 400 "must be passed back" else).
 #[tokio::test]
 async fn multi_round_reasoning_is_echoed_back_for_deepseek_v4() {
     let reqs = run_two_round("deepseek-v4-flash", ROUND1_REASONING_TOOL_SSE).await;
@@ -465,7 +465,7 @@ async fn drain_until_turn_complete(events: &mut tokio::sync::mpsc::UnboundedRece
 #[tokio::test]
 async fn round_resets_per_turn_request_id_is_session_global() {
     let server = MockServer::start().await;
-    // Request #1 → a tool call (drives turn 1 to a 2nd round); requests #2,#3 → final.
+    // Request #1 -> a tool call (drives turn 1 to a 2nd round); requests #2,#3 -> final.
     Mock::given(method("POST"))
         .and(path(CHAT_PATH))
         .respond_with(ResponseTemplate::new(200).set_body_string(TOOL_CALL_SSE))
@@ -498,7 +498,7 @@ async fn round_resets_per_turn_request_id_is_session_global() {
         .build()
         .spawn();
 
-    // Turn 1 (tool call → 2 rounds), then Turn 2 (direct answer → 1 round).
+    // Turn 1 (tool call -> 2 rounds), then Turn 2 (direct answer -> 1 round).
     handle
         .commands
         .send(AgentCommand::SendMessage {
@@ -525,11 +525,11 @@ async fn round_resets_per_turn_request_id_is_session_global() {
     assert_eq!(
         reqs.len(),
         3,
-        "turn1 (tool→2 rounds) + turn2 (1 round) = 3 requests: {reqs:?}"
+        "turn1 (tool->2 rounds) + turn2 (1 round) = 3 requests: {reqs:?}"
     );
     assert!(reqs[0].contains("turn=1 round=1 req=1"), "got: {}", reqs[0]);
     assert!(reqs[1].contains("turn=1 round=2 req=2"), "got: {}", reqs[1]);
-    // THE point: turn 2 RESETS round to 1, but request_id CONTINUES to 3 (and turn_id→2).
+    // THE point: turn 2 RESETS round to 1, but request_id CONTINUES to 3 (and turn_id->2).
     assert!(
         reqs[2].contains("turn=2 round=1 req=3"),
         "round must reset while request_id is session-global: {}",
@@ -538,7 +538,7 @@ async fn round_resets_per_turn_request_id_is_session_global() {
 }
 
 /// DeepSeek-R1 (Exclude): even though the model returned reasoning in round 1 (and the
-/// kernel stored it), it must NOT be echoed back in round 2 — R1 returns HTTP 400 if
+/// kernel stored it), it must NOT be echoed back in round 2 -- R1 returns HTTP 400 if
 /// `reasoning_content` is sent. Proves the kernel STORES but the L1 policy decides the
 /// wire echo (mechanism vs policy).
 #[tokio::test]
@@ -588,7 +588,7 @@ fn flaky_gateway(
             let _ = s.read(&mut buf);
             let n = hits_bg.fetch_add(1, Ordering::SeqCst);
             if n < fail_times {
-                drop(s); // no response at all — just close
+                drop(s); // no response at all -- just close
                 continue;
             }
             let body = format!(
@@ -623,7 +623,7 @@ async fn incomplete_message_open_failure_is_retried_and_recovers() {
 }
 
 /// Pins the REPLAY semantics honestly: the server reads the WHOLE request body and
-/// only then drops the connection — the client still replays it. This does NOT assert
+/// only then drops the connection -- the client still replays it. This does NOT assert
 /// that replaying is safe; it records that the server may well have received and
 /// processed the first copy, and the retry hands it a second one.
 #[tokio::test]
@@ -637,11 +637,11 @@ async fn retry_replays_the_request_even_when_server_read_it_fully() {
     assert_eq!(
         hits.load(std::sync::atomic::Ordering::SeqCst),
         2,
-        "server read the request then dropped → the client replayed it once"
+        "server read the request then dropped -> the client replayed it once"
     );
 }
 
-/// Accepts the connection but never responds and never closes — an upstream that
+/// Accepts the connection but never responds and never closes -- an upstream that
 /// hangs with no first byte.
 fn black_hole_gateway() -> String {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -676,7 +676,7 @@ async fn open_gives_up_on_a_hung_gateway_within_the_open_timeout() {
 
     assert!(
         elapsed < Duration::from_secs(3),
-        "took {elapsed:?} — not bounded by open_timeout"
+        "took {elapsed:?} -- not bounded by open_timeout"
     );
     assert!(
         err.retryable,

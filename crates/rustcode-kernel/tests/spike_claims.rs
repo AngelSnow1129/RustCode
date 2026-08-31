@@ -184,7 +184,7 @@ async fn lifecycle_hook_injects_and_continues_loop() {
     let mut reg = ToolRegistry::new();
     reg.register(Arc::new(EchoTool));
     // Step 1: model stops (no tool calls). Step 2 (after the injected reminder):
-    // calls echo. Step 3: stops again → hook returns None → complete.
+    // calls echo. Step 3: stops again -> hook returns None -> complete.
     let provider = Arc::new(MockProvider::new(vec![
         vec![
             StreamEvent::TextDelta("stopping".into()),
@@ -245,7 +245,7 @@ async fn lifecycle_hook_injects_and_continues_loop() {
     );
 }
 
-// CLAIM 7: the kernel wires the FULL LifecycleHooks surface — every lifecycle
+// CLAIM 7: the kernel wires the FULL LifecycleHooks surface -- every lifecycle
 // point actually fires during a representative run (a tool call + an unknown
 // tool to trigger on_error + shutdown to trigger session_end).
 #[tokio::test]
@@ -403,7 +403,7 @@ async fn execution_state_recorded_projected_to_llm_and_cache_safe() {
     let calls = received.lock().unwrap();
     assert_eq!(calls.len(), 2, "two LLM calls expected");
 
-    // call A: just the user message — NO reminder yet (no meta in history).
+    // call A: just the user message -- NO reminder yet (no meta in history).
     assert_eq!(calls[0], vec![("User".to_string(), "first".to_string())]);
 
     let b = &calls[1];
@@ -412,7 +412,7 @@ async fn execution_state_recorded_projected_to_llm_and_cache_safe() {
         b[0], calls[0][0],
         "historical message must not be rewritten (prefix-cache safety)"
     );
-    // (3) SIDECAR: the assistant message text stays clean — cost is NOT baked into content.
+    // (3) SIDECAR: the assistant message text stays clean -- cost is NOT baked into content.
     assert_eq!(
         b[1],
         ("Assistant".to_string(), "reply A".to_string()),
@@ -426,14 +426,14 @@ async fn execution_state_recorded_projected_to_llm_and_cache_safe() {
     );
 }
 
-// CLAIM 9: per-turn round budget — kernel tracks `round` (recorded in Message.meta),
+// CLAIM 9: per-turn round budget -- kernel tracks `round` (recorded in Message.meta),
 // a pre_request hook PROJECTS "round X/Y" to the LLM (escalating to a final-round
 // warning), and a hard cap stops the loop if the model ignores it. Cache-safe.
 #[tokio::test]
 async fn round_budget_projected_to_llm_and_hard_capped() {
     let mut reg = ToolRegistry::new();
     reg.register(Arc::new(EchoTool));
-    // The model calls a tool EVERY round (never stops) — exercises the cap at max=3.
+    // The model calls a tool EVERY round (never stops) -- exercises the cap at max=3.
     let provider = Arc::new(MockProvider::new(vec![
         vec![
             StreamEvent::ToolCall(ToolCall {
@@ -653,12 +653,12 @@ async fn dropping_tool_calls_in_on_model_response_prevents_execution() {
     assert!(completed, "turn completes since pending became empty");
 }
 
-// CLAIM 12: tool-level concerns live in ToolMiddleware — `before` can rewrite the
+// CLAIM 12: tool-level concerns live in ToolMiddleware -- `before` can rewrite the
 // call (args) and block without a ghost ToolStarted; `after` transforms the result.
 // (pre_tool/post_tool folded into ToolMiddleware.)
 #[tokio::test]
 async fn tool_middleware_rewrites_blocks_and_transforms() {
-    // (a) before rewrites args → reaches execution
+    // (a) before rewrites args -> reaches execution
     {
         let mut reg = ToolRegistry::new();
         reg.register(Arc::new(EchoTool));
@@ -701,7 +701,7 @@ async fn tool_middleware_rewrites_blocks_and_transforms() {
             "before-rewritten args must reach execution; got {echoed}"
         );
     }
-    // (b) before blocks → no ghost ToolStarted, blocked ToolResult
+    // (b) before blocks -> no ghost ToolStarted, blocked ToolResult
     {
         let mut reg = ToolRegistry::new();
         reg.register(Arc::new(EchoTool));
@@ -796,8 +796,8 @@ async fn tool_middleware_rewrites_blocks_and_transforms() {
     }
 }
 
-// CLAIM 13: command-level approval — risk is ARG-AWARE (dangerous command → gated,
-// safe command → not gated), and a session grant ("remember") caches so an
+// CLAIM 13: command-level approval -- risk is ARG-AWARE (dangerous command -> gated,
+// safe command -> not gated), and a session grant ("remember") caches so an
 // identical dangerous command isn't asked twice.
 #[tokio::test]
 async fn dangerous_command_requires_approval_safe_does_not_and_grant_is_cached() {
@@ -931,7 +931,7 @@ async fn dangerous_command_requires_approval_safe_does_not_and_grant_is_cached()
     }
 }
 
-// CLAIM 14: user_prompt_submit can BLOCK a prompt (Err) — the prompt never enters
+// CLAIM 14: user_prompt_submit can BLOCK a prompt (Err) -- the prompt never enters
 // the conversation and no turn runs.
 #[tokio::test]
 async fn user_prompt_submit_can_block_a_prompt() {
@@ -995,7 +995,7 @@ async fn user_prompt_submit_can_block_a_prompt() {
 #[tokio::test]
 async fn model_reasoning_is_stored_on_assistant_message_and_still_emitted_live() {
     let reg = ToolRegistry::new();
-    // One round: reasoning, then visible text, then end (no tool calls → turn ends).
+    // One round: reasoning, then visible text, then end (no tool calls -> turn ends).
     let provider = Arc::new(MockProvider::new(vec![vec![
         StreamEvent::Reasoning("let me think".into()),
         StreamEvent::TextDelta("answer".into()),
@@ -1058,7 +1058,7 @@ async fn model_reasoning_is_stored_on_assistant_message_and_still_emitted_live()
 }
 
 // CLAIM 29 (negative): a turn with NO reasoning stream stores `reasoning == None`
-// (None for a non-thinking response — the field is absent, not an empty string).
+// (None for a non-thinking response -- the field is absent, not an empty string).
 #[tokio::test]
 async fn no_reasoning_stream_stores_none() {
     let reg = ToolRegistry::new();
@@ -1201,7 +1201,7 @@ async fn signed_reasoning_blocks_are_finalized_per_signature_in_order() {
 }
 
 // SEAM 1b (shared cwd): a tool holding the SAME `Arc<RwLock<PathBuf>>` as
-// `AgentBuilder::working_dir_shared` can PERSIST a working-dir change — the kernel
+// `AgentBuilder::working_dir_shared` can PERSIST a working-dir change -- the kernel
 // re-snapshots the shared cwd into each per-call `ToolContext`, so a LATER tool call in
 // the same round sees the directory the EARLIER call switched to.
 #[tokio::test]

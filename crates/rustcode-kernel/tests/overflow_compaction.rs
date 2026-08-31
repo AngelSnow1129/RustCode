@@ -1,5 +1,5 @@
 //! A turn that hits a hard context-window overflow recovers by compacting more
-//! aggressively and retrying the SAME round — instead of dying. The recovery is OFF the
+//! aggressively and retrying the SAME round -- instead of dying. The recovery is OFF the
 //! normal path: it fires ONLY on a typed overflow error, never from pressure.
 
 use async_trait::async_trait;
@@ -77,7 +77,7 @@ async fn overflow_triggers_compaction_then_retries_same_round() {
         max: 4,
         calls: calls.clone(),
     });
-    // Seed 6 messages; + the new input = 7 > max=4 → first open overflows.
+    // Seed 6 messages; + the new input = 7 > max=4 -> first open overflows.
     let snapshot = SessionSnapshot::new(vec![
         Message::system("persona"),
         Message::user("q1"),

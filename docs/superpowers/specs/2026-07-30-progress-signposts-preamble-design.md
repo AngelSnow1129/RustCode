@@ -2,7 +2,7 @@
 
 - 日期：2026-07-30
 - 分支：release/v5.0.3
-- 范围：`crates/atomcode-coding/src/persona.rs`（`RULES` 常量的两节 + `FIRM_EXECUTION_DISCIPLINE` 常量 + 测试模块）
+- 范围：`crates/rustcode-coding/src/persona.rs`（`RULES` 常量的两节 + `FIRM_EXECUTION_DISCIPLINE` 常量 + 测试模块）
 - 类型：纯提示词（persona）改动，无新工具、无新模式、无新 env 门控
 
 ## 背景与现象
@@ -60,7 +60,7 @@ Before a batch of tool calls, send ONE short line saying what you're about to do
 - SIGNPOST BEFORE ACTING: before each batch of tool calls, say in ONE short sentence (≤12 words) what you're about to do. A run of tool calls with zero text leaves the user blind. This is the required progress signpost, NOT the verbose reasoning banned elsewhere; 'Act decisively' / 'FINISH THE JOB' mean act WITH a one-line heads-up, never in silence.
 ```
 
-理由：deepseek 对软规则权重低，且 FIRM 块的 execute-now 基调是零话术主推手；只有把话术写成 FIRM 硬版并显式和 execute-now 对齐，才可靠地到达 deepseek。这条是 atomcode 特有的（三家都没有，因为它们的模型都够强，通用软规范即可）。
+理由：deepseek 对软规则权重低，且 FIRM 块的 execute-now 基调是零话术主推手；只有把话术写成 FIRM 硬版并显式和 execute-now 对齐，才可靠地到达 deepseek。这条是 rustcode 特有的（三家都没有，因为它们的模型都够强，通用软规范即可）。
 
 ## 行为效果
 
@@ -71,7 +71,7 @@ Before a batch of tool calls, send ONE short line saying what you're about to do
 ## 兼容性与依赖
 
 - 纯文本改动：`RULES` 总是注入（两节覆盖所有默认 coding 对话）；`FIRM_EXECUTION_DISCIPLINE` 仅 `model_needs_firm_execution`（deepseek）注入。
-- 不新增工具/模式/env 门控。`## PROGRESS SIGNPOSTS` 不点名工具，故不受 `ATOMCODE_TODO` / `ATOMCODE_REQUEST_USER_INPUT` 门控影响、不撞门控不变式测试。
+- 不新增工具/模式/env 门控。`## PROGRESS SIGNPOSTS` 不点名工具，故不受 `RUSTCODE_TODO` / `RUSTCODE_REQUEST_USER_INPUT` 门控影响、不撞门控不变式测试。
 - ⚠️ 落地注意 `\` 续行焊接坑（上一改动 code-review 抓到的真 bug）：新 bullet/段落之间用**字面换行**，行尾**不要**误加 `\`；测试补边界断言。
 
 ## 测试计划
@@ -80,7 +80,7 @@ Before a batch of tool calls, send ONE short line saying what you're about to do
 - `## OUTPUT` 不再含裸 `Lead with action, not reasoning.`（锁死回归）；含新的 `signpost before a batch of tool calls` 措辞。
 - `model_needs_firm_execution` 模型（`coding_persona("deepseek-v4-flash", …)`）含 `SIGNPOST BEFORE ACTING`；GLM（`coding_persona("glm-5.2", …)`）**不含** `SIGNPOST BEFORE ACTING` 但**含** `## PROGRESS SIGNPOSTS`（验证分层）。
 - 边界断言：新增小节/bullet 未被 `\` 续行焊进相邻行（参考上次 `proceed.\n- REPRODUCE` 断言的形式）。
-- `cargo test -p atomcode-coding` 全绿。
+- `cargo test -p rustcode-coding` 全绿。
 
 ## 真机验证
 

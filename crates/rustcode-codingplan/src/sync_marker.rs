@@ -6,8 +6,8 @@
 // state drifts from local config > 24h later.
 //
 // The file lives next to `config.toml` (same `$RUSTCODE_HOME` / `~/.rustcode`
-// resolution) and carries a single ISO-8601 timestamp. Any I/O failure —
-// missing file, corrupt JSON, unparseable timestamp — is treated as
+// resolution) and carries a single ISO-8601 timestamp. Any I/O failure --
+// missing file, corrupt JSON, unparseable timestamp -- is treated as
 // "never synced" rather than an error: the caller then applies the
 // stale-threshold logic against `None`, which conservatively surfaces
 // a hint as soon as lists actually differ.
@@ -35,7 +35,7 @@ fn marker_path() -> PathBuf {
 }
 
 /// Read the last-sync timestamp. Returns `None` when the file doesn't
-/// exist, fails to parse, or is unreadable — all of which the caller
+/// exist, fails to parse, or is unreadable -- all of which the caller
 /// interprets as "treat as stale". This function never returns an error.
 pub fn read_last_sync() -> Option<SystemTime> {
     let path = marker_path();
@@ -46,7 +46,7 @@ pub fn read_last_sync() -> Option<SystemTime> {
 
 /// Write the current wall-clock as the last-sync timestamp. Creates the
 /// parent directory if missing. On any I/O failure returns an error so
-/// the caller (the `/codingplan` persist path) can log it — but callers
+/// the caller (the `/codingplan` persist path) can log it -- but callers
 /// should NOT treat a failed marker write as fatal: the provider config
 /// already landed on disk in that case, only the monitor hint is lost.
 pub fn write_last_sync_now() -> std::io::Result<()> {
@@ -73,7 +73,7 @@ mod tests {
     /// Integration-style test using a scoped RUSTCODE_HOME override.
     /// We can't safely mutate the process env in parallel tests, so each
     /// test creates its own tempdir and restores the env on exit via a
-    /// guard. Tests are serialized by `#[serial]`? — we don't have the
+    /// guard. Tests are serialized by `#[serial]`? -- we don't have the
     /// crate; instead rely on cargo test's default single-threaded per
     /// target is false, so we scope env changes inside a Mutex.
     use std::sync::Mutex;
@@ -117,7 +117,7 @@ mod tests {
         let _home = ScopedHome::new();
         write_last_sync_now().expect("write");
         let t = read_last_sync().expect("read");
-        // Should be within a few seconds of `now` — we don't assert
+        // Should be within a few seconds of `now` -- we don't assert
         // exact equality because the serialize/deserialize path passes
         // through integer-second truncation.
         let now = SystemTime::now();
@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn read_last_sync_returns_none_when_file_absent() {
         let _home = ScopedHome::new();
-        // No write — file doesn't exist.
+        // No write -- file doesn't exist.
         assert!(read_last_sync().is_none());
     }
 

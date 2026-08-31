@@ -13,7 +13,7 @@ const SGR_RED: &str = "\x1b[31m";
 const SGR_BOLD_YELLOW: &str = "\x1b[1;33m";
 const SGR_GREEN: &str = "\x1b[32m";
 const SGR_CYAN: &str = "\x1b[36m";
-// Prompt chevron = Accent (bold bright cyan, SGR 96) — matches the retained
+// Prompt chevron = Accent (bold bright cyan, SGR 96) -- matches the retained
 // renderer's `style_bold(Role::Accent)`. The user text itself stays default fg.
 const SGR_BOLD_CYAN: &str = "\x1b[1;96m";
 const SGR_DIM: &str = "\x1b[2m";
@@ -24,13 +24,13 @@ const SGR_DIM: &str = "\x1b[2m";
 ///
 /// Plain mode does support a few low-effort UX wins on top of bare
 /// printf, all gated by `TerminalCaps`:
-///   * **Spinner via `\r`** — overwrites the same line during streaming,
+///   * **Spinner via `\r`** -- overwrites the same line during streaming,
 ///     so users see "in progress" feedback without animation tearing
 ///     (cooked-mode `\r` always works; this is what `read`-with-progress
 ///     scripts have used for decades).
-///   * **SGR colours** — red errors, green/red ✓/✗, cyan tool-call names
+///   * **SGR colours** -- red errors, green/red [+]/[x], cyan tool-call names
 ///     when `caps.colors` is on. Pure inline SGR; no positioning required.
-///   * **`❯` chevron** — replaces `> ` when `caps.unicode_symbols` is on,
+///   * **`>` chevron** -- replaces `> ` when `caps.unicode_symbols` is on,
 ///     so the prompt visually matches the retained-mode chevron. Same
 ///     two-cell width as `> ` so layout math is unchanged.
 pub struct PlainRenderer<W: Write + Send> {
@@ -40,7 +40,7 @@ pub struct PlainRenderer<W: Write + Send> {
     /// is interacting through a cooked-mode terminal (rather than
     /// piping input from a script / CI runner / dumb sink).
     ///
-    /// This is DISTINCT from `caps.tty` — `lib.rs` mutates `caps.tty`
+    /// This is DISTINCT from `caps.tty` -- `lib.rs` mutates `caps.tty`
     /// to `false` whenever `force_plain` wins on a real TTY (JediTerm
     /// auto-fallback, legacy Windows conhost auto-fallback, manual
     /// `RUSTCODE_PLAIN=1`) so downstream branches consistently take
@@ -49,9 +49,9 @@ pub struct PlainRenderer<W: Write + Send> {
     ///
     /// Behavioural impact:
     /// - `interactive_terminal=true`: cooked-mode terminal does the
-    ///   echo. We write `❯ ` once on `InputPrompt`, the kernel glues
+    ///   echo. We write `> ` once on `InputPrompt`, the kernel glues
     ///   the user's keystrokes onto it, and `UiLine::User` is
-    ///   SUPPRESSED — re-rendering would print `❯ 你好` a second
+    ///   SUPPRESSED -- re-rendering would print `> 你好` a second
     ///   time directly below the cooked echo (the duplicate-line bug
     ///   from real-world reports).
     /// - `interactive_terminal=false`: pipe / CI / dumb. Kernel does
@@ -86,7 +86,7 @@ impl Default for PlainRenderer<BufWriter<Stdout>> {
 
 impl<W: Write + Send> PlainRenderer<W> {
     /// Backwards-compat constructor used by older test paths. Probes
-    /// caps from the environment — fine for production, but tests that
+    /// caps from the environment -- fine for production, but tests that
     /// want predictable behaviour should use `with_writer_and_caps` or
     /// the explicit `with_writer_caps_and_interactive`.
     pub fn with_writer(out: W) -> Self {
@@ -145,7 +145,7 @@ impl<W: Write + Send> PlainRenderer<W> {
             let chev = self.caps.prompt_chevron();
             if self.caps.colors {
                 // Chevron is the coloured Accent marker (bold cyan); the text
-                // stays the terminal default fg — matches the retained renderer
+                // stays the terminal default fg -- matches the retained renderer
                 // and opencode (colour on the marker, not the text).
                 let _ = writeln!(
                     self.out,
@@ -224,9 +224,9 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                 // Interactive force_plain (JediTerm / legacy conhost /
                 // RUSTCODE_PLAIN=1 on a real TTY): cooked-mode kernel
                 // already echoed the user's keystrokes inline after the
-                // `❯ ` prefix that InputPrompt printed. Rendering
-                // `❯ {text}\n` here would produce the duplicate
-                // `❯ 你好` / `❯ 你好` pair that real-world users hit.
+                // `> ` prefix that InputPrompt printed. Rendering
+                // `> {text}\n` here would produce the duplicate
+                // `> 你好` / `> 你好` pair that real-world users hit.
             }
             UiLine::UserWithAttachments { text, attachments } => {
                 self.render_user(&text, &attachments);
@@ -262,8 +262,8 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
             } => {
                 // Plain mode has no in-place rewrite, so the in-flight
                 // variant degrades to the same single static line that
-                // the static `ToolCall` produces — the user just sees
-                // `▸ Name(detail)` once, when the call lands.
+                // the static `ToolCall` produces -- the user just sees
+                // `> Name(detail)` once, when the call lands.
                 self.drop_transient();
                 let name = self.dg(&scrub_controls(&name)).into_owned();
                 let detail = self.dg(&scrub_controls(&detail)).into_owned();
@@ -274,7 +274,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                 } else {
                     "*"
                 };
-                // ● (U+25CF) — Geometric Shapes block; broadly available
+                // * (U+25CF) -- Geometric Shapes block; broadly available
                 // across Windows monospace fonts. Aligns with retained
                 // and alt-screen renderers (see retained.rs ToolCall
                 // arm for the Windows-font tofu rationale).
@@ -301,7 +301,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                         .count();
                     let _ = writeln!(
                         self.out,
-                        "Agents: {}/{} finished · {} failed",
+                        "Agents: {}/{} finished . {} failed",
                         progress.items.len(),
                         progress.total,
                         failed
@@ -321,12 +321,12 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                 header,
                 children,
             } => {
-                // Plain mode lacks CUP-rewrite — print header + each
+                // Plain mode lacks CUP-rewrite -- print header + each
                 // child row plainly. Subsequent ToolGroupChildUpdate
                 // events also print plainly (see the ChildUpdate arm
                 // below), so plain output ends up with header, then
                 // children, then update lines. Less elegant than
-                // retained's in-place ✓, but functional.
+                // retained's in-place [+], but functional.
                 self.drop_transient();
                 let _ = writeln!(self.out, "{}", self.dg(&header));
                 for c in children {
@@ -476,7 +476,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
             }
             UiLine::Muted(msg) => {
                 self.drop_transient();
-                // Dim (no bold, no prefix) — same visual weight as CompactionMark.
+                // Dim (no bold, no prefix) -- same visual weight as CompactionMark.
                 let dim = if self.caps.colors { SGR_DIM } else { "" };
                 let reset = if self.caps.colors { SGR_RESET } else { "" };
                 let _ = writeln!(self.out, "{}{}{}", dim, scrub_controls(&msg), reset);
@@ -527,7 +527,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                 }
             }
             UiLine::StreamingBox { status, .. } => {
-                // No streaming-box repaint in plain mode — assistant text
+                // No streaming-box repaint in plain mode -- assistant text
                 // streams as plain text. Pending steers still need a static
                 // acknowledgement because this renderer has no footer panel.
                 self.render_pending_messages(&status.pending_messages);
@@ -543,7 +543,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                         // Plain approval fallback: the retained footer panel is
                         // not drawn in this renderer, so we must print the
                         // approval guidance text as a body line before the
-                        // chevron — reproducing the OLD UiLine::ApprovalPrompt
+                        // chevron -- reproducing the OLD UiLine::ApprovalPrompt
                         // behaviour (deleted in the selectable-panel refactor).
                         // Pipe mode is excluded: no human is watching, and the
                         // bot-driving stdin does not need the hint.
@@ -563,7 +563,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                             }
                         }
                         // request_user_input has no retained footer panel in this
-                        // renderer either — print the question (and options, if any)
+                        // renderer either -- print the question (and options, if any)
                         // as plain body text before the chevron so a human on a
                         // dumb TTY can still answer.
                         if let Some(panel) = &status.user_input {
@@ -584,7 +584,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                             // For single/multiple, append the always-on custom-answer
                             // row (index N, number N+1) as a ONE-LINE inline input so a
                             // human on a dumb TTY can type a custom answer. No "Other"
-                            // label / subtitle — the typed text (or a faint placeholder)
+                            // label / subtitle -- the typed text (or a faint placeholder)
                             // is shown directly.
                             if matches!(panel.mode, UserInputMode::Single | UserInputMode::Multiple)
                             {
@@ -601,7 +601,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                                 }
                             }
                         }
-                        // Real TTY — write `❯ ` so the user can see we
+                        // Real TTY -- write `> ` so the user can see we
                         // are ready and the kernel will overlay their
                         // typed input on top of this prefix.
                         let chev = self.caps.prompt_chevron();
@@ -618,7 +618,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
             }
             UiLine::CommandOutput(text) => {
                 self.drop_transient();
-                // CommandOutput is trusted internal text — keep SGR so
+                // CommandOutput is trusted internal text -- keep SGR so
                 // colours / bold reach the terminal. The sanitizer
                 // strips C0 controls but lets SGR through; downstream
                 // consumers (other terminals, pipes) handle the bytes
@@ -672,7 +672,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
     }
 
     fn clear_screen(&mut self) {
-        // Pipe / non-TTY sink — a hardware "clear screen" is meaningless.
+        // Pipe / non-TTY sink -- a hardware "clear screen" is meaningless.
         // Just flush so whatever's queued is visible before the caller
         // (e.g. the `/clear` command) moves on.
         let _ = self.out.flush();
@@ -687,7 +687,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
     }
 
     fn flush_deferred(&mut self) {
-        // PlainRenderer has no throttling — deferred queue is empty.
+        // PlainRenderer has no throttling -- deferred queue is empty.
         let _ = self.out.flush();
     }
 }
@@ -696,7 +696,7 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
 mod tests {
     use super::*;
 
-    /// Build caps with all capabilities OFF — exercises the dumb /
+    /// Build caps with all capabilities OFF -- exercises the dumb /
     /// pipe / CI path where PlainRenderer must emit zero SGR / unicode.
     fn caps_dumb() -> TerminalCaps {
         TerminalCaps {
@@ -762,16 +762,16 @@ mod tests {
             s
         );
         // Dumb mode (`!unicode_symbols`) now genuinely lives up to this test's name:
-        // decorative glyphs downgrade to ASCII, so `●`→`*` and `✓`→`v` — no tofu on
-        // fonts that lack them (the reported `✗`→`□` bug). See `crate::glyph`.
+        // decorative glyphs downgrade to ASCII, so `*`->`*` and `[+]`->`v` -- no tofu on
+        // fonts that lack them (the reported `[x]`->`□` bug). See `crate::glyph`.
         assert!(
             s.contains("* read_file(x.rs)"),
-            "● should downgrade to * in dumb mode. got: {}",
+            "* should downgrade to * in dumb mode. got: {}",
             s
         );
         assert!(
             s.contains("v done"),
-            "✓ should downgrade to v in dumb mode. got: {}",
+            "[+] should downgrade to v in dumb mode. got: {}",
             s
         );
         assert!(s.is_ascii(), "dumb mode must be pure ASCII. got: {}", s);
@@ -789,7 +789,7 @@ mod tests {
         r.render(UiLine::Error("kaboom".into()));
         r.flush();
         let s = String::from_utf8(buf).unwrap();
-        // Red ✗ and red [Error: …] both present.
+        // Red [x] and red [Error: ...] both present.
         assert!(
             s.contains("\x1b[31m"),
             "expected red SGR for failure / error. got: {}",
@@ -858,7 +858,7 @@ mod tests {
         );
     }
 
-    /// Spinner stays on screen until something else needs to write —
+    /// Spinner stays on screen until something else needs to write --
     /// then `drop_transient` wipes it via `\r\x1b[K` so the next
     /// real line starts at column 0 of a clean row.
     #[test]
@@ -878,18 +878,18 @@ mod tests {
         let text_pos = s.find("hello").expect("assistant text present");
         assert!(
             spinner_pos < wipe_pos && wipe_pos < text_pos,
-            "expected spinner → wipe → text ordering. got: {:?}",
+            "expected spinner -> wipe -> text ordering. got: {:?}",
             s
         );
     }
 
     #[test]
     fn input_prompt_chevron_unicode_or_ascii_per_caps() {
-        // Test the chevron *output* path — InputPrompt only writes
+        // Test the chevron *output* path -- InputPrompt only writes
         // when interactive_terminal=true, so force it on for the
         // chevron-rendering subject under test (the alternative path
         // is covered by `input_prompt_suppressed_in_pipe_mode` below).
-        // Unicode caps → `❯ ` (U+276F + space, two display columns).
+        // Unicode caps -> `> ` (U+276F + space, two display columns).
         let mut buf = Vec::new();
         let mut r =
             PlainRenderer::with_writer_caps_and_interactive(&mut buf, caps_jediterm_ish(), true);
@@ -904,11 +904,11 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(
             s.starts_with("\u{276f} "),
-            "unicode caps must use ❯ chevron. got: {:?}",
+            "unicode caps must use > chevron. got: {:?}",
             s
         );
 
-        // Dumb caps → ASCII `> ` fallback.
+        // Dumb caps -> ASCII `> ` fallback.
         let mut buf = Vec::new();
         let mut r = PlainRenderer::with_writer_caps_and_interactive(&mut buf, caps_dumb(), true);
         r.render(UiLine::InputPrompt {
@@ -929,7 +929,7 @@ mod tests {
 
     /// Real-TTY force_plain (JediTerm / conhost / RUSTCODE_PLAIN=1):
     /// kernel cooked-mode does its own echo of user input, so we must
-    /// NOT render UiLine::User — otherwise the user sees `❯ 你好`
+    /// NOT render UiLine::User -- otherwise the user sees `> 你好`
     /// twice in a row (the duplicate-line bug from the screenshot).
     #[test]
     fn user_echo_suppressed_on_interactive_terminal() {
@@ -937,7 +937,7 @@ mod tests {
         let mut r = PlainRenderer::with_writer_caps_and_interactive(
             &mut buf,
             caps_jediterm_ish(),
-            true, // interactive — terminal will echo
+            true, // interactive -- terminal will echo
         );
         r.render(UiLine::User("hello".into()));
         r.flush();
@@ -971,7 +971,7 @@ mod tests {
     }
 
     /// Pipe / CI with colours: the chevron is the coloured Accent marker (bold
-    /// bright cyan) and the user text stays the terminal's default foreground —
+    /// bright cyan) and the user text stays the terminal's default foreground --
     /// matching opencode (`<text fg={theme.text}>`), where the colour lives on the
     /// marker, not the text. No magenta anywhere.
     #[test]
@@ -991,10 +991,10 @@ mod tests {
             "chevron must be bold bright cyan (accent). got: {:?}",
             s
         );
-        // Text is NOT coloured — no magenta SGR is emitted at all.
+        // Text is NOT coloured -- no magenta SGR is emitted at all.
         assert!(
             !s.contains("95m"),
-            "user text must stay default fg — no magenta SGR. got: {:?}",
+            "user text must stay default fg -- no magenta SGR. got: {:?}",
             s
         );
         // The chevron's colour is reset before the text, so the text inherits
@@ -1007,7 +1007,7 @@ mod tests {
     }
 
     /// Pipe mode has no human watching the screen, so InputPrompt's
-    /// `❯ ` prefix is noise. UiLine::User (which we DO render in
+    /// `> ` prefix is noise. UiLine::User (which we DO render in
     /// pipe mode, asserted above) handles input visibility.
     #[test]
     fn input_prompt_suppressed_in_pipe_mode() {
@@ -1028,18 +1028,18 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(
             s.is_empty(),
-            "pipe mode must suppress InputPrompt — there's no human to read it. got: {:?}",
+            "pipe mode must suppress InputPrompt -- there's no human to read it. got: {:?}",
             s
         );
     }
 
     /// `with_writer_and_caps` (without explicit `interactive` arg)
-    /// derives the flag from caps.tty: caps.tty=true → interactive,
-    /// caps.tty=false → pipe. Lets test fixtures stay terse for
+    /// derives the flag from caps.tty: caps.tty=true -> interactive,
+    /// caps.tty=false -> pipe. Lets test fixtures stay terse for
     /// non-User / non-InputPrompt scenarios.
     #[test]
     fn with_writer_and_caps_defaults_interactive_from_caps_tty() {
-        // caps.tty=true → interactive=true → User suppressed.
+        // caps.tty=true -> interactive=true -> User suppressed.
         let mut tty_caps = caps_jediterm_ish();
         tty_caps.tty = true;
         let mut buf = Vec::new();
@@ -1051,7 +1051,7 @@ mod tests {
             "caps.tty=true should default to interactive (suppress User)"
         );
 
-        // caps.tty=false (already in caps_dumb) → interactive=false → User rendered.
+        // caps.tty=false (already in caps_dumb) -> interactive=false -> User rendered.
         let mut buf = Vec::new();
         let mut r = PlainRenderer::with_writer_and_caps(&mut buf, caps_dumb());
         r.render(UiLine::User("x".into()));
@@ -1076,7 +1076,7 @@ mod tests {
     /// Interactive plain mode (JediTerm / conhost / RUSTCODE_PLAIN=1 on a
     /// real TTY): when an approval panel is present in the status, the
     /// renderer must print the ApprovalPromptAlt text BEFORE the chevron so
-    /// the user knows what they are approving — reproducing the old body
+    /// the user knows what they are approving -- reproducing the old body
     /// UiLine::ApprovalPrompt behaviour that was removed in the
     /// selectable-panel refactor (Task 4).
     #[test]
@@ -1087,7 +1087,7 @@ mod tests {
         let mut r = PlainRenderer::with_writer_caps_and_interactive(
             &mut buf,
             caps_jediterm_ish(),
-            true, // interactive — a real TTY in plain mode
+            true, // interactive -- a real TTY in plain mode
         );
         let status = crate::render::StatusLine {
             approval: Some(crate::render::ApprovalPanelView {
@@ -1123,7 +1123,7 @@ mod tests {
         let approval_pos = s.find("bash").expect("approval text must be present");
         let chev_pos = s
             .find('\u{276f}')
-            .expect("❯ chevron must follow the approval line");
+            .expect("> chevron must follow the approval line");
         assert!(
             approval_pos < chev_pos,
             "approval guidance must precede the chevron. got: {:?}",

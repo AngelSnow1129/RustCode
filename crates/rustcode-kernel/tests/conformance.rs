@@ -4,7 +4,7 @@
 //!   * a CONFORMING `testkit` double passes (`assert_conformant`), and
 //!   * an ADVERSARIAL double FAILS a SPECIFIC named check.
 //!
-//! A harness that only ever passes is worthless — the adversarial half is what proves
+//! A harness that only ever passes is worthless -- the adversarial half is what proves
 //! it would actually catch a third-party violation. (L1 runs the SAME provider harness
 //! against its real OpenAI-compat adapter; an L2 specialization runs the tool/middleware/
 //! hook harnesses against its own extensions.)
@@ -283,7 +283,7 @@ impl ToolMiddleware for ParkForeverMiddleware {
         _tool: &Arc<dyn Tool>,
         _rt: &RequestCtx,
     ) -> BeforeOutcome {
-        // Ignores the RequestCtx timeout and parks — the kernel turn would hang here.
+        // Ignores the RequestCtx timeout and parks -- the kernel turn would hang here.
         futures::future::pending::<()>().await;
         BeforeOutcome::Proceed
     }
@@ -382,7 +382,7 @@ impl LifecycleHooks for PanicDeltaHook {
     }
 }
 
-/// Fabricates the kernel-owned `meta` in on_model_response — a contract violation.
+/// Fabricates the kernel-owned `meta` in on_model_response -- a contract violation.
 struct FabricateMetaHook;
 #[async_trait]
 impl LifecycleHooks for FabricateMetaHook {
@@ -431,7 +431,7 @@ async fn provider_doubles_are_conformant() {
     .await
     .assert_conformant();
 
-    // A clean FAILED OPEN (Err) is conformant — the provider didn't panic.
+    // A clean FAILED OPEN (Err) is conformant -- the provider didn't panic.
     let err = rustcode_kernel::stream::ProviderError {
         retryable: false,
         message: "401 unauthorized".into(),
@@ -467,7 +467,7 @@ impl LlmProvider for PanicOnOptionsProvider {
 
 #[tokio::test]
 async fn provider_harness_catches_violations() {
-    // Opens OK, then pends forever → the stream never terminates.
+    // Opens OK, then pends forever -> the stream never terminates.
     assert_check_failed(
         &conformance::provider::check(Arc::new(SilentStreamProvider::new(vec![]))).await,
         "stream_terminates",

@@ -1,15 +1,15 @@
 //! Conformance harness for the [`Tool`] seam.
 //!
 //! Contract clauses checked (see [`crate::tool`] for the trust + panic contract):
-//! * `name_non_empty` / `description_non_empty` — both become the mounted `ToolDef` the
+//! * `name_non_empty` / `description_non_empty` -- both become the mounted `ToolDef` the
 //!   model reads; an empty name is unroutable and an empty description gives no guidance.
-//! * `name_stable` / `description_stable` / `schema_stable` — the mounted `ToolDef` is
+//! * `name_stable` / `description_stable` / `schema_stable` -- the mounted `ToolDef` is
 //!   rendered into the prompt; unstable metadata silently poisons the prefix cache.
-//! * `schema_is_object` — `parameters_schema()` must be a JSON object (a tool-parameters
+//! * `schema_is_object` -- `parameters_schema()` must be a JSON object (a tool-parameters
 //!   JSON Schema), not a bare array / string / number / null.
-//! * `risk_deterministic` — `risk(args)` must be a pure function of its args; a
+//! * `risk_deterministic` -- `risk(args)` must be a pure function of its args; a
 //!   specialization's approval cache (`name::args` grant) relies on a stable verdict.
-//! * `execute_returns` / `execute_no_panic` / `execute_terminates` — `execute` must
+//! * `execute_returns` / `execute_no_panic` / `execute_terminates` -- `execute` must
 //!   complete and return a `ToolResult` (a fallible tool returns `is_error: true`,
 //!   never panics) and must not park forever.
 
@@ -31,7 +31,7 @@ fn probe_ctx() -> ToolContext {
 /// Run the tool conformance suite.
 ///
 /// `sample_args`: representative argument strings to drive `risk()` and `execute()`
-/// with — the harness cannot invent valid args for an arbitrary tool. If empty, a
+/// with -- the harness cannot invent valid args for an arbitrary tool. If empty, a
 /// single `"{}"` is used.
 pub async fn check(tool: Arc<dyn Tool>, sample_args: &[&str]) -> ConformanceReport {
     let subject =
@@ -65,7 +65,7 @@ pub async fn check(tool: Arc<dyn Tool>, sample_args: &[&str]) -> ConformanceRepo
         catch_sync(|| tool.description().to_string()),
     ) {
         (Ok(a), Ok(b)) => {
-            r.record("description_non_empty", !a.is_empty(), "description() must be non-empty — it is rendered into the mounted ToolDef the model reads to decide WHEN to call the tool; an empty description gives the model no guidance");
+            r.record("description_non_empty", !a.is_empty(), "description() must be non-empty -- it is rendered into the mounted ToolDef the model reads to decide WHEN to call the tool; an empty description gives the model no guidance");
             r.record(
                 "description_stable",
                 a == b,
@@ -112,12 +112,12 @@ pub async fn check(tool: Arc<dyn Tool>, sample_args: &[&str]) -> ConformanceRepo
             Ok(Err(p)) => r.record(
                 "execute_no_panic",
                 false,
-                format!("execute({a:?}) panicked: {p} — a fallible tool must return ToolResult{{ is_error: true, .. }}, never panic"),
+                format!("execute({a:?}) panicked: {p} -- a fallible tool must return ToolResult{{ is_error: true, .. }}, never panic"),
             ),
             Err(t) => r.record(
                 "execute_terminates",
                 false,
-                format!("execute({a:?}) {t} — a tool must terminate (poll ctx.cancel for long work)"),
+                format!("execute({a:?}) {t} -- a tool must terminate (poll ctx.cancel for long work)"),
             ),
         }
     }
@@ -126,7 +126,7 @@ pub async fn check(tool: Arc<dyn Tool>, sample_args: &[&str]) -> ConformanceRepo
 }
 
 /// OPT-IN check for a tool that claims to honor cooperative cancellation (a
-/// long-running tool — see the `ctx.cancel` contract on [`ToolContext`]). Cancels the
+/// long-running tool -- see the `ctx.cancel` contract on [`ToolContext`]). Cancels the
 /// token, then asserts `execute` returns within the bound. A tool that blocks forever
 /// ignoring `ctx.cancel` fails `respects_cancel`; a fast tool passes trivially. Not part
 /// of [`check`] (most tools have no long work to cancel).
@@ -146,7 +146,7 @@ pub async fn check_respects_cancel(tool: Arc<dyn Tool>, args: &str) -> Conforman
     match with_timeout(Duration::from_secs(2), catch_async(fut)).await {
         Ok(Ok(_)) => r.record("respects_cancel", true, "execute returned promptly under a cancelled token"),
         Ok(Err(p)) => r.record("respects_cancel", false, format!("execute panicked under cancel: {p}")),
-        Err(t) => r.record("respects_cancel", false, format!("execute {t} under a cancelled token — a long-running tool must poll ctx.cancel and bail")),
+        Err(t) => r.record("respects_cancel", false, format!("execute {t} under a cancelled token -- a long-running tool must poll ctx.cancel and bail")),
     }
     r
 }

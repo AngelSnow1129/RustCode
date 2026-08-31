@@ -13,7 +13,7 @@ use rustcode_capabilities::session::{
     SessionMeta, SessionResult, SessionStoreError, StorageOwner, TurnStat,
 };
 
-/// In-memory result of the one legacy → native conversion. S2b owns persistence
+/// In-memory result of the one legacy -> native conversion. S2b owns persistence
 /// and commit; keeping this function side-effect free makes conversion testable.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConvertedLegacySession {
@@ -107,7 +107,7 @@ pub const IMPORTER_VERSION: u32 = 4;
 pub const LEGACY_SCHEMA: &str = "core-session-json";
 
 // ---------------------------------------------------------------------------
-// Frozen DTOs — self-contained read model for the retired core session JSON.
+// Frozen DTOs -- self-contained read model for the retired core session JSON.
 // Every serde attribute mirrors the retired core conversation message shape
 // exactly so that existing <id>.json files round-trip without deserialization
 // loss.
@@ -1163,8 +1163,8 @@ pub fn preview_catalog_session_in_project(
 const PREVIEW_EXCERPT_MESSAGES: usize = 6;
 
 /// The most recent `<= PREVIEW_EXCERPT_MESSAGES` messages, each collapsed to a
-/// SINGLE sanitized line (its first non-empty line). One line per MESSAGE — not
-/// per source line — so a multi-line assistant reply can't fill the whole preview
+/// SINGLE sanitized line (its first non-empty line). One line per MESSAGE -- not
+/// per source line -- so a multi-line assistant reply can't fill the whole preview
 /// and drop the preceding user prompt (the most useful "which session is this"
 /// signal). Messages that sanitize to nothing don't consume a slot.
 fn preview_excerpt<'a>(message_texts: impl Iterator<Item = &'a str>) -> Vec<String> {
@@ -1213,7 +1213,7 @@ pub(crate) fn preview_catalog_session_in_project_root(
     let manager = SessionManager::with_root(sessions_root.join(project_bucket));
 
     // Read-only across EVERY on-disk state (never acquires a lease / ownership),
-    // so a mere /resume hover cannot converge or mutate a session — yet the
+    // so a mere /resume hover cannot converge or mutate a session -- yet the
     // preview must work for the whole backlog, not only sessions already resumed
     // into an owner=Native aggregate with a presentation sidecar.
     let (provider_id, model_id, excerpt) = match manager.read_meta(id) {
@@ -1359,7 +1359,7 @@ pub fn prepare_catalog_session_resume_in_project(
 /// Interactive-`/resume` variant of
 /// [`prepare_catalog_session_resume_in_project`]. If the selected session is
 /// leased by another live runtime, fork a native copy and resume that instead
-/// of failing with `SessionInUse` — mirroring the CLI `--continue` behaviour.
+/// of failing with `SessionInUse` -- mirroring the CLI `--continue` behaviour.
 /// The returned resume carries `forked_from = Some(original_id)` so callers can
 /// tell the user a copy was made.
 pub fn prepare_catalog_session_resume_or_fork_in_project(
@@ -1453,8 +1453,8 @@ pub(crate) fn prepare_catalog_session_resume_in_project_root(
             // `fork_native_session` reads the committed native state the owning
             // runtime already wrote, so a session that is genuinely in use
             // (hence converged) forks cleanly. But if we catch the owner mid
-            // legacy→native convergence — its intent meta is still `Legacy`, or
-            // it just deleted the session — the fork read fails with
+            // legacy->native convergence -- its intent meta is still `Legacy`, or
+            // it just deleted the session -- the fork read fails with
             // `OwnershipConflict`/`NotFound`. Degrade those to the familiar
             // "in use" error (the pre-fork behaviour) rather than leaking an
             // internal error; the user can retry once convergence settles.
@@ -2085,7 +2085,7 @@ mod tests {
             .messages
             .iter()
             .any(|m| { m.internal_origin.as_deref() == Some(LEGACY_COLD_SUMMARY_ORIGIN) }));
-        // meta: naming flags and seconds → milliseconds timestamp conversion
+        // meta: naming flags and seconds -> milliseconds timestamp conversion
         assert_eq!(out.meta.user_renamed, true);
         assert_eq!(out.meta.created_at, session.created_at as i64 * 1000);
         // presentation: the fixture has 2 display_messages
@@ -2154,7 +2154,7 @@ mod tests {
 
     /// When the selected session is leased by another live runtime, the
     /// fork-aware prepare path (used by the interactive `/resume`) forks a copy
-    /// instead of failing with `SessionInUse` — mirroring `--continue`.
+    /// instead of failing with `SessionInUse` -- mirroring `--continue`.
     #[test]
     fn prepared_resume_forks_when_session_busy() {
         let root = tempfile::tempdir().unwrap();
@@ -2162,7 +2162,7 @@ mod tests {
         let bucket = "5555555555555555";
         let manager = SessionManager::with_root(root.path().join(bucket));
 
-        // Commit a native session and KEEP its lease held — simulates another
+        // Commit a native session and KEEP its lease held -- simulates another
         // live runtime that already owns this session.
         let held_lease = manager.acquire_lease(id).unwrap();
         let snapshot =
@@ -3804,7 +3804,7 @@ mod tests {
     #[test]
     fn catalog_preview_derives_from_snapshot_for_a_pre_owner_native_session() {
         // Pre-owner native session: valid meta (owner=Unconfirmed) + snapshot but
-        // NO presentation sidecar — the state of the entire not-yet-resumed
+        // NO presentation sidecar -- the state of the entire not-yet-resumed
         // backlog. Read-only, it must STILL preview (derive from the snapshot),
         // not report "unavailable"/corrupt.
         let root = tempfile::tempdir().unwrap();
@@ -3815,7 +3815,7 @@ mod tests {
         let snapshot = rustcode_kernel::message::SessionSnapshot::new(vec![
             KernelMessage::user("please refactor the auth module"),
             KernelMessage::assistant(
-                "Sure — updating it now.\nsecond line of the same message",
+                "Sure -- updating it now.\nsecond line of the same message",
                 vec![],
             ),
         ]);
@@ -3840,7 +3840,7 @@ mod tests {
             preview.excerpt,
             vec![
                 "please refactor the auth module".to_string(),
-                "Sure — updating it now.".to_string(),
+                "Sure -- updating it now.".to_string(),
             ]
         );
     }
@@ -3876,7 +3876,7 @@ mod tests {
     #[test]
     fn catalog_preview_keeps_last_six_messages_not_lines() {
         // S4: a single multi-line assistant message must not fill the excerpt and
-        // evict earlier messages — each message contributes exactly one line.
+        // evict earlier messages -- each message contributes exactly one line.
         let root = tempfile::tempdir().unwrap();
         let bucket = "0123456789abcdef";
         let id = "preview-sixmsgs";

@@ -1,7 +1,7 @@
 //! Process-wide TLS-version policy.
 //!
 //! Some networks run a middlebox that resets TLS 1.3 handshakes at the connection
-//! layer (`os error 10054` / "connection reset" on Windows) while allowing TLS 1.2 —
+//! layer (`os error 10054` / "connection reset" on Windows) while allowing TLS 1.2 --
 //! observed in the wild against `*.atomgit.com`. rustls (our TLS backend) negotiates
 //! TLS 1.3 by default, so the login / codingplan / provider clients get RST before any
 //! HTTP is exchanged. Capping those clients at TLS 1.2 gets the handshake through.
@@ -55,11 +55,11 @@ pub fn should_cap_url(url: &str) -> bool {
 /// `warrants_fallback` is the caller's judgement that THIS failure class is one
 /// a TLS-1.2 downgrade could actually cure. Two shapes qualify, both owned by
 /// the caller (this fn only adds the managed-and-uncapped gate):
-///   - a connection-establishment failure (`is_connect()`) — a TLS-1.3-hostile
+///   - a connection-establishment failure (`is_connect()`) -- a TLS-1.3-hostile
 ///     middlebox resetting the handshake;
-///   - a post-handshake TLS record corruption (`BadRecordMac`/`DecryptError`) —
+///   - a post-handshake TLS record corruption (`BadRecordMac`/`DecryptError`) --
 ///     the same middlebox mangling records once the connection has run a while.
-///     (Note this one has no `is_connect` requirement — it lands after the
+///     (Note this one has no `is_connect` requirement -- it lands after the
 ///     handshake succeeds.)
 pub fn should_try_fallback(url: &str, was_capped: bool, warrants_fallback: bool) -> bool {
     warrants_fallback && !was_capped && is_managed_https_url(url)
@@ -113,7 +113,7 @@ mod tests {
         // Derived from the configured set rather than naming a vendor: a build
         // whose `HOSTED_*` values were replaced must still hold this.
         let Some(domain) = crate::endpoints::tls_fallback_domains().first() else {
-            return; // nothing configured — nothing to match
+            return; // nothing configured -- nothing to match
         };
         assert!(is_managed_https_url(&format!("https://{domain}")));
         assert!(is_managed_https_url(&format!(
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn fallback_requires_managed_uncapped_connect_failure() {
         let Some(domain) = crate::endpoints::tls_fallback_domains().first() else {
-            return; // nothing configured — the gate can never open
+            return; // nothing configured -- the gate can never open
         };
         let managed = format!("https://{domain}/v1/chat/completions");
         let managed = managed.as_str();
@@ -154,17 +154,17 @@ mod tests {
     #[test]
     fn fallback_gate_is_independent_of_which_failure_class_warrants_it() {
         // The managed-and-uncapped gate is the same whether the trigger is a
-        // connect failure or a post-handshake corruption — the caller decides
+        // connect failure or a post-handshake corruption -- the caller decides
         // the class, this fn only gates on endpoint + cap. A corruption trigger
         // (warrants_fallback=true) on a managed uncapped endpoint qualifies with
         // NO is_connect involved.
         let Some(domain) = crate::endpoints::tls_fallback_domains().first() else {
-            return; // nothing configured — the gate can never open
+            return; // nothing configured -- the gate can never open
         };
         let managed = format!("https://{domain}/v1/chat/completions");
         let managed = managed.as_str();
         assert!(should_try_fallback(managed, false, true));
-        // Already capped at 1.2 → nothing lower to escalate to.
+        // Already capped at 1.2 -> nothing lower to escalate to.
         assert!(!should_try_fallback(managed, true, true));
         // Never auto-downgrade a third-party endpoint we don't operate.
         assert!(!should_try_fallback(

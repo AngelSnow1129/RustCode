@@ -8,7 +8,7 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 
-class AtomCodeDaemonClient(
+class RustCodeDaemonClient(
     private val host: String,
     private val port: Int,
     private val timeoutMs: Int,

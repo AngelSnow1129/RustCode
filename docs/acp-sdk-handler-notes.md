@@ -1,6 +1,6 @@
 # ACP SDK handler/transport notes (2026-06-29)
 
-Historical spike notes recorded while wiring the `atomcode acp` agent against
+Historical spike notes recorded while wiring the `rustcode acp` agent against
 `agent-client-protocol`. Kept as reference only — the code is authoritative.
 
 ## Handler closure ergonomics

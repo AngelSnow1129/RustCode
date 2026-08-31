@@ -2,7 +2,7 @@
 //!
 //! Builds native provider + runtime configuration without depending on
 //! `rustcode-core`. The single entry point [`spawn_session`]
-//! runs the two-phase `prepare → assemble → spawn` pipeline and hands back a live
+//! runs the two-phase `prepare -> assemble -> spawn` pipeline and hands back a live
 //! [`CodingRuntime`] the session table can drive.
 
 use std::path::PathBuf;
@@ -33,12 +33,12 @@ impl EngineConfig {
     /// Build the `CodingAgentConfig` for this session's working directory.
     ///
     /// `request_timeout` is cleared (`None`) so approval prompts park until the
-    /// ACP client answers — the interactive contract, not the headless fail-closed one.
+    /// ACP client answers -- the interactive contract, not the headless fail-closed one.
     pub fn to_coding_config(&self, cwd: PathBuf) -> CodingAgentConfig {
         let mut cfg = self.config.clone();
         cfg.working_dir = cwd;
         // ACP sessions are long-lived and interactive: park on approval, not fail-closed, and a
-        // human in the editor reviews edits — so mark them attended (mirrors the request_timeout
+        // human in the editor reviews edits -- so mark them attended (mirrors the request_timeout
         // clear above; keeps the two intents in sync for the verify-cadence gate).
         cfg.request_timeout = None;
         cfg.interactive = true;
@@ -48,11 +48,11 @@ impl EngineConfig {
 
 /// Spawn a kernel-native agent for an ACP session.
 ///
-/// Runs the two-phase `prepare → assemble → spawn` pipeline and returns a live
+/// Runs the two-phase `prepare -> assemble -> spawn` pipeline and returns a live
 /// [`CodingRuntime`] the session dispatcher can drive. `session` selects a
 /// fresh session (`SessionMode::Fresh`, the `session/new` path) or a resume of
 /// an existing native session (`SessionMode::Resume(native_id)`, the
-/// `session/resume` path) — the coding runtime owns lease acquisition, native
+/// `session/resume` path) -- the coding runtime owns lease acquisition, native
 /// aggregate loading, and snapshot version checks, failing closed on any
 /// problem (missing session, `SessionInUse`, corrupt snapshot).
 ///

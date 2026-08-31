@@ -121,12 +121,12 @@ class JBCefMessageView(
 
     private fun showBrowserUnavailable(cause: Throwable? = null) {
         if (cause == null) {
-            LOG.warn("AtomCode message rendering is unavailable because JBCefApp.isSupported() returned false")
+            LOG.warn("RustCode message rendering is unavailable because JBCefApp.isSupported() returned false")
         } else {
-            LOG.warn("AtomCode message rendering failed to initialize JCEF", cause)
+            LOG.warn("RustCode message rendering failed to initialize JCEF", cause)
         }
         removeAll()
-        add(JLabel("AtomCode message rendering is unavailable in this IDE runtime.").apply {
+        add(JLabel("RustCode message rendering is unavailable in this IDE runtime.").apply {
             foreground = JBColor.GRAY
             border = BorderFactory.createEmptyBorder(16, 16, 16, 16)
         }, BorderLayout.NORTH)
@@ -281,12 +281,12 @@ class JBCefMessageView(
         if (language == "zh") {
             WelcomeContent(
                 language = "zh",
-                title = "AtomCode",
+                title = "RustCode",
                 subtitle = "智能编码助手",
                 quickStartTitle = "快速开始",
                 quickStart = listOf(
                     "直接在下方输入你的任务，按 Enter 发送。",
-                    "选中代码后，用右键菜单或 Alt+Enter 调用 AtomCode。",
+                    "选中代码后，用右键菜单或 Alt+Enter 调用 RustCode。",
                     "用 Add Selection/File as Context 附加文件或选区。",
                 ),
                 actionsTitle = "选中代码后",
@@ -301,9 +301,9 @@ class JBCefMessageView(
                     WelcomeCommand("/review", "填入代码审查提示，可继续补充范围或要求", "review"),
                 ),
                 docsTitle = "连接与帮助",
-                docsText = "还没配置模型时，先打开设置或登录 AtomGit；遇到问题可查看文档。",
-                settings = "AtomCode 设置",
-                login = "登录 AtomGit",
+                docsText = "还没配置模型时，先打开设置或登录平台账号；遇到问题可查看文档。",
+                settings = "RustCode 设置",
+                login = "登录平台账号",
                 showLogin = !loggedIn,
                 docs = "查看文档",
                 languageLabel = "语言",
@@ -311,7 +311,7 @@ class JBCefMessageView(
         } else {
             WelcomeContent(
                 language = "en",
-                title = "AtomCode",
+                title = "RustCode",
                 subtitle = "AI coding assistant",
                 quickStartTitle = "Quick Start",
                 quickStart = listOf(
@@ -331,8 +331,8 @@ class JBCefMessageView(
                     WelcomeCommand("/review", "Insert a review prompt, then add scope or constraints", "review"),
                 ),
                 docsTitle = "Connect & Help",
-                docsText = "If no model is configured yet, open settings or sign in to AtomGit. For troubleshooting, open the docs.",
-                settings = "AtomCode Menu",
+                docsText = "If no model is configured yet, open settings or sign in to your platform. For troubleshooting, open the docs.",
+                settings = "RustCode Menu",
                 login = "Sign in",
                 showLogin = !loggedIn,
                 docs = "Open Docs",
@@ -509,7 +509,7 @@ class JBCefMessageView(
 	}
 	if(typeof ResizeObserver!=='undefined')new ResizeObserver(function(){sd()}).observe(m);
 function h(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
-	function host(action){if(typeof window.atomcodeHost==='function'){window.atomcodeHost('home:'+action);return}for(var k in window){if(k.indexOf('JBCefQuery_')===0&&typeof window[k]==='function'){window[k]('home:'+action);return}}}
+	function host(action){if(typeof window.rustcodeHost==='function'){window.rustcodeHost('home:'+action);return}for(var k in window){if(k.indexOf('JBCefQuery_')===0&&typeof window[k]==='function'){window[k]('home:'+action);return}}}
 	function clearHome(){var x=m.querySelector('.home');if(x)x.remove()}
 	function switchWelcomeLanguage(lang){host('language:'+lang)}
 	function md(s){
@@ -838,7 +838,7 @@ function h(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 	function lastBody(p){var bs=(p||parts()).querySelectorAll('.b');return bs.length?bs[bs.length-1]:null}
 	function textSegment(){var p=parts(),tail=p.lastElementChild;if(tail&&tail.classList.contains('b'))return tail;var b=document.createElement('div');b.className='b';p.appendChild(b);return b}
 	function addAssistantMessage(t){ss=null;var b=textSegment();b.innerHTML=md(t);enhanceMarkdown(b);renderCursor();sd()}
-	function buildAsst(t){var d=document.createElement('div');d.className='am';d.innerHTML='<div class="av">AtomCode</div><div class="parts"><div class="b">'+md(t)+'</div></div>';enhanceMarkdown(d);return d}
+	function buildAsst(t){var d=document.createElement('div');d.className='am';d.innerHTML='<div class="av">RustCode</div><div class="parts"><div class="b">'+md(t)+'</div></div>';enhanceMarkdown(d);return d}
 	function removeStreamingCursors(){var olds=document.querySelectorAll('.streaming-cursor');Array.prototype.forEach.call(olds,function(x){x.remove()})}
 	function renderCursor(){removeStreamingCursors();if(!last)return;var b=lastBody(last.querySelector('.parts'));if(!b)return;if(cv){var c=document.createElement('span');c.className='streaming-cursor';b.appendChild(c)}}
 	function updateLastAssistantMessage(t,q){var n=Number(q||0);if(n&&n<useq)return;if(n)useq=n;var b=textSegment();ss=newStreamState(b);ss.raw=String(t||'');renderStreamState(ss,false);renderCursor();sd()}

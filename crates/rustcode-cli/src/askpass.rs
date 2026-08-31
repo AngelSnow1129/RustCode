@@ -2,7 +2,7 @@
 //!
 //! Connects to the askpass Unix-domain socket, sends a `Request` frame
 //! (nonce token + prompt text), and reads back a `Response` frame that
-//! contains the password.  Uses blocking `std` I/O — no async runtime —
+//! contains the password.  Uses blocking `std` I/O -- no async runtime --
 //! because the helper is a tiny short-lived process invoked by sudo/ssh.
 
 #![cfg(unix)]

@@ -129,7 +129,7 @@ mod tests {
         // Smoke test with the shape of an actual atomgit short link.
         // 32-char URL encodes to roughly a 25x25-module QR; the compact
         // renderer packs two rows per cell. Use 8 as a
-        // safe floor — any non-trivial input should clear it.
+        // safe floor -- any non-trivial input should clear it.
         let lines = render_for_terminal("https://acs.atomgit.com/s/AbC123", true, true, 80, 24)
             .expect("Unicode-capable render must succeed for a short URL");
         assert!(

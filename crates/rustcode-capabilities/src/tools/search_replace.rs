@@ -1,6 +1,6 @@
-//! `search_replace` — bulk find-and-replace across many files (literal or regex),
+//! `search_replace` -- bulk find-and-replace across many files (literal or regex),
 //! optionally scoped by a glob. Mutates the filesystem ⇒ always `Risky`. Neutral port of
-//! the production tool, minus the coding bookkeeping (file_history / file_store / LSP) —
+//! the production tool, minus the coding bookkeeping (file_history / file_store / LSP) --
 //! the L1 `ToolContext` has none of that. The (blocking) `ignore` walk + per-file reads
 //! run on `spawn_blocking` so a hung filesystem can't stall the async worker.
 
@@ -33,7 +33,7 @@ impl Tool for SearchReplaceTool {
         "search_replace"
     }
     fn description(&self) -> &str {
-        "Find and replace text across MANY files at once — replaces every occurrence in \
+        "Find and replace text across MANY files at once -- replaces every occurrence in \
          every matching file. Use for project-wide renames (a CSS class, an import, a \
          config key, a string literal). For a single file, prefer `edit_file`. \
          `regex:true` enables regex (with `$1`/`$2` capture groups in `replace`); the \
@@ -71,7 +71,7 @@ impl Tool for SearchReplaceTool {
         };
         if a.search.is_empty() {
             return err(
-                "search_replace: search is empty — an empty pattern would corrupt every file."
+                "search_replace: search is empty -- an empty pattern would corrupt every file."
                     .to_string(),
             );
         }
@@ -85,7 +85,7 @@ impl Tool for SearchReplaceTool {
 
         // Regex mode compiles the pattern; literal mode matches the raw string verbatim
         // (no regex, so `$1` in the replacement stays literal and an EOL mismatch can be
-        // tolerated per-file — see sr_scan).
+        // tolerated per-file -- see sr_scan).
         let re = if a.regex {
             match regex::Regex::new(&a.search) {
                 Ok(r) => Some(r),
@@ -143,7 +143,7 @@ impl Tool for SearchReplaceTool {
             ));
         }
         ok(format!(
-            "Replaced '{}' → '{}': {total} replacements across {} files.\n{}",
+            "Replaced '{}' -> '{}': {total} replacements across {} files.\n{}",
             a.search,
             a.replace,
             report.len(),
@@ -153,7 +153,7 @@ impl Tool for SearchReplaceTool {
 }
 
 /// Synchronous walk + read + replace computation (runs inside `spawn_blocking`). Does NOT
-/// write — returns `(path, new_content, replacement_count)` per changed file plus the
+/// write -- returns `(path, new_content, replacement_count)` per changed file plus the
 /// count of files scanned. `re.is_some()` ⇒ regex mode (capture-group `replace`); else
 /// literal mode (verbatim `search`/`replace`, with per-file CRLF/LF tolerance).
 fn sr_scan(
@@ -208,7 +208,7 @@ fn sr_scan(
             None => {
                 // Literal mode. Match verbatim first; on a literal hit the search already
                 // agrees with the file's bytes, so search/replace are used as-is. Only if
-                // that fails do we coerce BOTH to THIS file's EOL — rescuing an LF-copied
+                // that fails do we coerce BOTH to THIS file's EOL -- rescuing an LF-copied
                 // multi-line search against a CRLF file without injecting mixed endings.
                 // Plain string replace keeps `$1` etc. verbatim (no capture-group expansion).
                 let literal = content.matches(search).count();

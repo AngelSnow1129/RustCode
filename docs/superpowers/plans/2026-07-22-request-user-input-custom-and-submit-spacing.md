@@ -6,7 +6,7 @@
 
 **Architecture:** `custom` is a new field on `UserInputRequest` (serde-default true), threaded to `UserInputPanel` and the render view; the Other row's existence is gated on it across the state index math, the renderer, and the event-loop digit handler. The Submit-spacing tweak is render-only. No kernel change.
 
-**Tech Stack:** Rust (`atomcode-capabilities`, `atomcode-tuix`, `atomcode-daemon`), React/TS (`webui`), `cargo test`.
+**Tech Stack:** Rust (`rustcode-capabilities`, `rustcode-tuix`, `rustcode-daemon`), React/TS (`webui`), `cargo test`.
 
 ## Global Constraints
 
@@ -15,23 +15,23 @@
 - Row-count invariant: `user_input_panel_row_count(view) == build_user_input_rows(view).len()` must hold for BOTH `custom` values AND with the new multiple-mode blank.
 - The Submit blank is multiple-mode only (single mode has no Submit row).
 - Neutral wording. Work on `release/v5.0.1`. Commit trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
-- **WIP caution:** `crates/atomcode-tuix/src/{state.rs, event_loop/mod.rs}` may carry unrelated uncommitted changes at implementation time. Stage ONLY this change's hunks (`git add -p <file>`); never commit the unrelated WIP.
+- **WIP caution:** `crates/rustcode-tuix/src/{state.rs, event_loop/mod.rs}` may carry unrelated uncommitted changes at implementation time. Stage ONLY this change's hunks (`git add -p <file>`); never commit the unrelated WIP.
 
 ---
 
 ## File Structure
 
-- `crates/atomcode-capabilities/src/tools/request_user_input.rs` — `custom` field, serde default, schema, description. (Task 1)
-- `crates/atomcode-tuix/src/state.rs` — `UserInputPanel.custom` + index math. (Task 2)
-- `crates/atomcode-tuix/src/render/mod.rs` + `render/retained.rs` — gate Other row, blank-before-Submit, row count, view field. (Task 3)
-- `crates/atomcode-tuix/src/event_loop/mod.rs` — digit-key handler must not jump to the Other row when `custom == false`; view construction passes `custom`. (Task 4)
-- `crates/atomcode-daemon/src/live_api.rs`, `webui/src/api.ts`, `webui/src/components/UserInputCard.tsx` — forward + honor `custom`. (Task 5)
+- `crates/rustcode-capabilities/src/tools/request_user_input.rs` — `custom` field, serde default, schema, description. (Task 1)
+- `crates/rustcode-tuix/src/state.rs` — `UserInputPanel.custom` + index math. (Task 2)
+- `crates/rustcode-tuix/src/render/mod.rs` + `render/retained.rs` — gate Other row, blank-before-Submit, row count, view field. (Task 3)
+- `crates/rustcode-tuix/src/event_loop/mod.rs` — digit-key handler must not jump to the Other row when `custom == false`; view construction passes `custom`. (Task 4)
+- `crates/rustcode-daemon/src/live_api.rs`, `webui/src/api.ts`, `webui/src/components/UserInputCard.tsx` — forward + honor `custom`. (Task 5)
 
 ---
 
 ### Task 1: Tool layer — the `custom` field
 
-**Files:** Modify + test `crates/atomcode-capabilities/src/tools/request_user_input.rs`
+**Files:** Modify + test `crates/rustcode-capabilities/src/tools/request_user_input.rs`
 
 **Interfaces:**
 - Produces: `UserInputRequest` gains `pub custom: bool` (serde default true). Task 2/3/5 read `req.custom`.
@@ -60,12 +60,12 @@ Add to `mod tests`:
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `cargo test -p atomcode-capabilities --lib parse_custom_defaults_true_and_reads_false`
+Run: `cargo test -p rustcode-capabilities --lib parse_custom_defaults_true_and_reads_false`
 Expected: FAIL to compile (`UserInputRequest` has no field `custom`).
 
 - [ ] **Step 3: Add the field with a serde default**
 
-In `crates/atomcode-capabilities/src/tools/request_user_input.rs`, add a default helper and the field. After the `UserInputMode` enum (or near the top of the structs), add:
+In `crates/rustcode-capabilities/src/tools/request_user_input.rs`, add a default helper and the field. After the `UserInputMode` enum (or near the top of the structs), add:
 
 ```rust
 fn default_true() -> bool {
@@ -110,13 +110,13 @@ Update `description`: append to the existing text:
 
 - [ ] **Step 5: Run tests to verify pass**
 
-Run: `cargo test -p atomcode-capabilities --lib request_user_input`
+Run: `cargo test -p rustcode-capabilities --lib request_user_input`
 Expected: PASS (new test + existing, with the updated literals).
 
 - [ ] **Step 6: Commit** (stage only this file)
 
 ```bash
-git add crates/atomcode-capabilities/src/tools/request_user_input.rs
+git add crates/rustcode-capabilities/src/tools/request_user_input.rs
 git commit -m "feat(request_user_input): per-question custom flag (default true)
 
 Add UserInputRequest.custom (serde default true) so the auto 'type your own
@@ -130,7 +130,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 2: TUI state — gate the Other row on `custom`
 
-**Files:** Modify + test `crates/atomcode-tuix/src/state.rs`
+**Files:** Modify + test `crates/rustcode-tuix/src/state.rs`
 
 **Interfaces:**
 - Consumes: `UserInputRequest.custom` (Task 1).
@@ -144,7 +144,7 @@ Add near the `UserInputPanel` (in the file's test module, or a new `#[cfg(test)]
 #[cfg(test)]
 mod user_input_custom_tests {
     use super::*;
-    use atomcode_capabilities::tools::request_user_input::{
+    use rustcode_capabilities::tools::request_user_input::{
         UserInputMode, UserInputOption, UserInputRequest,
     };
 
@@ -189,12 +189,12 @@ Note: `last_row` is currently private. To test it, add a `#[cfg(test)] pub fn la
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `cargo test -p atomcode-tuix --lib user_input_custom`
+Run: `cargo test -p rustcode-tuix --lib user_input_custom`
 Expected: FAIL to compile (`custom` field missing on `UserInputRequest` construction is fine — Task 1 added it; the failure is `UserInputPanel` has no `custom` field / `last_row` private).
 
 - [ ] **Step 3: Add `custom` to the struct + `new`**
 
-In `crates/atomcode-tuix/src/state.rs`, add the field to `UserInputPanel` (after `custom_text`):
+In `crates/rustcode-tuix/src/state.rs`, add the field to `UserInputPanel` (after `custom_text`):
 
 ```rust
     /// Whether the always-appended "Other" free-text row is offered. Mirrors
@@ -230,7 +230,7 @@ Change `submit_index`, `last_row`, `is_other_row` in `impl UserInputPanel`:
     /// Index of the Submit row (multiple mode only). After the concrete options,
     /// plus the "Other" row when `custom` is on.
     pub fn submit_index(&self) -> Option<usize> {
-        use atomcode_capabilities::tools::request_user_input::UserInputMode;
+        use rustcode_capabilities::tools::request_user_input::UserInputMode;
         if matches!(self.mode, UserInputMode::Multiple) {
             Some(self.options.len() + self.custom as usize)
         } else {
@@ -240,7 +240,7 @@ Change `submit_index`, `last_row`, `is_other_row` in `impl UserInputPanel`:
 
     /// Last navigable cursor index.
     pub(crate) fn last_row(&self) -> usize {
-        use atomcode_capabilities::tools::request_user_input::UserInputMode;
+        use rustcode_capabilities::tools::request_user_input::UserInputMode;
         match self.mode {
             UserInputMode::Multiple => self.submit_index().unwrap(),
             // single/text: the "Other" row is last when custom, else the last option.
@@ -264,13 +264,13 @@ Change `submit_index`, `last_row`, `is_other_row` in `impl UserInputPanel`:
 
 - [ ] **Step 5: Run tests to verify pass**
 
-Run: `cargo test -p atomcode-tuix --lib user_input_custom`
+Run: `cargo test -p rustcode-tuix --lib user_input_custom`
 Expected: PASS.
 
 - [ ] **Step 6: Commit** (stage only your hunks)
 
 ```bash
-git add -p crates/atomcode-tuix/src/state.rs
+git add -p crates/rustcode-tuix/src/state.rs
 git commit -m "feat(tuix): gate the Other free-text row on UserInputPanel.custom
 
 When custom is false the Other row does not exist: submit_index, last_row,
@@ -283,7 +283,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 3: TUI render — gate Other row, blank-before-Submit, row count
 
-**Files:** Modify `crates/atomcode-tuix/src/render/mod.rs` (view struct), `crates/atomcode-tuix/src/render/retained.rs` (`build_user_input_rows`, `user_input_panel_row_count`).
+**Files:** Modify `crates/rustcode-tuix/src/render/mod.rs` (view struct), `crates/rustcode-tuix/src/render/retained.rs` (`build_user_input_rows`, `user_input_panel_row_count`).
 
 **Interfaces:**
 - Consumes: `panel.custom` (Task 2).
@@ -302,7 +302,7 @@ Update the 3 test constructions of `UserInputPanelView` in `retained.rs` (grep `
 
 - [ ] **Step 2: Read the current renderer**
 
-Run: `sed -n '2515,2560p' crates/atomcode-tuix/src/render/retained.rs` and read `build_user_input_rows` (the option loop, the Other-row block, and the multiple-mode Submit block).
+Run: `sed -n '2515,2560p' crates/rustcode-tuix/src/render/retained.rs` and read `build_user_input_rows` (the option loop, the Other-row block, and the multiple-mode Submit block).
 
 - [ ] **Step 3: Gate the Other row + add the Submit blank in `build_user_input_rows`**
 
@@ -357,13 +357,13 @@ Update the existing `user_input_panel_renders_all_three_modes` multiple-mode row
         );
 ```
 
-Run: `cargo test -p atomcode-tuix --lib user_input`
+Run: `cargo test -p rustcode-tuix --lib user_input`
 Expected: PASS (row-count invariant holds for both `custom` values and the new blank).
 
 - [ ] **Step 7: Commit** (stage only render/ hunks)
 
 ```bash
-git add crates/atomcode-tuix/src/render/mod.rs crates/atomcode-tuix/src/render/retained.rs
+git add crates/rustcode-tuix/src/render/mod.rs crates/rustcode-tuix/src/render/retained.rs
 git commit -m "feat(tuix): render Other row only when custom + blank before Submit
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -373,7 +373,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 4: TUI events — digit handler + view construction
 
-**Files:** Modify `crates/atomcode-tuix/src/event_loop/mod.rs`.
+**Files:** Modify `crates/rustcode-tuix/src/event_loop/mod.rs`.
 
 **Interfaces:**
 - Consumes: `panel.custom` (Task 2).
@@ -399,13 +399,13 @@ At the `UserInputPanelView { .. }` construction sites in `event_loop/mod.rs` (th
 
 - [ ] **Step 3: Build + run the suite**
 
-Run: `cargo build -p atomcode-tuix && cargo test -p atomcode-tuix`
+Run: `cargo build -p rustcode-tuix && cargo test -p rustcode-tuix`
 Expected: compiles; full suite green (single-question default `custom=true` unchanged; the multiple-mode blank updated in Task 3's tests).
 
 - [ ] **Step 4: Commit** (stage only your hunks)
 
 ```bash
-git add -p crates/atomcode-tuix/src/event_loop/mod.rs
+git add -p crates/rustcode-tuix/src/event_loop/mod.rs
 git commit -m "feat(tuix): don't jump to the Other row via number keys when custom=false; pass custom to the view
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -415,7 +415,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 5: daemon + webui — forward and honor `custom`
 
-**Files:** Modify `crates/atomcode-daemon/src/live_api.rs`, `webui/src/api.ts`, `webui/src/components/UserInputCard.tsx`.
+**Files:** Modify `crates/rustcode-daemon/src/live_api.rs`, `webui/src/api.ts`, `webui/src/components/UserInputCard.tsx`.
 
 **Interfaces:**
 - Consumes: the `custom` field on the request payload (Task 1).
@@ -441,7 +441,7 @@ Expected: no errors.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-daemon/src/live_api.rs webui/src/
+git add crates/rustcode-daemon/src/live_api.rs webui/src/
 git commit -m "feat(daemon,webui): forward + honor request_user_input custom flag
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"

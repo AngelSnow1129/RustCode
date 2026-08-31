@@ -4,9 +4,9 @@
 
 **Goal:** 让 `/skills` 命令用贪婪前缀匹配接受多个 skill 名，把它们的正文一起注入到一个任务回合；单 skill 用法完全不变。
 
-**Architecture:** 新增一个纯函数 `split_skill_names`（TDD 全覆盖）把参数串切成"skill 名前缀列表 + 任务描述"；`/skills` 分支改用它，循环调用现有 `expand_skill` 拼接注入，并回显已加载的 skill 名。新增一条 i18n `Msg` 供回显。不改内核、不改 `atomcode-core::skill`。
+**Architecture:** 新增一个纯函数 `split_skill_names`（TDD 全覆盖）把参数串切成"skill 名前缀列表 + 任务描述"；`/skills` 分支改用它，循环调用现有 `expand_skill` 拼接注入，并回显已加载的 skill 名。新增一条 i18n `Msg` 供回显。不改内核、不改 `rustcode-core::skill`。
 
-**Tech Stack:** Rust；`atomcode-tuix`（命令层）+ `atomcode-config`（i18n）。
+**Tech Stack:** Rust；`rustcode-tuix`（命令层）+ `rustcode-config`（i18n）。
 
 ## Global Constraints
 
@@ -23,7 +23,7 @@
 ### Task 1: `split_skill_names` 纯函数 + 单元测试
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/event_loop/commands.rs`（在 `expand_skill`（约 3644 行）附近新增函数 + 同文件 `#[cfg(test)]` 测试）
+- Modify: `crates/rustcode-tuix/src/event_loop/commands.rs`（在 `expand_skill`（约 3644 行）附近新增函数 + 同文件 `#[cfg(test)]` 测试）
 
 **Interfaces:**
 - Produces: `fn split_skill_names(arg: &str, resolve: impl Fn(&str) -> bool) -> (Vec<String>, String)` —
@@ -99,7 +99,7 @@ mod split_skill_names_tests {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p atomcode-tuix split_skill_names_tests 2>&1 | tail -20`
+Run: `cargo test -p rustcode-tuix split_skill_names_tests 2>&1 | tail -20`
 Expected: 编译失败 `cannot find function split_skill_names in this scope`（函数尚未定义）。
 
 - [ ] **Step 3: 实现纯函数**
@@ -131,13 +131,13 @@ fn split_skill_names(arg: &str, resolve: impl Fn(&str) -> bool) -> (Vec<String>,
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `cargo test -p atomcode-tuix split_skill_names_tests 2>&1 | tail -20`
+Run: `cargo test -p rustcode-tuix split_skill_names_tests 2>&1 | tail -20`
 Expected: `test result: ok. 7 passed`。
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add crates/atomcode-tuix/src/event_loop/commands.rs
+git add crates/rustcode-tuix/src/event_loop/commands.rs
 git commit -m "feat(skills): split_skill_names 贪婪前缀解析纯函数"
 ```
 
@@ -146,10 +146,10 @@ git commit -m "feat(skills): split_skill_names 贪婪前缀解析纯函数"
 ### Task 2: i18n 回显文案 + 接线 `/skills` 分支
 
 **Files:**
-- Modify: `crates/atomcode-config/src/i18n/messages.rs:719`（`SkillUnknown` 之后加 `SkillsLoaded`）
-- Modify: `crates/atomcode-config/src/i18n/en.rs:613`（`SkillUnknown` 臂之后加 `SkillsLoaded` 臂）
-- Modify: `crates/atomcode-config/src/i18n/zh_cn.rs:596`（同上）
-- Modify: `crates/atomcode-tuix/src/event_loop/commands.rs:3462-3480`（`"skills"` 分支的 `else` 块）
+- Modify: `crates/rustcode-config/src/i18n/messages.rs:719`（`SkillUnknown` 之后加 `SkillsLoaded`）
+- Modify: `crates/rustcode-config/src/i18n/en.rs:613`（`SkillUnknown` 臂之后加 `SkillsLoaded` 臂）
+- Modify: `crates/rustcode-config/src/i18n/zh_cn.rs:596`（同上）
+- Modify: `crates/rustcode-tuix/src/event_loop/commands.rs:3462-3480`（`"skills"` 分支的 `else` 块）
 
 **Interfaces:**
 - Consumes: `split_skill_names`（Task 1）；现有 `expand_skill(ctx: &LoopCtx, name: &str, arg: &str) -> Option<String>`；现有 `submit_agent_turn(ctx: &LoopCtx, state: &mut UiState, text: String)`；现有 `Msg::SkillUnknown { name: &str }`。
@@ -157,7 +157,7 @@ git commit -m "feat(skills): split_skill_names 贪婪前缀解析纯函数"
 
 - [ ] **Step 1: 新增 i18n `Msg` 变体**
 
-在 `crates/atomcode-config/src/i18n/messages.rs` 的 `SkillUnknown { name: &'a str },`（719-721 行）之后插入：
+在 `crates/rustcode-config/src/i18n/messages.rs` 的 `SkillUnknown { name: &'a str },`（719-721 行）之后插入：
 
 ```rust
     SkillsLoaded {
@@ -167,7 +167,7 @@ git commit -m "feat(skills): split_skill_names 贪婪前缀解析纯函数"
 
 - [ ] **Step 2: 加 en 匹配臂**
 
-在 `crates/atomcode-config/src/i18n/en.rs` 的 `Msg::SkillUnknown { name } => ...`（612-613 行）之后插入：
+在 `crates/rustcode-config/src/i18n/en.rs` 的 `Msg::SkillUnknown { name } => ...`（612-613 行）之后插入：
 
 ```rust
         Msg::SkillsLoaded { names } =>
@@ -176,7 +176,7 @@ git commit -m "feat(skills): split_skill_names 贪婪前缀解析纯函数"
 
 - [ ] **Step 3: 加 zh_cn 匹配臂**
 
-在 `crates/atomcode-config/src/i18n/zh_cn.rs` 的 `Msg::SkillUnknown { name } => ...`（596 行附近）之后插入：
+在 `crates/rustcode-config/src/i18n/zh_cn.rs` 的 `Msg::SkillUnknown { name } => ...`（596 行附近）之后插入：
 
 ```rust
         Msg::SkillsLoaded { names } =>
@@ -185,12 +185,12 @@ git commit -m "feat(skills): split_skill_names 贪婪前缀解析纯函数"
 
 - [ ] **Step 4: 运行 i18n 测试确认新变体编译通过**
 
-Run: `cargo test -p atomcode-config 2>&1 | tail -5`
+Run: `cargo test -p rustcode-config 2>&1 | tail -5`
 Expected: 编译通过、`test result: ok`（穷尽匹配下 en/zh 都补齐才会编译成功）。
 
 - [ ] **Step 5: 接线 `/skills` 分支**
 
-把 `crates/atomcode-tuix/src/event_loop/commands.rs` 中 `"skills"` 分支里 `arg_trim` 非空的整个 `else { ... }` 块（当前 3462-3480 行，`splitn(2)` 那段）替换为：
+把 `crates/rustcode-tuix/src/event_loop/commands.rs` 中 `"skills"` 分支里 `arg_trim` 非空的整个 `else { ... }` 块（当前 3462-3480 行，`splitn(2)` 那段）替换为：
 
 ```rust
             } else {
@@ -246,17 +246,17 @@ Expected: 编译通过、`test result: ok`（穷尽匹配下 en/zh 都补齐才�
 
 - [ ] **Step 6: 构建确认接线编译通过**
 
-Run: `cargo build -p atomcode-tuix 2>&1 | tail -8`
+Run: `cargo build -p rustcode-tuix 2>&1 | tail -8`
 Expected: `Finished`，无 error（可能存在与本改动无关的既有告警）。
 
 - [ ] **Step 7: 回归 —— 全量相关测试**
 
-Run: `cargo test -p atomcode-tuix -p atomcode-config 2>&1 | grep -E "test result: FAIL|test result: ok|error\[" | tail -20`
+Run: `cargo test -p rustcode-tuix -p rustcode-config 2>&1 | grep -E "test result: FAIL|test result: ok|error\[" | tail -20`
 Expected: 全部 `test result: ok`，无 `FAIL`/`error`。
 
 - [ ] **Step 8: 手动验证（真机/交互，无法自动化的 TUI 路径）**
 
-在 atomcode 交互会话中依次执行并观察：
+在 rustcode 交互会话中依次执行并观察：
 - `/skills brainstorming` → 仅加载 brainstorming（同今天）。
 - `/skills brainstorming 做个登录页` → 加载 brainstorming、任务=`做个登录页`（同今天）。
 - `/skills adapt-agent skill-creator 路径在哪` → 回显 `已加载 skills：adapt-agent · skill-creator`，任务=`路径在哪`。
@@ -266,10 +266,10 @@ Expected: 全部 `test result: ok`，无 `FAIL`/`error`。
 - [ ] **Step 9: 提交**
 
 ```bash
-git add crates/atomcode-config/src/i18n/messages.rs \
-        crates/atomcode-config/src/i18n/en.rs \
-        crates/atomcode-config/src/i18n/zh_cn.rs \
-        crates/atomcode-tuix/src/event_loop/commands.rs
+git add crates/rustcode-config/src/i18n/messages.rs \
+        crates/rustcode-config/src/i18n/en.rs \
+        crates/rustcode-config/src/i18n/zh_cn.rs \
+        crates/rustcode-tuix/src/event_loop/commands.rs
 git commit -m "feat(skills): /skills 支持贪婪匹配多个 skill 名 + 回显已加载"
 ```
 

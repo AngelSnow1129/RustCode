@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.daemon
 
-import com.rustcode.jetbrains.settings.AtomCodeSettings
+import com.rustcode.jetbrains.settings.RustCodeSettings
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -13,10 +13,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-class AtomCodeDaemonProcessTest {
+class RustCodeDaemonProcessTest {
     @Test
     fun locatesBundledDaemonResource() {
-        val resolution = AtomCodeDaemonProcess(AtomCodeSettings()).locateBinary()
+        val resolution = RustCodeDaemonProcess(RustCodeSettings()).locateBinary()
 
         assertNotNull(resolution)
         assertEquals(emptyList(), resolution.argsPrefix)
@@ -26,7 +26,7 @@ class AtomCodeDaemonProcessTest {
 
     @Test
     fun readsExpectedBundledVersion() {
-        val version = AtomCodeDaemonProcess(AtomCodeSettings()).expectedBundledVersion()
+        val version = RustCodeDaemonProcess(RustCodeSettings()).expectedBundledVersion()
 
         assertNotNull(version)
         assertTrue(version.matches(Regex("""\d+\.\d+\.\d+.*""")))
@@ -34,7 +34,7 @@ class AtomCodeDaemonProcessTest {
 
     @Test
     fun extractsBundledDaemonToContentAddressedPath() {
-        val daemon = AtomCodeDaemonProcess(AtomCodeSettings())
+        val daemon = RustCodeDaemonProcess(RustCodeSettings())
         val expectedHash = assertNotNull(daemon.expectedBundledHash())
 
         val resolution = assertNotNull(daemon.locateBinary())

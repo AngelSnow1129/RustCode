@@ -1,17 +1,17 @@
 // crates/rustcode-tuix/src/modals/file_viewer.rs
 //
-// `/view` — a borderless, fixed-height inline file viewer (the `/diff` house
+// `/view` -- a borderless, fixed-height inline file viewer (the `/diff` house
 // style): the panel is drawn where the input box sits, covering it, NOT a
 // centred floating popup and NOT a full-screen takeover.
 //
-// Two internal views, mirroring `DiffViewer`'s List→Detail shape and sizing:
+// Two internal views, mirroring `DiffViewer`'s List->Detail shape and sizing:
 //   - `Picker`  : `/view` with no argument opens a files-only fuzzy selector,
 //                 reusing the `@`-mention `FileIndex`. Type to filter, ↑↓ to
 //                 select, Enter to open, Esc to cancel. Directories are never
 //                 listed (you can't `/view` a directory). Like the `/diff` file
 //                 list it fits its content and shows at most `MAX_VISIBLE_FILES`
 //                 rows, scrolling the window for larger result sets. Typing a
-//                 path-like query (`/…`, `~/…`, `./…`) that points to a real
+//                 path-like query (`/...`, `~/...`, `./...`) that points to a real
 //                 file surfaces an "open external file" row, so files OUTSIDE
 //                 the project are reachable straight from the picker.
 //   - `Content` : the selected file (or `/view <path>`) rendered with line
@@ -43,7 +43,7 @@ const MAX_VIEW_LINES: usize = 1000;
 /// Truncate individual lines to this display width.
 const MAX_LINE_LEN: usize = 2000;
 /// Hard cap on bytes pulled from disk. Sized to comfortably hold
-/// `MAX_VIEW_LINES` × `MAX_LINE_LEN` of worst-case 4-byte UTF-8, so it never
+/// `MAX_VIEW_LINES` x `MAX_LINE_LEN` of worst-case 4-byte UTF-8, so it never
 /// clips a file the viewer would have shown in full, while bounding the
 /// pathological (multi-GB / single-giant-line) case.
 const MAX_READ_BYTES: u64 = 8 * 1024 * 1024;
@@ -65,12 +65,12 @@ fn l(en: &'static str, zh: &'static str) -> &'static str {
 /// (covering it), NOT a full-screen takeover, using the ~75% height matching
 /// `DiffViewer`'s file-detail view so a long file has room to scroll. The picker
 /// instead fits its content (see `Picker::build_panel`). `content_height` is the
-/// body area — `panel_height` minus four chrome rows (top rule, title, blank
+/// body area -- `panel_height` minus four chrome rows (top rule, title, blank
 /// spacer, hint).
 fn geometry() -> (u16, u16, usize) {
     let (screen_w, screen_h) = crossterm::terminal::size().unwrap_or((80, 24));
     let h = screen_h as usize;
-    // `.max(lo).min(h)` rather than `clamp(lo, h)` — the latter PANICS when the
+    // `.max(lo).min(h)` rather than `clamp(lo, h)` -- the latter PANICS when the
     // terminal is shorter than `lo` (min > max).
     let panel_height = (h * 3 / 4).max(10).min(h);
     let content_height = panel_height.saturating_sub(4).max(1);
@@ -94,7 +94,7 @@ struct Picker {
     query_cursor_byte: usize,
     /// Matching FILE entries (directories filtered out).
     matches: Vec<Entry>,
-    /// When the query is a path-like string (`/…`, `~/…`, `./…`) resolving to a
+    /// When the query is a path-like string (`/...`, `~/...`, `./...`) resolving to a
     /// real file OUTSIDE (or inside) the project, the resolved path is stored
     /// here and offered as a synthetic top row so external files are openable
     /// straight from the picker. `None` for ordinary fuzzy queries.
@@ -239,8 +239,8 @@ impl Picker {
             title,
             rows,
             footer: l(
-                "↑↓ select · Enter open · type /~ path for external file · Esc cancel",
-                "↑↓ 选择 · Enter 打开 · 输入 /~ 路径打开外部文件 · Esc 取消",
+                "↑↓ select . Enter open . type /~ path for external file . Esc cancel",
+                "↑↓ 选择 . Enter 打开 . 输入 /~ 路径打开外部文件 . Esc 取消",
             )
             .to_string(),
             win_width: screen_w,
@@ -326,7 +326,7 @@ impl FileViewer {
             }
             KeyCode::Esc | KeyCode::Char('q') => {
                 if self.picker.is_some() {
-                    // Came from the picker — back out to it.
+                    // Came from the picker -- back out to it.
                     self.content = None;
                     self.draw(buf, state, ctx, renderer);
                     return Ok(ModalAction::Continue);
@@ -468,7 +468,7 @@ fn load_content(path: &Path) -> Result<Content> {
         .map(|line| {
             if line.chars().count() > MAX_LINE_LEN {
                 let mut s: String = line.chars().take(MAX_LINE_LEN).collect();
-                s.push_str(" …");
+                s.push_str(" ...");
                 s
             } else {
                 line.to_string()
@@ -508,13 +508,13 @@ fn build_content_panel(
             DiffPanelTone::Brand,
         ),
         DiffPanelSpan::new(
-            format!(" · {first}-{last}/{}", c.total_lines),
+            format!(" . {first}-{last}/{}", c.total_lines),
             DiffPanelTone::Muted,
         ),
     ];
     if c.truncated {
         title_spans.push(DiffPanelSpan::new(
-            l(" · truncated", " · 已截断"),
+            l(" . truncated", " . 已截断"),
             DiffPanelTone::Warning,
         ));
     }
@@ -536,9 +536,9 @@ fn build_content_panel(
     }
 
     let footer = if has_picker {
-        l("↑↓/PgUp scroll · Esc back", "↑↓/PgUp 滚动 · Esc 返回")
+        l("↑↓/PgUp scroll . Esc back", "↑↓/PgUp 滚动 . Esc 返回")
     } else {
-        l("↑↓/PgUp scroll · Esc close", "↑↓/PgUp 滚动 · Esc 关闭")
+        l("↑↓/PgUp scroll . Esc close", "↑↓/PgUp 滚动 . Esc 关闭")
     }
     .to_string();
 
@@ -554,8 +554,8 @@ fn build_content_panel(
 /// Resolve a path-like picker query to an existing regular file, so files the
 /// fuzzy `FileIndex` can't reach (gitignored dirs like `dist/`, `target/`, or
 /// anything OUTSIDE the project) are openable straight from the picker.
-/// Returns `None` for ordinary fuzzy terms — a query is only probed on disk
-/// when it clearly denotes a path: an absolute / `~` / `./…` / `../…` form, OR a
+/// Returns `None` for ordinary fuzzy terms -- a query is only probed on disk
+/// when it clearly denotes a path: an absolute / `~` / `./...` / `../...` form, OR a
 /// bare relative path containing a separator (`dist/bundle.js`). A separatorless
 /// term (`main`) is never statted. Relative forms resolve against `working_dir`,
 /// matching the reach of `commands.rs::resolve_view_path`.
@@ -635,7 +635,7 @@ impl Modal for FileViewer {
     }
 
     /// Like `DiffViewer`, the panel replaces the input box, so it must own every
-    /// keystroke — otherwise (e.g. a background `/loop` turn flips the phase to
+    /// keystroke -- otherwise (e.g. a background `/loop` turn flips the phase to
     /// Streaming) typed characters leak into the input buffer and pop a slash
     /// menu behind the panel.
     fn captures_all_keys(&self) -> bool {
@@ -681,7 +681,7 @@ mod tests {
     #[test]
     fn external_row_surfaces_for_a_real_path_query() {
         // A path-like query pointing at a real file becomes the index-0 row and
-        // Enter would open exactly that path — even with zero project matches.
+        // Enter would open exactly that path -- even with zero project matches.
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let picker = picker_from(
             &PathBuf::from("/proj"),
@@ -697,7 +697,7 @@ mod tests {
     fn bare_relative_path_with_separator_reaches_gitignored_files() {
         // A gitignored file (omitted from the FileIndex) is unreachable by fuzzy
         // match but must surface as the external row when typed as a relative
-        // path with a separator — matching what `/view dist/x` already opens.
+        // path with a separator -- matching what `/view dist/x` already opens.
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("dist")).unwrap();
         let file = dir.path().join("dist/bundle.js");
@@ -756,7 +756,7 @@ mod tests {
 
     #[test]
     fn open_rejects_invalid_utf8() {
-        // Invalid UTF-8 with NO NUL byte → passes the binary sniff, fails decode.
+        // Invalid UTF-8 with NO NUL byte -> passes the binary sniff, fails decode.
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
         tmp.write_all(&[0xff, 0xfe, b'h', b'i']).unwrap();
         assert!(FileViewer::open(tmp.path()).is_err());
@@ -782,7 +782,7 @@ mod tests {
         writeln!(tmp, "b").unwrap();
         let mut viewer = FileViewer::open(tmp.path()).unwrap();
         viewer.content_scroll_down(100);
-        assert_eq!(content_of(&viewer).scroll, 1); // len 2 → max index 1
+        assert_eq!(content_of(&viewer).scroll, 1); // len 2 -> max index 1
         viewer.content_scroll_up(100);
         assert_eq!(content_of(&viewer).scroll, 0);
     }

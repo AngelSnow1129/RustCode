@@ -3,7 +3,7 @@
 //! Providers cache on the BYTE PREFIX of the request. The cache-friendly claim is: once
 //! an old tool result is stubbed it is FROZEN (byte-identical on every later turn), so the
 //! prefix up to the compaction boundary stays stable and the provider's prefix cache keeps
-//! hitting — the break happens at most once per turn, at the tail. This drives a 3-turn,
+//! hitting -- the break happens at most once per turn, at the tail. This drives a 3-turn,
 //! over-threshold session and asserts exactly that on the recorded wire.
 
 use std::sync::Arc;
@@ -16,7 +16,7 @@ use rustcode_kernel::stream::{StreamEvent, TokenUsage};
 use rustcode_kernel::testkit::{EchoTool, RecordingProvider};
 use rustcode_kernel::tool::{ToolCall, ToolRegistry};
 
-/// A ~560-char echo arg → the tool RESULT (`echo: {…}`) clears MIN_COLLAPSE_SIZE (500)
+/// A ~560-char echo arg -> the tool RESULT (`echo: {...}`) clears MIN_COLLAPSE_SIZE (500)
 /// and is therefore eligible to stub once it falls out of the active turn.
 fn big_arg(tag: &str) -> String {
     format!("{{\"text\":\"{tag}-{}\"}}", "x".repeat(550))
@@ -86,12 +86,12 @@ fn tool_results(msgs: &[Message]) -> Vec<&Message> {
 
 #[tokio::test]
 async fn stub_compaction_keeps_the_wire_prefix_cacheable() {
-    // 4 turns × 2 rounds = 8 scripted rounds. Compaction runs at a task boundary BEFORE
+    // 4 turns x 2 rounds = 8 scripted rounds. Compaction runs at a task boundary BEFORE
     // the new user message is pushed, and (keep_recent_turns=1) only stubs results OLDER
-    // than the active turn — so it needs >1 COMPLETED turn in history. Timeline:
-    //   t2 boundary: 1 completed turn  → nothing older → noop.
-    //   t3 boundary: 2 completed turns → turn 1's result becomes old → STUBBED.
-    //   t4 boundary: 3 completed turns → turn 2 also stubbed; turn 1 stays FROZEN.
+    // than the active turn -- so it needs >1 COMPLETED turn in history. Timeline:
+    //   t2 boundary: 1 completed turn  -> nothing older -> noop.
+    //   t3 boundary: 2 completed turns -> turn 1's result becomes old -> STUBBED.
+    //   t4 boundary: 3 completed turns -> turn 2 also stubbed; turn 1 stays FROZEN.
     let provider = Arc::new(
         RecordingProvider::new(vec![
             call_round("c1", "t1"),
@@ -112,7 +112,7 @@ async fn stub_compaction_keeps_the_wire_prefix_cacheable() {
         .tools(registry().mount(&["echo"]))
         .persona("persona")
         .compaction(Arc::new(StubCompaction::default()))
-        .compact_threshold(0.5) // fresh util ≈ 0.95 each turn > 0.5 → fires every boundary
+        .compact_threshold(0.5) // fresh util ≈ 0.95 each turn > 0.5 -> fires every boundary
         .build()
         .spawn();
 
@@ -136,7 +136,7 @@ async fn stub_compaction_keeps_the_wire_prefix_cacheable() {
     let t3_req = &calls[4].0;
     let t4_req = &calls[6].0;
 
-    // (0) t2 boundary is a NOOP — only one completed turn, so turn 1 is still the active
+    // (0) t2 boundary is a NOOP -- only one completed turn, so turn 1 is still the active
     //     turn and its result is FULL (proves we don't over-compact the active turn).
     let r2 = tool_results(t2_req);
     assert_eq!(r2.len(), 1);
@@ -174,7 +174,7 @@ async fn stub_compaction_keeps_the_wire_prefix_cacheable() {
     );
 
     // (3) THE CACHE-FRIENDLY INVARIANT: turn 1's stub is BYTE-IDENTICAL at t3 and t4
-    //     (frozen, never re-derived) → the prefix containing it stays stable → the
+    //     (frozen, never re-derived) -> the prefix containing it stays stable -> the
     //     provider prefix cache keeps hitting.
     assert_eq!(
         r3[0].text, r4[0].text,
@@ -182,7 +182,7 @@ async fn stub_compaction_keeps_the_wire_prefix_cacheable() {
     );
 
     // (4) Prefix stability: every message of t3's request, up to and including turn 1's
-    //     (now frozen) stub, is byte-identical to the same positions in t4's request —
+    //     (now frozen) stub, is byte-identical to the same positions in t4's request --
     //     turn 4 only APPENDED past the boundary, never rewrote the cached head.
     let frozen_len = t3_req
         .iter()
@@ -216,14 +216,14 @@ fn summary_provider() -> Arc<RecordingProvider> {
 
 /// END-TO-END through the REAL kernel loop with the REAL `OverflowCompaction` strategy:
 /// once utilization crosses `AUTO_DRAIN_UTILIZATION` (0.85) the AUTO task-boundary trigger
-/// ESCALATES from the gentle stub to a drain+LLM-summary — the same plan as a manual
-/// `/compact` — so auto-compaction actually reduces context instead of only folding tool
+/// ESCALATES from the gentle stub to a drain+LLM-summary -- the same plan as a manual
+/// `/compact` -- so auto-compaction actually reduces context instead of only folding tool
 /// results. This is the regression lock for "auto-compaction now works without /compact".
 #[tokio::test]
 async fn auto_compaction_escalates_to_summary_at_high_utilization() {
-    // usage prompt 950 vs 1000-token window → util ≈ 0.95 ≥ 0.85 → escalate. 3 turns:
-    //   t2 boundary: only 1 completed turn → nothing older than active → noop (no summary).
-    //   t3 boundary: 2 completed turns → turn 1 drainable + high util → DRAIN+SUMMARY.
+    // usage prompt 950 vs 1000-token window -> util ≈ 0.95 ≥ 0.85 -> escalate. 3 turns:
+    //   t2 boundary: only 1 completed turn -> nothing older than active -> noop (no summary).
+    //   t3 boundary: 2 completed turns -> turn 1 drainable + high util -> DRAIN+SUMMARY.
     let provider = Arc::new(
         RecordingProvider::new(vec![
             call_round("c1", "t1"),
@@ -245,7 +245,7 @@ async fn auto_compaction_escalates_to_summary_at_high_utilization() {
             StubCompaction::default(),
             Some(summary_provider()),
         )))
-        .compact_threshold(0.5) // util ≈ 0.95 each turn > 0.5 → auto fires every boundary
+        .compact_threshold(0.5) // util ≈ 0.95 each turn > 0.5 -> auto fires every boundary
         .build()
         .spawn();
 
@@ -299,7 +299,7 @@ async fn auto_compaction_escalates_to_summary_at_high_utilization() {
     );
 }
 
-/// Byte-ish wire identity of one message (role + text + tool_calls + tool_call_id) — the
+/// Byte-ish wire identity of one message (role + text + tool_calls + tool_call_id) -- the
 /// fields the provider serializes into the prefix.
 fn wire_repr(m: &Message) -> String {
     let calls: String = m

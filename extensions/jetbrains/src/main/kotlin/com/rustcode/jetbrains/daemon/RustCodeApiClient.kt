@@ -2,7 +2,7 @@ package com.rustcode.jetbrains.daemon
 
 import java.util.concurrent.CompletableFuture
 
-interface AtomCodeApiClient {
+interface RustCodeApiClient {
     fun health(): CompletableFuture<HealthResponse>
     fun listSessions(): CompletableFuture<List<SessionMeta>>
     fun searchSessions(query: String): CompletableFuture<List<SessionMeta>>
@@ -17,8 +17,8 @@ interface AtomCodeApiClient {
 }
 
 class ExistingDaemonApiClient(
-    private val delegate: AtomCodeDaemonClient,
-) : AtomCodeApiClient {
+    private val delegate: RustCodeDaemonClient,
+) : RustCodeApiClient {
     override fun health(): CompletableFuture<HealthResponse> = delegate.health()
 
     override fun listSessions(): CompletableFuture<List<SessionMeta>> = delegate.listSessions()

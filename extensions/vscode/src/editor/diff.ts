@@ -30,7 +30,7 @@ export async function showDiff(filePath: string, originalContent: string) {
   await vscode.commands.executeCommand('vscode.diff',
     originalUri,
     modifiedUri,
-    `AtomCode: ${path.basename(filePath)} (changes)`,
+    `RustCode: ${path.basename(filePath)} (changes)`,
     { preview: true }
   );
 }

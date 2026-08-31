@@ -32,7 +32,7 @@ fn empty_config() -> Config {
 /// Build a sanitized ConfigResponse from a loaded Config.
 ///
 /// Lists the unified model catalog (`logical_models`) so new-schema and folded
-/// CodingPlan models — which no longer live in `config.providers` — are still
+/// CodingPlan models -- which no longer live in `config.providers` -- are still
 /// selectable in the webui. Each selection id is reconstructed into a
 /// `ProviderConfig` view via the resolution boundary.
 pub(crate) fn config_response(config: &Config) -> ConfigResponse {
@@ -81,7 +81,7 @@ pub(crate) fn config_response(config: &Config) -> ConfigResponse {
                         .is_some_and(|key| !key.trim().is_empty());
                     let managed = base_url
                         .as_deref()
-                        .is_some_and(rustcode_auth::gateway_crypto::is_atomgit_gateway);
+                        .is_some_and(rustcode_auth::gateway_crypto::is_codingplan_gateway);
                     ProviderAccountInfo {
                         id: id.clone(),
                         provider: account.provider,
@@ -101,14 +101,14 @@ pub(crate) fn config_response(config: &Config) -> ConfigResponse {
         },
         provider_presets: rustcode_config::config::provider_preset::PRESETS
             .iter()
-            // AtomGit/CodingPlan is provisioned by `/login`; presenting it as a
+            // CodingPlan is provisioned by `/login`; presenting it as a
             // manually configurable API-key provider would create a broken,
             // user-owned lookalike. Existing CodingPlan models are still listed
             // above through the unified model catalog.
             .filter(|preset| {
                 !matches!(
                     preset.id,
-                    "atomgit" | "openai-compatible" | "anthropic-compatible"
+                    "openai-compatible" | "anthropic-compatible"
                 )
             })
             .map(|preset| ProviderPresetInfo {
@@ -156,7 +156,7 @@ pub(crate) fn provider_info(
         requires_login: p
             .base_url
             .as_deref()
-            .is_some_and(rustcode_auth::gateway_crypto::is_atomgit_gateway),
+            .is_some_and(rustcode_auth::gateway_crypto::is_codingplan_gateway),
         is_default: name == default_provider,
         context_window: p.context_window,
         max_tokens: p.max_tokens,
@@ -268,47 +268,48 @@ mod tests {
     #[test]
     fn config_response_lists_new_schema_and_folded_codingplan_models() {
         // A config where the selectable models live ONLY in the new schema
-        // (provider_accounts + models) — none in [providers.*].
+        // (provider_accounts + models) -- none in [providers.*].
         let config: Config = serde_json::from_value(serde_json::json!({
-            "default_model": "AtomGit-GLM-5.2",
-            "provider_accounts": { "AtomGit": { "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1" } },
+            "default_model": "RustCode-GLM-5.2",
+            "provider_accounts": { "RustCode": { "provider": "openai", "base_url": "https://gateway.test.example/v1" } },
             "models": {
-                "AtomGit-GLM-5.2": { "account": "AtomGit", "model": "GLM-5.2", "context_window": 128000 },
-                "AtomGit-Qwen": { "account": "AtomGit", "model": "Qwen", "context_window": 128000 }
+                "RustCode-GLM-5.2": { "account": "RustCode", "model": "GLM-5.2", "context_window": 128000 },
+                "RustCode-Qwen": { "account": "RustCode", "model": "Qwen", "context_window": 128000 }
             }
         }))
         .unwrap();
         let resp = config_response(&config);
         let names: Vec<&str> = resp.providers.iter().map(|p| p.name.as_str()).collect();
         assert!(
-            names.contains(&"AtomGit-GLM-5.2"),
+            names.contains(&"RustCode-GLM-5.2"),
             "new-schema model listed"
         );
-        assert!(names.contains(&"AtomGit-Qwen"));
-        assert_eq!(resp.default_provider, "AtomGit-GLM-5.2");
+        assert!(names.contains(&"RustCode-Qwen"));
+        assert_eq!(resp.default_provider, "RustCode-GLM-5.2");
         let glm = resp
             .providers
             .iter()
-            .find(|p| p.name == "AtomGit-GLM-5.2")
+            .find(|p| p.name == "RustCode-GLM-5.2")
             .unwrap();
         assert!(glm.is_default);
-        assert!(glm.requires_login, "gateway base_url ⇒ requires login");
+        // Platform-neutral: requires_login is true only when the base_url matches
+        // an explicitly configured gateway (RUSTCODE_CODINGPLAN_LLM_BASE_URL).
+        // An unconfigured test URL is not a gateway, so requires_login is false.
+        assert!(!glm.requires_login, "non-gateway base_url ⇒ no login required");
         assert_eq!(glm.model, "GLM-5.2");
         assert!(resp
             .provider_presets
             .iter()
             .any(|preset| preset.id == "deepseek"));
-        assert!(!resp
-            .provider_presets
-            .iter()
-            .any(|preset| preset.id == "atomgit"));
-        let atomgit = resp
+        let codingplan = resp
             .provider_accounts
             .iter()
-            .find(|account| account.id == "AtomGit")
+            .find(|account| account.id == "RustCode")
             .unwrap();
-        assert_eq!(atomgit.model_ids.len(), 2);
-        assert!(atomgit.managed);
+        assert_eq!(codingplan.model_ids.len(), 2);
+        // Platform-neutral: managed is true only when the base_url matches an
+        // explicitly configured gateway. An unconfigured test URL is not managed.
+        assert!(!codingplan.managed);
     }
 
     #[test]
@@ -348,9 +349,9 @@ mod tests {
                     "base_url": "https://taotoken.net/api/v1",
                     "api_key": "account-only-secret"
                 },
-                "AtomGit": {
+                "RustCode": {
                     "provider": "openai",
-                    "base_url": "https://llm-api.atomgit.com/v1"
+                    "base_url": "https://gateway.test.example/v1"
                 }
             }
         }))
@@ -364,23 +365,28 @@ mod tests {
             .unwrap();
         assert!(taotoken.has_api_key);
         assert!(taotoken.model_ids.is_empty());
-        let atomgit = response
+        let codingplan = response
             .provider_accounts
             .iter()
-            .find(|account| account.id == "AtomGit")
+            .find(|account| account.id == "RustCode")
             .unwrap();
-        assert!(atomgit.managed);
-        assert!(atomgit.model_ids.is_empty());
+        // Platform-neutral: managed is true only when the base_url matches an
+        // explicitly configured gateway. An unconfigured test URL is not managed.
+        assert!(!codingplan.managed);
+        assert!(codingplan.model_ids.is_empty());
         let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("account-only-secret"));
     }
 
     #[test]
     fn provider_info_reports_login_dependency_from_gateway() {
+        // Platform-neutral: no URL is a gateway unless explicitly configured via
+        // RUSTCODE_CODINGPLAN_LLM_BASE_URL. In an unconfigured test process,
+        // requires_login is always false.
         assert!(
-            provider_info(
+            !provider_info(
                 "renamed",
-                &provider("https://llm-api.atomgit.com/v1"),
+                &provider("https://gateway.test.example/v1"),
                 None,
                 "renamed"
             )
@@ -388,10 +394,10 @@ mod tests {
         );
         assert!(
             !provider_info(
-                "AtomGit-looking-custom",
+                "RustCode-looking-custom",
                 &provider("https://example.test/v1"),
                 None,
-                "AtomGit-looking-custom"
+                "RustCode-looking-custom"
             )
             .requires_login
         );

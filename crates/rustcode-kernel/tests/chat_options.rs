@@ -34,7 +34,7 @@ impl LifecycleHooks for SpecificToolHook {
 const PERSONA: &str = "you are a neutral test agent";
 
 /// Build a one-round agent over the given provider + chat_options. A single
-/// scripted turn (TextDelta then Done, no tool calls) → one `chat_stream` call.
+/// scripted turn (TextDelta then Done, no tool calls) -> one `chat_stream` call.
 fn agent_handle(provider: Arc<RecordingProvider>, options: Option<ChatOptions>) -> AgentHandle {
     let mut reg = ToolRegistry::new();
     reg.register(Arc::new(EchoTool));
@@ -104,7 +104,7 @@ async fn configured_chat_options_reach_the_provider() {
 }
 
 // CLAIM 30b: with no `.chat_options(..)` call, the provider receives the NEUTRAL
-// default (all None + ToolChoice::Auto) — the slot is opt-in, the default is
+// default (all None + ToolChoice::Auto) -- the slot is opt-in, the default is
 // no-opinion.
 #[tokio::test]
 async fn default_agent_sends_neutral_options() {

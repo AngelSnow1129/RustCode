@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Reserved synthetic-message origin used when a runtime without a dedicated
 /// cold-summary lane persists a legacy cold-summary snapshot inline as a
 /// kernel [`Message`]. The daemon's legacy importer and the TUI's
-/// `cold_summaries_from_messages` both match on this exact string — it is a
+/// `cold_summaries_from_messages` both match on this exact string -- it is a
 /// stable disk/message encoding contract and **must not change**.
 pub const LEGACY_COLD_SUMMARY_ORIGIN: &str = "rustcode.legacy_cold_summary";
 
@@ -14,7 +14,7 @@ pub const LEGACY_COLD_SUMMARY_ORIGIN: &str = "rustcode.legacy_cold_summary";
 /// Written as the first bytes of a cold-summary synthetic message's `text`
 /// so consumers can strip it and recover the bare summary. **Must not change.**
 pub const LEGACY_COLD_SUMMARY_PREFIX: &str =
-    "[Earlier conversation history — compressed OLDER context, not a user instruction]\n";
+    "[Earlier conversation history -- compressed OLDER context, not a user instruction]\n";
 
 /// Stable provenance for the synthetic user message written at an authoritative
 /// user-cancel terminal. Consumers such as the coding todo reducer use this as a
@@ -31,8 +31,8 @@ pub const USER_INTERRUPTION_MARKER: &str =
 /// Extract the bare cold-summary strings from a kernel message list: the
 /// synthetic messages tagged [`LEGACY_COLD_SUMMARY_ORIGIN`], with their
 /// [`LEGACY_COLD_SUMMARY_PREFIX`] stripped. Mirrors the daemon importer's decode
-/// (`snapshot_to_core`). Lives here (next to the constants) so every consumer —
-/// the TUI, the daemon transport — shares one definition instead of open-coding
+/// (`snapshot_to_core`). Lives here (next to the constants) so every consumer --
+/// the TUI, the daemon transport -- shares one definition instead of open-coding
 /// the match. Order-preserving.
 pub fn cold_summaries_from_messages(messages: &[Message]) -> Vec<String> {
     messages
@@ -53,7 +53,7 @@ pub enum Role {
 
 /// A neutral inline image attached to a [`Message`] (user input). `data` is base64-encoded
 /// bytes; `media_type` is the MIME type (e.g. `"image/png"`). The kernel only STORES and
-/// FORWARDS it — each provider ADAPTER decides the wire shape (OpenAI `image_url` data URL
+/// FORWARDS it -- each provider ADAPTER decides the wire shape (OpenAI `image_url` data URL
 /// vs Anthropic base64 `source`). Turning an image into text for a non-vision model (VL
 /// preprocessing) is an L1/L2 concern, NEVER the kernel's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,13 +68,13 @@ pub struct ImageContent {
 /// The flat [`Message::reasoning`] string is sufficient for the OpenAI-compatible
 /// `reasoning_content` path (plain text, no signature). This richer per-unit shape
 /// exists for providers whose thinking carries an OPAQUE round-trip token that must be
-/// replayed exactly — Anthropic extended thinking (`signature`), OpenAI Responses
+/// replayed exactly -- Anthropic extended thinking (`signature`), OpenAI Responses
 /// (`encrypted_content`), Gemini (`thoughtSignature`). The kernel only STORES the
 /// mechanism (text + opaque + attribution); the ECHO policy stays in L1.
 ///
 /// INVARIANT: `opaque.is_some()` ⇒ `provider.is_some()`. An opaque token is
-/// PROVIDER-BOUND — replaying it to a different provider (or after a model swap) fails
-/// hard — so an adapter uses `provider` to echo a token back ONLY to its own backend
+/// PROVIDER-BOUND -- replaying it to a different provider (or after a model swap) fails
+/// hard -- so an adapter uses `provider` to echo a token back ONLY to its own backend
 /// and to leave another vendor's block untouched. A REDACTED thinking block carries an
 /// empty `text` with `opaque = Some(data)`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,14 +87,14 @@ pub struct ReasoningBlock {
     /// plain-text reasoning unit with no signature.
     #[serde(default)]
     pub opaque: Option<String>,
-    /// Attribution — which provider produced `opaque`. INVARIANT: `opaque.is_some()` ⇒
+    /// Attribution -- which provider produced `opaque`. INVARIANT: `opaque.is_some()` ⇒
     /// `provider.is_some()`.
     #[serde(default)]
     pub provider: Option<String>,
 }
 
 /// Kernel-native per-message execution stats, recorded at on_model_response.
-/// A SIDECAR — never part of `text` — so storing it never changes the bytes the
+/// A SIDECAR -- never part of `text` -- so storing it never changes the bytes the
 /// LLM sees (prefix-cache safety). The renderer (pre_request) chooses whether to
 /// PROJECT a summary of it into the request.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -110,7 +110,7 @@ pub struct MessageMeta {
     pub round: u32,
     /// Correlation IDs (observability): `turn_id` = which user turn produced this
     /// message; `request_id` = which LLM request (session-global, monotonic). ADDITIVE:
-    /// `#[serde(default)]` so an older snapshot (no these fields) still deserializes (→ 0).
+    /// `#[serde(default)]` so an older snapshot (no these fields) still deserializes (-> 0).
     #[serde(default)]
     pub turn_id: u64,
     #[serde(default)]
@@ -126,11 +126,11 @@ pub struct MessageMeta {
     #[serde(default)]
     pub provider_model: Option<String>,
     /// Injected session identity (mirrors `TurnCtx.session_id`) so a STORED message
-    /// carries the FULL correlation set (session → turn → round/request) on its own.
+    /// carries the FULL correlation set (session -> turn -> round/request) on its own.
     /// ADDITIVE.
     #[serde(default)]
     pub session_id: Option<String>,
-    /// How the model ENDED this response — the response's "code": `"stop"` (text done),
+    /// How the model ENDED this response -- the response's "code": `"stop"` (text done),
     /// `"tool_calls"` (wants tools), or `"length"` (truncated). Derived by the kernel
     /// from the observed stream (tool calls present / truncated flag). ADDITIVE (empty
     /// string for older snapshots).
@@ -141,8 +141,8 @@ pub struct MessageMeta {
 /// Provider-neutral message.
 ///
 /// Derives `Serialize, Deserialize` so a conversation is LOSSLESSLY persistable
-/// and resumable: every field — `role`, `text`, `tool_calls`, `tool_call_id`,
-/// `is_error`, `meta` — survives a serde round-trip. (Contrast the retired, lossy
+/// and resumable: every field -- `role`, `text`, `tool_calls`, `tool_call_id`,
+/// `is_error`, `meta` -- survives a serde round-trip. (Contrast the retired, lossy
 /// `MessageSnapshot`, which dropped `tool_calls`/`tool_call_id` and stringified
 /// `Role` via `Debug`.) `PartialEq` lets round-trip equality be asserted.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -151,18 +151,18 @@ pub struct Message {
     pub text: String,
     pub tool_calls: Vec<ToolCall>,
     pub tool_call_id: Option<String>,
-    /// True iff this is a tool RESULT that failed — carried to the provider as the
+    /// True iff this is a tool RESULT that failed -- carried to the provider as the
     /// tool_result `is_error` flag so a real adapter can tell the model the call
     /// errored. Always false for non-result messages.
     pub is_error: bool,
     /// Kernel-native execution stats (sidecar). Never implicitly rendered into
-    /// `text` — projecting to the LLM is the renderer's explicit choice.
+    /// `text` -- projecting to the LLM is the renderer's explicit choice.
     pub meta: Option<MessageMeta>,
     /// True iff this message was INJECTED BY THE KERNEL (a cold-compaction summary
     /// or a resume note) rather than produced by the real model/user. ADDITIVE:
     /// `#[serde(default)]` so a v1 snapshot (no `synthetic` field) still
-    /// deserializes (→ false). `sacred_floor` reads this to find the FIRST REAL
-    /// (non-synthetic) user message — so a synthetic resume/summary message that
+    /// deserializes (-> false). `sacred_floor` reads this to find the FIRST REAL
+    /// (non-synthetic) user message -- so a synthetic resume/summary message that
     /// precedes the real prompt is never mistaken for the sacred task anchor.
     #[serde(default)]
     pub synthetic: bool,
@@ -170,15 +170,15 @@ pub struct Message {
     /// Empty for normal user/model messages. Example: "verify_cadence".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub internal_origin: Option<String>,
-    /// The model's REASONING/THINKING output for an ASSISTANT message — `None` for
+    /// The model's REASONING/THINKING output for an ASSISTANT message -- `None` for
     /// non-assistant messages and for assistant responses from non-thinking models.
     /// A purely STORED field: thinking models (Anthropic extended thinking,
     /// DeepSeek) require the PRIOR turn's reasoning to be echoed back alongside the
     /// tool calls or the request is rejected / the prompt cache breaks. The kernel
     /// only STORES it losslessly here (so it survives serde, resume, and compaction
     /// of surviving messages); a provider adapter (L1) decides the wire echo-back
-    /// format — OUT OF SCOPE here. ADDITIVE: `#[serde(default)]` so a v1 snapshot
-    /// (no `reasoning` field) still deserializes (→ None).
+    /// format -- OUT OF SCOPE here. ADDITIVE: `#[serde(default)]` so a v1 snapshot
+    /// (no `reasoning` field) still deserializes (-> None).
     ///
     /// FUTURE: when an L1 adapter for thinking-block providers (Anthropic extended
     /// thinking / OpenAI Responses / Gemini) actually PRODUCES opaque tokens, upgrade
@@ -207,24 +207,24 @@ pub struct Message {
     /// Add it the same additive way (`#[serde(default)]`) so old snapshots still load.
     /// The ECHO policy (when/whether/to-whom) stays in L1; the kernel only stores the
     /// mechanism (lossless text + opaque + attribution). The CURRENT GLM/DeepSeek
-    /// OpenAI-compatible path needs NONE of this — its reasoning is plain text with no
+    /// OpenAI-compatible path needs NONE of this -- its reasoning is plain text with no
     /// signature, fully served by the flat `reasoning` below.
     #[serde(default)]
     pub reasoning: Option<String>,
     /// Inline images attached to this message (multimodal user input). ADDITIVE:
-    /// `#[serde(default)]` so an older snapshot (no `images`) still deserializes (→
-    /// empty). Empty for every non-image message — so a text-only path keeps rendering
+    /// `#[serde(default)]` so an older snapshot (no `images`) still deserializes (->
+    /// empty). Empty for every non-image message -- so a text-only path keeps rendering
     /// `content` as a STRING unchanged (prefix-cache safety); only a NON-empty `images`
     /// makes an adapter switch to the array `content` shape. See [`ImageContent`].
     #[serde(default)]
     pub images: Vec<ImageContent>,
-    /// SIGNED/OPAQUE reasoning units for an ASSISTANT message, in stream order — the
+    /// SIGNED/OPAQUE reasoning units for an ASSISTANT message, in stream order -- the
     /// rich twin of the flat [`Message::reasoning`]. Empty for every message the
     /// OpenAI-compatible path produces (its reasoning is plain text in `reasoning`);
     /// an Anthropic-style adapter populates it (one entry per thinking / redacted
     /// block) so it can replay the signed blocks VERBATIM on the next request. The
     /// kernel only STORES them; the echo policy is the L1 adapter's. ADDITIVE:
-    /// `#[serde(default)]` so a snapshot without this field still deserializes (→
+    /// `#[serde(default)]` so a snapshot without this field still deserializes (->
     /// empty). See [`ReasoningBlock`].
     #[serde(default)]
     pub reasoning_blocks: Vec<ReasoningBlock>,
@@ -295,7 +295,7 @@ impl Message {
         }
     }
     /// A tool RESULT. `is_error` is now STORED (a real adapter must echo it to the
-    /// provider) — it was previously dropped, losing tool failure state.
+    /// provider) -- it was previously dropped, losing tool failure state.
     pub fn tool_result(
         call_id: impl Into<String>,
         content: impl Into<String>,
@@ -320,7 +320,7 @@ impl Message {
     /// locating the first REAL user prompt. The `Role::User` choice (not System)
     /// is deliberate: a System-role injection would risk being folded into the
     /// frozen system prefix by a downstream consecutive-system merger and rewrite
-    /// the whole cached prefix — see `ctx/render.rs` in production. Inserted
+    /// the whole cached prefix -- see `ctx/render.rs` in production. Inserted
     /// after the system message, it preserves the frozen system prefix.
     pub fn synthetic_user(text: impl Into<String>) -> Self {
         Self {
@@ -354,7 +354,7 @@ impl Message {
             reasoning_blocks: vec![],
         }
     }
-    /// A KERNEL-INJECTED `Role::User` message carrying `images` — used by the agent
+    /// A KERNEL-INJECTED `Role::User` message carrying `images` -- used by the agent
     /// loop to surface images a TOOL produced (e.g. `read_file` on a picture) to the
     /// model, since a provider only serializes images on a user message, never a tool
     /// message. `synthetic = true` so `sacred_floor` skips it when locating the real
@@ -375,12 +375,12 @@ impl Message {
         }
     }
 
-    /// Approximate token count for this message — a byte heuristic (~4 bytes/token;
+    /// Approximate token count for this message -- a byte heuristic (~4 bytes/token;
     /// images ≈ 1600 tokens each). Used ONLY as a FALLBACK for context-pressure when
     /// the provider omits a usage report (e.g. a gateway that returns an empty 200, or
     /// drops the usage chunk emitted after `finish_reason`). The EXACT prompt total
-    /// always comes from the provider's usage when present; this keeps utilization —
-    /// and thus auto-compaction — tracking when it is absent (without it, a non-
+    /// always comes from the provider's usage when present; this keeps utilization --
+    /// and thus auto-compaction -- tracking when it is absent (without it, a non-
     /// reporting provider records utilization 0.0 forever and never compacts).
     /// Mirrors the legacy estimate heuristic (see `rustcode-coding`'s telemetry copy).
     pub fn estimate_tokens(&self) -> u32 {
@@ -409,11 +409,11 @@ pub struct Conversation {
     pub messages: Vec<Message>,
     /// The PREFIX-GENERATION marker (a SIDECAR, NEVER serialized into message text
     /// and NEVER sent to the LLM). It records "the stored prefix bytes changed
-    /// here — a new cache epoch began", i.e. the one point where the append-only
+    /// here -- a new cache epoch began", i.e. the one point where the append-only
     /// prefix relation is allowed to break. Today ONLY a COMMITTED compaction bumps
     /// it (see `apply_plan`); when future system/tool mutation seams land, those
     /// would bump it too (out of scope now). A new `Conversation` starts at epoch
-    /// 0. ADDITIVE: `#[serde(default)]` so a v1 snapshot still deserializes (→ 0).
+    /// 0. ADDITIVE: `#[serde(default)]` so a v1 snapshot still deserializes (-> 0).
     #[serde(default)]
     pub cache_epoch: u64,
 }
@@ -433,7 +433,7 @@ impl Conversation {
     ///
     /// Carried faithfully from production
     /// (`conversation::Conversation::backfill_cancelled_tool_results`). It is
-    /// APPEND-ONLY — existing messages are never mutated or reordered — so it
+    /// APPEND-ONLY -- existing messages are never mutated or reordered -- so it
     /// preserves the prefix-cache invariant guarded by `tests/cache_prefix.rs`.
     pub fn backfill_cancelled_tool_results(&mut self) {
         self.backfill_missing_tool_results("(cancelled)");
@@ -478,12 +478,12 @@ impl Conversation {
     /// Make a message vec API-VALID in place: every assistant `tool_call` is
     /// paired with EXACTLY ONE following `tool_result`, and no `tool_result` is an
     /// ORPHAN (a `Role::Tool` message whose `tool_call_id` matches no assistant
-    /// `tool_call`). The kernel — not a strategy — owns this invariant, so a buggy
+    /// `tool_call`). The kernel -- not a strategy -- owns this invariant, so a buggy
     /// strategy (or an externally-supplied/legacy snapshot) can never hand the
     /// provider an illegal "messages" payload.
     ///
     /// This is a strict SUPERSET of `backfill_cancelled_tool_results`: it both
-    /// (a) DROPS orphan results AND (b) backfills danglings — and, crucially, it
+    /// (a) DROPS orphan results AND (b) backfills danglings -- and, crucially, it
     /// inserts each missing result IMMEDIATELY AFTER its assistant message
     /// (preserving the result-follows-call ordering), not appended at the end. (The
     /// append-only cancel path keeps using `backfill_cancelled_tool_results`, whose
@@ -547,7 +547,7 @@ impl Conversation {
     ///
     /// Returns an INDEX `floor` such that `messages[..floor]` is the protected
     /// prefix. A synthetic user message that precedes the first real user is NOT
-    /// the anchor — only the real prompt anchors the floor. (Carried from
+    /// the anchor -- only the real prompt anchors the floor. (Carried from
     /// production `apply_compression`'s sacred carve-out, mapped to this flat Vec.)
     pub fn sacred_floor(&self) -> usize {
         // A leading System message is part of the protected prefix.
@@ -569,7 +569,7 @@ impl Conversation {
     }
 
     /// `(context_window, used_tokens, utilization)` from the MOST RECENT assistant
-    /// message's recorded `meta` — the provider's last usage report. `(0, 0, 0.0)` when no
+    /// message's recorded `meta` -- the provider's last usage report. `(0, 0, 0.0)` when no
     /// assistant turn has been recorded yet (e.g. the first request). The same source the
     /// compaction trigger reads; exposed so a `pre_request` hook can project live context
     /// pressure to the model (e.g. a status reminder) via [`TurnCtx`](crate::hook::TurnCtx).
@@ -584,7 +584,7 @@ impl Conversation {
     }
 
     /// Prepare a compaction [`CompactionPlan`] without changing this conversation.
-    /// (besides `backfill_cancelled_tool_results`). The kernel — not the strategy —
+    /// (besides `backfill_cancelled_tool_results`). The kernel -- not the strategy --
     /// owns and enforces every invariant here, so a buggy strategy cannot corrupt
     /// the conversation:
     ///
@@ -598,17 +598,17 @@ impl Conversation {
     ///    (drain the range; if `summary` is `Some`, insert ONE
     ///    `Message::synthetic_user(summary)` at `drain_from`; apply rewrites;
     ///    append `resume_note` as a trailing `synthetic_user`), then measure a
-    ///    DETERMINISTIC size proxy — per message the bytes that ride the wire
+    ///    DETERMINISTIC size proxy -- per message the bytes that ride the wire
     ///    (`text` + `reasoning` + each `tool_call`'s id/name/arguments + `tool_call_id`),
-    ///    summed over all messages — BEFORE vs AFTER. COMMIT only if AFTER is STRICTLY
+    ///    summed over all messages -- BEFORE vs AFTER. COMMIT only if AFTER is STRICTLY
     ///    smaller than BEFORE. Counting tool-call bytes (not just `text`) is load-bearing:
     ///    a text-light but TOOL-CALL-heavy message (large JSON `arguments`) must register
     ///    as a reduction when dropped, else the strictly-smaller guard would REFUSE a
     ///    genuinely shrinking compaction and a tool-heavy history could never compact.
     /// 3. On a viable candidate: prepare replacement `messages` and bump its
-    ///    `cache_epoch += 1` EXACTLY ONCE (decide commit FIRST, bump only after —
+    ///    `cache_epoch += 1` EXACTLY ONCE (decide commit FIRST, bump only after --
     ///    never bump-then-rollback). On REFUSE (not strictly smaller, or noop):
-    ///    leave `messages` BYTE-IDENTICAL and do NOT bump `cache_epoch` — a
+    ///    leave `messages` BYTE-IDENTICAL and do NOT bump `cache_epoch` -- a
     ///    refused/no-op compaction never burns a cache epoch.
     ///
     /// This is the append-aware cache contract: a COMMITTED compaction is the ONLY
@@ -619,7 +619,7 @@ impl Conversation {
         plan: CompactionPlan,
         sacred_floor: usize,
     ) -> PreparedCompaction {
-        // Deterministic size proxy: the bytes that ride the wire for a message — NOT just
+        // Deterministic size proxy: the bytes that ride the wire for a message -- NOT just
         // `text`. Dropping a text-light, TOOL-CALL-heavy message (big JSON arguments) must
         // count as a reduction, else the strictly-smaller net-loss guard below would
         // REFUSE a genuinely shrinking plan and tool-heavy histories could never compact.
@@ -642,14 +642,14 @@ impl Conversation {
         let floor = sacred_floor.min(len_before);
         let drain_from = plan.drain_from.max(floor).min(len_before);
         let drain_to = plan.drain_to.min(len_before);
-        // Inverted/empty range → drain nothing.
+        // Inverted/empty range -> drain nothing.
         let (drain_from, drain_to) = if drain_from >= drain_to {
             (drain_from, drain_from)
         } else {
             (drain_from, drain_to)
         };
 
-        // 2. Build the candidate (compute-then-commit — never mutate self yet).
+        // 2. Build the candidate (compute-then-commit -- never mutate self yet).
         let mut candidate: Vec<Message> = Vec::with_capacity(len_before + 2);
         candidate.extend_from_slice(&self.messages[..drain_from]);
         if let Some(summary) = &plan.summary {
@@ -659,15 +659,15 @@ impl Conversation {
         // Apply rewrites. `rewrites` indices are ORIGINAL `self.messages` indices
         // (the same space as drain_from/drain_to), so each must be TRANSLATED into
         // the candidate Vec before applying. Three guards, in order:
-        //   * `orig_i < floor` (PROTECTED PREFIX) → SKIP. The prefix
+        //   * `orig_i < floor` (PROTECTED PREFIX) -> SKIP. The prefix
         //     `candidate[..floor]` equals `messages[..floor]` (drain_from >= floor),
         //     so a `< floor` rewrite would mutate the FROZEN system/first-real-user
-        //     prefix — the sacred-floor guarantee must hold for rewrites as for drains.
-        //   * `orig_i` inside the drained range `[drain_from, drain_to)` → SKIP. That
+        //     prefix -- the sacred-floor guarantee must hold for rewrites as for drains.
+        //   * `orig_i` inside the drained range `[drain_from, drain_to)` -> SKIP. That
         //     message was removed by the drain; there is nothing to rewrite.
         //   * otherwise TRANSLATE to the candidate index:
-        //       - `orig_i < drain_from` → unchanged (it precedes the drain).
-        //       - `orig_i >= drain_to`  → `drain_from + summary_shift + (orig_i - drain_to)`,
+        //       - `orig_i < drain_from` -> unchanged (it precedes the drain).
+        //       - `orig_i >= drain_to`  -> `drain_from + summary_shift + (orig_i - drain_to)`,
         //         where `summary_shift` is 1 iff a summary was inserted at drain_from.
         // An out-of-range translated index is skipped (never panic).
         let summary_shift = usize::from(plan.summary.is_some());
@@ -677,7 +677,7 @@ impl Conversation {
                 continue; // sacred prefix
             }
             if orig_i >= drain_from && orig_i < drain_to {
-                continue; // drained away — no surviving message
+                continue; // drained away -- no surviving message
             }
             let cand_i = if orig_i < drain_from {
                 orig_i
@@ -798,7 +798,7 @@ impl PreparedCompaction {
     }
 }
 
-/// The outcome of [`Conversation::apply_plan`] — a precise audit record of a
+/// The outcome of [`Conversation::apply_plan`] -- a precise audit record of a
 /// compaction attempt. `committed == false` means the plan was REFUSED (net-loss
 /// guard or noop): `messages` are byte-identical and `epoch_before == epoch_after`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -820,7 +820,7 @@ pub enum CompactTrigger {
     Manual { focus: Option<String> },
     /// Hard context-window OVERFLOW recovery (OFF the normal path): the provider rejected
     /// the request as too long. `attempt` (0-based) drives the strategy's escalation
-    /// ladder; the kernel increments it per retry. NEVER fired by pressure — only by a
+    /// ladder; the kernel increments it per retry. NEVER fired by pressure -- only by a
     /// typed overflow error from `chat_stream`.
     Overflow { attempt: u8 },
 }
@@ -844,10 +844,10 @@ pub struct CompactionView<'a> {
 /// in [`Conversation::apply_plan`] (clamping, net-loss guard, epoch bump), so a
 /// malformed plan can never corrupt invariants.
 ///
-/// Semantics: replace messages in range `[drain_from, drain_to)` with — if
-/// `summary` is `Some` — ONE synthetic `Role::User` summary message inserted at
+/// Semantics: replace messages in range `[drain_from, drain_to)` with -- if
+/// `summary` is `Some` -- ONE synthetic `Role::User` summary message inserted at
 /// `drain_from`; apply `rewrites` as in-place `messages[i].text = new` (for
-/// stubbing a tool_result in place — a permanent microcompact); append
+/// stubbing a tool_result in place -- a permanent microcompact); append
 /// `resume_note` (if `Some`) as a trailing synthetic `Role::User` message. A NOOP
 /// plan is an empty drain range + no summary + no rewrites + no resume_note.
 ///
@@ -895,20 +895,20 @@ impl CompactionPlan {
 /// An implementation **MUST NOT panic**. The kernel does **NOT** isolate panics:
 /// under the workspace `panic = "abort"` profile a panic ABORTS THE HOST PROCESS
 /// (and `catch_unwind` is a no-op there), and under an unwind profile a panicking
-/// strategy is not currently caught either — so a panicking `plan` takes down the
+/// strategy is not currently caught either -- so a panicking `plan` takes down the
 /// whole session / process. Treat all injected code as must-not-panic (the SAME
-/// trust posture as the tool-sandbox contract — see [`crate::tool`]): to decline a
+/// trust posture as the tool-sandbox contract -- see [`crate::tool`]): to decline a
 /// compaction, return `CompactionPlan::noop()`; never panic.
 #[async_trait]
 pub trait CompactionStrategy: Send + Sync {
     async fn plan(&self, view: &CompactionView<'_>) -> CompactionPlan;
 
     /// CHEAP, side-effect-free pre-check (NO LLM call): will `plan(view)` perform
-    /// SLOW, user-visible work — i.e. drain old turns into an LLM summary — rather
+    /// SLOW, user-visible work -- i.e. drain old turns into an LLM summary -- rather
     /// than merely no-op or do a fast in-place stub? The kernel calls this to decide
-    /// whether to emit [`AgentEvent::CompactionStarted`] (the "compacting…" progress
+    /// whether to emit [`AgentEvent::CompactionStarted`] (the "compacting..." progress
     /// line), so a manual `/compact` that turns out to be a no-op never shows a
-    /// spurious "compacting…" line ahead of "nothing to compact". Default `false`
+    /// spurious "compacting..." line ahead of "nothing to compact". Default `false`
     /// (e.g. [`NoCompaction`] and pure-stub policies never summarize).
     fn will_summarize(&self, _view: &CompactionView<'_>) -> bool {
         false
@@ -932,13 +932,13 @@ impl CompactionStrategy for NoCompaction {
 /// misread by another.
 pub const SNAPSHOT_VERSION: u32 = 1;
 
-/// A versioned, LOSSLESS, resumable conversation snapshot — the durable contract
+/// A versioned, LOSSLESS, resumable conversation snapshot -- the durable contract
 /// for persisting and resuming a session.
 ///
 /// `version` is the FORWARD-COMPAT SEAM: a resumer compares it against
 /// `SNAPSHOT_VERSION` and only interprets `messages` if it can. Carrying the full
 /// `Vec<Message>` (not a lossy summary) means `tool_calls`, `tool_call_id`, and
-/// `meta` all survive — so a resumed session continues append-only and the
+/// `meta` all survive -- so a resumed session continues append-only and the
 /// provider's prefix cache stays warm across the resume boundary.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SessionSnapshot {
@@ -946,16 +946,16 @@ pub struct SessionSnapshot {
     pub messages: Vec<Message>,
     /// The conversation's PREFIX-GENERATION marker, persisted so a resumed session
     /// preserves which cache epoch it was on. ADDITIVE: `#[serde(default)]` keeps a
-    /// v1 snapshot (no `cache_epoch` field) loadable (→ 0). `new(messages)`
+    /// v1 snapshot (no `cache_epoch` field) loadable (-> 0). `new(messages)`
     /// defaults it to 0; `from_conversation` copies the live value.
     #[serde(default)]
     pub cache_epoch: u64,
     /// ID HIGH-WATER MARKS: how many `turn_id`s / `request_id`s the session had
     /// minted when this snapshot was taken. A resume seeds the kernel's counters
     /// from these so a resumed session CONTINUES the monotonic id sequence instead
-    /// of restarting at 1 — without this, an append-only per-session transcript
+    /// of restarting at 1 -- without this, an append-only per-session transcript
     /// keyed by `(session_id, turn_id)` collects duplicate keys after the first
-    /// resume. ADDITIVE (`#[serde(default)]` → 0); the resume path additionally
+    /// resume. ADDITIVE (`#[serde(default)]` -> 0); the resume path additionally
     /// falls back to the max `meta.turn_id`/`meta.request_id` over `messages`, so
     /// even an OLD snapshot without these fields resumes monotonically.
     #[serde(default)]
@@ -979,7 +979,7 @@ impl SessionSnapshot {
     }
     /// Snapshot a live conversation losslessly at the current version, carrying its
     /// `cache_epoch` so a resume restores the same prefix generation. The id
-    /// high-water marks are DERIVED from the stored metas — exact whenever every
+    /// high-water marks are DERIVED from the stored metas -- exact whenever every
     /// turn stored at least one assistant message; a capturer that knows the live
     /// counters (e.g. a `turn_complete` hook holding `TurnCtx`) may bump them
     /// higher for turns that died before any response was stored.
@@ -1015,7 +1015,7 @@ mod tests {
         assert_eq!(
             c.last_pressure(),
             (0, 0, 0.0),
-            "no assistant meta yet → zeros"
+            "no assistant meta yet -> zeros"
         );
         let mut a = Message::assistant("ans", vec![]);
         a.meta = Some(MessageMeta {
@@ -1071,7 +1071,7 @@ mod tests {
 
     #[test]
     fn message_serde_is_additive_for_images() {
-        // An OLD snapshot message (no `images` field) must still deserialize → empty.
+        // An OLD snapshot message (no `images` field) must still deserialize -> empty.
         let old = r#"{"role":"User","text":"hi","tool_calls":[],"tool_call_id":null,"is_error":false,"meta":null}"#;
         let m: Message = serde_json::from_str(old).unwrap();
         assert!(
@@ -1099,7 +1099,7 @@ mod tests {
                 .is_empty(),
             "a plain assistant message carries no reasoning_blocks"
         );
-        // An OLD snapshot (no `reasoning_blocks` field) must still deserialize → empty.
+        // An OLD snapshot (no `reasoning_blocks` field) must still deserialize -> empty.
         let old = r#"{"role":"Assistant","text":"ans","tool_calls":[],"tool_call_id":null,"is_error":false,"meta":null}"#;
         let m: Message = serde_json::from_str(old).unwrap();
         assert!(
@@ -1126,7 +1126,7 @@ mod tests {
     }
 
     // Mirrors production `cancel_backfills_missing_tool_results`: an assistant
-    // message carrying 2 tool_calls and NO results → after backfill there are 2
+    // message carrying 2 tool_calls and NO results -> after backfill there are 2
     // tool-result messages, each "(cancelled)" / is_error=true, matching the
     // two call_ids; and existing messages are untouched (append-only).
     #[test]
@@ -1187,7 +1187,7 @@ mod tests {
 
     // Mirrors production
     // `cancel_preserves_completed_tool_pairs_and_backfills_incomplete`: an
-    // assistant with 2 tool_calls where ONE already has a real result → backfill
+    // assistant with 2 tool_calls where ONE already has a real result -> backfill
     // adds EXACTLY ONE "(cancelled)" result for the missing one; the real result
     // is untouched; no duplicates.
     #[test]
@@ -1251,8 +1251,8 @@ mod tests {
         );
     }
 
-    // A full Conversation — system + user + assistant-with-tool_calls + tool_result
-    // (with tool_call_id/is_error) + a message carrying `meta` — survives a
+    // A full Conversation -- system + user + assistant-with-tool_calls + tool_result
+    // (with tool_call_id/is_error) + a message carrying `meta` -- survives a
     // serde_json round-trip BYTE-FOR-FIELD identically (PartialEq). This is the
     // losslessness contract the OLD `MessageSnapshot` violated: it dropped
     // `tool_calls` and `tool_call_id` and stringified `Role` via Debug.
@@ -1281,7 +1281,7 @@ mod tests {
         c.push(Message::tool_result("call_1", "boom", true));
         // a message carrying a non-default `meta` sidecar AND stored `reasoning`
         // (a thinking model's prior-turn thinking, which a provider adapter echoes
-        // back next turn — the kernel stores it losslessly here).
+        // back next turn -- the kernel stores it losslessly here).
         let mut with_meta = Message::assistant("done", vec![]);
         with_meta.meta = Some(MessageMeta {
             tokens: TokenUsage {
@@ -1302,7 +1302,7 @@ mod tests {
             session_id: Some("sess-1".into()),
             finish_reason: "stop".into(),
         });
-        with_meta.reasoning = Some("thinking…".to_string());
+        with_meta.reasoning = Some("thinking...".to_string());
         c.push(with_meta);
 
         let json = serde_json::to_string(&c).expect("Conversation must serialize");
@@ -1350,7 +1350,7 @@ mod tests {
         // `Message.reasoning` existed.
         assert_eq!(
             back.messages[4].reasoning.as_deref(),
-            Some("thinking…"),
+            Some("thinking..."),
             "stored reasoning must survive the round-trip"
         );
         // A non-thinking / non-assistant message has no reasoning.
@@ -1365,11 +1365,11 @@ mod tests {
     }
 
     // ADDITIVE serde-default: a v1-style assistant message JSON WITHOUT a
-    // `reasoning` field still deserializes (serde default → None), so an older
+    // `reasoning` field still deserializes (serde default -> None), so an older
     // snapshot written before `Message.reasoning` existed is still readable.
     #[test]
     fn message_without_reasoning_field_defaults_to_none() {
-        // No "reasoning" key — exactly what a v1 kernel wrote.
+        // No "reasoning" key -- exactly what a v1 kernel wrote.
         let v1 = r#"{"role":"Assistant","text":"answer","tool_calls":[],"tool_call_id":null,"is_error":false,"meta":null,"synthetic":false}"#;
         let m: Message =
             serde_json::from_str(v1).expect("v1 message (no reasoning) must deserialize");
@@ -1402,8 +1402,8 @@ mod tests {
         assert_eq!(back.internal_origin.as_deref(), Some("verify_cadence"));
     }
 
-    // `Role` serializes to its STABLE variant tag — the derived enum name is the
-    // wire contract now (NOT a `{:?}` Debug artifact) — and round-trips.
+    // `Role` serializes to its STABLE variant tag -- the derived enum name is the
+    // wire contract now (NOT a `{:?}` Debug artifact) -- and round-trips.
     #[test]
     fn role_serializes_to_stable_tag() {
         assert_eq!(
@@ -1450,12 +1450,12 @@ mod tests {
 
     // sacred_floor protects a leading System message PLUS up to and including the
     // FIRST NON-SYNTHETIC user message. A synthetic user message that precedes the
-    // first real user is NOT the anchor — only the real prompt anchors the floor.
+    // first real user is NOT the anchor -- only the real prompt anchors the floor.
     #[test]
     fn sacred_floor_protects_system_and_first_real_user() {
         let mut c = Conversation::new();
         c.push(Message::system("persona"));
-        c.push(Message::user("task")); // first REAL user message → index 1
+        c.push(Message::user("task")); // first REAL user message -> index 1
         c.push(Message::assistant("ok", vec![]));
         c.push(Message::user("more"));
         // floor = system(1) + through first real user(idx 1) = count 2.
@@ -1465,9 +1465,9 @@ mod tests {
         let mut c2 = Conversation::new();
         c2.push(Message::system("persona"));
         c2.push(Message::synthetic_user("[resume note]")); // synthetic, NOT anchor
-        c2.push(Message::user("real task")); // first REAL user → index 2
+        c2.push(Message::user("real task")); // first REAL user -> index 2
         c2.push(Message::assistant("ok", vec![]));
-        // floor must extend through the first REAL user (index 2) → count 3.
+        // floor must extend through the first REAL user (index 2) -> count 3.
         assert_eq!(c2.sacred_floor(), 3);
 
         // No system, real user first.
@@ -1493,7 +1493,7 @@ mod tests {
         let sys_before = c.messages[0].clone();
         let epoch_before = c.cache_epoch;
 
-        // Drain [2,5): the three middle messages → replace with a short summary.
+        // Drain [2,5): the three middle messages -> replace with a short summary.
         let plan = CompactionPlan {
             drain_from: 2,
             drain_to: 5,
@@ -1507,7 +1507,7 @@ mod tests {
         assert_eq!(c.cache_epoch, epoch_before + 1, "epoch bumps by exactly 1");
         assert_eq!(report.epoch_before, epoch_before);
         assert_eq!(report.epoch_after, epoch_before + 1);
-        // Was 6 messages; drained 3, inserted 1 summary → 4.
+        // Was 6 messages; drained 3, inserted 1 summary -> 4.
         assert_eq!(c.messages.len(), 4);
         // system unchanged byte-for-byte.
         assert_eq!(c.messages[0], sys_before);
@@ -1534,19 +1534,19 @@ mod tests {
         c.push(Message::system("sys"));
         c.push(Message::user("task"));
         c.push(Message::assistant(
-            "", // text-light…
+            "", // text-light...
             vec![crate::tool::ToolCall {
                 id: "c1".into(),
                 name: "t".into(),
                 arguments: big_args,
-            }], // …tool-call-heavy
+            }], // ...tool-call-heavy
         ));
         c.push(Message::tool_result("c1", "ok", false));
         c.push(Message::user("next"));
         let floor = c.sacred_floor(); // 2 (system + first user)
 
         // Drain the tool-heavy assistant+result pair [2,4), replace with a 100-char
-        // summary. Text-only proxy: ~0 drained text vs +100 summary → would REFUSE.
+        // summary. Text-only proxy: ~0 drained text vs +100 summary -> would REFUSE.
         // Counting the ~500-byte tool arguments makes it a clear net reduction.
         let plan = CompactionPlan {
             drain_from: 2,
@@ -1565,7 +1565,7 @@ mod tests {
     }
 
     // A plan whose result is NOT smaller (summary longer than what it replaces, or
-    // noop) → messages byte-identical AND cache_epoch UNCHANGED AND committed=false.
+    // noop) -> messages byte-identical AND cache_epoch UNCHANGED AND committed=false.
     #[test]
     fn apply_plan_refuses_net_loss_and_does_not_bump_epoch() {
         let mut c = Conversation::new();
@@ -1577,7 +1577,7 @@ mod tests {
         let before = c.messages.clone();
         let epoch_before = c.cache_epoch;
 
-        // Summary far longer than the 1-byte "x" it replaces → NOT net smaller.
+        // Summary far longer than the 1-byte "x" it replaces -> NOT net smaller.
         let plan = CompactionPlan {
             drain_from: 2,
             drain_to: 3,
@@ -1597,7 +1597,7 @@ mod tests {
         assert_eq!(c.cache_epoch, epoch_before, "noop never bumps epoch");
     }
 
-    // A plan with drain_from=0 (trying to remove system/first-user) → clamped to
+    // A plan with drain_from=0 (trying to remove system/first-user) -> clamped to
     // sacred_floor; the protected prefix survives byte-identical.
     #[test]
     fn apply_plan_never_drains_below_sacred_floor() {
@@ -1611,7 +1611,7 @@ mod tests {
         let sys = c.messages[0].clone();
         let task = c.messages[1].clone();
 
-        // Try to drain from 0 across the whole prefix — must be clamped to floor.
+        // Try to drain from 0 across the whole prefix -- must be clamped to floor.
         let plan = CompactionPlan {
             drain_from: 0,
             drain_to: 4,
@@ -1630,7 +1630,7 @@ mod tests {
         assert_eq!(c.messages[2].text, "s");
     }
 
-    // A rewrite of a tool_result's text → that message's text changes, others
+    // A rewrite of a tool_result's text -> that message's text changes, others
     // untouched, epoch bumps iff net smaller. (Fixture is API-valid: the assistant
     // carries the `c1` tool_call that the tool_result pairs with, so the kernel's
     // pair-validity repair is a no-op here and the in-place rewrite is what's tested.)
@@ -1672,7 +1672,7 @@ mod tests {
         assert_eq!(c.messages.len(), 5, "rewrite does not change count");
 
         // An out-of-range rewrite index is skipped (never panics) and, alone, is a
-        // no-op → refuse.
+        // no-op -> refuse.
         let mut c2 = c.clone();
         let epoch2 = c2.cache_epoch;
         let report2 = c2.apply_plan(
@@ -1693,7 +1693,7 @@ mod tests {
     }
 
     // Snapshot serde round-trip preserves cache_epoch and synthetic; and a v1-style
-    // JSON WITHOUT those fields still deserializes via serde default → epoch 0,
+    // JSON WITHOUT those fields still deserializes via serde default -> epoch 0,
     // synthetic false.
     #[test]
     fn snapshot_round_trips_cache_epoch_and_synthetic() {
@@ -1712,7 +1712,7 @@ mod tests {
         assert!(!back.messages[0].synthetic);
 
         // A v1-style JSON with NO cache_epoch / synthetic fields still loads
-        // (serde default → epoch 0, synthetic false).
+        // (serde default -> epoch 0, synthetic false).
         let v1 = r#"{"version":1,"messages":[{"role":"User","text":"hi","tool_calls":[],"tool_call_id":null,"is_error":false,"meta":null}]}"#;
         let loaded: SessionSnapshot =
             serde_json::from_str(v1).expect("v1 snapshot must still deserialize");
@@ -1727,14 +1727,14 @@ mod tests {
         assert_eq!(snap2.cache_epoch, 0);
     }
 
-    // ── BLOCKER 1 — pair-validity (orphan scrub + dangling repair) ───────────
+    // ── BLOCKER 1 -- pair-validity (orphan scrub + dangling repair) ───────────
 
     /// Returns Err(reason) if `msgs` is NOT API-pair-valid: every assistant
     /// `tool_call.id` must have exactly one following `tool_result` carrying that
     /// `tool_call_id`, and every `tool_result`'s `tool_call_id` must have a
     /// PRECEDING assistant `tool_call`.
     fn check_pair_valid(msgs: &[Message]) -> Result<(), String> {
-        // Every assistant tool_call → exactly one FOLLOWING result with that id.
+        // Every assistant tool_call -> exactly one FOLLOWING result with that id.
         for (i, m) in msgs.iter().enumerate() {
             if m.role == Role::Assistant {
                 for tc in &m.tool_calls {
@@ -1751,7 +1751,7 @@ mod tests {
                 }
             }
         }
-        // Every tool_result → a PRECEDING assistant tool_call with that id.
+        // Every tool_result -> a PRECEDING assistant tool_call with that id.
         for (i, m) in msgs.iter().enumerate() {
             if m.role == Role::Tool {
                 let id = m.tool_call_id.as_deref().unwrap_or("");
@@ -1769,7 +1769,7 @@ mod tests {
     }
 
     // A history with interleaved tool_call/tool_result pairs: for EVERY keep_recent,
-    // SummarizeOldest's plan applied via apply_plan must leave PAIR-VALID messages —
+    // SummarizeOldest's plan applied via apply_plan must leave PAIR-VALID messages --
     // no orphan tool_result (pair split by the drain) and no dangling tool_call.
     // (This is the probe the reviewer used against the real bug, made permanent.)
     #[tokio::test]
@@ -1848,7 +1848,7 @@ mod tests {
     }
 
     // repair_pairing is a NO-OP on an already-valid history (the orphan scrub /
-    // dangling repair must not perturb well-formed pairs — claim 22/23 safety).
+    // dangling repair must not perturb well-formed pairs -- claim 22/23 safety).
     #[test]
     fn repair_pairing_is_noop_on_valid_history() {
         let valid = vec![
@@ -1896,7 +1896,7 @@ mod tests {
         );
     }
 
-    // ── BLOCKER 2 — rewrites respect the sacred floor ────────────────────────
+    // ── BLOCKER 2 -- rewrites respect the sacred floor ────────────────────────
 
     // A rewrite targeting an index in the protected prefix (system idx 0 and the
     // first real user idx 1) is IGNORED; an in-range rewrite still applies.
@@ -1916,7 +1916,7 @@ mod tests {
         let epoch_before = c.cache_epoch;
 
         // Rewrites at idx 0 (system) and idx 1 (first real user) MUST be ignored;
-        // the in-range rewrite at idx 2 (shrinking the middle) applies → commit.
+        // the in-range rewrite at idx 2 (shrinking the middle) applies -> commit.
         let plan = CompactionPlan {
             drain_from: 0,
             drain_to: 0,
@@ -1944,7 +1944,7 @@ mod tests {
         assert_eq!(c.messages[2].text, "short");
     }
 
-    // ── BUG 1 — rewrite-index space combines drain + summary + rewrite ───────
+    // ── BUG 1 -- rewrite-index space combines drain + summary + rewrite ───────
 
     // The load-bearing combining case: a plan that DRAINS a middle range, inserts a
     // SUMMARY, AND rewrites a message ORIGINALLY AFTER drain_to. Rewrite indices are
@@ -1958,7 +1958,7 @@ mod tests {
     fn apply_plan_rewrite_index_translates_with_drain_and_summary() {
         let mut c = Conversation::new();
         c.push(Message::system("SYS-FROZEN")); // 0 sacred
-        c.push(Message::user("THE-TASK")); // 1 sacred (first real user) → floor 2
+        c.push(Message::user("THE-TASK")); // 1 sacred (first real user) -> floor 2
                                            // Drained pair (idx 2,3): assistant call c1 + its result, both inside [2,4).
         c.push(Message::assistant(
             "drain me A long enough",
@@ -1984,9 +1984,9 @@ mod tests {
         let epoch_before = c.cache_epoch;
 
         // Drain [2,4); insert a summary at floor; rewrites in ORIGINAL index space:
-        //   (5, …)        → surviving tool result AFTER drain_to → must apply, translated.
-        //   (3, "SKIPPED")→ inside the drained range → must be skipped.
-        //   (0, "HACKED") → sacred prefix → must be skipped.
+        //   (5, ...)        -> surviving tool result AFTER drain_to -> must apply, translated.
+        //   (3, "SKIPPED")-> inside the drained range -> must be skipped.
+        //   (0, "HACKED") -> sacred prefix -> must be skipped.
         let plan = CompactionPlan {
             drain_from: 2,
             drain_to: 4,
@@ -2019,12 +2019,12 @@ mod tests {
         assert_eq!(c.messages[1], task_before, "task byte-identical");
         // Summary inserted at the floor.
         assert!(c.messages[2].synthetic && c.messages[2].text == "s");
-        // SURVIVOR (orig 4) is unchanged — it was NOT the rewrite target.
+        // SURVIVOR (orig 4) is unchanged -- it was NOT the rewrite target.
         assert_eq!(
             c.messages[3], survivor_before,
             "survivor assistant untouched"
         );
-        // The CORRECT surviving message (orig 5 → candidate 4) got the rewrite,
+        // The CORRECT surviving message (orig 5 -> candidate 4) got the rewrite,
         // NOT an off-by-N neighbor.
         assert_eq!(
             c.messages[4].text, "[stub]",

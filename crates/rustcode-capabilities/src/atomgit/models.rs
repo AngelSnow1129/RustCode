@@ -1,6 +1,6 @@
 //! JSON shapes returned by AtomGit's repo / pull-request / issue endpoints. Unknown
 //! keys are ignored by serde. `number`/`id` fields can arrive as JSON strings OR ints
-//! (AtomGit stringifies some numerics) — [`de_u64_flex`] accepts both.
+//! (AtomGit stringifies some numerics) -- [`de_u64_flex`] accepts both.
 
 use serde::{Deserialize, Deserializer};
 
@@ -24,11 +24,11 @@ where
 }
 
 /// Coerce a JSON value into a label list, tolerating every shape AtomGit/GitCode
-/// might send (the wire shape is unconfirmed — E2E is blocked): an array of
+/// might send (the wire shape is unconfirmed -- E2E is blocked): an array of
 /// strings, an array of `{ "name": "..." }` objects, `null`, or anything else.
 /// A non-array (or absent, via serde `default`) collapses to an empty list.
 ///
-/// Presence of the *field* is a separate question from its contents — callers
+/// Presence of the *field* is a separate question from its contents -- callers
 /// that must not clobber labels (see [`AtomgitClient::repo_labels`]) inspect the
 /// raw key themselves rather than relying on this lossy conversion.
 pub(crate) fn project_labels_from_json(v: &serde_json::Value) -> Vec<String> {
@@ -49,7 +49,7 @@ pub(crate) fn project_labels_from_json(v: &serde_json::Value) -> Vec<String> {
 
 /// Tolerant deserializer for `project_labels`. Delegates to
 /// [`project_labels_from_json`] so the model path and the read-back path share
-/// one coercion. Absent (via serde `default`) → empty.
+/// one coercion. Absent (via serde `default`) -> empty.
 fn de_project_labels<'de, D>(d: D) -> Result<Vec<String>, D::Error>
 where
     D: Deserializer<'de>,

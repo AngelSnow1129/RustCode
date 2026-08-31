@@ -1,7 +1,7 @@
 //! Every name this build occupies on the local machine, in one place.
 //!
 //! The companion to [`crate::endpoints`]: that module owns the addresses a
-//! build *talks to*, this one owns the names it *takes* — the config dir, the
+//! build *talks to*, this one owns the names it *takes* -- the config dir, the
 //! ports it listens on, the executables it installs, the scratch files
 //! self-update leaves beside them.
 //!
@@ -12,7 +12,7 @@
 //!
 //! - the daemon port was written twice, in `rustcode-daemon`'s `DEFAULT_PORT`
 //!   and again as a clap `default_value` string in `rustcode-cli`. (The webui
-//!   port next to it already did this correctly, via a shared `const` — the
+//!   port next to it already did this correctly, via a shared `const` -- the
 //!   daemon port was simply missed.)
 //! - the three self-update scratch filenames were written in `rustcode-updater`
 //!   (which creates them), in the uninstaller's scan (which must delete them),
@@ -28,8 +28,8 @@
 //!
 //! # For a distribution
 //!
-//! An internal build that must coexist with the public one — same machine,
-//! side by side — has to take a different set of these names, or the two
+//! An internal build that must coexist with the public one -- same machine,
+//! side by side -- has to take a different set of these names, or the two
 //! overwrite each other's binaries, fight over ports, and uninstall each
 //! other's files. Replacing this file retargets all of it at once, the same
 //! way replacing [`crate::endpoints`] retargets the addresses.
@@ -43,9 +43,9 @@ use std::path::PathBuf;
 
 /// The env var every config-dir resolver in the workspace reads.
 ///
-/// There are seven of them — `Config::config_dir`, `proxy`,
+/// There are seven of them -- `Config::config_dir`, `proxy`,
 /// `capabilities::paths`, `cc_hooks`, the CLI.s stderr log, and both of
-/// `rustcodex`'s — because the crates sit at layers that cannot share code.
+/// `rustcodex`'s -- because the crates sit at layers that cannot share code.
 /// They agree only on this variable and on [`HOME_DIR_NAME`].
 pub const HOME_ENV: &str = "RUSTCODE_HOME";
 
@@ -89,7 +89,7 @@ pub const WINDOWS_INSTALL_DIR: &str = "RustCode";
 /// housekeeping pass reaps leftovers by this prefix. They have to agree.
 pub const RELEASE_ASSET_PREFIX: &str = "rustcode";
 
-/// Prefix for the scratch files self-update leaves NEXT TO the executable —
+/// Prefix for the scratch files self-update leaves NEXT TO the executable --
 /// `<prefix>.download`, `<prefix>.rolling`, `<prefix>.writable-probe`.
 ///
 /// These live in the install dir, not the config tree, so two distributions
@@ -97,19 +97,19 @@ pub const RELEASE_ASSET_PREFIX: &str = "rustcode";
 /// them is separate.
 pub const UPDATE_TEMP_PREFIX: &str = ".rustcode";
 
-/// `<UPDATE_TEMP_PREFIX>.download` — partially fetched upgrade.
+/// `<UPDATE_TEMP_PREFIX>.download` -- partially fetched upgrade.
 pub fn update_download_name() -> String {
     format!("{UPDATE_TEMP_PREFIX}.download")
 }
 
-/// `<UPDATE_TEMP_PREFIX>.rolling` — the slot a running executable is renamed
+/// `<UPDATE_TEMP_PREFIX>.rolling` -- the slot a running executable is renamed
 /// into so the upgrade can take its place (Windows permits renaming a running
 /// image, not overwriting it).
 pub fn update_rolling_name() -> String {
     format!("{UPDATE_TEMP_PREFIX}.rolling")
 }
 
-/// `<UPDATE_TEMP_PREFIX>.writable-probe` — touched to test whether the install
+/// `<UPDATE_TEMP_PREFIX>.writable-probe` -- touched to test whether the install
 /// dir is writable before an upgrade is attempted.
 pub fn update_probe_name() -> String {
     format!("{UPDATE_TEMP_PREFIX}.writable-probe")
@@ -123,8 +123,8 @@ pub fn update_probe_name() -> String {
 ///
 /// Call once, first thing in `main`, before anything reads config. Every
 /// resolver listed on [`HOME_ENV`] then agrees by construction instead of by
-/// eight copies of the same fallback, and child processes — hooks, MCP
-/// servers, a spawned `rustcodex` — inherit the same answer rather than
+/// eight copies of the same fallback, and child processes -- hooks, MCP
+/// servers, a spawned `rustcodex` -- inherit the same answer rather than
 /// re-deriving it from their own environment.
 ///
 /// This is a no-op in effect: it writes precisely the value those resolvers
@@ -132,8 +132,8 @@ pub fn update_probe_name() -> String {
 /// pins against `Config::config_dir` itself. What it buys is a single place for
 /// a distribution to answer the question differently.
 ///
-/// An already-set [`HOME_ENV`] is left alone, so an explicit setting — a user's
-/// export, a test harness — still wins.
+/// An already-set [`HOME_ENV`] is left alone, so an explicit setting -- a user's
+/// export, a test harness -- still wins.
 pub fn bootstrap_home() {
     if let Some(value) = default_home(std::env::var_os(HOME_ENV), crate::util::real_home_dir()) {
         std::env::set_var(HOME_ENV, value);
@@ -142,7 +142,7 @@ pub fn bootstrap_home() {
 
 /// Pure core of [`bootstrap_home`]. `None` means "leave the variable alone".
 ///
-/// An empty value counts as unset, matching `Config::resolve_config_dir` — a
+/// An empty value counts as unset, matching `Config::resolve_config_dir` -- a
 /// stray `RUSTCODE_HOME=` would otherwise resolve the tree to the process's
 /// working directory.
 fn default_home(existing: Option<OsString>, home: Option<PathBuf>) -> Option<PathBuf> {
@@ -196,7 +196,7 @@ mod tests {
             "bootstrap_home must write exactly what the resolvers fall back to"
         );
 
-        // …and once written, the resolver returns it unchanged.
+        // ...and once written, the resolver returns it unchanged.
         assert_eq!(
             crate::config::Config::resolve_config_dir(
                 Some(bootstrapped.to_string_lossy().into_owned()),

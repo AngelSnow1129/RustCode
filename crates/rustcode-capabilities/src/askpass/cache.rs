@@ -24,7 +24,7 @@ impl PasswordCache {
         match m.get(key) {
             Some((pw, at)) if now.duration_since(*at) <= self.ttl => Some(pw.clone()),
             Some(_) => {
-                m.remove(key); // expired → evict (drops Zeroizing → memory wiped)
+                m.remove(key); // expired -> evict (drops Zeroizing -> memory wiped)
                 None
             }
             None => None,
@@ -60,7 +60,7 @@ mod tests {
                 .map(|s| s.as_str()),
             Some("pw")
         );
-        // Past TTL → miss (and entry dropped).
+        // Past TTL -> miss (and entry dropped).
         assert!(c.get("sudo", t0 + Duration::from_secs(301)).is_none());
         assert!(
             c.get("sudo", t0 + Duration::from_secs(10)).is_none(),

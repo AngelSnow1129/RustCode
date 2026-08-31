@@ -17,7 +17,7 @@ pub enum Action {
     LineEnd,
     HistoryPrev,
     HistoryNext,
-    /// Ctrl+R — enter reverse-i-search over the input history (readline /
+    /// Ctrl+R -- enter reverse-i-search over the input history (readline /
     /// bash style). While searching, further Ctrl+R presses jump to the
     /// next older match.
     HistorySearch,
@@ -28,8 +28,8 @@ pub enum Action {
 }
 
 /// Normalize the POSIX/readline backspace-delete aliases that some terminals emit
-/// as Ctrl-chords instead of dedicated keys: `^H` (`Ctrl+Char('h')`) → Backspace,
-/// `^?` (`Ctrl+Char('?')`) → Delete. These arrive over SSH and on Linux terminals
+/// as Ctrl-chords instead of dedicated keys: `^H` (`Ctrl+Char('h')`) -> Backspace,
+/// `^?` (`Ctrl+Char('?')`) -> Delete. These arrive over SSH and on Linux terminals
 /// with `stty erase ^H`, where the physical Backspace key is reported as `Ctrl+h`
 /// rather than `KeyCode::Backspace` (see the `Char('h')`/`Char('?')` arms in
 /// [`classify`], which the main composer relies on).
@@ -37,8 +37,8 @@ pub enum Action {
 /// The composer routes keys through `classify`, but MODALS handle raw `KeyCode`
 /// directly, so without this their text fields become append-only on those
 /// terminals (a `^H` even echoes a literal `h` in an unguarded insert arm). The
-/// event loop applies this once at the modal-dispatch boundary so every modal —
-/// current and future — gets consistent backspace/delete behavior. No modal binds
+/// event loop applies this once at the modal-dispatch boundary so every modal --
+/// current and future -- gets consistent backspace/delete behavior. No modal binds
 /// `^H`/`^?` for anything else, so the remap is unambiguous.
 pub(crate) fn normalize_edit_key(
     code: KeyCode,
@@ -68,7 +68,7 @@ pub fn classify(code: KeyCode, modifiers: KeyModifiers) -> Action {
         (KeyCode::Char('u'), true) => Action::ClearLine,
         (KeyCode::Char('w'), true) => Action::DeleteWordBackward,
         (KeyCode::Char('k'), true) => Action::DeleteToEnd,
-        // Emacs-style line navigation — Home/End aliases. Docs already
+        // Emacs-style line navigation -- Home/End aliases. Docs already
         // promise these in site/docs/keybindings.html.
         (KeyCode::Char('a'), true) => Action::LineStart,
         (KeyCode::Char('e'), true) => Action::LineEnd,
@@ -82,11 +82,11 @@ pub fn classify(code: KeyCode, modifiers: KeyModifiers) -> Action {
         // PuTTY and other Windows SSH clients often ship with "Backspace
         // sends ^H" turned on by default, so the physical Backspace key
         // arrives here as `Ctrl+Char('h')` rather than `KeyCode::Backspace`.
-        // Without this arm the key is a no-op on those terminals — the
+        // Without this arm the key is a no-op on those terminals -- the
         // user sees their input line accumulate characters they can't
         // erase.
         (KeyCode::Char('h'), true) => Action::Backspace,
-        // Ctrl+? (ASCII 0x7F with modifier coerced) — some xterm-family
+        // Ctrl+? (ASCII 0x7F with modifier coerced) -- some xterm-family
         // terminals emit this for the literal Delete key. Keep the
         // behaviour symmetric with the bare `KeyCode::Delete` arm below.
         (KeyCode::Char('?'), true) => Action::DeleteForward,
@@ -188,7 +188,7 @@ mod tests {
     fn ctrl_j_inserts_newline() {
         // Ctrl+J = ASCII 0x0A (LF). On terminals that negotiate the Kitty
         // keyboard protocol, crossterm reports it as `Char('j'), CONTROL`
-        // — give it the same role as Shift/Ctrl/Alt+Enter so users on
+        // -- give it the same role as Shift/Ctrl/Alt+Enter so users on
         // Kitty-aware terminals (kitty, wezterm, alacritty, WT ≥1.21) have
         // an extra fallback when their main chord is intercepted by the
         // host terminal (e.g. Windows Terminal eats Alt+Enter for full-

@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://atomgit.com/atomgit_atomcode/atomcode.git",
+    "url": "https://gitcode.com/SecLab/RustCode.git",
     "directory": "extensions/vscode"
   },
   "engines": {
@@ -91,7 +91,7 @@
       "activitybar": [
         {
           "id": "rustcode",
-          "title": "AtomCode",
+          "title": "RustCode",
           "icon": "resources/icon.svg"
         }
       ]
@@ -110,28 +110,28 @@
       "editor/context": [
         {
           "command": "rustcode.explain",
-          "group": "atomcode@1",
+          "group": "rustcode@1",
           "when": "editorHasSelection"
         },
         {
           "command": "rustcode.fix",
-          "group": "atomcode@2",
+          "group": "rustcode@2",
           "when": "editorHasSelection"
         },
         {
           "command": "rustcode.optimize",
-          "group": "atomcode@3",
+          "group": "rustcode@3",
           "when": "editorHasSelection"
         },
         {
           "command": "rustcode.addToChat",
-          "group": "atomcode@4",
+          "group": "rustcode@4",
           "when": "editorHasSelection"
         }
       ]
     },
     "configuration": {
-      "title": "AtomCode",
+      "title": "RustCode",
       "properties": {
         "rustcode.daemon.port": {
           "type": "number",

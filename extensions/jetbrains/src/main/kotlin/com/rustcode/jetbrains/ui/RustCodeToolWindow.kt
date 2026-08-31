@@ -21,39 +21,39 @@ import javax.swing.JSeparator
 import javax.swing.JTabbedPane
 import javax.swing.SwingUtilities
 
-const val ATOMCODE_TOOL_WINDOW_ID = "AtomCode"
-private val ATOMCODE_TAB_ID_KEY = Key.create<String>("atomcode.tabId")
-private val ATOMCODE_TOOL_WINDOW_MIN_SIZE = Dimension(360, 300)
+const val RUSTCODE_TOOL_WINDOW_ID = "RustCode"
+private val RUSTCODE_TAB_ID_KEY = Key.create<String>("rustcode.tabId")
+private val RUSTCODE_TOOL_WINDOW_MIN_SIZE = Dimension(360, 300)
 
-fun createAtomCodeChatContent(project: Project, toolWindow: ToolWindow, closeable: Boolean): AtomCodeChatPanel {
+fun createRustCodeChatContent(project: Project, toolWindow: ToolWindow, closeable: Boolean): RustCodeChatPanel {
     val name = nextChatTabName(toolWindow)
     val runtime = SessionWorkspace.getInstance(project).createRuntime(name)
-    return createAtomCodeChatContent(project, toolWindow, closeable, runtime, name)
+    return createRustCodeChatContent(project, toolWindow, closeable, runtime, name)
 }
 
-fun restoreAtomCodeChatContent(project: Project, toolWindow: ToolWindow, tab: WorkspaceTabState): AtomCodeChatPanel {
+fun restoreRustCodeChatContent(project: Project, toolWindow: ToolWindow, tab: WorkspaceTabState): RustCodeChatPanel {
     val name = tab.title.ifBlank { nextChatTabName(toolWindow) }
     val runtime = SessionWorkspace.getInstance(project).createRuntimeForRestoredTab(tab)
-    return createAtomCodeChatContent(project, toolWindow, closeable = true, runtime, name)
+    return createRustCodeChatContent(project, toolWindow, closeable = true, runtime, name)
 }
 
-private fun createAtomCodeChatContent(
+private fun createRustCodeChatContent(
     project: Project,
     toolWindow: ToolWindow,
     closeable: Boolean,
     runtime: ChatRuntime,
     name: String,
-): AtomCodeChatPanel {
-    val panel = AtomCodeChatPanel(project, runtime)
+): RustCodeChatPanel {
+    val panel = RustCodeChatPanel(project, runtime)
     val content = ContentFactory.getInstance().createContent(panel, name, false).apply {
         isCloseable = closeable
         description = "RustCode Chat"
-        putUserData(ATOMCODE_TAB_ID_KEY, runtime.tabId)
+        putUserData(RUSTCODE_TAB_ID_KEY, runtime.tabId)
         setDisposer(panel)
     }
     toolWindow.contentManager.addContent(content)
     toolWindow.contentManager.setSelectedContent(content)
-    toolWindow.component.minimumSize = ATOMCODE_TOOL_WINDOW_MIN_SIZE
+    toolWindow.component.minimumSize = RUSTCODE_TOOL_WINDOW_MIN_SIZE
 
     // 给标签栏安装右键菜单
     installTabPopupMenu(toolWindow, project)
@@ -62,65 +62,65 @@ private fun createAtomCodeChatContent(
     return panel
 }
 
-fun selectedAtomCodeChatPanel(project: Project): AtomCodeChatPanel? {
-    val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ATOMCODE_TOOL_WINDOW_ID) ?: return null
-    val selected = toolWindow.contentManager.selectedContent?.component as? AtomCodeChatPanel
+fun selectedRustCodeChatPanel(project: Project): RustCodeChatPanel? {
+    val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(RUSTCODE_TOOL_WINDOW_ID) ?: return null
+    val selected = toolWindow.contentManager.selectedContent?.component as? RustCodeChatPanel
     if (selected != null) return selected
     return toolWindow.contentManager.contents
         .asSequence()
-        .mapNotNull { it.component as? AtomCodeChatPanel }
+        .mapNotNull { it.component as? RustCodeChatPanel }
         .firstOrNull()
 }
 
-fun ensureAtomCodeChatContent(project: Project, toolWindow: ToolWindow): AtomCodeChatPanel {
-    val selected = toolWindow.contentManager.selectedContent?.component as? AtomCodeChatPanel
+fun ensureRustCodeChatContent(project: Project, toolWindow: ToolWindow): RustCodeChatPanel {
+    val selected = toolWindow.contentManager.selectedContent?.component as? RustCodeChatPanel
     if (selected != null) return selected
     val existing = toolWindow.contentManager.contents
         .asSequence()
-        .mapNotNull { it.component as? AtomCodeChatPanel }
+        .mapNotNull { it.component as? RustCodeChatPanel }
         .firstOrNull()
     if (existing != null) return existing
-    return createAtomCodeChatContent(project, toolWindow, closeable = true)
+    return createRustCodeChatContent(project, toolWindow, closeable = true)
 }
 
-fun openAtomCodeChatTab(project: Project, newTab: Boolean = false, focusInput: Boolean = true) {
+fun openRustCodeChatTab(project: Project, newTab: Boolean = false, focusInput: Boolean = true) {
     ApplicationManager.getApplication().invokeLater {
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ATOMCODE_TOOL_WINDOW_ID) ?: return@invokeLater
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(RUSTCODE_TOOL_WINDOW_ID) ?: return@invokeLater
         toolWindow.show()
         val panel = if (newTab) {
-            createAtomCodeChatContent(project, toolWindow, closeable = true)
+            createRustCodeChatContent(project, toolWindow, closeable = true)
         } else {
-            ensureAtomCodeChatContent(project, toolWindow)
+            ensureRustCodeChatContent(project, toolWindow)
         }
         if (focusInput) panel.focusInput()
     }
 }
 
-fun openAtomCodeWelcomePage(project: Project) {
+fun openRustCodeWelcomePage(project: Project) {
     ApplicationManager.getApplication().invokeLater {
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ATOMCODE_TOOL_WINDOW_ID) ?: return@invokeLater
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(RUSTCODE_TOOL_WINDOW_ID) ?: return@invokeLater
         toolWindow.show()
-        ensureAtomCodeChatContent(project, toolWindow).showWelcomePage()
+        ensureRustCodeChatContent(project, toolWindow).showWelcomePage()
     }
 }
 
-fun openAtomCodeSessionHistory(project: Project) {
+fun openRustCodeSessionHistory(project: Project) {
     ApplicationManager.getApplication().invokeLater {
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ATOMCODE_TOOL_WINDOW_ID) ?: return@invokeLater
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(RUSTCODE_TOOL_WINDOW_ID) ?: return@invokeLater
         toolWindow.show()
-        ensureAtomCodeChatContent(project, toolWindow).showSessionHistory()
+        ensureRustCodeChatContent(project, toolWindow).showSessionHistory()
     }
 }
 
 fun closeCurrentChatTab(project: Project) {
     ApplicationManager.getApplication().invokeLater {
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ATOMCODE_TOOL_WINDOW_ID) ?: return@invokeLater
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(RUSTCODE_TOOL_WINDOW_ID) ?: return@invokeLater
         val contentManager = toolWindow.contentManager
         val selected = contentManager.selectedContent ?: return@invokeLater
 
         if (contentManager.contentCount <= 1) {
             // 最后一个标签页：清空内容
-            val panel = selected.component as? AtomCodeChatPanel
+            val panel = selected.component as? RustCodeChatPanel
             panel?.startNewConversation()
             return@invokeLater
         }
@@ -130,12 +130,12 @@ fun closeCurrentChatTab(project: Project) {
 }
 
 fun contentTabId(content: Content): String? =
-    content.getUserData(ATOMCODE_TAB_ID_KEY)
+    content.getUserData(RUSTCODE_TAB_ID_KEY)
 
-fun updateAtomCodeChatTabTitle(project: Project, panel: AtomCodeChatPanel, title: String) {
+fun updateRustCodeChatTabTitle(project: Project, panel: RustCodeChatPanel, title: String) {
     val normalizedTitle = title.trim()
     if (normalizedTitle.isEmpty()) return
-    val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ATOMCODE_TOOL_WINDOW_ID) ?: return
+    val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(RUSTCODE_TOOL_WINDOW_ID) ?: return
     val content = toolWindow.contentManager.getContent(panel) ?: return
     content.displayName = normalizedTitle
     content.description = normalizedTitle
@@ -154,8 +154,8 @@ private fun installTabPopupMenu(toolWindow: ToolWindow, project: Project) {
         val tabPane = findTabbedPane(toolWindow) ?: return@invokeLater
 
         // 避免重复安装
-        if (tabPane.getClientProperty("atomcode-popup-installed") == true) return@invokeLater
-        tabPane.putClientProperty("atomcode-popup-installed", true)
+        if (tabPane.getClientProperty("rustcode-popup-installed") == true) return@invokeLater
+        tabPane.putClientProperty("rustcode-popup-installed", true)
 
         tabPane.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) = maybeShowPopup(e)
@@ -173,7 +173,7 @@ private fun installTabPopupMenu(toolWindow: ToolWindow, project: Project) {
                 menu.add(JMenuItem("关闭标签页").apply {
                     addActionListener {
                         if (contentManager.contentCount <= 1) {
-                            val panel = clickedContent.component as? AtomCodeChatPanel
+                            val panel = clickedContent.component as? RustCodeChatPanel
                             panel?.startNewConversation()
                         } else {
                             closeRuntimeForContent(project, clickedContent)
@@ -193,7 +193,7 @@ private fun installTabPopupMenu(toolWindow: ToolWindow, project: Project) {
                 })
                 menu.add(JSeparator())
                 menu.add(JMenuItem("新建标签页").apply {
-                    addActionListener { openAtomCodeChatTab(project, newTab = true) }
+                    addActionListener { openRustCodeChatTab(project, newTab = true) }
                 })
                 menu.show(tabPane, e.x, e.y)
             }
@@ -206,8 +206,8 @@ private fun closeRuntimeForContent(project: Project, content: Content) {
 }
 
 private fun installContentSelectionListener(toolWindow: ToolWindow, project: Project) {
-    if (toolWindow.component.getClientProperty("atomcode-content-listener-installed") == true) return
-    toolWindow.component.putClientProperty("atomcode-content-listener-installed", true)
+    if (toolWindow.component.getClientProperty("rustcode-content-listener-installed") == true) return
+    toolWindow.component.putClientProperty("rustcode-content-listener-installed", true)
     toolWindow.contentManager.addContentManagerListener(object : ContentManagerListener {
         override fun selectionChanged(event: ContentManagerEvent) {
             contentTabId(event.content)?.let { SessionWorkspace.getInstance(project).select(it) }

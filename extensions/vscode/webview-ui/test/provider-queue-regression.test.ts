@@ -1156,13 +1156,13 @@ async function testAuthFileWatcherRefreshesSetupState() {
   fileWatchers.length = 0;
   const provider = new ChatViewProvider({ fsPath: '/extension' } as never, {} as never);
   const unsafeProvider = provider as unknown as {
-    _watchAtomCodeAuth: (path: string) => void;
+    _watchRustCodeAuth: (path: string) => void;
     _sendSetupState: () => Promise<void>;
   };
   let refreshes = 0;
   unsafeProvider._sendSetupState = async () => { refreshes += 1; };
 
-  unsafeProvider._watchAtomCodeAuth('/tmp/rustcode/auth.toml');
+  unsafeProvider._watchRustCodeAuth('/tmp/rustcode/auth.toml');
 
   assert.equal(fileWatchers.length, 1);
   assert.equal(fileWatchers[0].pattern.base, '/tmp/rustcode');
@@ -1263,7 +1263,7 @@ async function testDisposedPanelCannotBlockNewPanelSetupState() {
         if (disposed) throw new Error('Webview is disposed');
         return webview;
       },
-      title: 'AtomCode',
+      title: 'RustCode',
       onDidChangeViewState: () => ({ dispose() {} }),
       onDidDispose: (listener) => {
         disposeListener = listener;
@@ -2064,7 +2064,7 @@ async function testPermissionResponsePostsExplicitDecisionToDaemon() {
 }
 
 async function testLoadSessionsForDisplayUsesVscodeWorkspaceDirectory() {
-  vscodeMock.workspace.workspaceFolders = [{ uri: { fsPath: '/repo/atomcode' } }];
+  vscodeMock.workspace.workspaceFolders = [{ uri: { fsPath: '/repo/rustcode' } }];
 
   const calls: string[] = [];
   const client = {
@@ -2089,7 +2089,7 @@ async function testLoadSessionsForDisplayUsesVscodeWorkspaceDirectory() {
   const loaded = await unsafeProvider._loadSessionsForDisplay();
 
   assert.deepEqual(calls, [
-    'listSessionsForWorkingDir:/repo/atomcode',
+    'listSessionsForWorkingDir:/repo/rustcode',
   ]);
   assert.deepEqual(loaded.sessions.map((s) => s.id), ['current']);
   assert.equal(loaded.currentProjectHash, 'current-hash');
@@ -2117,7 +2117,7 @@ async function testLoadSessionsForDisplayDoesNotFallBackToGlobalWhenWorkspaceHas
 }
 
 async function testLoadSessionsForDisplayFallsBackToGlobalWhenWorkspaceRequestFails() {
-  vscodeMock.workspace.workspaceFolders = [{ uri: { fsPath: '/repo/atomcode' } }];
+  vscodeMock.workspace.workspaceFolders = [{ uri: { fsPath: '/repo/rustcode' } }];
 
   const calls: string[] = [];
   const client = {
@@ -2128,7 +2128,7 @@ async function testLoadSessionsForDisplayFallsBackToGlobalWhenWorkspaceRequestFa
           id: 'current',
           name: 'Current fallback',
           project_hash: 'current-hash',
-          working_dir: '/repo/atomcode',
+          working_dir: '/repo/rustcode',
           updated_at: 200,
         },
         {
@@ -2153,7 +2153,7 @@ async function testLoadSessionsForDisplayFallsBackToGlobalWhenWorkspaceRequestFa
   const loaded = await unsafeProvider._loadSessionsForDisplay();
 
   assert.deepEqual(calls, [
-    'listSessionsForWorkingDir:/repo/atomcode',
+    'listSessionsForWorkingDir:/repo/rustcode',
     'listSessions',
   ]);
   assert.deepEqual(loaded.sessions.map((s) => s.id), ['current']);

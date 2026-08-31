@@ -2,17 +2,17 @@
 //!
 //! The CODING specialization. It assembles the neutral kernel ([`rustcode_kernel`]) +
 //! capabilities ([`rustcode_capabilities`]) into a runnable coding agent that
-//! **self-corrects** — and it does so with ZERO `rustcode-core` involvement.
+//! **self-corrects** -- and it does so with ZERO `rustcode-core` involvement.
 //!
 //! NOTE: [`build_coding_agent`] is the MINIMAL sync assembly (tools + codeintel
-//! only). The FULL agent — web/skills/mcp/session persistence/memory wired — is the
-//! two-phase [`prepare`] → [`assemble`] in [`parts`].
+//! only). The FULL agent -- web/skills/mcp/session persistence/memory wired -- is the
+//! two-phase [`prepare`] -> [`assemble`] in [`parts`].
 //!
 //! L2 owns three things, all mounted via existing kernel seams (no new kernel surface):
-//! 1. **Assembly** — [`build_coding_agent`]: wires provider + tools + codeintel +
+//! 1. **Assembly** -- [`build_coding_agent`]: wires provider + tools + codeintel +
 //!    approval + persona + the verify discipline into a kernel [`Agent`](rustcode_kernel::agent::Agent).
-//! 2. **Persona** — [`persona::coding_persona`]: the coding system prompt.
-//! 3. **Discipline** — [`discipline::VerifyCadenceHook`]: an edit-then-verify
+//! 2. **Persona** -- [`persona::coding_persona`]: the coding system prompt.
+//! 3. **Discipline** -- [`discipline::VerifyCadenceHook`]: an edit-then-verify
 //!    `offer_continuation` hook (the coding self-correction loop).
 //!
 //! ```no_run
@@ -78,8 +78,8 @@ pub use persona::{coding_persona, coding_persona_with_language, commit_language_
 pub use plan_mode::PlanModeGate;
 pub use plugin_hooks::{PluginHookSource, StaticPluginHookSource};
 pub use provider_factory::{
-    atomgit_provider_factory, derive_tier_config, install_subagent_tiers, refresh_subagent_tiers,
-    resolve_subagent_tier_thunks, tier_provider_builder, AtomGitProviderAuthenticator,
+    codingplan_provider_factory, derive_tier_config, install_subagent_tiers, refresh_subagent_tiers,
+    resolve_subagent_tier_thunks, tier_provider_builder, CodingPlanProviderAuthenticator,
     CodingProviderFactory, DefaultCodingProviderFactory, ProviderAuthenticator, ProviderBuildError,
 };
 pub use rate_limit::{RateLimitWindow, RateLimitWindowSource};

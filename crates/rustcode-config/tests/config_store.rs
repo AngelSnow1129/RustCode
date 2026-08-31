@@ -184,7 +184,7 @@ model = "missing-type"
     assert!(!snapshot.config.providers.contains_key("invalid"));
 
     // A malformed provider on disk must NOT block unrelated config writes
-    // (e.g. `/model`). The transaction succeeds…
+    // (e.g. `/model`). The transaction succeeds...
     let commit = store
         .update(|config| {
             config.default_provider = "valid".into();
@@ -194,7 +194,7 @@ model = "missing-type"
     assert_eq!(commit.snapshot.config.default_provider, "valid");
     assert!(!commit.snapshot.config.providers.contains_key("invalid"));
 
-    // …while the malformed section is preserved verbatim on disk so the user
+    // ...while the malformed section is preserved verbatim on disk so the user
     // can repair it in place later (never silently dropped).
     let on_disk = std::fs::read_to_string(&path).unwrap();
     assert!(

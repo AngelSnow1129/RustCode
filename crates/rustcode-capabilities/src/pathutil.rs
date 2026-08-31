@@ -1,7 +1,7 @@
 //! Path helpers shared by the `tools` and `codeintel` tool families. Kept OUTSIDE
 //! `tools/` and free of any feature `cfg` because `codeintel` is deliberately
 //! independent of the `tools` feature (see `codeintel/mod.rs`) yet must resolve
-//! model-supplied paths the SAME way — including leading-`~` expansion, so
+//! model-supplied paths the SAME way -- including leading-`~` expansion, so
 //! `read_file("~/x")` and `read_symbol("~/x")` and `glob("~/x/**")` agree with the
 //! shell (which the `bash` tool relies on).
 
@@ -18,7 +18,7 @@ pub(crate) fn home_dir() -> Option<PathBuf> {
 
 /// Expand a leading `~`/`~/` (and, on Windows, `~\`) against `home`; returns `None`
 /// when `raw` is not a home-relative tilde form so the caller's absolute/relative
-/// handling runs unchanged. Deliberately does NOT expand `~user/…` (needs a passwd
+/// handling runs unchanged. Deliberately does NOT expand `~user/...` (needs a passwd
 /// lookup), Windows 8.3 short names (`PROGRA~1`), or Office temp/lock files
 /// (`~$doc.docx`).
 pub(crate) fn expand_tilde_with_home(raw: &str, home: Option<&Path>) -> Option<PathBuf> {
@@ -28,7 +28,7 @@ pub(crate) fn expand_tilde_with_home(raw: &str, home: Option<&Path>) -> Option<P
         return Some(home.to_path_buf());
     }
     // `Path::join` REPLACES the whole path when its argument is absolute, so a `rest`
-    // beginning with a separator (`~//etc` → rest `/etc`) would escape home entirely.
+    // beginning with a separator (`~//etc` -> rest `/etc`) would escape home entirely.
     // Strip leading separators so `rest` is ALWAYS joined as home-relative (the shell
     // keeps `~//etc` under `$HOME` too).
     let rest = rest.trim_start_matches(|c| c == '/' || (cfg!(windows) && c == '\\'));
@@ -43,8 +43,8 @@ pub(crate) fn expand_tilde(raw: &str) -> Option<PathBuf> {
 }
 
 /// The part of `raw` AFTER a leading `~` separator (empty for a bare `~`), or `None`
-/// if `raw` is not a home-relative tilde form. Matches only `~`, `~/…`, and — on
-/// Windows, where `\` is a separator — `~\…`.
+/// if `raw` is not a home-relative tilde form. Matches only `~`, `~/...`, and -- on
+/// Windows, where `\` is a separator -- `~\...`.
 fn tilde_rest(raw: &str) -> Option<&str> {
     if raw == "~" {
         return Some("");
@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn tilde_rest_with_leading_separators_stays_under_home() {
         // `Path::join` REPLACES on an absolute arg, so a `rest` beginning with a
-        // separator (`~//etc/passwd` → rest `/etc/passwd`) must NOT escape home.
+        // separator (`~//etc/passwd` -> rest `/etc/passwd`) must NOT escape home.
         let home = Path::new("/Users/csdn");
         assert_eq!(
             expand_tilde_with_home("~//etc/passwd", Some(home)),
@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn non_home_forms_are_not_expanded() {
         let home = Path::new("/Users/csdn");
-        // `~user/…`, 8.3 short names, Office temp files: not home-relative.
+        // `~user/...`, 8.3 short names, Office temp files: not home-relative.
         assert_eq!(expand_tilde_with_home("~bob/notes.txt", Some(home)), None);
         assert_eq!(expand_tilde_with_home("PROGRA~1", Some(home)), None);
         assert_eq!(expand_tilde_with_home("~$report.docx", Some(home)), None);
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn no_home_declines_expansion() {
-        // No resolvable home → decline, so the caller degrades to its relative-join.
+        // No resolvable home -> decline, so the caller degrades to its relative-join.
         assert_eq!(expand_tilde_with_home("~/.rustcode/x", None), None);
     }
 
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn real_home_dir_without_sudo_matches_dirs_home() {
         // In the normal (non-sudo) test process there is no SUDO_USER, so real_home_dir
-        // must equal dirs::home_dir(). (We do not mutate SUDO_USER — env is process-global
+        // must equal dirs::home_dir(). (We do not mutate SUDO_USER -- env is process-global
         // and would race other tests.)
         if std::env::var("SUDO_USER").is_err() {
             assert_eq!(super::real_home_dir(), dirs::home_dir());

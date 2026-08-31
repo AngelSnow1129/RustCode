@@ -1,4 +1,4 @@
-//! The assembly: wire L1 capabilities into a kernel [`Agent`] per the REVIEW policy — a
+//! The assembly: wire L1 capabilities into a kernel [`Agent`] per the REVIEW policy -- a
 //! read-only reviewer that reports structured findings.
 
 use crate::config::ReviewAgentConfig;
@@ -11,15 +11,15 @@ use std::process::Command;
 
 /// Whether to mount the code-graph tools: only when the repo has AT MOST `max` indexable
 /// source files. `max = usize::MAX` (the config default) ⇒ always mount (bare-CLI behavior);
-/// engineering callers pass a bound (e.g. 8000) so a kernel-scale repo degrades to grep — its
+/// engineering callers pass a bound (e.g. 8000) so a kernel-scale repo degrades to grep -- its
 /// O(repo) tree-sitter graph build would otherwise blow the wall-clock budget for no measured
-/// quality gain (kernel A/B: graph off ≥ on, 1080s CPU → 3.94s).
+/// quality gain (kernel A/B: graph off ≥ on, 1080s CPU -> 3.94s).
 fn should_mount_graph(indexed_file_count: usize, max: usize) -> bool {
     indexed_file_count <= max
 }
 
 /// Count git-tracked source files codeintel would parse, via `git ls-files` (reads the git
-/// index — NO working-tree walk, so it stays cheap even on an NFS workdir). Returns 0 when git
+/// index -- NO working-tree walk, so it stays cheap even on an NFS workdir). Returns 0 when git
 /// is unavailable / not a repo ⇒ treated as small ⇒ graph mounted (the safe default).
 fn count_indexed_sources(working_dir: &Path) -> usize {
     let out = match Command::new("git")
@@ -46,7 +46,7 @@ use rustcode_kernel::provider::LlmProvider;
 use rustcode_kernel::tool::{MountedTools, ToolRegistry};
 use std::sync::Arc;
 
-/// The READ-ONLY tools the reviewer sees. Deliberately NO write/edit/bash/change_dir — a
+/// The READ-ONLY tools the reviewer sees. Deliberately NO write/edit/bash/change_dir -- a
 /// reviewer investigates and reports, it never mutates. (The diff itself is injected as
 /// the task by the caller, so the agent needs no shell to obtain it.)
 fn review_tool_names(no_web: bool, mount_graph: bool) -> Vec<&'static str> {
@@ -64,10 +64,10 @@ fn review_tool_names(no_web: bool, mount_graph: bool) -> Vec<&'static str> {
     if !no_web {
         names.push("web_search");
     }
-    // Code-graph tools (find_references/trace_callers/blast_radius/read_symbol/…) build an
-    // O(repo) tree-sitter call graph — only mount them when the repo is small enough to index
+    // Code-graph tools (find_references/trace_callers/blast_radius/read_symbol/...) build an
+    // O(repo) tree-sitter call graph -- only mount them when the repo is small enough to index
     // cheaply (see `should_mount_graph`). On a huge repo they blow the wall-clock budget for
-    // ~zero quality gain (measured on the 85k-file kernel: 1080s CPU → 3.94s with them off).
+    // ~zero quality gain (measured on the 85k-file kernel: 1080s CPU -> 3.94s with them off).
     if mount_graph {
         names.extend(codeintel_tool_names().iter().copied());
     }
@@ -75,7 +75,7 @@ fn review_tool_names(no_web: bool, mount_graph: bool) -> Vec<&'static str> {
 }
 
 /// Assemble a runnable review agent from `cfg`. Returns the [`Agent`] AND a
-/// [`ReportFindingTool`] HANDLE — the caller reads `handle.findings()` after the run to
+/// [`ReportFindingTool`] HANDLE -- the caller reads `handle.findings()` after the run to
 /// collect the structured findings the agent reported (the handle shares the tool's inner
 /// state with the registered instance).
 ///
@@ -84,7 +84,7 @@ pub fn build_review_agent(cfg: ReviewAgentConfig) -> Result<(Agent, ReportFindin
     let mut provider_cfg = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
     provider_cfg.context_window = cfg.context_window;
     // Byte-idle liveness follows the review config's stream_timeout (the same value
-    // handed to the kernel below), not the adapter's hardcoded 120s default — so the
+    // handed to the kernel below), not the adapter's hardcoded 120s default -- so the
     // provider watchdog and the kernel watchdog agree instead of the provider cutting
     // a long-thinking review off early with a spurious `[Error: stream idle timeout]`.
     provider_cfg.idle_timeout = cfg.stream_timeout;
@@ -109,7 +109,7 @@ pub fn build_review_agent_with(
 /// the full `max_turn_duration` AGAIN on top of time the first pass already spent).
 ///
 /// `cancel_token = None` ⇒ no external token wired (mirrors the legacy per-agent
-/// timer behavior for callers that don't share a deadline — `build_review_agent_with`
+/// timer behavior for callers that don't share a deadline -- `build_review_agent_with`
 /// and `build_review_agent`).
 pub fn build_review_agent_with_cancel(
     cfg: &ReviewAgentConfig,
@@ -128,7 +128,7 @@ pub fn build_review_agent_with_cancel(
         let indexed = count_indexed_sources(&cfg.working_dir); // cheap: reads git index, no tree walk
         let mount = should_mount_graph(indexed, max_graph_files);
         if !mount {
-            eprintln!("[codeintel] {indexed} indexed source file(s) > {max_graph_files} — code-graph tools disabled (grep only)");
+            eprintln!("[codeintel] {indexed} indexed source file(s) > {max_graph_files} -- code-graph tools disabled (grep only)");
         }
         mount
     };
@@ -210,7 +210,7 @@ pub fn shared_review_deadline(
 }
 
 /// Register the read-only review toolset (+ the shared `report_finding` instance) and
-/// mount only the read-only subset — write/edit/bash are registered by
+/// mount only the read-only subset -- write/edit/bash are registered by
 /// `register_coding_tools` but NEVER mounted, so the model cannot mutate.
 fn mount_review_tools(
     report: &ReportFindingTool,
@@ -286,7 +286,7 @@ mod tests {
             _t: &[ToolDef],
             _o: &ChatOptions,
         ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
-            // After the tool result comes back, the history grows → emit the final answer.
+            // After the tool result comes back, the history grows -> emit the final answer.
             let has_tool_result = messages
                 .iter()
                 .any(|m| matches!(m.role, rustcode_kernel::message::Role::Tool));
@@ -395,7 +395,7 @@ mod tests {
     }
 
     /// Never yields a stream event (a provider that holds the connection but makes no
-    /// progress — what `stream_timeout` can't catch if keepalive bytes arrive). Only the
+    /// progress -- what `stream_timeout` can't catch if keepalive bytes arrive). Only the
     /// turn-duration cancel can stop it.
     struct StallProvider;
     #[async_trait]
@@ -459,7 +459,7 @@ mod tests {
 
     #[tokio::test]
     async fn round_budget_reminder_injected_when_bounded() {
-        // max_rounds=1 → round 1 IS the final round → the budget hook fires this request.
+        // max_rounds=1 -> round 1 IS the final round -> the budget hook fires this request.
         let mut c = cfg();
         c.max_rounds = Some(1);
         let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -482,7 +482,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_round_budget_reminder_when_unbounded() {
-        // No max_rounds → no fuse, no budget hook mounted → clean wire.
+        // No max_rounds -> no fuse, no budget hook mounted -> clean wire.
         let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
         let provider = CapturingProvider { seen: seen.clone() };
         let (agent, _report) = build_review_agent_with(&cfg(), Arc::new(provider));
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn review_mounts_readonly_set_only() {
-        // The mounted names are read-only — no mutation tools.
+        // The mounted names are read-only -- no mutation tools.
         let names = review_tool_names(false, true);
         assert!(
             names.contains(&"read_file")
@@ -575,17 +575,17 @@ mod tests {
 
     #[test]
     fn should_mount_graph_thresholds() {
-        // Unlimited (bare-CLI default) → always mount, even kernel-scale.
+        // Unlimited (bare-CLI default) -> always mount, even kernel-scale.
         assert!(
             should_mount_graph(85_000, usize::MAX),
-            "unlimited → always mount"
+            "unlimited -> always mount"
         );
         // Bounded (engineering caller, e.g. service sets 8000).
-        assert!(should_mount_graph(0, 8000), "empty/unknown repo → mount");
-        assert!(should_mount_graph(8000, 8000), "at threshold → still mount");
-        assert!(!should_mount_graph(8001, 8000), "over threshold → degrade");
-        assert!(!should_mount_graph(85_000, 8000), "kernel-scale → degrade");
-        assert!(!should_mount_graph(1, 0), "max=0 → never mount");
+        assert!(should_mount_graph(0, 8000), "empty/unknown repo -> mount");
+        assert!(should_mount_graph(8000, 8000), "at threshold -> still mount");
+        assert!(!should_mount_graph(8001, 8000), "over threshold -> degrade");
+        assert!(!should_mount_graph(85_000, 8000), "kernel-scale -> degrade");
+        assert!(!should_mount_graph(1, 0), "max=0 -> never mount");
     }
 
     #[test]
@@ -628,12 +628,12 @@ mod shared_deadline_tests {
         // `None` never reaches the spawn inside `map`, so no runtime is needed.
         assert!(
             shared_review_deadline(None).is_none(),
-            "unbounded review → no token"
+            "unbounded review -> no token"
         );
     }
 
     /// The whole-review cap: ONE token, fired once after `duration`, regardless of how
-    /// many passes hold clones of it. Locks the `--max-duration` fix — before it, each
+    /// many passes hold clones of it. Locks the `--max-duration` fix -- before it, each
     /// pass spawned its own timer from zero, so a 240s cap could run 440s across two passes.
     #[tokio::test(start_paused = true)]
     async fn deadline_fires_once_for_all_clones() {
@@ -656,7 +656,7 @@ mod shared_deadline_tests {
         );
         assert!(
             pass2.is_cancelled(),
-            "re-review gets NO fresh budget — same token, already fired"
+            "re-review gets NO fresh budget -- same token, already fired"
         );
     }
 
@@ -671,7 +671,7 @@ mod shared_deadline_tests {
         let _agent = build_review_agent_with_cancel(&cfg, provider, Some(external.clone()));
 
         // Way past cfg's 1s per-agent deadline: if a per-agent timer had been spawned
-        // anyway, it would have cancelled a token by now — but the external one is the
+        // anyway, it would have cancelled a token by now -- but the external one is the
         // only token wired, and only its owner may fire it.
         tokio::time::advance(Duration::from_secs(5)).await;
         tokio::task::yield_now().await;

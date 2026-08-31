@@ -62,9 +62,9 @@ fn last_path_segment(url: &str) -> Option<&str> {
 
 /// Extract the last path segment from a git URL, stripping `.git` suffix.
 /// Examples:
-///   https://gitcode.com/u/foo.git → foo
-///   git@github.com:o/bar         → bar
-///   file:///C:/Users/u/bar       → bar   (Windows)
+///   https://gitcode.com/u/foo.git -> foo
+///   git@github.com:o/bar         -> bar
+///   file:///C:/Users/u/bar       -> bar   (Windows)
 pub fn infer_marketplace_name_from_url(url: &str) -> Result<String> {
     // Prefer the URL parser: it handles `file:///C:/...` (Windows),
     // `file:///tmp/foo` (Unix) and standard remote URLs correctly.
@@ -85,8 +85,8 @@ pub fn infer_marketplace_name_from_url(url: &str) -> Result<String> {
 }
 
 /// True when `url`'s host is an RustCode-platform git host we may inject the
-/// stored login token into. NEVER widen without thought — the token must
-/// never be sent to a third-party host. ssh shorthand / malformed → false.
+/// stored login token into. NEVER widen without thought -- the token must
+/// never be sent to a third-party host. ssh shorthand / malformed -> false.
 pub(crate) fn host_is_trusted(url: &str) -> bool {
     let Ok(parsed) = url::Url::parse(url) else {
         return false;

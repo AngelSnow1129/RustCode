@@ -4,7 +4,7 @@
    data-theme="dark" keeps dark even on a light OS.
 
    The surfaces use cool neutral-bluish rungs for a cleaner hierarchy while
-   AtomCode keeps its clay-orange brand accent (#d97757). Radii and typography
+   RustCode keeps its clay-orange brand accent (#d97757). Radii and typography
    remain product-owned; this sheet only aligns the semantic color system. */
 /* Root type scale. Every `font-size` in this stylesheet is a `rem`, so this
    one declaration sets the size of all text at once; `SettingsProvider`

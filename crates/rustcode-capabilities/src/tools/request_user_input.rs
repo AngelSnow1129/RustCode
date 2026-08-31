@@ -90,7 +90,7 @@ pub fn parse_args(args: &str) -> Result<UserInputRequest, String> {
 
 /// Parse args into 1..=`MAX_QUESTIONS` questions. Accepts a `{ "questions": [...] }`
 /// array (batch) or the flat single-question shape (legacy). The bool is `is_batch`
-/// — the caller uses it to pick the wire shape. Clamps a batch to `MAX_QUESTIONS`.
+/// -- the caller uses it to pick the wire shape. Clamps a batch to `MAX_QUESTIONS`.
 pub fn parse_batch(args: &str) -> Result<(Vec<UserInputRequest>, bool), String> {
     let val: serde_json::Value = serde_json::from_str(args)
         .map_err(|e| format!("invalid request_user_input arguments: {e}"))?;
@@ -109,7 +109,7 @@ pub fn parse_batch(args: &str) -> Result<(Vec<UserInputRequest>, bool), String> 
         // A 1-element `questions` array is NOT a batch: send it down the single-question
         // wire so both drivers render the populated question. (A batch payload carries no
         // top-level header/question, so a driver that picks the single card off `len==1`
-        // — e.g. the webui — would otherwise show an empty card.)
+        // -- e.g. the webui -- would otherwise show an empty card.)
         let is_batch = out.len() > 1;
         Ok((out, is_batch))
     } else {
@@ -121,7 +121,7 @@ pub fn parse_batch(args: &str) -> Result<(Vec<UserInputRequest>, bool), String> 
 ///
 /// `selected` and `text` are NOT mutually exclusive: in `multiple` mode a driver can let the
 /// user tick options AND type a custom note, and both come back on the wire. Returning early
-/// on `text` dropped every ticked option before the model ever saw it — the user picked
+/// on `text` dropped every ticked option before the model ever saw it -- the user picked
 /// "Python" and added "plus Rust", and the model was only ever told about "plus Rust".
 fn answer_summary(resp: &UserInputResponse) -> String {
     let text = resp.text.as_deref().filter(|t| !t.trim().is_empty());
@@ -242,8 +242,8 @@ impl Tool for RequestUserInputTool {
 
     fn description(&self) -> &str {
         "Ask the user structured question(s) and wait for their answer before continuing. \
-         Use ONLY for decisions that are genuinely the user's to make — a preference, a \
-         confirmation, a choice between approaches — NOT for anything you can decide, look \
+         Use ONLY for decisions that are genuinely the user's to make -- a preference, a \
+         confirmation, a choice between approaches -- NOT for anything you can decide, look \
          up, or verify yourself. When the user explicitly asks you to recommend, compare, or \
          offer choices for THEM to pick/select from (e.g. \"recommend a few X for me to \
          choose\", \"let me pick one\"), surface the concrete options HERE (set \
@@ -302,7 +302,7 @@ impl Tool for RequestUserInputTool {
             Err(e) => return err_result(e),
         };
         if !is_batch {
-            // Legacy single-question path — wire + result unchanged.
+            // Legacy single-question path -- wire + result unchanged.
             let payload = match serde_json::to_value(&reqs[0]) {
                 Ok(v) => v,
                 Err(e) => return err_result(format!("request_user_input: serialize failed: {e}")),
@@ -407,7 +407,7 @@ mod tests {
         let d = format_result(&UserInputResponse::declined());
         assert!(
             !d.is_error,
-            "declined must not be an error — model should proceed, not retry/abort"
+            "declined must not be an error -- model should proceed, not retry/abort"
         );
         assert_eq!(
             d.content,
@@ -434,7 +434,7 @@ mod tests {
     #[test]
     fn parse_batch_single_element_questions_is_not_a_batch() {
         // A 1-element `questions` array must go down the single wire (is_batch=false) so the
-        // flat populated payload reaches the driver — otherwise a batch payload has no
+        // flat populated payload reaches the driver -- otherwise a batch payload has no
         // top-level header/question and a length-based driver renders an empty card.
         let (reqs, is_batch) =
             parse_batch(r#"{"questions":[{"header":"H","question":"Q?","mode":"text"}]}"#).unwrap();
@@ -514,7 +514,7 @@ mod tests {
             r#"{"header":"H","question":"Q?","mode":"single","options":[{"label":"A"}]}"#,
         )
         .unwrap();
-        assert!(r.custom, "custom absent → defaults true");
+        assert!(r.custom, "custom absent -> defaults true");
         let r2 = parse_args(
             r#"{"header":"H","question":"Q?","mode":"single","options":[{"label":"A"}],"custom":false}"#,
         )
@@ -549,7 +549,7 @@ mod tests {
         );
     }
 
-    /// Ticking an option AND typing a note must surface BOTH — the ticked option used to be
+    /// Ticking an option AND typing a note must surface BOTH -- the ticked option used to be
     /// dropped outright once `text` was present.
     #[test]
     fn selection_and_free_text_both_reach_the_model() {

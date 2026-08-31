@@ -1,8 +1,8 @@
 //! Deterministic Anthropic-adapter tests against a LOCAL mock HTTP server (no network,
 //! no key). Run by default in CI. Covers:
-//!   - open-call retry (transient 500 → retry → succeed; persistent 500 → exhaust → Err)
+//!   - open-call retry (transient 500 -> retry -> succeed; persistent 500 -> exhaust -> Err)
 //!   - structured error parsing (Anthropic `{"type","message"}` envelope)
-//!   - multi-round turn-loop (round 1 `tool_use` → kernel runs the tool → round 2 final
+//!   - multi-round turn-loop (round 1 `tool_use` -> kernel runs the tool -> round 2 final
 //!     answer), asserting the assistant `tool_use` + the `tool_result` are echoed back
 //!   - SIGNED thinking round-trip (round-1 thinking `signature` is stored by the kernel
 //!     and replayed VERBATIM as a `thinking` block in the round-2 request body)
@@ -42,7 +42,7 @@ const TOOL_CALL_SSE: &str = concat!(
 );
 
 /// Thinking-then-tool stream: a SIGNED `thinking` block (text + signature SIG123) then a
-/// `tool_use` block — the round-1 shape that exercises the signed-reasoning round-trip.
+/// `tool_use` block -- the round-1 shape that exercises the signed-reasoning round-trip.
 const THINKING_TOOL_SSE: &str = concat!(
     "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_think\",\"usage\":{\"input_tokens\":5}}}\n\n",
     "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n",
@@ -257,7 +257,7 @@ async fn multi_round_signed_thinking_is_echoed_back_verbatim() {
 
 #[tokio::test]
 async fn signed_thinking_not_echoed_when_thinking_disabled() {
-    // Same round-1 thinking stream, but the provider has thinking OFF — the stored
+    // Same round-1 thinking stream, but the provider has thinking OFF -- the stored
     // signed blocks must NOT be echoed (echoing signed thinking without thinking enabled
     // would 400).
     let reqs = run_two_round(THINKING_TOOL_SSE, false).await;

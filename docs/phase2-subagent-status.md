@@ -10,7 +10,7 @@
 
 | Agent | 范围 | 状态 | 已完成 | 剩余 |
 |---|---|---|---|---|
-| **AGENT-A** | 重命名收尾 + 合规 | [PENDING] | — | `docs/architecture.md` 的 `atomcode-*` 修正；`extensions/`（vscode/jetbrains）与 `site/` 旧前缀；O4 License 缺陷 |
+| **AGENT-A** | 重命名收尾 + 合规 | [PENDING] | — | `docs/architecture.md` 的 `rustcode-*` 修正；`extensions/`（vscode/jetbrains）与 `site/` 旧前缀；O4 License 缺陷 |
 | **AGENT-B** | 零遥测死脚手架 | [DONE]（主 Agent 收尾） | B1-B5、B7-B12 | B6 部分、B10 文档、B9 改名 |
 | **AGENT-C** | 外部调用收敛（egress） | [PARTIAL] | 见 3.4 | MCP 传输层的静默降级（见 3.5） |
 | **AGENT-D** | 门禁 / 测试 / 收口 | [PENDING] | — | G1-G8；补 `ci.yml`；Mock/wire 一致性测试 |
@@ -154,19 +154,19 @@ cargo check -p rustcode --all-targets                                           
 AGENT-A 派发到 `code-explorer` 子代理，**该实例是只读的**（返回了精确规格但未落地），
 由主 Agent 执行：
 
-- `docs/architecture.md`：21 处 `atomcode-*` crate 名 -> `rustcode-*`；删除
-  `atomcode-telemetry` 整行（该 crate 已退役）；标题 `AtomCode Architecture` ->
-  `RustCode Architecture`。**刻意保留** `atomcode-core` / `atomcode-bridge`
+- `docs/architecture.md`：21 处 `rustcode-*` crate 名 -> `rustcode-*`；删除
+  `rustcode-telemetry` 整行（该 crate 已退役）；标题 `RustCode Architecture` ->
+  `RustCode Architecture`。**刻意保留** `rustcode-core` / `rustcode-bridge`
   （退役件，从未以 `rustcode-*` 形态存在，改名会伪造事实）。
 - 同批处理 `docs/mcp.md`、`docs/target-architecture.md`、
   `docs/testing/windows-path-normalization.md`（只改仍在描述当前架构的 crate 名）。
   **`docs/plans/**` 与历史回溯文档一律不动**——它们是历史记录。
 - O4：新建 `docs/UPSTREAM_RUSTCODE_LICENSE.md` 归档前身 `SecLab/RustCode` 的 MIT 正文；
-  `docs/ORIGINAL_LICENSE.md` 改为**诚实占位**（声明应归档上游 atomcode 的 MIT 但尚未
+  `docs/ORIGINAL_LICENSE.md` 改为**诚实占位**（声明应归档上游 rustcode 的 MIT 但尚未
   取得，并给出补齐指引，**绝不臆造许可文本**）；同步修正 `UPSTREAM_CREDITS.md`、
   `THIRD_PARTY_NOTICES.md` 与根 `LICENSE` 的自指表述。
 - 未处理（已评估规模，单独立项）：`site/` 779 处、`extensions/` 约 751 处
-  `atomcode` 残留，且 `extensions/` 含 `AtomCode*` 类名与文件名，需符号级 rename，
+  `rustcode` 残留，且 `extensions/` 含 `RustCode*` 类名与文件名，需符号级 rename，
   本机无法编译验证。
 
 ## 3.8 AGENT-E 完成记录（主 Agent 执行）：MCP 静默降级

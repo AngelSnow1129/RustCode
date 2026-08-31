@@ -1,5 +1,5 @@
 //! Shared path resolution for every capability that touches the rustcode config
-//! tree (`mcp` / `session` / `memory`) — ONE home for the rule, one place to
+//! tree (`mcp` / `session` / `memory`) -- ONE home for the rule, one place to
 //! document its single known divergence from production.
 
 use std::path::PathBuf;
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 ///
 /// KNOWN DIVERGENCE (deliberate L1 simplification): the core helper additionally
 /// resolves `$SUDO_USER` via getpwnam, so under `sudo` WITHOUT `$RUSTCODE_HOME` set
-/// production resolves the invoking user's home while this resolves root's — the
+/// production resolves the invoking user's home while this resolves root's -- the
 /// two stacks would then read/write parallel trees. Setting `$RUSTCODE_HOME`
 /// (checked first, byte-identical to production) keeps them aligned.
 pub(crate) fn config_dir() -> PathBuf {
@@ -26,7 +26,7 @@ pub(crate) fn config_dir() -> PathBuf {
 }
 
 // NO unit test here ON PURPOSE: testing this means mutating the process-global
-// `RUSTCODE_HOME`, and libtest runs the lib's unit tests in parallel threads — any
+// `RUSTCODE_HOME`, and libtest runs the lib's unit tests in parallel threads -- any
 // future unit test touching `config_dir()` (memory.md, session paths, OAuth token
 // store) would race it nondeterministically. The `$RUSTCODE_HOME`-wins behavior is
 // exercised by the env-isolating INTEGRATION binaries (each its own process):

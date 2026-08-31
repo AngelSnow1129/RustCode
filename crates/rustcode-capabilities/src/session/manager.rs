@@ -1,4 +1,4 @@
-//! `SessionManager` — the two-tier on-disk session store + its fast-listing metadata.
+//! `SessionManager` -- the two-tier on-disk session store + its fast-listing metadata.
 //!
 //! Pure storage: no kernel coupling beyond serializing the kernel's `SessionSnapshot`.
 //! The hooks (snapshot / transcript) and the recall tool call into this; the manager
@@ -24,7 +24,7 @@ use super::presentation::{
 };
 use super::transcript::{TurnTimestamp, RECORD_VERSION};
 
-/// Fast-listing metadata for ONE session — read to populate a `/resume` picker WITHOUT
+/// Fast-listing metadata for ONE session -- read to populate a `/resume` picker WITHOUT
 /// parsing the (large) snapshot / transcript files. Persisted as `<id>.meta`.
 pub const META_VERSION: u32 = 1;
 
@@ -342,7 +342,7 @@ pub enum SessionOrigin {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionMeta {
-    /// `.meta` SCHEMA VERSION — the forward-compat seam (`.snapshot` has
+    /// `.meta` SCHEMA VERSION -- the forward-compat seam (`.snapshot` has
     /// `SNAPSHOT_VERSION`; this file format was missing one). New files write 1; a
     /// pre-version file reads as 0 (`serde(default)`). Evolution rule: additive
     /// fields stay at the same `v` (with their own `serde(default)`); a breaking
@@ -350,7 +350,7 @@ pub struct SessionMeta {
     #[serde(default)]
     pub v: u32,
     pub id: String,
-    /// Display title — auto by default, set by a user `/rename` (then `user_renamed`).
+    /// Display title -- auto by default, set by a user `/rename` (then `user_renamed`).
     pub name: String,
     #[serde(default)]
     pub user_renamed: bool,
@@ -378,7 +378,7 @@ pub struct SessionMeta {
     pub turn_count: u32,
     #[serde(default)]
     pub message_count: u32,
-    /// Per-turn stats so a resume can re-render the `✓ … tokens` dividers without
+    /// Per-turn stats so a resume can re-render the `[+] ... tokens` dividers without
     /// replaying the model. (Kernel A4 could fold these into `SessionSnapshot`; until
     /// then they live here, where wall-clock `duration_ms` belongs anyway.)
     #[serde(default)]
@@ -400,7 +400,7 @@ pub struct SessionMeta {
 }
 
 impl SessionMeta {
-    /// Fresh metadata for a new session — auto-named `session-<id>`, both timestamps
+    /// Fresh metadata for a new session -- auto-named `session-<id>`, both timestamps
     /// `now_ms`, empty stats.
     pub fn new(id: impl Into<String>, working_dir: impl Into<String>, now_ms: i64) -> Self {
         let id = id.into();
@@ -597,7 +597,7 @@ struct CatalogAggregate {
     legacy: Option<LegacyCatalogMeta>,
 }
 
-/// One completed turn's stats — drives a resume-time `✓ … tokens` divider.
+/// One completed turn's stats -- drives a resume-time `[+] ... tokens` divider.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TurnStat {
     /// Legacy mutable message-position anchor. Kept during the transition for old
@@ -619,7 +619,7 @@ pub struct TurnStat {
     pub round_count: u32,
     pub tool_call_count: u32,
     pub duration_ms: u64,
-    /// Prompt + completion tokens from the final model request in this turn — the
+    /// Prompt + completion tokens from the final model request in this turn -- the
     /// same value the live turn divider displays.
     pub total_tokens: u32,
     #[serde(default)]
@@ -934,7 +934,7 @@ impl SessionManager {
         }
     }
 
-    /// The store for `working_dir`'s project — `$RUSTCODE_HOME/sessions/<project_hash>`,
+    /// The store for `working_dir`'s project -- `$RUSTCODE_HOME/sessions/<project_hash>`,
     /// the SAME bucket production uses (so old `<id>.json` and new `<id>.snapshot`
     /// sessions of the same project land together).
     pub fn for_project(working_dir: &Path) -> Self {
@@ -1148,7 +1148,7 @@ impl SessionManager {
             snapshot: snap.clone(),
         };
         let bytes = serialize_bounded(&checkpoint, "inflight snapshot", MAX_SNAPSHOT_BYTES)?;
-        // No meta lock — the inflight file is independent of the canonical
+        // No meta lock -- the inflight file is independent of the canonical
         // snapshot/meta/presentation aggregate. Catalog readers may use only its
         // validated existence as a visibility signal; its contents never replace
         // canonical metadata in a list projection.
@@ -1447,7 +1447,7 @@ impl SessionManager {
     }
 
     /// Atomic write of one artifact, reporting whether a failure already replaced
-    /// the target (rename done) — see [`AtomicWriteFailure::mutated`]. Test fault
+    /// the target (rename done) -- see [`AtomicWriteFailure::mutated`]. Test fault
     /// injection is modelled on the same boundary: `BeforeReplace` leaves the
     /// target untouched, `AfterReplace` fires once the real rename has committed.
     fn commit_atomic_write_tracked(
@@ -1501,7 +1501,7 @@ impl SessionManager {
         // Only replacements whose `rename` actually completed are "installed" on
         // disk and owe a rollback. A write that fails BEFORE its rename (e.g. no
         // disk space to write the tmp) leaves its target untouched, so it must
-        // NOT be rolled back — rolling back an untouched target is what turned a
+        // NOT be rolled back -- rolling back an untouched target is what turned a
         // recoverable disk-full into a false "persistence uncertain" fatal stop.
         let mut installed = Vec::with_capacity(replacements.len());
         for (index, replacement) in replacements.iter().enumerate() {
@@ -1520,7 +1520,7 @@ impl SessionManager {
                     let commit_error = failure.error;
                     // Nothing was actually replaced on disk (the common disk-full
                     // case: the first write failed before its rename). The last
-                    // committed state is fully intact — surface a plain,
+                    // committed state is fully intact -- surface a plain,
                     // recoverable error, NOT an UncertainCommit, so the runtime
                     // keeps the good snapshot instead of fatal-stopping.
                     if installed.is_empty() {
@@ -1701,7 +1701,7 @@ impl SessionManager {
         let meta: SessionMeta = deserialize(&bytes, "session meta")?;
         // The forward-compat seam, READER-ENFORCED (same rule as the kernel's
         // SNAPSHOT_VERSION check): a file from a future breaking schema may still
-        // deserialize under this layout — refuse rather than silently misinterpret.
+        // deserialize under this layout -- refuse rather than silently misinterpret.
         if meta.v > META_VERSION {
             return Err(SessionStoreError::FutureSchema {
                 kind: "session meta",
@@ -2990,10 +2990,10 @@ pub(crate) fn clear_catalog_cache() {
 /// Cheap fingerprint of everything under `sessions_root` that could change the
 /// catalog: for every file in every bucket, fold `(bucket, filename, mtime,
 /// len)` into an order-independent accumulator. It `stat`s but never OPENS or
-/// PARSES a file — that's the whole point (the full scan reads + JSON-parses
+/// PARSES a file -- that's the whole point (the full scan reads + JSON-parses
 /// every `*.meta`). Any add / remove / rename / in-place rewrite (which bumps
 /// mtime and/or len) changes the fingerprint, so the cache self-invalidates on
-/// a change made by ANY process — no explicit invalidation wiring to forget.
+/// a change made by ANY process -- no explicit invalidation wiring to forget.
 fn catalog_signature(sessions_root: &Path) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut acc: u64 = 0;
@@ -3038,10 +3038,10 @@ fn catalog_signature(sessions_root: &Path) -> u64 {
 /// clone of the cached scan (skips reading + parsing every `*.meta`); on a
 /// miss, does the real scan and stores it. Kept out of the daemon serialize
 /// layer so every catalog consumer (TUI `/resume`, `/sessions`, search) shares
-/// one cache. Callers are unchanged — this is a transparent speedup.
+/// one cache. Callers are unchanged -- this is a transparent speedup.
 ///
 /// NOTE: a hit still pays the `catalog_signature` walk (O(N `stat`s), NOT O(1))
-/// — it saves the read + JSON-parse of every `*.meta`, not the directory walk.
+/// -- it saves the read + JSON-parse of every `*.meta`, not the directory walk.
 /// Index-level (single-read) speed would need a persisted recency index.
 fn scan_catalog_cached(sessions_root: &Path) -> CatalogScan {
     let sig = catalog_signature(sessions_root);
@@ -3591,7 +3591,7 @@ fn validate_session_id(id: &str) -> SessionResult<()> {
 fn invalid_id(id: &str, reason: &'static str) -> SessionStoreError {
     let mut shown: String = id.chars().take(MAX_SESSION_ID_BYTES).collect();
     if shown.len() < id.len() {
-        shown.push('…');
+        shown.push_str("...");
     }
     SessionStoreError::InvalidId { id: shown, reason }
 }
@@ -3828,7 +3828,7 @@ fn open_read_file(path: &Path) -> SessionResult<File> {
 fn open_append_file(path: &Path) -> SessionResult<File> {
     let mut options = OpenOptions::new();
     // Windows: `append(true)` alone grants only FILE_APPEND_DATA, which is not
-    // enough for LockFileEx (requires GENERIC_READ or GENERIC_WRITE) — the
+    // enough for LockFileEx (requires GENERIC_READ or GENERIC_WRITE) -- the
     // transcript append below would fail with ERROR_ACCESS_DENIED (os error 5).
     // Note: `write(true)` is IGNORED when `append(true)` is set (Rust std), so
     // GENERIC_READ via `read(true)` is what satisfies LockFileEx here. Append
@@ -4062,7 +4062,7 @@ fn io_at(path: &Path, source: io::Error) -> SessionStoreError {
 
 /// An atomic-write failure, tagged with whether the target was already replaced.
 ///
-/// `mutated == true` means the `rename` completed — new (possibly not yet
+/// `mutated == true` means the `rename` completed -- new (possibly not yet
 /// dir-synced) bytes are in place, so the write owes a rollback. `mutated ==
 /// false` means the target is UNTOUCHED (the failure happened before the rename,
 /// e.g. no disk space to write the tmp), so the last committed bytes are intact
@@ -4076,7 +4076,7 @@ struct AtomicWriteFailure {
 /// Write `bytes` to `path` atomically: write a sibling `*.tmp` then `rename` over the
 /// target, then sync the parent directory on Unix so the new directory entry survives
 /// power loss. A crash mid-write never leaves a half-written (corrupt) session file.
-/// The tmp's extension (`…tmp`) is ignored by [`SessionManager::list`]'s `*.meta`
+/// The tmp's extension (`...tmp`) is ignored by [`SessionManager::list`]'s `*.meta`
 /// filter, so a leftover tmp from a crash never appears as a session.
 fn atomic_write(path: &Path, bytes: &[u8]) -> SessionResult<()> {
     atomic_write_tracked(path, bytes).map_err(|failure| failure.error)
@@ -4278,7 +4278,7 @@ mod tests {
         assert_eq!(loaded.messages[0].text, "hello");
     }
 
-    /// Windows 回归测试：transcript 追加必须真实完成 open → lock → append → unlock。
+    /// Windows 回归测试：transcript 追加必须真实完成 open -> lock -> append -> unlock。
     /// 曾因 `open_append_file` 仅 `append(true)`（Windows 上只有 FILE_APPEND_DATA），
     /// `LockFileEx` 要求 GENERIC_READ/GENERIC_WRITE 而必然失败，
     /// 报 ERROR_ACCESS_DENIED (os error 5)。此问题仅存在于 Windows。
@@ -4291,7 +4291,7 @@ mod tests {
         let mut payload = br#"{"v":1,"msg":"hello"}"#.to_vec();
         payload.push(b'\n');
 
-        // 真实代码路径: open_append_file → lock_exclusive → write_all（unlock 随句柄关闭）
+        // 真实代码路径: open_append_file -> lock_exclusive -> write_all（unlock 随句柄关闭）
         mgr.append_jsonl_line(id, &payload).unwrap_or_else(|e| {
             panic!("transcript append must not fail on Windows: {e:?}");
         });
@@ -5553,7 +5553,7 @@ mod tests {
         mgr.write_meta(&SessionMeta::new("a", "/p", 1_000)).unwrap();
 
         let sig1 = catalog_signature(root.path());
-        // Same on-disk state → identical fingerprint (this is what makes a hit).
+        // Same on-disk state -> identical fingerprint (this is what makes a hit).
         assert_eq!(sig1, catalog_signature(root.path()));
 
         // Adding a session changes the fingerprint.
@@ -5593,7 +5593,7 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
 
-        // Adding a session changes the fingerprint → the next scan reflects it
+        // Adding a session changes the fingerprint -> the next scan reflects it
         // WITHOUT any explicit cache clear (the signature self-invalidates).
         mgr.write_meta(&SessionMeta::new("b", "/p", 2_000)).unwrap();
         let third = SessionManager::scan_catalog(root.path());
@@ -7043,7 +7043,7 @@ mod tests {
         let json = serde_json::to_string(&m).unwrap();
         let back: SessionMeta = serde_json::from_str(&json).unwrap();
         assert_eq!(back.origin, SessionOrigin::Scheduled);
-        // old meta without the field → Manual
+        // old meta without the field -> Manual
         let old = r#"{"id":"x","name":"n","working_dir":"/w","created_at":0,"updated_at":0}"#;
         let parsed: SessionMeta = serde_json::from_str(old).unwrap();
         assert_eq!(parsed.origin, SessionOrigin::Manual);

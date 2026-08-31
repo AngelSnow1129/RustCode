@@ -1,15 +1,15 @@
 {
-  "name": "@atomgit.com/atomcode",
+  "name": "@rustcode/rustcode",
   "version": "0.0.0-dev",
   "description": "Open-source terminal AI coding agent — connect any LLM, edit code, run commands, verify autonomously",
   "keywords": ["ai", "coding", "cli", "agent", "terminal", "llm"],
-  "homepage": "https://atomgit.com/atomgit_rustcode/rustcode",
+  "homepage": "https://gitcode.com/SecLab/RustCode",
   "repository": {
     "type": "git",
-    "url": "git+https://atomgit.com/atomgit_rustcode/rustcode.git"
+    "url": "git+https://gitcode.com/SecLab/RustCode.git"
   },
   "license": "MIT",
-  "author": "AtomGit",
+  "author": "RustCode",
   "bin": {
     "rustcode": "./bin/rustcode.js"
   },

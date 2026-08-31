@@ -1,13 +1,13 @@
-//! `SnapshotHook` — persists the working-set snapshot + session metadata every turn.
+//! `SnapshotHook` -- persists the working-set snapshot + session metadata every turn.
 //!
 //! Hangs off `turn_complete` (fires on EVERY terminal), so the resumable `<id>.snapshot`
-//! and the `<id>.meta` are refreshed however the turn ended — NOT only on success. This
+//! and the `<id>.meta` are refreshed however the turn ended -- NOT only on success. This
 //! is the L1-hook realization of B3a: no driver round-trip (`AgentCommand::Snapshot`) is
 //! needed for the per-turn save path, because `turn_complete` already hands us the live
 //! `Conversation`, and `SessionSnapshot::from_conversation` is public.
 //!
-//! Per-turn wall-clock `duration_ms` (and the `errored` flag) live HERE in L1 — the
-//! kernel is clock-free — feeding the `turn_stats` a resume uses to re-render dividers.
+//! Per-turn wall-clock `duration_ms` (and the `errored` flag) live HERE in L1 -- the
+//! kernel is clock-free -- feeding the `turn_stats` a resume uses to re-render dividers.
 
 use std::sync::{Arc, Mutex};
 
@@ -635,14 +635,14 @@ impl SnapshotHook {
     }
 
     /// Surface a RECOVERABLE persistence failure (the last committed state is
-    /// intact but THIS turn was not saved). Unlike an uncertain commit — which
-    /// fail-stops loudly — a recoverable failure keeps the runtime running, so
+    /// intact but THIS turn was not saved). Unlike an uncertain commit -- which
+    /// fail-stops loudly -- a recoverable failure keeps the runtime running, so
     /// without this the unsaved turn would be lost silently on the next
     /// restart/resume. The wording stays cause-agnostic: `{error}` already
     /// carries the specifics (e.g. "磁盘空间不足"/no space, permission denied).
     fn warn_turn_not_persisted(&self, error: &SessionStoreError) {
         self.persistence_status.report_auxiliary_warning(format!(
-            "this turn could not be saved ({error}); the last saved state is intact — resolve the error and retry"
+            "this turn could not be saved ({error}); the last saved state is intact -- resolve the error and retry"
         ));
     }
 
@@ -826,7 +826,7 @@ impl LifecycleHooks for SnapshotHook {
 
     /// The turn TERMINATED: persist the working-set snapshot, then read-modify-write the
     /// session meta (bump turn/message counts, append this turn's stat, stamp updated_at).
-    /// Both are best-effort — an IO failure must never panic or break the turn.
+    /// Both are best-effort -- an IO failure must never panic or break the turn.
     async fn turn_complete(&self, convo: &Conversation, reason: &StopReason, ctx: &TurnCtx) {
         let (pending, checkpoint) = {
             let mut rewind = self
@@ -868,7 +868,7 @@ impl LifecycleHooks for SnapshotHook {
         let mut snap = SessionSnapshot::from_conversation(convo);
         // `from_conversation` DERIVES the id high-water marks from stored metas; a
         // turn that died before any assistant message was stored is invisible to
-        // that derivation. We hold the authoritative live ids — stamp them so a
+        // that derivation. We hold the authoritative live ids -- stamp them so a
         // resume seeds past THIS turn even when it stored nothing.
         snap.turn_counter = snap.turn_counter.max(ctx.turn_id);
         snap.request_counter = snap.request_counter.max(ctx.request_id);
@@ -1569,7 +1569,7 @@ mod tests {
     async fn stamps_live_turn_ids_even_when_turn_stored_no_meta() {
         let (h, mgr, _d) = hook("s1");
         h.user_prompt_submit(&mut "go".to_string()).await.unwrap();
-        // The turn died before ANY assistant message was stored — the convo carries
+        // The turn died before ANY assistant message was stored -- the convo carries
         // no metas, so derive_counters alone would say 0. The live TurnCtx is
         // authoritative: a resume must seed PAST this turn.
         let ctx = TurnCtx {
@@ -1632,7 +1632,7 @@ mod tests {
         h.on_model_response(&mut resp(0, 1)).await;
         h.turn_complete(&convo_with(1), &StopReason::Stopped, &TurnCtx::default())
             .await;
-        // Corrupt the meta on disk → read_meta now returns InvalidData (NOT NotFound).
+        // Corrupt the meta on disk -> read_meta now returns InvalidData (NOT NotFound).
         std::fs::write(mgr.meta_path("s1").unwrap(), b"not valid json {{{").unwrap();
         // Turn 2 must NOT overwrite the file with a fresh (reset) meta.
         h.user_prompt_submit(&mut "more".to_string()).await.unwrap();
@@ -1644,14 +1644,14 @@ mod tests {
             raw, "not valid json {{{",
             "a non-NotFound read error must not clobber the meta"
         );
-        // The snapshot still saved fine — resume is unaffected by the meta read failure.
+        // The snapshot still saved fine -- resume is unaffected by the meta read failure.
         assert_eq!(mgr.load_snapshot("s1").unwrap().messages.len(), 2);
     }
 
     #[tokio::test]
     async fn snapshot_shrink_reindexes_and_keeps_unconverted_usage_stats() {
         let (h, mgr, _d) = hook("s1");
-        // Turn 1: a 5-message snapshot → stat at after_message=5.
+        // Turn 1: a 5-message snapshot -> stat at after_message=5.
         h.user_prompt_submit(&mut "go".to_string()).await.unwrap();
         h.on_model_response(&mut resp(0, 1)).await;
         h.turn_complete(&convo_with(5), &StopReason::Stopped, &TurnCtx::default())

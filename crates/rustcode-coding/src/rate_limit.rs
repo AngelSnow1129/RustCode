@@ -6,7 +6,7 @@
 // current CodingPlan usage windows via the blocking REST client and delegates
 // to the pure policy function `decide_from_windows`. Non-CodingPlan users and
 // any fetch failure return `None` so the kernel falls back to its built-in
-// hint-based default — no behavior change for non-CodingPlan providers.
+// hint-based default -- no behavior change for non-CodingPlan providers.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -33,7 +33,7 @@ pub struct RateLimitWindow {
 
 /// The most-constraining rolling-window request budget, used to size a single
 /// `/goal`'s round cap. Among the short rolling windows (<= 5h) with a known
-/// positive `call_limit`, pick the smallest — that is the budget a runaway goal
+/// positive `call_limit`, pick the smallest -- that is the budget a runaway goal
 /// would exhaust first. `None` when no window carries a usable limit (non-CodingPlan
 /// / offline), so the caller falls back to the flat default.
 pub fn binding_window_call_limit(windows: &[RateLimitWindow]) -> Option<i64> {
@@ -56,11 +56,11 @@ pub trait RateLimitWindowSource: Send + Sync + std::fmt::Debug {
     async fn fetch_windows(&self) -> Result<Vec<RateLimitWindow>, String>;
 }
 
-/// Skip the network entirely when the last successful fetch is younger than this —
+/// Skip the network entirely when the last successful fetch is younger than this --
 /// rapid 429 re-entries within one rate-limit incident reuse the cached windows
 /// (their absolute `reset_at` is unchanged; only the countdown is aged down).
 const CACHE_REUSE_TTL: Duration = Duration::from_secs(60);
-/// On a fetch FAILURE (status_v2 itself rejected/timed out — likely under the same
+/// On a fetch FAILURE (status_v2 itself rejected/timed out -- likely under the same
 /// gateway load that produced the 429), reuse last-good windows up to this age so the
 /// user still gets a reset time instead of the info-poor hint fallback.
 const CACHE_FALLBACK_TTL: Duration = Duration::from_secs(600);
@@ -91,7 +91,7 @@ pub fn decide_from_windows(windows: &[RateLimitWindow], hint: &RateLimitHint) ->
     // retired). Only a window the server flagged `quota_exhausted` justifies pausing on
     // its reset countdown; among those, the smallest reopens first. If NO in-range window
     // is exhausted, this 429 is transient gateway load-shedding (the plan still has quota)
-    // — defer to the hint's short retry-after backoff. We must NOT fall back to a
+    // -- defer to the hint's short retry-after backoff. We must NOT fall back to a
     // non-exhausted window's `seconds_until_reset`: a 5h ROLLING window's countdown is
     // large at almost all times regardless of remaining quota, so pausing on it would
     // misreport a transient 429 (e.g. usage 2%) as "5-hour window exhausted" for ~5h.
@@ -121,7 +121,7 @@ pub fn decide_from_windows(windows: &[RateLimitWindow], hint: &RateLimitHint) ->
 /// so the kernel falls back to its hint-based default (no behavior change).
 ///
 /// Holds a small last-good cache so consecutive WaitAndRetry re-entries don't each
-/// re-hit the gateway (which is already shedding load — that's why we got a 429),
+/// re-hit the gateway (which is already shedding load -- that's why we got a 429),
 /// and so a transient `status_v2` failure degrades to a slightly-aged reset time
 /// rather than losing the reset info entirely.
 pub struct RateLimitHook {
@@ -187,7 +187,7 @@ impl Default for RateLimitHook {
     }
 }
 
-/// Map a window set to a decision; empty windows (non-CodingPlan) → None so the
+/// Map a window set to a decision; empty windows (non-CodingPlan) -> None so the
 /// kernel uses its own hint default.
 fn decide_or_none(windows: &[RateLimitWindow], hint: &RateLimitHint) -> Option<RateLimitDecision> {
     (!windows.is_empty()).then(|| decide_from_windows(windows, hint))
@@ -212,14 +212,14 @@ impl LifecycleHooks for RateLimitHook {
         }
         // Only a 429 FROM the CodingPlan gateway carries a CodingPlan quota meaning.
         // A 429 from a user's own external model/endpoint must NOT be dressed up as a
-        // CodingPlan window exhaustion — bail before any status_v2 fetch so the kernel
+        // CodingPlan window exhaustion -- bail before any status_v2 fetch so the kernel
         // uses its generic hint-based default (mirrors codex/opencode: plan-quota
         // messaging is gated to the platform's own endpoint, everything else generic).
         let source = self.source.as_ref()?;
         if !source.applies_to(&self.base_url) {
             return None;
         }
-        // 1. Recent successful fetch → reuse without touching the network.
+        // 1. Recent successful fetch -> reuse without touching the network.
         if let Some(w) = self.cached_within(CACHE_REUSE_TTL) {
             return decide_or_none(&w, hint);
         }
@@ -272,7 +272,7 @@ mod tests {
     async fn external_provider_429_returns_none_without_fetch() {
         // A user's own external endpoint: the hook must bail BEFORE any status_v2
         // fetch (no network in this test) and return None so the kernel shows a
-        // generic rate-limit message — not a bogus "CodingPlan quota exhausted".
+        // generic rate-limit message -- not a bogus "CodingPlan quota exhausted".
         let hook = RateLimitHook::new("https://api.openai.com/v1".to_string());
         let hint = RateLimitHint {
             http_status: Some(429),
@@ -367,7 +367,7 @@ mod tests {
             binding_window_call_limit(&[win_limit(18000, 1000)]),
             Some(1000)
         );
-        // Two rolling windows (1000 and a looser 16000) → the tighter 1000 is what a
+        // Two rolling windows (1000 and a looser 16000) -> the tighter 1000 is what a
         // runaway goal exhausts first.
         assert_eq!(
             binding_window_call_limit(&[win_limit(18000, 16000), win_limit(18000, 1000)]),
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn binding_call_limit_is_none_without_a_usable_window() {
         // No windows (non-CodingPlan / offline), a zero/negative limit, and a window
-        // longer than the 5h rolling band all yield None → caller uses the flat default.
+        // longer than the 5h rolling band all yield None -> caller uses the flat default.
         assert_eq!(binding_window_call_limit(&[]), None);
         assert_eq!(binding_window_call_limit(&[win_limit(18000, 0)]), None);
         assert_eq!(
@@ -423,7 +423,7 @@ mod tests {
 
     #[test]
     fn no_exhausted_window_defers_to_hint_not_window_reset() {
-        // No window is over quota → the 429 is transient gateway load-shedding, not a
+        // No window is over quota -> the 429 is transient gateway load-shedding, not a
         // plan-quota exhaustion. Must use the hint's short retry-after backoff, NOT pause
         // on a healthy window's natural reset countdown (the old fallback that misreported
         // a transient 429 as "5-hour window exhausted").

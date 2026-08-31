@@ -1,5 +1,5 @@
 //! Repository endpoints. Paths/bodies mirror `ag-cli` (pkg/cmd/repo). `clone` is NOT
-//! here — it is a local `git` operation handled by the tool, not an API call.
+//! here -- it is a local `git` operation handled by the tool, not an API call.
 
 use serde_json::json;
 
@@ -7,7 +7,7 @@ use super::client::AtomgitClient;
 use super::models::{Repo, Tag};
 
 impl AtomgitClient {
-    /// `GET /user/repos` — the caller's repos. `limit` truncates client-side
+    /// `GET /user/repos` -- the caller's repos. `limit` truncates client-side
     /// (AtomGit returns a server-paginated list; we cap what we show the model).
     pub async fn repo_list(&self, limit: usize) -> Result<Vec<Repo>, String> {
         let mut repos: Vec<Repo> = self.get_json("/user/repos", &[]).await?;
@@ -20,8 +20,8 @@ impl AtomgitClient {
         self.get_json(&format!("/repos/{owner}/{repo}"), &[]).await
     }
 
-    /// Create a repo. `owner == None` → personal (`POST /user/repos`); `owner == Some`
-    /// → org (`POST /orgs/{owner}/repos`). Mirrors ag-cli's user-vs-org branch.
+    /// Create a repo. `owner == None` -> personal (`POST /user/repos`); `owner == Some`
+    /// -> org (`POST /orgs/{owner}/repos`). Mirrors ag-cli's user-vs-org branch.
     pub async fn repo_create(
         &self,
         owner: Option<&str>,
@@ -62,7 +62,7 @@ impl AtomgitClient {
             .await
     }
 
-    /// `POST /repos/{owner}/{repo}/tags` — create a tag. `refs` is the start point
+    /// `POST /repos/{owner}/{repo}/tags` -- create a tag. `refs` is the start point
     /// (branch/commit/tag, AtomGit defaults to `main`), `tag_name` is the new tag, and
     /// `message` is the optional tag description.
     pub async fn repo_create_tag(
@@ -81,7 +81,7 @@ impl AtomgitClient {
     /// Read the repo's `project_labels`.
     ///
     /// `Ok(None)` means the GET response carried **no `project_labels` key at
-    /// all** — the caller must NOT treat that as "no labels": the field may live
+    /// all** -- the caller must NOT treat that as "no labels": the field may live
     /// under a name we don't read, and a full-replace PATCH would then wipe the
     /// real labels. `Ok(Some(vec![]))` means the key was present and genuinely
     /// empty (safe to add to). We inspect the raw JSON here rather than the
@@ -105,7 +105,7 @@ impl AtomgitClient {
     /// labels as `project_labels` (see [`repo_labels`]), but the repo-edit PATCH only
     /// accepts them under `tags` (`string[]`). Sending `project_labels` on the PATCH is
     /// rejected with `400 "... at least one parameter must be provided"` because it is
-    /// not a recognized write parameter — so we WRITE `tags` while we READ `project_labels`.
+    /// not a recognized write parameter -- so we WRITE `tags` while we READ `project_labels`.
     pub async fn repo_set_labels(
         &self,
         owner: &str,
@@ -128,7 +128,7 @@ impl AtomgitClient {
         label: &str,
     ) -> Result<bool, String> {
         // Guard: if the GET response has no `project_labels` field, we cannot
-        // confirm the current labels. Refuse to PATCH — a full-replace with just
+        // confirm the current labels. Refuse to PATCH -- a full-replace with just
         // our label would clobber labels stored under a field we don't read.
         let mut labels = self.repo_labels(owner, repo).await?.ok_or_else(|| {
             format!(
@@ -316,7 +316,7 @@ mod label_tests {
     #[tokio::test]
     async fn ensure_label_skips_patch_when_field_absent() {
         let server = MockServer::start().await;
-        // GET response omits `project_labels` entirely — we can't confirm state.
+        // GET response omits `project_labels` entirely -- we can't confirm state.
         Mock::given(method("GET"))
             .and(path("/api/v5/repos/acme/widget"))
             .respond_with(
@@ -346,7 +346,7 @@ mod label_tests {
     #[tokio::test]
     async fn ensure_label_adds_when_present_but_empty() {
         let server = MockServer::start().await;
-        // Field present and genuinely empty ([] or null) → confirmed empty, safe to add.
+        // Field present and genuinely empty ([] or null) -> confirmed empty, safe to add.
         Mock::given(method("GET"))
             .and(path("/api/v5/repos/acme/widget"))
             .respond_with(
@@ -387,7 +387,7 @@ mod label_tests {
             )
             .mount(&server)
             .await;
-        // No PATCH mounted → a PATCH would 404 and fail the test.
+        // No PATCH mounted -> a PATCH would 404 and fail the test.
         let c = client(&server);
         let added = c
             .repo_ensure_label("acme", "widget", "rustcode")

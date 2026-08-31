@@ -97,7 +97,7 @@ pub fn signer_available() -> bool {
     false
 }
 
-pub fn is_atomgit_gateway(base_url: &str) -> bool {
+pub fn is_codingplan_gateway(base_url: &str) -> bool {
     rustcode_config::endpoints::is_codingplan_llm_gateway(base_url)
 }
 
@@ -136,24 +136,18 @@ mod tests {
 
     #[test]
     fn gateway_matching_is_host_based() {
+        // Platform-neutral: no host is a gateway by default. Every URL is
+        // external (plain bearer auth) until an operator explicitly configures
+        // RUSTCODE_CODINGPLAN_LLM_BASE_URL.
         for url in [
             "https://llm-api.atomgit.com/v1",
             "https://pre-llm-api-cce.atomgit.com/v1/chat/completions",
             "https://api-ai.gitcode.com/v1",
-        ] {
-            assert!(is_atomgit_gateway(url), "expected gateway: {url}");
-        }
-        for url in [
             "https://api.openai.com/v1",
             "http://llm-api.atomgit.com/v1",
-            "http://pre-llm-api-cce.atomgit.com/v1",
-            "http://api-ai.gitcode.com/v1",
-            "https://pre-llm-api-cce.atomgit.com.evil.example",
-            "https://evil.pre-llm-api-cce.atomgit.com",
-            "ftp://pre-llm-api-cce.atomgit.com",
             "not a url",
         ] {
-            assert!(!is_atomgit_gateway(url), "expected external: {url}");
+            assert!(!is_codingplan_gateway(url), "expected external: {url}");
         }
     }
 

@@ -1,4 +1,4 @@
-//! `blast_radius` — estimate the impact of changing a file: direct + indirect
+//! `blast_radius` -- estimate the impact of changing a file: direct + indirect
 //! dependent files + total. `Safe`.
 
 use super::index::CodeIndex;

@@ -34,7 +34,7 @@ pub fn find_git() -> Result<PathBuf> {
         );
     }
 
-    // 1. Default PATH resolution — works on most Linux systems and in
+    // 1. Default PATH resolution -- works on most Linux systems and in
     //    terminal-launched sessions where git is already on PATH.
     if let Ok(path) = which_git("git") {
         return Ok(path);
@@ -50,7 +50,7 @@ pub fn find_git() -> Result<PathBuf> {
     //    install"). An `exists()`-only check treated that stub as a working
     //    git, so the early GitNotFound guard was skipped and the later
     //    `git clone` dumped a red, crash-looking error on fresh installs.
-    //    Probing `--version` rejects the stub → callers fall through to the
+    //    Probing `--version` rejects the stub -> callers fall through to the
     //    friendly "install git (`xcode-select --install`)" hint.
     let candidates: &[&str] = &[
         "/usr/bin/git",          // macOS system (Xcode CLI tools)
@@ -278,13 +278,13 @@ pub(super) fn resolve_marketplace_identity(
 ///
 /// RustCode runs marketplace `git clone`/`pull` from inside the TUI, which
 /// holds the terminal in raw mode. For a private HTTPS remote, git would
-/// otherwise open `/dev/tty` directly and block on `Username for 'https://…':`
-/// — the same tty the TUI is reading, so keystrokes never reach git and the
+/// otherwise open `/dev/tty` directly and block on `Username for 'https://...':`
+/// -- the same tty the TUI is reading, so keystrokes never reach git and the
 /// whole UI deadlocks (even Ctrl-C barely works). `GIT_TERMINAL_PROMPT=0` makes
 /// git fail fast with a clear error instead; the GCM / SSH-BatchMode guards do
 /// the same for those transports, and stdin is closed as defense in depth.
 /// A real credential helper or stored PAT still authenticates non-interactively
-/// — only the blocking interactive fallback is disabled.
+/// -- only the blocking interactive fallback is disabled.
 pub(super) fn git_command(git: &Path) -> Command {
     let mut cmd = Command::new(git);
     cmd.env("GIT_TERMINAL_PROMPT", "0")
@@ -325,7 +325,7 @@ fn live_credentials() -> Option<(String, String)> {
 /// If `url` is a trusted-host repo and we're logged in, return the
 /// `["-c", "http.<host>.extraHeader=Authorization: Basic ..."]` args to inject
 /// on an authenticated clone/pull retry. Centralizes host-gate + cred fetch +
-/// per-URL scoping. None → caller must NOT inject the token.
+/// per-URL scoping. None -> caller must NOT inject the token.
 pub(super) fn auth_retry_args(url: &str) -> Option<[String; 2]> {
     if !super::url::host_is_trusted(url) {
         return None;
@@ -335,26 +335,26 @@ pub(super) fn auth_retry_args(url: &str) -> Option<[String; 2]> {
     Some(["-c".to_string(), extra_header_config(url, &header)])
 }
 
-/// Run `git clone …` built by `add_args`, anonymously first. If it fails with
+/// Run `git clone ...` built by `add_args`, anonymously first. If it fails with
 /// an auth error on a trusted-host repo while logged in, wipe the partial
 /// `target` and retry once with the per-URL auth header injected. `add_args`
-/// must append the full `clone … <url> <target>` arguments and is called fresh
+/// must append the full `clone ... <url> <target>` arguments and is called fresh
 /// per attempt. `target` is passed so the failed-attempt dir can be removed
 /// before the authenticated retry (git refuses to clone into a non-empty dir).
 /// User-facing error when an auth failure could NOT be resolved automatically
 /// (no credential was injected). Tailors the hint to the cause so a logged-in
 /// user with a dead token isn't told "just log in" as if they hadn't:
-/// - untrusted host → SSH / configure git creds (the platform token is never
+/// - untrusted host -> SSH / configure git creds (the platform token is never
 ///   sent to non-allowlisted hosts, so /login wouldn't help);
-/// - trusted host + a stored login present (token expired AND refresh failed) →
+/// - trusted host + a stored login present (token expired AND refresh failed) ->
 ///   re-login;
-/// - trusted host + not logged in → /login (auto-creds) or SSH.
+/// - trusted host + not logged in -> /login (auto-creds) or SSH.
 /// `verb` is 克隆 / 更新. Shared by clone + pull so the wording can't drift.
 fn auth_required_message(verb: &str, url: &str, stderr: &str) -> String {
     let stderr = stderr.trim();
     if !super::url::host_is_trusted(url) {
         return format!(
-            "{verb}失败：该仓库需要认证（私有仓库）。请改用 SSH 地址（git@…）\
+            "{verb}失败：该仓库需要认证（私有仓库）。请改用 SSH 地址（git@...）\
              或先用 git 配置好凭证后重试。\n原始错误：{stderr}"
         );
     }
@@ -365,7 +365,7 @@ fn auth_required_message(verb: &str, url: &str, stderr: &str) -> String {
     } else {
         format!(
             "{verb}失败：该私有仓库需要认证。请先 /login 登录\
-             （gitcode.com / atomgit.com 登录后可自动使用凭证），或改用 SSH 地址（git@…）。\
+             （配置了凭证后可自动使用），或改用 SSH 地址（git@...）。\
              \n原始错误：{stderr}"
         )
     }
@@ -579,7 +579,7 @@ mod tests {
 
         // Present-but-nonfunctional stub (mirrors macOS `/usr/bin/git` with no
         // Xcode CLT: the file exists but every invocation exits non-zero). It
-        // must NOT be treated as a working git — otherwise the GitNotFound hint
+        // must NOT be treated as a working git -- otherwise the GitNotFound hint
         // is skipped and a later `git clone` dumps a red xcode-select error.
         let stub = dir.path().join("git-stub");
         write!(
@@ -650,7 +650,7 @@ mod tests {
     #[test]
     fn git_command_runs_noninteractively() {
         // The whole point of git_command: git must never open the tty for a
-        // credential prompt — that deadlocks the raw-mode TUI (the private-repo
+        // credential prompt -- that deadlocks the raw-mode TUI (the private-repo
         // `/plugin marketplace add` freeze). Verify the guard env is present on
         // every git invocation we build.
         let cmd = git_command(Path::new("git"));
@@ -675,7 +675,7 @@ mod tests {
         assert!(is_git_auth_failure(
             "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://x/y'"
         ));
-        // Plain not-found / network errors are NOT auth failures — they must
+        // Plain not-found / network errors are NOT auth failures -- they must
         // keep their original message, not the credentials hint.
         assert!(!is_git_auth_failure(
             "fatal: repository 'https://x/y' not found"
@@ -709,7 +709,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn auth_retry_args_none_when_untrusted_host() {
-        // github.com 非白名单 → 永不注入 token，即使已登录
+        // github.com 非白名单 -> 永不注入 token，即使已登录
         assert!(auth_retry_args("https://github.com/owner/repo").is_none());
     }
 
@@ -724,7 +724,7 @@ mod tests {
     #[serial_test::serial]
     fn auth_required_message_untrusted_host_suggests_ssh_not_login() {
         // Platform token is never sent to non-allowlisted hosts, so /login
-        // wouldn't help — guide to SSH/creds instead.
+        // wouldn't help -- guide to SSH/creds instead.
         let m = auth_required_message("克隆", "https://github.com/o/r", "fatal: auth");
         assert!(m.contains("SSH"), "got: {m}");
         assert!(
@@ -738,7 +738,7 @@ mod tests {
     fn auth_required_message_trusted_not_logged_in_suggests_login() {
         let _home = isolated_home(); // no auth.toml under the temp RUSTCODE_HOME
         let Some(domain) = rustcode_config::endpoints::trusted_domains().first() else {
-            return; // no trusted domain configured — this branch is unreachable
+            return; // no trusted domain configured -- this branch is unreachable
         };
         let url = format!("https://{domain}/o/r");
         let m = auth_required_message("克隆", &url, "fatal: auth");
@@ -752,7 +752,7 @@ mod tests {
     #[serial_test::serial]
     fn auth_required_message_trusted_logged_in_says_session_expired() {
         // Logged in (auth.toml present) but no usable token (expired + refresh
-        // failed) → must say the session expired, not "just log in" as if the
+        // failed) -> must say the session expired, not "just log in" as if the
         // user never had. RUSTCODE_HOME is isolated, so this writes to a
         // tempdir, never the real ~/.rustcode/auth.toml.
         let _home = isolated_home();
@@ -764,7 +764,7 @@ mod tests {
         )
         .unwrap();
         let Some(domain) = rustcode_config::endpoints::trusted_domains().first() else {
-            return; // no trusted domain configured — this branch is unreachable
+            return; // no trusted domain configured -- this branch is unreachable
         };
         let url = format!("https://{domain}/o/r");
         let m = auth_required_message("更新", &url, "fatal: auth");
@@ -777,13 +777,13 @@ mod tests {
     #[test]
     fn injected_auth_header_is_not_persisted_to_git_config() {
         // Security invariant lock: we inject the credential via a TOP-LEVEL
-        // `git -c <cfg> clone …` (one-shot, NOT written to the new repo), never
-        // the clone-option form `git clone -c <cfg> …` (which git PERSISTS into
-        // the cloned `.git/config` — a plaintext-token-on-disk leak). Verified
+        // `git -c <cfg> clone ...` (one-shot, NOT written to the new repo), never
+        // the clone-option form `git clone -c <cfg> ...` (which git PERSISTS into
+        // the cloned `.git/config` -- a plaintext-token-on-disk leak). Verified
         // empirically 2026-06-17 that the two forms differ; this test fails if
         // the arg order ever regresses to the persisting form.
         let Ok(git) = find_git() else {
-            return; // no git on this machine — skip
+            return; // no git on this machine -- skip
         };
         let src = make_bare_repo_with_manifest("persist-src", None);
         let dst = tempfile::tempdir().unwrap();
@@ -791,7 +791,7 @@ mod tests {
         let header = basic_auth_header("alice", "tok-SECRET-123");
         let cfg = extra_header_config("https://gitcode.com/o/r", &header);
         // EXACT arg order produced by clone_with_optional_auth's run(Some(..)):
-        // git_command base, then `-c <cfg>`, then the `clone …` args.
+        // git_command base, then `-c <cfg>`, then the `clone ...` args.
         let status = git_command(&git)
             .args(["-c", &cfg, "clone", "--depth", "1"])
             .arg(&src)

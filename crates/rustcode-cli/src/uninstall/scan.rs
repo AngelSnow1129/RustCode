@@ -37,7 +37,7 @@ pub fn scan(binary_path: &Path, rustcode_dir: &Path) -> Result<Plan> {
         }
 
         // Named by `rustcode-config::distribution`, the same source
-        // `rustcode-updater` creates them from — a rename there used to leave
+        // `rustcode-updater` creates them from -- a rename there used to leave
         // this sweep quietly matching nothing.
         use rustcode_config::distribution as dist;
         for (name, note) in [
@@ -134,7 +134,7 @@ fn needs_privilege_to_remove(p: &Path) -> bool {
     };
     let c_path = match std::ffi::CString::new(parent.as_os_str().as_bytes()) {
         Ok(s) => s,
-        Err(_) => return true, // path contains an interior NUL — treat conservatively
+        Err(_) => return true, // path contains an interior NUL -- treat conservatively
     };
     // SAFETY: access(2) reads from c_path, which is a valid CString; no allocations.
     unsafe { libc::access(c_path.as_ptr(), libc::W_OK) != 0 }

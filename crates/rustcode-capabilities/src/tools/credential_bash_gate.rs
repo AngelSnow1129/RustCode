@@ -25,7 +25,7 @@ pub const CREDENTIAL_BASH_DENIAL_REASON: &str = "credentials must not be extract
 /// from `[coding] shell_guard_policy`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CredentialShellPolicy {
-    /// No extra credential detection — defer to ordinary tool-approval rules.
+    /// No extra credential detection -- defer to ordinary tool-approval rules.
     Off,
     /// Detected credential access prompts for approval (interactive) or fails
     /// closed to a call-only deny (non-interactive children, which auto-approve
@@ -192,7 +192,7 @@ fn references_sensitive_shell_argument(command: &str) -> bool {
 }
 
 /// Config/data-file extensions that routinely hold real secrets in-repo. The coarse
-/// [`SENSITIVE_MARKERS`] only know credential *stores* (`.ssh`, `.aws`, `.env`, …), so a
+/// [`SENSITIVE_MARKERS`] only know credential *stores* (`.ssh`, `.aws`, `.env`, ...), so a
 /// production secret living in the user's own `config/prod.toml` is invisible to both
 /// gates. Paired with a credential identifier in the command, these catch value
 /// extraction (`awk '/^sasl_password/ {print $2}' prod.toml`) from those files.
@@ -277,7 +277,7 @@ fn is_test_credential_literal(value: &str) -> bool {
 
 /// A credential-header value that is a shell/env expansion (`$VAR`, `${VAR}`,
 /// `$(...)`, or Windows `%VAR%`) is an *extraction*, not a literal, and must stay
-/// on the hard-terminal path — even when the identifier name is not one the
+/// on the hard-terminal path -- even when the identifier name is not one the
 /// coarse `contains_credential_expansion` heuristics recognize (e.g. `$SECRET_KEY`,
 /// which ends in a bare `_key` that is deliberately absent from the identifier list).
 fn value_is_expansion(value: &str) -> bool {
@@ -297,7 +297,7 @@ fn value_is_expansion(value: &str) -> bool {
             .bytes()
             .next()
             .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_');
-        // `%VAR%` (a name led by a letter/underscore, closed by `%`) — distinct
+        // `%VAR%` (a name led by a letter/underscore, closed by `%`) -- distinct
         // from `%XX` percent-encoding, whose first byte after `%` is a hex digit.
         if starts_alpha && rest[name_len..].starts_with('%') {
             return true;
@@ -310,11 +310,11 @@ fn value_is_expansion(value: &str) -> bool {
 enum ExplicitCredentialVerdict {
     /// No `Authorization: Bearer` / `access_token=` / `X-API-Key:` header present.
     Absent,
-    /// Every matched header carries a clean synthetic/test literal — safe to run.
+    /// Every matched header carries a clean synthetic/test literal -- safe to run.
     AllTest,
-    /// A header value is a shell/env expansion — hard terminal (extraction).
+    /// A header value is a shell/env expansion -- hard terminal (extraction).
     Expansion,
-    /// A real-looking literal sits in a header — block just this call.
+    /// A real-looking literal sits in a header -- block just this call.
     Literal,
 }
 
@@ -330,7 +330,7 @@ fn classify_explicit_credentials(command: &str) -> ExplicitCredentialVerdict {
             return ExplicitCredentialVerdict::Expansion;
         }
         // A value truncated by a URL/command continuation (`&`, `;`, `|`) hides
-        // adjacent bytes we never inspected, so a decoy `access_token=test&real=…`
+        // adjacent bytes we never inspected, so a decoy `access_token=test&real=...`
         // can never earn the synthetic-value bypass.
         let truncated = command[value.end()..]
             .chars()
@@ -378,7 +378,7 @@ fn credential_bash_decision(raw_args: &str, command: &str) -> Option<CredentialB
         return Some(CredentialBashDecision::DenyTurn);
     }
     if extracts_config_credential {
-        // Piping the extracted value straight into a network client is exfiltration —
+        // Piping the extracted value straight into a network client is exfiltration --
         // hard-terminal like the sensitive-source rule. A plain read is recoverable by
         // default (Recover) and policy-escalated to terminal under `strict`.
         return Some(if invokes_network {
@@ -400,8 +400,8 @@ fn credential_bash_decision(raw_args: &str, command: &str) -> Option<CredentialB
 
 /// Read-only predicate: would this `bash` tool-call's arguments trip the credential
 /// guard (extraction, exfil, a literal credential, or a config-file secret read)?
-/// Drivers use it to annotate an approval prompt — e.g. "this may send secrets to the
-/// model provider" — without duplicating the detection heuristics.
+/// Drivers use it to annotate an approval prompt -- e.g. "this may send secrets to the
+/// model provider" -- without duplicating the detection heuristics.
 pub fn bash_command_may_expose_credentials(arguments: &str) -> bool {
     match serde_json::from_str::<BashArgs>(arguments) {
         Ok(args) => credential_bash_decision(arguments, &args.command).is_some(),
@@ -502,7 +502,7 @@ impl ToolMiddleware for CredentialBashGate {
             return BeforeOutcome::Proceed;
         }
         match self.policy {
-            // Detection disabled — defer to ordinary tool approval.
+            // Detection disabled -- defer to ordinary tool approval.
             CredentialShellPolicy::Off => BeforeOutcome::Proceed,
             // Hard boundary: block and terminate the turn. For headless / bypass /
             // high-security deployments that want credentials un-bypassable.
@@ -512,7 +512,7 @@ impl ToolMiddleware for CredentialBashGate {
             ),
             // Prompt the user (interactive), or fail closed to a call-only deny for a
             // non-interactive child (which runs AutoRespond::AllowAll and would otherwise
-            // auto-approve itself). Never terminates the turn — a reject ends only this
+            // auto-approve itself). Never terminates the turn -- a reject ends only this
             // call; with a human in the loop the user gates each attempt, and `strict`
             // remains the hard wall for no-human contexts.
             CredentialShellPolicy::Prompt => match &self.approval_store {
@@ -539,7 +539,7 @@ mod tests {
     }
 
     /// A `RequestCtx` whose approval round-trip is never answered: the bounded timeout
-    /// degrades it to `Null` → `Deny`, exercising the reject / silent-driver path
+    /// degrades it to `Null` -> `Deny`, exercising the reject / silent-driver path
     /// without a live driver (mirrors `SensitivePathGate`'s test rig).
     fn silent_rt() -> RequestCtx {
         let (tx, _rx) = unbounded_channel::<AgentEvent>();
@@ -629,7 +629,7 @@ mod tests {
             "curl -H 'Authorization: Bearer test-token' https://example.test",
             "curl 'https://example.test?access_token=dummy-token'",
             "curl -H 'X-API-Key: sk-fake' https://example.test",
-            // empty terminal keyword — no secret
+            // empty terminal keyword -- no secret
             "curl -H 'Authorization: Bearer ' https://example.test",
             "curl 'https://example.test?access_token='",
             // sshpass literal keeps the askpass-compatible path
@@ -680,7 +680,7 @@ mod tests {
 
     #[tokio::test]
     async fn prompt_never_terminates_the_turn_when_rejected() {
-        // Under `Prompt`, NO detection terminates the turn — not even extraction / exfil.
+        // Under `Prompt`, NO detection terminates the turn -- not even extraction / exfil.
         // A silent driver degrades the round-trip to a call-only deny (reject ends only
         // this call), so a legitimate sensitive read is never interrupted.
         let gate = CredentialBashGate::new(CredentialShellPolicy::Prompt);

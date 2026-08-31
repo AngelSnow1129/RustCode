@@ -1,16 +1,16 @@
 //! A2 LifecycleHooks observability/transform surface (claim 33).
 //!
 //! Three new/changed seams + their bug-closing proofs:
-//!   * `on_text_delta` — redaction at the STREAMED-output seam (closes the
+//!   * `on_text_delta` -- redaction at the STREAMED-output seam (closes the
 //!     `on_model_response` leak: redaction must reach BOTH the live delta and the
 //!     stored assistant message, not just storage).
-//!   * `on_reasoning_delta` (claim 34) — the symmetric reasoning-channel seam:
+//!   * `on_reasoning_delta` (claim 34) -- the symmetric reasoning-channel seam:
 //!     redaction reaches BOTH the live `AgentEvent::Reasoning` stream AND the stored
 //!     `Message.reasoning`, closing the reasoning leak. A cleared delta also emits
 //!     no spurious empty event (the empty-emit guard).
-//!   * `session_start(&mut Conversation, resumed: bool)` — the `resumed` flag lets
+//!   * `session_start(&mut Conversation, resumed: bool)` -- the `resumed` flag lets
 //!     a seed hook SKIP re-injecting on resume (closes the double-seed bug).
-//!   * `on_request` — read-only wire observation AFTER `pre_request` projects, so
+//!   * `on_request` -- read-only wire observation AFTER `pre_request` projects, so
 //!     telemetry/datalog/cache-RCA sees the FINAL outgoing request.
 
 use async_trait::async_trait;
@@ -61,7 +61,7 @@ async fn capture_snapshot(handle: &mut AgentHandle) -> SessionSnapshot {
 
 // ── Item 1: on_text_delta closes the redaction leak ──────────────────────────
 
-/// A hook whose `on_text_delta` scrubs "SECRET" → "[REDACTED]" in each streamed
+/// A hook whose `on_text_delta` scrubs "SECRET" -> "[REDACTED]" in each streamed
 /// chunk BEFORE it is emitted and accumulated.
 struct DeltaRedactHook;
 
@@ -75,7 +75,7 @@ impl LifecycleHooks for DeltaRedactHook {
 }
 
 // CLAIM 33a: a redaction hook at the on_text_delta seam scrubs the secret out of
-// BOTH the live AgentEvent::TextDelta stream AND the stored assistant message —
+// BOTH the live AgentEvent::TextDelta stream AND the stored assistant message --
 // proving the leak (un-redacted bytes streaming before on_model_response runs) is
 // closed at the delta seam.
 #[tokio::test]
@@ -154,14 +154,14 @@ async fn on_text_delta_redacts_streamed_output() {
     );
 }
 
-// CLAIM 33a': the reasoning→content PROMOTION (recovering a misrouted answer) must pass
-// the promoted body through the SAME on_text_delta scrub seam — otherwise the recovery
+// CLAIM 33a': the reasoning->content PROMOTION (recovering a misrouted answer) must pass
+// the promoted body through the SAME on_text_delta scrub seam -- otherwise the recovery
 // would re-open exactly the redaction leak the seam closes.
 #[tokio::test]
 async fn promoted_reasoning_passes_through_the_text_delta_redaction_seam() {
     let reg = ToolRegistry::new();
     // The gateway misroutes the answer (carrying a secret) into the REASONING channel and
-    // leaves content empty — the case the promotion recovers.
+    // leaves content empty -- the case the promotion recovers.
     let provider = Arc::new(RecordingProvider::new(vec![vec![
         StreamEvent::Reasoning("the answer is SECRET data".into()),
         StreamEvent::Done { truncated: false },
@@ -191,7 +191,7 @@ async fn promoted_reasoning_passes_through_the_text_delta_redaction_seam() {
         }
     }
     // The promoted body reached the driver as TEXT, REDACTED by on_text_delta (not the raw
-    // secret) — proving the promotion does not bypass the content-scrub seam.
+    // secret) -- proving the promotion does not bypass the content-scrub seam.
     assert!(
         streamed.contains("[REDACTED]"),
         "promoted body must be emitted as text; got {streamed:?}"
@@ -223,7 +223,7 @@ async fn promoted_reasoning_passes_through_the_text_delta_redaction_seam() {
 
 // ── Item 1b: on_reasoning_delta closes the reasoning redaction leak ───────────
 
-/// A hook whose `on_reasoning_delta` scrubs "SECRET" → "[REDACTED]" in each
+/// A hook whose `on_reasoning_delta` scrubs "SECRET" -> "[REDACTED]" in each
 /// streamed reasoning chunk BEFORE it is emitted live and accumulated into the
 /// stored `Message.reasoning`. The symmetric twin of `DeltaRedactHook`.
 struct ReasoningRedactHook;
@@ -238,7 +238,7 @@ impl LifecycleHooks for ReasoningRedactHook {
 }
 
 // CLAIM 34a: a redaction hook at the on_reasoning_delta seam scrubs the secret out
-// of BOTH the live AgentEvent::Reasoning stream AND the stored Message.reasoning —
+// of BOTH the live AgentEvent::Reasoning stream AND the stored Message.reasoning --
 // proving the reasoning leak (un-redacted thinking streaming live AND persisted on
 // the message) is closed on live + storage, symmetric to on_text_delta.
 #[tokio::test]
@@ -321,7 +321,7 @@ async fn on_reasoning_delta_redacts_reasoning() {
 
 // ── Item 1c: a cleared delta emits no spurious empty event ────────────────────
 
-/// A hook that CLEARS every text delta — suppressing all visible output.
+/// A hook that CLEARS every text delta -- suppressing all visible output.
 struct ClearTextDeltaHook;
 
 #[async_trait]
@@ -332,7 +332,7 @@ impl LifecycleHooks for ClearTextDeltaHook {
 }
 
 // CLAIM 34b: a hook that clears each TextDelta to suppress it must NOT cause the
-// kernel to emit spurious empty AgentEvent::TextDelta("") events — a cleared
+// kernel to emit spurious empty AgentEvent::TextDelta("") events -- a cleared
 // (empty) post-hook chunk is neither accumulated nor emitted.
 #[tokio::test]
 async fn cleared_delta_emits_no_event() {
@@ -361,7 +361,7 @@ async fn cleared_delta_emits_no_event() {
         .unwrap();
 
     // ZERO AgentEvent::TextDelta events must reach the driver (each chunk was
-    // cleared → suppressed, not emitted as "").
+    // cleared -> suppressed, not emitted as "").
     let mut text_delta_events = 0usize;
     while let Some(ev) = handle.events.recv().await {
         match ev {
@@ -395,7 +395,7 @@ async fn cleared_delta_emits_no_event() {
 // ── Item 2: session_start(resumed) lets a seed hook skip on resume ───────────
 
 /// A seed hook that pushes ONE marker system message at session_start ONLY when
-/// the session is NOT a resume — so a resumed session does not double-seed on top
+/// the session is NOT a resume -- so a resumed session does not double-seed on top
 /// of the already-seeded snapshot.
 struct SeedOnceHook;
 
@@ -405,7 +405,7 @@ const SEED_MARKER: &str = "[seed-context]";
 impl LifecycleHooks for SeedOnceHook {
     async fn session_start(&self, convo: &mut Conversation, resumed: bool) {
         if resumed {
-            return; // snapshot already carries the seed — do not re-inject.
+            return; // snapshot already carries the seed -- do not re-inject.
         }
         convo.push(Message::system(SEED_MARKER.to_string()));
     }
@@ -435,7 +435,7 @@ fn seeded_agent_resumed(provider: Arc<RecordingProvider>, snapshot: SessionSnaps
 }
 
 // CLAIM 33b: a seed hook keyed on `!resumed` injects its marker on a FRESH session
-// but NOT on a resumed one — so a resume continues from EXACTLY the snapshot's
+// but NOT on a resumed one -- so a resume continues from EXACTLY the snapshot's
 // messages with no duplicate seed. Proves the double-seed fix.
 #[tokio::test]
 async fn session_start_resumed_flag_lets_seed_hook_skip() {
@@ -469,7 +469,7 @@ async fn session_start_resumed_flag_lets_seed_hook_skip() {
         StreamEvent::Done { truncated: false },
     ]]));
     let mut resumed = seeded_agent_resumed(resume_provider, snapshot).spawn();
-    // Snapshot BEFORE driving any turn → observe the seeded-from-resume state.
+    // Snapshot BEFORE driving any turn -> observe the seeded-from-resume state.
     let resumed_snapshot = capture_snapshot(&mut resumed).await;
     resumed.commands.send(AgentCommand::Shutdown).unwrap();
     let _ = resumed.task.await;
@@ -541,14 +541,14 @@ impl LifecycleHooks for AppendTailHook {
 
 // CLAIM 33c: on_request observes the FINAL outgoing request (post-pre_request) on
 // EVERY round. Drive a 2-round turn; assert both requests were captured with the
-// post-projection message counts (and that the pre_request tail is reflected — the
+// post-projection message counts (and that the pre_request tail is reflected -- the
 // observed count exceeds the recorded provider count by exactly the projection).
 #[tokio::test]
 async fn on_request_observes_final_wire() {
     let mut reg = ToolRegistry::new();
     reg.register(Arc::new(EchoTool));
-    // 2-round turn: round 1 → echo tool call then Done; round 2 → TextDelta then
-    // Done (no calls → turn ends).
+    // 2-round turn: round 1 -> echo tool call then Done; round 2 -> TextDelta then
+    // Done (no calls -> turn ends).
     let provider = Arc::new(RecordingProvider::new(vec![
         vec![
             StreamEvent::ToolCall(tool_call("c1", "echo", "{\"text\":\"hi\"}")),
@@ -600,7 +600,7 @@ async fn on_request_observes_final_wire() {
     assert_eq!(seen[0].round, 1, "first observed round must be 1");
     assert_eq!(seen[1].round, 2, "second observed round must be 2");
 
-    // (c) the observed message count reflects the FINAL outgoing wire — it equals
+    // (c) the observed message count reflects the FINAL outgoing wire -- it equals
     // the provider's recorded count (both see post-pre_request messages: the
     // pre_request tail is part of the wire the provider got).
     for (i, obs) in seen.iter().enumerate() {
@@ -627,7 +627,7 @@ async fn on_request_observes_final_wire() {
         );
         assert_eq!(
             obs.cache_epoch, 0,
-            "no compaction → cache_epoch stays 0 on round {i}"
+            "no compaction -> cache_epoch stays 0 on round {i}"
         );
     }
 }

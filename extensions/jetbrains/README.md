@@ -162,7 +162,7 @@ RUSTCODE_DAEMON_WIN32_X64=/path/to/rustcode-daemon.exe \
 4. 选择：
 
    ```text
-   build/distributions/atomcode-jetbrains-0.1.0.zip
+   build/distributions/rustcode-jetbrains-0.1.0.zip
    ```
 
 5. 如果提示，重启 IDE。

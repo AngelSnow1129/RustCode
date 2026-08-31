@@ -1,4 +1,4 @@
-//! `change_dir` — move the agent's working directory for subsequent tool calls. Holds a
+//! `change_dir` -- move the agent's working directory for subsequent tool calls. Holds a
 //! SHARED `Arc<RwLock<PathBuf>>` that MUST be the same handle passed to
 //! [`AgentBuilder::working_dir_shared`](rustcode_kernel::agent::AgentBuilder::working_dir_shared):
 //! cd writes the new dir into it, and the kernel re-snapshots it into every later
@@ -7,7 +7,7 @@
 //!
 //! Opt-in: unlike the stateless coding tools, this one is constructed WITH the shared
 //! handle, so it is NOT part of [`register_coding_tools`](super::register_coding_tools)
-//! — the embedder wires the same `Arc` into the builder and this tool, then registers it.
+//! -- the embedder wires the same `Arc` into the builder and this tool, then registers it.
 //!
 //! Note: weak models sometimes loop on `change_dir` with empty args; `bash` already
 //! tracks `cd` for the common case. Expose this tool only when a real directory-switch
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 pub struct ChangeDirTool {
-    /// The shared working dir — the SAME `Arc` given to `working_dir_shared`.
+    /// The shared working dir -- the SAME `Arc` given to `working_dir_shared`.
     cwd: Arc<RwLock<PathBuf>>,
 }
 
@@ -49,7 +49,7 @@ impl Tool for ChangeDirTool {
     }
     fn description(&self) -> &str {
         "Change the working directory used by subsequent tool calls (read_file, bash, \
-         grep, …). `path` is absolute or relative to the current working directory; it \
+         grep, ...). `path` is absolute or relative to the current working directory; it \
          must exist and be a directory. Returns the new working directory. Prefer this \
          over `cd` inside bash when you want the change to apply to other tools too."
     }
@@ -62,7 +62,7 @@ impl Tool for ChangeDirTool {
             "required": ["path"]
         })
     }
-    // navigational only (no fs mutation / no exec) → Safe.
+    // navigational only (no fs mutation / no exec) -> Safe.
     async fn execute(&self, args: &str, _ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,

@@ -1,7 +1,7 @@
 //! `reasoning_content` round-trip POLICY for OpenAI-compatible providers.
 //!
 //! The kernel STORES reasoning losslessly on `Message.reasoning`; THIS module decides
-//! the per-model *wire* behaviour — whether the prior turn's reasoning is echoed back
+//! the per-model *wire* behaviour -- whether the prior turn's reasoning is echoed back
 //! on the next request. (Mechanism lives in L0; policy lives here in L1.)
 //!
 //! Why per-model: OpenAI-compatible "reasoning models" disagree on the round-trip.
@@ -16,7 +16,7 @@
 //!                        omitting keeps requests minimal).
 //! ```
 //!
-//! There is NO opaque signature on this path — reasoning is plain text — so the flat
+//! There is NO opaque signature on this path -- reasoning is plain text -- so the flat
 //! kernel `reasoning: Option<String>` is fully sufficient (see its FUTURE doc note for
 //! the signed-provider extension).
 
@@ -25,11 +25,11 @@
 /// produced by a non-thinking model). DeepSeek-V4 rejects an *empty* `reasoning_content`
 /// on tool-call messages, so a non-empty placeholder is mandatory under [`ReasoningPolicy::Include`].
 ///
-/// It is a single NON-PROSE sentinel (`·`), not an English sentence: at high context a
+/// It is a single NON-PROSE sentinel (`.`), not an English sentence: at high context a
 /// history full of an English placeholder *sentence* led DeepSeek-V4-Flash to MIMIC it and
 /// emit it as its only assistant text, stalling the turn. A bare middle-dot satisfies the
 /// non-empty requirement without giving the model prose to echo (ported from core 54c9e4bb).
-pub const REASONING_PLACEHOLDER: &str = "·";
+pub const REASONING_PLACEHOLDER: &str = ".";
 
 /// Whether a model echoes prior-turn `reasoning_content` back on the next request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,7 +44,7 @@ impl ReasoningPolicy {
     /// Parse the user-facing `reasoning_history` config value into an explicit
     /// override. `None`/empty ⇒ `Ok(None)` (caller falls back to [`derive`]);
     /// `"include"`/`"exclude"` (case/space-insensitive) ⇒ the matching policy; any
-    /// other value is a typo and fails fast — mirrors `rustcode-core`'s load-time
+    /// other value is a typo and fails fast -- mirrors `rustcode-core`'s load-time
     /// validation so a bad config errors the same way on either engine.
     ///
     /// [`derive`]: ReasoningPolicy::derive
@@ -55,7 +55,7 @@ impl ReasoningPolicy {
             Some(s) if s == "include" => Ok(Some(ReasoningPolicy::Include)),
             Some(s) if s == "exclude" => Ok(Some(ReasoningPolicy::Exclude)),
             Some(other) => Err(format!(
-                "invalid `reasoning_history` value {other:?} — expected \"include\" or \
+                "invalid `reasoning_history` value {other:?} -- expected \"include\" or \
                  \"exclude\" (unset = auto-detect)"
             )),
         }
@@ -85,7 +85,7 @@ impl ReasoningPolicy {
             // Moonshot/Kimi/MiMo: require reasoning_content on every assistant tool_call.
             ReasoningPolicy::Include
         } else {
-            // GLM and normal OpenAI models: safe default — nothing to echo.
+            // GLM and normal OpenAI models: safe default -- nothing to echo.
             ReasoningPolicy::Exclude
         }
     }
@@ -134,7 +134,7 @@ mod tests {
             ReasoningPolicy::derive("moonshot-v1-8k", ""),
             ReasoningPolicy::Include
         );
-        // MiMo by MODEL NAME (reuses DeepSeek-V4 thinking protocol) — even on a generic
+        // MiMo by MODEL NAME (reuses DeepSeek-V4 thinking protocol) -- even on a generic
         // gateway URL that doesn't contain "mimo".
         assert_eq!(
             ReasoningPolicy::derive("mimo-v2.5-pro", "https://generic-gateway.example/v1"),

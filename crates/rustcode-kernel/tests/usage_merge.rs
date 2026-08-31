@@ -1,5 +1,5 @@
 //! A provider that SPLITS token usage across two events within one round (input early,
-//! cumulative output later — the Anthropic shape) must not lose fields: the kernel folds
+//! cumulative output later -- the Anthropic shape) must not lose fields: the kernel folds
 //! `StreamEvent::Usage` events field-wise (max), so the stored / emitted `MessageMeta`
 //! carries BOTH the prompt and the completion, not just whichever arrived last.
 

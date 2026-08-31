@@ -1,6 +1,6 @@
-//! `edit_file` — replace an exact, UNIQUE text fragment in a file (or all of them
+//! `edit_file` -- replace an exact, UNIQUE text fragment in a file (or all of them
 //! with `replace_all`). Mutates the filesystem ⇒ always `Risky`. This is the
-//! production editor's neutral TEXT mode only — the line-number / edits-array /
+//! production editor's neutral TEXT mode only -- the line-number / edits-array /
 //! symbol modes and the auto-fix / file_store / LSP enrichments are dropped (they
 //! need the heavy coding context).
 
@@ -52,7 +52,7 @@ impl Tool for EditFileTool {
     fn description(&self) -> &str {
         "Replace an exact text fragment in a file. `old_string` must match EXACTLY \
          (including whitespace and indentation) and, unless `replace_all` is true, must \
-         be UNIQUE in the file — include enough surrounding context to make it unique. \
+         be UNIQUE in the file -- include enough surrounding context to make it unique. \
          On no-match or an ambiguous match the file is left UNCHANGED. Relative paths \
          resolve against the working directory."
     }
@@ -88,13 +88,13 @@ impl Tool for EditFileTool {
         };
         if a.old_string == a.new_string {
             return err(
-                "edit_file: old_string and new_string are identical — nothing to change."
+                "edit_file: old_string and new_string are identical -- nothing to change."
                     .to_string(),
             );
         }
         if a.old_string.is_empty() {
             return err(
-                "edit_file: old_string is empty — provide the exact text fragment to replace."
+                "edit_file: old_string is empty -- provide the exact text fragment to replace."
                     .to_string(),
             );
         }
@@ -132,7 +132,7 @@ impl Tool for EditFileTool {
         // `str::lines()`, which strips the `\r` from every `\r\n`), but the file on disk
         // may be CRLF. Match literally first; on a literal hit the model's strings already
         // agree with the file's bytes, so old/new are used VERBATIM. Only if the literal
-        // match fails do we coerce BOTH old_string and new_string to the file's EOL — that
+        // match fails do we coerce BOTH old_string and new_string to the file's EOL -- that
         // rescues an LF-copied edit of a CRLF file without injecting mixed endings, and
         // (unlike coercing unconditionally) leaves verbatim edits of LF files untouched.
         let literal = content.matches(&a.old_string).count();
@@ -152,7 +152,7 @@ impl Tool for EditFileTool {
             // Last-resort whitespace-normalized fuzzy fallback (ported from the v1
             // editor). The common failure it rescues: the model reproduced the snippet
             // with the wrong INDENTATION whitespace (e.g. spaces where the file uses
-            // tabs — read_file passes the real tabs, but the model emits spaces), so the
+            // tabs -- read_file passes the real tabs, but the model emits spaces), so the
             // exact / EOL-coerced match can't find it and the model resorts to a shell
             // script. `try_fuzzy_replace` matches line-by-line ignoring leading/trailing
             // whitespace, then re-anchors the replacement to the file's REAL indent. It
@@ -164,7 +164,7 @@ impl Tool for EditFileTool {
                 if fuzzy_result == content {
                     return err(
                         "edit_file: the fuzzy (whitespace-normalized) match produced no \
-                         change — old_string and new_string differ only in whitespace."
+                         change -- old_string and new_string differ only in whitespace."
                             .to_string(),
                     );
                 }
@@ -183,7 +183,7 @@ impl Tool for EditFileTool {
             }
             // Tier 2: whitespace-INSENSITIVE match (interior spaces/tabs deleted before
             // comparing). Rescues the single dense line whose interior spacing the model got
-            // wrong — or dropped entirely (`["a","b"]` vs `["a", "b"]`) — which edge-trim
+            // wrong -- or dropped entirely (`["a","b"]` vs `["a", "b"]`) -- which edge-trim
             // fuzzy can't absorb and block-anchor can't reach (needs ≥3 lines). Same ≥10-char
             // + uniqueness guards as the fuzzy tier.
             if let Some((ws_result, ws_count)) = try_whitespace_insensitive_replace(
@@ -194,7 +194,7 @@ impl Tool for EditFileTool {
             ) {
                 if ws_result == content {
                     return err(
-                        "edit_file: the whitespace-insensitive match produced no change — \
+                        "edit_file: the whitespace-insensitive match produced no change -- \
                          old_string and new_string differ only in whitespace."
                             .to_string(),
                     );
@@ -240,7 +240,7 @@ impl Tool for EditFileTool {
         }
         if count > 1 && !a.replace_all {
             return err(format!(
-                "edit_file: old_string appears {count} times in {} — it must be unique. Add \
+                "edit_file: old_string appears {count} times in {} -- it must be unique. Add \
                  surrounding context to disambiguate, or set replace_all=true. The file was \
                  NOT modified.",
                 crate::pathnorm::to_display(&path)
@@ -248,10 +248,10 @@ impl Tool for EditFileTool {
         }
         if old_match == new_match {
             // Originals differed (the early guard passed) but EOL-coercion collapsed them
-            // to the same bytes → the replacement would be a silent no-op.
+            // to the same bytes -> the replacement would be a silent no-op.
             return err(
                 "edit_file: old_string and new_string are identical after line-ending \
-                 normalization — nothing to change."
+                 normalization -- nothing to change."
                     .to_string(),
             );
         }
@@ -277,7 +277,7 @@ impl Tool for EditFileTool {
 
 /// Write edited text back to `path` in its original on-disk `encoding`. Refuses (Err
 /// with a user-facing message) rather than write replacement bytes if the text cannot
-/// be represented — so a failed re-encode leaves the file untouched, never corrupted.
+/// be represented -- so a failed re-encode leaves the file untouched, never corrupted.
 async fn write_encoded(
     path: &std::path::Path,
     text: &str,
@@ -389,14 +389,14 @@ fn build_compact_diff(old_file: &str, new_file: &str) -> String {
     }
     let mut out = lines[..MAX_DIFF_LINES].join("\n");
     out.push_str(&format!(
-        "\n… ({} more diff lines)",
+        "\n... ({} more diff lines)",
         lines.len() - MAX_DIFF_LINES
     ));
     out
 }
 
 /// Number of leading whitespace **characters** in `s`. Counts Unicode
-/// whitespace consistently with `chars().take(n)` — both operate on
+/// whitespace consistently with `chars().take(n)` -- both operate on
 /// characters, not bytes. This is the correct unit for indent arithmetic:
 /// `" ".repeat(n)` and `chars().take(n)` both count characters.
 fn leading_ws_chars(s: &str) -> usize {
@@ -472,9 +472,9 @@ fn try_fuzzy_replace(
 /// much interior whitespace it has OR whether it has any at all: `["json","stream"]`,
 /// `["json", "stream"]`, and `["json",  "stream"]` all normalize to the same string.
 ///
-/// Deliberately MORE lenient than opencode's/oh-my-pi's `[ \t]+` → single-space COLLAPSE:
+/// Deliberately MORE lenient than opencode's/oh-my-pi's `[ \t]+` -> single-space COLLAPSE:
 /// collapse equalizes the AMOUNT of whitespace but still distinguishes present-vs-absent
-/// (`,"` ≠ `, "`), which is the exact drift a weak model makes on a dense config line — so
+/// (`,"` ≠ `, "`), which is the exact drift a weak model makes on a dense config line -- so
 /// collapse wouldn't rescue it. Full deletion does, and stays safe via the caller-tier
 /// guards (≥ 10 chars in the whitespace-STRIPPED fragment, UNIQUE unless replace_all,
 /// window == old's line count so the matched span can't balloon).
@@ -487,7 +487,7 @@ fn strip_interior_ws(line: &str) -> String {
 
 /// Whitespace-INSENSITIVE fuzzy replace: the tier below [`try_fuzzy_replace`]'s
 /// edge-trim, for the interior-spacing drift a weak model makes on a single dense line
-/// (a comma/bracket with the wrong — or no — spaces) that edge-trim can't absorb and
+/// (a comma/bracket with the wrong -- or no -- spaces) that edge-trim can't absorb and
 /// block-anchor can't reach (it needs ≥ 3 lines). Works for a SINGLE line. See
 /// [`strip_interior_ws`] for why deletion (not collapse) is used.
 fn try_whitespace_insensitive_replace(
@@ -508,8 +508,8 @@ fn try_whitespace_insensitive_replace(
 /// Shared window-match engine for the whitespace-tolerant tiers: normalize `old_string`
 /// and each content window line-by-line via `normalize`, match where the normalized
 /// windows are equal, and re-anchor the replacement to the file's REAL indent. Guards:
-/// normalized content < 10 chars → `None` (too short to match safely); no window → `None`;
-/// more than one window but `!replace_all` → `None` (ambiguous; the caller's "not found"
+/// normalized content < 10 chars -> `None` (too short to match safely); no window -> `None`;
+/// more than one window but `!replace_all` -> `None` (ambiguous; the caller's "not found"
 /// path is safer than guessing).
 fn try_normalized_replace(
     content: &str,
@@ -576,7 +576,7 @@ fn try_normalized_replace(
         result.push('\n');
     }
     // `lines()` stripped every `\r`, so a CRLF file would otherwise be rewritten to LF
-    // across the WHOLE file (incl. untouched lines) — a silent whole-file EOL downgrade.
+    // across the WHOLE file (incl. untouched lines) -- a silent whole-file EOL downgrade.
     // Restore the file's convention, mirroring the exact-match path's EOL preservation.
     if content.contains("\r\n") {
         result = coerce_eol(&result, "\r\n");
@@ -585,10 +585,10 @@ fn try_normalized_replace(
     Some((result, count))
 }
 
-/// BLOCK-ANCHOR fuzzy replace — the tier below [`try_fuzzy_replace`]. When the model
+/// BLOCK-ANCHOR fuzzy replace -- the tier below [`try_fuzzy_replace`]. When the model
 /// reproduced a multi-line block but got an INTERIOR line slightly wrong (a typo, a
-/// reordered token, a comment tweak), the whitespace-normalized tier — which requires
-/// EVERY trimmed line to match — fails, and a weak model then resorts to a shell script.
+/// reordered token, a comment tweak), the whitespace-normalized tier -- which requires
+/// EVERY trimmed line to match -- fails, and a weak model then resorts to a shell script.
 /// This tier anchors on the FIRST and LAST trimmed lines and tolerates interior drift,
 /// replacing the whole window (re-anchored to the file's real indent via
 /// [`reanchored_replacement`]).
@@ -596,9 +596,9 @@ fn try_normalized_replace(
 /// Conservative guards so it can't clobber the wrong block: needs ≥ 3 lines; both
 /// anchors non-empty and ≥ 3 trimmed chars (so a bare `{`/`}` can't anchor); the window
 /// length equals the old block's; ALL BUT AT MOST ONE line still matches trimmed (so a
-/// window that merely shares its first/last line with an unrelated region is rejected —
+/// window that merely shares its first/last line with an unrelated region is rejected --
 /// a plain "≥ half" rule would degenerate to "anchors only" for n ≤ 4); and the anchored
-/// window must be UNIQUE (no `replace_all` at this tier — guessing which of several to
+/// window must be UNIQUE (no `replace_all` at this tier -- guessing which of several to
 /// rewrite is unsafe). Returns `None` on any miss so the caller falls back to not-found.
 fn try_block_anchor_replace(
     content: &str,
@@ -623,7 +623,7 @@ fn try_block_anchor_replace(
     while i + n <= content_lines.len() {
         if content_lines[i].trim() == first && content_lines[i + n - 1].trim() == last {
             // Require ALL BUT AT MOST ONE line to still match (trimmed) at its position.
-            // This matches the intent — the model got a SINGLE interior line slightly wrong —
+            // This matches the intent -- the model got a SINGLE interior line slightly wrong --
             // and (unlike a "≥ half" rule, which for n≤4 degenerates to "anchors only" and
             // would ignore the interior) rejects a window that merely shares its first/last
             // line with an unrelated region.
@@ -637,7 +637,7 @@ fn try_block_anchor_replace(
         i += 1;
     }
     if matches.len() != 1 {
-        return None; // no match, or ambiguous → let the caller error out
+        return None; // no match, or ambiguous -> let the caller error out
     }
 
     let start = matches[0];
@@ -721,7 +721,7 @@ mod tests {
     #[tokio::test]
     async fn gbk_file_edits_in_place_and_stays_gbk() {
         // A GBK/GB18030-encoded file (common on Chinese Windows) must be editable
-        // directly — matched in UTF-8 space, then written back in its ORIGINAL encoding,
+        // directly -- matched in UTF-8 space, then written back in its ORIGINAL encoding,
         // never silently converted to UTF-8.
         let d = tempfile::tempdir().unwrap();
         let (gbk, _, had_err) = encoding_rs::GB18030.encode("第一行\n第二行\n第三行\n");
@@ -750,7 +750,7 @@ mod tests {
     #[tokio::test]
     async fn ambiguous_non_utf8_file_is_refused_and_left_untouched() {
         // A non-UTF-8 file that does not losslessly round-trip as GB18030 (here a stray
-        // 0x80 byte) must be refused rather than corrupted — the file stays byte-identical.
+        // 0x80 byte) must be refused rather than corrupted -- the file stays byte-identical.
         let d = tempfile::tempdir().unwrap();
         let mut bytes = b"plain text\n".to_vec();
         bytes.push(0x80);
@@ -892,7 +892,7 @@ mod tests {
     }
 
     // A CRLF (Windows) file edited with a multi-line `old_string` whose line break is
-    // `\n` — which is exactly what read_file shows the model, because read_file does
+    // `\n` -- which is exactly what read_file shows the model, because read_file does
     // `text.lines()` and strips the `\r`. The edit must still succeed, and the file must
     // stay CRLF (no mixed line endings introduced).
     #[tokio::test]
@@ -921,7 +921,7 @@ mod tests {
         );
     }
 
-    // A literal match must write new_string VERBATIM — never coerce its line endings.
+    // A literal match must write new_string VERBATIM -- never coerce its line endings.
     // Here a mostly-LF file has one stray CRLF line; editing an LF region must NOT force
     // the replacement to CRLF (that would inject mixed endings, the opposite of intent).
     #[tokio::test]
@@ -943,7 +943,7 @@ mod tests {
     }
 
     // old_string and new_string that differ ONLY by line-ending form collapse to the
-    // same bytes after normalization → a no-op; it must be refused, not reported as a
+    // same bytes after normalization -> a no-op; it must be refused, not reported as a
     // successful edit.
     #[tokio::test]
     async fn eol_only_difference_is_rejected_as_noop() {
@@ -1040,7 +1040,7 @@ mod tests {
 
     // A fuzzy edit on a CRLF file must NOT rewrite the whole file to LF: `lines()`
     // strips every `\r`, so without restoring the file's EOL the entire file (incl.
-    // untouched lines) would be silently downgraded to LF — a whole-file corruption.
+    // untouched lines) would be silently downgraded to LF -- a whole-file corruption.
     #[tokio::test]
     async fn fuzzy_match_preserves_crlf_line_endings() {
         let d = tempfile::tempdir().unwrap();
@@ -1120,7 +1120,7 @@ mod tests {
     }
 
     // MULTI-LINE whitespace-insensitive: a YAML block where the model got the interior
-    // spacing wrong on more than one line (`run:  rm` vs the file's `run: rm`) — more drift
+    // spacing wrong on more than one line (`run:  rm` vs the file's `run: rm`) -- more drift
     // than block-anchor's ≤1-line tolerance, but every line matches once whitespace is
     // ignored. Re-anchors to the file's real (6-space) indent.
     #[tokio::test]
@@ -1179,7 +1179,7 @@ mod tests {
     }
 
     // The whitespace-insensitive tier must still REFUSE when the normalized fragment is
-    // ambiguous (matches >1 place) — guessing which to rewrite is unsafe.
+    // ambiguous (matches >1 place) -- guessing which to rewrite is unsafe.
     #[tokio::test]
     async fn whitespace_insensitive_refuses_ambiguous() {
         let d = tempfile::tempdir().unwrap();
@@ -1218,7 +1218,7 @@ mod tests {
     // line slightly wrong (`let b = 20;` vs the file's `let b = 2;`) AND used spaces where
     // the file uses tabs. Exact + whitespace-normalized fuzzy both fail (fuzzy needs EVERY
     // trimmed line to match). Block-anchor matches on the first/last trimmed lines, replaces
-    // the real window, and re-anchors to the file's tabs — so the model doesn't reach for sed.
+    // the real window, and re-anchors to the file's tabs -- so the model doesn't reach for sed.
     #[tokio::test]
     async fn block_anchor_matches_interior_drift_and_preserves_tabs() {
         let d = tempfile::tempdir().unwrap();
@@ -1255,7 +1255,7 @@ mod tests {
         std::fs::write(d.path().join("a.txt"), original).unwrap();
         let r = EditFileTool
             .execute(
-                // first/last match, but all 3 interior lines are wrong → 2/5 < half → reject.
+                // first/last match, but all 3 interior lines are wrong -> 2/5 < half -> reject.
                 r#"{"file_path":"a.txt","old_string":"start marker\nWRONG a\nWRONG b\nWRONG c\nend marker","new_string":"start marker\nX\nend marker"}"#,
                 &ctx(d.path()),
             )
@@ -1273,7 +1273,7 @@ mod tests {
     }
 
     // Guard: at-most-ONE drifted line. A 4-line block whose BOTH interior lines differ
-    // (only the anchors match) must be REJECTED — a plain "≥ half" rule would have passed
+    // (only the anchors match) must be REJECTED -- a plain "≥ half" rule would have passed
     // this (2/4), clobbering an unrelated region that happens to share first/last lines.
     #[tokio::test]
     async fn block_anchor_rejects_two_drifted_interior_lines() {
@@ -1282,7 +1282,7 @@ mod tests {
         std::fs::write(d.path().join("a.txt"), original).unwrap();
         let r = EditFileTool
             .execute(
-                // first/last match; BOTH interior lines wrong → matched 2/4 → reject.
+                // first/last match; BOTH interior lines wrong -> matched 2/4 -> reject.
                 r#"{"file_path":"a.txt","old_string":"region top\nWRONG one\nWRONG two\nregion bottom","new_string":"region top\nX\nregion bottom"}"#,
                 &ctx(d.path()),
             )
@@ -1298,7 +1298,7 @@ mod tests {
         );
     }
 
-    // Coverage: the OUTDENTED-line re-anchor path (`signed_relative < 0`) — a new line less
+    // Coverage: the OUTDENTED-line re-anchor path (`signed_relative < 0`) -- a new line less
     // indented than the block's anchor (e.g. a top-level call after an indented statement).
     // The file uses tabs; the fuzzy tier matches and re-anchors, dropping indent for the
     // outdented line.
@@ -1329,7 +1329,7 @@ mod tests {
         );
     }
 
-    // Guard: two windows share the same first/last anchors → ambiguous → refuse.
+    // Guard: two windows share the same first/last anchors -> ambiguous -> refuse.
     #[tokio::test]
     async fn block_anchor_rejects_ambiguous_windows() {
         let d = tempfile::tempdir().unwrap();
@@ -1384,7 +1384,7 @@ mod tests {
             "def f():\n\u{3000}x = 1\n\u{3000}y = 2\n",
         )
         .unwrap();
-        // Model reproduced the body with plain-space indentation → exact match fails,
+        // Model reproduced the body with plain-space indentation -> exact match fails,
         // fuzzy path fires.
         let r = EditFileTool
             .execute(

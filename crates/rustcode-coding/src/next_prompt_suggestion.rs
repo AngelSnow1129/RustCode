@@ -29,14 +29,14 @@ const SAMPLE_TIMEOUT: Duration = Duration::from_secs(15);
 /// deepseek-v4-flash (which reasons briefly at `low` effort and still fits).
 ///
 /// A heavy-reasoning model like AtomGit `qwen3.8-27b` (which reasons even at
-/// `low` — its floor, there is no "off") overruns 128 and gets no suggestion.
+/// `low` -- its floor, there is no "off") overruns 128 and gets no suggestion.
 /// Raising the cap does NOT help there: its gateway rejects a larger cap with a
 /// generic HTTP 400, so a bigger budget only trades "empty answer" for "failed
-/// request" — no gain, plus error noise. The real fix for such models is
+/// request" -- no gain, plus error noise. The real fix for such models is
 /// suppressing thinking on this prediction request (`enable_thinking:false` /
 /// `/no_think`), which needs per-endpoint support this qwen gateway does not
 /// reliably offer. Until then a heavy-reasoning model simply gets no
-/// suggestion — acceptable best-effort degradation.
+/// suggestion -- acceptable best-effort degradation.
 const SAMPLE_MAX_TOKENS: u32 = 128;
 
 const INSTRUCTIONS: &str = r#"Predict the short message the user is most likely to type next.
@@ -61,7 +61,7 @@ pub(crate) async fn generate_next_prompt_suggestion(
     let request = [Message::user(prompt)];
     let options = ChatOptions {
         reasoning_effort: Some(ReasoningEffort::Low),
-        // TOTAL budget (reasoning + visible). See `SAMPLE_MAX_TOKENS` — too tight
+        // TOTAL budget (reasoning + visible). See `SAMPLE_MAX_TOKENS` -- too tight
         // and a reasoning model spends it all thinking and emits no suggestion.
         max_tokens: Some(SAMPLE_MAX_TOKENS),
         temperature: Some(0.2),
@@ -386,13 +386,13 @@ fn truncate_tail_chars(text: &str, max_chars: usize) -> String {
         return text.to_string();
     }
     if max_chars <= 1 {
-        return "…".chars().take(max_chars).collect();
+        return "...".chars().take(max_chars).collect();
     }
     let tail = text
         .chars()
         .skip(char_count - (max_chars - 1))
         .collect::<String>();
-    format!("…{tail}")
+    format!("...{tail}")
 }
 
 fn truncate_middle_chars(text: &str, max_chars: usize) -> String {
@@ -401,7 +401,7 @@ fn truncate_middle_chars(text: &str, max_chars: usize) -> String {
         return text.to_string();
     }
     if max_chars <= 1 {
-        return "…".chars().take(max_chars).collect();
+        return "...".chars().take(max_chars).collect();
     }
     let head_chars = (max_chars - 1) / 2;
     let tail_chars = max_chars - 1 - head_chars;
@@ -410,7 +410,7 @@ fn truncate_middle_chars(text: &str, max_chars: usize) -> String {
         .chars()
         .skip(char_count - tail_chars)
         .collect::<String>();
-    format!("{head}…{tail}")
+    format!("{head}...{tail}")
 }
 
 fn truncate_tool_result(text: &str) -> String {
@@ -442,7 +442,7 @@ fn truncate_tool_result(text: &str) -> String {
         .chars()
         .skip(tail_chars.saturating_sub(tail_budget))
         .collect::<String>();
-    format!("{head}…\n{marker}\n…{tail}")
+    format!("{head}...\n{marker}\n...{tail}")
 }
 
 pub(crate) fn sanitize_next_prompt_suggestion(raw: &str) -> Option<String> {
@@ -551,7 +551,7 @@ mod tests {
         assert!(records.last().unwrap()["text"]
             .as_str()
             .unwrap()
-            .starts_with('…'));
+            .starts_with("..."));
         assert!(records.last().unwrap()["text"]
             .as_str()
             .unwrap()
@@ -640,7 +640,7 @@ mod tests {
     #[test]
     fn tool_result_reuses_bounded_artifact_preview() {
         let artifact_marker = format!(
-            "{ARTIFACT_TRUNCATION_MARKER_PREFIX} — 20000 bytes total. Full output saved as artifact 0123456789abcdef.]"
+            "{ARTIFACT_TRUNCATION_MARKER_PREFIX} -- 20000 bytes total. Full output saved as artifact 0123456789abcdef.]"
         );
         let result = format!(
             "HEAD{}\n{}\n{}TAIL",

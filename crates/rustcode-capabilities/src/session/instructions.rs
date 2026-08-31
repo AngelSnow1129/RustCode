@@ -1,4 +1,4 @@
-//! Three-tier project-instructions loader (global / project / user) — the v2 port of
+//! Three-tier project-instructions loader (global / project / user) -- the v2 port of
 //! v1 `config/instructions.rs`. Each tier is a markdown file injected into the session
 //! context block under a header carrying its source path. Pure (paths in, string out) so
 //! it is testable without touching the real home dir; [`SessionContextHook`] supplies the
@@ -54,10 +54,10 @@ pub fn render_instructions(home: &Path, project: &Path) -> String {
     }
     // Precedence preamble injected right next to the user's own instructions so it is
     // hard to overlook: these GLOBAL/PROJECT/USER blocks OVERRIDE the assistant's default
-    // working rules on conflict, but describe how to work on the project — never the host
+    // working rules on conflict, but describe how to work on the project -- never the host
     // product or active model. Reinforces the same scoped precedence stated in the persona.
     const PREAMBLE: &str = "The following GLOBAL / PROJECT / USER instructions take \
-PRECEDENCE over the assistant's default system-prompt rules — when they conflict with a \
+PRECEDENCE over the assistant's default system-prompt rules -- when they conflict with a \
 default working rule, follow these. These instructions govern work on the project only; \
 they do not describe or override the host application or active configured model. \
 (Safety, approval, and destructive-action gates are not overridable here.)";
@@ -72,7 +72,7 @@ fn project_file(project: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Read a tier file → its trimmed body, or `None` if missing/non-file/empty. Capped at
+/// Read a tier file -> its trimmed body, or `None` if missing/non-file/empty. Capped at
 /// [`MAX_INSTRUCTIONS_BYTES`] (truncated with a marker).
 fn read_tier(path: &Path) -> Option<String> {
     if !path.is_file() {
@@ -102,7 +102,7 @@ mod tests {
     fn project_tier_picks_first_existing_name() {
         let d = tempfile::tempdir().unwrap();
         let proj = d.path();
-        // AGENTS.md and CLAUDE.md both exist → AGENTS.md (earlier in precedence) wins.
+        // AGENTS.md and CLAUDE.md both exist -> AGENTS.md (earlier in precedence) wins.
         fs::write(proj.join("AGENTS.md"), "agents rules").unwrap();
         fs::write(proj.join("CLAUDE.md"), "claude rules").unwrap();
         let out = render_instructions(&d.path().join("nohome"), proj);
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn no_precedence_preamble_when_no_instructions() {
-        // Empty output (no tiers) must stay empty — the preamble must NOT leak when there
+        // Empty output (no tiers) must stay empty -- the preamble must NOT leak when there
         // are no user instructions to elevate (else the caller emits a dangling section).
         let d = tempfile::tempdir().unwrap();
         let proj = d.path().join("proj");
@@ -155,7 +155,7 @@ mod tests {
         let out = render_instructions(&d.path().join("nohome"), &proj);
         assert!(
             out.is_empty(),
-            "no tiers → fully empty, no preamble: {out:?}"
+            "no tiers -> fully empty, no preamble: {out:?}"
         );
     }
 
@@ -164,9 +164,9 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let proj = d.path().join("proj");
         fs::create_dir_all(&proj).unwrap();
-        fs::write(proj.join("AGENTS.md"), "   \n  ").unwrap(); // whitespace-only → empty
+        fs::write(proj.join("AGENTS.md"), "   \n  ").unwrap(); // whitespace-only -> empty
         let out = render_instructions(&d.path().join("nohome"), &proj);
-        assert!(out.is_empty(), "no non-empty tiers → empty: {out:?}");
+        assert!(out.is_empty(), "no non-empty tiers -> empty: {out:?}");
     }
 
     #[test]

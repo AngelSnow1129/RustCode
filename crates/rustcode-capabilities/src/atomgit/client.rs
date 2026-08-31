@@ -61,7 +61,7 @@ impl AtomgitClient {
         let status = resp.status();
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(format!(
-                "AtomGit authentication failed ({}) — run `rustcode login` again",
+                "AtomGit authentication failed ({}) -- run `rustcode login` again",
                 status.as_u16()
             ));
         }
@@ -134,7 +134,7 @@ impl AtomgitClient {
     }
 
     /// Generic REST call for AtomGit endpoints that have no typed helper. The
-    /// bearer token is injected by [`AtomgitClient::send`] — it never reaches the
+    /// bearer token is injected by [`AtomgitClient::send`] -- it never reaches the
     /// caller (or the model). `path` is appended to the fixed `base_url`, so a
     /// caller can only ever reach the AtomGit API host, never redirect elsewhere.
     /// Returns the raw success body (arbitrary endpoints have no typed model).

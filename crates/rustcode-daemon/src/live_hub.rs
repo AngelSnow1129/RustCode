@@ -426,8 +426,8 @@ impl LiveViewHub {
         remove_pending_web_steer_locked(&mut state, client_input_id);
     }
 
-    /// Like [`Self::submit_confirmed`], but the view echo — what every subscribed
-    /// tab (and a synchronized TUI) DISPLAYS, and what late joiners replay — is
+    /// Like [`Self::submit_confirmed`], but the view echo -- what every subscribed
+    /// tab (and a synchronized TUI) DISPLAYS, and what late joiners replay -- is
     /// `echo_input`, DISTINCT from the `runtime_input` fed to the model.
     ///
     /// The webui image path needs this: it submits the VL-PREPROCESSED caption as
@@ -566,10 +566,10 @@ impl LiveViewHub {
 
     /// Whether the bound runtime is mid-turn, parked awaiting approval, or already
     /// reconfiguring. A provider reload in any of these states hard-kills the
-    /// in-flight turn (via `AgentCommand::Shutdown`) and drops its context — the
+    /// in-flight turn (via `AgentCommand::Shutdown`) and drops its context -- the
     /// runtime respawns from the last on-disk snapshot, which predates the
     /// interrupted turn. The provider-switch entry points refuse so the user stops
-    /// the turn first. Unbound → false (nothing to interrupt).
+    /// the turn first. Unbound -> false (nothing to interrupt).
     ///
     /// This is a best-effort guard, not an atomic gate: the caller releases this
     /// lock before it re-acquires state to dispatch, and the runtime processes a
@@ -864,7 +864,7 @@ impl LiveViewHub {
                 // started outside `submit`/`submit_confirmed` (embedded TUI / sync
                 // mode drives the runtime handle directly, so those replay-clearing
                 // paths never run) would otherwise carry a lingering policy
-                // intervention into this turn's replay — a reconnecting client would
+                // intervention into this turn's replay -- a reconnecting client would
                 // then see a stale credential-recovery contract. Drop only that
                 // structured observation; ordinary replay is already empty here.
                 state.replay.retain(|observation| {
@@ -1809,7 +1809,7 @@ mod tests {
     fn a_new_turn_start_clears_a_lingering_policy_intervention() {
         // A turn started outside `submit` (embedded TUI / sync mode drives the
         // runtime handle directly) must not carry the prior turn's recovery
-        // contract into this turn's replay — a reconnecting client would else
+        // contract into this turn's replay -- a reconnecting client would else
         // render a stale credential-recovery card for an unrelated turn.
         let hub = LiveViewHub::new();
         let (control, _) = control();
@@ -2072,7 +2072,7 @@ mod tests {
             control.clone(),
         )
         .unwrap();
-        // Ready phase, no active turn → a provider reload is safe.
+        // Ready phase, no active turn -> a provider reload is safe.
         assert!(!hub.turn_in_progress());
 
         // A running turn (InTurn phase) must gate the reload.
@@ -2084,7 +2084,7 @@ mod tests {
         assert!(hub.turn_in_progress());
 
         // Already reconfiguring (e.g. a prior reload in flight): a second reload
-        // must also be refused — mirrors bind_with_provider's active set.
+        // must also be refused -- mirrors bind_with_provider's active set.
         control.status.lock().unwrap().phase = RuntimePhase::Reconfiguring;
         assert!(hub.turn_in_progress());
     }

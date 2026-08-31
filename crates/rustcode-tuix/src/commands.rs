@@ -6,7 +6,7 @@ pub struct Command {
     /// Commands that are *useless* without an argument (e.g. `/background <task>`).
     /// When the slash-menu Enter handler sees one, it auto-completes the name
     /// with a trailing space and leaves the cursor parked for the user to
-    /// type the argument — instead of firing a bad invocation immediately.
+    /// type the argument -- instead of firing a bad invocation immediately.
     /// Commands that do something sensible with no arg (e.g. `/cd` opens the
     /// recent-dirs picker, `/help` prints help) leave this `false`.
     pub needs_args: bool,
@@ -85,7 +85,7 @@ impl CommandRegistry {
 
     /// The command subset usable on non-interactive channels (the `rustcode
     /// acp` server): `acp: true` and not hidden. The ACP channel advertises
-    /// these via `available_commands_update` and executes them locally — the
+    /// these via `available_commands_update` and executes them locally -- the
     /// names and descriptions remain sourced from the single table above.
     pub fn acp_commands(&self) -> Vec<Command> {
         self.commands
@@ -96,12 +96,12 @@ impl CommandRegistry {
     }
 }
 
-/// Alias → canonical built-in command name.
+/// Alias -> canonical built-in command name.
 ///
 /// Unlike a hidden duplicate `Command` entry (the old `exit`/`quit` style), an
 /// alias is NOT a separate registry row: it shares the canonical command's
 /// single entry, is searchable by its own prefix in the slash menu, resolves to
-/// the canonical name on dispatch, and renders as `canonical (alias)` — one
+/// the canonical name on dispatch, and renders as `canonical (alias)` -- one
 /// annotated row, not two. Add a pair here to give any command an alias.
 const COMMAND_ALIASES: &[(&str, &str)] = &[
     // `/new` is a memorable alias for `/session` (start a fresh session).
@@ -111,7 +111,7 @@ const COMMAND_ALIASES: &[(&str, &str)] = &[
 ];
 
 /// Resolve an alias to its canonical command name (ASCII case-insensitive).
-/// Returns the input unchanged when it is not a known alias — so it is safe to
+/// Returns the input unchanged when it is not a known alias -- so it is safe to
 /// call on every command name before dispatch.
 pub fn canonical_command_name(name: &str) -> &str {
     COMMAND_ALIASES
@@ -149,9 +149,9 @@ pub fn command_display_name(canonical: &str) -> String {
 }
 
 const BUILTIN_COMMANDS: &[Command] = &[
-    Command { name: "login",   desc: "Sign in with AtomGit OAuth and claim CodingPlan models", needs_args: false, hidden: false, acp: false },
+    Command { name: "login",   desc: "Sign in with OAuth and claim CodingPlan models", needs_args: false, hidden: false, acp: false },
     // needs_args=true so selecting it only completes to `/webui ` (does NOT
-    // launch) — lets the user append a subcommand (stop / lan / --host <addr>)
+    // launch) -- lets the user append a subcommand (stop / lan / --host <addr>)
     // before Enter. A bare `/webui ` + Enter still launches on 127.0.0.1.
     Command { name: "webui",   desc: "Launch the browser webui (subcommands: stop, lan, --host <addr>)", needs_args: true, hidden: false, acp: false },
     Command { name: "sync",    desc: "Attach to live webui session (/sync off to detach)", needs_args: false, hidden: false, acp: false },
@@ -159,7 +159,7 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "setup",      desc: "First run: install recommender skill + run it. Extra text forwarded as a steering hint", needs_args: true, hidden: false, acp: false },
     Command { name: "resume",  desc: "Resume a previous session", needs_args: false, hidden: false, acp: false },
     Command { name: "rename",  desc: "Rename current session", needs_args: true, hidden: false, acp: false },
-    Command { name: "logout",  desc: "Sign out of AtomGit", needs_args: false, hidden: false, acp: false },
+    Command { name: "logout",  desc: "Sign out", needs_args: false, hidden: false, acp: false },
     Command { name: "whoami",  desc: "Show current logged-in user", needs_args: false, hidden: false, acp: false },
     Command { name: "model",   desc: "Switch provider / model", needs_args: false, hidden: false, acp: true },
     Command { name: "provider", desc: "Manage providers (add / edit / delete)", needs_args: false, hidden: false, acp: false },
@@ -185,7 +185,7 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "memory", desc: "Show all saved memories", needs_args: false, hidden: false, acp: false },
     Command { name: "mcp",     desc: "Show MCP server status (subcommands: reload, tools, login, logout, trust, untrust)", needs_args: false, hidden: false, acp: false },
     Command { name: "undo",    desc: "Undo a turn (memory rollback): /undo or /undo N", needs_args: true, hidden: false, acp: true },
-    // Opens the checkpoint picker — the same modal the double-Esc gesture opens —
+    // Opens the checkpoint picker -- the same modal the double-Esc gesture opens --
     // so the feature is discoverable without knowing the keybind. needs_args=false:
     // selection happens in the modal, not on the command line.
     Command { name: "rewind",  desc: "Restore the conversation to an earlier checkpoint", needs_args: false, hidden: false, acp: false },
@@ -194,16 +194,16 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "plan",    desc: "Switch to Plan mode (read-only exploration)", needs_args: false, hidden: false, acp: true },
     Command { name: "build",   desc: "Switch to Build mode (full execution)", needs_args: false, hidden: false, acp: true },
     Command { name: "auto",    desc: "Switch to Auto mode (auto-approve all tools)", needs_args: false, hidden: false, acp: true },
-    Command { name: "review",  desc: "Code review the current changes (/review · /review staged · /review <base>)", needs_args: false, hidden: false, acp: false },
+    Command { name: "review",  desc: "Code review the current changes (/review . /review staged . /review <base>)", needs_args: false, hidden: false, acp: false },
     Command { name: "think",   desc: "Extended thinking control (on/off/budget N)", needs_args: false, hidden: false, acp: false },
     // Gateway entry: opens a second-level palette (low / medium / high / xhigh / max / default).
     // needs_args=true so Enter rewrites the buffer to `/effort ` and the
     // sub-mode menu renders the choices. Selecting one commits as
-    // `/effort <choice>` → dispatched by the `effort` arm. Runtime label comes
+    // `/effort <choice>` -> dispatched by the `effort` arm. Runtime label comes
     // from `Msg::CmdDescEffort`; this static `desc` is only a fallback.
     Command { name: "effort",  desc: "Model reasoning effort control (low / medium / high / xhigh / max / default)", needs_args: true, hidden: false, acp: true },
     // needs_args=true so selecting `/goal` from the palette only completes to
-    // `/goal ` and waits for the user to type the goal — it must NOT execute
+    // `/goal ` and waits for the user to type the goal -- it must NOT execute
     // immediately (a bare `/goal` would just print status). Setting a goal
     // requires the condition text; `/goal status` / `/goal clear` still work by
     // typing the sub-command + Enter.
@@ -221,19 +221,19 @@ const BUILTIN_COMMANDS: &[Command] = &[
     // Gateway entry that opens a second-level palette listing all
     // user-invocable skills. needs_args=true so Enter rewrites the
     // buffer to `/skills ` and lets the sub-mode menu render the
-    // skill list. Selecting a skill commits as `/skills <name>` →
+    // skill list. Selecting a skill commits as `/skills <name>` ->
     // dispatched by the `skills` arm in execute_slash_command.
     Command { name: "skills",  desc: "Browse loaded skills", needs_args: true, hidden: false, acp: false },
     // needs_args=false so selecting `/plugin` opens the manager modal on the
     // first Enter (like /model, /provider, /session). Subcommands
     // (`/plugin install x@mp`, `uninstall`, `marketplace`, `list`) still work
-    // by typing the full line — needs_args only changes the menu-Enter behavior.
+    // by typing the full line -- needs_args only changes the menu-Enter behavior.
     Command { name: "plugin",  desc: "Plugin marketplace (subcommands: marketplace, install, uninstall, list)", needs_args: false, hidden: false, acp: false },
     // Windows fallback for Ctrl+V: Windows Terminal / conhost
     // intercept Ctrl+V as their own `paste` action (which forwards
     // only `CF_UNICODETEXT`) before the keystroke reaches rustcode,
     // so an image-only clipboard never triggers the in-app handler.
-    // `/paste` calls the same `try_paste_clipboard_image` →
+    // `/paste` calls the same `try_paste_clipboard_image` ->
     // `attach_image_to_input` pipeline directly so the user has a
     // terminal-agnostic way to attach an image. Works on every OS.
     Command { name: "paste",   desc: "Attach an image from the clipboard (Windows fallback for Ctrl+V)", needs_args: false, hidden: false, acp: false },
@@ -388,7 +388,7 @@ pub fn parse_slash_line(s: &str) -> Option<(&str, &str)> {
         None => Some((name, "")),
         Some(c) if c.is_whitespace() => Some((name, after.trim_start())),
         // Non-space follow-on (`/`, `.`, etc.) means the `/` was
-        // a literal character in a path / URL — not a command.
+        // a literal character in a path / URL -- not a command.
         _ => None,
     }
 }
@@ -539,7 +539,7 @@ mod tests {
     #[test]
     fn goal_needs_args_so_selection_waits_for_input() {
         // Selecting `/goal` from the palette must only complete to `/goal ` and
-        // wait for the user to type the goal — not execute (which would just
+        // wait for the user to type the goal -- not execute (which would just
         // print status). The needs_args flag drives that menu behaviour.
         let reg = CommandRegistry::builtin();
         let goal = reg.find("goal").expect("/goal must be a built-in command");
@@ -563,7 +563,7 @@ mod tests {
     fn keys_command_is_registered_with_i18n_description_in_both_locales() {
         let _locale = crate::i18n::test_lock();
         // `/keys` should appear in the built-in completion list and
-        // resolve a non-empty description in every shipped locale —
+        // resolve a non-empty description in every shipped locale --
         // if a translator misses one, the slash menu shows the bare
         // English fallback (CmdDescKeys default) and we want that to
         // be a test failure, not a UI regression.
@@ -603,7 +603,7 @@ mod tests {
             ] {
                 assert!(
                     body.contains(key),
-                    "KeybindingsHelp ({locale:?}) must list {key} — got:\n{body}"
+                    "KeybindingsHelp ({locale:?}) must list {key} -- got:\n{body}"
                 );
             }
             for unsupported in [
@@ -631,7 +631,7 @@ mod tests {
     fn every_builtin_command_has_an_i18n_description_in_both_locales() {
         let _locale = crate::i18n::test_lock();
         // A built-in without a cmd_desc_i18n arm silently falls back to the
-        // English static `desc` even under zh_CN — the /app regression, which
+        // English static `desc` even under zh_CN -- the /app regression, which
         // also affected /sync, /review, /goal. Guard the WHOLE table so a
         // newly-added command can't ship without a translation in any locale.
         use crate::i18n::{current_locale, set_locale, Locale};
@@ -703,7 +703,7 @@ mod tests {
 
     #[test]
     fn parse_command_with_slash_argument_ok() {
-        // `/cd /path` is a command with a path argument — the second
+        // `/cd /path` is a command with a path argument -- the second
         // slash sits in args, not the command name.
         let (cmd, arg) = parse_slash_line("/cd /tmp/x").unwrap();
         assert_eq!(cmd, "cd");
@@ -712,7 +712,7 @@ mod tests {
 
     #[test]
     fn parse_rejects_cjk_touching_command_name() {
-        // `/session是干什么的` — the user is asking the agent "what
+        // `/session是干什么的` -- the user is asking the agent "what
         // does /session do", NOT invoking /session. A CJK char
         // directly after the command name (no whitespace) means it's
         // prose, so parse_slash_line must return None and the line
@@ -765,7 +765,7 @@ mod tests {
     #[test]
     fn complete_custom_commands() {
         // Use a name with NO built-in collision ("review" is now a built-in, which would
-        // shadow a same-named custom command — see `builtin_takes_precedence`).
+        // shadow a same-named custom command -- see `builtin_takes_precedence`).
         let custom = vec![("deploy".to_string(), "Deploy app".to_string())];
         let candidates = complete_commands("dep", &custom);
         assert!(

@@ -4,7 +4,7 @@
 #
 # Env overrides:
 #   $env:RUSTCODE_VERSION   release tag to install (default: latest release,
-#                             auto-detected from the AtomGit API)
+#                             auto-detected from the GitCode API)
 #   $env:RUSTCODE_PREFIX    install dir (default: %LOCALAPPDATA%\RustCode)
 # IMPORTANT: when changing install paths, registry edits, or filenames here,
 # also update scripts/uninstall.ps1 AND

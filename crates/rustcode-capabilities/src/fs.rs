@@ -1,5 +1,5 @@
-//! Cross-platform atomic file write: tempfile in same dir → fsync → persist
-//! → parent dir fsync. POSIX durability + Windows MoveFileEx semantics.
+//! Cross-platform atomic file write: tempfile in same dir -> fsync -> persist
+//! -> parent dir fsync. POSIX durability + Windows MoveFileEx semantics.
 //! Ported from `rustcode-core`'s `fs_atomic` for the `plugin` feature (trust store).
 
 use anyhow::{Context, Result};

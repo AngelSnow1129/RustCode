@@ -50,7 +50,7 @@ pub enum ModelSource {
     Manual,
 }
 
-/// A compiled vendor preset. All fields are `'static` — presets live in the
+/// A compiled vendor preset. All fields are `'static` -- presets live in the
 /// binary and are never mutated or persisted.
 #[derive(Debug, Clone, Copy)]
 pub struct ProviderPreset {
@@ -85,20 +85,11 @@ pub const ANTHROPIC_COMPATIBLE: ProviderPreset = ProviderPreset {
     model_source: ModelSource::Manual,
 };
 
-/// The curated preset registry, in display order. Curated, not exhaustive —
+/// The curated preset registry, in display order. Curated, not exhaustive --
 /// every field is overridable by the referencing account, and an unlisted
 /// vendor falls back to [`OPENAI_COMPATIBLE`]. Default base URLs are best-effort
 /// vendor defaults and may be overridden per account.
 pub const PRESETS: &[ProviderPreset] = &[
-    ProviderPreset {
-        id: "atomgit",
-        display_name: "AtomGit",
-        provider_type: ProviderType::OpenAi,
-        default_base_url: Some("https://llm-api.atomgit.com/v1"),
-        auth_kind: AuthKind::ApiKey,
-        api_key_env: None,
-        model_source: ModelSource::DiscoveryApi,
-    },
     ProviderPreset {
         id: "taotoken",
         display_name: "TaoToken",
@@ -275,12 +266,11 @@ mod tests {
     #[test]
     fn registry_covers_the_curated_vendors() {
         assert!(
-            PRESETS.len() >= 18,
+            PRESETS.len() >= 17,
             "expected the curated vendor set (>=18), got {}",
             PRESETS.len()
         );
         for id in [
-            "atomgit",
             "aliyun",
             "volcengine",
             "xiaomi-mimo",

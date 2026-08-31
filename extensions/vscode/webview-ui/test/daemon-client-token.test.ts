@@ -61,7 +61,7 @@ function testReadDaemonTokenReturnsUndefinedWhenTokenFieldMissing() {
 }
 
 function testReadDaemonTokenUsesAtomcodeHomeFallback() {
-  // When RUSTCODE_HOME is unset, falls back to ~/.atomcode — we can't easily
+  // When RUSTCODE_HOME is unset, falls back to ~/.rustcode — we can't easily
   // write there in a test, so just verify the function returns undefined
   // (no file at that path) rather than throwing.
   const savedHome = process.env.RUSTCODE_HOME;

@@ -1,4 +1,4 @@
-//! Client-injected ACP `mcpServers` → coding MCP config conversion.
+//! Client-injected ACP `mcpServers` -> coding MCP config conversion.
 //!
 //! ACP clients may supply `mcpServers` in session lifecycle requests
 //! (`session/new`, `session/resume`, `session/load`). This module owns the
@@ -27,7 +27,7 @@ pub fn mcp_server_names(mcp_servers: &[McpServer]) -> Vec<String> {
 
 /// Convert client-injected ACP `mcpServers` into coding MCP configs.
 ///
-/// Stdio servers — the protocol-baseline transport every agent MUST support —
+/// Stdio servers -- the protocol-baseline transport every agent MUST support --
 /// and HTTP servers (advertised via `mcp_capabilities.http`) are connected into
 /// the session's tool catalog. Transports this agent does not advertise (`sse`,
 /// and any future variant) are returned in the ignored list so the caller can
@@ -105,7 +105,7 @@ pub fn acp_mcp_server_configs(mcp_servers: &[McpServer]) -> (Vec<McpServerConfig
     (configs, ignored)
 }
 
-/// Log the subset of client-requested MCP servers this agent does NOT connect —
+/// Log the subset of client-requested MCP servers this agent does NOT connect --
 /// transports it does not advertise (`sse`, unknown/future variants) or
 /// malformed stdio entries. Advertised transports (stdio, http) ARE connected
 /// into the session's tool catalog via [`acp_mcp_server_configs`]; this logs
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn acp_mcp_server_configs_skips_malformed_stdio_entries() {
         let servers = vec![
-            // Relative command path — the protocol requires an absolute path.
+            // Relative command path -- the protocol requires an absolute path.
             McpServer::Stdio(McpServerStdio::new("rel", "bin/server")),
             // Empty name cannot key the tool namespace.
             McpServer::Stdio(McpServerStdio::new("", "/usr/bin/server")),

@@ -38,13 +38,13 @@ it** — neither coalesces N separate calls in the runtime.
   *"Never write a multiple choice question as a textual assistant message."*
 
 Conclusion: the industry answer is a **prompt nudge** (this design), not
-runtime coalescing. atomcode's batch UI already matches opencode's `question`
+runtime coalescing. rustcode's batch UI already matches opencode's `question`
 tool; the only missing piece is guiding the model to make ONE call.
 
 ## Design
 
 Add a batching rule to the existing `REQUEST_USER_INPUT_USAGE` block
-(`## ASKING THE USER:`, `crates/atomcode-coding/src/persona.rs`), which is
+(`## ASKING THE USER:`, `crates/rustcode-coding/src/persona.rs`), which is
 already gated on `request_user_input_enabled` (so the guidance only appears when
 the tool is actually mounted). The rule, in spirit:
 
@@ -56,7 +56,7 @@ the tool is actually mounted). The rule, in spirit:
 
 Properties:
 - Lives inside the already-gated block → disappears when the tool is disabled
-  (`ATOMCODE_REQUEST_USER_INPUT=0`), never nudging toward an unmounted tool.
+  (`RUSTCODE_REQUEST_USER_INPUT=0`), never nudging toward an unmounted tool.
 - Applies to all models (the rule is model-agnostic; a weak model needs it most,
   a strong model already tends to comply). No per-model gating this round.
 - No code/mechanism change — reuses the shipped batch UI end-to-end.
@@ -77,7 +77,7 @@ Properties:
 - Persona unit test: the batching guidance substring is present in
   `coding_persona(...)` when `request_user_input_enabled == true` and absent when
   `false` (rides the existing gate).
-- Run existing `atomcode-coding` persona tests — no signature/call-site changes.
+- Run existing `rustcode-coding` persona tests — no signature/call-site changes.
 
 ## Honest limitation
 

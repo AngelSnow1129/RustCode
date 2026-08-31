@@ -301,7 +301,7 @@
     <a href="/index.html#install" data-i18n="nav.install">安装</a>
     <a href="/docs/index.html" target="_blank" rel="noopener" data-i18n="nav.docs">文档</a>
     <a class="active" href="/referral.html" data-i18n="nav.referral">邀请推荐</a>
-    <a class="nav-cp" href="https://ai.atomgit.com/serverless-api" target="_blank" rel="noopener">
+    <a class="nav-cp" href="https://docs.rustcode.dev/models" target="_blank" rel="noopener">
       <span data-i18n="nav.codingplan">Coding Plan</span>
       <span class="free-badge">FREE</span>
     </a>
@@ -311,7 +311,7 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
     </button>
     <button class="icon-btn" id="langBtn" aria-label="语言">中</button>
-    <a class="btn-pill" href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="btn.repo">开源仓库</a>
+    <a class="btn-pill" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="btn.repo">开源仓库</a>
     <button class="icon-btn mb-toggle" id="mbToggle" aria-label="菜单" aria-expanded="false">☰</button>
   </div>
 </header>
@@ -323,11 +323,11 @@
   <a href="/index.html#install" data-i18n="nav.install">安装</a>
   <a href="/docs/index.html" target="_blank" rel="noopener" data-i18n="nav.docs">文档</a>
   <a class="active" href="/referral.html" data-i18n="nav.referral">邀请推荐</a>
-  <a class="cp" href="https://ai.atomgit.com/serverless-api" target="_blank" rel="noopener">
+  <a class="cp" href="https://docs.rustcode.dev/models" target="_blank" rel="noopener">
     <span data-i18n="nav.codingplan">Coding Plan</span>
     <span class="free-badge">FREE</span>
   </a>
-  <a href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="btn.repo">开源仓库</a>
+  <a href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="btn.repo">开源仓库</a>
 </nav>
 
 <main class="main">
@@ -349,8 +349,8 @@
           </div>
         </div>
         <div class="login-card">
-          <p data-i18n="login.desc">使用 AtomGit 账号登录后即可生成邀请码，并查看本周邀请、活跃和预计结算金额。</p>
-          <button class="login-btn" onclick="login()" data-magnetic data-i18n="login.btn">使用 AtomGit 账号登录</button>
+          <p data-i18n="login.desc">使用 平台 账号登录后即可生成邀请码，并查看本周邀请、活跃和预计结算金额。</p>
+          <button class="login-btn" onclick="login()" data-magnetic data-i18n="login.btn">使用 平台 账号登录</button>
         </div>
       </section>
       <div id="public-announcement" data-announcement></div>
@@ -436,13 +436,13 @@
 const ENV = new URLSearchParams(window.location.search).get('env') || '';
 const BASE_URL = ENV === 'local' ? 'http://localhost:8765'
   : ENV === 'test' ? 'https://test-acs.gitcode.net'
-  : ENV === 'pre' ? 'https://pre-acs.atomgit.com'
-  : 'https://acs.atomgit.com';
+  : ENV === 'pre' ? 'https://pre-gateway.example.com'
+  : 'https://gateway.example.com';
 const API_BASE = BASE_URL + '/api/v1/referral';
 const PAYMENT_API = BASE_URL + '/api/v1/payment/receipt';
-const LOGIN_URL = BASE_URL + '/auth/login?provider=atomgit&redirect_to=' + encodeURIComponent(
+const LOGIN_URL = BASE_URL + '/auth/login?provider=rustcode&redirect_to=' + encodeURIComponent(
   ENV ? window.location.origin + '/referral.html?env=' + ENV
-      : 'https://rustcode.atomgit.com/referral.html'
+      : 'https://docs.rustcode.dev/referral.html'
 );
 
 let LANG = 'zh';
@@ -473,8 +473,8 @@ const T = {
   'panel.login.title': { zh: '登录后领取专属邀请链接', en: 'Sign in to get your invite link' },
   'panel.mine': { zh: '我的专属邀请面板', en: 'My Referral Dashboard' },
   'panel.meta.prefix': { zh: '数据更新时间：', en: 'Updated: ' },
-  'login.desc': { zh: '使用 AtomGit 账号登录后即可生成邀请码，并查看本周邀请、活跃和预计结算金额。', en: 'Sign in with AtomGit to generate your invite code and view this week\'s installs, active users, and estimated settlement.' },
-  'login.btn': { zh: '使用 AtomGit 账号登录', en: 'Sign in with AtomGit' },
+  'login.desc': { zh: '使用 平台 账号登录后即可生成邀请码，并查看本周邀请、活跃和预计结算金额。', en: 'Sign in with 平台 to generate your invite code and view this week\'s installs, active users, and estimated settlement.' },
+  'login.btn': { zh: '使用 平台 账号登录', en: 'Sign in with 平台' },
   'logout': { zh: '退出', en: 'Log out' },
   'invite.none': { zh: '你还没有邀请码，生成后即可复制官网邀请链接分享给其他开发者。', en: 'You do not have an invite code yet. Generate one to copy and share your official invite link.' },
   'invite.generate': { zh: '生成邀请码', en: 'Generate Invite Code' },
@@ -526,12 +526,12 @@ const T = {
   'announcement.future.middle': { zh: '等长期机制上，欢迎继续关注', en: 'as long-term initiatives. Please continue to follow' },
   'announcement.future.suffix': { zh: '。', en: '.' },
   'announcement.thanks': { zh: '再次感谢每一位同路人。代码改变世界，而你们改变了 RustCode。', en: 'Thank you again to everyone who joined us on this journey. Code changes the world, and you changed RustCode.' },
-  'announcement.signature': { zh: 'AtomGit 开发者社区', en: 'AtomGit Developer Community' },
+  'announcement.signature': { zh: '平台 开发者社区', en: '平台 Developer Community' },
   'announcement.signature.date': { zh: '2026 年 7 月 30 日', en: 'July 30, 2026' },
   'resource.rustcode.title': { zh: 'RustCode 主站', en: 'RustCode Website' },
   'resource.rustcode.desc': { zh: '了解产品最新动态与版本发布。', en: 'See the latest product updates and releases.' },
-  'resource.atomgit.title': { zh: 'AtomGit 社区', en: 'AtomGit Community' },
-  'resource.atomgit.desc': { zh: '参与开源协作、提交 Issue 与 PR。', en: 'Collaborate on open source, issues, and pull requests.' },
+  'resource.platform.title': { zh: '平台 社区', en: '平台 Community' },
+  'resource.platform.desc': { zh: '参与开源协作、提交 Issue 与 PR。', en: 'Collaborate on open source, issues, and pull requests.' },
   'resource.appeal.title': { zh: '奖励与申诉咨询', en: 'Rewards and Appeals' },
 
   /* payment info */
@@ -619,7 +619,7 @@ function showToast(message, type = 'info') {
 }
 
 // ── Invite link ──
-const PUBLIC_SITE_BASE = 'https://rustcode.atomgit.com';
+const PUBLIC_SITE_BASE = 'https://docs.rustcode.dev';
 let inviteLink = '';
 function currentSiteBase() {
   const origin = window.location.origin || '';
@@ -781,7 +781,7 @@ function renderAuthenticated(data) {
 function fillUser(suffix, user) {
   document.getElementById('user-avatar-' + suffix).src = user.avatar_url || fallbackAvatar();
   document.getElementById('user-name-' + suffix).textContent = user.username || 'RustCode User';
-  document.getElementById('user-id-' + suffix).textContent = user.id ? 'ID: ' + user.id : 'AtomGit';
+  document.getElementById('user-id-' + suffix).textContent = user.id ? 'ID: ' + user.id : '平台';
 }
 function fallbackAvatar() {
   return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44"><rect fill="%23222" width="44" height="44"/><text fill="%23888" x="22" y="28" text-anchor="middle" font-size="18">?</text></svg>';
@@ -908,12 +908,12 @@ function renderAnnouncement(targetId) {
     '<div class="announcement-item appeal"><span class="item-icon">♨</span><h3>' + esc(t('announcement.appeal.title')) + '</h3><p>' +
     esc(t('announcement.appeal.prefix')) + ' <a href="mailto:linjy@gitcode.com">linjy@gitcode.com</a> ' + esc(t('announcement.appeal.suffix')) + '</p></div></div>' +
     '<p>' + esc(t('announcement.future.prefix')) + ' <strong>' + esc(t('announcement.future.focus')) + '</strong> ' + esc(t('announcement.future.middle')) +
-    ' <a href="https://rustcode.atomgit.com/" target="_blank" rel="noopener">rustcode.atomgit.com</a>' + esc(t('announcement.future.suffix')) + '</p>' +
+    ' <a href="https://docs.rustcode.dev/" target="_blank" rel="noopener">rustcode.gitcode.com</a>' + esc(t('announcement.future.suffix')) + '</p>' +
     '<p>' + esc(t('announcement.thanks')) + '</p>' +
     '<footer class="announcement-signature"><strong>' + esc(t('announcement.signature')) + '</strong><span>' + esc(t('announcement.signature.date')) + '</span></footer></div></article>' +
     '<div class="resource-grid">' +
-    resourceCard('↗', 'https://rustcode.atomgit.com/', 'resource.rustcode.title', 'resource.rustcode.desc') +
-    resourceCard('↗', 'https://atomgit.com/atomgit_rustcode/rustcode', 'resource.atomgit.title', 'resource.atomgit.desc') +
+    resourceCard('↗', 'https://docs.rustcode.dev/', 'resource.rustcode.title', 'resource.rustcode.desc') +
+    resourceCard('↗', 'https://gitcode.com/SecLab/RustCode', 'resource.platform.title', 'resource.platform.desc') +
     '<a class="resource-card" href="mailto:linjy@gitcode.com"><span class="resource-icon">✉</span><h3>' + esc(t('resource.appeal.title')) + '</h3><p>linjy@gitcode.com</p></a></div>';
 }
 function announcementItem(className, icon, titleKey, bodyKey) {

@@ -1,8 +1,8 @@
-//! `web_search` — keyword web search. Two backends, selected at construction:
-//!   - **Exa** (default) — the Exa MCP search API (`https://mcp.exa.ai/mcp`): reachable
+//! `web_search` -- keyword web search. Two backends, selected at construction:
+//!   - **Exa** (default) -- the Exa MCP search API (`https://mcp.exa.ai/mcp`): reachable
 //!     without a VPN, returns clean LLM-ready result text, keyless tier (an optional
 //!     `EXA_API_KEY` raises limits). This is the default and the recommended backend.
-//!   - **DuckDuckGo** (legacy) — scrapes `html.duckduckgo.com`: keyless and no third
+//!   - **DuckDuckGo** (legacy) -- scrapes `html.duckduckgo.com`: keyless and no third
 //!     party, but blocked in some regions. Opt-in via [`WebSearchTool::duckduckgo`].
 //!
 //! Read-only ⇒ `Safe`. Neutral port of the production tool (release/v4.25.1), with the
@@ -33,15 +33,15 @@ fn note_network_unreachable() {}
 /// Which backend `web_search` queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchProvider {
-    /// Exa MCP search (mcp.exa.ai) — the globally-reachable default.
+    /// Exa MCP search (mcp.exa.ai) -- the globally-reachable default.
     Exa,
     /// Legacy DuckDuckGo HTML scraping.
     DuckDuckGo,
 }
 
 impl SearchProvider {
-    /// Parse a config string: `"duckduckgo"`/`"ddg"` → DuckDuckGo; anything else
-    /// (including `"exa"` / empty / unknown) → Exa, the safe default.
+    /// Parse a config string: `"duckduckgo"`/`"ddg"` -> DuckDuckGo; anything else
+    /// (including `"exa"` / empty / unknown) -> Exa, the safe default.
     pub fn from_str(s: &str) -> Self {
         match s.trim().to_ascii_lowercase().as_str() {
             "duckduckgo" | "ddg" => SearchProvider::DuckDuckGo,
@@ -54,7 +54,7 @@ impl SearchProvider {
 #[derive(Debug, Clone)]
 pub struct WebSearchTool {
     provider: SearchProvider,
-    /// Exa API key — `None` uses Exa's keyless tier. `Default`/`new` read `EXA_API_KEY`.
+    /// Exa API key -- `None` uses Exa's keyless tier. `Default`/`new` read `EXA_API_KEY`.
     exa_api_key: Option<String>,
 }
 
@@ -127,7 +127,7 @@ impl Tool for WebSearchTool {
         "web_search"
     }
     fn description(&self) -> &str {
-        "Search the web for information — returns titles, URLs, and snippets. Use to find \
+        "Search the web for information -- returns titles, URLs, and snippets. Use to find \
          documentation, look up APIs, research libraries, or find information not available \
          locally; then call `web_fetch` on a result URL to read it. `max_results` caps the \
          list (default 8)."
@@ -142,7 +142,7 @@ impl Tool for WebSearchTool {
             "required": ["query"]
         })
     }
-    // read-only search → Safe.
+    // read-only search -> Safe.
     async fn execute(&self, args: &str, _ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -163,7 +163,7 @@ impl Tool for WebSearchTool {
 impl WebSearchTool {
     fn client() -> Result<reqwest::Client, String> {
         // Shared egress policy: proxy, the #514 trust-root layering, the idle-pool
-        // policy, and — new here — a connect budget. Only the UA is search-specific:
+        // policy, and -- new here -- a connect budget. Only the UA is search-specific:
         // a real browser UA, since many sources 403 a generic/bot UA.
         let spec = crate::egress::client::browser_spec()
             .with_request_timeout(Some(Duration::from_secs(REQUEST_TIMEOUT_SECS)));
@@ -307,7 +307,7 @@ fn parse_exa_sse(body: &str) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// DDG HTML parsing (pure, testable) — legacy backend
+// DDG HTML parsing (pure, testable) -- legacy backend
 // ---------------------------------------------------------------------------
 
 struct SearchResult {
@@ -493,7 +493,7 @@ mod tests {
         assert_eq!(
             SearchProvider::from_str("anything"),
             SearchProvider::Exa,
-            "unknown → Exa default"
+            "unknown -> Exa default"
         );
     }
 
@@ -513,7 +513,7 @@ mod tests {
         assert_eq!(parse_exa_sse(sse).as_deref(), Some("ok"));
         assert!(
             parse_exa_sse("event: x\ndata: {}\n").is_none(),
-            "no content → None"
+            "no content -> None"
         );
         assert!(parse_exa_sse("").is_none());
     }
@@ -521,15 +521,15 @@ mod tests {
     #[test]
     fn parses_ddg_results() {
         let html = r#"
-        <a rel="nofollow" class="result__a" href="https://github.com/openclaw">openclaw · GitHub</a>
+        <a rel="nofollow" class="result__a" href="https://github.com/openclaw">openclaw . GitHub</a>
         <a class="result__snippet" href="https://github.com/openclaw">Your personal AI assistant.</a>
-        <a rel="nofollow" class="result__a" href="https://openclaw.ai/">OpenClaw — Personal AI</a>
+        <a rel="nofollow" class="result__a" href="https://openclaw.ai/">OpenClaw -- Personal AI</a>
         <a class="result__snippet" href="https://openclaw.ai/">The AI that does things.</a>
         "#;
         let r = parse_ddg_results(html, 8);
         assert_eq!(r.len(), 2);
         assert_eq!(r[0].url, "https://github.com/openclaw");
-        assert_eq!(r[0].title, "openclaw · GitHub");
+        assert_eq!(r[0].title, "openclaw . GitHub");
         assert!(r[0].snippet.contains("personal AI assistant"));
     }
 

@@ -14,9 +14,9 @@ pub fn download_url() -> &'static str {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)] // each variant is constructed only on its own OS (cfg-gated in candidate_apps)
 pub enum LaunchKind {
-    /// macOS `.app` bundle — launched with `open <bundle>`.
+    /// macOS `.app` bundle -- launched with `open <bundle>`.
     MacOpen,
-    /// A concrete executable (Windows `.exe` / Linux binary) — spawned directly.
+    /// A concrete executable (Windows `.exe` / Linux binary) -- spawned directly.
     Spawn,
 }
 
@@ -54,7 +54,7 @@ pub fn candidate_apps(home: &Path, _env: &impl Fn(&str) -> Option<String>) -> Ve
     out
 }
 
-/// Best-effort Windows locations — VERIFY names on a real machine.
+/// Best-effort Windows locations -- VERIFY names on a real machine.
 #[cfg(target_os = "windows")]
 pub fn candidate_apps(_home: &Path, env: &impl Fn(&str) -> Option<String>) -> Vec<Candidate> {
     let mut bases: Vec<PathBuf> = Vec::new();
@@ -86,7 +86,7 @@ pub fn candidate_apps(_home: &Path, env: &impl Fn(&str) -> Option<String>) -> Ve
     out
 }
 
-/// Best-effort Linux locations — VERIFY names on a real machine.
+/// Best-effort Linux locations -- VERIFY names on a real machine.
 #[cfg(target_os = "linux")]
 pub fn candidate_apps(_home: &Path, env: &impl Fn(&str) -> Option<String>) -> Vec<Candidate> {
     let mut out = Vec::new();
@@ -111,7 +111,7 @@ pub fn candidate_apps(_home: &Path, env: &impl Fn(&str) -> Option<String>) -> Ve
     out
 }
 
-/// Fallback for unsupported OSes: nothing detected → the command shows the URL.
+/// Fallback for unsupported OSes: nothing detected -> the command shows the URL.
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn candidate_apps(_home: &Path, _env: &impl Fn(&str) -> Option<String>) -> Vec<Candidate> {
     Vec::new()
@@ -174,7 +174,7 @@ mod tests {
             cand("RustCode Desktop", "/a/desktop"),
             cand("RustCode Air", "/b/air"),
         ];
-        let hit = detect(&cands, |_| true); // both exist → first wins
+        let hit = detect(&cands, |_| true); // both exist -> first wins
         assert_eq!(hit.map(|c| c.display_name), Some("RustCode Desktop"));
     }
 

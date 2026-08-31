@@ -1,4 +1,4 @@
-//! rustcode-capabilities — **L1 capabilities** layered on the neutral
+//! rustcode-capabilities -- **L1 capabilities** layered on the neutral
 //! `rustcode-kernel` (L0).
 //!
 //! # Layering rule (compile-enforced)
@@ -14,7 +14,7 @@
 //! A downstream embedder pulls in only what it needs, so e.g. a build that only
 //! wants providers never compiles the (future) MCP/skills transitive deps:
 //!   - `provider` (default): real [`LlmProvider`](rustcode_kernel::provider::LlmProvider)
-//!     adapters — OpenAI-compatible (GLM / DeepSeek / …), Anthropic Messages (Claude),
+//!     adapters -- OpenAI-compatible (GLM / DeepSeek / ...), Anthropic Messages (Claude),
 //!     and Ollama native (`/api/chat`).
 //!   - (future) `tools`, `mcp`, `skills`, `codeintel`.
 
@@ -39,7 +39,7 @@ pub mod hooks;
 #[cfg(feature = "session")]
 pub mod datalog;
 
-/// The `<system-reminder>` convention — one constructor ([`reminder::system_reminder`]) so
+/// The `<system-reminder>` convention -- one constructor ([`reminder::system_reminder`]) so
 /// every runtime-context injector wraps consistently and the wrapper can't be forgotten.
 /// Dependency-free, so it is always available regardless of capability features.
 pub mod reminder;
@@ -47,19 +47,19 @@ pub mod reminder;
 /// Provider- and UI-neutral contracts shared by Team Agent orchestration and drivers.
 pub mod team;
 
-/// Claude-Code-compatible EXTERNAL hooks ([`cc_hooks::CCExternalHooks`]) — runs the
+/// Claude-Code-compatible EXTERNAL hooks ([`cc_hooks::CCExternalHooks`]) -- runs the
 /// user's `hooks.json` commands on the kernel's [`LifecycleHooks`]/[`ToolMiddleware`]
 /// seams (the port of core's hook engine onto the native stack). Opt-in: spawns
 /// subprocesses, so it pulls `tokio/process` + `dirs`.
 #[cfg(feature = "cc-hooks")]
 pub mod cc_hooks;
 
-/// Cache-friendly history compaction strategy ([`compaction::StubCompaction`]) — a
+/// Cache-friendly history compaction strategy ([`compaction::StubCompaction`]) -- a
 /// [`rustcode_kernel::message::CompactionStrategy`] that stubs old tool results in place.
 /// Kernel-only deps, so it is always available regardless of capability features.
 pub mod compaction;
 
-/// Shared `$RUSTCODE_HOME` path resolution for the persisting capabilities — one
+/// Shared `$RUSTCODE_HOME` path resolution for the persisting capabilities -- one
 /// home for the rule (and for documenting its single known `sudo` divergence from
 /// production). Internal; compiled only when a feature that persists needs it.
 /// `provider` also needs it for wire dumps; `tools` needs it for the credential-path gate.
@@ -73,7 +73,7 @@ pub mod compaction;
 pub(crate) mod paths;
 
 /// Shared L1 process utilities (console-window suppression, `shell_command`,
-/// UTF-8 locale, `is_running_as_admin`) — used here and by the CLI/TUI drivers, so
+/// UTF-8 locale, `is_running_as_admin`) -- used here and by the CLI/TUI drivers, so
 /// `capabilities` owns them without depending on `core`. `shell_command` +
 /// `is_running_as_admin` mirror core's copies until core is retired (see module doc).
 pub mod process_utils;
@@ -87,12 +87,12 @@ pub mod pathnorm;
 /// Unified outbound HTTP: the ONE client factory (TLS trust roots / proxy /
 /// timeouts / UA / redirects), the non-LLM external-service config, and the
 /// `brief`+`detail` error pair. Pulled in by every feature that performs egress
-/// (`provider`, `web`, `atomgit`, `mcp`) — never enabled directly, so a lean build
+/// (`provider`, `web`, `atomgit`, `mcp`) -- never enabled directly, so a lean build
 /// with none of them compiles no HTTP stack at all. See [`egress`].
 #[cfg(feature = "egress")]
 pub mod egress;
 
-/// Proxy policy for outbound HTTP clients — a self-contained mirror of
+/// Proxy policy for outbound HTTP clients -- a self-contained mirror of
 /// `core::proxy` (reads the process `RUSTCODE_PROXY_MODE` env) so native clients
 /// honor `no_proxy` without `capabilities` depending on `core`. Compiled
 /// whenever a reqwest-using capability is enabled.
@@ -105,11 +105,11 @@ pub mod egress;
 pub(crate) mod proxy;
 
 /// Ungated path helpers (leading-`~` expansion, home dir) shared by the `tools` and
-/// `codeintel` families so model-supplied paths resolve identically across both — see
+/// `codeintel` families so model-supplied paths resolve identically across both -- see
 /// [`pathutil`]. Free of any feature `cfg` because `codeintel` is independent of `tools`.
 pub(crate) mod pathutil;
 
-/// Cross-platform atomic file write (tempfile → fsync → persist → parent-dir fsync).
+/// Cross-platform atomic file write (tempfile -> fsync -> persist -> parent-dir fsync).
 /// Ported from `rustcode-core`'s `fs_atomic` for the `plugin` feature (trust store).
 /// Opt-in behind `feature = "plugin"` or `feature = "mcp"` (the mcp trust store
 /// uses `atomic_write` for the security-sensitive `mcp_trust.json`).
@@ -118,7 +118,7 @@ pub mod fs;
 
 /// Plugin subsystem: loader / installer / marketplace / manifest / trust store.
 /// Faithful port of `core::plugin` as a v2 migration target for the front-ends.
-/// Synchronous (shells out to `git` via `std::process` — no async runtime).
+/// Synchronous (shells out to `git` via `std::process` -- no async runtime).
 /// Opt-in behind `feature = "plugin"`.
 #[cfg(feature = "plugin")]
 pub mod plugin;
@@ -128,7 +128,7 @@ pub mod provider;
 
 /// Askpass: a Unix-domain-socket server + wrapper script that redirect the password
 /// prompts of `sudo`/`ssh` children (spawned by the [`tools`] `bash` capability) to the
-/// host UI instead of the tty. Unix-only — `sudo`/`ssh`'s `*_ASKPASS` mechanism does not
+/// host UI instead of the tty. Unix-only -- `sudo`/`ssh`'s `*_ASKPASS` mechanism does not
 /// exist on Windows. The host (TUI/daemon) drives [`askpass::server::start`] +
 /// [`askpass::set_env`]; the `bash` tool reads [`askpass::current_env`] to inject the env.
 #[cfg(unix)]
@@ -143,13 +143,13 @@ pub mod askpass;
 #[cfg(feature = "notify")]
 pub mod notify;
 
-/// One-time project setup/install: scan → seed config → atomic writes (file-locked).
+/// One-time project setup/install: scan -> seed config -> atomic writes (file-locked).
 /// Reads i18n + Config from the config leaf. Opt-in (NOT default).
 #[cfg(feature = "setup")]
 pub mod setup;
 
-/// Real, NEUTRAL coding [`Tool`](rustcode_kernel::tool::Tool)s — fs `read`/`write`/
-/// `edit`/`list` + `bash` + `grep`/`glob` — plus a generic
+/// Real, NEUTRAL coding [`Tool`](rustcode_kernel::tool::Tool)s -- fs `read`/`write`/
+/// `edit`/`list` + `bash` + `grep`/`glob` -- plus a generic
 /// [`ApprovalMiddleware`](tools::ApprovalMiddleware). Each runs against the kernel's
 /// minimal `ToolContext` with NO coding enrichments; see [`tools`] for the trust model.
 #[cfg(feature = "tools")]
@@ -199,10 +199,10 @@ pub mod mcp;
 pub mod session;
 
 /// User-driven persistent memory: the production `memory.md` store (global
-/// `$RUSTCODE_HOME/memory.md` + per-project `<root>/.rustcode/memory.md` — the SAME
+/// `$RUSTCODE_HOME/memory.md` + per-project `<root>/.rustcode/memory.md` -- the SAME
 /// files production reads/writes, so the two stacks share one memory) + a
 /// [`MemoryHook`](memory::MemoryHook) that injects the merged entries as a system
-/// message at `session_start` (fresh sessions only — a resumed snapshot already
+/// message at `session_start` (fresh sessions only -- a resumed snapshot already
 /// carries it). v1 has NO model-facing remember/forget tools: the store is written by
 /// the user via driver slash-commands. Opt-in `memory` feature. See [`memory`].
 #[cfg(feature = "memory")]

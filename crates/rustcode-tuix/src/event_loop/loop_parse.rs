@@ -13,7 +13,7 @@ pub enum LoopArg {
     Error(String),
 }
 
-/// Parse the text after `/loop `. Empty → Status.
+/// Parse the text after `/loop `. Empty -> Status.
 pub fn parse_loop_arg(arg: &str) -> LoopArg {
     let t = arg.trim();
     if t.is_empty() || t == "status" {
@@ -34,7 +34,7 @@ pub fn parse_loop_arg(arg: &str) -> LoopArg {
             return LoopArg::Error("不能对 /loop 自身循环".into());
         }
         if !(10..=86_400).contains(&secs) {
-            return LoopArg::Error("间隔需在 10s–24h 之间".into());
+            return LoopArg::Error("间隔需在 10s-24h 之间".into());
         }
         return LoopArg::Interval {
             secs,
@@ -49,7 +49,7 @@ pub fn parse_loop_arg(arg: &str) -> LoopArg {
     }
 }
 
-/// `30s` / `5m` / `1h` → seconds. None if not an interval token.
+/// `30s` / `5m` / `1h` -> seconds. None if not an interval token.
 fn parse_interval(tok: &str) -> Option<u64> {
     let pos = tok.find(|c: char| !c.is_ascii_digit())?;
     let (num, unit) = tok.split_at(pos);

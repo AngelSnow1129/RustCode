@@ -2,7 +2,7 @@
 
 ## 目标
 
-为 `atomcode -p` 增加两个可组合的评测开关：
+为 `rustcode -p` 增加两个可组合的评测开关：
 
 - `--ephemeral`：使用正常 auth/config/provider，但不创建、恢复或写入 session 聚合；
 - `--no-tools`：在 coding capability 装配边界挂载空工具目录，并关闭 MCP、skills 工具、review 与子 Agent。

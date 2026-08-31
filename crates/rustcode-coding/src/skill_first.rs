@@ -1,4 +1,4 @@
-//! `SkillFirstHook` — an opening-turn `<system-reminder>` that forces a skill-first check
+//! `SkillFirstHook` -- an opening-turn `<system-reminder>` that forces a skill-first check
 //! before the model explores or proposes a solution. Fires for the firm-execution models
 //! (DeepSeek + Qwen).
 //!
@@ -6,17 +6,17 @@
 //! `SKILL/PROCESS FIRST` persona line (both proved insufficient on real hardware): it
 //! opens by exploring the codebase and pre-solutioning instead of loading a matching
 //! process skill. This injects the skill-first directive with high
-//! recency — at the request TAIL, on the opening turn — the same ephemeral mechanism
+//! recency -- at the request TAIL, on the opening turn -- the same ephemeral mechanism
 //! `TodoHook`/`StatusReminderHook` use.
 //!
 //! Gated to the firm-execution models (via `model_needs_firm_execution`) AND a non-empty
 //! skill catalog (never nudge `use_skill` when no skills are installed). One-shot: opening
 //! turn only.
 //!
-//! Unlike `StatusReminderHook` we DO fire on round 1 — the reminder must preempt the model's
+//! Unlike `StatusReminderHook` we DO fire on round 1 -- the reminder must preempt the model's
 //! very first action. The resulting user-after-user tail is safe because every firm-execution
 //! model runs on an OpenAI-compatible transport (DeepSeek and Qwen both go through CodingPlan's
-//! OpenAI-compatible path), which accepts consecutive user messages — unlike the
+//! OpenAI-compatible path), which accepts consecutive user messages -- unlike the
 //! Anthropic-strict rejection that makes `StatusReminderHook` skip round 1. SAFETY INVARIANT:
 //! if a model on an Anthropic-strict transport is ever added to `model_needs_firm_execution`,
 //! this round-1 user-tail must be gated off for it, or the request will be rejected.
@@ -95,7 +95,7 @@ mod tests {
     async fn firm_execution_models_opening_turn_inject_one_wrapped_reminder() {
         // DeepSeek and Qwen share the firm-execution gate, so both get the skill-first
         // reminder. (Qwen runs on the same OpenAI-compatible transport, so the round-1
-        // user-after-user tail is safe — see module doc SAFETY INVARIANT.)
+        // user-after-user tail is safe -- see module doc SAFETY INVARIANT.)
         for model in ["deepseek-v4-flash", "qwen3.8-27b"] {
             let hook = SkillFirstHook::new(model, true);
             let mut msgs = vec![Message::system("s"), Message::user("hi")];
@@ -120,12 +120,12 @@ mod tests {
     #[tokio::test]
     async fn does_not_fire_after_the_opening_turn() {
         let hook = SkillFirstHook::new("deepseek-v4-flash", true);
-        // Round 2 of turn 1 — too late, and would double-inject.
+        // Round 2 of turn 1 -- too late, and would double-inject.
         let mut a = vec![Message::user("hi"), Message::assistant("a", vec![])];
         let before_a = a.clone();
         hook.pre_request(&mut a, &ctx(1, 2)).await;
         assert_eq!(a, before_a, "must not fire on later rounds");
-        // Turn 2 — a fresh user message later in the session.
+        // Turn 2 -- a fresh user message later in the session.
         let mut b = vec![Message::user("hi")];
         let before_b = b.clone();
         hook.pre_request(&mut b, &ctx(2, 1)).await;

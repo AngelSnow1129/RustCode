@@ -1,7 +1,7 @@
 //! A loaded skill: a markdown template with optional YAML-ish frontmatter, plus the
 //! argument/variable substitution engine. Ported from production `skill.rs`.
 //!
-//! `expand` runs any `` !`command` `` blocks through a shell — skills are TRUSTED,
+//! `expand` runs any `` !`command` `` blocks through a shell -- skills are TRUSTED,
 //! user-authored content (the same trust as a slash command the user installed), so this
 //! is by design, not arbitrary remote code.
 
@@ -15,10 +15,10 @@ pub struct Skill {
     /// The template body (everything after the frontmatter block).
     pub template: String,
     /// Tools the specialization MAY auto-approve while this skill is active (metadata;
-    /// the L1 capability does not enforce it — that's an L2 approval-policy concern).
+    /// the L1 capability does not enforce it -- that's an L2 approval-policy concern).
     pub allowed_tools: Vec<String>,
     /// If false (`user-invocable: false` in frontmatter), hidden from the `/` menu;
-    /// the model can still auto-invoke it. Absent → true.
+    /// the model can still auto-invoke it. Absent -> true.
     pub user_invocable: bool,
     /// Directory containing the skill file (for `${CLAUDE_SKILL_DIR}`).
     pub skill_dir: PathBuf,
@@ -34,7 +34,7 @@ impl Skill {
         let skill_dir = self.skill_dir.to_string_lossy();
 
         // SINGLE left-to-right pass: each substitution's value is emitted literally and
-        // never re-scanned — so an argument that itself contains `$1` is NOT re-expanded.
+        // never re-scanned -- so an argument that itself contains `$1` is NOT re-expanded.
         let t = self.template.as_str();
         let mut result = String::with_capacity(t.len());
         let mut i = 0;
@@ -70,7 +70,7 @@ impl Skill {
     }
 
     /// A `<system-reminder>` naming the skill's install directory, emitted only for
-    /// directory-style skills (source file literally `SKILL.md`) — those own a dedicated
+    /// directory-style skills (source file literally `SKILL.md`) -- those own a dedicated
     /// folder that can bundle `scripts/`/`references/`. Single-file `.md` skills share a
     /// skills folder, so the note would point at the wrong (shared) directory.
     fn bundled_resource_note(&self) -> Option<String> {
@@ -81,9 +81,9 @@ impl Skill {
         Some(format!(
             "<system-reminder>\n\
              This skill is installed at: {dir}\n\
-             Any files it references (e.g. `scripts/…`, `references/…`, templates) live \
+             Any files it references (e.g. `scripts/...`, `references/...`, templates) live \
              UNDER that directory, NOT the current working directory. Resolve every \
-             relative path in this skill against the skill directory above — for a \
+             relative path in this skill against the skill directory above -- for a \
              bundled script, run it by its absolute path under that directory. Do not \
              search the project / working directory for these files.\n\
              </system-reminder>"
@@ -92,10 +92,10 @@ impl Skill {
 }
 
 /// Format a skill directory for the base-dir note (see `bundled_resource_note`). On
-/// Windows, convert `\` → `/` so the path works uniformly across read_file/Python/Git
+/// Windows, convert `\` -> `/` so the path works uniformly across read_file/Python/Git
 /// Bash (a raw backslash path breaks when bash treats `\U`/`\s` as escapes). Windows
 /// separators are always `\` and filenames can't contain `\`, so the replace is lossless.
-/// On Unix, `\` is a legal filename char, so leave it. Note-text only — never used for IO.
+/// On Unix, `\` is a legal filename char, so leave it. Note-text only -- never used for IO.
 fn display_skill_dir(raw: &str, is_windows: bool) -> String {
     if is_windows {
         raw.replace('\\', "/")
@@ -123,7 +123,7 @@ fn match_substitution<'a>(
                 }
             }
         }
-        return None; // malformed / out-of-range → literal
+        return None; // malformed / out-of-range -> literal
     }
     if rest.starts_with("${CLAUDE_SESSION_ID}") {
         return Some((session_id, "${CLAUDE_SESSION_ID}".len()));
@@ -157,7 +157,7 @@ fn expand_shell_injections(template: &str) -> String {
         };
         let search_from = start + 2;
         let Some(rel_end) = result[search_from..].find('`') else {
-            break; // unclosed — leave as-is
+            break; // unclosed -- leave as-is
         };
         let end = search_from + rel_end;
         let cmd = result[search_from..end].to_string();
@@ -197,8 +197,8 @@ struct Frontmatter {
     name: Option<String>,
     description: String,
     allowed_tools: Vec<String>,
-    /// If false (`user-invocable: false`), hidden from the `/` menu — the model can
-    /// still auto-invoke. Absent → true.
+    /// If false (`user-invocable: false`), hidden from the `/` menu -- the model can
+    /// still auto-invoke. Absent -> true.
     user_invocable: bool,
 }
 
@@ -219,7 +219,7 @@ fn fm_value(s: &str) -> String {
 }
 
 /// Parse `---`-delimited frontmatter; returns `(Frontmatter, body)`. Absent/unclosed
-/// frontmatter → empty frontmatter + the whole content as body.
+/// frontmatter -> empty frontmatter + the whole content as body.
 fn parse_frontmatter(content: &str) -> (Frontmatter, String) {
     let mut fm = Frontmatter::default();
     if !content.starts_with("---\n") && !content.starts_with("---\r\n") {
@@ -404,7 +404,7 @@ mod tests {
         let (fm, _) = parse_frontmatter("---\nname: x\nuser-invocable: false\n---\nbody");
         assert!(!fm.user_invocable);
         let (fm2, _) = parse_frontmatter("---\nname: x\n---\nbody");
-        assert!(fm2.user_invocable, "absent → default true");
+        assert!(fm2.user_invocable, "absent -> default true");
     }
 
     #[test]
@@ -428,7 +428,7 @@ mod tests {
 
     #[test]
     fn dollar_n_boundary() {
-        // $1 (0-based → second arg) must not match inside $10 (eleventh arg).
+        // $1 (0-based -> second arg) must not match inside $10 (eleventh arg).
         let out = skill("$1 and $10").expand("X Y Z Q R S T U V W K", "");
         assert!(out.starts_with("Y and K"), "{out}");
     }

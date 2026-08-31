@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 
 class FileChangeService(private val project: Project) {
     private val ioExecutor = java.util.concurrent.Executors.newCachedThreadPool { runnable ->
-        Thread(runnable, "atomcode-file-io").apply { isDaemon = true }
+        Thread(runnable, "rustcode-file-io").apply { isDaemon = true }
     }
     fun refreshPath(path: String) {
         ApplicationManager.getApplication().invokeLater {

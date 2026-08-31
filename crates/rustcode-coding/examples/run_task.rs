@@ -1,4 +1,4 @@
-//! One-shot coding agent — the L2 stack running a single task end-to-end against a REAL
+//! One-shot coding agent -- the L2 stack running a single task end-to-end against a REAL
 //! provider. This is the live smoke (no mock). It AUTO-APPROVES tool calls (no human in
 //! the loop), so run it deliberately.
 //!

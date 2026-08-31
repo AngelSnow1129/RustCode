@@ -1,20 +1,20 @@
-//! `StatusReminderHook` — a per-turn `<system-reminder>` tail carrying the current date so the
+//! `StatusReminderHook` -- a per-turn `<system-reminder>` tail carrying the current date so the
 //! model can resolve relative dates ("yesterday") into concrete `after`/`before` for
 //! [`recall`](super::recall). Deliberately DATE-only: wall-clock time, context pressure, and
 //! round counters are runtime concerns and are not pushed to the model.
 //!
 //! Two cache-safety disciplines:
-//!   1. **APPEND-ONLY at the tail** — it never mutates the cached prefix (the changing status
+//!   1. **APPEND-ONLY at the tail** -- it never mutates the cached prefix (the changing status
 //!      sits AFTER the prefix), so prefix caching is unaffected.
 //!   2. **SKIPPED on a turn's FIRST round** (`round < 2`). On round 1 the tail would sit
-//!      directly after the real user message → a user-after-user pair (rejected by strict
+//!      directly after the real user message -> a user-after-user pair (rejected by strict
 //!      providers like Anthropic; read as the user's own words by others). Merging it away
 //!      would instead rewrite the (cacheable) user message. From round 2 the tail follows an
 //!      assistant/tool message, so it neither pairs with a user message nor disturbs the
 //!      prefix. Round 1 already receives the frozen date anchor from the persona, so skipping
 //!      this live tail does not remove the model's date awareness.
 //!
-//! The body is wrapped in `<system-reminder>…</system-reminder>` so the model reads it as
+//! The body is wrapped in `<system-reminder>...</system-reminder>` so the model reads it as
 //! INJECTED CONTEXT, not the user's own words (matching `PlanModeReminderHook`'s convention).
 //! Wall-clock lives in L1 (the kernel is clock-free); this reads the system-local time.
 
@@ -34,7 +34,7 @@ impl StatusReminderHook {
     /// Build the `<system-reminder>` body from wall-clock `now`. Pure (clock injected) so it is
     /// unit-testable without a running agent.
     fn render(now: DateTime<Local>) -> String {
-        // Date + weekday only — NO wall-clock time. The minute-level clock made chatty weak
+        // Date + weekday only -- NO wall-clock time. The minute-level clock made chatty weak
         // models (e.g. deepseek-v4-flash) editorialize about the hour ("要休息了吗？快 1 点了")
         // instead of working, and relative-date resolution for `recall` needs only the date.
         let date = format!(
@@ -117,8 +117,8 @@ mod tests {
 
     #[tokio::test]
     async fn pre_request_never_injects_runtime_pressure() {
-        // The window is known AND nearly full — the exact case the old code injected a scary
-        // "Context window: … (95%)". It must NOT be surfaced to the model: pressure is handled
+        // The window is known AND nearly full -- the exact case the old code injected a scary
+        // "Context window: ... (95%)". It must NOT be surfaced to the model: pressure is handled
         // silently by auto-compaction, and pushing the gauge made weak models false-complete or
         // nag the user to compact. Only the date remains.
         let mut messages = vec![

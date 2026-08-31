@@ -11,12 +11,12 @@ class PluginDescriptorCompatibilityTest {
 
         assertTrue(
             pluginXml.contains(
-                """<depends optional="true" config-file="atomcode-jcef.xml">com.intellij.modules.jcef</depends>""",
+                """<depends optional="true" config-file="rustcode-jcef.xml">com.intellij.modules.jcef</depends>""",
             ),
             "JCEF must be optional so pre-2025.3.1 IDEs can still load the plugin",
         )
         assertNotNull(
-            javaClass.getResource("/META-INF/atomcode-jcef.xml"),
+            javaClass.getResource("/META-INF/rustcode-jcef.xml"),
             "the optional JCEF dependency descriptor must be packaged",
         )
     }

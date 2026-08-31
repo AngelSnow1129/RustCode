@@ -11,7 +11,7 @@
   "config": "~/.rustcode/config.toml",
   "candidates": {
     "official": {
-      "selection": "AtomGit-deepseek-v4-flash",
+      "selection": "RustCode-deepseek-v4-flash",
       "expected_model": "deepseek-v4-flash"
     },
     "volcengine": {

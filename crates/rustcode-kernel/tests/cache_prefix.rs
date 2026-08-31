@@ -1,4 +1,4 @@
-//! CLAIM 16: PREFIX-CACHE BYTE-STABILITY — the kernel's defining guarantee.
+//! CLAIM 16: PREFIX-CACHE BYTE-STABILITY -- the kernel's defining guarantee.
 //!
 //! The conversation history + tool definitions sent to the provider must form a
 //! byte-stable, APPEND-ONLY growing prefix across rounds and across turns, so the
@@ -7,15 +7,15 @@
 //! CI-guarded invariant by hashing the exact WIRE PREFIX the provider received.
 //!
 //! These are the kernel's prefix-cache RED-LINE guards. They MUST pass today (the
-//! run-loop only appends — see `agent::run_turn`). They exist to FAIL CI the
+//! run-loop only appends -- see `agent::run_turn`). They exist to FAIL CI the
 //! moment a future change:
 //!   * rebuilds the system/persona message per round (head mutation),
 //!   * reorders the tool block (tools must stay frozen byte-for-byte), or
 //!   * rewrites history mid-turn / mid-session OUTSIDE a (future) compaction
-//!     epoch boundary (no append-only relation → cache break).
+//!     epoch boundary (no append-only relation -> cache break).
 //!
 //! They deliberately use `NoopHooks` (no `pre_request` projection) so the provider
-//! receives EXACTLY the stored history — no ephemeral tail to confuse the prefix
+//! receives EXACTLY the stored history -- no ephemeral tail to confuse the prefix
 //! relation. (The ephemeral-projection-not-stored property is claim 8's job.)
 
 use rustcode_kernel::event::{AgentCommand, AgentEvent};
@@ -120,8 +120,8 @@ async fn drive_one_turn(handle: &mut rustcode_kernel::agent::AgentHandle, text: 
 // byte-frozen, and the leading persona message is byte-identical across calls.
 #[tokio::test]
 async fn wire_prefix_is_byte_stable_and_append_only_across_rounds() {
-    // call 1 → a ToolCall (kernel runs echo) then Done; call 2 → TextDelta, no
-    // calls → turn ends. ≥2 rounds in a single turn.
+    // call 1 -> a ToolCall (kernel runs echo) then Done; call 2 -> TextDelta, no
+    // calls -> turn ends. ≥2 rounds in a single turn.
     let provider = Arc::new(RecordingProvider::new(vec![
         vec![
             StreamEvent::ToolCall(tool_call("c1", "echo", "{\"text\":\"hi\"}")),
@@ -147,7 +147,7 @@ async fn wire_prefix_is_byte_stable_and_append_only_across_rounds() {
         calls.len()
     );
 
-    // sanity: the helper is discriminating — two different histories differ.
+    // sanity: the helper is discriminating -- two different histories differ.
     assert_ne!(
         history_repr(&calls[0].0),
         history_repr(&calls[1].0),
@@ -189,12 +189,12 @@ async fn wire_prefix_is_byte_stable_and_append_only_across_rounds() {
 
 // CLAIM 16b: across TWO user turns in one session, the FIRST call of turn 2 has a
 // history that is a strict byte prefix-EXTENSION of the LAST call of turn 1
-// (history only GROWS across turns — no compaction yet), and tool block + persona
+// (history only GROWS across turns -- no compaction yet), and tool block + persona
 // stay byte-identical across all calls of both turns.
 #[tokio::test]
 async fn wire_prefix_append_only_across_turns() {
     let provider = Arc::new(RecordingProvider::new(vec![
-        // Turn 1: round 1 → echo tool call, round 2 → stop.
+        // Turn 1: round 1 -> echo tool call, round 2 -> stop.
         vec![
             StreamEvent::ToolCall(tool_call("c1", "echo", "{\"text\":\"one\"}")),
             StreamEvent::Done { truncated: false },
@@ -203,7 +203,7 @@ async fn wire_prefix_append_only_across_turns() {
             StreamEvent::TextDelta("first turn done".into()),
             StreamEvent::Done { truncated: false },
         ],
-        // Turn 2: round 1 → stop immediately (single round).
+        // Turn 2: round 1 -> stop immediately (single round).
         vec![
             StreamEvent::TextDelta("second turn done".into()),
             StreamEvent::Done { truncated: false },
@@ -258,7 +258,7 @@ async fn wire_prefix_append_only_across_turns() {
 }
 
 // CLAIM 16c: across ALL calls of a multi-round, multi-turn run, the tool block is
-// byte-identical to the first call's — the tool definitions are frozen for the
+// byte-identical to the first call's -- the tool definitions are frozen for the
 // whole session (no reorder, no per-round rebuild).
 #[tokio::test]
 async fn tool_block_is_frozen_byte_for_byte_every_call() {

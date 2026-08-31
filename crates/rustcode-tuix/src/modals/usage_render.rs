@@ -1,4 +1,4 @@
-//! Pure string/cell builders for the `/usage` modal — progress bar, sparkline,
+//! Pure string/cell builders for the `/usage` modal -- progress bar, sparkline,
 //! heatmap, calendar layout, braille line chart. No I/O, no state.
 
 const BLOCKS_V: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -26,7 +26,7 @@ pub fn progress_bar(percent: f64, width: usize) -> String {
     s
 }
 
-/// A `width`-char sparkline of `values` (shared min→max scale). Empty values →
+/// A `width`-char sparkline of `values` (shared min->max scale). Empty values ->
 /// `width` spaces. `width` is downsampled/upsampled by even bucketing.
 pub fn sparkline(values: &[u64], width: usize) -> String {
     if width == 0 {
@@ -53,9 +53,9 @@ pub fn sparkline(values: &[u64], width: usize) -> String {
         .map(|&v| {
             let level = if max == min {
                 if max == 0 {
-                    0 // all-zero → blank (no phantom activity)
+                    0 // all-zero -> blank (no phantom activity)
                 } else {
-                    4 // flat non-zero → mid
+                    4 // flat non-zero -> mid
                 }
             } else {
                 1 + ((v - min) as f64 / (max - min) as f64 * 7.0).round() as usize
@@ -125,9 +125,9 @@ pub fn calendar_layout(rows: &[(String, u64)]) -> Vec<HeatCell> {
     // first week starts on the Sunday on/before the EARLIEST date. Anchor on the
     // MIN epoch across all rows (not `rows.first()`): the API is not guaranteed
     // sorted, and a row older than the first would yield a negative delta whose
-    // `as usize` cast wraps to a huge index → OOM when the caller allocates by
+    // `as usize` cast wraps to a huge index -> OOM when the caller allocates by
     // max week_col.
-    // weekday of epoch day: 1970-01-01 was a Thursday → (epoch + 4) % 7 gives 0=Sun.
+    // weekday of epoch day: 1970-01-01 was a Thursday -> (epoch + 4) % 7 gives 0=Sun.
     let weekday_of = |epoch: i64| (((epoch % 7) + 4).rem_euclid(7)) as u8;
     let min_epoch = rows
         .iter()
@@ -161,11 +161,11 @@ pub fn braille_series_char(dots: u8) -> char {
     char::from_u32(0x2800 + dots as u32).unwrap_or(' ')
 }
 
-// dot bit index for (sub-column 0/1, sub-row 0..3 top→bottom)
+// dot bit index for (sub-column 0/1, sub-row 0..3 top->bottom)
 const BRAILLE_DOT: [[u8; 4]; 2] = [[0, 1, 2, 6], [3, 4, 5, 7]];
 
-/// Plot each series over a `width_cells`×`height_cells` grid of braille cells
-/// (each cell = 2×4 dots). Shared Y-scale = global max across all series.
+/// Plot each series over a `width_cells`x`height_cells` grid of braille cells
+/// (each cell = 2x4 dots). Shared Y-scale = global max across all series.
 /// Returns rows[y][x] = merged dot bitmask (all series OR'd) for a monochrome
 /// plot. For multi-colour, call once per series (pass a single-series slice) and
 /// overlay by cell in the modal.
@@ -194,9 +194,9 @@ pub fn braille_plot(series: &[Vec<u64>], width_cells: usize, height_cells: usize
                 dx * (s.len() - 1) / (dot_w - 1).max(1)
             };
             let v = s[idx];
-            // y in dot space: 0 = top, dot_h-1 = bottom. value 0 → bottom.
+            // y in dot space: 0 = top, dot_h-1 = bottom. value 0 -> bottom.
             let filled = ((v as f64 / gmax as f64) * (dot_h - 1) as f64).round() as usize;
-            let dy = (dot_h - 1).saturating_sub(filled); // higher value → smaller dy (up)
+            let dy = (dot_h - 1).saturating_sub(filled); // higher value -> smaller dy (up)
             let cell_x = dx / 2;
             let cell_y = dy / 4;
             let sub_col = dx % 2;
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn progress_bar_fills_proportionally() {
-        // 0% → no filled blocks, entire track is ░
+        // 0% -> no filled blocks, entire track is ░
         let zero = progress_bar(0.0, 10);
         assert_eq!(zero.chars().filter(|c| *c == '█').count(), 0);
         assert!(
@@ -292,7 +292,7 @@ mod tests {
             "0% bar should be all ░, got: {zero}"
         );
         assert_eq!(progress_bar(100.0, 10), "██████████");
-        // 9% of 10 cells ≈ 0.9 cell → at least one partial/edge cell, not full
+        // 9% of 10 cells ≈ 0.9 cell -> at least one partial/edge cell, not full
         let b = progress_bar(9.0, 10);
         assert_eq!(b.chars().count(), 10);
         assert!(b.chars().next().unwrap() != '░' || b.chars().any(|c| c != '░'));
@@ -305,24 +305,24 @@ mod tests {
         assert_eq!(cs.len(), 2);
         assert_eq!(cs[0], '▁'); // min
         assert_eq!(cs[1], '█'); // max
-        assert_eq!(sparkline(&[5, 5, 5], 3), "▄▄▄"); // all-equal → mid/flat, uniform
-        assert_eq!(sparkline(&[], 3).chars().count(), 3); // empty → blanks, width kept
+        assert_eq!(sparkline(&[5, 5, 5], 3), "▄▄▄"); // all-equal -> mid/flat, uniform
+        assert_eq!(sparkline(&[], 3).chars().count(), 3); // empty -> blanks, width kept
     }
 
     #[test]
     fn heatmap_buckets_zero_and_levels() {
         assert_eq!(heatmap_buckets(&[0, 0, 0]), vec![0, 0, 0]);
         let b = heatmap_buckets(&[0, 1, 50, 100, 1000]);
-        assert_eq!(b[0], 0); // zero → level 0
+        assert_eq!(b[0], 0); // zero -> level 0
         assert!(b[4] >= b[1] && b[4] <= 5); // monotone, capped at 5
         assert!(b.iter().all(|&l| l <= 5));
     }
 
     #[test]
     fn heatmap_buckets_five_levels() {
-        // All-zero → all 0
+        // All-zero -> all 0
         assert_eq!(heatmap_buckets(&[0, 0, 0]), vec![0, 0, 0]);
-        // Single active day → max level 5
+        // Single active day -> max level 5
         assert_eq!(heatmap_buckets(&[0, 0, 717016, 0]), vec![0, 0, 5, 0]);
         // Monotone: levels must be non-decreasing for non-decreasing values
         let vals = vec![0u64, 100, 300, 600, 1000];
@@ -351,7 +351,7 @@ mod tests {
         for dx in 0..dot_w {
             let cell_x = dx / 2;
             let has_dot = grid.iter().any(|row| row[cell_x] != 0);
-            assert!(has_dot, "dot column {dx} has no dots — line has a gap");
+            assert!(has_dot, "dot column {dx} has no dots -- line has a gap");
         }
         // Rising series: bottom-left cell has dots, top-right cell has dots
         assert!(
@@ -402,7 +402,7 @@ mod tests {
                                       // rising series: bottom-left cell has dots, top-right cell has dots
         assert!(grid[1][0] != 0, "bottom-left should have dots");
         assert!(grid[0][3] != 0, "top-right should have dots");
-        // flat-zero series → only the bottom row lights up
+        // flat-zero series -> only the bottom row lights up
         let flat = braille_plot(&[vec![0, 0, 0, 0]], 2, 2);
         assert!(flat[1].iter().any(|&c| c != 0));
         assert!(flat[0].iter().all(|&c| c == 0));

@@ -1,7 +1,7 @@
-//! `TodoHook` — injects the current todo list as an ephemeral `<system-reminder>` at
+//! `TodoHook` -- injects the current todo list as an ephemeral `<system-reminder>` at
 //! the TAIL of every request, so the model always sees current progress even after the
 //! originating todowrite result is compacted away. Cache-safe: tail-only, per-request
-//! clone (never stored) — mirrors PlanModeGate / StatusReminderHook.
+//! clone (never stored) -- mirrors PlanModeGate / StatusReminderHook.
 
 use async_trait::async_trait;
 use rustcode_capabilities::reminder::synthetic_system_reminder;
@@ -14,7 +14,7 @@ use rustcode_kernel::provider::{ChatOptions, ToolChoice};
 
 use rustcode_config::config::TodoEagerness;
 
-/// Injected when the model tries to STOP while the task list still has open items — the
+/// Injected when the model tries to STOP while the task list still has open items -- the
 /// residual weak-model gap after incremental `todo` updates land: it does the last item's work
 /// (e.g. the closing summary) then ends WITHOUT marking it completed. Mirrors
 /// `VerifyCadenceHook`'s `offer_continuation` cadence; nudges at most ONCE per real-user turn
@@ -23,7 +23,7 @@ const TODO_COMPLETION_NUDGE: &str = "Before you finish: the task list still has 
 If you have actually completed them, mark each one done now with `todowrite` \
 (`{\"action\":\"update\",\"id\":<id>,\"status\":\"completed\"}`). If some are NOT done, keep working \
 through them. Only stop with open items if you genuinely need approval/input, are stuck, or the \
-request is ambiguous — in that case say so briefly.";
+request is ambiguous -- in that case say so briefly.";
 
 pub struct TodoHook;
 
@@ -33,7 +33,7 @@ pub struct TodoEagerHook {
     eagerness: TodoEagerness,
     /// `auto` keeps ordinary models judgment-based. For DeepSeek (a weak model
     /// that under-uses soft reminders) a high-confidence feature/refactor request
-    /// upgrades the reminder from the soft tier to the FIRM tier — it no longer
+    /// upgrades the reminder from the soft tier to the FIRM tier -- it no longer
     /// forces the tool choice (that was unsupported by DeepSeek V4 and regressed
     /// efficiency on small tasks; only `always` hard-forces).
     force_complex_for_weak_model: bool,
@@ -82,14 +82,14 @@ impl TodoEagerHook {
     /// choice (`todowrite` first). The DeepSeek weak-model path deliberately does
     /// not: its hard tool_choice was unsupported by DeepSeek V4 and dropped by the
     /// provider, and forcing a plan on small tasks regressed turns/tokens/wall
-    /// clock for no measured quality gain — so it only firms up the text nudge.
+    /// clock for no measured quality gain -- so it only firms up the text nudge.
     fn should_hard_force(&self, messages: &[Message], ctx: &TurnCtx) -> bool {
         self.should_activate(messages, ctx) && self.eagerness == TodoEagerness::Always
     }
 }
 
 /// Word-boundary-aware substring test for ASCII signals; plain substring for
-/// non-ASCII ones. Word boundaries only model English morphology — an ASCII
+/// non-ASCII ones. Word boundaries only model English morphology -- an ASCII
 /// signal like `refactor` must NOT match inside `refactoring`. CJK signals like
 /// `重构` have no such morphology and no whitespace, and bilingual prompts glue
 /// them to ASCII identifiers (`重构UserService`, `迁移到PostgreSQL`), so they keep
@@ -210,7 +210,7 @@ impl LifecycleHooks for TodoEagerHook {
         if !self.should_activate(messages, ctx) {
             return;
         }
-        // `should_activate` already passed, so branch on the raw policy — no need
+        // `should_activate` already passed, so branch on the raw policy -- no need
         // to re-derive the current todo list via should_hard_force / a weak-model
         // helper. The two arms are mutually exclusive: `force_complex_for_weak_model`
         // is only set for DeepSeek `auto` (remapped to Preferred, never `Always`).
@@ -219,7 +219,7 @@ impl LifecycleHooks for TodoEagerHook {
         } else if self.force_complex_for_weak_model
             && high_confidence_complex_engineering_request(messages)
         {
-            "This request shows strong signals of multi-step engineering work (refactor, migration, feature build, redesign). If it genuinely spans multiple files, phases, or investigation plus changes, call `todowrite` first and lay out a concrete plan — investigation, architecture/module design, implementation, verification — with outcomes a later turn can execute without re-planning. If it is actually a single, self-contained change or purely informational, skip the list and act directly."
+            "This request shows strong signals of multi-step engineering work (refactor, migration, feature build, redesign). If it genuinely spans multiple files, phases, or investigation plus changes, call `todowrite` first and lay out a concrete plan -- investigation, architecture/module design, implementation, verification -- with outcomes a later turn can execute without re-planning. If it is actually a single, self-contained change or purely informational, skip the list and act directly."
         } else {
             "Before acting, decide whether this task benefits from a todo list. If it has multiple requests, phases, files, dependencies, ambiguity, or requires investigation plus changes, call `todowrite` now. A useful plan covers the complete request from investigation and architecture/module design through implementation and verification, with concrete outcomes a later turn can execute without re-planning. Skip it only for a genuinely simple one-step or purely informational request."
         };
@@ -247,7 +247,7 @@ fn current_real_user_start(convo: &Conversation) -> usize {
         .unwrap_or(0)
 }
 
-/// True iff the completion nudge was already injected in the CURRENT real-user turn — so we
+/// True iff the completion nudge was already injected in the CURRENT real-user turn -- so we
 /// nudge at most once; if the model stops again with open items, we let it end.
 fn completion_nudge_already_present(convo: &Conversation) -> bool {
     let start = current_real_user_start(convo);
@@ -259,7 +259,7 @@ fn completion_nudge_already_present(convo: &Conversation) -> bool {
 }
 
 /// True iff the model actively MANAGED the task list this turn (a `todo`/`todowrite` call after
-/// the last real-user message). We only nudge when it did — so a stop where the model is asking
+/// the last real-user message). We only nudge when it did -- so a stop where the model is asking
 /// the user something unrelated to a STALE list from an earlier turn isn't hijacked into a
 /// continuation. Mirrors `VerifyCadenceHook`'s narrow "only right after an edit" scoping.
 fn managed_todos_this_turn(convo: &Conversation) -> bool {
@@ -275,13 +275,13 @@ fn managed_todos_this_turn(convo: &Conversation) -> bool {
 /// Weak models DRIFT: they leave `in_progress` on a task they already finished or moved
 /// past (e.g. still on #4 while actually editing #6's code), or work with nothing marked
 /// in_progress at all. The full numbered list is already injected below, but the
-/// in_progress status is just a `[~]` glyph buried in it — low salience for weak models.
+/// in_progress status is just a `[~]` glyph buried in it -- low salience for weak models.
 /// This surfaces the current pointer as an explicit imperative every turn so the model
 /// re-confronts it BEFORE acting. Deterministic: reads only the derived state, never
 /// guesses which task the model "should" be on.
-/// - An `in_progress` task → name its `#<id>` + title and force a reconcile.
-/// - No `in_progress` but open (pending) items remain → tell it to mark what it's on.
-/// - Otherwise (all completed) → `None` (nothing to reconcile; don't add noise).
+/// - An `in_progress` task -> name its `#<id>` + title and force a reconcile.
+/// - No `in_progress` but open (pending) items remain -> tell it to mark what it's on.
+/// - Otherwise (all completed) -> `None` (nothing to reconcile; don't add noise).
 /// `id` is the 1-based position, matching `render_todos_numbered`.
 fn todo_anchor_line(todos: &[TodoItem]) -> Option<String> {
     if let Some(i) = todos
@@ -309,20 +309,20 @@ actually working on as in_progress (`{\"action\":\"update\",\"id\":<id>,\"status
 }
 
 /// The static "how to drive the list with `todowrite`" rules. These are CONSTANT
-/// guidance — the model already has them from the persona and from the round right
-/// after it (re)plans — so re-sending them on every execution round is pure wasted
+/// guidance -- the model already has them from the persona and from the round right
+/// after it (re)plans -- so re-sending them on every execution round is pure wasted
 /// cache (~170 tokens/round of never-cached tail). Rides the reminder only when the
 /// model JUST wrote a full list (see `just_wrote_full_list`).
 const TODO_DRIVE_RULES: &str = "\n\
 - The MOMENT you START an item: `todowrite` with `{\"action\":\"update\",\"id\":<id>,\"status\":\"in_progress\"}`.\n\
 - The MOMENT you FINISH an item: `todowrite` with `{\"action\":\"update\",\"id\":<id>,\"status\":\"completed\"}` (do not leave a done item showing incomplete).\n\
-- Update ONE item at a time (the `{\"action\":...}` shape) — do NOT resend the whole `todos` list for a single status change (the full list is only for the initial plan or a full re-plan).\n\
-- Do NOT stop, summarize, or hand back while ANY item is still pending or in_progress — keep working through them, unless you truly need approval, are genuinely stuck, or the request is ambiguous.";
+- Update ONE item at a time (the `{\"action\":...}` shape) -- do NOT resend the whole `todos` list for a single status change (the full list is only for the initial plan or a full re-plan).\n\
+- Do NOT stop, summarize, or hand back while ANY item is still pending or in_progress -- keep working through them, unless you truly need approval, are genuinely stuck, or the request is ambiguous.";
 
 /// True iff the model's most recent tool-using action was a FULL `todowrite` list
 /// (re)plan, as opposed to a single `todo` status update or a non-todo action. Used to
-/// ride [`TODO_DRIVE_RULES`] only right after a (re)plan — the round where the model
-/// most needs the "how to update as you go" guidance — instead of every round.
+/// ride [`TODO_DRIVE_RULES`] only right after a (re)plan -- the round where the model
+/// most needs the "how to update as you go" guidance -- instead of every round.
 fn just_wrote_full_list(messages: &[Message]) -> bool {
     messages
         .iter()
@@ -345,7 +345,7 @@ impl LifecycleHooks for TodoHook {
         // ASCII-safe body (the model doesn't need glyph prettiness; the TUI renders
         // the pretty version). Tail-append so the cached prefix is preserved.
         // The anchor line (mid-work drift backstop) leads, so the current in_progress
-        // pointer is the first thing the model sees — above the list and the rules.
+        // pointer is the first thing the model sees -- above the list and the rules.
         // The anchor + list ride EVERY round (the per-round drift backstop); the static
         // drive rules ride ONLY right after a (re)plan, to stop wasting cache re-sending
         // constant guidance every execution round.
@@ -358,14 +358,14 @@ impl LifecycleHooks for TodoHook {
             ""
         };
         let body = format!(
-            "{anchor}Current task list (each line is `#<id> <task>`) — keep it accurate and finish it:{rules}\n{}",
+            "{anchor}Current task list (each line is `#<id> <task>`) -- keep it accurate and finish it:{rules}\n{}",
             render_todos_numbered(&todos, false)
         );
         messages.push(synthetic_system_reminder(&body));
     }
 
     /// The model wants to stop. If the task list still has OPEN items (pending or in_progress),
-    /// inject a one-shot nudge to close them out (or keep working) and continue the turn — the
+    /// inject a one-shot nudge to close them out (or keep working) and continue the turn -- the
     /// residual gap where a weak model finishes the last item's work but forgets the final
     /// `todo update`. Fires at most once per real-user turn; `None` otherwise lets it stop.
     async fn offer_continuation(&self, convo: &Conversation) -> Option<String> {
@@ -472,13 +472,13 @@ mod tests {
 
     #[test]
     fn anchor_names_in_progress_id_and_title() {
-        // #2 is in_progress → anchor must name that exact id + title and force a reconcile.
+        // #2 is in_progress -> anchor must name that exact id + title and force a reconcile.
         let todos = vec![
             item("first", TodoStatus::Completed),
             item("do the thing", TodoStatus::InProgress),
             item("later", TodoStatus::Pending),
         ];
-        let a = todo_anchor_line(&todos).expect("in_progress → anchor");
+        let a = todo_anchor_line(&todos).expect("in_progress -> anchor");
         assert!(a.contains("#2"), "must name the 1-based id: {a}");
         assert!(a.contains("do the thing"), "must name the title: {a}");
         assert!(
@@ -489,19 +489,19 @@ mod tests {
 
     #[test]
     fn anchor_when_nothing_in_progress_but_open_items_remain() {
-        // No in_progress, but a pending item exists → tell the model to mark what it's on.
+        // No in_progress, but a pending item exists -> tell the model to mark what it's on.
         let todos = vec![
             item("first", TodoStatus::Completed),
             item("second", TodoStatus::Pending),
         ];
-        let a = todo_anchor_line(&todos).expect("open + no in_progress → anchor");
+        let a = todo_anchor_line(&todos).expect("open + no in_progress -> anchor");
         assert!(a.contains("NOTHING is in_progress"), "{a}");
         assert!(a.contains("in_progress"), "must tell it to mark one: {a}");
     }
 
     #[test]
     fn no_anchor_when_all_completed() {
-        // Everything done → nothing to reconcile; don't add noise.
+        // Everything done -> nothing to reconcile; don't add noise.
         let todos = vec![
             item("a", TodoStatus::Completed),
             item("b", TodoStatus::Completed),
@@ -558,7 +558,7 @@ mod tests {
         let mut msgs = vec![Message::user("hi"), Message::assistant("hello", vec![])];
         let before = msgs.len();
         TodoHook.pre_request(&mut msgs, &TurnCtx::default()).await;
-        assert_eq!(msgs.len(), before, "empty list → no injection");
+        assert_eq!(msgs.len(), before, "empty list -> no injection");
     }
 
     #[tokio::test]
@@ -611,7 +611,7 @@ mod tests {
     #[tokio::test]
     async fn deepseek_auto_firm_nudges_complex_work_without_forcing_tool_choice() {
         // B: the weak-model complex path firms up the TEXT nudge but no longer
-        // hard-forces the tool choice — that force was unsupported by DeepSeek V4
+        // hard-forces the tool choice -- that force was unsupported by DeepSeek V4
         // and dropped by the provider anyway, and forcing todos on small tasks
         // regressed efficiency for no measured quality gain. Keep the model's
         // judgment; only the explicit `always` policy hard-forces.
@@ -778,7 +778,7 @@ mod tests {
             todowrite_msg(
                 r#"{"todos":[{"content":"a","status":"completed"},{"content":"b","status":"in_progress"}]}"#,
             ),
-            Message::assistant("here is the summary…", vec![]),
+            Message::assistant("here is the summary...", vec![]),
         ]);
         assert!(
             TodoHook.offer_continuation(&convo).await.is_some(),
@@ -797,7 +797,7 @@ mod tests {
         ]);
         assert!(
             TodoHook.offer_continuation(&convo).await.is_none(),
-            "all completed → let it stop"
+            "all completed -> let it stop"
         );
     }
 
@@ -813,7 +813,7 @@ mod tests {
     #[tokio::test]
     async fn no_nudge_when_list_untouched_this_turn() {
         // An open item lingers from a PRIOR turn, but this turn the model only answered a
-        // question (no todo/todowrite call) → don't hijack the stop into a continuation.
+        // question (no todo/todowrite call) -> don't hijack the stop into a continuation.
         let convo = convo_of(vec![
             Message::user("plan it"),
             todowrite_msg(r#"{"todos":[{"content":"a","status":"in_progress"}]}"#),
@@ -847,7 +847,7 @@ mod tests {
             .push(Message::assistant("still open", vec![]));
         assert!(
             TodoHook.offer_continuation(&convo).await.is_none(),
-            "already nudged this turn → let it stop (no spin)"
+            "already nudged this turn -> let it stop (no spin)"
         );
     }
 }

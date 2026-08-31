@@ -1,4 +1,4 @@
-//! Data types shared by every layer of setup. No logic — only `pub` shapes.
+//! Data types shared by every layer of setup. No logic -- only `pub` shapes.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

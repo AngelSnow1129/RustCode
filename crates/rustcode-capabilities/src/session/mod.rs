@@ -2,14 +2,14 @@
 //!
 //! Two on-disk tiers, both under `$RUSTCODE_HOME/sessions/<project_hash>/` (the SAME
 //! bucket scheme production uses, so old `<id>.json` and new sessions coexist):
-//! - `<id>.snapshot` — the kernel [`SessionSnapshot`](rustcode_kernel::message::SessionSnapshot)
-//!   (the COMPACTED working set), rewritten every turn → used to RESUME. Lossy over
+//! - `<id>.snapshot` -- the kernel [`SessionSnapshot`](rustcode_kernel::message::SessionSnapshot)
+//!   (the COMPACTED working set), rewritten every turn -> used to RESUME. Lossy over
 //!   time (bounded by the context window); NOT the system of record.
-//! - `<id>.jsonl` — an append-only, NEVER-compacted, one-record-per-turn RAW transcript
-//!   → the ground truth for RECALL (the agent retrieving any past exchange, including
+//! - `<id>.jsonl` -- an append-only, NEVER-compacted, one-record-per-turn RAW transcript
+//!   -> the ground truth for RECALL (the agent retrieving any past exchange, including
 //!   from OTHER sessions of the same project). Compaction shrinks the snapshot; it never
 //!   touches the transcript.
-//! - `<id>.meta` — fast-listing metadata (name / dirs / timestamps / turn_stats). JSON
+//! - `<id>.meta` -- fast-listing metadata (name / dirs / timestamps / turn_stats). JSON
 //!   content with a `.meta` extension that deliberately AVOIDS production's `*.json`
 //!   session glob, so the two schemes share a project dir without the production lister
 //!   choking on our files.
@@ -17,8 +17,8 @@
 //! Everything is driven by EXISTING kernel seams (zero core, zero kernel change): the
 //! [`SnapshotHook`] / [`TranscriptHook`] hang off the `turn_complete` terminal hook so
 //! they persist HOWEVER a turn ended; `recall` is a normal tool; current-date injection
-//! is an append-only tail in `pre_request`. WALL-CLOCK LIVES ONLY HERE — the kernel is
-//! deliberately clock-free — so L1 stamps every record via [`now_ms`].
+//! is an append-only tail in `pre_request`. WALL-CLOCK LIVES ONLY HERE -- the kernel is
+//! deliberately clock-free -- so L1 stamps every record via [`now_ms`].
 
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -64,7 +64,7 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// The rustcode config/data root — delegates to the crate-shared
+/// The rustcode config/data root -- delegates to the crate-shared
 /// [`crate::paths::config_dir`] (one home for the rule + its documented `sudo`
 /// divergence from production).
 pub(crate) fn config_dir() -> PathBuf {

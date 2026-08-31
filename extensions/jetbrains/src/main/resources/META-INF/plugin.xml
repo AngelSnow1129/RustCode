@@ -1,7 +1,7 @@
 <idea-plugin>
   <id>com.rustcode.jetbrains</id>
   <name>RustCode</name>
-  <vendor email="rustcode@atomgit.com">RustCode</vendor>
+  <vendor email="rustcode@rustcode.dev">RustCode</vendor>
 
   <description><![CDATA[
     RustCode brings a local AI coding agent into JetBrains IDEs.

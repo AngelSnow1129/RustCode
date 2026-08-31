@@ -25,7 +25,7 @@ pub struct MdState {
     /// must have at least this many markers so that ```` ``` ```` (4-backtick
     /// block) can safely contain ```` ``` ```` (3-backtick inner blocks).
     fence_len: usize,
-    /// Accumulates consecutive `|…|` rows; flushed as an aligned block
+    /// Accumulates consecutive `|...|` rows; flushed as an aligned block
     /// when a non-table line arrives.
     pub table_buf: Vec<String>,
     /// Lines accumulated between an opening and closing code fence.
@@ -42,7 +42,7 @@ pub struct MdState {
     /// lines (issue #699). `None` means no code block was flushed this
     /// tick.
     ///
-    /// Held until the next close fence or explicit `take()` — for very
+    /// Held until the next close fence or explicit `take()` -- for very
     /// large single-block replies the peak memory is `O(source size)`
     /// which matches the existing `code_buf` behaviour.
     pub last_code_block_source: Option<String>,
@@ -51,12 +51,12 @@ pub struct MdState {
     /// Auto-copy fires ONLY when a whole reply is essentially a SINGLE code
     /// block (`== 1`): a long answer that merely contains several illustrative
     /// blocks must not clobber the clipboard per-block nor spam a "copied" hint.
-    /// An UNCLOSED / prematurely-finalized block does NOT increment this — only
-    /// a real close fence does — so an incomplete block is never auto-copied.
+    /// An UNCLOSED / prematurely-finalized block does NOT increment this -- only
+    /// a real close fence does -- so an incomplete block is never auto-copied.
     pub code_block_count: usize,
     /// Trimmed text of the most recently rendered heading, used to DROP a
     /// consecutive byte-identical repeat. Weak models sometimes emit the same
-    /// `## Section` twice with only a table (or blank line) between — a rendering
+    /// `## Section` twice with only a table (or blank line) between -- a rendering
     /// artefact the user reported. It persists across buffered tables and blank
     /// lines but is CLEARED by any real content (prose / list / code), so a
     /// heading legitimately reused in a later section (with content between) is
@@ -89,7 +89,7 @@ impl MdState {
         Self::default()
     }
     /// Reset all fields to their initial state.  Keep in sync with
-    /// [`Default::default()`] — any new field added to `MdState` must
+    /// [`Default::default()`] -- any new field added to `MdState` must
     /// be cleared here too.
     pub fn reset(&mut self) {
         self.in_code_block = false;
@@ -111,7 +111,7 @@ pub fn render_line(line: &str, state: &mut MdState, caps: TerminalCaps) -> Optio
 }
 
 /// Width-aware variant of [`render_line`]. When `max_width > 0`, a flushed
-/// table's column widths are capped so every line fits the budget — otherwise
+/// table's column widths are capped so every line fits the budget -- otherwise
 /// `wrap_cells_to_width` downstream chops long rows and shatters the table's
 /// border structure. `max_width = 0` keeps legacy behaviour.
 pub fn render_line_with_width(
@@ -125,7 +125,7 @@ pub fn render_line_with_width(
     // Table row: buffer and defer emit until the block ends. GitHub-flavored
     // markdown allows tables WITHOUT the leading/trailing `|` (`a | b` +
     // `---|---` is as valid as `| a | b |`), and models emit both forms. Keying
-    // detection on `starts_with('|')` missed the pipe-less form entirely — those
+    // detection on `starts_with('|')` missed the pipe-less form entirely -- those
     // tables fell through and rendered as raw markdown source (issue: long
     // comparison tables shown un-rendered). Buffer any row that splits into ≥2
     // cells (respecting code-span pipes + `\|` via `split_table_row`); the flush
@@ -134,7 +134,7 @@ pub fn render_line_with_width(
     //
     // EXCLUDE list items: a bullet/number line that merely mentions a pipe
     // (`- option A | option B`, `1. run cmd a | cmd b`) is a LIST item, not a
-    // table row — GFM only treats it as a table cell when a table is actually
+    // table row -- GFM only treats it as a table cell when a table is actually
     // established. Without this guard the broadened detection stole such items
     // from the list path and dropped their marker. The `---|---` delimiter is
     // NOT a list item (`- ` needs a trailing space), so tables still work.
@@ -147,13 +147,13 @@ pub fn render_line_with_width(
     }
 
     // Pre-drawn Unicode box-drawing table row (`┌─┬─┐ │ ├─┼─┤ └─┴─┘`).
-    // Some models — usually weaker ones mimicking earlier-turn output that
-    // we ourselves rendered — emit tables fully drawn in box characters
+    // Some models -- usually weaker ones mimicking earlier-turn output that
+    // we ourselves rendered -- emit tables fully drawn in box characters
     // instead of `|`-form markdown. Without detection, those rows fall
     // through to the inline-only branch and `push_markdown_body`'s
     // wrap-at-cell-level chops them at terminal width, shattering the
     // borders (the macOS overflow case in the screenshot). Convert each
-    // row to the equivalent pipe form (│ → |, ─ → -, junctions → |) and
+    // row to the equivalent pipe form (│ -> |, ─ -> -, junctions -> |) and
     // route through the same buffer + flush path the `|`-form takes;
     // `flush_aligned_table_with_width` then enforces flat-mode fallback
     // for narrow terminals exactly like a real markdown table would get.
@@ -182,7 +182,7 @@ pub fn render_line_with_width(
 
     // Fenced code block fence (``` or ~~~).
     //
-    // Two separate checks — the close fence must match the opening
+    // Two separate checks -- the close fence must match the opening
     // marker character and be at least as long, so a 4-backtick block
     // can safely contain a 3-backtick inner block, and `~~~` inside a
     // backtick block is NOT mistaken for a close fence (issue #699 P1-2).
@@ -192,7 +192,7 @@ pub fn render_line_with_width(
         let source = state.code_buf.join("\n");
         let highlighted = crate::highlight::highlight_block(&source);
         state.last_code_block_source = Some(source);
-        // A PROPERLY-CLOSED block — the only kind eligible for auto-copy.
+        // A PROPERLY-CLOSED block -- the only kind eligible for auto-copy.
         state.code_block_count += 1;
         state.in_code_block = false;
         state.code_buf.clear();
@@ -218,26 +218,26 @@ pub fn render_line_with_width(
         return prefix_only();
     }
 
-    // Horizontal rule — render as a blank separator line, not a visible
+    // Horizontal rule -- render as a blank separator line, not a visible
     // rule. A horizontal bar overwhelms the surrounding prose; a blank line
     // communicates the same thematic break far more gracefully.
     if is_hrule(trimmed) {
         return Some(prepend(String::new()));
     }
 
-    // Heading — H1-H3 get bold + bright cyan (Palette::ACCENT, SGR 96)
+    // Heading -- H1-H3 get bold + bright cyan (Palette::ACCENT, SGR 96)
     // so headings sit on their own colour layer above the default-colour
     // body. Bright cyan was chosen over bright magenta (BRAND, 95)
     // because terminals that remap bright white (97, used by inline code
-    // and code blocks) to lavender — Catppuccin / Tokyo Night / similar
-    // — typically remap bright magenta to the same lavender, which
+    // and code blocks) to lavender -- Catppuccin / Tokyo Night / similar
+    // -- typically remap bright magenta to the same lavender, which
     // would collapse heading colour into the inline-code colour.
     // Cyan stays hue-distinct on those palettes and on plain ANSI.
     // H4+ keeps italic-only so the deep-hierarchy levels still read as
     // "weaker than a real heading" without adding a third colour tier.
     if let Some((level, rest)) = parse_heading(line) {
         // DROP a consecutive byte-identical heading (only tables/blanks between).
-        // Flush any buffered table first so its content is never lost — only the
+        // Flush any buffered table first so its content is never lost -- only the
         // duplicated heading line itself is skipped.
         if state.last_heading.as_deref() == Some(trimmed) {
             return prefix_only();
@@ -266,12 +266,12 @@ pub fn render_line_with_width(
     }
 
     // List (unordered or ordered): `- text` / `* text` / `1. text`
-    // Marker (• / 1.) rendered in muted gray so it sits quietly next to
-    // the default-fg body text — visually distinct without adding another
+    // Marker (* / 1.) rendered in muted gray so it sits quietly next to
+    // the default-fg body text -- visually distinct without adding another
     // bright colour tier. The space after the marker keeps readability.
     // Theme-aware: dark themes use SGR 37 (soft light-gray) because the
     // fixed SGR 90 collapses to ~3:1 against dark backgrounds and the
-    // marker is invisible until selected (Issue #1426) — same fix table
+    // marker is invisible until selected (Issue #1426) -- same fix table
     // borders already had via `md_border_open`.
     if let Some(item) = parse_list_item(line) {
         state.last_heading = None; // real content ends the dedup window
@@ -325,7 +325,7 @@ pub fn finalize_with_width(
     };
 
     let code_part = if state.in_code_block && !state.code_buf.is_empty() {
-        // An UNCLOSED block reaching finalize — either the model never wrote the
+        // An UNCLOSED block reaching finalize -- either the model never wrote the
         // closing ```, or a mid-stream flush (e.g. a tool call interleaving the
         // reply) forced an early finalize. Render it so no content is lost, but
         // do NOT feed auto-copy: an incomplete block must never be copied, and a
@@ -355,10 +355,10 @@ pub fn finalize_with_width(
 /// table.
 ///
 /// Two row shapes accepted:
-///   1. **Data row** — starts with `│`. Each `│` becomes `|`; cell content
+///   1. **Data row** -- starts with `│`. Each `│` becomes `|`; cell content
 ///      passes through unchanged. Caller buffers the result and the
 ///      existing flush logic splits on `|` and trims as usual.
-///   2. **Border row** — starts with `┌`/`├`/`└` AND every char is in the
+///   2. **Border row** -- starts with `┌`/`├`/`└` AND every char is in the
 ///      box-drawing set (`─┌┬┐├┼┤└┴┘`) plus spaces. Junctions become `|`
 ///      and `─` becomes `-`, producing a `|---|---|`-style separator that
 ///      `flush_aligned_table_with_width`'s `is_sep` matcher already
@@ -406,8 +406,8 @@ pub fn flush_aligned_table(rows: &[String], caps: TerminalCaps) -> String {
 }
 
 /// Split a markdown table row on `|`, honouring:
-///   * `` ` ``…`` ` `` inline code spans (pipes inside are literal, not
-///     separators — so Rust closures `|a, b|`, pattern alternatives
+///   * `` ` ``...`` ` `` inline code spans (pipes inside are literal, not
+///     separators -- so Rust closures `|a, b|`, pattern alternatives
 ///     `Foo | Bar`, bash pipes `cat | grep`, Python type unions
 ///     `int | str` etc. inside backticks stay in one cell)
 ///   * `\|` escape (standard markdown escape for a literal pipe in
@@ -471,7 +471,7 @@ fn split_table_row(line: &str) -> Vec<String> {
     cells
 }
 
-/// A GFM delimiter row (`---|:--:|--:`) — cells are made up only of `-`, `:`
+/// A GFM delimiter row (`---|:--:|--:`) -- cells are made up only of `-`, `:`
 /// and spaces. Shared by every table stage so the "is this the separator?"
 /// rule can't drift between the aligned-grid and flat paths.
 fn is_separator_row(row: &[String]) -> bool {
@@ -483,8 +483,8 @@ fn is_separator_row(row: &[String]) -> bool {
 /// TRAILING columns that are empty across every content row. Weak models often
 /// emit a stray extra `|` or an over-long delimiter (`---|---|---|---`); counting
 /// columns as the raw max-over-all-rows (separator included) then painted a ghost
-/// empty column on the right. Trimming trailing all-empty columns — and ignoring
-/// separator-only width — keeps the drawn grid to the table's real shape. Always
+/// empty column on the right. Trimming trailing all-empty columns -- and ignoring
+/// separator-only width -- keeps the drawn grid to the table's real shape. Always
 /// keeps at least one column.
 fn effective_ncols(parsed: &[Vec<String>]) -> usize {
     let content: Vec<&Vec<String>> = parsed.iter().filter(|r| !is_separator_row(r)).collect();
@@ -502,7 +502,7 @@ fn effective_ncols(parsed: &[Vec<String>]) -> usize {
 /// Display width of the longest whitespace-delimited token in `plain`. Used as
 /// a column's shrink floor: a column should not be squeezed narrower than its
 /// widest unbreakable word, or the word gets char-wrapped mid-token. Runs of
-/// CJK (no interior spaces) count as one token — but the caller caps the floor,
+/// CJK (no interior spaces) count as one token -- but the caller caps the floor,
 /// and CJK reads fine char-wrapped, so that's fine.
 fn longest_token_width(plain: &str) -> usize {
     plain
@@ -514,7 +514,7 @@ fn longest_token_width(plain: &str) -> usize {
 
 /// Word-aware wrap of plain cell text to `width` display columns: greedily pack
 /// whitespace-delimited tokens per line, and char-wrap (via
-/// [`crate::width::wrap_line_to_width`]) only a single token too wide to fit —
+/// [`crate::width::wrap_line_to_width`]) only a single token too wide to fit --
 /// so prose breaks at spaces (`Handles login and` / `session tokens`) instead of
 /// mid-word, while a long identifier or a space-less CJK run still degrades
 /// gracefully. Returns at least one (possibly empty) line.
@@ -528,7 +528,7 @@ fn word_wrap_cell(plain: &str, width: usize) -> Vec<String> {
     for token in plain.split_whitespace() {
         let tw = crate::width::display_width(token);
         if tw > width {
-            // Token can't fit on any line — char-wrap it. Flush what we have,
+            // Token can't fit on any line -- char-wrap it. Flush what we have,
             // emit the full chunks, and keep the trailing partial as the new
             // current line so following short tokens can pack onto it.
             if !cur.is_empty() {
@@ -567,7 +567,7 @@ fn word_wrap_cell(plain: &str, width: usize) -> Vec<String> {
 /// lines) so a table that's only *somewhat* too wide doesn't collapse straight
 /// to a vertical list. Returns per-column widths that fit `max_width` (gutters
 /// + padding included), or `None` when even at each column's floor the row
-/// can't fit — then the caller uses the flat fallback.
+/// can't fit -- then the caller uses the flat fallback.
 /// Column floors clamp to `[MIN_COL, TOKEN_CAP]` around each
 /// column's longest token so identifiers aren't broken mid-word, while a single
 /// enormous token can't veto the whole grid.
@@ -606,7 +606,7 @@ fn fit_columns_to_grid(
             floors[j] = floors[j].max(tok.min(TOKEN_CAP));
         }
     }
-    // Never grow beyond natural — a column narrower than its floor stays put.
+    // Never grow beyond natural -- a column narrower than its floor stays put.
     for (f, n) in floors.iter_mut().zip(natural) {
         *f = (*f).min(*n);
     }
@@ -686,7 +686,7 @@ fn grid_too_starved(parsed: &[Vec<String>], col_widths: &[usize]) -> bool {
 
 /// Render the wrapped-grid middle tier: a borderless table whose cells wrap to their
 /// (shrunk) column widths. Cell content is rendered as PLAIN text (inline
-/// styling dropped) in this degraded mode — wrapping styled SGR spans across a
+/// styling dropped) in this degraded mode -- wrapping styled SGR spans across a
 /// line boundary would desync the per-line padding and break column alignment.
 /// The gain is that no content is lost and the scannable grid survives.
 fn render_wrapped_table(
@@ -750,12 +750,12 @@ fn render_table_boundary(col_widths: &[usize], caps: TerminalCaps) -> String {
     render_table_rule(col_widths, '━', caps)
 }
 
-/// One CONTINUOUS horizontal rule spanning the FULL table width — the sum of the
+/// One CONTINUOUS horizontal rule spanning the FULL table width -- the sum of the
 /// column widths, both cell paddings per column, AND the inter-column gaps. Used
 /// for the top/bottom boundaries AND the header/inter-row separators alike, so
 /// every horizontal line shares the exact same solid style. Filling the
 /// inter-column gaps (rather than leaving them blank, per-column segments) keeps
-/// the rule from reading as a broken/dashed line — which looked inconsistent with
+/// the rule from reading as a broken/dashed line -- which looked inconsistent with
 /// the solid boundary, glaring under the Windows ASCII (`=`/`-`) fallback and
 /// unpolished under ligature-capable fonts. There are still no vertical borders,
 /// corners, or junction glyphs. `preferred` selects the weight (`━` heavy for
@@ -782,14 +782,14 @@ fn render_table_rule(col_widths: &[usize], preferred: char, caps: TerminalCaps) 
 /// Pick the box-drawing rule glyph only when the terminal can actually render it,
 /// else fall back to invariant-width ASCII. Two independent gates:
 ///
-/// 1. `caps.unicode_symbols` — the SAME capability that governs every other
-///    decorative glyph (`❯`, `◆`, box-drawing corners). It is on for modern
+/// 1. `caps.unicode_symbols` -- the SAME capability that governs every other
+///    decorative glyph (`>`, `*`, box-drawing corners). It is on for modern
 ///    emulators (Windows Terminal via `WT_SESSION`, any `TERM_PROGRAM`, UTF-8
 ///    locales) and off for legacy Windows conhost, `TERM=dumb`, POSIX/`C`
 ///    locales, and `RUSTCODE_ASCII=1`. Gating tables on this (instead of a blunt
 ///    `cfg!(windows)`) lets a modern Windows Terminal show `━`/`─` like macOS,
 ///    while legacy conhost still drops to `=`/`-` so it never renders `□` tofu.
-/// 2. Width safety — even on a Unicode-capable host, a glyph our width model
+/// 2. Width safety -- even on a Unicode-capable host, a glyph our width model
 ///    scores at ≠1 cell would desync column alignment, so force ASCII there too.
 fn stable_table_rule_char(preferred: char, caps: TerminalCaps) -> char {
     let width_safe = crate::width::cell_char_width(preferred).unwrap_or(1) == 1;
@@ -803,7 +803,7 @@ fn stable_table_rule_char(preferred: char, caps: TerminalCaps) -> char {
 }
 
 /// Inter-row / header separator: a continuous full-width rule (see
-/// [`render_table_rule`]). No vertical borders, corners, or junction glyphs —
+/// [`render_table_rule`]). No vertical borders, corners, or junction glyphs --
 /// content stays readable without recreating the ambiguous-width boxed layout.
 fn render_table_separator(
     col_widths: &[usize],
@@ -826,13 +826,13 @@ pub fn flush_aligned_table_with_width(
     // Parse each row honouring code-span pipes + `\|` escape.
     let parsed: Vec<Vec<String>> = rows.iter().map(|r| split_table_row(r)).collect();
 
-    // Identify separator row(s) — cells match `[-: ]+` only.
+    // Identify separator row(s) -- cells match `[-: ]+` only.
     let is_sep = is_separator_row;
 
     // A real GFM table REQUIRES a delimiter row (`---|---`). Since detection now
     // speculatively buffers any pipe-splitting line, a lone prose line with a
     // literal `|` (or a header with no following delimiter) lands here with NO
-    // separator — render those as normal inline markdown, NOT a drawn box.
+    // separator -- render those as normal inline markdown, NOT a drawn box.
     let has_sep = parsed.iter().any(|r| is_sep(r));
     if !has_sep || parsed.len() < 2 {
         return rows
@@ -848,7 +848,7 @@ pub fn flush_aligned_table_with_width(
     }
 
     // Compute natural column widths from non-separator rows. We do NOT cap
-    // these — the cap-and-truncate-with-… approach the previous code took
+    // these -- the cap-and-truncate-with-... approach the previous code took
     // chopped real content out of cells and made wide tables in narrow
     // terminals unreadable. Instead, if the natural table doesn't fit, the
     // flat-mode fallback below renders every cell in full.
@@ -970,7 +970,7 @@ fn render_flat_table(parsed: &[Vec<String>], caps: TerminalCaps) -> String {
     let ncols = effective_ncols(parsed);
     // Right-pad every label to the widest header so the `：value` parts line up
     // into a scannable column (codex-style key/value record), instead of ragged
-    // `Session：…` / `Detected：…`.
+    // `Session：...` / `Detected：...`.
     let label_w = headers
         .iter()
         .map(|h| crate::width::display_width(&strip_md_for_width(h)))
@@ -1019,7 +1019,7 @@ fn render_flat_table(parsed: &[Vec<String>], caps: TerminalCaps) -> String {
 /// inline-code span**: e.g. `` `src/**/*.ts` `` is rendered by
 /// `render_inline` as styled "src/**/*.ts" (`**` is glob-pattern literal,
 /// preserved inside the code span), but the old strip removed those `**`
-/// too — `plain_w` came back 2 cells short and the right border of that
+/// too -- `plain_w` came back 2 cells short and the right border of that
 /// row was painted 2 cells past where the column was supposed to end.
 /// Same misalignment in reverse for `*italic*`: render strips the single
 /// `*` and emits "italic"; the old strip kept the `*` and overshot
@@ -1106,7 +1106,7 @@ fn strip_md_for_width(s: &str) -> String {
     out
 }
 
-/// Legacy single-line inline renderer — kept for direct callers (tests,
+/// Legacy single-line inline renderer -- kept for direct callers (tests,
 /// simple assistant lines). Does not track block state.
 pub fn render_inline_line(line: &str, caps: TerminalCaps) -> String {
     render_inline(line, caps)
@@ -1185,7 +1185,7 @@ fn render_inline(line: &str, caps: TerminalCaps) -> String {
                     inner.push(p);
                 }
                 if closed && !inner.is_empty() {
-                    // Bright cyan, NOT bold (SGR 96 — see `md_inline_code_open`).
+                    // Bright cyan, NOT bold (SGR 96 -- see `md_inline_code_open`).
                     // Bold + bright cyan made every span flare in dense prose and
                     // rendered harshly on terminals that don't soften bright cyan;
                     // color alone marks it as code, weight is reserved for **bold**
@@ -1208,7 +1208,7 @@ fn render_inline(line: &str, caps: TerminalCaps) -> String {
 
 /// Add a visual separator after circled list numbers in ordinary prose.
 ///
-/// Some Windows fonts let the right edge of `①`–`⑳` touch the following
+/// Some Windows fonts let the right edge of `①`-`⑳` touch the following
 /// glyph when a model emits compact text such as `：①Rust` or ` ②前端`.
 /// Normalize only list-shaped boundaries and leave inline code and embedded
 /// identifiers (`第①章`) byte-for-byte unchanged. This is shared by ephemeral
@@ -1420,7 +1420,7 @@ fn parse_heading(line: &str) -> Option<(u8, &str)> {
     None
 }
 
-/// Parsed list item: indent level, the marker string (e.g. "•", "1."),
+/// Parsed list item: indent level, the marker string (e.g. "*", "1."),
 /// and the remaining text after the marker.
 struct ParsedListItem {
     indent: usize,
@@ -1436,12 +1436,12 @@ fn parse_list_item(line: &str) -> Option<ParsedListItem> {
     if let Some(r) = rest.strip_prefix("- ").or_else(|| rest.strip_prefix("* ")) {
         return Some(ParsedListItem {
             indent,
-            marker: "•".to_string(),
+            marker: "*".to_string(),
             rest: r.to_string(),
         });
     }
 
-    // Ordered: "1. text" / "12. text" — one or more digits followed by ". "
+    // Ordered: "1. text" / "12. text" -- one or more digits followed by ". "
     let digits_end = rest.chars().take_while(|c| c.is_ascii_digit()).count();
     if digits_end > 0 {
         let after_digits = &rest[digits_end..];
@@ -1485,9 +1485,9 @@ mod tests {
 
     /// The synthetic separator the circled-list spacing inserts between a
     /// circled number and its label, under THIS host's width model. Circled
-    /// digits ①–⑳ are widened to 2 cells on emoji-capable terminals (macOS
+    /// digits ①-⑳ are widened to 2 cells on emoji-capable terminals (macOS
     /// GUI terms, Windows Terminal), where the glyph's own second cell already
-    /// separates it from the following label — so no extra space is added.
+    /// separates it from the following label -- so no extra space is added.
     /// On legacy narrow-font hosts (bare conhost) they stay 1 cell and the
     /// original spacing rule inserts a space. Tests must not hard-code one
     /// behavior or they break on the other platform.
@@ -1562,7 +1562,7 @@ mod tests {
 
     #[test]
     fn heading_reused_after_real_content_is_kept() {
-        // Legitimate: same heading in two sections with prose between — NOT a
+        // Legitimate: same heading in two sections with prose between -- NOT a
         // duplicate, both must render.
         let out = render_all(&["## Example", "some explanatory prose here", "## Example"]);
         assert_eq!(
@@ -1709,7 +1709,7 @@ mod tests {
     #[test]
     fn table_rules_are_continuous_across_column_gaps() {
         // The header underline and inter-row separators must be ONE solid rule
-        // spanning the full table width — NOT per-column segments joined by blank
+        // spanning the full table width -- NOT per-column segments joined by blank
         // inter-column gaps (which read as a broken/dashed line and, under
         // ligature-capable fonts, look inconsistent with the solid top/bottom
         // boundary). Every rule line must therefore contain NO interior space.
@@ -1746,7 +1746,7 @@ mod tests {
     #[test]
     fn table_rule_char_follows_unicode_symbols_capability() {
         // A Unicode-capable terminal (modern engine + UTF-8 locale) keeps the
-        // box-drawing rules — the same `unicode_symbols` gate that governs ❯/◆.
+        // box-drawing rules -- the same `unicode_symbols` gate that governs >/*.
         let uni = TerminalCaps::from_env(EnvView {
             is_stdout_tty: true,
             term: Some("xterm-256color".to_string()),
@@ -1760,7 +1760,7 @@ mod tests {
             assert_eq!(stable_table_rule_char('─', uni), '─');
         }
         // A host that can't render Unicode symbols (legacy conhost / POSIX locale /
-        // RUSTCODE_ASCII / dumb) must drop to invariant-width ASCII — no □ tofu.
+        // RUSTCODE_ASCII / dumb) must drop to invariant-width ASCII -- no □ tofu.
         let ascii = TerminalCaps::from_env(EnvView {
             is_stdout_tty: true,
             term: Some("xterm".to_string()),
@@ -1837,7 +1837,7 @@ mod tests {
     }
 
     /// Companion: a simpler 2-column CJK table that also verifies
-    /// border alignment. This is the minimal repro — even a table
+    /// border alignment. This is the minimal repro -- even a table
     /// with only CJK header cells must have consistent row widths.
     #[test]
     fn cjk_table_simple_two_column_aligned() {
@@ -1892,7 +1892,7 @@ mod tests {
             "inline code must close with MD_INLINE_CODE_CLOSE: {}",
             rendered
         );
-        // Must NOT be bold — the flare fix. (Bold bright cyan was `\x1b[1;96m`.)
+        // Must NOT be bold -- the flare fix. (Bold bright cyan was `\x1b[1;96m`.)
         assert!(
             !rendered.contains("\x1b[1;96m") && !rendered.contains("\x1b[1;35m"),
             "inline code must NOT be bold: {}",
@@ -2189,7 +2189,7 @@ mod tests {
         let mut st = MdState::new();
         let out = render_line("#### Sub-deep", &mut st, caps()).unwrap();
         assert!(out.contains("Sub-deep"));
-        // H4+ keeps italic-only — distinct from coloured H1-H3 without
+        // H4+ keeps italic-only -- distinct from coloured H1-H3 without
         // adding a third colour tier.
         assert!(
             out.contains(theme::MD_ITALIC_OPEN),
@@ -2226,7 +2226,7 @@ mod tests {
         assert!(render_line("**not bold**", &mut st, plain_caps()).is_none());
         assert_eq!(st.code_buf.len(), 2);
 
-        // Close fence flushes — final output contains both body lines,
+        // Close fence flushes -- final output contains both body lines,
         // and the **not bold** markdown is preserved literally (not interpreted).
         // Using plain_caps so substring assertions aren't broken by ANSI interleave.
         let out = render_line("```", &mut st, plain_caps()).unwrap();
@@ -2242,8 +2242,8 @@ mod tests {
 
     #[test]
     fn plain_markdown_never_sets_code_block_source_or_count() {
-        // Invariant behind auto-copy: ordinary prose — numbered bold headers +
-        // indented list items with INLINE `code` — must never set
+        // Invariant behind auto-copy: ordinary prose -- numbered bold headers +
+        // indented list items with INLINE `code` -- must never set
         // `last_code_block_source` nor bump `code_block_count`. Only a real ```
         // fence can. So a "代码块已复制" hint can NEVER attach to non-fenced
         // content (rules out the "auto-copy fired on plain prose" reading).
@@ -2266,13 +2266,13 @@ mod tests {
 4. **禁区（哪些文件不能动）**
    - 不要修改 `src/generated/*`，那是从 OpenAPI 自动生成的
 
-× **不要写的内容**";
+x **不要写的内容**";
         let mut st = MdState::new();
         let mut sets: Vec<String> = Vec::new();
         for line in md.split('\n') {
             let _ = render_line(line, &mut st, caps());
             if let Some(s) = &st.last_code_block_source {
-                sets.push(format!("after {:?} → source={:?}", line, s));
+                sets.push(format!("after {:?} -> source={:?}", line, s));
             }
         }
         assert!(
@@ -2287,7 +2287,7 @@ mod tests {
     #[test]
     fn hrule_becomes_blank_line() {
         // Horizontal rules now render as blank lines (thematic break), not
-        // visible rules — a line of "─" chars is visually noisier than the
+        // visible rules -- a line of "─" chars is visually noisier than the
         // blank separator it's supposed to stand in for.
         let mut st = MdState::new();
         let out = render_line("---", &mut st, caps()).unwrap();
@@ -2297,15 +2297,15 @@ mod tests {
     #[test]
     fn list_bullets() {
         // Pin the dark palette so the marker's final ANSI is deterministic
-        // (SGR 37). Asserting the literal escape sequence — not
-        // `theme::md_marker_open()` — keeps the regression guard: if the
+        // (SGR 37). Asserting the literal escape sequence -- not
+        // `theme::md_marker_open()` -- keeps the regression guard: if the
         // production helper regresses to SGR 90 on dark, this fails.
         let _guard = theme::test_lock();
         theme::set_theme_mode(false);
         let mut st = MdState::new();
         let out = render_line("- item", &mut st, caps()).unwrap();
         assert!(
-            out.contains(&format!("{}•{}", "\x1b[37m", theme::MD_MUTED_CLOSE)),
+            out.contains(&format!("{}*{}", "\x1b[37m", theme::MD_MUTED_CLOSE)),
             "bullet must use the dark marker colour (SGR 37): {:?}",
             out
         );
@@ -2316,8 +2316,8 @@ mod tests {
     fn list_bullets_plain_caps_no_ansi() {
         let mut st = MdState::new();
         let out = render_line("- item", &mut st, plain_caps()).unwrap();
-        // No colour → plain "• item" without any SGR.
-        assert_eq!(out, "• item");
+        // No colour -> plain "* item" without any SGR.
+        assert_eq!(out, "* item");
     }
 
     #[test]
@@ -2327,7 +2327,7 @@ mod tests {
         let mut st = MdState::new();
         let out = render_line("  - nested", &mut st, caps()).unwrap();
         assert!(
-            out.starts_with(&format!("  {}•{}", "\x1b[37m", theme::MD_MUTED_CLOSE)),
+            out.starts_with(&format!("  {}*{}", "\x1b[37m", theme::MD_MUTED_CLOSE)),
             "nested bullet with indent: {:?}",
             out
         );
@@ -2365,7 +2365,7 @@ mod tests {
     fn ordered_list_plain_caps_no_ansi() {
         let mut st = MdState::new();
         let out = render_line("3. third", &mut st, plain_caps()).unwrap();
-        // No colour → plain "3. third" without any SGR.
+        // No colour -> plain "3. third" without any SGR.
         assert_eq!(out, "3. third");
     }
 
@@ -2419,7 +2419,7 @@ mod tests {
             "| login   | done   |".to_string(),
             "| signup  | wip    |".to_string(),
         ];
-        // Plenty of room — natural width is well under 80.
+        // Plenty of room -- natural width is well under 80.
         let out = flush_aligned_table_with_width(&rows, plain_caps(), 80);
         assert!(!out.contains("---"), "raw delimiter leaked: {out}");
         assert!(!out.contains('┌') && !out.contains('│') && !out.contains('└'));
@@ -2427,7 +2427,7 @@ mod tests {
         assert!(out.contains("login"));
         assert!(out.contains("signup"));
         // No ellipsis introduced.
-        assert!(!out.contains('…'));
+        assert!(!out.contains("..."));
         assert_eq!(
             out.lines().count(),
             7,
@@ -2436,7 +2436,7 @@ mod tests {
         let header_rule = stable_table_rule_char('━', plain_caps());
         let body_rule = stable_table_rule_char('─', plain_caps());
         // Three heavy continuous rules now: top boundary, header separator, and
-        // bottom boundary — the header separator shares the solid boundary style.
+        // bottom boundary -- the header separator shares the solid boundary style.
         assert_eq!(
             out.lines()
                 .filter(|line| {
@@ -2447,7 +2447,7 @@ mod tests {
             3,
             "top boundary, header separator, and bottom boundary missing:\n{out}"
         );
-        // Every rule is continuous — no per-column segment leaves an interior gap.
+        // Every rule is continuous -- no per-column segment leaves an interior gap.
         assert!(has_table_rule(&out, body_rule), "body rule missing:\n{out}");
         assert!(
             !out.lines().any(|line| {
@@ -2499,7 +2499,7 @@ mod tests {
     #[test]
     fn list_item_with_pipe_keeps_its_bullet_not_stolen_by_table_detection() {
         // Regression (code-review): a list item that mentions a literal `|`
-        // (`- option A | option B`) is a LIST item, not a table row — it must keep
+        // (`- option A | option B`) is a LIST item, not a table row -- it must keep
         // its bullet, not get buffered as a table and lose its marker.
         let mut st = MdState::new();
         let a = render_line("- option A | option B", &mut st, plain_caps())
@@ -2546,7 +2546,7 @@ mod tests {
 
     #[test]
     fn flush_pipeless_rows_render_as_table_and_no_sep_renders_inline() {
-        // Flush directly: pipe-less rows WITH a delimiter → table.
+        // Flush directly: pipe-less rows WITH a delimiter -> table.
         let table = flush_aligned_table_with_width(
             &[
                 "A | B".to_string(),
@@ -2565,7 +2565,7 @@ mod tests {
             table.contains('A') && table.contains('d'),
             "cells preserved: {table}"
         );
-        // No delimiter → NOT a table → inline, no box.
+        // No delimiter -> NOT a table -> inline, no box.
         let prose = flush_aligned_table_with_width(&["a | b".to_string()], plain_caps(), 80);
         assert!(
             !prose.contains('┌'),
@@ -2574,7 +2574,7 @@ mod tests {
         assert!(prose.contains("a | b"), "raw inline preserved: {prose}");
     }
 
-    /// Narrow terminal: table can't fit at natural widths → fall back to
+    /// Narrow terminal: table can't fit at natural widths -> fall back to
     /// flat `header：cell` records so no cell content is lost. Mirrors the
     /// CC narrow-mode rendering the user requested.
     #[test]
@@ -2585,7 +2585,7 @@ mod tests {
             "| 开源 | ✅ | ❌ | ❌ |".to_string(),
             "| 多语言运行 | ✅ Python+ | 🟡 | ❌ |".to_string(),
         ];
-        // Tight budget — the natural box layout needs > 40 cols.
+        // Tight budget -- the natural box layout needs > 40 cols.
         let out = flush_aligned_table_with_width(&rows, plain_caps(), 40);
 
         // Flat mode: no box-drawing characters anywhere.
@@ -2598,7 +2598,7 @@ mod tests {
             "narrow output must not contain top corner"
         );
 
-        // Every cell value survives in full — no truncation.
+        // Every cell value survives in full -- no truncation.
         assert!(out.contains("RustCode Air"));
         assert!(out.contains("Python+"));
 
@@ -2624,7 +2624,7 @@ mod tests {
     #[test]
     fn over_long_delimiter_does_not_paint_a_ghost_column() {
         // Weak models sometimes emit a delimiter row with one group too many.
-        // The extra column has no data — it must not be drawn (GFM: content rows
+        // The extra column has no data -- it must not be drawn (GFM: content rows
         // define the shape).
         let rows = vec![
             "| 功能 | 说明 | 状态 |".to_string(),
@@ -2703,7 +2703,7 @@ mod tests {
         // fit as a grid once the Description column is shrunk + wrapped.
         let out = flush_aligned_table_with_width(&rows, plain_caps(), 40);
 
-        // Grid survives — aligned rows remain and there are no flat labels.
+        // Grid survives -- aligned rows remain and there are no flat labels.
         assert!(
             !out.contains('：'),
             "grid must be kept, not flattened:\n{out}"
@@ -2735,7 +2735,7 @@ mod tests {
     #[test]
     fn huge_cell_squeezed_thin_falls_back_to_flat_not_a_tall_box() {
         // The column floors let this fit as a grid, but the long prose cell would
-        // wrap into a very tall stack in the thin column — the starvation guard
+        // wrap into a very tall stack in the thin column -- the starvation guard
         // should prefer the flat key/value record instead of a 10+-line box row.
         let prose = "this is a fairly long note that keeps going and going with many \
                      small words on purpose to force the cell to wrap into a very tall \
@@ -2836,7 +2836,7 @@ mod tests {
     /// Pre-drawn Unicode box-drawing tables (the `┌─┬─┐ │ ├─┼─┤ └─┴─┘`
     /// shape some weak models emit instead of `|`-form markdown) must
     /// route through the same flat-mode-aware flush path: at narrow widths
-    /// they collapse to `header：cell` records — no box characters survive.
+    /// they collapse to `header：cell` records -- no box characters survive.
     /// This is the macOS-overflow regression captured in the screenshot.
     #[test]
     fn box_drawing_table_collapses_to_flat_when_narrow() {
@@ -2858,7 +2858,7 @@ mod tests {
                 out.push('\n');
             }
         }
-        // Narrow → flat-mode kicks in. No box corners survive.
+        // Narrow -> flat-mode kicks in. No box corners survive.
         assert!(
             !out.contains('┌') && !out.contains('└'),
             "narrow box-drawing table must collapse to flat:\n{out}"
@@ -2870,7 +2870,7 @@ mod tests {
             "header `场景` should label each data record:\n{out}"
         );
         assert_eq!(out.matches("作用").count(), 2);
-        // Cell content survives in full — no truncation.
+        // Cell content survives in full -- no truncation.
         assert!(out.contains("parallel_edit_files"));
         assert!(out.contains("初始 4 轮"));
     }
@@ -3014,7 +3014,7 @@ mod tests {
 
     #[test]
     fn finalize_emits_unclosed_code_block_as_fallback() {
-        // Stream cuts off before close fence — finalize must still emit
+        // Stream cuts off before close fence -- finalize must still emit
         // the buffered body, otherwise the user's last few lines vanish.
         let mut st = MdState::new();
         render_line("```rust", &mut st, caps());
@@ -3034,7 +3034,7 @@ mod tests {
 
     #[test]
     fn finalize_with_no_active_block_returns_none() {
-        // Existing behavior: no buffered table / code → returns None.
+        // Existing behavior: no buffered table / code -> returns None.
         let mut st = MdState::new();
         assert!(finalize(&mut st, caps()).is_none());
     }
@@ -3074,7 +3074,7 @@ mod tests {
         assert_eq!(strip_md_for_width("`code`"), "code");
     }
 
-    /// Unclosed markers stay verbatim — matches render_inline's "no closer
+    /// Unclosed markers stay verbatim -- matches render_inline's "no closer
     /// found, dump the marker as literal" fallback, so column-width math
     /// keeps treating them as content.
     #[test]

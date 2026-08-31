@@ -156,7 +156,7 @@ fn set_env_keys(keys: &[&str], value: &Option<String>) {
 }
 
 /// Pure core of [`config_path`], split out so the resolution is testable without mutating
-/// process env — the same shape as `distribution::default_home`.
+/// process env -- the same shape as `distribution::default_home`.
 fn config_path_from(home_env: Option<String>, real_home: Option<PathBuf>) -> PathBuf {
     if let Some(home) = home_env.filter(|s| !s.is_empty()) {
         return PathBuf::from(home).join("config.toml");
@@ -168,7 +168,7 @@ fn config_path_from(home_env: Option<String>, real_home: Option<PathBuf>) -> Pat
 }
 
 /// Mirrors `Config::config_dir()` + `default_path()`, resolved locally so this leaf keeps its
-/// "reqwest-free, config-type-free" shape. Both halves must come from `distribution` — spelling
+/// "reqwest-free, config-type-free" shape. Both halves must come from `distribution` -- spelling
 /// the env var and the directory out here meant a rebuilt distribution read its proxy policy
 /// out of the *other* build's config file, i.e. silently ignored its own `[network.proxy]`.
 fn config_path() -> PathBuf {
@@ -230,12 +230,12 @@ fn follow_system_env(
 
 /// Hosts that must never be reached through a proxy, whatever the user or the OS asked for.
 ///
-/// A proxy resolves `127.0.0.1` against ITSELF, so proxying loopback either fails outright or —
-/// worse — silently reaches a different machine's service on that port. Every other HTTP stack
+/// A proxy resolves `127.0.0.1` against ITSELF, so proxying loopback either fails outright or --
+/// worse -- silently reaches a different machine's service on that port. Every other HTTP stack
 /// special-cases this (curl, Go's `httpproxy`, Docker); reqwest does not, and macOS's own
 /// exception list does not include loopback unless the user adds it. Without this, anyone with
 /// a system proxy switched on cannot reach a local model server (Ollama, LM Studio, vLLM) at
-/// all — the request goes to the proxy and comes back 403.
+/// all -- the request goes to the proxy and comes back 403.
 const LOOPBACK_BYPASS: &[&str] = &["localhost", "127.0.0.1", "::1"];
 
 /// Add [`LOOPBACK_BYPASS`] to whatever bypass list the user or the OS supplied, keeping their
@@ -258,7 +258,7 @@ fn with_loopback_bypass(no_proxy: &Option<String>) -> Option<String> {
 }
 
 /// The bypass list to install for a resolved snapshot: the loopback hosts folded in when some
-/// proxy is actually in play, and the caller's list untouched when none is — with no proxy
+/// proxy is actually in play, and the caller's list untouched when none is -- with no proxy
 /// there is nothing to bypass, and conjuring a `NO_PROXY` out of nothing would only confuse
 /// anyone reading the process environment.
 fn bypass_for(resolved: &ProxyEnvSnapshot) -> Option<String> {
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn proxy_config_is_read_from_this_distribution_not_a_hardcoded_one() {
         // This leaf resolves its own path instead of calling Config::default_path(), so it is
-        // the easiest place for a distribution rename to be missed — and a miss is silent: the
+        // the easiest place for a distribution rename to be missed -- and a miss is silent: the
         // build reads the OTHER build's [network.proxy] and quietly ignores its own.
         let path = config_path_from(None, Some(PathBuf::from("/Users/foo")));
         assert_eq!(

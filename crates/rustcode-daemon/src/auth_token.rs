@@ -1,7 +1,7 @@
 //! 本地 webui 一次性 token 存储与鉴权中间件。
 //!
 //! Phase 1：token 随 `/webui` 启动生成，仅存内存、随进程退出失效。
-//! Phase 2（官方中转隧道）会把账号 token 接入同一条 `is_valid` 校验链——
+//! Phase 2（官方中转隧道）会把账号 token 接入同一条 `is_valid` 校验链----
 //! 故鉴权统一收口在本模块，路由层只调中间件。
 
 use axum::{
@@ -22,18 +22,18 @@ const APP_USER_ID_HEADER: &str = "x-atom-user-id";
 
 /// Name of the HttpOnly cookie that carries the webui token after the
 /// `/?token=` handoff (see `serve_webui_index` in lib.rs). Keeping the
-/// credential in an HttpOnly cookie — rather than the URL — prevents a
+/// credential in an HttpOnly cookie -- rather than the URL -- prevents a
 /// malicious browser extension from reading it off `location.search`
 /// (CWE-598 / CWE-522).
 /// Base cookie name. Intentionally `pub(crate)` and NOT used directly as a
-/// cookie name anywhere — the real per-instance name is [`webui_cookie_name`]
+/// cookie name anywhere -- the real per-instance name is [`webui_cookie_name`]
 /// (port-scoped). Reading/writing the bare base name would 401 against a
 /// port-scoped instance, so it's kept crate-private to prevent that footgun.
 pub(crate) const WEBUI_COOKIE: &str = "rustcode_webui";
 
 /// Per-instance webui cookie name: `rustcode_webui_<port>`.
 ///
-/// Cookies on `localhost` ignore the PORT (RFC 6265 — port is not part of a
+/// Cookies on `localhost` ignore the PORT (RFC 6265 -- port is not part of a
 /// cookie's identity), so the bare `rustcode_webui` name was SHARED across every
 /// localhost port. A second `/webui` instance's `/?token=` handoff therefore
 /// overwrote the first page's cookie in the shared jar, and the first page's
@@ -109,7 +109,7 @@ pub fn token_from_cookie(value: Option<&str>, cookie_name: &str) -> Option<Strin
 
 /// Axum 中间件：校验 `Authorization: Bearer <token>` 是否为有效的 webui token。
 ///
-/// 签名与 `activity_tracker_middleware`（同 crate）保持一致——
+/// 签名与 `activity_tracker_middleware`（同 crate）保持一致----
 /// `axum::extract::Request` + `axum::middleware::Next`，适用于 axum 0.7。
 /// 路由层通过 `axum::middleware::from_fn_with_state` 挂载（Task 8）。
 pub async fn require_webui_token(
@@ -298,7 +298,7 @@ mod tests {
             Some("tokenB".to_string()),
             "instance on port 2222 reads its own cookie"
         );
-        // A third instance whose cookie was never set sees nothing (→ 401, correct).
+        // A third instance whose cookie was never set sees nothing (-> 401, correct).
         assert_eq!(token_from_cookie(Some(jar), &webui_cookie_name(3333)), None);
     }
 }

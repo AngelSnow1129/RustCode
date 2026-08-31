@@ -1,6 +1,6 @@
 //! Sensitive-path read gating through the FULL assembly: a read_file of `~/.ssh/id_rsa`
 //! is Safe (would skip approval) but must be gated, and with no driver answering the
-//! approval it fails closed — the secret is never read.
+//! approval it fails closed -- the secret is never read.
 
 use std::sync::Arc;
 use std::time::Duration;

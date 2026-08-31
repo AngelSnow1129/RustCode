@@ -1,4 +1,4 @@
-//! `task` — 把子任务派发给隔离上下文的子 agent(subagent-by-composition)。
+//! `task` -- 把子任务派发给隔离上下文的子 agent(subagent-by-composition)。
 //! 主 agent 按难度选档位(fast/capable)、按类型(explore 只读 / worker 可编辑)
 //! 选子工具集。子 agent 跑在独立内核会话里,结果用 <task_result> 包回。
 
@@ -41,7 +41,7 @@ struct TaskEventEmitter {
     run_id: crate::team::TeamRunId,
     seq: Arc<AtomicU64>,
     /// Serializes seq assignment with the sink call so concurrent subtasks emit
-    /// their shared-counter events in seq order — otherwise a lower-seq event that
+    /// their shared-counter events in seq order -- otherwise a lower-seq event that
     /// loses the send race is dropped by the consumer's monotonic filter.
     emit_lock: Arc<Mutex<()>>,
 }
@@ -57,15 +57,15 @@ impl TaskEventEmitter {
     }
 }
 /// Sentinel prefix on a `ctx.progress` line that marks it as EPHEMERAL live activity
-/// (current action of a running subtask) rather than a committed ↻/✓/✗ scrollback line.
+/// (current action of a running subtask) rather than a committed ↻/[+]/[x] scrollback line.
 /// The TUI routes marker-prefixed chunks to the in-place spinner instead of scrollback.
 /// rustcode-tuix references THIS const (can't drift). The rustcode-daemon leg has no
 /// dependency on this crate and hard-codes the literal `'\u{1e}'` in `to_wire` (to drop
-/// these lines from the webui) — if you ever change this sentinel, update THAT literal too.
+/// these lines from the webui) -- if you ever change this sentinel, update THAT literal too.
 pub const SUBAGENT_ACTIVITY_MARKER: char = '\u{1e}';
 /// Hard-denies any child tool call that references a sensitive path (credentials, `~/.ssh`,
 /// `.env`, cloud creds). Mounted on every subagent child. Unlike the parent's
-/// `SensitivePathGate` — which PROMPTS — this DENIES outright, because a subagent runs
+/// `SensitivePathGate` -- which PROMPTS -- this DENIES outright, because a subagent runs
 /// `AutoRespond::AllowAll`, so a prompt would just auto-approve itself. The generic credential
 /// bash gate runs immediately before this one; this guard terminates any remaining sensitive
 /// path access rather than letting a child repeatedly rephrase it.
@@ -90,8 +90,8 @@ impl ToolMiddleware for DenySensitivePaths {
 }
 
 /// The literal directory prefix of a glob: the leading path segments before the first
-/// segment that contains a glob metacharacter. `src/auth/**` → `src/auth`; `**` → ``;
-/// `Cargo.toml` → `Cargo.toml`. Used to test a `search_replace` DIR root against a scope
+/// segment that contains a glob metacharacter. `src/auth/**` -> `src/auth`; `**` -> ``;
+/// `Cargo.toml` -> `Cargo.toml`. Used to test a `search_replace` DIR root against a scope
 /// (globset's `src/auth/**` does NOT match the bare dir `src/auth`).
 fn recursive_dir_prefix(glob: &str) -> Option<String> {
     // `**` covers the whole tree.
@@ -112,7 +112,7 @@ fn recursive_dir_prefix(glob: &str) -> Option<String> {
 
 /// Lexically collapse `.` / `..` WITHOUT touching the filesystem (targets may be new files
 /// that don't exist yet). A `..` at the root is absorbed, so an escape normalizes to a path
-/// that will fail the working-dir `strip_prefix` below → denied.
+/// that will fail the working-dir `strip_prefix` below -> denied.
 fn lexical_normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for comp in p.components() {
@@ -152,7 +152,7 @@ fn canonicalize_existing_prefix(path: &Path) -> PathBuf {
 }
 
 /// True if a workspace-relative path (`/`-separated) points inside any `.git`
-/// directory — the repo's or a nested submodule's. Writing there (hooks, config)
+/// directory -- the repo's or a nested submodule's. Writing there (hooks, config)
 /// defers shell execution to the next git command, escaping the child's no-bash
 /// guarantee, so such writes are denied regardless of the declared scope.
 fn is_git_internal(rel: &str) -> bool {
@@ -183,7 +183,7 @@ fn workers_missing_scope(tasks: &[crate::team::TeamTaskSpec]) -> Vec<usize> {
 
 /// Confines a `worker` subagent's WRITE tools to its declared `scope`. Mirrors
 /// [`DenySensitivePaths`]: a hard deny (the child runs `AutoRespond::AllowAll`, so a prompt
-/// would self-approve). ONLY the write tools are gated — reads are unrestricted (a worker
+/// would self-approve). ONLY the write tools are gated -- reads are unrestricted (a worker
 /// often reads elsewhere for context) and `bash` retains dispatch-level trust (design §6).
 struct WorkerScopeGate {
     working_dir: PathBuf,
@@ -207,8 +207,8 @@ impl WorkerScopeGate {
         let mut builder = globset::GlobSetBuilder::new();
         let mut dir_prefixes = Vec::new();
         for s in scopes {
-            // Only scopes whose glob compiles participate — in BOTH the file-path globset and
-            // the search_replace dir-prefix list — so a malformed scope can't confine writes
+            // Only scopes whose glob compiles participate -- in BOTH the file-path globset and
+            // the search_replace dir-prefix list -- so a malformed scope can't confine writes
             // one way and allow them the other.
             if let Ok(g) = globset::GlobBuilder::new(s).literal_separator(true).build() {
                 builder.add(g);
@@ -328,7 +328,7 @@ impl WorkerScopeGate {
 
     /// Resolve `raw` (absolute, or relative to the working dir) to a working-dir-relative,
     /// `.`/`..`-collapsed path with `/` separators. `None` if it escapes the working dir
-    /// (absolute-outside, or `..` above the root) — such writes are denied.
+    /// (absolute-outside, or `..` above the root) -- such writes are denied.
     fn workspace_relative(&self, raw: &str) -> Option<String> {
         let joined = if Path::new(raw).is_absolute() {
             PathBuf::from(raw)
@@ -353,7 +353,7 @@ impl WorkerScopeGate {
     /// Whether a working-dir-relative DIRECTORY (a `search_replace` root) is within scope: it
     /// equals or lives under any RECURSIVE scope's dir (see [`recursive_dir_prefix`]). An empty
     /// prefix (scope `**`) covers the whole tree. Only recursive `<dir>/**` scopes grant a root
-    /// here — a non-recursive scope (`*.rs`, `src/*.rs`, `Cargo.toml`, or a bare dir `src/auth`)
+    /// here -- a non-recursive scope (`*.rs`, `src/*.rs`, `Cargo.toml`, or a bare dir `src/auth`)
     /// covers only specific files, so it grants NO search_replace root even though it may still
     /// match a single-file `edit_file`/`write_file` target. A worker wanting to search_replace a
     /// whole directory must declare it recursively: `src/auth/**`.
@@ -425,7 +425,7 @@ fn subagent_child_middlewares_with_policy(
     credential_shell_policy: super::CredentialShellPolicy,
 ) -> Vec<Arc<dyn ToolMiddleware>> {
     let mut mw: Vec<Arc<dyn ToolMiddleware>> = vec![
-        // Children run `AutoRespond::AllowAll`, so a prompt would auto-approve itself —
+        // Children run `AutoRespond::AllowAll`, so a prompt would auto-approve itself --
         // the non-interactive gate fails `Prompt` closed to a call-only deny instead.
         Arc::new(super::CredentialBashGate::non_interactive(
             credential_shell_policy,
@@ -488,7 +488,7 @@ tools to answer the assigned task about the codebase. You CANNOT edit files. Whe
 stop with a concise findings report the parent agent can act on.";
 
 const WORKER_PERSONA: &str = "You are a focused EXECUTION subagent. Do exactly the task \
-described — no more, no less — honoring the working directory. Make the change, verify it \
+described -- no more, no less -- honoring the working directory. Make the change, verify it \
 if cheap, then stop with a one-line summary of what you changed. Do not wander outside the \
 task's stated scope.";
 
@@ -535,8 +535,8 @@ pub struct TaskTool {
     max_rounds: Option<u32>,
     /// Kernel event-idle liveness guard for each child (parity with the parent
     /// agent and the team runner). Without it a child whose provider keeps the
-    /// connection nominally alive — SSE keep-alive bytes reset the provider's
-    /// BYTE-idle timeout while no real tokens arrive — hangs unbounded (observed:
+    /// connection nominally alive -- SSE keep-alive bytes reset the provider's
+    /// BYTE-idle timeout while no real tokens arrive -- hangs unbounded (observed:
     /// a subagent stuck 683 min). This is an idle/liveness cap, NOT a total
     /// wall-clock timeout, so it does not contradict the "long research runs
     /// freely" policy below.
@@ -661,7 +661,7 @@ each worker a TIGHTLY-specified task and non-overlapping file scopes when dispat
 several. Subagents run in parallel and cannot themselves dispatch. The WHOLE batch is \
 emitted as ONE JSON payload, so keep each `prompt` concise and dispatch in small batches \
 (a few at a time): many long prompts in one call can overflow the model's output and be \
-rejected as invalid JSON — prefer several smaller calls over one huge one. Each `worker` \
+rejected as invalid JSON -- prefer several smaller calls over one huge one. Each `worker` \
 MUST declare a `scope` (working-dir-relative globs) listing the files it may write; give \
 parallel workers NON-OVERLAPPING scopes."
     }
@@ -675,7 +675,7 @@ parallel workers NON-OVERLAPPING scopes."
         };
         // The blocked child's block was already sanitized at render time (fixed
         // notice, no child-derived data), so just strip the internal signal marker
-        // — never expose it — and KEEP the surviving siblings' output. Lift the
+        // -- never expose it -- and KEEP the surviving siblings' output. Lift the
         // structured recovery contract so every driver follows its existing
         // policy-recovery presentation.
         result.content = rest.to_string();
@@ -743,7 +743,7 @@ parallel workers NON-OVERLAPPING scopes."
                 return ToolResult {
                     call_id: String::new(),
                     content: format!(
-                        "invalid task args: {e}\n\nThe arguments were not valid JSON — the output \
+                        "invalid task args: {e}\n\nThe arguments were not valid JSON -- the output \
                          was likely truncated (a large batch can exceed the model's output limit) \
                          or a string contained an unescaped quote. Retry with FEWER subtasks \
                          and/or SHORTER prompts, and ensure every string value is JSON-escaped."
@@ -784,7 +784,7 @@ parallel workers NON-OVERLAPPING scopes."
                 call_id: String::new(),
                 content: format!(
                     "worker subtask {idxs} declared no `scope`. Each worker must declare `scope` \
-                     (working-dir-relative globs, e.g. [\"src/auth/**\"]) — its writable file lane, \
+                     (working-dir-relative globs, e.g. [\"src/auth/**\"]) -- its writable file lane, \
                      shown at approval time and enforced during the run. Add a scope and retry."
                 ),
                 is_error: true,
@@ -881,7 +881,7 @@ parallel workers NON-OVERLAPPING scopes."
         // Live progress: the whole batch would otherwise be a black box until every subtask
         // finishes. Emit a header + per-subtask start/done so the driver renders them live.
         ctx.progress
-            .emit(format!("dispatching {} subtask(s)…", prepared.len()));
+            .emit(format!("dispatching {} subtask(s)...", prepared.len()));
 
         for (idx, (t, provider, fallback_provider)) in prepared.into_iter().enumerate() {
             let is_worker = t.permission == crate::team::TeamPermission::Worker;
@@ -937,7 +937,7 @@ parallel workers NON-OVERLAPPING scopes."
                         description: desc.clone(),
                     });
                 }
-                // ↻ started — include a compact preview of WHAT this subtask is, so a live
+                // ↻ started -- include a compact preview of WHAT this subtask is, so a live
                 // fan-out shows each child's job, not just its number.
                 progress.emit(subtask_progress_line(
                     &format!("\u{21bb} {label}"),
@@ -988,7 +988,7 @@ parallel workers NON-OVERLAPPING scopes."
                 ));
                 // There is deliberately no total wall-clock timeout here. Long-running
                 // research may make steady progress for many minutes; liveness is bounded by
-                // the kernel event-idle `stream_timeout` (wired via `build_task_child` — the
+                // the kernel event-idle `stream_timeout` (wired via `build_task_child` -- the
                 // provider's BYTE-idle timeout alone is defeated by SSE keep-alives), the
                 // child round cap, and explicit parent/user cancel.
                 let mut outcome = match handle.await {
@@ -1045,7 +1045,7 @@ parallel workers NON-OVERLAPPING scopes."
                     .await;
                     final_model = fallback_model;
                 }
-                // Include the failure reason on the terminal ✗ line. Retained UIs
+                // Include the failure reason on the terminal [x] line. Retained UIs
                 // commit terminal child events to scrollback while keeping only
                 // running children in the fixed panel.
                 let head = if outcome.stop == StopReason::Stopped {
@@ -1099,14 +1099,14 @@ parallel workers NON-OVERLAPPING scopes."
 /// Parse the tool args, repairing malformed weak-model output on failure. Repairs
 /// ONLY on failure, so valid JSON is never altered.
 ///
-/// Repair ladder: direct parse → `repair_json` (control chars / trailing commas)
-/// → `extract_task_args` (schema-aware salvage that rebuilds the tasks array from
+/// Repair ladder: direct parse -> `repair_json` (control chars / trailing commas)
+/// -> `extract_task_args` (schema-aware salvage that rebuilds the tasks array from
 /// known keys, tolerating unescaped quotes in free-text prompts). The last step
 /// also runs in `RepairToolArgsMiddleware` on the inbound path; keeping it here
 /// makes the tool self-sufficient for any assembly that omits the middleware. It
 /// still CANNOT recover a genuinely truncated payload (a large batch hitting the
 /// model's output limit); the tool description advises smaller batches. Shared by
-/// `risk` and `execute` so both agree on whether a dispatch contains a `worker` — a
+/// `risk` and `execute` so both agree on whether a dispatch contains a `worker` -- a
 /// mismatch would let a file-editing worker with control-char args skip the approval
 /// gate.
 fn parse_task_args(args: &str) -> Result<Args, serde_json::Error> {
@@ -1136,8 +1136,8 @@ fn validate_task_specs(args: &Args) -> Result<Vec<crate::team::TeamTaskSpec>, St
 }
 
 fn resolve_subtask_spec(t: &SubTask) -> Result<crate::team::TeamTaskSpec, String> {
-    // Only the exact `"worker"` opts into the write lane. Any other value — including
-    // the common `"explorer"` typo (which collides with a valid `role` name) — falls
+    // Only the exact `"worker"` opts into the write lane. Any other value -- including
+    // the common `"explorer"` typo (which collides with a valid `role` name) -- falls
     // back to the read-only explore lane rather than rejecting the whole batch. This
     // matches the pre-typed behavior (`is_worker = subagent_type == "worker"`) and
     // fails closed on permission.
@@ -1169,7 +1169,7 @@ fn resolve_subtask_spec(t: &SubTask) -> Result<crate::team::TeamTaskSpec, String
     let difficulty = match t.difficulty.as_str() {
         "simple" => crate::team::TeamDifficulty::Simple,
         "hard" => crate::team::TeamDifficulty::Hard,
-        // Empty or unrecognized → the role's default tier, not a hard error.
+        // Empty or unrecognized -> the role's default tier, not a hard error.
         _ => profile.difficulty,
     };
     Ok(crate::team::TeamTaskSpec {
@@ -1193,8 +1193,8 @@ fn subtask_persona(profile: &crate::team::TeamRoleProfile) -> String {
     )
 }
 
-/// A one-line preview of what a child is about to do this round — the tool name plus a
-/// concise argument (path / pattern / command / …) when one is present. Best-effort: if the
+/// A one-line preview of what a child is about to do this round -- the tool name plus a
+/// concise argument (path / pattern / command / ...) when one is present. Best-effort: if the
 /// args aren't parseable JSON or carry no recognisable key, just the tool name.
 fn summarize_tool_call(call: &ToolCall) -> String {
     const KEYS: &[&str] = &[
@@ -1226,7 +1226,7 @@ fn summarize_tool_call(call: &ToolCall) -> String {
 }
 
 /// First line of `s`, trimmed, capped to `max` chars with a trailing ellipsis when it's
-/// longer. Char-based (never slices a code point mid-way). Empty first line → empty string.
+/// longer. Char-based (never slices a code point mid-way). Empty first line -> empty string.
 /// Shared by the tool-call preview and the subtask progress line so the two can't drift.
 fn first_line_capped(s: &str, max: usize) -> String {
     let first = s.lines().next().unwrap_or("").trim();
@@ -1245,7 +1245,7 @@ fn first_line_capped(s: &str, max: usize) -> String {
 /// into its fixed Subtasks footer without adding transcript rows.
 struct SubtaskProgressHook {
     progress: ProgressSink,
-    /// The subtask label, e.g. `explore#1` — so the footer shows WHICH child is acting.
+    /// The subtask label, e.g. `explore#1` -- so the footer shows WHICH child is acting.
     label: String,
     localized_zh: bool,
     /// The child's cancel token. The child is detached from the parent tool future,
@@ -1623,8 +1623,8 @@ async fn run_child_to_completion(
     outcome
 }
 
-/// A live-progress line for one subtask: `<head> · <model> · <desc>`. `head` is the
-/// already-composed icon+label (`↻ explore#1`, `✓ done · explore#1`, …) so callers keep
+/// A live-progress line for one subtask: `<head> . <model> . <desc>`. `head` is the
+/// already-composed icon+label (`↻ explore#1`, `[+] done . explore#1`, ...) so callers keep
 /// their own icon/label separator. The description is compacted to its first line,
 /// trimmed and length-capped, so a long prompt-like description can't wrap the strip.
 /// Emitted on start and completion so the user sees WHICH job each subtask is.
@@ -1644,13 +1644,13 @@ const SANITIZED_POLICY_BLOCK_BODY: &str = "blocked by a hard security policy; th
 
 /// Assemble the per-subtask blocks into the tool result.
 ///
-/// A hard policy terminal (`StopReason::PolicyDenied` — credential-shell AND
+/// A hard policy terminal (`StopReason::PolicyDenied` -- credential-shell AND
 /// sensitive-path both end here; the latter denies with a plain `deny_turn` and
 /// carries NO structured intervention) has its block replaced with a fixed
 /// sanitized notice so the child's transcript / rejected op / partial output
 /// never reaches the parent model, and prepends an internal marker so the kernel
 /// lifts the structured recovery contract. Only the blocked child's block is
-/// sanitized — successful siblings are preserved (not wiped).
+/// sanitized -- successful siblings are preserved (not wiped).
 fn aggregate_task_result(mut collected: Vec<(String, String, String, Outcome)>) -> ToolResult {
     // Sort by label for deterministic output regardless of scheduling order.
     collected.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1689,7 +1689,7 @@ fn aggregate_task_result(mut collected: Vec<(String, String, String, Outcome)>) 
         };
         let (state, tag, body) = if is_err {
             // Preserve partial output on a bounded/failed stop (MaxRounds,
-            // ProviderError, Cancelled, …) — a worker that did real work before
+            // ProviderError, Cancelled, ...) -- a worker that did real work before
             // hitting a limit is not a total loss (#2).
             let mut b = format!("subagent stopped early ({:?})", outcome.stop);
             if let Some(e) = &outcome.error {
@@ -1715,7 +1715,7 @@ fn aggregate_task_result(mut collected: Vec<(String, String, String, Outcome)>) 
         content,
         // Fail the whole tool call only when EVERY subtask failed. A partial failure is
         // conveyed per-block (<task_error>/<task_result>), so the parent can act on the
-        // survivors instead of re-dispatching — and double-applying — the whole batch (#5).
+        // survivors instead of re-dispatching -- and double-applying -- the whole batch (#5).
         is_error: n_total > 0 && n_error == n_total,
         images: vec![],
     }
@@ -1723,7 +1723,7 @@ fn aggregate_task_result(mut collected: Vec<(String, String, String, Outcome)>) 
 
 /// Wrap a child-agent result in an opencode-style `<task>` block. `model` is the
 /// model the subagent actually ran on (surfaced so the user can see which tier/model
-/// executed — the strong/weak routing proof).
+/// executed -- the strong/weak routing proof).
 fn render_task_block(
     id: &str,
     summary: &str,
@@ -1751,8 +1751,8 @@ mod tests {
     use rustcode_kernel::tool::{ProgressSink, ToolDef, ToolRegistry};
     use tokio_util::sync::CancellationToken;
 
-    /// Scripted provider: `Some(reply)` → one text turn then clean stop;
-    /// `None` → a terminal open error (simulates a failed child).
+    /// Scripted provider: `Some(reply)` -> one text turn then clean stop;
+    /// `None` -> a terminal open error (simulates a failed child).
     struct MockProvider {
         reply: Option<String>,
     }
@@ -1786,7 +1786,7 @@ mod tests {
     }
 
     fn ctx() -> ToolContext {
-        // Dedicated EMPTY tempdir — shared std::env::temp_dir() can contain stray
+        // Dedicated EMPTY tempdir -- shared std::env::temp_dir() can contain stray
         // build markers that confuse any build-detection logic in child agents.
         let dir = tempfile::tempdir().expect("tempdir").keep();
         ToolContext {
@@ -1835,7 +1835,7 @@ mod tests {
     fn take_policy_intervention_strips_marker_and_preserves_siblings() {
         // Sanitization happens at render time (the blocked child's block carries
         // no transcript). take_policy_intervention only strips the internal signal
-        // marker and lifts the recovery contract — surviving siblings are kept.
+        // marker and lifts the recovery contract -- surviving siblings are kept.
         let tool = dummy();
         let mut result = ToolResult {
             content: format!(
@@ -1981,7 +1981,7 @@ mod tests {
             name: name.into(),
             arguments: args.into(),
         };
-        // Recognised key → "name arg".
+        // Recognised key -> "name arg".
         assert_eq!(
             summarize_tool_call(&mk("read_file", r#"{"path":"src/auth.rs"}"#)),
             "read_file src/auth.rs"
@@ -1990,14 +1990,14 @@ mod tests {
             summarize_tool_call(&mk("grep", r#"{"pattern":"unwrap("}"#)),
             "grep unwrap("
         );
-        // Long arg → truncated with ellipsis.
+        // Long arg -> truncated with ellipsis.
         let long = summarize_tool_call(&mk(
             "bash",
             r#"{"command":"cargo test --workspace --all-features --verbose now"}"#,
         ));
         assert!(long.starts_with("bash "), "{long}");
         assert!(long.ends_with('\u{2026}'), "{long}");
-        // No recognised key / bad JSON → just the tool name.
+        // No recognised key / bad JSON -> just the tool name.
         assert_eq!(
             summarize_tool_call(&mk("todowrite", r#"{"todos":[]}"#)),
             "todowrite"
@@ -2179,12 +2179,12 @@ mod tests {
 
     #[test]
     fn subtask_progress_line_includes_desc_and_truncates() {
-        // Short description → shown verbatim after the model (start-line head style).
+        // Short description -> shown verbatim after the model (start-line head style).
         assert_eq!(
             subtask_progress_line("\u{21bb} explore#1", "deepseek", "review auth.rs"),
             "\u{21bb} explore#1 \u{b7} deepseek \u{b7} review auth.rs"
         );
-        // Multi-line / long description → first line only, capped with an ellipsis.
+        // Multi-line / long description -> first line only, capped with an ellipsis.
         let long = "audit every unwrap() call across the whole crate for panic safety and report\nsecond line";
         let line = subtask_progress_line("\u{2713} done \u{b7} worker#2", "GLM-5.2", long);
         assert!(line.starts_with("\u{2713} done \u{b7} worker#2 \u{b7} GLM-5.2 \u{b7} "));
@@ -2196,7 +2196,7 @@ mod tests {
             !line.contains("second line"),
             "only first line should show: {line}"
         );
-        // Empty description → no trailing separator after the model.
+        // Empty description -> no trailing separator after the model.
         assert_eq!(
             subtask_progress_line("\u{21bb} explore#1", "deepseek", "  "),
             "\u{21bb} explore#1 \u{b7} deepseek"
@@ -2639,7 +2639,7 @@ mod tests {
     /// Regression: a child whose provider holds the connection open but emits NO
     /// stream events used to hang forever (observed: a subagent stuck 683 min)
     /// because `build_task_child` never set the kernel event-idle `stream_timeout`
-    /// — the provider's byte-idle timeout alone is defeated by keep-alives. With
+    /// -- the provider's byte-idle timeout alone is defeated by keep-alives. With
     /// `with_stream_timeout` wired through, the child reconnects a bounded number
     /// of times, then fails cleanly WITHOUT any external cancel.
     #[tokio::test]
@@ -2675,9 +2675,9 @@ mod tests {
         .with_stream_timeout(std::time::Duration::from_millis(20));
         let context = ctx();
 
-        // Generous outer bound: the real path is ~5 reconnects × exponential
+        // Generous outer bound: the real path is ~5 reconnects x exponential
         // backoff (≈6.3s). If `stream_timeout` were NOT wired the child would hang
-        // and this timeout would fire the panic — exactly the regression.
+        // and this timeout would fire the panic -- exactly the regression.
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(30),
             tool.execute(
@@ -2784,7 +2784,7 @@ mod tests {
             move || r1.mount(&[]),
             move || r2.mount(&[]),
         );
-        // A RAW newline (0x0A) inside the `prompt` string value — serde rejects this
+        // A RAW newline (0x0A) inside the `prompt` string value -- serde rejects this
         // outright ("control character found"); the try-then-repair path must recover it.
         let args = "{\"tasks\":[{\"description\":\"d\",\"prompt\":\"line1\nline2\",\"subagent_type\":\"explore\"}]}";
         assert!(
@@ -2822,13 +2822,13 @@ mod tests {
         // Recursive dir globs grant a search_replace root at their literal dir.
         assert_eq!(p("src/auth/**"), Some("src/auth".into()));
         assert_eq!(p("**"), Some(String::new())); // whole tree
-                                                  // Non-recursive scopes cover only specific files → NO search_replace root.
+                                                  // Non-recursive scopes cover only specific files -> NO search_replace root.
         assert_eq!(p("src/**/x.rs"), None); // matches only x.rs files, not whole dirs
         assert_eq!(p("src/*.rs"), None);
         assert_eq!(p("*.rs"), None);
         assert_eq!(p("Cargo.toml"), None);
         assert_eq!(p("src/auth"), None); // bare dir matches only itself, not its contents
-        assert_eq!(p("src/*/**"), None); // non-literal prefix before /** → not granted
+        assert_eq!(p("src/*/**"), None); // non-literal prefix before /** -> not granted
     }
 
     #[test]
@@ -2840,19 +2840,19 @@ mod tests {
             Path::new("/w"),
         );
 
-        // in-scope write → allowed
+        // in-scope write -> allowed
         assert!(g
             .violation("edit_file", r#"{"file_path":"src/auth/login.rs"}"#)
             .is_none());
-        // in-scope NEW file (need not exist) → allowed
+        // in-scope NEW file (need not exist) -> allowed
         assert!(g
             .violation("write_file", r#"{"file_path":"src/auth/new_mod.rs"}"#)
             .is_none());
-        // exact-file scope → allowed
+        // exact-file scope -> allowed
         assert!(g
             .violation("write_file", r#"{"file_path":"Cargo.toml"}"#)
             .is_none());
-        // out-of-scope write → denied, message names the path + scope
+        // out-of-scope write -> denied, message names the path + scope
         let deny = g
             .violation("edit_file", r#"{"file_path":"src/db/schema.rs"}"#)
             .expect("out-of-scope write denied");
@@ -2963,18 +2963,18 @@ mod tests {
         use super::WorkerScopeGate;
         use std::path::Path;
         let g = WorkerScopeGate::new(&["src/auth/**".into()], Path::new("/w"));
-        // root inside scope dir → allowed
+        // root inside scope dir -> allowed
         assert!(g
             .violation("search_replace", r#"{"path":"src/auth"}"#)
             .is_none());
         assert!(g
             .violation("search_replace", r#"{"path":"src/auth/sub"}"#)
             .is_none());
-        // root outside scope → denied
+        // root outside scope -> denied
         assert!(g
             .violation("search_replace", r#"{"path":"src/db"}"#)
             .is_some());
-        // NO path (whole-tree rewrite) → denied
+        // NO path (whole-tree rewrite) -> denied
         let deny = g
             .violation("search_replace", r#"{"pattern":"x","replacement":"y"}"#)
             .expect("whole-tree search_replace denied");
@@ -2982,7 +2982,7 @@ mod tests {
             deny.contains("whole tree") || deny.contains("path"),
             "{deny}"
         );
-        // root escaping the workspace → denied
+        // root escaping the workspace -> denied
         assert!(g
             .violation("search_replace", r#"{"path":"../outside"}"#)
             .is_some());
@@ -3031,9 +3031,9 @@ mod tests {
         let args = Args {
             tasks: vec![
                 mk("worker", vec!["src/a/**"]), // #1 ok
-                mk("explore", vec![]),          // #2 explore — ignored even with no scope
-                mk("worker", vec![]),           // #3 missing → flagged
-                mk("worker", vec!["   "]),      // #4 whitespace-only → flagged
+                mk("explore", vec![]),          // #2 explore -- ignored even with no scope
+                mk("worker", vec![]),           // #3 missing -> flagged
+                mk("worker", vec!["   "]),      // #4 whitespace-only -> flagged
             ],
         };
         let specs = validate_task_specs(&args).unwrap();
@@ -3081,7 +3081,7 @@ mod tests {
     fn unknown_subagent_type_or_difficulty_falls_back_instead_of_failing_the_batch() {
         let parse = |input: &str| parse_task_args(input).unwrap();
         // `"explorer"` (a common typo, and also a valid `role` value) must not reject
-        // the whole batch — it falls back to the read-only explore lane, matching the
+        // the whole batch -- it falls back to the read-only explore lane, matching the
         // pre-typed behavior.
         let specs = validate_task_specs(&parse(
             r#"{"tasks":[{"description":"d","prompt":"p","subagent_type":"explorer"}]}"#,

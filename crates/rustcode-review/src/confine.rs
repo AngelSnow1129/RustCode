@@ -1,7 +1,7 @@
 //! Path-confinement middleware for the REVIEW agent.
 //!
 //! 1. Pins every read-only tool's path arguments inside the repo root (blocks
-//!    `grep /` whole-container scans → OOM, and out-of-repo reads).
+//!    `grep /` whole-container scans -> OOM, and out-of-repo reads).
 //! 2. Optional **review-scope allowlist**: when the driver knows the changed /
 //!    reviewable file set, tools may only touch those files (and their ancestor
 //!    directories for list/grep). Stops the model from `read_file`ing ignored
@@ -110,7 +110,7 @@ impl ToolMiddleware for PathConfineMiddleware {
 }
 
 /// Reject if any path field escapes `root`, or (when `allow` is set) falls outside
-/// the reviewable set. Unparseable args pass through — the tool will reject them.
+/// the reviewable set. Unparseable args pass through -- the tool will reject them.
 fn check_arguments(
     root: &Path,
     allow: Option<&HashSet<PathBuf>>,
@@ -186,7 +186,7 @@ fn check_one(root: &Path, allow: Option<&HashSet<PathBuf>>, raw: &str) -> Result
             }
         };
         // Empty rel = repo root (".", "", absolute root). Not a useful review target
-        // when we have a tighter allowlist — force an explicit scoped path.
+        // when we have a tighter allowlist -- force an explicit scoped path.
         if rel.as_os_str().is_empty() {
             return Err(format!(
                 "path '{raw}' is outside the review scope; tools may only access the changed/reviewable files (and their parent directories)"
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn rejects_grep_root() {
-        // The actual production failure: `grep /` scanned the whole container → OOM.
+        // The actual production failure: `grep /` scanned the whole container -> OOM.
         assert!(check_arguments(&root(), None, "grep", r#"{"pattern":"foo","path":"/"}"#).is_err());
     }
 
@@ -321,14 +321,14 @@ mod tests {
 
     #[test]
     fn array_paths_any_escape_blocks() {
-        // ast_grep `paths`: one inside, one escaping → blocked; all inside → ok.
+        // ast_grep `paths`: one inside, one escaping -> blocked; all inside -> ok.
         assert!(check_arguments(&root(), None, "ast_grep", r#"{"paths":["src","/etc"]}"#).is_err());
         assert!(check_arguments(&root(), None, "ast_grep", r#"{"paths":["src","lib"]}"#).is_ok());
     }
 
     #[test]
     fn missing_path_field_passes_without_allowlist() {
-        // grep default path "." (field absent) → tool resolves to working_dir, safe
+        // grep default path "." (field absent) -> tool resolves to working_dir, safe
         // when we only confine to repo root.
         assert!(check_arguments(&root(), None, "grep", r#"{"pattern":"foo"}"#).is_ok());
     }

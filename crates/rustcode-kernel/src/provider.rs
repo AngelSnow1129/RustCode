@@ -12,15 +12,15 @@ use serde::{Deserialize, Serialize};
 /// can carry per-call request options (a reasoning/thinking effort, a
 /// `tool_choice`, a `max_tokens`, a `temperature`) down to the provider. The
 /// *values* are set by a specialization (via `AgentBuilder::chat_options`); the
-/// *meaning on the wire* is the L1 provider ADAPTER's job — it MAPS each neutral
-/// knob onto whatever its backend speaks (e.g. `reasoning_effort` → OpenAI's
+/// *meaning on the wire* is the L1 provider ADAPTER's job -- it MAPS each neutral
+/// knob onto whatever its backend speaks (e.g. `reasoning_effort` -> OpenAI's
 /// `reasoning_effort` string vs Anthropic's thinking `budget_tokens`), and a given
 /// adapter MAY IGNORE any option it does not support. The kernel never interprets
-/// these model knobs — it only forwards them. The runtime-only retry owner below
+/// these model knobs -- it only forwards them. The runtime-only retry owner below
 /// is a lifecycle sideband and is deliberately excluded from serialization.
 ///
 /// `ChatOptions::default()` is a NEUTRAL request: every tunable is `None` and
-/// `tool_choice` is `ToolChoice::Auto` — i.e. "no opinion", the model decides. An
+/// `tool_choice` is `ToolChoice::Auto` -- i.e. "no opinion", the model decides. An
 /// adapter receiving the default uses provider-owned retry behavior, which also
 /// preserves direct consumers that do not have a kernel turn lifecycle.
 ///
@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 pub struct ChatOptions {
     /// Desired reasoning/thinking effort. `None` = no opinion (adapter default).
     /// The adapter maps the neutral level onto its wire format (OpenAI's
-    /// `reasoning_effort` string, Anthropic's thinking `budget_tokens`, …) or
+    /// `reasoning_effort` string, Anthropic's thinking `budget_tokens`, ...) or
     /// ignores it if unsupported.
     pub reasoning_effort: Option<ReasoningEffort>,
     /// Cap on output tokens for this call. `None` = no opinion (adapter default).
@@ -39,7 +39,7 @@ pub struct ChatOptions {
     /// Sampling temperature for this call. `None` = no opinion (adapter default).
     pub temperature: Option<f32>,
     /// Whether/how the model must use tools this call. `Auto` (default) = no
-    /// opinion — the model decides.
+    /// opinion -- the model decides.
     pub tool_choice: ToolChoice,
     /// Which layer owns HTTP 429 retries for this call. Direct provider
     /// consumers keep the provider default; the kernel turn loop overrides this
@@ -66,10 +66,10 @@ pub enum ReasoningEffort {
     Low,
     Medium,
     High,
-    /// Extra-high effort — some endpoints (e.g. AtomGit Qwen) accept
+    /// Extra-high effort -- some endpoints (e.g. AtomGit Qwen) accept
     /// `reasoning_effort: "xhigh"` between the standard `high` and the ceiling `max`.
     XHigh,
-    /// Maximum effort — DeepSeek V4 accepts `reasoning_effort: "max"` beyond the
+    /// Maximum effort -- DeepSeek V4 accepts `reasoning_effort: "max"` beyond the
     /// OpenAI low/medium/high ladder.
     Max,
 }
@@ -87,7 +87,7 @@ impl ReasoningEffort {
 
     /// Parse a config string (`"low"|"medium"|"high"|"xhigh"|"max"`, case-insensitive) into an
     /// effort level. `None`/empty/`"off"` ⇒ `None` (no opinion); an UNKNOWN value also ⇒
-    /// `None` (effort is a non-critical optimization — unlike `reasoning_history`, a typo
+    /// `None` (effort is a non-critical optimization -- unlike `reasoning_history`, a typo
     /// degrades to the adapter default rather than failing the turn). Lets a driver plumb
     /// a per-provider `reasoning_effort` config knob into [`ChatOptions::reasoning_effort`].
     pub fn from_config(s: Option<&str>) -> Option<ReasoningEffort> {
@@ -107,7 +107,7 @@ impl ReasoningEffort {
 /// "none"`, Anthropic's `tool_choice` object); an adapter MAY ignore it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToolChoice {
-    /// No opinion — the model decides whether to call a tool. The neutral default.
+    /// No opinion -- the model decides whether to call a tool. The neutral default.
     #[default]
     Auto,
     /// The model MUST call at least one tool this call.
@@ -128,12 +128,12 @@ pub enum FinishReason {
     /// natural completion, never an error.
     #[default]
     Stop,
-    /// Output cap hit — the response is TRUNCATED, not complete
+    /// Output cap hit -- the response is TRUNCATED, not complete
     /// (`finish_reason: "length"` / `stop_reason: "max_tokens"`, or
     /// `StreamEvent::Done { truncated: true }`).
     Length,
     /// The model produced tool calls to execute before it can continue.
-    /// Reported even when a backend also said `finish_reason: "stop"` — the tool
+    /// Reported even when a backend also said `finish_reason: "stop"` -- the tool
     /// calls are what the turn loop acts on, so they win.
     ToolCalls,
     /// Content policy / safety filter cut the response.
@@ -164,7 +164,7 @@ pub struct ChatResponse {
     pub finish_reason: FinishReason,
 }
 
-/// LLM backend abstraction. The turn loop never names Claude/OpenAI/Ollama — it
+/// LLM backend abstraction. The turn loop never names Claude/OpenAI/Ollama -- it
 /// only calls `chat_stream` once per turn and consumes the event stream.
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
@@ -174,9 +174,9 @@ pub trait LlmProvider: Send + Sync {
         0
     }
     /// Bind this provider to its owning Agent's session id, ONCE. The kernel calls
-    /// this at spawn — the single point where the session id (allocated by the coding
+    /// this at spawn -- the single point where the session id (allocated by the coding
     /// layer's `prepare`, threaded in via `AgentBuilder::session_id`) meets the
-    /// provider — so no driver re-threads it. An adapter forwards it as the
+    /// provider -- so no driver re-threads it. An adapter forwards it as the
     /// `x-rustcode-session-id` header, letting a forwarding gateway (LiteLLM) pin the
     /// whole conversation to one upstream for prefix-cache affinity.
     ///
@@ -184,7 +184,7 @@ pub trait LlmProvider: Send + Sync {
     /// for an Agent's life (a `/session` switch rebuilds the Agent + provider, not the
     /// id in place), so adapters back it with a `OnceLock`. Default no-op: adapters
     /// that don't forward an affinity id, and test doubles, ignore it. Never called ⇒
-    /// no affinity (header omitted) — the neutral default for session-less sub-agents.
+    /// no affinity (header omitted) -- the neutral default for session-less sub-agents.
     fn bind_session_id(&self, _session_id: &str) {}
     /// Open the stream for one turn. `Err` = a failed OPEN (auth/connect/etc.);
     /// the stream itself may then still fail mid-flight via `StreamEvent::Error`.
@@ -215,14 +215,14 @@ pub trait LlmProvider: Send + Sync {
     /// reproduce this contract:
     ///
     /// * the FIRST [`StreamEvent::Error`] terminates the fold and is returned as
-    ///   `Err` — content emitted before it is discarded;
+    ///   `Err` -- content emitted before it is discarded;
     /// * [`StreamEvent::Malformed`] is SKIPPED. It is a content-free diagnostic
     ///   signal (an unparseable chunk), never fatal;
     /// * [`StreamEvent::Done { truncated }`] ends the fold: `truncated` ⇒
     ///   [`FinishReason::Length`], otherwise [`FinishReason::Stop`]. A stream
     ///   that ends with NO `Done` keeps the default [`FinishReason::Stop`];
     /// * a non-empty `tool_calls` set overrides the terminal reason with
-    ///   [`FinishReason::ToolCalls`] — the tool calls are what a turn loop acts
+    ///   [`FinishReason::ToolCalls`] -- the tool calls are what a turn loop acts
     ///   on, so they win over a backend that also said `stop`;
     /// * [`StreamEvent::TextDelta`] appends to `text`,
     ///   [`StreamEvent::Reasoning`] appends to `reasoning`,
@@ -304,7 +304,7 @@ mod tests {
             Some(ReasoningEffort::Max),
             "case-insensitive"
         );
-        // off / empty / unset / unknown → no opinion (None), never a panic.
+        // off / empty / unset / unknown -> no opinion (None), never a panic.
         assert_eq!(ReasoningEffort::from_config(Some("off")), None);
         assert_eq!(ReasoningEffort::from_config(Some("")), None);
         assert_eq!(ReasoningEffort::from_config(None), None);
@@ -392,7 +392,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     /// A test double that replays a canned event list. It implements ONLY
-    /// `chat_stream` — proving an adapter (or a test double) gets `chat()` for
+    /// `chat_stream` -- proving an adapter (or a test double) gets `chat()` for
     /// free from the default fold, with no per-backend boilerplate.
     struct CannedProvider(Vec<StreamEvent>);
 

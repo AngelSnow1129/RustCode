@@ -12,7 +12,7 @@ use rustcode_kernel::stream::{ProviderError, StreamEvent};
 use rustcode_kernel::tool::ToolDef;
 use std::sync::{Arc, Mutex};
 
-/// Fails the FIRST open with a context-overflow error, then succeeds — regardless of size.
+/// Fails the FIRST open with a context-overflow error, then succeeds -- regardless of size.
 struct OverflowOnce {
     failed: Mutex<bool>,
     calls: Arc<Mutex<usize>>,
@@ -62,7 +62,7 @@ async fn coding_agent_recovers_from_overflow() {
         .await;
     assert!(
         *calls.lock().unwrap() >= 2,
-        "overflow → compact → retry (calls: {})",
+        "overflow -> compact -> retry (calls: {})",
         *calls.lock().unwrap()
     );
     assert_eq!(outcome.error, None, "recovered: {:?}", outcome.error);

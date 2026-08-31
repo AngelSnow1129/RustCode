@@ -51,7 +51,7 @@ pub enum PluginJobEvent {
         msg: String,
     },
     /// Git is not installed or not on PATH. This is a pre-check failure,
-    /// not an operational error — the renderer should show a friendly hint
+    /// not an operational error -- the renderer should show a friendly hint
     /// (not an error) to guide the user to install git.
     GitNotFound,
 }

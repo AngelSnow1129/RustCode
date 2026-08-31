@@ -1,9 +1,9 @@
 //! Cross-file code graph: symbol nodes + call edges, with BFS traversal. Ported from
 //! production `graph/mod.rs` (the model + traversal the 5 graph tools need; persistence,
-//! incremental remove_file, and the summary helpers are omitted — not used here).
+//! incremental remove_file, and the summary helpers are omitted -- not used here).
 //!
 //! EDGE CONVENTION (load-bearing, from production): `edges_out[from]` holds `Edge{to:
-//! callee}` (forward); `edges_in[to]` holds `Edge{to: from}` — i.e. in the reverse map
+//! callee}` (forward); `edges_in[to]` holds `Edge{to: from}` -- i.e. in the reverse map
 //! the `to` field stores the SOURCE (caller). Do not "fix" this.
 
 use serde::{Deserialize, Serialize};
@@ -74,7 +74,7 @@ pub struct CodeGraph {
     pub edges_in: HashMap<SymbolId, Vec<Edge>>,
     pub file_symbols: HashMap<PathBuf, Vec<SymbolId>>,
     pub file_mtimes: HashMap<PathBuf, u64>,
-    /// name → symbol ids. Derivable from `nodes`; `#[serde(skip)]` keeps it out of any
+    /// name -> symbol ids. Derivable from `nodes`; `#[serde(skip)]` keeps it out of any
     /// serialized form, so `rebuild_name_index` must be called after a deserialize.
     /// Lets `find_by_name` be O(candidates) instead of an O(nodes) scan.
     #[serde(skip)]
@@ -86,7 +86,7 @@ impl CodeGraph {
         Self::default()
     }
 
-    /// Deterministic id from (file, name, start_line) — stable across runs.
+    /// Deterministic id from (file, name, start_line) -- stable across runs.
     pub fn make_id(file: &Path, name: &str, start_line: usize) -> SymbolId {
         let mut h = DefaultHasher::new();
         file.hash(&mut h);
@@ -184,7 +184,7 @@ impl CodeGraph {
         result
     }
 
-    /// Shortest forward call path `from → … → to` (BFS, ≤10 hops). Includes both ends.
+    /// Shortest forward call path `from -> ... -> to` (BFS, ≤10 hops). Includes both ends.
     pub fn shortest_path(&self, from: SymbolId, to: SymbolId) -> Option<Vec<SymbolId>> {
         if from == to {
             return Some(vec![from]);
@@ -260,7 +260,7 @@ mod tests {
         }
     }
 
-    // a → b → c
+    // a -> b -> c
     fn chain() -> CodeGraph {
         let mut g = CodeGraph::new();
         g.add_symbol(node(1, "a", "a.rs"));
@@ -348,7 +348,7 @@ mod tests {
         g.by_name.clear();
         assert!(
             g.find_by_name("dup").is_empty(),
-            "empty index → lookup misses"
+            "empty index -> lookup misses"
         );
         g.rebuild_name_index();
         assert_eq!(g.find_by_name("dup").len(), 2, "rebuild restores the index");

@@ -1,6 +1,6 @@
 // crates/rustcode-tuix/src/modals/password.rs
 //
-// A masked password prompt modal. The user sees bullets (•) instead of the
+// A masked password prompt modal. The user sees bullets (*) instead of the
 // characters they type; the actual password lives in a `Zeroizing<String>`
 // and is sent over a `tokio::sync::oneshot` on Enter.  Esc sends `None`.
 //
@@ -104,7 +104,7 @@ impl PasswordModal {
     // ── Pure render ──────────────────────────────────────────────────────────
 
     pub(crate) fn masked_line(&self) -> String {
-        format!("{} {}", self.prompt, "•".repeat(self.pw.chars().count()))
+        format!("{} {}", self.prompt, "*".repeat(self.pw.chars().count()))
     }
 
     fn masked_cursor_byte(&self) -> usize {
@@ -144,7 +144,7 @@ impl PasswordModal {
 
 impl Modal for PasswordModal {
     /// The password modal installs mid-turn (phase == Streaming), so it must
-    /// capture every key/paste regardless of phase — otherwise typed chars leak
+    /// capture every key/paste regardless of phase -- otherwise typed chars leak
     /// into the type-ahead buffer and Esc/Ctrl+C cancel the turn.
     fn captures_all_keys(&self) -> bool {
         true
@@ -253,12 +253,12 @@ mod tests {
         m.feed_for_test(KeyCode::Left, KeyModifiers::NONE);
         m.feed_for_test(KeyCode::Backspace, KeyModifiers::NONE);
         assert_eq!(&*m.pw, "ab");
-        assert_eq!(m.masked_line(), "p ••");
-        assert_eq!(m.masked_cursor_byte(), "p •".len());
+        assert_eq!(m.masked_line(), "p **");
+        assert_eq!(m.masked_cursor_byte(), "p *".len());
     }
 
     // Ctrl+C must be an escape hatch: dismiss the prompt (like Esc) rather than be
-    // swallowed as a no-op — otherwise an orphaned password modal can't be cleared.
+    // swallowed as a no-op -- otherwise an orphaned password modal can't be cleared.
     #[test]
     fn ctrl_c_cancels_with_none() {
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -288,7 +288,7 @@ mod tests {
         m.feed_for_test(KeyCode::Char('s'), KeyModifiers::NONE);
         m.feed_for_test(KeyCode::Char('s'), KeyModifiers::NONE);
         let rendered = m.render_line_for_test();
-        assert!(rendered.contains("••"), "masked: {rendered}");
+        assert!(rendered.contains("**"), "masked: {rendered}");
         assert!(!rendered.contains("ss"), "must not leak chars: {rendered}");
     }
 }

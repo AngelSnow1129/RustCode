@@ -1,5 +1,5 @@
 //! Scan a project directory and produce ProjectSignals. Pure filesystem
-//! introspection — no external commands (no git/npm/cargo CLI), no LLM.
+//! introspection -- no external commands (no git/npm/cargo CLI), no LLM.
 
 use crate::setup::state::compute_signals_hash;
 use crate::setup::types::*;
@@ -74,7 +74,7 @@ fn collect_markers(root: &Path) -> Vec<Marker> {
             kind: MarkerKind::PrismaDir,
         });
     }
-    // k8s heuristic — top-level k8s/ or helm/ dir.
+    // k8s heuristic -- top-level k8s/ or helm/ dir.
     if root.join("k8s").is_dir() || root.join("helm").is_dir() {
         let path = if root.join("k8s").is_dir() {
             root.join("k8s")

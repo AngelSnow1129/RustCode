@@ -13,12 +13,12 @@ abstract class EditorSelectionCommandAction(
     override fun update(e: AnActionEvent) {
         val editor = e.getData(CommonDataKeys.EDITOR)
         val project = e.getData(CommonDataKeys.PROJECT)
-        e.presentation.isEnabled = project != null && EditorAtomCodeActions.canSendSelectedText(editor)
+        e.presentation.isEnabled = project != null && EditorRustCodeActions.canSendSelectedText(editor)
     }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.getData(CommonDataKeys.PROJECT) ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
-        EditorAtomCodeActions.sendSelectionCommand(project, editor, instruction)
+        EditorRustCodeActions.sendSelectionCommand(project, editor, instruction)
     }
 }

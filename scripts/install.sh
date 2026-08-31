@@ -5,7 +5,7 @@
 #
 # Env overrides:
 #   RUSTCODE_VERSION   release tag to install (default: latest release, auto-detected
-#                        from the AtomGit API)
+#                        from the GitCode API)
 #   RUSTCODE_PREFIX    install dir (absolute path; default: /usr/local/bin if writable,
 #                        else ~/.local/bin). On HarmonyOS as non-root, default is ~/.local/bin.
 # IMPORTANT: when changing install paths, the PATH-rc edit format, or filenames here,

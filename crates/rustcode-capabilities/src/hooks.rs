@@ -1,4 +1,4 @@
-//! Reusable [`LifecycleHooks`] implementations (L1) — provider-agnostic.
+//! Reusable [`LifecycleHooks`] implementations (L1) -- provider-agnostic.
 
 use async_trait::async_trait;
 use rustcode_kernel::hook::{LifecycleHooks, TurnCtx};
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 /// A provider-**agnostic** wire logger. It rides the kernel's hook seam, so a single
-/// instance logs the request/response for ANY provider or agent — not one adapter:
+/// instance logs the request/response for ANY provider or agent -- not one adapter:
 ///   - `on_request` (the kernel-documented home for telemetry / datalog / cache-RCA)
 ///     dumps the FINAL outgoing request: post-projection `messages`, the frozen
 ///     `tools` block, the sideband `options`, and round/epoch.
@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 ///     reasoning + kernel `meta`).
 ///
 /// It logs the NEUTRAL kernel view (`Message`/`ToolDef`/`ChatOptions`), which is also
-/// exactly what the prefix cache keys on — the right level for "what did we send / get"
+/// exactly what the prefix cache keys on -- the right level for "what did we send / get"
 /// and cache diagnosis. For a specific backend's BYTE-EXACT framing (raw SSE / vendor
 /// JSON), an adapter-level dump is the separate, provider-specific tool.
 ///
@@ -41,7 +41,7 @@ impl WireLogHooks {
         }
     }
 
-    /// Log via a custom sink (file writer / tracing bridge / test buffer / …).
+    /// Log via a custom sink (file writer / tracing bridge / test buffer / ...).
     pub fn with_sink(sink: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
         Self { sink, pretty: true }
     }
@@ -54,7 +54,7 @@ impl WireLogHooks {
 
     /// Append log entries to a FILE (created if missing, opened in append mode). Each
     /// request/response entry is written as a block followed by a blank line. This is
-    /// just `with_sink` wired to a file handle — the injectable-sink design means a new
+    /// just `with_sink` wired to a file handle -- the injectable-sink design means a new
     /// destination costs a few lines, no change to the hook itself.
     pub fn to_file(path: impl Into<PathBuf>) -> std::io::Result<Self> {
         let file = OpenOptions::new()
@@ -103,7 +103,7 @@ impl LifecycleHooks for WireLogHooks {
         });
         self.emit(
             &format!(
-                ">>> [wire] request — session={:?} turn={} round={} req={}",
+                ">>> [wire] request -- session={:?} turn={} round={} req={}",
                 ctx.session_id, ctx.turn_id, ctx.round, ctx.request_id
             ),
             &req,
@@ -115,7 +115,7 @@ impl LifecycleHooks for WireLogHooks {
         self.emit("<<< [wire] response", &resp);
     }
 
-    /// Errors (failed open / mid-stream provider error / tool error) — carries the
+    /// Errors (failed open / mid-stream provider error / tool error) -- carries the
     /// provider's error code + reason as formatted by the adapter. Logged so failures
     /// are diagnosable alongside the request/response trail.
     async fn on_error(&self, error: &str) {

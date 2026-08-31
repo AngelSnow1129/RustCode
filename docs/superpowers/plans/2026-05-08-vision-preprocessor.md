@@ -4,7 +4,7 @@
 
 **Goal:** When the active LLM provider does not accept images and the user pastes an image, route the image through a configurable vision-language model first, splice its description into the user message, and forward as plain text to the main provider.
 
-**Architecture:** New module `atomcode-core::vision_preprocessor` with one async entry point `maybe_preprocess`. One call site in `agent::handle_send_message`. One new optional `Config` field. Failure surfaced via existing `AgentEvent::Warning`. No changes to `LlmProvider` trait, `Conversation`, `coding_plan/setup.rs`, or `MessageContent`.
+**Architecture:** New module `rustcode-core::vision_preprocessor` with one async entry point `maybe_preprocess`. One call site in `agent::handle_send_message`. One new optional `Config` field. Failure surfaced via existing `AgentEvent::Warning`. No changes to `LlmProvider` trait, `Conversation`, `coding_plan/setup.rs`, or `MessageContent`.
 
 **Tech Stack:** Rust, `tokio`, `async-trait`, `wiremock` (test-only), existing `OpenAiProvider` for VL calls.
 
@@ -26,10 +26,10 @@ Full design at `docs/superpowers/specs/2026-05-08-vision-preprocessor-design.md`
 
 | File | Action | Responsibility |
 |---|---|---|
-| `crates/atomcode-core/src/vision_preprocessor.rs` | **Create** | `PreprocessOutcome` enum + `maybe_preprocess` async function + unit tests |
-| `crates/atomcode-core/src/lib.rs` | **Modify** | Add `pub mod vision_preprocessor;` |
-| `crates/atomcode-core/src/config/mod.rs` | **Modify** | Add `vision_preprocessor_provider: Option<String>` field to `Config` |
-| `crates/atomcode-core/src/agent/mod.rs` | **Modify** | Call `maybe_preprocess` in `handle_send_message` before the existing `if images.is_empty()` branch |
+| `crates/rustcode-core/src/vision_preprocessor.rs` | **Create** | `PreprocessOutcome` enum + `maybe_preprocess` async function + unit tests |
+| `crates/rustcode-core/src/lib.rs` | **Modify** | Add `pub mod vision_preprocessor;` |
+| `crates/rustcode-core/src/config/mod.rs` | **Modify** | Add `vision_preprocessor_provider: Option<String>` field to `Config` |
+| `crates/rustcode-core/src/agent/mod.rs` | **Modify** | Call `maybe_preprocess` in `handle_send_message` before the existing `if images.is_empty()` branch |
 
 No TUIX changes. No new `AgentEvent` variants. No changes to provider trait or factory.
 
@@ -38,12 +38,12 @@ No TUIX changes. No new `AgentEvent` variants. No changes to provider trait or f
 ## Task 1: Add `vision_preprocessor_provider` field to `Config`
 
 **Files:**
-- Modify: `crates/atomcode-core/src/config/mod.rs:82-125` (the `Config` struct)
-- Test: `crates/atomcode-core/src/config/mod.rs` (in existing `#[cfg(test)] mod tests` block, or add one if absent)
+- Modify: `crates/rustcode-core/src/config/mod.rs:82-125` (the `Config` struct)
+- Test: `crates/rustcode-core/src/config/mod.rs` (in existing `#[cfg(test)] mod tests` block, or add one if absent)
 
 - [ ] **Step 1: Locate the existing `Config` test module**
 
-Run: `grep -n "#\[cfg(test)\]\|fn parse_minimal\|mod tests" crates/atomcode-core/src/config/mod.rs | head -20`
+Run: `grep -n "#\[cfg(test)\]\|fn parse_minimal\|mod tests" crates/rustcode-core/src/config/mod.rs | head -20`
 
 Identify whether `mod.rs` already has a test module. If yes, add the new test there. If no, the `provider.rs` next door has one; mirror its style with a new `#[cfg(test)] mod tests { use super::*; ... }` block at file end.
 
@@ -72,7 +72,7 @@ fn vision_preprocessor_provider_defaults_to_none() {
 fn vision_preprocessor_provider_round_trips_through_toml() {
     let toml_str = r#"
         default_provider = "claude"
-        vision_preprocessor_provider = "AtomGit-Qwen-Qwen3-VL-32B-Instruct"
+        vision_preprocessor_provider = "RustCode-Qwen-Qwen3-VL-32B-Instruct"
         [providers.claude]
         type = "claude"
         model = "claude-sonnet-4-5"
@@ -81,20 +81,20 @@ fn vision_preprocessor_provider_round_trips_through_toml() {
     let cfg: Config = toml::from_str(toml_str).expect("parse");
     assert_eq!(
         cfg.vision_preprocessor_provider.as_deref(),
-        Some("AtomGit-Qwen-Qwen3-VL-32B-Instruct"),
+        Some("RustCode-Qwen-Qwen3-VL-32B-Instruct"),
     );
 }
 ```
 
 - [ ] **Step 3: Run tests to verify failure**
 
-Run: `cargo test -p atomcode-core --lib config::mod -- vision_preprocessor`
+Run: `cargo test -p rustcode-core --lib config::mod -- vision_preprocessor`
 
 Expected: compile error — `Config` has no field `vision_preprocessor_provider`.
 
 - [ ] **Step 4: Add the field to `Config`**
 
-Edit `crates/atomcode-core/src/config/mod.rs`. Inside `pub struct Config { ... }` (around line 82–125), append before the closing brace:
+Edit `crates/rustcode-core/src/config/mod.rs`. Inside `pub struct Config { ... }` (around line 82–125), append before the closing brace:
 
 ```rust
     /// Provider key (matches a key in `Config.providers`) of a vision-language
@@ -103,14 +103,14 @@ Edit `crates/atomcode-core/src/config/mod.rs`. Inside `pub struct Config { ... }
     /// images either go directly to a vision-capable main provider, or get
     /// degraded to `"[image attached]"` placeholder by the existing path.
     ///
-    /// Example value: `"AtomGit-Qwen-Qwen3-VL-32B-Instruct"`.
+    /// Example value: `"RustCode-Qwen-Qwen3-VL-32B-Instruct"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vision_preprocessor_provider: Option<String>,
 ```
 
 - [ ] **Step 5: Update any `Config { ... }` literals in tests / blank constructors**
 
-Run: `grep -rn "Config {$\|Config {[^}]" crates/atomcode-core/ | grep -v target | grep -v 'Config::' | head -20`
+Run: `grep -rn "Config {$\|Config {[^}]" crates/rustcode-core/ | grep -v target | grep -v 'Config::' | head -20`
 
 For every blank `Config { ... }` literal that constructs the whole struct without `..Default::default()`, add `vision_preprocessor_provider: None,`. Known locations from `coding_plan/setup.rs::tests::blank_config()` (line ~575). Update each one accordingly.
 
@@ -118,14 +118,14 @@ If there's no `Default` impl on `Config`, this is the entire blast radius. If th
 
 - [ ] **Step 6: Run tests to verify pass**
 
-Run: `cargo test -p atomcode-core --lib`
+Run: `cargo test -p rustcode-core --lib`
 
 Expected: ALL tests pass (the two new tests + every previous one). If any fail with a missing-field error, revisit step 5.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/atomcode-core/src/config/mod.rs crates/atomcode-core/src/coding_plan/setup.rs
+git add crates/rustcode-core/src/config/mod.rs crates/rustcode-core/src/coding_plan/setup.rs
 git commit -m "feat(config): add vision_preprocessor_provider field
 
 Optional top-level Config knob naming a provider key used to OCR images
@@ -142,12 +142,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 This task lays down the public API and three of the four short-circuit branches (no images / vision-capable main provider / config not set). The fourth branch (provider key not in config) and the actual VL call come in later tasks.
 
 **Files:**
-- Create: `crates/atomcode-core/src/vision_preprocessor.rs`
-- Modify: `crates/atomcode-core/src/lib.rs:1-30` (add `pub mod vision_preprocessor;`)
+- Create: `crates/rustcode-core/src/vision_preprocessor.rs`
+- Modify: `crates/rustcode-core/src/lib.rs:1-30` (add `pub mod vision_preprocessor;`)
 
 - [ ] **Step 1: Add module declaration**
 
-Edit `crates/atomcode-core/src/lib.rs`. Add `pub mod vision_preprocessor;` in alphabetical position (after `pub mod turn;` line 27, before `pub mod uninstall;` line 28). The result around line 27:
+Edit `crates/rustcode-core/src/lib.rs`. Add `pub mod vision_preprocessor;` in alphabetical position (after `pub mod turn;` line 27, before `pub mod uninstall;` line 28). The result around line 27:
 
 ```rust
 pub mod turn;
@@ -160,7 +160,7 @@ pub mod vision_preprocessor;
 
 - [ ] **Step 2: Create module file with public surface + short-circuits + skipped tests**
 
-Create `crates/atomcode-core/src/vision_preprocessor.rs`:
+Create `crates/rustcode-core/src/vision_preprocessor.rs`:
 
 ```rust
 //! VL-model image preprocessor.
@@ -386,14 +386,14 @@ mod tests {
 
 - [ ] **Step 3: Run tests**
 
-Run: `cargo test -p atomcode-core --lib vision_preprocessor`
+Run: `cargo test -p rustcode-core --lib vision_preprocessor`
 
 Expected: 6 tests pass (`skipped_when_no_images`, `skipped_when_main_provider_accepts_images`, `skipped_when_config_field_unset`, `skipped_when_config_field_empty_string`, `failed_when_configured_key_missing_from_providers`, `key_present_currently_hits_unimplemented_placeholder`).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/atomcode-core/src/vision_preprocessor.rs crates/atomcode-core/src/lib.rs
+git add crates/rustcode-core/src/vision_preprocessor.rs crates/rustcode-core/src/lib.rs
 git commit -m "feat(vision_preprocessor): module skeleton with short-circuit logic
 
 Public API: PreprocessOutcome enum + maybe_preprocess async fn. Implements
@@ -409,17 +409,17 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 3: Implement the VL HTTP call (happy path)
 
 **Files:**
-- Modify: `crates/atomcode-core/src/vision_preprocessor.rs`
+- Modify: `crates/rustcode-core/src/vision_preprocessor.rs`
 
 - [ ] **Step 1: Add wiremock dependency check**
 
-Run: `grep -n "wiremock" crates/atomcode-core/Cargo.toml`
+Run: `grep -n "wiremock" crates/rustcode-core/Cargo.toml`
 
 Expected: existing `wiremock = "0.6"` line under `[dev-dependencies]`. If missing, add it. If wiremock is already a normal dep (it is, per the grep at design time), skip.
 
 - [ ] **Step 2: Replace the placeholder with real VL invocation**
 
-In `crates/atomcode-core/src/vision_preprocessor.rs`, replace the placeholder block. Find:
+In `crates/rustcode-core/src/vision_preprocessor.rs`, replace the placeholder block. Find:
 
 ```rust
     if !config.providers.contains_key(vl_key) {
@@ -616,14 +616,14 @@ In the same file's `#[cfg(test)] mod tests`, add:
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test -p atomcode-core --lib vision_preprocessor`
+Run: `cargo test -p rustcode-core --lib vision_preprocessor`
 
 Expected: 6 tests pass (5 from Task 2 minus the deleted trip-wire test, plus the new `replaced_when_vl_returns_text`).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-core/src/vision_preprocessor.rs
+git add crates/rustcode-core/src/vision_preprocessor.rs
 git commit -m "feat(vision_preprocessor): implement VL HTTP call + happy-path test
 
 Reuses existing OpenAiProvider via create_provider(). VL conversation is a
@@ -639,7 +639,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 4: Failure tests — HTTP error, timeout, empty response, caption variants
 
 **Files:**
-- Modify: `crates/atomcode-core/src/vision_preprocessor.rs` (test module only)
+- Modify: `crates/rustcode-core/src/vision_preprocessor.rs` (test module only)
 
 - [ ] **Step 1: Add HTTP-error test**
 
@@ -794,14 +794,14 @@ This test verifies the prompt sent to VL contains the user's caption, by capturi
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test -p atomcode-core --lib vision_preprocessor`
+Run: `cargo test -p rustcode-core --lib vision_preprocessor`
 
 Expected: 9 tests pass total (5 short-circuit + 1 happy + 4 failure-mode/caption variants).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-core/src/vision_preprocessor.rs
+git add crates/rustcode-core/src/vision_preprocessor.rs
 git commit -m "test(vision_preprocessor): HTTP error, empty response, caption variants
 
 Adds wiremock-based tests covering: 500 → Failed, empty SSE token →
@@ -816,17 +816,17 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 5: Wire `maybe_preprocess` into `Agent::handle_send_message`
 
 **Files:**
-- Modify: `crates/atomcode-core/src/agent/mod.rs` (around line 1266, the existing `if images.is_empty()` site)
+- Modify: `crates/rustcode-core/src/agent/mod.rs` (around line 1266, the existing `if images.is_empty()` site)
 
 - [ ] **Step 1: Locate the call site**
 
-Run: `grep -n "if images.is_empty()" crates/atomcode-core/src/agent/mod.rs`
+Run: `grep -n "if images.is_empty()" crates/rustcode-core/src/agent/mod.rs`
 
 Confirm the line is in `handle_send_message` (around line 1266 per current code).
 
 - [ ] **Step 2: Insert the preprocessing call before that branch**
 
-In `crates/atomcode-core/src/agent/mod.rs`, at the existing site that currently reads:
+In `crates/rustcode-core/src/agent/mod.rs`, at the existing site that currently reads:
 
 ```rust
         if images.is_empty() {
@@ -905,7 +905,7 @@ Replace with:
 
 - [ ] **Step 3: Build to confirm it compiles**
 
-Run: `cargo build -p atomcode-core`
+Run: `cargo build -p rustcode-core`
 
 Expected: success. If borrow-checker complains about `&self.config` while `self.event_tx.send` is called inside the same scope, refactor by storing the warning string in a local and emitting after the match: 
 
@@ -928,14 +928,14 @@ if let Some(w) = warning {
 
 - [ ] **Step 4: Run the existing agent tests to make sure nothing regressed**
 
-Run: `cargo test -p atomcode-core --lib agent`
+Run: `cargo test -p rustcode-core --lib agent`
 
 Expected: all existing tests pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-core/src/agent/mod.rs
+git add crates/rustcode-core/src/agent/mod.rs
 git commit -m "feat(agent): route images through vision_preprocessor before send
 
 In handle_send_message, when the user submitted images, call
@@ -991,10 +991,10 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 (Not a checklist task — runs once after the plan is fully merged. The PR description's Test Plan must include these steps.)
 
-1. `cargo run -p atomcode-cli --release` to enter TUI.
+1. `cargo run -p rustcode-cli --release` to enter TUI.
 2. `/codingplan` to install AtomGit providers.
-3. Manually add a `[providers."AtomGit-Qwen-Qwen3-VL-32B-Instruct"]` block in `~/.atomcode/config.toml` pointing at the AtomGit gateway with model `Qwen/Qwen3-VL-32B-Instruct`. (Or rename to a non-`AtomGit-` prefix to survive `/codingplan` re-runs — e.g. `vl-qwen3vl`.)
-4. Add a top-level `vision_preprocessor_provider = "AtomGit-Qwen-Qwen3-VL-32B-Instruct"` (or whatever key you used).
+3. Manually add a `[providers."RustCode-Qwen-Qwen3-VL-32B-Instruct"]` block in `~/.rustcode/config.toml` pointing at the AtomGit gateway with model `Qwen/Qwen3-VL-32B-Instruct`. (Or rename to a non-`AtomGit-` prefix to survive `/codingplan` re-runs — e.g. `vl-qwen3vl`.)
+4. Add a top-level `vision_preprocessor_provider = "RustCode-Qwen-Qwen3-VL-32B-Instruct"` (or whatever key you used).
 5. `/model AtomGit-DeepSeek-V4-flash` (or any non-vision provider).
 6. Ctrl+V paste a code-screenshot, append caption "解释这段代码", press Enter.
 7. **Expected:** scrollback shows the user message containing both `解释这段代码` and a `[图片内容（由 VL 模型识别）]\n...` block; `/datalog tail` shows the request to DeepSeek is plain text only (no `image_url` block); main model replies coherently about the code.

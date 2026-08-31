@@ -1,7 +1,7 @@
 // crates/rustcode-core/tests/plugin_integration.rs
 //
 // End-to-end smoke test for the plugin marketplace pipeline:
-// add_marketplace → install → SkillRegistry::reload + CustomCommandRegistry::load.
+// add_marketplace -> install -> SkillRegistry::reload + CustomCommandRegistry::load.
 // Verifies that newly-installed plugin assets are visible to the in-process
 // registries that the TUI consults on `/plugin` reload.
 //
@@ -82,7 +82,7 @@ fn add_install_reload_flow() {
     .unwrap();
 
     // Verify SkillRegistry sees `e2e:sk`. Load standard dirs then installed-plugin
-    // skill dirs — the two layers the retired `core::skill::reload` combined.
+    // skill dirs -- the two layers the retired `core::skill::reload` combined.
     let working = tempfile::tempdir().unwrap();
     let mut reg = rustcode_capabilities::skills::SkillRegistry::new();
     rustcode_capabilities::plugin::loader::reload_skill_registry(&mut reg, working.path());

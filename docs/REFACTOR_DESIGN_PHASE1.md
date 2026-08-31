@@ -50,9 +50,9 @@ rustcode/                              (workspace root, resolver = "2")
 
 | Metric | Value |
 |--------|-------|
-| `atomcode` string occurrences in `crates/**/*.rs` | **6735** |
-| `atomcode_telemetry` references | **108** across **24 files** in **9 crates** |
-| Distinct `ATOMCODE_*` env vars | **125** |
+| `rustcode` string occurrences in `crates/**/*.rs` | **6735** |
+| `rustcode_telemetry` references | **108** across **24 files** in **9 crates** |
+| Distinct `RUSTCODE_*` env vars | **125** |
 | `LlmProvider` impls (production) | 3 adapters + 1 telemetry decorator; ~40 test doubles |
 | Existing provider mock integration tests | `capabilities/tests/{anthropic_mock,ollama_mock,http_mock,e2e}.rs` |
 
@@ -61,7 +61,7 @@ rustcode/                              (workspace root, resolver = "2")
 `CLI/TUI/daemon/headless/background/ACP/clix -> CodingRuntime -> kernel Agent`.
 `CodingRuntime` is the single owner of live agent, provider, session binding, generation,
 pending request, snapshot broker, controllers. Per `AGENTS.md`, drivers must not build a
-second live-agent lifecycle owner, and `atomcode-core`/`atomcode-bridge` must not reappear.
+second live-agent lifecycle owner, and `rustcode-core`/`rustcode-bridge` must not reappear.
 The rename and the telemetry strip are mechanical; the LLM refactor touches a lifecycle seam
 (provider construction inside `CodingRuntime` assembly), so AGENT-C must respect the
 single-owner and fail-closed rules in `AGENTS.md`.
@@ -92,20 +92,20 @@ mapping-table change if overruled (see §2.7).
 
 | Old | New | Note |
 |-----|-----|------|
-| `atomcode-auth` | `rustcode-auth` | |
-| `atomcode-capabilities` | `rustcode-capabilities` | |
-| `atomcode-cli` | `rustcode-cli` | `[package] name` + `[[bin]] name` + `[lib] name` |
-| `atomcode-clix` | `rustcode-clix` | |
-| `atomcode-coding` | `rustcode-coding` | |
-| `atomcode-codingplan` | `rustcode-codingplan` | |
-| `atomcode-codingplan-crypto` | `rustcode-codingplan-crypto` | not in `default-members`; feature `rustcode/codingplan-crypto` |
-| `atomcode-config` | `rustcode-config` | |
+| `rustcode-auth` | `rustcode-auth` | |
+| `rustcode-capabilities` | `rustcode-capabilities` | |
+| `rustcode-cli` | `rustcode-cli` | `[package] name` + `[[bin]] name` + `[lib] name` |
+| `rustcode-clix` | `rustcode-clix` | |
+| `rustcode-coding` | `rustcode-coding` | |
+| `rustcode-codingplan` | `rustcode-codingplan` | |
+| `rustcode-codingplan-crypto` | `rustcode-codingplan-crypto` | not in `default-members`; feature `rustcode/codingplan-crypto` |
+| `rustcode-config` | `rustcode-config` | |
 | `rustcode-daemon` | `rustcode-daemon` | |
-| `atomcode-kernel` | `rustcode-kernel` | |
-| `atomcode-review` | `rustcode-review` | |
-| `atomcode-telemetry` | **[DELETED]** | OBJECTIVE-2 |
-| `atomcode-tuix` | `rustcode-tuix` | |
-| `atomcode-updater` | `rustcode-updater` | |
+| `rustcode-kernel` | `rustcode-kernel` | |
+| `rustcode-review` | `rustcode-review` | |
+| `rustcode-telemetry` | **[DELETED]** | OBJECTIVE-2 |
+| `rustcode-tuix` | `rustcode-tuix` | |
+| `rustcode-updater` | `rustcode-updater` | |
 
 Each rename touches: that crate's `[package] name` / `[lib] name` / `[[bin]] name`, every
 other crate's path dependencies, `Cargo.lock`, root `Cargo.toml` (`default-members`,
@@ -115,9 +115,9 @@ feature wiring), and install/release scripts.
 
 | Old | New | Defined at |
 |-----|-----|-----------|
-| `atomcode` | `rustcode` | `crates/rustcode-cli/Cargo.toml` |
+| `rustcode` | `rustcode` | `crates/rustcode-cli/Cargo.toml` |
 | `rustcode-daemon` | `rustcode-daemon` | `crates/rustcode-daemon/Cargo.toml` |
-| `atomcodex` | `rustcodex` | `crates/rustcode-clix/Cargo.toml` |
+| `rustcodex` | `rustcodex` | `crates/rustcode-clix/Cargo.toml` |
 | `mcp-test-server` | unchanged | `crates/rustcode-capabilities/Cargo.toml` |
 
 ### 2.3 Directories, files, process names
@@ -128,17 +128,17 @@ Single highest-leverage file: **`crates/rustcode-config/src/distribution.rs`**.
 |----------|-----|-----|
 | `HOME_ENV` | `RUSTCODE_HOME` | `RUSTCODE_HOME` |
 | `HOME_DIR_NAME` | `.rustcode` | `.rustcode` |
-| `PROCESS_NAMES` | `["atomcode","rustcode-daemon"]` | `["rustcode","rustcode-daemon"]` |
-| `WINDOWS_INSTALL_DIR` | `AtomCode` | `RustCode` |
-| `RELEASE_ASSET_PREFIX` | `atomcode` | `rustcode` |
+| `PROCESS_NAMES` | `["rustcode","rustcode-daemon"]` | `["rustcode","rustcode-daemon"]` |
+| `WINDOWS_INSTALL_DIR` | `RustCode` | `RustCode` |
+| `RELEASE_ASSET_PREFIX` | `rustcode` | `rustcode` |
 | `UPDATE_TEMP_PREFIX` | `.rustcode` | `.rustcode` |
 
 Derived, must move together (uninstaller scans what the updater creates):
 `update_download_name()`, `update_rolling_name()`, `update_probe_name()`.
 
-Also in scope: `docker/Dockerfile-*` (user `atomcode`, `/usr/local/bin/rustcode-daemon`,
+Also in scope: `docker/Dockerfile-*` (user `rustcode`, `/usr/local/bin/rustcode-daemon`,
 `ENTRYPOINT`), `docker/build-multiarch.sh` artifact globs, `docker/README.md`,
-`.github/workflows/build.yml` (`dist/atomcode-*`), `scripts/install.sh|ps1`,
+`.github/workflows/build.yml` (`dist/rustcode-*`), `scripts/install.sh|ps1`,
 `scripts/uninstall.sh|ps1`, `scripts/release*.sh`, `latest.json`.
 
 ### 2.4 Environment variables
@@ -151,7 +151,7 @@ Rule: `RUSTCODE_X` -> `RUSTCODE_X` for all 125 names. Exceptions:
 | `RUSTCODE_TELEMETRY_ENDPOINT` | **DELETE** (OBJECTIVE-2) |
 | `RUSTCODE_TEST_EP_{WHOLE,ABSENT,URL,LIST,BOOL}` | rename mechanically (test-local) |
 
-[DECISION D2] **No legacy fallback.** A clean fork does not read `ATOMCODE_*` after the
+[DECISION D2] **No legacy fallback.** A clean fork does not read `RUSTCODE_*` after the
 rename. `RUSTCODE_HOME` unset falls back to `~/.rustcode` only. This is a breaking change for
 existing installs and must be called out in the release notes. (Alternative: dual-read with a
 deprecation warning for one minor version — rejected for a fork, keeps the surface small and
@@ -174,11 +174,11 @@ RUSTCODE_HOME  RUSTCODE_BRAND_NAME  RUSTCODE_OAUTH_PROVIDER_NAME
 
 | Old key | New key | Location |
 |---------|---------|----------|
-| `atomcode.legacy_cold_summary` | `rustcode.legacy_cold_summary` | `kernel/src/message.rs` |
-| `atomcode.user_interruption` | `rustcode.user_interruption` | `kernel/src/message.rs` |
-| `atomcode-rewind-v1` | `rustcode-rewind-v1` | `capabilities/src/session/rewind.rs` |
-| `atomcode-v1:` (ACP cursor) | `rustcode-v1:` | `cli/src/acp/discovery.rs` |
-| `x-atomcode-session-id` (header) | `x-rustcode-session-id` | `openai_compat.rs`, `anthropic.rs`, `ollama.rs` |
+| `rustcode.legacy_cold_summary` | `rustcode.legacy_cold_summary` | `kernel/src/message.rs` |
+| `rustcode.user_interruption` | `rustcode.user_interruption` | `kernel/src/message.rs` |
+| `rustcode-rewind-v1` | `rustcode-rewind-v1` | `capabilities/src/session/rewind.rs` |
+| `rustcode-v1:` (ACP cursor) | `rustcode-v1:` | `cli/src/acp/discovery.rs` |
+| `x-rustcode-session-id` (header) | `x-rustcode-session-id` | `openai_compat.rs`, `anthropic.rs`, `ollama.rs` |
 
 [DECISION D3] Same as D2: **rename with no compatibility read.** Existing `~/.rustcode`
 sessions become unreadable. Documented as breaking; no importer is added (adding one would
@@ -189,15 +189,15 @@ contradict the "reduce importers" rule in `AGENTS.md`).
 | Category | Examples | Action |
 |----------|----------|--------|
 | Default brand | `default_brand_name()`, `ui.brand_name`, `RUSTCODE_BRAND_NAME` | rename default value; keep the override seam |
-| User-Agent fallback | `DEFAULT_USER_AGENT = "atomcode"` (`provider/mod.rs`), `rustcode/<version>` in updater + config | rename |
-| Repository / release URLs | `raw.atomgit.com/atomgit_atomcode/atomcode/...`, `relay-atomcode.atomgit.com`, `atomcode-skills.git` (`config/src/endpoints.rs`) | repoint to the fork repo; **keep** the `atomgit.com` / `gitcode.com` service hosts (separate brand) |
+| User-Agent fallback | `DEFAULT_USER_AGENT = "rustcode"` (`provider/mod.rs`), `rustcode/<version>` in updater + config | rename |
+| Repository / release URLs | `raw.gitcode.com/SecLab/RustCode/...`, `relay-rustcode.atomgit.com`, `rustcode-skills.git` (`config/src/endpoints.rs`) | repoint to the fork repo; **keep** the `atomgit.com` / `gitcode.com` service hosts (separate brand) |
 | OpenRouter attribution | `OPENROUTER_ATTRIBUTION_HEADERS` (`openai_compat.rs`) | see §4.3 G6 |
-| Log prefix `[AtomCode]` | `extensions/vscode`, `extensions/jetbrains` | follow-up patch; out of core rename scope |
+| Log prefix `[RustCode]` | `extensions/vscode`, `extensions/jetbrains` | follow-up patch; out of core rename scope |
 
 ### 2.7 Single-point override
 
 The whole rename is data-driven from one table. If the product name changes, only this
-document's §2 table and the mechanical `s/atomcode/rustcode/` pass change; no architecture
+document's §2 table and the mechanical `s/rustcode/rustcode/` pass change; no architecture
 decision depends on the literal string.
 
 ---
@@ -207,7 +207,7 @@ decision depends on the literal string.
 ### 3.1 What exists (verified)
 
 `crates/rustcode-telemetry/` — 15 files, one crate, default-endpoint
-`https://acs.atomgit.com/api/v1/events` (`telemetry/src/config.rs:6`), on-disk queue under
+`https://gateway.example.com/api/v1/events` (`telemetry/src/config.rs:6`), on-disk queue under
 `$RUSTCODE_HOME`, gzip uploader, UUID identity, repo-origin detection, panic hook, first-run
 notice. There is **no** Sentry / PostHog / Segment / OpenTelemetry / Mixpanel / Amplitude
 dependency anywhere in `Cargo.toml` or `Cargo.lock` ([CHECK] grep over all `*.toml` and
@@ -258,7 +258,7 @@ dependency anywhere in `Cargo.toml` or `Cargo.lock` ([CHECK] grep over all `*.to
    crate removes the type, not just a call.
    [+] Replacement: a local `enum ClientMode { Headless, Tui, Ide, Vscode, Jetbrains, Webui, Desktop, Channel }`
    in `daemon/src/client_mode.rs`, parsed from the same request header. Keep the wire
-   vocabulary byte-identical (`"webui"`, `"atomcode_desktop"` -> rename to `"rustcode_desktop"`
+   vocabulary byte-identical (`"webui"`, `"rustcode_desktop"` -> rename to `"rustcode_desktop"`
    only if the extension clients are patched in the same change; otherwise keep the old
    tag and rename in a follow-up). **Recommendation: keep the tags, rename only the Rust
    type** — avoids a silent protocol break with `extensions/`.
@@ -266,8 +266,8 @@ dependency anywhere in `Cargo.toml` or `Cargo.lock` ([CHECK] grep over all `*.to
 2. **Panic hook.** `install_panic_hook(telemetry)` uploads `Event::Panic`. Replace with a
    telemetry-free hook that prints to stderr and writes a local crash log; no network send.
 
-3. **`atomcode_coding::SessionMode` is a *different* type** (`live_api.rs:441` uses
-   `atomcode_coding::SessionMode::ExternalSnapshot`). Do not conflate the two — 233 total
+3. **`rustcode_coding::SessionMode` is a *different* type** (`live_api.rs:441` uses
+   `rustcode_coding::SessionMode::ExternalSnapshot`). Do not conflate the two — 233 total
    `SessionMode` grep hits cover both plus test usages.
 
 4. **`rustcode-config` is a leaf that currently depends on `rustcode-telemetry`.**
@@ -338,8 +338,8 @@ What is **already good** — do not rebuild it:
 **Correction to the earlier draft:** the claim that the AtomGit request signer is applied to
 every OpenAI-compatible build is **false**. `AtomGitProviderAuthenticator::request_signer`
 returns `Ok(None)` unless `is_atomgit_gateway(base_url)` holds, and
-`is_atomgit_gateway == atomcode_config::endpoints::is_codingplan_llm_gateway`, a host-based
-HTTPS-only check (`llm-api.atomgit.com`, `pre-llm-api-cce.atomgit.com`, `api-ai.gitcode.com`,
+`is_atomgit_gateway == rustcode_config::endpoints::is_codingplan_llm_gateway`, a host-based
+HTTPS-only check (`gateway.example.com`, `pre-llm-api-cce.atomgit.com`, `api-ai.gitcode.com`,
 or the `RUSTCODE_CODINGPLAN_LLM_BASE_URL` origin). A custom `base_url` already gets plain
 `bearer_auth(api_key)`. AGENT-C must **not** "fix" this.
 
@@ -352,7 +352,7 @@ or the `RUSTCODE_CODINGPLAN_LLM_BASE_URL` origin). A custom `base_url` already g
 | **G3** | No per-provider proxy. Only env/process-global proxy exists. | Medium | add `proxy: Option<String>`; `reqwest::Proxy::all()`, bypass env for that client |
 | **G4** | No model mapping table. | Medium | `model_mapping: HashMap<String,String>` resolved once in the factory |
 | **G5** | `provider_type: String` dispatch: `"anthropic-compatible"` currently falls into the OpenAI catch-all (`provider_factory.rs:112-169`). | Medium | explicit `ProviderKind` enum in the config crate; catch-all keeps OpenAI behavior + `tracing::warn!` |
-| **G6** | `OPENROUTER_ATTRIBUTION_HEADERS` hardcodes the upstream identity (`HTTP-Referer: https://gitcode.com/atomgit_atomcode/atomcode`, `X-OpenRouter-Title: AtomCode`). | Medium | drop by default; keep `is_openrouter_url` gating; make the values config-driven and opt-in |
+| **G6** | `OPENROUTER_ATTRIBUTION_HEADERS` hardcodes the upstream identity (`HTTP-Referer: https://gitcode.com/atomgit_rustcode/rustcode`, `X-OpenRouter-Title: RustCode`). | Medium | drop by default; keep `is_openrouter_url` gating; make the values config-driven and opt-in |
 | **G7** | No unified error mapper. Each adapter builds `ProviderError { retryable, message, http_status, code, retry_after_secs }` ad hoc; `friendly_http_error()` is shared but partial. | Medium | `LlmError` (`thiserror`) + bidirectional `From` conversions at the kernel boundary (§4.5) |
 | **G8** | Anthropic config lacks `extra_headers`/`proxy` parity with the OpenAI config. | Low | unify on one transport struct |
 
@@ -675,7 +675,7 @@ scan enforces this.
 ### 5.1 State
 
 Root `LICENSE` is MIT, `Copyright (c) 2026 Yubang Xu`. Upstream origin
-`https://atomgit.com/atomgit_atomcode/atomcode`; fork source
+`https://gitcode.com/SecLab/RustCode`; fork source
 `https://gitcode.com/SecLab/RustCode`.
 
 Three documents already exist in the working tree (untracked, produced by an earlier pass):
@@ -693,7 +693,7 @@ are described without claiming to relicense anything.
 [+] docs/THIRD_PARTY_NOTICES.md   — upstream attribution + pointer to `cargo license`. KEEP.
 [+] docs/UPSTREAM_CREDITS.md      — fork statement + change summary. KEEP (update after PHASE-2).
 [+] New modules authored by the fork carry a short header:
-        // Copyright (c) 2026 The rustcode authors. MIT. Derived from atomcode (MIT,
+        // Copyright (c) 2026 The rustcode authors. MIT. Derived from rustcode (MIT,
         // Copyright (c) 2026 Yubang Xu) — see docs/UPSTREAM_CREDITS.md.
 [-] Do NOT strip notices from inherited files.
 [-] Do NOT add a license-incompatible dependency.
@@ -775,11 +775,11 @@ cargo clippy --workspace --all-targets -- -W clippy::await_holding_lock
 cargo test --workspace
 
 # [CHECK] 4 — rename residue (expect: only intentional upstream-URL/atomgit-service hits)
-grep -rn "atomcode" --include=*.rs --include=*.toml crates/ | grep -v "atomgit\|gitcode" || true
+grep -rn "rustcode" --include=*.rs --include=*.toml crates/ | grep -v "atomgit\|gitcode" || true
 
 # [CHECK] 5 — telemetry residue (expect: EMPTY)
 grep -rni "telemetry\|analytics\|posthog\|sentry\|segment" --include=*.rs --include=*.toml crates/
-grep -n "atomcode-telemetry\|rustcode-telemetry" Cargo.lock || true
+grep -n "rustcode-telemetry\|rustcode-telemetry" Cargo.lock || true
 
 # [CHECK] 6 — C1: no emoji in rust sources
 grep -rnP "[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]" --include=*.rs crates/ || true
@@ -833,12 +833,12 @@ cargo run -p rustcode-cli -- --model <model> -p "reply with the single word: ok"
 | ID | Item | Kind |
 |----|------|------|
 | D1 | Product name `rustcode` — confirm or override | **Decision** |
-| D2 | No legacy `ATOMCODE_*` / `~/.rustcode` fallback (breaking) | **Decision** |
+| D2 | No legacy `RUSTCODE_*` / `~/.rustcode` fallback (breaking) | **Decision** |
 | D3 | Wire-key rename with no compatibility read (existing sessions unreadable) | **Decision** |
 | D4 | A stale `[telemetry]` config section must still load | **Decision** |
 | D5 | AtomGit signer retained but host-gated; not removed | Decision |
 | D6 | No bundled hosted `base_url`; missing `base_url` fails closed | Decision |
-| D7 | `extensions/` (vscode, jetbrains) reference `[AtomCode]` logs and binary names — out of core scope, follow-up patch | Open |
+| D7 | `extensions/` (vscode, jetbrains) reference `[RustCode]` logs and binary names — out of core scope, follow-up patch | Open |
 | D8 | `crates/rustcode-codingplan-crypto/` closed-source overlay: self-built binaries cannot sign gateway requests (pre-existing upstream behavior) | Open |
 | D9 | Non-stream `chat()` is delivered as a seam in PHASE-2; migrating `session_title` / `next_prompt_suggestion` / `compaction` call sites is a follow-up | Open |
 | D10 | `.github/workflows/build.yml`, `scripts/release*.sh`, `latest.json` need the new asset names before any release is cut | Open |

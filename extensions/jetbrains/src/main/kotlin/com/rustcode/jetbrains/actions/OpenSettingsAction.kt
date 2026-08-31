@@ -15,10 +15,10 @@ class OpenSettingsAction : AnAction() {
     }
 
     override fun actionPerformed(e: AnActionEvent) {
-        e.getData(CommonDataKeys.PROJECT)?.openAtomCodeSettings()
+        e.getData(CommonDataKeys.PROJECT)?.openRustCodeSettings()
     }
 }
 
-internal fun Project.openAtomCodeSettings() {
-    ShowSettingsUtil.getInstance().showSettingsDialog(this, "AtomCode")
+internal fun Project.openRustCodeSettings() {
+    ShowSettingsUtil.getInstance().showSettingsDialog(this, "RustCode")
 }

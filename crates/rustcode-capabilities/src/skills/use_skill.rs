@@ -1,5 +1,5 @@
 //! `use_skill` (invoke a named skill, returns its expanded content) + `list_skills`.
-//! Both `Safe` — skills are trusted, user-authored content.
+//! Both `Safe` -- skills are trusted, user-authored content.
 
 use super::registry::SkillRegistry;
 use super::{err, ok};
@@ -35,7 +35,7 @@ impl Tool for UseSkillTool {
         "Invoke a named skill (a reusable prompt/workflow template) and return its content \
          with your arguments substituted. The name must exactly match a skill listed under \
          '=== AVAILABLE SKILLS ===' in the system prompt or returned by list_skills. Never invent \
-         or guess a skill name. Trigger a skill when the task matches its listed description — \
+         or guess a skill name. Trigger a skill when the task matches its listed description -- \
          not only when the user names it. list_skills shows any lower-priority skills omitted \
          from the prompt catalog."
     }
@@ -49,7 +49,7 @@ impl Tool for UseSkillTool {
             "required": ["name"]
         })
     }
-    // skills are trusted user content → risk() defaults to Safe.
+    // skills are trusted user content -> risk() defaults to Safe.
     async fn execute(&self, args: &str, _ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -76,9 +76,9 @@ impl Tool for UseSkillTool {
             }
         };
         let arguments = a.arguments.unwrap_or_default();
-        // expand may run `!`cmd`` shell blocks → keep off the async runtime.
+        // expand may run `!`cmd`` shell blocks -> keep off the async runtime.
         // Use `expand_for_injection` (not `expand`) so a directory-style skill's
-        // install-path `<system-reminder>` rides along — otherwise the model, invoking
+        // install-path `<system-reminder>` rides along -- otherwise the model, invoking
         // a skill that bundles `scripts/`/`references/`, has to re-search the working
         // directory for those files. Matches the user `$skill` path.
         match tokio::task::spawn_blocking(move || skill.expand_for_injection(&arguments, "")).await
@@ -188,7 +188,7 @@ mod tests {
         );
         assert!(
             r.content.contains("This skill is installed at:"),
-            "install-path reminder missing — model would re-search cwd for bundled files: {}",
+            "install-path reminder missing -- model would re-search cwd for bundled files: {}",
             r.content
         );
     }
@@ -196,7 +196,7 @@ mod tests {
     #[tokio::test]
     async fn use_skill_single_file_skill_omits_install_path_reminder() {
         // Single-file `.md` skills share a skills folder, so the install-path note would
-        // point at the wrong (shared) dir — it must stay omitted. Guards the fix from
+        // point at the wrong (shared) dir -- it must stay omitted. Guards the fix from
         // over-applying to loose skills.
         let tool = UseSkillTool::new(registry_with(&[("loose", "just a body")]));
         let r = tool.execute(r#"{"name":"loose"}"#, &ctx()).await;
@@ -259,7 +259,7 @@ mod tests {
 
     // Regression for issue-use-skill-plugin-not-loaded: plugin skills MUST be reachable
     // when the driver feeds them into the registry with a namespace (the capabilities crate
-    // cannot reach the core plugin loader by design — the bridge/driver feeds plugin dirs).
+    // cannot reach the core plugin loader by design -- the bridge/driver feeds plugin dirs).
     // This is the L1 contract `rustcode-coding::parts` relies on via `load_dir(dir, Some(ns))`.
     #[tokio::test]
     async fn use_skill_finds_plugin_namespaced_skill() {
@@ -308,7 +308,7 @@ mod tests {
         reg.load_dir(&skills_dir, Some(plugin_ns));
 
         let tool = UseSkillTool::new(Arc::new(reg));
-        // asking for a non-existent skill must list `my-plugin:alpha` among available —
+        // asking for a non-existent skill must list `my-plugin:alpha` among available --
         // the bug from issue was that available NEVER showed any `<plugin>:<skill>` entry.
         let r = tool.execute(r#"{"name":"nope"}"#, &ctx()).await;
         assert!(r.is_error, "{}", r.content);

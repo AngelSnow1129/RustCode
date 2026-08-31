@@ -1,5 +1,5 @@
 //! Which language server to run for which file extension. Ported from production
-//! `lsp/registry.rs` (defaults; the user-config merge is dropped — policy/config is an
+//! `lsp/registry.rs` (defaults; the user-config merge is dropped -- policy/config is an
 //! L2 concern, injected via `LspServerRegistry::insert`).
 
 use std::collections::HashMap;
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!(extension_to_language_id("rs"), "rust");
         assert_eq!(extension_to_language_id("tsx"), "typescriptreact");
         assert_eq!(extension_to_language_id("cpp"), "cpp");
-        assert_eq!(extension_to_language_id("zzz"), "zzz"); // unknown → itself
+        assert_eq!(extension_to_language_id("zzz"), "zzz"); // unknown -> itself
     }
 
     #[test]

@@ -1,5 +1,5 @@
-//! Cross-platform atomic file write: tempfile in same dir → fsync → persist
-//! → parent dir fsync. POSIX durability + Windows MoveFileEx semantics.
+//! Cross-platform atomic file write: tempfile in same dir -> fsync -> persist
+//! -> parent dir fsync. POSIX durability + Windows MoveFileEx semantics.
 
 use anyhow::{Context, Result};
 #[cfg(not(windows))]
@@ -125,7 +125,7 @@ mod tests {
         let meta = std::fs::metadata(&path).unwrap();
         assert_eq!(meta.len(), 1000);
 
-        // Overwrite with 10 bytes of 'B' — shorter than old content
+        // Overwrite with 10 bytes of 'B' -- shorter than old content
         let short = b"BBBBBBBBBB";
         atomic_write(&path, short, 0o644).unwrap();
 

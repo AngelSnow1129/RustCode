@@ -9,7 +9,7 @@ const MAX_REPAIR_BYTES: usize = 512 * 1024;
 
 /// Normalize tool-call arguments into valid JSON before execution.
 ///
-/// Runs the repair chain: direct parse → repair_json → tool-specific extractor →
+/// Runs the repair chain: direct parse -> repair_json -> tool-specific extractor ->
 /// generic key-value extraction. Returns the original string unchanged if all
 /// strategies fail (caller can then surface a parse error to the model).
 ///
@@ -18,7 +18,7 @@ const MAX_REPAIR_BYTES: usize = 512 * 1024;
 pub fn repair_tool_args(tool_name: &str, args: &str) -> String {
     // Defense-in-depth bound. Repair is best-effort salvage of weak-model
     // output: a multi-hundred-KB argument is either already-valid (the tool
-    // parses it directly) or hopeless — don't run the structural passes over a
+    // parses it directly) or hopeless -- don't run the structural passes over a
     // giant blob. The passes below are O(N), but this caps total work and
     // allocation on pathological input and is a hard ceiling for the middleware
     // (which runs synchronously on the host thread under panic=abort).
@@ -48,7 +48,7 @@ pub fn repair_tool_args(tool_name: &str, args: &str) -> String {
     // Specialized: edit_file often ships source code with unescaped quotes/newlines.
     // Case-insensitive so a model that emits `Edit_File`/`EDIT_FILE` still gets the
     // extractor (the kernel resolves tools strictly today, but the middleware now
-    // passes the resolved tool's canonical name — see `RepairToolArgsMiddleware`).
+    // passes the resolved tool's canonical name -- see `RepairToolArgsMiddleware`).
     if tool_name.eq_ignore_ascii_case("edit_file") {
         if let Some(v) = extract_edit_file_args(&pre) {
             if let Ok(s) = serde_json::to_string(&v) {
@@ -68,7 +68,7 @@ pub fn repair_tool_args(tool_name: &str, args: &str) -> String {
         }
     }
     // Last resort: key-value field extraction. Only return this if it actually
-    // recovered something — an empty object is no better than the original garbage.
+    // recovered something -- an empty object is no better than the original garbage.
     let extracted = extract_json_fields(&pre);
     if let Some(obj) = extracted.as_object() {
         if !obj.is_empty() {
@@ -173,12 +173,12 @@ fn collect_schema_types(
 /// that look like Windows paths.
 ///
 /// Why: `{"file_path": "D:\test\foo.py"}` parses as valid JSON, but
-/// `serde_json` decodes `\t`→TAB and `\f`→FF, corrupting the path. The
+/// `serde_json` decodes `\t`->TAB and `\f`->FF, corrupting the path. The
 /// model almost certainly meant literal backslashes. KEY-SCOPED: this only
 /// applies to the VALUE of a path-typed key (`file_path`/`path`) that contains
 /// a drive-letter prefix (`[A-Za-z]:[\\/]`), where it treats the bare `\X`
 /// (X ∈ {t,n,r,b,f,u}) as a literal backslash and doubles it. A `\n`/`\t` in a
-/// `content`/`old_string` value is left as the model's intended JSON escape —
+/// `content`/`old_string` value is left as the model's intended JSON escape --
 /// rewriting there silently corrupted valid code/text.
 ///
 /// Idempotent: already-correctly-escaped `\\` is preserved (the second
@@ -187,7 +187,7 @@ fn collect_schema_types(
 ///
 /// Heuristic precision: the drive-letter detector requires the alpha
 /// char to be a *single* letter (not the tail of a longer word), so
-/// strings like `"category:\nimportant"` don't trip it — the byte
+/// strings like `"category:\nimportant"` don't trip it -- the byte
 /// preceding the alpha must not itself be alphabetic.
 fn pre_escape_windows_paths_in_json(s: &str) -> String {
     // KEY-SCOPED: only the VALUE of a path-typed key is eligible for the rewrite.
@@ -213,7 +213,7 @@ fn pre_escape_windows_paths_in_json(s: &str) -> String {
             i += 1;
             continue;
         }
-        // Opening quote — find the matching close, honoring JSON
+        // Opening quote -- find the matching close, honoring JSON
         // backslash escapes so `\"` doesn't terminate.
         let body_start = i + 1;
         let mut j = body_start;
@@ -266,11 +266,11 @@ fn pre_escape_windows_paths_in_json(s: &str) -> String {
 /// prefix (`[A-Za-z]:\` with a *single* backslash) in a path-shaped context.
 ///
 /// Required context: the drive letter is at the start of the body,
-/// or the byte before it is `\` (UNC long-path `\\?\D:\…`), `'`,
+/// or the byte before it is `\` (UNC long-path `\\?\D:\...`), `'`,
 /// or `"` (quoted path literal embedded in code). Without this
 /// guard, natural-language strings whose contents happen to match
-/// the alpha-colon-backslash shape — e.g. `class A:\n`, `case X:\n`,
-/// `Section B:\nContent` — would be misread as Windows paths and
+/// the alpha-colon-backslash shape -- e.g. `class A:\n`, `case X:\n`,
+/// `Section B:\nContent` -- would be misread as Windows paths and
 /// every `\n`/`\t` in the body would be doubled to a literal
 /// backslash+letter, corrupting the file. The earlier
 /// "preceded-by-alphabetic" guard only ruled out multi-letter
@@ -279,16 +279,16 @@ fn pre_escape_windows_paths_in_json(s: &str) -> String {
 ///
 /// **Single-backslash requirement (the 审核 / Windows-desktop bug).**
 /// Only a *lone* `\` after the colon can mis-decode under `serde_json`
-/// (`D:\test` → `D:<TAB>est`). Two cases must NOT trigger the body
+/// (`D:\test` -> `D:<TAB>est`). Two cases must NOT trigger the body
 /// rewrite, because rewriting then doubles every real `\n`/`\t`
 /// elsewhere in the same string:
-/// * `X:/…` forward-slash paths — never escape-ambiguous.
-/// * `X:\\…` already-escaped paths — valid JSON that decodes
+/// * `X:/...` forward-slash paths -- never escape-ambiguous.
+/// * `X:\\...` already-escaped paths -- valid JSON that decodes
 ///   correctly. A multi-line `content`/`old_string` blob frequently
-///   *contains* such a path (`excel_path = r'C:\\Users\\…\\文章.xlsx'`)
+///   *contains* such a path (`excel_path = r'C:\\Users\\...\\文章.xlsx'`)
 ///   right next to real `\n` newlines; firing here doubled all of
 ///   them and landed a 30-line script on disk as ONE line of literal
-///   backslash-n → broken Python → the agent looped forever trying
+///   backslash-n -> broken Python -> the agent looped forever trying
 ///   to "fix the encoding". Gate on the lone backslash so the
 ///   correctly-escaped path leaves the surrounding newlines intact.
 fn looks_like_windows_path(s: &str) -> bool {
@@ -304,7 +304,7 @@ fn looks_like_windows_path(s: &str) -> bool {
             continue;
         }
         // Only a single backslash is ambiguous. `/` and `\\` decode
-        // correctly already — see the doc note above.
+        // correctly already -- see the doc note above.
         if bytes[i + 2] != b'\\' {
             continue;
         }
@@ -341,25 +341,25 @@ fn rewrite_windows_path_body(body: &str, out: &mut String) {
         }
         match chars.get(k + 1).copied() {
             Some('\\') => {
-                // Already escaped — preserve both bytes.
+                // Already escaped -- preserve both bytes.
                 out.push_str("\\\\");
                 k += 2;
             }
             Some(c @ ('"' | '/' | 'u')) => {
                 // JSON-legal escape unrelated to single-char ambiguity
-                // — preserve verbatim.
+                // -- preserve verbatim.
                 //
                 // `\u` is the JSON Unicode escape `\uXXXX` (always 6
                 // chars total, 4 hex digits follow). Unlike `\t`/`\n`/
-                // `\r`/`\b`/`\f` — single-letter shortcuts that a
+                // `\r`/`\b`/`\f` -- single-letter shortcuts that a
                 // Windows path could naturally produce as
-                // backslash+letter — `\u` is unambiguous: a Windows
+                // backslash+letter -- `\u` is unambiguous: a Windows
                 // path containing literal `\u` is impossible (drive
                 // letter + `:` + `\` then directory char; no shell or
-                // model would normalise a directory called "u…" to a
+                // model would normalise a directory called "u..." to a
                 // `\u` glyph). Treating `\u` as ambiguous corrupted
                 // legitimate Unicode escapes inside drive-letter
-                // strings: `"D:A\foo"` → `"D:\\u0041\\foo"`
+                // strings: `"D:A\foo"` -> `"D:\\u0041\\foo"`
                 // decoded to literal `D:A\foo` instead of `D:A\foo`.
                 out.push('\\');
                 out.push(c);
@@ -375,7 +375,7 @@ fn rewrite_windows_path_body(body: &str, out: &mut String) {
                 k += 2;
             }
             Some(other) => {
-                // Invalid JSON escape — leave for repair_json to fix.
+                // Invalid JSON escape -- leave for repair_json to fix.
                 out.push('\\');
                 out.push(other);
                 k += 2;
@@ -390,8 +390,8 @@ fn rewrite_windows_path_body(body: &str, out: &mut String) {
 
 /// For each position in `chars`, true iff that char is structural
 /// JSON (outside any string body). The surrounding `"` chars themselves
-/// are considered structural; everything between them — including
-/// escape pairs like `\"` and `\n` — is non-structural so structural
+/// are considered structural; everything between them -- including
+/// escape pairs like `\"` and `\n` -- is non-structural so structural
 /// passes don't mistake string content for grammar.
 ///
 /// Used by the unquoted-key fix, trailing-comma removal, and brace
@@ -473,8 +473,8 @@ pub fn repair_json(s: &str) -> String {
 
     // Fix invalid JSON backslash escapes: \. \( \) \| \w \d \s \+ \* etc.
     // JSON only allows: \\ \" \/ \n \r \t \b \f \uXXXX
-    // Models often write regex like @app\.(get|post) which has \. — invalid in JSON.
-    // Fix by doubling the backslash: \. → \\. so JSON parses it as literal backslash + dot.
+    // Models often write regex like @app\.(get|post) which has \. -- invalid in JSON.
+    // Fix by doubling the backslash: \. -> \\. so JSON parses it as literal backslash + dot.
     let valid_escapes = ['\\', '"', '/', 'n', 'r', 't', 'b', 'f', 'u'];
     let chars: Vec<char> = result.chars().collect();
     let mut fixed = String::with_capacity(result.len() + 20);
@@ -483,7 +483,7 @@ pub fn repair_json(s: &str) -> String {
         if chars[i] == '\\' && i + 1 < chars.len() {
             let next = chars[i + 1];
             if valid_escapes.contains(&next) {
-                // Valid JSON escape — keep as-is
+                // Valid JSON escape -- keep as-is
                 fixed.push('\\');
                 fixed.push(next);
                 i += 2;
@@ -530,9 +530,9 @@ pub fn repair_json(s: &str) -> String {
         result = result.replace('\'', "\"");
     }
 
-    // Fix missing commas between key-value pairs: }" " → }", "
+    // Fix missing commas between key-value pairs: }" " -> }", "
     // Pattern: value followed by whitespace then another key
-    // e.g., {"path": "src" "depth": 2} → {"path": "src", "depth": 2}
+    // e.g., {"path": "src" "depth": 2} -> {"path": "src", "depth": 2}
     let chars: Vec<char> = result.chars().collect();
     let mut insertions = Vec::new();
     let mut i = 0;
@@ -568,7 +568,7 @@ pub fn repair_json(s: &str) -> String {
     }
     // Insert the queued commas in a single O(N) pass. Replaying with
     // `Vec::insert` (each O(N), shifting the tail) over O(N) insertions was
-    // O(N^2) — a long run of comma-less fields from a weak model would pin a
+    // O(N^2) -- a long run of comma-less fields from a weak model would pin a
     // core. `insertions` is ascending (collected in a forward scan), so a single
     // ordered rebuild is byte-identical to the reverse `insert` replay.
     if insertions.is_empty() {
@@ -593,9 +593,9 @@ pub fn repair_json(s: &str) -> String {
         result = rebuilt.into_iter().collect();
     }
 
-    // Fix unquoted keys: {path: "src"} → {"path": "src"}
+    // Fix unquoted keys: {path: "src"} -> {"path": "src"}
     // Guarded by `structural_mask` so a `{`/`,` INSIDE a string value
-    // doesn't trigger the rewrite — otherwise source code like
+    // doesn't trigger the rewrite -- otherwise source code like
     // `"snippet { class: foo }"` would have `"class"` injected into
     // the string body, corrupting both content and JSON validity.
     let mut fixed = String::with_capacity(result.len() + 20);
@@ -623,7 +623,7 @@ pub fn repair_json(s: &str) -> String {
                     ki += 1;
                 }
                 if ki < rchars.len() && rchars[ki] == ':' {
-                    // Unquoted key — add quotes
+                    // Unquoted key -- add quotes
                     fixed.push('"');
                     for c in &rchars[key_start..ri] {
                         fixed.push(*c);
@@ -644,16 +644,16 @@ pub fn repair_json(s: &str) -> String {
     result = fixed;
 
     // Remove trailing commas before } or ]. Both the `,` and the
-    // closing brace must be structural — a literal `,}` inside a
+    // closing brace must be structural -- a literal `,}` inside a
     // string value (e.g. `"tail,}"`) must survive unchanged.
     //
     // Single right-to-left pass. The previous fixpoint loop removed only ONE
     // comma per closing brace per pass and recomputed `structural_mask` each
-    // pass → O(N^2), a host-freeze on a long `,,,,]` run from a weak model.
+    // pass -> O(N^2), a host-freeze on a long `,,,,]` run from a weak model.
     // `structural_mask` is invariant under structural-comma removal (it depends
     // only on quote positions), so one pass suffices: a structural comma is
-    // dropped iff its nearest kept right-neighbor — reachable through a run of
-    // already-dropped structural commas — is a structural `}`/`]`. Whitespace or
+    // dropped iff its nearest kept right-neighbor -- reachable through a run of
+    // already-dropped structural commas -- is a structural `}`/`]`. Whitespace or
     // any other char breaks the run (matching the old loop, which required the
     // IMMEDIATE right neighbor to be the brace). Output is identical.
     {
@@ -685,8 +685,8 @@ pub fn repair_json(s: &str) -> String {
     }
 
     // Count braces and add missing closing ones. Only structural
-    // `{`/`}` count — a string value containing source code with
-    // `{ … }` is balanced from the JSON envelope's perspective and
+    // `{`/`}` count -- a string value containing source code with
+    // `{ ... }` is balanced from the JSON envelope's perspective and
     // must not provoke extra `}` appends.
     let rchars: Vec<char> = result.chars().collect();
     let mask = structural_mask(&rchars);
@@ -710,7 +710,7 @@ pub fn repair_json(s: &str) -> String {
 }
 
 /// Last-resort: extract ALL key-value pairs from malformed JSON by string matching.
-/// Tool-agnostic — no hardcoded field lists. Finds any `"key": "value"` or `key: value` pattern.
+/// Tool-agnostic -- no hardcoded field lists. Finds any `"key": "value"` or `key: value` pattern.
 pub fn extract_json_fields(s: &str) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     let chars: Vec<char> = s.chars().collect();
@@ -761,7 +761,7 @@ pub fn extract_json_fields(s: &str) -> serde_json::Value {
 
         // Read value
         if chars[i] == '"' {
-            // String value — extract and unescape JSON escape sequences.
+            // String value -- extract and unescape JSON escape sequences.
             // A `"` closes the string only in structural position (followed by
             // `,` `}` `]` or end, ignoring whitespace); an interior `"` that the
             // model failed to escape is treated as a literal quote rather than a
@@ -823,7 +823,7 @@ pub fn extract_json_fields(s: &str) -> serde_json::Value {
                 map.insert(key, serde_json::json!(f));
             }
         } else {
-            // Unquoted string value — read until , } ]
+            // Unquoted string value -- read until , } ]
             let start = i;
             while i < len && !matches!(chars[i], ',' | '}' | ']' | '\n') {
                 i += 1;
@@ -930,9 +930,9 @@ const TASK_SUBTASK_KEYS: &[&str] = &[
 ///
 /// Weak models routinely emit a subtask `prompt`/`description` containing raw
 /// (unescaped) double-quotes, e.g. `Find all "TODO" comments`, which makes the
-/// whole `{"tasks":[…]}` payload invalid JSON. The generic last-resort extractor
-/// mangles this further (it reads the `tasks` array as a truncated string), so —
-/// mirroring `extract_edit_file_args` — this parser reconstructs the tasks array
+/// whole `{"tasks":[...]}` payload invalid JSON. The generic last-resort extractor
+/// mangles this further (it reads the `tasks` array as a truncated string), so --
+/// mirroring `extract_edit_file_args` -- this parser reconstructs the tasks array
 /// from the KNOWN field keys instead of trusting JSON structure.
 ///
 /// It anchors only on the known keys in *key position* (preceded by `{`/`,`/`[`,
@@ -942,7 +942,7 @@ const TASK_SUBTASK_KEYS: &[&str] = &[
 /// detected by a repeated key rather than by braces (which prose can contain).
 ///
 /// Returns `None` unless at least one subtask has a non-empty `description` AND
-/// `prompt` — so a hopeless payload still surfaces the real parse error to the
+/// `prompt` -- so a hopeless payload still surfaces the real parse error to the
 /// model rather than dispatching a garbled subtask.
 pub fn extract_task_args(raw: &str) -> Option<serde_json::Value> {
     // Scope to the tasks array so a stray earlier key can't seed a phantom object.
@@ -1108,7 +1108,7 @@ fn parse_task_string_slice(slice: &str) -> Option<String> {
     Some(unescape_json_string_contents(&inner[..close]))
 }
 
-/// Parse a `scope` array slice (`[…]`), best-effort. Returns `None` (field
+/// Parse a `scope` array slice (`[...]`), best-effort. Returns `None` (field
 /// omitted) if the bracketed span isn't a valid JSON array. The close bracket is
 /// found by depth-counting (ignoring `[`/`]` inside strings) so trailing `]}` from
 /// the enclosing `tasks` array isn't swept in.
@@ -1157,7 +1157,7 @@ fn parse_scope_slice(slice: &str) -> Option<serde_json::Value> {
 ///
 /// Recognized: `\\` `\"` `\/` `\n` `\r` `\t` `\b` `\f`. Unknown `\X` keeps the
 /// backslash literal (callers may receive paths that were never JSON-escaped).
-/// `\u` Unicode escapes are intentionally not interpreted — out of scope for
+/// `\u` Unicode escapes are intentionally not interpreted -- out of scope for
 /// this last-resort recovery path.
 fn unescape_json_string_contents(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -1230,7 +1230,7 @@ mod tests {
 
     #[test]
     fn repair_invalid_backslash_escape() {
-        // \. is not a valid JSON escape — should be doubled to \\.
+        // \. is not a valid JSON escape -- should be doubled to \\.
         let input = r#"{"pattern": "app\.rs"}"#;
         let repaired = repair_json(input);
         let parsed: serde_json::Value =
@@ -1385,7 +1385,7 @@ mod tests {
     #[test]
     fn extract_task_args_returns_none_when_required_fields_missing() {
         assert!(extract_task_args("garbage with no keys at all").is_none());
-        // subagent_type only — missing required description + prompt.
+        // subagent_type only -- missing required description + prompt.
         assert!(extract_task_args(r#"{"tasks":[{"subagent_type":"explore"}]}"#).is_none());
     }
 
@@ -1423,7 +1423,7 @@ mod tests {
     #[test]
     fn extract_json_fields_keeps_all_fields_when_commas_present() {
         // Regression guard for the structural-terminator change: when commas ARE
-        // present (the common case), every field must still be extracted — the
+        // present (the common case), every field must still be extracted -- the
         // interior-quote tolerance must not swallow the following field.
         let input = r#"{"path": "src", "depth": "2", "name": "x"}"#;
         let v = extract_json_fields(input);
@@ -1437,7 +1437,7 @@ mod tests {
         // Documents the narrow limitation of structural-position termination: with a
         // MISSING comma, the first value runs to the next structural quote and absorbs
         // the following field. This path is only reachable when `repair_json` (which
-        // fixes missing commas — see `repair_missing_comma_between_fields`) also fails;
+        // fixes missing commas -- see `repair_missing_comma_between_fields`) also fails;
         // the common pure-missing-comma case is repaired before reaching here.
         let input = r#"{"a": "x" "b": "y"}"#;
         let v = extract_json_fields(input);
@@ -1463,7 +1463,7 @@ mod tests {
 
     #[test]
     fn repair_tool_args_keeps_empty_object_untouched() {
-        // Empty `{}` is valid JSON — we must not paper over it by inventing fields.
+        // Empty `{}` is valid JSON -- we must not paper over it by inventing fields.
         // Callers surface it as a user-visible error instead.
         assert_eq!(repair_tool_args("write_file", "{}"), "{}");
     }
@@ -1489,7 +1489,7 @@ mod tests {
 
     #[test]
     fn repair_tool_args_returns_original_when_unsalvageable() {
-        // Pure garbage with no extractable key=value pairs → return as-is so
+        // Pure garbage with no extractable key=value pairs -> return as-is so
         // the tool emits the real parse error (not a misleading repaired stub).
         let input = "!!!";
         assert_eq!(repair_tool_args("write_file", input), "!!!");
@@ -1518,7 +1518,7 @@ mod tests {
 
     #[test]
     fn extract_fields_unc_long_path_prefix() {
-        // \\?\D:\... long-path prefix, fully escaped → \\?\D:\test-wsd\run.py
+        // \\?\D:\... long-path prefix, fully escaped -> \\?\D:\test-wsd\run.py
         let input = r#"{"file_path": "\\\\?\\D:\\test-wsd\\run.py"}"#;
         let result = extract_json_fields(input);
         assert_eq!(result["file_path"], "\\\\?\\D:\\test-wsd\\run.py");
@@ -1526,7 +1526,7 @@ mod tests {
 
     #[test]
     fn extract_fields_literal_backslash_n_preserved() {
-        // Raw `\` `\` `n` must decode to `\n` (backslash + n), not a newline —
+        // Raw `\` `\` `n` must decode to `\n` (backslash + n), not a newline --
         // sequential `.replace` could swap order and produce a real newline here.
         let input = r#"{"x": "a\\nb"}"#;
         let result = extract_json_fields(input);
@@ -1536,7 +1536,7 @@ mod tests {
 
     #[test]
     fn extract_fields_real_escapes_still_work() {
-        // Don't regress the intended behavior: \n → newline, \t → tab, \" → ".
+        // Don't regress the intended behavior: \n -> newline, \t -> tab, \" -> ".
         let input = r#"{"a": "line1\nline2", "b": "col1\tcol2", "c": "say \"hi\""}"#;
         let result = extract_json_fields(input);
         assert_eq!(result["a"], "line1\nline2");
@@ -1559,13 +1559,13 @@ mod tests {
     //
     // The fast path in `repair_tool_args` would otherwise hand
     // `{"file_path": "D:\test\foo.py"}` (spec-valid JSON) straight to
-    // `serde_json::from_str`, which decodes `\t`→TAB and `\f`→FF.
+    // `serde_json::from_str`, which decodes `\t`->TAB and `\f`->FF.
     // c1f33e62 only fixed `extract_json_fields` (last-resort); the main
     // path needed its own guard.
 
     #[test]
     fn repair_tool_args_rescues_windows_path_in_valid_json() {
-        // Model emits valid JSON with a single-backslash Windows path —
+        // Model emits valid JSON with a single-backslash Windows path --
         // this would silently decode to "D:<TAB>est<FF>oo.py" without
         // the pre-pass. Raw bytes: `D` `:` `\` `t` `e` `s` `t` `\` `f`...
         let input = "{\"file_path\": \"D:\\test\\foo.py\"}";
@@ -1584,7 +1584,7 @@ mod tests {
 
     #[test]
     fn repair_tool_args_idempotent_on_correctly_escaped_path() {
-        // Properly escaped Windows path — pre-pass must not double again.
+        // Properly escaped Windows path -- pre-pass must not double again.
         // Raw bytes: `D` `:` `\` `\` `w` `o` `r` `k` `\` `\` `a` ...
         let input = r#"{"file_path": "D:\\work\\app.py"}"#;
         let out = repair_tool_args("read_file", input);
@@ -1605,7 +1605,7 @@ mod tests {
     #[test]
     fn repair_tool_args_non_path_string_with_tab_preserved() {
         // Drive-letter heuristic must NOT fire on plain text containing
-        // a `\t` escape — `category:\n…` looks superficially similar
+        // a `\t` escape -- `category:\n...` looks superficially similar
         // (alpha-then-`:`-then-`\`) but `y` is the tail of a word, not
         // a single-letter drive. The tab MUST be decoded as a tab.
         let input = r#"{"category": "fast\ttab\nnewline"}"#;
@@ -1622,7 +1622,7 @@ mod tests {
 
     #[test]
     fn repair_tool_args_word_ending_with_colon_then_backslash_is_not_path() {
-        // `category:\nimportant` — drive letter must be SINGLE alpha,
+        // `category:\nimportant` -- drive letter must be SINGLE alpha,
         // not the tail of a longer word. False-positive would corrupt
         // the intended newline into the two chars `\` + `n`.
         let input = r#"{"label": "category:\nimportant"}"#;
@@ -1641,22 +1641,22 @@ mod tests {
     /// "skip if body contains `\n` or `\r` escape" guard to
     /// `looks_like_windows_path` to defend content-with-embedded-
     /// path bodies. It broke Windows paths whose own filenames
-    /// start with `n` or `r` — `D:\new`, `D:\node_modules`,
-    /// `D:\readme.txt`, `\nightly\foo`, etc. — because those
+    /// start with `n` or `r` -- `D:\new`, `D:\node_modules`,
+    /// `D:\readme.txt`, `\nightly\foo`, etc. -- because those
     /// contain a `\` + `n` (or `\r`) byte pair that the guard
-    /// misread as a newline escape. Eval matrix went 14 → 27
+    /// misread as a newline escape. Eval matrix went 14 -> 27
     /// before the revert.
     ///
     /// Pin the loose-path case so any future "body shape" guard
     /// has to keep it working.
     #[test]
     fn repair_tool_args_loose_windows_path_with_n_dir_name_still_rewrites() {
-        // Raw JSON: `{"file_path": "D:\new\foo.py"}` — model emits
+        // Raw JSON: `{"file_path": "D:\new\foo.py"}` -- model emits
         // single-backslash Windows path with a directory called
         // `new`. The bytes between the inner quotes are `D` `:`
         // `\` `n` `e` `w` `\` `f` `o` `o` `.` `p` `y`. The pre-
         // escape pass MUST double the `\n` and `\f` so the path
-        // round-trips, otherwise serde decodes `\n` → newline and
+        // round-trips, otherwise serde decodes `\n` -> newline and
         // the path turns into `D:<newline>ew<formfeed>oo.py`.
         let input = "{\"file_path\": \"D:\\new\\foo.py\"}";
         let out = repair_tool_args("read_file", input);
@@ -1686,7 +1686,7 @@ mod tests {
     /// (class names, match arms, switch labels) slipped through
     /// and every `\n`/`\t` in the file body got doubled, writing
     /// the file as one line of literal `\n` characters. This is
-    /// the v4.23.2 tool-error regression — `notify.py` rewrites
+    /// the v4.23.2 tool-error regression -- `notify.py` rewrites
     /// turned into 1 line of garbage.
     #[test]
     fn repair_tool_args_single_letter_label_before_newline_is_not_path() {
@@ -1696,7 +1696,7 @@ mod tests {
         let content = v["content"].as_str().unwrap();
         assert!(
             content.contains('\n'),
-            "newline must survive — file becomes 1-line garbage otherwise: got {:?}",
+            "newline must survive -- file becomes 1-line garbage otherwise: got {:?}",
             content
         );
         assert!(
@@ -1711,9 +1711,9 @@ mod tests {
     fn repair_tool_args_content_with_escaped_windows_path_keeps_newlines() {
         // The Windows "审核" screenshot bug: a write_file whose CONTENT is a
         // multi-line Python script that *references* a correctly-escaped
-        // Windows path (`C:\\Users\\…`). The path made looks_like_windows_path
+        // Windows path (`C:\\Users\\...`). The path made looks_like_windows_path
         // fire on the WHOLE content body, and rewrite_windows_path_body then
-        // doubled every real `\n` newline into a literal backslash-n — landing
+        // doubled every real `\n` newline into a literal backslash-n -- landing
         // the 4-line script on disk as ONE line of broken Python (the
         // `(813 bytes, 1 lines)` in the report), after which `python` exits 1
         // and the agent loops forever "fixing the encoding".
@@ -1727,7 +1727,7 @@ mod tests {
         let content = v["content"].as_str().unwrap();
         assert!(
             content.contains('\n'),
-            "real newlines must survive — file becomes 1-line garbage otherwise: got {:?}",
+            "real newlines must survive -- file becomes 1-line garbage otherwise: got {:?}",
             content
         );
         assert!(
@@ -1774,8 +1774,8 @@ mod tests {
     fn repair_tool_args_windows_path_rescue_scoped_to_path_keys() {
         // KEY-SCOPED (option 1): a lone-backslash drive path is disambiguated in
         // `file_path` (genuinely a path), but a `\n`/`\t` inside `old_string` is
-        // taken as the JSON escape the model wrote — NOT doubled into a literal
-        // backslash — so valid code/text isn't corrupted. (Models must escape
+        // taken as the JSON escape the model wrote -- NOT doubled into a literal
+        // backslash -- so valid code/text isn't corrupted. (Models must escape
         // paths they embed in code, e.g. `D:\\test`.)
         let input = "{\"file_path\": \"D:\\test\\foo.py\", \"old_string\": \"x = 'C:\\nfoo'\"}";
         let out = repair_tool_args("edit_file", input);
@@ -1789,7 +1789,7 @@ mod tests {
     #[test]
     fn repair_tool_args_drive_shape_in_non_path_value_not_rewritten() {
         // KEY-SCOPED: a drive-letter shape in a NON-path value (`cmd`) is left
-        // exactly as the model wrote it — only file_path/path get the path pass.
+        // exactly as the model wrote it -- only file_path/path get the path pass.
         // A properly-escaped path round-trips unchanged; the pre-pass walker still
         // honours `\"` when locating the string close.
         let input = "{\"cmd\": \"run \\\"D:\\\\foo.exe\\\"\"}";
@@ -1810,20 +1810,20 @@ mod tests {
 
     /// `\u` Unicode escapes inside a drive-letter string must survive
     /// the Windows pre-pass intact. `\u` is the 6-char `\uXXXX` JSON
-    /// escape — not a single-char ambiguity like `\t`/`\n` that could
+    /// escape -- not a single-char ambiguity like `\t`/`\n` that could
     /// arise from a literal Windows path. Treating it as ambiguous
     /// would corrupt legitimate Unicode escapes (`张` for "张" in
-    /// `C:\Users\张三\…`) by doubling the backslash and turning the
+    /// `C:\Users\张三\...`) by doubling the backslash and turning the
     /// Chinese name into the literal text `张`.
     #[test]
     fn pre_escape_preserves_unicode_escape_in_windows_path() {
-        // Raw bytes: `C` `:` `\` `\` `U` `s` `e` `r` `s` `\` `\` `\` `u` `5` `f` `2` `0` …
+        // Raw bytes: `C` `:` `\` `\` `U` `s` `e` `r` `s` `\` `\` `\` `u` `5` `f` `2` `0` ...
         // After JSON decode that's `C:\Users\张三\file.txt`.
         let input = r#"{"file_path": "C:\\Users\\张三\\file.txt"}"#;
         let out = repair_tool_args("read_file", input);
         let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
         assert_eq!(v["file_path"], "C:\\Users\\张三\\file.txt");
-        // Negative: bytes after pre-pass MUST NOT contain `\\u` —
+        // Negative: bytes after pre-pass MUST NOT contain `\\u` --
         // that would mean we doubled the backslash and broke the
         // Unicode escape. Check via the round-trip: if the decoded
         // string contains a literal `\u` substring, the pre-pass
@@ -1838,14 +1838,14 @@ mod tests {
     /// Mixed: `\u` preserved (legit escape) AND `\t`/`\f` doubled
     /// (Windows path chars). The path-context heuristic applies per
     /// `\X` pair independently. JSON body `D:\testA\foo` should
-    /// decode to `D:\testA\foo` — the `A` from `A` snaps directly
+    /// decode to `D:\testA\foo` -- the `A` from `A` snaps directly
     /// onto `test` because no backslash separates them in the source.
     #[test]
     fn pre_escape_mixes_unicode_escape_with_ambiguous_letter() {
         let input = "{\"file_path\": \"D:\\test\\u0041\\foo\"}";
         let out = repair_tool_args("read_file", input);
         let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
-        // \t → literal `\t`; A → "A"; \f → literal `\f`.
+        // \t -> literal `\t`; A -> "A"; \f -> literal `\f`.
         assert_eq!(v["file_path"], "D:\\testA\\foo");
     }
 
@@ -1900,7 +1900,7 @@ mod tests {
 
     #[test]
     fn repair_json_handles_multiple_braces_in_source_string() {
-        // edit_file old_string with nested `{ }` in source — common
+        // edit_file old_string with nested `{ }` in source -- common
         // for Rust/JS code. With unquoted-key + brace-balance both
         // fixed, the walker leaves the string alone and brace count
         // nets to zero from the envelope's perspective.
@@ -1950,8 +1950,8 @@ use std::sync::Arc;
 ///
 /// Kernel tools deserialize their arguments directly
 /// (`serde_json::from_str(&call.arguments)`), so any non-conforming JSON the
-/// model emits — trailing commas, single quotes, unescaped source-code quotes /
-/// newlines, markdown code fences, ambiguous Windows backslash paths — fails the
+/// model emits -- trailing commas, single quotes, unescaped source-code quotes /
+/// newlines, markdown code fences, ambiguous Windows backslash paths -- fails the
 /// *entire* tool call. Weaker models trip this constantly when writing files or
 /// editing code, which surfaces to the user as "write failed / nothing happens".
 ///
@@ -1960,11 +1960,11 @@ use std::sync::Arc;
 /// tolerance by rewriting `call.arguments` in [`before`](ToolMiddleware::before).
 ///
 /// **Register it FIRST** (ahead of any approval gate) so the bytes an approval
-/// gate sees are exactly the bytes that execute — the repaired, valid JSON. The
+/// gate sees are exactly the bytes that execute -- the repaired, valid JSON. The
 /// repair chain leaves already-valid JSON untouched EXCEPT an under-escaped
 /// Windows drive path in a `file_path`/`path` VALUE, which it intentionally
 /// rewrites (`{"file_path":"D:\test"}` is valid JSON that mis-decodes to
-/// `D:<TAB>est`) — `content`/`old_string` values are never rewritten. It returns
+/// `D:<TAB>est`) -- `content`/`old_string` values are never rewritten. It returns
 /// hopelessly broken input unchanged, so rewriting unconditionally is safe and
 /// never blocks: a
 /// non-repairable payload still reaches the tool, which surfaces the real parse
@@ -1998,7 +1998,7 @@ impl ToolMiddleware for RepairToolArgsMiddleware {
     ) -> BeforeOutcome {
         // Use the RESOLVED tool's canonical name, not the raw `call.name`, so the
         // edit_file extractor selection survives any future alias / case-insensitive
-        // tool resolution in the kernel — matching v1, which repaired with the
+        // tool resolution in the kernel -- matching v1, which repaired with the
         // corrected name.
         self.repair_call(tool.name(), &tool.parameters_schema(), call);
         BeforeOutcome::Proceed
@@ -2126,7 +2126,7 @@ mod hardening_tests {
 
     #[test]
     fn trailing_comma_run_collapses_correctly() {
-        // `{"k":[,,,...]}` (a botched list) used to remove one comma per pass → O(N^2).
+        // `{"k":[,,,...]}` (a botched list) used to remove one comma per pass -> O(N^2).
         let input = format!("{{\"k\":[{}]}}", ",".repeat(50_000));
         let out = repair_tool_args("write_file", &input);
         let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON after repair");
@@ -2138,7 +2138,7 @@ mod hardening_tests {
 
     #[test]
     fn missing_comma_run_inserts_correctly() {
-        // `{"k0":"v" "k1":"v" ...}` used to replay N× O(N) Vec::insert → O(N^2).
+        // `{"k0":"v" "k1":"v" ...}` used to replay Nx O(N) Vec::insert -> O(N^2).
         let n = 20_000;
         let mut s = String::from("{");
         for i in 0..n {
@@ -2166,7 +2166,7 @@ mod hardening_tests {
 
     #[test]
     fn edit_file_extractor_is_case_insensitive() {
-        // old_string carries an UNESCAPED double-quote — only the edit_file
+        // old_string carries an UNESCAPED double-quote -- only the edit_file
         // specialized extractor recovers this; repair_json cannot. A model that
         // emits the name as `Edit_File` must route identically to `edit_file`.
         let input = r#"{"file_path": "a.py", "old_string": "say "hi" now", "new_string": "x"}"#;
@@ -2181,12 +2181,12 @@ mod hardening_tests {
     }
 
     // --- #2 (key-scoping): valid non-path content with a drive-letter shape is
-    //     identity — the Windows-path pass no longer corrupts it. ---
+    //     identity -- the Windows-path pass no longer corrupts it. ---
 
     #[test]
     fn valid_content_with_drive_shape_is_identity() {
         // A valid `content` value containing a drive-label + newline (`C:\n`) must
-        // NOT be rewritten — `\n` is the model's intended newline, not a path
+        // NOT be rewritten -- `\n` is the model's intended newline, not a path
         // separator. Pre-key-scoping this doubled it to literal `\\n`, landing
         // broken code on disk.
         let input = r#"{"content":"print('C:\ndone')"}"#;

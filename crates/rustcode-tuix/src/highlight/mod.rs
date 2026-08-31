@@ -7,10 +7,10 @@
 // highlighting. The truecolor tints (purple keywords, blue function
 // names, sand type names, etc.) composited against macOS Terminal.app's
 // semi-transparent grey selection overlay to luminance values
-// indistinguishable from the overlay itself — selecting a code block
+// indistinguishable from the overlay itself -- selecting a code block
 // made most tokens invisible. Default fg survives the overlay because
-// the terminal flips it to a high-contrast counterpart. The fix —
-// drop per-token colour entirely — matches `opencode`'s TUI choice
+// the terminal flips it to a high-contrast counterpart. The fix --
+// drop per-token colour entirely -- matches `opencode`'s TUI choice
 // (`markdownCodeBlock: fg`) and is universal across emulators. See
 // git history for the removed syntect path if it ever needs reviving.
 
@@ -91,7 +91,7 @@ fn cjk_diagram_correction_columns(source: &str) -> HashSet<usize> {
             .any(|ch| matches!(ch, '┌' | '┐' | '└' | '┘' | '╭' | '╮' | '╰' | '╯'));
         has_arrow |= trimmed
             .chars()
-            .any(|ch| matches!(ch, '↑' | '↓' | '←' | '→' | '▲' | '▼' | '◀' | '▶'));
+            .any(|ch| matches!(ch, '↑' | '↓' | '←' | '>' | '▲' | '▼' | '◀' | '▶'));
     }
 
     if structural_lines < 3 || !(has_box_corner || pipe_rows >= 2 || has_arrow) {
@@ -179,7 +179,7 @@ fn is_diagram_structure(ch: char) -> bool {
                 | '↑'
                 | '↓'
                 | '←'
-                | '→'
+                | '>'
                 | '▲'
                 | '▼'
                 | '◀'
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn trailing_newline_preserved() {
-        // "a\n".split('\n') == ["a", ""] → "  a\n  ". Pins the per-line
+        // "a\n".split('\n') == ["a", ""] -> "  a\n  ". Pins the per-line
         // indent contract for stream-formed input where the close-fence
         // flush leaves a trailing newline.
         assert_eq!(highlight_block("a\n"), "  a\n  ");
@@ -297,10 +297,10 @@ mod tests {
     #[test]
     fn code_with_cjk_pipes_and_arrow_is_not_rewritten_without_drift_evidence() {
         let source =
-            "let rows = [\n    \"| 中文 → |\",\n    \"| English  |\",\n    \"| another  |\",\n];";
+            "let rows = [\n    \"| 中文 -> |\",\n    \"| English  |\",\n    \"| another  |\",\n];";
         assert_eq!(
             highlight_block(source),
-            "  let rows = [\n      \"| 中文 → |\",\n      \"| English  |\",\n      \"| another  |\",\n  ];"
+            "  let rows = [\n      \"| 中文 -> |\",\n      \"| English  |\",\n      \"| another  |\",\n  ];"
         );
     }
 

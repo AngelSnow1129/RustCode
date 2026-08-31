@@ -16,8 +16,8 @@ function testTranslatorFallsBackToEnglishAndInterpolatesValues() {
   const zh = createTranslator('zh-CN');
   const en = createTranslator('en-US');
 
-  assert.equal(zh('welcome.quick.intro'), '了解 AtomCode');
-  assert.equal(en('welcome.quick.intro'), 'Learn AtomCode');
+  assert.equal(zh('welcome.quick.intro'), '了解 RustCode');
+  assert.equal(en('welcome.quick.intro'), 'Learn RustCode');
   assert.equal(zh('setup.providersConfigured', { count: 3 }), '已配置 3 个 Provider');
   assert.equal(zh('mode.auto'), 'Auto');
   assert.equal(en('mode.auto'), 'Auto');

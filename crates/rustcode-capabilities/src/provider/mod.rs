@@ -2,21 +2,21 @@
 //!
 //! The kernel's [`LlmProvider`](rustcode_kernel::provider::LlmProvider) trait is the
 //! seam; these types implement it against real backends. Three adapters live here:
-//!   - [`OpenAiCompatProvider`] — the **OpenAI-compatible** chat/completions surface
+//!   - [`OpenAiCompatProvider`] -- the **OpenAI-compatible** chat/completions surface
 //!     (GLM / DeepSeek / any OpenAI-shaped endpoint);
-//!   - [`AnthropicProvider`] — the **Anthropic Messages API** (`/v1/messages`, Claude),
+//!   - [`AnthropicProvider`] -- the **Anthropic Messages API** (`/v1/messages`, Claude),
 //!     including the signed extended-thinking round-trip;
-//!   - [`OllamaProvider`] — the **Ollama native** `/api/chat` (local models, NDJSON).
+//!   - [`OllamaProvider`] -- the **Ollama native** `/api/chat` (local models, NDJSON).
 //!
 //! Division of labour (mechanism vs policy):
-//!   - the kernel owns the *mechanism* — neutral `Message`/`StreamEvent`/`ChatOptions`
+//!   - the kernel owns the *mechanism* -- neutral `Message`/`StreamEvent`/`ChatOptions`
 //!     and lossless `reasoning` storage;
-//!   - this adapter owns the *policy* — how each neutral knob maps onto the wire, how
+//!   - this adapter owns the *policy* -- how each neutral knob maps onto the wire, how
 //!     SSE deltas assemble into whole `ToolCall`s, and whether prior-turn reasoning is
 //!     echoed back ([`ReasoningPolicy`]).
 
 mod anthropic;
-mod atomgit_sign;
+mod codingplan_sign;
 mod error;
 mod ollama;
 mod openai_compat;
@@ -25,7 +25,7 @@ mod retry;
 mod sign;
 
 pub use anthropic::{AnthropicConfig, AnthropicProvider};
-pub use atomgit_sign::{atomgit_request_signer, is_atomgit_gateway, signer_available};
+pub use codingplan_sign::{codingplan_request_signer, is_codingplan_gateway, signer_available};
 pub use error::LlmError;
 pub use ollama::{OllamaConfig, OllamaProvider};
 pub use openai_compat::{
@@ -56,7 +56,7 @@ static WIRE_DUMP_SEQ: AtomicU64 = AtomicU64::new(0);
 ///
 /// This is the ADAPTER-level, provider-SPECIFIC counterpart to the neutral
 /// [`WireLogHooks`](crate::hooks::WireLogHooks) (which logs the kernel `Message` view, not
-/// these bytes). The kernel has NO byte seam by design — byte framing is intrinsically the
+/// these bytes). The kernel has NO byte seam by design -- byte framing is intrinsically the
 /// adapter's concern (each backend's JSON differs), so every adapter routes its built body
 /// through here. Ported from core's v1 `RUSTCODE_WIRE_DUMP` (same env + `wire-dump/` dir),
 /// but `config_dir()` honors `$RUSTCODE_HOME` (v1 used `$HOME`).
@@ -67,7 +67,7 @@ pub(crate) fn wire_dump_request(model: &str, body: &Value) {
     wire_dump_to(&crate::paths::config_dir().join("wire-dump"), model, body);
 }
 
-/// The pure writer behind [`wire_dump_request`] — `dir`-injected so it's testable without
+/// The pure writer behind [`wire_dump_request`] -- `dir`-injected so it's testable without
 /// mutating the process-global `$RUSTCODE_HOME`/`$RUSTCODE_WIRE_DUMP`. Best-effort.
 fn wire_dump_to(dir: &std::path::Path, model: &str, body: &Value) {
     if std::fs::create_dir_all(dir).is_err() {
@@ -99,12 +99,12 @@ fn wire_dump_to(dir: &std::path::Path, model: &str, body: &Value) {
 ///
 /// The kernel's neutral history can carry SEVERAL `Role::System` messages (persona +
 /// `memory.md` + any future capability), but many OpenAI-compatible models / chat
-/// templates accept only a SINGLE system message — extra ones are rejected outright or
+/// templates accept only a SINGLE system message -- extra ones are rejected outright or
 /// silently honor just the first (dropping memory). Both `role:"system"`-on-the-wire
 /// adapters use this helper so a model never sees more than one: OpenAI-compatible first
 /// lifts every System message into a leading block, while Ollama coalesces the leading
 /// contiguous run. (The Anthropic adapter instead lifts+joins all System messages into the
-/// top-level `system` field — same guarantee, different wire shape.)
+/// top-level `system` field -- same guarantee, different wire shape.)
 ///
 /// This helper itself coalesces CONSECUTIVE system entries only; callers that accept legacy
 /// late System messages must lift them before calling it. It is pure and deterministic, so
@@ -128,12 +128,12 @@ pub(crate) fn push_system_coalesced(out: &mut Vec<Value>, text: &str) {
 /// Map an HTTP error status to a plain-language headline so the TUI shows the
 /// *cause*, not a bare `HTTP 401:` (which, when the server returns an empty
 /// body, carried no hint at all). Shared by every provider protocol
-/// (openai-compat, Anthropic/Claude, ollama, …) so the wording stays consistent
+/// (openai-compat, Anthropic/Claude, ollama, ...) so the wording stays consistent
 /// regardless of which wire format hit the error.
 ///
 /// 401/402 get a headline, and for those the provider's raw `detail` is
-/// deliberately DROPPED — the headline already says it and this short form folds
-/// cleanly into the interrupted-turn summary (`✗ 已中断：账户余额不足（HTTP 402）`).
+/// deliberately DROPPED -- the headline already says it and this short form folds
+/// cleanly into the interrupted-turn summary (`[x] 已中断：账户余额不足（HTTP 402）`).
 /// One explicit CodingPlan entitlement rejection also gets an actionable `/login`
 /// hint. Other 403 responses stay raw because AtomGit reuses that status for
 /// session-concurrency conflicts and their structured reason must survive. 429

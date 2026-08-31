@@ -29,12 +29,12 @@ static OAUTH: RwLock<String> = RwLock::new(String::new());
 /// Settle the brand/OAuth display names from the loaded config. Called twice
 /// from `main`: once with a pre-scan value before clap `--help` (so localised
 /// help shows the distribution's brand), then again with the authoritative
-/// `Config` value after load — the second call OVERWRITES the first, so
+/// `Config` value after load -- the second call OVERWRITES the first, so
 /// `--config <custom>` / `--seed-config` paths surface the real brand, not
 /// the default-path pre-scan.
 ///
 /// A mid-session `/reload` DOES flip the brand (last write wins). This is
-/// intentional — the pre-scan is best-effort, the authoritative load must
+/// intentional -- the pre-scan is best-effort, the authoritative load must
 /// be able to correct it, and `/reload` is an explicit user action.
 pub fn set_brand(brand: &str, oauth: &str) {
     if let Ok(mut guard) = BRAND.write() {
@@ -60,7 +60,7 @@ fn oauth() -> String {
         .map(|g| g.clone())
         .ok()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "AtomGit OAuth".to_string())
+        .unwrap_or_else(|| "RustCode OAuth".to_string())
 }
 
 /// Replace `{brand}` and `{oauth}` placeholders in a rendered i18n string.
@@ -82,7 +82,7 @@ pub fn substitute_placeholders<'a>(raw: Cow<'a, str>) -> Cow<'a, str> {
 
 /// Translate a message using the current global locale.
 ///
-/// Returns a `Cow<'static, str>` — static for literal translations,
+/// Returns a `Cow<'static, str>` -- static for literal translations,
 /// owned for interpolated ones.
 pub fn t(msg: Msg<'_>) -> Cow<'static, str> {
     t_with(current_locale(), msg)
@@ -114,11 +114,11 @@ pub fn set_locale(locale: Locale) {
 /// Format a raw token count into a compact, scannable string for the
 /// inter-turn divider. Large totals (e.g. `3672812`) are hard to read at a
 /// glance, so we collapse them with `K` / `M` suffixes:
-///   `< 1_000`        → `942`        (verbatim)
-///   `>= 1_000`       → `3.67K`      (two decimals)
-///   `>= 1_000_000`   → `3.67M`      (two decimals)
+///   `< 1_000`        -> `942`        (verbatim)
+///   `>= 1_000`       -> `3.67K`      (two decimals)
+///   `>= 1_000_000`   -> `3.67M`      (two decimals)
 /// The caller appends the localised `tokens` word, so this returns only the
-/// numeric part. Unit-agnostic across locales — the digits read the same.
+/// numeric part. Unit-agnostic across locales -- the digits read the same.
 pub fn fmt_tokens(n: usize) -> String {
     if n >= 1_000_000 {
         format!("{:.2}M", n as f64 / 1_000_000.0)
@@ -226,8 +226,8 @@ pub fn resolve_initial_locale_with_env(
 
 fn classify_env_locale(value: &str) -> Locale {
     let lower = value.to_ascii_lowercase();
-    // All Chinese variants (zh_CN, zh_TW, zh_HK, …) map to ZhCn.
-    // zh_TW / zh_HK intentionally fall back — no separate Traditional variant yet.
+    // All Chinese variants (zh_CN, zh_TW, zh_HK, ...) map to ZhCn.
+    // zh_TW / zh_HK intentionally fall back -- no separate Traditional variant yet.
     if lower == "zh"
         || lower.starts_with("zh_")
         || lower.starts_with("zh-")
@@ -257,14 +257,14 @@ fn classify_env_locale(value: &str) -> Locale {
 ///   2. Captures `current_locale()` at construction.
 ///   3. Restores that captured locale in its own `Drop` (runs BEFORE
 ///      the inner MutexGuard's Drop, since fields drop in declaration
-///      order — so the next test sees the restored locale AND the
+///      order -- so the next test sees the restored locale AND the
 ///      lock is still held while restoration happens).
 pub fn test_lock() -> LocaleTestGuard {
     use std::sync::{Mutex, OnceLock};
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     // Recover from a poisoned mutex (a previous test panicked while
     // holding the guard). The locale value the panicking test wrote
-    // is irrelevant — we restore from `current_locale()` next, and
+    // is irrelevant -- we restore from `current_locale()` next, and
     // each test sets its own desired locale immediately after taking
     // the lock. Without this, one panicking test would cascade and
     // fail every subsequent locale-touching test with PoisonError.
@@ -283,7 +283,7 @@ pub fn test_lock() -> LocaleTestGuard {
 /// mutex AND restores the locale that was current at lock-acquire
 /// time. Field declaration order matters: `original` (with its
 /// `Drop` impl below) drops before `_guard`, so the locale is
-/// restored while the lock is still held — the next waiter never
+/// restored while the lock is still held -- the next waiter never
 /// sees a transient mixed state.
 pub struct LocaleTestGuard {
     original: Locale,
@@ -302,15 +302,15 @@ mod tests {
 
     #[test]
     fn fmt_tokens_scales_with_magnitude() {
-        // < 1_000 → verbatim, no suffix.
+        // < 1_000 -> verbatim, no suffix.
         assert_eq!(fmt_tokens(0), "0");
         assert_eq!(fmt_tokens(942), "942");
         assert_eq!(fmt_tokens(999), "999");
-        // >= 1_000 → K with two decimals.
+        // >= 1_000 -> K with two decimals.
         assert_eq!(fmt_tokens(1_000), "1.00K");
         assert_eq!(fmt_tokens(1_696), "1.70K");
         assert_eq!(fmt_tokens(999_999), "1000.00K");
-        // >= 1_000_000 → M with two decimals.
+        // >= 1_000_000 -> M with two decimals.
         assert_eq!(fmt_tokens(1_000_000), "1.00M");
         assert_eq!(fmt_tokens(3_672_812), "3.67M");
     }
@@ -372,7 +372,7 @@ mod tests {
                 cached_pct: Some(97),
             },
         );
-        assert!(with.contains("152.00K tokens · 97% cached"), "got: {with}");
+        assert!(with.contains("152.00K tokens . 97% cached"), "got: {with}");
         let without = t_with(
             Locale::En,
             Msg::TurnSummary {
@@ -417,8 +417,8 @@ mod tests {
     #[test]
     fn plugin_manager_empty_hints_advertise_esc() {
         // Regression: every plugin-manager screen advertises Esc-to-go-back in
-        // its hint, EXCEPT these empty-state hints once did not — so an empty
-        // list (e.g. /plugin → Installed with 0 plugins) looked frozen with no
+        // its hint, EXCEPT these empty-state hints once did not -- so an empty
+        // list (e.g. /plugin -> Installed with 0 plugins) looked frozen with no
         // visible way out. Keep the Esc affordance on the empty states too.
         fn has_esc(s: &str) -> bool {
             s.to_lowercase().contains("esc")
@@ -552,7 +552,7 @@ mod tests {
 
     #[test]
     fn compact_mark_drain_renders_numbers_and_arrow() {
-        // Locale-invariant assertion (numbers + the → arrow appear in both en & zh).
+        // Locale-invariant assertion (numbers + the -> arrow appear in both en & zh).
         let s = crate::i18n::t(crate::i18n::Msg::CompactMarkDrain {
             messages: 12,
             before: "48.2K",
@@ -563,7 +563,7 @@ mod tests {
             s.contains("48.2K") && s.contains("9.1K"),
             "token figures missing: {s}"
         );
-        assert!(s.contains('→'), "before→after arrow missing: {s}");
+        assert!(s.contains("->"), "before->after arrow missing: {s}");
         assert!(s.contains('~'), "estimate marker missing: {s}");
         assert!(s.contains("tok"), "token unit missing: {s}");
     }
@@ -573,7 +573,7 @@ mod tests {
         let s = crate::i18n::t(crate::i18n::Msg::CompactMarkStub { saved: "6.0K" });
         assert!(s.contains("6.0K"), "saved figure missing: {s}");
         assert!(
-            !s.contains('→'),
+            !s.contains("->"),
             "stub marker shows a single figure, no arrow: {s}"
         );
         assert!(s.contains("tok"), "token unit missing: {s}");
@@ -590,20 +590,20 @@ mod tests {
     fn format_compaction_mark_renders_stub_savings() {
         let s = format_compaction_mark(0, 42_900, 34_320);
 
-        assert!(s.contains("8.6K") && !s.contains('→'));
+        assert!(s.contains("8.6K") && !s.contains("->"));
     }
 
     #[test]
     fn format_compaction_noop_distinguishes_net_loss() {
         let s = format_compaction_noop(5_000, 7_500, true);
 
-        assert!(s.contains("5.0K") && s.contains("7.5K") && s.contains('→'));
+        assert!(s.contains("5.0K") && s.contains("7.5K") && s.contains("->"));
     }
 
     #[test]
     fn format_compaction_negligible_is_a_clean_no_op_without_success_wording() {
         // A manual /compact that only shaved a trivial amount gets a clean
-        // "no need to compact" line — NOT the "已折叠 · 节省" success mark, and NOT
+        // "no need to compact" line -- NOT the "已折叠 . 节省" success mark, and NOT
         // the misleading "conversation is short".
         let s = format_compaction_negligible();
 
@@ -738,11 +738,11 @@ mod tests {
 
         assert_eq!(
             t_with(Locale::En, Msg::ProviderPanelEmptyModels),
-            "(No models yet — press Ctrl+A to add one)"
+            "(No models yet -- press Ctrl+A to add one)"
         );
         assert_eq!(
             t_with(Locale::ZhCn, Msg::ProviderPanelEmptyModels),
-            "（尚无模型 — 按 Ctrl+A 添加）"
+            "（尚无模型 -- 按 Ctrl+A 添加）"
         );
 
         assert_eq!(
@@ -836,8 +836,8 @@ mod tests {
         let _g = test_lock();
         // `reload_plugins` runs immediately before this toast is rendered, so
         // the skills are already live. The old text said "Run /reload-plugins
-        // to apply" — a slash command that does not exist, asking for work
-        // that had already happened — while discarding all three counts.
+        // to apply" -- a slash command that does not exist, asking for work
+        // that had already happened -- while discarding all three counts.
         for locale in [Locale::En, Locale::ZhCn] {
             let msg = t_with(
                 locale,
@@ -885,7 +885,7 @@ mod tests {
     /// `{brand}` and `{oauth}` placeholders must render the settled names,
     /// not leak through verbatim. `set_brand` is idempotent (`OnceLock` keeps
     /// the first value), so this test's `set_brand("TestBrand", ...)` is a
-    /// no-op if an earlier test already settled — which is fine: the assert
+    /// no-op if an earlier test already settled -- which is fine: the assert
     /// then checks the upstream default `"RustCode"`, still proving the
     /// placeholder is replaced.
     #[test]
@@ -913,16 +913,16 @@ mod tests {
         );
 
         // Restore upstream default so no other test sees "TestBrand".
-        set_brand("RustCode", "AtomGit OAuth");
+        set_brand("RustCode", "RustCode OAuth");
     }
 
     /// When no `set_brand` has run, the fallback must be the upstream default
-    /// `"RustCode"` / `"AtomGit OAuth"`, so a fresh process renders the
+    /// `"RustCode"` / `"RustCode OAuth"`, so a fresh process renders the
     /// upstream brand, not a bare `{brand}` token.
     #[test]
     fn unset_brand_falls_back_to_upstream_default() {
         // Do NOT call set_brand here; rely on the OnceLock being unset OR
-        // holding a prior value. Either way the placeholder is replaced —
+        // holding a prior value. Either way the placeholder is replaced --
         // the point is that `{brand}` never leaks.
         let _g = test_lock();
         let en = t_with(Locale::En, Msg::OnboardingPanelTitle);
@@ -931,12 +931,12 @@ mod tests {
             "default fallback leaked placeholder: {en}"
         );
         // OnboardingPanelTitle is just the brand name, so the rendered value
-        // is whatever was settled (or "RustCode" default) — never the raw token.
+        // is whatever was settled (or "RustCode" default) -- never the raw token.
         assert!(!en.is_empty(), "OnboardingPanelTitle rendered empty");
     }
 
     /// `{oauth}` placeholder in login command descriptions is replaced with
-    /// the settled OAuth provider name (or upstream default `"AtomGit OAuth"`).
+    /// the settled OAuth provider name (or upstream default `"RustCode OAuth"`).
     #[test]
     fn oauth_placeholder_is_replaced() {
         let _g = test_lock();
@@ -954,7 +954,7 @@ mod tests {
     fn authoritative_set_brand_overrides_pre_scan() {
         let _g = test_lock();
         // Simulate the pre-scan (default config path sees "RustCode").
-        set_brand("RustCode", "AtomGit OAuth");
+        set_brand("RustCode", "RustCode OAuth");
         // Simulate the authoritative load from a custom config with "LongCode".
         set_brand("LongCode", "OA OAuth");
         let en = t_with(Locale::En, Msg::OnboardingPanelTitle);
@@ -963,7 +963,7 @@ mod tests {
             "authoritative brand did not override pre-scan: {en}"
         );
         // Restore upstream default so no other test sees "LongCode".
-        set_brand("RustCode", "AtomGit OAuth");
+        set_brand("RustCode", "RustCode OAuth");
     }
 
     /// A first-run scenario (no config file yet) must still render the upstream
@@ -985,6 +985,6 @@ mod tests {
             "first-run leaked placeholder: {en}"
         );
         // Restore upstream default.
-        set_brand("RustCode", "AtomGit OAuth");
+        set_brand("RustCode", "RustCode OAuth");
     }
 }

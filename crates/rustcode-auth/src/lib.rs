@@ -18,7 +18,7 @@ pub use oauth::*;
 /// User-Agent for this crate's OAuth HTTP requests. Kept identical to
 /// `rustcode_core::RUSTCODE_USER_AGENT` (both derive from the unified workspace
 /// `CARGO_PKG_VERSION`, so the string matches): lowercase `rustcode/<version>` is
-/// deliberate — the gateway UA filter hijacks capital-A `RustCode`. Held locally so this
+/// deliberate -- the gateway UA filter hijacks capital-A `RustCode`. Held locally so this
 /// leaf crate needs no `rustcode-core` dependency.
 pub const RUSTCODE_USER_AGENT: &str = concat!("rustcode/", env!("CARGO_PKG_VERSION"));
 
@@ -63,7 +63,7 @@ pub fn write_auth_file_secure(path: &Path, content: &str) -> Result<()> {
     {
         let parent = path
             .parent()
-            .context("Invalid auth file path — please use /login again")?;
+            .context("Invalid auth file path -- please use /login again")?;
         let mut temp = tempfile::NamedTempFile::new_in(parent).with_context(|| {
             format!("Failed to create temp auth file beside {}", path.display())
         })?;

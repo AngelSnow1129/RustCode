@@ -4,7 +4,7 @@
 
 **维护规则:文件内容变更时同步更新,不得滞后。** 若与代码冲突,以代码为准,先修正文档。
 
-`atomcode` 在本文件与 `docs/architecture.md` 中均为**历史名引用**,不代表现役 crate。现役 crate 一律 `rustcode-*`。
+`rustcode` 在本文件与 `docs/architecture.md` 中均为**历史名引用**,不代表现役 crate。现役 crate 一律 `rustcode-*`。
 
 ## 常用命令
 
@@ -51,7 +51,7 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 - **`CodingRuntime`**(`coding/src/runtime.rs`)是 coding agent 的唯一运行时所有者,对外暴露 `CodingRuntimeHandle`。Driver 通过 `DriverCommand` 驱动,读 `CodingRuntimeEvent`;不得自建第二套 live agent 生命周期。
 - 启动路径:CLI `spawn_native_cli_runtime`、ACP `spawn_native_runtime_for_session_deferred_with_preprocessor`、daemon `kernel_runtime::start_native_runtime*`,三者最终都落到 `CodingRuntime::start_with_session_lease` / `start_with_bootstrap`。**TUI 不自己启动 runtime**:外部把已启动的 `SpawnedRuntime` 传进 `tuix::run`。
 - kernel `Agent` + `AgentBuilder` / `AgentHandle` / `AgentCommand` / `AgentEvent` 是中立循环,不得承载 coding 产品语义。`rustcode-review` 是独立业务 agent,以 `code_review` 子 agent 工具挂进 coding。
-- 运行时领域术语(Live View、Runtime Generation、Session Transition、Tool Catalog Revision、Committed Snapshot、Replay Window)**以 `CONTEXT.md` 为准**(注意:该文件使用旧 `AtomCode` 命名,但术语定义仍有效),其中 `_Avoid_` 条目是硬性命名约束。
+- 运行时领域术语(Live View、Runtime Generation、Session Transition、Tool Catalog Revision、Committed Snapshot、Replay Window)**以 `CONTEXT.md` 为准**(注意:该文件使用旧 `RustCode` 命名,但术语定义仍有效),其中 `_Avoid_` 条目是硬性命名约束。
 
 ## Fork 重构目标与完成状态
 
@@ -64,7 +64,7 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 重命名的事实源集中在两个文件(改这两处即可带动大部分):
 `rustcode-config/src/distribution.rs`(`HOME_ENV` / `HOME_DIR_NAME` / 端口 `13456,13457,13458` / `PROCESS_NAMES` / `RELEASE_ASSET_PREFIX` 等)与 `rustcode-config/src/endpoints.rs`(11 个 `RUSTCODE_*` 环境变量名 + 4 个托管端点)。
 
-**[CHECK] `rustcode` 是已锁定的产品身份**(决策 D1,见 `docs/REFACTOR_DESIGN_PHASE1.md` §2.0),不是中间态;不要再次改名。O1 剩余工作只有 `extensions/` / `site/` / `docs/architecture.md` 的旧 `atomcode` 前缀收尾。
+**[CHECK] `rustcode` 是已锁定的产品身份**(决策 D1,见 `docs/REFACTOR_DESIGN_PHASE1.md` §2.0),不是中间态;不要再次改名。O1 剩余工作只有 `extensions/` / `site/` / `docs/architecture.md` 的旧 `rustcode` 前缀收尾。
 
 ### [OBJECTIVE-2] 零遥测 — [DONE, 仅文档口径残留]
 
@@ -74,23 +74,20 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 
 **[CHECK] 客户端身份现状(不得误删)**:daemon 的 `ClientMode`(`daemon/src/client_mode.rs`)是本地分支逻辑,不是遥测;`RepoOrigin` / `detect_repo_origin` 已迁至 `rustcode-config/src/session_mode.rs`(纯字符串解析,无网络)。
 
-### [OBJECTIVE-3] LLM Provider 解耦 — [DONE, 有缺口]
+### [OBJECTIVE-3] LLM Provider 解耦 — [DONE, 平台中立]
 
 - 统一 trait `LlmProvider`(`kernel/src/provider.rs`),`async_trait`,唯一方法是 `chat_stream` -> `BoxStream<'static, StreamEvent>`。
 - 三个适配器在 `capabilities/src/provider/`:`anthropic.rs`、`openai_compat.rs`、`ollama.rs`。
 - 工厂是 **trait** `CodingProviderFactory`(`coding/src/provider_factory.rs:74`),默认实现按 `provider_type` 分发。ACP / daemon / clix 都通过它注入。
 - 配置(`config/src/config/provider.rs`)已支持:`base_url`、`api_key`(支持 `$VAR` / `${VAR}` / `${VAR:-default}` 展开)、`extra_headers`、`proxy`、`skip_tls_verify`、`retry_max_attempts`、`thinking_*` / `reasoning_*` 系列等。
-- AtomGit 网关签名由 `is_atomgit_gateway(base_url)` 门控:仅 `atomgit`/`relay` host 走上游签名器,其余用 `bearer_auth(api_key)`。
-
-已知缺口:
-- `ProviderConfig` 已有 `timeout: Option<ProviderTimeout>` 字段(`config/src/config/provider.rs:114`),支持 `connect`/`stream`/`idle` 三级超时(秒)。
+- **平台中立**:默认不绑定任何平台。`is_codingplan_llm_gateway` 不再硬编码 host,仅当操作者显式配置 `RUSTCODE_CODINGPLAN_LLM_BASE_URL` 时才识别为签名网关;否则所有 provider 走纯 `bearer_auth(api_key)`。`/login` 在无 `RUSTCODE_PLATFORM_SERVER` 时提示用户直接配置 provider。AtomGit REST 工具(`atomgit_repo/pr/issue`)由 `atomgit` Cargo feature 门控,默认成员不启用。
 - 强类型错误分类器已就位:`capabilities/src/provider/error.rs` 的 `LlmError`(thiserror,`retryable()` 单点判定);**新代码必须经 `LlmError` 转换,存量按 `docs/phase1-refactor-design.md` 第 3 节渐进迁移**。
 
 **[ERROR] 禁止在 kernel 之上再叠第二套 `LlmClient` trait。** 解耦落点是**配置 + 装配 + 错误映射**,即复用既有 `CodingProviderFactory` 与 `reassemble_provider` 热切换命令。
 
 ### [OBJECTIVE-4] License 与合规 — [DONE]
 
-根 `LICENSE` 为 MIT,双版权行 `Copyright (c) 2026 Yubang Xu` + `Copyright (c) 2026 The rustcode authors (fork of atomcode)`。新模块头部只追加本 fork 声明,**不得覆盖或删除任何既有版权行**。
+根 `LICENSE` 为 MIT,双版权行 `Copyright (c) 2026 Yubang Xu` + `Copyright (c) 2026 The rustcode authors (fork of rustcode)`。新模块头部只追加本 fork 声明,**不得覆盖或删除任何既有版权行**。
 
 ## 当前架构事实
 
@@ -111,7 +108,7 @@ CLI / TUI / daemon / background / ACP / clix code
 
 - `CodingRuntime` 是 coding agent 运行时所有者;driver 不应重建第二套 live agent 生命周期。
 - kernel `AgentCommand/AgentEvent` 是运行时执行边界。coding 产品 driver 用 `CodingRuntime`;其他业务 driver 可驱动其 L2 已装配的 kernel agent,但不得另建第二生命周期 owner。
-- 上游 core legacy `AgentClient`/v1 engine/`atomcode-bridge` 已退役;生产代码不得重建同名兼容层。历史 core JSON 只由 daemon 私有 DTO 单向导入。
+- 上游 core legacy `AgentClient`/v1 engine/`rustcode-bridge` 已退役;生产代码不得重建同名兼容层。历史 core JSON 只由 daemon 私有 DTO 单向导入。
 - `rustcode-kernel`/`rustcode-capabilities`/`rustcode-coding` 生产依赖必须保持 core-free。
 - native `SessionManager/SessionMeta/SessionSnapshot/PresentationFile` 是唯一 session 持久化模型。
 
@@ -136,7 +133,7 @@ CLI / TUI / daemon / background / ACP / clix code
 
 ## 历史兼容面维护
 
-`atomcode-core` 已退役;后续兼容只允许围绕仍保留的单向 importer 与明确 wire DTO:
+`rustcode-core` 已退役;后续兼容只允许围绕仍保留的单向 importer 与明确 wire DTO:
 
 1. 明确当前数据/状态的唯一 owner;
 2. 找全持久化格式与兼容入口;
@@ -179,9 +176,9 @@ G3  cargo test --workspace
 G4  ./scripts/test-headless.sh                    (需先 cargo build)
 G5  python3 scripts/acp_smoke.py
 G6  grep -ri "sentry|posthog|segment|analytics" --include=*.rs --include=*.toml   必须 0 命中
-G7  grep -rn "atomcode" crates/ scripts/ .github/   0 命中(描述已退役 core 的
+G7  grep -rn "rustcode" crates/ scripts/ .github/   0 命中(描述已退役 core 的
     历史注释除外,须逐条人工确认确属历史名)
-G8  grep -rn "atomcode" docs/architecture.md   0 命中(描述已退役 core 的历史
+G8  grep -rn "rustcode" docs/architecture.md   0 命中(描述已退役 core 的历史
     小节除外;AGENTS.md 本身保留重命名映射表与历史名引用,不参与此门禁)
 ```
 
@@ -193,13 +190,13 @@ G8  grep -rn "atomcode" docs/architecture.md   0 命中(描述已退役 core 的
 - `cargo clippy` 仍有 per-crate warnings(未用变量、命名),非 errors;可择机 `cargo clippy --fix` 收敛。
 - **[WARN] `mcp::registry::tests::trust_key_golden_matches_core_algorithm` 当前是红的**:`project_trust_key` 用 `std::collections::hash_map::DefaultHasher`,输出不保证跨工具链稳定。不要随手改测试去凑绿。
 - `ProviderConfig` / `ModelProfileConfig` 新增了**非 Option** 的 `model_mapping: ModelMapping`(空表即恒等映射),是**必填字段**。新增结构体字面量时必须显式给 `ModelMapping::default()`。
-- `docs/architecture.md` 正文已改为 `rustcode-*` 命名;残留的 `atomcode` 字样仅在描述已退役 `atomcode-core` 的历史小节中(合法的历史名引用)。
+- `docs/architecture.md` 正文已改为 `rustcode-*` 命名;残留的 `rustcode` 字样仅在描述已退役 `rustcode-core` 的历史小节中(合法的历史名引用)。
 - **[CHECK] 产品身份已锁定为 `rustcode`**(见 `docs/REFACTOR_DESIGN_PHASE1.md` §2.0 决策 D1),并已在 commit `6dbf57bb` 落地。不要再提议或先行改名。
 
 ## 高信号文档索引
 
 - **`docs/phase1-refactor-design.md`** — PHASE-1 方案与 PHASE-2 缺口(设计决策、已知失败、缺陷清单)
-- **`docs/CONTEXT.md`** — 运行时领域术语定义(注意:旧 `AtomCode` 命名,但术语有效)
+- **`docs/CONTEXT.md`** — 运行时领域术语定义(注意:旧 `RustCode` 命名,但术语有效)
 - **`docs/architecture.md`** — 架构描述(已更新为 `rustcode-*` 命名)
 - **`docs/REFACTOR_DESIGN_PHASE1.md`** — 重命名前的基线设计(历史决策记录)
 - **`rustcode-config/src/distribution.rs`** — 重命名事实源(HOME_ENV / 端口 / 进程名)

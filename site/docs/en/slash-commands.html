@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -84,7 +84,7 @@
           <tr><th>Command</th><th>Purpose</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/login</code></td><td><strong>Recommended</strong> — one command runs AtomGit OAuth + claims CodingPlan free tokens + auto-configures a provider from the granted model list. The lowest-friction entry point for first-time users; re-running after you're already signed in idempotently re-syncs the model list. <em>As of v4.25.0 <code>/codingplan</code> has been folded into <code>/login</code>; the standalone entry has been removed</em></td></tr>
+          <tr><td><code>/login</code></td><td><strong>Recommended</strong> — one command runs OAuth + claims CodingPlan free tokens + auto-configures a provider from the granted model list. The lowest-friction entry point for first-time users; re-running after you're already signed in idempotently re-syncs the model list. <em>As of v4.25.0 <code>/codingplan</code> has been folded into <code>/login</code>; the standalone entry has been removed</em></td></tr>
           <tr><td><code>/resume</code></td><td>Open the session picker to restore any previously persisted session (messages, directory, and model state)</td></tr>
           <tr><td><code>/session</code></td><td>Start a fresh, clean session</td></tr>
           <tr><td><code>/bg</code></td><td>Send the current session to the background and open a new foreground; subcommands: <code>/bg list</code>, <code>/bg &lt;N&gt;</code>, <code>/bg drop &lt;N&gt;</code>, <code>/bg help</code>. See <a href="./sessions.html#bg">Background sessions</a></td></tr>
@@ -122,8 +122,8 @@
       </table>
 
       <div class="callout callout-info">
-        <strong>AtomGit Issues are tools, not slash commands</strong>
-        <p><code>/issue</code> has been removed. After <code>/login</code>, ask in natural language—for example, “Create an AtomGit issue for this bug.” RustCode will select the built-in <code>atomgit_issue</code> tool; write actions still require approval. See <a href="./tools.html#atomgit">Built-in Tools</a>.</p>
+        <strong>平台 Issues are tools, not slash commands</strong>
+        <p><code>/issue</code> has been removed. After <code>/login</code>, ask in natural language—for example, “Create an 平台 issue for this bug.” RustCode will select the built-in <code>platform_issue</code> tool; write actions still require approval. See <a href="./tools.html#platform">Built-in Tools</a>.</p>
       </div>
 
       <div class="callout callout-info">
@@ -181,7 +181,7 @@
       </table>
       <p>See <a href="./skills.html">Skills</a> and <a href="./plugins.html">Plugin System</a> for details.</p>
       <p>Plugins can register their own slash commands. For example, the official channel plugin adds <code>/wechat</code> (shows the RustCode WeChat community group QR code):</p>
-      <pre><code>/plugin marketplace add https://atomgit.com/atomgit_rustcode/RustCode-Channel
+      <pre><code>/plugin marketplace add https://gitcode.com/SecLab/RustCode-Channel
 /plugin install weixin@rustcode-channel</code></pre>
 
       <h2 id="mcp-integration">MCP integration</h2>
@@ -221,13 +221,13 @@
         </thead>
         <tbody>
           <tr><td><code>/status</code></td><td>Show login status, current provider, model, context budget, CodingPlan usage and reset time</td></tr>
-          <tr><td><code>/whoami</code></td><td>Show the username / email of the current AtomGit-logged-in user</td></tr>
+          <tr><td><code>/whoami</code></td><td>Show the username / email of the current 平台-logged-in user</td></tr>
           <tr><td><code>/config</code></td><td>Show the path of <code>~/.rustcode/config.toml</code></td></tr>
           <tr><td><code>/reload</code></td><td>Hot-reload <code>~/.rustcode/config.toml</code> from disk — external edits (or changes from another terminal's <code>/login</code>) take effect without restarting rustcode</td></tr>
           <tr><td><code>/proxy</code></td><td>Switch outbound proxy mode: follow the system proxy (default) / force a specific proxy / connect directly with no proxy. For corporate proxy networks or when you need to force a proxy or force a direct connection; the choice is written back to config</td></tr>
           <tr><td><code>/language</code></td><td>Switch UI language: auto-detect (<code>LC_ALL</code> / <code>LANG</code>), English, or Simplified Chinese. Takes effect immediately and is written back to <code>~/.rustcode/config.toml</code></td></tr>
           <tr><td><code>/welcome</code></td><td>Re-open the 3-step first-run wizard (welcome → language → setup). Non-empty sessions are confirmed with a <code>y/N</code> before clearing the screen. Both language and default onboarding path can be revisited here</td></tr>
-          <tr><td><code>/logout</code></td><td>Clear the AtomGit OAuth token</td></tr>
+          <tr><td><code>/logout</code></td><td>Clear the OAuth token</td></tr>
           <tr><td><code>/upgrade</code></td><td>Auto-upgrade to the latest version; <code>/upgrade rollback</code> reverts to the previous version</td></tr>
           <tr><td><code>/guide</code></td><td>Built-in onboarding guide: <code>/guide</code> lists topics you can ask about (quickstart, switch model, MCP, Skills, memory, background tasks, context, keybindings, config); <code>/guide &lt;topic&gt;</code> explains it right in the chat (first run auto-installs the <code>rustcode-skills</code> plugin)</td></tr>
           <tr><td><code>/help</code></td><td>List every available slash command</td></tr>
@@ -250,15 +250,15 @@
       <pre><code>&gt; /login
   ✔ Logged in as alice (alice, alice@example.com)
   ✔ CodingPlan claimed — CodingPlan Lite · expires 2026-05-22 (29d / 30d)
-  ✔ 3 models registered as AtomGit-* providers
-  ✔ Default provider set to AtomGit-GLM
+  ✔ 3 models registered as 平台-* providers
+  ✔ Default provider set to 平台-GLM
 &gt; hello</code></pre>
 
       <h3 id="check-token-usage-before-wrapping-up">Check token usage before wrapping up</h3>
       <pre><code>&gt; refactor src/db to use a connection pool
 ... (AI works)
 &gt; /cost
-AtomGit · deepseek-v4-flash
+平台 · deepseek-v4-flash
   Prompt tokens:     7210
   Completion tokens: 1132
   Cached tokens:     5080 (70% hit rate)
@@ -285,7 +285,7 @@ Rolled back to turn 3 of 3.
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://atomgit.com/atomgit_rustcode/rustcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
     </footer>
   </main>
 </div>

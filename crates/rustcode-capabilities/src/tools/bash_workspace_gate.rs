@@ -1,4 +1,4 @@
-//! `BashWorkspaceGate` — workspace-aware approval for DESTRUCTIVE bash commands whose target
+//! `BashWorkspaceGate` -- workspace-aware approval for DESTRUCTIVE bash commands whose target
 //! lands OUTSIDE the workspace, mirroring [`WriteApprovalGate`](super::write_approval) for the
 //! file-mutation tools.
 //!
@@ -6,7 +6,7 @@
 //!
 //! `BashTool::risk()` classifies purely by COMMAND PATTERN: a `rm` is `Risky` only when
 //! RECURSIVE (`rm -r`). A single-file `rm <path>` is `Safe`, and `Safe` tools bypass
-//! [`ApprovalMiddleware`](super::approval::ApprovalMiddleware) in EVERY mode — so
+//! [`ApprovalMiddleware`](super::approval::ApprovalMiddleware) in EVERY mode -- so
 //! `rm ~/Downloads/x.txt` (a delete OUTSIDE the workspace) runs with no prompt. Claude Code
 //! prompts for out-of-workspace access even while auto-accepting edits, offering a
 //! per-directory "always allow". This gate restores that: a destructive bash op targeting a
@@ -17,7 +17,7 @@
 //! | bash target | behavior |
 //! |---|---|
 //! | not a destructive command | `Proceed` (defer to the normal risk flow) |
-//! | destructive, all targets IN workspace | `Proceed` (unchanged: single-file rm stays Safe→runs; recursive rm still Risky→ApprovalMiddleware) |
+//! | destructive, all targets IN workspace | `Proceed` (unchanged: single-file rm stays Safe->runs; recursive rm still Risky->ApprovalMiddleware) |
 //! | destructive, target is SENSITIVE (any location) | prompt EVERY time, never remembered |
 //! | destructive, target OUT of workspace | prompt; "Always" grants PER canonical directory |
 //! | destructive but targets UNRESOLVABLE (`cd`-then-relative, `$()`, unexpanded `$var`, no clean target) | prompt EVERY time, never remembered (fail-closed) |
@@ -51,20 +51,20 @@ use super::resolve_path;
 use super::sensitive_path::path_is_sensitive;
 use super::write_approval::{canonical_dir_key, path_in_temp_dir, path_in_workspace};
 
-/// A token that contains an unexpanded shell expansion (`$var`, `$(...)`, backtick) whose value —
-/// and thus whether it escapes the workspace — cannot be known statically.
+/// A token that contains an unexpanded shell expansion (`$var`, `$(...)`, backtick) whose value --
+/// and thus whether it escapes the workspace -- cannot be known statically.
 fn has_dynamic_token(t: &str) -> bool {
     t.contains('$') || t.contains('`')
 }
 
 /// Filesystem-destructive commands that take a path operand. `dd` writes only its `of=` operand;
-/// `cp` writes only its LAST (dest) operand — both handled specially in [`extract_targets`].
+/// `cp` writes only its LAST (dest) operand -- both handled specially in [`extract_targets`].
 const DESTRUCTIVE_CMDS: &[&str] = &[
     "rm", "rmdir", "unlink", "mv", "cp", "shred", "truncate", "dd",
 ];
 
 /// Leading wrapper commands to skip when finding a segment's effective command. Conservative:
-/// unknown wrappers just mean we don't recognize the destructive command (→ `Proceed`, and
+/// unknown wrappers just mean we don't recognize the destructive command (-> `Proceed`, and
 /// `ApprovalMiddleware` still catches the wrapped-Risky forms like `sudo`).
 const WRAPPERS: &[&str] = &[
     "sudo", "doas", "env", "timeout", "nice", "ionice", "stdbuf", "time", "command", "builtin",
@@ -76,8 +76,8 @@ fn is_noop_redirect_target(t: &str) -> bool {
 }
 
 /// A destructive/redirect TARGET whose location does NOT depend on the cwd: an absolute path
-/// (`/…`) or a `~`-home path. A preceding `cd` cannot move such a target, so it stays statically
-/// classifiable even when the same command also runs a `cd` — only RELATIVE targets are made
+/// (`/...`) or a `~`-home path. A preceding `cd` cannot move such a target, so it stays statically
+/// classifiable even when the same command also runs a `cd` -- only RELATIVE targets are made
 /// ambiguous by a `cd` (see [`scan_destructive_bash`]).
 fn target_is_cwd_independent(t: &str) -> bool {
     let t = strip_quotes(t.trim());
@@ -87,11 +87,11 @@ fn target_is_cwd_independent(t: &str) -> bool {
 /// Result of statically scanning a bash command line for filesystem-destructive operations.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum BashScan {
-    /// No destructive command / redirect found — not our concern.
+    /// No destructive command / redirect found -- not our concern.
     NotDestructive,
     /// Destructive op(s) with confidently-extracted, non-empty target path strings.
     Targets(Vec<String>),
-    /// A destructive op is present but its target(s) cannot be resolved statically — fail closed.
+    /// A destructive op is present but its target(s) cannot be resolved statically -- fail closed.
     Unresolvable,
 }
 
@@ -120,7 +120,7 @@ fn strip_quotes(t: &str) -> &str {
 
 /// Quote-aware split of a command line into pipeline/list segments on unquoted `; && || | \n`.
 /// A `|` immediately following an unquoted `>` is the noclobber-override redirect `>|`, NOT a
-/// pipeline separator — it is dropped so the redirect target stays in the same segment.
+/// pipeline separator -- it is dropped so the redirect target stays in the same segment.
 fn split_segments(cmd: &str) -> Vec<String> {
     let chars: Vec<char> = cmd.chars().collect();
     let mut segs = Vec::new();
@@ -179,7 +179,7 @@ fn split_segments(cmd: &str) -> Vec<String> {
                 i += 2;
             }
             '|' if prev_nonspace == Some('>') => {
-                // `>|` — noclobber-override write; the `|` belongs to the redirect, not a pipe.
+                // `>|` -- noclobber-override write; the `|` belongs to the redirect, not a pipe.
                 prev_nonspace = Some('|');
                 i += 1;
             }
@@ -287,7 +287,7 @@ fn tokenize(seg: &str) -> Vec<String> {
 }
 
 /// File targets written by `>`/`>>` redirects in a token stream (fd dups / `/dev/null` skipped).
-/// Returns `Err(())` if a redirect target is an unexpanded `$var` (→ unresolvable).
+/// Returns `Err(())` if a redirect target is an unexpanded `$var` (-> unresolvable).
 fn redirect_targets(toks: &[String]) -> Result<Vec<String>, ()> {
     let mut out = Vec::new();
     // `>` is an operator inside `[[ ... ]]` and `(( ... ))`, but a redirect after the closing
@@ -368,7 +368,7 @@ fn effective_command_index(toks: &[String]) -> Option<usize> {
         if WRAPPERS.contains(&b) {
             i += 1;
             // `timeout`/`stdbuf` take a mandatory operand (the duration / buffer spec) that is
-            // not the command — skip one non-flag token so it isn't mistaken for the command.
+            // not the command -- skip one non-flag token so it isn't mistaken for the command.
             if matches!(b, "timeout" | "stdbuf" | "ionice") {
                 while i < toks.len() && (toks[i].starts_with('-') || toks[i].contains('=')) {
                     i += 1;
@@ -448,7 +448,7 @@ fn parse_path_operands(args: &[String]) -> Option<(Vec<String>, Option<String>)>
 
 /// Extract the destructive target paths from a recognized command's args (the tokens AFTER the
 /// command). `Some(vec![])` = recognized but writes no file path (e.g. `dd` without `of=`,
-/// `rm` with only flags) → treat as non-destructive. `None` = destructive but a target is
+/// `rm` with only flags) -> treat as non-destructive. `None` = destructive but a target is
 /// unresolvable (unexpanded `$var`/`$(...)`/backtick).
 fn extract_targets(cmd: &str, args: &[String]) -> Option<Vec<String>> {
     if cmd == "dd" {
@@ -466,7 +466,7 @@ fn extract_targets(cmd: &str, args: &[String]) -> Option<Vec<String>> {
                 });
             }
         }
-        return Some(vec![]); // no of= → writes stdout, not a file
+        return Some(vec![]); // no of= -> writes stdout, not a file
     }
 
     let (positionals, target_dir) = parse_path_operands(args)?;
@@ -494,13 +494,13 @@ fn extract_targets(cmd: &str, args: &[String]) -> Option<Vec<String>> {
 
 /// The COMMAND word, normalized for classification: path basename, quotes stripped, and a leading
 /// `\` removed. Bash's `\cmd` bypasses aliases/functions but still runs the REAL command, so
-/// `\rm` / `\mv` must be gated exactly like `rm` / `mv` — without this strip they'd be classified
+/// `\rm` / `\mv` must be gated exactly like `rm` / `mv` -- without this strip they'd be classified
 /// as an unknown command and slip through as non-destructive.
 fn command_word(tok: &str) -> &str {
     base(strip_quotes(tok)).trim_start_matches('\\')
 }
 
-/// True when any pipeline/list segment of `command` invokes `git <subcommand>` — i.e. the
+/// True when any pipeline/list segment of `command` invokes `git <subcommand>` -- i.e. the
 /// segment's effective command (after leading env-assignments and wrappers like
 /// `env`/`sudo`/`timeout`) is `git` and its subcommand equals `subcommand`.
 ///
@@ -561,13 +561,13 @@ fn git_subcommand(args: &[String]) -> Option<&str> {
     None
 }
 
-/// For each `mv` in the line, the `(source, dest)` pairs it performs — `mv A B C DEST`
-/// (or `mv -t DEST A B C`) → `[(A,DEST), (B,DEST), (C,DEST)]`.
+/// For each `mv` in the line, the `(source, dest)` pairs it performs -- `mv A B C DEST`
+/// (or `mv -t DEST A B C`) -> `[(A,DEST), (B,DEST), (C,DEST)]`.
 ///
 /// Used to catch a MOVE that removes an in-workspace file by relocating it OUT of the workspace
 /// (temp included). The target-location check alone misses this: `mv ws_file /tmp/x` has a
 /// temp/absolute dest that counts as an acceptable WRITE location, yet the SOURCE has left the
-/// workspace — an equivalent delete. `cp` is excluded: it copies, so the source stays put.
+/// workspace -- an equivalent delete. `cp` is excluded: it copies, so the source stays put.
 /// Sources/dests with a dynamic token are already fail-closed by `scan_destructive_bash`.
 pub(crate) fn mv_moves(command: &str) -> Vec<(String, String)> {
     let joined = command.replace("\\\r\n", "").replace("\\\n", "");
@@ -584,9 +584,9 @@ pub(crate) fn mv_moves(command: &str) -> Vec<(String, String)> {
             continue;
         };
         let (sources, dest) = match target_dir {
-            // `mv -t DEST A B` — every positional is a source; DEST is the destination dir.
+            // `mv -t DEST A B` -- every positional is a source; DEST is the destination dir.
             Some(d) => (positionals, d),
-            // `mv A B ... DEST` — last positional is the destination, the rest are sources.
+            // `mv A B ... DEST` -- last positional is the destination, the rest are sources.
             None if positionals.len() >= 2 => {
                 let dest = positionals[positionals.len() - 1].clone();
                 (positionals[..positionals.len() - 1].to_vec(), dest)
@@ -631,13 +631,13 @@ pub(crate) fn scan_destructive_bash(command: &str) -> BashScan {
             let effcmd = effcmd.unwrap();
             // A `cd` moves the resolution base for later RELATIVE paths. Record it and fail
             // closed only if a cwd-DEPENDENT (relative) target is actually present (checked after
-            // the scan) — an absolute / `~` target lands the same place regardless of the cd, so
+            // the scan) -- an absolute / `~` target lands the same place regardless of the cd, so
             // it stays classifiable (e.g. `cd ws && cargo build > /tmp/log` is not ambiguous).
             if effcmd == "cd" {
                 saw_cd = true;
             } else if DESTRUCTIVE_CMDS.contains(&effcmd) {
                 match extract_targets(effcmd, &toks[ci + 1..]) {
-                    Some(ts) if ts.is_empty() => {} // recognized but writes no path → not destructive
+                    Some(ts) if ts.is_empty() => {} // recognized but writes no path -> not destructive
                     Some(mut ts) => {
                         any_destructive = true;
                         targets.append(&mut ts);
@@ -670,7 +670,7 @@ pub(crate) fn scan_destructive_bash(command: &str) -> BashScan {
 /// cwd handle).
 pub struct BashWorkspaceGate {
     store: Arc<dyn PermissionStore>,
-    /// LIVE working dir — the same handle the kernel reads per call, so a `/cd` moves the
+    /// LIVE working dir -- the same handle the kernel reads per call, so a `/cd` moves the
     /// in-workspace boundary with it. Grant keys are canonicalized to ABSOLUTE paths, so a
     /// remembered out-of-workspace grant survives a `/cd`.
     cwd: Arc<RwLock<PathBuf>>,
@@ -718,7 +718,7 @@ impl BashWorkspaceGate {
         PermissionDecision::from_value(&rt.request(&self.kind, payload).await)
     }
 
-    /// Prompt and NEVER remember it — every call re-prompts (used for sensitive targets and for
+    /// Prompt and NEVER remember it -- every call re-prompts (used for sensitive targets and for
     /// unresolvable destructive commands). Both allow-once and allow-always proceed without storing.
     async fn prompt_unremembered(
         &self,
@@ -751,7 +751,7 @@ impl ToolMiddleware for BashWorkspaceGate {
             return BeforeOutcome::Proceed; // not ours
         }
         let Some(command) = bash_command(&call.arguments) else {
-            return BeforeOutcome::Proceed; // unparseable args — bash tool / risk flow handles it
+            return BeforeOutcome::Proceed; // unparseable args -- bash tool / risk flow handles it
         };
 
         let targets = match scan_destructive_bash(&command) {
@@ -760,7 +760,7 @@ impl ToolMiddleware for BashWorkspaceGate {
             BashScan::Targets(t) => t,
         };
 
-        // Snapshot the live cwd (clone in one statement so the guard isn't held across an await —
+        // Snapshot the live cwd (clone in one statement so the guard isn't held across an await --
         // the future must stay Send). A poisoned lock means we can't resolve relative targets:
         // still block an ABSOLUTE sensitive target; otherwise defer.
         let cwd = match self.cwd.read().ok().map(|g| g.clone()) {
@@ -774,7 +774,7 @@ impl ToolMiddleware for BashWorkspaceGate {
             }
         };
 
-        // Sensitive TARGET → prompt EVERY time, never remembered (mirror WriteApprovalGate).
+        // Sensitive TARGET -> prompt EVERY time, never remembered (mirror WriteApprovalGate).
         // Classified on the resolved target (not a substring of the whole command) so a benign
         // command that merely MENTIONS a secret name (`echo id_rsa >> ./notes.txt`) isn't blocked.
         if targets
@@ -784,10 +784,10 @@ impl ToolMiddleware for BashWorkspaceGate {
             return self.prompt_unremembered(call, tool, rt).await;
         }
 
-        // Classification canonicalizes paths (filesystem I/O) — run OFF the async worker, bounded,
+        // Classification canonicalizes paths (filesystem I/O) -- run OFF the async worker, bounded,
         // so a hung mount can't freeze the kernel's turn loop (Esc/Ctrl-C stay live). On timeout we
-        // degrade to "not in workspace" → a normal prompt (safe, never hangs).
-        // `mv` (source, dest) pairs — for the "moved OUT of the workspace = deleted" check below.
+        // degrade to "not in workspace" -> a normal prompt (safe, never hangs).
+        // `mv` (source, dest) pairs -- for the "moved OUT of the workspace = deleted" check below.
         let mv_pairs = mv_moves(&command);
         let (all_in_workspace, out_keys) = {
             let targets = targets.clone();
@@ -795,7 +795,7 @@ impl ToolMiddleware for BashWorkspaceGate {
             let cwd = cwd.clone();
             let fallback = (false, Vec::<String>::new());
             super::run_bounded(super::GATE_FS_TIMEOUT, fallback, move || {
-                // Written/deleted TARGETS that land OUTSIDE the workspace (path canonicalizes —
+                // Written/deleted TARGETS that land OUTSIDE the workspace (path canonicalizes --
                 // filesystem I/O). Temp-dir targets (codex parity: /tmp + $TMPDIR are
                 // default-writable) count as in-workspace: `cargo build > /tmp/x.json` is benign
                 // scratch, not a write to a user-owned directory outside the workspace.
@@ -805,7 +805,7 @@ impl ToolMiddleware for BashWorkspaceGate {
                     .cloned()
                     .collect();
                 // A `mv` carrying an in-workspace file to a dest NOT in the workspace PROPER removes
-                // it from the workspace — an equivalent delete. Temp does NOT rescue the dest here
+                // it from the workspace -- an equivalent delete. Temp does NOT rescue the dest here
                 // (moving a workspace file to /tmp still deletes it from the workspace), so a
                 // rejected `rm` can't be laundered through `mv <ws_file> /tmp/backup`. Treat that
                 // dest as out-of-workspace so the move prompts. `!out.contains` avoids a duplicate
@@ -831,17 +831,17 @@ impl ToolMiddleware for BashWorkspaceGate {
             .await
         };
 
-        // All targets in-workspace → unchanged behavior (single-file rm stays Safe→runs; a
+        // All targets in-workspace -> unchanged behavior (single-file rm stays Safe->runs; a
         // recursive rm is Risky and still reaches ApprovalMiddleware after this Proceed).
         if all_in_workspace {
             return BeforeOutcome::Proceed;
         }
 
-        // Out-of-workspace → prompt; "Always" remembers per canonical directory. Auto-allow ONLY
-        // when EVERY out-of-workspace target's directory is already granted — a prior grant for
+        // Out-of-workspace -> prompt; "Always" remembers per canonical directory. Auto-allow ONLY
+        // when EVERY out-of-workspace target's directory is already granted -- a prior grant for
         // ONE directory must not let an ADDITIONAL out-of-workspace / mv-escape target in the same
         // command ride along (`rm /granted/x && mv ws_file /tmp/stolen`). Empty keys (FS-timeout
-        // fallback) → never auto-allow → prompt (fail-closed).
+        // fallback) -> never auto-allow -> prompt (fail-closed).
         if !out_keys.is_empty() && out_keys.iter().all(|k| self.store.is_granted(k)) {
             return BeforeOutcome::Allow {
                 reason: Some("previously granted this session".into()),
@@ -960,7 +960,7 @@ mod tests {
             mv_moves("mv a.txt /tmp/b"),
             vec![("a.txt".to_string(), "/tmp/b".to_string())]
         );
-        // multi-source → one pair per source, shared dest dir
+        // multi-source -> one pair per source, shared dest dir
         assert_eq!(
             mv_moves("mv a b c /tmp/dest"),
             vec![
@@ -977,9 +977,9 @@ mod tests {
                 ("b".to_string(), "/tmp/dest".to_string())
             ]
         );
-        // cp is a copy (source stays) → not a move
+        // cp is a copy (source stays) -> not a move
         assert!(mv_moves("cp a.txt /tmp/b").is_empty());
-        // rm / single-operand mv → no pair
+        // rm / single-operand mv -> no pair
         assert!(mv_moves("rm a.txt").is_empty());
         assert!(mv_moves("mv onlyone").is_empty());
     }
@@ -1021,7 +1021,7 @@ mod tests {
             scan("dd if=/dev/zero of=/outside/big bs=1M"),
             BashScan::Targets(vec!["/outside/big".into()])
         );
-        assert_eq!(scan("dd if=/dev/sda"), BashScan::NotDestructive); // no of= → writes stdout
+        assert_eq!(scan("dd if=/dev/sda"), BashScan::NotDestructive); // no of= -> writes stdout
     }
 
     #[test]
@@ -1095,7 +1095,7 @@ mod tests {
     #[test]
     fn cd_then_absolute_target_is_resolvable() {
         // A `cd` only makes RELATIVE targets ambiguous; an ABSOLUTE target lands the same place
-        // regardless of cwd, so it must classify normally (→ temp/workspace check), not fail
+        // regardless of cwd, so it must classify normally (-> temp/workspace check), not fail
         // closed. This is the `cd ws && cargo build > /tmp/log` false-positive fix.
         assert_eq!(
             scan("cd /ws && cargo build > /tmp/out.txt"),
@@ -1148,7 +1148,7 @@ mod tests {
 
     #[test]
     fn rm_only_flags_writes_nothing() {
-        // No path operand → nothing to delete → not our concern.
+        // No path operand -> nothing to delete -> not our concern.
         assert_eq!(scan("rm -f"), BashScan::NotDestructive);
     }
 
@@ -1172,7 +1172,7 @@ mod tests {
     #[test]
     fn mv_target_directory_long_form_is_a_target() {
         // `mv --target-directory=/outside a.txt` must include /outside (the =-glued long form was
-        // previously dropped as a flag → silent move outside the workspace).
+        // previously dropped as a flag -> silent move outside the workspace).
         assert_eq!(
             scan("mv --target-directory=/outside a.txt"),
             BashScan::Targets(vec!["a.txt".into(), "/outside".into()])
@@ -1190,7 +1190,7 @@ mod tests {
 
     #[test]
     fn backslash_newline_continuation_is_joined() {
-        // `rm \⏎/outside/x` — the line continuation is removed so the target isn't orphaned.
+        // `rm \⏎/outside/x` -- the line continuation is removed so the target isn't orphaned.
         assert_eq!(
             scan("rm \\\n/outside/x.txt"),
             BashScan::Targets(vec!["/outside/x.txt".into()])
@@ -1221,7 +1221,7 @@ mod tests {
         Arc::new(crate::tools::bash::BashTool)
     }
 
-    /// A driver that never answers → the bounded round-trip times out → Null → Deny. Any path
+    /// A driver that never answers -> the bounded round-trip times out -> Null -> Deny. Any path
     /// that REACHES the prompt fails closed; an auto-approve/proceed returns without the driver.
     fn silent_rt() -> RequestCtx {
         let (tx, _rx) = unbounded_channel::<AgentEvent>();
@@ -1258,7 +1258,7 @@ mod tests {
         let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("rm a.txt");
-        // Proceed → the silent driver is never consulted (would Deny if reached).
+        // Proceed -> the silent driver is never consulted (would Deny if reached).
         assert_eq!(
             gate.before(&mut call, &tool, &silent_rt()).await,
             BeforeOutcome::Proceed
@@ -1268,7 +1268,7 @@ mod tests {
     #[tokio::test]
     async fn out_of_workspace_rm_prompts() {
         let ws = tempfile::tempdir().unwrap();
-        // Use a fabricated non-temp, non-workspace absolute path (need not exist — gate is
+        // Use a fabricated non-temp, non-workspace absolute path (need not exist -- gate is
         // path-based, canonicalizes ancestors up to `/`).
         let target = std::path::PathBuf::from("/rustcode-test-outside-rm/x.txt");
         let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
@@ -1321,7 +1321,7 @@ mod tests {
     async fn out_of_workspace_grant_is_per_directory() {
         // Grant ONE out-of-workspace directory; a sibling delete there auto-approves, a delete in
         // a different folder still prompts.
-        // Use fabricated non-temp absolute paths (need not exist — gate is path-based).
+        // Use fabricated non-temp absolute paths (need not exist -- gate is path-based).
         let ws = tempfile::tempdir().unwrap();
         let dir_a = std::path::PathBuf::from("/rustcode-test-outside-grant/a");
         let dir_b = std::path::PathBuf::from("/rustcode-test-outside-grant/b");
@@ -1355,7 +1355,7 @@ mod tests {
     #[tokio::test]
     async fn mv_workspace_file_to_temp_prompts() {
         // The equivalent-delete bypass: a rejected `rm` laundered through `mv <ws_file> /tmp/x`.
-        // Moving an in-workspace file to /tmp removes it from the workspace, so it must prompt —
+        // Moving an in-workspace file to /tmp removes it from the workspace, so it must prompt --
         // the temp carve-out must NOT rescue an mv DEST when the SOURCE is in the workspace.
         let ws = tempfile::tempdir().unwrap();
         std::fs::write(ws.path().join("data.bin"), "x").unwrap();
@@ -1371,7 +1371,7 @@ mod tests {
 
     #[tokio::test]
     async fn escaped_mv_out_of_workspace_prompts() {
-        // `\mv` must be gated like `mv` — the backslash-escape can't launder a workspace delete.
+        // `\mv` must be gated like `mv` -- the backslash-escape can't launder a workspace delete.
         let ws = tempfile::tempdir().unwrap();
         std::fs::write(ws.path().join("data.bin"), "x").unwrap();
         let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
@@ -1413,7 +1413,7 @@ mod tests {
 
     #[tokio::test]
     async fn mv_within_workspace_proceeds() {
-        // A rename inside the workspace keeps the file in the workspace → no prompt.
+        // A rename inside the workspace keeps the file in the workspace -> no prompt.
         let ws = tempfile::tempdir().unwrap();
         std::fs::write(ws.path().join("a.txt"), "x").unwrap();
         let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
@@ -1427,7 +1427,7 @@ mod tests {
 
     #[tokio::test]
     async fn mv_temp_to_temp_proceeds() {
-        // No in-workspace source involved → the move doesn't touch the workspace → no prompt.
+        // No in-workspace source involved -> the move doesn't touch the workspace -> no prompt.
         let ws = tempfile::tempdir().unwrap();
         let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
@@ -1473,7 +1473,7 @@ mod tests {
         let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("cargo build > /tmp/build_all.json");
-        // /tmp is a writable temp root (codex parity) → no prompt.
+        // /tmp is a writable temp root (codex parity) -> no prompt.
         assert_eq!(
             gate.before(&mut call, &tool, &silent_rt()).await,
             BeforeOutcome::Proceed
@@ -1484,7 +1484,7 @@ mod tests {
     #[tokio::test]
     async fn cd_then_redirect_to_slash_tmp_proceeds() {
         // The reported false positive: `cd <ws> && cargo build > /tmp/x; wc -l /tmp/x` must NOT
-        // prompt — the absolute /tmp target is a writable temp root, and the leading `cd` cannot
+        // prompt -- the absolute /tmp target is a writable temp root, and the leading `cd` cannot
         // move it, so it stays classifiable instead of failing closed on the cd.
         let ws = tempfile::tempdir().unwrap();
         let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
@@ -1503,7 +1503,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn cd_then_relative_redirect_still_prompts() {
-        // Counterpart: with a cd, a RELATIVE redirect target can't be resolved → still fail closed.
+        // Counterpart: with a cd, a RELATIVE redirect target can't be resolved -> still fail closed.
         let ws = tempfile::tempdir().unwrap();
         let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
@@ -1535,7 +1535,7 @@ mod tests {
         let ws = tempfile::tempdir().unwrap();
         let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
-        // /tmp/../rustcode_gate_escape.txt canonicalizes OUT of temp → still out-of-workspace → prompts (fail-closed under silent_rt).
+        // /tmp/../rustcode_gate_escape.txt canonicalizes OUT of temp -> still out-of-workspace -> prompts (fail-closed under silent_rt).
         let mut call = bash_call("echo x > /tmp/../rustcode_gate_escape.txt");
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
         assert!(

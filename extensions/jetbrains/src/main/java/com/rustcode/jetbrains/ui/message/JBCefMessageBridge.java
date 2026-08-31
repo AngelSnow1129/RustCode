@@ -42,7 +42,7 @@ final class JBCefMessageBridge {
                 if (frame != null && frame.isMain()) {
                     try {
                         cefBrowser.executeJavaScript(
-                            "window.atomcodeHost = function(msg) { " + JBCefQueryHandlers.inject(query, "msg") + " }",
+                            "window.rustcodeHost = function(msg) { " + JBCefQueryHandlers.inject(query, "msg") + " }",
                             cefBrowser.getURL(),
                             0
                         );

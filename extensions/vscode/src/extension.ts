@@ -3,7 +3,7 @@ import { DaemonClient } from './daemon/client';
 import { DaemonProcess } from './daemon/process';
 import { ChatViewProvider } from './chat/provider';
 import { StatusBarManager } from './status';
-import { AtomCodeActionProvider } from './editor/actions';
+import { RustCodeActionProvider } from './editor/actions';
 import { DiffContentProvider } from './editor/diff';
 import { getEditorContext, buildContextualPrompt } from './editor/context';
 import { getConfig, DEFAULT_PORT } from './config';
@@ -62,15 +62,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 5. Register CodeAction provider (for all languages)
   context.subscriptions.push(
-    vscode.languages.registerCodeActionsProvider('*', new AtomCodeActionProvider(), {
-      providedCodeActionKinds: AtomCodeActionProvider.providedCodeActionKinds,
+    vscode.languages.registerCodeActionsProvider('*', new RustCodeActionProvider(), {
+      providedCodeActionKinds: RustCodeActionProvider.providedCodeActionKinds,
     })
   );
 
   // 6. Register commands before daemon startup. Command handlers surface daemon errors in the chat UI.
   const cmds = [
     vscode.commands.registerCommand('rustcode.openSidebar', async () => {
-      await runCommand(vscode.l10n.t('open AtomCode sidebar'), () => extensionState.chatProvider.openInSidebar());
+      await runCommand(vscode.l10n.t('open RustCode sidebar'), () => extensionState.chatProvider.openInSidebar());
     }),
 
     vscode.commands.registerCommand('rustcode.openTab', () => {
@@ -78,15 +78,15 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('rustcode.openPreferredLocation', async () => {
-      await runCommand(vscode.l10n.t('open AtomCode'), () => extensionState.chatProvider.openPreferredLocation());
+      await runCommand(vscode.l10n.t('open RustCode'), () => extensionState.chatProvider.openPreferredLocation());
     }),
 
     vscode.commands.registerCommand('rustcode.focusInput', async () => {
-      await runCommand(vscode.l10n.t('focus AtomCode input'), () => extensionState.chatProvider.focusInput());
+      await runCommand(vscode.l10n.t('focus RustCode input'), () => extensionState.chatProvider.focusInput());
     }),
 
     vscode.commands.registerCommand('rustcode.newConversation', async () => {
-      await runCommand(vscode.l10n.t('start a new AtomCode conversation'), () => extensionState.chatProvider.newConversation());
+      await runCommand(vscode.l10n.t('start a new RustCode conversation'), () => extensionState.chatProvider.newConversation());
     }),
 
     vscode.commands.registerCommand('rustcode.stop', () => {
@@ -172,7 +172,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const newConfig = vscode.workspace.getConfiguration('rustcode');
         const newPort = newConfig.get<number>('daemon.port', 13456);
         if (newPort !== config.daemonPort) {
-          vscode.window.showInformationMessage(vscode.l10n.t('AtomCode: Restart VS Code to apply port change.'));
+          vscode.window.showInformationMessage(vscode.l10n.t('RustCode: Restart VS Code to apply port change.'));
         }
       }
     })
@@ -184,7 +184,7 @@ async function runCommand(label: string, command: () => Thenable<unknown> | Prom
     await command();
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    vscode.window.showErrorMessage(vscode.l10n.t('AtomCode failed to {label}: {message}', { label, message }));
+    vscode.window.showErrorMessage(vscode.l10n.t('RustCode failed to {label}: {message}', { label, message }));
   }
 }
 
@@ -205,7 +205,7 @@ async function initializeDaemon() {
   } catch (e) {
     extensionState.statusBar.update(false);
     const message = e instanceof Error ? e.message : String(e);
-    vscode.window.showWarningMessage(vscode.l10n.t('AtomCode daemon startup failed: {message}', { message }));
+    vscode.window.showWarningMessage(vscode.l10n.t('RustCode daemon startup failed: {message}', { message }));
   }
 }
 

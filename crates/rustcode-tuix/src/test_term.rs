@@ -5,8 +5,8 @@
 // Problem this solves: we were testing "renderer emits the right
 // ANSI bytes" (CountingSink / CapturingSink) and "cells contain
 // the right glyph" (Screen::prev_cells_for_test), but the real
-// question — "what does the terminal actually show after these
-// bytes hit it?" — was only answered by user eyeballing a live
+// question -- "what does the terminal actually show after these
+// bytes hit it?" -- was only answered by user eyeballing a live
 // terminal. The bot_rule-shortens / ghost-line / swallowed-char
 // bugs all passed unit tests because the bytes and cells were
 // correct, even when terminals rendered them wrong.
@@ -21,10 +21,10 @@
 //   r.render(UiLine::InputPrompt { buf: "hi".into(), .. });
 //   r.flush_deferred();
 //   vterm.feed_from(&r);
-//   assert_eq!(vterm.char_at(22, 4), '❯');
+//   assert_eq!(vterm.char_at(22, 4), '>');
 //
-// Coverage scope — only what `RetainedRenderer` actually emits:
-//   * printable chars (including wide CJK / emoji — width-aware)
+// Coverage scope -- only what `RetainedRenderer` actually emits:
+//   * printable chars (including wide CJK / emoji -- width-aware)
 //   * LF `\n`  and CR `\r`
 //   * CUP `\x1b[R;CH` absolute cursor position
 //   * ED (erase display) `\x1b[2J` + cursor-home `\x1b[H`
@@ -33,11 +33,11 @@
 //     enough attributes to assert on them; bg / underline ignored)
 //   * DECSET/DECRST `\x1b[?25h` / `\x1b[?25l` cursor visibility
 //
-// Sequences outside that set are silently absorbed — not an error,
+// Sequences outside that set are silently absorbed -- not an error,
 // just "the terminal noticed but our model doesn't track it". When
 // retained starts emitting something new, extend this parser.
 //
-// Not thread-safe, not `Send` — strictly a test helper.
+// Not thread-safe, not `Send` -- strictly a test helper.
 
 #![cfg(test)]
 
@@ -91,7 +91,7 @@ impl Default for Style {
     }
 }
 
-/// In-process VT terminal model — advance ANSI bytes, expose the
+/// In-process VT terminal model -- advance ANSI bytes, expose the
 /// resulting 2D char grid + cursor + visibility state.
 pub struct VirtualTerminal {
     width: u16,
@@ -110,7 +110,7 @@ pub struct VirtualTerminal {
     /// scrollback-push path).
     scroll_top: u16,
     scroll_bottom: u16,
-    /// Rows that scrolled off the top of the DECSTBM region — these
+    /// Rows that scrolled off the top of the DECSTBM region -- these
     /// would live in the real terminal's scrollback buffer. Oldest
     /// first. Only grows when `scroll_top == 0` (region anchored to
     /// screen top, which is retained's shape), mirroring xterm: a
@@ -128,7 +128,7 @@ pub struct VirtualTerminal {
     /// glyphs: the 2-cell grid box is honoured (cursor still advances 2),
     /// but the narrow substitute glyph is drawn centered, leaving the 2nd
     /// column visually blank. Flip on to reproduce the user-reported
-    /// "每个汉字后空一格" gap — the continuation column gets stamped with
+    /// "每个汉字后空一格" gap -- the continuation column gets stamped with
     /// [`CJK_NARROW_GAP`] so a test can assert the artifact instead of an
     /// indistinguishable space. Default off (matches a font with real
     /// fullwidth CJK metrics, where the glyph fills both columns).
@@ -172,8 +172,8 @@ impl VirtualTerminal {
 
     /// Scroll the current DECSTBM region up by one line: the row at
     /// `scroll_top` shifts out of the region. When the region is
-    /// anchored to the screen top (`scroll_top == 0`) — xterm's
-    /// contract and retained's exclusive shape — the exiting row is
+    /// anchored to the screen top (`scroll_top == 0`) -- xterm's
+    /// contract and retained's exclusive shape -- the exiting row is
     /// promoted to scrollback so tests can assert on duplicate or
     /// lost history. Other configurations drop the row, matching
     /// real terminal behaviour for mid-screen regions.
@@ -216,7 +216,7 @@ impl VirtualTerminal {
         // we create a fresh one each time, but that would drop
         // escape sequences split across feeds. We keep one parser
         // per terminal instance inside `feed_with_parser`.
-        // Simplification: allocate a throwaway Parser — retained
+        // Simplification: allocate a throwaway Parser -- retained
         // emits each frame atomically and we feed one frame at a
         // time, so split sequences don't happen in practice.
         let mut parser: Parser = Parser::new();
@@ -224,7 +224,7 @@ impl VirtualTerminal {
     }
 
     /// 0-indexed (row, col) grid cell. Out-of-bounds returns a
-    /// blank — callers generally pre-check dimensions.
+    /// blank -- callers generally pre-check dimensions.
     pub fn cell_at(&self, row: usize, col: usize) -> GridCell {
         self.grid
             .get(row)
@@ -251,7 +251,7 @@ impl VirtualTerminal {
 
     /// Trailing-trimmed text of each row that has been pushed into
     /// scrollback (oldest first). Blank rows are preserved so row
-    /// counts match what the terminal actually scrolled off — tests
+    /// counts match what the terminal actually scrolled off -- tests
     /// that care only about content can `.filter(|s| !s.is_empty())`.
     pub fn scrollback_texts(&self) -> Vec<String> {
         self.scrollback
@@ -269,13 +269,13 @@ impl VirtualTerminal {
     /// Total rows that have ever scrolled off the top of the DECSTBM
     /// region. Grows monotonically; used by regression tests that
     /// need to bound how many rows a footer-geometry change is
-    /// allowed to push into scrollback (answer should be 0 — the
+    /// allowed to push into scrollback (answer should be 0 -- the
     /// repaint path must not re-scroll cached body rows).
     pub fn scrollback_len(&self) -> usize {
         self.scrollback.len()
     }
 
-    /// Handy multi-line dump of the whole grid — useful inside
+    /// Handy multi-line dump of the whole grid -- useful inside
     /// assertion error messages so failures show what was painted.
     pub fn dump(&self) -> String {
         self.grid
@@ -322,7 +322,7 @@ impl VirtualTerminal {
         // Advance cursor by display width. Retained emits a wide glyph once
         // and we account for both cells; terminal auto-wrap is off in
         // retained (we never exceed the right edge on purpose). The advance
-        // is +2 for wide glyphs in BOTH paint modes — JediTerm's GRID still
+        // is +2 for wide glyphs in BOTH paint modes -- JediTerm's GRID still
         // reserves 2 cells; only the on-screen paint differs.
         self.cursor_col = self.cursor_col.saturating_add(w);
     }
@@ -333,7 +333,7 @@ impl VirtualTerminal {
             self.style = Style::default();
             return;
         }
-        // Flatten to a linear code stream — SGR 38/48 are
+        // Flatten to a linear code stream -- SGR 38/48 are
         // compound (38;5;N or 38;2;R;G;B) and need a sliding
         // window read. Each param in vte's `Params` is a
         // sub-group (semicolon-separated in CSI), and we only
@@ -347,7 +347,7 @@ impl VirtualTerminal {
                 0 => self.style = Style::default(),
                 1 => self.style.bold = true,
                 2 => self.style.faint = true,
-                // SGR 22 ("normal intensity") clears BOTH bold and faint —
+                // SGR 22 ("normal intensity") clears BOTH bold and faint --
                 // there is no per-attribute toggle for faint (matches the
                 // serializer in render/cell.rs).
                 22 => {
@@ -376,7 +376,7 @@ impl VirtualTerminal {
                     }
                 }
                 // Italic (3/23), underline (4/24), bg (40-47, 100-107)
-                // and other SGR codes retained doesn't emit — no-op.
+                // and other SGR codes retained doesn't emit -- no-op.
                 _ => {}
             }
             i += 1;
@@ -384,7 +384,7 @@ impl VirtualTerminal {
     }
 }
 
-/// 0..=15 → crossterm basic Color enum. Values beyond 15 become
+/// 0..=15 -> crossterm basic Color enum. Values beyond 15 become
 /// `Color::AnsiValue(n)` so the caller can still distinguish them
 /// in assertions without us dragging in a 256-color palette.
 fn ansi16_color(idx: u16) -> Color {
@@ -419,7 +419,7 @@ impl Perform for VirtualTerminal {
             b'\n' => {
                 // LF at the scroll-region bottom triggers a region
                 // scroll-up; otherwise advance the cursor. This is
-                // what DECSTBM does in a real terminal — our body
+                // what DECSTBM does in a real terminal -- our body
                 // emit path relies on it to push rows into what
                 // would be scrollback.
                 if self.cursor_row == self.scroll_bottom {
@@ -431,7 +431,7 @@ impl Perform for VirtualTerminal {
             b'\r' => {
                 self.cursor_col = 0;
             }
-            // Tab / BEL / other C0 — no-op for our purposes.
+            // Tab / BEL / other C0 -- no-op for our purposes.
             _ => {}
         }
     }
@@ -540,7 +540,7 @@ impl Perform for VirtualTerminal {
                     }
                 }
             }
-            // DECSTBM: `\x1b[top;bottom r` — inclusive, 1-indexed.
+            // DECSTBM: `\x1b[top;bottom r` -- inclusive, 1-indexed.
             // `\x1b[r` with no params resets to full screen.
             'r' => {
                 let mut it = params.iter();
@@ -569,13 +569,13 @@ impl Perform for VirtualTerminal {
                 match code {
                     25 => self.cursor_visible = on,
                     // 7 (autowrap), 1049 (alt-screen), 2004 (bracketed
-                    // paste) — retained is agnostic to these, no-op.
+                    // paste) -- retained is agnostic to these, no-op.
                     _ => {}
                 }
             }
             _ => {
                 // Everything else (cursor up/down/left/right, save,
-                // restore, DECSTBM, etc.) — retained doesn't emit,
+                // restore, DECSTBM, etc.) -- retained doesn't emit,
                 // no-op is safe.
             }
         }
@@ -598,7 +598,7 @@ mod tests {
     fn vt_cup_jumps_cursor() {
         let mut vt = VirtualTerminal::new(10, 5);
         vt.feed(b"\x1b[3;5Habc");
-        // ANSI row 3 col 5 → grid row 2 col 4 (both 0-indexed).
+        // ANSI row 3 col 5 -> grid row 2 col 4 (both 0-indexed).
         assert_eq!(vt.row_text(2), "    abc   ");
         // After printing 3 chars, cursor sits at col 7 (4 + 3).
         assert_eq!(vt.cursor(), (2, 7));
@@ -627,7 +627,7 @@ mod tests {
     fn vt_cjk_advances_two_cols() {
         let mut vt = VirtualTerminal::new(10, 1);
         vt.feed("你好".as_bytes());
-        // Wide glyphs occupy cols 0,2 — col 1 / 3 stay blank in our
+        // Wide glyphs occupy cols 0,2 -- col 1 / 3 stay blank in our
         // model (retained emits continuation cells as no-op, matching
         // terminal behaviour where col 1 is the right half of 你 and
         // not an addressable cell).
@@ -638,7 +638,7 @@ mod tests {
 
     /// Reproduce the DevEco/JediTerm bug: serialize_patches emits a per-cell
     /// CUP for each ideograph (你@col1, 好@col3 in ANSI 1-indexed). With
-    /// narrow-paint on, the 2nd column of each 2-cell box reads blank — that
+    /// narrow-paint on, the 2nd column of each 2-cell box reads blank -- that
     /// is the visible "每个汉字后空一格" gap from the screenshot.
     #[test]
     fn vt_cjk_narrow_paint_marks_continuation_gap() {
@@ -649,7 +649,7 @@ mod tests {
         assert_eq!(vt.cell_at(0, 1).ch, CJK_NARROW_GAP, "gap after 你");
         assert_eq!(vt.cell_at(0, 2).ch, '好');
         assert_eq!(vt.cell_at(0, 3).ch, CJK_NARROW_GAP, "gap after 好");
-        // The grid still advances 2 cells per ideograph — only paint differs.
+        // The grid still advances 2 cells per ideograph -- only paint differs.
         assert_eq!(vt.cursor(), (0, 4));
     }
 
@@ -699,7 +699,7 @@ mod tests {
     }
 
     /// Mid-screen regions (`\x1b[2;5r`) don't promote exiting rows
-    /// to scrollback — that matches xterm: only the screen-top region
+    /// to scrollback -- that matches xterm: only the screen-top region
     /// feeds the scrollback buffer.
     #[test]
     fn vt_scrollback_ignored_for_non_top_anchored_region() {
@@ -712,7 +712,7 @@ mod tests {
 
     /// Terminal.app / iTerm2 style ED promotion: opting in makes
     /// `\x1b[2J` copy every non-blank visible row into scrollback
-    /// before clearing. Default (off) leaves scrollback untouched —
+    /// before clearing. Default (off) leaves scrollback untouched --
     /// this is the switch regression tests use to model the specific
     /// terminal behaviour that caused the "first-startup welcome
     /// appears twice" user report.

@@ -1,5 +1,5 @@
 //! Language detection + tree-sitter grammar/query mapping. Ported from production
-//! `semantic/language.rs` — the SYMBOL-extraction subset only. (The calls-query and
+//! `semantic/language.rs` -- the SYMBOL-extraction subset only. (The calls-query and
 //! Vue/Svelte dual-parse belong to the later graph layer and are intentionally omitted.)
 
 use std::path::Path;
@@ -47,7 +47,7 @@ impl Lang {
             Lang::Rust => include_str!("queries/rust.scm"),
             Lang::Python => include_str!("queries/python.scm"),
             Lang::JavaScript => include_str!("queries/javascript.scm"),
-            // TSX = typed JSX → the TS symbol query matches the TSX grammar's node types
+            // TSX = typed JSX -> the TS symbol query matches the TSX grammar's node types
             // (the JS query does NOT compile against the TSX grammar).
             Lang::TypeScript | Lang::Tsx => include_str!("queries/typescript.scm"),
             Lang::Go => include_str!("queries/go.scm"),

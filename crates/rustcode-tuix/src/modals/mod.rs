@@ -4,7 +4,7 @@
 // (`/model` picker, `/provider` wizard, `/resume` session picker)
 // implements `Modal`, and the event loop owns exactly one
 // `active_modal: Option<Box<dyn Modal>>`. Adding a fourth modal means
-// "new struct + new impl" — not another `Option<T>` field and another
+// "new struct + new impl" -- not another `Option<T>` field and another
 // `handle_X_key` fn and another branch in `handle_input`.
 //
 // Modal impl lives next to the struct definition (for now still in
@@ -104,11 +104,11 @@ pub use rewind::RewindModal;
 pub use session_picker::SessionPicker;
 
 /// Render one tab-bar chip with palette-independent styling, shared by every
-/// tabbed modal (`/usage`, `/plugin`, …) so the active/inactive contrast is
+/// tabbed modal (`/usage`, `/plugin`, ...) so the active/inactive contrast is
 /// consistent and correct on any terminal theme.
 ///
 /// The active chip is bold + a FIXED near-white (dark) / near-black (light)
-/// 256-colour — the brightest/most prominent; inactive chips are a fixed
+/// 256-colour -- the brightest/most prominent; inactive chips are a fixed
 /// mid-grey (245), always dimmer than active. FIXED 256-colours (16-255) are
 /// never remapped by the terminal's ANSI palette, unlike SGR 30-37/90-97 and
 /// the default foreground. That matters on unusual palettes such as **Solarized
@@ -116,7 +116,7 @@ pub use session_picker::SessionPicker;
 /// active tab no brighter than inactive), whose SGR-37 "white" is a bright cream
 /// (so inactive tabs looked brighter than active), and whose SGR-90 ≈ the
 /// background (invisible). The returned string includes the surrounding
-/// `"  …  "` padding; join chips with a separator.
+/// `"  ...  "` padding; join chips with a separator.
 pub(crate) fn tab_chip(label: &str, active: bool) -> String {
     if active {
         let fg: u8 = if crate::highlight::theme::is_light_for_render() {
@@ -174,7 +174,7 @@ pub enum ModalPointerAction {
 /// `ModalAction::Close`. The implementation owns its own state (the
 /// selected index, the wizard step, the filter query, etc.) and is
 /// responsible for painting itself whenever its visible state changes
-/// — the event loop only calls `draw` once at open time and once more
+/// -- the event loop only calls `draw` once at open time and once more
 /// after `Close` to restore the idle prompt.
 pub trait Modal: Send {
     /// True only for the existing `/resume` picker, whose selected-card
@@ -215,7 +215,7 @@ pub trait Modal: Send {
     /// Handle a bracketed-paste payload while the modal is active.
     /// Default: append the text to `buf` (so text-input wizard steps
     /// naturally accept URL / API-key paste) and redraw. Modals that
-    /// only present pickers (no text input) can leave the default —
+    /// only present pickers (no text input) can leave the default --
     /// buf updates are harmless when the modal isn't displaying it.
     fn handle_paste(
         &mut self,
@@ -234,7 +234,7 @@ pub trait Modal: Send {
     /// current `UiPhase`. The default Idle-only modal routing assumes the modal
     /// was opened from the prompt while idle; but the password modal installs
     /// mid-turn (phase == `Streaming`) when sudo/ssh asks for a password, so it
-    /// must capture keys even while a tool runs — otherwise the typed password
+    /// must capture keys even while a tool runs -- otherwise the typed password
     /// leaks into the type-ahead buffer and Esc cancels the turn instead of the
     /// modal. Default: `false` (preserve existing Idle-only behavior).
     fn captures_all_keys(&self) -> bool {

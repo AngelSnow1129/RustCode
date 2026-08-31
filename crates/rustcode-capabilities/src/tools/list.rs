@@ -1,4 +1,4 @@
-//! `list_directory` — recursive, indented directory tree (build/VCS/cache dirs
+//! `list_directory` -- recursive, indented directory tree (build/VCS/cache dirs
 //! skipped). Non-destructive ⇒ always `Safe`.
 
 use super::{err, is_skip_dir, not_found_hint, ok, resolve_path};
@@ -29,7 +29,7 @@ impl Tool for ListDirTool {
     fn description(&self) -> &str {
         "List a directory tree (indented; directories end with '/'). `depth` controls \
          recursion (default 2, max 5). Build/VCS/cache directories (node_modules, .git, \
-         target, …) are skipped. Relative paths resolve against the working directory."
+         target, ...) are skipped. Relative paths resolve against the working directory."
     }
     fn parameters_schema(&self) -> serde_json::Value {
         json!({
@@ -40,12 +40,12 @@ impl Tool for ListDirTool {
             }
         })
     }
-    /// No side effects — a pure read. Makes it `parallel_safe` (concurrent
+    /// No side effects -- a pure read. Makes it `parallel_safe` (concurrent
     /// execution) and allowed in plan mode.
     fn read_only_hint(&self) -> bool {
         true
     }
-    // listing is non-destructive → risk() defaults to Safe.
+    // listing is non-destructive -> risk() defaults to Safe.
     async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -108,7 +108,7 @@ fn walk(dir: &Path, depth: usize, max: usize, out: &mut Vec<String>) {
     }
     let mut entries: Vec<_> = match std::fs::read_dir(dir) {
         Ok(rd) => rd.filter_map(|e| e.ok()).collect(),
-        Err(_) => return, // unreadable subtree → silently skip (e.g. permission denied)
+        Err(_) => return, // unreadable subtree -> silently skip (e.g. permission denied)
     };
     entries.sort_by_key(|e| e.file_name());
     let indent = "  ".repeat(depth);
@@ -190,7 +190,7 @@ mod tests {
         assert!(r.content.contains("Directory not found"), "{}", r.content);
     }
 
-    /// Still an error, but it must carry the recovery clue — otherwise the model just guesses
+    /// Still an error, but it must carry the recovery clue -- otherwise the model just guesses
     /// a different wrong path next turn (see `not_found_hint`).
     #[tokio::test]
     async fn missing_dir_error_carries_the_nearest_existing_ancestor() {

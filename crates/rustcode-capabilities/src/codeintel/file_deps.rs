@@ -1,4 +1,4 @@
-//! `file_dependencies` — which files a file USES (its symbols' callees) and which files
+//! `file_dependencies` -- which files a file USES (its symbols' callees) and which files
 //! USE it (callers). `Safe`.
 
 use super::index::CodeIndex;

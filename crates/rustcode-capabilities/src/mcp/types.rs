@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// Protocol revision this client asks for in `initialize`.
 ///
 /// The server answers with the revision it will actually speak (see
-/// [`InitializeResult::protocol_version`]); that answer — not this constant — is what
+/// [`InitializeResult::protocol_version`]); that answer -- not this constant -- is what
 /// the HTTP transport echoes back in `MCP-Protocol-Version`. Every revision from
 /// `2024-11-05` through this one is wire-compatible for the tools-only surface we use,
 /// so an older server simply negotiates itself down.
@@ -19,7 +19,7 @@ pub const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 /// `capabilities` is deliberately EMPTY. The client-side capability set is
 /// `roots` / `sampling` / `elicitation` (plus `experimental`), and this client
 /// implements none of them. It previously advertised `{"tools": {}}`, which was a
-/// category error — `tools` is a SERVER capability, so that object told every server
+/// category error -- `tools` is a SERVER capability, so that object told every server
 /// exactly nothing.
 pub fn initialize_params() -> serde_json::Value {
     serde_json::json!({
@@ -101,15 +101,15 @@ pub struct McpToolDefinition {
     pub description: String,
     #[serde(default, rename = "inputSchema")]
     pub input_schema: serde_json::Value,
-    /// Optional MCP tool annotations (`readOnlyHint`, `destructiveHint`, …). Captured
+    /// Optional MCP tool annotations (`readOnlyHint`, `destructiveHint`, ...). Captured
     /// so plan mode can allow read-only external queries. Absent on servers that don't
-    /// annotate → treated as unknown (not read-only).
+    /// annotate -> treated as unknown (not read-only).
     #[serde(default)]
     pub annotations: Option<McpToolAnnotations>,
 }
 
 /// MCP tool behavior hints from `tools/list` (`annotations` object). All optional and
-/// advisory — a missing hint means "unknown", handled conservatively.
+/// advisory -- a missing hint means "unknown", handled conservatively.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpToolAnnotations {
@@ -125,9 +125,9 @@ impl McpToolDefinition {
     /// True only when the server EXPLICITLY annotated this tool `readOnlyHint: true`
     /// AND did NOT also flag it `destructiveHint: true`. A tool that claims to be both
     /// read-only and destructive is contradictory self-attestation, so we fail closed
-    /// and treat it as NOT read-only — matching codex, which forces approval whenever
+    /// and treat it as NOT read-only -- matching codex, which forces approval whenever
     /// `destructiveHint: true`, even alongside `readOnlyHint`. Conservative throughout:
-    /// unknown / unannotated → false.
+    /// unknown / unannotated -> false.
     pub fn is_read_only(&self) -> bool {
         matches!(
             self.annotations,
@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn destructive_hint_overrides_read_only_hint() {
         // Contradictory self-attestation: readOnlyHint AND destructiveHint both true.
-        // Fail closed → NOT read-only, so it still requires approval (codex parity —
+        // Fail closed -> NOT read-only, so it still requires approval (codex parity --
         // codex forces approval on destructiveHint:true even alongside readOnlyHint).
         let contradictory: McpToolDefinition = serde_json::from_value(serde_json::json!({
             "name": "wipe", "inputSchema": {},

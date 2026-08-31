@@ -1,4 +1,4 @@
-//! `trace_callees` — forward call graph (what a symbol calls), BFS to a depth. `Safe`.
+//! `trace_callees` -- forward call graph (what a symbol calls), BFS to a depth. `Safe`.
 
 use super::index::CodeIndex;
 use super::{canonical, display_path, err, ok};
@@ -91,7 +91,7 @@ fn render(index: &CodeIndex, root: &Path, symbol: &str, depth: usize) -> ToolRes
                 if let Some(node) = g.node(*callee_id) {
                     let indent = "  ".repeat(*d);
                     out.push_str(&format!(
-                        "{}[depth {}] {} ({:?}) — {}\n",
+                        "{}[depth {}] {} ({:?}) -- {}\n",
                         indent,
                         d,
                         node.name,

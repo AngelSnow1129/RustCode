@@ -1,13 +1,13 @@
 // crates/rustcode-tuix/src/event_loop/commands.rs
 //
 // Slash-command dispatcher. Everything the user can invoke by typing
-// `/name` lives here — built-in info commands, modal openers, the cd
+// `/name` lives here -- built-in info commands, modal openers, the cd
 // helper, and the blocking OAuth flow that suspends the reader + renderer.
 //
 // ─── bot review response ledger (feat/save-export-markdown, PR #562) ───
 // 每条 bot 审查意见均在代码层响应:
-//   • Low (07-01) resolve_save Ok 返回路径未 canonicalize,与 doc 不符 → 661fdd9 已改为 canonicalize 后返回,doc 一致
-//   • Low (07-03) render_save_markdown 第 4477 行 `_ => continue` 不可达死代码 → 本 commit 改为 unreachable!()
+//   * Low (07-01) resolve_save Ok 返回路径未 canonicalize,与 doc 不符 -> 661fdd9 已改为 canonicalize 后返回,doc 一致
+//   * Low (07-03) render_save_markdown 第 4477 行 `_ => continue` 不可达死代码 -> 本 commit 改为 unreachable!()
 // bot 已在 07-01 22:45 给过「✅ 未发现问题」总结,本轮按其再审建议继续优化。
 // 我们愿意根据再审意见继续优化。
 //
@@ -16,7 +16,7 @@
 //   2. Added as an arm in `execute_slash_command` below
 //   3. Any long handler factored to a private helper in this file
 //
-// Modals open by pushing `Some(Box::new(...))` into `active_modal` — the
+// Modals open by pushing `Some(Box::new(...))` into `active_modal` -- the
 // handler arms for `/model`, `/resume`, `/provider` show the pattern.
 
 use std::path::{Path, PathBuf};
@@ -61,7 +61,7 @@ fn foreground_state_from_ui(state: &UiState) -> bg_runtime::RuntimeState {
     }
 }
 
-/// `/rewind`: open the checkpoint picker — the exact flow the double-Esc
+/// `/rewind`: open the checkpoint picker -- the exact flow the double-Esc
 /// gesture triggers. Kicks off an async catalog refresh; the runtime replies
 /// with `RewindCatalogRefreshed`, which the main loop turns into the Rewind
 /// modal (or a "no rewind points" notice) via `install_pending_rewind_modal`.
@@ -327,7 +327,7 @@ mod bg_live_guard_tests {
         let images = super::take_marker_matched_images(&mut state, "trend of [Image #2]");
         assert_eq!(images.len(), 1);
         assert_eq!(images[0].data, "BBB");
-        // Pending fully drained — nothing lingers onto the next message.
+        // Pending fully drained -- nothing lingers onto the next message.
         assert!(state.pending_images.is_empty());
         assert!(state.pending_image_markers.is_empty());
         assert!(state.pending_image_hashes.is_empty());
@@ -502,7 +502,7 @@ mod bg_live_guard_tests {
 
 // Historical note: there was a `const OAUTH_PROVIDER_NAME = "AtomGit"`
 // and a `build_oauth_provider` helper here. Both are owned by
-// `coding_plan::setup` now — `/login` runs the full CodingPlan
+// `coding_plan::setup` now -- `/login` runs the full CodingPlan
 // orchestrator (claim + model list + provider registration), so there
 // is no need for a separately maintained hardcoded fallback provider.
 
@@ -561,7 +561,7 @@ pub(super) fn active_session_project_bucket(working_dir: &std::path::Path) -> St
     rustcode_capabilities::session::SessionManager::project_hash(working_dir)
 }
 
-/// Render the "Instruction files:" status block — the same one shown
+/// Render the "Instruction files:" status block -- the same one shown
 /// by `/status`, factored out so `/init` can also display it after
 /// writing `.rustcode.md` (so users see the new file appear under
 /// PROJECT immediately, rather than trusting the success message).
@@ -902,12 +902,12 @@ fn take_marker_matched_images(
 /// wall-clock deadline is measured from *this* fire, not from when the
 /// previous payload eventually finished). Then dispatches the payload:
 ///
-/// - `Prompt` → enqueue a `SendMessage` to the agent. Prompts can't be
+/// - `Prompt` -> enqueue a `SendMessage` to the agent. Prompts can't be
 ///   judged success/failure synchronously (the turn runs async), so they
-///   always reset `consecutive_failures` — the round either drives a turn
+///   always reset `consecutive_failures` -- the round either drives a turn
 ///   to completion or the user stops the loop.
-/// - `Slash`  → run `execute_slash_command` inline; its `Result` decides
-///   whether `consecutive_failures` increments (3 in a row → `decide`
+/// - `Slash`  -> run `execute_slash_command` inline; its `Result` decides
+///   whether `consecutive_failures` increments (3 in a row -> `decide`
 ///   returns `Stop`).
 ///
 /// Callers must thread `execute_slash_command`'s extra params through so a
@@ -980,7 +980,7 @@ pub(crate) fn fire_interval_payload(
 
 /// Fully stop any active `/loop`: sends `ClearLoop` to halt the core
 /// self-paced loop engine AND clears the TUI fixed-interval controller plus
-/// all three mirror fields. Idempotent — safe to call when no loop is active.
+/// all three mirror fields. Idempotent -- safe to call when no loop is active.
 pub(crate) fn stop_active_loop(state: &mut UiState, ctx: &mut LoopCtx) {
     if ctx.loop_ctrl.is_some() || state.loop_label.is_some() {
         ctx.runtime
@@ -1029,7 +1029,7 @@ pub(crate) fn start_interval_loop(
         std::env::var("RUSTCODE_LOOP_MAX_ROUNDS").ok().as_deref(),
     );
     ctx.loop_ctrl = Some(c);
-    state.loop_label = Some(format!("{secs}s · {payload}"));
+    state.loop_label = Some(format!("{secs}s . {payload}"));
     state.loop_round = 0;
     state.loop_started_at = Some(std::time::Instant::now());
     fire_interval_payload(state, ctx, renderer, active_modal, setup_pending);
@@ -1236,8 +1236,8 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
 }
 
 /// 解析 relay-client 二进制路径。优先级：
-/// 1. `RUSTCODE_RELAY_CLIENT_BIN` 环境变量 —— 开发者/特殊部署覆盖。
-/// 2. 与 rustcode 自身可执行文件同目录 —— 安装包捆绑分发。
+/// 1. `RUSTCODE_RELAY_CLIENT_BIN` 环境变量 ---- 开发者/特殊部署覆盖。
+/// 2. 与 rustcode 自身可执行文件同目录 ---- 安装包捆绑分发。
 fn resolve_relay_client_bin() -> Option<String> {
     // 1) 显式环境变量覆盖（非空才采纳）。
     if let Ok(p) = std::env::var("RUSTCODE_RELAY_CLIENT_BIN") {
@@ -1266,14 +1266,14 @@ fn resolve_relay_client_bin() -> Option<String> {
 /// relay-client 的缓存目录：`$RUSTCODE_HOME/bin`。
 ///
 /// 走 `Config::config_dir()` 而不是硬拼 `~/.rustcode`：设了 `$RUSTCODE_HOME`
-/// 时,下载的二进制本该和其它数据落在同一棵树里 —— 否则 `uninstall` 扫不到它,
+/// 时,下载的二进制本该和其它数据落在同一棵树里 ---- 否则 `uninstall` 扫不到它,
 /// 而且提示语指的目录和实际写入的目录会对不上。
 fn relay_client_cache_dir() -> PathBuf {
     rustcode_config::config::Config::config_dir().join("bin")
 }
 
 /// 确保 relay-client 二进制可用。
-/// 先尝试本地查找（环境变量 → 同目录 → 缓存），都不存在则自动下载到缓存目录。
+/// 先尝试本地查找（环境变量 -> 同目录 -> 缓存），都不存在则自动下载到缓存目录。
 fn ensure_relay_client_bin() -> Result<String, String> {
     // 先尝试环境变量和同目录
     if let Some(bin) = resolve_relay_client_bin() {
@@ -1290,7 +1290,7 @@ fn ensure_relay_client_bin() -> Result<String, String> {
     let cache_path = cache_dir.join(bare_name);
     let version_path = cache_dir.join(".version");
 
-    // 缓存已存在 → 直接使用
+    // 缓存已存在 -> 直接使用
     if cache_path.is_file() {
         return Ok(cache_path.to_string_lossy().into_owned());
     }
@@ -1322,8 +1322,8 @@ fn ensure_relay_client_bin() -> Result<String, String> {
     let manifest = match manifest {
         Ok(m) => m,
         Err(_) => {
-            // 清单获取失败 → 使用兜底版本
-            // 有缓存且版本不低于兜底版本 → 直接用缓存
+            // 清单获取失败 -> 使用兜底版本
+            // 有缓存且版本不低于兜底版本 -> 直接用缓存
             if cache_path.is_file() {
                 if let Ok(ref ver) = std::fs::read_to_string(&version_path) {
                     let ver = ver.trim();
@@ -1332,7 +1332,7 @@ fn ensure_relay_client_bin() -> Result<String, String> {
                         return Ok(cache_path.to_string_lossy().into_owned());
                     }
                 }
-                // 缓存版本低于兜底版本 → 继续走兜底下载
+                // 缓存版本低于兜底版本 -> 继续走兜底下载
             }
             // 构造兜底 manifest
             let mut fallback_binaries = std::collections::BTreeMap::new();
@@ -1521,10 +1521,10 @@ fn execute_slash_command_impl(
 ) -> Result<()> {
     // Built-in commands are all lowercase ASCII; normalise the user's
     // input so `/SESSION`, `/Session`, `/sEssIon` all hit the same arm
-    // as `/session`. `arg` is left untouched — paths / URLs are
+    // as `/session`. `arg` is left untouched -- paths / URLs are
     // case-sensitive in general. Aliases (e.g. `/new`) then resolve to their
     // canonical command name here, so `/new` hits the `session` arm without a
-    // dedicated match arm — add the alias to COMMAND_ALIASES only.
+    // dedicated match arm -- add the alias to COMMAND_ALIASES only.
     let cmd_lower = cmd.to_ascii_lowercase();
     let cmd = crate::commands::canonical_command_name(&cmd_lower);
 
@@ -1534,12 +1534,12 @@ fn execute_slash_command_impl(
         }
         "copy" => {
             // Copy a fenced code block from the most recent assistant reply to
-            // the system clipboard, VERBATIM — terminal-native selection copies
+            // the system clipboard, VERBATIM -- terminal-native selection copies
             // the hard-wrapped + PAD-indented body cells, which breaks long
             // commands; this reads the original markdown instead.
-            //   /copy        → the last code block (the command just shown)
-            //   /copy N      → the Nth code block (1-based)
-            //   /copy all    → every code block, blank-line separated
+            //   /copy        -> the last code block (the command just shown)
+            //   /copy N      -> the Nth code block (1-based)
+            //   /copy all    -> every code block, blank-line separated
             match resolve_copy(&state.last_assistant_response, arg) {
                 CopyResolve::NoBlocks => {
                     renderer.render(UiLine::Warning(t(Msg::CopyNoCodeBlock).into_owned()));
@@ -1570,9 +1570,9 @@ fn execute_slash_command_impl(
         "save" => {
             // Export the full current conversation (every real user prompt +
             // assistant reply, in order) to a local markdown file.
-            //   /save            → <working-dir>/rustcode-session-YYYYMMDD-HHMMSS.md
-            //   /save report.md  → <working-dir>/report.md
-            //   /save /abs/x.md  → absolute path
+            //   /save            -> <working-dir>/rustcode-session-YYYYMMDD-HHMMSS.md
+            //   /save report.md  -> <working-dir>/report.md
+            //   /save /abs/x.md  -> absolute path
             // Existing files are overwritten; missing parent dirs are an error.
             match resolve_save_in(&ctx.current_session.messages, arg, &ctx.working_dir) {
                 SaveOutcome::Ok(path) => {
@@ -1619,7 +1619,7 @@ fn execute_slash_command_impl(
                         ArgsRequirement::None => "",
                     };
                     out.push_str(&format!(
-                        "    /{}{}  — {} ({})\n",
+                        "    /{}{}  -- {} ({})\n",
                         cmd.name, args_tag, cmd.description, source_label
                     ));
                 }
@@ -1667,7 +1667,7 @@ fn execute_slash_command_impl(
                 if let Some(rendered) = expand_skill(ctx, "ask", arg) {
                     submit_agent_turn(ctx, state, rendered);
                 } else {
-                    // "ask" skill is not installed — trigger async install
+                    // "ask" skill is not installed -- trigger async install
                     // and stash the topic so handle_plugin_job_event can
                     // auto-invoke once the install completes.
                     let topic = arg.to_string();
@@ -1728,7 +1728,7 @@ fn execute_slash_command_impl(
         "view" => {
             let trimmed = arg.trim();
             if trimmed.is_empty() {
-                // No path → open the files-only fuzzy picker.
+                // No path -> open the files-only fuzzy picker.
                 *active_modal = Some(Box::new(FileViewer::open_picker(ctx.working_dir.clone())));
             } else {
                 // Resolve `~`, absolute, and project-relative paths so files
@@ -1824,7 +1824,7 @@ fn execute_slash_command_impl(
             // common expectation): it was previously a SCREEN-ONLY wipe, so the
             // engine kept the full history and the model still "remembered"
             // everything after a clear. Delegate to the same reset `/session`
-            // uses — it sends ClearConversation to the engine AND wipes the
+            // uses -- it sends ClearConversation to the engine AND wipes the
             // screen + re-renders the welcome banner.
             reset_to_new_session(ctx, state, renderer);
         }
@@ -1861,7 +1861,7 @@ fn execute_slash_command_impl(
         "resume" => {
             // The catalog scan reads/parses every session file, which froze the UI
             // when done inline (thousands of files across projects). Offload it to a
-            // blocking thread and install the picker via an event when it lands —
+            // blocking thread and install the picker via an event when it lands --
             // mirroring the async session-resume path. `install_pending_session_picker`
             // in the main loop consumes the result.
             renderer.render(UiLine::CommandOutput(
@@ -1901,7 +1901,7 @@ fn execute_slash_command_impl(
         }
         "rename" => {
             // Rename targets `ctx.current_session` (the in-flight conversation),
-            // not whichever id `/resume` last loaded — the user expects /rename
+            // not whichever id `/resume` last loaded -- the user expects /rename
             // to relabel the conversation they're currently typing into. The
             // session is always initialised at startup, so we never need a
             // "load a session first" fallback.
@@ -1996,7 +1996,7 @@ fn execute_slash_command_impl(
             // Idle: open the interactive modal.
             if matches!(state.phase, crate::state::UiPhase::Streaming) {
                 // Fetch the FULL dataset (overview + models) so the footer report
-                // is tab-switchable mid-stream — the interactive modal can't
+                // is tab-switchable mid-stream -- the interactive modal can't
                 // install here (live token redraws own the footer), so we stash
                 // the panel and re-render its active tab in place on each tab
                 // key. Two gateway calls, once per `/usage`; switching tabs is
@@ -2022,7 +2022,7 @@ fn execute_slash_command_impl(
         "cost" => {
             let text = build_session_cost_text(ctx, state);
             if matches!(state.phase, crate::state::UiPhase::Streaming) {
-                // `/cost` is a static report — drop any live `/usage` panel so
+                // `/cost` is a static report -- drop any live `/usage` panel so
                 // tab keys don't steer a report that's no longer on screen.
                 state.footer_usage = None;
                 state.footer_command_output = Some(text);
@@ -2053,15 +2053,15 @@ fn execute_slash_command_impl(
             // actually in the prompt.
             //
             // The cached ContextSnapshot only refreshes on LLM round-trips.
-            // Between turns — or after out-of-turn mutations like
-            // `inject_post_compress_state` — the cache lags the actual
+            // Between turns -- or after out-of-turn mutations like
+            // `inject_post_compress_state` -- the cache lags the actual
             // conversation. Dispatch a refresh and render when the
             // resulting rich stats event lands (see `handle_agent_event`
-            // → `AgentEvent::ContextStats`). `pending_context_render =
+            // -> `AgentEvent::ContextStats`). `pending_context_render =
             // Some(show_prompt)` marks the pending request; cleared after
             // the event handler fires the report. If the agent is busy
             // in a turn, the next rich emission (at the next LLM call)
-            // serves the render — still fresh, just a tick later.
+            // serves the render -- still fresh, just a tick later.
             let show_prompt = arg.trim().eq_ignore_ascii_case("prompt");
             if let Err(error) = request_context_stats_render(
                 &ctx.runtime,
@@ -2272,7 +2272,7 @@ fn execute_slash_command_impl(
                 return Ok(());
             }
 
-            // 中继地址 → (ws 拨号 URL, App 用的 https 根)。
+            // 中继地址 -> (ws 拨号 URL, App 用的 https 根)。
             fn derive_relay_urls(base: &str) -> (String, String) {
                 let trimmed = base.trim().trim_end_matches('/');
                 // 用户可能直接给 wss://.../ws/daemon：剥掉路径还原成根。
@@ -2464,7 +2464,7 @@ fn execute_slash_command_impl(
                                                         "📱 使用 GitCode App 连接\n\
                                                         \n\
                                                         1. 在手机应用商店搜索「GitCode」下载最新版 App\n\
-                                                        2. 打开 App → 首页 → RustCode 模块 → 扫一扫\n\
+                                                        2. 打开 App -> 首页 -> RustCode 模块 -> 扫一扫\n\
                                                         3. 对准下方二维码即可配对连接\n\
                                                         \n\
                                                         {q}\n\
@@ -2542,7 +2542,7 @@ fn execute_slash_command_impl(
         }
         "upgrade" => {
             // Sub-dispatch: `/upgrade`, `/upgrade rollback`, `/upgrade --force`.
-            // Keep parsing deliberately tolerant — users type these things
+            // Keep parsing deliberately tolerant -- users type these things
             // with assorted capitalization and whitespace; a command that
             // refuses `/upgrade Rollback` is user-hostile.
             let arg_norm = arg.trim().to_ascii_lowercase();
@@ -2553,7 +2553,7 @@ fn execute_slash_command_impl(
                 match rustcode_updater::run_rollback() {
                     Ok(sum) => {
                         // Route through the event channel so rendering
-                        // and "set done → exit" logic stays in one place.
+                        // and "set done -> exit" logic stays in one place.
                         let _ = ctx
                             .upgrade_tx
                             .send(rustcode_updater::UpgradeEvent::RolledBack {
@@ -2622,7 +2622,7 @@ fn execute_slash_command_impl(
                         },
                     ) {
                         // Success path stays silent: the transition is fast and its
-                        // terminal updates the cwd; the "reconfiguring…" status is
+                        // terminal updates the cwd; the "reconfiguring..." status is
                         // only shown by the guards when an action races a pending one.
                         Ok(_) => {}
                         Err(error) => renderer.render(UiLine::Error(error)),
@@ -3246,9 +3246,9 @@ fn execute_slash_command_impl(
                             if snapshot.tools.is_empty() {
                                 match snapshot.status {
                                     Some(status) => {
-                                        message.push_str(&format!("  (none — {status})\n"));
+                                        message.push_str(&format!("  (none -- {status})\n"));
                                     }
-                                    None => message.push_str("  (none — server not configured)\n"),
+                                    None => message.push_str("  (none -- server not configured)\n"),
                                 }
                             } else {
                                 for tool in snapshot.tools {
@@ -3283,7 +3283,7 @@ fn execute_slash_command_impl(
                         txt.push_str(&format!("    {}  {}\n", name, server_status));
                     }
                     // When any project-source server is withheld, surface how to
-                    // unblock it — the raw `blocked: untrusted project` lines never
+                    // unblock it -- the raw `blocked: untrusted project` lines never
                     // mention that `/mcp trust` exists.
                     if blocked > 0 {
                         txt.push_str(&t(Msg::McpBlockedTrustHint { count: blocked }));
@@ -3437,7 +3437,7 @@ fn execute_slash_command_impl(
                             ctx,
                             desired,
                             renderer,
-                            format!("  ○ Reasoning effort set to: {sub}\n"),
+                            format!("  o Reasoning effort set to: {sub}\n"),
                             false,
                         );
                     } else if matches!(sub.as_str(), "default" | "auto" | "off") {
@@ -3453,7 +3453,7 @@ fn execute_slash_command_impl(
                             ctx,
                             desired,
                             renderer,
-                            "  ○ Reasoning effort: default (API-selected; capability kept)\n"
+                            "  o Reasoning effort: default (API-selected; capability kept)\n"
                                 .to_string(),
                             false,
                         );
@@ -3491,11 +3491,11 @@ fn execute_slash_command_impl(
         }
         "goal" => {
             // Sub-commands aligned with Claude Code's /goal (v2.1.139+):
-            //   /goal <condition>             → set a new goal
-            //   /goal                         → show status (or hint if none)
-            //   /goal status                  → explicit status (same)
-            //   /goal clear|stop|off|reset|none|cancel  → halt the active goal
-            //   /goal help|?|-h|--help        → usage
+            //   /goal <condition>             -> set a new goal
+            //   /goal                         -> show status (or hint if none)
+            //   /goal status                  -> explicit status (same)
+            //   /goal clear|stop|off|reset|none|cancel  -> halt the active goal
+            //   /goal help|?|-h|--help        -> usage
             //
             // CC has no `--max-rounds` flag and no wall-clock cap. Users
             // express budgets in the condition text instead (e.g. "or stop
@@ -3560,11 +3560,11 @@ fn execute_slash_command_impl(
                 }
                 _ => {
                     // Treat the entire trimmed input as the condition.
-                    // (Empty input is unreachable here — `head` would be ""
+                    // (Empty input is unreachable here -- `head` would be ""
                     // and the `"" | "status"` arm above would have matched.)
                     let condition = trimmed.to_owned();
                     // Attach any pasted reference images whose `[Image #N]`
-                    // marker survived in the objective text — the goal's first
+                    // marker survived in the objective text -- the goal's first
                     // turn submits with them (a text-only model captions via VL).
                     let images = take_marker_matched_images(state, arg);
                     if ctx
@@ -3669,7 +3669,7 @@ fn execute_slash_command_impl(
                     if submit_agent_text(ctx, prompt) {
                         state.on_submit();
                     }
-                    // Non-silent: /loop is live-only (persistence deferred) — tell the
+                    // Non-silent: /loop is live-only (persistence deferred) -- tell the
                     // user it won't come back after a restart/resume.
                     renderer.render(UiLine::CommandOutput(
                         crate::i18n::t(crate::i18n::Msg::LoopNoPersistHint).into_owned(),
@@ -3692,7 +3692,7 @@ fn execute_slash_command_impl(
                         active_modal,
                         setup_pending,
                     );
-                    // Non-silent: /loop is live-only (persistence deferred) — tell the
+                    // Non-silent: /loop is live-only (persistence deferred) -- tell the
                     // user it won't come back after a restart/resume.
                     renderer.render(UiLine::CommandOutput(
                         crate::i18n::t(crate::i18n::Msg::LoopNoPersistHint).into_owned(),
@@ -3707,7 +3707,7 @@ fn execute_slash_command_impl(
         }
         "plugin" => {
             // Bare `/plugin` opens the interactive manager; subcommands
-            // (`marketplace …`, `install x@mp`, …) keep their old behavior.
+            // (`marketplace ...`, `install x@mp`, ...) keep their old behavior.
             if arg.trim().is_empty() {
                 *active_modal = Some(Box::new(crate::modals::PluginManager::open()));
             } else {
@@ -3719,12 +3719,12 @@ fn execute_slash_command_impl(
             // so the user knows what's available without opening the
             // menu (useful in non-TTY transcripts and copy/paste).
             // With an arg, treat the first word as a skill name and
-            // dispatch its expanded template as a user message — same
+            // dispatch its expanded template as a user message -- same
             // path the menu's sub-mode submission lands on.
             let arg_trim = arg.trim();
             if arg_trim.is_empty() {
                 // Show fully qualified names (`<plugin>:<skill>`) so users
-                // can see which plugin owns each skill — bare-name listing
+                // can see which plugin owns each skill -- bare-name listing
                 // becomes ambiguous quickly once two plugins coexist.
                 // `SkillRegistry::get`'s suffix-fallback still resolves
                 // `/skills <bare>` for unambiguous bare names, so users
@@ -3759,7 +3759,7 @@ fn execute_slash_command_impl(
                 // skill（无第二个 skill 词）解析结果与旧 splitn(2) 一致，零回归。
                 // Returns the skill's canonical identity (`s.name`, the unique
                 // normalized registry key) so `split_skill_names` dedups by
-                // identity — two spellings of the same skill inject it once.
+                // identity -- two spellings of the same skill inject it once.
                 let resolve = |name: &str| {
                     ctx.skill_registry.read().ok().and_then(|r| {
                         r.get(name)
@@ -3769,7 +3769,7 @@ fn execute_slash_command_impl(
                 };
                 let (skills, skill_args) = split_skill_names(arg_trim, resolve);
                 if skills.is_empty() {
-                    // 首词不是 skill —— 沿用旧的 unknown 报错，指名第一个词。
+                    // 首词不是 skill ---- 沿用旧的 unknown 报错，指名第一个词。
                     let first = arg_trim.split_whitespace().next().unwrap_or("");
                     renderer.render(UiLine::Error(
                         t(Msg::SkillUnknown { name: first }).into_owned(),
@@ -3792,7 +3792,7 @@ fn execute_slash_command_impl(
                     } else {
                         // 回显已加载 skill：第二个及以后的 skill 名若打错字会静默
                         // 落进任务描述，这行让用户一眼看出"只加载了 N 个"。
-                        let names = skills.join(" · ");
+                        let names = skills.join(" . ");
                         renderer.render(UiLine::CommandOutput(
                             t(Msg::SkillsLoaded {
                                 names: names.as_str(),
@@ -3808,7 +3808,7 @@ fn execute_slash_command_impl(
         }
         "setup" => {
             // Check if the setup skill is already installed. If so, skip
-            // the seed-install step and directly invoke the skill — this
+            // the seed-install step and directly invoke the skill -- this
             // avoids unnecessary file I/O, locking, and reloading every
             // time the user runs /setup on a project that's already set up.
             let skill_already_installed = {
@@ -3817,7 +3817,7 @@ fn execute_slash_command_impl(
             };
 
             if skill_already_installed {
-                // Fast path: skill already present — just invoke it.
+                // Fast path: skill already present -- just invoke it.
                 if let Some(rendered) = expand_skill(ctx, "setup", arg) {
                     renderer.render(UiLine::CommandOutput(
                         t(Msg::CmdSetupRunningSkill).into_owned(),
@@ -3839,7 +3839,7 @@ fn execute_slash_command_impl(
 
                 // `setup::run` is synchronous (file I/O only). Run it on the
                 // current thread via `block_in_place` to avoid blocking the
-                // tokio runtime — no `block_on` needed since it's not async.
+                // tokio runtime -- no `block_on` needed since it's not async.
                 let result =
                     tokio::task::block_in_place(|| rustcode_capabilities::setup::run(opts));
 
@@ -3850,7 +3850,7 @@ fn execute_slash_command_impl(
                         }
 
                         // Reload skills/commands so newly-installed seeds are
-                        // visible immediately — without this the user would need
+                        // visible immediately -- without this the user would need
                         // to restart RustCode to see them in /skills.
                         let (skills_loaded, _) = super::reload_plugins(ctx);
                         renderer.render(UiLine::CommandOutput(
@@ -3895,8 +3895,8 @@ fn execute_slash_command_impl(
             // subcommands (first word, case-insensitive) mutate it without
             // waiting on the model, both via the kernel-reseed path so the next
             // turn's TodoHook reflects the change:
-            //   `/todo clear`        — wipe the list (stale/cancelled tasks stop reappearing)
-            //   `/todo add <text>`   — append one pending task at the end
+            //   `/todo clear`        -- wipe the list (stale/cancelled tasks stop reappearing)
+            //   `/todo add <text>`   -- append one pending task at the end
             // Then the list is re-printed as confirmation.
             let (kw, rest) = match arg.trim().split_once(char::is_whitespace) {
                 Some((k, r)) => (k, r.trim()),
@@ -3904,7 +3904,7 @@ fn execute_slash_command_impl(
             };
             let is_add = kw.eq_ignore_ascii_case("add");
             if is_add && rest.is_empty() {
-                // `/todo add` with no text → usage hint, no mutation, no reprint.
+                // `/todo add` with no text -> usage hint, no mutation, no reprint.
                 renderer.render(UiLine::CommandOutput(t(Msg::TodoAddUsage).into_owned()));
                 renderer.flush();
             } else {
@@ -3915,7 +3915,7 @@ fn execute_slash_command_impl(
                     // doesn't pollute the transcript with an empty-todowrite pair.
                     clear_todos(ctx, state);
                 }
-                // Re-print the (possibly mutated) list as confirmation — shared by
+                // Re-print the (possibly mutated) list as confirmation -- shared by
                 // add-success, clear, and a bare `/todo`.
                 let out =
                     format_todo_command(&ctx.current_session.messages, ctx.caps.unicode_symbols);
@@ -3996,7 +3996,7 @@ pub(crate) fn request_session_catalog(ctx: &LoopCtx, renderer: &mut dyn Renderer
 
 /// 贪婪切分 `/skills` 参数：从左到右扫 whitespace 分词，`resolve(token)` 返回该
 /// token 对应 skill 的**规范身份**（`Some(canonical)`）时收入列表，否则停止。去重
-/// 按规范身份而非原始拼写——两个拼写不同但解析到同一 skill 的 token（大小写、后缀
+/// 按规范身份而非原始拼写----两个拼写不同但解析到同一 skill 的 token（大小写、后缀
 /// 简写等）只注入一次。列表里存用户原始拼写（回显更友好），展开时 `expand_skill`
 /// 会再归一化。遇到第一个非 skill 的 token，它及其之后的内容（按原串偏移，保留原
 /// 空白）作为任务描述返回。单个 skill（后面无第二个 skill 词）等价于旧 `splitn(2)`。
@@ -4025,7 +4025,7 @@ fn split_skill_names(arg: &str, resolve: impl Fn(&str) -> Option<String>) -> (Ve
 /// Decision returned by [`decide_custom_command`] for the `other` arm of
 /// [`execute_slash_command_impl`]. Separating the pure decision from its
 /// side effects (rendering an error line, submitting an agent turn) lets
-/// the dispatch rule — `Required` + empty arg ⇒ reject — be unit-tested
+/// the dispatch rule -- `Required` + empty arg ⇒ reject -- be unit-tested
 /// without constructing a full `LoopCtx`.
 #[derive(Debug)]
 pub(super) enum CustomDispatch {
@@ -4045,7 +4045,7 @@ pub(super) enum CustomDispatch {
 /// custom command matched and no user-invocable skill matched either)
 /// outcome of the `other` arm.
 ///
-/// Pure side effect on `renderer` only — does NOT call
+/// Pure side effect on `renderer` only -- does NOT call
 /// `submit_agent_turn`, which is the whole point of both error paths:
 ///   - `Reject`   ⇒ user typed e.g. `/myreview` with no argument; surface
 ///     `Msg::CmdCustomArgRequired` and leave the conversation untouched.
@@ -4074,7 +4074,7 @@ pub(super) fn render_custom_command_error(
             ));
             renderer.flush();
         }
-        // Submit is not an error — handled by the caller via submit_agent_turn.
+        // Submit is not an error -- handled by the caller via submit_agent_turn.
         CustomDispatch::Submit(_) => {}
     }
 }
@@ -4083,9 +4083,9 @@ pub(super) fn render_custom_command_error(
 /// dispatcher should do. Pure: touches neither `LoopCtx` nor the renderer,
 /// so the reject-vs-submit boundary is testable in isolation.
 ///
-/// - `Required` + empty/whitespace-only `arg` → `Reject`
-/// - otherwise resolved command → `Submit(render(arg))`
-/// - no match → `NotFound`
+/// - `Required` + empty/whitespace-only `arg` -> `Reject`
+/// - otherwise resolved command -> `Submit(render(arg))`
+/// - no match -> `NotFound`
 pub(super) fn decide_custom_command(
     registry: &crate::custom_commands::CustomCommandRegistry,
     name: &str,
@@ -4244,7 +4244,7 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                     plugin,
                     marketplace: mp,
                 }) => {
-                    // Explicit plugin@marketplace — install directly.
+                    // Explicit plugin@marketplace -- install directly.
                     let tx = ctx.plugin_job_tx.clone();
                     ok(
                         renderer,
@@ -4274,7 +4274,7 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                     });
                 }
                 Some(PluginArg::Bare { plugin }) => {
-                    // Bare plugin name — resolve across all marketplaces.
+                    // Bare plugin name -- resolve across all marketplaces.
                     match rustcode_capabilities::plugin::installer::resolve_plugin_marketplace(
                         &plugin,
                     ) {
@@ -4307,7 +4307,7 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                             });
                         }
                         Ok(matches) if matches.len() > 1 => {
-                            // Multiple marketplaces contain this plugin — show a
+                            // Multiple marketplaces contain this plugin -- show a
                             // disambiguation list with the install command to use.
                             let mut msg =
                                 t(Msg::PluginInstallAmbiguous { plugin: &plugin }).into_owned();
@@ -4468,9 +4468,9 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
 /// Supports both `plugin@marketplace` (fully qualified) and bare
 /// `plugin` (resolved across all marketplaces).
 enum PluginArg {
-    /// Explicit `plugin@marketplace` — use as-is.
+    /// Explicit `plugin@marketplace` -- use as-is.
     Qualified { plugin: String, marketplace: String },
-    /// Bare plugin name — needs marketplace resolution.
+    /// Bare plugin name -- needs marketplace resolution.
     Bare { plugin: String },
 }
 
@@ -4844,7 +4844,7 @@ pub(crate) fn paths_same(a: &std::path::Path, b: &std::path::Path) -> bool {
     }
 }
 
-/// Build the `/context` report — horizontal bar + category breakdown,
+/// Build the `/context` report -- horizontal bar + category breakdown,
 /// optionally followed by the full system prompt when `show_prompt`.
 ///
 /// Thin wrapper around `format_context_report` that pulls the inputs
@@ -4864,7 +4864,7 @@ fn render_login_line(user: Option<&str>) -> String {
     }
 }
 
-/// Format the signed-in identity as `display_name(username)` — the agreed
+/// Format the signed-in identity as `display_name(username)` -- the agreed
 /// `昵称(用户名)` form. Falls back to just `username` when there is no distinct
 /// display name: name absent, empty/whitespace, or identical to the username
 /// (so we never render `Saulcy(Saulcy)`).
@@ -4893,7 +4893,7 @@ fn render_login_line_from_stored_auth() -> String {
 }
 
 /// Render a CodingPlan auth failure. An EXPIRED login (`is_auth_expired` on the error
-/// chain — dead local token, or a 401 from the server) → a clear localized "run
+/// chain -- dead local token, or a 401 from the server) -> a clear localized "run
 /// /login" prompt; otherwise `fallback()` (a genuine not-signed-in hint, or the raw
 /// fetch-failure line). `from_stored_auth` returns `AuthExpired` for a dead token but a
 /// PLAIN error when never logged in, so the two stay distinguishable.
@@ -4906,7 +4906,7 @@ fn render_cp_auth_error(e: &anyhow::Error, fallback: impl FnOnce() -> String) ->
 }
 
 /// Fetch + format the CodingPlan section appended to `/status`. Runs a
-/// blocking HTTP call (~100–500ms) against `/coding-plan/status` — same
+/// blocking HTTP call (~100-500ms) against `/coding-plan/status` -- same
 /// endpoint as the `/codingplan` flow's step 4. Falls back to a one-line
 /// hint when the user isn't signed in, has no active plan, or the API
 /// call fails. Never panics and never returns an error: `/status` is a
@@ -4918,9 +4918,9 @@ fn render_codingplan_status_for_status_cmd() -> String {
 
         let client = match Client::from_stored_auth() {
             Ok(c) => c,
-            // Expired login → clear re-login prompt; genuinely not signed in → the
+            // Expired login -> clear re-login prompt; genuinely not signed in -> the
             // not-signed-in hint. Without this split a dead token showed "not signed in"
-            // while the Login line above said "signed in as X" — contradictory.
+            // while the Login line above said "signed in as X" -- contradictory.
             Err(e) => return render_cp_auth_error(&e, || t(Msg::StatusCpNotSignedIn).into_owned()),
         };
         let status = match client.status_v2() {
@@ -4968,7 +4968,7 @@ fn render_codingplan_status_for_status_cmd() -> String {
             // when `window_quota_exhausted` is set we suppress the usage line
             // (which the server often reports as 0% for a freshly-reset short
             // window even while the longer quota is exhausted). Showing both
-            // produced the visibly contradictory `用量 0% / ⚠额度已满` pair the
+            // produced the visibly contradictory `用量 0% / [!]额度已满` pair the
             // user surfaced as the "v4.23.2 still displays it this way" report.
             if let Some(hint) = &status.window_quota_hint {
                 out.push_str(&t(Msg::StatusCpWindowHint { hint }));
@@ -4986,7 +4986,7 @@ fn render_codingplan_status_for_status_cmd() -> String {
     })
 }
 
-/// Pure-function core of `/context` — testable without constructing
+/// Pure-function core of `/context` -- testable without constructing
 /// `LoopCtx`. Returns the rendered CommandOutput body.
 fn format_context_report(
     snapshot: Option<&crate::state::ContextSnapshot>,
@@ -5040,11 +5040,11 @@ fn format_context_report(
     bar.push_str(&"▓".repeat(tools_cells)); // tool defs
     bar.push_str(&"░".repeat(cold_cells)); // cold zone
     bar.push_str(&"█".repeat(msg_cells)); // messages
-    bar.push_str(&"·".repeat(free_cells)); // free
+    bar.push_str(&".".repeat(free_cells)); // free
 
     let pct = |t: usize| -> String {
         if window == 0 {
-            return "  —".to_string();
+            return "  --".to_string();
         }
         format!("{:>4.1}%", (t as f64 * 100.0) / window as f64)
     };
@@ -5089,13 +5089,13 @@ fn format_context_report(
          {bar}\n  \
          {used}/{window} {tokens} ({used_pct})\n  \
          \n  \
-         {provider}: {model}  ·  {ctx_label}: {ctx_name}\n  \
+         {provider}: {model}  .  {ctx_label}: {ctx_name}\n  \
          \n  \
          ▒ {l_sys} : {sys_s:>7}  ({sys_p})\n  \
          ▓ {l_tools} : {tools_s:>7}  ({tools_p})\n  \
          ░ {l_cold} : {cold_s:>7}  ({cold_p})\n  \
          █ {l_msgs} : {msgs_s:>7}  ({msgs_p})\n  \
-         · {l_free} : {free_s:>7}  ({free_p})\n  \
+         . {l_free} : {free_s:>7}  ({free_p})\n  \
          \n  \
          {msg_count}\n",
         header = t(Msg::CtxUsageHeader),
@@ -5128,9 +5128,9 @@ fn format_context_report(
         }),
     );
 
-    // `/context prompt` — append the full system-prompt bytes the last
+    // `/context prompt` -- append the full system-prompt bytes the last
     // turn sent. Kept out of the default output because the prompt is
-    // 5–15 KB and would swamp the breakdown dashboard every invocation.
+    // 5-15 KB and would swamp the breakdown dashboard every invocation.
     // Hint line added when empty so the user knows WHY nothing showed
     // (snapshot is populated only by the rich emission path, which
     // fires once the first complete turn lands).
@@ -5158,7 +5158,7 @@ fn format_context_report(
 /// Assemble the `/status` body in canonical display order: the login line FIRST
 /// (so you see who you're signed in as at a glance), then the model/dir/config
 /// block, the CodingPlan section, an optional Proxy line (interactive `/status`
-/// only — the remote/phone view omits it), a blank separator, then the
+/// only -- the remote/phone view omits it), a blank separator, then the
 /// instruction-files block. Pure over its already-rendered pieces so the order is
 /// unit-testable and the interactive + remote renderers can't drift apart.
 fn assemble_status(
@@ -5203,7 +5203,7 @@ pub(super) fn build_status_text(ctx: &LoopCtx, proxy: Option<&str>) -> String {
 /// `/whoami` 的账号信息文本。TUI arm 与手机远程执行共用。
 pub(super) fn build_whoami_text() -> String {
     if let Some(auth) = rustcode_auth::get_stored_auth() {
-        let email = auth.user.email.as_deref().unwrap_or("—");
+        let email = auth.user.email.as_deref().unwrap_or("--");
         let name = auth.user.name.as_deref().unwrap_or(&auth.user.username);
         format!(
             "  {} ({})\n  {}\n  auth: {}\n",
@@ -5252,7 +5252,7 @@ pub(super) fn build_diff_stat_text(ctx: &LoopCtx) -> Result<String, String> {
 }
 
 /// Fetch CodingPlan usage from the gateway (BLOCKING network call). `None` when the
-/// user isn't logged into a CodingPlan account — the caller then shows
+/// user isn't logged into a CodingPlan account -- the caller then shows
 /// `UsageCodingPlanOnly`. Shared by the interactive modal (`open_usage`) and the
 /// mid-turn footer report; both now render all three tabs.
 ///
@@ -5288,7 +5288,7 @@ fn fetch_usage_data() -> Option<UsageData> {
     })
 }
 
-/// `/usage` — open the CodingPlan usage modal (idle). Renders a notice when the user
+/// `/usage` -- open the CodingPlan usage modal (idle). Renders a notice when the user
 /// isn't on a CodingPlan account, otherwise pushes the modal into `active_modal`.
 fn open_usage(renderer: &mut dyn Renderer, active_modal: &mut Option<Box<dyn Modal>>) {
     match fetch_usage_data() {
@@ -5324,7 +5324,7 @@ pub(crate) fn build_cost_report_text(
             });
     }
 
-    // Resolve a selection id to its account for a friendly `account · model`
+    // Resolve a selection id to its account for a friendly `account . model`
     // header (folded CodingPlan models share one `AtomGit` account); fall back to
     // the raw id when it isn't in the catalog (e.g. a since-removed provider).
     let catalog = config.logical_models();
@@ -5353,7 +5353,7 @@ pub(crate) fn build_cost_report_text(
             total,
         });
         sections.push(format!(
-            "{} · {}\n{}",
+            "{} . {}\n{}",
             account_of(&item.provider_id),
             item.model_id,
             body
@@ -5373,8 +5373,8 @@ pub(crate) fn build_cost_report_text(
 fn build_session_cost_text(ctx: &LoopCtx, state: &UiState) -> String {
     // The CURRENT-turn row must pair the ACTIVE selection with the active model.
     // Use the resolved selection id (matches `ctx.model_name`), not the possibly
-    // stale legacy `default_provider` — otherwise the row mislabels e.g.
-    // "agnes-ai · GLM-5.2".
+    // stale legacy `default_provider` -- otherwise the row mislabels e.g.
+    // "agnes-ai . GLM-5.2".
     let provider = ctx.config.effective_model_selection().unwrap_or_default();
     let manager = session_manager_for_cost(
         ctx.current_session_project_bucket.as_deref(),
@@ -5461,7 +5461,7 @@ mod cost_session_location_tests {
 }
 
 /// `/schedule` list text (pure function, easy to test).
-/// Empty → usage hint; otherwise one line per task: id | title | next | last | enabled.
+/// Empty -> usage hint; otherwise one line per task: id | title | next | last | enabled.
 pub(crate) fn build_schedule_list_text(
     tasks: &[rustcode_config::schedule::ScheduleTask],
     now: i64,
@@ -5607,7 +5607,7 @@ pub(crate) fn reset_to_new_session(
             });
             // Success is fast (the reconfigure connects MCP in the background and
             // never blocks): the transition terminal wipes the screen / re-renders
-            // shortly, so the "reconfiguring…" status is just noise here. It's still
+            // shortly, so the "reconfiguring..." status is just noise here. It's still
             // shown by the guards above / on submit while a transition is pending.
         }
         Err(error) => renderer.render(UiLine::Error(
@@ -5634,7 +5634,7 @@ fn apply_cd_with_effect(
 ) -> Result<PathBuf, String> {
     // Normalize the funnel: `resolve_cd` strips the Windows `\\?\` verbatim prefix,
     // but the dir-picker's recent-list branch and the webui `ProjectSwitched` event
-    // reach here WITHOUT going through it, carrying a canonicalized `\\?\C:\…` path
+    // reach here WITHOUT going through it, carrying a canonicalized `\\?\C:\...` path
     // (persisted recent_dirs.txt entries from before the fix, or a re-canonicalized
     // runtime value). Strip here so `working_dir`, `recent_dirs`, the `ChangeDirectory`
     // command, and the webui sync all store the plain form regardless of caller.
@@ -5671,7 +5671,7 @@ fn apply_cd_with_effect(
 }
 
 /// Move `new` to the front of `dirs`, dedup, and cap at `MAX_RECENT_DIRS`.
-/// Does NOT persist — call `save_recent_dirs` after, or use `apply_cd`
+/// Does NOT persist -- call `save_recent_dirs` after, or use `apply_cd`
 /// which does both.
 pub(crate) fn push_recent_dir(dirs: &mut Vec<PathBuf>, new: PathBuf) {
     // De-dup case-insensitively on case-insensitive filesystems so `C:\Users`
@@ -5687,12 +5687,12 @@ pub(crate) fn push_recent_dir(dirs: &mut Vec<PathBuf>, new: PathBuf) {
 /// unit-testable; the `is_dir` liveness filter + `MAX_RECENT_DIRS` cap stay in
 /// `load_recent_dirs` because they touch the FS.
 ///
-/// De-dup matters because a legacy file can hold BOTH the `\\?\C:\…` verbatim
-/// form and the plain `C:\…` form of the same dir (cd'd on an old vs a fixed
+/// De-dup matters because a legacy file can hold BOTH the `\\?\C:\...` verbatim
+/// form and the plain `C:\...` form of the same dir (cd'd on an old vs a fixed
 /// binary), OR the same dir in two cases (`C:\Users` vs `C:\users`). Stripping
 /// collapses the verbatim form and the case-insensitive key collapses the case
 /// variants, so the picker shows one `~/rustcode` row, not two. `push_recent_dir`
-/// only de-dups on WRITE — this handles the READ side for pre-existing files.
+/// only de-dups on WRITE -- this handles the READ side for pre-existing files.
 fn parse_recent_dirs(contents: &str) -> Vec<PathBuf> {
     let mut seen = std::collections::HashSet::new();
     contents
@@ -5720,7 +5720,7 @@ pub(crate) fn load_recent_dirs() -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
-/// Persist `dirs` to `~/.rustcode/recent_dirs.txt`. Best-effort — a write
+/// Persist `dirs` to `~/.rustcode/recent_dirs.txt`. Best-effort -- a write
 /// failure (read-only HOME, permission denied) is swallowed so it can
 /// never break an interactive `/cd`.
 pub(crate) fn save_recent_dirs(dirs: &[PathBuf]) {
@@ -5803,7 +5803,7 @@ pub(crate) fn resolve_cd(
         .map_err(|e| format!("{}: {}", target.display(), e))?;
     // On Windows `canonicalize` returns a `\\?\` verbatim / extended-length path.
     // Strip it here at the SOURCE so every downstream sink carries the plain
-    // `C:\…` form: the "已切换到 …" confirmation (uses this value directly), the
+    // `C:\...` form: the "已切换到 ..." confirmation (uses this value directly), the
     // stored `working_dir`, the change-directory request sent to the runtime, the
     // webui footer sync (`live_set_working_dir`), and `recent_dirs.txt`. Only the
     // status-row `collapse_home` stripped before, so those other sites leaked the
@@ -5822,7 +5822,7 @@ pub(crate) fn resolve_cd(
 }
 
 /// Expand a `/cd` argument to a target path WITHOUT touching the filesystem (no
-/// canonicalize / existence check — the caller does that). Handles `~`, `~/sub`,
+/// canonicalize / existence check -- the caller does that). Handles `~`, `~/sub`,
 /// `~\sub` (Windows backslash), `-` (previous dir), absolute, and relative-to-cwd.
 /// Pure (filesystem-free) so the path logic is unit-testable; `resolve_cd` wraps
 /// it with the canonicalize + is_dir validation.
@@ -5844,7 +5844,7 @@ pub(crate) fn expand_cd_target(
     }
     if let Some(rest) = arg.strip_prefix('~') {
         let home = home.ok_or_else(|| "home directory not known".to_string())?;
-        // Strip the leading separator(s) after `~` — BOTH `/` and `\` so a Windows
+        // Strip the leading separator(s) after `~` -- BOTH `/` and `\` so a Windows
         // user can type `~\Desktop` like `~/Desktop`, and ALL of them so a doubled
         // separator (`~//x`, easy typo) doesn't leave an absolute remnant that
         // `home.join` would treat as a root and escape the home dir.
@@ -5865,22 +5865,22 @@ pub(crate) fn expand_cd_target(
 /// display it and the rendered block fits the current width.
 ///
 /// Style selection (Unicode-capable terminals):
-/// * `RUSTCODE_QR_DENSE=1` → force `Dense1x2` half-block (≈ 45 cols).
+/// * `RUSTCODE_QR_DENSE=1` -> force `Dense1x2` half-block (≈ 45 cols).
 ///   Override for users on terminals where braille mis-renders.
-/// * `RUSTCODE_QR_BRAILLE=1` → force braille (≈ 23 cols). Opt-in for
+/// * `RUSTCODE_QR_BRAILLE=1` -> force braille (≈ 23 cols). Opt-in for
 ///   users who know their terminal renders braille at single cell
 ///   width and don't add line spacing.
 /// * JediTerm (Android Studio / IntelliJ / GoLand / any JetBrains IDE
-///   embedded terminal) → no QR. JediTerm renders rows with extra
+///   embedded terminal) -> no QR. JediTerm renders rows with extra
 ///   line spacing, vertically stretching every text-based QR beyond
 ///   scanner aspect tolerance. URLs are clickable in JediTerm
 ///   anyway, so URL-only is actually a better UX.
-/// * Otherwise → `Dense1x2`. Block elements (U+2580–U+259F) are
+/// * Otherwise -> `Dense1x2`. Block elements (U+2580-U+259F) are
 ///   Unicode-Neutral width and render at single cell on every
-///   terminal — universally scannable.
+///   terminal -- universally scannable.
 ///
 /// On terminals without Unicode block-glyph support
-/// (`TerminalCaps::unicode_symbols == false` — POSIX locale, dumb
+/// (`TerminalCaps::unicode_symbols == false` -- POSIX locale, dumb
 /// TERM, legacy Windows conhost) we likewise skip the QR: the only
 /// scannable ASCII form is ≈ 90 columns wide, which doesn't fit any
 /// realistic terminal window, and those environments are typically
@@ -5890,7 +5890,7 @@ fn compose_login_chrome(url: &str, unicode: bool) -> String {
 }
 
 /// Testable core of `compose_login_chrome`. `omit_url=true` drops the
-/// clickable URL block — wired to `cfg!(target_env = "ohos")` by the
+/// clickable URL block -- wired to `cfg!(target_env = "ohos")` by the
 /// outer fn because the AtomGit OAuth callback's redirect-based flow
 /// breaks on OpenHarmony PC (system browser hands control back with
 /// "Invalid state" before the callback can complete; WeChat QR scan
@@ -5925,7 +5925,7 @@ fn compose_login_chrome_inner(url: &str, unicode: bool, omit_url: bool) -> Strin
             out.push_str(url);
         }
     } else if omit_url {
-        // No QR + URL doesn't work on this platform → there's nothing
+        // No QR + URL doesn't work on this platform -> there's nothing
         // actionable to offer. Tell the user explicitly rather than
         // dropping them into a screen with just "Press ESC to cancel".
         out.push_str(&t(Msg::LoginNoQrNoUrl));
@@ -5940,7 +5940,7 @@ fn compose_login_chrome_inner(url: &str, unicode: bool, omit_url: bool) -> Strin
 /// Choose a QR rendering style for the current environment, or return
 /// `None` to skip the QR entirely (URL-only output).
 ///
-/// Pure function — env vars / TERMINAL_EMULATOR are read once and
+/// Pure function -- env vars / TERMINAL_EMULATOR are read once and
 /// passed through `decide_qr_style` so the decision logic stays unit
 /// testable.
 fn pick_qr_style(unicode: bool) -> Option<crate::render::qr::QrStyle> {
@@ -5976,7 +5976,7 @@ fn decide_qr_style(
         return Some(QrStyle::Braille);
     }
     if is_jediterm {
-        // JediTerm adds line spacing — every text-based QR vertically
+        // JediTerm adds line spacing -- every text-based QR vertically
         // stretches past scanner tolerance. URL-only is the better UX.
         return None;
     }
@@ -5985,7 +5985,7 @@ fn decide_qr_style(
 
 /// Extract the verbatim bodies of fenced (```` ``` ```` / `~~~`) code blocks
 /// from markdown, in document order. Used by `/copy` to recover the ORIGINAL
-/// unwrapped command text — never the rendered body cells, which are already
+/// unwrapped command text -- never the rendered body cells, which are already
 /// hard-wrapped + PAD-indented and would corrupt a pasted command.
 ///
 /// A fence opens on a line whose trimmed form starts with three or more of the
@@ -6038,7 +6038,7 @@ enum CopyResolve {
     BadIndex(usize),
 }
 
-/// Outcome of `/save [filename]` — either the conversation was written to a
+/// Outcome of `/save [filename]` -- either the conversation was written to a
 /// file (carrying the resolved path for display) or it failed for one of three
 /// reasons: nothing to export, an I/O error, or an invalid/unsafe path.
 #[derive(Debug)]
@@ -6051,7 +6051,7 @@ enum SaveOutcome {
     IoError(String),
     /// The requested path is invalid or its parent directory does not exist.
     InvalidPath(String),
-    /// The target already exists and is NOT a markdown file — refuse to clobber
+    /// The target already exists and is NOT a markdown file -- refuse to clobber
     /// it (a `/save mydata.py` typo would otherwise overwrite source/config with
     /// the transcript). Carries the target path for the message.
     RefuseOverwrite(String),
@@ -6061,8 +6061,8 @@ enum SaveOutcome {
 /// `/save ~/notes.md` lands in the home dir instead of a literal `./~/` folder
 /// (consistent with read_file / glob, which already expand `~`). Pure over
 /// `home` so it is unit-testable without touching the environment. A bare `~`
-/// → home; `~/x` → home/x; `~user` and everything else pass through unchanged
-/// (we don't resolve other users' homes). No home known → `arg` as-is.
+/// -> home; `~/x` -> home/x; `~user` and everything else pass through unchanged
+/// (we don't resolve other users' homes). No home known -> `arg` as-is.
 fn expand_tilde_path(arg: &str, home: Option<&std::path::Path>) -> std::path::PathBuf {
     let Some(home) = home else {
         return std::path::PathBuf::from(arg);
@@ -6123,7 +6123,7 @@ fn render_save_markdown(messages: &[rustcode_kernel::message::Message]) -> Optio
     Some(out)
 }
 
-/// Map `/save [filename]` to a written file. `""` → a timestamped default
+/// Map `/save [filename]` to a written file. `""` -> a timestamped default
 /// (`rustcode-session-YYYYMMDD-HHMMSS.md`) in the active project directory;
 /// a bare name or relative path resolves against `working_dir`;
 /// an absolute path is used as-is. Existing files are overwritten.
@@ -6150,7 +6150,7 @@ fn resolve_save_in(
         working_dir.join(path)
     };
 
-    // Reject paths whose parent directory doesn't exist — we don't auto-mkdir,
+    // Reject paths whose parent directory doesn't exist -- we don't auto-mkdir,
     // so a typo can't silently scatter directories. Relative paths are already
     // rooted at `working_dir`; absolute paths are checked as provided.
     if let Some(parent) = path.parent() {
@@ -6184,13 +6184,13 @@ fn resolve_save_in(
     }
 }
 
-/// Map `/copy [arg]` to the text to copy. `""` → last block (the common
-/// "copy the command just shown" case); `all` → every block joined by a blank
-/// line; `N` (1-based) → the Nth block; `msg` → the full reply markdown
+/// Map `/copy [arg]` to the text to copy. `""` -> last block (the common
+/// "copy the command just shown" case); `all` -> every block joined by a blank
+/// line; `N` (1-based) -> the Nth block; `msg` -> the full reply markdown
 /// (prose + code, useful for pasting the whole answer elsewhere).
 fn resolve_copy(md: &str, arg: &str) -> CopyResolve {
     let arg = arg.trim();
-    // `/copy msg` → full reply markdown (skip code-block extraction entirely).
+    // `/copy msg` -> full reply markdown (skip code-block extraction entirely).
     if arg.eq_ignore_ascii_case("msg") {
         let trimmed = md.trim();
         if trimmed.is_empty() {
@@ -6263,7 +6263,7 @@ pub(crate) fn copy_text_to_clipboard_osc52(text: &str) -> bool {
         return true;
     }
     // Tier 2: OSC 52 escape sequence. Only emit when stdout is a real
-    // terminal — piping OSC bytes into a file or another process is
+    // terminal -- piping OSC bytes into a file or another process is
     // meaningless (issue #699 P4).
     use std::io::IsTerminal as _;
     if !std::io::stdout().is_terminal() {
@@ -6309,11 +6309,11 @@ pub(crate) fn encode_osc52(buffer: &str, text: &str) -> String {
 }
 
 /// Build the non-error rate-limit pause body line. Three branches:
-/// - `auto_resuming` → kernel is auto-retrying (WaitAndRetry); generic countdown.
-/// - Pause, `reset_at_display` NON-empty → a CONFIRMED CodingPlan quota exhaustion
-///   (real reset time from the usage windows) → the CodingPlan "5h window" message.
-/// - Pause, `reset_at_display` EMPTY → generic 429 (a user's external-model 429, or
-///   a gateway 429 with no window data) → a neutral "limited (HTTP 429)" line, NOT
+/// - `auto_resuming` -> kernel is auto-retrying (WaitAndRetry); generic countdown.
+/// - Pause, `reset_at_display` NON-empty -> a CONFIRMED CodingPlan quota exhaustion
+///   (real reset time from the usage windows) -> the CodingPlan "5h window" message.
+/// - Pause, `reset_at_display` EMPTY -> generic 429 (a user's external-model 429, or
+///   a gateway 429 with no window data) -> a neutral "limited (HTTP 429)" line, NOT
 ///   the CodingPlan message. The `RateLimitHook` gates itself to gateway 429s, so an
 ///   external-model 429 lands here via the kernel's generic default.
 ///
@@ -6328,10 +6328,10 @@ pub(crate) fn format_rate_limited_line(
     if auto_resuming {
         // WaitAndRetry: kernel is sleeping then will retry automatically.
         let n = secs_until_reset.unwrap_or(0);
-        return format!("⏳ 限流，{n}s 后自动继续…");
+        return format!("⏳ 限流，{n}s 后自动继续...");
     }
     // Pause: kernel stopped, user must act. A CodingPlan verdict (decide_from_windows)
-    // carries window data — a reset time AND/OR a window label. The kernel's generic
+    // carries window data -- a reset time AND/OR a window label. The kernel's generic
     // default (from_hint, used for non-CodingPlan / external-model 429s) carries
     // NEITHER. So "has any window signal" ⇒ a real CodingPlan quota; otherwise it's a
     // generic 429 and must NOT be dressed up as a CodingPlan quota exhaustion. Keying
@@ -6344,12 +6344,12 @@ pub(crate) fn format_rate_limited_line(
             None => String::new(),
         };
         // Surface the provider's OWN 429 reason when it carried one (e.g. an external
-        // model's "余额不足…请充值") so the user sees the actionable cause, not a bare 429.
+        // model's "余额不足...请充值") so the user sees the actionable cause, not a bare 429.
         let reason = match server_message {
             Some(m) if !m.trim().is_empty() => format!("：{}", m.trim()),
             _ => String::new(),
         };
-        return format!("⏸ 限流（HTTP 429）{reason}{tail} · 已保留已完成内容 · 稍后重试或换模型");
+        return format!("⏸ 限流（HTTP 429）{reason}{tail} . 已保留已完成内容 . 稍后重试或换模型");
     }
     // Confirmed CodingPlan window exhaustion.
     let tail = match secs_until_reset {
@@ -6358,11 +6358,11 @@ pub(crate) fn format_rate_limited_line(
     };
     if reset_at_display.is_empty() {
         return format!(
-            "⏸ 5小时窗口已用尽，稍后恢复{tail} · 已保留已完成内容 · 可换模型或稍后重试"
+            "⏸ 5小时窗口已用尽，稍后恢复{tail} . 已保留已完成内容 . 可换模型或稍后重试"
         );
     }
     format!(
-        "⏸ 5小时窗口已用尽，约 {reset_at_display} 恢复{tail} · 已保留已完成内容 · 可换模型或稍后重试"
+        "⏸ 5小时窗口已用尽，约 {reset_at_display} 恢复{tail} . 已保留已完成内容 . 可换模型或稍后重试"
     )
 }
 
@@ -6463,7 +6463,7 @@ mod status_login_tests {
 
     #[test]
     fn login_identity_falls_back_to_bare_username() {
-        // No distinct display name → just the username (never `Saulcy(Saulcy)`).
+        // No distinct display name -> just the username (never `Saulcy(Saulcy)`).
         assert_eq!(format_login_identity(None, "Saulcy"), "Saulcy");
         assert_eq!(format_login_identity(Some(""), "Saulcy"), "Saulcy");
         assert_eq!(format_login_identity(Some("   "), "Saulcy"), "Saulcy");
@@ -6499,7 +6499,7 @@ mod status_login_tests {
 
     #[test]
     fn status_omits_proxy_line_when_none() {
-        // The remote/phone view passes None → no Proxy line at all.
+        // The remote/phone view passes None -> no Proxy line at all.
         let s = assemble_status("LOGIN\n", "BODY\n", "CODINGPLAN\n", None, "INSTRUCTIONS");
         assert!(
             !s.contains("PROXY"),
@@ -6562,7 +6562,7 @@ mod status_login_tests {
         // A genuine not-signed-in / network error falls through to the caller's
         // fallback (not-signed-in hint, or the raw fetch-failure line).
         let err = anyhow::anyhow!("network boom");
-        let line = render_cp_auth_error(&err, || format!("fetch failed — {err:#}"));
+        let line = render_cp_auth_error(&err, || format!("fetch failed -- {err:#}"));
         assert!(
             line.contains("network boom"),
             "non-auth errors fall through to the fallback: {line:?}"
@@ -6574,7 +6574,7 @@ mod status_login_tests {
 mod rate_limited_tests {
     use super::*;
 
-    // Branch 1: auto_resuming=true → countdown line (WaitAndRetry)
+    // Branch 1: auto_resuming=true -> countdown line (WaitAndRetry)
     #[test]
     fn rate_limited_wait_shows_countdown() {
         let line = format_rate_limited_line("", "", Some(45), true, None);
@@ -6590,7 +6590,7 @@ mod rate_limited_tests {
         );
     }
 
-    // Branch 2: auto_resuming=false, reset_at_display non-empty → pause with time (Pause)
+    // Branch 2: auto_resuming=false, reset_at_display non-empty -> pause with time (Pause)
     #[test]
     fn rate_limited_renders_non_error_pause_line() {
         let line =
@@ -6606,7 +6606,7 @@ mod rate_limited_tests {
         assert!(!line.contains("自动继续"), "Pause must not say 自动继续");
     }
 
-    // Branch 3: auto_resuming=false, reset_at_display EMPTY → GENERIC 429 (a user's
+    // Branch 3: auto_resuming=false, reset_at_display EMPTY -> GENERIC 429 (a user's
     // external-model 429, or a gateway 429 with no window data), NOT the CodingPlan
     // "5h window exhausted" message. Locks the mis-attribution fix.
     #[test]
@@ -6633,8 +6633,8 @@ mod rate_limited_tests {
 
     #[test]
     fn rate_limited_generic_surfaces_provider_reason() {
-        // A generic (non-CodingPlan) 429 that carried a real provider body — e.g. an
-        // external model's "余额不足…请充值" — must surface that actionable reason.
+        // A generic (non-CodingPlan) 429 that carried a real provider body -- e.g. an
+        // external model's "余额不足...请充值" -- must surface that actionable reason.
         let line =
             format_rate_limited_line("", "", None, false, Some("余额不足或无可用资源包,请充值"));
         assert!(
@@ -6654,7 +6654,7 @@ mod rate_limited_tests {
     #[test]
     fn rate_limited_coding_plan_ignores_server_message() {
         // A CodingPlan window pause (has reset time) keeps its window message even if a
-        // server_message tags along — the reason line is only for the generic branch.
+        // server_message tags along -- the reason line is only for the generic branch.
         let line = format_rate_limited_line("18:09", "", Some(7200), false, Some("请充值"));
         assert!(
             line.contains("5小时窗口"),
@@ -6679,7 +6679,7 @@ mod rate_limited_tests {
 
     // Regression (review F2): an exhausted CodingPlan window whose server OMITTED
     // reset_at_display but provided a window LABEL must STILL keep the CodingPlan
-    // message — keying on reset_at_display alone would wrongly go generic.
+    // message -- keying on reset_at_display alone would wrongly go generic.
     #[test]
     fn rate_limited_empty_display_but_label_keeps_coding_plan() {
         let line = format_rate_limited_line("", "（每 5 小时一个窗口）", Some(7200), false, None);
@@ -6704,7 +6704,7 @@ mod rate_limited_tests {
     fn rate_limited_pause_no_reset_time_still_shows_remaining_secs() {
         // Pause (auto_resuming=false) with no wall-clock display but a known
         // remaining duration: the duration must NOT be dropped. (Generic 429 line
-        // now — no CodingPlan claim without a real reset time.)
+        // now -- no CodingPlan claim without a real reset time.)
         let line = format_rate_limited_line("", "", Some(7200), false, None);
         assert!(line.contains('⏸'), "must use pause glyph");
         assert!(
@@ -6719,12 +6719,12 @@ mod rate_limited_tests {
             line.contains("后可重试"),
             "must surface the remaining duration: {line}"
         );
-        assert!(line.contains("2h0m"), "7200s → 2h0m: {line}");
+        assert!(line.contains("2h0m"), "7200s -> 2h0m: {line}");
     }
 
     #[test]
     fn fmt_dur_hours_and_minutes() {
-        assert_eq!(fmt_dur(7931), "2h12m"); // 2h 12m 11s → floor minutes
+        assert_eq!(fmt_dur(7931), "2h12m"); // 2h 12m 11s -> floor minutes
         assert_eq!(fmt_dur(3600), "1h0m");
     }
 
@@ -6874,7 +6874,7 @@ mod compose_login_chrome_tests {
 /// drive the auth/check poll loop without leaving raw mode. ESC is read
 /// from `ctx.input_rx` (the same channel the main event loop uses) so
 /// no termios manipulation is needed and the input box stays visible
-/// alongside the URL — same UX as any other slash command.
+/// alongside the URL -- same UX as any other slash command.
 ///
 /// Earlier revisions suspended `renderer` for the OAuth window and let
 /// `auth::login()` println straight to stdout. That collapsed the input
@@ -6916,7 +6916,7 @@ fn run_oauth_with_renderer(
     //
     // We stay in raw mode and consume keyboard events from the existing
     // reader thread via `input_rx`. The main event loop is blocked while we
-    // run, so non-ESC events queue harmlessly — we drain them here so they
+    // run, so non-ESC events queue harmlessly -- we drain them here so they
     // don't fire as stale input the moment we return.
     let poll_rx = session.spawn_poller(Duration::from_secs(2));
     loop {
@@ -6965,10 +6965,10 @@ fn run_oauth_with_renderer(
 /// Run `coding_plan::run()` on a blocking thread to prevent
 /// `reqwest::blocking::Client`'s internal tokio runtime from being
 /// dropped inside the TUI's async context. Returns the mutated config
-/// alongside the report — the caller MUST write the returned config back
+/// alongside the report -- the caller MUST write the returned config back
 /// into `ctx.config`.
 ///
-/// See `run_login_flow` for the rationale — the short version is that
+/// See `run_login_flow` for the rationale -- the short version is that
 /// `reqwest::blocking::Client` creates its own runtime, and dropping it
 /// inside an existing runtime panics with "Cannot drop a runtime in a
 /// context where blocking is not allowed".
@@ -6998,8 +6998,8 @@ fn run_coding_plan_blocking(
     .and_then(|(cfg, report)| Ok((cfg, report?)))
 }
 
-/// Run the full login + CodingPlan setup flow: OAuth (if needed) →
-/// claim → fetch models + register providers → fetch status. Shares
+/// Run the full login + CodingPlan setup flow: OAuth (if needed) ->
+/// claim -> fetch models + register providers -> fetch status. Shares
 /// the orchestrator with `rustcode login` / `rustcode codingplan` (CLI).
 ///
 /// `/codingplan` used to be a separate slash command; it has been
@@ -7011,7 +7011,7 @@ fn run_coding_plan_blocking(
 /// `run_oauth_with_renderer` so the URL/ESC UI integrates with the TUI
 /// (input box stays visible). The subsequent `coding_plan::run` call
 /// then sees `is_logged_in() == true` and skips its own `auth::login`
-/// path — that path prints to stdout and is reserved for CLI callers.
+/// path -- that path prints to stdout and is reserved for CLI callers.
 pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> Result<()> {
     // Phase 1: pre-flight login if needed.
     if !rustcode_auth::is_logged_in() {
@@ -7032,7 +7032,7 @@ pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> 
         }
     }
 
-    // Phase 2: claim/models/status. Pure HTTP + config mutation — no
+    // Phase 2: claim/models/status. Pure HTTP + config mutation -- no
     // stdin / stdout interaction, so we don't need to suspend the
     // renderer. `step_login` short-circuits via `is_logged_in()`.
     //
@@ -7047,10 +7047,10 @@ pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> 
     // If the stored token is locally valid (file present, expires_in
     // not yet past) but the server rejects it (revoked, refresh-token
     // dead, etc.), the orchestrator surfaces `report.auth_expired =
-    // true`. Run OAuth *once* on that path — same flow `/login` would
-    // have used — then re-run setup against the fresh token. Without
-    // this the user sees "✓ already logged in as X" followed by
-    // "✗ claim failed — run `rustcode login` again" and has to do
+    // true`. Run OAuth *once* on that path -- same flow `/login` would
+    // have used -- then re-run setup against the fresh token. Without
+    // this the user sees "[+] already logged in as X" followed by
+    // "[x] claim failed -- run `rustcode login` again" and has to do
     // manually what `/codingplan` could do itself.
     let (mut prepared_config, mut report) = match run_coding_plan_blocking(&ctx.config) {
         Ok((cfg, r)) => (cfg, r),
@@ -7097,7 +7097,7 @@ pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> 
     }
 
     if report.should_persist_config() {
-        // Config mutation only persists when critical steps passed —
+        // Config mutation only persists when critical steps passed --
         // don't write a half-set-up config if login or models failed.
         match ctx.config_store.update(|latest| {
             rustcode_codingplan::merge_successful_config(
@@ -7142,13 +7142,13 @@ pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> 
         // Clear any stale drift warning now that we've just
         // re-synced. Also reset the cooldown so the next
         // pre-turn trigger (if conditions change) can fire
-        // immediately — no need to wait 15 min after a manual
+        // immediately -- no need to wait 15 min after a manual
         // refresh.
         if let Ok(mut g) = ctx.monitor_warning.lock() {
             *g = None;
         }
         ctx.monitor_last_check_at = None;
-        // Same for usage slot — a fresh /login run may have
+        // Same for usage slot -- a fresh /login run may have
         // rotated the quota window or switched plan tiers.
         if let Ok(mut g) = ctx.usage_slot.lock() {
             *g = None;
@@ -7182,7 +7182,7 @@ fn todo_clear_messages(id: String) -> Vec<rustcode_kernel::message::Message> {
 }
 
 /// Synthetic tool-call pair for `/todo add <content>`: an incremental
-/// `{"action":"add","content":…}` call plus its result. Mirrors
+/// `{"action":"add","content":...}` call plus its result. Mirrors
 /// [`todo_clear_messages`]; the `content` is JSON-encoded via `serde_json` so
 /// quotes/newlines in the user's text can't break the args. Folds through the
 /// canonical `reduce_todos` as a new pending task appended at the end.
@@ -7208,10 +7208,10 @@ fn todo_add_messages(id: String, content: &str) -> Vec<rustcode_kernel::message:
 /// the kernel (the proven `/resume` `SetConversation` path), then rebuild the live
 /// panel from the resulting transcript and persist. The subtle reseed dance lives
 /// HERE so `/todo add` and `/todo clear` can't drift. The caller supplies the pair
-/// (each carries a unique `tool_call_id` — the message count grows by 2 per call,
+/// (each carries a unique `tool_call_id` -- the message count grows by 2 per call,
 /// so a constant id would be rejected as a duplicate by a strict gateway). The
 /// panel is refolded from the transcript, which naturally yields `None` after a
-/// clear (empty `todowrite`) and the appended task after an add — one code path
+/// clear (empty `todowrite`) and the appended task after an add -- one code path
 /// for both.
 fn reseed_todo_conversation(
     ctx: &mut LoopCtx,
@@ -7233,14 +7233,14 @@ fn reseed_todo_conversation(
     crate::event_loop::sync_todo_titles(state);
 }
 
-/// `/todo add <content>` — deterministically append a pending task without waiting
+/// `/todo add <content>` -- deterministically append a pending task without waiting
 /// on the model, so the next turn's TodoHook sees it and the model can act on it.
 fn add_todo(ctx: &mut LoopCtx, state: &mut UiState, content: &str) {
     let id = format!("todo-add-{}", ctx.current_session.messages.len());
     reseed_todo_conversation(ctx, state, todo_add_messages(id, content));
 }
 
-/// `/todo clear` — deterministically wipe the task list without waiting on the
+/// `/todo clear` -- deterministically wipe the task list without waiting on the
 /// model, so cancelled/stale tasks stop reappearing (the next turn derives an
 /// empty list and injects nothing).
 fn clear_todos(ctx: &mut LoopCtx, state: &mut UiState) {
@@ -7254,7 +7254,7 @@ fn clear_todos(ctx: &mut LoopCtx, state: &mut UiState) {
 /// parses its `todos` array, and renders one line per task.  Returns a
 /// "no list" message when no such call has been made yet.
 ///
-/// Pure function — no I/O, no side effects.  Easy to unit-test in isolation.
+/// Pure function -- no I/O, no side effects.  Easy to unit-test in isolation.
 pub(crate) fn format_todo_command(
     messages: &[rustcode_kernel::message::Message],
     unicode: bool,
@@ -7289,7 +7289,7 @@ mod copy_tests {
     fn extracts_blocks_verbatim_in_order() {
         let blocks = extract_code_blocks(REPLY);
         assert_eq!(blocks.len(), 2);
-        // No hard-wrap, no PAD indent — the command is one logical line.
+        // No hard-wrap, no PAD indent -- the command is one logical line.
         assert_eq!(
             blocks[0],
             "cmake D:\\proj -DBUILD=ON -DLONG=\"a very long windows path here\""
@@ -7306,7 +7306,7 @@ mod copy_tests {
 
     #[test]
     fn unterminated_fence_still_yields_partial() {
-        // A reply truncated mid-stream — still copyable.
+        // A reply truncated mid-stream -- still copyable.
         let md = "```\nhalf a command";
         assert_eq!(extract_code_blocks(md), vec!["half a command".to_string()]);
     }
@@ -7403,7 +7403,7 @@ mod save_tests {
             expand_tilde_path("~/notes.md", Some(&home)),
             home.join("notes.md")
         );
-        // Not a home-relative path → unchanged.
+        // Not a home-relative path -> unchanged.
         assert_eq!(
             expand_tilde_path("report.md", Some(&home)),
             PathBuf::from("report.md")
@@ -7417,7 +7417,7 @@ mod save_tests {
             expand_tilde_path("~bob/x", Some(&home)),
             PathBuf::from("~bob/x")
         );
-        // No home known → passthrough (never fabricate a path).
+        // No home known -> passthrough (never fabricate a path).
         assert_eq!(expand_tilde_path("~/x", None), PathBuf::from("~/x"));
     }
 
@@ -7439,7 +7439,7 @@ mod save_tests {
     fn save_overwrites_existing_markdown_and_allows_new_nonmd() {
         let dir = tempfile::tempdir().unwrap();
         let msgs = vec![msg(Role::User, "hi")];
-        // Existing .md → overwrite is fine (re-export).
+        // Existing .md -> overwrite is fine (re-export).
         let md = dir.path().join("report.md");
         std::fs::write(&md, "old").unwrap();
         assert!(matches!(
@@ -7447,7 +7447,7 @@ mod save_tests {
             SaveOutcome::Ok(_)
         ));
         assert!(std::fs::read_to_string(&md).unwrap().contains("## User"));
-        // A NEW non-md file (no clobber) → allowed.
+        // A NEW non-md file (no clobber) -> allowed.
         let fresh = dir.path().join("notes");
         assert!(matches!(
             resolve_save_in(&msgs, fresh.to_str().unwrap(), dir.path()),
@@ -7501,11 +7501,11 @@ mod save_tests {
 
     #[test]
     fn save_default_filename_format() {
-        // Pure naming check — no I/O, safe to run in parallel.
+        // Pure naming check -- no I/O, safe to run in parallel.
         let name = default_save_filename();
         assert!(name.starts_with("rustcode-session-"), "got: {name}");
         assert!(name.ends_with(".md"), "got: {name}");
-        // rustcode-session-YYYYMMDD-HHMMSS.md → 17 + 15 + 3 = 35 chars
+        // rustcode-session-YYYYMMDD-HHMMSS.md -> 17 + 15 + 3 = 35 chars
         assert_eq!(name.len(), "rustcode-session-YYYYMMDD-HHMMSS.md".len());
     }
 
@@ -7631,7 +7631,7 @@ mod expand_cd_target_tests {
     #[test]
     fn tilde_strips_all_leading_separators_no_home_escape() {
         // `~//Desktop` / `~\\Desktop` (double separator, easy typo) must stay
-        // home-relative — NOT degrade to the absolute `/Desktop` that a single
+        // home-relative -- NOT degrade to the absolute `/Desktop` that a single
         // `strip_prefix` would leave (Path::join with an absolute arg drops home).
         let home = PathBuf::from("/home/u");
         let cwd = PathBuf::from("/work");
@@ -7861,13 +7861,13 @@ mod tests {
             "default_provider": "",
             "default_model": default_model,
             "provider_accounts": {
-                "AtomGit": {
+                "RustCode": {
                     "provider": "openai",
                     "base_url": "https://llm-api.atomgit.com/v1"
                 }
             },
             "models": {
-                "AtomGit-Qwen": {
+                "RustCode-Qwen": {
                     "account": "AtomGit",
                     "model": "Qwen3-VL-8B-Instruct",
                     "context_window": 131072
@@ -7917,17 +7917,17 @@ mod tests {
 
     #[test]
     fn review_prompt_deep_adds_depth_and_keeps_scope() {
-        // `deep` alone → working-tree + depth.
+        // `deep` alone -> working-tree + depth.
         let wt = review_prompt("deep");
         assert!(wt.contains(r#""scope":{"kind":"working_tree"}"#), "{wt}");
         assert!(wt.contains(r#""depth":"deep""#), "{wt}");
 
-        // `deep staged` → staged + depth.
+        // `deep staged` -> staged + depth.
         let st = review_prompt("deep staged");
         assert!(st.contains(r#""scope":{"kind":"staged"}"#), "{st}");
         assert!(st.contains(r#""depth":"deep""#), "{st}");
 
-        // `deep <ref>` → range + depth.
+        // `deep <ref>` -> range + depth.
         let rng = review_prompt("deep main");
         assert!(
             rng.contains(r#""scope":{"kind":"range","base":"main","head":"HEAD"}"#),
@@ -8017,7 +8017,7 @@ mod tests {
             "streaming snapshot must preserve modal colors and emphasis: {text:?}"
         );
 
-        // Logged in but empty gateway response → still non-blank (tab bar + the
+        // Logged in but empty gateway response -> still non-blank (tab bar + the
         // Current tab's "unavailable" body), never a bare footer.
         let empty = UsageData {
             window: None,
@@ -8053,10 +8053,10 @@ mod tests {
 
     /// Create a subdir inside a tempdir and return both. Paths are
     /// canonicalized because `resolve_cd` canonicalizes its output, and
-    /// on macOS `/var/folders/...` → `/private/var/folders/...`.
+    /// on macOS `/var/folders/...` -> `/private/var/folders/...`.
     ///
     /// The verbatim prefix is stripped to match `resolve_cd`'s new contract:
-    /// on Windows `canonicalize` yields `\\?\C:\…`, but `resolve_cd` strips that
+    /// on Windows `canonicalize` yields `\\?\C:\...`, but `resolve_cd` strips that
     /// at the source, so the expected values here must strip too or every
     /// comparison below would fail on Windows. No-op off Windows.
     fn make_dirs() -> (tempfile::TempDir, PathBuf, PathBuf) {
@@ -8070,12 +8070,12 @@ mod tests {
     }
 
     /// `resolve_cd` must never return a Windows `\\?\` verbatim / extended-length
-    /// path — that raw form leaked into the `/cd` confirmation message and the
+    /// path -- that raw form leaked into the `/cd` confirmation message and the
     /// webui footer chip (`\\?\C:\Users\hao\rustcode`). Trivially true off
     /// Windows; the real guard is on Windows, where `canonicalize` adds the prefix.
-    // The picker showed the same dir twice (`~/rustcode` ×2) because
-    // recent_dirs.txt accumulated BOTH the `\\?\C:\…` verbatim form and the plain
-    // `C:\…` form of one dir. Stripping collapses them; parse must then de-dup so
+    // The picker showed the same dir twice (`~/rustcode` x2) because
+    // recent_dirs.txt accumulated BOTH the `\\?\C:\...` verbatim form and the plain
+    // `C:\...` form of one dir. Stripping collapses them; parse must then de-dup so
     // the picker shows each dir once.
     #[test]
     fn parse_recent_dirs_strips_verbatim_and_dedups() {
@@ -8372,7 +8372,7 @@ mod tests {
         // Free = window - (sys + tools + cold + messages)
         //      = 120_000 - (20_000 + 20_000 + 0 + 80_000) = 0
         assert!(out.contains("Free"));
-        // Should not panic and should render — look for "0" tokens on the Free line
+        // Should not panic and should render -- look for "0" tokens on the Free line
         let free_line = out
             .lines()
             .find(|l| l.contains("Free"))
@@ -8424,7 +8424,7 @@ mod tests {
         };
         let out = format_context_report(Some(&snap), "m", true);
         assert!(out.contains("=== SYSTEM PROMPT ==="));
-        // Each line indented with leading 2 spaces — verify one line
+        // Each line indented with leading 2 spaces -- verify one line
         // survives through the gutter indentation.
         assert!(
             out.contains("  RULE_LINE_ABC"),
@@ -8439,7 +8439,7 @@ mod tests {
     fn context_report_show_prompt_with_empty_cached_prompt_shows_hint() {
         // Partial snapshot: no turn has landed rich stats yet, so
         // system_prompt is "". `/context prompt` should tell the user
-        // that — not just silently show an empty section.
+        // that -- not just silently show an empty section.
         let snap = crate::state::ContextSnapshot {
             system_tokens: 100,
             sent_tokens: 200,
@@ -8546,7 +8546,7 @@ mod memory_command_tests {
         use rustcode_capabilities::memory::MemoryStore;
         let tmp = tempfile::tempdir().unwrap();
         let store = MemoryStore::project(tmp.path());
-        // 迁移后 /remember 走 MemoryStore::project(cwd).append —— 这里直接验证 store 语义,
+        // 迁移后 /remember 走 MemoryStore::project(cwd).append ---- 这里直接验证 store 语义,
         // 命令臂在 Step 4 改为调用它。
         store.append("uses tabs not spaces").unwrap();
         let entries = MemoryStore::project(tmp.path()).load();
@@ -8581,7 +8581,7 @@ mod todo_command_tests {
 
     #[test]
     fn todo_command_text_with_and_without_list() {
-        // No todowrite calls → "no list" message (i18n'd).
+        // No todowrite calls -> "no list" message (i18n'd).
         let empty = vec![msg(Role::User, "hi")];
         let no_list = t(Msg::TodoNoList).into_owned();
         assert!(
@@ -8589,7 +8589,7 @@ mod todo_command_tests {
             "empty messages should contain the i18n no-list message: {no_list:?}"
         );
 
-        // A todowrite call with one pending item → list output.
+        // A todowrite call with one pending item -> list output.
         let with = vec![tool_call_msg(vec![ToolCall {
             id: "1".into(),
             name: "todowrite".into(),
@@ -8617,7 +8617,7 @@ mod todo_command_tests {
         assert_eq!(rendered, Some("review foo".into()));
         let rendered_empty = custom.render("myreview", "");
         assert_eq!(rendered_empty, Some("review ".into()));
-        // Required + empty → render still works (template subst is value-neutral),
+        // Required + empty -> render still works (template subst is value-neutral),
         // the validation lives in the dispatch layer.
         let cmd = custom.resolve("myreview").unwrap();
         assert_eq!(cmd.args_requirement, ArgsRequirement::Required);
@@ -8665,7 +8665,7 @@ mod todo_command_tests {
     // exercised the dispatcher's reject-vs-submit boundary. If a future
     // refactor drops the `CmdCustomArgRequired` arm or flips the rule so
     // `Required` + empty silently submits an empty template, the existing
-    // suite would not catch it — these do.
+    // suite would not catch it -- these do.
 
     #[test]
     fn dispatch_required_empty_arg_is_rejected() {
@@ -8692,7 +8692,7 @@ mod todo_command_tests {
     #[test]
     fn todo_clear_pair_folds_the_list_to_empty() {
         // A live plan, then the `/todo clear` synthetic pair appended, must
-        // derive to an empty list → `/todo` shows the "no list" message. This
+        // derive to an empty list -> `/todo` shows the "no list" message. This
         // is what makes cancelled/stale tasks stop reappearing.
         let mut msgs = vec![tool_call_msg(vec![ToolCall {
             id: "1".into(),
@@ -8712,7 +8712,7 @@ mod todo_command_tests {
     #[test]
     fn dispatch_required_whitespace_only_arg_is_rejected() {
         // The dispatcher trims before checking emptiness, so a bare
-        // space/tab arg should also reject — otherwise the user could
+        // space/tab arg should also reject -- otherwise the user could
         // bypass validation by typing `/myreview ` (trailing space gets
         // injected by the needs_args menu auto-complete path).
         let mut custom = crate::custom_commands::CustomCommandRegistry::empty();
@@ -8735,7 +8735,7 @@ mod todo_command_tests {
     #[test]
     fn todo_add_pair_appends_a_task_keeping_existing() {
         // A live plan, then the `/todo add` synthetic pair appended, must fold to
-        // the ORIGINAL task plus the new one at the end — existing tasks untouched.
+        // the ORIGINAL task plus the new one at the end -- existing tasks untouched.
         let mut msgs = vec![tool_call_msg(vec![ToolCall {
             id: "1".into(),
             name: "todowrite".into(),
@@ -8778,7 +8778,7 @@ mod todo_command_tests {
     #[test]
     fn todo_command_applies_incremental_updates_after_the_plan() {
         // Merge regression: `/todo` folds via `reduce_todos`, so a `{action:update}` after the
-        // plan is reflected — not just the initial (pending) plan.
+        // plan is reflected -- not just the initial (pending) plan.
         let msgs = vec![tool_call_msg(vec![
             ToolCall {
                 id: "1".into(),
@@ -8893,7 +8893,7 @@ mod todo_command_tests {
     //
     // The `decide_custom_command` tests above only pin the pure decision.
     // This block exercises the actual renderer side effect of the `other`
-    // arm's `Reject` branch — i.e. that `CmdCustomArgRequired` is rendered
+    // arm's `Reject` branch -- i.e. that `CmdCustomArgRequired` is rendered
     // as an `UiLine::Error` and, crucially, that `submit_agent_turn` is
     // never reached on this path. If a future refactor drops the
     // `CmdCustomArgRequired` render or flips the arm to silently submit an
@@ -9000,8 +9000,8 @@ mod todo_command_tests {
     #[test]
     fn required_empty_arg_dispatch_pipeline_rejects_without_submit() {
         // End-to-end guard for the `other` arm of execute_slash_command_impl.
-        // Compose the two pure functions the arm calls — decide_custom_command
-        // then render_custom_command_error — and assert the observable
+        // Compose the two pure functions the arm calls -- decide_custom_command
+        // then render_custom_command_error -- and assert the observable
         // contract:
         //   1. Reject ⇒ render exactly one Error line with CmdCustomArgRequired
         //      (the dispatcher never reaches submit_agent_turn on this branch).
@@ -9115,9 +9115,9 @@ mod todo_command_tests {
             "provider-b",
             "model-b",
         );
-        // Unknown ids (not in the catalog) fall back to the raw id; separator is `·`.
-        assert!(out.contains("provider-a · model-a"));
-        assert!(out.contains("provider-b · model-b"));
+        // Unknown ids (not in the catalog) fall back to the raw id; separator is `.`.
+        assert!(out.contains("provider-a . model-a"));
+        assert!(out.contains("provider-b . model-b"));
         assert!(out.contains("1323"));
         assert!(out.contains("567"));
         assert!(out.contains("89"));
@@ -9202,7 +9202,7 @@ mod split_skill_names_tests {
     use super::split_skill_names;
 
     /// 测试用假解析器：返回 skill 的规范身份（小写）。镜像真实 `SkillRegistry::get`
-    /// 的大小写不敏感解析——`resolve("BrainStorming")` 与 `resolve("brainstorming")`
+    /// 的大小写不敏感解析----`resolve("BrainStorming")` 与 `resolve("brainstorming")`
     /// 返回同一规范名，所以去重按规范身份而非原始拼写。
     fn resolve(name: &str) -> Option<String> {
         let canonical = name.to_ascii_lowercase();
@@ -9264,7 +9264,7 @@ mod split_skill_names_tests {
 
     #[test]
     fn variant_spellings_of_same_skill_dedup_to_one() {
-        // Different case both resolve to canonical "brainstorming" → one skill,
+        // Different case both resolve to canonical "brainstorming" -> one skill,
         // NOT two (which would inject the same skill body twice). The first
         // spelling the user typed is kept for display.
         let (skills, task) = split_skill_names("BrainStorming brainstorming 任务", resolve);

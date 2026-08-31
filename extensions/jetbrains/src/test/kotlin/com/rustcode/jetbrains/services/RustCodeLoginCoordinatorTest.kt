@@ -13,7 +13,7 @@ import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-class AtomCodeLoginCoordinatorTest {
+class RustCodeLoginCoordinatorTest {
     @Test
     fun `concurrent callers share one application login attempt`() {
         val poll = CompletableFuture<LoginPollResponse>()
@@ -27,14 +27,14 @@ class AtomCodeLoginCoordinatorTest {
             },
             poll = { poll },
         )
-        val coordinator = AtomCodeLoginCoordinator()
+        val coordinator = RustCodeLoginCoordinator()
 
         val first = coordinator.login(transport, firstStatuses::add)
         val second = coordinator.login(transport, secondStatuses::add)
 
         assertSame(first, second)
         assertEquals(1, starts.get())
-        assertEquals(listOf("Opened browser for AtomGit sign-in."), secondStatuses)
+        assertEquals(listOf("Opened browser for platform sign-in."), secondStatuses)
         poll.complete(LoginPollResponse(status = "authorized", userName = "tester"))
         first.get(1, TimeUnit.SECONDS)
         assertTrue(firstStatuses.last().startsWith("Signed in"))
@@ -49,7 +49,7 @@ class AtomCodeLoginCoordinatorTest {
             start = { CompletableFuture.completedFuture(startResponse()) },
             poll = { poll },
         )
-        val coordinator = AtomCodeLoginCoordinator()
+        val coordinator = RustCodeLoginCoordinator()
 
         val first = coordinator.login(transport) { throw IllegalStateException("listener failed") }
         val second = coordinator.login(transport, healthyStatuses::add)
@@ -74,7 +74,7 @@ class AtomCodeLoginCoordinatorTest {
                 )
             },
         )
-        val coordinator = AtomCodeLoginCoordinator()
+        val coordinator = RustCodeLoginCoordinator()
 
         val first = coordinator.login(transport) {}
         first.get(1, TimeUnit.SECONDS)
@@ -102,7 +102,7 @@ class AtomCodeLoginCoordinatorTest {
         )
 
         val error = runCatching {
-            AtomCodeLoginCoordinator().login(transport) {}.get(1, TimeUnit.SECONDS)
+            RustCodeLoginCoordinator().login(transport) {}.get(1, TimeUnit.SECONDS)
         }.exceptionOrNull()
 
         assertTrue(error is ExecutionException)

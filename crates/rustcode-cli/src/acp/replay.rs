@@ -1,7 +1,7 @@
 //! Protocol-neutral conversation replay projection.
 //!
 //! Both ACP chains need to surface a persisted session's history back to the
-//! client — v1 via `session/load`, v2 via `session/resume` with
+//! client -- v1 via `session/load`, v2 via `session/resume` with
 //! `replayFrom: { "type": "start" }`. The persisted read and the display rules
 //! (which messages are visible conversation vs. kernel-internal bookkeeping) are
 //! identical across both; only the wire shape differs. This module owns the
@@ -88,7 +88,7 @@ pub fn build_replay_entries(
         .map_err(|e| format!("acp: replay failed to load session history: {e}"))?;
 
     // Presentation entries keyed by the snapshot-message position they follow
-    // (`AtStart` → 0, `AfterTurn{turn_id}` → that turn's `after_message`).
+    // (`AtStart` -> 0, `AfterTurn{turn_id}` -> that turn's `after_message`).
     let mut presentation_at: BTreeMap<usize, Vec<&PresentationEntry>> = BTreeMap::new();
     for entry in &loaded.presentation.entries {
         let position = match entry.anchor {
@@ -116,8 +116,8 @@ pub fn build_replay_entries(
     // Tool results are hidden as standalone conversation entries, but they
     // carry the recorded outcome of each call. Pair them up front, keyed by
     // `tool_call_id`. Ids are provider-supplied and NOT guaranteed globally
-    // unique within a session — weak/gateway models can reuse an id across
-    // turns or emit an empty id — so results are queued FIFO per id (not a
+    // unique within a session -- weak/gateway models can reuse an id across
+    // turns or emit an empty id -- so results are queued FIFO per id (not a
     // single value that a later duplicate would overwrite). A linear transcript
     // records each result right after its call, so popping the front for each
     // call in conversation order pairs the Nth `id` call with the Nth `id`
@@ -225,12 +225,12 @@ mod tests {
 
     #[test]
     fn raw_input_parses_json_and_passes_through_non_json() {
-        // Valid JSON object → parsed structurally.
+        // Valid JSON object -> parsed structurally.
         assert_eq!(
             raw_input_from_arguments(r#"{"cmd":"ls"}"#),
             Some(serde_json::json!({"cmd": "ls"}))
         );
-        // Non-JSON (truncated/salvaged weak-model args) → preserved as a string
+        // Non-JSON (truncated/salvaged weak-model args) -> preserved as a string
         // instead of dropped to null.
         assert_eq!(
             raw_input_from_arguments(r#"{"cmd":"ls"#),
@@ -240,7 +240,7 @@ mod tests {
             raw_input_from_arguments("not json at all"),
             Some(serde_json::Value::String("not json at all".to_string()))
         );
-        // Empty/whitespace → no raw input.
+        // Empty/whitespace -> no raw input.
         assert_eq!(raw_input_from_arguments(""), None);
         assert_eq!(raw_input_from_arguments("   "), None);
     }

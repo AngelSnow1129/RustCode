@@ -3,7 +3,7 @@
 //! Mirrors the stable v1 chain in [`crate::acp::mod`]/[`crate::acp::dispatch`]
 //! with the v2 prompt lifecycle: `session/prompt` is acknowledged immediately
 //! with `{}`, progress and completion arrive as `state_update` notifications
-//! (`running` → `idle` with a stop reason), and every message chunk carries an
+//! (`running` -> `idle` with a stop reason), and every message chunk carries an
 //! agent-owned `messageId`.
 //!
 //! The router in [`crate::acp::serve_over`] selects this chain when the client
@@ -438,7 +438,7 @@ pub async fn run_prompt_turn_v2(
 ///
 /// Owns the v2 `SessionId`. v2 has no local slash commands (slash input goes
 /// to the kernel as text) and its tool-call updates are upserts, so unlike the
-/// v1 wire there is no slash table and no `announced` set — an approval
+/// v1 wire there is no slash table and no `announced` set -- an approval
 /// announcement is itself the record, and the kernel's `ToolStarted` flows
 /// through the generic translation as an upsert transition.
 struct V2Wire {
@@ -466,7 +466,7 @@ impl TurnWire for V2Wire {
         _has_attachments: bool,
         _msg_id: &str,
     ) -> Result<bool, agent_client_protocol::Error> {
-        // v2 slash input reaches the kernel as text — never intercepted.
+        // v2 slash input reaches the kernel as text -- never intercepted.
         Ok(false)
     }
 
@@ -486,7 +486,7 @@ impl TurnWire for V2Wire {
         // record; the kernel's `ToolStarted` then transitions it to
         // in_progress, and a denial finalizes it with the kernel's error
         // `ToolResult`). Best-effort announcement: a dropped update is an
-        // approval hiccup, not transport death — swallow it (mirrors the
+        // approval hiccup, not transport death -- swallow it (mirrors the
         // original v2 loop, which did not propagate here).
         let call_id = payload
             .get("call_id")
@@ -744,7 +744,7 @@ pub(crate) fn build_v2_agent(state: SharedState) -> impl ConnectTo<Client> + 'st
                 // `session/prompt`. The v2 turn task watches that marker and
                 // cancels the kernel turn (see `run_prompt_turn_v2`), so the
                 // client still gets an idle `state_update` with the
-                // `cancelled` stop reason — the same terminal as
+                // `cancelled` stop reason -- the same terminal as
                 // `session/cancel`.
                 eprintln!(
                     "acp: v2 $/cancel_request for request {} (marker flipped)",
@@ -856,7 +856,7 @@ pub(crate) fn build_v2_agent(state: SharedState) -> impl ConnectTo<Client> + 'st
                     )
                     .await?;
                     // `replayFrom: start`: emit the persisted conversation as
-                    // full-content message updates BEFORE responding — the
+                    // full-content message updates BEFORE responding -- the
                     // protocol requires all requested replay entries before the
                     // resume response.
                     if let Some(agent_client_protocol::schema::v2::ReplayFrom::Start(_)) =
@@ -961,7 +961,7 @@ pub(crate) fn build_v2_agent(state: SharedState) -> impl ConnectTo<Client> + 'st
 /// Extract the user text + image blocks from a v2 prompt request.
 ///
 /// Mirrors the v1 [`crate::acp::dispatch::prompt_text`]: `ResourceLink`
-/// (baseline) is rendered as an inline `[resource: …]` marker so the reference
+/// (baseline) is rendered as an inline `[resource: ...]` marker so the reference
 /// survives into the kernel prompt instead of being silently dropped.
 fn prompt_text_v2(req: &PromptRequest) -> (String, Vec<ImageContent>) {
     let mut text = String::new();
@@ -1283,7 +1283,7 @@ mod tests {
             vec![
                 Message::user("hello"),
                 assistant,
-                tool_result, // tool result echo → hidden
+                tool_result, // tool result echo -> hidden
             ],
             vec![
                 PresentationEntry {
@@ -1304,7 +1304,7 @@ mod tests {
         let updates = build_replay_updates("s1", cwd.path(), &msg_ids).unwrap();
 
         let tags: Vec<&str> = updates.iter().map(tag).collect();
-        // position 0 (AtStart) → user hello → turn-7 note (position 1) →
+        // position 0 (AtStart) -> user hello -> turn-7 note (position 1) ->
         // assistant reasoning + text; tool result hidden.
         assert_eq!(
             tags,
@@ -1351,14 +1351,14 @@ mod tests {
             "s2",
             vec![
                 Message::user("hello"),
-                // Synthetic system reminder — never shown as a user message.
+                // Synthetic system reminder -- never shown as a user message.
                 rustcode_kernel::message::Message::synthetic_user(
                     rustcode_capabilities::reminder::system_reminder("context"),
                 ),
                 Message::assistant("done", Vec::new()),
             ],
             vec![
-                // Anchored at a turn id that has no turn stat → dropped.
+                // Anchored at a turn id that has no turn stat -> dropped.
                 PresentationEntry {
                     anchor: DisplayAnchor::AfterTurn { turn_id: 99 },
                     role: PresentationRole::User,
@@ -1414,8 +1414,8 @@ mod tests {
         let msg_ids = AtomicU64::new(0);
         let updates = build_replay_updates("s3", cwd.path(), &msg_ids).unwrap();
 
-        // user hello → assistant reasoning + text → tool_call_update
-        // (in_progress) → tool_call_update (completed with result content).
+        // user hello -> assistant reasoning + text -> tool_call_update
+        // (in_progress) -> tool_call_update (completed with result content).
         let tags: Vec<&str> = updates.iter().map(tag).collect();
         assert_eq!(
             tags,
@@ -1485,7 +1485,7 @@ mod tests {
             })
             .collect();
         // The first call must resolve to the first result and the second to the
-        // second — NOT both to the last ("output-B"), which is what a single
+        // second -- NOT both to the last ("output-B"), which is what a single
         // last-wins map would produce.
         assert_eq!(
             tool_results,

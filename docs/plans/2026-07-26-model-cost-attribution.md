@@ -6,16 +6,16 @@
 
 **Architecture:** `CodingRuntime` already rebuilds its assembled agent for provider/model changes. Each generation will construct the native `SnapshotHook` with that generation's stable provider/model identity and optional pricing snapshot. The hook will accumulate every model response in the turn and persist additive model-usage records in native session metadata. TUI, daemon, and remote `/cost` will consume one session aggregation model; live TUI counters remain presentation-only.
 
-**Tech Stack:** Rust, serde-compatible native session metadata, atomcode-kernel lifecycle hooks, atomcode-coding runtime assembly, TUI/daemon command projections.
+**Tech Stack:** Rust, serde-compatible native session metadata, rustcode-kernel lifecycle hooks, rustcode-coding runtime assembly, TUI/daemon command projections.
 
 ---
 
 ### Task 1: Native usage schema and aggregation
 
 **Files:**
-- Modify: `crates/atomcode-capabilities/src/session/manager.rs`
-- Modify: `crates/atomcode-capabilities/src/session/mod.rs`
-- Test: `crates/atomcode-capabilities/src/session/manager.rs`
+- Modify: `crates/rustcode-capabilities/src/session/manager.rs`
+- Modify: `crates/rustcode-capabilities/src/session/mod.rs`
+- Test: `crates/rustcode-capabilities/src/session/manager.rs`
 
 **Steps:**
 1. Add failing tests for provider/model grouping, same model names under different providers, unknown pricing, and legacy unattributed totals.
@@ -26,13 +26,13 @@
 ### Task 2: Runtime-owned attribution
 
 **Files:**
-- Modify: `crates/atomcode-capabilities/src/session/snapshot.rs`
-- Modify: `crates/atomcode-coding/src/parts.rs`
-- Test: `crates/atomcode-capabilities/src/session/snapshot.rs`
+- Modify: `crates/rustcode-capabilities/src/session/snapshot.rs`
+- Modify: `crates/rustcode-coding/src/parts.rs`
+- Test: `crates/rustcode-capabilities/src/session/snapshot.rs`
 
 **Steps:**
 1. Add a failing hook test with two model responses in one turn.
-2. Give `SnapshotHook` an immutable generation attribution configured by `atomcode-coding`.
+2. Give `SnapshotHook` an immutable generation attribution configured by `rustcode-coding`.
 3. Accumulate prompt, completion, and cached tokens for every response.
 4. Persist detailed usage at `turn_complete`; keep old constructors unattributed for compatibility tests.
 5. Verify model reload naturally rebuilds the hook with the new runtime config.
@@ -40,10 +40,10 @@
 ### Task 3: Provider pricing configuration
 
 **Files:**
-- Modify: `crates/atomcode-config/src/config/provider.rs`
-- Modify: `crates/atomcode-coding/src/config.rs`
+- Modify: `crates/rustcode-config/src/config/provider.rs`
+- Modify: `crates/rustcode-coding/src/config.rs`
 - Modify provider API projections only where compilation requires it.
-- Test: `crates/atomcode-config/src/config/provider.rs`
+- Test: `crates/rustcode-config/src/config/provider.rs`
 
 **Steps:**
 1. Add tests for omitted, explicit-free, and configured per-million prices.
@@ -55,9 +55,9 @@
 
 **Files:**
 - Modify: `crates/rustcode-daemon/src/commands.rs`
-- Modify: `crates/atomcode-tuix/src/event_loop/commands.rs`
-- Modify: `crates/atomcode-tuix/src/session.rs`
-- Modify: `crates/atomcode-tuix/src/i18n` files as required.
+- Modify: `crates/rustcode-tuix/src/event_loop/commands.rs`
+- Modify: `crates/rustcode-tuix/src/session.rs`
+- Modify: `crates/rustcode-tuix/src/i18n` files as required.
 - Test: command and rendering unit tests in the touched crates.
 
 **Steps:**

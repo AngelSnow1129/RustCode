@@ -3,13 +3,13 @@
 //!
 //! On Windows, a GUI / **console-less** parent (the rustcode-daemon behind
 //! clawbot/OpenClaw) that spawns a console program (cmd.exe, git, ast-grep, a
-//! language server, …) makes Windows allocate a *fresh* console window for the
-//! child — it flashes on the desktop every turn. A TUI parent does NOT show
+//! language server, ...) makes Windows allocate a *fresh* console window for the
+//! child -- it flashes on the desktop every turn. A TUI parent does NOT show
 //! this because the child inherits the TUI's existing console. `CREATE_NO_WINDOW`
 //! tells Windows not to allocate one at all, fixing the daemon case without
 //! affecting the TUI.
 //!
-//! NOTE: `creation_flags` is set-only — std cannot read it back — so this flag
+//! NOTE: `creation_flags` is set-only -- std cannot read it back -- so this flag
 //! is not unit-testable off Windows; coverage here is structural (the spawn path
 //! routes through this helper) and the behavior must be verified on a Windows build.
 
@@ -38,8 +38,8 @@ pub fn suppress_console_window_sync(cmd: &mut std::process::Command) {
 pub fn suppress_console_window_sync(_cmd: &mut std::process::Command) {}
 
 /// RAII owner of a Windows Job Object configured with
-/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Every process assigned to the job —
-/// and every process THOSE spawn — dies when either [`JobHandle::terminate`]
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Every process assigned to the job --
+/// and every process THOSE spawn -- dies when either [`JobHandle::terminate`]
 /// runs or the last handle to the job closes (this guard dropping, INCLUDING
 /// when the rustcode process itself is killed and the OS closes its handles).
 ///
@@ -47,7 +47,7 @@ pub fn suppress_console_window_sync(_cmd: &mut std::process::Command) {}
 /// terminates the direct child (`cmd.exe` / Git Bash) but NOT its descendants.
 /// A timed-out `mvn compile` orphans the `java` compiler JVM (and pipeline
 /// sub-shells / busybox applets); the JVM keeps burning CPU and holds `target/`
-/// locks, so the next compile is slower and also times out → a runaway that
+/// locks, so the next compile is slower and also times out -> a runaway that
 /// pins the machine. The job makes the whole tree reapable in one call and,
 /// via kill-on-close, guarantees nothing survives rustcode itself.
 #[cfg(target_os = "windows")]
@@ -63,7 +63,7 @@ unsafe impl Sync for JobHandle {}
 #[cfg(target_os = "windows")]
 impl JobHandle {
     /// Terminate every process in the job (children and grandchildren).
-    /// Idempotent — a job whose processes already exited terminates to a no-op.
+    /// Idempotent -- a job whose processes already exited terminates to a no-op.
     pub fn terminate(&self) {
         use windows_sys::Win32::System::JobObjects::TerminateJobObject;
         if !self.0.is_null() {
@@ -79,7 +79,7 @@ impl Drop for JobHandle {
         use windows_sys::Win32::Foundation::CloseHandle;
         if !self.0.is_null() {
             // KILL_ON_JOB_CLOSE: closing the last handle terminates whatever is
-            // still in the job — reaping the tree on cancel (the wait future is
+            // still in the job -- reaping the tree on cancel (the wait future is
             // dropped) or on an rustcode crash/kill.
             unsafe { CloseHandle(self.0) };
         }
@@ -88,7 +88,7 @@ impl Drop for JobHandle {
 
 /// Assign `child` (and everything it later spawns) to a fresh kill-on-close Job
 /// Object; return the guard to hold for the child's lifetime. `None` if any
-/// Win32 call fails — the caller then relies on the pre-existing direct-child
+/// Win32 call fails -- the caller then relies on the pre-existing direct-child
 /// `kill_on_drop`, which is no worse than before.
 ///
 /// Tiny race: a grandchild spawned in the microseconds between `CreateProcess`
@@ -130,7 +130,7 @@ pub fn assign_child_to_kill_on_close_job(child: &tokio::process::Child) -> Optio
 
 /// Best-effort fallback tree-kill for the rare case the Job Object couldn't be
 /// created/assigned (so [`assign_child_to_kill_on_close_job`] returned `None`).
-/// `taskkill /T` walks the live parent→child tree and force-kills all of it —
+/// `taskkill /T` walks the live parent->child tree and force-kills all of it --
 /// a defense-in-depth net so a job-setup failure still doesn't orphan a runaway
 /// `mvn`/`java`. Fire-and-forget: spawned console-suppressed and not awaited (on
 /// Windows a dropped `Child` handle leaves no zombie).
@@ -161,10 +161,10 @@ pub fn kill_windows_tree(job: &Option<JobHandle>, pid: Option<u32>) {
 
 /// Build a shell command that runs `command` through the platform shell.
 ///
-/// - Windows: `cmd.exe /C <command>` — the command string is passed via
+/// - Windows: `cmd.exe /C <command>` -- the command string is passed via
 ///   `raw_arg` so cmd.exe receives it **verbatim**. Using the normal `.arg()`
 ///   would apply std's `CommandLineToArgvW` quoting, which cmd.exe does NOT
-///   follow — embedded quotes / `%VAR%` / `^` etc. would be mangled. This
+///   follow -- embedded quotes / `%VAR%` / `^` etc. would be mangled. This
 ///   mirrors the spawn in `tool/bash.rs` (and `auth/oauth.rs`).
 /// - Other: `sh -c <command>`.
 ///
@@ -197,7 +197,7 @@ pub fn shell_command(command: &str) -> tokio::process::Command {
 ///   elevated). This is the recommended replacement for the deprecated
 ///   `IsUserAnAdmin()`.
 /// - Unix: checks `geteuid() == 0` (root).
-/// - Other platforms: returns `false` (safe default — a missed warning is
+/// - Other platforms: returns `false` (safe default -- a missed warning is
 ///   preferable to a false alarm).
 #[cfg(target_os = "windows")]
 pub fn is_running_as_admin() -> bool {

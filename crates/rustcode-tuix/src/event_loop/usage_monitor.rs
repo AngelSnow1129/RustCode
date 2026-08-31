@@ -13,7 +13,7 @@
 //   1. Current provider is CodingPlan (`AtomGit*`)
 //   2. `usage_percent >= 80.0`
 //
-// Severity: 80–95% → Info (dim), > 95% → Warning (red).
+// Severity: 80-95% -> Info (dim), > 95% -> Warning (red).
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -36,7 +36,7 @@ pub const USAGE_COOLDOWN: Duration = Duration::from_secs(30);
 /// API for users who aren't on CodingPlan.
 ///
 /// Failure modes (network, auth, server 5xx, missing `current_usage`)
-/// are silently dropped — `slot` keeps its previous value. The caller's
+/// are silently dropped -- `slot` keeps its previous value. The caller's
 /// cooldown clock still advances on failure to avoid retry storms during
 /// extended outages.
 ///
@@ -108,7 +108,7 @@ fn build_usage_hint_from_info(
     // fetch. Once that many seconds have elapsed since the fetch, the rolling
     // window has rolled over and the cached percent is stale. The slot only
     // refetches at startup / provider-switch / post-turn, so an idle user past
-    // the reset time would otherwise keep seeing a stale "Token使用量 95%，…
+    // the reset time would otherwise keep seeing a stale "Token使用量 95%，...
     // 重置于 13:36" forever. Comparing elapsed vs a relative duration is
     // timezone-immune (unlike parsing the absolute `reset_at`, whose wall-clock
     // timezone the server never localises to the client). Guard on `> 0` so
@@ -177,7 +177,7 @@ mod tests {
 
     /// Elapsed-seconds argument for the "just fetched" case: the existing
     /// fixtures use `seconds_until_reset: 0`, so the staleness guard (gated
-    /// on `> 0`) never fires regardless — `0` here just reads clearly.
+    /// on `> 0`) never fires regardless -- `0` here just reads clearly.
     const FRESH: i64 = 0;
 
     #[test]
@@ -251,7 +251,7 @@ mod tests {
         assert!(text.contains("1小时"), "got: {}", text);
     }
 
-    // --- Staleness guard: the reported bug — hint lingers after the window
+    // --- Staleness guard: the reported bug -- hint lingers after the window
     // resets because an idle user triggers no refetch. Once the elapsed time
     // since fetch reaches `seconds_until_reset`, the cached percent is expired.
 
@@ -259,7 +259,7 @@ mod tests {
     fn no_hint_when_window_has_elapsed_past_reset() {
         let mut info = mk_info(95.0, 5, "13:36");
         info.seconds_until_reset = 300;
-        // 301s since fetch → one second past the window reset → stale.
+        // 301s since fetch -> one second past the window reset -> stale.
         assert!(build_usage_hint_from_info(&info, 301).is_none());
     }
 
@@ -275,7 +275,7 @@ mod tests {
     fn hint_shown_before_reset_time() {
         let mut info = mk_info(95.0, 5, "13:36");
         info.seconds_until_reset = 300;
-        // One second short of reset → still the live window.
+        // One second short of reset -> still the live window.
         let (text, _) = build_usage_hint_from_info(&info, 299).expect("Some");
         assert!(text.contains("95%"));
         assert!(text.contains("13:36"));

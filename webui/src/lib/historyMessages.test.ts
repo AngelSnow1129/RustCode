@@ -43,7 +43,7 @@ test('isUserInterruptionMessage recognizes provenance and legacy snapshots', () 
     role: 'user',
     content: 'hidden boundary',
     synthetic: true,
-    internal_origin: 'atomcode.user_interruption',
+    internal_origin: 'rustcode.user_interruption',
   }), true);
   assert.equal(isUserInterruptionMessage({
     role: 'user',
@@ -83,25 +83,25 @@ test('sessionMessagesToMarkdownLines skips verify cadence assistant messages', (
   const messages: SessionMessage[] = [
     { role: 'user', content: 'create f.txt' },
     { role: 'assistant', content: 'No verification is needed.', internal_origin: 'verify_cadence' },
-    { role: 'assistant', content: 'I am AtomCode.' },
+    { role: 'assistant', content: 'I am RustCode.' },
   ];
 
   const markdown = sessionMessagesToMarkdownLines(messages, 'Session').join('\n');
 
   assert.doesNotMatch(markdown, /No verification is needed/);
-  assert.match(markdown, /I am AtomCode/);
+  assert.match(markdown, /I am RustCode/);
 });
 
 test('sessionMessagesToMarkdownLines skips camel case verify cadence assistant messages', () => {
   const messages: SessionMessage[] = [
     { role: 'assistant', content: 'No verification is needed.', internalOrigin: 'verify_cadence' },
-    { role: 'assistant', content: 'I am AtomCode.' },
+    { role: 'assistant', content: 'I am RustCode.' },
   ];
 
   const markdown = sessionMessagesToMarkdownLines(messages, 'Session').join('\n');
 
   assert.doesNotMatch(markdown, /No verification is needed/);
-  assert.match(markdown, /I am AtomCode/);
+  assert.match(markdown, /I am RustCode/);
 });
 
 test('sessionMessagesToMarkdownLines keeps verify cadence assistants with tool calls', () => {

@@ -5,7 +5,8 @@ itself derived from an earlier ultimate upstream project.
 
 ## Upstream attribution
 
-- Predecessor (RustCode) — MIT, Copyright (c) 2026 Yubang Xu.
+- Predecessor (`atomgit_rustcode/rustcode`, product "AtomGit RustCode") — MIT,
+  Copyright (c) 2026 Yubang Xu.
   The verbatim text is archived in `docs/UPSTREAM_RUSTCODE_LICENSE.md`.
 - Ultimate upstream — MIT.
   **The verbatim text is NOT yet archived**; `docs/ORIGINAL_LICENSE.md` is a
@@ -27,9 +28,9 @@ MIT terms under which the upstream *code* was received.
 ## Modifications
 
 Modifications made in this fork:
-- Product rename `atomcode` -> `rustcode` (crates, binaries, config dir, env vars).
-- Removal of the `atomcode-telemetry` crate and all telemetry/analytics call sites.
-- Decoupling of the LLM provider layer from the upstream AtomGit signing gateway;
+- Product rename `rustcode` -> `rustcode` (crates, binaries, config dir, env vars).
+- Removal of the `rustcode-telemetry` crate and all telemetry/analytics call sites.
+- Full decoupling of the LLM provider layer from any platform-specific signing gateway;
   added `extra_headers` / `proxy` provider config and explicit `openai-compatible`
   / `anthropic-compatible` provider types for self-hosted endpoints.
 

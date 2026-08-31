@@ -1,6 +1,6 @@
 // crates/rustcode-tuix/src/modals/dir_picker.rs
 //
-// `/cd` (no argument) modal — searchable project-directory picker.
+// `/cd` (no argument) modal -- searchable project-directory picker.
 //
 // Shows current/MRU/catalog directories in `/resume`-style half-screen chrome:
 // title, bordered search/path box, scrollable list, and bottom key legend.
@@ -23,7 +23,7 @@ pub struct DirPicker {
     /// Snapshot of all known project dirs at open time. Catalog projects keep
     /// activity order; current/MRU-only directories remain available too.
     pub dirs: Vec<PathBuf>,
-    /// The working dir at open time — used to label the matching entry
+    /// The working dir at open time -- used to label the matching entry
     /// as `(current)` so users can tell which one they're already on.
     pub current: PathBuf,
     /// Index into the filtered directory list.
@@ -56,7 +56,7 @@ impl DirPicker {
     }
 
     /// Known dirs matching the current query (case-insensitive substring on the
-    /// displayed `~`-collapsed path). Empty query → all projects. When this is
+    /// displayed `~`-collapsed path). Empty query -> all projects. When this is
     /// EMPTY but the query is non-empty (no project matches), Enter takes the query
     /// as a literal typed path, so a directory not in the recent list still works.
     fn filtered(&self) -> Vec<PathBuf> {
@@ -453,7 +453,7 @@ fn build_menu_payload(p: &DirPicker) -> MenuPayload {
             (name, desc)
         }));
     }
-    items.push((format!("— {hint} —"), String::new()));
+    items.push((format!("-- {hint} --"), String::new()));
     MenuPayload {
         items,
         selected: if filtered.is_empty() {
@@ -497,7 +497,7 @@ fn resolve_enter_target(
             // An explicit path that resolves wins outright.
             Ok(path) => return Ok(Some(path)),
             // The literal path doesn't resolve. If it was actually a search PREFIX that
-            // narrowed the list to a highlighted match (e.g. "~/Des" → "~/Desktop"), take
+            // narrowed the list to a highlighted match (e.g. "~/Des" -> "~/Desktop"), take
             // that match; only surface the error when nothing is highlighted.
             Err(e) => {
                 if let Some(path) = filtered.get(selected) {
@@ -795,7 +795,7 @@ mod tests {
         }
         assert!(
             p.filtered().is_empty(),
-            "no recent matches → empty list, so Enter falls back to the typed path"
+            "no recent matches -> empty list, so Enter falls back to the typed path"
         );
     }
 
@@ -831,7 +831,7 @@ mod tests {
 
     #[test]
     fn selection_indexes_into_filtered_list() {
-        // `selected` is an index into `filtered()` — the Enter handler resolves the
+        // `selected` is an index into `filtered()` -- the Enter handler resolves the
         // highlighted recent dir as `filtered()[selected]`.
         let mut p = DirPicker::open(vec![pb("/a"), pb("/b"), pb("/c")], pb("/a"));
         p.down();
@@ -912,7 +912,7 @@ mod tests {
         crate::i18n::set_locale(crate::i18n::Locale::En);
         // The working dir can appear twice in the list (e.g. as an absolute path and
         // as `.`), and both would be `paths_same` to `current`. Only ONE entry may
-        // carry the "current" label — two "current" markers is a bug.
+        // carry the "current" label -- two "current" markers is a bug.
         let p = DirPicker::open(vec![pb("/proj"), pb("/proj")], pb("/proj"));
         let payload = build_menu_payload(&p);
         assert_eq!(

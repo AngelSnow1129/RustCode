@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.ui
 
-import com.rustcode.jetbrains.actions.openAtomCodeSettings
+import com.rustcode.jetbrains.actions.openRustCodeSettings
 import com.rustcode.jetbrains.session.SessionWorkspace
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionUpdateThread
@@ -13,18 +13,18 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 
 internal const val PRIMARY_TITLE_ACTION_TEXT = "Session History"
-internal const val PRIMARY_TITLE_ACTION_DESCRIPTION = "Open AtomCode session history"
+internal const val PRIMARY_TITLE_ACTION_DESCRIPTION = "Open RustCode session history"
 
-class AtomCodeToolWindowFactory : ToolWindowFactory {
+class RustCodeToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         installEmptyToolWindowActivationListener(project, toolWindow)
 
         val workspace = SessionWorkspace.getInstance(project)
         val restoredTabs = workspace.restoredTabs()
         if (restoredTabs.isEmpty()) {
-            createAtomCodeChatContent(project, toolWindow, closeable = true)
+            createRustCodeChatContent(project, toolWindow, closeable = true)
         } else {
-            restoredTabs.forEach { restoreAtomCodeChatContent(project, toolWindow, it) }
+            restoredTabs.forEach { restoreRustCodeChatContent(project, toolWindow, it) }
             workspace.selectedTabId()?.let { selectedTabId ->
                 toolWindow.contentManager.contents
                     .firstOrNull { contentTabId(it) == selectedTabId }
@@ -36,8 +36,8 @@ class AtomCodeToolWindowFactory : ToolWindowFactory {
     }
 
     private fun installEmptyToolWindowActivationListener(project: Project, toolWindow: ToolWindow) {
-        if (toolWindow.component.getClientProperty("atomcode-empty-activation-listener-installed") == true) return
-        toolWindow.component.putClientProperty("atomcode-empty-activation-listener-installed", true)
+        if (toolWindow.component.getClientProperty("rustcode-empty-activation-listener-installed") == true) return
+        toolWindow.component.putClientProperty("rustcode-empty-activation-listener-installed", true)
 
         project.messageBus.connect(project).subscribe(
             ToolWindowManagerListener.TOPIC,
@@ -54,7 +54,7 @@ class AtomCodeToolWindowFactory : ToolWindowFactory {
         if (toolWindow.contentManager.contentCount != 0) return
         ApplicationManager.getApplication().invokeLater {
             if (toolWindow.contentManager.contentCount == 0) {
-                ensureAtomCodeChatContent(project, toolWindow)
+                ensureRustCodeChatContent(project, toolWindow)
             }
         }
     }
@@ -64,7 +64,7 @@ internal fun createPrimaryTitleAction(): AnAction =
     object : AnAction(PRIMARY_TITLE_ACTION_TEXT, PRIMARY_TITLE_ACTION_DESCRIPTION, AllIcons.General.History) {
         override fun getActionUpdateThread() = ActionUpdateThread.BGT
         override fun actionPerformed(e: AnActionEvent) {
-            e.project?.let { openAtomCodeSessionHistory(it) }
+            e.project?.let { openRustCodeSessionHistory(it) }
         }
     }
 
@@ -73,15 +73,15 @@ internal fun createTitleActions(): List<AnAction> =
         object : AnAction("New Tab", "Open a new chat tab", AllIcons.General.Add) {
             override fun getActionUpdateThread() = ActionUpdateThread.BGT
             override fun actionPerformed(e: AnActionEvent) {
-                e.project?.let { openAtomCodeChatTab(it, newTab = true) }
+                e.project?.let { openRustCodeChatTab(it, newTab = true) }
             }
         },
         createPrimaryTitleAction(),
-        object : AnAction("Settings", "Open AtomCode settings", AllIcons.General.GearPlain) {
+        object : AnAction("Settings", "Open RustCode settings", AllIcons.General.GearPlain) {
             override fun getActionUpdateThread() = ActionUpdateThread.BGT
             override fun actionPerformed(e: AnActionEvent) {
                 e.project?.let { p ->
-                    selectedAtomCodeChatPanel(p)?.showGearMenu() ?: p.openAtomCodeSettings()
+                    selectedRustCodeChatPanel(p)?.showGearMenu() ?: p.openRustCodeSettings()
                 }
             }
         },

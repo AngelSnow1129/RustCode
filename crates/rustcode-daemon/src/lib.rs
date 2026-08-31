@@ -8,11 +8,11 @@
 //!
 //! ─── bot review response ledger (feat/webui-msg-send-time, PR #601) ───
 //! • P2  SessionDetail.created_at (epoch seconds) 与 MessageInfo.created_at (epoch ms) 单位不一致
-//!       → 本次新 commit 按 bot 推荐的方案 A 统一为毫秒:
+//!       -> 本次新 commit 按 bot 推荐的方案 A 统一为毫秒:
 //!         get_session_detail 赋值时 created_at/updated_at 均乘 1000,与 MessageInfo 一致;
 //!         SessionDetail 字段注释标注 epoch ms (见第 262-263 行)。
 //!         kernel 内部 session.created_at/updated_at 仍为秒,仅在 API 响应边界转换。
-//! • P3  formatMsgTime !ts 守卫把 ts=0 误判无效 → 23fb3db4 改为 ts == null || !Number.isFinite(ts)
+//! • P3  formatMsgTime !ts 守卫把 ts=0 误判无效 -> 23fb3db4 改为 ts == null || !Number.isFinite(ts)
 //! 我们愿意根据再审意见继续优化。
 
 // Redirect RUSTCODE_HOME to a throwaway temp dir before any test in this binary
@@ -287,7 +287,7 @@ pub struct ChangeDirRequest {
     pub path: String,
     /// Also persist this as the daemon's `default_workdir` in config (survives
     /// restart). When false (default), only the live in-memory project state is
-    /// updated — so a webui switch sticks across page refresh but does not
+    /// updated -- so a webui switch sticks across page refresh but does not
     /// rewrite the configured default.
     #[serde(default)]
     pub set_default: bool,
@@ -617,7 +617,7 @@ pub struct AppState {
     pub(crate) daemon_instance_id: Arc<str>,
     /// Sender to trigger graceful shutdown via POST /shutdown (R7.1, R7.2)
     pub shutdown_tx: watch::Sender<bool>,
-    /// Timestamp (unix ms) of last non-health HTTP request — used for idle timeout
+    /// Timestamp (unix ms) of last non-health HTTP request -- used for idle timeout
     pub last_activity: Arc<std::sync::atomic::AtomicI64>,
     /// Number of active SSE streaming connections (chat in progress)
     pub active_connections: Arc<std::sync::atomic::AtomicUsize>,
@@ -639,7 +639,7 @@ pub struct AppState {
     pub bind_port: u16,
     /// This instance's port-scoped webui cookie name (`rustcode_webui_<port>`),
     /// resolved ONCE at construction from the actual bound port. Read it directly
-    /// — never re-derive the name from the bare `WEBUI_COOKIE` const at a call
+    /// -- never re-derive the name from the bare `WEBUI_COOKIE` const at a call
     /// site, or that site silently fails to authenticate (a sibling `/webui` on a
     /// different localhost port would shadow the shared-jar cookie). See
     /// [`auth_token::webui_cookie_name`].
@@ -692,7 +692,7 @@ fn resolve_initial_working_dir(
 ///
 /// Windows-only, and guarded: it adopts the canonical form ONLY when that form
 /// maps to the SAME session bucket as the input. On Windows `hash_path` already
-/// lowercases, so a pure case-fold never changes the bucket — but a junction /
+/// lowercases, so a pure case-fold never changes the bucket -- but a junction /
 /// symlink whose resolution WOULD change the bucket (and thus hide existing
 /// sessions) is left untouched. Other platforms keep the path verbatim to avoid
 /// symlink-resolution surprises and bucket orphaning (`hash_path` does not fold
@@ -792,7 +792,7 @@ pub struct MessageInfo {
     /// Artifacts detected in this message (code blocks, HTML files, etc.)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artifacts: Option<Vec<ArtifactInfo>>,
-    /// Attached images (base64) for MultiPart user messages — lets the webui
+    /// Attached images (base64) for MultiPart user messages -- lets the webui
     /// re-render thumbnails when loading history.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<ImageData>>,
@@ -1573,7 +1573,7 @@ fn list_all_sessions_in_root(
 
 /// Resolve a (possibly short) session id to its full record by scanning bucket
 /// directory ENTRIES. The filename is `<id>.json`, so we match on the name and
-/// parse only the ONE file that matches — cheap, and UNCAPPED (unlike
+/// parse only the ONE file that matches -- cheap, and UNCAPPED (unlike
 /// `/sessions`, which truncates to 50 across all projects and so can't locate an
 /// older session). Prefers an exact id match; otherwise the most-recent prefix
 /// match. `project_hash` is the physical bucket the file lives in.
@@ -1641,7 +1641,7 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
     })
 }
 
-/// Webui index route with one-time-token → HttpOnly-cookie handoff.
+/// Webui index route with one-time-token -> HttpOnly-cookie handoff.
 ///
 /// `/webui` opens `http://host:port/?token=<uuid>`. Serving index.html
 /// straight from that URL would leave the token in the address bar and
@@ -1704,7 +1704,7 @@ fn first_query_value(query: &str, key: &str) -> Option<String> {
     })
 }
 
-/// Drop every `key=…` pair from a raw query string, preserving the rest
+/// Drop every `key=...` pair from a raw query string, preserving the rest
 /// verbatim so `session` / `sync` survive the token-stripping redirect.
 fn strip_query_key(query: &str, key: &str) -> String {
     query
@@ -1721,8 +1721,8 @@ async fn shutdown_handler(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 /// Current project state plus the physical session-bucket hash for the
-/// working directory. The webui uses `project_hash` — NOT the mutable
-/// `working_dir` string — to decide which sessions belong to this project,
+/// working directory. The webui uses `project_hash` -- NOT the mutable
+/// `working_dir` string -- to decide which sessions belong to this project,
 /// so it must be the same hash the session store files them under.
 #[derive(Debug, Serialize)]
 struct ProjectStateResponse {
@@ -2028,8 +2028,8 @@ async fn get_session_detail(Path((hash, id)): Path<(String, String)>) -> impl In
 ///
 /// When the active model lacks vision, the runtime's VL seam strips the image from the
 /// conversation (only the text caption reaches the model + the persisted snapshot). The
-/// image must NOT go back into the conversation — the kernel counts every stored image as
-/// ~1600 tokens (`Message::estimate_tokens`) and the adapter would re-send it — so we
+/// image must NOT go back into the conversation -- the kernel counts every stored image as
+/// ~1600 tokens (`Message::estimate_tokens`) and the adapter would re-send it -- so we
 /// stash the originals HERE, out of band, and re-attach them for DISPLAY only on load.
 /// Ordered: one entry per VL-preprocessed submission, matched to the VL-marker user
 /// messages in order (each such submission produces exactly one).
@@ -2047,7 +2047,7 @@ fn image_sidecar_path(working_dir: &std::path::Path, session_id: &str) -> PathBu
 
 /// Append a VL-preprocessed message's ORIGINAL images to the session's display-only
 /// sidecar. Best-effort: a failure just means the image later shows as the "missing"
-/// placeholder — it never blocks the turn and never touches the model context.
+/// placeholder -- it never blocks the turn and never touches the model context.
 pub(crate) fn append_display_images(
     working_dir: &std::path::Path,
     session_id: &str,
@@ -2413,7 +2413,7 @@ async fn create_session(
 
     // Broadcast new session creation to other views (sync-mode TUI / other webui tabs)
     // so they follow: create new session with the same ID. Only when the caller has
-    // sync enabled — sync-off webui新建对话不应牵连 TUI 新建（issue #850）。
+    // sync enabled -- sync-off webui新建对话不应牵连 TUI 新建（issue #850）。
     if req.sync {
         if let Err(error) = crate::live_api::live_switch_session(id).await {
             let message = format!("Session created, but live switch failed: {error:?}");
@@ -3012,8 +3012,8 @@ pub struct ModelInfo {
 }
 
 /// Build the `/models` list from the UNIFIED model catalog (`logical_models`)
-/// so folded CodingPlan / new-schema `[models.*]` models — which no longer live
-/// in `config.providers` — appear in the webui + VSCode model pickers, matching
+/// so folded CodingPlan / new-schema `[models.*]` models -- which no longer live
+/// in `config.providers` -- appear in the webui + VSCode model pickers, matching
 /// `/config` (`config_response`) and `/providers` (`get_providers`). The old
 /// body iterated only `config.providers` and so silently dropped them.
 fn models_from_config(config: &Config) -> Vec<ModelInfo> {
@@ -3027,8 +3027,8 @@ fn models_from_config(config: &Config) -> Vec<ModelInfo> {
                 model: p.model.clone(),
                 provider_type: p.provider_type.clone(),
                 is_default: id == &default_selection,
-                // Driven by CONFIG — an explicit effort, or a non-empty server-advertised
-                // `reasoning_effort_levels` — never a hardcoded model name. Single source of
+                // Driven by CONFIG -- an explicit effort, or a non-empty server-advertised
+                // `reasoning_effort_levels` -- never a hardcoded model name. Single source of
                 // truth shared with the TUI `/effort` and the wire capability.
                 effort_applicable: rustcode_config::config::endpoint_supports_reasoning_effort(
                     p.reasoning_effort.as_deref(),
@@ -3264,7 +3264,7 @@ pub enum ChatEvent {
         /// `false` = Pause (kernel stopped the turn, user must act).
         #[serde(default)]
         auto_resuming: bool,
-        /// Provider's own 429 message (no `HTTP …:` prefix), for the generic pause.
+        /// Provider's own 429 message (no `HTTP ...:` prefix), for the generic pause.
         #[serde(default)]
         server_message: Option<String>,
     },
@@ -3938,7 +3938,7 @@ impl ChatRuntimeProjector {
                 }]
             }
             // Silent, cache-friendly tool-output folding is invisible transcript
-            // maintenance — suppress its mark (mirrors the TUI `silent_tool_fold`).
+            // maintenance -- suppress its mark (mirrors the TUI `silent_tool_fold`).
             CodingRuntimeEvent::CompactionFinished {
                 completion: CompactionCompletion::Completed(outcome),
             } if outcome.committed && outcome.is_silent_auto_tool_fold() => Vec::new(),
@@ -4326,7 +4326,7 @@ async fn chat_stream(
     });
 
     // The guard must outlive the stream. We achieve this by chaining a final
-    // item that captures the guard — when the stream is dropped (client disconnect
+    // item that captures the guard -- when the stream is dropped (client disconnect
     // or natural end), the guard's Drop fires and decrements the counter.
     let conn_guard = SseConnectionGuard(active_conns);
     let guarded_stream = stream.chain(futures::stream::once(async move {
@@ -4345,7 +4345,7 @@ async fn chat_stream(
 }
 
 /// Await the inner chat task, translating its outcome into SSE events and
-/// always calling `active_chats.complete()` afterwards — even on panic.
+/// always calling `active_chats.complete()` afterwards -- even on panic.
 async fn finalize_chat_task(
     inner: tokio::task::JoinHandle<anyhow::Result<()>>,
     event_tx: &mpsc::UnboundedSender<ChatEvent>,
@@ -4494,7 +4494,7 @@ async fn process_chat_request(
     let (provider_name, provider_config) = resolve_chat_provider(&config, req.provider)?;
     // The provider config's existence is validated above; the native runtime
     // builds (and validates) its own kernel provider for the actual turn and
-    // surfaces a clean error there. No core-provider preflight is needed — the
+    // surfaces a clean error there. No core-provider preflight is needed -- the
     // VL preprocessor builds its own session-bound provider (see
     // `preprocess_image_caption`), so nothing here consumes `core::provider`.
     let _ = event_tx.send(ChatEvent::RuntimeInfo {
@@ -4538,7 +4538,7 @@ async fn process_chat_request(
 
     // The kernel-native buffer is the live transport (cold summaries inline as
     // synthetic messages); persisted history was loaded from the native session view
-    // above. The native runtime owns turn boundaries — no daemon-side turn tracker.
+    // above. The native runtime owns turn boundaries -- no daemon-side turn tracker.
     let conversation = Arc::new(tokio::sync::Mutex::new(initial_messages));
     // Keep the original images in the persisted/display conversation, but preprocess the
     // runtime caption first when the active model is text-only. `run_chat_turn_v2` detects
@@ -4587,7 +4587,7 @@ async fn process_chat_request(
     // If so, save the current conversation (session messages + user message)
     // and return so the user can resume from this point later.
     if active_chats.was_stopped(&operation_id).await {
-        // Save what we have — align with TUI behaviour: a stopped
+        // Save what we have -- align with TUI behaviour: a stopped
         // conversation should still be resumable via /resume.
         {
             let conv = conversation.lock().await;
@@ -4601,7 +4601,7 @@ async fn process_chat_request(
             }
         }
         let _ = event_tx.send(ChatEvent::Stopped);
-        // Turn never ran — the turn task (which registers the responder) never
+        // Turn never ran -- the turn task (which registers the responder) never
         // spawned, so this is a defensive no-op cleanup for interactive modes.
         if registered_permission_responder {
             pending_permissions.unregister(&perm_session_key);
@@ -4611,7 +4611,7 @@ async fn process_chat_request(
     }
 
     // Run turn(s) in a background task on the native kernel stack; the
-    // downstream native-event → ChatEvent projector shapes the HTTP stream.
+    // downstream native-event -> ChatEvent projector shapes the HTTP stream.
     {
         let mut runtime_cfg = live_api::chat_runtime_config(&config, &provider_name, &working_dir);
         runtime_cfg.dangerously_skip_permissions = approval_mode
@@ -4677,7 +4677,7 @@ async fn process_chat_request(
     // SnapshotHook + the authoritative terminal snapshot written back into the
     // kernel buffer. The daemon buffer is a display/transport projection only and is
     // never written back here, so no post-turn cancel bookkeeping or image restore is
-    // needed — the kernel terminal snapshot is authoritative.
+    // needed -- the kernel terminal snapshot is authoritative.
 
     // Turn finished (the forwarding loop above exits when runtime_event_rx closes).
     // Drop the permission
@@ -4728,7 +4728,7 @@ fn publish_chat_session_assignment(
 /// capabilities (model identity, layered instructions, memory, git snapshot,
 /// full rules). The only omission is plan mode (not applicable in API mode).
 ///
-/// This function is self-contained — it does NOT touch any TUI code path.
+/// This function is self-contained -- it does NOT touch any TUI code path.
 
 /// Request to stop a chat session
 #[derive(Debug, Deserialize)]
@@ -4832,7 +4832,7 @@ struct ChatUserInputAnswerRequest {
     answer: live_api::UserInputAnswerReq,
 }
 
-/// POST /chat/user-input — answer a structured question emitted on the `/chat` SSE stream.
+/// POST /chat/user-input -- answer a structured question emitted on the `/chat` SSE stream.
 async fn chat_user_input(
     State(state): State<AppState>,
     Json(req): Json<ChatUserInputAnswerRequest>,
@@ -4871,7 +4871,7 @@ struct McpStatusResponse {
 
 /// Merge a registry's known server statuses with the full set of *configured*
 /// server names. A configured server the registry hasn't recorded yet (still
-/// mid-`initialize()` — common for remote HTTP during the connect window) is
+/// mid-`initialize()` -- common for remote HTTP during the connect window) is
 /// surfaced as `Connecting`, so the panel shows it immediately instead of an
 /// empty list. A status the registry already knows (Connected / Failed /
 /// Disconnected) always wins over the synthetic `Connecting`.
@@ -4912,7 +4912,7 @@ async fn mcp_status(State(state): State<AppState>) -> Json<McpStatusResponse> {
 
     // Trust / blocked enrichment: compute blocked FIRST so we can exclude them from the
     // "connecting" synthetic entries below. Blocked (untrusted-project) servers are withheld
-    // — they never connect — so they must NOT appear as "connecting" in the status list while
+    // -- they never connect -- so they must NOT appear as "connecting" in the status list while
     // simultaneously appearing in `blocked[]` (a contradiction the webui rendered).
     let trusted = rustcode_capabilities::mcp::trust::is_project_trusted(&working_dir);
     let blocked: Vec<String> =
@@ -4947,7 +4947,7 @@ async fn mcp_status(State(state): State<AppState>) -> Json<McpStatusResponse> {
 /// Build the `/mcp` status server rows from raw registry statuses.
 ///
 /// Blocked (untrusted-project) servers are surfaced ONLY via the response's
-/// `blocked[]` list — never as a server row. The capabilities `McpRegistry`
+/// `blocked[]` list -- never as a server row. The capabilities `McpRegistry`
 /// reports withheld servers as `ServerStatus::BlockedUntrusted` (core's enum had
 /// no such variant), so without this skip they would render twice: once as a
 /// "blocked" status row here and once in the blocked banner.
@@ -5050,7 +5050,7 @@ async fn shutdown_signal(mut shutdown_rx: watch::Receiver<bool>) {
         // Wait until the watch channel value becomes true (sent by POST /shutdown)
         while !*shutdown_rx.borrow_and_update() {
             if shutdown_rx.changed().await.is_err() {
-                // Sender dropped — treat as shutdown
+                // Sender dropped -- treat as shutdown
                 break;
             }
         }
@@ -5297,7 +5297,7 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
     };
     // 选择自动打开浏览器 + 主显示用的地址：
     // - 回环绑定：127.0.0.1。
-    // - 通配绑定（0.0.0.0/::）：优先用局域网 IP —— 它在本机和其它设备上都可访问，
+    // - 通配绑定（0.0.0.0/::）：优先用局域网 IP ---- 它在本机和其它设备上都可访问，
     //   契合 `--host 0.0.0.0` 暴露到网络的意图；用 127.0.0.1 只在本机有效、对远端
     //   设备（手机/另一台机器）打开就是连接被拒。探测不到局域网 IP 时才回退 127.0.0.1。
     // - 绑定具体非回环地址（如 Tailscale 100.x）：socket 只监听该地址，必须用它。
@@ -5334,12 +5334,12 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
             // 主 URL（local_url）已是局域网 IP（若探测到），它在本机自身也可访问
             // （0.0.0.0 监听所有接口，含回环），故无需再单列 127.0.0.1 那条冗余链接。
             msg.push_str(
-                "\n⚠️ 主地址为局域网 IP，仅同一网络内的设备可访问；公网访问请用隧道（如 cloudflared / Tailscale）。无 TLS，凡能访问者凭 token 即可进入。",
+                "\n[!] 主地址为局域网 IP，仅同一网络内的设备可访问；公网访问请用隧道（如 cloudflared / Tailscale）。无 TLS，凡能访问者凭 token 即可进入。",
             );
         } else {
             // 显式指定了具体地址：local_url 已是该地址，这里仅补安全提示。
             msg.push_str(
-                "\n⚠️ 已绑定非回环地址：凡能访问该地址者凭此 token 即可进入，请仅在可信网络使用（无 TLS）。",
+                "\n[!] 已绑定非回环地址：凡能访问该地址者凭此 token 即可进入，请仅在可信网络使用（无 TLS）。",
             );
         }
     }
@@ -5377,7 +5377,7 @@ static APP_SERVER: std::sync::Mutex<Option<AppServerHandle>> = std::sync::Mutex:
 /// 起一个进程内 server 供移动端 App 经中继访问，返回 `(bound_host, actual_port)`。
 ///
 /// 与 `/webui` 的关键区别：
-/// - **daemon 模式**（`webui_tokens=None` → `enforce_token=false`）：App 的 Cloud 模式
+/// - **daemon 模式**（`webui_tokens=None` -> `enforce_token=false`）：App 的 Cloud 模式
 ///   只发 `X-Atom-Token`（中继路由用），不发 `Authorization: Bearer`；鉴权边界落在
 ///   中继的 route token + 本机回环绑定（server 只听 127.0.0.1，仅本机隧道可达）。
 /// - **不开浏览器**：App 用二维码配对，不需要打开网页。
@@ -5413,7 +5413,7 @@ pub async fn ensure_app_server(
         // 随主程序常驻，关闭 idle 看门狗。
         idle_timeout_secs: 0,
         startup_mode: ClientMode::Webui,
-        // None → enforce_token=false（daemon 模式，不要 Bearer）。
+        // None -> enforce_token=false（daemon 模式，不要 Bearer）。
         webui_tokens: None,
         // 进程内启动：抑制启动横幅，避免污染 TUI 画面。
         quiet: true,
@@ -5451,7 +5451,7 @@ pub fn stop_app_server() -> bool {
 }
 
 // ============================================================================
-// GET /tunnel/status — 远程访问探测（蒲公英 Oray PGY + 绑定可达性 + 二维码）
+// GET /tunnel/status -- 远程访问探测（蒲公英 Oray PGY + 绑定可达性 + 二维码）
 // ============================================================================
 
 #[derive(serde::Serialize)]
@@ -5476,7 +5476,7 @@ struct TunnelStatus {
     qr_svg: Option<String>,
 }
 
-/// 从 ifconfig 文本抽出蒲公英候选虚拟 IP —— 纯函数，与系统解耦，可单测。
+/// 从 ifconfig 文本抽出蒲公英候选虚拟 IP ---- 纯函数，与系统解耦，可单测。
 ///
 /// 蒲公英无 CLI、虚拟网段（默认 172.16/16）管理端可改，故不按具体网段匹配，
 /// 改用两个结构性特征:接口 flags 含 `POINTOPOINT`（VPN 隧道网卡）且 `inet`
@@ -5513,7 +5513,7 @@ fn pgy_ipv4_candidates(ifconfig_output: &str) -> Vec<String> {
     out
 }
 
-/// 从一行日志里抽 `ip=<ipv4>`（蒲公英自报）。仅用于多候选消歧，loose 匹配即可——
+/// 从一行日志里抽 `ip=<ipv4>`（蒲公英自报）。仅用于多候选消歧，loose 匹配即可----
 /// 正确性最终由调用方 `candidates.contains(ip)` 兜底。
 fn extract_ip_eq(line: &str) -> Option<String> {
     let idx = line.find("ip=")?;
@@ -5549,7 +5549,7 @@ fn pgy_ipv4_from_log() -> Option<String> {
     latest
 }
 
-/// 从候选网卡 IP + 日志自报 IP 决定最终虚拟 IP —— 纯函数，可单测。
+/// 从候选网卡 IP + 日志自报 IP 决定最终虚拟 IP ---- 纯函数，可单测。
 /// 单候选直接用；零候选视为未连接；多候选（多 VPN 共存）用日志 IP 消歧，
 /// 仍无法确定则 None（宁缺毋滥，不误报）。
 fn pgy_pick_ipv4(candidates: Vec<String>, log_ip: Option<String>) -> Option<String> {
@@ -5653,7 +5653,7 @@ async fn get_tunnel_status(
 }
 
 // ============================================================================
-// GET /skills — 列出 user-invocable 技能（webui 技能选择器）
+// GET /skills -- 列出 user-invocable 技能（webui 技能选择器）
 // ============================================================================
 
 /// Skill info for API response.
@@ -5682,7 +5682,7 @@ async fn get_skills(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 // ============================================================================
-// GET /fs/list — 目录列举端点（Task 15a）
+// GET /fs/list -- 目录列举端点（Task 15a）
 // ============================================================================
 
 /// 展开 `~`，返回路径（不校验存在性）。复用与 /cd 一致的展开规则。
@@ -5818,7 +5818,7 @@ pub struct FsOpenRequest {
 
 /// Resolve a file to open: canonicalize (resolving `..` / symlinks) and require
 /// the result to be an existing regular file. Deliberately matches the agent's
-/// `open_file` reach — a turn can legitimately write files outside the session
+/// `open_file` reach -- a turn can legitimately write files outside the session
 /// workspace (the agent tools do not enforce containment), and those same files
 /// appear as openable artifacts in the WebUI. The launcher
 /// (`open_local_path`) only opens the system GUI opener and never returns file
@@ -5884,7 +5884,7 @@ fn resolve_session_workspace_file(
 /// symlinks are resolved first); relative paths resolve against the owning
 /// session's working directory, so files a turn wrote outside that directory
 /// stay openable. The endpoint never accepts URLs or directories, and it never
-/// returns file contents — only the opener's status message.
+/// returns file contents -- only the opener's status message.
 async fn fs_open(
     State(state): State<AppState>,
     Json(req): Json<FsOpenRequest>,
@@ -6009,7 +6009,7 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         ..
     } = opts;
 
-    // Step 1: Load config (R1.1, R1.5) — tolerate errors, fallback to default.
+    // Step 1: Load config (R1.1, R1.5) -- tolerate errors, fallback to default.
     // Also seed the offline verdict + note ONCE from config + env here, before
     // any tool/provider assembly (Step 4).
     let startup_config = match Config::load(&Config::default_path()) {
@@ -6069,7 +6069,7 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         // Health check
         .route("/health", get(health))
         // WebUI static assets + SPA fallback (Task 3/4). The `/` route
-        // does the one-time-token → HttpOnly-cookie handoff (CWE-598); the
+        // does the one-time-token -> HttpOnly-cookie handoff (CWE-598); the
         // fallback serves SPA routes/assets and never carries a token.
         .route("/", axum::routing::get(serve_webui_index))
         .fallback(webui::serve_webui);
@@ -6388,7 +6388,7 @@ mod fs_list_tests {
             resolve_workspace_file(&workspace, "../outside.md").unwrap(),
             std::fs::canonicalize(temp.path().join("outside.md")).unwrap()
         );
-        // Directories are still refused — only regular files can be opened.
+        // Directories are still refused -- only regular files can be opened.
         assert_eq!(
             resolve_workspace_file(&workspace, ".").unwrap_err().kind(),
             std::io::ErrorKind::InvalidInput
@@ -6671,7 +6671,7 @@ mod tests {
     #[test]
     fn models_from_config_shows_effort_for_any_model_that_advertises_levels() {
         // A CodingPlan model whose server-advertised `reasoning_effort_levels` is
-        // non-empty (e.g. qwen3.8-27b) must be effort_applicable in the webui — driven
+        // non-empty (e.g. qwen3.8-27b) must be effort_applicable in the webui -- driven
         // by config, not a hardcoded `deepseek-v4-flash` name. A level-less model stays off.
         let config: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
@@ -6800,7 +6800,7 @@ mod tests {
     #[test]
     fn models_endpoint_lists_new_schema_and_folded_codingplan_models() {
         // Selectable models living ONLY in the new schema (models/provider_accounts),
-        // NOT in [providers.*] — the `/models` endpoint used to iterate only
+        // NOT in [providers.*] -- the `/models` endpoint used to iterate only
         // `config.providers` and silently dropped these from the webui picker.
         let config: Config = serde_json::from_value(serde_json::json!({
             "default_model": "AtomGit-GLM-5.2",
@@ -7544,8 +7544,8 @@ mod tests {
     }
 
     // 回归：远程 HTTP MCP 服务器在 `/mcp/status` 面板显示为空。根因之一是 in-flight
-    // （仍在 initialize() 途中）的服务器既不在 servers、也不在 failed_servers → 被
-    // server_statuses() 略过 → 面板空。修复：把配置里有、但 registry 尚未记录的服务器
+    // （仍在 initialize() 途中）的服务器既不在 servers、也不在 failed_servers -> 被
+    // server_statuses() 略过 -> 面板空。修复：把配置里有、但 registry 尚未记录的服务器
     // 补成 connecting，让面板在连接窗口里就有东西显示，而不是空列表。
     #[test]
     fn merge_surfaces_configured_servers_as_connecting() {
@@ -7608,7 +7608,7 @@ mod tests {
     fn blocked_untrusted_servers_are_excluded_from_server_rows() {
         use rustcode_capabilities::mcp::ServerStatus;
         // A withheld (untrusted-project) server is reported via the response's
-        // `blocked[]` list, NOT as a server row — otherwise the webui renders it
+        // `blocked[]` list, NOT as a server row -- otherwise the webui renders it
         // twice (once as a "blocked" status row, once in the blocked banner).
         let rows = build_mcp_server_rows(
             vec![
@@ -7621,9 +7621,9 @@ mod tests {
         assert_eq!(rows[0].name, "ok");
     }
 
-    // 回归：daemon 解析工作目录→物理会话桶名的 hash 必须与 native 会话存储命名目录
+    // 回归：daemon 解析工作目录->物理会话桶名的 hash 必须与 native 会话存储命名目录
     // 用的 hash 完全一致。曾经 daemon 自持一份用 `str::hash`（而非 `Path::hash`）的
-    // 拷贝，对同一路径算出不同 hash → `/project` 指向磁盘上不存在的桶 → webui 退化成
+    // 拷贝，对同一路径算出不同 hash -> `/project` 指向磁盘上不存在的桶 -> webui 退化成
     // 按可变的 `working_dir` 字段匹配会话，导致跨项目串台。
     #[test]
     fn daemon_hash_path_matches_shared_project_bucket_naming() {
@@ -8024,7 +8024,7 @@ mod tests {
             .expect("full id should resolve");
         assert_eq!(found_full.meta.id, target);
 
-        // Unknown id → None.
+        // Unknown id -> None.
         assert!(resolve_session_in_root(root, "zzzzzzzz").unwrap().is_none());
     }
 
@@ -8136,14 +8136,14 @@ mod tests {
         assert!(fresh.initial_messages.is_empty());
         assert_eq!(fresh.effective_working_dir, dir_a.path());
 
-        // Unknown id → explicit error, not a silent fallback.
+        // Unknown id -> explicit error, not a silent fallback.
         let err = resolve_chat_session(dir_a.path(), Some("zzzzzzzz")).unwrap_err();
         assert!(err.to_string().contains("not found in project bucket"));
     }
 
     // 回归：/chat (HTTP) 路径上非致命提示作为独立的 `warning` 事件下发,而不是 error。
     // webui 的 /api/chat 消费 ChatEvent；旧实现把 Warning 当成 error-shaped 事件，
-    // 被前端染成红色「[错误: …]」并塞进回复气泡。
+    // 被前端染成红色「[错误: ...]」并塞进回复气泡。
     #[test]
     fn chat_warning_serializes_as_its_own_type_not_error() {
         let json = serde_json::to_string(&ChatEvent::Warning {
@@ -8416,12 +8416,12 @@ mod tests {
     #[test]
     fn initial_workdir_falls_back_to_config_then_cwd() {
         let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        // No override → existing config default wins.
+        // No override -> existing config default wins.
         assert_eq!(
             resolve_initial_working_dir(None, Some(here.clone()), PathBuf::from("/x")),
             here
         );
-        // No override, nonexistent config default → cwd.
+        // No override, nonexistent config default -> cwd.
         assert_eq!(
             resolve_initial_working_dir(
                 None,
@@ -8494,13 +8494,13 @@ mod tests {
         assert_eq!(
             messages[0].images.as_ref().unwrap()[0].data,
             "A",
-            "1st placeholder → 1st set"
+            "1st placeholder -> 1st set"
         );
         assert!(messages[1].images.is_none(), "assistant untouched");
         assert_eq!(
             messages[2].images.as_ref().unwrap()[0].data,
             "B",
-            "2nd placeholder → 2nd set"
+            "2nd placeholder -> 2nd set"
         );
         assert_eq!(
             messages[3].images.as_ref().unwrap()[0].data,
@@ -8564,7 +8564,7 @@ mod tests {
 
     #[tokio::test]
     async fn bind_scanning_returns_a_free_port() {
-        // start_port=0 → OS assigns; actual port is filled from local_addr (non-zero).
+        // start_port=0 -> OS assigns; actual port is filled from local_addr (non-zero).
         let (listener, port) = bind_scanning("127.0.0.1", 0, 1).await.unwrap();
         assert_ne!(port, 0);
         assert_eq!(listener.local_addr().unwrap().port(), port);
@@ -8572,7 +8572,7 @@ mod tests {
 
     #[tokio::test]
     async fn bind_scanning_skips_occupied_port() {
-        // Hold a port, then scan starting at it → must skip to a higher free port.
+        // Hold a port, then scan starting at it -> must skip to a higher free port.
         let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let busy = occupied.local_addr().unwrap().port();
         let (listener, port) = bind_scanning("127.0.0.1", busy, 50).await.unwrap();
@@ -8612,7 +8612,7 @@ utun7: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1300
 
     #[test]
     fn pgy_candidates_excludes_rfc1918_on_non_p2p() {
-        // 公司 LAN 走 172.16 但接口是 BROADCAST(非 POINTOPOINT)→ 不入选。
+        // 公司 LAN 走 172.16 但接口是 BROADCAST(非 POINTOPOINT)-> 不入选。
         let s = "en5: flags=8863<UP,BROADCAST,RUNNING,MULTICAST> mtu 1500\n\
                  \tinet 172.16.5.9 netmask 0xffff0000 broadcast 172.16.255.255\n";
         assert!(pgy_ipv4_candidates(s).is_empty());
@@ -8650,7 +8650,7 @@ utun7: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1300
 
     #[test]
     fn pgy_pick_multi_disambiguates_via_log() {
-        // 两个 POINTOPOINT VPN:日志自报 IP 命中其一 → 选中;否则 None。
+        // 两个 POINTOPOINT VPN:日志自报 IP 命中其一 -> 选中;否则 None。
         let cands = vec!["172.16.2.14".to_string(), "10.99.0.5".to_string()];
         assert_eq!(
             pgy_pick_ipv4(cands.clone(), Some("10.99.0.5".into())),

@@ -3,14 +3,14 @@
 //! Two problems this solves (see also the verbatim-aligned twin in
 //! `rustcode-core/src/skill_render.rs`):
 //!
-//! 1. **Signal dilution** — a machine with 60+ community skills installed would
+//! 1. **Signal dilution** -- a machine with 60+ community skills installed would
 //!    otherwise dump every full description into the prompt, drowning the few
-//!    high-value process skills (brainstorming, systematic-debugging, …). The
+//!    high-value process skills (brainstorming, systematic-debugging, ...). The
 //!    render is *budget-gated*: under budget everything is emitted verbatim (few
-//!    skills → zero overhead, no reordering visible); only when the catalog
+//!    skills -> zero overhead, no reordering visible); only when the catalog
 //!    exceeds [`CATALOG_BYTE_BUDGET`] does source-priority ranking decide who
 //!    survives and the rest are summarised as an omitted count.
-//! 2. **Weak model nudge** — the guidance paragraph tells the model to load a
+//! 2. **Weak model nudge** -- the guidance paragraph tells the model to load a
 //!    skill when the task *matches its description*, not only when the user names
 //!    it, and points at the create-a-feature / design-work case explicitly.
 //!
@@ -32,7 +32,7 @@ pub const PER_SKILL_DESC_CAP: usize = 1024;
 /// reconcile the block in place across `--resume`.
 pub const CATALOG_HEADER: &str = "=== AVAILABLE SKILLS ===";
 
-const GUIDANCE: &str = "Skills are reusable instruction templates for specific tasks. The names listed below are the only skill names you may pass directly to `use_skill`; never invent or guess a skill name from memory, task type, or common workflows. Match a task only against descriptions actually shown below. If a task clearly matches a shown skill's description — not only when the user names the skill — you MUST load that exact skill with `use_skill` and follow it BEFORE doing the work, INCLUDING before asking clarifying questions, exploring, or planning. If this catalog says skills were omitted, call `list_skills` before using an omitted or otherwise unlisted name, and use only an exact name it returns. If no available skill matches, proceed normally. If `use_skill` reports a missing skill, do not guess another name; briefly note it and continue with the best fallback. Announce in one line which skill you're using; if you skip an obviously matching shown skill, say why. If several shown skills match, use the minimal set that covers the request.";
+const GUIDANCE: &str = "Skills are reusable instruction templates for specific tasks. The names listed below are the only skill names you may pass directly to `use_skill`; never invent or guess a skill name from memory, task type, or common workflows. Match a task only against descriptions actually shown below. If a task clearly matches a shown skill's description -- not only when the user names the skill -- you MUST load that exact skill with `use_skill` and follow it BEFORE doing the work, INCLUDING before asking clarifying questions, exploring, or planning. If this catalog says skills were omitted, call `list_skills` before using an omitted or otherwise unlisted name, and use only an exact name it returns. If no available skill matches, proceed normally. If `use_skill` reports a missing skill, do not guess another name; briefly note it and continue with the best fallback. Announce in one line which skill you're using; if you skip an obviously matching shown skill, say why. If several shown skills match, use the minimal set that covers the request.";
 
 /// One catalog row, already reduced from a crate-specific `Skill`. `source_rank`
 /// is computed via [`source_rank`]; lower = higher priority when budget forces
@@ -52,13 +52,13 @@ pub struct CatalogEntry {
 /// product-native > `.claude` > `.agents` > everything else.
 ///
 /// "Product-native" is the config tree THIS build owns, matched by prefix
-/// against `RUSTCODE_HOME` — the same variable
+/// against `RUSTCODE_HOME` -- the same variable
 /// [`runtime_skill_dirs`](super::registry::runtime_skill_dirs) reads, and the
 /// one `distribution::bootstrap_home` settles before anything else runs.
 ///
 /// It used to be the literal `.rustcode`, which is correct only while the
 /// config dir is named that. A build that relocated its tree ranked its OWN
-/// installed plugins at 3 — below `~/.claude` and `~/.agents` — so a budget
+/// installed plugins at 3 -- below `~/.claude` and `~/.agents` -- so a budget
 /// squeeze cut the deployment's curated plugins and kept third-party bulk. The
 /// symptom is invisible from the outside: the plugin installs fine and
 /// `/plugin list` shows it, but its name never reaches the model, so the model
@@ -86,12 +86,12 @@ pub fn source_rank(path: &Path) -> u8 {
 }
 
 /// The config tree this build owns, once `bootstrap_home` has settled it.
-/// `None` before that, or when explicitly emptied — an empty value must not
+/// `None` before that, or when explicitly emptied -- an empty value must not
 /// become a bare relative path that every source path starts with.
 ///
 /// The variable name is spelled out rather than taken from
 /// `rustcode_config::distribution::HOME_ENV` because the `skills` feature is
-/// `[]` — it deliberately pulls no dependencies, and `rustcode-config` is
+/// `[]` -- it deliberately pulls no dependencies, and `rustcode-config` is
 /// optional. `runtime_skill_dirs` reads the same variable the same way, for the
 /// same reason; the two must stay in step.
 fn native_config_root() -> Option<std::path::PathBuf> {
@@ -101,17 +101,17 @@ fn native_config_root() -> Option<std::path::PathBuf> {
 }
 
 /// Truncate a description to [`PER_SKILL_DESC_CAP`] chars on a char boundary,
-/// appending `…` when cut.
+/// appending `...` when cut.
 fn truncate_desc(desc: &str) -> String {
     if desc.chars().count() <= PER_SKILL_DESC_CAP {
         return desc.to_string();
     }
     let cut: String = desc.chars().take(PER_SKILL_DESC_CAP).collect();
-    format!("{cut}…")
+    format!("{cut}...")
 }
 
 /// Render the full `=== AVAILABLE SKILLS ===` section, or `None` when there are
-/// no skills. The returned string has no surrounding blank lines — the caller
+/// no skills. The returned string has no surrounding blank lines -- the caller
 /// wraps it with newlines to taste.
 pub fn render_skill_catalog(entries: &[CatalogEntry]) -> Option<String> {
     render_skill_catalog_prioritizing(entries, &[])
@@ -381,7 +381,7 @@ mod tests {
     fn long_description_is_truncated() {
         let long = "d".repeat(PER_SKILL_DESC_CAP + 500);
         let out = render_skill_catalog(&[entry("x", &long, 0)]).unwrap();
-        assert!(out.contains('…'), "truncation ellipsis present");
+        assert!(out.contains("..."), "truncation ellipsis present");
         assert!(
             !out.contains(&long),
             "full over-cap description must not appear verbatim"

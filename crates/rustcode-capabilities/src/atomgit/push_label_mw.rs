@@ -14,8 +14,8 @@ use rustcode_kernel::tool::{Tool, ToolCall, ToolResult};
 use super::remote::{detect_push_target, PushTarget};
 use super::{AtomgitClient, AtomgitConfig, StaticTokenProvider};
 
-/// True when the bash args' `command` runs a `git push` — including a `git push` buried in a
-/// compound `cd … && git add … && git push` chain or prefixed with a `GIT_SSH_COMMAND=…` env var,
+/// True when the bash args' `command` runs a `git push` -- including a `git push` buried in a
+/// compound `cd ... && git add ... && git push` chain or prefixed with a `GIT_SSH_COMMAND=...` env var,
 /// which weak models emit constantly. Delegates the quote-/compound-aware parsing to the shared
 /// bash command scanner so this stays in lockstep with the destructive-fs gate.
 fn is_git_push(arguments: &str) -> bool {
@@ -143,7 +143,7 @@ impl ToolMiddleware for GitPushLabelMiddleware {
             return AfterOutcome::Proceed;
         }
         // Log the decision at INFO so a successful push always leaves a trace, whether or not it
-        // ends up labelling — otherwise a non-atomgit remote (the common no-op) is invisible.
+        // ends up labelling -- otherwise a non-atomgit remote (the common no-op) is invisible.
         match detect_push_target(&self.working_dir) {
             Some(target) => {
                 tracing::info!(

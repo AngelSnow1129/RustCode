@@ -3,7 +3,7 @@
 ## 目标
 
 任务或 session 回合完成后，webui 浏览器后台标签页弹出系统通知；TUI 现有通知通道
-（`atomcode-capabilities::notify`）原样保留，互不干扰。
+（`rustcode-capabilities::notify`）原样保留，互不干扰。
 
 ## 方案定位
 
@@ -22,10 +22,10 @@
 | busy 状态 | `Chat.tsx:431-442` | `busy` state + `busyRef` 同步镜像（SSE 回调异步安全） |
 | 前端设置面板 | `webui/src/settings.tsx` | `SettingsSection = 'theme'\|'language'\|'model'\|'remote'`；持久化走 localStorage |
 | `/config` 返回 | `crates/rustcode-daemon/src/api_config.rs:38` | `ConfigResponse { path, default_provider, default_workdir, providers }` —— 当前不含 notifications 段 |
-| 通知配置 | `crates/atomcode-config/src/config/mod.rs:1181` | `NotificationConfig { enabled, min_duration_secs(默认8), terminal, system, bell, background_only }`；`skip_serializing`，由 `render_notifications_section` 手动写盘 |
-| 设置注册 | `crates/atomcode-config/src/settings.rs:155-170` | `notifications.enabled`、`notifications.bell` 已注册，`ApplyPolicy::NextTurn` |
+| 通知配置 | `crates/rustcode-config/src/config/mod.rs:1181` | `NotificationConfig { enabled, min_duration_secs(默认8), terminal, system, bell, background_only }`；`skip_serializing`，由 `render_notifications_section` 手动写盘 |
+| 设置注册 | `crates/rustcode-config/src/settings.rs:155-170` | `notifications.enabled`、`notifications.bell` 已注册，`ApplyPolicy::NextTurn` |
 | TUI 触发 | `tuix/event_loop/mod.rs:21867`、`:22086` | `notify_turn_finished(TurnNotification { duration, turn_count, tool_call_count, stop_reason, ... })` |
-| 标题文案映射 | `notify.rs:238-252` | Natural→"AtomCode done"，Cancelled→"AtomCode cancelled"，Error→"AtomCode failed"，TurnLimit/StepLimit→"AtomCode stopped" |
+| 标题文案映射 | `notify.rs:238-252` | Natural→"RustCode done"，Cancelled→"RustCode cancelled"，Error→"RustCode failed"，TurnLimit/StepLimit→"RustCode stopped" |
 | 会话恢复 URL | `webui/src/app.tsx:17-27` | 已支持 `?session=<短id>` 刷新恢复，通知点击可复用 |
 
 ## 架构
@@ -45,7 +45,7 @@
     └─ new Notification(title, { body, tag, icon })
          │
          ▼（可选只读配置）
-daemon /config (api_config.rs) → atomcode-config NotificationConfig
+daemon /config (api_config.rs) → rustcode-config NotificationConfig
 TUI 通道（notify.rs）完全独立、原样保留
 ```
 
@@ -107,11 +107,11 @@ export function disposeNotifications(): void;                   // 关闭 Broadc
 
 | stop_reason | title | body |
 |---|---|---|
-| `natural` | AtomCode done | Done · {时长} |
-| `cancelled` | AtomCode cancelled | Cancelled · {时长} |
-| `error` | AtomCode failed | Failed · {时长} |
-| `turn_limit`/`step_limit` | AtomCode stopped | Stopped · {时长} |
-| undefined | AtomCode finished | Finished |
+| `natural` | RustCode done | Done · {时长} |
+| `cancelled` | RustCode cancelled | Cancelled · {时长} |
+| `error` | RustCode failed | Failed · {时长} |
+| `turn_limit`/`step_limit` | RustCode stopped | Stopped · {时长} |
+| undefined | RustCode finished | Finished |
 
 正文可追加 `· {message 前若干字符}`（截断 120 字符）。`new Notification` 调用：
 
@@ -129,8 +129,8 @@ n.onclick = () => {
 ```
 
 权限管理：`requestNotificationPermission()` 只在用户手势内调用（设置面板开关），结果
-缓存到 `localStorage['atomcode.webui_notify_permission']`；拒绝时设置面板显示引导文案。
-偏好存储：`localStorage['atomcode.webui_notify']` = `{ enabled, minDurationSecs, backgroundOnly }`；
+缓存到 `localStorage['rustcode.webui_notify_permission']`；拒绝时设置面板显示引导文案。
+偏好存储：`localStorage['rustcode.webui_notify']` = `{ enabled, minDurationSecs, backgroundOnly }`；
 加载优先级 localStorage 显式设置 > `/config` notifications 段 > 默认值。
 
 ### `webui/src/components/Chat.tsx`（修改）
@@ -183,7 +183,7 @@ n.onclick = () => {
 
 ## 不改动的部分
 
-- `atomcode-capabilities/src/notify.rs` 原样保留；
+- `rustcode-capabilities/src/notify.rs` 原样保留；
 - `tuix/event_loop/mod.rs` 的 `notify_turn_finished` 调用点原样保留；
 - `NotificationConfig` 现有字段语义不变；
 - `webui.rs`、`live_hub.rs`、`live_api.rs`、kernel/coding 零改动；
@@ -218,13 +218,13 @@ n.onclick = () => {
 
 ## 验证
 
-1. `cd webui && npm test`（新增单测全绿——纯逻辑，无需浏览器/atomcode）；
+1. `cd webui && npm test`（新增单测全绿——纯逻辑，无需浏览器/rustcode）；
 2. `npm run build`（前端产物可编译）；
-3. 最小化前端验证（可选，无需完整 atomcode）：写一个 mock SSE 后端（Node 小脚本，
+3. 最小化前端验证（可选，无需完整 rustcode）：写一个 mock SSE 后端（Node 小脚本，
    提供 `/live` 的 `snapshot` + `state{running:false, stop_reason}`、`/config`、`/project`
    等最小端点），浏览器打开真实 webui SPA 连它，验证"终态事件 → 弹通知"全链路；
 4. 浏览器侧能力探针（可选）：任意 localhost 静态页调 `Notification.requestPermission()`
-   弹一条通知，验证 localhost secure context 与权限流（与 atomcode 无关）；
+   弹一条通知，验证 localhost secure context 与权限流（与 rustcode 无关）；
 5. 手动验收：TUI `/webui` 打开 → 后台标签 → 长任务（>8s）→ 弹通知；<8s 不弹；
    前台不弹；第二标签同会话不重复弹；点击通知跳回 `?session=` 恢复；
    `--host 0.0.0.0` 下设置面板提示不可用；

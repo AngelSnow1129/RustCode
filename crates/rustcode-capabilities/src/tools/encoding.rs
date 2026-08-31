@@ -6,7 +6,7 @@
 //! edit them in place and write them back in their ORIGINAL encoding rather than
 //! silently converting to UTF-8.
 //!
-//! Safety: a legacy encoding is only ever claimed when a full decode→re-encode
+//! Safety: a legacy encoding is only ever claimed when a full decode->re-encode
 //! reproduces the file's exact bytes ([`decode_for_edit`]'s round-trip guard). That
 //! makes an in-place edit lossless for the untouched content and refuses ambiguous
 //! files (Latin-1, Big5, truncated UTF-8, binary) instead of corrupting them.
@@ -31,7 +31,7 @@ pub(crate) fn has_text_extension(path: &std::path::Path) -> bool {
 }
 
 /// Attempt to decode a file that failed UTF-8 validation, for DISPLAY (read_file).
-/// Tries GB18030 (superset of GBK/GB2312) only, and only for text-ish extensions —
+/// Tries GB18030 (superset of GBK/GB2312) only, and only for text-ish extensions --
 /// that's ~100% of the real-world miss on Chinese Windows `.txt`. Returns `None` for
 /// everything else so the caller emits a recovery hint instead of mojibake.
 pub(crate) fn decode_non_utf8_text(path: &std::path::Path, bytes: &[u8]) -> Option<String> {
@@ -60,12 +60,12 @@ pub(crate) struct DecodedFile {
 
 /// Decode a file for EDITING: return its text as UTF-8 plus the encoding to write back.
 ///
-/// - Valid UTF-8 → [`FileEncoding::Utf8`] (unchanged from the historical path).
+/// - Valid UTF-8 -> [`FileEncoding::Utf8`] (unchanged from the historical path).
 /// - Otherwise, a text-ish extension that decodes as GB18030 AND round-trips
-///   (`encode(decode(bytes)) == bytes`) → [`FileEncoding::Gb18030`]. The round-trip
+///   (`encode(decode(bytes)) == bytes`) -> [`FileEncoding::Gb18030`]. The round-trip
 ///   guard proves the decode is lossless for THIS file, so re-encoding untouched
 ///   content reproduces its exact bytes.
-/// - Anything else → `None`: the caller refuses the edit rather than risk corruption.
+/// - Anything else -> `None`: the caller refuses the edit rather than risk corruption.
 pub(crate) fn decode_for_edit(path: &std::path::Path, bytes: &[u8]) -> Option<DecodedFile> {
     match std::str::from_utf8(bytes) {
         Ok(text) => Some(DecodedFile {
@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn non_utf8_without_text_extension_is_refused() {
         let (gbk, _, _) = encoding_rs::GB18030.encode("第一行\n");
-        // `.bin` is not a text extension → not decoded → caller treats as unsupported.
+        // `.bin` is not a text extension -> not decoded -> caller treats as unsupported.
         assert!(decode_for_edit(Path::new("blob.bin"), &gbk).is_none());
     }
 

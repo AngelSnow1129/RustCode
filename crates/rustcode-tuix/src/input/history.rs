@@ -14,12 +14,12 @@ pub struct HistoryEntry {
     /// compact (`{"text":"hi"}` rather than `{"text":"hi","images":[]}`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<HistoryImageRef>,
-    /// Original bodies of any folded `[Pasted #N …]` placeholders in
+    /// Original bodies of any folded `[Pasted #N ...]` placeholders in
     /// `text`, in placeholder order (index 0 = paste #1). Mirrors the
     /// `Buffer.pastes` registry that was live when the line was
     /// submitted. Without this, an up-arrow recall of a message that
     /// contained a paste would bring back only the compact placeholder
-    /// — the buffer's live `pastes` registry is cleared after each
+    /// -- the buffer's live `pastes` registry is cleared after each
     /// submit, so `expand_pastes` had nothing to substitute and the
     /// agent received the literal `[Pasted #N +M lines]` token instead
     /// of the pasted body (issue #843). On recall the buffer rehydrates
@@ -220,14 +220,14 @@ impl History {
             .collect();
         let dir = match fs::read_dir(&self.cache_dir) {
             Ok(d) => d,
-            Err(_) => return Ok(()), // dir missing — nothing to GC
+            Err(_) => return Ok(()), // dir missing -- nothing to GC
         };
         for entry in dir.flatten() {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
             let prefix = match name_str.split('.').next() {
                 Some(p) if p.len() == 16 && p.chars().all(|c| c.is_ascii_hexdigit()) => p,
-                _ => continue, // unrecognized — leave it alone
+                _ => continue, // unrecognized -- leave it alone
             };
             if !referenced.contains(prefix) {
                 let _ = fs::remove_file(entry.path()); // best-effort
@@ -385,7 +385,7 @@ mod tests {
     #[test]
     fn legacy_plaintext_history_still_loads() {
         // Older builds wrote entries verbatim (one line per entry, no
-        // JSON encoding). Those files must still load — the fallback in
+        // JSON encoding). Those files must still load -- the fallback in
         // `load()` treats unparseable lines as raw entries.
         let dir = tempdir().unwrap();
         let path = dir.path().join("hist");
@@ -537,7 +537,7 @@ mod tests {
         fs::write(cache.join("bbbbbbbbbbbbbbbb.png"), b"b").unwrap();
         fs::write(cache.join("cccccccccccccccc.png"), b"c").unwrap();
         let mut h = History::load_with_cache(dir.path().join("hist"), cache.clone());
-        // Reference only `aaaa…` and `bbbb…`.
+        // Reference only `aaaa...` and `bbbb...`.
         h.push(HistoryEntry {
             text: "x".into(),
             images: vec![HistoryImageRef {

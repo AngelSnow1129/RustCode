@@ -10,7 +10,7 @@ use rustcode_kernel::agent::ToolLoopPolicy;
 /// Everything [`build_coding_agent`](crate::build_coding_agent) needs: provider
 /// credentials, the working directory the tools are scoped to, and liveness bounds.
 ///
-/// Timeouts default to sane non-infinite values — the kernel itself defaults to
+/// Timeouts default to sane non-infinite values -- the kernel itself defaults to
 /// unbounded, and the assembly map flagged "L2 MUST set stream/request timeouts" so a
 /// stalled provider or silent driver can never park a turn forever.
 #[derive(Clone)]
@@ -25,7 +25,7 @@ pub struct CodingAgentConfig {
     /// every adapter default. This is the HTTP-layer budget (connect / open /
     /// stream-idle) and is deliberately SEPARATE from [`Self::request_timeout`],
     /// which is the kernel's request/respond round-trip budget (approvals,
-    /// `request_user_input`) — conflating the two is what makes a slow gateway
+    /// `request_user_input`) -- conflating the two is what makes a slow gateway
     /// look like a user who never answered.
     pub provider_timeout: Option<rustcode_config::config::provider::ProviderTimeout>,
     /// Final image-input capability resolved from the model profile override or
@@ -43,7 +43,7 @@ pub struct CodingAgentConfig {
     /// Stable config/provider registry key exposed to drivers. This is distinct
     /// from `provider_type`, which selects the adapter implementation.
     pub provider_name: String,
-    /// Directory the agent's tools see as their working dir — PINNED (via the kernel
+    /// Directory the agent's tools see as their working dir -- PINNED (via the kernel
     /// `working_dir` seam), not the process-global cwd, so concurrent agents don't race.
     pub working_dir: PathBuf,
     /// Model context window in tokens (forwarded to the provider). Default 128k.
@@ -54,9 +54,9 @@ pub struct CodingAgentConfig {
     /// old 120s cut them off mid-think and surfaced as a spurious "stream timeout".
     pub stream_timeout: Duration,
     /// Liveness: max wait for a driver approval response before it degrades to deny.
-    /// `Some(d)` ⇒ fail-closed after `d` — for HEADLESS / no-human drivers where a never-
+    /// `Some(d)` ⇒ fail-closed after `d` -- for HEADLESS / no-human drivers where a never-
     /// answered approval must not park a turn forever. `None` ⇒ PARK: block until the driver
-    /// answers (or the turn is cancelled / the driver dies) — for INTERACTIVE drivers, so a
+    /// answers (or the turn is cancelled / the driver dies) -- for INTERACTIVE drivers, so a
     /// present human is never auto-denied for thinking too long. Default `Some(300s)`.
     /// Applies to every kernel request/respond round-trip, including approvals and
     /// structured `request_user_input` prompts.
@@ -72,11 +72,11 @@ pub struct CodingAgentConfig {
     /// exhausted output-limit recovery). Default false; only the TUI sets it.
     pub round_cap_checkpoint: bool,
     /// Whether a HUMAN is attending this run (interactive TUI, ACP editor, webui-live) and
-    /// reviews edits as they happen — as opposed to a headless / scheduled / daemon run. Set by
+    /// reviews edits as they happen -- as opposed to a headless / scheduled / daemon run. Set by
     /// every driver that also parks approvals for a present human (it mirrors the same intent as
     /// clearing `request_timeout`, but is a first-class signal so consumers don't overload the
     /// approval-timeout field). Consumed by [`Self::is_attended`] to gate the forced post-edit
-    /// verify cadence. Default false (unattended → keep forcing verification).
+    /// verify cadence. Default false (unattended -> keep forcing verification).
     pub interactive: bool,
     /// Generate an ephemeral next-prompt suggestion after a naturally completed
     /// turn. The coding runtime owns the auxiliary request and cancellation;
@@ -99,20 +99,20 @@ pub struct CodingAgentConfig {
     pub loop_max_rounds: u32,
     /// Per-call provider options (reasoning effort / max_tokens / temperature).
     /// Default = no opinion. A respawn (re-`assemble` on the same parts) picks up
-    /// changes — how a driver implements `/effort`.
+    /// changes -- how a driver implements `/effort`.
     pub chat_options: rustcode_kernel::provider::ChatOptions,
     /// Best-effort per-turn Markdown + per-round JSONL logging.
     pub datalog: rustcode_config::config::DatalogConfig,
     /// Provider `reasoning_history` override (`"include"` | `"exclude"`), passed
     /// through verbatim to the provider builder. `None`/empty (default) ⇒ the
     /// adapter's per-model auto-detect ([`ReasoningPolicy::derive`]). This is the
-    /// config knob, not a code default — the heuristic only applies when it's unset.
+    /// config knob, not a code default -- the heuristic only applies when it's unset.
     ///
     /// [`ReasoningPolicy::derive`]: rustcode_capabilities::provider::ReasoningPolicy::derive
     pub reasoning_history: Option<String>,
     /// Provider adapter kind: `"openai"` (default, OpenAI-compatible), `"claude"`
     /// (Anthropic Messages API), or `"ollama"`. Selects which v2 provider adapter the
-    /// builder constructs — mirrors v1's `provider_type` dispatch. Empty/unknown ⇒ openai.
+    /// builder constructs -- mirrors v1's `provider_type` dispatch. Empty/unknown ⇒ openai.
     pub provider_type: String,
     /// Extended-thinking toggle for the Anthropic adapter (`/think on|off`). `Some(true)`
     /// ⇒ `thinking: {type:"adaptive"}` on the wire. `None`/`Some(false)` ⇒ off. (v2 uses
@@ -132,7 +132,7 @@ pub struct CodingAgentConfig {
     pub compact_threshold: f32,
     /// `web_search` backend: `"exa"` (default, globally reachable, keyless) or
     /// `"duckduckgo"`/`"ddg"` (legacy HTML scraping, blocked in some regions). `None`/empty
-    /// /unknown ⇒ Exa. Mirrors v1's `[web_search] provider` config knob — without this the
+    /// /unknown ⇒ Exa. Mirrors v1's `[web_search] provider` config knob -- without this the
     /// tool was hardwired to Exa with no way to opt into DDG.
     pub web_search_provider: Option<String>,
     /// Opt-in read-only LSP policy. The manager is created by this runtime's tool
@@ -166,8 +166,8 @@ pub struct CodingAgentConfig {
     pub subagent_config: Option<Arc<rustcode_config::config::Config>>,
     /// Swap-aware, lazily-built FAST-tier provider for the `task` tool. `None` ⇒ the fast
     /// tier reuses the host provider slot. Set by the runtime as a SHARED cell ([`TierProvider`])
-    /// so a mid-session `/model` swap can `reset()` it — re-resolve the tier against the new
-    /// host and drop the cache — and the already-built TaskTool picks up the new routing on its
+    /// so a mid-session `/model` swap can `reset()` it -- re-resolve the tier against the new
+    /// host and drop the cache -- and the already-built TaskTool picks up the new routing on its
     /// next dispatch (no `prepare` rerun). Built ON FIRST use, so startup stays cheap. NOT in
     /// the manual `Debug` impl.
     pub subagent_fast_provider: Option<Arc<TierProvider>>,
@@ -281,7 +281,7 @@ impl CodingRuntimeConfig {
         // model-selection id (a legacy provider name still resolves via
         // projection); without one, the active `default_model`/`default_provider`
         // selection is used. Fall back to the first catalog model so a missing or
-        // invalid selection still starts something — parity with the old
+        // invalid selection still starts something -- parity with the old
         // `providers.keys().min()` fallback. For a legacy config the resolved
         // `selection_id` equals the old provider key, so every field below is
         // byte-identical to the previous `providers.get(name)` extraction.
@@ -516,19 +516,19 @@ impl SubagentModelProviders {
 
 /// A `task`-tier provider cell: lazily built and SWAP-AWARE. Holds a `thunk` (re-resolvable
 /// on a `/model` swap) plus a lazily-populated build `cache`. `get()` builds on first use and
-/// caches (keeps startup cheap — no reqwest client until the first `task`); `reset()` re-points
+/// caches (keeps startup cheap -- no reqwest client until the first `task`); `reset()` re-points
 /// the thunk and drops the cache. Shared as an `Arc` between [`CodingAgentConfig`] and the
 /// already-built TaskTool, so the runtime can update tier routing on a model swap in place.
 struct TierInner {
     thunk: SubagentProvider,
     /// `None` = not built yet; `Some(inner)` = built exactly once (`inner == None` means the
-    /// thunk yielded no provider — host-equal or a failed build — so we do NOT retry the build
+    /// thunk yielded no provider -- host-equal or a failed build -- so we do NOT retry the build
     /// on every dispatch). One `Mutex` over both fields makes `get`/`reset` atomic and prevents
     /// a concurrent double-build.
     cache: Option<Option<Arc<dyn rustcode_kernel::provider::LlmProvider>>>,
     /// The parent conversation's `x-rustcode-session-id` (set once at assemble). Bound onto the
     /// tier provider when it's built so a `task` fan-out's children send the SAME session id as
-    /// the main conversation — the AtomGit gateway then treats them as one window and permits
+    /// the main conversation -- the AtomGit gateway then treats them as one window and permits
     /// their concurrent requests (GLM-5.2 rejects concurrent DISTINCT-session requests, which
     /// otherwise forces the strong-tier subtasks to run serially). Survives `reset` (a `/model`
     /// swap changes the tier model, not the conversation identity).
@@ -552,7 +552,7 @@ impl TierProvider {
         })
     }
 
-    /// The built provider (built lazily on first call, then cached — success OR a `None`
+    /// The built provider (built lazily on first call, then cached -- success OR a `None`
     /// result is remembered, so a failing build isn't re-attempted every dispatch), or `None`
     /// if the thunk yields none (⇒ the caller falls back to the host slot). Lock poisoning
     /// cannot occur under the workspace `panic = "abort"` profile, so `unwrap` is unreachable.
@@ -591,7 +591,7 @@ impl TierProvider {
 
     /// Record the parent conversation's session id, to be bound onto the tier provider when
     /// built (see [`TierInner::session_id`]). Set once at assemble, BEFORE the first `get()`; if
-    /// a provider is somehow already cached, bind immediately too (idempotent — the adapter's
+    /// a provider is somehow already cached, bind immediately too (idempotent -- the adapter's
     /// `bind_session_id` is a one-shot `OnceLock`).
     pub fn set_session_id(&self, session_id: &str) {
         let mut g = self.inner.lock().unwrap();
@@ -601,7 +601,7 @@ impl TierProvider {
         }
     }
 
-    /// Re-point at a freshly-resolved thunk and drop the cache — the next `get()` rebuilds.
+    /// Re-point at a freshly-resolved thunk and drop the cache -- the next `get()` rebuilds.
     /// Called by the runtime on a `/model` swap so tier routing re-resolves against the new host.
     /// The recorded `session_id` PERSISTS (a model swap changes the tier model, not the
     /// conversation), so the rebuilt provider is re-bound to the same window on the next `get()`.
@@ -639,8 +639,8 @@ pub fn goal_max_rounds_env() -> Option<u32> {
         .and_then(|s| s.trim().parse::<u32>().ok())
 }
 
-/// Resolve the `/goal` round cap. Precedence: explicit env override → a share of
-/// the CodingPlan binding-window `call_limit` (Pro 1000 → 300, Lite 800 → 240) →
+/// Resolve the `/goal` round cap. Precedence: explicit env override -> a share of
+/// the CodingPlan binding-window `call_limit` (Pro 1000 -> 300, Lite 800 -> 240) ->
 /// a flat fallback. Pure so the host can call it once `call_limit` is known
 /// without threading config plumbing.
 pub fn derive_goal_max_rounds(env_override: Option<u32>, call_limit: Option<i64>) -> u32 {
@@ -743,10 +743,10 @@ pub fn resolve_turn_max_rounds(configured: u32, env: Option<&str>) -> u32 {
 
 impl CodingAgentConfig {
     /// Whether a present human is attending this run (see [`Self::interactive`]). The verify
-    /// mount sites gate on THIS accessor — not on a raw field — so the "is a human here to ask
-    /// for a check?" decision and its rationale live in one place: attended → don't FORCE a
+    /// mount sites gate on THIS accessor -- not on a raw field -- so the "is a human here to ask
+    /// for a check?" decision and its rationale live in one place: attended -> don't FORCE a
     /// post-edit verify continuation (the human can request one); unattended (headless /
-    /// scheduled) → keep the forcing cadence.
+    /// scheduled) -> keep the forcing cadence.
     pub fn is_attended(&self) -> bool {
         self.interactive
     }
@@ -832,7 +832,7 @@ mod tests {
     fn ordinary_turns_are_unbounded_by_default() {
         let c = CodingAgentConfig::new("k", "https://x/v1", "m", "/tmp");
         assert_eq!(c.max_rounds, 0);
-        // No CodingPlan info at construction → the non-CodingPlan fallback.
+        // No CodingPlan info at construction -> the non-CodingPlan fallback.
         assert_eq!(c.goal_max_rounds, 300);
         // The wall-clock cap is OFF by default (0 = disabled); the goal is bounded
         // by the round cap + evaluator instead. Re-enable via env if ever needed.
@@ -875,14 +875,14 @@ mod tests {
 
     #[test]
     fn derive_goal_rounds_scales_with_plan_call_limit() {
-        // 30% of the binding 5h window's call_limit. Pro=1000 → 300, Lite=800 → 240.
+        // 30% of the binding 5h window's call_limit. Pro=1000 -> 300, Lite=800 -> 240.
         assert_eq!(derive_goal_max_rounds(None, Some(1000)), 300);
         assert_eq!(derive_goal_max_rounds(None, Some(800)), 240);
     }
 
     #[test]
     fn derive_goal_rounds_env_override_wins_over_plan() {
-        // An explicit RUSTCODE_GOAL_MAX_ROUNDS is the user's word — it beats the
+        // An explicit RUSTCODE_GOAL_MAX_ROUNDS is the user's word -- it beats the
         // plan-derived value regardless of call_limit.
         assert_eq!(derive_goal_max_rounds(Some(150), Some(1000)), 150);
         assert_eq!(derive_goal_max_rounds(Some(1), None), 1);
@@ -890,7 +890,7 @@ mod tests {
 
     #[test]
     fn derive_goal_rounds_falls_back_without_plan() {
-        // Non-CodingPlan / offline / unknown call_limit → flat fallback, never a
+        // Non-CodingPlan / offline / unknown call_limit -> flat fallback, never a
         // hardcoded 200 tied to one plan tier.
         assert_eq!(derive_goal_max_rounds(None, None), 300);
         assert_eq!(derive_goal_max_rounds(None, Some(0)), 300);
@@ -905,7 +905,7 @@ mod tests {
 
     // Fix #4: saturating_mul prevents a debug-panic on adversarial i64::MAX
     // call_limit (plain * would overflow in debug builds). After saturation the
-    // i64→u32 try_from fails and falls back to GOAL_ROUND_FALLBACK (300).
+    // i64->u32 try_from fails and falls back to GOAL_ROUND_FALLBACK (300).
     #[test]
     fn derive_goal_rounds_saturating_mul_no_panic_on_i64_max() {
         // Must not panic in debug builds, and must return GOAL_ROUND_FALLBACK.
@@ -1012,7 +1012,7 @@ mod tests {
     #[test]
     fn from_config_builds_a_new_schema_model_profile() {
         // One account, and a model profile selected by its `<account>/<model>` id
-        // — the "one provider, multiple models" capability, resolved at the
+        // -- the "one provider, multiple models" capability, resolved at the
         // runtime build seam without any legacy `[providers.*]`.
         let source: rustcode_config::config::Config = serde_json::from_value(serde_json::json!({
             "default_model": "acc/coder",
@@ -1036,7 +1036,7 @@ mod tests {
         assert_eq!(rt.base_url, "https://api.deepseek.com/v1"); // preset default
         assert_eq!(rt.api_key, "sk-acc"); // shared account credential
         assert_eq!(rt.context_window, 131072);
-        // The second model on the SAME account, selected by id — no duplicated
+        // The second model on the SAME account, selected by id -- no duplicated
         // connection settings.
         let rt2 = CodingRuntimeConfig::from_config(
             &source,
@@ -1250,7 +1250,7 @@ mod tests {
         assert_eq!(cell.get().unwrap().model_name(), "deepseek");
         assert_eq!(builds.load(Ordering::SeqCst), 1, "built once, then cached");
 
-        // A /model swap resets the cell: new thunk + dropped cache → next get rebuilds.
+        // A /model swap resets the cell: new thunk + dropped cache -> next get rebuilds.
         cell.reset(mk("glm", builds.clone()));
         assert_eq!(cell.get().unwrap().model_name(), "glm");
         assert_eq!(
@@ -1264,7 +1264,7 @@ mod tests {
     fn tier_provider_caches_none_result_no_retry() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         // A thunk that yields no provider (host-equal or a failed build) must be called ONCE,
-        // then its `None` is remembered — not re-attempted (which would re-run build_provider)
+        // then its `None` is remembered -- not re-attempted (which would re-run build_provider)
         // every dispatch.
         let calls = Arc::new(AtomicUsize::new(0));
         let c = calls.clone();
@@ -1315,7 +1315,7 @@ mod tests {
         let cell = TierProvider::new(thunk);
         // Set the parent session id BEFORE the first build (as `assemble` does).
         cell.set_session_id("parent-sess-123");
-        let _ = cell.get(); // first get builds the provider → binds the id
+        let _ = cell.get(); // first get builds the provider -> binds the id
         assert_eq!(
             bound.lock().unwrap().as_deref(),
             Some("parent-sess-123"),

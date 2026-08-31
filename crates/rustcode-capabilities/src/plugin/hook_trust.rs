@@ -1,6 +1,6 @@
 //! Per-plugin content-hash trust for plugin-shipped hooks. A plugin's hooks run
 //! only after the user trusts the CURRENT hash of its hook set (`rustcode plugin
-//! trust <name>`). Changing a hook command changes the hash → re-trust required,
+//! trust <name>`). Changing a hook command changes the hash -> re-trust required,
 //! which blocks a benign-at-install plugin from silently adding hooks in an update.
 
 use std::collections::BTreeMap;
@@ -18,10 +18,10 @@ pub fn plugin_id(plugin: &str, marketplace: &str) -> String {
     format!("{plugin}@{marketplace}")
 }
 
-/// SHA-256 over the sorted `(event, matcher, command)` triples — sensitive to
+/// SHA-256 over the sorted `(event, matcher, command)` triples -- sensitive to
 /// WHAT CODE RUNS, not to timeout or install path. Each field is length-prefixed
 /// so no field content (including control bytes) can shift a boundary and collide
-/// two different hook sets. Empty set → SHA-256 of empty input.
+/// two different hook sets. Empty set -> SHA-256 of empty input.
 pub fn plugin_hook_set_hash(hooks: &[PluginCcHook]) -> String {
     let mut triples: Vec<(&str, &str, &str)> = hooks
         .iter()
@@ -48,7 +48,7 @@ fn trust_store_path() -> Option<PathBuf> {
     Some(super::paths::plugins_root()?.join("hook_trust.json"))
 }
 
-/// Load the trust map. Missing/unreadable/malformed → empty (⇒ nothing trusted,
+/// Load the trust map. Missing/unreadable/malformed -> empty (⇒ nothing trusted,
 /// the safe default).
 pub fn load_trust() -> TrustMap {
     let Some(path) = trust_store_path() else {
@@ -90,7 +90,7 @@ fn migration_marker_path() -> Option<PathBuf> {
 }
 
 /// One-time upgrade migration. The FIRST time this runs in a given home, trust
-/// the CURRENT hook-set hash of every already-installed plugin — so upgrading
+/// the CURRENT hook-set hash of every already-installed plugin -- so upgrading
 /// users whose plugin hooks auto-ran before the trust gate existed keep working.
 /// After the marker is written, new installs / changed hooks require explicit
 /// `plugin trust`. Idempotent (marker-guarded). Best-effort: IO errors are
@@ -165,7 +165,7 @@ mod tests {
         assert!(!is_trusted(&map, &id, "h1"));
         trust(&id, "h1").unwrap();
         assert!(is_trusted(&load_trust(), &id, "h1"));
-        // wrong hash (e.g. plugin updated) → not trusted
+        // wrong hash (e.g. plugin updated) -> not trusted
         assert!(!is_trusted(&load_trust(), &id, "h2"));
         untrust(&id).unwrap();
         assert!(!is_trusted(&load_trust(), &id, "h1"));

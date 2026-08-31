@@ -4,7 +4,7 @@ import com.rustcode.jetbrains.security.SecretRedactor
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.project.Project
 
-object AtomCodeDiagnostics {
+object RustCodeDiagnostics {
     fun summary(project: Project, rawDetails: String = ""): String {
         val text = buildString {
             appendLine("RustCode JetBrains diagnostics")

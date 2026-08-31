@@ -13,7 +13,7 @@ fn _isolate_rustcode_home() {
 /// Build a fake rustcode data dir so the CLI sees something to scan.
 ///
 /// Under unified semantics, `RUSTCODE_HOME` IS the data root (equivalent to
-/// `~/.rustcode/`), so we point the env var directly at this dir — no extra
+/// `~/.rustcode/`), so we point the env var directly at this dir -- no extra
 /// `.rustcode` subdir.
 fn make_fake_data(tmp: &TempDir) -> std::path::PathBuf {
     let data = tmp.path().join("rustcode-data");
@@ -73,7 +73,7 @@ fn purge_and_keep_data_conflict_exit_2() {
 }
 
 // NOTE: We intentionally don't run --purge / --keep-data as full integration tests
-// against a real install — the binary path resolves to the test runner exe (cargo's
+// against a real install -- the binary path resolves to the test runner exe (cargo's
 // target/debug/rustcode), and deleting it would break subsequent tests in the same
 // run. The lower-level deletion paths are covered by the CLI uninstall action tests
 // with a no-op self-delete implementation.

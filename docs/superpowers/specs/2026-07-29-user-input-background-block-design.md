@@ -13,7 +13,7 @@
 
 ## 现状（为什么不难）
 
-atomcode-tuix 是自研 retained cell 渲染器（非 ratatui），但背景色所需的基础设施全部现成：
+rustcode-tuix 是自研 retained cell 渲染器（非 ratatui），但背景色所需的基础设施全部现成：
 
 - `render/cell.rs`：`CellStyle` 已有 `bg: Option<Color>` 字段。
 - `render/cell.rs`：序列化器 `emit_sgr_transition` 已会发 `\x1b[48;...m` 背景色 SGR，并在行尾 `\x1b[0m` reset。**底层零改动。**
@@ -61,7 +61,7 @@ atomcode-tuix 是自研 retained cell 渲染器（非 ratatui），但背景色�
 
 ## 落点（改动集中在一个文件）
 
-`crates/atomcode-tuix/src/render/retained.rs`：
+`crates/rustcode-tuix/src/render/retained.rs`：
 
 1. 新增样式辅助 `style_panel_bg()` → 返回 `CellStyle { bg: role(caps, Role::PanelBg), ..default }`（前景 None，走终端默认）。
 2. 新增行辅助 `pad_row_to_bg(row, w, bg)`：给已有 cell 套 bg + 补齐空格到 `w`；以及 `bg_blank_row(w, bg)` 生成整行背景空行。
@@ -76,7 +76,7 @@ atomcode-tuix 是自研 retained cell 渲染器（非 ratatui），但背景色�
 ## 边界与风险
 
 - **原生 scrollback**：行 promote 进原生 scrollback 时按 cell 序列化，行尾已 reset，背景不会溢出到后续行。
-- **终端 resize 不重排**：已 promote 的 bg 行宽度是 push 时定死的，resize 后不重排——这是 atomcode 所有 scrollback 内容的既有行为，非本功能引入的回归。
+- **终端 resize 不重排**：已 promote 的 bg 行宽度是 push 时定死的，resize 后不重排——这是 rustcode 所有 scrollback 内容的既有行为，非本功能引入的回归。
 - **复制粘贴**：整行 bg 会带上尾部空格，复制用户输入时多出右侧空白。可接受（codex 同样如此）。
 - **NO_COLOR / colors=false**：`role()` 在 `!caps.colors` 时返回 None，`bg` 自然为 None → 无背景，优雅降级。
 - **非 unicode 终端**：前缀 glyph 走 `downgrade_glyphs` 已有降级；bg 与 glyph 正交，不受影响。

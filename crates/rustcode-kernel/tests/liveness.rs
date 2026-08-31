@@ -1,20 +1,20 @@
-//! CLAIM 26: LIVENESS TIMEOUTS — two kernel-owned, default-OFF timeouts so a turn
+//! CLAIM 26: LIVENESS TIMEOUTS -- two kernel-owned, default-OFF timeouts so a turn
 //! can never PARK FOREVER. The MECHANISM is kernel (the stream loop in agent.rs
 //! and the round-trip broker in request.rs are kernel-owned); the VALUES are
 //! policy, injected via the builder and default `None` to stay neutral.
 //!
 //! Two hang vectors are closed:
 //!   (1) a provider that opens the stream then goes silent (TCP half-open / model
-//!       stall) → `run_turn`'s `stream.next().await` parks the turn forever.
+//!       stall) -> `run_turn`'s `stream.next().await` parks the turn forever.
 //!   (2) a middleware mid-turn awaits `rt.request(...)` and a crashed/silent driver
-//!       never answers → `RequestCtx::request`'s `rx.await` parks forever.
+//!       never answers -> `RequestCtx::request`'s `rx.await` parks forever.
 //!
 //! Each test is itself wrapped in an OUTER `tokio::time::timeout` that is far
 //! larger than the injected liveness timeout. That outer guard is the proof: with
 //! the fix the turn fails/unblocks well within it; WITHOUT the fix the turn parks
-//! forever and the outer guard trips → the test FAILS rather than hanging the
-//! whole suite. (Mentally revert the fix and the inner timeout never fires → the
-//! drive loop never returns → the outer `timeout` elapses → `expect` panics.)
+//! forever and the outer guard trips -> the test FAILS rather than hanging the
+//! whole suite. (Mentally revert the fix and the inner timeout never fires -> the
+//! drive loop never returns -> the outer `timeout` elapses -> `expect` panics.)
 
 use rustcode_kernel::agent::Agent;
 use rustcode_kernel::event::{AgentCommand, AgentEvent};
@@ -33,7 +33,7 @@ use std::time::Duration;
 // race the timer to a real result).
 const LIVENESS: Duration = Duration::from_millis(50);
 // The OUTER guard. >> LIVENESS so a working fix always wins; if the fix is absent
-// the turn parks and this elapses → test FAILS (not a suite hang).
+// the turn parks and this elapses -> test FAILS (not a suite hang).
 const OUTER_GUARD: Duration = Duration::from_secs(5);
 
 fn send(text: &str) -> AgentCommand {
@@ -51,12 +51,12 @@ fn tool_call(id: &str, name: &str, args: &str) -> ToolCall {
     }
 }
 
-// ── (1a) STREAM TIMEOUT → RECONNECT → RECOVER ────────────────────────────────
+// ── (1a) STREAM TIMEOUT -> RECONNECT -> RECOVER ────────────────────────────────
 //
 // FIRST stream opens then PENDS FOREVER (idle stall); the SECOND succeeds. With
 // `.stream_timeout(50ms)` the idle-timeout fires, the kernel RECONNECTS (codex
-// parity, up to MAX_STREAM_RETRIES=5) — re-issuing the round from history with
-// backoff — and recovers. We assert a `reconnecting` Warning is emitted AND the
+// parity, up to MAX_STREAM_RETRIES=5) -- re-issuing the round from history with
+// backoff -- and recovers. We assert a `reconnecting` Warning is emitted AND the
 // turn completes SUCCESSFULLY (success path runs; NO error). Core guarantee: a
 // single mid-stream stall no longer kills the turn.
 #[tokio::test]
@@ -305,13 +305,13 @@ async fn second_partial_stream_timeout_stops_after_the_single_safe_continuation(
 async fn continuation_after_partial_recovery_still_reconnects_a_content_free_stall() {
     // Regression guard: the partial recovery must not disable idle-reconnect for
     // the REST of the turn. The fresh continuation round is a normal round, so a
-    // content-free (first-token) stall on it must still reconnect — not fail on
+    // content-free (first-token) stall on it must still reconnect -- not fail on
     // the first stall.
     let reg = ToolRegistry::new();
     let provider = Arc::new(
         PartialStallThenProvider::new(
             vec![StreamEvent::TextDelta("partial".into())],
-            vec![], // continuation emits NOTHING before stalling → content-free stall
+            vec![], // continuation emits NOTHING before stalling -> content-free stall
         )
         .with_recovered_stall(),
     );
@@ -395,11 +395,11 @@ async fn tool_call_delta_only_stall_does_not_fire_a_bogus_recovery() {
     );
 }
 
-// ── (1b) STREAM TIMEOUT → EXHAUST RETRIES → CLEAN-FAIL ───────────────────────
+// ── (1b) STREAM TIMEOUT -> EXHAUST RETRIES -> CLEAN-FAIL ───────────────────────
 //
 // PENDS FOREVER on every attempt. The kernel reconnects MAX_STREAM_RETRIES=5
 // times (with backoff), then clean-fails: on_error + Error (mentions timeout) +
-// TurnComplete — never looping forever, never a bogus success. Slower than (1a)
+// TurnComplete -- never looping forever, never a bogus success. Slower than (1a)
 // because it walks the full backoff ladder, so it gets a generous guard.
 #[tokio::test]
 async fn stream_timeout_exhausts_retries_then_fails() {
@@ -418,7 +418,7 @@ async fn stream_timeout_exhausts_retries_then_fails() {
 
     handle.commands.send(send("go")).unwrap();
 
-    // Guard >> the full backoff ladder (200+400+800+1600+3200 ≈ 6.2s) + 6× 50ms.
+    // Guard >> the full backoff ladder (200+400+800+1600+3200 ≈ 6.2s) + 6x 50ms.
     let (reconnects, error_msg, completed) = tokio::time::timeout(Duration::from_secs(15), async {
         let mut reconnects = 0;
         let mut error_msg: Option<String> = None;
@@ -466,8 +466,8 @@ async fn stream_timeout_exhausts_retries_then_fails() {
 //
 // An ApprovalMiddleware round-trips via `rt.request` on a risky tool. The driver
 // here NEVER sends `Respond`. With `.request_timeout(50ms)` the round-trip
-// degrades to `Value::Null` (same as a dropped sender) → ApprovalMiddleware sees a
-// non-"allow" decision → blocks the tool → the turn proceeds and completes instead
+// degrades to `Value::Null` (same as a dropped sender) -> ApprovalMiddleware sees a
+// non-"allow" decision -> blocks the tool -> the turn proceeds and completes instead
 // of parking forever in `rx.await`.
 #[tokio::test]
 async fn request_timeout_degrades_to_null_and_unblocks_turn() {
@@ -476,7 +476,7 @@ async fn request_timeout_degrades_to_null_and_unblocks_turn() {
 
     // Round 1: a risky tool_call (triggers approval), then Done. After the tool is
     // blocked, the turn loops to round 2 where the model gives a content-bearing
-    // final answer → a normal completion. (Round 2 must carry text: a content-free
+    // final answer -> a normal completion. (Round 2 must carry text: a content-free
     // round 2 would now be retried as an empty-200 instead of completing.)
     let provider = Arc::new(MockProvider::new(vec![
         vec![
@@ -508,7 +508,7 @@ async fn request_timeout_degrades_to_null_and_unblocks_turn() {
         let mut completed = false;
         while let Some(ev) = handle.events.recv().await {
             match ev {
-                // Deliberately do NOT respond — model a crashed/silent driver.
+                // Deliberately do NOT respond -- model a crashed/silent driver.
                 AgentEvent::Request { .. } => saw_request = true,
                 AgentEvent::ToolResult { result } => blocked_result = Some(result.content),
                 AgentEvent::TurnComplete { .. } => {
@@ -521,7 +521,7 @@ async fn request_timeout_degrades_to_null_and_unblocks_turn() {
         (saw_request, blocked_result, completed)
     })
     .await
-    .expect("request-timeout turn must NOT hang — the round-trip must degrade to Null and unblock");
+    .expect("request-timeout turn must NOT hang -- the round-trip must degrade to Null and unblock");
 
     assert!(
         saw_request,
@@ -531,10 +531,10 @@ async fn request_timeout_degrades_to_null_and_unblocks_turn() {
         completed,
         "the turn must complete after the request degrades to Null"
     );
-    // Null → ApprovalMiddleware treats it as deny → the tool is BLOCKED.
+    // Null -> ApprovalMiddleware treats it as deny -> the tool is BLOCKED.
     assert!(
         blocked_result.as_deref().is_some_and(|c| c.contains("blocked")),
-        "a request that timed out (→ Null → deny) must BLOCK the risky tool; got {blocked_result:?}"
+        "a request that timed out (-> Null -> deny) must BLOCK the risky tool; got {blocked_result:?}"
     );
 }
 
@@ -543,7 +543,7 @@ async fn request_timeout_degrades_to_null_and_unblocks_turn() {
 // Without setting either knob, behavior is unchanged: a normal turn completes and
 // no timer arm is added. (We reuse a plain scripted turn; the SilentStreamProvider
 // is NOT used here precisely because, with no stream_timeout, it would park
-// forever — the default-None path adds no timer, by design.)
+// forever -- the default-None path adds no timer, by design.)
 #[tokio::test]
 async fn no_timeout_by_default_unchanged() {
     let mut reg = ToolRegistry::new();
@@ -554,7 +554,7 @@ async fn no_timeout_by_default_unchanged() {
         StreamEvent::Done { truncated: false },
     ]));
 
-    // No .stream_timeout / .request_timeout calls → both default None.
+    // No .stream_timeout / .request_timeout calls -> both default None.
     let mut handle = Agent::builder()
         .provider(provider)
         .tools(reg.mount(&["echo"]))
@@ -587,6 +587,6 @@ async fn no_timeout_by_default_unchanged() {
     );
     assert_eq!(
         text, "answer",
-        "the default path is unchanged — full text delivered"
+        "the default path is unchanged -- full text delivered"
     );
 }

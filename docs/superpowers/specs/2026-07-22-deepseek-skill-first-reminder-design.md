@@ -14,7 +14,7 @@ opening turn of a task.
 
 A prior fix (`08520767`) added a `SKILL/PROCESS FIRST` bullet to the deepseek-only
 `FIRM_EXECUTION_DISCIPLINE` block in `coding_persona`
-(`crates/atomcode-coding/src/persona.rs`). Real-machine test (deepseek-v4-flash,
+(`crates/rustcode-coding/src/persona.rs`). Real-machine test (deepseek-v4-flash,
 binary built 11:36 containing the fix) showed it **did not hold**: deepseek still
 opened with "let me look at the project structure", explored (List/Glob/Read),
 wrote a full A/B solution analysis, and only then asked one question via
@@ -38,7 +38,7 @@ line.
 
 ### Component: `SkillFirstHook`
 
-New unit in `atomcode-coding` (e.g. `crates/atomcode-coding/src/skill_first.rs`).
+New unit in `rustcode-coding` (e.g. `crates/rustcode-coding/src/skill_first.rs`).
 
 - **State (computed once at construction):** `enabled: bool` =
   `model_needs_firm_execution(model)` AND the skill catalog is non-empty.
@@ -67,7 +67,7 @@ New unit in `atomcode-coding` (e.g. `crates/atomcode-coding/src/skill_first.rs`)
 
 ### Wiring
 
-Register in `crates/atomcode-coding/src/parts.rs` `prepare()`, alongside the other
+Register in `crates/rustcode-coding/src/parts.rs` `prepare()`, alongside the other
 hooks (after `TodoHook`, ~line 539). Construct with the resolved model
 (`cfg.model`) and the catalog non-empty flag. Because both TUI/CLI and daemon
 `/chat` (webui) run the identical `CodingRuntime` → `prepare()` → `assemble()`
@@ -76,7 +76,7 @@ there is no webui gap here).
 
 ## Explicitly out of scope
 
-- **Intent classification by atomcode** (keyword/heuristic matching on the user
+- **Intent classification by rustcode** (keyword/heuristic matching on the user
   message). Rejected as fragile (bilingual keyword lists rot; re-implements the
   skill-catalog's own description-matching). The reminder lets the model do the
   matching — it just forces the check at the decision point. Gating is by
@@ -98,7 +98,7 @@ there is no webui gap here).
   exactly one reminder message; `turn_id==1 && round==2`, `turn_id==2`, or a
   disabled hook append nothing. (Follow `StatusReminderHook`'s existing test
   style for constructing a `TurnCtx` and asserting on the message tail.)
-- Run existing `atomcode-coding` tests — no signature changes to `coding_persona`
+- Run existing `rustcode-coding` tests — no signature changes to `coding_persona`
   or `prepare` call sites beyond adding the hook.
 
 ## Honest limitation

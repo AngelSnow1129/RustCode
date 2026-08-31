@@ -1,14 +1,14 @@
 //! Anthropic Messages API (`/v1/messages`) `LlmProvider` adapter (Claude Opus / Sonnet
 //! / Haiku).
 //!
-//! Sibling of [`openai_compat`](super::openai_compat) — same seam, different wire. Design
+//! Sibling of [`openai_compat`](super::openai_compat) -- same seam, different wire. Design
 //! notes (grounded in the kernel contract):
 //!   - Anthropic's stream is EVENT-typed SSE (`message_start` / `content_block_*` /
 //!     `message_delta` / `message_stop`), not OpenAI's choice-delta chunks, so this has
 //!     its own [`AnthropicSseDecoder`]. Tool-call args stream as `input_json_delta`
 //!     fragments BUFFERED per content-block index and emitted as one whole
 //!     [`StreamEvent::ToolCall`] at `content_block_stop` (no partial-tool-call kernel
-//!     variant) — plus a live [`StreamEvent::ToolCallDelta`] per fragment.
+//!     variant) -- plus a live [`StreamEvent::ToolCallDelta`] per fragment.
 //!   - THINKING is signed: each `thinking` block carries an opaque `signature` that MUST
 //!     be echoed back VERBATIM next turn. The decoder emits the thinking text as
 //!     [`StreamEvent::Reasoning`] (live + flat `Message.reasoning`) and the signature as
@@ -38,7 +38,7 @@ use std::time::Duration;
 // ---------------------------------------------------------------------------
 
 /// Construction-time config for the Anthropic Messages API adapter. The kernel never
-/// sees any of this — it enters the adapter here, off the `LlmProvider` contract.
+/// sees any of this -- it enters the adapter here, off the `LlmProvider` contract.
 #[derive(Clone)]
 pub struct AnthropicConfig {
     pub api_key: String,
@@ -54,13 +54,13 @@ pub struct AnthropicConfig {
     pub max_tokens: u32,
     /// `anthropic-version` header value.
     pub anthropic_version: String,
-    /// Enable extended thinking (`thinking: {type:"adaptive"}`). Off by default — only
+    /// Enable extended thinking (`thinking: {type:"adaptive"}`). Off by default -- only
     /// the 4.6+ models accept it, and the assistant must then echo signed thinking
     /// blocks back (handled via `reasoning_blocks`).
     pub thinking: bool,
     /// Forward sampling params (`temperature` / future `top_p` / `top_k`) on the wire.
     /// **Off by default** because the default model is a modern Claude (Opus 4.7+),
-    /// which REMOVED these — sending `temperature` 400s — and extended thinking is
+    /// which REMOVED these -- sending `temperature` 400s -- and extended thinking is
     /// likewise incompatible with a custom temperature. Set `true` ONLY for an older
     /// Claude (e.g. Sonnet 3.x / Haiku 3.x) that still accepts them; do not combine
     /// with `thinking`.
@@ -68,7 +68,7 @@ pub struct AnthropicConfig {
     /// Per-chunk stream-idle watchdog: no bytes for this long ⇒ terminal error.
     pub idle_timeout: Duration,
     pub connect_timeout: Duration,
-    /// Per-ATTEMPT first-byte (TTFB) watchdog for the OPEN call — see the matching
+    /// Per-ATTEMPT first-byte (TTFB) watchdog for the OPEN call -- see the matching
     /// field on `OpenAiCompatConfig`. A gateway that accepts the connection but never
     /// responds would otherwise hang forever. A timeout is classified retryable.
     pub open_timeout: Duration,
@@ -79,7 +79,7 @@ pub struct AnthropicConfig {
     /// `OpenAiCompatConfig::user_agent` doc for why a local const won't do.
     pub user_agent: Option<String>,
     /// Arbitrary extra HTTP headers sent on every request (self-hosted gateway
-    /// auth/tenant headers). Sourced from config only — never hardcoded.
+    /// auth/tenant headers). Sourced from config only -- never hardcoded.
     pub extra_headers: Option<std::collections::HashMap<String, String>>,
     /// Per-provider forward proxy override; if set, replaces the process-wide
     /// proxy policy for this client. Respects `skip_tls_verify`.
@@ -123,7 +123,7 @@ pub struct AnthropicProvider {
     client: reqwest::Client,
     url: String,
     /// Stable per-conversation id bound ONCE by the kernel; see the field on
-    /// `OpenAiCompatProvider`. `OnceLock` — constant for the provider's life.
+    /// `OpenAiCompatProvider`. `OnceLock` -- constant for the provider's life.
     /// Forwarded as `x-rustcode-session-id`. Unset ⇒ omitted.
     session_id: std::sync::OnceLock<String>,
 }
@@ -224,7 +224,7 @@ impl LlmProvider for AnthropicProvider {
         let s = async_stream::stream! {
             // A body that dies before replay-sensitive output reaches the consumer is
             // safe to redo wholesale. Metadata may repeat; content and tool data may not.
-            // 1 initial open + up to 2 transparent reopens — a gateway resetting
+            // 1 initial open + up to 2 transparent reopens -- a gateway resetting
             // connections under load can drop more than one attempt before a
             // healthy backend answers.
             const MAX_STREAM_ATTEMPTS: u32 = 3;
@@ -344,7 +344,7 @@ async fn open_stream(
             .header("x-api-key", api_key)
             .header("anthropic-version", anthropic_version)
             .json(body);
-        // Stable session id → gateway prefix-cache affinity. Empty ⇒ omitted.
+        // Stable session id -> gateway prefix-cache affinity. Empty ⇒ omitted.
         if !session_id.is_empty() {
             req = req.header("x-rustcode-session-id", session_id);
         }
@@ -387,7 +387,7 @@ async fn open_stream(
                         attempt += 1;
                         continue;
                     }
-                    // Capture the real `Retry-After` BEFORE `text()` consumes `resp` — the
+                    // Capture the real `Retry-After` BEFORE `text()` consumes `resp` -- the
                     // authoritative rate-limit countdown for the self-heal (vs scraping text).
                     let retry_after_secs =
                         retry::parse_retry_after(resp.headers()).map(|d| d.as_secs());
@@ -461,7 +461,7 @@ fn build_request_body(
         ToolChoice::Required | ToolChoice::Specific(_)
     );
     match &options.tool_choice {
-        ToolChoice::Auto => {} // omit → byte-identical to "no opinion"
+        ToolChoice::Auto => {} // omit -> byte-identical to "no opinion"
         ToolChoice::Required => {
             body.insert("tool_choice".into(), json!({ "type": "any" }));
         }
@@ -547,7 +547,7 @@ fn format_messages_with_vision(
                 continue;
             }
             Role::Tool => {
-                // Fold the CONSECUTIVE run of tool results into ONE user message — the
+                // Fold the CONSECUTIVE run of tool results into ONE user message -- the
                 // typical shape after an assistant fired N parallel tool calls.
                 let mut blocks: Vec<Value> = Vec::new();
                 while i < messages.len() && messages[i].role == Role::Tool {
@@ -574,7 +574,7 @@ fn format_messages_with_vision(
     // produce adjacent user messages on the wire: a tool-result run folds into a user
     // message that an injected `<system-reminder>` tail then follows; a post-compaction
     // history places a synthetic-summary user beside the real user; multiple tail hooks
-    // stack. Merge every consecutive `role:"user"` run into one (others — OpenAI/Ollama —
+    // stack. Merge every consecutive `role:"user"` run into one (others -- OpenAI/Ollama --
     // tolerate adjacency, so they don't need this).
     let out = merge_consecutive_user(out);
     (system, out)
@@ -605,8 +605,8 @@ fn merge_consecutive_user(messages: Vec<Value>) -> Vec<Value> {
     out
 }
 
-/// Combine two user `content` values. Both strings → joined string (blank-line separated,
-/// keeping the cache-friendly string form). Otherwise → ONE array of blocks (a non-empty
+/// Combine two user `content` values. Both strings -> joined string (blank-line separated,
+/// keeping the cache-friendly string form). Otherwise -> ONE array of blocks (a non-empty
 /// string becomes a `{type:"text"}` block; existing arrays are concatenated).
 fn merge_user_content(a: Value, b: Value) -> Value {
     if let (Some(sa), Some(sb)) = (a.as_str(), b.as_str()) {
@@ -630,8 +630,8 @@ fn content_to_blocks(content: Value) -> Vec<Value> {
     }
 }
 
-/// A `user` message. Text-only → `content` is a STRING (prefix-cache parity with the
-/// no-block path); with images → an array of text + base64 `image` blocks.
+/// A `user` message. Text-only -> `content` is a STRING (prefix-cache parity with the
+/// no-block path); with images -> an array of text + base64 `image` blocks.
 fn format_user_message(m: &Message, supports_vision: bool) -> Value {
     if !supports_vision || m.images.is_empty() {
         return json!({ "role": "user", "content": m.text });
@@ -661,13 +661,13 @@ fn format_user_message(m: &Message, supports_vision: bool) -> Value {
     }
 }
 
-/// An `assistant` message. Plain text (no tool calls, no echoed thinking) → `content`
+/// An `assistant` message. Plain text (no tool calls, no echoed thinking) -> `content`
 /// STRING. Otherwise an ARRAY in Anthropic's required order: signed thinking blocks
 /// (only when `echo_thinking`), then the text block, then `tool_use` blocks.
 fn format_assistant_message(m: &Message, echo_thinking: bool) -> Value {
     // Echo a signed thinking block back ONLY if THIS provider produced it. An opaque
-    // token is PROVIDER-BOUND — replaying another vendor's `signature`/`data` to
-    // Anthropic fails hard (400) — so we filter on `provider`, honoring the
+    // token is PROVIDER-BOUND -- replaying another vendor's `signature`/`data` to
+    // Anthropic fails hard (400) -- so we filter on `provider`, honoring the
     // [`ReasoningBlock`](rustcode_kernel::message::ReasoningBlock) INVARIANT. A `None`
     // provider is treated as foreign (never echoed).
     let echoable = |b: &rustcode_kernel::message::ReasoningBlock| {
@@ -675,7 +675,7 @@ fn format_assistant_message(m: &Message, echo_thinking: bool) -> Value {
     };
     let has_echo = m.reasoning_blocks.iter().any(&echoable);
     if m.tool_calls.is_empty() && !has_echo {
-        // Pure-text assistant turn — keep it a STRING.
+        // Pure-text assistant turn -- keep it a STRING.
         return json!({ "role": "assistant", "content": m.text });
     }
     let mut parts: Vec<Value> = Vec::new();
@@ -736,7 +736,7 @@ fn truncate_msg(s: &str) -> String {
     while end > 0 && !s.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}…", &s[..end])
+    format!("{}...", &s[..end])
 }
 
 /// Format an Anthropic error OBJECT (`{"type","message"}`) as a readable
@@ -781,7 +781,7 @@ struct BlockState {
 }
 
 /// Stateful Anthropic SSE decoder. Feed raw byte chunks; get whole kernel
-/// `StreamEvent`s. Splitting the event→event mapping out here (vs inline in the network
+/// `StreamEvent`s. Splitting the event->event mapping out here (vs inline in the network
 /// loop) makes it deterministic and testable from recorded bytes.
 struct AnthropicSseDecoder {
     buf: Vec<u8>,
@@ -1091,7 +1091,7 @@ mod tests {
         use rustcode_kernel::message::Message;
         use rustcode_kernel::tool::ToolCall;
         // tool result folds into a user message; the injected reminder is another user
-        // message right after — Anthropic would 400 without merging them.
+        // message right after -- Anthropic would 400 without merging them.
         let msgs = vec![
             Message::user("do X"),
             Message::assistant(
@@ -1139,7 +1139,7 @@ mod tests {
             "merged into one user: {:?}",
             roles(&out)
         );
-        assert_eq!(out.len(), 1, "three consecutive users → one");
+        assert_eq!(out.len(), 1, "three consecutive users -> one");
         assert_eq!(
             out[0]["content"],
             json!("prompt1\n\nsummary of prior work\n\nfollow up")
@@ -1173,16 +1173,16 @@ mod tests {
             Some("be terse"),
             "leading System lifts to top-level system"
         );
-        // text-only user → content STRING (prefix-cache parity with no-block path).
+        // text-only user -> content STRING (prefix-cache parity with no-block path).
         assert_eq!(out[0], json!({"role":"user","content":"hi"}));
-        // assistant with a tool call → content ARRAY: text block then tool_use (input is an OBJECT).
+        // assistant with a tool call -> content ARRAY: text block then tool_use (input is an OBJECT).
         assert_eq!(out[1]["role"], "assistant");
         assert_eq!(out[1]["content"][0], json!({"type":"text","text":"ans"}));
         assert_eq!(
             out[1]["content"][1],
             json!({"type":"tool_use","id":"tc1","name":"read","input":{"p":"a"}})
         );
-        // tool result → a USER message carrying a tool_result block.
+        // tool result -> a USER message carrying a tool_result block.
         assert_eq!(
             out[2],
             json!({"role":"user","content":[{"type":"tool_result","tool_use_id":"tc1","content":"file body","is_error":false}]})
@@ -1271,7 +1271,7 @@ mod tests {
             provider: Some("anthropic".into()),
         }];
         let (_s, out) = format_messages(&[Message::user("hi"), a], false);
-        // thinking disabled → no signed blocks echoed; plain text content.
+        // thinking disabled -> no signed blocks echoed; plain text content.
         assert_eq!(out[1], json!({"role":"assistant","content":"answer"}));
     }
 
@@ -1292,7 +1292,7 @@ mod tests {
                 provider: None,
             },
         ];
-        // thinking ENABLED, but every block is foreign → collapses to a plain string.
+        // thinking ENABLED, but every block is foreign -> collapses to a plain string.
         let (_s, out) = format_messages(&[Message::user("hi"), a], true);
         assert_eq!(
             out[1],
@@ -1318,7 +1318,7 @@ mod tests {
         ];
         let (_s, out) = format_messages(&[Message::user("hi"), a], true);
         let content = out[1]["content"].as_array().unwrap();
-        // only the Anthropic block is echoed, then the text — the foreign one is dropped.
+        // only the Anthropic block is echoed, then the text -- the foreign one is dropped.
         assert_eq!(
             content[0],
             json!({"type":"thinking","thinking":"ours","signature":"sig-a"})
@@ -1408,7 +1408,7 @@ mod tests {
             body.get("temperature").is_none(),
             "sampling params omitted by default (Opus 4.7+ reject temperature)"
         );
-        assert_eq!(body["tool_choice"], json!({"type":"any"}), "Required → any");
+        assert_eq!(body["tool_choice"], json!({"type":"any"}), "Required -> any");
         assert!(
             body.get("thinking").is_none(),
             "forced tool use must suppress incompatible thinking for this request"
@@ -1457,7 +1457,7 @@ mod tests {
             temperature: Some(0.5),
             ..Default::default()
         };
-        // Default cfg (modern Claude): temperature is OMITTED — Opus 4.7+ 400 on it.
+        // Default cfg (modern Claude): temperature is OMITTED -- Opus 4.7+ 400 on it.
         let off = build_request_body(
             "claude-opus-4-8",
             &[Message::user("hi")],
@@ -1812,7 +1812,7 @@ mod tests {
         let mut d = AnthropicSseDecoder::new();
         let mut ev = d.feed(line("content_block_start", json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}})).as_bytes());
         ev.extend(d.feed(line("content_block_delta", json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}})).as_bytes()));
-        // stream EOF without message_stop → finish() flushes a Done.
+        // stream EOF without message_stop -> finish() flushes a Done.
         ev.extend(d.finish());
         assert!(matches!(ev.last().unwrap(), StreamEvent::Done { .. }));
     }
@@ -1918,7 +1918,7 @@ mod tests {
         use std::net::TcpListener;
 
         // Connections #1 and #2 both drop before any event; #3 serves a valid
-        // body. A single reopen would surface an error after #2 — the provider
+        // body. A single reopen would surface an error after #2 -- the provider
         // must reopen twice and deliver only #3's response.
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();

@@ -6,7 +6,7 @@
 //! message-id/title/additional-directories helpers the turn loop and session
 //! lifecycle share. Persistence ownership stays with the native
 //! [`SessionManager`]: ACP wire ids are `acp-<native id>` so every wire id
-//! round-trips to the single native session catalog shared with the CLI/TUI —
+//! round-trips to the single native session catalog shared with the CLI/TUI --
 //! no second persistence model.
 
 use std::collections::HashMap;
@@ -30,7 +30,7 @@ use tokio::sync::Mutex;
 /// holding the [`Sessions`] map lock, while `session/cancel` can still
 /// reach the kernel via the cheaply-clonable `commands` sender concurrently.
 ///
-/// `events` is wrapped in its own [`Arc<Mutex<…>>`] precisely so the turn task
+/// `events` is wrapped in its own [`Arc<Mutex<...>>`] precisely so the turn task
 /// can clone the `Arc` out under a brief map lock, release the map, and then
 /// lock only this session's receiver for the turn's duration. One prompt runs
 /// per session at a time, so that lock is uncontended in practice.
@@ -50,7 +50,7 @@ pub struct SessionState {
     /// (prompt, completion) tokens accumulated from `AgentEvent::Usage` events
     /// across the session's turns, for `/usage` and `/cost`.
     pub usage: (u64, u64),
-    /// `todowrite`/`todo` invocations `(name, raw args)` in call order — the
+    /// `todowrite`/`todo` invocations `(name, raw args)` in call order -- the
     /// single source for the session's derived todo/plan state that maps to the
     /// ACP `plan` update and the `/todo` command.
     pub todo_calls: Vec<(String, String)>,
@@ -71,7 +71,7 @@ pub struct SessionState {
 /// Sessions are removed and torn down by the explicit `session/close` and
 /// `session/delete` handlers (see [`handle_close_session`] /
 /// [`handle_delete_session`]). The remaining gap: a session whose kernel agent
-/// finishes on its own (e.g. an internal stop) is not auto-pruned — it stays in
+/// finishes on its own (e.g. an internal stop) is not auto-pruned -- it stays in
 /// the table until the client closes/deletes it or the whole connection ends
 /// (all are freed when the process exits / the client disconnects).
 pub type Sessions = Arc<Mutex<HashMap<String, SessionState>>>;
@@ -106,14 +106,14 @@ pub fn next_message_id(msg_ids: &AtomicU64) -> String {
 
 /// Derive a display title from the first real user prompt, mirroring the
 /// native `SessionMeta::auto_name_from_messages` fallback (first line,
-/// control chars → space, ≤40 chars). Returns `None` for empty/whitespace-only
+/// control chars -> space, ≤40 chars). Returns `None` for empty/whitespace-only
 /// prompts, so attachment-only turns never title the session.
 ///
 /// Also returns `None` when the first line is a slash-command invocation
-/// (`/word …`): known commands are handled before the turn reaches here, so a
+/// (`/word ...`): known commands are handled before the turn reaches here, so a
 /// slash-shaped prompt arriving is an UNKNOWN command that fell through to the
-/// kernel — titling the session with the literal `/nope …` string would be
-/// wrong. A leading path (`/usr/bin/x …`) is NOT command-shaped (its first
+/// kernel -- titling the session with the literal `/nope ...` string would be
+/// wrong. A leading path (`/usr/bin/x ...`) is NOT command-shaped (its first
 /// token contains a `/`) and still titles normally.
 pub fn derive_title(text: &str) -> Option<String> {
     let first_line = text.lines().next().unwrap_or_default();
@@ -138,21 +138,21 @@ pub fn derive_title(text: &str) -> Option<String> {
 /// Whether `first_line` is a slash-command invocation (`/word` or `/word args`)
 /// rather than a real prompt or a leading filesystem path. Command-shaped means:
 /// starts with `/`, and its first whitespace-delimited token is `/` + an
-/// identifier (`[A-Za-z][A-Za-z0-9_-]*`) with no further `/` — so `/nope` and
+/// identifier (`[A-Za-z][A-Za-z0-9_-]*`) with no further `/` -- so `/nope` and
 /// `/foo bar` match, but `/usr/bin/x` (a path) does not.
 fn looks_like_slash_command(first_line: &str) -> bool {
     let Some(rest) = first_line.trim_start().strip_prefix('/') else {
         return false;
     };
     let mut chars = rest.chars();
-    // The char immediately after `/` must start an identifier — a leading space
+    // The char immediately after `/` must start an identifier -- a leading space
     // (`/ and then`) or digit (`/123`) is not a command shape.
     match chars.next() {
         Some(c) if c.is_ascii_alphabetic() => {}
         _ => return false,
     }
     // The rest of the first token must be identifier chars; whitespace ends the
-    // token (`/foo bar` → command), any other char (e.g. `/` in `/usr/bin/x`)
+    // token (`/foo bar` -> command), any other char (e.g. `/` in `/usr/bin/x`)
     // means it is a path/expression, not a command.
     for c in chars {
         if c.is_whitespace() {
@@ -202,7 +202,7 @@ pub async fn register_session(
     } = runtime;
     // The runtime owns session identity: a session-bearing prepare always
     // reports its native id. Missing it means the prepare ran session-less,
-    // which cannot round-trip through the ACP lifecycle — fail closed.
+    // which cannot round-trip through the ACP lifecycle -- fail closed.
     let native_id = session.map(|info| info.id).ok_or_else(|| {
         agent_client_protocol::util::internal_error("acp: runtime reported no session id")
     })?;
@@ -230,7 +230,7 @@ pub async fn register_session(
 
 /// Send [`AgentCommand::Cancel`] to the named session's kernel.
 ///
-/// If `session_id` is unknown the function is a deliberate no-op — the client
+/// If `session_id` is unknown the function is a deliberate no-op -- the client
 /// may race a cancel against a turn that has already completed and the session
 /// removed; silently ignoring that case is correct protocol behaviour.
 ///
@@ -280,7 +280,7 @@ pub async fn handle_close_session(
 /// closed first (cancel + shutdown, releasing its lease), then its persisted
 /// record is removed. Deleting an unknown session is a no-op success (protocol
 /// SHOULD). A session live in ANOTHER process fails closed with an explicit
-/// lease-conflict error — never a remote takeover.
+/// lease-conflict error -- never a remote takeover.
 pub async fn handle_delete_session(
     sessions: &Sessions,
     session_id: &SessionId,
@@ -290,7 +290,7 @@ pub async fn handle_delete_session(
         AcpError::invalid_params().data(format!("unknown session `{}`", session_id.0))
     })?;
 
-    // 1. Tear the live session down (if present) — this releases its lease.
+    // 1. Tear the live session down (if present) -- this releases its lease.
     let runtime = {
         let mut map = sessions.lock().await;
         map.remove(session_id.0.as_ref()).map(|state| state.runtime)
@@ -359,7 +359,7 @@ pub(crate) mod test_support {
         }
     }
 
-    /// Wire-id → cwd pairs; the native id is the wire id with the `acp-`
+    /// Wire-id -> cwd pairs; the native id is the wire id with the `acp-`
     /// prefix stripped, mirroring production (`acp-<native id>`).
     pub(crate) fn sessions_with(sessions: Vec<(&str, &str)>) -> Sessions {
         let map: std::collections::HashMap<String, SessionState> = sessions
@@ -373,7 +373,7 @@ pub(crate) mod test_support {
     }
 
     /// An empty catalog scan (the list/delete handlers read the native catalog
-    /// through an injected scan so unit tests stay hermetic — no
+    /// through an injected scan so unit tests stay hermetic -- no
     /// `RUSTCODE_HOME` mutation).
     pub(crate) fn empty_scan() -> CatalogScan {
         CatalogScan {

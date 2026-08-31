@@ -1,7 +1,7 @@
 //! Deterministic Ollama-adapter tests against a LOCAL mock HTTP server (no network, no
 //! daemon). Run by default in CI. Covers:
-//!   - open-call retry (transient 500 → retry → succeed)
-//!   - multi-round turn-loop (round 1 `tool_calls` → kernel runs the tool → round 2 final
+//!   - open-call retry (transient 500 -> retry -> succeed)
+//!   - multi-round turn-loop (round 1 `tool_calls` -> kernel runs the tool -> round 2 final
 //!     answer), asserting the synthesized-id call pairs with its `role:"tool"` result and
 //!     both are echoed back in the round-2 NDJSON request body
 #![cfg(feature = "provider")]

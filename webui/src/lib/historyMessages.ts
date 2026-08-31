@@ -29,7 +29,7 @@ export function isInternalHistoryAssistantMessage(msg: SessionMessage): boolean 
 
 export function isUserInterruptionMessage(msg: SessionMessage): boolean {
   const internalOrigin = msg.internal_origin ?? msg.internalOrigin;
-  return internalOrigin === 'atomcode.user_interruption'
+  return internalOrigin === 'rustcode.user_interruption'
     || (msg.synthetic === true
       && msg.role === 'user'
       && msg.content.includes('interrupted by the user before completing'));

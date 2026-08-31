@@ -3,9 +3,9 @@
 //! On first-launch the wizard renders a QR for the AtomGit OAuth
 //! short link and synchronously holds onto the `LoginSession`. This
 //! module spawns a background thread that calls `LoginSession::
-//! poll_once` every 2s — the moment AtomGit reports the user has
+//! poll_once` every 2s -- the moment AtomGit reports the user has
 //! finished the in-browser consent, the task calls `finish()` to
-//! exchange state → token (writing `auth.toml` as a side effect) and
+//! exchange state -> token (writing `auth.toml` as a side effect) and
 //! pushes an [`OauthEvent::Authorized`] onto the event-loop channel.
 //!
 //! Why `std::thread::spawn` and not `tokio::spawn`:
@@ -13,7 +13,7 @@
 //! Running them on a tokio worker would either block other tasks on
 //! the same worker (no `spawn_blocking` indirection) or require a
 //! reshape of the blocking client into async. A dedicated OS thread
-//! sidesteps both — it sleeps between polls without touching the
+//! sidesteps both -- it sleeps between polls without touching the
 //! runtime, and `tokio::sync::mpsc::Sender::blocking_send` lets it
 //! push events back into the tokio world when it has something to
 //! report.
@@ -21,9 +21,9 @@
 //! Cancellation: there isn't any. If the user hits Esc on the modal,
 //! the modal closes but this thread continues polling until it
 //! reaches a terminal state (Authorized / Err). `OauthEvent` arriving
-//! on a closed-modal event loop is a silent no-op — the handler
+//! on a closed-modal event loop is a silent no-op -- the handler
 //! checks `app.active_modal.is_some()` before acting. Worst case the
-//! thread quietly writes a fresh `auth.toml` on its own — which is
+//! thread quietly writes a fresh `auth.toml` on its own -- which is
 //! the same effect as the user later running `/codingplan` after Esc,
 //! so it's harmless.
 
@@ -35,7 +35,7 @@ use rustcode_auth::oauth::{LoginSession, PollOutcome};
 
 /// Outcome the background poll thread emits at exactly one of: a
 /// successful auth-token exchange, a fatal poll/finish error, or
-/// (never) cancellation — the thread doesn't observe cancel signals.
+/// (never) cancellation -- the thread doesn't observe cancel signals.
 #[derive(Debug)]
 pub enum OauthEvent {
     /// The user finished AtomGit consent and `finish()` successfully
@@ -44,7 +44,7 @@ pub enum OauthEvent {
     /// picks up the freshly-saved auth and claims the plan.
     Authorized,
     /// Either `poll_once` or `finish` returned an error. Carries the
-    /// `Display`-formatted reason for the user — event loop closes
+    /// `Display`-formatted reason for the user -- event loop closes
     /// the modal and surfaces this in scrollback so the user knows
     /// whether to retry (`/codingplan`), check the network, or check
     /// their system clock (for sign-stale errors).
@@ -56,7 +56,7 @@ pub enum OauthEvent {
 /// [`OauthEvent`].
 ///
 /// `wake_tx` is pulsed AFTER the event is queued so the event-loop
-/// `tokio::select!` arm that reads `oauth_event_rx` actually fires —
+/// `tokio::select!` arm that reads `oauth_event_rx` actually fires --
 /// `oauth_event_rx.recv()` alone would only fire on the next
 /// scheduling tick, which on an idle TUI can be many seconds.
 pub fn spawn_oauth_poll(
@@ -81,9 +81,9 @@ pub fn spawn_oauth_poll(
 
         let event = match poll_outcome {
             Ok(()) => {
-                // finish() consumes session → exchanges state for
-                // token → returns AuthInfo. NOTE: finish does NOT
-                // write auth.toml — the caller is responsible. The
+                // finish() consumes session -> exchanges state for
+                // token -> returns AuthInfo. NOTE: finish does NOT
+                // write auth.toml -- the caller is responsible. The
                 // existing CLI `login()` driver pairs finish + save;
                 // we have to mirror it here or downstream
                 // `is_logged_in()` returns false and the subsequent
@@ -102,7 +102,7 @@ pub fn spawn_oauth_poll(
 
         // Queue the event BEFORE the wake pulse. Wake without an
         // event in the channel would make `oauth_event_rx.recv()`
-        // hang and the wake handler look broken — order matters.
+        // hang and the wake handler look broken -- order matters.
         let _ = event_tx.send(event);
         // `blocking_send` on a `Sender<()>` from a std thread is the
         // documented bridge between std-thread producers and tokio

@@ -1,4 +1,4 @@
-# `atomcode acp` — ACP Agent Mode (v1)
+# `rustcode acp` — ACP Agent Mode (v1)
 
 Date: 2026-06-29
 Branch: `feat/acp-agent` (worktree off `main`)
@@ -6,17 +6,17 @@ Status: design approved, pending spec review
 
 ## Motivation
 
-Multi-agent collaboration is increasingly common. atomcode currently cannot be
+Multi-agent collaboration is increasingly common. rustcode currently cannot be
 plugged into editors/orchestrators that speak the **Agent Client Protocol (ACP)**
 — the JSON-RPC-over-stdio protocol (from Zed) that lets a *client* (editor or
 multi-agent orchestrator) launch an *agent* subprocess and drive it. We want
-`atomcode acp` so atomcode can act as one of the agents in such a team — the same
+`rustcode acp` so rustcode can act as one of the agents in such a team — the same
 way Claude Code can be dropped into Zed.
 
 ## Scope (v1)
 
-**Role: Agent side only.** atomcode runs as an ACP agent subprocess, driven over
-stdio. (Client side — atomcode orchestrating *other* ACP agents — is explicitly
+**Role: Agent side only.** rustcode runs as an ACP agent subprocess, driven over
+stdio. (Client side — rustcode orchestrating *other* ACP agents — is explicitly
 out of scope; future separate spec.)
 
 **Feature set: core + permissions.**
@@ -24,7 +24,7 @@ out of scope; future separate spec.)
 In scope:
 - `initialize`, `session/new`, `session/prompt`, `session/cancel`
 - streaming `session/update` notifications (text, reasoning, tool calls)
-- `session/request_permission` wired to atomcode's existing approval flow
+- `session/request_permission` wired to rustcode's existing approval flow
 - tool-call updates carry `raw_input` + plain-text result content and a
   `ToolKind` (read/edit/execute/…) so the client renders sensible affordances
 
@@ -50,7 +50,7 @@ Out of scope (future phases, each its own spec):
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Role | Agent (driven) | Direct meaning of "plug atomcode into a multi-agent team" |
+| Role | Agent (driven) | Direct meaning of "plug rustcode into a multi-agent team" |
 | v1 scope | Core + permissions | Minimal complete set that actually runs inside an ACP client; nearly a pure translation layer over existing kernel channels |
 | Engine | kernel-native `AgentHandle` via coding `assemble` | ACP permissions need JSON-RPC request-id correlation; the kernel's native `RequestId` maps 1:1, while the legacy bridge collapses concurrent approvals |
 | Protocol types | official `agent-client-protocol` crate | Wire-format + version-negotiation correctness, best Zed interop; isolated behind a thin adapter so it can be swapped |
@@ -58,8 +58,8 @@ Out of scope (future phases, each its own spec):
 
 ## Architecture
 
-New crate **`atomcode-acp`**, depending on `atomcode-kernel`,
-`atomcode-coding`, `atomcode-capabilities`, the official `agent-client-protocol`
+New crate **`rustcode-acp`**, depending on `rustcode-kernel`,
+`rustcode-coding`, `rustcode-capabilities`, the official `agent-client-protocol`
 crate, plus `serde_json` / `tokio`.
 
 Single public entry point:
@@ -69,21 +69,21 @@ pub async fn serve_stdio(opts: AcpServeOptions) -> anyhow::Result<()>
 ```
 
 `AcpServeOptions` carries provider/model overrides resolved from CLI global flags
-and the resolved atomcode config. The working directory is NOT fixed here — the
+and the resolved rustcode config. The working directory is NOT fixed here — the
 client supplies it per session via `session/new`.
 
 CLI: add an `Acp` variant to the `Commands` enum in
-`crates/atomcode-cli/src/main.rs`. The handler resolves config (reusing the
+`crates/rustcode-cli/src/main.rs`. The handler resolves config (reusing the
 existing provider/model resolution the headless path uses) and calls
-`atomcode_acp::serve_stdio`. The subcommand reuses the existing global
+`rustcode_acp::serve_stdio`. The subcommand reuses the existing global
 `--provider` / `--model` flags; cwd comes from the client.
 
 ### Stdout discipline (hard invariant)
 
 In ACP mode **stdout is reserved exclusively for the ACP JSON-RPC stream**. Any
-stray `println!` corrupts the protocol. atomcode's headless mode already leaves
+stray `println!` corrupts the protocol. rustcode's headless mode already leaves
 stderr pointed at the real terminal and keeps stdout clean (no global stdout sink
-— confirmed in cli startup). All diagnostics in `atomcode-acp` go to stderr or a
+— confirmed in cli startup). All diagnostics in `rustcode-acp` go to stderr or a
 file sink. This is guarded by code review and a transport-level single-writer.
 
 ## Crate / API generation (resolved)
@@ -97,10 +97,10 @@ is a **builder + handler-closure** model (NOT the older `trait Agent` /
 
 Key facts that shape the code:
 - The crate is **edition 2024** and uses **native async closures** (`AsyncFnMut`),
-  so it needs a Rust toolchain ≥ 1.85. Our `atomcode-acp` crate stays edition 2021
+  so it needs a Rust toolchain ≥ 1.85. Our `rustcode-acp` crate stays edition 2021
   and just depends on it.
 - An agent is built as
-  `Agent.builder().name("atomcode").on_receive_request::<InitializeRequest>(handler, on_receive_request!())… .connect_to(Stdio::new()).await`.
+  `Agent.builder().name("rustcode").on_receive_request::<InitializeRequest>(handler, on_receive_request!())… .connect_to(Stdio::new()).await`.
   Each request handler closure receives `(req, responder, cx: ConnectionTo<Client>)`;
   it calls `responder.respond(resp)` to answer and uses `cx.send_notification(...)`
   / `cx.send_request(...)` to stream updates and request permission.
@@ -149,11 +149,11 @@ ACP `stopReason`). The primary unit-test target (table-driven).
 
 Per session:
 1. `prepare(&cfg, PrepareOptions { cwd, ... }).await` → `CodingParts`
-   (`atomcode-coding`; handles MCP connect, skill loading, session binding)
+   (`rustcode-coding`; handles MCP connect, skill loading, session binding)
 2. `assemble(&mut parts, &cfg, provider).await` → kernel-native `Agent`
-   (`crates/atomcode-coding/src/parts.rs:396`)
+   (`crates/rustcode-coding/src/parts.rs:396`)
 3. `agent.spawn()` → `AgentHandle { commands, events, task }`
-   (`crates/atomcode-kernel/src/agent.rs:366`)
+   (`crates/rustcode-kernel/src/agent.rs:366`)
 4. pump loop: drain `events` → `session/update`; route inbound prompt/cancel →
    `commands`
 5. on session end / shutdown: `AgentCommand::Shutdown`, await `task`
@@ -182,7 +182,7 @@ kernel `StopReason` → ACP `schema::v1::StopReason`: `Stopped → EndTurn`;
 `PromptRejected → Refusal`; `ProviderError`/`Timeout`/`RateLimited` → JSON-RPC
 error returned from the prompt handler (not a stop reason).
 
-Tool **kind** mapping: atomcode tool names → ACP `ToolKind` (`Read` / `Edit` /
+Tool **kind** mapping: rustcode tool names → ACP `ToolKind` (`Read` / `Edit` /
 `Execute` / `Search` / `Fetch` / … / `Other`) so the client shows appropriate
 affordances/icons. Edit/write tools attach a `ToolCallContent::Diff { path,
 old_text, new_text }` so the client renders a diff.
@@ -190,7 +190,7 @@ old_text, new_text }` so the client renders a diff.
 ## Permission flow
 
 The kernel approval request carries `ApprovalRequest { call_id, tool, args }`
-(`atomcode-capabilities/src/tools/approval.rs`); the response it expects is
+(`rustcode-capabilities/src/tools/approval.rs`); the response it expects is
 `ApprovalResponse { decision: "allow"|"allow_always"|"deny", remember: bool }`
 (fail-closed to `deny`).
 
@@ -219,9 +219,9 @@ correctly — the reason for choosing the kernel-native path over the legacy bri
 - `prompt_capabilities`: `image(true)` (kernel `SendMessage` already carries
   `images: Vec<ImageContent>`); `embedded_context` left false in v1
 - `load_session`: false (resume deferred to a later phase)
-- `auth_methods`: `[]` — atomcode authenticates via its own `/login` / config.
+- `auth_methods`: `[]` — rustcode authenticates via its own `/login` / config.
   When unauthenticated, `session/new` returns a clear error directing the user to
-  run `atomcode login`.
+  run `rustcode login`.
 
 Echo the client's `protocol_version` back (clamped to a version we support;
 `ProtocolVersion::V1`).
@@ -245,26 +245,26 @@ Echo the client's `protocol_version` back (clamped to a version we support;
   insert/lookup, `option_id → ApprovalResponse` decision mapping — tested directly
   without the transport.
 - **Integration**: a fake ACP client (itself built with `Client.builder()` over an
-  in-process duplex, or a spawned `atomcode acp` child over stdio pipes) drives
+  in-process duplex, or a spawned `rustcode acp` child over stdio pipes) drives
   `initialize → session/new → session/prompt`, asserting it receives
   `agent_message_chunk`s, a `request_permission` round-trip, and a terminal
   `stop_reason`. Uses a stub provider so no network is required.
 
 ## File touch list (anticipated)
 
-- `crates/atomcode-acp/` — new crate (`Cargo.toml`, `src/lib.rs`,
+- `crates/rustcode-acp/` — new crate (`Cargo.toml`, `src/lib.rs`,
   `src/protocol.rs`, `src/dispatch.rs`, `src/translate.rs`, `src/engine.rs`,
   tests)
-- `crates/atomcode-cli/src/main.rs` — `Acp` command variant + handler
+- `crates/rustcode-cli/src/main.rs` — `Acp` command variant + handler
 - `Cargo.toml` (workspace) — `agent-client-protocol` + `agent-client-protocol-schema`
   in `[workspace.dependencies]` (pinned `=1.0.1` / matching schema)
-- `crates/atomcode-cli/Cargo.toml` — depend on `atomcode-acp`
+- `crates/rustcode-cli/Cargo.toml` — depend on `rustcode-acp`
 
 ## Build notes
 
 Per repo constraints: build per-package with `CARGO_INCREMENTAL=0`, not the whole
 workspace. The `agent-client-protocol` 1.0.1 dep is **edition 2024 + native async
-closures** → needs toolchain ≥ 1.85 (fine for 2026); `atomcode-acp` itself stays
+closures** → needs toolchain ≥ 1.85 (fine for 2026); `rustcode-acp` itself stays
 edition 2021. Watch the added dependency weight under the size-optimized release
 profile (`opt-level=z`, `lto`, `panic=abort`); pin `=1.0.1` to avoid surprise
 API churn in this young crate.

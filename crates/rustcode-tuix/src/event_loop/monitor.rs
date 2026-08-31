@@ -7,14 +7,14 @@
 //      current CodingPlan model list. Next turn will 404; we want to
 //      warn BEFORE the user tries to send.
 //   2. The local `AtomGit*` provider list has drifted from the server
-//      AND the user hasn't re-run `/codingplan` in > 24h. Soft hint —
+//      AND the user hasn't re-run `/codingplan` in > 24h. Soft hint --
 //      the current model still works, but there may be new models.
 //
 // The detection logic is split into `decide_warning` (pure function,
 // fully unit-testable) and `spawn_check` (async runner that performs
 // the HTTP call, applies the decision, and writes into the shared slot
 // while sending a wake pulse). Non-CodingPlan providers never enter
-// this path — `is_codingplan_provider` gates every trigger.
+// this path -- `is_codingplan_provider` gates every trigger.
 
 use std::time::Duration;
 
@@ -40,13 +40,13 @@ impl CodingPlanWarning {
     /// (e.g. `接口暂不可用`, `当前时间窗口用量约 0%`).
     pub fn display_text(&self) -> String {
         match self {
-            Self::ModelMissing(name) => format!("⚠ '{}' 已下线 — /login", name),
-            Self::StaleList => "ⓘ CodingPlan 模型列表更新 — 可执行/login".into(),
+            Self::ModelMissing(name) => format!("[!] '{}' 已下线 -- /login", name),
+            Self::StaleList => "i CodingPlan 模型列表更新 -- 可执行/login".into(),
         }
     }
 }
 
-/// Rate limit for the background drift check — `spawn_check` won't
+/// Rate limit for the background drift check -- `spawn_check` won't
 /// hit `/coding-plan/models` more than once per this interval within a
 /// single TUI session. Doesn't gate warnings: once a check has run and
 /// drift is detected, the user is told immediately regardless of when
@@ -71,8 +71,8 @@ pub fn is_codingplan_provider(name: &str) -> bool {
 /// schema (what `/login` now writes) and un-migrated legacy `[providers.*]`
 /// (which the projection folds under an `AtomGit*` account). Order follows
 /// HashMap iteration (unstable), so the caller must never compare lists
-/// positionally — `decide_warning` sorts both sides.
-pub fn local_atomgit_models(config: &Config) -> Vec<String> {
+/// positionally -- `decide_warning` sorts both sides.
+pub fn local_codingplan_models(config: &Config) -> Vec<String> {
     config
         .logical_models()
         .into_values()
@@ -86,12 +86,12 @@ pub fn local_atomgit_models(config: &Config) -> Vec<String> {
 /// display (or `None` if everything is fine).
 ///
 /// Priority: `ModelMissing` always wins over `StaleList` when both
-/// conditions could fire — surfacing a model that's about to break is
+/// conditions could fire -- surfacing a model that's about to break is
 /// more urgent than informing about silent drift.
 ///
 /// No "recently synced" gate: once `spawn_check` has paid the HTTP
 /// round-trip and the response shows drift, the information is
-/// authoritative and the user should be told immediately — regardless
+/// authoritative and the user should be told immediately -- regardless
 /// of how recently they ran `/codingplan`. The original 24h gate was
 /// a solution to a non-problem: right after a successful `/codingplan`,
 /// `sorted_eq(server, local)` is true by construction (setup wipes
@@ -107,7 +107,7 @@ pub fn decide_warning(
     if !server_models.iter().any(|m| m == default_model) {
         return Some(CodingPlanWarning::ModelMissing(default_model.to_string()));
     }
-    // Priority 2: any drift at all — the server list differs from what
+    // Priority 2: any drift at all -- the server list differs from what
     // we have in config.
     if !sorted_eq(server_models, local_models) {
         return Some(CodingPlanWarning::StaleList);
@@ -122,7 +122,7 @@ pub fn decide_warning(
 /// shared slot. Sends a wake pulse so the event loop repaints the
 /// footer without waiting for a keystroke.
 ///
-/// Silent on failure — if the HTTP call errors (no auth, 404, network),
+/// Silent on failure -- if the HTTP call errors (no auth, 404, network),
 /// the slot is left alone. Prior warning (if any) stays visible until
 /// the next successful check corrects it.
 ///
@@ -143,14 +143,14 @@ pub fn spawn_check(
             // Query with the user's ACTUAL tier, not `Max`. `plan_available` is
             // computed relative to the requested `plan_type` (see `ModelEntry`
             // docs): a Lite user querying `Max` gets higher-tier models (e.g.
-            // GLM-5.1) marked `plan_available=true` even though their config —
-            // built by setup with their real tier — correctly omits them. That
+            // GLM-5.1) marked `plan_available=true` even though their config --
+            // built by setup with their real tier -- correctly omits them. That
             // mismatch fired a permanent "CodingPlan 模型列表更新" false positive.
             //
             // Derive the tier from `/status`'s plan_name; skip silently (no
             // warning) if it can't be determined, rather than guessing `Max`
             // and re-introducing the bug. This also self-corrects after a plan
-            // upgrade — once status reports the new tier, drift surfaces against
+            // upgrade -- once status reports the new tier, drift surfaces against
             // the new model set and prompts a `/login` refresh.
             let plan_type = client
                 .status_v2()
@@ -173,18 +173,18 @@ pub fn spawn_check(
             Err(_) => return, // silent
         };
 
-        let local_models = local_atomgit_models(&config_snapshot);
+        let local_models = local_codingplan_models(&config_snapshot);
         let warning = decide_warning(&default_model, &server_models, &local_models);
         if let Ok(mut g) = slot.lock() {
             *g = warning;
         }
-        // Best-effort wake — try_send so a full channel doesn't block us.
+        // Best-effort wake -- try_send so a full channel doesn't block us.
         let _ = wake_tx.try_send(());
     });
 }
 
 /// Order-independent equality for two model lists. Clones then sorts
-/// — fine at these sizes (expected <= ~10 models).
+/// -- fine at these sizes (expected <= ~10 models).
 fn sorted_eq(a: &[String], b: &[String]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn local_atomgit_models_reads_new_schema_and_folded_legacy() {
+    fn local_codingplan_models_reads_new_schema_and_folded_legacy() {
         use rustcode_config::config::Config;
         // New schema (what /login now writes): models under an AtomGit account,
         // plus one unrelated user model that must NOT be counted.
@@ -224,18 +224,18 @@ mod tests {
                 "mine": { "provider": "openai", "base_url": "https://api.openai.com/v1" }
             },
             "models": {
-                "AtomGit-GLM-5.2": { "account": "AtomGit", "model": "GLM-5.2", "context_window": 64000 },
-                "AtomGit-Qwen": { "account": "AtomGit", "model": "Qwen", "context_window": 64000 },
+                "RustCode-GLM-5.2": { "account": "RustCode", "model": "GLM-5.2", "context_window": 64000 },
+                "RustCode-Qwen": { "account": "RustCode", "model": "Qwen", "context_window": 64000 },
                 "my/own": { "account": "mine", "model": "gpt-4", "context_window": 128000 }
             }
         }))
         .unwrap();
-        let mut got = local_atomgit_models(&new_cfg);
+        let mut got = local_codingplan_models(&new_cfg);
         got.sort();
         assert_eq!(
             got,
             s(&["GLM-5.2", "Qwen"]),
-            "only AtomGit-account models, not the user's"
+            "only RustCode-account models, not the user's"
         );
 
         // Un-migrated legacy flat providers still work via the projection fold.
@@ -245,7 +245,7 @@ mod tests {
             }
         }))
         .unwrap();
-        assert_eq!(local_atomgit_models(&legacy_cfg), s(&["GLM-5.2"]));
+        assert_eq!(local_codingplan_models(&legacy_cfg), s(&["GLM-5.2"]));
     }
 
     #[test]
@@ -256,7 +256,7 @@ mod tests {
         assert!(sorted_eq(&s(&[]), &s(&[])));
     }
 
-    /// Active model in server list, lists match → no warning.
+    /// Active model in server list, lists match -> no warning.
     #[test]
     fn decide_no_warning_when_in_list_and_match() {
         let server = s(&["m1", "m2"]);
@@ -264,7 +264,7 @@ mod tests {
         assert_eq!(decide_warning("m1", &server, &local), None);
     }
 
-    /// Lists match (order differs) → still no warning — `sorted_eq`
+    /// Lists match (order differs) -> still no warning -- `sorted_eq`
     /// does the order-independent comparison.
     #[test]
     fn decide_no_warning_when_lists_match_out_of_order() {
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(decide_warning("m1", &server, &local), None);
     }
 
-    /// Lists differ → StaleList. No "recently synced" escape — we've
+    /// Lists differ -> StaleList. No "recently synced" escape -- we've
     /// already done the HTTP round-trip and the drift is real.
     /// Regression for the bug where a user who ran `/codingplan` 3 min
     /// before restart got no hint even though the server had added a
@@ -288,7 +288,7 @@ mod tests {
         );
     }
 
-    /// Active model not in server list → ModelMissing.
+    /// Active model not in server list -> ModelMissing.
     #[test]
     fn decide_model_missing_when_active_model_gone() {
         let server = s(&["m2", "m3"]);
@@ -314,11 +314,11 @@ mod tests {
     fn display_text_format() {
         assert_eq!(
             CodingPlanWarning::ModelMissing("Kimi-K2".into()).display_text(),
-            "⚠ 'Kimi-K2' 已下线 — /login"
+            "[!] 'Kimi-K2' 已下线 -- /login"
         );
         assert_eq!(
             CodingPlanWarning::StaleList.display_text(),
-            "ⓘ CodingPlan 模型列表更新 — 可执行/login"
+            "i CodingPlan 模型列表更新 -- 可执行/login"
         );
     }
 }

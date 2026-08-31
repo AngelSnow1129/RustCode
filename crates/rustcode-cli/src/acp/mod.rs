@@ -67,7 +67,7 @@ pub type SessionModelResolver = dyn Fn(&str) -> Option<CodingAgentConfig> + Send
 pub(crate) struct SharedState {
     /// Live sessions keyed by ACP wire id.
     pub sessions: Sessions,
-    /// Provider + model config for session spawning (`None` → handler error).
+    /// Provider + model config for session spawning (`None` -> handler error).
     pub engine: Arc<Option<EngineConfig>>,
     /// Authenticated provider factory; a distinct provider per session.
     pub provider_factory: Option<Arc<dyn CodingProviderFactory>>,
@@ -101,7 +101,7 @@ pub(crate) fn require_engine(
 /// The v1 capabilities advertised in `initialize`: the baseline session surface
 /// (`list`/`delete`/`close`/`resume`/`additionalDirectories`), prompt image
 /// support, `load_session`, and MCP `http` transport. Must stay in lock-step
-/// with what the v1 chain actually implements — no `auth`/`fs`/`terminal`
+/// with what the v1 chain actually implements -- no `auth`/`fs`/`terminal`
 /// advertisement (not implemented), and no MCP `sse` (no SSE transport in the
 /// capabilities MCP layer; `http` is the only advertised non-stdio transport).
 fn v1_agent_capabilities() -> AgentCapabilities {
@@ -126,7 +126,7 @@ fn v1_agent_capabilities() -> AgentCapabilities {
 /// sessions.
 #[derive(Default)]
 pub struct AcpServeOptions {
-    /// Provider + model config for session spawning.  `None` → handler returns
+    /// Provider + model config for session spawning.  `None` -> handler returns
     /// an error telling the user to run via `rustcode acp`.
     pub engine: Option<crate::acp::engine::EngineConfig>,
     /// Authenticated provider factory, e.g. the AtomGit gateway factory.
@@ -135,16 +135,16 @@ pub struct AcpServeOptions {
     /// When `true` (`--dangerously-skip-permissions`), kernel approval requests are
     /// auto-allowed in the turn loop WITHOUT round-tripping to the ACP client.
     pub auto_approve: bool,
-    /// Initial session config option catalog. Empty → `session/set_config_option`
+    /// Initial session config option catalog. Empty -> `session/set_config_option`
     /// is not advertised and errors on use.
     pub session_config_options: Vec<SessionConfigOption>,
     /// Resolves a model id (the `model` select option) to the kernel config for
-    /// `session/set_config_option` provider reloads. `None` → model switching
+    /// `session/set_config_option` provider reloads. `None` -> model switching
     /// errors on use.
     pub session_model_resolver: Option<Arc<SessionModelResolver>>,
     /// Resolves a reasoning-effort value (`off` / `high` / `max`, the
     /// `reasoning_effort` select option) to the kernel config for
-    /// `session/set_config_option` provider reloads. `None` → effort switching
+    /// `session/set_config_option` provider reloads. `None` -> effort switching
     /// errors on use.
     pub session_effort_resolver: Option<Arc<SessionModelResolver>>,
 }
@@ -160,13 +160,13 @@ pub async fn serve_stdio(opts: AcpServeOptions) -> anyhow::Result<()> {
 /// Build the fully-wired ACP agent and run it over an arbitrary transport.
 ///
 /// This is the transport-agnostic core that [`serve_stdio`] wraps with
-/// [`Stdio`].  The handler wiring (initialize / session·new / session·prompt /
-/// session·cancel / fallback dispatch) lives here ONCE; the integration test
+/// [`Stdio`].  The handler wiring (initialize / session.new / session.prompt /
+/// session.cancel / fallback dispatch) lives here ONCE; the integration test
 /// reuses the exact same wired agent over an in-process
 /// [`agent_client_protocol::Channel`] instead of stdio, so the test exercises
 /// the real handlers with no subprocess and no network.
 ///
-/// `transport` must connect *to* the [`Agent`] role — `Stdio`, a `Channel`
+/// `transport` must connect *to* the [`Agent`] role -- `Stdio`, a `Channel`
 /// endpoint, etc.  The connection runs until it closes (or the client end is
 /// dropped).
 pub async fn serve_over<T>(opts: AcpServeOptions, transport: T) -> anyhow::Result<()>
@@ -280,7 +280,7 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
                     // Advertise the slash-command surface right after setup (the
                     // names/descriptions come from the single built-in command
                     // table). Best-effort: a dropped notification must not fail
-                    // the already-accepted session/new — swallow the error so
+                    // the already-accepted session/new -- swallow the error so
                     // the handler returns success (the request is already
                     // answered, so a send failure only means the connection is
                     // closing and there is nobody to receive it).
@@ -518,7 +518,7 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
                 // handler runs (see the cancellation chapter in the SDK docs),
                 // and `run_prompt_turn` reacts by cancelling the kernel turn;
                 // this handler is the explicit observation point. `request_id`
-                // is the id the CLIENT allocated for its own request — e.g. a
+                // is the id the CLIENT allocated for its own request -- e.g. a
                 // `session/prompt` it wants to abort.
                 eprintln!(
                     "acp: $/cancel_request for request {} (marker flipped; prompt turns cancel their kernel)",
@@ -531,15 +531,15 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
         .on_receive_dispatch(
             async move |message: Dispatch, _cx: ConnectionTo<Client>| {
                 // Catch-all for messages no typed handler above claimed. CRITICAL: only
-                // claim unknown client→agent REQUESTS (reply with an error so the client
+                // claim unknown client->agent REQUESTS (reply with an error so the client
                 // gets a clean failure, not a hang). RESPONSES and NOTIFICATIONS MUST pass
                 // through (`Handled::No`) to the crate's built-in router.
                 //
                 // Why this matters: this handler receives `Dispatch<UntypedMessage>`, whose
-                // `matches_method()` is ALWAYS true, so it sees every message — including the
+                // `matches_method()` is ALWAYS true, so it sees every message -- including the
                 // `Dispatch::Response` carrying the client's reply to our outgoing
                 // `session/request_permission`. The old code called `respond_with_error` on
-                // it, which for a Response forwards the error to the task awaiting it — so
+                // it, which for a Response forwards the error to the task awaiting it -- so
                 // `handle_approval`'s `block_task().await` got `Err("unhandled message")` for
                 // EVERY approval (even "Allow"), which (before the resilience fix) tore the
                 // whole ACP connection down and wiped the client's thread. Passing responses
@@ -571,7 +571,7 @@ mod tests {
         // implements: `load_session`, prompt image support, MCP `http` transport,
         // and the baseline session surface (`list`/`delete`/`close`/`resume`/
         // `additionalDirectories`). It must NOT advertise auth (empty
-        // authMethods → no authenticate/logout), MCP `sse` (no SSE transport in
+        // authMethods -> no authenticate/logout), MCP `sse` (no SSE transport in
         // the capabilities MCP layer), or any client-side fs/terminal surface.
         let caps = v1_agent_capabilities();
         let json = serde_json::to_value(&caps).unwrap();

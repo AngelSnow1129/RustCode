@@ -1,8 +1,8 @@
-//! `MemoryStore` — ported VERBATIM from `rustcode_core::config::memory` (the only
+//! `MemoryStore` -- ported VERBATIM from `rustcode_core::config::memory` (the only
 //! change: `global()` resolves the root via [`super::config_dir`] instead of
 //! `Config::config_dir`, the standard L1 decoupling). Byte-compatible with
 //! production's `memory.md` files: same `- ` bullet format, same 64KB tail-read cap,
-//! same merged-prompt header and 4000-char truncation — old and new stacks read and
+//! same merged-prompt header and 4000-char truncation -- old and new stacks read and
 //! write the same memory (caveat for `sudo`: see [`super::config_dir`]).
 
 use std::fs;
@@ -17,7 +17,7 @@ pub struct MemoryStore {
 }
 
 /// Resolve the project-scope memory file. `override_dir` = the value of
-/// `RUSTCODE_PROJECT_MEMORY_DIR` (None/empty → default ".rustcode"). A relative value
+/// `RUSTCODE_PROJECT_MEMORY_DIR` (None/empty -> default ".rustcode"). A relative value
 /// nests under `project_root`; an absolute value is used as-is (std `Path::join`
 /// semantics). `memory.md` is appended in either case.
 fn project_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathBuf {
@@ -95,7 +95,7 @@ impl MemoryStore {
 
     /// Append `content` only if no existing entry equals it (trimmed, ASCII-case-insensitive;
     /// non-ASCII compares exactly). Returns `Ok(true)` if written, `Ok(false)` if skipped as a
-    /// duplicate. Near-duplicates are NOT detected — only exact repeats are skipped, so a
+    /// duplicate. Near-duplicates are NOT detected -- only exact repeats are skipped, so a
     /// genuinely new fact is never silently swallowed.
     pub fn append_deduped(&self, content: &str) -> io::Result<bool> {
         let trimmed = content.trim();
@@ -258,8 +258,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let store = MemoryStore::new(tmp.path().join("memory.md"));
         assert_eq!(store.append_deduped("Uses tabs").unwrap(), true);
-        assert_eq!(store.append_deduped("uses tabs").unwrap(), false); // 大小写不敏感完全重复 → 跳
-        assert_eq!(store.append_deduped("uses spaces").unwrap(), true); // 不同内容 → 写
+        assert_eq!(store.append_deduped("uses tabs").unwrap(), false); // 大小写不敏感完全重复 -> 跳
+        assert_eq!(store.append_deduped("uses spaces").unwrap(), true); // 不同内容 -> 写
         assert_eq!(store.load().len(), 2);
     }
 

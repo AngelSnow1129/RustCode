@@ -1206,7 +1206,7 @@ body {
 .btn-send:not(:disabled):hover { filter: brightness(1.1); }
 
 /* Stop shares the send slot (shown while busy) — a solid filled circle with a
-   contrasting square (claude.ai-style), so it reads as the same affordance as
+   contrasting square (centered-hero-style), so it reads as the same affordance as
    the send circle instead of a sparse thin-outline ring. */
 .btn-stop {
   width: 34px;
@@ -1260,7 +1260,7 @@ body {
   flex-shrink: 0;
 }
 
-/* --- Brand row: diamond logo + "AtomCode" + collapse button --- */
+/* --- Brand row: diamond logo + "RustCode" + collapse button --- */
 .sidebar-brand-row {
   display: flex;
   align-items: center;
@@ -1531,7 +1531,7 @@ body {
 .sidebar-project-retry:hover { text-decoration: underline; }
 .sidebar-project-name {
   /* Shrink (with ellipsis) but don't grow, so the count sits right after the
-     name — `atomcode (1135)` — instead of being pushed to the far right. */
+     name — `rustcode (1135)` — instead of being pushed to the far right. */
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -3293,7 +3293,7 @@ body {
   }
 }
 
-/* === New-chat landing (claude.ai-style centered hero) === */
+/* === New-chat landing (centered-hero-style centered hero) === */
 .chat-landing {
   flex: 1;
   display: flex;
@@ -3311,7 +3311,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 22px;
-  /* 略高于真正的垂直居中，观感更接近 claude.ai。 */
+  /* 略高于真正的垂直居中，观感略高于真正垂直居中。 */
   margin-bottom: min(8vh, 96px);
 }
 

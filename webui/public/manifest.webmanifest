@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "AtomCode",
-  "short_name": "AtomCode",
-  "description": "AI coding agent running from your local AtomCode workspace.",
+  "name": "RustCode",
+  "short_name": "RustCode",
+  "description": "AI coding agent running from your local RustCode workspace.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

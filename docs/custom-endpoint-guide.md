@@ -1,6 +1,6 @@
-# AtomCode 接入自定义 OpenAI 兼容大模型端点实战
+# RustCode 接入自定义 OpenAI 兼容大模型端点实战
 
-> 本文档适用于：想在 AtomCode 里接入任意 OpenAI 兼容协议的大模型服务（自建 vLLM、第三方推理云、兼容网关等），但不确定怎么填 Base URL / API Key / 模型名，或遇到 503 / 模型不存在等报错的场景。基于真实踩坑整理。
+> 本文档适用于：想在 RustCode 里接入任意 OpenAI 兼容协议的大模型服务（自建 vLLM、第三方推理云、兼容网关等），但不确定怎么填 Base URL / API Key / 模型名，或遇到 503 / 模型不存在等报错的场景。基于真实踩坑整理。
 
 ## 1. 前置条件
 
@@ -8,16 +8,16 @@
 - 该服务签发的 API Key（形如 `sk-xxx` 或服务商自定义字符串）
 - 该服务支持的具体模型名（必须与服务端注册的一致）
 
-> ⚠️ AtomCode 只认 OpenAI 兼容协议。如果服务商给的是专有 SDK，需要先套一层兼容网关（如 LiteLLM / One API）。
+> ⚠️ RustCode 只认 OpenAI 兼容协议。如果服务商给的是专有 SDK，需要先套一层兼容网关（如 LiteLLM / One API）。
 
-## 2. 在 AtomCode 中配置
+## 2. 在 RustCode 中配置
 
 以「自定义 API」提供商为例：
 
 | 字段 | 填写内容 | 说明 |
 |------|----------|------|
 | 提供商 | 自定义 API / Custom | 选支持填 Base URL 的类型 |
-| Base URL | `https://your-host/v1` | 不要手动追加 `/chat/completions`，AtomCode 会自动拼接 |
+| Base URL | `https://your-host/v1` | 不要手动追加 `/chat/completions`，RustCode 会自动拼接 |
 | API Key | 你的 Key | 直接从服务商后台复制 |
 | 模型名称 | 服务端注册的精确模型名 | 见第 3 节「模型名不匹配」 |
 

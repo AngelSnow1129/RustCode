@@ -1,18 +1,18 @@
 //! Ollama native `/api/chat` `LlmProvider` adapter (local models via the Ollama daemon).
 //!
 //! Sibling of [`openai_compat`](super::openai_compat) and [`anthropic`](super::anthropic)
-//! — same seam, a third wire. Design notes (grounded in the kernel contract):
-//!   - Ollama's stream is NDJSON — one COMPLETE JSON object per line (no `data:` SSE
-//!     framing, no `[DONE]` sentinel) — so this has its own [`OllamaNdjsonDecoder`].
+//! -- same seam, a third wire. Design notes (grounded in the kernel contract):
+//!   - Ollama's stream is NDJSON -- one COMPLETE JSON object per line (no `data:` SSE
+//!     framing, no `[DONE]` sentinel) -- so this has its own [`OllamaNdjsonDecoder`].
 //!   - `system` is a message ROLE (not a top-level field). Tool RESULTS are `role:"tool"`
 //!     messages. Assistant `tool_calls[].function.arguments` is a JSON OBJECT (not a
-//!     string), and Ollama tool calls carry NO id — the decoder SYNTHESIZES a stable id
+//!     string), and Ollama tool calls carry NO id -- the decoder SYNTHESIZES a stable id
 //!     so the kernel can pair the call with its result; the id stays internal (never sent
 //!     back, since a tool result is matched by ORDER on the wire).
 //!   - Tool calls arrive WHOLE in a single chunk (Ollama does not fragment them), so the
 //!     decoder emits [`StreamEvent::ToolCall`] directly (no buffering).
 //!   - THINKING (`message.thinking`, for thinking models) is PLAIN TEXT with no signature
-//!     — like the OpenAI `reasoning_content` path — so it maps to
+//!     -- like the OpenAI `reasoning_content` path -- so it maps to
 //!     [`StreamEvent::Reasoning`] only (never `ReasoningSignature`).
 //!   - Usage is on the final `done:true` line (`prompt_eval_count` / `eval_count`); auth
 //!     is typically NONE (local), with an OPTIONAL bearer for a fronting proxy.
@@ -37,7 +37,7 @@ use std::time::Duration;
 /// Construction-time config for the Ollama native `/api/chat` adapter.
 #[derive(Clone)]
 pub struct OllamaConfig {
-    /// OPTIONAL bearer token — Ollama itself needs none (local), but a fronting proxy
+    /// OPTIONAL bearer token -- Ollama itself needs none (local), but a fronting proxy
     /// might. Empty ⇒ no `Authorization` header.
     pub api_key: String,
     /// Daemon root (no path), e.g. `http://localhost:11434`. The adapter appends
@@ -47,7 +47,7 @@ pub struct OllamaConfig {
     /// Whether user image arrays are emitted. Disabled profiles degrade to text.
     pub supports_vision: bool,
     pub context_window: u32,
-    /// Output cap → `options.num_predict` when `ChatOptions::max_tokens` is `None`.
+    /// Output cap -> `options.num_predict` when `ChatOptions::max_tokens` is `None`.
     /// `None` ⇒ let Ollama decide.
     pub max_tokens: Option<u32>,
     /// Enable thinking (`think: true`) for thinking-capable models. A per-call
@@ -96,7 +96,7 @@ pub struct OllamaProvider {
     client: reqwest::Client,
     url: String,
     /// Stable per-conversation id bound ONCE by the kernel; see the field on
-    /// `OpenAiCompatProvider`. `OnceLock` — constant for the provider's life.
+    /// `OpenAiCompatProvider`. `OnceLock` -- constant for the provider's life.
     /// Forwarded as `x-rustcode-session-id`. Unset ⇒ omitted.
     session_id: std::sync::OnceLock<String>,
 }
@@ -191,7 +191,7 @@ impl LlmProvider for OllamaProvider {
         let s = async_stream::stream! {
             // A body that dies before replay-sensitive output reaches the consumer is
             // safe to redo wholesale. Metadata may repeat; content and tool data may not.
-            // 1 initial open + up to 2 transparent reopens — a gateway resetting
+            // 1 initial open + up to 2 transparent reopens -- a gateway resetting
             // connections under load can drop more than one attempt before a
             // healthy backend answers.
             const MAX_STREAM_ATTEMPTS: u32 = 3;
@@ -305,7 +305,7 @@ async fn open_stream(
         if !api_key.is_empty() {
             req = req.bearer_auth(api_key);
         }
-        // Stable session id → gateway prefix-cache affinity. Empty ⇒ omitted.
+        // Stable session id -> gateway prefix-cache affinity. Empty ⇒ omitted.
         if !session_id.is_empty() {
             req = req.header("x-rustcode-session-id", session_id);
         }
@@ -328,7 +328,7 @@ async fn open_stream(
                         attempt += 1;
                         continue;
                     }
-                    // Capture the real `Retry-After` BEFORE `text()` consumes `resp` — the
+                    // Capture the real `Retry-After` BEFORE `text()` consumes `resp` -- the
                     // authoritative rate-limit countdown for the self-heal (vs scraping text).
                     let retry_after_secs =
                         retry::parse_retry_after(resp.headers()).map(|d| d.as_secs());
@@ -376,7 +376,7 @@ fn format_messages_with_vision(messages: &[Message], supports_vision: bool) -> V
     let mut out = Vec::with_capacity(messages.len());
     for m in messages {
         match m.role {
-            // Coalesce consecutive system messages into ONE wire entry — many chat
+            // Coalesce consecutive system messages into ONE wire entry -- many chat
             // templates accept only a single system message.
             Role::System => super::push_system_coalesced(&mut out, &m.text),
             Role::User => {
@@ -407,7 +407,7 @@ fn format_messages_with_vision(messages: &[Message], supports_vision: bool) -> V
                         .tool_calls
                         .iter()
                         .map(|tc| {
-                            // arguments → OBJECT (parse the raw-string args; fallback {}).
+                            // arguments -> OBJECT (parse the raw-string args; fallback {}).
                             let args: Value = serde_json::from_str(tc.arguments.trim())
                                 .ok()
                                 .filter(Value::is_object)
@@ -444,7 +444,7 @@ fn build_request_body(
     );
     body.insert("stream".into(), json!(true));
 
-    // `options` sub-object — only inserted if it has at least one knob.
+    // `options` sub-object -- only inserted if it has at least one knob.
     let mut opts = Map::new();
     if let Some(t) = options.temperature {
         opts.insert("temperature".into(), json!(t));
@@ -457,7 +457,7 @@ fn build_request_body(
     }
 
     // Thinking: a per-call effort level wins (`think:"high"`), else the cfg flag
-    // (`think:true`). `tool_choice` has no Ollama equivalent — ignored.
+    // (`think:true`). `tool_choice` has no Ollama equivalent -- ignored.
     let _ = ToolChoice::Auto;
     if let Some(effort) = options.reasoning_effort {
         body.insert("think".into(), json!(effort_str(effort)));
@@ -513,7 +513,7 @@ fn truncate_msg(s: &str) -> String {
     while end > 0 && !s.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}…", &s[..end])
+    format!("{}...", &s[..end])
 }
 
 // ---------------------------------------------------------------------------
@@ -605,7 +605,7 @@ impl OllamaNdjsonDecoder {
                         .and_then(|n| n.as_str())
                         .unwrap_or("")
                         .to_string();
-                    // arguments is an OBJECT → serialize to the kernel's raw-string form.
+                    // arguments is an OBJECT -> serialize to the kernel's raw-string form.
                     let args = f
                         .and_then(|f| f.get("arguments"))
                         .map(|a| serde_json::to_string(a).unwrap_or_else(|_| "{}".into()))
@@ -684,14 +684,14 @@ mod tests {
             out[2],
             json!({"role":"assistant","content":"","tool_calls":[{"function":{"name":"read","arguments":{"p":"a"}}}]})
         );
-        // tool result → role tool (no tool_call_id on the wire; matched by order).
+        // tool result -> role tool (no tool_call_id on the wire; matched by order).
         assert_eq!(out[3], json!({"role":"tool","content":"body"}));
     }
 
     #[test]
     fn coalesces_consecutive_system_messages_into_one() {
         // persona + memory.md as two leading System messages must merge into ONE wire
-        // system entry — many chat templates accept only a single system message.
+        // system entry -- many chat templates accept only a single system message.
         let msgs = vec![
             Message::system("persona"),
             Message::system("MEMORY\n- fact"),
@@ -758,7 +758,7 @@ mod tests {
         assert_eq!(body["stream"], true);
         assert_eq!(body["options"]["temperature"], 0.5);
         assert_eq!(body["options"]["num_predict"].as_u64(), Some(128));
-        assert_eq!(body["think"], true, "cfg.think → think:true");
+        assert_eq!(body["think"], true, "cfg.think -> think:true");
         // OpenAI-style tool definition.
         assert_eq!(
             body["tools"][0],
@@ -777,7 +777,7 @@ mod tests {
         );
         assert!(
             body.get("options").is_none(),
-            "no options knobs → omit options"
+            "no options knobs -> omit options"
         );
         assert!(body.get("tools").is_none(), "empty tools omitted");
         assert!(body.get("think").is_none(), "think off by default");
@@ -792,7 +792,7 @@ mod tests {
         let body = build_request_body("qwen3", &[Message::user("hi")], &[], &opts, &cfg());
         assert_eq!(
             body["think"], "high",
-            "per-call effort → think level string"
+            "per-call effort -> think level string"
         );
     }
 
@@ -1067,7 +1067,7 @@ mod tests {
         use std::net::TcpListener;
 
         // Connections #1 and #2 both drop before any chunk; #3 serves a valid
-        // NDJSON body. A single reopen would surface an error after #2 — the
+        // NDJSON body. A single reopen would surface an error after #2 -- the
         // provider must reopen twice and deliver only #3's response.
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();

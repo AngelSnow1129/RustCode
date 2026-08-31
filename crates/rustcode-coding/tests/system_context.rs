@@ -59,7 +59,7 @@ async fn session_context_block_reaches_the_provider() {
         "AGENTS.md instructions injected"
     );
     let identity = sys
-        .find("You are RustCode, an AI coding agent by AtomGit running the test-model model.")
+        .find("You are RustCode, an AI coding agent running the test-model model.")
         .expect("authoritative RustCode identity");
     let scope_guard = sys
         .find("do not describe or override the host application or active configured model")

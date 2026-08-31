@@ -1,4 +1,4 @@
-//! `rustcodex` — a standalone, single-capability CLI: code review. It drives the
+//! `rustcodex` -- a standalone, single-capability CLI: code review. It drives the
 //! `rustcode-review` agent (kernel + capabilities, no rustcode-core/rustcode-cli coupling)
 //! over a `git diff`, then prints the structured findings the agent reported.
 //!
@@ -56,7 +56,7 @@ struct ReviewArgs {
     #[arg(long, conflicts_with = "diff_file")]
     pr: Option<u64>,
     /// Review a diff from a file, or `-` for stdin (works with any forge: GitLab/gitcode
-    /// MRs, CI artifacts, etc. — e.g. `glab mr diff 5 | rustcodex review --diff-file -`).
+    /// MRs, CI artifacts, etc. -- e.g. `glab mr diff 5 | rustcodex review --diff-file -`).
     #[arg(long)]
     diff_file: Option<String>,
     /// Repository root (default: current directory).
@@ -79,7 +79,7 @@ struct ReviewArgs {
     #[arg(long)]
     config: Option<PathBuf>,
     /// FULLY override the reviewer system prompt with this text (replaces the built-in
-    /// persona entirely — you must then tell the model about its tools + report_finding).
+    /// persona entirely -- you must then tell the model about its tools + report_finding).
     #[arg(long)]
     system_prompt: Option<String>,
     /// Like --system-prompt, but read the full prompt from a file (`-` for stdin).
@@ -87,7 +87,7 @@ struct ReviewArgs {
     system_prompt_file: Option<String>,
     /// APPEND an extra section after the system prompt (built-in persona or the
     /// --system-prompt override). The normal customization channel: domain rules,
-    /// ignore lists, repo style guides, PR metadata — keeps the built-in reviewer
+    /// ignore lists, repo style guides, PR metadata -- keeps the built-in reviewer
     /// instructions intact.
     #[arg(long)]
     append_system_prompt: Option<String>,
@@ -95,7 +95,7 @@ struct ReviewArgs {
     #[arg(long, conflicts_with = "append_system_prompt")]
     append_system_prompt_file: Option<String>,
     /// Override built-in language review rules from this directory (`<dir>/<name>.md`,
-    /// e.g. go.md / sql.md) — hot-tune rules without a rebuild. Missing names fall back
+    /// e.g. go.md / sql.md) -- hot-tune rules without a rebuild. Missing names fall back
     /// to the built-ins.
     #[arg(long)]
     rules_dir: Option<PathBuf>,
@@ -104,7 +104,7 @@ struct ReviewArgs {
     #[arg(long)]
     no_rules: bool,
     /// Run a CUSTOM task instead of diff review (for chat / explain / summary). Replaces the
-    /// built-in "review this diff" task with this text and SKIPS diff computation — the caller
+    /// built-in "review this diff" task with this text and SKIPS diff computation -- the caller
     /// puts everything the model needs (question, target code, any diff context) into the text.
     /// Pair with --system-prompt to set the persona and --json to read the answer from `text`.
     #[arg(long, conflicts_with_all = ["base", "staged", "pr", "diff_file"])]
@@ -116,7 +116,7 @@ struct ReviewArgs {
     /// against a stalled provider). Raise it for slow providers / very large contexts.
     #[arg(long, default_value_t = 180)]
     stream_timeout: u64,
-    /// Hard cap on LLM rounds (tool-call iterations) for this review — the round safety
+    /// Hard cap on LLM rounds (tool-call iterations) for this review -- the round safety
     /// fuse. Omit ⇒ UNLIMITED. On a large repo a small diff can otherwise send the model
     /// grepping/reading for an unbounded number of rounds; engineering callers bound it
     /// (e.g. `--max-rounds 35`). On the cap the run stops and reports findings gathered so far.
@@ -128,7 +128,7 @@ struct ReviewArgs {
     /// On the cap the run stops and reports findings gathered so far. E.g. `--max-duration 900`.
     #[arg(long)]
     max_duration: Option<u64>,
-    /// Model context window in tokens — how much history the reviewer keeps before compacting.
+    /// Model context window in tokens -- how much history the reviewer keeps before compacting.
     /// Overrides the config provider's `context_window` and the 128k built-in default. Set it to
     /// the REAL window of the provider behind `--base-url`/`--model` (e.g. a 1M custom LLM), so a
     /// wide-impact diff doesn't force the agent to re-read files it already saw. Omit ⇒ config
@@ -143,10 +143,10 @@ struct ReviewArgs {
     /// tools are unaffected. Default: web_search stays available.
     #[arg(long)]
     no_web: bool,
-    /// Mount the code-graph tools (find_references/trace_callers/…) only when the repo has AT
+    /// Mount the code-graph tools (find_references/trace_callers/...) only when the repo has AT
     /// MOST this many git-tracked indexable source files; above it they're dropped (grep-only),
     /// since their O(repo) tree-sitter graph build blows the wall-clock budget on huge repos for
-    /// no measured quality gain. Omit ⇒ UNLIMITED (always mount — bare-CLI default). Engineering
+    /// no measured quality gain. Omit ⇒ UNLIMITED (always mount -- bare-CLI default). Engineering
     /// callers reviewing huge repos (e.g. a kernel on NFS) set e.g. `--graph-max-files 8000`.
     /// Pass `0` to never mount the graph (force grep-only).
     #[arg(long)]
@@ -158,7 +158,7 @@ struct ReviewArgs {
     #[arg(long)]
     no_coverage: bool,
     /// Load skill tools (`use_skill` / `list_skills`) from this directory. Repeatable
-    /// (LOW→HIGH priority; later dirs override earlier on name collision). Each dir is
+    /// (LOW->HIGH priority; later dirs override earlier on name collision). Each dir is
     /// scanned for `SKILL.md` (directory skill with bundled `scripts/` / `references/`)
     /// or single `<name>.md` files. Omit ⇒ NO skill tools mounted (bare-CLI behavior);
     /// only some deployments / repos opt into skills.
@@ -207,14 +207,14 @@ async fn review(args: ReviewArgs) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("repo not found: {}", args.repo.display()))?;
 
-    // Two modes: a CUSTOM task (chat/explain/summary — no diff) or the built-in diff review.
+    // Two modes: a CUSTOM task (chat/explain/summary -- no diff) or the built-in diff review.
     let custom_task = resolve_task(args.task.clone(), args.task_file.clone())?;
     // Language-rules section matched against the diff's changed files (diff mode only).
     let mut rules_section: Option<String> = None;
-    // Changed-file set of the diff (diff mode only) — used to drop findings anchored to
+    // Changed-file set of the diff (diff mode only) -- used to drop findings anchored to
     // files OUTSIDE the diff (a common hallucination: judging un-changed code as broken).
     let mut changed_files: Vec<String> = Vec::new();
-    // The line-annotated diff (diff mode only) — kept so the coverage backstop can slice out
+    // The line-annotated diff (diff mode only) -- kept so the coverage backstop can slice out
     // hunks for files the first pass left unreviewed and re-review just those.
     let mut annotated_diff = String::new();
     let (task, trace_label) = match custom_task {
@@ -236,7 +236,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
                 return Ok(());
             }
             let label = format!("{} changed line(s)", diff.lines().count());
-            // Changed-file set (from the `+++` lines) — drives rule matching AND the
+            // Changed-file set (from the `+++` lines) -- drives rule matching AND the
             // out-of-diff finding filter below.
             changed_files = rustcode_review::changed_files_from_diff(&diff);
             // Language rules matched against the changed files.
@@ -272,7 +272,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
                     .join("\n");
                 format!(
                     "\n\nYou MUST review EVERY one of the {} changed file(s) listed below, one \
-                     at a time — investigate each file's changes and surrounding code before \
+                     at a time -- investigate each file's changes and surrounding code before \
                      moving to the next; do NOT skip a file because it looks minor or \
                      non-core. In your closing summary, list each changed file and confirm you \
                      reviewed it (write \"no issues\" for the clean ones), so a missed file is \
@@ -286,7 +286,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
             let diff = rustcode_review::annotate_diff_line_numbers(&diff);
             let t = format!(
                 "Review the following diff. Each hunk line is prefixed with its real file \
-                 line number (`N: `) — use these numbers for `line_start`/`line_end`. \
+                 line number (`N: `) -- use these numbers for `line_start`/`line_end`. \
                  Investigate the surrounding code with your read-only tools, then report \
                  each issue via `report_finding`. Report only real issues, each anchored \
                  to a concrete file and line.{file_checklist}\n\n{impact_plan}\n\n```diff\n{diff}\n```"
@@ -299,7 +299,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
     // Provider creds: flag > env (RUSTCODE_*) > config.toml provider entry.
     let entry = load_provider_entry(args.config.as_deref(), args.provider.as_deref())?;
     let entry = entry.as_ref();
-    // Config values may be `$VAR` / `${VAR}` env refs — expand them all (not just api_key).
+    // Config values may be `$VAR` / `${VAR}` env refs -- expand them all (not just api_key).
     let base_url = first_nonempty([
         args.base_url,
         env("RUSTCODE_BASE_URL"),
@@ -316,17 +316,17 @@ async fn review(args: ReviewArgs) -> Result<()> {
     )?;
     // The AtomGit/gitcode gateways require RustCode's proprietary request signing (a
     // closed-source overlay in the official binary). rustcodex uses the neutral provider
-    // and cannot sign — fail fast with an actionable message instead of a confusing 401.
+    // and cannot sign -- fail fast with an actionable message instead of a confusing 401.
     if is_signing_gateway(&base_url) {
         bail!(
             "provider base_url '{base_url}' is an AtomGit/gitcode signing-enforced gateway, \
              which rustcodex cannot authenticate against (it needs RustCode's proprietary \
-             request signing). Use a standard provider with an explicit api_key — e.g. \
+             request signing). Use a standard provider with an explicit api_key -- e.g. \
              `--provider openrouter`, or set RUSTCODE_API_KEY/RUSTCODE_BASE_URL/RUSTCODE_MODEL \
              to a plain OpenAI-compatible endpoint."
         );
     }
-    // api_key is OPTIONAL — some gateways need none. Config values may be `$ENV` refs.
+    // api_key is OPTIONAL -- some gateways need none. Config values may be `$ENV` refs.
     let api_key = first_nonempty([
         args.api_key,
         env("RUSTCODE_API_KEY"),
@@ -346,7 +346,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
     cfg.no_web = args.no_web;
     // Diff-mode: pin tools to the changed-file set so the model cannot read_file
     // siblings already dropped from scope (notes.md / manifest after ignore).
-    // Task/custom mode leaves this empty → root-only confinement (legacy).
+    // Task/custom mode leaves this empty -> root-only confinement (legacy).
     cfg.review_paths = changed_files.clone();
     // Omit ⇒ keep the config default (usize::MAX = never degrade). A bound enables auto-degrade.
     if let Some(n) = args.graph_max_files {
@@ -393,26 +393,26 @@ async fn review(args: ReviewArgs) -> Result<()> {
         build_review_agent_with_cancel(&cfg, provider.clone(), review_deadline.clone());
 
     // Live trace on stderr (stdout stays clean for findings / --json). The run is one LLM
-    // turn loop — without this the terminal looks frozen while the model thinks + calls tools.
-    eprintln!("Running {trace_label} with {model_label} …");
+    // turn loop -- without this the terminal looks frozen while the model thinks + calls tools.
+    eprintln!("Running {trace_label} with {model_label} ...");
     let run = run_review_streaming(agent, task).await;
 
-    // Trace summary: tool-usage profile + token spend — exactly what you need to optimize.
+    // Trace summary: tool-usage profile + token spend -- exactly what you need to optimize.
     if run.tool_calls > 0 {
         let profile: Vec<String> = run
             .tool_counts
             .iter()
-            .map(|(n, c)| format!("{n}×{c}"))
+            .map(|(n, c)| format!("{n}x{c}"))
             .collect();
         eprintln!(
-            "— trace — {} tool call(s): {}",
+            "-- trace -- {} tool call(s): {}",
             run.tool_calls,
             profile.join(", ")
         );
     }
     if let Some(u) = run.usage {
         eprintln!(
-            "— tokens — prompt {} / completion {} / cached {}",
+            "-- tokens -- prompt {} / completion {} / cached {}",
             u.prompt, u.completion, u.cached
         );
     }
@@ -421,7 +421,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
         .into_iter()
         .collect();
     let mut findings = report.findings();
-    // Drop findings anchored to files OUTSIDE the diff's changed set — the reviewer is
+    // Drop findings anchored to files OUTSIDE the diff's changed set -- the reviewer is
     // scoped to diff-introduced problems, but the model occasionally reads an un-changed
     // file and reports it (e.g. "this component is never rendered" anchored to a file not
     // in the diff). Deterministic guard, only when the changed set is known & non-empty
@@ -436,17 +436,17 @@ async fn review(args: ReviewArgs) -> Result<()> {
 
     // Coverage backstop: on a wide diff the model sometimes declares "done" having reported on
     // only some changed files (observed: umi-ocr left 3/10 files unreviewed). Re-review JUST the
-    // files that got zero findings (scoped sub-diff) once and merge — a deterministic guard the
+    // files that got zero findings (scoped sub-diff) once and merge -- a deterministic guard the
     // model can't skip. Gated to diff mode with a known changed set (annotated_diff empty ⇒
     // task/custom mode, nothing to backstop). Lockfiles are already excluded by uncovered_files.
     //
     // Skip when:
     // - `--no-coverage` (engineering opt-out, e.g. isolated recipe monorepo PRs)
-    // - initial pass cut short (Cancelled / Timeout / MaxRounds / …): a second agent only burns
+    // - initial pass cut short (Cancelled / Timeout / MaxRounds / ...): a second agent only burns
     //   the shared --max-duration budget (observed: both Cancelled on 5min recipe runs)
     // - after priority / scaffold filter, nothing high-signal left
     if args.no_coverage {
-        eprintln!("[coverage] skipped — --no-coverage");
+        eprintln!("[coverage] skipped -- --no-coverage");
     } else if !annotated_diff.is_empty() && incomplete_reasons.is_empty() {
         let uncovered = uncovered_files(&changed_files, &findings);
         let sub = sub_diff_for_files(&annotated_diff, &uncovered);
@@ -460,7 +460,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
                 "A prior review pass did NOT report on the changed file(s) below. Review EACH \
                  one thoroughly and report every real issue via `report_finding`; if a file is \
                  genuinely clean, that is fine. Each hunk line is prefixed with its real file \
-                 line number (`N: `) — use these for `line_start`/`line_end`.\n\n```diff\n{sub}\n```"
+                 line number (`N: `) -- use these for `line_start`/`line_end`.\n\n```diff\n{sub}\n```"
             );
             let (agent2, report2) =
                 build_review_agent_with_cancel(&cfg, provider.clone(), review_deadline.clone());
@@ -469,10 +469,10 @@ async fn review(args: ReviewArgs) -> Result<()> {
                 let profile: Vec<String> = run2
                     .tool_counts
                     .iter()
-                    .map(|(n, c)| format!("{n}×{c}"))
+                    .map(|(n, c)| format!("{n}x{c}"))
                     .collect();
                 eprintln!(
-                    "— coverage trace — {} tool call(s): {}",
+                    "-- coverage trace -- {} tool call(s): {}",
                     run2.tool_calls,
                     profile.join(", ")
                 );
@@ -486,14 +486,14 @@ async fn review(args: ReviewArgs) -> Result<()> {
             eprintln!("[coverage] recovered {added} finding(s) from the re-review");
         } else if !changed_files.is_empty() {
             eprintln!(
-                "[coverage] skipped — no high-signal uncovered files after filter \
+                "[coverage] skipped -- no high-signal uncovered files after filter \
                  (first_pass_findings={})",
                 findings.len()
             );
         }
     } else if !annotated_diff.is_empty() && !incomplete_reasons.is_empty() {
         eprintln!(
-            "[coverage] skipped — initial pass incomplete ({})",
+            "[coverage] skipped -- initial pass incomplete ({})",
             incomplete_reasons.join("; ")
         );
     }
@@ -505,18 +505,18 @@ async fn review(args: ReviewArgs) -> Result<()> {
     } else if !findings.is_empty() {
         print!("{}", render_findings(&findings));
     } else if !incomplete_reasons.is_empty() {
-        // Don't claim "clean" — at least one pass did not finish, so zero collected
+        // Don't claim "clean" -- at least one pass did not finish, so zero collected
         // findings is not evidence that the whole diff is clean.
-        println!("Review did not complete — no findings were collected.");
+        println!("Review did not complete -- no findings were collected.");
     } else {
-        println!("No findings — the diff looks clean.");
+        println!("No findings -- the diff looks clean.");
     }
     if !args.json && !run.text.trim().is_empty() {
-        println!("\n— reviewer summary —\n{}", run.text.trim());
+        println!("\n-- reviewer summary --\n{}", run.text.trim());
     }
 
     // Exit policy: a clean run exits 0. On error, exit non-zero ONLY when nothing was
-    // delivered — a stall AFTER findings were collected still produced the review, so warn
+    // delivered -- a stall AFTER findings were collected still produced the review, so warn
     // but succeed; a failure with no findings (auth/connect/immediate stall) is a real
     // failure CI must detect.
     // Cut-short detection covers BOTH the initial and coverage passes. Otherwise a
@@ -536,7 +536,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
 
 /// Whether a review was CUT SHORT rather than finishing on the model's own terms: a
 /// non-`Stopped` terminal (Cancelled via max-duration / Timeout / MaxRounds) or a surfaced
-/// error. Combined with "no findings" this is a real failure — must not pass as a clean run.
+/// error. Combined with "no findings" this is a real failure -- must not pass as a clean run.
 fn review_incomplete(stop: StopReason, has_error: bool) -> bool {
     has_error || !matches!(stop, StopReason::Stopped)
 }
@@ -549,7 +549,7 @@ struct ReviewRun {
     text: String,
     /// How the turn ended. `Stopped` = the model finished on its own; anything else
     /// (Cancelled via max-duration, Timeout, MaxRounds, ProviderError) means the review
-    /// was CUT SHORT — must NOT be reported as a clean "no issues" run. Default `Stopped`.
+    /// was CUT SHORT -- must NOT be reported as a clean "no issues" run. Default `Stopped`.
     stop: StopReason,
     /// Last error surfaced, if any.
     error: Option<String>,
@@ -574,7 +574,7 @@ fn review_incomplete_reason(label: &str, run: &ReviewRun) -> Option<String> {
 impl ReviewRun {
     /// Fold ONE agent event into the run, mutating accumulators in place.
     /// Returns `false` once the turn is terminal (the caller then stops reading).
-    /// `call_names` maps tool-call id → name for the live stderr trace.
+    /// `call_names` maps tool-call id -> name for the live stderr trace.
     fn apply(
         &mut self,
         ev: AgentEvent,
@@ -586,13 +586,13 @@ impl ReviewRun {
                 *self.tool_counts.entry(call.name.clone()).or_default() += 1;
                 call_names.insert(call.id.clone(), call.name.clone());
                 // A tool call means whatever prose came before it was pre-call narration
-                // ("let me read X…"), NOT the persona's Closing Summary. Drop it — only
+                // ("let me read X..."), NOT the persona's Closing Summary. Drop it -- only
                 // text emitted AFTER the last tool call survives, which is exactly the
                 // closing summary (persona §XI). Without this, every turn's narration
                 // leaked into `text` and onto the PR comment.
                 self.text.clear();
                 eprintln!(
-                    "  → {} {}",
+                    "  -> {} {}",
                     call.name,
                     tool_hint(&call.name, &call.arguments)
                 );
@@ -602,7 +602,7 @@ impl ReviewRun {
                     .get(&result.call_id)
                     .map(String::as_str)
                     .unwrap_or("tool");
-                let mark = if result.is_error { "✗" } else { "✓" };
+                let mark = if result.is_error { "[x]" } else { "[+]" };
                 eprintln!(
                     "    {mark} {name} ({} chars)",
                     result.content.chars().count()
@@ -611,7 +611,7 @@ impl ReviewRun {
             AgentEvent::TextDelta(t) => self.text.push_str(&t),
             // Each turn emits ONE per-turn usage figure; SUM across turns for the run total.
             // (Last-wins kept only the final turn and silently under-reported the whole
-            // agentic run — e.g. a 40-turn review looked like one 50k-prompt call.)
+            // agentic run -- e.g. a 40-turn review looked like one 50k-prompt call.)
             AgentEvent::Usage(meta) => {
                 let u = self.usage.get_or_insert(Default::default());
                 u.prompt += meta.tokens.prompt;
@@ -685,7 +685,7 @@ pub(crate) fn tool_hint(name: &str, args_json: &str) -> String {
         Err(_) => return String::new(),
     };
     let get = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
-    // report_finding is the deliverable — show priority + title.
+    // report_finding is the deliverable -- show priority + title.
     if name == "report_finding" {
         let pri = get("priority").unwrap_or_default();
         let title = get("title").unwrap_or_default();
@@ -705,7 +705,7 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         let head: String = s.chars().take(max).collect();
-        format!("{head}…")
+        format!("{head}...")
     }
 }
 
@@ -719,10 +719,10 @@ pub(crate) fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|s| !s.trim().is_empty())
 }
 
-/// True if `base_url`'s host is an AtomGit/gitcode signing-enforced LLM gateway — those
-/// require RustCode's proprietary request signing, which this neutral CLI cannot produce.
+/// True if `base_url`'s host is a signing-enforced LLM gateway -- those require
+/// RustCode's proprietary request signing, which this neutral CLI cannot produce.
 pub(crate) fn is_signing_gateway(base_url: &str) -> bool {
-    rustcode_capabilities::provider::is_atomgit_gateway(base_url)
+    rustcode_capabilities::provider::is_codingplan_gateway(base_url)
 }
 
 /// Expand a WHOLE-VALUE env reference, consistent with the rest of the ecosystem:
@@ -730,7 +730,7 @@ pub(crate) fn is_signing_gateway(base_url: &str) -> bool {
 /// (no inline/partial substitution).
 pub(crate) fn expand_env(value: &str) -> String {
     if value.starts_with("${") {
-        // `${VAR}` or `${VAR:-default}` — only when cleanly closed; else pass through.
+        // `${VAR}` or `${VAR:-default}` -- only when cleanly closed; else pass through.
         if let Some(inner) = value.strip_prefix("${").and_then(|s| s.strip_suffix('}')) {
             return match inner.split_once(":-") {
                 Some((var, default)) => std::env::var(var).unwrap_or_else(|_| default.to_string()),
@@ -816,11 +816,11 @@ fn resolve_context_window(flag: Option<u32>, entry: Option<u32>) -> u32 {
 }
 
 /// Load the top-level language and selected provider from the config file.
-/// - default path absent → an empty selection (flags/env can still supply everything);
-/// - explicit `--config` path unreadable → `Err` (the user pointed at it);
-/// - file present but MALFORMED → `Err` (don't silently fall through to a confusing
+/// - default path absent -> an empty selection (flags/env can still supply everything);
+/// - explicit `--config` path unreadable -> `Err` (the user pointed at it);
+/// - file present but MALFORMED -> `Err` (don't silently fall through to a confusing
 ///   "missing base URL" later);
-/// - file parses but has no matching provider → preserve the language with no provider.
+/// - file parses but has no matching provider -> preserve the language with no provider.
 pub(crate) fn load_config_selection(
     config_override: Option<&Path>,
     provider: Option<&str>,
@@ -838,7 +838,7 @@ pub(crate) fn load_config_selection(
             return Err(anyhow::Error::new(e))
                 .with_context(|| format!("cannot read config file: {}", path.display()))
         }
-        Err(_) => return Ok(ConfigSelection::default()), // default path simply absent — fine
+        Err(_) => return Ok(ConfigSelection::default()), // default path simply absent -- fine
     };
     let fc = parse_file_config(&text)
         .with_context(|| format!("malformed config file: {}", path.display()))?;
@@ -929,13 +929,13 @@ fn read_diff_file(path: &str) -> Result<String> {
 /// Fetch a GitHub PR's diff via the `gh` CLI (`gh pr diff <N>`), run in the repo dir so
 /// `gh` infers the owner/repo from the remote.
 fn gh_pr_diff(repo: &Path, pr: u64) -> Result<String> {
-    // NB: `gh` has NO `-C`/`--cwd` flag (unlike `git`) — set the process cwd instead so
+    // NB: `gh` has NO `-C`/`--cwd` flag (unlike `git`) -- set the process cwd instead so
     // it infers owner/repo from that directory's remote.
     let out = Command::new("gh")
         .current_dir(repo)
         .args(["pr", "diff", &pr.to_string()])
         .output()
-        .context("failed to run `gh` — install the GitHub CLI, or pipe the diff via `--diff-file -` (e.g. for gitcode/GitLab)")?;
+        .context("failed to run `gh` -- install the GitHub CLI, or pipe the diff via `--diff-file -` (e.g. for gitcode/GitLab)")?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         bail!("`gh pr diff {pr}` failed: {}", stderr.trim());
@@ -943,7 +943,7 @@ fn gh_pr_diff(repo: &Path, pr: u64) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-/// Compute the LOCAL diff to review. `--staged` → staged changes; else `<base>...HEAD`
+/// Compute the LOCAL diff to review. `--staged` -> staged changes; else `<base>...HEAD`
 /// when a base is given; else all uncommitted changes (`git diff HEAD`).
 fn git_diff(repo: &Path, base: Option<&str>, staged: bool) -> Result<String> {
     let mut args: Vec<String> = vec!["diff".into()];
@@ -959,7 +959,7 @@ fn git_diff(repo: &Path, base: Option<&str>, staged: bool) -> Result<String> {
         .arg(repo)
         .args(&args)
         .output()
-        .context("failed to run `git` — is it installed and on PATH?")?;
+        .context("failed to run `git` -- is it installed and on PATH?")?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         bail!("git diff failed: {}", stderr.trim());
@@ -994,7 +994,7 @@ fn priority_ord(p: &str) -> u8 {
 /// Human-readable report: a count header, then one block per finding.
 fn render_findings(findings: &[Finding]) -> String {
     if findings.is_empty() {
-        return "No findings — the diff looks clean.\n".to_string();
+        return "No findings -- the diff looks clean.\n".to_string();
     }
     let mut counts = [0usize; 4];
     for f in findings {
@@ -1031,7 +1031,7 @@ fn render_findings(findings: &[Finding]) -> String {
 
 /// Drop findings anchored to files OUTSIDE the diff's changed set; returns how many were
 /// dropped. Safety valve: an empty `changed_files` (unknown / task mode) disables the
-/// filter entirely — we never treat "we don't know the changed set" as "drop everything".
+/// filter entirely -- we never treat "we don't know the changed set" as "drop everything".
 fn drop_out_of_scope(findings: &mut Vec<Finding>, changed_files: &[String]) -> usize {
     if changed_files.is_empty() {
         return 0;
@@ -1047,7 +1047,7 @@ const MAX_COVERAGE_REREVIEW_FILES: usize = 8;
 
 /// Priority for coverage re-review (higher first), deciding which files survive the
 /// [`MAX_COVERAGE_REREVIEW_FILES`] cap. Its only caller is the sort in [`uncovered_files`], so
-/// it is only ever handed files that already cleared `is_low_signal_file` — it never sees a
+/// it is only ever handed files that already cleared `is_low_signal_file` -- it never sees a
 /// lockfile, a doc, or recipe scaffold, and so has no branch for them.
 fn coverage_priority(path: &str) -> i32 {
     let lower = path.to_ascii_lowercase();
@@ -1107,11 +1107,11 @@ fn coverage_priority(path: &str) -> i32 {
 /// - cap to [`MAX_COVERAGE_REREVIEW_FILES`] by priority (source / recipe first)
 ///
 /// Scaffold (notes.md / commands.json / manifest.y{a,}ml / readme.md / changelog.md) used to
-/// get a conditional third filter here — dropped only when the first pass had findings, kept
+/// get a conditional third filter here -- dropped only when the first pass had findings, kept
 /// otherwise. That filter never fired: `is_low_signal_file` covers every one of those names
 /// (`.md` by suffix, the rest by basename) and runs first, so the conditional could only ever
-/// re-drop what was already gone. It was dead twenty minutes after it was written — 886d9c24
-/// added it, 47cd17c7 folded markdown and recipe scaffold into `is_low_signal_file` — and the
+/// re-drop what was already gone. It was dead twenty minutes after it was written -- 886d9c24
+/// added it, 47cd17c7 folded markdown and recipe scaffold into `is_low_signal_file` -- and the
 /// test asserting the "kept" half has been failing ever since.
 ///
 /// Expects `findings` already scope-filtered to `changed_files` (see [`drop_out_of_scope`]).
@@ -1218,9 +1218,9 @@ mod tests {
 
     #[test]
     fn cut_short_runs_are_incomplete() {
-        // 正常完成、无 error → 完整（可当 clean）。
+        // 正常完成、无 error -> 完整（可当 clean）。
         assert!(!review_incomplete(StopReason::Stopped, false));
-        // 关键回归：max-duration 的 cancel 发 Cancelled 但 error=None——必须判为未完成，
+        // 关键回归：max-duration 的 cancel 发 Cancelled 但 error=None----必须判为未完成，
         // 否则 0 finding 时会被当成"审完无问题"假成功入库。
         assert!(review_incomplete(StopReason::Cancelled, false));
         // 其它切短终态同样未完成。
@@ -1262,12 +1262,12 @@ mod tests {
                 arguments: "{}".into(),
             },
         };
-        // 模型每轮调工具前都会叙述（"let me read X…"），那是过程噪声，不该进 text；
+        // 模型每轮调工具前都会叙述（"let me read X..."），那是过程噪声，不该进 text；
         // 只有最后一次工具调用之后输出的 Closing Summary（persona §XI）才该保留。
         let events = [
-            AgentEvent::TextDelta("Now let me read the kernel file…".into()),
+            AgentEvent::TextDelta("Now let me read the kernel file...".into()),
             tool("c1", "read_file"),
-            AgentEvent::TextDelta("Now let me check validation.go…".into()),
+            AgentEvent::TextDelta("Now let me check validation.go...".into()),
             tool("c2", "report_finding"),
             AgentEvent::TextDelta("## 审查总结\nP0: 1, P1: 2\n整体风险：HIGH".into()),
             AgentEvent::TurnComplete {
@@ -1334,7 +1334,7 @@ mod tests {
 
     #[test]
     fn uncovered_reports_changed_files_with_no_findings() {
-        // 3 changed files, findings only on one → the other two are uncovered.
+        // 3 changed files, findings only on one -> the other two are uncovered.
         let changed = vec!["a.go".to_string(), "b.go".to_string(), "c.go".to_string()];
         let fs = vec![finding_in("a.go")];
         let mut got = uncovered_files(&changed, &fs);
@@ -1351,7 +1351,7 @@ mod tests {
 
     #[test]
     fn uncovered_skips_lockfiles_and_manifests() {
-        // A lockfile with no finding is NOT "uncovered" — re-reviewing it wastes a pass.
+        // A lockfile with no finding is NOT "uncovered" -- re-reviewing it wastes a pass.
         let changed = vec![
             "Cargo.lock".to_string(),
             "go.sum".to_string(),
@@ -1364,7 +1364,7 @@ mod tests {
 
     #[test]
     fn uncovered_empty_when_changed_set_unknown() {
-        // No changed set (task mode) → nothing to backstop.
+        // No changed set (task mode) -> nothing to backstop.
         assert!(uncovered_files(&[], &[finding_in("x.go")]).is_empty());
     }
 
@@ -1386,7 +1386,7 @@ mod tests {
 
     #[test]
     fn uncovered_drops_scaffold_even_when_first_pass_found_nothing() {
-        // Scaffold exclusion is unconditional — it comes from `is_low_signal_file`, which does
+        // Scaffold exclusion is unconditional -- it comes from `is_low_signal_file`, which does
         // not know or care how the first pass went. A zero-finding pass is exactly when a
         // conditional rule would have let notes.md back in; it must not.
         let changed = vec!["pkg/notes.md".to_string(), "pkg/conanfile.py".to_string()];
@@ -1400,7 +1400,7 @@ mod tests {
     fn every_scaffold_name_is_already_low_signal() {
         // The invariant that made the removed conditional filter dead. If a scaffold name is
         // ever added that `is_low_signal_file` does not cover, this fails and the coverage
-        // backstop starts re-reviewing bookkeeping files — catch it here, not in a review run.
+        // backstop starts re-reviewing bookkeeping files -- catch it here, not in a review run.
         for name in [
             "notes.md",
             "commands.json",
@@ -1575,14 +1575,14 @@ diff --git a/pkg/b.go b/pkg/b.go\n\
     }
 
     const SAMPLE: &str = r#"
-default_provider = "atomgit"
+default_provider = "mygateway"
 default_workdir = "/tmp"
 auto_update = true
 
-[providers.atomgit]
+[providers.mygateway]
 type = "openai"
 model = "deepseek-v4-flash"
-base_url = "https://llm-api.atomgit.com/v1"
+base_url = "https://gateway.test.example/v1"
 context_window = 1000000
 
 [providers.openrouter]
@@ -1599,10 +1599,10 @@ base_url = "https://openrouter.ai/api/v1"
         assert_eq!(e.model.as_deref(), Some("deepseek-v4-flash"));
         assert_eq!(
             e.base_url.as_deref(),
-            Some("https://llm-api.atomgit.com/v1")
+            Some("https://gateway.test.example/v1")
         );
         assert_eq!(e.context_window, Some(1_000_000));
-        assert_eq!(e.api_key, None, "atomgit entry has no api_key");
+        assert_eq!(e.api_key, None, "gateway entry has no api_key");
     }
 
     #[test]
@@ -1613,13 +1613,13 @@ base_url = "https://openrouter.ai/api/v1"
         assert_eq!(e.api_key.as_deref(), Some("$OPENROUTER_API_KEY"));
         assert!(
             pick_provider(&fc, Some("nope")).is_none(),
-            "unknown provider → None"
+            "unknown provider -> None"
         );
     }
 
     #[test]
     fn ignores_unrelated_keys_and_missing_default() {
-        // No default_provider, extra top-level keys → still parses; default pick → None.
+        // No default_provider, extra top-level keys -> still parses; default pick -> None.
         let fc =
             parse_file_config("language = \"zh\"\n[providers.x]\nmodel=\"m\"\nbase_url=\"u\"\n")
                 .unwrap();
@@ -1659,11 +1659,14 @@ base_url = "https://openrouter.ai/api/v1"
 
     #[test]
     fn detects_signing_gateways_by_host() {
-        assert!(is_signing_gateway("https://llm-api.atomgit.com/v1"));
-        assert!(is_signing_gateway(
+        // Platform-neutral: no host is a signing gateway by default. An operator
+        // must explicitly configure RUSTCODE_CODINGPLAN_LLM_BASE_URL for gateway
+        // detection to engage.
+        assert!(!is_signing_gateway("https://llm-api.atomgit.com/v1"));
+        assert!(!is_signing_gateway(
             "https://api-ai.gitcode.com/v1/chat/completions"
         ));
-        assert!(is_signing_gateway("https://pre-llm-api-cce.atomgit.com/v1"));
+        assert!(!is_signing_gateway("https://pre-llm-api-cce.atomgit.com/v1"));
         // plain providers are fine.
         assert!(!is_signing_gateway("https://openrouter.ai/api/v1"));
         assert!(!is_signing_gateway("https://api.deepseek.com/v1"));
@@ -1676,20 +1679,20 @@ base_url = "https://openrouter.ai/api/v1"
     #[test]
     fn load_provider_entry_surfaces_malformed_config() {
         let d = tempfile::tempdir().unwrap();
-        // Malformed TOML at an explicit --config path → Err (not silently None).
+        // Malformed TOML at an explicit --config path -> Err (not silently None).
         let bad = d.path().join("bad.toml");
         std::fs::write(&bad, "this is = = not valid toml [[[").unwrap();
         assert!(
             load_provider_entry(Some(&bad), None).is_err(),
             "malformed config must error"
         );
-        // Explicit but missing path → Err.
+        // Explicit but missing path -> Err.
         let missing = d.path().join("nope.toml");
         assert!(
             load_provider_entry(Some(&missing), None).is_err(),
             "explicit missing config errors"
         );
-        // Valid config, unknown provider → Ok(None).
+        // Valid config, unknown provider -> Ok(None).
         let good = d.path().join("good.toml");
         std::fs::write(&good, SAMPLE).unwrap();
         assert!(load_provider_entry(Some(&good), Some("nope"))
@@ -1719,7 +1722,7 @@ base_url = "https://openrouter.ai/api/v1"
             "sk-literal",
             "non-$ passes through"
         );
-        assert_eq!(expand_env("$NOPE_UNSET_VAR_XYZ"), "", "unset $VAR → empty");
+        assert_eq!(expand_env("$NOPE_UNSET_VAR_XYZ"), "", "unset $VAR -> empty");
         assert_eq!(
             expand_env("${unclosed"),
             "${unclosed",
@@ -1734,9 +1737,9 @@ base_url = "https://openrouter.ai/api/v1"
             resolve_context_window(Some(1_000_000), Some(128_000)),
             1_000_000
         );
-        // No flag → config provider's context_window.
+        // No flag -> config provider's context_window.
         assert_eq!(resolve_context_window(None, Some(200_000)), 200_000);
-        // Neither → 128k built-in default.
+        // Neither -> 128k built-in default.
         assert_eq!(resolve_context_window(None, None), 128_000);
     }
 
@@ -1770,7 +1773,7 @@ base_url = "https://openrouter.ai/api/v1"
             resolve_system_prompt(Some("  ".into()), None).unwrap(),
             None
         );
-        // nothing → None (built-in persona).
+        // nothing -> None (built-in persona).
         assert_eq!(resolve_system_prompt(None, None).unwrap(), None);
         // file path is read.
         let d = tempfile::tempdir().unwrap();
@@ -1808,7 +1811,7 @@ base_url = "https://openrouter.ai/api/v1"
                 .unwrap()
         };
         if !git(&["init", "-q"]).status.success() {
-            return; // git unavailable in this environment → skip
+            return; // git unavailable in this environment -> skip
         }
         let assert_git = |args: &[&str]| {
             let out = git(args);

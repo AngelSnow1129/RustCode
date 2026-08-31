@@ -5,7 +5,7 @@
 //! NEUTRAL boundary: this crate loads + expands skills from directories the CALLER
 //! supplies; the standard `~/.claude/skills` etc. precedence is a driver concern (use
 //! [`standard_skill_dirs`] or pass your own). Skill CONTENT is user-authored and trusted
-//! — `expand` runs a skill's `` !`cmd` `` blocks through a shell by design.
+//! -- `expand` runs a skill's `` !`cmd` `` blocks through a shell by design.
 //!
 //! Behind the opt-in `skills` cargo feature (no extra dependencies).
 
@@ -24,7 +24,7 @@ pub use render::{render_skill_catalog, CatalogEntry};
 pub use skill::Skill;
 pub use use_skill::{ListSkillsTool, UseSkillTool};
 
-/// Names of the skill tools — pass to [`ToolRegistry::mount`](rustcode_kernel::tool::ToolRegistry::mount).
+/// Names of the skill tools -- pass to [`ToolRegistry::mount`](rustcode_kernel::tool::ToolRegistry::mount).
 pub fn skill_tool_names() -> &'static [&'static str] {
     &["use_skill", "list_skills"]
 }

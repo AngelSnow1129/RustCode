@@ -2,17 +2,17 @@
 //!
 //! A1 gap ④: today the only conversation projection was the LOSSY, UNVERSIONED
 //! `MessageSnapshot` (dropped `tool_calls`/`tool_call_id`, stringified `Role` via
-//! Debug) and there was NO restore path — so a session could not be reliably
+//! Debug) and there was NO restore path -- so a session could not be reliably
 //! re-read by another kernel version, and resume was impossible.
 //!
 //! These tests prove the fix end-to-end:
 //!   * a `SessionSnapshot` captured from a live session survives a `serde_json`
 //!     disk round-trip,
 //!   * a NEW agent built with `.resume(snapshot)` continues the SAME history
-//!     append-only — the resumed provider's FIRST call is a strict byte
+//!     append-only -- the resumed provider's FIRST call is a strict byte
 //!     prefix-EXTENSION of the saved snapshot (prefix cache survives resume), and
 //!   * an UNSUPPORTED snapshot version yields an `AgentEvent::Warning` and an empty
-//!     start (no panic) — the forward-compat seam.
+//!     start (no panic) -- the forward-compat seam.
 
 use rustcode_kernel::agent::{Agent, AgentHandle};
 use rustcode_kernel::event::{AgentCommand, AgentEvent};
@@ -80,7 +80,7 @@ fn resumed_agent(provider: Arc<RecordingProvider>, snapshot: SessionSnapshot) ->
     let mut reg = ToolRegistry::new();
     reg.register(Arc::new(EchoTool));
     // NOTE: persona is set here too, to prove resume IGNORES it (the saved
-    // snapshot already carries the system/persona message — it must not be
+    // snapshot already carries the system/persona message -- it must not be
     // re-injected, or history would no longer be append-only).
     Agent::builder()
         .provider(provider)
@@ -115,7 +115,7 @@ async fn capture_snapshot(handle: &mut AgentHandle) -> SessionSnapshot {
     panic!("never received a Snapshot reply");
 }
 
-// CLAIM 18a: snapshot → serde round-trip → resume continues history append-only,
+// CLAIM 18a: snapshot -> serde round-trip -> resume continues history append-only,
 // so the resumed provider's FIRST call is a strict byte prefix-EXTENSION of the
 // saved snapshot messages (the prefix cache survives the resume boundary).
 #[tokio::test]
@@ -140,7 +140,7 @@ async fn resume_preserves_cache_prefix() {
     let _ = handle1.task.await;
 
     // Sanity: the snapshot is non-trivial and lossless (carries a tool_call + a
-    // tool_result id — the very fields the OLD MessageSnapshot dropped).
+    // tool_result id -- the very fields the OLD MessageSnapshot dropped).
     assert_eq!(snapshot.version, rustcode_kernel::message::SNAPSHOT_VERSION);
     assert!(
         matches!(snapshot.messages[0].role, Role::System),
@@ -155,7 +155,7 @@ async fn resume_preserves_cache_prefix() {
         "snapshot must carry a tool_result id (lossless)"
     );
 
-    // --- Disk round-trip: serialize → deserialize (simulating persistence).
+    // --- Disk round-trip: serialize -> deserialize (simulating persistence).
     let json = serde_json::to_string(&snapshot).expect("SessionSnapshot serializes");
     let restored: SessionSnapshot =
         serde_json::from_str(&json).expect("SessionSnapshot deserializes");
@@ -184,8 +184,8 @@ async fn resume_preserves_cache_prefix() {
 
     // The resumed provider's FIRST call: persona NOT re-injected (still exactly one
     // System message, byte-identical to the saved one), and the new user turn was
-    // APPENDED — so the saved history is a strict byte prefix of what the resumed
-    // provider saw. History continues append-only across the resume boundary →
+    // APPENDED -- so the saved history is a strict byte prefix of what the resumed
+    // provider saw. History continues append-only across the resume boundary ->
     // the prefix cache survives.
     let first_resumed = &calls2[0].0;
     let system_count = first_resumed
@@ -219,7 +219,7 @@ async fn resume_preserves_cache_prefix() {
     );
 }
 
-// CLAIM 18b: an UNSUPPORTED snapshot version is a forward-compat seam — the kernel
+// CLAIM 18b: an UNSUPPORTED snapshot version is a forward-compat seam -- the kernel
 // emits an `AgentEvent::Error` and starts EMPTY (no panic, no silent misread).
 #[tokio::test]
 async fn unsupported_snapshot_version_errors_and_starts_empty() {
@@ -238,7 +238,7 @@ async fn unsupported_snapshot_version_errors_and_starts_empty() {
     ]]));
     let calls = provider.calls();
 
-    // persona empty → if resume is IGNORED we'd start truly empty; the only
+    // persona empty -> if resume is IGNORED we'd start truly empty; the only
     // message before the new turn must be the new user message (no ghost history).
     let mut reg = ToolRegistry::new();
     reg.register(Arc::new(EchoTool));
@@ -259,7 +259,7 @@ async fn unsupported_snapshot_version_errors_and_starts_empty() {
     let mut warned = false;
     while let Some(ev) = handle.events.recv().await {
         match ev {
-            // Non-fatal degradation → Warning (not Error): an Error here would be
+            // Non-fatal degradation -> Warning (not Error): an Error here would be
             // captured into Outcome.error and make a later clean turn look failed.
             AgentEvent::Warning(message)
                 if message.contains("unsupported snapshot version 9999") =>
@@ -283,7 +283,7 @@ async fn unsupported_snapshot_version_errors_and_starts_empty() {
         !calls.is_empty(),
         "the turn still runs (started empty, not panicked)"
     );
-    // Started EMPTY: the only thing before the new turn is the new user message —
+    // Started EMPTY: the only thing before the new turn is the new user message --
     // none of the ghost snapshot messages leaked in.
     let first = &calls[0].0;
     assert!(
@@ -301,7 +301,7 @@ async fn unsupported_snapshot_version_errors_and_starts_empty() {
 }
 
 // CLAIM 18c: resuming from a snapshot that ENDS IN A DANGLING assistant tool_call
-// (a tool_use with no matching tool_result — possible from an externally-supplied
+// (a tool_use with no matching tool_result -- possible from an externally-supplied
 // or mid-turn-persisted snapshot) must NOT produce an API-invalid first request.
 // The resume seeding path backfills a `(cancelled)` result so every tool_call is
 // paired (kernel invariant: exactly one tool_result per assistant tool_call).
@@ -344,7 +344,7 @@ async fn resume_from_dangling_snapshot_is_repaired_to_api_valid() {
         }
     }
     // Concretely: the dangling call got a (cancelled) result, and it is flagged
-    // is_error (the field that now survives) — proving the repair, not a real run.
+    // is_error (the field that now survives) -- proving the repair, not a real run.
     let backfilled = msgs
         .iter()
         .find(|m| m.tool_call_id.as_deref() == Some("c_dangle"))
@@ -357,7 +357,7 @@ async fn resume_from_dangling_snapshot_is_repaired_to_api_valid() {
 }
 
 // CLAIM 24 (resume side): resuming from a snapshot that contains an ORPHAN
-// tool_result (a tool_result with NO matching assistant tool_call — possible from
+// tool_result (a tool_result with NO matching assistant tool_call -- possible from
 // an externally-supplied or legacy/mid-compaction snapshot) must NOT produce an
 // API-invalid first request. The old append-only backfill could NOT remove an
 // orphan; the resume seeding path now uses `repair_pairing`, which DROPS it.
@@ -417,7 +417,7 @@ async fn resume_heals_orphan_tool_result_snapshot() {
     assert_eq!(good.text, "good output");
 }
 
-// CLAIM 18b addendum: the unsupported-version fallback is a REAL fresh start — the
+// CLAIM 18b addendum: the unsupported-version fallback is a REAL fresh start -- the
 // persona is seeded exactly as on a fresh session. `resumed` computes false for this
 // path (seeding hooks fire in fresh mode), so the kernel must seed the persona too;
 // otherwise the session would run with hook injections but NO system identity.
@@ -478,7 +478,7 @@ async fn unsupported_snapshot_fallback_seeds_persona_like_fresh() {
 
 // CLAIM 18e: a resume CONTINUES the session's monotonic id sequence. The snapshot
 // carries the id high-water marks (additive fields, with a derive-from-meta fallback
-// for old snapshots), and spawn seeds the counters from them — so an append-only
+// for old snapshots), and spawn seeds the counters from them -- so an append-only
 // per-session transcript keyed by (session_id, turn_id) never sees duplicate keys
 // across the resume boundary.
 #[tokio::test]
@@ -543,7 +543,7 @@ async fn resume_continues_turn_id_sequence() {
         "snapshot carries the request high-water mark"
     );
 
-    // --- Session 2: resume → the next turn must be 3, NOT 1.
+    // --- Session 2: resume -> the next turn must be 3, NOT 1.
     let provider2 = Arc::new(RecordingProvider::new(vec![vec![
         StreamEvent::TextDelta("t3".into()),
         StreamEvent::Done { truncated: false },
@@ -593,8 +593,8 @@ async fn old_snapshot_without_counter_fields_resumes_monotonically() {
     }
 
     // An "old" snapshot: build a current one whose metas say turn 5 happened, then
-    // DELETE the counter fields from its JSON — exactly what a pre-counter on-disk
-    // snapshot looks like (serde default → 0 on load).
+    // DELETE the counter fields from its JSON -- exactly what a pre-counter on-disk
+    // snapshot looks like (serde default -> 0 on load).
     let mut last = Message::assistant("ok", vec![]);
     last.meta = Some(rustcode_kernel::message::MessageMeta {
         turn_id: 5,
@@ -608,7 +608,7 @@ async fn old_snapshot_without_counter_fields_resumes_monotonically() {
     obj.remove("request_counter");
     let old: SessionSnapshot =
         serde_json::from_value(v).expect("old-format snapshot must stay loadable");
-    assert_eq!(old.turn_counter, 0, "fields absent → serde default 0");
+    assert_eq!(old.turn_counter, 0, "fields absent -> serde default 0");
 
     let provider = Arc::new(RecordingProvider::new(vec![vec![
         StreamEvent::TextDelta("next".into()),

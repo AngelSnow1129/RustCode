@@ -1,6 +1,6 @@
 //! Kernel-native VL image preprocessing. Ported from `core::vision_preprocessor`
 //! but provider-agnostic: the caller builds the VL `LlmProvider` (via its own
-//! factory path) and hands it in; this module owns the parity-critical bits —
+//! factory path) and hands it in; this module owns the parity-critical bits --
 //! the prompt, the one-off kernel message, the 30s idle-timeout streaming loop,
 //! and the outcome mapping. Both the CLI and the daemon call `run_vl_caption`.
 
@@ -14,7 +14,7 @@ use std::sync::Arc;
 /// `apply_outcome` contract) as the retired `core` version.
 #[derive(Debug)]
 pub enum PreprocessOutcome {
-    /// Main model is vision-capable, or no images — pass through untouched.
+    /// Main model is vision-capable, or no images -- pass through untouched.
     Skipped,
     /// VL produced a caption; caller folds it into the text and clears images.
     Replaced { text: String, vl_model: String },
@@ -28,7 +28,7 @@ pub fn should_skip(supports_vision: bool, has_images: bool) -> bool {
 }
 
 /// Display name for a VL model: strip a `vendor/` prefix (e.g.
-/// `Qwen/Qwen3-VL-8B-Instruct` → `Qwen3-VL-8B-Instruct`) for the recognised
+/// `Qwen/Qwen3-VL-8B-Instruct` -> `Qwen3-VL-8B-Instruct`) for the recognised
 /// marker / toast. Verbatim from the retired `core::vision_preprocessor`.
 pub fn vl_model_display(model: &str) -> &str {
     match model.rsplit_once('/') {
@@ -39,9 +39,9 @@ pub fn vl_model_display(model: &str) -> &str {
 
 /// Run the one-off VL caption call against an already-built provider. Owns the
 /// prompt, the local one-shot kernel message (deliberately NOT linked to the
-/// main conversation — VL only ever sees this image + caption), and the 30s
+/// main conversation -- VL only ever sees this image + caption), and the 30s
 /// idle-timeout streaming loop. Returns `Replaced` or `Failed` (never `Skipped`
-/// — callers short-circuit via [`should_skip`] before building the provider).
+/// -- callers short-circuit via [`should_skip`] before building the provider).
 pub async fn run_vl_caption(
     vl_provider: Arc<dyn LlmProvider>,
     vl_model: String,
@@ -131,7 +131,7 @@ mod tests {
         events: Vec<StreamEvent>,
         init_err: bool,
     }
-    // ProviderError has public fields and NO `new` — construct via struct literal.
+    // ProviderError has public fields and NO `new` -- construct via struct literal.
     fn perr(msg: &str) -> ProviderError {
         ProviderError {
             retryable: false,
@@ -175,14 +175,14 @@ mod tests {
         );
         assert_eq!(vl_model_display("qwen-vl-max"), "qwen-vl-max");
         assert_eq!(vl_model_display("a/b/c"), "c");
-        assert_eq!(vl_model_display("trailing/"), "trailing/"); // empty tail → whole
+        assert_eq!(vl_model_display("trailing/"), "trailing/"); // empty tail -> whole
     }
 
     #[test]
     fn should_skip_when_no_images_or_vision_model() {
-        assert!(should_skip(false, false), "no images → skip");
-        assert!(should_skip(true, true), "vision model → skip");
-        assert!(!should_skip(false, true), "text model + images → run");
+        assert!(should_skip(false, false), "no images -> skip");
+        assert!(should_skip(true, true), "vision model -> skip");
+        assert!(!should_skip(false, true), "text model + images -> run");
     }
 
     #[tokio::test]
@@ -214,7 +214,7 @@ mod tests {
         let out = run_vl_caption(p, "qwen-vl".into(), "看图", &[img()]).await;
         assert!(
             matches!(out, PreprocessOutcome::Failed { .. }),
-            "mid-stream error → Failed"
+            "mid-stream error -> Failed"
         );
     }
 
@@ -227,7 +227,7 @@ mod tests {
         let out = run_vl_caption(p, "qwen-vl".into(), "看图", &[img()]).await;
         assert!(
             matches!(out, PreprocessOutcome::Failed { .. }),
-            "empty response → Failed"
+            "empty response -> Failed"
         );
     }
 }

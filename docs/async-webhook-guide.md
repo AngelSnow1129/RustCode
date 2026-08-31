@@ -4,7 +4,7 @@
 
 ## 概述
 
-异步 Webhook 使用后台任务处理 Webhook 请求，避免阻塞 AtomCode 主流程。通过批量发送，可以显著减少 HTTP 请求数量，提高性能。
+异步 Webhook 使用后台任务处理 Webhook 请求，避免阻塞 RustCode 主流程。通过批量发送，可以显著减少 HTTP 请求数量，提高性能。
 
 ## 特性
 
@@ -245,9 +245,9 @@ flush_interval_ms = 1000
 
 | Header | 说明 |
 |--------|------|
-| `X-AtomCode-Version` | AtomCode 版本 |
-| `X-AtomCode-Webhook` | Webhook 名称 |
-| `X-AtomCode-Batch-Size` | 批量中的事件数量 |
+| `X-RustCode-Version` | RustCode 版本 |
+| `X-RustCode-Webhook` | Webhook 名称 |
+| `X-RustCode-Batch-Size` | 批量中的事件数量 |
 | `Content-Type` | `application/json` |
 
 ## 服务端实现示例
@@ -259,7 +259,7 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-@app.route('/atomcode/batch', methods=['POST'])
+@app.route('/rustcode/batch', methods=['POST'])
 def handle_batch():
     data = request.json
     
@@ -291,7 +291,7 @@ const app = express();
 
 app.use(express.json());
 
-app.post('/atomcode/batch', (req, res) => {
+app.post('/rustcode/batch', (req, res) => {
     const { events } = req.body;
     
     console.log(`Received ${events.length} events`);
@@ -359,7 +359,7 @@ app.listen(3000, () => {
 
 2. 查看日志：
    ```bash
-   atomcode -p "test" 2>&1 | grep -i async
+   rustcode -p "test" 2>&1 | grep -i async
    ```
 
 3. 减小批量大小和刷新间隔：
@@ -370,7 +370,7 @@ app.listen(3000, () => {
 
 ### 内存占用过高
 
-**症状**：AtomCode 内存使用持续增长
+**症状**：RustCode 内存使用持续增长
 
 **原因**：批量大小设置过大，事件积压
 
@@ -390,7 +390,7 @@ flush_interval_ms = 1000
 
 **排查**：
 
-1. 检查 AtomCode 日志：
+1. 检查 RustCode 日志：
    ```
    [AsyncWebhook] Sent 0 events to ...
    ```

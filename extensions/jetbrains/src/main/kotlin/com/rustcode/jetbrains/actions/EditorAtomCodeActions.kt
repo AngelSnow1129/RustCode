@@ -2,10 +2,10 @@ package com.rustcode.jetbrains.actions
 
 import com.rustcode.jetbrains.security.PathSensitivity
 import com.rustcode.jetbrains.security.SensitivePathClassifier
-import com.rustcode.jetbrains.settings.AtomCodeSettingsState
+import com.rustcode.jetbrains.settings.RustCodeSettingsState
 import com.rustcode.jetbrains.ui.ChatContextItem
-import com.rustcode.jetbrains.ui.createAtomCodeChatContent
-import com.rustcode.jetbrains.ui.selectedAtomCodeChatPanel
+import com.rustcode.jetbrains.ui.createRustCodeChatContent
+import com.rustcode.jetbrains.ui.selectedRustCodeChatPanel
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
@@ -14,22 +14,22 @@ import com.intellij.openapi.wm.ToolWindowManager
 
 private const val MAX_CONTEXT_CHARS = 120_000
 
-internal object EditorAtomCodeActions {
-    private val settings = AtomCodeSettingsState.getInstance()
+internal object EditorRustCodeActions {
+    private val settings = RustCodeSettingsState.getInstance()
 
     fun canSendSelectedText(editor: Editor?): Boolean =
         settings.state.allowSelectedTextContext && editor?.selectionModel?.hasSelection() == true
 
     fun sendSelectionCommand(project: Project, editor: Editor, instruction: String) {
         if (!settings.state.allowSelectedTextContext) {
-            Messages.showWarningDialog(project, "Selected text context is disabled in AtomCode settings.", "AtomCode")
+            Messages.showWarningDialog(project, "Selected text context is disabled in RustCode settings.", "RustCode")
             return
         }
         val selection = editor.selectionModel.selectedText?.takeIf { it.isNotBlank() } ?: return
         val virtualFile = FileDocumentManager.getInstance().getFile(editor.document)
         val path = virtualFile?.path.orEmpty()
 
-        if (!confirmPath(project, path, "AtomCode will not send this sensitive file selection.", "This selection is from a sensitive file. Send it to the configured model provider?")) {
+        if (!confirmPath(project, path, "RustCode will not send this sensitive file selection.", "This selection is from a sensitive file. Send it to the configured model provider?")) {
             return
         }
 
@@ -49,10 +49,10 @@ internal object EditorAtomCodeActions {
             endLine = endLine,
         )
 
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("AtomCode") ?: return
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("RustCode") ?: return
         toolWindow.activate {
-            val panel = selectedAtomCodeChatPanel(project)
-                ?: createAtomCodeChatContent(project, toolWindow, closeable = true)
+            val panel = selectedRustCodeChatPanel(project)
+                ?: createRustCodeChatContent(project, toolWindow, closeable = true)
             panel.composePrompt(instruction, context)
         }
     }
@@ -61,7 +61,7 @@ internal object EditorAtomCodeActions {
         val virtualFile = FileDocumentManager.getInstance().getFile(editor.document) ?: return
         val path = virtualFile.path
 
-        if (!confirmPath(project, path, "AtomCode will not attach this sensitive file.", "This file may contain sensitive information. Attach it to the next AtomCode message?")) {
+        if (!confirmPath(project, path, "RustCode will not attach this sensitive file.", "This file may contain sensitive information. Attach it to the next RustCode message?")) {
             return
         }
 
@@ -71,7 +71,7 @@ internal object EditorAtomCodeActions {
         val content = selectedText ?: editor.document.text
         if (content.isBlank()) return
         if (content.length > MAX_CONTEXT_CHARS) {
-            Messages.showWarningDialog(project, "This context is too large to attach. Select a smaller range.", "AtomCode")
+            Messages.showWarningDialog(project, "This context is too large to attach. Select a smaller range.", "RustCode")
             return
         }
 
@@ -88,10 +88,10 @@ internal object EditorAtomCodeActions {
             null
         }
 
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("AtomCode") ?: return
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("RustCode") ?: return
         toolWindow.activate {
-            val panel = selectedAtomCodeChatPanel(project)
-                ?: createAtomCodeChatContent(project, toolWindow, closeable = true)
+            val panel = selectedRustCodeChatPanel(project)
+                ?: createRustCodeChatContent(project, toolWindow, closeable = true)
             panel.addContext(
                 ChatContextItem(
                     path = path,
@@ -109,14 +109,14 @@ internal object EditorAtomCodeActions {
     private fun confirmPath(project: Project, path: String, blockMessage: String, strongConfirmMessage: String): Boolean =
         when (SensitivePathClassifier.classify(path)) {
             PathSensitivity.Block -> {
-                Messages.showWarningDialog(project, blockMessage, "AtomCode")
+                Messages.showWarningDialog(project, blockMessage, "RustCode")
                 false
             }
             PathSensitivity.StrongConfirm -> {
                 val choice = Messages.showYesNoDialog(
                     project,
                     strongConfirmMessage,
-                    "AtomCode",
+                    "RustCode",
                     Messages.getWarningIcon(),
                 )
                 choice == Messages.YES

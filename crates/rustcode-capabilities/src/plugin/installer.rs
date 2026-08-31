@@ -82,7 +82,7 @@ fn install_external(plugin_key: &str, marketplace: &str, ext: &ExternalSource) -
                 target_abs.display()
             );
         }
-        // Stale leftover — remove and continue.
+        // Stale leftover -- remove and continue.
         std::fs::remove_dir_all(&target_abs).with_context(|| {
             format!(
                 "failed to remove stale install dir {}",
@@ -144,7 +144,7 @@ fn git_subdir_clone(git: &Path, url: &str, path: &str, pin: &GitPin, target: &Pa
 
     // Partial clone (no blobs) + no checkout, so we can scope the working tree
     // to just `sub` before materialising any files.
-    // Hardened git (no interactive tty prompt) — a private remote must fail
+    // Hardened git (no interactive tty prompt) -- a private remote must fail
     // fast, not deadlock the TUI. See `marketplace::git_command`.
     // git-subdir pins are branch names in practice (the schema's `ref`); a
     // commit `sha` would need full history, but the catalog carries none.
@@ -217,9 +217,9 @@ fn git_subdir_clone(git: &Path, url: &str, path: &str, pin: &GitPin, target: &Pa
     Ok(())
 }
 
-/// Resolve a git-subdir `url` field. `owner/repo` shorthand → GitHub https URL
+/// Resolve a git-subdir `url` field. `owner/repo` shorthand -> GitHub https URL
 /// (reusing the existing anti-injection guard); anything with a scheme or an
-/// ssh host → validated as a full git URL.
+/// ssh host -> validated as a full git URL.
 fn resolve_subdir_url(url: &str) -> Result<String> {
     let looks_shorthand = !url.contains("://")
         && !url.contains('@')
@@ -252,7 +252,7 @@ fn expand_github_repo(repo: &str) -> Result<String> {
         }
         // Reject leading `-`: `git clone https://github.com/-x/foo.git`
         // (or any URL whose path component begins with `-`) lets git
-        // interpret the segment as a flag — CVE-2017-1000117 family.
+        // interpret the segment as a flag -- CVE-2017-1000117 family.
         if seg.starts_with('-') {
             bail!("github repo `{}` segment must not start with '-'", repo);
         }
@@ -471,7 +471,7 @@ pub fn install(
     let mp_root_abs = paths::plugins_root().unwrap().join(&mp_root_rel);
     if !mp_root_abs.exists() {
         bail!(
-            "marketplace `{}` clone is missing — run `/plugin update {marketplace}` to restore it",
+            "marketplace `{}` clone is missing -- run `/plugin update {marketplace}` to restore it",
             marketplace
         );
     }
@@ -586,7 +586,7 @@ pub fn install(
             let dest_rel = format!("installed/{}/{}", marketplace, plugin_key);
             let dest_abs = project_root.join(&dest_rel);
             if dest_abs.exists() {
-                // The directory already exists — same residual-detect logic
+                // The directory already exists -- same residual-detect logic
                 // as install_external: if the plugin is NOT recorded in the
                 // project-level installed_plugins.json, treat the directory
                 // as a stale leftover from a cancelled / failed install and
@@ -603,7 +603,7 @@ pub fn install(
                         dest_abs.display()
                     );
                 }
-                // Stale leftover — remove and continue.
+                // Stale leftover -- remove and continue.
                 std::fs::remove_dir_all(&dest_abs).with_context(|| {
                     format!(
                         "failed to remove stale project install dir {}",
@@ -1044,7 +1044,7 @@ mod tests {
         );
     }
 
-    /// Same external URL but with a branch pin must NOT dedup — the
+    /// Same external URL but with a branch pin must NOT dedup -- the
     /// marketplace clone is on the default branch, which may differ.
     #[test]
     fn dedup_skipped_when_pin_set() {
@@ -1086,7 +1086,7 @@ mod tests {
         assert!(expand_github_repo("repo/-x").is_err());
     }
 
-    /// `Local` source must never dedup against the marketplace clone — a
+    /// `Local` source must never dedup against the marketplace clone -- a
     /// local path could point anywhere on disk, so reusing the marketplace
     /// dir would silently swap the user's intended files for the
     /// marketplace's.
@@ -1114,7 +1114,7 @@ mod tests {
 
     #[test]
     fn resolve_subdir_url_shorthand_and_full() {
-        // owner/repo shorthand → GitHub https
+        // owner/repo shorthand -> GitHub https
         assert_eq!(
             resolve_subdir_url("openclaw/openclaw").unwrap(),
             "https://github.com/openclaw/openclaw.git"

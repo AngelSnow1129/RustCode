@@ -8,7 +8,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::WelcomeBannerLine2 =>
             "(↑↓ to navigate, Enter to confirm, Esc to skip)".into(),
         Msg::WelcomeOptionCodingPlan => "Set up CodingPlan".into(),
-        Msg::WelcomeOptionCodingPlanHint => "Free tokens · recommended".into(),
+        Msg::WelcomeOptionCodingPlanHint => "Free tokens . recommended".into(),
         Msg::WelcomeOptionConfigureManually => "Configure manually".into(),
         Msg::WelcomeOptionConfigureManuallyHint => "API key".into(),
         Msg::WelcomeOptionSkip => "Skip for now".into(),
@@ -18,37 +18,37 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CodingPlanSetupFailed { error } =>
             format!("/login setup failed: {error}").into(),
         Msg::CpReauthAfter401 =>
-            "  ⚠ Stored login expired — re-authenticating...\n".into(),
+            "  [!] Stored login expired -- re-authenticating...\n".into(),
         Msg::ChatAuthExpired =>
-            "Authentication expired — please run /login to sign in again".into(),
+            "Authentication expired -- please run /login to sign in again".into(),
         Msg::NetworkConnectHint =>
             "Network connect failed. If this works in a browser you may be behind a proxy/firewall: configure a proxy with /proxy or set HTTPS_PROXY, or open the login URL above in a browser to finish. Press Esc to skip and /login later.".into(),
         Msg::CpSetupHeader =>
             "  {brand} CodingPlan setup:\n\n".into(),
         Msg::CpLoggedIn { who, username, email } =>
-            format!("  ✓ Logged in as {} ({}, {})\n", who, username, email).into(),
+            format!("  [+] Logged in as {} ({}, {})\n", who, username, email).into(),
         Msg::CpStepSkipped { reason } =>
-            format!("  ✓ {}\n", reason).into(),
+            format!("  [+] {}\n", reason).into(),
         Msg::CpLoginFailed { error } =>
-            format!("  × Login failed — {}\n", error).into(),
+            format!("  [x] Login failed -- {}\n", error).into(),
         Msg::CpClaimed { message, plan_type } =>
-            format!("  ✓ CodingPlan claimed — {} (CodingPlan {})\n", message, plan_type).into(),
+            format!("  [+] CodingPlan claimed -- {} (CodingPlan {})\n", message, plan_type).into(),
         Msg::CpClaimSuccessFallback => "success".into(),
         Msg::CpAlreadyClaimed { reason } =>
-            format!("  ✓ CodingPlan already claimed — {}\n", reason).into(),
+            format!("  [+] CodingPlan already claimed -- {}\n", reason).into(),
         Msg::CpClaimFailed { error } =>
-            format!("  × CodingPlan tier setup failed — {}\n", error).into(),
+            format!("  [x] CodingPlan tier setup failed -- {}\n", error).into(),
         Msg::CpClaimFailedBare =>
-            "  × CodingPlan tier setup failed\n".into(),
+            "  [x] CodingPlan tier setup failed\n".into(),
         Msg::CpClaimTierSucceeded { plan } =>
-            format!("  ✓ {} active\n", plan).into(),
+            format!("  [+] {} active\n", plan).into(),
         Msg::CpClaimTierAlreadyHeld { plan } =>
-            format!("  ✓ {} active\n", plan).into(),
+            format!("  [+] {} active\n", plan).into(),
         Msg::CpClaimTierFailed { tier, reason } =>
-            format!("  × CodingPlan {} tier setup failed — {}\n", tier, reason).into(),
+            format!("  [x] CodingPlan {} tier setup failed -- {}\n", tier, reason).into(),
         Msg::CpAddedProviders { accounts, models } =>
             format!(
-                "  ✓ Added {} account{} · {} model{}:\n",
+                "  [+] Added {} account{} . {} model{}:\n",
                 accounts,
                 if accounts == 1 { "" } else { "s" },
                 models,
@@ -58,46 +58,46 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CpLocked { name } =>
             // SGR 31 = standard red foreground, SGR 39 = reset to
             // default fg. Standard (not bright) so the terminal's
-            // theme palette decides the exact shade — Solarized,
+            // theme palette decides the exact shade -- Solarized,
             // Dracula, light-mode, etc. all map this onto their
             // own "red" rather than a hard-coded RGB the user can't
-            // tune. The `× … (requires Pro plan or higher)` text inside is
+            // tune. The `[x] ... (requires Pro plan or higher)` text inside is
             // a redundant signal so retained-mode terminals (which
             // strip SGR via the strict sanitizer path) still get
             // the meaning, just without the colour.
-            format!("      \x1b[31m× {}  (requires Pro plan or higher)\x1b[39m\n", name).into(),
+            format!("      \x1b[31m[x] {}  (requires Pro plan or higher)\x1b[39m\n", name).into(),
         Msg::CpProviderRow { provider, model, default_suffix } =>
-            format!("      • {}  ·  {}{}\n", provider, model, default_suffix).into(),
+            format!("      * {}  .  {}{}\n", provider, model, default_suffix).into(),
         Msg::CpDefaultSuffix => "  (default)".into(),
         Msg::CpVisionAuto { kind } =>
-            format!("  ✓ Vision preprocessor → {}  (auto-detected)\n", kind).into(),
+            format!("  [+] Vision preprocessor -> {}  (auto-detected)\n", kind).into(),
         Msg::CpVisionUserSupplied { kind } =>
-            format!("  ✓ Vision preprocessor → {}  (user setting kept)\n", kind).into(),
+            format!("  [+] Vision preprocessor -> {}  (user setting kept)\n", kind).into(),
         Msg::CpVisionCleared =>
-            "  ⚠ Vision preprocessor cleared — no VL/OCR model in current list\n".into(),
+            "  [!] Vision preprocessor cleared -- no VL/OCR model in current list\n".into(),
         Msg::CpModelsSkipped { reason } =>
-            format!("  ✓ Models step skipped — {}\n", reason).into(),
+            format!("  [+] Models step skipped -- {}\n", reason).into(),
         Msg::CpModelsFailed { error } =>
-            format!("  × Models step failed — {}\n", error).into(),
+            format!("  [x] Models step failed -- {}\n", error).into(),
         Msg::CpStatusHeader =>
-            "  ✓ CodingPlan status:\n".into(),
+            "  [+] CodingPlan status:\n".into(),
         Msg::CpPlanPending { plan } =>
-            format!("      Plan: {}  ·  pending activation\n", plan).into(),
+            format!("      Plan: {}  .  pending activation\n", plan).into(),
         Msg::CpPlanActive { plan, expires_at, remaining_days, total_days } =>
             format!(
-                "      Plan: {}  ·  expires {} ({}d / {}d remaining)\n",
+                "      Plan: {}  .  expires {} ({}d / {}d remaining)\n",
                 plan, expires_at, remaining_days, total_days,
             ).into(),
         Msg::CpUsageLine { usage, reset_at, duration } =>
-            format!("      Usage: {}  ·  resets {} (in {})\n", usage, reset_at, duration).into(),
+            format!("      Usage: {}  .  resets {} (in {})\n", usage, reset_at, duration).into(),
         Msg::CpWindowQuotaExhausted =>
-            "      ⚠ Current window quota exhausted\n".into(),
+            "      [!] Current window quota exhausted\n".into(),
         Msg::CpWindowQuotaHint { hint } =>
-            format!("      ⚠ {}\n", hint).into(),
+            format!("      [!] {}\n", hint).into(),
         Msg::CpStatusFetchSkipped { reason } =>
-            format!("  ⚠ Status fetch skipped — {}\n", reason).into(),
+            format!("  [!] Status fetch skipped -- {}\n", reason).into(),
         Msg::CpStatusFetchFailed { error } =>
-            format!("  ⚠ Status fetch failed (non-fatal) — {}\n", error).into(),
+            format!("  [!] Status fetch failed (non-fatal) -- {}\n", error).into(),
         Msg::CpOfficialBuildRequired => Cow::Borrowed(
             "This feature requires the official {brand} build. Download it from \
              https://gitcode.com/SecLab/RustCode/releases.",
@@ -127,21 +127,21 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── Status bar ──
         Msg::StatusNoProvider =>
-            "no provider · /provider to configure".into(),
+            "no provider . /provider to configure".into(),
         Msg::StatusRuntimeUnavailable =>
-            "runtime unavailable · restart or inspect the error above".into(),
+            "runtime unavailable . restart or inspect the error above".into(),
         Msg::StatusOfficialBuildRequired =>
             "CodingPlan needs the official build".into(),
         Msg::StatusUpgradeHint { version } =>
-            format!("↑ {version} available · /upgrade").into(),
+            format!("↑ {version} available . /upgrade").into(),
         Msg::StatusUpgradeHintPm { version } =>
-            format!("↑ {version} available · brew upgrade rustcode").into(),
+            format!("↑ {version} available . brew upgrade rustcode").into(),
         Msg::StatusModelNotConfigured =>
             "(not configured)".into(),
         Msg::StatusClipboardImageHint =>
-            "Image in clipboard · ctrl+v / ctrl+alt+v to paste".into(),
+            "Image in clipboard . ctrl+v / ctrl+alt+v to paste".into(),
         Msg::StatusClipboardImageHintSlash =>
-            "Image in clipboard · /paste".into(),
+            "Image in clipboard . /paste".into(),
         Msg::StatusWebuiHint =>
             "Tips: Use /webui to open {brand} in your browser".into(),
 
@@ -156,40 +156,40 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::StatusLoginNotSignedIn =>
             "  Login:  not signed in (run /login)\n".into(),
         Msg::StatusCpNotSignedIn =>
-            "  CodingPlan: (not signed in — run /login to set up)\n".into(),
+            "  CodingPlan: (not signed in -- run /login to set up)\n".into(),
         Msg::StatusCpFetchFailed { error } =>
-            format!("  CodingPlan: (status fetch failed — {})\n", error).into(),
+            format!("  CodingPlan: (status fetch failed -- {})\n", error).into(),
         Msg::StatusCpAuthExpired =>
-            "  CodingPlan: (login expired — run /login to sign in again)\n".into(),
+            "  CodingPlan: (login expired -- run /login to sign in again)\n".into(),
         Msg::StatusCpNoActive =>
-            "  CodingPlan: (no active plan — run /login)\n".into(),
+            "  CodingPlan: (no active plan -- run /login)\n".into(),
         Msg::StatusCpLine { plan, expires_at, remaining_days, total_days } =>
             format!(
-                "  CodingPlan: {}  ·  expires {} ({}d/{}d)\n",
+                "  CodingPlan: {}  .  expires {} ({}d/{}d)\n",
                 plan, expires_at, remaining_days, total_days,
             ).into(),
         Msg::StatusCpUsage { usage, reset_at, duration } =>
-            format!("  Usage: {}  ·  resets {} (in {})\n", usage, reset_at, duration).into(),
+            format!("  Usage: {}  .  resets {} (in {})\n", usage, reset_at, duration).into(),
         Msg::StatusCpWindowExhausted =>
-            "  ⚠ Current window quota exhausted\n".into(),
+            "  [!] Current window quota exhausted\n".into(),
         Msg::StatusCpWindowHint { hint } =>
-            format!("  ⚠ {}\n", hint).into(),
+            format!("  [!] {}\n", hint).into(),
         Msg::StatusInstructionFilesHeader =>
             "  Instruction files:\n".into(),
         Msg::StatusInstructionScopeGlobal => "User global".into(),
         Msg::StatusInstructionScopeProject => "Project shared".into(),
         Msg::StatusInstructionScopeUser => "User project override".into(),
         Msg::StatusInstructionPresent { path, label, scope } =>
-            format!("    ✓ {scope} ({label}): {path}\n").into(),
+            format!("    [+] {scope} ({label}): {path}\n").into(),
         Msg::StatusInstructionMissing { path, label, scope } =>
-            format!("    × {scope} ({label}): {path} — not found\n").into(),
+            format!("    [x] {scope} ({label}): {path} -- not found\n").into(),
         Msg::StatusMemoryFilesHeader => "  Memory files:\n".into(),
         Msg::StatusMemoryScopeGlobal => "User global".into(),
         Msg::StatusMemoryScopeProject => "Project memory".into(),
         Msg::StatusMemoryPresent { path, scope } =>
-            format!("    ✓ {scope}: {path}\n").into(),
+            format!("    [+] {scope}: {path}\n").into(),
         Msg::StatusMemoryMissing { path, scope } =>
-            format!("    × {scope}: {path} — not found\n").into(),
+            format!("    [x] {scope}: {path} -- not found\n").into(),
 
         // ── Help ──
         Msg::HelpAvailableCommands =>
@@ -252,7 +252,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
      Known-supported: Kitty / WezTerm / iTerm2 (with Report Modifiers
      enabled) / Windows Terminal / Ghostty / Warp. Other terminals
      (macOS Apple Terminal, default xterm, GNOME Terminal, VS Code's
-     integrated terminal) collapse Shift+Enter into plain Enter —
+     integrated terminal) collapse Shift+Enter into plain Enter --
      use \ + Enter instead.
   ** Ctrl+Alt+V is the fallback when the terminal intercepts Ctrl+V;
      Ctrl+Shift+V remains the terminal's plain-text paste shortcut.
@@ -277,7 +277,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderImportPrompt =>
             "Paste a template to auto-detect (curl / JSON / TOML), or Enter to fill manually:".into(),
         Msg::ProviderImportParsed { base_url, type_name, model } =>
-            format!("Detected: {base_url} · {type_name} · {model}").into(),
+            format!("Detected: {base_url} . {type_name} . {model}").into(),
         Msg::ProviderImportFailed =>
             "Not recognized as a template. Paste curl / JSON / TOML, or Enter to fill manually.".into(),
         Msg::ProviderNoProviders =>
@@ -306,7 +306,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "API key? (blank to leave unset)".into(),
         Msg::ProviderStepApiKeyWithHint { hint } =>
             format!("API key? [{hint}]").into(),
-        Msg::ProviderStepApiKeySet => "set — blank to keep".into(),
+        Msg::ProviderStepApiKeySet => "set -- blank to keep".into(),
         Msg::ProviderStepApiKeyUnset => "unset".into(),
         Msg::ProviderStepModel => "Model?".into(),
         Msg::ProviderStepModelWithHint { current } =>
@@ -336,10 +336,10 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderPanelTabAccounts => "Accounts".into(),
         Msg::ProviderPanelTabModels => "Models".into(),
         Msg::ProviderPanelEmptyAccounts =>
-            "(No provider accounts yet — press Ctrl+A to add one)".into(),
+            "(No provider accounts yet -- press Ctrl+A to add one)".into(),
         Msg::ProviderPanelNoMatchingAccounts => "(No matching provider accounts)".into(),
         Msg::ProviderPanelEmptyModels =>
-            "(No models yet — press Ctrl+A to add one)".into(),
+            "(No models yet -- press Ctrl+A to add one)".into(),
         Msg::ProviderPanelNoMatchingModels => "(No matching models)".into(),
         Msg::ProviderPanelLegacyBadge => "legacy".into(),
         Msg::ProviderPanelDefaultBadge => "default".into(),
@@ -347,15 +347,15 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("{count} model{}", if count == 1 { "" } else { "s" }).into(),
         Msg::ProviderPanelAddModelRow => "+ Add model".into(),
         Msg::ProviderPanelAccountsHint =>
-            "Filter · ↑↓ select · ↵ models · Ctrl+A add · Ctrl+E edit · Ctrl+Dx2 delete · Tab switch · Esc close".into(),
+            "Filter . ↑↓ select . ↵ models . Ctrl+A add . Ctrl+E edit . Ctrl+Dx2 delete . Tab switch . Esc close".into(),
         Msg::ProviderPanelManagedAccountHint =>
-            "Official CodingPlan account · view only · ↵ models · Tab switch · Esc close".into(),
+            "Official CodingPlan account . view only . ↵ models . Tab switch . Esc close".into(),
         Msg::ProviderPanelModelsHint =>
-            "Filter · ↑↓ select · ↵ default/add · Ctrl+A add · Ctrl+E edit · Ctrl+Dx2 delete · Tab switch · Esc close".into(),
+            "Filter . ↑↓ select . ↵ default/add . Ctrl+A add . Ctrl+E edit . Ctrl+Dx2 delete . Tab switch . Esc close".into(),
         Msg::ProviderPanelManagedModelsHint =>
-            "CodingPlan models are managed by /login · ↑↓ select · ↵ default · Tab all · Esc close".into(),
+            "CodingPlan models are managed by /login . ↑↓ select . ↵ default . Tab all . Esc close".into(),
         Msg::ProviderPanelFilteredModelsHint { account } =>
-            format!("[{account}] · ↑↓ select · ↵ default/add · Ctrl+A add model · Ctrl+E edit · Ctrl+Dx2 delete · Tab all · Esc close").into(),
+            format!("[{account}] . ↑↓ select . ↵ default/add . Ctrl+A add model . Ctrl+E edit . Ctrl+Dx2 delete . Tab all . Esc close").into(),
         Msg::ProviderPanelModelSaved { model } => format!("Saved model \"{model}\".").into(),
         Msg::ProviderPanelAddTitle => "[Add provider account]".into(),
         Msg::ProviderPanelEditAccountTitle { account } =>
@@ -375,20 +375,20 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderPanelFieldEffortLevels => "Supported levels".into(),
         Msg::ProviderPanelFieldWindow => "Context window".into(),
         Msg::ProviderPanelFieldMakeDefault => "Set as default".into(),
-        Msg::ProviderPanelSwitchHint => "←→ to switch".into(),
+        Msg::ProviderPanelSwitchHint => "←-> to switch".into(),
         Msg::ProviderPanelEnvHint { env } => format!("blank uses ${env}").into(),
         Msg::ProviderPanelDefaultValue => "default".into(),
         Msg::ProviderPanelKeepOriginal => "blank keeps current value".into(),
         Msg::ProviderPanelProviderFormHint =>
-            "Tab Next  ←→ Switch provider  Space Toggle  ↵ Save  Esc Back".into(),
+            "Tab Next  ←-> Switch provider  Space Toggle  ↵ Save  Esc Back".into(),
         Msg::ProviderPanelAccountFormHint => "Tab Switch  ↵ Save  Esc Back".into(),
         Msg::ProviderPanelModelFormHint =>
-            "Tab Next  ←→ Switch option  Space Toggle  ↵ Save  Esc Back".into(),
+            "Tab Next  ←-> Switch option  Space Toggle  ↵ Save  Esc Back".into(),
         // ── Model picker ──
         Msg::ModelSwitched { provider, model } =>
-            format!("  Switched to {provider} · {model} for this session\n").into(),
+            format!("  Switched to {provider} . {model} for this session\n").into(),
         Msg::ModelSwitchedAndDefault { provider, model } =>
-            format!("  Switched to {provider} · {model}; set as default for new sessions\n").into(),
+            format!("  Switched to {provider} . {model}; set as default for new sessions\n").into(),
 
         // ── Session picker ──
         Msg::SessionLoadFailed { error } =>
@@ -404,7 +404,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         // ── Todo panel ──
         Msg::TodoPanelTitle => "Todos".into(),
         Msg::TodoPanelCompleted { n } => format!("{n} completed").into(),
-        Msg::TodoPanelMore { n } => format!("+{n} more…").into(),
+        Msg::TodoPanelMore { n } => format!("+{n} more...").into(),
 
         // ── Approval panel ──
         Msg::ApprovalAllowOnce => "Allow once".into(),
@@ -414,7 +414,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         }
         Msg::ApprovalAlwaysAllowCommand => "Always allow this command (this session)".into(),
         Msg::ApprovalDeny => "Deny".into(),
-        Msg::ApprovalHint => "↑↓ select · Enter confirm · Esc cancel".into(),
+        Msg::ApprovalHint => "↑↓ select . Enter confirm . Esc cancel".into(),
         Msg::ApprovalHeader { tool, detail } => {
             if detail.is_empty() {
                 format!("Allow {tool}?").into()
@@ -423,7 +423,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             }
         }
         Msg::CredentialApprovalNote => {
-            "⚠ May send credentials or sensitive content to the model provider".into()
+            "[!] May send credentials or sensitive content to the model provider".into()
         }
         Msg::ToolDenied => "denied".into(),
         Msg::ToolBlockedBySecurityPolicy =>
@@ -469,9 +469,9 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::SessionNoneSelected =>
             "No session selected".into(),
         Msg::SessionPickerHint =>
-            "↑↓ move · Enter open · Ctrl+D×2 delete · Type to search · Esc cancel".into(),
+            "↑↓ move . Enter open . Ctrl+D[x]2 delete . Type to search . Esc cancel".into(),
         Msg::SessionPickerTitle { n, total, project } =>
-            format!("Resume session ({n}/{total} · {project})").into(),
+            format!("Resume session ({n}/{total} . {project})").into(),
         Msg::SessionPickerTitleBare =>
             "Resume session".into(),
         Msg::SessionPickerEmptyProject =>
@@ -479,7 +479,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::SessionPickerEmptyFilter =>
             "(no sessions match)".into(),
         Msg::SessionPickerEmptyFilterQuery { query } =>
-            format!("(no sessions match \"{query}\" — Backspace to clear)").into(),
+            format!("(no sessions match \"{query}\" -- Backspace to clear)").into(),
         Msg::SessionDeleted { name } =>
             format!("\"{name}\" deleted").into(),
         Msg::SessionDeleteConfirm { name } =>
@@ -493,9 +493,9 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::DirPickerTitle { n, total } =>
             format!("Change working directory ({n}/{total})").into(),
         Msg::DirPickerHint =>
-            "↑↓ move · Tab complete · Enter open · Type to search/path · Esc cancel".into(),
+            "↑↓ move . Tab complete . Enter open . Type to search/path . Esc cancel".into(),
         Msg::DirPickerEmptyPath { query } =>
-            format!("No saved project matches \"{query}\" · Enter to open it as a path").into(),
+            format!("No saved project matches \"{query}\" . Enter to open it as a path").into(),
         Msg::DirCurrent => "current".into(),
         Msg::DirNotExists { path } =>
             format!("directory no longer exists: {path}").into(),
@@ -506,7 +506,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── Language ──
         Msg::LanguageSwitched { label, locale } =>
-            format!("  ✓ Language switched to {label} ({locale}).\n").into(),
+            format!("  [+] Language switched to {label} ({locale}).\n").into(),
 
         // ── Idle / onboarding hints ──
         Msg::IdleHintPrefix =>
@@ -567,7 +567,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdNoProviders =>
             "  No providers configured.\n".into(),
         Msg::CmdSessionListLoading =>
-            "  Loading sessions…\n".into(),
+            "  Loading sessions...\n".into(),
         Msg::CmdNoSessions =>
             "  No previous sessions found. Start a conversation first.\n".into(),
         Msg::CmdUnknownCommand { name } =>
@@ -577,36 +577,36 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdLoginFailed { error } =>
             format!("login failed: {error}").into(),
         Msg::CmdLogoutDone =>
-            "  Signed out of AtomGit. Permissions refreshed.\n".into(),
+            "  Signed out. Permissions refreshed.\n".into(),
         Msg::CmdLogoutFailed { error } =>
             format!("logout failed: {error}").into(),
         Msg::CmdWhoamiNotSignedIn =>
             "  Not signed in. Use /login to authenticate.\n".into(),
         Msg::CmdReloadDone { provider, model } =>
-            format!("  Config reloaded. Active: {provider} · {model}\n").into(),
+            format!("  Config reloaded. Active: {provider} . {model}\n").into(),
         Msg::CmdReloadFailed { error } =>
             format!("reload failed: {error} (kept previous config)").into(),
         Msg::CmdUndoNotSupported =>
             "  Undo is not yet supported.\n".into(),
         Msg::CmdUndoDone { target, last } =>
-            format!("  ↩ Rolled back to before turn {target} (removed turns {target}–{last}). Your prompt is back in the input box.\n").into(),
+            format!("  ↩ Rolled back to before turn {target} (removed turns {target}-{last}). Your prompt is back in the input box.\n").into(),
         Msg::CmdUndoDiskWarning =>
-            "  ⚠ Only conversation memory was rolled back — files on disk were NOT restored. Use /diff to review.\n".into(),
+            "  [!] Only conversation memory was rolled back -- files on disk were NOT restored. Use /diff to review.\n".into(),
         Msg::CmdUndoNoTurns =>
             "  Nothing to undo (no prompts yet).\n".into(),
         Msg::CmdUndoOutOfRange { requested, available } =>
             format!("  Invalid turn {requested} (conversation has {available} turn(s)).\n").into(),
         Msg::CmdUndoBusy =>
-            "  Can't undo while the agent is working — press Esc to cancel first.\n".into(),
+            "  Can't undo while the agent is working -- press Esc to cancel first.\n".into(),
         Msg::CmdRewindBusy =>
-            "  Can't rewind while the agent is working — press Esc to cancel first.\n".into(),
+            "  Can't rewind while the agent is working -- press Esc to cancel first.\n".into(),
         Msg::CmdRewindUnavailable => "Rewind is unavailable".into(),
         Msg::CmdUndoBadArg =>
             "  Usage: /undo  or  /undo N  (N = turn number).\n".into(),
         Msg::CmdNoChanges =>
             "  (no changes)\n".into(),
         Msg::CmdDiffTruncated =>
-            "  … diff output truncated\n".into(),
+            "  ... diff output truncated\n".into(),
         Msg::CmdCheckingUpdate =>
             "  Checking for updates...\n".into(),
         Msg::CmdNoActiveProvider =>
@@ -614,19 +614,19 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdProviderUnavailable =>
             "Provider is unavailable. Use /login to sign in or /provider to configure one.".into(),
         Msg::CmdProviderUnsupportedBuild =>
-            "This build cannot access the AtomGit gateway. Install an official build or use /provider to switch providers.".into(),
+            "This build cannot access the gateway. Install an official build or use /provider to switch providers.".into(),
         Msg::CmdProviderReloading =>
             "Provider/model is switching. Send after the switch completes.".into(),
         Msg::SubmitHeldUntilProviderReady =>
-            "  ↳ provider not ready yet — message queued, will send automatically once ready\n".into(),
+            "  ↳ provider not ready yet -- message queued, will send automatically once ready\n".into(),
         Msg::SubmitHeldUntilLogin =>
-            "  ↳ not signed in — message queued; run /login and it will send automatically\n".into(),
+            "  ↳ not signed in -- message queued; run /login and it will send automatically\n".into(),
 
         // ── Approval prompt ──
         Msg::ApprovalPromptAlt { tool, detail } =>
             format!("Allow {}({})? [Y]es=Enter / [N]o / [A]lways", tool, detail).into(),
         Msg::ApprovalWaitingLabel =>
-            "▶ Waiting for approval: ".into(),
+            "> Waiting for approval: ".into(),
         Msg::ApprovalAllow => " Allow  ".into(),
         Msg::ApprovalAlways => " Always  ".into(),
 
@@ -637,7 +637,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── Upgrade ──
         Msg::UpgradeSuccess { from, to } =>
-            format!("  ✓ Upgraded {} → {}\n", from, to).into(),
+            format!("  [+] Upgraded {} -> {}\n", from, to).into(),
         Msg::UpgradeManifestFetched { version } =>
             format!("  Latest version: {}\n", version).into(),
         Msg::UpgradeDownloading { pct, bytes, total } =>
@@ -647,16 +647,16 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::UpgradeReplacing =>
             "  Replacing binary\n".into(),
         Msg::UpgradeDone { version, backup } =>
-            format!("\n✓ Upgraded to {} (previous version kept at {})\n  Restarting new version...\n", version, backup).into(),
+            format!("\n[+] Upgraded to {} (previous version kept at {})\n  Restarting new version...\n", version, backup).into(),
         Msg::UpgradeAlreadyLatest { current, latest } =>
             format!(
-                "  ✓ Already on the latest version. already on {} (latest is {}). Pass --force to reinstall.\n",
+                "  [+] Already on the latest version. already on {} (latest is {}). Pass --force to reinstall.\n",
                 current, latest
             ).into(),
         Msg::UpgradeFailed { error } =>
             format!("Upgrade failed: {}", error).into(),
         Msg::UpgradeRolledBack { exe, backup } =>
-            format!("\n✓ Rolled back. Current binary: {}; other version saved at {}\n  Restarting rolled-back version...\n", exe, backup).into(),
+            format!("\n[+] Rolled back. Current binary: {}; other version saved at {}\n  Restarting rolled-back version...\n", exe, backup).into(),
 
 
         // ── /config ──
@@ -703,7 +703,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── /init ──
         Msg::InitKickoff =>
-            "  Analyzing the project and generating AGENTS.md…\n".into(),
+            "  Analyzing the project and generating AGENTS.md...\n".into(),
 
         // ── /cd ──
         Msg::CdWorkingDir { cwd } =>
@@ -774,15 +774,15 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::McpOAuthLogoutFailed { error } =>
             format!("  MCP OAuth logout failed: {error}\n").into(),
         Msg::McpProjectTrusted =>
-            "  Project trusted — reloading MCP servers.\n".into(),
+            "  Project trusted -- reloading MCP servers.\n".into(),
         Msg::McpProjectUntrusted =>
             "  Project trust revoked.\n".into(),
         Msg::McpProjectNotTrusted =>
             "  This project was not trusted.\n".into(),
         Msg::LspServerStarted { name, ext } =>
-            format!("✓ LSP server '{name}' started for .{ext}").into(),
+            format!("[+] LSP server '{name}' started for .{ext}").into(),
         Msg::LspServerFailed { name, ext, error } =>
-            format!("× LSP server '{name}' for .{ext} failed: {error}").into(),
+            format!("[x] LSP server '{name}' for .{ext} failed: {error}").into(),
 
         // ── /worktree ──
         Msg::WorktreeUsage =>
@@ -790,7 +790,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::WorktreeCreateUsage =>
             "  Usage: /worktree create <branch> [base]\n  Example: /worktree create fix-bug main\n".into(),
         Msg::WorktreeCreated { branch, base, path } =>
-            format!("  ✓ Worktree created\n    Branch: {} (based on {})\n    Path: {}\n    Working directory switched\n", branch, base, path).into(),
+            format!("  [+] Worktree created\n    Branch: {} (based on {})\n    Path: {}\n    Working directory switched\n", branch, base, path).into(),
         Msg::WorktreeCreateFailed { error } =>
             format!("worktree create failed: {}", error).into(),
         Msg::WorktreeNoActive =>
@@ -803,7 +803,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::WorktreeClean => "(clean)".into(),
         Msg::WorktreeCurrent => " ← current".into(),
         Msg::WorktreeDoneBack { path } =>
-            format!("  ✓ Switched back to: {}\n", path).into(),
+            format!("  [+] Switched back to: {}\n", path).into(),
         Msg::WorktreeDoneMergeHint { branch } =>
             format!("  Hint: use 'git merge {}' or create a PR to merge into main branch\n", branch).into(),
         Msg::WorktreeNoSession =>
@@ -811,11 +811,11 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::WorktreeCleanupUsage =>
             "  Usage: /worktree cleanup <branch> [--force]\n".into(),
         Msg::WorktreeCleaned { branch } =>
-            format!("  ✓ Worktree '{}' cleaned up\n", branch).into(),
+            format!("  [+] Worktree '{}' cleaned up\n", branch).into(),
         Msg::WorktreeCleanedSwitched { path } =>
             format!("  Switched back to: {}\n", path).into(),
         Msg::WorktreeCleanupUncommitted { branch } =>
-            format!("  ⚠ Worktree '{}' has uncommitted changes.\n  Use /worktree cleanup {} --force to force cleanup\n", branch, branch).into(),
+            format!("  [!] Worktree '{}' has uncommitted changes.\n  Use /worktree cleanup {} --force to force cleanup\n", branch, branch).into(),
         Msg::WorktreeCleanupFailed { error } =>
             format!("worktree cleanup failed: {}", error).into(),
 
@@ -831,7 +831,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── /setup ──
         Msg::SetupHeader { installed, skipped, failed, duration_ms } =>
-            format!("\n✅ Setup complete — {} installed, {} skipped, {} failed  · {}ms\n\n", installed, skipped, failed, duration_ms).into(),
+            format!("\n[+] Setup complete -- {} installed, {} skipped, {} failed  . {}ms\n\n", installed, skipped, failed, duration_ms).into(),
         Msg::SetupInstalledLabel =>
             "Installed:\n".into(),
         Msg::SetupSkippedLabel =>
@@ -839,27 +839,27 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::SetupFailedLabel =>
             "\nFailed:\n".into(),
         Msg::SetupInstalledRow { kind, slug, path } =>
-            format!("  ✓ {}:{} → {}\n", kind, slug, path).into(),
+            format!("  [+] {}:{} -> {}\n", kind, slug, path).into(),
         Msg::SetupSkippedRow { kind, slug, reason } =>
             format!("  - {}:{} ({:?})\n", kind, slug, reason).into(),
         Msg::SetupFailedRow { kind, slug, error } =>
-            format!("  × {}:{} — {}\n", kind, slug, error).into(),
+            format!("  [x] {}:{} -- {}\n", kind, slug, error).into(),
         Msg::CmdSetupTip =>
             // No leading emoji: U+1F4A1 has terminal/font-dependent display
             // width (1 vs 2 cells), which desynced this line's cell layout
-            // on some terminals (garbled "TTip:RRun…" over SSH). ASCII-only
+            // on some terminals (garbled "TTip:RRun..." over SSH). ASCII-only
             // prefix keeps the width unambiguous.
             "Tip: Run \x1b[1;96m/setup\x1b[0m to auto-configure hooks, skills, and MCP for this project.".into(),
         Msg::CmdSetupRunning =>
             "Running rustcode setup...".into(),
         Msg::CmdSetupSkillsReloaded { count } =>
-            format!("  🔄 Skills reloaded — {} available", count).into(),
+            format!("  [*] Skills reloaded -- {} available", count).into(),
         Msg::CmdSetupError { error } =>
             format!("setup error: {error}").into(),
         Msg::CmdSetupRunningSkill =>
-            "  🚀 Running setup skill — analyzing project and generating recommendations...".into(),
+            "  [*] Running setup skill -- analyzing project and generating recommendations...".into(),
         Msg::CmdSetupSkillMissing =>
-            "setup skill not found — try running /setup again to reinstall".into(),
+            "setup skill not found -- try running /setup again to reinstall".into(),
 
         // ── /plugin ──
         Msg::PluginUsage =>
@@ -887,13 +887,13 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::PluginInstalledHeader =>
             "installed plugins:".into(),
         Msg::PluginMarketplaceCloning { url } =>
-            format!("cloning marketplace from {url}…").into(),
+            format!("cloning marketplace from {url}...").into(),
         Msg::PluginMarketplaceRemoved { name } =>
             format!("marketplace `{name}` removed").into(),
         Msg::PluginMarketplaceRemoveFailed { error } =>
             format!("remove marketplace: {error}").into(),
         Msg::PluginMarketplaceUpdating { name } =>
-            format!("updating marketplace `{name}`…").into(),
+            format!("updating marketplace `{name}`...").into(),
         Msg::PluginMarketplaceListFailed { error } =>
             format!("list marketplaces: {error}").into(),
         Msg::PluginAutoUpdateSkipped { detail } =>
@@ -901,50 +901,50 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::OfflineModeActive =>
             "Offline mode: web tools and auto-update are disabled.".into(),
         Msg::PluginHooksUntrusted { count, names } => format!(
-            "{count} plugin(s) ship untrusted hooks ({names}) — they won't run. Trust: rustcode plugin trust <name>"
+            "{count} plugin(s) ship untrusted hooks ({names}) -- they won't run. Trust: rustcode plugin trust <name>"
         ).into(),
         Msg::PluginInstalling { plugin, marketplace } =>
-            format!("installing `{plugin}@{marketplace}`…").into(),
+            format!("installing `{plugin}@{marketplace}`...").into(),
         Msg::PluginInstallingByName { plugin } =>
-            format!("installing `{plugin}`…").into(),
+            format!("installing `{plugin}`...").into(),
         Msg::PluginAlreadyInstalled { id } =>
             format!("  plugin `{id}` is already installed.\n  PS: To reinstall, first run `/plugin uninstall {id}` then `/plugin install {id}`\n").into(),
         Msg::PluginMgrBrowse => "Browse & install".into(),
-        Msg::PluginMgrAdd => "Add marketplace…".into(),
-        Msg::PluginMgrRemove => "Remove marketplace…".into(),
+        Msg::PluginMgrAdd => "Add marketplace...".into(),
+        Msg::PluginMgrRemove => "Remove marketplace...".into(),
         Msg::PluginMgrInstalled { count } => format!("Installed ({count})").into(),
-        Msg::PluginMgrInstalledMark => "✓ installed".into(),
+        Msg::PluginMgrInstalledMark => "[+] installed".into(),
         Msg::PluginMgrInstalledStatus => "installed".into(),
         Msg::PluginMgrInstallableStatus => "can be installed".into(),
         Msg::PluginMgrInstallingStatus => "installing".into(),
         Msg::PluginMgrUpdatingStatus => "updating".into(),
-        Msg::PluginMgrHintNav => "↑/↓ select · ⏎ open · esc back".into(),
-        Msg::PluginMgrHintToggle => "⏎ install/uninstall · esc back".into(),
-        Msg::PluginMgrHintRemove => "⏎ remove · esc back".into(),
-        Msg::PluginMgrHintUninstall => "⏎ uninstall · esc back".into(),
-        Msg::PluginMgrHintUrl => "Enter to add · Esc to cancel".into(),
-Msg::PluginMgrHintPending => "Installing, please wait… · esc back".into(),
-Msg::PluginMgrHintUpdating => "Updating, please wait… · esc back".into(),
-Msg::PluginMgrInstallingLabel => "Installing…".into(),
-        Msg::PluginMgrEmptyMarketplaces => "No marketplaces. Pick “Add marketplace…” · esc back".into(),
-        Msg::PluginMgrEmptyPlugins => "No plugins in this marketplace · esc back".into(),
-        Msg::PluginMgrEmptyInstalled => "No plugins installed · esc back".into(),
-        Msg::PluginMgrCloning => "Cloning marketplace…".into(),
-        Msg::PluginMgrInstalling { plugin } => format!("Installing {plugin}…").into(),
-        Msg::PluginMgrUpdating { plugin } => format!("Updating {plugin}…").into(),
+        Msg::PluginMgrHintNav => "↑/↓ select . ⏎ open . esc back".into(),
+        Msg::PluginMgrHintToggle => "⏎ install/uninstall . esc back".into(),
+        Msg::PluginMgrHintRemove => "⏎ remove . esc back".into(),
+        Msg::PluginMgrHintUninstall => "⏎ uninstall . esc back".into(),
+        Msg::PluginMgrHintUrl => "Enter to add . Esc to cancel".into(),
+Msg::PluginMgrHintPending => "Installing, please wait... . esc back".into(),
+Msg::PluginMgrHintUpdating => "Updating, please wait... . esc back".into(),
+Msg::PluginMgrInstallingLabel => "Installing...".into(),
+        Msg::PluginMgrEmptyMarketplaces => "No marketplaces. Pick “Add marketplace...” . esc back".into(),
+        Msg::PluginMgrEmptyPlugins => "No plugins in this marketplace . esc back".into(),
+        Msg::PluginMgrEmptyInstalled => "No plugins installed . esc back".into(),
+        Msg::PluginMgrCloning => "Cloning marketplace...".into(),
+        Msg::PluginMgrInstalling { plugin } => format!("Installing {plugin}...").into(),
+        Msg::PluginMgrUpdating { plugin } => format!("Updating {plugin}...").into(),
         Msg::PluginMgrEscToCancel => "Esc to cancel".into(),
-        Msg::PluginMgrRemoveMarketplaceTitle => "  ◆ Remove Marketplace".into(),
+        Msg::PluginMgrRemoveMarketplaceTitle => "  * Remove Marketplace".into(),
         Msg::PluginMgrRemoveMarketplacePrompt { name } => format!("  \x1b[33mAre you sure you want to remove marketplace '{name}'?\x1b[39m").into(),
         Msg::PluginMgrRemoveMarketplaceYes => "Yes, remove".into(),
         Msg::PluginMgrRemoveMarketplaceNo => "No, keep".into(),
-        Msg::PluginMgrRemoveMarketplaceHint => "↑/↓ select · ⏎ confirm · esc cancel".into(),
+        Msg::PluginMgrRemoveMarketplaceHint => "↑/↓ select . ⏎ confirm . esc cancel".into(),
         Msg::PluginScopeUser => "Install for you (user scope)".into(),
-        Msg::PluginScopeUserDesc => "~/.rustcode/plugins — all projects".into(),
+        Msg::PluginScopeUserDesc => "~/.rustcode/plugins -- all projects".into(),
         Msg::PluginScopeProject => "Install for all collaborators (project scope)".into(),
-        Msg::PluginScopeProjectDesc => ".rustcode/plugins — shared via git".into(),
+        Msg::PluginScopeProjectDesc => ".rustcode/plugins -- shared via git".into(),
         Msg::PluginScopeLocal => "Install for you, in this repo only (local scope)".into(),
-        Msg::PluginScopeLocalDesc => ".rustcode/plugins/local — not committed".into(),
-        Msg::PluginScopeHint => "↑↓ Select scope · Enter confirm · Esc back".into(),
+        Msg::PluginScopeLocalDesc => ".rustcode/plugins/local -- not committed".into(),
+        Msg::PluginScopeHint => "↑↓ Select scope . Enter confirm . Esc back".into(),
         Msg::PluginScopeUserShort => "user".into(),
         Msg::PluginScopeProjectShort => "project".into(),
         Msg::PluginScopeLocalShort => "local".into(),
@@ -965,22 +965,22 @@ Msg::PluginMgrInstallingLabel => "Installing…".into(),
         Msg::PluginReloadDone { skills, warnings } =>
             format!("Plugins reloaded: {skills} skill(s), {warnings} warning(s)").into(),
         Msg::PluginGitNotFound =>
-            "💡 git is not installed or not on PATH. Plugin marketplace auto-install and auto-update are disabled. Install git (e.g. `xcode-select --install` on macOS, `sudo apt install git` on Ubuntu) and restart {brand}.".into(),
+            "[!] git is not installed or not on PATH. Plugin marketplace auto-install and auto-update are disabled. Install git (e.g. `xcode-select --install` on macOS, `sudo apt install git` on Ubuntu) and restart {brand}.".into(),
         Msg::PluginMarketplaceAdded { name, commit, count, plugins } =>
             format!(
-                "✓ marketplace `{name}` added at {commit} ({count} plugins)\n  \
-                 Plugins: {plugins} — run /plugin install <plugin>@{name} to install before using its commands"
+                "[+] marketplace `{name}` added at {commit} ({count} plugins)\n  \
+                 Plugins: {plugins} -- run /plugin install <plugin>@{name} to install before using its commands"
             ).into(),
         Msg::PluginMarketplaceUpdated { name, commit } =>
-            format!("✓ marketplace `{name}` updated to {commit}").into(),
+            format!("[+] marketplace `{name}` updated to {commit}").into(),
         Msg::PluginInstallDone { plugin, marketplace: _, loaded, skipped, show_details_hint } => {
-            format!("  ⎿  ✓ Installed {plugin} — {}", plugin_reload_summary(loaded, skipped, show_details_hint)).into()
+            format!("  `  [+] Installed {plugin} -- {}", plugin_reload_summary(loaded, skipped, show_details_hint)).into()
         }
         Msg::PluginUpdateDone { plugin, marketplace: _, loaded, skipped, show_details_hint } => {
-            format!("  ⎿  ✓ Updated {plugin} — {}", plugin_reload_summary(loaded, skipped, show_details_hint)).into()
+            format!("  `  [+] Updated {plugin} -- {}", plugin_reload_summary(loaded, skipped, show_details_hint)).into()
         }
         Msg::SetupAutoReloaded { skills, warnings } =>
-            format!("✓ Setup complete, auto-reloaded: {skills} skill(s), {warnings} warning(s)").into(),
+            format!("[+] Setup complete, auto-reloaded: {skills} skill(s), {warnings} warning(s)").into(),
 
         // ── Command descriptions ──
         Msg::CmdDescWebui => "Launch the browser webui (subcommands: stop, lan, --host <addr>)".into(),
@@ -1033,21 +1033,21 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CopyOk { lines, chars } => format!("Copied code block to clipboard ({lines} lines, {chars} chars)").into(),
         Msg::CopyOkMsg { lines, chars } => format!("Copied reply to clipboard ({lines} lines, {chars} chars)").into(),
         Msg::CopyNoCodeBlock => "No code block in the last reply to copy".into(),
-        Msg::CopyMsgEmpty => "The last reply is empty — nothing to copy".into(),
-        Msg::CopyBadIndex { count } => format!("No such code block — the last reply has {count} (use /copy N, 1..={count})").into(),
-        Msg::CopyFailed => "Clipboard unavailable — could not copy".into(),
+        Msg::CopyMsgEmpty => "The last reply is empty -- nothing to copy".into(),
+        Msg::CopyBadIndex { count } => format!("No such code block -- the last reply has {count} (use /copy N, 1..={count})").into(),
+        Msg::CopyFailed => "Clipboard unavailable -- could not copy".into(),
         Msg::CmdDescSave => "Save the current conversation to a markdown file (/save, /save [filename])".into(),
         Msg::SaveOk { path } => format!("Conversation saved to {path}").into(),
         Msg::SaveEmpty => "No conversation to export yet".into(),
         Msg::SaveIoError { error } => format!("Failed to save conversation: {error}").into(),
-        Msg::SaveInvalidPath { path } => format!("Invalid path — directory does not exist: {path}").into(),
-        Msg::SaveRefuseOverwrite { path } => format!("Target exists and isn't a markdown file — refused to overwrite it (avoids clobbering source/config): {path}. Use a .md filename or a new path.").into(),
-        Msg::CodeBlockCopied => "📋 Copied code block to clipboard".into(),
+        Msg::SaveInvalidPath { path } => format!("Invalid path -- directory does not exist: {path}").into(),
+        Msg::SaveRefuseOverwrite { path } => format!("Target exists and isn't a markdown file -- refused to overwrite it (avoids clobbering source/config): {path}. Use a .md filename or a new path.").into(),
+        Msg::CodeBlockCopied => "[+] Copied code block to clipboard".into(),
         Msg::CmdDescGuide => "Ask rustcode-guide how to use".into(),
         Msg::CmdDescView => "View file content in an overlay modal".into(),
         Msg::CmdDescApp => "Expose this session to the mobile App via relay (QR pairing; /app stop to detach)".into(),
         Msg::CmdDescSync => "Attach to live webui session (/sync off to detach)".into(),
-        Msg::CmdDescReview => "Code review the current changes (/review · /review staged · /review <base>)".into(),
+        Msg::CmdDescReview => "Code review the current changes (/review . /review staged . /review <base>)".into(),
         Msg::CmdDescGoal => "Set a completion goal (autonomous loop until met)".into(),
         Msg::CmdDescProxy => "Switch outbound proxy mode".into(),
         Msg::CmdDescTodo => "Show the current todo list; `/todo add <task>` appends one, `/todo clear` wipes it".into(),
@@ -1056,7 +1056,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CmdDescDesktop =>
             "Open the {brand} desktop app (launch it if installed, else show the download link)".into(),
         Msg::DesktopOpening { name, path } =>
-            format!("Opening {}…\n  {}\n", name, path).into(),
+            format!("Opening {}...\n  {}\n", name, path).into(),
         Msg::DesktopNotInstalled { url } =>
             format!("{{brand}} desktop app not found. Download & install:\n  {}\n", url).into(),
         Msg::DesktopLaunchFailed { path, err } =>
@@ -1064,7 +1064,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::TodoNoList => "No task list yet (the model hasn't created todos).".into(),
         Msg::TodoListHeader => "Current tasks:".into(),
         Msg::TodoAddUsage => "Usage: /todo add <task description>".into(),
-        Msg::GuideMenuHeader => "📖 {brand} Guide — type /guide <question>".into(),
+        Msg::GuideMenuHeader => "[*] {brand} Guide -- type /guide <question>".into(),
         Msg::GuideMenuTopics => "Common topics:".into(),
         Msg::GuideMenuGettingStarted => "Getting started          First install, login, config".into(),
         Msg::GuideMenuSwitchModel => "Set default model        /model /provider usage".into(),
@@ -1079,13 +1079,13 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
   Tip: type /guide <your question> for a specific answer.
   Example: /guide How to set the default model
 ".into(),
-        Msg::GuideMenuDocUrl => "  Full docs: https://rustcode.atomgit.com/docs/en/".into(),
+        Msg::GuideMenuDocUrl => "  Full docs: https://docs.rustcode.dev/en/".into(),
         Msg::CmdGuideInstalling => "Installing ask skill, please wait...".into(),
-        Msg::CmdGuideAutoInstall => "ask skill not installed — auto-installing rustcode@rustcode-skills...".into(),
+        Msg::CmdGuideAutoInstall => "ask skill not installed -- auto-installing rustcode@rustcode-skills...".into(),
         Msg::CmdGuideAutoInvoke { topic } =>
             format!("ask skill installed, now answering: {}", topic).into(),
         Msg::CmdGuideSkillNotFound =>
-            "Installation complete but ask skill not found — run /plugin reload and try again".into(),
+            "Installation complete but ask skill not found -- run /plugin reload and try again".into(),
         Msg::CmdGuideInstallFailed { error } =>
             format!("ask skill install failed: {}. Run /plugin install rustcode@rustcode-skills manually", error).into(),
         Msg::CmdPasteNoImage => "No image in clipboard.".into(),
@@ -1101,18 +1101,18 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             format!("config save failed: {}", error).into(),
 
         // ── OnboardingWizard ──
-        Msg::OnboardingStepHeaderWelcome => "Step 1/3 · Welcome".into(),
-        Msg::OnboardingStepHeaderLanguage => "Step 2/3 · Language".into(),
-        Msg::OnboardingStepHeaderSetup => "Step 3/3 · Setup".into(),
+        Msg::OnboardingStepHeaderWelcome => "Step 1/3 . Welcome".into(),
+        Msg::OnboardingStepHeaderLanguage => "Step 2/3 . Language".into(),
+        Msg::OnboardingStepHeaderSetup => "Step 3/3 . Setup".into(),
         Msg::OnboardingPanelTitle => "{brand}".into(),
         Msg::OnboardingIntroVersionLine { v } =>
-            format!("Version {v}  ·  AI coding agent in your terminal").into(),
+            format!("Version {v}  .  AI coding agent in your terminal").into(),
         Msg::OnboardingIntroBullet1 =>
-            "• Multi-step agent loop · built-in code-graph tools".into(),
+            "* Multi-step agent loop . built-in code-graph tools".into(),
         Msg::OnboardingIntroBullet2 =>
-            "• Connects to any OpenAI-compatible API".into(),
+            "* Connects to any OpenAI-compatible API".into(),
         Msg::OnboardingIntroBullet3 =>
-            "• Free tokens via CodingPlan".into(),
+            "* Free tokens via CodingPlan".into(),
         Msg::OnboardingIntroPressEnter => "Press Enter to continue.".into(),
         Msg::OnboardingIntroCtrlC => "Ctrl+C exits at any point.".into(),
         Msg::OnboardingIntroCompactTagline =>
@@ -1127,30 +1127,30 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::OnboardingLanguageOptionZhCn => "简体中文 (Simplified Chinese)".into(),
         Msg::OnboardingSetupTitle => "How would you like to set up?".into(),
         Msg::OnboardingNavHint =>
-            "1-3 select · Enter confirm · ← back · Esc skip".into(),
+            "1-3 select . Enter confirm . ← back . Esc skip".into(),
         Msg::OnboardingConfirmClear =>
             "/welcome will clear the screen. Continue? [y/N]".into(),
         Msg::CmdWelcomeDescription => "Re-run the onboarding wizard".into(),
         Msg::VisionPreprocessSuccess { char_count } =>
-            format!("✓ VL recognised image, returned {char_count} chars").into(),
+            format!("[+] VL recognised image, returned {char_count} chars").into(),
         Msg::VisionPreprocessFailed { reason } =>
-            format!("VL preprocessing failed: {reason} · continuing text-only this turn; images restored, retry to re-run recognition").into(),
+            format!("VL preprocessing failed: {reason} . continuing text-only this turn; images restored, retry to re-run recognition").into(),
         Msg::TurnSummary { done, turn_count, tool_call_count, duration, total_tokens, cached_pct } =>
             format!(
-                "✓ {done} · {turn_count} rounds · {tool_call_count} tools · {duration} · {} tokens{}",
+                "[+] {done} . {turn_count} rounds . {tool_call_count} tools . {duration} . {} tokens{}",
                 super::fmt_tokens(total_tokens),
-                cached_pct.map(|p| format!(" · {p}% cached")).unwrap_or_default(),
+                cached_pct.map(|p| format!(" . {p}% cached")).unwrap_or_default(),
             ).into(),
         Msg::TurnSummaryError { turn_count, tool_call_count, duration, total_tokens, reason } => {
             let cause = reason.map(|r| format!(": {r}")).unwrap_or_default();
-            format!("✗ Stopped{cause} · {turn_count} rounds · {tool_call_count} tools · {duration} · {} tokens", super::fmt_tokens(total_tokens)).into()
+            format!("[x] Stopped{cause} . {turn_count} rounds . {tool_call_count} tools . {duration} . {} tokens", super::fmt_tokens(total_tokens)).into()
         }
         Msg::TurnSummaryPolicyDenied { turn_count, tool_call_count, duration, total_tokens, reason } => {
             let cause = reason.map(|r| format!(": {r}")).unwrap_or_default();
-            format!("✗ Turn stopped by security policy{cause} · {turn_count} rounds · {tool_call_count} tools · {duration} · {} tokens", super::fmt_tokens(total_tokens)).into()
+            format!("[x] Turn stopped by security policy{cause} . {turn_count} rounds . {tool_call_count} tools . {duration} . {} tokens", super::fmt_tokens(total_tokens)).into()
         }
         Msg::LoginQrHeader =>
-            "  Sign in to AtomGit — scan the QR code with your WeChat:\n\n".into(),
+            "  Sign in -- scan the QR code with your WeChat:\n\n".into(),
         Msg::LoginUrlAfterQr =>
             "\n\n  OR open the URL below in a browser:\n  ".into(),
         Msg::LoginNoQrNoUrl =>
@@ -1158,11 +1158,11 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
              and URL-based login is unavailable on this platform.\n  \
              Try a Unicode-capable terminal to display the QR.".into(),
         Msg::LoginUrlOnly =>
-            "  Open this URL in any browser to sign in to AtomGit:\n  ".into(),
+            "  Open this URL in any browser to sign in:\n  ".into(),
         Msg::LoginCancelHint => "\n\n  Press ESC to cancel\n".into(),
         Msg::CtxUsageHeader => "Context Usage".into(),
-        Msg::CtxUsageNoTurns => "(run at least one turn first — stats are captured per turn)".into(),
-        Msg::CtxUsageWaiting => "(waiting for first complete turn — partial stats only)".into(),
+        Msg::CtxUsageNoTurns => "(run at least one turn first -- stats are captured per turn)".into(),
+        Msg::CtxUsageWaiting => "(waiting for first complete turn -- partial stats only)".into(),
         Msg::CtxProvider => "Provider".into(),
         Msg::CtxCtxName => "ctx".into(),
         Msg::CtxLabelSystemPrompt => "System prompt".into(),
@@ -1172,12 +1172,12 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CtxLabelFree => "Free".into(),
         Msg::CtxMessagesInWindow { n } => format!("Messages in window: {n}").into(),
         Msg::CtxSystemPromptHeader => "=== SYSTEM PROMPT ===".into(),
-        Msg::CtxSystemPromptEmpty => "(empty — wait for one complete turn to capture)".into(),
+        Msg::CtxSystemPromptEmpty => "(empty -- wait for one complete turn to capture)".into(),
         Msg::CtxTokensSuffix => "tokens".into(),
-        Msg::CompactNothingShort => "(nothing to compact — conversation is short)\n".into(),
+        Msg::CompactNothingShort => "(nothing to compact -- conversation is short)\n".into(),
         Msg::CompactStarting => "(compacting with LLM summary...)\n".into(),
         Msg::CompactInterrupted =>
-            "(compaction interrupted — the coding runtime changed or stopped)\n".into(),
+            "(compaction interrupted -- the coding runtime changed or stopped)\n".into(),
         Msg::CompactUnavailableDuringSync =>
             "Cannot compact while live sync is active; run /sync off first".into(),
         Msg::CompactUnavailableDuringResync =>
@@ -1187,22 +1187,22 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::LocalRuntimeRestoreTimedOut =>
             "The local runtime restore timed out; Live sync has been restored".into(),
         Msg::CompactNothingNoSavings { before, after } =>
-            format!("(nothing to compact — would not save tokens: {} → {})\n", before, after).into(),
+            format!("(nothing to compact -- would not save tokens: {} -> {})\n", before, after).into(),
         Msg::CompactDropped { messages, before, after } => {
             let plural = if messages == 1 { "" } else { "s" };
-            format!("(compacted — dropped {} message{}, {} → {} tokens)\n", messages, plural, before, after).into()
+            format!("(compacted -- dropped {} message{}, {} -> {} tokens)\n", messages, plural, before, after).into()
         }
-        Msg::Compacting => "Compacting…".into(),
-        Msg::CompactingSlow => "Compacting… (slow)".into(),
+        Msg::Compacting => "Compacting...".into(),
+        Msg::CompactingSlow => "Compacting... (slow)".into(),
         Msg::CompactMarkDrain { messages, before, after } => {
             let plural = if messages == 1 { "" } else { "s" };
-            format!("Compacted · {} message{} summarized · ~{}→~{} tok", messages, plural, before, after).into()
+            format!("Compacted . {} message{} summarized . ~{}->~{} tok", messages, plural, before, after).into()
         }
         Msg::CompactMarkStub { saved } =>
-            format!("Tool output folded · saved ~{} tok", saved).into(),
+            format!("Tool output folded . saved ~{} tok", saved).into(),
         Msg::CompactNegligibleSavings => "(this conversation doesn't need compacting)\n".into(),
         Msg::GoalHelp =>
-            "  /goal — autonomous multi-round work toward a stated condition.\n  \
+            "  /goal -- autonomous multi-round work toward a stated condition.\n  \
              Usage:\n  \
              \u{20}\u{20}/goal <condition>     set a new goal; agent loops until the evaluator says met\n  \
              \u{20}\u{20}/goal                 show current goal status\n  \
@@ -1212,24 +1212,24 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
              Notes:\n  \
              \u{20}\u{20}- A fast model evaluates each round; configure via [providers] +\n  \
              \u{20}\u{20}\u{20}\u{20}evaluator_provider in ~/.rustcode/config.toml.\n  \
-             \u{20}\u{20}- No built-in round / time cap — express budgets in the condition\n  \
+             \u{20}\u{20}- No built-in round / time cap -- express budgets in the condition\n  \
              \u{20}\u{20}\u{20}\u{20}text itself (e.g. \"or stop after 20 turns\"). CC's /goal works the same way.\n  \
              \u{20}\u{20}- Esc / Ctrl+C stops the goal at any time.\n".into(),
         Msg::GoalStatus { condition, round, mins, secs } =>
-            format!("  ◎ Goal: {}\n  Round: {}\n  Elapsed: {}m {}s\n", condition, round, mins, secs).into(),
+            format!("  * Goal: {}\n  Round: {}\n  Elapsed: {}m {}s\n", condition, round, mins, secs).into(),
         Msg::GoalNoActive =>
             "  No active goal.\n  Usage: /goal <condition>   |   /goal help\n".into(),
         Msg::GoalCleared => "  Goal cleared.\n".into(),
 
         // ── /loop ──
         Msg::LoopStatus { label, round, mins, secs } =>
-            format!("  ↻ loop: {} · round {} · {}m {}s\n", label, round, mins, secs).into(),
+            format!("  ↻ loop: {} . round {} . {}m {}s\n", label, round, mins, secs).into(),
         Msg::LoopNoActive =>
             "  No active /loop.\n  Usage: /loop <interval> <cmd>  or  /loop <prompt>\n".into(),
         Msg::LoopCleared => "  /loop stopped.\n".into(),
         Msg::LoopRound { round, stats } =>
-            format!("⚡ loop round {} · {}", round, stats).into(),
-        Msg::LoopStopped => "⚠ loop stopped (limit reached)\n".into(),
+            format!("[*] loop round {} . {}", round, stats).into(),
+        Msg::LoopStopped => "[!] loop stopped (limit reached)\n".into(),
         Msg::LoopEnded { reason } =>
             format!("  ↻ Loop ended: {reason}\n").into(),
         Msg::LoopNoPersistHint =>
@@ -1261,7 +1261,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::AdminWarningBanner =>
             "\x1b[33m\u{26a0} Warning: Running with Administrator privileges.\n   The model may have access to system files.\n   Consider running without elevation, inside a scoped working directory.\x1b[39m\n".into(),
         Msg::AdminWarningHeadless =>
-            "[warning] Running with Administrator privileges — model may have access to system files.".into(),
+            "[warning] Running with Administrator privileges -- model may have access to system files.".into(),
 
         Msg::CtrlCAgainToExit => "  (press Ctrl+C again to exit)\n".into(),
         Msg::EscAgainToUndo => "  (press Esc again to open Rewind)\n".into(),
@@ -1274,7 +1274,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::HintMultiLineInput =>
             "  \u{24d8} Multi-line input: end the line with `\\` then press Enter.\n    \
             Works in every terminal. (Shift / Alt / Ctrl + Enter may also work\n    \
-            depending on the terminal's keyboard protocol — try them out.)\n\n"
+            depending on the terminal's keyboard protocol -- try them out.)\n\n"
                 .into(),
 
         // ── /bg (background sessions) ──
@@ -1392,40 +1392,40 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::UsageHeatMore => "More".into(),
         Msg::UsageModelsTitle => "Per-model usage".into(),
         Msg::UsageNoData => "No usage data available".into(),
-        Msg::UsageFooterHint => "← / → or Tab switch · Ctrl+S copy · Esc close".into(),
+        Msg::UsageFooterHint => "← / -> or Tab switch . Ctrl+S copy . Esc close".into(),
         Msg::UsageFetchFailed { error } => format!("Failed to load usage: {error}").into(),
         Msg::UsagePlanTitle => "Plan".into(),
         Msg::UsagePlanActive => "Active".into(),
         Msg::UsagePlanExpired => "Expired".into(),
         Msg::UsagePlanClaimedExpires { claimed, expires } =>
-            format!("Claimed {claimed} · Expires {expires}").into(),
+            format!("Claimed {claimed} . Expires {expires}").into(),
         Msg::UsagePlanRemaining { remaining, total } =>
             format!("Remaining {remaining}/{total} days").into(),
         Msg::UsageCopied => "Copied to clipboard".into(),
         Msg::UsageCodingPlanOnly =>
-            "Usage is only available on CodingPlan — run /login.".into(),
+            "Usage is only available on CodingPlan -- run /login.".into(),
 
         // ── CodingRuntime provider init ──
         Msg::ProviderInitFailed { detail } =>
             format!("provider init failed: {detail}").into(),
         Msg::ProviderInitNeedsLogin =>
-            "Not signed in — model unavailable. Run /login to continue.".into(),
+            "Not signed in -- model unavailable. Run /login to continue.".into(),
         Msg::ProviderInitSourceBuild =>
-            "This is a source build — the AtomGit free gateway isn't available. Use /provider to \
+            "This is a source build -- the free gateway isn't available. Use /provider to \
              configure a model with your own api_key (e.g. DeepSeek / GLM / OpenAI), or switch to \
              an official release build.".into(),
         Msg::GatewayAuthUnavailable { base_url } =>
             format!(
-                "provider base_url '{base_url}' is an AtomGit gateway this build can't \
+                "provider base_url '{base_url}' is a gateway this build can't \
                  authenticate against. Use the official binary, or point the provider at a \
                  plain OpenAI-compatible endpoint with an api_key."
             ).into(),
         Msg::StreamStalled => "esc to cancel".into(),
         Msg::StreamRecoveryRunning { attempt, max_attempts } => format!(
-            "stream timed out; safely continuing from saved progress ({attempt}/{max_attempts})…"
+            "stream timed out; safely continuing from saved progress ({attempt}/{max_attempts})..."
         )
         .into(),
-        Msg::StreamRecoverySucceeded => "✓ recovered from the interrupted stream".into(),
+        Msg::StreamRecoverySucceeded => "[+] recovered from the interrupted stream".into(),
         Msg::OutputTruncationRunning { attempt, max_attempts } =>
             format!("Output limit reached; automatically continuing ({attempt}/{max_attempts})").into(),
         Msg::OutputTruncationHeader => "Output limit reached".into(),
@@ -1438,7 +1438,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::OutputTruncationStopDesc =>
             "Keep the output produced so far and end this turn".into(),
         Msg::ConhostScrollHint =>
-            "Tip: the classic Windows console is limited — no scroll-back while a task runs, \
+            "Tip: the classic Windows console is limited -- no scroll-back while a task runs, \
              and glyphs/the mascot render degraded. \x1b[1;96mWindows Terminal\x1b[0m gives the full experience."
                 .into(),
     }
@@ -1491,8 +1491,8 @@ mod codingplan_crypto_tests {
 /// Render the outcome the caller already measured: `reload_plugins` runs
 /// immediately before this toast, so the skills ARE loaded by the time it
 /// prints. The previous text ("Run /reload-plugins to apply") was wrong twice
-/// over — it named a slash command that does not exist, to ask for work that
-/// had already happened — and it threw away all three counts it was handed.
+/// over -- it named a slash command that does not exist, to ask for work that
+/// had already happened -- and it threw away all three counts it was handed.
 fn plugin_reload_summary(loaded: usize, skipped: usize, show_details_hint: bool) -> String {
     let mut out = format!("{loaded} skill(s) loaded");
     if skipped > 0 {

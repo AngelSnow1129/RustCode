@@ -1,7 +1,7 @@
 //! Agent-invocable AtomGit tools: `atomgit_repo` / `atomgit_pr` / `atomgit_issue`.
 //! Each dispatches on an `action` field and calls [`AtomgitClient`]. `risk()` is
 //! arg-aware: read actions are `Safe`, writes are `Risky`. The client (and its token
-//! provider) is injected at construction — see [`register_atomgit_tools`].
+//! provider) is injected at construction -- see [`register_atomgit_tools`].
 
 use std::process::Stdio;
 use std::sync::Arc;
@@ -16,7 +16,7 @@ use super::{err, ok};
 use crate::atomgit::models::{Comment, CreatedComment, Issue, PullRequest, Repo, Tag};
 use crate::atomgit::AtomgitClient;
 
-/// Pull `action` out of the raw args without failing the whole parse — used by
+/// Pull `action` out of the raw args without failing the whole parse -- used by
 /// `risk()`, which must classify before `execute` parses strictly.
 fn action_of(args: &str) -> Option<String> {
     serde_json::from_str::<serde_json::Value>(args)
@@ -110,9 +110,9 @@ impl Tool for AtomgitRepoTool {
         "Operate on AtomGit repositories. action: \"list\" (your repos), \"view\" \
          (owner+repo), \"create\" (name; optional owner=org, description, private), \
          \"delete\" (owner+repo), \"fork\" (owner+repo; optional name, private), \
-         \"clone\" (owner+repo; optional branch, dir — runs local `git clone`), \
+         \"clone\" (owner+repo; optional branch, dir -- runs local `git clone`), \
          \"create_tag\" (owner+repo+tag_name; optional refs=start point (default main), \
-         tag_message), \"labels\" (owner+repo — read project labels), \"ensure_label\" \
+         tag_message), \"labels\" (owner+repo -- read project labels), \"ensure_label\" \
          (owner+repo; optional label, default rustcode)."
     }
     fn parameters_schema(&self) -> serde_json::Value {
@@ -128,7 +128,7 @@ impl Tool for AtomgitRepoTool {
                 "branch": { "type": "string", "description": "Branch to clone." },
                 "dir": { "type": "string", "description": "Target dir for clone (relative to working dir)." },
                 "tag_name": { "type": "string", "description": "New tag name (create_tag)." },
-                "refs": { "type": "string", "description": "Start point for create_tag — branch/commit/tag (default main)." },
+                "refs": { "type": "string", "description": "Start point for create_tag -- branch/commit/tag (default main)." },
                 "tag_message": { "type": "string", "description": "Tag description (create_tag, optional)." },
                 "label": { "type": "string", "description": "Label for ensure_label (default \"rustcode\")." },
                 "limit": { "type": "integer", "description": "Max repos for list (default 30)." }
@@ -506,7 +506,7 @@ fn validate_api_path(path: &str) -> Result<(), String> {
     }
 }
 
-/// `atomgit_api` — credential-safe passthrough for AtomGit REST endpoints that
+/// `atomgit_api` -- credential-safe passthrough for AtomGit REST endpoints that
 /// have no dedicated typed tool. The bearer token is injected by the client, so
 /// it never appears in model-visible arguments (unlike a raw `bash`/`curl` call,
 /// which the `AtomgitBashGate` blocks for exactly that reason).
@@ -528,7 +528,7 @@ impl Tool for AtomgitApiTool {
     fn description(&self) -> &str {
         "Call any AtomGit REST API endpoint that has no dedicated tool (prefer \
          atomgit_repo / atomgit_pr / atomgit_issue when they cover the action). \
-         The auth token is attached server-side — NEVER put credentials in the \
+         The auth token is attached server-side -- NEVER put credentials in the \
          arguments. `path` is relative to the API base, e.g. \"/user/orgs\" or \
          \"/repos/{owner}/{repo}/branches\". Returns the raw JSON response."
     }
@@ -595,7 +595,7 @@ pub fn register_atomgit_tools(reg: &mut ToolRegistry, client: Arc<AtomgitClient>
 
 /// The tool names registered by [`register_atomgit_tools`], for `mount`.
 ///
-/// MUST stay in lockstep with `register_atomgit_tools` above — the embedder mounts
+/// MUST stay in lockstep with `register_atomgit_tools` above -- the embedder mounts
 /// exactly these names, so omitting one registers a tool the model can never call.
 /// `atomgit_api` in particular is where the bash gate steers the model after denying
 /// raw curl/REST calls; if it isn't exposed the model hits a dead end.
@@ -868,7 +868,7 @@ mod tests {
         assert_eq!(t.risk(r#"{"action":"fork"}"#), RiskLevel::Risky);
         assert_eq!(t.risk(r#"{"action":"clone"}"#), RiskLevel::Risky);
         assert_eq!(t.risk(r#"{"action":"create_tag"}"#), RiskLevel::Risky);
-        // malformed → fail safe to Risky
+        // malformed -> fail safe to Risky
         assert_eq!(t.risk("not json"), RiskLevel::Risky);
     }
 
@@ -936,7 +936,7 @@ mod tests {
             t.risk(r#"{"method":"DELETE","path":"/x"}"#),
             RiskLevel::Risky
         );
-        // malformed → fail safe to Risky
+        // malformed -> fail safe to Risky
         assert_eq!(t.risk("not json"), RiskLevel::Risky);
     }
 
@@ -1123,7 +1123,7 @@ mod tests {
         assert!(names.contains(&"atomgit_pr".to_string()));
         assert!(names.contains(&"atomgit_issue".to_string()));
         // Regression: `atomgit_api` was registered but missing from
-        // `atomgit_tool_names()`, so it was never mounted — while the bash gate
+        // `atomgit_tool_names()`, so it was never mounted -- while the bash gate
         // steered the model to it. Every registered tool must be exposed.
         assert!(
             names.contains(&"atomgit_api".to_string()),

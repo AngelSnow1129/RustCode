@@ -125,8 +125,8 @@ export function ModelSelector({
   const modelCounts = new Map<string, number>();
   for (const m of models) modelCounts.set(m.model, (modelCounts.get(m.model) ?? 0) + 1);
   const isDup = (name: string) => (modelCounts.get(name) ?? 0) > 1;
-  // Provider 名常形如 "AtomGit-deepseek-v4-flash"（厂商前缀 + 模型名）。去掉其中
-  // 重复的模型名片段，得到简短厂商标识（→ "AtomGit"）；不含模型名的原样返回（→ "DeepSeek"）。
+  // Provider 名常形如 "RustCode-deepseek-v4-flash"（厂商前缀 + 模型名）。去掉其中
+  // 重复的模型名片段，得到简短厂商标识（→ "RustCode"）；不含模型名的原样返回（→ "DeepSeek"）。
   const providerLabel = (m: ModelInfo): string => {
     const i = m.provider.indexOf(m.model);
     if (i < 0) return m.provider;

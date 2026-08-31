@@ -6,15 +6,15 @@
 //
 // Failure policy (matches product spec D5):
 //
-//   Step 1 Login  — if not logged in and OAuth fails → bail out (nothing
+//   Step 1 Login  -- if not logged in and OAuth fails -> bail out (nothing
 //                   downstream works without a token).
-//   Step 2 Claim  — `duplicate=true` means "already claimed / in review"
-//                   — report it as a skip, NOT an error, and continue.
-//                   Transport/5xx errors → bail (server is in a bad state).
-//   Step 3 Models — empty list or request failure → bail. The whole point
+//   Step 2 Claim  -- `duplicate=true` means "already claimed / in review"
+//                   -- report it as a skip, NOT an error, and continue.
+//                   Transport/5xx errors -> bail (server is in a bad state).
+//   Step 3 Models -- empty list or request failure -> bail. The whole point
 //                   of the flow is setting up providers; without models
 //                   we have nothing to install.
-//   Step 4 Status — warn-only. The plan is already set up; a failed
+//   Step 4 Status -- warn-only. The plan is already set up; a failed
 //                   status fetch just means we can't show the quota
 //                   widget. User can retry with `/codingplan` later.
 //
@@ -23,10 +23,10 @@
 //   - All previously-created `AtomGit*` entries are wiped before inserts.
 //     Since CodingPlan is the authoritative source of truth for the
 //     model list, keeping stale names around would confuse `/model`.
-//   - Single model → one provider named `AtomGit`.
-//   - Multiple models → one provider per model, named
-//     `AtomGit-{display_model_name}` with `/` → `-` (keeps config.toml
-//     section names clean — `[providers.AtomGit-moonshotai-Kimi-K2]`).
+//   - Single model -> one provider named `AtomGit`.
+//   - Multiple models -> one provider per model, named
+//     `AtomGit-{display_model_name}` with `/` -> `-` (keeps config.toml
+//     section names clean -- `[providers.AtomGit-moonshotai-Kimi-K2]`).
 //   - A valid non-CodingPlan default is preserved. A CodingPlan selection is
 //     preserved by model identity when still available; otherwise use the first
 //     available model in API order.
@@ -53,7 +53,7 @@ use rustcode_config::config::Config;
 /// mid-flight.
 ///
 /// Whether requests to this gateway are *signed* is a separate question owned
-/// by `gateway_crypto::is_atomgit_gateway` — signing engages only for the
+/// by `gateway_crypto::is_codingplan_gateway` -- signing engages only for the
 /// vendor gateway hosts and only in an official build.
 ///
 /// Returns `String` because callers need an owned URL
@@ -81,7 +81,7 @@ fn provider_prefix() -> &'static str {
 
 /// Result of one orchestrator step. Distinct from `Result` because
 /// "already done / idempotent skip" is a first-class outcome, not an
-/// error — the report needs to tell the user "you already claimed this
+/// error -- the report needs to tell the user "you already claimed this
 /// last week" in the same place it'd tell them "just claimed".
 #[derive(Debug, Clone)]
 pub enum StepResult<T> {
@@ -138,7 +138,7 @@ impl SetupReport {
         match &self.login {
             StepResult::Ok(info) => {
                 let who = info.display_name.as_deref().unwrap_or(&info.username);
-                let email = info.email.as_deref().unwrap_or("—");
+                let email = info.email.as_deref().unwrap_or("--");
                 out.push_str(&t(Msg::CpLoggedIn {
                     who,
                     username: &info.username,
@@ -154,7 +154,7 @@ impl SetupReport {
         }
 
         // Step 2: claim. When `claim_attempts` is populated (production
-        // path), emit one row per *successful* tier — refused / errored
+        // path), emit one row per *successful* tier -- refused / errored
         // intermediates (e.g. "Max 套餐尚未开放") are suppressed so the
         // happy-path output collapses to a single "Pro 生效" line. If
         // no tier succeeded, fall through to a single failure row using
@@ -168,7 +168,7 @@ impl SetupReport {
                 // Server's `plan_name` already carries the "CodingPlan "
                 // prefix and reflects the user's real entitlement; prefer
                 // it over the requested cascade tier. Empty (legacy
-                // gateway) → fall back to "CodingPlan {tier}".
+                // gateway) -> fall back to "CodingPlan {tier}".
                 let plan_label = |plan_name: &str| -> String {
                     if plan_name.is_empty() {
                         format!("CodingPlan {}", tier)
@@ -188,7 +188,7 @@ impl SetupReport {
                         any_success = true;
                     }
                     TierOutcome::Refused { .. } | TierOutcome::Errored { .. } => {
-                        // Silently skipped — failures in the
+                        // Silently skipped -- failures in the
                         // tier cascade are noise once any other tier
                         // succeeds, and even an all-fail run gets one
                         // consolidated row below instead of three.
@@ -200,7 +200,7 @@ impl SetupReport {
                     // Pick the freshest non-empty source for the body:
                     // overall Err first, then walk attempts in reverse
                     // so the last tier's server message wins. Avoids a
-                    // dangling `— ` when the overall Err was scrubbed
+                    // dangling `-- ` when the overall Err was scrubbed
                     // empty by the cascade builder.
                     let body = if !msg.is_empty() {
                         msg.clone()
@@ -220,7 +220,7 @@ impl SetupReport {
                             .unwrap_or_default()
                     };
                     if body.is_empty() {
-                        // Truly nothing to say — render the prefix
+                        // Truly nothing to say -- render the prefix
                         // without a trailing em-dash body. Edge case:
                         // every tier responded success=false with no
                         // message AND no error text.
@@ -247,7 +247,7 @@ impl SetupReport {
                     }));
                 }
                 StepResult::Skipped(reason) if reason == CASCADE_FROM_UPSTREAM_FAIL => {
-                    // Cascade from login failure — suppressed.
+                    // Cascade from login failure -- suppressed.
                 }
                 StepResult::Skipped(reason) => {
                     out.push_str(&t(Msg::CpAlreadyClaimed { reason }));
@@ -259,8 +259,8 @@ impl SetupReport {
         }
 
         // Step 3: models. When the cascade marker is present (claim
-        // failed upstream), skip the row entirely — printing
-        // "Models step skipped — claim failed" right after the claim
+        // failed upstream), skip the row entirely -- printing
+        // "Models step skipped -- claim failed" right after the claim
         // failure line is just noise. Same for the status row below.
         match &self.models {
             StepResult::Ok(info) => {
@@ -286,16 +286,16 @@ impl SetupReport {
                     models: model_count,
                 }));
                 // Build a quick lookup of which display names made it
-                // into the registered provider list — anything in
+                // into the registered provider list -- anything in
                 // `all_models` but NOT in this set is locked behind
                 // the user's plan tier.
                 let registered: std::collections::HashSet<&str> =
                     info.display_names.iter().map(|s| s.as_str()).collect();
                 // Locked models render FIRST so the upgrade prompt is the
                 // first thing the eye lands on under "Added N providers:".
-                // Visual cue is an `×` prefix matching the existing
-                // failure rows (`× CodingPlan Max claim failed — …`)
-                // plus the explicit `(requires Pro plan or higher)` suffix —
+                // Visual cue is an `[x]` prefix matching the existing
+                // failure rows (`[x] CodingPlan Max claim failed -- ...`)
+                // plus the explicit `(requires Pro plan or higher)` suffix --
                 // both plain text, so every renderer (alt-screen /
                 // retained / plain) and every terminal font carries
                 // the meaning. An earlier U+0336 combining strikethrough
@@ -318,7 +318,7 @@ impl SetupReport {
                 }
                 let default_suffix_cow = t(Msg::CpDefaultSuffix);
                 // Label each row by its (folded) account rather than the internal
-                // per-model key, so the report reads as "account · model" and
+                // per-model key, so the report reads as "account . model" and
                 // matches the account+model schema `/login` now persists.
                 let account_for = |model_name: &str| -> &'static str {
                     let wire = info
@@ -329,14 +329,14 @@ impl SetupReport {
                         .unwrap_or("openai");
                     rustcode_config::config::codingplan_group_account_id(wire)
                 };
-                // Map a registered selection key (e.g. `AtomGit-Qwen-…`) to the
-                // friendly `account · model` label; fall back to the raw key for
+                // Map a registered selection key (e.g. `AtomGit-Qwen-...`) to the
+                // friendly `account . model` label; fall back to the raw key for
                 // a user-supplied value that isn't in this run's list.
                 let friendly = |key: &str| -> String {
                     match info.provider_names.iter().position(|p| p == key) {
                         Some(i) => {
                             let model = &info.display_names[i];
-                            format!("{} · {}", account_for(model), model)
+                            format!("{} . {}", account_for(model), model)
                         }
                         None => key.to_string(),
                     }
@@ -373,7 +373,7 @@ impl SetupReport {
                 }
             }
             StepResult::Skipped(reason) if reason == CASCADE_FROM_UPSTREAM_FAIL => {
-                // Suppress — claim failure line above is the explanation.
+                // Suppress -- claim failure line above is the explanation.
             }
             StepResult::Skipped(reason) => {
                 out.push_str(&t(Msg::CpModelsSkipped { reason }));
@@ -391,7 +391,7 @@ impl SetupReport {
                     if plan.expires_at.is_empty() {
                         // Backend sends null claimed_at/expires_at while a
                         // fresh claim is still propagating. Don't render an
-                        // empty date with `(0d / 0d remaining)` zeros — say
+                        // empty date with `(0d / 0d remaining)` zeros -- say
                         // "pending activation" so the user knows to wait.
                         out.push_str(&t(Msg::CpPlanPending {
                             plan: &plan.plan_name,
@@ -407,7 +407,7 @@ impl SetupReport {
                 }
                 if !s.rate_limit_windows.is_empty() {
                     for w in s.rate_limit_windows.iter().filter(|w| w.show_enable == 1) {
-                        // All visible windows are short rolling (≤5h) —
+                        // All visible windows are short rolling (≤5h) --
                         // standard usage line.
                         out.push_str(&t(Msg::CpUsageLine {
                             usage: &w.usage_status_desc,
@@ -420,16 +420,16 @@ impl SetupReport {
                     //
                     // `window_quota_exhausted=true` and `current_usage` are
                     // independent fields on the legacy response, and the
-                    // server can — and visibly does — set BOTH simultaneously
+                    // server can -- and visibly does -- set BOTH simultaneously
                     // (typically `current_usage.usage_status_desc=0%` for a
                     // freshly-reset short window plus the exhaustion flag for
                     // a separately-tracked longer window). Rendering both
-                    // produces the contradictory `用量 0% / ⚠额度已满` pair
+                    // produces the contradictory `用量 0% / [!]额度已满` pair
                     // the user reported as "v4.23.2 怎么还是这么展示". When
                     // both fire, the user-actionable message is the
                     // exhaustion warning; the usage line at 0% reads as
                     // "you're fine" and just confuses things. Surface the
-                    // warning alone — same precedence the new
+                    // warning alone -- same precedence the new
                     // `rate_limit_windows` path already encodes (it picks
                     // exactly one row per visible window).
                     if s.window_quota_exhausted {
@@ -448,7 +448,7 @@ impl SetupReport {
                 }
             }
             StepResult::Skipped(reason) if reason == CASCADE_FROM_UPSTREAM_FAIL => {
-                // Suppress — cascade from claim failure.
+                // Suppress -- cascade from claim failure.
             }
             StepResult::Skipped(reason) => {
                 out.push_str(&t(Msg::CpStatusFetchSkipped { reason }));
@@ -479,7 +479,7 @@ impl SetupReport {
     /// rollback bug), `run()` short-circuits and parks `models` as
     /// `Skipped(CASCADE_FROM_UPSTREAM_FAIL)` so the report stays
     /// focused on the actual failure. Without the claim check the
-    /// gate flipped to `true` on every claim-failure path —
+    /// gate flipped to `true` on every claim-failure path --
     /// triggering `save_and_reload` to rewrite `config.toml`
     /// unconditionally. That clobbered any manual edits the user
     /// made between TUI startup and `/codingplan`, and read as
@@ -499,9 +499,9 @@ pub struct SetupReport {
     pub login: StepResult<LoginInfo>,
     pub claim: StepResult<ClaimInfo>,
     /// Per-tier cascade history. Populated by `step_claim` with one
-    /// entry per tier actually attempted (in cascade order Max → Pro
-    /// → Lite). Empty when the cascade never ran (e.g. login failed
-    /// upstream — claim is `Skipped(CASCADE_FROM_UPSTREAM_FAIL)`) or
+    /// entry per tier actually attempted (in cascade order Max -> Pro
+    /// -> Lite). Empty when the cascade never ran (e.g. login failed
+    /// upstream -- claim is `Skipped(CASCADE_FROM_UPSTREAM_FAIL)`) or
     /// when a legacy test fixture wants the old single-row claim
     /// summary. `render` walks this to emit one row per tier so
     /// refused / errored intermediate tiers are visible, not hidden
@@ -512,11 +512,11 @@ pub struct SetupReport {
     /// True when any API call rejected the stored bearer token
     /// (401/403). `is_logged_in()` only checks "does auth.toml exist"
     /// and `get_valid_token` only refreshes when the recorded
-    /// `expires_in` says so — neither catches a server-side revocation
+    /// `expires_in` says so -- neither catches a server-side revocation
     /// or a refresh-token that the broker no longer accepts. Shells
     /// (TUI `/codingplan`, CLI `rustcode codingplan`) read this flag
     /// to drive an inline re-OAuth + retry instead of leaving the user
-    /// staring at a "claim failed — run `rustcode login` again" line
+    /// staring at a "claim failed -- run `rustcode login` again" line
     /// when `/login` would have fixed it in one step.
     pub auth_expired: bool,
 }
@@ -531,7 +531,7 @@ pub struct LoginInfo {
 #[derive(Debug, Clone)]
 pub struct ClaimInfo {
     pub message: String,
-    /// true when server reported `duplicate=true` — surfaces in the
+    /// true when server reported `duplicate=true` -- surfaces in the
     /// rendered report as "(already claimed)" rather than "(just claimed)".
     pub duplicate: bool,
     /// The CodingPlan tier the cascade landed on. `Max` if the
@@ -544,20 +544,20 @@ pub struct ClaimInfo {
 
 /// Per-tier outcome captured while `step_claim` walks the cascade.
 /// Surfaces in `SetupReport::render` as one row per attempted tier so
-/// the user can see exactly why the cascade stopped where it did — a
+/// the user can see exactly why the cascade stopped where it did -- a
 /// single "claim failed: Lite: 暂无开放" line hid the Max / Pro tier
 /// rejections users wanted to see.
 #[derive(Debug, Clone)]
 pub enum TierOutcome {
-    /// `success=true` on this tier — cascade winner. `plan_name` is the
+    /// `success=true` on this tier -- cascade winner. `plan_name` is the
     /// server's view of the user's actual plan (e.g. "CodingPlan Pro");
     /// empty on legacy gateways, in which case the renderer falls back
     /// to the requested tier.
     Claimed { message: String, plan_name: String },
-    /// `duplicate=true` — user already held this (or a higher) tier;
+    /// `duplicate=true` -- user already held this (or a higher) tier;
     /// cascade treats this as winner and stops. `plan_name` as above.
     AlreadyHeld { message: String, plan_name: String },
-    /// `2xx success=false duplicate=false` — per-tier refusal (e.g.
+    /// `2xx success=false duplicate=false` -- per-tier refusal (e.g.
     /// `额度已满` / `暂无开放`). Cascade walks past to the next tier.
     Refused { message: String },
     /// Transport / 5xx / parse failure. Cascade aborts.
@@ -573,7 +573,7 @@ pub struct TierAttempt {
 #[derive(Debug, Clone)]
 pub struct ModelsInfo {
     /// Model names of the **available** subset, in server order.
-    /// Parallel to `provider_names` — these are the entries that
+    /// Parallel to `provider_names` -- these are the entries that
     /// actually got registered as providers.
     pub display_names: Vec<String>,
     /// Provider keys actually inserted into Config (available only).
@@ -581,9 +581,9 @@ pub struct ModelsInfo {
     /// Effective `default_provider` after refresh (may be a preserved custom provider).
     pub default_provider: String,
     /// Outcome of vision_preprocessor_provider auto-config. Drives the
-    /// "Vision preprocessor → ..." line in the rendered report.
+    /// "Vision preprocessor -> ..." line in the rendered report.
     pub vision_preprocessor: VisionPreprocessorOutcome,
-    /// Full v2 model list — including `plan_available=false` entries
+    /// Full v2 model list -- including `plan_available=false` entries
     /// that we didn't register as providers. Renderer iterates this
     /// to show locked models with strikethrough so users see what
     /// upgrading the plan would unlock.
@@ -594,7 +594,7 @@ pub struct ModelsInfo {
 ///
 /// Interactive `/login` (TUI + CLI) uses [`AdoptServerDefault`](Self::AdoptServerDefault):
 /// the user asked to (re-)login, so we reset the default to the server's primary model
-/// (list-first) — the historical behavior. Background / cross-client sync (daemon/webui)
+/// (list-first) -- the historical behavior. Background / cross-client sync (daemon/webui)
 /// uses [`PreservePrevious`](Self::PreservePrevious): a refresh triggered by ANOTHER client
 /// must not clobber the model this client is on (see commit a63f6591, "reconcile auth and
 /// provider state across clients").
@@ -608,20 +608,20 @@ pub enum DefaultModelPolicy {
 
 /// Entry point. Mutates `config` in place (providers + default_provider);
 /// the caller is responsible for persisting it to disk after a successful
-/// run. This keeps the core free of I/O concerns — tests can call `run`
+/// run. This keeps the core free of I/O concerns -- tests can call `run`
 /// against a `Config::default()` without touching the filesystem.
 ///
 /// `default_policy` controls whether the active default is reset to the server's
 /// primary model (interactive login) or the user's previous choice is preserved
-/// (background sync) — see [`DefaultModelPolicy`].
+/// (background sync) -- see [`DefaultModelPolicy`].
 ///
 pub fn run(config: &mut Config, default_policy: DefaultModelPolicy) -> Result<SetupReport> {
     // Step 1: login
     let login = step_login();
     if login.is_err() {
-        // No point continuing — every downstream call needs a token.
+        // No point continuing -- every downstream call needs a token.
         // Use the cascade sentinel so format() suppresses the three
-        // "Foo failed — skipped: login failed" rows that used to spam
+        // "Foo failed -- skipped: login failed" rows that used to spam
         // the report. The login-failure line above is the only thing
         // worth showing; the rest is implied.
         return Ok(SetupReport {
@@ -634,10 +634,10 @@ pub fn run(config: &mut Config, default_policy: DefaultModelPolicy) -> Result<Se
         });
     }
 
-    // Step 2: claim — cascade Max → Pro → Lite, first success wins.
+    // Step 2: claim -- cascade Max -> Pro -> Lite, first success wins.
     let (claim, claim_attempts, claim_auth_expired) = step_claim();
     if claim.is_err() {
-        // Claim failed at every tier — adding providers / fetching
+        // Claim failed at every tier -- adding providers / fetching
         // status both make no sense without an active plan. Bail
         // with cascade markers for models/status; `claim_attempts`
         // still carries every tier's outcome so the renderer shows
@@ -656,23 +656,23 @@ pub fn run(config: &mut Config, default_policy: DefaultModelPolicy) -> Result<Se
     //   * Fresh `Ok` claim: use the tier the cascade landed on.
     //   * `Skipped` (server returned `duplicate=true` at one of the
     //     tiers): step_claim picked the tier it stopped at; we don't
-    //     have the structured value here, so fall back to Max — the
+    //     have the structured value here, so fall back to Max -- the
     //     server will gate availability the same way regardless. Pro
     //     and Lite users will see Pro/Max-tier models marked
     //     `plan_available=false` and rendered with strikethrough,
     //     which matches the spec ("show locked models too").
-    //   * (Err is unreachable here — handled above.)
+    //   * (Err is unreachable here -- handled above.)
     let plan_type_for_models = match &claim {
         StepResult::Ok(info) => info.plan_type,
         _ => PlanType::Max,
     };
 
-    // Step 3: models — critical. Without models there's nothing to set up.
+    // Step 3: models -- critical. Without models there's nothing to set up.
     let (models, models_auth_expired) =
         step_models_and_register(config, plan_type_for_models, default_policy);
     if models.is_err() {
         // Same cascade pattern: the models-failure line above is the
-        // explanation; "Status fetch failed — skipped: models step
+        // explanation; "Status fetch failed -- skipped: models step
         // failed" adds nothing.
         return Ok(SetupReport {
             login,
@@ -684,7 +684,7 @@ pub fn run(config: &mut Config, default_policy: DefaultModelPolicy) -> Result<Se
         });
     }
 
-    // Step 4: status — warn-only. A 401 here is rare (claim+models
+    // Step 4: status -- warn-only. A 401 here is rare (claim+models
     // both passed) but still worth surfacing so a retry has a chance
     // to capture the warm token.
     let (status, status_auth_expired) = step_status();
@@ -701,13 +701,13 @@ pub fn run(config: &mut Config, default_policy: DefaultModelPolicy) -> Result<Se
 
 /// Sentinel reason used when downstream steps are skipped because an
 /// earlier required step failed (login / claim / models). `format()`
-/// recognises this exact string and renders nothing — the upstream
+/// recognises this exact string and renders nothing -- the upstream
 /// failure line above already explains why nothing came after it.
 const CASCADE_FROM_UPSTREAM_FAIL: &str = "__cascade_upstream_fail__";
 
 fn step_login() -> StepResult<LoginInfo> {
     if auth::is_logged_in() {
-        // Already authed — surface the stored identity so the report
+        // Already authed -- surface the stored identity so the report
         // shows *who* we're running as, not a bare "skipped". When
         // display-name and username differ (the common case), show
         // both so the user can tell them apart: `TheoCui(saulcy)`.
@@ -724,7 +724,7 @@ fn step_login() -> StepResult<LoginInfo> {
         // as "login succeeded, details unavailable" rather than failing.
         return StepResult::Skipped("already logged in".into());
     }
-    // Not logged in — run OAuth. This prints to stdout + opens a browser.
+    // Not logged in -- run OAuth. This prints to stdout + opens a browser.
     // Callers in TUI context must have already suspended raw mode before
     // calling `run`.
     match auth::login().and_then(|a| auth::save_auth(&a).map(|_| a)) {
@@ -737,12 +737,12 @@ fn step_login() -> StepResult<LoginInfo> {
     }
 }
 
-/// Walk `PlanType::CASCADE_ORDER` (Max → Pro → Lite), POSTing
+/// Walk `PlanType::CASCADE_ORDER` (Max -> Pro -> Lite), POSTing
 /// `claim-v2` for each tier, and stop at the first that lands the
 /// user with an entitlement. Two outcomes count as "stop":
 ///
-///   * `success=true`              — fresh claim of this tier.
-///   * `duplicate=true`            — user already holds this tier (or
+///   * `success=true`              -- fresh claim of this tier.
+///   * `duplicate=true`            -- user already holds this tier (or
 ///                                   higher). Treat as success and use
 ///                                   this tier as the working tier;
 ///                                   trying lower tiers wouldn't help.
@@ -753,20 +753,20 @@ fn step_login() -> StepResult<LoginInfo> {
 /// preserved as the "last error" we'll show if everything below also
 /// fails.
 ///
-/// Transport / 5xx errors abort the whole cascade — those mean the
+/// Transport / 5xx errors abort the whole cascade -- those mean the
 /// server is in a bad state, not "this tier is unavailable", so
 /// retrying lower tiers would just stack identical failures.
 /// Walk the cascade and capture every tier's outcome.
 ///
 /// Returns `(overall, attempts, auth_expired)`:
-/// * `overall` — the legacy single-summary view of what happened
+/// * `overall` -- the legacy single-summary view of what happened
 ///   (`Ok` / `Skipped` / `Err`). Drives `should_persist_config` and
 ///   the downstream `step_models_and_register` plan-type selection.
-/// * `attempts` — every tier actually attempted, in cascade order.
+/// * `attempts` -- every tier actually attempted, in cascade order.
 ///   Renderer walks this to emit one row per tier (refused /
 ///   errored / claimed) so users can see the full picture instead
 ///   of just the winner.
-/// * `auth_expired` — true iff the failure was a 401/403 from
+/// * `auth_expired` -- true iff the failure was a 401/403 from
 ///   `claim-v2` (or a `from_stored_auth` refresh failure). Bubbled
 ///   up to `SetupReport.auth_expired` so the shell knows to
 ///   re-OAuth and retry instead of just printing the failure.
@@ -797,7 +797,7 @@ fn step_claim() -> (StepResult<ClaimInfo>, Vec<TierAttempt>, bool) {
                     });
                     let skipped = StepResult::Skipped(if resp.message.is_empty() {
                         format!(
-                            "already claimed (or under review) — using {}",
+                            "already claimed (or under review) -- using {}",
                             tier.as_str()
                         )
                     } else {
@@ -839,7 +839,7 @@ fn step_claim() -> (StepResult<ClaimInfo>, Vec<TierAttempt>, bool) {
                 };
             }
             Err(e) => {
-                // Transport / 5xx / parse failure — bail. These don't
+                // Transport / 5xx / parse failure -- bail. These don't
                 // get more useful when retried at a lower tier. Capture
                 // the auth-expired bit BEFORE flattening `e` to a string
                 // so the shell layer can retry with a fresh OAuth.
@@ -859,11 +859,11 @@ fn step_claim() -> (StepResult<ClaimInfo>, Vec<TierAttempt>, bool) {
             }
         }
     }
-    // Surface the server's last response message verbatim — already in
+    // Surface the server's last response message verbatim -- already in
     // the user's language. The render layer wraps it in a localized
-    // prefix (`× CodingPlan 套餐配置失败 — …`), so a hardcoded English
-    // diagnostic wrapper here ("claim failed at every tier — …") would
-    // bleed into zh-CN output. Empty → empty; render guards the dangling
+    // prefix (`[x] CodingPlan 套餐配置失败 -- ...`), so a hardcoded English
+    // diagnostic wrapper here ("claim failed at every tier -- ...") would
+    // bleed into zh-CN output. Empty -> empty; render guards the dangling
     // em-dash.
     let overall = StepResult::Err(last_msg.clone());
     (overall, attempts, false)
@@ -897,13 +897,13 @@ fn step_models_and_register(
     if all_models.is_empty() {
         return (
             StepResult::Err(
-                "server returned an empty model list — cannot set up any provider".into(),
+                "server returned an empty model list -- cannot set up any provider".into(),
             ),
             false,
         );
     }
 
-    // Available subset — only these become providers. Locked ones
+    // Available subset -- only these become providers. Locked ones
     // (`plan_available=false`) survive in `all_models` for the
     // strikethrough-display path; registering them as providers would
     // give the user something they can `/model` into that 403s on the
@@ -912,7 +912,7 @@ fn step_models_and_register(
     if available.is_empty() {
         return (
             StepResult::Err(format!(
-                "no models available on plan {} — server returned {} locked entries",
+                "no models available on plan {} -- server returned {} locked entries",
                 plan_type.as_str(),
                 all_models.len()
             )),
@@ -920,7 +920,7 @@ fn step_models_and_register(
         );
     }
 
-    // Use the canonical active selection (default_model → default_provider) so a
+    // Use the canonical active selection (default_model -> default_provider) so a
     // new-schema default is preserved and the report marks the right model.
     let previous_default = config.effective_model_selection().unwrap_or_default();
     let previous_model = config
@@ -1079,7 +1079,7 @@ pub fn merge_successful_config(
         latest.providers.insert(name.clone(), provider.clone());
     }
     // A non-CodingPlan provider the user configured themselves (their own API key)
-    // is preserved under BOTH policies — `/login` refreshes CodingPlan models but must
+    // is preserved under BOTH policies -- `/login` refreshes CodingPlan models but must
     // never clobber a custom provider selection.
     let previous_is_custom_provider = !is_codingplan_provider_name(&previous_default)
         && latest.providers.contains_key(&previous_default);
@@ -1089,7 +1089,7 @@ pub fn merge_successful_config(
             // (list-first) model. Set BOTH the legacy `default_provider` and the
             // canonical `default_model`, otherwise `persist_codingplan_as_new_schema`
             // below keeps a still-valid old `default_model` and syncs the provider
-            // back to it — the model wouldn't actually change.
+            // back to it -- the model wouldn't actually change.
             if let Some(server_default) = models.provider_names.first() {
                 latest.default_provider = server_default.clone();
                 latest.default_model = Some(server_default.clone());
@@ -1110,7 +1110,7 @@ pub fn merge_successful_config(
     // account+model schema (one account per wire format).
     persist_codingplan_as_new_schema(latest);
 
-    // Keep the user's chosen VL preprocessor if it STILL RESOLVES — even a CodingPlan
+    // Keep the user's chosen VL preprocessor if it STILL RESOLVES -- even a CodingPlan
     // model they deliberately selected. The old code treated any CodingPlan-named
     // selection as "not custom" and overwrote it from the server every sync (the bug:
     // `AtomGit-qwen3.8-27b` kept reverting). Only fill an EMPTY or now-dangling slot
@@ -1130,11 +1130,11 @@ pub fn merge_successful_config(
 
 /// Move the just-merged flat `AtomGit*` providers out of `[providers.*]` and
 /// into the new `provider_accounts` + `models` schema, grouped by wire format
-/// (openai → `AtomGit`, claude → `AtomGit-anthropic`).
+/// (openai -> `AtomGit`, claude -> `AtomGit-anthropic`).
 ///
 /// The grouping is delegated to [`Config::logical_accounts`] /
-/// [`Config::logical_models`] — the same read-only projection the UI already
-/// shows — so the persisted shape is byte-identical to the projection and a
+/// [`Config::logical_models`] -- the same read-only projection the UI already
+/// shows -- so the persisted shape is byte-identical to the projection and a
 /// re-login is a no-op transition (model ids stay the legacy provider keys, so
 /// the active selection never resets). Idempotent: prior new-schema CodingPlan
 /// entries are dropped and rewritten each run.
@@ -1148,13 +1148,13 @@ fn persist_codingplan_as_new_schema(config: &mut Config) {
     }
     // Remember the prior per-model `supports_vision` before dropping the entries.
     // A refresh whose flat provider OMITS the field (`None` = server has no opinion
-    // this time — the background auto-sync response can lack it even though the full
+    // this time -- the background auto-sync response can lack it even though the full
     // interactive login carried it) must NOT null a capability we already know: that
     // would demote a VL model (e.g. `qwen3.8-27b`, whose name the heuristic doesn't
     // recognise) to text-only and silently route its images through the VL detour.
     // Restored below ONLY where the fresh value is `None`; an EXPLICIT fresh value
     // (`Some(true)`/`Some(false)`) stays authoritative. Keyed by (account, wire model)
-    // — NOT the model id: the id changes when the model count transitions (the last
+    // -- NOT the model id: the id changes when the model count transitions (the last
     // remaining model folds to the bare prefix), which an id key would miss. The
     // (account, model) pair is stable across that transition AND unique per provider
     // (a same-named model under a different wire protocol has a different account), so
@@ -1195,7 +1195,7 @@ fn persist_codingplan_as_new_schema(config: &mut Config) {
         .provider_accounts
         .retain(|k, _| !is_codingplan_provider_name(k));
     config.models.retain(|k, _| !is_codingplan_provider_name(k));
-    // Now snapshot the folded projection — only the flat providers contribute.
+    // Now snapshot the folded projection -- only the flat providers contribute.
     let accounts: Vec<(String, _)> = config
         .logical_accounts()
         .into_iter()
@@ -1221,14 +1221,14 @@ fn persist_codingplan_as_new_schema(config: &mut Config) {
             }
         }
         // Effort levels: ONLY for a model whose silence-fallback is a concrete NON-EMPTY
-        // builtin list (currently just deepseek-v4-flash) — that's the only case where a
+        // builtin list (currently just deepseek-v4-flash) -- that's the only case where a
         // refresh omitting the field folds back to a WRONG concrete list, reverting the
         // richer persisted server list. When the folded value equals that builtin (the
         // signal this refresh carried no server list) we restore the prior server list.
         // Models with NO builtin (builtin == None) reflect the fold directly, so an
         // EXPLICIT server `[]` (effort removed) is honored, not masked by a stale prior.
         // (Residual: the server re-sending exactly the builtin list is treated as silence
-        // — contrived, and merely keeps an equal-or-wider prior, never a crash.)
+        // -- contrived, and merely keeps an equal-or-wider prior, never a crash.)
         if let Some(builtin) = rustcode_config::config::codingplan_builtin_effort_levels(&m.model) {
             let key = (m.account.clone(), m.model.clone());
             if m.reasoning_effort_levels.as_deref() == Some(builtin.as_slice()) {
@@ -1252,7 +1252,7 @@ fn persist_codingplan_as_new_schema(config: &mut Config) {
         config.default_model = Some(config.default_provider.clone());
     }
     // Keep the legacy `default_provider` in lock-step with the canonical
-    // `default_model` so the two never disagree — otherwise the login report and
+    // `default_model` so the two never disagree -- otherwise the login report and
     // legacy readers show one model while `effective_model_selection` resolves
     // another (e.g. report says glm-5.1-fallback but the runtime runs deepseek).
     // Only sync a VALID default_model, so a stale one can't clobber an otherwise
@@ -1284,20 +1284,20 @@ fn step_status() -> (StepResult<StatusResponse>, bool) {
     }
 }
 
-/// Truncate a single-line message to at most `max` chars, appending `…`
+/// Truncate a single-line message to at most `max` chars, appending `...`
 /// when shortened. Char-boundary safe (won't split a UTF-8 codepoint).
 /// Used when rendering error messages whose source includes a server
-/// response body — useful diagnostic prefix, useless multi-KB tail.
+/// response body -- useful diagnostic prefix, useless multi-KB tail.
 fn truncate_inline(msg: &str, max: usize) -> String {
     if msg.chars().count() <= max {
         return msg.to_string();
     }
     let mut out: String = msg.chars().take(max).collect();
-    out.push('…');
+    out.push_str("...");
     out
 }
 
-/// Format a duration in seconds as a short human-readable label —
+/// Format a duration in seconds as a short human-readable label --
 /// `90s`, `5m`, `2h 30m`, `3d 4h`. Replaces the previous "{N}s" which
 /// was unreadable for anything past a minute (e.g. "in 86340s" instead
 /// of "in 23h 59m").
@@ -1305,13 +1305,13 @@ fn truncate_inline(msg: &str, max: usize) -> String {
 /// Pick the rate-limit window that is *actually blocking* the user, if any.
 ///
 /// `pub` so the `/status` rendering in rustcode-tuix can share the same
-/// formatter — keeps the `用量 重置于 ...（2h 后）` line consistent
+/// formatter -- keeps the `用量 重置于 ...（2h 后）` line consistent
 /// between `/login`'s CodingPlan setup output and `/status`'s
 /// CodingPlan section. (Pre-fix they diverged: setup said `2h`, status
 /// said `5984s`.)
 pub fn format_duration_secs(secs: i64) -> String {
     if secs < 0 {
-        return "—".into();
+        return "--".into();
     }
     let s = secs as u64;
     if s < 60 {
@@ -1341,8 +1341,8 @@ pub fn format_duration_secs(secs: i64) -> String {
     }
 }
 
-/// Decide the config-key name for each model. Single model → bare
-/// `AtomGit` (keeps the name tidy for the common case); 2+ models →
+/// Decide the config-key name for each model. Single model -> bare
+/// `AtomGit` (keeps the name tidy for the common case); 2+ models ->
 /// `AtomGit-{name with / replaced by -}`.
 fn provider_names_for(model_names: &[String]) -> Vec<String> {
     if model_names.len() == 1 {
@@ -1355,7 +1355,7 @@ fn provider_names_for(model_names: &[String]) -> Vec<String> {
     }
 }
 
-/// Turn `moonshotai/Kimi-K2-Instruct` → `moonshotai-Kimi-K2-Instruct`.
+/// Turn `moonshotai/Kimi-K2-Instruct` -> `moonshotai-Kimi-K2-Instruct`.
 /// Only swaps `/`; other punctuation stays verbatim (model names in the
 /// wild use `.` and digits freely, and TOML keys handle those fine).
 fn sanitize_model_for_name(model: &str) -> String {
@@ -1369,8 +1369,8 @@ fn sanitize_model_for_name(model: &str) -> String {
 /// payloads without the new columns continue to work without code changes.
 ///
 /// `api_key` is carried through only when the payload supplies one, for a
-/// gateway that authenticates with a key instead of the OAuth bearer. Absent —
-/// the case for every model the hosted service returns — it stays `None` and
+/// gateway that authenticates with a key instead of the OAuth bearer. Absent --
+/// the case for every model the hosted service returns -- it stays `None` and
 /// `create_provider()` loads the OAuth token at runtime via `auth.toml`, so the
 /// login token is still never written into the user's `config.toml`.
 fn build_codingplan_provider(entry: &ModelEntry) -> ProviderConfig {
@@ -1453,8 +1453,8 @@ mod tests {
     use super::*;
     /// Build a `ModelEntry` for tests that only care about the
     /// model name and want every other field to take its fallback
-    /// (`base_url` → [`codingplan_llm_base_url`], `provider_type` →
-    /// `PROVIDER_TYPE`, `context_window` → [`MIN_CONTEXT_WINDOW`] floor,
+    /// (`base_url` -> [`codingplan_llm_base_url`], `provider_type` ->
+    /// `PROVIDER_TYPE`, `context_window` -> [`MIN_CONTEXT_WINDOW`] floor,
     /// `plan_available: true`).
     /// Lets the bulk of the test suite stay short while the
     /// per-field-override behaviour gets its own dedicated tests
@@ -1479,7 +1479,7 @@ mod tests {
         provider_prefix()
     }
 
-    /// `<prefix>-<suffix>` — the shape `provider_names_for` writes.
+    /// `<prefix>-<suffix>` -- the shape `provider_names_for` writes.
     fn pxn(suffix: &str) -> String {
         format!("{}-{}", provider_prefix(), suffix)
     }
@@ -1548,7 +1548,7 @@ mod tests {
             build_codingplan_provider(&entry("anthropic/claude-3.5")),
         );
 
-        // Manually drive the "install" side without network — mirror
+        // Manually drive the "install" side without network -- mirror
         // what step_models_and_register does after a successful API call.
         let names = vec!["meta-llama/Llama-3-70B".to_string()];
         let stale: Vec<String> = config
@@ -1600,10 +1600,10 @@ mod tests {
         // What this pins is the resolution contract, not a hostname: the env
         // override wins when set, otherwise the value is whatever `endpoints`
         // resolves. Naming a host here would break any build that retargets the
-        // gateway — which is the whole point of that module.
+        // gateway -- which is the whole point of that module.
         //
         // Whether requests to the resulting gateway are *signed* is a separate
-        // question owned by `gateway_crypto::is_atomgit_gateway`, tested there.
+        // question owned by `gateway_crypto::is_codingplan_gateway`, tested there.
         //
         // OnceLock caches across test threads, so this reflects whatever the env
         // was at the FIRST call site in the process. That's deliberate: it
@@ -1622,20 +1622,24 @@ mod tests {
                 "must resolve through endpoints, not a local default"
             );
         }
-        // A gateway URL the adapter can append `/chat/completions` to.
-        assert!(
-            actual.starts_with("http://") || actual.starts_with("https://"),
-            "gateway must be an absolute URL: {actual}"
-        );
-        assert!(
-            !actual.ends_with('/'),
-            "trailing slash would double up: {actual}"
-        );
+        // Platform-neutral: the default may be empty (no gateway configured).
+        // When non-empty it must be an absolute URL the adapter can append
+        // `/chat/completions` to.
+        if !actual.is_empty() {
+            assert!(
+                actual.starts_with("http://") || actual.starts_with("https://"),
+                "gateway must be an absolute URL: {actual}"
+            );
+            assert!(
+                !actual.ends_with('/'),
+                "trailing slash would double up: {actual}"
+            );
+        }
     }
 
     #[test]
     fn build_provider_uses_canonical_defaults() {
-        // All optional server fields missing → fall back to the
+        // All optional server fields missing -> fall back to the
         // historical constants. Pins the back-compat path for
         // older `models-v2` builds that don't yet emit `base_url`,
         // `type`, or `context_window`.
@@ -1645,7 +1649,7 @@ mod tests {
             p.base_url.as_deref(),
             Some(codingplan_llm_base_url().as_str())
         );
-        // Missing window → fallback, floored at MIN_CONTEXT_WINDOW.
+        // Missing window -> fallback, floored at MIN_CONTEXT_WINDOW.
         assert_eq!(p.context_window, 128_000);
         assert!(
             p.api_key.is_none(),
@@ -1715,7 +1719,7 @@ mod tests {
             e.reasoning_effort_levels.as_deref(),
             Some(["low".to_string(), "medium".to_string(), "xhigh".to_string()].as_slice())
         );
-        // Absent field (older/production server) → None, so the builtin fallback applies.
+        // Absent field (older/production server) -> None, so the builtin fallback applies.
         let old: super::super::types::ModelEntry = serde_json::from_value(serde_json::json!({
             "display_model_name": "deepseek-v4-flash", "type": "openai", "plan_available": true
         }))
@@ -1732,9 +1736,9 @@ mod tests {
     fn persist_preserves_server_effort_levels_when_a_later_refresh_omits_them() {
         let mut cfg = blank_config();
         cfg.provider_accounts.insert(
-            "AtomGit".into(),
+            "RustCode".into(),
             serde_json::from_value(serde_json::json!({
-                "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1"
+                "provider": "openai", "base_url": ""
             }))
             .unwrap(),
         );
@@ -1742,19 +1746,19 @@ mod tests {
         cfg.models.insert(
             pxn("deepseek-v4-flash"),
             serde_json::from_value(serde_json::json!({
-                "account": "AtomGit", "model": "deepseek-v4-flash",
+                "account": "RustCode", "model": "deepseek-v4-flash",
                 "context_window": 1_000_000,
                 "reasoning_effort_levels": ["low", "medium", "xhigh"]
             }))
             .unwrap(),
         );
-        // This refresh's flat provider carries NO server list → falls back to the builtin
+        // This refresh's flat provider carries NO server list -> falls back to the builtin
         // [high, max] (server silent this sync).
         let fresh = build_codingplan_provider(&entry("deepseek-v4-flash"));
         assert_eq!(
             fresh.reasoning_effort_levels.as_deref(),
             Some(["high".to_string(), "max".to_string()].as_slice()),
-            "no server list → builtin fallback"
+            "no server list -> builtin fallback"
         );
         cfg.providers.insert(pxn("deepseek-v4-flash"), fresh);
 
@@ -1770,16 +1774,16 @@ mod tests {
     }
 
     // Guard: for a model with NO builtin fallback (e.g. GLM-5.2), the fold reflects the
-    // server directly — an EXPLICIT server `[]` (effort removed) folds to `None` and must
+    // server directly -- an EXPLICIT server `[]` (effort removed) folds to `None` and must
     // be honored, NOT masked by restoring a stale prior list. Preservation is only for
     // models whose silence-fallback is a concrete builtin list (which would wrongly revert).
     #[test]
     fn persist_honors_server_removing_effort_for_a_non_builtin_model() {
         let mut cfg = blank_config();
         cfg.provider_accounts.insert(
-            "AtomGit".into(),
+            "RustCode".into(),
             serde_json::from_value(serde_json::json!({
-                "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1"
+                "provider": "openai", "base_url": ""
             }))
             .unwrap(),
         );
@@ -1787,7 +1791,7 @@ mod tests {
         cfg.models.insert(
             pxn("GLM-5.2"),
             serde_json::from_value(serde_json::json!({
-                "account": "AtomGit", "model": "GLM-5.2",
+                "account": "RustCode", "model": "GLM-5.2",
                 "reasoning_effort_levels": ["low", "high"]
             }))
             .unwrap(),
@@ -1809,22 +1813,22 @@ mod tests {
         );
     }
 
-    // Guard: a FRESH server list (differing from the builtin) is authoritative — it must
+    // Guard: a FRESH server list (differing from the builtin) is authoritative -- it must
     // override a stale prior, not be masked by the preservation.
     #[test]
     fn persist_lets_a_fresh_server_effort_list_override_a_prior() {
         let mut cfg = blank_config();
         cfg.provider_accounts.insert(
-            "AtomGit".into(),
+            "RustCode".into(),
             serde_json::from_value(serde_json::json!({
-                "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1"
+                "provider": "openai", "base_url": ""
             }))
             .unwrap(),
         );
         cfg.models.insert(
             pxn("deepseek-v4-flash"),
             serde_json::from_value(serde_json::json!({
-                "account": "AtomGit", "model": "deepseek-v4-flash",
+                "account": "RustCode", "model": "deepseek-v4-flash",
                 "reasoning_effort_levels": ["low", "medium", "xhigh"]
             }))
             .unwrap(),
@@ -1849,7 +1853,7 @@ mod tests {
     }
 
     // End-to-end: a server-advertised effort list must reach `config.models` (persisted to
-    // config.toml) through register → fold, overriding the builtin the whole way.
+    // config.toml) through register -> fold, overriding the builtin the whole way.
     #[test]
     fn server_effort_levels_persist_into_config_models_through_the_fold() {
         let mut cfg = blank_config();
@@ -1963,13 +1967,13 @@ mod tests {
             p.base_url.as_deref(),
             Some(codingplan_llm_base_url().as_str())
         );
-        // Zero treated as missing → fallback, floored at MIN_CONTEXT_WINDOW.
+        // Zero treated as missing -> fallback, floored at MIN_CONTEXT_WINDOW.
         assert_eq!(p.context_window, 128_000);
     }
 
     #[test]
     fn model_entry_deserialises_new_wire_shape() {
-        // The exact JSON payload from the spec —
+        // The exact JSON payload from the spec --
         // every new field must parse without error.
         let raw = r#"[{
             "id": 2052994857682014210,
@@ -2001,7 +2005,7 @@ mod tests {
     fn model_entry_deserialises_legacy_wire_shape() {
         // Older server build with only the v2-minimum fields. New
         // fields default to `None` / `0` so older payloads keep
-        // working — the orchestrator falls back to the constants.
+        // working -- the orchestrator falls back to the constants.
         let raw = r#"[{
             "id": 1,
             "is_rustcode_exclusive": 0,
@@ -2073,7 +2077,7 @@ mod tests {
             auth_expired: false,
         };
         let out = report.render();
-        assert!(out.contains("✓ Logged in as Theo"));
+        assert!(out.contains("[+] Logged in as Theo"));
         assert!(out.contains("theo@example.com"));
         assert!(out.contains("CodingPlan claimed"));
         assert!(out.contains("Kimi-K2-Instruct"));
@@ -2085,7 +2089,7 @@ mod tests {
     }
 
     /// Render exercise: claim returned duplicate=true. Must render as
-    /// a skipped checkmark, NOT a failure — user already had the plan.
+    /// a skipped checkmark, NOT a failure -- user already had the plan.
     #[test]
     fn render_claim_duplicate_renders_as_success() {
         let report = SetupReport {
@@ -2103,12 +2107,12 @@ mod tests {
             auth_expired: false,
         };
         let out = report.render();
-        assert!(out.contains("✓ already logged in"));
+        assert!(out.contains("[+] already logged in"));
         assert!(out.contains("already claimed"));
-        assert!(!out.contains("× CodingPlan claim"), "duplicate ≠ failure");
-        // Status failed but it's warn-only: ⚠ prefix, NOT ✗.
-        assert!(out.contains("⚠ Status fetch failed"));
-        assert!(!out.contains("× Status"));
+        assert!(!out.contains("[x] CodingPlan claim"), "duplicate ≠ failure");
+        // Status failed but it's warn-only: [!] prefix, NOT [x].
+        assert!(out.contains("[!] Status fetch failed"));
+        assert!(!out.contains("[x] Status"));
         // Login skipped + models ok ⇒ config should still be persisted.
         assert!(report.should_persist_config());
     }
@@ -2116,7 +2120,7 @@ mod tests {
     /// Regression: when a fresh claim hasn't activated yet the backend
     /// returns `claimed_at: null, expires_at: null, total_days: 0,
     /// remaining_days: 0`. Pre-fix the render line came out as
-    /// `Plan: CodingPlan Free  ·  expires  (0d / 0d remaining)` — empty
+    /// `Plan: CodingPlan Free  .  expires  (0d / 0d remaining)` -- empty
     /// gap in the middle + bogus zeros, looked like a parser bug. Now
     /// the empty-expiry case shows a meaningful "pending activation"
     /// state instead.
@@ -2193,7 +2197,7 @@ mod tests {
             auth_expired: false,
         };
         let out = report.render();
-        assert!(out.contains("× Login failed"));
+        assert!(out.contains("[x] Login failed"));
         // Cascade rows must NOT appear.
         assert!(
             !out.contains("CodingPlan claim"),
@@ -2218,8 +2222,8 @@ mod tests {
     /// with the Spring `UnexpectedRollbackException` payload). `run()`
     /// short-circuits and stamps the cascade sentinel into `models` /
     /// `status`. Before this fix, `should_persist_config` only
-    /// checked `login` and `models` — both `is_ok_or_skipped()` =
-    /// `true` here — so the gate flipped open and `save_and_reload`
+    /// checked `login` and `models` -- both `is_ok_or_skipped()` =
+    /// `true` here -- so the gate flipped open and `save_and_reload`
     /// rewrote `config.toml`. Surfaced to the user as "claim failed
     /// but models still got written to my config". Now the predicate
     /// also requires `claim.is_ok_or_skipped()` so any real claim
@@ -2230,7 +2234,7 @@ mod tests {
             login: StepResult::Skipped("already logged in".into()),
             claim: StepResult::Err(
                 "claim Pro request: claim-v2 returned 500 Internal Server Error \
-                 — Transaction rolled back because it has been marked as rollback-only"
+                 -- Transaction rolled back because it has been marked as rollback-only"
                     .into(),
             ),
             claim_attempts: Vec::new(),
@@ -2240,7 +2244,7 @@ mod tests {
         };
         assert!(
             !report.should_persist_config(),
-            "claim Err must block save_and_reload — config rewrite was overwriting \
+            "claim Err must block save_and_reload -- config rewrite was overwriting \
              manual edits between TUI startup and /codingplan",
         );
         // Sanity-check: the duplicate-claim Skipped path (server says
@@ -2267,7 +2271,7 @@ mod tests {
     }
 
     /// `auth_expired = true` MUST NOT flip `should_persist_config()`
-    /// open on its own — the gate already requires every critical step
+    /// open on its own -- the gate already requires every critical step
     /// to be `is_ok_or_skipped`, and that's where the actual safety
     /// lives. `auth_expired` is a side-channel for the shell to decide
     /// "retry with fresh OAuth"; it's orthogonal to "is this report
@@ -2281,7 +2285,7 @@ mod tests {
     fn auth_expired_alone_does_not_change_persist_gate() {
         // All-Skipped report (login skipped, no claim attempted, etc.)
         // with auth_expired=true. Persist gate is driven by the step
-        // outcomes — Skipped counts as "ok or skipped" — so this should
+        // outcomes -- Skipped counts as "ok or skipped" -- so this should
         // still allow persist.
         let allow = SetupReport {
             login: StepResult::Skipped("already logged in".into()),
@@ -2300,7 +2304,7 @@ mod tests {
         assert!(
             allow.should_persist_config(),
             "auth_expired must not gate persist when every critical step \
-             is ok/skipped — it's a side-channel for retry, not safety",
+             is ok/skipped -- it's a side-channel for retry, not safety",
         );
 
         // Claim Err report. Persist gate already false, auth_expired
@@ -2315,14 +2319,14 @@ mod tests {
         };
         assert!(
             !block.should_persist_config(),
-            "claim Err already blocks persist — auth_expired doesn't \
+            "claim Err already blocks persist -- auth_expired doesn't \
              relax it",
         );
     }
 
-    /// Per-tier cascade rendering: Max refused (额度已满) → Pro
-    /// refused (额度已满) → Lite claimed. Only the winning tier
-    /// surfaces — intermediate refusals like "Max 套餐尚未开放" are
+    /// Per-tier cascade rendering: Max refused (额度已满) -> Pro
+    /// refused (额度已满) -> Lite claimed. Only the winning tier
+    /// surfaces -- intermediate refusals like "Max 套餐尚未开放" are
     /// noise once a higher tier succeeds, and users will pay for
     /// upgrades on the web rather than via the CLI cascade.
     #[test]
@@ -2366,7 +2370,7 @@ mod tests {
             "Lite success row missing: {}",
             out
         );
-        // Max + Pro refusal rows must NOT appear — the cascade
+        // Max + Pro refusal rows must NOT appear -- the cascade
         // intermediates are suppressed by design ("Max 套餐尚未开放"
         // was spamming every successful run before this change).
         assert!(
@@ -2379,7 +2383,7 @@ mod tests {
             "Pro refusal row must be suppressed: {}",
             out
         );
-        // 「领取」字样应彻底消失 — neither successes nor failures
+        // 「领取」字样应彻底消失 -- neither successes nor failures
         // should still carry the old claim wording.
         assert!(
             !out.contains("领取"),
@@ -2387,7 +2391,7 @@ mod tests {
             out
         );
         // The legacy single-line summary must NOT appear when
-        // claim_attempts is populated — would be a duplicate row.
+        // claim_attempts is populated -- would be a duplicate row.
         assert!(
             !out.contains("CodingPlan claimed"),
             "legacy claim-summary row must be suppressed when per-tier rows present: {}",
@@ -2403,7 +2407,7 @@ mod tests {
     fn render_success_row_uses_server_plan_name_over_requested_tier() {
         let report = SetupReport {
             login: StepResult::Skipped("already logged in".into()),
-            claim: StepResult::Skipped("already claimed — using Max".into()),
+            claim: StepResult::Skipped("already claimed -- using Max".into()),
             claim_attempts: vec![TierAttempt {
                 tier: PlanType::Max,
                 outcome: TierOutcome::AlreadyHeld {
@@ -2428,7 +2432,7 @@ mod tests {
         );
     }
 
-    /// Legacy gateway: no `plan_name` → fall back to the requested
+    /// Legacy gateway: no `plan_name` -> fall back to the requested
     /// cascade tier so old servers keep rendering "CodingPlan Lite 生效".
     #[test]
     fn render_success_row_falls_back_to_tier_when_plan_name_empty() {
@@ -2458,7 +2462,7 @@ mod tests {
         );
     }
 
-    /// Per-tier cascade where every tier refused — winning tier is
+    /// Per-tier cascade where every tier refused -- winning tier is
     /// `None`, overall claim is `Err`. Per-tier failure rows are
     /// suppressed; a single consolidated failure line surfaces so the
     /// user still gets a signal that no plan was activated.
@@ -2466,7 +2470,7 @@ mod tests {
     fn render_per_tier_cascade_all_refused() {
         let report = SetupReport {
             login: StepResult::Skipped("already logged in".into()),
-            // Bare server message — no English wrapper. Mirrors the
+            // Bare server message -- no English wrapper. Mirrors the
             // new try_claim_with_cascade() output shape.
             claim: StepResult::Err("Lite: 暂无开放".into()),
             claim_attempts: vec![
@@ -2494,7 +2498,7 @@ mod tests {
             auth_expired: false,
         };
         let out = report.render();
-        // No per-tier failure rows — `Max/Pro/Lite` strings must not
+        // No per-tier failure rows -- `Max/Pro/Lite` strings must not
         // appear anywhere in the output.
         for tier in &["Max", "Pro", "Lite"] {
             let needle = format!("CodingPlan {}", tier);
@@ -2512,7 +2516,7 @@ mod tests {
             out
         );
         // BUT we must still emit a single consolidated failure line so
-        // the user knows the step didn't succeed — driven by the
+        // the user knows the step didn't succeed -- driven by the
         // overall `claim` Err falling through to CpClaimFailed.
         assert!(
             out.contains("CodingPlan 套餐配置失败") || out.contains("CodingPlan tier setup failed"),
@@ -2529,7 +2533,7 @@ mod tests {
 
     /// Per-tier cascade where Max errored (5xx). Per-tier failure
     /// rows are suppressed, but the overall `claim` Err falls through
-    /// to a single consolidated failure line — and that line must
+    /// to a single consolidated failure line -- and that line must
     /// truncate a long error so a 500-char stack trace doesn't blow
     /// up the row.
     #[test]
@@ -2561,7 +2565,7 @@ mod tests {
             "consolidated failure row must appear: {}",
             out
         );
-        // The full 500-char error must NOT appear verbatim — truncated.
+        // The full 500-char error must NOT appear verbatim -- truncated.
         assert!(
             !out.contains(&long_err),
             "long error must be truncated, not pasted whole: {}",
@@ -2569,9 +2573,9 @@ mod tests {
         );
     }
 
-    /// All-fail with no server detail anywhere — overall Err is empty
+    /// All-fail with no server detail anywhere -- overall Err is empty
     /// AND every TierAttempt has empty message/error. Render must
-    /// emit the bare-prefix variant (no dangling `— `).
+    /// emit the bare-prefix variant (no dangling `-- `).
     #[test]
     fn render_all_failed_with_no_detail_uses_bare_prefix() {
         let report = SetupReport {
@@ -2608,10 +2612,10 @@ mod tests {
             "bare failure prefix must appear: {}",
             out
         );
-        // No dangling em-dash — body is empty so the suffix is skipped.
+        // No dangling em-dash -- body is empty so the suffix is skipped.
         assert!(
-            !out.contains("套餐配置失败 — ") && !out.contains("tier setup failed — "),
-            "must not render `— ` with empty body: {:?}",
+            !out.contains("套餐配置失败 -- ") && !out.contains("tier setup failed -- "),
+            "must not render `-- ` with empty body: {:?}",
             out
         );
     }
@@ -2655,13 +2659,13 @@ mod tests {
         };
         let out = report.render();
         // Two folded accounts (openai=AtomGit, claude=AtomGit-anthropic), 3 models.
-        assert!(out.contains("Added 2 accounts · 3 models"));
+        assert!(out.contains("Added 2 accounts . 3 models"));
         assert!(out.contains(&format!(
-            "{}  ·  moonshotai/Kimi-K2-Instruct  (default)",
+            "{}  .  moonshotai/Kimi-K2-Instruct  (default)",
             px()
         )));
         assert!(out.contains(&format!(
-            "{}-anthropic  ·  anthropic/claude-3.5-sonnet\n",
+            "{}-anthropic  .  anthropic/claude-3.5-sonnet\n",
             px()
         )));
         assert!(
@@ -2671,7 +2675,7 @@ mod tests {
     }
 
     /// Render exercise: claim failed. The cascade markers on models +
-    /// status must render as nothing — the claim-failed line is the
+    /// status must render as nothing -- the claim-failed line is the
     /// explanation, repeating it twice more is noise.
     #[test]
     fn render_claim_failed_suppresses_cascade_rows() {
@@ -2684,7 +2688,7 @@ mod tests {
             auth_expired: false,
         };
         let out = report.render();
-        assert!(out.contains("× CodingPlan tier setup failed"));
+        assert!(out.contains("[x] CodingPlan tier setup failed"));
         assert!(out.contains("今日codingplan申请额度已满"));
         // The cascade rows must NOT appear.
         assert!(
@@ -2704,7 +2708,7 @@ mod tests {
         assert!(!out.contains("plan_name"));
     }
 
-    /// Non-cascade Skipped reasons still render — only the sentinel
+    /// Non-cascade Skipped reasons still render -- only the sentinel
     /// (`__cascade_upstream_fail__`) is suppressed.
     #[test]
     fn render_skipped_with_non_cascade_reason_still_shows() {
@@ -2717,8 +2721,8 @@ mod tests {
             auth_expired: false,
         };
         let out = report.render();
-        assert!(out.contains("Models step skipped — models cached locally"));
-        assert!(out.contains("Status fetch skipped — server returned 503"));
+        assert!(out.contains("Models step skipped -- models cached locally"));
+        assert!(out.contains("Status fetch skipped -- server returned 503"));
     }
 
     /// Render exercise: status fetch failed with a multi-KB body chain.
@@ -2759,7 +2763,7 @@ mod tests {
             "line still ~{} chars long",
             line.chars().count()
         );
-        assert!(line.contains('…'), "truncation marker present");
+        assert!(line.contains("..."), "truncation marker present");
     }
 
     #[test]
@@ -2772,7 +2776,7 @@ mod tests {
         assert_eq!(format_duration_secs(3660), "1h 1m");
         assert_eq!(format_duration_secs(86400), "1d");
         assert_eq!(format_duration_secs(90060), "1d 1h");
-        assert_eq!(format_duration_secs(-1), "—");
+        assert_eq!(format_duration_secs(-1), "--");
     }
 
     #[test]
@@ -2784,14 +2788,14 @@ mod tests {
     #[test]
     fn truncate_inline_appends_ellipsis_when_long() {
         let r = truncate_inline("abcdefghijklmnop", 5);
-        assert_eq!(r, "abcde…");
+        assert_eq!(r, "abcde...");
     }
 
     #[test]
     fn truncate_inline_handles_unicode_safely() {
         // 5 CJK chars = 5 chars (regardless of byte count). No char-boundary panic.
         let r = truncate_inline("一二三四五六七八", 5);
-        assert_eq!(r, "一二三四五…");
+        assert_eq!(r, "一二三四五...");
     }
 
     // ── Vision-preprocessor auto-config tests ────────────────────────────
@@ -2801,13 +2805,13 @@ mod tests {
             id: 1,
             display_model_name: model.to_string(),
             // Tests in this section drive `run_register` directly with
-            // a curated `Vec<ModelEntry>` — they're testing the
+            // a curated `Vec<ModelEntry>` -- they're testing the
             // post-availability-filter logic, so every entry counts as
             // "available". The split-by-`plan_available` happens
             // upstream in the real `step_models_and_register`.
             plan_available: true,
             capable_model: None,
-            // The new wire-shape optional fields default to None/0 —
+            // The new wire-shape optional fields default to None/0 --
             // these tests only care about the model name and the
             // availability flag, so let them fall back to the
             // constants via `Default`.
@@ -2967,7 +2971,7 @@ mod tests {
         assert_eq!(latest.default_provider, "custom");
         assert!(latest.providers.contains_key("custom"));
         // The CodingPlan entry is now persisted in the new account+model
-        // schema, not as a flat `[providers.*]` entry (single model → bare
+        // schema, not as a flat `[providers.*]` entry (single model -> bare
         // prefix as the id).
         assert!(latest.provider_accounts.contains_key(px()));
         assert!(latest.models.contains_key(px()));
@@ -3017,7 +3021,7 @@ mod tests {
         )
         .unwrap();
 
-        // AdoptServerDefault resets to the server's first model, overriding the pin —
+        // AdoptServerDefault resets to the server's first model, overriding the pin --
         // in BOTH the legacy `default_provider` and the canonical `default_model`, so
         // `persist_codingplan_as_new_schema` can't sync the provider back to the old pin.
         assert_eq!(latest.default_provider, pxn("first-model"));
@@ -3030,7 +3034,7 @@ mod tests {
     #[test]
     fn interactive_login_still_preserves_a_custom_non_codingplan_provider() {
         // Even under AdoptServerDefault, a user's own (non-CodingPlan) provider is never
-        // clobbered — `/login` refreshes CodingPlan models but respects a custom pick.
+        // clobbered -- `/login` refreshes CodingPlan models but respects a custom pick.
         let mut prepared = blank_config();
         let models = run_register(&mut prepared, vec![vl_model_entry("plan-model")]);
         let report = SetupReport {
@@ -3087,7 +3091,7 @@ mod tests {
 
         let resolved = refreshed_default_provider(
             &config,
-            "AtomGit-GLM-5.2",
+            "RustCode-GLM-5.2",
             Some("GLM-5.2"),
             &model_names,
             &provider_names,
@@ -3095,14 +3099,14 @@ mod tests {
         assert_eq!(resolved, "Longyuan-GLM-5.2");
     }
 
-    /// The model the user was on is gone from the new catalogue — fall to the
+    /// The model the user was on is gone from the new catalogue -- fall to the
     /// first entry rather than keeping a key that no longer resolves.
     #[test]
     fn a_historical_default_whose_model_vanished_falls_to_the_first_entry() {
         let config = blank_config();
         let resolved = refreshed_default_provider(
             &config,
-            "AtomGit-Retired",
+            "RustCode-Retired",
             Some("Retired"),
             &["GLM-5.2".to_string()],
             &["Longyuan-GLM-5.2".to_string()],
@@ -3234,23 +3238,23 @@ mod tests {
         // provider with an updated window + a dropped sibling model.
         let mut cfg = blank_config();
         cfg.provider_accounts.insert(
-            "AtomGit".into(),
+            "RustCode".into(),
             serde_json::from_value(serde_json::json!({
-                "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1"
+                "provider": "openai", "base_url": ""
             }))
             .unwrap(),
         );
         cfg.models.insert(
             pxn("GLM-5.2"),
             serde_json::from_value(serde_json::json!({
-                "account": "AtomGit", "model": "GLM-5.2", "context_window": 64000
+                "account": "RustCode", "model": "GLM-5.2", "context_window": 64000
             }))
             .unwrap(),
         );
         cfg.models.insert(
             pxn("Dropped"),
             serde_json::from_value(serde_json::json!({
-                "account": "AtomGit", "model": "Dropped", "context_window": 8000
+                "account": "RustCode", "model": "Dropped", "context_window": 8000
             }))
             .unwrap(),
         );
@@ -3270,23 +3274,23 @@ mod tests {
 
     // A prior login wrote `supports_vision: true` (server-sent then). A later refresh
     // whose flat provider OMITS the field (`None` = server has no opinion this time,
-    // e.g. the background auto-sync response) must NOT null the known capability —
+    // e.g. the background auto-sync response) must NOT null the known capability --
     // otherwise it falls back to the name heuristic and a VL model like "qwen3.8-27b"
     // is wrongly demoted to text-only, silently sending images through the VL detour.
     #[test]
     fn persist_preserves_known_supports_vision_when_fresh_data_omits_it() {
         let mut cfg = blank_config();
         cfg.provider_accounts.insert(
-            "AtomGit".into(),
+            "RustCode".into(),
             serde_json::from_value(serde_json::json!({
-                "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1"
+                "provider": "openai", "base_url": ""
             }))
             .unwrap(),
         );
         cfg.models.insert(
             pxn("qwen3.8-27b"),
             serde_json::from_value(serde_json::json!({
-                "account": "AtomGit", "model": "qwen3.8-27b",
+                "account": "RustCode", "model": "qwen3.8-27b",
                 "context_window": 64000, "supports_vision": true
             }))
             .unwrap(),
@@ -3298,7 +3302,7 @@ mod tests {
 
         persist_codingplan_as_new_schema(&mut cfg);
 
-        assert_eq!(
+                assert_eq!(
             cfg.models[&pxn("qwen3.8-27b")].supports_vision,
             Some(true),
             "server silence must not erase the last-known capability"
@@ -3306,21 +3310,21 @@ mod tests {
     }
 
     // Guard: when the fresh server data has an EXPLICIT opinion, the server stays
-    // authoritative — an explicit `false` overrides a prior `true`.
+    // authoritative -- an explicit `false` overrides a prior `true`.
     #[test]
     fn persist_lets_server_explicitly_override_supports_vision() {
         let mut cfg = blank_config();
         cfg.provider_accounts.insert(
-            "AtomGit".into(),
+            "RustCode".into(),
             serde_json::from_value(serde_json::json!({
-                "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1"
+                "provider": "openai", "base_url": ""
             }))
             .unwrap(),
         );
         cfg.models.insert(
             pxn("m"),
             serde_json::from_value(serde_json::json!({
-                "account": "AtomGit", "model": "m", "context_window": 64000, "supports_vision": true
+                "account": "RustCode", "model": "m", "context_window": 64000, "supports_vision": true
             }))
             .unwrap(),
         );
@@ -3340,16 +3344,16 @@ mod tests {
     // The prior->fresh id can CHANGE when the model count transitions: with 2+ models
     // the id is `<prefix>-<model>`, but the last remaining model folds to the BARE
     // prefix (`provider_names_for`). Keying the capability snapshot by id would then
-    // miss on that transition. Keying by (account, wire model) — stable across the
+    // miss on that transition. Keying by (account, wire model) -- stable across the
     // count change AND unique per provider (a same-named model under a different wire
-    // protocol has a different account) — restores it correctly.
+    // protocol has a different account) -- restores it correctly.
     #[test]
     fn persist_preserves_supports_vision_across_model_count_transition() {
         let mut cfg = blank_config();
         cfg.provider_accounts.insert(
-            "AtomGit".into(),
+            "RustCode".into(),
             serde_json::from_value(serde_json::json!({
-                "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1"
+                "provider": "openai", "base_url": ""
             }))
             .unwrap(),
         );
@@ -3357,12 +3361,12 @@ mod tests {
         cfg.models.insert(
             pxn("qwen3.8-27b"),
             serde_json::from_value(serde_json::json!({
-                "account": "AtomGit", "model": "qwen3.8-27b",
+                "account": "RustCode", "model": "qwen3.8-27b",
                 "context_window": 64000, "supports_vision": true
             }))
             .unwrap(),
         );
-        // This refresh has only ONE model left → it folds to the BARE prefix id, and
+        // This refresh has only ONE model left -> it folds to the BARE prefix id, and
         // the fresh flat provider omits supports_vision (server silent).
         let fresh = build_codingplan_provider(&entry("qwen3.8-27b"));
         assert_eq!(fresh.supports_vision, None);
@@ -3424,12 +3428,12 @@ mod tests {
     }
 
     // Guard: a VL preprocessor pointing at a model that no longer exists in the fresh
-    // catalog is dangling — it should be replaced by the server's suggestion, not kept.
+    // catalog is dangling -- it should be replaced by the server's suggestion, not kept.
     #[test]
     fn merge_replaces_dangling_vision_preprocessor() {
         let mut prepared = blank_config();
         let models = run_register(&mut prepared, vec![vl_model_entry("fresh-vl")]);
-        prepared.vision_preprocessor_provider = Some(px().into()); // single model → bare prefix
+        prepared.vision_preprocessor_provider = Some(px().into()); // single model -> bare prefix
         let report = SetupReport {
             login: StepResult::Skipped("test".into()),
             claim: StepResult::Skipped("test".into()),
@@ -3484,7 +3488,7 @@ mod tests {
         }];
         let info = run_register(&mut config, models);
         // A single model registers under the bare prefix, so the expectation is
-        // `px()` rather than a literal — see `single_model_uses_bare_prefix`.
+        // `px()` rather than a literal -- see `single_model_uses_bare_prefix`.
         assert_eq!(
             info.vision_preprocessor,
             VisionPreprocessorOutcome::AutoSet(px().into())
@@ -3607,10 +3611,10 @@ mod tests {
             auth_expired: false,
         };
         let out = report.render();
-        // Friendly account · model label, not the internal selection key.
+        // Friendly account . model label, not the internal selection key.
         assert!(
             out.contains(&format!(
-                "Vision preprocessor → {} · Qwen/Qwen3-VL-32B-Instruct",
+                "Vision preprocessor -> {} . Qwen/Qwen3-VL-32B-Instruct",
                 px()
             )),
             "render must include the auto-detected line: {out}",
@@ -3668,7 +3672,7 @@ mod tests {
             auth_expired: false,
         };
         let out = report.render();
-        assert!(out.contains("Vision preprocessor → Qwen3-VL-32B-Instruct"));
+        assert!(out.contains("Vision preprocessor -> Qwen3-VL-32B-Instruct"));
         assert!(out.contains("(user setting kept)"));
     }
 
@@ -3723,7 +3727,7 @@ mod tests {
 
     #[test]
     fn render_uses_rate_limit_windows_when_present() {
-        // rate_limit_windows populated → prefers new field over current_usage.
+        // rate_limit_windows populated -> prefers new field over current_usage.
         let s = crate::types::StatusResponse {
             rate_limit_windows: vec![RateLimitWindow {
                 rule_index: 0,
@@ -3753,7 +3757,7 @@ mod tests {
 
     #[test]
     fn render_falls_back_to_current_usage_when_windows_empty() {
-        // rate_limit_windows empty → backward-compat path using current_usage.
+        // rate_limit_windows empty -> backward-compat path using current_usage.
         let s = crate::types::StatusResponse {
             current_usage: Some(crate::types::UsageInfo {
                 placeholder: false,
@@ -3767,7 +3771,7 @@ mod tests {
                 reset_label: String::new(),
                 usage_status_desc: "当前时间窗口用量约 5%".into(),
             }),
-            rate_limit_windows: vec![], // empty → backward-compat path
+            rate_limit_windows: vec![], // empty -> backward-compat path
             ..blank_status_response()
         };
         let out = status_only_report(s).render();
@@ -3836,28 +3840,28 @@ mod tests {
     }
 
     /// Locked models (plan_available=false on a higher tier) must
-    /// surface in the rendered report with a distinctive `×` prefix
+    /// surface in the rendered report with a distinctive `[x]` prefix
     /// + the explicit "(requires Pro plan or higher)" suffix, the whole row
     /// wrapped in SGR 31 (terminal-theme red), and appended to the
     /// same `Added N provider(s)` bullet list as the available models
     /// so users see the full slate at a glance. Pins the v2 spec's
     /// "若不可用的模型也展示出来" requirement.
     ///
-    /// Three layered signals — colour, prefix glyph, suffix text —
+    /// Three layered signals -- colour, prefix glyph, suffix text --
     /// because each can fail independently:
     ///   * SGR 31 only fires when the renderer's sanitizer keeps SGR
-    ///     (plain) — retained's strict strip pathway drops the colour
+    ///     (plain) -- retained's strict strip pathway drops the colour
     ///     but the glyph + text still carry the meaning.
-    ///   * The `×` glyph (U+00D7 MULTIPLICATION SIGN) is Latin-1 and
-    ///     present in every terminal font (unlike U+2717 ✗ which is
+    ///   * The `[x]` glyph (U+00D7 MULTIPLICATION SIGN) is Latin-1 and
+    ///     present in every terminal font (unlike U+2717 [x] which is
     ///     missing from macOS Terminal.app's default font).
     ///   * The "(requires Pro plan or higher)" suffix is plain ASCII / CJK
     ///     and survives even font-fallback-tofu rendering.
     ///
     /// Earlier attempts at strikethrough (SGR 9 then U+0336
-    /// combining mark) were both dropped — SGR 9 was eaten by the
+    /// combining mark) were both dropped -- SGR 9 was eaten by the
     /// universal CSI sanitizer, and U+0336 was silently skipped by
-    /// some fonts in the wild — so this test also pins that those
+    /// some fonts in the wild -- so this test also pins that those
     /// markers do NOT regress back into the template.
     #[test]
     fn render_shows_locked_models_with_prefix_marker() {
@@ -3901,13 +3905,13 @@ mod tests {
         );
         // Available model: standard provider line.
         assert!(out.contains(px()) && out.contains("lite/foo"));
-        // Locked model: `×` prefix immediately before the name, plus
+        // Locked model: `[x]` prefix immediately before the name, plus
         // the explicit `(requires Pro plan or higher)` suffix, all wrapped
-        // in SGR 31 (red fg) → SGR 39 (default fg) so the terminal
+        // in SGR 31 (red fg) -> SGR 39 (default fg) so the terminal
         // renders the whole row in the theme's red.
         assert!(
-            out.contains("\x1b[31m× max/super-secret"),
-            "locked model must open with SGR 31 + × prefix:\n{out}"
+            out.contains("\x1b[31m[x] max/super-secret"),
+            "locked model must open with SGR 31 + [x] prefix:\n{out}"
         );
         assert!(out.contains("(requires Pro plan or higher)\x1b[39m"));
         // Strikethrough is intentionally NOT used (SGR 9 was eaten by
@@ -3921,7 +3925,7 @@ mod tests {
             !out.contains('\u{0336}'),
             "locked-model line must not emit U+0336 combining strikethrough:\n{out}"
         );
-        // Locked model appears INSIDE the providers bullet list — its
+        // Locked model appears INSIDE the providers bullet list -- its
         // line must come after the "Added N provider(s):" header and
         // before the next top-level section (Vision preprocessor /
         // CodingPlan status). The strikethrough + suffix already mark

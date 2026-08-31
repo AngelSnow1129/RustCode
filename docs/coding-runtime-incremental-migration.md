@@ -22,8 +22,8 @@
 > 视为 legacy surface，不把“底层使用 kernel”称为已经退役。
 >
 > 本文聚焦一个问题：如何在不一次性重写 CLI、TUI、daemon 和全部 slash
-> 命令的前提下，引入一个 kernel-native、最终可脱离 `atomcode-core` 与
-> `atomcode-bridge` 的 `CodingRuntime`。
+> 命令的前提下，引入一个 kernel-native、最终可脱离 `rustcode-core` 与
+> `rustcode-bridge` 的 `CodingRuntime`。
 
 ## 1. 背景与目标
 
@@ -32,13 +32,13 @@
 ```text
 CLI / TUI / daemon
         │
-        │ atomcode_core::agent::{AgentClient, AgentCommand, AgentEvent}
+        │ rustcode_core::agent::{AgentClient, AgentCommand, AgentEvent}
         ▼
-atomcode-bridge
+rustcode-bridge
         │
         │ kernel AgentCommand / AgentEvent
         ▼
-atomcode-kernel
+rustcode-kernel
 ```
 
 这意味着“底层使用 v2”并不等于“已经脱离 bridge”。只要 driver 仍发送 core
@@ -62,7 +62,7 @@ kernel AgentHandle
 - driver 不再依赖 core 的 `AgentClient/AgentCommand/AgentEvent`；
 - runtime 直接驱动 kernel 原生命令和事件；
 - session、provider、working directory、审批和重建语义具有唯一所有者；
-- `atomcode-bridge` 及对应 legacy 类型、handler、转换、fallback 可以实际删除。
+- `rustcode-bridge` 及对应 legacy 类型、handler、转换、fallback 可以实际删除。
 
 本文与以下文档的关系：
 
@@ -79,9 +79,9 @@ kernel AgentHandle
 本文中的 legacy 类型主要指：
 
 ```rust
-atomcode_core::agent::AgentClient
-atomcode_core::agent::AgentCommand
-atomcode_core::agent::AgentEvent
+rustcode_core::agent::AgentClient
+rustcode_core::agent::AgentCommand
+rustcode_core::agent::AgentEvent
 ```
 
 它们仍然能工作，但属于旧 driver 协议。bridge 负责将它们转换为 kernel v2
@@ -90,17 +90,17 @@ atomcode_core::agent::AgentEvent
 ### 2.2 core-free
 
 `core-free` 是架构属性，不是模块名，表示某个模块的实现和 Cargo 依赖图中不再包含
-`atomcode-core`。
+`rustcode-core`。
 
 它不表示“没有核心逻辑”，也不表示“没有基础依赖”。例如一个 core-free runtime
 仍然可以依赖：
 
 ```text
-atomcode-config
-atomcode-kernel
-atomcode-capabilities
-atomcode-coding
-atomcode-telemetry
+rustcode-config
+rustcode-kernel
+rustcode-capabilities
+rustcode-coding
+rustcode-telemetry
 ```
 
 不应使用以下临时名称：
@@ -115,8 +115,8 @@ legacy_free.rs
 推荐使用稳定职责命名：
 
 ```text
-atomcode-coding/src/runtime.rs
-atomcode_coding::runtime::CodingRuntime
+rustcode-coding/src/runtime.rs
+rustcode_coding::runtime::CodingRuntime
 ```
 
 ### 2.3 四种迁移状态
@@ -134,7 +134,7 @@ atomcode_coding::runtime::CodingRuntime
 
 ### 3.1 kernel 已具备原生会话句柄
 
-`atomcode-kernel` 已提供：
+`rustcode-kernel` 已提供：
 
 ```rust
 pub struct AgentHandle {
@@ -158,9 +158,9 @@ Shutdown
 这是运行中的 Agent 协议，不应继续加入 `/model`、`/resume`、`/cd`、
 `/reload` 等外部生命周期命令。
 
-### 3.2 `atomcode-coding` 是最接近的承载层
+### 3.2 `rustcode-coding` 是最接近的承载层
 
-`atomcode-coding` 已拥有：
+`rustcode-coding` 已拥有：
 
 - `CodingAgentConfig`；
 - `CodingParts`；
@@ -174,15 +174,15 @@ Shutdown
 因此 `CodingRuntime` 不需要重新实现 assembly，应建立在现有
 `prepare → CodingParts → assemble → AgentHandle` 之上。
 
-### 3.3 `atomcode-coding` 当前还不是真正 core-free
+### 3.3 `rustcode-coding` 当前还不是真正 core-free
 
 crate 文档声明其目标为零 core 参与，但当前 `Cargo.toml` 仍直接依赖
-`atomcode-core`，主要来自两类调用：
+`rustcode-core`，主要来自两类调用：
 
 1. `model_name_suggests_vision`；
 2. CodingPlan 限流窗口类型和状态查询 client。
 
-vision 判断已有 `atomcode-config::util::model_name_suggests_vision` 可复用。
+vision 判断已有 `rustcode-config::util::model_name_suggests_vision` 可复用。
 
 CodingPlan 限流需要把“限流决策”和“窗口数据来源”解耦，例如：
 
@@ -192,31 +192,31 @@ trait RateLimitWindowSource {
 }
 ```
 
-`atomcode-coding` 只保留中立限流决策和 hook；具体 HTTP/auth 实现由低层独立组件
+`rustcode-coding` 只保留中立限流决策和 hook；具体 HTTP/auth 实现由低层独立组件
 或 driver 注入。
 
 ### 3.4 其他现有模块不适合作为 runtime 所有者
 
 | 模块 | 结论 | 原因 |
 |---|---|---|
-| `atomcode-kernel` | 不放 | 必须保持中立，不知道具体 coding、config、session、provider reload |
-| `atomcode-capabilities` | 不放 | 它是能力池，不应反向负责完整 coding 生命周期 |
-| `atomcode-clix` | 只作参考 | 已有 kernel-native 驱动路径，但属于具体 CLI driver |
+| `rustcode-kernel` | 不放 | 必须保持中立，不知道具体 coding、config、session、provider reload |
+| `rustcode-capabilities` | 不放 | 它是能力池，不应反向负责完整 coding 生命周期 |
+| `rustcode-clix` | 只作参考 | 已有 kernel-native 驱动路径，但属于具体 CLI driver |
 | CLI ACP engine | 只作参考 | 已有 `prepare → assemble → spawn`，但只覆盖 ACP 子集 |
 | daemon `kernel_runtime.rs` | 不复用为目标 | 仍依赖 `BridgeConfig`、CoreCmd/CoreEv 和 bridge helper |
-| `atomcode-bridge::runtime` | 只作语义参考 | 迁移目标是拆除它，而不是换名搬运 |
+| `rustcode-bridge::runtime` | 只作语义参考 | 迁移目标是拆除它，而不是换名搬运 |
 
 ## 4. 架构决策
 
 ### 4.1 不新增独立 crate
 
-近期不新增 `atomcode-runtime` crate。新增独立 crate 现在没有经过第二种业务 runtime
+近期不新增 `rustcode-runtime` crate。新增独立 crate 现在没有经过第二种业务 runtime
 验证，容易为了“通用”而定义过大的抽象，形成 bridge 2.0。
 
-推荐在 `atomcode-coding` 内新增：
+推荐在 `rustcode-coding` 内新增：
 
 ```text
-atomcode-coding/src/runtime/
+rustcode-coding/src/runtime/
 ├── mod.rs
 ├── lifecycle.rs
 ├── session.rs
@@ -281,11 +281,11 @@ pub struct CodingRuntime {
 #[derive(Clone)]
 pub struct CodingRuntimeHandle {
     control_tx: Sender<RuntimeControl>,
-    kernel_tx: UnboundedSender<atomcode_kernel::event::AgentCommand>,
+    kernel_tx: UnboundedSender<rustcode_kernel::event::AgentCommand>,
 }
 
 pub struct CodingRuntimeEvents {
-    event_rx: UnboundedReceiver<atomcode_kernel::event::AgentEvent>,
+    event_rx: UnboundedReceiver<rustcode_kernel::event::AgentEvent>,
 }
 ```
 
@@ -694,7 +694,7 @@ goal/loop 等生命周期；首期直接搬走这些所有权，会把一个可�
 
 第一里程碑顺序调整为：
 
-1. 在 `atomcode-coding::runtime` 建立稳定的 `CodingRuntimeHandle` 控制面；
+1. 在 `rustcode-coding::runtime` 建立稳定的 `CodingRuntimeHandle` 控制面；
 2. handle 不暴露 bridge 或 core 类型，只提供面向能力的方法；
 3. bridge 作为当前临时 runtime owner，接收控制请求并转发给“当前” kernel
    `AgentHandle`；
@@ -707,10 +707,10 @@ goal/loop 等生命周期；首期直接搬走这些所有权，会把一个可�
    session 生命周期切片迁移；
 8. 针对性验证稳定 handle、TUI runtime 切换以及 kernel compaction 行为。
 
-清除 `atomcode-coding` 当前全部 core 依赖仍是目标，但不是建立第一个控制句柄的硬前置。
+清除 `rustcode-coding` 当前全部 core 依赖仍是目标，但不是建立第一个控制句柄的硬前置。
 目前 `rate_limit` 和 vision model 判断仍直接使用 core；把它们与 `/compact` 捆绑只会增加
 无关风险。本里程碑因此只能称为“runtime 控制面 source-level 不使用 core”，不能称为
-整个 `atomcode-coding` crate 已 core-free。
+整个 `rustcode-coding` crate 已 core-free。
 
 该里程碑完成后应明确报告：
 
@@ -722,9 +722,9 @@ goal/loop 等生命周期；首期直接搬走这些所有权，会把一个可�
 
 ## 12. 未来是否拆出独立 runtime crate
 
-`runtime` 未来可能物理迁出 `atomcode-coding`，但现在不应提前泛化。
+`runtime` 未来可能物理迁出 `rustcode-coding`，但现在不应提前泛化。
 
-只有出现以下证据时才考虑独立 `atomcode-runtime`：
+只有出现以下证据时才考虑独立 `rustcode-runtime`：
 
 1. coding、review 和其他业务都需要相同生命周期；
 2. runtime 大部分代码不再引用 `CodingParts/CodingAgentConfig`；
@@ -738,8 +738,8 @@ goal/loop 等生命周期；首期直接搬走这些所有权，会把一个可�
 
 - 不新增名为 `core-free`、`v2` 或 `new` 的模块；
 - 不新增独立 runtime crate；
-- 在 `atomcode-coding` 中新增职责稳定的 `runtime` 模块；
-- 先清除 `atomcode-coding` 的实际 core 依赖；
+- 在 `rustcode-coding` 中新增职责稳定的 `runtime` 模块；
+- 先清除 `rustcode-coding` 的实际 core 依赖；
 - 采用单一 `CodingRuntime` + legacy bridge adapter 的过渡结构；
 - 允许小步迁移，但必须按共享状态簇推进；
 - 每个完成的垂直切片必须同步删除旧 variant、handler、依赖和 fallback；
@@ -817,9 +817,9 @@ CodingRuntimeHandle      处理已迁移的 native 控制
 
 完成后应删除：
 
-- `atomcode_core::agent::AgentCommand::Compact`；
+- `rustcode_core::agent::AgentCommand::Compact`；
 - TUI 对该 core variant 的发送；
-- `atomcode-bridge::runtime::on_command` 的 `CoreCmd::Compact` 分支；
+- `rustcode-bridge::runtime::on_command` 的 `CoreCmd::Compact` 分支；
 - daemon kernel translator 的 `CoreCmd::Compact` 分支；
 - 只验证 core compact 到 kernel compact 映射的测试断言。
 
@@ -830,7 +830,7 @@ CodingRuntimeHandle      处理已迁移的 native 控制
 - daemon `commands.rs` 的离线 session compact；
 - bridge 及 TUI 的其他 core command/event 依赖；
 - v1/legacy engine 中与离线/session compaction 相关的实现；
-- `atomcode-coding` 的其他直接 core 依赖。
+- `rustcode-coding` 的其他直接 core 依赖。
 
 因此，本切片达到：
 
@@ -853,7 +853,7 @@ bridge fallback 已删除         否
 4. TUI 新建、后台化、恢复 runtime 时 native handle 与 legacy client 同步切换；
 5. `/compact [focus]` 不再构造 core `AgentCommand`；
 6. 全仓搜索不存在 legacy `AgentCommand::Compact/CoreCmd::Compact`；
-7. `atomcode-coding`、`atomcode-bridge`、`atomcode-tuix`、`rustcode-daemon`
+7. `rustcode-coding`、`rustcode-bridge`、`rustcode-tuix`、`rustcode-daemon`
    受影响测试通过；
 8. 实际可行时运行更广 workspace check。
 
@@ -861,7 +861,7 @@ bridge fallback 已删除         否
 
 ### 15.1 已实现
 
-- 新增 `atomcode_coding::runtime::CodingRuntimeHandle`；
+- 新增 `rustcode_coding::runtime::CodingRuntimeHandle`；
 - `compact(focus)` 直接构造 kernel `AgentCommand::Compact`；
 - bridge 持有单一 control receiver，并把请求转发给当前 kernel sender；
 - legacy client 或 native handle 任一仍存活时，bridge owner 不会因另一通道关闭而提前退出；
@@ -891,7 +891,7 @@ bridge fallback 已删除         否
 - TUI 对 core `CompactionUi` 的消费；
 - daemon `commands.rs` 的离线 session compact；
 - 其他 slash 命令的 bridge/core command 路径；
-- `atomcode-coding` 中 rate-limit 和 vision 判断的直接 core 依赖；
+- `rustcode-coding` 中 rate-limit 和 vision 判断的直接 core 依赖；
 - bridge fallback 本身。
 
 当前迁移状态为：`/compact` 的 TUI driver 已切换，core
@@ -902,14 +902,14 @@ WebUI 离线 session 路径和 bridge fallback 均尚未退役**。
 
 ### 15.4 验证结果
 
-- `cargo test -p atomcode-coding runtime::tests`：2 passed；
-- `cargo test -p atomcode-bridge runtime_control_tests`：1 passed；
-- `cargo test -p atomcode-tuix resume_restores_the_native_handle_for_that_runtime`：1 passed；
+- `cargo test -p rustcode-coding runtime::tests`：2 passed；
+- `cargo test -p rustcode-bridge runtime_control_tests`：1 passed；
+- `cargo test -p rustcode-tuix resume_restores_the_native_handle_for_that_runtime`：1 passed；
 - `cargo test -p rustcode-daemon shutdown_maps_directly`：1 passed；
-- `cargo test -p atomcode-core --lib`：1555 passed，1 ignored；
-- `cargo test -p atomcode-kernel --test compaction`：13 passed；
-- `cargo check -p atomcode-coding -p atomcode-bridge -p atomcode-tuix \
-  -p rustcode-daemon -p atomcode`：通过。
+- `cargo test -p rustcode-core --lib`：1555 passed，1 ignored；
+- `cargo test -p rustcode-kernel --test compaction`：13 passed；
+- `cargo check -p rustcode-coding -p rustcode-bridge -p rustcode-tuix \
+  -p rustcode-daemon -p rustcode`：通过。
 
 仓库当前全量 `cargo fmt --all -- --check` 会报告大量与本切片无关的既有格式差异，
 因此没有执行会重写全仓的格式化；新增 `runtime.rs` 已单文件 rustfmt。
@@ -934,7 +934,7 @@ runtime 事件，也不是删除整个 bridge。
 
 目标：
 
-1. 定义不依赖 `atomcode-core` 的 compaction runtime 事件；
+1. 定义不依赖 `rustcode-core` 的 compaction runtime 事件；
 2. 保持 kernel event receiver 单一所有者；
 3. 通过一条有序过渡事件流同时承载尚未迁移的 core 事件和已迁移的 native 事件；
 4. 切换 TUI、CLI headless、daemon bridge path 和 daemon kernel path；
@@ -948,7 +948,7 @@ runtime 事件，也不是删除整个 bridge。
 - 不迁移 daemon `commands.rs` 的离线 session `/compact`；
 - 不迁移 session/provider/cd/resume/approval 生命周期；
 - 不删除 daemon bridge fallback；
-- 不顺带清除 `atomcode-coding` 的全部 core 依赖。
+- 不顺带清除 `rustcode-coding` 的全部 core 依赖。
 
 ### 16.2 当前事件调用链
 
@@ -965,7 +965,7 @@ daemon 有两条实现不同、输出相同的路径：
 
 ```text
 daemon bridge path
-  → atomcode-bridge
+  → rustcode-bridge
   → core CompactionUi
   → daemon live/chat
 
@@ -1023,7 +1023,7 @@ native_event_rx ── async forwarder ─┘
 
 ### 16.4 core-free 事件模型
 
-在 `atomcode-coding::runtime` 中新增中立事件类型：
+在 `rustcode-coding::runtime` 中新增中立事件类型：
 
 ```rust
 #[non_exhaustive]
@@ -1068,7 +1068,7 @@ before，再按 kernel 报告的 byte ratio 估算 after；没有 usage 时回�
 bridge 和 daemon 当前各有一套完全重复的本地化与 token 格式化函数。本切片不应把
 这些字符串复制到 TUI、CLI 和 daemon 第三次。
 
-推荐在 `atomcode-config::i18n` 提供接受纯数值的共享展示函数：
+推荐在 `rustcode-config::i18n` 提供接受纯数值的共享展示函数：
 
 ```rust
 format_compaction_mark(
@@ -1084,7 +1084,7 @@ format_compaction_noop(
 )
 ```
 
-`atomcode-config` 不依赖 coding/kernel 类型；driver 从 `CompactionOutcome` 取数后调用
+`rustcode-config` 不依赖 coding/kernel 类型；driver 从 `CompactionOutcome` 取数后调用
 格式化函数。这样同时满足：
 
 - runtime 事件保持 UI-neutral；
@@ -1098,8 +1098,8 @@ bridge 增加明确标记为临时的输出 envelope：
 
 ```rust
 pub enum BridgedRuntimeEvent {
-    Legacy(atomcode_core::agent::AgentEvent),
-    Native(atomcode_coding::runtime::CodingRuntimeEvent),
+    Legacy(rustcode_core::agent::AgentEvent),
+    Native(rustcode_coding::runtime::CodingRuntimeEvent),
 }
 ```
 
@@ -1179,7 +1179,7 @@ background runtime 保持当前策略：不缓存 compaction UI；terminal snaps
 
 ### 16.8 CLI headless 适配
 
-CLI 不再把 bridge runtime 重新包装为只支持 core event 的 `atomcode_core::agent::AgentHandle`。
+CLI 不再把 bridge runtime 重新包装为只支持 core event 的 `rustcode_core::agent::AgentHandle`。
 headless event loop 直接消费 bridge 的有序 envelope：
 
 - `Legacy`：继续执行现有逻辑；
@@ -1229,8 +1229,8 @@ daemon driver 协议切片。
 
 本切片完成时必须实际删除：
 
-- `atomcode_core::agent::CompactionUiKind`；
-- `atomcode_core::agent::AgentEvent::CompactionUi`；
+- `rustcode_core::agent::CompactionUiKind`；
+- `rustcode_core::agent::AgentEvent::CompactionUi`；
 - bridge 的 `CompactionStarted/Compacted → CompactionUi` 转换；
 - daemon kernel translator 的相同转换；
 - TUI 对 core `CompactionUi` 的 handler 和状态注释；
@@ -1255,7 +1255,7 @@ compaction legacy 事件面退役。
 - daemon `commands.rs` 的离线 session `/compact`；
 - daemon kernel runtime 对 `BridgeConfig`、core command 和 bridge helper 的依赖；
 - session/provider/cd/resume/approval/goal/loop 生命周期；
-- `atomcode-coding` 中 rate-limit 和 vision 判断等其他直接 core 依赖。
+- `rustcode-coding` 中 rate-limit 和 vision 判断等其他直接 core 依赖。
 
 完成后的迁移状态应报告为：
 
@@ -1282,12 +1282,12 @@ bridge fallback 已删除                         否
 预计影响：
 
 ```text
-atomcode-coding
-atomcode-config
-atomcode-bridge
-atomcode-core
-atomcode-cli
-atomcode-tuix
+rustcode-coding
+rustcode-config
+rustcode-bridge
+rustcode-core
+rustcode-cli
+rustcode-tuix
 rustcode-daemon
 ```
 
@@ -1297,8 +1297,8 @@ rustcode-daemon
 
 建议按以下顺序实现，每一步保持可编译但不把中间态称为已退役：
 
-1. 在 `atomcode-coding::runtime` 增加事件与 outcome 计算测试；
-2. 在 `atomcode-config::i18n` 收敛 compaction 展示 helper；
+1. 在 `rustcode-coding::runtime` 增加事件与 outcome 计算测试；
+2. 在 `rustcode-config::i18n` 收敛 compaction 展示 helper；
 3. bridge 输出有序 `Legacy/Native` envelope；
 4. CLI/TUI 切换 envelope 和 native compaction handler；
 5. daemon bridge/kernel/live/chat 全路径切换；
@@ -1349,13 +1349,13 @@ CLI/daemon：
 
 实际完成：
 
-- `atomcode-coding::runtime` 现在拥有 driver-neutral 的
+- `rustcode-coding::runtime` 现在拥有 driver-neutral 的
   `CodingRuntimeEvent` 与 `CompactionOutcome`；
 - bridge、TUI 和 daemon 分别使用单 channel 的有序 `Legacy/Native` envelope；
 - CLI headless、TUI foreground/background、daemon `/live`、`/chat`、bridge fallback
   和 daemon kernel path 均已切换 native compaction event；
 - committed compaction 后仍按 `CompactionFinished → ContextStats` 的顺序立即刷新 usage；
-- compaction 展示文案统一由 `atomcode-config::i18n` 格式化；
+- compaction 展示文案统一由 `rustcode-config::i18n` 格式化；
 - 已删除 core `CompactionUiKind`、`AgentEvent::CompactionUi`、所有生产/消费分支、
   重复 helper、旧测试以及旧 tuple 版 `spawn_bridged_runtime`。
 
@@ -1418,7 +1418,7 @@ TUI /compact
 因此第二切片后的准确状态是：逻辑已实现、driver 已切换、core `CompactionUi` 已退役，
 但 bridge fallback 仍可达，`/compact` 整体尚未退役。
 
-第三切片目标是让 `atomcode-coding` runtime 成为当前 kernel `AgentHandle` 的唯一所有者：
+第三切片目标是让 `rustcode-coding` runtime 成为当前 kernel `AgentHandle` 的唯一所有者：
 
 ```text
 driver CodingRuntimeHandle -- Compact --> coding runtime owner --> kernel
@@ -1452,7 +1452,7 @@ goal/loop/session 协调，但不再接触 compaction 控制或 compaction kerne
 - bridge 只验证 compact 转发的测试；
 - `BridgedRuntimeEvent::Native` 及 bridge 对 native compaction 的生产职责；
 - daemon bridge fallback 对 `BridgedRuntimeEvent::Native` 的依赖；
-- daemon 离线 `/compact` 对 `atomcode_core::agent::compression` 的调用。
+- daemon 离线 `/compact` 对 `rustcode_core::agent::compression` 的调用。
 
 不会删除的一般 legacy surface：core `ContextStats`、其他 core command/event、bridge 的
 session/provider/cd/resume/approval/goal/loop handler，以及 daemon kernel path 为兼容现有
@@ -1488,7 +1488,7 @@ core Compact/CompactionUi variant 可达          否
 
 本切片已在上述基线落地：
 
-- `atomcode-coding::runtime` 现在持有当前 kernel `AgentHandle`，稳定 handle 在
+- `rustcode-coding::runtime` 现在持有当前 kernel `AgentHandle`，稳定 handle 在
   provider/session agent replacement 后仍直接命中当前 agent；
 - runtime owner 独占 kernel event receiver，compaction started/finished 直接进入 native
   receiver，其他事件才进入 `KernelRuntimeAdapter`；
@@ -1575,6 +1575,6 @@ surface 仍可达，不能据此宣称整个 core/bridge 已退役。core compre
 - CLI、TUI、daemon 对 Interrupted 只显示中断结果，不能输出成功 marker 或“无需压缩”；
   TUI 同时清除 compacting 和由 compact 强制进入的 Streaming 状态。
 
-该修复只扩展 `atomcode-coding` 的 native compact terminal，不恢复 core
+该修复只扩展 `rustcode-coding` 的 native compact terminal，不恢复 core
 `Compact/CompactionUi`，不新增 bridge compact handler，也不改变 kernel compaction command、
 capability strategy、`/context` 或其他 slash 命令协议。

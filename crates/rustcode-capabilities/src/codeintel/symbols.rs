@@ -1,13 +1,13 @@
 //! Stateless tree-sitter symbol extraction. Ported from production
 //! `semantic/mod.rs::list_symbols_treesitter`, minus the parse cache and the
-//! SemanticSearcher state — we parse fresh per call (single-file parsing is cheap, and
+//! SemanticSearcher state -- we parse fresh per call (single-file parsing is cheap, and
 //! a neutral tool holds no shared index; the cross-file graph layer comes later).
 
 use crate::codeintel::lang::Lang;
 use std::path::Path;
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
-/// Per-signature display cap in a skeleton — mirrors `read_file`'s line cap so the
+/// Per-signature display cap in a skeleton -- mirrors `read_file`'s line cap so the
 /// skeleton never shows MORE of a (pathologically long, minified) line than a full read.
 const SIG_MAX: usize = 2000;
 
@@ -26,7 +26,7 @@ pub struct Symbol {
 }
 
 /// Parse `source` as `lang` and extract symbol definitions (functions, types, classes,
-/// methods, …) via the language's tree-sitter query. `None` only if parsing or query
+/// methods, ...) via the language's tree-sitter query. `None` only if parsing or query
 /// compilation fails; an empty `Vec` means a clean parse with no symbols.
 pub fn extract_symbols(source: &str, lang: Lang) -> Option<Vec<Symbol>> {
     let grammar = lang.grammar();
@@ -40,7 +40,7 @@ pub fn extract_symbols(source: &str, lang: Lang) -> Option<Vec<Symbol>> {
 
     let mut cursor = QueryCursor::new();
     let mut symbols = Vec::new();
-    // Dedup by byte range — a query may match the same definition via multiple patterns.
+    // Dedup by byte range -- a query may match the same definition via multiple patterns.
     let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
 
     let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
@@ -107,16 +107,16 @@ pub fn skeleton(path: &Path, source: &str, display_path: &str) -> Option<String>
     let lines: Vec<&str> = source.lines().collect();
     // Name the file + the full-shape call ONCE (path repeated per symbol would bloat a
     // large skeleton past the artifact cap). Each symbol line then carries only the exact
-    // `offset=…, limit=…` to slot in — so the model jumps precisely instead of guessing.
+    // `offset=..., limit=...` to slot in -- so the model jumps precisely instead of guessing.
     let mut out = format!(
         "[File skeleton: {} lines, {} symbols in {display_path}. Jump to any symbol with \
          read_file(file_path=\"{display_path}\", offset, limit) using the offset/limit shown \
-         on its line — do NOT guess ranges. Or read_symbol(file_path=\"{display_path}\", \
+         on its line -- do NOT guess ranges. Or read_symbol(file_path=\"{display_path}\", \
          symbol=\"<name>\").]\n",
         lines.len(),
         syms.len(),
     );
-    // Leading import/use/include lines — cheap, high-value context.
+    // Leading import/use/include lines -- cheap, high-value context.
     let mut shown_import = false;
     for (i, line) in lines.iter().enumerate() {
         let t = line.trim_start();
@@ -140,14 +140,14 @@ pub fn skeleton(path: &Path, source: &str, display_path: &str) -> Option<String>
             .map(|l| l.trim_end().to_string())
             .unwrap_or_else(|| s.name.clone());
         if sig.chars().count() > SIG_MAX {
-            sig = sig.chars().take(SIG_MAX).collect::<String>() + "…";
+            sig = sig.chars().take(SIG_MAX).collect::<String>() + "...";
         }
         let n = s.end_line.saturating_sub(s.start_line) + 1;
         // Values only, NOT a `read_file(...)`-shaped string: the call shape (with the
         // required file_path) is in the header once. A fake-complete per-line call would
         // tempt a weak model to copy it verbatim and hit "missing file_path".
         out.push_str(&format!(
-            "{:>6}| {}  // L{}-{} → offset={}, limit={}\n",
+            "{:>6}| {}  // L{}-{} -> offset={}, limit={}\n",
             s.start_line, sig, s.start_line, s.end_line, s.start_line, n
         ));
     }
@@ -200,7 +200,7 @@ mod tests {
         let src = format!("fn f(/* {long} */) {{}}\n");
         let sk = skeleton(std::path::Path::new("a.rs"), &src, "a.rs").expect("skeleton");
         assert!(sk.contains("File skeleton"), "{}", &sk[..sk.len().min(120)]);
-        assert!(sk.contains('…'), "long signature must be truncated");
+        assert!(sk.contains("..."), "long signature must be truncated");
         assert!(
             !sk.contains(&"x".repeat(2100)),
             "must not show the full 5000-char line"
@@ -209,14 +209,14 @@ mod tests {
 
     #[test]
     fn skeleton_none_for_symbolless_source() {
-        // pure comments → no symbols → None (caller falls back to a normal read)
+        // pure comments -> no symbols -> None (caller falls back to a normal read)
         assert!(skeleton(
             std::path::Path::new("a.rs"),
             "// just\n// comments\n",
             "a.rs"
         )
         .is_none());
-        // unsupported language → None
+        // unsupported language -> None
         assert!(skeleton(
             std::path::Path::new("a.unknownext"),
             "anything",
@@ -238,7 +238,7 @@ mod tests {
             sk.contains("read_file"),
             "header must show the recovery call: {sk}"
         );
-        // `bar` spans L5-7 → offset=5, limit=3 (7-5+1). Exact, not a guess.
+        // `bar` spans L5-7 -> offset=5, limit=3 (7-5+1). Exact, not a guess.
         assert!(
             sk.contains("offset=5, limit=3"),
             "missing exact per-symbol recovery values: {sk}"

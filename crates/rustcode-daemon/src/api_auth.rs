@@ -59,7 +59,7 @@ struct AuthStatusResponse {
     logged_in: bool,
     /// Credentials exist on disk but the token can't be made valid (expired
     /// and the refresh_token was refused / absent). The sidebar used to show
-    /// "logged in" here while chat returned "登录已过期" — this flag lets the
+    /// "logged in" here while chat returned "登录已过期" -- this flag lets the
     /// frontend surface a distinct "session expired, re-login" state instead.
     expired: bool,
     auth_path: String,
@@ -68,7 +68,7 @@ struct AuthStatusResponse {
 }
 
 /// Classify the reported auth state from what disk holds (`present`) and
-/// whether that stored token is actually usable (`token_usable` — valid now
+/// whether that stored token is actually usable (`token_usable` -- valid now
 /// or successfully refreshed). `expired` means present-but-dead: the exact
 /// mismatch that made the sidebar disagree with chat.
 fn classify_auth_status(present: bool, token_usable: bool) -> (bool, bool) {
@@ -130,7 +130,7 @@ pub(crate) async fn auth_status() -> impl IntoResponse {
             // Presence of auth.toml is not the same as a usable session: an
             // expired token whose refresh_token is dead/absent still parses
             // fine but every chat turn 401s. Probe real usability the same
-            // way chat does — `get_valid_token` returns the stored token when
+            // way chat does -- `get_valid_token` returns the stored token when
             // valid, refreshes (and saves) near expiry, and errors when it
             // can't be made valid. It's disk-only in the common case and
             // network-bounded (5s connect / 10s total) only when a refresh is
@@ -571,7 +571,7 @@ mod tests {
     #[test]
     fn present_but_unusable_token_is_expired() {
         // File on disk exists (so the user "looks" logged in) but the token
-        // can't be made valid — this is the exact sidebar/chat mismatch.
+        // can't be made valid -- this is the exact sidebar/chat mismatch.
         assert_eq!(classify_auth_status(true, false), (true, true));
     }
 

@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.actions
 
-import com.rustcode.jetbrains.ui.selectedAtomCodeChatPanel
+import com.rustcode.jetbrains.ui.selectedRustCodeChatPanel
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -15,6 +15,6 @@ class StopGenerationAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.getData(CommonDataKeys.PROJECT) ?: return
-        selectedAtomCodeChatPanel(project)?.stopCurrentGeneration()
+        selectedRustCodeChatPanel(project)?.stopCurrentGeneration()
     }
 }

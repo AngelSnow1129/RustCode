@@ -3,7 +3,7 @@
 use rustcode_config::config::prompt_sections::build_rules;
 
 // ═══════════════════════════════════════════════════════════════
-// 1. Unified prompt — minimal but complete
+// 1. Unified prompt -- minimal but complete
 // ═══════════════════════════════════════════════════════════════
 
 #[test]
@@ -37,12 +37,12 @@ fn unified_prompt_size_reasonable() {
     let tokens = prompt.len() / 4;
     assert!(
         tokens > 50,
-        "Too short: {} tokens — rules may be missing",
+        "Too short: {} tokens -- rules may be missing",
         tokens
     );
     assert!(
         tokens < 2500,
-        "Too long: {} tokens — violates Less is More principle",
+        "Too long: {} tokens -- violates Less is More principle",
         tokens
     );
 }

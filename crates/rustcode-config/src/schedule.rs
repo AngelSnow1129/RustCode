@@ -129,7 +129,7 @@ pub fn remove(id: &str) -> std::io::Result<()> {
 
 /// Next fire time (epoch secs) for simple frequencies. `Cron` returns None in
 /// phase 1 (its real firing is the phase-2 OS scheduler). Uses naive local-less
-/// UTC arithmetic; day/hour rollover only (no DST handling — acceptable for the
+/// UTC arithmetic; day/hour rollover only (no DST handling -- acceptable for the
 /// list display, exact firing is the OS scheduler's job in phase 2).
 pub fn next_run(schedule: &Schedule, now_epoch_secs: i64) -> Option<i64> {
     fn hhmm(s: &str) -> Option<(i64, i64)> {
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn next_run_daily_is_today_or_tomorrow_at_time() {
-        // 2026-07-31 08:00:00 UTC = 1785657600 ; daily 09:00 → same day 09:00
+        // 2026-07-31 08:00:00 UTC = 1785657600 ; daily 09:00 -> same day 09:00
         let now = 1785657600;
         let nr = next_run(
             &Schedule::Daily {

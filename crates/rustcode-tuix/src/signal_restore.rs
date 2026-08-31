@@ -3,17 +3,17 @@
 //! `TerminalGuard::Drop` (lib.rs) restores the terminal on a graceful exit,
 //! and the panic hook covers `panic = "abort"`. But a process **killed by a
 //! signal** (`kill`/SIGTERM, terminal close/SIGHUP, or `kill -INT`) runs
-//! NEITHER — the kernel tears the process down without unwinding. The shell
+//! NEITHER -- the kernel tears the process down without unwinding. The shell
 //! then inherits a terminal still in raw mode with the Kitty keyboard protocol
-//! and bracketed paste armed, plus the leftover `❯` input row, so subsequent
+//! and bracketed paste armed, plus the leftover `>` input row, so subsequent
 //! keystrokes echo as CSI-u / `200~` gibberish.
 //!
 //! This is the reported "Ctrl-C twice to exit writes junk into the input box":
 //! the v2 quit chain wedged past the force-exit watchdog, so the TUI was
-//! ultimately signal-killed (`zsh: terminated …`) instead of exiting cleanly,
+//! ultimately signal-killed (`zsh: terminated ...`) instead of exiting cleanly,
 //! and nothing restored the terminal.
 //!
-//! We install a raw `sigaction` handler — NOT a `tokio` signal task, which the
+//! We install a raw `sigaction` handler -- NOT a `tokio` signal task, which the
 //! very wedge that triggers the kill would starve. Using only async-signal-safe
 //! calls (`write`, `tcsetattr`, `raise`), it emits the restore byte sequence,
 //! takes the terminal out of raw mode via the cooked `termios` captured at arm
@@ -60,7 +60,7 @@ extern "C" fn handler(signo: c_int) {
         }
     }
     // Re-raise under the default disposition so the exit status still reflects
-    // the signal (the shell's "terminated"/"interrupt" message is correct — we
+    // the signal (the shell's "terminated"/"interrupt" message is correct -- we
     // only cleaned the terminal first).
     unsafe {
         libc::signal(signo, libc::SIG_DFL);
@@ -69,7 +69,7 @@ extern "C" fn handler(signo: c_int) {
 }
 
 /// Capture the cooked `termios` (before raw mode flips it) and install the
-/// terminal-restore handler for SIGTERM / SIGINT / SIGHUP. Idempotent — only the
+/// terminal-restore handler for SIGTERM / SIGINT / SIGHUP. Idempotent -- only the
 /// first call takes effect. Call this immediately before `enable_raw_mode()`.
 pub(crate) fn arm() {
     if INSTALLED.swap(true, Ordering::SeqCst) {

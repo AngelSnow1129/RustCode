@@ -4,20 +4,20 @@
 
 **Goal:** Add an opt-in `depth:"deep+verify"` that culls false positives from the deep-mode merged findings — one verify agent per surviving finding, single vote biased toward keep — while `single` and `deep` stay unchanged.
 
-**Architecture:** Split Phase 1's `finalize_deep_review` in `atomcode-review/src/fanout.rs` into reusable pieces (`merge_deep_findings`, `dimension_coverage`, `render_deep_result` with an optional `verify_dropped` count); add a verifier persona lens, a bounded-concurrency `run_verify` keep-mask runner, and a `render_verify_task` helper. `review_tool.rs` gains `wants_verify()`, the schema enum value, and a `deep+verify` branch that runs the verify pass between merge and render. Verify reuses `build_review_agent_with` + `report_finding` — a verify agent that re-reports the finding means keep; reporting nothing means drop; error/cancel keeps (fail-open).
+**Architecture:** Split Phase 1's `finalize_deep_review` in `rustcode-review/src/fanout.rs` into reusable pieces (`merge_deep_findings`, `dimension_coverage`, `render_deep_result` with an optional `verify_dropped` count); add a verifier persona lens, a bounded-concurrency `run_verify` keep-mask runner, and a `render_verify_task` helper. `review_tool.rs` gains `wants_verify()`, the schema enum value, and a `deep+verify` branch that runs the verify pass between merge and render. Verify reuses `build_review_agent_with` + `report_finding` — a verify agent that re-reports the finding means keep; reporting nothing means drop; error/cancel keeps (fail-open).
 
-**Tech Stack:** Rust, tokio (`rt-multi-thread`, `sync`, `macros` — already enabled), `atomcode-kernel` Agent, `atomcode-capabilities` `Finding`/`ReportFindingTool`. No new dependencies.
+**Tech Stack:** Rust, tokio (`rt-multi-thread`, `sync`, `macros` — already enabled), `rustcode-kernel` Agent, `rustcode-capabilities` `Finding`/`ReportFindingTool`. No new dependencies.
 
 **Spec:** `docs/plans/2026-08-20-code-review-deep-mode-fanout-design.md` (§ "Phase 2 — adversarial verify pass").
 
 ## Global Constraints
 
 - No new crate dependencies. Concurrency uses `tokio::task::JoinSet` (NOT `futures`).
-- `single` and `deep` paths stay behavior-identical. All existing `atomcode-review` and `atomcode-tuix` tests stay green unchanged; in particular `finalize_deep_review`'s output for the no-verify path must be byte-identical after the refactor (it delegates with `verify_dropped = None`).
+- `single` and `deep` paths stay behavior-identical. All existing `rustcode-review` and `rustcode-tuix` tests stay green unchanged; in particular `finalize_deep_review`'s output for the no-verify path must be byte-identical after the refactor (it delegates with `verify_dropped = None`).
 - Verify is opt-in (`depth:"deep+verify"` only). Single vote is biased toward KEEP: a finding is dropped only when its verify agent completes cleanly AND re-reports nothing. Error/cancel/panic keeps the finding (fail-open).
 - Scope preflight stays before fan-out (unchanged).
 - Findings render in English.
-- `Finding` fields (do NOT modify, from `atomcode-capabilities`): `title: String, body: String, priority: String ("P0".."P3"), confidence: f32, file_path: String, line_start: u32, line_end: u32, suggestion: String, suggested_code: String`.
+- `Finding` fields (do NOT modify, from `rustcode-capabilities`): `title: String, body: String, priority: String ("P0".."P3"), confidence: f32, file_path: String, line_start: u32, line_end: u32, suggestion: String, suggested_code: String`.
 - Current relevant landmarks (Phase 1, already merged): `fanout.rs` has `finalize_deep_review` (line ~151), `render_deep` (line ~192), `MergedFinding`/`DimensionOutcome`, `merge_findings`, `run_deep_review`; `review_tool.rs` has `Args.depth` + `is_deep()` (line ~307), the schema `depth` entry (line ~439), and the deep branch calling `finalize_deep_review` (line ~567). `annotated`, `files`, `rules`, `task` are already in scope at the deep branch.
 
 ---
@@ -25,8 +25,8 @@
 ### Task 1: Split finalize + add verifier lens, run_verify, verify-task helper (fanout.rs)
 
 **Files:**
-- Modify: `crates/atomcode-review/src/fanout.rs`
-- Modify: `crates/atomcode-review/src/lib.rs` (export new items)
+- Modify: `crates/rustcode-review/src/fanout.rs`
+- Modify: `crates/rustcode-review/src/lib.rs` (export new items)
 - Test: in `fanout.rs` `#[cfg(test)]`
 
 **Interfaces:**
@@ -87,7 +87,7 @@ Add to `fanout.rs` `mod tests` (the `f(...)` helper already exists there):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test -p atomcode-review --lib fanout::tests::finalize_output_is_unchanged_after_the_split fanout::tests::render_deep_result_notes_verify_dropped fanout::tests::run_verify_applies fanout::tests::verify_task_embeds`
+Run: `cargo test -p rustcode-review --lib fanout::tests::finalize_output_is_unchanged_after_the_split fanout::tests::render_deep_result_notes_verify_dropped fanout::tests::run_verify_applies fanout::tests::verify_task_embeds`
 Expected: FAIL to compile — the new functions/consts don't exist yet.
 
 - [ ] **Step 3: Write the implementation**
@@ -304,13 +304,13 @@ pub use fanout::{
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test -p atomcode-review --lib fanout` then `cargo test -p atomcode-review`.
+Run: `cargo test -p rustcode-review --lib fanout` then `cargo test -p rustcode-review`.
 Expected: PASS, including the pre-existing `finalize_*` / `run_deep_review_*` tests (unchanged output).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-review/src/fanout.rs crates/atomcode-review/src/lib.rs
+git add crates/rustcode-review/src/fanout.rs crates/rustcode-review/src/lib.rs
 git commit -m "feat(review): split deep finalize + add verify lens/runner (phase 2 scaffolding)"
 ```
 
@@ -319,7 +319,7 @@ git commit -m "feat(review): split deep finalize + add verify lens/runner (phase
 ### Task 2: Wire `deep+verify` into `code_review` execute (review_tool.rs)
 
 **Files:**
-- Modify: `crates/atomcode-review/src/review_tool.rs`
+- Modify: `crates/rustcode-review/src/review_tool.rs`
 - Test: in `review_tool.rs` `#[cfg(test)]`
 
 **Interfaces:**
@@ -374,7 +374,7 @@ Add to `review_tool.rs` `mod tests`:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test -p atomcode-review --lib args_parse_deep_verify_depth deep_verify_keeps_a_confirmed_finding`
+Run: `cargo test -p rustcode-review --lib args_parse_deep_verify_depth deep_verify_keeps_a_confirmed_finding`
 Expected: FAIL to compile — `wants_verify` missing / `deep+verify` not handled.
 
 - [ ] **Step 3: Write the implementation**
@@ -463,13 +463,13 @@ Note on the closure: `render_verify_task` and `make_cfg()` are called synchronou
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test -p atomcode-review --lib args_parse_deep_verify_depth deep_verify_keeps_a_confirmed_finding` then `cargo test -p atomcode-review`.
+Run: `cargo test -p rustcode-review --lib args_parse_deep_verify_depth deep_verify_keeps_a_confirmed_finding` then `cargo test -p rustcode-review`.
 Expected: PASS; all Phase 1 tests (incl. `deep_review_fans_out_and_dedups_across_dimensions`, single-path tests) stay green.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-review/src/review_tool.rs
+git add crates/rustcode-review/src/review_tool.rs
 git commit -m "feat(review): code_review deep+verify runs one verify pass per finding"
 ```
 
@@ -478,7 +478,7 @@ git commit -m "feat(review): code_review deep+verify runs one verify pass per fi
 ### Task 3: `/review deep+verify` command mapping (commands.rs)
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/event_loop/commands.rs` (`review_prompt`)
+- Modify: `crates/rustcode-tuix/src/event_loop/commands.rs` (`review_prompt`)
 - Test: in `commands.rs` `#[cfg(test)]`
 
 **Interfaces:**
@@ -511,7 +511,7 @@ Add to `commands.rs` `mod tests`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p atomcode-tuix --lib review_prompt_deep_verify_sets_depth`
+Run: `cargo test -p rustcode-tuix --lib review_prompt_deep_verify_sets_depth`
 Expected: FAIL — `deep+verify` is currently parsed as a git ref, emitting a range scope with no depth.
 
 - [ ] **Step 3: Write the implementation**
@@ -553,13 +553,13 @@ Keep the closing `format!("Review the requested changes: call the `code_review` 
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p atomcode-tuix --lib review_prompt`
+Run: `cargo test -p rustcode-tuix --lib review_prompt`
 Expected: PASS — the new deep+verify test plus the existing `review_prompt_uses_explicit_tool_scopes`, `review_prompt_json_escapes_the_base_ref`, and `review_prompt_deep_adds_depth_and_keeps_scope` all green.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-tuix/src/event_loop/commands.rs
+git add crates/rustcode-tuix/src/event_loop/commands.rs
 git commit -m "feat(tuix): /review deep+verify maps to depth deep+verify"
 ```
 
@@ -568,7 +568,7 @@ git commit -m "feat(tuix): /review deep+verify maps to depth deep+verify"
 ### Task 4: Full-suite regression + doc note
 
 **Files:**
-- Modify: `crates/atomcode-review/src/review_tool.rs` (extend the module header note)
+- Modify: `crates/rustcode-review/src/review_tool.rs` (extend the module header note)
 
 - [ ] **Step 1: Extend the doc note**
 
@@ -585,16 +585,16 @@ In the `review_tool.rs` module header, update the deep-mode note to mention veri
 - [ ] **Step 2: Run the suites**
 
 ```bash
-cargo test -p atomcode-review
-cargo test -p atomcode-tuix --lib
-cargo build -p atomcode-review -p atomcode-tuix
+cargo test -p rustcode-review
+cargo test -p rustcode-tuix --lib
+cargo build -p rustcode-review -p rustcode-tuix
 ```
 Expected: all green, zero new warnings.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/atomcode-review/src/review_tool.rs
+git add crates/rustcode-review/src/review_tool.rs
 git commit -m "docs(review): note deep+verify pass in code_review header"
 ```
 

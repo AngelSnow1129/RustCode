@@ -179,7 +179,7 @@ impl TeamRunnerFactory {
 
 struct TeamProgressHook {
     activity: TeamActivitySink,
-    /// Output+reasoning tokens finalized from completed rounds — the provider's
+    /// Output+reasoning tokens finalized from completed rounds -- the provider's
     /// reported `completion` count when available, else a chars/4 estimate. Mirrors
     /// the legacy `task` subagent panel so both show a real live token count.
     total_tokens: std::sync::atomic::AtomicU64,
@@ -237,7 +237,7 @@ impl LifecycleHooks for TeamProgressHook {
         self.total_tokens
             .fetch_add(reported.max(estimated), Relaxed);
         // Only surface an activity when the model is about to use a tool. A
-        // response WITHOUT a tool call ends the turn — emitting "thinking" here
+        // response WITHOUT a tool call ends the turn -- emitting "thinking" here
         // would just overwrite the last real activity and double the event rate;
         // the final token total is carried out via the member outcome instead.
         if let Some(call) = response.tool_calls.first() {
@@ -416,7 +416,7 @@ mod tests {
             let _ = tx.send((text, tokens));
         });
         let hook = TeamProgressHook::new(activity);
-        // 8 chars → 2 tokens（chars/4 估算）。
+        // 8 chars -> 2 tokens（chars/4 估算）。
         let mut delta = "abcdefgh".to_string();
         hook.on_text_delta(&mut delta).await;
         assert_eq!(hook.live_tokens(), 2);

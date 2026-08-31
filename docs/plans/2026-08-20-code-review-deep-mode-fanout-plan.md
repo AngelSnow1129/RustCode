@@ -4,28 +4,28 @@
 
 **Goal:** Add an opt-in `/review deep` mode that fans out one read-only reviewer per concern dimension (correctness / security / performance / tests&contracts), runs them concurrently, and merges/dedups their findings — while the default `/review` keeps running a single agent unchanged.
 
-**Architecture:** A new `atomcode-review/src/fanout.rs` owns a fixed dimension table (each dimension is a `persona_append` lens), a pure `merge_findings` deduplicator, a pure deep-review renderer, and a generic `run_deep_review` orchestrator (concurrency via `tokio::task::JoinSet`, injectable per-dimension runner for tests). `ReviewTool::execute` gains a `depth` arg and dispatches: `single` (today's exact path, untouched) vs `deep` (build N dimension agents via `build_review_agent_with` + `ReviewAgentConfig::with_persona_append`, each with its own `ReportFindingTool` sink, then merge → scope-filter → render).
+**Architecture:** A new `rustcode-review/src/fanout.rs` owns a fixed dimension table (each dimension is a `persona_append` lens), a pure `merge_findings` deduplicator, a pure deep-review renderer, and a generic `run_deep_review` orchestrator (concurrency via `tokio::task::JoinSet`, injectable per-dimension runner for tests). `ReviewTool::execute` gains a `depth` arg and dispatches: `single` (today's exact path, untouched) vs `deep` (build N dimension agents via `build_review_agent_with` + `ReviewAgentConfig::with_persona_append`, each with its own `ReportFindingTool` sink, then merge → scope-filter → render).
 
-**Tech Stack:** Rust, tokio (`rt-multi-thread`, `macros`, `time`, `sync` — already enabled), `atomcode-kernel` Agent, `atomcode-capabilities` `Finding`/`ReportFindingTool`. No new dependencies.
+**Tech Stack:** Rust, tokio (`rt-multi-thread`, `macros`, `time`, `sync` — already enabled), `rustcode-kernel` Agent, `rustcode-capabilities` `Finding`/`ReportFindingTool`. No new dependencies.
 
 **Spec:** `docs/plans/2026-08-20-code-review-deep-mode-fanout-design.md`
 
 ## Global Constraints
 
-- No new crate dependencies. `futures` is dev-only in `atomcode-review`, so production orchestration MUST use `tokio::task::JoinSet` (NOT `futures::future::join_all`).
-- The single-agent path (`depth` absent or `"single"`) MUST be behavior-identical to today. All existing `atomcode-review` and `atomcode-tuix` tests stay green unchanged.
+- No new crate dependencies. `futures` is dev-only in `rustcode-review`, so production orchestration MUST use `tokio::task::JoinSet` (NOT `futures::future::join_all`).
+- The single-agent path (`depth` absent or `"single"`) MUST be behavior-identical to today. All existing `rustcode-review` and `rustcode-tuix` tests stay green unchanged.
 - Deep mode is opt-in only (`/review deep` / tool arg `depth:"deep"`). Default stays single.
 - Scope preflight/confirmation runs BEFORE any fan-out (reuse the existing `ScopeManifest`/`ScopeLimits` block in `execute()`).
 - Review findings render in English (match the existing `render_findings` output).
-- `Finding` fields (from `atomcode-capabilities`, do NOT modify): `title: String`, `body: String`, `priority: String` (`"P0"`..`"P3"`, 0 most severe), `confidence: f32` (0.0..=1.0), `file_path: String`, `line_start: u32`, `line_end: u32`, `suggestion: String`, `suggested_code: String`.
+- `Finding` fields (from `rustcode-capabilities`, do NOT modify): `title: String`, `body: String`, `priority: String` (`"P0"`..`"P3"`, 0 most severe), `confidence: f32` (0.0..=1.0), `file_path: String`, `line_start: u32`, `line_end: u32`, `suggestion: String`, `suggested_code: String`.
 
 ---
 
 ### Task 1: Dimension table + module wiring
 
 **Files:**
-- Create: `crates/atomcode-review/src/fanout.rs`
-- Modify: `crates/atomcode-review/src/lib.rs` (declare + export the module)
+- Create: `crates/rustcode-review/src/fanout.rs`
+- Modify: `crates/rustcode-review/src/lib.rs` (declare + export the module)
 - Test: in `fanout.rs` `#[cfg(test)]`
 
 **Interfaces:**
@@ -35,7 +35,7 @@
 
 - [ ] **Step 1: Write the failing test**
 
-In a new `crates/atomcode-review/src/fanout.rs`, put the table + this test:
+In a new `crates/rustcode-review/src/fanout.rs`, put the table + this test:
 
 ```rust
 //! Deep-mode dimension fan-out for `code_review`: many read-only reviewers, one
@@ -113,7 +113,7 @@ mod tests {
 }
 ```
 
-Then wire the module in `crates/atomcode-review/src/lib.rs`: add `pub mod fanout;` next to the other `pub mod` lines, and add to the re-export list:
+Then wire the module in `crates/rustcode-review/src/lib.rs`: add `pub mod fanout;` next to the other `pub mod` lines, and add to the re-export list:
 
 ```rust
 pub use fanout::{ReviewDimension, REVIEW_DIMENSIONS};
@@ -121,7 +121,7 @@ pub use fanout::{ReviewDimension, REVIEW_DIMENSIONS};
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p atomcode-review --lib fanout::tests::dimension_table_is_the_four_expected_lenses`
+Run: `cargo test -p rustcode-review --lib fanout::tests::dimension_table_is_the_four_expected_lenses`
 Expected: FAIL to compile first (module not declared) → after declaring, PASS. If it compiles and fails, the table is wrong; fix until it fails only for a real reason. (This task is mostly data; once the file + module wiring exist it passes.)
 
 - [ ] **Step 3: Write minimal implementation**
@@ -130,13 +130,13 @@ Already written in Step 1 (the table IS the implementation). Ensure `lib.rs` dec
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p atomcode-review --lib fanout`
+Run: `cargo test -p rustcode-review --lib fanout`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-review/src/fanout.rs crates/atomcode-review/src/lib.rs
+git add crates/rustcode-review/src/fanout.rs crates/rustcode-review/src/lib.rs
 git commit -m "feat(review): deep-mode dimension table (fanout scaffolding)"
 ```
 
@@ -145,7 +145,7 @@ git commit -m "feat(review): deep-mode dimension table (fanout scaffolding)"
 ### Task 2: `merge_findings` deduplicator (pure)
 
 **Files:**
-- Modify: `crates/atomcode-review/src/fanout.rs`
+- Modify: `crates/rustcode-review/src/fanout.rs`
 - Test: in `fanout.rs` `#[cfg(test)]`
 
 **Interfaces:**
@@ -216,7 +216,7 @@ Add the test module cases (inside the existing `mod tests`):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p atomcode-review --lib fanout::tests::merge_`
+Run: `cargo test -p rustcode-review --lib fanout::tests::merge_`
 Expected: FAIL to compile — `merge_findings` / `MergedFinding` not defined.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -306,13 +306,13 @@ fn outranks(candidate: &Finding, current: &Finding) -> bool {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p atomcode-review --lib fanout::tests::merge_`
+Run: `cargo test -p rustcode-review --lib fanout::tests::merge_`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-review/src/fanout.rs
+git add crates/rustcode-review/src/fanout.rs
 git commit -m "feat(review): merge_findings deduplicator for deep mode"
 ```
 
@@ -321,8 +321,8 @@ git commit -m "feat(review): merge_findings deduplicator for deep mode"
 ### Task 3: Shared finding comparator + deep renderer (pure)
 
 **Files:**
-- Modify: `crates/atomcode-review/src/review_tool.rs` (extract `cmp_finding`, make `paths_match` reusable)
-- Modify: `crates/atomcode-review/src/fanout.rs` (add `DimensionOutcome`, `finalize_deep_review`, `render_deep`)
+- Modify: `crates/rustcode-review/src/review_tool.rs` (extract `cmp_finding`, make `paths_match` reusable)
+- Modify: `crates/rustcode-review/src/fanout.rs` (add `DimensionOutcome`, `finalize_deep_review`, `render_deep`)
 - Test: in `fanout.rs` `#[cfg(test)]`
 
 **Interfaces:**
@@ -333,7 +333,7 @@ git commit -m "feat(review): merge_findings deduplicator for deep mode"
 
 - [ ] **Step 1: Write the failing test**
 
-First, in `crates/atomcode-review/src/review_tool.rs`, extract the comparator and widen visibility so `fanout` can reuse them. Replace the body of `sort_findings` and expose `cmp_finding` + `paths_match`:
+First, in `crates/rustcode-review/src/review_tool.rs`, extract the comparator and widen visibility so `fanout` can reuse them. Replace the body of `sort_findings` and expose `cmp_finding` + `paths_match`:
 
 ```rust
 /// Priority ascending (`P0` most severe) then confidence descending. Shared with
@@ -419,7 +419,7 @@ Then add these tests to `fanout.rs` `mod tests`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p atomcode-review --lib fanout::tests::finalize_`
+Run: `cargo test -p rustcode-review --lib fanout::tests::finalize_`
 Expected: FAIL to compile — `DimensionOutcome` / `finalize_deep_review` not defined.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -548,13 +548,13 @@ fn render_deep(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p atomcode-review --lib fanout::tests::finalize_` then `cargo test -p atomcode-review --lib` (ensure `sort_findings`/`paths_match` refactor kept existing tests green).
+Run: `cargo test -p rustcode-review --lib fanout::tests::finalize_` then `cargo test -p rustcode-review --lib` (ensure `sort_findings`/`paths_match` refactor kept existing tests green).
 Expected: PASS; no regressions.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-review/src/fanout.rs crates/atomcode-review/src/review_tool.rs
+git add crates/rustcode-review/src/fanout.rs crates/rustcode-review/src/review_tool.rs
 git commit -m "feat(review): deep-review finalize/merge/render + shared cmp_finding"
 ```
 
@@ -563,7 +563,7 @@ git commit -m "feat(review): deep-review finalize/merge/render + shared cmp_find
 ### Task 4: `run_deep_review` orchestrator (concurrent, injectable)
 
 **Files:**
-- Modify: `crates/atomcode-review/src/fanout.rs`
+- Modify: `crates/rustcode-review/src/fanout.rs`
 - Test: in `fanout.rs` `#[cfg(test)]`
 
 **Interfaces:**
@@ -598,7 +598,7 @@ Add to `fanout.rs` `mod tests`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p atomcode-review --lib fanout::tests::run_deep_review_runs_all`
+Run: `cargo test -p rustcode-review --lib fanout::tests::run_deep_review_runs_all`
 Expected: FAIL to compile — `run_deep_review` not defined.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -643,13 +643,13 @@ where
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p atomcode-review --lib fanout::tests::run_deep_review_runs_all`
+Run: `cargo test -p rustcode-review --lib fanout::tests::run_deep_review_runs_all`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-review/src/fanout.rs
+git add crates/rustcode-review/src/fanout.rs
 git commit -m "feat(review): run_deep_review concurrent orchestrator (JoinSet)"
 ```
 
@@ -658,7 +658,7 @@ git commit -m "feat(review): run_deep_review concurrent orchestrator (JoinSet)"
 ### Task 5: Wire `depth` into `code_review` execute + tool schema
 
 **Files:**
-- Modify: `crates/atomcode-review/src/review_tool.rs` (`Args.depth`, `is_deep`, schema, `execute` dispatch, real per-dimension runner)
+- Modify: `crates/rustcode-review/src/review_tool.rs` (`Args.depth`, `is_deep`, schema, `execute` dispatch, real per-dimension runner)
 - Test: in `review_tool.rs` `#[cfg(test)]` (reuse `ScriptedReviewProvider`)
 
 **Interfaces:**
@@ -726,7 +726,7 @@ Add to `review_tool.rs` `mod tests` (the `ScriptedReviewProvider` reports one `u
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p atomcode-review --lib deep_review_fans_out`
+Run: `cargo test -p rustcode-review --lib deep_review_fans_out`
 Expected: FAIL to compile — `Args::is_deep` not defined / `depth` field missing.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -834,14 +834,14 @@ Note: `make_cfg` borrows `self`, `ctx`, `files`. The deep closure calls `make_cf
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p atomcode-review --lib deep_review_fans_out args_parse_depth_field`
-then the full crate: `cargo test -p atomcode-review`
+Run: `cargo test -p rustcode-review --lib deep_review_fans_out args_parse_depth_field`
+then the full crate: `cargo test -p rustcode-review`
 Expected: PASS; the pre-existing single-path tests (`review_tool_reviews_a_real_diff`, round/duration tests) still green.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-review/src/review_tool.rs
+git add crates/rustcode-review/src/review_tool.rs
 git commit -m "feat(review): code_review deep depth arg → dimension fan-out"
 ```
 
@@ -850,7 +850,7 @@ git commit -m "feat(review): code_review deep depth arg → dimension fan-out"
 ### Task 6: `/review deep` command mapping
 
 **Files:**
-- Modify: `crates/atomcode-tuix/src/event_loop/commands.rs` (`review_prompt`)
+- Modify: `crates/rustcode-tuix/src/event_loop/commands.rs` (`review_prompt`)
 - Test: in `commands.rs` `#[cfg(test)]`
 
 **Interfaces:**
@@ -887,7 +887,7 @@ Add to `commands.rs` `mod tests` (near `review_prompt_uses_explicit_tool_scopes`
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p atomcode-tuix --lib review_prompt_deep_adds_depth`
+Run: `cargo test -p rustcode-tuix --lib review_prompt_deep_adds_depth`
 Expected: FAIL (current `review_prompt` emits no `depth` and treats `deep` as a git ref).
 
 - [ ] **Step 3: Write minimal implementation**
@@ -928,13 +928,13 @@ Note: this preserves the existing substrings the current tests assert (`{"scope"
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p atomcode-tuix --lib review_prompt`
+Run: `cargo test -p rustcode-tuix --lib review_prompt`
 Expected: PASS (new deep test + the two existing review_prompt tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-tuix/src/event_loop/commands.rs
+git add crates/rustcode-tuix/src/event_loop/commands.rs
 git commit -m "feat(tuix): /review deep opts code_review into dimension fan-out"
 ```
 
@@ -943,7 +943,7 @@ git commit -m "feat(tuix): /review deep opts code_review into dimension fan-out"
 ### Task 7: Full-suite regression + docs note
 
 **Files:**
-- Modify: `crates/atomcode-review/src/review_tool.rs` (module-level doc note on deep mode — 2 lines)
+- Modify: `crates/rustcode-review/src/review_tool.rs` (module-level doc note on deep mode — 2 lines)
 - No new tests (verification task).
 
 - [ ] **Step 1: Add the doc note**
@@ -960,16 +960,16 @@ At the end of the `review_tool.rs` module header (after line ~12), add:
 
 Run:
 ```bash
-cargo test -p atomcode-review
-cargo test -p atomcode-tuix --lib
-cargo build -p atomcode-review -p atomcode-tuix
+cargo test -p rustcode-review
+cargo test -p rustcode-tuix --lib
+cargo build -p rustcode-review -p rustcode-tuix
 ```
 Expected: all green, zero warnings.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/atomcode-review/src/review_tool.rs
+git add crates/rustcode-review/src/review_tool.rs
 git commit -m "docs(review): note deep-mode fan-out in code_review header"
 ```
 

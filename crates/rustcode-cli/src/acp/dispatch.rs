@@ -7,7 +7,7 @@
 //! [`crate::acp::discovery`]; mode/config options live in
 //! [`crate::acp::options`]. ACP wire ids are `acp-<native id>` so every wire
 //! id round-trips to the single native session catalog shared with the
-//! CLI/TUI — no second persistence model.
+//! CLI/TUI -- no second persistence model.
 
 use std::collections::HashSet;
 use std::sync::atomic::AtomicU64;
@@ -70,7 +70,7 @@ fn prompt_completion_terminal(
 ///
 /// `provider_factory` creates a distinct provider for the session. When absent,
 /// the native default factory is used. `config_options` is the initial catalog
-/// for the session (empty → the agent does not advertise config options).
+/// for the session (empty -> the agent does not advertise config options).
 pub async fn handle_new_session(
     engine: &EngineConfig,
     provider_factory: Option<Arc<dyn CodingProviderFactory>>,
@@ -102,7 +102,7 @@ pub async fn handle_new_session(
     Ok(resp)
 }
 
-/// Run the `prepare → assemble → spawn` pipeline and register the live session
+/// Run the `prepare -> assemble -> spawn` pipeline and register the live session
 /// in the shared table. Shared between the v1 and v2 handler chains (the wire
 /// request/response shapes differ, the session lifecycle does not).
 ///
@@ -125,7 +125,7 @@ pub async fn spawn_and_register_session(
     // Protocol MUST (session-setup): `cwd` must be an absolute path. A relative
     // path would silently resolve against the agent process's own directory,
     // breaking the session's filesystem-root contract. Validate BEFORE spawning
-    // anything — this is the shared entry point for the v1 and v2 chains.
+    // anything -- this is the shared entry point for the v1 and v2 chains.
     if !cwd.is_absolute() {
         return Err(AcpError::invalid_params().data(format!(
             "cwd must be an absolute path (got `{}`)",
@@ -157,14 +157,14 @@ pub async fn spawn_and_register_session(
 /// Handle a `session/resume` request over the native session catalog.
 ///
 /// Failure semantics (fail-closed, no silent fresh):
-/// - a wire id this agent did not mint → invalid params;
-/// - no persisted session under that id → invalid params;
-/// - the request `cwd` differs from the stored working directory → invalid
+/// - a wire id this agent did not mint -> invalid params;
+/// - no persisted session under that id -> invalid params;
+/// - the request `cwd` differs from the stored working directory -> invalid
 ///   params (the protocol pins `cwd` to the session's);
-/// - the session is live in this or another process (lease held) → invalid
+/// - the session is live in this or another process (lease held) -> invalid
 ///   params with the in-use explanation;
 /// - snapshot missing/corrupt/version-mismatched after a successful catalog
-///   lookup → internal error (a race, never a silent fresh start).
+///   lookup -> internal error (a race, never a silent fresh start).
 ///
 /// Shared by the v1 and v2 chains; the caller builds its own wire response
 /// shape (v1 echoes modes/config options, v2 responds `{}`).
@@ -172,22 +172,22 @@ pub async fn spawn_and_register_session(
 /// Whether the resume request's `cwd` refers to the same directory as the
 /// session's stored `working_dir`. A raw `PathBuf` equality is too strict: a
 /// real client (e.g. an editor) may supply an equivalent-but-not-byte-identical
-/// path — a trailing separator, a redundant `.` segment, a `..`, or a symlinked
-/// project root — and would be wrongly rejected from resuming its own session.
+/// path -- a trailing separator, a redundant `.` segment, a `..`, or a symlinked
+/// project root -- and would be wrongly rejected from resuming its own session.
 ///
-/// Matching order (cheap → expensive):
+/// Matching order (cheap -> expensive):
 /// 1. exact bytes (also covers the case where neither path exists on disk);
-/// 2. component-wise equality — normalizes away trailing separators and `.`
+/// 2. component-wise equality -- normalizes away trailing separators and `.`
 ///    segments WITHOUT touching the filesystem and WITHOUT case-folding (a
 ///    lexical same-path check);
-/// 3. [`pathnorm::canonicalize`] on both — resolves symlinks, `..`, and (on a
+/// 3. [`pathnorm::canonicalize`] on both -- resolves symlinks, `..`, and (on a
 ///    case-insensitive filesystem) case differences to the real on-disk path;
 ///    requires the paths to exist and falls through to "not equal" otherwise.
 ///
 /// Deliberately does NOT case-fold lexically: the storage bucket key
 /// (`stable_project_hash`) case-folds only on Windows, so folding here on other
 /// platforms would admit a `cwd` the storage layer treats as a *different*
-/// project (the snapshot lives in another bucket) — a case-insensitive FS is
+/// project (the snapshot lives in another bucket) -- a case-insensitive FS is
 /// instead handled correctly by `canonicalize` resolving to one real path.
 fn cwd_matches(stored: &std::path::Path, requested: &std::path::Path) -> bool {
     use rustcode_capabilities::pathnorm;
@@ -260,7 +260,7 @@ pub async fn handle_resume_session(
 }
 
 /// Map a resume spawn failure to a JSON-RPC error. `SessionInUse` is the one
-/// protocol-relevant case (the session is live elsewhere — a lease conflict
+/// protocol-relevant case (the session is live elsewhere -- a lease conflict
 /// must be explicit, never a takeover); everything else is an internal failure
 /// (missing/corrupt snapshot after a successful catalog lookup is a race,
 /// never a reason to silently fresh-start).
@@ -276,7 +276,7 @@ fn map_resume_start_error(e: RuntimeStartError) -> agent_client_protocol::Error 
 
 /// Map neutral [`ReplayEntry`]s onto v1 `session/update` chunk shapes for
 /// `session/load` replay. v1 has no full-content `user_message`/`agent_message`
-/// updates — history is streamed as `user_message_chunk` / `agent_message_chunk`
+/// updates -- history is streamed as `user_message_chunk` / `agent_message_chunk`
 /// / `agent_thought_chunk`, one chunk per content block. All chunks of a message
 /// share a `messageId` freshly allocated from the per-connection counter; a
 /// `messageId` change marks a new message, so text and image blocks of one user
@@ -322,7 +322,7 @@ pub fn replay_entries_to_v1_updates(
                 // Reconstruct the same two-step tool record a live turn emits:
                 // a `tool_call` (in_progress) followed by a `tool_call_update`
                 // carrying the recorded result (`completed`/`failed`). No
-                // message id is involved — tool records key off `toolCallId`.
+                // message id is involved -- tool records key off `toolCallId`.
                 updates.push(SessionUpdate::ToolCall(
                     agent_client_protocol::schema::v1::ToolCall::new(
                         agent_client_protocol::schema::v1::ToolCallId::new(id.clone()),
@@ -360,7 +360,7 @@ pub fn replay_entries_to_v1_updates(
 /// Extract the user message text and any image attachments from a prompt
 /// request's content blocks.
 ///
-/// Returns `(text, images, has_attachments)` — `has_attachments` is true when
+/// Returns `(text, images, has_attachments)` -- `has_attachments` is true when
 /// the prompt carried ANY non-text block (image, resource link, audio,
 /// resource, future variants). Local slash-command handling must only run for
 /// attachment-free prompts so it never silently drops content the model
@@ -370,8 +370,8 @@ pub fn replay_entries_to_v1_updates(
 /// Text blocks are concatenated in order; image blocks are collected into the
 /// kernel's [`ImageContent`] shape (`media_type` ← ACP `mime_type`). A
 /// `ResourceLink` (a protocol-baseline block every agent MUST support) is
-/// rendered as an inline `[resource: …]` marker so the reference survives into
-/// the kernel prompt — the model can then read the resource with its own tools
+/// rendered as an inline `[resource: ...]` marker so the reference survives into
+/// the kernel prompt -- the model can then read the resource with its own tools
 /// instead of the link being silently dropped. Audio and embedded `Resource`
 /// blocks are gated by prompt capabilities we do not advertise, so a
 /// conforming client never sends them here; they stay ignored (but still mark
@@ -414,11 +414,11 @@ pub fn prompt_text(req: &PromptRequest) -> (String, Vec<ImageContent>, bool) {
 ///
 /// Turn-level failures (a kernel `Error` event, an abnormal stop reason, or an
 /// approval round-trip failure) respond to the prompt with a JSON-RPC error (or
-/// fail the one tool call closed) but return `Ok(())` — returning `Err` from a
+/// fail the one tool call closed) but return `Ok(())` -- returning `Err` from a
 /// spawned task tears the whole connection down, wiping the client's thread.
 /// That is reserved for genuine transport death (`?` on `send_notification`,
-/// where the wire is already broken). An approval hiccup — the client cancelled
-/// the prompt, ESC'd, or sent an unexpected message — is NOT transport death:
+/// where the wire is already broken). An approval hiccup -- the client cancelled
+/// the prompt, ESC'd, or sent an unexpected message -- is NOT transport death:
 /// `handle_approval` fails closed internally and the call site here also guards,
 /// so a denied permission never crashes the session.
 #[allow(clippy::too_many_arguments)] // turn context (wire/session/request/resolvers) is inherent
@@ -466,7 +466,7 @@ pub async fn run_prompt_turn(
 /// ([`crate::acp::turn`]).
 ///
 /// Owns the v1 `SessionId`, the deferred [`Responder`] (answered exactly once
-/// per turn — on an intercepted slash, an unknown session, a dead kernel, or
+/// per turn -- on an intercepted slash, an unknown session, a dead kernel, or
 /// the turn terminal), the slash-command resolvers, and the set of tool calls
 /// already announced as `pending` by the approval round-trip.
 struct V1Wire<'a> {
@@ -478,8 +478,8 @@ struct V1Wire<'a> {
     effort_resolver: Option<&'a SessionModelResolver>,
     /// Tool calls already announced as `pending` by the approval round-trip.
     /// Their `ToolStarted` must UPDATE the pending record to `in_progress`
-    /// instead of creating a second one (protocol flow: tool_call pending →
-    /// request_permission → tool_call_update in_progress → completed/failed).
+    /// instead of creating a second one (protocol flow: tool_call pending ->
+    /// request_permission -> tool_call_update in_progress -> completed/failed).
     announced: HashSet<String>,
 }
 
@@ -505,7 +505,7 @@ impl TurnWire for V1Wire<'_> {
         // without a model round-trip. Only attachment-free prompts are
         // eligible: a prompt that carries images/resources must reach the
         // kernel whole (a local handler would silently drop the attachments).
-        // Unknown `/…` inputs fall through to the kernel.
+        // Unknown `/...` inputs fall through to the kernel.
         if !has_attachments {
             if let Some((cmd, arg)) = crate::acp::commands::parse_slash_command(text) {
                 if let Some(reply) = crate::acp::commands::execute_slash_command(
@@ -701,7 +701,7 @@ mod tests {
             Path::new("/home/u/proj"),
             Path::new("/home/u/proj")
         ));
-        // Trailing separator — same directory (component-wise equality).
+        // Trailing separator -- same directory (component-wise equality).
         assert!(cwd_matches(
             Path::new("/home/u/proj"),
             Path::new("/home/u/proj/")
@@ -710,7 +710,7 @@ mod tests {
             Path::new("/home/u/proj/"),
             Path::new("/home/u/proj")
         ));
-        // Redundant `.` segment — same directory, lexically.
+        // Redundant `.` segment -- same directory, lexically.
         assert!(cwd_matches(
             Path::new("/home/u/proj"),
             Path::new("/home/u/./proj")
@@ -822,7 +822,7 @@ mod tests {
         assert_eq!(result["toolCallId"], "call-1");
         assert_eq!(result["status"], "completed");
         assert_eq!(result["content"][0]["content"]["text"], "file list");
-        // call-2: no result → only the in_progress start remains.
+        // call-2: no result -> only the in_progress start remains.
         assert_eq!(tag(&updates[2]), "tool_call");
         let dangling = serde_json::to_value(&updates[2]).unwrap();
         assert_eq!(dangling["toolCallId"], "call-2");
@@ -991,7 +991,7 @@ mod tests {
         let sessions: Sessions =
             std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
 
-        // Unknown session (empty catalog) → invalid params.
+        // Unknown session (empty catalog) -> invalid params.
         let err = handle_resume_session(
             &engine,
             None,
@@ -1007,7 +1007,7 @@ mod tests {
         .unwrap_err();
         assert!(err.to_string().contains("unknown session"));
 
-        // A wire id this agent did not mint → invalid params.
+        // A wire id this agent did not mint -> invalid params.
         let err = handle_resume_session(
             &engine,
             None,

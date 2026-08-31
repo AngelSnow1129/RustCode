@@ -1,9 +1,9 @@
-//! `ast_grep` — structural (AST) code search via the native `ast-grep` engine. Matches a
+//! `ast_grep` -- structural (AST) code search via the native `ast-grep` engine. Matches a
 //! single AST pattern (with `$NAME` / `$_` / `$$$` metavariables) against the syntax tree,
-//! not raw text — so it precisely finds "this kind of call/declaration" where a regex
+//! not raw text -- so it precisely finds "this kind of call/declaration" where a regex
 //! `grep` would over- or under-match. Read-only ⇒ `Safe`.
 //!
-//! Implementation: shells out to the `ast-grep` (a.k.a. `sg`) binary — real ast-grep
+//! Implementation: shells out to the `ast-grep` (a.k.a. `sg`) binary -- real ast-grep
 //! semantics, zero new Rust deps, and no tree-sitter version clash with the `codeintel`
 //! grammars. If the binary isn't installed the tool returns a clear, actionable message
 //! (same graceful-degradation contract as `open_file`). Consistent with `bash`/`open_file`
@@ -25,7 +25,7 @@ pub struct AstGrepTool;
 
 #[derive(Deserialize)]
 struct Args {
-    /// A single AST pattern (e.g. `unwrap()` → `$EXPR.unwrap()`).
+    /// A single AST pattern (e.g. `unwrap()` -> `$EXPR.unwrap()`).
     #[serde(alias = "pat")]
     pattern: String,
     /// Files / dirs / globs to search. Defaults to the working directory.
@@ -42,7 +42,7 @@ impl Tool for AstGrepTool {
         "ast_grep"
     }
     fn description(&self) -> &str {
-        "Structural code search by AST pattern (native ast-grep) — finds syntax, not text. \
+        "Structural code search by AST pattern (native ast-grep) -- finds syntax, not text. \
          Use when a regex would be imprecise: locating a specific call shape, declaration, \
          or construct. Metavariables: `$NAME` captures one node, `$_` matches one node \
          unbound, `$$$` matches zero or more nodes (uppercase names; each must be a whole \
@@ -60,7 +60,7 @@ impl Tool for AstGrepTool {
             "required": ["pattern"]
         })
     }
-    // read-only structural search → Safe.
+    // read-only structural search -> Safe.
     async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -108,7 +108,7 @@ impl Tool for AstGrepTool {
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
             let detail = stderr.trim();
-            // A pattern that fails to parse is the common case — surface ast-grep's reason.
+            // A pattern that fails to parse is the common case -- surface ast-grep's reason.
             return err(format!(
                 "ast_grep: search failed{}",
                 if detail.is_empty() {
@@ -134,7 +134,7 @@ struct AstMatch {
 }
 
 /// Parse `ast-grep --json=compact` output (a JSON array of match objects) into
-/// `(file, line, first-line-of-text)`. ast-grep line numbers are 0-based → +1. Robust to
+/// `(file, line, first-line-of-text)`. ast-grep line numbers are 0-based -> +1. Robust to
 /// missing fields (skips degenerate entries) and to non-array / unparseable input (empty).
 fn parse_ast_grep_json(stdout: &str) -> Vec<AstMatch> {
     let v: Value = match serde_json::from_str(stdout.trim()) {
@@ -241,7 +241,7 @@ mod tests {
         let m = parse_ast_grep_json(json);
         assert_eq!(m.len(), 3);
         assert_eq!(m[0].file, "src/a.rs");
-        assert_eq!(m[0].line, 10, "0-based 9 → 1-based 10");
+        assert_eq!(m[0].line, 10, "0-based 9 -> 1-based 10");
         assert_eq!(m[0].text, "x.unwrap()");
         assert_eq!(
             m[1].text, "y.unwrap()",
@@ -255,7 +255,7 @@ mod tests {
         assert!(parse_ast_grep_json("[]").is_empty());
         assert!(parse_ast_grep_json("").is_empty());
         assert!(parse_ast_grep_json("not json").is_empty());
-        // an object (not array) → empty; a match missing `file` is skipped.
+        // an object (not array) -> empty; a match missing `file` is skipped.
         assert!(parse_ast_grep_json(r#"{"file":"x"}"#).is_empty());
         assert!(parse_ast_grep_json(r#"[{"range":{"start":{"line":1}},"text":"t"}]"#).is_empty());
     }

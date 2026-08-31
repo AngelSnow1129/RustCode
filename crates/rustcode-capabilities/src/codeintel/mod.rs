@@ -1,16 +1,16 @@
 //! Code-intelligence capability (L1): tree-sitter symbol extraction + a cross-file
-//! code graph, exposed as read-only tools. Sibling of `tools`/`provider` — depends only
+//! code graph, exposed as read-only tools. Sibling of `tools`/`provider` -- depends only
 //! on the kernel + tree-sitter/ignore.
 //!
 //! # Layers
 //!
 //! - **symbol layer** (single-file, STATELESS): `list_symbols` / `read_symbol` parse one
-//!   file on demand — no shared state, nothing from the kernel `ToolContext` beyond
+//!   file on demand -- no shared state, nothing from the kernel `ToolContext` beyond
 //!   `working_dir`.
 //! - **graph layer** (cross-file): `find_references` (whole-word text scan) plus
 //!   `trace_callers` / `trace_callees` / `trace_chain` / `blast_radius` /
 //!   `file_dependencies`, backed by a shared, lazily-built [`CodeIndex`] (the symbol
-//!   layer's statelessness ends here — these tools HOLD an `Arc<CodeIndex>`).
+//!   layer's statelessness ends here -- these tools HOLD an `Arc<CodeIndex>`).
 //!
 //! Deferred vs production: visibility inference; import-aware call
 //! resolution; background/incremental indexing (we rebuild on mtime change). Behind the
@@ -61,7 +61,7 @@ pub use lsp::LspManager;
 #[cfg(feature = "lsp")]
 pub use lsp_tool::LspTool;
 
-/// Names of the code-intelligence tools — pass to
+/// Names of the code-intelligence tools -- pass to
 /// [`ToolRegistry::mount`](rustcode_kernel::tool::ToolRegistry::mount). LSP is
 /// intentionally separate: a Cargo feature must not silently expose a process-spawning
 /// tool in every codeintel consumer.
@@ -157,7 +157,7 @@ pub fn register_lsp_tool(_reg: &mut ToolRegistry, _settings: &LspSettings) -> bo
 
 // Local path/result helpers (kept independent of the `tools` feature). Leading-`~`
 // expansion routes through the crate-shared `pathutil` so codeintel tools
-// (`read_symbol`, `blast_radius`, …) resolve `~/x` the SAME as `read_file`/`bash`.
+// (`read_symbol`, `blast_radius`, ...) resolve `~/x` the SAME as `read_file`/`bash`.
 pub(crate) fn resolve_path(raw: &str, working_dir: &Path) -> PathBuf {
     if let Some(home) = crate::pathutil::expand_tilde(raw) {
         return home;

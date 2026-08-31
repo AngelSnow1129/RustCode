@@ -9,7 +9,7 @@ use tokio::sync::oneshot;
 
 /// Kernel-internal round-trip broker. Lets a middleware emit events and perform
 /// an id-correlated request to the driver. The `oneshot` that resolves a request
-/// lives ONLY here — never inside AgentEvent — which is exactly what keeps events
+/// lives ONLY here -- never inside AgentEvent -- which is exactly what keeps events
 /// serializable / wire-compatible.
 #[derive(Clone)]
 pub struct RequestCtx {
@@ -20,7 +20,7 @@ pub struct RequestCtx {
     /// `Respond`. `None` (default) = unbounded (only a DROPPED sender unblocks);
     /// `Some(d)` = a crashed/silent driver that never answers within `d` degrades
     /// the round-trip to `Value::Null` so the awaiting middleware proceeds instead
-    /// of parking forever. Injected by the builder — kernel mechanism, policy value.
+    /// of parking forever. Injected by the builder -- kernel mechanism, policy value.
     pub(crate) request_timeout: Option<Duration>,
 }
 
@@ -41,14 +41,14 @@ impl RequestCtx {
 
     /// Emit a Request and await the driver's Respond{id,value} (by id).
     ///
-    /// LIVENESS: when a `request_timeout` is configured, the await is bounded — a
+    /// LIVENESS: when a `request_timeout` is configured, the await is bounded -- a
     /// crashed/silent driver that never sends `Respond` within the timeout degrades
     /// the round-trip to `Value::Null` (the SAME degraded value as a dropped
     /// sender), so an awaiting middleware proceeds (e.g. ApprovalMiddleware sees
-    /// Null → deny/block) instead of parking forever. On timeout the pending entry
+    /// Null -> deny/block) instead of parking forever. On timeout the pending entry
     /// is removed so the oneshot is not leaked in `pending` (a late `Respond` then
     /// no-ops in `resolve`). When `None` (default), behavior is unchanged: await
-    /// indefinitely; only a DROPPED sender unblocks (→ Null).
+    /// indefinitely; only a DROPPED sender unblocks (-> Null).
     pub async fn request(&self, kind: &str, payload: Value) -> Value {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
@@ -60,7 +60,7 @@ impl RequestCtx {
         });
         match self.request_timeout {
             Some(d) => match tokio::time::timeout(d, rx).await {
-                // Driver answered in time (or the sender was dropped → Null).
+                // Driver answered in time (or the sender was dropped -> Null).
                 Ok(res) => res.unwrap_or(Value::Null),
                 // Timed out: clean up the pending entry so the oneshot is not leaked
                 // (a later Respond for this id then finds nothing and no-ops), and
@@ -81,11 +81,11 @@ impl RequestCtx {
         }
     }
 
-    /// Resolve EVERY pending request to `Value::Null` — the same degraded value as
+    /// Resolve EVERY pending request to `Value::Null` -- the same degraded value as
     /// a dropped sender or a `request_timeout` expiry, so awaiting middlewares
-    /// proceed fail-closed (e.g. an approval sees Null → deny). Called on
+    /// proceed fail-closed (e.g. an approval sees Null -> deny). Called on
     /// `AgentCommand::Cancel`: a cancel must also unblock a turn parked inside a
-    /// middleware round-trip (the turn token alone cannot — `request` awaits a
+    /// middleware round-trip (the turn token alone cannot -- `request` awaits a
     /// oneshot, not the token). A late `Respond` for a flushed id no-ops.
     pub(crate) fn cancel_pending(&self) {
         for (_, tx) in self.pending.lock().unwrap().drain() {

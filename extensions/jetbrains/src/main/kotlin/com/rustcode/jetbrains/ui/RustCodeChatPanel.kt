@@ -14,16 +14,16 @@ import com.rustcode.jetbrains.daemon.ProviderInfo
 import com.rustcode.jetbrains.daemon.SessionDetail
 import com.rustcode.jetbrains.daemon.SessionMeta
 import com.rustcode.jetbrains.daemon.SetupSnapshot
-import com.rustcode.jetbrains.diagnostics.AtomCodeDiagnostics
-import com.rustcode.jetbrains.actions.openAtomCodeSettings
+import com.rustcode.jetbrains.diagnostics.RustCodeDiagnostics
+import com.rustcode.jetbrains.actions.openRustCodeSettings
 import com.rustcode.jetbrains.security.PathSensitivity
 import com.rustcode.jetbrains.security.SensitivePathClassifier
-import com.rustcode.jetbrains.services.AtomCodeProjectService
+import com.rustcode.jetbrains.services.RustCodeProjectService
 import com.rustcode.jetbrains.services.SessionRefView
 import com.rustcode.jetbrains.session.ChatRuntime
 import com.rustcode.jetbrains.session.SessionWorkspace
-import com.rustcode.jetbrains.settings.AtomCodeContextLevel
-import com.rustcode.jetbrains.settings.AtomCodeSettingsState
+import com.rustcode.jetbrains.settings.RustCodeContextLevel
+import com.rustcode.jetbrains.settings.RustCodeSettingsState
 import com.rustcode.jetbrains.ui.header.HeaderPanel
 import com.rustcode.jetbrains.ui.input.InputPanel
 import com.rustcode.jetbrains.ui.input.QueuedPromptView
@@ -116,8 +116,8 @@ private const val MAX_ATTACHED_IMAGE_MB = MAX_ATTACHED_IMAGE_BYTES / 1024 / 1024
 private const val MIN_CHAT_PANEL_WIDTH = 360
 private const val MIN_CHAT_PANEL_HEIGHT = 300
 private const val CLIPBOARD_IMAGE_PATH_PREFIX = "clipboard-image://"
-private const val ATOMCODE_DOCS_ZH_URL = "https://atomcode.atomgit.com/docs/zh/index.html"
-private const val ATOMCODE_DOCS_EN_URL = "https://atomcode.atomgit.com/docs/en/index.html"
+private const val RUSTCODE_DOCS_ZH_URL = "https://docs.rustcode.dev/zh/index.html"
+private const val RUSTCODE_DOCS_EN_URL = "https://docs.rustcode.dev/en/index.html"
 
 private val SESSION_HISTORY_TODAY_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private val SESSION_HISTORY_YEAR_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
@@ -191,12 +191,12 @@ private class SessionHistoryCellRenderer : JPanel(BorderLayout(12, 0)), ListCell
     }
 }
 
-class AtomCodeChatPanel(
+class RustCodeChatPanel(
     private val project: Project,
     private val runtime: ChatRuntime? = null,
 ) : JPanel(BorderLayout()), Disposable {
-    private val service = AtomCodeProjectService.getInstance(project)
-    private val settings = AtomCodeSettingsState.getInstance()
+    private val service = RustCodeProjectService.getInstance(project)
+    private val settings = RustCodeSettingsState.getInstance()
 
     // ── UI components ──
     private val header = HeaderPanel()
@@ -394,7 +394,7 @@ class AtomCodeChatPanel(
     }
 
     private fun currentDocsUrl(): String =
-        if (welcomeLanguage == "zh") ATOMCODE_DOCS_ZH_URL else ATOMCODE_DOCS_EN_URL
+        if (welcomeLanguage == "zh") RUSTCODE_DOCS_ZH_URL else RUSTCODE_DOCS_EN_URL
 
     private fun normalizeWelcomeLanguage(language: String): String =
         if (language.equals("zh", ignoreCase = true)) "zh" else "en"
@@ -578,7 +578,7 @@ class AtomCodeChatPanel(
         addRow(4, "Base URL", baseUrl)
         form.add(setDefault, GridBagConstraints().apply { gridx = 1; gridy = 5; anchor = GridBagConstraints.WEST; insets = Insets(4, 4, 4, 4) })
 
-        val choice = JOptionPane.showConfirmDialog(this, form, "Create AtomCode Provider", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
+        val choice = JOptionPane.showConfirmDialog(this, form, "Create RustCode Provider", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
         if (choice != JOptionPane.OK_OPTION) return
 
         val request = CreateProviderRequest(
@@ -587,7 +587,7 @@ class AtomCodeChatPanel(
             baseUrl = baseUrl.text.trim().ifBlank { null }, setDefault = setDefault.isSelected,
         )
         if (request.name.isBlank() || request.type.isBlank() || request.model.isBlank()) {
-            Messages.showWarningDialog(this, "Name, type, and model are required.", "AtomCode"); return
+            Messages.showWarningDialog(this, "Name, type, and model are required.", "RustCode"); return
         }
         service.createProvider(request).whenComplete { snapshot, error ->
             SwingUtilities.invokeLater {
@@ -617,7 +617,7 @@ class AtomCodeChatPanel(
         form.add(clearApiKey, GridBagConstraints().apply { gridx = 1; gridy = 5; anchor = GridBagConstraints.WEST; insets = Insets(4, 4, 4, 4) })
         form.add(clearBaseUrl, GridBagConstraints().apply { gridx = 1; gridy = 6; anchor = GridBagConstraints.WEST; insets = Insets(4, 4, 4, 4) })
 
-        val choice = JOptionPane.showConfirmDialog(this, form, "Edit AtomCode Provider", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
+        val choice = JOptionPane.showConfirmDialog(this, form, "Edit RustCode Provider", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
         if (choice != JOptionPane.OK_OPTION) return
 
         val request = PatchProviderRequest(
@@ -627,7 +627,7 @@ class AtomCodeChatPanel(
             clearBaseUrl = clearBaseUrl.isSelected,
         )
         if (request.name.isBlank() || request.type.isBlank() || request.model.isBlank()) {
-            Messages.showWarningDialog(this, "Name, type, and model are required.", "AtomCode"); return
+            Messages.showWarningDialog(this, "Name, type, and model are required.", "RustCode"); return
         }
         service.patchProvider(request).whenComplete { snapshot, error ->
             SwingUtilities.invokeLater {
@@ -639,7 +639,7 @@ class AtomCodeChatPanel(
 
     private fun deleteSelectedProvider() {
         val selected = selectedProvider() ?: return
-        val choice = Messages.showYesNoDialog(this, "Delete provider \"${selected.name}\" from AtomCode config?", "AtomCode", Messages.getWarningIcon())
+        val choice = Messages.showYesNoDialog(this, "Delete provider \"${selected.name}\" from RustCode config?", "RustCode", Messages.getWarningIcon())
         if (choice != Messages.YES) return
         service.deleteProvider(selected.name).whenComplete { snapshot, error ->
             SwingUtilities.invokeLater {
@@ -664,11 +664,11 @@ class AtomCodeChatPanel(
         form.add(enabled, GridBagConstraints().apply { gridx = 1; gridy = 0; anchor = GridBagConstraints.WEST; insets = Insets(4, 4, 4, 4) })
         addRow(1, "Budget", budget); addRow(2, "Type", type); addRow(3, "Keep", keep)
 
-        val choice = JOptionPane.showConfirmDialog(this, form, "AtomCode Thinking - ${selected.name}", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
+        val choice = JOptionPane.showConfirmDialog(this, form, "RustCode Thinking - ${selected.name}", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
         if (choice != JOptionPane.OK_OPTION) return
 
         val budgetValue = budget.text.trim().takeIf { it.isNotBlank() }?.toIntOrNull()
-        if (budget.text.trim().isNotBlank() && budgetValue == null) { Messages.showWarningDialog(this, "Thinking budget must be a number.", "AtomCode"); return }
+        if (budget.text.trim().isNotBlank() && budgetValue == null) { Messages.showWarningDialog(this, "Thinking budget must be a number.", "RustCode"); return }
         service.patchProviderThinking(selected.name, PatchThinkingRequest(enabled = enabled.isSelected, budget = budgetValue, type = type.text.trim().ifBlank { null }, keep = keep.text.trim().ifBlank { null })).whenComplete { snapshot, error ->
             SwingUtilities.invokeLater {
                 if (error != null) { addErrorMessage("Thinking update failed: ${error.cause?.message ?: error.message ?: "failed"}"); refreshSetupSnapshot(); return@invokeLater }
@@ -766,14 +766,14 @@ class AtomCodeChatPanel(
             add(JPanel().apply { add(load); add(rename); add(delete); add(refresh); add(close) }, BorderLayout.SOUTH)
             preferredSize = Dimension(560, 360)
         }
-        val dialog = JDialog(SwingUtilities.getWindowAncestor(this), "AtomCode Session History", Dialog.ModalityType.APPLICATION_MODAL).apply {
-            contentPane = panel; pack(); setLocationRelativeTo(this@AtomCodeChatPanel)
+        val dialog = JDialog(SwingUtilities.getWindowAncestor(this), "RustCode Session History", Dialog.ModalityType.APPLICATION_MODAL).apply {
+            contentPane = panel; pack(); setLocationRelativeTo(this@RustCodeChatPanel)
         }
         load.addActionListener { val selected = list.selectedValue ?: return@addActionListener; dialog.dispose(); loadSession(selected) }
         rename.addActionListener {
             val selected = list.selectedValue ?: return@addActionListener
             val nextName = JOptionPane.showInputDialog(dialog, "Session name", selected.displayName)?.trim() ?: return@addActionListener
-            if (nextName.isBlank()) { Messages.showWarningDialog(dialog, "Session name cannot be empty.", "AtomCode"); return@addActionListener }
+            if (nextName.isBlank()) { Messages.showWarningDialog(dialog, "Session name cannot be empty.", "RustCode"); return@addActionListener }
             rename.isEnabled = false
             service.renameSession(selected, nextName).whenComplete { updated, error ->
                 SwingUtilities.invokeLater {
@@ -787,8 +787,8 @@ class AtomCodeChatPanel(
         }
         delete.addActionListener {
             val selected = list.selectedValuesList; if (selected.isEmpty()) return@addActionListener
-            val label = if (selected.size == 1) "Delete AtomCode session \"${selected.first().displayName}\" from local history?" else "Delete ${selected.size} AtomCode sessions from local history?"
-            val choice = Messages.showYesNoDialog(dialog, label, "AtomCode", Messages.getWarningIcon())
+            val label = if (selected.size == 1) "Delete RustCode session \"${selected.first().displayName}\" from local history?" else "Delete ${selected.size} RustCode sessions from local history?"
+            val choice = Messages.showYesNoDialog(dialog, label, "RustCode", Messages.getWarningIcon())
             if (choice != Messages.YES) return@addActionListener
             delete.isEnabled = false
             service.deleteSessions(selected).whenComplete { updated, error ->
@@ -820,7 +820,7 @@ class AtomCodeChatPanel(
     private fun renameSelectedSession() {
         val selected = sessionPicker.selectedItem as? SessionMeta ?: return
         val nextName = JOptionPane.showInputDialog(this, "Session name", selected.displayName)?.trim() ?: return
-        if (nextName.isBlank()) { Messages.showWarningDialog(this, "Session name cannot be empty.", "AtomCode"); return }
+        if (nextName.isBlank()) { Messages.showWarningDialog(this, "Session name cannot be empty.", "RustCode"); return }
         service.renameSession(selected, nextName).whenComplete { sessions, error ->
             SwingUtilities.invokeLater {
                 if (error != null) { addErrorMessage(error.cause?.message ?: error.message ?: "failed to rename session"); return@invokeLater }
@@ -833,7 +833,7 @@ class AtomCodeChatPanel(
 
     private fun deleteSelectedSession() {
         val selected = sessionPicker.selectedItem as? SessionMeta ?: return
-        val choice = Messages.showYesNoDialog(this, "Delete AtomCode session \"${selected.displayName}\" from local history?", "AtomCode", Messages.getWarningIcon())
+        val choice = Messages.showYesNoDialog(this, "Delete RustCode session \"${selected.displayName}\" from local history?", "RustCode", Messages.getWarningIcon())
         if (choice != Messages.YES) return
         service.deleteSession(selected).whenComplete { sessions, error ->
             SwingUtilities.invokeLater {
@@ -874,10 +874,10 @@ class AtomCodeChatPanel(
                 appendLine("Current model: ${snapshot.currentModel.ifBlank { "(none)" }}")
             } else { appendLine("Setup snapshot: not loaded") }
         }
-        val text = AtomCodeDiagnostics.summary(project, details)
+        val text = RustCodeDiagnostics.summary(project, details)
         CopyPasteManager.getInstance().setContents(StringSelection(text))
         val area = JTextArea(text).apply { isEditable = false; lineWrap = false; rows = 22; columns = 72 }
-        JOptionPane.showMessageDialog(this, JScrollPane(area), "AtomCode Diagnostics (copied)", JOptionPane.INFORMATION_MESSAGE)
+        JOptionPane.showMessageDialog(this, JScrollPane(area), "RustCode Diagnostics (copied)", JOptionPane.INFORMATION_MESSAGE)
     }
 
     // ── Session list ──
@@ -919,7 +919,7 @@ class AtomCodeChatPanel(
             SwingUtilities.invokeLater {
                 if (error != null) { addErrorMessage(error.cause?.message ?: error.message ?: "failed to load session"); return@invokeLater }
                 currentSession = SessionRefView(detail.id, detail.name, detail.projectHash, detail.workingDir)
-                updateAtomCodeChatTabTitle(project, this@AtomCodeChatPanel, detail.name.ifBlank { detail.id.take(8) })
+                updateRustCodeChatTabTitle(project, this@RustCodeChatPanel, detail.name.ifBlank { detail.id.take(8) })
                 persistRuntimeSession()
                 replaceSelectedSession(detail.id); renderSession(detail); inputPanel.focusInput()
             }
@@ -1000,7 +1000,7 @@ class AtomCodeChatPanel(
                 if (currentSession?.id != session.id) return@invokeLater
 
                 currentSession = SessionRefView(detail.id, detail.name, detail.projectHash, detail.workingDir)
-                updateAtomCodeChatTabTitle(project, this@AtomCodeChatPanel, detail.name.ifBlank { detail.id.take(8) })
+                updateRustCodeChatTabTitle(project, this@RustCodeChatPanel, detail.name.ifBlank { detail.id.take(8) })
                 persistRuntimeSession()
                 replaceSelectedSession(detail.id)
                 renderSession(detail)
@@ -1233,20 +1233,20 @@ class AtomCodeChatPanel(
 
     private fun applyLastCodeBlock() {
         val code = extractLastCodeBlock(streamHandler.assistantText)
-        if (code.isNullOrBlank()) { Messages.showWarningDialog(project, "No code block found in the last AtomCode response.", "AtomCode"); return }
+        if (code.isNullOrBlank()) { Messages.showWarningDialog(project, "No code block found in the last RustCode response.", "RustCode"); return }
         val editor = FileEditorManager.getInstance(project).selectedTextEditor
-        if (editor == null) { Messages.showWarningDialog(project, "Open an editor file before applying code.", "AtomCode"); return }
+        if (editor == null) { Messages.showWarningDialog(project, "Open an editor file before applying code.", "RustCode"); return }
         val document = editor.document
         val selection = editor.selectionModel
         val start = if (selection.hasSelection()) selection.selectionStart else editor.caretModel.offset
         val end = if (selection.hasSelection()) selection.selectionEnd else editor.caretModel.offset
         val before = document.text; val after = before.replaceRange(start, end, code)
         val contentFactory = DiffContentFactory.getInstance()
-        val request = SimpleDiffRequest("AtomCode Apply Code Preview", contentFactory.create(before), contentFactory.create(after), "Current editor", "After AtomCode")
+        val request = SimpleDiffRequest("RustCode Apply Code Preview", contentFactory.create(before), contentFactory.create(after), "Current editor", "After RustCode")
         DiffManager.getInstance().showDiff(project, request)
-        val choice = Messages.showYesNoDialog(project, "Apply the previewed AtomCode code block to the active editor?", "AtomCode", Messages.getQuestionIcon())
+        val choice = Messages.showYesNoDialog(project, "Apply the previewed RustCode code block to the active editor?", "RustCode", Messages.getQuestionIcon())
         if (choice != Messages.YES) { addSystemMessage("Apply Code cancelled after preview."); return }
-        WriteCommandAction.runWriteCommandAction(project, "Apply AtomCode Code", null, Runnable {
+        WriteCommandAction.runWriteCommandAction(project, "Apply RustCode Code", null, Runnable {
             if (selection.hasSelection()) { document.replaceString(selection.selectionStart, selection.selectionEnd, code); selection.removeSelection() }
             else { document.insertString(editor.caretModel.offset, code) }
         })
@@ -1284,13 +1284,13 @@ class AtomCodeChatPanel(
         SwingUtilities.invokeLater {
             val args = event.arguments.take(1200)
             val message = buildString {
-                appendLine("AtomCode wants to run a tool."); appendLine()
+                appendLine("RustCode wants to run a tool."); appendLine()
                 appendLine("Tool: ${event.toolName}")
                 if (event.reason.isNotBlank()) appendLine("Reason: ${event.reason}")
                 if (args.isNotBlank()) { appendLine(); appendLine(args) }
             }
             val choice = Messages.showDialog(
-                this, message, "AtomCode Tool Permission",
+                this, message, "RustCode Tool Permission",
                 arrayOf("Allow Once", "Deny", "Always Allow"), 0, Messages.getWarningIcon()
             )
             val decision = when (choice) { 0 -> "allow"; 2 -> "allow_persist"; else -> "deny" }
@@ -1318,7 +1318,7 @@ class AtomCodeChatPanel(
         val session = currentSession?.takeIf { it.id == sessionId } ?: return
         val normalizedTitle = title.trim().ifBlank { session.id.take(8) }
         currentSession = session.copy(name = normalizedTitle)
-        updateAtomCodeChatTabTitle(project, this, normalizedTitle)
+        updateRustCodeChatTabTitle(project, this, normalizedTitle)
         persistRuntimeSession()
     }
 
@@ -1383,12 +1383,12 @@ class AtomCodeChatPanel(
 
     private fun buildAutomaticContext(existingContext: List<ChatContextItem>): List<ChatContextItem> {
         val level = settings.state.contextLevel
-        if (level == AtomCodeContextLevel.Minimal) return emptyList()
+        if (level == RustCodeContextLevel.Minimal) return emptyList()
         val result = mutableListOf<ChatContextItem>()
-        if (level == AtomCodeContextLevel.ProjectContext) {
+        if (level == RustCodeContextLevel.ProjectContext) {
             result += ChatContextItem(path = project.basePath.orEmpty(), displayName = "Project context", language = "text", content = buildString {
                 appendLine("Project: ${project.name}"); project.basePath?.let { appendLine("Base path: $it") }
-                currentSession?.id?.let { appendLine("AtomCode session: $it") }
+                currentSession?.id?.let { appendLine("RustCode session: $it") }
             }.trimEnd(), selection = null, startLine = null, endLine = null)
         }
         val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return result
@@ -1416,7 +1416,7 @@ class AtomCodeChatPanel(
     // ── File attachment ──
 
     private fun chooseFilesForContext() {
-        val descriptor = FileChooserDescriptor(true, false, false, false, false, true).withTitle("Attach Files to AtomCode")
+        val descriptor = FileChooserDescriptor(true, false, false, false, false, true).withTitle("Attach Files to RustCode")
         val projectDir = project.basePath?.let { LocalFileSystem.getInstance().refreshAndFindFileByPath(it) }
         val files = FileChooser.chooseFiles(descriptor, project, projectDir)
         if (files.isEmpty()) return
@@ -1426,9 +1426,9 @@ class AtomCodeChatPanel(
     private fun attachVirtualFile(file: VirtualFile) {
         val path = file.path
         when (SensitivePathClassifier.classify(path)) {
-            PathSensitivity.Block -> { Messages.showWarningDialog(project, "AtomCode will not attach this sensitive file.", "AtomCode"); return }
+            PathSensitivity.Block -> { Messages.showWarningDialog(project, "RustCode will not attach this sensitive file.", "RustCode"); return }
             PathSensitivity.StrongConfirm -> {
-                val choice = Messages.showYesNoDialog(project, "This file may contain sensitive information. Attach it to the next AtomCode message?", "AtomCode", Messages.getWarningIcon())
+                val choice = Messages.showYesNoDialog(project, "This file may contain sensitive information. Attach it to the next RustCode message?", "RustCode", Messages.getWarningIcon())
                 if (choice != Messages.YES) return
             }
             PathSensitivity.Warn, PathSensitivity.Normal -> Unit
@@ -1444,9 +1444,9 @@ class AtomCodeChatPanel(
             attachImageFile(file, mediaType)
             return
         }
-        val content = try { String(file.contentsToByteArray(), Charsets.UTF_8) } catch (error: Exception) { Messages.showWarningDialog(project, "Could not read ${file.name}: ${error.message}", "AtomCode"); return }
+        val content = try { String(file.contentsToByteArray(), Charsets.UTF_8) } catch (error: Exception) { Messages.showWarningDialog(project, "Could not read ${file.name}: ${error.message}", "RustCode"); return }
         if (content.isBlank()) return
-        if (content.length > MAX_ATTACHED_FILE_CHARS) { Messages.showWarningDialog(project, "This file is too large to attach. Select a smaller file or attach a selection.", "AtomCode"); return }
+        if (content.length > MAX_ATTACHED_FILE_CHARS) { Messages.showWarningDialog(project, "This file is too large to attach. Select a smaller file or attach a selection.", "RustCode"); return }
         val relative = project.basePath?.let { base -> if (path.startsWith(base)) path.removePrefix(base).trimStart('/', '\\') else path } ?: path
         addContext(ChatContextItem(path = path, displayName = relative, language = file.extension ?: "text", content = content, selection = null, startLine = null, endLine = null))
     }
@@ -1455,7 +1455,7 @@ class AtomCodeChatPanel(
         val bytes = try {
             file.contentsToByteArray()
         } catch (error: Exception) {
-            Messages.showWarningDialog(project, "Could not read ${file.name}: ${error.message}", "AtomCode")
+            Messages.showWarningDialog(project, "Could not read ${file.name}: ${error.message}", "RustCode")
             return
         }
         if (bytes.isEmpty()) return
@@ -1464,7 +1464,7 @@ class AtomCodeChatPanel(
             Messages.showWarningDialog(
                 project,
                 "Attached images are too large. Select image(s) totaling under $MAX_ATTACHED_IMAGE_MB MB.",
-                "AtomCode",
+                "RustCode",
             )
             return
         }
@@ -1790,7 +1790,7 @@ class AtomCodeChatPanel(
             Messages.showWarningDialog(
                 project,
                 "Attached images are too large. Paste image(s) totaling under $MAX_ATTACHED_IMAGE_MB MB.",
-                "AtomCode",
+                "RustCode",
             )
             return
         }
@@ -1873,14 +1873,14 @@ class AtomCodeChatPanel(
         menu.add(JSeparator())
         menu.add(JMenuItem(labels.openChanges).apply { addActionListener { openProjectChanges() } })
         menu.add(JMenuItem(labels.diagnostics).apply { addActionListener { showDiagnostics() } })
-        menu.add(JMenuItem(labels.settings).apply { addActionListener { project.openAtomCodeSettings() } })
+        menu.add(JMenuItem(labels.settings).apply { addActionListener { project.openRustCodeSettings() } })
         val pointer = java.awt.MouseInfo.getPointerInfo().location; SwingUtilities.convertPointFromScreen(pointer, this); menu.show(this, pointer.x, pointer.y)
     }
 
     private fun showCommandMenu() {
         val menu = JPopupMenu()
         val items = listOf(
-            SlashCommand("/login", "登录 AtomGit"),
+            SlashCommand("/login", "登录平台账号"),
             SlashCommand("/review", "审查代码"),
         )
         items.forEach { command ->

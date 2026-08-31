@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 给 atomcode 的 agent loop 加入周期性反思 checkpoint —— 每 N 次 tool call 后，在下一个 turn 开始前注入一段语言中立的 "restate goal / what ruled out / next concrete output" 提示，防止长尾任务方向漂移。
+**Goal:** 给 rustcode 的 agent loop 加入周期性反思 checkpoint —— 每 N 次 tool call 后，在下一个 turn 开始前注入一段语言中立的 "restate goal / what ruled out / next concrete output" 提示，防止长尾任务方向漂移。
 
 **Architecture:** 复用现有 `apply_post_turn_discipline` 钩子。新增两个纯函数：`should_inject_reflection(current, last, cadence)` 决定是否注入，`reflection_prompt(delta)` 渲染提示文本。触发条件 = `tool_call_count - last_reflection_at_tool_count >= cadence`。注入通过 `conversation.add_user_message` 完成，并更新标记。cadence 可配置（`Config.reflection_cadence: usize`，默认 10，0 禁用）。AgentLoop 层的集成只是 glue，靠类型系统保证，测试集中在两个纯函数。
 
@@ -12,22 +12,22 @@
 
 ## File Structure
 
-- Modify: `crates/atomcode-core/src/config/mod.rs` — `Config` 加 `reflection_cadence: usize` 字段（serde 默认 10）。
-- Modify: `crates/atomcode-core/src/agent/mod.rs` — `DisciplineState` 加 `last_reflection_at_tool_count: usize` 字段；新 task 开始时与 `tool_call_count` 一同重置。
-- Modify: `crates/atomcode-core/src/agent/discipline.rs` — 加 `should_inject_reflection` 和 `reflection_prompt` 两个自由函数 + 单测；在 `apply_post_turn_discipline` 顶部 wire。
-- Modify: `crates/atomcode-cli/src/main.rs` — 加 `--reflection-cadence <N>` flag，覆盖 config。
+- Modify: `crates/rustcode-core/src/config/mod.rs` — `Config` 加 `reflection_cadence: usize` 字段（serde 默认 10）。
+- Modify: `crates/rustcode-core/src/agent/mod.rs` — `DisciplineState` 加 `last_reflection_at_tool_count: usize` 字段；新 task 开始时与 `tool_call_count` 一同重置。
+- Modify: `crates/rustcode-core/src/agent/discipline.rs` — 加 `should_inject_reflection` 和 `reflection_prompt` 两个自由函数 + 单测；在 `apply_post_turn_discipline` 顶部 wire。
+- Modify: `crates/rustcode-cli/src/main.rs` — 加 `--reflection-cadence <N>` flag，覆盖 config。
 
 ---
 
 ### Task 1: Config 字段 + serde 默认
 
 **Files:**
-- Modify: `crates/atomcode-core/src/config/mod.rs:47-69` (Config struct)
-- Modify: `crates/atomcode-core/src/config/mod.rs:86` (附近加 default helper)
+- Modify: `crates/rustcode-core/src/config/mod.rs:47-69` (Config struct)
+- Modify: `crates/rustcode-core/src/config/mod.rs:86` (附近加 default helper)
 
 - [ ] **Step 1: Write the failing tests**
 
-在 `crates/atomcode-core/src/config/mod.rs` 末尾追加：
+在 `crates/rustcode-core/src/config/mod.rs` 末尾追加：
 
 ```rust
 #[cfg(test)]
@@ -71,7 +71,7 @@ reflection_cadence = 7
 - [ ] **Step 2: Run to verify they fail**
 
 ```bash
-cargo test -p atomcode-core --lib config::reflection_config_tests
+cargo test -p rustcode-core --lib config::reflection_config_tests
 ```
 
 Expected: compile error `no field 'reflection_cadence' on type 'Config'`.
@@ -99,7 +99,7 @@ fn default_reflection_cadence() -> usize { 10 }
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-cargo test -p atomcode-core --lib config::reflection_config_tests
+cargo test -p rustcode-core --lib config::reflection_config_tests
 ```
 
 Expected: 3 tests pass.
@@ -123,7 +123,7 @@ Expected: clean.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/atomcode-core/src/config/mod.rs
+git add crates/rustcode-core/src/config/mod.rs
 git commit -m "feat(config): add reflection_cadence (default 10, 0 disables)"
 ```
 
@@ -132,8 +132,8 @@ git commit -m "feat(config): add reflection_cadence (default 10, 0 disables)"
 ### Task 2: DisciplineState 字段 + reset
 
 **Files:**
-- Modify: `crates/atomcode-core/src/agent/mod.rs:197-221` (DisciplineState struct)
-- Modify: `crates/atomcode-core/src/agent/mod.rs:787` (reset block after `self.tool_call_count = 0;`)
+- Modify: `crates/rustcode-core/src/agent/mod.rs:197-221` (DisciplineState struct)
+- Modify: `crates/rustcode-core/src/agent/mod.rs:787` (reset block after `self.tool_call_count = 0;`)
 
 - [ ] **Step 1: Add the field**
 
@@ -167,7 +167,7 @@ look like "0 calls since checkpoint" instead of "1 of N").
 - [ ] **Step 3: Verify build**
 
 ```bash
-cargo build -p atomcode-core
+cargo build -p rustcode-core
 ```
 
 Expected: clean build (no test added yet — field is pure data; its use is tested in Tasks 3/5).
@@ -175,7 +175,7 @@ Expected: clean build (no test added yet — field is pure data; its use is test
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/atomcode-core/src/agent/mod.rs
+git add crates/rustcode-core/src/agent/mod.rs
 git commit -m "feat(agent): track last_reflection_at_tool_count in DisciplineState"
 ```
 
@@ -184,11 +184,11 @@ git commit -m "feat(agent): track last_reflection_at_tool_count in DisciplineSta
 ### Task 3: Pure fn `should_inject_reflection` + tests
 
 **Files:**
-- Modify: `crates/atomcode-core/src/agent/discipline.rs` — add free fn at bottom, add `#[cfg(test)] mod reflection_tests` block
+- Modify: `crates/rustcode-core/src/agent/discipline.rs` — add free fn at bottom, add `#[cfg(test)] mod reflection_tests` block
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `crates/atomcode-core/src/agent/discipline.rs`:
+Append to `crates/rustcode-core/src/agent/discipline.rs`:
 
 ```rust
 #[cfg(test)]
@@ -242,14 +242,14 @@ mod reflection_tests {
 - [ ] **Step 2: Run to verify they fail**
 
 ```bash
-cargo test -p atomcode-core --lib agent::discipline::reflection_tests
+cargo test -p rustcode-core --lib agent::discipline::reflection_tests
 ```
 
 Expected: compile error `cannot find function 'should_inject_reflection'`.
 
 - [ ] **Step 3: Implement the pure function**
 
-At the bottom of `crates/atomcode-core/src/agent/discipline.rs`, **outside** any `impl` block, add:
+At the bottom of `crates/rustcode-core/src/agent/discipline.rs`, **outside** any `impl` block, add:
 
 ```rust
 /// Decide whether to inject a cadence-reflection prompt.
@@ -280,7 +280,7 @@ pub(crate) fn should_inject_reflection(
 - [ ] **Step 4: Run to verify they pass**
 
 ```bash
-cargo test -p atomcode-core --lib agent::discipline::reflection_tests
+cargo test -p rustcode-core --lib agent::discipline::reflection_tests
 ```
 
 Expected: 6 tests pass.
@@ -288,7 +288,7 @@ Expected: 6 tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-core/src/agent/discipline.rs
+git add crates/rustcode-core/src/agent/discipline.rs
 git commit -m "feat(discipline): add should_inject_reflection pure fn + tests"
 ```
 
@@ -297,7 +297,7 @@ git commit -m "feat(discipline): add should_inject_reflection pure fn + tests"
 ### Task 4: Pure fn `reflection_prompt` + tests
 
 **Files:**
-- Modify: `crates/atomcode-core/src/agent/discipline.rs` — add another free fn + test
+- Modify: `crates/rustcode-core/src/agent/discipline.rs` — add another free fn + test
 
 - [ ] **Step 1: Write the failing test**
 
@@ -348,14 +348,14 @@ Append inside the same `reflection_tests` module (above the last `}`):
 - [ ] **Step 2: Run to verify it fails**
 
 ```bash
-cargo test -p atomcode-core --lib agent::discipline::reflection_tests::reflection_prompt_is_language_neutral_and_mentions_delta
+cargo test -p rustcode-core --lib agent::discipline::reflection_tests::reflection_prompt_is_language_neutral_and_mentions_delta
 ```
 
 Expected: compile error `cannot find function 'reflection_prompt'`.
 
 - [ ] **Step 3: Implement**
 
-At the bottom of `crates/atomcode-core/src/agent/discipline.rs` (next to `should_inject_reflection`), add:
+At the bottom of `crates/rustcode-core/src/agent/discipline.rs` (next to `should_inject_reflection`), add:
 
 ```rust
 /// Render the cadence-reflection prompt injected every `cadence` tool
@@ -380,7 +380,7 @@ pub(crate) fn reflection_prompt(delta: usize) -> String {
 - [ ] **Step 4: Run to verify**
 
 ```bash
-cargo test -p atomcode-core --lib agent::discipline::reflection_tests
+cargo test -p rustcode-core --lib agent::discipline::reflection_tests
 ```
 
 Expected: 7 tests pass (6 from Task 3 + 1 new).
@@ -388,7 +388,7 @@ Expected: 7 tests pass (6 from Task 3 + 1 new).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-core/src/agent/discipline.rs
+git add crates/rustcode-core/src/agent/discipline.rs
 git commit -m "feat(discipline): add reflection_prompt pure fn + tests"
 ```
 
@@ -397,7 +397,7 @@ git commit -m "feat(discipline): add reflection_prompt pure fn + tests"
 ### Task 5: Wire into apply_post_turn_discipline
 
 **Files:**
-- Modify: `crates/atomcode-core/src/agent/discipline.rs:9-50` (apply_post_turn_discipline body)
+- Modify: `crates/rustcode-core/src/agent/discipline.rs:9-50` (apply_post_turn_discipline body)
 
 - [ ] **Step 1: Insert cadence check at the top of the body**
 
@@ -435,7 +435,7 @@ Insert a new block **before** the re-read guard:
 - [ ] **Step 2: Verify build**
 
 ```bash
-cargo build -p atomcode-core
+cargo build -p rustcode-core
 ```
 
 Expected: clean build. If `should_inject_reflection` or `reflection_prompt` are not in scope from inside the `impl AgentLoop { ... }` block, prefix with `self::` or move them inside the `impl` (but free fn with `pub(crate)` should be directly visible within the same module).
@@ -443,7 +443,7 @@ Expected: clean build. If `should_inject_reflection` or `reflection_prompt` are 
 - [ ] **Step 3: Full crate tests to check no regression**
 
 ```bash
-cargo test -p atomcode-core --lib 2>&1 | tail -6
+cargo test -p rustcode-core --lib 2>&1 | tail -6
 ```
 
 Expected: previous pass count + 7 new tests from Tasks 3/4. Preexisting `self_update::tests::is_newer_semver` may still fail — unrelated.
@@ -452,14 +452,14 @@ Expected: previous pass count + 7 new tests from Tasks 3/4. Preexisting `self_up
 
 (No automated end-to-end test — constructing `AgentLoop` in a unit test costs far more than this glue is worth. The two pure fns are fully covered; this step is a one-time sanity check.)
 
-Edit your local `~/.config/atomcode/config.toml` to set `reflection_cadence = 2`. Run atomcode against any repo and issue a task requiring ≥ 3 tool calls. Open the turn datalog and confirm the `[Checkpoint — ...]` user message appears after the 2nd tool call.
+Edit your local `~/.config/rustcode/config.toml` to set `reflection_cadence = 2`. Run rustcode against any repo and issue a task requiring ≥ 3 tool calls. Open the turn datalog and confirm the `[Checkpoint — ...]` user message appears after the 2nd tool call.
 
 Revert the config override.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-core/src/agent/discipline.rs
+git add crates/rustcode-core/src/agent/discipline.rs
 git commit -m "feat(discipline): wire cadence reflection into apply_post_turn_discipline"
 ```
 
@@ -468,11 +468,11 @@ git commit -m "feat(discipline): wire cadence reflection into apply_post_turn_di
 ### Task 6: CLI flag override
 
 **Files:**
-- Modify: `crates/atomcode-cli/src/main.rs` around L371 (Cli struct) and L663 (config wiring)
+- Modify: `crates/rustcode-cli/src/main.rs` around L371 (Cli struct) and L663 (config wiring)
 
 - [ ] **Step 1: Add CLI field**
 
-Find the `max_turns: Option<usize>` declaration around L371 in `crates/atomcode-cli/src/main.rs`. Immediately below it add:
+Find the `max_turns: Option<usize>` declaration around L371 in `crates/rustcode-cli/src/main.rs`. Immediately below it add:
 
 ```rust
     /// Inject a scheduled reflection prompt every N tool calls.
@@ -521,18 +521,18 @@ Expected: the flag description appears in help output.
 cargo run -- --reflection-cadence 0
 ```
 
-Start atomcode, confirm the checkpoint message is absent after many tool calls (0 disables). Exit.
+Start rustcode, confirm the checkpoint message is absent after many tool calls (0 disables). Exit.
 
 ```bash
 cargo run -- --reflection-cadence 3
 ```
 
-Start atomcode, run a 4-step task, confirm the checkpoint appears after step 3.
+Start rustcode, run a 4-step task, confirm the checkpoint appears after step 3.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/atomcode-cli/src/main.rs
+git add crates/rustcode-cli/src/main.rs
 git commit -m "feat(cli): --reflection-cadence flag overrides config.toml"
 ```
 

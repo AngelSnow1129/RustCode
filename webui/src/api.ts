@@ -1,12 +1,12 @@
-// Task 12 — API client for atomcode webui
+// Task 12 — API client for rustcode webui
 
 // Read the one-time token from URL; never persist to localStorage
 const token = new URLSearchParams(location.search).get('token') ?? '';
 
 function authHeaders(): Record<string, string> {
-  // X-AtomCode-Client lets the daemon tag telemetry as webui-originated
+  // X-RustCode-Client lets the daemon tag telemetry as webui-originated
   // (resolve_client_mode → SessionMode::Webui); sent regardless of token.
-  const h: Record<string, string> = { 'X-AtomCode-Client': 'webui' };
+  const h: Record<string, string> = { 'X-RustCode-Client': 'webui' };
   if (token) h.Authorization = 'Bearer ' + token;
   return h;
 }
@@ -37,7 +37,7 @@ export type SSEEvent =
   | PolicyInterventionEvent
   // Artifact events: the daemon's ArtifactDetector strips fenced code blocks from
   // TextDelta and emits them as separate artifact_start / artifact_content / artifact_end
-  // events (see ArtifactDetector in crates/atomcode-daemon/src/lib.rs). Without handling
+  // events (see ArtifactDetector in crates/rustcode-daemon/src/lib.rs). Without handling
   // these, code block content is silently lost in the WebUI while the TUI sees it fine.
   | { type: 'artifact_start'; id: string; artifact_type: string; language?: string | null; title?: string | null }
   | { type: 'artifact_content'; id: string; content: string }

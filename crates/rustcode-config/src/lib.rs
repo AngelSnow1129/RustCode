@@ -1,6 +1,6 @@
 //! Rustcode disk/TOML config system.
 //!
-//! Leaf crate — depends only on serde/toml/anyhow + a few small vendored helpers, so
+//! Leaf crate -- depends only on serde/toml/anyhow + a few small vendored helpers, so
 //! every stack layer can read `config.toml` without depending on a runtime/driver
 //! crate. It deliberately owns no HTTP client, no reqwest and no reporting pipeline.
 //! See `docs/superpowers/plans/2026-07-11-extract-rustcode-config.md`.
@@ -22,7 +22,7 @@ pub mod proxy;
 /// today's value as the default.
 pub mod endpoints;
 
-/// Every name this build occupies locally — config dir, ports, executables,
+/// Every name this build occupies locally -- config dir, ports, executables,
 /// self-update scratch files. The local-resources companion to `endpoints`.
 pub mod distribution;
 
@@ -46,7 +46,7 @@ pub mod store;
 pub mod settings;
 
 /// Pure parsers for OS system-proxy descriptions: Windows ProxyServer/ProxyOverride
-/// and macOS `scutil --proxy` output → normalized HTTP(S)_PROXY / NO_PROXY values.
+/// and macOS `scutil --proxy` output -> normalized HTTP(S)_PROXY / NO_PROXY values.
 pub mod system_proxy;
 
 /// Local scheduled-task model, file store, and next-run calculator.

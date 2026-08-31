@@ -1,14 +1,14 @@
-# @atomgit.com/rustcode
+# @rustcode/rustcode
 
-[![npm version](https://img.shields.io/npm/v/@atomgit.com/rustcode)](https://www.npmjs.com/package/@atomgit.com/rustcode)
-[![license](https://img.shields.io/npm/l/@atomgit.com/rustcode)](https://atomgit.com/atomgit_rustcode/rustcode)
+[![npm version](https://img.shields.io/npm/v/@rustcode/rustcode)](https://www.npmjs.com/package/@rustcode/rustcode)
+[![license](https://img.shields.io/npm/l/@rustcode/rustcode)](https://gitcode.com/SecLab/RustCode)
 
 **RustCode** — 开源终端 AI 编码助手。用自然语言描述任务，自动阅读代码、编辑文件、执行命令、验证结果。
 
 ## 安装
 
 ```bash
-npm install -g @atomgit.com/rustcode
+npm install -g @rustcode/rustcode
 ```
 
 安装完成后即可使用：
@@ -41,7 +41,7 @@ rustcode --continue
 ## 卸载
 
 ```bash
-npm uninstall -g @atomgit.com/rustcode
+npm uninstall -g @rustcode/rustcode
 
 # 或使用内置卸载命令（会保留配置文件）
 rustcode uninstall
@@ -49,13 +49,13 @@ rustcode uninstall
 
 ## 版本对应
 
-npm 版本号与 RustCode 发布版本一致。详见 [Releases](https://atomgit.com/atomgit_rustcode/rustcode/releases)。
+npm 版本号与 RustCode 发布版本一致。详见 [Releases](https://gitcode.com/SecLab/RustCode/releases)。
 
 ## 链接
 
-- [源码仓库](https://atomgit.com/atomgit_rustcode/rustcode)
-- [Issues](https://atomgit.com/atomgit_rustcode/rustcode/issues)
-- [许可证](https://atomgit.com/atomgit_rustcode/rustcode/blob/main/LICENSE)
+- [源码仓库](https://gitcode.com/SecLab/RustCode)
+- [Issues](https://gitcode.com/SecLab/RustCode/issues)
+- [许可证](https://gitcode.com/SecLab/RustCode/blob/main/LICENSE)
 
 ---
 

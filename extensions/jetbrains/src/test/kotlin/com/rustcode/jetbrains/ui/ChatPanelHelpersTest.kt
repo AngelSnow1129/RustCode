@@ -253,7 +253,7 @@ def hello():
             isInternalHistoryAssistantMessage(
                 MessageInfo(
                     role = "assistant",
-                    content = "I am AtomCode.",
+                    content = "I am RustCode.",
                 ),
             ),
         )

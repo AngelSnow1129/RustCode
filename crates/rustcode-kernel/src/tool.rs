@@ -1,16 +1,16 @@
-//! Tools mounted into the kernel — and the kernel's **trust-model contract**.
+//! Tools mounted into the kernel -- and the kernel's **trust-model contract**.
 //!
 //! # Trust model (read before mounting a tool)
 //!
 //! The kernel is a neutral, embeddable SDK. It does **NOT sandbox** the tools it
 //! hosts. MOUNTING a tool GRANTS its `execute` the host process's **full ambient
-//! authority** — the same environment variables, filesystem, network, and
+//! authority** -- the same environment variables, filesystem, network, and
 //! secrets the host process itself holds. There is no privilege boundary between
 //! a mounted tool and the embedder.
 //!
 //! * [`RiskLevel`] is **advisory metadata only**. A tool declares it; a
 //!   specialization's approval middleware MAY read it to decide whether to gate a
-//!   call. It is NOT an enforcement boundary — the kernel never blocks, drops, or
+//!   call. It is NOT an enforcement boundary -- the kernel never blocks, drops, or
 //!   confines a call based on its `RiskLevel`. Rating a call `Safe` confines
 //!   nothing; rating it `Risky` stops nothing on its own.
 //! * The kernel's ONE built-in safety mechanism at this altitude is the
@@ -20,7 +20,7 @@
 //!   here.
 //! * **OS-level isolation is the EMBEDDER's responsibility**, not the kernel's.
 //!   seccomp, namespaces, containers, a separate child process, a restricted
-//!   user, network egress controls — these live at the OS / driver / an L1
+//!   user, network egress controls -- these live at the OS / driver / an L1
 //!   capability layer. The kernel deliberately does not implement them: doing so
 //!   would be out of its altitude (it has no OS-specific knowledge and must stay
 //!   portable). An embedder mounting untrusted tools MUST provide isolation
@@ -44,7 +44,7 @@ use std::sync::{Arc, RwLock};
 
 /// Risk classification a tool declares about itself. **Advisory metadata, NOT an
 /// enforcement boundary** (see the module-level trust-model contract): the kernel
-/// only *knows* risk; it does nothing about it — it never blocks, drops, or
+/// only *knows* risk; it does nothing about it -- it never blocks, drops, or
 /// sandboxes a call based on its `RiskLevel`. "Approval" is a specialization
 /// concept built on top (see testkit::ApprovalMiddleware) that MAY read this to
 /// decide whether to gate. This boundary keeps approval OUT of the kernel.
@@ -63,10 +63,10 @@ pub struct ToolResult {
     /// returning a picture instead of the "binary, cannot display" dead-end). A
     /// TRANSIENT carrier on the result, NOT persisted onto the tool-result message:
     /// the agent loop lifts these onto a follow-up `Role::User` message (the only
-    /// role a provider serializes images on — OpenAI rejects images in a `tool`
+    /// role a provider serializes images on -- OpenAI rejects images in a `tool`
     /// message), exactly mirroring how user-pasted images already reach the model.
     /// Empty for every text tool. ADDITIVE: `#[serde(default)]` so an older snapshot
-    /// (no `images`) still deserializes (→ empty). See [`crate::message::ImageContent`].
+    /// (no `images`) still deserializes (-> empty). See [`crate::message::ImageContent`].
     #[serde(default)]
     pub images: Vec<crate::message::ImageContent>,
 }
@@ -80,7 +80,7 @@ pub struct ToolDef {
 }
 
 /// Execution context passed to tools. Deliberately minimal: NO semantic/graph/lsp
-/// services — proving the kernel needs none. NOTE the trust model (module doc):
+/// services -- proving the kernel needs none. NOTE the trust model (module doc):
 /// the kernel does not sandbox; `execute` runs with the host process's full
 /// ambient authority. The only bound the kernel imposes on a tool is the size of
 /// the `ToolResult.content` it may inject (`AgentBuilder::max_tool_result_bytes`).
@@ -88,21 +88,21 @@ pub struct ToolDef {
 /// `cancel` is the per-turn cooperative-cancellation token. A long-running tool
 /// SHOULD poll `ctx.cancel.is_cancelled()` or `select!` on `ctx.cancel.cancelled()`
 /// to bail out and RELEASE ITS RESOURCES. On cancel the kernel drops the execute
-/// future as a backstop, but dropping only STOPS POLLING — it is NOT cleanup: any
+/// future as a backstop, but dropping only STOPS POLLING -- it is NOT cleanup: any
 /// subprocess / fd / partial write the tool spawned is the TOOL's responsibility
 /// to reclaim, via cooperative cancel-polling or an RAII `Drop` guard on the
 /// resource (e.g. a child-process handle that SIGKILLs on drop). A tool that does
 /// neither may leak on cancel, and a side effect already in flight when the future
 /// is dropped is reported to the model as cancelled even though it may have landed.
 /// A live progress channel a long-running tool MAY use to report incremental status to
-/// the DRIVER mid-execution — e.g. a sub-agent tool reporting per-task progress, or a
+/// the DRIVER mid-execution -- e.g. a sub-agent tool reporting per-task progress, or a
 /// batch editor reporting per-file. Each [`emit`](ProgressSink::emit) becomes an
 /// `AgentEvent::ToolProgress` tagged with the executing call's id. Cheap to clone; the
 /// `noop()` sink (the DEFAULT, installed when no driver wires one) silently discards, so
 /// a tool can always call `emit` without branching.
 ///
 /// NEUTRALITY: the kernel knows nothing about "sub-agents" (those are an L2 composition
-/// — a tool running a child session). This is the GENERIC observability seam such a tool
+/// -- a tool running a child session). This is the GENERIC observability seam such a tool
 /// builds on to surface child/sub-task progress; the kernel only forwards the bytes.
 #[derive(Clone)]
 pub struct ProgressSink {
@@ -168,11 +168,11 @@ impl std::fmt::Debug for ProgressSink {
 pub struct ToolContext {
     pub working_dir: PathBuf,
     pub cancel: tokio_util::sync::CancellationToken,
-    /// Live progress channel (see [`ProgressSink`]). Default `noop()` — a tool reports
+    /// Live progress channel (see [`ProgressSink`]). Default `noop()` -- a tool reports
     /// progress only if it wants to, and only a driver that cares receives it.
     pub progress: ProgressSink,
     /// Request seam so a tool can ask the driver a structured question and await the
-    /// answer. `None` in tests/headless → `request()` returns Null and callers degrade.
+    /// answer. `None` in tests/headless -> `request()` returns Null and callers degrade.
     pub requester: Option<crate::request::Requester>,
 }
 
@@ -186,12 +186,12 @@ impl ToolContext {
 }
 
 /// A mounted tool. Its `execute` runs with the host process's FULL ambient
-/// authority — the kernel does not sandbox it (see the module-level trust-model
+/// authority -- the kernel does not sandbox it (see the module-level trust-model
 /// contract). The kernel's only built-in bound on a tool is the size of the
 /// result it may return (`agent::AgentBuilder::max_tool_result_bytes`); a tool
 /// returning a huge `ToolResult.content` is TRUNCATED to that cap before the
 /// model / history / driver see it, so a runaway tool cannot blow the context
-/// window. A tool MAY also self-cap, but need not — the kernel cap is a central
+/// window. A tool MAY also self-cap, but need not -- the kernel cap is a central
 /// backstop for third-party tools that do not.
 ///
 /// # PANIC CONTRACT (must-not-panic)
@@ -199,7 +199,7 @@ impl ToolContext {
 /// An `execute` (or any trait method) **MUST NOT panic**. The kernel does **NOT**
 /// isolate panics: under the workspace `panic = "abort"` profile a panic ABORTS
 /// THE HOST PROCESS (and `catch_unwind` is a no-op there), and under an unwind
-/// profile a panicking tool is not currently caught either — so a panicking tool
+/// profile a panicking tool is not currently caught either -- so a panicking tool
 /// takes down the whole session / process. This is the SAME trust posture as the
 /// sandbox contract above: treat all injected code as must-not-panic. A tool that
 /// can fail must return `ToolResult { is_error: true, .. }`, never panic.
@@ -208,18 +208,18 @@ pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn parameters_schema(&self) -> serde_json::Value;
-    /// Risk classification for THIS call — arg-aware, so e.g. a bash tool can rate
+    /// Risk classification for THIS call -- arg-aware, so e.g. a bash tool can rate
     /// `rm -rf` Risky and `ls` Safe. Conservative default: Safe. The tool owns this
     /// (intrinsic knowledge of its args); a specialization's approval middleware
     /// reads it to decide whether to gate.
     fn risk(&self, _args: &str) -> RiskLevel {
         RiskLevel::Safe
     }
-    /// Whether this tool is KNOWN to be read-only (no side effects) — an intrinsic
+    /// Whether this tool is KNOWN to be read-only (no side effects) -- an intrinsic
     /// property of the tool, distinct from `risk()` (which folds in trust/approval
     /// state). Default `false` (unknown). An MCP tool sets this from the server's
     /// `annotations.readOnlyHint`. A specialization (e.g. plan mode) reads it to allow
-    /// read-only external queries that it would otherwise gate — a read-only tool
+    /// read-only external queries that it would otherwise gate -- a read-only tool
     /// cannot modify anything, so it is safe during read-only exploration.
     fn read_only_hint(&self) -> bool {
         false
@@ -228,7 +228,7 @@ pub trait Tool: Send + Sync {
     /// transformer that truncates oversized output (e.g. the artifact head/tail
     /// middleware) must pass it through WHOLE. A tool returns `true` to promise its
     /// result is self-capped and carries structure that generic truncation would
-    /// destroy — e.g. `read_file` caps itself at its own byte budget and its 1-based
+    /// destroy -- e.g. `read_file` caps itself at its own byte budget and its 1-based
     /// line numbering + pagination must survive intact. Default `false` (generic
     /// truncation applies). This is the tool-side contract that lets the middleware
     /// stay generic instead of hardcoding a per-tool exemption list.
@@ -237,7 +237,7 @@ pub trait Tool: Send + Sync {
     }
     /// Whether THIS call (with these args) may run CONCURRENTLY with other tools in
     /// the same assistant message. Arg-aware: a tool's safety can depend on its
-    /// arguments — `bash` is parallel-safe only for provably read-only commands, so
+    /// arguments -- `bash` is parallel-safe only for provably read-only commands, so
     /// it inspects `_args`. Arg-independent tools ignore `_args` and defer to
     /// `read_only_hint()` (the single "no side effects" property, also read by plan
     /// mode). A side-effecting tool leaves this `false` and is serialized behind the
@@ -247,14 +247,14 @@ pub trait Tool: Send + Sync {
     }
     /// The scope under which an "always" approval grant ("总是 / Always") is
     /// remembered for THIS call. Two calls that yield the SAME scope string share a
-    /// single grant — approving "always" on one auto-approves the other for the
+    /// single grant -- approving "always" on one auto-approves the other for the
     /// session. The conservative DEFAULT is the exact `args`, so each distinct call
     /// is remembered on its own; this is correct for a tool like `bash`, where every
     /// destructive command must be approved individually (approving `rm -rf foo`
     /// must NOT blanket-approve `rm -rf bar`). A tool whose calls always differ in
     /// args but whose approval is meaningfully tool-wide (`edit_file`, `write_file`,
-    /// …) overrides this to a constant so "Always" covers ALL its future calls this
-    /// session — matching v1's tool-wide `grant_session(&call.name)`. Advisory
+    /// ...) overrides this to a constant so "Always" covers ALL its future calls this
+    /// session -- matching v1's tool-wide `grant_session(&call.name)`. Advisory
     /// metadata only: a specialization's approval middleware reads it; the kernel
     /// itself never gates.
     fn always_grant_scope(&self, args: &str) -> String {
@@ -291,7 +291,7 @@ impl ToolRegistry {
         tools.insert(tool.name().to_string(), tool);
     }
     /// Select the subset exposed to the LLM. Unmounted tools never produce a
-    /// ToolDef and are not resolvable during a turn → zero effect on the agent.
+    /// ToolDef and are not resolvable during a turn -> zero effect on the agent.
     pub fn mount(&self, names: &[&str]) -> MountedTools {
         let (mounted, _publisher) = self.mount_updatable(names);
         mounted
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn progress_noop_sink_is_silent() {
-        ProgressSink::noop().emit("ignored"); // no listener → must not panic
+        ProgressSink::noop().emit("ignored"); // no listener -> must not panic
         ProgressSink::default().emit("also ignored");
     }
 

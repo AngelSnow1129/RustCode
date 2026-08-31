@@ -12,7 +12,7 @@ pub struct McpToolInfo {
     pub tool_name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
-    /// From the server's `annotations.readOnlyHint` — true only when explicitly
+    /// From the server's `annotations.readOnlyHint` -- true only when explicitly
     /// declared read-only. Lets plan mode allow read-only external queries.
     pub read_only: bool,
 }

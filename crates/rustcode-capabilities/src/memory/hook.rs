@@ -1,7 +1,7 @@
-//! `MemoryHook` — injects (and on resume REFRESHES) the merged `memory.md` entries.
+//! `MemoryHook` -- injects (and on resume REFRESHES) the merged `memory.md` entries.
 //!
 //! FRESH session: the kernel pushes the persona first, then fires `session_start`,
-//! so the memory lands as the second system message — a stable, session-frozen
+//! so the memory lands as the second system message -- a stable, session-frozen
 //! prefix (cache-safe).
 //!
 //! RESUME: production rebuilds its system prompt from the CURRENT `memory.md` in
@@ -10,8 +10,8 @@
 //! contract). To match production the hook RECONCILES at the resume boundary:
 //! refresh the existing `=== MEMORY ===` message in place, inject one if the
 //! snapshot has none (the session started with empty stores), or remove it if the
-//! memory is now empty. A resume is a NEW wire session — there is no in-flight
-//! request prefix yet — so this rewrite cannot break the within-session append-only
+//! memory is now empty. A resume is a NEW wire session -- there is no in-flight
+//! request prefix yet -- so this rewrite cannot break the within-session append-only
 //! cache red-line, and when `memory.md` is unchanged the refresh is byte-identical.
 
 use std::path::Path;
@@ -22,13 +22,13 @@ use rustcode_kernel::message::{Conversation, Message, Role};
 
 use super::MemoryStore;
 
-/// The fixed first line of `MemoryStore::merged_for_prompt` output — how the hook
+/// The fixed first line of `MemoryStore::merged_for_prompt` output -- how the hook
 /// recognizes ITS message in a resumed snapshot. Guarded against drift by a test.
 const MEMORY_HEADER: &str = "=== MEMORY ===";
 
-/// Pushes/refreshes `MemoryStore::merged_for_prompt(global, project, …)` as a system
+/// Pushes/refreshes `MemoryStore::merged_for_prompt(global, project, ...)` as a system
 /// message at session start; silent when both stores are empty. Read-only and
-/// infallible — a missing/unreadable `memory.md` is an empty store, never an error.
+/// infallible -- a missing/unreadable `memory.md` is an empty store, never an error.
 pub struct MemoryHook {
     global: MemoryStore,
     project: MemoryStore,
@@ -38,7 +38,7 @@ pub struct MemoryHook {
 impl MemoryHook {
     /// The standard wiring: the global `$RUSTCODE_HOME/memory.md` + the project's
     /// `<root>/.rustcode/memory.md`, labeled with the root's directory name (the
-    /// literal `"project"` when the root has none — e.g. `/` — same as production).
+    /// literal `"project"` when the root has none -- e.g. `/` -- same as production).
     pub fn for_project(project_root: &Path) -> Self {
         let project_name = project_root
             .file_name()
@@ -85,7 +85,7 @@ impl LifecycleHooks for MemoryHook {
             .position(|m| m.role == Role::System && m.text.starts_with(MEMORY_HEADER));
         match existing {
             Some(i) if merged.is_empty() => {
-                // Everything was /forget-gotten since the snapshot — drop the block,
+                // Everything was /forget-gotten since the snapshot -- drop the block,
                 // exactly as production's rebuilt prompt would.
                 convo.messages.remove(i);
             }
@@ -166,7 +166,7 @@ mod tests {
         );
         let mut convo = Conversation::new();
         h.session_start(&mut convo, false).await;
-        assert!(convo.messages.is_empty(), "no memory → no message");
+        assert!(convo.messages.is_empty(), "no memory -> no message");
     }
 
     #[tokio::test]
@@ -211,14 +211,14 @@ mod tests {
         h.session_start(&mut convo, true).await;
         assert_eq!(
             convo.messages[1].text, frozen,
-            "unchanged memory → identical bytes"
+            "unchanged memory -> identical bytes"
         );
     }
 
     #[tokio::test]
     async fn resume_injects_when_snapshot_has_no_memory_message() {
         let dir = tempfile::tempdir().unwrap();
-        // Session originally started with EMPTY stores → snapshot has no block.
+        // Session originally started with EMPTY stores -> snapshot has no block.
         let h = hook(dir.path(), "", "");
         let mut convo = Conversation::new();
         convo.push(Message::system("persona"));

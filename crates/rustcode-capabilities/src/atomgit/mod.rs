@@ -3,7 +3,7 @@
 //!
 //! # Layering & auth
 //!
-//! This is an L1 capability — it depends ONLY on the kernel and cannot reach
+//! This is an L1 capability -- it depends ONLY on the kernel and cannot reach
 //! `rustcode-core::auth` (L2, compile-enforced). The OAuth token is therefore
 //! **injected** via [`TokenProvider`], which the embedder implements over its own
 //! auth (e.g. `core::auth::get_valid_token`). The token is fetched fresh per request,
@@ -13,7 +13,7 @@
 //!
 //! Mirrors the `ag-cli` tool: base `https://api.atomgit.com/api/v5`, plain
 //! `Authorization: Bearer <token>` on every endpoint. AtomGit's gate rejects the
-//! default reqwest UA, so a custom UA (e.g. `rustcode/<ver>`) is required — supplied
+//! default reqwest UA, so a custom UA (e.g. `rustcode/<ver>`) is required -- supplied
 //! via [`AtomgitConfig::user_agent`].
 
 pub mod client;
@@ -36,7 +36,7 @@ pub const DEFAULT_BASE_URL: &str = "https://api.atomgit.com/api/v5";
 /// can hold `Arc<dyn TokenProvider>`.
 pub trait TokenProvider: Send + Sync {
     /// Return a valid bearer token, refreshing if needed. `Err` is a user-facing
-    /// message (e.g. "not logged in — run `rustcode login`").
+    /// message (e.g. "not logged in -- run `rustcode login`").
     fn token(&self) -> Result<String, String>;
 }
 
@@ -50,7 +50,7 @@ pub struct AtomgitConfig {
     pub token: Arc<dyn TokenProvider>,
 }
 
-/// Live token provider — reads/refreshes the OAuth token from auth.toml.
+/// Live token provider -- reads/refreshes the OAuth token from auth.toml.
 /// NOTE: `token()` is sync and (rarely) does network I/O on refresh; callers on
 /// the hot async path should prefer prefetching via spawn_blocking + StaticTokenProvider.
 pub struct LiveTokenProvider;

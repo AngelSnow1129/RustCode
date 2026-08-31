@@ -2,12 +2,12 @@
 
 Date: 2026-08-20
 Status: Approved (design), pending implementation plan
-Scope crate: `atomcode-review` (L2), with a small touch in `atomcode-tuix`
+Scope crate: `rustcode-review` (L2), with a small touch in `rustcode-tuix`
 command wiring.
 
 ## Problem
 
-The built-in `code_review` tool (`atomcode-review/src/review_tool.rs`) runs a
+The built-in `code_review` tool (`rustcode-review/src/review_tool.rs`) runs a
 **single** read-only reviewer sub-agent: it computes the scoped diff, builds one
 task (annotated diff + per-language rules + deterministic impact plan), spins up
 ONE agent via `build_review_agent_with`, runs it to completion, collects
@@ -20,10 +20,10 @@ for cost: distinct concerns (correctness vs security vs performance vs
 tests/contracts) compete for the same round budget, and there is no adversarial
 second look.
 
-atomcode already has the orchestration primitives to fan out
-(`atomcode-capabilities` task/team: `JoinSet` + semaphore, `reviewer`/
+rustcode already has the orchestration primitives to fan out
+(`rustcode-capabilities` task/team: `JoinSet` + semaphore, `reviewer`/
 `security`/`performance` roles, explore/worker permissions), and
-`atomcode-review` already exposes everything a fan-out needs on its own:
+`rustcode-review` already exposes everything a fan-out needs on its own:
 `build_review_agent_with` returns `(agent, report_sink)`, and
 `ReviewAgentConfig::with_persona_append` lets each agent carry a specialized
 lens without touching the base persona.
@@ -43,7 +43,7 @@ lens without touching the base persona.
 - **No adversarial verify pass** in v1. It is reserved for phase 2 (see below);
   the orchestration leaves a hook for it.
 - No change to the single-agent default behavior or its output.
-- No new dependency on the `task`/team tool: `atomcode-review` fans out on its
+- No new dependency on the `task`/team tool: `rustcode-review` fans out on its
   own via `build_review_agent_with`, which is simpler and keeps the review
   crate self-contained.
 - No config-file default knob in v1 (invocation-scoped only). Can be added
@@ -52,7 +52,7 @@ lens without touching the base persona.
 ## User-facing interface
 
 - Slash command: `/review deep [scope]`. The leading `deep` keyword is parsed
-  in the `/review` arg mapping (`atomcode-tuix/src/event_loop/commands.rs`) and
+  in the `/review` arg mapping (`rustcode-tuix/src/event_loop/commands.rs`) and
   becomes the tool's `depth` argument. `/review [scope]` (no `deep`) is
   unchanged.
 - Tool argument: `code_review` `Args` gains `depth: Option<String>` with values
@@ -81,7 +81,7 @@ Then dispatch on `depth`:
   `run_to_completion`, one sink. **Zero behavior change.**
 - `deep`: hand the shared task inputs to a new `fanout` orchestrator.
 
-### Fan-out orchestrator (`atomcode-review/src/fanout.rs`)
+### Fan-out orchestrator (`rustcode-review/src/fanout.rs`)
 
 New module, three responsibilities, each independently testable:
 
@@ -156,15 +156,15 @@ dimension tag(s).
 
 ## Code organization / units
 
-- `atomcode-review/src/fanout.rs` (new): dimension table, `merge_findings` (pure),
+- `rustcode-review/src/fanout.rs` (new): dimension table, `merge_findings` (pure),
   orchestration with an injectable per-dimension run step. Self-contained and
   unit-testable.
-- `atomcode-review/src/review_tool.rs`: add `depth` to `Args`, dispatch to
+- `rustcode-review/src/review_tool.rs`: add `depth` to `Args`, dispatch to
   `fanout` when `deep`; front-half diff/preflight/task-building unchanged and
   shared by both paths.
-- `atomcode-tuix/src/event_loop/commands.rs`: parse leading `deep` keyword in the
+- `rustcode-tuix/src/event_loop/commands.rs`: parse leading `deep` keyword in the
   `/review` arg mapping → set `depth` on the synthesized tool request/prompt.
-- `atomcode-review/src/lib.rs`: export the new fan-out entry point as needed.
+- `rustcode-review/src/lib.rs`: export the new fan-out entry point as needed.
 
 ## Testing (TDD)
 

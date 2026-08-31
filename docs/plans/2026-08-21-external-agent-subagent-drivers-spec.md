@@ -1,6 +1,6 @@
 # 外部 Agent 子代理驱动 —— 设计 Spec
 
-> 让 atomcode 能像 deepseek-harness 一样，把 **Claude Code (CC)** 与 **Codex** 作为
+> 让 rustcode 能像 deepseek-harness 一样，把 **Claude Code (CC)** 与 **Codex** 作为
 > 可按需启用的"Profile Bundle"驱动为子代理；Codex 额外支持**非交互权限模式**与
 > **多个命名实例**。外部 agent 以**子代理工具**形式暴露给主模型（每个命名实例 = 一个工具），
 > 复用现有 Task 子代理机制。
@@ -20,19 +20,19 @@
   - 多命名实例：同一 provider 插件以不同 `providerName`（`codex-primary` / `codex-secondary`）注册多次，各自暴露成独立工具。
 - **Bundle 按需安装**：一个包声明 `bundle.patch`，安装时把 patch 叠进配置，插入对应 provider。本质是"往注册表插一行"的可分发单元。
 
-### 1.2 atomcode 现状（落点与可复用件）
+### 1.2 rustcode 现状（落点与可复用件）
 
-| 关注点 | atomcode 现状 | 文件锚点 |
+| 关注点 | rustcode 现状 | 文件锚点 |
 |---|---|---|
-| 子代理 | Task 工具跑 **in-process** 子 `Agent`，按角色/难度分层选 LLM provider | `crates/atomcode-capabilities/src/tools/task.rs`（`build_task_child`、`run_child_to_completion`、`Args`、provider 分层） |
-| 子进程生命周期 | MCP `StdioClient` 已成熟：spawn / kill_on_drop / 超时 / 恢复 / 代际 / 请求串行化 | `crates/atomcode-capabilities/src/mcp/transport_stdio.rs` |
-| 进程树终止 | Bash 工具已解决 Win Job Object + Unix killpg（防孤儿） | `crates/atomcode-capabilities/src/tools/bash.rs` |
-| ACP | atomcode 是 **ACP server（agent）**，**无 client 侧** | `crates/atomcode-cli/src/acp/` |
-| Provider | 仅 LLM endpoint 工厂，无"后端 agent"抽象 | `crates/atomcode-coding/src/provider_factory.rs` |
-| 按需安装 | plugin installer：clone/记录/信任门/事件 | `crates/atomcode-capabilities/src/plugin/installer.rs` |
-| 角色/persona | team 角色表 | `crates/atomcode-coding/src/team/` |
+| 子代理 | Task 工具跑 **in-process** 子 `Agent`，按角色/难度分层选 LLM provider | `crates/rustcode-capabilities/src/tools/task.rs`（`build_task_child`、`run_child_to_completion`、`Args`、provider 分层） |
+| 子进程生命周期 | MCP `StdioClient` 已成熟：spawn / kill_on_drop / 超时 / 恢复 / 代际 / 请求串行化 | `crates/rustcode-capabilities/src/mcp/transport_stdio.rs` |
+| 进程树终止 | Bash 工具已解决 Win Job Object + Unix killpg（防孤儿） | `crates/rustcode-capabilities/src/tools/bash.rs` |
+| ACP | rustcode 是 **ACP server（agent）**，**无 client 侧** | `crates/rustcode-cli/src/acp/` |
+| Provider | 仅 LLM endpoint 工厂，无"后端 agent"抽象 | `crates/rustcode-coding/src/provider_factory.rs` |
+| 按需安装 | plugin installer：clone/记录/信任门/事件 | `crates/rustcode-capabilities/src/plugin/installer.rs` |
+| 角色/persona | team 角色表 | `crates/rustcode-coding/src/team/` |
 
-**核心洞察**：atomcode 的 Task 工具本身就是它的"子代理注册表"，目前只有一种后端（in-process）。
+**核心洞察**：rustcode 的 Task 工具本身就是它的"子代理注册表"，目前只有一种后端（in-process）。
 本特性 = 给它加一个**外部 agent 后端抽象** + **两个适配器** + **命名实例配置**，并复用 MCP 的子进程机制、
 Bash 的进程树终止、plugin 的安装/信任模式。**不新建 crate/leaf**（并进 capabilities），遵循既有约束。
 
@@ -80,12 +80,12 @@ run_child_to_completion (现状)          SubagentBackend::run(SubagentRun)
 
 ### 3.1 新增/改动模块
 
-- **新**：`crates/atomcode-capabilities/src/subagent/mod.rs` —— `SubagentBackend` trait + 公共类型（`SubagentRun` / `SubagentResult` / `PermissionMode` / `SubagentEvent`）。
-- **新**：`crates/atomcode-capabilities/src/subagent/codex.rs` —— Codex 适配器。
-- **新**：`crates/atomcode-capabilities/src/subagent/claude_code.rs` —— CC 适配器。
-- **新**：`crates/atomcode-capabilities/src/subagent/proc.rs` —— `ManagedChild`（子进程生命周期，提炼 bash/StdioClient 的 spawn+超时+取消+进程树 kill）。
-- **改**：`crates/atomcode-capabilities/src/tools/task.rs` —— Task 分发分叉出 `backend` 路径；或独立 `ExternalSubagentTool`（见 §6）。
-- **改**：`crates/atomcode-coding/src/config.rs`（或 config crate）—— `[[subagent.external]]` profile 列表 + 反序列化。
+- **新**：`crates/rustcode-capabilities/src/subagent/mod.rs` —— `SubagentBackend` trait + 公共类型（`SubagentRun` / `SubagentResult` / `PermissionMode` / `SubagentEvent`）。
+- **新**：`crates/rustcode-capabilities/src/subagent/codex.rs` —— Codex 适配器。
+- **新**：`crates/rustcode-capabilities/src/subagent/claude_code.rs` —— CC 适配器。
+- **新**：`crates/rustcode-capabilities/src/subagent/proc.rs` —— `ManagedChild`（子进程生命周期，提炼 bash/StdioClient 的 spawn+超时+取消+进程树 kill）。
+- **改**：`crates/rustcode-capabilities/src/tools/task.rs` —— Task 分发分叉出 `backend` 路径；或独立 `ExternalSubagentTool`（见 §6）。
+- **改**：`crates/rustcode-coding/src/config.rs`（或 config crate）—— `[[subagent.external]]` profile 列表 + 反序列化。
 - **改**：工具注册处（parts.rs / 工具装配）—— 按 profile 注册命名工具。
 - **改**：persona —— 说明"可用命名外部子代理工具"（弱模型引导，参考既有 signposts）。
 
@@ -96,7 +96,7 @@ run_child_to_completion (现状)          SubagentBackend::run(SubagentRun)
 ### 4.1 `SubagentBackend` trait
 
 ```rust
-// crates/atomcode-capabilities/src/subagent/mod.rs（示意，非最终签名）
+// crates/rustcode-capabilities/src/subagent/mod.rs（示意，非最终签名）
 #[async_trait]
 pub trait SubagentBackend: Send + Sync {
     /// 命名实例名，如 "codex-primary" / "claude-review"。也是工具名的来源。
@@ -129,7 +129,7 @@ pub enum SubagentError { SpawnFailed, Timeout, ProtocolError(String), NonZeroExi
 
 **设计原则**
 - `run` 是**一次性委派**（MVP）。多轮/续聊留给阶段 4（Codex app-server thread）。
-- 后端**不感知** atomcode 内核 Conversation；只吃 prompt、吐结果 + 事件流。
+- 后端**不感知** rustcode 内核 Conversation；只吃 prompt、吐结果 + 事件流。
 - 事件流复用 Task 现有 progress hook（marker 前缀活动行），TUI 不需要新渲染。
 
 ### 4.2 权限模式（统一枚举 → 各 agent 映射，见 §5）
@@ -142,9 +142,9 @@ pub enum PermissionMode { ReadOnly, AcceptEdits, Auto, Bypass }
 
 ## 5. 非交互权限映射（fail-closed）
 
-atomcode 统一枚举 → 各后端旗标。**默认 `ReadOnly`**；`Auto`/`Bypass` 必须在 profile 显式声明。
+rustcode 统一枚举 → 各后端旗标。**默认 `ReadOnly`**；`Auto`/`Bypass` 必须在 profile 显式声明。
 
-| atomcode | Claude Code (`claude -p --permission-mode`) | Codex (`codex exec`) |
+| rustcode | Claude Code (`claude -p --permission-mode`) | Codex (`codex exec`) |
 |---|---|---|
 | `ReadOnly`（默认） | `plan`（禁写）+ `--disallowedTools` 写类 | `-a never --sandbox read-only` |
 | `AcceptEdits` | `acceptEdits` | `-a on-request --sandbox workspace-write` |
@@ -207,7 +207,7 @@ enabled    = true
 
 ## 8. "Profile Bundle" 按需安装
 
-atomcode 版务实：bundle 实质是**一份可分发的 driver 配置 profile**（外部二进制用户自装）。
+rustcode 版务实：bundle 实质是**一份可分发的 driver 配置 profile**（外部二进制用户自装）。
 
 - **install** = 写/合并 `subagent.external` 一行 + 探测二进制 + 走信任门（镜像 `plugin/installer.rs` 流程与事件）。
 - 可选：随 bundle 附带 persona / 工具过滤 / 默认权限，作为 preset 分发。
@@ -296,10 +296,10 @@ atomcode 版务实：bundle 实质是**一份可分发的 driver 配置 profile*
 
 ## 附：关键文件锚点（实现时对照）
 
-- Task 子代理：`crates/atomcode-capabilities/src/tools/task.rs`（`build_task_child` / `run_child_to_completion` / `Args` / provider 分层 / `DenySensitivePaths` / `WorkerScopeGate`）
-- MCP 子进程：`crates/atomcode-capabilities/src/mcp/transport_stdio.rs`
-- Bash 进程树终止：`crates/atomcode-capabilities/src/tools/bash.rs`
-- Plugin 安装/信任：`crates/atomcode-capabilities/src/plugin/installer.rs`、`mod.rs`
-- Persona 引导：`crates/atomcode-coding/src/persona.rs`
-- 工具装配：`crates/atomcode-coding/src/parts.rs`
-- 配置：`crates/atomcode-coding/src/config.rs`
+- Task 子代理：`crates/rustcode-capabilities/src/tools/task.rs`（`build_task_child` / `run_child_to_completion` / `Args` / provider 分层 / `DenySensitivePaths` / `WorkerScopeGate`）
+- MCP 子进程：`crates/rustcode-capabilities/src/mcp/transport_stdio.rs`
+- Bash 进程树终止：`crates/rustcode-capabilities/src/tools/bash.rs`
+- Plugin 安装/信任：`crates/rustcode-capabilities/src/plugin/installer.rs`、`mod.rs`
+- Persona 引导：`crates/rustcode-coding/src/persona.rs`
+- 工具装配：`crates/rustcode-coding/src/parts.rs`
+- 配置：`crates/rustcode-coding/src/config.rs`

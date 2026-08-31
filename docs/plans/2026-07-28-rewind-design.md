@@ -1,4 +1,4 @@
-# AtomCode Rewind Design
+# RustCode Rewind Design
 
 ## Goal
 
@@ -22,7 +22,7 @@ runtime operation, not a TUI-side combination of filesystem writes and `/undo`.
 The TUI lists targets, selects a scope, submits one request, and waits for one
 success or failure terminal.
 
-Conversation checkpoint metadata belongs to `atomcode-capabilities::session`. It
+Conversation checkpoint metadata belongs to `rustcode-capabilities::session`. It
 uses the existing `SnapshotHook::turn_start` and `turn_complete` seams, so no
 second per-turn state machine is introduced. The kernel remains neutral and
 unchanged.
@@ -40,9 +40,9 @@ code restoration is available.
 v5.0.5 intentionally does not delete an existing store automatically. On the
 first affected-session load it uses an existing store only to finish compensation
 for an interrupted v5.0.3 code-Rewind transaction, then drops the backend again.
-Operators must preserve the store whenever AtomCode reports a pending-Rewind
+Operators must preserve the store whenever RustCode reports a pending-Rewind
 recovery failure or any `*.rewind.txn.json` sidecar still exists under the native
-sessions root. After those transaction sidecars are absent and AtomCode is
+sessions root. After those transaction sidecars are absent and RustCode is
 stopped, they may remove `$RUSTCODE_HOME/rewind` (or `~/.rustcode/rewind` when
 `RUSTCODE_HOME` is unset). This removes only historical code checkpoints; native
 conversation sessions are stored separately and remain available.

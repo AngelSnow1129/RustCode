@@ -23,7 +23,7 @@ pub struct ClickRecord {
     pub at: Instant,
     pub row: u16,
     pub col: u16,
-    /// 1 = single, 2 = double, 3 = triple. Wraps 3 → 1 on the fourth press.
+    /// 1 = single, 2 = double, 3 = triple. Wraps 3 -> 1 on the fourth press.
     pub count: u8,
 }
 
@@ -31,7 +31,7 @@ pub struct ClickRecord {
 /// the previous press. Same cell AND within `window` ⇒ advance the count
 /// (capped at 3, then wrapping back to 1); otherwise it's a fresh single click.
 /// `saturating_duration_since` keeps a non-monotonic clock reading from
-/// panicking — a backwards jump simply reads as "0 elapsed" (still a double).
+/// panicking -- a backwards jump simply reads as "0 elapsed" (still a double).
 pub fn next_click(
     prev: Option<ClickRecord>,
     now: Instant,
@@ -62,12 +62,12 @@ pub fn next_click(
 /// Character class for word selection. Runs of the SAME class form a "word".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CharClass {
-    /// Latin/other alphanumerics and `_` — the classic identifier word.
+    /// Latin/other alphanumerics and `_` -- the classic identifier word.
     Word,
-    /// CJK ideographs / kana / hangul — selected as a contiguous run.
+    /// CJK ideographs / kana / hangul -- selected as a contiguous run.
     Cjk,
     Whitespace,
-    /// Punctuation and everything else — its own run so double-clicking a
+    /// Punctuation and everything else -- its own run so double-clicking a
     /// run of `===` selects the operator, not the neighbouring word.
     Other,
 }
@@ -98,7 +98,7 @@ fn classify(c: char) -> CharClass {
 }
 
 /// Byte range `[start, end)` of the "word" (maximal same-class run) around
-/// `byte` in `text`. `byte` need not be on a char boundary — it is clamped
+/// `byte` in `text`. `byte` need not be on a char boundary -- it is clamped
 /// down to one. Returns `(0, 0)` for empty text. Both ends land on char
 /// boundaries, so the caller can slice `text[start..end]` safely.
 pub fn word_bounds(text: &str, byte: usize) -> (usize, usize) {
@@ -136,7 +136,7 @@ pub fn word_bounds(text: &str, byte: usize) -> (usize, usize) {
 }
 
 /// Index span `(first, last)` (inclusive) of the runs forming the LOGICAL line
-/// that `run_id` belongs to — i.e. the maximal soft-wrap chain. A run whose
+/// that `run_id` belongs to -- i.e. the maximal soft-wrap chain. A run whose
 /// `soft_wrap` is true and whose `next_run_id` points at the following run
 /// continues the same line without a newline (mirrors the newline rule in
 /// `extract_transcript_selection`). Returns `None` if `run_id` is absent.
@@ -318,7 +318,7 @@ mod tests {
             run(12, "last", false, None),
             run(13, "other", false, None),
         ];
-        // click landed in the middle run — span covers the whole chain
+        // click landed in the middle run -- span covers the whole chain
         assert_eq!(line_run_span(&runs, 11), Some((0, 2)));
         // the standalone run stays alone
         assert_eq!(line_run_span(&runs, 13), Some((3, 3)));
@@ -326,7 +326,7 @@ mod tests {
 
     #[test]
     fn line_span_does_not_join_when_next_id_mismatches() {
-        // soft_wrap is true but next_run_id points elsewhere — not a real chain.
+        // soft_wrap is true but next_run_id points elsewhere -- not a real chain.
         let runs = vec![run(10, "a", true, Some(99)), run(11, "b", false, None)];
         assert_eq!(line_run_span(&runs, 10), Some((0, 0)));
     }

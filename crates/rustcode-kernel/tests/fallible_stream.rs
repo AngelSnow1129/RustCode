@@ -1,6 +1,6 @@
 //! CLAIM 15: the provider stream is FALLIBLE. A failed open, a mid-stream error,
 //! reasoning content, and a `finish_reason=length` truncation are all first-class
-//! — none silently degrades into an empty SUCCESSFUL turn.
+//! -- none silently degrades into an empty SUCCESSFUL turn.
 
 use rustcode_kernel::event::{AgentCommand, AgentEvent};
 use rustcode_kernel::message::{Message, Role};
@@ -70,7 +70,7 @@ async fn mid_stream_error_surfaces_and_fails_turn() {
             message: "upstream 503".into(),
             ..Default::default()
         }),
-        // A trailing Done is scripted but must NEVER be reached — the error ends
+        // A trailing Done is scripted but must NEVER be reached -- the error ends
         // the turn first.
         StreamEvent::Done { truncated: false },
     ]));
@@ -150,9 +150,9 @@ async fn reasoning_is_emitted() {
 
 // A Done { truncated: true } with no tool call (output cut off at the token
 // limit) auto-continues: inject a synthetic "resume" nudge and make a follow-up
-// LLM call rather than silently ending the turn (v1 parity —
+// LLM call rather than silently ending the turn (v1 parity --
 // rustcode-core/src/agent/mod.rs:3064). When that recovery happens, the scary
-// "response truncated" warning is SUPPRESSED — the work is being finished, so a
+// "response truncated" warning is SUPPRESSED -- the work is being finished, so a
 // red alarm would be misleading. (The warning is reserved for the unrecoverable
 // case; see `repeated_truncation_is_bounded`.)
 #[tokio::test]
@@ -292,7 +292,7 @@ async fn repeated_truncation_is_bounded() {
         5,
         "truncation continuations must be tightly bounded"
     );
-    // UNRECOVERABLE truncation (budget exhausted, turn actually stops) MUST warn —
+    // UNRECOVERABLE truncation (budget exhausted, turn actually stops) MUST warn --
     // this is the one case the user needs to see, and the only case that should.
     assert!(
         warning
@@ -306,7 +306,7 @@ async fn repeated_truncation_is_bounded() {
 async fn interactive_truncation_checkpoint_can_continue_after_auto_budget() {
     let reg = ToolRegistry::new();
     // The auto-continuation budget is MAX_TRUNCATION_CONTINUATIONS (4): calls 1-4
-    // auto-recover, call 5 truncates with the budget exhausted → the checkpoint
+    // auto-recover, call 5 truncates with the budget exhausted -> the checkpoint
     // fires. After the driver says "continue", call 6 wraps up cleanly.
     let mut turns: Vec<Vec<StreamEvent>> = (1..=5)
         .map(|i| {
@@ -547,13 +547,13 @@ impl LlmProvider for FlakyProvider {
 }
 
 // A RETRYABLE open failure must NOT hard-fail the turn: the agent loop re-opens
-// the same round, emits a VISIBLE ProviderRetry event ("…秒后重试…" once the driver
+// the same round, emits a VISIBLE ProviderRetry event ("...秒后重试..." once the driver
 // renders it) per attempt, and the turn SUCCEEDS once the provider recovers.
 // `start_paused` advances the 3/6/9s backoff on virtual time so the test is instant.
 #[tokio::test(start_paused = true)]
 async fn retryable_open_failure_retries_visibly_then_succeeds() {
     let reg = ToolRegistry::new();
-    // Fail twice (→ two retries, 3s + 6s), then succeed on the third open.
+    // Fail twice (-> two retries, 3s + 6s), then succeed on the third open.
     let provider = Arc::new(FlakyProvider::new(
         2,
         ProviderError {
@@ -616,7 +616,7 @@ async fn retryable_open_failure_retries_visibly_then_succeeds() {
 }
 
 // A NON-retryable open failure (auth/400) must FAIL FAST: no retry notice, exactly
-// one open, terminal Error — never spin the 18s retry budget on an error that
+// one open, terminal Error -- never spin the 18s retry budget on an error that
 // cannot recover.
 #[tokio::test(start_paused = true)]
 async fn non_retryable_open_failure_fails_fast() {
@@ -666,10 +666,10 @@ async fn non_retryable_open_failure_fails_fast() {
 
 // ── EMPTY-RESPONSE FAST RETRY (an empty 200 must be retried, not a silent stop) ─
 //
-// Some OpenAI-compatible gateways (the atomgit→DeepSeek path) occasionally return a
+// Some OpenAI-compatible gateways (the atomgit->DeepSeek path) occasionally return a
 // 200 with a COMPLETELY empty completion: the stream opens, yields no text, no tool
 // calls and no reasoning, then ends. That is a transient upstream hiccup that
-// recovers on an immediate resend — NOT the model choosing to stop (a real stop
+// recovers on an immediate resend -- NOT the model choosing to stop (a real stop
 // carries text). The kernel must re-issue the SAME round with a VISIBLE notice and
 // SUCCEED once the provider recovers, instead of finishing as a silent Stopped
 // (which the user perceives as the agent mysteriously giving up mid-task).
@@ -712,7 +712,7 @@ async fn empty_response_is_retried_then_succeeds() {
     let calls = received.lock().unwrap().len();
     assert_eq!(
         calls, 2,
-        "the empty 200 must be RETRIED → a second chat_stream call; got {calls}"
+        "the empty 200 must be RETRIED -> a second chat_stream call; got {calls}"
     );
     assert_eq!(
         text, "hello",
@@ -738,12 +738,12 @@ async fn empty_response_is_retried_then_succeeds() {
 // ── EMPTY-RESPONSE EXHAUSTION (a run of empty 200s fails VISIBLY, not silently) ──
 //
 // If every resend is also empty, the dedicated budget is exhausted and the turn
-// ends with StopReason::ProviderError and a clear Error — NOT a silent Stopped that
+// ends with StopReason::ProviderError and a clear Error -- NOT a silent Stopped that
 // looks like a normal (empty) completion.
 #[tokio::test(start_paused = true)]
 async fn empty_response_exhaustion_fails_visibly() {
     let reg = ToolRegistry::new();
-    // An empty turns queue makes MockProvider yield a bare Done forever → every open
+    // An empty turns queue makes MockProvider yield a bare Done forever -> every open
     // is an empty 200, so the retry budget is exhausted.
     let provider = Arc::new(MockProvider::new(vec![]));
     let received = provider.received.clone();
@@ -792,7 +792,7 @@ async fn empty_response_exhaustion_fails_visibly() {
 //
 // When the adapter dropped an unparseable chunk (StreamEvent::Malformed) and the
 // round carries no content, the kernel still retries (same as an empty 200) but the
-// notice says the response was MALFORMED ("响应格式异常") rather than empty — the two
+// notice says the response was MALFORMED ("响应格式异常") rather than empty -- the two
 // are different upstream faults and the wording should not conflate them.
 #[tokio::test(start_paused = true)]
 async fn malformed_response_retried_with_distinct_notice() {

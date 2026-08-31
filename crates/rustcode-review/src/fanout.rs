@@ -143,7 +143,7 @@ pub struct DimensionOutcome {
     pub error: Option<String>,
 }
 
-/// Merge → scope-filter → sort → render the deep-review outcomes. Returns
+/// Merge -> scope-filter -> sort -> render the deep-review outcomes. Returns
 /// `(is_error, rendered)`. `is_error` is true only when NO dimension completed
 /// cleanly (a fully failed fan-out); a partial run renders its findings and notes
 /// coverage.
@@ -157,7 +157,7 @@ pub fn finalize_deep_review(
     render_deep_result(&merged, changed_files, &completed, &failed, deduped, None)
 }
 
-/// Merge → scope-filter → sort the fan-out outcomes into the deduped survivor
+/// Merge -> scope-filter -> sort the fan-out outcomes into the deduped survivor
 /// set, plus the count collapsed by dedup. Shared by the deep and deep+verify
 /// paths.
 pub fn merge_deep_findings(
@@ -176,7 +176,7 @@ pub fn merge_deep_findings(
     let raw_total: usize = per_dim.iter().map(|(_, v)| v.len()).sum();
     let mut merged = merge_findings(per_dim);
     // Count dedup collapses BEFORE the scope-filter, so `deduped` reflects only
-    // cross-dimension merges — not findings dropped for being outside the diff.
+    // cross-dimension merges -- not findings dropped for being outside the diff.
     let deduped = raw_total.saturating_sub(merged.len());
     merged.retain(|m| {
         changed_paths
@@ -188,7 +188,7 @@ pub fn merge_deep_findings(
 }
 
 /// Completed vs failed dimension ids, in table order. A dimension absent from
-/// `outcomes` counts as neither — but never enters `completed`, so `is_error`
+/// `outcomes` counts as neither -- but never enters `completed`, so `is_error`
 /// stays correct.
 pub fn dimension_coverage(outcomes: &[DimensionOutcome]) -> (Vec<&'static str>, Vec<&'static str>) {
     let completed = REVIEW_DIMENSIONS
@@ -239,30 +239,30 @@ fn render_deep(
 ) -> String {
     let total_dims = REVIEW_DIMENSIONS.len();
     let verify_note = match verify_dropped {
-        Some(k) => format!(" · verify dropped {k}"),
+        Some(k) => format!(" . verify dropped {k}"),
         None => String::new(),
     };
     let mut out = String::new();
     if is_error {
         out.push_str(&format!(
-            "Deep review incomplete — every dimension failed (0/{total_dims}). \
+            "Deep review incomplete -- every dimension failed (0/{total_dims}). \
              Coverage is not reliable.{verify_note}\n"
         ));
     } else if merged.is_empty() {
         out.push_str(&format!(
-            "Deep review complete — no issues found across {changed_files} changed file(s) \
+            "Deep review complete -- no issues found across {changed_files} changed file(s) \
              ({}/{total_dims} dimensions completed){verify_note}.\n",
             completed.len()
         ));
     } else {
         out.push_str(&format!(
-            "Deep review: {} finding(s) across {changed_files} changed file(s) · \
+            "Deep review: {} finding(s) across {changed_files} changed file(s) . \
              {}/{total_dims} dimensions completed",
             merged.len(),
             completed.len()
         ));
         if deduped > 0 {
-            out.push_str(&format!(" · deduped {deduped}"));
+            out.push_str(&format!(" . deduped {deduped}"));
         }
         out.push_str(&verify_note);
         out.push('\n');
@@ -273,7 +273,7 @@ fn render_deep(
     for (i, m) in merged.iter().enumerate() {
         let f = &m.finding;
         out.push_str(&format!(
-            "\n{}. [{} · conf {:.2}] {}:{}-{} · dims: {}\n   {}\n",
+            "\n{}. [{} . conf {:.2}] {}:{}-{} . dims: {}\n   {}\n",
             i + 1,
             f.priority,
             f.confidence,
@@ -309,7 +309,7 @@ at the SAME file and an overlapping line range (you may refine the wording). Kee
 default whenever you are not certain.\n\
 - To DROP it: call `report_finding` for NOTHING, and briefly state why it is a false positive, \
 not introduced by this diff, or already handled.\n\
-Report only about THIS candidate — do not hunt for new, unrelated issues, and do not report a \
+Report only about THIS candidate -- do not hunt for new, unrelated issues, and do not report a \
 different finding (an unrelated report will not count as keeping this one).";
 
 /// Build the single-finding task text handed to a verify agent: the candidate,
@@ -318,7 +318,7 @@ pub fn render_verify_task(f: &Finding, rules: &str, annotated: &str) -> String {
     format!(
         "Verify the following single candidate finding from a prior review.\n\n\
          CANDIDATE FINDING:\n\
-         - [{} · conf {:.2}] {}:{}-{}\n  {}\n  {}\n\n{rules}\n\n=== DIFF ===\n{annotated}",
+         - [{} . conf {:.2}] {}:{}-{}\n  {}\n  {}\n\n{rules}\n\n=== DIFF ===\n{annotated}",
         f.priority,
         f.confidence,
         f.file_path,
@@ -331,7 +331,7 @@ pub fn render_verify_task(f: &Finding, rules: &str, annotated: &str) -> String {
 
 /// The keep signal for the verify pass: true when the verify agent re-reported a
 /// finding that CORRESPONDS to the candidate (same file, overlapping line range).
-/// Requiring correspondence — not merely a non-empty sink — stops a verifier that
+/// Requiring correspondence -- not merely a non-empty sink -- stops a verifier that
 /// wandered off and reported an unrelated issue from spuriously keeping this one.
 pub fn verify_reconfirms(candidate: &Finding, reported: &[Finding]) -> bool {
     reported.iter().any(|r| {
@@ -476,22 +476,22 @@ mod tests {
     #[test]
     fn verify_reconfirms_only_a_matching_relocatable_finding() {
         let candidate = f("P1", 0.9, "a.rs", 10, 12, "unchecked unwrap");
-        // Same file + overlapping range (title may differ) → reconfirmed → keep.
+        // Same file + overlapping range (title may differ) -> reconfirmed -> keep.
         assert!(verify_reconfirms(
             &candidate,
             &[f("P1", 0.8, "a.rs", 10, 14, "null deref")]
         ));
-        // A report for a different file does NOT reconfirm → drop.
+        // A report for a different file does NOT reconfirm -> drop.
         assert!(!verify_reconfirms(
             &candidate,
             &[f("P2", 0.5, "other.rs", 10, 12, "unrelated")]
         ));
-        // A report at a non-overlapping range does NOT reconfirm → drop.
+        // A report at a non-overlapping range does NOT reconfirm -> drop.
         assert!(!verify_reconfirms(
             &candidate,
             &[f("P1", 0.8, "a.rs", 90, 92, "unrelated hunk")]
         ));
-        // No report at all → not reconfirmed → drop.
+        // No report at all -> not reconfirmed -> drop.
         assert!(!verify_reconfirms(&candidate, &[]));
     }
 
@@ -600,7 +600,7 @@ mod tests {
             outcome("tests_contracts", false, vec![]),
         ];
         let (is_error, out) = finalize_deep_review(&all_failed, 1, &["a.rs".to_string()]);
-        assert!(is_error, "every dimension failed → hard error");
+        assert!(is_error, "every dimension failed -> hard error");
         assert!(out.contains("incomplete") || out.contains("0/4"), "{out}");
 
         let one_ok = vec![
@@ -612,7 +612,7 @@ mod tests {
         let (is_error, _) = finalize_deep_review(&one_ok, 1, &["a.rs".to_string()]);
         assert!(
             !is_error,
-            "one clean dimension → partial but not a hard error"
+            "one clean dimension -> partial but not a hard error"
         );
     }
 

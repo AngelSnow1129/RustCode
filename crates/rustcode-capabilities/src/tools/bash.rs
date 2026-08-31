@@ -1,10 +1,10 @@
-//! `bash` — run a shell command in the working directory, with a timeout and
+//! `bash` -- run a shell command in the working directory, with a timeout and
 //! cooperative cancellation (cancel ⇒ the child is killed via `kill_on_drop`).
 //!
 //! `risk()` is ARG-AWARE: a command is `Risky` only when [`check_destructive_command`]
-//! flags it (a faithful port of the production destructive-command classifier —
+//! flags it (a faithful port of the production destructive-command classifier --
 //! privilege escalation, recursive force deletes, `find -delete`, `dd`, fork bombs,
-//! destructive git, remote-script-piped-to-shell, …); everything else is `Safe`.
+//! destructive git, remote-script-piped-to-shell, ...); everything else is `Safe`.
 //! Dropped vs production: streamed stdout (no event channel in the neutral context),
 //! first-error-signature capture, telemetry, and the setsid/process-group reaping
 //! (the neutral version kills the direct child via `kill_on_drop`).
@@ -27,28 +27,28 @@ const DEFAULT_TIMEOUT_SECS: u64 = 60;
 const MAX_TIMEOUT_SECS: u64 = 300;
 
 /// How long a process can be silent (no new stdout/stderr) AFTER having emitted
-/// something, before we kill it. Bumped from 30→90 to tolerate legitimate silent
+/// something, before we kill it. Bumped from 30->90 to tolerate legitimate silent
 /// phases (file lock waits, dependency downloads, linker blocking, large file
-/// reads). This is NOT tool- or language-specific — any process with these
+/// reads). This is NOT tool- or language-specific -- any process with these
 /// patterns benefits. Tradeoff: genuine deadlocks wait 60s longer than before.
 const SILENT_KILL_SECS: u64 = 90;
 
 /// Environment injected into every model-run shell child so interactive programs
 /// degrade to non-interactive behavior instead of blocking on our closed stdin or
-/// scribbling terminal-control sequences onto the TUI (the oh-my-pi approach —
+/// scribbling terminal-control sequences onto the TUI (the oh-my-pi approach --
 /// the one portable, low-risk mitigation the reference implementations converge on):
 ///
-/// * `TERM=dumb` — REPLs, editors, pagers, `git`, and progress UIs detect a
+/// * `TERM=dumb` -- REPLs, editors, pagers, `git`, and progress UIs detect a
 ///   non-capable terminal and drop line-editing / full-screen / color modes.
-/// * `PAGER=cat` / `GIT_PAGER=cat` — `git log`, `less`, `man` don't page (paging
+/// * `PAGER=cat` / `GIT_PAGER=cat` -- `git log`, `less`, `man` don't page (paging
 ///   would wait for a keypress that can never arrive on our null stdin).
-/// * `GIT_TERMINAL_PROMPT=0` — git fails fast on a missing credential instead of
+/// * `GIT_TERMINAL_PROMPT=0` -- git fails fast on a missing credential instead of
 ///   blocking on a username/password prompt.
 ///
 /// Deliberately does NOT set `SSH_ASKPASS`/`SUDO_ASKPASS`/`EDITOR`: rustcode wires
 /// the askpass vars to a SECURE user prompt (see `apply_askpass_env`), so clobbering
-/// them — as oh-my-pi does with `SSH_ASKPASS=false`, safe only because it has no such
-/// helper — would break interactive ssh/sudo here. Pure so it is unit-testable.
+/// them -- as oh-my-pi does with `SSH_ASKPASS=false`, safe only because it has no such
+/// helper -- would break interactive ssh/sudo here. Pure so it is unit-testable.
 fn non_interactive_env_vars() -> &'static [(&'static str, &'static str)] {
     &[
         ("TERM", "dumb"),
@@ -68,22 +68,22 @@ fn apply_non_interactive_env(cmd: &mut tokio::process::Command) {
 
 /// Detach the just-forked child from the controlling terminal. Called from BOTH
 /// shell paths' `pre_exec` (`BashTool::execute` and `run_shell`) so the two can't
-/// drift — previously only `run_shell` had the full detach while the agent path had
+/// drift -- previously only `run_shell` had the full detach while the agent path had
 /// bare `setsid()`, leaving the model's own `git push` hooks free to scribble ANSI
 /// (the AtomGit `[PASSED]` box) onto the TUI past our piped stdout/stderr.
 ///
 /// `setsid()` puts the child in a new session with no controlling tty; the explicit
 /// `open("/dev/tty")` + `TIOCNOTTY` is belt-and-suspenders for the case `setsid()`
 /// fails with `EPERM` (child already a pgroup leader), where it would otherwise keep
-/// the tty. Failures are ignored — the worst case is the pre-existing (bare-setsid)
+/// the tty. Failures are ignored -- the worst case is the pre-existing (bare-setsid)
 /// behavior.
 ///
-/// SAFETY: runs in the forked child before `exec` — async-signal-safe libc ONLY
+/// SAFETY: runs in the forked child before `exec` -- async-signal-safe libc ONLY
 /// (`setsid`/`open`/`ioctl`/`close`). No allocation, locks, panics, or non-reentrant
 /// calls, or the child can deadlock.
 #[cfg(unix)]
 unsafe fn detach_child_from_controlling_tty() {
-    // `c_char` (not a hard-coded `i8`) so the `c"…"` pointer matches without a cast on
+    // `c_char` (not a hard-coded `i8`) so the `c"..."` pointer matches without a cast on
     // targets where `c_char` is `u8` (e.g. aarch64-linux).
     use std::ffi::c_char;
     extern "C" {
@@ -159,7 +159,7 @@ impl Tool for BashTool {
     }
     /// "Always allow" scope: the NORMALIZED command (comments stripped, whitespace collapsed),
     /// keeping the DEFAULT per-command scope. Every bash approval is for a destructive command
-    /// (see `risk`), so a command-family prefix (`rm *`) would over-approve — per-command is
+    /// (see `risk`), so a command-family prefix (`rm *`) would over-approve -- per-command is
     /// deliberate. Normalizing means a cosmetic re-emit of the SAME command (changed trailing
     /// `# comment`, added whitespace) keeps the grant instead of re-prompting every turn.
     fn always_grant_scope(&self, args: &str) -> String {
@@ -192,8 +192,8 @@ impl Tool for BashTool {
             .clamp(1, MAX_TIMEOUT_SECS);
         let dur = Duration::from_secs(secs);
 
-        // macOS sudo (and some Linux configs) needs explicit `-A` to use SUDO_ASKPASS —
-        // rewrite `sudo` → `sudo -A` so a plain `sudo` pops our password modal. Only when
+        // macOS sudo (and some Linux configs) needs explicit `-A` to use SUDO_ASKPASS --
+        // rewrite `sudo` -> `sudo -A` so a plain `sudo` pops our password modal. Only when
         // the askpass helper is actually active; off Windows the command is untouched.
         #[cfg(unix)]
         let effective_command = if crate::askpass::current_env().is_some() {
@@ -217,21 +217,21 @@ impl Tool for BashTool {
         // Windows GBK locale (CP936): a Python child the model runs (python -c, scripts)
         // defaults its `subprocess` text pipes AND stdio to the console code page, so reading
         // UTF-8 output with the GBK codec dies with UnicodeDecodeError (#876). `PYTHONUTF8=1`
-        // (PEP 540) flips `locale.getpreferredencoding()` to utf-8 — which is what `subprocess`
-        // text pipes use — so that case stops crashing; `PYTHONIOENCODING` only covers Python's
+        // (PEP 540) flips `locale.getpreferredencoding()` to utf-8 -- which is what `subprocess`
+        // text pipes use -- so that case stops crashing; `PYTHONIOENCODING` only covers Python's
         // OWN stdio (not child pipes), kept as belt-and-suspenders. Set HERE (not in
         // build_command) so it covers BOTH the cmd.exe and the Git Bash shells. Mirrors
         // RustCode's own decode_output UTF-8-first policy.
         //
-        // KNOWN TRADEOFFS (this is a mitigation, not a complete fix — env vars can't do better):
+        // KNOWN TRADEOFFS (this is a mitigation, not a complete fix -- env vars can't do better):
         //   1. NOT fixed: TRULY binary output. `0x80` is invalid in utf-8 too, so a text-mode
-        //      pipe over real binary still crashes — just with a utf-8 codec error. The real
+        //      pipe over real binary still crashes -- just with a utf-8 codec error. The real
         //      fix there is the model using bytes mode / `errors=` (its code, not ours).
         //   2. MIRROR REGRESSION: the SAME locale flip changes `open()`'s default encoding from
         //      GBK to utf-8, so `open('gbk_file.txt')` WITHOUT an explicit `encoding=` now fails
         //      on a GBK-encoded file (it worked before). `open()` and `subprocess` share
         //      `locale.getpreferredencoding()`, so no env can fix the pipe case without moving
-        //      this one — they cannot be decoupled. Accepted because modern files/output are
+        //      this one -- they cannot be decoupled. Accepted because modern files/output are
         //      predominantly utf-8; the model can pass `encoding='gbk'` for legacy files.
         #[cfg(windows)]
         {
@@ -269,20 +269,20 @@ impl Tool for BashTool {
             Ok(c) => c,
             Err(e) => return err(format!("bash: failed to spawn shell: {e}")),
         };
-        // Reap the WHOLE shell process tree (mvn → java, pipeline sub-shells,
-        // busybox applets) on timeout/cancel — not just the direct child, which
+        // Reap the WHOLE shell process tree (mvn -> java, pipeline sub-shells,
+        // busybox applets) on timeout/cancel -- not just the direct child, which
         // is all `kill_on_drop` covers.
         //
         // Windows: a kill-on-close Job Object. Held until this fn returns; the
         // cancel/timeout arms `terminate()` the job explicitly, and if that's
-        // skipped (or rustcode dies) dropping the guard closes the handle →
+        // skipped (or rustcode dies) dropping the guard closes the handle ->
         // KILL_ON_JOB_CLOSE reaps the tree anyway. (A process the command
         // intentionally left running is in the job too, so it's reaped on
-        // return — consistent with this tool having no background path.)
+        // return -- consistent with this tool having no background path.)
         //
         // Unix: the setsid pre_exec made the shell its own pgroup leader
         // (pgid == pid), so `killpg(pid)` reaches the grandchildren that
-        // `kill_on_drop` (direct child only) would otherwise orphan — the same
+        // `kill_on_drop` (direct child only) would otherwise orphan -- the same
         // leak, and the same fix, as Windows.
         #[cfg(windows)]
         let job_guard = crate::process_utils::assign_child_to_kill_on_close_job(&child);
@@ -305,25 +305,25 @@ impl Tool for BashTool {
 
         tokio::select! {
             biased;
-            // Cooperative cancel: returning drops `wait` → kill_on_drop SIGKILLs the child.
+            // Cooperative cancel: returning drops `wait` -> kill_on_drop SIGKILLs the child.
             _ = ctx.cancel.cancelled() => {
                 kill_tree();
-                // The command itself is already shown in the `● Bash(…)`
+                // The command itself is already shown in the `● Bash(...)`
                 // header above (for the user) and in the tool-call record
-                // (for the model), so don't echo it back — a long command
+                // (for the model), so don't echo it back -- a long command
                 // just wraps into several redundant error lines.
                 err("bash: cancelled before completion.".to_string())
             }
             res = tokio::time::timeout(dur, wait) => match res {
                 Ok(Ok(output)) => format_output(&output),
                 Ok(Err(e)) => err(format!("bash: error running command: {e}")),
-                // Timed out: the timeout future drops `wait` → kill_on_drop SIGKILLs the child.
+                // Timed out: the timeout future drops `wait` -> kill_on_drop SIGKILLs the child.
                 // Don't echo the command (see the cancel arm); point at the actionable
-                // knob — a larger `timeout` — the way the core bash tool does.
+                // knob -- a larger `timeout` -- the way the core bash tool does.
                 Err(_) => {
                     kill_tree();
                     err(format!(
-                        "bash: timed out after {secs}s — pass a larger `timeout` if this command \
+                        "bash: timed out after {secs}s -- pass a larger `timeout` if this command \
                          legitimately needs longer."
                     ))
                 }
@@ -335,7 +335,7 @@ impl Tool for BashTool {
 /// Whether the `bash` tool will actually route through a POSIX bash (Git Bash / MSYS2)
 /// on THIS machine. The single source of truth for both the tool description AND the
 /// system-prompt `Shell:` line, so the model is told the shell IT ACTUALLY GETS instead
-/// of a hard-coded lie. `#[cfg(windows)]` consults the cached `detect_windows_bash()` —
+/// of a hard-coded lie. `#[cfg(windows)]` consults the cached `detect_windows_bash()` --
 /// its FIRST call runs up to a few synchronous, console-suppressed probes (`where bash`,
 /// `where git`, then `reg query`), then memoizes; every later call (and `build_command`)
 /// reuses the cache. Elsewhere the tool always uses a real `bash`, so the Windows
@@ -366,7 +366,7 @@ pub(crate) fn windows_shell_label(bash_present: bool) -> &'static str {
 /// The tool keeps the name `bash` (every provider's model is trained to reach
 /// for a `bash` tool), but on Windows it actually executes via `cmd.exe` (see
 /// `build_command`). Left unsaid, weak models follow the `bash` name and emit
-/// bash-only syntax — heredocs, `$(...)`, `printf '\n'`, single-quote quoting —
+/// bash-only syntax -- heredocs, `$(...)`, `printf '\n'`, single-quote quoting --
 /// which cmd.exe can't parse, so the model thrashes into temp-file workarounds.
 /// Naming the real shell here removes the contradiction. Pure (takes a bool) so
 /// the Windows wording is unit-testable off Windows.
@@ -381,40 +381,40 @@ fn shell_tool_description(
         () => {
             "Run a shell command in the working directory and return its combined \
              stdout/stderr and exit code. Default timeout 60s (max 300). Destructive \
-             commands (recursive force delete, sudo, dd, history rewrites, …) are flagged \
+             commands (recursive force delete, sudo, dd, history rewrites, ...) are flagged \
              risky and may require approval.\n\
-             Prefer the dedicated tools over bash for file operations — they are \
+             Prefer the dedicated tools over bash for file operations -- they are \
              gitignore-aware, cross-platform, and cheaper: read_file to read a file (NOT \
              cat/head/tail), grep to search file contents (NOT grep/rg), glob to find \
              files by name (NOT find/fd), list_directory for a directory tree (NOT ls), \
              edit_file to MODIFY a file and write_file to create/overwrite one. NEVER edit \
-             a file with a shell command (sed/awk/perl -i, or `>`/`>>`/tee redirection) — \
+             a file with a shell command (sed/awk/perl -i, or `>`/`>>`/tee redirection) -- \
              it corrupts indentation and encoding (especially on Windows) and cascades; if \
              edit_file reports it can't find your text, RE-READ the file and copy the exact \
-             text, or rewrite the whole file with write_file — do not fall back to sed. \
-             Reserve bash for real shell work — git, builds, package managers, running \
-             commands — and for pipelines / aggregation (wc, sort, uniq, awk, git log) \
+             text, or rewrite the whole file with write_file -- do not fall back to sed. \
+             Reserve bash for real shell work -- git, builds, package managers, running \
+             commands -- and for pipelines / aggregation (wc, sort, uniq, awk, git log) \
              the dedicated tools can't do.\n\
              This shell is NON-INTERACTIVE: stdin is not connected to a terminal, so a \
              program cannot be driven with typed input once started. Do NOT launch REPLs (python/node/irb), \
              editors (vim/nano), pagers (less/more), or full-screen/monitor programs \
-             (top/htop, the mysql/psql prompt) — they can't receive input and just block \
-             until the timeout. Run the work non-interactively instead: `python3 -c '…'` \
-             (or a script file), `git --no-pager …`, `mysql -e '…'`."
+             (top/htop, the mysql/psql prompt) -- they can't receive input and just block \
+             until the timeout. Run the work non-interactively instead: `python3 -c '...'` \
+             (or a script file), `git --no-pager ...`, `mysql -e '...'`."
         };
     }
     macro_rules! cmd_suffix {
         () => {
             "\n\
-             Windows: commands run via cmd.exe, NOT bash. Use cmd.exe syntax — do NOT use \
+             Windows: commands run via cmd.exe, NOT bash. Use cmd.exe syntax -- do NOT use \
              bash-only constructs such as heredocs (<<EOF), command substitution $(...), or \
              printf '\\n'. Chain steps with &&. For multi-line text (e.g. a multi-line commit \
              message) write it to a temp file and pass the file (e.g. git commit -F msg.txt).\n\
-             Default to ONE shell — cmd.exe — and do NOT randomly switch between shells mid-task. \
+             Default to ONE shell -- cmd.exe -- and do NOT randomly switch between shells mid-task. \
              Do NOT use git-bash forms like `cmd //c`. Use PowerShell (`pwsh -Command ...`) ONLY \
              when a task genuinely needs a PowerShell-only feature, never as a substitute for a \
              cmd.exe builtin. Always quote paths \
-             containing spaces, e.g. `if exist \"C:\\Program Files\"` — an unquoted spaced path \
+             containing spaces, e.g. `if exist \"C:\\Program Files\"` -- an unquoted spaced path \
              splits into two tokens and reports a false \"not found\".\n\
              The dedicated file tools above (read_file / grep / glob / list_directory) also \
              sidestep cmd's type/find/dir and all the quoting pitfalls here."
@@ -424,20 +424,20 @@ fn shell_tool_description(
         () => {
             "\n\
              Windows: a POSIX bash (Git Bash / MSYS2) is installed and this tool runs \
-             commands via `bash -c` — use bash syntax, NOT cmd.exe. `$(...)`, `&&`, `|`, \
+             commands via `bash -c` -- use bash syntax, NOT cmd.exe. `$(...)`, `&&`, `|`, \
              quoting, heredocs and `printf` all work as on Linux.\n\
              PATHS: bash treats `\\` as an escape, so a Windows path like `C:\\Windows` is \
-             mangled — use forward slashes (`C:/Windows`) or POSIX form (`/c/Windows`). \
+             mangled -- use forward slashes (`C:/Windows`) or POSIX form (`/c/Windows`). \
              Relative paths work (the working directory is already set).\n\
              Windows-native tools (where, reg, tasklist, sc) are still callable by name. Do \
-             NOT emit cmd.exe builtins (`dir`, `type`, `copy`, `%VAR%`) — use their bash \
+             NOT emit cmd.exe builtins (`dir`, `type`, `copy`, `%VAR%`) -- use their bash \
              equivalents (`ls`, `cat`, `cp`, `$VAR`) or the dedicated file tools above.\n\
-             OUTPUT: discard a stream with `>/dev/null` (or `2>/dev/null`), NEVER `nul` — \
+             OUTPUT: discard a stream with `>/dev/null` (or `2>/dev/null`), NEVER `nul` -- \
              here `> nul` does not mean the null device; it creates a stray, undeletable \
              `nul` file in the working directory."
         };
     }
-    // Tell the model interactive password prompts work — ONLY when the askpass
+    // Tell the model interactive password prompts work -- ONLY when the askpass
     // helper is actually active (Unix interactive TUI). Without this the model
     // assumes the shell is non-interactive, rationalises "the password prompt
     // can't appear", and gives up on `ssh`/`sudo` instead of just running them.
@@ -447,8 +447,8 @@ fn shell_tool_description(
         () => {
             "\n\
              Interactive password prompts ARE supported here: a command that needs a \
-             password (e.g. `ssh user@host`, `sudo …`) surfaces a SECURE prompt for the \
-             USER to type it — you never see or handle the password. Just run the command \
+             password (e.g. `ssh user@host`, `sudo ...`) surfaces a SECURE prompt for the \
+             USER to type it -- you never see or handle the password. Just run the command \
              normally. Do NOT assume the shell is non-interactive, do NOT add \
              `-o BatchMode=yes` / `-n` / `</dev/null`, and do NOT avoid or give up on such \
              commands. Such a command BLOCKS until the user answers the prompt, so pass a \
@@ -482,14 +482,14 @@ fn apply_askpass_env(cmd: &mut tokio::process::Command, env: &crate::askpass::se
 /// Rewrite `sudo` command words to `sudo -A` so the askpass helper is actually used.
 ///
 /// macOS sudo (and some Linux sudoers configs) does NOT auto-invoke `SUDO_ASKPASS` just
-/// because no tty is available — it needs an explicit `-A`. Models write plain `sudo`, so
+/// because no tty is available -- it needs an explicit `-A`. Models write plain `sudo`, so
 /// without this they hit "sudo: a terminal is required to read the password". Only called
 /// when the askpass helper is active (`current_env()` is `Some`).
 ///
 /// `sudo` is matched only in COMMAND POSITION (string start, or after a shell separator
 /// `; | & ( { \n`), never inside quotes or as an argument. `-A` is skipped when the sudo
 /// invocation already carries `-A`/`--askpass`, `-n`/`--non-interactive` (explicit
-/// no-prompt — adding `-A` would wrongly make it prompt), or `-S`/`--stdin`.
+/// no-prompt -- adding `-A` would wrongly make it prompt), or `-S`/`--stdin`.
 #[cfg(unix)]
 fn rewrite_sudo_for_askpass(command: &str) -> String {
     let mut out = String::with_capacity(command.len() + 8);
@@ -600,7 +600,7 @@ fn sudo_opts_have_askpass_or_noninteractive(rest: &str) -> bool {
 fn build_command(command: &str) -> Result<tokio::process::Command, String> {
     // Prefer bash for the bash-isms models emit; the OS PATH resolves it. If bash is
     // absent the spawn fails and the model sees a clear error (it can retry with sh).
-    // HarmonyOS / OpenHarmony does NOT ship bash — fall back to sh (mksh).
+    // HarmonyOS / OpenHarmony does NOT ship bash -- fall back to sh (mksh).
     #[cfg(target_env = "ohos")]
     let shell = "sh";
     #[cfg(not(target_env = "ohos"))]
@@ -614,19 +614,19 @@ fn build_command(command: &str) -> Result<tokio::process::Command, String> {
 //
 // Models (GLM-5.2, Claude, etc.) emit bash-semantic scripts: `$(...)`, `$VAR`, `&&`,
 // inline `python -c "..."`, heredocs, `<<<` here-strings, `< <(...)` process substitution.
-// The old Windows branch硬走 `cmd.exe /C`, which is NOT a POSIX shell — it silently
+// The old Windows branch硬走 `cmd.exe /C`, which is NOT a POSIX shell -- it silently
 // corrupts these constructs: `$` is literal (no expansion), inline Python gets its
-// quotes stripped → `SyntaxError: unterminated string literal`, multi-line `git commit
+// quotes stripped -> `SyntaxError: unterminated string literal`, multi-line `git commit
 // -m "..."` loses everything after the first newline. The model retries blindly, wasting
 // turns + API quota.
 //
 // Industrial fix: detect bash on Windows (Git Bash / WSL / MSYS2 are common), route
 // through `bash -c` to unify with the Unix path. Only when bash is genuinely absent do
-// we fall back to cmd.exe — and then we GUARD against unsupported bash constructs so the
+// we fall back to cmd.exe -- and then we GUARD against unsupported bash constructs so the
 // model gets a clear "rewrite for cmd.exe" error instead of silent corruption.
 
 /// `C:\Windows\System32\bash.exe` (and SysWOW64 / Sysnative) is the WSL launcher, NOT a
-/// usable POSIX shell here: it runs the command INSIDE the Linux distro — different
+/// usable POSIX shell here: it runs the command INSIDE the Linux distro -- different
 /// filesystem (`/mnt/c` vs `C:\`), Linux `python`/`node` (not the user's Windows ones),
 /// and a Windows `working_dir` it cannot `cd` into. Excluded from bash detection. Pure
 /// path check so it is unit-testable off Windows.
@@ -660,7 +660,7 @@ fn bash_beside_git(git_exe: &std::path::Path) -> Option<std::path::PathBuf> {
 
 /// Parse the install root out of `reg query HKLM\SOFTWARE\GitForWindows /v InstallPath`
 /// output. The value line is `    InstallPath    REG_SZ    <path>`; everything after the
-/// `REG_SZ` type token is the path (so paths containing spaces survive). Pure — testable
+/// `REG_SZ` type token is the path (so paths containing spaces survive). Pure -- testable
 /// off Windows.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn parse_reg_install_path(reg_stdout: &str) -> Option<&str> {
@@ -673,7 +673,7 @@ fn parse_reg_install_path(reg_stdout: &str) -> Option<&str> {
 }
 
 /// Detect a Git Bash / MSYS2 bash on Windows. Checks PATH (`where bash`) then common
-/// install locations. Deliberately EXCLUDES the WSL launcher (see `is_wsl_launcher`) —
+/// install locations. Deliberately EXCLUDES the WSL launcher (see `is_wsl_launcher`) --
 /// only shells that inherit the Windows PATH and honor a Windows cwd are usable here.
 /// Returns the resolved path so the caller can `Command::new(path)`; `None` if no usable
 /// bash is available (cmd.exe fallback).
@@ -686,10 +686,10 @@ fn detect_windows_bash() -> Option<std::path::PathBuf> {
     CACHED
         .get_or_init(|| {
             // 1. PATH lookup via `where bash` (cmd.exe builtin, always available). SKIP the
-            // WSL launcher — it is usually first on PATH but runs in the Linux distro.
+            // WSL launcher -- it is usually first on PATH but runs in the Linux distro.
             // CREATE_NO_WINDOW: this now runs at prompt-build time (to label the shell), so a
             // bare spawn would flash a console window on every launch (the daemon/headless
-            // flicker class). Suppress it — one probe per process, cached below.
+            // flicker class). Suppress it -- one probe per process, cached below.
             let mut where_bash = std::process::Command::new("where");
             where_bash.arg("bash");
             crate::process_utils::suppress_console_window_sync(&mut where_bash);
@@ -707,7 +707,7 @@ fn detect_windows_bash() -> Option<std::path::PathBuf> {
             }
             // 2. Derive from `git.exe` on PATH. Git for Windows installed ANYWHERE (incl. a
             // non-`C:` drive like `D:\program\git`) is found here even when its `bin\bash.exe`
-            // is not on PATH — as long as `git` is (the common case). `bash.exe` lives beside
+            // is not on PATH -- as long as `git` is (the common case). `bash.exe` lives beside
             // git under `<root>\bin`.
             let mut where_git = std::process::Command::new("where");
             where_git.arg("git");
@@ -724,7 +724,7 @@ fn detect_windows_bash() -> Option<std::path::PathBuf> {
                     }
                 }
             }
-            // 3. `GIT_INSTALL_ROOT` env var (some setups export it) → `<root>\bin\bash.exe`.
+            // 3. `GIT_INSTALL_ROOT` env var (some setups export it) -> `<root>\bin\bash.exe`.
             if let Ok(root) = std::env::var("GIT_INSTALL_ROOT") {
                 let b = std::path::Path::new(&root).join("bin").join("bash.exe");
                 if b.is_file() && !is_wsl_launcher(&b) {
@@ -736,7 +736,7 @@ fn detect_windows_bash() -> Option<std::path::PathBuf> {
                 r"HKLM\SOFTWARE\GitForWindows",
                 r"HKLM\SOFTWARE\WOW6432Node\GitForWindows",
             ] {
-                // Suppress the console window like the `where` probes above — this path is
+                // Suppress the console window like the `where` probes above -- this path is
                 // reached on eager (prompt-build) detection when NO bash/git is on PATH, i.e.
                 // exactly the cmd.exe users, who would otherwise see a `reg` window flash.
                 let mut reg = std::process::Command::new("reg");
@@ -754,7 +754,7 @@ fn detect_windows_bash() -> Option<std::path::PathBuf> {
                     }
                 }
             }
-            // 5. Common install locations — Git for Windows / MSYS2 ONLY. Deliberately NOT
+            // 5. Common install locations -- Git for Windows / MSYS2 ONLY. Deliberately NOT
             // `System32\bash.exe` (WSL): see `is_wsl_launcher`.
             let candidates = [
                 r"C:\Program Files\Git\bin\bash.exe",
@@ -778,9 +778,9 @@ fn detect_windows_bash() -> Option<std::path::PathBuf> {
 /// corrupt the script) lets the model rewrite instead of retrying blindly. Returns
 /// `Some(reason)` when the command should NOT be routed through cmd.exe.
 ///
-/// DELIBERATELY CONSERVATIVE — only flags constructs that cmd.exe provably mishandles AND
+/// DELIBERATELY CONSERVATIVE -- only flags constructs that cmd.exe provably mishandles AND
 /// that a substring match rarely false-positives on. We do NOT flag bare `$VAR` (matches
-/// ANY `$` — prices, regex, literals), backticks (markdown / commit messages), or bare
+/// ANY `$` -- prices, regex, literals), backticks (markdown / commit messages), or bare
 /// `<<` heredocs (bit-shift `1<<4`, C++ `cout <<`): the false-positive rate would block
 /// valid cmd.exe commands. Those un-flagged constructs just fall through to cmd.exe
 /// (mangled, as before this guard) rather than being hard-errored. `&&` / `||` chains and
@@ -789,18 +789,18 @@ fn detect_windows_bash() -> Option<std::path::PathBuf> {
 /// Pure / platform-independent so it is unit-testable off Windows.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn unsupported_bash_construct(command: &str) -> Option<&'static str> {
-    // Command substitution `$(...)` — cmd.exe has no `$()` syntax. (Small residual FP risk
+    // Command substitution `$(...)` -- cmd.exe has no `$()` syntax. (Small residual FP risk
     // on e.g. awk `$(NF)` passed to a child; accepted for the high value of this one.)
     if command.contains("$(") {
-        return Some("command substitution `$(...)` — cmd.exe has no `$()` syntax");
+        return Some("command substitution `$(...)` -- cmd.exe has no `$()` syntax");
     }
-    // Here-string `<<<` — cmd.exe has no here-string.
+    // Here-string `<<<` -- cmd.exe has no here-string.
     if command.contains("<<<") {
-        return Some("here-string `<<<` — cmd.exe does not support here-strings");
+        return Some("here-string `<<<` -- cmd.exe does not support here-strings");
     }
-    // Process substitution `< <(...)` / `>(...)` — cmd.exe has no /dev/fd.
+    // Process substitution `< <(...)` / `>(...)` -- cmd.exe has no /dev/fd.
     if command.contains("< <(") || command.contains(">(") {
-        return Some("process substitution `< <(...)` / `>(...)` — cmd.exe has no /dev/fd");
+        return Some("process substitution `< <(...)` / `>(...)` -- cmd.exe has no /dev/fd");
     }
     None
 }
@@ -809,12 +809,12 @@ fn unsupported_bash_construct(command: &str) -> Option<&'static str> {
 /// (case-insensitive) to `/dev/null`.
 ///
 /// On Windows the `bash` tool routes through Git Bash / MSYS2 (see `build_command`), where
-/// `nul` is NOT the null device — only `/dev/null` is. So the cmd.exe idiom `command > nul`
+/// `nul` is NOT the null device -- only `/dev/null` is. So the cmd.exe idiom `command > nul`
 /// (which models reflexively emit to discard output) treats `nul` as a plain relative
 /// filename and bash CREATES A REAL FILE named `nul` in the working directory. Worse, MSYS2
-/// opens files via NT-native paths (`\??\…`), bypassing Win32's reserved-name guard, so the
+/// opens files via NT-native paths (`\??\...`), bypassing Win32's reserved-name guard, so the
 /// file genuinely exists yet cannot be removed via Explorer or `del nul` (both re-apply the
-/// Win32 guard and address the device) — it needs `del \\.\nul`. Users hit stray, undeletable
+/// Win32 guard and address the device) -- it needs `del \\.\nul`. Users hit stray, undeletable
 /// `nul` files. Rewriting the redirect target to `/dev/null` preserves the model's intent
 /// (discard the stream) and never touches disk.
 ///
@@ -824,16 +824,16 @@ fn unsupported_bash_construct(command: &str) -> Option<&'static str> {
 /// (scans bytes; ASCII operators never collide with UTF-8 continuation bytes) so it is
 /// unit-testable off Windows.
 ///
-/// KNOWN LIMITATIONS (all deliberately accepted — the bash_suffix description warning is the
+/// KNOWN LIMITATIONS (all deliberately accepted -- the bash_suffix description warning is the
 /// primary, robust mitigation; this rewrite is a best-effort safety net for the reflex idiom):
 ///   * Heredocs: a command containing `<<` is left ENTIRELY untouched, because a `> nul` in a
 ///     heredoc/here-string BODY may be literal content the model is writing verbatim (e.g. a
 ///     `.bat` where `nul` really IS the cmd.exe device). Skipping avoids silently corrupting
 ///     that content; the cost is that a genuine top-level `> nul` in the same command is not
-///     rewritten (pre-fix stray-file behavior persists — a miss, never a new corruption).
-///   * Not covered (rare, non-cmd idioms → at worst a stray file, same as before): the csh-style
-///     `>& nul` dup form, `> nul` nested inside `"$(…)"`, the colon-device spelling `> nul:`,
-///     and `< nul` input redirects. `[[ … > nul ]]` / `# comment > nul` are not distinguished
+///     rewritten (pre-fix stray-file behavior persists -- a miss, never a new corruption).
+///   * Not covered (rare, non-cmd idioms -> at worst a stray file, same as before): the csh-style
+///     `>& nul` dup form, `> nul` nested inside `"$(...)"`, the colon-device spelling `> nul:`,
+///     and `< nul` input redirects. `[[ ... > nul ]]` / `# comment > nul` are not distinguished
 ///     from redirects but are negligible in practice.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn rewrite_nul_redirect(command: &str) -> Cow<'_, str> {
@@ -843,13 +843,13 @@ fn rewrite_nul_redirect(command: &str) -> Cow<'_, str> {
     }
     // Heredoc / here-string present: `> nul` may live in a verbatim body (a `.bat` the model
     // is writing, where `nul` is the real cmd.exe device). Rewriting it would silently corrupt
-    // that content, so bail entirely — a possible stray file is strictly better than mutating
+    // that content, so bail entirely -- a possible stray file is strictly better than mutating
     // data the user asked to write verbatim.
     if command.contains("<<") {
         return Cow::Borrowed(command);
     }
     // A `nul` redirect target ends at one of these (or end-of-string). A following `.`,
-    // alnum, `_`, `/` etc. means it is `nul.txt` / `nully` / a path — NOT the bare device.
+    // alnum, `_`, `/` etc. means it is `nul.txt` / `nully` / a path -- NOT the bare device.
     fn is_boundary(next: Option<u8>) -> bool {
         match next {
             None => true,
@@ -896,7 +896,7 @@ fn rewrite_nul_redirect(command: &str) -> Cow<'_, str> {
                 in_double = true;
                 i += 1;
             }
-            b'\\' if i + 1 < n => i += 2, // escaped char outside quotes — skip both
+            b'\\' if i + 1 < n => i += 2, // escaped char outside quotes -- skip both
             b'>' => {
                 // Consume the redirect operator: this `>` plus any immediately-following
                 // `>` (append) / `|` (noclobber override). A leading fd (`2`, `&`) was
@@ -924,7 +924,7 @@ fn rewrite_nul_redirect(command: &str) -> Cow<'_, str> {
                     changed = true;
                     i = t + 3;
                 } else {
-                    i = op_end; // not a nul target — resume scanning past the operator
+                    i = op_end; // not a nul target -- resume scanning past the operator
                 }
             }
             _ => i += 1,
@@ -939,14 +939,14 @@ fn rewrite_nul_redirect(command: &str) -> Cow<'_, str> {
 
 /// Windows shell selection. Returns `Ok(Command)` ready to spawn, or `Err(reason)` when
 /// the command contains bash constructs that neither bash (absent) nor cmd.exe can handle
-/// safely — the caller surfaces that as a clear tool error so the model can rewrite.
+/// safely -- the caller surfaces that as a clear tool error so the model can rewrite.
 #[cfg(windows)]
 fn build_command(command: &str) -> Result<tokio::process::Command, String> {
     if let Some(bash) = detect_windows_bash() {
-        // Bash available (Git Bash / WSL / MSYS2) — route through it, unifying with
+        // Bash available (Git Bash / WSL / MSYS2) -- route through it, unifying with
         // the Unix path. `bash -c "<script>"` honors bash quoting exactly as the model
         // expects; no silent corruption of `$()`, inline Python, or multi-line strings.
-        // Rewrite the cmd.exe idiom `> nul` → `> /dev/null` first: under Git Bash `nul`
+        // Rewrite the cmd.exe idiom `> nul` -> `> /dev/null` first: under Git Bash `nul`
         // is a plain filename, so `> nul` would create a stray, undeletable `nul` file in
         // the cwd (see `rewrite_nul_redirect`).
         let command = rewrite_nul_redirect(command);
@@ -954,7 +954,7 @@ fn build_command(command: &str) -> Result<tokio::process::Command, String> {
         cmd.arg("-c").arg(command.as_ref());
         return Ok(cmd);
     }
-    // No bash — cmd.exe fallback. Guard against constructs cmd.exe will silently corrupt
+    // No bash -- cmd.exe fallback. Guard against constructs cmd.exe will silently corrupt
     // so the model gets a rewrite directive instead of a wasted turn (#883).
     if let Some(reason) = unsupported_bash_construct(command) {
         return Err(format!(
@@ -965,7 +965,7 @@ fn build_command(command: &str) -> Result<tokio::process::Command, String> {
             reason
         ));
     }
-    // cmd.exe fallback — pass the command VERBATIM via `raw_arg` (preserves the pre-merge
+    // cmd.exe fallback -- pass the command VERBATIM via `raw_arg` (preserves the pre-merge
     // HEAD fix): std's `.arg()` applies `CommandLineToArgvW` quoting that cmd.exe does NOT
     // follow, mangling embedded quotes (`node -e "..."`), `%VAR%`, `^`. Mirrors
     // rustcode-core's process_utils::shell_command / tool/bash.rs.
@@ -991,7 +991,7 @@ pub(crate) fn decode_output(bytes: &[u8]) -> String {
     match std::str::from_utf8(bytes) {
         Ok(s) => return s.to_string(),
         // A truncated multibyte tail (no `error_len`) means the valid prefix IS real
-        // UTF-8 — lossy it rather than re-routing the whole buffer through a legacy
+        // UTF-8 -- lossy it rather than re-routing the whole buffer through a legacy
         // codepage and garbling the good prefix.
         Err(e) if e.error_len().is_none() => return String::from_utf8_lossy(bytes).into_owned(),
         Err(_) => {}
@@ -1062,7 +1062,7 @@ fn decode_utf16_output(bytes: &[u8]) -> Option<String> {
 /// bytes, so try the CJK codepages; a codepage decode is only trusted when it does not
 /// produce mostly replacement characters, else fall back to lossy UTF-8.
 fn decode_oem(bytes: &[u8], codepage: u32) -> String {
-    // 65001 is UTF-8 (already tried by the caller) → probe the common CJK codepages.
+    // 65001 is UTF-8 (already tried by the caller) -> probe the common CJK codepages.
     let candidates: &[u32] = if codepage == 65001 {
         &[936, 950, 932, 949]
     } else {
@@ -1188,7 +1188,7 @@ fn console_codepage() -> u32 {
 
 #[cfg(not(windows))]
 fn console_codepage() -> u32 {
-    0 // no OEM codepage off Windows → decode_oem delegates to chardetng
+    0 // no OEM codepage off Windows -> decode_oem delegates to chardetng
 }
 
 /// CSI parameter/intermediate/final consumption. `start` points just past the
@@ -1263,13 +1263,13 @@ fn sanitize_terminal_output(s: &str) -> String {
                 }
                 // OSC and the DCS/SOS/PM/APC string sequences all run to a string
                 // terminator, so share one consumer. (v1 dropped only 2 bytes of
-                // `ESC P/X/^/_`, leaking the payload + ST — fixed here.)
+                // `ESC P/X/^/_`, leaking the payload + ST -- fixed here.)
                 b']' | b'P' | b'X' | b'^' | b'_' => {
                     i = consume_string_sequence(bytes, i + 2);
                     continue;
                 }
                 _ => {
-                    // Two-byte escape (e.g. ESC =, ESC >, ESC M, …) — drop both.
+                    // Two-byte escape (e.g. ESC =, ESC >, ESC M, ...) -- drop both.
                     i += 2;
                     continue;
                 }
@@ -1295,7 +1295,7 @@ fn sanitize_terminal_output(s: &str) -> String {
     }
     // Lossy decode: the strip phase removes whole escape sequences, but a
     // pathological ESC followed by a UTF-8 continuation byte could still
-    // produce invalid UTF-8 — lossy keeps us safe without another allocation
+    // produce invalid UTF-8 -- lossy keeps us safe without another allocation
     // in the common case.
     let cleaned = String::from_utf8_lossy(&stripped).into_owned();
 
@@ -1315,7 +1315,7 @@ fn sanitize_terminal_output(s: &str) -> String {
         }
     }
 
-    // Drop any remaining C0 control characters except tab and newline — they
+    // Drop any remaining C0 control characters except tab and newline -- they
     // render as glyph garbage and add nothing for the model.
     out.chars()
         .filter(|c| *c == '\n' || *c == '\t' || !c.is_control())
@@ -1363,13 +1363,13 @@ fn format_output(output: &std::process::Output) -> ToolResult {
 }
 
 /// Whether a `git checkout` operand is (heuristically) a FILE pathspec rather than a
-/// branch/ref/tag. Branch names — even with slashes or version dots (`release/v5.0.0`,
-/// `feature/foo`, `v1.2.3`) — must NOT match, so we key on leading-dot / trailing-slash paths, a
-/// KNOWN source/config file-extension set, and common extensionless project files — NOT on `/` or
+/// branch/ref/tag. Branch names -- even with slashes or version dots (`release/v5.0.0`,
+/// `feature/foo`, `v1.2.3`) -- must NOT match, so we key on leading-dot / trailing-slash paths, a
+/// KNOWN source/config file-extension set, and common extensionless project files -- NOT on `/` or
 /// any dot (both appear in branch/tag names). Operand is assumed already lowercased.
 ///
 /// This is a heuristic: an unknown extension or an unusual extensionless filename that shares no
-/// marker with a path (`git checkout weirdname`) is treated as a branch and slips through — the
+/// marker with a path (`git checkout weirdname`) is treated as a branch and slips through -- the
 /// residual blind spot the persona RISKY-ACTIONS rule backstops. False NEGATIVES (miss a discard)
 /// are the risk; we bias the markers below toward catching real files.
 fn git_operand_looks_like_pathspec(arg: &str) -> bool {
@@ -1485,16 +1485,16 @@ fn git_operand_looks_like_pathspec(arg: &str) -> bool {
     ext != arg && FILE_EXTS.contains(&ext) // `ext != arg` ⇒ the name actually contained a `.`
 }
 
-/// Detects a git subcommand that DISCARDS uncommitted work — the reported data-loss footgun.
+/// Detects a git subcommand that DISCARDS uncommitted work -- the reported data-loss footgun.
 /// Single, whitespace-robust owner for `checkout <pathspec>` / `switch --force` / `restore <file>`
 /// / `reset --hard` / `clean -f` (so all discard forms are caught consistently regardless of
-/// spacing). Branch/tag operations are left alone. `git stash` is intentionally NOT flagged — it
+/// spacing). Branch/tag operations are left alone. `git stash` is intentionally NOT flagged -- it
 /// is recoverable via `git stash list` / `pop`. (`git push --force` / `branch -D` / history
 /// rewrites are a different category, handled by the substring table.)
 fn git_worktree_discard(cmd: &str) -> Option<&'static str> {
     let mut it = cmd.split_whitespace().peekable();
-    // A compound part may lead with a shell keyword from a for/while/if BODY (`… ; do git
-    // checkout . ; done`) — skip them so the loop body is still inspected.
+    // A compound part may lead with a shell keyword from a for/while/if BODY (`... ; do git
+    // checkout . ; done`) -- skip them so the loop body is still inspected.
     while let Some(&kw) = it.peek() {
         if matches!(kw, "do" | "then" | "else" | "{") {
             it.next();
@@ -1532,7 +1532,7 @@ fn git_worktree_discard(cmd: &str) -> Option<&'static str> {
     }
     match sub? {
         // `git restore <file>` discards working-tree changes. `--staged` WITHOUT `--worktree`
-        // only unstages (fully recoverable) → not a discard.
+        // only unstages (fully recoverable) -> not a discard.
         "restore" => {
             let staged = args.iter().any(|a| *a == "--staged" || *a == "-s");
             let worktree = args.iter().any(|a| *a == "--worktree" || *a == "-w");
@@ -1543,7 +1543,7 @@ fn git_worktree_discard(cmd: &str) -> Option<&'static str> {
         }
         // A force flag, an explicit pathspec separator / current-dir / glob, or a file-looking
         // operand ⇒ this overwrites uncommitted files. A bare branch/tag operand (or `-b` create)
-        // has none of these → safe. Checking the markers (not a branch whitelist) means
+        // has none of these -> safe. Checking the markers (not a branch whitelist) means
         // `checkout --detach -- file` and `checkout -b tmp -- .` are still caught.
         "checkout" | "switch" => {
             let discards = args.iter().any(|a| {
@@ -1570,11 +1570,11 @@ fn git_worktree_discard(cmd: &str) -> Option<&'static str> {
 }
 
 /// Classify a shell command as destructive (returns `Some(reason)`) or not (`None`).
-/// Strip bash line comments so a `#…` note can't smuggle a scary substring past the
+/// Strip bash line comments so a `#...` note can't smuggle a scary substring past the
 /// substring-based classifier below (`sleep 1 # kill the cache` must NOT read as a `kill -9`).
 /// Quote-aware and word-boundary-aware: a `#` only starts a comment when UNQUOTED and at the start
 /// of a word (preceded by whitespace / start-of-input / a shell metachar), matching bash. (Quoted
-/// occurrences like `echo 'kill -9'` are NOT stripped — that would need full AST parsing.)
+/// occurrences like `echo 'kill -9'` are NOT stripped -- that would need full AST parsing.)
 pub fn strip_bash_comments(cmd: &str) -> String {
     let mut out = String::with_capacity(cmd.len());
     let mut quote: Option<char> = None;
@@ -1583,7 +1583,7 @@ pub fn strip_bash_comments(cmd: &str) -> String {
     while let Some(c) = chars.next() {
         if let Some(q) = quote {
             out.push(c);
-            // In double quotes (not single), backslash escapes the next char — including `"`, which
+            // In double quotes (not single), backslash escapes the next char -- including `"`, which
             // therefore does NOT close the string. Emit both verbatim so an escaped quote can't
             // desync our quote tracking and make later text look "unquoted" (over-stripping a real
             // command as if it were a comment).
@@ -1604,7 +1604,7 @@ pub fn strip_bash_comments(cmd: &str) -> String {
             '\\' => {
                 // Unquoted backslash escapes the next char: it becomes a literal word character,
                 // never a metacharacter (`;`, `&`, `|`) or a comment introducer (`#`). Emit both
-                // verbatim and treat the pair as a non-boundary, so `\;#…` / `\#` don't trigger a
+                // verbatim and treat the pair as a non-boundary, so `\;#...` / `\#` don't trigger a
                 // spurious comment strip that would delete a following real command.
                 out.push(c);
                 if let Some(n) = chars.next() {
@@ -1651,7 +1651,7 @@ pub fn normalize_command_for_grant(command: &str) -> String {
 /// normalizes simple quoting, strips wrappers, and recurses into subshells / eval /
 /// compound parts / pipe-to-shell so a destructive command cannot hide one layer down.
 pub fn check_destructive_command(command: &str) -> Option<String> {
-    // Strip comments first — the classifier is substring-based, so a `# rm -rf everything` note
+    // Strip comments first -- the classifier is substring-based, so a `# rm -rf everything` note
     // would otherwise read as a destructive command.
     let command = strip_bash_comments(command);
     let command = command.as_str();
@@ -1736,7 +1736,7 @@ pub fn check_destructive_command(command: &str) -> Option<String> {
         None
     }
 
-    // Unwrap leading wrapper commands (timeout/env/nice/strace/…) and re-check, so a
+    // Unwrap leading wrapper commands (timeout/env/nice/strace/...) and re-check, so a
     // wrapped destructive command (`timeout 10 rm -rf /`, `nice rm -rf ~`) cannot evade
     // the first-token checks below.
     fn strip_wrappers(cmd: &str) -> String {
@@ -1765,7 +1765,7 @@ pub fn check_destructive_command(command: &str) -> Option<String> {
         if toks.is_empty() {
             return cmd.to_string();
         }
-        // Shell assignment prefixes (`LC_ALL=C dd …`) are not the effective command. Strip only
+        // Shell assignment prefixes (`LC_ALL=C dd ...`) are not the effective command. Strip only
         // syntactically-valid variable assignments so an arbitrary argument containing `=` does
         // not move the command boundary.
         let mut skip = 0;
@@ -1842,7 +1842,7 @@ pub fn check_destructive_command(command: &str) -> Option<String> {
             return Some("find -exec rm".to_string());
         }
     }
-    // xargs / parallel running a destructive command — `rm`, or a bulk working-tree revert
+    // xargs / parallel running a destructive command -- `rm`, or a bulk working-tree revert
     // (`git ls-files -m | xargs git checkout` / `git restore` discards EVERY modified file).
     if (cmd.contains("xargs") || first_matches(&cmd, &["parallel"]))
         && (cmd.contains("rm") || cmd.contains("git checkout") || cmd.contains("git restore"))
@@ -1867,7 +1867,7 @@ pub fn check_destructive_command(command: &str) -> Option<String> {
             return Some(format!("destructive via eval: {r}"));
         }
     }
-    // Compound parts: ; && || | — recurse each non-trivial part.
+    // Compound parts: ; && || | -- recurse each non-trivial part.
     for sep in [";", "&&", "||", "|"] {
         if cmd.contains(sep) {
             for part in cmd.split(sep) {
@@ -1881,7 +1881,7 @@ pub fn check_destructive_command(command: &str) -> Option<String> {
             }
         }
     }
-    // Remote script piped to a shell (curl … | sh).
+    // Remote script piped to a shell (curl ... | sh).
     let downloader = ["curl", "wget", "aria2c", "lynx", "wget2"]
         .iter()
         .any(|&d| cmd.split_whitespace().any(|t| base(t) == d));
@@ -1922,7 +1922,7 @@ pub fn check_destructive_command(command: &str) -> Option<String> {
     if cmd.contains("/dev/tcp/") || cmd.contains("/dev/udp/") {
         return Some("reverse shell / raw socket redirect (/dev/tcp|udp)".to_string());
     }
-    // Remote script via process substitution: `sh <(curl …)`. The downloader is often
+    // Remote script via process substitution: `sh <(curl ...)`. The downloader is often
     // glued to `<(`, so match it as a substring here (not a clean whitespace token).
     if ["curl", "wget", "aria2c", "lynx", "wget2"]
         .iter()
@@ -2123,9 +2123,9 @@ pub fn check_destructive_command(command: &str) -> Option<String> {
     if command.contains("git branch -D") {
         return Some("force delete branch (git branch -D)".to_string());
     }
-    // Working-tree-discarding git — the reported data-loss footgun. Single owner for
-    // checkout/switch/restore/reset --hard/clean (tokenized → space-robust); the substring table
-    // below keeps only the NON-worktree-discard git cases (force push, history rewrite, …).
+    // Working-tree-discarding git -- the reported data-loss footgun. Single owner for
+    // checkout/switch/restore/reset --hard/clean (tokenized -> space-robust); the substring table
+    // below keeps only the NON-worktree-discard git cases (force push, history rewrite, ...).
     if let Some(reason) = git_worktree_discard(&cmd) {
         return Some(reason.to_string());
     }
@@ -2145,7 +2145,7 @@ pub fn check_destructive_command(command: &str) -> Option<String> {
         ("git push --force", "force push"),
         ("git push -f", "force push"),
         // NOTE: worktree-discard git (reset --hard / clean -f / checkout|switch force+pathspec /
-        // restore) is owned by `git_worktree_discard` above (tokenized, space-robust) — do not
+        // restore) is owned by `git_worktree_discard` above (tokenized, space-robust) -- do not
         // re-add it here.
         ("--no-verify", "bypassing git hooks"),
         ("git filter-branch", "git history rewrite"),
@@ -2164,7 +2164,7 @@ pub fn check_destructive_command(command: &str) -> Option<String> {
 
 /// The strict read-only command allowlist: the FIRST word of every pipeline
 /// segment must be one of these for the command to be considered parallel-safe.
-/// Deliberately tiny — these commands do not write files, mutate state, or run
+/// Deliberately tiny -- these commands do not write files, mutate state, or run
 /// other programs (with the `find` carve-out handled below). Widening this is a
 /// future step, not a v1 concern.
 const READ_ONLY_BASH_ALLOWLIST: &[&str] = &[
@@ -2175,7 +2175,7 @@ const READ_ONLY_BASH_ALLOWLIST: &[&str] = &[
 
 /// Parse `command` as bash with tree-sitter. `None` on parser-load failure or a
 /// completely unparseable input. The caller must still reject trees containing
-/// ERROR/MISSING nodes (a partial parse) — see `is_read_only_bash`.
+/// ERROR/MISSING nodes (a partial parse) -- see `is_read_only_bash`.
 fn parse_bash(command: &str) -> Option<tree_sitter::Tree> {
     use std::cell::RefCell;
     thread_local! {
@@ -2255,25 +2255,25 @@ pub fn bash_invocations(source: &str) -> Option<Vec<BashInvocation>> {
 
 /// Whether `command` is PROVABLY read-only, so it may run CONCURRENTLY without a
 /// sandbox. AST-based (tree-sitter-bash): only a fixed set of STRUCTURAL node kinds is
-/// allowed; any other NAMED kind (command substitution, subshell, expansion, …) means
-/// "cannot prove read-only" → false. Each `command` node's first word must be in
+/// allowed; any other NAMED kind (command substitution, subshell, expansion, ...) means
+/// "cannot prove read-only" -> false. Each `command` node's first word must be in
 /// [`READ_ONLY_BASH_ALLOWLIST`] (with the `find` write/exec carve-out); every redirect
 /// must target `/dev/null` or be an fd-dup. Fail CLOSED: parse failure / ERROR node /
-/// unknown named kind / non-discard redirect → false.
+/// unknown named kind / non-discard redirect -> false.
 ///
 /// **Backgrounding (`&`):** a bare `&` (background/async operator) is an ANONYMOUS
-/// token in the tree-sitter-bash grammar — it is NOT a named node and therefore does
+/// token in the tree-sitter-bash grammar -- it is NOT a named node and therefore does
 /// NOT trigger the unknown-named-kind rejection. A backgrounded command chain is
 /// read-only iff EVERY command in it is allowlisted, exactly like `&&` / `;` / `|`.
-/// For example `grep x PWN & grep y PWN` → true (both greps allowlisted), while
-/// `touch HACKED & grep x PWN` → false (touch is not allowlisted).
+/// For example `grep x PWN & grep y PWN` -> true (both greps allowlisted), while
+/// `touch HACKED & grep x PWN` -> false (touch is not allowlisted).
 ///
 /// A false negative only costs parallelism; a false positive would let a
-/// side-effecting command run concurrently — so the bar is "provably safe".
+/// side-effecting command run concurrently -- so the bar is "provably safe".
 ///
 /// The AST subsumes the old hand-rolled string classifier: quoted metacharacters are
-/// DATA, not operators (`grep 'a\|b'` → true), `cd && grep` parses as a `list` of two
-/// allowlisted commands (true, no `cd`-prefix hack), and — load-bearing — a
+/// DATA, not operators (`grep 'a\|b'` -> true), `cd && grep` parses as a `list` of two
+/// allowlisted commands (true, no `cd`-prefix hack), and -- load-bearing -- a
 /// single-quoted `'$(rm)'` stays a `raw_string` (SAFE literal) while a double-quoted
 /// `"$(rm)"` contains a `command_substitution` child that the walk rejects.
 pub(crate) fn is_read_only_bash(command: &str) -> bool {
@@ -2287,15 +2287,15 @@ pub(crate) fn is_read_only_bash(command: &str) -> bool {
     };
     let root = tree.root_node();
     if root.has_error() {
-        return false; // partial / ambiguous parse → fail closed
+        return false; // partial / ambiguous parse -> fail closed
     }
-    // Structural node kinds a read-only command may contain — CONFIRMED against
+    // Structural node kinds a read-only command may contain -- CONFIRMED against
     // tree-sitter-bash 0.25.1 by the `probe_bash_node_kinds` test. Danger-only kinds
-    // (command_substitution — covers `$()` AND backtick; subshell — `(...)`;
-    // simple_expansion / variable_name — `$HOME`) are DELIBERATELY absent: hitting any
+    // (command_substitution -- covers `$()` AND backtick; subshell -- `(...)`;
+    // simple_expansion / variable_name -- `$HOME`) are DELIBERATELY absent: hitting any
     // of them fails the walk. `string` IS allowed (a double-quoted literal is safe),
-    // but a double-quoted `"$(...)"` nests a `command_substitution` CHILD → still
-    // rejected; a single-quoted `'$(...)'` is a leaf `raw_string` → safe.
+    // but a double-quoted `"$(...)"` nests a `command_substitution` CHILD -> still
+    // rejected; a single-quoted `'$(...)'` is a leaf `raw_string` -> safe.
     const ALLOWED_KINDS: &[&str] = &[
         "program",
         "list",
@@ -2308,7 +2308,7 @@ pub(crate) fn is_read_only_bash(command: &str) -> bool {
         "string_content",
         "concatenation",
         "number",
-        // redirect wrapper + parts — the TARGET is validated in `redirect_is_readonly`:
+        // redirect wrapper + parts -- the TARGET is validated in `redirect_is_readonly`:
         "redirected_statement",
         "file_redirect",
         "file_descriptor",
@@ -2317,9 +2317,9 @@ pub(crate) fn is_read_only_bash(command: &str) -> bool {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         let kind = node.kind();
-        // Anonymous tokens (`&&`, `|`, `;`, `>`, `"`, `'`, …) are `!is_named()` — their
+        // Anonymous tokens (`&&`, `|`, `;`, `>`, `"`, `'`, ...) are `!is_named()` -- their
         // named parent gates them, so they are not checked here. Any UNKNOWN named kind
-        // is a construct we cannot prove read-only → fail closed.
+        // is a construct we cannot prove read-only -> fail closed.
         if node.is_named() && !ALLOWED_KINDS.contains(&kind) {
             return false;
         }
@@ -2350,7 +2350,7 @@ fn command_first_word_allowed(command_node: tree_sitter::Node, src: &[u8]) -> bo
     }
     let first = match name {
         Some(n) => n,
-        None => return false, // no command name (e.g. a bare assignment) → not read-only
+        None => return false, // no command name (e.g. a bare assignment) -> not read-only
     };
     if !READ_ONLY_BASH_ALLOWLIST.contains(&first) {
         return false;
@@ -2372,31 +2372,31 @@ fn command_first_word_allowed(command_node: tree_sitter::Node, src: &[u8]) -> bo
 }
 
 /// A `file_redirect` is read-only iff its target is exactly `/dev/null` or an fd-dup
-/// (`>&1`, `2>&1`, `>&-`). Any other target writes a real file → not read-only.
+/// (`>&1`, `2>&1`, `>&-`). Any other target writes a real file -> not read-only.
 ///
 /// ## Numeric target discrimination
 ///
 /// A numeric target (`number` node in tree-sitter-bash) is ambiguous:
-/// - `2>&1`  → fd-dup: the `1` is a file DESCRIPTOR, not a filename.  SAFE.
-/// - `> 9`   → plain redirect: the `9` is a real filename.  WRITES A FILE.
+/// - `2>&1`  -> fd-dup: the `1` is a file DESCRIPTOR, not a filename.  SAFE.
+/// - `> 9`   -> plain redirect: the `9` is a real filename.  WRITES A FILE.
 ///
 /// The discriminator is the redirect operator text: an fd-dup form contains `>&` or
 /// `<&` (e.g. `>&`, `2>&`, `<&`); a plain write form does not.  We obtain the full
 /// redirect node text and check for those substrings.
 ///
 /// ## Other forms
-/// - `word`/`raw_string`/`string`/`concatenation` target → must be exactly `/dev/null`,
+/// - `word`/`raw_string`/`string`/`concatenation` target -> must be exactly `/dev/null`,
 ///   regardless of the operator direction.  This is **conservative/fail-closed**: a
-///   non-`/dev/null` word target of ANY redirect — output (`> file`, `>> file`) OR input
-///   (`< file`) — is rejected.  Only `/dev/null` and fd-dups pass.  `cat <file` is
+///   non-`/dev/null` word target of ANY redirect -- output (`> file`, `>> file`) OR input
+///   (`< file`) -- is rejected.  Only `/dev/null` and fd-dups pass.  `cat <file` is
 ///   therefore rejected (the word `file` ≠ `/dev/null`), even though reading a file via
 ///   input redirect does not write anything; we prefer false-negatives over false-positives.
-/// - `>&out.txt` → target is a `word` (not `/dev/null`) → rejected.  Correct: writes a file.
-/// - `&>/dev/null` → target is a `word` `/dev/null`; operator `&>` has no `>&` → word arm
+/// - `>&out.txt` -> target is a `word` (not `/dev/null`) -> rejected.  Correct: writes a file.
+/// - `&>/dev/null` -> target is a `word` `/dev/null`; operator `&>` has no `>&` -> word arm
 ///   accepts it.  Correct: discard-all redirect.
 fn redirect_is_readonly(redirect_node: tree_sitter::Node, src: &[u8]) -> bool {
     let redir_text = redirect_node.utf8_text(src).unwrap_or("");
-    // A PURE input redirect (`< f`, `3< f`) only READS the file — harmless for
+    // A PURE input redirect (`< f`, `3< f`) only READS the file -- harmless for
     // concurrency. `<>` (read-write, has `>`) and `<&N` (fd-dup, has `&`) are NOT
     // pure input and fall through to the normal checks. Heredoc/herestring are
     // separate node kinds rejected upstream.
@@ -2416,7 +2416,7 @@ fn redirect_is_readonly(redirect_node: tree_sitter::Node, src: &[u8]) -> bool {
             "word" | "raw_string" | "string" | "concatenation" => {
                 let target = c.utf8_text(src).unwrap_or("");
                 if target != "/dev/null" {
-                    return false; // writes a real file (out.txt, /dev/nullX, >&file, …)
+                    return false; // writes a real file (out.txt, /dev/nullX, >&file, ...)
                 }
             }
             // A numeric target: safe ONLY as an fd-dup (`2>&1`); a plain `> 9` writes file "9".
@@ -2434,7 +2434,7 @@ fn redirect_is_readonly(redirect_node: tree_sitter::Node, src: &[u8]) -> bool {
 /// pgroup leader (pgid == pid); killing the pgroup catches grandchildren the
 /// direct-child `kill_on_drop` misses (cargo, ssh, dev servers). The wrapper's
 /// `Drop` issues a final SIGKILL to the pgroup on cancel; `terminate()` does a
-/// graceful SIGTERM → grace → SIGKILL for the timeout/idle paths where we can
+/// graceful SIGTERM -> grace -> SIGKILL for the timeout/idle paths where we can
 /// await. Idempotent: a Drop after `terminate()` issues a second SIGKILL to a
 /// pgroup that's already empty. `killpg` returns ESRCH which we ignore.
 /// A `terminated` flag short-circuits the Drop signal to avoid the
@@ -2462,7 +2462,7 @@ impl PgroupChild {
         }
     }
 
-    /// Graceful pgroup shutdown: SIGTERM → 200ms grace → SIGKILL → reap.
+    /// Graceful pgroup shutdown: SIGTERM -> 200ms grace -> SIGKILL -> reap.
     /// Call from explicit cleanup paths (timeout/idle) where we can await.
     async fn terminate(&mut self) {
         unsafe {
@@ -2518,7 +2518,7 @@ extern "C" {
     fn killpg(pgid: i32, sig: i32) -> i32;
 }
 
-// Standard POSIX signal numbers — identical on Linux, macOS, BSD.
+// Standard POSIX signal numbers -- identical on Linux, macOS, BSD.
 #[cfg(not(target_os = "windows"))]
 const SIGTERM: i32 = 15;
 #[cfg(not(target_os = "windows"))]
@@ -2540,9 +2540,9 @@ pub enum ShellExit {
     /// Process exited on its own. `success` is `status.success()`,
     /// `code` is the numeric exit code (None = terminated by signal).
     Exited { success: bool, code: Option<i32> },
-    /// Readers hit EOF/idle but the child never reaped — killed as stuck.
+    /// Readers hit EOF/idle but the child never reaped -- killed as stuck.
     KilledIdle,
-    /// Hard wall-clock timeout — killed.
+    /// Hard wall-clock timeout -- killed.
     KilledTimeout,
 }
 
@@ -2553,7 +2553,7 @@ pub enum ShellExit {
 /// introducers, so `!cmd` output is cleaner.
 ///
 /// Spawn `command` in `wd`, stream output via `chunk_cb`, return raw outcome.
-/// No ToolResult framing, no git snapshot, no error-signature tracking —
+/// No ToolResult framing, no git snapshot, no error-signature tracking --
 /// those stay in the tool layer. `chunk_cb` receives stdout chunks verbatim
 /// and stderr chunks prefixed with `[stderr] `.
 pub async fn run_shell(
@@ -2615,14 +2615,14 @@ pub async fn run_shell(
             // grandchildren that setsid() detached from us).
             .kill_on_drop(true);
         crate::process_utils::apply_utf8_locale_env(&mut cmd);
-        // Same non-interactive env as BashTool::execute — keep the two shell paths
+        // Same non-interactive env as BashTool::execute -- keep the two shell paths
         // from drifting (a REPL run via `!cmd` should degrade the same way).
         apply_non_interactive_env(&mut cmd);
         // Detach child from the controlling terminal so neither it nor any
         // grandchild (ssh, git credential helpers, server-side hook output
         // rendered by git) can write directly to /dev/tty.  Without this,
         // programs that open /dev/tty bypass our piped stdout/stderr and
-        // scribble ANSI escape sequences onto the TUI — producing artifacts
+        // scribble ANSI escape sequences onto the TUI -- producing artifacts
         // like the [PASSED] box from AtomGit push hooks. Shared with
         // BashTool::execute so the two paths can't drift.
         unsafe {
@@ -2651,7 +2651,7 @@ pub async fn run_shell(
 
     // Windows: put the shell tree under a kill-on-close Job Object so the
     // idle/timeout kill (and rustcode's own exit) reaps grandchildren
-    // (mvn → java, pipeline sub-shells, busybox applets) instead of orphaning
+    // (mvn -> java, pipeline sub-shells, busybox applets) instead of orphaning
     // them. Unix already reaps the pgroup via `PgroupChild::terminate` below.
     // Held until this fn returns; `None` degrades to the direct-child kill.
     #[cfg(target_os = "windows")]
@@ -2748,8 +2748,8 @@ pub async fn run_shell(
     let exit = match result {
         Ok(Some((success, code))) => ShellExit::Exited { success, code },
         Ok(None) => {
-            // Readers hit idle/EOF but the child never reaped — kill it.
-            // terminate() on Unix walks the pgroup (SIGTERM → 200ms → SIGKILL);
+            // Readers hit idle/EOF but the child never reaped -- kill it.
+            // terminate() on Unix walks the pgroup (SIGTERM -> 200ms -> SIGKILL);
             // Windows terminates the Job Object tree (else `taskkill /T`), then
             // reaps the direct child.
             #[cfg(not(target_os = "windows"))]
@@ -2762,7 +2762,7 @@ pub async fn run_shell(
             ShellExit::KilledIdle
         }
         Err(_) => {
-            // Hard wall-clock timeout — same tree-aware kill as idle.
+            // Hard wall-clock timeout -- same tree-aware kill as idle.
             #[cfg(not(target_os = "windows"))]
             child.terminate().await;
             #[cfg(target_os = "windows")]
@@ -2826,7 +2826,7 @@ mod tests {
     use super::*;
     use rustcode_kernel::tool::ToolContext;
 
-    // `run_shell` — the streaming shell executor (owned here since bridge's `!cmd` handler
+    // `run_shell` -- the streaming shell executor (owned here since bridge's `!cmd` handler
     // moved off `core::tool::bash`). Direct unit coverage of capture/exit/streaming/UTF-8.
     #[tokio::test]
     async fn run_shell_captures_stdout_and_exit_zero() {
@@ -2885,8 +2885,8 @@ mod tests {
     #[tokio::test]
     #[cfg(not(target_os = "windows"))] // uses `sleep`; exercises the pgroup terminate() path
     async fn run_shell_hard_timeout_kills_and_reports() {
-        // A command that outlives `timeout_secs` must be killed and reported as KilledTimeout —
-        // covers the wall-clock-timeout branch + `PgroupChild::terminate()` (SIGTERM→SIGKILL).
+        // A command that outlives `timeout_secs` must be killed and reported as KilledTimeout --
+        // covers the wall-clock-timeout branch + `PgroupChild::terminate()` (SIGTERM->SIGKILL).
         let dir = tempfile::tempdir().unwrap();
         let outcome = run_shell("sleep 5", dir.path(), 1, |_| {}).await;
         assert!(
@@ -2946,7 +2946,7 @@ mod tests {
     }
 
     // The AGENT bash path (`BashTool::execute`) must detach its child into a NEW
-    // session (setsid), so the child — and grandchildren like ssh / git hooks —
+    // session (setsid), so the child -- and grandchildren like ssh / git hooks --
     // lose the controlling tty and can't scribble on the TUI. Observable proxy:
     // setsid makes the child its own session/pgroup leader, so its pid == pgid
     // (without the detach it would inherit rustcode's pgroup). This guards that the
@@ -2972,7 +2972,7 @@ mod tests {
     }
 
     // The AGENT bash path (`BashTool::execute`) must ALSO inject the non-interactive
-    // env — separate spawn site from run_shell, so it needs its own coverage or a
+    // env -- separate spawn site from run_shell, so it needs its own coverage or a
     // missed wiring slips through.
     #[tokio::test]
     #[cfg(not(target_os = "windows"))]
@@ -3066,7 +3066,7 @@ mod tests {
         );
 
         // Assert the kinds we hardcode in Task 2 actually appear (adjust names in Task 2
-        // to whatever THIS prints — codex uses program/list/pipeline/command/command_name/
+        // to whatever THIS prints -- codex uses program/list/pipeline/command/command_name/
         // word/string/raw_string/string_content/concatenation; bash 0.25.1 may differ).
         let ro = kinds("cd /a && grep x | head");
         assert!(
@@ -3129,7 +3129,7 @@ mod tests {
 
     #[test]
     fn sanitize_strips_ansi_colour_codes() {
-        // SGR colour/style codes (`ESC [ … m`) must be removed, leaving plain text.
+        // SGR colour/style codes (`ESC [ ... m`) must be removed, leaving plain text.
         assert_eq!(
             sanitize_terminal_output("\x1b[32m[PASSED]\x1b[0m done"),
             "[PASSED] done"
@@ -3167,7 +3167,7 @@ mod tests {
     #[test]
     fn sanitize_strips_8bit_c1_csi() {
         // 8-bit C1 CSI introducer U+009B (encoded 0xC2 0x9B) + SGR must be stripped,
-        // including its payload — the trailing control filter alone would leave "31m".
+        // including its payload -- the trailing control filter alone would leave "31m".
         assert_eq!(
             sanitize_terminal_output("\u{9b}31mRED\u{9b}0m done"),
             "RED done"
@@ -3176,7 +3176,7 @@ mod tests {
 
     #[test]
     fn sanitize_strips_dcs_and_other_string_sequences() {
-        // 7-bit DCS: ESC P ... ST(ESC \) — v1 leaked the payload; now fully dropped.
+        // 7-bit DCS: ESC P ... ST(ESC \) -- v1 leaked the payload; now fully dropped.
         assert_eq!(
             sanitize_terminal_output("\x1bP1;2|payload\x1b\\visible"),
             "visible"
@@ -3222,19 +3222,19 @@ mod tests {
     #[test]
     fn wsl_launcher_excluded_git_bash_and_msys_allowed() {
         use std::path::Path;
-        // WSL launcher (System32 / SysWOW64 / Sysnative) — must be rejected.
+        // WSL launcher (System32 / SysWOW64 / Sysnative) -- must be rejected.
         assert!(is_wsl_launcher(Path::new(r"C:\Windows\System32\bash.exe")));
         assert!(is_wsl_launcher(Path::new(r"C:\Windows\SysWOW64\bash.exe")));
         assert!(is_wsl_launcher(Path::new(r"C:\Windows\Sysnative\bash.exe")));
         // App-execution-alias: Win10/11 exposes WSL's `bash` as a 0-byte reparse stub
         // under `%LOCALAPPDATA%\Microsoft\WindowsApps\bash.exe`. `where bash` often returns
         // THIS first (WindowsApps is on the user PATH ahead of System32), it `is_file()`,
-        // and it launches WSL — so it MUST be rejected too. Installing Docker Desktop
+        // and it launches WSL -- so it MUST be rejected too. Installing Docker Desktop
         // (WSL2 backend) enables the alias; if WSL has no working distro, `bash -c` fails.
         assert!(is_wsl_launcher(Path::new(
             r"C:\Users\me\AppData\Local\Microsoft\WindowsApps\bash.exe"
         )));
-        // Git Bash / MSYS2 are real shells we CAN use — must NOT be rejected.
+        // Git Bash / MSYS2 are real shells we CAN use -- must NOT be rejected.
         assert!(!is_wsl_launcher(Path::new(
             r"C:\Program Files\Git\bin\bash.exe"
         )));
@@ -3251,12 +3251,12 @@ mod tests {
             bash_beside_git(Path::new("D:/program/git/cmd/git.exe")),
             Some(PathBuf::from("D:/program/git/bin/bash.exe")),
         );
-        // git.exe in `<root>/bin` (alternate layout) → same `bin/bash.exe`.
+        // git.exe in `<root>/bin` (alternate layout) -> same `bin/bash.exe`.
         assert_eq!(
             bash_beside_git(Path::new("D:/program/git/bin/git.exe")),
             Some(PathBuf::from("D:/program/git/bin/bash.exe")),
         );
-        // Too shallow (no grandparent) → None, not a panic.
+        // Too shallow (no grandparent) -> None, not a panic.
         assert_eq!(bash_beside_git(Path::new("git.exe")), None);
     }
 
@@ -3267,7 +3267,7 @@ mod tests {
         // Path containing a space survives (everything after REG_SZ is taken).
         let spaced = "    InstallPath    REG_SZ    D:\\my apps\\Git\r\n";
         assert_eq!(parse_reg_install_path(spaced), Some(r"D:\my apps\Git"));
-        // No value line → None.
+        // No value line -> None.
         assert_eq!(parse_reg_install_path("ERROR: key not found\r\n"), None);
     }
 
@@ -3281,7 +3281,7 @@ mod tests {
 
     #[test]
     fn unsupported_construct_no_false_positive_on_valid_cmd() {
-        // All RUN fine under cmd.exe — the over-broad pre-fix guard wrongly blocked these.
+        // All RUN fine under cmd.exe -- the over-broad pre-fix guard wrongly blocked these.
         assert!(unsupported_bash_construct(r#"echo "price is $5""#).is_none()); // bare $
         assert!(unsupported_bash_construct("git commit -m \"use `x`\"").is_none()); // backtick
         assert!(unsupported_bash_construct(r#"python -c "print(1<<4)""#).is_none()); // << bit-shift
@@ -3332,75 +3332,75 @@ mod tests {
     }
 
     // macOS sudo (and some Linux configs) does NOT auto-use SUDO_ASKPASS just because
-    // there is no tty — it needs an explicit `-A`. When the askpass helper is active we
+    // there is no tty -- it needs an explicit `-A`. When the askpass helper is active we
     // rewrite `sudo` command words to `sudo -A` so a plain `sudo` pops our password modal.
     #[cfg(unix)]
     #[test]
     fn rewrite_sudo_inserts_dash_a_only_when_appropriate() {
-        // bare sudo in command position → gets -A
+        // bare sudo in command position -> gets -A
         assert_eq!(
             rewrite_sudo_for_askpass("sudo find / -name x"),
             "sudo -A find / -name x"
         );
-        // already has -A → unchanged
+        // already has -A -> unchanged
         assert_eq!(rewrite_sudo_for_askpass("sudo -A find /"), "sudo -A find /");
-        // -n (non-interactive: explicit no-prompt) → MUST NOT add -A
+        // -n (non-interactive: explicit no-prompt) -> MUST NOT add -A
         assert_eq!(rewrite_sudo_for_askpass("sudo -n true"), "sudo -n true");
-        // -S (read password from stdin) → unchanged
+        // -S (read password from stdin) -> unchanged
         assert_eq!(
             rewrite_sudo_for_askpass("sudo -S cat /etc/x"),
             "sudo -S cat /etc/x"
         );
-        // `sudo` as an argument, not a command → unchanged
+        // `sudo` as an argument, not a command -> unchanged
         assert_eq!(rewrite_sudo_for_askpass("echo sudo here"), "echo sudo here");
-        // after `&&` → command position → rewritten
+        // after `&&` -> command position -> rewritten
         assert_eq!(
             rewrite_sudo_for_askpass("cd /x && sudo make install"),
             "cd /x && sudo -A make install"
         );
-        // in a pipe → command position → rewritten
+        // in a pipe -> command position -> rewritten
         assert_eq!(
             rewrite_sudo_for_askpass("ls | sudo tee f"),
             "ls | sudo -A tee f"
         );
-        // `sudo` inside quotes → not a command → unchanged
+        // `sudo` inside quotes -> not a command -> unchanged
         assert_eq!(
             rewrite_sudo_for_askpass("grep 'sudo' file"),
             "grep 'sudo' file"
         );
-        // other leading flags → -A inserted right after sudo
+        // other leading flags -> -A inserted right after sudo
         assert_eq!(
             rewrite_sudo_for_askpass("sudo -E find /"),
             "sudo -A -E find /"
         );
-        // -u takes an arg (root); the command `find` follows → -A inserted, arg not mistaken
+        // -u takes an arg (root); the command `find` follows -> -A inserted, arg not mistaken
         assert_eq!(
             rewrite_sudo_for_askpass("sudo -u root find /"),
             "sudo -A -u root find /"
         );
-        // -u root then -n → non-interactive present → unchanged
+        // -u root then -n -> non-interactive present -> unchanged
         assert_eq!(
             rewrite_sudo_for_askpass("sudo -u root -n true"),
             "sudo -u root -n true"
         );
-        // two sudo segments → both rewritten
+        // two sudo segments -> both rewritten
         assert_eq!(
             rewrite_sudo_for_askpass("sudo a; sudo b"),
             "sudo -A a; sudo -A b"
         );
-        // no sudo at all → unchanged
+        // no sudo at all -> unchanged
         assert_eq!(rewrite_sudo_for_askpass("find / -name x"), "find / -name x");
     }
 
     // On Windows the `bash` tool routes through Git Bash / MSYS2, where the cmd.exe
     // idiom `> nul` (a reflex models emit to discard output) does NOT hit the null
-    // device — `nul` is a plain relative filename, so bash creates a REAL file named
+    // device -- `nul` is a plain relative filename, so bash creates a REAL file named
     // `nul` in the cwd. MSYS2 opens via NT-native paths, bypassing Win32's reserved-name
     // guard, so the file is real and undeletable via Explorer / `del nul`. We rewrite the
     // redirect target to `/dev/null` (the model's actual intent) so nothing hits disk.
     #[test]
     fn rewrite_nul_redirect_targets_only() {
-        // Bare `> nul` (with and without space) → /dev/null.
+        // Bare `> nul` (with and without space) -> /dev/null.
         assert_eq!(rewrite_nul_redirect("echo hi > nul"), "echo hi > /dev/null");
         assert_eq!(rewrite_nul_redirect("echo hi >nul"), "echo hi >/dev/null");
         // fd-prefixed and combined forms.
@@ -3412,7 +3412,7 @@ mod tests {
         // Case-insensitive (NUL / Nul).
         assert_eq!(rewrite_nul_redirect("foo > NUL"), "foo > /dev/null");
         assert_eq!(rewrite_nul_redirect("foo >Nul"), "foo >/dev/null");
-        // The common `cmd > nul 2>&1` — only the nul target is touched; `2>&1` intact.
+        // The common `cmd > nul 2>&1` -- only the nul target is touched; `2>&1` intact.
         assert_eq!(
             rewrite_nul_redirect("cmd > nul 2>&1"),
             "cmd > /dev/null 2>&1"
@@ -3420,13 +3420,13 @@ mod tests {
         // Trailing separators are boundaries.
         assert_eq!(rewrite_nul_redirect("a > nul; b"), "a > /dev/null; b");
         assert_eq!(rewrite_nul_redirect("a > nul|b"), "a > /dev/null|b");
-        // `nul` as an argument, not a redirect target → UNTOUCHED.
+        // `nul` as an argument, not a redirect target -> UNTOUCHED.
         assert_eq!(rewrite_nul_redirect("echo nul"), "echo nul");
         assert_eq!(rewrite_nul_redirect("grep nul file"), "grep nul file");
-        // `nul` with a suffix is a different file → not a bare device name → untouched.
+        // `nul` with a suffix is a different file -> not a bare device name -> untouched.
         assert_eq!(rewrite_nul_redirect("cat > nul.txt"), "cat > nul.txt");
         assert_eq!(rewrite_nul_redirect("cat > nully"), "cat > nully");
-        // Inside quotes the target is literal / user-intended → untouched.
+        // Inside quotes the target is literal / user-intended -> untouched.
         assert_eq!(rewrite_nul_redirect("echo 'a > nul'"), "echo 'a > nul'");
         assert_eq!(
             rewrite_nul_redirect(r#"echo "a > nul""#),
@@ -3434,7 +3434,7 @@ mod tests {
         );
         // A real target that merely follows a redirect is untouched (not nul).
         assert_eq!(rewrite_nul_redirect("foo > out.log"), "foo > out.log");
-        // No redirect at all → borrowed, no allocation.
+        // No redirect at all -> borrowed, no allocation.
         assert!(matches!(
             rewrite_nul_redirect("ls -la"),
             std::borrow::Cow::Borrowed(_)
@@ -3444,16 +3444,16 @@ mod tests {
             rewrite_nul_redirect("echo 你好 > nul"),
             "echo 你好 > /dev/null"
         );
-        // Heredoc present → bail entirely: a `> nul` in the body may be verbatim content the
+        // Heredoc present -> bail entirely: a `> nul` in the body may be verbatim content the
         // model is writing (e.g. a .bat where `nul` is the real cmd.exe device). Must NOT be
-        // mutated — a possible stray file beats silently corrupting written content.
+        // mutated -- a possible stray file beats silently corrupting written content.
         let heredoc = "cat > build.bat <<'EOF'\ncl a.c > nul\nEOF";
         assert_eq!(rewrite_nul_redirect(heredoc), heredoc);
     }
 
     // The shell is non-interactive (stdin is closed). The description must tell the
     // model NOT to launch REPLs / editors / pagers, which can't be driven and just
-    // burn the timeout — and to run work non-interactively instead. Shared base
+    // burn the timeout -- and to run work non-interactively instead. Shared base
     // paragraph, so the guidance must appear on every platform.
     #[test]
     fn description_warns_off_interactive_programs() {
@@ -3477,7 +3477,7 @@ mod tests {
     }
 
     // On Windows the description must explicitly tell the model it runs via
-    // cmd.exe (not bash) and steer it away from bash-only syntax — otherwise the
+    // cmd.exe (not bash) and steer it away from bash-only syntax -- otherwise the
     // model follows the `bash` tool name and emits heredocs / $(...) / single-quote
     // quoting that cmd.exe can't parse, then thrashes into temp-file workarounds.
     #[test]
@@ -3541,7 +3541,7 @@ mod tests {
     }
 
     // THE FIX: when a POSIX bash (Git Bash / MSYS2) is actually present, `build_command`
-    // routes the command through `bash -c` — so the description must tell the model the
+    // routes the command through `bash -c` -- so the description must tell the model the
     // TRUTH (it's bash), not the old hard-coded "cmd.exe" lie. Otherwise the model, told
     // cmd.exe, emits `dir C:\Windows` / `%VAR%` / `type` which then run in bash and break.
     #[test]
@@ -3563,7 +3563,7 @@ mod tests {
             "must tell the model bash syntax is fine: {d}"
         );
         // Must warn about Windows path backslashes (bash treats `\\` as escape) and steer
-        // to forward-slash / POSIX form — the concrete thing that breaks `dir C:\\Windows`.
+        // to forward-slash / POSIX form -- the concrete thing that breaks `dir C:\\Windows`.
         assert!(
             lc.contains("forward slash") || lc.contains("/c/") || lc.contains("c:/"),
             "must steer to forward-slash / POSIX paths: {d}"
@@ -3585,12 +3585,12 @@ mod tests {
         );
     }
 
-    // With NO bash present, cmd.exe IS what runs — the description must keep the cmd.exe
+    // With NO bash present, cmd.exe IS what runs -- the description must keep the cmd.exe
     // guidance (unchanged from before the fix).
     #[test]
     fn windows_without_bash_keeps_cmd_guidance() {
         let d = shell_tool_description(true, false, false);
-        assert!(d.contains("cmd.exe"), "no bash → cmd.exe guidance: {d}");
+        assert!(d.contains("cmd.exe"), "no bash -> cmd.exe guidance: {d}");
         assert!(
             d.contains("$("),
             "cmd guidance warns off command substitution: {d}"
@@ -3603,20 +3603,20 @@ mod tests {
         assert_eq!(
             windows_shell_label(true),
             "bash",
-            "bash present → report bash"
+            "bash present -> report bash"
         );
         assert_eq!(
             windows_shell_label(false),
             "cmd.exe",
-            "no bash → report cmd.exe"
+            "no bash -> report cmd.exe"
         );
     }
 
     // Previously the unix description said NOTHING about preferring the dedicated file
-    // tools, so on macOS/Linux the only steering lived in the persona — far from the
+    // tools, so on macOS/Linux the only steering lived in the persona -- far from the
     // model's tool-choice decision point. Weak models (GLM-5.2) shell out `ls`/`grep`
     // anyway. Mirror opencode: put the "don't shell out for file ops" guidance in the
-    // bash tool's OWN description, on EVERY platform — and keep an explicit carve-out so
+    // bash tool's OWN description, on EVERY platform -- and keep an explicit carve-out so
     // audit-style pipelines (wc/sort/uniq/git log) still legitimately use bash.
     #[test]
     fn unix_description_steers_file_ops_to_native_tools() {
@@ -3646,7 +3646,7 @@ mod tests {
         assert!(with.contains("Interactive password prompts ARE supported"));
         assert!(with.contains("ssh user@host"));
         assert!(with.contains("BatchMode"));
-        // Interactive commands block on the prompt → steer toward a larger timeout.
+        // Interactive commands block on the prompt -> steer toward a larger timeout.
         assert!(with.contains("timeout"));
         // Off (webui/headless) it must NOT advertise a prompt that can't appear.
         let without = shell_tool_description(false, false, false);
@@ -3677,7 +3677,7 @@ mod tests {
 
     #[test]
     fn comment_does_not_trigger_destructive_false_positive() {
-        // A `#…` note must not be read as a command by the substring classifier.
+        // A `#...` note must not be read as a command by the substring classifier.
         assert!(check_destructive_command("sleep 1 # kill -9 fallback").is_none());
         assert!(
             check_destructive_command("taskkill //F //IM WinNFSd.exe 2>/dev/null # rm -rf cache")
@@ -3685,9 +3685,9 @@ mod tests {
             "the reported taskkill+comment case must not be flagged destructive"
         );
         // Real destructive commands are STILL flagged (strip only removes comments). Use a
-        // non-artifact target — `build/`, `dist/` etc. are intentionally allowed as artifact cleanup.
+        // non-artifact target -- `build/`, `dist/` etc. are intentionally allowed as artifact cleanup.
         assert!(check_destructive_command("rm -rf my-important-data # cleanup").is_some());
-        // A `#` inside quotes is NOT a comment → the substring is still seen (pre-existing limit).
+        // A `#` inside quotes is NOT a comment -> the substring is still seen (pre-existing limit).
         assert!(check_destructive_command("echo 'kill -9'").is_some());
         // `#` mid-word is not a comment boundary.
         assert_eq!(
@@ -3711,12 +3711,12 @@ mod tests {
         );
         assert!(strip_bash_comments(r#""a\"b # x" ; rm -rf /important"#).contains("rm -rf"));
         // (2) Unquoted `\;` is a literal char in bash, not a separator, so `#` right after it is
-        //     mid-word (not a comment) — the trailing `;rm -rf /` still runs.
+        //     mid-word (not a comment) -- the trailing `;rm -rf /` still runs.
         assert!(
             check_destructive_command(r"echo \;#;rm -rf /important").is_some(),
             "escaped-semicolon must not create a spurious comment boundary that eats rm -rf"
         );
-        // (3) Escaped `\#` is a literal `#`, never a comment — following text is preserved.
+        // (3) Escaped `\#` is a literal `#`, never a comment -- following text is preserved.
         assert_eq!(
             strip_bash_comments(r"echo \# rm -rf /important"),
             r"echo \# rm -rf /important"
@@ -3726,21 +3726,21 @@ mod tests {
     #[test]
     fn always_grant_scope_is_stable_across_cosmetic_variation() {
         let key = |cmd: &str| BashTool.always_grant_scope(&json!({ "command": cmd }).to_string());
-        // Same command, different trailing comment + whitespace → SAME grant key (so "always" sticks).
+        // Same command, different trailing comment + whitespace -> SAME grant key (so "always" sticks).
         assert_eq!(
             key("taskkill //F //IM X.exe  # attempt 1"),
             key("taskkill //F //IM X.exe # attempt 2")
         );
         assert_eq!(key("rm  foo.txt   # a"), key("rm foo.txt # b"));
         assert_eq!(key("rm foo.txt # a"), "rm foo.txt");
-        // A genuinely different command → different key (stays per-command, no family blanket).
+        // A genuinely different command -> different key (stays per-command, no family blanket).
         assert_ne!(key("rm foo.txt"), key("rm bar.txt"));
     }
 
     #[test]
     fn git_checkout_restore_discarding_worktree_is_destructive() {
         // The reported data-loss footgun: `git checkout <file>` / `git restore <file>` silently
-        // discard uncommitted work. They MUST classify destructive (→ Risky → approval).
+        // discard uncommitted work. They MUST classify destructive (-> Risky -> approval).
         for c in [
             "git checkout src/main.rs",
             "git checkout .",
@@ -3786,7 +3786,7 @@ mod tests {
 
     #[test]
     fn safe_git_is_not_flagged_destructive() {
-        // Read-only git + branch/tag operations must NOT prompt (no false positives — branch
+        // Read-only git + branch/tag operations must NOT prompt (no false positives -- branch
         // names with slashes/version-dots like `release/v5.0.0` are the tricky case).
         for c in [
             "git status",
@@ -3797,12 +3797,12 @@ mod tests {
             "git checkout -b feature/new",
             "git checkout -B main",
             "git checkout main",
-            "git checkout release/v5.0.0", // version branch — MUST NOT flag
+            "git checkout release/v5.0.0", // version branch -- MUST NOT flag
             "git checkout feature/foo",
             "git checkout v1.2.3",              // tag
             "git restore --staged src/main.rs", // only unstages (recoverable)
             "git reset --soft HEAD~1",
-            "git reset HEAD",          // mixed reset (unstage) — recoverable
+            "git reset HEAD",          // mixed reset (unstage) -- recoverable
             "git switch main",         // switch branch
             "git switch -c newbranch", // create branch
             "git clean -n",            // dry run (no -f)
@@ -3905,9 +3905,9 @@ mod tests {
 
     #[test]
     fn decodes_gbk_console_bytes() {
-        // "你好" encoded as GBK / CP936 (0xC4 0xE3 0xBA 0xC3) — NOT valid UTF-8, so a
+        // "你好" encoded as GBK / CP936 (0xC4 0xE3 0xBA 0xC3) -- NOT valid UTF-8, so a
         // naive from_utf8_lossy would render `◇◇◇`. A CJK Windows console (keytool,
-        // javac, …) emits exactly these bytes.
+        // javac, ...) emits exactly these bytes.
         let gbk = [0xC4u8, 0xE3, 0xBA, 0xC3];
         assert_eq!(decode_oem(&gbk, 936), "你好");
     }
@@ -4037,7 +4037,7 @@ mod tests {
             progress: rustcode_kernel::tool::ProgressSink::noop(),
             requester: None,
         };
-        token.cancel(); // already cancelled → the cancel arm wins immediately
+        token.cancel(); // already cancelled -> the cancel arm wins immediately
         let r = BashTool.execute(r#"{"command":"sleep 30"}"#, &cx).await;
         assert!(r.is_error, "{}", r.content);
         assert!(r.content.contains("cancelled"), "{}", r.content);
@@ -4074,7 +4074,7 @@ mod tests {
         );
         assert!(
             !t.parallel_safe("not json"),
-            "parse failure → not parallel-safe"
+            "parse failure -> not parallel-safe"
         );
     }
 
@@ -4116,7 +4116,7 @@ mod tests {
         assert!(is_read_only_bash("cat a.txt"));
         assert!(is_read_only_bash("ls -la"));
         assert!(is_read_only_bash("find crates -name '*.rs'"));
-        // Input redirects only READ a file — read-only.
+        // Input redirects only READ a file -- read-only.
         assert!(
             is_read_only_bash("wc -l < f.txt"),
             "input redirect reads, harmless"
@@ -4141,7 +4141,7 @@ mod tests {
         assert!(!is_read_only_bash("cd /a && cargo check"));
         assert!(!is_read_only_bash("grep x | tee f"));
         assert!(!is_read_only_bash("grep x | xargs rm"));
-        // Command / process substitution (DOUBLE-quoted or bare) executes — reject.
+        // Command / process substitution (DOUBLE-quoted or bare) executes -- reject.
         assert!(!is_read_only_bash("grep \"$(rm -rf x)\""));
         assert!(!is_read_only_bash("grep `rm x`"));
         assert!(!is_read_only_bash("echo $(whoami)"));
@@ -4167,7 +4167,7 @@ mod tests {
         );
         assert!(!is_read_only_bash("ls >2"), ">2 writes file '2'");
         assert!(!is_read_only_bash("grep x &>9"), "&>9 writes file '9'");
-        // Parse junk / empty → fail closed.
+        // Parse junk / empty -> fail closed.
         assert!(!is_read_only_bash(""));
         assert!(!is_read_only_bash("   "));
         assert!(!is_read_only_bash("grep x |")); // trailing pipe (parse error / empty stage)
@@ -4186,7 +4186,7 @@ mod tests {
     /// Differential fuzz: for every command the classifier calls read-only, execute it in
     /// a fresh throwaway tmpdir seeded with a `PWN` sentinel and assert that neither the
     /// sentinel is mutated nor a `HACKED` file is created.  Commands classified `false` are
-    /// NOT executed (they may be destructive).  This is the load-bearing safety proof — it
+    /// NOT executed (they may be destructive).  This is the load-bearing safety proof -- it
     /// catches any classifier fail-open: a command that SHOULD be rejected but is passed
     /// through as "read-only" would create or mutate files, and the assertion fires.
     ///
@@ -4199,11 +4199,11 @@ mod tests {
         use std::process::Command;
 
         // Each entry is (command_string, expected_is_read_only).
-        // The `expected` column is documentation only — the test EXECUTES whatever the
+        // The `expected` column is documentation only -- the test EXECUTES whatever the
         // classifier says is true; if the classifier is WRONG (a fail-open), the execution
         // assert fires and exposes the real command.
         let corpus: &[(&str, bool)] = &[
-            // ── READ-ONLY (expected true) — must not write ──────────────────────────────
+            // ── READ-ONLY (expected true) -- must not write ──────────────────────────────
             // plain reads
             ("cat PWN", true),
             ("ls -la", true),
@@ -4211,7 +4211,7 @@ mod tests {
             // grep with quoted metacharacters (single-quote = raw_string, no subst)
             ("grep 'a\\|b' PWN", true),
             ("grep -E '(x|y)' PWN", true),
-            // single-quoted $(...) is a LITERAL string — classified true, must NOT exec it
+            // single-quoted $(...) is a LITERAL string -- classified true, must NOT exec it
             ("grep '$(touch HACKED)' PWN", true),
             // safe redirects: /dev/null discard and fd-dup
             ("grep x 2>/dev/null PWN", true),
@@ -4232,8 +4232,8 @@ mod tests {
             ("head -1 PWN", true),
             ("tail -1 PWN", true),
             // backgrounded (&) chains: read-only iff EVERY command is allowlisted
-            ("grep x PWN & grep y PWN", true), // both sides read-only → safe; when run, writes nothing
-            // ── SIDE-EFFECTING (expected false) — MUST be classified false; NOT executed ─
+            ("grep x PWN & grep y PWN", true), // both sides read-only -> safe; when run, writes nothing
+            // ── SIDE-EFFECTING (expected false) -- MUST be classified false; NOT executed ─
             // output redirects that write real files
             ("echo x > HACKED", false),
             ("grep x > 9", false),
@@ -4246,7 +4246,7 @@ mod tests {
             ("(touch HACKED)", false),
             // non-allowlisted commands
             ("touch HACKED", false),
-            ("touch HACKED & grep x PWN", false), // background touch → not read-only (touch not allowlisted)
+            ("touch HACKED & grep x PWN", false), // background touch -> not read-only (touch not allowlisted)
             ("rm PWN", false),
             ("cargo build", false),
             // piping through tee / xargs writes
@@ -4264,12 +4264,12 @@ mod tests {
         for (i, &(cmd, _expected)) in corpus.iter().enumerate() {
             let ro = is_read_only_bash(cmd);
             if !ro {
-                // Not classified read-only → the parallel-safe path would never execute it.
+                // Not classified read-only -> the parallel-safe path would never execute it.
                 // We do NOT run it here (it may be destructive).
                 continue;
             }
 
-            // Fresh sandbox per command — indexed so collisions between equal-length strings
+            // Fresh sandbox per command -- indexed so collisions between equal-length strings
             // cannot cause cross-command interference.
             let dir = std::env::temp_dir().join(format!("rofuzz_{i}"));
             let _ = std::fs::remove_dir_all(&dir);

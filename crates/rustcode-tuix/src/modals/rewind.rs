@@ -64,8 +64,8 @@ impl RewindModal {
         let mut rows = vec![
             row(
                 Self::l(
-                    "Restore the conversation to the point before…",
-                    "将对话恢复到以下提示之前…",
+                    "Restore the conversation to the point before...",
+                    "将对话恢复到以下提示之前...",
                 ),
                 DiffPanelTone::Default,
                 false,
@@ -220,12 +220,12 @@ impl RewindModal {
         };
         let footer = match self.stage {
             Stage::Target => Self::l(
-                "↑/↓ select · Enter continue · Esc cancel",
-                "↑/↓ 选择 · Enter 继续 · Esc 取消",
+                "↑/↓ select . Enter continue . Esc cancel",
+                "↑/↓ 选择 . Enter 继续 . Esc 取消",
             ),
             Stage::Scope => Self::l(
-                "↑/↓ select · Enter rewind · ← back · Esc cancel",
-                "↑/↓ 选择 · Enter 回退 · ← 返回 · Esc 取消",
+                "↑/↓ select . Enter rewind . ← back . Esc cancel",
+                "↑/↓ 选择 . Enter 回退 . ← 返回 . Esc 取消",
             ),
         };
         renderer.render(UiLine::DiffPanel {

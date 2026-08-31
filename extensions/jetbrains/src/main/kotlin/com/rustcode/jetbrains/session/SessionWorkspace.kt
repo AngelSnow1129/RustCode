@@ -1,6 +1,6 @@
 package com.rustcode.jetbrains.session
 
-import com.rustcode.jetbrains.persistence.AtomCodeProjectWorkspaceState
+import com.rustcode.jetbrains.persistence.RustCodeProjectWorkspaceState
 import com.rustcode.jetbrains.persistence.WorkspaceTabState
 import com.rustcode.jetbrains.services.SessionRefView
 import com.intellij.openapi.Disposable
@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 @Service(Service.Level.PROJECT)
 class SessionWorkspace(private val project: Project) : Disposable {
-    private val workspaceState = AtomCodeProjectWorkspaceState.getInstance(project)
+    private val workspaceState = RustCodeProjectWorkspaceState.getInstance(project)
     private val runtimes = ConcurrentHashMap<String, ChatRuntime>()
 
     fun createRuntime(title: String = "Chat"): ChatRuntime {

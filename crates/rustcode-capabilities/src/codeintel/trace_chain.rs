@@ -1,4 +1,4 @@
-//! `trace_chain` — shortest call chain between two symbols (BFS, ≤10 hops). `Safe`.
+//! `trace_chain` -- shortest call chain between two symbols (BFS, ≤10 hops). `Safe`.
 
 use super::index::CodeIndex;
 use super::{canonical, display_path, err, ok};
@@ -79,9 +79,9 @@ fn render(index: &CodeIndex, root: &Path, from: &str, to: &str) -> ToolResult {
                 );
                 for (i, sid) in path.iter().enumerate() {
                     if let Some(node) = g.node(*sid) {
-                        let arrow = if i == 0 { "" } else { "→ " };
+                        let arrow = if i == 0 { "" } else { "-> " };
                         out.push_str(&format!(
-                            "  {}{} ({:?}) — {}\n",
+                            "  {}{} ({:?}) -- {}\n",
                             arrow,
                             node.name,
                             node.kind,

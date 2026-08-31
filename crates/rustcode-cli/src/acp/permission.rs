@@ -8,7 +8,7 @@
 //! Response JSON: `{"decision": "allow"|"allow_always"|"deny", "remember": bool}`.
 //!
 //! This module only needs to PRODUCE the response JSON and READ the request
-//! payload — both shapes are matched exactly as the kernel's
+//! payload -- both shapes are matched exactly as the kernel's
 //! `PermissionDecision::from_value` parses them.
 
 use agent_client_protocol::schema::v1::{
@@ -49,10 +49,10 @@ pub fn permission_options() -> Vec<PermissionOption> {
     ]
 }
 
-/// The v2 schema's `PermissionOption` type — same three option ids as the v1
+/// The v2 schema's `PermissionOption` type -- same three option ids as the v1
 /// set, but the v2 types are distinct (per the protocol version's own schema;
 /// the v2 `PermissionOptionKind` additionally carries a `RejectAlways` variant
-/// the kernel cannot honour — deliberately not offered, mirroring the v1
+/// the kernel cannot honour -- deliberately not offered, mirroring the v1
 /// rationale in [`permission_options`]).
 pub fn v2_permission_options() -> Vec<V2PermissionOption> {
     vec![
@@ -76,9 +76,9 @@ pub fn v2_permission_options() -> Vec<V2PermissionOption> {
 
 /// Map an ACP option_id to the kernel's `ApprovalResponse` JSON.
 ///
-/// `allow_once`   → `{"decision":"allow"}`
-/// `allow_always` → `{"decision":"allow","remember":true}`
-/// anything else  → `{"decision":"deny"}` (fail closed — covers `reject_once`,
+/// `allow_once`   -> `{"decision":"allow"}`
+/// `allow_always` -> `{"decision":"allow","remember":true}`
+/// anything else  -> `{"decision":"deny"}` (fail closed -- covers `reject_once`,
 ///                  cancelled outcomes, and unknown ids)
 pub fn outcome_to_decision(option_id: &str) -> serde_json::Value {
     match option_id {
@@ -98,7 +98,7 @@ pub fn outcome_to_decision(option_id: &str) -> serde_json::Value {
 /// 3. Maps the client's chosen option_id back to the kernel's `ApprovalResponse` JSON.
 /// 4. Answers the kernel with `AgentCommand::Respond { id: req_id, value: decision }`.
 ///
-/// `Cancelled` outcome (and any unrecognised option) → deny (fail closed).
+/// `Cancelled` outcome (and any unrecognised option) -> deny (fail closed).
 pub async fn handle_approval(
     cx: &ConnectionTo<Client>,
     session_id: &SessionId,
@@ -125,10 +125,10 @@ pub async fn handle_approval(
     // The `session/request_permission` round-trip must NEVER propagate its error:
     // this runs inside the spawned prompt turn, and returning `Err` there tears the
     // WHOLE ACP connection down (server exits, the Zed thread is wiped). A round-trip
-    // failure — the client cancelled/ESC'd the prompt, sent an unexpected message, or
-    // hit a transient error — is a single-call event, not a reason to kill the session.
+    // failure -- the client cancelled/ESC'd the prompt, sent an unexpected message, or
+    // hit a transient error -- is a single-call event, not a reason to kill the session.
     // On ANY failure, fail closed (deny) so the kernel still gets a decision and unparks
-    // (otherwise it reports "no decision received … internal channel failure"), and the
+    // (otherwise it reports "no decision received ... internal channel failure"), and the
     // turn continues. eprintln goes to stderr (the ACP log channel; stdout is JSON-RPC).
     let decision = match cx
         .send_request(RequestPermissionRequest::new(
@@ -143,7 +143,7 @@ pub async fn handle_approval(
             RequestPermissionOutcome::Selected(sel) => {
                 outcome_to_decision(sel.option_id.0.as_ref())
             }
-            // Cancelled or any future non-exhaustive variant → fail closed.
+            // Cancelled or any future non-exhaustive variant -> fail closed.
             _ => serde_json::json!({"decision": "deny"}),
         },
         Err(e) => {
@@ -166,9 +166,9 @@ pub async fn handle_approval(
 /// [`handle_approval`] is untouched.
 ///
 /// Fail-closed semantics are identical to the v1 path: the round-trip must NEVER
-/// propagate its error (it runs inside the spawned prompt turn — returning `Err`
-/// tears the whole ACP connection down). On ANY failure — client cancelled,
-/// unexpected response, or a transport error — the kernel is answered with
+/// propagate its error (it runs inside the spawned prompt turn -- returning `Err`
+/// tears the whole ACP connection down). On ANY failure -- client cancelled,
+/// unexpected response, or a transport error -- the kernel is answered with
 /// `{"decision":"deny"}` and the turn continues.
 pub async fn handle_approval_v2(
     cx: &ConnectionTo<Client>,
@@ -200,7 +200,7 @@ pub async fn handle_approval_v2(
             V2RequestPermissionOutcome::Selected(sel) => {
                 outcome_to_decision(sel.option_id.0.as_ref())
             }
-            // Cancelled or any future non-exhaustive variant → fail closed.
+            // Cancelled or any future non-exhaustive variant -> fail closed.
             _ => serde_json::json!({"decision": "deny"}),
         },
         Err(e) => {
@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(opts[1].option_id.0.as_ref(), "allow_always");
         assert_eq!(opts[2].option_id.0.as_ref(), "reject_once");
         // The v2 kind enum has a RejectAlways variant the kernel cannot
-        // honour — it must NOT be offered, mirroring the v1 rationale.
+        // honour -- it must NOT be offered, mirroring the v1 rationale.
         assert!(opts
             .iter()
             .all(|o| o.option_id.0.as_ref() != "reject_always"));
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn v2_selected_option_feeds_same_decision_mapping() {
         // The v2 response's `SelectedPermissionOutcome` carries the same
-        // `option_id` the v1 path maps — the shared `outcome_to_decision`
+        // `option_id` the v1 path maps -- the shared `outcome_to_decision`
         // must produce the same kernel JSON for v2 selections.
         assert_eq!(
             outcome_to_decision("allow_once"),

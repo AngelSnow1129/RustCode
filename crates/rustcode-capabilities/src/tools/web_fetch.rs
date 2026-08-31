@@ -1,4 +1,4 @@
-//! `web_fetch` — fetch an http(s) URL and return its content as clean text (HTML is
+//! `web_fetch` -- fetch an http(s) URL and return its content as clean text (HTML is
 //! converted to readable text). Read-only network egress with SSRF protection: every
 //! hop's scheme is checked and every resolved IP is rejected if it points at loopback /
 //! private / link-local (cloud-metadata) / reserved space. Redirects are followed
@@ -22,7 +22,7 @@ const REQUEST_TIMEOUT_SECS: u64 = 20;
 const CONNECT_TIMEOUT_SECS: u64 = 5;
 const MAX_CHARS_CAP: usize = 50_000;
 
-/// A real browser UA — many sites 403 a generic/bot UA. Shared by the reqwest client and the
+/// A real browser UA -- many sites 403 a generic/bot UA. Shared by the reqwest client and the
 /// curl fallback so both present the same identity.
 const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 /// Sentinel we append via curl's `-w` so we can split the fetched body from the trailing
@@ -34,9 +34,9 @@ pub struct WebFetchTool;
 #[derive(Deserialize)]
 struct Args {
     url: String,
-    /// Optional character cap on the returned text. Omitted → return the FULL content
+    /// Optional character cap on the returned text. Omitted -> return the FULL content
     /// (bounded only by the 2 MiB byte buffer). When set, truncate to this many chars
-    /// (≤ `MAX_CHARS_CAP`) with a note. No default truncation — a large page comes whole.
+    /// (≤ `MAX_CHARS_CAP`) with a note. No default truncation -- a large page comes whole.
     #[serde(default)]
     max_chars: Option<usize>,
     /// How HTML is rendered: `"text"` (default) flattens to clean plain text; `"markdown"`
@@ -54,8 +54,8 @@ enum OutputFormat {
 }
 
 impl OutputFormat {
-    /// Parse the `format` arg: `"markdown"`/`"md"` → Markdown; anything else (incl.
-    /// `"text"` / empty / unknown / omitted) → Text, the back-compatible default.
+    /// Parse the `format` arg: `"markdown"`/`"md"` -> Markdown; anything else (incl.
+    /// `"text"` / empty / unknown / omitted) -> Text, the back-compatible default.
     fn from_arg(s: Option<&str>) -> Self {
         match s.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
             Some("markdown") | Some("md") => OutputFormat::Markdown,
@@ -91,7 +91,7 @@ impl Tool for WebFetchTool {
             "required": ["url"]
         })
     }
-    // read-only fetch; SSRF guards block the dangerous targets → Safe.
+    // read-only fetch; SSRF guards block the dangerous targets -> Safe.
     async fn execute(&self, args: &str, _ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -130,15 +130,15 @@ impl Tool for WebFetchTool {
                 Ok(r) => r,
                 Err(e) => {
                     // reqwest's TLS stack (rustls) is fingerprinted and reset by some hosts at
-                    // the connection layer — the same block `web_search` dodges by using curl.
+                    // the connection layer -- the same block `web_search` dodges by using curl.
                     // Retry the SAME url with a curl subprocess, PINNED to the already-validated
                     // IP(s) (single hop, no redirect follow) so SSRF protection still holds;
                     // curl's mainstream TLS fingerprint often passes where rustls is reset.
                     if let Some((code, ct, body, hit_cap)) = curl_fallback(&url, &pinned).await {
                         return render_body(url.as_ref(), code, ct, body, hit_cap, fmt, max);
                     }
-                    // Surface the REAL cause (TLS handshake / connection reset / DNS) — reqwest's
-                    // top-level Display is opaque ("error sending request for url (…)").
+                    // Surface the REAL cause (TLS handshake / connection reset / DNS) -- reqwest's
+                    // top-level Display is opaque ("error sending request for url (...)").
                     return err(format!(
                         "web_fetch: failed to fetch {url}: {} (curl fallback also failed or curl is unavailable)",
                         error_chain(&e)
@@ -155,7 +155,7 @@ impl Tool for WebFetchTool {
                 ));
             }
             let Some(loc) = resp.headers().get(reqwest::header::LOCATION) else {
-                break resp; // redirect without Location → treat as terminal
+                break resp; // redirect without Location -> treat as terminal
             };
             let loc_str = match loc.to_str() {
                 Ok(s) => s,
@@ -219,8 +219,8 @@ impl Tool for WebFetchTool {
 }
 
 /// Turn a fetched response (from either the reqwest path or the curl fallback) into the tool
-/// output: decode honoring the page's charset (HTTP header → HTML `<meta>` → UTF-8, so a
-/// legacy-encoded GBK/Big5/… page isn't mojibake'd), render HTML to text/markdown (non-HTML
+/// output: decode honoring the page's charset (HTTP header -> HTML `<meta>` -> UTF-8, so a
+/// legacy-encoded GBK/Big5/... page isn't mojibake'd), render HTML to text/markdown (non-HTML
 /// comes through verbatim), then apply the char cap.
 fn render_body(
     final_url: &str,
@@ -265,7 +265,7 @@ fn render_body(
     }
     let cap_note = if hit_cap {
         format!(
-            "\n\n[Response exceeded {MAX_RESPONSE_BYTES} bytes — truncated before text extraction]"
+            "\n\n[Response exceeded {MAX_RESPONSE_BYTES} bytes -- truncated before text extraction]"
         )
     } else {
         String::new()
@@ -274,8 +274,8 @@ fn render_body(
 }
 
 /// Flatten an error's `source()` chain into one line. reqwest's top-level `Display` for a
-/// transport failure is opaque (`error sending request for url (…)`); the actual cause — a TLS
-/// handshake error, connection reset, or DNS failure — lives deeper in the chain. Skips only a
+/// transport failure is opaque (`error sending request for url (...)`); the actual cause -- a TLS
+/// handshake error, connection reset, or DNS failure -- lives deeper in the chain. Skips only a
 /// layer whose text is IDENTICAL to the previous one (some layers re-wrap verbatim); a distinct
 /// cause is always kept, even if it happens to be a substring of an earlier layer.
 fn error_chain(e: &dyn std::error::Error) -> String {
@@ -305,7 +305,7 @@ fn resolve_entry(host: &str, port: u16, ip: IpAddr) -> String {
 
 /// Split curl's stdout into `(http_status, content_type, body)`. We appended a trailing
 /// `<CURL_META_MARKER><http_code>\t<content_type>` line via `-w`; find it (last occurrence)
-/// and peel it off. `None` if the marker is absent (curl produced no metadata → treat as a miss).
+/// and peel it off. `None` if the marker is absent (curl produced no metadata -> treat as a miss).
 /// The meta tail is decoded lossily so a non-UTF8 byte in the server's Content-Type doesn't
 /// discard an otherwise-good body.
 fn parse_curl_meta(stdout: &[u8]) -> Option<(u16, Option<String>, Vec<u8>)> {
@@ -326,10 +326,10 @@ fn parse_curl_meta(stdout: &[u8]) -> Option<(u16, Option<String>, Vec<u8>)> {
 /// Curl fallback for when reqwest's TLS fingerprint is blocked. Fetches the SAME url with a
 /// curl subprocess, PINNED via `--resolve` to the already-validated IP(s) so DNS can't rebind
 /// to an internal host, single-hop (`--max-redirs 0`, no `-L`) so no unvalidated redirect can
-/// reach a private address, and `--noproxy '*'` so curl connects DIRECTLY — going through a
+/// reach a private address, and `--noproxy '*'` so curl connects DIRECTLY -- going through a
 /// proxy would make curl ignore `--resolve` and let the proxy resolve the host, defeating the
 /// pin. (Trade-off: in a proxy-mandatory network the fallback simply can't reach the target and
-/// yields the improved error — acceptable for a best-effort fallback; SSRF pinning comes first.)
+/// yields the improved error -- acceptable for a best-effort fallback; SSRF pinning comes first.)
 /// Returns `(http_code, content_type, body, hit_cap)` only on a 2xx with a non-empty body;
 /// `None` if curl is missing / also blocked / non-2xx. Memory note: like the `web_search` curl
 /// path, stdout is buffered by `.output()`; `--max-filesize` caps sized responses and
@@ -349,9 +349,9 @@ async fn curl_fallback(
         .arg("--noproxy")
         .arg("*") // connect directly so --resolve pinning holds (a proxy would bypass it)
         .arg("--proto")
-        .arg("-all,http,https") // never file://, gopher, …
+        .arg("-all,http,https") // never file://, gopher, ...
         .arg("--max-redirs")
-        .arg("0") // single hop → only the validated IP is dialed
+        .arg("0") // single hop -> only the validated IP is dialed
         .arg("--max-time")
         .arg(REQUEST_TIMEOUT_SECS.to_string())
         .arg("--max-filesize")
@@ -375,11 +375,11 @@ async fn curl_fallback(
         .ok()?
         .ok()?;
     if !out.status.success() {
-        return None; // curl couldn't reach it either (transport failure) — nothing to add
+        return None; // curl couldn't reach it either (transport failure) -- nothing to add
     }
     let (code, ct, mut body) = parse_curl_meta(&out.stdout)?;
     if !(200..300).contains(&code) || body.is_empty() {
-        return None; // non-2xx / empty → fallback got nothing usable; surface the real error
+        return None; // non-2xx / empty -> fallback got nothing usable; surface the real error
     }
     let hit_cap = body.len() > MAX_RESPONSE_BYTES;
     if hit_cap {
@@ -389,8 +389,8 @@ async fn curl_fallback(
 }
 
 // ---------------------------------------------------------------------------
-/// Truncate `text` to at most `max` CHARACTERS (not bytes), appending a `[Truncated …]`
-/// note. `None` → full text unchanged. Char-based so a multibyte (CJK/emoji) page isn't
+/// Truncate `text` to at most `max` CHARACTERS (not bytes), appending a `[Truncated ...]`
+/// note. `None` -> full text unchanged. Char-based so a multibyte (CJK/emoji) page isn't
 /// cut short and mis-counted (the byte-vs-char bug fixed in core 4c2ad525).
 fn apply_char_cap(text: String, max: Option<usize>) -> String {
     match max {
@@ -414,7 +414,7 @@ fn validate_scheme(url: &Url) -> Result<(), String> {
     match url.scheme() {
         "http" | "https" => Ok(()),
         other => Err(format!(
-            "scheme `{other}` not allowed — only http(s) URLs can be fetched"
+            "scheme `{other}` not allowed -- only http(s) URLs can be fetched"
         )),
     }
 }
@@ -424,7 +424,7 @@ fn validate_scheme(url: &Url) -> Result<(), String> {
 fn is_safe_ip(ip: IpAddr) -> Result<(), String> {
     let reject = |cat: &str| {
         Err(format!(
-            "refusing to connect to {ip} ({cat}) — SSRF protection"
+            "refusing to connect to {ip} ({cat}) -- SSRF protection"
         ))
     };
     match ip {
@@ -476,10 +476,10 @@ fn is_safe_ip(ip: IpAddr) -> Result<(), String> {
             if (first & 0xffc0) == 0xfe80 {
                 return reject("link-local fe80::/10");
             }
-            // Embedded IPv4 — the OS may dial the v4 directly, so a v6 wrapper around an
+            // Embedded IPv4 -- the OS may dial the v4 directly, so a v6 wrapper around an
             // unsafe v4 must be unwrapped and re-checked. `to_ipv4()` covers BOTH the
             // IPv4-mapped form (`::ffff:a.b.c.d`) AND the deprecated-but-still-resolvable
-            // IPv4-compatible form (`::a.b.c.d`) — the latter is what `to_ipv4_mapped()`
+            // IPv4-compatible form (`::a.b.c.d`) -- the latter is what `to_ipv4_mapped()`
             // missed, letting `::127.0.0.1` / `::169.254.169.254` slip through as "safe".
             // `::1` and `::` are already rejected above; a genuine public v6 yields None
             // (its high bits are non-zero) so it stays Ok. (NAT64 64:ff9b::/96 not covered.)
@@ -493,17 +493,17 @@ fn is_safe_ip(ip: IpAddr) -> Result<(), String> {
 
 /// Resolve the URL's host and require EVERY returned IP to be safe (partial acceptance
 /// would let `[1.2.3.4, 127.0.0.1]` gamble on which reqwest picks). Returns the validated
-/// [`SocketAddr`]s so the caller can PIN them into reqwest (`resolve_to_addrs`) — that
+/// [`SocketAddr`]s so the caller can PIN them into reqwest (`resolve_to_addrs`) -- that
 /// closes the DNS-rebinding TOCTOU window: without pinning, DNS is looked up here and then
 /// a SECOND time by reqwest at connect, and a TTL=0 attacker could rebind the host to a
-/// private IP between the two lookups. Returns an EMPTY vec for a literal-IP host — there
+/// private IP between the two lookups. Returns an EMPTY vec for a literal-IP host -- there
 /// is no DNS to rebind, so reqwest dials the URL's address directly and nothing is pinned.
 async fn validate_host(url: &Url) -> Result<Vec<SocketAddr>, String> {
     let host = url
         .host_str()
         .ok_or_else(|| format!("URL has no host: {url}"))?;
     if let Ok(ip) = host.parse::<IpAddr>() {
-        is_safe_ip(ip)?; // literal IP — bypass DNS, nothing to pin
+        is_safe_ip(ip)?; // literal IP -- bypass DNS, nothing to pin
         return Ok(Vec::new());
     }
     let port = url.port_or_known_default().unwrap_or(80);
@@ -522,10 +522,10 @@ async fn validate_host(url: &Url) -> Result<Vec<SocketAddr>, String> {
 
 /// Build the per-request HTTP client. When `pinned` is non-empty the host resolves ONLY to
 /// those already-validated addresses (`resolve_to_addrs`), so reqwest performs no DNS
-/// lookup of its own — this is what closes the DNS-rebinding TOCTOU window. An empty
+/// lookup of its own -- this is what closes the DNS-rebinding TOCTOU window. An empty
 /// `pinned` (literal-IP host) leaves resolution untouched. Per-hop because a redirect can
 /// change the host and the resolve override is fixed at builder time; `resolve_to_addrs`
-/// keeps the URL's port / SNI / TLS cert hostname intact — only the dialed address is pinned.
+/// keeps the URL's port / SNI / TLS cert hostname intact -- only the dialed address is pinned.
 fn build_client(host: &str, pinned: &[SocketAddr]) -> Result<reqwest::Client, String> {
     // Shared egress policy (issue #514 trust roots + proxy + pool policy). Only three
     // things are web_fetch-specific:
@@ -536,7 +536,7 @@ fn build_client(host: &str, pinned: &[SocketAddr]) -> Result<reqwest::Client, St
         .with_no_redirects()
         .with_connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
         .with_request_timeout(Some(Duration::from_secs(REQUEST_TIMEOUT_SECS)));
-    // 2. A browser UA (part of `browser_spec`) — many sites 403 a generic/bot UA.
+    // 2. A browser UA (part of `browser_spec`) -- many sites 403 a generic/bot UA.
     // 3. The DNS pin, which `build_pinned_http_client` applies on top while still
     //    running the #514 webpki-base backstop.
     crate::egress::client::build_pinned_http_client(&spec, host, pinned)
@@ -544,7 +544,7 @@ fn build_client(host: &str, pinned: &[SocketAddr]) -> Result<reqwest::Client, St
 }
 
 // ---------------------------------------------------------------------------
-// HTML → text (pure, testable)
+// HTML -> text (pure, testable)
 // ---------------------------------------------------------------------------
 
 /// Convert HTML to readable plain text: drop script/style/head/nav/footer, turn block
@@ -615,7 +615,7 @@ fn html_to_text(html: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// HTML → Markdown (pure, testable)
+// HTML -> Markdown (pure, testable)
 // ---------------------------------------------------------------------------
 
 /// One lexed HTML token. Attributes are kept RAW (only `<a href>` is parsed, lazily).
@@ -652,7 +652,7 @@ fn tokenize_html(html: &str) -> Vec<HtmlToken> {
             continue;
         }
         let Some(rel_gt) = html[i..].find('>') else {
-            // Unterminated tag → treat the rest as text.
+            // Unterminated tag -> treat the rest as text.
             toks.push(HtmlToken::Text(html[i..].to_string()));
             i = bytes.len();
             text_start = i;
@@ -661,7 +661,7 @@ fn tokenize_html(html: &str) -> Vec<HtmlToken> {
         let inner = &html[i + 1..i + rel_gt]; // between < and >
         let inner_trim = inner.trim();
         if inner_trim.starts_with('!') || inner_trim.starts_with('?') {
-            // doctype / PI — drop.
+            // doctype / PI -- drop.
             i += rel_gt + 1;
             text_start = i;
             continue;
@@ -718,7 +718,7 @@ fn extract_href(attrs: &str) -> Option<String> {
     }
 }
 
-/// Collapse internal whitespace runs (incl. newlines) to single spaces — for inline text
+/// Collapse internal whitespace runs (incl. newlines) to single spaces -- for inline text
 /// OUTSIDE `<pre>` (inside `<pre>` whitespace is significant and kept verbatim).
 fn collapse_ws(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -740,7 +740,7 @@ fn collapse_ws(s: &str) -> String {
 /// Convert HTML to Markdown, preserving the structure plain-text flattening drops:
 /// headings (`#`), links (`[text](url)`), list items (`- `), inline/blocks code
 /// (`` ` `` / fenced), and bold/italic. Same pre-clean as [`html_to_text`] (script /
-/// style / head / nav / footer removed). Best-effort and dependency-free — not a full
+/// style / head / nav / footer removed). Best-effort and dependency-free -- not a full
 /// CommonMark serializer, but it keeps the signal an LLM reader needs.
 fn html_to_markdown(html: &str) -> String {
     let cleaned = remove_tag_content(html, "script");
@@ -853,23 +853,23 @@ fn html_to_markdown(html: &str) -> String {
         }
     }
     let result = result.trim().to_string();
-    // Source-file views on every code host (GitHub/GitLab/Gitee/atomgit/…) render the
+    // Source-file views on every code host (GitHub/GitLab/Gitee/atomgit/...) render the
     // file as one big <pre><code> wrapped in nav + file-tree chrome. In Markdown that
     // chrome is dozens of leading link/list lines before the code, which an LLM misreads
     // as "an empty JS shell" and re-fetches. If a single fenced block dominates, return it.
     strip_to_dominant_code_block(&result).unwrap_or(result)
 }
 
-/// If a single fenced code block dominates the Markdown — the structural signature of a
-/// source-file view — return just that block; otherwise `None`.
+/// If a single fenced code block dominates the Markdown -- the structural signature of a
+/// source-file view -- return just that block; otherwise `None`.
 ///
 /// Keyed ONLY on Markdown shape (one fence that is the bulk of the page and at least a
-/// handful of lines), never on a hostname or any forge's HTML/CSS — so it fires for any
+/// handful of lines), never on a hostname or any forge's HTML/CSS -- so it fires for any
 /// code host and leaves ordinary pages, whose code is a minority of the content, untouched.
 fn strip_to_dominant_code_block(md: &str) -> Option<String> {
     /// A dominant block must be at least this many lines (skip tiny snippets).
     const MIN_BLOCK_LINES: usize = 15;
-    /// …and at least this percent of the page's bytes (a clear majority, so a docs page
+    /// ...and at least this percent of the page's bytes (a clear majority, so a docs page
     /// with a code example or two is never mistaken for a file view).
     const MIN_BLOCK_PERCENT: usize = 55;
 
@@ -910,7 +910,7 @@ fn strip_to_dominant_code_block(md: &str) -> Option<String> {
 }
 
 /// Extract the `charset=` label from a Content-Type header value, e.g.
-/// `text/html; charset=gbk` → `gbk`. Caller passes the (lowercased) header.
+/// `text/html; charset=gbk` -> `gbk`. Caller passes the (lowercased) header.
 fn charset_from_content_type(ct: &str) -> Option<&str> {
     let after = &ct[ct.find("charset=")? + "charset=".len()..];
     let label = after
@@ -921,8 +921,8 @@ fn charset_from_content_type(ct: &str) -> Option<&str> {
     (!label.is_empty()).then_some(label)
 }
 
-/// Sniff the charset from an HTML `<meta charset=…>` or `<meta http-equiv="Content-Type"
-/// content="…; charset=…">` in the document head. Scans the RAW bytes (the charset
+/// Sniff the charset from an HTML `<meta charset=...>` or `<meta http-equiv="Content-Type"
+/// content="...; charset=...">` in the document head. Scans the RAW bytes (the charset
 /// declaration is ASCII, so this is valid before decoding). Returns a label like `gbk`.
 fn charset_from_meta(buf: &[u8]) -> Option<String> {
     let head = &buf[..buf.len().min(4096)];
@@ -938,7 +938,7 @@ fn charset_from_meta(buf: &[u8]) -> Option<String> {
 
 /// Decode the response body honoring its charset: HTTP `Content-Type` charset first, then an
 /// HTML `<meta>` charset, then valid UTF-8, and finally best-effort detection. Fixes mojibake
-/// on legacy-encoded pages (GBK/Big5/…) even when the server omits a charset declaration.
+/// on legacy-encoded pages (GBK/Big5/...) even when the server omits a charset declaration.
 fn decode_body(buf: &[u8], content_type: Option<&str>) -> String {
     let declared = content_type
         .and_then(charset_from_content_type)
@@ -986,7 +986,7 @@ fn is_tag_boundary(next: Option<u8>) -> bool {
     )
 }
 
-/// Remove a tag AND its content (`<script>…</script>`). On a prefix collision emit `<`
+/// Remove a tag AND its content (`<script>...</script>`). On a prefix collision emit `<`
 /// literally and keep scanning; a truly unclosed tag drops to EOF (browser-tolerant).
 fn remove_tag_content(html: &str, tag: &str) -> String {
     let open = format!("<{tag}");
@@ -994,9 +994,9 @@ fn remove_tag_content(html: &str, tag: &str) -> String {
     let mut result = String::with_capacity(html.len());
     let mut pos = 0;
     // ASCII-only lowercase: tag names are ASCII, and `to_ascii_lowercase` is
-    // byte-length-preserving (1 byte → 1 byte, non-ASCII untouched), so offsets found in
+    // byte-length-preserving (1 byte -> 1 byte, non-ASCII untouched), so offsets found in
     // `lower` stay valid for slicing `html`. Full `to_lowercase()` is NOT length-preserving
-    // (e.g. `İ`→`i̇` grows a byte), which drifts the two strings' offsets apart and panics
+    // (e.g. `İ`->`i̇` grows a byte), which drifts the two strings' offsets apart and panics
     // with "byte index out of bounds" on a page containing such a character.
     let lower = html.to_ascii_lowercase();
     loop {
@@ -1026,9 +1026,9 @@ fn replace_tag_with(html: &str, tag: &str, replacement: &str) -> String {
     let open = format!("<{tag}");
     let mut result = String::with_capacity(html.len());
     // ASCII-only lowercase: tag names are ASCII, and `to_ascii_lowercase` is
-    // byte-length-preserving (1 byte → 1 byte, non-ASCII untouched), so offsets found in
+    // byte-length-preserving (1 byte -> 1 byte, non-ASCII untouched), so offsets found in
     // `lower` stay valid for slicing `html`. Full `to_lowercase()` is NOT length-preserving
-    // (e.g. `İ`→`i̇` grows a byte), which drifts the two strings' offsets apart and panics
+    // (e.g. `İ`->`i̇` grows a byte), which drifts the two strings' offsets apart and panics
     // with "byte index out of bounds" on a page containing such a character.
     let lower = html.to_ascii_lowercase();
     let mut pos = 0;
@@ -1049,7 +1049,7 @@ fn replace_tag_with(html: &str, tag: &str, replacement: &str) -> String {
         result.push_str(replacement);
         match html[abs_start..].find('>') {
             Some(gt) => pos = abs_start + gt + 1,
-            None => break, // unclosed tag → drop to EOF (browser-tolerant)
+            None => break, // unclosed tag -> drop to EOF (browser-tolerant)
         }
     }
     result
@@ -1105,9 +1105,9 @@ mod tests {
 
     #[test]
     fn tag_removal_does_not_panic_on_length_changing_lowercase() {
-        // REGRESSION (web_fetch.rs:710 panic): `İ` (U+0130) lowercases to `i̇` (2 bytes →
+        // REGRESSION (web_fetch.rs:710 panic): `İ` (U+0130) lowercases to `i̇` (2 bytes ->
         // 3) under full `to_lowercase()`, so offsets found in the lowercased copy drift PAST
-        // the end of the original `html` → "byte index out of bounds". A page full of such
+        // the end of the original `html` -> "byte index out of bounds". A page full of such
         // chars before a tag reproduces it. With the ASCII-lowercase fix, `İ` is untouched
         // and offsets stay aligned. Assert no panic AND correct removal.
         let prefix = "İ".repeat(1000); // 2000 bytes in html, 3000 in full-lowercase
@@ -1151,7 +1151,7 @@ mod tests {
 
     #[test]
     fn keeps_ordinary_page_with_minor_code_snippet() {
-        // An ordinary article whose code is a minority of the page must be left intact —
+        // An ordinary article whose code is a minority of the page must be left intact --
         // the strip only fires when a fence dominates the page.
         let html = "<h1>Guide</h1>\
                     <p>Lots of prose explaining things in detail. More prose. Even more \
@@ -1192,7 +1192,7 @@ mod tests {
         assert!(is_safe_ip("fd00::1".parse().unwrap()).is_err(), "IPv6 ULA");
         // IPv4-MAPPED (::ffff:a.b.c.d) must be rejected.
         assert!(is_safe_ip("::ffff:127.0.0.1".parse().unwrap()).is_err());
-        // IPv4-COMPATIBLE (::a.b.c.d) must ALSO be rejected — the form `to_ipv4_mapped()`
+        // IPv4-COMPATIBLE (::a.b.c.d) must ALSO be rejected -- the form `to_ipv4_mapped()`
         // missed (regression: `::127.0.0.1` / `::169.254.169.254` slipped through as safe).
         assert!(
             is_safe_ip("::127.0.0.1".parse().unwrap()).is_err(),
@@ -1202,14 +1202,14 @@ mod tests {
             is_safe_ip("::169.254.169.254".parse().unwrap()).is_err(),
             "IPv4-compatible metadata"
         );
-        // A real public IP is allowed (genuine public v6 yields None from to_ipv4 → no false reject).
+        // A real public IP is allowed (genuine public v6 yields None from to_ipv4 -> no false reject).
         assert!(is_safe_ip("1.1.1.1".parse().unwrap()).is_ok());
         assert!(is_safe_ip("2606:4700:4700::1111".parse().unwrap()).is_ok());
     }
 
     #[tokio::test]
     async fn validate_host_literal_ip_pins_nothing() {
-        // A literal-IP host has no DNS to rebind → returns an empty pin set so the caller
+        // A literal-IP host has no DNS to rebind -> returns an empty pin set so the caller
         // dials the URL's address directly. A safe literal IP must pass.
         let pinned = validate_host(&Url::parse("http://1.1.1.1/x").unwrap())
             .await
@@ -1232,7 +1232,7 @@ mod tests {
                 self.1.as_deref().map(|e| e as &dyn std::error::Error)
             }
         }
-        // Opaque top layer + the real cause underneath (mirrors reqwest → hyper → rustls).
+        // Opaque top layer + the real cause underneath (mirrors reqwest -> hyper -> rustls).
         let e = E(
             "error sending request for url (https://x)",
             Some(Box::new(E("tls handshake eof", None))),
@@ -1281,7 +1281,7 @@ mod tests {
         assert_eq!(ct.as_deref(), Some("text/html; charset=utf-8"));
         assert_eq!(body, b"<html>hi</html>");
 
-        // curl's `(nil)` content_type → None; no marker → None.
+        // curl's `(nil)` content_type -> None; no marker -> None.
         let mut out2 = b"raw".to_vec();
         out2.extend_from_slice(CURL_META_MARKER.as_bytes());
         out2.extend_from_slice(b"404\t(nil)");
@@ -1293,7 +1293,7 @@ mod tests {
 
     #[test]
     fn render_body_renders_html_and_guards_status_empty() {
-        // HTML → text.
+        // HTML -> text.
         let r = render_body(
             "https://x/doc",
             200,
@@ -1413,11 +1413,11 @@ mod tests {
         assert!(OutputFormat::from_arg(Some("")) == OutputFormat::Text);
         assert!(
             OutputFormat::from_arg(None) == OutputFormat::Text,
-            "omitted → text default"
+            "omitted -> text default"
         );
         assert!(
             OutputFormat::from_arg(Some("xml")) == OutputFormat::Text,
-            "unknown → text"
+            "unknown -> text"
         );
     }
 
@@ -1428,8 +1428,8 @@ mod tests {
             <p>See <a href=\"https://example.com/doc\">the docs</a> for more.</p>\
             </body></html>";
         let md = html_to_markdown(html);
-        assert!(md.contains("# Title"), "h1 → #: {md}");
-        assert!(md.contains("## Sub"), "h2 → ##: {md}");
+        assert!(md.contains("# Title"), "h1 -> #: {md}");
+        assert!(md.contains("## Sub"), "h2 -> ##: {md}");
         assert!(
             md.contains("[the docs](https://example.com/doc)"),
             "link preserved: {md}"
@@ -1458,13 +1458,13 @@ mod tests {
             "<body><script>evil()</script><p><strong>bold</strong> and <em>it</em></p></body>";
         let md = html_to_markdown(html);
         assert!(!md.contains("evil()"), "script removed: {md}");
-        assert!(md.contains("**bold**"), "strong → **: {md}");
-        assert!(md.contains("*it*"), "em → *: {md}");
+        assert!(md.contains("**bold**"), "strong -> **: {md}");
+        assert!(md.contains("*it*"), "em -> *: {md}");
     }
 
     #[test]
     fn markdown_anchor_without_href_keeps_text() {
-        // An <a> with no href must not emit empty `[]( )` brackets — just the text.
+        // An <a> with no href must not emit empty `[]( )` brackets -- just the text.
         let md = html_to_markdown("<p>click <a>here</a> now</p>");
         assert!(md.contains("here"), "anchor text kept: {md}");
         assert!(

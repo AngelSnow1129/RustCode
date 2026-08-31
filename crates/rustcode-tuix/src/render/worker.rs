@@ -1,6 +1,6 @@
 // crates/rustcode-tuix/src/render/worker.rs
 //
-// Render worker — moves terminal I/O off the main event loop.
+// Render worker -- moves terminal I/O off the main event loop.
 //
 // ## Why
 //
@@ -21,14 +21,14 @@
 // ## Sync vs. async lifecycle
 //
 // Most render calls are fire-and-forget: `render(UiLine)` just enqueues.
-// Lifecycle methods that must complete before the caller proceeds —
+// Lifecycle methods that must complete before the caller proceeds --
 // `reset`, `clear_screen`, `suspend_for_external`, `resume_from_external`,
-// `shutdown` — send a command with an ACK oneshot channel and block
+// `shutdown` -- send a command with an ACK oneshot channel and block
 // until the worker reports done. The `/login` OAuth flow for example
 // can't tolerate "renderer hasn't flipped raw mode yet" when the child
 // process opens the browser.
 //
-// `flush` and `flush_deferred` are fire-and-forget (no ACK) — order is
+// `flush` and `flush_deferred` are fire-and-forget (no ACK) -- order is
 // preserved because all commands travel the same channel.
 //
 // ## Shutdown
@@ -111,7 +111,7 @@ enum RenderCmd {
     /// Re-emit the retained terminal projection after focus recovery even if
     /// the logical widget state is unchanged.
     ForceRepaint,
-    /// Terminal resize — fire-and-forget, the worker updates its
+    /// Terminal resize -- fire-and-forget, the worker updates its
     /// internal DECSTBM region and repaints the footer.
     Resize {
         cols: u16,
@@ -138,7 +138,7 @@ enum RenderCmd {
         surface_session: u64,
     },
     /// Jump body viewport to the prev/next message boundary.
-    /// Fire-and-forget — no ACK needed.
+    /// Fire-and-forget -- no ACK needed.
     ScrollToPrevMessage,
     ScrollToNextMessage,
     ScrollToPrevUserMessage,
@@ -155,12 +155,12 @@ enum RenderCmd {
     /// Suppress / restore automatic clipboard copy during history replay
     /// (issue #699 P1-1). Fire-and-forget.
     SetSuppressAutoCopy(bool),
-    /// Set the terminal window/tab title. Fire-and-forget — routed through
+    /// Set the terminal window/tab title. Fire-and-forget -- routed through
     /// the worker so the OSC bytes serialize with every other stdout write
     /// (the worker owns stdout; writing from the event-loop thread would
     /// risk interleaving mid-escape-sequence).
     SetTitle(String),
-    /// Lifecycle operation requiring an ACK — the worker performs the
+    /// Lifecycle operation requiring an ACK -- the worker performs the
     /// op then sends `()` back so the caller can proceed.
     Ack {
         op: AckOp,
@@ -181,7 +181,7 @@ enum AckOp {
 
 /// Renderer facade that forwards every call to a background OS thread.
 /// Implements the `Renderer` trait so the event loop can use it as a
-/// drop-in replacement for `AnsiRenderer` / `PlainRenderer` — the wire
+/// drop-in replacement for `AnsiRenderer` / `PlainRenderer` -- the wire
 /// protocol is the same `UiLine` enum.
 pub struct TaskRenderer {
     cmd_tx: mpsc::Sender<RenderCmd>,
@@ -190,12 +190,12 @@ pub struct TaskRenderer {
     interaction_surface_session: u64,
     /// Coalesces the 5ms `FlushDeferred` heartbeat: `true` means one is already
     /// queued and undrained, so we skip enqueuing another. Without this, when the
-    /// worker's terminal write blocks — classically the Windows console pausing
-    /// output in QuickEdit/mark-selection mode — the ~200/sec heartbeat piles
+    /// worker's terminal write blocks -- classically the Windows console pausing
+    /// output in QuickEdit/mark-selection mode -- the ~200/sec heartbeat piles
     /// unbounded `FlushDeferred`s into the channel until allocation fails and the
     /// `panic = "abort"` build fast-fails (Windows reports it as a "stack-based
     /// buffer overrun"). A flush is idempotent, so collapsing redundant ones is
-    /// visually lossless — the single queued flush paints the latest state.
+    /// visually lossless -- the single queued flush paints the latest state.
     flush_pending: Arc<AtomicBool>,
     /// Join handle for the worker thread; `Some` until `Drop` takes it
     /// to `join()`.
@@ -245,7 +245,7 @@ impl TaskRenderer {
     /// debug builds enough headroom that routine lifecycle ops don't
     /// spuriously timeout.
     ///
-    /// 2s was the original budget — a worker processing `Shutdown`
+    /// 2s was the original budget -- a worker processing `Shutdown`
     /// normally takes < 1ms, so 2s felt like plenty. But on a loaded
     /// CI runner mid-cargo-test, a few tests would sporadically fail
     /// on the timeout line because the OS hadn't scheduled the worker
@@ -264,7 +264,7 @@ impl TaskRenderer {
             })
             .is_err()
         {
-            // Worker is gone (already shut down) — nothing to do.
+            // Worker is gone (already shut down) -- nothing to do.
             return;
         }
         let _ = ack_rx.recv_timeout(Duration::from_secs(10));
@@ -356,7 +356,7 @@ impl Renderer for TaskRenderer {
 
     fn flush_deferred(&mut self) {
         // Only enqueue if none is already pending (coalesce the 5ms heartbeat).
-        // See `flush_pending` — prevents unbounded channel growth when the
+        // See `flush_pending` -- prevents unbounded channel growth when the
         // worker's write is stalled (Windows console pause).
         if !self.flush_pending.swap(true, Ordering::AcqRel) {
             let _ = self.cmd_tx.send(RenderCmd::FlushDeferred);
@@ -424,7 +424,7 @@ impl Renderer for TaskRenderer {
 
 impl Drop for TaskRenderer {
     fn drop(&mut self) {
-        // Idempotent shutdown — `Renderer::shutdown` may have already
+        // Idempotent shutdown -- `Renderer::shutdown` may have already
         // run, in which case the worker is already gone and this call
         // is a no-op (ack() swallows the send error).
         self.ack(AckOp::Shutdown);
@@ -635,7 +635,7 @@ fn run_worker(
                             t0.elapsed().as_micros()
                         );
                         let _ = ack.send(());
-                        // Exit the loop — drop `inner` + `cmd_rx`.
+                        // Exit the loop -- drop `inner` + `cmd_rx`.
                         // Any queued commands after this point are
                         // discarded (the sender's next send errors,
                         // which callers treat as "worker gone").
@@ -650,17 +650,17 @@ fn run_worker(
         // Trailing-edge footer repair: if the command just processed scrolled
         // the whole viewport (an overflow LF lifts the footer up one row),
         // repaint the footer NOW rather than waiting for the event loop's next
-        // ~5ms FlushDeferred — which lags, and starves under streaming load,
+        // ~5ms FlushDeferred -- which lags, and starves under streaming load,
         // and is exposed on hosts that don't vsync-coalesce (native Win10
         // conhost / pwsh7). Only fires on a real body scroll: InputPrompt / IME
         // bursts never scroll, so their coalescing on the deferred tick is
-        // unaffected. A multi-row render sets the flag once → ONE flush here,
+        // unaffected. A multi-row render sets the flag once -> ONE flush here,
         // not one per row. flush_deferred is a no-op when nothing is dirty.
         if inner.take_pending_scroll_flush() {
             inner.flush_deferred();
         }
     }
-    // Sender dropped without explicit Shutdown — still run shutdown so
+    // Sender dropped without explicit Shutdown -- still run shutdown so
     // the terminal isn't left in raw mode on abrupt exit paths.
     inner.shutdown();
 }
@@ -714,7 +714,7 @@ mod tests {
     use crate::render::Renderer;
     use std::sync::{Arc, Condvar, Mutex};
 
-    /// Counting test renderer — records every call so tests can assert
+    /// Counting test renderer -- records every call so tests can assert
     /// the worker forwards correctly.
     #[derive(Default)]
     struct Counts {
@@ -1036,7 +1036,7 @@ mod tests {
         r.begin_sync();
         r.render(UiLine::User("replayed".into()));
         r.end_sync();
-        // reset() is an ACK op — blocks until the worker has drained the
+        // reset() is an ACK op -- blocks until the worker has drained the
         // three earlier commands, so the counts are settled when it returns.
         r.reset();
         let c = counts.lock().unwrap();
@@ -1060,7 +1060,7 @@ mod tests {
     #[test]
     fn lifecycle_ack_blocks_until_worker_done() {
         let (mut r, counts) = setup();
-        // Chain several lifecycle ACKs — each must complete in order
+        // Chain several lifecycle ACKs -- each must complete in order
         // before the next returns.
         r.clear_screen();
         assert_eq!(counts.lock().unwrap().clear_screens, 1);
@@ -1103,7 +1103,7 @@ mod tests {
         r.render(UiLine::User("before".into()));
         r.shutdown();
         assert_eq!(counts.lock().unwrap().shutdowns, 1);
-        // Worker is gone — these must not panic, even though no one is
+        // Worker is gone -- these must not panic, even though no one is
         // listening on the channel anymore.
         r.render(UiLine::User("after".into()));
         r.flush();
@@ -1121,7 +1121,7 @@ mod tests {
             let mut r = TaskRenderer::new(inner);
             r.render(UiLine::User("one".into()));
             counts
-            // r dropped here — Drop must shut the worker down + join.
+            // r dropped here -- Drop must shut the worker down + join.
         };
         // By the time Drop returns, the worker has finished, so the
         // render AND one shutdown are accounted for.
@@ -1134,7 +1134,7 @@ mod tests {
     fn flush_deferred_fire_and_forget() {
         let (mut r, counts) = setup();
         r.flush_deferred();
-        // No ACK on flush_deferred — have to fence with a separate ACK
+        // No ACK on flush_deferred -- have to fence with a separate ACK
         // to observe it deterministically.
         r.reset();
         assert_eq!(counts.lock().unwrap().deferred, 1);

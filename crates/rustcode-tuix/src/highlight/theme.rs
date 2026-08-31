@@ -1,8 +1,8 @@
 // crates/rustcode-tuix/src/highlight/theme.rs
 //
 // Theme-aware SGR sequences for markdown inline elements (headings,
-// inline code, bold/italic, muted chrome). Two variants — `dark` and
-// `light` — selected at startup from `Config::ui.theme` via
+// inline code, bold/italic, muted chrome). Two variants -- `dark` and
+// `light` -- selected at startup from `Config::ui.theme` via
 // `set_theme_mode()`. Constants that don't change between themes
 // (RESET, bold/italic attribute toggles, muted SGR 90) stay as plain
 // `pub const &str`.
@@ -10,7 +10,7 @@
 // History: this module used to also expose per-token colour accessors
 // for the syntect-driven code-block highlighter (`keyword()`, `string()`,
 // `function()`, etc.). Those were removed when per-token colouring in
-// code blocks was dropped — macOS Terminal.app's semi-transparent grey
+// code blocks was dropped -- macOS Terminal.app's semi-transparent grey
 // selection overlay made truecolor tokens unreadable inside selections.
 // See `highlight::highlight_block`'s doc for the full rationale. Git
 // history retains the removed accessors and their palettes.
@@ -78,8 +78,8 @@ pub fn is_light_for_render() -> bool {
 /// Historically this was `"\x1b[23;39m"` (italic off + default fg only)
 /// to minimise emitted bytes. That under-cleared: any upstream UI chrome
 /// that left `reverse` (SGR 7), `bold` (SGR 1), or `faint` (SGR 2) on
-/// the working style — e.g. the ApprovalPrompt Y chip or the top-rule
-/// session pill — leaked across token boundaries inside
+/// the working style -- e.g. the ApprovalPrompt Y chip or the top-rule
+/// session pill -- leaked across token boundaries inside
 /// `parse_markdown_to_cells`, baking those bits onto syntect-coloured
 /// cells. On Terminal.app this rendered as solid coloured blocks at
 /// Number/String token positions (fg-as-bg with default-fg glyph); iTerm2
@@ -94,7 +94,7 @@ pub const RESET: &str = "\x1b[0m";
 
 /// Heading H1-H3.
 /// `dark`: bold + bright cyan (SGR 1;96, matches `Palette::ACCENT`).
-/// `light`: bold + bright blue (SGR 1;94) — bright cyan renders too pale
+/// `light`: bold + bright blue (SGR 1;94) -- bright cyan renders too pale
 /// on white in most light-theme terminal profiles; blue still maps to a
 /// dark, readable variant on light profiles.
 pub fn md_heading_open() -> &'static str {
@@ -108,12 +108,12 @@ pub fn md_heading_open() -> &'static str {
 /// Close heading: bold off + fg default (SGR 22;39). Theme-invariant.
 pub const MD_HEADING_CLOSE: &str = "\x1b[22;39m";
 
-/// Inline code — NOT bold. Bold + bright cyan made every `` `code` `` span in
+/// Inline code -- NOT bold. Bold + bright cyan made every `` `code` `` span in
 /// dense prose flare (and rendered harshly on terminals that don't soften
 /// bright cyan); weight is reserved for `**bold**`. Color alone marks it as
 /// code, calmly and consistently across terminals.
 /// `dark`: bright cyan (matches headings, minus the bold).
-/// `light`: standard magenta (SGR 35) — distinct from headings, readable on white.
+/// `light`: standard magenta (SGR 35) -- distinct from headings, readable on white.
 pub fn md_inline_code_open() -> &'static str {
     if is_light() {
         "\x1b[35m"
@@ -125,7 +125,7 @@ pub fn md_inline_code_open() -> &'static str {
 /// Close inline code: bold off + fg default. Theme-invariant.
 pub const MD_INLINE_CODE_CLOSE: &str = "\x1b[22;39m";
 
-/// Bold text: SGR 1 (bold on). Theme-invariant — bold is an attribute,
+/// Bold text: SGR 1 (bold on). Theme-invariant -- bold is an attribute,
 /// not a colour.
 pub const MD_BOLD_OPEN: &str = "\x1b[1m";
 pub const MD_BOLD_CLOSE: &str = "\x1b[22m";
@@ -137,15 +137,15 @@ pub const MD_ITALIC_CLOSE: &str = "\x1b[23m";
 /// Muted / structural chrome (list markers): bright black / dark grey
 /// (SGR 90). Adequate as a small accent glyph next to bright text on
 /// either background. NOTE: NOT adequate for large structures like table
-/// grids on dark themes — those use the theme-aware [`md_border_open`].
+/// grids on dark themes -- those use the theme-aware [`md_border_open`].
 /// List markers use the theme-aware [`md_marker_open`] for the same reason.
 pub const MD_MUTED_OPEN: &str = "\x1b[90m";
 pub const MD_MUTED_CLOSE: &str = "\x1b[39m";
 
-/// List-marker (• / `1.`) colour — theme-aware, unlike the fixed
+/// List-marker (* / `1.`) colour -- theme-aware, unlike the fixed
 /// [`MD_MUTED_OPEN`]. Light themes keep SGR 90 (readable mid-gray on
 /// white, ~4.5:1); dark themes switch to SGR 37 (soft light-gray) because
-/// a fixed SGR 90 collapses to ~`#3F3F3F` (~3:1) against dark backgrounds —
+/// a fixed SGR 90 collapses to ~`#3F3F3F` (~3:1) against dark backgrounds --
 /// the same "invisible until selected" contrast bug table borders had
 /// (see [`md_border_open`]), and the reported cause of ordered-list
 /// numbers being unreadable until the text was selected (Issue #1426).
@@ -157,13 +157,13 @@ pub fn md_marker_open() -> &'static str {
     }
 }
 
-/// Table-border / structural-rule colour — theme-aware, unlike the fixed
-/// [`MD_MUTED_OPEN`]. Light themes: SGR 90 (bright-black → mid-gray,
-/// ~4.5:1 on white). Dark themes: SGR 90 maps to ~`#3F3F3F` (~3:1 — the
+/// Table-border / structural-rule colour -- theme-aware, unlike the fixed
+/// [`MD_MUTED_OPEN`]. Light themes: SGR 90 (bright-black -> mid-gray,
+/// ~4.5:1 on white). Dark themes: SGR 90 maps to ~`#3F3F3F` (~3:1 -- the
 /// whole grid is swallowed by the background, the "table lines invisible
-/// until selected" bug), so use SGR 37 (regular white → soft light-gray),
+/// until selected" bug), so use SGR 37 (regular white -> soft light-gray),
 /// the shade `Palette::MUTED_DARK` uses for text. `parse_markdown_to_cells`
-/// maps SGR 37 → `Color::Grey`; close with [`MD_MUTED_CLOSE`] (SGR 39,
+/// maps SGR 37 -> `Color::Grey`; close with [`MD_MUTED_CLOSE`] (SGR 39,
 /// reset fg) on both themes.
 pub fn md_border_open() -> &'static str {
     if is_light() {
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn close_codes_are_theme_invariant() {
         // Close codes only manipulate SGR attributes (bold off / italic
-        // off / fg default), never set a colour — should be identical
+        // off / fg default), never set a colour -- should be identical
         // regardless of theme.
         assert_eq!(MD_HEADING_CLOSE, "\x1b[22;39m");
         assert_eq!(MD_INLINE_CODE_CLOSE, "\x1b[22;39m");

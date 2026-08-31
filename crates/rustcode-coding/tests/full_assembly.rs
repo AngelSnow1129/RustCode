@@ -1,9 +1,9 @@
-//! C1 — the FULL assembly, end to end against a scripted provider and an isolated
+//! C1 -- the FULL assembly, end to end against a scripted provider and an isolated
 //! `$RUSTCODE_HOME`. One sequential test fn (the env var is process-global; parallel
 //! tests would race it) walking the whole lifecycle:
 //!
-//!   fresh prepare → memory injected → turn persists snapshot/meta/jsonl →
-//!   resume continues the SAME session (turn_id monotonic across processes) →
+//!   fresh prepare -> memory injected -> turn persists snapshot/meta/jsonl ->
+//!   resume continues the SAME session (turn_id monotonic across processes) ->
 //!   respawn on the SAME parts preserves allow-always approval grants.
 
 use std::sync::Arc;
@@ -77,7 +77,7 @@ async fn drive(
 #[tokio::test]
 async fn full_assembly_lifecycle() {
     // ---- Isolated world: $RUSTCODE_HOME + a project dir, both temp. Skill dirs
-    // are pinned to a temp dir too — the home-based default would scan the HOST
+    // are pinned to a temp dir too -- the home-based default would scan the HOST
     // machine's real ~/.claude/skills and leak host state into this test.
     let home = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
@@ -125,7 +125,7 @@ async fn full_assembly_lifecycle() {
         }
     }
 
-    // Leading-system run order: persona → SESSION CONTEXT → MEMORY, all BEFORE the user.
+    // Leading-system run order: persona -> SESSION CONTEXT -> MEMORY, all BEFORE the user.
     {
         let calls = calls1.lock().unwrap();
         let first = &calls[0].0;
@@ -155,8 +155,8 @@ async fn full_assembly_lifecycle() {
             Role::User,
             "round 1 ends at the user turn"
         );
-        // Scope to USER messages: the reminder is a user-role tail. (The persona — a System
-        // message — legitimately *mentions* the `<system-reminder>` tag to explain it, so a
+        // Scope to USER messages: the reminder is a user-role tail. (The persona -- a System
+        // message -- legitimately *mentions* the `<system-reminder>` tag to explain it, so a
         // blanket text search would false-positive on the persona.)
         assert!(
             !first
@@ -184,7 +184,7 @@ async fn full_assembly_lifecycle() {
     );
 
     // ===== Phase 2: RESPAWN on the SAME parts (model swap) continues the session ====
-    // assemble() reloads the latest on-disk snapshot for a session-bound parts — a
+    // assemble() reloads the latest on-disk snapshot for a session-bound parts -- a
     // plain re-assemble can never rewind a live session (the review's must-fix).
     let provider1b = Arc::new(RecordingProvider::new(vec![text_turn("post-swap answer")]));
     let calls1b = provider1b.calls();
@@ -255,7 +255,7 @@ async fn full_assembly_lifecycle() {
     assert_eq!(
         turn_ids,
         vec![1, 2, 3],
-        "turn ids continue across respawn AND resume — no duplicate keys"
+        "turn ids continue across respawn AND resume -- no duplicate keys"
     );
 
     // ============== Phase 4: respawn on the SAME parts keeps approval grants ======
@@ -288,7 +288,7 @@ async fn full_assembly_lifecycle() {
     let _ = h3.task.await;
 
     // RESPAWN (model swap) on the SAME parts: the identical risky call must NOT ask
-    // again — the grant store survives because the approval handle lives in parts.
+    // again -- the grant store survives because the approval handle lives in parts.
     let provider4 = Arc::new(RecordingProvider::new(vec![
         vec![
             StreamEvent::ToolCall(risky()),

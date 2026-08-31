@@ -27,12 +27,12 @@ pub struct PluginEntry {
 /// Plugin source spec. Mirrors Claude Code's marketplace schema.
 ///
 /// Three wire forms are accepted via untagged deserialization:
-///   1. A plain string → inline path inside the marketplace clone (e.g. "./",
+///   1. A plain string -> inline path inside the marketplace clone (e.g. "./",
 ///      "plugins/foo"). This is the historical RustCode form.
 ///   2. A tagged object `{"source": "url"|"git"|"github"|"git-subdir"|"local",
 ///      ...}` describing an external location to clone/copy into the plugin's
 ///      own install directory.
-///   3. Anything else (e.g. a future `{"source":"npm",...}`) → `Unknown`. This
+///   3. Anything else (e.g. a future `{"source":"npm",...}`) -> `Unknown`. This
 ///      keeps one unrecognised entry from failing the whole catalog parse
 ///      (see anthropics/claude-plugins-official#585, where a `git-subdir`
 ///      entry broke clients that only knew the older tags).
@@ -61,7 +61,7 @@ pub enum ExternalSource {
         #[serde(flatten)]
         pin: GitPin,
     },
-    /// Alias for `url` — Claude Code accepts both spellings.
+    /// Alias for `url` -- Claude Code accepts both spellings.
     Git {
         url: String,
         #[serde(flatten)]
@@ -103,7 +103,7 @@ pub struct GitPin {
 /// `<plugin-dir>/.claude-plugin/plugin.json`). All fields optional.
 ///
 /// Schema is the union of rustcode's original layout and Claude Code's
-/// embedded format — both `skills: "skills"` (string path) and
+/// embedded format -- both `skills: "skills"` (string path) and
 /// `skills: ["./skills"]` (CC array form) parse, ditto for `hooks` which
 /// can be either a path string (legacy) or an embedded CC hooks object.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -115,7 +115,7 @@ pub struct PluginManifest {
     #[serde(default)]
     pub description: Option<String>,
     /// Path to the skills directory. Accepts a single path or a CC-style
-    /// array (we use the first entry — multi-dir merging is a follow-up).
+    /// array (we use the first entry -- multi-dir merging is a follow-up).
     #[serde(default)]
     pub skills: Option<PathOrList>,
     /// Path to commands directory. Same dual shape as `skills`.
@@ -223,7 +223,7 @@ impl PluginManifest {
     }
     /// Path to a legacy `hooks.json`. Returns the default "hooks.json" both
     /// when the field is absent AND when it is the inline CC form (which has
-    /// no associated path on disk — its hooks come from the manifest itself).
+    /// no associated path on disk -- its hooks come from the manifest itself).
     pub fn hooks_path(&self) -> &str {
         match &self.hooks {
             Some(HooksField::Path(p)) => p.as_str(),
@@ -241,7 +241,7 @@ impl PluginManifest {
 }
 
 /// Try to load a marketplace manifest from a marketplace clone root.
-/// Order: `.rustcode-plugin/marketplace.json` → `.claude-plugin/marketplace.json`.
+/// Order: `.rustcode-plugin/marketplace.json` -> `.claude-plugin/marketplace.json`.
 /// Returns `Ok(None)` when neither file exists (single-plugin fallback caller).
 /// Returns `Err` when a file exists but cannot be parsed (fail closed).
 pub fn load_marketplace_manifest(marketplace_root: &Path) -> Result<Option<MarketplaceManifest>> {
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn unknown_source_type_becomes_unknown_variant() {
-        // A future/unsupported tag (e.g. `npm`) must not error — it lands in
+        // A future/unsupported tag (e.g. `npm`) must not error -- it lands in
         // PluginSource::Unknown so the catalog still parses.
         let raw = r#"{"name":"p","source":{"source":"npm","package":"@x/y"}}"#;
         let e: PluginEntry = serde_json::from_str(raw).unwrap();

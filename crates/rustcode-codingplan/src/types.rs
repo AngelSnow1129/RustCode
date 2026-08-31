@@ -9,7 +9,7 @@ use serde::{Deserialize, Deserializer};
 
 /// Treat both missing and explicit-null JSON values as the type's
 /// `Default::default()`. Plain `#[serde(default)]` only fires for
-/// missing fields — explicit `null` would still try to deserialize
+/// missing fields -- explicit `null` would still try to deserialize
 /// against the target type and fail (e.g. "invalid type: null,
 /// expected a string"). The CodingPlan status endpoint sends `null`
 /// for `claimed_at` / `expires_at` when a freshly-claimed plan has
@@ -44,13 +44,13 @@ impl PlanType {
     }
 
     /// Cascade order: highest tier first. Used by `step_claim` to walk
-    /// `Max → Pro → Lite` and stop at the first successful claim.
+    /// `Max -> Pro -> Lite` and stop at the first successful claim.
     pub const CASCADE_ORDER: &'static [PlanType] = &[PlanType::Max, PlanType::Pro, PlanType::Lite];
 
     /// Best-effort map of a `StatusResponse.codingplan_free.plan_name`
     /// (e.g. `"CodingPlan Lite"` / `"CodingPlan Pro"` / `"CodingPlan Max"`)
     /// back to the tier. Used so the drift monitor can query
-    /// `models-v2?plan_type=` with the user's **actual** tier — `plan_available`
+    /// `models-v2?plan_type=` with the user's **actual** tier -- `plan_available`
     /// is computed relative to the requested tier (see `ModelEntry`), so
     /// querying `Max` for a Lite user wrongly marks higher-tier models
     /// available and fires a permanent "list updated" false positive.
@@ -106,10 +106,10 @@ pub struct ClaimResponse {
 ///
 /// Every field is `#[serde(default)]` so an older server that
 /// omits a key still deserialises (rustcode falls back to the
-/// constants in `coding_plan::setup` — `LLM_BASE_URL`,
+/// constants in `coding_plan::setup` -- `LLM_BASE_URL`,
 /// `PROVIDER_TYPE`, `MIN_CONTEXT_WINDOW`). The eligibility check
 /// (whether the user's plan tier actually covers this model)
-/// lives in `plan_available`, the server-side decision —
+/// lives in `plan_available`, the server-side decision --
 /// `is_infinity` and `is_rustcode_exclusive` are flagged
 /// for metadata / future routing.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -117,7 +117,7 @@ pub struct ModelEntry {
     #[serde(default)]
     pub id: i64,
     /// Unlimited-quota flag (`2` = unlimited, else gated). Server
-    /// metadata; rustcode doesn't act on it — `plan_available`
+    /// metadata; rustcode doesn't act on it -- `plan_available`
     /// already encodes whether the current user can call this
     /// model. Kept on the struct for forward-compat with whatever
     /// the server eventually surfaces via this field.
@@ -133,14 +133,14 @@ pub struct ModelEntry {
     /// builds) falls back to `coding_plan::setup::LLM_BASE_URL`.
     #[serde(default)]
     pub base_url: Option<String>,
-    /// Provider type — `"openai"` / `"claude"` / `"ollama"`. Renamed
+    /// Provider type -- `"openai"` / `"claude"` / `"ollama"`. Renamed
     /// via serde because `type` is a Rust keyword. `None` falls
-    /// back to `coding_plan::setup::PROVIDER_TYPE` (`"openai"` — the
+    /// back to `coding_plan::setup::PROVIDER_TYPE` (`"openai"` -- the
     /// AtomGit gateway is OpenAI-compatible by default).
     #[serde(default, rename = "type")]
     pub provider_type: Option<String>,
     /// Per-model context window in tokens. Floored at
-    /// `coding_plan::setup::MIN_CONTEXT_WINDOW` (128k) — a smaller or missing
+    /// `coding_plan::setup::MIN_CONTEXT_WINDOW` (128k) -- a smaller or missing
     /// server value is raised to that floor, a larger one is kept. Letting the
     /// server drive this lets bigger models (e.g. Claude 200k) avoid being
     /// silently truncated.
@@ -154,7 +154,7 @@ pub struct ModelEntry {
     pub supports_vision: Option<bool>,
     /// `true` iff the user's current plan tier (the one their `claim-v2`
     /// succeeded on) covers this model. `false` means it's a higher-tier
-    /// model — show with strikethrough but DON'T register as a provider
+    /// model -- show with strikethrough but DON'T register as a provider
     /// since switching to it would 403 on every request.
     #[serde(default)]
     pub plan_available: bool,
@@ -179,7 +179,7 @@ pub struct ModelEntry {
     /// Prefer sending an env reference (`"$LLM_GATEWAY_KEY"`) over a literal.
     /// The value lands in the user's `config.toml`, and
     /// [`ProviderConfig::resolved_api_key`](rustcode_config::config::provider::ProviderConfig::resolved_api_key)
-    /// expands `$VAR` at request time — so a reference keeps the secret out of
+    /// expands `$VAR` at request time -- so a reference keeps the secret out of
     /// a file that is read, copied and pasted into bug reports.
     #[serde(default)]
     pub api_key: Option<String>,
@@ -250,7 +250,7 @@ pub struct PlanInfo {
     pub plan_name: String,
     #[serde(default)]
     pub status: i32,
-    /// Backend sends JSON `null` for unactivated claims — must absorb
+    /// Backend sends JSON `null` for unactivated claims -- must absorb
     /// it as empty string, not error out parsing.
     #[serde(default, deserialize_with = "null_to_default")]
     pub claimed_at: String,
@@ -281,7 +281,7 @@ pub struct UsageInfo {
     // Backend sends JSON `null` for these four String fields when the
     // window hasn't accumulated usage yet (freshly-claimed plan, just
     // after a window reset, etc.). Plain `#[serde(default)]` only
-    // fires on *missing* fields — explicit `null` would still try to
+    // fires on *missing* fields -- explicit `null` would still try to
     // deserialize against `String` and blow up the whole response
     // with `invalid type: null, expected a string`. Mirror the
     // `PlanInfo.claimed_at` / `expires_at` pattern above.
@@ -309,7 +309,7 @@ impl UsageInfo {
             return self.usage_status_desc.clone();
         }
         let pct = if self.window_token_limit > 0 {
-            // Prefer the backend-computed percent when available —
+            // Prefer the backend-computed percent when available --
             // it can carry rounding decisions we don't want to
             // duplicate. Only compute from tokens if that's also
             // missing.
@@ -355,7 +355,7 @@ mod tests {
     /// `plan_available=false` (model exists but locked behind a higher
     /// plan tier) must round-trip cleanly. The renderer relies on this
     /// field to apply the strikethrough; if missing it defaults to
-    /// `false` (conservative — locked rather than incorrectly unlocked).
+    /// `false` (conservative -- locked rather than incorrectly unlocked).
     #[test]
     fn model_entry_locked_round_trips() {
         let body = r#"{
@@ -370,7 +370,7 @@ mod tests {
     }
 
     /// PlanType wire form must match the literal strings the v2
-    /// endpoints accept — case-sensitive, no internal aliasing.
+    /// endpoints accept -- case-sensitive, no internal aliasing.
     /// Cascade order is the contract `step_claim` walks Max-first.
     #[test]
     fn plan_type_wire_form_and_cascade() {
@@ -406,7 +406,7 @@ mod tests {
             PlanType::from_plan_name("codingplan lite"),
             Some(PlanType::Lite)
         );
-        // Unrecognised tiers (Free / empty / junk) → None so the caller skips
+        // Unrecognised tiers (Free / empty / junk) -> None so the caller skips
         // rather than defaulting to Max and re-introducing the false positive.
         assert_eq!(PlanType::from_plan_name("CodingPlan Free"), None);
         assert_eq!(PlanType::from_plan_name(""), None);
@@ -476,9 +476,9 @@ mod tests {
     }
 
     /// `display_desc` prefers the backend-supplied localised string
-    /// when present — that's the contract the `/status` and
+    /// when present -- that's the contract the `/status` and
     /// `/codingplan` renderers rely on for the unified
-    /// `Usage: {desc}  ·  resets ...` line.
+    /// `Usage: {desc}  .  resets ...` line.
     #[test]
     fn display_desc_prefers_backend_supplied_text() {
         let u = UsageInfo {
@@ -515,7 +515,7 @@ mod tests {
         assert_eq!(u.display_desc(), "当前时间窗口用量约 25%");
     }
 
-    /// Edge: zero limit shouldn't divide-by-zero — reports 0%.
+    /// Edge: zero limit shouldn't divide-by-zero -- reports 0%.
     #[test]
     fn display_desc_handles_zero_limit() {
         let u = blank_usage();
@@ -531,7 +531,7 @@ mod tests {
     }
 
     /// Newer gateway returns the user's actual plan name alongside the
-    /// claim booleans — captured so the renderer can show the real plan
+    /// claim booleans -- captured so the renderer can show the real plan
     /// ("CodingPlan Pro") rather than the requested cascade tier ("Max").
     #[test]
     fn claim_response_parses_plan_name() {
@@ -540,7 +540,7 @@ mod tests {
         assert_eq!(c.plan_name, "CodingPlan Pro");
     }
 
-    /// Legacy gateway omits `plan_name` — must default to empty (not a
+    /// Legacy gateway omits `plan_name` -- must default to empty (not a
     /// deserialize error), so old servers keep working.
     #[test]
     fn claim_response_plan_name_defaults_empty_on_legacy_gateway() {
@@ -605,9 +605,9 @@ mod tests {
     /// Regression: when a fresh claim hasn't propagated to the status
     /// endpoint yet, the backend returns `status: 0` with `claimed_at`
     /// and `expires_at` as JSON `null`. Plain `#[serde(default)]` only
-    /// fires for *missing* fields, not explicit nulls — so the parser
+    /// fires for *missing* fields, not explicit nulls -- so the parser
     /// would blow up with "invalid type: null, expected a string" and
-    /// the user saw `⚠ Status fetch failed (non-fatal)` immediately
+    /// the user saw `[!] Status fetch failed (non-fatal)` immediately
     /// after a successful `/codingplan` claim. Body taken verbatim from
     /// the user's screenshot.
     #[test]
@@ -628,7 +628,7 @@ mod tests {
         let plan = s.codingplan_free.expect("plan should be present");
         assert_eq!(plan.plan_name, "CodingPlan Free");
         assert_eq!(plan.status, 0);
-        // null collapses to empty string — render layer can decide
+        // null collapses to empty string -- render layer can decide
         // whether to display a placeholder or skip the segment.
         assert_eq!(plan.claimed_at, "");
         assert_eq!(plan.expires_at, "");
@@ -699,7 +699,7 @@ mod tests {
         assert_eq!(u.reset_label, "");
         assert_eq!(u.usage_status_desc, "");
         // display_desc falls back to a computed percentage when
-        // usage_status_desc is empty — should not panic on the
+        // usage_status_desc is empty -- should not panic on the
         // null-collapsed-to-"" path.
         assert_eq!(u.display_desc(), "当前时间窗口用量约 0%");
     }

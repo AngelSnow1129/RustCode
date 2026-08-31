@@ -22,12 +22,11 @@ rustcode-codingplan = { path = "../rustcode-codingplan" }
 rustcode-config = { path = "../rustcode-config" }
 rustcode-auth = { path = "../rustcode-auth" }
 # `tools` is required directly by the `/fs/search` handler (the `file_index`
-# module is gated on it). It also arrives transitively via `atomgit`, but declare
-# it so the dependency is explicit rather than relying on feature unification.
-rustcode-capabilities = { path = "../rustcode-capabilities", features = ["plugin", "mcp", "atomgit", "tools"] }
+# module is gated on it). Declare it so the dependency is explicit.
+rustcode-capabilities = { path = "../rustcode-capabilities", features = ["plugin", "mcp", "tools"] }
 # Unified native runtime used by daemon live/chat/session paths.
 rustcode-kernel = { path = "../rustcode-kernel" }
-rustcode-coding = { path = "../rustcode-coding", features = ["atomgit"] }
+rustcode-coding = { path = "../rustcode-coding" }
 
 # HTTP
 axum = { version = "0.7", features = ["macros"] }

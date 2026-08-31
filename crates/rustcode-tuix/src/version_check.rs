@@ -4,7 +4,7 @@
 //! consumes) and, if the advertised version is strictly newer than what's
 //! compiled in, surfaces a right-aligned hint on the input-box status
 //! row. Any error (network, parse, non-matching format) silently returns
-//! `None` — this feature must never be noisy.
+//! `None` -- this feature must never be noisy.
 
 use rustcode_updater::{manifest_url, Manifest};
 
@@ -50,7 +50,7 @@ fn format_version(v: (u64, u64, u64)) -> String {
 }
 
 /// Apply the process proxy policy to an async reqwest builder. Self-contained
-/// over the config leaf's proxy env machinery — mirrors the identical per-layer
+/// over the config leaf's proxy env machinery -- mirrors the identical per-layer
 /// helpers in `rustcode-capabilities`.
 fn apply_async_proxy_policy(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     rustcode_config::proxy::ensure_runtime_initialized();
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn prerelease_same_version_returns_none() {
-        // v4.16.0-beta.1 vs v4.16.0 → not newer (pre-release == release)
+        // v4.16.0-beta.1 vs v4.16.0 -> not newer (pre-release == release)
         assert_eq!(
             parse_and_compare("v4.16.0-beta.1", &manifest_body("v4.16.0")),
             None

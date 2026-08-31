@@ -219,7 +219,7 @@ impl Tool for LspTool {
                     .collect();
                 let omitted = diagnostics.len().saturating_sub(MAX_LOCATIONS);
                 let suffix = if omitted > 0 {
-                    format!("\n… {omitted} more omitted")
+                    format!("\n... {omitted} more omitted")
                 } else {
                     Default::default()
                 };
@@ -288,7 +288,7 @@ fn render_locations(kind: &str, locations: Vec<Location>, root: &Path) -> String
         })
         .collect();
     if total > MAX_LOCATIONS {
-        lines.push(format!("… {} more omitted", total - MAX_LOCATIONS));
+        lines.push(format!("... {} more omitted", total - MAX_LOCATIONS));
     }
     format!("Found {total} semantic {kind}:\n{}", lines.join("\n"))
 }
@@ -319,7 +319,7 @@ fn render_hover(value: Value) -> String {
     }
     let truncated: String = rendered.chars().take(MAX_HOVER_CHARS).collect();
     if truncated.chars().count() < rendered.chars().count() {
-        format!("{truncated}\n… hover output truncated")
+        format!("{truncated}\n... hover output truncated")
     } else {
         truncated
     }

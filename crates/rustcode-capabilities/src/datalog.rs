@@ -6,7 +6,7 @@
 //! Privacy note: records include the full request body (system prompt, messages,
 //! tools). On Unix the output directory and files are created private (0o700/0o600).
 //! On Windows there is no equivalent mode bit, so files are created with the
-//! directory's inherited ACLs — which already deny other standard users when the
+//! directory's inherited ACLs -- which already deny other standard users when the
 //! datalog lives under the user profile (`$RUSTCODE_HOME`, the default). If a
 //! Windows user points `datalog.dir` at a world-readable location on a shared
 //! machine, the request bodies are readable by other local users. The feature is
@@ -259,7 +259,7 @@ impl LifecycleHooks for DatalogHook {
         let _ = writeln!(markdown, "### Turn {}", ctx.round);
         let _ = writeln!(
             markdown,
-            "  _[request: {}msgs · {}tok · {}tools]_\n",
+            "  _[request: {}msgs . {}tok . {}tools]_\n",
             messages.len(),
             estimated_tokens,
             tools.len()
@@ -522,7 +522,7 @@ fn set_private_create_mode(options: &mut OpenOptions) {
         options.mode(0o600);
     }
     // Non-Unix (Windows) has no create-mode bit here: the file inherits the parent
-    // directory's ACLs. See the module-header privacy note — this is safe under the
+    // directory's ACLs. See the module-header privacy note -- this is safe under the
     // default per-user `$RUSTCODE_HOME`, not for a world-readable `datalog.dir`.
     #[cfg(not(unix))]
     let _ = options;
@@ -597,10 +597,10 @@ mod tests {
     /// "unset". They are one contract, but they live in two crates with nothing
     /// linking them except a copied string.
     ///
-    /// Reword either side and the default silently demotes to an ordinary `~/…`
+    /// Reword either side and the default silently demotes to an ordinary `~/...`
     /// path: it stops following `$RUSTCODE_HOME` and every datalog moves to
     /// `$HOME/.rustcode/datalog`. No error, no failing test, and config.toml
-    /// still reads exactly the same — which is why this needs pinning.
+    /// still reads exactly the same -- which is why this needs pinning.
     #[test]
     fn the_materialized_default_resolves_the_same_as_an_unset_dir() {
         let materialized = DatalogConfig::default().dir;
@@ -615,7 +615,7 @@ mod tests {
             DatalogHook::resolve_log_dir(working_dir, materialized.as_deref()),
             DatalogHook::resolve_log_dir(working_dir, None),
             "the string written to config.toml ({:?}) is no longer the one \
-             `resolve_log_dir` treats as the default — the two crates have drifted",
+             `resolve_log_dir` treats as the default -- the two crates have drifted",
             materialized
         );
     }
@@ -623,7 +623,7 @@ mod tests {
     /// The default root is `$RUSTCODE_HOME`-relative, not `$HOME`-relative.
     /// The harness `#[ctor]` points `$RUSTCODE_HOME` at a temp dir for the whole
     /// binary, so this asserts against a location that is provably not the
-    /// built-in `~/.rustcode` — the case the `resolve_log_dir` special-case
+    /// built-in `~/.rustcode` -- the case the `resolve_log_dir` special-case
     /// exists for.
     #[test]
     fn the_default_root_follows_rustcode_home() {
@@ -631,7 +631,7 @@ mod tests {
         assert!(
             !configured.ends_with(".rustcode"),
             "precondition: the harness must have moved the config dir off the \
-             default, else this test cannot tell the two roots apart — got {}",
+             default, else this test cannot tell the two roots apart -- got {}",
             configured.display()
         );
 
@@ -648,9 +648,9 @@ mod tests {
         assert_ne!(resolved, configured.join("datalog"));
     }
 
-    /// The special case is exact-match on purpose: any OTHER `~/…` value is a
+    /// The special case is exact-match on purpose: any OTHER `~/...` value is a
     /// user-authored path and must expand against the real home, not the config
-    /// dir. This is also what makes the default's spelling load-bearing — a
+    /// dir. This is also what makes the default's spelling load-bearing -- a
     /// stray space or trailing slash falls through to this arm.
     #[test]
     fn other_tilde_paths_are_not_the_default() {
@@ -660,7 +660,7 @@ mod tests {
         let resolved = DatalogHook::resolve_log_dir(Path::new("/work/foo"), Some("~/elsewhere"));
         assert!(
             resolved.starts_with(home.join("elsewhere")),
-            "an explicit `~/…` must expand against $HOME, got {}",
+            "an explicit `~/...` must expand against $HOME, got {}",
             resolved.display()
         );
 

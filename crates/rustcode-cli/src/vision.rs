@@ -116,7 +116,7 @@ fn apply_outcome(
     match outcome {
         PreprocessOutcome::Skipped => (UserInput { text, images }, None),
         PreprocessOutcome::Replaced { text: vl, vl_model } => {
-            // char_count is the VL description length — computed BEFORE merging
+            // char_count is the VL description length -- computed BEFORE merging
             // with the caption, so the toast reports the recognised content size.
             let char_count = vl.chars().count();
             let merged = if text.trim().is_empty() {

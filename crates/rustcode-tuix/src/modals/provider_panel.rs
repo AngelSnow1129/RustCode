@@ -1,7 +1,7 @@
 // crates/rustcode-tuix/src/modals/provider_panel.rs
 //
 // `/provider` full-panel manager, in the style of `/plugin` (PluginManager).
-// Two tabs — Accounts and Models — with in-panel forms; the main input box is
+// Two tabs -- Accounts and Models -- with in-panel forms; the main input box is
 // hidden (MenuKind::Plugin). See docs/plans/2026-07-28-provider-panel-ui-design.md.
 
 use anyhow::Result;
@@ -60,7 +60,7 @@ struct AddForm {
     cursor_byte: usize,
 }
 
-/// Protocol presets the fully-custom add/edit form cycles through with `←/→`,
+/// Protocol presets the fully-custom add/edit form cycles through with `←/->`,
 /// in display order. Each id resolves to a real `PRESETS` entry: the two generic
 /// `*-compatible` custom endpoints plus the keyless local `ollama` preset.
 const CYCLE_PROTOCOL_IDS: [&str; 3] = ["openai-compatible", "anthropic-compatible", "ollama"];
@@ -74,7 +74,7 @@ fn preset_idx_by_id(id: &str) -> usize {
 }
 
 /// The `PRESETS` index of the protocol-toggle preset matching a stored account's
-/// wire protocol — so opening an existing account starts the toggle on the right
+/// wire protocol -- so opening an existing account starts the toggle on the right
 /// choice (and an Ollama account shows as Ollama, not OpenAI). Also seeds a fresh
 /// add-form on its OpenAI default.
 fn protocol_preset_idx(ty: provider_preset::ProviderType) -> usize {
@@ -85,7 +85,7 @@ fn protocol_preset_idx(ty: provider_preset::ProviderType) -> usize {
     })
 }
 
-/// Human protocol label shown next to the `←/→` toggle. Derived from the wire
+/// Human protocol label shown next to the `←/->` toggle. Derived from the wire
 /// protocol (exhaustive) so a new `ProviderType` can't silently mislabel.
 fn protocol_label(ty: provider_preset::ProviderType) -> &'static str {
     match ty {
@@ -113,8 +113,8 @@ fn cycle_protocol_id(current_id: &str, forward: bool) -> &'static str {
 
 /// Move `preset_idx` to the next protocol in the cycle. When landing on a preset
 /// that ships a default endpoint (only Ollama does) and `base_url` is still
-/// blank, offer that endpoint as a convenience. A value the user typed — or one
-/// an existing account was opened with — is NEVER overwritten or cleared, so no
+/// blank, offer that endpoint as a convenience. A value the user typed -- or one
+/// an existing account was opened with -- is NEVER overwritten or cleared, so no
 /// edit can silently lose an endpoint.
 fn cycle_protocol(preset_idx: &mut usize, base_url: &mut String, forward: bool) {
     let next_id = cycle_protocol_id(provider_preset::PRESETS[*preset_idx].id, forward);
@@ -180,7 +180,7 @@ impl AddForm {
     }
 
     fn cycle_preset(&mut self, forward: bool) {
-        // OpenAI-compatible → Anthropic-compatible → Ollama → … (see cycle_protocol,
+        // OpenAI-compatible -> Anthropic-compatible -> Ollama -> ... (see cycle_protocol,
         // which also manages Ollama's auto-filled local endpoint).
         cycle_protocol(&mut self.preset_idx, &mut self.base_url, forward);
         if !self.fields().contains(&self.focus) {
@@ -216,12 +216,12 @@ struct EditForm {
     /// success.
     materialize_provider: Option<String>,
     preset_idx: usize,
-    /// The preset the account started on — so save_edit rewrites the vendor ONLY
+    /// The preset the account started on -- so save_edit rewrites the vendor ONLY
     /// when the user actually changed it (a no-op edit must not lossily normalize
     /// a `deepseek`/custom provider to the `openai` fallback).
     original_preset_idx: usize,
-    /// CodingPlan (AtomGit) account: gateway-managed, so only base_url is editable
-    /// — the protocol and api_key are locked (rewriting them breaks the gateway).
+    /// CodingPlan account: gateway-managed, so only base_url is editable
+    /// -- the protocol and api_key are locked (rewriting them breaks the gateway).
     vendor_locked: bool,
     /// A curated preset quick-add row has a fixed wire protocol. Its endpoint
     /// and key are editable, but changing the protocol would turn (for example)
@@ -281,9 +281,9 @@ impl EditForm {
 
     fn cycle_preset(&mut self, forward: bool) {
         if self.vendor_locked || self.protocol_locked {
-            return; // managed/curated vendor — protocol not editable
+            return; // managed/curated vendor -- protocol not editable
         }
-        // OpenAI-compatible → Anthropic-compatible → Ollama → … (see cycle_protocol,
+        // OpenAI-compatible -> Anthropic-compatible -> Ollama -> ... (see cycle_protocol,
         // which also manages Ollama's auto-filled local endpoint).
         cycle_protocol(&mut self.preset_idx, &mut self.base_url, forward);
         if !self.fields().contains(&self.focus) {
@@ -339,7 +339,7 @@ fn editable_field_row(
     cursor_byte: usize,
     max_cols: usize,
 ) -> (String, String) {
-    let marker = if focused { "▸ " } else { "  " };
+    let marker = if focused { "> " } else { "  " };
     let prefix = format!("{marker}{label}: ");
     let value_cols = max_cols.saturating_sub(crate::width::display_width(&prefix));
     let displayed = if focused {
@@ -365,10 +365,10 @@ fn downgrade_panel_items(items: &mut [(String, String)], unicode_symbols: bool) 
             .map(|ch| match ch {
                 '‹' => '<',
                 '›' => '>',
-                '–' | '—' => '-',
+                '-' => '-',
                 // Form projections allocate one display cell for an ellipsis;
                 // keep the fallback one cell wide as well.
-                '…' => '.',
+                '.' => '.',
                 '＋' => '+',
                 other => other,
             })
@@ -403,7 +403,7 @@ fn account_needs_key(config: &Config, account_id: &str) -> bool {
     }
     match config.provider_accounts.get(account_id) {
         Some(a) => a.api_key.as_deref().unwrap_or("").trim().is_empty(),
-        // Not yet configured (a preset-vendor quick-add) — needs a key iff the
+        // Not yet configured (a preset-vendor quick-add) -- needs a key iff the
         // preset is keyed (account_id == preset id).
         None => !matches!(
             provider_preset::preset_or_compatible(account_id).auth_kind,
@@ -413,7 +413,7 @@ fn account_needs_key(config: &Config, account_id: &str) -> bool {
 }
 
 /// Add a model to an EXISTING account (the 模型 tab's `a`). Optionally editing an
-/// existing model in place (`edit_id` set → account is fixed, id preserved).
+/// existing model in place (`edit_id` set -> account is fixed, id preserved).
 #[derive(Clone)]
 struct ModelForm {
     account_ids: Vec<String>,
@@ -627,7 +627,7 @@ impl ModelForm {
 
     fn cycle_effort(&mut self, forward: bool) {
         // Cycle the DEFAULT value through None, "auto", then only the ENABLED
-        // levels — so a model that dropped `medium` can't take `medium` as its
+        // levels -- so a model that dropped `medium` can't take `medium` as its
         // default.
         let mut values: Vec<Option<&str>> = vec![None, Some("auto")];
         for (i, level) in rustcode_config::config::REASONING_EFFORT_LEVELS
@@ -679,7 +679,7 @@ impl ModelForm {
     }
 
     /// Render the level toggles with the sub-cursor marked, e.g.
-    /// ` ● low  ‹○ medium›  ● high  ● max ` (focused level in guillemets).
+    /// ` * low  ‹o medium›  * high  * max ` (focused level in guillemets).
     ///
     /// Use text glyphs rather than emoji so each marker stays monochrome and
     /// occupies one terminal cell on the terminals supported by the TUI.
@@ -737,7 +737,7 @@ pub struct ProviderPanel {
 
 /// Rows the List layout pushes before the first account/model row: the tab bar,
 /// a blank, the reserved plugin search box (index 2), and a blank separator.
-/// The selection offset MUST equal the number of these header pushes — keep this
+/// The selection offset MUST equal the number of these header pushes -- keep this
 /// in lockstep with the `items.push(...)` calls at the top of the List arm in
 /// [`ProviderPanel::draw`].
 const LIST_HEADER_ROWS: usize = 4;
@@ -849,7 +849,7 @@ impl ProviderPanel {
 
     /// The 账号 tab list: configured accounts first (new-schema + folded
     /// CodingPlan, sorted by model-count DESC), then every unconfigured preset
-    /// VENDOR (deepseek/openai/… — name only) so the user can pick one and add a
+    /// VENDOR (deepseek/openai/... -- name only) so the user can pick one and add a
     /// model to it. Pure-legacy `[providers.*]` are excluded (they show flattened
     /// on the 模型 tab); the custom-endpoint presets are reached via the trailing
     /// "＋ 添加自定义 provider" row instead.
@@ -872,14 +872,14 @@ impl ProviderPanel {
         // Unconfigured preset vendors as quick-add rows. A vendor is only
         // quick-addable as a raw-key account when it has a concrete endpoint
         // that isn't the CodingPlan gateway: the compat presets are reached via
-        // the trailing custom row; the AtomGit gateway (id "atomgit", matched
-        // case-insensitively vs the CodingPlan "AtomGit" fold) must go through
+        // the trailing custom row; the gateway (id "atomgit", matched
+        // case-insensitively vs the CodingPlan fold) must go through
         // the OAuth signer via /login; and presets without a default base_url
         // (the `*-compatible` presets) have nothing to dispatch against.
         for p in provider_preset::PRESETS {
             let has_dispatchable_endpoint = p
                 .default_base_url
-                .is_some_and(|u| !rustcode_auth::gateway_crypto::is_atomgit_gateway(u));
+                .is_some_and(|u| !rustcode_auth::gateway_crypto::is_codingplan_gateway(u));
             if !has_dispatchable_endpoint
                 || matches!(p.id, "openai-compatible" | "anthropic-compatible")
                 || rustcode_config::config::is_codingplan_provider_name(p.id)
@@ -1040,7 +1040,7 @@ impl ProviderPanel {
         };
     }
 
-    /// Persist the add form as one provider ACCOUNT (no model — models are added
+    /// Persist the add form as one provider ACCOUNT (no model -- models are added
     /// on the 模型 tab). Returns the new account id when saved so the caller can
     /// drill into its model list; `None` keeps the add form open.
     fn save_add(
@@ -1055,7 +1055,7 @@ impl ProviderPanel {
         if base_id.is_empty() {
             return None;
         }
-        // Don't let a user account land in the CodingPlan (`AtomGit*`) namespace,
+        // Don't let a user account land in the CodingPlan (`RustCode*`) namespace,
         // or it'd be misclassified as gateway-managed (undeletable, never prompts
         // for a key).
         if rustcode_config::config::is_codingplan_provider_name(&base_id) {
@@ -1069,7 +1069,7 @@ impl ProviderPanel {
                 preset.default_base_url?;
                 None
             } else if Some(b) == preset.default_base_url {
-                None // equals the preset default — keep config clean
+                None // equals the preset default -- keep config clean
             } else {
                 Some(b.to_string())
             }
@@ -1194,7 +1194,7 @@ impl ProviderPanel {
         let base_url = form.base_url.trim();
         let preset = form.preset();
         // Only rewrite the vendor when the user actually changed it (and the
-        // account isn't gateway-locked) — a no-op edit must not normalize a
+        // account isn't gateway-locked) -- a no-op edit must not normalize a
         // `deepseek`/custom provider to the fallback preset, and a CodingPlan
         // account's wire must never change. When the new preset is keyless, drop
         // any stale api_key.
@@ -1819,7 +1819,7 @@ impl Modal for ProviderPanel {
                     let is_account = self.tab == Tab::Accounts;
                     let is_virtual_preset =
                         is_account && Self::is_virtual_account_row(&ctx.config, &id);
-                    // The CodingPlan (AtomGit) provider is managed by /login and
+                    // The CodingPlan provider is managed by /login and
                     // can't be deleted here. Unconfigured preset rows likewise
                     // have no persisted object to delete.
                     let is_managed = if is_account {
@@ -1956,7 +1956,7 @@ impl Modal for ProviderPanel {
                             let a = accounts.get(id);
                             let count = models.values().filter(|m| m.account == *id).count();
                             // 0-model providers show just the name; configured
-                            // ones show "vendor · N 模型 [默认]".
+                            // ones show "vendor . N 模型 [默认]".
                             let desc = if count == 0 {
                                 String::new()
                             } else {
@@ -1973,7 +1973,7 @@ impl Modal for ProviderPanel {
                                     crate::i18n::t(crate::i18n::Msg::ProviderPanelModelCount {
                                         count,
                                     });
-                                format!("{vendor} · {model_count}{mark}")
+                                format!("{vendor} . {model_count}{mark}")
                             };
                             items.push((Self::account_label(&ctx.config, id), desc));
                         }
@@ -2006,7 +2006,7 @@ impl Modal for ProviderPanel {
                             let m = models.get(id);
                             let mark = if *id == cur {
                                 format!(
-                                    "  ● [{}]",
+                                    "  * [{}]",
                                     crate::i18n::t(crate::i18n::Msg::ProviderPanelDefaultBadge)
                                 )
                             } else {
@@ -2015,7 +2015,7 @@ impl Modal for ProviderPanel {
                             let desc = m
                                 .map(|m| {
                                     let name = m.display_name.as_deref().unwrap_or(&m.model);
-                                    format!("{} · {}{}", m.account, name, mark)
+                                    format!("{} . {}{}", m.account, name, mark)
                                 })
                                 .unwrap_or_default();
                             items.push((id.clone(), desc));
@@ -2054,7 +2054,7 @@ impl Modal for ProviderPanel {
             Mode::Add(form) => {
                 let p = form.preset();
                 let field_row = |label: &str, value: String, focused: bool| {
-                    let marker = if focused { "▸ " } else { "  " };
+                    let marker = if focused { "> " } else { "  " };
                     (format!("{marker}{label}: {value}"), String::new())
                 };
                 items.push((
@@ -2091,7 +2091,7 @@ impl Modal for ProviderPanel {
                     form_cols,
                 ));
                 if !matches!(p.auth_kind, provider_preset::AuthKind::None) {
-                    let masked = "•".repeat(form.api_key.chars().count());
+                    let masked = "*".repeat(form.api_key.chars().count());
                     let env_hint = p
                         .api_key_env
                         .map(|e| {
@@ -2101,7 +2101,7 @@ impl Modal for ProviderPanel {
                             )
                         })
                         .unwrap_or_default();
-                    let masked_cursor = "•"
+                    let masked_cursor = "*"
                         .repeat(
                             form.api_key[..form.cursor_byte.min(form.api_key.len())]
                                 .chars()
@@ -2116,13 +2116,13 @@ impl Modal for ProviderPanel {
                         form_cols,
                     ));
                 }
-                // Account-only form — model/window/default moved to the 模型 tab.
+                // Account-only form -- model/window/default moved to the 模型 tab.
                 hint =
-                    "Tab 下一项  ←→ 切协议  ↵ 保存  Esc 返回  （名称必填；模型到模型页加）".into();
+                    "Tab 下一项  ←-> 切协议  ↵ 保存  Esc 返回  （名称必填；模型到模型页加）".into();
             }
             Mode::EditAccount(form) => {
                 let field_row = |label: &str, value: String, focused: bool| {
-                    let marker = if focused { "▸ " } else { "  " };
+                    let marker = if focused { "> " } else { "  " };
                     (format!("{marker}{label}: {value}"), String::new())
                 };
                 items.push((
@@ -2160,8 +2160,8 @@ impl Modal for ProviderPanel {
                     form_cols,
                 ));
                 if !form.vendor_locked && !matches!(p.auth_kind, provider_preset::AuthKind::None) {
-                    let masked = "•".repeat(form.api_key.chars().count());
-                    let masked_cursor = "•"
+                    let masked = "*".repeat(form.api_key.chars().count());
+                    let masked_cursor = "*"
                         .repeat(
                             form.api_key[..form.cursor_byte.min(form.api_key.len())]
                                 .chars()
@@ -2184,12 +2184,12 @@ impl Modal for ProviderPanel {
                 } else if form.protocol_locked {
                     "Tab 下一项  ↵ 保存  Esc 返回  （厂商协议已锁定）".into()
                 } else {
-                    "Tab 下一项  ←→ 切协议  ↵ 保存  Esc 返回".into()
+                    "Tab 下一项  ←-> 切协议  ↵ 保存  Esc 返回".into()
                 };
             }
             Mode::Model(form) => {
                 let field_row = |label: &str, value: String, focused: bool| {
-                    let marker = if focused { "▸ " } else { "  " };
+                    let marker = if focused { "> " } else { "  " };
                     (format!("{marker}{label}: {value}"), String::new())
                 };
                 let title = if form.edit_id.is_some() {
@@ -2200,7 +2200,7 @@ impl Modal for ProviderPanel {
                 items.push((title.into_owned(), String::new()));
                 items.push((String::new(), String::new()));
                 if form.edit_id.is_some() {
-                    // Account locked on edit — show it, not editable.
+                    // Account locked on edit -- show it, not editable.
                     items.push((
                         format!(
                             "  {}: {}",
@@ -2219,9 +2219,9 @@ impl Modal for ProviderPanel {
                         ),
                         form.focus == ModelField::Account,
                     ));
-                    // This provider has no api_key yet — collect it once here.
+                    // This provider has no api_key yet -- collect it once here.
                     if form.account_needs_key() {
-                        let masked = "•".repeat(form.api_key.chars().count());
+                        let masked = "*".repeat(form.api_key.chars().count());
                         let masked_cursor = form.api_key
                             [..form.cursor_byte.min(form.api_key.len())]
                             .chars()
@@ -2275,14 +2275,14 @@ impl Modal for ProviderPanel {
                 ));
                 items.push(field_row(
                     &crate::i18n::t(crate::i18n::Msg::ProviderPanelFieldMakeDefault),
-                    if form.make_default { "[✓]" } else { "[ ]" }.to_string(),
+                    if form.make_default { "[[+]]" } else { "[ ]" }.to_string(),
                     form.focus == ModelField::MakeDefault,
                 ));
                 hint = crate::i18n::t(crate::i18n::Msg::ProviderPanelModelFormHint).into_owned();
             }
         }
 
-        items.push((format!("— {hint} —"), String::new()));
+        items.push((format!("-- {hint} --"), String::new()));
 
         downgrade_panel_items(&mut items, ctx.caps.unicode_symbols);
 
@@ -2327,9 +2327,9 @@ mod tests {
     #[test]
     fn provider_panel_chrome_downgrades_for_legacy_conhost() {
         let mut items = vec![
-            ("▸ Model: │vendor/model…".to_string(), String::new()),
-            ("  Image input: ‹ Auto ›".to_string(), "[✓]".to_string()),
-            ("＋ Add model".to_string(), "— hint —".to_string()),
+            ("> Model: │vendor/model...".to_string(), String::new()),
+            ("  Image input: ‹ Auto ›".to_string(), "[[+]]".to_string()),
+            ("＋ Add model".to_string(), "-- hint --".to_string()),
         ];
 
         downgrade_panel_items(&mut items, false);
@@ -2343,7 +2343,7 @@ mod tests {
 
     #[test]
     fn provider_panel_chrome_is_unchanged_on_unicode_terminals() {
-        let mut items = vec![("▸ Model: │…".to_string(), "[✓]".to_string())];
+        let mut items = vec![("> Model: │...".to_string(), "[[+]]".to_string())];
         let original = items.clone();
 
         downgrade_panel_items(&mut items, true);
@@ -2417,7 +2417,7 @@ mod tests {
         );
         assert!(f.base_url.is_empty());
         assert_eq!(f.protocol_label(), "OpenAI");
-        // ←→ cycles OpenAI → Anthropic → Ollama → OpenAI (never a vendor list).
+        // ←-> cycles OpenAI -> Anthropic -> Ollama -> OpenAI (never a vendor list).
         f.cycle_preset(true);
         assert_eq!(f.protocol_label(), "Anthropic");
         assert_eq!(f.preset().id, "anthropic-compatible");
@@ -2452,7 +2452,7 @@ mod tests {
             !f.fields().contains(&FormField::ApiKey),
             "Ollama is keyless local"
         );
-        // The field is never silently wiped when cycling away — the value stays
+        // The field is never silently wiped when cycling away -- the value stays
         // visible and editable (auto-fill only ever fills a blank field).
         f.cycle_preset(true); // OpenAI
         assert_eq!(f.preset().id, "openai-compatible");
@@ -2462,7 +2462,7 @@ mod tests {
     #[test]
     fn cycle_never_overwrites_or_clears_an_existing_base_url() {
         // Editing an account with a pre-filled endpoint: cycling the protocol
-        // must never clobber or clear the URL the account already has — auto-fill
+        // must never clobber or clear the URL the account already has -- auto-fill
         // is a convenience for a blank field only, so no save loses data.
         let cfg: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": { "acc": { "provider": "openai", "base_url": "https://mirror/v1" } }
@@ -2472,10 +2472,10 @@ mod tests {
         assert_eq!(edit.base_url, "https://mirror/v1");
         edit.cycle_preset(true); // Anthropic
         assert_eq!(edit.base_url, "https://mirror/v1");
-        edit.cycle_preset(true); // Ollama — field non-empty, no auto-fill, no clear
+        edit.cycle_preset(true); // Ollama -- field non-empty, no auto-fill, no clear
         assert_eq!(edit.preset().id, "ollama");
         assert_eq!(edit.base_url, "https://mirror/v1");
-        edit.cycle_preset(true); // OpenAI — still intact
+        edit.cycle_preset(true); // OpenAI -- still intact
         assert_eq!(edit.base_url, "https://mirror/v1");
     }
 
@@ -2491,7 +2491,7 @@ mod tests {
         .unwrap();
         let mut edit = ProviderPanel::open_edit(&cfg, "local");
         assert_eq!(edit.base_url, "http://localhost:11434");
-        edit.cycle_preset(true); // Ollama → OpenAI
+        edit.cycle_preset(true); // Ollama -> OpenAI
         assert_eq!(edit.preset().id, "openai-compatible");
         assert_eq!(
             edit.base_url, "http://localhost:11434",
@@ -2594,7 +2594,7 @@ mod tests {
         let url = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1";
         let shown = crate::width::editable_value_projection(url, url.len(), 28);
         assert!(
-            shown.starts_with('…'),
+            shown.starts_with("..."),
             "expected hidden-left marker: {shown}"
         );
         assert!(shown.ends_with('│'), "caret should remain visible: {shown}");
@@ -2610,8 +2610,8 @@ mod tests {
         let url = "https://example.test/a/very/long/provider/path/v1";
         let cursor = url.find("provider").expect("provider segment");
         let shown = crate::width::editable_value_projection(url, cursor, 20);
-        assert!(shown.starts_with('…'), "left marker missing: {shown}");
-        assert!(shown.ends_with('…'), "right marker missing: {shown}");
+        assert!(shown.starts_with("..."), "left marker missing: {shown}");
+        assert!(shown.ends_with("..."), "right marker missing: {shown}");
         assert!(shown.contains('│'), "caret missing: {shown}");
         assert!(crate::width::display_width(&shown) <= 20);
     }
@@ -2635,7 +2635,7 @@ mod tests {
         let leg = ProviderPanel::open_edit(&cfg, "leg");
         assert!(leg.is_legacy);
         assert_eq!(leg.base_url, "https://legacy/v1");
-        // Protocol toggle pre-filled from the wire (openai → OpenAI-compatible),
+        // Protocol toggle pre-filled from the wire (openai -> OpenAI-compatible),
         // and original == preset so a no-op edit won't rewrite the real provider.
         assert_eq!(leg.protocol_label(), "OpenAI");
         assert_eq!(leg.preset_idx, leg.original_preset_idx);
@@ -2643,7 +2643,7 @@ mod tests {
         assert!(!acc.is_legacy);
         assert_eq!(acc.base_url, "https://mirror/v1");
         assert!(acc.api_key.is_empty()); // blank = keep existing
-                                         // deepseek is openai-wire → OpenAI-compatible toggle.
+                                         // deepseek is openai-wire -> OpenAI-compatible toggle.
         assert_eq!(acc.protocol_label(), "OpenAI");
     }
 
@@ -2853,13 +2853,13 @@ mod tests {
         assert_eq!(add.effort_levels, [true, false, true, true, true]);
         assert_eq!(
             add.effort_levels_label(true),
-            " ● low ‹○ medium› ● high  ● xhigh  ● max "
+            " * low ‹o medium› * high  * xhigh  * max "
         );
         assert_eq!(
             add.effort_levels_label(false),
-            " ● low  ○ medium  ● high  ● xhigh  ● max "
+            " * low  o medium  * high  * xhigh  * max "
         );
-        // The DEFAULT cycle now skips medium: None → auto → low → high.
+        // The DEFAULT cycle now skips medium: None -> auto -> low -> high.
         add.reasoning_effort = None;
         add.cycle_effort(true);
         add.cycle_effort(true);
@@ -2972,7 +2972,7 @@ mod tests {
         }))
         .unwrap();
         let mut p = ProviderPanel::open();
-        // Empty query → configured accounts + all unconfigured preset vendors.
+        // Empty query -> configured accounts + all unconfigured preset vendors.
         let all = p.filtered_ids(&cfg);
         assert!(all.contains(&"openai-main".to_string()) && all.contains(&"deep".to_string()));
         assert!(all.len() > 2, "preset vendors are also listed");
@@ -2983,7 +2983,7 @@ mod tests {
         // Match by vendor: "openai-main" (provider openai) surfaces for "openai".
         p.query = "openai".into();
         assert!(p.filtered_ids(&cfg).contains(&"openai-main".to_string()));
-        // No match → empty.
+        // No match -> empty.
         p.query = "zzznomatch".into();
         assert!(p.filtered_ids(&cfg).is_empty());
     }
@@ -2991,18 +2991,18 @@ mod tests {
     #[test]
     fn account_ids_lists_unconfigured_preset_vendors() {
         let cfg: Config = serde_json::from_value(serde_json::json!({
-            "provider_accounts": { "AtomGit": { "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1" } }
+            "provider_accounts": { "RustCode": { "provider": "openai", "base_url": "https://gateway.test.example/v1" } }
         }))
         .unwrap();
         let ids = ProviderPanel::account_ids(&cfg);
         assert!(
-            ids.first() == Some(&"AtomGit".to_string()),
+            ids.first() == Some(&"RustCode".to_string()),
             "configured first"
         );
         assert_eq!(
             ids.get(1).map(String::as_str),
             Some("taotoken"),
-            "TaoToken should be the first quick-add vendor below AtomGit"
+            "TaoToken should be the first quick-add vendor below RustCode"
         );
         assert!(
             ids.contains(&"deepseek".to_string()),
@@ -3011,14 +3011,14 @@ mod tests {
         // Custom-endpoint presets are reached via the add-custom row, not listed.
         assert!(!ids.contains(&"openai-compatible".to_string()));
         assert!(!ids.contains(&"anthropic-compatible".to_string()));
-        // The lowercase "atomgit" gateway preset must NOT be quick-addable as a
-        // raw-key account — it has to go through the CodingPlan OAuth signer.
+        // The lowercase "atomgit" gateway preset (if it existed) must NOT be quick-addable as a
+        // raw-key account -- it has to go through the CodingPlan OAuth signer.
         assert!(!ids.contains(&"atomgit".to_string()));
         // A preset with a concrete default endpoint is quick-addable.
         assert!(ids.contains(&"xiaomi-mimo".to_string()));
         // A keyed preset vendor prompts for a key when you add its first model.
         assert!(account_needs_key(&cfg, "deepseek"));
-        assert!(!account_needs_key(&cfg, "AtomGit"));
+        assert!(!account_needs_key(&cfg, "RustCode"));
     }
 
     #[test]
@@ -3048,14 +3048,14 @@ mod tests {
     fn edit_codingplan_account_locks_vendor_and_key() {
         let cfg: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
-                "AtomGit": { "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1" },
+                "RustCode": { "provider": "openai", "base_url": "https://gateway.test.example/v1" },
                 "custom": { "provider": "openai-compatible", "base_url": "https://x/v1", "api_key": "sk-1" }
             }
         }))
         .unwrap();
-        let locked = ProviderPanel::open_edit(&cfg, "AtomGit");
+        let locked = ProviderPanel::open_edit(&cfg, "RustCode");
         assert!(locked.vendor_locked);
-        // Only base_url is editable — no protocol toggle, no api_key.
+        // Only base_url is editable -- no protocol toggle, no api_key.
         assert_eq!(locked.fields(), vec![FormField::BaseUrl]);
         // A user account is not locked.
         assert!(!ProviderPanel::open_edit(&cfg, "custom").vendor_locked);
@@ -3072,8 +3072,8 @@ mod tests {
         .unwrap();
         assert!(account_needs_key(&cfg, "custom"));
         assert!(!account_needs_key(&cfg, "keyed"));
-        // CodingPlan uses the gateway signer — never prompt.
-        assert!(!account_needs_key(&cfg, "AtomGit"));
+        // CodingPlan uses the gateway signer -- never prompt.
+        assert!(!account_needs_key(&cfg, "RustCode"));
         // The model form shows an api_key field only for the keyless provider.
         assert!(ModelForm::new_add(&cfg, Some("custom"))
             .unwrap()
@@ -3088,46 +3088,46 @@ mod tests {
     #[test]
     fn account_filter_restricts_models_tab_to_one_account() {
         let cfg: Config = serde_json::from_value(serde_json::json!({
-            "provider_accounts": { "AtomGit": { "provider": "openai" }, "other": { "provider": "openai" } },
+            "provider_accounts": { "RustCode": { "provider": "openai" }, "other": { "provider": "openai" } },
             "models": {
-                "AtomGit-a": { "account": "AtomGit", "model": "a", "context_window": 8000 },
-                "AtomGit-b": { "account": "AtomGit", "model": "b", "context_window": 8000 },
+                "RustCode-a": { "account": "RustCode", "model": "a", "context_window": 8000 },
+                "RustCode-b": { "account": "RustCode", "model": "b", "context_window": 8000 },
                 "other/x": { "account": "other", "model": "x", "context_window": 8000 }
             }
         }))
         .unwrap();
         let mut p = ProviderPanel::open();
         p.tab = Tab::Models;
-        // No filter → all models.
+        // No filter -> all models.
         assert_eq!(p.filtered_ids(&cfg).len(), 3);
-        // Drill into AtomGit → only its two models.
-        p.account_filter = Some("AtomGit".into());
+        // Drill into RustCode -> only its two models.
+        p.account_filter = Some("RustCode".into());
         assert_eq!(
             p.filtered_ids(&cfg),
-            vec!["AtomGit-a".to_string(), "AtomGit-b".to_string()]
+            vec!["RustCode-a".to_string(), "RustCode-b".to_string()]
         );
         // A typed query narrows further, within the account.
         p.query = "b".into();
-        assert_eq!(p.filtered_ids(&cfg), vec!["AtomGit-b".to_string()]);
+        assert_eq!(p.filtered_ids(&cfg), vec!["RustCode-b".to_string()]);
         // The account filter only applies to the Models tab; the Accounts tab
         // lists both configured accounts (plus preset vendors).
         p.query.clear();
         p.tab = Tab::Accounts;
         let acc = p.filtered_ids(&cfg);
-        assert!(acc.contains(&"AtomGit".to_string()) && acc.contains(&"other".to_string()));
+        assert!(acc.contains(&"RustCode".to_string()) && acc.contains(&"other".to_string()));
     }
 
     #[test]
     fn codingplan_models_are_read_only_in_the_panel() {
         let cfg: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
-                "AtomGit": { "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1" },
+                "RustCode": { "provider": "openai", "base_url": "https://gateway.test.example/v1" },
                 "official-alias": { "provider": "openai", "base_url": "https://api-ai.gitcode.com/v1" },
                 "other": { "provider": "openai-compatible", "base_url": "https://example.invalid/v1" }
             },
             "models": {
-                "AtomGit-deepseek-v4-flash": {
-                    "account": "AtomGit",
+                "RustCode-deepseek-v4-flash": {
+                    "account": "RustCode",
                     "model": "deepseek-v4-flash",
                     "context_window": 1000000
                 },
@@ -3141,25 +3141,25 @@ mod tests {
         }))
         .unwrap();
 
-        assert!(ProviderPanel::managed_account(&cfg, "AtomGit"));
+        assert!(ProviderPanel::managed_account(&cfg, "RustCode"));
         assert!(ProviderPanel::managed_account(&cfg, "official-alias"));
         assert!(ProviderPanel::managed_model(
             &cfg,
-            "AtomGit-deepseek-v4-flash"
+            "RustCode-deepseek-v4-flash"
         ));
         assert!(!ProviderPanel::managed_model(&cfg, "other/model"));
         assert!(ProviderPanel::managed_model(&cfg, "flash-primary"));
 
-        let add = ModelForm::new_add(&cfg, Some("AtomGit")).unwrap();
-        assert_ne!(add.account_id(), "AtomGit");
-        assert!(!add.account_ids.iter().any(|id| id == "AtomGit"));
+        let add = ModelForm::new_add(&cfg, Some("RustCode")).unwrap();
+        assert_ne!(add.account_id(), "RustCode");
+        assert!(!add.account_ids.iter().any(|id| id == "RustCode"));
         assert!(!add.account_ids.iter().any(|id| id == "official-alias"));
 
         let mut panel = ProviderPanel::open();
         panel.tab = Tab::Models;
-        panel.account_filter = Some("AtomGit".into());
+        panel.account_filter = Some("RustCode".into());
         let visible = panel.filtered_ids(&cfg);
-        assert_eq!(visible, vec!["AtomGit-deepseek-v4-flash".to_string()]);
+        assert_eq!(visible, vec!["RustCode-deepseek-v4-flash".to_string()]);
         assert!(!panel.can_add_model(&cfg));
         assert!(!panel.has_add_row(&cfg));
         assert_eq!(panel.current_len(&cfg), visible.len());

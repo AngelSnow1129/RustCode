@@ -40,7 +40,7 @@ pub fn tool_kind(name: &str) -> ToolKind {
 /// id starts a new one. The caller allocates one id per LLM output round and
 /// advances it at every kernel `Usage` event (see
 /// [`crate::acp::dispatch::run_prompt_turn`]), so one model response's stream
-/// is one message — the same convention the v2 chain already uses.
+/// is one message -- the same convention the v2 chain already uses.
 pub fn event_to_update(ev: &AgentEvent, message_id: Option<&str>) -> Option<SessionUpdate> {
     let msg = message_id.map(MessageId::new);
     match ev {
@@ -90,7 +90,7 @@ pub fn event_to_update(ev: &AgentEvent, message_id: Option<&str>) -> Option<Sess
         // `used` and `size` are the protocol-required, non-null token counts.
         // `cost` (optional) is deliberately NOT populated: the kernel
         // `MessageMeta` carries token usage but no price, and there is no
-        // pricing table on this path — fabricating a currency amount would be
+        // pricing table on this path -- fabricating a currency amount would be
         // misleading. See `commands.rs::usage_text` ("cost requires a pricing
         // table") for the same stance on the text side.
         AgentEvent::Usage(meta) => Some(SessionUpdate::UsageUpdate(UsageUpdate::new(

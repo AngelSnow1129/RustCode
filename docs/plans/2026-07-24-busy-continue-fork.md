@@ -2,18 +2,18 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Let a second interactive `atomcode -c` start from the latest committed context without sharing or corrupting the session already owned by another runtime.
+**Goal:** Let a second interactive `rustcode -c` start from the latest committed context without sharing or corrupting the session already owned by another runtime.
 
 **Architecture:** Keep `SessionLease` exclusive and fail-closed. Add a native aggregate fork operation to `SessionManager`; the CLI invokes it only when interactive `-c` receives `SessionInUse`, starts the runtime against the fork's new ID, replays the forked presentation, and passes a visible startup notice into the TUI. Headless continuation and every non-contention error remain unchanged.
 
-**Tech Stack:** Rust, native `SessionManager` aggregate persistence, `CodingRuntime`, Clap CLI, AtomCode TUI/i18n.
+**Tech Stack:** Rust, native `SessionManager` aggregate persistence, `CodingRuntime`, Clap CLI, RustCode TUI/i18n.
 
 ---
 
 ### Task 1: Add a native session aggregate fork
 
 **Files:**
-- Modify: `crates/atomcode-capabilities/src/session/manager.rs`
+- Modify: `crates/rustcode-capabilities/src/session/manager.rs`
 
 1. Add a failing test that holds the source lease, forks its complete native aggregate to a caller-provided UUID, and verifies the source and destination have independent IDs and artifacts.
 2. Add tests that a missing/corrupt source fails without publishing a destination and that a pre-existing destination remains protected.
@@ -24,7 +24,7 @@
 ### Task 2: Fall back from interactive continue to a fork
 
 **Files:**
-- Modify: `crates/atomcode-cli/src/main.rs`
+- Modify: `crates/rustcode-cli/src/main.rs`
 
 1. Add a focused helper test proving only `SessionStoreError::SessionInUse` plus interactive mode selects the fork path.
 2. Change CLI runtime preparation to return the actual continued session ID and optional source ID.
@@ -36,11 +36,11 @@
 ### Task 3: Show the fork decision in the TUI
 
 **Files:**
-- Modify: `crates/atomcode-config/src/i18n/messages.rs`
-- Modify: `crates/atomcode-config/src/i18n/en.rs`
-- Modify: `crates/atomcode-config/src/i18n/zh_cn.rs`
-- Modify: `crates/atomcode-tuix/src/lib.rs`
-- Modify: `crates/atomcode-tuix/src/event_loop/mod.rs`
+- Modify: `crates/rustcode-config/src/i18n/messages.rs`
+- Modify: `crates/rustcode-config/src/i18n/en.rs`
+- Modify: `crates/rustcode-config/src/i18n/zh_cn.rs`
+- Modify: `crates/rustcode-tuix/src/lib.rs`
+- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs`
 
 1. Add English and Chinese text explaining that the latest session is active elsewhere and an independent fork was created from its last committed state.
 2. Pass an optional startup notice into the TUI context.
@@ -53,8 +53,8 @@
 - Verify only the files above and preserve all pre-existing dirty persona/site files.
 
 1. Run the focused capabilities, CLI, and TUI tests.
-2. Run `cargo test -p atomcode-capabilities --features session`.
-3. Run `cargo test -p atomcode-cli`.
-4. Run `cargo test -p atomcode-tuix`.
+2. Run `cargo test -p rustcode-capabilities --features session`.
+3. Run `cargo test -p rustcode-cli`.
+4. Run `cargo test -p rustcode-tuix`.
 5. Run `git diff --check`.
 6. Audit session owner, lease transfer, source/destination IDs, replay binding, telemetry binding, error propagation, headless behavior, and dirty-worktree isolation.

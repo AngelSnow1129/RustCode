@@ -21,7 +21,7 @@ pub struct Args {
 const EXIT_USER_DECLINED: u8 = 1;
 const EXIT_BAD_ARGS: u8 = 2;
 const EXIT_PARTIAL_FAIL: u8 = 3;
-// EXIT_FATAL: u8 = 4 — bubbled up via anyhow::Error and the caller's process exit code.
+// EXIT_FATAL: u8 = 4 -- bubbled up via anyhow::Error and the caller's process exit code.
 
 pub fn run(args: Args) -> anyhow::Result<()> {
     use is_terminal::IsTerminal;
@@ -141,7 +141,7 @@ fn confirm_and_kill_running_processes() -> anyhow::Result<bool> {
             #[cfg(not(windows))]
             {
                 eprintln!(
-                    "warn: could not kill pid {}: {} (continuing — Unix unlink doesn't need it)",
+                    "warn: could not kill pid {}: {} (continuing -- Unix unlink doesn't need it)",
                     p.pid, e
                 );
             }
@@ -153,7 +153,7 @@ fn confirm_and_kill_running_processes() -> anyhow::Result<bool> {
 // ----- Task 9 implementations -----
 
 fn print_plan(plan: &super::scan::Plan, decisions: Decisions) {
-    println!("DRY RUN — no changes will be made.\n");
+    println!("DRY RUN -- no changes will be made.\n");
 
     print_group(
         plan,
@@ -336,7 +336,7 @@ fn print_summary(outcome: &Outcome) {
 }
 
 fn build_context(plan: &super::scan::Plan) -> anyhow::Result<ExecuteContext> {
-    // `mut` is only used by the `#[cfg(unix)]` branch below — Windows
+    // `mut` is only used by the `#[cfg(unix)]` branch below -- Windows
     // builds compile this as a never-mutated `Vec`. Suppress the lint
     // there rather than duplicate the let with cfg gates.
     #[cfg_attr(not(unix), allow(unused_mut))]

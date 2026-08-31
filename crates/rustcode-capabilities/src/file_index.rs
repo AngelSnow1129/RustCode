@@ -19,8 +19,8 @@ use ignore::WalkBuilder;
 /// rustcode already treats as skill/command sources (see the skills registry
 /// and `standard_skill_dirs`), and users routinely
 /// gitignore them while still wanting to `@`-reference the skills/config
-/// inside. The general gitignore filter — which keeps `node_modules/`,
-/// `target/`, build output, etc. out of the popup — stays intact for
+/// inside. The general gitignore filter -- which keeps `node_modules/`,
+/// `target/`, build output, etc. out of the popup -- stays intact for
 /// everything else; only these names are force-indexed.
 const ALWAYS_INDEX_DIRS: &[&str] = &[".claude", ".rustcode", ".agents"];
 
@@ -30,7 +30,7 @@ const ALWAYS_INDEX_DIRS: &[&str] = &[".claude", ".rustcode", ".agents"];
 /// `/cd` or restart. The stale index keeps serving until the re-walk
 /// lands, so the popup never blocks or flickers. Kept short enough to
 /// feel live, long enough that rapid typing doesn't thrash the walker
-/// (at most one re-walk per interval — `built_at` only advances when a
+/// (at most one re-walk per interval -- `built_at` only advances when a
 /// walk completes).
 const STALE_TTL: Duration = Duration::from_secs(3);
 
@@ -48,7 +48,7 @@ const MAX_INDEX_ENTRIES: usize = 50_000;
 /// allowlist walks these dirs with gitignore OFF and runs before the main
 /// walk, so without a bound a large `.claude` (accumulated session history,
 /// plugin caches, a vendored skill repo) could monopolize `MAX_INDEX_ENTRIES`
-/// and starve the user's actual source files out of the `@` popup — a
+/// and starve the user's actual source files out of the `@` popup -- a
 /// regression vs. the old behaviour where a gitignored `.claude` contributed
 /// nothing. The popup only shows 30 rows and substring-searches, so a few
 /// thousand skill/command entries per dir is already far more than useful.
@@ -63,11 +63,11 @@ const ALLOWLIST_DIR_MAX_ENTRIES: usize = 2_000;
 /// when not in mention state.
 ///
 /// Rules (ordered):
-/// 1. Find rightmost `@` in `buf[..cursor]`. None → `None`.
+/// 1. Find rightmost `@` in `buf[..cursor]`. None -> `None`.
 /// 2. The character before `@` must be whitespace or BOF. Otherwise `None`
 ///    (avoids `email@host.com`-style false positives).
 /// 3. No whitespace inside `@..cursor`. If any, the mention has been
-///    finalized → `None`.
+///    finalized -> `None`.
 /// 4. Token = characters from `@`'s next byte to the next whitespace
 ///    (or EOF), including bytes after cursor.
 pub fn detect_at_mention(buf: &str, cursor: usize) -> Option<String> {
@@ -120,7 +120,7 @@ pub fn detect_at_mention_range(buf: &str, cursor: usize) -> Option<(usize, usize
 /// Convert a relative `Path` produced by `WalkBuilder` into a string that
 /// always uses `/` as the separator. Required because `filter()` matches
 /// `scope_dir` (always built from user input on `/`) against `e.rel_path`
-/// via `starts_with` — on Windows, `Path::to_string_lossy()` returns
+/// via `starts_with` -- on Windows, `Path::to_string_lossy()` returns
 /// native `\` separators and breaks every drill-down past the root level.
 fn rel_path_to_forward_slash(rel: &std::path::Path) -> String {
     let s = rel.to_string_lossy().into_owned();
@@ -131,8 +131,8 @@ fn rel_path_to_forward_slash(rel: &std::path::Path) -> String {
     }
 }
 
-/// Convert one walked dir-entry — its path already made relative to the
-/// index root — into an `Entry` and push it, applying the filters shared by
+/// Convert one walked dir-entry -- its path already made relative to the
+/// index root -- into an `Entry` and push it, applying the filters shared by
 /// the allowlist pass and the main gitignore walk: skip the walk root
 /// itself, skip whitespace-containing paths (they'd break
 /// `detect_at_mention`'s whitespace-as-terminator rule), skip `.git/`
@@ -149,7 +149,7 @@ fn push_indexed(
     if rel.as_os_str().is_empty() {
         return false; // the walk root itself
     }
-    // Skip `.git` at ANY depth — a gitignore-respecting walk doesn't
+    // Skip `.git` at ANY depth -- a gitignore-respecting walk doesn't
     // auto-skip `.git` (the dir isn't tracked), and the allowlist pass
     // (git_ignore(false)) can descend into a nested `.claude/.git/` of a
     // vendored skill repo. Component-wise so both the root `.git/` and
@@ -199,7 +199,7 @@ pub fn split_token(token: &str) -> (String, String) {
 ///
 /// Within `scope_dir`: an EMPTY `filter` is a pure drill-down (direct children
 /// of `scope_dir` only); a non-empty `filter` matches its case-insensitive
-/// substring anywhere in the path AFTER the scope, across levels — so
+/// substring anywhere in the path AFTER the scope, across levels -- so
 /// `@applystock` finds `.../ApplyStockController.java` several dirs deep.
 /// Sorted direct-children-first, dirs-before-files, then alphabetical. Capped at 30.
 pub fn filter_entries(entries: &[Entry], scope_dir: &str, filter: &str) -> Vec<Entry> {
@@ -306,7 +306,7 @@ impl FileIndex {
         *self.building.borrow_mut() = true;
 
         // Stage 1: quick synchronous depth-1 scan of root's direct children.
-        // Bounded to one directory level (gitignore-aware) — effectively instant.
+        // Bounded to one directory level (gitignore-aware) -- effectively instant.
         *self.entries.borrow_mut() = Some(Self::scan_shallow(&self.root.borrow()));
 
         // Stage 2: spawn background thread for the full walk.
@@ -325,7 +325,7 @@ impl FileIndex {
     /// dir-first, alphabetical. Capped at 30.
     ///
     /// If the index has not been built yet, attempts a non-blocking
-    /// drain of the background walk. Returns whatever is available —
+    /// drain of the background walk. Returns whatever is available --
     /// empty `Vec` when the thread is still working is fine; the
     /// caller will re-invoke `filter` on the next keystroke and get
     /// the fresh results then.
@@ -349,7 +349,7 @@ impl FileIndex {
     }
 
     /// Synchronous full-tree search for one-shot callers that have no
-    /// session-lived cache to amortize against — currently the daemon
+    /// session-lived cache to amortize against -- currently the daemon
     /// `/fs/search` endpoint that powers the webui `@`-mention picker. Walks
     /// the tree gitignore-aware (the SAME [`walk_inner`](Self::walk_inner) the
     /// async index uses) and applies the SAME [`filter_entries`] matching/sort,
@@ -357,7 +357,7 @@ impl FileIndex {
     ///
     /// Unlike [`filter`](Self::filter), this does the FULL walk before matching
     /// (no shallow warm-up), because a per-request index has no later keystroke
-    /// on which to drain a background walk — the first call must be complete.
+    /// on which to drain a background walk -- the first call must be complete.
     /// It blocks on the filesystem walk; call it from `spawn_blocking` in async
     /// contexts. `MAX_INDEX_ENTRIES` still backstops a pathological tree.
     pub fn search_blocking(root: &Path, scope_dir: &str, filter: &str) -> Vec<Entry> {
@@ -382,10 +382,10 @@ impl FileIndex {
                 *pending = None;
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {
-                // Background walk still in progress — keep serving the cache.
+                // Background walk still in progress -- keep serving the cache.
             }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                // Thread panicked or dropped — fall back to a synchronous walk.
+                // Thread panicked or dropped -- fall back to a synchronous walk.
                 let walked = Self::walk_inner(self.root.borrow().clone());
                 *self.entries.borrow_mut() = Some(walked);
                 *self.built_at.borrow_mut() = Some(Instant::now());
@@ -399,7 +399,7 @@ impl FileIndex {
     /// `STALE_TTL` and nothing is already building. The stale cache keeps
     /// serving until `drain_pending` swaps in the fresh result, so the popup
     /// never blocks. `built_at == None` means the initial full walk hasn't
-    /// finished yet — `build_async` owns that, so there's nothing to refresh.
+    /// finished yet -- `build_async` owns that, so there's nothing to refresh.
     fn maybe_refresh(&self) {
         if *self.building.borrow() {
             return; // a build/refresh is already in flight
@@ -421,7 +421,7 @@ impl FileIndex {
         // A full recursive index of an entire home directory or filesystem
         // root is never a useful `@`-mention scope, and traverses millions of
         // files (macOS `~/Library`, caches, every node_modules outside a repo)
-        // — pegging a core at 100% CPU for minutes. Serve only the top level
+        // -- pegging a core at 100% CPU for minutes. Serve only the top level
         // there; `MAX_INDEX_ENTRIES` still backstops any other huge tree.
         if Self::is_home_or_filesystem_root(&root) {
             return Self::walk_with_depth(root, Some(1), MAX_INDEX_ENTRIES);
@@ -429,8 +429,8 @@ impl FileIndex {
         Self::walk_with_depth(root, None, MAX_INDEX_ENTRIES)
     }
 
-    /// True when `root` is a filesystem root (`/`, `C:\`, …) or the user's
-    /// home directory — the two cases where a full recursive walk is both
+    /// True when `root` is a filesystem root (`/`, `C:\`, ...) or the user's
+    /// home directory -- the two cases where a full recursive walk is both
     /// pathologically expensive and useless for `@`-mentions.
     fn is_home_or_filesystem_root(root: &Path) -> bool {
         // Filesystem roots have no parent component.
@@ -450,7 +450,7 @@ impl FileIndex {
     }
 
     /// Gitignore-respecting walk shared by the full index (`max_depth = None`)
-    /// and the staged warm-up (`max_depth = Some(1)` → the root's direct
+    /// and the staged warm-up (`max_depth = Some(1)` -> the root's direct
     /// children only). Routing both through one function guarantees the
     /// shallow and full views apply identical filtering (gitignore, `.git/`,
     /// whitespace), so warm-up results never include entries the full index
@@ -462,7 +462,7 @@ impl FileIndex {
         let mut seen: HashSet<String> = HashSet::new();
 
         // Allowlist pass: force-index the well-known agent/CLI config dirs
-        // (`.claude`, …) even when `.gitignore` excludes them. Runs FIRST, but
+        // (`.claude`, ...) even when `.gitignore` excludes them. Runs FIRST, but
         // each dir is bounded by `ALLOWLIST_DIR_MAX_ENTRIES` so a large
         // `.claude` can't monopolize the budget and starve the main walk's
         // source files. The main gitignore-aware walk below fills the rest, so
@@ -497,7 +497,7 @@ impl FileIndex {
             for result in b.build() {
                 let Ok(dent) = result else { continue };
                 // Paths are under `dir`, itself under `root`, so strip_prefix
-                // yields `<name>/…` — the same shape the main walk produces.
+                // yields `<name>/...` -- the same shape the main walk produces.
                 let Ok(rel) = dent.path().strip_prefix(&root) else {
                     continue;
                 };
@@ -508,7 +508,7 @@ impl FileIndex {
                     break;
                 }
             }
-            // Global cap genuinely exhausted → nothing more can be added.
+            // Global cap genuinely exhausted -> nothing more can be added.
             if out.len() >= max_entries {
                 return out;
             }
@@ -548,9 +548,9 @@ impl FileIndex {
     /// immediate results on the first `@` before the full-tree walk finishes.
     ///
     /// Delegates to `walk_with_depth(.., Some(1))` so it applies the **exact
-    /// same** filtering as the full index — crucially gitignore — rather than
+    /// same** filtering as the full index -- crucially gitignore -- rather than
     /// a raw `read_dir`. This prevents gitignored top-level dirs
-    /// (`node_modules/`, `target/`, …) from flashing in the popup and then
+    /// (`node_modules/`, `target/`, ...) from flashing in the popup and then
     /// vanishing once the full walk replaces the cache. Still bounded to one
     /// directory level, so it stays effectively instant.
     fn scan_shallow(root: &Path) -> Vec<Entry> {
@@ -563,7 +563,7 @@ impl FileIndex {
     /// new root. Called by `apply_cd` when the user switches directories.
     pub fn reset(&self, new_root: PathBuf) {
         // Cancel any in-flight background build by taking the receiver
-        // and dropping it — the spawned thread's send will fail silently.
+        // and dropping it -- the spawned thread's send will fail silently.
         let _ = self.pending.borrow_mut().take();
         *self.root.borrow_mut() = new_root;
         *self.entries.borrow_mut() = None;
@@ -574,7 +574,7 @@ impl FileIndex {
     /// Construct an index with hand-built entries, bypassing the filesystem
     /// walk. A test-support constructor: it is used by tests in DOWNSTREAM
     /// crates (the TUI's `@`-mention and file-viewer tests), which link this
-    /// crate as a NON-test rlib — so it must NOT be `#[cfg(test)]` (that would
+    /// crate as a NON-test rlib -- so it must NOT be `#[cfg(test)]` (that would
     /// strip it from the rlib and break those crates' test builds). It stays
     /// `pub` (never dead code) but has no production caller.
     pub fn from_entries(root: PathBuf, entries: Vec<Entry>) -> Self {
@@ -588,7 +588,7 @@ impl FileIndex {
     }
 
     /// Test-only: backdate the cache so the next `filter()` treats it as stale
-    /// and triggers a TTL refresh — without sleeping for the real TTL.
+    /// and triggers a TTL refresh -- without sleeping for the real TTL.
     #[cfg(test)]
     fn mark_stale(&self) {
         *self.built_at.borrow_mut() =
@@ -611,7 +611,7 @@ mod tests {
     #[test]
     fn rel_path_to_forward_slash_normalizes_native_separators() {
         // Build a multi-component path the way `WalkBuilder` produces them
-        // — via `PathBuf::collect`, which inserts the platform's native
+        // -- via `PathBuf::collect`, which inserts the platform's native
         // separator. Output must always be forward-slashed regardless of
         // platform; on Unix this is identity, on Windows it normalizes
         // backslashes so `filter()`'s `/`-based scope_dir prefix matching
@@ -659,7 +659,7 @@ mod tests {
 
     #[test]
     fn detect_with_cursor_in_middle_of_token() {
-        // Buffer: "@crates/" — cursor at position 4 (just after "@cra").
+        // Buffer: "@crates/" -- cursor at position 4 (just after "@cra").
         // Token still extends through "@crates/".
         let buf = "@crates/";
         assert_eq!(detect_at_mention(buf, 4), Some("crates/".to_string()));
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn detect_with_two_mentions_picks_active_one() {
-        // Buffer: "@cra @oth" — cursor at end → second mention.
+        // Buffer: "@cra @oth" -- cursor at end -> second mention.
         let buf = "@cra @oth";
         assert_eq!(detect_at_mention(buf, buf.len()), Some("oth".to_string()));
     }
@@ -680,7 +680,7 @@ mod tests {
 
     #[test]
     fn detect_at_at_buffer_start_with_subsequent_at_picks_correctly() {
-        // Cursor before second @ → first mention is active.
+        // Cursor before second @ -> first mention is active.
         let buf = "@cra @oth";
         assert_eq!(detect_at_mention(buf, 4), Some("cra".to_string()));
     }
@@ -802,7 +802,7 @@ mod tests {
         // First entry should be a directory.
         assert!(result[0].is_dir, "expected dir first: {:?}", result[0]);
         // Descendants are NOT present without an explicit filter or
-        // drill-down — empty filter means "show this level only".
+        // drill-down -- empty filter means "show this level only".
         assert!(
             !names.contains(&"crates/rustcode-tuix/"),
             "depth-2 should be hidden under empty filter: {:?}",
@@ -978,7 +978,7 @@ mod tests {
     }
 
     // A `.claude` dir that is NOT gitignored must still be indexed exactly
-    // once (the allowlist pass and the main walk both see it → dedup).
+    // once (the allowlist pass and the main walk both see it -> dedup).
     #[test]
     fn allowlisted_dir_not_double_indexed_when_tracked() {
         let tmp = tempfile::tempdir().unwrap();
@@ -995,7 +995,7 @@ mod tests {
 
     // Regression (review): a `.git` nested inside an allowlisted dir (e.g. a
     // vendored skill repo at `.claude/skills/repo/.git/`) must NOT leak into
-    // the index — the allowlist pass walks with git_ignore(false), so the
+    // the index -- the allowlist pass walks with git_ignore(false), so the
     // per-entry `.git` filter has to match at any depth, not just the root.
     #[test]
     fn nested_git_inside_allowlisted_dir_is_skipped() {
@@ -1230,7 +1230,7 @@ mod tests {
         let names_a: Vec<&str> = result_a.iter().map(|e| e.rel_path.as_str()).collect();
         assert!(names_a.contains(&"alpha.txt"), "got: {:?}", names_a);
 
-        // Reset to dir_b — next filter should see dir_b's files.
+        // Reset to dir_b -- next filter should see dir_b's files.
         idx.reset(dir_b.path().to_path_buf());
         let result_b = filter_walk(&idx, "", "");
         let names_b: Vec<&str> = result_b.iter().map(|e| e.rel_path.as_str()).collect();
@@ -1258,7 +1258,7 @@ mod tests {
         // Let the background build for dir_a complete.
         let _ = filter_walk(&idx, "", "");
 
-        // Reset to dir_b and immediately check — shallow scan gives us
+        // Reset to dir_b and immediately check -- shallow scan gives us
         // direct children without waiting for the full walk.
         idx.reset(dir_b.path().to_path_buf());
         let shallow = idx.filter("", "");
@@ -1351,7 +1351,7 @@ mod tests {
 
     // The daemon `/fs/search` endpoint relies on `search_blocking` returning
     // the FULL cross-level match set on a SINGLE call (no shallow warm-up, no
-    // background drain) — a per-request index has no later keystroke to finish
+    // background drain) -- a per-request index has no later keystroke to finish
     // the walk on. This is the property that makes the webui `@`-mention picker
     // match the CLI popup.
     #[test]
@@ -1369,7 +1369,7 @@ mod tests {
         write_file(&tmp.path().join("README.md"), "z");
 
         // Deep files matched by a cross-level substring, from root scope, on the
-        // very first (and only) call — no busy-wait like the async `filter`.
+        // very first (and only) call -- no busy-wait like the async `filter`.
         let hits: Vec<String> = FileIndex::search_blocking(tmp.path(), "", "applystock")
             .iter()
             .map(|e| e.rel_path.clone())

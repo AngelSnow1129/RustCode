@@ -32,7 +32,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
     <a href="https://gitcode.com/SecLab/RustCode" target="_blank">
-    <img src="https://gitcode.com/SecLab/RustCode/star/badge.svg" alt="AtomGit Star"/>
+    <img src="https://gitcode.com/SecLab/RustCode/star/badge.svg" alt="GitCode Star"/>
   </a>
 </p>
 
@@ -45,6 +45,8 @@
 RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它一个任务，它会自动阅读代码、编辑文件、执行命令、验证结果——全程自主完成。
 
 你可以把它理解为 Claude Code / Cursor Agent 的开源替代品，完全运行在终端里，并且可以接入任何兼容 OpenAI 接口的模型。
+
+> **Fork 声明。** 本仓库（`SecLab/RustCode`）是 `atomgit_rustcode/rustcode` 的二次开发 fork。相对上游：(1) 将产品重命名为 `rustcode`（crate、二进制、配置目录 `~/.rustcode`、`RUSTCODE_*` 环境变量）；(2) **完整移除**遥测/分析上报——`rustcode-telemetry` crate 及所有上报调用点均已删除；(3) **完全解除平台绑定**——不硬编码任何签名网关 host，默认不注册平台专属 REST 工具，`/login` 可选：直接在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key` 即可开始使用。原始 MIT 许可证与版权（© 2026 Yubang Xu）保留于 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)，完整归属见 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)。
 
 ## 功能特性
 
@@ -101,8 +103,8 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 ### 会话与登录
 
 - **持久化会话** —— 每次对话都会保存；命令行可用 `rustcode --continue` 或 `-c` 继续上一次会话，在 TUI 内可用 `/resume` 恢复或切换
-- **AtomGit OAuth 登录** —— `/login`（或 `rustcode login`）将 CLI 与你的 AtomGit 账号绑定
-- **SSO 登录** —— `/login-with-sso`，GitCode 内部用户使用
+- **OAuth 登录** —— `/login`（或 `rustcode login`）将 CLI 与你的平台账号绑定
+- **SSO 登录** —— `/login-with-sso`，SSO 用户使用
 - **Headless 模式** —— `rustcode -p "..."` 非交互式跑一条 prompt，结果直接输出到 stdout（类似 Claude Code 的 `-p`）；需要确认的 `bash` 会自动批准，其他需要确认的工具会被拒绝
 - **Daemon 模式** —— `rustcode-daemon` 提供 HTTP API，用于查询会话历史和 SSE 流式对话
 
@@ -126,7 +128,7 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 ### App 远程访问
 
-- **`/app`**（TUI 内）开启移动端远程访问，终端打印二维码，用手机 GitCode App 扫码即可在任意网络下连入当前对话
+- **`/app`**（TUI 内）开启移动端远程访问，终端打印二维码，用手机 App 扫码即可在任意网络下连入当前对话
 - **任意网络可达** —— 电脑通过反向 WSS 隧道连接到公网中继，手机经中继访问电脑，不需要公网 IP、DDNS 或路由器端口映射
 - **双向实时同步** —— 任一端发消息，另一端实时显示（AI 流式回复、工具调用卡片、token 用量）
 - **远程命令** —— 手机端支持 `/status`、`/cost`、`/diff`、`/whoami` 等斜杠命令，在桌面端执行并回显
@@ -166,7 +168,7 @@ Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC 用户：
 curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.sh | sh
 ```
 
-两个脚本都会下载最新版本的官方预编译二进制（从 AtomGit API 自动探测），安装并写入 `PATH`。
+两个脚本都会下载最新版本的官方预编译二进制（从发布 API 自动探测），安装并写入 `PATH`。
 官方构建包含请求签名器，因此 `/login` 可以领取免费的 CodingPlan 模型（见下文「关于官方 CodingPlan」）。
 
 环境变量覆盖项：`RUSTCODE_VERSION` 用于固定某个发布版本，`RUSTCODE_PREFIX` 用于指定安装目录
@@ -234,7 +236,7 @@ cargo build --release -p rustcode
 
 ```bash
 # 使用 npm 安装
-npm install -g @atomgit.com/rustcode
+npm install -g @rustcode/rustcode
 
 # 使用 Homebrew 安装
 brew install --cask rustcode
@@ -265,7 +267,7 @@ Invoke-Expression`。完整 Shell 列表见 `rustcode completion --help`。该�
 ### 依赖
 
 - Rust 1.88+（用于构建；更旧的 Cargo 无法解析当前 lock 文件）
-- 任一支持的模型提供方的 API Key（或使用 `/login` 的 AtomGit 账号；免费 CodingPlan 模型需要官方构建——见上文「关于官方 CodingPlan」）
+- 任一支持的模型提供方的 API Key（或使用 `/login` 的平台账号；免费 CodingPlan 模型需要官方构建——见上文「关于官方 CodingPlan」）
 
 ### 权限 —— 不要用 `sudo` 启动
 
@@ -476,8 +478,8 @@ rustcode --prompt-file task.md
 | `/model`    | 切换模型 / provider                               |
 | `/provider` | 管理 provider（添加 / 编辑 / 删除）               |
 | `/proxy`    | 切换出站代理模式                                  |
-| `/login`    | 通过 AtomGit OAuth 登录并申领 CodingPlan 免费模型 |
-| `/logout`   | 退出 AtomGit 登录                                 |
+| `/login`    | 通过 OAuth 登录并申领 CodingPlan 免费模型 |
+| `/logout`   | 退出登录                                 |
 | `/whoami`   | 查看当前登录用户                                  |
 | `/status`   | 查看登录状态和模型信息                            |
 
@@ -526,7 +528,7 @@ rustcode --prompt-file task.md
 | `/help` | 查看命令与快捷键 |
 | `/quit`、`/exit` | 退出 RustCode（或连按 Ctrl+C） |
 
-> **AtomGit Issue**：`/issue` 已移除。执行 `/login` 后，直接用自然语言提出需求即可，例如“为这个 Bug 创建一个 AtomGit Issue”，RustCode 会调用内置的 `atomgit_issue` 工具。读取 Issue 可直接执行；创建 Issue，以及新增、编辑或删除评论仍需权限确认。
+> **平台 Issue**：`/issue` 已移除。执行 `/login` 后，直接用自然语言提出需求即可，例如“为这个 Bug 创建一个 平台 Issue”，RustCode 会调用内置的 `platform_issue` 工具。读取 Issue 可直接执行；创建 Issue，以及新增、编辑或删除评论仍需权限确认。
 >
 > **插件命令**：除了上面的内置命令，插件还能注册自己的斜杠命令。例如安装官方频道插件后即可使用 `/wechat`（显示 RustCode 微信用户群二维码）：
 >
@@ -721,10 +723,10 @@ cargo install --path crates/rustcode-cli
 
 ### 如何贡献
 
-1. 在 AtomGit 上 **Fork** 仓库
+1. **Fork** 仓库
 2. 克隆你的 fork：
    ```bash
-   git clone https://atomgit.com/<你的用户名>/rustcode.git
+   git clone https://gitcode.com/<你的用户名>/rustcode.git
    cd rustcode
    ```
 3. 创建分支：
@@ -774,7 +776,7 @@ cargo install --path crates/rustcode-cli
 
 不会 Rust？没关系！有很多方式可以不写 Rust 代码就能参与贡献：
 
-- **📝 文档** — 改进 README、修正错别字、完善[官方文档站](https://rustcode.atomgit.com/docs/zh/)、添加使用示例。文档位于 `site/` 目录和 README 文件中。
+- **📝 文档** — 改进 README、修正错别字、完善[官方文档站](https://docs.rustcode.dev/zh/)、添加使用示例。文档位于 `site/` 目录和 README 文件中。
 - **🌐 本地化与翻译** — 帮助将文档站、README 或界面文案翻译成更多语言。查看 `site/docs/` 了解现有翻译。
 - **🧩 Skills 与插件** — 创建新的 [skill](https://gitcode.com/SecLab/RustCode-skills)（Markdown + JSON，无需 Rust），扩展 RustCode 的能力。Skill 从 `~/.rustcode/skills/` 加载。
 - **🐛 Bug 报告** — 发现 Bug？在 [Issues](https://gitcode.com/SecLab/RustCode/issues) 中提交清晰的复现步骤、截图和环境信息。高质量的 Bug 报告非常宝贵。

@@ -1,7 +1,7 @@
 //! daemon `/live` transport and the shared `/chat` turn-construction helpers.
 
 // This module runs IN the TUI process under `/webui`, so any write to the real
-// stdout/stderr corrupts the terminal — diagnostics MUST use the file-sink
+// stdout/stderr corrupts the terminal -- diagnostics MUST use the file-sink
 // `ctrace!`. These denies catch the common console-print forms when clippy runs;
 // the `no_console_prints_in_live_path` test is the always-on backstop (clippy is
 // not currently wired into CI). Inert (not an error) under a plain `cargo build`.
@@ -50,7 +50,7 @@ pub(crate) struct LiveGoalSnapshot {
 }
 
 /// 读取当前生效的审批模式。`pub(crate)` 以便 `/chat` 路径（非 sync webui）也据此
-/// 选择 PermissionDecider——否则模式 pill 只在 sync 模式生效。
+/// 选择 PermissionDecider----否则模式 pill 只在 sync 模式生效。
 pub(crate) fn live_current_approval_mode() -> ApprovalMode {
     *LIVE_APPROVAL_MODE.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -334,7 +334,7 @@ pub(crate) fn chat_runtime_config(
             std::env::var("RUSTCODE_LOOP_MAX_ROUNDS").ok().as_deref(),
         ),
         // Turn-level round cap. Reuse the canonical resolver (env > TOML) instead
-        // of re-implementing the parse — same pattern as loop_max_rounds above.
+        // of re-implementing the parse -- same pattern as loop_max_rounds above.
         turn_max_rounds: rustcode_coding::resolve_turn_max_rounds(
             config.coding.max_rounds,
             std::env::var("RUSTCODE_TURN_MAX_ROUNDS").ok().as_deref(),
@@ -411,7 +411,7 @@ pub(crate) async fn run_chat_turn_v2(
     // Split the just-submitted user input from the persisted prefix before runtime
     // startup. The buffer already holds kernel messages (cold summaries inline as
     // synthetic messages), so the prefix IS a `SessionSnapshot` of the remaining
-    // messages — no core round-trip. The prefix is imported/initialized under the
+    // messages -- no core round-trip. The prefix is imported/initialized under the
     // target session's lease.
     let (prefix, user_text, user_images, turn_base) = {
         let c = conv.lock().await;
@@ -665,7 +665,7 @@ pub(crate) enum LiveWireEvent {
         effort: Option<String>,
         applicable: bool,
     },
-    /// 审批模式切换（build / accept_edits / bypass / plan）——
+    /// 审批模式切换（build / accept_edits / bypass / plan）----
     /// webui 各 tab 的「模式」pill 据此同步。
     #[serde(rename = "mode")]
     Mode { mode: String },
@@ -753,7 +753,7 @@ pub(crate) enum LiveWireEvent {
         mode: String,
         options: Vec<serde_json::Value>,
         /// Present for a multi-question batch (each item is a `{header,question,mode,options}`
-        /// object). Omitted for a single question — the webui then uses the flat fields above.
+        /// object). Omitted for a single question -- the webui then uses the flat fields above.
         #[serde(skip_serializing_if = "Option::is_none")]
         questions: Option<Vec<serde_json::Value>>,
         /// Whether to offer the "type your own answer" row (single question). Default true.
@@ -786,7 +786,7 @@ pub(crate) enum LiveWireEvent {
     #[serde(rename = "session_switched")]
     SessionSwitched { session_id: String },
     /// AI auto-renamed a session (daemon AI namer). Carries `session_id` so a
-    /// tab only updates its title when IT is viewing that session — the live
+    /// tab only updates its title when IT is viewing that session -- the live
     /// broadcast reaches every subscribed tab, so an unscoped update would flip
     /// the title of tabs viewing other sessions.
     #[serde(rename = "session_renamed")]
@@ -806,7 +806,7 @@ pub(crate) enum LiveWireEvent {
         /// `false` = Pause (kernel stopped the turn, user must act).
         #[serde(default)]
         auto_resuming: bool,
-        /// Provider's own 429 message (no `HTTP …:` prefix), for the generic pause.
+        /// Provider's own 429 message (no `HTTP ...:` prefix), for the generic pause.
         #[serde(default)]
         server_message: Option<String>,
     },
@@ -1134,7 +1134,7 @@ impl NativeLiveWireProjector {
                 completion: CompactionCompletion::Completed(outcome),
             }) if outcome.committed => {
                 // Silent, cache-friendly tool-output folding is invisible transcript
-                // maintenance — emit nothing (mirrors the TUI `silent_tool_fold`).
+                // maintenance -- emit nothing (mirrors the TUI `silent_tool_fold`).
                 if outcome.is_silent_auto_tool_fold() {
                     return None;
                 }
@@ -1215,7 +1215,7 @@ fn goal_snapshot(progress: &rustcode_coding::GoalProgress) -> LiveGoalSnapshot {
 // Handlers: GET /live (SSE) + POST /live/message
 // ============================================================================
 
-/// 规范化前端传来的 session id（None/空字符串 → None）。
+/// 规范化前端传来的 session id（None/空字符串 -> None）。
 /// 仅做解析、不读盘；严格的历史加载由 native runtime 绑定流程负责。
 fn parse_session_id(session_id_str: Option<String>) -> Option<String> {
     session_id_str.and_then(|id| {
@@ -1354,8 +1354,8 @@ pub(crate) async fn live_stream(
             &turn_timestamps,
         );
     }
-    // Re-attach display-only images (VL-preprocessed originals) so a refresh — which
-    // rebuilds from the kernel snapshot (image stripped) — shows the thumbnail, not the
+    // Re-attach display-only images (VL-preprocessed originals) so a refresh -- which
+    // rebuilds from the kernel snapshot (image stripped) -- shows the thumbnail, not the
     // "missing image" placeholder. Same sidecar the HTTP session-load path reads.
     crate::attach_display_images(
         &mut snapshot_messages,
@@ -1498,7 +1498,7 @@ pub(crate) async fn preprocess_image_input(
     };
     // Configured but absent from `config.providers` ⇒ Failed (mirror the retired
     // core `maybe_preprocess`): fold the failure marker so the caller strips the
-    // images — otherwise raw image bytes reach a text-only model (HTTP 400).
+    // images -- otherwise raw image bytes reach a text-only model (HTTP 400).
     let Some(vl_pc) = config.provider_config_for_selection(&vl_name) else {
         let reason = format!("VL provider '{vl_name}' not found in config");
         return (
@@ -1511,8 +1511,8 @@ pub(crate) async fn preprocess_image_input(
     };
     let vl_model = vl_model_display(&vl_pc.model).to_string();
     // Build the one-off VL provider via the daemon's native chain (the SAME
-    // chain `/chat` and `/compact` use), yielding a kernel-native provider —
-    // no core provider. `build` may block on auth I/O (gateway token) → run it
+    // chain `/chat` and `/compact` use), yielding a kernel-native provider --
+    // no core provider. `build` may block on auth I/O (gateway token) -> run it
     // off the async runtime. `session_id` is bound at build so the VL call
     // rides the same upstream account/replica as the main turn.
     let coding_cfg = crate::kernel_runtime::coding_config_from_runtime(&chat_runtime_config(
@@ -1616,8 +1616,8 @@ fn text_carries_vl_caption(text: &str) -> bool {
 
 /// Stash a VL-preprocessed submission's ORIGINAL images into the session's display-only
 /// sidecar so another client (or a page refresh) re-attaches the thumbnail. No-op unless
-/// the runtime text carries a VL caption — i.e. the image was stripped from the model
-/// conversation, leaving the persisted snapshot image-less — AND at least one image exists.
+/// the runtime text carries a VL caption -- i.e. the image was stripped from the model
+/// conversation, leaving the persisted snapshot image-less -- AND at least one image exists.
 /// Both the `/live` and `/chat` VL-strip paths call this; the `/chat` path previously
 /// skipped it, so reloading clients (other users) saw only the "missing image" placeholder.
 fn stash_vl_display_images(
@@ -1631,7 +1631,7 @@ fn stash_vl_display_images(
     }
     // Ensure the project sessions dir exists: `append_display_images` is best-effort and
     // never creates it, and on `/chat` a brand-new session's first turn can reach here
-    // before any snapshot save has created the dir — without this the sidecar write would
+    // before any snapshot save has created the dir -- without this the sidecar write would
     // silently fail and the image would still be lost after refresh.
     let _ = std::fs::create_dir_all(
         rustcode_capabilities::session::SessionManager::for_project(working_dir).root(),
@@ -1750,7 +1750,7 @@ pub(crate) async fn live_message(
                     provider_name = requested_provider;
                 }
                 // A turn is active, so this /live/message is a STEER that folds into
-                // the current turn — which cannot switch providers. Accept the steer
+                // the current turn -- which cannot switch providers. Accept the steer
                 // with the active provider and tell the client the optimistic provider
                 // selection was not applied. We deliberately do not claim this is
                 // queued: a later idle request must explicitly switch again.
@@ -1786,7 +1786,7 @@ pub(crate) async fn live_message(
     )
     .await;
     // VL preprocessing produced a caption ⇒ the runtime strips the image from the
-    // conversation (it must never re-enter model context — see estimate_tokens). Stash the
+    // conversation (it must never re-enter model context -- see estimate_tokens). Stash the
     // originals in the display-only sidecar so a page refresh re-attaches the thumbnail.
     stash_vl_display_images(
         &join.binding.working_dir,
@@ -1835,7 +1835,7 @@ pub(crate) async fn live_message(
 /// input echoed to the live view (`echo`). BOTH keep the user's original image: the
 /// runtime conversation must carry it so the image PERSISTS and reappears after a page
 /// refresh (previously the sync path stripped it here, so the saved session had no
-/// image). The raw bytes never reach a text-only model anyway — the provider adapter
+/// image). The raw bytes never reach a text-only model anyway -- the provider adapter
 /// degrades images at the wire when the model lacks vision (openai_compat
 /// `supports_vision`). The two inputs differ only in TEXT: the runtime gets the VL
 /// caption (the image description the text model needs) while the echo keeps the
@@ -1860,7 +1860,7 @@ fn split_live_inputs(
     )
 }
 
-/// POST /live/stop — cancel the turn shared by the TUI and synchronized webui tabs.
+/// POST /live/stop -- cancel the turn shared by the TUI and synchronized webui tabs.
 pub(crate) async fn live_stop() -> impl IntoResponse {
     let accepted = crate::native_live::cancel_confirmed().await.is_ok();
     Json(serde_json::json!({ "accepted": accepted }))
@@ -1871,7 +1871,7 @@ pub(crate) struct LiveSwitchSessionReq {
     pub session_id: String,
 }
 
-/// POST /live/switch_session — webui 切到「已存在」的会话时广播会话切换，
+/// POST /live/switch_session -- webui 切到「已存在」的会话时广播会话切换，
 /// 让同进程 sync 模式的 TUI 跟随加载该会话（含历史）。
 ///
 /// 目标会话在当前 live binding 的 project bucket 内精确定位，并在
@@ -1904,7 +1904,7 @@ pub(crate) struct LiveProviderReq {
     pub session_id: Option<String>,
 }
 
-/// POST /live/provider — webui 切换模型即时同步。
+/// POST /live/provider -- webui 切换模型即时同步。
 ///
 /// 与"发送消息才带 provider"不同，下拉框一变就调本端点，让对端立即跟随而无需先发消息。
 /// 该端点仍是 live runtime 的即时切换接口；TUI `/model` 另会更新新会话默认值。
@@ -2035,13 +2035,13 @@ pub(crate) async fn approval_mode_set(Json(req): Json<LiveModeReq>) -> impl Into
     })
 }
 
-/// POST /live/mode — webui 底栏「模式」pill 切换审批模式
+/// POST /live/mode -- webui 底栏「模式」pill 切换审批模式
 /// （build / accept_edits / bypass / plan）。
 ///
 /// 更新进程级 LIVE_APPROVAL_MODE；若当前已有 live 会话，则广播 ModeChanged 让
 /// 其他 webui tab / TUI 实时跟随。没有 live 会话时不为一次普通模式切换创建会话。
 /// 下一轮实际用哪个 PermissionDecider 由 run_turn 读 LIVE_APPROVAL_MODE 决定。
-/// 模式是运行时会话状态，不写入 config（与 provider 持久化为默认不同）——避免
+/// 模式是运行时会话状态，不写入 config（与 provider 持久化为默认不同）----避免
 /// Auto（wire: bypass）这种危险态被静默持久化。
 pub(crate) async fn live_mode(Json(req): Json<LiveModeReq>) -> impl IntoResponse {
     let ok = apply_live_mode(req.mode).await;
@@ -2061,10 +2061,10 @@ pub(crate) struct LiveReasoningEffortReq {
     pub reasoning_effort: Option<String>,
 }
 
-/// POST /live/reasoning_effort — webui 设置当前模型实例的 reasoning_effort。
+/// POST /live/reasoning_effort -- webui 设置当前模型实例的 reasoning_effort。
 ///
 /// 与 /live/provider 同源：持久化进目标 provider 的 `config.reasoning_effort`，
-/// 下一轮 turn 经 `build_turn_parts` → `create_provider` 自动生效——live 与
+/// 下一轮 turn 经 `build_turn_parts` -> `create_provider` 自动生效----live 与
 /// /chat 两条路径都现读 config，故两端都会跟随。模型实例必须由配置或内置
 /// CodingPlan 能力声明支持；服务端同时校验取值。
 pub(crate) async fn live_reasoning_effort(
@@ -2100,7 +2100,7 @@ pub(crate) async fn live_reasoning_effort(
             .or_else(|| config.effective_model_selection())
             .unwrap_or_default();
         // Whether this endpoint has an effort capability at all (non-empty
-        // server-advertised / builtin levels) — config-driven, no hardcoded model name.
+        // server-advertised / builtin levels) -- config-driven, no hardcoded model name.
         // Used below to keep the `auto` capability marker when the concrete level is cleared.
         let supports_effort = config
             .provider_config_for_selection(&target)
@@ -2221,13 +2221,13 @@ pub(crate) struct LivePermissionReq {
     pub tool_name: Option<String>,
 }
 
-/// POST /live/permission — Deliver a permission decision for a pending live-session tool-approval
+/// POST /live/permission -- Deliver a permission decision for a pending live-session tool-approval
 /// request. The hub correlates the response with the pending native request.
 ///
 /// Decision mapping mirrors /chat/permission:
-///   "allow"        → PermissionDecision::AllowOnce
-///   "always_allow" → PermissionDecision::AllowAlways (persisted for the session)
-///   anything else  → PermissionDecision::Deny
+///   "allow"        -> PermissionDecision::AllowOnce
+///   "always_allow" -> PermissionDecision::AllowAlways (persisted for the session)
+///   anything else  -> PermissionDecision::Deny
 pub(crate) async fn live_permission(
     State(state): State<AppState>,
     Json(req): Json<LivePermissionReq>,
@@ -2297,17 +2297,17 @@ impl UserInputAnswerReq {
     }
 }
 
-/// POST /live/user-input — Deliver the user's answer to a pending `request_user_input`
+/// POST /live/user-input -- Deliver the user's answer to a pending `request_user_input`
 /// question raised by the agent, correlated by native request id.
 ///
 /// Request body: `{ "request_id": u64, "declined": bool, "selected": [string], "text": string|null }`
-/// Response: `{ "accepted": bool }` — false if there is no live session or no pending request
+/// Response: `{ "accepted": bool }` -- false if there is no live session or no pending request
 /// with that id.
 pub(crate) async fn live_user_input(
     State(_state): State<AppState>,
     Json(req): Json<UserInputAnswerReq>,
 ) -> impl IntoResponse {
-    // Batch answer (webui stepper) → `{ "responses": [...] }`; single → the flat shape.
+    // Batch answer (webui stepper) -> `{ "responses": [...] }`; single -> the flat shape.
     let request_id = req.request_id;
     let value = req.into_response_value();
     match crate::native_live::respond_confirmed(request_id, value).await {
@@ -2345,7 +2345,7 @@ pub(crate) struct LiveCommandReq {
     pub command: String,
 }
 
-/// POST /live/command —— 手机 App 请求桌面 TUI 执行一条斜杠命令。
+/// POST /live/command ---- 手机 App 请求桌面 TUI 执行一条斜杠命令。
 /// 白名单（只读信息类）在 TUI 侧校验；输出经 /live 的 `command_output` 事件
 /// 广播回来。返回 `{"accepted": bool}`：false 表示没有 TUI 附着（headless），
 /// 命令无人执行。
@@ -2358,7 +2358,7 @@ pub(crate) async fn live_command(
     Json(serde_json::json!({ "accepted": ok }))
 }
 
-/// POST /live/cancel —— 取消当前正在运行的 turn(停止生成)。
+/// POST /live/cancel ---- 取消当前正在运行的 turn(停止生成)。
 /// 任一视图(手机 App「停止」/ webui / TUI)都可调用,先到先停。
 /// 返回 `{"cancelled": bool}`:false 表示当前没有运行中的 turn。
 pub(crate) async fn live_cancel(State(_state): State<AppState>) -> impl IntoResponse {
@@ -2373,7 +2373,7 @@ pub(crate) struct LiveGoalReq {
     pub session_id: Option<String>,
 }
 
-/// POST /live/goal/start —— start the native CodingRuntime goal controller.
+/// POST /live/goal/start ---- start the native CodingRuntime goal controller.
 pub(crate) async fn live_goal_start(
     State(state): State<AppState>,
     Json(req): Json<LiveGoalReq>,
@@ -2408,7 +2408,7 @@ pub(crate) async fn live_goal_start(
     Json(serde_json::json!({"accepted": accepted}))
 }
 
-/// POST /live/goal/stop —— stop the native Goal controller (not just one turn).
+/// POST /live/goal/stop ---- stop the native Goal controller (not just one turn).
 pub(crate) async fn live_goal_stop(State(_state): State<AppState>) -> impl IntoResponse {
     if crate::native_live::embedded_binding().is_some() {
         let accepted = crate::native_live::send_remote_command("/goal clear".into());
@@ -2418,7 +2418,7 @@ pub(crate) async fn live_goal_stop(State(_state): State<AppState>) -> impl IntoR
     Json(serde_json::json!({"accepted": accepted}))
 }
 
-/// POST /live/goal/arm — synchronize the mobile composer's pre-send Goal mode
+/// POST /live/goal/arm -- synchronize the mobile composer's pre-send Goal mode
 /// with an attached TUI. No condition is known until either side submits text.
 pub(crate) async fn live_goal_arm(State(_state): State<AppState>) -> impl IntoResponse {
     if crate::native_live::embedded_binding().is_some() {
@@ -2428,9 +2428,9 @@ pub(crate) async fn live_goal_arm(State(_state): State<AppState>) -> impl IntoRe
     Json(serde_json::json!({"accepted": true}))
 }
 
-/// POST /live/compact —— webui/手机端在 sync 模式请求对共享实时运行时执行一次
+/// POST /live/compact ---- webui/手机端在 sync 模式请求对共享实时运行时执行一次
 /// 手动压缩。派发 `DriverCommand::Compact(None)` 到 live hub；压缩结果经既有的
-/// `NativeLiveWireProjector`（CompactionFinished → Warning）回流到各视图。
+/// `NativeLiveWireProjector`（CompactionFinished -> Warning）回流到各视图。
 /// 返回 `{"accepted": bool}`：false 表示当前没有绑定的实时运行时（无可压缩对象）。
 pub(crate) async fn live_compact(State(_state): State<AppState>) -> impl IntoResponse {
     let accepted =
@@ -2438,7 +2438,7 @@ pub(crate) async fn live_compact(State(_state): State<AppState>) -> impl IntoRes
     Json(serde_json::json!({ "accepted": accepted }))
 }
 
-/// POST /live/mcp/trust — Trust the current project so its `.mcp.json` servers
+/// POST /live/mcp/trust -- Trust the current project so its `.mcp.json` servers
 /// are allowed to connect on the next turn. Rebuilds the serving MCP registry
 /// so newly-allowed servers start connecting immediately.
 ///
@@ -2511,20 +2511,20 @@ mod tests {
         // Repro of "image lost after refresh for other users": on a VL-strip turn the
         // persisted user message is image-less, so the ORIGINAL image MUST be stashed to
         // the display-only sidecar for a fresh reload to refill it. The /live path did
-        // this; the /chat path did NOT — both now share `stash_vl_display_images`.
+        // this; the /chat path did NOT -- both now share `stash_vl_display_images`.
         let dir = tempfile::tempdir().unwrap();
         let wd = dir.path();
         let sid = "sess-vl-reload";
-        // NOTE: the sessions dir is deliberately NOT pre-created — stash_vl_display_images
+        // NOTE: the sessions dir is deliberately NOT pre-created -- stash_vl_display_images
         // must create it itself (a brand-new session's first /chat turn reaches the stash
         // before any snapshot save has made the dir).
 
-        // BUG: no sidecar written → a fresh reload keeps the "missing" placeholder.
+        // BUG: no sidecar written -> a fresh reload keeps the "missing" placeholder.
         let mut before = vec![missing_user_msg()];
         crate::attach_display_images(&mut before, wd, sid);
         assert!(
             before[0].images.as_ref().unwrap()[0].missing,
-            "no sidecar → other clients still see the missing placeholder"
+            "no sidecar -> other clients still see the missing placeholder"
         );
 
         // FIX: the shared helper stashes the original bytes (VL caption + image present).
@@ -2538,10 +2538,10 @@ mod tests {
         let mut after = vec![missing_user_msg()];
         crate::attach_display_images(&mut after, wd, sid);
         let refilled = &after[0].images.as_ref().unwrap()[0];
-        assert!(!refilled.missing, "sidecar present → placeholder refilled");
+        assert!(!refilled.missing, "sidecar present -> placeholder refilled");
         assert_eq!(refilled.data, "REAL-BYTES");
 
-        // Gating: no VL caption OR no image → nothing stashed (don't pollute the sidecar).
+        // Gating: no VL caption OR no image -> nothing stashed (don't pollute the sidecar).
         let sid2 = "sess-no-vl";
         stash_vl_display_images(wd, sid2, "plain text, no caption", &[img("X")]);
         stash_vl_display_images(wd, sid2, "[图片内容（由 vl 识别）] no image", &[]);
@@ -2549,7 +2549,7 @@ mod tests {
         crate::attach_display_images(&mut plain, wd, sid2);
         assert!(
             plain[0].images.as_ref().unwrap()[0].missing,
-            "no VL caption / no image → nothing stashed → stays missing"
+            "no VL caption / no image -> nothing stashed -> stays missing"
         );
     }
 
@@ -2603,11 +2603,11 @@ mod tests {
 
         // Explicit override wins.
         assert_eq!(resolve_provider_name(&config, Some("chosen")), "chosen");
-        // No override → falls back to the config default.
+        // No override -> falls back to the config default.
         assert_eq!(resolve_provider_name(&config, None), "default-prov");
     }
 
-    /// Trust round-trip at the daemon layer: trust_project → is_project_trusted → partition_by_trust
+    /// Trust round-trip at the daemon layer: trust_project -> is_project_trusted -> partition_by_trust
     /// clears blocked list.  Uses RUSTCODE_MCP_TRUST_STORE as the test seam so we never touch the
     /// developer's real trust store.
     #[test]
@@ -2679,7 +2679,7 @@ mod tests {
     #[test]
     fn real_empty_terminal_snapshot_clears_the_conversation() {
         // Seed the buffer with a cold-summary synthetic (kernel encoding) + a real
-        // user message; an empty authoritative terminal must wipe BOTH — inline cold
+        // user message; an empty authoritative terminal must wipe BOTH -- inline cold
         // summaries are just messages now, so nothing survives an empty snapshot.
         let mut cold = Message::user(format!(
             "{}stale summary",
@@ -2698,7 +2698,7 @@ mod tests {
 
     /// The webui `/live/mode` body + `mode`/`snapshot` SSE events serialize the
     /// mode as lowercase `build`/`accept_edits`/`bypass`/`plan`. The frontend `ApprovalMode`
-    /// union depends on these EXACT strings — lock the wire contract.
+    /// union depends on these EXACT strings -- lock the wire contract.
     #[test]
     fn approval_mode_wire_strings_are_lowercase() {
         let cases = [
@@ -2710,7 +2710,7 @@ mod tests {
         for (mode, wire) in cases {
             // Serialize (used by Snapshot.mode + ModeChanged broadcast).
             assert_eq!(serde_json::to_value(mode).unwrap(), serde_json::json!(wire));
-            // Deserialize (the `/live/mode` request body → LiveModeReq.mode).
+            // Deserialize (the `/live/mode` request body -> LiveModeReq.mode).
             let back: ApprovalMode = serde_json::from_value(serde_json::json!(wire)).unwrap();
             assert_eq!(back, mode);
         }
@@ -2771,19 +2771,19 @@ mod tests {
         assert_eq!(value, serde_json::json!({ "ok": true, "mode": "bypass" }));
     }
 
-    /// Regression guard (2nd occurrence — see the `never eprintln` note near the
+    /// Regression guard (2nd occurrence -- see the `never eprintln` note near the
     /// top of this file). Under `/webui` the live path runs IN the TUI
     /// process, so a console print writes straight to the shared terminal and
-    /// corrupts the TUI — a stray native-runtime startup diagnostic
+    /// corrupts the TUI -- a stray native-runtime startup diagnostic
     /// landed on the input line when a dir switch during sync spun up the live
     /// stack. Every diagnostic in this file must use the file-sink `ctrace!`.
     ///
     /// This scans our own source for the print-macro family (`print!` / `println!`
     /// / `eprint!` / `eprintln!`) plus `dbg!`, which cover the realistic
-    /// regressions. It does NOT catch raw handle writes (`write!(io::stdout(), …)`)
-    /// — those are left to the module-level `#![deny(clippy::print_stdout, …)]`
+    /// regressions. It does NOT catch raw handle writes (`write!(io::stdout(), ...)`)
+    /// -- those are left to the module-level `#![deny(clippy::print_stdout, ...)]`
     /// and review, since a `stdout(`/`stderr(` substring scan false-positives on
-    /// `Command::stdout(Stdio::…)` and friends. Backstop, not a proof.
+    /// `Command::stdout(Stdio::...)` and friends. Backstop, not a proof.
     #[test]
     fn no_console_prints_in_live_path() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/live_api.rs"))
@@ -2800,7 +2800,7 @@ mod tests {
         for (i, line) in src.lines().enumerate() {
             if let Some(hit) = needles.iter().find(|n| line.contains(n.as_str())) {
                 panic!(
-                    "console print (`{}`) at live_api.rs:{} — use ctrace! (file sink), \
+                    "console print (`{}`) at live_api.rs:{} -- use ctrace! (file sink), \
                      never a console print: the /webui live path runs in the TUI process \
                      and any stdout/stderr write here corrupts the terminal. Line: {}",
                     hit,
@@ -2879,7 +2879,7 @@ mod tests {
         *crate::DAEMON_PROJECT.lock().unwrap() = None;
     }
 
-    // 回归：无图时视觉预处理是直通的——caption 原样返回，不触碰 config/网络。
+    // 回归：无图时视觉预处理是直通的----caption 原样返回，不触碰 config/网络。
     // （有图的 VL 流式路径覆盖在 rustcode_coding::vision::run_vl_caption 的单测里。）
     #[tokio::test]
     async fn preprocess_live_caption_is_passthrough_without_images() {
@@ -3233,7 +3233,7 @@ mod tests {
             .project(crate::live_hub::LiveViewEvent::Runtime(
                 CodingRuntimeEvent::Agent(rustcode_kernel::event::AgentEvent::ToolProgress {
                     call_id: "c1".into(),
-                    message: "explore#4 · grep unwrap".into(),
+                    message: "explore#4 . grep unwrap".into(),
                 }),
             ))
             .expect("tool progress must reach the live wire");

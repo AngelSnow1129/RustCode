@@ -62,7 +62,7 @@ pub fn project_marketplaces_root(
 ///
 /// This happens when `working_dir` IS the plugin home (e.g. running from
 /// `$HOME`), where `<working_dir>/.rustcode/plugins` is the same directory as
-/// the global `plugins_root()` — the same state file would otherwise be read
+/// the global `plugins_root()` -- the same state file would otherwise be read
 /// once per scope and every plugin enumerated twice. Callers (asset/status
 /// iteration, `plugin list`) should skip such scopes.
 pub fn scope_state_file_aliases_user_scope(working_dir: &Path, scope: &InstallScope) -> bool {

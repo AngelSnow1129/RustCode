@@ -2,12 +2,12 @@
 
 **Status:** Proposed  
 **Date:** 2026-07-26  
-**Scope:** AtomCode configuration, TUI `/provider` and `/model`, daemon provider API, runtime provider resolution  
+**Scope:** RustCode configuration, TUI `/provider` and `/model`, daemon provider API, runtime provider resolution  
 **Reference implementations:** OpenCode provider registry and Models.dev integration; Codex `model_providers` registry and independent model selection
 
 ## 1. Problem
 
-AtomCode currently stores one flattened `ProviderConfig` per entry:
+RustCode currently stores one flattened `ProviderConfig` per entry:
 
 ```toml
 default_provider = "MyDeepSeek"
@@ -43,7 +43,7 @@ select vendor → configure/login account → select or enter models → choose 
 - Allow multiple accounts per vendor and multiple models per account.
 - Keep custom OpenAI-compatible and Anthropic-compatible endpoints first-class.
 - Preserve every existing `[providers.*]` configuration without requiring manual migration.
-- Keep provider/model resolution owned by `atomcode-config` and pass one fully resolved runtime configuration to coding runtime and drivers.
+- Keep provider/model resolution owned by `rustcode-config` and pass one fully resolved runtime configuration to coding runtime and drivers.
 - Keep API keys and OAuth credentials out of sanitized APIs and logs.
 
 ### Non-goals
@@ -51,7 +51,7 @@ select vendor → configure/login account → select or enter models → choose 
 - Maintaining an exhaustive global model catalog in the first release.
 - Making Models.dev a required runtime dependency.
 - Automatically rewriting `config.toml` at startup.
-- Adding provider-specific business behavior to `atomcode-kernel`.
+- Adding provider-specific business behavior to `rustcode-kernel`.
 - OAuth-based provider adapters, including GitHub Copilot. The first release covers API-key and endpoint-based providers only; Copilot is deferred to a separate follow-up (see §9).
 
 ## 3. Recommended domain model
@@ -136,7 +136,7 @@ pub struct ResolvedModelConfig {
 }
 ```
 
-Only `atomcode-config` resolves presets, accounts, models, environment variables, and legacy entries. Coding runtime, CLI, TUI, daemon, ACP, and clix must not implement their own compatibility branches.
+Only `rustcode-config` resolves presets, accounts, models, environment variables, and legacy entries. Coding runtime, CLI, TUI, daemon, ACP, and clix must not implement their own compatibility branches.
 
 ## 4. Proposed configuration format
 
@@ -193,7 +193,7 @@ The first release should continue serializing untouched legacy entries in their 
 
 ## 6. Preset catalog strategy
 
-AtomCode should follow a hybrid approach:
+RustCode should follow a hybrid approach:
 
 - Like Codex, compile a small set of stable provider definitions into the binary.
 - Like OpenCode, separate provider metadata from model metadata and allow custom extensions.
@@ -205,7 +205,7 @@ Preset entries contain only stable connection/auth defaults. Model lists may com
 - a small embedded recommendation list;
 - manual model entry.
 
-Unknown providers always use a custom compatible preset. Preset overrides ensure vendor URL changes do not block users waiting for an AtomCode release.
+Unknown providers always use a custom compatible preset. Preset overrides ensure vendor URL changes do not block users waiting for an RustCode release.
 
 ## 7. `/provider` interaction
 
@@ -340,7 +340,7 @@ directly — e.g. `Config::default_context_window()` (`config/mod.rs`) looks up
 `self.providers.get(&self.default_provider)`, and the footer, WebUI `is_default`,
 and TUI respawn read the raw key. This split has already produced shipped bugs
 (the footer context window not following a model switch; see the note in
-`atomcode-cli/src/main.rs` `apply_cli_runtime_overrides`).
+`rustcode-cli/src/main.rs` `apply_cli_runtime_overrides`).
 
 **Resolution.**
 
@@ -355,13 +355,13 @@ and TUI respawn read the raw key. This split has already produced shipped bugs
    (or delete it and migrate call sites). `default_provider` is retained **only**
    as a legacy input to projection (§5), never read directly by display or runtime.
 4. Add a guard test that greps the tree for direct `default_provider` reads outside
-   `atomcode-config`'s projection/resolution code and fails on new ones, plus a
+   `rustcode-config`'s projection/resolution code and fails on new ones, plus a
    behavioral test that switching `default_model` updates the footer window through
    the single path.
 
 ### 14.2 Subagent tier resolution over accounts + model profiles
 
-**Grounding.** `resolve_tier_keys()` (`atomcode-coding/src/subagent_tiers.rs`) ranks
+**Grounding.** `resolve_tier_keys()` (`rustcode-coding/src/subagent_tiers.rs`) ranks
 entries in the flat `config.providers` map by `capable_model`; `provider_factory.rs`
 `resolve_subagent_tier_thunks()` builds the fast/capable tier providers from those
 keys; the daemon create handler hardcodes `capable_model: None`. Splitting providers
@@ -386,7 +386,7 @@ into accounts + profiles breaks this scan.
 **Grounding.** Both are top-level `Option<String>` fields that reference a provider
 **by name** and are validated with `config.providers.contains_key(...)`
 (`config/mod.rs` vision validation; `runtime.rs` goal-evaluator lookup;
-`atomcode-cli/src/vision.rs`). The domain model §3–§5 does not mention them; if the
+`rustcode-cli/src/vision.rs`). The domain model §3–§5 does not mention them; if the
 ID space changes they silently break.
 
 **Resolution.**
@@ -420,9 +420,9 @@ frontend change.
    (CodingPlan selects a model-specific endpoint from the server rather than the
    account's static base URL) and `system_prompt`, beyond the fields listed there.
 2. Task 5's blast radius is real: ~230 direct provider-field reads across ~12 files
-   (notably `atomcode-tuix/src/event_loop/mod.rs`, `atomcode-coding/src/{runtime,
+   (notably `rustcode-tuix/src/event_loop/mod.rs`, `rustcode-coding/src/{runtime,
    config,provider_factory,parts}.rs`, `rustcode-daemon/src/api_provider.rs`,
-   `atomcode-codingplan/src/setup.rs`). Migrate **incrementally** behind an
+   `rustcode-codingplan/src/setup.rs`). Migrate **incrementally** behind an
    `active_provider()`-compatible wrapper (plan Task 4 step 3), converting consumer
    clusters one at a time with their own test runs — not one big-bang commit.
 

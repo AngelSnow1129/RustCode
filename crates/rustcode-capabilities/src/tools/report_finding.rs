@@ -1,6 +1,6 @@
-//! `report_finding` — structured issue reporting for a review/audit agent. Each call
+//! `report_finding` -- structured issue reporting for a review/audit agent. Each call
 //! records ONE finding (`title` / `body` / `priority` / `confidence` / `file_path` /
-//! `line_start` / `line_end`); the tool ACCUMULATES them (interior `Arc<Mutex<…>>`, like
+//! `line_start` / `line_end`); the tool ACCUMULATES them (interior `Arc<Mutex<...>>`, like
 //! `todo`) so the embedder can read the aggregated list after the run and rank / dedup /
 //! render it. Recording only ⇒ `Safe`. Mirrors the production reviewer's report tool.
 //!
@@ -79,7 +79,7 @@ impl Tool for ReportFindingTool {
     fn description(&self) -> &str {
         "Report ONE code-review finding as a structured record. Call once per distinct \
          issue; the findings are aggregated for the final report. `priority` is P0 (most \
-         severe) to P3; `confidence` is 0.0–1.0; `line_end` defaults to `line_start` for a \
+         severe) to P3; `confidence` is 0.0-1.0; `line_end` defaults to `line_start` for a \
          single-line finding. Give a prefixed imperative `title`, a `body` that explains \
          the problem, and a `suggestion` with the actionable fix direction. When the fix is \
          small and you are certain of it, also give `suggested_code`: pure replacement code \
@@ -91,8 +91,8 @@ impl Tool for ReportFindingTool {
             "properties": {
                 "title": { "type": "string", "description": "Prefixed imperative title, e.g. \"fix: unchecked unwrap on None\"" },
                 "body": { "type": "string", "description": "Problem explanation: why it is a problem and the likely consequence" },
-                "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"], "description": "P0 (most severe) … P3" },
-                "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "Confidence 0.0–1.0" },
+                "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"], "description": "P0 (most severe) ... P3" },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "Confidence 0.0-1.0" },
                 "file_path": { "type": "string", "description": "File the finding is in" },
                 "line_start": { "type": "integer", "description": "Start line (1-based)" },
                 "line_end": { "type": "integer", "description": "End line (1-based); defaults to line_start" },
@@ -102,7 +102,7 @@ impl Tool for ReportFindingTool {
             "required": ["title", "body", "priority", "confidence", "file_path", "line_start", "suggestion"]
         })
     }
-    // recording only → Safe.
+    // recording only -> Safe.
     async fn execute(&self, args: &str, _ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
             Ok(a) => a,
@@ -152,7 +152,7 @@ impl Tool for ReportFindingTool {
             )
         };
         ok(format!(
-            "Recorded {} finding ({:.2} confidence) at {} — {} ({total} total).",
+            "Recorded {} finding ({:.2} confidence) at {} -- {} ({total} total).",
             finding.priority, finding.confidence, loc, finding.title
         ))
     }

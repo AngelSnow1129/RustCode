@@ -1,4 +1,4 @@
-//! rustcode-kernel (spike) — a domain-neutral agent driven by a bidirectional,
+//! rustcode-kernel (spike) -- a domain-neutral agent driven by a bidirectional,
 //! serializable Command/Event handle.
 //!
 //! Phase A0: internals are minimal/throwaway; the public API *shape* is what

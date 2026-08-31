@@ -2,11 +2,11 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build a reproducible paired-concurrent harness that compares the two configured DeepSeek V4 Flash selections through AtomCode and uses Codex for blind judging and the final report.
+**Goal:** Build a reproducible paired-concurrent harness that compares the two configured DeepSeek V4 Flash selections through RustCode and uses Codex for blind judging and the final report.
 
-**Architecture:** Add a repository-local, standard-library Python harness under `evals/deepseek-v4-flash/`. It launches existing AtomCode headless processes in isolated homes and fixtures, persists auditable JSON artifacts, runs case verifiers, anonymizes candidates, invokes `codex exec` for structured judgments, and aggregates results without modifying runtime ownership.
+**Architecture:** Add a repository-local, standard-library Python harness under `evals/deepseek-v4-flash/`. It launches existing RustCode headless processes in isolated homes and fixtures, persists auditable JSON artifacts, runs case verifiers, anonymizes candidates, invokes `codex exec` for structured judgments, and aggregates results without modifying runtime ownership.
 
-**Tech Stack:** Python 3.7 standard library, JSON, AtomCode headless CLI, Codex CLI, JSONL, Markdown.
+**Tech Stack:** Python 3.7 standard library, JSON, RustCode headless CLI, Codex CLI, JSONL, Markdown.
 
 ---
 
@@ -19,7 +19,7 @@
 - Create: `evals/deepseek-v4-flash/README.md`
 
 1. Define both immutable selection IDs and expected wire model names.
-2. Define timeout, pair concurrency, repetitions, random seed, AtomCode/Codex paths,
+2. Define timeout, pair concurrency, repetitions, random seed, RustCode/Codex paths,
    and artifact-retention settings.
 3. Define a case schema with tier, prompt, fixture, verifier, timeout, and rubric.
 4. Document credential handling, isolation requirements, and the four commands.
@@ -46,12 +46,12 @@
 - Modify: `evals/deepseek-v4-flash/eval.py`
 - Modify: `evals/deepseek-v4-flash/tests/test_eval.py`
 
-1. Write a fake AtomCode executable that records arguments/environment and returns
+1. Write a fake RustCode executable that records arguments/environment and returns
    configurable success, delay, stderr, and failure outcomes.
 2. Write failing tests proving both candidates launch concurrently, receive distinct
    `RUSTCODE_HOME`/working directories, survive peer failure, and time out cleanly.
 3. Implement `run` with an asyncio pair barrier and a semaphore over pairs.
-4. Invoke AtomCode with `--provider`, `--config`, `--prompt-file`, `-C`, `--verbose`,
+4. Invoke RustCode with `--provider`, `--config`, `--prompt-file`, `-C`, `--verbose`,
    `--dev`, and `--no-telemetry`; add `-y` only for explicitly trusted agent fixtures.
 5. Persist stdout, scrubbed stderr, exit status, monotonic duration, start skew,
    hashes, and classified terminal outcome atomically per run.

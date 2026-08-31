@@ -2,14 +2,14 @@
 //!
 //! The REVIEW specialization. Assembles the neutral kernel ([`rustcode_kernel`]) +
 //! capabilities ([`rustcode_capabilities`]) into a runnable, READ-ONLY code-review agent
-//! that reports structured findings — with ZERO `rustcode-core` involvement.
+//! that reports structured findings -- with ZERO `rustcode-core` involvement.
 //!
 //! L2 owns:
-//! 1. **Assembly** — [`build_review_agent`]: wires provider + the read-only review toolset
+//! 1. **Assembly** -- [`build_review_agent`]: wires provider + the read-only review toolset
 //!    (read/grep/glob/ast_grep/codeintel/web_search) + the `report_finding` sink + the
 //!    reviewer persona into a kernel [`Agent`](rustcode_kernel::agent::Agent). It returns
 //!    a [`ReportFindingTool`] HANDLE so the caller collects findings after the run.
-//! 2. **Persona** — [`persona::review_persona`]: the reviewer system prompt.
+//! 2. **Persona** -- [`persona::review_persona`]: the reviewer system prompt.
 //!
 //! The DIFF to review is injected as the task by the caller (e.g. `rustcode-clix`), so the
 //! agent needs no shell to obtain it and stays strictly read-only.
@@ -49,7 +49,7 @@ pub use config::ReviewAgentConfig;
 pub use diff::annotate_diff_line_numbers;
 pub use impact_plan::render_review_impact_plan;
 pub use persona::review_persona;
-/// The `code_review` SUB-AGENT tool — mount it in a host agent (e.g. coding) to give that
+/// The `code_review` SUB-AGENT tool -- mount it in a host agent (e.g. coding) to give that
 /// agent a read-only "review the current changes" capability.
 pub use review_tool::{ReviewTool, ReviewToolConfig, SharedReviewProvider};
 pub use rules::{changed_files_from_diff, is_low_signal_file, render_rules_section};

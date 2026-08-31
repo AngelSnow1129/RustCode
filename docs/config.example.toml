@@ -1,5 +1,5 @@
 # =============================================================================
-# AtomCode 配置模板
+# RustCode 配置模板
 #
 # 复制到 ~/.rustcode/config.toml 后按需修改。Provider 可声明多个，
 # 在 TUI 中用 /provider 或 /model 切换。
@@ -31,22 +31,22 @@ offline_mode = "off"
 # Provider 示例
 # =============================================================================
 
-# ─── Example: AtomGit CodingPlan (recommended) ───
+# ─── Example: CodingPlan gateway (recommended) ───
 # Run `rustcode login` to auto-configure via OAuth, which writes
 # providers like the one below. Manual setup is for reference only.
 #
-# [providers.AtomGit-deepseek-v4-flash]
+# [providers.RustCode-deepseek-v4-flash]
 # type = "openai"
 # api_key = "<your-codingplan-api-key>"
 # model = "deepseek-v4-flash"
-# base_url = "https://llm-api.atomgit.com/v1"
+# base_url = "https://gateway.example.com/v1"
 # context_window = 1000000
 #
-# [providers.AtomGit-Qwen-Qwen3-VL-8B-Instruct]
+# [providers.RustCode-Qwen-Qwen3-VL-8B-Instruct]
 # type = "openai"
 # api_key = "<your-codingplan-api-key>"
 # model = "Qwen/Qwen3-VL-8B-Instruct"
-# base_url = "https://llm-api.atomgit.com/v1"
+# base_url = "https://gateway.example.com/v1"
 # context_window = 64000
 # ─────────────────────────────────────────────────
 
@@ -142,26 +142,26 @@ base_url = "https://api.xiaomimimo.com/v1"
 context_window = 1000000
 max_tokens = 131072
 
-# -------- AtomGit CodingPlan（OAuth 自动配置）----------
+# -------- CodingPlan 网关（OAuth 自动配置）----------
 # /login 命令会自动写入，无需手动填写 api_key
 # 以下仅为展示格式，实际由系统自动生成。
-# [providers."AtomGit-GLM-5.2"]
+# [providers."RustCode-GLM-5.2"]
 # type = "openai"
 # model = "GLM-5.2"
-# base_url = "https://llm-api.atomgit.com/v1"
+# base_url = "https://gateway.example.com/v1"
 # context_window = 1000000
 # max_tokens = 131072
 #
-# [providers."AtomGit-deepseek-v4-flash"]
+# [providers."RustCode-deepseek-v4-flash"]
 # type = "openai"
 # model = "deepseek-v4-flash"
-# base_url = "https://llm-api.atomgit.com/v1"
+# base_url = "https://gateway.example.com/v1"
 # context_window = 1000000
 #
-# [providers."AtomGit-Qwen-Qwen3-VL-8B-Instruct"]
+# [providers."RustCode-Qwen-Qwen3-VL-8B-Instruct"]
 # type = "openai"
 # model = "Qwen/Qwen3-VL-8B-Instruct"
-# base_url = "https://llm-api.atomgit.com/v1"
+# base_url = "https://gateway.example.com/v1"
 # context_window = 64000
 
 # =============================================================================
@@ -173,7 +173,7 @@ max_tokens = 131072
 # type = "openai"
 # api_key = "sk-..."
 # model = "Qwen/Qwen3-VL-8B-Instruct"
-# base_url = "https://llm-api.atomgit.com/v1"
+# base_url = "https://gateway.example.com/v1"
 # context_window = 64000
 
 # =============================================================================
@@ -243,11 +243,11 @@ mode = "follow_system"
 # }
 
 # =============================================================================
-# 自托管 / 自定义 OpenAI / Anthropic 兼容端点（解耦 AtomGit，零遥测）
+# 自托管 / 自定义 OpenAI / Anthropic 兼容端点（平台中立，零遥测）
 # =============================================================================
 # 本 fork 已移除所有遥测，并将 LLM 客户端完全解耦：你可以用任意自托管或
-# 第三方 OpenAI / Anthropic 兼容网关，只需指定 base_url。AtomGit 签名仅在
-# base_url 命中 atomgit 网关时才会附加，其它端点一律使用普通 bearer 鉴权。
+# 第三方 OpenAI / Anthropic 兼容网关，只需指定 base_url。网关签名仅在
+# base_url 命中已配置的网关时才会附加，其它端点一律使用普通 bearer 鉴权。
 #
 # 自定义 OpenAI 兼容端点：
 [providers.my-openai-gw]

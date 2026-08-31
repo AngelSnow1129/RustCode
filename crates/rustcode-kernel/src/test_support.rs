@@ -3,13 +3,13 @@
 //! rustcode persists sessions / config / memory under `RUSTCODE_HOME` (default
 //! `~/.rustcode`). Tests that construct a `SessionManager`, run the agent, or
 //! otherwise persist without setting `RUSTCODE_HOME` write into the developer's
-//! REAL home — a full `cargo test` run leaves dozens of junk `sessions/<hash>/`
+//! REAL home -- a full `cargo test` run leaves dozens of junk `sessions/<hash>/`
 //! buckets (working dirs that are throwaway `tempfile` paths).
 //!
 //! [`isolate_home`] redirects `RUSTCODE_HOME` to a throwaway temp dir the FIRST
 //! time it runs, replacing any value inherited from the developer's shell. It's
 //! idempotent (guarded by a `Once`), so calling it from a `#[ctor]` in each test
-//! binary sets one stable value before libtest spawns any thread — no `set_var`
+//! binary sets one stable value before libtest spawns any thread -- no `set_var`
 //! race (unlike per-test `set_var`, which races under the parallel harness).
 //! Tests that need a dedicated home may still replace the isolated value inside
 //! their test, using the crate's process-global environment lock where required.
@@ -34,7 +34,7 @@
 //! ```
 //!
 //! Putting the `#[ctor]` in the CONSUMING crate (and referencing this fn) is what
-//! forces the linker to keep it — a bare `use … as _` on a ctor-only crate gets
+//! forces the linker to keep it -- a bare `use ... as _` on a ctor-only crate gets
 //! dropped and never fires.
 
 use std::path::PathBuf;
@@ -73,7 +73,7 @@ pub fn isolate_home() {
 /// its own `tempfile::TempDir` hands every OTHER concurrently running test a
 /// path that is deleted the instant that `TempDir` drops. The next session
 /// write from an unrelated test then fails with a spurious
-/// `NotFound("<deleted>/sessions/<bucket>/<id>.snapshot")` — a failure that only
+/// `NotFound("<deleted>/sessions/<bucket>/<id>.snapshot")` -- a failure that only
 /// reproduces under the parallel harness, so it presents as a flake in whichever
 /// test happens to lose the race.
 ///

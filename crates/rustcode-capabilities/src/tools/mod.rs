@@ -1,14 +1,14 @@
 //! Neutral coding **tools** (L1): fs `read`/`write`/`edit`/`list` + `bash` +
 //! `grep`/`glob`, plus a generic approval middleware. Each implements the kernel
 //! [`Tool`](rustcode_kernel::tool::Tool) trait against the kernel's MINIMAL
-//! [`ToolContext`](rustcode_kernel::tool::ToolContext) (`working_dir` + `cancel`) —
+//! [`ToolContext`](rustcode_kernel::tool::ToolContext) (`working_dir` + `cancel`) --
 //! deliberately WITHOUT any coding enrichments (no semantic / graph / lsp /
 //! file_store / read_cache / file_history / budgets). Those belong to a higher
 //! `codeintel` (L1) / `coding` (L2) layer; the neutral fs/exec core lives here.
 //!
 //! # Trust model (inherited from the kernel)
 //!
-//! These tools run with the host process's FULL ambient authority — the kernel does
+//! These tools run with the host process's FULL ambient authority -- the kernel does
 //! not sandbox them (see [`rustcode_kernel::tool`]). Relative paths resolve against
 //! `ctx.working_dir`; absolute paths are honored as-is. There is deliberately NO
 //! path-escape enforcement here: faking a sandbox at this layer would be FALSE
@@ -20,7 +20,7 @@
 //! Each tool declares an arg-aware [`risk`](rustcode_kernel::tool::Tool::risk):
 //! read/list/grep/glob are always `Safe`; write/edit are always `Risky` (they mutate
 //! the filesystem); `bash` is `Risky` only for commands its danger classifier flags.
-//! Risk is advisory metadata — the GATE is the composable [`ApprovalMiddleware`],
+//! Risk is advisory metadata -- the GATE is the composable [`ApprovalMiddleware`],
 //! which reads `risk`, consults an injected [`PermissionStore`], and otherwise
 //! round-trips the driver for a decision.
 
@@ -126,16 +126,16 @@ pub use web_search::WebSearchTool;
 pub use write::WriteFileTool;
 pub use write_approval::WriteApprovalGate;
 
-/// Names of the full neutral coding toolset — pass to
+/// Names of the full neutral coding toolset -- pass to
 /// [`ToolRegistry::mount`](rustcode_kernel::tool::ToolRegistry::mount).
 pub fn coding_tool_names() -> &'static [&'static str] {
     // NOTE: env-gated tools (`memory`, `request_user_input`) keep their name here
-    // UNCONDITIONALLY — `mount()` selects them only when actually registered (gate on),
+    // UNCONDITIONALLY -- `mount()` selects them only when actually registered (gate on),
     // but the name MUST be in this allowlist or the registered tool never reaches the
     // model's API `tools` array (registered != mounted).
     //
     // `memory` is feature-gated on the register side (`#[cfg(feature = "memory")]`
-    // around `MemoryTool`), so its name is gated here too — without this gate the
+    // around `MemoryTool`), so its name is gated here too -- without this gate the
     // default-features `cargo test` would assert a never-registered tool is mounted.
     #[cfg(feature = "memory")]
     {
@@ -177,7 +177,7 @@ pub fn coding_tool_names() -> &'static [&'static str] {
 }
 
 /// Register the full neutral coding toolset into `reg` (then `mount` the subset a
-/// given specialization should expose to the model). Vision support OFF — `read_file`
+/// given specialization should expose to the model). Vision support OFF -- `read_file`
 /// reports images as binary (use [`register_coding_tools_with_vision`] for a VL model).
 pub fn register_coding_tools(reg: &mut ToolRegistry) {
     register_coding_tools_with_vision(reg, false);
@@ -199,7 +199,7 @@ pub fn register_coding_tools_with_vision(reg: &mut ToolRegistry, vision: bool) {
     reg.register(Arc::new(GlobTool));
     reg.register(Arc::new(SearchReplaceTool));
     reg.register(Arc::new(AstGrepTool));
-    // Gate on RUSTCODE_TODO env var (0/false/off → skip; anything else or absent → register).
+    // Gate on RUSTCODE_TODO env var (0/false/off -> skip; anything else or absent -> register).
     // Mirrors rustcode_core::config::todo_enabled_from_env but inlined here because
     // rustcode-capabilities must NOT depend on rustcode-core (layering constraint).
     let todo_env_off = std::env::var("RUSTCODE_TODO")
@@ -213,11 +213,11 @@ pub fn register_coding_tools_with_vision(reg: &mut ToolRegistry, vision: bool) {
         .unwrap_or(false);
     if !todo_env_off {
         // Single `todowrite` tool: accepts the full-list plan shape AND the incremental
-        // `{action}` shape (merged — was a separate `todo` tool). One tool = no plan-vs-patch
+        // `{action}` shape (merged -- was a separate `todo` tool). One tool = no plan-vs-patch
         // tool-choice confusion for the model; the reducer distinguishes by arg SHAPE.
         reg.register(Arc::new(TodoTool::new()));
     }
-    // Gate on RUSTCODE_REQUEST_USER_INPUT (default ON — opt-out via 0/false/off/empty).
+    // Gate on RUSTCODE_REQUEST_USER_INPUT (default ON -- opt-out via 0/false/off/empty).
     // Register UNLESS the env var is explicitly set to a falsy value.
     //
     // INTENTIONAL DUPLICATION: the same env-var logic lives in
@@ -234,14 +234,14 @@ pub fn register_coding_tools_with_vision(reg: &mut ToolRegistry, vision: bool) {
         .map(|v| v.trim().to_ascii_lowercase())
     {
         Some(v) if v == "0" || v == "false" || v == "off" || v.is_empty() => false,
-        _ => true, // default ON — unset, or any other value
+        _ => true, // default ON -- unset, or any other value
     };
     if request_user_input_on {
         reg.register(Arc::new(
             crate::tools::request_user_input::RequestUserInputTool,
         ));
     }
-    // Gate on RUSTCODE_MEMORY_TOOL (0/false/off → skip; absent/other → register).
+    // Gate on RUSTCODE_MEMORY_TOOL (0/false/off -> skip; absent/other -> register).
     // Mirrors the TodoTool env gate; the tool name stays in `coding_tool_names()`
     // unconditionally (mount() skips unregistered names).
     #[cfg(feature = "memory")]
@@ -264,16 +264,16 @@ pub fn register_coding_tools_with_vision(reg: &mut ToolRegistry, vision: bool) {
 /// Apply `CREATE_NO_WINDOW` on Windows so a spawned child does not pop a console window;
 /// no-op elsewhere. Critical in headless/daemon mode (e.g. the WeChat clawbot / OpenClaw
 /// bridge): with no console to inherit, each `cmd.exe` spawn would otherwise allocate a
-/// NEW console window — the "一对话桌面就闪" flash the user reported. Re-exported from the
+/// NEW console window -- the "一对话桌面就闪" flash the user reported. Re-exported from the
 /// crate-shared [`crate::process_utils`] so there is ONE implementation (this module's
 /// local copy was deduped into that home, which also carries the `std` `_sync` variant).
 pub(crate) use crate::process_utils::suppress_console_window;
 
-/// Resolve a model-supplied path: leading `~`/`~/` → home dir; absolute → as-is;
-/// relative → joined to `working_dir`. NO escape enforcement (see the module
+/// Resolve a model-supplied path: leading `~`/`~/` -> home dir; absolute -> as-is;
+/// relative -> joined to `working_dir`. NO escape enforcement (see the module
 /// trust-model note). `~` expansion (via the crate-shared [`crate::pathutil`], so
 /// `tools` and `codeintel` agree) gives parity with the shell the `bash` tool relies
-/// on — fixing `read_file("~/.rustcode/x")` resolving to the broken `<cwd>/~/…`.
+/// on -- fixing `read_file("~/.rustcode/x")` resolving to the broken `<cwd>/~/...`.
 pub(crate) fn resolve_path(raw: &str, working_dir: &Path) -> PathBuf {
     if let Some(home) = crate::pathutil::expand_tilde(raw) {
         return home;
@@ -292,7 +292,7 @@ const HINT_MAX_ENTRIES: usize = 40;
 /// is in it. Returns `""` when there is nothing safe or useful to say.
 ///
 /// Why: `path not found: <abs path>` tells the model only that it was wrong, not where the
-/// tree actually stops — so it guesses again, deeper (`app/src` → `app/src/main/java`), and
+/// tree actually stops -- so it guesses again, deeper (`app/src` -> `app/src/main/java`), and
 /// burns a turn per guess. The nearest existing ancestor plus its entries is the one fact
 /// that ends the loop, and it is a fact we can prove by reading the directory (nothing here
 /// asserts anything about what the model was *trying* to find).
@@ -304,7 +304,7 @@ const HINT_MAX_ENTRIES: usize = 40;
 ///
 /// HANG-SAFE: the blocking `canonicalize`/`read_dir` run OFF the async runtime thread and are
 /// bounded by [`GATE_FS_TIMEOUT`] (a workspace on a stalled network mount can wedge these for
-/// minutes — the same reason the permission gate uses [`run_bounded`]). A timeout degrades to
+/// minutes -- the same reason the permission gate uses [`run_bounded`]). A timeout degrades to
 /// no hint, never a frozen turn loop. Centralized here so no call site can forget it.
 pub(crate) async fn not_found_hint(missing: &Path, working_dir: &Path) -> String {
     let missing = missing.to_path_buf();
@@ -316,19 +316,19 @@ pub(crate) async fn not_found_hint(missing: &Path, working_dir: &Path) -> String
 }
 
 /// Pure, blocking core of [`not_found_hint`] (kept separate so the boundary logic is unit-
-/// testable without a runtime). MUST run off the async worker — see the wrapper.
+/// testable without a runtime). MUST run off the async worker -- see the wrapper.
 fn not_found_hint_blocking(missing: &Path, working_dir: &Path) -> String {
     let Ok(root) = crate::pathnorm::canonicalize(working_dir) else {
         return String::new();
     };
-    // Walk up from the parent — `missing` itself is the thing that does not exist.
+    // Walk up from the parent -- `missing` itself is the thing that does not exist.
     let mut cur = missing.parent();
     while let Some(candidate) = cur {
         // `canonicalize` succeeds only for paths that exist, so this doubles as the
         // existence test for each ancestor.
         if let Ok(real) = crate::pathnorm::canonicalize(candidate) {
             if !real.starts_with(&root) {
-                return String::new(); // left the workspace — say nothing
+                return String::new(); // left the workspace -- say nothing
             }
             if !real.is_dir() {
                 return String::new(); // an ancestor is a FILE; there is nothing to list
@@ -341,7 +341,7 @@ fn not_found_hint_blocking(missing: &Path, working_dir: &Path) -> String {
 }
 
 /// Render `dir`'s entries for a not-found hint: directories first (trailing `/`), then files,
-/// each group sorted by name so the text is deterministic. Build/VCS/cache dirs are dropped —
+/// each group sorted by name so the text is deterministic. Build/VCS/cache dirs are dropped --
 /// the same noise the walkers skip.
 fn render_dir_hint(dir: &Path) -> String {
     let Ok(read) = std::fs::read_dir(dir) else {
@@ -373,10 +373,10 @@ fn render_dir_hint(dir: &Path) -> String {
         .map(|(is_dir, n)| if *is_dir { format!("{n}/") } else { n.clone() })
         .collect();
     if total > HINT_MAX_ENTRIES {
-        shown.push(format!("… (+{} more)", total - HINT_MAX_ENTRIES));
+        shown.push(format!("... (+{} more)", total - HINT_MAX_ENTRIES));
     }
     format!(
-        "\nNearest existing directory: {} — contains: {}",
+        "\nNearest existing directory: {} -- contains: {}",
         crate::pathnorm::to_display(dir),
         shown.join(", ")
     )
@@ -385,7 +385,7 @@ fn render_dir_hint(dir: &Path) -> String {
 /// Coerce every line ending in `s` to `eol` (`"\n"` or `"\r\n"`): collapse any `\r\n`
 /// to `\n`, then expand to the target. Idempotent for `"\n"`. Used by the editors so a
 /// model that copied LF text from `read_file` (which strips `\r` via `str::lines()`) can
-/// still match — and not corrupt — a CRLF file on disk.
+/// still match -- and not corrupt -- a CRLF file on disk.
 pub(crate) fn coerce_eol(s: &str, eol: &str) -> String {
     if eol == "\r\n" {
         s.replace("\r\n", "\n").replace('\n', "\r\n")
@@ -396,7 +396,7 @@ pub(crate) fn coerce_eol(s: &str, eol: &str) -> String {
 
 /// Windows-aware absolute-path test. `Path::is_absolute()` is **platform-dependent**:
 /// on a Unix build it rejects `G:\foo` (treats the whole thing as one relative name),
-/// so `working_dir.join("G:\\…")` silently produces garbage. A coding agent receives
+/// so `working_dir.join("G:\\...")` silently produces garbage. A coding agent receives
 /// paths for the USER's platform, which may differ from the build target (and tests
 /// must be reproducible off Windows), so we additionally recognize Windows roots:
 /// drive-letter (`C:\`, `C:/`) and UNC (`\\server\share`).
@@ -410,7 +410,7 @@ pub(crate) fn is_absolute_path(raw: &str) -> bool {
     {
         return true;
     }
-    // UNC: `\\server\share` (the `//…` form is already caught by is_absolute on Unix).
+    // UNC: `\\server\share` (the `//...` form is already caught by is_absolute on Unix).
     b.len() >= 2 && b[0] == b'\\' && b[1] == b'\\'
 }
 
@@ -475,7 +475,7 @@ pub(crate) fn ok(content: impl Into<String>) -> ToolResult {
 }
 /// A successful tool result that also carries inline `images` for a VISION model to
 /// SEE (e.g. `read_file` returning a picture). The agent loop lifts these onto a
-/// follow-up `Role::User` message — the only role a provider serializes images on.
+/// follow-up `Role::User` message -- the only role a provider serializes images on.
 pub(crate) fn ok_with_images(
     content: impl Into<String>,
     images: Vec<rustcode_kernel::message::ImageContent>,
@@ -487,7 +487,7 @@ pub(crate) fn ok_with_images(
         images,
     }
 }
-/// A failed tool result (`is_error: true`) — surfaced to the model so it can recover.
+/// A failed tool result (`is_error: true`) -- surfaced to the model so it can recover.
 pub(crate) fn err(content: impl Into<String>) -> ToolResult {
     ToolResult {
         call_id: String::new(),
@@ -500,13 +500,13 @@ pub(crate) fn err(content: impl Into<String>) -> ToolResult {
 /// Max wall-clock a permission gate may spend on blocking filesystem classification
 /// (path canonicalization). The workspace can sit on a stalled mount (e.g. a hung
 /// network share) where `std::fs::canonicalize` blocks for minutes; bounding it keeps
-/// the kernel's turn loop responsive (Esc/Ctrl-C stay live) instead of freezing — the
+/// the kernel's turn loop responsive (Esc/Ctrl-C stay live) instead of freezing -- the
 /// exact symptom of a `before()` gate hanging on `/Volumes/<share>`.
 pub(crate) const GATE_FS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Run blocking `f` OFF the async worker (so a stalled syscall can't pin the runtime
 /// thread mid-poll), bounded by `timeout`. Returns `default` if `f` doesn't finish in
-/// time or its thread panics — a hung filesystem degrades to a safe fallback, never a
+/// time or its thread panics -- a hung filesystem degrades to a safe fallback, never a
 /// hang. The orphaned blocking thread is abandoned (it finishes when the syscall
 /// eventually returns); acceptable for the rare stalled-mount case.
 pub(crate) async fn run_bounded<T, F>(timeout: std::time::Duration, default: T, f: F) -> T
@@ -551,7 +551,7 @@ mod tests {
     fn resolve_path_treats_windows_drive_and_unc_as_absolute() {
         let wd = Path::new("/work/proj");
         // A Windows drive path (either slash style) must NOT be joined onto the
-        // working dir — doing so produces garbage like `/work/proj/G:\VR2024\…`
+        // working dir -- doing so produces garbage like `/work/proj/G:\VR2024\...`
         // and makes the agent report an existing file as "does not exist".
         assert_eq!(
             resolve_path(r"G:\VR2024\keystore", wd),
@@ -574,7 +574,7 @@ mod tests {
     }
 
     /// A model that guesses a conventional layout (`app/src/main/java` for a Gradle project)
-    /// gets `path not found` and nothing else — so it guesses again, deeper. The hint gives it
+    /// gets `path not found` and nothing else -- so it guesses again, deeper. The hint gives it
     /// the one fact that ends the guessing: where the path stops existing, and what is actually
     /// there.
     #[test]
@@ -595,7 +595,7 @@ mod tests {
 
     /// The tools deliberately do NOT enforce workspace containment (see the module trust-model
     /// note), so a model can hand in any absolute path. Listing a directory outside the
-    /// workspace would pull the user's home — or anything else on disk — into model context as
+    /// workspace would pull the user's home -- or anything else on disk -- into model context as
     /// a side effect of a typo. The hint stays inside the workspace or says nothing.
     #[test]
     fn not_found_hint_never_lists_outside_the_working_dir() {
@@ -619,7 +619,7 @@ mod tests {
     /// points OUT of it. A byte-prefix check on the un-resolved path would pass
     /// (`<wd>/link/...` starts with `<wd>`) and leak the target's contents; the guard is only
     /// sound because it canonicalizes both sides (resolving the symlink) before comparing. This
-    /// pins that — if `pathnorm::canonicalize` were ever swapped for a lexical normalizer, the
+    /// pins that -- if `pathnorm::canonicalize` were ever swapped for a lexical normalizer, the
     /// leak would come back and this test would catch it. (Unix-only: reliable symlink creation.)
     #[cfg(unix)]
     #[test]
@@ -658,7 +658,7 @@ mod tests {
         assert!(hint.is_empty(), "a `..` escape must say nothing: {hint}");
     }
 
-    /// The workspace root itself is a valid nearest-existing ancestor — that is the common
+    /// The workspace root itself is a valid nearest-existing ancestor -- that is the common
     /// case for a first-turn guess like `src/` in a project that has no `src/`.
     #[test]
     fn not_found_hint_accepts_the_working_dir_itself_as_the_ancestor() {
@@ -671,7 +671,7 @@ mod tests {
     }
 
     /// The canonical list of tool names `register_coding_tools` and
-    /// `coding_tool_names` must agree on — the single source of truth for these
+    /// `coding_tool_names` must agree on -- the single source of truth for these
     /// tests. Adding/removing a tool updates only this list; the assertions below
     /// fail if the code doesn't match.
     const EXPECTED_TOOL_NAMES: &[&str] = &[
@@ -711,7 +711,7 @@ mod tests {
             names.contains(&"request_user_input"),
             "coding_tool_names() must include 'request_user_input'"
         );
-        // "fetch_output" is always in coding_tool_names() — mount() drops it when the
+        // "fetch_output" is always in coding_tool_names() -- mount() drops it when the
         // session-gated FetchOutputTool is not registered; the name itself is unconditional.
         assert!(
             names.contains(&"fetch_output"),
@@ -814,8 +814,8 @@ mod tests {
 
     /// A `/model` swap re-registers `read_file` (see `coding::parts::assemble`) to refresh
     /// its vision flag. This guards the mechanism that fix relies on: re-registering with a
-    /// new `vision` value OVERWRITES the prior `read_file`, so a model swap from text→vision
-    /// (or vision→text) actually changes how it treats an image — it does not go stale.
+    /// new `vision` value OVERWRITES the prior `read_file`, so a model swap from text->vision
+    /// (or vision->text) actually changes how it treats an image -- it does not go stale.
     #[tokio::test]
     async fn re_registering_read_file_overwrites_its_vision_flag() {
         use rustcode_kernel::tool::{ProgressSink, ToolContext};
@@ -829,7 +829,7 @@ mod tests {
             requester: None,
         };
 
-        // First mount: text-only model → read of an image stays the binary-text dead-end.
+        // First mount: text-only model -> read of an image stays the binary-text dead-end.
         let mut reg = ToolRegistry::new();
         register_coding_tools_with_vision(&mut reg, false);
         let r = reg
@@ -844,7 +844,7 @@ mod tests {
             r.content
         );
 
-        // Re-register on the SAME registry as if the model swapped to a VL model → the read
+        // Re-register on the SAME registry as if the model swapped to a VL model -> the read
         // tool must now hand over the image, proving the swap takes effect (no stale flag).
         register_coding_tools_with_vision(&mut reg, true);
         let r = reg
@@ -876,7 +876,7 @@ mod tests {
     #[test]
     #[serial_test::serial(request_user_input_env)]
     fn request_user_input_gated_on_by_default_off_when_opt_out() {
-        // default (unset) → registered (default ON)
+        // default (unset) -> registered (default ON)
         std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
         let mut reg = ToolRegistry::new();
         register_coding_tools_with_vision(&mut reg, false);
@@ -891,7 +891,7 @@ mod tests {
             "must be ON by default: {names_on:?}"
         );
 
-        // explicit opt-out → NOT registered
+        // explicit opt-out -> NOT registered
         std::env::set_var("RUSTCODE_REQUEST_USER_INPUT", "0");
         let mut reg2 = ToolRegistry::new();
         register_coding_tools_with_vision(&mut reg2, false);
@@ -939,7 +939,7 @@ mod tests {
     }
 
     /// Regression: the tool must reach `MountedTools::defs()` (the API tools array) by
-    /// default — not merely be registered. Previously `request_user_input` was registered
+    /// default -- not merely be registered. Previously `request_user_input` was registered
     /// but absent from `coding_tool_names()`, so `mount()` never selected it and the model
     /// never saw it.
     #[test]

@@ -1,13 +1,13 @@
 // crates/rustcode-tuix/src/modals/plugin_manager.rs
 //
-// `/plugin` (no subcommand) modal — a full interactive plugin manager.
+// `/plugin` (no subcommand) modal -- a full interactive plugin manager.
 //
 // One modal, an internal `Screen` state machine. From `Home` you can:
-//   • Browse marketplaces → list a marketplace's plugins → Enter toggles
+//   * Browse marketplaces -> list a marketplace's plugins -> Enter toggles
 //     install/uninstall.
-//   • Add marketplace…  → type/paste a git URL → Enter clones (async).
-//   • Remove marketplace… → pick a marketplace → Enter removes (sync).
-//   • Installed → pick an installed plugin → Enter uninstalls (sync).
+//   * Add marketplace...  -> type/paste a git URL -> Enter clones (async).
+//   * Remove marketplace... -> pick a marketplace -> Enter removes (sync).
+//   * Installed -> pick an installed plugin -> Enter uninstalls (sync).
 //
 // Sub-screens return to `Home` on Esc; `Home`'s Esc closes the modal.
 // Slow ops that clone (add marketplace, install) go through the existing
@@ -39,12 +39,12 @@ enum Screen {
     Browse,
     AddUrl,
     Installed,
-    /// Scope selection — shown before installing a plugin.
+    /// Scope selection -- shown before installing a plugin.
     ScopeSelect {
         plugin: String,
         mp: String,
     },
-    /// Installing in progress — shown after scope is selected.
+    /// Installing in progress -- shown after scope is selected.
     /// Waits for async install to complete; Esc cancels.
     Installing {
         plugin: String,
@@ -224,7 +224,7 @@ impl PluginManager {
             | Screen::RemoveMarketplaceConfirm { .. } => 2,
         };
         let installed_count = self.installed.len();
-        // Palette-independent active/inactive contrast — see modals::tab_chip
+        // Palette-independent active/inactive contrast -- see modals::tab_chip
         // (fixed 256-colours, correct on Solarized Dark and every theme).
         let t0 = crate::modals::tab_chip("All Plugins", current_tab == 0);
         let t1 =
@@ -280,7 +280,7 @@ impl PluginManager {
             Screen::Installed => self.filtered_installed().len() + 1,
             Screen::AddUrl => 0,
             Screen::ScopeSelect { .. } => 3, // user / project / local
-            Screen::Installing { .. } => 0,  // No selectable rows — just status text
+            Screen::Installing { .. } => 0,  // No selectable rows -- just status text
             Screen::InstalledDetails { .. } => 3, // Update, Uninstall, Back
             Screen::Marketplaces => 1 + self.marketplaces.len(),
             Screen::MarketplaceDetails { mp } => {
@@ -760,7 +760,7 @@ impl PluginManager {
                         let desc = if item.description.is_empty() {
                             status
                         } else {
-                            format!("{}  ·  {}", status, item.description)
+                            format!("{}  .  {}", status, item.description)
                         };
                         (item.name.clone(), desc)
                     })
@@ -848,7 +848,7 @@ impl PluginManager {
                         let status = format!("@{} ({})", i.marketplace, scope_label);
                         let desc = if let Some(d) = descriptions.get(&i.plugin) {
                             if !d.is_empty() {
-                                format!("{}  ·  {}", status, d)
+                                format!("{}  .  {}", status, d)
                             } else {
                                 status
                             }
@@ -867,14 +867,14 @@ impl PluginManager {
                     ("Enter marketplace source:".to_string(), String::new()),
                     ("Examples:".to_string(), String::new()),
                     (
-                        "  · git@atomgit.com:owner/repo.git (SSH)".to_string(),
+                        "  . git@example.com:owner/repo.git (SSH)".to_string(),
                         String::new(),
                     ),
                     (
-                        "  · https://example.com/marketplace.json".to_string(),
+                        "  . https://example.com/marketplace.json".to_string(),
                         String::new(),
                     ),
-                    ("  · ./path/to/marketplace".to_string(), String::new()),
+                    ("  . ./path/to/marketplace".to_string(), String::new()),
                     (String::new(), String::new()),
                 ];
                 (rows, t(Msg::PluginMgrHintUrl).into_owned())
@@ -981,7 +981,7 @@ impl PluginManager {
                 let hint = if installing {
                     t(Msg::PluginMgrHintUpdating).into_owned()
                 } else {
-                    "↑↓ Select action · Enter confirm · Esc back".to_string()
+                    "↑↓ Select action . Enter confirm . Esc back".to_string()
                 };
                 (rows, hint)
             }
@@ -1353,7 +1353,7 @@ impl Modal for PluginManager {
                 added_lines += 1;
                 for i in &installed_from_mp {
                     final_items.push((
-                        format!("    • {}{}\x1b[39m", muted_esc(), i.plugin),
+                        format!("    * {}{}\x1b[39m", muted_esc(), i.plugin),
                         String::new(),
                     ));
                     added_lines += 1;
@@ -1383,7 +1383,7 @@ impl Modal for PluginManager {
         };
 
         if let Some((plugin, mp, version, description, scope_opt)) = details_opt {
-            final_items.push(("  ◆ Plugin Info".to_string(), String::new()));
+            final_items.push(("  * Plugin Info".to_string(), String::new()));
             final_items.push((format!("  Name:        {}", plugin), String::new()));
             final_items.push((
                 format!("  Marketplace: {}@{}\x1b[39m", muted_esc(), mp),
@@ -1477,7 +1477,7 @@ impl Modal for PluginManager {
                 } else {
                     for inst in installed_plugins {
                         final_items.push((
-                            format!("  {}● {}\x1b[39m", muted_esc(), inst.plugin),
+                            format!("  {}* {}\x1b[39m", muted_esc(), inst.plugin),
                             String::new(),
                         ));
                         let (_, description) = self.get_installed_plugin_details(
@@ -1522,10 +1522,10 @@ impl Modal for PluginManager {
             ) {
                 final_items.push((String::new(), String::new()));
             } else if matches!(self.screen, Screen::AddUrl) {
-                final_items.push((format!("❯ {}", self.url_input), String::new()));
+                final_items.push((format!("> {}", self.url_input), String::new()));
             }
         }
-        final_items.push((format!("— {} —", hint), String::new()));
+        final_items.push((format!("-- {} --", hint), String::new()));
 
         let selectable = self.current_len();
         let selected = if selectable == 0 {
@@ -1623,7 +1623,7 @@ impl Modal for PluginManager {
         if let PluginJobEvent::PluginInstalled(info) | PluginJobEvent::PluginUpdated(info) = ev {
             let id = format!("{}@{}", info.plugin, info.marketplace);
             if self.cancelled_installs.take(&id).is_some() {
-                // Best-effort rollback — if this fails the stale dir
+                // Best-effort rollback -- if this fails the stale dir
                 // cleanup logic in install_external will handle it on
                 // the next install attempt.
                 let _ = rustcode_capabilities::plugin::installer::uninstall(
@@ -1673,20 +1673,21 @@ fn get_directory_modified_date(name: &str) -> String {
 }
 
 /// Display-column budget for a plugin description rendered on one line
-/// (includes the trailing `…` column when truncation happens).
+/// (includes the trailing `...` column when truncation happens).
 const PLUGIN_DESC_DISPLAY_COLS: usize = 60;
 
 /// Truncate a plugin description for single-line display in the manager.
 /// `trimmed` is caller-trimmed and non-empty. Uses the grapheme/CJK-safe
-/// `truncate_with_ellipsis` — a raw byte slice here would panic on a
+/// `truncate_with_ellipsis` -- a raw byte slice here would panic on a
 /// non-ASCII description and, under `panic = "abort"`, crash the process.
 fn truncate_plugin_desc(trimmed: &str) -> String {
     crate::width::truncate_with_ellipsis(trimmed, PLUGIN_DESC_DISPLAY_COLS)
 }
 
 fn is_official_marketplace(source: &str) -> bool {
-    source == "https://gitcode.com/SecLab/RustCode-plugins-official.git"
-        || source == "git@gitcode.com:SecLab/RustCode-plugins-official.git"
+    // Platform-neutral: no official marketplace is hardcoded. A deployment that
+    // ships its own plugin marketplace configures RUSTCODE_PLUGIN_MARKETPLACES.
+    source == "git@example.com:owner/plugins-official.git"
 }
 
 fn muted_esc() -> &'static str {
@@ -1832,7 +1833,7 @@ mod tests {
         let bar = m.tab_bar();
         crate::highlight::theme::set_theme_mode(false); // restore
                                                         // Palette-independent chips (shared modals::tab_chip): active = fixed
-                                                        // near-white 231, inactive = fixed grey 245. No SGR 90/37/1;39 — all
+                                                        // near-white 231, inactive = fixed grey 245. No SGR 90/37/1;39 -- all
                                                         // broke on Solarized Dark.
         assert!(
             bar.contains("\x1b[1;38;5;231mAll Plugins\x1b[22;39m"),
@@ -1862,19 +1863,19 @@ mod tests {
 
     /// Regression: a plugin description containing CJK text must not panic when
     /// truncated. The old code byte-sliced `&trimmed[..57]`, which panics when
-    /// byte 57 lands inside a multi-byte character — and under `panic = "abort"`
-    /// that aborts the whole process (repro: `/plugin` → a large official
-    /// marketplace with Chinese descriptions → Update).
+    /// byte 57 lands inside a multi-byte character -- and under `panic = "abort"`
+    /// that aborts the whole process (repro: `/plugin` -> a large official
+    /// marketplace with Chinese descriptions -> Update).
     #[test]
     fn truncate_plugin_desc_cjk_does_not_panic() {
-        // 2 ASCII + 20×3-byte CJK = 62 bytes; byte 57 sits inside the char
-        // spanning bytes 56–58, so the old `&trimmed[..57]` slice panicked here.
+        // 2 ASCII + 20x3-byte CJK = 62 bytes; byte 57 sits inside the char
+        // spanning bytes 56-58, so the old `&trimmed[..57]` slice panicked here.
         let straddling = format!("ab{}", "描".repeat(20));
         assert!(
             !straddling.is_char_boundary(57),
             "fixture must straddle byte 57 to exercise the old panic"
         );
-        // Only 42 display columns (CJK = 2 cols each) → under budget, returned
+        // Only 42 display columns (CJK = 2 cols each) -> under budget, returned
         // unchanged. The point is that it no longer panics.
         assert_eq!(truncate_plugin_desc(&straddling), straddling);
 
@@ -1883,12 +1884,12 @@ mod tests {
         let wide = "描".repeat(40); // 80 display columns
         let out = truncate_plugin_desc(&wide);
         assert!(
-            out.ends_with('…'),
+            out.ends_with("..."),
             "over-budget description must be marked truncated"
         );
         assert!(crate::width::display_width(&out) <= PLUGIN_DESC_DISPLAY_COLS);
         assert!(
-            out.chars().all(|c| c == '描' || c == '…'),
+            out.chars().all(|c| c == '描' || c == '.'),
             "truncation must not split a CJK character"
         );
 
@@ -2094,7 +2095,7 @@ mod tests {
         assert_eq!(rows[0].0, "Add Marketplace");
         assert_eq!(rows[2].0, "Enter marketplace source:");
         assert_eq!(rows[3].0, "Examples:");
-        assert!(rows[4].0.contains("git@atomgit.com"));
+        assert!(rows[4].0.contains("git@example.com"));
         assert!(rows[5].0.contains("https://example.com/marketplace.json"));
         assert!(rows[6].0.contains("./path/to/marketplace"));
         assert!(hint.contains("to add") || hint.contains("添加"));

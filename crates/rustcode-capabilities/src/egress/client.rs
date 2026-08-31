@@ -14,7 +14,7 @@
 //! certificates") on a poisoned file. OS roots (corporate MITM CAs) are then layered
 //! ON TOP, best-effort, by [`add_trusted_roots`]. Because `reqwest` defers cert
 //! validation to `rustls::RootCertStore::add` inside `.build()`, ONE bad root can
-//! still abort the whole client — so [`add_trusted_roots`] pre-probes every cert and
+//! still abort the whole client -- so [`add_trusted_roots`] pre-probes every cert and
 //! [`build_http_client`] keeps a backstop: if the OS-rooted build fails, it retries
 //! ONCE on the webpki base and warns. A request-time TLS error beats a client that
 //! never builds.
@@ -27,11 +27,11 @@ use crate::egress::error::EgressError;
 /// How long an idle keep-alive connection may sit in the pool before we drop it.
 ///
 /// reqwest's default is 90s; gateway load balancers commonly close idle connections
-/// sooner, and 30s proved too generous against a real gateway — half-open reuse there
+/// sooner, and 30s proved too generous against a real gateway -- half-open reuse there
 /// surfaced as hyper `IncompleteMessage`, a class the old classifier hard-failed.
 /// 15s stays well under observed LB windows while keeping reuse for the back-to-back
 /// requests of a tool loop (their gaps are far below 15s). Only affects *idle*
-/// connections — an active stream is never reaped.
+/// connections -- an active stream is never reaped.
 ///
 /// SINGLE SOURCE OF TRUTH: `provider::retry` re-exports this constant rather than
 /// keeping a second copy that could drift.
@@ -43,7 +43,7 @@ pub const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(15);
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Default whole-request budget (connect + send + headers + body).
-/// Streaming responses are NOT covered by reqwest's `.timeout()` — it bounds the
+/// Streaming responses are NOT covered by reqwest's `.timeout()` -- it bounds the
 /// whole exchange, which is exactly what a tool loop needs as a hard ceiling.
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -54,7 +54,7 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 pub const DEFAULT_USER_AGENT: &str = "rustcode";
 
 /// The browser UA shared by `web_fetch` / `web_search` (and `web_fetch`'s `curl`
-/// fallback, so both present the same identity). Many sites — docs hosts, forges —
+/// fallback, so both present the same identity). Many sites -- docs hosts, forges --
 /// 403 a generic/bot UA. Ported verbatim from the pre-egress `web_fetch`.
 pub const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 
@@ -78,7 +78,7 @@ pub struct HttpClientSpec {
     /// and `no_proxy`).
     pub proxy: Option<String>,
     /// Disable certificate verification (self-signed / internal gateways).
-    /// Diagnostic escape hatch ONLY — it makes TLS MITM-able.
+    /// Diagnostic escape hatch ONLY -- it makes TLS MITM-able.
     pub skip_tls_verify: bool,
     /// `false` ⇒ `redirect(Policy::none())`, i.e. the caller walks redirects itself.
     /// REQUIRED by `web_fetch`: it re-runs the SSRF host/IP checks on every hop, so
@@ -111,7 +111,7 @@ impl Default for HttpClientSpec {
 }
 
 impl HttpClientSpec {
-    /// The default spec with a browser User-Agent — what the web-surfacing tools
+    /// The default spec with a browser User-Agent -- what the web-surfacing tools
     /// (`web_fetch` / `web_search`) want, since many sites 403 a bot UA.
     #[must_use]
     pub fn browser() -> Self {
@@ -166,7 +166,7 @@ impl HttpClientSpec {
         self
     }
 
-    /// Cap the TLS version (chainable) — the endpoint-aware equivalent of the
+    /// Cap the TLS version (chainable) -- the endpoint-aware equivalent of the
     /// process-wide `RUSTCODE_TLS_MAX`.
     #[must_use]
     pub fn with_max_tls_version(mut self, version: Option<reqwest::tls::Version>) -> Self {
@@ -184,10 +184,10 @@ pub fn browser_spec() -> HttpClientSpec {
 
 /// Build a `reqwest::Client` from `spec`.
 ///
-/// Applies, in order: proxy policy → timeouts → UA → TLS ceiling → trust roots →
-/// redirect policy → `skip_tls_verify`, then builds. If the OS-rooted build fails
+/// Applies, in order: proxy policy -> timeouts -> UA -> TLS ceiling -> trust roots ->
+/// redirect policy -> `skip_tls_verify`, then builds. If the OS-rooted build fails
 /// (a poisoned `SSL_CERT_FILE`, a legacy root rustls rejects), it retries ONCE on the
-/// infallible webpki base and logs a warning — see the module docs (issue #514).
+/// infallible webpki base and logs a warning -- see the module docs (issue #514).
 pub fn build_http_client(spec: &HttpClientSpec) -> Result<reqwest::Client, EgressError> {
     build_with(spec, |b| b)
 }
@@ -195,7 +195,7 @@ pub fn build_http_client(spec: &HttpClientSpec) -> Result<reqwest::Client, Egres
 /// Build a client whose DNS resolution for `host` is PINNED to `addrs`.
 ///
 /// `web_fetch` needs this: it validates the resolved addresses itself (SSRF), then
-/// pins them so reqwest performs no second lookup — that is what closes the
+/// pins them so reqwest performs no second lookup -- that is what closes the
 /// DNS-rebinding TOCTOU window. Pinning is the ONE reason to touch the builder
 /// after [`spec_builder`], and it must still go through the #514 backstop below,
 /// so it lives here rather than at the call site.
@@ -214,7 +214,7 @@ pub fn build_pinned_http_client(
 }
 
 /// Shared build loop: assemble the builder for `spec`, let `decorate` apply the
-/// caller's extras, then build — retrying ONCE on the infallible webpki base if the
+/// caller's extras, then build -- retrying ONCE on the infallible webpki base if the
 /// OS-rooted build fails.
 fn build_with<F>(spec: &HttpClientSpec, decorate: F) -> Result<reqwest::Client, EgressError>
 where
@@ -232,7 +232,7 @@ where
             // than a client that never builds.
             tracing::warn!(
                 "http client build failed with the OS/SSL_CERT_FILE trust roots ({}); \
-                 retrying with the webpki base only — a custom/corporate root may be ignored (issue #514)",
+                 retrying with the webpki base only -- a custom/corporate root may be ignored (issue #514)",
                 first
             );
             spec_builder(spec, false).map(&decorate).and_then(build)
@@ -243,7 +243,7 @@ where
 
 /// Build the [`reqwest::ClientBuilder`] for `spec`. Exposed so the rare call site that
 /// must pin DNS (SSRF `resolve_to_addrs`) can still do so on top of the SHARED policy
-/// instead of re-deriving it — see `tools::web_fetch::build_client`.
+/// instead of re-deriving it -- see `tools::web_fetch::build_client`.
 pub fn spec_builder(
     spec: &HttpClientSpec,
     trust_os_roots: bool,
@@ -276,7 +276,7 @@ pub fn spec_builder(
     // Skip the rustls root-layering on Windows: the native-tls (SChannel) default
     // backend trusts the Windows system store natively, and re-feeding certs through
     // native-tls's parser risks rejecting one rustls accepted. A runtime `cfg!`
-    // (not `#[cfg]`) keeps the fn referenced — and therefore dead-code-free — on
+    // (not `#[cfg]`) keeps the fn referenced -- and therefore dead-code-free -- on
     // every platform while compiling the call out on Windows.
     if trust_os_roots && !cfg!(target_os = "windows") {
         builder = add_trusted_roots(builder);
@@ -291,7 +291,7 @@ pub fn spec_builder(
 }
 
 /// `.build()` with a USEFUL message: reqwest's builder-error `Display` is a bare
-/// "builder error" — the real reason (bad cert, invalid header, …) lives in its
+/// "builder error" -- the real reason (bad cert, invalid header, ...) lives in its
 /// `source()` chain, so walk it or the message is useless (issue #514).
 fn build(builder: reqwest::ClientBuilder) -> Result<reqwest::Client, EgressError> {
     builder.build().map_err(|e| {
@@ -308,7 +308,7 @@ fn build(builder: reqwest::ClientBuilder) -> Result<reqwest::Client, EgressError
 /// Add the OS native root store and `SSL_CERT_FILE` (if set) to the builder's
 /// trusted roots, ON TOP of the built-in webpki roots. Best-effort: unparseable
 /// certs, an unreadable/malformed `SSL_CERT_FILE`, or native-store load errors are
-/// warned and skipped — NEVER fatal (the webpki base guarantees a working client).
+/// warned and skipped -- NEVER fatal (the webpki base guarantees a working client).
 /// Codex-style graceful `load_native_certs`. See issue #514.
 fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     // 1) OS native roots (corporate MITM CAs live here).
@@ -320,7 +320,7 @@ fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuil
             native.certs.len()
         );
     }
-    // `reqwest::Certificate::from_der` does NOT validate under rustls — it just stores
+    // `reqwest::Certificate::from_der` does NOT validate under rustls -- it just stores
     // the bytes and defers validation to `rustls::RootCertStore::add` INSIDE `.build()`,
     // which aborts the WHOLE client on the first cert rustls rejects (a legacy OS root
     // without X509v3 extensions is enough). Pre-filter each cert through the same rustls
@@ -345,7 +345,7 @@ fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuil
     //    cross-platform certainty. reqwest's `Certificate` is validated only at
     //    `.build()`; unlike the native loop above we do NOT pre-probe these (no DER in
     //    hand from `from_pem_bundle`), so a MALFORMED SSL_CERT_FILE still poisons
-    //    `.build()` — but the [`build_http_client`] BACKSTOP catches that and rebuilds
+    //    `.build()` -- but the [`build_http_client`] BACKSTOP catches that and rebuilds
     //    on the webpki base (never a panic; the file is then ignored with a warning
     //    rather than killing the client). See #514.
     let Some(path) = std::env::var_os("SSL_CERT_FILE").filter(|p| !p.is_empty()) else {
@@ -376,7 +376,7 @@ fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuil
 mod tests {
     use super::*;
 
-    // Env-mutating (SSL_CERT_FILE) → must not race the sibling tests in this binary.
+    // Env-mutating (SSL_CERT_FILE) -> must not race the sibling tests in this binary.
     use serial_test::serial;
 
     // Ported from `provider::openai_compat`'s test of the same name: the shared
@@ -435,7 +435,7 @@ mod tests {
         let spec = HttpClientSpec::default();
         assert_eq!(spec.connect_timeout, Duration::from_secs(10));
         assert_eq!(spec.request_timeout, Some(Duration::from_secs(120)));
-        // Same value `provider::retry` re-exports — the two must not drift.
+        // Same value `provider::retry` re-exports -- the two must not drift.
         assert_eq!(spec.pool_idle_timeout, POOL_IDLE_TIMEOUT);
         assert!(
             spec.trust_os_roots,
@@ -450,7 +450,7 @@ mod tests {
     fn browser_spec_keeps_the_existing_browser_ua() {
         let spec = browser_spec();
         assert_eq!(spec.user_agent.as_deref(), Some(BROWSER_UA));
-        // Only the UA differs from the default policy — the rest is shared.
+        // Only the UA differs from the default policy -- the rest is shared.
         let mut same = spec.clone();
         same.user_agent = None;
         assert_eq!(same, HttpClientSpec::default());

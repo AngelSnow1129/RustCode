@@ -25,11 +25,11 @@ fn is_placeholder_name(name: &str) -> bool {
 /// Build the terminal-title string for a session `name`.
 ///
 /// Placeholder / auto names (a brand-new window that hasn't been named yet)
-/// fall back to `fallback` — the caller passes the app name + running version
+/// fall back to `fallback` -- the caller passes the app name + running version
 /// (e.g. `rustcode v4.25.7`) so a fresh tab still shows something meaningful.
 /// Real names (auto-named from the first user message, or a `/rename`) are
 /// scrubbed of control characters, have their whitespace collapsed to single
-/// spaces, and are truncated to [`MAX_TITLE_CHARS`] with a trailing `…`.
+/// spaces, and are truncated to [`MAX_TITLE_CHARS`] with a trailing `...`.
 pub fn session_terminal_title(name: &str, fallback: &str) -> String {
     if is_placeholder_name(name) {
         return fallback.to_string();
@@ -49,24 +49,24 @@ pub fn session_terminal_title(name: &str, fallback: &str) -> String {
 
     if cleaned.chars().count() > MAX_TITLE_CHARS {
         let kept: String = cleaned.chars().take(MAX_TITLE_CHARS - 1).collect();
-        return format!("{kept}…");
+        return format!("{kept}...");
     }
 
     cleaned
 }
 
 /// Colored status dot for the terminal-title prefix, keyed off the current
-/// UI phase. `None` means "no dot" — used for `Suspended` (external handoff:
+/// UI phase. `None` means "no dot" -- used for `Suspended` (external handoff:
 /// `/shell`, OAuth) where we leave whatever title was last shown.
 fn phase_status_glyph(phase: UiPhase) -> Option<&'static str> {
     match phase {
         UiPhase::Idle => Some("🟢"),
         UiPhase::Streaming => Some("🟡"),
         UiPhase::Approval => Some("🔴"),
-        // Waiting on the user to answer an interactive question — same
+        // Waiting on the user to answer an interactive question -- same
         // "needs-you" red as approval.
         UiPhase::UserInput => Some("🔴"),
-        // Round-cap checkpoint awaiting user decision — same "needs-you" red.
+        // Round-cap checkpoint awaiting user decision -- same "needs-you" red.
         UiPhase::RoundCap => Some("🔴"),
         UiPhase::Suspended => None,
     }
@@ -91,7 +91,7 @@ pub(crate) fn session_terminal_title_with_status(
 /// Decide the full terminal title to emit for `(name, phase, glyph_enabled)`.
 /// Returns `None` when the title should be left untouched (the `Suspended`
 /// phase, where the terminal is handed to an external child). When
-/// `glyph_enabled` is false, no dot is added — behaviour identical to before
+/// `glyph_enabled` is false, no dot is added -- behaviour identical to before
 /// this feature.
 pub(crate) fn status_title(
     name: &str,
@@ -174,7 +174,7 @@ mod tests {
         let name = "a".repeat(50);
         let title = session_terminal_title(&name, FB);
         assert_eq!(title.chars().count(), MAX_TITLE_CHARS);
-        assert!(title.ends_with('…'));
+        assert!(title.ends_with("..."));
     }
 
     #[test]
@@ -215,7 +215,7 @@ mod tests {
         // The name portion is still truncated to MAX_TITLE_CHARS; the glyph
         // is extra, so total is MAX + "🟢 " (2 chars) and the name part is intact.
         let name = "a".repeat(50);
-        let plain = session_terminal_title(&name, FB); // MAX_TITLE_CHARS chars, ends with …
+        let plain = session_terminal_title(&name, FB); // MAX_TITLE_CHARS chars, ends with ...
         let with = session_terminal_title_with_status(&name, FB, Some("🟢"));
         assert_eq!(with, format!("🟢 {plain}"));
         assert!(plain.chars().count() == MAX_TITLE_CHARS);

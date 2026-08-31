@@ -1,5 +1,5 @@
-//! `open_file` — launch a local file **or URL** in the user's default GUI application
-//! (browser for HTML/URL, viewer for PDF / image / SVG, …). A thin cross-platform wrapper
+//! `open_file` -- launch a local file **or URL** in the user's default GUI application
+//! (browser for HTML/URL, viewer for PDF / image / SVG, ...). A thin cross-platform wrapper
 //! that picks the right opener by OS + environment (`open` / `xdg-open` / `cmd start` /
 //! `wslview`). Headless / SSH / CI sessions can't show a window, so it REFUSES with a
 //! human-readable reason (and the file path) instead of pretending a window opened.
@@ -33,15 +33,15 @@ struct Args {
 #[allow(dead_code)]
 #[derive(Debug, PartialEq, Eq)]
 enum OpenStrategy {
-    /// `open <path>` — macOS LaunchServices.
+    /// `open <path>` -- macOS LaunchServices.
     MacOpen,
-    /// `xdg-open <path>` — freedesktop default opener.
+    /// `xdg-open <path>` -- freedesktop default opener.
     XdgOpen,
-    /// `explorer.exe <path>` — Windows ShellExecute without a command interpreter.
+    /// `explorer.exe <path>` -- Windows ShellExecute without a command interpreter.
     WindowsStart,
-    /// `wslview <path>` — wslu's WSL→Windows bridge.
+    /// `wslview <path>` -- wslu's WSL->Windows bridge.
     Wslview,
-    /// No GUI session — refuse, naming the disqualifying signal.
+    /// No GUI session -- refuse, naming the disqualifying signal.
     Headless(String),
 }
 
@@ -79,7 +79,7 @@ fn pick_open_strategy() -> OpenStrategy {
                 .unwrap_or(false);
         if !has_display {
             return OpenStrategy::Headless(
-                "no graphical session ($DISPLAY and $WAYLAND_DISPLAY both empty — likely a \
+                "no graphical session ($DISPLAY and $WAYLAND_DISPLAY both empty -- likely a \
                  server / container / headless console)"
                     .into(),
             );
@@ -137,11 +137,11 @@ impl Tool for OpenFileTool {
         "open_file"
     }
     fn description(&self) -> &str {
-        "Open a local file, directory, or URL in the user's default GUI application — a browser \
+        "Open a local file, directory, or URL in the user's default GUI application -- a browser \
          for HTML/URLs, an image viewer for PNG/JPG, a PDF reader for PDF, or the OS file \
          manager for directories. Supports http:// and https:// URLs (opens in the default \
          browser). USE ONLY when the user asks to preview/open/view a file or directory, or \
-         when previewing is the obvious next step AND you have asked first — do NOT auto-open \
+         when previewing is the obvious next step AND you have asked first -- do NOT auto-open \
          after every write_file/edit_file. Prefer this tool over shelling out to `open`, \
          `xdg-open`, `start`, or `wslview`. Cross-platform dispatch is built in; headless / SSH \
          / CI sessions refuse with a clear reason so you can give the user the path instead of \
@@ -157,7 +157,7 @@ impl Tool for OpenFileTool {
         })
     }
     fn risk(&self, _args: &str) -> RiskLevel {
-        RiskLevel::Risky // launches a GUI app — user-visible side effect
+        RiskLevel::Risky // launches a GUI app -- user-visible side effect
     }
     async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
         let a: Args = match serde_json::from_str(args) {
@@ -309,10 +309,10 @@ async fn open_url(url: &str) -> ToolResult {
 
 /// Auto-approve `open_file` when its target is INSIDE the live workspace.
 ///
-/// `open_file` is intrinsically [`Risky`](RiskLevel::Risky) (it launches a GUI viewer —
+/// `open_file` is intrinsically [`Risky`](RiskLevel::Risky) (it launches a GUI viewer --
 /// a user-visible side effect), so [`ApprovalMiddleware`] prompts on every call. But for
-/// a file inside the working directory the side effect is benign — the user asked to
-/// preview their own project file — and the legacy engine auto-approved exactly this case
+/// a file inside the working directory the side effect is benign -- the user asked to
+/// preview their own project file -- and the legacy engine auto-approved exactly this case
 /// (its path-aware `approval_with_context`). The kernel's `Tool::risk(&self, _args)` is
 /// deliberately context-free (no `working_dir`), so the policy can't live on the tool; it
 /// lives here, in v2's middleware idiom (the same shape as [`SensitivePathGate`], inverted:
@@ -335,13 +335,13 @@ pub struct OpenFileWorkspaceGate {
 }
 
 impl OpenFileWorkspaceGate {
-    /// Gate over the LIVE (mutable) working dir — the handle the kernel also reads per call,
+    /// Gate over the LIVE (mutable) working dir -- the handle the kernel also reads per call,
     /// so a `change_dir` mid-session moves the boundary with it.
     pub fn new(cwd: Arc<RwLock<PathBuf>>) -> Self {
         Self { cwd }
     }
 
-    /// Gate over a FIXED workspace root — for assemblies that pin an immutable working dir
+    /// Gate over a FIXED workspace root -- for assemblies that pin an immutable working dir
     /// (no shared cwd handle to follow).
     pub fn pinned(root: PathBuf) -> Self {
         Self {
@@ -350,7 +350,7 @@ impl OpenFileWorkspaceGate {
     }
 
     /// True iff `args` names an `open_file` target that canonicalizes to a path inside
-    /// `working_dir`. CONSERVATIVE: any parse / canonicalize failure returns `false` (→ defer
+    /// `working_dir`. CONSERVATIVE: any parse / canonicalize failure returns `false` (-> defer
     /// to approval), and a `..` escape is rejected because BOTH sides are canonicalized
     /// before the prefix check (a lexical `starts_with` would let `ws/../etc` through).
     fn target_in_workspace(args: &str, working_dir: &Path) -> bool {
@@ -370,7 +370,7 @@ impl OpenFileWorkspaceGate {
         };
         let target = resolve_path(&parsed.file_path, working_dir);
         let Ok(canon) = std::fs::canonicalize(&target) else {
-            return false; // missing / unreadable file → let approval handle it
+            return false; // missing / unreadable file -> let approval handle it
         };
         canon.starts_with(&root)
     }
@@ -387,7 +387,7 @@ impl ToolMiddleware for OpenFileWorkspaceGate {
         if tool.name() != "open_file" {
             return BeforeOutcome::Proceed;
         }
-        // Snapshot the live cwd. A poisoned lock means we can't tell where we are — defer to
+        // Snapshot the live cwd. A poisoned lock means we can't tell where we are -- defer to
         // approval rather than risk a wrong auto-approve (and never panic: kernel is panic=abort).
         let cwd = match self.cwd.read() {
             Ok(g) => g.clone(),
@@ -395,8 +395,8 @@ impl ToolMiddleware for OpenFileWorkspaceGate {
         };
         // `target_in_workspace` CANONICALIZES paths (filesystem syscalls). Run it OFF the async
         // worker, bounded: a stalled mount as the cwd would otherwise block `canonicalize()` for
-        // minutes inline and freeze the kernel turn loop (Esc/Ctrl-C dead). On timeout → `false`,
-        // the same conservative "can't decide → defer to approval" default the check already uses.
+        // minutes inline and freeze the kernel turn loop (Esc/Ctrl-C dead). On timeout -> `false`,
+        // the same conservative "can't decide -> defer to approval" default the check already uses.
         let in_workspace = {
             let args = call.arguments.clone();
             let cwd = cwd.clone();
@@ -498,12 +498,12 @@ mod tests {
     async fn existing_file_under_ssh_refuses_with_path() {
         // Force the headless path deterministically (no env mutation): an SSH signal makes
         // pick_open_strategy return Headless regardless of OS, so an existing file yields a
-        // refusal carrying the path — never a real window in tests.
+        // refusal carrying the path -- never a real window in tests.
         if !["SSH_CLIENT", "SSH_CONNECTION", "SSH_TTY"]
             .iter()
             .any(|v| std::env::var(v).is_ok())
         {
-            return; // not under SSH → would actually try to launch a GUI; skip.
+            return; // not under SSH -> would actually try to launch a GUI; skip.
         }
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("x.html"), "<h1>hi</h1>").unwrap();
@@ -527,7 +527,7 @@ mod gate_tests {
     use std::time::Duration;
     use tokio::sync::mpsc::unbounded_channel;
 
-    /// A driver that never answers — the gate must decide WITHOUT a round-trip, so a
+    /// A driver that never answers -- the gate must decide WITHOUT a round-trip, so a
     /// silent rt is safe (any `.await` on it would hang/time out, which no test wants).
     fn silent_rt() -> RequestCtx {
         let (tx, _rx) = unbounded_channel();
@@ -553,7 +553,7 @@ mod gate_tests {
         std::fs::write(cwd.join("page.html"), "<h1>hi</h1>").unwrap();
         let gate = OpenFileWorkspaceGate::new(cwd_handle(&cwd));
         let tool: Arc<dyn Tool> = Arc::new(OpenFileTool);
-        let mut call = open_call("page.html"); // relative → resolves inside the workspace
+        let mut call = open_call("page.html"); // relative -> resolves inside the workspace
         let outcome = gate.before(&mut call, &tool, &silent_rt()).await;
         assert!(
             matches!(outcome, BeforeOutcome::Allow { .. }),
@@ -598,7 +598,7 @@ mod gate_tests {
     #[tokio::test]
     async fn dotdot_escape_is_not_in_workspace() {
         // workspace = ws/sub; target ws/sub/../secret.html canonicalizes to ws/secret.html
-        // (OUTSIDE) — a lexical starts_with would wrongly pass, canonicalization rejects it.
+        // (OUTSIDE) -- a lexical starts_with would wrongly pass, canonicalization rejects it.
         let ws = tempfile::tempdir().unwrap();
         let ws = std::fs::canonicalize(ws.path()).unwrap();
         std::fs::create_dir(ws.join("sub")).unwrap();

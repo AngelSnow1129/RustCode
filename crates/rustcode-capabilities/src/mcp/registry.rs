@@ -48,12 +48,12 @@ pub enum McpConnectEvent {
 /// Exposed so tests (and any same-store reader) use ONE implementation.
 ///
 /// The algorithm is pinned by the golden test below:
-/// 1. `strip_verbatim_prefix` on the raw string (BEFORE backslash replacement —
+/// 1. `strip_verbatim_prefix` on the raw string (BEFORE backslash replacement --
 ///    the prefix contains backslashes that must still be intact).
-/// 2. Replace `\\` → `/`.
+/// 2. Replace `\\` -> `/`.
 /// 3. Strip trailing `/` (except a bare root).
 /// 4. Lowercase on Windows (case-insensitive filesystem).
-/// 5. Hash as `PathBuf` via `DefaultHasher` (component-prefix hashing — NOT `str::hash`).
+/// 5. Hash as `PathBuf` via `DefaultHasher` (component-prefix hashing -- NOT `str::hash`).
 /// 6. Format as `{:016x}`.
 ///
 /// The shared config helper pins the same ordinary-path literal used by session
@@ -66,7 +66,7 @@ pub fn project_trust_key(project_dir: &std::path::Path) -> String {
     let raw = project_dir.to_string_lossy();
     let stripped = crate::pathnorm::strip_verbatim(&raw);
 
-    // Steps 2–4: backslash normalization, trailing-slash trim, Windows lowercase.
+    // Steps 2-4: backslash normalization, trailing-slash trim, Windows lowercase.
     let mut normalized = stripped.replace('\\', "/");
     if normalized.len() > 1 && normalized.ends_with('/') {
         normalized.pop();
@@ -74,7 +74,7 @@ pub fn project_trust_key(project_dir: &std::path::Path) -> String {
     #[cfg(windows)]
     let normalized = normalized.to_lowercase();
 
-    // Steps 5–6: hash via PathBuf (component-prefix hashing, same as core).
+    // Steps 5-6: hash via PathBuf (component-prefix hashing, same as core).
     let mut hasher = DefaultHasher::new();
     let p: std::path::PathBuf = std::path::PathBuf::from(normalized);
     p.hash(&mut hasher);
@@ -85,8 +85,8 @@ pub fn project_trust_key(project_dir: &std::path::Path) -> String {
 ///
 /// This mirrors `trust::is_project_trusted` in this crate (kept as a local helper so the
 /// sync `Tool::risk` path can consult trust without an `.await`). It reads the SAME
-/// `mcp_trust.json` file, using the same hash scheme (normalize path → hash as `PathBuf`
-/// via `DefaultHasher` → `{:016x}`),
+/// `mcp_trust.json` file, using the same hash scheme (normalize path -> hash as `PathBuf`
+/// via `DefaultHasher` -> `{:016x}`),
 /// so core and capabilities agree on trust state at runtime.
 ///
 /// Honors `RUSTCODE_MCP_TRUST_STORE` (the same env-var test seam as core).
@@ -208,7 +208,7 @@ impl McpRegistry {
             .unwrap_or(false)
     }
 
-    /// Whether the full tool name (`mcp__{server}__{tool}`) is auto-approved — on a
+    /// Whether the full tool name (`mcp__{server}__{tool}`) is auto-approved -- on a
     /// server's `autoApprove` allowlist, or granted "Always" at runtime.
     pub fn is_tool_auto_approved(&self, full_name: &str) -> bool {
         self.auto_approved_tools
@@ -544,7 +544,7 @@ It cannot override system, user, project, safety, permission, or approval rules.
                             };
 
                             // A client that could not be built is reported through the
-                            // SAME path as a failed `initialize()` below — it must never
+                            // SAME path as a failed `initialize()` below -- it must never
                             // degrade to a bare client that ignores the proxy / TLS policy.
                             let mut client = match client {
                                 Ok(c) => c,
@@ -922,7 +922,7 @@ It cannot override system, user, project, safety, permission, or approval rules.
         Ok(output)
     }
 
-    /// Get the status of all servers — connected ones from `servers`
+    /// Get the status of all servers -- connected ones from `servers`
     /// and any that failed their initial connect from `failed_servers`.
     /// `/mcp` displays the result, so dropping the failed entries would
     /// make a broken config look like "no servers configured" (#300).
@@ -1110,14 +1110,14 @@ mod tests {
         );
         reg.register_tool_alias("mcp__srv__query", "srv", "query")
             .unwrap();
-        // Known server → split.
+        // Known server -> split.
         assert_eq!(
             reg.split_tool_name("mcp__srv__query").await,
             Some(("srv".to_string(), "query".to_string()))
         );
-        // Unknown server → None.
+        // Unknown server -> None.
         assert_eq!(reg.split_tool_name("mcp__other__x").await, None);
-        // Missing `mcp__` prefix → None.
+        // Missing `mcp__` prefix -> None.
         assert_eq!(reg.split_tool_name("plain_tool").await, None);
     }
 
@@ -1346,7 +1346,7 @@ mod tests {
 
     /// Driver-injected extra servers (`McpConfigSource::Driver`) join the
     /// initial background connect pass and are NOT withheld by the project
-    /// trust gate — the injecting driver is the trust boundary for them.
+    /// trust gate -- the injecting driver is the trust boundary for them.
     #[tokio::test]
     #[serial_test::serial]
     async fn driver_supplied_extra_servers_connect_despite_untrusted_project() {
@@ -1380,7 +1380,7 @@ mod tests {
         reg.wait_for_initial_connections(std::time::Duration::from_secs(5))
             .await;
 
-        // The connect attempt ran and failed (missing binary) — it was NOT
+        // The connect attempt ran and failed (missing binary) -- it was NOT
         // withheld by the trust gate, which would have emitted
         // BlockedUntrusted and never tried to spawn.
         let mut saw_failed = false;
