@@ -1,7 +1,7 @@
 # UPSTREAM RUSTCODE LICENSE (predecessor project)
 
 The following is the **verbatim** MIT license of the **predecessor project**
-(`atomgit_rustcode/rustcode`, product "AtomGit RustCode") this repository was
+(`atomgit_atomcode/atomcode`, product "AtomCode") this repository was
 derived from. It is preserved here unmodified per the refactor compliance
 requirement (OBJECTIVE-4). The original copyright notice MUST NOT be stripped
 from inherited source files.

@@ -46,7 +46,7 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 你可以把它理解为 Claude Code / Cursor Agent 的开源替代品，完全运行在终端里，并且可以接入任何兼容 OpenAI 接口的模型。
 
-> **Fork 声明。** 本仓库（`SecLab/RustCode`）是 `atomgit_rustcode/rustcode` 的二次开发 fork。相对上游：(1) 将产品重命名为 `rustcode`（crate、二进制、配置目录 `~/.rustcode`、`RUSTCODE_*` 环境变量）；(2) **完整移除**遥测/分析上报——`rustcode-telemetry` crate 及所有上报调用点均已删除；(3) **完全解除平台绑定**——不硬编码任何签名网关 host，默认不注册平台专属 REST 工具，`/login` 可选：直接在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key` 即可开始使用。原始 MIT 许可证与版权（© 2026 Yubang Xu）保留于 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)，完整归属见 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)。
+> **Fork 声明。** 本仓库（`SecLab/RustCode`）是 `atomgit_atomcode/atomcode` 的二次开发 fork。相对上游：(1) 将产品重命名为 `rustcode`（crate、二进制、配置目录 `~/.rustcode`、`RUSTCODE_*` 环境变量）；(2) **完整移除**遥测/分析上报——`rustcode-telemetry` crate 及所有上报调用点均已删除；(3) **完全解除平台绑定**——不硬编码任何签名网关 host，默认不注册平台专属 REST 工具，`/login` 可选：直接在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key` 即可开始使用。原始 MIT 许可证与版权（© 2026 Yubang Xu）保留于 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)，完整归属见 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)。
 
 ## 功能特性
 

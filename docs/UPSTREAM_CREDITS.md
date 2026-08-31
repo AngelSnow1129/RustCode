@@ -3,8 +3,8 @@
 This project (`SecLab/RustCode`, product name `rustcode`) is a fork / secondary
 development of:
 
-- **Predecessor project (direct parent):** `atomgit_rustcode/rustcode` (product
-  "AtomGit RustCode") — MIT, Copyright (c) 2026 Yubang Xu, preserved verbatim in
+- **Predecessor project (direct parent):** `atomgit_atomcode/atomcode` (product
+  "AtomCode") — MIT, Copyright (c) 2026 Yubang Xu, preserved verbatim in
   [`docs/UPSTREAM_RUSTCODE_LICENSE.md`](./UPSTREAM_RUSTCODE_LICENSE.md).
 - **Upstream origin (ultimate):** MIT. **The verbatim text is NOT yet archived;**
   see [`docs/ORIGINAL_LICENSE.md`](./ORIGINAL_LICENSE.md), which is a placeholder

@@ -5,7 +5,7 @@ itself derived from an earlier ultimate upstream project.
 
 ## Upstream attribution
 
-- Predecessor (`atomgit_rustcode/rustcode`, product "AtomGit RustCode") — MIT,
+- Predecessor (`atomgit_atomcode/atomcode`, product "AtomCode") — MIT,
   Copyright (c) 2026 Yubang Xu.
   The verbatim text is archived in `docs/UPSTREAM_RUSTCODE_LICENSE.md`.
 - Ultimate upstream — MIT.

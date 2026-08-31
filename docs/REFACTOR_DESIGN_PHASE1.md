@@ -352,7 +352,7 @@ or the `RUSTCODE_CODINGPLAN_LLM_BASE_URL` origin). A custom `base_url` already g
 | **G3** | No per-provider proxy. Only env/process-global proxy exists. | Medium | add `proxy: Option<String>`; `reqwest::Proxy::all()`, bypass env for that client |
 | **G4** | No model mapping table. | Medium | `model_mapping: HashMap<String,String>` resolved once in the factory |
 | **G5** | `provider_type: String` dispatch: `"anthropic-compatible"` currently falls into the OpenAI catch-all (`provider_factory.rs:112-169`). | Medium | explicit `ProviderKind` enum in the config crate; catch-all keeps OpenAI behavior + `tracing::warn!` |
-| **G6** | `OPENROUTER_ATTRIBUTION_HEADERS` hardcodes the upstream identity (`HTTP-Referer: https://gitcode.com/atomgit_rustcode/rustcode`, `X-OpenRouter-Title: RustCode`). | Medium | drop by default; keep `is_openrouter_url` gating; make the values config-driven and opt-in |
+| **G6** | `OPENROUTER_ATTRIBUTION_HEADERS` hardcodes the upstream identity (`HTTP-Referer: https://gitcode.com/atomgit_atomcode/atomcode`, `X-OpenRouter-Title: RustCode`). | Medium | drop by default; keep `is_openrouter_url` gating; make the values config-driven and opt-in |
 | **G7** | No unified error mapper. Each adapter builds `ProviderError { retryable, message, http_status, code, retry_after_secs }` ad hoc; `friendly_http_error()` is shared but partial. | Medium | `LlmError` (`thiserror`) + bidirectional `From` conversions at the kernel boundary (§4.5) |
 | **G8** | Anthropic config lacks `extra_headers`/`proxy` parity with the OpenAI config. | Low | unify on one transport struct |
 
