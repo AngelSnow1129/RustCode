@@ -8,7 +8,7 @@
 - 该服务签发的 API Key（形如 `sk-xxx` 或服务商自定义字符串）
 - 该服务支持的具体模型名（必须与服务端注册的一致）
 
-> ⚠️ RustCode 只认 OpenAI 兼容协议。如果服务商给的是专有 SDK，需要先套一层兼容网关（如 LiteLLM / One API）。
+> [WARN] RustCode 只认 OpenAI 兼容协议。如果服务商给的是专有 SDK，需要先套一层兼容网关（如 LiteLLM / One API）。
 
 ## 2. 在 RustCode 中配置
 

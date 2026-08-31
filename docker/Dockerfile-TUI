@@ -13,9 +13,14 @@
 
 FROM debian:bookworm-slim
 
-# 使用国内镜像加速
-RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-    sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+# 可选：通过构建参数传入区域 APT 镜像以加速下载，例如
+#   docker build --build-arg APT_MIRROR=http://mirrors.aliyun.com ...
+# 留空则使用 Debian 官方源（中立默认）。
+ARG APT_MIRROR=
+RUN if [ -n "$APT_MIRROR" ]; then \
+        sed -i "s|http://deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+        sed -i "s|http://deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list 2>/dev/null || true; \
+    fi
 
 # 安装必要的工具和库
 RUN apt-get update && \

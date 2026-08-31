@@ -174,18 +174,18 @@ HookEngine::load_all(&working_dir)
 
 | 引擎方法 | 触发时机 | Trait | ShellCommandHook | ScriptHook | BuiltIn |
 |---|---|---|---|---|---|
-| `trigger_pre_tool_use` | 工具执行前 | `PreToolExecutionHook` | ✅ | ✅ | — |
-| `trigger_post_tool_use` | 工具执行后 | `PostToolExecutionHook` | ✅ | ✅ | — |
-| `trigger_user_prompt_submit` | 用户发消息 | `OnUserPromptSubmitHook` | ✅ | — | — |
-| `trigger_session_start` | 会话开始 | `OnSessionStartHook` | ✅ | — | ✅ (Summary) |
-| `trigger_session_end` | 会话结束 | `OnSessionEndHook` | ✅ | — | ✅ (Summary) |
-| `trigger_post_turn` | Turn 完成 | `PostTurnHook` | — | ✅ | ✅ (AutoCommit) |
-| `trigger_on_turn_start` | Turn 开始 | `OnTurnStartHook` | — | — | ✅ (Stats) |
-| `trigger_on_turn_complete` | Turn 完成（详细） | `OnTurnCompleteHook` | — | — | ✅ (Stats) |
-| `trigger_on_tool_call_start` | 工具调用开始 | `OnToolCallStartHook` | — | — | ✅ (Audit) |
-| `trigger_on_error` | 错误发生 | `OnErrorHook` | — | — | ✅ (Report) |
-| `trigger_on_model_response` | 模型响应后 | `OnModelResponseHook` | — | — | ✅ (Validation) |
-| `collect_system_prompt_extensions` | 构建 prompt | `SystemPromptHook` | — | ✅ | — |
+| `trigger_pre_tool_use` | 工具执行前 | `PreToolExecutionHook` | [+] | [+] | — |
+| `trigger_post_tool_use` | 工具执行后 | `PostToolExecutionHook` | [+] | [+] | — |
+| `trigger_user_prompt_submit` | 用户发消息 | `OnUserPromptSubmitHook` | [+] | — | — |
+| `trigger_session_start` | 会话开始 | `OnSessionStartHook` | [+] | — | [+] (Summary) |
+| `trigger_session_end` | 会话结束 | `OnSessionEndHook` | [+] | — | [+] (Summary) |
+| `trigger_post_turn` | Turn 完成 | `PostTurnHook` | — | [+] | [+] (AutoCommit) |
+| `trigger_on_turn_start` | Turn 开始 | `OnTurnStartHook` | — | — | [+] (Stats) |
+| `trigger_on_turn_complete` | Turn 完成（详细） | `OnTurnCompleteHook` | — | — | [+] (Stats) |
+| `trigger_on_tool_call_start` | 工具调用开始 | `OnToolCallStartHook` | — | — | [+] (Audit) |
+| `trigger_on_error` | 错误发生 | `OnErrorHook` | — | — | [+] (Report) |
+| `trigger_on_model_response` | 模型响应后 | `OnModelResponseHook` | — | — | [+] (Validation) |
+| `collect_system_prompt_extensions` | 构建 prompt | `SystemPromptHook` | — | [+] | — |
 
 ## 结果类型流转
 

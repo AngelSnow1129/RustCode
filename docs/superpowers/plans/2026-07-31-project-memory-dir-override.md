@@ -204,8 +204,8 @@ git commit -m "feat(memory): honor RUSTCODE_PROJECT_MEMORY_DIR in config store +
 - prompt 注入 hook 走 `project()` 自动覆盖 → 无需独立任务；Task 1 Step 5 断言 hook 测试仍绿。
 - 只测纯函数、不做 env 集成测试（flakiness）→ Global Constraints + 两任务测试步。
 - 文档 → Task 2 Step 5。
-- 不迁移/不缓存/不装配期 → Global Constraints。✅ 无缺口。
+- 不迁移/不缓存/不装配期 → Global Constraints。 [+] 无缺口。
 
-**2. Placeholder scan：** 无 TBD/TODO；代码步骤含完整代码；文档步骤给了逐字文案。✅
+**2. Placeholder scan：** 无 TBD/TODO；代码步骤含完整代码；文档步骤给了逐字文案。 [x]
 
-**3. Type consistency：** 两任务 `project_memory_path(&Path, Option<&str>) -> PathBuf` 签名逐字一致；`project()` 读同一 env 名 `RUSTCODE_PROJECT_MEMORY_DIR`；测试断言路径与实现一致（`.rustcode`/`.myapp`/`/opt/brand/mem` + `memory.md`）。✅
+**3. Type consistency：** 两任务 `project_memory_path(&Path, Option<&str>) -> PathBuf` 签名逐字一致；`project()` 读同一 env 名 `RUSTCODE_PROJECT_MEMORY_DIR`；测试断言路径与实现一致（`.rustcode`/`.myapp`/`/opt/brand/mem` + `memory.md`）。 [x]

@@ -158,8 +158,8 @@ const SILENT_FIRST_RATE_LIMIT_RETRY: std::time::Duration = std::time::Duration::
 /// tool calls, no reasoning). This is a DISTINCT tier from the outer provider
 /// retry budget (which only fires on a `retryable` OPEN/stream `Err`): an empty 200 opens fine
 /// and streams a clean `Done`, so it would otherwise be mistaken for the model
-/// choosing to stop. Confirmed transient on the atomgit->DeepSeek path -- the SAME
-/// request resent recovers -- so it gets MORE attempts and a much SHORTER backoff
+/// choosing to stop. Confirmed transient on some managed-gateway DeepSeek paths --
+/// the SAME request resent recovers -- so it gets MORE attempts and a much SHORTER backoff
 /// than the generic error path (the empty body returns instantly; a long wait is
 /// pure latency). Mirrors v1's `EMPTY_RESPONSE_MAX_RETRIES`.
 const EMPTY_RESPONSE_MAX_RETRIES: u32 = 5;
@@ -261,7 +261,18 @@ const REASONING_FILLER_MARKERS: &[&str] = &[
 // normalization path for provider reasoning filler.
 fn strip_reasoning_filler(reasoning: &str) -> String {
     let (mut cleaned, mut changed) = strip_dsml_parameter_fragments(reasoning);
+
+    // The lone "." placeholder blanks reasoning ONLY when it is the whole
+    // (post-DSML, trimmed) content. A global delete would corrupt legitimate
+    // text that merely contains periods -- trailing ellipses ("let me
+    // think...") and paths inside real XML ("src/main.rs") must survive.
+    if cleaned.trim() == "." {
+        return String::new();
+    }
     for marker in REASONING_FILLER_MARKERS {
+        if *marker == "." {
+            continue;
+        }
         if cleaned.contains(marker) {
             cleaned = cleaned.replace(marker, "");
             changed = true;
@@ -2820,7 +2831,7 @@ impl RunningAgent {
             // fresh MAX_STREAM_RETRIES.
             stream_retry = 0;
             // EMPTY-RESPONSE FAST RETRY (parity with v1 agent/mod.rs:3027): some
-            // OpenAI-compatible gateways (notably the atomgit->DeepSeek path) sometimes
+            // OpenAI-compatible gateways (notably managed-gateway DeepSeek paths) sometimes
             // return a 200 with a COMPLETELY empty completion -- the stream opened fine
             // and ended with no text, no tool calls, and no reasoning. That is NOT the
             // model choosing to stop (a real stop carries visible text); it is a

@@ -54,9 +54,9 @@ fn ascii_fallback(s: &str) -> String {
         match ch {
             '●' | '•' => out.push('*'),
             '○' => out.push('o'),
-            '.' => out.push('-'),
+            '·' => out.push('-'),
             '←' => out.push('<'),
-            '>' | '▶' => out.push('>'),
+            '→' | '▶' => out.push('>'),
             '↑' => out.push('^'),
             '↓' => out.push('v'),
             // Box-drawing glyphs in content (e.g. tables emitted by
@@ -79,7 +79,7 @@ fn ascii_fallback(s: &str) -> String {
 /// inner content area is `width - 4` (2 padding cells on each side).
 ///
 /// `unicode_symbols=false` swaps the box-drawing glyphs for `+ - |`
-/// and substitutes the decorative chars (`*`, `o`, `.`, `←`, `*`,
+/// and substitutes the decorative chars (`●`, `○`, `·`, `←`, `•`,
 /// `█`) inside each content line. Wired from `state.unicode_symbols`
 /// so Windows legacy conhost / `LANG=C` / `TERM=dumb` users see a
 /// clean ASCII box with the right border still column-aligned.
@@ -823,7 +823,7 @@ impl OnboardingWizard {
     ///
     /// Layout (when `start_login` succeeded):
     /// ```text
-    /// Step 1/1 . 扫码登录
+    /// Step 1/1 · 扫码登录
     /// ┌─ RustCode ──────────────────────────────────┐
     /// │   扫码登录,自动领取 CodingPlan 免费额度    │
     /// │                                              │
@@ -834,7 +834,7 @@ impl OnboardingWizard {
     /// │                                              │
     /// │   扫码完成后按 Enter 继续                    │
     /// │                                              │
-    /// │   Esc 跳过 . /login 重试 . /provider ... │
+    /// │   Esc 跳过 · /login 重试 · /provider … │
     /// └─ Step 1/1 ─────────────────────────────────┘
     /// ```
     ///
@@ -879,7 +879,7 @@ impl OnboardingWizard {
             content.push(String::new());
             content.push(center("x 无法生成登录链接"));
             content.push(format!("    {}", reason));
-            content.push(center("按 Enter 重试 . Esc 跳过"));
+            content.push(center("按 Enter 重试 · Esc 跳过"));
         } else if let Some(url) = &self.qr_login_url {
             // Header, borders, copy and action hints consume eight rows. Never
             // return a partial QR: a clipped finder/quiet zone looks plausible
@@ -936,7 +936,7 @@ impl OnboardingWizard {
             (false, _) => "",
         };
         content.push(center(&format!(
-            "{legend_prefix}Esc 跳过 . /login 重试 . /provider 手动配置"
+            "{legend_prefix}Esc 跳过 · /login 重试 · /provider 手动配置"
         )));
 
         let mut out = Vec::new();
@@ -1590,8 +1590,8 @@ mod tests {
         assert!(joined.contains("1-3 select"));
     }
 
-    /// Selected marker `*` sits on the row matching language_idx;
-    /// the other rows get the hollow `o` marker.
+    /// Selected marker `●` sits on the row matching language_idx;
+    /// the other rows get the hollow `○` marker.
     #[test]
     fn language_selected_marker_follows_idx() {
         let _g = crate::i18n::test_lock();
@@ -1605,9 +1605,9 @@ mod tests {
             .map(|s| strip_sgr(s))
             .collect::<Vec<_>>()
             .join("\n");
-        // `*  [3] 简体中文` selected; `o  [2] English` unselected.
-        let pos_filled = joined.find("*  [3]").expect("filled marker missing");
-        let pos_hollow = joined.find("o  [2]").expect("hollow marker missing");
+        // `●  [3] 简体中文` selected; `○  [2] English` unselected.
+        let pos_filled = joined.find("●  [3]").expect("filled marker missing");
+        let pos_hollow = joined.find("○  [2]").expect("hollow marker missing");
         assert!(
             pos_hollow < pos_filled,
             "expected hollow before filled marker"
@@ -1764,10 +1764,10 @@ mod tests {
             .map(|s| strip_sgr(s))
             .collect::<Vec<_>>()
             .join("\n");
-        // Selected: idx 1 -> *  [2]; others get o.
-        assert!(joined.contains("*  [2]"));
-        assert!(joined.contains("o  [1]"));
-        assert!(joined.contains("o  [3]"));
+        // Selected: idx 1 -> ●  [2]; others get ○.
+        assert!(joined.contains("●  [2]"));
+        assert!(joined.contains("○  [1]"));
+        assert!(joined.contains("○  [3]"));
     }
 
     // ── VirtualTerminal snapshot tests ──
@@ -1966,21 +1966,21 @@ mod tests {
         assert!(joined.contains('|'), "no | vertical: {:?}", joined);
     }
 
-    /// `*`, `o`, `.`, `←`, `*` inside content rows must be substituted
+    /// `●`, `○`, `·`, `←`, `•` inside content rows must be substituted
     /// with width-equivalent ASCII so the right border stays
     /// column-aligned. We can't easily verify column alignment in a
     /// unit test (no real terminal), but we CAN assert the
     /// substitution happened.
     #[test]
     fn draw_panel_ascii_fallback_substitutes_decorative_chars_in_content() {
-        let content = vec!["* filled".into(), "o open . mid . ← back * bullet".into()];
+        let content = vec!["● filled".into(), "○ open · mid · ← back • bullet".into()];
         let lines = draw_panel("X", &content, "Y", 60, false);
         let joined: String = lines
             .iter()
             .map(|l| strip_sgr(l))
             .collect::<Vec<_>>()
             .join("\n");
-        for bad in ['●', '○', '.', '←', '•'] {
+        for bad in ['●', '○', '·', '←', '•'] {
             assert!(
                 !joined.contains(bad),
                 "Unicode {:?} leaked through ASCII fallback: {:?}",
@@ -2006,7 +2006,7 @@ mod tests {
             .map(|l| strip_sgr(l))
             .collect::<Vec<_>>()
             .join("\n");
-        for bad in ['┌', '┐', '└', '┘', '─', '│', '●', '○', '.', '←', '•'] {
+        for bad in ['┌', '┐', '└', '┘', '─', '│', '●', '○', '·', '←', '•'] {
             assert!(
                 !joined.contains(bad),
                 "Unicode {:?} leaked through Setup ASCII fallback: {:?}",

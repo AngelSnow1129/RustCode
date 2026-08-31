@@ -354,12 +354,13 @@ impl TerminalCaps {
     }
 
     /// Two-cell prompt prefix for the input box and echoed user lines.
-    /// `"> "` when the terminal can render Unicode glyphs, `"> "` as the
-    /// ASCII fallback. Both are exactly 2 display columns, so layout
-    /// math (`text_budget = w - 2`) stays identical in both branches.
+    /// `"❯ "` (U+276F + space) when the terminal can render Unicode
+    /// glyphs, `"> "` as the ASCII fallback. Both are exactly 2 display
+    /// columns, so layout math (`text_budget = w - 2`) stays identical
+    /// in both branches.
     pub fn prompt_chevron(&self) -> &'static str {
         if self.unicode_symbols {
-            "> "
+            "\u{276f} "
         } else {
             "> "
         }
@@ -833,7 +834,7 @@ mod tests {
             ..env()
         });
         assert!(caps.unicode_symbols);
-        assert_eq!(caps.prompt_chevron(), "> ");
+        assert_eq!(caps.prompt_chevron(), "\u{276f} ");
     }
 
     #[test]

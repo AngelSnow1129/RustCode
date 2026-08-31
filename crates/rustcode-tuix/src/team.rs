@@ -183,7 +183,7 @@ impl TeamProjection {
             }
         }
         format!(
-            "Team: {} run(s) . {completed} completed . {running} running . {failed} failed . {stopped} stopped",
+            "Team: {} run(s) · {completed} completed · {running} running · {failed} failed · {stopped} stopped",
             self.runs.len()
         )
     }

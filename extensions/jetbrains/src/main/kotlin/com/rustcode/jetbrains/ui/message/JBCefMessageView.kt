@@ -855,7 +855,7 @@ function h(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 	function setTool(e,n,s,d,a,o){e.className='tm ts-'+toolTone(s);e.setAttribute('data-name',n);e.innerHTML=toolHtml(n,s,d,a,o)}
 	function addToolCall(n,s,d,a){var e=document.createElement('div');setTool(e,n,s,d,a);parts().appendChild(e);sd()}
 		function updateToolCall(n,s,d,a){var ps=parts();var tools=Array.prototype.slice.call(ps.querySelectorAll('.tm')).reverse();var e=tools.find(function(x){return x.getAttribute('data-name')===n})||tools[0];if(e){setTool(e,n,s,d,a);sd()}else addToolCall(n,s,d,a)}
-	function addError(t){clearHome();var d=document.createElement('div');d.className='em';d.innerHTML='[!]️ '+h(t);m.appendChild(d);last=null;sd()}
+	function addError(t){clearHome();var d=document.createElement('div');d.className='em';d.innerHTML='[!] '+h(t);m.appendChild(d);last=null;sd()}
 function addQueuedMessage(t){clearHome();var d=document.createElement('div');d.className='qm';d.innerHTML='<span class="b">[>] '+h(t)+'</span>';m.appendChild(d);last=null;sd()}
 	function addThinkingIndicator(){var d=document.createElement('div');d.className='rm thp';d.innerHTML='[~] 思考中<span class="dots"></span>';parts().appendChild(d);sd()}
 	function replaceThinkingWithAssistant(t){var a=ensureAssistant();var th=a.querySelector('.thp');if(th)th.remove();addAssistantMessage(t||'')}

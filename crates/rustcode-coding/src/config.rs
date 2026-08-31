@@ -528,7 +528,7 @@ struct TierInner {
     cache: Option<Option<Arc<dyn rustcode_kernel::provider::LlmProvider>>>,
     /// The parent conversation's `x-rustcode-session-id` (set once at assemble). Bound onto the
     /// tier provider when it's built so a `task` fan-out's children send the SAME session id as
-    /// the main conversation -- the AtomGit gateway then treats them as one window and permits
+    /// the main conversation -- the managed gateway then treats them as one window and permits
     /// their concurrent requests (GLM-5.2 rejects concurrent DISTINCT-session requests, which
     /// otherwise forces the strong-tier subtasks to run serially). Survives `reset` (a `/model`
     /// swap changes the tier model, not the conversation identity).

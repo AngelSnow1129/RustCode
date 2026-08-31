@@ -695,7 +695,7 @@ fn build_menu_payload_with_preview(
                 .into_owned()
         };
         items.push((label, String::new()));
-        items.push((format!("-- {} --", hint), String::new()));
+        items.push((format!("— {} —", hint), String::new()));
         return MenuPayload {
             items,
             // No session is selectable. If the search box holds focus (the user
@@ -711,11 +711,11 @@ fn build_menu_payload_with_preview(
         let msgs = crate::i18n::t(crate::i18n::Msg::SessionMsgCount {
             count: s.message_count,
         });
-        let mut metadata = format!("{} . {}", msgs, humanize_age(s.updated_at));
+        let mut metadata = format!("{} · {}", msgs, humanize_age(s.updated_at));
         if current_session
             .is_some_and(|(id, project_bucket)| s.id == id && s.project_bucket == project_bucket)
         {
-            metadata.push_str(" . ");
+            metadata.push_str(" · ");
             metadata.push_str(&crate::i18n::t(crate::i18n::Msg::DirCurrent));
         }
         let is_previewed = !p.search_focused
@@ -732,7 +732,7 @@ fn build_menu_payload_with_preview(
                 Some(Ok(Some(preview))) => {
                     metadata.push('\n');
                     metadata.push_str(&match (&preview.provider_id, &preview.model_id) {
-                        (Some(provider), Some(model)) => format!("{provider} . {model}"),
+                        (Some(provider), Some(model)) => format!("{provider} · {model}"),
                         _ => preview_unavailable_label().to_string(),
                     });
                     for line in &preview.excerpt {
@@ -752,7 +752,7 @@ fn build_menu_payload_with_preview(
         }
         items.push((s.name.clone(), metadata));
     }
-    items.push((format!("-- {} --", hint), String::new()));
+    items.push((format!("— {} —", hint), String::new()));
 
     // When the search box holds focus, mark row 2 (the bordered query field) as
     // selected so it highlights and shows a cursor; no session row is marked.
@@ -1593,15 +1593,15 @@ mod tests {
         assert_eq!(payload.items[3], (String::new(), String::new()));
         // Rows 4..: session rows (name, metadata).
         assert_eq!(payload.items[HEADER_ROWS].0, "First task");
-        assert!(payload.items[HEADER_ROWS].1.contains('.'));
+        assert!(payload.items[HEADER_ROWS].1.contains('·'));
         assert_eq!(payload.items[HEADER_ROWS + 1].0, "Second task");
         // Last row: bottom hint wrapped in em-dashes.
         let last = &payload.items[payload.items.len() - 1].0;
         assert!(
-            last.starts_with("--") && last.ends_with("--"),
+            last.starts_with('—') && last.ends_with('—'),
             "last row must be the em-dash-wrapped hint: {last:?}"
         );
-        // Selection is offset past the header so > lands on the selected session.
+        // Selection is offset past the header so ▸ lands on the selected session.
         assert_eq!(payload.selected, HEADER_ROWS);
         p.down();
         let payload2 = build_menu_payload(&p, "rustcode", None);
@@ -1680,7 +1680,7 @@ mod tests {
         let payload =
             build_menu_payload_with_preview(&p, "project", None, Some(&selection), Some(&result));
         let selected_desc = &payload.items[HEADER_ROWS].1;
-        assert!(selected_desc.contains("provider . model"));
+        assert!(selected_desc.contains("provider · model"));
         assert!(selected_desc.ends_with("first\nsecond"));
         assert!(!payload.items[HEADER_ROWS + 1].1.contains('\n'));
     }

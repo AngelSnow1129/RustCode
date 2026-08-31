@@ -655,7 +655,8 @@ impl fmt::Display for ProviderUnavailableReason {
                 f.write_str("provider authentication required -- run /login")
             }
             Self::UnsupportedBuild => f.write_str(
-                "this build cannot access the AtomGit gateway -- use an official build or switch provider",
+                "this source build cannot sign requests for the managed signing gateway -- use an \
+                 official build, or switch to a standard third-party provider",
             ),
         }
     }

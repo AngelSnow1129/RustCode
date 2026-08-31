@@ -1,9 +1,9 @@
 # Codex / Claude 配置分析与建议
 
 ## 1. 当前 Untitled-1 内容解析
-- 提供商: `hwdevspace` (华为云自定义 OpenAI-compatible 网关)
-- 端点: `https://tokenhub.developer.huaweicloud.com/v2`
-- 模型: `glm-5.2` / `glm-5.1` / `openpangu-2.0-flash`
+- 提供商: 一个自定义 OpenAI-compatible 托管网关（第三方自带端点，平台中立）
+- 端点: `https://gateway.example.com/v2`
+- 模型: 该网关服务的任意模型 id（示例：`glm-5.2` / `your-model-id`）
 - 协议: `openai` (`apiFormat`)
 - 适配器: 直接复用 `rustcode-capabilities/src/provider/openai_compat.rs`
 - 注意: `glm-5.2` 非多模态 (`supports_vision = false`)
@@ -17,7 +17,7 @@ model = "codex"
 base_url = "https://api.openai.com/v1"
 api_key = "${OPENAI_API_KEY}"
 ```
-若通过 `hwdevspace` 网关访问 Codex，则 `base_url` 保持华为云端点，`model` 改为 `codex`。
+若通过自建或第三方托管的 OpenAI 兼容网关访问 Codex，则 `base_url` 保持该网关端点（示例 `https://gateway.example.com/v2`），`model` 改为 `codex`。
 
 ## 3. Claude 配置建议
 `rustcode-capabilities/src/provider/anthropic.rs` 已存在。配置:
@@ -32,14 +32,14 @@ thinking_budget = 10000
 ```
 `ProviderConfig` 已支持 `thinking_enabled` / `thinking_budget`（`provider.rs`）。
 
-## 4. 与现有 `hwdevspace` 的关系
-`Untitled-1` 是完整 JSON 配置（含 `models`、`provider`、`options`）。建议转为 `rustcode` 的 `config.toml` 片段:
+## 4. 接入第三方 OpenAI 兼容网关
+任意 OpenAI 兼容的第三方或自托管网关都可用相同方式接入。把 `Untitled-1` 一类的完整 JSON 配置（含 `models`、`provider`、`options`）转为 `rustcode` 的 `config.toml` 片段（域名/密钥均为占位，替换为你自己的服务商）:
 ```toml
-[providers.hwdevspace]
+[providers.thirdparty]
 type = "openai-compatible"
-model = "glm-5.2"
-base_url = "https://tokenhub.developer.huaweicloud.com/v2"
-api_key = "${HWDEVSPACE_API_KEY}"
+model = "your-model-id"
+base_url = "https://gateway.example.com/v2"
+api_key = "${THIRDPARTY_API_KEY}"
 supports_vision = false
 ```
 

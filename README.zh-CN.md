@@ -46,7 +46,7 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 你可以把它理解为 Claude Code / Cursor Agent 的开源替代品，完全运行在终端里，并且可以接入任何兼容 OpenAI 接口的模型。
 
-> **Fork 声明。** 本仓库（`SecLab/RustCode`）是 `atomgit_atomcode/atomcode` 的二次开发 fork。相对上游：(1) 将产品重命名为 `rustcode`（crate、二进制、配置目录 `~/.rustcode`、`RUSTCODE_*` 环境变量）；(2) **完整移除**遥测/分析上报——`rustcode-telemetry` crate 及所有上报调用点均已删除；(3) **完全解除平台绑定**——不硬编码任何签名网关 host，默认不注册平台专属 REST 工具，`/login` 可选：直接在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key` 即可开始使用。原始 MIT 许可证与版权（© 2026 Yubang Xu）保留于 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)，完整归属见 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)。
+> **Fork 声明。** 本仓库（`SecLab/RustCode`）是 `atomgit_atomcode/atomcode` 的二次开发 fork。相对上游：(1) 将产品重命名为 `rustcode`（crate、二进制、配置目录 `~/.rustcode`、`RUSTCODE_*` 环境变量）；(2) **完整移除**遥测/分析上报——`rustcode-telemetry` crate 及所有上报调用点均已删除；(3) **完全解除平台绑定**——不硬编码任何签名网关 host，默认不注册平台专属 REST 工具，`/login` 可选：直接在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key` 即可开始使用；(4) **默认简体中文**——TUI/CLI 界面与 Agent 回复均默认中文（可通过 `--lang en`、配置项 `language` 或 `LANG`/`LC_ALL` 切换为英文）。原始 MIT 许可证与版权（© 2026 Yubang Xu）保留于 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)，完整归属见 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)。
 
 ## 功能特性
 
@@ -776,12 +776,12 @@ cargo install --path crates/rustcode-cli
 
 不会 Rust？没关系！有很多方式可以不写 Rust 代码就能参与贡献：
 
-- **📝 文档** — 改进 README、修正错别字、完善[官方文档站](https://docs.rustcode.dev/zh/)、添加使用示例。文档位于 `site/` 目录和 README 文件中。
-- **🌐 本地化与翻译** — 帮助将文档站、README 或界面文案翻译成更多语言。查看 `site/docs/` 了解现有翻译。
-- **🧩 Skills 与插件** — 创建新的 [skill](https://gitcode.com/SecLab/RustCode-skills)（Markdown + JSON，无需 Rust），扩展 RustCode 的能力。Skill 从 `~/.rustcode/skills/` 加载。
-- **🐛 Bug 报告** — 发现 Bug？在 [Issues](https://gitcode.com/SecLab/RustCode/issues) 中提交清晰的复现步骤、截图和环境信息。高质量的 Bug 报告非常宝贵。
-- **🧪 测试用例与示例** — 添加测试场景、示例项目或使用演示，帮助验证功能并帮助新用户上手。
-- **💬 社区支持** — 在社区群中回答问题、编写教程或制作视频指南。
+- **[*] 文档** — 改进 README、修正错别字、完善[官方文档站](https://docs.rustcode.dev/zh/)、添加使用示例。文档位于 `site/` 目录和 README 文件中。
+- **[*] 本地化与翻译** — 帮助将文档站、README 或界面文案翻译成更多语言。查看 `site/docs/` 了解现有翻译。
+- **[*] Skills 与插件** — 创建新的 [skill](https://gitcode.com/SecLab/RustCode-skills)（Markdown + JSON，无需 Rust），扩展 RustCode 的能力。Skill 从 `~/.rustcode/skills/` 加载。
+- **[*] Bug 报告** — 发现 Bug？在 [Issues](https://gitcode.com/SecLab/RustCode/issues) 中提交清晰的复现步骤、截图和环境信息。高质量的 Bug 报告非常宝贵。
+- **[*] 测试用例与示例** — 添加测试场景、示例项目或使用演示，帮助验证功能并帮助新用户上手。
+- **[*] 社区支持** — 在社区群中回答问题、编写教程或制作视频指南。
 
 每一份贡献，无论是代码还是非代码，都能让 RustCode 变得更好。不确定从哪里开始？开一个 Issue 或发起讨论吧！
 
@@ -799,7 +799,7 @@ cargo install --path crates/rustcode-cli
 
 ---
 
-☕ RustCode 免费用，Coding Plan 也不收费。如果它帮你省下了一点时间，欢迎请作者喝杯咖啡，让我们更有动力把它做下去。
+RustCode 是免费的开源软件，可搭配任意你自带密钥的第三方服务商使用。如果它帮你省下了一点时间，欢迎请维护者喝杯咖啡，让我们更有动力把它做下去。
 
 <p align="center">
   <img src="https://cdn-news.gitcode.com/news/alipay_1782981974317.png" alt="RustCode 支付宝赞赏码" width="220">

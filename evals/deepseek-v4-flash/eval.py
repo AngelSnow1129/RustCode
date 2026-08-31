@@ -294,7 +294,7 @@ async def run_one(suite: Suite, case: Case, candidate: Candidate, rep: int,
     prompt.write_text(case.prompt)
     argv = [suite.rustcode_bin, "--provider", candidate.selection, "--config", str(suite.config),
             "--prompt-file", str(prompt), "-C", str(work), "--ephemeral",
-            "--output-format", "jsonl", "--dev", "--no-telemetry"]
+            "--output-format", "jsonl", "--dev"]
     if case.tier == "model": argv.append("--no-tools")
     if case.allow_edits: argv.append("--dangerously-skip-permissions")
     env = os.environ.copy(); env["RUSTCODE_HOME"] = str(home)

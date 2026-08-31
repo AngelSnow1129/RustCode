@@ -56,7 +56,9 @@ Think of it as an open-source alternative to Claude Code / Cursor Agent, but run
 > platform** — no host is hard-coded as a signing gateway, no platform-specific
 > REST tools are registered by default, and `/login` is optional: configure a
 > provider directly in `~/.rustcode/config.toml` with your own `base_url` and
-> `api_key` and start coding. The original MIT license and copyright (© 2026 Yubang
+> `api_key` and start coding; (4) **defaults to Simplified Chinese** for both the
+> TUI/CLI interface and agent replies (override with `--lang en`, the config
+> `language` field, or `LANG`/`LC_ALL`). The original MIT license and copyright (© 2026 Yubang
 > Xu) are preserved in [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md), with
 > full attribution in [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md).
 
@@ -815,12 +817,12 @@ Contributions are welcome! RustCode is in active development.
 
 Don't know Rust? No problem! There are many ways to contribute without writing Rust code:
 
-- **📝 Documentation** — Improve the README, fix typos, enhance the [official docs site](https://docs.rustcode.dev/docs/en/), or add examples. Docs live in the root `docs/` directory, `site/docs/`, and the main README files.
-- **🌐 Localization & Translation** — Help translate the docs site, README, or UI strings into more languages. Check `site/docs/` for existing translations.
-- **🧩 Skills & Plugins** — Create new [skills](https://gitcode.com/SecLab/RustCode-skills) (Markdown + JSON, no Rust needed) that extend RustCode's capabilities. Skills are loaded from `~/.rustcode/skills/`.
-- **🐛 Bug Reports** — Found a bug? Open an [Issue](https://gitcode.com/SecLab/RustCode/issues) with clear reproduction steps, screenshots, and environment info. High-quality bug reports are invaluable.
-- **🧪 Test Cases & Examples** — Add test scenarios, example projects, or usage demos that help validate features and onboard new users.
-- **💬 Community Support** — Help answer questions in the community group, write tutorials, or create video guides.
+- **[*] Documentation** — Improve the README, fix typos, enhance the [official docs site](https://docs.rustcode.dev/docs/en/), or add examples. Docs live in the root `docs/` directory, `site/docs/`, and the main README files.
+- **[*] Localization & Translation** — Help translate the docs site, README, or UI strings into more languages. Check `site/docs/` for existing translations.
+- **[*] Skills & Plugins** — Create new [skills](https://gitcode.com/SecLab/RustCode-skills) (Markdown + JSON, no Rust needed) that extend RustCode's capabilities. Skills are loaded from `~/.rustcode/skills/`.
+- **[*] Bug Reports** — Found a bug? Open an [Issue](https://gitcode.com/SecLab/RustCode/issues) with clear reproduction steps, screenshots, and environment info. High-quality bug reports are invaluable.
+- **[*] Test Cases & Examples** — Add test scenarios, example projects, or usage demos that help validate features and onboard new users.
+- **[*] Community Support** — Help answer questions in the community group, write tutorials, or create video guides.
 
 Every contribution, code or not, makes RustCode better for everyone. When in doubt, open an Issue or start a Discussion!
 
@@ -838,7 +840,7 @@ Scan the QR code below with WeChat to join the RustCode community group — shar
 
 ---
 
-☕ RustCode is free, and the Coding Plan is free too. If it's saved you a bit of time, consider buying the author a coffee — it keeps us motivated to keep making it better.
+RustCode is free, open-source software that works with any third-party provider you bring your own key for. If it has saved you a bit of time, consider buying the maintainers a coffee — it keeps us motivated to keep making it better.
 
 <p align="center">
   <img src="https://cdn-news.gitcode.com/news/alipay_1782981974317.png" alt="RustCode Alipay donate QR code" width="220">

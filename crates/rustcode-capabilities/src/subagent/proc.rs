@@ -143,7 +143,7 @@ impl ManagedChild {
             });
         }
 
-        let child = cmd.spawn().map_err(|e| {
+        let child = crate::process_utils::spawn_retrying_etxtbsy(|| cmd.spawn()).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 SubagentError::BinaryNotFound {
                     binary: spec.program.display().to_string(),

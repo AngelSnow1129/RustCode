@@ -6,6 +6,12 @@ edition.workspace = true
 [features]
 default = []
 distro-pm = ["rustcode-updater/distro-pm"]
+# Managed CodingPlan gateway client (claim/login/sync/usage REST calls). Off by
+# default in the platform-neutral fork: the pure usage/plan data types from
+# `rustcode-codingplan` always build so the usage modal compiles, but no gateway
+# network client is linked. Official builds enable this (via the CLI's
+# `codingplan` feature).
+codingplan = ["rustcode-codingplan/client"]
 
 [dependencies]
 # Config and locale systems are owned by the leaf config crate.
@@ -16,6 +22,8 @@ rustcode-updater = { path = "../rustcode-updater" }
 # server + password modal via that path.
 rustcode-capabilities = { path = "../rustcode-capabilities", features = ["tools", "memory", "notify", "setup", "plugin", "mcp"] }
 rustcode-auth = { path = "../rustcode-auth" }
+# Always linked for its pure `types` / `usage` / `sync_marker` modules; the
+# reqwest gateway `client` is only compiled with the `codingplan` feature above.
 rustcode-codingplan = { path = "../rustcode-codingplan" }
 # INIT_PROMPT: LLM-driven /init submits this constant as a user turn so the
 # coding agent explores the repo and writes AGENTS.md via its tools.

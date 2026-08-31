@@ -1009,22 +1009,22 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 This was performed during plan writing — leaving the checklist documented for re-verification.
 
 **1. Spec coverage:**
-- Goal/trigger conditions → Tasks 2 short-circuits + Task 5 wire-up. ✓
-- Caption included in VL prompt → Task 3 prompt template + Task 4 caption test. ✓
-- VL only sees current image, not history → Task 3 local `Vec<Message>` (structural guarantee). ✓
-- VL output appended, image dropped → Task 5 `Replaced` arm. ✓
-- Failure → Warning + placeholder → Task 5 `Failed` arm. ✓
-- Config field at top level, defaults None, opt-in → Task 1. ✓
-- 30s timeout → Task 3 `tokio::time::timeout`. ✓
-- No `[image attached]` change for vision-capable case → Task 5 `Skipped` arm preserves existing path; Task 1's serde `skip_serializing_if = Option::is_none` keeps existing config files clean. ✓
-- Non-target: no `LlmProvider` trait change. ✓
-- Non-target: no `coding_plan/setup.rs` change. ✓
+- Goal/trigger conditions → Tasks 2 short-circuits + Task 5 wire-up. [x]
+- Caption included in VL prompt → Task 3 prompt template + Task 4 caption test. [x]
+- VL only sees current image, not history → Task 3 local `Vec<Message>` (structural guarantee). [x]
+- VL output appended, image dropped → Task 5 `Replaced` arm. [x]
+- Failure → Warning + placeholder → Task 5 `Failed` arm. [x]
+- Config field at top level, defaults None, opt-in → Task 1. [x]
+- 30s timeout → Task 3 `tokio::time::timeout`. [x]
+- No `[image attached]` change for vision-capable case → Task 5 `Skipped` arm preserves existing path; Task 1's serde `skip_serializing_if = Option::is_none` keeps existing config files clean. [x]
+- Non-target: no `LlmProvider` trait change. [x]
+- Non-target: no `coding_plan/setup.rs` change. [x]
 
-**2. Placeholder scan:** No "TBD"/"TODO"/"add error handling" in any task. ✓
+**2. Placeholder scan:** No "TBD"/"TODO"/"add error handling" in any task. [x]
 
 **3. Type consistency:**
-- `LlmProvider` (trait), not `Provider`. Used consistently in Task 2 + 5. ✓
-- `model_name_suggests_vision` (free function, not method). ✓
-- `StreamEvent::Delta(String)` not `TextDelta`. ✓ (TextDelta is the `AgentEvent` variant; provider-side stream uses `Delta`.)
-- `create_provider` returns `Result<Box<dyn LlmProvider>>`. Task 3 uses it correctly. ✓
-- `AgentEvent::Warning(String)` (tuple variant), not struct. Task 5 uses `AgentEvent::Warning(format!(...))`. ✓
+- `LlmProvider` (trait), not `Provider`. Used consistently in Task 2 + 5. [x]
+- `model_name_suggests_vision` (free function, not method). [x]
+- `StreamEvent::Delta(String)` not `TextDelta`. [+] (TextDelta is the `AgentEvent` variant; provider-side stream uses `Delta`.)
+- `create_provider` returns `Result<Box<dyn LlmProvider>>`. Task 3 uses it correctly. [x]
+- `AgentEvent::Warning(String)` (tuple variant), not struct. Task 5 uses `AgentEvent::Warning(format!(...))`. [x]

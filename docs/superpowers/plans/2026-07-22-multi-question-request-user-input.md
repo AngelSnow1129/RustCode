@@ -650,15 +650,15 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Self-Review
 
 **Spec coverage:**
-- Unit 1 tool (schema/parse/format/response) → Task 1. ✓
-- Unit 2 TUI batch state → Task 2. ✓
-- Unit 3 TUI render navigator (N>1) / N==1 unchanged → Task 3. ✓
-- Unit 4 TUI events (Tab/Shift+Tab, parse, batch deliver, Esc-declines-all) → Task 4. ✓
-- Unit 5 daemon (batched response + questions projection) → Task 5. ✓
-- Unit 6 webui sequential stepper + one batched POST → Task 6. ✓
-- Backward compat / N==1 no-regression → Task 1 legacy path, Task 3 Step 2 (N==1 byte-identical), Task 4 (single path via `user_input_panel` untouched). ✓
-- Partial submit (untouched → declined) → Task 2 `build_batch_response` + Task 6 skip. ✓
-- Max 4 clamp → Task 1 `parse_batch`. ✓
+- Unit 1 tool (schema/parse/format/response) → Task 1. [x]
+- Unit 2 TUI batch state → Task 2. [x]
+- Unit 3 TUI render navigator (N>1) / N==1 unchanged → Task 3. [x]
+- Unit 4 TUI events (Tab/Shift+Tab, parse, batch deliver, Esc-declines-all) → Task 4. [x]
+- Unit 5 daemon (batched response + questions projection) → Task 5. [x]
+- Unit 6 webui sequential stepper + one batched POST → Task 6. [x]
+- Backward compat / N==1 no-regression → Task 1 legacy path, Task 3 Step 2 (N==1 byte-identical), Task 4 (single path via `user_input_panel` untouched). [x]
+- Partial submit (untouched → declined) → Task 2 `build_batch_response` + Task 6 skip. [x]
+- Max 4 clamp → Task 1 `parse_batch`. [x]
 
 **Placeholder scan:** Tasks 1-2 carry complete code. Tasks 3-6 are integration into large existing functions (300-line renderer, the event handler, a React component); each step gives the exact anchors, the specific new code/shape, and a concrete verify command. No "TBD"/"handle edge cases" — each names the exact rows/keys/fields to add. The read-first steps (3.1, 4.1) are deliberate: the executor reads the current large function before editing it rather than the plan reproducing hundreds of unchanged lines.
 

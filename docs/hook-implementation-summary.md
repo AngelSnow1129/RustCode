@@ -21,7 +21,7 @@ RustCode Hook 系统基于 **HookEngine** 统一引擎架构，支持 13 个 tra
 | `crates/rustcode-core/src/hook/config_loader.rs` | ~501 | **HooksConfig** — TOML 配置文件加载、Webhook/AsyncWebhook 注册 |
 | `crates/rustcode-core/src/hook/json_config.rs` | ~561 | **JSON 配置加载** — CC 兼容 `.hooks.json` 加载 |
 | `crates/rustcode-core/src/hook/config.rs` | ~175 | 工具名匹配工具函数 |
-| `crates/rustcode-core/src/hook/executor.rs` | ~1115 | ⚠️ **旧 HookExecutor**（已废弃，不再使用，待清理） |
+| `crates/rustcode-core/src/hook/executor.rs` | ~1115 | [!] **旧 HookExecutor**（已废弃，不再使用，待清理） |
 
 ### 调用侧集成
 
@@ -47,19 +47,19 @@ AgentLoop / TurnRunner
 
 | # | Trait | 关键方法签名 | 可影响流程 |
 |---|-------|------------|:--:|
-| 1 | `PreToolExecutionHook` | `on_pre_execute(ctx: &HookCtx) -> HookResult` | ✅ 修改/阻止 |
-| 2 | `PostToolExecutionHook` | `on_post_execute(ctx: &HookCtx, result: &ToolResultContext) -> HookResult` | ❌ |
-| 3 | `PostTurnHook` | `on_post_turn(ctx: &HookCtx, turn_result: &str) -> HookResult` | ❌ |
-| 4 | `SystemPromptHook` | `extend_system_prompt() -> Option<String>` | ✅ 追加 |
-| 5 | `OnUserPromptSubmitHook` | `on_user_prompt_submit(payload: &UserPromptSubmitPayload) -> UserPromptSubmitResult` | ✅ 注入/阻止 |
-| 6 | `OnMessageReceivedHook` | `on_message_received(ctx: &UserMessageContext) -> HookResult` | ❌ |
-| 7 | `OnTurnStartHook` | `on_turn_start(ctx: &TurnStartContext) -> HookResult` | ❌ |
-| 8 | `OnToolCallStartHook` | `on_tool_call_start(ctx: &ToolCallStartContext) -> HookResult` | ❌ |
-| 9 | `OnTurnCompleteHook` | `on_turn_complete(ctx: &TurnCompleteContext) -> HookResult` | ❌ |
-| 10 | `OnSessionStartHook` | `on_session_start(ctx: &SessionContext) -> HookResult` | ❌ |
-| 11 | `OnSessionEndHook` | `on_session_end(ctx: &SessionContext) -> HookResult` | ❌ |
-| 12 | `OnErrorHook` | `on_error(ctx: &ErrorContext) -> HookResult` | ❌ |
-| 13 | `OnModelResponseHook` | `on_model_response(response: &str, turn_ctx: &TurnStartContext) -> HookResult` | ❌ |
+| 1 | `PreToolExecutionHook` | `on_pre_execute(ctx: &HookCtx) -> HookResult` | [+] 修改/阻止 |
+| 2 | `PostToolExecutionHook` | `on_post_execute(ctx: &HookCtx, result: &ToolResultContext) -> HookResult` | [-] |
+| 3 | `PostTurnHook` | `on_post_turn(ctx: &HookCtx, turn_result: &str) -> HookResult` | [-] |
+| 4 | `SystemPromptHook` | `extend_system_prompt() -> Option<String>` | [+] 追加 |
+| 5 | `OnUserPromptSubmitHook` | `on_user_prompt_submit(payload: &UserPromptSubmitPayload) -> UserPromptSubmitResult` | [+] 注入/阻止 |
+| 6 | `OnMessageReceivedHook` | `on_message_received(ctx: &UserMessageContext) -> HookResult` | [-] |
+| 7 | `OnTurnStartHook` | `on_turn_start(ctx: &TurnStartContext) -> HookResult` | [-] |
+| 8 | `OnToolCallStartHook` | `on_tool_call_start(ctx: &ToolCallStartContext) -> HookResult` | [-] |
+| 9 | `OnTurnCompleteHook` | `on_turn_complete(ctx: &TurnCompleteContext) -> HookResult` | [-] |
+| 10 | `OnSessionStartHook` | `on_session_start(ctx: &SessionContext) -> HookResult` | [-] |
+| 11 | `OnSessionEndHook` | `on_session_end(ctx: &SessionContext) -> HookResult` | [-] |
+| 12 | `OnErrorHook` | `on_error(ctx: &ErrorContext) -> HookResult` | [-] |
+| 13 | `OnModelResponseHook` | `on_model_response(response: &str, turn_ctx: &TurnStartContext) -> HookResult` | [-] |
 
 ## 各实现覆盖的 Trait
 

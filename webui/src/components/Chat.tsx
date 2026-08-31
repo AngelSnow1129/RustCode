@@ -171,7 +171,7 @@ function messageFullText(m: Message): string {
       lines.push(p.text);
     } else if (p.kind === 'tool') {
       const tool = p.tool;
-      lines.push(`🔧 ${displayToolName(tool.name)}`);
+      lines.push(displayToolName(tool.name));
       const detail = formatToolDetail(tool.name, tool.args);
       if (detail) lines.push(`   ${detail}`);
       if (tool.args) lines.push(`   参数: ${tool.args}`);
@@ -3165,7 +3165,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
               type="button"
               title={item.up ? '..' : (item.full ?? atDirPart + item.name + (item.is_dir ? '/' : ''))}
             >
-              <span class="at-icon">{item.up ? '⬆' : item.is_dir ? '📁' : '📄'}</span>
+              <span class="at-icon">{item.up ? '[<]' : item.is_dir ? '[D]' : '[F]'}</span>
               <span class="at-name">{item.up ? '..' : (item.full ?? atDirPart + item.name + (item.is_dir ? '/' : ''))}</span>
             </button>
           ))}
@@ -4121,7 +4121,7 @@ function UserMessageView({
           onClick={() => setExpanded(true)}
           title={t('chat.skillExpand')}
         >
-          <span class="skill-badge-icon" aria-hidden="true">⚡</span>
+          <span class="skill-badge-icon" aria-hidden="true">[*]</span>
           <span class="skill-badge-label">{skillTitle}</span>
           <span class="skill-badge-hint">{t('chat.skillExpand')}</span>
         </button>

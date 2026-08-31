@@ -89,10 +89,10 @@ RustCode supports **three** hook implementations, managed via two config files:
 
 | trigger value | Alias | When triggered | Can affect flow |
 |-----------|------|---------|:--:|
-| `pre_tool` | `pre_tool_execution` | Before tool execution | ✅ Can block/modify args |
-| `post_tool` | `post_tool_execution` | After tool execution | ❌ fire-and-forget |
-| `post_turn` | — | After turn completes | ❌ fire-and-forget |
-| `system_prompt` | — | When building system prompt | ✅ Can append instructions |
+| `pre_tool` | `pre_tool_execution` | Before tool execution | [+] Can block/modify args |
+| `post_tool` | `post_tool_execution` | After tool execution | [-] fire-and-forget |
+| `post_turn` | — | After turn completes | [-] fire-and-forget |
+| `system_prompt` | — | When building system prompt | [+] Can append instructions |
 
 ### Script input (stdin JSON)
 

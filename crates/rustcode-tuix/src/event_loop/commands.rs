@@ -22,10 +22,14 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    apply_persisted_config, bg_runtime, deactivate_runtime_provider_after_logout,
-    provider_transition_pending, reload_persisted_config, request_context_stats_render,
-    save_and_reload, save_language_and_reload, LoopCtx, PersistedConfigReload,
+    bg_runtime, deactivate_runtime_provider_after_logout, provider_transition_pending,
+    reload_persisted_config, request_context_stats_render, save_and_reload,
+    save_language_and_reload, LoopCtx, PersistedConfigReload,
 };
+// Only the gated managed-login flow (`/login` with the `codingplan` feature)
+// applies a freshly-claimed CodingPlan config to the running session.
+#[cfg(feature = "codingplan")]
+use super::apply_persisted_config;
 use crate::custom_commands::ArgsRequirement;
 use crate::i18n::{t, Msg};
 use crate::modals::usage::{UsageData, UsageModal};
@@ -1029,7 +1033,7 @@ pub(crate) fn start_interval_loop(
         std::env::var("RUSTCODE_LOOP_MAX_ROUNDS").ok().as_deref(),
     );
     ctx.loop_ctrl = Some(c);
-    state.loop_label = Some(format!("{secs}s . {payload}"));
+    state.loop_label = Some(format!("{secs}s · {payload}"));
     state.loop_round = 0;
     state.loop_started_at = Some(std::time::Instant::now());
     fire_interval_payload(state, ctx, renderer, active_modal, setup_pending);
@@ -3792,7 +3796,7 @@ fn execute_slash_command_impl(
                     } else {
                         // 回显已加载 skill：第二个及以后的 skill 名若打错字会静默
                         // 落进任务描述，这行让用户一眼看出"只加载了 N 个"。
-                        let names = skills.join(" . ");
+                        let names = skills.join(" · ");
                         renderer.render(UiLine::CommandOutput(
                             t(Msg::SkillsLoaded {
                                 names: names.as_str(),
@@ -4897,6 +4901,7 @@ fn render_login_line_from_stored_auth() -> String {
 /// /login" prompt; otherwise `fallback()` (a genuine not-signed-in hint, or the raw
 /// fetch-failure line). `from_stored_auth` returns `AuthExpired` for a dead token but a
 /// PLAIN error when never logged in, so the two stay distinguishable.
+#[cfg(feature = "codingplan")]
 fn render_cp_auth_error(e: &anyhow::Error, fallback: impl FnOnce() -> String) -> String {
     if rustcode_codingplan::is_auth_expired(e) {
         t(Msg::StatusCpAuthExpired).into_owned()
@@ -4912,6 +4917,7 @@ fn render_cp_auth_error(e: &anyhow::Error, fallback: impl FnOnce() -> String) ->
 /// call fails. Never panics and never returns an error: `/status` is a
 /// quick-glance command, so any fetch problem degrades into a visible
 /// note instead of aborting the whole command.
+#[cfg(feature = "codingplan")]
 fn render_codingplan_status_for_status_cmd() -> String {
     tokio::task::block_in_place(|| {
         use rustcode_codingplan::client::Client;
@@ -4951,7 +4957,7 @@ fn render_codingplan_status_for_status_cmd() -> String {
         // Prefer the per-window `rate_limit_windows` schema when present, mirroring
         // `/login` (setup.rs). Iterate visible short windows (show_enable=1) normally.
         if !status.rate_limit_windows.is_empty() {
-            use rustcode_codingplan::setup::format_duration_secs;
+            use rustcode_codingplan::format_duration_secs;
             for w in status
                 .rate_limit_windows
                 .iter()
@@ -4979,11 +4985,17 @@ fn render_codingplan_status_for_status_cmd() -> String {
             out.push_str(&t(Msg::StatusCpUsage {
                 usage: &u.display_desc(),
                 reset_at: &u.reset_at_display,
-                duration: &rustcode_codingplan::setup::format_duration_secs(u.seconds_until_reset),
+                duration: &rustcode_codingplan::format_duration_secs(u.seconds_until_reset),
             }));
         }
         out
     })
+}
+
+/// Neutral build: no managed plan section is appended to `/status`.
+#[cfg(not(feature = "codingplan"))]
+fn render_codingplan_status_for_status_cmd() -> String {
+    String::new()
 }
 
 /// Pure-function core of `/context` -- testable without constructing
@@ -5258,6 +5270,7 @@ pub(super) fn build_diff_stat_text(ctx: &LoopCtx) -> Result<String, String> {
 ///
 /// Two round-trips: `status_v2` (plan + window) and the heavier `usage()` that powers
 /// the Overview/Models tabs.
+#[cfg(feature = "codingplan")]
 fn fetch_usage_data() -> Option<UsageData> {
     tokio::task::block_in_place(|| {
         let client = rustcode_codingplan::client::Client::from_stored_auth().ok()?;
@@ -5286,6 +5299,13 @@ fn fetch_usage_data() -> Option<UsageData> {
             error,
         })
     })
+}
+
+/// Neutral build: the gateway usage endpoint is not compiled in, so `/usage`
+/// always reports that managed usage is unavailable (the caller shows the notice).
+#[cfg(not(feature = "codingplan"))]
+fn fetch_usage_data() -> Option<UsageData> {
+    None
 }
 
 /// `/usage` -- open the CodingPlan usage modal (idle). Renders a notice when the user
@@ -5353,7 +5373,7 @@ pub(crate) fn build_cost_report_text(
             total,
         });
         sections.push(format!(
-            "{} . {}\n{}",
+            "{} · {}\n{}",
             account_of(&item.provider_id),
             item.model_id,
             body
@@ -5374,7 +5394,7 @@ fn build_session_cost_text(ctx: &LoopCtx, state: &UiState) -> String {
     // The CURRENT-turn row must pair the ACTIVE selection with the active model.
     // Use the resolved selection id (matches `ctx.model_name`), not the possibly
     // stale legacy `default_provider` -- otherwise the row mislabels e.g.
-    // "agnes-ai . GLM-5.2".
+    // "agnes-ai · GLM-5.2".
     let provider = ctx.config.effective_model_selection().unwrap_or_default();
     let manager = session_manager_for_cost(
         ctx.current_session_project_bucket.as_deref(),
@@ -5885,6 +5905,7 @@ pub(crate) fn expand_cd_target(
 /// scannable ASCII form is ≈ 90 columns wide, which doesn't fit any
 /// realistic terminal window, and those environments are typically
 /// keyboard-driven anyway.
+#[cfg(feature = "codingplan")]
 fn compose_login_chrome(url: &str, unicode: bool) -> String {
     compose_login_chrome_inner(url, unicode, cfg!(target_env = "ohos"))
 }
@@ -5898,6 +5919,7 @@ fn compose_login_chrome(url: &str, unicode: bool) -> String {
 /// gateway). Surfacing the URL there would just lead users into the
 /// dead path; QR-only is the better UX. Parameterised so the QR-present
 /// vs URL-fallback shapes can be unit-tested on every platform.
+#[cfg(feature = "codingplan")]
 fn compose_login_chrome_inner(url: &str, unicode: bool, omit_url: bool) -> String {
     let qr_block = pick_qr_style(unicode).and_then(|style| {
         let s = crate::render::qr::render_login_qr(url, style)?;
@@ -5943,6 +5965,7 @@ fn compose_login_chrome_inner(url: &str, unicode: bool, omit_url: bool) -> Strin
 /// Pure function -- env vars / TERMINAL_EMULATOR are read once and
 /// passed through `decide_qr_style` so the decision logic stays unit
 /// testable.
+#[cfg(feature = "codingplan")]
 fn pick_qr_style(unicode: bool) -> Option<crate::render::qr::QrStyle> {
     let env_flag = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty()).is_some();
     let is_jediterm = std::env::var("TERMINAL_EMULATOR")
@@ -5959,6 +5982,7 @@ fn pick_qr_style(unicode: bool) -> Option<crate::render::qr::QrStyle> {
 /// Pure decision table for `pick_qr_style`. Explicit overrides win
 /// over auto-detection; auto-detection only suppresses the QR when
 /// no override is set.
+#[cfg(feature = "codingplan")]
 fn decide_qr_style(
     unicode: bool,
     force_dense: bool,
@@ -6349,7 +6373,7 @@ pub(crate) fn format_rate_limited_line(
             Some(m) if !m.trim().is_empty() => format!("：{}", m.trim()),
             _ => String::new(),
         };
-        return format!("⏸ 限流（HTTP 429）{reason}{tail} . 已保留已完成内容 . 稍后重试或换模型");
+        return format!("⏸ 限流（HTTP 429）{reason}{tail} · 已保留已完成内容 · 稍后重试或换模型");
     }
     // Confirmed CodingPlan window exhaustion.
     let tail = match secs_until_reset {
@@ -6358,11 +6382,11 @@ pub(crate) fn format_rate_limited_line(
     };
     if reset_at_display.is_empty() {
         return format!(
-            "⏸ 5小时窗口已用尽，稍后恢复{tail} . 已保留已完成内容 . 可换模型或稍后重试"
+            "⏸ 5小时窗口已用尽，稍后恢复{tail} · 已保留已完成内容 · 可换模型或稍后重试"
         );
     }
     format!(
-        "⏸ 5小时窗口已用尽，约 {reset_at_display} 恢复{tail} . 已保留已完成内容 . 可换模型或稍后重试"
+        "⏸ 5小时窗口已用尽，约 {reset_at_display} 恢复{tail} · 已保留已完成内容 · 可换模型或稍后重试"
     )
 }
 
@@ -6537,6 +6561,7 @@ mod status_login_tests {
         );
     }
 
+    #[cfg(feature = "codingplan")]
     #[test]
     fn cp_auth_error_expired_ignores_fallback_and_prompts_relogin() {
         use rustcode_codingplan::AuthExpired;
@@ -6557,6 +6582,7 @@ mod status_login_tests {
         );
     }
 
+    #[cfg(feature = "codingplan")]
     #[test]
     fn cp_auth_error_non_auth_uses_fallback() {
         // A genuine not-signed-in / network error falls through to the caller's
@@ -6741,7 +6767,7 @@ mod rate_limited_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "codingplan"))]
 mod qr_style_tests {
     use super::*;
     use crate::render::qr::QrStyle;
@@ -6800,7 +6826,7 @@ mod qr_style_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "codingplan"))]
 mod compose_login_chrome_tests {
     use super::*;
 
@@ -6881,6 +6907,7 @@ mod compose_login_chrome_tests {
 /// box and (worse) wrote URL bytes on top of existing scrollback because
 /// the cursor was wherever the last paint left it. The renderer-driven
 /// path here avoids both problems.
+#[cfg(feature = "codingplan")]
 fn run_oauth_with_renderer(
     renderer: &mut dyn Renderer,
     ctx: &mut LoopCtx,
@@ -6972,6 +6999,7 @@ fn run_oauth_with_renderer(
 /// `reqwest::blocking::Client` creates its own runtime, and dropping it
 /// inside an existing runtime panics with "Cannot drop a runtime in a
 /// context where blocking is not allowed".
+#[cfg(feature = "codingplan")]
 fn run_coding_plan_blocking(
     config: &rustcode_config::config::Config,
 ) -> Result<(
@@ -7012,6 +7040,7 @@ fn run_coding_plan_blocking(
 /// (input box stays visible). The subsequent `coding_plan::run` call
 /// then sees `is_logged_in() == true` and skips its own `auth::login`
 /// path -- that path prints to stdout and is reserved for CLI callers.
+#[cfg(feature = "codingplan")]
 pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> Result<()> {
     // Phase 1: pre-flight login if needed.
     if !rustcode_auth::is_logged_in() {
@@ -7156,6 +7185,18 @@ pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> 
         ctx.usage_last_check_at = None;
     }
     renderer.render(UiLine::CommandOutput(report.render()));
+    renderer.flush();
+    Ok(())
+}
+
+/// Neutral-build `/login`: the managed gateway client is not compiled in (the
+/// `codingplan` feature is off), so there is no managed OAuth/claim/setup flow.
+/// Direct the operator to configure their own third-party provider instead.
+#[cfg(not(feature = "codingplan"))]
+pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, _ctx: &mut LoopCtx) -> Result<()> {
+    renderer.render(UiLine::CommandOutput(
+        t(Msg::LoginManagedUnavailable).into_owned(),
+    ));
     renderer.flush();
     Ok(())
 }
@@ -7863,12 +7904,12 @@ mod tests {
             "provider_accounts": {
                 "RustCode": {
                     "provider": "openai",
-                    "base_url": "https://llm-api.atomgit.com/v1"
+                    "base_url": "https://example.test/v1"
                 }
             },
             "models": {
                 "RustCode-Qwen": {
-                    "account": "AtomGit",
+                    "account": "RustCode",
                     "model": "Qwen3-VL-8B-Instruct",
                     "context_window": 131072
                 }
@@ -7879,14 +7920,14 @@ mod tests {
 
     #[test]
     fn live_provider_selection_uses_default_model_when_legacy_default_is_empty() {
-        let config = new_schema_config(Some("AtomGit-Qwen"));
-        assert_eq!(live_provider_selection(&config).unwrap(), "AtomGit-Qwen");
+        let config = new_schema_config(Some("RustCode-Qwen"));
+        assert_eq!(live_provider_selection(&config).unwrap(), "RustCode-Qwen");
     }
 
     #[test]
     fn live_provider_selection_matches_runtime_catalog_fallback() {
         let config = new_schema_config(None);
-        assert_eq!(live_provider_selection(&config).unwrap(), "AtomGit-Qwen");
+        assert_eq!(live_provider_selection(&config).unwrap(), "RustCode-Qwen");
     }
 
     #[test]
@@ -8437,6 +8478,8 @@ mod tests {
 
     #[test]
     fn context_report_show_prompt_with_empty_cached_prompt_shows_hint() {
+        let _g = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Partial snapshot: no turn has landed rich stats yet, so
         // system_prompt is "". `/context prompt` should tell the user
         // that -- not just silently show an empty section.
@@ -9115,9 +9158,9 @@ mod todo_command_tests {
             "provider-b",
             "model-b",
         );
-        // Unknown ids (not in the catalog) fall back to the raw id; separator is `.`.
-        assert!(out.contains("provider-a . model-a"));
-        assert!(out.contains("provider-b . model-b"));
+        // Unknown ids (not in the catalog) fall back to the raw id; separator is `·`.
+        assert!(out.contains("provider-a · model-a"));
+        assert!(out.contains("provider-b · model-b"));
         assert!(out.contains("1323"));
         assert!(out.contains("567"));
         assert!(out.contains("89"));

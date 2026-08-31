@@ -189,6 +189,35 @@ pub fn shell_command(command: &str) -> tokio::process::Command {
     cmd
 }
 
+/// Linux ETXTBSY ("Text file busy", errno 26).
+#[cfg(unix)]
+const ETXTBSY: i32 = 26;
+
+/// Run a `spawn()` closure, retrying through the transient ETXTBSY ("Text file
+/// busy") race. On overlayfs/container storage (daemon/headless deployments),
+/// execve of a freshly-written executable -- a just-staged subagent binary or a
+/// hook script -- can momentarily fail with ETXTBSY while a writer still holds
+/// the inode or the filesystem is settling. Go's fork/exec retries this race
+/// internally; the Rust std does not. Retries are bounded (8) with a short
+/// growing backoff (total wait < ~10ms worst case) and these spawn sites are
+/// process launches, not hot loops. Non-Unix never matches the raw error.
+pub fn spawn_retrying_etxtbsy<T>(
+    mut spawn: impl FnMut() -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let mut attempt = 0u32;
+    loop {
+        match spawn() {
+            Ok(v) => return Ok(v),
+            #[cfg(unix)]
+            Err(e) if e.raw_os_error() == Some(ETXTBSY) && attempt < 8 => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_micros(250 * u64::from(attempt)));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 /// Detect whether the current process is running with administrator/root
 /// privileges.
 ///

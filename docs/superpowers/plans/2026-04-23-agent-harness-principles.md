@@ -68,7 +68,7 @@
 每个 tool 的**失败分支**必须返回 2-3 条 **candidate next actions**。候选**由 tool 自己提供**(它知道自己的 domain),framework **不代说**。
 
 示例:
-- `read_file` 大文件 → skeleton + `read offset=X limit=Y` 候选(**已实现** ✓,见 `crates/rustcode-core/src/tool/read.rs`)
+- `read_file` 大文件 → skeleton + `read offset=X limit=Y` 候选(**已实现** [+],见 `crates/rustcode-core/src/tool/read.rs`)
 - `grep` 0 匹配 → "放宽 regex / 换路径 / 改大小写敏感" 候选
 - `bash` 非零 exit → stderr 的前 10 行 + 建议加 `-v` / `--verbose`
 
@@ -224,10 +224,10 @@ Token/time 代价通过 AgentEvent 推到 UI + 超阈值注入 meta message。
 
 **不做的决策**(刻意列出):
 
-- ❌ 在 BLOCKED 文案里硬编码 "use grep / pandoc / cargo clean" —— 那是 tool 自己该说的,framework 说就越权
-- ❌ System prompt 堆特定生态 knowledge —— rules 要瘦,domain 要外置
-- ❌ Per-language 优化(Rust / TS / Python 各一套) —— rustcode 的价值是通用 agent loop,不是多语言认识
-- ❌ 只在单个模型上验证就 ship agent 行为改动 —— 见 memory `feedback_cross_model_verify.md`
+- [-] 在 BLOCKED 文案里硬编码 "use grep / pandoc / cargo clean" —— 那是 tool 自己该说的,framework 说就越权
+- [-] System prompt 堆特定生态 knowledge —— rules 要瘦,domain 要外置
+- [-] Per-language 优化(Rust / TS / Python 各一套) —— rustcode 的价值是通用 agent loop,不是多语言认识
+- [-] 只在单个模型上验证就 ship agent 行为改动 —— 见 memory `feedback_cross_model_verify.md`
 
 ---
 

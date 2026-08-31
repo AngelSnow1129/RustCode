@@ -1,8 +1,11 @@
-default_provider = "openrouter"
+# RustCode daemon 配置模板。
+# 填入你自己的第三方服务商（OpenAI 兼容接口）信息：base_url / api_key / model。
+# 也可使用环境变量：api_key = "env:RUSTCODE_API_KEY"。
+default_provider = "my-provider"
 
-[providers.openrouter]
+[providers.my-provider]
 type = "openai"
-api_key = "xxx"
-model = "xxx"
-base_url = "https://openrouter.ai/api/v1"
+api_key = "sk-your-api-key"
+model = "your-model-id"
+base_url = "https://api.example.com/v1"
 context_window = 16000

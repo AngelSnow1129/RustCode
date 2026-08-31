@@ -19,6 +19,11 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("CodingPlan 设置失败：{error}").into(),
         Msg::CpReauthAfter401 =>
             "  [!] 登录凭证已失效 -- 正在重新登录...\n".into(),
+        Msg::LoginManagedUnavailable =>
+            "  [*] 当前构建未包含托管登录。\n  \
+             请直接在 ~/.rustcode/config.toml 配置第三方 provider（base_url + api_key），\n  \
+             或使用 /provider 添加自带密钥的模型；设置 RUSTCODE_PLATFORM_SERVER 可指向自建网关。\n"
+                .into(),
         Msg::ChatAuthExpired =>
             "认证已过期，请执行 /login 重新登录".into(),
         Msg::NetworkConnectHint =>
@@ -281,7 +286,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderStepTypeWithHint { current } =>
             format!("类型？[{current}]（openai / claude / ollama，留空保持不变）").into(),
         Msg::ProviderStepBaseUrl =>
-            "Base URL？（例：https://api.deepseek.com/v1）".into(),
+            "Base URL？（例：https://api.example.com/v1 —— 你的第三方服务商地址）".into(),
         Msg::ProviderStepBaseUrlWithHint { current } =>
             format!("Base URL？[{current}]（留空保持不变）").into(),
         Msg::ProviderDefaultHint => "Provider 默认值".into(),

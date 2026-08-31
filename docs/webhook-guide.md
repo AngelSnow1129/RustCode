@@ -188,7 +188,7 @@ def handle_hook():
     
     # 格式化为 Slack 消息
     slack_payload = {
-        "text": f"🔔 RustCode Hook\n"
+        "text": f"[*] RustCode Hook\n"
                 f"Event: `{data['event']}`\n"
                 f"Tool: `{data.get('hook_context', {}).get('tool_name', 'N/A')}`\n"
                 f"Turn: `{data.get('hook_context', {}).get('turn_number', 'N/A')}`"

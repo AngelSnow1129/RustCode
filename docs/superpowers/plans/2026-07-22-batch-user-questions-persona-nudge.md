@@ -115,16 +115,16 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Self-Review
 
 **Spec coverage:**
-- "Add batching rule inside the gated `REQUEST_USER_INPUT_USAGE`" → Task 1 Step 3. ✓
-- "Reconcile with 'One focused question at a time'" → Step 3 folds it into "Keep each question focused". ✓
-- "Model-agnostic, no mechanism change" → only the const string + a test. ✓
-- "Persona test present-when-enabled / absent-when-disabled" → Step 1. ✓
-- "Run existing persona tests" → Step 4. ✓
-- Runtime coalescing deferred → not implemented, matches spec. ✓
+- "Add batching rule inside the gated `REQUEST_USER_INPUT_USAGE`" → Task 1 Step 3. [x]
+- "Reconcile with 'One focused question at a time'" → Step 3 folds it into "Keep each question focused". [x]
+- "Model-agnostic, no mechanism change" → only the const string + a test. [x]
+- "Persona test present-when-enabled / absent-when-disabled" → Step 1. [x]
+- "Run existing persona tests" → Step 4. [x]
+- Runtime coalescing deferred → not implemented, matches spec. [x]
 
-**Placeholder scan:** No TBD/TODO. Every step shows the exact string. ✓
+**Placeholder scan:** No TBD/TODO. Every step shows the exact string. [x]
 
-**Type consistency:** No signatures change. The test asserts on `answers them together in one form` and `` `questions` array ``, both appearing verbatim in the Step 3 inserted text. ✓
+**Type consistency:** No signatures change. The test asserts on `answers them together in one form` and `` `questions` array ``, both appearing verbatim in the Step 3 inserted text. [x]
 
 ---
 

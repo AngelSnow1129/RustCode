@@ -194,7 +194,7 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "plan",    desc: "Switch to Plan mode (read-only exploration)", needs_args: false, hidden: false, acp: true },
     Command { name: "build",   desc: "Switch to Build mode (full execution)", needs_args: false, hidden: false, acp: true },
     Command { name: "auto",    desc: "Switch to Auto mode (auto-approve all tools)", needs_args: false, hidden: false, acp: true },
-    Command { name: "review",  desc: "Code review the current changes (/review . /review staged . /review <base>)", needs_args: false, hidden: false, acp: false },
+    Command { name: "review",  desc: "Code review the current changes (/review · /review staged · /review <base>)", needs_args: false, hidden: false, acp: false },
     Command { name: "think",   desc: "Extended thinking control (on/off/budget N)", needs_args: false, hidden: false, acp: false },
     // Gateway entry: opens a second-level palette (low / medium / high / xhigh / max / default).
     // needs_args=true so Enter rewrites the buffer to `/effort ` and the

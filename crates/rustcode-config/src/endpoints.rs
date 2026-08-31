@@ -319,8 +319,8 @@ pub fn trusted_domains() -> &'static [String] {
 /// Whether `host` is `domain` itself or a subdomain of it.
 ///
 /// Label-aware on purpose: the `.` in the suffix check rejects
-/// `evilatomgit.com`, and requiring `domain` to be a *suffix* rejects
-/// `atomgit.com.attacker.test`.
+/// `evilexample.com`, and requiring `domain` to be a *suffix* rejects
+/// `example.com.attacker.test`.
 pub fn host_matches_domain(host: &str, domain: &str) -> bool {
     // No trailing-dot normalization: `url` already lowercases a parsed host but
     // keeps `example.com.` distinct, and upstream treated that as untrusted.
@@ -402,8 +402,8 @@ mod tests {
     fn codingplan_gateway_is_neutral_by_default() {
         // No hosted gateway is assumed: every URL is external (plain bearer).
         for url in [
-            "https://llm-api.atomgit.com/v1",
-            "https://pre-llm-api-cce.atomgit.com/v1/chat/completions",
+            "https://llm-api.example.com/v1",
+            "https://pre-llm-api-cce.example.com/v1/chat/completions",
             "https://api-ai.gitcode.com/v1",
             "https://api.openai.com/v1",
             "not a url",
@@ -511,20 +511,20 @@ mod tests {
 
     #[test]
     fn host_matching_is_label_aware() {
-        assert!(host_matches_domain("atomgit.com", "atomgit.com"));
-        assert!(host_matches_domain("acs.atomgit.com", "atomgit.com"));
+        assert!(host_matches_domain("example.com", "example.com"));
+        assert!(host_matches_domain("acs.example.com", "example.com"));
         assert!(host_matches_domain("a.b.corp.example", "corp.example"));
         // `url` lowercases a parsed host; matching is case-insensitive anyway.
-        assert!(host_matches_domain("ACS.AtomGit.Com", "atomgit.com"));
+        assert!(host_matches_domain("ACS.Example.Com", "example.com"));
         // A trailing root dot is a distinct host string and stays untrusted,
         // exactly as before this module existed.
-        assert!(!host_matches_domain("atomgit.com.", "atomgit.com"));
+        assert!(!host_matches_domain("example.com.", "example.com"));
         // Lookalike prefix -- the '.' in the suffix check rejects it.
-        assert!(!host_matches_domain("evilatomgit.com", "atomgit.com"));
+        assert!(!host_matches_domain("evilexample.com", "example.com"));
         // Suffix-position attack.
         assert!(!host_matches_domain(
-            "atomgit.com.attacker.test",
-            "atomgit.com"
+            "example.com.attacker.test",
+            "example.com"
         ));
     }
 

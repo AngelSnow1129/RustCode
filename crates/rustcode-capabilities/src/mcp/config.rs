@@ -77,7 +77,7 @@ pub enum McpConfigSource {
 }
 
 impl McpConfigSource {
-    /// Returns the string representation for telemetry JSON.
+    /// Returns the string representation used in logs and serialized config.
     pub fn as_str(self) -> &'static str {
         match self {
             McpConfigSource::Project => "project",

@@ -401,14 +401,14 @@ Expected: 无新增 warning/error（预存告警不算）。
 ## Self-Review
 
 **1. Spec coverage：**
-- 状态→圆点映射 → Task 1 `phase_status_glyph`。✅
-- 组装标题（不动名字预算） → Task 1 `session_terminal_title_with_status`。✅
-- 触发（phase 变化 re-emit、Suspended 不动、开关关退化） → Task 1 `status_title` + Task 3 接线。✅
-- config 开关默认 on → Task 2。✅
-- 测试（纯函数 + 缺省键 + Suspended 不 emit） → Task 1/2 单测覆盖；Suspended 不 emit 由 `status_title(..Suspended..) == None` 保证。✅
-- 明确不做（动画/任务栏色/思考回答拆分/✅态/ASCII） → 计划未引入，符合 YAGNI。✅
+- 状态→圆点映射 → Task 1 `phase_status_glyph`。 [x]
+- 组装标题（不动名字预算） → Task 1 `session_terminal_title_with_status`。 [x]
+- 触发（phase 变化 re-emit、Suspended 不动、开关关退化） → Task 1 `status_title` + Task 3 接线。 [x]
+- config 开关默认 on → Task 2。 [x]
+- 测试（纯函数 + 缺省键 + Suspended 不 emit） → Task 1/2 单测覆盖；Suspended 不 emit 由 `status_title(..Suspended..) == None` 保证。 [x]
+- 明确不做（动画/任务栏色/思考回答拆分/[x] 态/ASCII） → 计划未引入，符合 YAGNI。 [x]
 - 偏离 spec 记录：spec 原文把 Suspended early-return 放在 `sync`、开关"启动读一次"。计划改为：判断全进 `status_title` 纯函数（更好测），开关改为从 `ctx.config` 内联读取（`/reload` 免费生效）。功能等价、更简洁——见本文件顶部 Architecture 段。
 
-**2. Placeholder scan：** 无 TBD/TODO；每个 code step 均有完整代码与预期输出。✅
+**2. Placeholder scan：** 无 TBD/TODO；每个 code step 均有完整代码与预期输出。 [x]
 
-**3. Type consistency：** `phase_status_glyph(UiPhase) -> Option<&'static str>`、`session_terminal_title_with_status(&str,&str,Option<&str>) -> String`、`status_title(&str,&str,UiPhase,bool) -> Option<String>`、`UiConfig.terminal_status_glyph: bool` —— 三个 Task 引用一致；调用点传 `app.state.phase`（`UiPhase`）匹配签名。✅
+**3. Type consistency：** `phase_status_glyph(UiPhase) -> Option<&'static str>`、`session_terminal_title_with_status(&str,&str,Option<&str>) -> String`、`status_title(&str,&str,UiPhase,bool) -> Option<String>`、`UiConfig.terminal_status_glyph: bool` —— 三个 Task 引用一致；调用点传 `app.state.phase`（`UiPhase`）匹配签名。 [x]

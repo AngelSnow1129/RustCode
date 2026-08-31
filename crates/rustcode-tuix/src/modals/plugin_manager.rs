@@ -1522,10 +1522,10 @@ impl Modal for PluginManager {
             ) {
                 final_items.push((String::new(), String::new()));
             } else if matches!(self.screen, Screen::AddUrl) {
-                final_items.push((format!("> {}", self.url_input), String::new()));
+                final_items.push((format!("❯ {}", self.url_input), String::new()));
             }
         }
-        final_items.push((format!("-- {} --", hint), String::new()));
+        final_items.push((format!("— {} —", hint), String::new()));
 
         let selectable = self.current_len();
         let selected = if selectable == 0 {
@@ -1884,12 +1884,12 @@ mod tests {
         let wide = "描".repeat(40); // 80 display columns
         let out = truncate_plugin_desc(&wide);
         assert!(
-            out.ends_with("..."),
+            out.ends_with('…'),
             "over-budget description must be marked truncated"
         );
         assert!(crate::width::display_width(&out) <= PLUGIN_DESC_DISPLAY_COLS);
         assert!(
-            out.chars().all(|c| c == '描' || c == '.'),
+            out.chars().all(|c| c == '描' || c == '…'),
             "truncation must not split a CJK character"
         );
 

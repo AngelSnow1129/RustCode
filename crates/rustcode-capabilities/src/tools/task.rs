@@ -20,7 +20,12 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// Conservative bound for WRITE (`worker`) subtasks: they edit the live tree and are
+/// scope-confined, so keep this lane small.
 const DEFAULT_MAX_CONCURRENT: usize = 3;
+/// Wider bound for READ-ONLY (`explore`) subtasks: they only read/search and cannot
+/// conflict, so a broad investigation fans out further than the worker lane.
+const DEFAULT_MAX_CONCURRENT_EXPLORE: usize = 8;
 const CHILD_POLICY_INTERVENTION_MARKER: &str = "\u{1e}rustcode:child-policy-intervention\u{1e}";
 static TASK_RUN_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -532,6 +537,9 @@ pub struct TaskTool {
     make_explore_tools: Box<dyn Fn() -> MountedTools + Send + Sync>,
     make_worker_tools: Box<dyn Fn() -> MountedTools + Send + Sync>,
     max_concurrent: usize,
+    /// Independent concurrency bound for read-only (`explore`) subtasks. Read-only
+    /// children never write and cannot conflict, so they fan out wider than workers.
+    max_concurrent_explore: usize,
     max_rounds: Option<u32>,
     /// Kernel event-idle liveness guard for each child (parity with the parent
     /// agent and the team runner). Without it a child whose provider keeps the
@@ -562,6 +570,7 @@ impl TaskTool {
             make_explore_tools: Box::new(make_explore_tools),
             make_worker_tools: Box::new(make_worker_tools),
             max_concurrent: DEFAULT_MAX_CONCURRENT,
+            max_concurrent_explore: DEFAULT_MAX_CONCURRENT_EXPLORE,
             max_rounds: Some(super::DEFAULT_CHILD_MAX_ROUNDS),
             stream_timeout: None,
             tool_loop_policy: Some(ToolLoopPolicy::default()),
@@ -596,6 +605,13 @@ impl TaskTool {
 
     pub fn with_max_concurrent(mut self, n: usize) -> Self {
         self.max_concurrent = n.max(1);
+        self
+    }
+
+    /// Set the independent concurrency bound for read-only (`explore`) subtasks.
+    /// Write (`worker`) subtasks keep the bound from [`TaskTool::with_max_concurrent`].
+    pub fn with_max_concurrent_explore(mut self, n: usize) -> Self {
+        self.max_concurrent_explore = n.max(1);
         self
     }
 
@@ -856,7 +872,12 @@ parallel workers NON-OVERLAPPING scopes."
             prepared.push((spec, provider, fallback));
         }
 
-        let sem = Arc::new(tokio::sync::Semaphore::new(self.max_concurrent));
+        // Independent scheduling lanes: read-only (`explore`) subtasks fan out wider
+        // than write (`worker`) subtasks. Reads cannot conflict; writes are
+        // scope-confined and bounded conservatively. A broad read sweep is therefore
+        // not throttled behind the small worker budget.
+        let sem_worker = Arc::new(tokio::sync::Semaphore::new(self.max_concurrent));
+        let sem_explore = Arc::new(tokio::sync::Semaphore::new(self.max_concurrent_explore));
         let max_rounds = self.max_rounds;
         let stream_timeout = self.stream_timeout;
         let tool_loop_policy = self.tool_loop_policy;
@@ -905,7 +926,11 @@ parallel workers NON-OVERLAPPING scopes."
             let member_id = crate::team::TeamMemberId::new(label.clone());
             let prompt = t.prompt;
             let desc = t.description;
-            let sem = sem.clone();
+            let sem = if is_worker {
+                sem_worker.clone()
+            } else {
+                sem_explore.clone()
+            };
             let progress = ctx.progress.clone();
             let inherited_worker_middlewares = inherited_worker_middlewares.clone();
             let member_events = event_emitter.clone();

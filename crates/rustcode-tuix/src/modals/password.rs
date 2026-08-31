@@ -104,7 +104,11 @@ impl PasswordModal {
     // ── Pure render ──────────────────────────────────────────────────────────
 
     pub(crate) fn masked_line(&self) -> String {
-        format!("{} {}", self.prompt, "*".repeat(self.pw.chars().count()))
+        format!(
+            "{} {}",
+            self.prompt,
+            "\u{2022}".repeat(self.pw.chars().count())
+        )
     }
 
     fn masked_cursor_byte(&self) -> usize {
@@ -253,8 +257,8 @@ mod tests {
         m.feed_for_test(KeyCode::Left, KeyModifiers::NONE);
         m.feed_for_test(KeyCode::Backspace, KeyModifiers::NONE);
         assert_eq!(&*m.pw, "ab");
-        assert_eq!(m.masked_line(), "p **");
-        assert_eq!(m.masked_cursor_byte(), "p *".len());
+        assert_eq!(m.masked_line(), "p \u{2022}\u{2022}");
+        assert_eq!(m.masked_cursor_byte(), "p \u{2022}".len());
     }
 
     // Ctrl+C must be an escape hatch: dismiss the prompt (like Esc) rather than be
@@ -288,7 +292,7 @@ mod tests {
         m.feed_for_test(KeyCode::Char('s'), KeyModifiers::NONE);
         m.feed_for_test(KeyCode::Char('s'), KeyModifiers::NONE);
         let rendered = m.render_line_for_test();
-        assert!(rendered.contains("**"), "masked: {rendered}");
+        assert!(rendered.contains("••"), "masked: {rendered}");
         assert!(!rendered.contains("ss"), "must not leak chars: {rendered}");
     }
 }

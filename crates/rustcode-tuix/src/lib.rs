@@ -9,6 +9,13 @@
 #[ctor::ctor]
 fn _isolate_rustcode_home() {
     rustcode_kernel::test_support::isolate_home();
+    // Platform-neutral gateway detection: no host is a CodingPlan gateway by
+    // default, so the auth-gating tests point the explicit override at a
+    // neutral example origin (only `gateway.test.example` URLs are affected).
+    std::env::set_var(
+        "RUSTCODE_CODINGPLAN_LLM_BASE_URL",
+        "https://gateway.test.example/v1",
+    );
 }
 
 pub mod commands;

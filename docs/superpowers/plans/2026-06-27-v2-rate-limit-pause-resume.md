@@ -941,14 +941,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Self-Review
 
 **Spec coverage：**
-- ① 范围与行为 → Task 3（分流逻辑）+ Task 4（阈值/reset 数据）✅
-- ② 新 kernel 接口（hook + 事件 + StopReason）→ Task 1 ✅
-- ③ kernel 循环改动（open + mid-stream）→ Task 3 ✅
-- ④ 宿主 hook（usage 关联 + 阈值 + fallback）→ Task 4 ✅
-- ⑤ bridge + UI（TUI + webui）→ Task 5（bridge/core 事件）+ Task 6（daemon wire）+ Task 7（TUI）+ Task 8（webui/i18n）✅
-- ⑥ 月度死代码清理（独立 commit）→ Task 9 ✅
-- ⑦ 测试（kernel/hook/集成）→ Task 1/2/3/4/6 含 TDD；TUI/webui 含纯函数单测 + 手动验证说明 ✅
-- ⑧ YAGNI（不改 v1/不做换模型/无 PAYG）→ 计划内无越界任务 ✅
+- ① 范围与行为 → Task 3（分流逻辑）+ Task 4（阈值/reset 数据） [x]
+- ② 新 kernel 接口（hook + 事件 + StopReason）→ Task 1 [x]
+- ③ kernel 循环改动（open + mid-stream）→ Task 3 [x]
+- ④ 宿主 hook（usage 关联 + 阈值 + fallback）→ Task 4 [x]
+- ⑤ bridge + UI（TUI + webui）→ Task 5（bridge/core 事件）+ Task 6（daemon wire）+ Task 7（TUI）+ Task 8（webui/i18n） [x]
+- ⑥ 月度死代码清理（独立 commit）→ Task 9 [x]
+- ⑦ 测试（kernel/hook/集成）→ Task 1/2/3/4/6 含 TDD；TUI/webui 含纯函数单测 + 手动验证说明 [x]
+- ⑧ YAGNI（不改 v1/不做换模型/无 PAYG）→ 计划内无越界任务 [x]
 
 **Placeholder scan：** 无 TBD/TODO；TUI/webui 渲染因无法自动测真终端/浏览器，明确标注手动验证步骤并提供可单测纯函数，非占位。Task 3/5 标注的"按现有夹具/别名套用"是对既有命名的对齐指示，非内容缺失。
 

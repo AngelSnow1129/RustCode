@@ -80,9 +80,9 @@ Read the privacy policy before configuring external model providers:
 
 `../PRIVACY.md`
 
-Telemetry details are documented here:
-
-`../../../docs/telemetry.md`
+This fork ships no telemetry: no usage events are collected or sent, and crash
+reports stay on local stderr. The `--no-telemetry` flag is accepted and ignored
+for backward compatibility with older launch scripts.
 
 ## Common workflows
 
@@ -114,7 +114,7 @@ Use `RustCode: Open Changes` to inspect project changes that RustCode can use du
 - If the daemon fails to start, configure a daemon binary path or install RustCode separately.
 - If provider requests fail, verify the provider type, model, base URL, and API key.
 - If context is missing, check the context level and selected-text context settings.
-- If telemetry should be disabled, set `RUSTCODE_TELEMETRY=0`, `DO_NOT_TRACK=1`, or run `rustcode telemetry disable`.
+- No telemetry is collected or sent, so there is nothing to disable; the `--no-telemetry` launcher flag is accepted and ignored for backward compatibility.
 
 ## Support
 

@@ -21,6 +21,10 @@ pub enum Msg<'a> {
     /// to happen so the second "Open this URL in any browser..." block
     /// isn't a surprise.
     CpReauthAfter401,
+    /// Neutral-build `/login`: the managed gateway client is not compiled in
+    /// (the `codingplan` feature is off), so direct the operator to configure
+    /// their own third-party provider instead of running a managed login.
+    LoginManagedUnavailable,
     /// Emitted by the OpenAI provider when a gateway chat
     /// request returns 401 and our one automatic refresh_token attempt
     /// either failed or the retried request still came back 401. The

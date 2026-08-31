@@ -60,7 +60,7 @@ pub fn build_coding_agent(cfg: CodingAgentConfig) -> Result<Agent, String> {
 /// provider yourself; otherwise prefer [`build_coding_agent`].
 ///
 /// This compatibility entry point keeps its historical infallible signature. If optional
-/// AtomGit client setup fails, the agent remains usable without those tools and receives an
+/// capability/tool setup fails, the agent remains usable without those tools and receives an
 /// explicit persona warning. New callers that need startup failure propagation should use
 /// [`try_build_coding_agent_with`].
 pub fn build_coding_agent_with(cfg: &CodingAgentConfig, provider: Arc<dyn LlmProvider>) -> Agent {
@@ -71,7 +71,7 @@ pub fn build_coding_agent_with(cfg: &CodingAgentConfig, provider: Arc<dyn LlmPro
             cfg,
             provider,
             mount_base_coding_tools(cfg.supports_vision, todo_enabled, &cfg.lsp),
-            Some("AtomGit tools are unavailable because capability setup failed.".to_string()),
+            Some("Optional tools are unavailable because capability setup failed.".to_string()),
         ),
     }
 }

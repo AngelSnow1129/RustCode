@@ -508,13 +508,13 @@ fn build_content_panel(
             DiffPanelTone::Brand,
         ),
         DiffPanelSpan::new(
-            format!(" . {first}-{last}/{}", c.total_lines),
+            format!(" · {first}-{last}/{}", c.total_lines),
             DiffPanelTone::Muted,
         ),
     ];
     if c.truncated {
         title_spans.push(DiffPanelSpan::new(
-            l(" . truncated", " . 已截断"),
+            l(" · truncated", " · 已截断"),
             DiffPanelTone::Warning,
         ));
     }

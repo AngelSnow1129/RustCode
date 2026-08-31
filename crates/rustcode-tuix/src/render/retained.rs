@@ -380,7 +380,7 @@ fn format_ctx_usage(used: usize, window: usize) -> String {
 /// Marker prefix for the dedicated footer goal row. A width-1 BMP "ring" from
 /// the Geometric Shapes block when the terminal's font has it, ASCII `*`
 /// otherwise -- the SAME `unicode_symbols` gate the spinner (`◐`->`|/-\`) and
-/// ellipsis (`...`->`...`) use, so Windows legacy conhost / Consolas don't show
+/// ellipsis (`…`->`...`) use, so Windows legacy conhost / Consolas don't show
 /// `□` tofu. Deliberately NOT an emoji (e.g. 🎯): emoji width is rendered
 /// inconsistently across terminals and would drift every column after it in the
 /// cell-diff renderer, and emoji font coverage is far spottier than Geometric
@@ -388,7 +388,7 @@ fn format_ctx_usage(used: usize, window: usize) -> String {
 /// identical either way.
 fn goal_marker(unicode: bool) -> &'static str {
     if unicode {
-        "* "
+        "◎ "
     } else {
         "* "
     }
@@ -396,13 +396,13 @@ fn goal_marker(unicode: bool) -> &'static str {
 
 /// The three display segments of the dedicated footer goal row, width-fitted:
 /// `(marker, condition, meta)`. The caller styles each independently -- marker as
-/// an accent, condition as normal text, `meta` (` . round N . elapsed`) muted --
+/// an accent, condition as normal text, `meta` (` · round N · elapsed`) muted --
 /// so the row reads as a calm persistent status with hierarchy, not a loud
 /// activity line. Joining the three reproduces the full row text.
 ///
 /// `round` is shown verbatim (callers pass a 1-based value). Elapsed is `13s`
 /// under a minute else `2m13s`. The meta is RESERVED (always shown); the
-/// condition fills the remaining columns and is truncated with `...`. When the row
+/// condition fills the remaining columns and is truncated with `…`. When the row
 /// is too narrow for any condition, the condition (and the leading separator)
 /// drop entirely but round/elapsed survive. CJK/width-safe via `crate::width`.
 fn goal_row_parts(
@@ -422,13 +422,13 @@ fn goal_row_parts(
         format!("{m}m{s}s")
     };
     let icon_w = crate::width::display_width(marker);
-    let meta = format!(" . round {round} . {elapsed}");
+    let meta = format!(" · round {round} · {elapsed}");
     let meta_w = crate::width::display_width(&meta);
     let cond_budget = max_cols.saturating_sub(icon_w).saturating_sub(meta_w);
     if cond_budget == 0 {
         // Too narrow for any condition -- drop it (and the leading separator),
         // keep marker + round/elapsed, truncating the meta to the cols left.
-        let bare = format!("round {round} . {elapsed}");
+        let bare = format!("round {round} · {elapsed}");
         let meta_only = crate::width::truncate_to_width(&bare, max_cols.saturating_sub(icon_w));
         return (marker, String::new(), meta_only);
     }
@@ -443,7 +443,7 @@ fn goal_condition_preview(condition: &str) -> String {
         .filter(|line| !line.is_empty());
     let first = lines.next().unwrap_or_default();
     if lines.next().is_some() {
-        format!("{first}...")
+        format!("{first}…")
     } else {
         first.to_string()
     }
@@ -469,8 +469,8 @@ fn format_goal_row(
 /// styles each segment independently; joining them reproduces the full row text.
 ///
 /// - **Pursuing**: delegates to `goal_row_parts` (condition + round + elapsed).
-/// - **PausedAtCap**: `⏸ goal 暂停 . 已达 {round} 轮 . 继续对话即推进`.
-/// - **Satisfied**: `[+] goal 已达成 . /goal clear 结束`.
+/// - **PausedAtCap**: `⏸ goal 暂停 · 已达 {round} 轮 · 继续对话即推进`.
+/// - **Satisfied**: `✓ goal 已达成 · /goal clear 结束`.
 fn goal_row_parts_phase(
     condition: &str,
     round: u32,
@@ -488,18 +488,18 @@ fn goal_row_parts_phase(
             fit_fixed_goal_row(
                 marker,
                 "goal 已暂停",
-                " . 继续对话即恢复 . /goal stop 结束",
+                " · 继续对话即恢复 · /goal stop 结束",
                 max_cols,
             )
         }
         rustcode_coding::GoalPhase::PausedAtCap => {
             let marker = if unicode { "⏸ " } else { "* " };
-            let meta = format!(" . 已达 {round} 轮 . 继续对话即推进");
+            let meta = format!(" · 已达 {round} 轮 · 继续对话即推进");
             fit_fixed_goal_row(marker, "goal 暂停", &meta, max_cols)
         }
         rustcode_coding::GoalPhase::Satisfied => {
-            let marker = if unicode { "[+] " } else { "* " };
-            fit_fixed_goal_row(marker, "goal 已达成", " . /goal clear 结束", max_cols)
+            let marker = if unicode { "✓ " } else { "* " };
+            fit_fixed_goal_row(marker, "goal 已达成", " · /goal clear 结束", max_cols)
         }
         rustcode_coding::GoalPhase::Ended => {
             // Ended rows are never constructed (goal_condition is cleared first),
@@ -560,11 +560,11 @@ fn loop_marker(unicode: bool) -> &'static str {
 
 /// The three display segments of the dedicated footer loop row, width-fitted:
 /// `(marker, label, meta)`. Mirrors `goal_row_parts` exactly -- marker in Brand
-/// color, label in normal text, meta (` . round N . elapsed`) muted.
+/// color, label in normal text, meta (` · round N · elapsed`) muted.
 ///
 /// `round` is shown verbatim (callers pass a 1-based value). Elapsed `13s`
 /// under a minute else `2m13s`. The meta is RESERVED; label fills the rest and
-/// is truncated with `...`. CJK/width-safe via `crate::width`.
+/// is truncated with `…`. CJK/width-safe via `crate::width`.
 fn loop_row_parts(
     label: &str,
     round: u32,
@@ -581,12 +581,12 @@ fn loop_row_parts(
         format!("{m}m{s}s")
     };
     let icon_w = crate::width::display_width(marker);
-    let meta = format!(" . round {round} . {elapsed}");
+    let meta = format!(" · round {round} · {elapsed}");
     let meta_w = crate::width::display_width(&meta);
     let label_budget = max_cols.saturating_sub(icon_w).saturating_sub(meta_w);
     if label_budget == 0 {
         // Too narrow for any label -- drop it, keep marker + round/elapsed.
-        let bare = format!("round {round} . {elapsed}");
+        let bare = format!("round {round} · {elapsed}");
         let meta_only = crate::width::truncate_to_width(&bare, max_cols.saturating_sub(icon_w));
         return (marker, String::new(), meta_only);
     }
@@ -1039,21 +1039,21 @@ fn is_recoverable_tool_failure(success: bool, summary: &str) -> bool {
     !success && (summary.starts_with("[elapsed:") || summary.contains("The file was NOT modified"))
 }
 
-/// Leading gutter glyphs that anchor a tool block (`* bash`, `└ cmd`,
-/// `` [elapsed...]`, ...). Stripped from a tool row's COPY text so a drag copy
+/// Leading gutter glyphs that anchor a tool block (`● bash`, `└ cmd`,
+/// `⎿ [elapsed…]`, …). Stripped from a tool row's COPY text so a drag copy
 /// carries the command/output, not the decorative anchor.
-const TOOL_GUTTER_GLYPHS: &[char] = &['*', '|', '`', '>', '+', '>', '*'];
+const TOOL_GUTTER_GLYPHS: &[char] = &['●', '└', '⎿', '↳', '✓', '▸', '•'];
 
 /// ASCII stand-ins the gutter glyphs downgrade to on non-unicode terminals
-/// (`*`->`*`, `└`/```->`` ` ``, `>`/`↳`->`>` -- see `glyph::ascii_for`). These chars
+/// (`●`→`*`, `└`/`⎿`→`` ` ``, `▸`/`↳`→`>` -- see `glyph::ascii_for`). These chars
 /// are COMMON in real output (`* item`, `> quote`), so they are only treated as
 /// a gutter at COL 0 (a header row); tool output is always PAD-indented, never
-/// col 0, so a real `* ...` stdout line is never mis-stripped.
+/// col 0, so a real `* …` stdout line is never mis-stripped.
 const TOOL_GUTTER_ASCII: &[char] = &['*', '`', '>'];
 
 /// Copyable text + start col for a TOOL row. Like [`copy_text_from_body_row`]
 /// but ALSO skips a leading gutter glyph + space, so copying a selected tool
-/// block yields `bash` / `cargo build ...` rather than `* bash` / `└ cargo ...`.
+/// block yields `bash` / `cargo build …` rather than `● bash` / `└ cargo …`.
 /// The PAD-space check runs FIRST, so PAD-indented output lines (which never
 /// carry a gutter) are unaffected; the gutter branch only fires on a row that
 /// literally starts with one of [`TOOL_GUTTER_GLYPHS`] followed by a space.
@@ -1743,10 +1743,10 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 let has_hint = m
                     .items
                     .last()
-                    .map(|(n, _)| n.starts_with("--") && n.ends_with("--"))
+                    .map(|(n, _)| n.starts_with('—') && n.ends_with('—'))
                     .unwrap_or(false);
                 let extra = if m.kind == super::MenuKind::Marketplace
-                    && m.items.iter().any(|(n, _)| n.starts_with("> "))
+                    && m.items.iter().any(|(n, _)| n.starts_with("❯ "))
                 {
                     2
                 } else {
@@ -1820,13 +1820,13 @@ impl<W: Write + Send> RetainedRenderer<W> {
         let safe_cmd = crate::glyph::downgrade_glyphs(&shortened, self.caps.unicode_symbols);
         let lines = crate::event_loop::format_shell_command(&safe_cmd, width);
         // Cap a long / multi-line command at a few visual rows so a big heredoc
-        // or script doesn't flood the transcript; a `... +N lines` marker replaces
+        // or script doesn't flood the transcript; a `… +N lines` marker replaces
         // the omitted rows (the full command stays in scrollback history above).
         const MAX_CMD_ROWS: usize = 3;
         let lines: Vec<String> = if lines.len() > MAX_CMD_ROWS + 1 {
             let omitted = lines.len() - MAX_CMD_ROWS;
             let mut kept = lines[..MAX_CMD_ROWS].to_vec();
-            kept.push(format!("... +{omitted} lines"));
+            kept.push(format!("… +{omitted} lines"));
             kept
         } else {
             lines
@@ -1854,7 +1854,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         rows
     }
 
-    /// Render `* Bash(<cmd>)` header block (static / committed path). Thin
+    /// Render `● Bash(<cmd>)` header block (static / committed path). Thin
     /// wrapper over `build_bash_command_rows`. Used by both the static
     /// `UiLine::ToolCall` arm and `commit_inflight_tool` so the live and static
     /// paths produce identical output.
@@ -1869,7 +1869,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         // tools show.
         let detail_style = self.style_for(Role::Secondary);
         let rows = self.build_bash_command_rows(
-            "* ",
+            "● ",
             bullet_style,
             safe_name,
             &tool_name_style,
@@ -2291,7 +2291,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 } else {
                     let mut row = Vec::new();
                     push_str_cells(&mut row, &cont_pad, &CellStyle::default());
-                    // meta is typically " . 12s"; drop the leading space so it
+                    // meta is typically " · 12s"; drop the leading space so it
                     // lines up under the body on its own row.
                     push_str_cells(&mut row, meta.trim_start(), meta_style);
                     rows.push(row);
@@ -2381,7 +2381,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 let (query, ellipsis) = if max_query >= 1 {
                     let qw = crate::width::display_width(&s.query);
                     if qw > max_query {
-                        (crate::width::truncate_to_width(&s.query, max_query), "...")
+                        (crate::width::truncate_to_width(&s.query, max_query), "…")
                     } else {
                         (s.query.clone(), "")
                     }
@@ -2536,10 +2536,10 @@ impl<W: Write + Send> RetainedRenderer<W> {
             return self.build_directory_menu_row(name, desc, selected, rule_width);
         }
         let mut row = Vec::new();
-        // Both menu kinds hug the left edge -- content prefixes (`> /`
+        // Both menu kinds hug the left edge — content prefixes (`▸ /`
         // or `+ `) carry the visual structure. The previous PAD_COL
         // outer indent compounded with inner format-string padding to
-        // push the `>` arrow 4 columns right of the rule edge, which
+        // push the `▸` arrow 4 columns right of the rule edge, which
         // read as a wonky margin against the flush-left rule.
         let content = match kind {
             super::MenuKind::SlashCommand => {
@@ -2558,7 +2558,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 let pad = 12usize.saturating_sub(name_width);
                 let padded = format!("{}{}", display, " ".repeat(pad));
                 if selected {
-                    format!("> /{}  {}", padded, desc)
+                    format!("▸ /{}  {}", padded, desc)
                 } else {
                     format!("  /{}  {}", padded, desc)
                 }
@@ -2573,14 +2573,14 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 }
             }
             super::MenuKind::Skill | super::MenuKind::Action => {
-                // Bare `<name>  <desc>` -- no command prefix. Selection arrow
+                // Bare `<name>  <desc>` — no command prefix. Selection arrow
                 // only. Pad by display width so CJK names align (same logic
                 // as SlashCommand).
                 let name_width = unicode_width::UnicodeWidthStr::width(name);
                 let pad = 12usize.saturating_sub(name_width);
                 let padded = format!("{}{}", name, " ".repeat(pad));
                 if selected {
-                    format!("> {}  {}", padded, desc)
+                    format!("▸ {}  {}", padded, desc)
                 } else {
                     format!("  {}  {}", padded, desc)
                 }
@@ -2591,7 +2591,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
                         row_prefix,
                         selected_marker,
                     } => (row_prefix, selected_marker),
-                    super::MenuKind::DirectoryList => ("", ">"),
+                    super::MenuKind::DirectoryList => ("", "▸"),
                     _ => unreachable!(),
                 };
                 // Name left-aligned, desc right-aligned. Rows fill the
@@ -2641,14 +2641,14 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 let pad = 12usize.saturating_sub(name_width);
                 let padded = format!("{}{}", name, " ".repeat(pad));
                 if selected {
-                    format!("> {}  {}", padded, desc)
+                    format!("▸ {}  {}", padded, desc)
                 } else {
                     format!("  {}  {}", padded, desc)
                 }
             }
             super::MenuKind::Marketplace | super::MenuKind::PluginInfo => {
                 if selected {
-                    format!("> {}", name)
+                    format!("▸ {}", name)
                 } else {
                     format!("  {}", name)
                 }
@@ -2693,7 +2693,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
             // (SGR 90 / DarkGrey). Several iTerm2 dark presets render
             // bright-black at near-zero contrast against the bg, which
             // makes the entire menu list invisible. Visual hierarchy
-            // here comes from the > arrow + reverse-video on the
+            // here comes from the ▸ arrow + reverse-video on the
             // selected row, not from a colour-contrast distinction.
             self.style_for(Role::Secondary)
         };
@@ -2701,7 +2701,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         if is_uninstall {
             style.fg = Some(crossterm::style::Color::Red);
         }
-        let is_hint = name.starts_with("--") && name.ends_with("--");
+        let is_hint = name.starts_with('—') && name.ends_with('—');
         if is_hint {
             style = self.style_for(Role::Muted);
         }
@@ -2723,13 +2723,13 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 bg: None,
             };
         }
-        let is_muted = name == "Examples:" || name.starts_with("  .");
+        let is_muted = name == "Examples:" || name.starts_with("  ·");
         if is_muted {
             style = self.style_for(Role::Muted);
         }
-        if selected && content.starts_with("> ") && is_plugin_mgr {
+        if selected && content.starts_with("▸ ") && is_plugin_mgr {
             // Arrow + text share the highlight colour (parity with /resume).
-            push_str_cells_sgr(&mut row, "> ", style.clone());
+            push_str_cells_sgr(&mut row, "▸ ", style.clone());
             push_str_cells_sgr(&mut row, &content[4..], style.clone());
         } else {
             push_str_cells_sgr(&mut row, &content, style.clone());
@@ -2897,7 +2897,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
             || status.ends_with("(本地)")
             || status.ends_with("(本地级)");
         let name_width = unicode_width::UnicodeWidthStr::width(name);
-        let check_width = 2; // "[+] " or "  "
+        let check_width = 2; // "✓ " or "  "
         let pad = 24usize.saturating_sub(name_width + check_width);
         let padded = format!("{}{}", name, " ".repeat(pad));
         let part_b = format!("  {}", status);
@@ -2906,7 +2906,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         if selected {
             let border_style = self.style_for(Role::Border);
             let marker = if self.caps.unicode_symbols {
-                "> "
+                "\u{25b8} "
             } else {
                 "> "
             };
@@ -2921,7 +2921,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 gray_style.bold = true;
             }
             let installed_marker = if self.caps.unicode_symbols {
-                "[+] "
+                "\u{2713} "
             } else {
                 "* "
             };
@@ -3014,7 +3014,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
     /// selected, else spaces) + the session title in the terminal's default fg
     /// (bold when selected) -- NO `[+]`, NO name padding, NO installed/scope suffix
     /// logic (a session literally named "... (local)" must NOT get a check). Row 2
-    /// is the whole metadata string (`"12 messages . 1 week ago"`) indented four
+    /// is the whole metadata string (`"12 messages · 1 week ago"`) indented four
     /// spaces in the muted style.
     fn build_session_menu_rows(
         &self,
@@ -3033,13 +3033,13 @@ impl<W: Write + Send> RetainedRenderer<W> {
         };
 
         // Row 1: PAD_COL indent + marker + highlighted title. The leading
-        // PAD_COL puts the `>` marker under the search box's `│` border (col 2),
-        // and the 2-col marker slot puts the title at col 4 -- flush with the
+        // PAD_COL puts the `▸` marker under the search box's `│` border (col 2),
+        // and the 2-col marker slot puts the title at col 4 — flush with the
         // search box text and the metadata row below.
         let mut row1 = Vec::new();
         push_str_cells_sgr(&mut row1, &" ".repeat(PAD_COL), CellStyle::default());
         if selected {
-            push_str_cells_sgr(&mut row1, "> ", self.session_highlight_style());
+            push_str_cells_sgr(&mut row1, "▸ ", self.session_highlight_style());
         } else {
             push_str_cells_sgr(&mut row1, "  ", CellStyle::default());
         }
@@ -3105,7 +3105,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         let installed = parts.get(2).copied().unwrap_or("0");
         let updated = parts.get(3).copied().unwrap_or("");
 
-        let bullet = if selected { "> * " } else { "  * " };
+        let bullet = if selected { "▸ ● " } else { "  ● " };
         let bullet_style = if selected {
             self.style_for(Role::Accent)
         } else {
@@ -3123,8 +3123,8 @@ impl<W: Write + Send> RetainedRenderer<W> {
         let mut row1 = Vec::new();
         if selected {
             let border_style = self.style_for(Role::Border);
-            push_str_cells_sgr(&mut row1, "> ", border_style.clone());
-            push_str_cells_sgr(&mut row1, "* ", border_style);
+            push_str_cells_sgr(&mut row1, "▸ ", border_style.clone());
+            push_str_cells_sgr(&mut row1, "● ", border_style);
         } else {
             push_str_cells_sgr(&mut row1, bullet, bullet_style);
         }
@@ -3156,7 +3156,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         }
 
         let line3_str = format!(
-            "  {} available * {} installed * Updated {}",
+            "  {} available • {} installed • Updated {}",
             available, installed, updated
         );
         let mut row3 = Vec::new();
@@ -3211,7 +3211,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         } else {
             (None, brand.clone())
         };
-        // The badge is followed by " . " (space . middot . space = width 3).
+        // The badge is followed by " · " (space · middot · space = width 3).
         // This constant must match the separator emitted in `push_badge` below.
         const BADGE_SEP_W: usize = 3;
         let mode_badge_w = left_badge
@@ -3227,7 +3227,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
 
         // Pre-truncate the cwd so that model + ctx_usage still get space
         // on narrow terminals.  Budget for cwd: subtract model width and
-        // the " . " separator widths from left_max.  If the cwd alone
+        // the " · " separator widths from left_max.  If the cwd alone
         // would eat the entire row, `truncate_path` replaces leading
         // segments with ".../" and keeps only the last segment.
         let model_str = if !status.model.is_empty() {
@@ -3245,7 +3245,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         } else {
             String::new()
         };
-        // Widths of the static " . " separators between visible parts.
+        // Widths of the static " · " separators between visible parts.
         let sep_w = if !model_str.is_empty() { 3 } else { 0 }
             + if !ctx_str.is_empty() && (!model_str.is_empty() || !status.cwd.is_empty()) {
                 3
@@ -3276,10 +3276,10 @@ impl<W: Write + Send> RetainedRenderer<W> {
         if !ctx_str.is_empty() {
             parts.push(ctx_str);
         }
-        // NOTE: the goal indicator is NOT appended here any more -- it lives on
+        // NOTE: the goal indicator is NOT appended here any more — it lives on
         // its own dedicated footer row (`build_goal_row`) so it can't be the
         // first thing truncated off this line under a hint / narrow terminal.
-        let left = parts.join(" . ");
+        let left = parts.join(" · ");
 
         // Helper: emit the badge (with trailing space) then the rest, so
         // the mode indicator is always at column 0 (after PAD_COL) and
@@ -3287,7 +3287,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         let push_badge = |row: &mut Vec<Cell>| {
             if let Some(badge) = &left_badge {
                 push_str_cells(row, badge, &left_badge_style);
-                push_str_cells(row, " . ", &secondary);
+                push_str_cells(row, " · ", &secondary);
             }
         };
 
@@ -3352,7 +3352,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
 
     /// Build the dedicated loop row (one full-width line, shown only while a
     /// `/loop` is active). Sits in the same slot as the goal row -- goal and loop
-    /// are mutually exclusive in practice. `⚡` marker, label, ` . round N . elapsed`.
+    /// are mutually exclusive in practice. `⚡` marker, label, ` · round N · elapsed`.
     fn build_loop_row(&self, ls: &crate::render::LoopStatus, rule_width: usize) -> Vec<Cell> {
         let (marker, label, meta) = loop_row_parts(
             &scrub_controls(&ls.label),
@@ -4034,7 +4034,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
             push_str_cells(&mut row, "  ", &style);
             push_str_cells(
                 &mut row,
-                &format!("{direction} {hidden} hidden lines . PgUp/PgDn"),
+                &format!("{direction} {hidden} hidden lines · PgUp/PgDn"),
                 &style,
             );
             row
@@ -4737,8 +4737,8 @@ impl<W: Write + Send> RetainedRenderer<W> {
                     (m.items.clone(), sel, 0)
                 } else {
                     let has_hint = len > header_h
-                        && m.items[len - 1].0.starts_with("--")
-                        && m.items[len - 1].0.ends_with("--");
+                        && m.items[len - 1].0.starts_with('—')
+                        && m.items[len - 1].0.ends_with('—');
                     let hint_h = if has_hint { 1 } else { 0 };
                     let header_row_h = if menu_kind == super::MenuKind::DirectoryList {
                         // Include the blank inserted before the sticky hint so the
@@ -4906,7 +4906,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         //   top_rule / middle... / bot_rule / menu... / status
         let has_hint_at_end = menu_items
             .last()
-            .map(|(n, _)| n.starts_with("--") && n.ends_with("--"))
+            .map(|(n, _)| n.starts_with('—') && n.ends_with('—'))
             .unwrap_or(false);
         let menu_rows = if let Some(m) = self.menu.as_ref() {
             let is_sticky = matches!(
@@ -7272,15 +7272,15 @@ impl<W: Write + Send> RetainedRenderer<W> {
             // `emit_body_line_inner` emits an LF that scrolls the body
             // region up by one, leaving the just-erased row as a
             // second blank between the user message and the committed
-            // tool call (visible as the `> question \n \n * tool`
+            // tool call (visible as the `❯ question \n \n ● tool`
             // double-gap in screenshots). Use `remove` (not just 1)
             // so multi-row inflight spinners are fully covered.
             self.skip_body_scroll_count = self.skip_body_scroll_count.saturating_add(remove as u16);
-            // Colour the committed `*` by the call's outcome (green/yellow/red),
+            // Colour the committed `●` by the call's outcome (green/yellow/red),
             // or neutral when this commit has no result yet (preempt / turn-end).
             let bullet_style = self.tool_bullet_style_for(outcome);
             if safe_name.eq_ignore_ascii_case("bash") && !safe_detail.is_empty() {
-                // Live bash commit: produce the same `* Bash` + `  └ <cmd>` block as
+                // Live bash commit: produce the same `● Bash` + `  └ <cmd>` block as
                 // the static `UiLine::ToolCall` arm, via the shared helper.
                 self.push_bash_command_block(&bullet_style, &safe_name, &safe_detail);
             } else if safe_detail.is_empty() {
@@ -8330,14 +8330,18 @@ impl<W: Write + Send> RetainedRenderer<W> {
         } else {
             "SubAgents"
         };
-        let marker = if self.caps.unicode_symbols { "*" } else { "*" };
+        let marker = if self.caps.unicode_symbols {
+            "●"
+        } else {
+            "*"
+        };
         let header = if finished && terminal >= progress.total {
             format!(
-                "{marker} {kind} . {terminal}/{} finished . {failed} failed",
+                "{marker} {kind} · {terminal}/{} finished · {failed} failed",
                 progress.total
             )
         } else {
-            format!("{marker} Running {running}/{} {kind}...", progress.total)
+            format!("{marker} Running {running}/{} {kind}…", progress.total)
         };
         let header_style = self.style_bold(Role::Secondary);
         let header_row = build_one_row(
@@ -8380,9 +8384,9 @@ impl<W: Write + Send> RetainedRenderer<W> {
                     text.push_str(&format!(": {}", item.description));
                 }
                 if !item.model.is_empty() {
-                    text.push_str(&format!(" . {}", item.model));
+                    text.push_str(&format!(" · {}", item.model));
                 }
-                text.push_str(&format!(" . {state}"));
+                text.push_str(&format!(" · {state}"));
                 let text = if item.started_at.is_some() || item.output_tokens > 0 {
                     let elapsed = item
                         .started_at
@@ -8619,7 +8623,7 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                 // carry the tool-call shape (`<frame> Bash(cmd)`)
                 // with the animation driving the icon frame. The
                 // spinner label here was built by `format_spinner_label`
-                // and carries the ` . 12s . N queued` metadata; pluck
+                // and carries the ` · 12s · N queued` metadata; pluck
                 // that suffix off and forward it to render_inflight_tool
                 // so the user gets a time anchor on long bashes.
                 if let Some((_id, name, detail)) = self.inflight_tool.clone() {
@@ -9040,7 +9044,7 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                     self.push_body_row(Vec::new());
                 }
                 // Static tool header (non-animated result path + `/resume` replay):
-                // colour the `*` by the carried outcome so a resumed transcript
+                // colour the `●` by the carried outcome so a resumed transcript
                 // keeps its green success dots. `None` (approval prompt) -> neutral.
                 let bullet_style = self.tool_bullet_style_for(outcome);
                 let tool_name_style = self.style_bold(Role::ToolName);
@@ -9048,9 +9052,9 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                 let safe_name = scrub_controls(&name);
                 let safe_detail = scrub_controls(&detail);
 
-                // Bash command: render `* bash` header then command lines
+                // Bash command: render `● bash` header then command lines
                 // via `format_shell_command` (shell-boundary wrapping, no
-                // truncation). The `* Bash` header + `└` gutter already mark it
+                // truncation). The `● Bash` header + `└` gutter already mark it
                 // as a shell command, so the command text renders plainly.
                 let is_bash = safe_name.eq_ignore_ascii_case("bash");
                 if is_bash && !safe_detail.is_empty() {
@@ -9064,23 +9068,23 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                     // Safety cap: prevent degenerate bodies (e.g. multi-KB bash
                     // commands) from producing hundreds of terminal lines.
                     let body_str = truncate_body_str(&body_str, 500);
-                    // * (U+25CF, Geometric Shapes block) replaces the
-                    // earlier > (U+25B8). > ships in Cascadia Code / SF
+                    // ● (U+25CF, Geometric Shapes block) replaces the
+                    // earlier ▸ (U+25B8). ▸ ships in Cascadia Code / SF
                     // Mono but is missing from Consolas / NSimSun /
                     // legacy conhost defaults -- Windows users saw the
                     // tool-call row prefixed by `□` tofu (screenshot
-                    // bug report). * has near-universal monospace
+                    // bug report). ● has near-universal monospace
                     // coverage, same reason state.tick_spinner picked
                     // half-moons over Braille (state.rs:528-544). Bonus:
                     // unifies the visual anchor with the parallel-batch
-                    // header (also *), matching Claude Code's single-glyph
+                    // header (also ●), matching Claude Code's single-glyph
                     // model for tool-call entries.
                     if safe_detail.is_empty() {
-                        self.push_body_prefixed("* ", &bullet_style, &body_str, &tool_name_style);
+                        self.push_body_prefixed("● ", &bullet_style, &body_str, &tool_name_style);
                     } else {
                         let detail_str = format!("({})", safe_detail);
                         let rows = self.build_mixed_style_rows(
-                            "* ",
+                            "● ",
                             &bullet_style,
                             &safe_name,
                             &tool_name_style,
@@ -9175,38 +9179,38 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                 let body_str = if success {
                     safe
                 } else {
-                    format!("[x] {}", safe)
+                    format!("✗ {}", safe)
                 };
                 // This handler builds cells directly (bypassing push_body_text), so
-                // downgrade the `[x]` prefix + any glyphs in the summary here.
+                // downgrade the `✗` prefix + any glyphs in the summary here.
                 let body_str = crate::glyph::downgrade_glyphs(&body_str, self.caps.unicode_symbols)
                     .into_owned();
                 // Align the `└` glyph with the `B` of the `Bash` (or
                 // any tool name) in the row above: the tool-call row is
-                // `* Bash(...)` with `*` at col 0 and the tool name at
+                // `● Bash(...)` with `●` at col 0 and the tool name at
                 // col 2, so the result prefix `"  └ "` (2 spaces +
-                // glyph + space) lands `└` at col 2 -- visually anchored
+                // glyph + space) lands `└` at col 2 — visually anchored
                 // under the tool name. Width reserves PAD_COL for
                 // the right gutter + 4 for the prefix `"  └ "`. Was
-                // ``` (U+23BF, dental symbols block) but Cascadia Code
+                // `⎿` (U+23BF, dental symbols block) but Cascadia Code
                 // and other Windows monospace defaults render it as a
                 // backslash-shaped fallback glyph (user screenshot
                 // showed `\` instead of corner). `└` (U+2514, Box
                 // Drawing block) ships in every monospace font.
                 let row_w = (self.screen.width() as usize).saturating_sub(PAD_COL + 4);
-                // Muted (dim gray) for the result prefix -- visually subordinate
-                // to the tool-call header above (* ToolName). Reuses the
+                // Muted (dim gray) for the result prefix — visually subordinate
+                // to the tool-call header above (● ToolName). Reuses the
                 // theme-aware `muted_hint` (faint on dark) computed above so
                 // the `└` glyph dims in lockstep with the summary text.
                 let prefix_style = muted_hint;
                 // `└` is a leaf marker for the whole result block, not
-                // a per-line bullet -- emit it on the FIRST visual row
+                // a per-line bullet — emit it on the FIRST visual row
                 // only. Continuation rows (both wrap chunks of one
                 // physical line and subsequent `\n`-separated lines)
                 // use 4 spaces, same column width as `"  └ "`, so the
                 // text stays aligned under the head text.
                 let mut first_visual = true;
-                // `└` leaf marker, gated for non-unicode terminals (-> ASCII backtick).
+                // `└` leaf marker, gated for non-unicode terminals (→ ASCII backtick).
                 let leaf = if self.caps.unicode_symbols {
                     "  \u{2514} "
                 } else {
@@ -9216,7 +9220,7 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                     // First physical line of a failure body is the
                     // header. Wrapped continuation chunks of that same
                     // physical line stay header-styled (a long error
-                    // message like "[x] no rows matched: ...stuff..."
+                    // message like "✗ no rows matched: ...stuff..."
                     // shouldn't fade to default mid-sentence).
                     let line_style = if line_idx == 0 {
                         if !success {
@@ -10419,26 +10423,26 @@ fn truncate_body_str(body_str: &str, max_cols: usize) -> String {
     format!("{}{}", head, suffix)
 }
 
-/// Pluck the time/queue metadata suffix (` . N queued` and/or ` . 12s`) out
+/// Pluck the time/queue metadata suffix (` · N queued` and/or ` · 12s`) out
 /// of a spinner label built by `format_spinner_label`, to forward onto an
 /// in-flight tool row. Labels have the shape
-/// `{base}{ellipsis}[ . thinking with {effort} effort][ . {n} queued][ . {elapsed}]`
-/// -- the effort hint comes FIRST among the metadata (and must NOT ride onto a
+/// `{base}{ellipsis}[ · thinking with {effort} effort][ · {n} queued][ · {elapsed}]`
+/// — the effort hint comes FIRST among the metadata (and must NOT ride onto a
 /// tool row, which isn't "thinking"). Returns the slice **including** its
-/// leading ` . ` separator so callers can concatenate it directly, or `""` if
+/// leading ` · ` separator so callers can concatenate it directly, or `""` if
 /// there's no time/queue metadata yet.
 fn spinner_meta_suffix(label: &str) -> &str {
-    const EFFORT_MARK: &str = " . thinking with ";
-    // The metadata that trails the base label comes in two shapes: a ` . ...`
+    const EFFORT_MARK: &str = " · thinking with ";
+    // The metadata that trails the base label comes in two shapes: a ` · …`
     // run (queue / fold) and the trailing phase-clock group, which
     // `format_spinner_label` wraps in ONE pair of parens opening with ` (`
-    // (`... (3s . ↑ 1.93K tokens)`). The forwarded suffix must begin at
+    // (`… (3s · ↑ 1.93K tokens)`). The forwarded suffix must begin at
     // whichever boundary comes first so the parens stay balanced on a bash
-    // row (`Running (3s . ↑ 1.93K tokens)`). Keying off the ` . ` alone split
+    // row (`Running (3s · ↑ 1.93K tokens)`). Keying off the ` · ` alone split
     // the group on the separator INSIDE the parens, dropping the `(3s` and
-    // leaving a dangling `)` (reported: `Running . ↑ 1.93K tokens)`).
+    // leaving a dangling `)` (reported: `Running · ↑ 1.93K tokens)`).
     let meta_start = |from: usize| -> Option<usize> {
-        let dot = label[from..].find(" . ").map(|i| from + i);
+        let dot = label[from..].find(" · ").map(|i| from + i);
         let paren = label[from..].find(" (").map(|i| from + i);
         match (dot, paren) {
             (Some(d), Some(p)) => Some(d.min(p)),
@@ -10448,14 +10452,14 @@ fn spinner_meta_suffix(label: &str) -> &str {
     };
     if let Some(start) = label.find(EFFORT_MARK) {
         // Effort is the first metadata segment (a tool "isn't thinking", so
-        // splice it out). It runs until the next boundary -- a ` . ` queue run
+        // splice it out). It runs until the next boundary — a ` · ` queue run
         // or the ` (` clock group. Scanning past the fixed marker lands inside
         // the ASCII effort value, so the next boundary is unambiguously the
         // following segment.
         let scan_from = start + EFFORT_MARK.len();
         return meta_start(scan_from).map(|i| &label[i..]).unwrap_or("");
     }
-    // No effort hint: metadata begins at the first ` . ` or ` (` after the base.
+    // No effort hint: metadata begins at the first ` · ` or ` (` after the base.
     meta_start(0).map(|i| &label[i..]).unwrap_or("")
 }
 
@@ -10597,21 +10601,21 @@ mod tests {
 
     #[test]
     fn goal_row_shows_condition_round_and_elapsed() {
-        // Wide row (unicode caps): * marker + full condition + round + elapsed.
+        // Wide row (unicode caps): ◎ marker + full condition + round + elapsed.
         let row = format_goal_row("重构 auth 模块直到测试全过", 3, 133, 80, true);
-        assert!(row.starts_with("* "), "geometric marker present: {row}");
+        assert!(row.starts_with("◎ "), "geometric marker present: {row}");
         assert!(!row.contains('🎯'), "must NOT use an emoji marker: {row}");
         assert!(
             row.contains("重构 auth 模块直到测试全过"),
             "full condition kept: {row}"
         );
-        assert!(row.contains(". round 3 ."), "round shown: {row}");
+        assert!(row.contains("· round 3 ·"), "round shown: {row}");
         assert!(row.contains("2m13s"), "elapsed mm/ss: {row}");
     }
 
     #[test]
     fn goal_row_ascii_fallback_avoids_geometric_and_emoji_glyphs() {
-        // Windows legacy conhost / Consolas (unicode_symbols=false): no * tofu,
+        // Windows legacy conhost / Consolas (unicode_symbols=false): no ◎ tofu,
         // no emoji -- a plain ASCII `*` marker, same gate as the spinner.
         let row = format_goal_row("ship it", 4, 7, 80, false);
         assert!(row.starts_with("* "), "ascii marker: {row}");
@@ -10620,7 +10624,7 @@ mod tests {
             "no non-ASCII glyph: {row}"
         );
         assert!(
-            row.contains(". round 4 . 7s"),
+            row.contains("· round 4 · 7s"),
             "round/elapsed intact: {row}"
         );
     }
@@ -10630,9 +10634,9 @@ mod tests {
         // Marker / condition / meta are returned separately so the renderer can
         // style them with hierarchy (accent / normal / muted). Round shown verbatim.
         let (marker, cond, meta) = goal_row_parts("fix tests", 1, 8, 80, true);
-        assert_eq!(marker, "* ");
+        assert_eq!(marker, "◎ ");
         assert_eq!(cond, "fix tests");
-        assert_eq!(meta, " . round 1 . 8s");
+        assert_eq!(meta, " · round 1 · 8s");
         // ASCII fallback marker on non-unicode terminals.
         assert_eq!(goal_row_parts("x", 1, 8, 80, false).0, "* ");
     }
@@ -10640,7 +10644,7 @@ mod tests {
     #[test]
     fn goal_row_elapsed_under_a_minute_omits_minutes() {
         let row = format_goal_row("x", 1, 42, 80, true);
-        assert!(row.contains(". 42s"), "seconds-only under a minute: {row}");
+        assert!(row.contains("· 42s"), "seconds-only under a minute: {row}");
         assert!(!row.contains("0m"), "no leading 0m: {row}");
     }
 
@@ -10653,11 +10657,11 @@ mod tests {
             "row fits width: {row}"
         );
         assert!(
-            row.contains(". round 7 . 5s"),
+            row.contains("· round 7 · 5s"),
             "round/elapsed survive: {row}"
         );
         assert!(
-            row.contains("..."),
+            row.contains('…'),
             "condition truncated with ellipsis: {row}"
         );
     }
@@ -10672,7 +10676,7 @@ mod tests {
             true,
         );
         assert!(
-            row.contains("查询长沙未来30天的天气预报..."),
+            row.contains("查询长沙未来30天的天气预报…"),
             "first line: {row}"
         );
         assert!(
@@ -10788,7 +10792,7 @@ mod tests {
         assert!(row.starts_with("⚡ "), "lightning marker present: {row}");
         assert!(row.contains("检查构建状态"), "full label kept: {row}");
         assert!(
-            row.contains(". round 3 . 2m13s"),
+            row.contains("· round 3 · 2m13s"),
             "round/elapsed shown: {row}"
         );
     }
@@ -10809,8 +10813,8 @@ mod tests {
             crate::width::display_width(&row) <= 40,
             "row fits width: {row}"
         );
-        assert!(row.contains(". round 7 . 5s"), "metadata survives: {row}");
-        assert!(row.contains("..."), "label uses an ellipsis: {row}");
+        assert!(row.contains("· round 7 · 5s"), "metadata survives: {row}");
+        assert!(row.contains('…'), "label uses an ellipsis: {row}");
     }
 
     #[test]
@@ -11099,7 +11103,7 @@ mod tests {
                     (String::new(), String::new()),
                     ("first".into(), "meta one".into()),
                     ("second".into(), "meta two".into()),
-                    ("-- hint --".into(), String::new()),
+                    ("— hint —".into(), String::new()),
                 ],
                 selected: 4,
                 kind: crate::render::MenuKind::SessionList,
@@ -11146,9 +11150,9 @@ mod tests {
                     (String::new(), String::new()),
                     (
                         "selected".into(),
-                        "meta\n/cwd\nprovider . model\none\ntwo\nthree\nfour\nfive\nsix".into(),
+                        "meta\n/cwd\nprovider · model\none\ntwo\nthree\nfour\nfive\nsix".into(),
                     ),
-                    ("-- hint --".into(), String::new()),
+                    ("— hint —".into(), String::new()),
                 ],
                 selected: 4,
                 kind: crate::render::MenuKind::SessionList,
@@ -11336,19 +11340,19 @@ mod tests {
             r
         }
         // Gutter glyph + space at col 0 is stripped -> the command text alone.
-        assert_eq!(copy_text_from_tool_row(&row("* bash")).0, "bash");
+        assert_eq!(copy_text_from_tool_row(&row("● bash")).0, "bash");
         assert_eq!(
             copy_text_from_tool_row(&row("└ cargo build")).0,
             "cargo build"
         );
-        // Parallel child row is doubly-anchored (`└ * Tool ...`): BOTH the `└`
-        // connector and the `*` status dot must be stripped from the copy.
+        // Parallel child row is doubly-anchored (`└ • Tool …`): BOTH the `└`
+        // connector and the `•` status dot must be stripped from the copy.
         assert_eq!(
-            copy_text_from_tool_row(&row("  └ * Grep(pat) -> 1 line")).0,
-            "Grep(pat) -> 1 line"
+            copy_text_from_tool_row(&row("  └ • Grep(pat) → 1 line")).0,
+            "Grep(pat) → 1 line"
         );
         assert_eq!(
-            copy_text_from_tool_row(&row("` [elapsed: 0.0s] (4 lines)")).0,
+            copy_text_from_tool_row(&row("⎿ [elapsed: 0.0s] (4 lines)")).0,
             "[elapsed: 0.0s] (4 lines)"
         );
         // A non-bash tool header with no gutter-space still copies its content
@@ -11373,7 +11377,7 @@ mod tests {
             "└── file.rs"
         );
         // Non-unicode terminal: the gutter downgrades to an ASCII stand-in
-        // (`* `->`* `, `> `->`> `, `└ `->`` ` ``). At col 0 (a header row) it is
+        // (`● `→`* `, `▸ `→`> `, `└ `→`` ` ``). At col 0 (a header row) it is
         // still stripped.
         assert_eq!(copy_text_from_tool_row(&row("* bash")).0, "bash");
         assert_eq!(copy_text_from_tool_row(&row("> read_file")).0, "read_file");
@@ -11383,7 +11387,7 @@ mod tests {
         assert_eq!(copy_text_from_tool_row(&row("  * bullet")).0, "* bullet");
         assert_eq!(copy_text_from_tool_row(&row("  > quote")).0, "> quote");
         // Trailing spaces trimmed.
-        assert_eq!(copy_text_from_tool_row(&row("* bash   ")).0, "bash");
+        assert_eq!(copy_text_from_tool_row(&row("● bash   ")).0, "bash");
         // Blank / spacer rows derive to empty (caller keeps them non-copyable).
         assert_eq!(copy_text_from_tool_row(&row("   ")).0, "");
         assert_eq!(copy_text_from_tool_row(&[]).0, "");
@@ -11449,7 +11453,7 @@ mod tests {
     fn interaction_tool_blocks_are_copyable_without_gutter_chrome() {
         // Regression: a drag selection spanning a bash tool block used to drop
         // it entirely (tool rows weren't copy runs) -- "选中不全，缺少 bash 的内容".
-        // Now the command + result ARE copy runs, with the */└/` gutter glyphs
+        // Now the command + result ARE copy runs, with the ●/└/⎿ gutter glyphs
         // stripped from the copied text.
         let interactions = crate::render::interaction::InteractionPublisher::default();
         let mut renderer = RetainedRenderer::with_writer_and_interactions(
@@ -12123,6 +12127,8 @@ mod tests {
 
     #[test]
     fn pending_messages_render_as_transient_footer_rows() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let (mut r, _counter) = new_counting(80, 24);
         r.status = status_basic();
         let baseline_footer_rows = r.current_footer_rows();
@@ -12152,6 +12158,8 @@ mod tests {
 
     #[test]
     fn pending_messages_have_one_blank_row_above_and_below_on_screen() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let width = 80u16;
         let height = 16u16;
         let (mut r, buf) = new_capturing(width, height);
@@ -12487,11 +12495,11 @@ mod tests {
         };
         let row = r.build_status_row(&status, 60, false);
         // Concatenate visible chars from the cells. `PAD_COL` of leading
-        // spaces, then the badge, then " . " separator, then the body.
+        // spaces, then the badge, then " · " separator, then the body.
         let visible: String = row.iter().map(|c| c.ch).collect();
         let trimmed = visible.trim_start();
         assert!(
-            trimmed.starts_with("PLAN . "),
+            trimmed.starts_with("PLAN · "),
             "badge + separator must precede the model run; got: {:?}",
             visible
         );
@@ -12504,7 +12512,7 @@ mod tests {
 
     /// While composing a `!` command the status row shows a `shell` mode badge
     /// (sibling of `PLAN`/`auto`), in rustcode brand-purple, and it TAKES
-    /// PRECEDENCE over the persistent plan/auto badge -- a `!` line runs in the
+    /// PRECEDENCE over the persistent plan/auto badge — a `!` line runs in the
     /// shell, bypassing the agent, so the agent mode is momentarily irrelevant.
     #[test]
     fn shell_mode_shows_shell_badge_overriding_plan() {
@@ -12973,7 +12981,7 @@ mod tests {
             "search badge must still render: {visible:?}"
         );
         assert!(
-            visible.contains("..."),
+            visible.contains('…'),
             "long query must be truncated with ellipsis: {visible:?}"
         );
     }
@@ -13016,7 +13024,7 @@ mod tests {
             installed_text.starts_with("  * model"),
             "{installed_text:?}"
         );
-        assert!(!installed_text.contains('[') && installed_text.contains('+'), "{installed_text:?}");
+        assert!(!installed_text.contains('\u{2713}'), "{installed_text:?}");
     }
 
     #[test]
@@ -13054,7 +13062,7 @@ mod tests {
     #[test]
     fn session_menu_row_aligns_marker_col2_title_col4() {
         let (r, _counter) = new_counting(80, 24);
-        // Selected row: PAD_COL spaces, then `> `, then the title. So col 2 is
+        // Selected row: PAD_COL spaces, then `▸ `, then the title. So col 2 is
         // the marker and col 4 is the first title glyph -- flush with the search
         // box's `│` border (col 2) and its text (col 4).
         let rows = r.build_session_menu_rows("Xtitle", "9 msgs", true, 70, 4);
@@ -13075,7 +13083,7 @@ mod tests {
     #[test]
     fn session_preview_expands_only_inside_wide_selected_card() {
         let (r, _counter) = new_counting(120, 40);
-        let desc = "12 messages . now\n/workspace/project\nprovider . model\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6";
+        let desc = "12 messages · now\n/workspace/project\nprovider · model\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6";
 
         let wide = r.build_session_menu_rows("Selected", desc, true, 116, 4);
         assert_eq!(
@@ -13090,7 +13098,7 @@ mod tests {
                 .collect::<String>()
         };
         assert!(visible(&wide[2]).contains("/workspace/project"));
-        assert!(visible(&wide[3]).contains("provider . model"));
+        assert!(visible(&wide[3]).contains("provider · model"));
         assert!(visible(&wide[9]).contains("line 6"));
 
         let narrow = r.build_session_menu_rows("Selected", desc, true, 76, 4);
@@ -13099,7 +13107,7 @@ mod tests {
             2,
             "narrow card stays byte-for-byte list shaped"
         );
-        assert!(visible(&narrow[1]).contains("12 messages . now"));
+        assert!(visible(&narrow[1]).contains("12 messages · now"));
         assert!(!visible(&narrow[1]).contains("provider"));
     }
 
@@ -13285,7 +13293,7 @@ mod tests {
         ];
         items.extend((0..20).map(|n| (format!("~/projects/project-{n}"), String::new())));
         items.push((
-            "-- ↑↓ move . Tab complete . Enter open . Esc cancel --".into(),
+            "— ↑↓ move . Tab complete . Enter open . Esc cancel —".into(),
             String::new(),
         ));
         r.render(UiLine::InputPrompt {
@@ -13831,7 +13839,7 @@ mod tests {
             "capturing terminal should enable brand color"
         );
         for name in ["Task", "Team"] {
-            r.render_inflight_tool("⠋", name, "3 subtasks", " . thinking... (57s . ↑ 715 tokens)");
+            r.render_inflight_tool("⠋", name, "3 subtasks", " · thinking… (57s · ↑ 715 tokens)");
 
             let row = r
                 .body_lines
@@ -14368,7 +14376,7 @@ mod tests {
         });
         r.render(UiLine::Spinner {
             frame: "⠙".into(),
-            label: "Running . 1s".into(),
+            label: "Running · 1s".into(),
         });
         r.flush_deferred();
         assert!(
@@ -14382,7 +14390,7 @@ mod tests {
             r.render(UiLine::CommandOutput(format!("STREAM{:02}\n", i)));
             r.render(UiLine::Spinner {
                 frame: "⠹".into(),
-                label: format!("Running . {i}s"),
+                label: format!("Running · {i}s"),
             });
             r.flush_deferred();
             drain_into_vterm(&buf, &mut vterm);
@@ -14408,10 +14416,10 @@ mod tests {
 
     /// User report (long `cargo install` looked stuck): the inflight
     /// tool row is `<spinner> Bash(cmd)` with no elapsed indicator,
-    /// while the regular thinking spinner shows `Pondering... . 12s`.
+    /// while the regular thinking spinner shows `Pondering… · 12s`.
     /// After ~30s of waiting the user can't tell whether bash is
     /// running or hung. Fix: forward the spinner-label metadata
-    /// (` . 12s . N queued`) into `render_inflight_tool` so the same
+    /// (` · 12s · N queued`) into `render_inflight_tool` so the same
     /// time anchor appears next to the tool row.
     #[test]
     fn retained_inflight_tool_renders_elapsed_meta_suffix() {
@@ -14426,10 +14434,10 @@ mod tests {
         });
         r.render(UiLine::Spinner {
             frame: "⠋".into(),
-            label: "Running Bash... . 12s".into(),
+            label: "Running Bash… · 12s".into(),
         });
         // Bash renders the command as a static block; the elapsed meta now
-        // rides the `Running . <t>` spinner row appended below it.
+        // rides the `Running · <t>` spinner row appended below it.
         let rows: Vec<String> = r
             .body_lines
             .iter()
@@ -14443,7 +14451,7 @@ mod tests {
         let last = r.body_lines.last().expect("Running spinner row expected");
         let last_text: String = last.iter().map(|c| c.ch).collect();
         assert!(
-            last_text.contains("Running") && last_text.contains(". 12s"),
+            last_text.contains("Running") && last_text.contains("· 12s"),
             "Running spinner row missing elapsed meta suffix; got: {:?}",
             last_text
         );
@@ -14451,28 +14459,28 @@ mod tests {
 
     #[test]
     fn spinner_meta_suffix_extracts_after_first_separator() {
-        assert_eq!(spinner_meta_suffix("Running Bash... . 12s"), " . 12s");
+        assert_eq!(spinner_meta_suffix("Running Bash… · 12s"), " · 12s");
         // Effort now leads the metadata run and elapsed trails it; queue (when
         // present) sits between. The effort hint must NOT ride onto a tool row.
         assert_eq!(
-            spinner_meta_suffix("Running Bash... . 2 queued . 12s"),
-            " . 2 queued . 12s"
+            spinner_meta_suffix("Running Bash… · 2 queued · 12s"),
+            " · 2 queued · 12s"
         );
-        // No metadata yet (no phase clock tick) -> empty suffix.
-        assert_eq!(spinner_meta_suffix("Pondering..."), "");
+        // No metadata yet (no phase clock tick) → empty suffix.
+        assert_eq!(spinner_meta_suffix("Pondering…"), "");
         assert_eq!(spinner_meta_suffix(""), "");
-        // Effort first, elapsed last -> only the trailing elapsed forwards.
+        // Effort first, elapsed last → only the trailing elapsed forwards.
         assert_eq!(
-            spinner_meta_suffix("Running Bash... . thinking with high effort . 12s"),
-            " . 12s"
+            spinner_meta_suffix("Running Bash… · thinking with high effort · 12s"),
+            " · 12s"
         );
         assert_eq!(
-            spinner_meta_suffix("Running Bash... . thinking with max effort . 2 queued . 12s"),
-            " . 2 queued . 12s"
+            spinner_meta_suffix("Running Bash… · thinking with max effort · 2 queued · 12s"),
+            " · 2 queued · 12s"
         );
-        // Effort with no time/queue after it -> nothing forwards.
+        // Effort with no time/queue after it → nothing forwards.
         assert_eq!(
-            spinner_meta_suffix("Running Bash... . thinking with high effort"),
+            spinner_meta_suffix("Running Bash… · thinking with high effort"),
             ""
         );
     }
@@ -14480,50 +14488,50 @@ mod tests {
     #[test]
     fn spinner_meta_suffix_keeps_parenthesized_elapsed_group_intact() {
         // `format_spinner_label` now wraps the phase clock + live token counter
-        // in ONE parenthesized group: `Pondering... (3s . ↑ 1.93K tokens)`. The
+        // in ONE parenthesized group: `Pondering… (3s · ↑ 1.93K tokens)`. The
         // forwarded suffix must include the opening `(` so a bash row reads
-        // `Running (3s . ↑ 1.93K tokens)`. Keying off the ` . ` INSIDE the
+        // `Running (3s · ↑ 1.93K tokens)`. Keying off the ` · ` INSIDE the
         // parens dropped `(3s` and left a dangling `)` (reported bug:
-        // `Running . ↑ 1.93K tokens)`).
+        // `Running · ↑ 1.93K tokens)`).
         assert_eq!(
-            spinner_meta_suffix("Pondering... (3s . ↑ 1.93K tokens)"),
-            " (3s . ↑ 1.93K tokens)"
+            spinner_meta_suffix("Pondering… (3s · ↑ 1.93K tokens)"),
+            " (3s · ↑ 1.93K tokens)"
         );
-        // tokens == 0 -> elapsed-only parens, still balanced.
-        assert_eq!(spinner_meta_suffix("Pondering... (3s)"), " (3s)");
-        // Queue segment precedes the parenthesized group -- forward both.
+        // tokens == 0 → elapsed-only parens, still balanced.
+        assert_eq!(spinner_meta_suffix("Pondering… (3s)"), " (3s)");
+        // Queue segment precedes the parenthesized group — forward both.
         assert_eq!(
-            spinner_meta_suffix("Pondering... . 2 queued (3s . ↑ 1.93K tokens)"),
-            " . 2 queued (3s . ↑ 1.93K tokens)"
+            spinner_meta_suffix("Pondering… · 2 queued (3s · ↑ 1.93K tokens)"),
+            " · 2 queued (3s · ↑ 1.93K tokens)"
         );
-        // Effort leads (a tool "isn't thinking") -> spliced out, parens kept whole.
+        // Effort leads (a tool "isn't thinking") → spliced out, parens kept whole.
         assert_eq!(
-            spinner_meta_suffix("Cogitating... . thinking with high effort (3s . ↑ 1.93K tokens)"),
-            " (3s . ↑ 1.93K tokens)"
+            spinner_meta_suffix("Cogitating… · thinking with high effort (3s · ↑ 1.93K tokens)"),
+            " (3s · ↑ 1.93K tokens)"
         );
-        // Effort + queue before the parens -> keep queue and the whole group.
+        // Effort + queue before the parens → keep queue and the whole group.
         assert_eq!(
             spinner_meta_suffix(
-                "Cogitating... . thinking with max effort . 2 queued (3s . ↑ 1.93K tokens)"
+                "Cogitating… · thinking with max effort · 2 queued (3s · ↑ 1.93K tokens)"
             ),
-            " . 2 queued (3s . ↑ 1.93K tokens)"
+            " · 2 queued (3s · ↑ 1.93K tokens)"
         );
     }
 
     /// Regression (screenshot 42.png): user reported a stray blinking
-    /// caret at the right edge of the active `> Bash(...)` row, sitting
+    /// caret at the right edge of the active `▸ Bash(...)` row, sitting
     /// alongside the legitimate input-box caret. Root cause: the
     /// in-place path in `render_inflight_tool` writes raw cursor-position
     /// bytes via `self.out.write_all` to overwrite each row, leaving the
     /// terminal cursor at end-of-row. `paint_footer` repositions the
     /// cell-model cursor to the input box but `set_cursor_visible(true)`
-    /// keeps the terminal blinking -- so for every 5ms paint window
+    /// keeps the terminal blinking — so for every 5ms paint window
     /// before the next CUP lands, the user saw two carets.
     ///
     /// Fix: hide the cursor whenever an inflight tool is active.
     /// `inflight_tool.is_none()` flips back at commit time, so the
     /// cursor reappears at the input box on the next paint without a
-    /// leftover blink. (The live spinner was removed from this gate --
+    /// leftover blink. (The live spinner was removed from this gate —
     /// see `retained_spinner_keeps_input_cursor_visible`.)
     #[test]
     fn retained_inflight_tool_hides_terminal_cursor() {
@@ -15078,7 +15086,7 @@ mod tests {
         let menu0_row = 3;
         let row_text = vterm.row_text(menu0_row);
         assert!(
-            row_text.contains(">"),
+            row_text.contains("▸"),
             "selected marker missing on menu row 0: {:?}\ndump:\n{}",
             row_text,
             vterm.dump()
@@ -15260,14 +15268,14 @@ mod tests {
         );
         assert!(
             omega_row.is_some(),
-            "OMEGATOKEN was dropped on narrow resize -- history was clipped, \
+            "OMEGATOKEN was dropped on narrow resize — history was clipped, \
              not reflowed (issue #709)\ndump:\n{}",
             vterm.dump()
         );
         assert_ne!(
             alpha_row,
             omega_row,
-            "tokens landed on the same row at width 40 -- line did not wrap, \
+            "tokens landed on the same row at width 40 — line did not wrap, \
              so this test no longer exercises reflow\ndump:\n{}",
             vterm.dump()
         );
@@ -15586,8 +15594,8 @@ mod tests {
         );
     }
 
-    /// ToolCall bash: renders `* bash` header + `ls -la` command row
-    /// (new two-part shape instead of old inline `* bash(ls -la)`).
+    /// ToolCall bash: renders `● bash` header + `ls -la` command row
+    /// (new two-part shape instead of old inline `● bash(ls -la)`).
     #[test]
     fn retained_tool_call_renders_via_vterm() {
         let (mut r, buf) = new_capturing(80, 24);
@@ -15607,10 +15615,10 @@ mod tests {
         });
         r.flush_deferred();
         drain_into_vterm(&buf, &mut vterm);
-        // Header row: `* bash(ls -la)` -- command inline in parens, matching
-        // other tools (`* Read(arg)`).
+        // Header row: `● bash(ls -la)` -- command inline in parens, matching
+        // other tools (`● Read(arg)`).
         assert!(
-            vterm.any_row(|row| row.contains("*")
+            vterm.any_row(|row| row.contains("●")
                 && row.contains("bash(")
                 && row.contains("ls -la")),
             "bash header row missing\ndump:\n{}",
@@ -15618,9 +15626,9 @@ mod tests {
         );
     }
 
-    /// ToolCall glyph `*` must sit at col 0, same baseline as user
+    /// ToolCall glyph `●` must sit at col 0, same baseline as user
     /// echo and input chevron. With bash two-part rendering, the header
-    /// row (`* bash`) carries the glyph.
+    /// row (`● bash`) carries the glyph.
     #[test]
     fn retained_tool_call_arrow_at_col_0() {
         let (mut r, buf) = new_capturing(80, 24);
@@ -15641,9 +15649,9 @@ mod tests {
         r.flush_deferred();
         drain_into_vterm(&buf, &mut vterm);
 
-        // The header row is `* bash` (no inline command) -- glyph at col 0.
+        // The header row is `● bash` (no inline command) -- glyph at col 0.
         let row_idx = (0..vterm.height() as usize)
-            .find(|&i| vterm.row_text(i).contains("*") && vterm.row_text(i).contains("bash"))
+            .find(|&i| vterm.row_text(i).contains("●") && vterm.row_text(i).contains("bash"))
             .unwrap_or_else(|| panic!("tool call header row missing\ndump:\n{}", vterm.dump()));
         assert_eq!(
             vterm.cell_at(row_idx, 0).ch,
@@ -15712,8 +15720,8 @@ mod tests {
         );
     }
 
-    /// Bash ToolCall renders `* Bash(<cmd>)` -- command inline in parens on the
-    /// header line (matching other tools) -- while still wrapping along shell
+    /// Bash ToolCall renders `● Bash(<cmd>)` — command inline in parens on the
+    /// header line (matching other tools) — while still wrapping along shell
     /// boundaries (not mid-token), with no truncation and no NBSP sentinel.
 
     #[test]
@@ -15721,7 +15729,7 @@ mod tests {
         let (mut r, buf) = new_capturing(80, 24);
         let mut vterm = crate::test_term::VirtualTerminal::new(80, 24);
         // A heredoc/script with real newlines: rows follow logical lines (no
-        // `base64def` run-on), and a long one caps at 3 rows + `... +N lines`.
+        // `base64def` run-on), and a long one caps at 3 rows + `… +N lines`.
         r.render(UiLine::ToolCall {
             name: "Bash".into(),
             detail: "python3 - <<'EOF'\nimport json, base64\ndef gh(u): pass\ndef text(r): pass\nfor f in xs: pass\nprint(done)".into(),
@@ -15730,7 +15738,7 @@ mod tests {
         r.flush_deferred();
         drain_into_vterm(&buf, &mut vterm);
         assert!(
-            vterm.any_row(|row| row.contains("* Bash(python3 - <<'EOF'")),
+            vterm.any_row(|row| row.contains("● Bash(python3 - <<'EOF'")),
             "first row is the heredoc opener\ndump:\n{}",
             vterm.dump()
         );
@@ -15745,8 +15753,8 @@ mod tests {
             vterm.dump()
         );
         assert!(
-            vterm.any_row(|row| row.contains("... +") && row.contains("lines")),
-            "long command capped with a `... +N lines` marker\ndump:\n{}",
+            vterm.any_row(|row| row.contains("… +") && row.contains("lines")),
+            "long command capped with a `… +N lines` marker\ndump:\n{}",
             vterm.dump()
         );
     }
@@ -15764,10 +15772,10 @@ mod tests {
         });
         r.flush_deferred();
         drain_into_vterm(&buf, &mut vterm);
-        // Header row carries `* Bash(` plus the first command segment inline.
+        // Header row carries `● Bash(` plus the first command segment inline.
         assert!(
-            vterm.any_row(|row| row.contains("* Bash(") && row.contains("cd /tmp")),
-            "header is `* Bash(cd /tmp ...` with inline paren command\ndump:\n{}",
+            vterm.any_row(|row| row.contains("● Bash(") && row.contains("cd /tmp")),
+            "header is `● Bash(cd /tmp …` with inline paren command\ndump:\n{}",
             vterm.dump()
         );
         assert!(
@@ -15798,16 +15806,16 @@ mod tests {
             "no NBSP sentinel expected in new layout\ndump:\n{}",
             vterm.dump()
         );
-        // The command follows `* Bash(`, never flush at col 0.
+        // The command follows `● Bash(`, never flush at col 0.
         assert!(
             !vterm.any_row(|row| row.starts_with("cd /tmp")),
-            "command must sit after the `* Bash(` prefix (not col 0)\ndump:\n{}",
+            "command must sit after the `● Bash(` prefix (not col 0)\ndump:\n{}",
             vterm.dump()
         );
     }
 
-    /// Live bash committed via ToolCallInFlight -> ToolCallCommit must produce
-    /// the same `* Bash(<cmd>)` inline-paren block as the static
+    /// Live bash committed via ToolCallInFlight → ToolCallCommit must produce
+    /// the same `● Bash(<cmd>)` inline-paren block as the static
     /// `UiLine::ToolCall` arm, still wrapping at shell boundaries.
     #[test]
     fn live_bash_commits_to_inline_paren_command() {
@@ -15828,10 +15836,10 @@ mod tests {
         });
         r.flush_deferred();
         drain_into_vterm(&buf, &mut vterm);
-        // Committed form is `* Bash(cmd)` inline, matching the static arm:
+        // Committed form is `● Bash(cmd)` inline, matching the static arm:
         assert!(
-            vterm.any_row(|row| row.contains("* Bash(") && row.contains("cd /tmp")),
-            "committed header is `* Bash(cd /tmp ...`\ndump:\n{}",
+            vterm.any_row(|row| row.contains("● Bash(") && row.contains("cd /tmp")),
+            "committed header is `● Bash(cd /tmp …`\ndump:\n{}",
             vterm.dump()
         );
         assert!(
@@ -15846,18 +15854,18 @@ mod tests {
         );
         // No ghost/duplicate strip row lingering:
         let bash_headers = (0..vterm.height() as usize)
-            .filter(|&i| vterm.row_text(i).contains("* Bash("))
+            .filter(|&i| vterm.row_text(i).contains("● Bash("))
             .count();
         assert_eq!(
             bash_headers,
             1,
-            "exactly one * Bash( header (no ghost)\ndump:\n{}",
+            "exactly one ● Bash( header (no ghost)\ndump:\n{}",
             vterm.dump()
         );
     }
 
-    /// ToolResult success: `` summary` + blank spacer; failure
-    /// prepends `[x] `. We test success path here; the error styling
+    /// ToolResult success: `⎿ summary` + blank spacer; failure
+    /// prepends `✗ `. We test success path here; the error styling
     /// (Role::Error red) is a cell-style detail not asserted in
     /// this grid check.
     #[test]
@@ -16309,12 +16317,12 @@ mod tests {
         }
     }
 
-    /// End-to-end alignment pin: the ``` glyph of a `ToolResult` must
+    /// End-to-end alignment pin: the `⎿` glyph of a `ToolResult` must
     /// land in the same column as the first character of the tool
-    /// name in the `> Tool(...)` row directly above it. Catches future
-    /// drift in either the tool-call prefix (`"> "`) or the result
-    /// prefix (`"  ` "`) -- they have to stay coupled or the visual
-    /// "tool name ↔ ` (its result)" anchor breaks.
+    /// name in the `▸ Tool(...)` row directly above it. Catches future
+    /// drift in either the tool-call prefix (`"▸ "`) or the result
+    /// prefix (`"  ⎿ "`) -- they have to stay coupled or the visual
+    /// "tool name ↔ ⎿ (its result)" anchor breaks.
     ///
     /// Iterates over a representative cross-section of tool types
     /// (Bash, Grep, Glob, ReadFile, EditFile) -- the result-row prefix
@@ -16328,7 +16336,7 @@ mod tests {
     fn retained_tool_result_arrow_aligns_for_every_tool_type() {
         // Each entry: tool name + a sample summary. The first
         // character of `name` is the alignment anchor on the tool-call
-        // row; the ``` on the result row must sit in the same column.
+        // row; the `⎿` on the result row must sit in the same column.
         let cases: &[(&str, &str)] = &[
             ("Bash", "[elapsed: 0.0s, exit: 0] (1 line)"),
             ("Grep", "203 matches in 18 files"),
@@ -16362,7 +16370,7 @@ mod tests {
             drain_into_vterm(&buf, &mut vterm);
 
             let tool_row = (0..vterm.height() as usize)
-                .find(|&i| vterm.row_text(i).contains("*") && vterm.row_text(i).contains(tool_name))
+                .find(|&i| vterm.row_text(i).contains("●") && vterm.row_text(i).contains(tool_name))
                 .unwrap_or_else(|| {
                     panic!(
                         "[{tool_name}] tool call row missing\ndump:\n{}",
@@ -16437,22 +16445,22 @@ mod tests {
         r.flush_deferred();
         drain_into_vterm(&buf, &mut vterm);
 
-        // Header row: contains the [x] glyph, cells must be bold + red.
+        // Header row: contains the ✗ glyph, cells must be bold + red.
         let header_idx = (0..vterm.height() as usize)
-            .find(|&i| vterm.row_text(i).contains("[x]") && vterm.row_text(i).contains("not found"))
+            .find(|&i| vterm.row_text(i).contains("✗") && vterm.row_text(i).contains("not found"))
             .unwrap_or_else(|| panic!("header row missing\ndump:\n{}", vterm.dump()));
         let header_text = vterm.row_text(header_idx);
-        let glyph_col = header_text.chars().position(|ch| ch == 'x').unwrap();
+        let glyph_col = header_text.chars().position(|ch| ch == '✗').unwrap();
         let header_cell = vterm.cell_at(header_idx, glyph_col);
         assert_eq!(
             header_cell.fg,
             Some(crossterm::style::Color::Red),
-            "header `[x]` must be red, got {:?}",
+            "header `✗` must be red, got {:?}",
             header_cell,
         );
         assert!(
             header_cell.bold,
-            "header `[x]` must be bold, got {:?}",
+            "header `✗` must be bold, got {:?}",
             header_cell,
         );
 
@@ -16799,6 +16807,8 @@ mod tests {
     fn retained_error_line_renders_via_vterm() {
         let _theme = crate::highlight::theme::test_lock();
         crate::highlight::theme::set_theme_mode(false);
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let (mut r, buf) = new_capturing(80, 24);
         let mut vterm = crate::test_term::VirtualTerminal::new(80, 24);
         let status = status_basic();
@@ -17030,7 +17040,7 @@ mod tests {
             buf: String::new(),
             cursor_byte: 0,
             frame: "⠋",
-            label: "Brewing . 10s . ↑ 762 tokens".into(),
+            label: "Brewing · 10s · ↑ 762 tokens".into(),
             status: status_basic(),
             menu: None,
             attachments: Vec::new(),
@@ -17105,7 +17115,7 @@ mod tests {
         let status = status_basic();
         r.render(UiLine::ToolGroupRender {
             batch_id: "batch-spacing".into(),
-            header: "* Running 2 bash calls".into(),
+            header: "● Running 2 bash calls".into(),
             children: vec![
                 ToolGroupChild {
                     call_id: "call-1".into(),
@@ -17126,7 +17136,7 @@ mod tests {
                 buf: String::new(),
                 cursor_byte: 0,
                 frame,
-                label: "Percolating . 1m2s . ↑ 552 tokens".into(),
+                label: "Percolating · 1m2s · ↑ 552 tokens".into(),
                 status: status.clone(),
                 menu: None,
                 attachments: Vec::new(),
@@ -18669,7 +18679,7 @@ mod tests {
 
         r.render(UiLine::ToolGroupRender {
             batch_id: "b1".into(),
-            header: "> Running 3 read_file calls in parallel".into(),
+            header: "▸ Running 3 read_file calls in parallel".into(),
             children: vec![
                 ToolGroupChild {
                     call_id: "c1".into(),
@@ -18753,7 +18763,7 @@ mod tests {
 
         r.render(UiLine::ToolGroupRender {
             batch_id: "b1".into(),
-            header: "> batch header".into(),
+            header: "▸ batch header".into(),
             children: vec![
                 ToolGroupChild {
                     call_id: "c1".into(),
@@ -18774,7 +18784,7 @@ mod tests {
         r.render(UiLine::ToolGroupChildUpdate {
             batch_id: "b1".into(),
             call_id: "c1".into(),
-            new_text: "  ↳ [+] child one (should NOT appear)".into(),
+            new_text: "  ↳ ✓ child one (should NOT appear)".into(),
             outcome: None,
         });
         r.render(UiLine::InputPrompt {
@@ -18799,8 +18809,8 @@ mod tests {
             dump
         );
         assert!(
-            !dump.contains("[+] child one"),
-            "no [+] should appear on the child after freeze:\n{}",
+            !dump.contains("✓ child one"),
+            "no ✓ should appear on the child after freeze:\n{}",
             dump
         );
     }
@@ -18815,7 +18825,7 @@ mod tests {
 
         r.render(UiLine::ToolGroupRender {
             batch_id: "b1".into(),
-            header: "* Running 2 tools in parallel".into(),
+            header: "● Running 2 tools in parallel".into(),
             children: vec![
                 ToolGroupChild {
                     call_id: "bash1".into(),
@@ -18966,10 +18976,10 @@ mod tests {
         r.flush_deferred();
         drain_into_vterm(&buf, &mut vterm);
         let grid = vterm.dump();
-        assert!(grid.contains("SubTasks . 1/3 finished . 2 running . 0 pending"));
+        assert!(grid.contains("SubTasks · 1/3 finished · 2 running · 0 pending"));
         assert!(grid.contains("explore#2"));
         assert!(grid.contains("\u{25cf} explore#2"));
-        assert!(grid.contains("explore#2 . deepseek-v4-flash . inspect codex"));
+        assert!(grid.contains("explore#2 · deepseek-v4-flash · inspect codex"));
         assert!(grid.contains("reading files"));
         assert!(grid.contains("↑ 420 tokens"));
         assert!(!grid.contains("explore#1"));
@@ -19090,8 +19100,8 @@ mod tests {
         let grid = vterm.dump();
         assert!(grid.contains("running#1"));
         assert!(!grid.contains("failed#1"));
-        assert!(grid.contains("5/8 finished . 1 running . 2 pending"));
-        assert!(grid.contains("2 pending . 1 failed"));
+        assert!(grid.contains("5/8 finished · 1 running · 2 pending"));
+        assert!(grid.contains("2 pending · 1 failed"));
     }
 
     #[test]
@@ -19131,8 +19141,8 @@ mod tests {
         drain_into_vterm(&buf, &mut vterm);
 
         let grid = vterm.dump();
-        assert!(grid.contains("3/3 finished . 0 running . 0 pending"));
-        assert!(grid.contains("1 failed . 1 stopped"));
+        assert!(grid.contains("3/3 finished · 0 running · 0 pending"));
+        assert!(grid.contains("1 failed · 1 stopped"));
     }
 
     #[test]
@@ -19172,11 +19182,11 @@ mod tests {
 
         assert_eq!(text.len(), MAX_SUBTASK_PANEL_ROWS);
         assert!(text[0].trim().is_empty());
-        assert!(text[1].contains("3/7 finished . 3 running . 1 pending"));
+        assert!(text[1].contains("3/7 finished · 3 running · 1 pending"));
         assert!(text.iter().any(|line| line.contains("explore#4")));
         assert!(text.iter().any(|line| line.contains("explore#5")));
         assert!(text.iter().any(|line| line.contains("explore#6")));
-        assert!(text[5].contains("1 pending . 1 failed"));
+        assert!(text[5].contains("1 pending · 1 failed"));
         assert!(text.iter().all(|line| !line.contains("failed#1")));
         assert!(text.iter().all(|line| !line.contains("pending#1")));
     }
@@ -19216,7 +19226,7 @@ mod tests {
 
             assert_eq!(text.len(), MAX_SUBTASK_PANEL_ROWS);
             assert!(text[0].trim().is_empty());
-            assert!(text[5].contains("explore#4 . GLM-5.2 . inspect explore#4 . pending"));
+            assert!(text[5].contains("explore#4 · GLM-5.2 · inspect explore#4 · pending"));
             assert!(!text[5].contains("1 pending"));
         }
     }
@@ -19627,7 +19637,7 @@ mod tests {
         assert_eq!(r.current_footer_rows(), r.last_painted_footer_rows);
         assert!(vterm
             .dump()
-            .contains("SubTasks . 0/3 finished . 3 running . 0 pending"));
+            .contains("SubTasks · 0/3 finished · 3 running · 0 pending"));
     }
 
     #[test]
@@ -19734,7 +19744,7 @@ mod tests {
         drain_into_vterm(&buf, &mut vterm);
 
         let grid = vterm.dump();
-        assert!(grid.contains("SubTasks . 0/1 finished . 1 running . 0 pending"));
+        assert!(grid.contains("SubTasks · 0/1 finished · 1 running · 0 pending"));
         assert!(!grid.contains("Thinking"));
         assert!(!r.live_spinner_active);
     }
@@ -19821,7 +19831,7 @@ mod tests {
         );
         assert!(vterm.any_row(|r| r.contains("Deny")), "deny row\n{dump}");
         assert!(
-            vterm.any_row(|r| r.contains(">") && r.contains("Allow once")),
+            vterm.any_row(|r| r.contains("▸") && r.contains("Allow once")),
             "selected marker on option 0\n{dump}"
         );
         // The command detail IS now displayed in the panel header.
@@ -19829,11 +19839,11 @@ mod tests {
             vterm.any_row(|r| r.contains("rm -rf build/")),
             "detail must be in the panel header\n{dump}"
         );
-        // Panel renders BELOW the input box (chevron >).
+        // Panel renders BELOW the input box (chevron ❯).
         let h = vterm.height() as usize;
         let row_of = |n: &str| (0..h).find(|&i| vterm.row_text(i).contains(n));
         assert!(
-            row_of("Allow once") > row_of(">"),
+            row_of("Allow once") > row_of("❯"),
             "panel below input\n{dump}"
         );
     }
@@ -20185,7 +20195,7 @@ mod tests {
                 )
             });
         assert!(
-            text.contains("..."),
+            text.contains('…'),
             "leading content should be elided: {text}"
         );
         assert!(
@@ -20467,7 +20477,7 @@ mod tests {
     fn round_cap_view_renders_header_and_two_options() {
         // cap=400 (after one continuation) but base=200 (the re-arm step): the
         // question shows the grown cap, the "continue" description must show base.
-        let view = crate::render::round_cap_view(400, 200, 0, "2h0m0s . 305.00K tokens");
+        let view = crate::render::round_cap_view(400, 200, 0, "2h0m0s · 305.00K tokens");
         assert_eq!(view.header, "轮次上限");
         assert!(
             view.question.contains("已运行 400 轮"),
@@ -20783,7 +20793,7 @@ mod tests {
 
         let visible = vterm.dump();
         assert!(
-            visible.contains("> [Image #1]") && visible.contains('你') && visible.contains('好'),
+            visible.contains("❯ [Image #1]") && visible.contains('你') && visible.contains('好'),
             "user text must remain visible beside its attachment:\n{visible}"
         );
         assert!(
@@ -20792,9 +20802,9 @@ mod tests {
         );
     }
 
-    /// Regression: SGR (`\x1b[31m...\x1b[39m`) embedded in a
-    /// `UiLine::CommandOutput` payload -- emitted by the `/codingplan`
-    /// SetupReport for locked-model rows -- must reach the cell grid
+    /// Regression: SGR (`\x1b[31m…\x1b[39m`) embedded in a
+    /// `UiLine::CommandOutput` payload — emitted by the `/codingplan`
+    /// SetupReport for locked-model rows — must reach the cell grid
     /// as a `CellStyle::fg = Some(DarkRed)` span rather than landing
     /// as literal `^[[31m` characters. Without the SGR-aware
     /// CommandOutput path in retained-mode, locked rows render
@@ -20808,7 +20818,7 @@ mod tests {
         // close. PAD_COL (2 spaces) on the left is added by
         // push_body_text_sgr; the template-level 6-space indent stays
         // on the visible side.
-        let line = "      \x1b[31mx GLM-5.1  (requires Pro plan or higher)\x1b[39m\n";
+        let line = "      \x1b[31m[x] GLM-5.1  (requires Pro plan or higher)\x1b[39m\n";
         r.render(UiLine::CommandOutput(line.into()));
 
         // Find the row containing the locked-model name and check
@@ -21303,12 +21313,12 @@ mod tests {
     // 1:1 with terminal positions for in-place CUP rewrites. Pre-fix the
     // truncators counted code points instead of display columns, so a row of
     // 30 汉字 (60 cols) on a 40-col screen never tripped the truncate branch
-    // and the wide cells leaked past the screen edge -- Screen::draw_row then
-    // hard-cut mid-glyph with no `...` marker.
+    // and the wide cells leaked past the screen edge — Screen::draw_row then
+    // hard-cut mid-glyph with no `…` marker.
 
     #[test]
     fn build_one_row_cjk_does_not_overflow_screen() {
-        // 30 汉字 = 60 display cols. Screen 40 -> avail = 40 - PAD_COL = 38.
+        // 30 汉字 = 60 display cols. Screen 40 → avail = 40 - PAD_COL = 38.
         // Row's summed cell widths must fit within avail.
         let text = "你".repeat(30);
         let row = build_one_row(&text, &CellStyle::default(), 40, true);
@@ -21323,8 +21333,8 @@ mod tests {
     #[test]
     fn inflight_tool_meta_survives_wrapping_without_overflow() {
         // Regression (narrow window): an in-flight tool row with a long detail
-        // wrapped, and the ` . 93.7s` duration was appended to the FIRST
-        // already-full-width row, overflowing the screen -- the terminal then
+        // wrapped, and the ` · 93.7s` duration was appended to the FIRST
+        // already-full-width row, overflowing the screen — the terminal then
         // clipped/re-wrapped it and the time anchor vanished. The meta must
         // survive, and NO row may exceed the available width.
         let (r, _sink) = new_capturing(40, 24);
@@ -21337,7 +21347,7 @@ mod tests {
             &plain,
             detail,
             &plain,
-            " . 93.7s",
+            " · 93.7s",
             &plain,
             &format!("ParallelEditFiles{detail}"),
         );
@@ -22809,7 +22819,7 @@ mod tests {
                     buf: String::new(),
                     cursor_byte: 0,
                     frame: "⠋",
-                    label: "Pondering . 1s".to_string(),
+                    label: "Pondering · 1s".to_string(),
                     status: status_basic(),
                     menu: None,
                     attachments: Vec::new(),
@@ -22832,7 +22842,7 @@ mod tests {
                 buf: String::new(),
                 cursor_byte: 0,
                 frame,
-                label: "Pondering . 1s".to_string(),
+                label: "Pondering · 1s".to_string(),
                 status: status_basic(),
                 menu: None,
                 attachments: Vec::new(),
@@ -22932,13 +22942,13 @@ mod tests {
         });
         r.flush_deferred();
 
-        // Count * EditFile rows after result
+        // Count ● EditFile rows after result
         let after = r
             .body_lines
             .iter()
             .filter(|row| {
                 let text: String = row.iter().map(|c| c.ch).collect();
-                text.contains("EditFile") && text.contains("*")
+                text.contains("EditFile") && text.contains("●")
             })
             .count();
 
@@ -22953,7 +22963,7 @@ mod tests {
         assert_eq!(
             after,
             1,
-            "ToolCallResult must produce exactly ONE * EditFile row, got {}. body_lines has {} total rows.\n{:?}",
+            "ToolCallResult must produce exactly ONE ● EditFile row, got {}. body_lines has {} total rows.\n{:?}",
             after,
             r.body_lines.len(),
             r.body_lines
@@ -22962,13 +22972,13 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        // Verify the └ result row is immediately after the * row
+        // Verify the └ result row is immediately after the ● row
         let tool_idx = r
             .body_lines
             .iter()
             .rposition(|row| {
                 let text: String = row.iter().map(|c| c.ch).collect();
-                text.contains("EditFile") && text.contains("*")
+                text.contains("EditFile") && text.contains("●")
             })
             .unwrap();
         let result_idx = r
@@ -23005,7 +23015,7 @@ mod tests {
         });
         r.flush_deferred();
 
-        // Phase 1: ToolCallStarted -> inflight spinner
+        // Phase 1: ToolCallStarted → inflight spinner
         r.render(UiLine::ToolCallInFlight {
             id: "call-edit-1".into(),
             name: "EditFile".into(),
@@ -23014,28 +23024,28 @@ mod tests {
         });
         r.flush_deferred();
 
-        // Phase 2: ToolCallCommit commits the inflight to a permanent * row.
+        // Phase 2: ToolCallCommit commits the inflight to a permanent ● row.
         // (Previously this was the ApprovalNeeded path; now it's just the
-        // first ToolCallCommit that freezes the spinner to *.)
+        // first ToolCallCommit that freezes the spinner to ●.)
         r.render(UiLine::ToolCallCommit {
             call_id: Some("call-edit-1".into()),
             outcome: None,
         });
         r.flush_deferred();
 
-        // Count * rows AFTER first commit (should be 1)
+        // Count ● rows AFTER first commit (should be 1)
         let mid = r
             .body_lines
             .iter()
             .filter(|row| {
                 let text: String = row.iter().map(|c| c.ch).collect();
-                text.contains("EditFile") && text.contains("*")
+                text.contains("EditFile") && text.contains("●")
             })
             .count();
-        eprintln!("* EditFile rows after first ToolCallCommit: {}", mid);
+        eprintln!("● EditFile rows after first ToolCallCommit: {}", mid);
         assert_eq!(
             mid, 1,
-            "First ToolCallCommit must produce exactly ONE * EditFile row"
+            "First ToolCallCommit must produce exactly ONE ● EditFile row"
         );
 
         // Phase 3: ToolCallResult arrives
@@ -23060,20 +23070,20 @@ mod tests {
             }
         }
 
-        // Count * EditFile rows after ToolCallResult (must still be 1)
+        // Count ● EditFile rows after ToolCallResult (must still be 1)
         let after = r
             .body_lines
             .iter()
             .filter(|row| {
                 let text: String = row.iter().map(|c| c.ch).collect();
-                text.contains("EditFile") && text.contains("*")
+                text.contains("EditFile") && text.contains("●")
             })
             .count();
 
         assert_eq!(
             after,
             1,
-            "Full flow must produce exactly ONE * EditFile row, got {}.\n{:?}",
+            "Full flow must produce exactly ONE ● EditFile row, got {}.\n{:?}",
             after,
             r.body_lines
                 .iter()
@@ -23595,12 +23605,24 @@ mod tests {
     // the system clipboard (last block wins) and spams a "代码块已复制" hint --
     // the user-reported side-effect. The copy tier tries arboard first (so OSC52
     // is not always emitted); the locale-independent signal that a copy DID
-    // happen is the "📋" hint row pushed into the body on success (both the zh
-    // and en `CodeBlockCopied` strings start with 📋).
+    // happen is the copy hint row pushed into the body on success (the zh/en
+    // `CodeBlockCopied` strings both carry the ASCII `[+]` tag). The retained
+    // grid inserts spacing around CJK glyphs, so compare whitespace-stripped
+    // text against the whitespace-stripped hint.
     fn copy_hint_count(r: &RetainedRenderer<CapturingSink>) -> usize {
+        let want: String = t(Msg::CodeBlockCopied)
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
         r.body_lines
             .iter()
-            .filter(|row| row.iter().any(|c| c.ch == '📋'))
+            .map(|row| {
+                row.iter()
+                    .map(|c| c.ch)
+                    .filter(|c| !c.is_whitespace())
+                    .collect::<String>()
+            })
+            .filter(|text| text.contains(&want))
             .count()
     }
 
@@ -24971,7 +24993,7 @@ mod tests {
         let cap = (h as usize).saturating_sub(r.current_footer_rows());
 
         // Fill body well past cap so several overflow LFs have already
-        // happened -- this is what makes `scrolled_off > 0` when the
+        // happened — this is what makes `scrolled_off > 0` when the
         // whoami output starts streaming. Interleave a spinner tick
         // (mimics the real session's StreamingBox + Spinner cadence).
         for i in 0..(cap + 10) {
@@ -24979,7 +25001,7 @@ mod tests {
             if i % 4 == 0 {
                 r.render(UiLine::Spinner {
                     frame: "⠋".into(),
-                    label: "Pondering...".into(),
+                    label: "Pondering…".into(),
                 });
             }
         }
@@ -24994,7 +25016,7 @@ mod tests {
         drain_into_vterm(&buf, &mut vterm);
 
         // User types `/whoami`. The event loop echoes the user input
-        // BEFORE running the command -- render that too so the body
+        // BEFORE running the command — render that too so the body
         // state matches the real screenshot.
         let whoami_text =
             "  TheoCui (saulcy)\n  cuizk@csdn.net\n  auth: /Users/theo/.rustcode/auth.toml\n";
@@ -25003,7 +25025,7 @@ mod tests {
         r.flush_deferred();
         drain_into_vterm(&buf, &mut vterm);
 
-        // Second invocation -- mimics the screenshot showing the bug
+        // Second invocation — mimics the screenshot showing the bug
         // surfaced across BOTH /whoami runs.
         r.render(UiLine::User("/whoami".into()));
         r.render(UiLine::CommandOutput(whoami_text.into()));
@@ -25078,7 +25100,7 @@ mod tests {
             });
         let bash_idx = rows
             .iter()
-            .position(|r| r.contains("* Bash"))
+            .position(|r| r.contains("● Bash"))
             .expect("bash header row");
         assert!(
             bash_idx > text_idx + 1,
@@ -25122,17 +25144,17 @@ mod tests {
         let rows: Vec<String> = (0..vterm.height() as usize)
             .map(|i| vterm.row_text(i))
             .collect();
-        // Find the two `* Bash` header rows
+        // Find the two `● Bash` header rows
         let bash_positions: Vec<usize> = rows
             .iter()
             .enumerate()
-            .filter(|(_, r)| r.contains("* Bash"))
+            .filter(|(_, r)| r.contains("● Bash"))
             .map(|(i, _)| i)
             .collect();
         assert_eq!(
             bash_positions.len(),
             2,
-            "expected two * Bash rows\n{}",
+            "expected two ● Bash rows\n{}",
             vterm.dump()
         );
         let first_bash = bash_positions[0];
@@ -26036,7 +26058,7 @@ mod todo_panel_rows_tests {
             "expected ASCII ellipsis: {rendered:?}"
         );
         assert!(
-            !rendered.contains("..."),
+            !rendered.contains('…'),
             "unexpected Unicode ellipsis: {rendered:?}"
         );
     }

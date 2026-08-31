@@ -65,7 +65,9 @@ struct AddForm {
 /// `*-compatible` custom endpoints plus the keyless local `ollama` preset.
 const CYCLE_PROTOCOL_IDS: [&str; 3] = ["openai-compatible", "anthropic-compatible", "ollama"];
 
-/// `PRESETS` index for a preset id (falls back to the first entry).
+/// `PRESETS` index for a preset id. Falls back to the first entry, which the
+/// registry guarantees is the neutral OpenAI-compatible custom endpoint (never a
+/// featured vendor), so an unknown id can't pre-select a specific provider.
 fn preset_idx_by_id(id: &str) -> usize {
     provider_preset::PRESETS
         .iter()
@@ -365,10 +367,10 @@ fn downgrade_panel_items(items: &mut [(String, String)], unicode_symbols: bool) 
             .map(|ch| match ch {
                 '‹' => '<',
                 '›' => '>',
-                '-' => '-',
+                '–' | '—' => '-',
                 // Form projections allocate one display cell for an ellipsis;
                 // keep the fallback one cell wide as well.
-                '.' => '.',
+                '…' => '.',
                 '＋' => '+',
                 other => other,
             })
@@ -679,7 +681,7 @@ impl ModelForm {
     }
 
     /// Render the level toggles with the sub-cursor marked, e.g.
-    /// ` * low  ‹o medium›  * high  * max ` (focused level in guillemets).
+    /// ` ● low  ‹○ medium›  ● high  ● max ` (focused level in guillemets).
     ///
     /// Use text glyphs rather than emoji so each marker stays monochrome and
     /// occupies one terminal cell on the terminals supported by the TUI.
@@ -1956,7 +1958,7 @@ impl Modal for ProviderPanel {
                             let a = accounts.get(id);
                             let count = models.values().filter(|m| m.account == *id).count();
                             // 0-model providers show just the name; configured
-                            // ones show "vendor . N 模型 [默认]".
+                            // ones show "vendor · N 模型 [默认]".
                             let desc = if count == 0 {
                                 String::new()
                             } else {
@@ -1973,7 +1975,7 @@ impl Modal for ProviderPanel {
                                     crate::i18n::t(crate::i18n::Msg::ProviderPanelModelCount {
                                         count,
                                     });
-                                format!("{vendor} . {model_count}{mark}")
+                                format!("{vendor} · {model_count}{mark}")
                             };
                             items.push((Self::account_label(&ctx.config, id), desc));
                         }
@@ -2015,7 +2017,7 @@ impl Modal for ProviderPanel {
                             let desc = m
                                 .map(|m| {
                                     let name = m.display_name.as_deref().unwrap_or(&m.model);
-                                    format!("{} . {}{}", m.account, name, mark)
+                                    format!("{} · {}{}", m.account, name, mark)
                                 })
                                 .unwrap_or_default();
                             items.push((id.clone(), desc));
@@ -2282,7 +2284,7 @@ impl Modal for ProviderPanel {
             }
         }
 
-        items.push((format!("-- {hint} --"), String::new()));
+        items.push((format!("— {hint} —"), String::new()));
 
         downgrade_panel_items(&mut items, ctx.caps.unicode_symbols);
 
@@ -2327,9 +2329,9 @@ mod tests {
     #[test]
     fn provider_panel_chrome_downgrades_for_legacy_conhost() {
         let mut items = vec![
-            ("> Model: │vendor/model...".to_string(), String::new()),
-            ("  Image input: ‹ Auto ›".to_string(), "[[+]]".to_string()),
-            ("＋ Add model".to_string(), "-- hint --".to_string()),
+            ("▸ Model: │vendor/model…".to_string(), String::new()),
+            ("  Image input: ‹ Auto ›".to_string(), "[✓]".to_string()),
+            ("＋ Add model".to_string(), "— hint —".to_string()),
         ];
 
         downgrade_panel_items(&mut items, false);
@@ -2343,7 +2345,7 @@ mod tests {
 
     #[test]
     fn provider_panel_chrome_is_unchanged_on_unicode_terminals() {
-        let mut items = vec![("> Model: │...".to_string(), "[[+]]".to_string())];
+        let mut items = vec![("▸ Model: │…".to_string(), "[✓]".to_string())];
         let original = items.clone();
 
         downgrade_panel_items(&mut items, true);
@@ -2594,7 +2596,7 @@ mod tests {
         let url = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1";
         let shown = crate::width::editable_value_projection(url, url.len(), 28);
         assert!(
-            shown.starts_with("..."),
+            shown.starts_with('…'),
             "expected hidden-left marker: {shown}"
         );
         assert!(shown.ends_with('│'), "caret should remain visible: {shown}");
@@ -2610,8 +2612,8 @@ mod tests {
         let url = "https://example.test/a/very/long/provider/path/v1";
         let cursor = url.find("provider").expect("provider segment");
         let shown = crate::width::editable_value_projection(url, cursor, 20);
-        assert!(shown.starts_with("..."), "left marker missing: {shown}");
-        assert!(shown.ends_with("..."), "right marker missing: {shown}");
+        assert!(shown.starts_with('…'), "left marker missing: {shown}");
+        assert!(shown.ends_with('…'), "right marker missing: {shown}");
         assert!(shown.contains('│'), "caret missing: {shown}");
         assert!(crate::width::display_width(&shown) <= 20);
     }
@@ -2853,11 +2855,11 @@ mod tests {
         assert_eq!(add.effort_levels, [true, false, true, true, true]);
         assert_eq!(
             add.effort_levels_label(true),
-            " * low ‹o medium› * high  * xhigh  * max "
+            " ● low ‹○ medium› ● high  ● xhigh  ● max "
         );
         assert_eq!(
             add.effort_levels_label(false),
-            " * low  o medium  * high  * xhigh  * max "
+            " ● low  ○ medium  ● high  ● xhigh  ● max "
         );
         // The DEFAULT cycle now skips medium: None -> auto -> low -> high.
         add.reasoning_effort = None;
@@ -3122,7 +3124,7 @@ mod tests {
         let cfg: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
                 "RustCode": { "provider": "openai", "base_url": "https://gateway.test.example/v1" },
-                "official-alias": { "provider": "openai", "base_url": "https://api-ai.gitcode.com/v1" },
+                "official-alias": { "provider": "openai", "base_url": "https://gateway.test.example/v1" },
                 "other": { "provider": "openai-compatible", "base_url": "https://example.invalid/v1" }
             },
             "models": {

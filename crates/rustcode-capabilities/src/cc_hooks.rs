@@ -319,7 +319,9 @@ async fn run_command_hook(
     }
 
     let fut = async {
-        let mut child = cmd.spawn().ok()?;
+        // Retry through the transient ETXTBSY race (freshly-written hook script
+        // on overlayfs/container storage); see process_utils::spawn_retrying_etxtbsy.
+        let mut child = crate::process_utils::spawn_retrying_etxtbsy(|| cmd.spawn()).ok()?;
         if let Some(mut stdin) = child.stdin.take() {
             // BEST-EFFORT delivery: a hook that ignores its stdin (echo, a simple exit,
             // an observation-only PostToolUse hook) may ALREADY have exited, so this
@@ -1161,13 +1163,17 @@ mod tests {
         let convo = Conversation::new();
 
         // 1) A lone terminal hook sees the transcript path AND `stop_hook_active:false`.
+        // Stage stdin to a file first: two `grep`s in one `&&` chain share the same
+        // stdin, and the first drains the (small) pipe before the second starts --
+        // grepping a file makes both assertions see the full payload.
         let (m1, m1_s) = marker("payload-ok");
         let single = HookConfig {
             event: HookEvent::Stop,
             matcher: None,
             command: format!(
-                "cd '{cwd}' && grep -q '\"transcript_path\":\"{transcript_s}\"' \
-                 && grep -q '\"stop_hook_active\":false' && touch '{m1_s}'"
+                "cd '{cwd}' && cat > payload.json \
+                 && grep -q '\"transcript_path\":\"{transcript_s}\"' payload.json \
+                 && grep -q '\"stop_hook_active\":false' payload.json && touch '{m1_s}'"
             ),
             timeout_ms: 5_000,
             plugin_root: None,

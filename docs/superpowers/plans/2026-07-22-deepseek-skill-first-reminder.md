@@ -330,18 +330,18 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Self-Review
 
 **Spec coverage:**
-- "Deepseek-only lifecycle hook" → Task 1 (`SkillFirstHook`, gated via `model_needs_firm_execution`). ✓
-- "Non-empty catalog gate" → Task 1 `new(model, has_skills)` + Task 2 `has_skills` capture. ✓
-- "Opening turn only, one-shot; fire on round 1" → Task 1 Step 5 (`turn_id==1 && round==1`) + module doc rationale. ✓
-- "Tail `<system-reminder>` via `system_reminder`, `Message::user`" → Task 1 Step 5. ✓
-- "Register in `prepare()`, reaches TUI + webui" → Task 2. ✓
-- "Pure reminder-text builder tested; gating tested; firing tested" → Task 1 Steps 3/6. ✓
-- "Run existing tests" → Task 1 Step 7, Task 2 Step 3. ✓
-- Rejected/deferred (intent classification, force-load, all-models, mid-session) → not implemented, matches spec out-of-scope. ✓
+- "Deepseek-only lifecycle hook" → Task 1 (`SkillFirstHook`, gated via `model_needs_firm_execution`). [x]
+- "Non-empty catalog gate" → Task 1 `new(model, has_skills)` + Task 2 `has_skills` capture. [x]
+- "Opening turn only, one-shot; fire on round 1" → Task 1 Step 5 (`turn_id==1 && round==1`) + module doc rationale. [x]
+- "Tail `<system-reminder>` via `system_reminder`, `Message::user`" → Task 1 Step 5. [x]
+- "Register in `prepare()`, reaches TUI + webui" → Task 2. [x]
+- "Pure reminder-text builder tested; gating tested; firing tested" → Task 1 Steps 3/6. [x]
+- "Run existing tests" → Task 1 Step 7, Task 2 Step 3. [x]
+- Rejected/deferred (intent classification, force-load, all-models, mid-session) → not implemented, matches spec out-of-scope. [x]
 
-**Placeholder scan:** No TBD/TODO. Every code step shows exact content. The Step 3 no-op `pre_request` is an intentional red-step stub, replaced verbatim in Step 5. ✓
+**Placeholder scan:** No TBD/TODO. Every code step shows exact content. The Step 3 no-op `pre_request` is an intentional red-step stub, replaced verbatim in Step 5. [x]
 
-**Type consistency:** `SkillFirstHook::new(model: &str, has_skills: bool)` is defined in Task 1 and called identically in Task 2. `body()` returns `&'static str`, wrapped by `system_reminder(&str) -> String`, pushed as `Message::user(String)`. `TurnCtx { turn_id: u64, round: u32, ..Default::default() }` matches the kernel definition. ✓
+**Type consistency:** `SkillFirstHook::new(model: &str, has_skills: bool)` is defined in Task 1 and called identically in Task 2. `body()` returns `&'static str`, wrapped by `system_reminder(&str) -> String`, pushed as `Message::user(String)`. `TurnCtx { turn_id: u64, round: u32, ..Default::default() }` matches the kernel definition. [x]
 
 ---
 

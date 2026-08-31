@@ -231,7 +231,7 @@ Ultimate 兼容性回归检查也在不启动许可 IDE UI 的情况下本地通
 cd webui && npm ci --cache .npm-cache && npm run build
 cargo check -p rustcode-daemon
 cargo build -p rustcode-daemon
-./target/debug/rustcode-daemon --host 127.0.0.1 --port 13456 --idle-timeout 0 --no-telemetry --client jetbrains
+./target/debug/rustcode-daemon --host 127.0.0.1 --port 13456 --idle-timeout 0 --client jetbrains
 curl -sS http://127.0.0.1:13456/health
 curl -sS -X POST http://127.0.0.1:13456/cd -H "Content-Type: application/json" -d '{"path":"/path/to/project"}'
 curl -sS http://127.0.0.1:13456/auth/status

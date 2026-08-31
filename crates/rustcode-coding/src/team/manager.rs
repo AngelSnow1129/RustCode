@@ -22,7 +22,13 @@ pub type TeamModelFactory = Arc<dyn Fn(&TeamTaskSpec) -> String + Send + Sync>;
 
 #[derive(Clone, Debug)]
 pub struct TeamRuntimeConfig {
+    /// Max concurrent WRITE members (Worker permission). These edit the working tree
+    /// and are scope-confined, so the lane stays conservative.
     pub max_concurrent: usize,
+    /// Max concurrent READ-ONLY members (Explore permission). They never write and
+    /// cannot conflict, so investigation roles fan out wider than workers. The two
+    /// lanes use independent semaphores (see [`TeamRunManager::delegate`]).
+    pub max_concurrent_explore: usize,
     pub cancel_grace: Duration,
     pub max_result_chars: usize,
     pub max_completed_runs: usize,
@@ -32,6 +38,7 @@ impl Default for TeamRuntimeConfig {
     fn default() -> Self {
         Self {
             max_concurrent: 3,
+            max_concurrent_explore: 8,
             cancel_grace: Duration::from_secs(2),
             max_result_chars: 12_000,
             max_completed_runs: 32,
@@ -262,8 +269,15 @@ impl TeamRunManager {
             TeamEventPayload::RunStarted { total: tasks.len() },
         );
 
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(
+        // Two independent scheduling lanes: read-only Explore members fan out wider
+        // (they cannot conflict), while write Workers stay bounded by the conservative
+        // worker budget. A broad investigation sweep therefore is not throttled behind
+        // the small write budget, and a worker is never stuck behind a read queue.
+        let worker_sem = Arc::new(tokio::sync::Semaphore::new(
             self.inner.config.max_concurrent.max(1),
+        ));
+        let explore_sem = Arc::new(tokio::sync::Semaphore::new(
+            self.inner.config.max_concurrent_explore.max(1),
         ));
         for (index, task) in tasks.into_iter().enumerate() {
             let member_id = TeamMemberId::new(format!("{}#{}", task.role, index + 1));
@@ -297,7 +311,11 @@ impl TeamRunManager {
             let manager = self.clone();
             let run = run_id.clone();
             let member = member_id.clone();
-            let semaphore = Arc::clone(&semaphore);
+            let semaphore = if task.permission == TeamPermission::Worker {
+                Arc::clone(&worker_sem)
+            } else {
+                Arc::clone(&explore_sem)
+            };
             let factory = Arc::clone(&factory);
             let handle = tokio::spawn(async move {
                 let permit = tokio::select! {
@@ -885,6 +903,94 @@ mod tests {
             difficulty: TeamDifficulty::Simple,
             scope,
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn read_only_lane_fans_out_independently_of_worker_budget() {
+        // Worker lane is pinned to 1, read-only lane to 4. Four explorers share a
+        // barrier that only releases when ALL FOUR run at once. If read-only members
+        // wrongly shared the worker semaphore (1 permit), this deadlocks and the
+        // outer timeout fires -- proving the two lanes are scheduled independently.
+        let manager = TeamRunManager::new(TeamRuntimeConfig {
+            max_concurrent: 1,
+            max_concurrent_explore: 4,
+            cancel_grace: Duration::from_millis(10),
+            ..TeamRuntimeConfig::default()
+        });
+        manager.begin_generation(1);
+        let barrier = Arc::new(tokio::sync::Barrier::new(4));
+        let factory: TeamJobFactory = Arc::new(move |_task, _cancel, _activity| {
+            let barrier = Arc::clone(&barrier);
+            Box::pin(async move {
+                tokio::time::timeout(Duration::from_secs(10), barrier.wait())
+                    .await
+                    .expect("explorers must run concurrently on the read-only lane");
+                TeamMemberOutcome::completed("done")
+            })
+        });
+        let models: TeamModelFactory = Arc::new(|_| "fast".to_string());
+        let tasks: Vec<TeamTaskSpec> = (0..4)
+            .map(|_| task(TeamRoleId::Explorer, TeamPermission::Explore, vec![]))
+            .collect();
+        let run = manager.delegate(tasks, factory, models).await.unwrap();
+        let wait = tokio::time::timeout(
+            Duration::from_secs(20),
+            manager.wait(&run, Duration::from_secs(30)),
+        )
+        .await
+        .expect("read-only team run did not finish in time")
+        .unwrap();
+        assert!(wait.terminal);
+        let snap = manager.snapshot(Some(&run)).unwrap();
+        let run_snap = &snap.runs[0];
+        assert_eq!(run_snap.completed, 4);
+        assert_eq!(run_snap.failed + run_snap.stopped, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn worker_lane_is_bounded_independently_of_read_lane() {
+        // Read-only lane is wide (8) but the worker lane is 1: three workers must
+        // never overlap, even though they try to. The semaphore makes this exact.
+        let manager = TeamRunManager::new(TeamRuntimeConfig {
+            max_concurrent: 1,
+            max_concurrent_explore: 8,
+            cancel_grace: Duration::from_millis(10),
+            ..TeamRuntimeConfig::default()
+        });
+        manager.begin_generation(1);
+        let active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let peak = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let peak_out = Arc::clone(&peak);
+        let factory: TeamJobFactory = Arc::new(move |_task, _cancel, _activity| {
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            Box::pin(async move {
+                let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(now, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                active.fetch_sub(1, Ordering::SeqCst);
+                TeamMemberOutcome::completed("edited")
+            })
+        });
+        let models: TeamModelFactory = Arc::new(|_| "cap".to_string());
+        let tasks: Vec<TeamTaskSpec> = (1..=3)
+            .map(|i| {
+                task(
+                    TeamRoleId::Rust,
+                    TeamPermission::Worker,
+                    vec![format!("w{i}/**")],
+                )
+            })
+            .collect();
+        let run = manager.delegate(tasks, factory, models).await.unwrap();
+        manager.wait(&run, Duration::from_secs(30)).await.unwrap();
+        let snap = manager.snapshot(Some(&run)).unwrap();
+        assert_eq!(snap.runs[0].completed, 3);
+        assert_eq!(
+            peak_out.load(Ordering::SeqCst),
+            1,
+            "write workers must be serialized by the worker lane"
+        );
     }
 
     fn manager() -> TeamRunManager {

@@ -1242,11 +1242,12 @@ mod tests {
     #[cfg(feature = "codeintel")]
     #[tokio::test]
     async fn large_symbolless_code_file_falls_back_to_a_bounded_page() {
-        // A >300-line .rs with NO symbols (only comments) has no skeleton, so it
-        // falls back to the same bounded page as other text files.
+        // A >1500-line .rs with NO symbols (only comments) has no skeleton, so it
+        // falls back to the same bounded page as other text files (1500-line page
+        // cap, matching `omitted_limit_uses_a_bounded_page...`).
         let d = tempfile::tempdir().unwrap();
         let mut src = String::new();
-        for i in 0..400 {
+        for i in 0..1600 {
             src.push_str(&format!("// comment {i}\n"));
         }
         std::fs::write(d.path().join("c.rs"), &src).unwrap();
@@ -1255,9 +1256,16 @@ mod tests {
             .await;
         assert!(!r.content.contains("File skeleton"), "{}", r.content);
         assert!(r.content.contains("comment 0"), "{}", r.content);
-        assert!(!r.content.contains("comment 300"), "{}", r.content);
+        assert!(r.content.contains("1500\t// comment 1499"), "{}", r.content);
         assert!(
-            r.content.contains("Continue with read_file("),
+            !r.content.contains("1501\t// comment 1500"),
+            "{}",
+            r.content
+        );
+        assert!(
+            r.content.contains(
+                r#"Continue with read_file({"file_path":"c.rs","limit":1500,"offset":1501})"#
+            ),
             "{}",
             r.content
         );
@@ -1266,10 +1274,11 @@ mod tests {
     #[cfg(feature = "codeintel")]
     #[tokio::test]
     async fn large_non_code_file_uses_a_bounded_page() {
-        // .txt has no tree-sitter language, so it uses normal bounded pagination.
+        // .txt has no tree-sitter language, so it uses normal bounded pagination
+        // (1500-line default page cap).
         let d = tempfile::tempdir().unwrap();
         let mut src = String::new();
-        for i in 0..400 {
+        for i in 0..1600 {
             src.push_str(&format!("line {i}\n"));
         }
         std::fs::write(d.path().join("big.txt"), &src).unwrap();
@@ -1278,9 +1287,12 @@ mod tests {
             .await;
         assert!(!r.content.contains("File skeleton"), "{}", r.content);
         assert!(r.content.contains("line 0"), "{}", r.content);
-        assert!(!r.content.contains("line 300"), "{}", r.content);
+        assert!(r.content.contains("1500\tline 1499"), "{}", r.content);
+        assert!(!r.content.contains("1501\tline 1500"), "{}", r.content);
         assert!(
-            r.content.contains("Continue with read_file("),
+            r.content.contains(
+                r#"Continue with read_file({"file_path":"big.txt","limit":1500,"offset":1501})"#
+            ),
             "{}",
             r.content
         );

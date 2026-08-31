@@ -1051,7 +1051,7 @@ mod tests {
         // hyper-util emits "tunnel error: failed to create underlying connection"
         // ONLY on the proxy CONNECT path -- the definitive "we couldn't reach the
         // proxy" signal.
-        let chain = "error sending request for url (https://llm-api.atomgit.com): \
+        let chain = "error sending request for url (https://api.example.com/v1): \
                      tunnel error: failed to create underlying connection: \
                      tcp connect error: connection refused (os error 10061)";
         let hint = proxy_unreachable_hint(chain, Some("http://127.0.0.1:7890"));

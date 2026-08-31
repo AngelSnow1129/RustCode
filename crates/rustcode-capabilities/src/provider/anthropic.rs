@@ -1408,7 +1408,11 @@ mod tests {
             body.get("temperature").is_none(),
             "sampling params omitted by default (Opus 4.7+ reject temperature)"
         );
-        assert_eq!(body["tool_choice"], json!({"type":"any"}), "Required -> any");
+        assert_eq!(
+            body["tool_choice"],
+            json!({"type":"any"}),
+            "Required -> any"
+        );
         assert!(
             body.get("thinking").is_none(),
             "forced tool use must suppress incompatible thinking for this request"

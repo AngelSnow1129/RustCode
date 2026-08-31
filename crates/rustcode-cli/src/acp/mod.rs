@@ -129,7 +129,7 @@ pub struct AcpServeOptions {
     /// Provider + model config for session spawning.  `None` -> handler returns
     /// an error telling the user to run via `rustcode acp`.
     pub engine: Option<crate::acp::engine::EngineConfig>,
-    /// Authenticated provider factory, e.g. the AtomGit gateway factory.
+    /// Authenticated provider factory, e.g. the managed-gateway factory.
     /// When `None`, the native default factory is used.
     pub provider_factory: Option<Arc<dyn CodingProviderFactory>>,
     /// When `true` (`--dangerously-skip-permissions`), kernel approval requests are

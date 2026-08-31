@@ -5656,12 +5656,12 @@ mod buffer_tests {
 
         // Once output streams, the `↑ N tokens` liveness counter joins the clock
         // inside the parens (49_600 chars ≈ 12.4K tokens at 4 chars/token,
-        // formatted by the shared `fmt_tokens` -> `12.40K`).
+        // formatted by the shared `fmt_tokens` → `12.40K`).
         s.turn_output_chars = 49_600;
         let active = format_spinner_label(&s, 0, None);
         assert!(
             active.contains("(0s \u{b7} \u{2191} 12.40K tokens)"),
-            "expected `(0s . ↑ 12.40K tokens)`, got {active:?}"
+            "expected `(0s · ↑ 12.40K tokens)`, got {active:?}"
         );
     }
 
@@ -5671,11 +5671,11 @@ mod buffer_tests {
         s.on_submit();
         s.compacting = true;
         // Parenthesized elapsed clock, matching the thinking spinner's shape (was
-        // a bare ` . 4s`, no parens).
+        // a bare ` · 4s`, no parens).
         let bare = format_spinner_label(&s, 0, None);
         assert!(bare.contains("(0s)"), "parenthesized clock, got {bare:?}");
         // Even with a non-zero `turn_output_chars` (a leftover from the
-        // pre-compaction generation -- the compaction summary never feeds it), the
+        // pre-compaction generation — the compaction summary never feeds it), the
         // compaction spinner must NOT surface a `↑ N tokens` count, or it would
         // show a frozen/misleading number.
         s.turn_output_chars = 49_600;
@@ -5686,7 +5686,7 @@ mod buffer_tests {
         );
         assert!(active.contains("(0s)"), "just the clock, got {active:?}");
         // Even silent past the stall threshold there is NO "较慢/slow" label any
-        // more -- the ticking clock already shows it's alive.
+        // more — the ticking clock already shows it's alive.
         s.last_stream_activity = Some(std::time::Instant::now() - crate::state::STREAM_STALL_HINT);
         let stalled = format_spinner_label(&s, 0, None);
         assert!(
@@ -5707,14 +5707,14 @@ mod buffer_tests {
             "baseline must be the thinking word: {thinking:?}"
         );
 
-        s.subagent_activity = Some("explore#4 . grep unwrap".to_string());
+        s.subagent_activity = Some("explore#4 · grep unwrap".to_string());
         let active = format_spinner_label(&s, 0, None);
         assert!(
-            active.contains("explore#4 . grep unwrap"),
+            active.contains("explore#4 · grep unwrap"),
             "spinner must surface the subagent activity: {active:?}"
         );
 
-        // Turn end clears it (single source of truth) -> back to a plain thinking word.
+        // Turn end clears it (single source of truth) → back to a plain thinking word.
         s.on_turn_complete();
         s.on_submit();
         let after = format_spinner_label(&s, 0, None);
@@ -8209,10 +8209,10 @@ mod tool_format_tests {
     /// middle-dot separators instead.
     #[test]
     fn display_tool_name_splits_mcp_server_and_tool() {
-        assert_eq!(display_tool_name("mcp__zouwu__query"), "zouwu . query");
+        assert_eq!(display_tool_name("mcp__zouwu__query"), "zouwu · query");
         assert_eq!(
             display_tool_name("mcp__zouwu-mcp-server__query_requirements"),
-            "zouwu-mcp-server . query_requirements"
+            "zouwu-mcp-server · query_requirements"
         );
     }
 
@@ -8258,11 +8258,11 @@ mod tool_format_tests {
     fn display_tool_name_short_keeps_mcp_suffix() {
         assert_eq!(
             display_tool_name_short("mcp__fs__read_file"),
-            "fs . read_file"
+            "fs · read_file"
         );
         assert_eq!(
             display_tool_name_short("mcp__playwright-mcp-server__browser_snapshot"),
-            "playwright-mcp-server . browser_snapshot"
+            "playwright-mcp-server · browser_snapshot"
         );
     }
 
@@ -8282,7 +8282,7 @@ mod tool_format_tests {
         // Skips leading blank lines; truncates long first lines.
         let long = format!("{{\"prompt\":\"\\n\\n{}\"}}", "x".repeat(200));
         let detail = format_tool_detail("subagent_claude_review", &long);
-        assert!(detail.starts_with('x') && detail.ends_with("..."));
+        assert!(detail.starts_with('x') && detail.ends_with('…'));
         assert!(detail.chars().count() <= 101);
     }
 
@@ -8313,10 +8313,10 @@ mod tool_format_tests {
         let args = format!(r#"{{"command":"{}"}}"#, "a".repeat(600));
         let out = format_tool_detail("bash", &args);
         // `truncate_with_ellipsis` preserves `max_cols-1` display columns
-        // (499) then appends '...' (display width 1, 3 UTF-8 bytes).
+        // (499) then appends '…' (display width 1, 3 UTF-8 bytes).
         // Display width = 500, byte length = 502.
-        assert_eq!(out.len(), 502, "byte length: 499 'a' + 3-byte '...'");
-        assert!(out.ends_with("..."), "should end with Unicode ellipsis");
+        assert_eq!(out.len(), 502, "byte length: 499 'a' + 3-byte '…'");
+        assert!(out.ends_with('…'), "should end with Unicode ellipsis");
         assert_eq!(&out[..499], "a".repeat(499));
     }
 
@@ -8357,7 +8357,7 @@ mod tool_format_tests {
         let out = format_tool_detail("mcp__playwright__browser_run_code_unsafe", &long);
         assert!(out.starts_with("code: "));
         assert!(out.chars().count() < 100, "long code must truncate: {out}");
-        assert!(out.contains("..."));
+        assert!(out.contains('…'));
     }
 
     #[test]
@@ -8381,7 +8381,7 @@ mod tool_format_tests {
     fn format_tool_detail_todo_update_shows_id_and_status() {
         let args = r#"{"action":"update","id":2,"status":"completed"}"#;
         let out = format_tool_detail("todo", args);
-        assert_eq!(out, "#2 -> completed");
+        assert_eq!(out, "#2 → completed");
     }
 
     #[test]
@@ -8467,7 +8467,7 @@ mod tool_format_tests {
             out
         );
         assert!(
-            out.contains("->"),
+            out.contains("→"),
             "should contain arrow separator: got {:?}",
             out
         );
@@ -8482,7 +8482,7 @@ mod tool_format_tests {
     fn format_tool_detail_search_replace_without_glob() {
         let args = r#"{"search":"oldFunc","replace":"newFunc"}"#;
         let out = format_tool_detail("search_replace", args);
-        assert_eq!(out, "oldFunc -> newFunc");
+        assert_eq!(out, "oldFunc → newFunc");
     }
 
     #[test]
@@ -8824,7 +8824,7 @@ mod tool_format_tests {
             /mnt/d/docs/work/cangjie/projects/fountain/f_store.";
         let out = summarise(err);
         assert_eq!(out, err, "the full line must survive un-truncated");
-        assert!(!out.contains("..."));
+        assert!(!out.contains('…'));
     }
 
     /// The actual bug fix: a 200-col first line must NOT be pre-truncated
@@ -8836,7 +8836,7 @@ mod tool_format_tests {
         let line: String = "x".repeat(200);
         let out = summarise(&line);
         assert_eq!(out, line, "200-col line must survive un-truncated");
-        assert!(!out.contains("..."));
+        assert!(!out.contains('…'));
     }
 
     /// The remaining 512-col cap is a pure safety bound, not a display
@@ -8847,7 +8847,7 @@ mod tool_format_tests {
         let long: String = "x".repeat(600);
         let out = summarise(&long);
         assert!(
-            out.ends_with("..."),
+            out.ends_with('…'),
             "safety cap must mark the cut. got len {}",
             out.chars().count()
         );
@@ -11470,7 +11470,9 @@ mod external_config_tests {
         renamed.default_provider = "renamed-provider".into();
 
         assert!(provider_requires_codingplan_auth(&renamed));
-        assert!(!provider_requires_codingplan_auth(&config("model-a", false)));
+        assert!(!provider_requires_codingplan_auth(&config(
+            "model-a", false
+        )));
     }
 
     #[test]
@@ -11511,7 +11513,7 @@ mod external_config_tests {
         assert!(!should_reload_provider(
             crate::ProviderSelectionMode::FollowGlobalDefault,
             &codingplan_config("model-a"),
-            &atomgit_configcodingplan_config("model-b"),
+            &codingplan_config("model-b"),
             RuntimeUiAvailability::Available,
             false,
         ));
@@ -15408,7 +15410,7 @@ fn strip_pasted_prompt_prefix(line: &str) -> Option<&str> {
     let mut chars = line.chars();
     let first = chars.next()?;
     let rest = chars.as_str();
-    if matches!(first, '>' | '#' | '%' | 'L' | '$')
+    if matches!(first, '❯' | '>' | '#' | '%' | 'λ' | '$')
         && rest.chars().next().is_some_and(char::is_whitespace)
     {
         Some(rest.trim_start())
@@ -18265,6 +18267,7 @@ pub(crate) fn set_default_provider_and_reload(
 /// (e.g. `/100k`) never updates to the model's real window until the user runs
 /// `/reload` manually. When the active provider's config actually changed this
 /// triggers an async provider reload whose completion projects the new window.
+#[cfg(feature = "codingplan")]
 pub(crate) fn apply_persisted_config(
     ctx: &mut LoopCtx,
     config: Config,
@@ -21202,7 +21205,7 @@ fn flush_deferred_background_notices(
     if notices.is_empty() {
         return;
     }
-    renderer.render(UiLine::Warning(notices.join(" . ")));
+    renderer.render(UiLine::Warning(notices.join(" · ")));
     renderer.flush();
 }
 
@@ -21293,7 +21296,7 @@ mod background_notice_tests {
         cancel_turn_presentation(&mut state, &mut renderer);
         assert!(matches!(
             renderer.lines.as_slice(),
-            [UiLine::Warning(message)] if message == "market A . market B"
+            [UiLine::Warning(message)] if message == "market A · market B"
         ));
     }
 
@@ -21493,7 +21496,7 @@ fn summary_reason_headline(reason: &str) -> String {
         out.push(ch);
         cols += w;
     }
-    out.push_str("...");
+    out.push('…');
     out
 }
 
@@ -21617,7 +21620,7 @@ mod turn_error_reason_tests {
     fn long_reason_is_width_truncated_with_ellipsis() {
         let long = "stopped: the model repeated the same tool call for 6 consecutive rounds without progress";
         let head = summary_reason_headline(long);
-        assert!(head.ends_with("..."), "{head}");
+        assert!(head.ends_with('…'), "{head}");
         assert!(crate::width::display_width(&head) <= 40, "{head}");
         // Multi-line collapses to the first line.
         assert_eq!(summary_reason_headline("头一行\n第二行"), "头一行");
@@ -21710,7 +21713,7 @@ fn flush_pending_separator(state: &mut UiState, renderer: &mut dyn Renderer, as_
             cached,
         )
     } else if ps.was_loop_round {
-        // Mid-loop continuation banner: `⚡ loop round N . stats`.
+        // Mid-loop continuation banner: `[*] loop round N . stats`.
         // Uses state.loop_round directly (0-based internally; we show 1-based
         // by adding 1 and then taking max(1) so round 0 displays as 1).
         let stats = format!(
@@ -21957,11 +21960,11 @@ fn team_success_notice(action: &str, output: &str) -> Option<String> {
     let value = serde_json::from_str::<serde_json::Value>(output).ok()?;
     let run_id = value.get("run_id")?.as_str()?;
     match action {
-        "delegate" => Some(format!("  o Team dispatched . {run_id}\n")),
-        "stop" => Some(format!("  o Team stopped . {run_id}\n")),
+        "delegate" => Some(format!("  ○ Team dispatched · {run_id}\n")),
+        "stop" => Some(format!("  ○ Team stopped · {run_id}\n")),
         "result" => {
             let members = value.get("members")?.as_array()?;
-            let mut lines = vec![format!("  Team results . {run_id}")];
+            let mut lines = vec![format!("  Team results · {run_id}")];
             for member in members {
                 let id = member
                     .get("id")
@@ -21976,7 +21979,7 @@ fn team_success_notice(action: &str, output: &str) -> Option<String> {
                     .map(|text| crate::width::truncate_with_ellipsis(&summarise(text), 500))
                     .filter(|text| !text.is_empty())
                     .unwrap_or_else(|| "no report".into());
-                lines.push(format!("  └ {id} . {status} . {result}"));
+                lines.push(format!("  └ {id} · {status} · {result}"));
             }
             lines.push(String::new());
             Some(lines.join("\n"))
@@ -21989,8 +21992,8 @@ fn team_success_notice(action: &str, output: &str) -> Option<String> {
 fn team_batch_result_suffix(action: &str, output: &str) -> Option<String> {
     let value = serde_json::from_str::<serde_json::Value>(output).ok()?;
     match action {
-        "delegate" => Some(format!("dispatched . {}", value.get("run_id")?.as_str()?)),
-        "stop" => Some(format!("stopped . {}", value.get("run_id")?.as_str()?)),
+        "delegate" => Some(format!("dispatched · {}", value.get("run_id")?.as_str()?)),
+        "stop" => Some(format!("stopped · {}", value.get("run_id")?.as_str()?)),
         "status" | "wait" | "result" => Some("updated".into()),
         _ => None,
     }
@@ -22441,11 +22444,11 @@ mod subtask_progress_projection_tests {
         );
         assert_eq!(
             team_success_notice("delegate", r#"{"run_id":"team-2-2","status":"running"}"#),
-            Some("  o Team dispatched . team-2-2\n".into())
+            Some("  ○ Team dispatched · team-2-2\n".into())
         );
         assert_eq!(
             team_success_notice("stop", r#"{"run_id":"team-2-2","status":"stopped"}"#),
-            Some("  o Team stopped . team-2-2\n".into())
+            Some("  ○ Team stopped · team-2-2\n".into())
         );
         assert_eq!(
             team_success_notice("wait", r#"{"run_id":"team-2-2","terminal":false}"#),
@@ -22456,12 +22459,12 @@ mod subtask_progress_projection_tests {
             r#"{"run_id":"team-2-2","members":[{"id":"reviewer#1","status":"completed","result":"Found one race"},{"id":"tester#2","status":"failed","result":null}]}"#,
         )
         .unwrap();
-        assert!(result.contains("Team results . team-2-2"), "{result}");
+        assert!(result.contains("Team results · team-2-2"), "{result}");
         assert!(
-            result.contains("reviewer#1 . completed . Found one race"),
+            result.contains("reviewer#1 · completed · Found one race"),
             "{result}"
         );
-        assert!(result.contains("tester#2 . failed . no report"), "{result}");
+        assert!(result.contains("tester#2 · failed · no report"), "{result}");
         assert_eq!(team_success_notice("delegate", "not json"), None);
         assert_eq!(
             projected_team_action("team", r#"{"action":"wait"}"#, false),
@@ -22477,7 +22480,7 @@ mod subtask_progress_projection_tests {
         );
         assert_eq!(
             team_batch_result_suffix("delegate", r#"{"run_id":"team-2-2","status":"running"}"#),
-            Some("dispatched . team-2-2".into())
+            Some("dispatched · team-2-2".into())
         );
         assert_eq!(
             team_batch_result_suffix("result", r#"{"run_id":"team-2-2"}"#),
@@ -28690,8 +28693,8 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
 }
 
 /// Format the live stats string for the round-cap checkpoint panel.
-/// Returns "Xh Ym Zs . N.NNK tokens" (time . tokens), or just one
-/// component if the other is absent/zero.  Tool count is omitted --
+/// Returns "Xh Ym Zs · N.NNK tokens" (time · tokens), or just one
+/// component if the other is absent/zero.  Tool count is omitted —
 /// no live in-turn tool accumulator exists (only the per-turn
 /// completion count in `PendingSeparator`).
 fn round_cap_stats(state: &crate::state::UiState) -> String {
@@ -28699,7 +28702,7 @@ fn round_cap_stats(state: &crate::state::UiState) -> String {
     if let Some(d) = state.turn_elapsed() {
         parts.push(crate::render::fmt_dur(d));
     }
-    // Per-turn token total (matches the per-turn `turn_elapsed()` above) --
+    // Per-turn token total (matches the per-turn `turn_elapsed()` above) —
     // `total_tokens` is session-cumulative and would misreport the tokens spent
     // in THIS turn, which is what the checkpoint is asking about.
     let turn_tokens =
@@ -28710,7 +28713,7 @@ fn round_cap_stats(state: &crate::state::UiState) -> String {
             rustcode_config::i18n::fmt_tokens(turn_tokens)
         ));
     }
-    parts.join(" . ")
+    parts.join(" · ")
 }
 
 fn build_input_status(state: &UiState, ctx: &LoopCtx, buf: &Buffer) -> crate::render::StatusLine {
@@ -28895,7 +28898,7 @@ fn format_spinner_label(
     //
     // While a `task` subagent fan-out is running, the parent agent is just
     // waiting on its children (a generic `Pondering...`). Replace that with the
-    // children's latest live activity (`explore#4 . grep unwrap`) so the
+    // children's latest live activity (`explore#4 · grep unwrap`) so the
     // otherwise-silent multi-minute fan-out shows what it's doing -- in-place on
     // the spinner, so it coexists with the goal/todo footer rows for free.
     let base: &str = state
@@ -28916,10 +28919,10 @@ fn format_spinner_label(
     // metadata so `spinner_meta_suffix` can splice it out (a tool isn't
     // "thinking") while still forwarding the trailing time/queue anchors.
     if let Some(effort) = reasoning_effort {
-        out.push_str(&format!(" . thinking with {} effort", effort));
+        out.push_str(&format!(" · thinking with {} effort", effort));
     }
     if queue_len > 0 {
-        out.push_str(&format!(" . {} queued", queue_len));
+        out.push_str(&format!(" · {} queued", queue_len));
     }
     // (The mid-stream ". esc to cancel" stall hint was removed by request -- esc
     // still cancels, it's just no longer advertised in the spinner. The stall
@@ -28938,7 +28941,7 @@ fn format_spinner_label(
         let tokens = state.turn_output_token_estimate();
         if tokens > 0 {
             out.push_str(&format!(
-                " ({elapsed} . \u{2191} {} tokens)",
+                " ({elapsed} · \u{2191} {} tokens)",
                 crate::i18n::fmt_tokens(tokens)
             ));
         } else {
@@ -28953,8 +28956,8 @@ fn format_spinner_label(
 /// `ReadFile`, `EditFile`, `WebFetch` -- a CC-style convention that reads
 /// more cleanly at a glance.
 ///
-/// Map a tool's success to the `*` header-bullet outcome. Only success is
-/// coloured (green); every failure renders neutral (the `[x]` result line carries
+/// Map a tool's success to the `●` header-bullet outcome. Only success is
+/// coloured (green); every failure renders neutral (the `✗` result line carries
 /// the detail), so no failure-class distinction is needed here.
 pub(crate) fn tool_bullet_outcome(success: bool) -> crate::render::ToolOutcome {
     if success {
@@ -28972,10 +28975,10 @@ pub(crate) fn tool_bullet_outcome(success: bool) -> crate::render::ToolOutcome {
 pub fn display_tool_name(snake: &str) -> String {
     if let Some(rest) = snake.strip_prefix("mcp__") {
         if let Some((server, tool)) = rest.split_once("__") {
-            // `<server> . <tool>` -- the server name (e.g. `playwright`) already
-            // signals this is an external MCP call, so the literal `mcp .` prefix
+            // `<server> · <tool>` — the server name (e.g. `playwright`) already
+            // signals this is an external MCP call, so the literal `mcp ·` prefix
             // was redundant (opencode/codex/omp all omit it).
-            return format!("{} . {}", server, tool);
+            return format!("{} · {}", server, tool);
         }
     }
     pascal_case(snake)
@@ -29181,7 +29184,7 @@ pub(crate) fn format_tool_detail(name: &str, args_json: &str) -> String {
             if from.is_empty() || to.is_empty() {
                 String::new()
             } else {
-                format!("{} -> {}", from, to)
+                format!("{} → {}", from, to)
             }
         }
         "blast_radius" | "file_dependencies" => {
@@ -29200,7 +29203,7 @@ pub(crate) fn format_tool_detail(name: &str, args_json: &str) -> String {
             match (&search, &replace) {
                 (Some(s), Some(r)) => {
                     let arrow = format!(
-                        "{} -> {}",
+                        "{} → {}",
                         crate::width::truncate_with_ellipsis(s, 60),
                         crate::width::truncate_with_ellipsis(r, 60)
                     );
@@ -29258,7 +29261,7 @@ pub(crate) fn format_tool_detail(name: &str, args_json: &str) -> String {
                         let id = v.get("id").and_then(|x| x.as_u64());
                         let status = get_str("status").unwrap_or_default();
                         match (id, status.as_str()) {
-                            (Some(i), s) if !s.is_empty() => format!("#{} -> {}", i, s),
+                            (Some(i), s) if !s.is_empty() => format!("#{} → {}", i, s),
                             (Some(i), _) => format!("#{}", i),
                             (None, s) if !s.is_empty() => s.to_string(),
                             _ => String::new(),

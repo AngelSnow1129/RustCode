@@ -29,7 +29,7 @@ fn is_placeholder_name(name: &str) -> bool {
 /// (e.g. `rustcode v4.25.7`) so a fresh tab still shows something meaningful.
 /// Real names (auto-named from the first user message, or a `/rename`) are
 /// scrubbed of control characters, have their whitespace collapsed to single
-/// spaces, and are truncated to [`MAX_TITLE_CHARS`] with a trailing `...`.
+/// spaces, and are truncated to [`MAX_TITLE_CHARS`] with a trailing `…`.
 pub fn session_terminal_title(name: &str, fallback: &str) -> String {
     if is_placeholder_name(name) {
         return fallback.to_string();
@@ -49,7 +49,7 @@ pub fn session_terminal_title(name: &str, fallback: &str) -> String {
 
     if cleaned.chars().count() > MAX_TITLE_CHARS {
         let kept: String = cleaned.chars().take(MAX_TITLE_CHARS - 1).collect();
-        return format!("{kept}...");
+        return format!("{kept}\u{2026}");
     }
 
     cleaned
@@ -174,7 +174,7 @@ mod tests {
         let name = "a".repeat(50);
         let title = session_terminal_title(&name, FB);
         assert_eq!(title.chars().count(), MAX_TITLE_CHARS);
-        assert!(title.ends_with("..."));
+        assert!(title.ends_with('\u{2026}'));
     }
 
     #[test]
@@ -215,7 +215,7 @@ mod tests {
         // The name portion is still truncated to MAX_TITLE_CHARS; the glyph
         // is extra, so total is MAX + "🟢 " (2 chars) and the name part is intact.
         let name = "a".repeat(50);
-        let plain = session_terminal_title(&name, FB); // MAX_TITLE_CHARS chars, ends with ...
+        let plain = session_terminal_title(&name, FB); // MAX_TITLE_CHARS chars, ends with …
         let with = session_terminal_title_with_status(&name, FB, Some("🟢"));
         assert_eq!(with, format!("🟢 {plain}"));
         assert!(plain.chars().count() == MAX_TITLE_CHARS);

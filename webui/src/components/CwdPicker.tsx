@@ -153,7 +153,7 @@ export function CwdPicker({ current, onPick, onClose }: CwdPickerProps) {
     >
       <div class="modal-card">
         <div class="modal-header">
-          <span>📁</span>
+          <span>[D]</span>
           <h3>{t('cwd.title')}</h3>
           <span class="modal-sub" style="margin-left:auto">{t('cwd.affectsSession')}</span>
         </div>
@@ -210,7 +210,7 @@ export function CwdPicker({ current, onPick, onClose }: CwdPickerProps) {
               {!dirLoading &&
                 dirs.map((d) => (
                   <button key={d} class="dir-item" onClick={() => handleSubdirClick(d)}>
-                    <span>📁</span>
+                    <span>[D]</span>
                     <span>{d}</span>
                   </button>
                 ))}

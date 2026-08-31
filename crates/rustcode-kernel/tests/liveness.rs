@@ -521,7 +521,9 @@ async fn request_timeout_degrades_to_null_and_unblocks_turn() {
         (saw_request, blocked_result, completed)
     })
     .await
-    .expect("request-timeout turn must NOT hang -- the round-trip must degrade to Null and unblock");
+    .expect(
+        "request-timeout turn must NOT hang -- the round-trip must degrade to Null and unblock",
+    );
 
     assert!(
         saw_request,

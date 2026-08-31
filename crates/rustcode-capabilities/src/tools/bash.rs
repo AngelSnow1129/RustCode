@@ -6,7 +6,7 @@
 //! privilege escalation, recursive force deletes, `find -delete`, `dd`, fork bombs,
 //! destructive git, remote-script-piped-to-shell, ...); everything else is `Safe`.
 //! Dropped vs production: streamed stdout (no event channel in the neutral context),
-//! first-error-signature capture, telemetry, and the setsid/process-group reaping
+//! first-error-signature capture, and the setsid/process-group reaping
 //! (the neutral version kills the direct child via `kill_on_drop`).
 
 use super::bash_workspace_gate::scan_redirect_writes;

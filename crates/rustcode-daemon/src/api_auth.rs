@@ -250,14 +250,18 @@ pub(crate) async fn auth_login_poll(
                 newly_authorized: true,
             } = &result.step
             {
-                // Fire-and-forget: after a fresh login, sync CodingPlan
+                // Fire-and-forget: after a fresh login, sync gateway
                 // models in the background so both IDE plugins (VS Code /
                 // JetBrains) get a populated model list on their next
                 // `/models` refresh without a manual "sync" click.
+                // Platform client only -- absent from a neutral build.
+                #[cfg(feature = "codingplan")]
                 crate::api_codingplan::sync_codingplan_after_login(
                     state_inner.clone(),
                     client_mode,
                 );
+                #[cfg(not(feature = "codingplan"))]
+                let _ = client_mode;
             }
 
             login_poll_response(result)

@@ -1,7 +1,7 @@
 //! ASCII fallback for decorative Unicode glyphs on non-unicode terminals.
 //!
 //! Many glyphs are hardcoded into rendered text — most pervasively the `✓`/`✗`/`⚠`
-//! status marks baked into `rustcode-core`'s i18n strings, which live BELOW the terminal
+//! status marks baked into the config layer's i18n strings, which live BELOW the terminal
 //! layer and so can't consult `TerminalCaps`. On a terminal flagged `!unicode_symbols`
 //! (legacy Windows conhost, no-unicode fonts) those glyphs render as `□` tofu — even
 //! though rustcode's *own* symbols (such as the chevron and spinner) already fall back

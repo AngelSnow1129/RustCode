@@ -1,6 +1,7 @@
 //! The ONE outbound HTTP client factory for this crate.
 //!
-//! Every egress call site (LLM providers, `web_fetch`, `web_search`, AtomGit, MCP)
+//! Every egress call site (LLM providers, `web_fetch`, `web_search`, the opt-in repo
+//! REST tools, MCP)
 //! used to hand-roll its own `reqwest::Client::builder()`, so proxy handling, TLS
 //! trust roots, timeouts and pool policy silently diverged between them. This module
 //! is the single home for that policy; callers only describe WHAT they need via

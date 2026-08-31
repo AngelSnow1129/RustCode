@@ -174,8 +174,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   public onModelSelected?: (model: string) => void;
 
   private _settingsWatcher?: vscode.Disposable;
-  private _atomCodeConfigWatcher?: vscode.FileSystemWatcher;
-  private _atomCodeAuthWatcher?: vscode.FileSystemWatcher;
+  private _rustCodeConfigWatcher?: vscode.FileSystemWatcher;
+  private _rustCodeAuthWatcher?: vscode.FileSystemWatcher;
   private _watchedConfigPath?: string;
   private _watchedAuthPath?: string;
   private _setupRefreshTimer?: NodeJS.Timeout;
@@ -250,8 +250,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this._loginId = undefined;
     if (loginId) void this._client.cancelLogin(loginId).catch(() => undefined);
     this._settingsWatcher?.dispose();
-    this._atomCodeConfigWatcher?.dispose();
-    this._atomCodeAuthWatcher?.dispose();
+    this._rustCodeConfigWatcher?.dispose();
+    this._rustCodeAuthWatcher?.dispose();
     if (this._setupRefreshTimer) clearTimeout(this._setupRefreshTimer);
   }
 
@@ -1898,7 +1898,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private _watchRustCodeConfig(configPath: string) {
     if (!configPath || this._watchedConfigPath === configPath) return;
-    this._atomCodeConfigWatcher?.dispose();
+    this._rustCodeConfigWatcher?.dispose();
     this._watchedConfigPath = configPath;
     const watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(path.dirname(configPath), path.basename(configPath)),
@@ -1907,12 +1907,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     watcher.onDidCreate(scheduleRefresh);
     watcher.onDidChange(scheduleRefresh);
     watcher.onDidDelete(scheduleRefresh);
-    this._atomCodeConfigWatcher = watcher;
+    this._rustCodeConfigWatcher = watcher;
   }
 
   private _watchRustCodeAuth(authPath: string) {
     if (!authPath || this._watchedAuthPath === authPath) return;
-    this._atomCodeAuthWatcher?.dispose();
+    this._rustCodeAuthWatcher?.dispose();
     this._watchedAuthPath = authPath;
     const watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(path.dirname(authPath), path.basename(authPath)),
@@ -1921,7 +1921,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     watcher.onDidCreate(scheduleRefresh);
     watcher.onDidChange(scheduleRefresh);
     watcher.onDidDelete(scheduleRefresh);
-    this._atomCodeAuthWatcher = watcher;
+    this._rustCodeAuthWatcher = watcher;
   }
 
   private _scheduleSetupStateRefresh() {
@@ -2697,13 +2697,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             vscode.l10n.t('Example:'),
             '',
             '```toml',
-            'default_provider = "deepseek"',
+            'default_provider = "my-provider"',
             '',
-            '[providers.deepseek]',
+            '[providers.my-provider]',
             'type           = "openai"',
             'api_key        = "sk-..."',
-            'model          = "deepseek-chat"',
-            'base_url       = "https://api.deepseek.com/v1"',
+            'model          = "your-model-id"',
+            'base_url       = "https://api.example.com/v1"',
             'context_window = 64000',
             '```',
             '',

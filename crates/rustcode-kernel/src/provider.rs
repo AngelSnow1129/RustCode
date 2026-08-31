@@ -66,7 +66,7 @@ pub enum ReasoningEffort {
     Low,
     Medium,
     High,
-    /// Extra-high effort -- some endpoints (e.g. AtomGit Qwen) accept
+    /// Extra-high effort -- some managed endpoints (e.g. a hosted Qwen) accept
     /// `reasoning_effort: "xhigh"` between the standard `high` and the ceiling `max`.
     XHigh,
     /// Maximum effort -- DeepSeek V4 accepts `reasoning_effort: "max"` beyond the

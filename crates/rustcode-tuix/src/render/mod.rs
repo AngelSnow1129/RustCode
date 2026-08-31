@@ -803,7 +803,7 @@ pub struct UserInputAnswerSummary {
 /// `cap` is the configured round limit (displayed in both the question and the
 /// continue option description). `cursor` is the currently highlighted row
 /// (0 = "继续", 1 = "停止"). `stats` is a pre-formatted elapsed/token string
-/// (e.g. "2h0m0s . 305.00K tokens") -- appended to the question when non-empty.
+/// (e.g. "2h0m0s · 305.00K tokens") — appended to the question when non-empty.
 pub fn round_cap_view(cap: u32, base: u32, cursor: usize, stats: &str) -> UserInputPanelView {
     use rustcode_capabilities::tools::request_user_input::UserInputMode;
     let question = if stats.is_empty() {

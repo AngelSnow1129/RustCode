@@ -72,7 +72,7 @@ Before a batch of tool calls, send ONE short line saying what you're about to do
 
 - 纯文本改动：`RULES` 总是注入（两节覆盖所有默认 coding 对话）；`FIRM_EXECUTION_DISCIPLINE` 仅 `model_needs_firm_execution`（deepseek）注入。
 - 不新增工具/模式/env 门控。`## PROGRESS SIGNPOSTS` 不点名工具，故不受 `RUSTCODE_TODO` / `RUSTCODE_REQUEST_USER_INPUT` 门控影响、不撞门控不变式测试。
-- ⚠️ 落地注意 `\` 续行焊接坑（上一改动 code-review 抓到的真 bug）：新 bullet/段落之间用**字面换行**，行尾**不要**误加 `\`；测试补边界断言。
+- [!] 落地注意 `\` 续行焊接坑（上一改动 code-review 抓到的真 bug）：新 bullet/段落之间用**字面换行**，行尾**不要**误加 `\`；测试补边界断言。
 
 ## 测试计划
 

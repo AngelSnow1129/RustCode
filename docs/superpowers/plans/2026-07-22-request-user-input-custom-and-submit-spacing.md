@@ -452,14 +452,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Self-Review
 
 **Spec coverage:**
-- `custom` field + serde default + schema + description → Task 1. ✓
-- TUI state gates Other row (index math) → Task 2. ✓
-- Render gates Other row + blank-before-Submit + row count → Task 3. ✓
-- Event-loop digit handler + view `custom` → Task 4. ✓
-- daemon forward + webui honor → Task 5. ✓
-- Row-count invariant for both `custom` values + new blank → Task 3 Steps 4/6. ✓
-- Existing multiple-mode row-count test updated for the +1 blank → Task 3 Step 6. ✓
-- WIP-staging caution → Global Constraints + `git add -p` in Tasks 2/4. ✓
+- `custom` field + serde default + schema + description → Task 1. [x]
+- TUI state gates Other row (index math) → Task 2. [x]
+- Render gates Other row + blank-before-Submit + row count → Task 3. [x]
+- Event-loop digit handler + view `custom` → Task 4. [x]
+- daemon forward + webui honor → Task 5. [x]
+- Row-count invariant for both `custom` values + new blank → Task 3 Steps 4/6. [x]
+- Existing multiple-mode row-count test updated for the +1 blank → Task 3 Step 6. [x]
+- WIP-staging caution → Global Constraints + `git add -p` in Tasks 2/4. [x]
 
 **Placeholder scan:** Tasks 1-2 carry complete code; 3-5 give exact anchors + the specific gating/edits (they modify large existing functions, so they show the delta not the whole 300-line renderer). No "TBD"/"handle edge cases".
 

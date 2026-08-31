@@ -19,14 +19,27 @@ path = "src/lib.rs"
 [features]
 default = []
 distro-pm = ["rustcode-updater/distro-pm", "rustcode-tuix/distro-pm"]
+# Platform signing-gateway client (CodingPlan `/login`, gateway model sync/claim,
+# usage). OFF by default: the neutral fork ships no platform client -- operators
+# configure their own third-party provider in `~/.rustcode/config.toml`. Enabling
+# `codingplan-crypto` (the official signed build) pulls this in automatically.
+# The `client` feature links codingplan's reqwest gateway `Client` (used by the
+# CLI setup orchestrator and the daemon); `rustcode-tuix/codingplan` restores the
+# TUI gateway login/usage flows.
+codingplan = [
+    "dep:rustcode-codingplan",
+    "rustcode-codingplan/client",
+    "rustcode-daemon/codingplan",
+    "rustcode-tuix/codingplan",
+]
 # Official-release signing is owned by the final binary. Keep the open-source
 # default unsigned while giving the release pipeline an explicit, core-free
 # feature entry point.
-codingplan-crypto = ["rustcode-auth/codingplan-crypto"]
+codingplan-crypto = ["rustcode-auth/codingplan-crypto", "codingplan"]
 
 [dependencies]
 async-trait = "0.1"
-rustcode-codingplan = { path = "../rustcode-codingplan" }
+rustcode-codingplan = { path = "../rustcode-codingplan", optional = true }
 # Config system used directly by the final binary.
 rustcode-config = { path = "../rustcode-config" }
 # Self-update mechanics (leaf crate, extracted from core).

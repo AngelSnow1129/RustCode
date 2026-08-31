@@ -792,18 +792,18 @@ If no fixups needed, skip this step.
 ## Self-Review Checklist (run before handoff)
 
 **1. Spec coverage:**
-- OCR models recognized → Task 7. ✓
-- Auto-set on None → Task 8 step 3 + test. ✓
-- Auto-overwrite on AtomGit-* stale → Task 8 step 3 + test. ✓
-- Cleared on AtomGit-* + no-VL list → Task 8 step 3 + test. ✓
-- Preserved on non-AtomGit user value → Task 8 step 3 + test. ✓
-- Render line for each outcome → Task 8 steps 4 + 9. ✓
-- UnchangedNone silent → Task 8 step 9 (`render_omits_vision_preprocessor_line_when_unchanged_none`). ✓
+- OCR models recognized → Task 7. [x]
+- Auto-set on None → Task 8 step 3 + test. [x]
+- Auto-overwrite on AtomGit-* stale → Task 8 step 3 + test. [x]
+- Cleared on AtomGit-* + no-VL list → Task 8 step 3 + test. [x]
+- Preserved on non-AtomGit user value → Task 8 step 3 + test. [x]
+- Render line for each outcome → Task 8 steps 4 + 9. [x]
+- UnchangedNone silent → Task 8 step 9 (`render_omits_vision_preprocessor_line_when_unchanged_none`). [x]
 
 **2. Placeholder scan:** No "TBD"/"TODO"/"add error handling" in any task. The "[describe specific fixes here]" placeholder in Task 9's optional commit is fine — it's only used IF a fixup is actually needed, and in that case the implementer fills it in.
 
 **3. Type consistency:**
-- `VisionPreprocessorOutcome` defined once (Task 8 step 1) and used in both production (Task 8 steps 2–4) and tests (Task 8 steps 5, 6, 9). ✓
-- `model_name_suggests_vision` (free function) used identically across Tasks 7 and 8. ✓
-- `is_codingplan_provider_name` used in both wipe step and the precedence check. ✓
-- `ModelsInfo` literal updates (Task 8 step 5) cover all 8 existing render tests. ✓
+- `VisionPreprocessorOutcome` defined once (Task 8 step 1) and used in both production (Task 8 steps 2–4) and tests (Task 8 steps 5, 6, 9). [x]
+- `model_name_suggests_vision` (free function) used identically across Tasks 7 and 8. [x]
+- `is_codingplan_provider_name` used in both wipe step and the precedence check. [x]
+- `ModelsInfo` literal updates (Task 8 step 5) cover all 8 existing render tests. [x]

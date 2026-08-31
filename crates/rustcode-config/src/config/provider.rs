@@ -94,7 +94,7 @@ pub struct ProviderConfig {
     pub ephemeral: bool,
     /// Capability rank for the `task` subagent's strong/weak auto-routing. Higher = more
     /// capable. A provider WITHOUT this set does NOT participate in tier routing. Populated
-    /// from the AtomGit server's model list at login (or hand-written in config.toml). When
+    /// from the managed platform's model list at login (or hand-written in config.toml). When
     /// ≥2 providers carry it, the highest is the `capable` tier and the lowest the `fast`
     /// tier; fewer than 2 (or a non-participating host) ⇒ the subagent uses the current model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -666,7 +666,7 @@ mod tests {
             type = "openai"
             model = "GLM-5.1"
             api_key = "sk-test"
-            base_url = "https://api-ai.gitcode.com/v1"
+            base_url = "https://api-ai.example.net/v1"
         "#;
         let cfg: ProviderConfig = toml::from_str(toml_str).expect("parse");
         assert!(!cfg.accepts_images());
@@ -847,7 +847,7 @@ mod tests {
         let toml_str = r#"
             type = "openai"
             model = "GLM-5.2"
-            base_url = "https://llm-api.atomgit.com/v1"
+            base_url = "https://llm-api.example.com/v1"
             context_window = 200000
             capable_model = 1
         "#;

@@ -507,7 +507,7 @@ static AUTO_SYNC_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 /// (and config-file watch), with zero plugin changes.
 ///
 /// Deliberately fire-and-forget: the login poll response must not wait for the
-/// claim/models network round-trips. Failures are logged / telemetry-tracked
+/// claim/models network round-trips. Failures are logged
 /// but never fail the login itself.
 pub(crate) fn sync_codingplan_after_login(state: AppState, _client_mode: ClientMode) {
     if AUTO_SYNC_IN_FLIGHT

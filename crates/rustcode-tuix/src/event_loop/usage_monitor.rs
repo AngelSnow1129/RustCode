@@ -43,6 +43,7 @@ pub const USAGE_COOLDOWN: Duration = Duration::from_secs(30);
 /// The stored `Instant` is the fetch time; `build_usage_hint` uses it with
 /// `UsageInfo::seconds_until_reset` to expire the cached value once its
 /// rolling window has elapsed (see there for why this is timezone-immune).
+#[cfg(feature = "codingplan")]
 pub fn spawn_check(slot: Arc<Mutex<Option<(UsageInfo, Instant)>>>, wake_tx: mpsc::Sender<()>) {
     tokio::spawn(async move {
         // Blocking client lives on a spawn_blocking thread so the tokio
@@ -66,6 +67,11 @@ pub fn spawn_check(slot: Arc<Mutex<Option<(UsageInfo, Instant)>>>, wake_tx: mpsc
         let _ = wake_tx.try_send(());
     });
 }
+
+/// Neutral-build stub: without the gateway client there is no usage endpoint to
+/// poll, so the slot is never populated and the hint never shows.
+#[cfg(not(feature = "codingplan"))]
+pub fn spawn_check(_slot: Arc<Mutex<Option<(UsageInfo, Instant)>>>, _wake_tx: mpsc::Sender<()>) {}
 
 /// Build a `(text, severity)` hint pair for the status line, or `None`
 /// when no hint should be shown.

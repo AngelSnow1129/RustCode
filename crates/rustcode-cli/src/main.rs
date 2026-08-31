@@ -1356,9 +1356,9 @@ async fn run() -> Result<i32> {
     let cli = Cli::parse();
 
     // ── Askpass early exit ────────────────────────────────────────────────────
-    // Handle `rustcode __askpass <prompt>` before ANY TUI/telemetry setup.
+    // Handle `rustcode __askpass <prompt>` before ANY TUI/daemon setup.
     // sudo/ssh invoke this helper synchronously; it must not spawn async
-    // runtimes, connect to telemetry, or open a terminal.
+    // runtimes, perform network I/O, or open a terminal.
     if let Some(Commands::Askpass { prompt }) = &cli.command {
         #[cfg(unix)]
         {
@@ -1899,6 +1899,19 @@ async fn run() -> Result<i32> {
     );
     runtime_cfg.next_prompt_suggestions = !is_headless;
     let model_name = runtime_cfg.model.clone();
+    // Headless (`-p`) has no onboarding wizard. If no provider/model resolved -- an
+    // empty config with no third-party provider, or a `--provider` name that matches
+    // nothing -- fail fast with an actionable message instead of building an OpenAI
+    // adapter with an empty base_url and dying deep in reqwest with a cryptic
+    // "relative URL without a base". This mirrors the TUI's `model.is_empty()`
+    // onboarding trigger, turned into a hard error for the non-interactive path.
+    if is_headless {
+        if let Some(message) =
+            headless_missing_provider_message(&runtime_cfg, cli.provider.as_deref())
+        {
+            anyhow::bail!("{message}");
+        }
+    }
     let provider_bootstrap = if is_headless {
         rustcode_coding::ProviderBootstrap::Required
     } else {
@@ -2469,6 +2482,37 @@ fn interactive_provider_bootstrap(
     }
 }
 
+/// Headless pre-flight: returns an actionable error message when no provider/model
+/// resolved (empty config, or a `--provider` name that matches nothing). Returns
+/// `None` when a provider resolved and the run should proceed.
+///
+/// The non-interactive path cannot fall back to the onboarding wizard, so the
+/// `model.is_empty()` condition that sends the TUI to onboarding becomes a hard,
+/// clearly-worded error here -- avoiding a cryptic reqwest "relative URL without a
+/// base" from an OpenAI adapter built with an empty `base_url`.
+pub(crate) fn headless_missing_provider_message(
+    runtime_cfg: &rustcode_coding::CodingRuntimeConfig,
+    requested: Option<&str>,
+) -> Option<String> {
+    if !runtime_cfg.model.is_empty() {
+        return None;
+    }
+    let path = rustcode_config::config::Config::default_path();
+    Some(match requested {
+        Some(name) => format!(
+            "Provider not found: '{name}' matches no configured provider and no default provider is set. \
+             Configure a third-party provider (base_url, api_key, model) in {}, or run `rustcode` with \
+             no arguments for interactive setup.",
+            path.display()
+        ),
+        None => format!(
+            "No provider configured. Add a third-party provider (base_url, api_key, model) in {}, \
+             or run `rustcode` with no arguments for interactive setup.",
+            path.display()
+        ),
+    })
+}
+
 pub(crate) async fn spawn_native_cli_runtime(
     cfg: &rustcode_coding::CodingRuntimeConfig,
     resume_session_id: Option<String>,
@@ -2557,6 +2601,7 @@ pub(crate) async fn spawn_native_cli_runtime(
         web: !no_tools,
         review: !no_tools,
         request_user_input: !no_tools,
+        #[cfg(feature = "codingplan")]
         rate_limit_source: Some(rustcode_daemon::coding_plan_rate_limit_source()),
         ..rustcode_coding::PrepareOptions::default()
     };
@@ -3926,11 +3971,25 @@ fn run_rollback_cli() -> Result<()> {
     Ok(())
 }
 
+/// Neutral-build fallback: the platform signing-gateway client is not compiled in
+/// (the `codingplan` feature is off by default), so `rustcode login` cannot perform a
+/// managed login. Direct the operator to their own third-party provider instead.
+#[cfg(not(feature = "codingplan"))]
+fn run_codingplan_core() -> Result<String> {
+    Ok(String::from(
+        "\n  [*] Managed login is not built into this build.\n\
+            Skip `/login` and configure a third-party provider directly in\n\
+            ~/.rustcode/config.toml with your own base_url and api_key\n\
+            (or set RUSTCODE_PLATFORM_SERVER for a managed gateway).\n",
+    ))
+}
+
 /// Core CodingPlan flow shared by CLI-exit and CLI->TUI paths. Loads
 /// the config (or starts from defaults if missing), runs the shared
 /// `coding_plan::setup` orchestrator, persists the config on success,
 /// and returns the rendered human-readable report -- the caller decides
 /// whether to print it to stdout or stash it for the TUI to surface.
+#[cfg(feature = "codingplan")]
 fn run_codingplan_core() -> Result<String> {
     let path = Config::default_path();
     // Missing config is legitimate on first install -- start from defaults
@@ -4095,10 +4154,11 @@ mod tests {
         apply_cli_runtime_overrides, close_thinking_chunk, format_thinking_chunk,
         format_verbose_tool_chunk, headless_completion_exit_code,
         headless_completion_notify_reason, headless_denial_exit_code,
-        interactive_provider_bootstrap, is_completion_invocation, merge_startup_notices,
-        print_shell_completion, resolve_in_catalog, resolve_working_dir, resume_hint_line,
-        runtime_config_from, rustcode_log_path, should_fork_busy_continue, truncate_log_line, Cli,
-        Commands, HeadlessOutputFormat, DEFAULT_LOG_DIRECTIVES,
+        headless_missing_provider_message, interactive_provider_bootstrap,
+        is_completion_invocation, merge_startup_notices, print_shell_completion,
+        resolve_in_catalog, resolve_working_dir, resume_hint_line, runtime_config_from,
+        rustcode_log_path, should_fork_busy_continue, truncate_log_line, Cli, Commands,
+        HeadlessOutputFormat, DEFAULT_LOG_DIRECTIVES,
     };
     use clap::Parser;
     use clap_complete::Shell;
@@ -4364,12 +4424,52 @@ mod tests {
     }
 
     #[test]
+    fn headless_missing_provider_message_fires_only_without_resolved_model() {
+        let wd = PathBuf::from("/tmp/x");
+
+        // Empty config + a bogus `--provider` name: nothing resolves, so headless
+        // must get an actionable "Provider not found" error (T5b) rather than a
+        // cryptic reqwest "relative URL without a base".
+        let empty: rustcode_config::config::Config = toml::from_str("").unwrap();
+        let empty_cfg = runtime_config_from(&empty, &wd, None, false, false);
+        let named = headless_missing_provider_message(&empty_cfg, Some("__nonexistent_qa_probe__"))
+            .expect("empty config with a named --provider yields an error");
+        assert!(named.contains("Provider not found"), "got: {named}");
+        assert!(
+            named.contains("__nonexistent_qa_probe__"),
+            "message should name the requested provider: {named}"
+        );
+
+        // Empty config, no `--provider`: the no-provider branch still flags it.
+        let unnamed = headless_missing_provider_message(&empty_cfg, None)
+            .expect("empty config without a provider yields an error");
+        assert!(
+            unnamed.to_ascii_lowercase().contains("provider"),
+            "got: {unnamed}"
+        );
+
+        // A configured third-party provider resolves a model -> run proceeds.
+        let toml_str = r#"
+            default_provider = "p"
+            [providers.p]
+            type = "openai"
+            api_key = "sk-x"
+            model = "m"
+            base_url = "https://api.example.com/v1"
+        "#;
+        let cfg: rustcode_config::config::Config = toml::from_str(toml_str).unwrap();
+        let resolved = runtime_config_from(&cfg, &wd, None, false, false);
+        assert!(headless_missing_provider_message(&resolved, None).is_none());
+        assert!(headless_missing_provider_message(&resolved, Some("p")).is_none());
+    }
+
+    #[test]
     fn runtime_config_honors_provider_override() {
         // Regression: engine-v2 headless `--provider X` was silently ignored --
         // runtime_config_from read `default_provider` directly instead of routing
         // through `active_provider`, so the runtime picked the config default
         // (e.g. a gateway needing a signer this build lacks) and a
-        // `--provider deepseek` run hit the wrong endpoint and failed.
+        // `--provider direct` run hit the wrong endpoint and failed.
         let toml_str = r#"
             default_provider = "gateway"
 
@@ -4382,7 +4482,7 @@ mod tests {
             type = "openai"
             api_key = "sk-direct"
             model = "direct-model"
-            base_url = "https://api.deepseek.com"
+            base_url = "https://direct.example.com/v1"
             reasoning_history = "exclude"
         "#;
         let config: rustcode_config::config::Config = toml::from_str(toml_str).unwrap();
@@ -4398,7 +4498,7 @@ mod tests {
         // `--provider direct` -> that provider's endpoint/model/key + its per-provider
         // reasoning_history override, NOT the default.
         let ov = runtime_config_from(&config, &wd, Some("direct"), false, false);
-        assert_eq!(ov.base_url, "https://api.deepseek.com");
+        assert_eq!(ov.base_url, "https://direct.example.com/v1");
         assert_eq!(ov.model, "direct-model");
         assert_eq!(ov.provider_name, "direct");
         assert_eq!(ov.api_key, "sk-direct");

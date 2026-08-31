@@ -24,9 +24,9 @@
   - 从 `tool/mod.rs`（~360）剪切 `pub fn real_home_dir() -> Option<PathBuf>` 全体（连同其私有 helper，若有）到 `crates/rustcode-core/src/process_utils.rs`（加必要的 `use std::path::PathBuf;` 等）。若 tool/mod.rs 有 `real_home_dir` 的单测，一并搬。
   - 更新 3 个 core 内部调用点：`skill.rs:501`、`graph/indexer.rs:489`、`plugin/installer.rs:267` 与 `:271`，把 `crate::tool::real_home_dir()` → `crate::process_utils::real_home_dir()`。
 - [ ] **Step 2: 搬 `ToolCall` 到 core::stream**
-  - 从 `tool/mod.rs`（~824）剪切 `pub struct ToolCall { pub id: String, pub name: String, pub arguments: String }`（连其 derive 属性）到 `crates/rustcode-core/src/stream/mod.rs`。⚠️不要搬 `ToolCallBuffer`（那是 tool 内部，随球删）。
+  - 从 `tool/mod.rs`（~824）剪切 `pub struct ToolCall { pub id: String, pub name: String, pub arguments: String }`（连其 derive 属性）到 `crates/rustcode-core/src/stream/mod.rs`。 [!] 不要搬 `ToolCallBuffer`（那是 tool 内部，随球删）。
   - `stream/mod.rs:1` 的 `use crate::tool::ToolCall;` 删掉（现在同模块内定义）。
-  - 若 tool/mod.rs 内其它地方（将被删的球代码）还用 `ToolCall`，它们随球删，不用管；但若 `provider`/`conversation`/`ctx`（也随球删）用了 `ToolCall`，同样不用管。⚠️只需保证**存活模块**（stream 及其消费者）能编译。
+  - 若 tool/mod.rs 内其它地方（将被删的球代码）还用 `ToolCall`，它们随球删，不用管；但若 `provider`/`conversation`/`ctx`（也随球删）用了 `ToolCall`，同样不用管。 [!] 只需保证**存活模块**（stream 及其消费者）能编译。
 - [ ] **Step 3: 编译 core**
   Run: `cargo build -p rustcode-core 2>&1 | grep -E "error|warning: unused"`
   Expected: 无 error（此时球还在，只是符号搬走了；球内对 `crate::tool::real_home_dir`/`crate::tool::ToolCall` 的引用可能报错——若报，把球内引用也改到新路径，或因球即将删可暂留但必须编译过。稳妥做法：球内引用也一并改到 `crate::process_utils::real_home_dir` / `crate::stream::ToolCall`，D3 再删球）。

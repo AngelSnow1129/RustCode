@@ -229,14 +229,14 @@ if [ "$WITH_RELEASE" = "1" ]; then
 fi
 
 echo ""
-echo -e "${C_GREEN}${C_BOLD}开发环境就绪 ✅${C_RESET}"
+echo -e "${C_GREEN}${C_BOLD}开发环境就绪 [SUCCESS]${C_RESET}"
 echo ""
 echo "  快速开始:"
-echo "    cargo run -p rustcode-cli          # 运行 TUI (debug)"
-echo "    cargo run -p rustcode-cli -- -p \"...\"  # headless 模式"
+echo "    cargo run                          # 运行 TUI (debug)"
+echo "    cargo run -p rustcode -- -p \"...\"  # headless 模式"
 echo "    cargo test                         # 跑测试"
 echo "    cargo clippy                       # lint"
-echo "    opencode                          # 启动 opencode (可直连 OpenCode Zen)"
+echo "    opencode                          # 启动 opencode (第三方 agent CLI)"
 echo ""
 echo "  注意: 新开终端会自动加载 Rust/Node/opencode；当前 shell 请先执行:"
 echo "    . \"\$HOME/.cargo/env\""

@@ -314,13 +314,13 @@ async fn review(args: ReviewArgs) -> Result<()> {
     .context(
         "missing model: pass --model, set $RUSTCODE_MODEL, or add model to the config provider",
     )?;
-    // The AtomGit/gitcode gateways require RustCode's proprietary request signing (a
-    // closed-source overlay in the official binary). rustcodex uses the neutral provider
-    // and cannot sign -- fail fast with an actionable message instead of a confusing 401.
+    // Managed signing gateways require proprietary request signing (a closed-source
+    // overlay in the official binary). rustcodex uses the neutral provider and cannot
+    // sign -- fail fast with an actionable message instead of a confusing 401.
     if is_signing_gateway(&base_url) {
         bail!(
-            "provider base_url '{base_url}' is an AtomGit/gitcode signing-enforced gateway, \
-             which rustcodex cannot authenticate against (it needs RustCode's proprietary \
+            "provider base_url '{base_url}' is a managed signing-enforced gateway, \
+             which rustcodex cannot authenticate against (it needs the proprietary \
              request signing). Use a standard provider with an explicit api_key -- e.g. \
              `--provider openrouter`, or set RUSTCODE_API_KEY/RUSTCODE_BASE_URL/RUSTCODE_MODEL \
              to a plain OpenAI-compatible endpoint."
@@ -1662,17 +1662,19 @@ base_url = "https://openrouter.ai/api/v1"
         // Platform-neutral: no host is a signing gateway by default. An operator
         // must explicitly configure RUSTCODE_CODINGPLAN_LLM_BASE_URL for gateway
         // detection to engage.
-        assert!(!is_signing_gateway("https://llm-api.atomgit.com/v1"));
+        assert!(!is_signing_gateway("https://llm-api.example.com/v1"));
         assert!(!is_signing_gateway(
-            "https://api-ai.gitcode.com/v1/chat/completions"
+            "https://api-ai.example.net/v1/chat/completions"
         ));
-        assert!(!is_signing_gateway("https://pre-llm-api-cce.atomgit.com/v1"));
+        assert!(!is_signing_gateway(
+            "https://pre-llm-api-cce.example.com/v1"
+        ));
         // plain providers are fine.
         assert!(!is_signing_gateway("https://openrouter.ai/api/v1"));
         assert!(!is_signing_gateway("https://api.deepseek.com/v1"));
         // a lookalike path must NOT trip the host check.
         assert!(!is_signing_gateway(
-            "https://evil.com/llm-api.atomgit.com/v1"
+            "https://evil.com/llm-api.example.com/v1"
         ));
     }
 

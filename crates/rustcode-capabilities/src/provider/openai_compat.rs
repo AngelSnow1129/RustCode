@@ -46,7 +46,7 @@ use std::time::Duration;
 ///
 /// These are sent ONLY when the request actually targets `openrouter.ai` (see
 /// [`is_openrouter_url`]) so other OpenAI-compatible endpoints -- including
-/// AtomGit's own signing gateway -- never receive them.
+/// the managed signing gateway -- never receive them.
 pub const OPENROUTER_ATTRIBUTION_HEADERS: &[(&str, &str); 3] = &[
     ("HTTP-Referer", "https://gitcode.com/SecLab/RustCode"),
     ("X-OpenRouter-Title", "RustCode"),
@@ -142,9 +142,10 @@ pub struct OpenAiCompatConfig {
     pub request_signer: Option<std::sync::Arc<dyn RequestSigner>>,
     /// User-Agent sent on every request. `None` ⇒ the generic [`super::DEFAULT_USER_AGENT`]
     /// fallback; the host adapter sets this to `rustcode/<version>` so a forwarding
-    /// gateway can attribute traffic by product version (analytics + per-version cache-hit
-    /// slicing). This crate is versioned independently of the product, so the real version
-    /// MUST be injected here rather than read from a local `CARGO_PKG_VERSION`.
+    /// gateway can route traffic per product version (per-version cache-hit slicing and
+    /// compatibility handling). This crate is versioned independently of the product, so
+    /// the real version MUST be injected here rather than read from a local
+    /// `CARGO_PKG_VERSION`.
     pub user_agent: Option<String>,
     /// Arbitrary extra HTTP headers sent on every request (self-hosted gateway
     /// auth/tenant headers). Sourced from config only -- never hardcoded.
@@ -1556,7 +1557,7 @@ fn truncate_msg(s: &str) -> String {
 
 /// Extract a human-readable error detail from a provider's JSON error body, covering
 /// the common envelope shapes so a clean message surfaces regardless of vendor:
-/// - FastAPI / AtomGit-gateway: `{"detail":{"message":...}}` or `{"detail":"..."}`
+/// - FastAPI / managed-gateway: `{"detail":{"message":...}}` or `{"detail":"..."}`
 /// - OpenAI / Anthropic: `{"error":{"message","type","code"}}` (kept as the tagged
 ///   `[type/code] message` form via [`parse_error_obj`])
 /// - Top-level `{"code","message"}` (e.g. GLM `{"code":"1113","message":"余额不足..."}`)
@@ -2662,8 +2663,7 @@ mod tests {
 
     #[test]
     fn proxied_deepseek_v4_omits_unsupported_tool_choice() {
-        let cfg =
-            OpenAiCompatConfig::new("k", "https://llm-api.atomgit.com/v1", "deepseek-v4-flash");
+        let cfg = OpenAiCompatConfig::new("k", "https://api.deepseek.com/v1", "deepseek-v4-flash");
         let opts = ChatOptions {
             reasoning_effort: Some(ReasoningEffort::High),
             tool_choice: ToolChoice::Specific("todowrite".into()),
@@ -3491,7 +3491,7 @@ mod tests {
             openai.contains("boom") && openai.contains("rate_limit"),
             "{openai}"
         );
-        // FastAPI / AtomGit `{"detail":{"message":...}}`.
+        // FastAPI / managed-gateway `{"detail":{"message":...}}`.
         assert_eq!(
             extract_error_detail(r#"{"detail":{"code":"X","message":"请升级"}}"#),
             "[X] 请升级"
@@ -3509,11 +3509,11 @@ mod tests {
         assert_eq!(
             provider_error_code(&json!({
                 "detail": {
-                    "code": "atomgit_session_concurrency_conflict",
+                    "code": "session_concurrency_conflict",
                     "message": "busy"
                 }
             })),
-            Some("atomgit_session_concurrency_conflict".into())
+            Some("session_concurrency_conflict".into())
         );
     }
 
@@ -3527,22 +3527,22 @@ mod tests {
             friendly_http_error(402, "Insufficient Balance"),
             "账户余额不足（HTTP 402）"
         );
-        // 403 is NOT necessarily auth: AtomGit also uses it for session-concurrency
+        // 403 is NOT necessarily auth: gateways also use it for session-concurrency
         // conflicts. Preserve the structured reason instead of inventing an API-key error.
         assert_eq!(
             friendly_http_error(
                 403,
-                "[atomgit_session_concurrency_conflict/403] 该模型不支持多窗口同时发起请求"
+                "[session_concurrency_conflict/403] 该模型不支持多窗口同时发起请求"
             ),
-            "HTTP 403: [atomgit_session_concurrency_conflict/403] 该模型不支持多窗口同时发起请求"
+            "HTTP 403: [session_concurrency_conflict/403] 该模型不支持多窗口同时发起请求"
         );
         assert_eq!(
             friendly_http_error(403, "user has no codingplan"),
-            "CodingPlan 未领取或已失效（HTTP 403）。请运行 /login 重新登录并领取 CodingPlan。"
+            "账号未开通该模型套餐或授权已失效（HTTP 403），请检查 API key 权限与账户状态。"
         );
         assert_eq!(
             friendly_http_error(403, "USER HAS NO CODINGPLAN"),
-            "CodingPlan 未领取或已失效（HTTP 403）。请运行 /login 重新登录并领取 CodingPlan。"
+            "账号未开通该模型套餐或授权已失效（HTTP 403），请检查 API key 权限与账户状态。"
         );
         assert!(friendly_http_error(401, "").contains("API key"));
         // 429 is NOT wrapped (kernel rate-limit path owns it -- must keep the
@@ -4040,7 +4040,7 @@ mod tests {
         assert!(is_openrouter_url("https://user:pass@openrouter.ai/v1"));
         // Look-alikes / other endpoints must NOT match.
         assert!(!is_openrouter_url("https://api.deepseek.com/v1"));
-        assert!(!is_openrouter_url("https://llm-api.atomgit.com/v1"));
+        assert!(!is_openrouter_url("https://api.example.com/v1"));
         assert!(!is_openrouter_url("https://evilopenrouter.ai/v1"));
         assert!(!is_openrouter_url("https://notopenrouter.ai/v1"));
         assert!(!is_openrouter_url("https://openrouter.ai.evil.com/v1"));

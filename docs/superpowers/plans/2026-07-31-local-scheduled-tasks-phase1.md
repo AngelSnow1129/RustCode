@@ -301,7 +301,7 @@ git add crates/rustcode-capabilities/src/session/manager.rs
 git commit -m "feat(session): add SessionOrigin + list_visible filter" -- crates/rustcode-capabilities/src/session/manager.rs
 ```
 
-> ⚠️ 消费者接入(/resume 选择器 + webui 侧栏改用 `list_visible()`)放到 Task 4 之后的 Task 3.5 里做,或本任务内一并改——见 Task 2b。
+> [WARN] 消费者接入(/resume 选择器 + webui 侧栏改用 `list_visible()`)放到 Task 4 之后的 Task 3.5 里做,或本任务内一并改——见 Task 2b。
 
 ### Task 2b: 普通列表消费者改用 `list_visible()`
 
@@ -446,18 +446,18 @@ git commit -m "feat(schedule): schedule run executor (headless + scheduled-origi
 ## Self-Review
 
 **1. Spec coverage:**
-- 任务 store CRUD + `~/.rustcode/schedules` → Task 1. ✅
-- next_run(简单频率算/cron None) → Task 1. ✅
-- CLI add/list/remove/enable/disable → Task 3. ✅
-- `schedule run` 执行器(复用 headless + 新 session + notify + last_run) → Task 4. ✅
-- SessionMeta origin + 普通列表默认过滤 → Task 2 + Task 2b. ✅
-- 权限默认 plan、可提权 → Task 4 mode_from_str(default plan). ✅
-- 简单频率 + cron 字段 → Task 1 Schedule enum. ✅
-- 不碰云端 / 不碰 OS 调度器 → 全程无,阶段 2 defer. ✅
+- 任务 store CRUD + `~/.rustcode/schedules` → Task 1. [x]
+- next_run(简单频率算/cron None) → Task 1. [x]
+- CLI add/list/remove/enable/disable → Task 3. [x]
+- `schedule run` 执行器(复用 headless + 新 session + notify + last_run) → Task 4. [x]
+- SessionMeta origin + 普通列表默认过滤 → Task 2 + Task 2b. [x]
+- 权限默认 plan、可提权 → Task 4 mode_from_str(default plan). [x]
+- 简单频率 + cron 字段 → Task 1 Schedule enum. [x]
+- 不碰云端 / 不碰 OS 调度器 → 全程无,阶段 2 defer. [x]
 
 **2. Placeholder scan:** Task 2b 和 Task 4 有"实现者读参照/确认字段名/判断 catalog 是否带 origin"——这些是**真实的集成判断点**(依现有代码结构定),已给出确切 grep 目标 + 参照行号 + 决策规则,非 TBD。其余步骤含真实代码。
 
-**3. Type consistency:** `ScheduleTask`/`Schedule` 字段贯穿 Task 1/3/4 一致;`SessionOrigin`/`origin`/`list_visible` 贯穿 Task 2/2b/4;`mode_from_str`/`last_status_for`/`run_task`/`handle_schedule`/`build_task` 命名一致;复用的 main.rs 函数签名逐字取自现有代码。✅
+**3. Type consistency:** `ScheduleTask`/`Schedule` 字段贯穿 Task 1/3/4 一致;`SessionOrigin`/`origin`/`list_visible` 贯穿 Task 2/2b/4;`mode_from_str`/`last_status_for`/`run_task`/`handle_schedule`/`build_task` 命名一致;复用的 main.rs 函数签名逐字取自现有代码。 [x]
 
 ## 阶段 2(另出 spec,不在本计划)
 三平台 OS 调度器自动注册/注销(launchd/schtasks/systemd-timer/crontab)+ 到点调 `rustcode schedule run <id>`。

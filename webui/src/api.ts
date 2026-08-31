@@ -4,8 +4,8 @@
 const token = new URLSearchParams(location.search).get('token') ?? '';
 
 function authHeaders(): Record<string, string> {
-  // X-RustCode-Client lets the daemon tag telemetry as webui-originated
-  // (resolve_client_mode → SessionMode::Webui); sent regardless of token.
+  // X-RustCode-Client tells the daemon which client kind is connecting
+  // (resolve_client_mode -> SessionMode::Webui); sent regardless of token.
   const h: Record<string, string> = { 'X-RustCode-Client': 'webui' };
   if (token) h.Authorization = 'Bearer ' + token;
   return h;

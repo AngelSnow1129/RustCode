@@ -40,7 +40,8 @@ function fmtContextWindow(v: number): string {
 }
 
 function isManagedProvider(provider: ProviderInfo): boolean {
-  return provider.requires_login === true || provider.base_url === ATOMGIT_BASE_URL;
+  // Platform-neutral: the daemon sets requires_login for managed accounts.
+  return provider.requires_login === true;
 }
 
 /** Shared modal chrome for the settings dialogs. */
@@ -70,7 +71,7 @@ function SettingsModal({
     >
       <div class={'modal-card' + (wide ? '' : ' modal-card-sm') + (cardClass ? ` ${cardClass}` : '')}>
         <div class="modal-header">
-          <span>⚙</span>
+          <span>[#]</span>
           <h3>{title}</h3>
           <button class="ghost-btn modal-close" onClick={onClose} aria-label={t('settings.close')}>
             ×
@@ -617,7 +618,7 @@ function AddAccountModelsDialog({
           <input
             class="menu-input"
             type="text"
-            placeholder="deepseek-chat"
+            placeholder="your-model-id"
             value={manualModel}
             onInput={(e) => setManualModel((e.target as HTMLInputElement).value)}
           />
@@ -849,7 +850,7 @@ function ProviderFormDialog({
           <input
             class="menu-input"
             type="text"
-            placeholder="deepseek-chat"
+            placeholder="your-model-id"
             value={model}
             onInput={(e) => setModel((e.target as HTMLInputElement).value)}
           />
@@ -1057,7 +1058,7 @@ export function RemoteAccessDialog({ onClose }: { onClose: () => void }) {
                     {copied ? t('remote.copied') : t('remote.copy')}
                   </button>
                 </div>
-                <p class="field-hint remote-warn">⚠️ {t('remote.warnToken')}</p>
+                <p class="field-hint remote-warn">⚠ {t('remote.warnToken')}</p>
               </div>
             )}
           </>

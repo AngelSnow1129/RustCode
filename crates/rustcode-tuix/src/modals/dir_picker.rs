@@ -453,7 +453,7 @@ fn build_menu_payload(p: &DirPicker) -> MenuPayload {
             (name, desc)
         }));
     }
-    items.push((format!("-- {hint} --"), String::new()));
+    items.push((format!("— {hint} —"), String::new()));
     MenuPayload {
         items,
         selected: if filtered.is_empty() {

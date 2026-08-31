@@ -29,8 +29,8 @@ impl Default for ProxyMode {
     // Respect the environment's proxy by default (matches curl / reqwest-native
     // behavior). A `NoProxy` default silently stripped `https_proxy` and forced
     // `.no_proxy()` on every client, breaking every corporate-proxy user out of
-    // the box (they'd time out reaching acs.atomgit.com etc.). Users who want to
-    // ignore a system proxy can pick `no_proxy` via `/proxy`.
+    // the box (their requests would time out). Users who want to ignore a system
+    // proxy can pick `no_proxy` via `/proxy`.
     fn default() -> Self {
         Self::FollowSystem
     }

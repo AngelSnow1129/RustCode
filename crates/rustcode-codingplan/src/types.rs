@@ -96,7 +96,7 @@ pub struct ClaimResponse {
 ///   "is_infinity": 2,
 ///   "is_rustcode_exclusive": 1,
 ///   "display_model_name": "GLM-5.1",
-///   "base_url": "https://api-ai.gitcode.com/v1",
+///   "base_url": "https://api-ai.example.com/v1",
 ///   "type": "openai",
 ///   "context_window": 64000,
 ///   "supports_vision": true,
@@ -136,7 +136,7 @@ pub struct ModelEntry {
     /// Provider type -- `"openai"` / `"claude"` / `"ollama"`. Renamed
     /// via serde because `type` is a Rust keyword. `None` falls
     /// back to `coding_plan::setup::PROVIDER_TYPE` (`"openai"` -- the
-    /// AtomGit gateway is OpenAI-compatible by default).
+    /// managed gateway is OpenAI-compatible by default).
     #[serde(default, rename = "type")]
     pub provider_type: Option<String>,
     /// Per-model context window in tokens. Floored at

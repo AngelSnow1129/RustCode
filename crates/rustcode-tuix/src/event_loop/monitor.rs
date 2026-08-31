@@ -18,6 +18,7 @@
 
 use std::time::Duration;
 
+#[cfg(feature = "codingplan")]
 use rustcode_config::config::Config;
 
 /// Warnings the monitor can raise, displayed right-aligned on the
@@ -40,8 +41,8 @@ impl CodingPlanWarning {
     /// (e.g. `接口暂不可用`, `当前时间窗口用量约 0%`).
     pub fn display_text(&self) -> String {
         match self {
-            Self::ModelMissing(name) => format!("[!] '{}' 已下线 -- /login", name),
-            Self::StaleList => "i CodingPlan 模型列表更新 -- 可执行/login".into(),
+            Self::ModelMissing(name) => format!("⚠ '{}' 已下线 — /login", name),
+            Self::StaleList => "ⓘ CodingPlan 模型列表更新 — 可执行/login".into(),
         }
     }
 }
@@ -60,8 +61,9 @@ impl CodingPlanWarning {
 pub const CHECK_COOLDOWN: Duration = Duration::from_secs(3600);
 
 /// True iff the given selection id is owned by the CodingPlan flow. Delegates to
-/// the single source of truth in `rustcode-config` (matches `AtomGit` and
-/// `AtomGit-<anything>`; rejects `AtomGitPlus` / `atomgit` / etc.).
+/// the single source of truth in `rustcode-config` (matches the managed
+/// `RustCode` prefix plus the legacy `AtomGit` prefix and their `-<anything>`
+/// suffixed ids; rejects lookalikes such as `RustCodePlus` / `atomgit`).
 pub fn is_codingplan_provider(name: &str) -> bool {
     rustcode_config::config::is_codingplan_provider_name(name)
 }
@@ -69,9 +71,11 @@ pub fn is_codingplan_provider(name: &str) -> bool {
 /// Collect the model names of every CodingPlan model in the config, via the
 /// unified catalog so it covers both the new `provider_accounts`+`models`
 /// schema (what `/login` now writes) and un-migrated legacy `[providers.*]`
-/// (which the projection folds under an `AtomGit*` account). Order follows
+/// (which the projection folds under a managed account -- `RustCode*`, or the
+/// legacy `AtomGit*` prefix). Order follows
 /// HashMap iteration (unstable), so the caller must never compare lists
 /// positionally -- `decide_warning` sorts both sides.
+#[cfg(feature = "codingplan")]
 pub fn local_codingplan_models(config: &Config) -> Vec<String> {
     config
         .logical_models()
@@ -98,6 +102,7 @@ pub fn local_codingplan_models(config: &Config) -> Vec<String> {
 /// AtomGit* entries and re-populates from the same server response),
 /// so no `StaleList` fires anyway. Rate-limiting the HTTP call itself
 /// is `CHECK_COOLDOWN`'s job.
+#[cfg(feature = "codingplan")]
 pub fn decide_warning(
     default_model: &str,
     server_models: &[String],
@@ -129,6 +134,10 @@ pub fn decide_warning(
 /// Caller is responsible for gating: this function does NOT check
 /// `is_codingplan_provider(default_provider)`; do that up front so
 /// non-CodingPlan users never trigger any network I/O.
+///
+/// In the platform-neutral build (no `codingplan` feature) this is a no-op:
+/// there is no gateway client to call, so no drift warning is ever produced.
+#[cfg(feature = "codingplan")]
 pub fn spawn_check(
     config_snapshot: rustcode_config::config::Config,
     default_model: String,
@@ -183,8 +192,20 @@ pub fn spawn_check(
     });
 }
 
+/// Neutral-build stub: without the gateway client there is nothing to fetch,
+/// so the drift check never runs and never writes a warning.
+#[cfg(not(feature = "codingplan"))]
+pub fn spawn_check(
+    _config_snapshot: rustcode_config::config::Config,
+    _default_model: String,
+    _slot: std::sync::Arc<std::sync::Mutex<Option<CodingPlanWarning>>>,
+    _wake_tx: tokio::sync::mpsc::Sender<()>,
+) {
+}
+
 /// Order-independent equality for two model lists. Clones then sorts
 /// -- fine at these sizes (expected <= ~10 models).
+#[cfg(feature = "codingplan")]
 fn sorted_eq(a: &[String], b: &[String]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -200,6 +221,7 @@ fn sorted_eq(a: &[String], b: &[String]) -> bool {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "codingplan")]
     fn s(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
     }
@@ -213,6 +235,7 @@ mod tests {
         assert!(!is_codingplan_provider("claude"));
     }
 
+    #[cfg(feature = "codingplan")]
     #[test]
     fn local_codingplan_models_reads_new_schema_and_folded_legacy() {
         use rustcode_config::config::Config;
@@ -248,6 +271,7 @@ mod tests {
         assert_eq!(local_codingplan_models(&legacy_cfg), s(&["GLM-5.2"]));
     }
 
+    #[cfg(feature = "codingplan")]
     #[test]
     fn sorted_eq_ignores_order() {
         assert!(sorted_eq(&s(&["a", "b"]), &s(&["b", "a"])));
@@ -257,6 +281,7 @@ mod tests {
     }
 
     /// Active model in server list, lists match -> no warning.
+    #[cfg(feature = "codingplan")]
     #[test]
     fn decide_no_warning_when_in_list_and_match() {
         let server = s(&["m1", "m2"]);
@@ -266,6 +291,7 @@ mod tests {
 
     /// Lists match (order differs) -> still no warning -- `sorted_eq`
     /// does the order-independent comparison.
+    #[cfg(feature = "codingplan")]
     #[test]
     fn decide_no_warning_when_lists_match_out_of_order() {
         let server = s(&["m1", "m2"]);
@@ -278,6 +304,7 @@ mod tests {
     /// Regression for the bug where a user who ran `/codingplan` 3 min
     /// before restart got no hint even though the server had added a
     /// new model during those 3 min.
+    #[cfg(feature = "codingplan")]
     #[test]
     fn decide_stale_warning_whenever_lists_differ() {
         let server = s(&["m1", "m2"]);
@@ -289,6 +316,7 @@ mod tests {
     }
 
     /// Active model not in server list -> ModelMissing.
+    #[cfg(feature = "codingplan")]
     #[test]
     fn decide_model_missing_when_active_model_gone() {
         let server = s(&["m2", "m3"]);
@@ -300,6 +328,7 @@ mod tests {
     }
 
     /// Priority: ModelMissing wins over StaleList when both could fire.
+    #[cfg(feature = "codingplan")]
     #[test]
     fn decide_model_missing_wins_over_stale() {
         let server = s(&["m2"]);
@@ -314,11 +343,11 @@ mod tests {
     fn display_text_format() {
         assert_eq!(
             CodingPlanWarning::ModelMissing("Kimi-K2".into()).display_text(),
-            "[!] 'Kimi-K2' 已下线 -- /login"
+            "⚠ 'Kimi-K2' 已下线 — /login"
         );
         assert_eq!(
             CodingPlanWarning::StaleList.display_text(),
-            "i CodingPlan 模型列表更新 -- 可执行/login"
+            "ⓘ CodingPlan 模型列表更新 — 可执行/login"
         );
     }
 }

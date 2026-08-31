@@ -76,7 +76,7 @@ export function FilePicker({ current, onPick, onClose }: FilePickerProps) {
     >
       <div class="modal-card">
         <div class="modal-header">
-          <span>📄</span>
+          <span>[F]</span>
           <h3>{t('filepicker.title')}</h3>
         </div>
 
@@ -105,14 +105,14 @@ export function FilePicker({ current, onPick, onClose }: FilePickerProps) {
               {!loading &&
                 dirs.map((d) => (
                   <button key={'d:' + d} class="dir-item" onClick={() => enterDir(d)}>
-                    <span>📁</span>
+                    <span>[D]</span>
                     <span>{d}</span>
                   </button>
                 ))}
               {!loading &&
                 files.map((f) => (
                   <button key={'f:' + f} class="dir-item file-item" onClick={() => pickFile(f)}>
-                    <span>📄</span>
+                    <span>[F]</span>
                     <span>{f}</span>
                   </button>
                 ))}

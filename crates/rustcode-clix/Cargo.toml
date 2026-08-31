@@ -16,8 +16,7 @@ rustcode-coding = { path = "../rustcode-coding" }
 rustcode-capabilities = { path = "../rustcode-capabilities", features = ["provider", "tools", "session", "memory", "mcp"] }
 rustcode-kernel = { path = "../rustcode-kernel" }
 rustcode-config = { path = "../rustcode-config" }
-# Standalone telemetry sink (clix is core-decoupled, so it resolves + inits its own,
-# mirroring rustcode-cli) — feeds LlmChat/ToolCall events for both subcommands.
+# Async runtime for both standalone subcommands (review / clix code).
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "signal", "time"] }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
@@ -27,6 +26,6 @@ toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
-# Capturable in-memory telemetry sink + a canned provider stream for the metering test.
+# Stream helpers for the canned provider stream used by provider/review tests.
 futures = "0.3"
 async-trait = "0.1"

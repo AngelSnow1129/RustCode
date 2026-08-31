@@ -26,6 +26,7 @@ fn _isolate_rustcode_home() {
 }
 
 mod api_auth;
+#[cfg(feature = "codingplan")]
 mod api_codingplan;
 mod api_config;
 mod api_provider;
@@ -50,9 +51,11 @@ pub use kernel_runtime::{
     spawn_native_runtime_for_session_deferred_with_preprocessor, start_native_runtime,
     start_native_runtime_with_session,
 };
+#[cfg(feature = "codingplan")]
+pub use runtime_host::coding_plan_rate_limit_source;
 pub use runtime_host::{
-    coding_plan_rate_limit_source, coding_provider_factory, gather_plugin_skill_dirs,
-    gather_plugin_skill_dirs_for, installed_plugin_hook_source,
+    coding_provider_factory, gather_plugin_skill_dirs, gather_plugin_skill_dirs_for,
+    installed_plugin_hook_source,
 };
 pub(crate) mod live_api;
 pub use live_api::live_set_mode;
@@ -5991,6 +5994,29 @@ pub struct ServerOpts {
 /// bootstrap sequence (config load, MCP registry init,
 /// MCP registry init, `AppState` construction) before binding and serving.
 ///
+/// CodingPlan gateway routes. In a neutral build the `codingplan` feature is off,
+/// the `api_codingplan` module is not compiled, and this returns an empty router,
+/// so no gateway HTTP surface exists.
+#[cfg(feature = "codingplan")]
+fn codingplan_routes() -> axum::Router<AppState> {
+    use axum::routing::{get, post};
+    axum::Router::new()
+        .route("/codingplan/setup", post(api_codingplan::codingplan_setup))
+        .route(
+            "/codingplan/usage/summary",
+            get(api_codingplan::codingplan_usage_summary),
+        )
+        .route(
+            "/codingplan/usage/daily",
+            get(api_codingplan::codingplan_usage_daily),
+        )
+}
+
+#[cfg(not(feature = "codingplan"))]
+fn codingplan_routes() -> axum::Router<AppState> {
+    axum::Router::new()
+}
+
 /// Note: early bootstrap that is process-global (panic hook, Windows console
 /// attach, legacy session migration) is handled by the binary's `main()` before
 /// calling this; see `src/main.rs`.
@@ -6189,16 +6215,8 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         )
         .route("/auth/login/:login_id", delete(api_auth::auth_login_cancel))
         .route("/auth/logout", post(api_auth::auth_logout))
-        // CodingPlan API (P0)
-        .route("/codingplan/setup", post(api_codingplan::codingplan_setup))
-        .route(
-            "/codingplan/usage/summary",
-            get(api_codingplan::codingplan_usage_summary),
-        )
-        .route(
-            "/codingplan/usage/daily",
-            get(api_codingplan::codingplan_usage_daily),
-        )
+        // CodingPlan API (P0) -- only compiled when the platform client feature is on.
+        .merge(codingplan_routes())
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_token::require_webui_token,
@@ -6675,14 +6693,14 @@ mod tests {
         // by config, not a hardcoded `deepseek-v4-flash` name. A level-less model stays off.
         let config: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
-                "AtomGit": { "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1" }
+                "Managed": { "provider": "openai", "base_url": "https://llm.example.com/v1" }
             },
             "models": {
-                "AtomGit-qwen3.8-27b": {
-                    "account": "AtomGit", "model": "qwen3.8-27b",
+                "Managed-qwen3.8-27b": {
+                    "account": "Managed", "model": "qwen3.8-27b",
                     "reasoning_effort_levels": ["low", "medium", "xhigh"]
                 },
-                "AtomGit-GLM-5.2": { "account": "AtomGit", "model": "GLM-5.2" }
+                "Managed-GLM-5.2": { "account": "Managed", "model": "GLM-5.2" }
             }
         }))
         .unwrap();
@@ -6711,16 +6729,16 @@ mod tests {
     #[test]
     fn chat_resolves_new_schema_model_selection() {
         let config: Config = serde_json::from_value(serde_json::json!({
-            "default_model": "AtomGit-deepseek-v4-flash",
+            "default_model": "Managed-deepseek-v4-flash",
             "provider_accounts": {
-                "AtomGit": {
+                "Managed": {
                     "provider": "openai",
-                    "base_url": "https://llm-api.atomgit.com/v1"
+                    "base_url": "https://llm.example.com/v1"
                 }
             },
             "models": {
-                "AtomGit-deepseek-v4-flash": {
-                    "account": "AtomGit",
+                "Managed-deepseek-v4-flash": {
+                    "account": "Managed",
                     "model": "deepseek-v4-flash",
                     "context_window": 128000
                 }
@@ -6729,8 +6747,8 @@ mod tests {
         .unwrap();
 
         let (selection, provider) =
-            resolve_chat_provider(&config, Some("AtomGit-deepseek-v4-flash".into())).unwrap();
-        assert_eq!(selection, "AtomGit-deepseek-v4-flash");
+            resolve_chat_provider(&config, Some("Managed-deepseek-v4-flash".into())).unwrap();
+        assert_eq!(selection, "Managed-deepseek-v4-flash");
         assert_eq!(provider.model, "deepseek-v4-flash");
         assert_eq!(provider.provider_type, "openai");
     }
@@ -6739,16 +6757,16 @@ mod tests {
     fn chat_defaults_to_effective_model_selection() {
         let config: Config = serde_json::from_value(serde_json::json!({
             "default_provider": "stale-legacy-default",
-            "default_model": "AtomGit-GLM-5.2",
+            "default_model": "Managed-GLM-5.2",
             "provider_accounts": {
-                "AtomGit": {
+                "Managed": {
                     "provider": "openai",
-                    "base_url": "https://llm-api.atomgit.com/v1"
+                    "base_url": "https://llm.example.com/v1"
                 }
             },
             "models": {
-                "AtomGit-GLM-5.2": {
-                    "account": "AtomGit",
+                "Managed-GLM-5.2": {
+                    "account": "Managed",
                     "model": "GLM-5.2",
                     "context_window": 128000
                 }
@@ -6757,7 +6775,7 @@ mod tests {
         .unwrap();
 
         let (selection, provider) = resolve_chat_provider(&config, None).unwrap();
-        assert_eq!(selection, "AtomGit-GLM-5.2");
+        assert_eq!(selection, "Managed-GLM-5.2");
         assert_eq!(provider.model, "GLM-5.2");
     }
 
@@ -6803,11 +6821,11 @@ mod tests {
         // NOT in [providers.*] -- the `/models` endpoint used to iterate only
         // `config.providers` and silently dropped these from the webui picker.
         let config: Config = serde_json::from_value(serde_json::json!({
-            "default_model": "AtomGit-GLM-5.2",
-            "provider_accounts": { "AtomGit": { "provider": "openai", "base_url": "https://llm-api.atomgit.com/v1" } },
+            "default_model": "Managed-GLM-5.2",
+            "provider_accounts": { "Managed": { "provider": "openai", "base_url": "https://llm.example.com/v1" } },
             "models": {
-                "AtomGit-GLM-5.2": { "account": "AtomGit", "model": "GLM-5.2", "context_window": 128000 },
-                "AtomGit-Qwen": { "account": "AtomGit", "model": "Qwen", "context_window": 128000 }
+                "Managed-GLM-5.2": { "account": "Managed", "model": "GLM-5.2", "context_window": 128000 },
+                "Managed-Qwen": { "account": "Managed", "model": "Qwen", "context_window": 128000 }
             }
         }))
         .unwrap();
@@ -6815,13 +6833,13 @@ mod tests {
         let models = models_from_config(&config);
         let ids: Vec<&str> = models.iter().map(|m| m.provider.as_str()).collect();
         assert!(
-            ids.contains(&"AtomGit-GLM-5.2"),
+            ids.contains(&"Managed-GLM-5.2"),
             "new-schema model listed: {ids:?}"
         );
-        assert!(ids.contains(&"AtomGit-Qwen"), "{ids:?}");
+        assert!(ids.contains(&"Managed-Qwen"), "{ids:?}");
         let glm = models
             .iter()
-            .find(|m| m.provider == "AtomGit-GLM-5.2")
+            .find(|m| m.provider == "Managed-GLM-5.2")
             .unwrap();
         assert!(glm.is_default, "effective selection is the default");
         assert_eq!(glm.model, "GLM-5.2");
@@ -8258,7 +8276,7 @@ mod tests {
         use rustcode_kernel::message::Message;
 
         let msg = Message::user(
-            "识别图片内容\n\n[图片内容（由 AtomGit-Qwen-Qwen3-VL-8B-Instruct 识别）]\n这是一张图片",
+            "识别图片内容\n\n[图片内容（由 Qwen3-VL-8B-Instruct 识别）]\n这是一张图片",
         );
 
         let info = MessageInfo::from_kernel(&msg);

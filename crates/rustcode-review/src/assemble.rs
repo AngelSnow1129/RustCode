@@ -582,7 +582,10 @@ mod tests {
         );
         // Bounded (engineering caller, e.g. service sets 8000).
         assert!(should_mount_graph(0, 8000), "empty/unknown repo -> mount");
-        assert!(should_mount_graph(8000, 8000), "at threshold -> still mount");
+        assert!(
+            should_mount_graph(8000, 8000),
+            "at threshold -> still mount"
+        );
         assert!(!should_mount_graph(8001, 8000), "over threshold -> degrade");
         assert!(!should_mount_graph(85_000, 8000), "kernel-scale -> degrade");
         assert!(!should_mount_graph(1, 0), "max=0 -> never mount");

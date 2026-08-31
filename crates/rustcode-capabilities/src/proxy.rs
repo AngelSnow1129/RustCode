@@ -40,7 +40,7 @@ fn proxy_disabled() -> bool {
 const TLS_MAX_ENV: &str = "RUSTCODE_TLS_MAX";
 
 /// Whether the user explicitly requested a process-wide TLS 1.2 ceiling.
-/// Automatic AtomGit fallback is endpoint-aware and lives in the provider.
+/// Automatic managed-gateway fallback is endpoint-aware and lives in the provider.
 fn force_tls12() -> bool {
     #[cfg(feature = "provider")]
     {

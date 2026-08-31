@@ -9,7 +9,7 @@ interface ConfirmDialogProps {
   body: string;
   confirmLabel: string;
   cancelLabel: string;
-  /** Header glyph. Defaults to the trash icon. */
+  /** Header glyph tag. Defaults to the delete ([X]) marker. */
   icon?: string;
   /** Style the confirm button as destructive (red). Defaults to true. */
   danger?: boolean;
@@ -24,7 +24,7 @@ export function ConfirmDialog({
   body,
   confirmLabel,
   cancelLabel,
-  icon = '🗑',
+  icon = '[X]',
   danger = true,
   onConfirm,
   onClose,

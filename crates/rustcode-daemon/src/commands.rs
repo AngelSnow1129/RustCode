@@ -572,6 +572,7 @@ fn render_login_line_from_stored_auth() -> String {
     }
 }
 
+#[cfg(feature = "codingplan")]
 fn render_cp_auth_error(e: &anyhow::Error, fallback: impl FnOnce() -> String) -> String {
     use rustcode_codingplan::is_auth_expired;
     use rustcode_config::i18n::{t, Msg};
@@ -582,9 +583,19 @@ fn render_cp_auth_error(e: &anyhow::Error, fallback: impl FnOnce() -> String) ->
     }
 }
 
+/// Neutral build: no gateway status to report -- the `/status` codingplan
+/// section renders empty.
+#[cfg(not(feature = "codingplan"))]
+fn render_codingplan_status_for_status_cmd() -> String {
+    String::new()
+}
+
+#[cfg(feature = "codingplan")]
 fn render_codingplan_status_for_status_cmd() -> String {
     tokio::task::block_in_place(|| {
-        use rustcode_codingplan::setup::format_duration_secs;
+        // `format_duration_secs` is re-exported at the crate root from the
+        // always-on `usage` module; `setup` only imports it privately.
+        use rustcode_codingplan::format_duration_secs;
         use rustcode_codingplan::Client;
         use rustcode_config::i18n::{t, Msg};
 

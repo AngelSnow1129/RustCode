@@ -35,19 +35,19 @@ AgentLoop / TurnRunner
 
 | # | Trait | 关键方法 | 可否影响流程 |
 |---|-------|---------|------------|
-| 1 | `PreToolExecutionHook` | `on_pre_execute(ctx) -> HookResult` | ✅ 可修改/阻止 |
-| 2 | `PostToolExecutionHook` | `on_post_execute(ctx, result_ctx) -> HookResult` | ❌ fire-and-forget |
-| 3 | `PostTurnHook` | `on_post_turn(ctx, turn_result) -> HookResult` | ❌ fire-and-forget |
-| 4 | `SystemPromptHook` | `extend_system_prompt() -> Option<String>` | ✅ 追加 prompt |
-| 5 | `OnUserPromptSubmitHook` | `on_user_prompt_submit(payload) -> UserPromptSubmitResult` | ✅ 可注入/阻止 |
-| 6 | `OnMessageReceivedHook` | `on_message_received(ctx) -> HookResult` | ❌ |
-| 7 | `OnTurnStartHook` | `on_turn_start(ctx) -> HookResult` | ❌ |
-| 8 | `OnToolCallStartHook` | `on_tool_call_start(ctx) -> HookResult` | ❌ (仅审计) |
-| 9 | `OnTurnCompleteHook` | `on_turn_complete(ctx) -> HookResult` | ❌ |
-| 10 | `OnSessionStartHook` | `on_session_start(ctx) -> HookResult` | ❌ |
-| 11 | `OnSessionEndHook` | `on_session_end(ctx) -> HookResult` | ❌ |
-| 12 | `OnErrorHook` | `on_error(ctx) -> HookResult` | ❌ |
-| 13 | `OnModelResponseHook` | `on_model_response(response, turn_ctx) -> HookResult` | ❌ |
+| 1 | `PreToolExecutionHook` | `on_pre_execute(ctx) -> HookResult` | [+] 可修改/阻止 |
+| 2 | `PostToolExecutionHook` | `on_post_execute(ctx, result_ctx) -> HookResult` | [-] fire-and-forget |
+| 3 | `PostTurnHook` | `on_post_turn(ctx, turn_result) -> HookResult` | [-] fire-and-forget |
+| 4 | `SystemPromptHook` | `extend_system_prompt() -> Option<String>` | [+] 追加 prompt |
+| 5 | `OnUserPromptSubmitHook` | `on_user_prompt_submit(payload) -> UserPromptSubmitResult` | [+] 可注入/阻止 |
+| 6 | `OnMessageReceivedHook` | `on_message_received(ctx) -> HookResult` | [-] |
+| 7 | `OnTurnStartHook` | `on_turn_start(ctx) -> HookResult` | [-] |
+| 8 | `OnToolCallStartHook` | `on_tool_call_start(ctx) -> HookResult` | [-] (仅审计) |
+| 9 | `OnTurnCompleteHook` | `on_turn_complete(ctx) -> HookResult` | [-] |
+| 10 | `OnSessionStartHook` | `on_session_start(ctx) -> HookResult` | [-] |
+| 11 | `OnSessionEndHook` | `on_session_end(ctx) -> HookResult` | [-] |
+| 12 | `OnErrorHook` | `on_error(ctx) -> HookResult` | [-] |
+| 13 | `OnModelResponseHook` | `on_model_response(response, turn_ctx) -> HookResult` | [-] |
 
 ### 2.3 各实现覆盖的 Trait
 
@@ -190,7 +190,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 
 ## 三、各文档差异清单与修订要求
 
-### 3.1 hooks.md — 🔴 整体重写
+### 3.1 hooks.md — [!] 整体重写
 
 **当前问题**：
 - 只列了 3 种 hook 类型 (pre_tool/post_tool/post_turn)，实际有 13 个 trait + 3 种配置方式
@@ -210,7 +210,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 - 安全注意事项更新：项目 hooks 覆盖全局 hooks
 - 添加内置 Hook 的开关说明
 
-### 3.2 hook-cli-guide.md — 🟡 中度修订
+### 3.2 hook-cli-guide.md — [*] 中度修订
 
 **当前问题**：
 - trigger 值用了 trait 名称（`on_turn_complete`、`on_tool_call_start` 等），这些值在 TOML ScriptHook 中无效
@@ -224,7 +224,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 - 补充 `rustcode hooks test` 命令说明
 - 更新脚本输出格式：TOML ScriptHook 走 `ok`/`deny:`/`modify:` 文本协议；JSON ShellCommandHook 走 CC JSON 协议
 
-### 3.3 hook-implementation-summary.md — 🔴 整体重写
+### 3.3 hook-implementation-summary.md — [!] 整体重写
 
 **当前问题**：
 - 整个文档基于旧 `HookRegistry` 架构编写
@@ -239,7 +239,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 - 更新测试覆盖统计
 - 正确描述加载优先级（global 先→project 后，同名覆盖）
 
-### 3.4 hook-timing-complete.md — 🟡 中度修订
+### 3.4 hook-timing-complete.md — [*] 中度修订
 
 **当前问题**：
 - 列出的 12 个 hook 时机正确（与 trait 一一对应），但配置示例使用了无效的 trigger 值
@@ -255,7 +255,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
   - BuiltIn：6 种（OnToolCallStart / OnTurnStart / OnTurnComplete / OnSessionStart / OnSessionEnd / OnError / OnModelResponse）
 - 配置示例使用正确的 trigger 值，或分别标注 TOML/JSON/Webhook 的写法
 
-### 3.5 hook-expansion-summary.md — 🟡 中度修订
+### 3.5 hook-expansion-summary.md — [*] 中度修订
 
 **当前问题**：
 - 与 `hook-timing-complete.md` 大量重复
@@ -266,7 +266,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 - 可考虑与 `hook-timing-complete.md` 合并，或减少重复内容
 - 如果不合并，确保配置示例正确、新增时机说明准确
 
-### 3.6 hook-architecture.md — 🟢 小幅修订（最准确的文档）
+### 3.6 hook-architecture.md — [+] 小幅修订（最准确的文档）
 
 **当前问题**（仅 2 处小差异）：
 - 第 83 行注释称 ShellCommandHook "实现 5 个 trait"，实际实现 6 个（多了 `OnToolCallStartHook`，为空操作占位）
@@ -277,7 +277,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 - 可补充说明 `OnMessageReceivedHook` 定义但暂未激活
 - 其余内容基本正确，保持不变
 
-### 3.7 webhook-guide.md — 🟢 小幅修订
+### 3.7 webhook-guide.md — [+] 小幅修订
 
 **当前问题**：
 - 基本准确，trigger 值匹配代码逻辑
@@ -290,7 +290,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 - 补充 `before_tool` / `after_tool` / `after_turn` 别名说明
 - 可保留，整体准确
 
-### 3.8 webhook-implementation-summary.md — 🟢 小幅修订
+### 3.8 webhook-implementation-summary.md — [+] 小幅修订
 
 **当前问题**：
 - WebhookHook 实现描述准确
@@ -300,7 +300,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 - 更新以反映当前代码状态（已从旧 HookRegistry 迁移到 HookEngine）
 - 确保与 `webhook-guide.md` 不重复（一个用户指南，一个实现总结）
 
-### 3.9 async-webhook-guide.md — 🟢 小幅修订
+### 3.9 async-webhook-guide.md — [+] 小幅修订
 
 **当前问题**：
 - 异步批量配置参数与 `async_batcher.rs` 一致
@@ -310,7 +310,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 - 确认默认值（batch_size: 10, flush_interval_ms: 1000）与代码一致
 - 可保留，基本准确
 
-### 3.10 async-webhook-summary.md — 🟢 小幅修订
+### 3.10 async-webhook-summary.md — [+] 小幅修订
 
 **当前问题**：
 - 与 `async-webhook-guide.md` 内容高度重复
@@ -327,16 +327,16 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 
 | 优先级 | 文档 | 定位 | 修订程度 |
 |--------|------|------|----------|
-| P0 | **hooks.md** | 用户入门指南（快速开始 + 配置总览） | 🔴 重写 |
-| P1 | **hook-cli-guide.md** | CLI 使用指南（`rustcode hooks` 命令） | 🟡 中度 |
-| P1 | **hook-timing-complete.md** | 完整时机参考（含可用配置方式矩阵） | 🟡 中度 |
-| P2 | **webhook-guide.md** | Webhook 用户指南 | 🟢 小幅 |
-| P2 | **async-webhook-guide.md** | 异步批量 Webhook 用户指南 | 🟢 小幅 |
-| P3 | **hook-architecture.md** | 技术架构参考（面向开发者） | 🟢 小幅 |
-| P3 | **hook-implementation-summary.md** | 实现总结（面向贡献者） | 🔴 重写 |
-| P4 | **webhook-implementation-summary.md** | Webhook 实现总结 | 🟢 小幅（可合并） |
-| P4 | **async-webhook-summary.md** | 异步 Webhook 实现总结 | 🟢 小幅（可合并） |
-| P4 | **hook-expansion-summary.md** | 扩展总结（快照型，可归档） | 🟡 可考虑删除或归档 |
+| P0 | **hooks.md** | 用户入门指南（快速开始 + 配置总览） | [!] 重写 |
+| P1 | **hook-cli-guide.md** | CLI 使用指南（`rustcode hooks` 命令） | [*] 中度 |
+| P1 | **hook-timing-complete.md** | 完整时机参考（含可用配置方式矩阵） | [*] 中度 |
+| P2 | **webhook-guide.md** | Webhook 用户指南 | [+] 小幅 |
+| P2 | **async-webhook-guide.md** | 异步批量 Webhook 用户指南 | [+] 小幅 |
+| P3 | **hook-architecture.md** | 技术架构参考（面向开发者） | [+] 小幅 |
+| P3 | **hook-implementation-summary.md** | 实现总结（面向贡献者） | [!] 重写 |
+| P4 | **webhook-implementation-summary.md** | Webhook 实现总结 | [+] 小幅（可合并） |
+| P4 | **async-webhook-summary.md** | 异步 Webhook 实现总结 | [+] 小幅（可合并） |
+| P4 | **hook-expansion-summary.md** | 扩展总结（快照型，可归档） | [*] 可考虑删除或归档 |
 
 ### 4.2 合并建议
 

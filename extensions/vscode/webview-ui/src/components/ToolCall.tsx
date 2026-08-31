@@ -26,7 +26,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 
   return (
     <button className="tool-body-row-copy" onClick={handleCopy} title={copied ? t('tool.copied') : t('tool.copy', { label: label || '' })}>
-      {copied ? '[+]' : '📋'}
+      {copied ? '[+]' : '[=]'}
     </button>
   );
 }

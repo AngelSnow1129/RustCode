@@ -1,10 +1,10 @@
 //! Process-wide TLS-version policy.
 //!
 //! Some networks run a middlebox that resets TLS 1.3 handshakes at the connection
-//! layer (`os error 10054` / "connection reset" on Windows) while allowing TLS 1.2 --
-//! observed in the wild against `*.atomgit.com`. rustls (our TLS backend) negotiates
-//! TLS 1.3 by default, so the login / codingplan / provider clients get RST before any
-//! HTTP is exchanged. Capping those clients at TLS 1.2 gets the handshake through.
+//! layer (`os error 10054` / "connection reset" on Windows) while allowing TLS 1.2.
+//! rustls (our TLS backend) negotiates TLS 1.3 by default, so clients reaching a
+//! managed endpoint through such a network get RST before any HTTP is exchanged.
+//! Capping those clients at TLS 1.2 gets the handshake through.
 //!
 //! This module is pure (no reqwest): an explicit [`MAX_ENV`] override is global,
 //! while automatic fallback is scoped to first-party endpoints and is only
@@ -22,7 +22,7 @@ pub const MAX_ENV: &str = "RUSTCODE_TLS_MAX";
 /// managed-service client would re-incur the reset).
 static MANAGED_TLS12: AtomicBool = AtomicBool::new(false);
 
-/// Latch a TLS 1.2 ceiling for AtomGit-managed endpoints for the rest of the
+/// Latch a TLS 1.2 ceiling for managed endpoints for the rest of the
 /// process. Call only after a TLS-1.2 fallback request has succeeded.
 pub fn latch_managed_tls12() {
     MANAGED_TLS12.store(true, Ordering::Relaxed);
@@ -45,7 +45,7 @@ pub fn managed_tls12_latched() -> bool {
 /// Whether a client for `url` should start capped at TLS 1.2.
 ///
 /// The explicit env override is intentionally global. Automatic state applies
-/// only to HTTPS endpoints owned by the managed AtomGit/CodingPlan service.
+/// only to HTTPS endpoints owned by the managed CodingPlan service.
 pub fn should_cap_url(url: &str) -> bool {
     env_forces_tls12() || (managed_tls12_latched() && is_managed_https_url(url))
 }

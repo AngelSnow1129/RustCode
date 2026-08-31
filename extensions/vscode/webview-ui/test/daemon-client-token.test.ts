@@ -60,7 +60,7 @@ function testReadDaemonTokenReturnsUndefinedWhenTokenFieldMissing() {
   }
 }
 
-function testReadDaemonTokenUsesAtomcodeHomeFallback() {
+function testReadDaemonTokenUsesRustcodeHomeFallback() {
   // When RUSTCODE_HOME is unset, falls back to ~/.rustcode — we can't easily
   // write there in a test, so just verify the function returns undefined
   // (no file at that path) rather than throwing.
@@ -80,4 +80,4 @@ function testReadDaemonTokenUsesAtomcodeHomeFallback() {
 testReadDaemonTokenReturnsTokenFromFile();
 testReadDaemonTokenReturnsUndefinedWhenFileMissing();
 testReadDaemonTokenReturnsUndefinedWhenTokenFieldMissing();
-testReadDaemonTokenUsesAtomcodeHomeFallback();
+testReadDaemonTokenUsesRustcodeHomeFallback();

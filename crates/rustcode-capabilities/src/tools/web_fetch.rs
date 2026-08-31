@@ -853,7 +853,7 @@ fn html_to_markdown(html: &str) -> String {
         }
     }
     let result = result.trim().to_string();
-    // Source-file views on every code host (GitHub/GitLab/Gitee/atomgit/...) render the
+    // Source-file views on every code host (GitHub/GitLab/Gitee/self-hosted Git/...) render the
     // file as one big <pre><code> wrapped in nav + file-tree chrome. In Markdown that
     // chrome is dozens of leading link/list lines before the code, which an LLM misreads
     // as "an empty JS shell" and re-fetches. If a single fenced block dominates, return it.

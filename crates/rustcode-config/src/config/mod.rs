@@ -135,10 +135,12 @@ impl Default for LoopConfig {
     }
 }
 
-/// `[subagent]` execution policy for the `task` subagent tool.
+/// `[subagent]` execution policy for the in-process `task` and `team` child-agent tools.
 ///
-/// `max_concurrent` and `max_rounds` are the LIVE knobs: `coding::parts` reads them via
-/// `subagent_runtime_knobs` and wires them into `TaskTool`.
+/// `max_concurrent` (write/worker lane), `max_concurrent_explore` (read-only/explore lane),
+/// and `max_rounds` are the LIVE knobs: `coding::parts` reads them via `subagent_runtime_knobs`
+/// and wires them into `TaskTool` and the team run manager. Read-only children fan out on an
+/// independent, wider semaphore than scope-confined write workers.
 /// The tool's master ON/OFF is the env gate `RUSTCODE_SUBAGENT`
 /// (default ON, opt out with `RUSTCODE_SUBAGENT=0`) -- NOT `enabled` here; `enabled`,
 /// `initial_turns`, and `max_turns` are vestigial from the retired `parallel_edit` dispatch
@@ -153,8 +155,18 @@ pub struct SubAgentConfig {
     pub initial_turns: usize,
     /// Vestigial (retired resilience path); not currently read.
     pub max_turns: usize,
-    /// Max parallel subagents the `task` tool runs at once (floored to 1). Default 3.
+    /// Max parallel WRITE subagents (worker/team members that edit files) the `task`
+    /// and `team` tools run at once (floored to 1). Workers are scope-confined and can
+    /// clobber each other, so this lane stays conservative. Default 3. Overridden by
+    /// `RUSTCODE_SUBAGENT_MAX_CONCURRENT` when set.
+    #[serde(default = "default_subagent_worker_concurrent")]
     pub max_concurrent: usize,
+    /// Max parallel READ-ONLY subagents (`explore` / read-only team roles) run at once
+    /// (floored to 1). Read-only children never write and cannot conflict, so broad
+    /// investigation sweeps fan out wider than the worker lane. Default 8. Overridden
+    /// by `RUSTCODE_SUBAGENT_EXPLORE_MAX_CONCURRENT` when set.
+    #[serde(default = "default_subagent_explore_concurrent")]
+    pub max_concurrent_explore: usize,
     /// Deprecated compatibility field. Subtasks no longer have a total wall-clock limit;
     /// provider idle timeouts, `max_rounds`, and explicit cancellation own liveness.
     pub timeout_secs: u64,
@@ -183,13 +195,26 @@ fn default_subagent_level() -> String {
     "off".to_string()
 }
 
+/// Conservative default for the write (worker) concurrency lane: edits are
+/// scope-confined and run against the live working tree, so keep this small.
+fn default_subagent_worker_concurrent() -> usize {
+    3
+}
+
+/// Wider default for the read-only (explore) concurrency lane: these children only
+/// read/search and cannot conflict, so parallel investigation fans out further.
+fn default_subagent_explore_concurrent() -> usize {
+    8
+}
+
 impl Default for SubAgentConfig {
     fn default() -> Self {
         Self {
             enabled: true,
             initial_turns: 4,
             max_turns: 12,
-            max_concurrent: 3,
+            max_concurrent: default_subagent_worker_concurrent(),
+            max_concurrent_explore: default_subagent_explore_concurrent(),
             // Retained only so existing config files continue to deserialize unchanged.
             timeout_secs: 900,
             max_rounds: 200,
@@ -2196,6 +2221,19 @@ kind = "claude-code"
                 .unwrap();
         assert_eq!(cfg.subagent.codex, "read-only");
         assert_eq!(cfg.subagent.claude, "accept-edits");
+        // A partial [subagent] table (no concurrency keys) still gets the documented
+        // lane defaults: conservative writes, wider read-only fan-out.
+        assert_eq!(cfg.subagent.max_concurrent, 3, "worker lane default");
+        assert_eq!(
+            cfg.subagent.max_concurrent_explore, 8,
+            "explore lane default"
+        );
+        // Explicit overrides parse.
+        let cfg: Config =
+            toml::from_str("[subagent]\nmax_concurrent = 2\nmax_concurrent_explore = 16\n")
+                .unwrap();
+        assert_eq!(cfg.subagent.max_concurrent, 2);
+        assert_eq!(cfg.subagent.max_concurrent_explore, 16);
     }
 
     #[test]
@@ -2371,9 +2409,7 @@ kind = "claude-code"
         }))
         .unwrap();
 
-        let provider = cfg
-            .provider_config_for_selection("my-deepseek")
-            .unwrap();
+        let provider = cfg.provider_config_for_selection("my-deepseek").unwrap();
         // No gateway override: user's "medium" is preserved, no forced levels.
         assert_eq!(provider.reasoning_effort.as_deref(), Some("medium"));
         assert_eq!(provider.reasoning_effort_levels, None);
@@ -4175,8 +4211,14 @@ context_window = 131072
         assert_eq!(r.account_id, openai_account);
         assert_eq!(r.model, "GLM-5.2");
         assert_eq!(r.provider_type, "openai");
-        assert!(r.base_url.as_deref().unwrap().contains("gateway.test.example"));
-        let c = cfg.resolve_model(Some("RustCode-anthropic-claude")).unwrap();
+        assert!(r
+            .base_url
+            .as_deref()
+            .unwrap()
+            .contains("gateway.test.example"));
+        let c = cfg
+            .resolve_model(Some("RustCode-anthropic-claude"))
+            .unwrap();
         assert_eq!(c.account_id, claude_account);
         assert_eq!(c.provider_type, "anthropic");
     }

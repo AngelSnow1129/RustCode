@@ -1436,7 +1436,7 @@ fn parse_list_item(line: &str) -> Option<ParsedListItem> {
     if let Some(r) = rest.strip_prefix("- ").or_else(|| rest.strip_prefix("* ")) {
         return Some(ParsedListItem {
             indent,
-            marker: "*".to_string(),
+            marker: "\u{2022}".to_string(),
             rest: r.to_string(),
         });
     }
@@ -2305,7 +2305,7 @@ x **不要写的内容**";
         let mut st = MdState::new();
         let out = render_line("- item", &mut st, caps()).unwrap();
         assert!(
-            out.contains(&format!("{}*{}", "\x1b[37m", theme::MD_MUTED_CLOSE)),
+            out.contains(&format!("{}•{}", "\x1b[37m", theme::MD_MUTED_CLOSE)),
             "bullet must use the dark marker colour (SGR 37): {:?}",
             out
         );
@@ -2316,8 +2316,8 @@ x **不要写的内容**";
     fn list_bullets_plain_caps_no_ansi() {
         let mut st = MdState::new();
         let out = render_line("- item", &mut st, plain_caps()).unwrap();
-        // No colour -> plain "* item" without any SGR.
-        assert_eq!(out, "* item");
+        // No colour -> plain "• item" without any SGR.
+        assert_eq!(out, "• item");
     }
 
     #[test]
@@ -2327,7 +2327,7 @@ x **不要写的内容**";
         let mut st = MdState::new();
         let out = render_line("  - nested", &mut st, caps()).unwrap();
         assert!(
-            out.starts_with(&format!("  {}*{}", "\x1b[37m", theme::MD_MUTED_CLOSE)),
+            out.starts_with(&format!("  {}•{}", "\x1b[37m", theme::MD_MUTED_CLOSE)),
             "nested bullet with indent: {:?}",
             out
         );

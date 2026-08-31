@@ -199,17 +199,17 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Self-Review
 
 **Spec coverage:**
-- "Add bridging clause inside `REQUEST_USER_INPUT_USAGE`, governed by existing gate" → Task 1. ✓
-- "No new params/call sites/external-skill edits" → honored (only the const string + a test change). ✓
-- "Optional pointer in `SKILLS_USAGE`" → Task 2, marked optional. ✓
-- "Persona unit test: present when enabled, absent when disabled" → Task 1 Step 1. ✓
-- "Run existing persona tests, stay green" → Task 1 Step 5. ✓
-- "webui `/chat` deferred" → not implemented, matches spec out-of-scope. ✓
-- "Real validation manual / 未真机" → no automated real-terminal step; correct, user verifies. ✓
+- "Add bridging clause inside `REQUEST_USER_INPUT_USAGE`, governed by existing gate" → Task 1. [x]
+- "No new params/call sites/external-skill edits" → honored (only the const string + a test change). [x]
+- "Optional pointer in `SKILLS_USAGE`" → Task 2, marked optional. [x]
+- "Persona unit test: present when enabled, absent when disabled" → Task 1 Step 1. [x]
+- "Run existing persona tests, stay green" → Task 1 Step 5. [x]
+- "webui `/chat` deferred" → not implemented, matches spec out-of-scope. [x]
+- "Real validation manual / 未真机" → no automated real-terminal step; correct, user verifies. [x]
 
-**Placeholder scan:** No TBD/TODO; every code step shows the exact string. ✓
+**Placeholder scan:** No TBD/TODO; every code step shows the exact string. [x]
 
-**Type consistency:** No signatures change. Test asserts on the literal substring `structured interview`, which appears verbatim in the Step 3 appended text. Task 2 asserts on `answer in the UI`, which appears verbatim in its Step 3 text. ✓
+**Type consistency:** No signatures change. Test asserts on the literal substring `structured interview`, which appears verbatim in the Step 3 appended text. Task 2 asserts on `answer in the UI`, which appears verbatim in its Step 3 text. [x]
 
 ---
 

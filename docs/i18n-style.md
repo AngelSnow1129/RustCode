@@ -36,7 +36,7 @@
 
 | 类别 | 示例 |
 |------|------|
-| 产品名 / 品牌名 | RustCode、AtomGit、Claude |
+| 产品名 / 品牌名 | RustCode、Claude、Anthropic |
 | 功能模块专有名词 | Provider、CodingPlan、Skill |
 | 技术标识符 | API key、Base URL、model name、token |
 | 命令 / CLI 参数 | `--provider`、`--model` |

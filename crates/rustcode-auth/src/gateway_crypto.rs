@@ -1,6 +1,6 @@
-//! AtomGit LLM gateway identification and request-signing primitives.
+//! Managed CodingPlan LLM gateway identification and request-signing primitives.
 //!
-//! This lives below core/bridge so every runtime and provider adapter shares one gateway
+//! This is a leaf crate so every runtime and provider adapter shares one gateway
 //! boundary. Official builds enable `codingplan-crypto`; source builds expose the same API but
 //! return an unavailable signer.
 
@@ -140,11 +140,11 @@ mod tests {
         // external (plain bearer auth) until an operator explicitly configures
         // RUSTCODE_CODINGPLAN_LLM_BASE_URL.
         for url in [
-            "https://llm-api.atomgit.com/v1",
-            "https://pre-llm-api-cce.atomgit.com/v1/chat/completions",
-            "https://api-ai.gitcode.com/v1",
-            "https://api.openai.com/v1",
-            "http://llm-api.atomgit.com/v1",
+            "https://llm-api.example.com/v1",
+            "https://pre-llm-api.example.com/v1/chat/completions",
+            "https://api-ai.example.net/v1",
+            "https://api.example.org/v1",
+            "http://llm-api.example.com/v1",
             "not a url",
         ] {
             assert!(!is_codingplan_gateway(url), "expected external: {url}");
@@ -154,11 +154,11 @@ mod tests {
     #[test]
     fn canonical_path_appends_chat_completions_once() {
         assert_eq!(
-            canonical_chat_completions_path("https://llm-api.atomgit.com/v1"),
+            canonical_chat_completions_path("https://llm-api.example.com/v1"),
             "/v1/chat/completions"
         );
         assert_eq!(
-            canonical_chat_completions_path("https://llm-api.atomgit.com/v1/chat/completions"),
+            canonical_chat_completions_path("https://llm-api.example.com/v1/chat/completions"),
             "/v1/chat/completions"
         );
     }

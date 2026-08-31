@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
+#[cfg(feature = "codingplan")]
 use async_trait::async_trait;
 use rustcode_coding::cc_hooks::HookConfig;
-use rustcode_coding::{PluginHookSource, RateLimitWindow, RateLimitWindowSource};
+use rustcode_coding::PluginHookSource;
+#[cfg(feature = "codingplan")]
+use rustcode_coding::{RateLimitWindow, RateLimitWindowSource};
 
 #[derive(Debug, Default)]
 pub struct InstalledPluginHookSource;
@@ -42,9 +45,11 @@ pub fn gather_plugin_skill_dirs_for(
     rustcode_capabilities::plugin::loader::installed_plugin_skill_dirs(working_dir)
 }
 
+#[cfg(feature = "codingplan")]
 #[derive(Debug, Default)]
 pub struct CodingPlanRateLimitSource;
 
+#[cfg(feature = "codingplan")]
 #[async_trait]
 impl RateLimitWindowSource for CodingPlanRateLimitSource {
     fn applies_to(&self, base_url: &str) -> bool {
@@ -74,6 +79,7 @@ impl RateLimitWindowSource for CodingPlanRateLimitSource {
     }
 }
 
+#[cfg(feature = "codingplan")]
 pub fn coding_plan_rate_limit_source() -> Arc<dyn RateLimitWindowSource> {
     Arc::new(CodingPlanRateLimitSource)
 }

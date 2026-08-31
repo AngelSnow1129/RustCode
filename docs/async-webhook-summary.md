@@ -1,6 +1,6 @@
 # 异步 Webhook 和批量发送实现总结
 
-> ⚠️ **当前状态警告**：异步 Webhook 的定时 flush 机制尚未完全激活（参见 issue #914）。目前 batcher 已创建但不会自动定期发送。在定时 flush 完成之前，请使用同步 Webhook 替代异步模式。关注后续更新以获取可用通知。
+> [WARN] **当前状态警告**：异步 Webhook 的定时 flush 机制尚未完全激活（参见 issue #914）。目前 batcher 已创建但不会自动定期发送。在定时 flush 完成之前，请使用同步 Webhook 替代异步模式。关注后续更新以获取可用通知。
 
 ## 概述
 
@@ -194,9 +194,9 @@ Hook 触发
 
 | 配置 | HTTP 请求数 | 总延迟 | 内存使用 | 阻塞主流程 |
 |------|------------|--------|---------|-----------|
-| 同步 | 100 | 10-20 秒 | 低 | ✅ 是 |
-| 异步 (batch=10, interval=1s) | 10 | < 1ms | 中 | ❌ 否 |
-| 异步 (batch=50, interval=2s) | 2 | < 1ms | 高 | ❌ 否 |
+| 同步 | 100 | 10-20 秒 | 低 | [+] 是 |
+| 异步 (batch=10, interval=1s) | 10 | < 1ms | 中 | [-] 否 |
+| 异步 (batch=50, interval=2s) | 2 | < 1ms | 高 | [-] 否 |
 
 ### 7. 配置示例
 
@@ -284,15 +284,15 @@ flush_interval_ms = 1000
 }
 ```
 
-> ⚠️ **注意**：`trigger` 字段存储用户配置值（如 `tool_call_start`），`event` 字段存储 WebhookHook 发出的事件名（如 `on_tool_call_start`）。服务端应以 `event` 字段为准做事件类型判断。
+> [WARN] **注意**：`trigger` 字段存储用户配置值（如 `tool_call_start`），`event` 字段存储 WebhookHook 发出的事件名（如 `on_tool_call_start`）。服务端应以 `event` 字段为准做事件类型判断。
 
 ### 9. 测试验证
 
 ```
 running 3 tests
-✓ test_webhook_config_defaults
-✓ test_webhook_disabled
-✓ test_webhook_name_and_description
+[+] test_webhook_config_defaults
+[+] test_webhook_disabled
+[+] test_webhook_name_and_description
 
 test result: ok. 3 passed; 0 failed
 ```
@@ -362,13 +362,13 @@ flush_interval_ms = 1000
 
 ### 完成的工作
 
-1. ✅ **实现异步批处理器核心模块** - ~534 行 Rust 代码
-2. ✅ **集成到 WebhookHook** - 支持同步/异步模式切换
-3. ✅ **实现事件队列和批量聚合** - mpsc 通道 + tokio 后台任务
-4. ✅ **添加配置选项** - batch_size, flush_interval_ms
-5. ✅ **更新配置加载器** - 支持 async_webhooks 配置
-6. ✅ **编写完整文档** - 使用指南 + 示例
-7. ✅ **测试验证** - 3 个单元测试全部通过
+1. [x] **实现异步批处理器核心模块** - ~534 行 Rust 代码
+2. [x] **集成到 WebhookHook** - 支持同步/异步模式切换
+3. [x] **实现事件队列和批量聚合** - mpsc 通道 + tokio 后台任务
+4. [x] **添加配置选项** - batch_size, flush_interval_ms
+5. [x] **更新配置加载器** - 支持 async_webhooks 配置
+6. [x] **编写完整文档** - 使用指南 + 示例
+7. [x] **测试验证** - 3 个单元测试全部通过
 
 ### 异步 Webhook 系统现在提供
 
@@ -385,7 +385,7 @@ flush_interval_ms = 1000
 |------|---------|---------|------|
 | HTTP 请求数 | 100 | 2-10 | 90-98% ↓ |
 | 总延迟 | 10-20 秒 | < 1ms | 99.99% ↓ |
-| 阻塞主流程 | ✅ 是 | ❌ 否 | 完全消除 |
+| 阻塞主流程 | [+] 是 | [-] 否 | 完全消除 |
 
 ## 相关文档
 

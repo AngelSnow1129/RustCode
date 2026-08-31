@@ -194,7 +194,7 @@ class SseParserTest {
               "default_provider": "mygateway-deepseek-v4-flash",
               "providers": [
                 {
-                  "base_url": "https://api.deepseek.com/v1",
+                  "base_url": "https://api.example.com/v1",
                   "context_window": 1000000,
                   "ephemeral": false,
                   "has_api_key": true,

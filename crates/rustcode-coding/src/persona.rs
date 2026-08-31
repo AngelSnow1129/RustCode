@@ -186,6 +186,32 @@ pub fn coding_persona_with_language(
     )
 }
 
+/// Default conversation language when the user's own language cannot be
+/// inferred from their messages. Driven by the resolved product locale
+/// (zh_CN by default), so a fresh install talks Chinese while an explicit
+/// English selection keeps English. `None` (tests / drivers that do not
+/// resolve a locale) adds nothing -- the persona's "match the user's
+/// language" rule stands alone.
+fn conversation_language_guidance(
+    language: Option<rustcode_config::locale::Locale>,
+) -> &'static str {
+    use rustcode_config::locale::Locale;
+
+    match language {
+        Some(Locale::ZhCn) => {
+            "\n\n## LANGUAGE:\n\
+             Match the user's language in every reply. When the user's language is unclear \
+             (first turn, terse commands, mixed input), respond in Simplified Chinese by default."
+        }
+        Some(Locale::En) => {
+            "\n\n## LANGUAGE:\n\
+             Match the user's language in every reply. When the user's language is unclear, \
+             respond in English by default."
+        }
+        None => "",
+    }
+}
+
 pub(crate) fn coding_persona_with_capabilities(
     model: &str,
     preferred_language: Option<rustcode_config::locale::Locale>,
@@ -196,6 +222,7 @@ pub(crate) fn coding_persona_with_capabilities(
     external_subagents_enabled: bool,
 ) -> String {
     let commit_language = commit_language_guidance(preferred_language);
+    let conversation_language = conversation_language_guidance(preferred_language);
     #[allow(unused_mut)] // `mut` is only used under `cfg(windows)` below.
     let mut p = format!(
         "You are RustCode, an AI coding agent running the {model} model. \
@@ -225,6 +252,8 @@ Co-Authored-By: RustCode ({model}) <noreply@rustcode.dev>\n\
 \n\
 Skip the trailer for `git commit --amend` and `git revert`. Only commit when the user asks."
     );
+    // Default reply language for the "user's language is unclear" case.
+    p.push_str(conversation_language);
     // Windows-only shell/path rules (parity with v1's per-OS rules; macOS/Linux add none).
     #[cfg(windows)]
     p.push_str(WINDOWS_PLATFORM);
@@ -576,8 +605,13 @@ independent tasks or a substantial specialist investigation, then use the \
 returned run id with `status`, `wait`, and `result`; call `stop` when the work is no longer needed. \
 Do not duplicate the same work locally while a Team run is active. Worker roles edit only their \
 declared non-overlapping scopes and cannot run Bash; you remain responsible for reviewing changes \
-and running final verification. Prefer the synchronous `task` tool when one bounded batch must \
-finish and return all results before you continue.";
+and running final verification. Read-only roles (explorer, reviewer, tester, security, architect) \
+never write and cannot conflict, so fan independent investigations out in parallel as widely as \
+the work justifies. After worker members finish editing, delegate independent verification to a \
+fresh read-only `reviewer` or `tester` member over the changed scopes -- an objective second \
+context catches bugs the implementer's own self-review misses; then you adjudicate and land the \
+result. Prefer the synchronous `task` tool when one bounded batch must finish and return all \
+results before you continue.";
 
 /// Natural-language routing for external-agent subagents. Surfaced only when a
 /// `subagent_<name>` tool is actually mounted (a configured `[[subagent.external]]`).

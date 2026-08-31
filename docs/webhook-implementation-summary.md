@@ -59,18 +59,18 @@ pub struct WebhookHook {
    ```
 
 4. **支持所有 Hook 时机（12 个）**
-   - ✅ OnTurnStart
-   - ✅ OnToolCallStart
-   - ✅ PreToolExecution
-   - ✅ PostToolExecution
-   - ✅ OnTurnComplete
-   - ✅ PostTurn
-   - ✅ OnSessionStart
-   - ✅ OnSessionEnd
-   - ✅ OnError
-   - ✅ OnModelResponse
-   - ✅ SystemPrompt
-   - ✅ OnMessageReceived
+   - [+] OnTurnStart
+   - [+] OnToolCallStart
+   - [+] PreToolExecution
+   - [+] PostToolExecution
+   - [+] OnTurnComplete
+   - [+] PostTurn
+   - [+] OnSessionStart
+   - [+] OnSessionEnd
+   - [+] OnError
+   - [+] OnModelResponse
+   - [+] SystemPrompt
+   - [+] OnMessageReceived
 
 ### 2. 配置加载
 
@@ -113,9 +113,9 @@ Authorization = "Bearer YOUR_TOKEN"
 
 ```
 running 3 tests
-✓ test_webhook_config_defaults     - 配置默认值测试
-✓ test_webhook_disabled            - 禁用状态测试
-✓ test_webhook_name_and_description - 名称和描述测试
+[+] test_webhook_config_defaults     - 配置默认值测试
+[+] test_webhook_disabled            - 禁用状态测试
+[+] test_webhook_name_and_description - 名称和描述测试
 
 test result: ok. 3 passed; 0 failed
 ```
@@ -180,9 +180,9 @@ Authorization = "Bearer AUDIT_TOKEN"
 | 延迟 | 低（~10ms） | 中（10-200ms） |
 | 依赖 | 本地环境 | 网络连接 |
 | 适用场景 | 本地脚本、快速原型 | 远程服务、云端集成 |
-| 超时控制 | ✅ | ✅ |
-| 重试机制 | ❌ | ✅ |
-| 自定义 Header | ❌ | ✅ |
+| 超时控制 | [+] | [+] |
+| 重试机制 | [-] | [+] |
+| 自定义 Header | [-] | [+] |
 | 认证支持 | 文件系统权限 | HTTP Header |
 
 ### 7. 安全机制
@@ -286,13 +286,13 @@ Authorization = "Bearer AUDIT_TOKEN"
 
 ### 完成的工作
 
-1. ✅ **实现 Webhook Hook 核心模块** - ~748 行 Rust 代码
-2. ✅ **支持所有 12 个 Hook 时机** - 完整的 HTTP 远程调用
-3. ✅ **实现超时和重试机制** - 指数退避策略
-4. ✅ **支持自定义 Header** - 认证和元数据传递
-5. ✅ **集成配置加载系统** - hooks.toml 配置驱动
-6. ✅ **编写完整文档** - 使用指南 + 示例
-7. ✅ **编写测试** - 3 个单元测试全部通过
+1. [x] **实现 Webhook Hook 核心模块** - ~748 行 Rust 代码
+2. [x] **支持所有 12 个 Hook 时机** - 完整的 HTTP 远程调用
+3. [x] **实现超时和重试机制** - 指数退避策略
+4. [x] **支持自定义 Header** - 认证和元数据传递
+5. [x] **集成配置加载系统** - hooks.toml 配置驱动
+6. [x] **编写完整文档** - 使用指南 + 示例
+7. [x] **编写测试** - 3 个单元测试全部通过
 
 ### Webhook 系统现在提供
 

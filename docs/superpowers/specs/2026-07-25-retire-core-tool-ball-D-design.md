@@ -51,7 +51,7 @@
 
 - **中低风险**：D1/D2 是符号搬迁 + 改名，编译器驱动；D3 是删除，`cargo test --workspace --no-run` 兜 orphan 测试。
 - 每刀独立 commit，坏了单独回滚。D3 前 D1/D2 已绿，删除若炸（漏了某处引用）编译器立刻指出。
-- ⚠️ **orphan 测试**：删 conversation/tool 可能留下 `crates/rustcode-core/tests/*.rs` 引用被删模块（如 `set_messages_resume_test.rs` 用 core::ctx）——D3 必须一并删/改，靠 `--no-run` 抓。
+- [!] **orphan 测试**：删 conversation/tool 可能留下 `crates/rustcode-core/tests/*.rs` 引用被删模块（如 `set_messages_resume_test.rs` 用 core::ctx）——D3 必须一并删/改，靠 `--no-run` 抓。
 
 ## 7. 非目标（YAGNI）
 

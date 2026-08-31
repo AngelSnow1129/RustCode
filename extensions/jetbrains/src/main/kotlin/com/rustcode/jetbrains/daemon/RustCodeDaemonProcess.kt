@@ -59,7 +59,7 @@ internal class RustCodeDaemonProcess(
             }
         }
         pathBinary("rustcode")?.let { return BinaryResolution(it.toString(), listOf("daemon")) }
-        commonAtomcodePaths().firstOrNull { Files.isRegularFile(it) }?.let {
+        commonRustcodePaths().firstOrNull { Files.isRegularFile(it) }?.let {
             return BinaryResolution(it.toString(), listOf("daemon"))
         }
         // On Windows the daemon paths were already probed above and would never
@@ -194,7 +194,7 @@ internal class RustCodeDaemonProcess(
         return candidates.firstOrNull { Files.isRegularFile(it) }
     }
 
-    private fun commonAtomcodePaths(): List<Path> = listOf(
+    private fun commonRustcodePaths(): List<Path> = listOf(
         "~/.rustcode/bin/rustcode",
         "~/.cargo/bin/rustcode",
         "/usr/local/bin/rustcode",

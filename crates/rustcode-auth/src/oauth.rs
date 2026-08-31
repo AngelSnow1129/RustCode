@@ -53,7 +53,7 @@ pub fn platform_refresh_url() -> String {
 }
 
 /// Blocking HTTP client pre-configured with `RUSTCODE_USER_AGENT`. Every
-/// OAuth-side request must carry the token or AtomGit's gate rejects it.
+/// OAuth-side request must carry the token or the managed gateway rejects it.
 /// Centralized so a future UA format change (e.g. append install-id)
 /// happens in one spot rather than at each `Client::new()` site.
 /// Apply the process proxy policy to a blocking reqwest client builder: honor `no_proxy`
@@ -75,7 +75,8 @@ fn apply_blocking_proxy_policy(
         builder
     };
     // Cap at TLS 1.2 when a TLS-1.3-hostile network has been detected/requested
-    // (some paths RST the TLS 1.3 handshake to acs.atomgit.com -> os error 10054).
+    // (some middleboxes RST the TLS 1.3 handshake to managed endpoints ->
+    // os error 10054).
     if force_tls12 {
         builder.max_tls_version(reqwest::tls::Version::TLS_1_2)
     } else {
@@ -577,10 +578,10 @@ pub fn start_login() -> Result<LoginSession> {
     std::thread::spawn(move || {
         // First attempt uses the current TLS policy (TLS 1.3 by default). If the
         // connection is RST at the handshake -- the signature of a middlebox that
-        // resets TLS 1.3 to acs.atomgit.com (Windows `os error 10054`) -- retry
-        // once with a fresh TLS-1.2 client. Only a successful retry latches the
-        // managed-endpoint policy for later auth/codingplan/provider clients.
-        // Third-party endpoints remain unaffected.
+        // resets TLS 1.3 to the managed login endpoint (Windows `os error 10054`)
+        // -- retry once with a fresh TLS-1.2 client. Only a successful retry
+        // latches the managed-endpoint policy for later auth/codingplan/provider
+        // clients. Third-party endpoints remain unaffected.
         let login_url = platform_login_url();
         let was_capped = rustcode_config::tls::should_cap_url(&login_url);
         match attempt_login(was_capped) {
@@ -642,7 +643,7 @@ fn is_connect_error(err: &anyhow::Error) -> bool {
 
 /// Drop `force_login=true` from the broker-supplied OAuth URL. The
 /// broker emits this flag to force re-authentication on every login;
-/// stripping it lets users already signed in to atomgit.com
+/// stripping it lets users already signed in with the platform
 /// auto-authorize and skip the consent page. State binding via the
 /// `state` parameter is unchanged, so the request is still anchored
 /// to this specific login attempt.
@@ -1071,13 +1072,23 @@ fn accept_callback_until_stopped(
         })
         .collect();
 
-    // Check for error -- redirect browser to AtomGit
+    // Check for error -- show a neutral local page (no external redirect: this
+    // build has no affiliated platform site to send the browser to).
     if let Some(error) = params.get("error") {
         let error_desc = params
             .get("error_description")
             .map(|s| s.as_str())
             .unwrap_or(error);
-        let response = "HTTP/1.1 302 Found\r\nLocation: https://atomgit.com\r\n\r\n";
+        let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n\
+            <html><head><title>RustCode Login</title>\
+            <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#1a1a2e;color:#eee}\
+            .container{text-align:center;padding:2rem}h1{color:#e11d48;margin:0}p{color:#888}\
+            .mark{color:#e11d48;font-size:4rem}</style></head>\
+            <body><div class=\"container\">\
+            <div class=\"mark\">[x]</div>\
+            <h1>Authorization Failed</h1>\
+            <p>You can close this window and return to RustCode.</p>\
+            </div></body></html>";
         let _ = stream.write_all(response.as_bytes());
         let _ = stream.flush();
         anyhow::bail!("OAuth error: {}", error_desc);
@@ -1338,7 +1349,7 @@ fn get_valid_auth_info() -> Result<AuthInfo> {
     // Check if token is expired (with 5-minute safety margin)
     if let Some(expires_in) = auth.expires_in {
         // A pre-1970 wall clock would otherwise panic here -- and
-        // get_valid_token runs on EVERY authenticated API call (atomgit /
+        // get_valid_token runs on EVERY authenticated API call (gateway /
         // coding_plan clients), not just /login. Treat that as expired
         // (now = i64::MAX) so it force-refreshes instead of crashing (#45).
         let now = std::time::SystemTime::now()
@@ -1743,43 +1754,43 @@ mod tests {
 
     #[test]
     fn strip_force_login_removes_trailing_param() {
-        let url = "https://atomgit.com/oauth/authorize?client_id=abc&state=xyz&force_login=true";
+        let url = "https://example.com/oauth/authorize?client_id=abc&state=xyz&force_login=true";
         assert_eq!(
             strip_force_login(url),
-            "https://atomgit.com/oauth/authorize?client_id=abc&state=xyz"
+            "https://example.com/oauth/authorize?client_id=abc&state=xyz"
         );
     }
 
     #[test]
     fn strip_force_login_removes_middle_param() {
-        let url = "https://atomgit.com/oauth/authorize?client_id=abc&force_login=true&state=xyz";
+        let url = "https://example.com/oauth/authorize?client_id=abc&force_login=true&state=xyz";
         assert_eq!(
             strip_force_login(url),
-            "https://atomgit.com/oauth/authorize?client_id=abc&state=xyz"
+            "https://example.com/oauth/authorize?client_id=abc&state=xyz"
         );
     }
 
     #[test]
     fn strip_force_login_removes_only_param() {
-        let url = "https://atomgit.com/oauth/authorize?force_login=true";
+        let url = "https://example.com/oauth/authorize?force_login=true";
         assert_eq!(
             strip_force_login(url),
-            "https://atomgit.com/oauth/authorize"
+            "https://example.com/oauth/authorize"
         );
     }
 
     #[test]
     fn strip_force_login_removes_first_of_many() {
-        let url = "https://atomgit.com/oauth/authorize?force_login=true&state=xyz";
+        let url = "https://example.com/oauth/authorize?force_login=true&state=xyz";
         assert_eq!(
             strip_force_login(url),
-            "https://atomgit.com/oauth/authorize?state=xyz"
+            "https://example.com/oauth/authorize?state=xyz"
         );
     }
 
     #[test]
     fn strip_force_login_passthrough_when_absent() {
-        let url = "https://atomgit.com/oauth/authorize?client_id=abc&state=xyz";
+        let url = "https://example.com/oauth/authorize?client_id=abc&state=xyz";
         assert_eq!(strip_force_login(url), url);
     }
 

@@ -134,8 +134,8 @@ pub(crate) fn push_system_coalesced(out: &mut Vec<Value>, text: &str) {
 /// 401/402 get a headline, and for those the provider's raw `detail` is
 /// deliberately DROPPED -- the headline already says it and this short form folds
 /// cleanly into the interrupted-turn summary (`[x] 已中断：账户余额不足（HTTP 402）`).
-/// One explicit CodingPlan entitlement rejection also gets an actionable `/login`
-/// hint. Other 403 responses stay raw because AtomGit reuses that status for
+/// One explicit managed-gateway entitlement rejection also gets an actionable
+/// hint. Other 403 responses stay raw because gateways reuse that status for
 /// session-concurrency conflicts and their structured reason must survive. 429
 /// must keep the literal `HTTP 429: ` prefix the kernel rate-limit path
 /// (`rate_limit_server_message`) strips. Everything else keeps
@@ -146,7 +146,7 @@ pub(crate) fn friendly_http_error(code: u16, detail: &str) -> String {
             .to_ascii_lowercase()
             .contains("user has no codingplan")
     {
-        return "CodingPlan 未领取或已失效（HTTP 403）。请运行 /login 重新登录并领取 CodingPlan。"
+        return "账号未开通该模型套餐或授权已失效（HTTP 403），请检查 API key 权限与账户状态。"
             .to_string();
     }
     let headline = match code {

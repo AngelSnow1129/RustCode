@@ -133,8 +133,8 @@ pub fn run_startup_hooks(config: &Config) -> Vec<PluginJobEvent> {
 fn bootstrap_marker_path() -> std::path::PathBuf {
     // Lives directly under `~/.rustcode/` (the canonical config dir),
     // not nested under `plugins/` -- it's a per-user run-state flag,
-    // not a plugin asset. Same neighbourhood as
-    // `.telemetry_notice_shown`.
+    // not a plugin asset, alongside other dot-prefixed run-state
+    // markers.
     Config::config_dir().join(BOOTSTRAP_MARKER_FILENAME)
 }
 
@@ -368,10 +368,10 @@ mod tests {
         // `/plugin marketplace add` hint MUST survive on line 1.
         let err = anyhow::anyhow!("git clone failed")
             .context("stderr line 1\nstderr line 2\nstderr line 3");
-        let msg = auto_install_failure_msg("https://atomgit.com/x/y.git", &err);
+        let msg = auto_install_failure_msg("https://git.example.com/x/y.git", &err);
         let first = msg.lines().next().unwrap();
         assert!(
-            first.contains("/plugin marketplace add https://atomgit.com/x/y.git"),
+            first.contains("/plugin marketplace add https://git.example.com/x/y.git"),
             "recovery hint must be on the first line: {first:?}"
         );
         assert!(first.contains("when ready"), "first line: {first:?}");

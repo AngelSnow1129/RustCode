@@ -28,15 +28,15 @@ Loaded Hooks:
 
 Hook Directories:
 ─────────────────────────────────────────────
-  ✓ Global:   ~/.rustcode/hooks
-  ✓ Project:  /path/to/project/.rustcode/hooks
+  [+] Global:   ~/.rustcode/hooks
+  [+] Project:  /path/to/project/.rustcode/hooks
 ```
 
 **输出说明**：
 - **Type** - Hook 注册的 trait 槽位名称
 - **Count** - 该槽位注册的 Hook 数量（含内置）
 - **Total** - 已加载的 Hook 总数
-- **Hook Directories** - Hooks 目录状态（✓ 表示存在，✗ 表示不存在）
+- **Hook Directories** - Hooks 目录状态（[+] 表示存在， [-] 表示不存在）
 
 `Total` 会始终 ≥ 8（6 个内置 Hook 产生 8 次 slot 注册）。
 
@@ -63,7 +63,7 @@ Testing hook: my-hook
   Config:  ~/.rustcode/hooks/hooks.toml
   Trigger: pre_tool
   Script:  ~/.rustcode/hooks/my_hook.sh
-  Status:  ✓ enabled
+  Status:  [+] enabled
 ```
 
 ---
@@ -139,10 +139,10 @@ $ rustcode hooks list
 
 | trigger 值 | 别名 | 触发时机 | 可影响流程 |
 |-----------|------|---------|:--:|
-| `pre_tool` | `pre_tool_execution` | 工具执行前 | ✅ 可阻止/修改参数 |
-| `post_tool` | `post_tool_execution` | 工具执行后 | ❌ fire-and-forget |
-| `post_turn` | — | Turn 完成后 | ❌ fire-and-forget |
-| `system_prompt` | — | 构建系统 prompt 时 | ✅ 追加指令 |
+| `pre_tool` | `pre_tool_execution` | 工具执行前 | [+] 可阻止/修改参数 |
+| `post_tool` | `post_tool_execution` | 工具执行后 | [-] fire-and-forget |
+| `post_turn` | — | Turn 完成后 | [-] fire-and-forget |
+| `system_prompt` | — | 构建系统 prompt 时 | [+] 追加指令 |
 
 ### 用户可在 JSON CC 配置中使用的 event（5 种）
 
@@ -348,13 +348,13 @@ script = "audit.sh"  # 相对于 hooks.toml 所在目录
 ### 1. 使用正确 trigger 值
 
 ```toml
-# ✅ 正确 — TOML ScriptHook 支持的 4 个 trigger
+# [+] 正确 — TOML ScriptHook 支持的 4 个 trigger
 trigger = "pre_tool"
 trigger = "post_tool"
 trigger = "post_turn"
 trigger = "system_prompt"
 
-# ❌ 错误 — 这些值不会被 TOML ScriptHook 识别
+# [-] 错误 — 这些值不会被 TOML ScriptHook 识别
 trigger = "tool_call_start"   # 仅内置/Webhook 可用
 trigger = "turn_complete"     # 仅内置/Webhook 可用
 trigger = "session_end"       # 仅 Webhook / JSON CC 可用

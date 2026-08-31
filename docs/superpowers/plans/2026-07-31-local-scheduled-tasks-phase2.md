@@ -322,12 +322,12 @@ git commit -m "feat(schedule): strict unattended approver — deny risky bash fo
 - 三平台 install/uninstall/status(+crontab fallback)→ Task 2。
 - add/remove/enable/disable 接线 + sync + list 状态 → Task 3。
 - I1 更严 approver(拒危险 bash、从不 bypass、auto 封顶)→ Task 4。
-- install 失败警告不回滚 → Task 3 add 分支。cron 无法表达→报错 → Task 1 翻译 bail。✅
-- DEFER(webui UI / Task 2b / 云端)→ 全程无。✅
+- install 失败警告不回滚 → Task 3 add 分支。cron 无法表达→报错 → Task 1 翻译 bail。 [x]
+- DEFER(webui UI / Task 2b / 云端)→ 全程无。 [x]
 
 **2. Placeholder scan:** Task 2 的平台命令细节(launchctl/systemctl/schtasks 参数)给了具体命令+参数形态;crontab fallback 标为 Task 2 内次条目(真实集成点,非 TBD)。Task 4 给了纯函数 + 精确改点 L2529。无 TBD。
 
-**3. Type consistency:** `OsScheduler`/`CommandRunner`/`InstallState`/翻译函数签名贯穿 Task 1→2→3;`headless_auto_approve(strict_unattended,skip_permissions,tool)` + `run_native_headless` 增参 `strict_unattended: bool` 一致;`Schedule`/`ScheduleTask` 来自阶段 1。✅
+**3. Type consistency:** `OsScheduler`/`CommandRunner`/`InstallState`/翻译函数签名贯穿 Task 1→2→3;`headless_auto_approve(strict_unattended,skip_permissions,tool)` + `run_native_headless` 增参 `strict_unattended: bool` 一致;`Schedule`/`ScheduleTask` 来自阶段 1。 [x]
 
 ## 非目标(阶段 2 不做)
 webui/桌面「定时任务」面板;Task 2b catalog 过滤 scheduled 会话;云端;比 OS 更强的自定义补跑。

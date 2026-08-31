@@ -1,10 +1,10 @@
 // crates/rustcode-core/src/coding_plan/client.rs
 //
 // Blocking HTTP client for the three CodingPlan REST endpoints. Reuses the
-// OAuth token already on disk (from `rustcode_auth`) -- the token authenticates
-// both `atomgit.com` and `api.gitcode.com` (same backend, different front
-// domains). Every request carries `RUSTCODE_USER_AGENT` so AtomGit's
-// API gateway sees a consistent identifier.
+// OAuth token already on disk (from `rustcode_auth`) -- the same token
+// authenticates against both the platform server and the CodingPlan API
+// base URL. Every request carries `RUSTCODE_USER_AGENT` so the
+// gateway sees a consistent identifier.
 //
 // Blocking (not async) is deliberate: the coding-plan flow runs synchronously
 // before / outside the agent event loop. Async would force tokio::block_on
@@ -34,7 +34,8 @@ fn apply_blocking_proxy_policy(
         builder
     };
     // Cap at TLS 1.2 when a TLS-1.3-hostile network has been detected/requested
-    // (some paths RST the TLS 1.3 handshake to *.atomgit.com -> os error 10054).
+    // (some middleboxes RST the TLS 1.3 handshake to managed endpoints ->
+    // os error 10054).
     if force_tls12 {
         builder.max_tls_version(reqwest::tls::Version::TLS_1_2)
     } else {

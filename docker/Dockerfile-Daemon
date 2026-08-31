@@ -1,8 +1,13 @@
 FROM debian:bookworm-slim
 
-# Use China mirror for faster downloads
-RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-    sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+# Optional regional APT mirror for faster downloads, passed as a build arg, e.g.
+#   docker build --build-arg APT_MIRROR=http://mirrors.aliyun.com ...
+# Leave unset to use the upstream Debian mirrors (the neutral default).
+ARG APT_MIRROR=
+RUN if [ -n "$APT_MIRROR" ]; then \
+        sed -i "s|http://deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+        sed -i "s|http://deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list 2>/dev/null || true; \
+    fi
 
 # Install required utilities
 RUN apt-get update && \

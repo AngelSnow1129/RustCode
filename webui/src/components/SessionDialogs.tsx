@@ -44,7 +44,7 @@ export function RenameDialog({ session, onClose, onDone }: RenameDialogProps) {
     >
       <div class="modal-card modal-card-sm">
         <div class="modal-header">
-          <span>✎</span>
+          <span>[EDIT]</span>
           <h3>{t('rename.title')}</h3>
           <button class="ghost-btn modal-close" onClick={onClose} aria-label={t('common.cancel')}>
             ×
@@ -123,7 +123,7 @@ export function DeleteDialog({ session, onClose, onDone }: DeleteDialogProps) {
     >
       <div class="modal-card modal-card-sm">
         <div class="modal-header">
-          <span>🗑</span>
+          <span>[X]</span>
           <h3>{t('delete.title')}</h3>
           <button class="ghost-btn modal-close" onClick={onClose} aria-label={t('common.cancel')}>
             ×

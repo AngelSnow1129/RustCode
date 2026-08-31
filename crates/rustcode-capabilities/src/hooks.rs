@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 /// A provider-**agnostic** wire logger. It rides the kernel's hook seam, so a single
 /// instance logs the request/response for ANY provider or agent -- not one adapter:
-///   - `on_request` (the kernel-documented home for telemetry / datalog / cache-RCA)
+///   - `on_request` (the kernel-documented home for local datalog / cache-RCA)
 ///     dumps the FINAL outgoing request: post-projection `messages`, the frozen
 ///     `tools` block, the sideband `options`, and round/epoch.
 ///   - `on_model_response` dumps the assembled assistant message (text + tool_calls +

@@ -94,7 +94,7 @@ todo 面板固定在输入框上方，执行中多行显示，全部完成后隐
 
 ---
 
-## §7 daemon kernel 引擎路径 [P0 opt-in] ⚠️ 需 `RUSTCODE_DAEMON_ENGINE=kernel`
+## §7 daemon kernel 引擎路径 [P0 opt-in] [!] 需 `RUSTCODE_DAEMON_ENGINE=kernel`
 
 > 每次测试**必须新建会话**，已有会话不受影响（kernel 路径只对新对话生效）。
 > 测完后 `unset RUSTCODE_DAEMON_ENGINE` 回到默认路径，跑一遍相同用例做 A/B 对比。
@@ -133,7 +133,7 @@ todo 面板固定在输入框上方，执行中多行显示，全部完成后隐
 
 ---
 
-## §9 prompt/persona 行为 [P1] ⚠️ 需观察弱模型行为
+## §9 prompt/persona 行为 [P1] [!] 需观察弱模型行为
 
 > 用 deepseek-v4-flash（或类似弱模型）测试以下场景。
 

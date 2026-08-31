@@ -14,7 +14,7 @@ memory 工具的 global scope 由 `MemoryStore::global()` 经 `super::config_dir
 ## 现状(已核对)
 
 - `MemoryStore::new(path)` 本就以完整路径参数化；`global()` 走 `config_dir()`（尊重 `RUSTCODE_HOME`）；唯 `project(project_root)` 硬编码 `.rustcode`。
-- **⚠️ 存在两份 `MemoryStore`，两份都在生产用、`project()` 都硬编码 `.rustcode`**（计划期 grep 发现，spec 初稿曾漏）：
+- **[!] 存在两份 `MemoryStore`，两份都在生产用、`project()` 都硬编码 `.rustcode`**（计划期 grep 发现，spec 初稿曾漏）：
   1. `rustcode-capabilities/src/memory/store.rs`（用户点的，L1 端口）：被 tuix `event_loop/commands.rs`（`/memory`/`/remember`/prompt 组装）、`rustcode-clix/src/code.rs`、`rustcode-capabilities/src/tools/memory.rs:40`（`remember` 工具）、以及 **prompt 注入 hook `memory/hook.rs:49`（`MemoryStore::project(project_root)`）** 使用。
   2. `rustcode-config/src/config/memory.rs`（原版；store.rs 是它的 VERBATIM 端口，两者字节兼容）：被 **daemon（webui）`rustcode-daemon/src/commands.rs:527/531`（`MemoryStore::global()`/`project()`）** 使用。
 - 结论：**两份 `project()` 必须同样修，否则另一条路径（TUI 或 daemon/webui）仍落回 `.rustcode`，宿主 bug 只修一半**。每份内部读/写/注入都经各自 `project()`，故各改一处即覆盖该 crate 的全部路径，无调用点 churn。

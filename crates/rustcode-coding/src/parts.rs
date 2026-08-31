@@ -580,14 +580,22 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         .as_ref()
         .map(|config| config.subagent.clone())
         .unwrap_or_default();
-    let (subagent_max_concurrent, subagent_max_rounds) = subagent_runtime_knobs(
-        &subagent_cfg,
-        std::env::var("RUSTCODE_SUBAGENT_MAX_ROUNDS")
-            .ok()
-            .as_deref(),
-    );
+    let (subagent_worker_concurrent, subagent_explore_concurrent, subagent_max_rounds) =
+        subagent_runtime_knobs(
+            &subagent_cfg,
+            std::env::var("RUSTCODE_SUBAGENT_MAX_ROUNDS")
+                .ok()
+                .as_deref(),
+            std::env::var("RUSTCODE_SUBAGENT_MAX_CONCURRENT")
+                .ok()
+                .as_deref(),
+            std::env::var("RUSTCODE_SUBAGENT_EXPLORE_MAX_CONCURRENT")
+                .ok()
+                .as_deref(),
+        );
     let team_manager = crate::team::TeamRunManager::new(crate::team::TeamRuntimeConfig {
-        max_concurrent: subagent_max_concurrent,
+        max_concurrent: subagent_worker_concurrent,
+        max_concurrent_explore: subagent_explore_concurrent,
         ..Default::default()
     });
     let subagent_provider: Option<SharedReviewProvider> = if subagents_enabled {
@@ -675,7 +683,8 @@ async fn prepare_with_plugin_hooks_reusing_lease(
             make_worker_tools,
         )
         .with_host_provider(make_host)
-        .with_max_concurrent(subagent_max_concurrent)
+        .with_max_concurrent(subagent_worker_concurrent)
+        .with_max_concurrent_explore(subagent_explore_concurrent)
         .with_max_rounds(subagent_max_rounds)
         .with_stream_timeout(cfg.stream_timeout)
         .with_tool_loop_policy(cfg.tool_loop_policy)
@@ -1859,8 +1868,8 @@ pub fn assemble(
         );
         builder = builder.resume(snapshot);
     }
-    // Ensure the repo's `rustcode` project label after a successful `git push` to a
-    // gitcode/atomgit remote. THIS is the production mount: the terminal TUI, daemon, and
+    // Ensure the repo's project label after a successful `git push` to a
+    // platform remote. THIS is the production mount: the terminal TUI, daemon, and
     // webui all build their agent here via `parts::assemble`. (`assemble.rs::build_coding_agent`
     // also mounts it, but that path is reachable only from tests/examples -- so before this the
     // middleware never ran for a real session.) Best-effort: every failure is a `tracing::warn`
@@ -1887,8 +1896,7 @@ pub fn assemble(
     Ok(agent)
 }
 
-const RUSTCODE_PERSONA_PREFIX: &str =
-    "You are RustCode, an AI coding agent running the ";
+const RUSTCODE_PERSONA_PREFIX: &str = "You are RustCode, an AI coding agent running the ";
 const MODEL_CHANGE_CONTEXT_PREFIX: &str = "=== MODEL CHANGE ===";
 
 /// Legacy drivers persist conversation history without the separately supplied
@@ -1975,16 +1983,35 @@ pub fn subagent_enabled_from_env(var: Option<&str>) -> bool {
     }
 }
 
-/// Resolve the live `task` subagent knobs. The legacy `timeout_secs` field is deliberately
-/// ignored: child liveness is owned by provider idle timeouts, the round cap, and cancellation.
+/// Resolve the live `task`/`team` subagent knobs.
+///
+/// Returns `(worker_concurrent, explore_concurrent, max_rounds)`:
+/// - `worker_concurrent` bounds WRITE children (scope-confined edits) -- conservative.
+/// - `explore_concurrent` bounds READ-ONLY children (search/read sweeps) -- wider, since
+///   they never conflict. The two lanes use independent semaphores so a broad read-only
+///   fan-out is not throttled behind the small write budget and vice versa.
+///
+/// Every value is floored to 1 so a bad/zero config never disables the lane. The legacy
+/// `timeout_secs` field is deliberately ignored: child liveness is owned by provider idle
+/// timeouts, the round cap, and cancellation.
 pub fn subagent_runtime_knobs(
     cfg: &rustcode_config::config::SubAgentConfig,
     max_rounds_env: Option<&str>,
-) -> (usize, u32) {
+    worker_concurrent_env: Option<&str>,
+    explore_concurrent_env: Option<&str>,
+) -> (usize, usize, u32) {
+    let parse_usize = |value: Option<&str>, fallback: usize| -> usize {
+        value
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .unwrap_or(fallback)
+            .max(1)
+    };
     let max_rounds = max_rounds_env
         .and_then(|v| v.trim().parse::<u32>().ok())
         .unwrap_or(cfg.max_rounds);
-    (cfg.max_concurrent.max(1), max_rounds)
+    let worker = parse_usize(worker_concurrent_env, cfg.max_concurrent);
+    let explore = parse_usize(explore_concurrent_env, cfg.max_concurrent_explore);
+    (worker, explore, max_rounds)
 }
 
 #[cfg(test)]
@@ -2158,11 +2185,13 @@ mod tests {
         use rustcode_config::config::SubAgentConfig;
         let cfg = SubAgentConfig {
             max_concurrent: 0,
+            max_concurrent_explore: 0,
             timeout_secs: 5,
             ..SubAgentConfig::default()
         };
-        let (mc, rounds) = subagent_runtime_knobs(&cfg, None);
-        assert_eq!(mc, 1, "max_concurrent is still floored to one");
+        let (worker, explore, rounds) = subagent_runtime_knobs(&cfg, None, None, None);
+        assert_eq!(worker, 1, "worker concurrency is still floored to one");
+        assert_eq!(explore, 1, "explore concurrency is still floored to one");
         assert_eq!(rounds, 200);
     }
 
@@ -2170,9 +2199,30 @@ mod tests {
     fn subagent_runtime_knobs_default_config_preserves_live_defaults() {
         use super::subagent_runtime_knobs;
         use rustcode_config::config::SubAgentConfig;
-        let (mc, rounds) = subagent_runtime_knobs(&SubAgentConfig::default(), None);
-        assert_eq!(mc, 3, "default max_concurrent unchanged");
+        let (worker, explore, rounds) =
+            subagent_runtime_knobs(&SubAgentConfig::default(), None, None, None);
+        assert_eq!(worker, 3, "default worker concurrency unchanged");
+        assert_eq!(
+            explore, 8,
+            "read-only lane fans out wider than workers by default"
+        );
         assert_eq!(rounds, 200, "default child round high-water unchanged");
+    }
+
+    #[test]
+    fn subagent_runtime_knobs_separate_worker_and_explore_lanes_via_env() {
+        use super::subagent_runtime_knobs;
+        use rustcode_config::config::SubAgentConfig;
+        let cfg = SubAgentConfig::default();
+        // Env overrides target each lane independently; bad/zero values fall back/floor.
+        let (worker, explore, _) = subagent_runtime_knobs(&cfg, None, Some("2"), Some("12"));
+        assert_eq!((worker, explore), (2, 12));
+        let (worker, explore, _) = subagent_runtime_knobs(&cfg, None, Some("0"), Some("bad"));
+        assert_eq!(worker, 1, "zero worker env floors to one");
+        assert_eq!(
+            explore, 8,
+            "bad explore env falls back to the config default"
+        );
     }
 
     #[test]
@@ -2183,14 +2233,17 @@ mod tests {
             max_rounds: 350,
             ..SubAgentConfig::default()
         };
-        assert_eq!(subagent_runtime_knobs(&cfg, None).1, 350);
-        assert_eq!(subagent_runtime_knobs(&cfg, Some(" 500 ")).1, 500);
+        assert_eq!(subagent_runtime_knobs(&cfg, None, None, None).2, 350);
         assert_eq!(
-            subagent_runtime_knobs(&cfg, Some("0")).1,
+            subagent_runtime_knobs(&cfg, Some(" 500 "), None, None).2,
+            500
+        );
+        assert_eq!(
+            subagent_runtime_knobs(&cfg, Some("0"), None, None).2,
             0,
             "zero is an intentional unbounded override"
         );
-        assert_eq!(subagent_runtime_knobs(&cfg, Some("bad")).1, 350);
+        assert_eq!(subagent_runtime_knobs(&cfg, Some("bad"), None, None).2, 350);
     }
 
     #[test]

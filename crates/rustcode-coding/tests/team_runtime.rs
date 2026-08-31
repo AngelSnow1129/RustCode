@@ -196,15 +196,16 @@ async fn concurrent_cap_queues_and_completes_all_members() {
     let tool = TeamTool::new(manager, runner.job_factory(), runner.model_factory());
     let ctx = tool_ctx();
 
-    // 5 个任务，max_concurrent=2 -> 3 个排队，最终全部完成。
+    // 5 个 worker（写）任务，worker lane max_concurrent=2 -> 3 个排队，最终全部完成。
+    // 只读 explore 角色走独立的更宽 lane（见 manager 单测），这里用 worker 验证写 lane 上限。
     let delegated = tool
         .execute(
             r#"{"action":"delegate","tasks":[
-                {"description":"read","prompt":"inspect 1","role":"explorer"},
-                {"description":"read","prompt":"inspect 2","role":"explorer"},
-                {"description":"read","prompt":"inspect 3","role":"explorer"},
-                {"description":"read","prompt":"inspect 4","role":"explorer"},
-                {"description":"read","prompt":"inspect 5","role":"explorer"}
+                {"description":"edit","prompt":"change 1","role":"rust","scope":["w1/**"]},
+                {"description":"edit","prompt":"change 2","role":"rust","scope":["w2/**"]},
+                {"description":"edit","prompt":"change 3","role":"rust","scope":["w3/**"]},
+                {"description":"edit","prompt":"change 4","role":"rust","scope":["w4/**"]},
+                {"description":"edit","prompt":"change 5","role":"rust","scope":["w5/**"]}
             ]}"#,
             &ctx,
         )

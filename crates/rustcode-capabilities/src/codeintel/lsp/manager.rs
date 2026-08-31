@@ -1,7 +1,7 @@
 //! Pooled language-server manager: one [`LspClient`] per project root and server
 //! command, started lazily and reused across compatible extensions. Ported from
-//! production `lsp/manager.rs` (the event-channel / telemetry
-//! coupling is dropped; absence of a server binary degrades gracefully).
+//! production `lsp/manager.rs` (the event-channel coupling is dropped;
+//! absence of a server binary degrades gracefully).
 
 use super::client::LspClient;
 use super::registry::{extension_to_language_id, LspServerRegistry};

@@ -81,23 +81,24 @@ BUILD_ONLY=1 docker/build-multiarch.sh         # 构建并加载当前主机架�
 
 脚本会自动调用 `scripts/release.sh`（`RUSTCODE_INCLUDE_DAEMON=1`）交叉编译 x64 + arm64 两种 daemon 产物后交给 buildx。前置条件：安装 musl 交叉编译工具链（`brew install FiloSottile/musl-cross/musl-cross`）。
 
-### 推送到华为云 SWR
+### 推送到镜像仓库
 
-华为云 SWR 基础版不支持 OCI 规范的镜像格式。如果你使用的是较新版本的 Docker（BuildKit），需要添加 `--provenance=false` 参数：
+把下方的 `your-registry.example.com/rustcode-daemon` 替换为你自己的镜像仓库地址即可（Docker Hub、GHCR、Harbor 或任意云厂商私有仓库均适用）：
 
 ```bash
 # 标记镜像
-docker tag rustcode-daemon:v5.0.3 swr.cn-north-4.myhuaweicloud.com/gitcode-be/rustcode-daemon:v5.0.3
+docker tag rustcode-daemon:v5.0.3 your-registry.example.com/rustcode-daemon:v5.0.3
 
 # 使用 buildx 构建并推送（推荐）
-docker buildx build --provenance=false --platform linux/amd64 -t swr.cn-north-4.myhuaweicloud.com/gitcode-be/rustcode-daemon:v5.0.3 --push -f docker/Dockerfile-Daemon .
+docker buildx build --platform linux/amd64 -t your-registry.example.com/rustcode-daemon:v5.0.3 --push -f docker/Dockerfile-Daemon .
 
 # 或者先构建再推送
-docker build --provenance=false -t swr.cn-north-4.myhuaweicloud.com/gitcode-be/rustcode-daemon:v5.0.3 -f docker/Dockerfile-Daemon .
-docker push swr.cn-north-4.myhuaweicloud.com/gitcode-be/rustcode-daemon:v5.0.3
+docker build -t your-registry.example.com/rustcode-daemon:v5.0.3 -f docker/Dockerfile-Daemon .
+docker push your-registry.example.com/rustcode-daemon:v5.0.3
 ```
 
-> **注意**: 如果不添加 `--provenance=false`，推送时会报错: `Invalid image, fail to parse 'manifest.json'`
+> **注意**: 部分不支持完整 OCI 规范的仓库，用较新版本 Docker（BuildKit）推送时会报
+> `Invalid image, fail to parse 'manifest.json'`；给 buildx/build 追加 `--provenance=false` 即可解决。
 
 ## 运行容器
 
@@ -162,7 +163,7 @@ docker logs -f rustcode-daemon   # 查看日志
 
 ## NAS 一键部署（群晖 / 威联通等）
 
-项目提供 `docker-compose.yml`，适合在 NAS / 服务器上常驻运行 daemon：崩溃自动重启（`restart: unless-stopped`）、健康检查、运行数据与项目目录持久化，配合手机 GitCode App（`/app`）、WebUI 或 daemon HTTP API 随时远程调试。
+项目提供 `docker-compose.yml`，适合在 NAS / 服务器上常驻运行 daemon：崩溃自动重启（`restart: unless-stopped`）、健康检查、运行数据与项目目录持久化，配合移动端 agent 应用、WebUI 或 daemon HTTP API 随时远程调试。
 
 ### 快速开始
 

@@ -1,7 +1,7 @@
 # 退役 core::provider 子项目C2 — daemon 传输层脱 core::conversation 实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`).
-> **⚠️ 高风险**：这是 daemon 活传输层（webui `/chat` + `/live`）的重构，牵涉持久化/取消/图片恢复/cold_summaries/轮次语义，回归即用户可见。每个可编译步必须是某条路径的**完整**切换（core Conversation 与 kernel 缓冲不能在同一路径混用）。
+> **[!] 高风险**：这是 daemon 活传输层（webui `/chat` + `/live`）的重构，牵涉持久化/取消/图片恢复/cold_summaries/轮次语义，回归即用户可见。每个可编译步必须是某条路径的**完整**切换（core Conversation 与 kernel 缓冲不能在同一路径混用）。
 
 **Goal:** 把 daemon `/chat`（`process_chat_request`）+ `/live`（`run_chat_turn_v2`）的 core `Conversation` 缓冲换成 kernel-native，消除 `snapshot_to_core ↔ snapshot_to_kernel` 无谓往返，使 `core::conversation` 外部消费者归零（C3 才删模块）。
 
@@ -92,7 +92,7 @@ C2 落地 + 真机绿后：确认 `core::conversation`/`core::provider`/`core::c
 **决策2：cold_summaries 有 kernel 助手，双向已就绪。**
 - daemon 读点：live_api.rs:380（塞进 startup snapshot）、:516（压缩完清空）。
 - 编码：kernel 把 cold summary 存成合成 message（`internal_origin=LEGACY_COLD_SUMMARY_ORIGIN`，text 带 `LEGACY_COLD_SUMMARY_PREFIX`）——见 legacy_convert `snapshot_to_kernel`:473-485 / `snapshot_to_core`:1775-1793（双向）。常量在 kernel message.rs:9-17（磁盘契约，不可改）。
-- 助手：`rustcode_tuix::session::cold_summaries_from_messages(&[Message]) -> Vec<String>`（tuix session.rs:14）——**从 kernel messages 抽 Vec<String>**。⚠️该助手在 tuix，daemon 不宜依赖 tuix → **C2 需把它提到共享层**（kernel 或 capabilities；逐字同 legacy_convert 的 strip 逻辑），或 daemon 内联同款 strip。→ 这是 C2 唯一"新增共享助手"点。
+- 助手：`rustcode_tuix::session::cold_summaries_from_messages(&[Message]) -> Vec<String>`（tuix session.rs:14）——**从 kernel messages 抽 Vec<String>**。 [!] 该助手在 tuix，daemon 不宜依赖 tuix → **C2 需把它提到共享层**（kernel 或 capabilities；逐字同 legacy_convert 的 strip 逻辑），或 daemon 内联同款 strip。→ 这是 C2 唯一"新增共享助手"点。
 
 **决策3：持久化复用 `SessionManager::save_snapshot(id: &str, snap: &SessionSnapshot) -> SessionResult<()>`**（capabilities manager.rs:748）。`persist_pre_runtime_terminal`（legacy_convert）内部已走它 → daemon 迁移后直接 `manager.save_snapshot(id, &kernel_snapshot)`，去掉 core ConversationSnapshot 中间态。
 

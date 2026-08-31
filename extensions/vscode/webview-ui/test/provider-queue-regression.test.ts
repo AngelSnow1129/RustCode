@@ -1200,7 +1200,7 @@ async function testStaleSetupRefreshCannotOverwriteNewerAuthState() {
     }),
     getConfig: () => Promise.resolve({
       path: '/tmp/rustcode/config.toml', default_provider: 'main', provider_count: 1,
-      providers: [], network: {}, telemetry: {},
+      providers: [], network: {},
     }),
     listModels: () => Promise.resolve([]),
   };
@@ -1295,7 +1295,7 @@ async function testDisposedPanelCannotBlockNewPanelSetupState() {
     }),
     getConfig: async () => ({
       path: '/tmp/rustcode/config.toml', default_provider: 'main', provider_count: 1,
-      providers: [], network: {}, telemetry: {},
+      providers: [], network: {},
     }),
     listModels: async () => [],
   };

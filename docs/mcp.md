@@ -64,7 +64,7 @@ rustcode mcp logout github                       # 删除已存凭证
 
 TUI 里等价的是 `/mcp login <server>` / `/mcp logout <server>`。token 存 `~/.rustcode/mcp_auth.toml`（0600），后续 HTTP 请求自动加 `Authorization: Bearer`；过期且有 refresh token 会自动刷新，刷新失败需重新 login。**后台连接不会自动弹浏览器**，必须显式登录。
 
-### 1.4 ⚠️ 项目信任门（容易踩的一步）
+### 1.4 [!] 项目信任门（容易踩的一步）
 
 **项目级 `.mcp.json` 里的 server，在未信任的项目里根本不会连**，状态显示 `blocked: untrusted project`（`registry.rs::partition_by_trust`）。用户级 `~/.rustcode/mcp.json` 不受此限。
 

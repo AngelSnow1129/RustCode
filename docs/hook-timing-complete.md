@@ -12,7 +12,7 @@ RustCode Hook 系统提供了 **13 个关键时机** 的扩展点，覆盖用户
 
 | # | Hook 名称 | 触发时机 | 主要用途 | 可否修改 |
 |---|----------|---------|---------|---------|
-| 1 | `OnMessageReceived` | 收到用户消息时 | 消息过滤、审计、自动回复、上下文增强 | ✅ 可修改消息内容 |
+| 1 | `OnMessageReceived` | 收到用户消息时 | 消息过滤、审计、自动回复、上下文增强 | [+] 可修改消息内容 |
 
 **典型应用**：
 - 敏感词过滤
@@ -27,10 +27,10 @@ RustCode Hook 系统提供了 **13 个关键时机** 的扩展点，覆盖用户
 
 | # | Hook 名称 | 触发时机 | 主要用途 | 可否修改 |
 |---|----------|---------|---------|---------|
-| 2 | `OnTurnStart` | Turn 开始前 | 注入自定义上下文、设置环境变量 | ❌ |
-| 3 | `OnTurnComplete` | Turn 完成后（含详细信息） | 统计分析、自动操作、报告生成 | ❌ |
-| 4 | `PostTurn` | Turn 完成后（向后兼容） | 向后兼容旧版 hook | ❌ |
-| 5 | `OnModelResponse` | 模型响应完成后 | 响应验证、自动修正、日志记录 | ❌ |
+| 2 | `OnTurnStart` | Turn 开始前 | 注入自定义上下文、设置环境变量 | [-] |
+| 3 | `OnTurnComplete` | Turn 完成后（含详细信息） | 统计分析、自动操作、报告生成 | [-] |
+| 4 | `PostTurn` | Turn 完成后（向后兼容） | 向后兼容旧版 hook | [-] |
+| 5 | `OnModelResponse` | 模型响应完成后 | 响应验证、自动修正、日志记录 | [-] |
 
 **典型应用**：
 - Turn 开始：设置临时环境变量、加载项目特定配置
@@ -43,9 +43,9 @@ RustCode Hook 系统提供了 **13 个关键时机** 的扩展点，覆盖用户
 
 | # | Hook 名称 | 触发时机 | 主要用途 | 可否修改 |
 |---|----------|---------|---------|---------|
-| 6 | `OnToolCallStart` | 工具调用开始时（权限检查前） | 审计、限流、拦截 | ❌ 可拒绝 |
-| 7 | `PreToolExecution` | 工具执行前（权限检查后） | 参数验证/修改、额外检查 | ✅ 可修改参数 |
-| 8 | `PostToolExecution` | 工具执行完成后 | 结果处理、日志记录、触发后续操作 | ❌ |
+| 6 | `OnToolCallStart` | 工具调用开始时（权限检查前） | 审计、限流、拦截 | [-] 可拒绝 |
+| 7 | `PreToolExecution` | 工具执行前（权限检查后） | 参数验证/修改、额外检查 | [+] 可修改参数 |
+| 8 | `PostToolExecution` | 工具执行完成后 | 结果处理、日志记录、触发后续操作 | [-] |
 
 **典型应用**：
 - 工具调用开始：记录审计日志、限流控制
@@ -58,8 +58,8 @@ RustCode Hook 系统提供了 **13 个关键时机** 的扩展点，覆盖用户
 
 | # | Hook 名称 | 触发时机 | 主要用途 | 可否修改 |
 |---|----------|---------|---------|---------|
-| 9 | `OnSessionStart` | 会话启动时 | 初始化、加载自定义上下文、环境检查 | ❌ |
-| 10 | `OnSessionEnd` | 会话结束时 | 清理、生成报告、保存状态 | ❌ |
+| 9 | `OnSessionStart` | 会话启动时 | 初始化、加载自定义上下文、环境检查 | [-] |
+| 10 | `OnSessionEnd` | 会话结束时 | 清理、生成报告、保存状态 | [-] |
 
 **典型应用**：
 - 会话开始：加载项目特定规则、检查依赖
@@ -71,8 +71,8 @@ RustCode Hook 系统提供了 **13 个关键时机** 的扩展点，覆盖用户
 
 | # | Hook 名称 | 触发时机 | 主要用途 | 可否修改 |
 |---|----------|---------|---------|---------|
-| 11 | `OnError` | 错误发生时 | 错误报告、自动恢复、通知 | ❌ |
-| 12 | `SystemPrompt` | 构建系统提示时 | 注入额外规则、添加自定义指令 | ✅ 可追加内容 |
+| 11 | `OnError` | 错误发生时 | 错误报告、自动恢复、通知 | [-] |
+| 12 | `SystemPrompt` | 构建系统提示时 | 注入额外规则、添加自定义指令 | [+] 可追加内容 |
 
 **典型应用**：
 - 错误：发送到错误追踪系统、尝试自动恢复
@@ -84,7 +84,7 @@ RustCode Hook 系统提供了 **13 个关键时机** 的扩展点，覆盖用户
 
 | # | Hook 名称 | 触发时机 | 主要用途 | 可否修改 |
 |---|----------|---------|---------|---------|
-| 13 | `OnUserPromptSubmit` | 用户提交 prompt 时 | 注入上下文、阻止敏感消息 | ✅ 可注入/阻止 |
+| 13 | `OnUserPromptSubmit` | 用户提交 prompt 时 | 注入上下文、阻止敏感消息 | [+] 可注入/阻止 |
 
 ---
 
@@ -176,22 +176,22 @@ Turn 完成
 
 ### 原有 Hook 时机（4 个）
 
-1. ✅ `PreToolExecution` - 工具执行前
-2. ✅ `PostToolExecution` - 工具执行后
-3. ✅ `PostTurn` - Turn 完成后
-4. ✅ `SystemPrompt` - 系统 Prompt 扩展
+1. [+] `PreToolExecution` - 工具执行前
+2. [+] `PostToolExecution` - 工具执行后
+3. [+] `PostTurn` - Turn 完成后
+4. [+] `SystemPrompt` - 系统 Prompt 扩展
 
 ### 新增 Hook 时机（9 个）
 
-5. ✨ `OnMessageReceived` - 用户消息接收时（trait 已定义，待激活）
-6. ✨ `OnTurnStart` - Turn 开始前
-7. ✨ `OnToolCallStart` - 工具调用开始时
-8. ✨ `OnTurnComplete` - Turn 完成后（详细信息）
-9. ✨ `OnSessionStart` - 会话启动时
-10. ✨ `OnSessionEnd` - 会话结束时
-11. ✨ `OnError` - 错误发生时
-12. ✨ `OnModelResponse` - 模型响应完成后
-13. ✨ `OnUserPromptSubmit` - 用户提交 prompt 时
+5. [*] `OnMessageReceived` - 用户消息接收时（trait 已定义，待激活）
+6. [*] `OnTurnStart` - Turn 开始前
+7. [*] `OnToolCallStart` - 工具调用开始时
+8. [*] `OnTurnComplete` - Turn 完成后（详细信息）
+9. [*] `OnSessionStart` - 会话启动时
+10. [*] `OnSessionEnd` - 会话结束时
+11. [*] `OnError` - 错误发生时
+12. [*] `OnModelResponse` - 模型响应完成后
+13. [*] `OnUserPromptSubmit` - 用户提交 prompt 时
 
 ---
 
@@ -199,19 +199,19 @@ Turn 完成
 
 ### 必备 Hook（推荐启用）
 
-- ✅ `ToolAuditLogHook` - 审计日志（安全合规）
-- ✅ `TurnStatsHook` - 统计分析（了解模型行为）
-- ✅ `ErrorReportHook` - 错误记录（问题排查）
+- [+] `ToolAuditLogHook` - 审计日志（安全合规）
+- [+] `TurnStatsHook` - 统计分析（了解模型行为）
+- [+] `ErrorReportHook` - 错误记录（问题排查）
 
 ### 可选 Hook（按需启用）
 
-- ⚙️ `AutoCommitHook` - 自动提交（适合个人项目）
-- ⚙️ `SessionSummaryHook` - 会话总结（适合长会话）
-- ⚙️ `ResponseValidationHook` - 响应验证（企业环境）
+- [*] `AutoCommitHook` - 自动提交（适合个人项目）
+- [*] `SessionSummaryHook` - 会话总结（适合长会话）
+- [*] `ResponseValidationHook` - 响应验证（企业环境）
 
 ### 开发 Hook（调试用）
 
-- 🔧 自定义脚本 Hook - 快速原型验证
+- [*] 自定义脚本 Hook - 快速原型验证
 
 ---
 

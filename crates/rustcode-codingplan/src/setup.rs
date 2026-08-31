@@ -20,13 +20,14 @@
 //
 // Provider mutation (D2 + D4):
 //
-//   - All previously-created `AtomGit*` entries are wiped before inserts.
+//   - All previously-created managed entries (the current `RustCode*`
+//     prefix plus legacy `AtomGit*` ones) are wiped before inserts.
 //     Since CodingPlan is the authoritative source of truth for the
 //     model list, keeping stale names around would confuse `/model`.
-//   - Single model -> one provider named `AtomGit`.
+//   - Single model -> one provider named after the managed prefix.
 //   - Multiple models -> one provider per model, named
-//     `AtomGit-{display_model_name}` with `/` -> `-` (keeps config.toml
-//     section names clean -- `[providers.AtomGit-moonshotai-Kimi-K2]`).
+//     `{prefix}-{display_model_name}` with `/` -> `-` (keeps config.toml
+//     section names clean, e.g. `[providers.RustCode-moonshotai-Kimi-K2]`).
 //   - A valid non-CodingPlan default is preserved. A CodingPlan selection is
 //     preserved by model identity when still available; otherwise use the first
 //     available model in API order.
@@ -37,6 +38,7 @@ use super::client::{is_auth_expired, Client};
 #[cfg(test)]
 use super::types::RateLimitWindow;
 use super::types::{ModelEntry, PlanType, StatusResponse};
+use super::usage::format_duration_secs;
 use rustcode_auth as auth;
 // Single source of truth for the CodingPlan provider-name predicate.
 use rustcode_config::config::is_codingplan_provider_name;
@@ -53,8 +55,10 @@ use rustcode_config::config::Config;
 /// mid-flight.
 ///
 /// Whether requests to this gateway are *signed* is a separate question owned
-/// by `gateway_crypto::is_codingplan_gateway` -- signing engages only for the
-/// vendor gateway hosts and only in an official build.
+/// by `gateway_crypto::is_codingplan_gateway` -- signing engages only when the
+/// base URL is explicitly recognised as the managed gateway
+/// (`RUSTCODE_CODINGPLAN_LLM_BASE_URL`); plain third-party endpoints use
+/// bearer auth.
 ///
 /// Returns `String` because callers need an owned URL
 /// (e.g. `ProviderConfig::base_url: Option<String>`).
@@ -62,11 +66,11 @@ fn codingplan_llm_base_url() -> String {
     rustcode_config::endpoints::codingplan_llm_base_url().to_string()
 }
 
-/// Provider type for the AtomGit LLM gateway (it's OpenAI-compatible).
+/// Provider type for the managed CodingPlan LLM gateway (it's OpenAI-compatible).
 const PROVIDER_TYPE: &str = "openai";
 
 /// Minimum context window enforced for every CodingPlan model, regardless of the
-/// server-declared (or omitted) value. The AtomGit gateway reports a
+/// server-declared (or omitted) value. Managed gateways may report a
 /// conservative 64k for several models; we floor at 128k so the client doesn't
 /// compact/refuse long turns the gateway can actually serve. A larger server
 /// window (e.g. Claude's 200k) is kept as-is.
@@ -111,14 +115,14 @@ impl<T> StepResult<T> {
 pub enum VisionPreprocessorOutcome {
     /// Field was None and remains None (no VL/OCR in list).
     UnchangedNone,
-    /// Field was a non-AtomGit user-supplied value; preserved.
+    /// Field was a third-party, user-supplied value; preserved.
     /// Carries the value for display.
     UserSupplied(String),
-    /// Field was None or a stale AtomGit-* key; auto-pointed at a
-    /// vision-capable provider in the freshly-installed list.
-    /// Carries the new key.
+    /// Field was None or a stale managed-key (legacy AtomGit-*);
+    /// auto-pointed at a vision-capable provider in the
+    /// freshly-installed list. Carries the new key.
     AutoSet(String),
-    /// Field was an AtomGit-* key but the new list has no VL/OCR
+    /// Field was a managed key but the new list has no VL/OCR
     /// candidate, so the field was cleared to None to avoid pointing
     /// at a wiped provider key.
     Cleared,
@@ -266,7 +270,8 @@ impl SetupReport {
             StepResult::Ok(info) => {
                 let model_count = info.provider_names.len();
                 // Distinct folded accounts across the registered models (usually
-                // 1 = AtomGit; 2 when the plan mixes openai + claude wire models).
+                // 1 = the bare managed prefix; 2 when the plan mixes openai +
+                // claude wire models).
                 let account_count = info
                     .display_names
                     .iter()
@@ -329,7 +334,7 @@ impl SetupReport {
                         .unwrap_or("openai");
                     rustcode_config::config::codingplan_group_account_id(wire)
                 };
-                // Map a registered selection key (e.g. `AtomGit-Qwen-...`) to the
+                // Map a registered selection key (e.g. `RustCode-Qwen-...`) to the
                 // friendly `account . model` label; fall back to the raw key for
                 // a user-supplied value that isn't in this run's list.
                 let friendly = |key: &str| -> String {
@@ -475,8 +480,8 @@ impl SetupReport {
     /// to disk.
     ///
     /// `claim` MUST be in the predicate: when claim returns `Err`
-    /// (e.g. backend 500 like the AtomGit `claim-v2` transaction-
-    /// rollback bug), `run()` short-circuits and parks `models` as
+    /// (e.g. a managed-gateway backend 500 with a transaction-rollback
+    /// payload), `run()` short-circuits and parks `models` as
     /// `Skipped(CASCADE_FROM_UPSTREAM_FAIL)` so the report stays
     /// focused on the actual failure. Without the claim check the
     /// gate flipped to `true` on every claim-failure path --
@@ -928,7 +933,8 @@ fn step_models_and_register(
         .get(&previous_default)
         .map(|m| m.model.clone());
 
-    // Wipe any stale AtomGit* entries so we don't accumulate old names.
+    // Wipe any stale managed entries (current `RustCode*` prefix plus legacy
+    // `AtomGit*`) so we don't accumulate old names.
     let stale: Vec<String> = config
         .providers
         .keys()
@@ -973,9 +979,10 @@ fn step_models_and_register(
 
     // Auto-detect a vision_preprocessor candidate from the freshly
     // installed list. Precedence:
-    //   - User-supplied non-AtomGit value: leave alone.
-    //   - None / AtomGit-* (i.e. previous /codingplan run): replace
-    //     with first VL/OCR model's provider key from the new list,
+    //   - User-supplied third-party value: leave alone.
+    //   - None / managed RustCode-* (or legacy AtomGit-*) key from a
+    //     previous /codingplan run: replace with first VL/OCR model's
+    //     provider key from the new list,
     //     or clear to None when the new list has no VL candidate.
     let vl_idx = available
         .iter()
@@ -984,12 +991,12 @@ fn step_models_and_register(
 
     let vision_preprocessor = {
         let current = config.vision_preprocessor_provider.clone();
-        let user_supplied_non_atomgit = current
+        let user_supplied_unmanaged = current
             .as_deref()
             .map(|k| !k.is_empty() && !is_codingplan_provider_name(k))
             .unwrap_or(false);
 
-        if user_supplied_non_atomgit {
+        if user_supplied_unmanaged {
             VisionPreprocessorOutcome::UserSupplied(current.unwrap())
         } else {
             match new_vl_key {
@@ -1113,7 +1120,7 @@ pub fn merge_successful_config(
     // Keep the user's chosen VL preprocessor if it STILL RESOLVES -- even a CodingPlan
     // model they deliberately selected. The old code treated any CodingPlan-named
     // selection as "not custom" and overwrote it from the server every sync (the bug:
-    // `AtomGit-qwen3.8-27b` kept reverting). Only fill an EMPTY or now-dangling slot
+    // `<prefix>-qwen3.8-27b` kept reverting). Only fill an EMPTY or now-dangling slot
     // from the server's suggestion. Checked AFTER `persist_codingplan_as_new_schema`
     // so the freshly-folded CodingPlan models are in place to resolve against.
     let keep_current = latest
@@ -1128,9 +1135,10 @@ pub fn merge_successful_config(
     Ok(())
 }
 
-/// Move the just-merged flat `AtomGit*` providers out of `[providers.*]` and
-/// into the new `provider_accounts` + `models` schema, grouped by wire format
-/// (openai -> `AtomGit`, claude -> `AtomGit-anthropic`).
+/// Move the just-merged flat managed providers (current `RustCode*` prefix or
+/// legacy `AtomGit*`) out of `[providers.*]` and into the `provider_accounts` +
+/// `models` schema, grouped by wire format (openai -> bare prefix account,
+/// claude -> `<prefix>-anthropic` account).
 ///
 /// The grouping is delegated to [`Config::logical_accounts`] /
 /// [`Config::logical_models`] -- the same read-only projection the UI already
@@ -1297,53 +1305,9 @@ fn truncate_inline(msg: &str, max: usize) -> String {
     out
 }
 
-/// Format a duration in seconds as a short human-readable label --
-/// `90s`, `5m`, `2h 30m`, `3d 4h`. Replaces the previous "{N}s" which
-/// was unreadable for anything past a minute (e.g. "in 86340s" instead
-/// of "in 23h 59m").
-///
-/// Pick the rate-limit window that is *actually blocking* the user, if any.
-///
-/// `pub` so the `/status` rendering in rustcode-tuix can share the same
-/// formatter -- keeps the `用量 重置于 ...（2h 后）` line consistent
-/// between `/login`'s CodingPlan setup output and `/status`'s
-/// CodingPlan section. (Pre-fix they diverged: setup said `2h`, status
-/// said `5984s`.)
-pub fn format_duration_secs(secs: i64) -> String {
-    if secs < 0 {
-        return "--".into();
-    }
-    let s = secs as u64;
-    if s < 60 {
-        return format!("{}s", s);
-    }
-    let (m, sr) = (s / 60, s % 60);
-    if m < 60 {
-        return if sr == 0 {
-            format!("{}m", m)
-        } else {
-            format!("{}m {}s", m, sr)
-        };
-    }
-    let (h, mr) = (m / 60, m % 60);
-    if h < 24 {
-        return if mr == 0 {
-            format!("{}h", h)
-        } else {
-            format!("{}h {}m", h, mr)
-        };
-    }
-    let (d, hr) = (h / 24, h % 24);
-    if hr == 0 {
-        format!("{}d", d)
-    } else {
-        format!("{}d {}h", d, hr)
-    }
-}
-
-/// Decide the config-key name for each model. Single model -> bare
-/// `AtomGit` (keeps the name tidy for the common case); 2+ models ->
-/// `AtomGit-{name with / replaced by -}`.
+/// Decide the config-key name for each model. Single model -> the bare managed
+/// prefix (keeps the name tidy for the common case); 2+ models ->
+/// `{prefix}-{name with / replaced by -}`.
 fn provider_names_for(model_names: &[String]) -> Vec<String> {
     if model_names.len() == 1 {
         vec![provider_prefix().to_string()]
@@ -1484,6 +1448,17 @@ mod tests {
         format!("{}-{}", provider_prefix(), suffix)
     }
 
+    /// Render a setup report with the locale pinned to English for the call.
+    /// The render assertions below check report copy verbatim, and the product
+    /// default locale is Simplified Chinese; the guard serialises locale state
+    /// and restores the prior locale on drop.
+    fn render_en(report: &SetupReport) -> String {
+        use rustcode_config::i18n::{self, Locale};
+        let _g = i18n::test_lock();
+        i18n::set_locale(Locale::En);
+        report.render()
+    }
+
     #[test]
     fn single_model_uses_bare_prefix() {
         let names = vec!["moonshotai/Kimi-K2-Instruct".into()];
@@ -1529,7 +1504,7 @@ mod tests {
     }
 
     #[test]
-    fn step_models_wipes_stale_atomgit_entries() {
+    fn step_models_wipes_stale_managed_entries() {
         // Simulate a user who previously ran `/login` (old MiniMax entry)
         // and a manual `/provider` session (custom Anthropic entry). After
         // coding-plan setup, only fresh AtomGit* entries should remain;
@@ -1980,7 +1955,7 @@ mod tests {
             "is_infinity": 2,
             "is_rustcode_exclusive": 1,
             "display_model_name": "GLM-5.1",
-            "base_url": "https://api-ai.gitcode.com/v1",
+            "base_url": "https://api-ai.example.com/v1",
             "type": "openai",
             "context_window": 64000,
             "supports_vision": true,
@@ -1994,7 +1969,7 @@ mod tests {
         assert_eq!(m.is_infinity, 2);
         assert_eq!(m.is_rustcode_exclusive, 1);
         assert_eq!(m.display_model_name, "GLM-5.1");
-        assert_eq!(m.base_url.as_deref(), Some("https://api-ai.gitcode.com/v1"));
+        assert_eq!(m.base_url.as_deref(), Some("https://api-ai.example.com/v1"));
         assert_eq!(m.provider_type.as_deref(), Some("openai"));
         assert_eq!(m.context_window, Some(64_000));
         assert_eq!(m.supports_vision, Some(true));
@@ -2076,7 +2051,7 @@ mod tests {
             }),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(out.contains("[+] Logged in as Theo"));
         assert!(out.contains("theo@example.com"));
         assert!(out.contains("CodingPlan claimed"));
@@ -2106,7 +2081,7 @@ mod tests {
             status: StepResult::Err("request timeout".into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(out.contains("[+] already logged in"));
         assert!(out.contains("already claimed"));
         assert!(!out.contains("[x] CodingPlan claim"), "duplicate ≠ failure");
@@ -2160,7 +2135,7 @@ mod tests {
             }),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(
             out.contains("Plan: CodingPlan Free"),
             "plan name still shown: {}",
@@ -2196,7 +2171,7 @@ mod tests {
             status: StepResult::Skipped(CASCADE_FROM_UPSTREAM_FAIL.into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(out.contains("[x] Login failed"));
         // Cascade rows must NOT appear.
         assert!(
@@ -2218,8 +2193,8 @@ mod tests {
         );
     }
 
-    /// Regression: claim returned Err (e.g. AtomGit `claim-v2` 500
-    /// with the Spring `UnexpectedRollbackException` payload). `run()`
+    /// Regression: claim returned Err (e.g. a managed-gateway `claim-v2` 500
+    /// with a Spring `UnexpectedRollbackException` payload). `run()`
     /// short-circuits and stamps the cascade sentinel into `models` /
     /// `status`. Before this fix, `should_persist_config` only
     /// checked `login` and `models` -- both `is_ok_or_skipped()` =
@@ -2363,7 +2338,7 @@ mod tests {
             status: StepResult::Skipped("status not exercised here".into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         // Lite must surface as 生效 / active (the winner).
         assert!(
             out.contains("CodingPlan Lite 生效") || out.contains("CodingPlan Lite active"),
@@ -2419,7 +2394,7 @@ mod tests {
             status: StepResult::Skipped("status not exercised here".into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(
             out.contains("CodingPlan Pro 生效") || out.contains("CodingPlan Pro active"),
             "server plan_name (Pro) must drive the 生效 row: {}",
@@ -2454,7 +2429,7 @@ mod tests {
             status: StepResult::Skipped("status not exercised here".into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(
             out.contains("CodingPlan Lite 生效") || out.contains("CodingPlan Lite active"),
             "empty plan_name must fall back to requested tier (Lite): {}",
@@ -2497,7 +2472,7 @@ mod tests {
             status: StepResult::Skipped(CASCADE_FROM_UPSTREAM_FAIL.into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         // No per-tier failure rows -- `Max/Pro/Lite` strings must not
         // appear anywhere in the output.
         for tier in &["Max", "Pro", "Lite"] {
@@ -2552,7 +2527,7 @@ mod tests {
             status: StepResult::Skipped(CASCADE_FROM_UPSTREAM_FAIL.into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         // No per-tier "Max" row.
         assert!(
             !out.contains("CodingPlan Max"),
@@ -2605,7 +2580,7 @@ mod tests {
             status: StepResult::Skipped(CASCADE_FROM_UPSTREAM_FAIL.into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         // Prefix renders.
         assert!(
             out.contains("CodingPlan 套餐配置失败") || out.contains("CodingPlan tier setup failed"),
@@ -2657,8 +2632,8 @@ mod tests {
             status: StepResult::Err("status endpoint 500".into()),
             auth_expired: false,
         };
-        let out = report.render();
-        // Two folded accounts (openai=AtomGit, claude=AtomGit-anthropic), 3 models.
+        let out = render_en(&report);
+        // Two folded accounts (openai -> bare prefix, claude -> <prefix>-anthropic), 3 models.
         assert!(out.contains("Added 2 accounts . 3 models"));
         assert!(out.contains(&format!(
             "{}  .  moonshotai/Kimi-K2-Instruct  (default)",
@@ -2687,7 +2662,7 @@ mod tests {
             status: StepResult::Skipped(CASCADE_FROM_UPSTREAM_FAIL.into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(out.contains("[x] CodingPlan tier setup failed"));
         assert!(out.contains("今日codingplan申请额度已满"));
         // The cascade rows must NOT appear.
@@ -2720,7 +2695,7 @@ mod tests {
             status: StepResult::Skipped("server returned 503; using cached".into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(out.contains("Models step skipped -- models cached locally"));
         assert!(out.contains("Status fetch skipped -- server returned 503"));
     }
@@ -2751,7 +2726,7 @@ mod tests {
             status: StepResult::Err(huge),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         // Find the status line and check its length is bounded.
         let line = out
             .lines()
@@ -2764,19 +2739,6 @@ mod tests {
             line.chars().count()
         );
         assert!(line.contains("..."), "truncation marker present");
-    }
-
-    #[test]
-    fn format_duration_secs_human_readable() {
-        assert_eq!(format_duration_secs(0), "0s");
-        assert_eq!(format_duration_secs(45), "45s");
-        assert_eq!(format_duration_secs(60), "1m");
-        assert_eq!(format_duration_secs(90), "1m 30s");
-        assert_eq!(format_duration_secs(3600), "1h");
-        assert_eq!(format_duration_secs(3660), "1h 1m");
-        assert_eq!(format_duration_secs(86400), "1d");
-        assert_eq!(format_duration_secs(90060), "1d 1h");
-        assert_eq!(format_duration_secs(-1), "--");
     }
 
     #[test]
@@ -2865,11 +2827,11 @@ mod tests {
         let new_vl_key = vl_idx.map(|i| provider_names[i].clone());
         let vision_preprocessor = {
             let current = config.vision_preprocessor_provider.clone();
-            let user_supplied_non_atomgit = current
+            let user_supplied_unmanaged = current
                 .as_deref()
                 .map(|k| !k.is_empty() && !is_codingplan_provider_name(k))
                 .unwrap_or(false);
-            if user_supplied_non_atomgit {
+            if user_supplied_unmanaged {
                 VisionPreprocessorOutcome::UserSupplied(current.unwrap())
             } else {
                 match new_vl_key {
@@ -3302,7 +3264,7 @@ mod tests {
 
         persist_codingplan_as_new_schema(&mut cfg);
 
-                assert_eq!(
+        assert_eq!(
             cfg.models[&pxn("qwen3.8-27b")].supports_vision,
             Some(true),
             "server silence must not erase the last-known capability"
@@ -3385,7 +3347,7 @@ mod tests {
     // A user who deliberately picked a CodingPlan model as their VL preprocessor must
     // keep it across a sync. The old code treated any CodingPlan-named selection as
     // "not custom" and overwrote it from the server every refresh (the reported bug:
-    // `AtomGit-qwen3.8-27b` kept reverting).
+    // `<prefix>-qwen3.8-27b` kept reverting).
     #[test]
     fn merge_keeps_user_codingplan_vision_preprocessor_that_still_exists() {
         let mut prepared = blank_config();
@@ -3524,7 +3486,7 @@ mod tests {
     }
 
     #[test]
-    fn vision_preprocessor_overwrites_stale_atomgit_value() {
+    fn vision_preprocessor_overwrites_stale_managed_value() {
         let mut config = blank_config();
         config.vision_preprocessor_provider = Some(pxn("Qwen-Qwen2-VL-72B"));
         let models = vec![
@@ -3541,7 +3503,7 @@ mod tests {
     }
 
     #[test]
-    fn vision_preprocessor_cleared_when_stale_atomgit_and_list_has_no_vl() {
+    fn vision_preprocessor_cleared_when_stale_managed_and_list_has_no_vl() {
         let mut config = blank_config();
         config.vision_preprocessor_provider = Some(pxn("Qwen-Qwen2-VL-72B"));
         let models = vec![vl_model_entry("moonshotai/Kimi-K2-Instruct")];
@@ -3551,7 +3513,7 @@ mod tests {
     }
 
     #[test]
-    fn vision_preprocessor_preserves_user_set_non_atomgit() {
+    fn vision_preprocessor_preserves_user_set_unmanaged() {
         let mut config = blank_config();
         config.vision_preprocessor_provider = Some("Qwen3-VL-32B-Instruct".into());
         let models = vec![
@@ -3610,7 +3572,7 @@ mod tests {
             status: StepResult::Skipped("status check skipped for this test".into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         // Friendly account . model label, not the internal selection key.
         assert!(
             out.contains(&format!(
@@ -3642,7 +3604,7 @@ mod tests {
             status: StepResult::Skipped("test skip".into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(out.contains("Vision preprocessor cleared"));
     }
 
@@ -3671,7 +3633,7 @@ mod tests {
             status: StepResult::Skipped("test skip".into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(out.contains("Vision preprocessor -> Qwen3-VL-32B-Instruct"));
         assert!(out.contains("(user setting kept)"));
     }
@@ -3696,7 +3658,7 @@ mod tests {
             status: StepResult::Skipped("test skip".into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         assert!(!out.contains("Vision preprocessor"));
     }
 
@@ -3746,7 +3708,7 @@ mod tests {
             }],
             ..blank_status_response()
         };
-        let out = status_only_report(s).render();
+        let out = render_en(&status_only_report(s));
         assert!(
             out.contains("当前时间窗口用量约 2%"),
             "usage_status_desc missing: {}",
@@ -3774,7 +3736,7 @@ mod tests {
             rate_limit_windows: vec![], // empty -> backward-compat path
             ..blank_status_response()
         };
-        let out = status_only_report(s).render();
+        let out = render_en(&status_only_report(s));
         assert!(
             out.contains("当前时间窗口用量约 5%"),
             "fallback usage missing: {}",
@@ -3821,7 +3783,7 @@ mod tests {
             ],
             ..blank_status_response()
         };
-        let out = status_only_report(s).render();
+        let out = render_en(&status_only_report(s));
         assert!(
             out.contains("visible window"),
             "show_enable=1 window missing: {}",
@@ -3897,7 +3859,7 @@ mod tests {
             status: StepResult::Skipped("test skip".into()),
             auth_expired: false,
         };
-        let out = report.render();
+        let out = render_en(&report);
         // Plan tier appears next to claim line.
         assert!(
             out.contains("(CodingPlan Lite)"),

@@ -11,10 +11,10 @@ interface QuickAction {
 
 const quickActions: QuickAction[] = [
   { id: 'intro', labelKey: 'welcome.quick.intro', icon: '[*]' },
-  { id: 'projectOverview', labelKey: 'welcome.quick.projectOverview', icon: '[~]️' },
+  { id: 'projectOverview', labelKey: 'welcome.quick.projectOverview', icon: '[~]' },
   { id: 'improvements', labelKey: 'welcome.quick.improvements', icon: '[?]' },
   { id: 'devPlan', labelKey: 'welcome.quick.devPlan', icon: '[>]' },
-  { id: 'configuration', labelKey: 'welcome.quick.configuration', icon: '[#]️' },
+  { id: 'configuration', labelKey: 'welcome.quick.configuration', icon: '[#]' },
   { id: 'tips', labelKey: 'welcome.quick.tips', icon: '[+]' },
 ];
 

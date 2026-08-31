@@ -138,7 +138,7 @@ fn review_activity_line(label: Option<&str>, findings: u32, tail: &str) -> Strin
     if !tail.is_empty() {
         segments.push(tail.to_string());
     }
-    segments.join(" . ")
+    segments.join(" · ")
 }
 
 fn summarize_review_tool_call(name: &str, arguments: &str) -> String {
@@ -149,7 +149,7 @@ fn summarize_review_tool_call(name: &str, arguments: &str) -> String {
         .map(|value| value.lines().next().unwrap_or_default().trim())
         .filter(|value| !value.is_empty());
     match detail {
-        Some(detail) => format!("{name} . {}", detail.chars().take(100).collect::<String>()),
+        Some(detail) => format!("{name} · {}", detail.chars().take(100).collect::<String>()),
         None => name.to_string(),
     }
 }
@@ -478,7 +478,7 @@ impl Tool for ReviewTool {
         // 1. Compute the exact diff in the LIVE working dir (follows /cd), then stop before
         // launching the child when the deterministic preflight says the scope is large.
         ctx.progress
-            .emit(format!("{REVIEW_ACTIVITY_MARKER}review . preparing diff"));
+            .emit(format!("{REVIEW_ACTIVITY_MARKER}review · preparing diff"));
         let scoped = match git_diff(&ctx.working_dir, &scope, &a.paths) {
             Ok(d) => d,
             Err(e) => return err(format!("code_review: {e}")),
@@ -502,7 +502,7 @@ impl Tool for ReviewTool {
             return ok(manifest.render_confirmation());
         }
         ctx.progress.emit(format!(
-            "{REVIEW_ACTIVITY_MARKER}review . analyzing {} file(s)",
+            "{REVIEW_ACTIVITY_MARKER}review · analyzing {} file(s)",
             manifest.files
         ));
 
@@ -825,7 +825,7 @@ fn sort_findings(findings: &mut [Finding]) {
 fn render_findings(findings: &[Finding], changed_files: usize) -> String {
     if findings.is_empty() {
         return format!(
-            "Code review complete -- no issues found across {changed_files} changed file(s)."
+            "Code review complete — no issues found across {changed_files} changed file(s)."
         );
     }
     let mut out = format!(
@@ -835,7 +835,7 @@ fn render_findings(findings: &[Finding], changed_files: usize) -> String {
     );
     for (i, f) in findings.iter().take(MAX_FINDINGS_RENDER).enumerate() {
         out.push_str(&format!(
-            "\n{}. [{} . conf {:.2}] {}:{}-{}\n   {}\n",
+            "\n{}. [{} · conf {:.2}] {}:{}-{}\n   {}\n",
             i + 1,
             f.priority,
             f.confidence,
@@ -856,7 +856,7 @@ fn render_findings(findings: &[Finding], changed_files: usize) -> String {
     }
     if findings.len() > MAX_FINDINGS_RENDER {
         out.push_str(&format!(
-            "\n... and {} more (showing the top {} by priority).\n",
+            "\n… and {} more (showing the top {} by priority).\n",
             findings.len() - MAX_FINDINGS_RENDER,
             MAX_FINDINGS_RENDER
         ));
@@ -871,7 +871,7 @@ fn render_incomplete_review(
     error: Option<&str>,
 ) -> String {
     let mut out = format!(
-        "Code review incomplete ({stop:?}) -- coverage is partial, not a clean review. \
+        "Code review incomplete ({stop:?}) — coverage is partial, not a clean review. \
          {} confirmed finding(s) across {changed_files} changed file(s).",
         findings.len()
     );
@@ -933,33 +933,33 @@ mod tests {
 
     #[test]
     fn review_activity_line_composes_label_findings_and_tail() {
-        // No label, no findings -> bare marker text + tail (round is never shown).
+        // No label, no findings → bare marker text + tail (round is never shown).
         assert_eq!(
             review_activity_line(None, 0, "thinking"),
-            "review . thinking"
+            "review · thinking"
         );
         // Singular finding, no label.
         assert_eq!(
             review_activity_line(None, 1, "thinking"),
-            "review . 1 finding . thinking"
+            "review · 1 finding · thinking"
         );
         // Plural findings + a tool tail (which file it read).
         assert_eq!(
-            review_activity_line(None, 2, "read_file . a.rs"),
-            "review . 2 findings . read_file . a.rs"
+            review_activity_line(None, 2, "read_file · a.rs"),
+            "review · 2 findings · read_file · a.rs"
         );
         // A deep-mode stage label appears in brackets so concurrent agents differ.
         assert_eq!(
-            review_activity_line(Some("security"), 2, "read_file . a.rs"),
-            "review [security] . 2 findings . read_file . a.rs"
+            review_activity_line(Some("security"), 2, "read_file · a.rs"),
+            "review [security] · 2 findings · read_file · a.rs"
         );
         assert_eq!(
             review_activity_line(Some("verify"), 0, "thinking"),
-            "review [verify] . thinking"
+            "review [verify] · thinking"
         );
         // Empty tail / empty label collapse cleanly (no dangling separator).
         assert_eq!(review_activity_line(None, 0, ""), "review");
-        assert_eq!(review_activity_line(Some(""), 4, ""), "review . 4 findings");
+        assert_eq!(review_activity_line(Some(""), 4, ""), "review · 4 findings");
     }
 
     #[test]
@@ -994,7 +994,7 @@ mod tests {
         assert!(empty.contains("no issues found across 3"), "{empty}");
         let one = render_findings(&[finding("P1", 0.8, "src/a.rs", "unchecked unwrap")], 1);
         assert!(one.contains("1 finding(s)"), "{one}");
-        assert!(one.contains("[P1 . conf 0.80] src/a.rs:1-2"), "{one}");
+        assert!(one.contains("[P1 · conf 0.80] src/a.rs:1-2"), "{one}");
         assert!(one.contains("unchecked unwrap"), "{one}");
     }
 
@@ -1119,7 +1119,7 @@ mod tests {
         // No `round 3/...` noise -- just what the review is doing.
         assert_eq!(
             seen.lock().unwrap().as_slice(),
-            &[format!("{REVIEW_ACTIVITY_MARKER}review . thinking")]
+            &[format!("{REVIEW_ACTIVITY_MARKER}review · thinking")]
         );
     }
 
@@ -1147,7 +1147,7 @@ mod tests {
 
         assert_eq!(
             seen.lock().unwrap().last().map(String::as_str),
-            Some("\u{1e}review [security] . read_file . src/compaction.rs")
+            Some("\u{1e}review [security] · read_file · src/compaction.rs")
         );
     }
 
@@ -1183,7 +1183,7 @@ mod tests {
         LifecycleHooks::on_model_response(&hook, &mut r2).await;
         assert_eq!(
             seen.lock().unwrap().last().map(String::as_str),
-            Some("\u{1e}review . 1 finding . reporting finding"),
+            Some("\u{1e}review · 1 finding · reporting finding"),
             "the reported finding is counted and the tool tail reads cleanly"
         );
 
@@ -1200,7 +1200,7 @@ mod tests {
         .await;
         assert_eq!(
             seen.lock().unwrap().last().map(String::as_str),
-            Some("\u{1e}review . 1 finding . thinking"),
+            Some("\u{1e}review · 1 finding · thinking"),
             "the running finding count carries across rounds, even while thinking"
         );
 
@@ -1223,7 +1223,7 @@ mod tests {
         LifecycleHooks::on_model_response(&hook, &mut r4).await;
         assert_eq!(
             seen.lock().unwrap().last().map(String::as_str),
-            Some("\u{1e}review . 3 findings . reporting finding"),
+            Some("\u{1e}review · 3 findings · reporting finding"),
             "multiple findings in one round accumulate and pluralize"
         );
     }
@@ -1534,12 +1534,12 @@ mod tests {
         let progress = progress.lock().unwrap();
         assert_eq!(
             progress.first().map(String::as_str),
-            Some("\u{1e}review . preparing diff")
+            Some("\u{1e}review · preparing diff")
         );
         assert!(
             progress
                 .iter()
-                .any(|message| message == "\u{1e}review . analyzing 1 file(s)"),
+                .any(|message| message == "\u{1e}review · analyzing 1 file(s)"),
             "progress must expose the pre-review phase: {progress:?}"
         );
     }

@@ -3,7 +3,7 @@
 对应改动:中心化路径归一化(`rustcode-capabilities/src/pathnorm.rs`),修复
 工具结果反斜杠打断 bash、`\\?\` 泄漏、`rustcode review` 在 Windows 全挂等问题。
 
-> ⚠️ 本改动的效果**只在 Windows 上体现**(macOS/Linux 上 `to_display` 是 no-op,
+> [WARN] 本改动的效果**只在 Windows 上体现**(macOS/Linux 上 `to_display` 是 no-op,
 > 单测覆盖不到真实的 Git Bash 交互 / `cmd start` / `\\?\` / webui↔TUI 会话对齐)。
 > 必须在真机 Windows 上逐条验证。
 
@@ -55,7 +55,7 @@
 - [ ] **修复验证**:`rustcode review`,让模型用**绝对仓库内路径**(`C:\repo\src\a.rs`)
       读 / grep → **不再被拒**(过去每个绝对路径都报 "outside the review repository")
 - [ ] 相对路径照常可用
-- [ ] **⚠️ 安全不能被削弱**(重点回归):
+- [ ] **[!] 安全不能被削弱**(重点回归):
   - [ ] 仓库**外**的绝对路径(`C:\Windows\...`)→ 仍被拒
   - [ ] `..\..\escape` → 仍被拒
   - [ ] 指向仓库外的**符号链接** → 仍被拒(那道 canonicalize 双边比较)

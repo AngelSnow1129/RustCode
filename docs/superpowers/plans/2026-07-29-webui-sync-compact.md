@@ -252,16 +252,16 @@ Expected: 走原 `/command` 磁盘路径，行为与改动前一致（`cmd.compa
 ## Self-Review
 
 **Spec 覆盖：**
-- 后端新增 `/live/compact` 端点 → Task 1 Step 3。✅
-- `lib.rs` 注册路由 → Task 1 Step 4。✅
-- `api.ts` `postLiveCompact` → Task 2 Step 1。✅
-- `Chat.tsx` sync 分支改调端点 + 保留 busy 守卫 + undo 维持拒绝 → Task 2 Step 3。✅
-- `accepted:false` 提示 key → Task 2 Step 2（`cmd.compact.syncNoRuntime`）。✅
-- 压缩结果由既有 SSE Warning 渲染（不双提示）→ Task 2 Step 3 注释 + Task 3 场景 A。✅
-- 后端单测（未绑定 accepted:false / 绑定则派发 Compact）→ Task 1 Step 1。✅
-- 前端手动 sync 验证 → Task 3。✅
-- 范围外（undo sync、hub 快照陈旧、消息列表就地替换）→ 计划未触碰，符合 spec。✅
+- 后端新增 `/live/compact` 端点 → Task 1 Step 3。 [x]
+- `lib.rs` 注册路由 → Task 1 Step 4。 [x]
+- `api.ts` `postLiveCompact` → Task 2 Step 1。 [x]
+- `Chat.tsx` sync 分支改调端点 + 保留 busy 守卫 + undo 维持拒绝 → Task 2 Step 3。 [x]
+- `accepted:false` 提示 key → Task 2 Step 2（`cmd.compact.syncNoRuntime`）。 [x]
+- 压缩结果由既有 SSE Warning 渲染（不双提示）→ Task 2 Step 3 注释 + Task 3 场景 A。 [x]
+- 后端单测（未绑定 accepted:false / 绑定则派发 Compact）→ Task 1 Step 1。 [x]
+- 前端手动 sync 验证 → Task 3。 [x]
+- 范围外（undo sync、hub 快照陈旧、消息列表就地替换）→ 计划未触碰，符合 spec。 [x]
 
-**占位符扫描：** 无 TBD/TODO；所有代码步骤均含具体代码。✅
+**占位符扫描：** 无 TBD/TODO；所有代码步骤均含具体代码。 [x]
 
-**类型一致性：** `postLiveCompact(): Promise<{ accepted: boolean }>` 在 Task 2 Step 1 定义、Step 3 消费一致；`DriverCommand::Compact(None)` 在 Task 1 测试、端点两处一致；`live_compact` 函数名在 Step 3 定义、Step 4 路由引用一致。✅
+**类型一致性：** `postLiveCompact(): Promise<{ accepted: boolean }>` 在 Task 2 Step 1 定义、Step 3 消费一致；`DriverCommand::Compact(None)` 在 Task 1 测试、端点两处一致；`live_compact` 函数名在 Step 3 定义、Step 4 路由引用一致。 [x]

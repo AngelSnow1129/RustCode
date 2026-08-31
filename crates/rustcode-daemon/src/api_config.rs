@@ -105,12 +105,7 @@ pub(crate) fn config_response(config: &Config) -> ConfigResponse {
             // manually configurable API-key provider would create a broken,
             // user-owned lookalike. Existing CodingPlan models are still listed
             // above through the unified model catalog.
-            .filter(|preset| {
-                !matches!(
-                    preset.id,
-                    "openai-compatible" | "anthropic-compatible"
-                )
-            })
+            .filter(|preset| !matches!(preset.id, "openai-compatible" | "anthropic-compatible"))
             .map(|preset| ProviderPresetInfo {
                 id: preset.id.to_string(),
                 display_name: preset.display_name.to_string(),
@@ -295,7 +290,10 @@ mod tests {
         // Platform-neutral: requires_login is true only when the base_url matches
         // an explicitly configured gateway (RUSTCODE_CODINGPLAN_LLM_BASE_URL).
         // An unconfigured test URL is not a gateway, so requires_login is false.
-        assert!(!glm.requires_login, "non-gateway base_url ⇒ no login required");
+        assert!(
+            !glm.requires_login,
+            "non-gateway base_url ⇒ no login required"
+        );
         assert_eq!(glm.model, "GLM-5.2");
         assert!(resp
             .provider_presets

@@ -61,27 +61,27 @@ let service = client_info.serve_with_lifecycle(transport, mode).await?;  // :601
 
 ## 3. 能力逐项映射
 
-✅ = rmcp 直接顶掉　⚠️ = 需保留/上移我们的实现　🆕 = 白捡的新能力
+[+] = rmcp 直接顶掉　 [!] = 需保留/上移我们的实现　 [*] = 白捡的新能力
 
 | # | 我们现在 | rmcp | 结论 |
 |---|---|---|---|
-| 1 | 子进程 spawn/env/kill `transport_stdio.rs:107-158` + `Drop:662` | `child_process.rs:61/150`，`graceful_shutdown:81`（关 stdin → 等 → 超时才 kill） | ✅ 且更稳（我们只有 `start_kill`） |
-| 2 | Windows `.cmd` 包装 `transport_stdio.rs:635-660` + 12 个测试 | 只有 `which_command`（`child_process.rs:218`，需 `which-command` feature），**不做 `cmd.exe /C` 包装** | ⚠️ 保留我们的纯函数，零成本 |
-| 3 | stdout 垃圾行容忍 `transport_stdio.rs:465-513`（`MAX_SKIP_LINES`）+ 启动 drain `:519` | `async_rw.rs:323-345` 跳过不可解析行（含 BOM），测试 `async_rw.rs:713` | ✅ |
-| 4 | `Content-Length:` 帧兼容 `transport_stdio.rs:594-620` | **无**（rmcp 只支持 NDJSON，全仓 grep 无 content-length） | ⚠️ 行为回退（非 spec 要求，仅容错） |
-| 5 | 断线重连：generation 计数 + EPIPE 识别 + 副作用不重放 `transport_stdio.rs:321-394, 569-592` | **无重连**（`service.rs`/`child_process.rs` 无 reconnect） | ⚠️ 上移重写 ~120 行 |
-| 6 | `Mcp-Session-Id` 捕获/回送/DELETE 清理 `transport_http.rs:77-83, 139-147, 299-348` | 内建，另有 `reinit_on_expired_session` | ✅ |
-| 7 | SSE 帧解析 `transport_http.rs:435-478` + 8 个测试 | `sse-stream` crate | ✅ |
-| 8 | `Accept: application/json, text/event-stream` `transport_http.rs:23` | 内建 | ✅ |
-| 9 | **`MCP-Protocol-Version` 头 —— 我们没有** | `streamable_http_client.rs:81,122,1141` | 🆕 补上 2025-06-18 起的硬要求 |
-| 10 | 自定义 headers `transport_http.rs:127-129` | `custom_headers` | ✅ |
-| 11 | OAuth bearer 注入 + 过期刷新 `transport_http.rs:231-249` | `auth_header`（静态）或 `AuthClient`/`AuthorizationManager`（自动刷新 + `CredentialStore`） | ⚠️ 两条路，见 §6 P2 |
-| 12 | 401 → "run `rustcode mcp login`" `transport_http.rs:166-176` | `is_authorization_required()` + `www-authenticate` 挑战 | ✅ 判定更准 |
-| 13 | per-server 超时（外层 `tokio::time::timeout`） | `PeerRequestOptions`（支持 progress 重置 + total 上限） | ✅ 更强 |
-| 14 | registry `cancelled` watch 通道 | `CancellationToken` 贯穿 | ✅ 对接顺滑 |
-| 15 | `readOnlyHint`/`destructiveHint` 保守判定 `types.rs:87-96` | `model/tool.rs:54-73` 字段一致 | ⚠️ 判定逻辑留我们这（rmcp `:152` 的默认语义与我们不同） |
-| 16 | 无客户端缓存 | `service/client/cache.rs:54-63` **默认开**（`default_ttl=0`、`serve_stale_on_error=true`） | ⚠️ 需知悉：与 `/mcp reload` 语义交互 |
-| 17 | 协议版本硬编码 `2024-11-05`（`transport_stdio.rs:268`、`transport_http.rs:358`、`oauth.rs:516`） | `Auto` 模式自动协商 2026-07-28 ↔ legacy | 🆕 一次性解决版本落后 4 个修订 |
+| 1 | 子进程 spawn/env/kill `transport_stdio.rs:107-158` + `Drop:662` | `child_process.rs:61/150`，`graceful_shutdown:81`（关 stdin → 等 → 超时才 kill） | [+] 且更稳（我们只有 `start_kill`） |
+| 2 | Windows `.cmd` 包装 `transport_stdio.rs:635-660` + 12 个测试 | 只有 `which_command`（`child_process.rs:218`，需 `which-command` feature），**不做 `cmd.exe /C` 包装** | [!] 保留我们的纯函数，零成本 |
+| 3 | stdout 垃圾行容忍 `transport_stdio.rs:465-513`（`MAX_SKIP_LINES`）+ 启动 drain `:519` | `async_rw.rs:323-345` 跳过不可解析行（含 BOM），测试 `async_rw.rs:713` | [+] |
+| 4 | `Content-Length:` 帧兼容 `transport_stdio.rs:594-620` | **无**（rmcp 只支持 NDJSON，全仓 grep 无 content-length） | [!] 行为回退（非 spec 要求，仅容错） |
+| 5 | 断线重连：generation 计数 + EPIPE 识别 + 副作用不重放 `transport_stdio.rs:321-394, 569-592` | **无重连**（`service.rs`/`child_process.rs` 无 reconnect） | [!] 上移重写 ~120 行 |
+| 6 | `Mcp-Session-Id` 捕获/回送/DELETE 清理 `transport_http.rs:77-83, 139-147, 299-348` | 内建，另有 `reinit_on_expired_session` | [+] |
+| 7 | SSE 帧解析 `transport_http.rs:435-478` + 8 个测试 | `sse-stream` crate | [+] |
+| 8 | `Accept: application/json, text/event-stream` `transport_http.rs:23` | 内建 | [+] |
+| 9 | **`MCP-Protocol-Version` 头 —— 我们没有** | `streamable_http_client.rs:81,122,1141` | [*] 补上 2025-06-18 起的硬要求 |
+| 10 | 自定义 headers `transport_http.rs:127-129` | `custom_headers` | [+] |
+| 11 | OAuth bearer 注入 + 过期刷新 `transport_http.rs:231-249` | `auth_header`（静态）或 `AuthClient`/`AuthorizationManager`（自动刷新 + `CredentialStore`） | [!] 两条路，见 §6 P2 |
+| 12 | 401 → "run `rustcode mcp login`" `transport_http.rs:166-176` | `is_authorization_required()` + `www-authenticate` 挑战 | [+] 判定更准 |
+| 13 | per-server 超时（外层 `tokio::time::timeout`） | `PeerRequestOptions`（支持 progress 重置 + total 上限） | [+] 更强 |
+| 14 | registry `cancelled` watch 通道 | `CancellationToken` 贯穿 | [+] 对接顺滑 |
+| 15 | `readOnlyHint`/`destructiveHint` 保守判定 `types.rs:87-96` | `model/tool.rs:54-73` 字段一致 | [!] 判定逻辑留我们这（rmcp `:152` 的默认语义与我们不同） |
+| 16 | 无客户端缓存 | `service/client/cache.rs:54-63` **默认开**（`default_ttl=0`、`serve_stale_on_error=true`） | [!] 需知悉：与 `/mcp reload` 语义交互 |
+| 17 | 协议版本硬编码 `2024-11-05`（`transport_stdio.rs:268`、`transport_http.rs:358`、`oauth.rs:516`） | `Auto` 模式自动协商 2026-07-28 ↔ legacy | [*] 一次性解决版本落后 4 个修订 |
 
 ---
 
@@ -97,7 +97,7 @@ aws-lc-rs  aws-lc-sys  nix  oauth2  process-wrap  rmcp  rustls-platform-verifier
 
 其余 119 个（tokio / reqwest / hyper / rustls / serde / futures / tower / url / chrono …）已在树内。`schemars` 不会进来（只被 `server` feature 拉），`rmcp_macros`、`jsonwebtoken` 同理。
 
-### 4.2 ⚠️ 最大成本项：reqwest 0.12 → 0.13
+### 4.2 [!] 最大成本项：reqwest 0.12 → 0.13
 
 rmcp 3.1.0 要求 `reqwest = "0.13.2"`（`rmcp-3.1.0/Cargo.toml:759`）。本仓 8 个 crate pin 0.12：
 

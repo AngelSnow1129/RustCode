@@ -361,6 +361,8 @@ mod tests {
 
     #[test]
     fn disabled_workspace_backend_renders_conversation_checkpoints() {
+        let _g = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let mut modal = RewindModal::open(catalog());
         modal.selected_target = 0;
         let rows = modal.target_rows(4);

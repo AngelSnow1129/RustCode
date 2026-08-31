@@ -23,9 +23,9 @@ VS Code 扩展完整实现：从零搭建 React Webview UI 并全面对标 Claud
 N/A
 
 ## 变更类型
-- [x] ✨ 新功能
-- [x] 🐛 Bug 修复
-- [x] 🗑️ 代码清理
+- [x] [*] 新功能
+- [x] [*] Bug 修复
+- [x] [*] 代码清理
 
 ## 测试计划
 - [x] `cargo build` 成功（daemon + core）

@@ -42,6 +42,15 @@ pub fn download_base() -> &'static str {
     rustcode_config::endpoints::update_download_base()
 }
 
+/// Whether a self-update endpoint is actually configured. A neutral fork ships with
+/// empty `HOSTED_UPDATE_MANIFEST_URL` (and empty download base); in that build there is
+/// no server to query, so every update entry point must no-op WITHOUT a network attempt
+/// (a GET to `""` would only error as "relative URL without a base"). The endpoint can
+/// still be supplied at runtime via `RUSTCODE_UPDATE_MANIFEST_URL`.
+pub fn update_endpoint_configured() -> bool {
+    !manifest_url().trim().is_empty() && !download_base().trim().is_empty()
+}
+
 /// User-Agent for the update HTTP client. Lowercase `rustcode/<version>` is
 /// deliberate (the gateway UA filter hijacks capital-A `RustCode`). Vendored here so
 /// this leaf crate doesn't depend on `rustcode-core` (mirrors its `RUSTCODE_USER_AGENT`;
@@ -857,6 +866,11 @@ fn clear_pending_pointer() {
 /// that one only gives back the version string; here we need the full
 /// manifest to know the per-target sha256 / size.
 pub async fn fetch_manifest_if_newer(current_version: &str) -> Result<Option<Manifest>> {
+    // Neutral build (no hosted update endpoint): nothing to check. Bail before any
+    // request so a missing endpoint surfaces as "up to date", not a network error.
+    if !update_endpoint_configured() {
+        return Ok(None);
+    }
     let manifest = fetch_manifest().await?;
     if is_newer(&manifest.version, current_version) {
         Ok(Some(manifest))
@@ -879,6 +893,11 @@ pub async fn prepare_deferred_upgrade(
     tx: mpsc::UnboundedSender<UpgradeEvent>,
 ) -> Result<Option<PendingUpgrade>> {
     if is_package_managed() {
+        return Ok(None);
+    }
+    // No update endpoint configured (neutral fork default): never attempt a network
+    // call; self-update stays opt-in via RUSTCODE_UPDATE_MANIFEST_URL / a managed build.
+    if !update_endpoint_configured() {
         return Ok(None);
     }
     let target = detect_target().ok_or_else(|| {
@@ -1173,6 +1192,28 @@ pub fn run_rollback() -> Result<RollbackSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Neutral fork default: with no hosted update endpoint (`HOSTED_*` are empty and
+    /// `RUSTCODE_UPDATE_MANIFEST_URL` unset), every update entry point MUST no-op with
+    /// `Ok(None)` and never issue a network request (a GET to `""` would only error).
+    #[tokio::test]
+    async fn update_noops_without_a_configured_endpoint() {
+        if update_endpoint_configured() {
+            // Environment explicitly points at an update server; neutral-default
+            // behaviour is out of scope here.
+            return;
+        }
+        assert!(
+            fetch_manifest_if_newer("v0.0.1").await.unwrap().is_none(),
+            "unconfigured update endpoint must report no update"
+        );
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let staged = prepare_deferred_upgrade("v0.0.1", tx).await.unwrap();
+        assert!(
+            staged.is_none(),
+            "unconfigured update endpoint must not stage anything"
+        );
+    }
 
     /// The three claims `binary_filename` actually makes, minus the vendor name: it is built
     /// from `ASSET_PREFIX` (which `distribution` owns and a rebuild is meant to change), and it

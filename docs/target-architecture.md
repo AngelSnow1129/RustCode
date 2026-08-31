@@ -31,7 +31,7 @@ CLI / TUI / daemon / background / ACP / clix code
 ```text
 kernel ← capabilities ← L2 specialization ← frontend/transport
 
-叶子基础设施：config、auth、telemetry、updater 等按职责被上层依赖
+叶子基础设施：config、auth、updater 等按职责被上层依赖
 兼容边界：legacy session importer，只允许从旧格式流向当前模型
 ```
 

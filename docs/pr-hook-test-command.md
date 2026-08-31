@@ -48,42 +48,42 @@ Testing hook: my-hook
 # 测试一个名为 "check-bash" 的 hook
 $ rustcode hook test check-bash
 
-🔧 Testing Hook: check-bash
+[*] Testing Hook: check-bash
   Event:     pre_tool_use
   Command:   ./scripts/check_bash.sh
   Timeout:   10000 ms
   Matcher:   bash
 
-📋 Result:
+[*] Result:
   Duration:  12.345ms
-  Status:    ✅ SUCCESS (exit code 0)
+  Status:    [+] SUCCESS (exit code 0)
   ── stdout ──
   │ Tool check passed: bash
 
-  ✅ Hook 'check-bash' executed successfully.
+  [+] Hook 'check-bash' executed successfully.
 ```
 
 ```bash
 # 查找不存在的 hook 时
 $ rustcode hook test nonexistent
 
-❌ Hook 'nonexistent' not found.
+[-] Hook 'nonexistent' not found.
 
 Available hooks:
-  🔹 check-bash                  (event: pre_tool_use, command: ./scripts/check_bash.sh)
-  🔹 notify-slack                (event: post_tool_use, command: ./scripts/notify.sh)
+  [*] check-bash                  (event: pre_tool_use, command: ./scripts/check_bash.sh)
+  [*] notify-slack                (event: post_tool_use, command: ./scripts/notify.sh)
 ```
 
 ```bash
 # 超时场景
 $ rustcode hook test slow-hook
 
-🔧 Testing Hook: slow-hook
+[*] Testing Hook: slow-hook
   Event:     pre_tool_use
   Command:   sleep 30
   Timeout:   5000 ms
 
-📋 Result:
+[*] Result:
   ⏱ TIMEOUT after 5000 ms
   The hook command was killed because it exceeded the configured timeout.
 ```

@@ -230,14 +230,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Self-Review
 
 **1. Spec coverage：**
-- 冷却常量 1500ms → Step 3(a)。✅
-- `intercept_empty_bare_esc` 加 `last_undo_at` + 冷却分支 → Step 3(d)。✅
-- `App.esc_undo_last_at` 字段 + init → Step 3(b)(c)。✅
-- 调用点 `TriggerUndo` 记 `last_undo_at` + 传参 → Step 3(e)。✅
-- 单次双击不变（`last_undo_at=None` 一致）→ 由 `no_prior_undo_keeps_original_behaviour` 测试 + 保留原逻辑保证。✅
-- 测试：冷却内不触发/不武装、冷却过后可再撤、无前置照常、现有 4 测试仍绿 → Step 1 + Step 4。✅
-- 不做 redo/确认卡/提示行/min-gap；不碰流式 Esc → 计划未引入。✅
+- 冷却常量 1500ms → Step 3(a)。 [x]
+- `intercept_empty_bare_esc` 加 `last_undo_at` + 冷却分支 → Step 3(d)。 [x]
+- `App.esc_undo_last_at` 字段 + init → Step 3(b)(c)。 [x]
+- 调用点 `TriggerUndo` 记 `last_undo_at` + 传参 → Step 3(e)。 [x]
+- 单次双击不变（`last_undo_at=None` 一致）→ 由 `no_prior_undo_keeps_original_behaviour` 测试 + 保留原逻辑保证。 [x]
+- 测试：冷却内不触发/不武装、冷却过后可再撤、无前置照常、现有 4 测试仍绿 → Step 1 + Step 4。 [x]
+- 不做 redo/确认卡/提示行/min-gap；不碰流式 Esc → 计划未引入。 [x]
 
-**2. Placeholder scan：** 无 TBD/TODO；每处 code step 均有完整前后代码与预期输出。✅
+**2. Placeholder scan：** 无 TBD/TODO；每处 code step 均有完整前后代码与预期输出。 [x]
 
-**3. Type consistency：** `intercept_empty_bare_esc(&mut Option<Instant>, Option<Instant>, Instant) -> EmptyEscIntercept` 在函数定义、主调用点、两个既有测试点、四个新测试点全部一致；`esc_undo_last_at: Option<Instant>` 字段/init/读写一致；`DOUBLE_ESC_UNDO_COOLDOWN: Duration` 常量定义与使用一致。✅
+**3. Type consistency：** `intercept_empty_bare_esc(&mut Option<Instant>, Option<Instant>, Instant) -> EmptyEscIntercept` 在函数定义、主调用点、两个既有测试点、四个新测试点全部一致；`esc_undo_last_at: Option<Instant>` 字段/init/读写一致；`DOUBLE_ESC_UNDO_COOLDOWN: Duration` 常量定义与使用一致。 [x]

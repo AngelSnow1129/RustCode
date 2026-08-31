@@ -19,6 +19,12 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("/login setup failed: {error}").into(),
         Msg::CpReauthAfter401 =>
             "  [!] Stored login expired -- re-authenticating...\n".into(),
+        Msg::LoginManagedUnavailable =>
+            "  [*] Managed login is not built into this build.\n  \
+             Configure a third-party provider directly in ~/.rustcode/config.toml \
+             (base_url + api_key), or add a model with its own key via /provider; set \
+             RUSTCODE_PLATFORM_SERVER to point at a self-hosted gateway.\n"
+                .into(),
         Msg::ChatAuthExpired =>
             "Authentication expired -- please run /login to sign in again".into(),
         Msg::NetworkConnectHint =>
@@ -298,7 +304,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderStepTypeWithHint { current } =>
             format!("Type? [{current}] (openai / claude / ollama, blank to keep)").into(),
         Msg::ProviderStepBaseUrl =>
-            "Base URL? (e.g. https://api.deepseek.com/v1)".into(),
+            "Base URL? (e.g. https://api.example.com/v1 -- your third-party provider's endpoint)".into(),
         Msg::ProviderStepBaseUrlWithHint { current } =>
             format!("Base URL? [{current}] (blank to keep)").into(),
         Msg::ProviderDefaultHint => "provider default".into(),

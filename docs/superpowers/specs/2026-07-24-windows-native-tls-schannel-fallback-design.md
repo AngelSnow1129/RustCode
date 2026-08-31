@@ -13,10 +13,10 @@
 
 | 客户端 + TLS 版本 | 结果 |
 |---|---|
-| curl（**SChannel**）TLS 1.3（默认） | ❌ reset |
-| curl（**SChannel**）**TLS 1.2**（`--tls-max 1.2`） | ✅ 通（HTTP 405） |
-| rustcode（**rustls**）TLS 1.3 | ❌ reset |
-| rustcode（**rustls**）**TLS 1.2**（`RUSTCODE_TLS_MAX=1.2`，v5.0.3 带修复、env 确认生效） | ❌ **仍 reset** |
+| curl（**SChannel**）TLS 1.3（默认） | [-] reset |
+| curl（**SChannel**）**TLS 1.2**（`--tls-max 1.2`） | [+] 通（HTTP 405） |
+| rustcode（**rustls**）TLS 1.3 | [-] reset |
+| rustcode（**rustls**）**TLS 1.2**（`RUSTCODE_TLS_MAX=1.2`，v5.0.3 带修复、env 确认生效） | [-] **仍 reset** |
 
 **结论**：中间设备同时按两轴拦——(a) **TLS 1.3**（任何客户端）、(b) **rustls 的 ClientHello 指纹**（任何版本）。唯一能穿的组合是 **SChannel + TLS 1.2**。rustcode 是 rustls-only，配不出，故 `522c6f2a` 的"只锁版本"对该网络不足。
 

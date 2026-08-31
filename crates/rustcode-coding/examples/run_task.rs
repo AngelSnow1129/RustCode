@@ -4,8 +4,8 @@
 //!
 //! ```bash
 //! RUSTCODE_API_KEY=sk-... \
-//! RUSTCODE_BASE_URL=https://api.deepseek.com/v1 \
-//! RUSTCODE_MODEL=deepseek-chat \
+//! RUSTCODE_BASE_URL=https://your-provider.example/v1 \
+//! RUSTCODE_MODEL=your-model-id \
 //! cargo run -p rustcode-coding --example run_task -- "list the rust files and summarize the crate"
 //! ```
 
@@ -22,12 +22,28 @@ async fn main() {
     };
 
     let Ok(api_key) = std::env::var("RUSTCODE_API_KEY") else {
-        eprintln!("Set RUSTCODE_API_KEY (+ optional RUSTCODE_BASE_URL / RUSTCODE_MODEL) to run a live task.");
+        eprintln!("Set RUSTCODE_API_KEY, RUSTCODE_BASE_URL and RUSTCODE_MODEL (your third-party provider) to run a live task.");
         std::process::exit(2);
     };
-    let base_url = std::env::var("RUSTCODE_BASE_URL")
-        .unwrap_or_else(|_| "https://api.deepseek.com/v1".to_string());
-    let model = std::env::var("RUSTCODE_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
+    // base_url / model are required, not defaulted: the neutral fork ships no
+    // built-in vendor, so an unset endpoint must fail here rather than silently
+    // send traffic to a hard-coded provider.
+    let base_url = match std::env::var("RUSTCODE_BASE_URL") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => {
+            eprintln!(
+                "Set RUSTCODE_BASE_URL (e.g. https://your-provider.example/v1) to run a live task."
+            );
+            std::process::exit(2);
+        }
+    };
+    let model = match std::env::var("RUSTCODE_MODEL") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => {
+            eprintln!("Set RUSTCODE_MODEL (the model id your provider serves) to run a live task.");
+            std::process::exit(2);
+        }
+    };
     let cwd = std::env::current_dir().expect("cwd");
 
     let agent = match build_coding_agent(CodingAgentConfig::new(api_key, base_url, model, cwd)) {

@@ -1,6 +1,6 @@
 # Hook 系统扩展实现总结（历史快照）
 
-> ⚠️ **本文档是历史快照**，记录扩展阶段的实现细节（12 个时机）。当前系统已进一步演进（新增 `OnUserPromptSubmit`，共 13 个时机）。请以 [Hook 系统总览](./hooks.md) | [实现总结](./hook-implementation-summary.md) | [完整时机列表](./hook-timing-complete.md) 为权威参考。
+> [WARN] **本文档是历史快照**，记录扩展阶段的实现细节（12 个时机）。当前系统已进一步演进（新增 `OnUserPromptSubmit`，共 13 个时机）。请以 [Hook 系统总览](./hooks.md) | [实现总结](./hook-implementation-summary.md) | [完整时机列表](./hook-timing-complete.md) 为权威参考。
 
 ## 本次扩展内容
 
@@ -99,22 +99,22 @@ Turn 级别：
 
 ```
 消息级别：
-  ✨ OnMessageReceived (用户消息接收时，可修改消息)
+  [*] OnMessageReceived (用户消息接收时，可修改消息)
 
 Turn 级别：
-  ✨ OnTurnStart (Turn 开始前)
-  ✨ OnTurnComplete (Turn 完成后，含详细统计)
-  ✨ OnModelResponse (模型响应完成后)
+  [*] OnTurnStart (Turn 开始前)
+  [*] OnTurnComplete (Turn 完成后，含详细统计)
+  [*] OnModelResponse (模型响应完成后)
 
 工具调用级别：
-  ✨ OnToolCallStart (工具调用开始时，可拒绝)
+  [*] OnToolCallStart (工具调用开始时，可拒绝)
 
 会话级别：
-  ✨ OnSessionStart (会话启动时)
-  ✨ OnSessionEnd (会话结束时)
+  [*] OnSessionStart (会话启动时)
+  [*] OnSessionEnd (会话结束时)
 
 系统级别：
-  ✨ OnError (错误发生时)
+  [*] OnError (错误发生时)
 ```
 
 ### 总计：12 个 Hook 时机 + 6 个内置实现（扩展阶段，现已增至 13 个）
@@ -148,19 +148,19 @@ Turn 级别：
 ```
 用户发送消息
   ↓
-[1] OnMessageReceived ✨ (可修改消息)
+[1] OnMessageReceived [*] (可修改消息)
   ↓
 ┌─ Turn 循环 ──────────────────────────────┐
 │                                           │
-│  [2] OnTurnStart ✨                       │
+│  [2] OnTurnStart [*]                       │
 │    ↓                                       │
 │  模型推理                                  │
 │    ↓                                       │
-│  [5] OnModelResponse ✨                   │
+│  [5] OnModelResponse [*]                   │
 │    ↓                                       │
 │  ┌─ 工具调用循环 ────────────────────┐    │
 │  │                                    │    │
-│  │  [6] OnToolCallStart ✨ (可拒绝)   │    │
+│  │  [6] OnToolCallStart [*] (可拒绝)   │    │
 │  │    ↓                               │    │
 │  │  [7] PreToolExecution (可修改)     │    │
 │  │    ↓                               │    │
@@ -170,19 +170,19 @@ Turn 级别：
 │  │                                    │    │
 │  └────────────────────────────────────┘    │
 │    ↓                                       │
-│  [3] OnTurnComplete ✨ (详细统计)          │
+│  [3] OnTurnComplete [*] (详细统计)          │
 │  [4] PostTurn (向后兼容)                   │
 │                                           │
 └───────────────────────────────────────────┘
   ↓
 错误发生（如果有）
   ↓
-[11] OnError ✨
+[11] OnError [*]
   ↓
 会话结束
   ↓
-[9] OnSessionStart ✨ (已在开始时调用)
-[10] OnSessionEnd ✨
+[9] OnSessionStart [*] (已在开始时调用)
+[10] OnSessionEnd [*]
 ```
 
 ---
@@ -243,19 +243,19 @@ registry.register_on_model_response_hook(hook);
 
 ### 原有测试（全部通过）
 ```
-✓ test_hook_registry_basic
-✓ test_hook_deny_execution
-✓ test_hook_modify_args
-✓ test_system_prompt_hook
-✓ test_hook_priority_order
-✓ test_hooks_fire_during_turn (集成测试)
+[+] test_hook_registry_basic
+[+] test_hook_deny_execution
+[+] test_hook_modify_args
+[+] test_system_prompt_hook
+[+] test_hook_priority_order
+[+] test_hooks_fire_during_turn (集成测试)
 ```
 
 ### 编译验证
 ```
-✓ Debug 编译成功
-✓ Release 编译成功
-✓ 无新增警告
+[+] Debug 编译成功
+[+] Release 编译成功
+[+] 无新增警告
 ```
 
 ---
@@ -266,18 +266,18 @@ registry.register_on_model_response_hook(hook);
 
 | 图片中的 Hook 时机 | 实现状态 | 说明 |
 |------------------|---------|------|
-| 消息接收时 | ✅ 已实现 | `OnMessageReceived` |
-| Turn 开始前 | ✅ 已实现 | `OnTurnStart` |
-| Turn 完成后 | ✅ 已实现 | `OnTurnComplete` + `PostTurn` |
-| 工具调用前 | ✅ 已实现 | `OnToolCallStart` + `PreToolExecution` |
-| 工具调用后 | ✅ 已实现 | `PostToolExecution` |
-| 模型响应后 | ✅ 已实现 | `OnModelResponse` |
-| 会话开始时 | ✅ 已实现 | `OnSessionStart` |
-| 会话结束时 | ✅ 已实现 | `OnSessionEnd` |
-| 错误发生时 | ✅ 已实现 | `OnError` |
-| 系统 Prompt 构建 | ✅ 已实现 | `SystemPrompt` |
+| 消息接收时 | [+] 已实现 | `OnMessageReceived` |
+| Turn 开始前 | [+] 已实现 | `OnTurnStart` |
+| Turn 完成后 | [+] 已实现 | `OnTurnComplete` + `PostTurn` |
+| 工具调用前 | [+] 已实现 | `OnToolCallStart` + `PreToolExecution` |
+| 工具调用后 | [+] 已实现 | `PostToolExecution` |
+| 模型响应后 | [+] 已实现 | `OnModelResponse` |
+| 会话开始时 | [+] 已实现 | `OnSessionStart` |
+| 会话结束时 | [+] 已实现 | `OnSessionEnd` |
+| 错误发生时 | [+] 已实现 | `OnError` |
+| 系统 Prompt 构建 | [+] 已实现 | `SystemPrompt` |
 
-**覆盖率：10/10 = 100%** ✅
+**覆盖率：10/10 = 100%** [x]
 
 ---
 
@@ -285,11 +285,11 @@ registry.register_on_model_response_hook(hook);
 
 ### 完成的工作
 
-1. ✅ **新增 8 个工程化 Hook 时机** - 覆盖消息、Turn、会话、错误等全生命周期
-2. ✅ **实现 6 个内置 Hook** - 提供开箱即用的工程化能力
-3. ✅ **完善 Hook 上下文结构** - 为每个时机提供详细的上下文信息
-4. ✅ **更新 HookRegistry** - 支持新类型的注册和触发
-5. ✅ **完整文档** - 包含时机列表、配置示例、使用建议
+1. [x] **新增 8 个工程化 Hook 时机** - 覆盖消息、Turn、会话、错误等全生命周期
+2. [x] **实现 6 个内置 Hook** - 提供开箱即用的工程化能力
+3. [x] **完善 Hook 上下文结构** - 为每个时机提供详细的上下文信息
+4. [x] **更新 HookRegistry** - 支持新类型的注册和触发
+5. [x] **完整文档** - 包含时机列表、配置示例、使用建议
 
 ### Hook 系统现在提供
 

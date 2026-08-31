@@ -477,7 +477,10 @@ mod tests {
     #[test]
     fn should_suppress_verify_resolves_env_and_attendedness() {
         // No env -> follow attendedness: interactive suppresses the forced check, headless forces it.
-        assert!(should_suppress_verify(None, true), "interactive -> suppress");
+        assert!(
+            should_suppress_verify(None, true),
+            "interactive -> suppress"
+        );
         assert!(!should_suppress_verify(None, false), "headless -> force");
         // `RUSTCODE_VERIFY` wins in BOTH directions, regardless of attendedness.
         assert!(

@@ -62,7 +62,7 @@ fn last_path_segment(url: &str) -> Option<&str> {
 
 /// Extract the last path segment from a git URL, stripping `.git` suffix.
 /// Examples:
-///   https://gitcode.com/u/foo.git -> foo
+///   https://example.com/u/foo.git -> foo
 ///   git@github.com:o/bar         -> bar
 ///   file:///C:/Users/u/bar       -> bar   (Windows)
 pub fn infer_marketplace_name_from_url(url: &str) -> Result<String> {
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn infers_name_from_https() {
         assert_eq!(
-            infer_marketplace_name_from_url("https://gitcode.com/u/foo.git").unwrap(),
+            infer_marketplace_name_from_url("https://example.com/u/foo.git").unwrap(),
             "foo"
         );
     }
@@ -229,9 +229,9 @@ mod trusted_host_tests {
     #[test]
     fn scheme_host_prefix_strips_path() {
         assert_eq!(
-            scheme_host_prefix("https://gitcode.com/owner/repo.git").as_deref(),
-            Some("https://gitcode.com")
+            scheme_host_prefix("https://example.com/owner/repo.git").as_deref(),
+            Some("https://example.com")
         );
-        assert_eq!(scheme_host_prefix("git@gitcode.com:o/r"), None);
+        assert_eq!(scheme_host_prefix("git@example.com:o/r"), None);
     }
 }

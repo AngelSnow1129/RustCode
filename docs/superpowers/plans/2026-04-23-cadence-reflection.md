@@ -541,13 +541,13 @@ git commit -m "feat(cli): --reflection-cadence flag overrides config.toml"
 ## Self-Review
 
 **1. Spec coverage:**
-- "Every N tool calls, inject reflection" → Task 5 ✓
-- "Language-agnostic prompt (no cargo/grep/npm mentions)" → Task 4 test asserts absence ✓
-- "Configurable default" → Task 1 (toml + serde default) ✓
-- "CLI override" → Task 6 ✓
-- "0 disables" → Task 3 test `no_injection_when_cadence_is_zero` ✓
-- "Reset on new task chain" → Task 2 Step 2 resets alongside `tool_call_count` ✓
-- "Pure fn for testability" → Tasks 3, 4 both are free fns ✓
+- "Every N tool calls, inject reflection" → Task 5 [x]
+- "Language-agnostic prompt (no cargo/grep/npm mentions)" → Task 4 test asserts absence [x]
+- "Configurable default" → Task 1 (toml + serde default) [x]
+- "CLI override" → Task 6 [x]
+- "0 disables" → Task 3 test `no_injection_when_cadence_is_zero` [x]
+- "Reset on new task chain" → Task 2 Step 2 resets alongside `tool_call_count` [x]
+- "Pure fn for testability" → Tasks 3, 4 both are free fns [x]
 
 **2. Placeholder scan:**
 - No "TBD", no "implement later", no "similar to task N".

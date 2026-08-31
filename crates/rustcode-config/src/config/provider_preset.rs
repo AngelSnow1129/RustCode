@@ -89,7 +89,14 @@ pub const ANTHROPIC_COMPATIBLE: ProviderPreset = ProviderPreset {
 /// every field is overridable by the referencing account, and an unlisted
 /// vendor falls back to [`OPENAI_COMPATIBLE`]. Default base URLs are best-effort
 /// vendor defaults and may be overridden per account.
+///
+/// The two generic bring-your-own-endpoint presets lead the list: the neutral
+/// fork defaults to "point at any OpenAI/Anthropic-compatible endpoint" rather
+/// than featuring a specific vendor, and index 0 doubles as the resolver's
+/// neutral fallback (see `preset_or_compatible` / the TUI `preset_idx_by_id`).
 pub const PRESETS: &[ProviderPreset] = &[
+    OPENAI_COMPATIBLE,
+    ANTHROPIC_COMPATIBLE,
     ProviderPreset {
         id: "taotoken",
         display_name: "TaoToken",
@@ -241,8 +248,6 @@ pub const PRESETS: &[ProviderPreset] = &[
         api_key_env: None,
         model_source: ModelSource::DiscoveryApi,
     },
-    OPENAI_COMPATIBLE,
-    ANTHROPIC_COMPATIBLE,
 ];
 
 /// Exact lookup of a preset by its `id`.
@@ -292,6 +297,15 @@ mod tests {
         ] {
             assert!(preset(id).is_some(), "missing preset: {id}");
         }
+    }
+
+    #[test]
+    fn generic_endpoints_lead_the_registry() {
+        // The neutral fork must default to a bring-your-own-endpoint row, not a
+        // featured vendor: index 0 is also the resolver/TUI defensive fallback.
+        assert_eq!(PRESETS[0].id, "openai-compatible");
+        assert_eq!(PRESETS[1].id, "anthropic-compatible");
+        assert!(PRESETS[0].default_base_url.is_none());
     }
 
     #[test]

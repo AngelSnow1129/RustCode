@@ -785,7 +785,7 @@ impl Modal for UsageModal {
                     ),
                     String::new(),
                 ));
-                final_items.push((format!("-- {} --", hint), String::new()));
+                final_items.push((format!("— {} —", hint), String::new()));
 
                 // selected past end = nothing highlighted
                 let selected = final_items.len();
@@ -818,7 +818,7 @@ impl Modal for UsageModal {
 
         // Footer hint (or copy confirmation)
         final_items.push((String::new(), String::new()));
-        final_items.push((format!("-- {} --", hint), String::new()));
+        final_items.push((format!("— {} —", hint), String::new()));
 
         // Nothing is selectable -- point selected past the end so nothing is highlighted
         let selected = final_items.len();
