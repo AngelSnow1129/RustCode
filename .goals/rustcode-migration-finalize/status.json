@@ -1,0 +1,16 @@
+{
+  "goal_id": "rustcode-migration-finalize",
+  "status": "completed",
+  "iteration": 1,
+  "builder_model": "Claude:Sonnet-4.6",
+  "inspector_model": "Claude:Haiku-4.5",
+  "initial_sha": "af7e8715723aa33343f049b15d3032e71200567c",
+  "created_at": "2026-09-01T00:30:00Z",
+  "history": [
+    {
+      "iteration": 1,
+      "verdict": "PASS",
+      "summary": "All 10 acceptance criteria met: package-lock names, Locale::default()=ZhCn, config.example.toml language+subagent template, G1/G3/G6/G7/G8 pass"
+    }
+  ]
+}
