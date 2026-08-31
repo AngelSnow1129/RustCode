@@ -12,8 +12,11 @@ pub enum Locale {
 }
 
 impl Default for Locale {
+    /// Product default is Simplified Chinese (zh_CN). English remains the
+    /// fallback for an explicitly-set, unsupported locale (see
+    /// `i18n::classify_env_locale`).
     fn default() -> Self {
-        Locale::En
+        Locale::ZhCn
     }
 }
 

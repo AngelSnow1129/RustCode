@@ -8,7 +8,11 @@ pub use messages::Msg;
 use std::borrow::Cow;
 use std::sync::RwLock;
 
-static LOCALE: RwLock<Locale> = RwLock::new(Locale::En);
+/// Product default locale is Simplified Chinese (zh_CN). Everything that
+/// "falls back to default" (process start, poisoned lock, no CLI/config/env
+/// signal) lands here; English is used only when the user explicitly selects
+/// it or sets an unsupported non-Chinese locale.
+static LOCALE: RwLock<Locale> = RwLock::new(Locale::ZhCn);
 
 /// Cached brand name shown in i18n strings via the `{brand}` placeholder.
 /// Settled from `Config::ui::brand_name` at startup by [`set_brand`];
@@ -97,10 +101,10 @@ pub fn t_with(locale: Locale, msg: Msg<'_>) -> Cow<'static, str> {
     substitute_placeholders(raw)
 }
 
-/// Return the current global locale. Falls back to `Locale::En` if
-/// the RwLock is poisoned.
+/// Return the current global locale. Falls back to the product default
+/// (`Locale::ZhCn`) if the RwLock is poisoned.
 pub fn current_locale() -> Locale {
-    LOCALE.read().map(|g| *g).unwrap_or(Locale::En)
+    LOCALE.read().map(|g| *g).unwrap_or(Locale::ZhCn)
 }
 
 /// Switch the global locale used by [`t`]. Silently no-ops if the
@@ -195,7 +199,8 @@ fn fmt_compaction_tokens(tokens: usize) -> String {
 
 /// Determine the initial locale from (in priority order):
 /// CLI `--lang` flag, config file `language` field, environment
-/// variables `LC_ALL` / `LC_MESSAGES` / `LANG`.
+/// variables `LC_ALL` / `LC_MESSAGES` / `LANG`, then the product default
+/// (Simplified Chinese).
 pub fn resolve_initial_locale(cli_lang: Option<&str>, config_lang: Option<Locale>) -> Locale {
     resolve_initial_locale_with_env(cli_lang, config_lang, &|k| std::env::var(k).ok())
 }
@@ -221,7 +226,8 @@ pub fn resolve_initial_locale_with_env(
             }
         }
     }
-    Locale::En
+    // No signal at all: product default is Chinese.
+    Locale::ZhCn
 }
 
 fn classify_env_locale(value: &str) -> Locale {
@@ -234,7 +240,14 @@ fn classify_env_locale(value: &str) -> Locale {
         || lower.starts_with("zh.")
     {
         Locale::ZhCn
+    } else if matches!(lower.as_str(), "c" | "posix") {
+        // `LANG=C` / `LANG=POSIX` mean "no language preference" (common in
+        // containers and CI), not an English preference -- apply the product
+        // default rather than the English fallback.
+        Locale::ZhCn
     } else {
+        // An explicit, unsupported locale (fr_FR, de_DE, ...): English is the
+        // neutral fallback.
         Locale::En
     }
 }
@@ -242,8 +255,8 @@ fn classify_env_locale(value: &str) -> Locale {
 /// Serialization lock for tests that mutate the global locale.
 /// Prevents test races when multiple tests call `set_locale`, AND
 /// restores the original locale on guard drop so a test that flips
-/// to `ZhCn` doesn't leak into the next test that assumes the
-/// default `En`.
+/// to `En` doesn't leak into the next test that assumes the
+/// product default `ZhCn`.
 ///
 /// Exposed unconditionally (not `#[cfg(test)]`-gated) because tests in
 /// downstream crates (rustcode-tuix, etc.) need to take this lock too,
@@ -491,7 +504,29 @@ mod tests {
     }
 
     #[test]
-    fn env_c_or_english_resolves_to_en() {
+    fn env_explicit_english_resolves_to_en() {
+        let mk = |val: &'static str| {
+            move |k: &str| {
+                if k == "LANG" {
+                    Some(val.to_string())
+                } else {
+                    None
+                }
+            }
+        };
+        assert_eq!(
+            resolve_initial_locale_with_env(None, None, &mk("en_US.UTF-8")),
+            Locale::En
+        );
+        // An explicit, unsupported locale still falls back to English.
+        assert_eq!(
+            resolve_initial_locale_with_env(None, None, &mk("fr_FR.UTF-8")),
+            Locale::En
+        );
+    }
+
+    #[test]
+    fn env_c_posix_and_empty_mean_no_preference_and_default_to_zh_cn() {
         let mk = |val: &'static str| {
             move |k: &str| {
                 if k == "LANG" {
@@ -503,24 +538,25 @@ mod tests {
         };
         assert_eq!(
             resolve_initial_locale_with_env(None, None, &mk("C")),
-            Locale::En
+            Locale::ZhCn
         );
         assert_eq!(
-            resolve_initial_locale_with_env(None, None, &mk("en_US.UTF-8")),
-            Locale::En
+            resolve_initial_locale_with_env(None, None, &mk("POSIX")),
+            Locale::ZhCn
         );
+        // Empty values are treated as "unset" -> product default.
         assert_eq!(
             resolve_initial_locale_with_env(None, None, &mk("")),
-            Locale::En
+            Locale::ZhCn
         );
     }
 
     #[test]
-    fn env_no_locale_vars_resolves_to_en() {
+    fn env_no_locale_vars_resolves_to_default_zh_cn() {
         let env = |_: &str| None;
         assert_eq!(
             resolve_initial_locale_with_env(None, None, &env),
-            Locale::En
+            Locale::ZhCn
         );
     }
 
@@ -636,9 +672,10 @@ mod tests {
             resolve_initial_locale_with_env(Some("fr"), Some(Locale::ZhCn), &env),
             Locale::ZhCn
         );
+        // No CLI, no config, no env vars: product default is ZhCn (not En).
         assert_eq!(
             resolve_initial_locale_with_env(Some("fr"), None, &env),
-            Locale::En
+            Locale::ZhCn
         );
     }
 

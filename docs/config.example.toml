@@ -8,6 +8,10 @@
 # ---- 默认 provider（必须匹配下方某个 [providers.*] 的键名）----
 default_provider = "deepseek"
 
+# ---- UI / 提示词语言（默认中文，可改为 "en"）----
+# 省略 = 自动检测（LC_ALL/LC_MESSAGES/LANG；LANG=C/POSIX 视为无偏好 -> 中文）。
+# language = "zh_CN"
+
 # ---- 自动更新 / 自动提交（顶层键，必须在任何 [表] 之前）----
 # auto_update: 每小时轮询新版本并预暂存，下次启动时应用（/upgrade 仍可手动）
 # auto_commit: 每轮 agent 结束后自动提交改动的文件（仅在 git 仓库内生效）
@@ -330,6 +334,39 @@ max_turns = 12          # 遗留字段，不生效
 max_concurrent = 3      # 生效：并发子 agent 上限（下限 1）
 timeout_secs = 900      # 遗留字段：仍可解析，但不生效
 max_rounds = 200        # 生效：单个子任务模型轮次高水位（0=不设上限；继承上面的精确防护策略）
+
+# 便捷开关（默认 off）。设为 "read-only" / "accept-edits" / "auto" 即挂载对应工具。
+# 多实例 / 模型覆盖 / bypass 权限请用 [[subagent.external]]。
+# codex = "off"
+# claude = "off"
+
+# =============================================================================
+# 多 Agent 并行模板（专业化分工 + 并行处理 + 独立验证）
+# =============================================================================
+# 取消注释即可启用 3 角色并行：探索者（只读）、实现者（可写）、审查者（只读验证）。
+# max_concurrent 提到 4 以容纳 3 角色 + 1 备用槽。便捷开关保持 off，用 external 实例。
+#
+# [subagent]
+# max_concurrent = 4
+# max_rounds = 200
+#
+# # 探索者（只读，低成本模型）
+# [[subagent.external]]
+# name = "explorer"
+# kind = "codex"
+# permission = "read-only"
+#
+# # 实现者（可写，强模型）
+# [[subagent.external]]
+# name = "builder"
+# kind = "claude-code"
+# permission = "accept-edits"
+#
+# # 审查者（只读，独立验证——不信任实现者的输出）
+# [[subagent.external]]
+# name = "reviewer"
+# kind = "codex"
+# permission = "read-only"
 
 # =============================================================================
 # LSP（语言服务器协议）
