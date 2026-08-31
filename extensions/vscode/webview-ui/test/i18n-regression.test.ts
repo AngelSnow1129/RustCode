@@ -1,18 +1,22 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createTranslator, messages, normalizeLocale } from '../src/i18n';
+import { createTranslator, messages, normalizeLocale, DEFAULT_LANG, i18nKeyMismatches } from '../src/i18n';
 
 function testLocaleNormalizationFollowsVSCodeLanguage() {
   assert.equal(normalizeLocale('zh-cn'), 'zh');
   assert.equal(normalizeLocale('zh-CN'), 'zh');
   assert.equal(normalizeLocale('zh-tw'), 'zh');
   assert.equal(normalizeLocale('en-US'), 'en');
+  // An explicit non-Chinese locale (fr, de, ...) falls back to 'en'.
   assert.equal(normalizeLocale('fr'), 'en');
-  assert.equal(normalizeLocale(undefined), 'en');
+  // No signal (undefined / empty) = no preference = product default (zh),
+  // matching Rust resolve_initial_locale's no-signal rule.
+  assert.equal(normalizeLocale(undefined), DEFAULT_LANG);
+  assert.equal(normalizeLocale(''), DEFAULT_LANG);
 }
 
-function testTranslatorFallsBackToEnglishAndInterpolatesValues() {
+function testTranslatorFallsBackToProductDefaultAndInterpolatesValues() {
   const zh = createTranslator('zh-CN');
   const en = createTranslator('en-US');
 
@@ -24,9 +28,13 @@ function testTranslatorFallsBackToEnglishAndInterpolatesValues() {
 }
 
 function testCatalogsHaveMatchingKeys() {
-  const zhKeys = Object.keys(messages.zh).sort();
-  const enKeys = Object.keys(messages.en).sort();
-  assert.deepEqual(zhKeys, enKeys);
+  const { onlyZh, onlyEn } = i18nKeyMismatches();
+  assert.deepEqual(onlyZh, [], `keys only in zh: ${onlyZh.join(', ')}`);
+  assert.deepEqual(onlyEn, [], `keys only in en: ${onlyEn.join(', ')}`);
+}
+
+function testDefaultLangIsZh() {
+  assert.equal(DEFAULT_LANG, 'zh', 'product default must be zh (zh_CN)');
 }
 
 function testVSCodeManifestUsesNlsPlaceholders() {
@@ -59,7 +67,8 @@ function testPackageNlsFilesCoverEveryManifestPlaceholder() {
 }
 
 testLocaleNormalizationFollowsVSCodeLanguage();
-testTranslatorFallsBackToEnglishAndInterpolatesValues();
+testTranslatorFallsBackToProductDefaultAndInterpolatesValues();
 testCatalogsHaveMatchingKeys();
+testDefaultLangIsZh();
 testVSCodeManifestUsesNlsPlaceholders();
 testPackageNlsFilesCoverEveryManifestPlaceholder();

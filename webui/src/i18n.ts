@@ -855,3 +855,23 @@ const en: Record<MsgKey, string> = {
 };
 
 export const messages: Record<Lang, Record<MsgKey, string>> = { zh, en };
+
+/**
+ * Verify that the zh and en catalogs have identical key sets.
+ * Returns a list of keys present in only one catalog (empty = aligned).
+ * Used by i18n-regression.test.ts and the dev-time consistency check.
+ */
+export function i18nKeyMismatches(): { onlyZh: string[]; onlyEn: string[] } {
+  const zhKeys = new Set(Object.keys(zh));
+  const enKeys = new Set(Object.keys(en));
+  const onlyZh = [...zhKeys].filter((k) => !enKeys.has(k)).sort();
+  const onlyEn = [...enKeys].filter((k) => !zhKeys.has(k)).sort();
+  return { onlyZh, onlyEn };
+}
+
+/**
+ * The product default language. Used as the fallback when a key is missing
+ * from the user-selected language, and as the default when no preference
+ * is stored. Must stay in sync with Rust `Locale::default()` (zh_CN).
+ */
+export const DEFAULT_LANG: Lang = 'zh';

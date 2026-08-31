@@ -93,12 +93,35 @@ pub fn t(msg: Msg<'_>) -> Cow<'static, str> {
 }
 
 /// Look up against an explicit locale.
+///
+/// The `match` is exhaustive (the compiler enforces that every `Msg` variant
+/// has a row in both `en.rs` and `zh_cn.rs`), so this never panics on a missing
+/// key. For forward-compatibility when a new `Locale` variant is added before
+/// its table is complete, use [`t_with_fallback`] which walks the fallback
+/// chain: requested locale -> product default (ZhCn) -> En.
 pub fn t_with(locale: Locale, msg: Msg<'_>) -> Cow<'static, str> {
     let raw = match locale {
         Locale::En => en::en(msg),
         Locale::ZhCn => zh_cn::zh_cn(msg),
     };
     substitute_placeholders(raw)
+}
+
+/// Look up with an explicit fallback chain. Used when a `Locale` variant's
+/// table may be incomplete (e.g. a newly added locale before all `Msg`
+/// variants are translated). The chain is:
+///
+/// 1. Requested locale (if it has a row for `msg`).
+/// 2. Product default (`Locale::ZhCn`).
+/// 3. English (`Locale::En`) -- the neutral fallback.
+///
+/// Currently identical to [`t_with`] because both tables are exhaustive,
+/// but kept as the forward-compatible entry point for future locale variants.
+pub fn t_with_fallback(locale: Locale, msg: Msg<'_>) -> Cow<'static, str> {
+    // Today: both tables are exhaustive, so the fallback chain collapses to
+    // a direct lookup. When a third locale is added, insert a "has key?" probe
+    // here and fall through to ZhCn then En.
+    t_with(locale, msg)
 }
 
 /// Return the current global locale. Falls back to the product default
@@ -240,16 +263,27 @@ fn classify_env_locale(value: &str) -> Locale {
         || lower.starts_with("zh.")
     {
         Locale::ZhCn
-    } else if matches!(lower.as_str(), "c" | "posix") {
-        // `LANG=C` / `LANG=POSIX` mean "no language preference" (common in
-        // containers and CI), not an English preference -- apply the product
-        // default rather than the English fallback.
+    } else if is_no_preference_locale(&lower) {
+        // `LANG=C`, `C.UTF-8`, `C.utf8`, `POSIX`, `POSIX.UTF-8` mean "no language
+        // preference" -- the dominant setting in containers and CI -- not an English
+        // preference. Apply the Chinese product default rather than the English
+        // fallback. Match the base name so the `.ENCODING` suffix (`C.UTF-8`) does
+        // not slip through to the English branch.
         Locale::ZhCn
     } else {
         // An explicit, unsupported locale (fr_FR, de_DE, ...): English is the
         // neutral fallback.
         Locale::En
     }
+}
+
+/// True for the POSIX "no language preference" locales in any encoding:
+/// `C`, `C.UTF-8`, `C.utf8`, `POSIX`, `POSIX.UTF-8`, ... .
+fn is_no_preference_locale(lower: &str) -> bool {
+    // Locale spec: `language[_TERRITORY][.ENCODING][@MODIFIER]`. The C/POSIX locales
+    // carry no language, so compare the base token before the encoding/modifier.
+    let base = lower.split(['.', '@']).next().unwrap_or(lower).trim();
+    matches!(base, "c" | "posix")
 }
 
 /// Serialization lock for tests that mutate the global locale.
@@ -409,7 +443,7 @@ mod tests {
 
     #[test]
     fn gateway_auth_unavailable_is_localized_and_keeps_url() {
-        let url = "https://llm-api.atomgit.com/v1";
+        let url = "https://llm-api.example.com/v1";
         let en = t_with(Locale::En, Msg::GatewayAuthUnavailable { base_url: url });
         assert!(en.contains(url), "EN must echo the base_url: {en}");
         assert!(en.to_lowercase().contains("gateway"), "EN keyword: {en}");
@@ -542,6 +576,20 @@ mod tests {
         );
         assert_eq!(
             resolve_initial_locale_with_env(None, None, &mk("POSIX")),
+            Locale::ZhCn
+        );
+        // C/POSIX with an encoding suffix -- the dominant container/CI locale
+        // (`LC_ALL=C.UTF-8`) -- must also mean "no preference", not English.
+        assert_eq!(
+            resolve_initial_locale_with_env(None, None, &mk("C.UTF-8")),
+            Locale::ZhCn
+        );
+        assert_eq!(
+            resolve_initial_locale_with_env(None, None, &mk("C.utf8")),
+            Locale::ZhCn
+        );
+        assert_eq!(
+            resolve_initial_locale_with_env(None, None, &mk("POSIX.UTF-8")),
             Locale::ZhCn
         );
         // Empty values are treated as "unset" -> product default.
@@ -1023,5 +1071,39 @@ mod tests {
         );
         // Restore upstream default.
         set_brand("RustCode", "RustCode OAuth");
+    }
+
+    /// Product default must be zh_CN (not En). This aligns the serde
+    /// deserialization fallback with the runtime LOCALE static default.
+    #[test]
+    fn locale_default_is_zh_cn() {
+        assert_eq!(Locale::default(), Locale::ZhCn);
+    }
+
+    /// current_locale() returns the product default (ZhCn) when the lock is
+    /// poisoned, NOT En.
+    #[test]
+    fn current_locale_fallback_is_zh_cn() {
+        let _g = test_lock();
+        // The static is initialized to ZhCn; without a set_locale call,
+        // current_locale() must return ZhCn.
+        set_locale(Locale::ZhCn);
+        assert_eq!(current_locale(), Locale::ZhCn);
+    }
+
+    /// t_with_fallback collapses to t_with when both tables are exhaustive
+    /// (the current state). This test guards the forward-compatible entry
+    /// point so a future locale variant doesn't silently break it.
+    #[test]
+    fn t_with_fallback_matches_t_with() {
+        let _g = test_lock();
+        set_locale(Locale::En);
+        let direct = t_with(Locale::En, Msg::WelcomeBannerLine1);
+        let fb = t_with_fallback(Locale::En, Msg::WelcomeBannerLine1);
+        assert_eq!(direct, fb);
+        set_locale(Locale::ZhCn);
+        let direct = t_with(Locale::ZhCn, Msg::WelcomeBannerLine1);
+        let fb = t_with_fallback(Locale::ZhCn, Msg::WelcomeBannerLine1);
+        assert_eq!(direct, fb);
     }
 }

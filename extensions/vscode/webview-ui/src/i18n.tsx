@@ -367,15 +367,45 @@ const en: Record<MsgKey, string> = {
 
 export const messages: Record<Lang, Record<MsgKey, string>> = { zh, en };
 
+/**
+ * The product default language. Used as the fallback when a key is missing
+ * from the user-selected language, and as the default when no preference
+ * is detected. Must stay in sync with Rust `Locale::default()` (zh_CN) and
+ * the daemon WebUI's `DEFAULT_LANG` in `webui/src/i18n.ts`.
+ */
+export const DEFAULT_LANG: Lang = 'zh';
+
+/**
+ * Verify that the zh and en catalogs have identical key sets.
+ * Returns the keys present in only one catalog (empty arrays = aligned).
+ * Used by i18n-regression.test.ts.
+ */
+export function i18nKeyMismatches(): { onlyZh: string[]; onlyEn: string[] } {
+  const zhKeys = new Set(Object.keys(zh));
+  const enKeys = new Set(Object.keys(en));
+  const onlyZh = [...zhKeys].filter((k) => !enKeys.has(k)).sort();
+  const onlyEn = [...enKeys].filter((k) => !zhKeys.has(k)).sort();
+  return { onlyZh, onlyEn };
+}
+
+/**
+ * Normalize a BCP 47 locale string to the two-value `Lang` union.
+ * Chinese variants (zh-CN, zh-TW, zh-HK, ...) all map to 'zh'.
+ * An empty/undefined locale maps to the product default ('zh'), NOT 'en' --
+ * this matches the Rust `resolve_initial_locale` rule where "no signal"
+ * (including LANG=C/POSIX) means "no preference" and falls back to zh_CN.
+ */
 export function normalizeLocale(locale?: string): Lang {
   const normalized = (locale ?? '').toLowerCase();
+  if (normalized === '') return DEFAULT_LANG;
   return normalized.startsWith('zh') ? 'zh' : 'en';
 }
 
 export function createTranslator(locale?: string) {
   const lang = normalizeLocale(locale);
   return (key: MsgKey, params?: TParams): string => {
-    let text = messages[lang][key] ?? messages.en[key] ?? key;
+    // Fallback chain: requested lang -> product default (zh) -> key itself.
+    let text = messages[lang][key] ?? messages[DEFAULT_LANG][key] ?? key;
     if (params) {
       for (const [name, value] of Object.entries(params)) {
         text = text.split(`{${name}}`).join(String(value));

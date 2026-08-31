@@ -4,7 +4,7 @@
 
 import { createContext, ComponentChildren } from 'preact';
 import { useContext, useEffect, useState } from 'preact/hooks';
-import { messages, Lang, MsgKey } from './i18n';
+import { messages, Lang, MsgKey, DEFAULT_LANG } from './i18n';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -62,7 +62,7 @@ function readLang(): Lang {
   } catch {
     /* ignore */
   }
-  return 'zh';
+  return DEFAULT_LANG;
 }
 
 function readFontScale(): FontScale {
@@ -115,9 +115,17 @@ export function SettingsProvider({ children }: { children: ComponentChildren }) 
     }
   }, [fontScale]);
 
+  /**
+   * Translate a key for the current language with the fallback chain:
+   *   1. user language table
+   *   2. product default (zh)
+   *   3. the key itself (last resort, so missing translations are visible)
+   *
+   * Placeholders use `{name}` syntax, replaced via split/join (no regex).
+   */
   function t(key: MsgKey, params?: TParams): string {
-    const table = messages[lang] ?? messages.zh;
-    let s = table[key] ?? messages.zh[key] ?? key;
+    const table = messages[lang] ?? messages[DEFAULT_LANG];
+    let s = table[key] ?? messages[DEFAULT_LANG][key] ?? key;
     if (params) {
       for (const k of Object.keys(params)) {
         s = s.split(`{${k}}`).join(String(params[k]));
