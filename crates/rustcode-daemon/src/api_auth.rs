@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Instant};
 
 use rustcode_auth as auth;
-use rustcode_config::config::Config;
 
 use crate::{
     client_mode::ClientMode,
@@ -263,10 +262,8 @@ pub(crate) async fn auth_login_poll(
 
             login_poll_response(result)
         }
-        Err(error) => {
-            coded_json_error(error.status, error.code, error.message, error.retryable)
-                .into_response()
-        }
+        Err(error) => coded_json_error(error.status, error.code, error.message, error.retryable)
+            .into_response(),
     }
 }
 
@@ -304,7 +301,7 @@ pub(crate) async fn auth_logout(
     State(state): State<AppState>,
     axum::Extension(_client_mode): axum::Extension<ClientMode>,
 ) -> impl IntoResponse {
-    let state_inner = state.clone();
+    let _state_inner = state.clone();
     match auth::logout() {
         Ok(()) => {
             // Return auth status after logout

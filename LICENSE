@@ -3,10 +3,15 @@ MIT License
 Copyright (c) 2026 Yubang Xu
 Copyright (c) 2026 The rustcode authors (fork of atomcode)
 
-This project is a fork of https://gitcode.com/SecLab/RustCode
-(upstream origin https://atomgit.com/atomgit_atomcode/atomcode), received
-under the MIT license above. The upstream copyright notice is retained
-unmodified. See docs/ORIGINAL_LICENSE.md and docs/UPSTREAM_CREDITS.md.
+This project is derived from a predecessor project distributed under the MIT
+license. Every copyright notice in that chain is retained here unmodified;
+none has been removed or altered.
+
+License archive (single source of truth — everything lives under docs/):
+- docs/UPSTREAM_RUSTCODE_LICENSE.md — the predecessor's MIT text (Yubang Xu, 2026)
+- docs/ORIGINAL_LICENSE.md          — PLACEHOLDER for the ultimate upstream's MIT text
+- docs/THIRD_PARTY_NOTICES.md       — third-party attribution
+- docs/UPSTREAM_CREDITS.md          — upstream credits and lineage
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

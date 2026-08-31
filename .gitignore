@@ -128,3 +128,9 @@ extensions/jetbrains/.spec_docs
 
 # Codex 子代理在项目目录生成的运行时目录(external subagent driver)
 .codex/
+.codebuddy/
+.codegraph/
+.codeartsdoer/
+
+# 本地 CodeArts 配置包(含第三方 API key),严禁入库
+codearts.zip

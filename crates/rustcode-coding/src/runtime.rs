@@ -8676,6 +8676,8 @@ mod tests {
             api_key: Some("key".into()),
             model: model.into(),
             base_url: Some("https://example.test/v1".into()),
+            model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+            timeout: None,
             system_prompt: None,
             supports_vision: None,
             user_agent: None,

@@ -70,8 +70,7 @@ const HOSTED_CODINGPLAN_API_BASE: &str = "https://api.gitcode.com/api/v5";
 const HOSTED_CODINGPLAN_LLM_BASE_URL: &str = "https://llm-api.atomgit.com/v1";
 const HOSTED_UPDATE_MANIFEST_URL: &str =
     "https://raw.gitcode.com/SecLab/RustCode/raw/main/latest.json";
-const HOSTED_UPDATE_DOWNLOAD_BASE: &str =
-    "https://gitcode.com/SecLab/RustCode/releases/download";
+const HOSTED_UPDATE_DOWNLOAD_BASE: &str = "https://gitcode.com/SecLab/RustCode/releases/download";
 const HOSTED_DESKTOP_DOWNLOAD_URL: &str =
     "https://gitcode.com/SecLab/RustCode-air-releases/releases";
 const HOSTED_RELAY_URL: &str = "https://relay-rustcode.atomgit.com";

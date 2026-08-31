@@ -5,9 +5,9 @@ use async_trait::async_trait;
 use rustcode_capabilities::team::{
     role_by_id, TeamDifficulty, TeamPermission, TeamRoleProfile, TeamTaskSpec,
 };
-use rustcode_capabilities::tools::team_child_middlewares_for_policy;
 #[cfg(test)]
 use rustcode_capabilities::tools::team_child_middlewares;
+use rustcode_capabilities::tools::team_child_middlewares_for_policy;
 use rustcode_kernel::agent::{Agent, AutoRespond, ToolLoopPolicy};
 use rustcode_kernel::event::StopReason;
 use rustcode_kernel::hook::{LifecycleHooks, TurnCtx};
@@ -234,13 +234,17 @@ impl LifecycleHooks for TeamProgressHook {
             .as_ref()
             .map(|meta| meta.tokens.completion as u64)
             .unwrap_or(0);
-        self.total_tokens.fetch_add(reported.max(estimated), Relaxed);
+        self.total_tokens
+            .fetch_add(reported.max(estimated), Relaxed);
         // Only surface an activity when the model is about to use a tool. A
         // response WITHOUT a tool call ends the turn — emitting "thinking" here
         // would just overwrite the last real activity and double the event rate;
         // the final token total is carried out via the member outcome instead.
         if let Some(call) = response.tool_calls.first() {
-            (self.activity)(format!("using {}", call.name), self.total_tokens.load(Relaxed));
+            (self.activity)(
+                format!("using {}", call.name),
+                self.total_tokens.load(Relaxed),
+            );
         }
     }
 }
@@ -288,13 +292,13 @@ fn team_member_persona(profile: &TeamRoleProfile, scope: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::stream::BoxStream;
     use rustcode_capabilities::team::TeamRoleId;
     use rustcode_kernel::hook::TurnCtx;
     use rustcode_kernel::message::Message;
     use rustcode_kernel::provider::ChatOptions;
     use rustcode_kernel::stream::{ProviderError, StreamEvent};
     use rustcode_kernel::tool::{ToolCall, ToolContext, ToolDef, ToolRegistry, ToolResult};
-    use futures::stream::BoxStream;
 
     struct DummyTool;
     #[async_trait]
@@ -366,9 +370,13 @@ mod tests {
             apply(&middleware, "write_file", r#"{"file_path":"src/ok.rs"}"#).await,
             BeforeOutcome::Proceed
         );
-        assert!(apply(&middleware, "read_file", r#"{"file_path":"tests/outside.rs"}"#)
-            .await
-            .is_deny());
+        assert!(apply(
+            &middleware,
+            "read_file",
+            r#"{"file_path":"tests/outside.rs"}"#
+        )
+        .await
+        .is_deny());
         assert_eq!(
             apply(&middleware, "read_file", r#"{"file_path":"src/ok.rs"}"#).await,
             BeforeOutcome::Proceed

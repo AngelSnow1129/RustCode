@@ -1108,9 +1108,7 @@ pub(crate) async fn prepare_with_plugin_hook_source_reusing_lease(
     reuse_lease: Option<SessionLease>,
     stage_fresh: bool,
 ) -> io::Result<CodingParts> {
-    let hooks = source
-        .load()
-        .map_err(|error| io::Error::other(error))?;
+    let hooks = source.load().map_err(io::Error::other)?;
     prepare_with_plugin_hooks_reusing_lease(cfg, opts, hooks, reuse_lease, stage_fresh).await
 }
 

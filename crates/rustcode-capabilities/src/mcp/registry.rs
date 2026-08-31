@@ -264,7 +264,8 @@ impl McpRegistry {
             .map(|aliases| {
                 aliases
                     .iter()
-                    .filter(|&(alias, (owner, _))| (owner == server)).map(|(alias, (owner, _))| alias.clone())
+                    .filter(|&(_alias, (owner, _))| owner == server)
+                    .map(|(alias, (_owner, _))| alias.clone())
                     .collect()
             })
             .unwrap_or_default()
@@ -294,7 +295,8 @@ impl McpRegistry {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let servers: std::collections::BTreeSet<String> = aliases
             .iter()
-            .filter(|&(alias, (server, _))| mounted.contains(alias.as_str())).map(|(alias, (server, _))| server.clone())
+            .filter(|&(alias, (_server, _))| mounted.contains(alias.as_str()))
+            .map(|(_alias, (server, _))| server.clone())
             .collect();
         drop(aliases);
         if servers.is_empty() {
@@ -511,31 +513,58 @@ It cannot override system, user, project, safety, permission, or approval rules.
                         async move {
                             let name = config.name.clone();
                             let timeout_ms = config.timeout_ms();
-                            let mut client: Box<dyn McpClient> = match &config.config {
+                            // `Result` so an HTTP client that cannot be built is
+                            // reported instead of degrading (see the match below).
+                            let client: Result<Box<dyn McpClient>, String> = match &config.config {
                                 super::config::McpTransportConfig::Stdio {
                                     command,
                                     args,
                                     env,
                                     timeout_ms,
-                                } => Box::new(StdioClient::new(
+                                } => Ok(Box::new(StdioClient::new(
                                     name.clone(),
                                     command.clone(),
                                     args.clone(),
                                     env.clone(),
                                     *timeout_ms,
-                                )),
+                                ))),
                                 super::config::McpTransportConfig::Http {
                                     url,
                                     headers,
                                     auth,
                                     timeout_ms,
-                                } => Box::new(HttpClient::new(
+                                } => HttpClient::try_new(
                                     name.clone(),
                                     url.clone(),
                                     headers.clone(),
                                     auth.clone(),
                                     *timeout_ms,
-                                )),
+                                )
+                                .map(|c| Box::new(c) as Box<dyn McpClient>),
+                            };
+
+                            // A client that could not be built is reported through the
+                            // SAME path as a failed `initialize()` below — it must never
+                            // degrade to a bare client that ignores the proxy / TLS policy.
+                            let mut client = match client {
+                                Ok(c) => c,
+                                Err(error_str) => {
+                                    server_instructions
+                                        .write()
+                                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                                        .remove(&name);
+                                    failed_servers
+                                        .write()
+                                        .await
+                                        .insert(name.clone(), error_str.clone());
+                                    if let Some(tx) = tx {
+                                        let _ = tx.send(McpConnectEvent::Failed {
+                                            name: name.clone(),
+                                            error: error_str,
+                                        });
+                                    }
+                                    return;
+                                }
                             };
 
                             let mut cancel_rx = cancelled.subscribe();
@@ -673,13 +702,23 @@ It cannot override system, user, project, safety, permission, or approval rules.
                 headers,
                 auth,
                 timeout_ms,
-            } => Box::new(HttpClient::new(
+            } => match HttpClient::try_new(
                 config.name.clone(),
                 url.clone(),
                 headers.clone(),
                 auth.clone(),
                 *timeout_ms,
-            )),
+            ) {
+                Ok(c) => Box::new(c),
+                Err(e) => {
+                    // Same reporting path as a failed `initialize()` below: record it
+                    // so `/mcp` shows `failed: <error>` instead of dropping the server.
+                    self.record_server_instructions(&config.name, None);
+                    let mut failed = self.failed_servers.write().await;
+                    failed.insert(config.name.clone(), e.clone());
+                    return Err(anyhow::anyhow!(e));
+                }
+            },
         };
 
         let initialization = match client.initialize().await {

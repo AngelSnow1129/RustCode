@@ -163,7 +163,7 @@ class InputPanel(
             verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_NEVER
         }
 
-        val attachButton = makeCompactToolButton("📎", "附件", onAttach)
+        val attachButton = makeCompactToolButton("[+]", "附件", onAttach)
         val commandButton = makeCompactToolButton("/", "命令") { showSlashCommandsFromButton() }
 
         // 工具栏与输入框放在同一个 composer 容器内，状态切换时布局保持稳定。

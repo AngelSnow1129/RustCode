@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>FAQ · AtomCode Docs</title>
-<meta name="description" content="AtomCode FAQ — common questions about install, login, models, permissions, and more.">
+<title>FAQ · RustCode Docs</title>
+<meta name="description" content="RustCode FAQ — common questions about install, login, models, permissions, and more.">
 <link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
 <link rel="stylesheet" href="../docs.css">
-<script>(function(){try{var s=localStorage.getItem('atomcode_theme')||localStorage.getItem('atomcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
+<script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
 <body data-page="faq">
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/atomcode-icon1.png" alt="AtomCode">
-    <span>AtomCode</span>
+    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
   </a>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <a class="dhdr-link" href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -76,24 +76,24 @@
 
   <main class="dmain prose-docs">
 <h1 id="faq">FAQ</h1>
-      <p class="lede">A roundup of questions that keep coming up in user channels and issues. If yours isn't here, ask AtomCode to create an Issue with its built-in AtomGit tool (after <code>/login</code>), or open it on the <a href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank">AtomGit repository</a>.</p>
+      <p class="lede">A roundup of questions that keep coming up in user channels and issues. If yours isn't here, ask RustCode to create an Issue with its built-in AtomGit tool (after <code>/login</code>), or open it on the <a href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank">AtomGit repository</a>.</p>
 
       <h2 id="install-launch">Install &amp; launch</h2>
 
       <h3 id="the-install-script-fails-or-times-out">The install script fails or times out</h3>
       <p>The one-click installer pulls the binary from GitCode releases by default. If the network blocks it:</p>
       <ul>
-        <li>Download the archive for your platform manually from the <a href="https://atomgit.com/atomgit_atomcode/atomcode/releases" target="_blank">releases page</a> and drop <code>atomcode</code> onto your <code>PATH</code>;</li>
-        <li>or build from source: <code>cargo install --path crates/atomcode-cli --locked</code> (requires Rust 1.88+).</li>
+        <li>Download the archive for your platform manually from the <a href="https://atomgit.com/atomgit_rustcode/rustcode/releases" target="_blank">releases page</a> and drop <code>rustcode</code> onto your <code>PATH</code>;</li>
+        <li>or build from source: <code>cargo install --path crates/rustcode-cli --locked</code> (requires Rust 1.88+).</li>
       </ul>
 
-      <h3 id="running-atomcode-says-command-not-found">Running <code>atomcode</code> says "command not found"</h3>
+      <h3 id="running-rustcode-says-command-not-found">Running <code>rustcode</code> says "command not found"</h3>
       <p>The install directory isn't on your <code>PATH</code>. The default location is <code>~/.rustcode/bin</code> — add it to your shell rc file:</p>
       <pre><code>export PATH="$HOME/.rustcode/bin:$PATH"</code></pre>
 
       <h3 id="macos-says-cannot-be-opened-because-the-developer-cannot-be-">macOS says "cannot be opened because the developer cannot be verified"</h3>
       <p>Either click "Open Anyway" under System Settings → Privacy &amp; Security, or run:</p>
-      <pre><code>xattr -d com.apple.quarantine $(which atomcode)</code></pre>
+      <pre><code>xattr -d com.apple.quarantine $(which rustcode)</code></pre>
 
       <h2 id="login-models">Login &amp; models</h2>
 
@@ -115,7 +115,7 @@
       <ul>
         <li>Run <code>/compact</code> to have the model summarise the conversation so far and keep going;</li>
         <li>or <code>/clear</code> to wipe the current context and start over (history is kept as a session — you can <code>/resume</code> at any time);</li>
-        <li>Avoid pasting a whole giant file into a prompt; let AtomCode use its file tools to read what it needs.</li>
+        <li>Avoid pasting a whole giant file into a prompt; let RustCode use its file tools to read what it needs.</li>
       </ul>
 
       <h2 id="permissions-safety">Permissions &amp; safety</h2>
@@ -127,8 +127,8 @@
         <li>Allow via config: add commands to the <code>[permissions]</code> allowlist in <code>config.toml</code>.</li>
       </ul>
 
-      <h3 id="where-does-atomcode-send-my-code">Where does AtomCode send my code?</h3>
-      <p>Only to the model endpoint you've configured in <code>config.toml</code>. Project files are read locally by tools and shipped as part of the prompt; AtomCode itself does not upload or telemeter code content.</p>
+      <h3 id="where-does-rustcode-send-my-code">Where does RustCode send my code?</h3>
+      <p>Only to the model endpoint you've configured in <code>config.toml</code>. Project files are read locally by tools and shipped as part of the prompt; RustCode itself does not upload or telemeter code content.</p>
 
       <h3 id="can-i-disable-specific-tools">Can I disable specific tools?</h3>
       <p>Yes — under <code>[tools]</code> in <code>config.toml</code>, set <code>disabled = ["shell", "web_fetch"]</code> to block tools you don't want the model to use.</p>
@@ -153,10 +153,10 @@
       <ul>
         <li>Check the path: globally <code>~/.rustcode/skills/&lt;name&gt;/SKILL.md</code>, per-project <code>.rustcode/skills/&lt;name&gt;/SKILL.md</code>;</li>
         <li>Check the frontmatter: both <code>name</code> and <code>description</code> are required;</li>
-        <li>Restart atomcode or run <code>/reload</code> to rescan.</li>
+        <li>Restart rustcode or run <code>/reload</code> to rescan.</li>
       </ul>
 
-      <h3 id="whats-the-difference-between-atomcodemd-and-a-skill">What's the difference between <code>.rustcode.md</code> and a skill?</h3>
+      <h3 id="whats-the-difference-between-rustcodemd-and-a-skill">What's the difference between <code>.rustcode.md</code> and a skill?</h3>
       <p>The former is an "always on" project-level convention; the latter is an explicitly invoked workflow. See <a href="./skills.html#与项目指令的分工">Skills · Versus project instructions</a>.</p>
 
       <h2 id="troubleshooting">Troubleshooting</h2>
@@ -167,7 +167,7 @@
 
       <h3 id="when-filing-an-issue-please-include">When filing an issue, please include</h3>
       <ul>
-        <li>The output of <code>atomcode --version</code>;</li>
+        <li>The output of <code>rustcode --version</code>;</li>
         <li>Your OS and architecture;</li>
         <li>Minimal repro steps for the error;</li>
         <li>Relevant logs (redact your API key).</li>
@@ -181,8 +181,8 @@
       </ul>
 
     <footer class="dftr">
-      <span data-i18n="ftr.copy">© 2026 AtomCode · MIT</span>
-      <a href="https://atomgit.com/atomgit_atomcode/atomcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
+      <a href="https://atomgit.com/atomgit_rustcode/rustcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
     </footer>
   </main>
 </div>

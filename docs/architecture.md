@@ -1,4 +1,4 @@
-# AtomCode Architecture
+# RustCode Architecture
 
 本文描述当前生产架构及其依赖边界。历史迁移方案和已经完成的 bridge/core
 退役过程不属于当前架构；如需了解迁移背景，应查阅相关 Git 历史和归档文档。
@@ -17,13 +17,13 @@ CLI / TUI / daemon / background / ACP / clix code
                CodingRuntime
                     │
                     ▼
-          atomcode-kernel Agent
+          rustcode-kernel Agent
 ```
 
 - driver 负责输入、展示、传输以及明确的本地操作；
 - `CodingRuntime` 是 coding agent 的唯一运行时所有者；
-- `atomcode-kernel` 只负责中立的 agent 循环；
-- `atomcode-capabilities` 提供 provider、工具、MCP、session 等可复用能力；
+- `rustcode-kernel` 只负责中立的 agent 循环；
+- `rustcode-capabilities` 提供 provider、工具、MCP、session 等可复用能力；
 - provider、session、working directory、goal、loop、审批和 generation 等 coding
   生命周期状态不得由 driver 或 kernel 另建第二份所有权。
 
@@ -31,27 +31,27 @@ CLI / TUI / daemon / background / ACP / clix code
 
 ```text
 L3  drivers / services
-    atomcode-cli  atomcode-tuix  rustcode-daemon  atomcode-clix  ACP
+    rustcode-cli  rustcode-tuix  rustcode-daemon  rustcode-clix  ACP
                               │
                               ▼
-L2                     atomcode-coding
+L2                     rustcode-coding
                   runtime owner + coding assembly
                        │                 │
                        ▼                 ▼
-L1            atomcode-capabilities   atomcode-config/auth/...
+L1            rustcode-capabilities   rustcode-config/auth/...
               providers/tools/session
                        │
                        ▼
-L0                     atomcode-kernel
+L0                     rustcode-kernel
                   neutral agent contracts
 ```
 
 依赖只能从上层指向下层：
 
-- `atomcode-kernel` 不得依赖 coding 产品语义、具体 provider、具体工具或 UI；
-- `atomcode-capabilities` 可以依赖 kernel，但不得反向依赖 `atomcode-coding`、
+- `rustcode-kernel` 不得依赖 coding 产品语义、具体 provider、具体工具或 UI；
+- `rustcode-capabilities` 可以依赖 kernel，但不得反向依赖 `rustcode-coding`、
   driver 或已退役的 core；
-- `atomcode-coding` 组装 kernel 与 capabilities，并拥有 coding 生命周期；
+- `rustcode-coding` 组装 kernel 与 capabilities，并拥有 coding 生命周期；
 - driver 通过 `CodingRuntimeHandle` 和 `DriverCommand` 驱动运行时，不得重建 live
   agent 生命周期；
 - 独立业务 agent（例如 review）可以直接组装其所需的 kernel/capabilities，
@@ -61,23 +61,22 @@ L0                     atomcode-kernel
 
 | Crate | 层级 | 职责 |
 |---|---:|---|
-| `atomcode-kernel` | L0 | 中立 Agent、`AgentCommand`/`AgentEvent`、message、provider/tool trait、middleware、hook 与 request 边界 |
-| `atomcode-capabilities` | L1 | 具体 provider、文件与 shell 工具、MCP、skills、plugin、memory、session persistence、compaction 等可复用能力 |
-| `atomcode-coding` | L2 | coding persona、能力装配、`CodingRuntime`、provider/session/controller、goal/loop、team/subagent 与产品执行策略 |
-| `atomcode-config` | leaf | 配置模型、加载与产品配置策略 |
-| `atomcode-auth` | leaf | 登录、OAuth 与凭据生命周期 |
-| `atomcode-cli` | L3 | 可执行程序入口、参数解析、headless/TUI/ACP 等入口协调 |
-| `atomcode-tuix` | L3 | retained-mode 终端 UI、事件循环、modal、命令与 runtime 事件投影 |
+| `rustcode-kernel` | L0 | 中立 Agent、`AgentCommand`/`AgentEvent`、message、provider/tool trait、middleware、hook 与 request 边界 |
+| `rustcode-capabilities` | L1 | 具体 provider、文件与 shell 工具、MCP、skills、plugin、memory、session persistence、compaction 等可复用能力 |
+| `rustcode-coding` | L2 | coding persona、能力装配、`CodingRuntime`、provider/session/controller、goal/loop、team/subagent 与产品执行策略 |
+| `rustcode-config` | leaf | 配置模型、加载与产品配置策略 |
+| `rustcode-auth` | leaf | 登录、OAuth 与凭据生命周期 |
+| `rustcode-cli` | L3 | 可执行程序入口、参数解析、headless/TUI/ACP 等入口协调 |
+| `rustcode-tuix` | L3 | retained-mode 终端 UI、事件循环、modal、命令与 runtime 事件投影 |
 | `rustcode-daemon` | L3 | HTTP/WebUI/live hub、headless runtime 接入及历史 session 单向导入 |
-| `atomcode-clix` | L3 | 独立 coding CLI driver |
-| `atomcode-review` | L2/L3 | 基于 kernel + capabilities 的独立代码审查 agent |
-| `atomcode-telemetry` | service | 遥测事件、配置和上报 |
-| `atomcode-updater` | service | 安装包与版本更新能力 |
-| `atomcode-codingplan` | capability | coding plan 相关能力；可选 crypto overlay 由发布构建注入 |
+| `rustcode-clix` | L3 | 独立 coding CLI driver |
+| `rustcode-review` | L2/L3 | 基于 kernel + capabilities 的独立代码审查 agent |
+| `rustcode-updater` | service | 安装包与版本更新能力 |
+| `rustcode-codingplan` | capability | coding plan 相关能力；可选 crypto overlay 由发布构建注入 |
 
-## atomcode-kernel：中立执行边界
+## rustcode-kernel：中立执行边界
 
-kernel 定义可复用的 agent 执行协议，而不是 AtomCode 产品运行时：
+kernel 定义可复用的 agent 执行协议，而不是 RustCode 产品运行时：
 
 - `Agent` 执行模型循环；
 - `AgentCommand` / `AgentEvent` 构成中立命令与事件边界；
@@ -86,9 +85,9 @@ kernel 定义可复用的 agent 执行协议，而不是 AtomCode 产品运行�
 - kernel 不负责 provider 选择、session 切换、cwd、goal、loop 或持久化目标。
 
 新增产品行为前应先判断它是否真是所有 agent 都需要的中立机制。coding 专属行为应
-留在 `atomcode-coding`，具体实现应优先放在 `atomcode-capabilities`。
+留在 `rustcode-coding`，具体实现应优先放在 `rustcode-capabilities`。
 
-## atomcode-capabilities：可复用能力
+## rustcode-capabilities：可复用能力
 
 capabilities 将具体能力实现挂载到 kernel seam，包括：
 
@@ -101,9 +100,9 @@ capabilities 将具体能力实现挂载到 kernel seam，包括：
 
 能力通过 Cargo feature 按需启用。该 crate 必须保持 core-free，也不得依赖 L2/L3。
 
-## atomcode-coding：运行时所有者
+## rustcode-coding：运行时所有者
 
-`atomcode-coding` 将中立 kernel 和具体 capabilities 组装为完整 coding agent：
+`rustcode-coding` 将中立 kernel 和具体 capabilities 组装为完整 coding agent：
 
 - `prepare` / `assemble` 构建 provider、工具、MCP、skills、session hooks 等 parts；
 - `CodingRuntime` 持有 live `AgentHandle`、配置、parts、provider、session binding、
@@ -121,7 +120,7 @@ runtime 重建或切换时必须保持 session、cwd、provider、审批、gatew
 
 ### CLI / TUI
 
-`atomcode-cli` 负责进程入口和模式选择；`atomcode-tuix` 负责终端交互与展示。TUI
+`rustcode-cli` 负责进程入口和模式选择；`rustcode-tuix` 负责终端交互与展示。TUI
 消费 runtime event 并产生 driver command，不拥有第二套 agent、provider 或 session
 状态机。
 

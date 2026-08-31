@@ -110,6 +110,24 @@ mod tests {
     fn rustcode_home_env_wins() {
         // Under unified semantics, RUSTCODE_HOME IS the data root.
         // The legacy RUSTCODE_HOME_OVERRIDE variable is gone.
+        //
+        // `set_var` is PROCESS-GLOBAL, so the override must be undone even if the
+        // assertion panics: a leaked value is visible to every other test in this
+        // binary that is not holding the serial lock.
+        struct EnvGuard {
+            prev: Option<std::ffi::OsString>,
+        }
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match self.prev.take() {
+                    Some(value) => std::env::set_var("RUSTCODE_HOME", value),
+                    None => std::env::remove_var("RUSTCODE_HOME"),
+                }
+            }
+        }
+        let _guard = EnvGuard {
+            prev: std::env::var_os("RUSTCODE_HOME"),
+        };
         std::env::set_var("RUSTCODE_HOME", "/tmp/override");
         assert_eq!(rustcode_dir(), std::path::PathBuf::from("/tmp/override"));
     }

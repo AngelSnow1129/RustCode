@@ -7,7 +7,7 @@ import com.intellij.openapi.project.Project
 object AtomCodeDiagnostics {
     fun summary(project: Project, rawDetails: String = ""): String {
         val text = buildString {
-            appendLine("AtomCode JetBrains diagnostics")
+            appendLine("RustCode JetBrains diagnostics")
             appendLine("IDE: ${ApplicationInfo.getInstance().fullVersion}")
             appendLine("Project: ${project.name}")
             if (rawDetails.isNotBlank()) {

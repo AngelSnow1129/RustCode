@@ -8,8 +8,8 @@
 
 use super::{err, ok};
 use async_trait::async_trait;
-use rustcode_kernel::tool::{Tool, ToolContext, ToolResult};
 use futures::StreamExt;
+use rustcode_kernel::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::json;
 use std::net::{IpAddr, SocketAddr};

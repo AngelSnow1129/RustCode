@@ -26,7 +26,7 @@ pub async fn check(provider: Arc<dyn LlmProvider>) -> ConformanceReport {
         .unwrap_or_else(|_| "<model_name() panicked>".into());
     let mut r = ConformanceReport::new("LlmProvider", subject);
 
-    // model_name(): non-empty + stable (it labels stored meta / telemetry).
+    // model_name(): non-empty + stable (it labels stored meta).
     match (
         catch_sync(|| provider.model_name().to_string()),
         catch_sync(|| provider.model_name().to_string()),

@@ -13,6 +13,7 @@
 //! run by default — those are NOT e2e.)
 #![cfg(feature = "e2e")]
 
+use futures::StreamExt;
 use rustcode_capabilities::provider::{
     AnthropicConfig, AnthropicProvider, OllamaConfig, OllamaProvider, OpenAiCompatConfig,
     OpenAiCompatProvider,
@@ -20,7 +21,6 @@ use rustcode_capabilities::provider::{
 use rustcode_kernel::message::Message;
 use rustcode_kernel::provider::{ChatOptions, LlmProvider};
 use rustcode_kernel::stream::StreamEvent;
-use futures::StreamExt;
 
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("set {name} to run the live smoke test"))

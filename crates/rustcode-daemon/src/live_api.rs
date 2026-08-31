@@ -1740,11 +1740,8 @@ pub(crate) async fn live_message(
             &requested_provider,
             &requested_fingerprint,
         ) {
-            let runtime_config = chat_runtime_config(
-                &config,
-                &requested_provider,
-                &join.binding.working_dir,
-            );
+            let runtime_config =
+                chat_runtime_config(&config, &requested_provider, &join.binding.working_dir);
             let next = crate::kernel_runtime::coding_config_from_runtime(&runtime_config);
             match crate::native_live::reload_provider(&join.binding, next, requested_fingerprint)
                 .await
@@ -1974,11 +1971,7 @@ pub(crate) async fn live_provider(
     ) {
         return Json(serde_json::json!({ "ok": true }));
     }
-    let runtime_config = chat_runtime_config(
-        &config,
-        &req.provider,
-        &join.binding.working_dir,
-    );
+    let runtime_config = chat_runtime_config(&config, &req.provider, &join.binding.working_dir);
     match crate::native_live::reload_provider(
         &join.binding,
         crate::kernel_runtime::coding_config_from_runtime(&runtime_config),
@@ -2075,7 +2068,7 @@ pub(crate) struct LiveReasoningEffortReq {
 /// /chat 两条路径都现读 config，故两端都会跟随。模型实例必须由配置或内置
 /// CodingPlan 能力声明支持；服务端同时校验取值。
 pub(crate) async fn live_reasoning_effort(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Json(req): Json<LiveReasoningEffortReq>,
 ) -> impl IntoResponse {
     let effort = match req.reasoning_effort.as_deref().map(str::trim) {
@@ -2177,11 +2170,7 @@ pub(crate) async fn live_reasoning_effort(
     let config = commit.snapshot.config.clone();
 
     if let Ok(binding) = crate::native_live::binding() {
-        let runtime_config = chat_runtime_config(
-            &config,
-            &target,
-            &binding.working_dir,
-        );
+        let runtime_config = chat_runtime_config(&config, &target, &binding.working_dir);
         let reload_result = match crate::native_live::provider_fingerprint(&config, &target) {
             Ok(fingerprint) => {
                 crate::native_live::reload_provider(
@@ -2894,14 +2883,8 @@ mod tests {
     // （有图的 VL 流式路径覆盖在 rustcode_coding::vision::run_vl_caption 的单测里。）
     #[tokio::test]
     async fn preprocess_live_caption_is_passthrough_without_images() {
-        let out = preprocess_live_caption(
-            "看下这个图片",
-            &[],
-            None,
-            None,
-            &std::env::temp_dir(),
-        )
-        .await;
+        let out =
+            preprocess_live_caption("看下这个图片", &[], None, None, &std::env::temp_dir()).await;
         assert_eq!(out, "看下这个图片");
     }
 

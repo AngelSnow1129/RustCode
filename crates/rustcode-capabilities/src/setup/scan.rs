@@ -239,14 +239,14 @@ fn derive_test_frameworks(root: &Path, markers: &[Marker]) -> Vec<TestFw> {
     if root.join("pytest.ini").exists()
         || std::fs::read_to_string(root.join("pyproject.toml"))
             .ok()
-            .map_or(false, |s| s.contains("[tool.pytest"))
+            .is_some_and(|s| s.contains("[tool.pytest"))
     {
         tfs.push(TestFw::Pytest);
     }
     if root.join("pom.xml").exists()
         && std::fs::read_to_string(root.join("pom.xml"))
             .ok()
-            .map_or(false, |s| s.contains("junit"))
+            .is_some_and(|s| s.contains("junit"))
     {
         tfs.push(TestFw::JUnit);
     }

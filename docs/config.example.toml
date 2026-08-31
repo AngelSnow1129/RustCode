@@ -60,6 +60,15 @@ context_window = 64000
 # Total attempts including the first request. Default: 3; set 1 to disable retries.
 # retry_max_attempts = 5
 
+# -------- 每 provider 的 HTTP 超时（三个预算互不替代；单位：秒）--------
+# 全部可选，未设置时沿用适配器默认值（connect 30 / request 90 / idle 120）。
+# 注意 `idle` 也覆盖首字节等待；长思考模型在大 prompt 后会静默很久，
+# 把它调小会在模型"思考中"被误判为流超时。
+[providers.deepseek.timeout]
+# connect = 10     # TCP + TLS 握手到首字节，防死网关/黑洞代理
+# request = 600    # OPEN 阶段整体预算（openai / anthropic 有效；ollama 无此接缝）
+# idle    = 300    # 流内字节空闲上限，同时是首 token 等待
+
 # DeepSeek V4 专属：推理历史回显策略
 # (unset = auto-detect: deepseek-v4* → include, deepseek-reasoner/r1 → exclude)
 # reasoning_history = "include"  # 或 "exclude"
@@ -258,6 +267,22 @@ type = "anthropic-compatible"
 api_key = "env:MY_ANTHROPIC_KEY"
 model = "claude-opus-4"
 base_url = "https://my-anthropic-gw.example.com"
+
+# 扩展思考（Anthropic extended thinking）：开关 / 预算 / 保留
+# thinking_enabled = true
+# thinking_type   = "enabled"      # 或 "disabled"
+# thinking_budget = 10000          # 思考 token 预算
+# thinking_keep   = "all"          # 保留思考块: all / none / summary
+
+# 模型名映射：把请求里的模型名映射到上游真实模型名（未列出的恒等映射）
+# [providers.my-anthropic-gw.model_mapping]
+# "claude-sonnet" = "claude-sonnet-4-6"
+# "claude-opus"   = "claude-opus-4"
+
+# api_key 环境变量展开三种形式（切勿硬编码真实 key）：
+#   api_key = "$MY_KEY"              # $VAR 形式
+#   api_key = "${MY_KEY}"            # ${VAR} 形式
+#   api_key = "${MY_KEY:-fallback}"  # ${VAR:-default}，VAR 未设时用 fallback
 
 # =============================================================================
 # Agent 循环保险（环境变量）

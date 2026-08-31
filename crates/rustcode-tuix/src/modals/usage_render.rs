@@ -104,7 +104,7 @@ pub fn heatmap_buckets(daily: &[u64]) -> Vec<u8> {
 fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = (y - era * 400) as i64;
+    let yoe = (y - era * 400);
     let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) as i64 + 2) / 5 + d as i64 - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146097 + doe - 719468
@@ -251,7 +251,7 @@ pub fn braille_line_plot(
         {
             let cell_x = 0;
             let cell_y = dy_prev / 4;
-            let sub_col = 0 % 2;
+            let sub_col = 0;
             let sub_row = dy_prev % 4;
             if cell_y < height_cells && cell_x < width_cells {
                 grid[cell_y][cell_x] |= 1 << BRAILLE_DOT[sub_col][sub_row];

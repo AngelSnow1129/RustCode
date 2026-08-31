@@ -7,10 +7,10 @@
 use super::read::lenient_usize;
 use super::{err, is_skip_dir, not_found_hint, ok, resolve_path};
 use async_trait::async_trait;
-use rustcode_kernel::tool::{Tool, ToolContext, ToolResult};
 use grep::regex::{RegexMatcher, RegexMatcherBuilder};
 use grep::searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
 use ignore::WalkBuilder;
+use rustcode_kernel::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::json;
 

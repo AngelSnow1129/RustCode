@@ -47,7 +47,7 @@ private fun createAtomCodeChatContent(
     val panel = AtomCodeChatPanel(project, runtime)
     val content = ContentFactory.getInstance().createContent(panel, name, false).apply {
         isCloseable = closeable
-        description = "AtomCode Chat"
+        description = "RustCode Chat"
         putUserData(ATOMCODE_TAB_ID_KEY, runtime.tabId)
         setDisposer(panel)
     }

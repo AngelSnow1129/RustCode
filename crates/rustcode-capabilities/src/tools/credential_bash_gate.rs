@@ -1,11 +1,11 @@
 //! Fail-closed guard for extracting credentials through the generic bash tool.
 
 use async_trait::async_trait;
+use regex::Regex;
 use rustcode_kernel::event::PolicyIntervention;
 use rustcode_kernel::middleware::{BeforeOutcome, ToolMiddleware};
 use rustcode_kernel::request::RequestCtx;
 use rustcode_kernel::tool::{Tool, ToolCall};
-use regex::Regex;
 use serde::Deserialize;
 use std::sync::Arc;
 use std::sync::OnceLock;

@@ -1,33 +1,50 @@
-# ORIGINAL LICENSE (upstream project)
+# ORIGINAL LICENSE (ultimate upstream) — PLACEHOLDER
 
-The following is the verbatim MIT license of the upstream project this repository
-was forked from. It is preserved here unmodified per the refactor compliance
-requirement (OBJECTIVE-4). The original copyright notice MUST NOT be stripped
-from inherited source files.
+> [STATUS] **PLACEHOLDER — the upstream license text has NOT been obtained.**
+> This file exists so the compliance gap is recorded and auditable rather than
+> silently filled with the wrong license. **No license text is invented here.**
 
-Upstream repository: https://gitcode.com/SecLab/RustCode
-(origin: https://atomgit.com/atomgit_atomcode/atomcode)
+## What belongs in this file
 
----
+This file is reserved for the **verbatim** MIT license text of the ultimate
+upstream project in this repository's line of descent:
 
-MIT License
+- **Upstream:** the project the predecessor was itself derived from
+- **Expected license:** MIT
+- **Why it matters:** this repository descends from a predecessor project, which
+  in turn descends from the upstream above. Per MIT §"above copyright notice ...
+  shall be included", the upstream copyright notice must survive in the chain.
 
-Copyright (c) 2026 Yubang Xu
+## Why it is empty
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+An earlier revision of this file archived the **predecessor's** license
+(Copyright (c) 2026 Yubang Xu) — that is this repository's immediate parent, not
+the ultimate upstream. That text has been moved to its accurate home:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+- **Predecessor license (RustCode, Yubang Xu 2026):**
+  [`docs/UPSTREAM_RUSTCODE_LICENSE.md`](./UPSTREAM_RUSTCODE_LICENSE.md)
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+The true upstream text was never independently archived, and it must not be
+reconstructed from memory or from a downstream copy: a wrong license is worse
+than a recorded gap.
+
+## How to close this gap
+
+1. Obtain the `LICENSE` file from the ultimate upstream project.
+2. Replace this entire file with that text, **verbatim**, keeping a one-line
+   header that names the upstream project and states that the text is preserved
+   unmodified.
+3. Update the "Upstream license" line in
+   [`docs/THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) and the
+   "Original license" line in [`docs/UPSTREAM_CREDITS.md`](./UPSTREAM_CREDITS.md)
+   to point back at this file.
+
+## Related documents
+
+- [`docs/UPSTREAM_RUSTCODE_LICENSE.md`](./UPSTREAM_RUSTCODE_LICENSE.md) — the
+  predecessor project's MIT text (obtained and archived).
+- [`docs/UPSTREAM_CREDITS.md`](./UPSTREAM_CREDITS.md) — fork lineage and change
+  summary.
+- [`docs/THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) — upstream
+  attribution and third-party dependency notices.
+- Root [`LICENSE`](../LICENSE) — the license of this repository.

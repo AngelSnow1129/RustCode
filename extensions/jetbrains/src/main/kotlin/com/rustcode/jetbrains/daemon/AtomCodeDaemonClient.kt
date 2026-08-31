@@ -378,7 +378,7 @@ class AtomCodeDaemonClient(
         val builder = HttpRequest.newBuilder(URI.create("$baseUrl$path"))
             .timeout(Duration.ofMillis(timeoutMs.toLong()))
             .header("Content-Type", "application/json")
-            .header("X-AtomCode-Client", "jetbrains")
+            .header("X-RustCode-Client", "jetbrains")
 
         auth.token?.takeIf { it.isNotBlank() }?.let {
             builder.header("Authorization", "Bearer $it")

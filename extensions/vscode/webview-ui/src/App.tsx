@@ -28,7 +28,7 @@ function ChatApp() {
         {hasMessages ? <MessageList /> : <WelcomeScreen />}
         {state.persistenceWarning && (
           <div className="persistence-warning" role="status">
-            <span aria-hidden="true">⚠</span>
+            <span aria-hidden="true">[!]</span>
             <span>{state.persistenceWarning}</span>
             <button
               type="button"

@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use rustcode_auth as auth;
-use rustcode_codingplan as coding_plan;
 use crate::{
     api_auth::{poll_login_session, LoginPollStep},
     api_config::{config_response, load_config, update_config},
     client_mode::ClientMode,
     json_error, AppState,
 };
+use rustcode_auth as auth;
+use rustcode_codingplan as coding_plan;
 
 // ============================================================================
 // Request/Response DTOs
@@ -321,7 +321,7 @@ fn codingplan_usage_error(context: &'static str, error: anyhow::Error) -> axum::
 /// POST /codingplan/setup - Runs CodingPlan provider setup.
 pub(crate) async fn codingplan_setup(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<ClientMode>,
+    axum::Extension(_client_mode): axum::Extension<ClientMode>,
     Json(req): Json<CodingPlanSetupRequest>,
 ) -> impl IntoResponse {
     let state = state.clone();
@@ -334,7 +334,6 @@ pub(crate) async fn codingplan_setup(
         // Not logged in — check if a login_id was provided
         match req.login_id {
             None => {
-                
                 return json_error(
                     StatusCode::UNAUTHORIZED,
                     "Not logged in. Call /auth/login/start first.",
@@ -345,8 +344,8 @@ pub(crate) async fn codingplan_setup(
                 match poll_login_session(&state, &login_id).await {
                     Ok(result) => match result.step {
                         LoginPollStep::Authorized {
-                            user,
-                            newly_authorized,
+                            user: _,
+                            newly_authorized: _,
                         } => {
                             // Newly authorized: account storage is handled by auth.
                         }
@@ -373,13 +372,13 @@ pub(crate) async fn codingplan_setup(
                                 }
                                 LoginPollStep::Authorized { .. } => unreachable!(),
                             };
-                            
+
                             return json_error(status, message).into_response();
                         }
                     },
                     Err(error) => {
                         let message = error.message;
-                        
+
                         return json_error(error.status, message).into_response();
                     }
                 }
@@ -391,7 +390,6 @@ pub(crate) async fn codingplan_setup(
     let mut config = match load_config() {
         Ok(c) => c,
         Err(e) => {
-            
             return json_error(StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
         }
     };
@@ -414,7 +412,6 @@ pub(crate) async fn codingplan_setup(
     let (mut config, report) = match setup_result {
         Ok(Ok(v)) => v,
         Ok(Err(e)) => {
-            
             return json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("CodingPlan setup failed: {:#}", e),
@@ -422,7 +419,6 @@ pub(crate) async fn codingplan_setup(
             .into_response();
         }
         Err(e) => {
-            
             return json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("CodingPlan setup task failed: {:#}", e),
@@ -443,12 +439,10 @@ pub(crate) async fn codingplan_setup(
         }) {
             Ok(config) => config,
             Err(e) => {
-                
                 return json_error(StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
             }
         };
         if let Err(e) = coding_plan::write_last_sync_now() {
-            
             return json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to write CodingPlan sync marker: {:#}", e),
@@ -458,7 +452,6 @@ pub(crate) async fn codingplan_setup(
     }
 
     // Emit TakeCodingplan exactly once on the success path
-    
 
     // Build response
     let report_text = report.render();
@@ -516,7 +509,7 @@ static AUTO_SYNC_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 /// Deliberately fire-and-forget: the login poll response must not wait for the
 /// claim/models network round-trips. Failures are logged / telemetry-tracked
 /// but never fail the login itself.
-pub(crate) fn sync_codingplan_after_login(state: AppState, client_mode: ClientMode) {
+pub(crate) fn sync_codingplan_after_login(state: AppState, _client_mode: ClientMode) {
     if AUTO_SYNC_IN_FLIGHT
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -524,13 +517,12 @@ pub(crate) fn sync_codingplan_after_login(state: AppState, client_mode: ClientMo
         tracing::debug!("codingplan auto-sync already in flight; skipping");
         return;
     }
-    let state_for_scope = state.clone();
+    let _state_for_scope = state.clone();
     tokio::spawn(async move {
         let _reset = AutoSyncReset;
         let mut config = match load_config() {
             Ok(c) => c,
             Err(e) => {
-                
                 tracing::warn!(error = %e, "codingplan auto-sync: config load failed");
                 return;
             }
@@ -550,7 +542,6 @@ pub(crate) fn sync_codingplan_after_login(state: AppState, client_mode: ClientMo
         let (config, report) = match setup_result {
             Ok(Ok(v)) => v,
             Ok(Err(e)) => {
-                
                 tracing::warn!(error = ?e, "codingplan auto-sync after login failed");
                 return;
             }
@@ -579,7 +570,6 @@ pub(crate) fn sync_codingplan_after_login(state: AppState, client_mode: ClientMo
                 coding_plan::DefaultModelPolicy::PreservePrevious,
             )
         }) {
-            
             tracing::warn!(error = %e, "codingplan auto-sync: config merge failed");
             return;
         }
@@ -587,7 +577,6 @@ pub(crate) fn sync_codingplan_after_login(state: AppState, client_mode: ClientMo
             tracing::warn!(error = ?e, "codingplan auto-sync: sync marker write failed");
         }
 
-        
         tracing::info!("codingplan auto-sync after login completed");
     });
 }

@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>斜杠命令 · AtomCode 文档</title>
-<meta name="description" content="斜杠命令 — AtomCode 文档。">
+<title>斜杠命令 · RustCode 文档</title>
+<meta name="description" content="斜杠命令 — RustCode 文档。">
 <link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
 <link rel="stylesheet" href="../docs.css">
-<script>(function(){try{var s=localStorage.getItem('atomcode_theme')||localStorage.getItem('atomcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
+<script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
 <body data-page="slash-commands">
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/atomcode-icon1.png" alt="AtomCode">
-    <span>AtomCode</span>
+    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
   </a>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <a class="dhdr-link" href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -123,7 +123,7 @@
 
       <div class="callout callout-info">
         <strong>AtomGit Issue 现在由内置工具处理</strong>
-        <p><code>/issue</code> 已移除。执行 <code>/login</code> 后，直接用自然语言提出需求即可，例如“为这个 Bug 创建一个 AtomGit Issue”。AtomCode 会选择内置的 <code>atomgit_issue</code> 工具，写操作仍需权限确认。详见<a href="./tools.html#atomgit">内置工具</a>。</p>
+        <p><code>/issue</code> 已移除。执行 <code>/login</code> 后，直接用自然语言提出需求即可，例如“为这个 Bug 创建一个 AtomGit Issue”。RustCode 会选择内置的 <code>atomgit_issue</code> 工具，写操作仍需权限确认。详见<a href="./tools.html#atomgit">内置工具</a>。</p>
       </div>
 
       <div class="callout callout-info">
@@ -169,7 +169,7 @@
           <tr><th>命令</th><th>作用</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/setup</code></td><td>第一次执行时,把内置的 <code>atomcode-automation-recommender</code> skill 解压到 <code>~/.rustcode/skills/</code>,在项目 <code>.gitignore</code> 追加 <code>.rustcode/local/</code>,并写 <code>.rustcode/setup-state.json</code>(signals 哈希 + atomcode 版本 + 已安装列表),全程持项目级锁。然后自动调用 recommender skill — 它会扫描项目(语言、框架、已有 hook 等)、联网检索并推荐适合该代码库的其他 atomcode skill 安装。后续执行会跳过 seed 安装、直接重跑 skill。命令后跟的文字会作为 steering 传给 skill,例如 <code>/setup 重点关注测试</code>。CLI 形式 <code>atomcode setup --force</code> 会按内容哈希强制重装 seed 文件</td></tr>
+          <tr><td><code>/setup</code></td><td>第一次执行时,把内置的 <code>rustcode-automation-recommender</code> skill 解压到 <code>~/.rustcode/skills/</code>,在项目 <code>.gitignore</code> 追加 <code>.rustcode/local/</code>,并写 <code>.rustcode/setup-state.json</code>(signals 哈希 + rustcode 版本 + 已安装列表),全程持项目级锁。然后自动调用 recommender skill — 它会扫描项目(语言、框架、已有 hook 等)、联网检索并推荐适合该代码库的其他 rustcode skill 安装。后续执行会跳过 seed 安装、直接重跑 skill。命令后跟的文字会作为 steering 传给 skill,例如 <code>/setup 重点关注测试</code>。CLI 形式 <code>rustcode setup --force</code> 会按内容哈希强制重装 seed 文件</td></tr>
           <tr><td><code>/skills</code></td><td>浏览当前已加载的 skills(项目级 + 用户级)。每个 skill 也会以独立的斜杠命令形式出现在补全菜单里,可以直接 <code>/&lt;skill-name&gt;</code> 触发</td></tr>
           <tr><td><code>/plugin</code></td><td>打开交互式插件管理器,可浏览 marketplace、安装/卸载插件、添加/移除 marketplace</td></tr>
           <tr><td><code>/plugin marketplace add|remove|update|list</code></td><td>管理 marketplace 注册(add 克隆 git 仓库,remove 移除,update 拉最新,list 列出)</td></tr>
@@ -180,9 +180,9 @@
         </tbody>
       </table>
       <p>详细配置与使用见 <a href="./skills.html">Skills 扩展</a> 和 <a href="./plugins.html">Plugin 系统</a>。</p>
-      <p>插件可以注册自己的斜杠命令。例如官方频道插件会新增 <code>/wechat</code>(显示 AtomCode 微信用户群二维码):</p>
-      <pre><code>/plugin marketplace add https://atomgit.com/atomgit_atomcode/AtomCode-Channel
-/plugin install weixin@atomcode-channel</code></pre>
+      <p>插件可以注册自己的斜杠命令。例如官方频道插件会新增 <code>/wechat</code>(显示 RustCode 微信用户群二维码):</p>
+      <pre><code>/plugin marketplace add https://atomgit.com/atomgit_rustcode/RustCode-Channel
+/plugin install weixin@rustcode-channel</code></pre>
 
       <h2 id="mcp-集成">MCP 集成</h2>
       <table>
@@ -223,16 +223,16 @@
           <tr><td><code>/status</code></td><td>显示登录状态、当前 provider、模型、上下文预算、CodingPlan 用量和重置时间</td></tr>
           <tr><td><code>/whoami</code></td><td>显示当前 AtomGit 登录用户的用户名 / 邮箱</td></tr>
           <tr><td><code>/config</code></td><td>显示 <code>~/.rustcode/config.toml</code> 的路径</td></tr>
-          <tr><td><code>/reload</code></td><td>从磁盘热加载 <code>~/.rustcode/config.toml</code>,不需要重启 atomcode 就能让外部修改(或另一个终端的 <code>/login</code> 带来的变更)生效</td></tr>
+          <tr><td><code>/reload</code></td><td>从磁盘热加载 <code>~/.rustcode/config.toml</code>,不需要重启 rustcode 就能让外部修改(或另一个终端的 <code>/login</code> 带来的变更)生效</td></tr>
           <tr><td><code>/proxy</code></td><td>切换出站代理模式:跟随系统代理(默认)/ 指定固定代理 / 直连不走代理。适合公司代理网、需要强制走某个代理或强制直连等场景,选择会写回配置</td></tr>
           <tr><td><code>/language</code></td><td>切换界面语言:自动检测(<code>LC_ALL</code> / <code>LANG</code>)、English、或 简体中文。立即生效并写回 <code>~/.rustcode/config.toml</code></td></tr>
           <tr><td><code>/welcome</code></td><td>重新打开 3 步首次启动向导(欢迎页 → 语言 → 接入方式)。会话非空时会先弹 <code>y/N</code> 二次确认,确认后清屏。语言和默认接入方式都可以从这里再调一次</td></tr>
           <tr><td><code>/logout</code></td><td>清除 AtomGit OAuth token</td></tr>
           <tr><td><code>/upgrade</code></td><td>自动升级到最新版本;子命令 <code>/upgrade rollback</code> 回滚到上一个版本</td></tr>
-          <tr><td><code>/guide</code></td><td>内置上手向导:<code>/guide</code> 列出可问的主题(快速开始、换模型、MCP、Skills、记忆、后台任务、上下文、快捷键、配置),<code>/guide &lt;主题&gt;</code> 直接在对话里讲解(首次会自动安装 <code>atomcode-skills</code> 插件)</td></tr>
+          <tr><td><code>/guide</code></td><td>内置上手向导:<code>/guide</code> 列出可问的主题(快速开始、换模型、MCP、Skills、记忆、后台任务、上下文、快捷键、配置),<code>/guide &lt;主题&gt;</code> 直接在对话里讲解(首次会自动安装 <code>rustcode-skills</code> 插件)</td></tr>
           <tr><td><code>/help</code></td><td>展示所有可用斜杠命令的列表</td></tr>
           <tr><td><code>/keys</code></td><td>展示键盘快捷键参考(分组列出输入 / 历史 / 会话 / 弹层导航,并标注 <code>Shift+Enter</code>、<code>Alt+Enter</code> 在不同终端的兼容性)。详见 <a href="./keybindings.html">键盘快捷键</a></td></tr>
-          <tr><td><code>/quit</code> · <code>/exit</code></td><td>退出 atomcode(也可以连按两次 <code>Ctrl+C</code>)</td></tr>
+          <tr><td><code>/quit</code> · <code>/exit</code></td><td>退出 rustcode(也可以连按两次 <code>Ctrl+C</code>)</td></tr>
         </tbody>
       </table>
 
@@ -284,8 +284,8 @@ AtomGit · deepseek-v4-flash
       </ul>
 
     <footer class="dftr">
-      <span data-i18n="ftr.copy">© 2026 AtomCode · MIT</span>
-      <a href="https://atomgit.com/atomgit_atomcode/atomcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
+      <a href="https://atomgit.com/atomgit_rustcode/rustcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
     </footer>
   </main>
 </div>

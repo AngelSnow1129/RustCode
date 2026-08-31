@@ -211,7 +211,7 @@ class AtomCodeChatPanel(
         border = BorderFactory.createEmptyBorder(4, 8, 4, 8)
         background = JBColor(0xFFF3E2, 0x5A4A1F)
         add(
-            JLabel("⚠").apply { border = BorderFactory.createEmptyBorder(0, 0, 0, 4) },
+            JLabel("[!]").apply { border = BorderFactory.createEmptyBorder(0, 0, 0, 4) },
             BorderLayout.WEST,
         )
         add(persistenceWarningText, BorderLayout.CENTER)

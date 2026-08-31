@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>项目指令文件 · AtomCode 文档</title>
-<meta name="description" content="项目指令文件 — AtomCode 文档。">
+<title>项目指令文件 · RustCode 文档</title>
+<meta name="description" content="项目指令文件 — RustCode 文档。">
 <link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
 <link rel="stylesheet" href="../docs.css">
-<script>(function(){try{var s=localStorage.getItem('atomcode_theme')||localStorage.getItem('atomcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
+<script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
 <body data-page="project-instructions">
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/atomcode-icon1.png" alt="AtomCode">
-    <span>AtomCode</span>
+    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
   </a>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <a class="dhdr-link" href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -76,15 +76,15 @@
 
   <main class="dmain prose-docs">
 <h1 id="项目指令文件">项目指令文件</h1>
-      <p class="lede">在项目根目录放一个 <code>.rustcode.md</code>,可以把项目的技术栈、约定和偏好固化下来,AtomCode 启动时会自动把它注入系统提示,避免每次对话都要重复说一遍规则。</p>
+      <p class="lede">在项目根目录放一个 <code>.rustcode.md</code>,可以把项目的技术栈、约定和偏好固化下来,RustCode 启动时会自动把它注入系统提示,避免每次对话都要重复说一遍规则。</p>
 
       <h2 id="为什么需要它">为什么需要它</h2>
-      <p>设想这个常见场景:你的团队统一使用 Composition API,禁止 Options API。每次让 AtomCode 写新组件,你都得提醒一句"用 Composition API"。有了 <code>.rustcode.md</code>,这类偏好会自动带进每一次对话。</p>
+      <p>设想这个常见场景:你的团队统一使用 Composition API,禁止 Options API。每次让 RustCode 写新组件,你都得提醒一句"用 Composition API"。有了 <code>.rustcode.md</code>,这类偏好会自动带进每一次对话。</p>
 
       <h2 id="文件位置">文件位置</h2>
       <ul>
         <li>默认路径:项目根目录下的 <code>.rustcode.md</code></li>
-        <li>AtomCode 从当前工作目录向上逐级查找,直到找到或到达 <code>$HOME</code></li>
+        <li>RustCode 从当前工作目录向上逐级查找,直到找到或到达 <code>$HOME</code></li>
         <li>如果该文件不存在,系统提示中自然不会出现相关内容</li>
       </ul>
 
@@ -113,7 +113,7 @@ Tailwind 做样式、Vitest 做单元测试。
 - 不要修改 `src/generated/*`,那是从 OpenAPI 自动生成的
 - 测试覆盖率要求在 80% 以上,新增模块必须带单元测试</code></pre>
 
-      <h2 id="写好-atomcodemd-的几条经验">写好 .rustcode.md 的几条经验</h2>
+      <h2 id="写好-rustcodemd-的几条经验">写好 .rustcode.md 的几条经验</h2>
       <ul>
         <li><strong>只写"和一般情况不一样"的部分</strong> —— 通用最佳实践模型自己懂,不用在这里重复。</li>
         <li><strong>给出命令,而不是描述</strong> —— "跑测试用 <code>pnpm test</code>",而不是"请运行单元测试"。</li>
@@ -128,16 +128,16 @@ Tailwind 做样式、Vitest 做单元测试。
       </div>
 
       <h2 id="与-agentsmd-claudemd-geminimd-的关系">与 AGENTS.md / CLAUDE.md / GEMINI.md 的关系</h2>
-      <p>AtomCode 原生支持 <code>AGENTS.md</code>——AI 编程代理持久化上下文的<a href="https://agents.md/">开放标准</a>。如果你的项目已经在使用 <code>AGENTS.md</code>,AtomCode 会自动识别,无需额外配置。查找顺序如下:</p>
+      <p>RustCode 原生支持 <code>AGENTS.md</code>——AI 编程代理持久化上下文的<a href="https://agents.md/">开放标准</a>。如果你的项目已经在使用 <code>AGENTS.md</code>,RustCode 会自动识别,无需额外配置。查找顺序如下:</p>
       <ol>
         <li><code>.rustcode.md</code></li>
-        <li><code>ATOMCODE.md</code></li>
+        <li><code>RUSTCODE.md</code></li>
         <li><code>AGENTS.md</code></li>
         <li><code>CLAUDE.md</code> / <code>claude.md</code></li>
       </ol>
       <p>先找到的先生效。如果你在同一个项目里也用 Claude Code 或 Gemini CLI,它们各自有自己的指令文件:</p>
       <ul>
-        <li>AtomCode &rarr; <code>.rustcode.md</code> 或 <code>AGENTS.md</code></li>
+        <li>RustCode &rarr; <code>.rustcode.md</code> 或 <code>AGENTS.md</code></li>
         <li>Claude Code &rarr; <code>CLAUDE.md</code></li>
         <li>Gemini CLI &rarr; <code>GEMINI.md</code></li>
       </ul>
@@ -149,8 +149,8 @@ Tailwind 做样式、Vitest 做单元测试。
       </ul>
 
     <footer class="dftr">
-      <span data-i18n="ftr.copy">© 2026 AtomCode · MIT</span>
-      <a href="https://atomgit.com/atomgit_atomcode/atomcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
+      <a href="https://atomgit.com/atomgit_rustcode/rustcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
     </footer>
   </main>
 </div>

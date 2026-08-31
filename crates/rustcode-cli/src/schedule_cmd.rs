@@ -376,7 +376,7 @@ pub async fn handle_schedule(cli: ScheduleCli) -> Result<i32> {
 
             for t in &tasks {
                 let next = schedule::next_run(&t.schedule, now)
-                    .map(|ts| format_epoch(ts))
+                    .map(format_epoch)
                     .unwrap_or_else(|| "-".to_string());
                 let last = t.last_status.as_deref().unwrap_or("-");
                 let state = if t.enabled { "on" } else { "off" };
@@ -903,12 +903,13 @@ mod tests {
         let _env_guard = EnvGuard {
             prev: std::env::var_os("RUSTCODE_HOME"),
         };
-        let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("RUSTCODE_HOME", tmp.path());
-        // `tmp` is kept alive until after `f()` returns (or unwinds), ensuring
-        // the tempdir is not deleted while the store operates inside it.
+        // A PROCESS-LIFETIME directory, not a per-test `TempDir`: `set_var` is
+        // process-global, so a temp dir deleted when this test ends would dangle
+        // for every other test still running under the parallel harness, and the
+        // next session write elsewhere fails with a spurious `NotFound`.
+        let home = rustcode_kernel::test_support::isolate_home_subdir("schedule-store");
+        std::env::set_var("RUSTCODE_HOME", &home);
         let result = f();
-        drop(tmp); // explicit for clarity; would drop at end of scope anyway
         result
     }
 

@@ -1,20 +1,20 @@
 <idea-plugin>
-  <id>com.atomcode.jetbrains</id>
-  <name>AtomCode</name>
-  <vendor email="atomcode@atomgit.com">AtomCode</vendor>
+  <id>com.rustcode.jetbrains</id>
+  <name>RustCode</name>
+  <vendor email="rustcode@atomgit.com">RustCode</vendor>
 
   <description><![CDATA[
-    AtomCode brings a local AI coding agent into JetBrains IDEs.
+    RustCode brings a local AI coding agent into JetBrains IDEs.
 
-    Use AtomCode from a dedicated tool window, editor context actions, and intentions to explain, fix, optimize, and review code while keeping the IDE workflow native. The plugin connects to a local AtomCode daemon on 127.0.0.1 by default and supports user-configured providers such as OpenAI, Claude, and Ollama through that daemon.
+    Use RustCode from a dedicated tool window, editor context actions, and intentions to explain, fix, optimize, and review code while keeping the IDE workflow native. The plugin connects to a local RustCode daemon on 127.0.0.1 by default and supports user-configured providers such as OpenAI, Claude, and Ollama through that daemon.
 
-    Code, selected text, attached files, project metadata, provider settings, and API keys are sent only when needed to fulfill user actions and are handled by the local AtomCode daemon. See the privacy policy for details before configuring external model providers.
+    Code, selected text, attached files, project metadata, provider settings, and API keys are sent only when needed to fulfill user actions and are handled by the local RustCode daemon. See the privacy policy for details before configuring external model providers.
   ]]></description>
 
   <change-notes><![CDATA[
     Initial JetBrains Marketplace release.
     <ul>
-      <li>Added the AtomCode tool window for local AI coding workflows.</li>
+      <li>Added the RustCode tool window for local AI coding workflows.</li>
       <li>Added editor actions and intentions for explaining, fixing, optimizing, and attaching code context.</li>
       <li>Added local daemon discovery, startup, health checks, and bundled daemon support.</li>
       <li>Added session history, provider setup, model selection, diagnostics, and privacy-oriented context controls.</li>
@@ -22,148 +22,148 @@
   ]]></change-notes>
 
   <depends>com.intellij.modules.platform</depends>
-  <depends optional="true" config-file="atomcode-jcef.xml">com.intellij.modules.jcef</depends>
+  <depends optional="true" config-file="rustcode-jcef.xml">com.intellij.modules.jcef</depends>
 
   <extensions defaultExtensionNs="com.intellij">
     <toolWindow
-      id="AtomCode"
+      id="RustCode"
       anchor="right"
       canCloseContents="true"
-      factoryClass="com.atomcode.jetbrains.ui.AtomCodeToolWindowFactory"
-      icon="/icons/atomcode.svg" />
+      factoryClass="com.rustcode.jetbrains.ui.RustCodeToolWindowFactory"
+      icon="/icons/rustcode.svg" />
 
     <applicationConfigurable
-      id="atomcode.settings"
-      displayName="AtomCode"
-      instance="com.atomcode.jetbrains.settings.AtomCodeConfigurable" />
+      id="rustcode.settings"
+      displayName="RustCode"
+      instance="com.rustcode.jetbrains.settings.RustCodeConfigurable" />
 
     <statusBarWidgetFactory
-      id="AtomCodeStatus"
-      implementation="com.atomcode.jetbrains.ui.AtomCodeStatusBarWidgetFactory" />
+      id="RustCodeStatus"
+      implementation="com.rustcode.jetbrains.ui.RustCodeStatusBarWidgetFactory" />
 
     <intentionAction>
-      <className>com.atomcode.jetbrains.actions.ExplainSelectionIntention</className>
-      <category>AtomCode</category>
+      <className>com.rustcode.jetbrains.actions.ExplainSelectionIntention</className>
+      <category>RustCode</category>
     </intentionAction>
     <intentionAction>
-      <className>com.atomcode.jetbrains.actions.FixSelectionIntention</className>
-      <category>AtomCode</category>
+      <className>com.rustcode.jetbrains.actions.FixSelectionIntention</className>
+      <category>RustCode</category>
     </intentionAction>
     <intentionAction>
-      <className>com.atomcode.jetbrains.actions.OptimizeSelectionIntention</className>
-      <category>AtomCode</category>
+      <className>com.rustcode.jetbrains.actions.OptimizeSelectionIntention</className>
+      <category>RustCode</category>
     </intentionAction>
     <intentionAction>
-      <className>com.atomcode.jetbrains.actions.AddContextIntention</className>
-      <category>AtomCode</category>
+      <className>com.rustcode.jetbrains.actions.AddContextIntention</className>
+      <category>RustCode</category>
     </intentionAction>
 
-    <projectService serviceImplementation="com.atomcode.jetbrains.services.AtomCodeProjectService" />
-    <projectService serviceImplementation="com.atomcode.jetbrains.session.SessionWorkspace" />
-    <projectService serviceImplementation="com.atomcode.jetbrains.persistence.AtomCodeProjectWorkspaceState" />
-    <applicationService serviceImplementation="com.atomcode.jetbrains.settings.AtomCodeSettingsState" />
-    <applicationService serviceImplementation="com.atomcode.jetbrains.services.AtomCodeDaemonSupervisor" />
-    <applicationService serviceImplementation="com.atomcode.jetbrains.services.AtomCodeLoginCoordinator" />
-    <postStartupActivity implementation="com.atomcode.jetbrains.services.AtomCodeStartupActivity" />
+    <projectService serviceImplementation="com.rustcode.jetbrains.services.RustCodeProjectService" />
+    <projectService serviceImplementation="com.rustcode.jetbrains.session.SessionWorkspace" />
+    <projectService serviceImplementation="com.rustcode.jetbrains.persistence.RustCodeProjectWorkspaceState" />
+    <applicationService serviceImplementation="com.rustcode.jetbrains.settings.RustCodeSettingsState" />
+    <applicationService serviceImplementation="com.rustcode.jetbrains.services.RustCodeDaemonSupervisor" />
+    <applicationService serviceImplementation="com.rustcode.jetbrains.services.RustCodeLoginCoordinator" />
+    <postStartupActivity implementation="com.rustcode.jetbrains.services.RustCodeStartupActivity" />
   </extensions>
 
   <actions>
     <action
-      id="atomcode.openChat"
-      class="com.atomcode.jetbrains.actions.OpenChatAction"
-      text="AtomCode: Open Chat"
-      description="Open the AtomCode chat tool window">
+      id="rustcode.openChat"
+      class="com.rustcode.jetbrains.actions.OpenChatAction"
+      text="RustCode: Open Chat"
+      description="Open the RustCode chat tool window">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
-      id="atomcode.openWelcome"
-      class="com.atomcode.jetbrains.actions.OpenWelcomeAction"
-      text="AtomCode: Welcome"
-      description="Open the AtomCode welcome and quick start page">
+      id="rustcode.openWelcome"
+      class="com.rustcode.jetbrains.actions.OpenWelcomeAction"
+      text="RustCode: Welcome"
+      description="Open the RustCode welcome and quick start page">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
-      id="atomcode.openChatInNewTab"
-      class="com.atomcode.jetbrains.actions.OpenChatInNewTabAction"
-      text="AtomCode: Open Chat in New Tab"
-      description="Open an independent AtomCode chat tab in the tool window">
+      id="rustcode.openChatInNewTab"
+      class="com.rustcode.jetbrains.actions.OpenChatInNewTabAction"
+      text="RustCode: Open Chat in New Tab"
+      description="Open an independent RustCode chat tab in the tool window">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
-      id="atomcode.focusInput"
-      class="com.atomcode.jetbrains.actions.FocusInputAction"
-      text="AtomCode: Focus Input"
-      description="Open AtomCode and focus the chat input">
+      id="rustcode.focusInput"
+      class="com.rustcode.jetbrains.actions.FocusInputAction"
+      text="RustCode: Focus Input"
+      description="Open RustCode and focus the chat input">
       <add-to-group group-id="ToolsMenu" anchor="last" />
       <keyboard-shortcut keymap="$default" first-keystroke="control alt shift I" />
     </action>
 
     <action
-      id="atomcode.newConversation"
-      class="com.atomcode.jetbrains.actions.NewConversationAction"
-      text="AtomCode: New Conversation"
-      description="Start a new AtomCode conversation">
+      id="rustcode.newConversation"
+      class="com.rustcode.jetbrains.actions.NewConversationAction"
+      text="RustCode: New Conversation"
+      description="Start a new RustCode conversation">
       <add-to-group group-id="ToolsMenu" anchor="last" />
       <keyboard-shortcut keymap="$default" first-keystroke="control alt shift N" />
     </action>
 
     <action
-      id="atomcode.stopGeneration"
-      class="com.atomcode.jetbrains.actions.StopGenerationAction"
-      text="AtomCode: Stop Generation"
-      description="Stop the current AtomCode generation">
+      id="rustcode.stopGeneration"
+      class="com.rustcode.jetbrains.actions.StopGenerationAction"
+      text="RustCode: Stop Generation"
+      description="Stop the current RustCode generation">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
-      id="atomcode.openChanges"
-      class="com.atomcode.jetbrains.actions.OpenChangesAction"
-      text="AtomCode: Open Changes"
-      description="Open project changes used by AtomCode">
+      id="rustcode.openChanges"
+      class="com.rustcode.jetbrains.actions.OpenChangesAction"
+      text="RustCode: Open Changes"
+      description="Open project changes used by RustCode">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
-      id="atomcode.openSettings"
-      class="com.atomcode.jetbrains.actions.OpenSettingsAction"
-      text="AtomCode: Open Settings"
-      description="Open AtomCode plugin settings">
+      id="rustcode.openSettings"
+      class="com.rustcode.jetbrains.actions.OpenSettingsAction"
+      text="RustCode: Open Settings"
+      description="Open RustCode plugin settings">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
-      id="atomcode.explainSelection"
-      class="com.atomcode.jetbrains.actions.ExplainSelectionAction"
-      text="AtomCode: Explain Selection"
-      description="Explain the selected code with AtomCode">
+      id="rustcode.explainSelection"
+      class="com.rustcode.jetbrains.actions.ExplainSelectionAction"
+      text="RustCode: Explain Selection"
+      description="Explain the selected code with RustCode">
       <add-to-group group-id="EditorPopupMenu" anchor="last" />
       <keyboard-shortcut keymap="$default" first-keystroke="control alt shift E" />
     </action>
 
     <action
-      id="atomcode.fixSelection"
-      class="com.atomcode.jetbrains.actions.FixSelectionAction"
-      text="AtomCode: Fix Selection"
-      description="Fix the selected code with AtomCode">
+      id="rustcode.fixSelection"
+      class="com.rustcode.jetbrains.actions.FixSelectionAction"
+      text="RustCode: Fix Selection"
+      description="Fix the selected code with RustCode">
       <add-to-group group-id="EditorPopupMenu" anchor="last" />
     </action>
 
     <action
-      id="atomcode.optimizeSelection"
-      class="com.atomcode.jetbrains.actions.OptimizeSelectionAction"
-      text="AtomCode: Optimize Selection"
-      description="Optimize the selected code with AtomCode">
+      id="rustcode.optimizeSelection"
+      class="com.rustcode.jetbrains.actions.OptimizeSelectionAction"
+      text="RustCode: Optimize Selection"
+      description="Optimize the selected code with RustCode">
       <add-to-group group-id="EditorPopupMenu" anchor="last" />
     </action>
 
     <action
-      id="atomcode.addContext"
-      class="com.atomcode.jetbrains.actions.AddContextAction"
-      text="AtomCode: Add Selection/File as Context"
-      description="Attach the current selection or file to the next AtomCode message">
+      id="rustcode.addContext"
+      class="com.rustcode.jetbrains.actions.AddContextAction"
+      text="RustCode: Add Selection/File as Context"
+      description="Attach the current selection or file to the next RustCode message">
       <add-to-group group-id="EditorPopupMenu" anchor="last" />
     </action>
   </actions>

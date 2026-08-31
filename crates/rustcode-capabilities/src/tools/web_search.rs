@@ -167,8 +167,7 @@ impl WebSearchTool {
         // a real browser UA, since many sources 403 a generic/bot UA.
         let spec = crate::egress::client::browser_spec()
             .with_request_timeout(Some(Duration::from_secs(REQUEST_TIMEOUT_SECS)));
-        crate::egress::client::build_http_client(&spec)
-            .map_err(|e| format!("web_search: {e}"))
+        crate::egress::client::build_http_client(&spec).map_err(|e| format!("web_search: {e}"))
     }
 
     /// Exa MCP backend: POST a JSON-RPC `tools/call` (`web_search_exa`) and read the

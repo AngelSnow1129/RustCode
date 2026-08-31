@@ -47,7 +47,7 @@ class EvalTests(unittest.TestCase):
                         "stop_reason": "Stopped", "prompt_tokens": 10,
                         "completion_tokens": 0, "cached_tokens": 0}),
         ])
-        events, answer, usage = ev.parse_atomcode_jsonl(raw)
+        events, answer, usage = ev.parse_rustcode_jsonl(raw)
         self.assertEqual(answer, "")
         self.assertEqual(usage["prompt"], 10)
         self.assertEqual(
@@ -55,7 +55,7 @@ class EvalTests(unittest.TestCase):
             "empty_output",
         )
         with self.assertRaises(ValueError):
-            ev.parse_atomcode_jsonl(json.dumps({"type": "run.started"}))
+            ev.parse_rustcode_jsonl(json.dumps({"type": "run.started"}))
 
     def test_jsonl_rejects_terminal_process_exit_mismatch(self):
         events = [{"type": "turn.completed", "exit_code": 0,
@@ -92,11 +92,11 @@ class EvalTests(unittest.TestCase):
     def test_pair_runs_concurrently_and_isolates_homes(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            fake = tmp / "fake_atomcode.py"
+            fake = tmp / "fake_rustcode.py"
             fake.write_text(textwrap.dedent("""\
                 #!/usr/bin/env python3
                 import json, os, sys, time
-                print(json.dumps({"home": os.environ["ATOMCODE_HOME"], "argv": sys.argv[1:]}))
+                print(json.dumps({"home": os.environ["RUSTCODE_HOME"], "argv": sys.argv[1:]}))
                 time.sleep(0.15)
             """))
             fake.chmod(0o755)

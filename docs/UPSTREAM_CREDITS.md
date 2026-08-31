@@ -2,11 +2,14 @@
 
 This project (`rustcode`) is a fork / secondary development of:
 
-- **Upstream repository:** https://gitcode.com/SecLab/RustCode
-- **Upstream origin:** https://atomgit.com/atomgit_atomcode/atomcode
-- **Original license:** MIT — Copyright (c) 2026 Yubang Xu (preserved verbatim in
-  `docs/ORIGINAL_LICENSE.md`).
-- **Third-party notices:** `docs/THIRD_PARTY_NOTICES.md`.
+- **Predecessor project (direct parent):** RustCode — MIT,
+  Copyright (c) 2026 Yubang Xu, preserved verbatim in
+  [`docs/UPSTREAM_RUSTCODE_LICENSE.md`](./UPSTREAM_RUSTCODE_LICENSE.md).
+- **Upstream origin (ultimate):** MIT. **The verbatim text is NOT yet archived;**
+  see [`docs/ORIGINAL_LICENSE.md`](./ORIGINAL_LICENSE.md), which is a placeholder
+  recording the gap. Do not reconstruct it from a downstream copy.
+- **Third-party notices:**
+  [`docs/THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
 
 ## Compliance statement
 
@@ -29,12 +32,14 @@ not remove or alter the upstream notice on inherited code.
 3. **LLM provider decoupling (OBJECTIVE-3):** the `LlmProvider` adapter layer
    was decoupled from the upstream AtomGit request-signing gateway (signing is
    now applied only to `atomgit`/`relay` hosts), and self-hosted configuration
-   was extended with `extra_headers`, `proxy`, and explicit
-   `openai-compatible` / `anthropic-compatible` provider types.
-4. **License & compliance (OBJECTIVE-4):** upstream MIT license and credits are
-   archived in `docs/ORIGINAL_LICENSE.md`, `docs/THIRD_PARTY_NOTICES.md`, and
-   this file.
+   was extended with `extra_headers`, `proxy`, `model_mapping`, per-provider
+   `timeout`, and explicit `openai-compatible` / `anthropic-compatible` provider
+   types.
+4. **License & compliance (OBJECTIVE-4):** the predecessor's MIT license is
+   archived in `docs/UPSTREAM_RUSTCODE_LICENSE.md`, third-party notices in
+   `docs/THIRD_PARTY_NOTICES.md`, and the fork lineage in this file.
+   `docs/ORIGINAL_LICENSE.md` is a **placeholder** for the ultimate upstream's
+   license text, which has not been obtained.
 
-The `atomgit` brand (gateway / OAuth provider, `api.gitcode.com`,
-`llm-api.atomgit.com`) is a separate service and is not renamed; only the
-product-named repo path segment was updated to the fork's repository.
+The `atomgit` brand (gateway / OAuth provider) is a separate service and is not
+renamed; only the product identity was updated to the `rustcode` name.

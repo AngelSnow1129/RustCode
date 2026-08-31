@@ -14,7 +14,7 @@ import javax.swing.SwingUtilities
 class AtomCodeStatusBarWidgetFactory : StatusBarWidgetFactory {
     override fun getId(): String = AtomCodeStatusBarWidget.ID
 
-    override fun getDisplayName(): String = "AtomCode"
+    override fun getDisplayName(): String = "RustCode"
 
     override fun isAvailable(project: Project): Boolean = true
 

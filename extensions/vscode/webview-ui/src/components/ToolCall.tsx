@@ -26,7 +26,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 
   return (
     <button className="tool-body-row-copy" onClick={handleCopy} title={copied ? t('tool.copied') : t('tool.copy', { label: label || '' })}>
-      {copied ? '✓' : '📋'}
+      {copied ? '[+]' : '📋'}
     </button>
   );
 }
@@ -62,7 +62,7 @@ export function ToolCall({ tool }: ToolCallProps) {
         {secondary && <span className="tool-name-secondary">{secondary}</span>}
         {tool.status === 'running' && (
           <span className="tool-annotation" style={{ color: 'var(--app-spinner-foreground)' }}>
-            <span style={{ display: 'inline-block', animation: 'spin 1.5s steps(30) infinite' }}>⟳</span>
+            <span style={{ display: 'inline-block', animation: 'spin 1.5s steps(30) infinite' }}>[~]</span>
           </span>
         )}
         {annotationText && (

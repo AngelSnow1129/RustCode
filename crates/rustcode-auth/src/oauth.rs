@@ -9,7 +9,6 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-
 /// Sanitize a user-supplied base URL: add `http://` if no scheme is present,
 /// and strip trailing `/` so path concatenation never produces `//`.
 fn sanitize_base_url(raw: &str) -> String {
@@ -1057,10 +1056,7 @@ fn accept_callback_until_stopped(
         .filter_map(|pair| {
             let mut parts = pair.splitn(2, '=');
             let key = parts.next()?;
-            let value = parts
-                .next()
-                .map(urlencoding_decode)
-                .unwrap_or_default();
+            let value = parts.next().map(urlencoding_decode).unwrap_or_default();
             Some((key.to_string(), value))
         })
         .collect();
@@ -1548,10 +1544,7 @@ fn parse_pasted_callback(input: &str) -> Result<(String, String)> {
         .filter_map(|pair| {
             let mut parts = pair.splitn(2, '=');
             let key = parts.next()?;
-            let value = parts
-                .next()
-                .map(urlencoding_decode)
-                .unwrap_or_default();
+            let value = parts.next().map(urlencoding_decode).unwrap_or_default();
             Some((key.to_string(), value))
         })
         .collect();

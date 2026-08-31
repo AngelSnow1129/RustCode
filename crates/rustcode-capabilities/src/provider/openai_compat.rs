@@ -19,12 +19,14 @@ use super::reasoning::{ReasoningPolicy, REASONING_PLACEHOLDER};
 use super::retry::{self, RetryPolicy};
 use super::sign::{RequestSigner, RequestSigningError};
 use async_trait::async_trait;
-use rustcode_kernel::message::{Message, Role};
-use rustcode_kernel::provider::{ChatOptions, LlmProvider, ReasoningEffort, ToolChoice};
-use rustcode_kernel::stream::{ProviderError, StreamEvent, TokenUsage};
-use rustcode_kernel::tool::{ToolCall, ToolDef};
 use futures::stream::BoxStream;
 use futures::StreamExt;
+use rustcode_kernel::message::{Message, Role};
+use rustcode_kernel::provider::{
+    ChatOptions, ChatResponse, FinishReason, LlmProvider, ReasoningEffort, ToolChoice,
+};
+use rustcode_kernel::stream::{ProviderError, StreamEvent, TokenUsage};
+use rustcode_kernel::tool::{ToolCall, ToolDef};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::time::Duration;
@@ -61,15 +63,9 @@ pub const OPENROUTER_ATTRIBUTION_HEADERS: &[(&str, &str); 3] = &[
 /// [`rustcode_config::endpoints::host_matches_domain`] so it agrees with the rest
 /// of the codebase and can't drift.
 pub fn is_openrouter_url(url: &str) -> bool {
-    let authority = url
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .unwrap_or(url);
+    let authority = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
     // Host = the authority minus path/query/fragment...
-    let host_port = authority
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or(authority);
+    let host_port = authority.split(['/', '?', '#']).next().unwrap_or(authority);
     // ...minus any `userinfo@` prefix. Without this, a crafted
     // `https://openrouter.ai:x@evil.com/…` would parse the userinfo `openrouter.ai`
     // as the host and leak the attribution headers to `evil.com`.
@@ -289,6 +285,49 @@ impl OpenAiCompatProvider {
             effort_unsupported: std::sync::atomic::AtomicBool::new(false),
         })
     }
+
+    /// Build the request body for one call, applying the session-scoped
+    /// `reasoning_effort` strip, and return it together with the retry-ownership
+    /// sideband the OPEN path needs.
+    ///
+    /// Shared by [`LlmProvider::chat_stream`] and [`LlmProvider::chat`] so both
+    /// send byte-identical requests: a `reasoning_effort` rejection learned on
+    /// the streaming path also protects the non-streaming one (and vice versa).
+    fn build_request(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDef],
+        options: &ChatOptions,
+    ) -> (Value, rustcode_kernel::provider::RateLimitRetryOwner) {
+        // If this provider's gateway already rejected `reasoning_effort` earlier
+        // this session, strip it up front so the same 400 isn't re-triggered on
+        // every turn (see `effort_unsupported`).
+        let effort_known_unsupported = self
+            .effort_unsupported
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if effort_known_unsupported && options.reasoning_effort.is_some() {
+            let mut stripped = options.clone();
+            stripped.reasoning_effort = None;
+            let body = build_request_body(
+                &self.cfg.model,
+                messages,
+                tools,
+                &stripped,
+                &self.cfg,
+                self.policy,
+            );
+            return (body, stripped.rate_limit_retry_owner);
+        }
+        let body = build_request_body(
+            &self.cfg.model,
+            messages,
+            tools,
+            options,
+            &self.cfg,
+            self.policy,
+        );
+        (body, options.rate_limit_retry_owner)
+    }
 }
 
 /// Build a fresh streaming HTTP client from the process's current proxy env.
@@ -363,14 +402,14 @@ fn build_http_client_inner(
         crate::proxy::apply_async_proxy_policy(reqwest::Client::builder())
     }
     .connect_timeout(connect_timeout)
-        // Drop idle keep-alive connections before the gateway LB does, so
-        // we don't reuse a server-closed socket (the "error sending
-        // request" / ConnectionReset class). See POOL_IDLE_TIMEOUT.
-        .pool_idle_timeout(retry::POOL_IDLE_TIMEOUT)
-        // Product UA so the gateway can attribute/slice traffic by version
-        // (parity with core's `build_http_client`). Driver injects the real
-        // `rustcode/<version>`; bare fallback when unset.
-        .user_agent(user_agent.as_deref().unwrap_or(super::DEFAULT_USER_AGENT));
+    // Drop idle keep-alive connections before the gateway LB does, so
+    // we don't reuse a server-closed socket (the "error sending
+    // request" / ConnectionReset class). See POOL_IDLE_TIMEOUT.
+    .pool_idle_timeout(retry::POOL_IDLE_TIMEOUT)
+    // Product UA so the gateway can attribute/slice traffic by version
+    // (parity with core's `build_http_client`). Driver injects the real
+    // `rustcode/<version>`; bare fallback when unset.
+    .user_agent(user_agent.as_deref().unwrap_or(super::DEFAULT_USER_AGENT));
     if force_tls12 {
         builder = builder.max_tls_version(reqwest::tls::Version::TLS_1_2);
     }
@@ -534,29 +573,9 @@ impl LlmProvider for OpenAiCompatProvider {
         tools: &[ToolDef],
         options: &ChatOptions,
     ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
-        // If this provider's gateway already rejected `reasoning_effort` earlier
-        // this session, strip it up front so the same 400 isn't re-triggered on
-        // every turn (see `effort_unsupported`).
-        let effort_known_unsupported = self
-            .effort_unsupported
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let stripped_opts;
-        let options = if effort_known_unsupported && options.reasoning_effort.is_some() {
-            let mut o = options.clone();
-            o.reasoning_effort = None;
-            stripped_opts = o;
-            &stripped_opts
-        } else {
-            options
-        };
-        let body = build_request_body(
-            &self.cfg.model,
-            messages,
-            tools,
-            options,
-            &self.cfg,
-            self.policy,
-        );
+        // Shared with `chat()` (see `Self::build_request`): both paths apply the
+        // same session-scoped `reasoning_effort` strip and produce the same body.
+        let (body, rate_limit_retry_owner) = self.build_request(messages, tools, options);
         super::wire_dump_request(&self.cfg.model, &body); // byte-level dump (RUSTCODE_WIRE_DUMP=1)
                                                           // Serialize once and reuse the exact bytes across retries (hence `.body()`
                                                           // with an explicit content-type rather than re-serializing via `.json()`).
@@ -584,8 +603,10 @@ impl LlmProvider for OpenAiCompatProvider {
         let session_id = self.session_id.get().cloned().unwrap_or_default();
         let idle = self.cfg.idle_timeout;
         let open_timeout = self.cfg.open_timeout;
-        let rate_limit_retry_owner = options.rate_limit_retry_owner;
         let extra_headers = self.cfg.extra_headers.clone();
+        let effort_known_unsupported = self
+            .effort_unsupported
+            .load(std::sync::atomic::Ordering::Relaxed);
         let resp = match open_stream(
             &client,
             &url,
@@ -745,6 +766,186 @@ impl LlmProvider for OpenAiCompatProvider {
 
         Ok(s.boxed())
     }
+
+    /// NON-STREAMING override (spec [STREAMING]).
+    ///
+    /// Uses the backend's real non-streaming verb — `stream: false`, one request,
+    /// one JSON object — which skips the SSE handshake, the per-chunk framing and
+    /// the incremental decode. Same contract as the kernel's default fold:
+    /// `finish_reason: "length"` ⇒ [`FinishReason::Length`], a non-empty
+    /// `tool_calls[]` ⇒ [`FinishReason::ToolCalls`], otherwise
+    /// [`FinishReason::Stop`]. Every failure (transport, HTTP error, undecodable
+    /// body) returns `Err` — never a panic, never a half-filled success.
+    async fn chat(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDef],
+        options: &ChatOptions,
+    ) -> Result<ChatResponse, ProviderError> {
+        let (mut body, rate_limit_retry_owner) = self.build_request(messages, tools, options);
+        // Flip the ONE field that makes this the non-streaming verb, and drop
+        // `stream_options` (it is only meaningful with `stream: true` and some
+        // strict gateways 400 on it otherwise).
+        if let Value::Object(map) = &mut body {
+            map.insert("stream".into(), json!(false));
+            map.remove("stream_options");
+        }
+        super::wire_dump_request(&self.cfg.model, &body);
+        let body_bytes = match serde_json::to_vec(&body) {
+            Ok(b) => b,
+            Err(e) => {
+                return Err(ProviderError {
+                    retryable: false,
+                    message: format!("request body serialization failed: {e}"),
+                    ..Default::default()
+                })
+            }
+        };
+        let session_id = self.session_id.get().cloned().unwrap_or_default();
+        let effort_known_unsupported = self
+            .effort_unsupported
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let resp = match open_stream(
+            &self.client,
+            &self.url,
+            &body_bytes,
+            &self.cfg.request_signer,
+            &self.cfg.api_key,
+            &session_id,
+            &self.cfg.retry,
+            rate_limit_retry_owner,
+            self.cfg.open_timeout,
+            &self.cfg.extra_headers,
+        )
+        .await
+        {
+            Ok(r) => r,
+            // Same session-scoped `reasoning_effort` strip as the streaming path
+            // (see the comment there); guarded so we never loop.
+            Err(e) if !effort_known_unsupported && is_reasoning_effort_rejection(&e) => {
+                self.effort_unsupported
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                return Err(effort_unsupported_error());
+            }
+            Err(e) => return Err(e),
+        };
+        // A non-streaming response is fully buffered, so a read failure here is
+        // retryable (nothing has reached the caller yet).
+        let text = resp.text().await.map_err(|e| ProviderError {
+            retryable: true,
+            message: format!("response body read failed: {}", retry::err_chain(&e)),
+            ..Default::default()
+        })?;
+        // A 2xx body we cannot interpret is a Decode failure — NOT a panic and
+        // NOT an empty success. Classified through the shared taxonomy.
+        parse_chat_completion(&text).map_err(|detail| super::LlmError::Decode(detail).into())
+    }
+}
+
+/// Parse a complete (non-streaming) OpenAI-compatible chat/completions body into
+/// a kernel [`ChatResponse`]. Pure and total: every failure is a `Err(String)`
+/// describing what was missing, so the caller can surface it without panicking.
+fn parse_chat_completion(text: &str) -> Result<ChatResponse, String> {
+    let envelope: Value =
+        serde_json::from_str(text).map_err(|e| format!("response is not valid JSON: {e}"))?;
+    // Gateways that accepted the request but failed it mid-flight still answer
+    // 200 with an `error` object instead of `choices`.
+    if let Some(err) = envelope.get("error") {
+        return Err(format!("provider error: {}", parse_error_obj(err)));
+    }
+    let choice = envelope
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .ok_or_else(|| "response carried no choices[]".to_string())?;
+    let message = choice.get("message").cloned().unwrap_or_else(|| json!({}));
+    let tool_calls: Vec<ToolCall> = message
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .map(|calls| calls.iter().filter_map(parse_wire_tool_call).collect())
+        .unwrap_or_default();
+    let usage = envelope
+        .get("usage")
+        .cloned()
+        .and_then(|u| serde_json::from_value::<ChunkUsage>(u).ok())
+        .map(map_usage);
+    let mut finish_reason = match choice
+        .get("finish_reason")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+    {
+        // An absent/empty reason is a natural stop, never an error.
+        "stop" | "" => FinishReason::Stop,
+        "length" => FinishReason::Length,
+        "tool_calls" => FinishReason::ToolCalls,
+        "content_filter" => FinishReason::ContentFilter,
+        _ => FinishReason::Other,
+    };
+    if !tool_calls.is_empty() {
+        // A tool call is what the turn loop acts on, so it outranks a backend
+        // that reported `stop` alongside it. Mirrors the kernel's default fold.
+        finish_reason = FinishReason::ToolCalls;
+    }
+    Ok(ChatResponse {
+        text: wire_content_text(message.get("content")),
+        reasoning: non_empty_str(message.get("reasoning_content"))
+            .or_else(|| non_empty_str(message.get("reasoning"))),
+        tool_calls,
+        usage,
+        finish_reason,
+    })
+}
+
+/// `content` is a STRING on a strict OpenAI endpoint, but several compatible
+/// gateways return the multimodal ARRAY form (`[{"type":"text","text":…}]`) even
+/// for a text-only answer. Both are read as text; anything else ⇒ empty.
+fn wire_content_text(content: Option<&Value>) -> String {
+    match content {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|p| p.get("text").and_then(Value::as_str))
+            .collect(),
+        _ => String::new(),
+    }
+}
+
+fn non_empty_str(v: Option<&Value>) -> Option<String> {
+    v.and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+/// One `tool_calls[]` entry → a kernel [`ToolCall`]. `None` for an entry with
+/// neither an id nor a name (a degenerate fragment nothing could execute).
+/// `arguments` is forwarded as the raw JSON STRING the kernel expects; a gateway
+/// that already parsed it into an object is re-serialized rather than dropped.
+fn parse_wire_tool_call(v: &Value) -> Option<ToolCall> {
+    // Some gateways nest under `function`, others flatten the fields.
+    let function = v.get("function").unwrap_or(v);
+    let name = function
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let id = v
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    if name.is_empty() && id.is_empty() {
+        return None;
+    }
+    let arguments = match function.get("arguments") {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => other.to_string(),
+        None => String::new(),
+    };
+    Some(ToolCall {
+        id,
+        name,
+        arguments,
+    })
 }
 
 /// The uniform "your session expired, re-run `/login`" terminal error surfaced
@@ -3827,8 +4028,12 @@ mod tests {
         // Real OpenRouter endpoints (any path, http or https, explicit port).
         assert!(is_openrouter_url("https://openrouter.ai/api/v1"));
         assert!(is_openrouter_url("https://openrouter.ai"));
-        assert!(is_openrouter_url("http://openrouter.ai:443/api/v1/chat/completions"));
-        assert!(is_openrouter_url("https://openrouter.ai/api/v1/chat/completions"));
+        assert!(is_openrouter_url(
+            "http://openrouter.ai:443/api/v1/chat/completions"
+        ));
+        assert!(is_openrouter_url(
+            "https://openrouter.ai/api/v1/chat/completions"
+        ));
         // Subdomains count as OpenRouter too.
         assert!(is_openrouter_url("https://api.openrouter.ai/v1"));
         // Legit userinfo on the real host still matches (host is after `@`).
@@ -3854,12 +4059,10 @@ mod tests {
         let req = client
             .post("https://openrouter.ai/api/v1/chat/completions")
             .header(reqwest::header::CONTENT_TYPE, "application/json");
-        let built = apply_openrouter_attribution(
-            "https://openrouter.ai/api/v1/chat/completions",
-            req,
-        )
-        .build()
-        .expect("request must build");
+        let built =
+            apply_openrouter_attribution("https://openrouter.ai/api/v1/chat/completions", req)
+                .build()
+                .expect("request must build");
         for (name, value) in OPENROUTER_ATTRIBUTION_HEADERS {
             assert_eq!(
                 built.headers().get(*name).and_then(|v| v.to_str().ok()),
@@ -3872,12 +4075,10 @@ mod tests {
         let req = client
             .post("https://api.deepseek.com/v1/chat/completions")
             .header(reqwest::header::CONTENT_TYPE, "application/json");
-        let built = apply_openrouter_attribution(
-            "https://api.deepseek.com/v1/chat/completions",
-            req,
-        )
-        .build()
-        .expect("request must build");
+        let built =
+            apply_openrouter_attribution("https://api.deepseek.com/v1/chat/completions", req)
+                .build()
+                .expect("request must build");
         for (name, _) in OPENROUTER_ATTRIBUTION_HEADERS {
             assert!(
                 !built.headers().contains_key(*name),
@@ -4055,7 +4256,9 @@ mod tests {
     fn build_http_client_builds_with_webpki_base_no_ssl_cert_file() {
         std::env::remove_var("SSL_CERT_FILE");
         // Plain build must succeed on the webpki base roots.
-        assert!(build_http_client(std::time::Duration::from_secs(5), false, None, None, false).is_ok());
+        assert!(
+            build_http_client(std::time::Duration::from_secs(5), false, None, None, false).is_ok()
+        );
     }
 
     #[test]
@@ -4129,6 +4332,8 @@ mod tests {
     fn build_http_client_skip_tls_verify_still_builds() {
         std::env::remove_var("SSL_CERT_FILE");
         // Root loading happens before the danger_accept path.
-        assert!(build_http_client(std::time::Duration::from_secs(5), true, None, None, false).is_ok());
+        assert!(
+            build_http_client(std::time::Duration::from_secs(5), true, None, None, false).is_ok()
+        );
     }
 }

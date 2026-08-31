@@ -104,6 +104,62 @@ pub struct ProviderConfig {
     /// each layer's default. Set `1` to disable adapter-level and 429 retries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_max_attempts: Option<u32>,
+    /// Maps a requested model alias to the wire model name. Resolved once at the
+    /// provider factory; adapters never see aliases. Empty ⇒ identity mapping.
+    #[serde(default, skip_serializing_if = "ModelMapping::is_empty")]
+    pub model_mapping: ModelMapping,
+    /// Per-provider HTTP timeouts. `None` keeps every adapter default, which is
+    /// what every config written before this field existed gets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<ProviderTimeout>,
+}
+
+/// HTTP-level timeouts for one provider, in SECONDS. Every field is optional and
+/// falls back to the adapter's own default when unset, so an existing
+/// `config.toml` keeps its current behaviour byte for byte.
+///
+/// The three budgets are deliberately distinct:
+///
+/// - `connect` — TCP + TLS handshake up to the first response byte. Guards a
+///   dead gateway / blackholed proxy. Maps to each adapter's `connect_timeout`.
+/// - `request` — the whole OPEN phase (send request -> response headers). Maps to
+///   `open_timeout`. **OpenAI-compatible and Anthropic only**: the Ollama adapter
+///   has no such seam, so the field is ignored there rather than emulated.
+/// - `idle` — max byte-idle gap INSIDE a stream (and the first-token wait).
+///   Maps to `idle_timeout`, i.e. the runtime's `stream_timeout`.
+///
+/// `deny_unknown_fields` is intentional: a typo like `timeout = 30` (a bare
+/// integer, or a misspelled key) must be rejected at load time instead of being
+/// silently ignored and leaving the user with a timeout they did not set.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderTimeout {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connect: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle: Option<u64>,
+}
+
+impl ProviderTimeout {
+    /// True when no budget is set, so the field is omitted from serialized
+    /// config output.
+    pub fn is_empty(&self) -> bool {
+        self.connect.is_none() && self.request.is_none() && self.idle.is_none()
+    }
+
+    pub fn connect(&self) -> Option<std::time::Duration> {
+        self.connect.map(std::time::Duration::from_secs)
+    }
+
+    pub fn request(&self) -> Option<std::time::Duration> {
+        self.request.map(std::time::Duration::from_secs)
+    }
+
+    pub fn idle(&self) -> Option<std::time::Duration> {
+        self.idle.map(std::time::Duration::from_secs)
+    }
 }
 
 /// A provider *account*: a reusable connection + credential identity (new schema,
@@ -187,6 +243,10 @@ pub struct ModelProfileConfig {
     /// each layer's default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_max_attempts: Option<u32>,
+    /// Per-profile model alias table (see [`ModelMapping`]). Inherited from the
+    /// backing account at resolution time when absent here.
+    #[serde(default, skip_serializing_if = "ModelMapping::is_empty")]
+    pub model_mapping: ModelMapping,
 }
 
 /// One flattened, immutable resolution of a model selection (design §3.4). This
@@ -226,6 +286,8 @@ pub struct ResolvedModelConfig {
     pub thinking_enabled: Option<bool>,
     pub thinking_budget: Option<u32>,
     pub capable_model: Option<i64>,
+    /// Resolved model alias table (see [`ModelMapping`]); identity when empty.
+    pub model_mapping: ModelMapping,
     /// Max attempts (including the first request) for provider OPEN retries;
     /// when set, also caps kernel-owned HTTP 429 recovery. `None` preserves
     /// each layer's default.
@@ -278,6 +340,8 @@ impl ResolvedModelConfig {
             ephemeral: false,
             capable_model: self.capable_model,
             retry_max_attempts: self.retry_max_attempts,
+            model_mapping: self.model_mapping.clone(),
+            timeout: None,
         }
     }
 }
@@ -422,9 +486,176 @@ pub fn default_context_window_for(provider_type: &str) -> usize {
     }
 }
 
+/// Wire-protocol family for a provider. Replaces the free-form `provider_type`
+/// string at the dispatch boundary (`provider_factory.rs`) so unknown values
+/// cannot silently fall through to the wrong adapter.
+///
+/// Historical string aliases are accepted on read (see `#[serde(alias = ...)]`)
+/// so existing config files keep working.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProviderKind {
+    #[serde(
+        alias = "openai",
+        alias = "openai-compatible",
+        alias = "openai_compatible"
+    )]
+    OpenAiCompatible,
+    #[serde(alias = "anthropic", alias = "claude", alias = "anthropic-compatible")]
+    Anthropic,
+    #[serde(alias = "ollama")]
+    Ollama,
+}
+
+impl ProviderKind {
+    /// Parse a raw `provider_type` string into a [`ProviderKind`].
+    /// Unknown values yield `None` (the caller falls back to OpenAI-compatible
+    /// with a warning, preserving the pre-existing default behaviour).
+    pub fn from_type(s: &str) -> Option<Self> {
+        let lowered = s.to_ascii_lowercase();
+        match lowered.as_str() {
+            "openai" | "openai-compatible" | "openai_compatible" => Some(Self::OpenAiCompatible),
+            "anthropic" | "claude" | "anthropic-compatible" | "anthropic_compatible" => {
+                Some(Self::Anthropic)
+            }
+            "ollama" => Some(Self::Ollama),
+            _ => None,
+        }
+    }
+
+    /// Canonical wire string for this kind (used in telemetry-free logs only).
+    pub fn as_type_str(self) -> &'static str {
+        match self {
+            Self::OpenAiCompatible => "openai-compatible",
+            Self::Anthropic => "anthropic",
+            Self::Ollama => "ollama",
+        }
+    }
+}
+
+/// Maps a requested model alias to the wire model name sent to the provider.
+/// Resolved once at the provider factory so adapters and drivers never see
+/// aliases. An empty table is the identity mapping.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ModelMapping(pub std::collections::HashMap<String, String>);
+
+impl ModelMapping {
+    /// Resolve `requested` to its wire name. Missing entries return `requested`
+    /// unchanged.
+    pub fn resolve<'a>(&'a self, requested: &'a str) -> &'a str {
+        self.0
+            .get(requested)
+            .map(String::as_str)
+            .unwrap_or(requested)
+    }
+
+    /// True when the table is empty (identity mapping). Used by the
+    /// `skip_serializing_if` attribute so the field is omitted from config output.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- [providers.<name>.timeout] ----
+
+    #[test]
+    fn legacy_provider_config_without_timeout_still_loads() {
+        // Backwards compatibility: every config written before the `timeout`
+        // section existed must keep loading, and must keep the adapter defaults.
+        let cfg: ProviderConfig = toml::from_str(
+            r#"
+                type = "openai"
+                model = "deepseek-chat"
+                api_key = "sk-test"
+            "#,
+        )
+        .expect("legacy config must load");
+        assert!(cfg.timeout.is_none());
+    }
+
+    #[test]
+    fn timeout_section_parses_all_three_budgets() {
+        let cfg: ProviderConfig = toml::from_str(
+            r#"
+                type = "openai"
+                model = "deepseek-chat"
+                api_key = "sk-test"
+
+                [timeout]
+                connect = 10
+                request = 600
+                idle = 300
+            "#,
+        )
+        .expect("timeout section must parse");
+        let timeout = cfg.timeout.expect("timeout present");
+        assert_eq!(timeout.connect(), Some(std::time::Duration::from_secs(10)));
+        assert_eq!(timeout.request(), Some(std::time::Duration::from_secs(600)));
+        assert_eq!(timeout.idle(), Some(std::time::Duration::from_secs(300)));
+    }
+
+    #[test]
+    fn timeout_section_accepts_partial_budgets() {
+        // Only `idle` set: the other two must stay on the adapter defaults
+        // rather than being coerced to zero.
+        let cfg: ProviderConfig = toml::from_str(
+            r#"
+                type = "claude"
+                model = "claude-sonnet-4-5"
+                api_key = "sk-test"
+
+                [timeout]
+                idle = 45
+            "#,
+        )
+        .expect("partial timeout must parse");
+        let timeout = cfg.timeout.expect("timeout present");
+        assert_eq!(timeout.idle(), Some(std::time::Duration::from_secs(45)));
+        assert_eq!(timeout.connect(), None);
+        assert_eq!(timeout.request(), None);
+        assert!(!timeout.is_empty());
+    }
+
+    #[test]
+    fn timeout_section_rejects_unknown_keys() {
+        // `deny_unknown_fields`: a typo must fail loudly instead of silently
+        // leaving the user with a timeout they never actually set.
+        let result: Result<ProviderConfig, _> = toml::from_str(
+            r#"
+                type = "openai"
+                model = "deepseek-chat"
+                api_key = "sk-test"
+
+                [timeout]
+                idle = 300
+                idel = 600
+            "#,
+        );
+        assert!(result.is_err(), "a misspelled timeout key must be rejected");
+    }
+
+    #[test]
+    fn timeout_section_is_omitted_when_unset() {
+        // Serialization must not emit an empty `[timeout]` table into the
+        // user's config.toml.
+        let cfg: ProviderConfig = toml::from_str(
+            r#"
+                type = "openai"
+                model = "deepseek-chat"
+                api_key = "sk-test"
+            "#,
+        )
+        .expect("parse");
+        let serialized = toml::to_string(&cfg).expect("serialize");
+        assert!(
+            !serialized.contains("timeout"),
+            "unset timeout must not be serialized: {serialized}"
+        );
+    }
 
     #[test]
     fn accepts_images_false_for_text_only_model() {
@@ -565,6 +796,8 @@ mod tests {
             ephemeral: false,
             capable_model: None,
             retry_max_attempts: None,
+            model_mapping: Default::default(),
+            timeout: None,
         };
         let serialized = toml::to_string(&cfg).expect("serialize");
         assert!(
@@ -598,6 +831,8 @@ mod tests {
             ephemeral: false,
             capable_model: None,
             retry_max_attempts: None,
+            model_mapping: Default::default(),
+            timeout: None,
         };
         let serialized = toml::to_string(&cfg).expect("serialize");
         assert!(
@@ -679,6 +914,8 @@ mod tests {
             ephemeral: false,
             capable_model: None,
             retry_max_attempts: None,
+            model_mapping: Default::default(),
+            timeout: None,
         };
 
         assert_eq!(cfg.resolved_api_key(), Some("sk-from-env-var".to_string()));
@@ -711,6 +948,8 @@ mod tests {
             ephemeral: false,
             capable_model: None,
             retry_max_attempts: None,
+            model_mapping: Default::default(),
+            timeout: None,
         };
 
         assert_eq!(cfg.resolved_api_key(), Some("sk-custom-123".to_string()));
@@ -743,6 +982,8 @@ mod tests {
             ephemeral: false,
             capable_model: None,
             retry_max_attempts: None,
+            model_mapping: Default::default(),
+            timeout: None,
         };
 
         assert_eq!(cfg.resolved_api_key(), Some("sk-openai-std".to_string()));

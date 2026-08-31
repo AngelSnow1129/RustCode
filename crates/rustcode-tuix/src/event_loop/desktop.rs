@@ -119,10 +119,7 @@ pub fn candidate_apps(_home: &Path, _env: &impl Fn(&str) -> Option<String>) -> V
 
 /// First candidate whose `path` passes `probe`. Production passes
 /// `|p| p.exists()`; tests pass a fake set so no disk is touched.
-pub fn detect<'a>(
-    candidates: &'a [Candidate],
-    probe: impl Fn(&Path) -> bool,
-) -> Option<&'a Candidate> {
+pub fn detect(candidates: &[Candidate], probe: impl Fn(&Path) -> bool) -> Option<&Candidate> {
     candidates.iter().find(|c| probe(&c.path))
 }
 

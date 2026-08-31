@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use rustcode_capabilities::provider::{
     atomgit_request_signer, is_atomgit_gateway, signer_available, AnthropicConfig,
@@ -99,6 +100,32 @@ impl DefaultCodingProviderFactory {
     }
 }
 
+/// Effective HTTP timeouts for one provider.
+///
+/// A `[providers.<name>.timeout]` override wins; otherwise the adapter's own
+/// default stands, surfaced as `None` so each call site can `unwrap_or` onto the
+/// value its config struct was constructed with.
+///
+/// Centralised so the three adapters cannot drift apart: ONE place decides what
+/// `connect` / `request` / `idle` mean.
+#[derive(Debug, Clone, Copy, Default)]
+struct HttpTimeouts {
+    connect: Option<Duration>,
+    request: Option<Duration>,
+    idle: Option<Duration>,
+}
+
+fn http_timeouts(cfg: &CodingAgentConfig) -> HttpTimeouts {
+    let Some(timeout) = cfg.provider_timeout else {
+        return HttpTimeouts::default();
+    };
+    HttpTimeouts {
+        connect: timeout.connect(),
+        request: timeout.request(),
+        idle: timeout.idle(),
+    }
+}
+
 impl CodingProviderFactory for DefaultCodingProviderFactory {
     fn build(
         &self,
@@ -109,11 +136,16 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
             .user_agent
             .clone()
             .unwrap_or_else(|| self.default_user_agent.clone());
-        let provider: Arc<dyn LlmProvider> = match cfg.provider_type.as_str() {
-            "claude" | "anthropic" | "anthropic-compatible" => {
-                let mut ac = AnthropicConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
+        let model = cfg.model_mapping.resolve(&cfg.model).to_string();
+        let timeouts = http_timeouts(cfg);
+        let kind = rustcode_config::config::provider::ProviderKind::from_type(&cfg.provider_type);
+        let provider: Arc<dyn LlmProvider> = match kind {
+            Some(rustcode_config::config::provider::ProviderKind::Anthropic) => {
+                let mut ac = AnthropicConfig::new(&cfg.api_key, &cfg.base_url, &model);
                 ac.context_window = cfg.context_window;
-                ac.idle_timeout = cfg.stream_timeout;
+                ac.idle_timeout = timeouts.idle.unwrap_or(cfg.stream_timeout);
+                ac.connect_timeout = timeouts.connect.unwrap_or(ac.connect_timeout);
+                ac.open_timeout = timeouts.request.unwrap_or(ac.open_timeout);
                 ac.max_tokens = default_max_tokens(cfg.context_window);
                 ac.supports_vision = cfg.supports_vision;
                 ac.thinking = cfg.thinking_enabled.unwrap_or(false);
@@ -127,25 +159,42 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
                         .map_err(|e| ProviderBuildError::Adapter(e.message))?,
                 )
             }
-            "ollama" => {
-                let mut oc = OllamaConfig::new(&cfg.base_url, &cfg.model);
+            Some(rustcode_config::config::provider::ProviderKind::Ollama) => {
+                let mut oc = OllamaConfig::new(&cfg.base_url, &model);
                 oc.api_key = cfg.api_key.clone();
                 oc.context_window = cfg.context_window;
-                oc.idle_timeout = cfg.stream_timeout;
+                oc.idle_timeout = timeouts.idle.unwrap_or(cfg.stream_timeout);
+                oc.connect_timeout = timeouts.connect.unwrap_or(oc.connect_timeout);
+                // `request` is intentionally NOT emulated: OllamaConfig has no
+                // open-phase seam, and wrapping the call in an outer timeout
+                // would mask the adapter's own error classification.
                 oc.max_tokens = Some(default_max_tokens(cfg.context_window));
                 oc.supports_vision = cfg.supports_vision;
                 oc.think = cfg.thinking_enabled.unwrap_or(false);
                 oc.user_agent = Some(ua.clone());
                 oc.skip_tls_verify = cfg.skip_tls_verify;
+                oc.extra_headers = cfg.extra_headers.clone();
+                oc.proxy = cfg.proxy.clone();
                 oc.retry = retry_policy_for(cfg.retry_max_attempts)?;
                 Arc::new(
                     OllamaProvider::new(oc).map_err(|e| ProviderBuildError::Adapter(e.message))?,
                 )
             }
-            _ => {
-                let mut pc = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
+            // An explicitly OpenAI-compatible type and an UNKNOWN type share one
+            // path: OpenAI-compatible is the historical default, and an unrecognized
+            // `provider_type` must keep falling back to it rather than failing.
+            Some(rustcode_config::config::provider::ProviderKind::OpenAiCompatible) | None => {
+                if kind.is_none() {
+                    tracing::warn!(
+                        "unknown provider_type {:?}; treating as openai-compatible",
+                        cfg.provider_type
+                    );
+                }
+                let mut pc = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &model);
                 pc.context_window = cfg.context_window;
-                pc.idle_timeout = cfg.stream_timeout;
+                pc.idle_timeout = timeouts.idle.unwrap_or(cfg.stream_timeout);
+                pc.connect_timeout = timeouts.connect.unwrap_or(pc.connect_timeout);
+                pc.open_timeout = timeouts.request.unwrap_or(pc.open_timeout);
                 pc.supports_vision = cfg.supports_vision;
                 pc.max_tokens = Some(default_max_tokens(cfg.context_window));
                 // An explicit per-model default is also an explicit capability
@@ -246,6 +295,7 @@ pub fn derive_tier_config(
     tier.user_agent = provider.user_agent.clone();
     tier.skip_tls_verify = provider.skip_tls_verify;
     tier.retry_max_attempts = provider.retry_max_attempts;
+    tier.model_mapping = provider.model_mapping.clone();
     tier.subagent_fast_provider = None;
     tier.subagent_capable_provider = None;
     tier.subagent_model_providers = None;
@@ -301,6 +351,7 @@ pub fn derive_tier_config_from_resolved(
     tier.user_agent = resolved.user_agent.clone();
     tier.skip_tls_verify = resolved.skip_tls_verify;
     tier.retry_max_attempts = resolved.retry_max_attempts;
+    tier.model_mapping = resolved.model_mapping.clone();
     tier.subagent_fast_provider = None;
     tier.subagent_capable_provider = None;
     tier.subagent_model_providers = None;
@@ -437,12 +488,24 @@ mod tests {
 
     #[test]
     fn default_output_cap_matches_bounds() {
-        assert_eq!(default_max_tokens(16_000), 8_000, "tiny window floors at 8K");
-        assert_eq!(default_max_tokens(64_000), 16_000, "mid window is a quarter");
+        assert_eq!(
+            default_max_tokens(16_000),
+            8_000,
+            "tiny window floors at 8K"
+        );
+        assert_eq!(
+            default_max_tokens(64_000),
+            16_000,
+            "mid window is a quarter"
+        );
         // Large windows ceiling at 32K (raised from 16K) so a single big response
         // has room to finish before finish_reason=length.
         assert_eq!(default_max_tokens(200_000), 32_768);
-        assert_eq!(default_max_tokens(128_000), 32_000, "128K/4 sits just under the ceiling");
+        assert_eq!(
+            default_max_tokens(128_000),
+            32_000,
+            "128K/4 sits just under the ceiling"
+        );
     }
 
     #[test]
@@ -542,5 +605,46 @@ mod tests {
 
         let tier = derive_tier_config(&config("openai"), "tier-provider", &provider);
         assert_eq!(tier.retry_max_attempts, Some(6));
+    }
+
+    // ---- [providers.<name>.timeout] -> adapter fields ----
+
+    #[test]
+    fn http_timeouts_are_unset_without_a_provider_timeout() {
+        // No `[timeout]` section means "keep every adapter default", surfaced as
+        // `None` so the call site falls back to the value its config was built with.
+        let to = http_timeouts(&config("openai"));
+        assert!(to.connect.is_none());
+        assert!(to.request.is_none());
+        assert!(to.idle.is_none());
+    }
+
+    #[test]
+    fn http_timeouts_carry_every_configured_budget() {
+        let mut cfg = config("anthropic");
+        cfg.provider_timeout = Some(rustcode_config::config::provider::ProviderTimeout {
+            connect: Some(7),
+            request: Some(8),
+            idle: Some(9),
+        });
+        let to = http_timeouts(&cfg);
+        assert_eq!(to.connect, Some(Duration::from_secs(7)));
+        assert_eq!(to.request, Some(Duration::from_secs(8)));
+        assert_eq!(to.idle, Some(Duration::from_secs(9)));
+    }
+
+    #[test]
+    fn http_timeouts_keep_unset_budgets_individually_none() {
+        // A partial section must not coerce the missing budgets to zero.
+        let mut cfg = config("ollama");
+        cfg.provider_timeout = Some(rustcode_config::config::provider::ProviderTimeout {
+            connect: None,
+            request: None,
+            idle: Some(45),
+        });
+        let to = http_timeouts(&cfg);
+        assert_eq!(to.idle, Some(Duration::from_secs(45)));
+        assert_eq!(to.connect, None);
+        assert_eq!(to.request, None);
     }
 }

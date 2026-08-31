@@ -35,8 +35,8 @@ use super::{
 use crate::i18n::{t, Msg};
 use crate::sanitize::scrub_controls;
 use crate::terminal::TerminalCaps;
-use rustcode_coding;
 use crossterm::style::Color;
+use rustcode_coding;
 use unicode_segmentation::UnicodeSegmentation;
 
 const PAD_COL: usize = 2;
@@ -795,13 +795,13 @@ fn wrap_todo_content(content: &str, width: usize, max_lines: usize, ellipsis: &s
 /// (used for the live counter — `10_400` → `10.4k`, `1_500_000` → `1.5m`).
 fn format_tok_count(n: usize, round_clean: bool) -> String {
     if n >= 1_000_000 {
-        if round_clean && n % 1_000_000 == 0 {
+        if round_clean && n.is_multiple_of(1_000_000) {
             format!("{}m", n / 1_000_000)
         } else {
             format!("{:.1}m", (n as f64) / 1_000_000.0)
         }
     } else if n >= 1000 {
-        if round_clean && n % 1000 == 0 {
+        if round_clean && n.is_multiple_of(1000) {
             format!("{}k", n / 1000)
         } else if round_clean {
             format!("{:.0}k", (n as f64) / 1000.0)
@@ -3100,7 +3100,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         rule_width: usize,
     ) -> Vec<Vec<Cell>> {
         let parts: Vec<&str> = desc.split('|').collect();
-        let source = parts.get(0).copied().unwrap_or("");
+        let source = parts.first().copied().unwrap_or("");
         let available = parts.get(1).copied().unwrap_or("0");
         let installed = parts.get(2).copied().unwrap_or("0");
         let updated = parts.get(3).copied().unwrap_or("");
@@ -3547,7 +3547,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
             || stopped > 0
             || pending_count > 0
             || running.len() > MAX_VISIBLE_RUNNING_SUBTASKS;
-        let summary_rows = usize::from(needs_summary && cap >= rows.len() + 1);
+        let summary_rows = usize::from(needs_summary && cap > rows.len());
         let visible_running = running
             .len()
             .min(MAX_VISIBLE_RUNNING_SUBTASKS)
@@ -4465,9 +4465,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
             "\u{2191}\u{2193} move \u{00b7} 1-{n} select \u{00b7} Enter confirm \u{00b7} Esc cancel"
         );
         // Multiple: Enter toggles rows, confirms only on the Submit row.
-        let multiple_hint = format!(
-            "\u{2191}\u{2193} move \u{00b7} Space toggle \u{00b7} Enter \u{63d0}\u{4ea4}\u{884c}\u{786e}\u{8ba4} \u{00b7} Esc cancel"
-        );
+        let multiple_hint = "\u{2191}\u{2193} move \u{00b7} Space toggle \u{00b7} Enter \u{63d0}\u{4ea4}\u{884c}\u{786e}\u{8ba4} \u{00b7} Esc cancel".to_string();
         let hint_raw: &str = match panel.mode {
             UserInputMode::Single => &single_hint,
             UserInputMode::Multiple => &multiple_hint,
@@ -5130,7 +5128,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         if let Some(selection) = self
             .interaction_publisher
             .composer_selection()
-            .filter(|selection| &*selection.source == self.input_buf)
+            .filter(|selection| *selection.source == self.input_buf)
         {
             for cell in &composer_cells {
                 if selection.range.start < cell.source_end
@@ -5162,10 +5160,11 @@ impl<W: Write + Send> RetainedRenderer<W> {
             None
         } else if let Some(g) = status_clone.goal.as_ref() {
             Some(self.build_goal_row(g, rule_width))
-        } else if let Some(ls) = status_clone.loop_status.as_ref() {
-            Some(self.build_loop_row(ls, rule_width))
         } else {
-            None
+            status_clone
+                .loop_status
+                .as_ref()
+                .map(|ls| self.build_loop_row(ls, rule_width))
         };
         let mut todo_cells: Vec<Vec<Cell>> = status_clone
             .todo
@@ -8192,8 +8191,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         }
         let rows = self.build_welcome_rows(&model, &working_dir, &chosen);
         let new_len = rows.len();
-        self.body_lines
-            .splice(0..self.welcome_line_count, rows.into_iter());
+        self.body_lines.splice(0..self.welcome_line_count, rows);
         self.welcome_line_count = new_len;
     }
 
@@ -8525,10 +8523,8 @@ impl<W: Write + Send> RetainedRenderer<W> {
 
     fn disable_mouse_capture(&mut self) {
         if self.caps.mouse_sgr {
-            if self.mouse_capture_enabled {
-                if self.out.write_all(b"\x1b[?1002l\x1b[?1006l").is_ok() {
-                    self.mouse_capture_enabled = false;
-                }
+            if self.mouse_capture_enabled && self.out.write_all(b"\x1b[?1002l\x1b[?1006l").is_ok() {
+                self.mouse_capture_enabled = false;
             }
         } else {
             // Keep the pre-capability defensive reset byte-for-byte for all
@@ -9448,7 +9444,7 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                     || text.starts_with("  └")
                     || text.starts_with("  `")
                     || text.starts_with("  \\");
-                if is_subordinate && self.body_lines.last().map_or(false, |r| r.is_empty()) {
+                if is_subordinate && self.body_lines.last().is_some_and(|r| r.is_empty()) {
                     crate::tuix_trace!(
                         "BPOP",
                         "site=command_blank len_before={} n=1 scrolled_off={}",
@@ -9496,7 +9492,7 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                 // of scrolling. After the attachment row, push a fresh
                 // trailing blank so the next turn's content still has
                 // paragraph separation.
-                if self.body_lines.last().map_or(false, |r| r.is_empty()) {
+                if self.body_lines.last().is_some_and(|r| r.is_empty()) {
                     crate::tuix_trace!(
                         "BPOP",
                         "site=image_blank len_before={} n=1 scrolled_off={}",
@@ -9934,10 +9930,7 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
         if bottom > 0 {
             let tail: Vec<Vec<Cell>> = {
                 let n = self.body_lines.len().min(bottom as usize);
-                self.body_lines[self.body_lines.len() - n..]
-                    .iter()
-                    .cloned()
-                    .collect()
+                self.body_lines[self.body_lines.len() - n..].to_vec()
             };
             let n = tail.len() as u16;
             let first_row = bottom.saturating_sub(n) + 1;
@@ -11329,8 +11322,14 @@ mod tests {
             "Error: invalid JSON arguments for tool"
         ));
         // Success is never a failure, regardless of the text.
-        assert!(!is_recoverable_tool_failure(true, "[elapsed: 0.0s, exit: 0]"));
-        assert!(!is_recoverable_tool_failure(true, "x The file was NOT modified"));
+        assert!(!is_recoverable_tool_failure(
+            true,
+            "[elapsed: 0.0s, exit: 0]"
+        ));
+        assert!(!is_recoverable_tool_failure(
+            true,
+            "x The file was NOT modified"
+        ));
     }
 
     #[test]
@@ -11342,7 +11341,10 @@ mod tests {
         }
         // Gutter glyph + space at col 0 is stripped → the command text alone.
         assert_eq!(copy_text_from_tool_row(&row("● bash")).0, "bash");
-        assert_eq!(copy_text_from_tool_row(&row("└ cargo build")).0, "cargo build");
+        assert_eq!(
+            copy_text_from_tool_row(&row("└ cargo build")).0,
+            "cargo build"
+        );
         // Parallel child row is doubly-anchored (`└ • Tool …`): BOTH the `└`
         // connector and the `•` status dot must be stripped from the copy.
         assert_eq!(
@@ -11364,10 +11366,16 @@ mod tests {
         assert_eq!(copy_text_from_tool_row(&row("  stdout")).0, "stdout");
         assert_eq!(copy_text_from_tool_row(&row("    nested")).0, "  nested");
         // A gutter AFTER the pad (the result line `  └ [exit: 0]`) is stripped too.
-        assert_eq!(copy_text_from_tool_row(&row("  └ [exit: 0]")).0, "[exit: 0]");
+        assert_eq!(
+            copy_text_from_tool_row(&row("  └ [exit: 0]")).0,
+            "[exit: 0]"
+        );
         // But a box-drawing glyph NOT followed by a space (real tree output) is
         // preserved — the space requirement guards it.
-        assert_eq!(copy_text_from_tool_row(&row("  └── file.rs")).0, "└── file.rs");
+        assert_eq!(
+            copy_text_from_tool_row(&row("  └── file.rs")).0,
+            "└── file.rs"
+        );
         // Non-unicode terminal: the gutter downgrades to an ASCII stand-in
         // (`● `→`* `, `▸ `→`> `, `└ `→`` ` ``). At col 0 (a header row) it is
         // still stripped.
@@ -11660,10 +11668,7 @@ mod tests {
         let row = run.rect.row as usize;
         let col = run.rect.col as usize;
         let selection_bg = crate::render::theme::selection_bg_for_current_theme();
-        assert!(
-            cells[row][col].style.bg.is_none(),
-            "ASCII prefix unchanged"
-        );
+        assert!(cells[row][col].style.bg.is_none(), "ASCII prefix unchanged");
         assert_eq!(
             cells[row][col + 1].style.bg,
             Some(selection_bg),
@@ -15896,7 +15901,11 @@ mod tests {
     /// assert the committed `●` bullet's fg equals `expected`. Colour is applied
     /// AT COMMIT from the outcome the event loop passes — not at ToolResult — so
     /// a result that belongs to no header can never miscolour one.
-    fn assert_commit_bullet(outcome: Option<crate::render::ToolOutcome>, expected: Role, label: &str) {
+    fn assert_commit_bullet(
+        outcome: Option<crate::render::ToolOutcome>,
+        expected: Role,
+        label: &str,
+    ) {
         let _theme = crate::highlight::theme::test_lock();
         crate::highlight::theme::set_theme_mode(false); // dark
         let (mut r, _buf) = new_capturing(80, 24);
@@ -16006,8 +16015,16 @@ mod tests {
             .map(|c| c.style.fg)
             .collect();
         assert_eq!(dots.len(), 2, "two child status dots");
-        assert_eq!(dots[0], r.style_for(Role::Success).fg, "c1 dot green (success)");
-        assert_eq!(dots[1], r.style_for(Role::ToolName).fg, "c2 dot neutral (failure)");
+        assert_eq!(
+            dots[0],
+            r.style_for(Role::Success).fg,
+            "c1 dot green (success)"
+        );
+        assert_eq!(
+            dots[1],
+            r.style_for(Role::ToolName).fg,
+            "c2 dot neutral (failure)"
+        );
     }
 
     #[test]
@@ -16044,7 +16061,11 @@ mod tests {
             .collect();
         assert_eq!(dots.len(), 2, "two child dots at initial render");
         assert_eq!(dots[0], r.style_for(Role::Success).fg, "c1 green (success)");
-        assert_eq!(dots[1], r.style_for(Role::ToolName).fg, "c2 neutral (failure)");
+        assert_eq!(
+            dots[1],
+            r.style_for(Role::ToolName).fg,
+            "c2 neutral (failure)"
+        );
     }
 
     #[test]
@@ -16083,8 +16104,16 @@ mod tests {
             .map(|c| c.style.fg)
             .collect();
         assert_eq!(bullets.len(), 2, "two committed tool headers");
-        assert_eq!(bullets[0], r.style_for(Role::ToolName).fg, "first (fail) = neutral");
-        assert_eq!(bullets[1], r.style_for(Role::Success).fg, "second (ok) = green");
+        assert_eq!(
+            bullets[0],
+            r.style_for(Role::ToolName).fg,
+            "first (fail) = neutral"
+        );
+        assert_eq!(
+            bullets[1],
+            r.style_for(Role::Success).fg,
+            "second (ok) = green"
+        );
     }
 
     /// Dark-theme color hierarchy: the `└` result line (leaf glyph +
@@ -20884,9 +20913,15 @@ mod tests {
         // Circled digits are width-aware: width-1 hosts (legacy narrow fonts)
         // insert a synthetic space after the label, width-2 hosts (emoji-
         // capable terminals) already separate via the glyph's second cell.
-        let sep = if crate::width::cell_char_width('①') == Some(1) { " " } else { "" };
+        let sep = if crate::width::cell_char_width('①') == Some(1) {
+            " "
+        } else {
+            ""
+        };
         assert!(
-            visible.contains(&format!("如果是 ①{sep}Rust、②{sep}前端：属于模型没加空格，无需修 TUI。")),
+            visible.contains(&format!(
+                "如果是 ①{sep}Rust、②{sep}前端：属于模型没加空格，无需修 TUI。"
+            )),
             "committed user echo should use the width-aware circled-label spacing: {visible:?}"
         );
         // On width-1 hosts the synthetic space must appear; on width-2 hosts

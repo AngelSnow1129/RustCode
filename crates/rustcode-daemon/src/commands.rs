@@ -1,7 +1,6 @@
 //! `POST /command`: 无状态斜杠命令执行器（对已持久化会话/记忆施加一次性变更）。
 use axum::{extract::State, response::IntoResponse, Json};
 use std::path::Path;
-use std::sync::Arc;
 
 use crate::AppState;
 #[cfg(test)]
@@ -775,7 +774,7 @@ fn todo_items_from_messages(messages: &[rustcode_kernel::message::Message]) -> V
 }
 
 pub(crate) async fn run_command(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Json(req): Json<CommandReq>,
 ) -> impl IntoResponse {
     let working_dir = match req.working_dir.as_deref() {

@@ -1,4 +1,4 @@
-# AtomCode Hooks 配置示例
+# RustCode Hooks 配置示例
 # 将此文件保存为 ~/.rustcode/hooks/hooks.toml 或项目 .rustcode/hooks/hooks.toml
 
 [[hooks]]

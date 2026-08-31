@@ -19,9 +19,9 @@
 //! Wall-clock lives in L1 (the kernel is clock-free); this reads the system-local time.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Local};
 use rustcode_kernel::hook::{LifecycleHooks, TurnCtx};
 use rustcode_kernel::message::Message;
-use chrono::{DateTime, Local};
 
 /// Injects a `<system-reminder>` status tail from round 2 of each turn onward.
 pub struct StatusReminderHook;
@@ -109,7 +109,10 @@ mod tests {
             "must not push a context-usage gauge: {s}"
         );
         assert!(!s.contains('%'), "must not push any usage percentage: {s}");
-        assert!(!s.contains("Turn round"), "must not push a round counter: {s}");
+        assert!(
+            !s.contains("Turn round"),
+            "must not push a round counter: {s}"
+        );
     }
 
     #[tokio::test]

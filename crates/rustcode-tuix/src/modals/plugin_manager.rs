@@ -18,11 +18,11 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
+use crossterm::event::{KeyCode, KeyModifiers};
 use rustcode_capabilities::plugin::installer::InstalledPluginInfo;
 use rustcode_capabilities::plugin::marketplace::MarketplaceInfo;
 use rustcode_capabilities::plugin::InstallScope;
 use rustcode_capabilities::plugin::PluginJobEvent;
-use crossterm::event::{KeyCode, KeyModifiers};
 
 use super::{
     backspace_at_cursor, delete_at_cursor, insert_at_cursor, next_grapheme_boundary,
@@ -180,7 +180,7 @@ impl PluginManager {
                 });
             }
         }
-        items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        items.sort_by_key(|a| a.name.to_lowercase());
         items
     }
 
@@ -1882,7 +1882,10 @@ mod tests {
         // ellipsis, never exceeding the budget and never splitting a CJK char.
         let wide = "描".repeat(40); // 80 display columns
         let out = truncate_plugin_desc(&wide);
-        assert!(out.ends_with('…'), "over-budget description must be marked truncated");
+        assert!(
+            out.ends_with('…'),
+            "over-budget description must be marked truncated"
+        );
         assert!(crate::width::display_width(&out) <= PLUGIN_DESC_DISPLAY_COLS);
         assert!(
             out.chars().all(|c| c == '描' || c == '…'),

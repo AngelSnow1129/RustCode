@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paired, auditable AtomCode model evaluation harness (stdlib only)."""
+"""Paired, auditable RustCode model evaluation harness (stdlib only)."""
 
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ class Suite:
     timeout: int
     start_skew_ms: int
     seed: int
-    atomcode_bin: str
+    rustcode_bin: str
     codex_bin: str
     codex_model: str | None
     config: Path
@@ -105,10 +105,10 @@ def load_suite(path: Path) -> Suite:
         pair_concurrency=_positive(raw.get("pair_concurrency", 2), "pair_concurrency"),
         timeout=_positive(raw.get("timeout_seconds", 900), "timeout_seconds"),
         start_skew_ms=_positive(raw.get("start_skew_ms", 500), "start_skew_ms"),
-        seed=int(raw.get("random_seed", 0)), atomcode_bin=str(raw.get("atomcode_bin", "atomcode")),
+        seed=int(raw.get("random_seed", 0)), rustcode_bin=str(raw.get("rustcode_bin", "rustcode")),
         codex_bin=str(raw.get("codex_bin", "codex")),
         codex_model=str(raw.get("codex_model") or "") or None,
-        config=Path(os.path.expanduser(str(raw.get("config", "~/.atomcode/config.toml")))).resolve(),
+        config=Path(os.path.expanduser(str(raw.get("config", "~/.rustcode/config.toml")))).resolve(),
         candidates=parsed,  # type: ignore[arg-type]
     )
 
@@ -219,20 +219,20 @@ def parse_token_usage(stderr: str) -> dict[str, Any] | None:
             "cache_hit_rate": cached/prompt if prompt else None}
 
 
-def parse_atomcode_jsonl(raw: str) -> tuple[list[dict[str, Any]], str, dict[str, Any] | None]:
+def parse_rustcode_jsonl(raw: str) -> tuple[list[dict[str, Any]], str, dict[str, Any] | None]:
     events: list[dict[str, Any]] = []
     for number, line in enumerate(raw.splitlines(), 1):
         if not line.strip():
             continue
         value = json.loads(line)
         if not isinstance(value, dict) or not isinstance(value.get("type"), str):
-            raise ValueError(f"invalid AtomCode JSONL event on line {number}")
+            raise ValueError(f"invalid RustCode JSONL event on line {number}")
         events.append(value)
     starts = [event for event in events if event.get("type") == "run.started"]
     if len(starts) != 1 or not events or events[0] is not starts[0]:
         raise ValueError("expected exactly one leading run.started event")
     if starts[0].get("schema_version") != 1:
-        raise ValueError(f"unsupported AtomCode JSONL schema: {starts[0].get('schema_version')}")
+        raise ValueError(f"unsupported RustCode JSONL schema: {starts[0].get('schema_version')}")
     answer = "".join(str(event.get("text", "")) for event in events
                      if event.get("type") == "message.delta")
     terminals = [event for event in events
@@ -280,7 +280,7 @@ async def run_one(suite: Suite, case: Case, candidate: Candidate, rep: int,
     out_dir = pair_dir / candidate.name
     work = out_dir / "work"
     out_dir.mkdir(parents=True, exist_ok=True)
-    home = Path(tempfile.mkdtemp(prefix=f"atomcode-eval-{candidate.name}-"))
+    home = Path(tempfile.mkdtemp(prefix=f"rustcode-eval-{candidate.name}-"))
     source_home = suite.config.parent
     for auth_name in ("auth.toml", "codingplan_sync.json", "device_id"):
         source = source_home / auth_name
@@ -292,12 +292,12 @@ async def run_one(suite: Suite, case: Case, candidate: Candidate, rep: int,
         work.mkdir()
     prompt = out_dir / "prompt.md"
     prompt.write_text(case.prompt)
-    argv = [suite.atomcode_bin, "--provider", candidate.selection, "--config", str(suite.config),
+    argv = [suite.rustcode_bin, "--provider", candidate.selection, "--config", str(suite.config),
             "--prompt-file", str(prompt), "-C", str(work), "--ephemeral",
             "--output-format", "jsonl", "--dev", "--no-telemetry"]
     if case.tier == "model": argv.append("--no-tools")
     if case.allow_edits: argv.append("--dangerously-skip-permissions")
-    env = os.environ.copy(); env["ATOMCODE_HOME"] = str(home)
+    env = os.environ.copy(); env["RUSTCODE_HOME"] = str(home)
     await ready.wait()
     started_wall = time.time_ns(); started = time.monotonic_ns()
     timed_out = False
@@ -318,7 +318,7 @@ async def run_one(suite: Suite, case: Case, candidate: Candidate, rep: int,
     events_raw = stdout_b.decode(errors="replace")
     stderr = scrub(stderr_b.decode(errors="replace"))
     try:
-        events, stdout, token_usage = parse_atomcode_jsonl(events_raw)
+        events, stdout, token_usage = parse_rustcode_jsonl(events_raw)
         jsonl_error = None
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         events, stdout, token_usage = [], events_raw, None
@@ -398,7 +398,7 @@ def summary(run_dir: Path) -> dict[str, Any]:
                 events_path = meta_path.parent/"events.jsonl"
                 if events_path.is_file():
                     try:
-                        _, _, meta["token_usage"] = parse_atomcode_jsonl(events_path.read_text())
+                        _, _, meta["token_usage"] = parse_rustcode_jsonl(events_path.read_text())
                     except (json.JSONDecodeError, ValueError, TypeError):
                         meta["token_usage"] = None
                 else:

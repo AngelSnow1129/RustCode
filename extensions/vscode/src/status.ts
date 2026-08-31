@@ -7,7 +7,7 @@ export class StatusBarManager {
   constructor() {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     this.item.command = 'rustcode.openPreferredLocation';
-    this.item.tooltip = vscode.l10n.t('AtomCode: Click to open chat');
+    this.item.tooltip = vscode.l10n.t('RustCode: Click to open chat');
     this.update(false);
     this.item.show();
   }
@@ -17,13 +17,13 @@ export class StatusBarManager {
     void tokens;
 
     if (connected) {
-      this.item.text = '$(hubot) AtomCode';
+      this.item.text = '$(hubot) RustCode';
       this.item.tooltip = this._model
-        ? vscode.l10n.t('AtomCode: Connected ({model})', { model: this._model })
-        : vscode.l10n.t('AtomCode: Connected');
+        ? vscode.l10n.t('RustCode: Connected ({model})', { model: this._model })
+        : vscode.l10n.t('RustCode: Connected');
     } else {
-      this.item.text = '$(hubot) AtomCode ○';
-      this.item.tooltip = vscode.l10n.t('AtomCode: Not connected — click to retry');
+      this.item.text = '$(hubot) RustCode ○';
+      this.item.tooltip = vscode.l10n.t('RustCode: Not connected — click to retry');
     }
   }
 

@@ -10,7 +10,7 @@ function statusLabel(status: TodoStatus, t: ReturnType<typeof useT>): string {
 
 function statusGlyph(status: TodoStatus): string {
   if (status === 'in_progress') return '●';
-  if (status === 'completed') return '✓';
+  if (status === 'completed') return '[+]';
   return '○';
 }
 

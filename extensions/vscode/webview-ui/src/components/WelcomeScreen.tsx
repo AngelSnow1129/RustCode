@@ -10,12 +10,12 @@ interface QuickAction {
 }
 
 const quickActions: QuickAction[] = [
-  { id: 'intro', labelKey: 'welcome.quick.intro', icon: '💡' },
-  { id: 'projectOverview', labelKey: 'welcome.quick.projectOverview', icon: '🗂️' },
-  { id: 'improvements', labelKey: 'welcome.quick.improvements', icon: '🔎' },
-  { id: 'devPlan', labelKey: 'welcome.quick.devPlan', icon: '🧭' },
-  { id: 'configuration', labelKey: 'welcome.quick.configuration', icon: '⚙️' },
-  { id: 'tips', labelKey: 'welcome.quick.tips', icon: '✨' },
+  { id: 'intro', labelKey: 'welcome.quick.intro', icon: '[*]' },
+  { id: 'projectOverview', labelKey: 'welcome.quick.projectOverview', icon: '[~]️' },
+  { id: 'improvements', labelKey: 'welcome.quick.improvements', icon: '[?]' },
+  { id: 'devPlan', labelKey: 'welcome.quick.devPlan', icon: '[>]' },
+  { id: 'configuration', labelKey: 'welcome.quick.configuration', icon: '[#]️' },
+  { id: 'tips', labelKey: 'welcome.quick.tips', icon: '[+]' },
 ];
 
 export function WelcomeScreen() {
@@ -77,7 +77,7 @@ export function WelcomeScreen() {
   return (
     <div className="welcome-screen">
       <div className="welcome-content">
-        <h1 className="welcome-title">AtomCode</h1>
+        <h1 className="welcome-title">RustCode</h1>
         <p className="welcome-subtitle">
           {needsSetup ? t('welcome.subtitle.setup') : t('welcome.subtitle.ready')}
         </p>

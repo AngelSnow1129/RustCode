@@ -42,7 +42,7 @@ internal fun reduceDaemonSupervisor(
             nextRetryDelayMs = null,
         )
         is DaemonSupervisorAction.ProbeSucceeded -> {
-            if (action.service != "atomcode-daemon") {
+            if (action.service != "rustcode-daemon") {
                 model.copy(
                     state = DaemonSupervisorState.PortConflict(
                         host = endpointHost(action.endpoint),

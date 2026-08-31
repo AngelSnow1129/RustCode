@@ -7,8 +7,10 @@ use std::path::Path;
 /// are stored and who can see them.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum InstallScope {
     /// User-global: installed to `~/.rustcode/plugins/`, visible in all projects.
+    #[default]
     User,
     /// Project-shared: installed to `.rustcode/plugins/`, committed to git,
     /// visible to all collaborators.
@@ -16,12 +18,6 @@ pub enum InstallScope {
     /// Local-only: installed to `.rustcode/plugins/local/`, git-ignored,
     /// visible only to the current user in the current project.
     Local,
-}
-
-impl Default for InstallScope {
-    fn default() -> Self {
-        Self::User
-    }
 }
 
 impl std::fmt::Display for InstallScope {

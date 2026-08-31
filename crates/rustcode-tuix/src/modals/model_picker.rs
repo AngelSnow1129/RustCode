@@ -8,8 +8,8 @@
 // Renders as a MenuPayload above the input box.
 
 use anyhow::Result;
-use rustcode_config::config::Config;
 use crossterm::event::{KeyCode, KeyModifiers};
+use rustcode_config::config::Config;
 
 use super::{
     backspace_at_cursor, delete_at_cursor, insert_at_cursor, next_grapheme_boundary,
@@ -397,6 +397,8 @@ mod tests {
             map.insert(
                 name.to_string(),
                 ProviderConfig {
+                    model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+                    timeout: None,
                     provider_type: ptype.to_string(),
                     api_key: None,
                     model: model.to_string(),
@@ -404,6 +406,8 @@ mod tests {
                     system_prompt: None,
                     supports_vision: None,
                     user_agent: None,
+                    extra_headers: None,
+                    proxy: None,
                     context_window: 128000,
                     max_tokens: None,
                     thinking_type: None,
@@ -416,7 +420,7 @@ mod tests {
                     skip_tls_verify: false,
                     ephemeral: false,
                     capable_model: None,
-            retry_max_attempts: None,
+                    retry_max_attempts: None,
                 },
             );
         }

@@ -178,7 +178,7 @@ pub fn render_line_with_width(
             None => body,
         }
     };
-    let prefix_only = || -> Option<String> { prefix.as_ref().map(|p| p.clone()) };
+    let prefix_only = || -> Option<String> { prefix.clone() };
 
     // Fenced code block fence (``` or ~~~).
     //
@@ -248,7 +248,7 @@ pub fn render_line_with_width(
             format!("{} {}", "#".repeat(level as usize), inner)
         } else {
             match level {
-                1 | 2 | 3 => format!(
+                1..=3 => format!(
                     "{}{}{}",
                     theme::md_heading_open(),
                     inner,
@@ -492,7 +492,7 @@ fn effective_ncols(parsed: &[Vec<String>]) -> usize {
     while n > 1
         && content
             .iter()
-            .all(|r| r.get(n - 1).map_or(true, |c| c.trim().is_empty()))
+            .all(|r| r.get(n - 1).is_none_or(|c| c.trim().is_empty()))
     {
         n -= 1;
     }
@@ -619,17 +619,14 @@ fn fit_columns_to_grid(
     while total > content_budget {
         let mut best: Option<usize> = None;
         for j in 0..ncols {
-            if w[j] > floors[j] && best.map_or(true, |b| w[j] > w[b]) {
+            if w[j] > floors[j] && best.is_none_or(|b| w[j] > w[b]) {
                 best = Some(j);
             }
         }
-        match best {
-            Some(j) => {
-                w[j] -= 1;
-                total -= 1;
-            }
-            // Unreachable: floor_sum ≤ budget guarantees we can reach it.
-            None => return None,
+        {
+            let j = best?;
+            w[j] -= 1;
+            total -= 1;
         }
     }
     Some(w)
@@ -767,9 +764,16 @@ fn render_table_rule(col_widths: &[usize], preferred: char, caps: TerminalCaps) 
     let width = col_widths.iter().sum::<usize>()
         + TABLE_CELL_PADDING * 2 * col_widths.len()
         + TABLE_COLUMN_GAP * col_widths.len().saturating_sub(1);
-    let rule = stable_table_rule_char(preferred, caps).to_string().repeat(width);
+    let rule = stable_table_rule_char(preferred, caps)
+        .to_string()
+        .repeat(width);
     if caps.colors {
-        format!("{}{}{}", theme::md_border_open(), rule, theme::MD_MUTED_CLOSE)
+        format!(
+            "{}{}{}",
+            theme::md_border_open(),
+            rule,
+            theme::MD_MUTED_CLOSE
+        )
     } else {
         rule
     }
@@ -1917,8 +1921,14 @@ mod tests {
             render_inline_line("现在批量落地：①Rust 修复 ②前端修复", plain_caps()),
             format!("现在批量落地：①{sep}Rust 修复 ②{sep}前端修复")
         );
-        assert_eq!(render_inline_line("③Task", plain_caps()), format!("③{sep}Task"));
-        assert_eq!(render_inline_line("⑳版本", plain_caps()), format!("⑳{sep}版本"));
+        assert_eq!(
+            render_inline_line("③Task", plain_caps()),
+            format!("③{sep}Task")
+        );
+        assert_eq!(
+            render_inline_line("⑳版本", plain_caps()),
+            format!("⑳{sep}版本")
+        );
     }
 
     #[test]
@@ -2438,10 +2448,7 @@ mod tests {
             "top boundary, header separator, and bottom boundary missing:\n{out}"
         );
         // Every rule is continuous — no per-column segment leaves an interior gap.
-        assert!(
-            has_table_rule(&out, body_rule),
-            "body rule missing:\n{out}"
-        );
+        assert!(has_table_rule(&out, body_rule), "body rule missing:\n{out}");
         assert!(
             !out.lines().any(|line| {
                 let t = line.trim();
@@ -2454,8 +2461,7 @@ mod tests {
         );
         let styled = flush_aligned_table_with_width(&rows, caps(), 80);
         assert!(
-            styled.contains(theme::md_heading_open())
-                && styled.contains(theme::MD_HEADING_CLOSE),
+            styled.contains(theme::md_heading_open()) && styled.contains(theme::MD_HEADING_CLOSE),
             "styled terminals should emphasize the table header:\n{styled}"
         );
     }
@@ -2550,7 +2556,10 @@ mod tests {
             plain_caps(),
             80,
         );
-        assert!(!table.contains("---|---"), "raw delimiter must not leak: {table}");
+        assert!(
+            !table.contains("---|---"),
+            "raw delimiter must not leak: {table}"
+        );
         assert!(!table.contains('│'), "table must be borderless: {table}");
         assert!(
             table.contains('A') && table.contains('d'),
@@ -2818,10 +2827,7 @@ mod tests {
         ];
         // Natural width ~ 1 + (5+3) + (10+3) + (1+3) = 26.
         let wide = flush_aligned_table_with_width(&rows, plain_caps(), 80);
-        assert!(
-            !wide.contains('：'),
-            "80 cols should render as a grid"
-        );
+        assert!(!wide.contains('：'), "80 cols should render as a grid");
 
         let narrow = flush_aligned_table_with_width(&rows, plain_caps(), 20);
         assert!(narrow.contains('：'), "20 cols should fall back to flat");
@@ -2889,7 +2895,10 @@ mod tests {
                 out.push('\n');
             }
         }
-        assert!(!out.contains('：'), "wide terminal should keep a grid:\n{out}");
+        assert!(
+            !out.contains('：'),
+            "wide terminal should keep a grid:\n{out}"
+        );
         assert!(!out.contains('┌') && !out.contains('└') && !out.contains('│'));
         assert!(out.contains("a") && out.contains("2"));
     }

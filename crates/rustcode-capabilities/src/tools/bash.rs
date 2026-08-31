@@ -2420,10 +2420,9 @@ fn redirect_is_readonly(redirect_node: tree_sitter::Node, src: &[u8]) -> bool {
                 }
             }
             // A numeric target: safe ONLY as an fd-dup (`2>&1`); a plain `> 9` writes file "9".
-            "number"
-                if !is_fd_dup => {
-                    return false;
-                }
+            "number" if !is_fd_dup => {
+                return false;
+            }
             _ => {}
         }
     }

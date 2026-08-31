@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────
-# AtomCode npm package build script
+# RustCode npm package build script
 # Usage:  ./scripts/build_npm_package.sh <version>
 # Example: ./scripts/build_npm_package.sh 4.23.3 --dry-run
 #          ./scripts/build_npm_package.sh 4.23.3
@@ -31,7 +31,7 @@ et(){
 }
 
 fct(){ curl -sS -H "PRIVATE-TOKEN: $ATOMGIT_TOKEN" -H "Accept: application/json" \
-    "$B/repos/atomgit_atomcode/atomcode/contents/Cargo.toml?ref=main"; }
+    "$B/repos/atomgit_rustcode/rustcode/contents/Cargo.toml?ref=main"; }
 
 pvs(){
     local t v
@@ -77,14 +77,14 @@ publish_platform() {
 
   # generate package.json dynamically — 就几行
   cat > "$dir/package.json" <<EOF
-{"name":"@atomgit.com/atomcode","version":"${VERSION}-${tag}","os":["${os}"],"cpu":["${arch}"],"files":["bin/"]}
+{"name":"@atomgit.com/rustcode","version":"${VERSION}-${tag}","os":["${os}"],"cpu":["${arch}"],"files":["bin/"]}
 EOF
 
   # download binary
   local dl_os="$os"
   [ "$os" = "win32" ] && dl_os="windows"
-  local bin_name="atomcode$([ "$os" = "win32" ] && echo ".exe")"
-  local url="https://atomgit.com/atomgit_atomcode/atomcode/releases/download/v${VERSION}/atomcode-v${VERSION}-${dl_os}-${arch}$([ "$os" = "win32" ] && echo ".exe")"
+  local bin_name="rustcode$([ "$os" = "win32" ] && echo ".exe")"
+  local url="https://atomgit.com/atomgit_rustcode/rustcode/releases/download/v${VERSION}/rustcode-v${VERSION}-${dl_os}-${arch}$([ "$os" = "win32" ] && echo ".exe")"
 
   echo "  ↓ downloading ${tag}..."
   local http_code
@@ -103,11 +103,11 @@ EOF
   # publish
   cd "$dir"
   npm publish --registry=https://registry.npmjs.org/ --access public $NPM_EXTRA
-  echo "  ✓ @atomgit.com/atomcode@${VERSION}-${tag}"
+  echo "  - @atomgit.com/rustcode@${VERSION}-${tag}"
 }
 
 echo ""
-echo "  Publishing @atomgit.com/atomcode v${VERSION}"
+echo "  Publishing @atomgit.com/rustcode v${VERSION}"
 echo ""
 
 # 1. publish platform versions
@@ -120,7 +120,7 @@ done
 CORE_DIR="$WORK_DIR/core"
 mkdir -p "$CORE_DIR/bin"
 cp "$NPM_DIR/package.json" "$CORE_DIR/"
-cp "$NPM_DIR/bin/atomcode.js" "$CORE_DIR/bin/"
+cp "$NPM_DIR/bin/rustcode.js" "$CORE_DIR/bin/"
 cd "$CORE_DIR"
 # Inject version + optionalDependencies dynamically (like Codex does in CI)
 node -e "
@@ -128,16 +128,16 @@ var fs = require('fs');
 var pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 pkg.version = '$VERSION';
 pkg.optionalDependencies = {
-  '@atomgit.com/atomcode-darwin-arm64': 'npm:@atomgit.com/atomcode@$VERSION-darwin-arm64',
-  '@atomgit.com/atomcode-darwin-x64': 'npm:@atomgit.com/atomcode@$VERSION-darwin-x64',
-  '@atomgit.com/atomcode-linux-arm64': 'npm:@atomgit.com/atomcode@$VERSION-linux-arm64',
-  '@atomgit.com/atomcode-linux-x64': 'npm:@atomgit.com/atomcode@$VERSION-linux-x64',
-  '@atomgit.com/atomcode-win32-x64': 'npm:@atomgit.com/atomcode@$VERSION-win32-x64',
-  '@atomgit.com/atomcode-ohos-arm64': 'npm:@atomgit.com/atomcode@$VERSION-ohos-arm64'
+  '@atomgit.com/rustcode-darwin-arm64': 'npm:@atomgit.com/rustcode@$VERSION-darwin-arm64',
+  '@atomgit.com/rustcode-darwin-x64': 'npm:@atomgit.com/rustcode@$VERSION-darwin-x64',
+  '@atomgit.com/rustcode-linux-arm64': 'npm:@atomgit.com/rustcode@$VERSION-linux-arm64',
+  '@atomgit.com/rustcode-linux-x64': 'npm:@atomgit.com/rustcode@$VERSION-linux-x64',
+  '@atomgit.com/rustcode-win32-x64': 'npm:@atomgit.com/rustcode@$VERSION-win32-x64',
+  '@atomgit.com/rustcode-ohos-arm64': 'npm:@atomgit.com/rustcode@$VERSION-ohos-arm64'
 };
 fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
 "
 npm publish --registry=https://registry.npmjs.org/ --access public $NPM_EXTRA
-echo "  ✓ @atomgit.com/atomcode@${VERSION} (core)"
+echo "  - @atomgit.com/rustcode@${VERSION} (core)"
 echo ""
 echo "  All done!"

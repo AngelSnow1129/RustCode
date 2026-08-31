@@ -281,7 +281,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const panel = vscode.window.createWebviewPanel(
       'rustcode.chatTab',
-      'AtomCode',
+      'RustCode',
       column,
       {
         enableScripts: true,

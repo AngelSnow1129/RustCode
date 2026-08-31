@@ -21,12 +21,12 @@
 
 use super::retry::{self, RetryPolicy};
 use async_trait::async_trait;
+use futures::stream::BoxStream;
+use futures::StreamExt;
 use rustcode_kernel::message::{Message, Role};
 use rustcode_kernel::provider::{ChatOptions, LlmProvider, ReasoningEffort, ToolChoice};
 use rustcode_kernel::stream::{ProviderError, StreamEvent, TokenUsage};
 use rustcode_kernel::tool::{ToolCall, ToolDef};
-use futures::stream::BoxStream;
-use futures::StreamExt;
 use serde_json::{json, Map, Value};
 use std::time::Duration;
 
@@ -62,6 +62,11 @@ pub struct OllamaConfig {
     /// Disable TLS certificate verification (self-signed / internal gateways).
     /// Mirrors core's `ProviderConfig::skip_tls_verify`. Default false.
     pub skip_tls_verify: bool,
+    /// Arbitrary extra HTTP headers sent on every request (self-hosted gateway
+    /// auth/tenant). Never hardcoded.
+    pub extra_headers: Option<std::collections::HashMap<String, String>>,
+    /// Per-provider forward proxy override. `None` ⇒ process proxy policy.
+    pub proxy: Option<String>,
 }
 
 impl OllamaConfig {
@@ -80,6 +85,8 @@ impl OllamaConfig {
             retry: RetryPolicy::default(),
             user_agent: None,
             skip_tls_verify: false,
+            extra_headers: None,
+            proxy: None,
         }
     }
 }
@@ -106,6 +113,14 @@ impl OllamaProvider {
                     .as_deref()
                     .unwrap_or(super::DEFAULT_USER_AGENT),
             );
+        // A per-provider proxy overrides the process-wide proxy policy.
+        if let Some(proxy) = &cfg.proxy {
+            builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(|e| ProviderError {
+                retryable: false,
+                message: format!("invalid ollama proxy url {proxy}: {e}"),
+                ..Default::default()
+            })?);
+        }
         if cfg.skip_tls_verify {
             builder = builder.danger_accept_invalid_certs(true);
         }
@@ -157,6 +172,10 @@ impl LlmProvider for OllamaProvider {
         let session_id = self.session_id.get().cloned().unwrap_or_default();
         let idle = self.cfg.idle_timeout;
         let rate_limit_retry_owner = options.rate_limit_retry_owner;
+        // Owned snapshot: open_stream borrows `extra_headers`, and the reopen path
+        // inside the `'static` stream re-calls it, so a `&self` borrow would not
+        // outlive the boxed stream.
+        let extra_headers = self.cfg.extra_headers.clone();
         let resp = open_stream(
             &client,
             &url,
@@ -165,6 +184,7 @@ impl LlmProvider for OllamaProvider {
             &session_id,
             &policy,
             rate_limit_retry_owner,
+            &extra_headers,
         )
         .await?;
 
@@ -216,7 +236,7 @@ impl LlmProvider for OllamaProvider {
                                 // Brief, esc-interruptible backoff before reopening so an
                                 // immediate retry does not slam a gateway resetting under load.
                                 tokio::time::sleep(retry::compute_backoff(stream_attempt, &policy)).await;
-                                if let Ok(fresh) = open_stream(&client, &url, &body, &api_key, &session_id, &policy, rate_limit_retry_owner).await {
+                                if let Ok(fresh) = open_stream(&client, &url, &body, &api_key, &session_id, &policy, rate_limit_retry_owner, &extra_headers).await {
                                     stream_attempt += 1;
                                     resp = fresh;
                                     continue 'reopen;
@@ -277,6 +297,7 @@ async fn open_stream(
     session_id: &str,
     policy: &RetryPolicy,
     rate_limit_retry_owner: rustcode_kernel::provider::RateLimitRetryOwner,
+    extra_headers: &Option<std::collections::HashMap<String, String>>,
 ) -> Result<reqwest::Response, ProviderError> {
     let mut attempt = 1u32;
     loop {
@@ -287,6 +308,12 @@ async fn open_stream(
         // Stable session id → gateway prefix-cache affinity. Empty ⇒ omitted.
         if !session_id.is_empty() {
             req = req.header("x-rustcode-session-id", session_id);
+        }
+        // Self-hosted gateway auth/tenant headers. Never override the bearer auth.
+        if let Some(headers) = extra_headers {
+            for (k, v) in headers {
+                req = req.header(k, v);
+            }
         }
         match req.send().await {
             Ok(resp) => {

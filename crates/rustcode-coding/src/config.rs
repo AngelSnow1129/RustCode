@@ -18,6 +18,16 @@ pub struct CodingAgentConfig {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+    /// Resolved model alias table (see [`rustcode_config::config::provider::ModelMapping`]);
+    /// applied once at the provider factory so adapters never see aliases.
+    pub model_mapping: rustcode_config::config::provider::ModelMapping,
+    /// Per-provider HTTP timeouts from `[providers.<name>.timeout]`. `None` keeps
+    /// every adapter default. This is the HTTP-layer budget (connect / open /
+    /// stream-idle) and is deliberately SEPARATE from [`Self::request_timeout`],
+    /// which is the kernel's request/respond round-trip budget (approvals,
+    /// `request_user_input`) — conflating the two is what makes a slow gateway
+    /// look like a user who never answered.
+    pub provider_timeout: Option<rustcode_config::config::provider::ProviderTimeout>,
     /// Final image-input capability resolved from the model profile override or
     /// the backwards-compatible Auto heuristic.
     pub supports_vision: bool,
@@ -415,6 +425,8 @@ pub fn apply_provider_config(
     config.user_agent = provider.user_agent.clone();
     config.skip_tls_verify = provider.skip_tls_verify;
     config.retry_max_attempts = provider.retry_max_attempts;
+    config.model_mapping = provider.model_mapping.clone();
+    config.provider_timeout = provider.timeout;
 }
 
 /// A thunk the runtime supplies that constructs a (gateway-signed) tier provider. `Some` on
@@ -754,6 +766,8 @@ impl CodingAgentConfig {
             supports_vision: rustcode_capabilities::provider::model_suggests_vision(&model),
             supports_reasoning_effort: false,
             model,
+            model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+            provider_timeout: None,
             preferred_language: None,
             todo: Default::default(),
             working_dir: working_dir.into(),

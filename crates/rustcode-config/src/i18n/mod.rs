@@ -74,7 +74,9 @@ pub fn substitute_placeholders<'a>(raw: Cow<'a, str>) -> Cow<'a, str> {
     if !raw.contains('{') {
         return raw;
     }
-    let owned = raw.replace("{brand}", &brand()).replace("{oauth}", &oauth());
+    let owned = raw
+        .replace("{brand}", &brand())
+        .replace("{oauth}", &oauth());
     Cow::Owned(owned)
 }
 
@@ -901,8 +903,14 @@ mod tests {
         assert!(!en.contains("{brand}"), "en leaked placeholder: {en}");
         assert!(!zh.contains("{brand}"), "zh leaked placeholder: {zh}");
         // The settled brand must appear (RwLock last-write-wins guarantees this).
-        assert!(en.contains("TestBrand"), "en did not use settled brand: {en}");
-        assert!(zh.contains("TestBrand"), "zh did not use settled brand: {zh}");
+        assert!(
+            en.contains("TestBrand"),
+            "en did not use settled brand: {en}"
+        );
+        assert!(
+            zh.contains("TestBrand"),
+            "zh did not use settled brand: {zh}"
+        );
 
         // Restore upstream default so no other test sees "TestBrand".
         set_brand("RustCode", "AtomGit OAuth");
@@ -918,7 +926,10 @@ mod tests {
         // the point is that `{brand}` never leaks.
         let _g = test_lock();
         let en = t_with(Locale::En, Msg::OnboardingPanelTitle);
-        assert!(!en.contains("{brand}"), "default fallback leaked placeholder: {en}");
+        assert!(
+            !en.contains("{brand}"),
+            "default fallback leaked placeholder: {en}"
+        );
         // OnboardingPanelTitle is just the brand name, so the rendered value
         // is whatever was settled (or "RustCode" default) — never the raw token.
         assert!(!en.is_empty(), "OnboardingPanelTitle rendered empty");
@@ -947,7 +958,10 @@ mod tests {
         // Simulate the authoritative load from a custom config with "LongCode".
         set_brand("LongCode", "OA OAuth");
         let en = t_with(Locale::En, Msg::OnboardingPanelTitle);
-        assert_eq!(en, "LongCode", "authoritative brand did not override pre-scan: {en}");
+        assert_eq!(
+            en, "LongCode",
+            "authoritative brand did not override pre-scan: {en}"
+        );
         // Restore upstream default so no other test sees "LongCode".
         set_brand("RustCode", "AtomGit OAuth");
     }
@@ -962,8 +976,14 @@ mod tests {
         // Simulate Config::default() path: no config, env override applied.
         set_brand("EnvBrand", "EnvOAuth");
         let en = t_with(Locale::En, Msg::WelcomeBannerLine1);
-        assert!(en.contains("EnvBrand"), "env brand not rendered on first-run: {en}");
-        assert!(!en.contains("{brand}"), "first-run leaked placeholder: {en}");
+        assert!(
+            en.contains("EnvBrand"),
+            "env brand not rendered on first-run: {en}"
+        );
+        assert!(
+            !en.contains("{brand}"),
+            "first-run leaked placeholder: {en}"
+        );
         // Restore upstream default.
         set_brand("RustCode", "AtomGit OAuth");
     }

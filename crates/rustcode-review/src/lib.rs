@@ -54,11 +54,11 @@ pub use persona::review_persona;
 pub use review_tool::{ReviewTool, ReviewToolConfig, SharedReviewProvider};
 pub use rules::{changed_files_from_diff, is_low_signal_file, render_rules_section};
 
-/// Re-exported so a driver (CLI) can read findings without depending on
-/// `rustcode-capabilities` directly.
-pub use rustcode_capabilities::tools::{Finding, ReportFindingTool};
 pub use fanout::{
     dimension_coverage, finalize_deep_review, merge_deep_findings, render_deep_result,
     render_verify_task, run_verify, verify_reconfirms, DimensionOutcome, MergedFinding,
     ReviewDimension, REVIEW_DIMENSIONS, VERIFY_CONCURRENCY, VERIFY_LENS,
 };
+/// Re-exported so a driver (CLI) can read findings without depending on
+/// `rustcode-capabilities` directly.
+pub use rustcode_capabilities::tools::{Finding, ReportFindingTool};

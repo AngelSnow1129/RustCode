@@ -4,11 +4,11 @@ export type Lang = 'zh' | 'en';
 type TParams = Record<string, string | number | boolean>;
 
 const zh = {
-  'app.productName': 'AtomCode',
+  'app.productName': 'RustCode',
 
   'welcome.subtitle.ready': 'AI 编程助手',
-  'welcome.subtitle.setup': '设置 AtomCode，开始在 VS Code 中对话',
-  'welcome.quick.intro': '了解 AtomCode',
+  'welcome.subtitle.setup': '设置 RustCode，开始在 VS Code 中对话',
+  'welcome.quick.intro': '了解 RustCode',
   'welcome.quick.projectOverview': '项目概览',
   'welcome.quick.improvements': '查找改进点',
   'welcome.quick.devPlan': '生成开发计划',
@@ -160,7 +160,7 @@ const zh = {
   'image.next': '下一张',
   'image.closePreview': '关闭预览',
 
-  'provider.settingsTitle': 'AtomCode 设置',
+  'provider.settingsTitle': 'RustCode 设置',
   'provider.notSignedIn': '未登录',
   'provider.providers': 'Providers',
   'provider.noneConfigured': '未配置 Provider。',
@@ -186,11 +186,11 @@ const zh = {
 export type MsgKey = keyof typeof zh;
 
 const en: Record<MsgKey, string> = {
-  'app.productName': 'AtomCode',
+  'app.productName': 'RustCode',
 
   'welcome.subtitle.ready': 'AI-powered coding assistant',
-  'welcome.subtitle.setup': 'Set up AtomCode to start chatting in VS Code',
-  'welcome.quick.intro': 'Learn AtomCode',
+  'welcome.subtitle.setup': 'Set up RustCode to start chatting in VS Code',
+  'welcome.quick.intro': 'Learn RustCode',
   'welcome.quick.projectOverview': 'Project Overview',
   'welcome.quick.improvements': 'Find Improvements',
   'welcome.quick.devPlan': 'Create Plan',
@@ -342,7 +342,7 @@ const en: Record<MsgKey, string> = {
   'image.next': 'Next image',
   'image.closePreview': 'Close preview',
 
-  'provider.settingsTitle': 'AtomCode Settings',
+  'provider.settingsTitle': 'RustCode Settings',
   'provider.notSignedIn': 'Not signed in',
   'provider.providers': 'Providers',
   'provider.noneConfigured': 'No providers configured.',

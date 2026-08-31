@@ -23,7 +23,7 @@ class HeaderPanel : JPanel(BorderLayout()) {
         font = font.deriveFont(10f)
     }
 
-    private val title = JLabel("AtomCode").apply {
+    private val title = JLabel("RustCode").apply {
         font = font.deriveFont(java.awt.Font.BOLD, font.size2D + 1f)
         // JBColor(亮色, 暗色)
         foreground = JBColor(0x1E1E1E, 0xE0E0E0)

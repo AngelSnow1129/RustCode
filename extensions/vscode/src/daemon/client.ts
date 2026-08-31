@@ -167,7 +167,7 @@ export class DaemonClient {
         method,
         headers: {
           'Content-Type': 'application/json',
-          'X-AtomCode-Client': 'vscode',
+          'X-RustCode-Client': 'vscode',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
         },
@@ -465,7 +465,7 @@ export class DaemonClient {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream',
-        'X-AtomCode-Client': 'vscode',
+        'X-RustCode-Client': 'vscode',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         'Content-Length': Buffer.byteLength(payload),
       },

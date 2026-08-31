@@ -53,6 +53,8 @@ mod tests {
             api_key: Some("sk-x".into()),
             model: model.into(),
             base_url: Some("https://gw.example/v1".into()),
+            model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+            timeout: None,
             system_prompt: None,
             supports_vision: None,
             user_agent: None,

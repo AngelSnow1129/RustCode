@@ -69,11 +69,9 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         std::process::exit(EXIT_USER_DECLINED as i32);
     }
 
-    if tty_mode {
-        if !confirm_and_kill_running_processes()? {
-            eprintln!("aborted: running processes were not terminated.");
-            std::process::exit(EXIT_USER_DECLINED as i32);
-        }
+    if tty_mode && !confirm_and_kill_running_processes()? {
+        eprintln!("aborted: running processes were not terminated.");
+        std::process::exit(EXIT_USER_DECLINED as i32);
     }
 
     let ctx = build_context(&plan)?;

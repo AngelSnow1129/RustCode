@@ -408,8 +408,14 @@ async fn interactive_truncation_checkpoint_stop_does_not_repeat_warning() {
 
     // Pin the intent: the budget must actually be exhausted so the interactive
     // checkpoint fires (otherwise `warning.is_none()` passes vacuously).
-    assert!(checkpoint_fired, "the exhausted budget must reach the checkpoint");
-    assert!(warning.is_none(), "the choice panel already explained the stop");
+    assert!(
+        checkpoint_fired,
+        "the exhausted budget must reach the checkpoint"
+    );
+    assert!(
+        warning.is_none(),
+        "the choice panel already explained the stop"
+    );
 }
 
 #[tokio::test]
@@ -456,7 +462,10 @@ async fn interactive_truncation_checkpoint_cancel_uses_cancelled_terminal() {
 
     // Pin the intent: the Cancel must be delivered AT the truncation checkpoint,
     // not from some unrelated request kind.
-    assert!(checkpoint_fired, "the exhausted budget must reach the checkpoint");
+    assert!(
+        checkpoint_fired,
+        "the exhausted budget must reach the checkpoint"
+    );
 
     assert_eq!(stop, Some(rustcode_kernel::event::StopReason::Cancelled));
 }
@@ -489,9 +498,9 @@ fn spawn_agent(
 // --- agent-layer visible retry (second tier above the transport retry) ---
 
 use async_trait::async_trait;
+use futures::stream::BoxStream;
 use rustcode_kernel::provider::ChatOptions;
 use rustcode_kernel::tool::ToolDef;
-use futures::stream::BoxStream;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// A provider whose open FAILS the first `fail_first` times (returning a clone of
@@ -585,7 +594,8 @@ async fn retryable_open_failure_retries_visibly_then_succeeds() {
         "two retryable failures must emit two visible retry notices; got {retries:?}"
     );
     assert_eq!(
-        retries[0], (1, 3),
+        retries[0],
+        (1, 3),
         "retry notices must be numbered 1/3 then 2/3; got {retries:?}"
     );
     assert_eq!(retries[1], (2, 3), "got {retries:?}");

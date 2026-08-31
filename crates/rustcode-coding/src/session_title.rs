@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use futures::StreamExt;
 use rustcode_kernel::message::{Message, Role};
 use rustcode_kernel::provider::{ChatOptions, LlmProvider};
 use rustcode_kernel::stream::StreamEvent;
-use futures::StreamExt;
 
 const MAX_TITLE_CHARS: usize = 40;
 const TITLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);

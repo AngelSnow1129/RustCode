@@ -1,8 +1,9 @@
 use crate::message::Message;
-use crate::stream::{ProviderError, StreamEvent};
-use crate::tool::ToolDef;
+use crate::stream::{ProviderError, StreamEvent, TokenUsage};
+use crate::tool::{ToolCall, ToolDef};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 /// NEUTRAL per-call request knobs handed to the provider on each `chat_stream`.
@@ -117,6 +118,52 @@ pub enum ToolChoice {
     None,
 }
 
+/// Why the model stopped generating. The NEUTRAL, kernel-side spelling of the
+/// provider-specific terminal reason (`finish_reason` / `stop_reason`), so a
+/// consumer branches on a variant instead of string-matching wire text.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FinishReason {
+    /// Normal end of turn (`finish_reason: "stop"` / `stop_reason: "end_turn"`).
+    /// The DEFAULT: a stream that simply ends without a terminal signal is a
+    /// natural completion, never an error.
+    #[default]
+    Stop,
+    /// Output cap hit — the response is TRUNCATED, not complete
+    /// (`finish_reason: "length"` / `stop_reason: "max_tokens"`, or
+    /// `StreamEvent::Done { truncated: true }`).
+    Length,
+    /// The model produced tool calls to execute before it can continue.
+    /// Reported even when a backend also said `finish_reason: "stop"` — the tool
+    /// calls are what the turn loop acts on, so they win.
+    ToolCalls,
+    /// Content policy / safety filter cut the response.
+    ContentFilter,
+    /// An unrecognized terminal reason from the backend. Never invented by the
+    /// kernel: it is the honest fallback for a new provider spelling.
+    Other,
+}
+
+/// One COMPLETE, non-streaming assistant response.
+///
+/// This is the `[STREAMING]`-spec counterpart to the event stream: callers that
+/// want the whole answer at once (sub-agents, one-shot completions, tests) use
+/// [`LlmProvider::chat`] instead of hand-folding [`StreamEvent`]s. The fields
+/// mirror exactly what the default fold collects, so the two paths cannot drift.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ChatResponse {
+    /// Accumulated assistant text.
+    pub text: String,
+    /// Accumulated thinking/reasoning channel text, or `None` when the model
+    /// emitted no reasoning at all (distinct from an EMPTY reasoning string).
+    pub reasoning: Option<String>,
+    /// Whole tool calls requested by the model, in emission order.
+    pub tool_calls: Vec<ToolCall>,
+    /// Reported token usage, or `None` when the provider reported none.
+    pub usage: Option<TokenUsage>,
+    /// Why generation stopped.
+    pub finish_reason: FinishReason,
+}
+
 /// LLM backend abstraction. The turn loop never names Claude/OpenAI/Ollama — it
 /// only calls `chat_stream` once per turn and consumes the event stream.
 #[async_trait]
@@ -154,6 +201,79 @@ pub trait LlmProvider: Send + Sync {
         tools: &[ToolDef],
         options: &ChatOptions,
     ) -> Result<BoxStream<'static, StreamEvent>, ProviderError>;
+
+    /// Run one NON-STREAMING turn: send the request and return the whole
+    /// [`ChatResponse`] at once. `Err` = the call failed (OPEN failure, or the
+    /// first mid-flight `StreamEvent::Error`); a partial answer is never
+    /// surfaced as success.
+    ///
+    /// DEFAULT IMPLEMENTATION folds this adapter's own [`Self::chat_stream`], so
+    /// every existing adapter (and every test double) gets a correct `chat()`
+    /// for free. An adapter SHOULD override it only when the backend has a
+    /// genuinely cheaper non-streaming verb (OpenAI-compatible `stream:false`
+    /// skips the SSE handshake and the per-chunk decode); an override MUST
+    /// reproduce this contract:
+    ///
+    /// * the FIRST [`StreamEvent::Error`] terminates the fold and is returned as
+    ///   `Err` — content emitted before it is discarded;
+    /// * [`StreamEvent::Malformed`] is SKIPPED. It is a content-free diagnostic
+    ///   signal (an unparseable chunk), never fatal;
+    /// * [`StreamEvent::Done { truncated }`] ends the fold: `truncated` ⇒
+    ///   [`FinishReason::Length`], otherwise [`FinishReason::Stop`]. A stream
+    ///   that ends with NO `Done` keeps the default [`FinishReason::Stop`];
+    /// * a non-empty `tool_calls` set overrides the terminal reason with
+    ///   [`FinishReason::ToolCalls`] — the tool calls are what a turn loop acts
+    ///   on, so they win over a backend that also said `stop`;
+    /// * [`StreamEvent::TextDelta`] appends to `text`,
+    ///   [`StreamEvent::Reasoning`] appends to `reasoning`,
+    ///   [`StreamEvent::ToolCall`] is collected in order, and
+    ///   [`StreamEvent::Usage`] OVERWRITES `usage` (last report wins; adapters
+    ///   emit a single cumulative figure).
+    ///
+    /// Observational events (`ReasoningSignature`, `ToolCallDelta`,
+    /// `ResponseId`, `ResponseModel`) carry no folded content and are ignored.
+    async fn chat(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDef],
+        options: &ChatOptions,
+    ) -> Result<ChatResponse, ProviderError> {
+        let mut stream = self.chat_stream(messages, tools, options).await?;
+        let mut text = String::new();
+        let mut reasoning: Option<String> = None;
+        let mut out = ChatResponse::default();
+        while let Some(event) = stream.next().await {
+            match event {
+                StreamEvent::TextDelta(delta) => text.push_str(&delta),
+                StreamEvent::Reasoning(delta) => {
+                    reasoning.get_or_insert_with(String::new).push_str(&delta);
+                }
+                StreamEvent::ToolCall(tc) => out.tool_calls.push(tc),
+                StreamEvent::Usage(u) => out.usage = Some(u),
+                StreamEvent::Error(e) => return Err(e),
+                // Diagnostic only: an unparseable chunk is not a failure.
+                StreamEvent::Malformed => {}
+                StreamEvent::Done { truncated } => {
+                    out.finish_reason = if truncated {
+                        FinishReason::Length
+                    } else {
+                        FinishReason::Stop
+                    };
+                    break;
+                }
+                StreamEvent::ReasoningSignature { .. }
+                | StreamEvent::ToolCallDelta { .. }
+                | StreamEvent::ResponseId(_)
+                | StreamEvent::ResponseModel(_) => {}
+            }
+        }
+        out.text = text;
+        out.reasoning = reasoning;
+        if !out.tool_calls.is_empty() {
+            out.finish_reason = FinishReason::ToolCalls;
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
@@ -265,5 +385,187 @@ mod tests {
             serde_json::to_string(&ToolChoice::Specific("todowrite".into())).unwrap(),
             r#"{"Specific":"todowrite"}"#
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // `chat()` default fold (spec [STREAMING])
+    // -----------------------------------------------------------------------
+
+    /// A test double that replays a canned event list. It implements ONLY
+    /// `chat_stream` — proving an adapter (or a test double) gets `chat()` for
+    /// free from the default fold, with no per-backend boilerplate.
+    struct CannedProvider(Vec<StreamEvent>);
+
+    #[async_trait]
+    impl LlmProvider for CannedProvider {
+        fn model_name(&self) -> &str {
+            "canned"
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: &[Message],
+            _tools: &[ToolDef],
+            _options: &ChatOptions,
+        ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
+            let events = self.0.clone();
+            Ok(futures::stream::iter(events).boxed())
+        }
+    }
+
+    fn tc(id: &str, name: &str) -> ToolCall {
+        ToolCall {
+            id: id.into(),
+            name: name.into(),
+            arguments: "{}".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn chat_folds_text_reasoning_usage_and_tool_calls() {
+        let p = CannedProvider(vec![
+            StreamEvent::Reasoning("think".into()),
+            StreamEvent::Reasoning(" more".into()),
+            StreamEvent::TextDelta("he".into()),
+            StreamEvent::TextDelta("llo".into()),
+            StreamEvent::Usage(TokenUsage {
+                prompt: 10,
+                completion: 4,
+                cached: 1,
+            }),
+            StreamEvent::ToolCall(tc("c1", "read_file")),
+            StreamEvent::Done { truncated: false },
+        ]);
+        let r = p.chat(&[], &[], &ChatOptions::default()).await.unwrap();
+        assert_eq!(r.text, "hello");
+        assert_eq!(r.reasoning.as_deref(), Some("think more"));
+        assert_eq!(
+            r.usage,
+            Some(TokenUsage {
+                prompt: 10,
+                completion: 4,
+                cached: 1
+            })
+        );
+        assert_eq!(r.tool_calls.len(), 1);
+        // Tool calls outrank the backend's own `stop`: the turn loop acts on them.
+        assert_eq!(r.finish_reason, FinishReason::ToolCalls);
+    }
+
+    #[tokio::test]
+    async fn chat_maps_truncated_done_to_length_and_stop_otherwise() {
+        let truncated = CannedProvider(vec![
+            StreamEvent::TextDelta("cut".into()),
+            StreamEvent::Done { truncated: true },
+        ]);
+        assert_eq!(
+            truncated
+                .chat(&[], &[], &ChatOptions::default())
+                .await
+                .unwrap()
+                .finish_reason,
+            FinishReason::Length
+        );
+
+        let stopped = CannedProvider(vec![
+            StreamEvent::TextDelta("ok".into()),
+            StreamEvent::Done { truncated: false },
+        ]);
+        assert_eq!(
+            stopped
+                .chat(&[], &[], &ChatOptions::default())
+                .await
+                .unwrap()
+                .finish_reason,
+            FinishReason::Stop
+        );
+
+        // A stream that ends with NO `Done` at all is still a natural stop.
+        let silent = CannedProvider(vec![StreamEvent::TextDelta("ok".into())]);
+        assert_eq!(
+            silent
+                .chat(&[], &[], &ChatOptions::default())
+                .await
+                .unwrap()
+                .finish_reason,
+            FinishReason::Stop
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_skips_malformed_and_keeps_no_reasoning_when_absent() {
+        let p = CannedProvider(vec![
+            StreamEvent::Malformed,
+            StreamEvent::TextDelta("a".into()),
+            StreamEvent::Malformed,
+        ]);
+        let r = p.chat(&[], &[], &ChatOptions::default()).await.unwrap();
+        assert_eq!(r.text, "a", "Malformed is a signal, not content");
+        assert_eq!(
+            r.reasoning, None,
+            "no reasoning emitted ⇒ None, not Some(\"\")"
+        );
+        assert!(r.tool_calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn chat_returns_the_first_error_and_discards_partial_content() {
+        let p = CannedProvider(vec![
+            StreamEvent::TextDelta("partial".into()),
+            StreamEvent::Error(ProviderError {
+                retryable: false,
+                message: "boom".into(),
+                http_status: Some(500),
+                code: None,
+                retry_after_secs: None,
+            }),
+            StreamEvent::TextDelta("after".into()),
+        ]);
+        let e = p.chat(&[], &[], &ChatOptions::default()).await.unwrap_err();
+        assert_eq!(e.message, "boom");
+        assert_eq!(e.http_status, Some(500));
+    }
+
+    /// A failing OPEN surfaces from `chat()` exactly as from `chat_stream()`.
+    struct FailingOpen;
+
+    #[async_trait]
+    impl LlmProvider for FailingOpen {
+        fn model_name(&self) -> &str {
+            "failing"
+        }
+        async fn chat_stream(
+            &self,
+            _messages: &[Message],
+            _tools: &[ToolDef],
+            _options: &ChatOptions,
+        ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
+            Err(ProviderError {
+                retryable: false,
+                message: "HTTP 429: slow down".into(),
+                http_status: Some(429),
+                code: None,
+                retry_after_secs: Some(3),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn chat_propagates_an_open_failure() {
+        let e = FailingOpen
+            .chat(&[], &[], &ChatOptions::default())
+            .await
+            .unwrap_err();
+        assert_eq!(e.http_status, Some(429));
+        assert_eq!(e.retry_after_secs, Some(3));
+    }
+
+    #[test]
+    fn finish_reason_defaults_to_stop() {
+        assert_eq!(FinishReason::default(), FinishReason::Stop);
+        let r = ChatResponse::default();
+        assert_eq!(r.finish_reason, FinishReason::Stop);
+        assert_eq!(r.reasoning, None);
+        assert!(r.text.is_empty() && r.tool_calls.is_empty() && r.usage.is_none());
     }
 }

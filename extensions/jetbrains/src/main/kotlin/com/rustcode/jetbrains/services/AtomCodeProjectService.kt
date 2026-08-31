@@ -245,7 +245,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
                 val errorState = when (cause) {
                     is DaemonConnectionException -> {
                         if (cause.kind == ConnectionErrorKind.MissingBinary) {
-                            ConnectionState.SetupRequired(cause.message ?: "AtomCode daemon was not found.")
+                            ConnectionState.SetupRequired(cause.message ?: "RustCode daemon was not found.")
                         } else {
                             ConnectionState.Error(cause.kind, cause.message ?: "Connection failed")
                         }
@@ -304,7 +304,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
             ensureConnected()
         }.thenCompose { state ->
             if (state !is ConnectionState.Ready) {
-                CompletableFuture.failedFuture(IllegalStateException("AtomCode is not connected."))
+                CompletableFuture.failedFuture(IllegalStateException("RustCode is not connected."))
             } else {
                 sendPromptWhenReady(prompt, state.projectPath, session, listener, onSessionReady, provider, images, approvalMode)
             }
@@ -452,7 +452,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
                 else -> project.basePath.orEmpty()
             }
             val client = getOrCreateClient()
-            client.createSession("AtomCode Chat", path).thenApply {
+            client.createSession("RustCode Chat", path).thenApply {
                 SessionRefView(it.id, it.name, it.projectHash, it.workingDir)
             }
         }
@@ -578,8 +578,8 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
         val client = getOrCreateClient()
         client.health()
             .thenCompose { health ->
-                if (health.service != "atomcode-daemon") {
-                    CompletableFuture.failedFuture(IllegalStateException("Unexpected service on AtomCode port."))
+                if (health.service != "rustcode-daemon") {
+                    CompletableFuture.failedFuture(IllegalStateException("Unexpected service on RustCode port."))
                 } else if (connectionState is ConnectionState.Ready) {
                     CompletableFuture.completedFuture(connectionState)
                 } else {
@@ -590,7 +590,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
                 backgroundHealthInFlight.set(false)
                 if (error != null && !connectionState.isConnecting()) {
                     clearActiveConnection()
-                    setConnectionState(ConnectionState.SetupRequired("AtomCode daemon is not running."))
+                    setConnectionState(ConnectionState.SetupRequired("RustCode daemon is not running."))
                     if (settings.autoStart) ensureConnected()
                 }
             }
@@ -614,7 +614,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
         return client.changeDir(basePath)
             .thenApply { response ->
                 if (!response.success) {
-                    throw IllegalStateException("AtomCode daemon rejected project directory: ${response.message}")
+                    throw IllegalStateException("RustCode daemon rejected project directory: ${response.message}")
                 }
                 activateClient(client, key)
                 setConnectionState(ConnectionState.CheckingProvider)
@@ -649,7 +649,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
         val client = getOrCreateClient()
         val workingDir = projectPath.ifBlank { project.basePath.orEmpty() }
         val sessionFuture = session?.let { CompletableFuture.completedFuture(it) }
-            ?: client.createSession("AtomCode Chat", workingDir).thenApply {
+            ?: client.createSession("RustCode Chat", workingDir).thenApply {
                 SessionRefView(it.id, it.name, it.projectHash, it.workingDir)
             }
 
@@ -688,7 +688,7 @@ class AtomCodeProjectService(private val project: Project) : Disposable {
         val id = activeSessionId ?: return null
         return SessionRefView(
             id = id,
-            name = "AtomCode Chat",
+            name = "RustCode Chat",
             projectHash = activeProjectHash.orEmpty(),
             workingDir = activeSessionWorkingDir.orEmpty(),
         )

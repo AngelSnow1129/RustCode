@@ -534,9 +534,9 @@ fn directory_completions_with_home(
     };
     let (display_parent, leaf) = if raw == "~" {
         (format!("~{separator}"), "")
-    } else if raw.ends_with(|c| c == '/' || c == '\\') {
+    } else if raw.ends_with(['/', '\\']) {
         (raw.to_string(), "")
-    } else if let Some(index) = raw.rfind(|c| c == '/' || c == '\\') {
+    } else if let Some(index) = raw.rfind(['/', '\\']) {
         (raw[..=index].to_string(), &raw[index + 1..])
     } else {
         (String::new(), raw)
@@ -551,7 +551,7 @@ fn directory_completions_with_home(
         let Some(home) = home else {
             return Vec::new();
         };
-        home.join(display_parent[2..].trim_end_matches(|c| c == '/' || c == '\\'))
+        home.join(display_parent[2..].trim_end_matches(['/', '\\']))
     } else {
         let path = std::path::PathBuf::from(&display_parent);
         if path.as_os_str().is_empty() {

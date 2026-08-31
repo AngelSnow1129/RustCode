@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::stream::{BoxStream, StreamExt};
 use rustcode_kernel::message::Message;
 use rustcode_kernel::provider::{ChatOptions, LlmProvider};
 use rustcode_kernel::stream::{ProviderError, StreamEvent, TokenUsage};
 use rustcode_kernel::tool::ToolDef;
-use futures::stream::{BoxStream, StreamExt};
 
 use super::{DetachedUsageRecorder, TokenBreakdown};
 

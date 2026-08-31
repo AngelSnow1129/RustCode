@@ -668,7 +668,9 @@ pub fn repair_json(s: &str) -> String {
                 } else {
                     right_is_close = false;
                 }
-            } else { right_is_close = mask[i] && (rchars[i] == '}' || rchars[i] == ']'); }
+            } else {
+                right_is_close = mask[i] && (rchars[i] == '}' || rchars[i] == ']');
+            }
         }
         result = rchars
             .into_iter()
@@ -880,9 +882,9 @@ pub fn extract_edit_file_args(raw: &str) -> Option<serde_json::Value> {
     }
 
     let replace_all = raw.contains("\"replace_all\"")
-        && raw.rfind("true").is_some_and(|t| {
-            raw.rfind("\"replace_all\"").is_some_and(|r| t > r)
-        });
+        && raw
+            .rfind("true")
+            .is_some_and(|t| raw.rfind("\"replace_all\"").is_some_and(|r| t > r));
 
     Some(serde_json::json!({
         "file_path": file_path,
@@ -914,16 +916,15 @@ fn unescape_field_value_end(raw: &str) -> String {
 
 /// Known `task` subtask fields, in schema-declared order. `description` and
 /// `prompt` are required (no serde default); the rest carry defaults.
-const TASK_SUBTASK_KEYS: &[&str] =
-    &[
-        "description",
-        "prompt",
-        "subagent_type",
-        "difficulty",
-        "model",
-        "role",
-        "scope",
-    ];
+const TASK_SUBTASK_KEYS: &[&str] = &[
+    "description",
+    "prompt",
+    "subagent_type",
+    "difficulty",
+    "model",
+    "role",
+    "scope",
+];
 
 /// Specialized salvage for `task` arguments when JSON parsing fails.
 ///
@@ -949,7 +950,7 @@ pub fn extract_task_args(raw: &str) -> Option<serde_json::Value> {
         Some(p) => {
             let b = raw[p..].find('[')?;
             &raw[p + b..]
-        },
+        }
         None => raw,
     };
 
@@ -993,7 +994,9 @@ pub fn extract_task_args(raw: &str) -> Option<serde_json::Value> {
 
 /// Keep only subtask objects that carry both required fields, so the salvaged
 /// JSON re-parses cleanly through serde downstream.
-fn finish_task_object(obj: serde_json::Map<String, serde_json::Value>) -> Option<serde_json::Value> {
+fn finish_task_object(
+    obj: serde_json::Map<String, serde_json::Value>,
+) -> Option<serde_json::Value> {
     let ok = |k: &str| {
         obj.get(k)
             .and_then(serde_json::Value::as_str)
@@ -1359,7 +1362,8 @@ mod tests {
 
     #[test]
     fn extract_task_args_handles_properly_escaped_quotes() {
-        let input = r#"{"tasks":[{"description":"a","prompt":"say \"hi\"","subagent_type":"explore"}]}"#;
+        let input =
+            r#"{"tasks":[{"description":"a","prompt":"say \"hi\"","subagent_type":"explore"}]}"#;
         let v = extract_task_args(input).expect("should salvage");
         assert_eq!(v["tasks"][0]["prompt"], "say \"hi\"");
     }

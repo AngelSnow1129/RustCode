@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Project Instructions · AtomCode Docs</title>
-<meta name="description" content="Pin per-project conventions and preferences in .rustcode.md so AtomCode follows them automatically.">
+<title>Project Instructions · RustCode Docs</title>
+<meta name="description" content="Pin per-project conventions and preferences in .rustcode.md so RustCode follows them automatically.">
 <link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
 <link rel="stylesheet" href="../docs.css">
-<script>(function(){try{var s=localStorage.getItem('atomcode_theme')||localStorage.getItem('atomcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
+<script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
 <body data-page="project-instructions">
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/atomcode-icon1.png" alt="AtomCode">
-    <span>AtomCode</span>
+    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
   </a>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <a class="dhdr-link" href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -76,15 +76,15 @@
 
   <main class="dmain prose-docs">
 <h1 id="project-instructions">Project Instructions</h1>
-      <p class="lede">Drop a <code>.rustcode.md</code> in your project root to pin tech-stack details, conventions, and preferences. AtomCode injects it into the system prompt at startup, so you don't have to repeat the rules every conversation.</p>
+      <p class="lede">Drop a <code>.rustcode.md</code> in your project root to pin tech-stack details, conventions, and preferences. RustCode injects it into the system prompt at startup, so you don't have to repeat the rules every conversation.</p>
 
       <h2 id="why-bother">Why bother</h2>
-      <p>A typical scenario: your team uses the Composition API exclusively — Options API is banned. Every time you ask AtomCode to write a new component, you have to remind it. With <code>.rustcode.md</code>, that preference rides along on every conversation automatically.</p>
+      <p>A typical scenario: your team uses the Composition API exclusively — Options API is banned. Every time you ask RustCode to write a new component, you have to remind it. With <code>.rustcode.md</code>, that preference rides along on every conversation automatically.</p>
 
       <h2 id="file-location">File location</h2>
       <ul>
         <li>Default path: <code>.rustcode.md</code> at the project root</li>
-        <li>AtomCode walks upwards from the current working directory until it finds the file, or hits <code>$HOME</code></li>
+        <li>RustCode walks upwards from the current working directory until it finds the file, or hits <code>$HOME</code></li>
         <li>If the file doesn't exist, no related content appears in the system prompt</li>
       </ul>
 
@@ -113,7 +113,7 @@ Tailwind for styles, and Vitest for unit tests.
 - Do not modify `src/generated/*` — it's auto-generated from OpenAPI
 - Test coverage must stay above 80%; new modules must ship with unit tests</code></pre>
 
-      <h2 id="tips-for-writing-atomcodemd">Tips for writing .rustcode.md</h2>
+      <h2 id="tips-for-writing-rustcodemd">Tips for writing .rustcode.md</h2>
       <ul>
         <li><strong>Only write what's different from the norm</strong> — the model already knows generic best practices; don't repeat them here.</li>
         <li><strong>Prefer commands over descriptions</strong> — "run tests with <code>pnpm test</code>", not "please run the unit tests".</li>
@@ -128,16 +128,16 @@ Tailwind for styles, and Vitest for unit tests.
       </div>
 
       <h2 id="relationship-to-agentsmd-claudemd-geminimd">Relationship to AGENTS.md / CLAUDE.md / GEMINI.md</h2>
-      <p>AtomCode natively supports <code>AGENTS.md</code>, the <a href="https://agents.md/">open standard</a> for AI coding agent context. If you have a project that already uses <code>AGENTS.md</code>, AtomCode will pick it up automatically — no extra setup needed. The lookup order is:</p>
+      <p>RustCode natively supports <code>AGENTS.md</code>, the <a href="https://agents.md/">open standard</a> for AI coding agent context. If you have a project that already uses <code>AGENTS.md</code>, RustCode will pick it up automatically — no extra setup needed. The lookup order is:</p>
       <ol>
         <li><code>.rustcode.md</code></li>
-        <li><code>ATOMCODE.md</code></li>
+        <li><code>RUSTCODE.md</code></li>
         <li><code>AGENTS.md</code></li>
         <li><code>CLAUDE.md</code> / <code>claude.md</code></li>
       </ol>
       <p>First match wins. If you also use Claude Code or Gemini CLI in the same project, they each have their own instruction files:</p>
       <ul>
-        <li>AtomCode &rarr; <code>.rustcode.md</code> or <code>AGENTS.md</code></li>
+        <li>RustCode &rarr; <code>.rustcode.md</code> or <code>AGENTS.md</code></li>
         <li>Claude Code &rarr; <code>CLAUDE.md</code></li>
         <li>Gemini CLI &rarr; <code>GEMINI.md</code></li>
       </ul>
@@ -149,8 +149,8 @@ Tailwind for styles, and Vitest for unit tests.
       </ul>
 
     <footer class="dftr">
-      <span data-i18n="ftr.copy">© 2026 AtomCode · MIT</span>
-      <a href="https://atomgit.com/atomgit_atomcode/atomcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
+      <a href="https://atomgit.com/atomgit_rustcode/rustcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
     </footer>
   </main>
 </div>

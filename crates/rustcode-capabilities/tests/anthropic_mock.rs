@@ -9,12 +9,12 @@
 #![cfg(feature = "provider")]
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use rustcode_capabilities::provider::{AnthropicConfig, AnthropicProvider, RetryPolicy};
 use rustcode_kernel::agent::{Agent, AutoRespond};
 use rustcode_kernel::message::Message;
 use rustcode_kernel::provider::{ChatOptions, LlmProvider};
 use rustcode_kernel::tool::{Tool, ToolContext, ToolRegistry, ToolResult};
-use futures::StreamExt;
 use std::sync::Arc;
 use std::time::Duration;
 use wiremock::matchers::{method, path};

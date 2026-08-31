@@ -1,7 +1,7 @@
+use axum::{response::IntoResponse, Json};
 use rustcode_config::config::provider::ProviderConfig;
 use rustcode_config::config::Config;
 use rustcode_config::ConfigStore;
-use axum::{response::IntoResponse, Json};
 
 use crate::{json_error, ConfigResponse, ProviderAccountInfo, ProviderInfo, ProviderPresetInfo};
 
@@ -238,6 +238,8 @@ mod tests {
 
     fn provider(base_url: &str) -> ProviderConfig {
         ProviderConfig {
+            model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+            timeout: None,
             provider_type: "openai".into(),
             api_key: None,
             model: "model".into(),

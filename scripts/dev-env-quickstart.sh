@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# AtomCode 开发环境快速部署脚本（加速版）
+# RustCode 开发环境快速部署脚本（加速版）
 #
 # 适用系统: Huawei Cloud EulerOS / 通用 Linux (aarch64 / x86_64)
 # 功能:
@@ -96,7 +96,7 @@ rustup component add rustfmt clippy >/dev/null 2>&1 || warn "rustfmt/clippy 安�
 # ── 3. cargo 镜像加速 + 并行编译 ────────────────────────────────────────────
 step "cargo 镜像加速配置"
 CARGO_CFG="$HOME/.cargo/config.toml"
-MARKER="# atomcode-dev-env-accel"
+MARKER="# rustcode-dev-env-accel"
 # 幂等判定：只要配置中已存在 rsproxy-sparse 镜像即视为已配置，避免重复追加导致 duplicate key
 if [ -f "$CARGO_CFG" ] && grep -q "rsproxy-sparse" "$CARGO_CFG" 2>/dev/null; then
   success "cargo 加速配置已存在 (rsproxy-sparse)，跳过"

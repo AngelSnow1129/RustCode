@@ -253,7 +253,7 @@ sealed interface ChatEvent {
 
 enum class ConnectionErrorKind {
     MissingBinary,
-    PortUsedByNonAtomCode,
+    PortUsedByNonRustCode,
     IncompatibleDaemon,
     AuthFailed,
     LegacyUnauthenticatedDaemon,

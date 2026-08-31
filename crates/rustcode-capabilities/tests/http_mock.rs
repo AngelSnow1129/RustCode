@@ -6,6 +6,7 @@
 #![cfg(feature = "provider")]
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use rustcode_capabilities::hooks::WireLogHooks;
 use rustcode_capabilities::provider::{OpenAiCompatConfig, OpenAiCompatProvider, RetryPolicy};
 use rustcode_kernel::agent::{Agent, AutoRespond};
@@ -14,7 +15,6 @@ use rustcode_kernel::message::Message;
 use rustcode_kernel::provider::{ChatOptions, LlmProvider};
 use rustcode_kernel::stream::StreamEvent;
 use rustcode_kernel::tool::{Tool, ToolContext, ToolRegistry, ToolResult};
-use futures::StreamExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use wiremock::matchers::{method, path};
@@ -678,5 +678,8 @@ async fn open_gives_up_on_a_hung_gateway_within_the_open_timeout() {
         elapsed < Duration::from_secs(3),
         "took {elapsed:?} — not bounded by open_timeout"
     );
-    assert!(err.retryable, "a TTFB timeout is transient, so it must be retryable");
+    assert!(
+        err.retryable,
+        "a TTFB timeout is transient, so it must be retryable"
+    );
 }

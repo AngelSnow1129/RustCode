@@ -344,10 +344,7 @@ fn closest_match_hint(content: &str, old_string: &str) -> String {
             continue;
         }
         let score = common_prefix_chars(&wanted_lower, &trimmed.to_lowercase());
-        if best
-            .as_ref()
-            .is_none_or(|(_, _, current)| score > *current)
-        {
+        if best.as_ref().is_none_or(|(_, _, current)| score > *current) {
             best = Some((index + 1, line, score));
         }
     }
@@ -1108,7 +1105,11 @@ mod tests {
                 &ctx(d.path()),
             )
             .await;
-        assert!(!r.is_error, "whitespace-insensitive edit must succeed: {}", r.content);
+        assert!(
+            !r.is_error,
+            "whitespace-insensitive edit must succeed: {}",
+            r.content
+        );
         let after = std::fs::read_to_string(d.path().join("Cargo.toml")).unwrap();
         assert!(
             after.contains("default-features = false"),
@@ -1136,11 +1137,21 @@ mod tests {
                 &ctx(d.path()),
             )
             .await;
-        assert!(!r.is_error, "multi-line whitespace-insensitive edit must succeed: {}", r.content);
+        assert!(
+            !r.is_error,
+            "multi-line whitespace-insensitive edit must succeed: {}",
+            r.content
+        );
         let after = std::fs::read_to_string(d.path().join("android.yml")).unwrap();
-        assert!(after.contains("      - name: Copy CI Cargo config"), "indent not re-anchored: {after}");
+        assert!(
+            after.contains("      - name: Copy CI Cargo config"),
+            "indent not re-anchored: {after}"
+        );
         assert!(after.contains("cp ci/config.toml"), "{after}");
-        assert!(after.contains("      - name: Build"), "neighbor preserved: {after}");
+        assert!(
+            after.contains("      - name: Build"),
+            "neighbor preserved: {after}"
+        );
     }
 
     // The whitespace-insensitive tier must NOT fire on a short fragment (< 10 non-ws chars),
@@ -1155,8 +1166,16 @@ mod tests {
                 &ctx(d.path()),
             )
             .await;
-        assert!(r.is_error, "short whitespace-insensitive fragment must not match: {}", r.content);
-        assert_eq!(std::fs::read_to_string(d.path().join("a.txt")).unwrap(), "a = [1, 2]\nb = 9\n", "unchanged");
+        assert!(
+            r.is_error,
+            "short whitespace-insensitive fragment must not match: {}",
+            r.content
+        );
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("a.txt")).unwrap(),
+            "a = [1, 2]\nb = 9\n",
+            "unchanged"
+        );
     }
 
     // The whitespace-insensitive tier must still REFUSE when the normalized fragment is
@@ -1175,9 +1194,17 @@ mod tests {
                 &ctx(d.path()),
             )
             .await;
-        assert!(r.is_error, "ambiguous whitespace-insensitive match must be refused: {}", r.content);
         assert!(
-            std::fs::read_to_string(d.path().join("a.toml")).unwrap().matches("alpha").count() == 2,
+            r.is_error,
+            "ambiguous whitespace-insensitive match must be refused: {}",
+            r.content
+        );
+        assert!(
+            std::fs::read_to_string(d.path().join("a.toml"))
+                .unwrap()
+                .matches("alpha")
+                .count()
+                == 2,
             "file must be untouched"
         );
     }

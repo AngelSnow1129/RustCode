@@ -59,32 +59,44 @@ pub struct HttpClient {
 
 impl HttpClient {
     /// Create a new HTTP client.
-    pub fn new(
+    ///
+    /// Builds on the SHARED egress policy (proxy + issue #514 TLS trust roots +
+    /// idle-pool policy) instead of a private builder.
+    ///
+    /// Returns `Err` rather than degrading: the previous implementation used
+    /// `unwrap_or_else(|_| reqwest::Client::new())`, which on a build failure
+    /// silently produced a client that ignores the proxy policy and the trust-root
+    /// layering — every subsequent MCP request then ran under the wrong network
+    /// policy with no signal to the caller. A build failure is rare (the egress
+    /// factory falls back to the infallible webpki roots first) but it must be
+    /// visible, never swallowed.
+    pub fn try_new(
         server_name: String,
         url: String,
         headers: BTreeMap<String, String>,
         auth: Option<McpHttpAuthConfig>,
         timeout_ms: Option<u64>,
-    ) -> Self {
-        let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS));
+    ) -> Result<Self, String> {
+        let effective_timeout_ms = timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
+        let timeout = Duration::from_millis(effective_timeout_ms);
 
-        let client = crate::proxy::apply_async_proxy_policy(reqwest::Client::builder())
-            .timeout(timeout)
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+        let spec =
+            crate::egress::client::HttpClientSpec::default().with_request_timeout(Some(timeout));
+        let client = crate::egress::client::build_http_client(&spec)
+            .map_err(|e| format!("MCP server `{server_name}`: {e}"))?;
 
-        Self {
+        Ok(Self {
             server_name,
             url,
             headers,
             auth,
-            timeout_ms: timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
+            timeout_ms: effective_timeout_ms,
             status: Arc::new(Mutex::new(ServerStatus::Disconnected)),
             next_id: AtomicU64::new(1),
             client,
             session_id: Arc::new(Mutex::new(None)),
             negotiated_version: Arc::new(Mutex::new(None)),
-        }
+        })
     }
 
     /// Current Streamable-HTTP session id, if the server handed one out.
@@ -759,13 +771,16 @@ mod session_tests {
     use reqwest::header::HeaderMap;
 
     fn client() -> HttpClient {
-        HttpClient::new(
+        // `expect` is fine in a test: the shared egress factory falls back to the
+        // infallible webpki roots, so a build failure here is a real bug.
+        HttpClient::try_new(
             "t".into(),
             "http://localhost/mcp".into(),
             BTreeMap::new(),
             None,
             Some(1000),
         )
+        .expect("test MCP client must build")
     }
 
     #[tokio::test]
@@ -822,13 +837,14 @@ mod session_tests {
     async fn user_pinned_protocol_version_header_is_not_overridden() {
         let mut headers = BTreeMap::new();
         headers.insert("mcp-protocol-version".to_string(), "2025-06-18".to_string());
-        let c = HttpClient::new(
+        let c = HttpClient::try_new(
             "t".into(),
             "http://localhost/mcp".into(),
             headers,
             None,
             Some(1000),
-        );
+        )
+        .expect("test MCP client must build");
         *c.negotiated_version.lock().await = Some("2025-11-25".to_string());
         assert!(
             c.protocol_version_header().await.is_none(),

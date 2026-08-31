@@ -61,9 +61,6 @@ pub mod subagent_tiers;
 mod todo;
 
 pub use assemble::{build_coding_agent, build_coding_agent_with, try_build_coding_agent_with};
-/// The image type carried by [`UserInput`] / [`ImagePreprocessor`], re-exported
-/// so driver crates can implement the hook without naming `rustcode_kernel`.
-pub use rustcode_kernel::message::ImageContent;
 pub use config::{
     apply_provider_config, resolve_loop_max_rounds, resolve_turn_max_rounds, CodingAgentConfig,
     CodingRuntimeConfig, SubagentModelProviders, SubagentModelResolver, SubagentProvider,
@@ -96,6 +93,9 @@ pub use runtime::{
     RuntimeTurnStats, RuntimeUnavailable, SequencedRuntimeEvent, SessionChanged, SubmitReceipt,
     TurnCompletion, UndoResult, UserInput, VisionNotice,
 };
+/// The image type carried by [`UserInput`] / [`ImagePreprocessor`], re-exported
+/// so driver crates can implement the hook without naming `rustcode_kernel`.
+pub use rustcode_kernel::message::ImageContent;
 pub use todo::TodoHook;
 pub use vision::{run_vl_caption, should_skip, vl_model_display, PreprocessOutcome};
 

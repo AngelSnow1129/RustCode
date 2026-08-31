@@ -332,10 +332,9 @@ fn unverified_edit(convo: &Conversation, workspace: &Path) -> Option<NudgedEdit>
                         bash_after_edit = false;
                     }
                     // Only a real check counts — a read-only/navigation command does NOT verify.
-                    Some("bash")
-                        if bash_cmds.get(id).is_some_and(|c| bash_verifies(c)) => {
-                            bash_after_edit = true;
-                        }
+                    Some("bash") if bash_cmds.get(id).is_some_and(|c| bash_verifies(c)) => {
+                        bash_after_edit = true;
+                    }
                     _ => {}
                 }
             }

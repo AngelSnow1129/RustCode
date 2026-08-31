@@ -4,10 +4,10 @@
 //! the prompt, the one-off kernel message, the 30s idle-timeout streaming loop,
 //! and the outcome mapping. Both the CLI and the daemon call `run_vl_caption`.
 
+use futures::StreamExt;
 use rustcode_kernel::message::{ImageContent, Message};
 use rustcode_kernel::provider::{ChatOptions, LlmProvider};
 use rustcode_kernel::stream::StreamEvent;
-use futures::StreamExt;
 use std::sync::Arc;
 
 /// Outcome of a VL preprocessing attempt. Same three variants (and the
@@ -119,11 +119,11 @@ pub async fn run_vl_caption(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::stream;
     use rustcode_kernel::message::Message;
     use rustcode_kernel::provider::{ChatOptions, LlmProvider};
     use rustcode_kernel::stream::{ProviderError, StreamEvent};
     use rustcode_kernel::tool::ToolDef;
-    use futures::stream;
     use std::sync::Arc;
 
     // 脚本化的测试替身：chat_stream 回放预置的 StreamEvent 序列。

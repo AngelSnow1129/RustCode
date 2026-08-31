@@ -15,12 +15,12 @@ mod code;
 
 use anyhow::{bail, Context, Result};
 
+use clap::{Parser, Subcommand};
 use rustcode_kernel::agent::Agent;
 use rustcode_kernel::event::{AgentCommand, AgentEvent, StopReason};
 use rustcode_review::{
     build_review_agent_with_cancel, shared_review_deadline, Finding, ReviewAgentConfig,
 };
-use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

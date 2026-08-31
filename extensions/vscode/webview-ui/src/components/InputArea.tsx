@@ -501,7 +501,7 @@ export function InputArea() {
                       selectAtItem(item);
                     }}
                   >
-                    <span className="file-picker-item-icon">{item.isDir ? '📁' : '📄'}</span>
+                    <span className="file-picker-item-icon">{item.isDir ? '[D]' : '[F]'}</span>
                     <span className="file-picker-item-body">
                       <span className="file-picker-item-name">{item.relativePath}</span>
                       <span className="file-picker-item-path">{item.isDir ? t('input.folder') : item.fileName}</span>
@@ -555,7 +555,7 @@ export function InputArea() {
                     className="file-picker-item"
                     onClick={() => handleFileSelect(f)}
                   >
-                    <span className="file-picker-item-icon">📄</span>
+                    <span className="file-picker-item-icon">[F]</span>
                     <span className="file-picker-item-body">
                       <span className="file-picker-item-name">{f.fileName}</span>
                       <span className="file-picker-item-path">{f.relativePath}</span>
@@ -601,7 +601,7 @@ export function InputArea() {
                 }
                 onClick={f.type === 'selection' ? () => postMessage({ type: 'openFile', path: f.path, startLine: f.startLine, endLine: f.endLine }) : undefined}
               >
-                <span className="pill-icon">{f.type === 'selection' ? '📋' : '📄'}</span>
+                <span className="pill-icon">{f.type === 'selection' ? '[C]' : '[F]'}</span>
                 <span className="pill-name">
                   {f.type === 'selection' && f.startLine
                     ? `${f.fileName}:${f.startLine}-${f.endLine}`

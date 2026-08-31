@@ -29,7 +29,9 @@ fn task_run_id(progress: &ProgressSink) -> crate::team::TeamRunId {
         progress
             .source_id()
             .map(|call_id| format!("task:{call_id}"))
-            .unwrap_or_else(|| format!("task-{}", TASK_RUN_COUNTER.fetch_add(1, Ordering::Relaxed))),
+            .unwrap_or_else(|| {
+                format!("task-{}", TASK_RUN_COUNTER.fetch_add(1, Ordering::Relaxed))
+            }),
     )
 }
 
@@ -251,9 +253,7 @@ impl WorkerScopeGate {
                     Some(rel_dir) => Some(self.deny_read_out_of_scope(tool, &rel_dir)),
                 }
             }
-            "edit_file" | "write_file" => {
-                self.file_path_violation(tool, args_json, "file_path")
-            }
+            "edit_file" | "write_file" => self.file_path_violation(tool, args_json, "file_path"),
             "search_replace" => {
                 let value = serde_json::from_str::<serde_json::Value>(args_json)
                     .unwrap_or(serde_json::Value::Null);
@@ -622,10 +622,7 @@ impl TaskTool {
         self
     }
 
-    pub fn with_credential_shell_policy(
-        mut self,
-        policy: super::CredentialShellPolicy,
-    ) -> Self {
+    pub fn with_credential_shell_policy(mut self, policy: super::CredentialShellPolicy) -> Self {
         self.credential_shell_policy = policy;
         self
     }
@@ -897,8 +894,8 @@ parallel workers NON-OVERLAPPING scopes."
             } else {
                 (self.make_explore_tools)()
             };
-            let profile = crate::team::role_by_id(t.role.as_str())
-                .expect("validated task role must resolve");
+            let profile =
+                crate::team::role_by_id(t.role.as_str()).expect("validated task role must resolve");
             let persona = subtask_persona(profile);
             let child_cancel = ctx.cancel.child_token();
             // A second handle for the progress hook to short-circuit emits once cancelled.
@@ -1153,8 +1150,9 @@ fn resolve_subtask_spec(t: &SubTask) -> Result<crate::team::TeamTaskSpec, String
         crate::team::TeamPermission::Worker => crate::team::TeamRoleId::Implementer,
     };
     let profile = match t.role.as_deref() {
-        Some(role) => crate::team::role_by_id(role)
-            .ok_or_else(|| format!("unknown team role: {role}"))?,
+        Some(role) => {
+            crate::team::role_by_id(role).ok_or_else(|| format!("unknown team role: {role}"))?
+        }
         None => crate::team::role_by_id(default_role.as_str())
             .expect("built-in default team role must exist"),
     };
@@ -1742,6 +1740,8 @@ fn render_task_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::stream::{self, BoxStream};
+    use futures::StreamExt;
     use rustcode_kernel::event::PolicyInterventionCode;
     use rustcode_kernel::message::Message;
     use rustcode_kernel::middleware::BeforeOutcome;
@@ -1749,8 +1749,6 @@ mod tests {
     use rustcode_kernel::stream::{ProviderError, StreamEvent};
     use rustcode_kernel::testkit::{EchoTool, ScriptedProvider};
     use rustcode_kernel::tool::{ProgressSink, ToolDef, ToolRegistry};
-    use futures::stream::{self, BoxStream};
-    use futures::StreamExt;
     use tokio_util::sync::CancellationToken;
 
     /// Scripted provider: `Some(reply)` → one text turn then clean stop;
@@ -1851,7 +1849,10 @@ mod tests {
             .take_policy_intervention(&mut result)
             .expect("child policy marker must be lifted");
 
-        assert_eq!(intervention.code, PolicyInterventionCode::CredentialShellBlocked);
+        assert_eq!(
+            intervention.code,
+            PolicyInterventionCode::CredentialShellBlocked
+        );
         assert!(result.is_error);
         assert!(
             !result.content.contains(CHILD_POLICY_INTERVENTION_MARKER),
@@ -1936,13 +1937,8 @@ mod tests {
             .middleware(Arc::new(ChildPolicyGate))
             .build();
 
-        let outcome = run_child_to_completion(
-            child,
-            "go".into(),
-            AutoRespond::AllowAll,
-            progress,
-        )
-        .await;
+        let outcome =
+            run_child_to_completion(child, "go".into(), AutoRespond::AllowAll, progress).await;
 
         assert_eq!(outcome.stop, StopReason::PolicyDenied);
         assert_eq!(
@@ -2263,13 +2259,23 @@ mod tests {
         let requested = Arc::new(Mutex::new(Vec::new()));
         let captured = requested.clone();
         let tool = TaskTool::new(
-            || Arc::new(MockProvider { reply: Some("FAST".into()) }) as Arc<dyn LlmProvider>,
-            || Arc::new(MockProvider { reply: Some("CAPABLE".into()) }) as Arc<dyn LlmProvider>,
+            || {
+                Arc::new(MockProvider {
+                    reply: Some("FAST".into()),
+                }) as Arc<dyn LlmProvider>
+            },
+            || {
+                Arc::new(MockProvider {
+                    reply: Some("CAPABLE".into()),
+                }) as Arc<dyn LlmProvider>
+            },
             move || r1.mount(&[]),
             move || r2.mount(&[]),
         )
         .with_host_provider(|| {
-            Arc::new(MockProvider { reply: Some("HOST".into()) }) as Arc<dyn LlmProvider>
+            Arc::new(MockProvider {
+                reply: Some("HOST".into()),
+            }) as Arc<dyn LlmProvider>
         })
         .with_named_provider(move |selection| {
             captured.lock().unwrap().push(selection.to_string());
@@ -2884,7 +2890,10 @@ mod tests {
             .is_some());
         // A nested/submodule `.git` is blocked too.
         assert!(g
-            .violation("write_file", r#"{"file_path":"sub/.git/hooks/post-checkout"}"#)
+            .violation(
+                "write_file",
+                r#"{"file_path":"sub/.git/hooks/post-checkout"}"#
+            )
             .is_some());
         assert!(g
             .violation("search_replace", r#"{"path":".git"}"#)
@@ -2900,15 +2909,29 @@ mod tests {
         use super::WorkerScopeGate;
         use std::path::Path;
         let g = WorkerScopeGate::new_with_read_policy(
-            &["src/auth/**".into(), "Cargo.toml".into()], Path::new("/w"), true,
+            &["src/auth/**".into(), "Cargo.toml".into()],
+            Path::new("/w"),
+            true,
         );
-        assert!(g.violation("read_file", r#"{"file_path":"src/auth/login.rs"}"#).is_none());
-        assert!(g.violation("read_file", r#"{"file_path":"src/db/schema.rs"}"#).is_some());
-        assert!(g.violation("grep", r#"{"pattern":"x","path":"Cargo.toml"}"#).is_none());
-        assert!(g.violation("grep", r#"{"pattern":"x","path":"src/db"}"#).is_some());
-        assert!(g.violation("list_directory", r#"{"path":"src/auth"}"#).is_none());
+        assert!(g
+            .violation("read_file", r#"{"file_path":"src/auth/login.rs"}"#)
+            .is_none());
+        assert!(g
+            .violation("read_file", r#"{"file_path":"src/db/schema.rs"}"#)
+            .is_some());
+        assert!(g
+            .violation("grep", r#"{"pattern":"x","path":"Cargo.toml"}"#)
+            .is_none());
+        assert!(g
+            .violation("grep", r#"{"pattern":"x","path":"src/db"}"#)
+            .is_some());
+        assert!(g
+            .violation("list_directory", r#"{"path":"src/auth"}"#)
+            .is_none());
         assert!(g.violation("list_directory", r#"{"path":"src"}"#).is_some());
-        assert!(g.violation("glob", r#"{"pattern":"**/*.rs","path":"src/auth"}"#).is_none());
+        assert!(g
+            .violation("glob", r#"{"pattern":"**/*.rs","path":"src/auth"}"#)
+            .is_none());
         assert!(g.violation("glob", r#"{"pattern":"**/*.rs"}"#).is_some());
     }
 
@@ -3005,12 +3028,14 @@ mod tests {
             role: None,
             scope: scope.into_iter().map(String::from).collect(),
         };
-        let args = Args { tasks: vec![
-            mk("worker", vec!["src/a/**"]), // #1 ok
-            mk("explore", vec![]),          // #2 explore — ignored even with no scope
-            mk("worker", vec![]),           // #3 missing → flagged
-            mk("worker", vec!["   "]),      // #4 whitespace-only → flagged
-        ]};
+        let args = Args {
+            tasks: vec![
+                mk("worker", vec!["src/a/**"]), // #1 ok
+                mk("explore", vec![]),          // #2 explore — ignored even with no scope
+                mk("worker", vec![]),           // #3 missing → flagged
+                mk("worker", vec!["   "]),      // #4 whitespace-only → flagged
+            ],
+        };
         let specs = validate_task_specs(&args).unwrap();
         assert_eq!(workers_missing_scope(&specs), vec![3, 4]);
     }
@@ -3119,7 +3144,10 @@ mod tests {
         let base = 3;
         #[cfg(not(feature = "atomgit"))]
         let base = 2;
-        assert_eq!(team_child_middlewares(false, &[], Path::new("/w"), &[]).len(), base);
+        assert_eq!(
+            team_child_middlewares(false, &[], Path::new("/w"), &[]).len(),
+            base
+        );
         assert_eq!(
             team_child_middlewares(false, &["src/**".into()], Path::new("/w"), &[]).len(),
             base + 1

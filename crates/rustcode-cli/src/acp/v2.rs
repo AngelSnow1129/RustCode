@@ -270,7 +270,9 @@ pub fn event_to_update(ev: &AgentEvent, message_id: &str) -> Option<SessionUpdat
                 .title(call.name.clone())
                 .kind(tool_kind(&call.name))
                 .status(ToolCallStatus::InProgress)
-                .raw_input(crate::acp::replay::raw_input_from_arguments(&call.arguments)),
+                .raw_input(crate::acp::replay::raw_input_from_arguments(
+                    &call.arguments,
+                )),
         )),
         AgentEvent::ToolResult { result } => {
             let status = if result.is_error {
@@ -1139,32 +1141,40 @@ mod tests {
             .find(|c| c.name == "api")
             .expect("http server connected");
         match &http.config {
-            McpTransportConfig::Http { url, headers, auth, .. } => {
+            McpTransportConfig::Http {
+                url, headers, auth, ..
+            } => {
                 assert_eq!(url, "https://api.example.com/mcp");
                 assert_eq!(
                     headers.get("Authorization").map(String::as_str),
                     Some("Bearer t")
                 );
-                assert!(auth.is_none(), "ACP McpServer::Http carries no auth metadata");
+                assert!(
+                    auth.is_none(),
+                    "ACP McpServer::Http carries no auth metadata"
+                );
             }
             other => panic!("expected Http transport, got {other:?}"),
         }
         assert_eq!(http.source, McpConfigSource::Driver);
-        assert!(!http.trust, "client-injected server routes through kernel approval");
+        assert!(
+            !http.trust,
+            "client-injected server routes through kernel approval"
+        );
     }
 
     /// Persist a native session (meta + snapshot + presentation) under a
     /// dedicated ATOMDCODE_HOME so `SessionManager::for_project` resolves the
     /// same bucket the ACP replay reads.
     fn persist_replay_session(
-        home: &tempfile::TempDir,
+        home: &std::path::Path,
         cwd: &std::path::Path,
         id: &str,
         messages: Vec<Message>,
         presentation: Vec<PresentationEntry>,
         turn_stats: Vec<TurnStat>,
     ) {
-        std::env::set_var("RUSTCODE_HOME", home.path());
+        std::env::set_var("RUSTCODE_HOME", home);
         let mgr = SessionManager::for_project(cwd);
         let mut meta = SessionMeta::new(id, cwd.to_string_lossy(), 1);
         meta.owner = StorageOwner::Native;
@@ -1257,7 +1267,10 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn replay_builds_ordered_updates_from_snapshot_and_presentation() {
-        let home = tempfile::tempdir().unwrap();
+        // Process-lifetime home: `set_var` is process-global, so a per-test
+        // `TempDir` here would dangle for every other test still running under
+        // the parallel harness (spurious `NotFound` on the next session write).
+        let home = rustcode_kernel::test_support::isolate_home_subdir("acp-v2-replay");
         let cwd = tempfile::tempdir().unwrap();
         let mut tool_result = Message::user("tool output");
         tool_result.tool_call_id = Some("call-1".into());
@@ -1327,7 +1340,10 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn replay_skips_hidden_entries_and_missing_anchors() {
-        let home = tempfile::tempdir().unwrap();
+        // Process-lifetime home: `set_var` is process-global, so a per-test
+        // `TempDir` here would dangle for every other test still running under
+        // the parallel harness (spurious `NotFound` on the next session write).
+        let home = rustcode_kernel::test_support::isolate_home_subdir("acp-v2-replay");
         let cwd = tempfile::tempdir().unwrap();
         persist_replay_session(
             &home,
@@ -1370,7 +1386,10 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn replay_reconstructs_tool_calls_with_results() {
-        let home = tempfile::tempdir().unwrap();
+        // Process-lifetime home: `set_var` is process-global, so a per-test
+        // `TempDir` here would dangle for every other test still running under
+        // the parallel harness (spurious `NotFound` on the next session write).
+        let home = rustcode_kernel::test_support::isolate_home_subdir("acp-v2-replay");
         let cwd = tempfile::tempdir().unwrap();
         // An assistant message that made one tool call, plus its recorded
         // result echo (User message carrying the call id).
@@ -1424,7 +1443,10 @@ mod tests {
     #[serial_test::serial]
     fn replay_pairs_duplicate_tool_call_ids_by_order_not_last_wins() {
         use crate::acp::replay::{build_replay_entries, ReplayEntry};
-        let home = tempfile::tempdir().unwrap();
+        // Process-lifetime home: `set_var` is process-global, so a per-test
+        // `TempDir` here would dangle for every other test still running under
+        // the parallel harness (spurious `NotFound` on the next session write).
+        let home = rustcode_kernel::test_support::isolate_home_subdir("acp-v2-replay");
         let cwd = tempfile::tempdir().unwrap();
         // Two tool calls that reuse the SAME id (weak/gateway models do this;
         // an empty id would collide identically). Each has its own result echo.
@@ -1474,9 +1496,12 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn replay_missing_session_is_an_error() {
-        let home = tempfile::tempdir().unwrap();
+        // Process-lifetime home: `set_var` is process-global, so a per-test
+        // `TempDir` here would dangle for every other test still running under
+        // the parallel harness (spurious `NotFound` on the next session write).
+        let home = rustcode_kernel::test_support::isolate_home_subdir("acp-v2-replay");
         let cwd = tempfile::tempdir().unwrap();
-        std::env::set_var("RUSTCODE_HOME", home.path());
+        std::env::set_var("RUSTCODE_HOME", &home);
         let msg_ids = AtomicU64::new(0);
         let err = build_replay_updates("no-such-session", cwd.path(), &msg_ids).unwrap_err();
         assert!(

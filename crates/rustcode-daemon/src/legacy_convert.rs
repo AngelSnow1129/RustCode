@@ -911,7 +911,7 @@ fn converge_session_with_retries(
                     bytes,
                     snapshot.messages.len(),
                     &mut meta,
-                    &mut presentation,
+                    &presentation,
                 ) {
                     Ok(diagnostic) => diagnostic,
                     Err(error) => {

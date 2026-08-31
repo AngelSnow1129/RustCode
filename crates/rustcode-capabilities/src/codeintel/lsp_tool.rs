@@ -218,7 +218,11 @@ impl Tool for LspTool {
                     })
                     .collect();
                 let omitted = diagnostics.len().saturating_sub(MAX_LOCATIONS);
-                let suffix = if omitted > 0 { format!("\n… {omitted} more omitted") } else { Default::default() };
+                let suffix = if omitted > 0 {
+                    format!("\n… {omitted} more omitted")
+                } else {
+                    Default::default()
+                };
                 ok(format!(
                     "Found {} diagnostics:\n{}{}",
                     diagnostics.len(),

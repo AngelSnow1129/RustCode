@@ -5,9 +5,9 @@
 // hidden (MenuKind::Plugin). See docs/plans/2026-07-28-provider-panel-ui-design.md.
 
 use anyhow::Result;
+use crossterm::event::{KeyCode, KeyModifiers};
 use rustcode_config::config::provider::{ModelProfileConfig, ProviderAccountConfig};
 use rustcode_config::config::{provider_preset, Config};
-use crossterm::event::{KeyCode, KeyModifiers};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{tab_chip, Modal, ModalAction};
@@ -296,8 +296,7 @@ fn previous_grapheme_boundary(text: &str, cursor: usize) -> usize {
     let cursor = cursor.min(text.len());
     text.grapheme_indices(true)
         .map(|(index, _)| index)
-        .filter(|index| *index < cursor)
-        .next_back()
+        .rfind(|index| *index < cursor)
         .unwrap_or(0)
 }
 
@@ -1067,9 +1066,7 @@ impl ProviderPanel {
         let base_url = {
             let b = form.base_url.trim();
             if b.is_empty() {
-                if preset.default_base_url.is_none() {
-                    return None; // custom endpoint requires a URL
-                }
+                preset.default_base_url?;
                 None
             } else if Some(b) == preset.default_base_url {
                 None // equals the preset default — keep config clean
@@ -1394,6 +1391,8 @@ impl ProviderPanel {
                     persisted.models.insert(
                         model_id.clone(),
                         ModelProfileConfig {
+                            model_mapping: rustcode_config::config::provider::ModelMapping::default(
+                            ),
                             account: account_id.clone(),
                             model: model_name.clone(),
                             display_name: None,

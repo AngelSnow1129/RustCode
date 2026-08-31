@@ -94,7 +94,7 @@ internal class DaemonSupervisorEngine(
         val key = connectionKey.endpoint
         val shared = synchronized(lock) {
             if (disposed) {
-                return failed(ConnectionErrorKind.StartFailed, "AtomCode daemon supervisor is disposed.")
+                return failed(ConnectionErrorKind.StartFailed, "RustCode daemon supervisor is disposed.")
             }
             inFlight[key]?.let { operation ->
                 return if (operation.connectionKey == connectionKey) {
@@ -156,7 +156,7 @@ internal class DaemonSupervisorEngine(
                     !settings.autoStart -> failed(
                         ConnectionErrorKind.StartFailed,
                         buildString {
-                            append("AtomCode daemon is not running and auto-start is disabled.")
+                            append("RustCode daemon is not running and auto-start is disabled.")
                             diagnostic(attempt.error)?.let { append(" ").append(it) }
                         },
                     )
@@ -194,7 +194,7 @@ internal class DaemonSupervisorEngine(
     ): CompletableFuture<DaemonReady> {
         if (health.service != "rustcode-daemon") {
             return failed(
-                ConnectionErrorKind.PortUsedByNonAtomCode,
+                ConnectionErrorKind.PortUsedByNonRustCode,
                 "Port ${settings.host}:${settings.port} is used by ${health.service.ifBlank { "another service" }}.",
             )
         }
@@ -243,11 +243,11 @@ internal class DaemonSupervisorEngine(
         when (result) {
             DaemonLaunchResult.MissingBinary -> failed(
                 ConnectionErrorKind.MissingBinary,
-                "AtomCode CLI or bundled daemon was not found.",
+                "RustCode CLI or bundled daemon was not found.",
             )
             is DaemonLaunchResult.Failed -> failed(
                 ConnectionErrorKind.StartFailed,
-                "Failed to start AtomCode daemon: ${result.message}",
+                "Failed to start RustCode daemon: ${result.message}",
             )
             is DaemonLaunchResult.Started -> {
                 val process = synchronized(lock) {
@@ -264,7 +264,7 @@ internal class DaemonSupervisorEngine(
                 if (process == null) {
                     return@thenCompose failed(
                         ConnectionErrorKind.StartFailed,
-                        "AtomCode daemon supervisor was disposed during startup.",
+                        "RustCode daemon supervisor was disposed during startup.",
                     )
                 }
                 val control = controlFactory.create(
@@ -317,7 +317,7 @@ internal class DaemonSupervisorEngine(
                     health != null -> {
                         terminateOwnedProcess(key, process)
                         failed(
-                            ConnectionErrorKind.PortUsedByNonAtomCode,
+                            ConnectionErrorKind.PortUsedByNonRustCode,
                             "Port ${key.host}:${key.port} is used by ${health.service.ifBlank { "another service" }}.",
                         )
                     }
@@ -334,7 +334,7 @@ internal class DaemonSupervisorEngine(
                             ConnectionErrorKind.Timeout,
                             buildString {
                                 append(
-                                    "AtomCode daemon did not become ready within " +
+                                    "RustCode daemon did not become ready within " +
                                         "${TimeUnit.NANOSECONDS.toSeconds(startupTimeoutNanos)} seconds.",
                                 )
                                 diagnostic(attempt.error)?.let { append(" ").append(it) }
@@ -370,7 +370,7 @@ internal class DaemonSupervisorEngine(
                     val detail = SecretRedactor.redact(exit.stderr).ifBlank { "no daemon diagnostics" }
                     failed(
                         ConnectionErrorKind.StartFailed,
-                        "AtomCode daemon exited with code ${exit.exitCode}: $detail",
+                        "RustCode daemon exited with code ${exit.exitCode}: $detail",
                     )
                 }
             }
@@ -425,9 +425,9 @@ private data class DaemonExpectation(
 
     fun mismatchMessage(health: HealthResponse): String =
         if (version != null && health.version != version) {
-            "AtomCode daemon version mismatch: running ${health.version}, expected $version."
+            "RustCode daemon version mismatch: running ${health.version}, expected $version."
         } else {
-            "AtomCode daemon binary does not match the bundled build."
+            "RustCode daemon binary does not match the bundled build."
         }
 }
 

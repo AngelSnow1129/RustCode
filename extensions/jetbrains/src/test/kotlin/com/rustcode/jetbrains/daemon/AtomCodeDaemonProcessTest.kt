@@ -20,8 +20,8 @@ class AtomCodeDaemonProcessTest {
 
         assertNotNull(resolution)
         assertEquals(emptyList(), resolution.argsPrefix)
-        assertTrue(resolution.path.contains("atomcode-jetbrains"))
-        assertTrue(resolution.path.endsWith(if (isWindows()) "atomcode-daemon.exe" else "atomcode-daemon"))
+        assertTrue(resolution.path.contains("rustcode-jetbrains"))
+        assertTrue(resolution.path.endsWith(if (isWindows()) "rustcode-daemon.exe" else "rustcode-daemon"))
     }
 
     @Test

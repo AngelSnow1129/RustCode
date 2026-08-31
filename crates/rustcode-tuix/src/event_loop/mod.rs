@@ -34,16 +34,16 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::session::{Session, SessionId};
 use anyhow::Result;
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use rustcode_coding::runtime::{CodingRuntimeEvent, CompactTrigger, CompactionCompletion};
 use rustcode_coding::CodingRuntimeHandle;
 use rustcode_config::config::Config;
 use rustcode_config::{ConfigCommit, ConfigRevision, ConfigSnapshot, ConfigStore};
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use tokio::sync::{mpsc, watch};
 use ui_event::{UiAgentPhase as AgentPhase, UiEvent as AgentEvent};
 
-use rustcode_kernel::message::ImageContent;
 use base64::Engine;
+use rustcode_kernel::message::ImageContent;
 
 use crate::commands::{parse_bash_command, parse_slash_line, CommandRegistry};
 use crate::custom_commands::ArgsRequirement;
@@ -5687,8 +5687,7 @@ mod buffer_tests {
         assert!(active.contains("(0s)"), "just the clock, got {active:?}");
         // Even silent past the stall threshold there is NO "较慢/slow" label any
         // more — the ticking clock already shows it's alive.
-        s.last_stream_activity =
-            Some(std::time::Instant::now() - crate::state::STREAM_STALL_HINT);
+        s.last_stream_activity = Some(std::time::Instant::now() - crate::state::STREAM_STALL_HINT);
         let stalled = format_spinner_label(&s, 0, None);
         assert!(
             !stalled.contains("较慢") && !stalled.to_lowercase().contains("slow"),
@@ -6426,8 +6425,8 @@ mod menu_tests {
 
     #[test]
     fn goal_hatch_only_traps_keys_while_pursuing() {
-        use rustcode_coding::GoalPhase;
         use crossterm::event::KeyModifiers;
+        use rustcode_coding::GoalPhase;
         let ctrl_c = (KeyCode::Char('c'), KeyModifiers::CONTROL);
         let esc = (KeyCode::Esc, KeyModifiers::NONE);
 
@@ -6845,10 +6844,19 @@ mod menu_tests {
         ));
         let lock = std::sync::RwLock::new(skills);
 
-        // `/skills atom smoke` keeps the menu OPEN and narrows to the one skill
-        // matching both fragments — the reported bug (a space used to kill it).
-        let items = build_menu_items("/skills atom smoke", 0, &reg, &custom, Some(&lock), None)
-            .expect("multi-fragment filter must keep the menu open");
+        // `/skills rustcode smoke` keeps the menu OPEN and narrows to the one
+        // skill matching both fragments — the reported bug (a space used to
+        // kill it). The fragment must match the fixture names, which are
+        // `rustcode-*` after the rename.
+        let items = build_menu_items(
+            "/skills rustcode smoke",
+            0,
+            &reg,
+            &custom,
+            Some(&lock),
+            None,
+        )
+        .expect("multi-fragment filter must keep the menu open");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].0, "rustcode-smoke-test");
 
@@ -6926,14 +6934,20 @@ mod menu_tests {
         .expect("effort dropdown");
         let names: Vec<&str> = items.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"low") && names.contains(&"medium") && names.contains(&"xhigh"));
-        assert!(!names.contains(&"high") && !names.contains(&"max"), "got: {names:?}");
+        assert!(
+            !names.contains(&"high") && !names.contains(&"max"),
+            "got: {names:?}"
+        );
         assert!(names.contains(&"default"), "default is always offered");
         // `None` ⇒ full canonical set, now including xhigh.
         let all = build_menu_items_with_efforts("/effort ", 0, &reg, &custom, None, None, None)
             .expect("canonical dropdown");
         let all_names: Vec<&str> = all.iter().map(|(n, _)| n.as_str()).collect();
         for lvl in ["low", "medium", "high", "xhigh", "max"] {
-            assert!(all_names.contains(&lvl), "canonical must include {lvl}: {all_names:?}");
+            assert!(
+                all_names.contains(&lvl),
+                "canonical must include {lvl}: {all_names:?}"
+            );
         }
         // Prefix narrowing still works against the configured set.
         let x = build_menu_items_with_efforts(
@@ -6949,7 +6963,6 @@ mod menu_tests {
         assert_eq!(x.len(), 1);
         assert_eq!(x[0].0, "xhigh");
     }
-
 
     #[test]
     fn no_skill_registry_is_no_op() {
@@ -7005,14 +7018,16 @@ mod menu_tests {
         // Single fragment `rustcode` matches BOTH (substring), like the menu today.
         assert_eq!(build_skill_menu_items(Some(&lock), "rustcode").len(), 2);
 
-        // `atom smoke` (two fragments) narrows to just the smoke-test skill —
-        // it contains both "atom" and "smoke"; delegating-to-rustcode does not.
-        let narrowed = build_skill_menu_items(Some(&lock), "atom smoke");
+        // `rustcode smoke` (two fragments) narrows to just the smoke-test
+        // skill — it contains both "rustcode" and "smoke"; delegating-to-rustcode
+        // does not. The fragment must track the fixture names, which are
+        // `rustcode-*` after the rename.
+        let narrowed = build_skill_menu_items(Some(&lock), "rustcode smoke");
         assert_eq!(narrowed.len(), 1);
         assert_eq!(narrowed[0].0, "rustcode-smoke-test");
 
         // A fragment matched by neither name yields nothing.
-        assert!(build_skill_menu_items(Some(&lock), "atom nope").is_empty());
+        assert!(build_skill_menu_items(Some(&lock), "rustcode nope").is_empty());
     }
 
     #[test]
@@ -8241,7 +8256,10 @@ mod tool_format_tests {
     /// `mcp · fs · read`.
     #[test]
     fn display_tool_name_short_keeps_mcp_suffix() {
-        assert_eq!(display_tool_name_short("mcp__fs__read_file"), "fs · read_file");
+        assert_eq!(
+            display_tool_name_short("mcp__fs__read_file"),
+            "fs · read_file"
+        );
         assert_eq!(
             display_tool_name_short("mcp__playwright-mcp-server__browser_snapshot"),
             "playwright-mcp-server · browser_snapshot"
@@ -8654,10 +8672,7 @@ mod tool_format_tests {
     #[test]
     fn summarise_mcp_result_strips_markdown_heading() {
         // MCP markdown result: `### Result` → `Result (N lines)`.
-        assert_eq!(
-            summarise_mcp_result("### Result\na\nb"),
-            "Result (3 lines)"
-        );
+        assert_eq!(summarise_mcp_result("### Result\na\nb"), "Result (3 lines)");
         assert_eq!(summarise_mcp_result("### Error\nboom"), "Error (2 lines)");
         // A `#` with no following space (shell shebang / comment) is untouched.
         assert_eq!(summarise_mcp_result("#!/bin/sh"), "#!/bin/sh");
@@ -9466,7 +9481,7 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
         ));
     }
     // Calm one-line offline advisory: shown once at startup so users know
-    // why web tools, telemetry, and auto-update are inactive. Uses UiLine::Warning
+    // why web tools and auto-update are inactive. Uses UiLine::Warning
     // (yellow) rather than Error (red) — it's informational, not a failure.
     // The verdict is seeded before the event loop starts, so is_offline_active()
     // is reliable here.
@@ -9619,11 +9634,7 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
         // background poll thread owns it from here. wizard.draw still
         // has access to `qr_login_url` so the QR keeps rendering.
         if let Some(session) = wizard.take_pending_session() {
-            oauth_poll::spawn_oauth_poll(
-                session,
-                ctx.oauth_event_tx.clone(),
-                ctx.wake_tx.clone(),
-            );
+            oauth_poll::spawn_oauth_poll(session, ctx.oauth_event_tx.clone(), ctx.wake_tx.clone());
         }
         wizard.draw(&app.buf, &app.state, &ctx, renderer);
         app.active_modal = Some(Box::new(wizard));
@@ -9850,7 +9861,7 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
             // prompt) is up — the spinner repaints the same footer/input
             // region the modal draws, and would clobber the masked line.
             Some(()) = spin_rx.recv(), if matches!(app.state.phase, UiPhase::Streaming)
-                && app.active_modal.as_ref().map_or(true, |m| !m.captures_all_keys()) => {
+                && app.active_modal.as_ref().is_none_or(|m| !m.captures_all_keys()) => {
                 draw_spinner_now(&mut app.state, &app.buf, &ctx, renderer, app.message_queue.len(), app.menu.selected);
             }
 
@@ -10904,6 +10915,8 @@ mod external_config_tests {
         config.providers.insert(
             "main".into(),
             ProviderConfig {
+                model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+                timeout: None,
                 provider_type: "openai".into(),
                 api_key: None,
                 model: model.into(),
@@ -10911,6 +10924,8 @@ mod external_config_tests {
                 system_prompt: None,
                 supports_vision: None,
                 user_agent: None,
+                extra_headers: None,
+                proxy: None,
                 context_window: 128_000,
                 max_tokens: None,
                 thinking_type: None,
@@ -11130,6 +11145,8 @@ mod external_config_tests {
         desired.providers.insert(
             "local".into(),
             ProviderConfig {
+                model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+                timeout: None,
                 model: "local-model".into(),
                 ..desired.providers["main"].clone()
             },
@@ -11370,6 +11387,8 @@ mod external_config_tests {
         desired.providers.insert(
             "next".into(),
             ProviderConfig {
+                model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+                timeout: None,
                 model: "next-model".into(),
                 ..desired.providers["main"].clone()
             },
@@ -11387,6 +11406,8 @@ mod external_config_tests {
         config.providers.insert(
             "next".into(),
             ProviderConfig {
+                model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+                timeout: None,
                 model: "next-model".into(),
                 ..config.providers["main"].clone()
             },
@@ -11421,6 +11442,8 @@ mod external_config_tests {
         next_default.providers.insert(
             "next".into(),
             ProviderConfig {
+                model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+                timeout: None,
                 model: "next-model".into(),
                 ..opened.providers["main"].clone()
             },
@@ -12361,7 +12384,7 @@ fn attach_image_to_user_input(
             .state
             .user_input_batch
             .as_ref()
-            .map_or(true, |batch| batch.on_submit_stop())
+            .is_none_or(|batch| batch.on_submit_stop())
     {
         return Ok(true);
     }
@@ -12792,7 +12815,7 @@ fn handle_transcript_pointer(
                     dragging: false,
                 });
                 publish_transcript_selection(selection.as_ref(), publisher);
-                let surviving_runs: Vec<_> = frame.copy_runs.iter().cloned().collect();
+                let surviving_runs: Vec<_> = frame.copy_runs.to_vec();
                 return extract_transcript_selection(&surviving_runs, anchor, head)
                     .filter(|text| !text.is_empty())
                     .map_or(TranscriptPointerRoute::Redraw, TranscriptPointerRoute::Copy);
@@ -15260,6 +15283,12 @@ pub struct MenuState {
     pointer_confirm_on_release: bool,
 }
 
+impl Default for MenuState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MenuState {
     pub fn new() -> Self {
         Self {
@@ -15410,7 +15439,7 @@ fn build_skill_menu_items(
                 let full_lower = skill.name.to_ascii_lowercase();
                 let bare_lower = bare.to_ascii_lowercase();
                 // Multi-fragment AND filter: every whitespace-separated fragment
-                // must appear (in the bare OR full name) so `atom smoke` narrows
+                // must appear (in the bare OR full name) so `rustcode smoke` narrows
                 // to `rustcode-smoke-test`. Empty filter ⇒ no fragments ⇒ vacuous
                 // true ⇒ list all. A single fragment behaves exactly as the old
                 // single-substring match (`bra` ⇒ brainstorming).
@@ -15457,7 +15486,15 @@ fn build_menu_items(
     skill_registry: Option<&std::sync::RwLock<rustcode_capabilities::skills::SkillRegistry>>,
     file_index: Option<&file_index::FileIndex>,
 ) -> Option<Vec<(String, String)>> {
-    build_menu_items_with_efforts(buf, cursor, commands, custom, skill_registry, file_index, None)
+    build_menu_items_with_efforts(
+        buf,
+        cursor,
+        commands,
+        custom,
+        skill_registry,
+        file_index,
+        None,
+    )
 }
 
 /// Like [`build_menu_items`], but the `/effort ` dropdown lists exactly
@@ -15526,7 +15563,7 @@ fn build_menu_items_with_efforts(
         // space, the user has moved past filtering — they're typing the skill's
         // task args (or a second greedy skill) — so close the menu and let Enter
         // submit. Until then, treat `after` as a multi-fragment fuzzy filter so
-        // `atom smoke` narrows to `rustcode-smoke-test` instead of the old
+        // `rustcode smoke` narrows to `rustcode-smoke-test` instead of the old
         // "any space kills the menu" (which made multi-word filtering dead).
         let first = after.split_whitespace().next().unwrap_or("");
         let first_is_complete_skill = after.contains(char::is_whitespace)
@@ -16776,10 +16813,7 @@ fn handle_idle_key(
                 // markers diverge from positional indices — using the index
                 // would silently drop every image after the first turn that
                 // had a paste.
-                for ((img, n), hash) in pending
-                    .into_iter()
-                    .zip(pending_markers.into_iter())
-                    .zip(pending_hashes.into_iter())
+                for ((img, n), hash) in pending.into_iter().zip(pending_markers).zip(pending_hashes)
                 {
                     if line.contains(&format!("[Image #{}]", n)) {
                         kept_refs.push(crate::input::history::HistoryImageRef {
@@ -18342,7 +18376,7 @@ fn streaming_executable_slash(line: &str) -> Option<(String, String)> {
         return Some((cmd.to_ascii_lowercase(), String::new()));
     }
     if cmd.eq_ignore_ascii_case("goal") {
-        let head = arg.trim().split_whitespace().next().unwrap_or("");
+        let head = arg.split_whitespace().next().unwrap_or("");
         if matches!(
             head.to_ascii_lowercase().as_str(),
             "clear" | "stop" | "off" | "reset" | "none" | "cancel"
@@ -18355,7 +18389,7 @@ fn streaming_executable_slash(line: &str) -> Option<(String, String)> {
     // otherwise blocked — so a typed `/loop stop` had no effect (only Esc worked).
     // A bare `/loop` (status) or `/loop <new spec>` is intentionally NOT whitelisted.
     if cmd.eq_ignore_ascii_case("loop") {
-        let head = arg.trim().split_whitespace().next().unwrap_or("");
+        let head = arg.split_whitespace().next().unwrap_or("");
         if matches!(
             head.to_ascii_lowercase().as_str(),
             "stop" | "off" | "clear" | "cancel" | "reset" | "none"
@@ -18873,11 +18907,7 @@ fn handle_streaming_key(
             let mut q_markers: Vec<usize> = Vec::with_capacity(pending.len());
             let mut q_refs: Vec<crate::input::history::HistoryImageRef> =
                 Vec::with_capacity(pending.len());
-            for ((img, n), hash) in pending
-                .into_iter()
-                .zip(pending_markers.into_iter())
-                .zip(pending_hashes.into_iter())
-            {
+            for ((img, n), hash) in pending.into_iter().zip(pending_markers).zip(pending_hashes) {
                 if line.contains(&format!("[Image #{}]", n)) {
                     q_refs.push(crate::input::history::HistoryImageRef {
                         hash: format!("{:016x}", hash),
@@ -19383,10 +19413,10 @@ mod bypass_approval_tests {
 mod user_input_key_tests {
     use super::{clear_panel_paste_command, paste_command_image_path, user_input_response_for};
     use crate::state::UserInputPanel;
+    use crossterm::event::KeyCode;
     use rustcode_capabilities::tools::request_user_input::{
         UserInputMode, UserInputOption, UserInputRequest,
     };
-    use crossterm::event::KeyCode;
 
     fn panel(mode: UserInputMode) -> UserInputPanel {
         UserInputPanel::new(
@@ -19899,14 +19929,14 @@ fn handle_approval_key(
             if let Some(p) = app.state.approval_panel.as_mut() {
                 p.move_up();
             }
-            redraw_idle_plain(&app.buf, &mut app.state, ctx, renderer);
+            redraw_idle_plain(&app.buf, &app.state, ctx, renderer);
             return Ok(());
         }
         KeyCode::Down => {
             if let Some(p) = app.state.approval_panel.as_mut() {
                 p.move_down();
             }
-            redraw_idle_plain(&app.buf, &mut app.state, ctx, renderer);
+            redraw_idle_plain(&app.buf, &app.state, ctx, renderer);
             return Ok(());
         }
         _ => {}
@@ -20537,8 +20567,8 @@ fn handle_user_input_batch_key(
     code: KeyCode,
     modifiers: crossterm::event::KeyModifiers,
 ) -> Result<()> {
-    use rustcode_capabilities::tools::request_user_input::{UserInputMode, UserInputResponse};
     use crossterm::event::KeyModifiers;
+    use rustcode_capabilities::tools::request_user_input::{UserInputMode, UserInputResponse};
     if code == KeyCode::Enter {
         if let Some(command) = user_input_text(&app.state).map(str::trim) {
             if command == "/paste" || paste_command_image_path(command).is_some() {
@@ -21691,7 +21721,7 @@ fn flush_pending_separator(state: &mut UiState, renderer: &mut dyn Renderer, as_
             cached,
         );
         crate::i18n::t(crate::i18n::Msg::LoopRound {
-            round: (state.loop_round + 1).max(1) as u32,
+            round: (state.loop_round + 1).max(1),
             stats: &stats,
         })
         .into_owned()
@@ -22982,7 +23012,7 @@ fn sync_provider_projection_from_snapshot(
         &current_selection,
         &ctx.model_name,
         ctx.observed_config_revision.as_ref(),
-        &provider,
+        provider,
         &model,
         Some(&revision),
     ) {
@@ -23238,7 +23268,6 @@ fn handle_runtime_event(
                         reasoning_buffer,
                         buf,
                     );
-                    return;
                 }
                 CodingRuntimeEvent::Team { generation, event } => {
                     let run_id = event.run_id.to_string();
@@ -23273,7 +23302,6 @@ fn handle_runtime_event(
                             }
                         }
                     }
-                    return;
                 }
                 CodingRuntimeEvent::Agent(event) => {
                     if let Some(event) = project_kernel_event(event, ctx) {
@@ -23289,7 +23317,6 @@ fn handle_runtime_event(
                             buf,
                         );
                     }
-                    return;
                 }
                 CodingRuntimeEvent::PolicyInterventionResolved {
                     intervention_id,
@@ -23303,7 +23330,6 @@ fn handle_runtime_event(
                     ) {
                         redraw_idle_plain(buf, state, ctx, renderer);
                     }
-                    return;
                 }
                 CodingRuntimeEvent::PolicyInterventionCleared { intervention_id } => {
                     if state
@@ -23317,7 +23343,6 @@ fn handle_runtime_event(
                         state.phase = UiPhase::Idle;
                         redraw_idle_plain(buf, state, ctx, renderer);
                     }
-                    return;
                 }
                 CodingRuntimeEvent::Request(request) => {
                     use rustcode_capabilities::tools::{
@@ -23434,7 +23459,6 @@ fn handle_runtime_event(
                         reasoning_buffer,
                         buf,
                     );
-                    return;
                 }
                 CodingRuntimeEvent::TurnFinished(completion) => {
                     ctx.pending_runtime_request_id = None;
@@ -23444,10 +23468,7 @@ fn handle_runtime_event(
                     );
                     let event = match completion {
                         rustcode_coding::TurnCompletion::Completed {
-                            reason,
-                            snapshot,
-                            stats: _,
-                            ..
+                            reason, snapshot, ..
                         } if matches!(reason, rustcode_kernel::event::StopReason::Cancelled) => {
                             AgentEvent::TurnCancelled {
                                 snapshot: snapshot.as_ref().clone(),
@@ -23501,7 +23522,6 @@ fn handle_runtime_event(
                             reasoning_buffer,
                         );
                     }
-                    return;
                 }
                 CodingRuntimeEvent::RuntimeStopped(_) => {
                     state.next_prompt_suggestion = None;
@@ -23536,7 +23556,6 @@ fn handle_runtime_event(
                             reasoning_buffer,
                         );
                     }
-                    return;
                 }
                 CodingRuntimeEvent::ModeChanged { mode } => {
                     let agent_mode = match mode {
@@ -23549,7 +23568,6 @@ fn handle_runtime_event(
                     };
                     state.agent_mode = agent_mode;
                     rustcode_daemon::live_set_mode(agent_mode);
-                    return;
                 }
                 CodingRuntimeEvent::WorkingDirectoryChanged(directory) => {
                     if ctx
@@ -23574,7 +23592,6 @@ fn handle_runtime_event(
                         reasoning_buffer,
                         buf,
                     );
-                    return;
                 }
                 CodingRuntimeEvent::SessionChanged(changed) => {
                     state.next_prompt_suggestion = None;
@@ -23604,7 +23621,6 @@ fn handle_runtime_event(
                             renderer.flush();
                         }
                     }
-                    return;
                 }
                 CodingRuntimeEvent::SessionNameSuggested { name } => {
                     handle_agent_event(
@@ -23618,7 +23634,6 @@ fn handle_runtime_event(
                         reasoning_buffer,
                         buf,
                     );
-                    return;
                 }
                 CodingRuntimeEvent::NextPromptSuggested {
                     generation,
@@ -23638,7 +23653,6 @@ fn handle_runtime_event(
                         state.next_prompt_suggestion = Some(text);
                         redraw_idle_plain(buf, state, ctx, renderer);
                     }
-                    return;
                 }
                 CodingRuntimeEvent::GoalChanged(progress) => {
                     handle_agent_event(
@@ -23660,7 +23674,6 @@ fn handle_runtime_event(
                         reasoning_buffer,
                         buf,
                     );
-                    return;
                 }
                 CodingRuntimeEvent::LoopChanged(progress) => {
                     handle_agent_event(
@@ -23680,12 +23693,10 @@ fn handle_runtime_event(
                         reasoning_buffer,
                         buf,
                     );
-                    return;
                 }
                 CodingRuntimeEvent::ControllerWarning(message) => {
                     renderer.render(UiLine::Warning(message));
                     renderer.flush();
-                    return;
                 }
                 CodingRuntimeEvent::PersistenceWarning(message) => {
                     // Auxiliary persistence failures are diagnostics, not model
@@ -23693,7 +23704,6 @@ fn handle_runtime_event(
                     // appending a permanent transcript row. The authoritative
                     // turn terminal that follows owns the normal idle redraw.
                     state.footer_persistence_warning = Some(format!("⚠ {message}"));
-                    return;
                 }
                 CodingRuntimeEvent::VisionPreprocessSuccess {
                     vl_model,
@@ -23716,7 +23726,6 @@ fn handle_runtime_event(
                         reasoning_buffer,
                         buf,
                     );
-                    return;
                 }
                 CodingRuntimeEvent::VisionPreprocessFailed { reason } => {
                     renderer.render(UiLine::Warning(
@@ -23747,136 +23756,120 @@ fn handle_runtime_event(
                             buf,
                         );
                     }
-                    return;
                 }
-                CodingRuntimeEvent::UndoFinished(result) => {
-                    match result {
-                        Ok(result) => handle_undo_success(
-                            result.snapshot.as_ref().clone(),
-                            result.restored_prompt,
-                            result.target_n,
-                            result.prompts_before,
-                            state,
-                            renderer,
-                            ctx,
-                            buf,
-                        ),
-                        Err(rustcode_coding::RuntimeError::UndoOutOfRange {
-                            requested,
-                            available,
-                        }) => handle_undo_failure(requested, available, renderer),
-                        Err(error) => {
-                            renderer.render(UiLine::Error(format!("undo failed: {error}")));
-                            renderer.flush();
-                        }
+                CodingRuntimeEvent::UndoFinished(result) => match result {
+                    Ok(result) => handle_undo_success(
+                        result.snapshot.as_ref().clone(),
+                        result.restored_prompt,
+                        result.target_n,
+                        result.prompts_before,
+                        state,
+                        renderer,
+                        ctx,
+                        buf,
+                    ),
+                    Err(rustcode_coding::RuntimeError::UndoOutOfRange {
+                        requested,
+                        available,
+                    }) => handle_undo_failure(requested, available, renderer),
+                    Err(error) => {
+                        renderer.render(UiLine::Error(format!("undo failed: {error}")));
+                        renderer.flush();
                     }
-                    return;
-                }
+                },
                 CodingRuntimeEvent::RewindCatalogRefreshed(result) => {
                     ctx.pending_rewind_catalog = Some(result);
-                    return;
                 }
-                CodingRuntimeEvent::RewindFinished(result) => {
-                    match result {
-                        Ok(result) => {
-                            handle_rewind_success(result, state, renderer, ctx, buf);
-                        }
-                        Err(error) => {
-                            renderer.render(UiLine::Error(format!(
-                                "{}: {error}",
-                                match crate::i18n::current_locale() {
-                                    crate::i18n::Locale::ZhCn => "回退失败",
-                                    crate::i18n::Locale::En => "Rewind failed",
-                                }
-                            )));
-                            renderer.flush();
-                        }
+                CodingRuntimeEvent::RewindFinished(result) => match result {
+                    Ok(result) => {
+                        handle_rewind_success(result, state, renderer, ctx, buf);
                     }
-                    return;
-                }
-                CodingRuntimeEvent::ContextStatsRefreshed(result) => {
-                    match result {
-                        Ok(stats) => {
-                            state.on_context_stats(
-                                0,
-                                stats.used_tokens as usize,
-                                0,
-                                0,
-                                0,
-                                stats.context_window as usize,
-                                "coding-runtime",
-                                "",
-                            );
-                            if let Some(show_prompt) = state.pending_context_render.take() {
-                                renderer.render(UiLine::CommandOutput(
-                                    commands::render_context_report(state, ctx, show_prompt),
-                                ));
-                                renderer.flush();
+                    Err(error) => {
+                        renderer.render(UiLine::Error(format!(
+                            "{}: {error}",
+                            match crate::i18n::current_locale() {
+                                crate::i18n::Locale::ZhCn => "回退失败",
+                                crate::i18n::Locale::En => "Rewind failed",
                             }
-                        }
-                        Err(error) => {
-                            state.pending_context_render = None;
-                            renderer.render(UiLine::Error(format!(
-                                "refresh context stats failed: {error}"
-                            )));
-                            renderer.flush();
-                        }
+                        )));
+                        renderer.flush();
                     }
-                    return;
-                }
-                CodingRuntimeEvent::SnapshotRestoreFinished { .. } => return,
-                CodingRuntimeEvent::SessionResumeFinished(result) => {
-                    match result {
-                        Err(rustcode_coding::RuntimeError::Cancelled) => {
-                            ctx.pending_session_resume = None;
-                            commands::request_session_catalog(ctx, renderer);
-                        }
-                        Err(error) => {
-                            ctx.pending_session_resume = None;
-                            let message = error.to_string();
-                            renderer.render(UiLine::Error(
-                                crate::i18n::t(crate::i18n::Msg::SessionLoadFailed {
-                                    error: &message,
-                                })
-                                .into_owned(),
+                },
+                CodingRuntimeEvent::ContextStatsRefreshed(result) => match result {
+                    Ok(stats) => {
+                        state.on_context_stats(
+                            0,
+                            stats.used_tokens as usize,
+                            0,
+                            0,
+                            0,
+                            stats.context_window as usize,
+                            "coding-runtime",
+                            "",
+                        );
+                        if let Some(show_prompt) = state.pending_context_render.take() {
+                            renderer.render(UiLine::CommandOutput(
+                                commands::render_context_report(state, ctx, show_prompt),
                             ));
                             renderer.flush();
                         }
-                        Ok(changed) => {
-                            let matches = ctx
-                                .pending_session_resume
-                                .as_ref()
-                                .is_some_and(|pending| session_resume_matches(pending, &changed));
-                            if matches {
-                                ctx.pending_session_resume
-                                    .as_mut()
-                                    .expect("checked above")
-                                    .committed = Some(changed);
-                                if let Err(error) =
-                                    retry_pending_session_projections(state, renderer, ctx)
-                                {
-                                    renderer.render(UiLine::Error(error));
-                                    renderer.flush();
-                                }
-                            } else {
-                                ctx.pending_session_resume = None;
-                                renderer.render(UiLine::Error(
+                    }
+                    Err(error) => {
+                        state.pending_context_render = None;
+                        renderer.render(UiLine::Error(format!(
+                            "refresh context stats failed: {error}"
+                        )));
+                        renderer.flush();
+                    }
+                },
+                CodingRuntimeEvent::SnapshotRestoreFinished { .. } => (),
+                CodingRuntimeEvent::SessionResumeFinished(result) => match result {
+                    Err(rustcode_coding::RuntimeError::Cancelled) => {
+                        ctx.pending_session_resume = None;
+                        commands::request_session_catalog(ctx, renderer);
+                    }
+                    Err(error) => {
+                        ctx.pending_session_resume = None;
+                        let message = error.to_string();
+                        renderer.render(UiLine::Error(
+                            crate::i18n::t(crate::i18n::Msg::SessionLoadFailed { error: &message })
+                                .into_owned(),
+                        ));
+                        renderer.flush();
+                    }
+                    Ok(changed) => {
+                        let matches = ctx
+                            .pending_session_resume
+                            .as_ref()
+                            .is_some_and(|pending| session_resume_matches(pending, &changed));
+                        if matches {
+                            ctx.pending_session_resume
+                                .as_mut()
+                                .expect("checked above")
+                                .committed = Some(changed);
+                            if let Err(error) =
+                                retry_pending_session_projections(state, renderer, ctx)
+                            {
+                                renderer.render(UiLine::Error(error));
+                                renderer.flush();
+                            }
+                        } else {
+                            ctx.pending_session_resume = None;
+                            renderer.render(UiLine::Error(
                                     "session resume returned an unexpected identity; following the runtime owner"
                                         .into(),
                                 ));
+                            renderer.flush();
+                            ctx.pending_external_session_projection = Some(changed);
+                            if let Err(error) =
+                                retry_pending_session_projections(state, renderer, ctx)
+                            {
+                                renderer.render(UiLine::Error(error));
                                 renderer.flush();
-                                ctx.pending_external_session_projection = Some(changed);
-                                if let Err(error) =
-                                    retry_pending_session_projections(state, renderer, ctx)
-                                {
-                                    renderer.render(UiLine::Error(error));
-                                    renderer.flush();
-                                }
                             }
                         }
                     }
-                    return;
-                }
+                },
                 CodingRuntimeEvent::ProviderChanged { provider, model } => {
                     state.next_prompt_suggestion = None;
                     // Ready and deferred runtimes forward ProviderChanged and the
@@ -23892,7 +23885,6 @@ fn handle_runtime_event(
                             renderer.flush();
                         }
                     }
-                    return;
                 }
                 CodingRuntimeEvent::ReasoningEffortChanged {
                     provider,
@@ -23900,7 +23892,6 @@ fn handle_runtime_event(
                     applicable,
                 } => {
                     apply_reasoning_effort_projection(ctx, &provider, effort, applicable);
-                    return;
                 }
                 CodingRuntimeEvent::ProviderReloadFinished(Err(error)) => {
                     let mut message = format!("provider reload failed: {error}");
@@ -23955,7 +23946,6 @@ fn handle_runtime_event(
                     rustcode_config::proxy::apply_process_proxy_config(&ctx.config.network.proxy);
                     renderer.render(UiLine::Error(message));
                     renderer.flush();
-                    return;
                 }
                 CodingRuntimeEvent::ProviderReloadFinished(Ok(generation)) => {
                     let current_generation = ctx.runtime.current_generation();
@@ -24110,7 +24100,6 @@ fn handle_runtime_event(
                         }
                     }
                     renderer.flush();
-                    return;
                 }
                 CodingRuntimeEvent::ProviderDeactivationFinished(Ok(_)) => {
                     ctx.pending_provider_deactivation = false;
@@ -24118,7 +24107,6 @@ fn handle_runtime_event(
                         crate::i18n::t(crate::i18n::Msg::CmdLogoutDone).into_owned(),
                     ));
                     renderer.flush();
-                    return;
                 }
                 CodingRuntimeEvent::ProviderDeactivationFinished(Err(error)) => {
                     ctx.pending_provider_deactivation = false;
@@ -24134,13 +24122,11 @@ fn handle_runtime_event(
                             .into_owned(),
                     ));
                     renderer.flush();
-                    return;
                 }
                 event => {
                     let mirror_persisted =
                         persist_native_compaction_snapshot(&event, ctx, renderer);
                     handle_coding_runtime_event(event, state, think, renderer, mirror_persisted);
-                    return;
                 }
             }
         }
@@ -26954,7 +26940,7 @@ fn handle_agent_event(
             use std::hash::{Hash, Hasher};
             // markers length should match images length (agent passed them
             // back); zip is best-effort if it doesn't (truncates).
-            for (img, marker) in images.into_iter().zip(markers.into_iter()) {
+            for (img, marker) in images.into_iter().zip(markers) {
                 let mut hasher = DefaultHasher::new();
                 img.data.hash(&mut hasher);
                 let h = hasher.finish();
@@ -29244,12 +29230,7 @@ pub(crate) fn format_tool_detail(name: &str, args_json: &str) -> String {
             if let Some(files) = v.get("files").and_then(|f| f.as_array()) {
                 let names: Vec<String> = files
                     .iter()
-                    .filter_map(|entry| {
-                        entry
-                            .get("path")
-                            .and_then(|p| p.as_str())
-                            .map(|s| basename(s))
-                    })
+                    .filter_map(|entry| entry.get("path").and_then(|p| p.as_str()).map(&basename))
                     .collect();
                 let detail = names.join(", ");
                 crate::width::truncate_with_ellipsis(&detail, 200)
@@ -29728,9 +29709,7 @@ pub(crate) fn build_replay_tool_batch(
                 // `└ • Tool … → result` (matches live); the `•` is coloured by the
                 // stored outcome so a resumed batch keeps its green success dots.
                 text: format!("  {} \u{2022} {}{}", child_glyph, body, suffix),
-                outcome: result_of
-                    .get(&c.id)
-                    .map(|(ok, _)| tool_bullet_outcome(*ok)),
+                outcome: result_of.get(&c.id).map(|(ok, _)| tool_bullet_outcome(*ok)),
             }
         })
         .collect();
@@ -30933,7 +30912,10 @@ mod format_shell_command_tests {
         let out = format_shell_command(cmd, 100);
         assert_eq!(out.len(), 3, "one row per logical line: {out:?}");
         assert!(out[0].contains("<<'EOF'"), "{out:?}");
-        assert!(out[1].contains("import urllib.request, json, base64"), "{out:?}");
+        assert!(
+            out[1].contains("import urllib.request, json, base64"),
+            "{out:?}"
+        );
         assert!(out[2].contains("def gh(url):"), "{out:?}");
         assert!(
             !out.iter().any(|l| l.contains("base64def")),

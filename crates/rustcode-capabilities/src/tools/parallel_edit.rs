@@ -409,12 +409,12 @@ fn find_build_command(wd: &Path) -> Option<(String, std::path::PathBuf)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::stream::{self, BoxStream};
+    use futures::StreamExt;
     use rustcode_kernel::message::Message;
     use rustcode_kernel::provider::ChatOptions;
     use rustcode_kernel::stream::{ProviderError, StreamEvent};
     use rustcode_kernel::tool::{ProgressSink, ToolDef, ToolRegistry};
-    use futures::stream::{self, BoxStream};
-    use futures::StreamExt;
     use tokio_util::sync::CancellationToken;
 
     /// The build-verification probe runs under `cmd.exe /C` on Windows, where the

@@ -2503,7 +2503,7 @@ fn execute_slash_command_impl(
             if ctx
                 .app_relay_child
                 .take()
-                .map_or(false, |mut c| c.start_kill().is_ok())
+                .is_some_and(|mut c| c.start_kill().is_ok())
             {
                 let _ = ctx.app_relay_child.take();
             }
@@ -2805,12 +2805,9 @@ fn execute_slash_command_impl(
                     })
                     .into_owned();
                     if let Some(previous_slot) = outcome.previous_foreground_slot {
-                        msg.push_str(
-                            &t(Msg::BgPreviousForegroundMoved {
-                                slot: previous_slot,
-                            })
-                            .into_owned(),
-                        );
+                        msg.push_str(&t(Msg::BgPreviousForegroundMoved {
+                            slot: previous_slot,
+                        }));
                     }
                     renderer.render(UiLine::CommandOutput(msg));
                 }
@@ -3633,7 +3630,7 @@ fn execute_slash_command_impl(
                         renderer.render(UiLine::CommandOutput(
                             crate::i18n::t(crate::i18n::Msg::LoopStatus {
                                 label: label.as_str(),
-                                round: (state.loop_round + 1) as u32,
+                                round: (state.loop_round + 1),
                                 mins,
                                 secs: secs_rem,
                             })
@@ -3816,7 +3813,7 @@ fn execute_slash_command_impl(
             // time the user runs /setup on a project that's already set up.
             let skill_already_installed = {
                 let reg = ctx.skill_registry.read().ok();
-                reg.as_ref().map_or(false, |r| r.get("setup").is_some())
+                reg.as_ref().is_some_and(|r| r.get("setup").is_some())
             };
 
             if skill_already_installed {
@@ -4053,7 +4050,7 @@ pub(super) enum CustomDispatch {
 ///   - `Reject`   ⇒ user typed e.g. `/myreview` with no argument; surface
 ///     `Msg::CmdCustomArgRequired` and leave the conversation untouched.
 ///   - `NotFound` ⇒ user typed e.g. `/foo` that matches nothing; surface
-///     `Msg::CmdUnknownCommand` (telemetry is tracked by the caller).
+///     `Msg::CmdUnknownCommand` (the caller surfaces it).
 ///   - `Submit`   ⇒ not an error; the caller forwards the rendered template
 ///     to `submit_agent_turn`, so this helper is a no-op there.
 ///
@@ -4693,7 +4690,7 @@ fn handle_worktree(arg: &str, ctx: &mut LoopCtx, renderer: &mut dyn Renderer) ->
             };
             let cleanup_path = mgr
                 .find_worktree_path(branch)
-                .unwrap_or_else(|_| None)
+                .unwrap_or(None)
                 .unwrap_or_else(|| mgr.worktree_path(branch));
             let removing_current = paths_same(&cleanup_path, &ctx.working_dir);
             if removing_current {
@@ -7055,15 +7052,14 @@ pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> 
     // this the user sees "✓ already logged in as X" followed by
     // "✗ claim failed — run `rustcode login` again" and has to do
     // manually what `/codingplan` could do itself.
-    let (mut prepared_config, mut report) =
-        match run_coding_plan_blocking(&ctx.config) {
-            Ok((cfg, r)) => (cfg, r),
-            Err(e) => {
-                renderer.render(UiLine::Error(format!("internal error: {e:#}")));
-                renderer.flush();
-                return Ok(());
-            }
-        };
+    let (mut prepared_config, mut report) = match run_coding_plan_blocking(&ctx.config) {
+        Ok((cfg, r)) => (cfg, r),
+        Err(e) => {
+            renderer.render(UiLine::Error(format!("internal error: {e:#}")));
+            renderer.flush();
+            return Ok(());
+        }
+    };
     if report.auth_expired {
         renderer.render(UiLine::CommandOutput(t(Msg::CpReauthAfter401).into_owned()));
         renderer.flush();
@@ -7071,15 +7067,14 @@ pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> 
             .and_then(|auth| rustcode_auth::save_auth(&auth).map(|_| auth))
         {
             Ok(_) => {
-                let (cfg_after2, r2) =
-                    match run_coding_plan_blocking(&prepared_config) {
-                        Ok((cfg, r)) => (cfg, r),
-                        Err(e) => {
-                            renderer.render(UiLine::Error(format!("internal error: {e:#}")));
-                            renderer.flush();
-                            return Ok(());
-                        }
-                    };
+                let (cfg_after2, r2) = match run_coding_plan_blocking(&prepared_config) {
+                    Ok((cfg, r)) => (cfg, r),
+                    Err(e) => {
+                        renderer.render(UiLine::Error(format!("internal error: {e:#}")));
+                        renderer.flush();
+                        return Ok(());
+                    }
+                };
                 prepared_config = cfg_after2;
                 report = r2;
             }
@@ -8884,7 +8879,7 @@ mod todo_command_tests {
     fn dispatch_unknown_command_is_not_found() {
         // A name that matches neither a custom command nor (in the pure
         // decision layer) a skill falls through to NotFound, which the
-        // dispatcher translates into the unknown-command telemetry arm.
+        // dispatcher translates into the unknown-command arm.
         let custom = crate::custom_commands::CustomCommandRegistry::empty();
         let decision = decide_custom_command(&custom, "does_not_exist", "");
         assert!(
@@ -9014,7 +9009,7 @@ mod todo_command_tests {
         //      we assert the error-render half stays silent on success).
         // This is the closest unit-testable seam to the real dispatcher; the
         // full LoopCtx is intentionally avoided (it'd require constructing an
-        // AgentClient + Telemetry + a dozen channels just to reach one arm).
+        // AgentClient + a dozen channels just to reach one arm).
         let mut custom = crate::custom_commands::CustomCommandRegistry::empty();
         custom.register(crate::custom_commands::CustomCommand {
             name: "myreview".into(),

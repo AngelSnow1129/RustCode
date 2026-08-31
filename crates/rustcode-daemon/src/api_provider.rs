@@ -1,8 +1,8 @@
+use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
+use futures::StreamExt;
 use rustcode_config::config::provider::{
     default_context_window_for, ModelProfileConfig, ProviderConfig,
 };
-use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
-use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -517,6 +517,7 @@ fn insert_account_models(
             ModelProfileConfig {
                 account: account_id.to_string(),
                 model,
+                model_mapping: rustcode_config::config::provider::ModelMapping::default(),
                 display_name: request.display_name.clone(),
                 system_prompt: None,
                 supports_vision: request.supports_vision,
@@ -756,11 +757,10 @@ pub(crate) async fn create_account_models(
             managed = true;
             anyhow::bail!("managed CodingPlan provider account");
         }
-        created = insert_account_models(config, &account, &req.models).map_err(|error| {
+        created = insert_account_models(config, &account, &req.models).inspect_err(|error| {
             if error.downcast_ref::<AccountModelConflict>().is_some() {
                 conflict = true;
             }
-            error
         })?;
         Ok(())
     }) {
@@ -845,6 +845,8 @@ pub(crate) async fn create_provider(Json(req): Json<CreateProviderRequest>) -> i
         provider_type: req.provider_type,
         api_key: req.api_key,
         model: req.model,
+        model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+        timeout: None,
         base_url: req.base_url,
         system_prompt: None,
         supports_vision: req.supports_vision,
@@ -990,7 +992,10 @@ pub(crate) async fn patch_provider(
                     anyhow::bail!("account for model {name:?} not found");
                 }
                 if final_name != name {
-                    let model = config.models.remove(&name).expect("contains_key checked above");
+                    let model = config
+                        .models
+                        .remove(&name)
+                        .expect("contains_key checked above");
                     config.models.insert(final_name.clone(), model);
                     rename_default_selection(config, &name, &final_name);
                 }
@@ -1281,13 +1286,13 @@ mod tests {
         PatchProviderRequest,
     };
     use crate::DiscoveredModelInfo;
-    use rustcode_config::config::Config;
     use axum::{
         body::{Body, Bytes},
         http::{header, HeaderMap, Response, StatusCode},
         routing::get,
         Router,
     };
+    use rustcode_config::config::Config;
     use std::{convert::Infallible, time::Duration};
 
     async fn spawn_discovery_server(router: Router) -> reqwest::Url {
@@ -1413,7 +1418,10 @@ mod tests {
         // "account is the connection" semantics — documented, not accidental).
         assert_eq!(config.models["bai/glm"].account, "bai");
         assert_eq!(
-            config.provider_config_for_selection("bai/glm").and_then(|p| p.base_url).as_deref(),
+            config
+                .provider_config_for_selection("bai/glm")
+                .and_then(|p| p.base_url)
+                .as_deref(),
             Some("https://api.c.ai/v1")
         );
     }
@@ -1436,10 +1444,20 @@ mod tests {
         .unwrap();
 
         // Account "ghost" is absent → helper returns false (unresolved), nothing mutated.
-        assert!(!apply_patch_to_new_schema_model(&mut config, "orphan/model", req));
+        assert!(!apply_patch_to_new_schema_model(
+            &mut config,
+            "orphan/model",
+            req
+        ));
         let model = &config.models["orphan/model"];
-        assert_eq!(model.model, "m", "model must be untouched on unresolved account");
-        assert_eq!(model.context_window, 128000, "context_window must be untouched");
+        assert_eq!(
+            model.model, "m",
+            "model must be untouched on unresolved account"
+        );
+        assert_eq!(
+            model.context_window, 128000,
+            "context_window must be untouched"
+        );
     }
 
     #[test]

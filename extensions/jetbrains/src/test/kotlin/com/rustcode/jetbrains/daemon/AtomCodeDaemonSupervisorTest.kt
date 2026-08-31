@@ -252,8 +252,8 @@ class AtomCodeDaemonSupervisorTest {
                 launch
             },
         )
-        val firstSettings = settings.copy(daemonBinaryPath = "/first/atomcode-daemon")
-        val secondSettings = settings.copy(daemonBinaryPath = "/second/atomcode-daemon")
+        val firstSettings = settings.copy(daemonBinaryPath = "/first/rustcode-daemon")
+        val secondSettings = settings.copy(daemonBinaryPath = "/second/rustcode-daemon")
 
         val first = engine.ensureReady(firstSettings, auth)
         val second = engine.ensureReady(secondSettings, auth)
@@ -352,7 +352,7 @@ class AtomCodeDaemonSupervisorTest {
     )
 
     private fun health(
-        service: String = "atomcode-daemon",
+        service: String = "rustcode-daemon",
         version: String = "1.2.3",
     ) = HealthResponse(
         status = "ok",

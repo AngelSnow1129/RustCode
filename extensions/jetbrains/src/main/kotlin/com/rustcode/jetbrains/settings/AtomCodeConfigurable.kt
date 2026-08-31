@@ -29,7 +29,7 @@ class AtomCodeConfigurable : Configurable {
     private lateinit var sendWithCtrlEnter: JCheckBox
     private lateinit var chatFontSize: JSpinner
 
-    override fun getDisplayName(): String = "AtomCode"
+    override fun getDisplayName(): String = "RustCode"
 
     override fun createComponent(): JComponent {
         val form = JPanel(GridBagLayout())
@@ -39,7 +39,7 @@ class AtomCodeConfigurable : Configurable {
         host = JTextField()
         port = JSpinner(SpinnerNumberModel(13456, 1, 65535, 1))
         autoStart = JCheckBox("Auto-start daemon after user action")
-        autoSaveBeforeRead = JCheckBox("Auto-save files before AtomCode reads them")
+        autoSaveBeforeRead = JCheckBox("Auto-save files before RustCode reads them")
         timeout = JSpinner(SpinnerNumberModel(30_000, 1_000, 300_000, 1_000))
         contextLevel = JComboBox(AtomCodeContextLevel.entries.toTypedArray())
         allowSelection = JCheckBox("Allow selected text context")

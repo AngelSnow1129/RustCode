@@ -84,7 +84,7 @@ class AtomCodeLoginCoordinator {
             try {
                 listener(status)
             } catch (error: Exception) {
-                logger.warn("AtomCode login status listener failed", error)
+                logger.warn("RustCode login status listener failed", error)
             }
         }
     }

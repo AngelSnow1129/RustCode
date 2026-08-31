@@ -140,7 +140,7 @@ export function AssistantMessage({ message, className = '', searchQuery, isCurre
         {isStreaming && hasContent && <span className="streaming-cursor" />}
         {hasContent && !isStreaming && (
           <button className="msg-copy-btn" onClick={handleCopy}>
-            {copied ? `✓ ${t('assistant.copied')}` : t('assistant.copy')}
+            {copied ? `[+] ${t('assistant.copied')}` : t('assistant.copy')}
           </button>
         )}
       </div>

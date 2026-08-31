@@ -2,7 +2,7 @@
 
 > AtomCode 实现了 **MCP（Model Context Protocol）客户端**：通过 `.mcp.json` / `~/.rustcode/mcp.json` 连接外部 MCP server，把它们的 **tools** 暴露成与内建工具一致的可调用工具（含审批链路）。
 >
-> 实现位于 **`crates/atomcode-capabilities/src/mcp/`**（L1 能力层，`mcp` Cargo feature，非 default），零 `atomcode-core` 依赖。
+> 实现位于 **`crates/rustcode-capabilities/src/mcp/`**（L1 能力层，`mcp` Cargo feature，非 default），零 `atomcode-core` 依赖。
 
 ---
 
@@ -108,16 +108,16 @@ TUI 里等价的是 `/mcp login <server>` / `/mcp logout <server>`。token 存 `
 
 ## 3. 运行时行为
 
-**单一装配路径**：TUI / 无头 / clix 都走 `McpRegistry::from_config_background_with_events`（`atomcode-coding/src/parts.rs:490`）——后台并行连接，不阻塞启动。区别只在要不要等：
+**单一装配路径**：TUI / 无头 / clix 都走 `McpRegistry::from_config_background_with_events`（`rustcode-coding/src/parts.rs:490`）——后台并行连接，不阻塞启动。区别只在要不要等：
 
 | 模式 | 是否等待 |
 |---|---|
 | TUI | 不等。每个 server `initialize` 成功后，`mount()` 原子发布该 server 的工具供下一轮使用 |
-| 无头 / clix | `runtime.wait_mcp_ready(CONNECT_TIMEOUT)`（30s，`atomcode-cli/src/main.rs:2251`）等到初次连接尝试全部落定 |
+| 无头 / clix | `runtime.wait_mcp_ready(CONNECT_TIMEOUT)`（30s，`rustcode-cli/src/main.rs:2251`）等到初次连接尝试全部落定 |
 
 单个 server 失败不拖垮进程；失败通过 `McpConnectEvent::Failed` 进入会话区，并保留在 `/mcp` 列表里显示为 `failed: <error>`。
 
-MCP 总开关：`CodingRuntimeConfig.mcp` 默认 `true`；`atomcode-clix` 提供 `--no-mcp`。主 CLI 没有全局关闭开关，按 server 用 `"disabled": true`。
+MCP 总开关：`CodingRuntimeConfig.mcp` 默认 `true`；`rustcode-clix` 提供 `--no-mcp`。主 CLI 没有全局关闭开关，按 server 用 `"disabled": true`。
 
 > **缓存红线**：MCP 工具定义属于 provider 请求的缓存前缀，所以连接在首轮之前发起、工具集不在会话中途原地变更；`/mcp reload` 是重建（新前缀世代），不是原地改。
 
@@ -136,7 +136,7 @@ MCP 总开关：`CodingRuntimeConfig.mcp` 默认 `true`；`atomcode-clix` 提供
 
 ## 5. `/mcp` 与命令行
 
-**TUI 斜杠命令**（`atomcode-tuix/src/event_loop/commands.rs::parse_mcp_subcommand`）：
+**TUI 斜杠命令**（`rustcode-tuix/src/event_loop/commands.rs::parse_mcp_subcommand`）：
 
 | 命令 | 作用 |
 |---|---|
@@ -182,7 +182,7 @@ MCP 总开关：`CodingRuntimeConfig.mcp` 默认 `true`；`atomcode-clix` 提供
 
 ## 8. 代码布局
 
-`crates/atomcode-capabilities/src/mcp/`（feature `mcp`）：
+`crates/rustcode-capabilities/src/mcp/`（feature `mcp`）：
 
 | 文件 | 职责 |
 |---|---|
@@ -198,7 +198,7 @@ MCP 总开关：`CodingRuntimeConfig.mcp` 默认 `true`；`atomcode-clix` 提供
 | `tool.rs` | `McpToolAdapter`：远端工具 → kernel `Tool`，风险等级与审批 |
 | `util.rs` | 本地 home/config-dir 与控制台辅助 |
 
-消费侧：装配在 `atomcode-coding/src/parts.rs`；`/mcp` 斜杠命令在 `atomcode-tuix/src/event_loop/commands.rs`；CLI 子命令在 `atomcode-cli/src/main.rs`；daemon 端点在 `rustcode-daemon/src/lib.rs`。
+消费侧：装配在 `rustcode-coding/src/parts.rs`；`/mcp` 斜杠命令在 `rustcode-tuix/src/event_loop/commands.rs`；CLI 子命令在 `rustcode-cli/src/main.rs`；daemon 端点在 `rustcode-daemon/src/lib.rs`。
 
 ---
 
@@ -206,10 +206,10 @@ MCP 总开关：`CodingRuntimeConfig.mcp` 默认 `true`；`atomcode-clix` 提供
 
 ### 9.1 内置 `mcp-test-server`
 
-源码 `crates/atomcode-capabilities/src/bin/mcp-test-server.rs`，提供 `echo` 工具（参数 `message`）。**需要 `mcp` feature**（`required-features = ["mcp"]`）：
+源码 `crates/rustcode-capabilities/src/bin/mcp-test-server.rs`，提供 `echo` 工具（参数 `message`）。**需要 `mcp` feature**（`required-features = ["mcp"]`）：
 
 ```bash
-cargo build --release -p atomcode-capabilities --features mcp --bin mcp-test-server
+cargo build --release -p rustcode-capabilities --features mcp --bin mcp-test-server
 ```
 
 产物：`target/release/mcp-test-server`。最小配置：
@@ -230,7 +230,7 @@ cargo build --release -p atomcode-capabilities --features mcp --bin mcp-test-ser
 ### 9.2 自动化测试
 
 ```bash
-cargo test -p atomcode-capabilities --features mcp
+cargo test -p rustcode-capabilities --features mcp
 ```
 
 `tests/mcp.rs` 用上面这个真实子进程覆盖连接/发现/调用、状态检测、重连与并发失败路径；各模块另有内联单测。

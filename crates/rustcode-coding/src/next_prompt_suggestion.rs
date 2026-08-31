@@ -7,11 +7,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::BTreeMap, collections::HashSet, fmt::Write};
 
+use futures::StreamExt;
 use rustcode_capabilities::tools::ARTIFACT_TRUNCATION_MARKER_PREFIX;
 use rustcode_kernel::message::{Message, Role};
 use rustcode_kernel::provider::{ChatOptions, LlmProvider, ReasoningEffort, ToolChoice};
 use rustcode_kernel::stream::StreamEvent;
-use futures::StreamExt;
 
 const MAX_CONTEXT_CHARS: usize = 16_384;
 const MAX_MESSAGE_CHARS: usize = MAX_CONTEXT_CHARS / 2;

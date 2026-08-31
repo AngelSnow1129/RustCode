@@ -508,7 +508,7 @@ impl UsageModal {
                 } else {
                     u.model_tokens.get(model).copied().unwrap_or(0)
                 };
-                let total_req: u64 = u.model_counts.get(model).copied().unwrap_or(0) as u64;
+                let total_req: u64 = u.model_counts.get(model).copied().unwrap_or(0);
                 (model, series, total_tok, total_req)
             })
             .collect();
@@ -544,13 +544,13 @@ impl UsageModal {
                         }
                         g
                     } else {
-                        braille_line_plot(&[series.clone()], chart_w, chart_h)
+                        braille_line_plot(std::slice::from_ref(series), chart_w, chart_h)
                     }
                 })
                 .collect();
 
             // Chart title
-            rows.push((format!("  \x1b[1mTokens per Day\x1b[22m"), String::new()));
+            rows.push(("  \x1b[1mTokens per Day\x1b[22m".to_string(), String::new()));
 
             // Render rows: merge grids, colour by first model with a dot
             for ri in 0..chart_h {

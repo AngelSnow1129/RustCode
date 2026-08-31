@@ -45,11 +45,10 @@ fn daemon_image_preprocessor(
     injected: Option<std::sync::Arc<dyn rustcode_coding::ImagePreprocessor>>,
 ) -> Option<std::sync::Arc<dyn rustcode_coding::ImagePreprocessor>> {
     injected.or_else(|| {
-        Some(
-            std::sync::Arc::new(DaemonVlImagePreprocessor {
-                working_dir: cfg.working_dir.clone(),
-            }) as std::sync::Arc<dyn rustcode_coding::ImagePreprocessor>,
-        )
+        Some(std::sync::Arc::new(DaemonVlImagePreprocessor {
+            working_dir: cfg.working_dir.clone(),
+        })
+            as std::sync::Arc<dyn rustcode_coding::ImagePreprocessor>)
     })
 }
 
@@ -445,13 +444,7 @@ mod tests {
     fn daemon_runtime_installs_default_image_preprocessor() {
         let home = ScopedHome::new();
         let config = rustcode_config::config::Config::default();
-        let cfg = CodingRuntimeConfig::from_config(
-            &config,
-            home._dir.path(),
-            None,
-            false,
-            true,
-        );
+        let cfg = CodingRuntimeConfig::from_config(&config, home._dir.path(), None, false, true);
 
         assert!(daemon_image_preprocessor(&cfg, None).is_some());
     }
@@ -461,8 +454,7 @@ mod tests {
         let _home = ScopedHome::new();
         let working_dir = tempfile::tempdir().unwrap();
         let config = rustcode_config::config::Config::default();
-        let cfg =
-            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, false, false);
+        let cfg = CodingRuntimeConfig::from_config(&config, working_dir.path(), None, false, false);
         let (control_tx, mut event_rx, mut state_rx) = spawn_native_runtime_for_session_deferred(
             cfg,
             "deferred-test".into(),
@@ -556,9 +548,8 @@ mod tests {
         let _home = ScopedHome::new();
         let working_dir = tempfile::tempdir().unwrap();
         let config = rustcode_config::config::Config::default();
-        let cfg = || {
-            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, false, false)
-        };
+        let cfg =
+            || CodingRuntimeConfig::from_config(&config, working_dir.path(), None, false, false);
         let snapshot = || rustcode_kernel::message::SessionSnapshot::new(Vec::new());
         let (first_tx, _first_events, mut first_state) = spawn_native_runtime_for_session_deferred(
             cfg(),

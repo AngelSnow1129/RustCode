@@ -39,7 +39,6 @@ use rustcode_config::config::Config;
 
 use rustcode_auth as auth;
 
-
 /// Set to `true` at the start of `run_headless` so the panic hook and the
 /// top-level error handler can skip TUI cleanup. In headless mode raw mode
 /// was never enabled, so calling `disable_raw_mode` would be a wasted ioctl
@@ -384,8 +383,8 @@ fn build_i18n_command() -> clap::Command {
         });
 
     // Mutate subcommand about texts
-    let cmd = cmd
-        .mut_subcommand("login", |s| s.about(t(Msg::CliAboutLogin).into_owned()))
+
+    cmd.mut_subcommand("login", |s| s.about(t(Msg::CliAboutLogin).into_owned()))
         .mut_subcommand("logout", |s| s.about(t(Msg::CliAboutLogout).into_owned()))
         .mut_subcommand("status", |s| s.about(t(Msg::CliAboutStatus).into_owned()))
         .mut_subcommand("upgrade", |s| s.about(t(Msg::CliAboutUpgrade).into_owned()))
@@ -400,9 +399,7 @@ fn build_i18n_command() -> clap::Command {
             s.about(t(Msg::CliAboutUninstall).into_owned())
         })
         .mut_subcommand("setup", |s| s.about(t(Msg::CliAboutSetup).into_owned()))
-        .mut_subcommand("hooks", |s| s.about(t(Msg::CliAboutHooks).into_owned()));
-
-    cmd
+        .mut_subcommand("hooks", |s| s.about(t(Msg::CliAboutHooks).into_owned()))
 }
 
 /// Body of the detached upgrade-prep worker. One call to
@@ -832,7 +829,8 @@ enum Commands {
         /// Port to listen on
         #[arg(long, default_value_t = rustcode_config::distribution::DAEMON_PORT)]
         port: u16,
-        /// Client identifier for telemetry (e.g. "vscode", "rustcode-air")
+        /// Client identifier (drives LOCAL client-mode branching, not reporting;
+        /// e.g. "vscode", "rustcode-air")
         #[arg(long)]
         client: Option<String>,
         /// Idle-shutdown timeout in seconds; 0 disables. Env
@@ -1133,7 +1131,7 @@ const INTERNAL_PREPARE_UPGRADE_ENV: &str = "RUSTCODE_INTERNAL_PREPARE_UPGRADE";
 
 fn main() {
     // Completion generation must be a pure, fast CLI operation: no helper
-    // thread, Tokio runtime, log file, config read, telemetry, or updater.
+    // thread, Tokio runtime, log file, config read, or updater.
     // Shells may invoke completion helpers frequently, so even best-effort
     // startup work here would turn Tab into network/filesystem activity.
     if try_print_shell_completion() {
@@ -1455,9 +1453,11 @@ async fn run() -> Result<i32> {
                 // dedicated blocking thread — the same convention the plugin
                 // bootstrap uses.
                 let outcome = {
-                    tokio::task::spawn_blocking(move || run_codingplan_core())
+                    tokio::task::spawn_blocking(run_codingplan_core)
                         .await
-                        .unwrap_or_else(|e| Err(anyhow::anyhow!("codingplan login task failed: {e}")))
+                        .unwrap_or_else(|e| {
+                            Err(anyhow::anyhow!("codingplan login task failed: {e}"))
+                        })
                 };
                 match outcome {
                     Ok(report) => {
@@ -1496,8 +1496,9 @@ async fn run() -> Result<i32> {
                     .unwrap_or(30 * 60);
                 // `--client` is NOT telemetry: the daemon uses it for permission
                 // enforcement and the Webui interactive-input path.
-                let startup_mode =
-                    rustcode_daemon::client_mode::resolve_client_mode(client.as_deref().unwrap_or("ide"));
+                let startup_mode = rustcode_daemon::client_mode::resolve_client_mode(
+                    client.as_deref().unwrap_or("ide"),
+                );
                 let token_store = rustcode_daemon::auth_token::WebuiTokenStore::new();
                 let daemon_token = rustcode_daemon::resolve_daemon_token(
                     std::env::var("RUSTCODE_DAEMON_TOKEN").ok(),
@@ -1919,8 +1920,7 @@ async fn run() -> Result<i32> {
     // The active session id (fresh or resumed) for the on-exit resume hint,
     // captured before the runtime is moved into the headless/TUI arms below.
     // `None` for an ephemeral run (no persisted session → nothing to resume).
-    let active_session_id: Option<String> =
-        native_runtime.session.as_ref().map(|s| s.id.clone());
+    let active_session_id: Option<String> = native_runtime.session.as_ref().map(|s| s.id.clone());
     tracing::info!(
         target: "rustcode::startup",
         stage = "runtime_start",
@@ -2017,7 +2017,7 @@ async fn run() -> Result<i32> {
     };
 
     // Build the session-scope context: repo_origin, mode.
-    // session_id and account_id are managed on Telemetry directly via
+    // session_id and account_id are managed on the session binding directly via
     // set_session_id() / set_account_id(). Seed account_id from stored auth so
     // events from this session correlate to the user even before any explicit
     // login action this run; login()/logout() update it later as needed.
@@ -2115,7 +2115,7 @@ async fn run() -> Result<i32> {
             let tui_runtime = into_tui_native_runtime(runtime, coding_cfg);
             // Same as the headless arm: don't `?` — a TUI run that ends in an
             // error must still reach the shutdown/flush below. Ok(()) → exit 0;
-            // the error propagates only after telemetry is drained.
+            // the error propagates only after the shutdown flush completes.
             // A running session owns its resolved provider/model. Shared config
             // changes only define the default for sessions opened afterwards;
             // they must not retarget an already-open runtime.
@@ -2143,7 +2143,7 @@ async fn run() -> Result<i32> {
             .await
             {
                 Ok(()) => Ok(0),
-                Err(e) => Err(e.into()),
+                Err(e) => Err(e),
             };
             // Codex-style resume hint to STDOUT, after the TUI restored the
             // terminal, so `rustcode resume <id>` is discoverable on exit.
@@ -3935,10 +3935,7 @@ fn run_codingplan_core() -> Result<String> {
     let path = Config::default_path();
     // Missing config is legitimate on first install — start from defaults
     // so the flow can still add AtomGit providers to a fresh config.toml.
-    let mut config = match Config::load(&path) {
-        Ok(c) => c,
-        Err(_) => Config::default(),
-    };
+    let mut config = Config::load(&path).unwrap_or_default();
     rustcode_config::proxy::apply_process_proxy_config(&config.network.proxy);
 
     // If the stored token is locally valid (file present, expires_in
@@ -3956,8 +3953,7 @@ fn run_codingplan_core() -> Result<String> {
     if report.auth_expired {
         use rustcode_config::i18n::{t, Msg};
         print!("{}", t(Msg::CpReauthAfter401));
-        match rustcode_auth::login()
-            .and_then(|auth| rustcode_auth::save_auth(&auth).map(|_| auth))
+        match rustcode_auth::login().and_then(|auth| rustcode_auth::save_auth(&auth).map(|_| auth))
         {
             Ok(_) => {
                 report = rustcode_codingplan::run(
@@ -4006,7 +4002,7 @@ fn run_codingplan_core() -> Result<String> {
     Ok(report.render())
 }
 
-/// Guard so the two-link panic-hook chain (pre-telemetry hook + telemetry-aware
+/// Guard so the two-link panic-hook chain (installed hook + install-aware
 /// hook that chains to it) writes the crash log exactly once.
 static CRASH_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -4096,12 +4092,12 @@ fn install_crash_panic_hook() {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_cli_runtime_overrides, rustcode_log_path, close_thinking_chunk,
-        format_thinking_chunk, format_verbose_tool_chunk, headless_completion_exit_code,
+        apply_cli_runtime_overrides, close_thinking_chunk, format_thinking_chunk,
+        format_verbose_tool_chunk, headless_completion_exit_code,
         headless_completion_notify_reason, headless_denial_exit_code,
         interactive_provider_bootstrap, is_completion_invocation, merge_startup_notices,
-        print_shell_completion, resolve_working_dir, runtime_config_from,
-        resolve_in_catalog, resume_hint_line, should_fork_busy_continue, truncate_log_line, Cli,
+        print_shell_completion, resolve_in_catalog, resolve_working_dir, resume_hint_line,
+        runtime_config_from, rustcode_log_path, should_fork_busy_continue, truncate_log_line, Cli,
         Commands, HeadlessOutputFormat, DEFAULT_LOG_DIRECTIVES,
     };
     use clap::Parser;
@@ -4137,9 +4133,15 @@ mod tests {
         // Exact id wins even when a name also matches something.
         assert_eq!(resolve_in_catalog(&catalog, "ccc").as_deref(), Some("ccc"));
         // Ambiguous name resolves to the most-recently-updated session.
-        assert_eq!(resolve_in_catalog(&catalog, "review").as_deref(), Some("bbb"));
+        assert_eq!(
+            resolve_in_catalog(&catalog, "review").as_deref(),
+            Some("bbb")
+        );
         // Unique name.
-        assert_eq!(resolve_in_catalog(&catalog, "deploy").as_deref(), Some("ccc"));
+        assert_eq!(
+            resolve_in_catalog(&catalog, "deploy").as_deref(),
+            Some("ccc")
+        );
         // No match.
         assert_eq!(resolve_in_catalog(&catalog, "nope"), None);
         assert_eq!(resolve_in_catalog(&[], "review"), None);
@@ -4177,7 +4179,10 @@ mod tests {
         ));
         // bare `resume` → most recent.
         let c = Cli::try_parse_from(["rustcode", "resume"]).unwrap();
-        assert!(matches!(c.command, Some(Commands::Resume { session: None })));
+        assert!(matches!(
+            c.command,
+            Some(Commands::Resume { session: None })
+        ));
         // `--resume` conflicts with `--continue`.
         assert!(Cli::try_parse_from(["rustcode", "-p", "hi", "-c", "--resume", "x"]).is_err());
     }
@@ -4269,7 +4274,12 @@ mod tests {
             |args: &[&str]| is_completion_invocation(args.iter().map(std::ffi::OsString::from));
 
         assert!(invocation(&["completion", "zsh"]));
-        assert!(invocation(&["--config", "/tmp/config.toml", "completion", "fish"]));
+        assert!(invocation(&[
+            "--config",
+            "/tmp/config.toml",
+            "completion",
+            "fish"
+        ]));
         assert!(invocation(&[
             "--config",
             "/tmp/config.toml",
@@ -4413,13 +4423,8 @@ mod tests {
             "#,
         )
         .unwrap();
-        let runtime_cfg = runtime_config_from(
-            &config,
-            std::path::Path::new("/tmp"),
-            None,
-            false,
-            true,
-        );
+        let runtime_cfg =
+            runtime_config_from(&config, std::path::Path::new("/tmp"), None, false, true);
 
         assert!(config.providers.is_empty(), "legacy table stays empty");
         assert_eq!(
@@ -4467,13 +4472,8 @@ mod tests {
             "#,
         )
         .unwrap();
-        let runtime_cfg = runtime_config_from(
-            &config,
-            std::path::Path::new("/tmp"),
-            None,
-            false,
-            true,
-        );
+        let runtime_cfg =
+            runtime_config_from(&config, std::path::Path::new("/tmp"), None, false, true);
 
         assert_eq!(runtime_cfg.model, "fallback-model");
         assert_eq!(

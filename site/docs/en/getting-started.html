@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Quickstart · AtomCode Docs</title>
-<meta name="description" content="Install AtomCode and run your first task in a few minutes.">
+<title>Quickstart · RustCode Docs</title>
+<meta name="description" content="Install RustCode and run your first task in a few minutes.">
 <link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
 <link rel="stylesheet" href="../docs.css">
-<script>(function(){try{var s=localStorage.getItem('atomcode_theme')||localStorage.getItem('atomcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
+<script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
 <body data-page="getting-started">
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/atomcode-icon1.png" alt="AtomCode">
-    <span>AtomCode</span>
+    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
   </a>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <a class="dhdr-link" href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -76,7 +76,7 @@
 
   <main class="dmain prose-docs">
 <h1 id="quickstart">Quickstart</h1>
-      <p class="lede">Install AtomCode, run the first-time wizard, and complete your first task in a few minutes.</p>
+      <p class="lede">Install RustCode, run the first-time wizard, and complete your first task in a few minutes.</p>
 
       <h2 id="requirements">Requirements</h2>
       <ul>
@@ -89,44 +89,44 @@
 
       <h3 id="option-1-one-click-install-recommended">Option 1: one-click install (recommended)</h3>
       <p>On macOS, Linux, or HarmonyOS PC:</p>
-      <pre><code>curl -fsSL https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/install.sh | sh</code></pre>
-      <p>The script downloads the prebuilt binary for your platform and places it at <code>~/.local/bin/atomcode</code>. Make sure that directory is on your <code>PATH</code>.</p>
+      <pre><code>curl -fsSL https://raw.atomgit.com/atomgit_rustcode/rustcode/raw/main/scripts/install.sh | sh</code></pre>
+      <p>The script downloads the prebuilt binary for your platform and places it at <code>~/.local/bin/rustcode</code>. Make sure that directory is on your <code>PATH</code>.</p>
       <p>On Windows PowerShell:</p>
-      <pre><code>irm https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/install.ps1 | iex</code></pre>
-      <p>It downloads the Windows x64 prebuilt binary and updates <code>PATH</code>; open a fresh terminal to use the <code>atomcode</code> command.</p>
+      <pre><code>irm https://raw.atomgit.com/atomgit_rustcode/rustcode/raw/main/scripts/install.ps1 | iex</code></pre>
+      <p>It downloads the Windows x64 prebuilt binary and updates <code>PATH</code>; open a fresh terminal to use the <code>rustcode</code> command.</p>
 
       <h3 id="option-2-install-using-npm">Option 2: install using npm</h3>
       <p>If you already have Node.js 18+ installed, install globally with npm:</p>
-      <pre><code>npm install -g @atomgit.com/atomcode</code></pre>
+      <pre><code>npm install -g @atomgit.com/rustcode</code></pre>
       <p>The package uses <code>optionalDependencies</code> to pull the prebuilt binary for your platform (macOS x64 / arm64, Linux x64 / arm64, Windows x64, HarmonyOS arm64) — one command, cross-platform.</p>
 
       <h3 id="option-3-install-using-homebrew">Option 3: install using Homebrew</h3>
       <p>If you have Homebrew installed, install the cask (macOS x64 / arm64, Linux x64 / arm64):</p>
-      <pre><code>brew install --cask atomcode</code></pre>
+      <pre><code>brew install --cask rustcode</code></pre>
       <p>The cask downloads the prebuilt binary for your platform and links it to your <code>PATH</code> automatically.</p>
 
       <h3 id="option-4-build-from-source">Option 4: build from source</h3>
-      <pre><code>git clone https://atomgit.com/atomgit_atomcode/atomcode.git
-cd atomcode
+      <pre><code>git clone https://atomgit.com/atomgit_rustcode/rustcode.git
+cd rustcode
 cargo build --release
-cp target/release/atomcode ~/.local/bin/</code></pre>
+cp target/release/rustcode ~/.local/bin/</code></pre>
       <p>Release builds take longer to compile but produce a small, fast binary. For day-to-day development a plain <code>cargo build</code> is fine.</p>
 
       <h2 id="verify-the-install">Verify the install</h2>
-      <pre><code>atomcode --version</code></pre>
-      <p>You should see something like <code>atomcode 5.0.x (build-id)</code>.</p>
+      <pre><code>rustcode --version</code></pre>
+      <p>You should see something like <code>rustcode 5.0.x (build-id)</code>.</p>
 
       <h2 id="shell-completion-optional">Shell completion (optional)</h2>
-      <p>AtomCode can generate command and option completions for common shells:</p>
-      <pre><code>atomcode completion zsh
-atomcode completion bash
-atomcode completion fish
-atomcode completion powershell</code></pre>
+      <p>RustCode can generate command and option completions for common shells:</p>
+      <pre><code>rustcode completion zsh
+rustcode completion bash
+rustcode completion fish
+rustcode completion powershell</code></pre>
       <p>Load the generated script using your shell's normal setup. This affects CLI completion only; inside the TUI, Tab completes input and Shift+Tab cycles execution mode.</p>
 
       <h2 id="first-run">First run</h2>
       <p>Just run:</p>
-      <pre><code>atomcode</code></pre>
+      <pre><code>rustcode</code></pre>
       <p>The first launch shows a <strong>3-step onboarding wizard</strong> (you can re-open it any time with <code>/welcome</code>):</p>
 
       <h3 id="step-13-welcome">Step 1/3 · Welcome</h3>
@@ -136,7 +136,7 @@ atomcode completion powershell</code></pre>
             █   █   █   █   █ █  █  █ █     █   █ █   █ █
             █   █   █    ███  █     █  ████  ███  ████  █████
 
-  AtomCode
+  RustCode
   Version 5.0.9  ·  AI coding agent in your terminal
 
   • Multi-step agent loop · built-in code-graph tools
@@ -167,12 +167,12 @@ atomcode completion powershell</code></pre>
       <p>For a deeper breakdown see <a href="./login.html">Login Methods</a>. You can re-open the wizard any time with <code>/welcome</code>.</p>
 
       <h2 id="your-first-task">Your first task</h2>
-      <p><code>cd</code> into a project you know, launch atomcode, and just describe what you want:</p>
+      <p><code>cd</code> into a project you know, launch rustcode, and just describe what you want:</p>
       <pre><code>cd ~/projects/my-web-app
-atomcode
+rustcode
 
 &gt; give me a brief overview of this project's directory layout and tech stack</code></pre>
-      <p>AtomCode autonomously:</p>
+      <p>RustCode autonomously:</p>
       <ol>
         <li>Runs <code>list_directory</code>, <code>read_file</code>, and similar tools to explore the code;</li>
         <li>Identifies key descriptor files (<code>package.json</code> / <code>Cargo.toml</code> / …);</li>
@@ -185,28 +185,28 @@ atomcode
       </div>
 
       <h2 id="uninstall">Uninstall</h2>
-      <p>When you're done with AtomCode, the built-in <code>uninstall</code> subcommand cleans up in one shot. It asks group-by-group whether to delete: the binary plus the <code>PATH</code> edits the installer made, credentials such as <code>~/.rustcode/auth.toml</code>, and runtime state such as <code>~/.rustcode/sessions/</code>.</p>
+      <p>When you're done with RustCode, the built-in <code>uninstall</code> subcommand cleans up in one shot. It asks group-by-group whether to delete: the binary plus the <code>PATH</code> edits the installer made, credentials such as <code>~/.rustcode/auth.toml</code>, and runtime state such as <code>~/.rustcode/sessions/</code>.</p>
 
       <h3 id="interactive-recommended">Interactive (recommended)</h3>
-      <pre><code>atomcode uninstall</code></pre>
+      <pre><code>rustcode uninstall</code></pre>
       <p>Each group prompts y/N with a sensible default (binary = yes, credentials = no, state = yes) — pressing Enter is a reasonable choice.</p>
 
       <h3 id="non-interactive">Non-interactive</h3>
       <pre><code># Fully automatic: take the default decisions, no prompts
-atomcode uninstall --yes
+rustcode uninstall --yes
 
 # Wipe everything (including the entire ~/.rustcode/ directory)
-atomcode uninstall --purge
+rustcode uninstall --purge
 
 # Only remove the binary and PATH edits; keep ~/.rustcode/ intact
-atomcode uninstall --keep-data
+rustcode uninstall --keep-data
 
 # Just print the plan; do nothing
-atomcode uninstall --dry-run</code></pre>
+rustcode uninstall --dry-run</code></pre>
 
       <div class="callout callout-warn">
         <strong>Heads up</strong>
-        <p><code>--purge</code> also deletes <strong>all session history, memories, custom provider configs, and OAuth tokens</strong>. It is irreversible. If you might use AtomCode again, prefer the interactive default or <code>--keep-data</code>.</p>
+        <p><code>--purge</code> also deletes <strong>all session history, memories, custom provider configs, and OAuth tokens</strong>. It is irreversible. If you might use RustCode again, prefer the interactive default or <code>--keep-data</code>.</p>
       </div>
 
       <h2 id="next-steps">Next steps</h2>
@@ -217,8 +217,8 @@ atomcode uninstall --dry-run</code></pre>
       </ul>
 
     <footer class="dftr">
-      <span data-i18n="ftr.copy">© 2026 AtomCode · MIT</span>
-      <a href="https://atomgit.com/atomgit_atomcode/atomcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
+      <a href="https://atomgit.com/atomgit_rustcode/rustcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
     </footer>
   </main>
 </div>

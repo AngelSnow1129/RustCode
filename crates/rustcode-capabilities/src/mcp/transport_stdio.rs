@@ -477,8 +477,7 @@ impl StdioClient {
                          duplicate side effects, and stdio recovery continues in the background",
                     );
                 }
-                self
-                    .reconnect_after_failure(attempt.generation, &attempt.error)
+                self.reconnect_after_failure(attempt.generation, &attempt.error)
                     .await?;
                 match self.send_request(method, params).await {
                     Ok(value) => Ok(value),

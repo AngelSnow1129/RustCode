@@ -966,6 +966,7 @@ impl Config {
             thinking_budget: model.thinking_budget,
             capable_model: model.capable_model,
             retry_max_attempts: model.retry_max_attempts,
+            model_mapping: model.model_mapping.clone(),
         })
     }
 
@@ -1424,6 +1425,7 @@ fn project_legacy_model(account_id: &str, p: &ProviderConfig) -> ModelProfileCon
         thinking_enabled: p.thinking_enabled,
         thinking_budget: p.thinking_budget,
         retry_max_attempts: p.retry_max_attempts,
+        model_mapping: p.model_mapping.clone(),
     }
 }
 
@@ -2170,7 +2172,10 @@ kind = "claude-code"
         assert!(a.timeout_secs.is_none());
         let b = &cfg.subagent.external[1];
         assert_eq!(b.kind, "claude-code");
-        assert_eq!(b.permission, None, "absent permission stays None (→ read-only downstream)");
+        assert_eq!(
+            b.permission, None,
+            "absent permission stays None (→ read-only downstream)"
+        );
     }
 
     #[test]
@@ -2186,10 +2191,9 @@ kind = "claude-code"
         assert_eq!(cfg.subagent.codex, "off");
         assert_eq!(cfg.subagent.claude, "off");
         // Explicit levels round-trip.
-        let cfg: Config = toml::from_str(
-            "[subagent]\ncodex = \"read-only\"\nclaude = \"accept-edits\"\n",
-        )
-        .unwrap();
+        let cfg: Config =
+            toml::from_str("[subagent]\ncodex = \"read-only\"\nclaude = \"accept-edits\"\n")
+                .unwrap();
         assert_eq!(cfg.subagent.codex, "read-only");
         assert_eq!(cfg.subagent.claude, "accept-edits");
     }
@@ -2316,11 +2320,7 @@ kind = "claude-code"
     // the fallback for older/production servers that don't send the field yet.
     #[test]
     fn server_declared_effort_levels_win_over_the_client_builtin() {
-        let declared = [
-            "low".to_string(),
-            "medium".to_string(),
-            "xhigh".to_string(),
-        ];
+        let declared = ["low".to_string(), "medium".to_string(), "xhigh".to_string()];
         assert_eq!(
             effective_reasoning_effort_levels(true, "deepseek-v4-flash", Some(&declared)),
             Some(declared.to_vec()),
@@ -3172,6 +3172,8 @@ model = "missing-type"
                 ephemeral: false,
                 capable_model: None,
                 retry_max_attempts: None,
+                model_mapping: Default::default(),
+                timeout: None,
             },
         );
         cfg.save(&tmp).unwrap();
@@ -3392,6 +3394,8 @@ model = "missing-type"
                 ephemeral: false,
                 capable_model: None,
                 retry_max_attempts: None,
+                model_mapping: Default::default(),
+                timeout: None,
             },
         );
         cfg.save(tmp.path()).unwrap();
@@ -3494,6 +3498,8 @@ model = "missing-type"
                 ephemeral: false,
                 capable_model: None,
                 retry_max_attempts: None,
+                model_mapping: Default::default(),
+                timeout: None,
             },
         );
         Config {
@@ -3631,6 +3637,8 @@ model = "missing-type"
                 ephemeral: false,
                 capable_model: None,
                 retry_max_attempts: None,
+                model_mapping: Default::default(),
+                timeout: None,
             },
         );
         assert!(cfg.can_handle_attached_images());
@@ -3691,7 +3699,6 @@ default_provider = "claude"
         assert!(cfg.notifications.background_only);
     }
 }
-
 
 #[cfg(test)]
 mod provider_accounts_model_profiles_tests {
@@ -3788,6 +3795,7 @@ capable_model = 5
                 reasoning_effort_levels: None,
                 thinking_enabled: None,
                 thinking_budget: None,
+                model_mapping: Default::default(),
             },
         );
         let rendered = cfg.serialize_for_disk(None).unwrap();
@@ -3840,6 +3848,7 @@ capable_model = 5
                 reasoning_effort_levels: None,
                 thinking_enabled: None,
                 thinking_budget: None,
+                model_mapping: Default::default(),
             },
         );
         cfg.default_model = Some("nope".into()); // unresolvable default → error

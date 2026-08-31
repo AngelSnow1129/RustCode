@@ -40,7 +40,7 @@ use super::types::{ModelEntry, PlanType, StatusResponse};
 use rustcode_auth as auth;
 // Single source of truth for the CodingPlan provider-name predicate.
 use rustcode_config::config::is_codingplan_provider_name;
-use rustcode_config::config::provider::ProviderConfig;
+use rustcode_config::config::provider::{ModelMapping, ProviderConfig};
 use rustcode_config::config::Config;
 
 /// Resolve the LLM gateway base URL for CodingPlan-managed providers, used
@@ -615,10 +615,7 @@ pub enum DefaultModelPolicy {
 /// primary model (interactive login) or the user's previous choice is preserved
 /// (background sync) — see [`DefaultModelPolicy`].
 ///
-pub fn run(
-    config: &mut Config,
-    default_policy: DefaultModelPolicy,
-) -> Result<SetupReport> {
+pub fn run(config: &mut Config, default_policy: DefaultModelPolicy) -> Result<SetupReport> {
     // Step 1: login
     let login = step_login();
     if login.is_err() {
@@ -691,7 +688,6 @@ pub fn run(
     // both passed) but still worth surfacing so a retry has a chance
     // to capture the warm token.
     let (status, status_auth_expired) = step_status();
-
 
     Ok(SetupReport {
         login,
@@ -1120,9 +1116,12 @@ pub fn merge_successful_config(
     // `AtomGit-qwen3.8-27b` kept reverting). Only fill an EMPTY or now-dangling slot
     // from the server's suggestion. Checked AFTER `persist_codingplan_as_new_schema`
     // so the freshly-folded CodingPlan models are in place to resolve against.
-    let keep_current = latest.vision_preprocessor_provider.as_deref().is_some_and(|name| {
-        !name.is_empty() && latest.provider_config_for_selection(name).is_some()
-    });
+    let keep_current = latest
+        .vision_preprocessor_provider
+        .as_deref()
+        .is_some_and(|name| {
+            !name.is_empty() && latest.provider_config_for_selection(name).is_some()
+        });
     if !keep_current {
         latest.vision_preprocessor_provider = prepared.vision_preprocessor_provider.clone();
     }
@@ -1217,8 +1216,7 @@ fn persist_codingplan_as_new_schema(config: &mut Config) {
     for (id, mut m) in models {
         // Fresh server silence (`None`) shouldn't erase a capability we already knew.
         if m.supports_vision.is_none() {
-            if let Some(&prior) = prior_supports_vision.get(&(m.account.clone(), m.model.clone()))
-            {
+            if let Some(&prior) = prior_supports_vision.get(&(m.account.clone(), m.model.clone())) {
                 m.supports_vision = Some(prior);
             }
         }
@@ -1393,6 +1391,10 @@ fn build_codingplan_provider(entry: &ModelEntry) -> ProviderConfig {
         ),
         extra_headers: None,
         proxy: None,
+        // No alias remapping for gateway-provisioned providers: `model` is already
+        // the exact wire name the hosted service advertised.
+        model_mapping: ModelMapping::default(),
+        timeout: None,
         system_prompt: None,
         // Prefer the gateway's explicit per-model capability. `None` is kept
         // for older models-v2 payloads so the existing model-name heuristic
@@ -1566,7 +1568,11 @@ mod tests {
         }
         config.default_provider = provider_names[0].clone();
 
-        assert_eq!(config.providers.len(), 2, "claude + one fresh CodingPlan entry");
+        assert_eq!(
+            config.providers.len(),
+            2,
+            "claude + one fresh CodingPlan entry"
+        );
         assert!(
             config.providers.contains_key("claude"),
             "unrelated entry kept"
@@ -1621,7 +1627,10 @@ mod tests {
             actual.starts_with("http://") || actual.starts_with("https://"),
             "gateway must be an absolute URL: {actual}"
         );
-        assert!(!actual.ends_with('/'), "trailing slash would double up: {actual}");
+        assert!(
+            !actual.ends_with('/'),
+            "trailing slash would double up: {actual}"
+        );
     }
 
     #[test]
@@ -1676,14 +1685,7 @@ mod tests {
             build_codingplan_provider(&served)
                 .reasoning_effort_levels
                 .as_deref(),
-            Some(
-                [
-                    "low".to_string(),
-                    "medium".to_string(),
-                    "xhigh".to_string()
-                ]
-                .as_slice()
-            ),
+            Some(["low".to_string(), "medium".to_string(), "xhigh".to_string()].as_slice()),
             "a non-empty server list must be persisted and win over the builtin"
         );
 
@@ -1711,14 +1713,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             e.reasoning_effort_levels.as_deref(),
-            Some(
-                [
-                    "low".to_string(),
-                    "medium".to_string(),
-                    "xhigh".to_string()
-                ]
-                .as_slice()
-            )
+            Some(["low".to_string(), "medium".to_string(), "xhigh".to_string()].as_slice())
         );
         // Absent field (older/production server) → None, so the builtin fallback applies.
         let old: super::super::types::ModelEntry = serde_json::from_value(serde_json::json!({
@@ -1769,14 +1764,7 @@ mod tests {
             cfg.models[&pxn("deepseek-v4-flash")]
                 .reasoning_effort_levels
                 .as_deref(),
-            Some(
-                [
-                    "low".to_string(),
-                    "medium".to_string(),
-                    "xhigh".to_string()
-                ]
-                .as_slice()
-            ),
+            Some(["low".to_string(), "medium".to_string(), "xhigh".to_string()].as_slice()),
             "a fieldless refresh must not revert the persisted server list to the builtin"
         );
     }
@@ -1815,7 +1803,8 @@ mod tests {
         persist_codingplan_as_new_schema(&mut cfg);
 
         assert_eq!(
-            cfg.models[&pxn("GLM-5.2")].reasoning_effort_levels, None,
+            cfg.models[&pxn("GLM-5.2")].reasoning_effort_levels,
+            None,
             "server removing effort (via []) on a non-builtin model must be honored, not reverted"
         );
     }
@@ -1880,14 +1869,7 @@ mod tests {
             cfg.models[&pxn("deepseek-v4-flash")]
                 .reasoning_effort_levels
                 .as_deref(),
-            Some(
-                [
-                    "low".to_string(),
-                    "medium".to_string(),
-                    "xhigh".to_string()
-                ]
-                .as_slice()
-            ),
+            Some(["low".to_string(), "medium".to_string(), "xhigh".to_string()].as_slice()),
             "the server's effort list must land in config.models, not the builtin [high,max]"
         );
     }
@@ -2674,8 +2656,14 @@ mod tests {
         let out = report.render();
         // Two folded accounts (openai=AtomGit, claude=AtomGit-anthropic), 3 models.
         assert!(out.contains("Added 2 accounts · 3 models"));
-        assert!(out.contains(&format!("{}  ·  moonshotai/Kimi-K2-Instruct  (default)", px())));
-        assert!(out.contains(&format!("{}-anthropic  ·  anthropic/claude-3.5-sonnet\n", px())));
+        assert!(out.contains(&format!(
+            "{}  ·  moonshotai/Kimi-K2-Instruct  (default)",
+            px()
+        )));
+        assert!(out.contains(&format!(
+            "{}-anthropic  ·  anthropic/claude-3.5-sonnet\n",
+            px()
+        )));
         assert!(
             !out.contains("anthropic/claude-3.5-sonnet  (default)"),
             "only first is default"
@@ -3090,10 +3078,9 @@ mod tests {
     #[test]
     fn a_default_written_under_the_historical_prefix_repoints_by_model_name() {
         let mut config = blank_config();
-        config.providers.insert(
-            pxn("GLM-5.2"),
-            build_codingplan_provider(&entry("GLM-5.2")),
-        );
+        config
+            .providers
+            .insert(pxn("GLM-5.2"), build_codingplan_provider(&entry("GLM-5.2")));
 
         let model_names = vec!["GLM-5.2".to_string(), "Qwen".to_string()];
         let provider_names = vec!["Longyuan-GLM-5.2".to_string(), "Longyuan-Qwen".to_string()];
@@ -3199,14 +3186,10 @@ mod tests {
     #[test]
     fn persist_folds_flat_codingplan_into_grouped_new_schema() {
         let mut cfg = blank_config();
-        cfg.providers.insert(
-            pxn("GLM-5.2"),
-            build_codingplan_provider(&entry("GLM-5.2")),
-        );
-        cfg.providers.insert(
-            pxn("Qwen"),
-            build_codingplan_provider(&entry("Qwen")),
-        );
+        cfg.providers
+            .insert(pxn("GLM-5.2"), build_codingplan_provider(&entry("GLM-5.2")));
+        cfg.providers
+            .insert(pxn("Qwen"), build_codingplan_provider(&entry("Qwen")));
         // A claude-wire model must land in its own account (an account carries
         // exactly one wire format).
         let claude_entry = super::super::types::ModelEntry {
@@ -3613,14 +3596,11 @@ mod tests {
                     "Kimi-K2-Instruct".into(),
                     "Qwen/Qwen3-VL-32B-Instruct".into(),
                 ],
-                provider_names: vec![
-                    pxn("Kimi-K2-Instruct"),
-                    pxn("Qwen-Qwen3-VL-32B-Instruct"),
-                ],
+                provider_names: vec![pxn("Kimi-K2-Instruct"), pxn("Qwen-Qwen3-VL-32B-Instruct")],
                 default_provider: pxn("Kimi-K2-Instruct"),
-                vision_preprocessor: VisionPreprocessorOutcome::AutoSet(
-                    pxn("Qwen-Qwen3-VL-32B-Instruct"),
-                ),
+                vision_preprocessor: VisionPreprocessorOutcome::AutoSet(pxn(
+                    "Qwen-Qwen3-VL-32B-Instruct",
+                )),
                 all_models: vec![],
             }),
             status: StepResult::Skipped("status check skipped for this test".into()),
@@ -3677,10 +3657,7 @@ mod tests {
                     "Kimi-K2-Instruct".into(),
                     "Qwen/Qwen3-VL-32B-Instruct".into(),
                 ],
-                provider_names: vec![
-                    pxn("Kimi-K2-Instruct"),
-                    pxn("Qwen-Qwen3-VL-32B-Instruct"),
-                ],
+                provider_names: vec![pxn("Kimi-K2-Instruct"), pxn("Qwen-Qwen3-VL-32B-Instruct")],
                 default_provider: pxn("Kimi-K2-Instruct"),
                 vision_preprocessor: VisionPreprocessorOutcome::UserSupplied(
                     "Qwen3-VL-32B-Instruct".into(),

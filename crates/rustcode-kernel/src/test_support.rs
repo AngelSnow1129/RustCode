@@ -37,9 +37,11 @@
 //! forces the linker to keep it — a bare `use … as _` on a ctor-only crate gets
 //! dropped and never fires.
 
+use std::path::PathBuf;
 use std::sync::Once;
 
 static INIT: Once = Once::new();
+static SUBDIR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Redirect `RUSTCODE_HOME` to a per-process temp dir. Any inherited value is
 /// deliberately replaced: a test process must never interpret a developer's
@@ -63,6 +65,35 @@ pub fn isolate_home() {
         });
         std::env::set_var("RUSTCODE_HOME", &dir);
     });
+}
+
+/// A DEDICATED test home that stays valid for the WHOLE process.
+///
+/// `std::env::set_var` is process-global: a test that points `RUSTCODE_HOME` at
+/// its own `tempfile::TempDir` hands every OTHER concurrently running test a
+/// path that is deleted the instant that `TempDir` drops. The next session
+/// write from an unrelated test then fails with a spurious
+/// `NotFound("<deleted>/sessions/<bucket>/<id>.snapshot")` — a failure that only
+/// reproduces under the parallel harness, so it presents as a flake in whichever
+/// test happens to lose the race.
+///
+/// Directories handed out here live under the process-wide isolated home and are
+/// NEVER removed, so a value that leaks past its own test still points at a
+/// usable directory. `label` aids debugging only; uniqueness comes from a counter.
+pub fn isolate_home_subdir(label: &str) -> PathBuf {
+    isolate_home();
+    let base = std::env::var_os("RUSTCODE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let seq = SUBDIR_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = base.join(format!("{label}-{}-{seq}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap_or_else(|error| {
+        panic!(
+            "failed to create isolated test home subdir {}: {error}",
+            dir.display()
+        )
+    });
+    dir
 }
 
 #[cfg(test)]

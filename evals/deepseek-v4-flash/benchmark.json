@@ -5,10 +5,10 @@
   "timeout_seconds": 900,
   "start_skew_ms": 500,
   "random_seed": 20260823,
-  "atomcode_bin": "atomcode",
+  "rustcode_bin": "rustcode",
   "codex_bin": "codex",
   "codex_model": "",
-  "config": "~/.atomcode/config.toml",
+  "config": "~/.rustcode/config.toml",
   "candidates": {
     "official": {
       "selection": "AtomGit-deepseek-v4-flash",

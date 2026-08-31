@@ -6,15 +6,15 @@ set -euo pipefail
 #
 # Environment:
 #   ATOMGIT_TOKEN      GitCode/AtomGit personal access token (required)
-#   ATOMGIT_OWNER       repo owner (default: atomgit_atomcode)
+#   ATOMGIT_OWNER       repo owner (default: atomgit_rustcode)
 #   ATOMGIT_REF         branch/tag for version detection (default: main)
 #   ATOMGIT_VERSION     override version (skip API detection)
 
 B="https://api.atomgit.com/api/v5"
 : "${ATOMGIT_TOKEN:?ATOMGIT_TOKEN is required}"
 T="$ATOMGIT_TOKEN"
-o="${ATOMGIT_OWNER:-atomgit_atomcode}"
-r="atomcode"
+o="${ATOMGIT_OWNER:-atomgit_rustcode}"
+r="rustcode"
 ref="${ATOMGIT_REF:-main}"
 
 # ── helpers (same pattern as ci-release scripts) ──
@@ -64,7 +64,7 @@ put(){
 
 upl(){
     local tg="$1" fn="$2" bin="$3" u z c R
-    fn="atomcode-${tg}-${fn}"
+    fn="rustcode-${tg}-${fn}"
     u="$B/repos/$o/$r/releases/${tg}/upload_url?access_token=$T&file_name=$fn"
     z=$(mktemp) || exit 1
     c=$(curl -sS -o "$z" -w '%{http_code}' -X GET "$u" \
@@ -98,7 +98,7 @@ DOWNLOAD_BASE="https://atomgit.com/$o/$r/releases/download/${tag}"
 # ── download raw binaries ──
 echo "[1/4] Downloading raw binaries ..."
 for plat in $PLATFORMS; do
-    fn="atomcode-${tag}-${plat}"
+    fn="rustcode-${tag}-${plat}"
     echo "       ${fn} ..."
     curl -fL --connect-timeout 30 --retry 3 -o "${WORK}/${fn}" "${DOWNLOAD_BASE}/${fn}"
 done
@@ -106,18 +106,18 @@ done
 # ── package tar.gz ──
 echo "[2/4] Packaging tar.gz archives ..."
 for plat in $PLATFORMS; do
-    src="atomcode-${tag}-${plat}"
+    src="rustcode-${tag}-${plat}"
     dst="${src}.tar.gz"
-    cp "${WORK}/${src}" "${WORK}/atomcode"
-    tar czf "${WORK}/${dst}" -C "$WORK" "atomcode"
-    rm "${WORK}/atomcode"
+    cp "${WORK}/${src}" "${WORK}/rustcode"
+    tar czf "${WORK}/${dst}" -C "$WORK" "rustcode"
+    rm "${WORK}/rustcode"
     echo "       ${dst}"
 done
 
 # ── upload to release ──
 echo "[3/4] Uploading tar.gz to release ..."
 for plat in $PLATFORMS; do
-    fn="atomcode-${tag}-${plat}.tar.gz"
+    fn="rustcode-${tag}-${plat}.tar.gz"
     echo "       ${fn} ..."
     upl "$tag" "${plat}.tar.gz" "${WORK}/${fn}"
     echo "       done"
@@ -126,4 +126,4 @@ done
 # ── output checksums for update-cask.sh ──
 echo ""
 echo "Done. Checksums:"
-shasum -a 256 "${WORK}"/atomcode-*.tar.gz
+shasum -a 256 "${WORK}"/rustcode-*.tar.gz

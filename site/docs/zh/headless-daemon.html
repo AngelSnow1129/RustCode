@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Headless 与 Daemon · AtomCode 文档</title>
-<meta name="description" content="Headless 与 Daemon — AtomCode 文档。">
+<title>Headless 与 Daemon · RustCode 文档</title>
+<meta name="description" content="Headless 与 Daemon — RustCode 文档。">
 <link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
 <link rel="stylesheet" href="../docs.css">
-<script>(function(){try{var s=localStorage.getItem('atomcode_theme')||localStorage.getItem('atomcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
+<script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
 <body data-page="headless-daemon">
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/atomcode-icon1.png" alt="AtomCode">
-    <span>AtomCode</span>
+    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
   </a>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <a class="dhdr-link" href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -76,11 +76,11 @@
 
   <main class="dmain prose-docs">
 <h1>Headless 与 Daemon</h1>
-      <p class="lede">AtomCode 除了交互式 TUI,还提供两种无头运行方式:CLI 的 <code>-p</code> headless 模式适合脚本与 CI;<code>rustcode-daemon</code> 则是一个基于 HTTP + SSE 的 API 服务,可以被任意客户端调用。</p>
+      <p class="lede">RustCode 除了交互式 TUI,还提供两种无头运行方式:CLI 的 <code>-p</code> headless 模式适合脚本与 CI;<code>rustcode-daemon</code> 则是一个基于 HTTP + SSE 的 API 服务,可以被任意客户端调用。</p>
 
       <h2>Headless CLI 模式</h2>
-      <p>在 <code>atomcode</code> 后加上 <code>-p / --prompt</code>,即可单次执行一条任务并直接把回复写到 stdout(类似 Claude Code 的 <code>-p</code> 模式):</p>
-      <pre><code>atomcode -p "简要介绍这个仓库"</code></pre>
+      <p>在 <code>rustcode</code> 后加上 <code>-p / --prompt</code>,即可单次执行一条任务并直接把回复写到 stdout(类似 Claude Code 的 <code>-p</code> 模式):</p>
+      <pre><code>rustcode -p "简要介绍这个仓库"</code></pre>
       <p>默认只输出 AI 最终的回复文本,方便 pipe 到其他命令。工具调用、token 用量等信息不会污染 stdout。</p>
 
       <h3>常用 headless 参数</h3>
@@ -96,23 +96,23 @@
           <tr><td><code>--disable-tools LIST</code></td><td>禁用特定工具,比如 <code>bash,web_fetch</code>。被禁用的工具不会出现在 schema 列表中,模型不会尝试调用</td></tr>
           <tr><td><code>-C, --dir PATH</code></td><td>工作目录,默认为当前目录</td></tr>
           <tr><td><code>--provider / --model</code></td><td>临时覆盖 provider 或模型</td></tr>
-          <tr><td><code>--no-telemetry</code></td><td>本次调用关闭遥测上报</td></tr>
+          <tr><td><code>--no-telemetry</code></td><td>被接受并忽略 —— 本分支不含遥测上报</td></tr>
         </tbody>
       </table>
 
       <h3>示例</h3>
       <pre><code># 把当前项目总结写进 README
-atomcode -p "总结项目结构并写成 README 草稿" &gt; README.draft.md
+rustcode -p "总结项目结构并写成 README 草稿" &gt; README.draft.md
 
 # 在 CI 里跑一轮自动修复
-atomcode -p "跑 pnpm lint 并修复所有报错,不修改测试文件" \
+rustcode -p "跑 pnpm lint 并修复所有报错,不修改测试文件" \
          --max-turns 30 --disable-tools web_search,web_fetch
 
 # 从文件读取 prompt
-atomcode --prompt-file task.md -v 2&gt; run.log
+rustcode --prompt-file task.md -v 2&gt; run.log
 
 # 指定本地 Ollama,完全离线
-atomcode -p "解释这段代码" --provider local --model qwen2.5:14b</code></pre>
+rustcode -p "解释这段代码" --provider local --model qwen2.5:14b</code></pre>
 
       <h3>退出码</h3>
       <ul>
@@ -130,18 +130,18 @@ atomcode -p "解释这段代码" --provider local --model qwen2.5:14b</code></pr
       </div>
 
       <h2>rustcode-daemon</h2>
-      <p><code>rustcode-daemon</code> 是构建在 <code>CodingRuntime</code> 之上的独立传输适配器。它对外暴露 HTTP + Server-Sent Events 接口,可以被 Web 前端、IDE 插件、编辑器扩展消费。AtomCode 官方的 VS Code 扩展和 AtomCode Air 桌面端都是通过它连过来的。</p>
+      <p><code>rustcode-daemon</code> 是构建在 <code>CodingRuntime</code> 之上的独立传输适配器。它对外暴露 HTTP + Server-Sent Events 接口,可以被 Web 前端、IDE 插件、编辑器扩展消费。RustCode 官方的 VS Code 扩展和 RustCode Air 桌面端都是通过它连过来的。</p>
 
       <h3>启动</h3>
       <pre><code># 推荐:通过 CLI 子命令启动,自动调用同目录下的 rustcode-daemon 二进制
-atomcode daemon
+rustcode daemon
 
-# 指定端口与客户端身份(用于遥测分流)
-atomcode daemon --port 13456 --client vscode
+# 指定端口与客户端身份(用于本地 client-mode 分支)
+rustcode daemon --port 13456 --client vscode
 
 # 也可以直接调用 daemon 二进制(支持更多参数)
 rustcode-daemon --host 127.0.0.1 --port 13456 \
-                --client atomcode-air --idle-timeout 1800</code></pre>
+                --client rustcode-air --idle-timeout 1800</code></pre>
       <p>daemon 读取与 CLI 相同的 <code>~/.rustcode/config.toml</code>,登录态、provider 配置、会话历史全部共享。</p>
 
       <h3>启动参数</h3>
@@ -152,9 +152,9 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
         <tbody>
           <tr><td><code>--host HOST</code></td><td>监听地址,默认 <code>127.0.0.1</code>。非 loopback 地址会触发警告(daemon 没有鉴权,不应暴露到公网)</td></tr>
           <tr><td><code>--port PORT</code></td><td>监听端口,默认 <code>13456</code></td></tr>
-          <tr><td><code>--client NAME</code></td><td>客户端身份,目前识别 <code>vscode</code> / <code>atomcode-air</code>,其他值视为通用 IDE。影响遥测打点与部分行为</td></tr>
+          <tr><td><code>--client NAME</code></td><td>客户端身份,目前识别 <code>vscode</code> / <code>rustcode-air</code>,其他值视为通用 IDE。影响本地 client-mode 分支与部分行为</td></tr>
           <tr><td><code>--idle-timeout SECS</code></td><td>空闲超时(秒)。默认 1800(30 分钟),<code>0</code> 表示禁用,非零值最小钳制到 60。也可用环境变量 <code>RUSTCODE_DAEMON_IDLE_TIMEOUT</code></td></tr>
-          <tr><td><code>--no-telemetry</code></td><td>关闭本次进程的遥测上报</td></tr>
+          <tr><td><code>--no-telemetry</code></td><td>被接受并忽略 —— 本分支不含遥测上报</td></tr>
         </tbody>
       </table>
 
@@ -235,7 +235,7 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
           <tr><td><code>POST /auth/login/:login_id/poll</code></td><td>轮询登录结果</td></tr>
           <tr><td><code>DELETE /auth/login/:login_id</code></td><td>取消正在进行的登录</td></tr>
           <tr><td><code>POST /auth/logout</code></td><td>登出</td></tr>
-          <tr><td><code>POST /codingplan/setup</code></td><td>领取 CodingPlan 并写入 provider 配置(等同 CLI <code>atomcode login</code>;<code>atomcode codingplan</code> 仍作为隐藏别名保留)</td></tr>
+          <tr><td><code>POST /codingplan/setup</code></td><td>领取 CodingPlan 并写入 provider 配置(等同 CLI <code>rustcode login</code>;<code>rustcode codingplan</code> 仍作为隐藏别名保留)</td></tr>
         </tbody>
       </table>
 
@@ -249,7 +249,7 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
       <h3>典型应用</h3>
       <ul>
         <li>编辑器插件 / IDE 扩展(VSCode、JetBrains)</li>
-        <li>桌面端 GUI(如官方 AtomCode Air)</li>
+        <li>桌面端 GUI(如官方 RustCode Air)</li>
         <li>自建本地 Web UI(把终端 agent 搬到浏览器)</li>
         <li>本地脚本编排:用 HTTP 调度多任务、共享会话历史</li>
       </ul>
@@ -261,8 +261,8 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
       </ul>
 
     <footer class="dftr">
-      <span data-i18n="ftr.copy">© 2026 AtomCode · MIT</span>
-      <a href="https://atomgit.com/atomgit_atomcode/atomcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
+      <a href="https://atomgit.com/atomgit_rustcode/rustcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
     </footer>
   </main>
 </div>

@@ -1,15 +1,16 @@
 # THIRD PARTY NOTICES
 
-This fork (product `rustcode`) is derived from the upstream project
-`https://gitcode.com/SecLab/RustCode` (origin `atomgit_atomcode/atomcode`),
-distributed under the MIT license archived in `docs/ORIGINAL_LICENSE.md`
-(Copyright (c) 2026 Yubang Xu).
+This fork (product `rustcode`) is derived from a predecessor project, which is
+itself derived from an earlier ultimate upstream project.
 
 ## Upstream attribution
 
-- Original author / copyright holder: Yubang Xu (2026).
-- Upstream license: MIT (see `docs/ORIGINAL_LICENSE.md`).
-- Upstream repository path string referenced in code: `atomgit_atomcode/atomcode`.
+- Predecessor (RustCode) — MIT, Copyright (c) 2026 Yubang Xu.
+  The verbatim text is archived in `docs/UPSTREAM_RUSTCODE_LICENSE.md`.
+- Ultimate upstream — MIT.
+  **The verbatim text is NOT yet archived**; `docs/ORIGINAL_LICENSE.md` is a
+  placeholder recording the gap. It must not be reconstructed from a downstream
+  copy.
 
 ## Inherited third-party components
 

@@ -3,18 +3,18 @@
   "version": "0.0.0-dev",
   "description": "Open-source terminal AI coding agent — connect any LLM, edit code, run commands, verify autonomously",
   "keywords": ["ai", "coding", "cli", "agent", "terminal", "llm"],
-  "homepage": "https://atomgit.com/atomgit_atomcode/atomcode",
+  "homepage": "https://atomgit.com/atomgit_rustcode/rustcode",
   "repository": {
     "type": "git",
-    "url": "git+https://atomgit.com/atomgit_atomcode/atomcode.git"
+    "url": "git+https://atomgit.com/atomgit_rustcode/rustcode.git"
   },
   "license": "MIT",
   "author": "AtomGit",
   "bin": {
-    "atomcode": "./bin/atomcode.js"
+    "rustcode": "./bin/rustcode.js"
   },
   "files": [
-    "bin/atomcode.js"
+    "bin/rustcode.js"
   ],
   "engines": {
     "node": ">=18"

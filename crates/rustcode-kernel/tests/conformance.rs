@@ -10,6 +10,7 @@
 //! hook harnesses against its own extensions.)
 
 use async_trait::async_trait;
+use futures::stream::BoxStream;
 use rustcode_kernel::conformance::{self, ConformanceReport};
 use rustcode_kernel::hook::{HookChain, LifecycleHooks, NoopHooks};
 use rustcode_kernel::message::{Message, MessageMeta};
@@ -25,7 +26,6 @@ use rustcode_kernel::testkit::{
     WorkingDirProbeTool,
 };
 use rustcode_kernel::tool::{RiskLevel, Tool, ToolCall, ToolContext, ToolDef, ToolResult};
-use futures::stream::BoxStream;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -305,11 +305,7 @@ impl ToolMiddleware for PanicBeforeMiddleware {
 struct PanicAfterMiddleware;
 #[async_trait]
 impl ToolMiddleware for PanicAfterMiddleware {
-    async fn after(
-        &self,
-        _result: &mut ToolResult,
-        _tool: Option<&Arc<dyn Tool>>,
-    ) -> AfterOutcome {
+    async fn after(&self, _result: &mut ToolResult, _tool: Option<&Arc<dyn Tool>>) -> AfterOutcome {
         panic!("after blew up");
     }
 }
@@ -317,11 +313,7 @@ impl ToolMiddleware for PanicAfterMiddleware {
 struct ParkAfterMiddleware;
 #[async_trait]
 impl ToolMiddleware for ParkAfterMiddleware {
-    async fn after(
-        &self,
-        _result: &mut ToolResult,
-        _tool: Option<&Arc<dyn Tool>>,
-    ) -> AfterOutcome {
+    async fn after(&self, _result: &mut ToolResult, _tool: Option<&Arc<dyn Tool>>) -> AfterOutcome {
         futures::future::pending::<AfterOutcome>().await
     }
 }

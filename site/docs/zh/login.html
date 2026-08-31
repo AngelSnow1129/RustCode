@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>登录方式 · AtomCode 文档</title>
-<meta name="description" content="登录方式 — AtomCode 文档。">
+<title>登录方式 · RustCode 文档</title>
+<meta name="description" content="登录方式 — RustCode 文档。">
 <link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
 <link rel="stylesheet" href="../docs.css">
-<script>(function(){try{var s=localStorage.getItem('atomcode_theme')||localStorage.getItem('atomcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
+<script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
 <body data-page="login">
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/atomcode-icon1.png" alt="AtomCode">
-    <span>AtomCode</span>
+    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
   </a>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <a class="dhdr-link" href="https://atomgit.com/atomgit_rustcode/rustcode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -76,7 +76,7 @@
 
   <main class="dmain prose-docs">
 <h1 id="登录方式">登录方式</h1>
-      <p class="lede">AtomCode 支持两种方式接入 LLM:AtomGit CodingPlan(含免费额度)和传统 API Key。本页帮你选对方式,并完成绑定。</p>
+      <p class="lede">RustCode 支持两种方式接入 LLM:AtomGit CodingPlan(含免费额度)和传统 API Key。本页帮你选对方式,并完成绑定。</p>
 
       <h2 id="两种方式速览">两种方式速览</h2>
       <table>
@@ -91,7 +91,7 @@
       <p class="callout"><em>v4.25.0 起 <code>/codingplan</code> 已折进 <code>/login</code>;旧的「纯 OAuth 不申领额度」入口已移除。</em></p>
 
       <h2 id="atomgit-codingplan推荐">AtomGit CodingPlan(推荐)</h2>
-      <p>AtomGit 是 CSDN / 开放原子开源基金会旗下的开源代码托管平台,AtomCode 原生集成了它的 OAuth 和 CodingPlan。<code>/login</code> 是新用户最省事的入口,一次操作完成登录 → 申领免费 token 额度 → 自动根据额度内的模型列表写好 provider 配置。用完这条命令,直接就能开始聊天。已登录后再跑会幂等地同步最新模型列表,不会重复申领。</p>
+      <p>AtomGit 是 CSDN / 开放原子开源基金会旗下的开源代码托管平台,RustCode 原生集成了它的 OAuth 和 CodingPlan。<code>/login</code> 是新用户最省事的入口,一次操作完成登录 → 申领免费 token 额度 → 自动根据额度内的模型列表写好 provider 配置。用完这条命令,直接就能开始聊天。已登录后再跑会幂等地同步最新模型列表,不会重复申领。</p>
 
       <h3 id="codingplan-权益体系">CodingPlan 权益体系</h3>
       <p>CodingPlan 目前提供三档方案,系统自动发放当前可获得的最高权益;调用额度按 5 小时滚动窗口计量:</p>
@@ -105,11 +105,11 @@
           <tr><td><strong>Pro</strong></td><td>30 天</td><td>免费领取,需在活动仓库合入 PR</td><td>额外支持 <strong>GLM-5.2</strong></td></tr>
         </tbody>
       </table>
-      <p>领取 Pro 及以上套餐后,在 AtomCode 中执行 <code>/login</code> 即可同步最新模型列表。更多详情请访问 <a href="https://ai.atomgit.com/serverless-api" target="_blank" rel="noopener">CodingPlan 页面</a>。</p>
+      <p>领取 Pro 及以上套餐后,在 RustCode 中执行 <code>/login</code> 即可同步最新模型列表。更多详情请访问 <a href="https://ai.atomgit.com/serverless-api" target="_blank" rel="noopener">CodingPlan 页面</a>。</p>
 
       <h3 id="从首次运行启动向导接入">从首次运行启动向导接入</h3>
       <ol>
-        <li>首次启动 <code>atomcode</code>,会自动弹出 3 步启动向导。</li>
+        <li>首次启动 <code>rustcode</code>,会自动弹出 3 步启动向导。</li>
         <li>第 1 步(欢迎)按 Enter,第 2 步(语言)按 <code>1</code>/<code>2</code>/<code>3</code> 选语言。</li>
         <li>第 3 步(配置)选 <strong>用 AtomGit CodingPlan 一键接入</strong>(选项 1)。</li>
         <li>浏览器会自动打开 AtomGit 授权页面,点击允许即可。</li>
@@ -123,12 +123,12 @@
       <p>会唤起浏览器完成授权、申领 CodingPlan、更新 provider 列表。再次执行会重新同步模型列表,把本地的 <code>AtomGit*</code> provider 同步到最新的额度模型。</p>
 
       <h3 id="从命令行接入">从命令行接入</h3>
-      <pre><code>atomcode login</code></pre>
-      <p>适合在脚本、远程服务器、容器镜像等场景一次性完成接入。CLI 子命令和 TUI <code>/login</code> 走同一套流程,输出同样的报告。<em>注:<code>atomcode codingplan</code> 仍作为隐藏别名保留,老脚本和肌肉记忆都不会因为命令折叠而失效。</em></p>
+      <pre><code>rustcode login</code></pre>
+      <p>适合在脚本、远程服务器、容器镜像等场景一次性完成接入。CLI 子命令和 TUI <code>/login</code> 走同一套流程,输出同样的报告。<em>注:<code>rustcode codingplan</code> 仍作为隐藏别名保留,老脚本和肌肉记忆都不会因为命令折叠而失效。</em></p>
 
       <h3 id="查看状态-退出">查看状态 / 退出</h3>
-      <pre><code>atomcode status     # 或 TUI 内 /status — 包含 CodingPlan 使用量和过期时间
-atomcode logout     # 或 TUI 内 /logout — 清除 OAuth token</code></pre>
+      <pre><code>rustcode status     # 或 TUI 内 /status — 包含 CodingPlan 使用量和过期时间
+rustcode logout     # 或 TUI 内 /logout — 清除 OAuth token</code></pre>
 
       <h2 id="api-key-方式">API Key 方式</h2>
       <p>如果你想使用自有的 OpenAI / Claude / DeepSeek / GLM 等密钥,有三种做法:</p>
@@ -145,7 +145,7 @@ atomcode logout     # 或 TUI 内 /logout — 清除 OAuth token</code></pre>
 
       <h3 id="方式-c命令行一次性覆盖">方式 C:命令行一次性覆盖</h3>
       <p>不想改配置文件、只想临时用另一个 provider?启动时加参数即可:</p>
-      <pre><code>atomcode --provider deepseek --model deepseek-reasoner</code></pre>
+      <pre><code>rustcode --provider deepseek --model deepseek-reasoner</code></pre>
 
       <h2 id="选哪个">选哪个?</h2>
       <ul>
@@ -162,8 +162,8 @@ atomcode logout     # 或 TUI 内 /logout — 清除 OAuth token</code></pre>
       </ul>
 
     <footer class="dftr">
-      <span data-i18n="ftr.copy">© 2026 AtomCode · MIT</span>
-      <a href="https://atomgit.com/atomgit_atomcode/atomcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
+      <a href="https://atomgit.com/atomgit_rustcode/rustcode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
     </footer>
   </main>
 </div>

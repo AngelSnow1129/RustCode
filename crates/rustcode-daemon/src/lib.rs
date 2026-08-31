@@ -29,8 +29,8 @@ mod api_auth;
 mod api_codingplan;
 mod api_config;
 mod api_provider;
-pub mod client_mode;
 pub mod approval_mode;
+pub mod client_mode;
 mod commands;
 pub(crate) mod kernel_runtime;
 pub mod legacy_convert;
@@ -96,12 +96,11 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use rustcode_auth as auth;
+use crate::client_mode::{resolve_client_mode, ClientMode};
 use rustcode_capabilities::mcp::McpRegistry;
 use rustcode_capabilities::session::{SessionManager as NativeSessionManager, SessionStoreError};
 use rustcode_coding::CodingRuntimeEvent;
 use rustcode_config::config::Config;
-use crate::client_mode::{resolve_client_mode, ClientMode};
 
 const CHAT_REQUEST_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 
@@ -1286,10 +1285,7 @@ fn client_interactive_permission(
     enforce_token
         || (matches!(
             client_mode,
-            ClientMode::Channel
-                | ClientMode::Webui
-                | ClientMode::Vscode
-                | ClientMode::Jetbrains
+            ClientMode::Channel | ClientMode::Webui | ClientMode::Vscode | ClientMode::Jetbrains
         ) && is_loopback_authority(bind_host))
 }
 
@@ -1774,113 +1770,111 @@ pub(crate) fn update_project_state(project: &mut ProjectState, new_path: &std::p
 /// POST /cd - Change working directory (like /cd command)
 async fn change_dir(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<ClientMode>,
+    axum::Extension(_client_mode): axum::Extension<ClientMode>,
     Json(req): Json<ChangeDirRequest>,
 ) -> impl IntoResponse {
     let state = state.clone();
-        let mut project = state.project.write().await;
+    let mut project = state.project.write().await;
 
-        // Handle "-" to go back to previous directory
-        let new_path = if req.path == "-" {
-            match &project.previous_dir {
-                Some(prev) => prev.clone(),
-                None => {
-                    return Json(ChangeDirResponse {
-                        success: false,
-                        message: "No previous directory to go back to".to_string(),
-                        current_dir: project.working_dir.clone(),
-                        project_hash: hash_path(&project.working_dir),
-                    });
-                }
+    // Handle "-" to go back to previous directory
+    let new_path = if req.path == "-" {
+        match &project.previous_dir {
+            Some(prev) => prev.clone(),
+            None => {
+                return Json(ChangeDirResponse {
+                    success: false,
+                    message: "No previous directory to go back to".to_string(),
+                    current_dir: project.working_dir.clone(),
+                    project_hash: hash_path(&project.working_dir),
+                });
             }
+        }
+    } else {
+        // Expand ~ and make absolute
+        let expanded = if req.path.starts_with('~') {
+            rustcode_config::util::real_home_dir()
+                .map(|h| {
+                    h.join(
+                        req.path
+                            .strip_prefix('~')
+                            .unwrap_or("")
+                            .trim_start_matches('/'),
+                    )
+                })
+                .unwrap_or_else(|| PathBuf::from(&req.path))
         } else {
-            // Expand ~ and make absolute
-            let expanded = if req.path.starts_with('~') {
-                rustcode_config::util::real_home_dir()
-                    .map(|h| {
-                        h.join(
-                            req.path
-                                .strip_prefix('~')
-                                .unwrap_or("")
-                                .trim_start_matches('/'),
-                        )
-                    })
-                    .unwrap_or_else(|| PathBuf::from(&req.path))
-            } else {
-                PathBuf::from(&req.path)
-            };
-
-            let resolved = if expanded.is_absolute() {
-                expanded
-            } else {
-                project.working_dir.join(&expanded)
-            };
-
-            // Check if directory exists
-            if !resolved.exists() {
-                return Json(ChangeDirResponse {
-                    success: false,
-                    message: format!("Directory does not exist: {}", resolved.display()),
-                    current_dir: project.working_dir.clone(),
-                    project_hash: hash_path(&project.working_dir),
-                });
-            }
-
-            if !resolved.is_dir() {
-                return Json(ChangeDirResponse {
-                    success: false,
-                    message: format!("Not a directory: {}", resolved.display()),
-                    current_dir: project.working_dir.clone(),
-                    project_hash: hash_path(&project.working_dir),
-                });
-            }
-
-            resolved
+            PathBuf::from(&req.path)
         };
 
-        // Strip any `\\?\` verbatim prefix before it reaches working_dir /
-        // session cwd / hash, so a path that round-tripped through a
-        // `canonicalize()`-based client still groups with the plain TUI form.
-        let new_path = rustcode_capabilities::pathnorm::strip_verbatim_path(&new_path);
-        // Fold case to the on-disk truth (Windows, bucket-safe) so a `/cd` with a
-        // differently-cased path doesn't leave the footer/new sessions drifting.
-        let new_path = normalize_working_dir_case(new_path);
+        let resolved = if expanded.is_absolute() {
+            expanded
+        } else {
+            project.working_dir.join(&expanded)
+        };
 
-        // When a native live runtime is attached, it is the working-directory
-        // owner. Reject the HTTP mutation if the runtime cannot accept the same
-        // transition; otherwise the UI state and the executing runtime diverge.
-        if let Ok(previous_binding) = crate::native_live::binding() {
-            if let Err(error) = crate::native_live::change_directory(new_path.clone()).await {
-                return Json(ChangeDirResponse {
-                    success: false,
-                    message: format!("Runtime rejected directory change: {error:?}"),
-                    current_dir: project.working_dir.clone(),
-                    project_hash: hash_path(&project.working_dir),
-                });
-            }
-            if let Some(session_id) = req
-                .session_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|session_id| !session_id.is_empty())
-            {
-                if let Err(error) =
-                    crate::live_api::live_switch_session(session_id.to_string()).await
+        // Check if directory exists
+        if !resolved.exists() {
+            return Json(ChangeDirResponse {
+                success: false,
+                message: format!("Directory does not exist: {}", resolved.display()),
+                current_dir: project.working_dir.clone(),
+                project_hash: hash_path(&project.working_dir),
+            });
+        }
+
+        if !resolved.is_dir() {
+            return Json(ChangeDirResponse {
+                success: false,
+                message: format!("Not a directory: {}", resolved.display()),
+                current_dir: project.working_dir.clone(),
+                project_hash: hash_path(&project.working_dir),
+            });
+        }
+
+        resolved
+    };
+
+    // Strip any `\\?\` verbatim prefix before it reaches working_dir /
+    // session cwd / hash, so a path that round-tripped through a
+    // `canonicalize()`-based client still groups with the plain TUI form.
+    let new_path = rustcode_capabilities::pathnorm::strip_verbatim_path(&new_path);
+    // Fold case to the on-disk truth (Windows, bucket-safe) so a `/cd` with a
+    // differently-cased path doesn't leave the footer/new sessions drifting.
+    let new_path = normalize_working_dir_case(new_path);
+
+    // When a native live runtime is attached, it is the working-directory
+    // owner. Reject the HTTP mutation if the runtime cannot accept the same
+    // transition; otherwise the UI state and the executing runtime diverge.
+    if let Ok(previous_binding) = crate::native_live::binding() {
+        if let Err(error) = crate::native_live::change_directory(new_path.clone()).await {
+            return Json(ChangeDirResponse {
+                success: false,
+                message: format!("Runtime rejected directory change: {error:?}"),
+                current_dir: project.working_dir.clone(),
+                project_hash: hash_path(&project.working_dir),
+            });
+        }
+        if let Some(session_id) = req
+            .session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|session_id| !session_id.is_empty())
+        {
+            if let Err(error) = crate::live_api::live_switch_session(session_id.to_string()).await {
+                let rollback_error = match crate::native_live::change_directory(
+                    previous_binding.working_dir.clone(),
+                )
+                .await
                 {
-                    let rollback_error = match crate::native_live::change_directory(
-                        previous_binding.working_dir.clone(),
-                    )
-                    .await
-                    {
-                        Ok(_) => crate::live_api::live_switch_session(
-                            previous_binding.session_id.clone(),
-                        )
-                        .await
-                        .err()
-                        .map(|error| format!("session restore failed: {error:?}")),
-                        Err(error) => Some(format!("directory restore failed: {error:?}")),
-                    };
-                    return Json(ChangeDirResponse {
+                    Ok(_) => {
+                        crate::live_api::live_switch_session(previous_binding.session_id.clone())
+                            .await
+                            .err()
+                            .map(|error| format!("session restore failed: {error:?}"))
+                    }
+                    Err(error) => Some(format!("directory restore failed: {error:?}")),
+                };
+                return Json(ChangeDirResponse {
                         success: false,
                         message: match rollback_error {
                             Some(rollback) => format!(
@@ -1891,35 +1885,35 @@ async fn change_dir(
                         current_dir: project.working_dir.clone(),
                         project_hash: hash_path(&project.working_dir),
                     });
-                }
             }
         }
+    }
 
-        // Update state
-        update_project_state(&mut project, &new_path);
+    // Update state
+    update_project_state(&mut project, &new_path);
 
-        // Persist to config only when explicitly requested. The live in-memory
-        // state above is always updated (so a webui switch survives refresh);
-        // rewriting the configured default is gated behind `set_default`.
-        if req.set_default {
-            let _ = rustcode_config::ConfigStore::default_store().update(|config| {
-                config.default_workdir = Some(new_path.to_string_lossy().to_string());
-                Ok(())
-            });
-        }
+    // Persist to config only when explicitly requested. The live in-memory
+    // state above is always updated (so a webui switch survives refresh);
+    // rewriting the configured default is gated behind `set_default`.
+    if req.set_default {
+        let _ = rustcode_config::ConfigStore::default_store().update(|config| {
+            config.default_workdir = Some(new_path.to_string_lossy().to_string());
+            Ok(())
+        });
+    }
 
-        let hash = hash_path(&new_path);
+    let hash = hash_path(&new_path);
 
-        // 同步 daemon 项目视图；已绑定 runtime 已在上方接受原生目录切换。
-        crate::live_api::live_set_working_dir(new_path.clone());
-        // MCP registry is loaded per-request based on working_dir, no need to reload here.
+    // 同步 daemon 项目视图；已绑定 runtime 已在上方接受原生目录切换。
+    crate::live_api::live_set_working_dir(new_path.clone());
+    // MCP registry is loaded per-request based on working_dir, no need to reload here.
 
-        Json(ChangeDirResponse {
-            success: true,
-            message: format!("Changed to {}", new_path.display()),
-            current_dir: new_path,
-            project_hash: hash,
-        })
+    Json(ChangeDirResponse {
+        success: true,
+        message: format!("Changed to {}", new_path.display()),
+        current_dir: new_path,
+        project_hash: hash,
+    })
 }
 
 /// GET /projects - List all projects (historical, from sessions directory)
@@ -2824,142 +2818,136 @@ async fn repair_session(
 /// DELETE /projects/:hash/sessions/:id - Delete a session
 async fn delete_session(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<ClientMode>,
+    axum::Extension(_client_mode): axum::Extension<ClientMode>,
     Path((hash, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let session_uuid = uuid::Uuid::parse_str(&id).ok();
-    let state = state.clone();
-        if !valid_project_bucket(&hash) {
-            tracing::warn!(project_bucket = %hash, "rejected invalid session delete request");
-            return delete_session_api_error(
-                StatusCode::BAD_REQUEST,
-                "INVALID_SESSION",
-                "The project or session identifier is invalid.",
-            )
-            .into_response();
-        }
-        // A displayed session can still be the runtime's idle binding, which
-        // keeps its lease for the whole binding lifetime. Do not bypass that
-        // lease: ask the single runtime owner to transition to a fresh staged
-        // session first. Active turns fail closed as SESSION_IN_USE.
-        let current_binding = match crate::native_live::binding()
-            .ok()
-            .filter(|binding| binding.session_id == id)
-        {
-            Some(binding) => {
-                let sessions_root = NativeSessionManager::sessions_root();
-                match run_session_catalog_io(move || catalog_scan_in_root(&sessions_root)).await {
-                    Ok(scan)
-                        if binding_targets_catalog_location(
-                            &scan.entries,
-                            &binding,
-                            &hash,
-                            &id,
-                        ) =>
-                    {
-                        Some(binding)
-                    }
-                    Ok(_) => None,
-                    Err(error) => {
-                        tracing::warn!(
-                            project_bucket = %hash,
-                            session_id = %id,
-                            error = %error,
-                            "failed to resolve current session catalog location before delete"
-                        );
-                        None
-                    }
+    let _session_uuid = uuid::Uuid::parse_str(&id).ok();
+    let _state = state.clone();
+    if !valid_project_bucket(&hash) {
+        tracing::warn!(project_bucket = %hash, "rejected invalid session delete request");
+        return delete_session_api_error(
+            StatusCode::BAD_REQUEST,
+            "INVALID_SESSION",
+            "The project or session identifier is invalid.",
+        )
+        .into_response();
+    }
+    // A displayed session can still be the runtime's idle binding, which
+    // keeps its lease for the whole binding lifetime. Do not bypass that
+    // lease: ask the single runtime owner to transition to a fresh staged
+    // session first. Active turns fail closed as SESSION_IN_USE.
+    let current_binding = match crate::native_live::binding()
+        .ok()
+        .filter(|binding| binding.session_id == id)
+    {
+        Some(binding) => {
+            let sessions_root = NativeSessionManager::sessions_root();
+            match run_session_catalog_io(move || catalog_scan_in_root(&sessions_root)).await {
+                Ok(scan)
+                    if binding_targets_catalog_location(&scan.entries, &binding, &hash, &id) =>
+                {
+                    Some(binding)
                 }
-            }
-            None => None,
-        };
-        if let Some(binding) = current_binding {
-            match crate::native_live::fresh_session(&binding).await {
-                Ok(outcome) => {
-                    if let Some(error) = outcome.projection_error {
-                        // The runtime already moved to `outcome.changed` and
-                        // released the old lease. Its SessionChanged event also
-                        // repairs the live projection asynchronously, so the
-                        // lease-protected delete can safely continue.
-                        tracing::warn!(
-                            project_bucket = %hash,
-                            session_id = %id,
-                            replacement_session_id = ?outcome.changed.session_id,
-                            error = ?error,
-                            "current session was released but its live projection is still pending"
-                        );
-                    }
-                }
-                Err(error) => match error {
-                    crate::live_hub::HubError::ActiveTurn => {
-                        return delete_session_api_error(
-                            StatusCode::CONFLICT,
-                            "SESSION_IN_USE",
-                            "This session has an active turn. Stop it, then try again.",
-                        )
-                        .into_response();
-                    }
-                    // Another transition won the race after the exact binding
-                    // was observed. Do not fresh its replacement; continue to
-                    // lease-protected deletion. If the requested session is
-                    // still owned, acquire_lease returns SESSION_IN_USE.
-                    crate::live_hub::HubError::StaleBinding
-                    | crate::live_hub::HubError::RuntimeGenerationChanged { .. } => {}
-                    error => {
-                        tracing::warn!(
-                            project_bucket = %hash,
-                            session_id = %id,
-                            error = ?error,
-                            "failed to release current session before delete"
-                        );
-                        return delete_session_api_error(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "DELETE_FAILED",
-                            "Failed to release the current session before deleting it.",
-                        )
-                        .into_response();
-                    }
-                },
-            }
-        }
-
-        let delete_hash = hash.clone();
-        let delete_id = id.clone();
-        let deleted =
-            tokio::task::spawn_blocking(move || delete_session_file(&delete_hash, &delete_id))
-                .await;
-        match deleted {
-            Ok(Ok(())) => {
-                let msg = format!("Session {} deleted successfully", id);
-                (StatusCode::OK, Json(msg)).into_response()
-            }
-            Ok(Err(e)) => {
-                let response = classify_delete_session_error(&e);
-                if response.0 == StatusCode::INTERNAL_SERVER_ERROR {
-                    tracing::error!(
+                Ok(_) => None,
+                Err(error) => {
+                    tracing::warn!(
                         project_bucket = %hash,
                         session_id = %id,
-                        error = ?e,
-                        "failed to delete session"
+                        error = %error,
+                        "failed to resolve current session catalog location before delete"
+                    );
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    if let Some(binding) = current_binding {
+        match crate::native_live::fresh_session(&binding).await {
+            Ok(outcome) => {
+                if let Some(error) = outcome.projection_error {
+                    // The runtime already moved to `outcome.changed` and
+                    // released the old lease. Its SessionChanged event also
+                    // repairs the live projection asynchronously, so the
+                    // lease-protected delete can safely continue.
+                    tracing::warn!(
+                        project_bucket = %hash,
+                        session_id = %id,
+                        replacement_session_id = ?outcome.changed.session_id,
+                        error = ?error,
+                        "current session was released but its live projection is still pending"
                     );
                 }
-                response.into_response()
             }
-            Err(error) => {
+            Err(error) => match error {
+                crate::live_hub::HubError::ActiveTurn => {
+                    return delete_session_api_error(
+                        StatusCode::CONFLICT,
+                        "SESSION_IN_USE",
+                        "This session has an active turn. Stop it, then try again.",
+                    )
+                    .into_response();
+                }
+                // Another transition won the race after the exact binding
+                // was observed. Do not fresh its replacement; continue to
+                // lease-protected deletion. If the requested session is
+                // still owned, acquire_lease returns SESSION_IN_USE.
+                crate::live_hub::HubError::StaleBinding
+                | crate::live_hub::HubError::RuntimeGenerationChanged { .. } => {}
+                error => {
+                    tracing::warn!(
+                        project_bucket = %hash,
+                        session_id = %id,
+                        error = ?error,
+                        "failed to release current session before delete"
+                    );
+                    return delete_session_api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "DELETE_FAILED",
+                        "Failed to release the current session before deleting it.",
+                    )
+                    .into_response();
+                }
+            },
+        }
+    }
+
+    let delete_hash = hash.clone();
+    let delete_id = id.clone();
+    let deleted =
+        tokio::task::spawn_blocking(move || delete_session_file(&delete_hash, &delete_id)).await;
+    match deleted {
+        Ok(Ok(())) => {
+            let msg = format!("Session {} deleted successfully", id);
+            (StatusCode::OK, Json(msg)).into_response()
+        }
+        Ok(Err(e)) => {
+            let response = classify_delete_session_error(&e);
+            if response.0 == StatusCode::INTERNAL_SERVER_ERROR {
                 tracing::error!(
                     project_bucket = %hash,
                     session_id = %id,
-                    error = %error,
-                    "session delete task failed"
+                    error = ?e,
+                    "failed to delete session"
                 );
-                delete_session_api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "DELETE_FAILED",
-                    "Failed to delete the session. Check the RustCode logs for details.",
-                )
-                .into_response()
             }
+            response.into_response()
         }
+        Err(error) => {
+            tracing::error!(
+                project_bucket = %hash,
+                session_id = %id,
+                error = %error,
+                "session delete task failed"
+            );
+            delete_session_api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DELETE_FAILED",
+                "Failed to delete the session. Check the RustCode logs for details.",
+            )
+            .into_response()
+        }
+    }
 }
 
 /// Rename request body
@@ -2982,22 +2970,22 @@ fn rename_session_file(
 /// PATCH /projects/:hash/sessions/:id/rename - Rename a session
 async fn rename_session(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<ClientMode>,
+    axum::Extension(_client_mode): axum::Extension<ClientMode>,
     Path((hash, id)): Path<(String, String)>,
     Json(req): Json<RenameRequest>,
 ) -> impl IntoResponse {
-    let session_uuid = uuid::Uuid::parse_str(&id).ok();
-    let state = state.clone();
-        match rename_session_file(&hash, &id, &req.name) {
-            Ok(()) => {
-                let msg = format!("Session {} renamed to '{}'", id, req.name);
-                (StatusCode::OK, Json(msg)).into_response()
-            }
-            Err(e) => {
-                let msg = format!("Failed to rename session: {}", e);
-                (StatusCode::NOT_FOUND, Json(msg)).into_response()
-            }
+    let _session_uuid = uuid::Uuid::parse_str(&id).ok();
+    let _state = state.clone();
+    match rename_session_file(&hash, &id, &req.name) {
+        Ok(()) => {
+            let msg = format!("Session {} renamed to '{}'", id, req.name);
+            (StatusCode::OK, Json(msg)).into_response()
         }
+        Err(e) => {
+            let msg = format!("Failed to rename session: {}", e);
+            (StatusCode::NOT_FOUND, Json(msg)).into_response()
+        }
+    }
 }
 
 /// Model info for API response
@@ -4625,8 +4613,7 @@ async fn process_chat_request(
     // Run turn(s) in a background task on the native kernel stack; the
     // downstream native-event → ChatEvent projector shapes the HTTP stream.
     {
-        let mut runtime_cfg =
-            live_api::chat_runtime_config(&config, &provider_name, &working_dir);
+        let mut runtime_cfg = live_api::chat_runtime_config(&config, &provider_name, &working_dir);
         runtime_cfg.dangerously_skip_permissions = approval_mode
             == crate::approval_mode::ApprovalMode::Auto
             || (approval_mode == crate::approval_mode::ApprovalMode::Build
@@ -4759,30 +4746,30 @@ struct StopChatResponse {
 /// POST /chat/stop - Stop a running chat session
 async fn stop_chat(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<ClientMode>,
+    axum::Extension(_client_mode): axum::Extension<ClientMode>,
     Json(req): Json<StopChatRequest>,
 ) -> impl IntoResponse {
-    let session_uuid = uuid::Uuid::parse_str(&req.session_id).ok();
+    let _session_uuid = uuid::Uuid::parse_str(&req.session_id).ok();
     let state = state.clone();
-        // The legacy payload field is named `session_id`, but WebUI sends its
-        // first-turn request id here. The registry intentionally resolves both.
-        if state.active_chats.stop_alias(&req.session_id).await {
-            (
-                axum::http::StatusCode::OK,
-                Json(StopChatResponse {
-                    success: true,
-                    message: format!("Chat session {} stopped", req.session_id),
-                }),
-            )
-        } else {
-            (
-                axum::http::StatusCode::OK,
-                Json(StopChatResponse {
-                    success: true,
-                    message: format!("Chat session {} was not running", req.session_id),
-                }),
-            )
-        }
+    // The legacy payload field is named `session_id`, but WebUI sends its
+    // first-turn request id here. The registry intentionally resolves both.
+    if state.active_chats.stop_alias(&req.session_id).await {
+        (
+            axum::http::StatusCode::OK,
+            Json(StopChatResponse {
+                success: true,
+                message: format!("Chat session {} stopped", req.session_id),
+            }),
+        )
+    } else {
+        (
+            axum::http::StatusCode::OK,
+            Json(StopChatResponse {
+                success: true,
+                message: format!("Chat session {} was not running", req.session_id),
+            }),
+        )
+    }
 }
 
 /// GET /chat/active - Return list of session IDs currently generating
@@ -7529,6 +7516,8 @@ mod tests {
         base_url: String,
     ) -> rustcode_config::config::provider::ProviderConfig {
         rustcode_config::config::provider::ProviderConfig {
+            model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+            timeout: None,
             provider_type: "openai".into(),
             api_key: Some("test-key".into()),
             model: model.into(),
@@ -8543,8 +8532,7 @@ mod tests {
     // as `{path, is_dir}` relative to the search dir. Mirrors the CLI popup.
     #[test]
     fn search_at_mention_finds_cross_level_and_skips_gitignored() {
-        let tmp =
-            std::env::temp_dir().join(format!("rustcode_fs_search_{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("rustcode_fs_search_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let deep = tmp.join("src/main/java/cn");
         std::fs::create_dir_all(&deep).unwrap();
@@ -8559,7 +8547,9 @@ mod tests {
             .map(|m| m["path"].as_str().unwrap_or_default().to_string())
             .collect();
         assert!(
-            paths.iter().any(|p| p.ends_with("ApplyStockController.java")),
+            paths
+                .iter()
+                .any(|p| p.ends_with("ApplyStockController.java")),
             "must find the deep controller across levels: {paths:?}"
         );
         assert!(

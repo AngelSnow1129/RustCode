@@ -24,12 +24,12 @@
 
 use super::retry::{self, RetryPolicy};
 use async_trait::async_trait;
+use futures::stream::BoxStream;
+use futures::StreamExt;
 use rustcode_kernel::message::{Message, Role};
 use rustcode_kernel::provider::{ChatOptions, LlmProvider, ReasoningEffort, ToolChoice};
 use rustcode_kernel::stream::{ProviderError, StreamEvent, TokenUsage};
 use rustcode_kernel::tool::{ToolCall, ToolDef};
-use futures::stream::BoxStream;
-use futures::StreamExt;
 use serde_json::{json, Map, Value};
 use std::time::Duration;
 
@@ -145,14 +145,14 @@ impl AnthropicProvider {
             crate::proxy::apply_async_proxy_policy(reqwest::Client::builder())
         }
         .connect_timeout(cfg.connect_timeout)
-            // Reap idle keep-alives before the server does (see POOL_IDLE_TIMEOUT).
-            .pool_idle_timeout(retry::POOL_IDLE_TIMEOUT)
-            // Product UA for gateway attribution (parity with core's build_http_client).
-            .user_agent(
-                cfg.user_agent
-                    .as_deref()
-                    .unwrap_or(super::DEFAULT_USER_AGENT),
-            );
+        // Reap idle keep-alives before the server does (see POOL_IDLE_TIMEOUT).
+        .pool_idle_timeout(retry::POOL_IDLE_TIMEOUT)
+        // Product UA for gateway attribution (parity with core's build_http_client).
+        .user_agent(
+            cfg.user_agent
+                .as_deref()
+                .unwrap_or(super::DEFAULT_USER_AGENT),
+        );
         if cfg.skip_tls_verify {
             builder = builder.danger_accept_invalid_certs(true);
         }

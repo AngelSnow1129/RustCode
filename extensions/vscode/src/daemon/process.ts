@@ -62,19 +62,19 @@ export class DaemonProcess {
       // Compare the executable hash as well so an older 5.0.9 process cannot
       // survive an extension update that bundles a newer 5.0.9 daemon.
       console.log(
-        `[AtomCode] Daemon identity mismatch: running=${health.version}/${health.binary_hash || 'unknown'}, `
+        `[RustCode] Daemon identity mismatch: running=${health.version}/${health.binary_hash || 'unknown'}, `
         + `expected=${expected.version || 'any'}/${expected.binaryHash || 'any'}. Restarting...`,
       );
 
       const shutdownOk = await this.shutdownDaemon();
       if (shutdownOk) {
-        console.log('[AtomCode] Old daemon stopped successfully');
+        console.log('[RustCode] Old daemon stopped successfully');
       } else {
         console.warn(
-          `[AtomCode] Refusing to start daemon because an incompatible daemon ${health.version} is still running`
+          `[RustCode] Refusing to start daemon because an incompatible daemon ${health.version} is still running`
         );
         vscode.window.showWarningMessage(
-          'AtomCode daemon build mismatch. AtomCode could not stop the old daemon. Please stop the old AtomCode daemon or reload VS Code.'
+          'RustCode daemon build mismatch. RustCode could not stop the old daemon. Please stop the old RustCode daemon or reload VS Code.'
         );
         return false;
       }
@@ -84,7 +84,7 @@ export class DaemonProcess {
         // start() failed — check if another window already started the correct version
         const postHealth = await this.tryGetHealth();
         if (postHealth && daemonIdentityMatches(postHealth, expected)) {
-          console.log(`[AtomCode] Daemon restarted to version ${postHealth.version}`);
+          console.log(`[RustCode] Daemon restarted to version ${postHealth.version}`);
           return true;
         }
         return false;
@@ -93,13 +93,13 @@ export class DaemonProcess {
       // Verify new version after start
       const newHealth = await this.tryGetHealth();
       if (newHealth && daemonIdentityMatches(newHealth, expected)) {
-        console.log(`[AtomCode] Daemon restarted to version ${newHealth.version}`);
+        console.log(`[RustCode] Daemon restarted to version ${newHealth.version}`);
         return true;
       }
 
       // Another window may have started a different version, but daemon is running
       if (newHealth) {
-        console.warn(`[AtomCode] New daemon version ${newHealth.version} does not match expected ${expected}`);
+        console.warn(`[RustCode] New daemon version ${newHealth.version} does not match expected ${expected}`);
       }
       return false;
     }
@@ -126,7 +126,7 @@ export class DaemonProcess {
     } catch {
       // File missing — extension may not have been packaged with bundle-daemon
     }
-    console.warn('[AtomCode] Could not read daemon-version.txt, skipping version check');
+    console.warn('[RustCode] Could not read daemon-version.txt, skipping version check');
     return '';
   }
 
@@ -141,7 +141,7 @@ export class DaemonProcess {
     try {
       binaryHash = createHash('sha256').update(fs.readFileSync(bundled)).digest('hex');
     } catch {
-      console.warn('[AtomCode] Could not hash bundled daemon, falling back to version check');
+      console.warn('[RustCode] Could not hash bundled daemon, falling back to version check');
     }
 
     return {
@@ -181,7 +181,7 @@ export class DaemonProcess {
     // Step 3: If we spawned the daemon ourselves, send SIGTERM to our own child.
     // This is safe because we own the process reference.
     if (this.process && !this.process.killed) {
-      console.warn('[AtomCode] Graceful shutdown timed out, sending SIGTERM to owned daemon process');
+      console.warn('[RustCode] Graceful shutdown timed out, sending SIGTERM to owned daemon process');
       try {
         this.process.kill('SIGTERM');
       } catch {
@@ -199,7 +199,7 @@ export class DaemonProcess {
 
       // Last resort: SIGKILL our own child process only
       if (!this.process.killed) {
-        console.warn('[AtomCode] SIGTERM failed, sending SIGKILL to owned daemon process');
+        console.warn('[RustCode] SIGTERM failed, sending SIGKILL to owned daemon process');
         try {
           this.process.kill('SIGKILL');
         } catch { /* already exited */ }
@@ -211,7 +211,7 @@ export class DaemonProcess {
       return true;
     }
 
-    console.warn('[AtomCode] Daemon did not exit. It may have been started by another process.');
+    console.warn('[RustCode] Daemon did not exit. It may have been started by another process.');
     return false;
   }
 
@@ -252,7 +252,7 @@ export class DaemonProcess {
     }
 
     vscode.window.showWarningMessage(
-      `AtomCode daemon started but not responding. Check if port ${port} is available.`
+      `RustCode daemon started but not responding. Check if port ${port} is available.`
     );
     return false;
   }
@@ -310,7 +310,7 @@ export class DaemonProcess {
       return;
     }
 
-    console.warn(`[AtomCode] Reaping wedged daemon pid=${pid} squatting port ${port}`);
+    console.warn(`[RustCode] Reaping wedged daemon pid=${pid} squatting port ${port}`);
     try {
       if (process.platform === 'win32') {
         // /F force, /T also terminate any child tree.
@@ -432,9 +432,9 @@ export class DaemonProcess {
     ];
     for (const p of devPaths) {
       if (fs.existsSync(p)) {
-        console.warn(`[AtomCode] Using dev build daemon: ${p}. The bundled daemon was not found — the extension package may be missing resources/bin/<platform>/rustcode-daemon.`);
+        console.warn(`[RustCode] Using dev build daemon: ${p}. The bundled daemon was not found — the extension package may be missing resources/bin/<platform>/rustcode-daemon.`);
         vscode.window.showWarningMessage(
-          `AtomCode is using a development build of the daemon (${p}). The bundled daemon was not found. Reinstall the extension or set rustcode.daemon.binaryPath in settings.`
+          `RustCode is using a development build of the daemon (${p}). The bundled daemon was not found. Reinstall the extension or set rustcode.daemon.binaryPath in settings.`
         );
         return { path: p, args: portArgs };
       }

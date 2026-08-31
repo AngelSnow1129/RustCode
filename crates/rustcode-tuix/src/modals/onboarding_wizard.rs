@@ -889,7 +889,7 @@ impl OnboardingWizard {
                 url,
                 reliable_qr_half_blocks,
                 colors,
-                cell_w as usize,
+                cell_w,
                 qr_height_budget,
             );
             match qr_rows {

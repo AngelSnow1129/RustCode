@@ -212,13 +212,16 @@ pub const PRESETS: &[ProviderPreset] = &[
         model_source: ModelSource::DiscoveryApi,
     },
     ProviderPreset {
+        // OpenCode Zen exposes an OpenAI-compatible `GET /models` listing
+        // (incl. the limited-time free tier, e.g. `mimo-v2.5-free`), so let
+        // the discovery layer fetch it instead of forcing manual entry.
         id: "opencode",
         display_name: "OpenCode Zen (OpenAI-compatible)",
         provider_type: ProviderType::OpenAi,
         default_base_url: Some("https://opencode.ai/zen/v1"),
         auth_kind: AuthKind::ApiKey,
         api_key_env: Some("OPENCODE_API_KEY"),
-        model_source: ModelSource::Manual,
+        model_source: ModelSource::DiscoveryApi,
     },
     ProviderPreset {
         id: "openai",
@@ -315,7 +318,10 @@ mod tests {
         // provider is a distinct preset on `/api/coding/paas/v4`, sharing the
         // same OpenAI-compatible type and `ZHIPUAI_API_KEY`.
         let token = preset("zhipu").expect("zhipu preset");
-        assert_eq!(token.default_base_url, Some("https://open.bigmodel.cn/api/paas/v4"));
+        assert_eq!(
+            token.default_base_url,
+            Some("https://open.bigmodel.cn/api/paas/v4")
+        );
 
         let coding = preset("zhipu-coding").expect("zhipu-coding preset");
         assert_eq!(coding.display_name, "Zhipu Coding Plan");
@@ -324,7 +330,10 @@ mod tests {
             coding.default_base_url,
             Some("https://open.bigmodel.cn/api/coding/paas/v4")
         );
-        assert_eq!(coding.api_key_env, token.api_key_env, "same ZHIPUAI_API_KEY");
+        assert_eq!(
+            coding.api_key_env, token.api_key_env,
+            "same ZHIPUAI_API_KEY"
+        );
     }
 
     #[test]
@@ -351,7 +360,9 @@ mod tests {
         );
         assert_eq!(opencode.auth_kind, AuthKind::ApiKey);
         assert_eq!(opencode.api_key_env, Some("OPENCODE_API_KEY"));
-        assert_eq!(opencode.model_source, ModelSource::Manual);
+        // Zen's `GET /models` listing is discoverable (incl. free-tier models
+        // like `mimo-v2.5-free`); it must not be pinned to manual entry.
+        assert_eq!(opencode.model_source, ModelSource::DiscoveryApi);
     }
 
     #[test]

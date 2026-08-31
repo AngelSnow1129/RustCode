@@ -3,6 +3,7 @@
 //! normal path: it fires ONLY on a typed overflow error, never from pressure.
 
 use async_trait::async_trait;
+use futures::stream::BoxStream;
 use rustcode_kernel::agent::{Agent, AutoRespond};
 use rustcode_kernel::message::{
     CompactTrigger, CompactionPlan, CompactionStrategy, CompactionView, Message, SessionSnapshot,
@@ -10,7 +11,6 @@ use rustcode_kernel::message::{
 use rustcode_kernel::provider::{ChatOptions, LlmProvider};
 use rustcode_kernel::stream::{ProviderError, StreamEvent};
 use rustcode_kernel::tool::{ToolDef, ToolRegistry};
-use futures::stream::BoxStream;
 use std::sync::{Arc, Mutex};
 
 /// Overflows whenever the incoming request carries more than `max` messages; otherwise

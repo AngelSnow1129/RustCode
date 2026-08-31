@@ -1,12 +1,12 @@
 //! Searchable half-screen `/config` editor.
 
 use anyhow::Result;
+use crossterm::event::{KeyCode, KeyModifiers};
 use rustcode_config::settings::{
     patch_selection_retry_max_attempts, selection_retry_max_attempts, ApplyPolicy, SettingKind,
     SettingSpec, SETTINGS,
 };
 use rustcode_config::Config;
-use crossterm::event::{KeyCode, KeyModifiers};
 
 use super::{
     backspace_at_cursor, delete_at_cursor, insert_at_cursor, next_grapheme_boundary,

@@ -9,7 +9,7 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.16.0"
 }
 
-group = "com.atomcode"
+group = "com.rustcode"
 version = providers.gradleProperty("pluginVersion").get()
 
 val platformLocalPath = providers.gradleProperty("platformLocalPath")
@@ -71,8 +71,8 @@ dependencies {
 
 intellijPlatform {
     pluginConfiguration {
-        id = "com.atomcode.jetbrains"
-        name = "AtomCode"
+        id = "com.rustcode.jetbrains"
+        name = "RustCode"
         version = providers.gradleProperty("pluginVersion")
 
         ideaVersion {
@@ -131,7 +131,7 @@ tasks {
     // plain Cargo build here: it would overwrite the official daemon with the stub
     // implementation at the exact same target/release path.
     val verifyOfficialDaemonForRunIde by registering {
-        val executable = currentDaemonTarget?.executable ?: "atomcode-daemon"
+        val executable = currentDaemonTarget?.executable ?: "rustcode-daemon"
         val daemon = repoRoot.resolve("target/release/$executable")
         onlyIf {
             currentDaemonTarget != null &&
@@ -140,7 +140,7 @@ tasks {
         doLast {
             if (!Files.isRegularFile(daemon)) {
                 throw GradleException(
-                    "Official AtomCode daemon is missing. Run ./build-official.sh from the repository root before runIde."
+                    "Official RustCode daemon is missing. Run ./build-official.sh from the repository root before runIde."
                 )
             }
             val process = ProcessBuilder(daemon.toAbsolutePath().toString(), "--check-official-build")
