@@ -76,6 +76,28 @@
         "client_secret_env": "GITHUB_MCP_CLIENT_SECRET"
       },
       "disabled": true
+    },
+
+    // -------------------------------------------------------------------------
+    // 模板 D — zg (zvec-grep)：本地优先语义检索基础设施。
+    // zg 提供向量检索、BM25、混合检索与 rg 精确匹配,让 Agent 从模糊意图
+    // 发现到精确验证的完整检索过程都能用适合的方式,减少搜索轮次与 Token。
+    //
+    // 前置：npm install -g @zvec/zvec-grep
+    // 建索引：cd your-repo && zg index  (默认本地 embedding,无需 GPU)
+    // 查询：  zg query --human "theme preference persistence on startup"
+    //
+    // stdio 传输：MCP 客户端连接时自动启动/复用共享 daemon。
+    // 首次连接会触发 daemon 启动;后续查询复用同一 daemon。
+    // -------------------------------------------------------------------------
+    "zg": {
+      "command": "zg",
+      "args": ["server", "--stdio"],
+      "disabled": true
+      // 启用前改为 false。首次使用需先运行 `zg index` 建立本地索引。
+      // 可选：设置 ZVEC_GREP_MCP_TOOLSET=full 暴露 rg 和索引管理工具。
+      // 可选：设置 ZVEC_GREP_HOME 指定运行时状态目录。
+      // 远程 embedding 需显式授权(zg auth),默认本地不外传数据。
     }
   }
 }

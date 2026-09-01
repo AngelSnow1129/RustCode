@@ -394,3 +394,20 @@ theme = "auto"
 # /resume 初次回放到终端原生 scrollback 的视觉行上限。
 # 省略时按终端自动选择；0 表示完整回放（长会话恢复会更慢）。
 # history_replay_max_rows = 5000
+
+# =============================================================================
+# 本地语义检索（zg / zvec-grep）
+# =============================================================================
+# zg 是面向人与 Agent 的本地优先检索基础设施,提供向量检索、BM25、
+# 混合检索与 rg 精确匹配。当 Agent 需要按"意图"而非"关键词"搜索
+# 代码/文档时,zg 能减少搜索轮次与 Token 消耗。
+#
+# 前置：npm install -g @zvec/zvec-grep
+# 建索引：cd your-repo && zg index --glob '!target' --glob '!node_modules'
+# 查询：  zg query --human "how is theme preference restored on startup"
+#
+# MCP 配置：在项目根 .mcp.json 中添加（详见 .mcp.json.example 模板 D）：
+#   "zg": { "command": "zg", "args": ["server", "--stdio"], "disabled": false }
+#
+# 首次连接 MCP 时自动启动共享 daemon;默认本地 embedding（无需 GPU）,
+# 数据不外传。远程 embedding 需显式 zg auth 授权。

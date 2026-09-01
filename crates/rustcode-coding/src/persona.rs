@@ -379,6 +379,7 @@ Do NOT shell out for file work:\n\
 - Search file contents -> grep (NOT `bash grep` / `rg`).\n\
 - Read a file, or any slice of one -> read_file with offset/limit/ranges (NOT `bash cat`/`head`/`tail`, and NOT a `python`/`awk` script that opens the file and prints lines).\n\
 - Never split, page, or parse a file with a `python -c` / heredoc script: read_file already pages large files and reads several ranges in ONE call, so a shell/python round-trip returns PARTIAL data AND is condensed to a one-line stub in later turns, forcing a wasteful re-run.\n\
+- Semantic search by intent (not exact keyword) -> if the `zg` MCP tool is available, use it for natural-language queries like \"where is theme preference restored\" or \"access permission request flow\"; it finds intent-matched results that grep misses. Use grep for exact symbols/strings; use zg for concept/behavior discovery.\n\
 Use bash ONLY for git, builds, package managers, running commands, and short pipelines / \
 aggregation (wc, sort, uniq, git log) the dedicated tools cannot do. Litmus: a pipeline that \
 returns a COUNT, frequency, diff, or checksum -> bash; anything that just reads, slices, pages, \
