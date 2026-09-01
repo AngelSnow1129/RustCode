@@ -236,10 +236,12 @@ pub fn external_subagent_profiles(
 }
 
 /// Resolve ALL external-agent subagent profiles for a `[subagent]` config: the
-/// `codex`/`claude` convenience switches (`/config`-editable) plus any explicit
+/// `codex`/`claude` convenience switches (`/config`-editable), the built-in
+/// parallel template roles (when enabled), plus any explicit
 /// `[[subagent.external]]` entries. Explicit entries win on a name clash (the
-/// built-in `codex` / `claude-code` names are only added if not already taken),
-/// so an advanced user can override a switch with a full profile.
+/// built-in `codex` / `claude-code` / template role names are only added if not
+/// already taken), so an advanced user can override a switch or role with a
+/// full profile.
 pub fn resolve_external_subagents(
     sub: &rustcode_config::config::SubAgentConfig,
     allow_dangerous_context: bool,
@@ -247,10 +249,50 @@ pub fn resolve_external_subagents(
     let mut out = external_subagent_profiles(&sub.external, allow_dangerous_context);
     // Reserve EVERY explicitly-named instance -- including entries that were
     // dropped for being disabled or having an unknown kind -- so a `/config`
-    // convenience switch never silently overrides (or resurrects) an explicit
-    // `[[subagent.external]]` the user named the same thing.
+    // convenience switch (or a template role) never silently overrides (or
+    // resurrects) an explicit `[[subagent.external]]` the user named the same
+    // thing.
     let mut names: std::collections::HashSet<String> =
         sub.external.iter().map(|e| e.name.clone()).collect();
+    // Built-in parallel template roles (explorer / builder / reviewer). These
+    // mount ONLY when `parallel_template` is on (default). Each is a
+    // fail-closed external-agent profile; an explicit `[[subagent.external]]`
+    // with the same name overrides it.
+    if sub.parallel_template {
+        let template: &[(
+            &str,
+            rustcode_capabilities::subagent::SubagentKind,
+            rustcode_capabilities::subagent::PermissionMode,
+        )] = &[
+            (
+                "explorer",
+                rustcode_capabilities::subagent::SubagentKind::Codex,
+                rustcode_capabilities::subagent::PermissionMode::ReadOnly,
+            ),
+            (
+                "builder",
+                rustcode_capabilities::subagent::SubagentKind::ClaudeCode,
+                rustcode_capabilities::subagent::PermissionMode::AcceptEdits,
+            ),
+            (
+                "reviewer",
+                rustcode_capabilities::subagent::SubagentKind::Codex,
+                rustcode_capabilities::subagent::PermissionMode::ReadOnly,
+            ),
+        ];
+        for (name, kind, permission) in template {
+            if names.insert(name.to_string()) {
+                out.push(rustcode_capabilities::subagent::ExternalSubagentProfile {
+                    name: name.to_string(),
+                    kind: *kind,
+                    model: None,
+                    permission: *permission,
+                    allow_dangerous: false,
+                    timeout: None,
+                });
+            }
+        }
+    }
     let builtins = [
         (
             "codex",
@@ -523,7 +565,8 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     if opts.tools && opts.web && !rustcode_config::config::offline::is_offline_active() {
         registry.register(Arc::new(WebFetchTool));
         // web_search backend: explicit config wins; else the `RUSTCODE_WEB_SEARCH_PROVIDER`
-        // env knob; else Exa. `with_provider` maps unknown values to Exa, the safe default.
+        // env knob; else the keyless DuckDuckGo default. `with_provider` only selects the
+        // Exa vendor when explicitly requested; empty/unknown values fall back to DuckDuckGo.
         let provider = cfg
             .web_search_provider
             .clone()
@@ -2009,7 +2052,20 @@ pub fn subagent_runtime_knobs(
     let max_rounds = max_rounds_env
         .and_then(|v| v.trim().parse::<u32>().ok())
         .unwrap_or(cfg.max_rounds);
-    let worker = parse_usize(worker_concurrent_env, cfg.max_concurrent);
+    // The built-in parallel template mounts an extra builder lane alongside the
+    // explorer/reviewer fan-out, so its worker pool floor rises to 4
+    // (explorer + builder + reviewer + spare). A config that raised
+    // `max_concurrent` higher still wins; an explicit env override beats both
+    // (it is parsed over this fallback below). With the template off the raw
+    // conservative default (3) is kept. An explicit `max_concurrent = 0` is the
+    // legacy/unset sentinel and is left untouched here so `parse_usize` floors
+    // it to one rather than bumping it up to the template lane count.
+    let worker_fallback = if cfg.parallel_template && cfg.max_concurrent > 0 {
+        cfg.max_concurrent.max(4)
+    } else {
+        cfg.max_concurrent
+    };
+    let worker = parse_usize(worker_concurrent_env, worker_fallback);
     let explore = parse_usize(explore_concurrent_env, cfg.max_concurrent_explore);
     (worker, explore, max_rounds)
 }
@@ -2062,8 +2118,14 @@ mod tests {
         use rustcode_capabilities::subagent::{PermissionMode, SubagentKind};
         use rustcode_config::config::{ExternalSubagentConfig, SubAgentConfig};
 
+        // This test isolates the codex/claude switch synthesis + explicit-entry
+        // override, so turn OFF the parallel template (its explorer/builder/
+        // reviewer roles are covered separately) to keep the counts switch-only.
         // codex switch on (read-only), claude off, no explicit entries.
-        let mut sub = SubAgentConfig::default();
+        let mut sub = SubAgentConfig {
+            parallel_template: false,
+            ..SubAgentConfig::default()
+        };
         sub.codex = "read-only".into();
         sub.claude = "off".into();
         let profiles = resolve_external_subagents(&sub, true);
@@ -2091,12 +2153,21 @@ mod tests {
         assert_eq!(profiles[0].permission, PermissionMode::AcceptEdits);
         assert_eq!(profiles[0].model.as_deref(), Some("gpt-5-codex"));
 
-        // off + no explicit -> nothing.
-        let empty = resolve_external_subagents(&SubAgentConfig::default(), true);
+        // off + no explicit -> nothing (template also off, so no roles mount).
+        let empty = resolve_external_subagents(
+            &SubAgentConfig {
+                parallel_template: false,
+                ..SubAgentConfig::default()
+            },
+            true,
+        );
         assert!(empty.is_empty());
 
         // Off-spelling level still parses (reuses from_config_str normalization).
-        let mut sub = SubAgentConfig::default();
+        let mut sub = SubAgentConfig {
+            parallel_template: false,
+            ..SubAgentConfig::default()
+        };
         sub.codex = "Read_Only".into();
         let p = resolve_external_subagents(&sub, true);
         assert_eq!(p.len(), 1);
@@ -2104,7 +2175,10 @@ mod tests {
 
         // An explicitly DISABLED codex entry suppresses the switch (the name is
         // reserved even though the disabled entry itself doesn't mount).
-        let mut sub = SubAgentConfig::default();
+        let mut sub = SubAgentConfig {
+            parallel_template: false,
+            ..SubAgentConfig::default()
+        };
         sub.codex = "read-only".into();
         sub.external = vec![ExternalSubagentConfig {
             name: "codex".into(),
@@ -2120,6 +2194,62 @@ mod tests {
             p.is_empty(),
             "disabled explicit codex blocks the built-in switch"
         );
+    }
+
+    #[test]
+    fn parallel_template_mounts_three_roles_and_explicit_overrides() {
+        use rustcode_capabilities::subagent::{PermissionMode, SubagentKind};
+        use rustcode_config::config::SubAgentConfig;
+
+        // Template ON (default): the three built-in roles mount even with no
+        // codex/claude switch and no explicit entries.
+        let profiles = resolve_external_subagents(&SubAgentConfig::default(), true);
+        let names: Vec<&str> = profiles.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["explorer", "builder", "reviewer"]);
+        let by = |n: &str| profiles.iter().find(|p| p.name == n).unwrap();
+        assert_eq!(by("explorer").kind, SubagentKind::Codex);
+        assert_eq!(by("explorer").permission, PermissionMode::ReadOnly);
+        assert_eq!(by("builder").kind, SubagentKind::ClaudeCode);
+        assert_eq!(by("builder").permission, PermissionMode::AcceptEdits);
+        assert_eq!(by("reviewer").permission, PermissionMode::ReadOnly);
+        // Template roles are fail-closed external agents.
+        assert!(profiles.iter().all(|p| !p.allow_dangerous));
+
+        // Template OFF: no roles, no switches -> nothing mounts.
+        let off = resolve_external_subagents(
+            &SubAgentConfig {
+                parallel_template: false,
+                ..SubAgentConfig::default()
+            },
+            true,
+        );
+        assert!(off.is_empty(), "template off mounts no built-in roles");
+
+        // An explicit [[subagent.external]] named "builder" overrides the role.
+        let mut sub = SubAgentConfig::default();
+        sub.external = vec![rustcode_config::config::ExternalSubagentConfig {
+            name: "builder".into(),
+            kind: "claude-code".into(),
+            model: Some("sonnet".into()),
+            permission: Some("bypass".into()),
+            allow_dangerous: true,
+            timeout_secs: None,
+            enabled: true,
+        }];
+        let profiles = resolve_external_subagents(&sub, true);
+        assert_eq!(
+            profiles.len(),
+            3,
+            "explicit builder replaces, not duplicates"
+        );
+        let builder = profiles.iter().find(|p| p.name == "builder").unwrap();
+        assert_eq!(builder.model.as_deref(), Some("sonnet"));
+        // In a non-interactive context the dangerous bypass is downgraded
+        // fail-closed, matching the external profile guard.
+        let profiles_ro = resolve_external_subagents(&sub, false);
+        let builder_ro = profiles_ro.iter().find(|p| p.name == "builder").unwrap();
+        assert_eq!(builder_ro.permission, PermissionMode::ReadOnly);
+        assert!(!builder_ro.allow_dangerous);
     }
 
     fn agent_config(model: &str) -> CodingAgentConfig {
@@ -2201,12 +2331,42 @@ mod tests {
         use rustcode_config::config::SubAgentConfig;
         let (worker, explore, rounds) =
             subagent_runtime_knobs(&SubAgentConfig::default(), None, None, None);
-        assert_eq!(worker, 3, "default worker concurrency unchanged");
+        assert_eq!(
+            worker, 4,
+            "parallel template default raises worker lane to 4 (explorer+builder+reviewer+spare)"
+        );
         assert_eq!(
             explore, 8,
             "read-only lane fans out wider than workers by default"
         );
         assert_eq!(rounds, 200, "default child round high-water unchanged");
+    }
+
+    #[test]
+    fn subagent_runtime_knobs_parallel_template_off_keeps_worker_3() {
+        use super::subagent_runtime_knobs;
+        use rustcode_config::config::SubAgentConfig;
+        let cfg = SubAgentConfig {
+            parallel_template: false,
+            ..SubAgentConfig::default()
+        };
+        let (worker, _, _) = subagent_runtime_knobs(&cfg, None, None, None);
+        assert_eq!(
+            worker, 3,
+            "template off keeps the conservative worker default"
+        );
+    }
+
+    #[test]
+    fn subagent_runtime_knobs_explicit_env_still_wins_over_template_default() {
+        use super::subagent_runtime_knobs;
+        use rustcode_config::config::SubAgentConfig;
+        let cfg = SubAgentConfig::default();
+        let (worker, _, _) = subagent_runtime_knobs(&cfg, None, Some("2"), None);
+        assert_eq!(
+            worker, 2,
+            "explicit env override beats the template default"
+        );
     }
 
     #[test]

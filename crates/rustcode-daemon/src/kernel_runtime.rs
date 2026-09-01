@@ -161,7 +161,16 @@ async fn start_native_runtime_with_session_bootstrap(
         plugin_skill_dirs: crate::gather_plugin_skill_dirs_for(&cfg.working_dir),
         mcp: cfg.mcp,
         extra_mcp_servers: Vec::new(),
-        external_subagents: Vec::new(),
+        // External-agent subagents (Claude Code / Codex) from
+        // `[[subagent.external]]` + the built-in parallel template
+        // (explorer / builder / reviewer) when `subagent.parallel_template`
+        // is on (default). Daemon runs are headless: never allow the
+        // dangerous `bypass` mode (fail-closed).
+        external_subagents: cfg
+            .subagent_config
+            .as_ref()
+            .map(|c| rustcode_coding::parts::resolve_external_subagents(&c.subagent, false))
+            .unwrap_or_default(),
         memory: true,
         web: true,
         review: true,

@@ -144,6 +144,14 @@ pub static SETTINGS: &[SettingSpec] = &[
         kind: SettingKind::Integer { min: 0, max: 10000 },
         apply: ApplyPolicy::CapabilityReprepare,
     },
+    bool_setting(
+        "subagent.parallel_template",
+        &["subagent", "parallel_template"],
+        "Parallel agent template",
+        "多 Agent 并行模板",
+        &["explorer", "builder", "reviewer", "并行", "parallel"],
+        ApplyPolicy::CapabilityReprepare,
+    ),
     SettingSpec {
         id: "ui.theme",
         path: &["ui", "theme"],
@@ -298,6 +306,7 @@ impl SettingSpec {
             "loop_config.max_rounds" => config.loop_config.max_rounds.to_string(),
             "subagent.max_concurrent" => config.subagent.max_concurrent.to_string(),
             "subagent.max_rounds" => config.subagent.max_rounds.to_string(),
+            "subagent.parallel_template" => config.subagent.parallel_template.to_string(),
             "subagent.codex" => config.subagent.codex.clone(),
             "subagent.claude" => config.subagent.claude.clone(),
             "ui.theme" => format!("{:?}", config.ui.theme).to_lowercase(),
@@ -607,6 +616,31 @@ mod tests {
         let configured: Config = toml::from_str(&document.to_string()).unwrap();
         assert_eq!(setting.value(&configured), "read-only");
         // An out-of-range value is rejected.
+        assert!(setting.patch(&mut DocumentMut::new(), "yolo").is_err());
+    }
+
+    #[test]
+    fn parallel_template_defaults_on_and_patches_bool() {
+        let setting = SETTINGS
+            .iter()
+            .find(|setting| setting.id == "subagent.parallel_template")
+            .unwrap();
+        assert!(matches!(setting.kind, SettingKind::Boolean));
+        // Default ON: the built-in explorer/builder/reviewer template mounts
+        // unless the user explicitly opts out.
+        let defaults = Config::default();
+        assert_eq!(setting.value(&defaults), "true");
+        // Patching to false disables the template.
+        let mut document = DocumentMut::new();
+        setting.patch(&mut document, "false").unwrap();
+        let configured: Config = toml::from_str(&document.to_string()).unwrap();
+        assert_eq!(setting.value(&configured), "false");
+        assert!(document.to_string().contains("parallel_template = false"));
+        // Re-enabling round-trips.
+        setting.patch(&mut document, "true").unwrap();
+        let reenabled: Config = toml::from_str(&document.to_string()).unwrap();
+        assert_eq!(setting.value(&reenabled), "true");
+        // A non-boolean input is rejected.
         assert!(setting.patch(&mut DocumentMut::new(), "yolo").is_err());
     }
 

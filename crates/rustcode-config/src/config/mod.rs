@@ -182,6 +182,16 @@ pub struct SubAgentConfig {
     /// Convenience switch for a built-in Claude Code subagent (see [`Self::codex`]).
     #[serde(default = "default_subagent_level")]
     pub claude: String,
+    /// Built-in multi-agent parallel template (explorer / builder / reviewer).
+    /// `true` (default) mounts three built-in external-agent roles -- an
+    /// explorer (read-only investigation fan-out), a builder (accept-edits
+    /// implementation lane) and a reviewer (read-only independent
+    /// verification) -- and raises the worker concurrency lane to 4. Any
+    /// `[[subagent.external]]` entry with the same name overrides the
+    /// built-in role. Mirror of the `/think` live-toggle pattern: editable
+    /// from `/config`, applied at agent (re)assembly.
+    #[serde(default = "default_true")]
+    pub parallel_template: bool,
     /// External-agent subagent instances (`[[subagent.external]]`). Each drives
     /// Claude Code / Codex as a named subagent tool. Empty by default. Merged with
     /// the `codex`/`claude` convenience switches (an explicit entry with the same
@@ -197,6 +207,10 @@ fn default_subagent_level() -> String {
 
 /// Conservative default for the write (worker) concurrency lane: edits are
 /// scope-confined and run against the live working tree, so keep this small.
+/// When the built-in parallel template is enabled, `subagent_runtime_knobs`
+/// raises this to 4 to accommodate the builder lane; the raw default here
+/// stays 3 so a `parallel_template = false` config keeps the conservative
+/// budget.
 fn default_subagent_worker_concurrent() -> usize {
     3
 }
@@ -220,6 +234,7 @@ impl Default for SubAgentConfig {
             max_rounds: 200,
             codex: default_subagent_level(),
             claude: default_subagent_level(),
+            parallel_template: true,
             external: Vec::new(),
         }
     }
@@ -358,10 +373,9 @@ pub struct Config {
     /// plugins track the binary.
     #[serde(default)]
     pub plugin: PluginConfig,
-    /// Web search backend. Missing from older configs -> defaults to the
-    /// `exa` provider (reachable without a VPN, returns LLM-ready result
-    /// text). Set `provider = "duckduckgo"` to restore the legacy
-    /// HTML-scraping backend.
+    /// Web search backend. Missing from older configs -> defaults to the keyless
+    /// `duckduckgo` provider (a generic search engine; no account or API key).
+    /// Set `provider = "exa"` to opt into the Exa AI-search vendor.
     #[serde(default)]
     pub web_search: WebSearchConfig,
     /// On Ctrl-C / cancel: `true` (default) ⇒ PRESERVE the partial turn (backfill
@@ -394,19 +408,20 @@ pub struct Config {
 /// Web search backend configuration. Persisted as the `[web_search]` table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchConfig {
-    /// Search backend: `"exa"` (default -- MCP API at mcp.exa.ai, reachable
-    /// without a VPN and returns LLM-ready result text) or `"duckduckgo"`
-    /// (legacy HTML scraping of html.duckduckgo.com, blocked in some regions).
+    /// Search backend: `"duckduckgo"` (default -- keyless HTML scraping of
+    /// html.duckduckgo.com; a generic search engine, no account, blocked in some
+    /// regions) or `"exa"` (opt-in AI-search vendor at mcp.exa.ai; an optional
+    /// `api_key` / `EXA_API_KEY` raises its limits).
     #[serde(default = "default_search_provider")]
     pub provider: String,
-    /// Optional Exa API key. Also read from the `EXA_API_KEY` env var, which
-    /// takes precedence. When unset, Exa runs in its keyless tier.
+    /// Optional Exa API key for the opt-in `"exa"` backend. Also read from the
+    /// `EXA_API_KEY` env var, which takes precedence. Unused by DuckDuckGo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
 }
 
 fn default_search_provider() -> String {
-    "exa".to_string()
+    "duckduckgo".to_string()
 }
 
 impl Default for WebSearchConfig {
@@ -2065,9 +2080,14 @@ impl Config {
         let name = selection
             .filter(|s| self.selection_exists(s))
             .or_else(first_catalog)
-            .ok_or_else(|| anyhow::anyhow!("No providers configured -- run /login or /provider"))?;
-        self.provider_config_for_selection(&name)
-            .ok_or_else(|| anyhow::anyhow!("No providers configured -- run /login or /provider"))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "No providers configured -- run /provider to add a third-party API key"
+                )
+            })?;
+        self.provider_config_for_selection(&name).ok_or_else(|| {
+            anyhow::anyhow!("No providers configured -- run /provider to add a third-party API key")
+        })
     }
 
     /// Resolve the rustcode config dir. Pure function for testability --
@@ -3315,7 +3335,7 @@ model = "missing-type"
     }
     #[test]
     fn active_provider_falls_back_when_default_points_to_deleted_provider() {
-        // Regression test for https://gitcode.com/SecLab/RustCode/issues/353
+        // Regression test for upstream issue #353.
         // User deletes a provider section from config.toml but leaves
         // default_provider pointing at it -- startup must still succeed by
         // falling back to a lexicographically-first provider instead of
