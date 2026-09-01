@@ -62,6 +62,12 @@ struct AuthStatusResponse {
     /// "logged in" here while chat returned "登录已过期" -- this flag lets the
     /// frontend surface a distinct "session expired, re-login" state instead.
     expired: bool,
+    /// Whether this build ships a managed sign-in service at all (non-empty
+    /// platform server). Neutral / open builds report false: the WebUI then
+    /// hides the account / sign-in surfaces entirely, since `/auth/login/start`
+    /// can only fail -- the same predicate as the TUI's command/wizard gating
+    /// (`rustcode_auth::managed_login_available`).
+    managed_available: bool,
     auth_path: String,
     user: Option<auth::UserInfo>,
     token: Option<TokenInfo>,
@@ -142,6 +148,7 @@ pub(crate) async fn auth_status() -> impl IntoResponse {
             Json(AuthStatusResponse {
                 logged_in,
                 expired,
+                managed_available: auth::managed_login_available(),
                 auth_path: auth_path_str,
                 user: Some(info.user),
                 token: Some(TokenInfo {
@@ -156,12 +163,28 @@ pub(crate) async fn auth_status() -> impl IntoResponse {
         None => Json(AuthStatusResponse {
             logged_in: false,
             expired: false,
+            managed_available: auth::managed_login_available(),
             auth_path: auth_path_str,
             user: None,
             token: None,
         })
         .into_response(),
     }
+}
+
+/// Neutral-build response for managed-login entry points: 501 with the
+/// `managed_login_unavailable` code. Clients key on this code to steer
+/// users to bring-your-own-key provider setup instead of a dead OAuth
+/// flow. Deliberately non-retryable.
+pub(crate) fn managed_login_unavailable_response() -> axum::response::Response {
+    coded_json_error(
+        StatusCode::NOT_IMPLEMENTED,
+        "managed_login_unavailable",
+        "This build has no managed sign-in service. Configure a third-party \
+         provider with your own API key in provider settings instead.",
+        false,
+    )
+    .into_response()
 }
 
 /// POST /auth/login/start - Starts OAuth login and returns URL + login_id.
@@ -182,6 +205,14 @@ pub(crate) async fn auth_login_start(
     }
 
     let open_browser = req.open_browser;
+
+    // Neutral build: there is no managed sign-in service to talk to. Fail
+    // fast with an actionable code instead of letting `start_login()` error
+    // out into a generic 500 -- clients key on `managed_login_unavailable`
+    // to steer users to bring-your-own-key provider setup.
+    if !auth::managed_login_available() {
+        return managed_login_unavailable_response();
+    }
 
     let start_result =
         tokio::task::spawn_blocking(move || -> anyhow::Result<(auth::LoginSession, String)> {
@@ -313,6 +344,7 @@ pub(crate) async fn auth_logout(
             Json(AuthStatusResponse {
                 logged_in: false,
                 expired: false,
+                managed_available: auth::managed_login_available(),
                 auth_path: auth_path.to_string_lossy().to_string(),
                 user: None,
                 token: None,
@@ -577,6 +609,55 @@ mod tests {
         // File on disk exists (so the user "looks" logged in) but the token
         // can't be made valid -- this is the exact sidebar/chat mismatch.
         assert_eq!(classify_auth_status(true, false), (true, true));
+    }
+
+    #[tokio::test]
+    async fn neutral_build_reports_managed_unavailable() {
+        // The WebUI hides its account / sign-in surfaces on this flag. A
+        // neutral/open build ships no platform server, so it must be false
+        // (and with the test ctor's temp RUSTCODE_HOME there is no stored
+        // auth either); the field must always be present in the JSON.
+        let response = auth_status().await.into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            !json["logged_in"].as_bool().unwrap_or(true),
+            "neutral build with no stored auth must report logged_in=false: {json}"
+        );
+        assert!(
+            !json["managed_available"].as_bool().unwrap_or(true),
+            "neutral build must report managed_available=false so the WebUI hides \
+             account surfaces: {json}"
+        );
+        assert!(
+            !auth::managed_login_available(),
+            "predicate and /auth/status must agree in a neutral build"
+        );
+    }
+
+    #[tokio::test]
+    async fn neutral_build_login_start_returns_actionable_501() {
+        // Old client builds that still show a sign-in button get a
+        // deterministic, non-retryable code instead of a generic 500, so
+        // they can surface bring-your-own-key guidance.
+        let response = managed_login_unavailable_response();
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["code"], "managed_login_unavailable");
+        assert!(
+            !json["retryable"].as_bool().unwrap_or(true),
+            "neutral unavailability must not be retried: {json}"
+        );
+        let message = json["error"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("third-party provider"),
+            "501 must steer to BYO provider setup: {message}"
+        );
     }
 
     #[test]

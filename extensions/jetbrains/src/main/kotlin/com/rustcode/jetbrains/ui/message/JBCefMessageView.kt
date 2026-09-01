@@ -202,8 +202,15 @@ class JBCefMessageView(
     fun hideStreamingCursor()                   { sendJs("hideStreamingCursor") }
     fun finishAssistantTurn()                   { sendJs("finishAssistantTurn") }
     fun clear()                                 { sendJs("clearMessages") }
-    fun showWelcomePage(language: String = defaultWelcomeLanguage(), loggedIn: Boolean = false) {
-        sendRawJs("showWelcomePage(${gson.toJson(welcomeContent(language, loggedIn))})")
+    fun showWelcomePage(
+        language: String = defaultWelcomeLanguage(),
+        loggedIn: Boolean = false,
+        // Open builds ship no managed sign-in service: the welcome page
+        // hides the sign-in button and steers first-run users to the
+        // bring-your-own-key provider menu instead. Fail closed.
+        managedAvailable: Boolean = false,
+    ) {
+        sendRawJs("showWelcomePage(${gson.toJson(welcomeContent(language, loggedIn, managedAvailable))})")
     }
 
     // ── Internals ──
@@ -277,7 +284,11 @@ class JBCefMessageView(
     private fun defaultWelcomeLanguage(): String =
         if (java.util.Locale.getDefault().language.equals("zh", ignoreCase = true)) "zh" else "en"
 
-    private fun welcomeContent(language: String, loggedIn: Boolean): WelcomeContent =
+    private fun welcomeContent(
+        language: String,
+        loggedIn: Boolean,
+        managedAvailable: Boolean,
+    ): WelcomeContent =
         if (language == "zh") {
             WelcomeContent(
                 language = "zh",
@@ -301,10 +312,14 @@ class JBCefMessageView(
                     WelcomeCommand("/review", "填入代码审查提示，可继续补充范围或要求", "review"),
                 ),
                 docsTitle = "连接与帮助",
-                docsText = "还没配置模型时，先打开设置或登录平台账号；遇到问题可查看文档。",
+                docsText = if (managedAvailable) {
+                    "还没配置模型时，先打开设置或登录平台账号；遇到问题可查看文档。"
+                } else {
+                    "还没配置模型时，请通过齿轮菜单（供应商 -> 创建供应商）添加自带 API Key 的第三方供应商；遇到问题可查看文档。"
+                },
                 settings = "RustCode 设置",
                 login = "登录平台账号",
-                showLogin = !loggedIn,
+                showLogin = !loggedIn && managedAvailable,
                 docs = "查看文档",
                 languageLabel = "语言",
             )
@@ -331,10 +346,14 @@ class JBCefMessageView(
                     WelcomeCommand("/review", "Insert a review prompt, then add scope or constraints", "review"),
                 ),
                 docsTitle = "Connect & Help",
-                docsText = "If no model is configured yet, open settings or sign in to your platform. For troubleshooting, open the docs.",
+                docsText = if (managedAvailable) {
+                    "If no model is configured yet, open settings or sign in to your platform. For troubleshooting, open the docs."
+                } else {
+                    "If no model is configured yet, open the gear menu and create a third-party provider with your own API key (Provider -> Create Provider). For troubleshooting, open the docs."
+                },
                 settings = "RustCode Menu",
                 login = "Sign in",
-                showLogin = !loggedIn,
+                showLogin = !loggedIn && managedAvailable,
                 docs = "Open Docs",
                 languageLabel = "Language",
             )
@@ -867,7 +886,7 @@ function addQueuedMessage(t){clearHome();var d=document.createElement('div');d.c
 	function addReasoningBlock(t){var p=parts(),th=p.querySelector('.thp');if(th)th.remove();var d=document.createElement('div');d.className='rm reasoning-content';d.innerHTML=reasoningPreview(t);p.insertBefore(d,p.firstChild);sd()}
 	function updateReasoningBlock(t){var p=parts(),d=p.querySelector('.reasoning-content');if(!d){addReasoningBlock(t);return}d.innerHTML=reasoningPreview(t);sd()}
 	function removeReasoningBlock(){var a=currentAssistant();if(!a)return;var blocks=a.querySelectorAll('.reasoning-content');Array.prototype.forEach.call(blocks,function(x){x.remove()})}
-	function showWelcomePage(c){clearMessages();var d=document.createElement('div');d.className='home';var quick=(c.quickStart||[]).map(function(x){return '<li>'+h(x)+'</li>'}).join('');var actions=(c.actions||[]).map(function(x){return '<div class="action-row"><strong>'+h(x.name)+'</strong><span>'+h(x.label)+'</span></div>'}).join('');var commands=(c.commands||[]).map(function(x){return '<div class="command-row"><button data-action="'+h(x.action)+'">'+h(x.command)+'</button><span>'+h(x.label)+'</span></div>'}).join('');var loginBtn=c.showLogin?'<button class="home-btn" data-action="login">'+h(c.login)+'</button>':'';d.innerHTML='<section class="home-hero"><div class="home-head"><div class="home-brand"><div class="home-title"><span class="home-mark">A</span><span>'+h(c.title)+'</span></div><div class="home-subtitle">'+h(c.subtitle)+'</div></div><span class="home-lang"><span class="home-lang-label">'+h(c.languageLabel)+'</span><button class="home-btn" data-lang="zh">中文</button><button class="home-btn" data-lang="en">English</button></span></div><div class="home-actions"><button class="home-btn primary" data-action="settings">'+h(c.settings)+'</button>'+loginBtn+'<button class="home-btn" data-action="docs">'+h(c.docs)+'</button></div></section><div class="home-grid"><section class="home-section"><h2>'+h(c.quickStartTitle)+'</h2><ul>'+quick+'</ul></section><section class="home-section"><h2>'+h(c.actionsTitle)+'</h2><div class="action-list">'+actions+'</div></section><section class="home-section"><h2>'+h(c.commandsTitle)+'</h2><div class="command-list">'+commands+'</div></section><section class="home-section"><h2>'+h(c.docsTitle)+'</h2><div class="home-doc"><p>'+h(c.docsText)+'</p><button class="home-btn" data-action="docs">'+h(c.docs)+'</button></div></section></div>';m.appendChild(d);Array.prototype.forEach.call(d.querySelectorAll('[data-action]'),function(btn){btn.onclick=function(){host(btn.getAttribute('data-action')||'')}});Array.prototype.forEach.call(d.querySelectorAll('[data-lang]'),function(btn){btn.onclick=function(){switchWelcomeLanguage(btn.getAttribute('data-lang')||'en')}});sd(true)}
+	function showWelcomePage(c){clearMessages();var d=document.createElement('div');d.className='home';var quick=(c.quickStart||[]).map(function(x){return '<li>'+h(x)+'</li>'}).join('');var actions=(c.actions||[]).map(function(x){return '<div class="action-row"><strong>'+h(x.name)+'</strong><span>'+h(x.label)+'</span></div>'}).join('');var commands=(c.commands||[]).map(function(x){return '<div class="command-row"><button data-action="'+h(x.action)+'">'+h(x.command)+'</button><span>'+h(x.label)+'</span></div>'}).join('');var loginBtn=c.showLogin?'<button class="home-btn" data-action="login">'+h(c.login)+'</button>':'';d.innerHTML='<section class="home-hero"><div class="home-head"><div class="home-brand"><div class="home-title"><span class="home-mark">R</span><span>'+h(c.title)+'</span></div><div class="home-subtitle">'+h(c.subtitle)+'</div></div><span class="home-lang"><span class="home-lang-label">'+h(c.languageLabel)+'</span><button class="home-btn" data-lang="zh">中文</button><button class="home-btn" data-lang="en">English</button></span></div><div class="home-actions"><button class="home-btn primary" data-action="settings">'+h(c.settings)+'</button>'+loginBtn+'<button class="home-btn" data-action="docs">'+h(c.docs)+'</button></div></section><div class="home-grid"><section class="home-section"><h2>'+h(c.quickStartTitle)+'</h2><ul>'+quick+'</ul></section><section class="home-section"><h2>'+h(c.actionsTitle)+'</h2><div class="action-list">'+actions+'</div></section><section class="home-section"><h2>'+h(c.commandsTitle)+'</h2><div class="command-list">'+commands+'</div></section><section class="home-section"><h2>'+h(c.docsTitle)+'</h2><div class="home-doc"><p>'+h(c.docsText)+'</p><button class="home-btn" data-action="docs">'+h(c.docs)+'</button></div></section></div>';m.appendChild(d);Array.prototype.forEach.call(d.querySelectorAll('[data-action]'),function(btn){btn.onclick=function(){host(btn.getAttribute('data-action')||'')}});Array.prototype.forEach.call(d.querySelectorAll('[data-lang]'),function(btn){btn.onclick=function(){switchWelcomeLanguage(btn.getAttribute('data-lang')||'en')}});sd(true)}
 		function clearMessages(){m.innerHTML='';last=null;active=null;ti=-1;cv=false;nb=true;ss=null;useq=0}
 (function find(){for(var k in window){if(k.indexOf('JBCefQuery_')===0&&typeof window[k]==='function'){window[k]('js:ready');return}}setTimeout(find,50)})();
 </script></body></html>""".trimIndent()

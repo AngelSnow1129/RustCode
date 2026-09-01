@@ -31,9 +31,6 @@
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange" alt="rust">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
-  <a href="https://gitcode.com/SecLab/RustCode" target="_blank">
-    <img src="https://gitcode.com/SecLab/RustCode/star/badge.svg" alt="GitCode Star"/>
-  </a>
 </p>
 
 ---
@@ -48,7 +45,7 @@ Think of it as an open-source alternative to Claude Code / Cursor Agent, but run
 
 ---
 
-> **Fork notice.** This repository (`SecLab/RustCode`) is a secondary-development
+> **Fork notice.** This repository is a secondary-development
 > fork of `atomgit_atomcode/atomcode`. Relative to upstream it (1) renames the
 > product to `rustcode` (crates, binaries, config dir `~/.rustcode`, `RUSTCODE_*`
 > env vars); (2) removes **all** telemetry/analytics — the `rustcode-telemetry`
@@ -117,8 +114,9 @@ Connect to any LLM that supports OpenAI's function-calling API:
 ### Sessions & Login
 
 - **Persistent sessions** — every conversation is saved; continue the last session with `rustcode --continue` / `-c`, or resume/switch inside the TUI with `/resume`
-- **OAuth login** — `/login` (or `rustcode login`) pairs your CLI with your platform account
-- **SSO login** — `/login-with-sso` for SSO-enabled deployments
+- **Third-party providers (BYO)** — configure your own `base_url` + `api_key` in `~/.rustcode/config.toml` (or via `/provider`); no account or signup needed. This is the default in the open-source build
+- **OAuth login** — `/login` (or `rustcode login`) pairs your CLI with a managed account; **distribution builds only** (the open-source build ships no managed service)
+- **SSO login** — `/login-with-sso` for SSO-enabled managed deployments (distribution builds only)
 - **Headless mode** — `rustcode -p "..."` runs a single prompt non-interactively and streams the reply on stdout (Claude Code `-p` style); approval-required `bash` calls are auto-approved, while other approval-required tools are denied
 - **Daemon mode** — `rustcode-daemon` exposes an HTTP API for session history and SSE streaming chat
 
@@ -166,38 +164,53 @@ See [Permission Model](./docs/security/permission-model.md) for the full design 
 
 - [CHECK] Zero telemetry — this fork (RustCode) has removed the entire reporting
   pipeline (`rustcode-telemetry` crate deleted). No events, usage stats, or crash
-  reports are sent anywhere. See [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)
+  reports are sent anywhere. See [docs/telemetry.md](docs/telemetry.md) for what was
+  removed, and [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)
   and [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md) for provenance.
 
 ## Installation
 
-### Official Installation Script (recommended)
+### Installation Script (recommended)
+
+The installer ships no built-in release host: obtain `install.ps1` (Windows
+PowerShell) or `install.sh` (Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS
+PC) from your distribution channel — e.g. the release assets page of the
+channel you got RustCode from — and run it as follows.
 
 For Windows PowerShell users:
 
 ```powershell
-irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.ps1 | iex
+# Obtain install.ps1 from your distribution channel's release assets, then
+# point it at that channel's release downloads directory:
+$env:RUSTCODE_RELEASE_BASE = "https://example.com/your-host/releases/download"
+./install.ps1
 ```
 
 For Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC users:
 
 ```bash
-curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.sh | sh
+# Obtain install.sh from your distribution channel, then point it at that
+# channel's release downloads directory:
+RUSTCODE_RELEASE_BASE=https://example.com/your-host/releases/download sh install.sh
 ```
 
-Both scripts download the official prebuilt binary for the latest release
-(auto-detected from the release API), install it, and add it to your `PATH`.
-As official builds they include the request signer, so `/login` can claim the
-free CodingPlan models (see "About the official CodingPlan" below).
+The script downloads the prebuilt binary for the latest release
+(auto-detected from the release API when your channel provides one), installs
+it, and adds it to your `PATH`. Builds from a distribution channel that ships
+the optional managed-signing component can use `/login` with that channel's
+managed CodingPlan endpoint (see "About the optional CodingPlan gateway"
+below); bring-your-own-key third-party providers need no signer.
 
-Environment variable overrides: `RUSTCODE_VERSION` pins a release tag,
-`RUSTCODE_PREFIX` picks the install directory (see the script headers for
-details).
+Environment variable overrides: `RUSTCODE_RELEASE_BASE` sets the download root
+that hosts the release binaries (required for the shell installer),
+`RUSTCODE_VERSION` pins a release tag, and `RUSTCODE_PREFIX` picks the install
+directory (see the script headers for details).
 
 ### From Source
 
 ```bash
-git clone https://gitcode.com/SecLab/RustCode.git
+# Clone from your distribution channel, e.g.:
+git clone https://example.com/<your-org>/rustcode.git
 cd rustcode
 ```
 
@@ -244,21 +257,23 @@ cargo build --release -p rustcode
 
 and the binary will be generated at `target/release/rustcode`.
 
-### About the official CodingPlan (closed-source signer)
+### About the optional CodingPlan gateway (closed-source signer)
 
 `crates/rustcode-codingplan-crypto/` in this repository is an open-source
 placeholder. The real request-signing implementation is closed-source and is
-only overlaid by the official release pipeline, so a self-built binary cannot
-sign requests to RustCode's official service. Binaries installed via the
-official installer above (or the package managers below) are official builds
-and include the signer. In practice this means:
+only overlaid by distribution release pipelines that opt into the managed
+CodingPlan gateway, so a self-built binary cannot sign requests to such a
+managed endpoint. Binaries obtained from a distribution channel that ships
+the signer (for example via the installer above or the package managers
+below) include it. In practice this means:
 
-- `/login` cannot claim the official **free CodingPlan models** in self-built
-  binaries. Signing is kept closed-source to prevent the free plan from being
-  abused outside official builds.
-- Connecting your **own API providers** is unaffected: any provider configured
-  under `providers.*` in `~/.rustcode/config.toml` (DeepSeek, OpenAI, or any
-  OpenAI-compatible endpoint) works without the signer.
+- `/login` cannot claim a managed gateway's **free CodingPlan models** in
+  self-built binaries. Signing is kept closed-source to prevent the free plan
+  from being abused outside that channel's builds.
+- Connecting **your own third-party providers** (bring your own key) is
+  unaffected and is the default: any provider configured under `providers.*`
+  in `~/.rustcode/config.toml` (DeepSeek, OpenAI, or any OpenAI-compatible
+  endpoint) works without the signer.
 
 ### Package Managers
 
@@ -299,9 +314,10 @@ input and `Shift+Tab` cycles execution mode.
 ### Requirements
 
 - Rust 1.88+ (for building; older Cargo versions cannot parse the current lockfile)
-- An API key from any supported provider (or a platform account for `/login`;
-  the free CodingPlan models require an official build — see "About the official
-  CodingPlan" above)
+- An API key from any supported provider (bring your own key; or a platform
+  account for `/login` with a managed gateway — the free CodingPlan models
+  require a channel build that ships the signer; see "About the optional
+  CodingPlan gateway" above)
 
 ### Permissions — don't run with `sudo`
 
@@ -337,12 +353,14 @@ rustcode uninstall --purge        # remove everything, including ~/.rustcode
 rustcode uninstall --dry-run      # show plan, change nothing
 ```
 
-If the binary is already broken or missing:
+If the binary is already broken or missing, obtain `uninstall.sh` (or
+`uninstall.ps1` on Windows) from your distribution channel and run it. The
+uninstaller only removes the local install, so it needs no download base:
 
 ```bash
-curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/uninstall.sh | sh
-# Windows:
-irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/uninstall.ps1 | iex
+sh uninstall.sh
+# Windows PowerShell: run the uninstall.ps1 obtained from your channel
+./uninstall.ps1
 ```
 
 By default credentials (`auth.toml`, `mcp.json`, `config.toml`, `RUSTCODE.md`) are kept; pass `--purge` to remove them too.
@@ -516,10 +534,10 @@ Type `/` in the TUI to browse the full list with live completion; `/help` shows 
 | `/model`    | Switch model / provider                                     |
 | `/provider` | Manage providers (add / edit / delete)                      |
 | `/proxy`    | Switch outbound proxy mode                                  |
-| `/login`    | Sign in with OAuth and claim CodingPlan free models |
-| `/logout`   | Sign out                                         |
-| `/whoami`   | Show the current logged-in user                             |
-| `/status`   | Show login status and model info                            |
+| `/login`    | Sign in with OAuth to a managed service (distribution builds only; use `/provider` for BYO in the open-source build) |
+| `/logout`   | Sign out of a managed account (distribution builds only) |
+| `/whoami`   | Show the current managed-account user (distribution builds only) |
+| `/status`   | Show provider status and model info (distribution builds also show the managed-account sign-in section) |
 
 **Files, edits & context**
 
@@ -566,16 +584,17 @@ Type `/` in the TUI to browse the full list with live completion; `/help` shows 
 | `/help` | Show commands & shortcuts |
 | `/quit`, `/exit` | Exit RustCode (or Ctrl+C ×2) |
 
-> **平台 Issues.** `/issue` has been removed. After `/login`, ask in natural
-> language—for example, “Create a platform issue for this bug”—and RustCode uses
-> its built-in `platform_issue` tool. Reading issues is automatic; creating an
+> **Platform issues.** `/issue` has been removed. In distributions that ship
+> managed-platform support, after `/login` you can ask in natural language—for
+> example, “Create an issue for this bug on our platform”—and RustCode selects
+> the built-in `platform_issue` tool. Reading issues is automatic; creating an
 > issue or adding, editing, or deleting comments still requires approval.
 >
-> **Plugin commands.** Beyond the built-ins above, plugins can register their own slash commands. For example, install the official channel plugin to get `/wechat` (shows the RustCode WeChat community group QR code):
+> **Plugin commands.** Beyond the built-ins above, plugins can register their own slash commands. Add the plugin marketplace provided by your distribution channel (set the marketplace URL via config/env or install from your distribution's plugin index), then install plugins from it. For example, a channel community plugin might expose a `/wechat` command showing the community group QR code:
 >
 > ```text
-> /plugin marketplace add https://gitcode.com/SecLab/RustCode-Channel
-> /plugin install weixin@rustcode-channel
+> /plugin marketplace add https://example.com/<your-org>/rustcode-plugins
+> /plugin install <plugin>@<channel>
 > ```
 
 ### Custom Commands
@@ -701,7 +720,8 @@ Run `/init` to analyze the repository and create or improve the active instructi
 ### Build from Source
 
 ```bash
-git clone https://gitcode.com/SecLab/RustCode.git
+# Clone from your distribution channel, e.g.:
+git clone https://example.com/<your-org>/rustcode.git
 cd rustcode
 
 # Debug build (fast compilation, slower runtime)
@@ -765,9 +785,9 @@ Contributions are welcome! RustCode is in active development.
 ### How to Contribute
 
 1. **Fork** the repository
-2. **Clone** your fork locally:
+2. **Clone** your fork locally (use your distribution channel's host):
    ```bash
-   git clone https://gitcode.com/<your-username>/rustcode.git
+   git clone https://example.com/<your-username>/rustcode.git
    cd rustcode
    ```
 3. **Create a branch** for your change:
@@ -811,16 +831,16 @@ Contributions are welcome! RustCode is in active development.
 - **Add a new tool** — implement the `Tool` trait in `crates/rustcode-capabilities/src/tools/`
 - **Add a new provider** — implement `LlmProvider` in `crates/rustcode-capabilities/src/provider/`
 - **Improve the UI** — rendering lives in `crates/rustcode-tuix/src/render/`
-- **Fix bugs** — check [Issues](https://gitcode.com/SecLab/RustCode/issues) for open bugs
+- **Fix bugs** — check your distribution channel's issue tracker for open bugs
 
 ### Non-Rust Contributions
 
 Don't know Rust? No problem! There are many ways to contribute without writing Rust code:
 
-- **[*] Documentation** — Improve the README, fix typos, enhance the [official docs site](https://docs.rustcode.dev/docs/en/), or add examples. Docs live in the root `docs/` directory, `site/docs/`, and the main README files.
+- **[*] Documentation** — Improve the README, fix typos, enhance the [docs site](site/docs/en/index.html), or add examples. Docs live in the root `docs/` directory, `site/docs/`, and the main README files.
 - **[*] Localization & Translation** — Help translate the docs site, README, or UI strings into more languages. Check `site/docs/` for existing translations.
-- **[*] Skills & Plugins** — Create new [skills](https://gitcode.com/SecLab/RustCode-skills) (Markdown + JSON, no Rust needed) that extend RustCode's capabilities. Skills are loaded from `~/.rustcode/skills/`.
-- **[*] Bug Reports** — Found a bug? Open an [Issue](https://gitcode.com/SecLab/RustCode/issues) with clear reproduction steps, screenshots, and environment info. High-quality bug reports are invaluable.
+- **[*] Skills & Plugins** — Create new skills (Markdown + JSON, no Rust needed) that extend RustCode's capabilities, or package them for your distribution's plugin index. Skills are loaded from `~/.rustcode/skills/`.
+- **[*] Bug Reports** — Found a bug? Open an issue in your distribution channel's issue tracker with clear reproduction steps, screenshots, and environment info. High-quality bug reports are invaluable.
 - **[*] Test Cases & Examples** — Add test scenarios, example projects, or usage demos that help validate features and onboard new users.
 - **[*] Community Support** — Help answer questions in the community group, write tutorials, or create video guides.
 
@@ -830,10 +850,10 @@ Every contribution, code or not, makes RustCode better for everyone. When in dou
 
 ---
 
-Scan the QR code below with WeChat to join the RustCode community group — share feedback, report issues, and talk to other users and maintainers:
+Scan the community QR code shared by your distribution channel (e.g. a WeChat group QR) to join the RustCode community — share feedback, report issues, and talk to other users and maintainers. The QR image asset itself is published by your channel:
 
 <p align="center">
-  <img src="https://cdn-news.gitcode.com/news/RustCode_qun.png" alt="RustCode WeChat community QR code" width="220">
+  <em>[ Community QR code image — your distribution channel publishes this asset ]</em>
 </p>
 
 ## Donate
@@ -843,8 +863,7 @@ Scan the QR code below with WeChat to join the RustCode community group — shar
 RustCode is free, open-source software that works with any third-party provider you bring your own key for. If it has saved you a bit of time, consider buying the maintainers a coffee — it keeps us motivated to keep making it better.
 
 <p align="center">
-  <img src="https://cdn-news.gitcode.com/news/alipay_1782981974317.png" alt="RustCode Alipay donate QR code" width="220">
-  <img src="https://cdn-news.gitcode.com/news/wechatpay_1782982603403.png" alt="RustCode WeChat Pay donate QR code" width="240">
+  <em>[ Donate QR codes (Alipay / WeChat Pay) — supplied by your distribution channel ]</em>
 </p>
 
 ## License

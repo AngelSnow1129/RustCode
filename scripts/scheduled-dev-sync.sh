@@ -10,7 +10,8 @@
 #   TARGET_BRANCH  目标分支，默认 dev
 #   BASE_BRANCH    基线分支，默认 main
 #   COMMIT_MESSAGE 提交信息，默认 "chore($TARGET_BRANCH): scheduled sync <时间戳>"
-#   GITCODE_TOKEN  可选；用于通过 gitcode API 创建 PR，缺失时降级为输出手工创建链接
+#   RUSTCODE_PR_TOKEN  可选；用于通过远程仓库的 v5 兼容 API 创建 PR，
+#                      缺失或无法从 origin 推断托管地址时降级为输出手工创建提示
 #   EXCLUDE_SPECS  额外排除路径，默认已排除 .codebuddy/（IDE 本地数据，不属于仓库内容）
 #   COMMIT_AUTHOR  提交身份 "Name <email>"；未设置时取仓库最近一次提交的作者。
 #                  身份通过 git -c 临时传入，不写入 git config。
@@ -122,22 +123,34 @@ ahead_base="$(git rev-list --count "$BASE_BRANCH..$TARGET_BRANCH" 2>/dev/null ||
 behind_base="$(git rev-list --count "$TARGET_BRANCH..$BASE_BRANCH" 2>/dev/null || echo 0)"
 
 remote_url="$(git remote get-url origin 2>/dev/null || echo '')"
-slug="$(printf '%s' "$remote_url" | sed -E 's#^.*[:/]([^/]+)/([^/]+?)(\.git)?$#\1/\2#')"
-host="$(printf '%s' "$remote_url" | sed -E 's#^[a-z+]+://([^/]+)/.*$#\1#')"
-if [ -z "$slug" ] || [ "$slug" = "$remote_url" ]; then slug="SecLab/RustCode"; fi
-if [ -z "$host" ] || [ "$host" = "$remote_url" ]; then host="gitcode.com"; fi
-manual_url="https://$host/$slug/pulls/new?source_branch=$TARGET_BRANCH&target_branch=$BASE_BRANCH"
+# Derive host/slug strictly from the configured origin remote; this build ships
+# no default vendor host. When origin can't be parsed, degrade to generic guidance.
+# slug = last two path segments (owner/repo); strip a trailing .git separately
+# (POSIX ERE has no non-greedy quantifier, so an inline (\.git)? is never taken).
+slug="$(printf '%s' "$remote_url" | sed -E 's#^.*[:/]([^/]+)/([^/]+)$#\1/\2#')"
+slug="${slug%.git}"
+# host: scheme://authority (drop optional user@ and :port), or scp-like git@host:path.
+host="$(printf '%s' "$remote_url" | sed -E \
+  -e 's#^[a-z][a-z0-9+.-]*://([^/@]+@)?([^:/]+)(:[0-9]+)?(/.*)?$#\2#' \
+  -e 's#^[^@/]+@([^:]+):.*$#\1#')"
+[ "$slug" = "$remote_url" ] && slug=""
+[ "$host" = "$remote_url" ] && host=""
+if [ -n "$host" ] && [ -n "$slug" ]; then
+  manual_url="https://$host/$slug/pulls/new?source_branch=$TARGET_BRANCH&target_branch=$BASE_BRANCH"
+else
+  manual_url=""
+fi
 
 if [ "$ahead_base" = "0" ]; then
   log "$TARGET_BRANCH 相对 $BASE_BRANCH 无新增提交，无需创建 PR"
 elif [ "$DRY" = "1" ]; then
   log "DRY-RUN 跳过 PR 创建；正式执行将创建 PR: $TARGET_BRANCH -> $BASE_BRANCH (新增 $ahead_base 个提交)"
-elif [ -n "${GITCODE_TOKEN:-}" ]; then
+elif [ -n "${RUSTCODE_PR_TOKEN:-}" ] && [ -n "$host" ] && [ -n "$slug" ]; then
   api="https://$host/api/v5/repos/$slug/pulls"
   title="${PR_TITLE:-"chore: sync $TARGET_BRANCH into $BASE_BRANCH"}"
   body="${PR_BODY:-"定时同步 $TARGET_BRANCH -> $BASE_BRANCH，共 $ahead_base 个提交。"}"
   resp="$(curl -sS -X POST "$api" \
-    --data-urlencode "access_token=$GITCODE_TOKEN" \
+    --data-urlencode "access_token=$RUSTCODE_PR_TOKEN" \
     --data-urlencode "title=$title" \
     --data-urlencode "head=$TARGET_BRANCH" \
     --data-urlencode "base=$BASE_BRANCH" \
@@ -152,7 +165,11 @@ elif [ -n "${GITCODE_TOKEN:-}" ]; then
     [ -n "$resp" ] && log "API 响应: $(printf '%s' "$resp" | head -c 300)"
   fi
 else
-  log "未设置 GITCODE_TOKEN，降级为手工创建链接: $manual_url"
+  if [ -n "$manual_url" ]; then
+    log "未设置 RUSTCODE_PR_TOKEN，降级为手工创建链接: $manual_url"
+  else
+    log "未能从 origin 远程地址推断托管平台，请在你的远程仓库 Web 界面手工创建 PR: $TARGET_BRANCH -> $BASE_BRANCH"
+  fi
 fi
 
 # ---------- 8. 报告 ----------

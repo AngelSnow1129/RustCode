@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Login Methods · RustCode Docs</title>
-<meta name="description" content="Three ways to connect RustCode to an LLM: CodingPlan, plain OAuth, or API key.">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<meta name="description" content="How to connect RustCode to an LLM: bring your own API key (default), or optional managed sign-in for distributions that ship it.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -76,67 +76,27 @@
 
   <main class="dmain prose-docs">
 <h1 id="login-methods">Login Methods</h1>
-      <p class="lede">RustCode supports two ways to connect to an LLM: CodingPlan (with free tokens) and traditional API keys. This page helps you pick the right path and walks through the binding.</p>
+      <p class="lede">RustCode is bring-your-own-key (BYO) by default: point it at any third-party LLM provider with an API key and you are done — no account, no login. Some distributions additionally ship an optional managed sign-in (<code>/login</code>) that authorizes a managed endpoint and can auto-provision provider and model settings. This page covers both paths.</p>
 
-      <h2 id="two-methods-at-a-glance">Two methods at a glance</h2>
+      <h2 id="two-methods-at-a-glance">Two paths at a glance</h2>
       <table>
         <thead>
-          <tr><th>Method</th><th>Command</th><th>Who it's for</th></tr>
+          <tr><th>Path</th><th>Command</th><th>Who it's for</th></tr>
         </thead>
         <tbody>
-          <tr><td>CodingPlan</td><td><code>/login</code></td><td>Recommended — one command runs OAuth, claims free tokens, and auto-configures provider and model</td></tr>
-          <tr><td>API key</td><td><code>/provider</code> or hand-edit config</td><td>Users with their own OpenAI / Claude / DeepSeek key</td></tr>
+          <tr><td>API key (default)</td><td><code>/provider</code> or hand-edit config</td><td>Everyone on the open build — use your own OpenAI / Claude / DeepSeek key, or a local Ollama endpoint. No account needed.</td></tr>
+          <tr><td>Managed sign-in (optional)</td><td><code>/login</code></td><td>Only present in distributions that ship managed-gateway support — a browser/device flow that authorizes your distribution's managed endpoint, can claim quota, and auto-configures providers.</td></tr>
         </tbody>
       </table>
-      <p class="callout"><em>As of v4.25.0 <code>/codingplan</code> has been folded into <code>/login</code>; the previous "OAuth-only without claiming tokens" entry has been removed.</em></p>
+      <p class="callout"><em>The open build includes no managed gateway and no account system. If <code>/login</code> is unavailable or reports an error in your build, that is expected — use the API key path below. Any managed sign-in, free quota, or tier system is defined by your distribution, not by RustCode itself.</em></p>
 
-      <h2 id="codingplan-recommended">CodingPlan (recommended)</h2>
-      <p>平台 is the open-source code-hosting platform run by CSDN / OpenAtom Open Source Foundation, and RustCode natively integrates its OAuth and CodingPlan. <code>/login</code> is the lowest-friction entry point for new users: a single action logs you in → claims free token quota → auto-generates a provider config from the granted model list. After that one command you can start chatting immediately. Re-running it after you're already signed in idempotently re-syncs the model list — no double-claim.</p>
-
-      <h3 id="codingplan-tier-system">CodingPlan tier system</h3>
-      <p>CodingPlan currently offers three tiers. The system automatically grants the highest tier you're eligible for. Quota is measured on a rolling 5-hour window:</p>
-      <table>
-        <thead>
-          <tr><th>Tier</th><th>Duration</th><th>How to get</th><th>Models</th></tr>
-        </thead>
-        <tbody>
-          <tr><td><strong>Lite</strong></td><td>30 days</td><td>Free claim, 1,000 slots/day</td><td>deepseek-v4-flash, Qwen/Qwen3-VL-8B-Instruct</td></tr>
-          <tr><td><strong>Pro Trial</strong></td><td>7 days</td><td>Free claim, 100 slots/day at 10:00</td><td>Adds <strong>GLM-5.2</strong></td></tr>
-          <tr><td><strong>Pro</strong></td><td>30 days</td><td>Free claim, requires a merged PR in the activity repository</td><td>Adds <strong>GLM-5.2</strong></td></tr>
-        </tbody>
-      </table>
-      <p>After claiming Pro or above, run <code>/login</code> in RustCode to sync the updated model list. For details, visit the <a href="https://docs.rustcode.dev/models" target="_blank" rel="noopener">CodingPlan page</a>.</p>
-
-      <h3 id="from-the-first-run-wizard">From the first-run wizard</h3>
-      <ol>
-        <li>The first time you run <code>rustcode</code>, the 3-step wizard pops up automatically.</li>
-        <li>Step 1 (welcome): press Enter. Step 2 (language): press <code>1</code> / <code>2</code> / <code>3</code> to pick.</li>
-        <li>Step 3 (setup): pick <strong>One-click with CodingPlan</strong> (option 1).</li>
-        <li>The browser opens the 平台 authorization page — click Allow.</li>
-        <li>After authorization, the TUI claims CodingPlan and writes the provider config. No need to touch <code>config.toml</code> — start sending messages.</li>
-      </ol>
-      <p>If you skipped earlier and want to redo the wizard, run <code>/welcome</code> any time.</p>
-
-      <h3 id="from-an-existing-session">From an existing session</h3>
-      <p>Once inside the TUI, run:</p>
-      <pre><code>/login</code></pre>
-      <p>The browser opens to complete authorization, claim CodingPlan, and refresh the provider list. Running it again re-syncs the model list — the local <code>平台*</code> providers are updated to the latest entitled models.</p>
-
-      <h3 id="from-the-command-line">From the command line</h3>
-      <pre><code>rustcode login</code></pre>
-      <p>Useful in scripts, remote servers, or container images for a one-shot setup. The CLI subcommand and the TUI <code>/login</code> share the same flow and emit the same report. <em>Note: <code>rustcode codingplan</code> is kept as a hidden alias so existing scripts and muscle memory don't break after the fold.</em></p>
-
-      <h3 id="check-status-log-out">Check status / log out</h3>
-      <pre><code>rustcode status     # or /status in the TUI — includes CodingPlan usage and expiry
-rustcode logout     # or /logout in the TUI — clears the OAuth token</code></pre>
-
-      <h2 id="api-key-method">API key method</h2>
+      <h2 id="api-key-method">API key method (default, BYO)</h2>
       <p>To use your own OpenAI / Claude / DeepSeek / GLM key, there are three ways:</p>
 
       <h3 id="option-a-provider-in-the-tui">Option A: <code>/provider</code> in the TUI</h3>
       <ol>
         <li>Type <code>/provider</code> in the TUI.</li>
-        <li>Choose a vendor preset or a custom account, enter its API key, then add one or more models under that account.</li>
+        <li>Choose a third-party provider preset or a custom endpoint, enter its API key, then add one or more models under that account.</li>
         <li>The configuration is written back to <code>~/.rustcode/config.toml</code>.</li>
       </ol>
 
@@ -146,11 +106,39 @@ rustcode logout     # or /logout in the TUI — clears the OAuth token</code></p
       <h3 id="option-c-one-shot-cli-override">Option C: one-shot CLI override</h3>
       <p>Don't want to touch the config file and only need a different provider for one run? Add flags at launch:</p>
       <pre><code>rustcode --provider deepseek --model deepseek-reasoner</code></pre>
+      <p>Running fully offline? Configure a local <strong>Ollama</strong> provider — no key and no login required.</p>
+
+      <h2 id="managed-sign-in-optional">Managed sign-in (optional, distribution-provided)</h2>
+      <p>Some RustCode distributions ship a managed endpoint: a hosted gateway with its own account system, quota, and model list. In those builds <code>/login</code> runs a browser/device authorization against <em>your distribution's</em> authorization page — RustCode itself has no compiled-in account host. After authorizing, the build claims whatever quota your distribution grants and writes a provider config automatically; re-running <code>/login</code> idempotently re-syncs the entitled model list.</p>
+      <p>Entitlements, free tiers, and quota windows are set by the distribution — check your distributor's documentation for what is included and how to claim it.</p>
+
+      <h3 id="from-the-first-run-wizard">From the first-run wizard</h3>
+      <ol>
+        <li>The first time you run <code>rustcode</code>, the 3-step wizard pops up automatically.</li>
+        <li>Step 1 (welcome): press Enter. Step 2 (language): press <code>1</code> / <code>2</code> / <code>3</code> to pick.</li>
+        <li>Step 3 (setup): if your distribution offers managed sign-in, pick that option; otherwise choose manual configuration (API key) or skip.</li>
+        <li>The browser opens your distribution's authorization page — click Allow.</li>
+        <li>After authorization, the TUI writes the provider config. No need to touch <code>config.toml</code> — start sending messages.</li>
+      </ol>
+      <p>If you skipped earlier and want to redo the wizard, run <code>/welcome</code> any time.</p>
+
+      <h3 id="from-an-existing-session">From an existing session</h3>
+      <p>Once inside the TUI, run:</p>
+      <pre><code>/login</code></pre>
+      <p>The browser opens to complete authorization and refresh the provider list. Running it again re-syncs the model list — the local managed providers are updated to the latest entitled models. Requires a build with managed-gateway support.</p>
+
+      <h3 id="from-the-command-line">From the command line</h3>
+      <pre><code>rustcode login</code></pre>
+      <p>Useful in scripts, remote servers, or container images for a one-shot setup. The CLI subcommand and the TUI <code>/login</code> share the same flow and emit the same report. In builds without managed-gateway support this command is unavailable — use the config file or environment variables instead.</p>
+
+      <h3 id="check-status-log-out">Check status / log out</h3>
+      <pre><code>rustcode status     # or /status in the TUI — includes managed-endpoint usage and expiry
+rustcode logout     # or /logout in the TUI — clears the OAuth token</code></pre>
 
       <h2 id="which-one-should-i-pick">Which one should I pick?</h2>
       <ul>
-        <li>First-time user &rarr; <strong>CodingPlan</strong> (<code>/login</code>) — free tokens, just use it.</li>
-        <li>Already have your own API key &rarr; skip <code>/login</code> and use the <strong>API key</strong> path (<code>/provider</code> or hand-edit config). If you later need the built-in 平台 repository, PR, or Issue tools, run <code>/login</code> to authorize them; this also claims CodingPlan and registers <code>平台-*</code> providers.</li>
+        <li>Open build / first-time user &rarr; <strong>API key</strong> (<code>/provider</code> or hand-edit config) — bring your own key; no account needed.</li>
+        <li>Your distribution ships a managed gateway &rarr; <strong>managed sign-in</strong> (<code>/login</code>) is the lowest-friction path; it only exists in those builds.</li>
         <li>Running in CI / scripts &rarr; <strong>API key</strong> via config file or env vars.</li>
         <li>Fully offline &rarr; configure an <strong>Ollama</strong> provider — no login required.</li>
       </ul>
@@ -163,7 +151,7 @@ rustcode logout     # or /logout in the TUI — clears the OAuth token</code></p
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

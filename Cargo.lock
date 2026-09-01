@@ -2930,6 +2930,7 @@ dependencies = [
  "async-trait",
  "futures",
  "rustcode-capabilities",
+ "rustcode-config",
  "rustcode-kernel",
  "serde",
  "serde_json",

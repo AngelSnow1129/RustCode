@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>配置文件 · RustCode 文档</title>
 <meta name="description" content="配置文件 — RustCode 文档。">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -264,7 +264,7 @@ base_url = "https://api.deepseek.com/v1"
 type = "ollama"
 model = "qwen2.5:14b"
 base_url = "http://localhost:11434"</code></pre>
-      <p>在 TUI 中用 <code>/provider</code> 管理供应商账号和账号下的模型；内置预设会自动填好协议与 Base URL，包括 平台、TaoToken 等，也可以选择“自定义”。用 <code>/model</code> 切换当前会话，并把所选模型保存为后续新会话的默认值；其他已经打开的会话不变。命令行启动时也支持一次性覆盖:</p>
+      <p>在 TUI 中用 <code>/provider</code> 管理供应商账号和账号下的模型；内置预设会自动填好常见第三方 provider 的协议与 Base URL，发行版附带托管端点时也会提供对应预设；其他端点请选择“自定义”。用 <code>/model</code> 切换当前会话，并把所选模型保存为后续新会话的默认值；其他已经打开的会话不变。命令行启动时也支持一次性覆盖:</p>
       <pre><code>rustcode --provider deepseek --model deepseek-reasoner</code></pre>
 
       <h2 id="回合轮数">回合轮数</h2>
@@ -298,7 +298,7 @@ base_url = "https://api.siliconflow.cn/v1"</code></pre>
       <ul>
         <li>这里的 <code>qwen-vl</code> 必须是 <code>[providers.*]</code> 里已经定义过的 key,且对应的模型支持视觉输入(常见的有 <code>Qwen3-VL-*</code> / <code>GLM-4V-*</code> / <code>claude-3+</code> / <code>gpt-4o</code> / <code>gemini-*</code> 等)。</li>
         <li>当前 active provider 自身就支持图片时,<strong>不会</strong>走预处理器,直接发原始图片字节。</li>
-        <li><code>/login</code> 流程会从下发的模型列表中自动挑选一个 VL/OCR 模型并写入这个字段(可在事后手动覆盖)。</li>
+        <li>提供托管登录的发行版本中,<code>/login</code> 流程会从下发的模型列表中自动挑选一个 VL/OCR 模型并写入这个字段(可在事后手动覆盖);开源默认构建请手动设置该字段。</li>
         <li>VL 调用使用<strong>无进展超时</strong>(idle timeout):只要 stream 持续吐 chunk 不限总时长;30 秒没动静才超时。失败时主模型仍会收到带 "图片识别失败" 标记的消息,而不是静默吞掉。</li>
       </ul>
       <p>用法层面的细节参见 <a href="./basic-usage.html#image-attach">基本使用 · 图片附件 / 截图</a>。</p>
@@ -312,13 +312,13 @@ base_url = "https://api.siliconflow.cn/v1"</code></pre>
 
       <h2 id="下一步">下一步</h2>
       <ul>
-        <li><a href="./login.html">登录方式</a> —— 如果不想手动管理 API Key,用 OAuth 一步到位。</li>
+        <li><a href="./login.html">登录方式</a> —— 默认自带 API Key;一键 OAuth 仅在内置托管服务的发行版本中提供。</li>
         <li><a href="./basic-usage.html">基本使用</a> —— 看看 CLI 参数如何一次性覆盖配置。</li>
       </ul>
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

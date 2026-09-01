@@ -1,23 +1,32 @@
 #!/bin/sh
 # RustCode installer — curl | sh
 #
-#   curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.sh | sh
+#   curl -fsSL <installer-url-from-your-distribution-channel>/install.sh | sh
+#
+# This build ships no built-in release host. Point it at the location that
+# distributes rustcode binaries for your channel:
+#
+#   RUSTCODE_RELEASE_BASE=https://<host>/releases/download sh install.sh
 #
 # Env overrides:
-#   RUSTCODE_VERSION   release tag to install (default: latest release, auto-detected
-#                        from the GitCode API)
-#   RUSTCODE_PREFIX    install dir (absolute path; default: /usr/local/bin if writable,
-#                        else ~/.local/bin). On HarmonyOS as non-root, default is ~/.local/bin.
+#   RUSTCODE_RELEASE_BASE        download root that hosts
+#                                  "<tag>/rustcode-<tag>-<os>-<arch>" binaries (required)
+#   RUSTCODE_RELEASE_LATEST_API  optional JSON endpoint whose "tag_name" field gives
+#                                  the latest release tag (for auto-detection)
+#   RUSTCODE_VERSION             release tag to install (default: latest release,
+#                                  auto-detected from RUSTCODE_RELEASE_LATEST_API when set)
+#   RUSTCODE_PREFIX              install dir (absolute path; default: /usr/local/bin if writable,
+#                                  else ~/.local/bin). On HarmonyOS as non-root, default is ~/.local/bin.
 # IMPORTANT: when changing install paths, the PATH-rc edit format, or filenames here,
 # also update scripts/uninstall.sh AND
 # crates/rustcode-cli/src/uninstall/paths.rs. The CI parity test guards
 # the manifest, but binary path / rc-edit format are not checked.
 set -eu
 
-# Fallback version used only when RUSTCODE_VERSION is unset and the API lookup fails.
-DEFAULT_VERSION="v5.0.2"
-REPO_BASE="https://gitcode.com/SecLab/RustCode/releases/download"
-REPO_LATEST_API="https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest"
+# Release source: provided by the operator/distributor via env; there is no
+# compiled-in vendor host.
+RELEASE_BASE="${RUSTCODE_RELEASE_BASE:-}"
+RELEASE_LATEST_API="${RUSTCODE_RELEASE_LATEST_API:-}"
 
 # --- detect platform ---
 uname_s=$(uname -s)
@@ -55,50 +64,26 @@ elif [ "$(id -u)" -eq 0 ]; then
 else
     PREFIX="$HOME/.local/bin"
 fi
-mkdir -p "$PREFIX"
 
-# --- referral invite code handling ---
-# Priority: env var > --invite= arg
-INVITE="${RUSTCODE_INVITE:-}"
-
-# Parse --invite=ABC12345 or --invite ABC12345 from command-line arguments.
-# Use while+shift instead of for+shift — for iterates a snapshot of $@.
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --invite=*) INVITE="${1#*=}"; shift ;;
-    --invite)   shift; INVITE="$1"; shift ;;
-    *)          shift ;;
-  esac
-done
-
-if [ -n "$INVITE" ]; then
-  RUSTCODE_DIR="${RUSTCODE_HOME:-$HOME/.rustcode}"
-  mkdir -p "$RUSTCODE_DIR"
-
-  # Generate install_uuid (prefer uuidgen, fallback to /proc or /dev/urandom)
-  INSTALL_UUID=""
-  if command -v uuidgen >/dev/null 2>&1; then
-    INSTALL_UUID="$(uuidgen)"
-  elif [ -f /proc/sys/kernel/random/uuid ]; then
-    INSTALL_UUID="$(cat /proc/sys/kernel/random/uuid)"
-  else
-    # Fallback: read raw bytes and format as UUID without relying on od word order.
-    INSTALL_HEX="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
-    INSTALL_UUID="$(printf '%s' "$INSTALL_HEX" | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12}).*/\1-\2-\3-\4-\5/')"
-  fi
-
-  # Validate invite code: 8 alphanumeric chars
-  if echo "$INVITE" | grep -qE '^[A-Za-z0-9]{8}$'; then
-    cat > "$RUSTCODE_DIR/pending_invite" <<EOF
-invite_code=${INVITE}
-install_uuid=${INSTALL_UUID}
-attempted_at=$(date +%s)
-EOF
-  else
-    echo "Warning: invalid invite code format, skipping referral" >&2
-  fi
+# This build ships no compiled-in release host. The download root must be
+# supplied by the operator/distribution channel; fail with actionable guidance
+# instead of guessing a vendor URL. This runs before creating the install dir
+# so a misconfigured invocation leaves no empty directory behind.
+if [ -z "$RELEASE_BASE" ]; then
+    echo "Error: no release download source configured." >&2
+    echo "       Set RUSTCODE_RELEASE_BASE to the directory that hosts the" >&2
+    echo "       rustcode-<tag>-<os>-<arch> binaries, then re-run, e.g.:" >&2
+    echo "         RUSTCODE_RELEASE_BASE=https://<your-distribution-host>/releases/download \\" >&2
+    echo "           sh install.sh" >&2
+    echo "       Optionally set RUSTCODE_RELEASE_LATEST_API for automatic" >&2
+    echo "       latest-version detection, or pin RUSTCODE_VERSION=<tag>." >&2
+    echo "       You can also download the binary for your platform directly" >&2
+    echo "       from your distribution channel." >&2
+    exit 1
 fi
-# --- end referral handling ---
+RELEASE_BASE="${RELEASE_BASE%/}"
+
+mkdir -p "$PREFIX"
 
 # --- download ---
 TMP=$(mktemp -d)
@@ -120,17 +105,29 @@ fi
 
 # --- resolve version ---
 # Honor RUSTCODE_VERSION if set; otherwise auto-detect the latest release tag
-# from the API, falling back to DEFAULT_VERSION if the lookup yields nothing.
+# from RUSTCODE_RELEASE_LATEST_API. Without either, we cannot guess a tag (this
+# build has no built-in release host), so fail with guidance.
 if [ -n "${RUSTCODE_VERSION:-}" ]; then
     VERSION="$RUSTCODE_VERSION"
-else
+elif [ -n "$RELEASE_LATEST_API" ]; then
     echo "==> Detecting latest version"
-    VERSION=$($_fetch "$REPO_LATEST_API" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-    [ -n "$VERSION" ] || VERSION="$DEFAULT_VERSION"
+    VERSION=$($_fetch "$RELEASE_LATEST_API" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    if [ -z "$VERSION" ]; then
+        echo "Error: could not determine the latest release from:" >&2
+        echo "       $RELEASE_LATEST_API" >&2
+        echo "       Set RUSTCODE_VERSION explicitly (e.g. RUSTCODE_VERSION=vX.Y.Z)." >&2
+        exit 1
+    fi
+else
+    echo "Error: no version specified and no release API configured." >&2
+    echo "       Pin a tag with RUSTCODE_VERSION=<tag>, or set" >&2
+    echo "       RUSTCODE_RELEASE_LATEST_API to a JSON endpoint that returns" >&2
+    echo "       a \"tag_name\" field for automatic latest-release detection." >&2
+    exit 1
 fi
 
 BIN_NAME="rustcode-${VERSION}-${os}-${arch}${ext}"
-URL="${REPO_BASE}/${VERSION}/${BIN_NAME}"
+URL="${RELEASE_BASE}/${VERSION}/${BIN_NAME}"
 
 echo "==> Downloading $BIN_NAME"
 echo "    from $URL"
@@ -177,8 +174,10 @@ echo "Installed: $TARGET"
 if [ "$os" = "windows" ]; then
     echo ""
     echo "Note: installed for this Unix shell (MSYS/MinGW/Git-Bash/Cygwin)."
-    echo "      For a system-wide Windows install (cmd / PowerShell PATH), use instead:"
-    echo "      powershell -c \"irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.ps1 | iex\""
+    echo "      For a system-wide Windows install (cmd / PowerShell PATH), download"
+    echo "      install.ps1 from your distribution channel and run:"
+    echo "        \$env:RUSTCODE_RELEASE_BASE='https://<your-distribution-host>/releases/download'"
+    echo "        powershell -ExecutionPolicy Bypass -File install.ps1"
 fi
 
 case ":$PATH:" in

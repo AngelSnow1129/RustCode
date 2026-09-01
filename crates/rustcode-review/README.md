@@ -62,7 +62,7 @@ let (agent, report) = rustcode_review::build_review_agent(cfg)?;
 `persona = None`(默认)使用内置 [`review_persona`];`Some(text)` 则**替换**它 —— 内置指令**不会**
 被追加。
 
-> ⚠️ 全量覆盖会丢弃内置对工具集的介绍以及 `report_finding` 上报协议。你的提示词必须告诉模型有哪些
+> [!WARN] 全量覆盖会丢弃内置对工具集的介绍以及 `report_finding` 上报协议。你的提示词必须告诉模型有哪些
 > 工具、并要求逐条用 `report_finding` 上报,否则 `report.findings()` 会返回空。
 
 若只想保留内置 reviewer 再**追加**指导,自己拼接即可:

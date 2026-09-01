@@ -1,6 +1,7 @@
-//! Open-source placeholder. The real signing crate is overlaid by the
-//! official build (scripts/build-official.sh); this stub exists only so the
-//! public workspace compiles and carries no signing logic.
+//! Open-source placeholder. The real signing crate is overlaid by a
+//! distribution build that ships the closed-source managed-signing overlay;
+//! this stub exists only so the public workspace compiles and carries no
+//! signing logic.
 
 #![deny(unsafe_code)]
 
@@ -9,8 +10,8 @@
 /// so this crate is not linked.
 pub const ALGORITHM_VERSION: u8 = 0;
 
-/// Placeholder matching the real crate's signature so `rustcode-core`
-/// type-checks. Unreachable in open-source builds; the official overlay
+/// Placeholder matching the real crate's signature so the workspace
+/// type-checks. Unreachable in open-source builds; the closed-source overlay
 /// replaces this file wholesale.
 pub fn sign_v1(
     _method: &str,
@@ -22,5 +23,5 @@ pub fn sign_v1(
     _nonce: &[u8; 16],
     _client_version: &str,
 ) -> Vec<(&'static str, String)> {
-    unreachable!("request signing requires the official build")
+    unreachable!("request signing requires a distribution build that ships the closed-source signing overlay")
 }

@@ -1,31 +1,30 @@
 # RustCode installer for Windows — PowerShell
 #
-#   irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.ps1 | iex
+# Obtain install.ps1 from your distribution channel, then point it at the
+# location that hosts the rustcode binaries:
+#
+#   $env:RUSTCODE_RELEASE_BASE = "https://<your-distribution-host>/releases/download"
+#   powershell -ExecutionPolicy Bypass -File install.ps1
 #
 # Env overrides:
-#   $env:RUSTCODE_VERSION   release tag to install (default: latest release,
-#                             auto-detected from the GitCode API)
-#   $env:RUSTCODE_PREFIX    install dir (default: %LOCALAPPDATA%\RustCode)
+#   $env:RUSTCODE_RELEASE_BASE        download root hosting
+#                                       "rustcode-<tag>-windows-<arch>.exe" (required)
+#   $env:RUSTCODE_RELEASE_LATEST_API  optional JSON endpoint whose "tag_name" field
+#                                       gives the latest release tag (auto-detection)
+#   $env:RUSTCODE_VERSION             release tag to install (default: latest release,
+#                                       auto-detected from RUSTCODE_RELEASE_LATEST_API when set)
+#   $env:RUSTCODE_PREFIX              install dir (default: %LOCALAPPDATA%\RustCode)
 # IMPORTANT: when changing install paths, registry edits, or filenames here,
 # also update scripts/uninstall.ps1 AND
-# crates/rustcode-core/src/uninstall/paths.rs. The CI parity test guards
+# crates/rustcode-cli/src/uninstall/paths.rs. The CI parity test guards
 # the manifest, but binary path / PATH edit are not checked.
-
-param(
-  [string]$Invite = ""
-)
 
 $ErrorActionPreference = "Stop"
 
-# --- referral invite argument fallback ---
-if (-not $Invite) {
-  $Invite = $env:RUSTCODE_INVITE
-}
-
-# Fallback version used only when $env:RUSTCODE_VERSION is unset and the API lookup fails.
-$DefaultVersion = "v5.0.2"
-$RepoBase = "https://gitcode.com/SecLab/RustCode/releases/download"
-$RepoLatestApi = "https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest"
+# Release source: provided by the operator/distribution channel via env; there
+# is no compiled-in vendor host.
+$RepoBase = $env:RUSTCODE_RELEASE_BASE
+$RepoLatestApi = $env:RUSTCODE_RELEASE_LATEST_API
 
 # --- detect arch ---
 # Prefer PROCESSOR_ARCHITEW6432 (set only when a 32-bit process runs on a 64-bit
@@ -46,12 +45,28 @@ switch ($RealArch) {
     }
 }
 
+# This build ships no compiled-in release host. The download root must be
+# supplied by the operator/distribution channel; fail with guidance instead of
+# guessing a vendor URL.
+if (-not $RepoBase) {
+    Write-Host "Error: no release download source configured." -ForegroundColor Red
+    Write-Host "       Set `$env:RUSTCODE_RELEASE_BASE to the directory that hosts the" -ForegroundColor Red
+    Write-Host "       rustcode-<tag>-windows-<arch>.exe binaries, then re-run, e.g.:" -ForegroundColor Red
+    Write-Host "         `$env:RUSTCODE_RELEASE_BASE = 'https://<your-distribution-host>/releases/download'" -ForegroundColor Red
+    Write-Host "         powershell -ExecutionPolicy Bypass -File install.ps1" -ForegroundColor Red
+    Write-Host "       Optionally set `$env:RUSTCODE_RELEASE_LATEST_API for automatic" -ForegroundColor Red
+    Write-Host "       latest-version detection, or pin `$env:RUSTCODE_VERSION = '<tag>'." -ForegroundColor Red
+    exit 1
+}
+$RepoBase = $RepoBase.TrimEnd('/')
+
 # --- resolve version ---
 # Honor $env:RUSTCODE_VERSION if set; otherwise auto-detect the latest release
-# tag from the API, falling back to $DefaultVersion if the lookup yields nothing.
+# tag from RUSTCODE_RELEASE_LATEST_API. Without either we cannot guess a tag
+# (this build has no built-in release host), so fail with guidance.
 if ($env:RUSTCODE_VERSION) {
     $Version = $env:RUSTCODE_VERSION
-} else {
+} elseif ($RepoLatestApi) {
     Write-Host "==> Detecting latest version"
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -61,7 +76,18 @@ if ($env:RUSTCODE_VERSION) {
     } catch {
         $Version = $null
     }
-    if (-not $Version) { $Version = $DefaultVersion }
+    if (-not $Version) {
+        Write-Host "Error: could not determine the latest release from:" -ForegroundColor Red
+        Write-Host "       $RepoLatestApi" -ForegroundColor Red
+        Write-Host "       Set `$env:RUSTCODE_VERSION explicitly (e.g. '<tag>')." -ForegroundColor Red
+        exit 1
+    }
+} else {
+    Write-Host "Error: no version specified and no release API configured." -ForegroundColor Red
+    Write-Host "       Pin a tag with `$env:RUSTCODE_VERSION = '<tag>', or set" -ForegroundColor Red
+    Write-Host "       `$env:RUSTCODE_RELEASE_LATEST_API to a JSON endpoint that returns" -ForegroundColor Red
+    Write-Host "       a 'tag_name' field for automatic latest-release detection." -ForegroundColor Red
+    exit 1
 }
 
 $BinName = "rustcode-$Version-windows-$ArchTag.exe"
@@ -77,32 +103,6 @@ $Prefix = if ($env:RUSTCODE_PREFIX) {
 if (-not (Test-Path $Prefix)) {
     New-Item -ItemType Directory -Path $Prefix -Force | Out-Null
 }
-
-# --- referral invite code handling ---
-if ($Invite) {
-  if ($Invite -match '^[A-Za-z0-9]{8}$') {
-    $RustcodeDir = if ($env:RUSTCODE_HOME) {
-      $env:RUSTCODE_HOME
-    } else {
-      Join-Path $env:USERPROFILE ".rustcode"
-    }
-
-    New-Item -ItemType Directory -Force -Path $RustcodeDir | Out-Null
-
-    $InstallUuid = [guid]::NewGuid().ToString()
-
-    $pendingInvite = @"
-invite_code=$Invite
-install_uuid=$InstallUuid
-attempted_at=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
-"@
-
-    Set-Content -Path (Join-Path $RustcodeDir "pending_invite") -Value $pendingInvite
-  } else {
-    Write-Warning "Invalid invite code format, skipping referral"
-  }
-}
-# --- end referral handling ---
 
 # --- download ---
 $Dest = Join-Path $Prefix "rustcode.exe"

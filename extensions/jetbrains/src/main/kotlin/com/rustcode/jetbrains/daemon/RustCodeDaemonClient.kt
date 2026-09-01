@@ -70,6 +70,7 @@ class RustCodeDaemonClient(
             AuthStatusResponse(
                 loggedIn = raw.jsonBoolean("logged_in") ?: false,
                 expired = raw.jsonBoolean("expired") ?: false,
+                managedAvailable = raw.jsonBoolean("managed_available") ?: false,
                 authPath = raw.jsonString("auth_path").orEmpty(),
                 userName = raw.jsonNestedObject("user")?.let {
                     it.jsonString("name") ?: it.jsonString("username") ?: it.jsonString("email")

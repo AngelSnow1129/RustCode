@@ -1,7 +1,9 @@
 # RustCode uninstaller — PowerShell
 #
-#   irm https://gitcode.com/SecLab/RustCode/raw/main/uninstall.ps1 | iex
+#   powershell -ExecutionPolicy Bypass -File scripts/uninstall.ps1
 #
+# (Obtain this script from the same distribution channel you installed
+#  rustcode from; this build ships no built-in download host.)
 # Flags (pass via param):
 #   -Yes              skip prompts; use defaults (G1=yes, G2=no, G3=yes)
 #   -Purge            delete everything including %USERPROFILE%\.rustcode

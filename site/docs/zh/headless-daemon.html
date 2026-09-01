@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Headless 与 Daemon · RustCode 文档</title>
 <meta name="description" content="Headless 与 Daemon — RustCode 文档。">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -75,15 +75,15 @@
   </aside>
 
   <main class="dmain prose-docs">
-<h1>Headless 与 Daemon</h1>
+<h1 id="headless-与-daemon">Headless 与 Daemon</h1>
       <p class="lede">RustCode 除了交互式 TUI,还提供两种无头运行方式:CLI 的 <code>-p</code> headless 模式适合脚本与 CI;<code>rustcode-daemon</code> 则是一个基于 HTTP + SSE 的 API 服务,可以被任意客户端调用。</p>
 
-      <h2>Headless CLI 模式</h2>
+      <h2 id="headless-cli-模式">Headless CLI 模式</h2>
       <p>在 <code>rustcode</code> 后加上 <code>-p / --prompt</code>,即可单次执行一条任务并直接把回复写到 stdout(类似 Claude Code 的 <code>-p</code> 模式):</p>
       <pre><code>rustcode -p "简要介绍这个仓库"</code></pre>
       <p>默认只输出 AI 最终的回复文本,方便 pipe 到其他命令。工具调用、token 用量等信息不会污染 stdout。</p>
 
-      <h3>常用 headless 参数</h3>
+      <h3 id="常用-headless-参数">常用 headless 参数</h3>
       <table>
         <thead>
           <tr><th>参数</th><th>说明</th></tr>
@@ -100,7 +100,7 @@
         </tbody>
       </table>
 
-      <h3>示例</h3>
+      <h3 id="示例">示例</h3>
       <pre><code># 把当前项目总结写进 README
 rustcode -p "总结项目结构并写成 README 草稿" &gt; README.draft.md
 
@@ -114,7 +114,7 @@ rustcode --prompt-file task.md -v 2&gt; run.log
 # 指定本地 Ollama,完全离线
 rustcode -p "解释这段代码" --provider local --model qwen2.5:14b</code></pre>
 
-      <h3>退出码</h3>
+      <h3 id="退出码">退出码</h3>
       <ul>
         <li><code>0</code> —— 正常结束</li>
         <li>非 0 —— 出现错误。错误信息写到 stderr,具体含义参见 <code>-v</code> 日志</li>
@@ -129,10 +129,10 @@ rustcode -p "解释这段代码" --provider local --model qwen2.5:14b</code></pr
         <p>出现 <code>[approval-denied]</code> 时进程会以非 0 退出码结束。如果你不希望 CI 中执行 shell,可以显式加上 <code>--disable-tools bash</code> 把它从工具列表里彻底移除。</p>
       </div>
 
-      <h2>rustcode-daemon</h2>
+      <h2 id="rustcode-daemon">rustcode-daemon</h2>
       <p><code>rustcode-daemon</code> 是构建在 <code>CodingRuntime</code> 之上的独立传输适配器。它对外暴露 HTTP + Server-Sent Events 接口,可以被 Web 前端、IDE 插件、编辑器扩展消费。RustCode 官方的 VS Code 扩展和 RustCode Air 桌面端都是通过它连过来的。</p>
 
-      <h3>启动</h3>
+      <h3 id="启动">启动</h3>
       <pre><code># 推荐:通过 CLI 子命令启动,自动调用同目录下的 rustcode-daemon 二进制
 rustcode daemon
 
@@ -142,9 +142,9 @@ rustcode daemon --port 13456 --client vscode
 # 也可以直接调用 daemon 二进制(支持更多参数)
 rustcode-daemon --host 127.0.0.1 --port 13456 \
                 --client rustcode-air --idle-timeout 1800</code></pre>
-      <p>daemon 读取与 CLI 相同的 <code>~/.rustcode/config.toml</code>,登录态、provider 配置、会话历史全部共享。</p>
+      <p>daemon 读取与 CLI 相同的 <code>~/.rustcode</code> 配置,provider 凭据与配置、会话历史全部共享(发行版本还会额外共享托管账号的登录态)。</p>
 
-      <h3>启动参数</h3>
+      <h3 id="启动参数">启动参数</h3>
       <table>
         <thead>
           <tr><th>参数</th><th>说明</th></tr>
@@ -163,7 +163,7 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
         <p>daemon 没有内置鉴权,默认只监听 <code>127.0.0.1</code>。<strong>切勿把它直接暴露到公网或局域网</strong> —— 调用方相当于直接拿到本机所有工具的执行权(包括 <code>bash</code>、<code>write</code>、<code>edit</code>)。需要远程使用时,请在前置反代上自行做认证 / TLS / 来源限制。</p>
       </div>
 
-      <h3>端点总览</h3>
+      <h3 id="端点总览">端点总览</h3>
       <p>所有端点都注册在 <code>crates/rustcode-daemon/src/main.rs</code>,以下按功能分组。</p>
 
       <h4>健康与生命周期</h4>
@@ -226,27 +226,29 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
         </tbody>
       </table>
 
-      <h4>认证 / CodingPlan</h4>
+      <h4>认证与托管账号(仅发行版本)</h4>
+      <p>这些端点用于发行版本提供的托管服务。开源默认构建不内置任何托管端点 —— 请通过上面的 <strong>配置 / providers</strong> 路由 (<code>POST /providers</code>) 或 <code>~/.rustcode/config.toml</code> 用你自己的 API Key 配置第三方供应商。在默认构建中 <code>/auth/*</code> 路由虽已注册,但 OAuth 无法完成(没有可登录的服务);<code>/codingplan/*</code> 路由则根本不参与编译(返回 404)。</p>
       <table>
         <thead><tr><th>Method + Path</th><th>说明</th></tr></thead>
         <tbody>
-          <tr><td><code>GET /auth/status</code></td><td>当前登录状态</td></tr>
-          <tr><td><code>POST /auth/login/start</code></td><td>启动 OAuth 登录流程</td></tr>
+          <tr><td><code>GET /auth/status</code></td><td>当前托管账号登录状态。其中 <code>managed_available</code> 字段表示此构建是否内置登录服务(开源默认为 <code>false</code>);WebUI 在该字段为 false 时直接隐藏账号/登录入口,而不是给出注定失败的登录按钮。</td></tr>
+          <tr><td><code>POST /auth/login/start</code></td><td>向托管服务发起 OAuth 登录。开源构建中会快速失败,返回 <code>501</code> 与错误码 <code>managed_login_unavailable</code>(不可重试),提示客户端引导用户改用自带 API Key 的第三方供应商配置</td></tr>
           <tr><td><code>POST /auth/login/:login_id/poll</code></td><td>轮询登录结果</td></tr>
           <tr><td><code>DELETE /auth/login/:login_id</code></td><td>取消正在进行的登录</td></tr>
-          <tr><td><code>POST /auth/logout</code></td><td>登出</td></tr>
-          <tr><td><code>POST /codingplan/setup</code></td><td>领取 CodingPlan 并写入 provider 配置(等同 CLI <code>rustcode login</code>;<code>rustcode codingplan</code> 仍作为隐藏别名保留)</td></tr>
+          <tr><td><code>POST /auth/logout</code></td><td>登出托管账号</td></tr>
+          <tr><td><code>POST /codingplan/setup</code></td><td>仅发行版本:领取托管额度并写入 provider 配置(等同发行版本 CLI 的 <code>rustcode login</code>)。没有可见的 <code>rustcode codingplan</code> 命令(帮助与 shell 补全里都不出现),仅保留一个隐藏的兼容别名,行为与 <code>rustcode login</code> 完全一致 —— 在开源构建中两者都只打印自带 Key 提示,不会执行登录。</td></tr>
+          <tr><td><code>GET /codingplan/usage/summary</code> · <code>GET /codingplan/usage/daily</code></td><td>仅发行版本:托管账号额度总览与每日用量</td></tr>
         </tbody>
       </table>
 
-      <h3>SSE 流式聊天</h3>
+      <h3 id="sse-流式聊天">SSE 流式聊天</h3>
       <p><code>POST /chat</code> 返回的 SSE 流事件包含:AI 增量文本、推理 (reasoning) 增量、工具调用批次 (开始 / 结束)、token 统计、错误等。daemon wire schema 见 <code>crates/rustcode-daemon/src/live_api.rs</code> 中的 <code>LiveWireEvent</code>。</p>
       <p>前端可以用原生 <code>EventSource</code> 消费,也可以借助任何 SSE 客户端库。</p>
 
-      <h3>CORS</h3>
+      <h3 id="cors">CORS</h3>
       <p>daemon 配置了 CORS,<strong>仅允许 loopback origin</strong>:host 必须是 <code>localhost</code>、<code>127.0.0.1</code> 或 <code>::1</code>(端口任意,协议任意)。其他来源会被拒绝,这是配合 <code>--host 127.0.0.1</code> 默认监听做的纵深防御 —— 即便有人通过 DNS rebinding 等方式构造请求,跨域那一层也过不去。</p>
 
-      <h3>典型应用</h3>
+      <h3 id="典型应用">典型应用</h3>
       <ul>
         <li>编辑器插件 / IDE 扩展(VSCode、JetBrains)</li>
         <li>桌面端 GUI(如官方 RustCode Air)</li>
@@ -254,7 +256,7 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
         <li>本地脚本编排:用 HTTP 调度多任务、共享会话历史</li>
       </ul>
 
-      <h2>下一步</h2>
+      <h2 id="下一步">下一步</h2>
       <ul>
         <li><a href="./skills.html">Skills 扩展</a> —— 把工作流固化成命令,配合 headless 调用更顺手</li>
         <li><a href="./faq.html">常见问题</a> —— headless / daemon 常见坑</li>
@@ -262,7 +264,7 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

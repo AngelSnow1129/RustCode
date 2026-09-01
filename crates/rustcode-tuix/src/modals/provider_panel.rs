@@ -1821,9 +1821,11 @@ impl Modal for ProviderPanel {
                     let is_account = self.tab == Tab::Accounts;
                     let is_virtual_preset =
                         is_account && Self::is_virtual_account_row(&ctx.config, &id);
-                    // The CodingPlan provider is managed by /login and
-                    // can't be deleted here. Unconfigured preset rows likewise
-                    // have no persisted object to delete.
+                    // Managed-namespace rows are owned by the managed sign-in
+                    // flow in distribution builds and can't be deleted here
+                    // (neutral builds only hit this via a hand-written reserved
+                    // name/URL). Unconfigured preset rows likewise have no
+                    // persisted object to delete.
                     let is_managed = if is_account {
                         Self::managed_account(&ctx.config, &id)
                     } else {
@@ -1985,8 +1987,17 @@ impl Modal for ProviderPanel {
                             .selected_id(&ctx.config)
                             .filter(|id| id != ADD_PROVIDER_ROW)
                             .is_some_and(|id| Self::managed_account(&ctx.config, &id));
+                        let managed_hint =
+                            if crate::modals::onboarding_wizard::managed_login_available() {
+                                crate::i18n::Msg::ProviderPanelManagedAccountHint
+                            } else {
+                                // Neutral build: the row only got here via a
+                                // hand-written reserved name/URL; pitching the
+                                // managed service would be a dead end.
+                                crate::i18n::Msg::ProviderPanelManagedAccountHintNeutral
+                            };
                         hint = crate::i18n::t(if selected_managed {
-                            crate::i18n::Msg::ProviderPanelManagedAccountHint
+                            managed_hint
                         } else {
                             crate::i18n::Msg::ProviderPanelAccountsHint
                         })
@@ -2029,13 +2040,20 @@ impl Modal for ProviderPanel {
                                 empty_description,
                             ));
                         }
-                        hint = if self
+                        let filter_is_managed = self
                             .account_filter
                             .as_deref()
-                            .is_some_and(|account| Self::managed_account(&ctx.config, account))
-                        {
-                            crate::i18n::t(crate::i18n::Msg::ProviderPanelManagedModelsHint)
-                                .into_owned()
+                            .is_some_and(|account| Self::managed_account(&ctx.config, account));
+                        hint = if filter_is_managed {
+                            // Neutral build: a reserved-name collision must not
+                            // pitch the managed service this build lacks.
+                            let msg = if crate::modals::onboarding_wizard::managed_login_available()
+                            {
+                                crate::i18n::Msg::ProviderPanelManagedModelsHint
+                            } else {
+                                crate::i18n::Msg::ProviderPanelManagedModelsHintNeutral
+                            };
+                            crate::i18n::t(msg).into_owned()
                         } else if let Some(acct) = &self.account_filter {
                             crate::i18n::t(crate::i18n::Msg::ProviderPanelFilteredModelsHint {
                                 account: acct,

@@ -1590,7 +1590,7 @@ fn provider_unavailable_announcement(
     match reason {
         rustcode_coding::ProviderUnavailableReason::NotConfigured => None,
         rustcode_coding::ProviderUnavailableReason::AuthenticationRequired => {
-            Some(crate::i18n::Msg::CmdWhoamiNotSignedIn)
+            Some(crate::modals::onboarding_wizard::not_signed_in_msg())
         }
         rustcode_coding::ProviderUnavailableReason::UnsupportedBuild => {
             Some(crate::i18n::Msg::CmdProviderUnsupportedBuild)
@@ -5749,10 +5749,36 @@ mod buffer_tests {
 
     #[test]
     fn partial_code_review_result_is_a_warning() {
+        // The marker tag is the locale-stable signal (the sentence after it is
+        // localized and must not be matched on) -- both single-pass and deep
+        // partial coverage carry it.
         assert!(is_incomplete_review_result(
             "code_review",
-            "Code review incomplete (MaxRounds)",
+            "[review-incomplete] Code review incomplete (MaxRounds) -- coverage is partial",
             false,
+        ));
+        assert!(is_incomplete_review_result(
+            "code_review",
+            "[review-incomplete] Deep review incomplete -- every dimension failed",
+            false,
+        ));
+        // A localized (Chinese) partial result still classifies as a warning.
+        assert!(is_incomplete_review_result(
+            "code_review",
+            "[review-incomplete] 代码评审未完成（MaxRounds）—— 覆盖不完整",
+            false,
+        ));
+        // Hard review errors (`code_review:` prefix) stay errors, not warnings.
+        assert!(!is_incomplete_review_result(
+            "code_review",
+            "code_review: invalid arguments: missing field `scope`",
+            false,
+        ));
+        // Successful results never match, even with a lookalike prefix.
+        assert!(!is_incomplete_review_result(
+            "code_review",
+            "[review-incomplete] should not happen on success",
+            true,
         ));
     }
 
@@ -9618,20 +9644,30 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
         // OnboardingWizard's Modal impl owns the per-step box drawing.
         use crate::modals::Modal;
         renderer.clear_screen();
-        // First-launch fast path: single-page QR + URL. Background
-        // poll thread (PR 1b) watches `/auth/check` and auto-closes
-        // the modal the moment the server reports authorisation, then
-        // the `OauthEvent::Authorized` branch in the main `select!`
-        // flips `pending_run_login_setup` so `/codingplan` claims
-        // immediately -- zero keystrokes after the user finishes the
-        // browser flow. The legacy 3-step Intro / Language / Setup
-        // wizard stays intact for `/welcome` -- `new_qr_fast_path` is
-        // ONLY used here. /welcome's command arm still uses `new()`
-        // / `new_with_confirm()` so users who explicitly re-run the
-        // wizard see the familiar language + setup path.
-        let mut wizard = crate::modals::OnboardingWizard::new_qr_fast_path();
+        // Which onboarding flow first launch opens depends on whether a
+        // managed platform server is configured:
+        //
+        //  * Managed build -- jump straight to the single-page QR + URL sign-in.
+        //    A background poll thread (PR 1b) watches `/auth/check` and auto-closes
+        //    the modal the moment the server reports authorisation, then the
+        //    `OauthEvent::Authorized` branch in the main `select!` flips
+        //    `pending_run_login_setup` so `/codingplan` claims immediately --
+        //    zero keystrokes after the browser flow.
+        //  * Neutral build -- `start_login()` has no platform server to target
+        //    and only errors, so the QR screen would dead-end the user on a
+        //    "claim free CodingPlan quota" pitch they can never complete.
+        //    Open the full Intro -> Language -> Setup wizard instead; its Setup
+        //    step leads with the bring-your-own-key /provider path and never
+        //    shows the Login row. Its `pending_session` is None so no OAuth poll
+        //    thread is spawned below.
+        let mut wizard = if crate::modals::onboarding_wizard::managed_login_available() {
+            crate::modals::OnboardingWizard::new_qr_fast_path()
+        } else {
+            crate::modals::OnboardingWizard::new()
+        };
         // Pull the LoginSession out of the wizard before boxing -- the
-        // background poll thread owns it from here. wizard.draw still
+        // background poll thread owns it from here (managed fast path only;
+        // the neutral full-wizard wizard holds no session). wizard.draw still
         // has access to `qr_login_url` so the QR keeps rendering.
         if let Some(session) = wizard.take_pending_session() {
             oauth_poll::spawn_oauth_poll(session, ctx.oauth_event_tx.clone(), ctx.wake_tx.clone());
@@ -9983,9 +10019,10 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                     }
                     OauthEvent::Failed(reason) => {
                         renderer.render(crate::render::UiLine::Error(
-                            format!(
-                                "登录失败: {reason}。运行 /login 可重试。",
-                            ),
+                            crate::i18n::t(crate::i18n::Msg::LoginFailedHint {
+                                reason: &reason,
+                            })
+                            .into_owned(),
                         ));
                         renderer.flush();
                     }
@@ -10132,8 +10169,10 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                                 app.state.on_submit();
                             } else {
                                 renderer.render(UiLine::Error(
-                                    crate::i18n::t(crate::i18n::Msg::CmdProviderUnavailable)
-                                        .into_owned(),
+                                    crate::i18n::t(
+                                        crate::modals::onboarding_wizard::provider_unavailable_msg(),
+                                    )
+                                    .into_owned(),
                                 ));
                             }
                             draw_spinner_now(&mut app.state, &app.buf, &ctx, renderer, app.message_queue.len(), app.menu.selected);
@@ -10408,9 +10447,10 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                     }
                     OauthEvent::Failed(reason) => {
                         renderer.render(crate::render::UiLine::Error(
-                            format!(
-                                "登录失败: {reason}。运行 /login 可重试。",
-                            ),
+                            crate::i18n::t(crate::i18n::Msg::LoginFailedHint {
+                                reason: &reason,
+                            })
+                            .into_owned(),
                         ));
                         renderer.flush();
                     }
@@ -10550,8 +10590,10 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                                 app.state.on_submit();
                             } else {
                                 renderer.render(UiLine::Error(
-                                    crate::i18n::t(crate::i18n::Msg::CmdProviderUnavailable)
-                                        .into_owned(),
+                                    crate::i18n::t(
+                                        crate::modals::onboarding_wizard::provider_unavailable_msg(),
+                                    )
+                                    .into_owned(),
                                 ));
                             }
                             draw_spinner_now(&mut app.state, &app.buf, &ctx, renderer, app.message_queue.len(), app.menu.selected);
@@ -15588,28 +15630,33 @@ fn build_menu_items_with_efforts(
             return None;
         }
         let prefix = after.to_ascii_lowercase();
-        // Descriptions for every canonical level; the dropdown shows only those in
-        // `allowed` (the selection's exposed levels) so it never offers a level the
-        // endpoint rejects. `None` ⇒ all canonical levels (unchanged behavior).
-        const DESCRIPTIONS: &[(&str, &str)] = &[
-            ("low", "Minimal reasoning effort"),
-            ("medium", "Moderate reasoning effort"),
-            ("high", "Deeper reasoning"),
-            ("xhigh", "Extra-high reasoning effort"),
-            ("max", "Maximum reasoning depth"),
-        ];
+        // Descriptions for every canonical level (i18n Msg arms); the dropdown
+        // shows only those in `allowed` (the selection's exposed levels) so it
+        // never offers a level the endpoint rejects. `None` ⇒ all canonical
+        // levels (unchanged behavior).
+        const LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+        let level_desc = |n: &str| -> String {
+            match n {
+                "low" => crate::i18n::t(crate::i18n::Msg::EffortLevelLow).into_owned(),
+                "medium" => crate::i18n::t(crate::i18n::Msg::EffortLevelMedium).into_owned(),
+                "high" => crate::i18n::t(crate::i18n::Msg::EffortLevelHigh).into_owned(),
+                "xhigh" => crate::i18n::t(crate::i18n::Msg::EffortLevelXhigh).into_owned(),
+                "max" => crate::i18n::t(crate::i18n::Msg::EffortLevelMax).into_owned(),
+                other => other.to_string(),
+            }
+        };
         let allowed: &[&str] =
             effort_levels.unwrap_or(&rustcode_config::config::REASONING_EFFORT_LEVELS);
-        let mut items: Vec<(String, String)> = DESCRIPTIONS
+        let mut items: Vec<(String, String)> = LEVELS
             .iter()
-            .filter(|(n, _)| allowed.contains(n) && n.starts_with(prefix.as_str()))
-            .map(|(n, d)| (n.to_string(), d.to_string()))
+            .filter(|n| allowed.contains(n) && n.starts_with(prefix.as_str()))
+            .map(|n| (n.to_string(), level_desc(n)))
             .collect();
         // `default` (return to the API default) is always offered -- it is not a level.
         if "default".starts_with(prefix.as_str()) {
             items.push((
                 "default".to_string(),
-                "Return to the API default (keeps capability)".to_string(),
+                crate::i18n::t(crate::i18n::Msg::EffortLevelDefault).into_owned(),
             ));
         }
         return if items.is_empty() { None } else { Some(items) };
@@ -16896,7 +16943,11 @@ fn handle_idle_key(
                         // IS logged in, recovery imminent) and genuinely-not-logged-in.
                         // For the latter, keep the old actionable guidance to run
                         // /login -- the held message auto-sends once auth lands.
+                        // Neutral builds have no sign-in service, so "not logged in"
+                        // cannot be the cause there: the provider-ready hint is the
+                        // only honest guidance (the queue still auto-sends).
                         let hint = if availability == RuntimeUiAvailability::AwaitingProvider
+                            && crate::modals::onboarding_wizard::managed_login_available()
                             && !AuthObservation::read().is_available()
                         {
                             crate::i18n::Msg::SubmitHeldUntilLogin
@@ -16967,8 +17018,10 @@ fn handle_idle_key(
                                 }
                                 Some(
                                     rustcode_coding::ProviderUnavailableReason::AuthenticationRequired,
-                                )
-                                | None => crate::i18n::Msg::CmdProviderUnavailable,
+                                ) => crate::modals::onboarding_wizard::not_signed_in_msg(),
+                                None => {
+                                    crate::modals::onboarding_wizard::provider_unavailable_msg()
+                                }
                             };
                             renderer.render(UiLine::Error(crate::i18n::t(message).into_owned()));
                             // Commit cleared the input buffer before dispatch. Render that
@@ -17076,9 +17129,10 @@ pub(crate) fn sync_recalled_attachments(
 /// emits (startup fallback), and each session-name change (auto-name, `/rename`,
 /// `/resume`, `/new`) is picked up on the next iteration.
 ///
-/// The title is prefixed with a status dot derived from `phase`
-/// (🟢 idle / 🟡 busy / 🔴 approval) when `ctx.config.ui.terminal_status_glyph`
-/// is on; a phase change re-emits on the next loop iteration.
+/// The title is prefixed with a pure-ASCII status tag derived from `phase`
+/// (`[+]` idle / `[*]` busy / `[!]` approval) when
+/// `ctx.config.ui.terminal_status_glyph` is on; a phase change re-emits on the
+/// next loop iteration.
 ///
 /// Fallback for un-named / brand-new sessions is `rustcode v<version>`, so a
 /// fresh tab shows the running version instead of whatever stale string the
@@ -17092,13 +17146,12 @@ fn sync_terminal_title(
     const VERSION_FALLBACK: &str = concat!("rustcode v", env!("CARGO_PKG_VERSION"));
     // `None` = leave the title untouched (Suspended: an external child owns
     // the terminal during /shell, OAuth, etc.).
-    // Gate the glyph on the terminal's auto-detected unicode capability too,
-    // not just the config toggle: `TERM=dumb` / `LANG=C` / `RUSTCODE_ASCII` /
-    // legacy conhost report `unicode_symbols == false`, where the emoji dot
-    // would render as a tofu box. This mirrors every other symbol site
-    // (chevron, goal marker, dir-picker) so ASCII terminals fall back without
-    // the user having to disable `terminal_status_glyph` by hand.
-    let glyph_enabled = ctx.caps.unicode_symbols && ctx.config.ui.terminal_status_glyph;
+    // The status marker is a pure-ASCII tag (`[+]`/`[*]`/`[!]`), not a color
+    // emoji, so it renders identically on every terminal -- including
+    // `TERM=dumb` / `LANG=C` / legacy conhost, where an emoji dot would have
+    // shown as a tofu box. Gate only on the user's config toggle; no
+    // unicode-capability check is needed (ASCII never tofus).
+    let glyph_enabled = ctx.config.ui.terminal_status_glyph;
     let Some(title) = crate::title::status_title(
         &ctx.current_session.name,
         VERSION_FALLBACK,
@@ -18450,13 +18503,17 @@ fn handle_streaming_key(
             "\x1b[2m"
         };
         let status = if app.state.show_tool_output {
-            format!(
-                "{mute}  o Verbose mode enabled (tool output + reasoning visible) (Ctrl+o to hide){reset}\n"
-            )
+            crate::i18n::t(crate::i18n::Msg::VerboseOnLine {
+                mute: &mute,
+                reset: &reset,
+            })
+            .into_owned()
         } else {
-            format!(
-                "{mute}  o Verbose mode disabled (Ctrl+o to show tool output + reasoning){reset}\n"
-            )
+            crate::i18n::t(crate::i18n::Msg::VerboseOffLine {
+                mute: &mute,
+                reset: &reset,
+            })
+            .into_owned()
         };
         renderer.render(UiLine::CommandOutput(status));
         renderer.flush();
@@ -18951,7 +19008,10 @@ fn handle_streaming_key(
                         app.state.on_steer_sent(pending);
                     } else {
                         renderer.render(UiLine::Error(
-                            crate::i18n::t(crate::i18n::Msg::CmdProviderUnavailable).into_owned(),
+                            crate::i18n::t(
+                                crate::modals::onboarding_wizard::provider_unavailable_msg(),
+                            )
+                            .into_owned(),
                         ));
                     }
                 }
@@ -18972,7 +19032,10 @@ fn handle_streaming_key(
                         image_markers: q_markers,
                     });
                     crate::tuix_trace!("QUE", "push_back len={}", app.message_queue.len());
-                    renderer.render(UiLine::CommandOutput(format!("  ↳ queued: {}\n", line)));
+                    renderer.render(UiLine::CommandOutput(
+                        crate::i18n::t(crate::i18n::Msg::SteerQueuedLine { prompt: &line })
+                            .into_owned(),
+                    ));
                 }
             }
             app.buf.clear_text();
@@ -21168,8 +21231,10 @@ fn turn_summary_label(
         // instead of a celebratory rotation. Keyed on whether THIS turn dispatched
         // (a RunStarted arrived), not on global active runs -- so an unrelated turn
         // isn't mislabeled while an old background team happens to still run.
-        let done = if state.team_dispatched_this_turn {
-            "Dispatched"
+        let dispatched;
+        let done: &str = if state.team_dispatched_this_turn {
+            dispatched = crate::i18n::t(crate::i18n::Msg::TurnDoneDispatched).into_owned();
+            &dispatched
         } else {
             state.next_done_label()
         };
@@ -21840,10 +21905,9 @@ fn empty_completion_notice(
         return None;
     }
     Some(if saw_reasoning {
-        "本轮模型只输出了推理、未给出正文。按 Ctrl+O 可查看推理内容；可直接重试或换个问法。"
-            .to_string()
+        crate::i18n::t(crate::i18n::Msg::EmptyCompletionReasoningOnly).into_owned()
     } else {
-        "本轮模型未输出任何正文内容。可直接重试或换个问法。".to_string()
+        crate::i18n::t(crate::i18n::Msg::EmptyCompletionNoOutput).into_owned()
     })
 }
 
@@ -22219,9 +22283,9 @@ fn completed_task_detail(
     duration: std::time::Duration,
 ) -> String {
     let terminal = if !success || task_output_has_error_state(output) {
-        "finished"
+        crate::i18n::t(crate::i18n::Msg::TaskWordFinished)
     } else {
-        "completed"
+        crate::i18n::t(crate::i18n::Msg::TaskWordCompleted)
     };
     let elapsed = crate::render::fmt_dur(duration);
     if detail.is_empty() {
@@ -22490,6 +22554,8 @@ mod subtask_progress_projection_tests {
 
     #[test]
     fn completed_task_keeps_one_compact_permanent_summary() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         assert_eq!(
             completed_task_detail(
                 "3 subtasks",
@@ -22539,8 +22605,14 @@ The parser should discuss state="error" without changing this successful result.
     }
 }
 
+/// Locale-stable counterpart of `rustcode_review::review_tool::REVIEW_INCOMPLETE_MARKER`
+/// (the review crate is not a tuix dependency): partial-coverage review results
+/// carry this ASCII tag prefix in EVERY locale, so the warning classification
+/// must key on the tag, never on the localized sentence following it.
+const REVIEW_INCOMPLETE_MARKER: &str = "[review-incomplete]";
+
 fn is_incomplete_review_result(name: &str, output: &str, success: bool) -> bool {
-    !success && name == "code_review" && output.starts_with("Code review incomplete")
+    !success && name == "code_review" && output.starts_with(REVIEW_INCOMPLETE_MARKER)
 }
 
 #[cfg(test)]
@@ -23776,7 +23848,12 @@ fn handle_runtime_event(
                         available,
                     }) => handle_undo_failure(requested, available, renderer),
                     Err(error) => {
-                        renderer.render(UiLine::Error(format!("undo failed: {error}")));
+                        renderer.render(UiLine::Error(
+                            crate::i18n::t(crate::i18n::Msg::UndoFailed {
+                                error: &error.to_string(),
+                            })
+                            .into_owned(),
+                        ));
                         renderer.flush();
                     }
                 },
@@ -23819,9 +23896,12 @@ fn handle_runtime_event(
                     }
                     Err(error) => {
                         state.pending_context_render = None;
-                        renderer.render(UiLine::Error(format!(
-                            "refresh context stats failed: {error}"
-                        )));
+                        renderer.render(UiLine::Error(
+                            crate::i18n::t(crate::i18n::Msg::RefreshContextFailed {
+                                error: &error.to_string(),
+                            })
+                            .into_owned(),
+                        ));
                         renderer.flush();
                     }
                 },
@@ -24504,7 +24584,10 @@ fn publish_live_runtime_event(
     };
     match result {
         Ok(()) | Err(rustcode_daemon::live_hub::HubError::StaleEvent) => Ok(()),
-        Err(error) => Err(format!("Live event synchronization failed: {error:?}")),
+        Err(error) => Err(crate::i18n::t(crate::i18n::Msg::LiveSyncEventFailed {
+            error: &format!("{error:?}"),
+        })
+        .into_owned()),
     }
 }
 
@@ -24528,7 +24611,10 @@ fn publish_live_provider_reload_success(
         CodingRuntimeEvent::ProviderChanged { provider, model },
     ) {
         Ok(()) | Err(rustcode_daemon::live_hub::HubError::StaleEvent) => Ok(()),
-        Err(error) => Err(format!("Live provider synchronization failed: {error:?}")),
+        Err(error) => Err(crate::i18n::t(crate::i18n::Msg::LiveSyncProviderFailed {
+            error: &format!("{error:?}"),
+        })
+        .into_owned()),
     }
 }
 
@@ -24573,10 +24659,9 @@ fn retry_pending_session_projections(
                 .committed
                 .as_ref()
                 .expect("checked committed transition above");
-            let session_id = changed
-                .session_id
-                .clone()
-                .ok_or_else(|| "session switch completed without a session identity".to_string())?;
+            let session_id = changed.session_id.clone().ok_or_else(|| {
+                crate::i18n::t(crate::i18n::Msg::LiveProjectionNoSessionIdentity).into_owned()
+            })?;
             apply_native_session_changed(
                 session_id,
                 changed.working_dir.clone(),
@@ -24594,10 +24679,9 @@ fn retry_pending_session_projections(
     if ctx.pending_external_session_projection.is_some() {
         let mut pending = ctx.pending_external_session_projection.take();
         let result = commit_pending_projection(&mut pending, |changed| {
-            let session_id = changed
-                .session_id
-                .clone()
-                .ok_or_else(|| "session switch completed without a session identity".to_string())?;
+            let session_id = changed.session_id.clone().ok_or_else(|| {
+                crate::i18n::t(crate::i18n::Msg::LiveProjectionNoSessionIdentity).into_owned()
+            })?;
             apply_native_session_changed(
                 session_id,
                 changed.working_dir.clone(),
@@ -24631,7 +24715,9 @@ fn commit_live_capability_projection(
     if changed.session_id.as_deref() != Some(ctx.current_session.id.as_str())
         || changed.working_dir != ctx.working_dir
     {
-        return Err("capability reload returned an unexpected session identity".into());
+        return Err(
+            crate::i18n::t(crate::i18n::Msg::LiveProjectionUnexpectedIdentity).into_owned(),
+        );
     }
     let Some(binding) = ctx.live_binding.clone() else {
         return Ok(());
@@ -24644,7 +24730,12 @@ fn commit_live_capability_projection(
             ctx.working_dir.clone(),
             snapshot,
         )
-        .map_err(|error| format!("Failed to update live capability snapshot: {error:?}"))?,
+        .map_err(|error| {
+            crate::i18n::t(crate::i18n::Msg::LiveCapabilitySnapshotFailed {
+                error: &format!("{error:?}"),
+            })
+            .into_owned()
+        })?,
     );
     Ok(())
 }
@@ -24666,14 +24757,27 @@ fn apply_native_session_changed(
     ) {
         Ok(Some(session)) => match Session::from_catalog_view(session) {
             Ok(session) => session,
-            Err(error) => return Err(format!("Failed to decode session {session_id}: {error}")),
+            Err(error) => {
+                return Err(crate::i18n::t(crate::i18n::Msg::LiveSessionDecodeFailed {
+                    session_id: &session_id,
+                    error: &error.to_string(),
+                })
+                .into_owned())
+            }
         },
         Ok(None) => {
-            return Err(format!(
-                "Session {session_id} disappeared after runtime switch"
-            ));
+            return Err(crate::i18n::t(crate::i18n::Msg::LiveSessionDisappeared {
+                session_id: &session_id,
+            })
+            .into_owned());
         }
-        Err(error) => return Err(format!("Failed to resolve session {session_id}: {error}")),
+        Err(error) => {
+            return Err(crate::i18n::t(crate::i18n::Msg::LiveSessionResolveFailed {
+                session_id: &session_id,
+                error: &error.to_string(),
+            })
+            .into_owned())
+        }
     };
 
     commit_native_session_changed(session, working_dir, state, renderer, ctx)
@@ -24697,7 +24801,12 @@ fn commit_native_session_changed(
                 working_dir.clone(),
                 snapshot,
             )
-            .map_err(|error| format!("Failed to update live session snapshot: {error:?}"))?,
+            .map_err(|error| {
+                crate::i18n::t(crate::i18n::Msg::LiveSessionSnapshotFailed {
+                    error: &format!("{error:?}"),
+                })
+                .into_owned()
+            })?,
         )
     } else {
         None
@@ -25197,7 +25306,12 @@ fn handle_coding_runtime_event(
                     trigger: CompactTrigger::Manual { .. },
                     error,
                 } => {
-                    renderer.render(UiLine::Error(format!("compact failed: {error}")));
+                    renderer.render(UiLine::Error(
+                        crate::i18n::t(crate::i18n::Msg::CompactFailed {
+                            error: &error.to_string(),
+                        })
+                        .into_owned(),
+                    ));
                     renderer.flush();
                 }
                 CompactionCompletion::Completed(_)
@@ -25953,7 +26067,7 @@ fn handle_agent_event(
             // invariant, so on commit the spinner glyph orphaned and lingered
             // next to the committed `*` (bash-only, since the hint is).
             let ctrl_o_hint = if should_show_ctrl_o_hint(&name, state.show_tool_output, &id) {
-                Some("Press Ctrl+o to show real-time output while running".to_string())
+                Some(crate::i18n::t(crate::i18n::Msg::BashInflightCtrlOHint).into_owned())
             } else {
                 None
             };
@@ -26297,7 +26411,10 @@ fn handle_agent_event(
                     // links are present or on failure.
                     let summary = if name == "web_search" && success {
                         web_search_result_suffix(&output)
-                            .map(|s| format!("sources: {s}"))
+                            .map(|s| {
+                                crate::i18n::t(crate::i18n::Msg::WebSourcesPrefix { sources: &s })
+                                    .into_owned()
+                            })
                             .unwrap_or_else(|| summarise(&output))
                     } else if name == "task" {
                         // Clean per-subtask lines (id . model . status) instead of the
@@ -27032,7 +27149,12 @@ fn handle_agent_event(
                     &mut active_modal,
                     setup_pending,
                 ) {
-                    renderer.render(UiLine::Error(format!("Goal 执行失败：{error}")));
+                    renderer.render(UiLine::Error(
+                        crate::i18n::t(crate::i18n::Msg::GoalExecFailed {
+                            error: &error.to_string(),
+                        })
+                        .into_owned(),
+                    ));
                     renderer.flush();
                 }
                 return;
@@ -27043,28 +27165,37 @@ fn handle_agent_event(
             let display = format!("/{}", line.trim().trim_start_matches('/'));
             match commands::run_remote_command(ctx, state, &line) {
                 Some(txt) => {
-                    renderer.render(UiLine::CommandOutput(format!("（手机端执行 {display}）")));
+                    renderer.render(UiLine::CommandOutput(
+                        crate::i18n::t(crate::i18n::Msg::LiveRemoteCommandEcho {
+                            display: &display,
+                        })
+                        .into_owned(),
+                    ));
                     renderer.render(UiLine::CommandOutput(txt.clone()));
                     renderer.flush();
                     if let Err(error) = rustcode_daemon::native_live::publish_command_output(
                         format!("{display}\n{txt}"),
                     ) {
-                        renderer.render(UiLine::Error(format!(
-                            "Remote command output synchronization failed: {error:?}"
-                        )));
+                        renderer.render(UiLine::Error(
+                            crate::i18n::t(crate::i18n::Msg::LiveSyncRemoteOutputFailed {
+                                error: &format!("{error:?}"),
+                            })
+                            .into_owned(),
+                        ));
                         renderer.flush();
                     }
                 }
                 None => {
-                    if let Err(error) =
-                        rustcode_daemon::native_live::publish_command_output(format!(
-                            "{display}\n  该命令需要在桌面端执行（手机端仅支持 \
-                             /status /cost /whoami /diff）"
-                        ))
-                    {
-                        renderer.render(UiLine::Error(format!(
-                            "Remote command rejection synchronization failed: {error:?}"
-                        )));
+                    let rejected = crate::i18n::t(crate::i18n::Msg::LiveRemoteCommandRejected);
+                    if let Err(error) = rustcode_daemon::native_live::publish_command_output(
+                        format!("{display}\n{rejected}"),
+                    ) {
+                        renderer.render(UiLine::Error(
+                            crate::i18n::t(crate::i18n::Msg::LiveSyncRemoteRejectFailed {
+                                error: &format!("{error:?}"),
+                            })
+                            .into_owned(),
+                        ));
                         renderer.flush();
                     }
                 }
@@ -27331,9 +27462,10 @@ fn handle_agent_event(
                         // visible so the user sees it was achieved.
                         if state.goal_condition.is_some() {
                             if let Some(reason) = last_reason.as_deref() {
-                                renderer.render(UiLine::CommandOutput(format!(
-                                    "  [+] Goal met: {reason}\n"
-                                )));
+                                renderer.render(UiLine::CommandOutput(
+                                    crate::i18n::t(crate::i18n::Msg::GoalMetBanner { reason })
+                                        .into_owned(),
+                                ));
                                 renderer.flush();
                             }
                         }
@@ -27348,9 +27480,10 @@ fn handle_agent_event(
                         // KEEP the badge -- it will resume on the next Submit.
                         if state.goal_condition.is_some() {
                             if let Some(reason) = last_reason.as_deref() {
-                                renderer.render(UiLine::CommandOutput(format!(
-                                    "  ⏸ Goal stopped: {reason}\n"
-                                )));
+                                renderer.render(UiLine::CommandOutput(
+                                    crate::i18n::t(crate::i18n::Msg::GoalPausedBanner { reason })
+                                        .into_owned(),
+                                ));
                                 renderer.flush();
                             }
                         }
@@ -27385,9 +27518,19 @@ fn handle_agent_event(
                                         // TurnCancelled -- skip to avoid double banner.
                                         None
                                     } else if goal_terminal_is_met(terminal) {
-                                        Some(format!("  [+] Goal met: {reason}\n"))
+                                        Some(
+                                            crate::i18n::t(crate::i18n::Msg::GoalMetBanner {
+                                                reason,
+                                            })
+                                            .into_owned(),
+                                        )
                                     } else {
-                                        Some(format!("  [!] Goal stopped: {reason}\n"))
+                                        Some(
+                                            crate::i18n::t(crate::i18n::Msg::GoalStoppedBanner {
+                                                reason,
+                                            })
+                                            .into_owned(),
+                                        )
                                     };
                                 if let Some(line) = banner {
                                     renderer.render(UiLine::CommandOutput(line));
@@ -27492,10 +27635,10 @@ fn handle_agent_event(
             // done lines are suppressed (Task 3 -- CC alignment); the
             // footer spinner conveys mid-flight progress, the
             // DispatchEnd summary lands the final count.
-            renderer.render(UiLine::CommandOutput(format!(
-                "Dispatching {} sub-agents in parallel...",
-                tasks.len()
-            )));
+            renderer.render(UiLine::CommandOutput(
+                crate::i18n::t(crate::i18n::Msg::ParallelDispatchStart { count: tasks.len() })
+                    .into_owned(),
+            ));
             renderer.flush();
             state.on_sub_agent_dispatch_start(tasks);
         }
@@ -27529,17 +27672,19 @@ fn handle_agent_event(
             if let Some(info) = state.sub_agent_tasks.get(index) {
                 let cross = "\u{2717}";
                 let short_reason = reason.lines().next().unwrap_or("").trim();
+                let failure_word = crate::i18n::t(crate::i18n::Msg::WordFailed);
+                let reason_text = if short_reason.is_empty() {
+                    failure_word.as_ref()
+                } else {
+                    short_reason
+                };
                 renderer.render(UiLine::CommandOutput(format!(
                     "  {} {}{} -- {} . {}",
                     cross,
                     info.path,
                     info.dedup_suffix,
                     fmt_elapsed(elapsed_ms),
-                    if short_reason.is_empty() {
-                        "failed"
-                    } else {
-                        short_reason
-                    }
+                    reason_text
                 )));
                 renderer.flush();
             }
@@ -27558,23 +27703,21 @@ fn handle_agent_event(
                 .map(|t| t.elapsed().as_millis() as u64)
                 .unwrap_or(0);
             if total > 0 {
-                let arrow = "\u{25cf}";
+                let elapsed_text = fmt_elapsed(elapsed);
                 let summary = if failed == 0 {
-                    format!(
-                        "{} ParallelEditFiles . {}/{} ok . {} wall",
-                        arrow,
+                    crate::i18n::t(crate::i18n::Msg::ParallelSummaryOk {
                         ok,
                         total,
-                        fmt_elapsed(elapsed)
-                    )
+                        elapsed: &elapsed_text,
+                    })
+                    .into_owned()
                 } else {
-                    format!(
-                        "{} ParallelEditFiles . {} ok . {} fail . {} wall",
-                        arrow,
+                    crate::i18n::t(crate::i18n::Msg::ParallelSummaryFail {
                         ok,
                         failed,
-                        fmt_elapsed(elapsed)
-                    )
+                        elapsed: &elapsed_text,
+                    })
+                    .into_owned()
                 };
                 renderer.render(UiLine::ToolGroupSummary { text: summary });
                 renderer.flush();
@@ -27662,10 +27805,18 @@ fn handle_agent_event(
             let _ = ctx
                 .runtime
                 .dispatch(rustcode_coding::DriverCommand::SetMode(runtime_mode(mode)));
-            renderer.render(UiLine::CommandOutput(format!(
-                "  Switched to {} mode.\n",
-                mode.label()
-            )));
+            let mode_text = match mode {
+                crate::state::AgentMode::Plan => crate::i18n::t(crate::i18n::Msg::ModeWordPlan),
+                crate::state::AgentMode::AcceptEdits => {
+                    crate::i18n::t(crate::i18n::Msg::ModeWordAcceptEdits)
+                }
+                crate::state::AgentMode::Build => crate::i18n::t(crate::i18n::Msg::ModeWordBuild),
+                crate::state::AgentMode::Auto => crate::i18n::t(crate::i18n::Msg::ModeWordAuto),
+            };
+            renderer.render(UiLine::CommandOutput(
+                crate::i18n::t(crate::i18n::Msg::ModeSwitchedLine { mode: &mode_text })
+                    .into_owned(),
+            ));
             renderer.flush();
         }
         AgentEvent::SessionRenamed { name } => {
@@ -27751,7 +27902,12 @@ fn apply_ai_session_name(ctx: &mut LoopCtx, name: String, renderer: &mut dyn Ren
         Ok(true) => {}
         Ok(false) => return,
         Err(e) => {
-            renderer.render(UiLine::Error(format!("session save failed: {e}")));
+            renderer.render(UiLine::Error(
+                crate::i18n::t(crate::i18n::Msg::SessionSaveFailed {
+                    error: &e.to_string(),
+                })
+                .into_owned(),
+            ));
             renderer.flush();
             return;
         }
@@ -28336,11 +28492,12 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
         RuntimeUiAvailability::AwaitingProvider
     ) && !no_provider;
     let runtime_failed = matches!(runtime_availability, RuntimeUiAvailability::Failed);
-    // Open-source build pointed at a gateway: any chat will
-    // fail-fast with `CpOfficialBuildRequired`. Surface that diagnosis
-    // up front (red, beats every other hint) so the user doesn't have
-    // to type a message to discover the dead-end -- `/login` won't help,
-    // only switching to the official build will.
+    // A build without the managed-signing overlay pointed at a managed
+    // gateway: any chat will fail-fast with the unsupported-build error.
+    // Surface that diagnosis up front (red, beats every other hint) so the
+    // user doesn't have to type a message to discover the dead-end --
+    // `/login` won't help, only a distribution build that ships the
+    // managed-signing support (or switching to a plain BYO provider) will.
     let active_base_url = ctx
         .config
         .active_provider(None)
@@ -28368,13 +28525,13 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
     } else if provider_waiting {
         let message = match unavailable_reason {
             Some(rustcode_coding::ProviderUnavailableReason::AuthenticationRequired) => {
-                crate::i18n::Msg::CmdWhoamiNotSignedIn
+                crate::modals::onboarding_wizard::not_signed_in_msg()
             }
             Some(
                 rustcode_coding::ProviderUnavailableReason::UnsupportedBuild
                 | rustcode_coding::ProviderUnavailableReason::NotConfigured,
             )
-            | None => crate::i18n::Msg::CmdProviderUnavailable,
+            | None => crate::modals::onboarding_wizard::provider_unavailable_msg(),
         };
         Some((
             crate::i18n::t(message).into_owned(),
@@ -28455,14 +28612,25 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
     // (`BadgeColour`), so the renderer just maps the slot to a `CellStyle`.
     // `None` for the default Build startup so the status row stays clean.
     use crate::render::{BadgeColour, ModeBadge};
+    // Localized mode words; the glyph prefix (and its unicode downgrade)
+    // stays here so terminal-capability logic is untouched.
+    let mode_word = |mode: crate::state::AgentMode| {
+        crate::i18n::t(match mode {
+            crate::state::AgentMode::Plan => crate::i18n::Msg::ModeWordPlan,
+            crate::state::AgentMode::AcceptEdits => crate::i18n::Msg::ModeWordAcceptEdits,
+            crate::state::AgentMode::Build => crate::i18n::Msg::ModeWordBuild,
+            crate::state::AgentMode::Auto => crate::i18n::Msg::ModeWordAuto,
+        })
+        .into_owned()
+    };
     let mode_indicator = match state.agent_mode {
         crate::state::AgentMode::Plan => {
             // `⏸ plan` -- glyph downgrades to `||` on non-unicode terminals.
             Some(ModeBadge {
                 label: if ctx.caps.unicode_symbols {
-                    "\u{23f8} plan".to_string()
+                    format!("\u{23f8} {}", mode_word(crate::state::AgentMode::Plan))
                 } else {
-                    "|| plan".to_string()
+                    format!("|| {}", mode_word(crate::state::AgentMode::Plan))
                 },
                 colour: BadgeColour::Plan,
             })
@@ -28472,9 +28640,12 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
             // downgrades to `>` on non-unicode terminals.
             Some(ModeBadge {
                 label: if ctx.caps.unicode_symbols {
-                    "\u{23f5} accept edits".to_string()
+                    format!(
+                        "\u{23f5} {}",
+                        mode_word(crate::state::AgentMode::AcceptEdits)
+                    )
                 } else {
-                    "> accept edits".to_string()
+                    format!("> {}", mode_word(crate::state::AgentMode::AcceptEdits))
                 },
                 colour: BadgeColour::Mode,
             })
@@ -28486,9 +28657,9 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
             // into the status row naturally.
             Some(ModeBadge {
                 label: if ctx.caps.unicode_symbols {
-                    "\u{23f8} build".to_string()
+                    format!("\u{23f8} {}", mode_word(crate::state::AgentMode::Build))
                 } else {
-                    "|| build".to_string()
+                    format!("|| {}", mode_word(crate::state::AgentMode::Build))
                 },
                 colour: BadgeColour::Secondary,
             })
@@ -28502,10 +28673,11 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
     // keying off the mode covers both the startup flag AND the runtime Shift+Tab /
     // `/auto` toggle. The `⏵⏵` glyph downgrades to `>>` on non-unicode terminals.
     let bypass_indicator = if matches!(state.agent_mode, crate::state::AgentMode::Auto) {
+        let word = mode_word(crate::state::AgentMode::Auto);
         Some(if ctx.caps.unicode_symbols {
-            "\u{23f5}\u{23f5} auto".to_string()
+            format!("\u{23f5}\u{23f5} {word}")
         } else {
-            ">> auto".to_string()
+            format!(">> {word}")
         })
     } else {
         None
@@ -28919,10 +29091,14 @@ fn format_spinner_label(
     // metadata so `spinner_meta_suffix` can splice it out (a tool isn't
     // "thinking") while still forwarding the trailing time/queue anchors.
     if let Some(effort) = reasoning_effort {
-        out.push_str(&format!(" · thinking with {} effort", effort));
+        out.push_str(&crate::i18n::t(crate::i18n::Msg::SpinnerEffortSuffix {
+            effort: effort_word(effort),
+        }));
     }
     if queue_len > 0 {
-        out.push_str(&format!(" · {} queued", queue_len));
+        out.push_str(&crate::i18n::t(crate::i18n::Msg::SpinnerQueuedSuffix {
+            count: queue_len,
+        }));
     }
     // (The mid-stream ". esc to cancel" stall hint was removed by request -- esc
     // still cancels, it's just no longer advertised in the spinner. The stall
@@ -28940,15 +29116,40 @@ fn format_spinner_label(
         let elapsed = fmt_elapsed(d.as_millis() as u64);
         let tokens = state.turn_output_token_estimate();
         if tokens > 0 {
-            out.push_str(&format!(
-                " ({elapsed} · \u{2191} {} tokens)",
-                crate::i18n::fmt_tokens(tokens)
-            ));
+            out.push_str(&crate::i18n::t(crate::i18n::Msg::SpinnerElapsedTokens {
+                elapsed: &elapsed,
+                tokens: &crate::i18n::fmt_tokens(tokens),
+            }));
         } else {
-            out.push_str(&format!(" ({elapsed})"));
+            out.push_str(&crate::i18n::t(crate::i18n::Msg::SpinnerElapsedOnly {
+                elapsed: &elapsed,
+            }));
         }
     }
     out
+}
+
+/// Localize a canonical reasoning-effort level (`low`/`medium`/`high`/
+/// `xhigh`/`max`) for inline interpolation into spinner and command
+/// output. Unknown values pass through verbatim (a future provider level
+/// still reads sensibly). The compact status-bar `[high]` badge keeps the
+/// raw token by design; this is for prose contexts.
+pub(crate) fn effort_word(value: &str) -> &str {
+    if matches!(crate::i18n::current_locale(), crate::i18n::Locale::ZhCn) {
+        match value {
+            "low" => "低",
+            "medium" => "中",
+            "high" => "高",
+            "xhigh" => "超高",
+            "max" => "最高",
+            other => other,
+        }
+    } else {
+        match value {
+            "xhigh" => "extra-high",
+            other => other,
+        }
+    }
 }
 
 /// Convert a snake_case tool name to PascalCase for display. The agent

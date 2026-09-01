@@ -31,7 +31,12 @@ fn flatten_session_preparation<T>(
     result: Result<Result<T, String>, tokio::task::JoinError>,
 ) -> Result<T, String> {
     result
-        .map_err(|error| format!("session preparation task failed: {error}"))
+        .map_err(|error| {
+            crate::i18n::t(crate::i18n::Msg::SessionPrepJoinFailed {
+                error: &error.to_string(),
+            })
+            .into_owned()
+        })
         .and_then(|result| result)
 }
 
@@ -259,7 +264,7 @@ impl SessionPicker {
         {
             renderer.render(UiLine::Error(
                 crate::i18n::t(crate::i18n::Msg::SessionLoadFailed {
-                    error: "another session resume is still in progress",
+                    error: &crate::i18n::t(crate::i18n::Msg::SessionResumeInProgress),
                 })
                 .into_owned(),
             ));
@@ -300,15 +305,19 @@ impl SessionPicker {
                     )
                     .map_err(|error| error.to_string())
                     .and_then(|prepared| {
-                        prepared
-                            .ok_or_else(|| format!("session {} not found", preparation.session_id))
+                        prepared.ok_or_else(|| {
+                            crate::i18n::t(crate::i18n::Msg::SessionNotFoundById {
+                                session_id: &preparation.session_id,
+                            })
+                            .into_owned()
+                        })
                     })
                 }),
             )
             .await;
             let result = match result {
                 Ok(joined) => flatten_session_preparation(joined),
-                Err(_) => Err("session preparation is taking unusually long (large session or slow disk); please try again".into()),
+                Err(_) => Err(crate::i18n::t(crate::i18n::Msg::SessionPrepTimeout).into_owned()),
             };
             let _ = event_tx.send(crate::event_loop::bg_runtime::RuntimeEvent {
                 runtime_id,
@@ -583,7 +592,7 @@ impl Modal for SessionPicker {
             .unwrap_or_else(|| {
                 let p = ctx.working_dir.to_string_lossy();
                 if p.is_empty() {
-                    "project".to_string()
+                    crate::i18n::t(crate::i18n::Msg::ProjectFallbackWord).into_owned()
                 } else {
                     p.into_owned()
                 }
@@ -826,7 +835,7 @@ fn turn_divider_label(stat: Option<&TurnStat>) -> String {
         })
         .into_owned(),
         Some(s) => crate::i18n::t(crate::i18n::Msg::TurnSummary {
-            done: "Done",
+            done: crate::state::done_label(s.turn_count.saturating_sub(1) as usize),
             turn_count: s.turn_count,
             tool_call_count: s.tool_call_count,
             duration: &crate::render::fmt_dur(std::time::Duration::from_millis(s.duration_ms)),
@@ -2173,6 +2182,8 @@ mod tests {
 }
 #[tokio::test]
 async fn preparation_join_failure_becomes_an_error_terminal() {
+    let _locale = crate::i18n::test_lock();
+    crate::i18n::set_locale(crate::i18n::Locale::En);
     let joined = tokio::task::spawn_blocking(|| -> Result<(), String> {
         panic!("preparation panic");
     })

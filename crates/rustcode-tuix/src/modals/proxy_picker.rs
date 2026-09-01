@@ -59,7 +59,10 @@ impl Modal for ProxyPicker {
                         desired.mode = ProxyMode::NoProxy;
                     }
                 }
-                let success = format!("  Proxy mode: {}\n", desired.summary());
+                let success = crate::i18n::t(crate::i18n::Msg::ProxyModeLine {
+                    mode: &proxy_summary_word(&desired),
+                })
+                .into_owned();
                 if save_proxy_and_reload(ctx, desired, renderer, success) {
                     Ok(ModalAction::Close)
                 } else {
@@ -74,16 +77,16 @@ impl Modal for ProxyPicker {
     fn draw(&self, buf: &Buffer, state: &UiState, ctx: &LoopCtx, renderer: &mut dyn Renderer) {
         let items = vec![
             (
-                "follow_system".to_string(),
-                "Follow current launch environment / system proxy state".to_string(),
+                crate::i18n::t(crate::i18n::Msg::ProxyTitleFollowSystem).into_owned(),
+                crate::i18n::t(crate::i18n::Msg::ProxyDescFollowSystem).into_owned(),
             ),
             (
-                "default_proxy".to_string(),
-                "Pin the current proxy env and reuse it on later launches".to_string(),
+                crate::i18n::t(crate::i18n::Msg::ProxyTitleDefaultProxy).into_owned(),
+                crate::i18n::t(crate::i18n::Msg::ProxyDescDefaultProxy).into_owned(),
             ),
             (
-                "no_proxy".to_string(),
-                "Disable proxy resolution for outbound HTTP clients".to_string(),
+                crate::i18n::t(crate::i18n::Msg::ProxyTitleNoProxy).into_owned(),
+                crate::i18n::t(crate::i18n::Msg::ProxyDescNoProxy).into_owned(),
             ),
         ];
         let payload = MenuPayload {
@@ -99,5 +102,33 @@ impl Modal for ProxyPicker {
             attachments: Vec::new(),
         });
         renderer.flush();
+    }
+}
+
+/// Localized mode word for the proxy confirmation line. Mirrors
+/// `ProxyConfig::summary()` (rustcode-config), whose stable enum-id string stays
+/// on the daemon/webui wire; the TUI renders a localized variant.
+fn proxy_summary_word(cfg: &proxy::ProxyConfig) -> String {
+    match cfg.mode {
+        ProxyMode::FollowSystem => {
+            crate::i18n::t(crate::i18n::Msg::ProxyTitleFollowSystem).into_owned()
+        }
+        ProxyMode::NoProxy => crate::i18n::t(crate::i18n::Msg::ProxyTitleNoProxy).into_owned(),
+        ProxyMode::DefaultProxy => {
+            let count = [
+                cfg.http.as_ref(),
+                cfg.https.as_ref(),
+                cfg.all.as_ref(),
+                cfg.no_proxy.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            .count();
+            if count == 0 {
+                crate::i18n::t(crate::i18n::Msg::ProxyDefaultEmpty).into_owned()
+            } else {
+                crate::i18n::t(crate::i18n::Msg::ProxyDefaultPinned { count }).into_owned()
+            }
+        }
     }
 }

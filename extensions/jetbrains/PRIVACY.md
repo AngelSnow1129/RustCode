@@ -18,7 +18,7 @@ The JetBrains plugin may process the following data when you use RustCode featur
 
 By default, the plugin connects to a RustCode daemon at `127.0.0.1:13456`. The plugin can also start a bundled or configured daemon process on your machine. The plugin sends requests to this local daemon so it can run coding-agent workflows, manage sessions, communicate with model providers, and apply user-approved actions.
 
-The JetBrains plugin does not intentionally send your code or project data directly to RustCode servers. Data leaves the IDE through the local daemon only as needed for user-initiated actions, configured provider workflows, authentication, or external model provider requests.
+The JetBrains plugin does not intentionally send your code or project data directly to any RustCode service. Data leaves the IDE through the local daemon only as needed for user-initiated actions: requests to the third-party model providers you configure with your own API keys, or -- only in distribution builds that ship a managed sign-in service -- that optional managed account workflow. Open builds (the default source build) contain no managed service and connect only to the providers you configure.
 
 ## External model providers
 

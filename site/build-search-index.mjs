@@ -16,17 +16,20 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const DOCS_DIR  = path.join(__dirname, 'docs');
 const LANGS     = ['zh', 'en'];
 
-// Mirror of docs sidebar groups (keep in sync with sidebar markup).
+// Mirror of docs sidebar groups (keep in sync with sidebar markup and the
+// `side.g.*` keys in docs.js). Each group carries BOTH UI labels so each
+// language's search index shows that language's group name -- a single shared
+// name would leak Chinese labels into the English index (and vice versa).
 const GROUPS = [
-  { name: '概览',   slugs: ['index'] },
-  { name: '开始',   slugs: ['getting-started', 'login', 'configuration'] },
-  { name: '使用',   slugs: ['basic-usage', 'slash-commands', 'keybindings', 'sessions', 'interactive-questions'] },
-  { name: '进阶',   slugs: ['tools', 'subagents', 'approvals', 'skills', 'mcp', 'plugins', 'memory', 'project-instructions', 'webui', 'webui-remote-access'] },
-  { name: '运维',   slugs: ['faq'] },
+  { zh: '概览', en: 'Overview',    slugs: ['index'] },
+  { zh: '开始', en: 'Get Started', slugs: ['getting-started', 'login', 'configuration'] },
+  { zh: '使用', en: 'Usage',       slugs: ['basic-usage', 'slash-commands', 'keybindings', 'sessions', 'interactive-questions'] },
+  { zh: '进阶', en: 'Advanced',    slugs: ['tools', 'subagents', 'approvals', 'skills', 'mcp', 'plugins', 'memory', 'project-instructions', 'webui', 'webui-remote-access', 'headless-daemon'] },
+  { zh: '问题', en: 'Help',        slugs: ['faq'] },
 ];
 
-function groupOf(slug) {
-  for (const g of GROUPS) if (g.slugs.includes(slug)) return g.name;
+function groupOf(slug, lang) {
+  for (const g of GROUPS) if (g.slugs.includes(slug)) return g[lang];
   return null;
 }
 
@@ -190,7 +193,7 @@ async function buildOne(lang) {
     out.push({
       slug,
       title:    extractTitle(html) || slug,
-      group:    groupOf(slug),
+      group:    groupOf(slug, lang),
       lede:     extractLede(main),
       sections: sectionsOf(heads, main),
     });

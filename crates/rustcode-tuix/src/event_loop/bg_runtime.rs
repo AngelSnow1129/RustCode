@@ -432,22 +432,35 @@ fn load_background_session_projection_in_root(
     let session_id = changed
         .session_id
         .as_deref()
-        .ok_or_else(|| "background runtime changed to a sessionless state".to_string())?;
+        .ok_or_else(|| crate::i18n::t(crate::i18n::Msg::BgProjectionSessionless).into_owned())?;
     let working_dir = rustcode_capabilities::pathnorm::strip_verbatim_path(&changed.working_dir);
     let project_bucket = rustcode_capabilities::session::SessionManager::project_hash(&working_dir);
     let manager = rustcode_capabilities::session::SessionManager::with_root(
         sessions_root.join(&project_bucket),
     );
     let loaded = manager.load_native_session(session_id).map_err(|error| {
-        format!("failed to load background session {project_bucket}/{session_id}: {error}")
+        crate::i18n::t(crate::i18n::Msg::BgProjectionLoadFailed {
+            bucket: &project_bucket,
+            session_id,
+            error: &error.to_string(),
+        })
+        .into_owned()
     })?;
-    let session = Session::from_catalog_view(loaded.into())
-        .map_err(|error| format!("failed to decode background session {session_id}: {error}"))?;
+    let session = Session::from_catalog_view(loaded.into()).map_err(|error| {
+        crate::i18n::t(crate::i18n::Msg::BgProjectionDecodeFailed {
+            session_id,
+            error: &error.to_string(),
+        })
+        .into_owned()
+    })?;
     if session.id != session_id {
-        return Err(format!(
-            "background session identity mismatch: runtime={session_id:?}, catalog={:?}",
-            session.id
-        ));
+        return Err(
+            crate::i18n::t(crate::i18n::Msg::BgProjectionIdentityMismatchRuntime {
+                session_id,
+                catalog: &session.id,
+            })
+            .into_owned(),
+        );
     }
     Ok(session)
 }
@@ -459,13 +472,16 @@ fn resolve_background_session_projection(
     let expected_id = changed
         .session_id
         .as_deref()
-        .ok_or_else(|| "background runtime changed to a sessionless state".to_string())?;
+        .ok_or_else(|| crate::i18n::t(crate::i18n::Msg::BgProjectionSessionless).into_owned())?;
     let session = load(changed)?;
     if session.id != expected_id {
-        return Err(format!(
-            "background session identity mismatch: runtime={expected_id:?}, loaded={:?}",
-            session.id
-        ));
+        return Err(
+            crate::i18n::t(crate::i18n::Msg::BgProjectionIdentityMismatchLoaded {
+                expected: expected_id,
+                loaded: &session.id,
+            })
+            .into_owned(),
+        );
     }
     Ok((
         session,

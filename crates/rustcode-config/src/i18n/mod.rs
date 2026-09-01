@@ -402,10 +402,6 @@ mod tests {
         assert!(s.contains("fr"));
     }
 
-    fn has_cjk(s: &str) -> bool {
-        s.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
-    }
-
     #[test]
     fn turn_summary_appends_cached_pct_only_when_present() {
         let with = t_with(
@@ -439,26 +435,6 @@ mod tests {
             !without.contains("cached"),
             "no annotation when None: {without}"
         );
-    }
-
-    #[test]
-    fn gateway_auth_unavailable_is_localized_and_keeps_url() {
-        let url = "https://llm-api.example.com/v1";
-        let en = t_with(Locale::En, Msg::GatewayAuthUnavailable { base_url: url });
-        assert!(en.contains(url), "EN must echo the base_url: {en}");
-        assert!(en.to_lowercase().contains("gateway"), "EN keyword: {en}");
-        let zh = t_with(Locale::ZhCn, Msg::GatewayAuthUnavailable { base_url: url });
-        assert!(zh.contains(url), "ZH must echo the base_url: {zh}");
-        assert!(has_cjk(&zh), "ZH must actually be Chinese: {zh}");
-    }
-
-    #[test]
-    fn provider_init_frame_keeps_detail_both_locales() {
-        let en = t_with(Locale::En, Msg::ProviderInitFailed { detail: "DETAIL_X" });
-        assert!(en.contains("DETAIL_X"));
-        let zh = t_with(Locale::ZhCn, Msg::ProviderInitFailed { detail: "DETAIL_X" });
-        assert!(zh.contains("DETAIL_X"));
-        assert!(has_cjk(&zh), "ZH frame must be Chinese: {zh}");
     }
 
     #[test]

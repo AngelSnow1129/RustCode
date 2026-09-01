@@ -27,11 +27,10 @@ pub fn is_built() -> bool {
 }
 
 /// 资源缺失时的说明，含修复步骤。命令启动前与运行期 404 共用同一段文案。
-pub const NOT_BUILT_HELP: &str = "webui assets are not embedded in this binary.\n\
-     Build the frontend first, then rebuild:\n\
-     \n\
-     \x20   cd webui && npm install && npm run build\n\
-     \x20   cargo build -p rustcode\n";
+/// 走 i18n 层，随当前解析的语言环境返回（默认中文）。
+pub fn not_built_help() -> std::borrow::Cow<'static, str> {
+    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliWebuiNotBuilt)
+}
 
 /// 取静态资源；未命中时回退 index.html 的内容（SPA）。
 pub fn asset_or_index(path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
@@ -61,7 +60,7 @@ pub async fn serve_webui(uri: Uri) -> Response {
         }
         None => match WebuiAssets::get("index.html") {
             Some(index) => ([(header::CONTENT_TYPE, "text/html")], index.data).into_response(),
-            None => (StatusCode::NOT_FOUND, NOT_BUILT_HELP).into_response(),
+            None => (StatusCode::NOT_FOUND, not_built_help().into_owned()).into_response(),
         },
     }
 }

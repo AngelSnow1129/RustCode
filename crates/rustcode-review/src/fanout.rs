@@ -4,7 +4,9 @@
 
 use std::cmp::Ordering;
 
-use crate::review_tool::{cmp_finding, paths_match};
+use rustcode_config::i18n::{t, Msg};
+
+use crate::review_tool::{cmp_finding, paths_match, REVIEW_INCOMPLETE_MARKER};
 use crate::Finding;
 
 /// One review lens. `lens` is appended to the base reviewer persona via
@@ -239,58 +241,65 @@ fn render_deep(
 ) -> String {
     let total_dims = REVIEW_DIMENSIONS.len();
     let verify_note = match verify_dropped {
-        Some(k) => format!(" . verify dropped {k}"),
+        Some(k) => t(Msg::ReviewVerifyDropped { count: k }).into_owned(),
         None => String::new(),
     };
     let mut out = String::new();
     if is_error {
+        // Same locale-stable incomplete marker as the single-pass path so drivers
+        // classify every partial-coverage result the same way.
         out.push_str(&format!(
-            "Deep review incomplete -- every dimension failed (0/{total_dims}). \
-             Coverage is not reliable.{verify_note}\n"
+            "{REVIEW_INCOMPLETE_MARKER} {}",
+            t(Msg::ReviewDeepIncomplete {
+                total: total_dims,
+                note: &verify_note
+            })
         ));
     } else if merged.is_empty() {
-        out.push_str(&format!(
-            "Deep review complete -- no issues found across {changed_files} changed file(s) \
-             ({}/{total_dims} dimensions completed){verify_note}.\n",
-            completed.len()
-        ));
+        out.push_str(&t(Msg::ReviewDeepClean {
+            changed_files,
+            completed: completed.len(),
+            total: total_dims,
+            note: &verify_note,
+        }));
     } else {
-        out.push_str(&format!(
-            "Deep review: {} finding(s) across {changed_files} changed file(s) . \
-             {}/{total_dims} dimensions completed",
-            merged.len(),
-            completed.len()
-        ));
+        out.push_str(&t(Msg::ReviewDeepHeader {
+            findings: merged.len(),
+            changed_files,
+            completed: completed.len(),
+            total: total_dims,
+        }));
         if deduped > 0 {
-            out.push_str(&format!(" . deduped {deduped}"));
+            out.push_str(&t(Msg::ReviewDeepDeduped { count: deduped }));
         }
         out.push_str(&verify_note);
         out.push('\n');
     }
     if !failed.is_empty() {
-        out.push_str(&format!("Failed dimensions: {}\n", failed.join(", ")));
+        let list = failed.join(", ");
+        out.push_str(&t(Msg::ReviewFailedDimensions { list: &list }));
     }
     for (i, m) in merged.iter().enumerate() {
         let f = &m.finding;
-        out.push_str(&format!(
-            "\n{}. [{} . conf {:.2}] {}:{}-{} . dims: {}\n   {}\n",
-            i + 1,
-            f.priority,
-            f.confidence,
-            f.file_path,
-            f.line_start,
-            f.line_end,
-            m.dimensions.join(","),
-            f.title.trim()
-        ));
+        let confidence = format!("{:.2}", f.confidence);
+        let location = format!("{}:{}-{}", f.file_path, f.line_start, f.line_end);
+        let dims = m.dimensions.join(",");
+        out.push_str(&t(Msg::ReviewDeepFindingEntry {
+            index: i + 1,
+            priority: &f.priority,
+            confidence: &confidence,
+            location: &location,
+            dims: &dims,
+            title: f.title.trim(),
+        }));
         if !f.body.trim().is_empty() {
             out.push_str(&format!("   {}\n", f.body.trim().replace('\n', "\n   ")));
         }
         if !f.suggestion.trim().is_empty() {
-            out.push_str(&format!(
-                "   ↳ fix: {}\n",
-                f.suggestion.trim().replace('\n', "\n   ")
-            ));
+            let suggestion = f.suggestion.trim().replace('\n', "\n   ");
+            out.push_str(&t(Msg::ReviewFixSuggestion {
+                suggestion: &suggestion,
+            }));
         }
     }
     out
@@ -412,6 +421,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pin the UI locale to English for assertions on report scaffolding
+    /// (the product default is Chinese, so unpinned English assertions race
+    /// parallel tests).
+    fn pin_en() -> rustcode_config::i18n::LocaleTestGuard {
+        let guard = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
+        guard
+    }
 
     #[test]
     fn dimension_table_is_the_four_expected_lenses() {
@@ -679,6 +697,7 @@ mod tests {
 
     #[test]
     fn render_deep_result_notes_verify_dropped() {
+        let _g = pin_en();
         let merged = vec![]; // all survivors culled
         let (_e, out) = render_deep_result(&merged, 1, &["correctness"], &[], 0, Some(2));
         assert!(out.contains("verify"), "verify note present: {out}");

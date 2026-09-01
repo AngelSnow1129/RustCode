@@ -1,14 +1,17 @@
 //! `web_search` -- keyword web search. Two backends, selected at construction:
-//!   - **Exa** (default) -- the Exa MCP search API (`https://mcp.exa.ai/mcp`): reachable
-//!     without a VPN, returns clean LLM-ready result text, keyless tier (an optional
-//!     `EXA_API_KEY` raises limits). This is the default and the recommended backend.
-//!   - **DuckDuckGo** (legacy) -- scrapes `html.duckduckgo.com`: keyless and no third
-//!     party, but blocked in some regions. Opt-in via [`WebSearchTool::duckduckgo`].
+//!   - **DuckDuckGo** (default) -- scrapes `html.duckduckgo.com`: keyless, needs no
+//!     account and no third-party API key. It is a generic search engine, not an AI
+//!     vendor. Blocked in some regions; there the search fails with guidance rather
+//!     than silently switching to another service.
+//!   - **Exa** (opt-in) -- the Exa MCP search API (`https://mcp.exa.ai/mcp`), an AI
+//!     search vendor. Only used when explicitly selected (`provider = "exa"`); an
+//!     optional `EXA_API_KEY` raises its limits. It is never the default and is not
+//!     endorsed.
 //!
-//! Read-only ⇒ `Safe`. Neutral port of the production tool (release/v4.25.1), with the
-//! `curl` subprocess replaced by `reqwest` (the `web` feature already pulls the HTTP
-//! stack; Exa is a normal JSON API with no anti-bot TLS fingerprinting). A failed search
-//! appends a hint steering the model to a browser-based `web-access` skill if one exists.
+//! Read-only ⇒ `Safe`. The `curl` subprocess of the original tool is replaced by
+//! `reqwest` through the shared egress factory (the `web` feature already pulls the
+//! HTTP stack). A failed search appends a hint steering the model to a browser-based
+//! `web-access` skill if one exists.
 
 use super::{err, ok};
 use async_trait::async_trait;
@@ -33,19 +36,19 @@ fn note_network_unreachable() {}
 /// Which backend `web_search` queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchProvider {
-    /// Exa MCP search (mcp.exa.ai) -- the globally-reachable default.
+    /// Exa MCP search (mcp.exa.ai) -- an AI search vendor, opt-in only.
     Exa,
-    /// Legacy DuckDuckGo HTML scraping.
+    /// DuckDuckGo HTML scraping -- keyless, no account; the default.
     DuckDuckGo,
 }
 
 impl SearchProvider {
-    /// Parse a config string: `"duckduckgo"`/`"ddg"` -> DuckDuckGo; anything else
-    /// (including `"exa"` / empty / unknown) -> Exa, the safe default.
+    /// Parse a config string: `"exa"` -> Exa (opt-in); anything else (including
+    /// `"duckduckgo"`/`"ddg"`, empty, or unknown) -> DuckDuckGo, the keyless default.
     pub fn from_str(s: &str) -> Self {
         match s.trim().to_ascii_lowercase().as_str() {
-            "duckduckgo" | "ddg" => SearchProvider::DuckDuckGo,
-            _ => SearchProvider::Exa,
+            "exa" => SearchProvider::Exa,
+            _ => SearchProvider::DuckDuckGo,
         }
     }
 }
@@ -54,39 +57,45 @@ impl SearchProvider {
 #[derive(Debug, Clone)]
 pub struct WebSearchTool {
     provider: SearchProvider,
-    /// Exa API key -- `None` uses Exa's keyless tier. `Default`/`new` read `EXA_API_KEY`.
+    /// Exa API key -- only used by the opt-in Exa backend (`None` ⇒ keyless tier /
+    /// `EXA_API_KEY` env fallback). Ignored by the default DuckDuckGo backend.
     exa_api_key: Option<String>,
 }
 
 impl Default for WebSearchTool {
     fn default() -> Self {
+        // Keyless, account-free generic search by default; no AI vendor is contacted
+        // unless the user explicitly opts into Exa.
         Self {
-            provider: SearchProvider::Exa,
-            exa_api_key: env_exa_key(),
+            provider: SearchProvider::DuckDuckGo,
+            exa_api_key: None,
         }
     }
 }
 
 impl WebSearchTool {
-    /// Default tool: Exa backend, `EXA_API_KEY` picked up from the environment if set.
+    /// Default tool: the keyless DuckDuckGo backend. Use [`WebSearchTool::exa`] to opt
+    /// into the Exa vendor backend.
     pub fn new() -> Self {
         Self::default()
     }
-    /// Exa backend with an explicit key (`None` ⇒ keyless / `EXA_API_KEY` env fallback).
+    /// Exa (opt-in vendor) backend with an explicit key (`None` ⇒ keyless / `EXA_API_KEY`
+    /// env fallback).
     pub fn exa(api_key: Option<String>) -> Self {
         Self {
             provider: SearchProvider::Exa,
             exa_api_key: api_key.or_else(env_exa_key),
         }
     }
-    /// Legacy DuckDuckGo backend (no key).
+    /// DuckDuckGo backend (keyless); this is the default.
     pub fn duckduckgo() -> Self {
         Self {
             provider: SearchProvider::DuckDuckGo,
             exa_api_key: None,
         }
     }
-    /// Build from a provider string (e.g. from config); Exa for unknown values.
+    /// Build from a provider string (e.g. from config); DuckDuckGo for empty/unknown
+    /// values, Exa only when explicitly requested. `EXA_API_KEY` is picked up for Exa.
     pub fn with_provider(provider: &str) -> Self {
         Self {
             provider: SearchProvider::from_str(provider),
@@ -478,8 +487,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_is_exa() {
-        assert_eq!(WebSearchTool::new().provider, SearchProvider::Exa);
+    fn default_is_keyless_duckduckgo() {
+        // The default must be the keyless, account-free generic engine; Exa is opt-in.
+        assert_eq!(
+            WebSearchTool::new().provider,
+            SearchProvider::DuckDuckGo,
+            "no AI vendor is the default"
+        );
         assert_eq!(
             WebSearchTool::duckduckgo().provider,
             SearchProvider::DuckDuckGo
@@ -489,11 +503,20 @@ mod tests {
             SearchProvider::from_str("DuckDuckGo"),
             SearchProvider::DuckDuckGo
         );
-        assert_eq!(SearchProvider::from_str("exa"), SearchProvider::Exa);
+        assert_eq!(
+            SearchProvider::from_str(""),
+            SearchProvider::DuckDuckGo,
+            "empty -> keyless default"
+        );
+        assert_eq!(
+            SearchProvider::from_str("exa"),
+            SearchProvider::Exa,
+            "Exa only when explicitly selected"
+        );
         assert_eq!(
             SearchProvider::from_str("anything"),
-            SearchProvider::Exa,
-            "unknown -> Exa default"
+            SearchProvider::DuckDuckGo,
+            "unknown -> keyless default"
         );
     }
 

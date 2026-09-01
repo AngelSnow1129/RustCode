@@ -145,18 +145,15 @@ fn resolve_working_dir(cli_dir: Option<PathBuf>) -> PathBuf {
 /// The on-exit "how to resume this session" hint, mirroring codex's
 /// `To continue this session, run ...`. Headless shows the `-p ... --resume <id>`
 /// form (what continues a pipe run); the TUI shows the `resume <id>` subcommand.
-/// Pure so the wording/forms are unit-tested.
-fn resume_hint_line(session_id: &str, headless: bool, zh: bool) -> String {
+/// Wording comes from the i18n layer (resolved locale at exit time).
+fn resume_hint_line(session_id: &str, headless: bool) -> String {
     let cmd = if headless {
         format!("{BIN_NAME} -p \"...\" --resume {session_id}")
     } else {
         format!("{BIN_NAME} resume {session_id}")
     };
-    if zh {
-        format!("继续此会话，运行：{cmd}")
-    } else {
-        format!("To resume this session, run: {cmd}")
-    }
+    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliResumeHint { cmd: &cmd })
+        .into_owned()
 }
 
 /// What session to resume at launch, unified across `--continue`, `--resume`,
@@ -384,22 +381,48 @@ fn build_i18n_command() -> clap::Command {
 
     // Mutate subcommand about texts
 
-    cmd.mut_subcommand("login", |s| s.about(t(Msg::CliAboutLogin).into_owned()))
-        .mut_subcommand("logout", |s| s.about(t(Msg::CliAboutLogout).into_owned()))
-        .mut_subcommand("status", |s| s.about(t(Msg::CliAboutStatus).into_owned()))
-        .mut_subcommand("upgrade", |s| s.about(t(Msg::CliAboutUpgrade).into_owned()))
-        .mut_subcommand("rollback", |s| {
-            s.about(t(Msg::CliAboutRollback).into_owned())
-        })
-        .mut_subcommand("mcp", |s| s.about(t(Msg::CliAboutMcp).into_owned()))
-        .mut_subcommand("daemon", |s| s.about(t(Msg::CliAboutDaemon).into_owned()))
-        .mut_subcommand("webui", |s| s.about(t(Msg::CliAboutWebui).into_owned()))
-        .mut_subcommand("plugin", |s| s.about(t(Msg::CliAboutPlugin).into_owned()))
-        .mut_subcommand("uninstall", |s| {
-            s.about(t(Msg::CliAboutUninstall).into_owned())
-        })
-        .mut_subcommand("setup", |s| s.about(t(Msg::CliAboutSetup).into_owned()))
-        .mut_subcommand("hooks", |s| s.about(t(Msg::CliAboutHooks).into_owned()))
+    // Build-aware: a neutral build has no sign-in service, so `rustcode
+    // login --help` must not pitch the managed flow (running it prints a BYO
+    // fallback). Same predicate as the TUI command gate / daemon /auth/status.
+    // In a neutral build the two subcommands are also hidden from top-level
+    // help and shell completion -- they stay runnable (like the TUI's hidden
+    // commands) but never advertised, so BYO users aren't pitched a dead-end.
+    let managed = auth::managed_login_available();
+    let login_about = if managed {
+        t(Msg::CliAboutLogin).into_owned()
+    } else {
+        t(Msg::CliAboutLoginNeutral).into_owned()
+    };
+    cmd.mut_subcommand("login", move |s| {
+        let s = s.about(login_about);
+        if managed {
+            s
+        } else {
+            s.hide(true)
+        }
+    })
+    .mut_subcommand("logout", move |s| {
+        let s = s.about(t(Msg::CliAboutLogout).into_owned());
+        if managed {
+            s
+        } else {
+            s.hide(true)
+        }
+    })
+    .mut_subcommand("status", |s| s.about(t(Msg::CliAboutStatus).into_owned()))
+    .mut_subcommand("upgrade", |s| s.about(t(Msg::CliAboutUpgrade).into_owned()))
+    .mut_subcommand("rollback", |s| {
+        s.about(t(Msg::CliAboutRollback).into_owned())
+    })
+    .mut_subcommand("mcp", |s| s.about(t(Msg::CliAboutMcp).into_owned()))
+    .mut_subcommand("daemon", |s| s.about(t(Msg::CliAboutDaemon).into_owned()))
+    .mut_subcommand("webui", |s| s.about(t(Msg::CliAboutWebui).into_owned()))
+    .mut_subcommand("plugin", |s| s.about(t(Msg::CliAboutPlugin).into_owned()))
+    .mut_subcommand("uninstall", |s| {
+        s.about(t(Msg::CliAboutUninstall).into_owned())
+    })
+    .mut_subcommand("setup", |s| s.about(t(Msg::CliAboutSetup).into_owned()))
+    .mut_subcommand("hooks", |s| s.about(t(Msg::CliAboutHooks).into_owned()))
 }
 
 /// Body of the detached upgrade-prep worker. One call to
@@ -520,6 +543,7 @@ fn should_try_sync_upgrade() -> bool {
 /// Bounded by a 120s timeout; on timeout/error it just continues (the detached stager
 /// and `/upgrade` remain as fallbacks). Restored verbatim from the pre-31daa6ee path.
 async fn sync_stage_and_apply_if_newer() {
+    use rustcode_config::i18n::{t, Msg};
     use rustcode_updater::{self as self_update, UpgradeEvent};
 
     let current = format!("v{}", env!("CARGO_PKG_VERSION"));
@@ -534,7 +558,7 @@ async fn sync_stage_and_apply_if_newer() {
         while let Some(ev) = rx.recv().await {
             match ev {
                 UpgradeEvent::ManifestFetched { version } => {
-                    eprintln!("[*] New version available: {}", version);
+                    eprintln!("{}", t(Msg::CliUpgradeAvailable { version: &version }));
                 }
                 UpgradeEvent::Downloading { bytes, total } => {
                     let pct = if total == 0 {
@@ -543,18 +567,22 @@ async fn sync_stage_and_apply_if_newer() {
                         ((bytes * 100) / total) as i32
                     };
                     if pct != last_pct {
+                        let mb = format!("{:.1}", bytes as f64 / 1_048_576.0);
+                        let total_mb = format!("{:.1}", total as f64 / 1_048_576.0);
                         eprint!(
-                            "\r   Downloading {}% ({:.1} / {:.1} MB)      ",
-                            pct,
-                            bytes as f64 / 1_048_576.0,
-                            total as f64 / 1_048_576.0
+                            "{}",
+                            t(Msg::CliUpgradeDownloading {
+                                pct,
+                                mb: &mb,
+                                total_mb: &total_mb
+                            })
                         );
                         let _ = std::io::stderr().flush();
                         last_pct = pct;
                     }
                 }
                 UpgradeEvent::Verifying => {
-                    eprintln!("\n[+] Verifying sha256");
+                    eprintln!("{}", t(Msg::CliUpgradeVerifying));
                 }
                 _ => {}
             }
@@ -577,15 +605,22 @@ async fn sync_stage_and_apply_if_newer() {
             // binary on this same invocation.
             match self_update::apply_pending_upgrade() {
                 Ok(Some(applied)) => {
-                    eprintln!("[+] Upgrading to {}...", applied.version);
+                    eprintln!(
+                        "{}",
+                        t(Msg::CliUpgradeApplying {
+                            version: &applied.version
+                        })
+                    );
                     // Save the CURRENT version (before upgrade) so TUI can show "Upgraded old -> new"
                     std::env::set_var(UPGRADED_FROM_ENV, &current);
                     match self_update::re_exec_self(Some(&applied.exe)) {
                         Ok(_infallible) => unreachable!("re_exec_self returned Ok"),
                         Err(e) => {
                             eprintln!(
-                                "Upgrade applied but re-exec failed ({}). The new version will be used on the next launch.",
-                                e
+                                "{}",
+                                t(Msg::CliUpgradeReexecFailed {
+                                    error: &e.to_string()
+                                })
                             );
                             std::env::remove_var(UPGRADED_FROM_ENV);
                         }
@@ -602,7 +637,7 @@ async fn sync_stage_and_apply_if_newer() {
         Ok(Err(_)) | Err(_) => {
             // Network error or 120 s timeout. Don't spam the user --
             // `/upgrade` will surface the real error if they ask.
-            eprintln!("Note: could not check for updates at startup (will retry in background).");
+            eprintln!("{}", t(Msg::CliUpgradeCheckFailed));
         }
     }
 }
@@ -793,13 +828,13 @@ enum HeadlessOutputFormat {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Sign in with OAuth and claim CodingPlan models in one
-    /// flow: OAuth (if needed) -> claim -> fetch models -> register
-    /// providers -> fetch status. Reports each step and exits.
+    /// Managed sign-in (distribution builds only); hidden in open builds,
+    /// where running it prints the bring-your-own-key provider notice.
     Login,
-    /// Logout from RustCode
+    /// Sign out of the managed account (distribution builds only); hidden
+    /// in open builds, where it is a safe no-op.
     Logout,
-    /// Show current login status
+    /// Show current provider and sign-in status
     Status,
     /// Resume a session by id or name (launches the TUI on it). With no
     /// argument, resumes the most recent session. Add `-p "<prompt>"` to run
@@ -982,7 +1017,12 @@ fn is_completion_invocation(args: impl IntoIterator<Item = std::ffi::OsString>) 
 }
 
 fn completion_command() -> clap::Command {
-    let source = Cli::command();
+    // Source from the i18n-built command, not the raw derive: this is where the
+    // neutral build hides the managed-only `login`/`logout` subcommands
+    // (and sets localized abouts), so shell completion must mirror the same
+    // visibility filter as `rustcode --help` -- a hidden command is one the
+    // completion script must not advertise.
+    let source = build_i18n_command();
     let visible_subcommands = source
         .get_subcommands()
         .filter(|command| !command.is_hide_set())
@@ -1212,11 +1252,11 @@ async fn async_main() {
             let actual_out_cp = GetConsoleOutputCP();
             if actual_cp != CP_UTF8 || actual_out_cp != CP_UTF8 {
                 let _ = eprintln!(
-                    "\n[!]  Console code pages -- input: {} (expected 65001/UTF-8), output: {}.\n\
-                       Chinese/Japanese/Korean IME input/output may show garbled text.\n\
-                       -> Use Windows Terminal for native UTF-8 support.\n\
-                       -> Or enable Beta: Use Unicode UTF-8 in Region settings.\n",
-                    actual_cp, actual_out_cp,
+                    "{}",
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliWindowsCodePage {
+                        input: actual_cp,
+                        output: actual_out_cp,
+                    })
                 );
             }
         }
@@ -1244,7 +1284,10 @@ async fn async_main() {
     let is_backup = is_running_as_backup();
     let dev_mode = is_dev_mode();
     if dev_mode {
-        eprintln!("[dev] auto-update disabled");
+        eprintln!(
+            "{}",
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliUpgradeDevDisabled)
+        );
     }
 
     // Bootstrap: if a prior session staged an upgrade, apply it NOW -- before
@@ -1260,7 +1303,12 @@ async fn async_main() {
         let current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
         match rustcode_updater::apply_pending_upgrade() {
             Ok(Some(applied)) => {
-                eprintln!("[+] Upgrading to {}...", applied.version);
+                eprintln!(
+                    "{}",
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliUpgradeApplying {
+                        version: &applied.version
+                    })
+                );
                 // Pass the CURRENT version (before upgrade) to the re-exec'd child so the TUI
                 // can surface a welcome-screen confirmation exactly once.
                 std::env::set_var(UPGRADED_FROM_ENV, &current_version);
@@ -1268,9 +1316,13 @@ async fn async_main() {
                     Ok(_infallible) => unreachable!("re_exec_self returned Ok"),
                     Err(e) => {
                         eprintln!(
-                        "Upgrade applied but re-exec failed ({}). The new version will be used on the next launch.",
-                        e
-                    );
+                            "{}",
+                            rustcode_config::i18n::t(
+                                rustcode_config::i18n::Msg::CliUpgradeReexecFailed {
+                                    error: &e.to_string()
+                                }
+                            )
+                        );
                         std::env::remove_var(UPGRADED_FROM_ENV);
                         std::process::exit(1);
                     }
@@ -1292,7 +1344,12 @@ async fn async_main() {
                 }
             }
             Err(e) => {
-                eprintln!("Note: pending upgrade could not be applied ({}). Continuing with current version.", e);
+                eprintln!(
+                    "{}",
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliUpgradeApplyFailed {
+                        error: &e.to_string()
+                    })
+                );
             }
         }
         tracing::info!(
@@ -1312,7 +1369,12 @@ async fn async_main() {
         Ok(code) => std::process::exit(code),
         Err(e) => {
             restore_terminal_if_tui();
-            eprintln!("\nRustCode error: {:#}", e);
+            eprintln!(
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliFatalError {
+                    error: &format!("{e:#}")
+                })
+            );
             std::process::exit(1);
         }
     }
@@ -1464,10 +1526,18 @@ async fn run() -> Result<i32> {
                         print!("{}", report);
                     }
                     Err(e) => {
-                        eprintln!("login setup failed: {:#}", e);
+                        eprintln!(
+                            "{}",
+                            rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliLoginSetupFailed {
+                                error: &format!("{e:#}")
+                            })
+                        );
                     }
                 }
-                println!("\n  Starting RustCode...\n");
+                println!(
+                    "{}",
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliStartingAfterLogin)
+                );
                 HEADLESS_MODE.store(false, Ordering::Relaxed);
                 // Fall through to TUI startup below
             }
@@ -1477,8 +1547,16 @@ async fn run() -> Result<i32> {
                 idle_timeout,
             } => {
                 HEADLESS_MODE.store(true, Ordering::Relaxed);
-                eprintln!("Starting RustCode daemon on port {}...", port);
-                eprintln!("Press Ctrl+C to stop.");
+                eprintln!(
+                    "{}",
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliDaemonStarting {
+                        port
+                    })
+                );
+                eprintln!(
+                    "{}",
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliDaemonStopHint)
+                );
                 // Run the bundled server IN-PROCESS (same `run_server` the webui uses),
                 // instead of re-exec'ing into a separate `rustcode-daemon` binary that
                 // may not be installed. This is an equivalent daemon entrypoint to the
@@ -1518,7 +1596,12 @@ async fn run() -> Result<i32> {
                 })
                 .await;
                 if let Err(e) = res {
-                    eprintln!("Fatal: daemon server error: {e:#}");
+                    eprintln!(
+                        "{}",
+                        rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliDaemonFatal {
+                            error: &format!("{e:#}")
+                        })
+                    );
                     return Ok(1);
                 }
                 return Ok(0);
@@ -1529,7 +1612,7 @@ async fn run() -> Result<i32> {
                 // assets every page would be a 404, and the cause is a build
                 // step, not anything the running server can recover from.
                 if !rustcode_daemon::webui::is_built() {
-                    eprint!("{}", rustcode_daemon::webui::NOT_BUILT_HELP);
+                    eprint!("{}", rustcode_daemon::webui::not_built_help());
                     return Ok(1);
                 }
                 let msg = rustcode_daemon::ensure_server_and_open(&host, port, false).await;
@@ -1764,17 +1847,29 @@ async fn run() -> Result<i32> {
         rustcode_config::config::SeedOutcome::Seeded => {
             if let Some(src) = seed_source.as_deref() {
                 eprintln!(
-                    "[seed] initialized {} from {}",
-                    config_path.display(),
-                    src.display()
+                    "[seed] {}",
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliSeedInitialized {
+                        path: &config_path.display().to_string(),
+                        source: &src.display().to_string(),
+                    })
                 );
             }
         }
         rustcode_config::config::SeedOutcome::Invalid(e) => {
-            eprintln!("Warning: --seed-config ignored (not a valid config): {e}");
+            eprintln!(
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliSeedInvalid {
+                    error: &e.to_string(),
+                })
+            );
         }
         rustcode_config::config::SeedOutcome::IoError(e) => {
-            eprintln!("Warning: --seed-config could not be applied: {e}");
+            eprintln!(
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliSeedIoError {
+                    error: &e.to_string(),
+                })
+            );
         }
         // AlreadyConfigured / NoSource -> nothing to do, stay quiet.
         _ => {}
@@ -1790,20 +1885,25 @@ async fn run() -> Result<i32> {
                     .map(|warning| format!("  - {warning}"))
                     .collect::<Vec<_>>()
                     .join("\n");
-                let notice = format!(
-                    "Some provider sections in {} could not be loaded:\n{}",
-                    config_path.display(),
-                    warning_list
-                );
-                eprintln!("Warning: {notice}");
+                let notice = rustcode_config::i18n::t(
+                    rustcode_config::i18n::Msg::CliConfigLoadWarnings {
+                        path: &config_path.display().to_string(),
+                        warnings: &warning_list,
+                    },
+                )
+                .into_owned();
+                eprintln!("{notice}");
                 (config, Some(notice))
             }
             Err(error) => {
-                let notice = format!(
-                    "Failed to load {} ({error}); using default configuration.",
-                    config_path.display()
-                );
-                eprintln!("Warning: {notice}");
+                let notice = rustcode_config::i18n::t(
+                    rustcode_config::i18n::Msg::CliConfigLoadFailed {
+                        path: &config_path.display().to_string(),
+                        error: &error.to_string(),
+                    },
+                )
+                .into_owned();
+                eprintln!("{notice}");
                 (Config::default(), Some(notice))
             }
         }
@@ -1870,8 +1970,10 @@ async fn run() -> Result<i32> {
             match resolve_in_catalog(&catalog, sel) {
                 Some(id) => Some(id),
                 None => anyhow::bail!(
-                    "no session matches id or name {sel:?} in this project -- run `{} resume` to list, or check the working directory (-C)",
-                    BIN_NAME
+                    "{}",
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliResumeNoMatch {
+                        selector: &format!("{sel:?}"),
+                    })
                 ),
             }
         }
@@ -2018,9 +2120,13 @@ async fn run() -> Result<i32> {
             Ok(s) => Some(s),
             Err(e) => {
                 eprintln!(
-                    "error: failed to read --prompt-file {}: {}",
-                    path.display(),
-                    e
+                    "{}",
+                    rustcode_config::i18n::t(
+                        rustcode_config::i18n::Msg::CliPromptFileReadFailed {
+                            path: &path.display().to_string(),
+                            error: &e.to_string(),
+                        }
+                    )
                 );
                 std::process::exit(2);
             }
@@ -2037,15 +2143,6 @@ async fn run() -> Result<i32> {
     // mode: Headless when a prompt is supplied (-p / --prompt-file);
     //       Tui when the user launches the interactive terminal UI.
     let result = async {
-        // Language for the on-exit resume hint (mirrors the resolved UI locale).
-        let hint_zh = cli
-            .lang
-            .as_deref()
-            .map(|l| l.starts_with("zh"))
-            .unwrap_or(matches!(
-                config.language,
-                Some(rustcode_config::locale::Locale::ZhCn)
-            ));
         // Headless mode: -p / --prompt-file triggers non-interactive execution.
         let exit_code = if let Some(prompt) = effective_prompt {
             let verbose = cli.verbose || force_verbose;
@@ -2080,7 +2177,7 @@ async fn run() -> Result<i32> {
             // Codex-style discovery hint on STDERR so the piped stdout stays the
             // clean assistant reply. Skipped for ephemeral runs (no session id).
             if let Some(id) = &active_session_id {
-                eprintln!("\n{}", resume_hint_line(id, true, hint_zh));
+                eprintln!("\n{}", resume_hint_line(id, true));
             }
             result
         } else {
@@ -2161,7 +2258,7 @@ async fn run() -> Result<i32> {
             // Codex-style resume hint to STDOUT, after the TUI restored the
             // terminal, so `rustcode resume <id>` is discoverable on exit.
             if let Some(id) = &active_session_id {
-                println!("\n{}", resume_hint_line(id, false, hint_zh));
+                println!("\n{}", resume_hint_line(id, false));
             }
             tui_result
         };
@@ -2498,18 +2595,21 @@ pub(crate) fn headless_missing_provider_message(
         return None;
     }
     let path = rustcode_config::config::Config::default_path();
+    let path = path.display().to_string();
     Some(match requested {
-        Some(name) => format!(
-            "Provider not found: '{name}' matches no configured provider and no default provider is set. \
-             Configure a third-party provider (base_url, api_key, model) in {}, or run `rustcode` with \
-             no arguments for interactive setup.",
-            path.display()
-        ),
-        None => format!(
-            "No provider configured. Add a third-party provider (base_url, api_key, model) in {}, \
-             or run `rustcode` with no arguments for interactive setup.",
-            path.display()
-        ),
+        Some(name) => rustcode_config::i18n::t(
+            rustcode_config::i18n::Msg::CliHeadlessNoProviderNamed {
+                name,
+                path: &path,
+            },
+        )
+        .into_owned(),
+        None => {
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliHeadlessNoProvider {
+                path: &path,
+            })
+            .into_owned()
+        }
     })
 }
 
@@ -2695,6 +2795,7 @@ pub(crate) async fn run_native_headless(
 ) -> Result<(i32, Option<String>)> {
     use rustcode_capabilities::tools::{ApprovalRequest, ApprovalResponse, APPROVAL_KIND};
     use rustcode_coding::{CodingRuntimeEvent, TurnCompletion, UserInput};
+    use rustcode_config::i18n::{t, Msg};
     use rustcode_kernel::event::{AgentEvent as KernelEvent, StopReason};
 
     HEADLESS_MODE.store(true, Ordering::Relaxed);
@@ -2951,7 +3052,13 @@ pub(crate) async fn run_native_headless(
                     })?;
                 } else {
                     eprintln!(
-                        "API error {reason}，{backoff_secs} 秒后重试({attempt}/{max_attempts})..."
+                        "{}",
+                        t(Msg::CliHeadlessProviderRetry {
+                            reason: &reason,
+                            backoff_secs,
+                            attempt,
+                            max_attempts,
+                        })
                     );
                 }
             }
@@ -2981,13 +3088,15 @@ pub(crate) async fn run_native_headless(
                     })?;
                     continue;
                 }
-                let is_coding_plan = !reset_at_display.is_empty() || !reset_label.is_empty();
+                let is_quota_window = !reset_at_display.is_empty() || !reset_label.is_empty();
                 if auto_resuming {
                     eprintln!(
-                        "[rate-limited] auto-continuing in {}s...",
-                        secs_until_reset.unwrap_or(0)
+                        "[rate-limited] {}",
+                        t(Msg::CliHeadlessRateAutoResume {
+                            secs: secs_until_reset.unwrap_or(0),
+                        })
                     );
-                } else if !is_coding_plan {
+                } else if !is_quota_window {
                     let reason = match server_message.as_deref() {
                         Some(message) if !message.trim().is_empty() => {
                             format!(" -- {}", message.trim())
@@ -2996,22 +3105,31 @@ pub(crate) async fn run_native_headless(
                     };
                     match secs_until_reset {
                         Some(seconds) => eprintln!(
-                            "[rate-limited] HTTP 429{reason} -- retry later (in {seconds}s)"
+                            "[rate-limited] {}",
+                            t(Msg::CliHeadlessRateRetry {
+                                reason: &reason,
+                                secs: seconds,
+                            })
                         ),
-                        None => {
-                            eprintln!("[rate-limited] HTTP 429{reason} -- paused, retry later")
-                        }
+                        None => eprintln!(
+                            "[rate-limited] {}",
+                            t(Msg::CliHeadlessRatePaused { reason: &reason })
+                        ),
                     }
                 } else if !reset_at_display.is_empty() {
                     eprintln!(
-                        "[rate-limited] 5h window exhausted -- resets around {reset_at_display}"
+                        "[rate-limited] {}",
+                        t(Msg::CliHeadlessRateWindowResetAt {
+                            reset_at: &reset_at_display,
+                        })
                     );
                 } else if let Some(seconds) = secs_until_reset {
                     eprintln!(
-                        "[rate-limited] 5h window exhausted -- resets in {seconds}s, retry later"
+                        "[rate-limited] {}",
+                        t(Msg::CliHeadlessRateWindowSecs { secs: seconds })
                     );
                 } else {
-                    eprintln!("[rate-limited] 5h window exhausted -- paused, retry later");
+                    eprintln!("[rate-limited] {}", t(Msg::CliHeadlessRateWindowPaused));
                 }
             }
             CodingRuntimeEvent::Request(request) => {
@@ -3024,13 +3142,20 @@ pub(crate) async fn run_native_headless(
                                 skip_permissions,
                                 &approval.tool,
                             ) {
-                                eprintln!("[headless] auto-approved {}", approval.tool);
+                                eprintln!(
+                                    "[headless] {}",
+                                    t(Msg::CliHeadlessAutoApproved {
+                                        tool: &approval.tool,
+                                    })
+                                );
                                 ApprovalResponse::allow()
                             } else {
                                 had_denial = true;
                                 eprintln!(
-                                    "[denied] {} requires interactive approval",
-                                    approval.tool
+                                    "[denied] {}",
+                                    t(Msg::CliHeadlessDenied {
+                                        tool: &approval.tool,
+                                    })
                                 );
                                 ApprovalResponse::deny()
                             }
@@ -3161,7 +3286,12 @@ fn run_setup_command(force: bool) -> i32 {
     let project_root = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("setup error: cannot read current directory: {e}");
+            eprintln!(
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliSetupCwdError {
+                    error: &e.to_string(),
+                })
+            );
             return 1;
         }
     };
@@ -3174,7 +3304,12 @@ fn run_setup_command(force: bool) -> i32 {
             0
         }
         Err(e) => {
-            eprintln!("setup error: {e}");
+            eprintln!(
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliSetupFailed {
+                    error: &e.to_string(),
+                })
+            );
             1
         }
     }
@@ -3202,25 +3337,32 @@ async fn handle_command(cmd: Commands) -> Result<()> {
         }
         Commands::Logout => {
             auth::logout()?;
-            println!("  You have been logged out.");
+            println!(
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliLoggedOut)
+            );
             Ok(())
         }
         Commands::Status => {
+            use rustcode_config::i18n::{t, Msg};
             if let Some(auth) = auth::get_stored_auth() {
                 println!(
-                    "\n  Logged in as: {} ({})",
-                    auth.user.username, auth.user.id
+                    "{}",
+                    t(Msg::CliStatusLoggedIn {
+                        username: &auth.user.username,
+                        id: &auth.user.id,
+                    })
                 );
                 if let Some(name) = auth.user.name {
-                    println!("  Name: {}", name);
+                    println!("{}", t(Msg::CliStatusName { name: &name }));
                 }
                 if let Some(email) = auth.user.email {
-                    println!("  Email: {}", email);
+                    println!("{}", t(Msg::CliStatusEmail { email: &email }));
                 }
-                println!("  Auth file: {}\n", auth::auth_file_path().display());
+                let path = auth::auth_file_path().display().to_string();
+                println!("{}", t(Msg::CliStatusAuthFile { path: &path }));
             } else {
-                println!("\n  Not logged in.");
-                println!("  Run 'rustcode login' to authenticate.\n");
+                print_status_auth_hint();
             }
             Ok(())
         }
@@ -3271,11 +3413,13 @@ async fn handle_command(cmd: Commands) -> Result<()> {
             let args: Vec<String> = command.into_iter().skip(1).collect();
             merge_stdio_mcp_server_into_json_file(&path, &name, &program, &args)?;
             println!(
-                "  Added MCP server {:?} -> {} (stdio: {} + {} arg(s))",
-                name,
-                path.display(),
-                program,
-                args.len()
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliMcpAdded {
+                    name: &format!("{name:?}"),
+                    path: &path.display().to_string(),
+                    program: &program,
+                    args: args.len(),
+                })
             );
             Ok(())
         }
@@ -3293,9 +3437,11 @@ async fn handle_command(cmd: Commands) -> Result<()> {
                 "github",
             )?;
             println!(
-                "  Added GitHub OAuth MCP server {:?} -> {}",
-                name,
-                path.display()
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliMcpAddedGithub {
+                    name: &format!("{name:?}"),
+                    path: &path.display().to_string(),
+                })
             );
             Ok(())
         }
@@ -3310,7 +3456,14 @@ async fn handle_command(cmd: Commands) -> Result<()> {
             let server = configs
                 .into_iter()
                 .find(|config| config.name == name)
-                .ok_or_else(|| anyhow::anyhow!("MCP server {:?} not found in config", name))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{}",
+                        rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliMcpServerNotFound {
+                            name: &format!("{name:?}"),
+                        })
+                    )
+                })?;
             let is_github_server = matches!(
                 &server.config,
                 McpTransportConfig::Http {
@@ -3334,19 +3487,32 @@ async fn handle_command(cmd: Commands) -> Result<()> {
                 },
             )?;
             println!(
-                "  Saved {} OAuth token for MCP server {:?} with {} scope(s)",
-                token.provider,
-                name,
-                token.scopes.len()
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliMcpLoginSaved {
+                    provider: &token.provider,
+                    name: &format!("{name:?}"),
+                    scopes: token.scopes.len(),
+                })
             );
             Ok(())
         }
         Commands::Mcp(McpCli::Logout { name }) => {
             let removed = McpTokenStore::default().delete_token(&name)?;
+            let name_dbg = format!("{name:?}");
             if removed {
-                println!("  Removed saved OAuth token for MCP server {:?}", name);
+                println!(
+                    "{}",
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliMcpLogoutRemoved {
+                        name: &name_dbg,
+                    })
+                );
             } else {
-                println!("  No saved OAuth token found for MCP server {:?}", name);
+                println!(
+                    "{}",
+                    rustcode_config::i18n::t(
+                        rustcode_config::i18n::Msg::CliMcpLogoutNotFound { name: &name_dbg }
+                    )
+                );
             }
             Ok(())
         }
@@ -3376,6 +3542,7 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
     use rustcode_capabilities::cc_hooks::{
         global_hooks_path, load_hooks_config, project_hooks_path, run_hook_for_test, HookEvent,
     };
+    use rustcode_config::i18n::{t, Msg};
     HEADLESS_MODE.store(true, Ordering::Relaxed);
 
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -3402,36 +3569,56 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
         match global_hooks_path() {
             Some(g) => {
                 let mark = if g.exists() { "[+]" } else { "[x]" };
-                println!("  {} Global:   {}", mark, g.display());
+                println!(
+                    "  {} {}",
+                    mark,
+                    t(Msg::CliHooksPathGlobal {
+                        path: &g.display().to_string()
+                    })
+                );
             }
-            None => println!("  [x] Global:   (no home directory)"),
+            None => println!("  [x] {}", t(Msg::CliHooksPathNoHome)),
         }
         let p = if project_hooks.exists() { "[+]" } else { "[x]" };
-        println!("  {} Project:  {}", p, project_hooks.display());
+        println!(
+            "  {} {}",
+            p,
+            t(Msg::CliHooksPathProject {
+                path: &project_hooks.display().to_string()
+            })
+        );
     };
 
     match cmd {
         HookCommands::List => {
             let hooks = load_hooks_config(&cwd);
-            println!("\nLoaded Hooks:");
+            println!("{}", t(Msg::CliHooksLoadedHeader));
             println!("─────────────────────────────────────────────");
             if hooks.is_empty() {
-                println!("  (No hooks loaded)");
+                println!("{}", t(Msg::CliHooksNone));
             } else {
                 let mut by_event: std::collections::BTreeMap<&str, usize> =
                     std::collections::BTreeMap::new();
                 for h in &hooks {
                     *by_event.entry(event_name(h.event)).or_insert(0) += 1;
                 }
-                println!("  {:<20} {:>5}", "Event", "Count");
+                println!(
+                    "  {:<20} {:>5}",
+                    t(Msg::CliHooksTableEvent),
+                    t(Msg::CliHooksTableCount)
+                );
                 println!("  {:<20} {:>5}", "─".repeat(20), "─".repeat(5));
                 for (ev, n) in &by_event {
                     println!("  {:<20} {:>5}", ev, n);
                 }
                 println!("  {:<20} {:>5}", "─".repeat(20), "─".repeat(5));
-                println!("  {:<20} {:>5}", "Total", hooks.len());
+                println!(
+                    "  {:<20} {:>5}",
+                    t(Msg::CliHooksTableTotal),
+                    hooks.len()
+                );
             }
-            println!("\nHook Config Files:");
+            println!("{}", t(Msg::CliHooksConfigFiles));
             println!("─────────────────────────────────────────────");
             print_paths();
             println!();
@@ -3442,14 +3629,15 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
                     .filter(|s| !s.trusted)
                     .collect();
             if !untrusted.is_empty() {
-                println!("Untrusted plugin hooks (not loaded):");
+                println!("{}", t(Msg::CliHooksUntrustedHeader));
                 for s in &untrusted {
                     println!(
-                        "  {} -- {} hook(s) [{}] . run: rustcode plugin trust {}",
-                        s.plugin,
-                        s.hook_count,
-                        s.events.join(", "),
-                        s.plugin
+                        "{}",
+                        t(Msg::CliHooksUntrustedRow {
+                            plugin: &s.plugin,
+                            count: s.hook_count,
+                            events: &s.events.join(", "),
+                        })
                     );
                 }
                 println!();
@@ -3464,22 +3652,37 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
             });
             match found {
                 None => {
-                    println!("[x] No hook matching '{}' found.", name);
+                    println!("{}", t(Msg::CliHooksTestNotFound { name: &name }));
                     if hooks.is_empty() {
-                        println!("\n  (No hooks loaded. Check hooks.json / .hooks.json.)");
+                        println!("{}", t(Msg::CliHooksTestNoneLoaded));
                     } else {
-                        println!("\nAvailable hooks (test by event name or a command substring):");
+                        println!("{}", t(Msg::CliHooksTestAvailable));
                         for h in &hooks {
                             println!("  [-] {:<16} {}", event_name(h.event), h.command);
                         }
                     }
                 }
                 Some(hook) => {
-                    println!("\n[*] Testing Hook ({})", event_name(hook.event));
-                    println!("  Command:   {}", hook.command);
-                    println!("  Timeout:   {} ms", hook.timeout_ms);
+                    println!(
+                        "{}",
+                        t(Msg::CliHooksTesting {
+                            event: event_name(hook.event)
+                        })
+                    );
+                    println!(
+                        "{}",
+                        t(Msg::CliHooksFieldCommand {
+                            command: &hook.command
+                        })
+                    );
+                    println!(
+                        "{}",
+                        t(Msg::CliHooksFieldTimeout {
+                            ms: hook.timeout_ms
+                        })
+                    );
                     if let Some(ref m) = hook.matcher {
-                        println!("  Matcher:   {}", m);
+                        println!("{}", t(Msg::CliHooksFieldMatcher { matcher: m }));
                     }
                     println!();
                     // CC stdin payload -- event-shaped to MATCH what the live runtime pipes
@@ -3524,21 +3727,35 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
                     let start = std::time::Instant::now();
                     match run_hook_for_test(hook, &payload).await {
                         Some(out) => {
-                            println!("[+] Result:");
-                            println!("  Duration:  {:?}", start.elapsed());
+                            println!("{}", t(Msg::CliHooksResultHeader));
+                            println!(
+                                "{}",
+                                t(Msg::CliHooksDuration {
+                                    duration: &format!("{:?}", start.elapsed())
+                                })
+                            );
                             // CC exit-code contract: 0 = ok, 2 = DELIBERATE block (not a
                             // failure), other/signal = the hook broke.
-                            let (label, detail) = match out.exit_code {
-                                Some(0) => ("[+] SUCCESS", "exit code 0".to_string()),
-                                Some(2) => (
-                                    "[!] BLOCK",
-                                    "exit code 2 -- hook requested a block (CC contract)"
-                                        .to_string(),
-                                ),
-                                Some(c) => ("[x] FAILURE", format!("exit code {}", c)),
-                                None => ("[x] FAILURE", "terminated by signal".to_string()),
+                            let label: &str = match out.exit_code {
+                                Some(0) => "[+] SUCCESS",
+                                Some(2) => "[!] BLOCK",
+                                Some(_) | None => "[x] FAILURE",
                             };
-                            println!("  Status:    {} ({})", label, detail);
+                            let detail = match out.exit_code {
+                                Some(0) => t(Msg::CliHooksStatusSuccess).into_owned(),
+                                Some(2) => t(Msg::CliHooksStatusBlock).into_owned(),
+                                Some(c) => {
+                                    t(Msg::CliHooksStatusExitCode { code: c }).into_owned()
+                                }
+                                None => t(Msg::CliHooksStatusSignal).into_owned(),
+                            };
+                            println!(
+                                "{}",
+                                t(Msg::CliHooksFieldStatus {
+                                    label,
+                                    detail: &detail
+                                })
+                            );
                             if !out.stdout.is_empty() {
                                 println!("  ── stdout ──");
                                 for l in out.stdout.trim_end().lines() {
@@ -3553,10 +3770,12 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
                             }
                         }
                         None => {
-                            println!("[+] Result:");
+                            println!("{}", t(Msg::CliHooksResultHeader));
                             println!(
-                                "  [x] Hook did not complete: it timed out (>{} ms) or failed to spawn.",
-                                hook.timeout_ms
+                                "{}",
+                                t(Msg::CliHooksDidNotComplete {
+                                    ms: hook.timeout_ms
+                                })
                             );
                         }
                     }
@@ -3565,12 +3784,12 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
             Ok(())
         }
         HookCommands::Paths => {
-            println!("\nHook Configuration Files:");
+            println!("{}", t(Msg::CliHooksPathsHeader));
             println!("─────────────────────────────────────────────");
             print_paths();
-            println!("\nDocumentation:");
+            println!("{}", t(Msg::CliHooksDocsHeader));
             println!("─────────────────────────────────────────────");
-            println!("  docs/hooks.md - Hook usage guide");
+            println!("{}", t(Msg::CliHooksDocsEntry));
             println!();
             Ok(())
         }
@@ -3582,46 +3801,57 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
 /// CLI installs and TUI installs share state under `$RUSTCODE_HOME/plugins/`.
 fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
     use rustcode_capabilities::plugin::{installer, marketplace};
+    use rustcode_config::i18n::{t, Msg};
+    /// `{prefix}: {error}` with the localized anyhow context prefix.
+    fn ctx(prefix: &str, e: impl std::fmt::Display) -> anyhow::Error {
+        anyhow::anyhow!("{prefix}: {e:#}")
+    }
     match sub {
         PluginCli::Marketplace(MarketplaceCli::Add { url }) => {
             let info = marketplace::add_marketplace(&url)
-                .map_err(|e| anyhow::anyhow!("add marketplace: {:#}", e))?;
+                .map_err(|e| ctx(&t(Msg::CliPluginErrAddMp), e))?;
             println!(
-                "  marketplace `{}` added at {} ({} plugins)",
-                info.name,
-                &info.git_commit[..7.min(info.git_commit.len())],
-                info.plugins.len()
+                "{}",
+                t(Msg::CliPluginMpAdded {
+                    name: &info.name,
+                    commit: &info.git_commit[..7.min(info.git_commit.len())],
+                    plugins: info.plugins.len(),
+                })
             );
             Ok(())
         }
         PluginCli::Marketplace(MarketplaceCli::Remove { name }) => {
             marketplace::remove_marketplace(&name)
-                .map_err(|e| anyhow::anyhow!("remove marketplace: {:#}", e))?;
-            println!("  marketplace `{}` removed", name);
+                .map_err(|e| ctx(&t(Msg::CliPluginErrRemoveMp), e))?;
+            println!("{}", t(Msg::CliPluginMpRemoved { name: &name }));
             Ok(())
         }
         PluginCli::Marketplace(MarketplaceCli::Update { name }) => {
             let info = marketplace::update_marketplace(&name)
-                .map_err(|e| anyhow::anyhow!("update marketplace: {:#}", e))?;
+                .map_err(|e| ctx(&t(Msg::CliPluginErrUpdateMp), e))?;
             println!(
-                "  marketplace `{}` updated to {}",
-                info.name,
-                &info.git_commit[..7.min(info.git_commit.len())]
+                "{}",
+                t(Msg::CliPluginMpUpdated {
+                    name: &info.name,
+                    commit: &info.git_commit[..7.min(info.git_commit.len())],
+                })
             );
             Ok(())
         }
         PluginCli::Marketplace(MarketplaceCli::List) => {
             let items = marketplace::list_marketplaces()?;
             if items.is_empty() {
-                println!("  no marketplaces registered");
+                println!("{}", t(Msg::CliPluginMpNone));
             } else {
                 for m in items {
                     println!(
-                        "  {}  {}  {}  ({} plugins)",
-                        m.name,
-                        m.source,
-                        &m.git_commit[..7.min(m.git_commit.len())],
-                        m.plugins.len()
+                        "{}",
+                        t(Msg::CliPluginMpRow {
+                            name: &m.name,
+                            source: &m.source,
+                            commit: &m.git_commit[..7.min(m.git_commit.len())],
+                            plugins: m.plugins.len(),
+                        })
                     );
                 }
             }
@@ -3639,13 +3869,19 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                         &mp,
                         rustcode_capabilities::plugin::InstallScope::User,
                     )
-                    .map_err(|e| anyhow::anyhow!("install: {:#}", e))?;
-                    println!("  installed `{}@{}`", info.plugin, info.marketplace);
+                    .map_err(|e| ctx(&t(Msg::CliPluginErrInstall), e))?;
+                    println!(
+                        "{}",
+                        t(Msg::CliPluginInstalled {
+                            plugin: &info.plugin,
+                            marketplace: &info.marketplace,
+                        })
+                    );
                     installed_plugin_name = info.plugin;
                 }
                 PluginSpec::Bare { plugin } => {
                     match installer::resolve_plugin_marketplace(&plugin)
-                        .map_err(|e| anyhow::anyhow!("resolve: {:#}", e))?
+                        .map_err(|e| ctx(&t(Msg::CliPluginErrResolve), e))?
                     {
                         matches if matches.len() == 1 => {
                             let m = &matches[0];
@@ -3656,25 +3892,35 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                                 &mp,
                                 rustcode_capabilities::plugin::InstallScope::User,
                             )
-                            .map_err(|e| anyhow::anyhow!("install: {:#}", e))?;
-                            println!("  installed `{}@{}`", info.plugin, info.marketplace);
+                            .map_err(|e| ctx(&t(Msg::CliPluginErrInstall), e))?;
+                            println!(
+                                "{}",
+                                t(Msg::CliPluginInstalled {
+                                    plugin: &info.plugin,
+                                    marketplace: &info.marketplace,
+                                })
+                            );
                             installed_plugin_name = info.plugin;
                         }
                         matches if matches.len() > 1 => {
-                            let mut msg = format!(
-                                "plugin `{}` found in multiple marketplaces, please specify:\n",
-                                plugin
-                            );
+                            let mut list = String::new();
                             for m in &matches {
-                                msg.push_str(&format!(
+                                list.push_str(&format!(
                                     "  rustcode plugin install {}@{}\n",
                                     m.plugin, m.marketplace
                                 ));
                             }
-                            anyhow::bail!(msg.trim().to_string());
+                            anyhow::bail!(
+                                "{}",
+                                t(Msg::CliPluginInstallAmbiguous {
+                                    plugin: &plugin,
+                                    list: &list,
+                                })
+                                .trim_end()
+                            );
                         }
                         _ => {
-                            anyhow::bail!("plugin `{}` not found in any marketplace", plugin);
+                            anyhow::bail!("{}", t(Msg::CliPluginNotFound { plugin: &plugin }));
                         }
                     }
                 }
@@ -3686,8 +3932,12 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
             for s in rustcode_capabilities::plugin::installed_plugin_hook_trust_status() {
                 if !s.trusted && s.plugin == installed_plugin_name {
                     println!(
-                        "Plugin `{}` ships {} hook(s) on [{}]. They will NOT run until trusted:\n  rustcode plugin trust {}",
-                        s.plugin, s.hook_count, s.events.join(", "), s.plugin
+                        "{}",
+                        t(Msg::CliPluginUntrustedNotice {
+                            plugin: &s.plugin,
+                            count: s.hook_count,
+                            events: &s.events.join(", "),
+                        })
                     );
                 }
             }
@@ -3704,8 +3954,14 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                         &mp,
                         rustcode_capabilities::plugin::InstallScope::User,
                     )
-                    .map_err(|e| anyhow::anyhow!("uninstall: {:#}", e))?;
-                    println!("  uninstalled `{}@{}`", plugin, mp);
+                    .map_err(|e| ctx(&t(Msg::CliPluginErrUninstall), e))?;
+                    println!(
+                        "{}",
+                        t(Msg::CliPluginUninstalled {
+                            plugin: &plugin,
+                            marketplace: &mp,
+                        })
+                    );
                 }
                 PluginSpec::Bare { plugin } => {
                     let installed = installer::list_installed().unwrap_or_default();
@@ -3720,28 +3976,39 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                         })
                         .collect();
                     match matches.len() {
-                        0 => anyhow::bail!("plugin `{}` is not installed", plugin),
+                        0 => {
+                            anyhow::bail!(
+                                "{}",
+                                t(Msg::CliPluginNotInstalled { plugin: &plugin })
+                            )
+                        }
                         1 => {
                             let p = &matches[0];
                             installer::uninstall(&p.plugin, &p.marketplace, p.scope.clone())
-                                .map_err(|e| anyhow::anyhow!("uninstall: {:#}", e))?;
-                            println!("  uninstalled `{}@{}`", p.plugin, p.marketplace);
+                                .map_err(|e| ctx(&t(Msg::CliPluginErrUninstall), e))?;
+                            println!(
+                                "{}",
+                                t(Msg::CliPluginUninstalled {
+                                    plugin: &p.plugin,
+                                    marketplace: &p.marketplace,
+                                })
+                            );
                         }
                         _ => {
-                            let mut msg = format!(
-                                "plugin `{}` installed from multiple marketplaces, please specify:\n",
-                                plugin
-                            );
+                            let mut list = String::new();
                             for p in &matches {
-                                msg.push_str(&format!(
+                                list.push_str(&format!(
                                     "  {}@{} ({})\n",
                                     p.plugin, p.marketplace, p.scope
                                 ));
                             }
-                            msg.push_str(
-                                "Use /plugin to select the installation scope to remove.\n",
+                            anyhow::bail!(
+                                "{}",
+                                t(Msg::CliPluginUninstallAmbiguous {
+                                    plugin: &plugin,
+                                    list: &list,
+                                })
                             );
-                            anyhow::bail!(msg.trim().to_string());
                         }
                     }
                 }
@@ -3756,23 +4023,33 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                 status.iter().filter(|s| s.plugin == name).collect()
             };
             match matches.as_slice() {
-                [] => anyhow::bail!("plugin `{name}` has no hooks (or is not installed)"),
+                [] => anyhow::bail!("{}", t(Msg::CliPluginNoHooks { name: &name })),
                 [s] => {
                     rustcode_capabilities::plugin::hook_trust::trust(&s.plugin_id, &s.hash)?;
                     println!(
-                        "Trusted {} hook(s) from `{}` [{}].",
-                        s.hook_count,
-                        name,
-                        s.events.join(", ")
+                        "{}",
+                        t(Msg::CliPluginTrusted {
+                            count: s.hook_count,
+                            name: &name,
+                            events: &s.events.join(", "),
+                        })
                     );
                 }
                 many => {
-                    let mut msg = format!("plugin `{name}` has hooks in multiple installations:\n");
+                    let mut list = String::new();
                     for s in many {
-                        msg.push_str(&format!("  {}@{} ({})\n", s.plugin, s.marketplace, s.scope));
+                        list.push_str(&format!(
+                            "  {}@{} ({})\n",
+                            s.plugin, s.marketplace, s.scope
+                        ));
                     }
-                    msg.push_str("Use /plugin to inspect the installation scopes.\n");
-                    anyhow::bail!(msg);
+                    anyhow::bail!(
+                        "{}",
+                        t(Msg::CliPluginTrustAmbiguous {
+                            name: &name,
+                            list: &list,
+                        })
+                    );
                 }
             }
             Ok(())
@@ -3785,18 +4062,26 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                 status.iter().filter(|s| s.plugin == name).collect()
             };
             match matches.as_slice() {
-                [] => anyhow::bail!("plugin `{name}` has no hooks (or is not installed)"),
+                [] => anyhow::bail!("{}", t(Msg::CliPluginNoHooks { name: &name })),
                 [s] => {
                     rustcode_capabilities::plugin::hook_trust::untrust(&s.plugin_id)?;
-                    println!("Untrusted hooks from `{name}`.");
+                    println!("{}", t(Msg::CliPluginUntrusted { name: &name }));
                 }
                 many => {
-                    let mut msg = format!("plugin `{name}` has hooks in multiple installations:\n");
+                    let mut list = String::new();
                     for s in many {
-                        msg.push_str(&format!("  {}@{} ({})\n", s.plugin, s.marketplace, s.scope));
+                        list.push_str(&format!(
+                            "  {}@{} ({})\n",
+                            s.plugin, s.marketplace, s.scope
+                        ));
                     }
-                    msg.push_str("Use /plugin to inspect the installation scopes.\n");
-                    anyhow::bail!(msg);
+                    anyhow::bail!(
+                        "{}",
+                        t(Msg::CliPluginTrustAmbiguous {
+                            name: &name,
+                            list: &list,
+                        })
+                    );
                 }
             }
             Ok(())
@@ -3804,7 +4089,7 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
         PluginCli::List => {
             let items = installer::list_installed()?;
             if items.is_empty() {
-                println!("  no installed plugins");
+                println!("{}", t(Msg::CliPluginNone));
             } else {
                 for p in items {
                     println!("  {}@{}  {}", p.plugin, p.marketplace, p.plugin_dir);
@@ -3850,6 +4135,7 @@ fn parse_plugin_spec(s: &str) -> Result<PluginSpec> {
 /// CLI (non-TUI) upgrade driver -- prints progress to stdout and
 /// success/error messages the same way `install.sh` does.
 async fn run_upgrade_cli(force: bool) -> Result<()> {
+    use rustcode_config::i18n::{t, Msg};
     use rustcode_updater::{self as self_update, UpgradeEvent, ALREADY_LATEST};
 
     let current = format!("v{}", env!("CARGO_PKG_VERSION"));
@@ -3863,7 +4149,7 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
     while let Some(ev) = rx.recv().await {
         match ev {
             UpgradeEvent::ManifestFetched { version } => {
-                println!("==> Latest: {}", version);
+                println!("{}", t(Msg::CliUpgradeLatest { version: &version }));
             }
             UpgradeEvent::Downloading { bytes, total } => {
                 // Debounce to whole percents so we don't spam stdout --
@@ -3876,30 +4162,33 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
                 };
                 if pct != last_pct {
                     print!(
-                        "\r    downloading {}% ({} / {} bytes)   ",
-                        pct, bytes, total
+                        "{}",
+                        t(Msg::CliUpgradeDownloadProgress { pct, bytes, total })
                     );
                     io::stdout().flush().ok();
                     last_pct = pct;
                 }
             }
             UpgradeEvent::Verifying => {
-                println!("\n==> Verifying SHA256");
+                println!("{}", t(Msg::CliUpgradeVerifyingSha));
             }
             UpgradeEvent::Replacing => {
-                println!("==> Replacing binary");
+                println!("{}", t(Msg::CliUpgradeReplacingBinary));
             }
             UpgradeEvent::Done {
                 version,
                 backup,
                 exe: _,
             } => {
+                let backup = backup.display().to_string();
                 println!(
-                    "\n[+] Upgraded to {} (previous version kept at {})",
-                    version,
-                    backup.display()
+                    "{}",
+                    t(Msg::CliUpgradeCmdDone {
+                        version: &version,
+                        backup: &backup
+                    })
                 );
-                println!("  Run `rustcode` to start the new version.");
+                println!("{}", t(Msg::CliUpgradeStartNewHint));
             }
             // CLI path never spawns a rollback via this channel and the
             // driver below translates errors into the returned Result
@@ -3912,14 +4201,18 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
                         rustcode_config::i18n::t(rustcode_config::i18n::Msg::UpgradePackageManaged)
                     );
                 } else {
-                    eprintln!("\nupgrade failed: {}", msg);
+                    eprintln!("{}", t(Msg::CliUpgradeCmdFailed { error: &msg }));
                 }
             }
             UpgradeEvent::RolledBack { exe, backup } => {
+                let exe = exe.display().to_string();
+                let backup = backup.display().to_string();
                 println!(
-                    "\n[+] Rolled back. exe={}, backup={}",
-                    exe.display(),
-                    backup.display()
+                    "{}",
+                    t(Msg::CliRollbackCmdDone {
+                        exe: &exe,
+                        backup: &backup
+                    })
                 );
             }
         }
@@ -3943,7 +4236,12 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
                 Err(e)
             }
         }
-        Err(e) => Err(anyhow::anyhow!("upgrade task panicked: {}", e)),
+        Err(e) => Err(anyhow::anyhow!(
+            "{}",
+            t(Msg::CliUpgradePanicked {
+                error: &e.to_string()
+            })
+        )),
     }
 }
 
@@ -3962,12 +4260,17 @@ fn run_rollback_cli() -> Result<()> {
             return Err(e);
         }
     };
+    use rustcode_config::i18n::{t, Msg};
+    let current = summary.exe.display().to_string();
+    let saved = summary.backup.display().to_string();
     println!(
-        "[+] Rolled back. Previous binary is now at {}, other version saved at {}",
-        summary.exe.display(),
-        summary.backup.display()
+        "{}",
+        t(Msg::CliRollbackCmdDoneTwo {
+            current: &current,
+            saved: &saved
+        })
     );
-    println!("  Run `rustcode` to start the rolled-back version.");
+    println!("{}", t(Msg::CliRollbackStartHint));
     Ok(())
 }
 
@@ -3976,12 +4279,27 @@ fn run_rollback_cli() -> Result<()> {
 /// managed login. Direct the operator to their own third-party provider instead.
 #[cfg(not(feature = "codingplan"))]
 fn run_codingplan_core() -> Result<String> {
-    Ok(String::from(
-        "\n  [*] Managed login is not built into this build.\n\
-            Skip `/login` and configure a third-party provider directly in\n\
-            ~/.rustcode/config.toml with your own base_url and api_key\n\
-            (or set RUSTCODE_PLATFORM_SERVER for a managed gateway).\n",
-    ))
+    Ok(rustcode_config::i18n::t(
+        rustcode_config::i18n::Msg::CliManagedLoginNotBuilt,
+    )
+    .into_owned())
+}
+
+/// `rustcode status` auth hint for a neutral build: there is no managed account to
+/// sign into, so steer to bring-your-own-key provider config rather than a dead-end
+/// `rustcode login`.
+#[cfg(not(feature = "codingplan"))]
+fn print_status_auth_hint() {
+    use rustcode_config::i18n::{t, Msg};
+    println!("{}", t(Msg::CliStatusHintNeutral));
+}
+
+/// `rustcode status` auth hint for a managed build: point at the login command.
+#[cfg(feature = "codingplan")]
+fn print_status_auth_hint() {
+    use rustcode_config::i18n::{t, Msg};
+    println!("{}", t(Msg::CliStatusNotLoggedInManaged));
+    println!("{}", t(Msg::CliStatusLoginHint));
 }
 
 /// Core CodingPlan flow shared by CLI-exit and CLI->TUI paths. Loads
@@ -4025,12 +4343,18 @@ fn run_codingplan_core() -> Result<String> {
                 // dead, etc.). Print the *original* report so users
                 // still see what triggered the retry, then bail.
                 println!("{}", report.render());
-                anyhow::bail!("re-authentication failed: {:#}", e);
+                anyhow::bail!(
+                    "{}",
+                    t(Msg::CliReauthFailed {
+                        error: &format!("{e:#}")
+                    })
+                );
             }
         }
     }
 
     if report.should_persist_config() {
+        use rustcode_config::i18n::{t, Msg};
         let persisted = match rustcode_config::ConfigStore::new(&path).update(|latest| {
             rustcode_codingplan::merge_successful_config(
                 latest,
@@ -4041,7 +4365,14 @@ fn run_codingplan_core() -> Result<String> {
         }) {
             Ok(_) => true,
             Err(e) => {
-                eprintln!("  [!] Failed to save config to {}: {:#}", path.display(), e);
+                let path = path.display().to_string();
+                eprintln!(
+                    "{}",
+                    t(Msg::CliConfigSaveFailed {
+                        path: &path,
+                        error: &format!("{e:#}")
+                    })
+                );
                 false
             }
         };
@@ -4053,7 +4384,12 @@ fn run_codingplan_core() -> Result<String> {
         // next successful run.
         if persisted {
             if let Err(e) = rustcode_codingplan::write_last_sync_now() {
-                eprintln!("  [!] Failed to write codingplan sync marker: {:#}", e);
+                eprintln!(
+                    "{}",
+                    t(Msg::CliSyncMarkerWriteFailed {
+                        error: &format!("{e:#}")
+                    })
+                );
             }
         }
     }
@@ -4144,15 +4480,15 @@ fn install_crash_panic_hook() {
                 location.column()
             );
         }
-        eprintln!("\nPlease report this at: https://gitcode.com/SecLab/RustCode/issues");
+        eprintln!("\nPlease report this crash (with the trace above) to the issue tracker of the channel you installed RustCode from.");
     }));
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_cli_runtime_overrides, close_thinking_chunk, format_thinking_chunk,
-        format_verbose_tool_chunk, headless_completion_exit_code,
+        apply_cli_runtime_overrides, build_i18n_command, close_thinking_chunk,
+        format_thinking_chunk, format_verbose_tool_chunk, headless_completion_exit_code,
         headless_completion_notify_reason, headless_denial_exit_code,
         headless_missing_provider_message, interactive_provider_bootstrap,
         is_completion_invocation, merge_startup_notices, print_shell_completion,
@@ -4209,19 +4545,23 @@ mod tests {
 
     #[test]
     fn resume_hint_line_forms_match_headless_vs_tui_and_language() {
+        // Default locale is ZhCn; pin explicitly so the English assertions hold.
+        let _g = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         // Headless continues a pipe run with `-p ... --resume <id>`.
         assert_eq!(
-            resume_hint_line("abc", true, false),
+            resume_hint_line("abc", true),
             "To resume this session, run: rustcode -p \"...\" --resume abc"
         );
         // TUI shows the `resume <id>` subcommand (codex parity).
         assert_eq!(
-            resume_hint_line("abc", false, false),
+            resume_hint_line("abc", false),
             "To resume this session, run: rustcode resume abc"
         );
         // Chinese locale.
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
         assert_eq!(
-            resume_hint_line("abc", false, true),
+            resume_hint_line("abc", false),
             "继续此会话，运行：rustcode resume abc"
         );
     }
@@ -4321,11 +4661,74 @@ mod tests {
                 !script.contains("codingplan"),
                 "{shell:?} script should not expose deprecated hidden aliases"
             );
+            // The managed top-level `login`/`logout` subcommands are hidden in
+            // this build; the only auth commands that may appear are the
+            // unrelated `mcp login`/`mcp logout` OAuth pair. A flat substring
+            // check cannot separate the two, so track the enclosing context
+            // (bash function headers, zsh curcontext, elvish/powershell map
+            // paths) and require every mention to sit in an mcp context.
+            let mut context_marker = String::new();
+            for line in script.lines() {
+                let is_context_marker = line.contains("curcontext=")
+                    || line.contains("()") && line.contains('{')
+                    || line.contains("&'rustcode;")
+                    || line.contains("'rustcode;") && line.contains('{');
+                if is_context_marker {
+                    context_marker = line.to_string();
+                }
+                if line.contains("login") || line.contains("logout") {
+                    let mcp_context = line.to_lowercase().contains("mcp")
+                        || line.contains("github-oauth")
+                        || context_marker.to_lowercase().contains("mcp");
+                    assert!(
+                        mcp_context,
+                        "{shell:?} advertises managed login/logout outside `mcp`\n\
+                         line: {line}\ncontext: {context_marker}"
+                    );
+                }
+            }
             assert!(
                 !script.contains("acp"),
                 "{shell:?} script should not expose internal protocol commands"
             );
         }
+    }
+
+    #[test]
+    fn neutral_build_hides_managed_login_subcommands() {
+        // Mirrors the TUI command_visible gate: in a neutral build the
+        // `login`/`logout` subcommands stay runnable (login prints the BYO
+        // notice; logout is a no-op) but are hidden from `--help` and their
+        // about text never pitches the managed flow.
+        let cmd = build_i18n_command();
+        let login = cmd
+            .find_subcommand("login")
+            .expect("login subcommand still exists (dispatchable)");
+        let logout = cmd
+            .find_subcommand("logout")
+            .expect("logout subcommand still exists (dispatchable)");
+        assert!(
+            login.is_hide_set(),
+            "neutral build must hide `rustcode login` from help/completion"
+        );
+        assert!(
+            logout.is_hide_set(),
+            "neutral build must hide `rustcode logout` from help/completion"
+        );
+        let about = login.get_about().map(|s| s.to_string()).unwrap_or_default();
+        assert!(
+            about.contains("config.toml"),
+            "neutral login help must steer to provider config: {about}"
+        );
+        assert!(
+            !about.contains("CodingPlan"),
+            "neutral login help must not pitch managed models: {about}"
+        );
+        // `status` stays visible -- in a neutral build it prints the BYO hint.
+        assert!(!cmd
+            .find_subcommand("status")
+            .expect("status subcommand")
+            .is_hide_set());
     }
 
     #[test]
@@ -4425,6 +4828,9 @@ mod tests {
 
     #[test]
     fn headless_missing_provider_message_fires_only_without_resolved_model() {
+        // Default locale is ZhCn; the assertions below match English copy.
+        let _g = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         let wd = PathBuf::from("/tmp/x");
 
         // Empty config + a bogus `--provider` name: nothing resolves, so headless

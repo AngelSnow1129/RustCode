@@ -259,7 +259,7 @@ fn render_body(
     if output.trim().is_empty() {
         return err(format!(
             "web_fetch: page fetched but no readable text at {final_url}.\n\n\
-             Hint: If this page belongs to a specific platform (e.g. GitCode/GitHub issues, documentation databases, API specs), \
+             Hint: If this page belongs to a specific platform (e.g. GitHub/GitLab issues, documentation databases, API specs), \
              check if there is a dedicated skill listed under AVAILABLE SKILLS in the system prompt that can fetch it via API."
         ));
     }

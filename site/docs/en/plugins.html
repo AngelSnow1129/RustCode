@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Plugin System · RustCode Docs</title>
 <meta name="description" content="One-line install of community plugin bundles — skills, commands, and hooks — over git, Claude Code compatible.">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -117,10 +117,11 @@
 
       <h3 id="method-2-slash-command-subcommands">Method 2: slash-command subcommands</h3>
       <pre><code># 1. Register the marketplace (clones its git repo locally)
-/plugin marketplace add https://gitcode.com/gmq123/ascend-model-agent-plugin
+#    Use the marketplace URL from your distribution channel or the plugin author
+/plugin marketplace add https://example.com/&lt;your-org&gt;/&lt;marketplace&gt;.git
 
 # 2. Install one of its plugins
-/plugin install ascend-model-agent-plugin@ascend-model-agent-plugin
+/plugin install &lt;plugin&gt;@&lt;marketplace&gt;
 
 # 3. List installed plugins
 /plugin list</code></pre>
@@ -187,7 +188,7 @@ rustcode plugin marketplace remove|update|list</code></pre>
           <tr><td><code>Notification</code></td><td>System notification</td><td>Forward to external alert channels</td></tr>
         </tbody>
       </table>
-      <p>Every turn end fires <strong>exactly one</strong> of <code>Stop</code> / <code>StopFailure</code> — never both, never none. <code>StopFailure</code> is reserved for turns that ended <em>because of</em> an API/provider failure; a tool error mid-turn does <strong>not</strong> fire it (the turn continues and ends with its real terminal instead). The stdin payload carries <code>hook_event_name</code>, <code>session_id</code>, <code>cwd</code>, the session's <code>transcript_path</code> (the append-only JSONL transcript, <code>null</code> for non-persistent runs), a CC-style <code>stop_hook_active</code> flag (true when <em>another</em> terminal hook is configured and fires alongside — use it to avoid a Stop hook recursively re-triggering itself), and a kernel <code>stop_reason</code> (e.g. <code>Stopped</code>, <code>ProviderError</code>, <code>Timeout</code>, <code>Cancelled</code>) so a hook can refine the outcome without parsing anything else.
+      <p>Every turn end fires <strong>exactly one</strong> of <code>Stop</code> / <code>StopFailure</code> — never both, never none. <code>StopFailure</code> is reserved for turns that ended <em>because of</em> an API/provider failure; a tool error mid-turn does <strong>not</strong> fire it (the turn continues and ends with its real terminal instead). The stdin payload carries <code>hook_event_name</code>, <code>session_id</code>, <code>cwd</code>, the session's <code>transcript_path</code> (the append-only JSONL transcript, <code>null</code> for non-persistent runs), a CC-style <code>stop_hook_active</code> flag (true when <em>another</em> terminal hook is configured and fires alongside — use it to avoid a Stop hook recursively re-triggering itself), and a kernel <code>stop_reason</code> (e.g. <code>Stopped</code>, <code>ProviderError</code>, <code>Timeout</code>, <code>Cancelled</code>) so a hook can refine the outcome without parsing anything else.</p>
 
       <h3 id="default-directory-auto-discovery">Default-directory auto-discovery</h3>
       <p>A plugin's assets are discovered from default directories automatically — no need to declare them in <code>plugin.json</code>:</p>
@@ -247,9 +248,10 @@ rustcode plugin marketplace remove|update|list</code></pre>
 # Remove (refuses if any plugin from this marketplace is still installed)
 /plugin marketplace remove &lt;name&gt;</code></pre>
 
-      <h2 id="walkthrough-installing-the-ascend-plugin">Walkthrough: installing the Ascend plugin</h2>
-      <pre><code>/plugin marketplace add https://gitcode.com/gmq123/ascend-model-agent-plugin
-# &gt; cloning marketplace from https://gitcode.com/...
+      <h2 id="walkthrough-installing-the-ascend-plugin">Walkthrough: installing a third-party plugin</h2>
+      <p>Marketplaces are just git repositories you add by URL. The example below uses a placeholder host — replace it with the marketplace URL provided by your distribution channel or the plugin author:</p>
+      <pre><code>/plugin marketplace add https://example.com/your-org/ascend-model-agent-plugin.git
+# &gt; cloning marketplace from https://example.com/...
 # &gt; marketplace `ascend-model-agent-plugin` added at 7a59537 (1 plugins)
 
 /plugin install ascend-model-agent-plugin@ascend-model-agent-plugin
@@ -278,7 +280,7 @@ help me verify Qwen3 adaptation on Ascend</code></pre>
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

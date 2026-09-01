@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>基本使用 · RustCode 文档</title>
 <meta name="description" content="基本使用 — RustCode 文档。">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -230,7 +230,7 @@ rustcode --dangerously-skip-permissions</code></pre>
       <p>当前 active provider 不支持图片输入(比如 DeepSeek-V3 / Kimi 等纯文本模型)时,RustCode 不会直接拒绝,而是会自动调用一个独立的 <strong>VL preprocessor</strong>(视觉模型,比如 Qwen3-VL / GLM-4V)对图片做 OCR + 描述,把结果作为文本 splice 到用户消息里再发给主模型。这样无论主模型支不支持图片,你都能"贴张截图问问题"。</p>
       <ul>
         <li>preprocessor 用哪个模型?由配置文件里的 <code>vision_preprocessor_provider</code> 决定 — 详见 <a href="./configuration.html#vision-preprocessor">配置文件 · 视觉预处理器</a>。</li>
-        <li><code>/login</code> 流程会自动从模型列表里挑一个 VL/OCR 模型自动设置进去。</li>
+        <li>提供托管登录的发行版本中,<code>/login</code> 流程会自动从下发的模型列表里挑一个 VL/OCR 模型并设置该字段;开源默认构建请手动设置。</li>
         <li>VL 调用使用<strong>无进展超时</strong>(idle timeout):只要 stream 持续吐 chunk,不限总时长;30 秒没动静才算超时。失败时会以 <em>VL 预处理失败</em> 的警告呈现,图片识别失败但消息照常发。</li>
       </ul>
       <div class="callout callout-tip">
@@ -263,7 +263,7 @@ rustcode --dangerously-skip-permissions</code></pre>
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

@@ -41,6 +41,16 @@ fi
 TMPDIR_T=$(mktemp -d /tmp/rustcode-headless-XXXXXX)
 trap 'rm -rf "$TMPDIR_T"' EXIT INT TERM
 
+# Isolated config home for the OFFLINE smoke tests (T5/T5b). They must never
+# touch the operator's real ~/.rustcode: an ambient default provider / proxy /
+# discovery config there can kick off network init at startup and blow the
+# offline timeout even for a bogus --provider. An empty home fails fast at
+# "no provider configured" with zero network. The opt-in network tests
+# (T1-T4) deliberately inherit the ambient environment so a configured
+# RUSTCODE_TEST_PROVIDER still resolves.
+SMOKE_HOME="$TMPDIR_T/home"
+mkdir -p "$SMOKE_HOME"
+
 PASSED=0
 FAILED=0
 SKIPPED=0
@@ -73,7 +83,7 @@ echo ""
 T5="T5: legacy --headless flag is rejected by clap"
 echo "[T5] Running: --headless (legacy flag, must be unknown)"
 out="$TMPDIR_T/t5.out"; err="$TMPDIR_T/t5.err"; rc=0
-run_atom 5 "$out" "$err" --headless || rc=$?
+RUSTCODE_HOME="$SMOKE_HOME" run_atom 5 "$out" "$err" --headless || rc=$?
 
 if [ "$rc" -eq 0 ]; then
     fail "$T5 — expected non-zero exit, got 0 (flag was accepted!)"
@@ -94,7 +104,7 @@ echo ""
 T5B="T5b: -p triggers headless path (CLI parse OK; fails at provider lookup)"
 echo "[T5b] Running: --provider __nonexistent_qa_probe__ -p 'x'"
 out="$TMPDIR_T/t5b.out"; err="$TMPDIR_T/t5b.err"; rc=0
-run_atom 5 "$out" "$err" --provider __nonexistent_qa_probe__ -p "x" || rc=$?
+RUSTCODE_HOME="$SMOKE_HOME" run_atom 5 "$out" "$err" --provider __nonexistent_qa_probe__ -p "x" || rc=$?
 
 if [ "$rc" -eq 0 ]; then
     fail "$T5B — expected non-zero exit, got 0"

@@ -346,13 +346,29 @@ pub(super) fn auth_retry_args(url: &str) -> Option<[String; 2]> {
 /// user with a dead token isn't told "just log in" as if they hadn't:
 /// - untrusted host -> SSH / configure git creds (the platform token is never
 ///   sent to non-allowlisted hosts, so /login wouldn't help);
+/// - neutral build (no managed service), regardless of host -> same SSH / git
+///   creds guidance, since there is no service to log into;
 /// - trusted host + a stored login present (token expired AND refresh failed) ->
 ///   re-login;
 /// - trusted host + not logged in -> /login (auto-creds) or SSH.
+/// Tail clause for "the authenticated retry still failed" errors. A neutral
+/// build can hold a stale `auth.toml` from a former distribution install, so
+/// pitching `/login` there is a dead end -- point at SSH / git creds instead.
+fn relogin_hint() -> &'static str {
+    if rustcode_auth::managed_login_available() {
+        "可 /login 重新登录后重试"
+    } else {
+        "本构建无托管登录服务；请改用 SSH 地址或更新本地 git 凭证后重试"
+    }
+}
+
 /// `verb` is 克隆 / 更新. Shared by clone + pull so the wording can't drift.
 fn auth_required_message(verb: &str, url: &str, stderr: &str) -> String {
     let stderr = stderr.trim();
-    if !super::url::host_is_trusted(url) {
+    // Untrusted host: the platform token is never sent to non-allowlisted
+    // hosts, so /login could not help. Same guidance applies in a neutral
+    // build: there is no managed service to log into even for trusted hosts.
+    if !super::url::host_is_trusted(url) || !rustcode_auth::managed_login_available() {
         return format!(
             "{verb}失败：该仓库需要认证（私有仓库）。请改用 SSH 地址（git@...）\
              或先用 git 配置好凭证后重试。\n原始错误：{stderr}"
@@ -402,8 +418,9 @@ pub(super) fn clone_with_optional_auth(
                 return Ok(());
             }
             bail!(
-                "克隆失败：使用已登录凭证仍无法访问该私有仓库（可能无权限或登录已过期，\
-                 可 /login 重新登录后重试）。\n原始错误：{}",
+                "克隆失败：使用已登录凭证仍无法访问该私有仓库（可能无权限或登录已过期，{}）。\
+                 \n原始错误：{}",
+                relogin_hint(),
                 String::from_utf8_lossy(&out2.stderr).trim()
             );
         }
@@ -438,8 +455,9 @@ pub(super) fn git_pull_ff(repo: &Path, source_url: &str) -> Result<()> {
                 return Ok(());
             }
             bail!(
-                "更新失败：使用已登录凭证仍无法访问（无权限或登录已过期，可 /login 重新登录）。\
+                "更新失败：使用已登录凭证仍无法访问（无权限或登录已过期，{}）。\
                  \n原始错误：{}",
+                relogin_hint(),
                 String::from_utf8_lossy(&out2.stderr).trim()
             );
         }
@@ -670,7 +688,7 @@ mod tests {
     fn git_auth_failure_is_detected() {
         // The non-interactive error git emits when it needs credentials.
         assert!(is_git_auth_failure(
-            "fatal: could not read Username for 'https://gitcode.com': terminal prompts disabled"
+            "fatal: could not read Username for 'https://example.com': terminal prompts disabled"
         ));
         assert!(is_git_auth_failure(
             "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://x/y'"
@@ -697,12 +715,12 @@ mod tests {
     #[test]
     fn extra_header_config_is_scoped_to_host() {
         let cfg = extra_header_config(
-            "https://gitcode.com/owner/repo.git",
+            "https://example.com/owner/repo.git",
             "Authorization: Basic XYZ",
         );
         assert_eq!(
             cfg,
-            "http.https://gitcode.com.extraHeader=Authorization: Basic XYZ"
+            "http.https://example.com.extraHeader=Authorization: Basic XYZ"
         );
     }
 
@@ -717,7 +735,7 @@ mod tests {
     #[serial_test::serial]
     fn auth_retry_args_none_when_not_logged_in() {
         let _home = isolated_home(); // 无 auth.toml
-        assert!(auth_retry_args("https://gitcode.com/owner/repo").is_none());
+        assert!(auth_retry_args("https://example.com/owner/repo").is_none());
     }
 
     #[test]
@@ -746,6 +764,31 @@ mod tests {
             m.contains("/login"),
             "trusted host + not logged in should guide to /login: {m}"
         );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn auth_required_message_neutral_build_never_pitches_login() {
+        // Open build: no managed service, so even a trusted-host auth failure
+        // must not dead-end at /login -- the SSH/git-creds path is the only one
+        // that can work. Distribution builds skip this (their wording does pitch
+        // /login for trusted hosts).
+        if rustcode_auth::managed_login_available() {
+            return;
+        }
+        for url in ["https://github.com/o/r", "https://git.example.com/o/r"] {
+            let m = auth_required_message("克隆", url, "fatal: auth");
+            assert!(
+                !m.contains("/login"),
+                "neutral build pitched /login for {url}: {m}"
+            );
+            assert!(
+                m.contains("SSH"),
+                "neutral hint must offer the SSH path: {m}"
+            );
+        }
+        let h = relogin_hint();
+        assert!(!h.contains("/login"), "neutral relogin hint: {h}");
     }
 
     #[test]
@@ -789,7 +832,7 @@ mod tests {
         let dst = tempfile::tempdir().unwrap();
         let clone_dir = dst.path().join("clone");
         let header = basic_auth_header("alice", "tok-SECRET-123");
-        let cfg = extra_header_config("https://gitcode.com/o/r", &header);
+        let cfg = extra_header_config("https://example.com/o/r", &header);
         // EXACT arg order produced by clone_with_optional_auth's run(Some(..)):
         // git_command base, then `-c <cfg>`, then the `clone ...` args.
         let status = git_command(&git)

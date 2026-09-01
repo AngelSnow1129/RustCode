@@ -23,6 +23,33 @@ pub struct Command {
     pub acp: bool,
 }
 
+/// Managed-account commands that only exist in distribution builds which ship a
+/// managed service (a sign-in gateway / account-usage backend). They stay
+/// *dispatchable* in a neutral build -- typing one prints a bring-your-own-key
+/// "managed service unavailable" message -- but are hidden from every discovery
+/// surface (the `/` slash menu, Tab completion, `/help`, the ACP
+/// `available_commands` set) so a BYO user is never pitched a sign-in /
+/// free-model flow the build does not ship. This mirrors the first-launch
+/// wizard's `managed_login_available()` gating; keep in sync with the
+/// `login` / `logout` / `whoami` / `usage` rows below.
+const MANAGED_ONLY_COMMANDS: &[&str] = &["login", "logout", "whoami", "usage"];
+
+/// Whether a built-in command should appear in discovery surfaces for the
+/// running build. Deprecated aliases (`hidden`) are always excluded;
+/// managed-account commands are additionally excluded in a neutral build (no
+/// compiled-in platform server). Dispatch is unaffected either way.
+fn command_visible(cmd: &Command) -> bool {
+    if cmd.hidden {
+        return false;
+    }
+    if MANAGED_ONLY_COMMANDS.contains(&cmd.name)
+        && !crate::modals::onboarding_wizard::managed_login_available()
+    {
+        return false;
+    }
+    true
+}
+
 pub struct CommandRegistry {
     commands: &'static [Command],
 }
@@ -55,7 +82,9 @@ impl CommandRegistry {
         let prefix_lower = prefix.to_ascii_lowercase();
         self.commands
             .iter()
-            .filter(|c| !c.hidden && command_name_or_alias_has_prefix(c.name, &prefix_lower))
+            .filter(|c| {
+                command_visible(c) && command_name_or_alias_has_prefix(c.name, &prefix_lower)
+            })
             .copied()
             .collect()
     }
@@ -65,12 +94,12 @@ impl CommandRegistry {
         let max_name = self
             .commands
             .iter()
-            .filter(|c| !c.hidden)
+            .filter(|c| command_visible(c))
             .map(|c| c.name.len())
             .max()
             .unwrap_or(6);
         let mut out = t(Msg::HelpAvailableCommands).into_owned();
-        for c in self.commands.iter().filter(|c| !c.hidden) {
+        for c in self.commands.iter().filter(|c| command_visible(c)) {
             let desc = cmd_desc_i18n(c.name)
                 .unwrap_or_else(|| rustcode_config::i18n::substitute_placeholders(c.desc.into()));
             out.push_str(&format!(
@@ -90,7 +119,7 @@ impl CommandRegistry {
     pub fn acp_commands(&self) -> Vec<Command> {
         self.commands
             .iter()
-            .filter(|c| c.acp && !c.hidden)
+            .filter(|c| c.acp && command_visible(c))
             .copied()
             .collect()
     }
@@ -335,7 +364,7 @@ pub fn complete_commands(
     let prefix = prefix.strip_prefix('/').unwrap_or(prefix);
     let mut candidates = Vec::new();
     for cmd in BUILTIN_COMMANDS {
-        if !cmd.hidden && cmd.name.starts_with(prefix) {
+        if command_visible(cmd) && cmd.name.starts_with(prefix) {
             candidates.push(CompletionCandidate {
                 name: cmd.name.to_string(),
                 description: cmd_desc_i18n(cmd.name)
@@ -736,17 +765,55 @@ mod tests {
         let reg = CommandRegistry::builtin();
         let help = reg.help_text();
         for c in reg.all() {
-            if c.hidden {
-                // Hidden commands are intentionally excluded from /help output.
+            if !command_visible(c) {
+                // Hidden aliases, and managed-account commands in a neutral
+                // build, are intentionally excluded from /help output.
                 assert!(
                     !help.contains(&format!("/{} ", c.name)),
-                    "hidden command /{} must not appear in help",
+                    "non-visible command /{} must not appear in help",
                     c.name
                 );
             } else {
                 assert!(help.contains(c.name), "help missing {}", c.name);
             }
         }
+    }
+
+    #[test]
+    fn neutral_build_hides_managed_account_commands() {
+        // In a neutral build (no compiled-in platform server) the
+        // managed-account commands must be absent from every discovery surface
+        // -- /help, the `/` slash menu, Tab completion, and the ACP command
+        // set -- even though they remain dispatchable (typing one prints a
+        // bring-your-own-key "managed unavailable" message).
+        let reg = CommandRegistry::builtin();
+        let help = reg.help_text();
+        for managed in MANAGED_ONLY_COMMANDS {
+            assert!(
+                !help.contains(&format!("/{managed} ")),
+                "neutral /help must not pitch /{managed}"
+            );
+            assert!(
+                reg.matching_prefix(managed).is_empty(),
+                "slash menu must not surface /{managed} in a neutral build"
+            );
+        }
+        // The BYO provider path must remain visible (it is the neutral lead).
+        assert!(
+            help.contains("/provider"),
+            "neutral /help must lead with /provider"
+        );
+        assert!(
+            !reg.acp_commands().iter().any(|c| c.name == "usage"),
+            "ACP must not advertise the gateway-only /usage in a neutral build"
+        );
+        // Tab completion likewise must not surface /login.
+        assert!(
+            complete_commands("log", &[])
+                .iter()
+                .all(|c| c.name != "login"),
+            "Tab completion must not surface /login in a neutral build"
+        );
     }
 
     #[test]

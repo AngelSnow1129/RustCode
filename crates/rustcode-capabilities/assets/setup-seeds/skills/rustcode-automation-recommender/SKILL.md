@@ -13,7 +13,7 @@ Analyze codebase patterns to recommend tailored RustCode automations, then **off
 ## Core Principles
 
 1. **Recommend first, install on request** — output recommendations, then ask "要我帮你装上吗？"
-2. **Online search first, local fallback** — try `npx skills find` for the latest community skills; fall back to reference files if Node.js unavailable
+2. **Prefer configured registries, local fallback** — if your distribution exposes a community skill-registry CLI (e.g. the community `npx skills` client), search it for the latest community skills; fall back to the bundled reference files when no such CLI is configured
 3. **Friendly error handling** — if tools are missing (no Node.js, no npx), explain clearly and continue with local recommendations
 4. **1-2 per category** — don't overwhelm; surface the most valuable automations
 
@@ -21,7 +21,7 @@ Analyze codebase patterns to recommend tailored RustCode automations, then **off
 
 | Type | Best For | How to Install |
 |------|----------|----------------|
-| **Skills** | Packaged expertise, workflows, repeatable tasks | `npx skills add <pkg>` or create `.rustcode/skills/<name>/SKILL.md` |
+| **Skills** | Packaged expertise, workflows, repeatable tasks | your skill-registry CLI (e.g. `npx skills add <pkg>`, if your distribution configures one) or create `.rustcode/skills/<name>/SKILL.md` |
 | **Plugins** | Collections of skills, commands, agents, hooks | `/plugin marketplace add <url>` then `/plugin install <name>` |
 | **MCP Servers** | External tool integrations (databases, APIs, docs) | Write to `.mcp.json` (project root) or `~/.rustcode/mcp.json` (global) |
 | **Hooks** | Automatic actions on tool events (format, lint, block) | Write to `.rustcode/settings.json` |
@@ -66,22 +66,27 @@ ls -la src/ app/ lib/ tests/ components/ pages/ api/ 2>/dev/null
 
 **Search strategy by recommendation type:**
 
-| Type | Online `npx skills find` | Local reference files |
+| Type | Online registry (only if a registry CLI is configured) | Local reference files |
 |------|--------------------------|----------------------|
-| **Skills** | ✅ **先搜在线** — 社区生态有数千个 skill | ✅ 补充自定义 skill 创建建议 |
-| **MCP Servers** | ❌ 在线 registry 不提供 MCP | ✅ **只用本地** reference |
-| **Hooks** | ❌ 在线 registry 不提供 hooks | ✅ **只用本地** reference |
-| **Subagents** | ❌ 在线 registry 不提供 agents | ✅ **只用本地** reference |
-| **Commands** | ❌ 在线 registry 不提供 commands | ✅ **只用本地** reference |
+| **Skills** | [+] 若已配置 registry CLI，**先搜在线** — 社区生态有数千个 skill | [+] 补充自定义 skill 创建建议 |
+| **MCP Servers** | [-] 在线 registry 不提供 MCP | [+] **只用本地** reference |
+| **Hooks** | [-] 在线 registry 不提供 hooks | [+] **只用本地** reference |
+| **Subagents** | [-] 在线 registry 不提供 agents | [+] **只用本地** reference |
+| **Commands** | [-] 在线 registry 不提供 commands | [+] **只用本地** reference |
 
-#### Step 2a: Online skill search
+#### Step 2a: Online skill search (optional community registry)
+
+This step only applies if the user's distribution/path provides a community
+skill-registry CLI. The example below uses the community `npx skills` client;
+if your distribution ships a different registry CLI (or none at all), use that
+one or skip straight to Step 2b.
 
 ```bash
-# Check if npx is available
+# Check if a registry CLI is available
 npx --version 2>/dev/null
 ```
 
-**If npx is available**, search for relevant skills based on detected project type:
+**If a registry CLI is available**, search for relevant skills based on detected project type:
 
 ```bash
 npx skills find <detected-language>
@@ -100,7 +105,7 @@ Include the most relevant results (by install count) in your Skills recommendati
 **If npx is NOT available** (Node.js not installed), show this friendly message and continue:
 
 ```
-💡 提示：安装 Node.js 后可以使用在线 skill 搜索功能，获取社区最新推荐。
+[*] 提示：安装 Node.js 后可以使用在线 skill 搜索功能，获取社区最新推荐。
    下载：https://nodejs.org/
    目前使用内置推荐列表为您分析，功能不受影响。
 ```
@@ -128,7 +133,7 @@ See [references/skills-reference.md](references/skills-reference.md) for built-i
 |-----------------|-------|-----------------|------------|
 | Any project (RustCode Q&A) | **/guide** | Built in — no install. Run `/guide <question>` (also auto-dispatches). | Both |
 
-> The official plugin marketplace (`/plugin marketplace add https://gitcode.com/SecLab/RustCode-plugins-official`) ships workflow plugins like `rustcode-workflows`, `commit-craft`, and `git-worktree`. RustCode usage Q&A is now the built-in `/guide` subagent, so it no longer needs a plugin install.
+> Your distribution channel may provide a plugin marketplace (configure its URL via config/env, e.g. `/plugin marketplace add https://example.com/<your-org>/rustcode-plugins`) shipping workflow plugins like `rustcode-workflows`, `commit-craft`, and `git-worktree`; install them from your distribution's plugin index. RustCode usage Q&A is now the built-in `/guide` subagent, so it no longer needs a plugin install.
 
 **Custom skills to suggest creating:**
 
@@ -195,7 +200,7 @@ Format recommendations clearly, then **offer to install**.
 
 ---
 
-### 🎯 Skills
+### Skills
 
 #### [skill name]
 **Why**: [specific reason]
@@ -204,7 +209,7 @@ Format recommendations clearly, then **offer to install**.
 
 ---
 
-### 🔌 MCP Servers
+### MCP Servers
 
 #### [server name]
 **Why**: [specific reason]
@@ -222,7 +227,7 @@ Format recommendations clearly, then **offer to install**.
 
 ---
 
-### ⚡ Hooks
+### [*] Hooks
 
 #### [hook name]
 **Why**: [specific reason]
@@ -230,7 +235,7 @@ Format recommendations clearly, then **offer to install**.
 
 ---
 
-### 🤖 Subagents
+### Subagents
 
 #### [agent name]
 **Why**: [specific reason]
@@ -249,20 +254,21 @@ Format recommendations clearly, then **offer to install**.
 
 When the user agrees to install, execute the appropriate action for each type:
 
-**Skills (from online registry):**
+**Skills (from an online registry, if a registry CLI is configured):**
 ```bash
+# example using the community `skills` CLI; use your distribution's registry CLI if different
 npx skills add <owner/repo@skill> -g -y
 ```
 
-If `npx` fails, show:
+If the registry command fails, show:
 ```
-⚠️ 安装失败。可能原因：
-1. 未安装 Node.js — 下载：https://nodejs.org/
+[!] 安装失败。可能原因：
+1. 未安装 registry CLI（如 Node.js/npx）— 参考你的发行版文档
 2. 网络问题 — 检查网络连接
-3. 包名错误 — 在 https://skills.sh/ 搜索确认
+3. 包名错误 — 在你所用 skill registry 的页面搜索确认
 
 你也可以手动安装：
-1. 访问 https://skills.sh/[skill-name]
+1. 在你所用 skill registry 的页面查找该 skill
 2. 复制 SKILL.md 内容
 3. 创建 ~/.rustcode/skills/[name]/SKILL.md
 ```
@@ -292,16 +298,16 @@ Use the Write tool to create `.rustcode/commands/<name>.md`.
 
 **After installation**, confirm with the user:
 ```
-✅ 安装完成！
+[SUCCESS] 安装完成！
 
 已安装：
-  ✓ skill: [name] — [source]
-  ✓ mcp: [name] — 写入 .mcp.json（重启 RustCode 后生效）
-  ✓ hook: [name] — 写入 .rustcode/settings.json
-  ✓ subagent: [name] — 创建 .rustcode/skills/[name]/SKILL.md
+  [+] skill: [name] — [source]
+  [+] mcp: [name] — 写入 .mcp.json（重启 RustCode 后生效）
+  [+] hook: [name] — 写入 .rustcode/settings.json
+  [+] subagent: [name] — 创建 .rustcode/skills/[name]/SKILL.md
 
-💡 MCP 服务需要重启 RustCode 后生效。
-💡 输入 /help 查看新增的 slash commands。
+[*] MCP 服务需要重启 RustCode 后生效。
+[*] 输入 /help 查看新增的 slash commands。
 ```
 
 ## Decision Framework
@@ -337,28 +343,28 @@ Use the Write tool to create `.rustcode/commands/<name>.md`.
 
 ### Node.js / npx not available
 ```
-💡 提示：当前环境未安装 Node.js，在线 skill 搜索功能不可用。
+[*] 提示：当前环境未安装 Node.js，在线 skill 搜索功能不可用。
    安装 Node.js 后可使用 `npx skills find` 搜索社区 skill。
    下载：https://nodejs.org/
    
    目前使用内置推荐列表为您分析，功能不受影响。
 ```
 
-### npx skills find returns no results
+### Online skill search returns no results
 ```
-ℹ️ 在线 skill 库中暂无 [keyword] 相关的社区 skill。
+[i] 在线 skill 库中暂无 [keyword] 相关的社区 skill。
    已使用内置推荐列表为您分析。
-   你也可以稍后在 https://skills.sh/ 浏览所有可用 skill。
+   你也可以稍后在你所用 skill registry 的页面浏览所有可用 skill。
 ```
 
-### npx skills add installation fails
+### Online skill installation fails
 ```
-⚠️ skill 安装失败：[error message]
+[!] skill 安装失败：[error message]
 
 可能原因：
 1. 网络连接问题 — 检查代理设置
-2. 权限不足 — 尝试 sudo 或检查目录权限
-3. 包已下架 — 在 https://skills.sh/ 确认包是否可用
+2. 权限不足 — 检查目录权限与属主（切勿用 sudo 写入 ~/.rustcode，root 属主文件会导致后续运行初始化失败）
+3. 包已下架 — 在你所用 skill registry 的页面确认包是否可用
 
 替代方案：手动创建 skill 文件
   mkdir -p ~/.rustcode/skills/[name]
@@ -367,7 +373,7 @@ Use the Write tool to create `.rustcode/commands/<name>.md`.
 
 ### .rustcode directory not writable
 ```
-⚠️ 无法写入 .rustcode/ 目录。
+[!] 无法写入 .rustcode/ 目录。
 
 请检查目录权限：
   ls -la .rustcode/

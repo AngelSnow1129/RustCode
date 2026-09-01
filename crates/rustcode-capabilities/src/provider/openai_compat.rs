@@ -39,19 +39,30 @@ use std::time::Duration;
 /// to a public "RustCode" app entry on openrouter.ai (rankings / app page).
 ///
 /// Per OpenRouter's app-attribution contract:
-///   - `HTTP-Referer` is the app's STABLE identifier (primary domain) -- it alone
-///     creates the app page;
 ///   - `X-OpenRouter-Title` is the display name on the rankings;
-///   - `X-OpenRouter-Categories` places the app in the marketplace categories.
+///   - `X-OpenRouter-Categories` places the app in the marketplace categories;
+///   - `HTTP-Referer` is the app's STABLE identifier (primary domain) -- it alone
+///     creates the app page. That referer is deliberately NOT compiled in: the
+///     platform-neutral fork names no vendor/host of its own, so a deployer who
+///     wants the OpenRouter app page to bind to a domain sets
+///     `RUSTCODE_OPENROUTER_REFERER` (see [`openrouter_referer`]); unset, the
+///     referer header is omitted while title + categories still attribute traffic.
 ///
 /// These are sent ONLY when the request actually targets `openrouter.ai` (see
-/// [`is_openrouter_url`]) so other OpenAI-compatible endpoints -- including
-/// the managed signing gateway -- never receive them.
-pub const OPENROUTER_ATTRIBUTION_HEADERS: &[(&str, &str); 3] = &[
-    ("HTTP-Referer", "https://gitcode.com/SecLab/RustCode"),
+/// [`is_openrouter_url`]) so other OpenAI-compatible endpoints never receive them.
+pub const OPENROUTER_ATTRIBUTION_HEADERS: &[(&str, &str); 2] = &[
     ("X-OpenRouter-Title", "RustCode"),
     ("X-OpenRouter-Categories", "cli-agent"),
 ];
+
+/// Optional deployer-set OpenRouter app-page URL (`RUSTCODE_OPENROUTER_REFERER`).
+/// Non-empty wins; unset/empty ⇒ omit the referer rather than hard-code a host.
+fn openrouter_referer() -> Option<String> {
+    std::env::var("RUSTCODE_OPENROUTER_REFERER")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
 
 /// True when `url` targets the OpenRouter API (any path under the `openrouter.ai`
 /// host). Used to gate the attribution headers -- they are meaningless, and would
@@ -93,6 +104,10 @@ fn apply_openrouter_attribution(
     let mut req = req;
     for (name, value) in OPENROUTER_ATTRIBUTION_HEADERS {
         req = req.header(*name, *value);
+    }
+    // Referer is opt-in (RUSTCODE_OPENROUTER_REFERER); never name a vendor host.
+    if let Some(referer) = openrouter_referer() {
+        req = req.header("HTTP-Referer", referer);
     }
     req
 }
@@ -4055,7 +4070,7 @@ mod tests {
     fn apply_openrouter_attribution_only_targets_openrouter() {
         let client = reqwest::Client::new();
 
-        // OpenRouter endpoint -> all three attribution headers present.
+        // OpenRouter endpoint -> every attribution header present.
         let req = client
             .post("https://openrouter.ai/api/v1/chat/completions")
             .header(reqwest::header::CONTENT_TYPE, "application/json");
@@ -4073,10 +4088,10 @@ mod tests {
 
         // Non-OpenRouter endpoint -> NONE of the attribution headers leak.
         let req = client
-            .post("https://api.deepseek.com/v1/chat/completions")
+            .post("https://api.example.com/v1/chat/completions")
             .header(reqwest::header::CONTENT_TYPE, "application/json");
         let built =
-            apply_openrouter_attribution("https://api.deepseek.com/v1/chat/completions", req)
+            apply_openrouter_attribution("https://api.example.com/v1/chat/completions", req)
                 .build()
                 .expect("request must build");
         for (name, _) in OPENROUTER_ATTRIBUTION_HEADERS {

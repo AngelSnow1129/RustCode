@@ -126,11 +126,11 @@ mod tests {
 
     #[test]
     fn render_produces_non_empty_block_for_short_url() {
-        // Smoke test with the shape of an actual atomgit short link.
+        // Smoke test with the shape of a typical short link.
         // 32-char URL encodes to roughly a 25x25-module QR; the compact
         // renderer packs two rows per cell. Use 8 as a
         // safe floor -- any non-trivial input should clear it.
-        let lines = render_for_terminal("https://acs.atomgit.com/s/AbC123", true, true, 80, 24)
+        let lines = render_for_terminal("https://example.com/s/AbC123", true, true, 80, 24)
             .expect("Unicode-capable render must succeed for a short URL");
         assert!(
             lines.len() >= 8,
@@ -200,7 +200,7 @@ mod tests {
     fn compact_renderer_round_trips_the_complete_qr_matrix() {
         use crossterm::style::Color;
 
-        let data = "https://acs.atomgit.com/s/AbC123";
+        let data = "https://example.com/s/AbC123";
         let code = QrCode::new(data.as_bytes()).unwrap();
         let lines = render_for_terminal(data, true, true, 80, 24).unwrap();
         let modules = code.width() + QUIET_ZONE * 2;

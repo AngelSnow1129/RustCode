@@ -118,10 +118,9 @@ Use `RustCode: Open Changes` to inspect project changes that RustCode can use du
 
 ## Support
 
-Report issues at:
+Report issues through your distribution channel's issue tracker, and obtain
+the source code from the same channel. Placeholder URLs (replace
+`<your-org>` with your channel's organization):
 
-`https://gitcode.com/SecLab/RustCode/issues`
-
-Source code:
-
-`https://gitcode.com/SecLab/RustCode`
+- Issue tracker: `https://example.com/<your-org>/rustcode/issues`
+- Source code: `https://example.com/<your-org>/rustcode`

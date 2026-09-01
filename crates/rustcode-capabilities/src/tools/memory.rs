@@ -107,7 +107,7 @@ impl Tool for MemoryTool {
                     None => return err("memory: action=remember requires a non-empty `content`."),
                 };
                 match Self::store(scope, &ctx.working_dir).append_deduped(content) {
-                    Ok(true) => ok(format!("📝 remembered ({scope}): {content}")),
+                    Ok(true) => ok(format!("[+] remembered ({scope}): {content}")),
                     Ok(false) => ok(format!("already remembered ({scope}), skipped: {content}")),
                     Err(e) => err(format!("memory: failed to write: {e}")),
                 }

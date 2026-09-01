@@ -6,7 +6,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>RustCode · 在你的终端中运行的 AI 编程助手</title>
 <meta name="description" content="RustCode — Claude Code 的开源平替。连接任意大模型，自主多步执行，30 秒上手。">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <style>
   *,*::before,*::after{box-sizing:border-box}
   html,body{margin:0;padding:0;background:#0a0a0a;color:#fff;font-family:"PingFang SC","Microsoft YaHei",Inter,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
@@ -48,14 +48,6 @@
   .hdr-nav a::after{content:"";position:absolute;bottom:0;left:0;right:0;height:1px;background:var(--accent);transform:scaleX(0);transform-origin:left;transition:transform .25s}
   .hdr-nav a:hover,.hdr-nav a.active{color:#fff}
   .hdr-nav a.active::after{transform:scaleX(1)}
-  .hdr-nav a.nav-cp{color:var(--accent);position:relative;padding-left:14px;display:inline-flex;align-items:center;gap:8px}
-  .hdr-nav a.nav-cp::before{content:"";position:absolute;left:4px;top:50%;width:5px;height:5px;border-radius:50%;background:var(--accent);transform:translateY(-50%);box-shadow:0 0 6px var(--accent);animation:dotPulse 2s ease-in-out infinite}
-  .hdr-nav a.nav-cp:hover{color:#fff}
-  .hdr-nav a.nav-cp .free-badge{padding:1px 6px;font-size:9px;font-weight:600;letter-spacing:1px;background:rgba(232,160,80,.18);color:var(--accent);border:1px solid rgba(232,160,80,.4);border-radius:3px;text-transform:uppercase}
-  html.light .hdr-nav a.nav-cp{color:#c87618}
-  html.light .hdr-nav a.nav-cp::before{background:#c87618;box-shadow:0 0 6px #c87618}
-  html.light .hdr-nav a.nav-cp:hover{color:#0d0d0d}
-  html.light .hdr-nav a.nav-cp .free-badge{background:rgba(200,118,24,.12);color:#c87618;border-color:rgba(200,118,24,.4)}
   .hdr-right{display:flex;gap:10px;align-items:center}
   .btn-pill{height:32px;padding:0 14px;display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.25);font-size:11px;letter-spacing:1.5px;color:#fff;font-family:var(--mono);transition:background .2s,color .2s,border-color .2s}
   .btn-pill:hover{background:#fff;color:#000;border-color:#fff}
@@ -338,6 +330,13 @@
   .dl-btn{padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid var(--line);font-family:var(--mono);font-size:12px;color:#fff;letter-spacing:.5px;display:flex;justify-content:space-between;align-items:center;transition:all .2s}
   .dl-btn:hover{border-color:var(--accent);color:var(--accent)}
   .dl-btn small{color:rgba(255,255,255,.4);font-size:10px}
+  /* Placeholder download buttons: the neutral build has no compiled-in release
+     host, so these never navigate (the href would point at example.com). */
+  .dl-btn[aria-disabled="true"]{cursor:not-allowed;opacity:.55}
+  .dl-btn[aria-disabled="true"]:hover{border-color:var(--line);color:#fff}
+  .dl-note{margin-top:10px;font-size:12px;color:rgba(255,255,255,.5);line-height:1.6}
+  html.light .dl-note{color:rgba(0,0,0,.55)}
+  html.light .dl-btn[aria-disabled="true"]:hover{border-color:rgba(0,0,0,.10);color:#0d0d0d}
 
   /* wizard panel */
   .wiz{background:#000;border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:13px;color:#d8d8d8;overflow:hidden}
@@ -603,11 +602,6 @@
       text-transform:uppercase;display:flex;align-items:center;gap:8px;
     }
     .mb-drawer a:hover,.mb-drawer a:active{color:var(--accent)}
-    .mb-drawer a.cp{color:var(--accent)}
-    .mb-drawer a .free-badge{padding:1px 6px;font-size:9px;font-weight:600;letter-spacing:1px;
-      background:rgba(232,160,80,.18);color:var(--accent);
-      border:1px solid rgba(232,160,80,.4);border-radius:3px;text-transform:uppercase;
-    }
     .mb-drawer a.cta{
       margin-top:10px;background:var(--accent);color:#000;font-weight:600;
       border:1px solid var(--accent);justify-content:center;border-bottom:none;
@@ -617,7 +611,6 @@
     html.light .mb-drawer{background:rgba(246,243,236,.96)}
     html.light .mb-drawer a{color:rgba(0,0,0,.78);border-bottom-color:rgba(0,0,0,.10)}
     html.light .mb-drawer a:hover,html.light .mb-drawer a:active{color:#c87618}
-    html.light .mb-drawer a.cp{color:#c87618}
     html.light .mb-drawer a.cta{background:#c87618;color:#fff;border-color:#c87618}
     html.light .mb-drawer a.cta:hover,html.light .mb-drawer a.cta:active{background:#0d0d0d;color:#fff}
     .plugin-grid{grid-template-columns:1fr}
@@ -642,7 +635,7 @@
 <!-- header -->
 <header class="hdr" id="hdr">
   <a class="hdr-logo" href="#top">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span data-scramble>RustCode</span>
     <span class="ver" id="verBadge" title="当前版本">v5.0.9</span>
   </a>
@@ -651,17 +644,14 @@
     <a href="#editor-plugins" data-section="editor-plugins" data-i18n="nav.plugins">IDE插件</a>
     <a href="#install" data-section="install" data-i18n="nav.install">安装</a>
     <a href="/docs/index.html" target="_blank" rel="noopener" data-i18n="nav.docs">文档</a>
-    <a href="https://plugins.rustcode.dev" target="_blank" rel="noopener" data-i18n="nav.marketplace">Skills</a>
-    <a class="nav-cp" href="https://docs.rustcode.dev/models" target="_blank" rel="noopener">
-      <span data-i18n="nav.codingplan">Coding Plan</span>
-    </a>
+    <a href="/docs/en/plugins.html" data-i18n="nav.marketplace">Skills</a>
   </nav>
   <div class="hdr-right">
     <button class="icon-btn" id="themeBtn" aria-label="主题">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
     </button>
     <button class="icon-btn" id="langBtn" aria-label="语言">中</button>
-    <a class="btn-pill" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="btn.repo">开源仓库</a>
+    <a class="btn-pill" href="#install" data-i18n="btn.repo">发行渠道</a>
     <a class="btn-pill primary" href="#install" data-i18n="btn.start">立即开始</a>
     <button class="icon-btn mb-toggle" id="mbToggle" aria-label="菜单" aria-expanded="false">☰</button>
   </div>
@@ -673,11 +663,8 @@
   <a href="#editor-plugins" data-i18n="nav.plugins">IDE插件</a>
   <a href="#install" data-i18n="nav.install">安装</a>
   <a href="/docs/index.html" target="_blank" rel="noopener" data-i18n="nav.docs">文档</a>
-  <a href="https://plugins.rustcode.dev" target="_blank" rel="noopener" data-i18n="nav.marketplace">Skills</a>
-  <a class="cp" href="https://docs.rustcode.dev/models" target="_blank" rel="noopener">
-    <span data-i18n="nav.codingplan">Coding Plan</span>
-  </a>
-  <a href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="btn.repo">开源仓库</a>
+  <a href="/docs/en/plugins.html" data-i18n="nav.marketplace">Skills</a>
+  <a href="#install" data-i18n="btn.repo">发行渠道</a>
   <a class="cta" href="#install" data-i18n="btn.start.arrow">立即开始 →</a>
 </nav>
 
@@ -704,7 +691,7 @@
             <div class="left">
               <span id="osHint">自动检测 · 已选 macOS</span>
             </div>
-            <button class="cp-btn" id="copyInstall" data-magnetic data-i18n="install.copy">📋 复制命令</button>
+            <button class="cp-btn" id="copyInstall" data-magnetic data-i18n="install.copy">复制命令</button>
           </div>
         </div>
       </div>
@@ -816,18 +803,18 @@
       <h3 data-i18n="feat.images.t">图片附件与 VL 预处理</h3>
       <p data-i18n="feat.images.d">Ctrl+V 粘贴截图、Finder 拖拽、iTerm2 路径自动识别 —— 主模型不支持图片时，自动 VL 预处理 OCR 给主模型。</p>
       <div class="demo">
-        <div class="vis-drop" data-i18n-html="feat.images.demo">📎 <b>Ctrl + V</b> 粘贴截图  ·  或拖入图片</div>
+        <div class="vis-drop" data-i18n-html="feat.images.demo"><b>Ctrl + V</b> 粘贴截图  ·  或拖入图片</div>
       </div>
     </article>
 
     <article class="feat">
       <div class="icon">⎇</div>
-      <h3 data-i18n="feat.platform.t">平台原生集成</h3>
-      <p data-i18n="feat.platform.d">OAuth 一键登录、内置工具管理 Issue / PR / 仓库、企业微信扫码登录 —— 与开源生态无缝对接。</p>
+      <h3 data-i18n="feat.platform.t">托管端点集成(可选)</h3>
+      <p data-i18n="feat.platform.d">发行渠道可选提供 OAuth 一键登录与内置 Issue / PR / 仓库工具;开源默认构建使用第三方 BYO provider,无需账号。</p>
       <div class="demo">
         <div class="gitcmd">
-          <div class="l1">› 为 auth callback 404 创建一个 平台 Issue</div>
-          <div class="l2">✓ gitcode.com/.../rustcode/issues/124</div>
+          <div class="l1">› 为 auth callback 404 创建一个 Issue</div>
+          <div class="l2">✓ example.com/.../rustcode/issues/124</div>
         </div>
       </div>
     </article>
@@ -910,15 +897,15 @@
         </article>
 
         <article class="plugin-feat">
-          <div class="icon">💬</div>
+          <div class="icon">▭</div>
           <h3 data-i18n="plug.session.t">会话管理</h3>
           <p data-i18n="plug.session.d">按时间分组的历史会话，支持搜索、重命名、删除、恢复</p>
         </article>
 
         <article class="plugin-feat">
           <div class="icon">★</div>
-          <h3 data-i18n="plug.platform.t">平台集成</h3>
-          <p data-i18n="plug.platform.d">OAuth 一键登录，CodingPlan 免费额度，/login /codingplan 命令</p>
+          <h3 data-i18n="plug.platform.t">托管端点集成(可选)</h3>
+          <p data-i18n="plug.platform.d">发行渠道可选提供 OAuth 一键登录与 /login 命令;开源默认构建使用第三方 BYO provider</p>
         </article>
 
       </div>
@@ -935,7 +922,7 @@
             <div class="pi-item">
               <div class="cp-bar">
                 <span class="label" data-i18n="plug.install.cmd"># 或通过命令行安装</span>
-                <button class="cp-btn pi-cp" type="button" data-i18n="install.copy.short">📋 复制</button>
+                <button class="cp-btn pi-cp" type="button" data-i18n="install.copy.short">复制</button>
               </div>
               <pre class="pi-cmd">code --install-extension rustcode-tools.rustcode-tools</pre>
             </div>
@@ -1079,6 +1066,7 @@
         </div>
 
         <div class="download-row" id="downloadRow"></div>
+        <p class="dl-note" data-i18n="install.dl.note"></p>
       </div>
 
       <!-- right: 3 步骤（置顶）+ 首次运行向导 -->
@@ -1093,8 +1081,8 @@
           <div class="step">
             <div class="ch">›</div>
             <div class="n">02</div>
-            <div class="t" data-i18n="step2.t">配置 API Key</div>
-            <div class="d" data-i18n="step2.d">OpenAI / Claude / CodingPlan 任一即可</div>
+            <div class="t" data-i18n="step2.t">配置 provider</div>
+            <div class="d" data-i18n="step2.d">Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama 等第三方 API 任一 · 自带 Key</div>
           </div>
           <div class="step">
             <div class="n">03</div>
@@ -1113,7 +1101,7 @@
               <ul class="intro-list">
                 <li data-i18n="wiz.s1.b1">多步骤 agent loop · 内置代码图工具</li>
                 <li data-i18n="wiz.s1.b2">兼容所有 OpenAI 风格 API</li>
-                <li data-i18n="wiz.s1.b3">通过 CodingPlan 获取免费额度</li>
+                <li data-i18n="wiz.s1.b3">自带 API Key，无需注册账号</li>
               </ul>
               <div class="intro-hint" data-i18n="wiz.s1.hint">按 Enter 继续 · Ctrl+C 可随时退出</div>
             </div>
@@ -1128,9 +1116,8 @@
             <div class="wiz-step" data-step="3">
               <div class="tt" data-i18n="wiz.s3.tt">第 3/3 步 · 配置</div>
               <div class="qq" data-i18n="wiz.s3.qq">想怎么开始？</div>
-              <div class="opt sel"><span data-i18n="wiz.s3.o1">配置 CodingPlan</span> <small data-i18n="wiz.s3.o1.hint">免费额度 · 推荐</small></div>
-              <div class="opt"><span data-i18n="wiz.s3.o2">手动配置</span> <small data-i18n="wiz.s3.o2.hint">使用 API key</small></div>
-              <div class="opt"><span data-i18n="wiz.s3.o3">暂时跳过</span> <small data-i18n="wiz.s3.o3.hint">稍后再说</small></div>
+              <div class="opt sel"><span data-i18n="wiz.s3.manual">手动配置</span> <small data-i18n="wiz.s3.manual.hint">自带 API Key · 推荐</small></div>
+              <div class="opt"><span data-i18n="wiz.s3.skip">暂时跳过</span> <small data-i18n="wiz.s3.skip.hint">稍后再说</small></div>
             </div>
             <div class="wiz-nav-hint" data-i18n="wiz.nav">1-3 选择 · Enter 确认 · ← 返回 · Esc 跳过</div>
             <div class="wiz-nav">
@@ -1149,7 +1136,7 @@
 <!-- footer -->
 <footer class="ftr">
   <div class="ftr-row" data-i18n-html="ftr.links">
-    <a href="#top">官网</a> · <a href="/docs/index.html" target="_blank" rel="noopener">文档</a> · <a href="https://docs.rustcode.dev/models" target="_blank" rel="noopener">CodingPlan</a> · <a href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener">开源仓库</a> · <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener">Issue</a>
+    <a href="#top">官网</a> · <a href="/docs/index.html" target="_blank" rel="noopener">文档</a> · <span>源码与 Issue 请通过你的发行渠道获取</span>
   </div>
   <div data-i18n="ftr.copy">© 2026 RustCode · MIT 许可证</div>
   <div class="ftr-tag" data-i18n="ftr.rust">⚙ 用 Rust 构建</div>
@@ -1175,8 +1162,7 @@ const T={
 'nav.docs':{zh:'文档',en:'Docs'},
 'nav.marketplace':{zh:'Skills',en:'Skills'},
 'nav.plugins':{zh:'IDE插件',en:'IDE Plugins'},
-  'nav.codingplan':{zh:'Coding Plan',en:'Coding Plan'},
-  'btn.repo':{zh:'开源仓库',en:'Repository'},
+  'btn.repo':{zh:'发行渠道',en:'Distribution'},
   'btn.start':{zh:'立即开始',en:'Get Started'},
   'btn.start.arrow':{zh:'立即开始 →',en:'Get Started →'},
   'btn.viewcompare':{zh:'查看对比',en:'View Comparison'},
@@ -1185,8 +1171,9 @@ const T={
   'hero.t2':{zh:'在你的终端中运行',en:'in Your Terminal'},
   'hero.sub':{zh:'Claude Code / Cursor Agent 的<b>开源平替</b>，住在你的终端里。连接任意 OpenAI 兼容大模型，自主读文件、改代码、跑测试、自我验证 —— 用 Rust 构建。本项目<b>100% 由 AI 生成</b>。',
               en:"<b>Open-source alternative</b> to Claude Code / Cursor Agent, living in your terminal. Connect any OpenAI-compatible LLM, autonomously read, edit, test, self-verify — built with Rust. <b>100% AI-generated codebase.</b>"},
-  'install.copy':{zh:'📋 复制命令',en:'📋 Copy command'},
-  'install.copy.short':{zh:'📋 复制',en:'📋 Copy'},
+  'install.copy':{zh:'复制命令',en:'Copy command'},
+  'install.copy.short':{zh:'复制',en:'Copy'},
+  'install.dl.note':{zh:'预编译二进制不内置发布站点：请从你的分发渠道 Releases 页面下载，或使用上方安装脚本。',en:'No release host is built in — download prebuilt binaries from your distribution channel\'s releases page, or use the install script above.'},
   'flow.bug':{zh:'修复登录 bug',en:'Fix login bug'},
   'flow.refactor':{zh:'模块重构',en:'Module refactor'},
   'flow.devserver':{zh:'启动 Dev Server',en:'Start dev server'},
@@ -1230,10 +1217,10 @@ const T={
   'feat.images.t':{zh:'图片附件与 VL 预处理',en:'Image Attachment & VL Preprocess'},
   'feat.images.d':{zh:'Ctrl+V 粘贴截图、Finder 拖拽、iTerm2 路径自动识别 —— 主模型不支持图片时，自动 VL 预处理 OCR 给主模型。',
                    en:'Ctrl+V paste, Finder drag, iTerm2 path auto-detect — when the main model lacks vision, falls back to VL preprocessor (OCR + describe).'},
-  'feat.images.demo':{zh:'📎 <b>Ctrl + V</b> 粘贴截图  ·  或拖入图片',en:'📎 <b>Ctrl + V</b> paste screenshot · or drop an image'},
-  'feat.platform.t':{zh:'平台原生集成',en:'Platform Native Integration'},
-  'feat.platform.d':{zh:'OAuth 一键登录、内置工具管理 Issue / PR / 仓库、企业微信扫码登录 —— 与开源生态无缝对接。',
-                    en:'OAuth login, built-in Issue / PR / repository tools, and WeCom QR login — seamless with the open-source ecosystem.'},
+  'feat.images.demo':{zh:'<b>Ctrl + V</b> 粘贴截图  ·  或拖入图片',en:'<b>Ctrl + V</b> paste screenshot · or drop an image'},
+  'feat.platform.t':{zh:'托管端点集成(可选)',en:'Managed Endpoint Integration (optional)'},
+  'feat.platform.d':{zh:'发行渠道可选提供 OAuth 一键登录与内置 Issue / PR / 仓库工具;开源默认构建使用第三方 BYO provider,无需账号。',
+                    en:'Distributions may offer one-click OAuth login and built-in Issue / PR / repository tools; the default open build uses third-party BYO providers — no account needed.'},
   'feat.eco.t':{zh:'Skills + Plugin 生态',en:'Skills + Plugin Ecosystem'},
   'feat.eco.d':{zh:'Skills 写你自己的斜杠命令；/plugin install <git-repo> 一键拿别人的命令、hook、skill —— 与 Claude Code 生态兼容。',
                 en:'Write your own slash commands as Skills; /plugin install <git-repo> grabs packs of commands, hooks, skills — Claude Code ecosystem compatible.'},
@@ -1255,8 +1242,8 @@ const T={
   'plug.model.d':{zh:'Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama，支持 thinking 参数配置',en:'Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama, with thinking parameter support'},
   'plug.session.t':{zh:'会话管理',en:'Session Management'},
   'plug.session.d':{zh:'按时间分组的历史会话，支持搜索、重命名、删除、恢复',en:'Time-grouped session history with search, rename, delete, and restore'},
-  'plug.platform.t':{zh:'平台集成',en:'Platform Integration'},
-  'plug.platform.d':{zh:'OAuth 一键登录，CodingPlan 免费额度，/login /codingplan 命令',en:'OAuth one-click login, CodingPlan free tier, /login /codingplan commands'},
+  'plug.platform.t':{zh:'托管端点集成(可选)',en:'Managed Endpoint (optional)'},
+  'plug.platform.d':{zh:'发行渠道可选提供 OAuth 一键登录与 /login 命令;开源默认构建使用第三方 BYO provider',en:'Optional distribution-provided OAuth login via /login; the default open build uses third-party BYO providers'},
   'plug.install.head':{zh:'安装 RustCode for VS Code',en:'Install RustCode for VS Code'},
   'plug.install.mkt':{zh:'# 从 Marketplace 安装（推荐）',en:'# Install from Marketplace (recommended)'},
   'plug.install.cmd':{zh:'# 或通过命令行安装',en:'# Or install via command line'},
@@ -1291,7 +1278,7 @@ const T={
   'step1.t':{zh:'运行命令',en:'Run command'},
   'step1.d':{zh:'脚本自动下载到 /usr/local/bin 或 ~/.local/bin',en:'Script installs to /usr/local/bin or ~/.local/bin'},
   'step2.t':{zh:'配置 provider',en:'Configure provider'},
-  'step2.d':{zh:'Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama 任一 · 或 /login 走 OAuth',en:'Pick any provider · Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama · or /login via OAuth'},
+  'step2.d':{zh:'Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama 等第三方 API 任一 · 自带 Key',en:'Bring your own key for any provider · Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama'},
   'step3.t':{zh:'cd 进项目跑 rustcode',en:'cd into project, run rustcode'},
   'step3.d':{zh:'第一次会进 3 步启动向导 · 配置存 ~/.rustcode/config.toml',en:'First run launches a 3-step wizard · config at ~/.rustcode/config.toml'},
   'wiz.head':{zh:'rustcode · 首次运行 — 3 步启动向导',en:'rustcode · First run — 3-step wizard'},
@@ -1299,7 +1286,7 @@ const T={
   'wiz.s1.qq':{zh:`版本 ${VERSION}  ·  在终端里运行的 AI 编程代理`,en:`Version ${VERSION}  ·  AI coding agent in your terminal`},
   'wiz.s1.b1':{zh:'多步骤 agent loop · 内置代码图工具',en:'Multi-step agent loop · built-in code-graph tools'},
   'wiz.s1.b2':{zh:'兼容所有 OpenAI 风格 API',en:'Connects to any OpenAI-compatible API'},
-  'wiz.s1.b3':{zh:'通过 CodingPlan 获取免费额度',en:'Free tokens via CodingPlan'},
+  'wiz.s1.b3':{zh:'自带 API Key，无需注册账号',en:'Bring your own API key -- no account or signup'},
   'wiz.s1.hint':{zh:'按 Enter 继续 · Ctrl+C 可随时退出',en:'Press Enter to continue · Ctrl+C exits at any point'},
   'wiz.s2.tt':{zh:'第 2/3 步 · 语言',en:'Step 2/3 · Language'},
   'wiz.s2.qq':{zh:'Choose your language / 选择语言',en:'Choose your language / 选择语言'},
@@ -1309,18 +1296,16 @@ const T={
   'wiz.s2.o3':{zh:'English',en:'English'},
   'wiz.s3.tt':{zh:'第 3/3 步 · 配置',en:'Step 3/3 · Setup'},
   'wiz.s3.qq':{zh:'想怎么开始？',en:'How would you like to set up?'},
-  'wiz.s3.o1':{zh:'配置 CodingPlan',en:'Set up CodingPlan'},
-  'wiz.s3.o1.hint':{zh:'免费额度 · 推荐',en:'Free tokens · recommended'},
-  'wiz.s3.o2':{zh:'手动配置',en:'Configure manually'},
-  'wiz.s3.o2.hint':{zh:'使用 API key',en:'API key'},
-  'wiz.s3.o3':{zh:'暂时跳过',en:'Skip for now'},
-  'wiz.s3.o3.hint':{zh:'稍后再说',en:'explore first'},
+  'wiz.s3.manual':{zh:'手动配置',en:'Configure manually'},
+  'wiz.s3.manual.hint':{zh:'自带 API Key · 推荐',en:'Bring your own API key · recommended'},
+  'wiz.s3.skip':{zh:'暂时跳过',en:'Skip for now'},
+  'wiz.s3.skip.hint':{zh:'稍后再说',en:'Set up later'},
   'wiz.nav':{zh:'1-3 选择 · Enter 确认 · ← 返回 · Esc 跳过',en:'1-3 select · Enter confirm · ← back · Esc skip'},
   'wiz.prev':{zh:'← 上一步',en:'← Back'},
   'wiz.next':{zh:'下一步 →',en:'Next →'},
   'wiz.done':{zh:'✓ 完成',en:'✓ Done'},
-  'ftr.links':{zh:'<a href="#top">官网</a> · <a href="/docs/index.html" target="_blank" rel="noopener">文档</a> · <a href="https://docs.rustcode.dev/models" target="_blank" rel="noopener">CodingPlan</a> · <a href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener">开源仓库</a> · <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener">Issue</a>',
-                en:'<a href="#top">Website</a> · <a href="/docs/index.html" target="_blank" rel="noopener">Docs</a> · <a href="https://docs.rustcode.dev/models" target="_blank" rel="noopener">CodingPlan</a> · <a href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener">Repository</a> · <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener">Issues</a>'},
+  'ftr.links':{zh:'<a href="#top">官网</a> · <a href="/docs/index.html" target="_blank" rel="noopener">文档</a> · <span>源码与 Issue 请通过你的发行渠道获取</span>',
+                en:'<a href="#top">Website</a> · <a href="/docs/index.html" target="_blank" rel="noopener">Docs</a> · <span>Source &amp; issues via your distribution channel</span>'},
   'ftr.copy':{zh:'© 2026 RustCode · MIT 许可证',en:'© 2026 RustCode · MIT License'},
   'ftr.rust':{zh:'⚙ 用 Rust 构建',en:'⚙ Built with Rust'},
   'toast.install.copied':{zh:'✓ 安装命令已复制 · 粘贴到终端运行',en:'✓ Install command copied · paste into your terminal'},
@@ -1362,26 +1347,20 @@ function applyI18n(){
 }
 
 /* ========== data ========== */
-const RELEASE_BASE='https://gitcode.com/SecLab/RustCode/releases/download/'+VERSION;
-// Install scripts are served version-free from the repo (raw host); the scripts
-// auto-detect the latest release themselves, so no version is pinned in the URL.
-const SCRIPT_BASE='https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts';
-const INVITE_PARAM=(()=>{
-  const q=new URLSearchParams(window.location.search).get('invite');
-  if(q)return q;
-  const m=window.location.pathname.match(/^\/invite\/([A-Za-z0-9]{8})$/);
-  return m?m[1]:'';
-})();
-const INVITE_CODE=/^[A-Za-z0-9]{8}$/.test(INVITE_PARAM)?INVITE_PARAM:'';
+// This build ships no compiled-in release host. Distributors point users at
+// their own release base; the placeholders below are documentation examples.
+const RELEASE_BASE='https://example.com/your-org/rustcode/releases/download/'+VERSION;
 function unixInstallCmd(){
-  return `curl -fsSL ${SCRIPT_BASE}/install.sh | sh${INVITE_CODE?` -s -- --invite=${INVITE_CODE}`:''}`;
+  // Obtain install.sh from your distribution channel first, then point it at
+  // that channel's release host:
+  return 'RUSTCODE_RELEASE_BASE=https://example.com/your-host/releases/download sh install.sh';
 }
 function winInstallCmd(){
-  return INVITE_CODE
-    ? `$env:RUSTCODE_INVITE='${INVITE_CODE}'; irm ${SCRIPT_BASE}/install.ps1 | iex`
-    : `irm ${SCRIPT_BASE}/install.ps1 | iex`;
+  // Obtain install.ps1 from your distribution channel first, then point it at
+  // that channel's release host:
+  return "$env:RUSTCODE_RELEASE_BASE='https://example.com/your-host/releases/download'; powershell -ExecutionPolicy Bypass -File install.ps1";
 }
-function npmInstallCmd(){return 'npm install -g @gitcode.com/rustcode';}
+function npmInstallCmd(){return 'npm install -g @rustcode/rustcode';}
 function brewInstallCmd(){return 'brew install --cask rustcode';}
 // Hero box renders ONE detected line per method. `install.sh` auto-detects OS +
 // CPU arch itself, so the same curl line serves macOS / Linux / HarmonyOS /
@@ -1403,10 +1382,10 @@ const METHOD_CMDS={
        en:`# Cross-platform · global npm\n${npmInstallCmd()}`},
   brew:{zh:`# 仅 macOS / Linux\n${brewInstallCmd()}`,
         en:`# macOS / Linux only\n${brewInstallCmd()}`},
-  source:{zh:`# 需要 Rust 1.88+\ngit clone https://gitcode.com/SecLab/RustCode.git\ncd rustcode\ncargo build --release\ncp target/release/rustcode ~/.local/bin/\nrustcode --version  # 验证安装`,
-          en:`# Requires Rust 1.88+\ngit clone https://gitcode.com/SecLab/RustCode.git\ncd rustcode\ncargo build --release\ncp target/release/rustcode ~/.local/bin/\nrustcode --version  # verify install`},
-  binary:{zh:`# 从 Releases 页面下载\nhttps://gitcode.com/SecLab/RustCode/releases/latest\n\n# 或直接 curl 取对应平台\ncurl -L -o rustcode \\\n  ${RELEASE_BASE}/rustcode-${VERSION}-darwin-arm64\nchmod +x rustcode && mv rustcode /usr/local/bin/`,
-          en:`# Download from Releases page\nhttps://gitcode.com/SecLab/RustCode/releases/latest\n\n# Or curl for your platform\ncurl -L -o rustcode \\\n  ${RELEASE_BASE}/rustcode-${VERSION}-darwin-arm64\nchmod +x rustcode && mv rustcode /usr/local/bin/`},
+  source:{zh:`# 需要 Rust 1.88+ · 源码从你的发行渠道获取\ngit clone https://example.com/your-org/rustcode.git\ncd rustcode\ncargo build --release\ncp target/release/rustcode ~/.local/bin/\nrustcode --version  # 验证安装`,
+          en:`# Requires Rust 1.88+ · get the source from your distribution channel\ngit clone https://example.com/your-org/rustcode.git\ncd rustcode\ncargo build --release\ncp target/release/rustcode ~/.local/bin/\nrustcode --version  # verify install`},
+  binary:{zh:`# 从你的发行渠道 Releases 页面下载\nhttps://example.com/your-org/rustcode/releases/latest\n\n# 或直接 curl 取对应平台(替换为你的发行地址)\ncurl -L -o rustcode \\\n  ${RELEASE_BASE}/rustcode-${VERSION}-darwin-arm64\nchmod +x rustcode && mv rustcode /usr/local/bin/`,
+          en:`# Download from your distribution channel's releases page\nhttps://example.com/your-org/rustcode/releases/latest\n\n# Or curl for your platform (use your distribution's URL)\ncurl -L -o rustcode \\\n  ${RELEASE_BASE}/rustcode-${VERSION}-darwin-arm64\nchmod +x rustcode && mv rustcode /usr/local/bin/`},
 };
 function methodHint(m){return t('method.'+m);}
 const DOWNLOADS=[
@@ -1482,10 +1461,10 @@ const FEAT=[
   {cat:'model',     catL:{zh:'模型',en:'Model'},   f:{zh:'本地模型 (Ollama)',en:'Local model (Ollama)'},  a:{zh:'✓ 已支持',en:'✓ Supported'},   c:{zh:'✗ 不支持',en:'✗ Not supported'}, win:'a'},
   {cat:'tools',     catL:{zh:'工具',en:'Tools'},   f:{zh:'代码图谱工具',en:'Code graph tools'}, a:{zh:'✓ 8 个内置',en:'✓ 8 built-in'},   c:{zh:'基础文本检索',en:'Basic text search'}, win:'a'},
   {cat:'tools',     catL:{zh:'工具',en:'Tools'},   f:{zh:'/undo 一键回滚',en:'/undo one-click rollback'}, a:{zh:'✓ 已支持',en:'✓ Supported'}, c:{zh:'手动 git',en:'Manual git'}, win:'a'},
-  {cat:'integration',catL:{zh:'集成',en:'Integration'}, f:{zh:'平台原生集成',en:'platform native integration'}, a:{zh:'✓ OAuth + 内置平台工具',en:'✓ OAuth + built-in platform tools'}, c:{zh:'✗ 不支持',en:'✗ Not supported'}, win:'a'},
+  {cat:'integration',catL:{zh:'集成',en:'Integration'}, f:{zh:'托管端点集成(可选)',en:'managed endpoint integration (optional)'}, a:{zh:'✓ 第三方 BYO · 可选托管登录',en:'✓ Third-party BYO · optional managed login'}, c:{zh:'✗ 不支持',en:'✗ Not supported'}, win:'a'},
   {cat:'tools',     catL:{zh:'工具',en:'Tools'},   f:{zh:'MCP 支持',en:'MCP support'},      a:{zh:'✓ 已支持',en:'✓ Supported'},     c:{zh:'✓ 已支持',en:'✓ Supported'},  win:'='},
   {cat:'tools',     catL:{zh:'工具',en:'Tools'},   f:{zh:'视觉 / 截图',en:'Vision / screenshot'}, a:{zh:'✓ 已支持',en:'✓ Supported'},  c:{zh:'✓ 已支持',en:'✓ Supported'},  win:'='},
-  {cat:'price',     catL:{zh:'价格',en:'Price'},   f:{zh:'费用',en:'Pricing'},              a:{zh:'CodingPlan 限免 · 自带 API',en:'CodingPlan free tier · BYO API'}, c:{zh:'订阅 + API',en:'Subscription + API'}, win:'a'},
+  {cat:'price',     catL:{zh:'价格',en:'Price'},   f:{zh:'费用',en:'Pricing'},              a:{zh:'免费开源 · 自带 API (BYO)',en:'Free open source · BYO API'}, c:{zh:'订阅 + API',en:'Subscription + API'}, win:'a'},
 ];
 
 /* ========== robust clipboard copy ========== */
@@ -1819,9 +1798,15 @@ window.applyWizardNav=null;
     });
   })();
 
-  // downloads — actual release URLs
+  // downloads — the neutral build ships no compiled-in release host, so render
+  // non-navigating placeholders (a real href would point at the example.com
+  // doc domain). Prebuilt binaries come from the distribution channel's own
+  // releases page; see the .dl-note caption below.
+  const dlTitle=LANG==='zh'
+    ? '预编译二进制由你的分发渠道发布，请从该渠道的 Releases 页面获取'
+    : 'Prebuilt binaries are published by your distribution channel — get them from its releases page';
   document.getElementById('downloadRow').innerHTML=DOWNLOADS.map(d=>`
-    <a class="dl-btn" href="${RELEASE_BASE}/${d.file}" target="_blank" rel="noopener"><span>↓ ${d.os}</span><small>${d.arch}</small></a>`).join('');
+    <span class="dl-btn" role="button" aria-disabled="true" title="${dlTitle}"><span>↓ ${d.os}</span><small>${d.arch}</small></span>`).join('');
 
   // wizard
   const next=document.getElementById('wizNext'),prev=document.getElementById('wizPrev');

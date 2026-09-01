@@ -44,11 +44,11 @@ Some pre-built skills are available through the setup installer (`rustcode setup
 
 ## Plugin Skills
 
-Skills distributed as plugins — install with `/plugin marketplace add <url>` then `/plugin install <name>`.
+Skills distributed as plugins — add the plugin marketplace provided by your distribution channel (set its URL via config/env, or install from your distribution's plugin index), then run `/plugin install <name>`. Use a placeholder URL such as `https://example.com/<your-org>/rustcode-plugins` if your channel does not give you a concrete one.
 
 | Skill | Plugin | Install | Best For |
 |-------|--------|---------|----------|
-| **rustcode-workflows** | rustcode-workflows | `/plugin marketplace add https://gitcode.com/SecLab/RustCode-plugins-official` then `/plugin install rustcode-workflows@rustcode` | Plan / review / debug / brainstorm workflow skills |
+| **rustcode-workflows** | rustcode-workflows | `/plugin marketplace add <your-channel-marketplace-url>` then `/plugin install rustcode-workflows@rustcode` | Plan / review / debug / brainstorm workflow skills |
 | **commit-craft** | commit-craft | (same marketplace) `/plugin install commit-craft@rustcode` | Conventional commit messages, PR descriptions, changelogs |
 | **git-worktree** | git-worktree | (same marketplace) `/plugin install git-worktree@rustcode` | `/worktree` — isolated worktrees for parallel work |
 

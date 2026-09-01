@@ -1,8 +1,10 @@
 #!/bin/sh
-# RustCode uninstaller — curl | sh
+# RustCode uninstaller — run locally
 #
-#   curl -fsSL https://gitcode.com/SecLab/RustCode/raw/main/uninstall.sh | sh
+#   sh scripts/uninstall.sh
 #
+# (Obtain this script from the same distribution channel you installed
+#  rustcode from; this build ships no built-in download host.)
 # Flags:
 #   --yes          skip prompts (use defaults: G1=yes, G2=no, G3=yes)
 #   --purge        delete everything including ~/.rustcode/

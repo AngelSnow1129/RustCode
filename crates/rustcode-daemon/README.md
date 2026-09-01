@@ -498,10 +498,13 @@ curl -N -X POST http://127.0.0.1:13456/chat \
 
 获取当前认证状态。
 
-**响应示例：**
+`managed_available` 表示本构建是否内置托管登录服务：发行版本为 `true`；开源默认构建恒为 `false`（此时不存在可登录的托管服务，客户端应隐藏登录入口、引导用户配置自带 API Key 的第三方供应商；旧版守护进程可能不返回此字段，缺省按 `false` 处理）。
+
+**响应示例（发行版本）：**
 
 ```json
 {
+  "managed_available": true,
   "logged_in": true,
   "expired": false,
   "auth_path": "/home/user/.rustcode/auth.toml",
@@ -520,7 +523,7 @@ curl -N -X POST http://127.0.0.1:13456/chat \
 
 #### `POST /auth/login/start`
 
-启动 OAuth 登录流程。
+启动 OAuth 登录流程（仅发行版本可用）。
 
 **请求体：**
 
@@ -532,7 +535,7 @@ curl -N -X POST http://127.0.0.1:13456/chat \
 
 - `open_browser`：是否自动打开浏览器（默认 `true`）
 
-**响应示例：**
+**响应示例（发行版本）：**
 
 ```json
 {
@@ -540,6 +543,17 @@ curl -N -X POST http://127.0.0.1:13456/chat \
   "url": "https://auth.example.com/login?code=xxx",
   "expires_in_seconds": 600,
   "daemon_instance_id": "uuid-of-daemon-process"
+}
+```
+
+**开源默认构建：** 该端点快速失败，返回 HTTP 501 与错误码 `managed_login_unavailable`（`retryable: false`），提示客户端引导用户改用自带 API Key 的第三方供应商配置：
+
+```json
+{
+  "success": false,
+  "error": "This build has no managed sign-in service. Configure a third-party provider with your own API key in provider settings instead.",
+  "code": "managed_login_unavailable",
+  "retryable": false
 }
 ```
 
@@ -624,11 +638,13 @@ curl -N -X POST http://127.0.0.1:13456/chat \
 
 ---
 
-### CodingPlan
+### CodingPlan（仅发行版本）
+
+本节端点用于发行版本提供的托管服务。开源默认构建不内置任何托管端点——请通过上文的 Provider 管理路由（`POST /providers`）或 `~/.rustcode/config.toml` 用你自己的 API Key 配置第三方供应商。`/codingplan/*` 路由位于 `#[cfg(feature = "codingplan")]` 门控之后，在默认构建中根本不参与编译，请求这些路径返回 404。
 
 #### `POST /codingplan/setup`
 
-运行 CodingPlan 初始化设置（登录、领取模型、配置 Provider）。
+运行 CodingPlan 初始化设置（托管账号登录、领取托管额度、写入 Provider 配置）。
 
 **请求体：**
 
@@ -700,7 +716,7 @@ rustcode-daemon/
     ├── api_auth.rs        # 认证相关接口（登录/登出/状态）
     ├── api_config.rs      # 配置相关接口及共享工具函数
     ├── api_provider.rs    # Provider 管理接口
-    └── api_codingplan.rs  # CodingPlan 初始化接口
+    └── api_codingplan.rs  # CodingPlan 初始化接口（#[cfg(feature = "codingplan")] 门控，开源默认构建不编译）
 ```
 
 ## 配置文件

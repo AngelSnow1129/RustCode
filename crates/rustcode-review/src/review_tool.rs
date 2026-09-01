@@ -24,6 +24,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use rustcode_config::i18n::{t, Msg};
 use rustcode_kernel::agent::{AutoRespond, ToolLoopPolicy};
 use rustcode_kernel::event::StopReason;
 use rustcode_kernel::hook::{LifecycleHooks, TurnCtx};
@@ -48,6 +49,14 @@ use crate::{build_review_agent_with, Finding};
 /// activity convention so terminal drivers can update one latest-wins line instead of adding
 /// every child round/tool to scrollback.
 pub const REVIEW_ACTIVITY_MARKER: char = '\u{1e}';
+
+/// Locale-stable prefix on PARTIAL-COVERAGE review results (single pass stopped
+/// early, or deep mode where every dimension failed). UI drivers classify the
+/// tool result by this ASCII tag instead of the localized sentence that follows
+/// it (e.g. the TUI's incomplete-review warning detector). Never localize, never
+/// remove; drivers that cannot depend on this crate keep a matching literal with
+/// a cross-reference comment.
+pub const REVIEW_INCOMPLETE_MARKER: &str = "[review-incomplete]";
 
 pub(crate) struct ReviewProgressHook {
     progress: ProgressSink,
@@ -91,7 +100,7 @@ impl ReviewProgressHook {
 #[async_trait]
 impl LifecycleHooks for ReviewProgressHook {
     async fn pre_request(&self, _messages: &mut Vec<Message>, _ctx: &TurnCtx) {
-        self.emit("thinking");
+        self.emit(&t(Msg::ReviewActivityThinking));
     }
 
     async fn on_model_response(&self, response: &mut Message) {
@@ -109,7 +118,7 @@ impl LifecycleHooks for ReviewProgressHook {
             return;
         };
         let tail = if call.name == "report_finding" {
-            "reporting finding".to_string()
+            t(Msg::ReviewActivityReporting).into_owned()
         } else {
             summarize_review_tool_call(&call.name, &call.arguments)
         };
@@ -125,15 +134,16 @@ impl LifecycleHooks for ReviewProgressHook {
 /// separator. The round/round-cap is intentionally NOT shown.
 fn review_activity_line(label: Option<&str>, findings: u32, tail: &str) -> String {
     let head = match label.filter(|l| !l.is_empty()) {
-        Some(label) => format!("review [{label}]"),
-        None => "review".to_string(),
+        Some(label) => t(Msg::ReviewActivityHeadLabeled { label }).into_owned(),
+        None => t(Msg::ReviewActivityHead).into_owned(),
     };
     let mut segments = vec![head];
     if findings > 0 {
-        segments.push(format!(
-            "{findings} finding{}",
-            if findings == 1 { "" } else { "s" }
-        ));
+        segments.push(if findings == 1 {
+            t(Msg::ReviewActivityFindingOne { count: findings }).into_owned()
+        } else {
+            t(Msg::ReviewActivityFindingMany { count: findings }).into_owned()
+        });
     }
     if !tail.is_empty() {
         segments.push(tail.to_string());
@@ -477,8 +487,10 @@ impl Tool for ReviewTool {
 
         // 1. Compute the exact diff in the LIVE working dir (follows /cd), then stop before
         // launching the child when the deterministic preflight says the scope is large.
-        ctx.progress
-            .emit(format!("{REVIEW_ACTIVITY_MARKER}review · preparing diff"));
+        ctx.progress.emit(format!(
+            "{REVIEW_ACTIVITY_MARKER}{}",
+            t(Msg::ReviewActivityPreparing)
+        ));
         let scoped = match git_diff(&ctx.working_dir, &scope, &a.paths) {
             Ok(d) => d,
             Err(e) => return err(format!("code_review: {e}")),
@@ -502,8 +514,10 @@ impl Tool for ReviewTool {
             return ok(manifest.render_confirmation());
         }
         ctx.progress.emit(format!(
-            "{REVIEW_ACTIVITY_MARKER}review · analyzing {} file(s)",
-            manifest.files
+            "{REVIEW_ACTIVITY_MARKER}{}",
+            t(Msg::ReviewActivityAnalyzing {
+                files: manifest.files
+            })
         ));
 
         // 2. Build the review task: annotated diff + per-language rules for changed files.
@@ -607,7 +621,7 @@ impl Tool for ReviewTool {
                 let mut cfg = make_cfg();
                 let cancel = ctx.cancel.clone();
                 async move {
-                    cfg.progress_label = Some("verify".to_string());
+                    cfg.progress_label = Some(t(Msg::ReviewStageVerify).into_owned());
                     cfg = cfg.with_persona_append(VERIFY_LENS);
                     let (agent, report) = build_review_agent_with(&cfg, provider);
                     let (stop, run_error) = tokio::select! {
@@ -824,42 +838,38 @@ fn sort_findings(findings: &mut [Finding]) {
 
 fn render_findings(findings: &[Finding], changed_files: usize) -> String {
     if findings.is_empty() {
-        return format!(
-            "Code review complete — no issues found across {changed_files} changed file(s)."
-        );
+        return t(Msg::ReviewCompleteClean { changed_files }).into_owned();
     }
-    let mut out = format!(
-        "Code review: {} finding(s) across {} changed file(s).\n",
-        findings.len(),
-        changed_files
-    );
+    let mut out = t(Msg::ReviewHeader {
+        findings: findings.len(),
+        changed_files,
+    })
+    .into_owned();
     for (i, f) in findings.iter().take(MAX_FINDINGS_RENDER).enumerate() {
-        out.push_str(&format!(
-            "\n{}. [{} · conf {:.2}] {}:{}-{}\n   {}\n",
-            i + 1,
-            f.priority,
-            f.confidence,
-            f.file_path,
-            f.line_start,
-            f.line_end,
-            f.title.trim()
-        ));
+        let confidence = format!("{:.2}", f.confidence);
+        let location = format!("{}:{}-{}", f.file_path, f.line_start, f.line_end);
+        out.push_str(&t(Msg::ReviewFindingEntry {
+            index: i + 1,
+            priority: &f.priority,
+            confidence: &confidence,
+            location: &location,
+            title: f.title.trim(),
+        }));
         if !f.body.trim().is_empty() {
             out.push_str(&format!("   {}\n", f.body.trim().replace('\n', "\n   ")));
         }
         if !f.suggestion.trim().is_empty() {
-            out.push_str(&format!(
-                "   ↳ fix: {}\n",
-                f.suggestion.trim().replace('\n', "\n   ")
-            ));
+            let suggestion = f.suggestion.trim().replace('\n', "\n   ");
+            out.push_str(&t(Msg::ReviewFixSuggestion {
+                suggestion: &suggestion,
+            }));
         }
     }
     if findings.len() > MAX_FINDINGS_RENDER {
-        out.push_str(&format!(
-            "\n… and {} more (showing the top {} by priority).\n",
-            findings.len() - MAX_FINDINGS_RENDER,
-            MAX_FINDINGS_RENDER
-        ));
+        out.push_str(&t(Msg::ReviewMoreFindings {
+            hidden: findings.len() - MAX_FINDINGS_RENDER,
+            shown: MAX_FINDINGS_RENDER,
+        }));
     }
     out
 }
@@ -870,13 +880,21 @@ fn render_incomplete_review(
     stop: StopReason,
     error: Option<&str>,
 ) -> String {
+    // The ASCII marker prefix is the locale-stable signal drivers classify the
+    // result by; the localized sentence follows it.
+    let stop = format!("{stop:?}");
     let mut out = format!(
-        "Code review incomplete ({stop:?}) — coverage is partial, not a clean review. \
-         {} confirmed finding(s) across {changed_files} changed file(s).",
-        findings.len()
+        "{REVIEW_INCOMPLETE_MARKER} {}",
+        t(Msg::ReviewIncompleteHeader {
+            stop: &stop,
+            findings: findings.len(),
+            changed_files,
+        })
     );
     if let Some(error) = error.filter(|e| !e.trim().is_empty()) {
-        out.push_str(&format!("\nReason: {}", error.trim()));
+        out.push_str(&t(Msg::ReviewIncompleteReason {
+            reason: error.trim(),
+        }));
     }
     if !findings.is_empty() {
         out.push('\n');
@@ -896,6 +914,16 @@ mod tests {
     use rustcode_kernel::stream::{ProviderError, StreamEvent};
     use rustcode_kernel::tool::{ToolCall, ToolDef};
     use std::sync::Mutex;
+
+    /// Pin the UI locale to English for assertions on report/activity
+    /// scaffolding. The guard holds the global locale lock for the test's
+    /// duration; the product default is Chinese, so unpinned assertions on
+    /// English text race parallel tests.
+    fn pin_en() -> rustcode_config::i18n::LocaleTestGuard {
+        let guard = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
+        guard
+    }
 
     #[test]
     fn embedded_review_limits_are_bounded_configurable_and_zero_disables() {
@@ -990,6 +1018,7 @@ mod tests {
 
     #[test]
     fn render_findings_formats_count_and_entries() {
+        let _g = pin_en();
         let empty = render_findings(&[], 3);
         assert!(empty.contains("no issues found across 3"), "{empty}");
         let one = render_findings(&[finding("P1", 0.8, "src/a.rs", "unchecked unwrap")], 1);
@@ -1081,6 +1110,7 @@ mod tests {
 
     #[test]
     fn incomplete_review_never_claims_no_issues() {
+        let _g = pin_en();
         let rendered = render_incomplete_review(
             &[],
             3,
@@ -1096,6 +1126,7 @@ mod tests {
 
     #[tokio::test]
     async fn review_progress_hook_emits_thinking_without_a_round() {
+        let _g = pin_en();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let capture = seen.clone();
         let hook = ReviewProgressHook::new(
@@ -1125,6 +1156,7 @@ mod tests {
 
     #[tokio::test]
     async fn review_progress_tool_activity_shows_file_and_stage_label() {
+        let _g = pin_en();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let capture = seen.clone();
         // A deep-mode dimension agent labels its activity so it is distinguishable.
@@ -1153,6 +1185,7 @@ mod tests {
 
     #[tokio::test]
     async fn review_progress_accumulates_and_surfaces_finding_count() {
+        let _g = pin_en();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let capture = seen.clone();
         let hook = ReviewProgressHook::new(
@@ -1411,6 +1444,7 @@ mod tests {
 
     #[tokio::test]
     async fn interactive_review_can_complete_after_more_than_twelve_rounds() {
+        let _g = pin_en();
         if Command::new("git").arg("--version").output().is_err() {
             return;
         }
@@ -1448,6 +1482,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn interactive_review_can_complete_after_more_than_ten_minutes() {
+        let _g = pin_en();
         if Command::new("git").arg("--version").output().is_err() {
             return;
         }
@@ -1481,6 +1516,7 @@ mod tests {
 
     #[tokio::test]
     async fn review_tool_reviews_a_real_diff() {
+        let _g = pin_en();
         // Skip cleanly if git isn't on PATH (don't fail the suite on a bare box).
         if Command::new("git").arg("--version").output().is_err() {
             return;
@@ -1593,6 +1629,7 @@ mod tests {
 
     #[tokio::test]
     async fn deep_verify_keeps_a_confirmed_finding() {
+        let _g = pin_en();
         if Command::new("git").arg("--version").output().is_err() {
             return;
         }
@@ -1637,6 +1674,7 @@ mod tests {
 
     #[tokio::test]
     async fn deep_review_fans_out_and_dedups_across_dimensions() {
+        let _g = pin_en();
         if Command::new("git").arg("--version").output().is_err() {
             return;
         }

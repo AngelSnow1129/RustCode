@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Plugin 系统 · RustCode 文档</title>
 <meta name="description" content="Plugin 系统 — RustCode 文档。">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -117,10 +117,11 @@
 
       <h3 id="方式-2命令行子命令">方式 2:命令行子命令</h3>
       <pre><code># 1. 注册 marketplace(克隆其 git 仓库到本地)
-/plugin marketplace add https://gitcode.com/gmq123/ascend-model-agent-plugin
+#    使用你的发行渠道或插件作者提供的 marketplace 地址
+/plugin marketplace add https://example.com/&lt;your-org&gt;/&lt;marketplace&gt;.git
 
 # 2. 装其中的 plugin
-/plugin install ascend-model-agent-plugin@ascend-model-agent-plugin
+/plugin install &lt;plugin&gt;@&lt;marketplace&gt;
 
 # 3. 列出已装
 /plugin list</code></pre>
@@ -187,7 +188,7 @@ rustcode plugin marketplace remove|update|list</code></pre>
           <tr><td><code>Notification</code></td><td>系统通知</td><td>转发外部告警通道</td></tr>
         </tbody>
       </table>
-      <p>每个回合结束时都会触发 <strong>且仅触发一个</strong> <code>Stop</code>/<code>StopFailure</code>——不会两个都触发,也不会都不触发。<code>StopFailure</code> 只保留给<em>因为</em> API/provider 失败而结束的回合;回合中途的工具报错<strong>不会</strong>触发它(回合会继续,以真实的终态结束)。stdin payload 携带 <code>hook_event_name</code>、<code>session_id</code>、<code>cwd</code>、会话的 <code>transcript_path</code>(append-only JSONL 会话记录,非持久化运行为 <code>null</code>)、CC 风格的 <code>stop_hook_active</code> 标志(当<em>另有</em>一个终态 hook 配置并会同场触发时为 true——用它可以避免 Stop hook 递归地重新触发自己),以及 kernel 的 <code>stop_reason</code>(如 <code>Stopped</code>、<code>ProviderError</code>、<code>Timeout</code>、<code>Cancelled</code>),hook 无需再解析其他内容即可区分具体结果。
+      <p>每个回合结束时都会触发 <strong>且仅触发一个</strong> <code>Stop</code>/<code>StopFailure</code>——不会两个都触发,也不会都不触发。<code>StopFailure</code> 只保留给<em>因为</em> API/provider 失败而结束的回合;回合中途的工具报错<strong>不会</strong>触发它(回合会继续,以真实的终态结束)。stdin payload 携带 <code>hook_event_name</code>、<code>session_id</code>、<code>cwd</code>、会话的 <code>transcript_path</code>(append-only JSONL 会话记录,非持久化运行为 <code>null</code>)、CC 风格的 <code>stop_hook_active</code> 标志(当<em>另有</em>一个终态 hook 配置并会同场触发时为 true——用它可以避免 Stop hook 递归地重新触发自己),以及 kernel 的 <code>stop_reason</code>(如 <code>Stopped</code>、<code>ProviderError</code>、<code>Timeout</code>、<code>Cancelled</code>),hook 无需再解析其他内容即可区分具体结果。</p>
 
       <h3 id="默认目录自动发现">默认目录自动发现</h3>
       <p>plugin 的资产目录无需在 <code>plugin.json</code> 中逐一声明——loader 会按以下规则自动下钻:</p>
@@ -247,9 +248,10 @@ rustcode plugin marketplace remove|update|list</code></pre>
 # 移除(若该 marketplace 下还有 plugin 装着,会拒绝)
 /plugin marketplace remove &lt;name&gt;</code></pre>
 
-      <h2 id="实战装昇腾插件">实战:装昇腾插件</h2>
-      <pre><code>/plugin marketplace add https://gitcode.com/gmq123/ascend-model-agent-plugin
-# &gt; cloning marketplace from https://gitcode.com/...
+      <h2 id="实战装昇腾插件">实战:安装第三方插件</h2>
+      <p>marketplace 本质上就是按 URL 添加的 git 仓库。下面示例使用占位地址 —— 请替换为你的发行渠道或插件作者提供的 marketplace URL:</p>
+      <pre><code>/plugin marketplace add https://example.com/your-org/ascend-model-agent-plugin.git
+# &gt; cloning marketplace from https://example.com/...
 # &gt; marketplace `ascend-model-agent-plugin` added at 7a59537 (1 plugins)
 
 /plugin install ascend-model-agent-plugin@ascend-model-agent-plugin
@@ -277,7 +279,7 @@ rustcode plugin marketplace remove|update|list</code></pre>
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

@@ -563,6 +563,13 @@ fn format_login_identity(name: Option<&str>, username: &str) -> String {
 }
 
 fn render_login_line_from_stored_auth() -> String {
+    // Neutral builds ship no managed sign-in service: omit the Login line
+    // entirely rather than print "not signed in (run /login)" for a command
+    // that cannot exist. Parity with the TUI status renderer, which returns an
+    // empty string for the same predicate.
+    if !rustcode_auth::managed_login_available() {
+        return String::new();
+    }
     match rustcode_auth::get_stored_auth() {
         Some(a) => {
             let identity = format_login_identity(a.user.name.as_deref(), &a.user.username);
@@ -855,6 +862,26 @@ mod tests {
     use rustcode_capabilities::session::PresentationFile;
     use rustcode_capabilities::session::{StorageOwner, TurnStat};
     use rustcode_config::config::memory::MemoryStore;
+
+    #[test]
+    fn neutral_status_omits_managed_login_line() {
+        // Tests run with no platform server -> the `/status` Login section must
+        // be omitted entirely instead of printing "not signed in (run /login)"
+        // for a sign-in command that cannot exist in this build.
+        assert!(!rustcode_auth::managed_login_available());
+        assert_eq!(render_login_line_from_stored_auth(), String::new());
+
+        // End-to-end: the assembled `/status` text carries no /login guidance.
+        let result = exec_status(std::path::Path::new("."), None).unwrap();
+        if let CommandResult::Status { text, .. } = result {
+            assert!(
+                !text.contains("/login"),
+                "neutral /status advertises /login: {text}"
+            );
+        } else {
+            panic!("expected CommandResult::Status");
+        }
+    }
 
     #[test]
     fn context_file_status_shows_instruction_and_memory_paths() {

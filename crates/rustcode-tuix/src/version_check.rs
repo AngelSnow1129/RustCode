@@ -5,8 +5,13 @@
 //! compiled in, surfaces a right-aligned hint on the input-box status
 //! row. Any error (network, parse, non-matching format) silently returns
 //! `None` -- this feature must never be noisy.
+//!
+//! A neutral/self-built fork ships no update manifest (empty managed
+//! endpoint), so the check no-ops WITHOUT a network attempt. Outbound HTTP
+//! goes through the single `egress` factory (proxy policy / TLS floor /
+//! trust roots / timeouts) like every other external call.
 
-use rustcode_updater::{manifest_url, Manifest};
+use rustcode_updater::{manifest_url, update_endpoint_configured, Manifest};
 
 /// Compare a `latest.json` body against the current compiled-in version.
 ///
@@ -49,36 +54,23 @@ fn format_version(v: (u64, u64, u64)) -> String {
     format!("v{}.{}.{}", v.0, v.1, v.2)
 }
 
-/// Apply the process proxy policy to an async reqwest builder. Self-contained
-/// over the config leaf's proxy env machinery -- mirrors the identical per-layer
-/// helpers in `rustcode-capabilities`.
-fn apply_async_proxy_policy(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
-    rustcode_config::proxy::ensure_runtime_initialized();
-    let builder = if std::env::var(rustcode_config::proxy::MODE_ENV)
-        .ok()
-        .as_deref()
-        == Some(rustcode_config::proxy::ProxyMode::NoProxy.as_str())
-    {
-        builder.no_proxy()
-    } else {
-        builder
-    };
-    if rustcode_config::tls::env_forces_tls12() {
-        builder.max_tls_version(reqwest::tls::Version::TLS_1_2)
-    } else {
-        builder
-    }
-}
-
 /// Fetch `latest.json` and, if newer than `current`, return the advertised
 /// version. Short timeout keeps startup snappy; any error (network, HTTP,
-/// parse) returns `None` silently.
+/// parse) returns `None` silently. Returns `None` immediately, with no network
+/// attempt, when the running build ships no update endpoint (neutral fork).
 pub async fn check_latest(current: &str) -> Option<String> {
-    let client = apply_async_proxy_policy(reqwest::Client::builder())
-        .timeout(std::time::Duration::from_secs(5))
-        .user_agent(rustcode_auth::RUSTCODE_USER_AGENT)
-        .build()
-        .ok()?;
+    // No managed update manifest in this build -- the check is meaningless and
+    // a GET to an empty URL would only fail as "relative URL without a base".
+    if !update_endpoint_configured() {
+        return None;
+    }
+    // Proxy policy (no_proxy mode + HTTPS_PROXY), the TLS 1.2 floor and OS trust
+    // roots are all applied inside the shared egress factory -- don't hand-roll
+    // a reqwest client here.
+    let spec = rustcode_capabilities::egress::HttpClientSpec::default()
+        .with_request_timeout(Some(std::time::Duration::from_secs(5)))
+        .with_user_agent(rustcode_auth::RUSTCODE_USER_AGENT);
+    let client = rustcode_capabilities::egress::build_http_client(&spec).ok()?;
     let resp = client.get(manifest_url()).send().await.ok()?;
     if !resp.status().is_success() {
         return None;

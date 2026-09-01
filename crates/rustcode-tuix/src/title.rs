@@ -55,27 +55,31 @@ pub fn session_terminal_title(name: &str, fallback: &str) -> String {
     cleaned
 }
 
-/// Colored status dot for the terminal-title prefix, keyed off the current
-/// UI phase. `None` means "no dot" -- used for `Suspended` (external handoff:
-/// `/shell`, OAuth) where we leave whatever title was last shown.
+/// ASCII status tag for the terminal-title prefix, keyed off the current UI
+/// phase. Pure ASCII so it renders identically in every tab strip (no color
+/// emoji tofu on legacy / `LANG=C` terminals): `[+]` ready/idle, `[*]` busy
+/// streaming, `[!]` waiting on the user. `None` means "no tag" -- used for
+/// `Suspended` (external handoff: `/shell`, OAuth) where we leave whatever
+/// title was last shown.
 fn phase_status_glyph(phase: UiPhase) -> Option<&'static str> {
     match phase {
-        UiPhase::Idle => Some("🟢"),
-        UiPhase::Streaming => Some("🟡"),
-        UiPhase::Approval => Some("🔴"),
+        UiPhase::Idle => Some("[+]"),
+        UiPhase::Streaming => Some("[*]"),
+        UiPhase::Approval => Some("[!]"),
         // Waiting on the user to answer an interactive question -- same
-        // "needs-you" red as approval.
-        UiPhase::UserInput => Some("🔴"),
-        // Round-cap checkpoint awaiting user decision -- same "needs-you" red.
-        UiPhase::RoundCap => Some("🔴"),
+        // "needs-you" marker as approval.
+        UiPhase::UserInput => Some("[!]"),
+        // Round-cap checkpoint awaiting user decision -- same "needs-you" marker.
+        UiPhase::RoundCap => Some("[!]"),
         UiPhase::Suspended => None,
     }
 }
 
-/// Build the title, optionally prefixed with a status `glyph`. The name
+/// Build the title, optionally prefixed with a status `tag`. The name
 /// portion reuses [`session_terminal_title`] unchanged (so its truncation /
-/// scrubbing budget is untouched); the glyph is an extra 1-scalar + space
-/// prefix, so a status title is at most 2 chars longer than the plain one.
+/// scrubbing budget is untouched); the tag is a short ASCII marker + space
+/// prefix, so a status title is only a few characters longer than the plain
+/// one.
 pub(crate) fn session_terminal_title_with_status(
     name: &str,
     fallback: &str,
@@ -179,16 +183,34 @@ mod tests {
 
     #[test]
     fn glyph_maps_each_phase() {
-        assert_eq!(phase_status_glyph(UiPhase::Idle), Some("🟢"));
-        assert_eq!(phase_status_glyph(UiPhase::Streaming), Some("🟡"));
-        assert_eq!(phase_status_glyph(UiPhase::Approval), Some("🔴"));
+        assert_eq!(phase_status_glyph(UiPhase::Idle), Some("[+]"));
+        assert_eq!(phase_status_glyph(UiPhase::Streaming), Some("[*]"));
+        assert_eq!(phase_status_glyph(UiPhase::Approval), Some("[!]"));
+        assert_eq!(phase_status_glyph(UiPhase::Suspended), None);
+    }
+
+    #[test]
+    fn glyphs_are_pure_ascii() {
+        // The title tag must never be a unicode emoji: it goes to the tab strip
+        // via OSC, where color emoji tofu on legacy terminals and can't carry
+        // ANSI color. Every phase marker is ASCII so it renders everywhere.
+        for phase in [
+            UiPhase::Idle,
+            UiPhase::Streaming,
+            UiPhase::Approval,
+            UiPhase::UserInput,
+            UiPhase::RoundCap,
+        ] {
+            let g = phase_status_glyph(phase).expect("non-suspended phase has a tag");
+            assert!(g.is_ascii(), "phase tag {g:?} must be ASCII");
+        }
         assert_eq!(phase_status_glyph(UiPhase::Suspended), None);
     }
 
     #[test]
     fn with_status_prefixes_glyph_and_space() {
-        let t = session_terminal_title_with_status("fix login bug", FB, Some("🟡"));
-        assert_eq!(t, "🟡 fix login bug");
+        let t = session_terminal_title_with_status("fix login bug", FB, Some("[*]"));
+        assert_eq!(t, "[*] fix login bug");
     }
 
     #[test]
@@ -203,21 +225,21 @@ mod tests {
 
     #[test]
     fn placeholder_name_still_gets_glyph() {
-        // A brand-new idle window shows 🟢 rustcode v9.9.9 (alive + idle).
+        // A brand-new idle window shows `[+] rustcode v9.9.9` (alive + idle).
         assert_eq!(
-            session_terminal_title_with_status("default", FB, Some("🟢")),
-            format!("🟢 {FB}"),
+            session_terminal_title_with_status("default", FB, Some("[+]")),
+            format!("[+] {FB}"),
         );
     }
 
     #[test]
     fn long_name_budget_survives_glyph_prefix() {
-        // The name portion is still truncated to MAX_TITLE_CHARS; the glyph
-        // is extra, so total is MAX + "🟢 " (2 chars) and the name part is intact.
+        // The name portion is still truncated to MAX_TITLE_CHARS; the ASCII
+        // tag is extra, so the name part is intact with only the marker prepended.
         let name = "a".repeat(50);
         let plain = session_terminal_title(&name, FB); // MAX_TITLE_CHARS chars, ends with …
-        let with = session_terminal_title_with_status(&name, FB, Some("🟢"));
-        assert_eq!(with, format!("🟢 {plain}"));
+        let with = session_terminal_title_with_status(&name, FB, Some("[+]"));
+        assert_eq!(with, format!("[+] {plain}"));
         assert!(plain.chars().count() == MAX_TITLE_CHARS);
     }
 
@@ -241,7 +263,7 @@ mod tests {
     fn status_title_enabled_prefixes_phase_glyph() {
         assert_eq!(
             status_title("fix login bug", FB, UiPhase::Approval, true),
-            Some("🔴 fix login bug".to_string()),
+            Some("[!] fix login bug".to_string()),
         );
     }
 }

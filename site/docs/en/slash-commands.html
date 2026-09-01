@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Slash Commands · RustCode Docs</title>
 <meta name="description" content="Reference for the 30+ built-in slash commands organised by category.">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -84,13 +84,13 @@
           <tr><th>Command</th><th>Purpose</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/login</code></td><td><strong>Recommended</strong> — one command runs OAuth + claims CodingPlan free tokens + auto-configures a provider from the granted model list. The lowest-friction entry point for first-time users; re-running after you're already signed in idempotently re-syncs the model list. <em>As of v4.25.0 <code>/codingplan</code> has been folded into <code>/login</code>; the standalone entry has been removed</em></td></tr>
+          <tr><td><code>/login</code></td><td><strong>Distribution builds only</strong> — in builds that ship a managed service, one command runs OAuth and auto-configures a provider from the granted model list; re-running while signed in idempotently re-syncs it. The default open-source build has no managed account, so this command is unavailable there — use <code>/provider</code> to bring your own key instead. <em>In distribution builds the legacy <code>/codingplan</code> entry has been folded into <code>/login</code></em></td></tr>
           <tr><td><code>/resume</code></td><td>Open the session picker to restore any previously persisted session (messages, directory, and model state)</td></tr>
           <tr><td><code>/session</code></td><td>Start a fresh, clean session</td></tr>
           <tr><td><code>/bg</code></td><td>Send the current session to the background and open a new foreground; subcommands: <code>/bg list</code>, <code>/bg &lt;N&gt;</code>, <code>/bg drop &lt;N&gt;</code>, <code>/bg help</code>. See <a href="./sessions.html#bg">Background sessions</a></td></tr>
           <tr><td><code>/background &lt;task&gt;</code></td><td>Compatibility entry: start a one-shot task in a <code>/bg</code> slot (<a href="./sessions.html#bg">details</a>)</td></tr>
           <tr><td><code>/rename &lt;new-name&gt;</code></td><td>Rename the current session (changes the display name in the <code>/resume</code> picker)</td></tr>
-          <tr><td><code>/provider</code></td><td>Manage provider accounts and their models, using a vendor preset or a custom endpoint</td></tr>
+          <tr><td><code>/provider</code></td><td><strong>Recommended</strong> — manage provider accounts and their models, using a third-party vendor preset (Claude, OpenAI, DeepSeek, GLM, Qwen, Ollama, …) or a custom OpenAI-style endpoint with your own API key. No account or signup with RustCode is required</td></tr>
           <tr><td><code>/model</code></td><td>Set the default model / provider and switch the current session; other open sessions are unchanged</td></tr>
           <tr><td><code>/cd</code></td><td>Change working directory and start a new session, writing it back as <code>default_workdir</code>. You can also just type <code>cd /path</code> (no slash prefix)</td></tr>
         </tbody>
@@ -107,7 +107,7 @@
           <tr><td><code>/diff</code></td><td>Show the git diff of uncommitted changes in the working directory (the file list shows up to 5 rows at a time with a "more files" scroll indicator)</td></tr>
           <tr><td><code>/review</code></td><td>Code review the current changes: <code>/review</code> reviews uncommitted changes, <code>/review staged</code> the staged diff, <code>/review &lt;base&gt;</code> against a base ref</td></tr>
           <tr><td><code>/paste</code></td><td>Attach an image from the clipboard (Windows fallback for when <code>Ctrl+V</code> is captured by the terminal)</td></tr>
-          <tr><td><code>/cost</code></td><td>Prompt, completion, and cached tokens accumulated per model in the current session. Distinct from <code>/usage</code>, which queries the CodingPlan gateway for your plan quota</td></tr>
+          <tr><td><code>/cost</code></td><td>Prompt, completion, and cached tokens accumulated per model in the current session. Distinct from <code>/usage</code>, which in distribution builds queries the managed service for the account quota (unavailable in the default open-source build, where <code>/cost</code> shows all usage)</td></tr>
           <tr><td><code>/context</code></td><td>Show this turn's context budget breakdown: system prompt, tool defs, cold-zone compaction, total messages, and context-window usage</td></tr>
           <tr><td><code>/compact</code></td><td>Compact history: summarise earlier messages to free up context budget</td></tr>
           <tr><td><code>/rewind</code></td><td>Choose an earlier prompt and roll back the conversation, code, or both; see <a href="./sessions.html">Sessions &amp; Undo</a></td></tr>
@@ -122,8 +122,8 @@
       </table>
 
       <div class="callout callout-info">
-        <strong>平台 Issues are tools, not slash commands</strong>
-        <p><code>/issue</code> has been removed. After <code>/login</code>, ask in natural language—for example, “Create an 平台 issue for this bug.” RustCode will select the built-in <code>platform_issue</code> tool; write actions still require approval. See <a href="./tools.html#platform">Built-in Tools</a>.</p>
+        <strong>Managed-platform issues are tools, not slash commands</strong>
+        <p><code>/issue</code> has been removed. In distributions that ship managed-platform support, after <code>/login</code> you can ask in natural language — for example, “Create an issue for this bug on our platform.” RustCode will select the built-in <code>platform_issue</code> tool; write actions still require approval. See <a href="./tools.html#platform">Built-in Tools</a>.</p>
       </div>
 
       <div class="callout callout-info">
@@ -180,9 +180,9 @@
         </tbody>
       </table>
       <p>See <a href="./skills.html">Skills</a> and <a href="./plugins.html">Plugin System</a> for details.</p>
-      <p>Plugins can register their own slash commands. For example, the official channel plugin adds <code>/wechat</code> (shows the RustCode WeChat community group QR code):</p>
-      <pre><code>/plugin marketplace add https://gitcode.com/SecLab/RustCode-Channel
-/plugin install weixin@rustcode-channel</code></pre>
+      <p>Plugins can register their own slash commands. Add your distribution channel's marketplace URL first, then install the plugin that provides the command, for example:</p>
+      <pre><code>/plugin marketplace add https://example.com/&lt;your-org&gt;/&lt;marketplace&gt;.git
+/plugin install &lt;plugin&gt;@&lt;marketplace&gt;</code></pre>
 
       <h2 id="mcp-integration">MCP integration</h2>
       <table>
@@ -208,7 +208,7 @@
           <tr><td><code>/webui stop</code></td><td>Stop the webui server</td></tr>
           <tr><td><code>/sync</code></td><td>Attach the current TUI to a running webui session (run <code>/webui</code> first). Both ends sync live in both directions; multiple browsers / terminals can watch the same session</td></tr>
           <tr><td><code>/sync off</code></td><td>Leave sync and return to a standalone session</td></tr>
-          <tr><td><code>/app</code></td><td>Expose the current session to the <strong>mobile App</strong> via the official relay: a QR code is printed right in the terminal, scan it with the App to pair, then view and drive this conversation live from your phone (same source as <code>/webui</code> — one shared session, two-way live sync; the difference is no browser, and it goes over the relay rather than the LAN). Requires <code>/login</code> first</td></tr>
+          <tr><td><code>/app</code></td><td>Distribution builds that ship a managed relay: expose the current session to the <strong>mobile App</strong> — a QR code is printed right in the terminal, scan it with the App to pair, then view and drive this conversation live from your phone (same source as <code>/webui</code> — one shared session, two-way live sync; the difference is no browser, and it goes over the relay rather than the LAN). Requires the distribution's <code>/login</code> first; unavailable in the default open-source build</td></tr>
           <tr><td><code>/app stop</code></td><td>Stop App remote access, disconnect the relay, and return to a local session</td></tr>
         </tbody>
       </table>
@@ -220,14 +220,14 @@
           <tr><th>Command</th><th>Purpose</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/status</code></td><td>Show login status, current provider, model, context budget, CodingPlan usage and reset time</td></tr>
-          <tr><td><code>/whoami</code></td><td>Show the username / email of the current 平台-logged-in user</td></tr>
+          <tr><td><code>/status</code></td><td>Show provider and authentication status, current provider, model, and context budget (distribution builds also show managed-account usage and reset time)</td></tr>
+          <tr><td><code>/whoami</code></td><td>Show the username / email of the current managed-platform user (distribution builds only)</td></tr>
           <tr><td><code>/config</code></td><td>Show the path of <code>~/.rustcode/config.toml</code></td></tr>
-          <tr><td><code>/reload</code></td><td>Hot-reload <code>~/.rustcode/config.toml</code> from disk — external edits (or changes from another terminal's <code>/login</code>) take effect without restarting rustcode</td></tr>
+          <tr><td><code>/reload</code></td><td>Hot-reload <code>~/.rustcode/config.toml</code> from disk — external edits (or provider/credential changes made in another terminal) take effect without restarting rustcode</td></tr>
           <tr><td><code>/proxy</code></td><td>Switch outbound proxy mode: follow the system proxy (default) / force a specific proxy / connect directly with no proxy. For corporate proxy networks or when you need to force a proxy or force a direct connection; the choice is written back to config</td></tr>
           <tr><td><code>/language</code></td><td>Switch UI language: auto-detect (<code>LC_ALL</code> / <code>LANG</code>), English, or Simplified Chinese. Takes effect immediately and is written back to <code>~/.rustcode/config.toml</code></td></tr>
           <tr><td><code>/welcome</code></td><td>Re-open the 3-step first-run wizard (welcome → language → setup). Non-empty sessions are confirmed with a <code>y/N</code> before clearing the screen. Both language and default onboarding path can be revisited here</td></tr>
-          <tr><td><code>/logout</code></td><td>Clear the OAuth token</td></tr>
+          <tr><td><code>/logout</code></td><td>Clear stored managed-account login credentials (distribution builds; bring-your-own-key providers keep their API keys in config)</td></tr>
           <tr><td><code>/upgrade</code></td><td>Auto-upgrade to the latest version; <code>/upgrade rollback</code> reverts to the previous version</td></tr>
           <tr><td><code>/guide</code></td><td>Built-in onboarding guide: <code>/guide</code> lists topics you can ask about (quickstart, switch model, MCP, Skills, memory, background tasks, context, keybindings, config); <code>/guide &lt;topic&gt;</code> explains it right in the chat (first run auto-installs the <code>rustcode-skills</code> plugin)</td></tr>
           <tr><td><code>/help</code></td><td>List every available slash command</td></tr>
@@ -246,19 +246,22 @@
 
       <h2 id="typical-workflows">Typical workflows</h2>
 
-      <h3 id="first-launch-one-click-onboarding">First launch — one-click onboarding</h3>
-      <pre><code>&gt; /login
-  ✔ Logged in as alice (alice, alice@example.com)
-  ✔ CodingPlan claimed — CodingPlan Lite · expires 2026-05-22 (29d / 30d)
-  ✔ 3 models registered as 平台-* providers
-  ✔ Default provider set to 平台-GLM
+      <h3 id="first-launch-bring-your-own-key">First launch — bring your own key</h3>
+      <pre><code>&gt; /provider
+  1. Add a provider account   (pick a preset — Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama — or a custom OpenAI-style endpoint)
+  2. Paste your API key       (kept in ~/.rustcode/config.toml; use env:VAR to read it from the environment)
+  3. Add a model under the account
+  ✔ provider ready
+&gt; /model
+  ✔ default model set
 &gt; hello</code></pre>
+      <p>That is the whole setup in the open-source build — no account or signup. Distribution builds that ship a managed service can instead run <code>/login</code> for one-click OAuth.</p>
 
       <h3 id="check-token-usage-before-wrapping-up">Check token usage before wrapping up</h3>
       <pre><code>&gt; refactor src/db to use a connection pool
 ... (AI works)
 &gt; /cost
-平台 · deepseek-v4-flash
+deepseek · deepseek-chat
   Prompt tokens:     7210
   Completion tokens: 1132
   Cached tokens:     5080 (70% hit rate)
@@ -285,7 +288,7 @@ Rolled back to turn 3 of 3.
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

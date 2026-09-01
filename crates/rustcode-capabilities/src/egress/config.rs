@@ -76,7 +76,7 @@ impl From<&str> for SecretString {
 /// build the client once we know where).
 #[derive(Debug, Clone, Default)]
 pub struct ExternalServiceConfig {
-    /// Endpoint base URL, e.g. `https://api.moonshot.cn/v1`. Trailing slashes are
+    /// Endpoint base URL, e.g. `https://api.example.com/v1`. Trailing slashes are
     /// trimmed by [`ExternalServiceConfig::normalized_base_url`].
     pub base_url: String,
     /// Credential for this service. `None` means the service needs no auth (some

@@ -43,9 +43,9 @@
     'aria.lang':{zh:'切换语言',en:'Toggle language'},
     'aria.sidebar':{zh:'目录',en:'Menu'},
     'aria.search':{zh:'搜索文档',en:'Search docs'},
-    'hdr.repo':{zh:'仓库 →',en:'Repo →'},
+    'hdr.repo':{zh:'源码 · 发行渠道',en:'Source · Distribution'},
     'ftr.copy':{zh:'© 2026 RustCode · MIT',en:'© 2026 RustCode · MIT'},
-    'ftr.issue':{zh:'报告问题',en:'Report an issue'},
+    'ftr.issue':{zh:'问题反馈请通过你的发行渠道',en:'Issues via your distribution channel'},
     // sidebar group titles
     'side.g.overview':{zh:'概览',en:'Overview'},
     'side.g.start':{zh:'开始',en:'Get Started'},

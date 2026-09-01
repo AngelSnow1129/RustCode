@@ -33,6 +33,7 @@ import {
   buildCommandMap,
   dispatchSlashCommand,
   buildSlashMenuItems,
+  visibleCommands,
   FRONTEND_COMMANDS,
   type SlashHandlers,
 } from '../lib/slashCommands';
@@ -1829,7 +1830,26 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
     });
   }
 
+  // The dispatch map keeps every command (typing /whoami explicitly still
+  // runs it); only the advertised menu/help list is build-filtered.
   const slashCommandMap = useMemo(() => buildCommandMap(FRONTEND_COMMANDS), []);
+
+  // Build capability from the daemon: managed sign-in service present?
+  // Neutral/open builds report false -> managed-only commands (/whoami) are
+  // hidden from the slash menu and /help. One fetch per mount, fail-closed.
+  const [managedAvailable, setManagedAvailable] = useState(false);
+  useEffect(() => {
+    let active = true;
+    fetch('/auth/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => { if (active) setManagedAvailable(s?.managed_available === true); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  const advertisedCommands = useMemo(
+    () => visibleCommands(managedAvailable),
+    [managedAvailable],
+  );
 
   // Reload one session's transcript from disk into the view, guarded against a
   // session switch racing the async fetch. Mirrors the session-load effect's activeIdRef guard.
@@ -2072,9 +2092,10 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
         }
       },
       t,
+      managedAvailable,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [t, modeState, sync, onCwdChanged, slashSkills, slashLoading, sessionId, cwd, activeSession, provider, messages.length],
+    [t, modeState, sync, onCwdChanged, slashSkills, slashLoading, sessionId, cwd, activeSession, provider, messages.length, managedAvailable],
   );
 
   // Append a non-fatal advisory as its OWN notice part (never merged into a text run,
@@ -2715,7 +2736,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
 
     // 斜杠菜单导航（使用与渲染层一致的合并列表：本地命令 + 远程技能）
     if (slashOpen) {
-      const mergedItems = buildSlashMenuItems(FRONTEND_COMMANDS, slashSkills ?? [], slashQuery, t as (k: string) => string, slashSkillsOnly);
+      const mergedItems = buildSlashMenuItems(advertisedCommands, slashSkills ?? [], slashQuery, t as (k: string) => string, slashSkillsOnly);
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSlashIndex((i) => Math.min(i + 1, mergedItems.length - 1));
@@ -3176,7 +3197,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
       )}
       {slashOpen && (
         <div class="slash-popover" ref={slashRef}>
-          {buildSlashMenuItems(FRONTEND_COMMANDS, slashSkills ?? [], slashQuery, t as (k: string) => string, slashSkillsOnly).map((item, i) => (
+          {buildSlashMenuItems(advertisedCommands, slashSkills ?? [], slashQuery, t as (k: string) => string, slashSkillsOnly).map((item, i) => (
             <button
               key={`${item.kind}:${item.name}`}
               class={'slash-row' + (i === slashIndex ? ' active' : '')}

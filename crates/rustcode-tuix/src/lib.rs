@@ -959,8 +959,10 @@ pub async fn run(
                 // Re-exec failed. The upgrade is on disk, so the user just
                 // needs to start rustcode again -- don't treat this as fatal.
                 eprintln!(
-                    "Upgrade applied but re-exec failed ({}). The new version will be used on the next launch.",
-                    e
+                    "{}",
+                    crate::i18n::t(crate::i18n::Msg::CliUpgradeReexecFailed {
+                        error: &e.to_string()
+                    })
                 );
                 std::env::remove_var("RUSTCODE_UPGRADED_FROM");
             }

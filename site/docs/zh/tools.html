@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>内置工具 · RustCode 文档</title>
 <meta name="description" content="内置工具 — RustCode 文档。">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -76,7 +76,7 @@
 
   <main class="dmain prose-docs">
 <h1 id="内置工具">内置工具</h1>
-      <p class="lede">RustCode 内置文件与 Shell、代码图谱、Web、自动化和 平台 原生操作等工具。模型会根据任务自动挑选，大多数情况下你不需要手动指定。</p>
+      <p class="lede">RustCode 内置文件与 Shell、代码图谱、Web、自动化等工具，以及可选的托管平台操作。模型会根据任务自动挑选，大多数情况下你不需要手动指定。</p>
 
       <h2 id="文件与-shell9-个">文件与 Shell(9 个)</h2>
       <table>
@@ -160,8 +160,8 @@
       </table>
       <p>详见 <a href="./skills.html">Skills 扩展</a>。</p>
 
-      <h2 id="platform">平台集成（3 个）</h2>
-      <p>执行 <code>/login</code> 后，模型可以通过以下内置工具直接操作 平台。你只需用自然语言描述目标，不再使用 <code>/issue</code> 斜杠命令。</p>
+      <h2 id="platform">托管平台集成（3 个，可选）</h2>
+      <p>附带托管平台支持的发行版会在 <code>/login</code> 后提供以下内置工具，模型可以直接操作该平台。你只需用自然语言描述目标，不再使用 <code>/issue</code> 斜杠命令。默认开源(BYO)构建不包含这些工具。</p>
       <table>
         <thead>
           <tr><th>工具</th><th>作用</th><th>需要确认</th></tr>
@@ -172,7 +172,7 @@
           <tr><td><code>platform_issue</code></td><td>列出或查看 Issue，创建 Issue，以及查看、新增、编辑或删除评论</td><td>写操作：是</td></tr>
         </tbody>
       </table>
-      <pre><code>示例：为这个 Bug 创建一个 平台 Issue，并附上复现步骤和环境信息。</code></pre>
+      <pre><code>示例：为这个 Bug 在托管平台上创建一个 Issue，并附上复现步骤和环境信息。</code></pre>
 
       <h2 id="大型工具输出">大型工具输出</h2>
       <p>当工具结果太长时，RustCode 会在界面中显示稳定的摘要，并把完整内容保存到当前会话。模型可通过 <code>fetch_output</code> 分页读取后续内容，因此“输出已截断”不代表结果丢失；删除会话时对应的完整输出也会一并清理。</p>
@@ -190,7 +190,7 @@
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

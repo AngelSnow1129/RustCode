@@ -1,5 +1,6 @@
 use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 use futures::StreamExt;
+use rustcode_capabilities::egress::{build_http_client, HttpClientSpec};
 use rustcode_config::config::provider::{
     default_context_window_for, ModelProfileConfig, ProviderConfig,
 };
@@ -55,6 +56,22 @@ fn account_is_managed(config: &rustcode_config::config::Config, account_id: &str
 
 fn selection_name_is_reserved(config: &rustcode_config::config::Config, name: &str) -> bool {
     config.selection_exists(name) && !config.providers.contains_key(name)
+}
+
+/// 403 body for attempts to mutate a provider/selection whose name or base URL
+/// collides with the managed-account namespace. Open builds ship no managed
+/// sign-in service, so the `/login` resolution would be a dead end there --
+/// point those users at renaming the provider and configuring it with their
+/// own api_key instead.
+fn managed_provider_locked_message(action: &str) -> String {
+    if rustcode_auth::managed_login_available() {
+        format!("CodingPlan providers are managed by /login and cannot be {action}")
+    } else {
+        "This provider name or base URL is reserved for managed accounts, \
+         which this build does not provide. Rename the provider (or change its \
+         base URL) and configure it with your own api_key."
+            .to_string()
+    }
 }
 
 fn rename_default_selection(
@@ -610,15 +627,16 @@ async fn fetch_discovery_body(
     transport: &DiscoveryTransport,
     timeout: Duration,
 ) -> Result<Vec<u8>, DiscoveryRequestError> {
-    let mut client = reqwest::Client::builder()
-        .timeout(timeout)
-        .danger_accept_invalid_certs(transport.skip_tls_verify);
+    // All outbound HTTP shares one auditable policy (proxy, TLS roots, UA,
+    // redirects, timeout). Build this discovery client through the egress
+    // factory rather than a divergent `reqwest::Client::builder()`.
+    let mut spec = HttpClientSpec::default()
+        .with_request_timeout(Some(timeout))
+        .with_skip_tls_verify(transport.skip_tls_verify);
     if let Some(user_agent) = transport.user_agent.as_deref() {
-        client = client.user_agent(user_agent);
+        spec = spec.with_user_agent(user_agent);
     }
-    let client = client
-        .build()
-        .map_err(|_| DiscoveryRequestError::Transport)?;
+    let client = build_http_client(&spec).map_err(|_| DiscoveryRequestError::Transport)?;
     let mut request = client.get(url).header("accept", "application/json");
     if let Some(key) = transport.api_key.as_deref() {
         request = request.bearer_auth(key.trim());
@@ -771,7 +789,7 @@ pub(crate) async fn create_account_models(
         Err(_) if managed => {
             return json_error(
                 StatusCode::FORBIDDEN,
-                "CodingPlan provider accounts are managed by /login and cannot be modified",
+                managed_provider_locked_message("modified"),
             )
             .into_response()
         }
@@ -898,7 +916,7 @@ pub(crate) async fn create_provider(Json(req): Json<CreateProviderRequest>) -> i
         Err(_) if managed => {
             return json_error(
                 StatusCode::FORBIDDEN,
-                "CodingPlan providers are managed by /login and cannot be replaced",
+                managed_provider_locked_message("replaced"),
             )
             .into_response()
         }
@@ -1074,7 +1092,7 @@ pub(crate) async fn patch_provider(
         Err(_) if managed => {
             return json_error(
                 StatusCode::FORBIDDEN,
-                "CodingPlan providers are managed by /login and cannot be edited",
+                managed_provider_locked_message("edited"),
             )
             .into_response()
         }
@@ -1136,7 +1154,7 @@ pub(crate) async fn delete_provider(Path(name): Path<String>) -> impl IntoRespon
         Err(_) if managed => {
             return json_error(
                 StatusCode::FORBIDDEN,
-                "CodingPlan providers are managed by /login and cannot be deleted",
+                managed_provider_locked_message("deleted"),
             )
             .into_response()
         }
@@ -1211,7 +1229,8 @@ pub(crate) async fn patch_thinking(
             anyhow::bail!("managed CodingPlan provider");
         }
         // Keep writes schema-aware for user-managed model profiles. Managed
-        // CodingPlan selections are rejected above and remain owned by /login.
+        // Managed-namespace selections are rejected above; in distribution builds
+        // they stay owned by the managed sign-in flow.
         let found = config.update_selection_reasoning(&name, |r| {
             if let Some(enabled) = req.enabled {
                 *r.thinking_enabled = Some(enabled);
@@ -1244,7 +1263,7 @@ pub(crate) async fn patch_thinking(
         Err(_) if managed => {
             return json_error(
                 StatusCode::FORBIDDEN,
-                "CodingPlan providers are managed by /login and cannot be edited",
+                managed_provider_locked_message("edited"),
             )
             .into_response()
         }
@@ -1279,11 +1298,11 @@ pub(crate) async fn patch_thinking(
 mod tests {
     use super::{
         account_is_managed, apply_patch_to_new_schema_model, discovery_url, fetch_discovery_body,
-        insert_account_models, normalize_discovered_models, parse_discovered_models,
-        remove_selection, rename_default_selection, replace_deleted_default_selection,
-        selection_is_managed, selection_name_is_reserved, stored_discovery_transport,
-        AccountModelConflict, CreateAccountModelRequest, DiscoveryRequestError, DiscoveryTransport,
-        PatchProviderRequest,
+        insert_account_models, managed_provider_locked_message, normalize_discovered_models,
+        parse_discovered_models, remove_selection, rename_default_selection,
+        replace_deleted_default_selection, selection_is_managed, selection_name_is_reserved,
+        stored_discovery_transport, AccountModelConflict, CreateAccountModelRequest,
+        DiscoveryRequestError, DiscoveryTransport, PatchProviderRequest,
     };
     use crate::DiscoveredModelInfo;
     use axum::{
@@ -1315,6 +1334,26 @@ mod tests {
             serde_json::from_value(serde_json::json!({ "clear_supports_vision": true })).unwrap();
         assert_eq!(auto.supports_vision, None);
         assert!(auto.clear_supports_vision);
+    }
+
+    #[test]
+    fn managed_locked_message_is_neutral_without_service() {
+        // Open build: a reserved-name collision must explain the lock and the
+        // BYO escape hatch, never dead-end at /login (no service to log into).
+        if rustcode_auth::managed_login_available() {
+            return; // distribution builds keep the "managed by /login" wording
+        }
+        for action in ["modified", "replaced", "edited", "deleted"] {
+            let m = managed_provider_locked_message(action);
+            assert!(
+                !m.contains("/login"),
+                "neutral locked message ({action}): {m}"
+            );
+            assert!(
+                m.contains("api_key"),
+                "neutral locked message must point at the BYO path ({action}): {m}"
+            );
+        }
     }
 
     #[test]
@@ -1402,7 +1441,7 @@ mod tests {
             "type": "openai",
             "model": "deepseek-chat",
             "context_window": 64000,
-            "base_url": "https://api.c.ai/v1",
+            "base_url": "https://api.example.com/v1",
             "api_key": "sk-new"
         }))
         .unwrap();
@@ -1415,7 +1454,10 @@ mod tests {
         assert_eq!(model.context_window, 64000);
         // Connection fields land on the shared account...
         let account = &config.provider_accounts["bai"];
-        assert_eq!(account.base_url.as_deref(), Some("https://api.c.ai/v1"));
+        assert_eq!(
+            account.base_url.as_deref(),
+            Some("https://api.example.com/v1")
+        );
         assert_eq!(account.api_key.as_deref(), Some("sk-new"));
         // ...and therefore the SIBLING model now resolves to the new endpoint (chosen
         // "account is the connection" semantics -- documented, not accidental).
@@ -1425,7 +1467,7 @@ mod tests {
                 .provider_config_for_selection("bai/glm")
                 .and_then(|p| p.base_url)
                 .as_deref(),
-            Some("https://api.c.ai/v1")
+            Some("https://api.example.com/v1")
         );
     }
 
@@ -1442,7 +1484,7 @@ mod tests {
         let req: PatchProviderRequest = serde_json::from_value(serde_json::json!({
             "model": "changed",
             "context_window": 64000,
-            "base_url": "https://api.c.ai/v1"
+            "base_url": "https://api.example.com/v1"
         }))
         .unwrap();
 
@@ -1591,7 +1633,7 @@ mod tests {
             "provider_accounts": {
                 "taotoken": {
                     "provider": "openai",
-                    "base_url": "https://taotoken.net/api/v1",
+                    "base_url": "https://taotoken.example.com/api/v1",
                     "api_key": "account-secret"
                 }
             },
@@ -1600,7 +1642,7 @@ mod tests {
             }
         }))
         .unwrap();
-        let taotoken = discovery_url("https://taotoken.net/api/v1", "openai").unwrap();
+        let taotoken = discovery_url("https://taotoken.example.com/api/v1", "openai").unwrap();
         let transport =
             stored_discovery_transport(&account_config, "taotoken", "openai", &taotoken).unwrap();
         assert_eq!(transport.api_key.as_deref(), Some("account-secret"));
@@ -1609,7 +1651,7 @@ mod tests {
             "provider_accounts": {
                 "taotoken": {
                     "provider": "openai",
-                    "base_url": "https://taotoken.net/api/v1",
+                    "base_url": "https://taotoken.example.com/api/v1",
                     "api_key": "account-only-secret"
                 }
             }
@@ -1639,7 +1681,7 @@ mod tests {
                 "taotoken": {
                     "type": "openai",
                     "model": "existing-model",
-                    "base_url": "https://taotoken.net/api/v1",
+                    "base_url": "https://taotoken.example.com/api/v1",
                     "api_key": "secret-value"
                 }
             }
@@ -1672,7 +1714,7 @@ mod tests {
                 "taotoken": {
                     "type": "openai",
                     "model": "existing-model",
-                    "base_url": "https://taotoken.net/api/v1",
+                    "base_url": "https://taotoken.example.com/api/v1",
                     "api_key": "secret-value"
                 }
             },
@@ -1709,7 +1751,7 @@ mod tests {
                 "taotoken": {
                     "type": "openai",
                     "model": "existing-model",
-                    "base_url": "https://taotoken.net/api/v1",
+                    "base_url": "https://taotoken.example.com/api/v1",
                     "api_key": "secret-value"
                 }
             }

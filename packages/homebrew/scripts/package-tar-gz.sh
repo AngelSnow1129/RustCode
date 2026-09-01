@@ -4,30 +4,54 @@ set -euo pipefail
 
 # Package release binaries into tar.gz archives for Homebrew-cask.
 #
+# Release target is operator/distributor-provided; this build ships no
+# compiled-in release host. The API is a GitLab-v5-compatible release API
+# (contents + releases/<tag>/upload_url endpoints).
+#
 # Environment:
-#   GITCODE_TOKEN      GitCode personal access token (required)
-#   GITCODE_OWNER       repo owner (default: SecLab)
-#   GITCODE_REF         branch/tag for version detection (default: main)
-#   GITCODE_VERSION     override version (skip API detection)
+#   RUSTCODE_RELEASE_API_HOST       API host, e.g. https://gitlab.example.com (bare host or
+#                                   with a trailing /api/v5; both are normalized) (required)
+#   RUSTCODE_RELEASE_ACCESS_TOKEN   release API access token (required)
+#   RUSTCODE_RELEASE_OWNER          repo owner/namespace (required)
+#   RUSTCODE_RELEASE_REPO           repo name (default: rustcode)
+#   RUSTCODE_RELEASE_REF            branch/tag for version detection (default: main)
+#   RUSTCODE_RELEASE_VERSION        override version (skip API detection)
+#   RUSTCODE_RELEASE_DOWNLOAD_BASE  root hosting v<tag>/rustcode-v<tag>-<plat> binaries (required)
+#   JQ_URL                          optional override URL for fetching a jq binary
 
-B="https://api.gitcode.com/api/v5"
-: "${GITCODE_TOKEN:?GITCODE_TOKEN is required}"
-T="$GITCODE_TOKEN"
-o="${GITCODE_OWNER:-SecLab}"
-r="rustcode"
-ref="${GITCODE_REF:-main}"
+: "${RUSTCODE_RELEASE_API_HOST:?RUSTCODE_RELEASE_API_HOST is required (GitLab-v5 API base)}"
+: "${RUSTCODE_RELEASE_ACCESS_TOKEN:?RUSTCODE_RELEASE_ACCESS_TOKEN is required}"
+: "${RUSTCODE_RELEASE_OWNER:?RUSTCODE_RELEASE_OWNER is required}"
+: "${RUSTCODE_RELEASE_DOWNLOAD_BASE:?RUSTCODE_RELEASE_DOWNLOAD_BASE is required}"
+
+# Accept bare host (https://gitlab.example.com) or v5 base (.../api/v5);
+# normalize to the v5 base so the "$B/repos/..." paths below are correct.
+B="${RUSTCODE_RELEASE_API_HOST%/}"
+B="${B%/api/v5}"
+B="$B/api/v5"
+T="$RUSTCODE_RELEASE_ACCESS_TOKEN"
+o="$RUSTCODE_RELEASE_OWNER"
+r="${RUSTCODE_RELEASE_REPO:-rustcode}"
+ref="${RUSTCODE_RELEASE_REF:-main}"
+DL_ROOT="${RUSTCODE_RELEASE_DOWNLOAD_BASE%/}"
 
 # ── helpers (same pattern as ci-release scripts) ──
 et(){
     command -v curl &>/dev/null || return 1
     command -v jq &>/dev/null && return 0
-    j=jq-macos-amd64; [[ $(uname -m) == arm64 ]] && j=jq-macos-arm64
+    # Pick the jq asset for the current OS/arch (jq release asset names).
+    case "$(uname -s)" in
+        Darwin) j=jq-macos-$([ "$(uname -m)" = arm64 ] && echo arm64 || echo amd64) ;;
+        Linux)  j=jq-linux-$([ "$(uname -m)" = aarch64 ] && echo arm64 || echo amd64) ;;
+        *)      j=jq-macos-amd64 ;;
+    esac
     g="https://github.com/jqlang/jq/releases/download/jq-1.7.1/$j"
     d=$(mktemp -d) || return 1; p=$d/jq
-    for u in "${GITCODE_JQ_URL:-}" "$g" "https://ghfast.top/$g"; do
+    for u in "${JQ_URL:-}" "$g"; do
         [[ $u ]] || continue
         curl -fsSL --connect-timeout 40 --retry 3 "$u" -o "$p" || continue
-        s=$(stat -f%z "$p" 2>/dev/null || echo 0)
+        # Portable byte count: `stat -f%z` is BSD/macOS-only; wc -c works on Linux too.
+        s=$(wc -c < "$p" 2>/dev/null | tr -d '[:space:]'); s=${s:-0}
         [[ $s -ge 80000 ]] || { rm -f "$p"; continue; }
         chmod +x "$p" || { rm -f "$p"; continue; }
         "$p" -n . &>/dev/null || { rm -f "$p"; continue; }
@@ -77,8 +101,8 @@ upl(){
 # ── version ──
 et || exit 1
 
-if [ -n "${GITCODE_VERSION:-}" ]; then
-    tag="v${GITCODE_VERSION#v}"
+if [ -n "${RUSTCODE_RELEASE_VERSION:-}" ]; then
+    tag="v${RUSTCODE_RELEASE_VERSION#v}"
 else
     j=$(fct) || { echo "Error: failed to fetch Cargo.toml"; exit 1; }
     jq -e .error_code <<<"$j" &>/dev/null && { echo "Error fetching Cargo.toml: $(echo "$j" | jq -r .message)"; exit 1; }
@@ -93,7 +117,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 # ── platforms ──
 PLATFORMS="darwin-arm64 darwin-x64 linux-arm64 linux-x64"
-DOWNLOAD_BASE="https://gitcode.com/$o/$r/releases/download/${tag}"
+DOWNLOAD_BASE="${DL_ROOT}/${tag}"
 
 # ── download raw binaries ──
 echo "[1/4] Downloading raw binaries ..."

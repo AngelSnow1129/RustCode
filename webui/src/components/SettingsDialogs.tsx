@@ -23,6 +23,7 @@ import { useSettings, Theme, FontScale } from '../settings';
 import { Lang } from '../i18n';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Select } from './Select';
+import { useAuth } from './LoginButton';
 import {
   loadPrefs,
   savePrefs,
@@ -263,6 +264,9 @@ export function NotificationsDialog({ onClose }: { onClose: () => void }) {
 
 export function ModelConfigDialog({ onClose }: { onClose: () => void }) {
   const { t } = useSettings();
+  // Neutral builds ship no managed sign-in; the "managed by your login" note
+  // is only shown when the daemon advertises a managed account service.
+  const { managedAvailable } = useAuth();
   const [config, setConfig] = useState<ConfigInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [addMode, setAddMode] = useState<'preset' | 'custom' | null>(null);
@@ -303,6 +307,7 @@ export function ModelConfigDialog({ onClose }: { onClose: () => void }) {
           <div>
             <h4>{t('settings.modelsTitle')}</h4>
             <p>{t('settings.modelsIntro')}</p>
+            {managedAvailable && <p>{t('settings.modelsIntroManaged')}</p>}
           </div>
           {config && <code class="model-config-path" title={config.path}>{config.path}</code>}
         </div>
@@ -828,7 +833,7 @@ function ProviderFormDialog({
           <input
             class="menu-input"
             type="text"
-            placeholder="my-deepseek"
+            placeholder="my-provider"
             value={nameInput}
             onInput={(e) => setNameInput((e.target as HTMLInputElement).value)}
           />

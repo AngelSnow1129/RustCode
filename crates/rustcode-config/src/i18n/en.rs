@@ -105,8 +105,10 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CpStatusFetchFailed { error } =>
             format!("  [!] Status fetch failed (non-fatal) -- {}\n", error).into(),
         Msg::CpOfficialBuildRequired => Cow::Borrowed(
-            "This feature requires the official {brand} build. Download it from \
-             https://gitcode.com/SecLab/RustCode/releases.",
+            "The configured CodingPlan gateway needs a build with managed-signing \
+             support, which this {brand} build does not include. Configure a third-party \
+             provider (bring your own key) instead, or use a distribution that ships \
+             CodingPlan support.",
         ),
         Msg::CpAuthRequired => Cow::Borrowed(
             "Not signed in to {brand} CodingPlan. Run /login to sign in \
@@ -125,7 +127,8 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         ),
         Msg::CpUpgradeRequired => Cow::Borrowed(
             "An upgrade is required to continue using CodingPlan. \
-             Please install the latest {brand} from the official releases.",
+             Please update to a newer {brand} build from your distribution, or configure \
+             a third-party provider (bring your own key) with /provider.",
         ),
 
         Msg::ErrUnsupportedLocale { input } =>
@@ -137,7 +140,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::StatusRuntimeUnavailable =>
             "runtime unavailable . restart or inspect the error above".into(),
         Msg::StatusOfficialBuildRequired =>
-            "CodingPlan needs the official build".into(),
+            "CodingPlan unsupported in this build".into(),
         Msg::StatusUpgradeHint { version } =>
             format!("↑ {version} available . /upgrade").into(),
         Msg::StatusUpgradeHintPm { version } =>
@@ -355,11 +358,15 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderPanelAccountsHint =>
             "Filter . ↑↓ select . ↵ models . Ctrl+A add . Ctrl+E edit . Ctrl+Dx2 delete . Tab switch . Esc close".into(),
         Msg::ProviderPanelManagedAccountHint =>
-            "Official CodingPlan account . view only . ↵ models . Tab switch . Esc close".into(),
+            "Managed CodingPlan account . view only . ↵ models . Tab switch . Esc close".into(),
+        Msg::ProviderPanelManagedAccountHintNeutral =>
+            "Reserved managed-account name; this build has no managed service . view only . ↵ models . Tab switch . Esc close".into(),
         Msg::ProviderPanelModelsHint =>
             "Filter . ↑↓ select . ↵ default/add . Ctrl+A add . Ctrl+E edit . Ctrl+Dx2 delete . Tab switch . Esc close".into(),
         Msg::ProviderPanelManagedModelsHint =>
             "CodingPlan models are managed by /login . ↑↓ select . ↵ default . Tab all . Esc close".into(),
+        Msg::ProviderPanelManagedModelsHintNeutral =>
+            "Reserved managed name; this build has no managed service . ↑↓ select . ↵ default . Tab all . Esc close".into(),
         Msg::ProviderPanelFilteredModelsHint { account } =>
             format!("[{account}] . ↑↓ select . ↵ default/add . Ctrl+A add model . Ctrl+E edit . Ctrl+Dx2 delete . Tab all . Esc close").into(),
         Msg::ProviderPanelModelSaved { model } => format!("Saved model \"{model}\".").into(),
@@ -399,6 +406,15 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         // ── Session picker ──
         Msg::SessionLoadFailed { error } =>
             format!("load session failed: {error}").into(),
+        Msg::SessionResumeInProgress =>
+            "another session resume is still in progress".into(),
+        Msg::SessionPrepJoinFailed { error } =>
+            format!("session preparation task failed: {error}").into(),
+        Msg::SessionNotFoundById { session_id } =>
+            format!("session {session_id} not found").into(),
+        Msg::SessionPrepTimeout =>
+            "session preparation is taking unusually long (large session or slow disk); please try again".into(),
+        Msg::ProjectFallbackWord => "project".into(),
         Msg::SessionResumedLabel { name } =>
             format!("resumed: {name}").into(),
         Msg::SessionBusyForked { source_id, fork_id } =>
@@ -509,6 +525,8 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("  Changed to: {path}\n").into(),
         Msg::DirNotADirectory { path } =>
             format!("Not a directory: {path}").into(),
+        Msg::CdHomeUnknown => "home directory not known".into(),
+        Msg::CdNoPrevious => "No previous directory".into(),
 
         // ── Language ──
         Msg::LanguageSwitched { label, locale } =>
@@ -527,11 +545,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "to add a custom model".into(),
         Msg::IdleHintProviderFull =>
             "/provider  to add a custom model".into(),
-        Msg::IdleHintCodingplan => "/login".into(),
-        Msg::IdleHintCodingplanSuffix =>
-            "to claim a free token quota".into(),
-        Msg::IdleHintCodingplanFull =>
-            "/login  to claim a free token quota".into(),
         Msg::IdleHintWebui => "/webui".into(),
         Msg::IdleHintWebuiSuffix =>
             "open a synced session in the browser".into(),
@@ -588,6 +601,10 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("logout failed: {error}").into(),
         Msg::CmdWhoamiNotSignedIn =>
             "  Not signed in. Use /login to authenticate.\n".into(),
+        Msg::CmdWhoamiNotSignedInNeutral =>
+            "  Not signed in. This build has no managed account -- use /provider to \
+             add a bring-your-own-key provider.\n"
+                .into(),
         Msg::CmdReloadDone { provider, model } =>
             format!("  Config reloaded. Active: {provider} . {model}\n").into(),
         Msg::CmdReloadFailed { error } =>
@@ -617,10 +634,14 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "  Checking for updates...\n".into(),
         Msg::CmdNoActiveProvider =>
             "No active provider configured. Use /provider to add one.".into(),
+        Msg::CmdNoModelConfigured =>
+            "no model is configured; run /provider to add a third-party API key first".into(),
         Msg::CmdProviderUnavailable =>
             "Provider is unavailable. Use /login to sign in or /provider to configure one.".into(),
+        Msg::CmdProviderUnavailableNeutral =>
+            "Provider is unavailable. Use /provider to configure a third-party provider with your own API key.".into(),
         Msg::CmdProviderUnsupportedBuild =>
-            "This build cannot access the gateway. Install an official build or use /provider to switch providers.".into(),
+            "This build cannot access the gateway. Use a distribution build that ships gateway support, or use /provider to configure a third-party provider (bring your own key).".into(),
         Msg::CmdProviderReloading =>
             "Provider/model is switching. Send after the switch completes.".into(),
         Msg::SubmitHeldUntilProviderReady =>
@@ -663,7 +684,316 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("Upgrade failed: {}", error).into(),
         Msg::UpgradeRolledBack { exe, backup } =>
             format!("\n[+] Rolled back. Current binary: {}; other version saved at {}\n  Restarting rolled-back version...\n", exe, backup).into(),
+        Msg::CliUpgradeAvailable { version } =>
+            format!("[*] New version available: {version}").into(),
+        Msg::CliUpgradeDownloading { pct, mb, total_mb } =>
+            format!("\r   Downloading {pct}% ({mb} / {total_mb} MB)      ").into(),
+        Msg::CliUpgradeVerifying => "\n[+] Verifying sha256".into(),
+        Msg::CliUpgradeApplying { version } =>
+            format!("[+] Upgrading to {version}...").into(),
+        Msg::CliUpgradeReexecFailed { error } =>
+            format!("Upgrade applied but re-exec failed ({error}). The new version will be used on the next launch.").into(),
+        Msg::CliUpgradeCheckFailed =>
+            "Note: could not check for updates at startup (will retry in background).".into(),
+        Msg::CliUpgradeApplyFailed { error } =>
+            format!("Note: pending upgrade could not be applied ({error}). Continuing with current version.").into(),
+        Msg::CliUpgradeDevDisabled => "[dev] auto-update disabled".into(),
+        Msg::CliFatalError { error } => format!("\nRustCode error: {error}").into(),
+        Msg::CliStartingAfterLogin => "\n  Starting RustCode...\n".into(),
+        Msg::CliDaemonStarting { port } =>
+            format!("Starting RustCode daemon on port {port}...").into(),
+        Msg::CliDaemonStopHint => "Press Ctrl+C to stop.".into(),
+        Msg::CliDaemonFatal { error } => format!("Fatal: daemon server error: {error}").into(),
+        Msg::CliLoginSetupFailed { error } => format!("login setup failed: {error}").into(),
+        Msg::CliLoggedOut => "  You have been logged out.".into(),
+        Msg::CliStatusLoggedIn { username, id } =>
+            format!("\n  Logged in as: {username} ({id})").into(),
+        Msg::CliStatusName { name } => format!("  Name: {name}").into(),
+        Msg::CliStatusEmail { email } => format!("  Email: {email}").into(),
+        Msg::CliStatusAuthFile { path } => format!("  Auth file: {path}\n").into(),
+        Msg::CliStatusNotLoggedInManaged => "\n  Not logged in.".into(),
+        Msg::CliStatusLoginHint => "  Run 'rustcode login' to authenticate.\n".into(),
+        Msg::CliStatusHintNeutral =>
+            "\n  [*] No managed login in this build -- it uses bring-your-own-key providers.\n\
+Configure a third-party provider in ~/.rustcode/config.toml with your own\n\
+base_url and api_key, or run rustcode with --provider <name>.\n"
+                .into(),
+        Msg::CliManagedLoginNotBuilt =>
+            "\n  [*] Managed login is not built into this build.\n\
+Skip `/login` and configure a third-party provider directly in\n\
+~/.rustcode/config.toml with your own base_url and api_key\n\
+(or set RUSTCODE_PLATFORM_SERVER for a managed gateway).\n"
+                .into(),
+        Msg::CliReauthFailed { error } => format!("re-authentication failed: {error}").into(),
+        Msg::CliConfigSaveFailed { path, error } =>
+            format!("  [!] Failed to save config to {path}: {error}").into(),
+        Msg::CliSyncMarkerWriteFailed { error } =>
+            format!("  [!] Failed to write codingplan sync marker: {error}").into(),
+        Msg::CliUpgradeLatest { version } => format!("==> Latest: {version}").into(),
+        Msg::CliUpgradeDownloadProgress { pct, bytes, total } =>
+            format!("\r    downloading {pct}% ({bytes} / {total} bytes)   ").into(),
+        Msg::CliUpgradeVerifyingSha => "\n==> Verifying SHA256".into(),
+        Msg::CliUpgradeReplacingBinary => "==> Replacing binary".into(),
+        Msg::CliUpgradeCmdDone { version, backup } =>
+            format!("\n[+] Upgraded to {version} (previous version kept at {backup})").into(),
+        Msg::CliUpgradeStartNewHint => "  Run `rustcode` to start the new version.".into(),
+        Msg::CliUpgradeCmdFailed { error } => format!("\nupgrade failed: {error}").into(),
+        Msg::CliUpgradePanicked { error } => format!("upgrade task panicked: {error}").into(),
+        Msg::CliRollbackCmdDone { exe, backup } =>
+            format!("\n[+] Rolled back. exe={exe}, backup={backup}").into(),
+        Msg::CliRollbackCmdDoneTwo { current, saved } =>
+            format!("[+] Rolled back. Previous binary is now at {current}, other version saved at {saved}").into(),
+        Msg::CliRollbackStartHint =>
+            "  Run `rustcode` to start the rolled-back version.".into(),
 
+        // ── Headless (`-p`/`--print`) stderr lines ──
+        Msg::CliHeadlessProviderRetry { reason, backoff_secs, attempt, max_attempts } =>
+            format!("API error {reason} -- retrying in {backoff_secs}s ({attempt}/{max_attempts})...").into(),
+        Msg::CliHeadlessRateAutoResume { secs } =>
+            format!("auto-continuing in {secs}s...").into(),
+        Msg::CliHeadlessRateRetry { reason, secs } =>
+            format!("HTTP 429{reason} -- retry later (in {secs}s)").into(),
+        Msg::CliHeadlessRatePaused { reason } =>
+            format!("HTTP 429{reason} -- paused, retry later").into(),
+        Msg::CliHeadlessRateWindowResetAt { reset_at } =>
+            format!("rate-limit window exhausted -- resets around {reset_at}").into(),
+        Msg::CliHeadlessRateWindowSecs { secs } =>
+            format!("rate-limit window exhausted -- resets in {secs}s, retry later").into(),
+        Msg::CliHeadlessRateWindowPaused =>
+            "rate-limit window exhausted -- paused, retry later".into(),
+        Msg::CliHeadlessAutoApproved { tool } =>
+            format!("auto-approved {tool}").into(),
+        Msg::CliHeadlessDenied { tool } =>
+            format!("{tool} requires interactive approval").into(),
+        Msg::CliSetupCwdError { error } =>
+            format!("setup error: cannot read current directory: {error}").into(),
+        Msg::CliSetupFailed { error } => format!("setup error: {error}").into(),
+        Msg::CliSeedInitialized { path, source } =>
+            format!("initialized {path} from {source}").into(),
+        Msg::CliSeedInvalid { error } =>
+            format!("Warning: --seed-config ignored (not a valid config): {error}").into(),
+        Msg::CliSeedIoError { error } =>
+            format!("Warning: --seed-config could not be applied: {error}").into(),
+        Msg::CliConfigLoadWarnings { path, warnings } =>
+            format!("Warning: Some provider sections in {path} could not be loaded:\n{warnings}").into(),
+        Msg::CliConfigLoadFailed { path, error } =>
+            format!("Warning: Failed to load {path} ({error}); using default configuration.").into(),
+        Msg::CliResumeHint { cmd } => format!("To resume this session, run: {cmd}").into(),
+        // NOTE: no `\` line-continuations here -- Rust strips the newline AND
+        // the following line's leading whitespace, which would defeat the
+        // 23-space hint indentation (the original code had exactly that bug).
+        Msg::CliWindowsCodePage { input, output } =>
+            format!(
+                "\n[!]  Console code pages -- input: {input} (expected 65001/UTF-8), output: {output}.\n                       Chinese/Japanese/Korean IME input/output may show garbled text.\n                       -> Use Windows Terminal for native UTF-8 support.\n                       -> Or enable Beta: Use Unicode UTF-8 in Region settings.\n"
+            ).into(),
+        Msg::CliPromptFileReadFailed { path, error } =>
+            format!("error: failed to read --prompt-file {path}: {error}").into(),
+        Msg::CliResumeNoMatch { selector } =>
+            format!(
+                "no session matches id or name {selector} in this project -- run `rustcode resume` to list, or check the working directory (-C)"
+            ).into(),
+        Msg::CliHeadlessNoProviderNamed { name, path } =>
+            format!(
+                "Provider not found: '{name}' matches no configured provider and no default provider is set. \
+                 Configure a third-party provider (base_url, api_key, model) in {path}, or run `rustcode` with \
+                 no arguments for interactive setup."
+            ).into(),
+        Msg::CliHeadlessNoProvider { path } =>
+            format!(
+                "No provider configured. Add a third-party provider (base_url, api_key, model) in {path}, \
+                 or run `rustcode` with no arguments for interactive setup."
+            ).into(),
+
+        // ── `rustcode mcp` ──
+        Msg::CliMcpAdded { name, path, program, args } =>
+            format!("  Added MCP server {name} -> {path} (stdio: {program} + {args} arg(s))").into(),
+        Msg::CliMcpAddedGithub { name, path } =>
+            format!("  Added GitHub OAuth MCP server {name} -> {path}").into(),
+        Msg::CliMcpLoginSaved { provider, name, scopes } =>
+            format!("  Saved {provider} OAuth token for MCP server {name} with {scopes} scope(s)").into(),
+        Msg::CliMcpLogoutRemoved { name } =>
+            format!("  Removed saved OAuth token for MCP server {name}").into(),
+        Msg::CliMcpLogoutNotFound { name } =>
+            format!("  No saved OAuth token found for MCP server {name}").into(),
+        Msg::CliMcpServerNotFound { name } =>
+            format!("MCP server {name} not found in config").into(),
+
+        // ── `rustcode hooks` ──
+        Msg::CliHooksLoadedHeader => "\nLoaded Hooks:".into(),
+        Msg::CliHooksNone => "  (No hooks loaded)".into(),
+        Msg::CliHooksTableEvent => "Event".into(),
+        Msg::CliHooksTableCount => "Count".into(),
+        Msg::CliHooksTableTotal => "Total".into(),
+        Msg::CliHooksConfigFiles => "\nHook Config Files:".into(),
+        Msg::CliHooksPathGlobal { path } => format!("Global:   {path}").into(),
+        Msg::CliHooksPathProject { path } => format!("Project:  {path}").into(),
+        Msg::CliHooksPathNoHome => "Global:   (no home directory)".into(),
+        Msg::CliHooksUntrustedHeader => "Untrusted plugin hooks (not loaded):".into(),
+        Msg::CliHooksUntrustedRow { plugin, count, events } =>
+            format!("  {plugin} -- {count} hook(s) [{events}] . run: rustcode plugin trust {plugin}").into(),
+        Msg::CliHooksTestNotFound { name } =>
+            format!("[x] No hook matching '{name}' found.").into(),
+        Msg::CliHooksTestNoneLoaded =>
+            "\n  (No hooks loaded. Check hooks.json / .hooks.json.)".into(),
+        Msg::CliHooksTestAvailable =>
+            "\nAvailable hooks (test by event name or a command substring):".into(),
+        Msg::CliHooksTesting { event } => format!("\n[*] Testing Hook ({event})").into(),
+        Msg::CliHooksFieldCommand { command } => format!("  Command:   {command}").into(),
+        Msg::CliHooksFieldTimeout { ms } => format!("  Timeout:   {ms} ms").into(),
+        Msg::CliHooksFieldMatcher { matcher } => format!("  Matcher:   {matcher}").into(),
+        Msg::CliHooksResultHeader => "[+] Result:".into(),
+        Msg::CliHooksDuration { duration } => format!("  Duration:  {duration}").into(),
+        Msg::CliHooksFieldStatus { label, detail } =>
+            format!("  Status:    {label} ({detail})").into(),
+        Msg::CliHooksStatusSuccess => "exit code 0".into(),
+        Msg::CliHooksStatusBlock =>
+            "exit code 2 -- hook requested a block (CC contract)".into(),
+        Msg::CliHooksStatusExitCode { code } => format!("exit code {code}").into(),
+        Msg::CliHooksStatusSignal => "terminated by signal".into(),
+        Msg::CliHooksDidNotComplete { ms } =>
+            format!("  [x] Hook did not complete: it timed out (>{ms} ms) or failed to spawn.").into(),
+        Msg::CliHooksPathsHeader => "\nHook Configuration Files:".into(),
+        Msg::CliHooksDocsHeader => "\nDocumentation:".into(),
+        Msg::CliHooksDocsEntry => "  docs/hooks.md - Hook usage guide".into(),
+
+        // ── `rustcode plugin` / `marketplace` ──
+        Msg::CliPluginMpAdded { name, commit, plugins } =>
+            format!("  marketplace `{name}` added at {commit} ({plugins} plugins)").into(),
+        Msg::CliPluginMpRemoved { name } =>
+            format!("  marketplace `{name}` removed").into(),
+        Msg::CliPluginMpUpdated { name, commit } =>
+            format!("  marketplace `{name}` updated to {commit}").into(),
+        Msg::CliPluginMpNone => "  no marketplaces registered".into(),
+        Msg::CliPluginMpRow { name, source, commit, plugins } =>
+            format!("  {name}  {source}  {commit}  ({plugins} plugins)").into(),
+        Msg::CliPluginInstalled { plugin, marketplace } =>
+            format!("  installed `{plugin}@{marketplace}`").into(),
+        Msg::CliPluginInstallAmbiguous { plugin, list } =>
+            format!("plugin `{plugin}` found in multiple marketplaces, please specify:\n{list}").into(),
+        Msg::CliPluginNotFound { plugin } =>
+            format!("plugin `{plugin}` not found in any marketplace").into(),
+        Msg::CliPluginUntrustedNotice { plugin, count, events } =>
+            format!(
+                "Plugin `{plugin}` ships {count} hook(s) on [{events}]. They will NOT run until trusted:\n  rustcode plugin trust {plugin}"
+            ).into(),
+        Msg::CliPluginUninstalled { plugin, marketplace } =>
+            format!("  uninstalled `{plugin}@{marketplace}`").into(),
+        Msg::CliPluginNotInstalled { plugin } =>
+            format!("plugin `{plugin}` is not installed").into(),
+        Msg::CliPluginUninstallAmbiguous { plugin, list } =>
+            format!(
+                "plugin `{plugin}` installed from multiple marketplaces, please specify:\n{list}Use /plugin to select the installation scope to remove."
+            ).into(),
+        Msg::CliPluginNoHooks { name } =>
+            format!("plugin `{name}` has no hooks (or is not installed)").into(),
+        Msg::CliPluginTrusted { count, name, events } =>
+            format!("Trusted {count} hook(s) from `{name}` [{events}].").into(),
+        Msg::CliPluginTrustAmbiguous { name, list } =>
+            format!(
+                "plugin `{name}` has hooks in multiple installations:\n{list}Use /plugin to inspect the installation scopes."
+            ).into(),
+        Msg::CliPluginUntrusted { name } =>
+            format!("Untrusted hooks from `{name}`.").into(),
+        Msg::CliPluginNone => "  no installed plugins".into(),
+        Msg::CliPluginErrAddMp => "add marketplace".into(),
+        Msg::CliPluginErrRemoveMp => "remove marketplace".into(),
+        Msg::CliPluginErrUpdateMp => "update marketplace".into(),
+        Msg::CliPluginErrInstall => "install".into(),
+        Msg::CliPluginErrResolve => "resolve".into(),
+        Msg::CliPluginErrUninstall => "uninstall".into(),
+
+        // ── `rustcode schedule` ──
+        Msg::CliSchedDailyBad { value } =>
+            format!("--daily expects HH:MM format, got {value}").into(),
+        Msg::CliSchedWeeklyBad { value } =>
+            format!("--weekly expects N@HH:MM format, got {value}").into(),
+        Msg::CliSchedWeekdayBad { value } =>
+            format!("--weekly weekday must be 1..7, got {value}").into(),
+        Msg::CliSchedWeeklyTimeBad { value } =>
+            format!("--weekly time must be HH:MM, got {value}").into(),
+        Msg::CliSchedEveryBad { value } =>
+            format!("--every expects format like '30m', got {value}").into(),
+        Msg::CliSchedEveryIntBad { value } =>
+            format!("--every minutes value must be a positive integer, got {value}").into(),
+        Msg::CliSchedEveryZero => "--every minutes must be > 0".into(),
+        Msg::CliSchedFrequencyRequired =>
+            "one frequency flag is required: --daily HH:MM | --weekly N@HH:MM | --every Nm | --hourly | --cron EXPR".into(),
+        Msg::CliSchedRemoveFailed { id } => format!("failed to remove task {id}").into(),
+        Msg::CliSchedTaskNotFound { id } => format!("task {id} not found").into(),
+        Msg::CliSchedSaveFailed { id } => format!("failed to save task {id}").into(),
+        Msg::CliSchedRegFailed { id, error } =>
+            format!("[schedule] warning: OS scheduler registration failed for {id}: {error}\nRun `rustcode schedule sync` to retry.").into(),
+        Msg::CliSchedSyncInstalled { id } => format!("  sync: installed {id}").into(),
+        Msg::CliSchedSyncInstallFailed { id, error } =>
+            format!("  sync: failed to install {id}: {error}").into(),
+        Msg::CliSchedSyncUninstalled { id } => format!("  sync: uninstalled {id}").into(),
+        Msg::CliSchedSyncUninstallFailed { id, error } =>
+            format!("  sync: failed to uninstall {id}: {error}").into(),
+        Msg::CliSchedSyncDone { installed, uninstalled, errors } =>
+            format!("  sync done: {installed} installed, {uninstalled} uninstalled, {errors} errors").into(),
+        Msg::CliSchedAdded { id, title } => format!("  Added task {id} ({title})").into(),
+        Msg::CliSchedNone =>
+            "  No scheduled tasks. Use `rustcode schedule add` to create one.".into(),
+        Msg::CliSchedRemoved { id } => format!("  Removed task {id}").into(),
+        Msg::CliSchedEnabled { id } => format!("  Enabled task {id}").into(),
+        Msg::CliSchedDisabled { id } => format!("  Disabled task {id}").into(),
+        Msg::CliSchedRunSkipped { id } =>
+            format!("  schedule run: task {id} is disabled, skipping").into(),
+        Msg::CliSchedBadCwd { cwd, id } =>
+            format!("[schedule] working directory {cwd} does not exist for task {id}").into(),
+        Msg::CliSchedListRow { id, title, next, last, state, reg } =>
+            format!("  {id} | {title} | next:{next} | last:{last} | {state} | {reg}").into(),
+        Msg::CliSchedStateOn => "on".into(),
+        Msg::CliSchedStateOff => "off".into(),
+        Msg::CliSchedRegRegistered => "registered".into(),
+        Msg::CliSchedRegMissing => "missing".into(),
+        Msg::CliSchedRegUnknown => "unknown".into(),
+
+        // ── `rustcode uninstall` ──
+        Msg::CliUninstallPurgeConflict =>
+            "rustcode uninstall: --purge conflicts with --keep-data".into(),
+        Msg::CliUninstallNoTty =>
+            "rustcode uninstall: refusing to run interactively without a TTY.\nPass one of: --yes (use defaults), --purge (delete everything), --keep-data (binary only), --dry-run.".into(),
+        Msg::CliUninstallBinaryRequired =>
+            "rustcode uninstall: cannot uninstall without removing binary; aborted.".into(),
+        Msg::CliUninstallProcsAborted =>
+            "aborted: running processes were not terminated.".into(),
+        Msg::CliUninstallProcsFound { count } =>
+            format!("\nFound {count} running rustcode process(es):").into(),
+        Msg::CliUninstallKillPrompt => "Kill them and continue? [y/N]: ".into(),
+        Msg::CliUninstallKillFailed { pid, error } =>
+            format!("could not kill pid {pid}: {error}").into(),
+        Msg::CliUninstallKillWarn { pid, error } =>
+            format!("warn: could not kill pid {pid}: {error} (continuing -- Unix unlink doesn't need it)").into(),
+        Msg::CliUninstallDryRun => "DRY RUN -- no changes will be made.\n".into(),
+        Msg::CliUninstallGroup1Plan => "[Group 1] Binary + PATH edit".into(),
+        Msg::CliUninstallGroup2Plan => "[Group 2] Credentials and global config".into(),
+        Msg::CliUninstallGroup3Plan => "[Group 3] Local state and extensions".into(),
+        Msg::CliUninstallGroup1Prompt => "[Group 1] Remove binary and PATH edit?".into(),
+        Msg::CliUninstallGroup2Prompt =>
+            "[Group 2] Remove credentials and global config?".into(),
+        Msg::CliUninstallGroup3Prompt => "[Group 3] Remove local state and extensions?".into(),
+        Msg::CliUninstallTagWillRemove => "WILL REMOVE".into(),
+        Msg::CliUninstallTagKeep => "KEEP".into(),
+        Msg::CliUninstallIntro => "This will uninstall RustCode from your system.\n".into(),
+        Msg::CliUninstallGroup1Declined =>
+            "Group 1 declined; aborting (cannot keep binary while removing data).".into(),
+        Msg::CliUninstallSummaryHeader => "\nSummary:".into(),
+        Msg::CliUninstallContinuePrompt => "\nContinue? [y/N]: ".into(),
+        Msg::CliUninstallProceedPrompt { suffix } => format!("Proceed? {suffix}: ").into(),
+        Msg::CliUninstallActionRemove => "Remove".into(),
+        Msg::CliUninstallActionKeep => "Keep".into(),
+        Msg::CliUninstallLabelBinary => "binary + PATH".into(),
+        Msg::CliUninstallLabelCredentials => "credentials".into(),
+        Msg::CliUninstallLabelState => "local state".into(),
+        Msg::CliUninstallSummaryRow { action, count, label } =>
+            format!("  {action}: {count} items ({label})").into(),
+        Msg::CliUninstallResultRemoved => "Removed:".into(),
+        Msg::CliUninstallResultKept => "Kept (use --purge to remove later):".into(),
+        Msg::CliUninstallResultFailed => "Failed:".into(),
+        Msg::CliUninstallResultBackups => "Backups:".into(),
+        Msg::CliWebuiNotBuilt =>
+            "webui assets are not embedded in this binary.\nBuild the frontend first, then rebuild:\n\n   cd webui && npm install && npm run build\n   cargo build -p rustcode\n".into(),
 
         // ── /config ──
         Msg::ConfigProviderLabel { provider, path } =>
@@ -679,10 +1009,11 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("Unattributed legacy usage\n  Total tokens:      {}", tokens).into(),
 
         // ── /think ──
-        Msg::ThinkStatus { status, budget, provider } =>
+        Msg::ThinkStatus { enabled, budget, provider } =>
             format!(
                 "  Extended thinking: {}\n  Budget: {} tokens\n  Provider: {}\n\n  Usage: /think on | off | budget <N>\n",
-                status, budget, provider
+                if enabled { "enabled" } else { "disabled" },
+                budget, provider
             ).into(),
         Msg::ThinkEnabled { budget } =>
             format!("  Extended thinking enabled (budget: {} tokens).\n", budget).into(),
@@ -702,6 +1033,37 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "Usage: /remember <fact to remember>  (--global for global scope)".into(),
         Msg::ForgetUsage =>
             "Usage: /forget <keyword>".into(),
+        Msg::MemoryScopeGlobal => "global".into(),
+        Msg::MemoryScopeProject => "project".into(),
+        Msg::Remembered { scope, content } =>
+            format!("Remembered ({scope}): {content}").into(),
+        Msg::AlreadyRemembered { scope, content } =>
+            format!("Already remembered ({scope}): {content}").into(),
+        Msg::RememberFailed { error } =>
+            format!("Failed to remember: {error}").into(),
+        Msg::ForgetNoMatch { keyword } =>
+            format!("No memory entries matched '{keyword}'.").into(),
+        Msg::ForgotOne => "Forgot 1 entry.".into(),
+        Msg::ForgotMany { count } => format!("Forgot {count} entries.").into(),
+        Msg::MemoryEmpty => "(memory is empty)".into(),
+
+        // ── /team ──
+        Msg::TeamNoRuns => "No Team runs.".into(),
+        Msg::TeamSummary { runs, completed, running, failed, stopped } => format!(
+            "Team: {runs} run(s) · {completed} completed · {running} running · {failed} failed · {stopped} stopped"
+        ).into(),
+
+        // ── generic on/off ──
+        Msg::WordOn => "on".into(),
+        Msg::WordOff => "off".into(),
+
+        // ── /schedule list ──
+        Msg::ScheduleListEmpty =>
+            "  No scheduled tasks. Use `rustcode schedule add` to create one.\n".into(),
+        Msg::ScheduleListHeader => "  Scheduled tasks:\n\n".into(),
+        Msg::ScheduleRow { id, title, next, last, state } => format!(
+            "  {id} | {title} | next:{next} | last:{last} | {state}\n"
+        ).into(),
 
         // ── /background ──
         Msg::BackgroundUsage =>
@@ -988,6 +1350,51 @@ Msg::PluginMgrInstallingLabel => "Installing...".into(),
         Msg::SetupAutoReloaded { skills, warnings } =>
             format!("[+] Setup complete, auto-reloaded: {skills} skill(s), {warnings} warning(s)").into(),
 
+        // ── Plugin manager modal ──
+        Msg::PluginTabAll => "All Plugins".into(),
+        Msg::PluginTabInstalled { count } => format!("Installed ({count})").into(),
+        Msg::PluginTabMarketplaces => "Marketplaces".into(),
+        Msg::PluginAutoUninstallFailed { name, error } =>
+            format!("Failed to auto-uninstall plugin '{name}': {error}").into(),
+        Msg::PluginNoPluginsMatch { query } =>
+            format!("No plugins match '{query}'").into(),
+        Msg::PluginNoInstalledMatch { query } =>
+            format!("No installed plugins match '{query}'").into(),
+        Msg::PluginAddMarketplaceRow => "Add Marketplace".into(),
+        Msg::PluginAddMarketplacePlus => "+ Add Marketplace".into(),
+        Msg::PluginEnterSourceRow => "Enter marketplace source:".into(),
+        Msg::PluginExamplesRow => "Examples:".into(),
+        Msg::PluginBrowseRow { count } => format!("Browse plugins ({count})").into(),
+        Msg::PluginUpdateRow { date } =>
+            format!("Update marketplace (last updated {date})").into(),
+        Msg::PluginRemoveMarketplaceRow => "Remove marketplace".into(),
+        Msg::PluginInfoHeader => "  * Plugin Info".into(),
+        Msg::PluginNameLabel => "  Name:        ".into(),
+        Msg::PluginMarketplaceLabel => "  Marketplace: ".into(),
+        Msg::PluginVersionLabel => "  Version:     ".into(),
+        Msg::PluginScopeLabel => "  Scope:       ".into(),
+        Msg::PluginDescriptionLabel => "  Description: ".into(),
+        Msg::PluginSelectScopeHeader => "  Select Install Scope:".into(),
+        Msg::PluginManageHeader => "  Manage Plugin:".into(),
+        Msg::PluginStatusInstalling { label } =>
+            format!("  Status:      {label}...").into(),
+        Msg::PluginAvailableCount { count } =>
+            format!("  {count} available plugins").into(),
+        Msg::PluginModalInstalledHeader { count } =>
+            format!("  \x1b[1mInstalled plugins ({count}):\x1b[22m").into(),
+        Msg::PluginNoInstalledFromMarketplace =>
+            "No plugins installed from this marketplace.".into(),
+        Msg::PluginVersionUnknown => "unknown".into(),
+        Msg::PluginCategoryGit => "Git".into(),
+        Msg::PluginCategoryLinter => "Linter".into(),
+        Msg::PluginCategoryFormatter => "Formatter".into(),
+        Msg::PluginCategoryLanguage => "Language".into(),
+        Msg::PluginCategorySecurity => "Security".into(),
+        Msg::PluginCategoryAi => "AI".into(),
+        Msg::PluginCategoryUtility => "Utility".into(),
+        Msg::PluginCategoryTool => "Tool".into(),
+        Msg::PluginCategoryCompletion => "Completion".into(),
+
         // ── Command descriptions ──
         Msg::CmdDescWebui => "Launch the browser webui (subcommands: stop, lan, --host <addr>)".into(),
 Msg::CmdDescSetup =>
@@ -1061,6 +1468,20 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CmdDescSchedule => "List scheduled tasks and next run times".into(),
         Msg::CmdDescDesktop =>
             "Open the {brand} desktop app (launch it if installed, else show the download link)".into(),
+        // ── /proxy picker ──
+        Msg::ProxyTitleFollowSystem => "follow_system".into(),
+        Msg::ProxyTitleDefaultProxy => "default_proxy".into(),
+        Msg::ProxyTitleNoProxy => "no_proxy".into(),
+        Msg::ProxyDescFollowSystem =>
+            "Follow current launch environment / system proxy state".into(),
+        Msg::ProxyDescDefaultProxy =>
+            "Pin the current proxy env and reuse it on later launches".into(),
+        Msg::ProxyDescNoProxy =>
+            "Disable proxy resolution for outbound HTTP clients".into(),
+        Msg::ProxyModeLine { mode } => format!("  Proxy mode: {mode}\n").into(),
+        Msg::ProxyDefaultPinned { count } =>
+            format!("default_proxy ({count} pinned vars)").into(),
+        Msg::ProxyDefaultEmpty => "default_proxy (no pinned env captured)".into(),
         Msg::DesktopOpening { name, path } =>
             format!("Opening {}...\n  {}\n", name, path).into(),
         Msg::DesktopNotInstalled { url } =>
@@ -1119,6 +1540,8 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             "* Connects to any OpenAI-compatible API".into(),
         Msg::OnboardingIntroBullet3 =>
             "* Free tokens via CodingPlan".into(),
+        Msg::OnboardingIntroBullet3Neutral =>
+            "* Bring your own API key -- no account or signup".into(),
         Msg::OnboardingIntroPressEnter => "Press Enter to continue.".into(),
         Msg::OnboardingIntroCtrlC => "Ctrl+C exits at any point.".into(),
         Msg::OnboardingIntroCompactTagline =>
@@ -1134,6 +1557,8 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::OnboardingSetupTitle => "How would you like to set up?".into(),
         Msg::OnboardingNavHint =>
             "1-3 select . Enter confirm . ← back . Esc skip".into(),
+        Msg::OnboardingSetupNavHint =>
+            "number to select . Enter confirm . ← back . Esc skip".into(),
         Msg::OnboardingConfirmClear =>
             "/welcome will clear the screen. Continue? [y/N]".into(),
         Msg::CmdWelcomeDescription => "Re-run the onboarding wizard".into(),
@@ -1155,6 +1580,207 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             let cause = reason.map(|r| format!(": {r}")).unwrap_or_default();
             format!("[x] Turn stopped by security policy{cause} . {turn_count} rounds . {tool_call_count} tools . {duration} . {} tokens", super::fmt_tokens(total_tokens)).into()
         }
+        Msg::SpinnerEffortSuffix { effort } => format!(" \u{b7} thinking with {effort} effort").into(),
+        Msg::SpinnerQueuedSuffix { count } => format!(" \u{b7} {count} queued").into(),
+        Msg::SpinnerElapsedTokens { elapsed, tokens } =>
+            format!(" ({elapsed} \u{b7} \u{2191} {tokens} tokens)").into(),
+        Msg::SpinnerElapsedOnly { elapsed } => format!(" ({elapsed})").into(),
+        Msg::SpinnerSubAgents { done, total } => format!("SubAgents {done}/{total}").into(),
+        Msg::SpinnerWaitingApproval => "Waiting approval".into(),
+
+        // ── Live hub / phone remote synchronization errors ──
+        Msg::LiveSyncEventFailed { error } =>
+            format!("Live event synchronization failed: {error}").into(),
+        Msg::LiveSyncProviderFailed { error } =>
+            format!("Live provider synchronization failed: {error}").into(),
+        Msg::LiveSyncGoalFailed { error } =>
+            format!("Live Goal synchronization failed: {error}").into(),
+        Msg::LiveSyncRemoteOutputFailed { error } =>
+            format!("Remote command output synchronization failed: {error}").into(),
+        Msg::LiveSyncRemoteRejectFailed { error } =>
+            format!("Remote command rejection synchronization failed: {error}").into(),
+        Msg::LiveRemoteCommandEcho { display } =>
+            format!("(executed from phone: {display})").into(),
+        Msg::LiveRemoteCommandRejected =>
+            "  This command must run on the desktop (phone supports only /status /cost /whoami /diff)".into(),
+        Msg::LiveProjectionNoSessionIdentity =>
+            "session switch completed without a session identity".into(),
+        Msg::LiveProjectionUnexpectedIdentity =>
+            "capability reload returned an unexpected session identity".into(),
+        Msg::LiveCapabilitySnapshotFailed { error } =>
+            format!("Failed to update live capability snapshot: {error}").into(),
+        Msg::LiveSessionDecodeFailed { session_id, error } =>
+            format!("Failed to decode session {session_id}: {error}").into(),
+        Msg::LiveSessionDisappeared { session_id } =>
+            format!("Session {session_id} disappeared after runtime switch").into(),
+        Msg::LiveSessionResolveFailed { session_id, error } =>
+            format!("Failed to resolve session {session_id}: {error}").into(),
+        Msg::LiveSessionSnapshotFailed { error } =>
+            format!("Failed to update live session snapshot: {error}").into(),
+
+        // ── Renderer: status badges / agent-group headers ──
+        Msg::BadgeSearchPrefix => " Search '".into(),
+        Msg::BadgeSearchCount { current, total } =>
+            format!(" {current}/{total} ").into(),
+        Msg::BadgeHistory { current, total } =>
+            format!(" History {current}/{total} ").into(),
+        Msg::AgentGroupTeamKind => "Team agents".into(),
+        Msg::AgentGroupSubKind => "SubAgents".into(),
+        Msg::AgentGroupFinished { marker, kind, terminal, total, failed } => format!(
+            "{marker} {kind} · {terminal}/{total} finished · {failed} failed"
+        ).into(),
+        Msg::AgentGroupRunning { marker, kind, running, total } =>
+            format!("{marker} Running {running}/{total} {kind}…").into(),
+        Msg::SubtaskCounts { finished, total, running, pending } => format!(
+            " · {finished}/{total} finished · {running} running · {pending} pending"
+        ).into(),
+        Msg::SubtaskPanelTeamTitle => " Team".into(),
+        Msg::SubtaskPanelSubTitle => " SubTasks".into(),
+        Msg::SubtaskActivityAnalyzing => "analyzing task".into(),
+        Msg::SubtaskSummaryRunning { count } => format!("{count} running").into(),
+        Msg::SubtaskSummaryPending { count } => format!("{count} pending").into(),
+        Msg::SubtaskSummaryFailed { count } => format!("{count} failed").into(),
+        Msg::SubtaskSummaryStopped { count } => format!("{count} stopped").into(),
+        Msg::SubtaskPendingSuffix => " · pending".into(),
+        Msg::SubtaskStatePending => "pending".into(),
+        Msg::SubtaskStateRunning => "running".into(),
+        Msg::SubtaskStateQueued => "queued".into(),
+        Msg::SubtaskStateDone => "done".into(),
+        Msg::SubtaskStateStopped => "stopped".into(),
+        Msg::SubtaskStateFailed => "failed".into(),
+        Msg::TodoHeaderTitle => "Tasks ".into(),
+        Msg::TodoHeaderCounts { completed, in_progress, open } =>
+            format!("({completed} done, {in_progress} in progress, {open} open)").into(),
+        Msg::TodoMoreFold { hidden, ellipsis } =>
+            format!("  +{hidden} more{ellipsis}").into(),
+        Msg::MoreLinesHint { count } => format!(" +{count} more lines ").into(),
+        Msg::BodyMoreLines { ellipsis, count } =>
+            format!("  {ellipsis} +{count} more lines").into(),
+        Msg::RoundMeta { round, elapsed } => format!(" · round {round} · {elapsed}").into(),
+        Msg::RoundBare { round, elapsed } => format!("round {round} · {elapsed}").into(),
+        Msg::GoalRowPausedBody => "goal paused".into(),
+        Msg::GoalRowPausedMeta => " · resume by chatting · /goal stop to end".into(),
+        Msg::GoalRowPausedAtCapBody => "goal paused at cap".into(),
+        Msg::GoalRowPausedAtCapMeta { round } =>
+            format!(" · round {round} reached · resume by chatting").into(),
+        Msg::GoalRowSatisfiedBody => "goal met".into(),
+        Msg::GoalRowSatisfiedMeta => " · /goal clear to dismiss".into(),
+        Msg::SlashOutputSyncFailed { error } =>
+            format!("slash command output sync failed: {error}").into(),
+        Msg::RefreshContextStartFailed { error } =>
+            format!("refresh context stats could not be started: {error}").into(),
+        Msg::RefreshContextFailed { error } =>
+            format!("refresh context stats failed: {error}").into(),
+        Msg::SyncStoppedSharing => "Stopped sharing the current session.".into(),
+        Msg::SyncNotActive => "Not currently in sync mode.".into(),
+        Msg::AppRemoteStopped => "Stopped App remote access.".into(),
+        Msg::AppRemoteNotRunning => "App remote access is not running.".into(),
+        Msg::AppRemoteDetachSuffix { error } =>
+            format!("\n{error}; the TUI stays in sync for now").into(),
+        Msg::BgSessionLoadFailed { error } =>
+            format!("background session could not be loaded: {error}").into(),
+        Msg::McpToolsHeader => "tools:\n".into(),
+        Msg::McpToolsEmpty { status } => format!("  (none -- {status})\n").into(),
+        Msg::McpToolsNoServer => "  (none -- server not configured)\n".into(),
+        Msg::TeamPanelShown => "Team panel shown.".into(),
+        Msg::TeamPanelHidden => "Team panel hidden.".into(),
+        Msg::TeamPanelCleared => "Team panel cleared.".into(),
+        Msg::TeamPanelUsage => "Usage: /team [show|hide|status|clear]".into(),
+        Msg::InternalError { error } => format!("internal error: {error}").into(),
+        Msg::LoginFailedHint { reason } =>
+            format!("Login failed: {reason}. Run /login to retry.").into(),
+        Msg::SteerQueuedLine { prompt } => format!("  ↳ queued: {prompt}\n").into(),
+        Msg::EmptyCompletionReasoningOnly =>
+            "The model produced only reasoning this turn, no answer. Press Ctrl+O to view the reasoning; retry or rephrase to continue.".into(),
+        Msg::EmptyCompletionNoOutput =>
+            "The model produced no answer this turn. Retry or rephrase to continue.".into(),
+        Msg::TaskWordFinished => "finished".into(),
+        Msg::TaskWordCompleted => "completed".into(),
+        Msg::UndoFailed { error } => format!("undo failed: {error}").into(),
+        Msg::CompactFailed { error } => format!("compact failed: {error}").into(),
+        Msg::WebSourcesPrefix { sources } => format!("sources: {sources}").into(),
+        Msg::GoalExecFailed { error } => format!("Goal execution failed: {error}").into(),
+        Msg::TurnDoneDispatched => "Dispatched".into(),
+        Msg::BgProjectionSessionless =>
+            "background runtime changed to a sessionless state".into(),
+        Msg::BgProjectionLoadFailed { bucket, session_id, error } =>
+            format!("failed to load background session {bucket}/{session_id}: {error}").into(),
+        Msg::BgProjectionDecodeFailed { session_id, error } =>
+            format!("failed to decode background session {session_id}: {error}").into(),
+        Msg::BgProjectionIdentityMismatchRuntime { session_id, catalog } =>
+            format!("background session identity mismatch: runtime={session_id:?}, catalog={catalog:?}").into(),
+        Msg::BgProjectionIdentityMismatchLoaded { expected, loaded } =>
+            format!("background session identity mismatch: runtime={expected:?}, loaded={loaded:?}").into(),
+        Msg::ReviewCompleteClean { changed_files } =>
+            format!("Code review complete — no issues found across {changed_files} changed file(s).").into(),
+        Msg::ReviewHeader { findings, changed_files } =>
+            format!("Code review: {findings} finding(s) across {changed_files} changed file(s).\n").into(),
+        Msg::ReviewFindingEntry { index, priority, confidence, location, title } =>
+            format!("\n{index}. [{priority} · conf {confidence}] {location}\n   {title}\n").into(),
+        Msg::ReviewFixSuggestion { suggestion } =>
+            format!("   ↳ fix: {suggestion}\n").into(),
+        Msg::ReviewMoreFindings { hidden, shown } =>
+            format!("\n… and {hidden} more (showing the top {shown} by priority).\n").into(),
+        Msg::ReviewIncompleteHeader { stop, findings, changed_files } =>
+            format!("Code review incomplete ({stop}) — coverage is partial, not a clean review. {findings} confirmed finding(s) across {changed_files} changed file(s).").into(),
+        Msg::ReviewIncompleteReason { reason } => format!("\nReason: {reason}").into(),
+        Msg::ReviewDeepIncomplete { total, note } =>
+            format!("Deep review incomplete -- every dimension failed (0/{total}). Coverage is not reliable.{note}\n").into(),
+        Msg::ReviewDeepClean { changed_files, completed, total, note } =>
+            format!("Deep review complete -- no issues found across {changed_files} changed file(s) ({completed}/{total} dimensions completed){note}.\n").into(),
+        Msg::ReviewDeepHeader { findings, changed_files, completed, total } =>
+            format!("Deep review: {findings} finding(s) across {changed_files} changed file(s) . {completed}/{total} dimensions completed").into(),
+        Msg::ReviewDeepDeduped { count } => format!(" . deduped {count}").into(),
+        Msg::ReviewVerifyDropped { count } => format!(" . verify dropped {count}").into(),
+        Msg::ReviewFailedDimensions { list } => format!("Failed dimensions: {list}\n").into(),
+        Msg::ReviewDeepFindingEntry { index, priority, confidence, location, dims, title } =>
+            format!("\n{index}. [{priority} . conf {confidence}] {location} . dims: {dims}\n   {title}\n").into(),
+        Msg::ReviewActivityHead => "review".into(),
+        Msg::ReviewActivityHeadLabeled { label } => format!("review [{label}]").into(),
+        Msg::ReviewActivityFindingOne { count } => format!("{count} finding").into(),
+        Msg::ReviewActivityFindingMany { count } => format!("{count} findings").into(),
+        Msg::ReviewActivityThinking => "thinking".into(),
+        Msg::ReviewActivityReporting => "reporting finding".into(),
+        Msg::ReviewActivityPreparing => "review · preparing diff".into(),
+        Msg::ReviewActivityAnalyzing { files } =>
+            format!("review · analyzing {files} file(s)").into(),
+        Msg::ReviewStageVerify => "verify".into(),
+        Msg::ModeWordPlan => "plan".into(),
+        Msg::ModeWordAcceptEdits => "accept edits".into(),
+        Msg::ModeWordBuild => "build".into(),
+        Msg::ModeWordAuto => "auto".into(),
+        Msg::ModeSwitchedLine { mode } => format!("  Switched to {mode} mode.\n").into(),
+        Msg::GoalMetBanner { reason } => format!("  [+] Goal met: {reason}\n").into(),
+        Msg::GoalPausedBanner { reason } => format!("  \u{23f8} Goal paused: {reason}\n").into(),
+        Msg::GoalStoppedBanner { reason } => format!("  [!] Goal stopped: {reason}\n").into(),
+        Msg::ParallelDispatchStart { count } =>
+            format!("Dispatching {count} sub-agents in parallel...").into(),
+        Msg::WordFailed => "failed".into(),
+        Msg::ParallelSummaryOk { ok, total, elapsed } =>
+            format!("\u{25cf} ParallelEditFiles . {ok}/{total} ok . {elapsed} wall").into(),
+        Msg::ParallelSummaryFail { ok, failed, elapsed } =>
+            format!("\u{25cf} ParallelEditFiles . {ok} ok . {failed} fail . {elapsed} wall").into(),
+        Msg::BashInflightCtrlOHint =>
+            "Press Ctrl+o to show real-time output while running".into(),
+        Msg::VerboseOnLine { mute, reset } =>
+            format!("{mute}  o Verbose mode enabled (tool output + reasoning visible) (Ctrl+o to hide){reset}\n").into(),
+        Msg::VerboseOffLine { mute, reset } =>
+            format!("{mute}  o Verbose mode disabled (Ctrl+o to show tool output + reasoning){reset}\n").into(),
+        Msg::EffortLevelLow => "Minimal reasoning effort".into(),
+        Msg::EffortLevelMedium => "Moderate reasoning effort".into(),
+        Msg::EffortLevelHigh => "Deeper reasoning".into(),
+        Msg::EffortLevelXhigh => "Extra-high reasoning effort".into(),
+        Msg::EffortLevelMax => "Maximum reasoning depth".into(),
+        Msg::EffortLevelDefault => "Return to the API default (keeps capability)".into(),
+        Msg::EffortUsage { levels } =>
+            format!("  Usage: /effort {levels} | default\n  Shortcut: Ctrl+T\n").into(),
+        Msg::EffortCurrent { current, usage } =>
+            format!("  Current reasoning effort: {current}\n{usage}").into(),
+        Msg::EffortStatusUnsupported => "unsupported".into(),
+        Msg::EffortStatusDefault => "default (API default)".into(),
+        Msg::EffortSet { level } => format!("  o Reasoning effort set to: {level}\n").into(),
+        Msg::EffortSetDefault =>
+            "  o Reasoning effort: default (API-selected; capability kept)\n".into(),
         Msg::LoginQrHeader =>
             "  Sign in -- scan the QR code with your WeChat:\n\n".into(),
         Msg::LoginUrlAfterQr =>
@@ -1306,6 +1932,15 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::BgInvalidSlot { slot, available } =>
             format!("invalid background slot {slot} (available: {available})").into(),
         Msg::BgNoRuntimeClient => "background slot has no runtime client".into(),
+        Msg::BgSwitchProviderTransition =>
+            "/bg cannot switch the foreground while a provider transition is in progress".into(),
+        Msg::BgSwitchRuntimePending =>
+            "/bg cannot switch the foreground while an interactive runtime request is pending".into(),
+        Msg::BgSwitchLiveSync =>
+            "/bg cannot switch the foreground while live sync is attached; run /sync off first".into(),
+        Msg::BgTaskFallbackName => "background task".into(),
+        Msg::BgStartFailed { error } =>
+            format!("background task could not be started: {error}").into(),
         Msg::BgResumed { slot, short_id } =>
             format!("  Resumed background [#{slot}] {short_id}\n").into(),
         Msg::BgPreviousForegroundMoved { slot } =>
@@ -1322,9 +1957,11 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::BgTaskNoSummary => "Task completed (no summary text).".into(),
         // -- CLI rustcode --help i18n --
         Msg::CliAbout => "AI coding assistant in your terminal".into(),
-        Msg::CliAboutLogin => "Sign in with {oauth} and claim CodingPlan models in one flow".into(),
+        Msg::CliAboutLogin => "Sign in with OAuth and claim CodingPlan models in one flow".into(),
+        Msg::CliAboutLoginNeutral =>
+            "Managed sign-in (distribution builds only) -- this open build uses bring-your-own-key providers; configure config.toml".into(),
         Msg::CliAboutLogout => "Sign out".into(),
-        Msg::CliAboutStatus => "Show current login status".into(),
+        Msg::CliAboutStatus => "Show current provider and sign-in status".into(),
         Msg::CliAboutUpgrade => "Upgrade rustcode in-place to the latest released version".into(),
         Msg::CliAboutRollback => "Roll back to the previous version (swap with .bak on disk)".into(),
         Msg::CliAboutMcp => "Manage MCP server entries in .mcp.json".into(),
@@ -1378,6 +2015,27 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliHelpMarketplaceName => "Marketplace name".into(),
         Msg::CliAboutHelp => "Print this message or the help of the given subcommand(s)".into(),
         Msg::CliHelpMcpCommand => "Executable and arguments".into(),
+        Msg::CliAboutResume => "Resume a session by id or name (launches the TUI on it)".into(),
+        Msg::CliHelpResumeSession => "Session id or name to resume (default: the most recent session)".into(),
+        Msg::CliAboutSchedule => "Manage scheduled tasks (add/list/remove/enable/disable/sync)".into(),
+        Msg::CliAboutScheduleAdd => "Add a new scheduled task".into(),
+        Msg::CliAboutScheduleList => "List all scheduled tasks".into(),
+        Msg::CliAboutScheduleRemove => "Remove a scheduled task by id".into(),
+        Msg::CliAboutScheduleEnable => "Enable a scheduled task".into(),
+        Msg::CliAboutScheduleDisable => "Disable a scheduled task (it will no longer fire)".into(),
+        Msg::CliAboutScheduleRun => "Run a scheduled task immediately".into(),
+        Msg::CliAboutScheduleSync => "Sync OS scheduler registrations with the stored task list".into(),
+        Msg::CliHelpSchedId => "Task id".into(),
+        Msg::CliHelpSchedTitle => "Human-readable name for the task".into(),
+        Msg::CliHelpSchedPrompt => "Prompt text to send to the agent when the task fires".into(),
+        Msg::CliHelpSchedCwd => "Working directory for the agent session (defaults to current dir)".into(),
+        Msg::CliHelpSchedDaily => "Run daily at HH:MM (e.g. \"09:00\")".into(),
+        Msg::CliHelpSchedWeekly => "Run weekly, format N@HH:MM (N=1..7, 1=Mon)".into(),
+        Msg::CliHelpSchedEvery => "Run every N minutes (e.g. \"30m\")".into(),
+        Msg::CliHelpSchedHourly => "Run once per hour".into(),
+        Msg::CliHelpSchedCron => "Cron expression (e.g. \"0 9 * * 1-5\")".into(),
+        Msg::CliHelpSchedMode => "Permission mode: plan | accept_edits | auto".into(),
+        Msg::CliHelpSchedNotify => "Notify level: off | important | all".into(),
 
         // ── /usage modal ──
         Msg::UsageTabCurrent => "Current".into(),
@@ -1409,23 +2067,8 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             format!("Remaining {remaining}/{total} days").into(),
         Msg::UsageCopied => "Copied to clipboard".into(),
         Msg::UsageCodingPlanOnly =>
-            "Usage is only available on CodingPlan -- run /login.".into(),
+            "Managed-account usage isn't available in this build. Run /cost for this session's local token usage.".into(),
 
-        // ── CodingRuntime provider init ──
-        Msg::ProviderInitFailed { detail } =>
-            format!("provider init failed: {detail}").into(),
-        Msg::ProviderInitNeedsLogin =>
-            "Not signed in -- model unavailable. Run /login to continue.".into(),
-        Msg::ProviderInitSourceBuild =>
-            "This is a source build -- the free gateway isn't available. Use /provider to \
-             configure a model with your own api_key (e.g. DeepSeek / GLM / OpenAI), or switch to \
-             an official release build.".into(),
-        Msg::GatewayAuthUnavailable { base_url } =>
-            format!(
-                "provider base_url '{base_url}' is a gateway this build can't \
-                 authenticate against. Use the official binary, or point the provider at a \
-                 plain OpenAI-compatible endpoint with an api_key."
-            ).into(),
         Msg::StreamStalled => "esc to cancel".into(),
         Msg::StreamRecoveryRunning { attempt, max_attempts } => format!(
             "stream timed out; safely continuing from saved progress ({attempt}/{max_attempts})..."
@@ -1456,10 +2099,13 @@ mod codingplan_crypto_tests {
     use crate::i18n::Msg;
 
     #[test]
-    fn en_official_build_required_mentions_releases() {
+    fn en_official_build_required_guides_byo_or_distribution() {
+        // Neutral fork: no "official releases" host. The message must still point
+        // the user at a resolution -- a third-party BYO provider, or a distribution
+        // that ships the managed-signing capability.
         let s = en(Msg::CpOfficialBuildRequired);
-        assert!(s.contains("official"));
-        assert!(s.contains("releases"));
+        assert!(s.contains("bring your own key"));
+        assert!(s.contains("distribution"));
     }
 
     #[test]

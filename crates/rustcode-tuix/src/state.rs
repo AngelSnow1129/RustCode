@@ -1019,6 +1019,85 @@ pub const DONE_LABELS: &[&str] = &[
     "Tied off",
 ];
 
+/// zh-CN counterpart of [`THINKING_LABELS`] — same rotation, playful but
+/// natural Chinese "…中" progress verbs. Selected by [`thinking_label`].
+pub const THINKING_LABELS_ZH: &[&str] = &[
+    "思考中",
+    "琢磨中",
+    "沉吟中",
+    "盘算中",
+    "酝酿中",
+    "推敲中",
+    "斟酌中",
+    "推演中",
+    "回味中",
+    "揣摩中",
+    "凝思中",
+    "寻思中",
+    "苦思中",
+    "静思中",
+    "深思中",
+    "冥想中",
+    "运思中",
+    "凝神中",
+    "细思中",
+    "敛神中",
+];
+
+/// zh-CN counterpart of [`DONE_LABELS`] — short completion verbs/phrases
+/// that read naturally inside the Chinese `TurnSummary` template.
+pub const DONE_LABELS_ZH: &[&str] = &[
+    "完成",
+    "搞定",
+    "收工",
+    "妥了",
+    "已交付",
+    "已收尾",
+    "已落定",
+    "稳了",
+    "成了",
+    "已办妥",
+    "已就位",
+    "封板",
+    "齐活",
+    "已收官",
+    "已定稿",
+    "已落位",
+    "已收口",
+    "功德圆满",
+    "已完结",
+    "打好包",
+];
+
+/// Locale-aware thinking word for round-robin slot `idx` — picks the
+/// zh pool under the product-default `ZhCn` locale, English otherwise.
+pub(crate) fn thinking_label(idx: usize) -> &'static str {
+    let pool = if matches!(crate::i18n::current_locale(), crate::i18n::Locale::ZhCn) {
+        THINKING_LABELS_ZH
+    } else {
+        THINKING_LABELS
+    };
+    pool[idx % pool.len()]
+}
+
+/// Locale-aware turn-completion word for round-robin slot `idx`.
+pub(crate) fn done_label(idx: usize) -> &'static str {
+    let pool = if matches!(crate::i18n::current_locale(), crate::i18n::Locale::ZhCn) {
+        DONE_LABELS_ZH
+    } else {
+        DONE_LABELS
+    };
+    pool[idx % pool.len()]
+}
+
+/// Whether `s` is a thinking-pool word in EITHER locale. The stored
+/// `spinner_label` is set under whatever locale the turn started in; a
+/// mid-turn `/lang` switch must not make the stall detector forget the
+/// spinner is still a "waiting on the model" label.
+pub(crate) fn is_thinking_label(s: &str) -> bool {
+    THINKING_LABELS.contains(&s) || THINKING_LABELS_ZH.contains(&s)
+}
+
 /// Snapshot of the agent's context budget, cached from `AgentEvent::ContextStats`
 /// and surfaced by the `/context` command.
 ///
@@ -1790,8 +1869,8 @@ impl UiState {
     /// label showing — NOT a tool label (`Running …`/`Preparing …`), approval, or
     /// sub-agent label, so a slow local tool never trips the network warning.
     pub fn stream_stalled(&self) -> bool {
-        let awaiting_model = matches!(self.phase, UiPhase::Streaming)
-            && THINKING_LABELS.contains(&self.spinner_label.as_str());
+        let awaiting_model =
+            matches!(self.phase, UiPhase::Streaming) && is_thinking_label(&self.spinner_label);
         stream_stalled_for(
             awaiting_model,
             self.last_stream_activity.map(|t| t.elapsed()),
@@ -1810,23 +1889,23 @@ impl UiState {
     }
 
     pub(crate) fn current_thinking(&self) -> &'static str {
-        THINKING_LABELS[self.thinking_idx % THINKING_LABELS.len()]
+        thinking_label(self.thinking_idx)
     }
 
     /// The thinking word for the CURRENT turn — the one `on_thinking` re-displays.
     /// `on_submit` bumps `thinking_idx` AFTER showing the word, so the active word
     /// sits at `thinking_idx - 1` (mirrors the index `on_thinking` computes).
     fn active_thinking_word(&self) -> &'static str {
-        let idx = self.thinking_idx.saturating_sub(1) % THINKING_LABELS.len();
-        THINKING_LABELS[idx]
+        thinking_label(self.thinking_idx.saturating_sub(1))
     }
 
     /// The spinner word to DISPLAY. Tool-execution labels (`Running X`,
     /// `Preparing X`) are mapped back to the turn's thinking word so the footer
     /// spinner never flashes tool names — tool progress is shown by the body
-    /// `▸ Tool(detail)` rows instead. Every other label (`SubAgents N/M`,
-    /// `Waiting approval`, …) passes through unchanged. Display-only: the stored
-    /// `spinner_label` and all phase-clock timing logic are untouched.
+    /// `▸ Tool(detail)` rows instead. Every other label (the localized
+    /// sub-agent counter, the localized "waiting for approval" label, …)
+    /// passes through unchanged. Display-only: the stored `spinner_label`
+    /// and all phase-clock timing logic are untouched.
     pub(crate) fn display_spinner_label(&self) -> &str {
         if self.spinner_label.starts_with("Running ")
             || self.spinner_label.starts_with("Preparing ")
@@ -2074,8 +2153,7 @@ impl UiState {
         }
         // Reuse the current pool label (don't bump the index — that's done
         // on submit, one rotation per turn not per state transition).
-        let idx = self.thinking_idx.saturating_sub(1) % THINKING_LABELS.len();
-        self.spinner_label = THINKING_LABELS[idx].to_string();
+        self.spinner_label = thinking_label(self.thinking_idx.saturating_sub(1)).to_string();
         // New LLM round-trip → new phase clock. Without this reset the
         // displayed time keeps growing across consecutive thinks/tools
         // and ends up showing "Noodling… 1301s" mid-turn.
@@ -2103,7 +2181,11 @@ impl UiState {
         self.sub_agent_total = tasks.len();
         self.sub_agent_done = 0;
         self.sub_agent_failed = 0;
-        self.spinner_label = format!("SubAgents 0/{}", tasks.len());
+        self.spinner_label = crate::i18n::t(crate::i18n::Msg::SpinnerSubAgents {
+            done: 0,
+            total: tasks.len(),
+        })
+        .into_owned();
         self.phase_started_at = Some(std::time::Instant::now());
         self.sub_agent_started_at = Some(std::time::Instant::now());
         self.sub_agent_tasks = tasks;
@@ -2134,7 +2216,11 @@ impl UiState {
     }
 
     fn refresh_sub_agent_label(&mut self) {
-        self.spinner_label = format!("SubAgents {}/{}", self.sub_agent_done, self.sub_agent_total);
+        self.spinner_label = crate::i18n::t(crate::i18n::Msg::SpinnerSubAgents {
+            done: self.sub_agent_done,
+            total: self.sub_agent_total,
+        })
+        .into_owned();
     }
 
     /// End the dispatch — clears descriptors so subsequent thinks/tools
@@ -2166,7 +2252,7 @@ impl UiState {
         } else {
             self.prior_spinner_label = Some(format!("Running {}", display_tool));
         }
-        self.spinner_label = "Waiting approval".to_string();
+        self.spinner_label = crate::i18n::t(crate::i18n::Msg::SpinnerWaitingApproval).into_owned();
         // Reset the phase clock so the elapsed suffix tracks how long
         // we've been waiting on the user, not how long the prior phase
         // (often the just-emitted ToolCallStarted) had been running.
@@ -2233,9 +2319,9 @@ impl UiState {
 
     /// Pick (and advance) a playful "done" phrase for the turn separator.
     pub fn next_done_label(&mut self) -> &'static str {
-        // Reuse thinking_idx rotation so done/think move together.
-        let idx = self.thinking_idx.wrapping_sub(1) % DONE_LABELS.len();
-        DONE_LABELS[idx]
+        // Reuse thinking_idx rotation so done/think move together; the pool
+        // itself is locale-picked inside `done_label` (zh verbs under ZhCn).
+        done_label(self.thinking_idx.wrapping_sub(1))
     }
 
     /// Toggle real-time tool output and reasoning visibility.
@@ -2813,8 +2899,8 @@ mod tests {
         let mut s = UiState::new();
         s.on_submit();
         assert_eq!(s.phase, UiPhase::Streaming);
-        // Label is one of the rotating pool entries.
-        assert!(THINKING_LABELS.contains(&s.spinner_label.as_str()));
+        // Label is one of the rotating pool entries (locale-picked).
+        assert!(is_thinking_label(&s.spinner_label));
     }
 
     #[test]
@@ -2890,7 +2976,10 @@ mod tests {
         s.on_tool_call_started("Bash");
         assert_eq!(s.spinner_label, "Running Bash");
         s.on_approval_needed("Bash");
-        assert_eq!(s.spinner_label, "Waiting approval");
+        assert_eq!(
+            s.spinner_label,
+            crate::i18n::t(crate::i18n::Msg::SpinnerWaitingApproval)
+        );
     }
 
     #[test]
@@ -2901,6 +2990,46 @@ mod tests {
         s.on_approval_needed("Bash");
         s.on_approval_resolved();
         assert_eq!(s.spinner_label, "Running Bash");
+    }
+
+    #[test]
+    fn spinner_labels_follow_locale() {
+        // The product default is ZhCn: thinking/done words, the approval
+        // label and the sub-agent counter must all render Chinese -- the
+        // English pools only surface under an explicit En switch.
+        let _lock = crate::i18n::test_lock();
+
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
+        let mut zh = UiState::new();
+        zh.on_submit();
+        assert!(
+            THINKING_LABELS_ZH.contains(&zh.spinner_label.as_str()),
+            "zh thinking pool under ZhCn, got {}",
+            zh.spinner_label
+        );
+        assert!(DONE_LABELS_ZH.contains(&zh.next_done_label()));
+        zh.on_approval_needed("Bash");
+        assert_eq!(zh.spinner_label, "等待审批");
+        zh.on_sub_agent_dispatch_start(vec![
+            task_info("a.rs", ""),
+            task_info("b.rs", ""),
+            task_info("c.rs", ""),
+        ]);
+        assert_eq!(zh.spinner_label, "子代理 0/3");
+
+        crate::i18n::set_locale(crate::i18n::Locale::En);
+        let mut en = UiState::new();
+        en.on_submit();
+        assert!(
+            THINKING_LABELS.contains(&en.spinner_label.as_str()),
+            "English thinking pool under En, got {}",
+            en.spinner_label
+        );
+        assert!(DONE_LABELS.contains(&en.next_done_label()));
+        en.on_approval_needed("Bash");
+        assert_eq!(en.spinner_label, "Waiting approval");
+        en.on_sub_agent_dispatch_start(vec![task_info("a.rs", "")]);
+        assert_eq!(en.spinner_label, "SubAgents 0/1");
     }
 
     // Spinner suffix is `· {phase_elapsed}` — if we don't reset the clock
@@ -3068,7 +3197,10 @@ mod tests {
             .map(|i| task_info(&format!("a{}.rs", i), ""))
             .collect();
         s.on_sub_agent_dispatch_start(tasks);
-        assert_eq!(s.spinner_label, "SubAgents 0/6");
+        assert_eq!(
+            s.spinner_label,
+            crate::i18n::t(crate::i18n::Msg::SpinnerSubAgents { done: 0, total: 6 })
+        );
     }
 
     #[test]
@@ -3081,10 +3213,16 @@ mod tests {
         ];
         s.on_sub_agent_dispatch_start(tasks);
         s.on_sub_agent_task_done();
-        assert_eq!(s.spinner_label, "SubAgents 1/3");
+        assert_eq!(
+            s.spinner_label,
+            crate::i18n::t(crate::i18n::Msg::SpinnerSubAgents { done: 1, total: 3 })
+        );
         s.on_sub_agent_task_done();
         s.on_sub_agent_task_done();
-        assert_eq!(s.spinner_label, "SubAgents 3/3");
+        assert_eq!(
+            s.spinner_label,
+            crate::i18n::t(crate::i18n::Msg::SpinnerSubAgents { done: 3, total: 3 })
+        );
         assert_eq!(s.sub_agent_failed, 0);
     }
 
@@ -3127,7 +3265,9 @@ mod tests {
         assert!(s.sub_agent_tasks.is_empty());
         assert!(s.sub_agent_started_at.is_none());
         s.on_thinking();
-        assert!(!s.spinner_label.starts_with("SubAgents"));
+        // Back to a thinking-pool word (locale-picked), not the sub-agent
+        // counter in either language.
+        assert!(is_thinking_label(&s.spinner_label));
     }
 
     #[test]

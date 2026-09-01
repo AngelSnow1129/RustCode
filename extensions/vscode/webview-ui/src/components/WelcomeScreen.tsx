@@ -25,7 +25,9 @@ export function WelcomeScreen() {
   const [providerName, setProviderName] = useState('openai');
   const [providerType, setProviderType] = useState('openai');
   const [model, setModel] = useState('gpt-4o');
-  const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1');
+  // Start blank: the open build is vendor-neutral -- no provider endpoint is
+  // pre-filled. Managed builds also leave the field to the user/sync flow.
+  const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
 
   function handleAction(action: string) {
@@ -65,14 +67,20 @@ export function WelcomeScreen() {
     setProviderName('openai');
     setProviderType('openai');
     setModel('gpt-4o');
-    setBaseUrl('https://api.openai.com/v1');
+    setBaseUrl('');
     setApiKey('');
     setManualOpen(false);
   }
 
   const needsSetup = state.setupRequired || state.providers.length === 0;
-  const authUsable = state.auth?.logged_in === true && state.auth.expired !== true;
+  // Build capability from GET /auth/status; fail closed until confirmed.
+  // Open builds skip the account/sync steps entirely and show the
+  // bring-your-own-key provider form as the primary (and expanded) path.
+  const managed = state.auth?.managed_available === true;
+  const authUsable =
+    managed && state.auth?.logged_in === true && state.auth.expired !== true;
   const signedInName = state.auth?.user?.name || state.auth?.user?.username || t('setup.platformUser');
+  const manualFormExpanded = managed ? manualOpen : true;
 
   return (
     <div className="welcome-screen">
@@ -84,25 +92,27 @@ export function WelcomeScreen() {
 
         {needsSetup && (
           <section className="setup-card">
-            <div className="setup-step">
-              <div className="setup-copy">
-                <div className="setup-title">{t('setup.account')}</div>
-                <div className="setup-subtitle">
-                  {authUsable
-                    ? t('setup.signedInAs', { name: signedInName })
-                    : t('setup.signInHint')}
+            {managed && (
+              <div className="setup-step">
+                <div className="setup-copy">
+                  <div className="setup-title">{t('setup.account')}</div>
+                  <div className="setup-subtitle">
+                    {authUsable
+                      ? t('setup.signedInAs', { name: signedInName })
+                      : t('setup.signInHint')}
+                  </div>
+                </div>
+                <div className="setup-actions">
+                  {authUsable ? (
+                    <button type="button" className="setup-secondary" onClick={refreshSetupState}>{t('setup.refreshAccount')}</button>
+                  ) : (
+                    <button type="button" className="setup-primary" onClick={startLogin}>{t('setup.signInWithPlatform')}</button>
+                  )}
                 </div>
               </div>
-              <div className="setup-actions">
-                {authUsable ? (
-                  <button type="button" className="setup-secondary" onClick={refreshSetupState}>{t('setup.refreshAccount')}</button>
-                ) : (
-                  <button type="button" className="setup-primary" onClick={startLogin}>{t('setup.signInWithPlatform')}</button>
-                )}
-              </div>
-            </div>
+            )}
 
-            {state.loginUrl && (
+            {managed && state.loginUrl && (
               <div className="setup-url">
                 <span>{state.loginUrl}</span>
                 <button type="button" onClick={() => navigator.clipboard.writeText(state.loginUrl || '')}>{t('setup.copy')}</button>
@@ -116,7 +126,9 @@ export function WelcomeScreen() {
                 <div className="setup-subtitle">
                   {state.providers.length > 0
                     ? t('setup.providersConfigured', { count: state.providers.length })
-                    : t('setup.syncOrAddProvider')}
+                    : managed
+                      ? t('setup.syncOrAddProvider')
+                      : t('setup.addProviderHint')}
                 </div>
               </div>
               <div className="setup-actions">
@@ -126,11 +138,13 @@ export function WelcomeScreen() {
               </div>
             </div>
 
-            <button type="button" className="setup-secondary setup-wide" onClick={() => setManualOpen(!manualOpen)}>
-              {t('setup.addProviderManually')}
-            </button>
+            {managed && (
+              <button type="button" className="setup-secondary setup-wide" onClick={() => setManualOpen(!manualOpen)}>
+                {t('setup.addProviderManually')}
+              </button>
+            )}
 
-            {manualOpen && (
+            {manualFormExpanded && (
               <form className="provider-form" onSubmit={submitProvider}>
                 <input value={providerName} onChange={(e) => setProviderName(e.target.value)} placeholder={t('setup.providerName')} />
                 <input value={providerType} onChange={(e) => setProviderType(e.target.value)} placeholder={t('setup.providerType')} />

@@ -6311,9 +6311,15 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         println!("  POST   /auth/login/:login_id/poll      - Poll login session");
         println!("  DELETE /auth/login/:login_id           - Cancel login session");
         println!("  POST   /auth/logout                    - Logout");
-        println!("  POST   /codingplan/setup               - Run CodingPlan setup");
-        println!("  GET    /codingplan/usage/summary       - CodingPlan quota summary");
-        println!("  GET    /codingplan/usage/daily         - CodingPlan daily usage");
+        // `/codingplan/*` 路由仅在 `codingplan` feature 下挂载（见
+        // `codingplan_routes()`）；默认构建里这些路径返回 404，横幅不得
+        // 宣传不存在的端点。
+        #[cfg(feature = "codingplan")]
+        {
+            println!("  POST   /codingplan/setup               - Run CodingPlan setup");
+            println!("  GET    /codingplan/usage/summary       - CodingPlan quota summary");
+            println!("  GET    /codingplan/usage/daily         - CodingPlan daily usage");
+        }
         println!("\nChange directory body:");
         println!("  {{\"path\": \"/path/to/project\"}}  or {{\"path\": \"-\"}} to go back");
         println!("\nChat request body:");

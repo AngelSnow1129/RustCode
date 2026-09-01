@@ -31,9 +31,6 @@
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange" alt="rust">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
-    <a href="https://gitcode.com/SecLab/RustCode" target="_blank">
-    <img src="https://gitcode.com/SecLab/RustCode/star/badge.svg" alt="GitCode Star"/>
-  </a>
 </p>
 
 ---
@@ -46,7 +43,7 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 你可以把它理解为 Claude Code / Cursor Agent 的开源替代品，完全运行在终端里，并且可以接入任何兼容 OpenAI 接口的模型。
 
-> **Fork 声明。** 本仓库（`SecLab/RustCode`）是 `atomgit_atomcode/atomcode` 的二次开发 fork。相对上游：(1) 将产品重命名为 `rustcode`（crate、二进制、配置目录 `~/.rustcode`、`RUSTCODE_*` 环境变量）；(2) **完整移除**遥测/分析上报——`rustcode-telemetry` crate 及所有上报调用点均已删除；(3) **完全解除平台绑定**——不硬编码任何签名网关 host，默认不注册平台专属 REST 工具，`/login` 可选：直接在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key` 即可开始使用；(4) **默认简体中文**——TUI/CLI 界面与 Agent 回复均默认中文（可通过 `--lang en`、配置项 `language` 或 `LANG`/`LC_ALL` 切换为英文）。原始 MIT 许可证与版权（© 2026 Yubang Xu）保留于 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)，完整归属见 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)。
+> **Fork 声明。** 本仓库是 `atomgit_atomcode/atomcode` 的二次开发 fork。相对上游：(1) 将产品重命名为 `rustcode`（crate、二进制、配置目录 `~/.rustcode`、`RUSTCODE_*` 环境变量）；(2) **完整移除**遥测/分析上报——`rustcode-telemetry` crate 及所有上报调用点均已删除；(3) **完全解除平台绑定**——不硬编码任何签名网关 host，默认不注册平台专属 REST 工具，`/login` 可选：直接在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key` 即可开始使用；(4) **默认简体中文**——TUI/CLI 界面与 Agent 回复均默认中文（可通过 `--lang en`、配置项 `language` 或 `LANG`/`LC_ALL` 切换为英文）。原始 MIT 许可证与版权（© 2026 Yubang Xu）保留于 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)，完整归属见 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)。
 
 ## 功能特性
 
@@ -94,7 +91,7 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 | Claude（Anthropic）  |       支持       | Claude Sonnet 4.5/4.6、Opus 4.6                    |
 | OpenAI               |       支持       | GPT-4o、GPT-4.1                                    |
 | DeepSeek             |       支持       | DeepSeek V3、DeepSeek R1、DeepSeek V4              |
-| 智谱（GLM）          |       支持       | GLM-4、GLM-5、GLM-5.2（RustCode Pro 套餐专属模型） |
+| 智谱（GLM）          |       支持       | GLM-4、GLM-5、GLM-5.2                              |
 | 通义千问（阿里）     |       支持       | Qwen-Plus、Qwen-Max                                |
 | SiliconFlow          |       支持       | 多种开源模型                                       |
 | Ollama（本地）       |     部分支持     | Llama 3、Qwen2 等                                  |
@@ -103,8 +100,9 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 ### 会话与登录
 
 - **持久化会话** —— 每次对话都会保存；命令行可用 `rustcode --continue` 或 `-c` 继续上一次会话，在 TUI 内可用 `/resume` 恢复或切换
-- **OAuth 登录** —— `/login`（或 `rustcode login`）将 CLI 与你的平台账号绑定
-- **SSO 登录** —— `/login-with-sso`，SSO 用户使用
+- **第三方供应商（BYO）** —— 在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key`（或用 `/provider`），无需注册账号。这是开源默认构建的使用方式
+- **OAuth 登录** —— `/login`（或 `rustcode login`）将 CLI 与托管账号绑定；**仅发行版本**（开源默认构建不提供托管服务）
+- **SSO 登录** —— `/login-with-sso`，供支持 SSO 的托管部署使用（仅发行版本）
 - **Headless 模式** —— `rustcode -p "..."` 非交互式跑一条 prompt，结果直接输出到 stdout（类似 Claude Code 的 `-p`）；需要确认的 `bash` 会自动批准，其他需要确认的工具会被拒绝
 - **Daemon 模式** —— `rustcode-daemon` 提供 HTTP API，用于查询会话历史和 SSE 流式对话
 
@@ -154,30 +152,41 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 ## 安装
 
-### 官方安装脚本（推荐）
+### 安装脚本（推荐）
+
+安装脚本不内置任何发布站点 host：请从你的分发渠道（即你获取 RustCode 的渠道，
+例如其发布资产页面）获取 `install.ps1`（Windows PowerShell）或 `install.sh`
+（Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC），然后按以下方式运行。
 
 Windows PowerShell 用户：
 
 ```powershell
-irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.ps1 | iex
+# 从分发渠道的发布资产获取 install.ps1，然后让它指向该渠道的发布下载目录：
+$env:RUSTCODE_RELEASE_BASE = "https://example.com/your-host/releases/download"
+./install.ps1
 ```
 
 Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC 用户：
 
 ```bash
-curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.sh | sh
+# 从分发渠道获取 install.sh，然后让它指向该渠道的发布下载目录：
+RUSTCODE_RELEASE_BASE=https://example.com/your-host/releases/download sh install.sh
 ```
 
-两个脚本都会下载最新版本的官方预编译二进制（从发布 API 自动探测），安装并写入 `PATH`。
-官方构建包含请求签名器，因此 `/login` 可以领取免费的 CodingPlan 模型（见下文「关于官方 CodingPlan」）。
+脚本会下载最新版本的预编译二进制（当渠道提供发布 API 时自动探测最新版本），
+安装并写入 `PATH`。由分发渠道提供、包含可选托管签名组件的构建，可通过 `/login`
+使用该渠道的托管 CodingPlan 端点（见下文「关于可选的 CodingPlan 网关」）；
+自带密钥（BYO）的第三方 provider 无需签名器即可使用。
 
-环境变量覆盖项：`RUSTCODE_VERSION` 用于固定某个发布版本，`RUSTCODE_PREFIX` 用于指定安装目录
-（详见脚本头部注释）。
+环境变量覆盖项：`RUSTCODE_RELEASE_BASE` 指定托管发布二进制的下载根目录
+（shell 安装器必填），`RUSTCODE_VERSION` 用于固定某个发布版本，`RUSTCODE_PREFIX`
+用于指定安装目录（详见脚本头部注释）。
 
 ### 从源码构建
 
 ```bash
-git clone https://gitcode.com/SecLab/RustCode.git
+# 从你的分发渠道克隆，例如：
+git clone https://example.com/<your-org>/rustcode.git
 cd rustcode
 ```
 
@@ -219,16 +228,18 @@ cargo build --release -p rustcode
 
 编译产物会在 `target/release/rustcode` 生成。
 
-### 关于官方 CodingPlan（闭源签名）
+### 关于可选的 CodingPlan 网关（闭源签名）
 
 本仓库中的 `crates/rustcode-codingplan-crypto/` 是一个开源占位实现。真正的请求签名实现是闭源的，
-只由官方发布流水线覆盖注入，因此自行构建的二进制无法对 RustCode 官方服务进行请求签名。
-通过上方官方安装脚本（或下方包管理器）安装的二进制是官方构建，包含签名器。实际影响：
+只由选择接入托管 CodingPlan 网关的分发渠道发布流水线覆盖注入，因此自行构建的二进制无法对
+这类托管端点进行请求签名。从附带签名器的分发渠道获取的二进制（例如通过上方安装脚本或下方
+包管理器安装的渠道构建）包含签名器。实际影响：
 
-- 自行构建的二进制中，`/login` 无法领取官方**免费 CodingPlan 模型**。签名保持闭源是为了防止
-  免费计划在官方构建之外被滥用。
-- 连接**你自己的 API 提供商**不受影响：在 `~/.rustcode/config.toml` 的 `providers.*` 下配置的
-  任意提供商（DeepSeek、OpenAI 或任意 OpenAI 兼容端点）无需签名器即可使用。
+- 自行构建的二进制中，`/login` 无法领取托管网关的**免费 CodingPlan 模型**。签名保持闭源是为了
+  防止免费计划在该渠道构建之外被滥用。
+- 连接**你自己的第三方 API 提供商**（自带密钥 / BYO，也是默认方式）不受影响：在
+  `~/.rustcode/config.toml` 的 `providers.*` 下配置的任意提供商（DeepSeek、OpenAI 或任意
+  OpenAI 兼容端点）无需签名器即可使用。
 
 ### 包管理器安装
 
@@ -267,7 +278,7 @@ Invoke-Expression`。完整 Shell 列表见 `rustcode completion --help`。该�
 ### 依赖
 
 - Rust 1.88+（用于构建；更旧的 Cargo 无法解析当前 lock 文件）
-- 任一支持的模型提供方的 API Key（或使用 `/login` 的平台账号；免费 CodingPlan 模型需要官方构建——见上文「关于官方 CodingPlan」）
+- 任一支持的模型提供方的 API Key（自带密钥 / BYO；或使用 `/login` 接入托管网关——免费 CodingPlan 模型需要附带签名器的渠道构建，见上文「关于可选的 CodingPlan 网关」）
 
 ### 权限 —— 不要用 `sudo` 启动
 
@@ -302,12 +313,13 @@ rustcode uninstall --purge        # 一并删除 ~/.rustcode/
 rustcode uninstall --dry-run      # 仅打印计划，不实际删除
 ```
 
-二进制已损坏或丢失时使用兜底脚本：
+二进制已损坏或丢失时，可从你的分发渠道获取 `uninstall.sh`（Windows 为
+`uninstall.ps1`）后运行。卸载脚本只删除本地安装，不需要下载根目录：
 
 ```bash
-curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/uninstall.sh | sh
-# Windows:
-irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/uninstall.ps1 | iex
+sh uninstall.sh
+# Windows PowerShell：运行从渠道获取的 uninstall.ps1
+./uninstall.ps1
 ```
 
 默认保留凭据（`auth.toml`、`mcp.json`、`config.toml`、`RUSTCODE.md`），传 `--purge` 才会一起清除。
@@ -478,10 +490,10 @@ rustcode --prompt-file task.md
 | `/model`    | 切换模型 / provider                               |
 | `/provider` | 管理 provider（添加 / 编辑 / 删除）               |
 | `/proxy`    | 切换出站代理模式                                  |
-| `/login`    | 通过 OAuth 登录并申领 CodingPlan 免费模型 |
-| `/logout`   | 退出登录                                 |
-| `/whoami`   | 查看当前登录用户                                  |
-| `/status`   | 查看登录状态和模型信息                            |
+| `/login`    | 通过 OAuth 登录托管服务（仅发行版本；开源默认构建请用 `/provider` 自带 Key） |
+| `/logout`   | 退出托管账号（仅发行版本）                 |
+| `/whoami`   | 查看当前托管账号用户（仅发行版本）          |
+| `/status`   | 查看供应商状态与模型信息（发行版本还会显示托管账号登录段） |
 
 **文件、编辑与上下文**
 
@@ -528,13 +540,13 @@ rustcode --prompt-file task.md
 | `/help` | 查看命令与快捷键 |
 | `/quit`、`/exit` | 退出 RustCode（或连按 Ctrl+C） |
 
-> **平台 Issue**：`/issue` 已移除。执行 `/login` 后，直接用自然语言提出需求即可，例如“为这个 Bug 创建一个 平台 Issue”，RustCode 会调用内置的 `platform_issue` 工具。读取 Issue 可直接执行；创建 Issue，以及新增、编辑或删除评论仍需权限确认。
+> **平台 Issue**：`/issue` 已移除。在附带托管平台支持的发行版中，执行 `/login` 后直接用自然语言提出需求即可，例如“为这个 Bug 在平台上创建一个 Issue”，RustCode 会选择内置的 `platform_issue` 工具。读取 Issue 可直接执行；创建 Issue，以及新增、编辑或删除评论仍需权限确认。
 >
-> **插件命令**：除了上面的内置命令，插件还能注册自己的斜杠命令。例如安装官方频道插件后即可使用 `/wechat`（显示 RustCode 微信用户群二维码）：
+> **插件命令**：除了上面的内置命令，插件还能注册自己的斜杠命令。先添加你的分发渠道提供的插件市场（通过配置/环境变量设置市场 URL，或从分发渠道的插件索引安装），再从中安装插件。例如渠道社区插件可能提供 `/wechat` 命令（显示社区群二维码）：
 >
 > ```text
-> /plugin marketplace add https://gitcode.com/SecLab/RustCode-Channel
-> /plugin install weixin@rustcode-channel
+> /plugin marketplace add https://example.com/<your-org>/rustcode-plugins
+> /plugin install <plugin>@<channel>
 > ```
 
 ### 自定义命令
@@ -660,7 +672,8 @@ RustCode 会自动读取这个文件并注入到系统提示中。RustCode 也�
 ### 从源码构建
 
 ```bash
-git clone https://gitcode.com/SecLab/RustCode.git
+# 从你的分发渠道克隆，例如：
+git clone https://example.com/<your-org>/rustcode.git
 cd rustcode
 
 # Debug 构建（编译快、运行慢）
@@ -724,9 +737,9 @@ cargo install --path crates/rustcode-cli
 ### 如何贡献
 
 1. **Fork** 仓库
-2. 克隆你的 fork：
+2. 克隆你的 fork（使用你分发渠道的 host）：
    ```bash
-   git clone https://gitcode.com/<你的用户名>/rustcode.git
+   git clone https://example.com/<你的用户名>/rustcode.git
    cd rustcode
    ```
 3. 创建分支：
@@ -770,16 +783,16 @@ cargo install --path crates/rustcode-cli
 - **新增工具** —— 在 `crates/rustcode-capabilities/src/tools/` 下实现 `Tool` trait
 - **新增模型提供方** —— 在 `crates/rustcode-capabilities/src/provider/` 下实现 `LlmProvider`
 - **改进 UI** —— 渲染相关代码在 `crates/rustcode-tuix/src/render/`
-- **修 Bug** —— 到 [Issues](https://gitcode.com/SecLab/RustCode/issues) 上挑一个
+- **修 Bug** —— 到你的分发渠道的 issue 跟踪器上挑一个
 
 ### 非 Rust 贡献者
 
 不会 Rust？没关系！有很多方式可以不写 Rust 代码就能参与贡献：
 
-- **[*] 文档** — 改进 README、修正错别字、完善[官方文档站](https://docs.rustcode.dev/zh/)、添加使用示例。文档位于 `site/` 目录和 README 文件中。
+- **[*] 文档** — 改进 README、修正错别字、完善[文档站](site/docs/zh/index.html)、添加使用示例。文档位于 `site/` 目录和 README 文件中。
 - **[*] 本地化与翻译** — 帮助将文档站、README 或界面文案翻译成更多语言。查看 `site/docs/` 了解现有翻译。
-- **[*] Skills 与插件** — 创建新的 [skill](https://gitcode.com/SecLab/RustCode-skills)（Markdown + JSON，无需 Rust），扩展 RustCode 的能力。Skill 从 `~/.rustcode/skills/` 加载。
-- **[*] Bug 报告** — 发现 Bug？在 [Issues](https://gitcode.com/SecLab/RustCode/issues) 中提交清晰的复现步骤、截图和环境信息。高质量的 Bug 报告非常宝贵。
+- **[*] Skills 与插件** — 创建新的 skill（Markdown + JSON，无需 Rust），扩展 RustCode 的能力，或为分发渠道的插件索引打包插件。Skill 从 `~/.rustcode/skills/` 加载。
+- **[*] Bug 报告** — 发现 Bug？在你的分发渠道的 issue 跟踪器中提交清晰的复现步骤、截图和环境信息。高质量的 Bug 报告非常宝贵。
 - **[*] 测试用例与示例** — 添加测试场景、示例项目或使用演示，帮助验证功能并帮助新用户上手。
 - **[*] 社区支持** — 在社区群中回答问题、编写教程或制作视频指南。
 
@@ -789,10 +802,11 @@ cargo install --path crates/rustcode-cli
 
 ---
 
-用微信扫描下方二维码加入 RustCode 用户群，反馈问题、分享使用心得，和其他用户、维护者一起交流：
+扫描你的分发渠道提供的社区二维码（例如微信群二维码）加入 RustCode 用户群，反馈问题、
+分享使用心得，和其他用户、维护者一起交流。二维码图片资源由你的渠道发布：
 
 <p align="center">
-  <img src="https://cdn-news.gitcode.com/news/RustCode_qun.png" alt="RustCode 微信用户群二维码" width="220">
+  <em>[ 社区二维码图片 —— 该资源由你的分发渠道发布 ]</em>
 </p>
 
 ## 打赏
@@ -802,8 +816,7 @@ cargo install --path crates/rustcode-cli
 RustCode 是免费的开源软件，可搭配任意你自带密钥的第三方服务商使用。如果它帮你省下了一点时间，欢迎请维护者喝杯咖啡，让我们更有动力把它做下去。
 
 <p align="center">
-  <img src="https://cdn-news.gitcode.com/news/alipay_1782981974317.png" alt="RustCode 支付宝赞赏码" width="220">
-  <img src="https://cdn-news.gitcode.com/news/wechatpay_1782982603403.png" alt="RustCode 微信赞赏码" width="240">
+  <em>[ 赞赏码图片（支付宝 / 微信支付）—— 由你的分发渠道提供 ]</em>
 </p>
 
 ## 许可证

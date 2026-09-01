@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Documentation · RustCode</title>
 <meta name="description" content="RustCode documentation — an open-source AI coding agent that lives in your terminal.">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -91,7 +91,7 @@
       <h2 id="three-steps-to-start">Three steps to start</h2>
       <ol>
         <li><strong>Install</strong> — one curl command or build from source. See <a href="./getting-started.html">Quickstart</a>.</li>
-        <li><strong>Log in or configure a model</strong> — OAuth is the easiest path; any OpenAI-compatible API key also works. See <a href="./login.html">Login Methods</a> and <a href="./configuration.html">Configuration</a>.</li>
+        <li><strong>Configure a model</strong> — bring your own API key for any third-party provider (Claude, OpenAI, DeepSeek, GLM, Qwen, Ollama, or any OpenAI-compatible endpoint) via <code>/provider</code> or <code>~/.rustcode/config.toml</code>. That is the default and needs no account or signup; distribution builds may additionally offer one-click OAuth via <code>/login</code>. See <a href="./login.html">Login Methods</a> and <a href="./configuration.html">Configuration</a>.</li>
         <li><strong>Ask away</strong> — run <code>rustcode</code> inside any project directory and describe your task in natural language.</li>
       </ol>
 
@@ -112,7 +112,7 @@
         </a>
         <a class="doc-card" href="./login.html">
           <h3 id="login-methods">Login Methods</h3>
-          <p>OAuth one-click login (auto-persisted) versus API key setup, side by side.</p>
+          <p>Bring-your-own API key (the default) versus optional one-click OAuth in distribution builds, side by side.</p>
         </a>
         <a class="doc-card" href="./basic-usage.html">
           <h3 id="basic-usage">Basic Usage</h3>
@@ -157,16 +157,16 @@
       </div>
 
       <h2 id="feedback-contributing">Feedback &amp; contributing</h2>
-      <p>RustCode is open source — issues and pull requests welcome:</p>
+      <p>RustCode is open source — source code, issue trackers, and pull requests are provided by your distribution channel:</p>
       <ul>
-        <li>Repository: <a href="https://gitcode.com/SecLab/RustCode" target="_blank">https://gitcode.com/SecLab/RustCode</a></li>
-        <li>Issues: after <code>/login</code>, ask RustCode to create one with its built-in 平台 tool, or open the repository's <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank">Issues page</a></li>
+        <li>Source: get the repository from your distribution channel, e.g. <code>https://example.com/&lt;your-org&gt;/rustcode</code></li>
+        <li>Issues: use the issue tracker of the distribution you installed RustCode from.</li>
         <li>License: MIT</li>
       </ul>
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

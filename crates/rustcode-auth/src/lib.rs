@@ -63,7 +63,7 @@ pub fn write_auth_file_secure(path: &Path, content: &str) -> Result<()> {
     {
         let parent = path
             .parent()
-            .context("Invalid auth file path -- please use /login again")?;
+            .context("Invalid auth file path -- please sign in again")?;
         let mut temp = tempfile::NamedTempFile::new_in(parent).with_context(|| {
             format!("Failed to create temp auth file beside {}", path.display())
         })?;

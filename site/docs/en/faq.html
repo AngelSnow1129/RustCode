@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>FAQ · RustCode Docs</title>
 <meta name="description" content="RustCode FAQ — common questions about install, login, models, permissions, and more.">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -76,14 +76,14 @@
 
   <main class="dmain prose-docs">
 <h1 id="faq">FAQ</h1>
-      <p class="lede">A roundup of questions that keep coming up in user channels and issues. If yours isn't here, ask RustCode to create an Issue with its built-in 平台 tool (after <code>/login</code>), or open it on the <a href="https://gitcode.com/SecLab/RustCode" target="_blank">平台 repository</a>.</p>
+      <p class="lede">A roundup of questions that keep coming up. If yours isn't here, check the documentation shipped with your distribution or report it through your distribution channel's issue tracker.</p>
 
       <h2 id="install-launch">Install &amp; launch</h2>
 
       <h3 id="the-install-script-fails-or-times-out">The install script fails or times out</h3>
-      <p>The one-click installer pulls the binary from the release repository by default. If the network blocks it:</p>
+      <p>The installer pulls the binary from the release host you point it at via <code>RUSTCODE_RELEASE_BASE</code>. If the network blocks it:</p>
       <ul>
-        <li>Download the archive for your platform manually from the <a href="https://gitcode.com/SecLab/RustCode/releases" target="_blank">releases page</a> and drop <code>rustcode</code> onto your <code>PATH</code>;</li>
+        <li>Download the archive for your platform manually from your distribution channel's releases page and drop <code>rustcode</code> onto your <code>PATH</code>;</li>
         <li>or build from source: <code>cargo install --path crates/rustcode-cli --locked</code> (requires Rust 1.88+).</li>
       </ul>
 
@@ -98,14 +98,14 @@
       <h2 id="login-models">Login &amp; models</h2>
 
       <h3 id="the-browser-doesnt-open-during-oauth-login">The browser doesn't open during OAuth login</h3>
-      <p>Check whether you're on a remote server without a desktop session. For remote environments, prefer API-key login (see <a href="./login.html">Login Methods</a>), or finish OAuth locally and copy <code>~/.rustcode/auth.toml</code> to the same path on the server.</p>
+      <p><strong>Distribution builds only.</strong> The open-source build has no OAuth login — bring your own API key instead (see <a href="./login.html">Login Methods</a>). If your distribution ships <code>/login</code> and the browser doesn't open, check whether you're on a remote server without a desktop session: finish OAuth locally and copy <code>~/.rustcode/auth.toml</code> to the same path on the server, or just use an API key there.</p>
 
       <h3 id="cant-reach-the-model-hangs-forever-timeouts">Can't reach the model / hangs forever / timeouts</h3>
       <ul>
         <li>First check that <code>base_url</code> in <code>~/.rustcode/config.toml</code> is reachable — <code>curl</code> the matching <code>/v1/models</code> endpoint;</li>
         <li>On corporate networks it's usually a proxy issue — set <code>HTTPS_PROXY</code> and retry;</li>
         <li>On Windows, v5.0.7 uses the system SChannel certificate store by default, including enterprise roots. If it still fails, check the system certificate, proxy, and overrides such as <code>SSL_CERT_FILE</code> separately;</li>
-        <li>If you're in mainland China hitting an overseas model, verify your egress network. You can run <code>/model</code> to switch to 平台's official channel first to prove the whole pipeline works.</li>
+        <li>If you're in mainland China hitting an overseas model, verify your egress network. You can run <code>/model</code> to switch to a provider you can reach — or the managed endpoint your distribution provides — first to prove the whole pipeline works.</li>
       </ul>
 
       <h3 id="how-do-i-switch-models">How do I switch models?</h3>
@@ -182,7 +182,7 @@
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

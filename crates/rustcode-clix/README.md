@@ -48,8 +48,9 @@ context_window = 128000
 `[providers.x]` 若写的是**字面 api_key**,则零环境变量即可用;若是 `$VAR` 引用,则需对应环境变量已
 设置。`--config <path>` 可覆盖配置文件路径。
 
-> **AtomGit / gitcode 签名网关**(`llm-api.atomgit.com`、`api-ai.gitcode.com` 等)需要 RustCode
-> 的闭源请求签名,`rustcodex` **无法对接** —— 会提前给出可操作的报错。请换用普通 key 的 provider。
+> **托管签名网关**(某些分发渠道提供的托管 CodingPlan 网关,需要 RustCode 的闭源请求签名)
+> `rustcodex` **无法对接** —— 会提前给出可操作的报错。这是可选的分发能力,默认请使用
+> 自带密钥(BYO)的普通第三方 provider。
 
 ---
 
@@ -85,18 +86,18 @@ gh pr checkout 123            # 工作区现在是 PR 的 head
 rustcodex review --base main  # diff = main...HEAD;agent 结合 PR 代码上下文评审
 ```
 
-**gitcode**(MR ref 为 `refs/merge-requests/<N>/head`,对应 gitcode "克隆/下载 → 拉取 PR 分支代码"):
+**其他 GitLab 风格 forge**(MR ref 为 `refs/merge-requests/<N>/head`,对应该 forge 的"克隆/下载 → 拉取 MR 分支代码";把下例中的 example.com 换成你的 forge host):
 ```bash
 # 步骤一:更新远程
 git fetch origin
-# 步骤二:拉取 PR 分支代码(SSH;HTTPS 把 URL 换成 https 形式即可)
-git fetch git@gitcode.com:<owner>/<repo>.git +refs/merge-requests/<N>/head:pr_<N>
-# 步骤三:切换到 PR 源分支
+# 步骤二:拉取 MR 分支代码(SSH;HTTPS 把 URL 换成 https 形式即可)
+git fetch git@example.com:<owner>/<repo>.git +refs/merge-requests/<N>/head:pr_<N>
+# 步骤三:切换到 MR 源分支
 git checkout pr_<N>
-# 然后评审(此时工作区即 PR 代码)
+# 然后评审(此时工作区即 MR 代码)
 rustcodex review --base main
 ```
-例如评审 246 号 PR:`git fetch git@gitcode.com:SecLab/RustCode.git +refs/merge-requests/246/head:pr_246 && git checkout pr_246 && rustcodex review --base main`。
+例如评审 246 号 MR:`git fetch git@example.com:<owner>/<repo>.git +refs/merge-requests/246/head:pr_246 && git checkout pr_246 && rustcodex review --base main`。
 
 > 仅用 `--pr 123`(或 `--diff-file -`)只取**diff**,**不会改动工作区** —— 磁盘上的代码可能与 diff
 > 不一致。要做结合上下文的评审,务必先 checkout 对应分支。
@@ -194,13 +195,13 @@ rustcodex review --no-rules
   在 `--json` 时保持纯净。)
 
 ```
-Reviewing 120 changed line(s) with deepseek-chat …
-  → read_file src/auth.rs
-    ✓ read_file (4096 chars)
-  → grep verify_token
-    ✓ grep (812 chars)
-  → report_finding [P0] fix: token expiry not checked
-    ✓ report_finding (140 chars)
+Reviewing 120 changed line(s) with deepseek-chat ...
+  -> read_file src/auth.rs
+    [+] read_file (4096 chars)
+  -> grep verify_token
+    [+] grep (812 chars)
+  -> report_finding [P0] fix: token expiry not checked
+    [+] report_finding (140 chars)
 — trace — 12 tool call(s): read_file×6, grep×3, find_references×2, report_finding×1
 — tokens — prompt 21044 / completion 180 / cached 18432
 ```

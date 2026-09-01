@@ -130,10 +130,10 @@ pub struct CodingAgentConfig {
     ///
     /// [`StubCompaction`]: rustcode_capabilities::compaction::StubCompaction
     pub compact_threshold: f32,
-    /// `web_search` backend: `"exa"` (default, globally reachable, keyless) or
-    /// `"duckduckgo"`/`"ddg"` (legacy HTML scraping, blocked in some regions). `None`/empty
-    /// /unknown ⇒ Exa. Mirrors v1's `[web_search] provider` config knob -- without this the
-    /// tool was hardwired to Exa with no way to opt into DDG.
+    /// `web_search` backend: `"duckduckgo"`/`"ddg"` (default -- keyless, no account, a
+    /// generic search engine, blocked in some regions) or `"exa"` (opt-in AI-search
+    /// vendor). `None`/empty/unknown ⇒ DuckDuckGo. Mirrors the `[web_search] provider`
+    /// config knob.
     pub web_search_provider: Option<String>,
     /// Opt-in read-only LSP policy. The manager is created by this runtime's tool
     /// assembly, so provider/session reloads cannot create a second hidden owner.

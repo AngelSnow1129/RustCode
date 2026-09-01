@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://gitcode.com/SecLab/RustCode.git",
+    "url": "https://example.com/rustcode/rustcode.git",
     "directory": "extensions/vscode"
   },
   "engines": {

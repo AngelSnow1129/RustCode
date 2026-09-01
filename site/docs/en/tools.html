@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Built-in Tools · RustCode Docs</title>
-<meta name="description" content="RustCode built-in tools — filesystem, shell, code graph, web, automation, and native 平台 operations.">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<meta name="description" content="RustCode built-in tools — filesystem, shell, code graph, web, automation, and optional managed-platform operations.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -76,7 +76,7 @@
 
   <main class="dmain prose-docs">
 <h1 id="built-in-tools">Built-in Tools</h1>
-      <p class="lede">RustCode ships built-in tools for filesystem &amp; shell, code graph, web, automation, and native 平台 operations. The model picks tools per task — you almost never need to specify them by hand.</p>
+      <p class="lede">RustCode ships built-in tools for filesystem &amp; shell, code graph, web, automation, and optional managed-platform operations. The model picks tools per task — you almost never need to specify them by hand.</p>
 
       <h2 id="filesystem-shell-9">Filesystem &amp; shell (9)</h2>
       <table>
@@ -160,8 +160,8 @@
       </table>
       <p>See <a href="./skills.html">Skills</a> for details.</p>
 
-      <h2 id="platform">平台 integration (3)</h2>
-      <p>After <code>/login</code>, the model can operate 平台 directly through these built-in tools. Describe the outcome in natural language; there is no <code>/issue</code> slash command.</p>
+      <h2 id="platform">Managed-platform integration (3, optional)</h2>
+      <p>Distributions that ship managed-platform support expose these built-in tools after <code>/login</code>; the model can operate the platform directly. Describe the outcome in natural language; there is no <code>/issue</code> slash command. In the default open (BYO) build these tools are absent.</p>
       <table>
         <thead>
           <tr><th>Tool</th><th>Purpose</th><th>Confirmation?</th></tr>
@@ -172,7 +172,7 @@
           <tr><td><code>platform_issue</code></td><td>List or inspect Issues; create an Issue and view, add, edit, or delete comments</td><td>Writes: yes</td></tr>
         </tbody>
       </table>
-      <pre><code>Ask: Create an 平台 issue for this bug, including the reproduction steps and environment.</code></pre>
+      <pre><code>Ask: Create an issue for this bug on our platform, including the reproduction steps and environment.</code></pre>
 
       <h2 id="large-tool-outputs">Large tool outputs</h2>
       <p>When a tool result is too large, RustCode shows a stable preview and stores the full content with the current session. The model can page through the remainder with <code>fetch_output</code>, so “output truncated” does not mean the result was lost. Stored output is removed when its session is deleted.</p>
@@ -190,7 +190,7 @@
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -6,10 +8,13 @@ import ssl
 import sys
 from urllib import error, parse, request
 
-REPO_OWNER = "bangxu"
-REPO_NAME = "rustcode"
-ACCESS_TOKEN = ""
-API_HOST = "https://api.gitcode.com"
+# Release-target configuration. This build ships no compiled-in release host or
+# namespace: the operator/distributor supplies them via env or CLI flags.
+# The API dialect is GitLab-v5-compatible (releases + upload_url endpoints).
+REPO_OWNER = os.environ.get("RUSTCODE_RELEASE_OWNER", "")
+REPO_NAME = os.environ.get("RUSTCODE_RELEASE_REPO", "rustcode")
+ACCESS_TOKEN = os.environ.get("RUSTCODE_RELEASE_ACCESS_TOKEN", "")
+API_HOST = os.environ.get("RUSTCODE_RELEASE_API_HOST", "")
 BODY_TEMPLATE = """
 Release  Note
 
@@ -35,22 +40,34 @@ chmod +x rustcode
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Create a GitCode release, then fetch the attachment upload URL."
+        description=(
+            "Create a release through a GitLab-v5-compatible release API, "
+            "then fetch the attachment upload URL."
+        )
+    )
+    parser.add_argument(
+        "--api-host",
+        default=API_HOST,
+        help=(
+            "Release API host, e.g. https://gitlab.example.com (a trailing "
+            "/api/v5 is also accepted and normalized); "
+            "env RUSTCODE_RELEASE_API_HOST; required"
+        ),
     )
     parser.add_argument(
         "--owner",
         default=REPO_OWNER,
-        help="Repository owner or namespace, optional",
+        help="Repository owner or namespace (env RUSTCODE_RELEASE_OWNER); required",
     )
     parser.add_argument(
         "--repo",
         default=REPO_NAME,
-        help="Repository name, optional",
+        help="Repository name (env RUSTCODE_RELEASE_REPO); default: rustcode",
     )
     parser.add_argument(
         "--access-token",
         default=ACCESS_TOKEN,
-        help="GitCode access token, optional",
+        help="Release API access token (env RUSTCODE_RELEASE_ACCESS_TOKEN); required",
     )
     parser.add_argument("--tag-name", required=True, help="Tag name to create")
     parser.add_argument("--body", default="", help="Release description, optional")
@@ -93,9 +110,13 @@ def send_request(url: str, method: str = "GET", payload: dict | None = None) -> 
 
 
 def create_tag_release(args: argparse.Namespace) -> dict:
-    base_url = f"{API_HOST}/api/v5/repos/{args.owner}/{args.repo}/releases"
+    # Accept either a bare host (https://gitlab.example.com) or the v5 base
+    # (https://gitlab.example.com/api/v5); normalize to bare so /api/v5 below is
+    # not doubled. Keeps this tool consistent with the shell packagers.
+    host = args.api_host.rstrip("/").removesuffix("/api/v5")
+    base_url = f"{host}/api/v5/repos/{args.owner}/{args.repo}/releases"
     url = f"{base_url}?access_token={parse.quote(args.access_token)}"
-    body = args.body or BODY_TEMPLATE.replace("rustcode-v2.3.x", args.tag_name)
+    body = args.body or BODY_TEMPLATE
 
     payload = {
         "tag_name": args.tag_name,
@@ -106,8 +127,12 @@ def create_tag_release(args: argparse.Namespace) -> dict:
 
 
 def get_release_upload_url(args: argparse.Namespace) -> dict:
+    # Accept either a bare host (https://gitlab.example.com) or the v5 base
+    # (https://gitlab.example.com/api/v5); normalize to bare so /api/v5 below is
+    # not doubled. Keeps this tool consistent with the shell packagers.
+    host = args.api_host.rstrip("/").removesuffix("/api/v5")
     url = (
-        f"{API_HOST}/api/v5/repos/{args.owner}/{args.repo}/releases/"
+        f"{host}/api/v5/repos/{args.owner}/{args.repo}/releases/"
         f"{parse.quote(args.tag_name)}/upload_url"
         f"?access_token={parse.quote(args.access_token)}"
         f"&file_name={parse.quote(args.file_name)}"
@@ -157,11 +182,19 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
+    missing = []
+    if not args.api_host:
+        missing.append("API host (set RUSTCODE_RELEASE_API_HOST or pass --api-host)")
+    if not args.owner:
+        missing.append("repository owner (set RUSTCODE_RELEASE_OWNER or pass --owner)")
     if not args.access_token:
-        print(
-            "Missing access token. Set ACCESS_TOKEN in the script or pass --access-token.",
-            file=sys.stderr,
+        missing.append(
+            "access token (set RUSTCODE_RELEASE_ACCESS_TOKEN or pass --access-token)"
         )
+    if missing:
+        print("Missing required release configuration:", file=sys.stderr)
+        for item in missing:
+            print(f"  - {item}", file=sys.stderr)
         return 1
     if not os.path.isfile(args.file_path):
         print(f"File not found: {args.file_path}", file=sys.stderr)

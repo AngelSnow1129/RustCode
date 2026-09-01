@@ -3,10 +3,10 @@
   "version": "0.0.0-dev",
   "description": "Open-source terminal AI coding agent — connect any LLM, edit code, run commands, verify autonomously",
   "keywords": ["ai", "coding", "cli", "agent", "terminal", "llm"],
-  "homepage": "https://gitcode.com/SecLab/RustCode",
+  "homepage": "https://example.com/your-org/rustcode",
   "repository": {
     "type": "git",
-    "url": "git+https://gitcode.com/SecLab/RustCode.git"
+    "url": "git+https://example.com/your-org/rustcode.git"
   },
   "license": "MIT",
   "author": "RustCode",

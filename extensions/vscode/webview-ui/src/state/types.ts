@@ -23,6 +23,12 @@ export interface UserInfo {
 export interface AuthStatus {
   logged_in: boolean;
   expired?: boolean;
+  /**
+   * Build capability: false (or absent) in open builds -- the webview hides
+   * managed sign-in UI and makes BYO provider setup the primary path.
+   * Wire format (snake_case, straight from GET /auth/status).
+   */
+  managed_available?: boolean;
   auth_path: string;
   user: UserInfo | null;
 }
@@ -311,6 +317,7 @@ export type ExtensionMessage =
   | { type: 'models'; models: ModelInfo[] }
   | { type: 'approvalMode'; mode: ApprovalMode; pending?: boolean }
   | { type: 'providers'; providers: ProviderInfo[]; defaultProvider?: string }
+  | { type: 'runtimeInfo'; provider: string; model?: string }
   | { type: 'authStatus'; auth: AuthStatus }
   | { type: 'setupState'; auth?: AuthStatus; providers: ProviderInfo[]; defaultProvider?: string; currentModel?: string; setupRequired: boolean }
   | { type: 'loginStarted'; loginId: string; url: string }

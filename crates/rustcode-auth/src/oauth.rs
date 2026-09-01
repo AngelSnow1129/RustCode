@@ -32,6 +32,23 @@ fn platform_base_url() -> &'static str {
     BASE.get_or_init(|| sanitize_base_url(rustcode_config::endpoints::platform_server()))
 }
 
+/// Whether this build ships a managed sign-in service: the deployment profile
+/// (plus the `RUSTCODE_PLATFORM_SERVER` override) resolves to a non-empty
+/// platform server. Neutral / open builds return false -- the OAuth endpoints
+/// have no service to talk to (`start_login` fails), so user surfaces must hide
+/// account / sign-in entries instead of pitching a login that can only fail.
+/// This is the same predicate as the TUI onboarding wizard's
+/// `managed_login_available()` (`platform_server().trim().is_empty()`), exposed from
+/// this leaf crate so the daemon's `/auth/status` can report it to the WebUI
+/// and every surface stays in sync. Note the check is on the RAW server value,
+/// not `platform_base_url()` -- sanitizing an empty string yields "http:",
+/// which is not empty.
+pub fn managed_login_available() -> bool {
+    !rustcode_config::endpoints::platform_server()
+        .trim()
+        .is_empty()
+}
+
 /// Platform server URLs (derived from `RUSTCODE_PLATFORM_SERVER`).
 pub fn platform_broker_url() -> String {
     platform_base_url().to_string()
@@ -567,11 +584,14 @@ impl LoginSession {
 pub fn start_login() -> Result<LoginSession> {
     // Platform-neutral guard: with no platform server configured there is no
     // OAuth endpoint to reach. Tell the user to configure a provider directly
-    // instead of attempting a connection to an empty URL.
-    if platform_base_url().is_empty() {
+    // instead of attempting a connection to an empty URL. Gate on the RAW
+    // server value via `managed_login_available()` -- `platform_base_url()`
+    // sanitizes "" into "http:", so an `.is_empty()` check on it is always
+    // false and would never fire.
+    if !managed_login_available() {
         return Err(anyhow::anyhow!(
-            "No platform server configured (RUSTCODE_PLATFORM_SERVER is unset). \
-             Skip `/login` and configure a provider directly in ~/.rustcode/config.toml \
+            "No managed sign-in service in this build. \
+             Configure a third-party provider directly in ~/.rustcode/config.toml \
              with your own base_url and api_key."
         ));
     }

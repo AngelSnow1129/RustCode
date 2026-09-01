@@ -381,7 +381,7 @@ fn format_ctx_usage(used: usize, window: usize) -> String {
 /// the Geometric Shapes block when the terminal's font has it, ASCII `*`
 /// otherwise -- the SAME `unicode_symbols` gate the spinner (`◐`->`|/-\`) and
 /// ellipsis (`…`->`...`) use, so Windows legacy conhost / Consolas don't show
-/// `□` tofu. Deliberately NOT an emoji (e.g. 🎯): emoji width is rendered
+/// `□` tofu. Deliberately NOT a pictographic color emoji: emoji width is rendered
 /// inconsistently across terminals and would drift every column after it in the
 /// cell-diff renderer, and emoji font coverage is far spottier than Geometric
 /// Shapes. Both variants are width-1 + a trailing space, so the layout math is
@@ -422,13 +422,21 @@ fn goal_row_parts(
         format!("{m}m{s}s")
     };
     let icon_w = crate::width::display_width(marker);
-    let meta = format!(" · round {round} · {elapsed}");
+    let meta = crate::i18n::t(crate::i18n::Msg::RoundMeta {
+        round,
+        elapsed: &elapsed,
+    })
+    .into_owned();
     let meta_w = crate::width::display_width(&meta);
     let cond_budget = max_cols.saturating_sub(icon_w).saturating_sub(meta_w);
     if cond_budget == 0 {
         // Too narrow for any condition -- drop it (and the leading separator),
         // keep marker + round/elapsed, truncating the meta to the cols left.
-        let bare = format!("round {round} · {elapsed}");
+        let bare = crate::i18n::t(crate::i18n::Msg::RoundBare {
+            round,
+            elapsed: &elapsed,
+        })
+        .into_owned();
         let meta_only = crate::width::truncate_to_width(&bare, max_cols.saturating_sub(icon_w));
         return (marker, String::new(), meta_only);
     }
@@ -487,19 +495,29 @@ fn goal_row_parts_phase(
             let marker = if unicode { "⏸ " } else { "* " };
             fit_fixed_goal_row(
                 marker,
-                "goal 已暂停",
-                " · 继续对话即恢复 · /goal stop 结束",
+                &crate::i18n::t(crate::i18n::Msg::GoalRowPausedBody),
+                &crate::i18n::t(crate::i18n::Msg::GoalRowPausedMeta),
                 max_cols,
             )
         }
         rustcode_coding::GoalPhase::PausedAtCap => {
             let marker = if unicode { "⏸ " } else { "* " };
-            let meta = format!(" · 已达 {round} 轮 · 继续对话即推进");
-            fit_fixed_goal_row(marker, "goal 暂停", &meta, max_cols)
+            let meta = crate::i18n::t(crate::i18n::Msg::GoalRowPausedAtCapMeta { round });
+            fit_fixed_goal_row(
+                marker,
+                &crate::i18n::t(crate::i18n::Msg::GoalRowPausedAtCapBody),
+                &meta,
+                max_cols,
+            )
         }
         rustcode_coding::GoalPhase::Satisfied => {
             let marker = if unicode { "✓ " } else { "* " };
-            fit_fixed_goal_row(marker, "goal 已达成", " · /goal clear 结束", max_cols)
+            fit_fixed_goal_row(
+                marker,
+                &crate::i18n::t(crate::i18n::Msg::GoalRowSatisfiedBody),
+                &crate::i18n::t(crate::i18n::Msg::GoalRowSatisfiedMeta),
+                max_cols,
+            )
         }
         rustcode_coding::GoalPhase::Ended => {
             // Ended rows are never constructed (goal_condition is cleared first),
@@ -581,12 +599,20 @@ fn loop_row_parts(
         format!("{m}m{s}s")
     };
     let icon_w = crate::width::display_width(marker);
-    let meta = format!(" · round {round} · {elapsed}");
+    let meta = crate::i18n::t(crate::i18n::Msg::RoundMeta {
+        round,
+        elapsed: &elapsed,
+    })
+    .into_owned();
     let meta_w = crate::width::display_width(&meta);
     let label_budget = max_cols.saturating_sub(icon_w).saturating_sub(meta_w);
     if label_budget == 0 {
         // Too narrow for any label -- drop it, keep marker + round/elapsed.
-        let bare = format!("round {round} · {elapsed}");
+        let bare = crate::i18n::t(crate::i18n::Msg::RoundBare {
+            round,
+            elapsed: &elapsed,
+        })
+        .into_owned();
         let meta_only = crate::width::truncate_to_width(&bare, max_cols.saturating_sub(icon_w));
         return (marker, String::new(), meta_only);
     }
@@ -2371,8 +2397,12 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 // fixed chrome (" Search '" prefix + closing quote) and
                 // the count, so a long query truncates instead of being
                 // dropped wholesale.
-                let prefix_w = crate::width::display_width(" Search '");
-                let count_text = format!(" {}/{} ", s.current, s.total);
+                let prefix = crate::i18n::t(crate::i18n::Msg::BadgeSearchPrefix);
+                let prefix_w = crate::width::display_width(&prefix);
+                let count_text = crate::i18n::t(crate::i18n::Msg::BadgeSearchCount {
+                    current: s.current,
+                    total: s.total,
+                });
                 let count_w = crate::width::display_width(&count_text);
                 // +1 chrome for the closing quote after the query.
                 let chrome = LEFT_MARGIN + BADGE_GAP + prefix_w + 1 + count_w;
@@ -2388,7 +2418,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 } else {
                     (String::new(), "")
                 };
-                let text = format!(" Search '{}'{}{}", query, ellipsis, count_text);
+                let text = format!("{}{}'{}{}", prefix, query, ellipsis, count_text);
                 let cells = {
                     let mut cells = Vec::new();
                     push_str_cells(&mut cells, &text, &self.style_faint(Role::Muted));
@@ -2407,7 +2437,11 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 history
                     .filter(|position| position.total > 0 && position.current <= position.total)
                     .map(|position| {
-                        let text = format!(" History {}/{} ", position.current, position.total);
+                        let text = crate::i18n::t(crate::i18n::Msg::BadgeHistory {
+                            current: position.current,
+                            total: position.total,
+                        })
+                        .into_owned();
                         let cells = {
                             let mut cells = Vec::new();
                             push_str_cells(&mut cells, &text, &self.style_faint(Role::Muted));
@@ -3497,11 +3531,11 @@ impl<W: Write + Send> RetainedRenderer<W> {
         };
         push_str_cells(&mut header, marker, &self.style_for(Role::Brand));
         let panel_title = if subtasks.call_id.starts_with("team:") {
-            " Team"
+            crate::i18n::t(crate::i18n::Msg::SubtaskPanelTeamTitle)
         } else {
-            " SubTasks"
+            crate::i18n::t(crate::i18n::Msg::SubtaskPanelSubTitle)
         };
-        push_str_cells(&mut header, panel_title, &bold);
+        push_str_cells(&mut header, &panel_title, &bold);
         let failed = subtasks
             .items
             .iter()
@@ -3533,12 +3567,12 @@ impl<W: Write + Send> RetainedRenderer<W> {
         };
         push_str_cells(
             &mut header,
-            &format!(
-                " \u{b7} {finished}/{} finished \u{b7} {} running \u{b7} {pending} pending",
-                subtasks.total,
-                running.len(),
-                pending = pending_count
-            ),
+            &crate::i18n::t(crate::i18n::Msg::SubtaskCounts {
+                finished,
+                total: subtasks.total,
+                running: running.len(),
+                pending: pending_count,
+            }),
             &detail,
         );
         rows.push(header);
@@ -3579,9 +3613,9 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 format!("{elapsed}s")
             };
             let activity = if item.activity.is_empty() {
-                "analyzing task"
+                crate::i18n::t(crate::i18n::Msg::SubtaskActivityAnalyzing)
             } else {
-                item.activity.as_str()
+                std::borrow::Cow::Borrowed(item.activity.as_str())
             };
             let content = format!("{} \u{b7} {activity}", scrub_controls(&identity));
             let glyph_width = crate::width::display_width(glyph);
@@ -3601,7 +3635,12 @@ impl<W: Write + Send> RetainedRenderer<W> {
             let expands_single_pending =
                 pending.len() == 1 && pending_count == 1 && hidden_running == 0 && failed == 0;
             if hidden_running > 0 {
-                parts.push(format!("{hidden_running} running"));
+                parts.push(
+                    crate::i18n::t(crate::i18n::Msg::SubtaskSummaryRunning {
+                        count: hidden_running,
+                    })
+                    .into_owned(),
+                );
             }
             if expands_single_pending {
                 let item = pending[0];
@@ -3615,15 +3654,30 @@ impl<W: Write + Send> RetainedRenderer<W> {
                     let remainder = identity.split_off(label_len);
                     identity.push_str(&format!(" \u{b7} {}{}", item.model, remainder));
                 }
-                parts.push(format!("{} \u{b7} pending", scrub_controls(&identity)));
+                parts.push(format!(
+                    "{}{}",
+                    scrub_controls(&identity),
+                    crate::i18n::t(crate::i18n::Msg::SubtaskPendingSuffix)
+                ));
             } else if pending_count > 0 {
-                parts.push(format!("{pending_count} pending"));
+                parts.push(
+                    crate::i18n::t(crate::i18n::Msg::SubtaskSummaryPending {
+                        count: pending_count,
+                    })
+                    .into_owned(),
+                );
             }
             if failed > 0 {
-                parts.push(format!("{failed} failed"));
+                parts.push(
+                    crate::i18n::t(crate::i18n::Msg::SubtaskSummaryFailed { count: failed })
+                        .into_owned(),
+                );
             }
             if stopped > 0 {
-                parts.push(format!("{stopped} stopped"));
+                parts.push(
+                    crate::i18n::t(crate::i18n::Msg::SubtaskSummaryStopped { count: stopped })
+                        .into_owned(),
+                );
             }
             let mut row = Vec::new();
             push_str_cells(&mut row, "  ", &CellStyle::default());
@@ -3744,13 +3798,13 @@ impl<W: Write + Send> RetainedRenderer<W> {
                     in_progress,
                     total,
                 } => {
-                    // `Tasks` in bold default fg, `(N done, M in progress, K open)` in
-                    // detail colour (default fg, no bold) -- the label is the anchor,
-                    // the counts are subordinate metadata. English regardless of locale.
-                    // `open` = pure pending count (total − completed − in_progress).
-                    // Previously this included in-progress (total − completed); the
-                    // semantic changed when the header grew the `in progress` counter,
-                    // so `open` now answers "how many haven't been touched yet".
+                    // Title in bold default fg, counts in detail colour (default fg,
+                    // no bold) -- the label is the anchor, the counts are subordinate
+                    // metadata. Localized via TodoHeader*. `open` = pure pending count
+                    // (total − completed − in_progress). Previously this included
+                    // in-progress (total − completed); the semantic changed when the
+                    // header grew the `in progress` counter, so `open` now answers
+                    // "how many haven't been touched yet".
                     let open = total.saturating_sub(completed + in_progress);
                     let bold = CellStyle {
                         bold: true,
@@ -3758,10 +3812,18 @@ impl<W: Write + Send> RetainedRenderer<W> {
                     };
                     let detail = self.style_for(Role::Secondary);
                     let mut row = Vec::new();
-                    push_str_cells(&mut row, "Tasks ", &bold);
                     push_str_cells(
                         &mut row,
-                        &format!("({completed} done, {in_progress} in progress, {open} open)"),
+                        &crate::i18n::t(crate::i18n::Msg::TodoHeaderTitle),
+                        &bold,
+                    );
+                    push_str_cells(
+                        &mut row,
+                        &crate::i18n::t(crate::i18n::Msg::TodoHeaderCounts {
+                            completed,
+                            in_progress,
+                            open,
+                        }),
                         &detail,
                     );
                     rendered.push(row);
@@ -3841,7 +3903,11 @@ impl<W: Write + Send> RetainedRenderer<W> {
                         ..self.style_for(Role::Muted)
                     };
                     let mut row = Vec::new();
-                    push_str_cells(&mut row, &format!("  +{hidden} more{ellipsis}"), &style);
+                    push_str_cells(
+                        &mut row,
+                        &crate::i18n::t(crate::i18n::Msg::TodoMoreFold { hidden, ellipsis }),
+                        &style,
+                    );
                     rendered.push(row);
                 }
             }
@@ -6132,19 +6198,21 @@ impl<W: Write + Send> RetainedRenderer<W> {
         if hidden_rows == 0 {
             return row;
         }
-        let hint = format!(" +{hidden_rows} more lines ");
-        let hint_chars: Vec<char> = hint.chars().collect();
-        if hint_chars.len() >= rule_width {
+        // Build the hint through push_str_cells so CJK (double-width) characters
+        // carry continuation cells -- overlaying by cell count then keeps the
+        // hint aligned to the right rule edge regardless of locale.
+        let mut hint_row = Vec::new();
+        push_str_cells(
+            &mut hint_row,
+            &crate::i18n::t(crate::i18n::Msg::MoreLinesHint { count: hidden_rows }),
+            &self.style_for(Role::Muted),
+        );
+        if hint_row.len() >= rule_width {
             return row;
         }
-        let muted = self.style_for(Role::Muted);
-        let start = rule_width - hint_chars.len();
-        for (i, ch) in hint_chars.into_iter().enumerate() {
-            row[start + i] = Cell {
-                ch,
-                style: muted.clone(),
-                width: 1,
-            };
+        let start = rule_width - hint_row.len();
+        for (i, cell) in hint_row.into_iter().enumerate() {
+            row[start + i] = cell;
         }
         row
     }
@@ -8326,9 +8394,9 @@ impl<W: Write + Send> RetainedRenderer<W> {
             .filter(|item| item.status == SubtaskStatus::Running)
             .count();
         let kind = if progress.call_id.starts_with("team:") {
-            "Team agents"
+            crate::i18n::t(crate::i18n::Msg::AgentGroupTeamKind)
         } else {
-            "SubAgents"
+            crate::i18n::t(crate::i18n::Msg::AgentGroupSubKind)
         };
         let marker = if self.caps.unicode_symbols {
             "●"
@@ -8336,12 +8404,22 @@ impl<W: Write + Send> RetainedRenderer<W> {
             "*"
         };
         let header = if finished && terminal >= progress.total {
-            format!(
-                "{marker} {kind} · {terminal}/{} finished · {failed} failed",
-                progress.total
-            )
+            crate::i18n::t(crate::i18n::Msg::AgentGroupFinished {
+                marker,
+                kind: &kind,
+                terminal,
+                total: progress.total,
+                failed,
+            })
+            .into_owned()
         } else {
-            format!("{marker} Running {running}/{} {kind}…", progress.total)
+            crate::i18n::t(crate::i18n::Msg::AgentGroupRunning {
+                marker,
+                kind: &kind,
+                running,
+                total: progress.total,
+            })
+            .into_owned()
         };
         let header_style = self.style_bold(Role::Secondary);
         let header_row = build_one_row(
@@ -8367,17 +8445,28 @@ impl<W: Write + Send> RetainedRenderer<W> {
                     "├"
                 };
                 let state = match item.status {
-                    SubtaskStatus::Pending => "pending",
-                    SubtaskStatus::Running => {
-                        if item.activity.is_empty() {
-                            "running"
-                        } else {
-                            item.activity.as_str()
-                        }
+                    SubtaskStatus::Pending => {
+                        crate::i18n::t(crate::i18n::Msg::SubtaskStatePending).into_owned()
                     }
-                    SubtaskStatus::Completed => "done",
-                    SubtaskStatus::Stopped => "stopped",
-                    SubtaskStatus::Failed => "failed",
+                    SubtaskStatus::Running => match item.activity.as_str() {
+                        "" => crate::i18n::t(crate::i18n::Msg::SubtaskStateRunning).into_owned(),
+                        "queued" => {
+                            crate::i18n::t(crate::i18n::Msg::SubtaskStateQueued).into_owned()
+                        }
+                        "running" => {
+                            crate::i18n::t(crate::i18n::Msg::SubtaskStateRunning).into_owned()
+                        }
+                        other => other.to_string(),
+                    },
+                    SubtaskStatus::Completed => {
+                        crate::i18n::t(crate::i18n::Msg::SubtaskStateDone).into_owned()
+                    }
+                    SubtaskStatus::Stopped => {
+                        crate::i18n::t(crate::i18n::Msg::SubtaskStateStopped).into_owned()
+                    }
+                    SubtaskStatus::Failed => {
+                        crate::i18n::t(crate::i18n::Msg::SubtaskStateFailed).into_owned()
+                    }
                 };
                 let mut text = format!("  {branch} {}", item.label);
                 if !item.description.is_empty() {
@@ -9320,7 +9409,14 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                     }
                     if shown >= MAX_DIFF_DISPLAY {
                         let more = content_total - shown;
-                        self.push_body_text(&format!("  {ellipsis} +{more} more lines"), &muted);
+                        self.push_body_text(
+                            &crate::i18n::t(crate::i18n::Msg::BodyMoreLines {
+                                ellipsis,
+                                count: more,
+                            })
+                            .into_owned(),
+                            &muted,
+                        );
                         break;
                     }
                     let style = match entry.kind {
@@ -9360,7 +9456,11 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                     }
                     if shown >= MAX_DIFF_DISPLAY {
                         self.push_body_text(
-                            &format!("  {ellipsis} +{} more lines", content_total - shown),
+                            &crate::i18n::t(crate::i18n::Msg::BodyMoreLines {
+                                ellipsis,
+                                count: content_total - shown,
+                            })
+                            .into_owned(),
                             &muted,
                         );
                         break;
@@ -10601,6 +10701,8 @@ mod tests {
 
     #[test]
     fn goal_row_shows_condition_round_and_elapsed() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Wide row (unicode caps): ◎ marker + full condition + round + elapsed.
         let row = format_goal_row("重构 auth 模块直到测试全过", 3, 133, 80, true);
         assert!(row.starts_with("◎ "), "geometric marker present: {row}");
@@ -10615,6 +10717,8 @@ mod tests {
 
     #[test]
     fn goal_row_ascii_fallback_avoids_geometric_and_emoji_glyphs() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Windows legacy conhost / Consolas (unicode_symbols=false): no ◎ tofu,
         // no emoji -- a plain ASCII `*` marker, same gate as the spinner.
         let row = format_goal_row("ship it", 4, 7, 80, false);
@@ -10631,6 +10735,8 @@ mod tests {
 
     #[test]
     fn goal_row_parts_split_marker_condition_meta_for_styling() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Marker / condition / meta are returned separately so the renderer can
         // style them with hierarchy (accent / normal / muted). Round shown verbatim.
         let (marker, cond, meta) = goal_row_parts("fix tests", 1, 8, 80, true);
@@ -10650,6 +10756,8 @@ mod tests {
 
     #[test]
     fn goal_row_truncates_long_condition_but_keeps_round_and_elapsed() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let cond = "a".repeat(200);
         let row = format_goal_row(&cond, 7, 5, 40, true);
         assert!(
@@ -10688,6 +10796,8 @@ mod tests {
 
     #[test]
     fn goal_row_degrades_to_round_elapsed_when_too_narrow() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // No room for any condition -> drop it, keep marker + round/elapsed.
         let row = format_goal_row("some long condition", 2, 9, 14, true);
         assert!(
@@ -10702,6 +10812,8 @@ mod tests {
 
     #[test]
     fn goal_row_pursuing_shows_condition_and_round_non_empty() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Pursuing phase: same as existing behaviour -- condition + round + elapsed.
         let row = format_goal_row_phase(
             "fix all tests",
@@ -10718,6 +10830,8 @@ mod tests {
 
     #[test]
     fn goal_row_paused_at_cap_shows_pause_text_non_empty() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         // PausedAtCap phase: shows 暂停 and 继续对话即推进.
         let row = format_goal_row_phase(
             "fix all tests",
@@ -10738,6 +10852,8 @@ mod tests {
 
     #[test]
     fn goal_row_user_paused_shows_resume_and_stop_actions() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let row = format_goal_row_phase(
             "fix all tests",
             2,
@@ -10768,6 +10884,8 @@ mod tests {
 
     #[test]
     fn goal_row_satisfied_shows_achieved_text_non_empty() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         // Satisfied phase: shows 已达成.
         let row = format_goal_row_phase(
             "fix all tests",
@@ -10787,6 +10905,8 @@ mod tests {
 
     #[test]
     fn loop_row_shows_label_round_and_elapsed() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let row = format_loop_row("检查构建状态", 3, 133, 80, true);
 
         assert!(row.starts_with("⚡ "), "lightning marker present: {row}");
@@ -10807,6 +10927,8 @@ mod tests {
 
     #[test]
     fn loop_row_truncates_label_without_dropping_metadata() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let row = format_loop_row(&"x".repeat(200), 7, 5, 40, true);
 
         assert!(
@@ -12866,6 +12988,8 @@ mod tests {
 
     #[test]
     fn build_top_rule_shows_history_position_on_left() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let (mut r, _counter) = new_counting(80, 24);
         r.caps.colors = true;
         r.caps.unicode_symbols = true;
@@ -12892,6 +13016,8 @@ mod tests {
 
     #[test]
     fn history_position_and_session_badge_coexist() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let (mut r, _counter) = new_counting(80, 24);
         r.caps.colors = true;
         r.caps.unicode_symbols = true;
@@ -12916,6 +13042,8 @@ mod tests {
 
     #[test]
     fn build_top_rule_search_indicator_replaces_history_position() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let (mut r, _counter) = new_counting(80, 24);
         r.caps.colors = true;
         r.caps.unicode_symbols = true;
@@ -12954,6 +13082,8 @@ mod tests {
 
     #[test]
     fn build_top_rule_search_indicator_truncates_long_query() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let (mut r, _counter) = new_counting(80, 24);
         r.caps.colors = true;
         r.caps.unicode_symbols = true;
@@ -15149,8 +15279,9 @@ mod tests {
         let found_brand = (0..30).any(|r| vterm.row_text(r).contains("RustCode"));
         let found_cwd = (0..30).any(|r| vterm.row_text(r).contains("~/p/a"));
         let found_model = (0..30).any(|r| vterm.row_text(r).contains("glm-5"));
-        // New layout shows tips (/login always pinned) instead of idle hint text.
-        let found_hint = (0..30).any(|r| vterm.row_text(r).contains("/login"));
+        // New layout shows tips (/provider pinned in a neutral BYO build)
+        // instead of the old idle hint text.
+        let found_hint = (0..30).any(|r| vterm.row_text(r).contains("/provider"));
         assert!(
             found_brand && found_cwd && found_model && found_hint,
             "welcome rows missing (brand={} cwd={} model={} hint={})\ndump:\n{}",
@@ -15512,11 +15643,11 @@ mod tests {
             "model should wrap instead of disappearing on narrow terminal\n{}",
             vterm.dump()
         );
-        // New layout: tips replace old idle hint text. /login is always
-        // pinned; tips heading is always present.
+        // New layout: tips replace old idle hint text. The neutral BYO build
+        // pins /provider; the tips heading is always present.
         assert!(
-            (0..30).any(|row| vterm.row_text(row).contains("/login")),
-            "pinned /login tip should be visible on narrow terminal\n{}",
+            (0..30).any(|row| vterm.row_text(row).contains("/provider")),
+            "pinned /provider tip should be visible on narrow terminal\n{}",
             vterm.dump()
         );
         assert!(
@@ -18554,12 +18685,13 @@ mod tests {
         r.flush_deferred();
         drain_into_vterm(&buf, &mut vterm);
 
-        // Welcome fingerprint: `/login` is unique to the welcome
-        // hint row and is a single non-wrapping token, so it gives a
-        // stable single-row marker even when the combined hint line
-        // soft-wraps at narrower widths. Must appear exactly once in
-        // the *visible* viewport and zero times in scrollback.
-        let hint = "/login";
+        // Welcome fingerprint: the pinned tip token (`/provider` in the
+        // neutral BYO build) is unique to the welcome hint row and is a
+        // single non-wrapping token, so it gives a stable single-row marker
+        // even when the combined hint line soft-wraps at narrower widths.
+        // Must appear exactly once in the *visible* viewport and zero times
+        // in scrollback.
+        let hint = "/provider";
         let visible_count = (0..24)
             .filter(|r| vterm.row_text(*r).contains(hint))
             .count();
@@ -18879,6 +19011,8 @@ mod tests {
     /// the input box (lower row index), not below it.
     #[test]
     fn todo_panel_renders_above_the_input_box() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use rustcode_capabilities::tools::todo::TodoStatus;
         let (mut r, buf) = new_capturing(80, 24);
         let mut vterm = crate::test_term::VirtualTerminal::new(80, 24);
@@ -18917,6 +19051,8 @@ mod tests {
 
     #[test]
     fn subtask_panel_renders_fixed_compact_rows_and_hides_todo_panel() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use crate::render::{SubtaskItem, SubtaskProgress, SubtaskStatus};
 
         let (mut r, buf) = new_capturing(100, 24);
@@ -19058,6 +19194,8 @@ mod tests {
 
     #[test]
     fn subtask_panel_prioritizes_live_rows_and_truthfully_aggregates_hidden_rows() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use crate::render::{SubtaskItem, SubtaskProgress, SubtaskStatus};
 
         let (mut r, buf) = new_capturing(100, 24);
@@ -19106,6 +19244,8 @@ mod tests {
 
     #[test]
     fn team_panel_reports_stopped_separately_from_failed() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use crate::render::{SubtaskItem, SubtaskProgress, SubtaskStatus};
 
         let (mut r, buf) = new_capturing(100, 24);
@@ -19147,6 +19287,8 @@ mod tests {
 
     #[test]
     fn subtask_panel_uses_six_rows_for_three_running_and_terminal_summary() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use crate::render::{SubtaskItem, SubtaskProgress, SubtaskStatus};
 
         let (r, _buf) = new_capturing(120, 24);
@@ -19193,6 +19335,8 @@ mod tests {
 
     #[test]
     fn subtask_and_team_panels_expand_the_only_pending_task() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use crate::render::{SubtaskItem, SubtaskProgress, SubtaskStatus};
 
         let (r, _buf) = new_capturing(120, 24);
@@ -19233,6 +19377,8 @@ mod tests {
 
     #[test]
     fn agent_group_updates_in_body_across_foreign_output_and_freezes_final_state() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use crate::render::{SubtaskItem, SubtaskProgress, SubtaskStatus};
 
         let (mut r, buf) = new_capturing(120, 24);
@@ -19593,6 +19739,8 @@ mod tests {
 
     #[test]
     fn subtask_panel_respects_short_screen_footer_budget() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use crate::render::{GoalStatus, SubtaskItem, SubtaskProgress, SubtaskStatus};
 
         let (mut r, buf) = new_capturing(80, 8);
@@ -19712,6 +19860,8 @@ mod tests {
 
     #[test]
     fn subtask_panel_replaces_generic_body_spinner() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use crate::render::{SubtaskItem, SubtaskProgress, SubtaskStatus};
 
         let (mut r, buf) = new_capturing(100, 24);
@@ -25494,7 +25644,7 @@ mod tests {
     }
 
     #[test]
-    fn welcome_wide_has_mascot_and_pinned_login() {
+    fn welcome_wide_has_mascot_and_pinned_provider_tip() {
         let (mut r, _c) = new_counting(100, 30);
         r.caps.colors = true;
         r.caps.unicode_symbols = true;
@@ -25502,7 +25652,15 @@ mod tests {
         r.push_welcome("GLM-5.2", "~/proj");
         let text = body_text(&r);
         assert!(text.contains('▀'), "mascot half-blocks must be present");
-        assert!(text.contains("/login"), "pinned /login must be present");
+        // Neutral build pins the BYO /provider tip, never the dead-end /login.
+        assert!(
+            text.contains("/provider"),
+            "pinned /provider BYO tip must be present"
+        );
+        assert!(
+            !text.contains("/login"),
+            "neutral build must not steer to /login"
+        );
         assert!(
             text.contains("Tips for getting started") || text.contains("上手提示"),
             "tips heading present"
@@ -25516,7 +25674,10 @@ mod tests {
         r.push_welcome("GLM-5.2", "~/proj");
         let text = body_text(&r);
         assert!(!text.contains('▀'), "no mascot when colors are disabled");
-        assert!(text.contains("/login"), "tips still present without color");
+        assert!(
+            text.contains("/provider"),
+            "tips still present without color"
+        );
     }
 
     #[test]
@@ -25536,7 +25697,7 @@ mod tests {
             !text.contains('▀'),
             "no mascot on a non-modern emulator (FinalShell-like)"
         );
-        assert!(text.contains("/login"), "tips still present");
+        assert!(text.contains("/provider"), "tips still present");
     }
 
     #[test]
@@ -25611,8 +25772,8 @@ mod tests {
             "resize (body_log replay) must not re-roll tips"
         );
         assert!(
-            before.iter().any(|c| c == "/login"),
-            "pinned /login present"
+            before.iter().any(|c| c == "/provider"),
+            "pinned /provider BYO tip present"
         );
     }
 
@@ -25668,7 +25829,7 @@ mod tests {
         );
         assert!(!text.contains('\u{2580}') && !text.contains('\u{2584}'));
         assert!(
-            text.contains("/login"),
+            text.contains("/provider"),
             "tips still present without a mascot"
         );
     }
@@ -25714,7 +25875,7 @@ mod tests {
         r.push_welcome("GLM-5.2", "~/proj");
         let collides = r.body_lines.iter().any(|row| {
             let s: String = row.iter().map(|c| c.ch).collect();
-            s.contains("GLM-5.2") && s.contains("/login")
+            s.contains("GLM-5.2") && s.contains("/provider")
         });
         assert!(
             !collides,
@@ -25907,6 +26068,8 @@ mod todo_panel_rows_tests {
 
     #[test]
     fn build_todo_rows_header_and_inprogress() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use crate::terminal::{EnvView, TerminalCaps};
         use rustcode_capabilities::tools::todo::TodoStatus;
         let caps = TerminalCaps::from_env(EnvView {
@@ -25968,6 +26131,8 @@ mod todo_panel_rows_tests {
 
     #[test]
     fn build_todo_rows_wraps_frontier_within_the_fixed_panel_budget() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use crate::terminal::{EnvView, TerminalCaps};
         use rustcode_capabilities::tools::todo::TodoStatus;
 

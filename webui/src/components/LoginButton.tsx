@@ -44,9 +44,14 @@ export function useAuth() {
   // server now probes real usability, so the sidebar can stop claiming
   // "logged in" when chat would actually reject the token.
   const [expired, setExpired] = useState(false);
+  // Whether this build ships a managed sign-in service at all
+  // (`/auth/status` -> managed_available). Neutral / open builds report false:
+  // the sidebar then hides the whole account area, since sign-in can only fail.
+  const [managedAvailable, setManagedAvailable] = useState(false);
   const [user, setUser] = useState<UserInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const managedRef = useRef(false);
   const pollTimer = useRef<number | null>(null);
   const loginGeneration = useRef(0);
 
@@ -54,7 +59,10 @@ export function useAuth() {
     try {
       const r = await fetch('/auth/status', { headers: authHeaders() });
       const s = await r.json();
+      const managed = s.managed_available === true;
+      managedRef.current = managed;
       if (!shouldApply()) return;
+      setManagedAvailable(managed);
       setLoggedIn(!!s.logged_in);
       setExpired(!!s.expired);
       setUser(s.user ?? null);
@@ -66,9 +74,12 @@ export function useAuth() {
   useEffect(() => {
     let active = true;
     const refreshWhileMounted = () => {
-      if (active) void refresh(() => active);
+      // In a neutral build no managed service exists, so status can never
+      // flip to logged-in -- poll once on mount (to learn the flag) and skip
+      // the 2s churn afterwards.
+      if (active && managedRef.current) void refresh(() => active);
     };
-    refreshWhileMounted();
+    void refresh(() => active);
     const interval = window.setInterval(refreshWhileMounted, 2_000);
     const onVisibility = () => {
       if (document.visibilityState === 'visible') refreshWhileMounted();
@@ -84,7 +95,9 @@ export function useAuth() {
   }, []);
 
   async function startLogin() {
-    if (busyRef.current) return;
+    // Fail closed: a neutral build has no sign-in service. The entry points
+    // are hidden, but never drive the user into a 500 from a stale UI.
+    if (busyRef.current || !managedRef.current) return;
     busyRef.current = true;
     const generation = ++loginGeneration.current;
     setBusy(true);
@@ -176,5 +189,5 @@ export function useAuth() {
     setUser(null);
   }
 
-  return { loggedIn, expired, user, busy, labels, startLogin, doLogout };
+  return { loggedIn, expired, managedAvailable, user, busy, labels, startLogin, doLogout };
 }

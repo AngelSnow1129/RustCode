@@ -315,11 +315,75 @@ pub enum Step {
     QrLogin,
 }
 
+/// A selectable row on the Setup step, in presentation order.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum SetupChoice {
+    /// Managed CodingPlan sign-in -- only present when a managed platform is
+    /// configured for this build.
+    Login,
+    /// Configure a third-party bring-your-own-key provider.
+    Manual,
+    /// Skip setup and explore.
+    Skip,
+}
+
+/// Whether the managed sign-in path is available. A neutral build ships
+/// no compiled-in platform server, so `/login`, the sign-in setup row, and the
+/// managed-account pitch are hidden and the BYO provider path leads. Distributions
+/// that configure a managed endpoint (`RUSTCODE_*` platform env) get sign-in back.
+///
+/// `pub(crate)` (not just `pub(super)`) because the event loop's first-launch
+/// auto-onboarding gates the QR sign-in fast path on the same predicate: a
+/// neutral build must open the full BYO wizard, never the QR screen. The
+/// slash-command visibility filter (`commands::command_visible`) and the
+/// daemon's `/auth/status.managed_available` use the same predicate via
+/// `rustcode_auth::managed_login_available()` -- delegate here so the TUI
+/// can't drift from them.
+pub(crate) fn managed_login_available() -> bool {
+    rustcode_auth::managed_login_available()
+}
+
+/// The "not signed in / authentication required" line for the running build.
+/// Managed builds point at `/login`; neutral builds have no account system, so
+/// they point at `/provider` (bring-your-own-key). Used by `/whoami` and by the
+/// provider `AuthenticationRequired` status hints -- every place that used to
+/// print "Use /login to authenticate" unconditionally.
+pub(crate) fn not_signed_in_msg() -> crate::i18n::Msg<'static> {
+    if managed_login_available() {
+        crate::i18n::Msg::CmdWhoamiNotSignedIn
+    } else {
+        crate::i18n::Msg::CmdWhoamiNotSignedInNeutral
+    }
+}
+
+/// The "provider unavailable" error for the running build. Managed builds can
+/// steer to `/login`; a neutral build has no sign-in service, so the message
+/// points at `/provider` (bring-your-own-key) instead of a dead-end `/login`.
+/// Used for submit/steer/queue-drain rejections and goal/loop start failures.
+pub(crate) fn provider_unavailable_msg() -> crate::i18n::Msg<'static> {
+    if managed_login_available() {
+        crate::i18n::Msg::CmdProviderUnavailable
+    } else {
+        crate::i18n::Msg::CmdProviderUnavailableNeutral
+    }
+}
+
+/// The ordered Setup rows for the running build (Login first only when managed).
+pub(super) fn setup_choices() -> Vec<SetupChoice> {
+    let mut choices = Vec::with_capacity(3);
+    if managed_login_available() {
+        choices.push(SetupChoice::Login);
+    }
+    choices.push(SetupChoice::Manual);
+    choices.push(SetupChoice::Skip);
+    choices
+}
+
 pub struct OnboardingWizard {
     pub(super) step: Step,
     /// 0=Auto-detect, 1=English, 2=ZhCn
     pub(super) language_idx: usize,
-    /// 0=CodingPlan, 1=Manual, 2=Skip
+    /// Index into [`setup_choices`] for the running build (0 = first row).
     pub(super) setup_idx: usize,
     /// Set when constructed via `/welcome` mid-session with non-empty
     /// body. Read by Task 8's slash command path to decide cleanup
@@ -528,20 +592,20 @@ impl OnboardingWizard {
                 PureOutcome::Redraw
             }
             (Setup, KeyCode::Down) => {
-                if self.setup_idx < 2 {
+                if self.setup_idx + 1 < setup_choices().len() {
                     self.setup_idx += 1;
                 }
                 PureOutcome::Redraw
             }
-            (Setup, KeyCode::Char('1')) => {
+            (Setup, KeyCode::Char('1')) if setup_choices().len() >= 1 => {
                 self.setup_idx = 0;
                 PureOutcome::ApplySetupThenClose
             }
-            (Setup, KeyCode::Char('2')) => {
+            (Setup, KeyCode::Char('2')) if setup_choices().len() >= 2 => {
                 self.setup_idx = 1;
                 PureOutcome::ApplySetupThenClose
             }
-            (Setup, KeyCode::Char('3')) => {
+            (Setup, KeyCode::Char('3')) if setup_choices().len() >= 3 => {
                 self.setup_idx = 2;
                 PureOutcome::ApplySetupThenClose
             }
@@ -659,7 +723,13 @@ impl OnboardingWizard {
             content.push(String::new());
             content.push(t(Msg::OnboardingIntroBullet1).into_owned());
             content.push(t(Msg::OnboardingIntroBullet2).into_owned());
-            content.push(t(Msg::OnboardingIntroBullet3).into_owned());
+            if managed_login_available() {
+                content.push(t(Msg::OnboardingIntroBullet3).into_owned());
+            } else {
+                // Neutral build: no managed service to promise free tokens from;
+                // lead with bring-your-own-key instead.
+                content.push(t(Msg::OnboardingIntroBullet3Neutral).into_owned());
+            }
             content.push(String::new());
             content.push(t(Msg::OnboardingIntroPressEnter).into_owned());
             content.push(t(Msg::OnboardingIntroCtrlC).into_owned());
@@ -671,7 +741,13 @@ impl OnboardingWizard {
             content.push(String::new());
             content.push(t(Msg::OnboardingIntroBullet1).into_owned());
             content.push(t(Msg::OnboardingIntroBullet2).into_owned());
-            content.push(t(Msg::OnboardingIntroBullet3).into_owned());
+            if managed_login_available() {
+                content.push(t(Msg::OnboardingIntroBullet3).into_owned());
+            } else {
+                // Neutral build: no managed service to promise free tokens from;
+                // lead with bring-your-own-key instead.
+                content.push(t(Msg::OnboardingIntroBullet3Neutral).into_owned());
+            }
             content.push(String::new());
             content.push(t(Msg::OnboardingIntroPressEnter).into_owned());
         }
@@ -781,20 +857,26 @@ impl OnboardingWizard {
         out.push(t(Msg::OnboardingStepHeaderSetup).into_owned());
         out.push(String::new());
 
-        let options = [
-            (
-                t(Msg::WelcomeOptionCodingPlan).into_owned(),
-                t(Msg::WelcomeOptionCodingPlanHint).into_owned(),
-            ),
-            (
-                t(Msg::WelcomeOptionConfigureManually).into_owned(),
-                t(Msg::WelcomeOptionConfigureManuallyHint).into_owned(),
-            ),
-            (
-                t(Msg::WelcomeOptionSkip).into_owned(),
-                t(Msg::WelcomeOptionSkipHint).into_owned(),
-            ),
-        ];
+        // Rows depend on the build: the managed CodingPlan sign-in row only
+        // appears when a platform server is configured; neutral builds lead with
+        // the bring-your-own-key "Configure manually" row.
+        let options: Vec<(String, String)> = setup_choices()
+            .iter()
+            .map(|choice| match choice {
+                SetupChoice::Login => (
+                    t(Msg::WelcomeOptionCodingPlan).into_owned(),
+                    t(Msg::WelcomeOptionCodingPlanHint).into_owned(),
+                ),
+                SetupChoice::Manual => (
+                    t(Msg::WelcomeOptionConfigureManually).into_owned(),
+                    t(Msg::WelcomeOptionConfigureManuallyHint).into_owned(),
+                ),
+                SetupChoice::Skip => (
+                    t(Msg::WelcomeOptionSkip).into_owned(),
+                    t(Msg::WelcomeOptionSkipHint).into_owned(),
+                ),
+            })
+            .collect();
 
         let mut content: Vec<String> = Vec::new();
         content.push(String::new());
@@ -806,7 +888,7 @@ impl OnboardingWizard {
             content.push(format!("{bullet}  [{}] {} {}", i + 1, label_padded, hint));
         }
         content.push(String::new());
-        content.push(t(Msg::OnboardingNavHint).into_owned());
+        content.push(t(Msg::OnboardingSetupNavHint).into_owned());
         content.push(String::new());
 
         out.extend(draw_panel(
@@ -1074,10 +1156,11 @@ impl crate::modals::Modal for OnboardingWizard {
                 Ok(ModalAction::Continue)
             }
             PureOutcome::ApplySetupThenClose => {
-                match self.setup_idx {
-                    0 => ctx.pending_run_login_setup = true,
-                    1 => ctx.pending_open_provider_wizard = true,
-                    _ => { /* Skip -- no flag */ }
+                let choice = setup_choices().get(self.setup_idx).copied();
+                match choice {
+                    Some(SetupChoice::Login) => ctx.pending_run_login_setup = true,
+                    Some(SetupChoice::Manual) => ctx.pending_open_provider_wizard = true,
+                    Some(SetupChoice::Skip) | None => { /* Skip / out-of-range -- no flag */ }
                 }
                 // Setup always runs on a wizard-owned screen
                 // (Confirm->Intro and every subsequent transition is
@@ -1091,7 +1174,7 @@ impl crate::modals::Modal for OnboardingWizard {
                 // takeovers paint their own UI, so we only emit
                 // Welcome for the Skip branch.
                 renderer.clear_screen();
-                if self.setup_idx == 2 {
+                if choice == Some(SetupChoice::Skip) {
                     paint_welcome(ctx, renderer);
                 }
                 Ok(ModalAction::Close)
@@ -1416,16 +1499,20 @@ mod tests {
     fn setup_up_down_bounded() {
         let mut w = make_wizard();
         w.step = Step::Setup;
+        // Neutral build: setup rows are [Configure manually, Skip] (2 rows);
+        // the managed CodingPlan row only appears when a platform is configured.
+        assert_eq!(
+            setup_choices().len(),
+            2,
+            "neutral build offers 2 setup rows"
+        );
         w.setup_idx = 0;
         w.handle_key_for_test(KeyCode::Up);
         assert_eq!(w.setup_idx, 0);
         w.handle_key_for_test(KeyCode::Down);
         assert_eq!(w.setup_idx, 1);
         w.handle_key_for_test(KeyCode::Down);
-        w.handle_key_for_test(KeyCode::Down);
-        assert_eq!(w.setup_idx, 2);
-        w.handle_key_for_test(KeyCode::Down);
-        assert_eq!(w.setup_idx, 2);
+        assert_eq!(w.setup_idx, 1, "bounded at last row (Skip)");
     }
 
     #[test]
@@ -1447,6 +1534,69 @@ mod tests {
         assert_eq!(w.setup_idx, 1);
         w.handle_key_for_test(KeyCode::Char('0'));
         assert_eq!(w.setup_idx, 1);
+    }
+
+    #[test]
+    fn number_3_is_noop_in_neutral_two_row_setup() {
+        // Neutral build offers only [Configure manually, Skip] (rows 1-2).
+        // A managed build would add a leading Login row making '3' valid;
+        // here '3' must fall through to Noop rather than selecting anything.
+        let mut w = make_wizard();
+        w.step = Step::Setup;
+        w.setup_idx = 0;
+        let outcome = w.handle_key_pure(KeyCode::Char('3'), KeyModifiers::NONE);
+        assert_eq!(
+            outcome,
+            PureOutcome::Noop,
+            "'3' must not apply in a 2-row menu"
+        );
+        assert_eq!(w.setup_idx, 0, "idx must be unchanged");
+        assert_eq!(w.step, Step::Setup, "wizard must not close/advance");
+    }
+
+    #[test]
+    fn neutral_build_hides_managed_login() {
+        // The gating predicate every managed surface (QR fast path, login
+        // setup row, /login) keys off. A neutral build compiles in no
+        // platform server, so this must be false and setup_choices() must
+        // lead with the BYO row, never Login.
+        assert!(
+            !managed_login_available(),
+            "neutral build must report no managed login"
+        );
+        let choices = setup_choices();
+        assert_eq!(choices.len(), 2, "neutral setup is [Manual, Skip]");
+        assert_eq!(choices[0], SetupChoice::Manual);
+        assert_eq!(choices[1], SetupChoice::Skip);
+        assert!(
+            !choices.contains(&SetupChoice::Login),
+            "neutral setup must not offer managed Login"
+        );
+    }
+
+    #[test]
+    fn neutral_first_launch_wizard_is_full_byo_flow_not_qr() {
+        // The event loop's first-launch gate picks `new_qr_fast_path()`
+        // only when `managed_login_available()`; a neutral build gets
+        // `new()` (Intro -> Language -> neutral Setup). Pin that contract
+        // here: the neutral constructor must never open the QR screen and
+        // must never carry a pending OAuth session (which would spawn a
+        // background poll thread against a non-existent platform server).
+        assert!(!managed_login_available());
+        let mut w = OnboardingWizard::new();
+        assert_eq!(w.step, Step::Intro, "neutral first launch opens at Intro");
+        assert_ne!(w.step, Step::QrLogin);
+        assert!(
+            w.take_pending_session().is_none(),
+            "neutral wizard must hold no OAuth session to poll"
+        );
+        // Intro Enter advances inline to Language; the Language -> Setup
+        // transition is applied by the event loop on ApplyLanguageThenAdvance,
+        // so pin the neutral Setup menu shape directly.
+        w.handle_key_for_test(KeyCode::Enter); // Intro -> Language
+        assert_eq!(w.step, Step::Language);
+        w.step = Step::Setup;
+        assert_eq!(setup_choices().len(), 2, "neutral Setup has Manual + Skip");
     }
 
     #[test]
@@ -1531,7 +1681,9 @@ mod tests {
         assert!(joined.contains("Version "));
         assert!(joined.contains("Multi-step agent loop"));
         assert!(joined.contains("Connects to any OpenAI"));
-        assert!(joined.contains("Free tokens via CodingPlan"));
+        // Neutral build: no managed "free tokens" pitch; lead with BYO key.
+        assert!(joined.contains("Bring your own API key"));
+        assert!(!joined.contains("Free tokens"));
         assert!(joined.contains("Press Enter to continue"));
         assert!(joined.contains("Ctrl+C exits"));
         // Header above the box.
@@ -1560,7 +1712,8 @@ mod tests {
         // line `RustCode vX.Y.Z` + tagline.
         assert!(joined.contains("RustCode v"));
         assert!(joined.contains("AI coding agent that lives in your terminal"));
-        assert!(joined.contains("Free tokens"));
+        assert!(joined.contains("Bring your own API key"));
+        assert!(!joined.contains("Free tokens"));
         assert!(joined.contains("Press Enter to continue"));
     }
 
@@ -1683,11 +1836,12 @@ mod tests {
 
     // ── Step 3 (Setup) draw tests ──
 
-    /// Setup panel renders 3 numbered options with localised
-    /// CodingPlan / Manual / Skip labels (reusing WelcomeOption* Msg
-    /// variants), the SetupTitle, and the nav hint.
+    /// Setup panel in a neutral build renders the two localised BYO rows
+    /// (Configure manually, Skip) with the SetupTitle and nav hint. The managed
+    /// CodingPlan row (and its "free tokens" pitch) only appears when a platform
+    /// server is configured.
     #[test]
-    fn setup_layout_has_three_options() {
+    fn setup_layout_neutral_has_two_byo_options() {
         let _g = crate::i18n::test_lock();
         crate::i18n::set_locale(crate::i18n::Locale::En);
         let lines = OnboardingWizard::new().draw_setup_lines(80, true);
@@ -1698,14 +1852,15 @@ mod tests {
             .join("\n");
         assert!(joined.contains("Step 3/3 . Setup"));
         assert!(joined.contains("How would you like to set up?"));
-        assert!(joined.contains("[1] Set up CodingPlan"));
-        assert!(joined.contains("[2] Configure manually"));
-        assert!(joined.contains("[3] Skip for now"));
-        // Hints sit after each option.
-        assert!(joined.contains("Free tokens"));
+        // No managed CodingPlan row in a neutral build.
+        assert!(!joined.contains("CodingPlan"));
+        assert!(!joined.contains("Free tokens"));
+        // Two numbered rows: manual leads, then skip.
+        assert!(joined.contains("[1] Configure manually"));
+        assert!(joined.contains("[2] Skip for now"));
+        assert!(!joined.contains("[3]"));
         assert!(joined.contains("API key"));
-        // Nav hint.
-        assert!(joined.contains("1-3 select"));
+        assert!(joined.contains("number to select"));
     }
 
     /// ZhCn locale flips every label + hint to the Chinese strings
@@ -1721,17 +1876,18 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(joined.contains("第 3/3 步 . 配置"));
-        assert!(joined.contains("配置 CodingPlan"));
+        // Neutral build: no managed CodingPlan row; the BYO manual row leads.
+        assert!(!joined.contains("CodingPlan"));
+        assert!(joined.contains("[1]"));
         assert!(joined.contains("手动配置"));
         assert!(joined.contains("暂时跳过"));
     }
 
-    /// CodingPlan must come first in the rendered step-3 list, then
-    /// Manual, then Skip. Migrated from the deleted welcome_wizard.rs's
-    /// `options_put_codingplan_first` test; pins option order so a
-    /// reorder needs a deliberate test update.
+    /// Neutral build: the managed CodingPlan row must NOT appear, and the
+    /// bring-your-own-key "Configure manually" row must lead the list, before
+    /// Skip. Pins option order so a reorder needs a deliberate test update.
     #[test]
-    fn setup_options_put_codingplan_first() {
+    fn setup_options_omit_codingplan_manual_first() {
         let _g = crate::i18n::test_lock();
         crate::i18n::set_locale(crate::i18n::Locale::En);
         let lines = OnboardingWizard::new().draw_setup_lines(80, true);
@@ -1740,34 +1896,34 @@ mod tests {
             .map(|s| strip_sgr(s))
             .collect::<Vec<_>>()
             .join("\n");
-        let pos_codingplan = joined
-            .find("Set up CodingPlan")
-            .expect("CodingPlan label missing");
+        assert!(
+            !joined.contains("CodingPlan"),
+            "neutral build must not show the managed CodingPlan row: {joined}"
+        );
         let pos_manual = joined
             .find("Configure manually")
             .expect("manual label missing");
         let pos_skip = joined.find("Skip for now").expect("skip label missing");
-        assert!(pos_codingplan < pos_manual);
         assert!(pos_manual < pos_skip);
     }
 
-    /// Filled marker tracks setup_idx.
+    /// Filled marker tracks setup_idx across the neutral 2-row menu.
     #[test]
     fn setup_selected_marker_follows_idx() {
         let _g = crate::i18n::test_lock();
         crate::i18n::set_locale(crate::i18n::Locale::En);
         let mut w = OnboardingWizard::new();
-        w.setup_idx = 1;
+        w.setup_idx = 1; // neutral [Manual(idx0), Skip(idx1)]
         let lines = w.draw_setup_lines(80, true);
         let joined: String = lines
             .iter()
             .map(|s| strip_sgr(s))
             .collect::<Vec<_>>()
             .join("\n");
-        // Selected: idx 1 -> ●  [2]; others get ○.
+        // Selected: idx 1 -> ●  [2] (Skip); the manual row gets ○  [1]; no [3].
         assert!(joined.contains("●  [2]"));
         assert!(joined.contains("○  [1]"));
-        assert!(joined.contains("○  [3]"));
+        assert!(!joined.contains("[3]"));
     }
 
     // ── VirtualTerminal snapshot tests ──
@@ -1877,15 +2033,22 @@ mod tests {
         vt.feed(&bytes);
 
         // Each option's row starts with `│  *  [1]` or `│  o  [N]`.
-        // The bullet must sit at the same column across all three.
+        // The bullet must sit at the same column across all rows. Neutral build
+        // has 2 setup rows ([1] Configure manually, [2] Skip).
         let rows_with_bracket: Vec<String> = (0..24)
             .map(|r| vt.row_text(r))
-            .filter(|r| r.contains("[1]") || r.contains("[2]") || r.contains("[3]"))
+            .filter(|r| {
+                let n = r
+                    .find("[1] Configure")
+                    .or_else(|| r.find("[2] Skip"))
+                    .is_some();
+                n
+            })
             .collect();
         assert_eq!(
             rows_with_bracket.len(),
-            3,
-            "expected 3 option rows, got {rows_with_bracket:?}"
+            2,
+            "expected 2 neutral setup rows, got {rows_with_bracket:?}"
         );
         // Bullet position (*/o) -- all three rows must place it at
         // the same column index. Locate via find().
@@ -2014,9 +2177,14 @@ mod tests {
                 joined
             );
         }
-        // Visible content is still readable in ASCII.
-        assert!(joined.contains("Set up CodingPlan"));
-        assert!(joined.contains("[1]") && joined.contains("[2]") && joined.contains("[3]"));
+        // Visible content is still readable in ASCII (neutral 2-row menu).
+        assert!(
+            !joined.contains("CodingPlan"),
+            "managed row leaked: {joined}"
+        );
+        assert!(joined.contains("Configure manually"));
+        assert!(joined.contains("[1]") && joined.contains("[2]"));
+        assert!(!joined.contains("[3]"));
     }
 
     /// Belt + braces: each row of an ASCII-fallback rendered Setup

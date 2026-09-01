@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Configuration · RustCode Docs</title>
 <meta name="description" content="RustCode configuration reference: TOML schema, provider examples, vision preprocessor.">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -264,7 +264,7 @@ base_url = "https://api.deepseek.com/v1"
 type = "ollama"
 model = "qwen2.5:14b"
 base_url = "http://localhost:11434"</code></pre>
-      <p>In the TUI, use <code>/provider</code> to manage provider accounts and their models. Built-in presets fill in the protocol and base URL for vendors such as 平台 and TaoToken; choose Custom for another endpoint. Use <code>/model</code> to switch the current session and save the selected model as the default for sessions opened later; other already-open sessions are unchanged. The CLI also accepts one-shot overrides:</p>
+      <p>In the TUI, use <code>/provider</code> to manage provider accounts and their models. Built-in presets fill in the protocol and base URL for common third-party providers and for the managed endpoint in distributions that ship one; choose Custom for another endpoint. Use <code>/model</code> to switch the current session and save the selected model as the default for sessions opened later; other already-open sessions are unchanged. The CLI also accepts one-shot overrides:</p>
       <pre><code>rustcode --provider deepseek --model deepseek-reasoner</code></pre>
 
       <h2 id="turn-round-limit">Turn round limit</h2>
@@ -298,7 +298,7 @@ base_url = "https://api.siliconflow.cn/v1"</code></pre>
       <ul>
         <li><code>qwen-vl</code> must be an existing key under <code>[providers.*]</code>, and its model must support vision input (common ones: <code>Qwen3-VL-*</code> / <code>GLM-4V-*</code> / <code>claude-3+</code> / <code>gpt-4o</code> / <code>gemini-*</code>).</li>
         <li>When the active provider can already see images, the preprocessor is <strong>skipped</strong> — the raw image bytes are sent directly.</li>
-        <li>The <code>/login</code> flow auto-picks a VL/OCR model from the granted model list and writes this field for you (you can override afterwards).</li>
+        <li>In distribution builds that offer managed sign-in, the <code>/login</code> flow auto-picks a VL/OCR model from the granted model list and writes this field for you (you can override afterwards); in the open-source build set it manually.</li>
         <li>VL calls use an <strong>idle timeout</strong>: no total cap as long as the stream keeps producing chunks; the request times out after 30 seconds with no activity. On failure the main model still receives a "vision recognition failed" notice rather than a silent drop.</li>
       </ul>
       <p>For usage-level details see <a href="./basic-usage.html#image-attach">Basic Usage · Image attachments / screenshots</a>.</p>
@@ -312,13 +312,13 @@ base_url = "https://api.siliconflow.cn/v1"</code></pre>
 
       <h2 id="next-steps">Next steps</h2>
       <ul>
-        <li><a href="./login.html">Login Methods</a> — skip manual key management with OAuth.</li>
+        <li><a href="./login.html">Login Methods</a> — bring-your-own API key is the default; one-click OAuth is available only in distribution builds that ship a managed service.</li>
         <li><a href="./basic-usage.html">Basic Usage</a> — see how CLI flags can override config for one run.</li>
       </ul>
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

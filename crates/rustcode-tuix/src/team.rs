@@ -169,7 +169,7 @@ impl TeamProjection {
 
     pub fn summary(&self) -> String {
         if self.runs.is_empty() {
-            return "No Team runs.".into();
+            return crate::i18n::t(crate::i18n::Msg::TeamNoRuns).into_owned();
         }
         let members = self.runs.values().flat_map(|run| run.members.values());
         let (mut completed, mut running, mut failed, mut stopped) = (0, 0, 0, 0);
@@ -182,10 +182,14 @@ impl TeamProjection {
                 SubtaskStatus::Pending => {}
             }
         }
-        format!(
-            "Team: {} run(s) · {completed} completed · {running} running · {failed} failed · {stopped} stopped",
-            self.runs.len()
-        )
+        crate::i18n::t(crate::i18n::Msg::TeamSummary {
+            runs: self.runs.len(),
+            completed,
+            running,
+            failed,
+            stopped,
+        })
+        .into_owned()
     }
 
     pub fn panel(&self) -> Option<SubtaskProgress> {
@@ -267,6 +271,28 @@ mod tests {
     use super::*;
     use rustcode_capabilities::team::{TeamMemberId, TeamRoleId, TeamRunId};
 
+    /// Locale-aware expected summary (summary() is i18n-rendered).
+    fn team_summary(
+        runs: usize,
+        completed: usize,
+        running: usize,
+        failed: usize,
+        stopped: usize,
+    ) -> String {
+        crate::i18n::t(crate::i18n::Msg::TeamSummary {
+            runs,
+            completed,
+            running,
+            failed,
+            stopped,
+        })
+        .into_owned()
+    }
+
+    fn team_no_runs() -> String {
+        crate::i18n::t(crate::i18n::Msg::TeamNoRuns).into_owned()
+    }
+
     fn event(run: &str, seq: u64, payload: TeamEventPayload) -> TeamEvent {
         TeamEvent::new(TeamRunId::new(run), seq, payload)
     }
@@ -301,6 +327,7 @@ mod tests {
 
     #[test]
     fn reducer_tracks_terminal_counts_and_visibility_controls() {
+        let _g = crate::i18n::test_lock();
         let mut state = TeamProjection::default();
         state.apply(1, event("a", 1, TeamEventPayload::RunStarted { total: 1 }));
         state.apply(
@@ -317,7 +344,7 @@ mod tests {
                 },
             ),
         );
-        assert!(state.summary().contains("1 failed"));
+        assert_eq!(state.summary(), team_summary(1, 0, 0, 1, 0));
         state.apply(1, event("b", 1, TeamEventPayload::RunStarted { total: 1 }));
         state.apply(
             1,
@@ -333,7 +360,7 @@ mod tests {
                 },
             ),
         );
-        assert!(state.summary().contains("1 stopped"));
+        assert_eq!(state.summary(), team_summary(2, 0, 0, 1, 1));
         assert_eq!(
             state
                 .panel()
@@ -362,7 +389,7 @@ mod tests {
         state.show();
         assert!(state.panel().is_some());
         state.clear();
-        assert_eq!(state.summary(), "No Team runs.");
+        assert_eq!(state.summary(), team_no_runs());
     }
 
     #[test]
@@ -469,6 +496,7 @@ mod tests {
 
     #[test]
     fn activity_promotes_pending_to_running_and_tracks_tokens() {
+        let _g = crate::i18n::test_lock();
         let mut state = TeamProjection::default();
         // RunStarted 使面板可见；之后只有 MemberActivity、没有 MemberStarted：
         // Pending 应提升为 Running，token 估计应单调取 max（乱序/迟到事件不能把计数拉低）。
@@ -515,11 +543,12 @@ mod tests {
         assert_eq!(item.status, SubtaskStatus::Running);
         assert_eq!(item.activity, "done");
         assert_eq!(item.output_tokens, 500, "token 计数必须单调取 max");
-        assert!(state.summary().contains("1 running"));
+        assert_eq!(state.summary(), team_summary(1, 0, 1, 0, 0));
     }
 
     #[test]
     fn out_of_order_seq_events_are_dropped() {
+        let _g = crate::i18n::test_lock();
         let mut state = TeamProjection::default();
         // RunStarted 使面板可见并建立 seq=1 基线。
         state.apply(1, event("a", 1, TeamEventPayload::RunStarted { total: 1 }));
@@ -556,11 +585,12 @@ mod tests {
         assert_eq!(item.status, SubtaskStatus::Completed);
         assert_eq!(item.activity, "ok");
         assert_eq!(item.output_tokens, 100);
-        assert!(state.summary().contains("1 completed"));
+        assert_eq!(state.summary(), team_summary(1, 1, 0, 0, 0));
     }
 
     #[test]
     fn reset_generation_clears_previous_runs() {
+        let _g = crate::i18n::test_lock();
         let mut state = TeamProjection::default();
         state.apply(1, event("a", 1, TeamEventPayload::RunStarted { total: 1 }));
         state.apply(
@@ -577,13 +607,13 @@ mod tests {
                 },
             ),
         );
-        assert!(state.summary().contains("1 failed"));
+        assert_eq!(state.summary(), team_summary(1, 0, 0, 1, 0));
         // 显式 reset 到新 generation：旧 run 应被清空。
         state.reset_generation(2);
-        assert_eq!(state.summary(), "No Team runs.");
+        assert_eq!(state.summary(), team_no_runs());
         // 新 generation 的 RunStarted 生效，旧 run 的失败计数不得残留。
         state.apply(2, event("b", 1, TeamEventPayload::RunStarted { total: 2 }));
         assert_eq!(state.panel().unwrap().total, 2);
-        assert!(!state.summary().contains("1 failed"));
+        assert_eq!(state.summary(), team_summary(1, 0, 0, 0, 0));
     }
 }

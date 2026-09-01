@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { parseOpenFileSelection } from './filePosition';
 import * as path from 'path';
 import * as fs from 'fs';
-import { classifyAuthDisplayState } from '../auth/status';
+import { classifyAuthDisplayState, managedLoginAvailable } from '../auth/status';
 import { DaemonClient, DaemonHttpError } from '../daemon/client';
 import {
   AuthStatusResponse,
@@ -169,6 +169,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private _loginGeneration = 0;
   private _loginInFlight = false;
   private _loginStartedFromCommand = false;
+  // Build capability mirrored from GET /auth/status `managed_available`:
+  // open builds have no managed sign-in service, so every managed-login
+  // entry point short-circuits to BYO provider guidance instead of
+  // hitting a dead-end 501/404. Fail-closed default.
+  private _managedLoginAvailable = false;
   private _workspacePathCache?: { root: string; builtAt: number; items: WorkspacePathItem[] };
   private _approvalModeState: ApprovalModeState = initApprovalModeState('build');
   public onModelSelected?: (model: string) => void;
@@ -1846,6 +1851,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     try {
       auth = await this._client.authStatus();
       if (!isCurrent()) return;
+      this._managedLoginAvailable = managedLoginAvailable(auth);
       post({ type: 'authStatus', auth });
       this._watchRustCodeAuth(auth.auth_path);
     } catch (e) {
@@ -1932,8 +1938,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }, 100);
   }
 
+  /**
+   * Neutral-build guidance used wherever a managed login would otherwise
+   * dead-end on a 501 (`managed_login_unavailable`) or a 404.
+   */
+  private _managedLoginUnavailableMessage(): string {
+    return vscode.l10n.t(
+      'This build has no managed sign-in service. Add a third-party provider with your own API key in setup instead.',
+    );
+  }
+
   private async _startLogin() {
     if (this._loginInFlight) return;
+    if (!this._managedLoginAvailable) {
+      this._broadcastMessage({ type: 'setupError', message: this._managedLoginUnavailableMessage() });
+      return;
+    }
     this._loginInFlight = true;
     try {
       await this._cancelLogin();
@@ -2098,6 +2118,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     options: { loginIfNeeded?: boolean; announceInChat?: boolean } = {},
   ): Promise<CodingPlanSetupResponse | undefined> {
     try {
+      if (!this._managedLoginAvailable) {
+        // Open build: the daemon route 404s and /auth/login/start 501s.
+        // Steer the user to the bring-your-own-key provider form.
+        const message = this._managedLoginUnavailableMessage();
+        this._broadcastMessage({ type: 'setupError', message });
+        if (options.announceInChat) {
+          this._postMessage({ type: 'error', message });
+        }
+        return undefined;
+      }
       if (options.loginIfNeeded) {
         const loggedIn = await this._ensureLoggedInForCodingPlan(options.announceInChat);
         if (!loggedIn) {
@@ -2617,6 +2647,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const [command] = text.split(/\s+/, 1);
     switch (command.toLowerCase()) {
       case '/login':
+        if (!this._managedLoginAvailable) {
+          // Hidden from the picker in open builds, but still dispatchable
+          // when typed: answer with BYO guidance instead of a dead flow.
+          this._postSlashInfo(this._managedLoginUnavailableMessage(), sessionId, text);
+          return true;
+        }
         {
           const result = await this._setupCodingPlan({ loginIfNeeded: true, announceInChat: true });
           if (result) {
@@ -2625,6 +2661,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
         return true;
       case '/logout':
+        if (!this._managedLoginAvailable) {
+          this._postSlashInfo(
+            vscode.l10n.t('This build has no managed account; nothing to sign out of. Configure third-party providers in setup.'),
+            sessionId,
+            text,
+          );
+          return true;
+        }
         try {
           const auth = await this._client.logout();
           this._broadcastMessage({ type: 'authStatus', auth });
@@ -2656,8 +2700,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
               lines.push(`Refresh token: ${auth.token.has_refresh_token ? vscode.l10n.t('yes') : vscode.l10n.t('no')}`);
             }
             this._postSlashInfo(lines.join('\n'), sessionId, text);
-          } else {
+          } else if (managedLoginAvailable(auth)) {
             this._postSlashInfo(vscode.l10n.t('Not signed in.'), sessionId, text);
+          } else {
+            this._postSlashInfo(
+              vscode.l10n.t('Not signed in. This build has no managed account -- add a third-party provider with your own API key in setup.'),
+              sessionId,
+              text,
+            );
           }
         } catch (e) {
           this._postSlashInfo(vscode.l10n.t('Unable to read auth status: {message}', { message: this._messageFromError(e) }), sessionId, text);
@@ -3045,7 +3095,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     html = html.replace(/\{\{nonce\}\}/g, nonce);
     html = html.replace(/\{\{cspSource\}\}/g, webview.cspSource);
     html = html.replace(/\{\{viewMode\}\}/g, mode);
-    html = html.replace(/\{\{locale\}\}/g, vscode.env.language || 'en');
+    // Default locale is Simplified Chinese (matches the Rust side's
+    // Locale::ZhCn fallback): an empty VS Code locale must not flip the
+    // webview to English. The webview itself also defaults to 'zh'.
+    html = html.replace(/\{\{locale\}\}/g, vscode.env.language || 'zh-cn');
     // VS Code injects `editor.fontFamily` as `--vscode-editor-font-family` but NOT
     // `chatEditor.fontFamily` (that setting is for the built-in chat only). Resolve the chat
     // font ourselves and, when set, override the monospace var so code blocks AND the input

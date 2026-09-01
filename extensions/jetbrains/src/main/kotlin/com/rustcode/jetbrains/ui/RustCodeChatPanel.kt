@@ -15,6 +15,7 @@ import com.rustcode.jetbrains.daemon.SessionDetail
 import com.rustcode.jetbrains.daemon.SessionMeta
 import com.rustcode.jetbrains.daemon.SetupSnapshot
 import com.rustcode.jetbrains.diagnostics.RustCodeDiagnostics
+import com.rustcode.jetbrains.i18n.RustCodeBundle
 import com.rustcode.jetbrains.actions.openRustCodeSettings
 import com.rustcode.jetbrains.security.PathSensitivity
 import com.rustcode.jetbrains.security.SensitivePathClassifier
@@ -254,6 +255,10 @@ class RustCodeChatPanel(
     private var currentSession: SessionRefView? = null
     private var welcomeLanguage: String = defaultWelcomeLanguage()
     private var loggedIn = false
+    // Mirrors /auth/status `managed_available`: open builds have no managed
+    // sign-in service, so account entry points are hidden and /login answers
+    // with bring-your-own-key guidance. Fail-closed until a snapshot arrives.
+    private var managedLogin = false
     private val setupRefreshTimer = Timer(2_000) {
         if (isShowing && !disposed && service.connectionState is ConnectionState.Ready) {
             refreshSetupSnapshot(silent = true)
@@ -365,7 +370,7 @@ class RustCodeChatPanel(
     }
 
     fun showWelcomePage() {
-        messageView.showWelcomePage(welcomeLanguage, loggedIn)
+        messageView.showWelcomePage(welcomeLanguage, loggedIn, managedLogin)
     }
 
     fun submitPrompt(prompt: String) {
@@ -382,7 +387,7 @@ class RustCodeChatPanel(
     private fun handleWelcomeAction(action: String) {
         when {
             action == "settings" -> showGearMenu()
-            action == "login" -> login()
+            action == "login" -> if (managedLogin) login() else addSystemMessage(managedLoginUnavailableMessage())
             action == "docs" -> BrowserUtil.browse(currentDocsUrl())
             action == "review" -> composePrompt("/review ")
             action.startsWith("prompt:") -> composePrompt(action.removePrefix("prompt:"))
@@ -467,6 +472,7 @@ class RustCodeChatPanel(
     private fun renderSetupSnapshot(snapshot: SetupSnapshot) {
         setupSnapshot = snapshot
         loggedIn = snapshot.auth?.let { it.loggedIn && !it.expired } == true
+        managedLogin = snapshot.auth?.managedAvailable == true
 
         loadingModels = true
         modelPicker.removeAllItems()
@@ -1844,10 +1850,22 @@ class RustCodeChatPanel(
     private fun handleLocalInputCommand(prompt: String): Boolean {
         val command = prompt.split(Regex("\\s+"), limit = 2).firstOrNull()?.lowercase() ?: return false
         return when (command) {
-            "/login" -> { login(); true }
+            "/login" -> {
+                if (managedLogin) {
+                    login()
+                } else {
+                    // Hidden from menus in open builds, but still dispatchable
+                    // when typed: answer with BYO provider guidance.
+                    addSystemMessage(managedLoginUnavailableMessage())
+                }
+                true
+            }
             else -> false
         }
     }
+
+    private fun managedLoginUnavailableMessage(): String =
+        RustCodeBundle.message("login.unavailable")
 
     // ── Gear menu ──
 
@@ -1863,9 +1881,14 @@ class RustCodeChatPanel(
         providerMenu.add(JSeparator())
         providerMenu.add(JMenuItem(labels.thinkingSettings).apply { addActionListener { showThinkingDialog() } })
         menu.add(providerMenu); menu.add(JSeparator())
-        menu.add(JMenuItem(labels.login).apply { addActionListener { login() } })
-        menu.add(JMenuItem(labels.codingPlanSetup).apply { addActionListener { runSetup() } })
-        menu.add(JSeparator())
+        // Open builds ship no managed account service: hide the sign-in and
+        // CodingPlan setup entries entirely (the daemon would only return
+        // 501/404 for them).
+        if (managedLogin) {
+            menu.add(JMenuItem(labels.login).apply { addActionListener { login() } })
+            menu.add(JMenuItem(labels.codingPlanSetup).apply { addActionListener { runSetup() } })
+            menu.add(JSeparator())
+        }
         menu.add(JMenuItem(labels.sessionHistory).apply { addActionListener { showSessionHistory() } })
         menu.add(JMenuItem(labels.renameSession).apply { addActionListener { renameSelectedSession() } })
         menu.add(JMenuItem(labels.deleteSession).apply { addActionListener { deleteSelectedSession() } })
@@ -1879,10 +1902,12 @@ class RustCodeChatPanel(
 
     private fun showCommandMenu() {
         val menu = JPopupMenu()
-        val items = listOf(
-            SlashCommand("/login", "登录平台账号"),
-            SlashCommand("/review", "审查代码"),
-        )
+        // /login is a managed-account command: hidden from discovery in open
+        // builds (typed /login still dispatches and prints BYO guidance).
+        val items = buildList {
+            if (managedLogin) add(SlashCommand("/login", "登录平台账号"))
+            add(SlashCommand("/review", "审查代码"))
+        }
         items.forEach { command ->
             menu.add(JMenuItem("${command.name} - ${command.description}").apply {
                 addActionListener { inputPanel.setInputText("${command.name} "); inputPanel.focusInput() }

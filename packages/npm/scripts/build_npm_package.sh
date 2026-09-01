@@ -7,20 +7,44 @@
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-B="https://api.gitcode.com/api/v5"
-GITCODE_TOKEN="${GITCODE_TOKEN:-}"
+# Release target is operator/distributor-provided; this build ships no
+# compiled-in release host. Version auto-detection uses a GitLab-v5-compatible
+# contents API; binaries are fetched from a release download root.
+#   RUSTCODE_RELEASE_API_HOST       API host, e.g. https://gitlab.example.com (bare host or
+#                                   with a trailing /api/v5; both are normalized)
+#   RUSTCODE_RELEASE_ACCESS_TOKEN   optional API token (PRIVATE-TOKEN) for private repos
+#   RUSTCODE_RELEASE_OWNER          repo owner/namespace (required for auto-detect)
+#   RUSTCODE_RELEASE_REPO           repo name (default: rustcode)
+#   RUSTCODE_RELEASE_REF           branch/tag for version detection (default: main)
+#   RUSTCODE_RELEASE_DOWNLOAD_BASE  root hosting v<ver>/rustcode-v<ver>-<os>-<arch> assets
+#   JQ_URL                          optional override URL for fetching a jq binary
+B="${RUSTCODE_RELEASE_API_HOST:-}"
+# Accept bare host (https://gitlab.example.com) or v5 base (.../api/v5);
+# normalize to the v5 base so the "$B/repos/..." paths below are correct.
+if [ -n "$B" ]; then B="${B%/}"; B="${B%/api/v5}"; B="$B/api/v5"; fi
+RELEASE_TOKEN="${RUSTCODE_RELEASE_ACCESS_TOKEN:-}"
+RELEASE_OWNER="${RUSTCODE_RELEASE_OWNER:-}"
+RELEASE_REPO="${RUSTCODE_RELEASE_REPO:-rustcode}"
+RELEASE_REF="${RUSTCODE_RELEASE_REF:-main}"
+DOWNLOAD_BASE="${RUSTCODE_RELEASE_DOWNLOAD_BASE:-}"
 
 # ── version auto-detection (same helpers as packages/homebrew/scripts/package-tar-gz.sh) ──
 et(){
     command -v curl &>/dev/null || return 1
     command -v jq &>/dev/null && return 0
-    j=jq-macos-amd64; [[ $(uname -m) == arm64 ]] && j=jq-macos-arm64
+    # Pick the jq asset for the current OS/arch (jq release asset names).
+    case "$(uname -s)" in
+        Darwin) j=jq-macos-$([ "$(uname -m)" = arm64 ] && echo arm64 || echo amd64) ;;
+        Linux)  j=jq-linux-$([ "$(uname -m)" = aarch64 ] && echo arm64 || echo amd64) ;;
+        *)      j=jq-macos-amd64 ;;
+    esac
     g="https://github.com/jqlang/jq/releases/download/jq-1.7.1/$j"
     d=$(mktemp -d) || return 1; p=$d/jq
-    for u in "${GITCODE_JQ_URL:-}" "$g" "https://ghfast.top/$g"; do
+    for u in "${JQ_URL:-}" "$g"; do
         [[ $u ]] || continue
         curl -fsSL --connect-timeout 40 --retry 3 "$u" -o "$p" || continue
-        s=$(stat -f%z "$p" 2>/dev/null || echo 0)
+        # Portable byte count: `stat -f%z` is BSD/macOS-only; wc -c works on Linux too.
+        s=$(wc -c < "$p" 2>/dev/null | tr -d '[:space:]'); s=${s:-0}
         [[ $s -ge 80000 ]] || { rm -f "$p"; continue; }
         chmod +x "$p" || { rm -f "$p"; continue; }
         "$p" -n . &>/dev/null || { rm -f "$p"; continue; }
@@ -30,8 +54,9 @@ et(){
     rm -rf "$d"; return 1
 }
 
-fct(){ curl -sS -H "PRIVATE-TOKEN: $GITCODE_TOKEN" -H "Accept: application/json" \
-    "$B/repos/SecLab/RustCode/contents/Cargo.toml?ref=main"; }
+fct(){ local h=(); [ -n "$RELEASE_TOKEN" ] && h=(-H "PRIVATE-TOKEN: $RELEASE_TOKEN");
+    curl -sS "${h[@]}" -H "Accept: application/json" \
+    "$B/repos/$RELEASE_OWNER/$RELEASE_REPO/contents/Cargo.toml?ref=$(jq -rn --arg r "$RELEASE_REF" '$r|@uri')"; }
 
 pvs(){
     local t v
@@ -47,6 +72,9 @@ if [ $# -ge 1 ] && [[ "$1" != -* ]]; then
     VERSION="$1"
     shift
 else
+    [ -n "$B" ] && [ -n "$RELEASE_OWNER" ] || {
+        echo "Error: auto-detect needs RUSTCODE_RELEASE_API_HOST and RUSTCODE_RELEASE_OWNER,"
+        echo "       or pass <version> explicitly."; exit 1; }
     et || { echo "Error: jq not available"; exit 1; }
     j=$(fct) || { echo "Error: failed to fetch Cargo.toml"; exit 1; }
     jq -e .error_code <<<"$j" &>/dev/null && { echo "Error fetching Cargo.toml: $(echo "$j" | jq -r .message)"; exit 1; }
@@ -81,20 +109,23 @@ publish_platform() {
 EOF
 
   # download binary
+  [ -n "$DOWNLOAD_BASE" ] || { echo "Error: RUSTCODE_RELEASE_DOWNLOAD_BASE is required to fetch binaries"; exit 1; }
   local dl_os="$os"
   [ "$os" = "win32" ] && dl_os="windows"
   local bin_name="rustcode$([ "$os" = "win32" ] && echo ".exe")"
-  local url="https://gitcode.com/SecLab/RustCode/releases/download/v${VERSION}/rustcode-v${VERSION}-${dl_os}-${arch}$([ "$os" = "win32" ] && echo ".exe")"
+  local url="${DOWNLOAD_BASE%/}/v${VERSION}/rustcode-v${VERSION}-${dl_os}-${arch}$([ "$os" = "win32" ] && echo ".exe")"
 
-  echo "  ↓ downloading ${tag}..."
+  echo "  [*] downloading ${tag}..."
   local http_code
-  if [ -n "$GITCODE_TOKEN" ]; then
-    http_code=$(curl -fsSL -w '%{http_code}' -H "PRIVATE-TOKEN: $GITCODE_TOKEN" --connect-timeout 30 --retry 3 "$url" -o "$dir/bin/$bin_name" 2>/dev/null)
+  # curl -f exits non-zero on HTTP 404; `|| true` keeps set -e from aborting so
+  # the skip-on-missing-platform check below is reachable (matches put()/upl()).
+  if [ -n "$RELEASE_TOKEN" ]; then
+    http_code=$(curl -fsSL -w '%{http_code}' -H "PRIVATE-TOKEN: $RELEASE_TOKEN" --connect-timeout 30 --retry 3 "$url" -o "$dir/bin/$bin_name" 2>/dev/null) || true
   else
-    http_code=$(curl -fsSL -w '%{http_code}' --connect-timeout 30 --retry 3 "$url" -o "$dir/bin/$bin_name" 2>/dev/null)
+    http_code=$(curl -fsSL -w '%{http_code}' --connect-timeout 30 --retry 3 "$url" -o "$dir/bin/$bin_name" 2>/dev/null) || true
   fi
   if [ "$http_code" = "404" ]; then
-    echo "  ⚠ binary not found for ${tag}, skipping"
+    echo "  [!] binary not found for ${tag}, skipping"
     rm -f "$dir/bin/$bin_name"
     return 0
   fi

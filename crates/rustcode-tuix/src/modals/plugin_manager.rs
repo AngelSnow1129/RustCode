@@ -226,10 +226,14 @@ impl PluginManager {
         let installed_count = self.installed.len();
         // Palette-independent active/inactive contrast -- see modals::tab_chip
         // (fixed 256-colours, correct on Solarized Dark and every theme).
-        let t0 = crate::modals::tab_chip("All Plugins", current_tab == 0);
-        let t1 =
-            crate::modals::tab_chip(&format!("Installed ({installed_count})"), current_tab == 1);
-        let t2 = crate::modals::tab_chip("Marketplaces", current_tab == 2);
+        let t0 = crate::modals::tab_chip(&t(Msg::PluginTabAll), current_tab == 0);
+        let t1 = crate::modals::tab_chip(
+            &t(Msg::PluginTabInstalled {
+                count: installed_count,
+            }),
+            current_tab == 1,
+        );
+        let t2 = crate::modals::tab_chip(&t(Msg::PluginTabMarketplaces), current_tab == 2);
         format!("{t0}   {t1}   {t2}")
     }
 
@@ -571,10 +575,13 @@ impl PluginManager {
                 &i.marketplace,
                 i.scope,
             ) {
-                renderer.render(crate::render::UiLine::Error(format!(
-                    "Failed to auto-uninstall plugin '{}': {:#}",
-                    i.plugin, e
-                )));
+                renderer.render(crate::render::UiLine::Error(
+                    t(Msg::PluginAutoUninstallFailed {
+                        name: &i.plugin,
+                        error: &format!("{e:#}"),
+                    })
+                    .into_owned(),
+                ));
             }
         }
 
@@ -594,7 +601,7 @@ impl PluginManager {
 
     fn dispatch_update_marketplace(&mut self, name: String, ctx: &LoopCtx) {
         let tx = ctx.plugin_job_tx.clone();
-        self.pending = Some(format!("Updating marketplace '{}'...", name));
+        self.pending = Some(t(Msg::PluginMarketplaceUpdating { name: &name }).into_owned());
         tokio::task::spawn_blocking(move || {
             let ev = match rustcode_capabilities::plugin::marketplace::update_marketplace(&name) {
                 Ok(info) => PluginJobEvent::MarketplaceUpdated(info),
@@ -740,7 +747,10 @@ impl PluginManager {
                     let hint = if self.search_query.is_empty() {
                         t(Msg::PluginMgrEmptyPlugins).into_owned()
                     } else {
-                        format!("No plugins match '{}'", self.search_query)
+                        t(Msg::PluginNoPluginsMatch {
+                            query: &self.search_query,
+                        })
+                        .into_owned()
                     };
                     return (Vec::new(), hint);
                 }
@@ -778,7 +788,10 @@ impl PluginManager {
                     let hint = if self.search_query.is_empty() {
                         t(Msg::PluginMgrEmptyInstalled).into_owned()
                     } else {
-                        format!("No installed plugins match '{}'", self.search_query)
+                        t(Msg::PluginNoInstalledMatch {
+                            query: &self.search_query,
+                        })
+                        .into_owned()
                     };
                     return (Vec::new(), hint);
                 }
@@ -862,10 +875,10 @@ impl PluginManager {
             }
             Screen::AddUrl => {
                 let rows = vec![
-                    ("Add Marketplace".to_string(), String::new()),
+                    (t(Msg::PluginAddMarketplaceRow).into_owned(), String::new()),
                     (String::new(), String::new()),
-                    ("Enter marketplace source:".to_string(), String::new()),
-                    ("Examples:".to_string(), String::new()),
+                    (t(Msg::PluginEnterSourceRow).into_owned(), String::new()),
+                    (t(Msg::PluginExamplesRow).into_owned(), String::new()),
                     (
                         "  . git@example.com:owner/repo.git (SSH)".to_string(),
                         String::new(),
@@ -990,18 +1003,27 @@ impl PluginManager {
                 if let Some(m) = self.marketplaces.iter().find(|x| &x.name == mp) {
                     let available_count = m.plugins.len();
                     rows.push((
-                        format!("Browse plugins ({})", available_count),
+                        t(Msg::PluginBrowseRow {
+                            count: available_count,
+                        })
+                        .into_owned(),
                         String::new(),
                     ));
 
                     let last_updated = get_directory_modified_date(&m.name);
                     rows.push((
-                        format!("Update marketplace (last updated {})", last_updated),
+                        t(Msg::PluginUpdateRow {
+                            date: &last_updated,
+                        })
+                        .into_owned(),
                         String::new(),
                     ));
 
                     if !is_official_marketplace(&m.source) {
-                        rows.push(("Remove marketplace".to_string(), String::new()));
+                        rows.push((
+                            t(Msg::PluginRemoveMarketplaceRow).into_owned(),
+                            String::new(),
+                        ));
                     }
                 }
                 (rows, t(Msg::PluginMgrHintNav).into_owned())
@@ -1383,17 +1405,27 @@ impl Modal for PluginManager {
         };
 
         if let Some((plugin, mp, version, description, scope_opt)) = details_opt {
-            final_items.push(("  * Plugin Info".to_string(), String::new()));
-            final_items.push((format!("  Name:        {}", plugin), String::new()));
+            final_items.push((t(Msg::PluginInfoHeader).into_owned(), String::new()));
             final_items.push((
-                format!("  Marketplace: {}@{}\x1b[39m", muted_esc(), mp),
+                format!("{}{}", t(Msg::PluginNameLabel), plugin),
                 String::new(),
             ));
             final_items.push((
                 format!(
-                    "  Version:     {}{}\x1b[39m",
+                    "{}{}@{}\x1b[39m",
+                    t(Msg::PluginMarketplaceLabel),
                     muted_esc(),
-                    version.unwrap_or_else(|| "unknown".to_string())
+                    mp
+                ),
+                String::new(),
+            ));
+            let version_text = version.unwrap_or_else(|| t(Msg::PluginVersionUnknown).into_owned());
+            final_items.push((
+                format!(
+                    "{}{}{}\x1b[39m",
+                    t(Msg::PluginVersionLabel),
+                    muted_esc(),
+                    version_text
                 ),
                 String::new(),
             ));
@@ -1405,7 +1437,12 @@ impl Modal for PluginManager {
                     InstallScope::Local => t(Msg::PluginScopeLocalShort).into_owned(),
                 };
                 final_items.push((
-                    format!("  Scope:       {}{}\x1b[39m", muted_esc(), scope_label),
+                    format!(
+                        "{}{}{}\x1b[39m",
+                        t(Msg::PluginScopeLabel),
+                        muted_esc(),
+                        scope_label
+                    ),
                     String::new(),
                 ));
                 selected_offset += 1;
@@ -1415,7 +1452,12 @@ impl Modal for PluginManager {
                 if !trimmed.is_empty() {
                     let truncated = truncate_plugin_desc(trimmed);
                     final_items.push((
-                        format!("  Description: {}{}\x1b[39m", muted_esc(), truncated),
+                        format!(
+                            "{}{}{}\x1b[39m",
+                            t(Msg::PluginDescriptionLabel),
+                            muted_esc(),
+                            truncated
+                        ),
                         String::new(),
                     ));
                     selected_offset += 1;
@@ -1423,17 +1465,20 @@ impl Modal for PluginManager {
             }
             final_items.push((String::new(), String::new()));
             if matches!(self.screen, Screen::ScopeSelect { .. }) {
-                final_items.push(("  Select Install Scope:".to_string(), String::new()));
+                final_items.push((t(Msg::PluginSelectScopeHeader).into_owned(), String::new()));
                 final_items.push((String::new(), String::new()));
                 selected_offset += 3;
             } else if matches!(self.screen, Screen::InstalledDetails { .. }) {
-                final_items.push(("  Manage Plugin:".to_string(), String::new()));
+                final_items.push((t(Msg::PluginManageHeader).into_owned(), String::new()));
                 final_items.push((String::new(), String::new()));
                 selected_offset += 3;
             } else {
                 let installing_label = t(Msg::PluginMgrInstallingStatus).into_owned();
                 final_items.push((
-                    format!("  Status:      {}...", installing_label),
+                    t(Msg::PluginStatusInstalling {
+                        label: &installing_label,
+                    })
+                    .into_owned(),
                     String::new(),
                 ));
                 final_items.push((String::new(), String::new()));
@@ -1457,20 +1502,27 @@ impl Modal for PluginManager {
                 ));
                 final_items.push((String::new(), String::new()));
                 final_items.push((
-                    format!("  {} available plugins", m.plugins.len()),
+                    t(Msg::PluginAvailableCount {
+                        count: m.plugins.len(),
+                    })
+                    .into_owned(),
                     String::new(),
                 ));
                 final_items.push((String::new(), String::new()));
                 final_items.push((
-                    format!("  \x1b[1mInstalled plugins ({}):\x1b[22m", installed_count),
+                    t(Msg::PluginModalInstalledHeader {
+                        count: installed_count,
+                    })
+                    .into_owned(),
                     String::new(),
                 ));
 
                 if installed_count == 0 {
                     final_items.push((
                         format!(
-                            "  {}No plugins installed from this marketplace.\x1b[39m",
-                            muted_esc()
+                            "  {}{}\x1b[39m",
+                            muted_esc(),
+                            t(Msg::PluginNoInstalledFromMarketplace)
                         ),
                         String::new(),
                     ));
@@ -1503,7 +1555,7 @@ impl Modal for PluginManager {
         }
 
         if matches!(self.screen, Screen::Marketplaces) {
-            final_items.push(("+ Add Marketplace".to_string(), String::new()));
+            final_items.push((t(Msg::PluginAddMarketplacePlus).into_owned(), String::new()));
             final_items.push((String::new(), String::new()));
             for item in items {
                 final_items.push(item);
@@ -1698,40 +1750,41 @@ fn muted_esc() -> &'static str {
     }
 }
 
-fn get_mock_category(name: &str) -> &'static str {
+fn get_mock_category(name: &str) -> String {
     let lower = name.to_lowercase();
-    if lower.contains("git") || lower.contains("commit") || lower.contains("lens") {
-        "Git"
+    let msg = if lower.contains("git") || lower.contains("commit") || lower.contains("lens") {
+        Msg::PluginCategoryGit
     } else if lower.contains("lint") || lower.contains("check") || lower.contains("eslint") {
-        "Linter"
+        Msg::PluginCategoryLinter
     } else if lower.contains("format") || lower.contains("prettier") || lower.contains("style") {
-        "Formatter"
+        Msg::PluginCategoryFormatter
     } else if lower.contains("rust")
         || lower.contains("go")
         || lower.contains("python")
         || lower.contains("lang")
         || lower.contains("analyzer")
     {
-        "Language"
+        Msg::PluginCategoryLanguage
     } else if lower.contains("security") || lower.contains("auth") || lower.contains("guard") {
-        "Security"
+        Msg::PluginCategorySecurity
     } else if lower.contains("ai")
         || lower.contains("gpt")
         || lower.contains("copilot")
         || lower.contains("model")
     {
-        "AI"
+        Msg::PluginCategoryAi
     } else {
         let mut hash = 0u64;
         for c in name.chars() {
             hash = hash.wrapping_add(c as u64).wrapping_mul(31);
         }
         match hash % 3 {
-            0 => "Utility",
-            1 => "Tool",
-            _ => "Completion",
+            0 => Msg::PluginCategoryUtility,
+            1 => Msg::PluginCategoryTool,
+            _ => Msg::PluginCategoryCompletion,
         }
-    }
+    };
+    t(msg).into_owned()
 }
 
 #[cfg(test)]
@@ -1820,6 +1873,8 @@ mod tests {
 
     #[test]
     fn installed_count_in_tab_bar() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let m = manager(vec![], vec![mk_installed("a", "x"), mk_installed("b", "x")]);
         let bar = m.tab_bar();
         assert!(bar.contains("Installed (2)"));
@@ -1828,6 +1883,8 @@ mod tests {
     #[test]
     fn tab_bar_colors_on_dark_theme() {
         let _theme = crate::highlight::theme::test_lock();
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let m = manager(vec![], vec![]);
         crate::highlight::theme::set_theme_mode(false); // force dark
         let bar = m.tab_bar();
@@ -2084,6 +2141,8 @@ mod tests {
 
     #[test]
     fn add_marketplace_help_screen_rows() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let mut m = manager(vec![], vec![]);
         m.goto(Screen::AddUrl);
 

@@ -55,8 +55,8 @@ struct ReviewArgs {
     /// Review a GitHub pull request by number (`gh pr diff <N>`; needs the `gh` CLI).
     #[arg(long, conflicts_with = "diff_file")]
     pr: Option<u64>,
-    /// Review a diff from a file, or `-` for stdin (works with any forge: GitLab/gitcode
-    /// MRs, CI artifacts, etc. -- e.g. `glab mr diff 5 | rustcodex review --diff-file -`).
+    /// Review a diff from a file, or `-` for stdin (works with any forge: GitLab MRs,
+    /// GitHub PRs, CI artifacts, etc. -- e.g. `glab mr diff 5 | rustcodex review --diff-file -`).
     #[arg(long)]
     diff_file: Option<String>,
     /// Repository root (default: current directory).
@@ -315,15 +315,17 @@ async fn review(args: ReviewArgs) -> Result<()> {
         "missing model: pass --model, set $RUSTCODE_MODEL, or add model to the config provider",
     )?;
     // Managed signing gateways require proprietary request signing (a closed-source
-    // overlay in the official binary). rustcodex uses the neutral provider and cannot
-    // sign -- fail fast with an actionable message instead of a confusing 401.
+    // overlay that only certain distribution builds ship). rustcodex uses the neutral
+    // provider and cannot sign -- fail fast with an actionable message instead of a
+    // confusing 401.
     if is_signing_gateway(&base_url) {
         bail!(
             "provider base_url '{base_url}' is a managed signing-enforced gateway, \
              which rustcodex cannot authenticate against (it needs the proprietary \
-             request signing). Use a standard provider with an explicit api_key -- e.g. \
-             `--provider openrouter`, or set RUSTCODE_API_KEY/RUSTCODE_BASE_URL/RUSTCODE_MODEL \
-             to a plain OpenAI-compatible endpoint."
+             request signing). Use a standard third-party provider with an explicit \
+             api_key -- select a named [providers.<name>] entry with `--provider <name>`, \
+             or set RUSTCODE_API_KEY/RUSTCODE_BASE_URL/RUSTCODE_MODEL to a plain \
+             OpenAI-compatible endpoint."
         );
     }
     // api_key is OPTIONAL -- some gateways need none. Config values may be `$ENV` refs.
@@ -935,7 +937,7 @@ fn gh_pr_diff(repo: &Path, pr: u64) -> Result<String> {
         .current_dir(repo)
         .args(["pr", "diff", &pr.to_string()])
         .output()
-        .context("failed to run `gh` -- install the GitHub CLI, or pipe the diff via `--diff-file -` (e.g. for gitcode/GitLab)")?;
+        .context("failed to run `gh` -- install the GitHub CLI, or pipe the diff via `--diff-file -` (e.g. for GitLab/other forges)")?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         bail!("`gh pr diff {pr}` failed: {}", stderr.trim());
@@ -1589,7 +1591,7 @@ context_window = 1000000
 type = "openai"
 api_key = "$OPENROUTER_API_KEY"
 model = "stepfun/step-3.7-flash"
-base_url = "https://openrouter.ai/api/v1"
+base_url = "https://openrouter.example.com/api/v1"
 "#;
 
     #[test]
@@ -1669,9 +1671,9 @@ base_url = "https://openrouter.ai/api/v1"
         assert!(!is_signing_gateway(
             "https://pre-llm-api-cce.example.com/v1"
         ));
-        // plain providers are fine.
-        assert!(!is_signing_gateway("https://openrouter.ai/api/v1"));
-        assert!(!is_signing_gateway("https://api.deepseek.com/v1"));
+        // plain third-party providers are fine (reserved example domains).
+        assert!(!is_signing_gateway("https://openrouter.example.com/api/v1"));
+        assert!(!is_signing_gateway("https://deepseek.example.com/v1"));
         // a lookalike path must NOT trip the host check.
         assert!(!is_signing_gateway(
             "https://evil.com/llm-api.example.com/v1"

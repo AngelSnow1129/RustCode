@@ -650,13 +650,16 @@ pub enum ProviderUnavailableReason {
 impl fmt::Display for ProviderUnavailableReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotConfigured => f.write_str("no provider configured -- run /login or /provider"),
-            Self::AuthenticationRequired => {
-                f.write_str("provider authentication required -- run /login")
+            Self::NotConfigured => {
+                f.write_str("no provider configured -- run /provider to add a third-party API key")
             }
+            Self::AuthenticationRequired => f.write_str(
+                "provider authentication required -- run /provider to check or update the API key",
+            ),
             Self::UnsupportedBuild => f.write_str(
-                "this source build cannot sign requests for the managed signing gateway -- use an \
-                 official build, or switch to a standard third-party provider",
+                "this build cannot sign requests for a managed signing gateway -- use a \
+                 distribution build that ships managed-signing support, or configure a standard \
+                 third-party provider via /provider",
             ),
         }
     }

@@ -9,6 +9,7 @@ use super::{
     scan::scan,
     Decisions, ExecuteContext, Group, Outcome,
 };
+use rustcode_config::i18n::{t, Msg};
 use rustcode_updater::current_exe_path;
 
 pub struct Args {
@@ -28,7 +29,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     let tty = std::io::stdin().is_terminal();
 
     if args.purge && args.keep_data {
-        eprintln!("rustcode uninstall: --purge conflicts with --keep-data");
+        eprintln!("{}", t(Msg::CliUninstallPurgeConflict));
         std::process::exit(EXIT_BAD_ARGS as i32);
     }
 
@@ -38,11 +39,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         DecisionMode::Tty => None,
         DecisionMode::Flag(d) => Some(d),
         DecisionMode::AbortNoTty => {
-            eprintln!(
-                "rustcode uninstall: refusing to run interactively without a TTY.\n\
-                 Pass one of: --yes (use defaults), --purge (delete everything),\n\
-                              --keep-data (binary only), --dry-run."
-            );
+            eprintln!("{}", t(Msg::CliUninstallNoTty));
             std::process::exit(EXIT_BAD_ARGS as i32);
         }
     };
@@ -65,12 +62,12 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     };
 
     if !final_decisions.binary {
-        eprintln!("rustcode uninstall: cannot uninstall without removing binary; aborted.");
+        eprintln!("{}", t(Msg::CliUninstallBinaryRequired));
         std::process::exit(EXIT_USER_DECLINED as i32);
     }
 
     if tty_mode && !confirm_and_kill_running_processes()? {
-        eprintln!("aborted: running processes were not terminated.");
+        eprintln!("{}", t(Msg::CliUninstallProcsAborted));
         std::process::exit(EXIT_USER_DECLINED as i32);
     }
 
@@ -120,11 +117,11 @@ fn confirm_and_kill_running_processes() -> anyhow::Result<bool> {
         return Ok(true);
     }
 
-    println!("\nFound {} running rustcode process(es):", procs.len());
+    println!("{}", t(Msg::CliUninstallProcsFound { count: procs.len() }));
     for p in &procs {
         println!("  pid {}  {}", p.pid, p.name);
     }
-    print!("Kill them and continue? [y/N]: ");
+    print!("{}", t(Msg::CliUninstallKillPrompt));
     std::io::stdout().flush()?;
     let mut line = String::new();
     std::io::stdin().lock().read_line(&mut line)?;
@@ -135,14 +132,23 @@ fn confirm_and_kill_running_processes() -> anyhow::Result<bool> {
         if let Err(e) = kill_process(p.pid) {
             #[cfg(windows)]
             {
-                eprintln!("could not kill pid {}: {}", p.pid, e);
+                eprintln!(
+                    "{}",
+                    t(Msg::CliUninstallKillFailed {
+                        pid: p.pid,
+                        error: &e.to_string(),
+                    })
+                );
                 return Ok(false); // Windows: must succeed or rename will fail
             }
             #[cfg(not(windows))]
             {
                 eprintln!(
-                    "warn: could not kill pid {}: {} (continuing -- Unix unlink doesn't need it)",
-                    p.pid, e
+                    "{}",
+                    t(Msg::CliUninstallKillWarn {
+                        pid: p.pid,
+                        error: &e.to_string(),
+                    })
                 );
             }
         }
@@ -153,26 +159,16 @@ fn confirm_and_kill_running_processes() -> anyhow::Result<bool> {
 // ----- Task 9 implementations -----
 
 fn print_plan(plan: &super::scan::Plan, decisions: Decisions) {
-    println!("DRY RUN -- no changes will be made.\n");
+    println!("{}", t(Msg::CliUninstallDryRun));
 
-    print_group(
-        plan,
-        Group::Binary,
-        "[Group 1] Binary + PATH edit",
-        decisions.binary,
-    );
+    print_group(plan, Group::Binary, &t(Msg::CliUninstallGroup1Plan), decisions.binary);
     print_group(
         plan,
         Group::Credentials,
-        "[Group 2] Credentials and global config",
+        &t(Msg::CliUninstallGroup2Plan),
         decisions.credentials,
     );
-    print_group(
-        plan,
-        Group::State,
-        "[Group 3] Local state and extensions",
-        decisions.state,
-    );
+    print_group(plan, Group::State, &t(Msg::CliUninstallGroup3Plan), decisions.state);
 }
 
 fn print_group(plan: &super::scan::Plan, g: Group, label: &str, will_remove: bool) {
@@ -180,10 +176,12 @@ fn print_group(plan: &super::scan::Plan, g: Group, label: &str, will_remove: boo
     if items.is_empty() {
         return;
     }
-    println!(
-        "{label}  [{}]",
-        if will_remove { "WILL REMOVE" } else { "KEEP" }
-    );
+    let tag = if will_remove {
+        t(Msg::CliUninstallTagWillRemove)
+    } else {
+        t(Msg::CliUninstallTagKeep)
+    };
+    println!("{label}  [{tag}]");
     for it in &items {
         let mark = if it.needs_privilege { " (sudo)" } else { "" };
         println!(
@@ -214,37 +212,27 @@ fn human_size(bytes: u64) -> String {
 fn prompt_user(plan: &super::scan::Plan) -> anyhow::Result<Option<Decisions>> {
     use std::io::{BufRead, Write};
 
-    println!("This will uninstall RustCode from your system.\n");
+    println!("{}", t(Msg::CliUninstallIntro));
 
-    let g1 = ask_group(
-        plan,
-        Group::Binary,
-        "[Group 1] Remove binary and PATH edit?",
-        true,
-    )?;
+    let g1 = ask_group(plan, Group::Binary, &t(Msg::CliUninstallGroup1Prompt), true)?;
     if !g1 {
-        eprintln!("Group 1 declined; aborting (cannot keep binary while removing data).");
+        eprintln!("{}", t(Msg::CliUninstallGroup1Declined));
         return Ok(None);
     }
     let g2 = ask_group(
         plan,
         Group::Credentials,
-        "[Group 2] Remove credentials and global config?",
+        &t(Msg::CliUninstallGroup2Prompt),
         false,
     )?;
-    let g3 = ask_group(
-        plan,
-        Group::State,
-        "[Group 3] Remove local state and extensions?",
-        true,
-    )?;
+    let g3 = ask_group(plan, Group::State, &t(Msg::CliUninstallGroup3Prompt), true)?;
 
-    println!("\nSummary:");
+    println!("{}", t(Msg::CliUninstallSummaryHeader));
     summarize_decision(plan, Group::Binary, true);
     summarize_decision(plan, Group::Credentials, g2);
     summarize_decision(plan, Group::State, g3);
 
-    print!("\nContinue? [y/N]: ");
+    print!("{}", t(Msg::CliUninstallContinuePrompt));
     std::io::stdout().flush()?;
     let mut line = String::new();
     std::io::stdin().lock().read_line(&mut line)?;
@@ -280,7 +268,12 @@ fn ask_group(
         );
     }
     let prompt_suffix = if default_yes { "[Y/n]" } else { "[y/N]" };
-    print!("Proceed? {prompt_suffix}: ");
+    print!(
+        "{}",
+        t(Msg::CliUninstallProceedPrompt {
+            suffix: prompt_suffix
+        })
+    );
     std::io::stdout().flush()?;
     let mut line = String::new();
     std::io::stdin().lock().read_line(&mut line)?;
@@ -298,37 +291,48 @@ fn summarize_decision(plan: &super::scan::Plan, g: Group, will_remove: bool) {
     if count == 0 {
         return;
     }
-    let action = if will_remove { "Remove" } else { "Keep" };
-    let label = match g {
-        Group::Binary => "binary + PATH",
-        Group::Credentials => "credentials",
-        Group::State => "local state",
+    let action = if will_remove {
+        t(Msg::CliUninstallActionRemove)
+    } else {
+        t(Msg::CliUninstallActionKeep)
     };
-    println!("  {action}: {count} items ({label})");
+    let label = match g {
+        Group::Binary => t(Msg::CliUninstallLabelBinary),
+        Group::Credentials => t(Msg::CliUninstallLabelCredentials),
+        Group::State => t(Msg::CliUninstallLabelState),
+    };
+    println!(
+        "{}",
+        t(Msg::CliUninstallSummaryRow {
+            action: &action,
+            count,
+            label: &label,
+        })
+    );
 }
 
 fn print_summary(outcome: &Outcome) {
     println!("\n──────────────────");
     if !outcome.removed.is_empty() {
-        println!("Removed:");
+        println!("{}", t(Msg::CliUninstallResultRemoved));
         for p in &outcome.removed {
             println!("  {}", p.display());
         }
     }
     if !outcome.kept.is_empty() {
-        println!("Kept (use --purge to remove later):");
+        println!("{}", t(Msg::CliUninstallResultKept));
         for p in &outcome.kept {
             println!("  {}", p.display());
         }
     }
     if !outcome.failed.is_empty() {
-        println!("Failed:");
+        println!("{}", t(Msg::CliUninstallResultFailed));
         for (p, e) in &outcome.failed {
             println!("  {}  ({})", p.display(), e);
         }
     }
     if !outcome.backups.is_empty() {
-        println!("Backups:");
+        println!("{}", t(Msg::CliUninstallResultBackups));
         for p in &outcome.backups {
             println!("  {}", p.display());
         }

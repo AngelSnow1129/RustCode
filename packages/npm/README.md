@@ -1,7 +1,7 @@
 # @rustcode/rustcode
 
 [![npm version](https://img.shields.io/npm/v/@rustcode/rustcode)](https://www.npmjs.com/package/@rustcode/rustcode)
-[![license](https://img.shields.io/npm/l/@rustcode/rustcode)](https://gitcode.com/SecLab/RustCode)
+[![license](https://img.shields.io/npm/l/@rustcode/rustcode)](https://www.npmjs.com/package/@rustcode/rustcode)
 
 **RustCode** — 开源终端 AI 编码助手。用自然语言描述任务，自动阅读代码、编辑文件、执行命令、验证结果。
 
@@ -49,13 +49,12 @@ rustcode uninstall
 
 ## 版本对应
 
-npm 版本号与 RustCode 发布版本一致。详见 [Releases](https://gitcode.com/SecLab/RustCode/releases)。
+npm 版本号与 RustCode 发布版本一致，发布说明请见你的发行渠道。
 
 ## 链接
 
-- [源码仓库](https://gitcode.com/SecLab/RustCode)
-- [Issues](https://gitcode.com/SecLab/RustCode/issues)
-- [许可证](https://gitcode.com/SecLab/RustCode/blob/main/LICENSE)
+- 源码仓库与问题反馈：请通过你获取本软件的发行渠道获取（本构建不绑定固定托管平台）。
+- 许可证：MIT
 
 ---
 

@@ -6,6 +6,8 @@ description = "L2 review specialization: assembles the neutral kernel + capabili
 
 [dependencies]
 rustcode-kernel = { path = "../rustcode-kernel" }
+# Locale-aware report/activity scaffolding (`t(Msg::..)`); i18n tables live here.
+rustcode-config = { path = "../rustcode-config" }
 # Read-only review toolset: fs read/grep/glob + ast_grep + report_finding (in `tools`),
 # code-intelligence (`codeintel`), and web_search (`web`). NO write/edit/bash mounted.
 rustcode-capabilities = { path = "../rustcode-capabilities", features = ["provider", "tools", "codeintel", "web", "skills"] }

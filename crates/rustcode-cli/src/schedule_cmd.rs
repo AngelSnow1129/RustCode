@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use clap::Subcommand;
 
 use crate::schedule_os::{InstallState, OsScheduler};
+use rustcode_config::i18n::{t, Msg};
 use rustcode_config::schedule::{self, Schedule, ScheduleTask};
 
 // ── CLI enum ──────────────────────────────────────────────────────────────────
@@ -104,28 +105,44 @@ fn parse_schedule(
     hourly: bool,
     cron: Option<&str>,
 ) -> Result<Schedule> {
-    if let Some(t) = daily {
+    if let Some(value) = daily {
         // Validate HH:MM format minimally.
-        if !t.contains(':') {
-            anyhow::bail!("--daily expects HH:MM format, got {:?}", t);
+        if !value.contains(':') {
+            anyhow::bail!("{}", t(Msg::CliSchedDailyBad { value: &format!("{value:?}") }));
         }
         return Ok(Schedule::Daily {
-            time: t.to_string(),
+            time: value.to_string(),
         });
     }
     if let Some(w) = weekly {
         // Format: N@HH:MM
-        let (n_str, time) = w
-            .split_once('@')
-            .with_context(|| format!("--weekly expects N@HH:MM format, got {:?}", w))?;
-        let weekday: u8 = n_str
-            .parse()
-            .with_context(|| format!("--weekly weekday must be 1..7, got {:?}", n_str))?;
+        let (n_str, time) = w.split_once('@').with_context(|| {
+            t(Msg::CliSchedWeeklyBad {
+                value: &format!("{w:?}"),
+            })
+            .into_owned()
+        })?;
+        let weekday: u8 = n_str.parse().with_context(|| {
+            t(Msg::CliSchedWeekdayBad {
+                value: &format!("{n_str:?}"),
+            })
+            .into_owned()
+        })?;
         if !(1..=7).contains(&weekday) {
-            anyhow::bail!("--weekly weekday must be 1..7, got {}", weekday);
+            anyhow::bail!(
+                "{}",
+                t(Msg::CliSchedWeekdayBad {
+                    value: &weekday.to_string(),
+                })
+            );
         }
         if !time.contains(':') {
-            anyhow::bail!("--weekly time must be HH:MM, got {:?}", time);
+            anyhow::bail!(
+                "{}",
+                t(Msg::CliSchedWeeklyTimeBad {
+                    value: &format!("{time:?}"),
+                })
+            );
         }
         return Ok(Schedule::Weekly {
             weekday,
@@ -134,17 +151,20 @@ fn parse_schedule(
     }
     if let Some(e) = every {
         // Format: Nm  (e.g. "30m")
-        let minutes_str = e
-            .strip_suffix('m')
-            .with_context(|| format!("--every expects format like '30m', got {:?}", e))?;
+        let minutes_str = e.strip_suffix('m').with_context(|| {
+            t(Msg::CliSchedEveryBad {
+                value: &format!("{e:?}"),
+            })
+            .into_owned()
+        })?;
         let every_minutes: u32 = minutes_str.parse().with_context(|| {
-            format!(
-                "--every minutes value must be a positive integer, got {:?}",
-                minutes_str
-            )
+            t(Msg::CliSchedEveryIntBad {
+                value: &format!("{minutes_str:?}"),
+            })
+            .into_owned()
         })?;
         if every_minutes == 0 {
-            anyhow::bail!("--every minutes must be > 0");
+            anyhow::bail!("{}", t(Msg::CliSchedEveryZero));
         }
         return Ok(Schedule::Interval { every_minutes });
     }
@@ -156,10 +176,7 @@ fn parse_schedule(
             expr: expr.to_string(),
         });
     }
-    anyhow::bail!(
-        "one frequency flag is required: --daily HH:MM | --weekly N@HH:MM | \
-         --every Nm | --hourly | --cron EXPR"
-    )
+    anyhow::bail!("{}", t(Msg::CliSchedFrequencyRequired))
 }
 
 /// Build a [`ScheduleTask`] from raw CLI arguments.  Pure function -- no I/O.
@@ -233,9 +250,11 @@ fn slug(s: &str) -> String {
 fn handle_add_with(os: &dyn OsScheduler, task: &ScheduleTask) -> Result<()> {
     if let Err(e) = os.install(task) {
         eprintln!(
-            "[schedule] warning: OS scheduler registration failed for {}: {e}\n\
-             Run `rustcode schedule sync` to retry.",
-            task.id
+            "{}",
+            t(Msg::CliSchedRegFailed {
+                id: &task.id,
+                error: &format!("{e:#}"),
+            })
         );
     }
     Ok(())
@@ -245,19 +264,37 @@ fn handle_add_with(os: &dyn OsScheduler, task: &ScheduleTask) -> Result<()> {
 fn handle_remove_with(os: &dyn OsScheduler, id: &str) -> Result<()> {
     // best-effort -- don't abort if already absent
     let _ = os.uninstall(id);
-    schedule::remove(id).with_context(|| format!("failed to remove task {:?}", id))?;
+    schedule::remove(id).with_context(|| {
+        t(Msg::CliSchedRemoveFailed {
+            id: &format!("{id:?}"),
+        })
+        .into_owned()
+    })?;
     Ok(())
 }
 
 /// Core logic for `schedule enable`.
 fn handle_enable_with(os: &dyn OsScheduler, id: &str) -> Result<()> {
-    let mut task = schedule::load(id).with_context(|| format!("task {:?} not found", id))?;
+    let mut task = schedule::load(id).with_context(|| {
+        t(Msg::CliSchedTaskNotFound {
+            id: &format!("{id:?}"),
+        })
+        .into_owned()
+    })?;
     task.enabled = true;
-    schedule::save(&task).with_context(|| format!("failed to save task {:?}", id))?;
+    schedule::save(&task).with_context(|| {
+        t(Msg::CliSchedSaveFailed {
+            id: &format!("{id:?}"),
+        })
+        .into_owned()
+    })?;
     if let Err(e) = os.install(&task) {
         eprintln!(
-            "[schedule] warning: OS scheduler registration failed for {id}: {e}\n\
-             Run `rustcode schedule sync` to retry."
+            "{}",
+            t(Msg::CliSchedRegFailed {
+                id,
+                error: &format!("{e:#}"),
+            })
         );
     }
     Ok(())
@@ -265,9 +302,19 @@ fn handle_enable_with(os: &dyn OsScheduler, id: &str) -> Result<()> {
 
 /// Core logic for `schedule disable`.
 fn handle_disable_with(os: &dyn OsScheduler, id: &str) -> Result<()> {
-    let mut task = schedule::load(id).with_context(|| format!("task {:?} not found", id))?;
+    let mut task = schedule::load(id).with_context(|| {
+        t(Msg::CliSchedTaskNotFound {
+            id: &format!("{id:?}"),
+        })
+        .into_owned()
+    })?;
     task.enabled = false;
-    schedule::save(&task).with_context(|| format!("failed to save task {:?}", id))?;
+    schedule::save(&task).with_context(|| {
+        t(Msg::CliSchedSaveFailed {
+            id: &format!("{id:?}"),
+        })
+        .into_owned()
+    })?;
     // best-effort
     let _ = os.uninstall(id);
     Ok(())
@@ -291,22 +338,34 @@ fn handle_sync_with(os: &dyn OsScheduler) -> Result<usize> {
         if task.enabled {
             match os.install(task) {
                 Ok(()) => {
-                    println!("  sync: installed {}", task.id);
+                    println!("{}", t(Msg::CliSchedSyncInstalled { id: &task.id }));
                     installed += 1;
                 }
                 Err(e) => {
-                    eprintln!("  sync: failed to install {}: {e}", task.id);
+                    eprintln!(
+                        "{}",
+                        t(Msg::CliSchedSyncInstallFailed {
+                            id: &task.id,
+                            error: &format!("{e:#}"),
+                        })
+                    );
                     errors += 1;
                 }
             }
         } else {
             match os.uninstall(&task.id) {
                 Ok(()) => {
-                    println!("  sync: uninstalled {}", task.id);
+                    println!("{}", t(Msg::CliSchedSyncUninstalled { id: &task.id }));
                     uninstalled += 1;
                 }
                 Err(e) => {
-                    eprintln!("  sync: failed to uninstall {}: {e}", task.id);
+                    eprintln!(
+                        "{}",
+                        t(Msg::CliSchedSyncUninstallFailed {
+                            id: &task.id,
+                            error: &format!("{e:#}"),
+                        })
+                    );
                     errors += 1;
                 }
             }
@@ -314,8 +373,12 @@ fn handle_sync_with(os: &dyn OsScheduler) -> Result<usize> {
     }
 
     println!(
-        "  sync done: {} installed, {} uninstalled, {} errors",
-        installed, uninstalled, errors
+        "{}",
+        t(Msg::CliSchedSyncDone {
+            installed,
+            uninstalled,
+            errors,
+        })
     );
     Ok(errors)
 }
@@ -351,18 +414,28 @@ pub async fn handle_schedule(cli: ScheduleCli) -> Result<i32> {
                     .into_owned()
             });
             let task = build_task(&title, &prompt, &cwd, sched, &mode, &notify);
-            schedule::save(&task)
-                .with_context(|| format!("failed to save scheduled task {:?}", task.id))?;
+            schedule::save(&task).with_context(|| {
+                t(Msg::CliSchedSaveFailed {
+                    id: &format!("{:?}", task.id),
+                })
+                .into_owned()
+            })?;
             let os = crate::schedule_os::current()?;
             handle_add_with(os.as_ref(), &task)?;
-            println!("  Added task {} ({})", task.id, task.title);
+            println!(
+                "{}",
+                t(Msg::CliSchedAdded {
+                    id: &task.id,
+                    title: &task.title,
+                })
+            );
             Ok(0)
         }
 
         ScheduleCli::List => {
             let tasks = schedule::list();
             if tasks.is_empty() {
-                println!("  No scheduled tasks. Use `rustcode schedule add` to create one.");
+                println!("{}", t(Msg::CliSchedNone));
                 return Ok(0);
             }
             // Degrade gracefully: if the OS scheduler is not available (e.g.
@@ -374,20 +447,31 @@ pub async fn handle_schedule(cli: ScheduleCli) -> Result<i32> {
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
 
-            for t in &tasks {
-                let next = schedule::next_run(&t.schedule, now)
+            for task in &tasks {
+                let next = schedule::next_run(&task.schedule, now)
                     .map(format_epoch)
                     .unwrap_or_else(|| "-".to_string());
-                let last = t.last_status.as_deref().unwrap_or("-");
-                let state = if t.enabled { "on" } else { "off" };
-                let reg = match os.as_ref().map(|s| s.status(&t.id)) {
-                    Some(InstallState::Installed) => "registered",
-                    Some(InstallState::Missing) => "missing",
-                    None => "unknown",
+                let last = task.last_status.as_deref().unwrap_or("-");
+                let state = if task.enabled {
+                    t(Msg::CliSchedStateOn)
+                } else {
+                    t(Msg::CliSchedStateOff)
+                };
+                let reg = match os.as_ref().map(|s| s.status(&task.id)) {
+                    Some(InstallState::Installed) => t(Msg::CliSchedRegRegistered),
+                    Some(InstallState::Missing) => t(Msg::CliSchedRegMissing),
+                    None => t(Msg::CliSchedRegUnknown),
                 };
                 println!(
-                    "  {} | {} | next:{} | last:{} | {} | {}",
-                    t.id, t.title, next, last, state, reg
+                    "{}",
+                    t(Msg::CliSchedListRow {
+                        id: &task.id,
+                        title: &task.title,
+                        next: &next,
+                        last,
+                        state: &state,
+                        reg: &reg,
+                    })
                 );
             }
             Ok(0)
@@ -396,21 +480,21 @@ pub async fn handle_schedule(cli: ScheduleCli) -> Result<i32> {
         ScheduleCli::Remove { id } => {
             let os = crate::schedule_os::current()?;
             handle_remove_with(os.as_ref(), &id)?;
-            println!("  Removed task {}", id);
+            println!("{}", t(Msg::CliSchedRemoved { id: &id }));
             Ok(0)
         }
 
         ScheduleCli::Enable { id } => {
             let os = crate::schedule_os::current()?;
             handle_enable_with(os.as_ref(), &id)?;
-            println!("  Enabled task {}", id);
+            println!("{}", t(Msg::CliSchedEnabled { id: &id }));
             Ok(0)
         }
 
         ScheduleCli::Disable { id } => {
             let os = crate::schedule_os::current()?;
             handle_disable_with(os.as_ref(), &id)?;
-            println!("  Disabled task {}", id);
+            println!("{}", t(Msg::CliSchedDisabled { id: &id }));
             Ok(0)
         }
 
@@ -461,11 +545,16 @@ async fn run_task(id: &str) -> Result<i32> {
     use rustcode_config::config::Config;
 
     // 1. Load task record.
-    let mut task = schedule::load(id).with_context(|| format!("task {:?} not found", id))?;
+    let mut task = schedule::load(id).with_context(|| {
+        t(Msg::CliSchedTaskNotFound {
+            id: &format!("{id:?}"),
+        })
+        .into_owned()
+    })?;
 
     // 2. Skip if disabled.
     if !task.enabled {
-        println!("  schedule run: task {} is disabled, skipping", task.id);
+        println!("{}", t(Msg::CliSchedRunSkipped { id: &task.id }));
         return Ok(0);
     }
 
@@ -481,8 +570,11 @@ async fn run_task(id: &str) -> Result<i32> {
     let cwd = std::path::PathBuf::from(&task.cwd);
     if !cwd.exists() {
         eprintln!(
-            "[schedule] working directory {:?} does not exist for task {}",
-            cwd, task.id
+            "{}",
+            t(Msg::CliSchedBadCwd {
+                cwd: &format!("{cwd:?}"),
+                id: &task.id,
+            })
         );
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

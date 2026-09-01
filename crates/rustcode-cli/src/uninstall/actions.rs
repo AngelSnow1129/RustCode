@@ -317,7 +317,7 @@ impl SelfDeleteStrategy for PlatformSelfDelete {
 
         // Use `timeout` for the delay instead of `ping` -- it is semantically
         // clearer and avoids the "cmd window flashing ping 127.0.0.1" bug
-        // reported in gitcode.com/SecLab/RustCode/issues/352.
+        // (upstream issue #352).
         // CREATE_NO_WINDOW prevents the console window from appearing at all
         // (DETACHED_PROCESS does NOT reliably hide the window on Win10).
         let cmd_arg = format!("timeout /t 2 /nobreak >nul & rmdir /S /Q \"{}\"", dir_str);

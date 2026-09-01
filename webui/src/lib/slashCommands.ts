@@ -33,16 +33,30 @@ export interface SlashHandlers {
   notice(text: string): void;
   submitPrompt?(text: string): void | Promise<void>;
   execServerCommand(command: string, arg: string): void | Promise<void>;
+  /** Whether the build ships a managed sign-in service (/auth/status ->
+   *  managed_available). False in neutral/open builds: managed-only commands
+   *  are hidden from the slash menu and /help (still dispatchable when typed). */
+  managedAvailable: boolean;
   t(key: string, params?: Record<string, string | number>): string;
 }
 
 export interface SlashCommandDef {
   name: string;
   aliases?: string[];
+  /** Managed-account command (e.g. /whoami): only advertised in distribution
+   *  builds with a sign-in service. Hidden from the menu/help in neutral
+   *  builds, but kept dispatchable so an explicit invocation still returns
+   *  the server's (neutral) message -- mirrors the TUI's command_visible. */
+  managedOnly?: boolean;
   /** i18n key，用于菜单描述与 /help。 */
   descKey: string;
   argHint?: string;
   run(arg: string, h: SlashHandlers): void | Promise<void>;
+}
+
+/** Commands safe to advertise (slash menu + /help) for the running build. */
+export function visibleCommands(managedAvailable: boolean): SlashCommandDef[] {
+  return FRONTEND_COMMANDS.filter((d) => managedAvailable || !d.managedOnly);
 }
 
 export const FRONTEND_COMMANDS: SlashCommandDef[] = [
@@ -66,7 +80,7 @@ export const FRONTEND_COMMANDS: SlashCommandDef[] = [
   { name: 'resume', descKey: 'cmd.resume.desc', run: (_a, h) => h.openSessionSidebar() },
   { name: 'reload', descKey: 'cmd.reload.desc', run: (_a, h) => h.reloadConfig() },
   { name: 'skills', descKey: 'cmd.skills.desc', run: (_a, h) => h.openSlashSkillsMenu() },
-  { name: 'help', descKey: 'cmd.help.desc', run: (_a, h) => h.notice(buildHelpText(h.t)) },
+  { name: 'help', descKey: 'cmd.help.desc', run: (_a, h) => h.notice(buildHelpText(h.t, h.managedAvailable)) },
   {
     name: 'review',
     descKey: 'cmd.review.desc',
@@ -89,7 +103,7 @@ export const FRONTEND_COMMANDS: SlashCommandDef[] = [
   { name: 'memory', descKey: 'cmd.memory.desc', run: (a, h) => h.execServerCommand('memory', a) },
   { name: 'context', descKey: 'cmd.context.desc', run: (a, h) => h.execServerCommand('context', a) },
   { name: 'compact', descKey: 'cmd.compact.desc', argHint: '[focus]', run: (a, h) => h.execServerCommand('compact', a) },
-  { name: 'whoami', descKey: 'cmd.whoami.desc', run: (a, h) => h.execServerCommand('whoami', a) },
+  { name: 'whoami', descKey: 'cmd.whoami.desc', managedOnly: true, run: (a, h) => h.execServerCommand('whoami', a) },
   { name: 'status', descKey: 'cmd.status.desc', run: (a, h) => h.execServerCommand('status', a) },
   { name: 'config', descKey: 'cmd.config.desc', run: (a, h) => h.execServerCommand('config', a) },
   { name: 'diff', descKey: 'cmd.diff.desc', run: (a, h) => h.execServerCommand('diff', a) },
@@ -121,9 +135,12 @@ export function buildCommandMap(defs: SlashCommandDef[]): Map<string, SlashComma
   return m;
 }
 
-export function buildHelpText(t: (key: string, params?: Record<string, string | number>) => string): string {
+export function buildHelpText(
+  t: (key: string, params?: Record<string, string | number>) => string,
+  managedAvailable = false,
+): string {
   const lines = [t('cmd.help.title')];
-  for (const d of FRONTEND_COMMANDS) {
+  for (const d of visibleCommands(managedAvailable)) {
     lines.push(`/${d.name}${d.argHint ? ' ' + d.argHint : ''} — ${t(d.descKey)}`);
   }
   return lines.join('\n');

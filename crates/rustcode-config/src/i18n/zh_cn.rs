@@ -93,8 +93,8 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CpStatusFetchFailed { error } =>
             format!("  [!] 状态获取失败（非致命） -- {}\n", error).into(),
         Msg::CpOfficialBuildRequired => Cow::Borrowed(
-            "此功能需要官方 {brand} 构建，请前往 \
-             https://gitcode.com/SecLab/RustCode/releases 下载安装。",
+            "当前配置的 CodingPlan 网关需要带托管签名支持的构建，当前 {brand} 构建不包含该能力。\
+             请改用第三方提供商（自带 API Key），或使用提供 CodingPlan 支持的发行版本。",
         ),
         Msg::CpAuthRequired => Cow::Borrowed(
             "未登录 {brand} CodingPlan。请运行 /login 完成登录后再发送请求。",
@@ -109,7 +109,8 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "当前 {brand} 版本过旧，已不兼容 CodingPlan。请升级 {brand} 后继续使用。",
         ),
         Msg::CpUpgradeRequired => Cow::Borrowed(
-            "需要升级才能继续使用 CodingPlan，请前往官方发布页安装最新版 {brand}。",
+            "需要升级才能继续使用 CodingPlan。请升级到你所用发行版提供的新版 {brand}，\
+             或用 /provider 配置第三方 Provider（自带 API Key）。",
         ),
 
         Msg::ErrUnsupportedLocale { input } =>
@@ -121,7 +122,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::StatusRuntimeUnavailable =>
             "Runtime 不可用 . 请重启或查看上方错误".into(),
         Msg::StatusOfficialBuildRequired =>
-            "CodingPlan 需要官方构建".into(),
+            "当前构建不支持 CodingPlan".into(),
         Msg::StatusUpgradeHint { version } =>
             format!("↑ {version} 可用 . 使用 /upgrade 升级").into(),
         Msg::StatusUpgradeHintPm { version } =>
@@ -336,11 +337,15 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderPanelAccountsHint =>
             "筛选 . ↑↓选择 . ↵模型 . Ctrl+A添加 . Ctrl+E编辑 . Ctrl+Dx2 删除 . Tab切换 . Esc关闭".into(),
         Msg::ProviderPanelManagedAccountHint =>
-            "官方 CodingPlan 账号 . 仅支持查看 . ↵模型 . Tab切换 . Esc关闭".into(),
+            "托管 CodingPlan 账号 . 仅支持查看 . ↵模型 . Tab切换 . Esc关闭".into(),
+        Msg::ProviderPanelManagedAccountHintNeutral =>
+            "名称属托管账号保留名，本构建无托管服务 . 仅支持查看 . ↵模型 . Tab切换 . Esc关闭".into(),
         Msg::ProviderPanelModelsHint =>
             "筛选 . ↑↓选择 . ↵默认/添加 . Ctrl+A添加 . Ctrl+E编辑 . Ctrl+Dx2 删除 . Tab切换 . Esc关闭".into(),
         Msg::ProviderPanelManagedModelsHint =>
             "CodingPlan 模型由 /login 管理 . ↑↓选择 . ↵设为默认 . Tab全部 . Esc关闭".into(),
+        Msg::ProviderPanelManagedModelsHintNeutral =>
+            "名称属托管保留名，本构建无托管服务 . ↑↓选择 . ↵设为默认 . Tab全部 . Esc关闭".into(),
         Msg::ProviderPanelFilteredModelsHint { account } =>
             format!("〔{account}〕. ↑↓选择 . ↵默认/添加 . Ctrl+A加模型 . Ctrl+E编辑 . Ctrl+Dx2 删除 . Tab全部 . Esc关闭").into(),
         Msg::ProviderPanelModelSaved { model } => format!("已保存模型“{model}”。").into(),
@@ -380,6 +385,14 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         // ── 会话选择器 ──
         Msg::SessionLoadFailed { error } =>
             format!("加载会话失败：{error}").into(),
+        Msg::SessionResumeInProgress => "另一个会话恢复仍在进行中".into(),
+        Msg::SessionPrepJoinFailed { error } =>
+            format!("会话准备任务失败：{error}").into(),
+        Msg::SessionNotFoundById { session_id } =>
+            format!("会话 {session_id} 不存在").into(),
+        Msg::SessionPrepTimeout =>
+            "会话准备耗时异常长（会话过大或磁盘较慢），请重试".into(),
+        Msg::ProjectFallbackWord => "项目".into(),
         Msg::SessionResumedLabel { name } =>
             format!("已恢复：{name}").into(),
         Msg::SessionBusyForked { source_id, fork_id } =>
@@ -483,6 +496,8 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("  已切换到：{path}\n").into(),
         Msg::DirNotADirectory { path } =>
             format!("不是目录：{path}").into(),
+        Msg::CdHomeUnknown => "主目录未知".into(),
+        Msg::CdNoPrevious => "没有上一个目录".into(),
 
         // ── 语言 ──
         Msg::LanguageSwitched { label, locale } =>
@@ -501,11 +516,6 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "添加自定义模型".into(),
         Msg::IdleHintProviderFull =>
             "使用 /provider 添加自定义模型".into(),
-        Msg::IdleHintCodingplan => "/login".into(),
-        Msg::IdleHintCodingplanSuffix =>
-            "领取免费 Token 额度".into(),
-        Msg::IdleHintCodingplanFull =>
-            "使用 /login 领取免费 Token 额度".into(),
         Msg::IdleHintWebui => "/webui".into(),
         Msg::IdleHintWebuiSuffix =>
             "在浏览器中同步会话".into(),
@@ -562,6 +572,9 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("退出登录失败：{error}").into(),
         Msg::CmdWhoamiNotSignedIn =>
             "  尚未登录。使用 /login 进行认证。\n".into(),
+        Msg::CmdWhoamiNotSignedInNeutral =>
+            "  尚未登录。此构建无托管账号 -- 用 /provider 配置第三方供应商（自带 API Key）。\n"
+                .into(),
         Msg::CmdReloadDone { provider, model } =>
             format!("  配置已重载。当前：{provider} . {model}\n").into(),
         Msg::CmdReloadFailed { error } =>
@@ -591,10 +604,14 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "  正在检查更新...\n".into(),
         Msg::CmdNoActiveProvider =>
             "未配置活跃的 Provider。使用 /provider 添加一个。".into(),
+        Msg::CmdNoModelConfigured =>
+            "未配置模型；请先运行 /provider 添加第三方 API 密钥".into(),
         Msg::CmdProviderUnavailable =>
             "Provider 当前不可用。请使用 /login 登录，或用 /provider 配置。".into(),
+        Msg::CmdProviderUnavailableNeutral =>
+            "Provider 当前不可用。请用 /provider 配置第三方 Provider（自带 API Key）。".into(),
         Msg::CmdProviderUnsupportedBuild =>
-            "当前构建不支持官方网关。请安装官方版本，或使用 /provider 切换其他 Provider。".into(),
+            "当前构建无法接入网关。请使用带网关支持的发行版构建，或用 /provider 配置第三方 Provider（自带 API Key）。".into(),
         Msg::CmdProviderReloading =>
             "正在切换 Provider/模型，请等待切换完成后再发送。".into(),
         Msg::SubmitHeldUntilProviderReady =>
@@ -637,7 +654,306 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("升级失败: {}", error).into(),
         Msg::UpgradeRolledBack { exe, backup } =>
             format!("\n[+] 已回滚。当前二进制: {}；另一版本保存在 {}\n  正在重启回滚版本...\n", exe, backup).into(),
+        Msg::CliUpgradeAvailable { version } =>
+            format!("[*] 发现新版本：{version}").into(),
+        Msg::CliUpgradeDownloading { pct, mb, total_mb } =>
+            format!("\r   下载中 {pct}% ({mb} / {total_mb} MB)      ").into(),
+        Msg::CliUpgradeVerifying => "\n[+] 正在校验 sha256".into(),
+        Msg::CliUpgradeApplying { version } =>
+            format!("[+] 正在升级到 {version}...").into(),
+        Msg::CliUpgradeReexecFailed { error } =>
+            format!("升级已应用但重新执行失败（{error}）。新版本将在下次启动时生效。").into(),
+        Msg::CliUpgradeCheckFailed =>
+            "提示：启动时未能检查更新（将在后台重试）。".into(),
+        Msg::CliUpgradeApplyFailed { error } =>
+            format!("提示：待应用的升级未能执行（{error}）。继续使用当前版本。").into(),
+        Msg::CliUpgradeDevDisabled => "[dev] 已禁用自动更新".into(),
+        Msg::CliFatalError { error } => format!("\nRustCode 错误：{error}").into(),
+        Msg::CliStartingAfterLogin => "\n  正在启动 RustCode...\n".into(),
+        Msg::CliDaemonStarting { port } =>
+            format!("正在端口 {port} 上启动 RustCode 守护进程...").into(),
+        Msg::CliDaemonStopHint => "按 Ctrl+C 停止。".into(),
+        Msg::CliDaemonFatal { error } => format!("致命错误：守护进程服务器错误：{error}").into(),
+        Msg::CliLoginSetupFailed { error } => format!("登录初始化失败：{error}").into(),
+        Msg::CliLoggedOut => "  已退出登录。".into(),
+        Msg::CliStatusLoggedIn { username, id } =>
+            format!("\n  已登录：{username}（{id}）").into(),
+        Msg::CliStatusName { name } => format!("  姓名：{name}").into(),
+        Msg::CliStatusEmail { email } => format!("  邮箱：{email}").into(),
+        Msg::CliStatusAuthFile { path } => format!("  认证文件：{path}\n").into(),
+        Msg::CliStatusNotLoggedInManaged => "\n  尚未登录。".into(),
+        Msg::CliStatusLoginHint => "  运行 'rustcode login' 进行认证。\n".into(),
+        Msg::CliStatusHintNeutral =>
+            "\n  [*] 本构建不含托管登录 -- 使用自带密钥（BYO）的第三方服务商。\n\
+请在 ~/.rustcode/config.toml 中配置第三方服务商，填入你自己的\n\
+base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
+                .into(),
+        Msg::CliManagedLoginNotBuilt =>
+            "\n  [*] 本构建未包含托管登录功能。\n\
+无需使用 `/login`，直接在 ~/.rustcode/config.toml 中配置第三方\n\
+服务商，填入你自己的 base_url 和 api_key\n\
+（或设置 RUSTCODE_PLATFORM_SERVER 使用托管网关）。\n"
+                .into(),
+        Msg::CliReauthFailed { error } => format!("重新认证失败：{error}").into(),
+        Msg::CliConfigSaveFailed { path, error } =>
+            format!("  [!] 保存配置到 {path} 失败：{error}").into(),
+        Msg::CliSyncMarkerWriteFailed { error } =>
+            format!("  [!] 写入 codingplan 同步标记失败：{error}").into(),
+        Msg::CliUpgradeLatest { version } => format!("==> 最新版本：{version}").into(),
+        Msg::CliUpgradeDownloadProgress { pct, bytes, total } =>
+            format!("\r    下载中 {pct}%（{bytes} / {total} 字节）   ").into(),
+        Msg::CliUpgradeVerifyingSha => "\n==> 正在校验 SHA256".into(),
+        Msg::CliUpgradeReplacingBinary => "==> 正在替换二进制文件".into(),
+        Msg::CliUpgradeCmdDone { version, backup } =>
+            format!("\n[+] 已升级到 {version}（旧版本保留在 {backup}）").into(),
+        Msg::CliUpgradeStartNewHint => "  运行 `rustcode` 启动新版本。".into(),
+        Msg::CliUpgradeCmdFailed { error } => format!("\n升级失败：{error}").into(),
+        Msg::CliUpgradePanicked { error } => format!("升级任务异常中断：{error}").into(),
+        Msg::CliRollbackCmdDone { exe, backup } =>
+            format!("\n[+] 已回退。exe={exe}，备份={backup}").into(),
+        Msg::CliRollbackCmdDoneTwo { current, saved } =>
+            format!("[+] 已回退。当前二进制位于 {current}，另一版本保存在 {saved}").into(),
+        Msg::CliRollbackStartHint => "  运行 `rustcode` 启动回退后的版本。".into(),
 
+        // ── Headless（`-p`/`--print`）stderr 输出 ──
+        Msg::CliHeadlessProviderRetry { reason, backoff_secs, attempt, max_attempts } =>
+            format!("API 错误 {reason}，{backoff_secs} 秒后重试（{attempt}/{max_attempts}）...").into(),
+        Msg::CliHeadlessRateAutoResume { secs } =>
+            format!("将在 {secs} 秒后自动继续...").into(),
+        Msg::CliHeadlessRateRetry { reason, secs } =>
+            format!("HTTP 429{reason} —— 请稍后重试（{secs} 秒后）").into(),
+        Msg::CliHeadlessRatePaused { reason } =>
+            format!("HTTP 429{reason} —— 已暂停，请稍后重试").into(),
+        Msg::CliHeadlessRateWindowResetAt { reset_at } =>
+            format!("限流窗口已耗尽 —— 预计 {reset_at} 左右重置").into(),
+        Msg::CliHeadlessRateWindowSecs { secs } =>
+            format!("限流窗口已耗尽 —— {secs} 秒后重置，请稍后重试").into(),
+        Msg::CliHeadlessRateWindowPaused =>
+            "限流窗口已耗尽 —— 已暂停，请稍后重试".into(),
+        Msg::CliHeadlessAutoApproved { tool } => format!("已自动批准 {tool}").into(),
+        Msg::CliHeadlessDenied { tool } =>
+            format!("{tool} 需要交互式批准，已拒绝").into(),
+        Msg::CliSetupCwdError { error } =>
+            format!("setup 错误：无法读取当前目录：{error}").into(),
+        Msg::CliSetupFailed { error } => format!("setup 错误：{error}").into(),
+        Msg::CliSeedInitialized { path, source } =>
+            format!("已从 {source} 初始化 {path}").into(),
+        Msg::CliSeedInvalid { error } =>
+            format!("警告：--seed-config 已忽略（不是有效的配置文件）：{error}").into(),
+        Msg::CliSeedIoError { error } =>
+            format!("警告：--seed-config 无法应用：{error}").into(),
+        Msg::CliConfigLoadWarnings { path, warnings } =>
+            format!("警告：{path} 中的部分 provider 配置段无法加载：\n{warnings}").into(),
+        Msg::CliConfigLoadFailed { path, error } =>
+            format!("警告：加载 {path} 失败（{error}）；改用默认配置。").into(),
+        Msg::CliResumeHint { cmd } => format!("继续此会话，运行：{cmd}").into(),
+        // 同 en：不使用 `\` 续行（Rust 会吞掉下一行前导空格，破坏缩进）。
+        Msg::CliWindowsCodePage { input, output } =>
+            format!(
+                "\n[!]  控制台代码页 —— 输入：{input}（应为 65001/UTF-8），输出：{output}。\n                       中文/日文/韩文输入法的输入/输出可能显示为乱码。\n                       -> 请使用 Windows Terminal 以获得原生 UTF-8 支持。\n                       -> 或在区域设置中启用“Beta：使用 Unicode UTF-8 提供全球语言支持”。\n"
+            ).into(),
+        Msg::CliPromptFileReadFailed { path, error } =>
+            format!("错误：读取 --prompt-file {path} 失败：{error}").into(),
+        Msg::CliResumeNoMatch { selector } =>
+            format!(
+                "本项目中没有匹配 id 或名称 {selector} 的会话 —— 运行 `rustcode resume` 列出会话，或检查工作目录（-C）"
+            ).into(),
+        Msg::CliHeadlessNoProviderNamed { name, path } =>
+            format!(
+                "未找到 Provider：'{name}' 不匹配任何已配置的 provider，且未设置默认 provider。请在 {path} 中配置第三方 provider（base_url、api_key、model），或不带参数运行 `rustcode` 进入交互式设置。"
+            ).into(),
+        Msg::CliHeadlessNoProvider { path } =>
+            format!(
+                "未配置 provider。请在 {path} 中添加第三方 provider（base_url、api_key、model），或不带参数运行 `rustcode` 进入交互式设置。"
+            ).into(),
+
+        // ── `rustcode mcp` ──
+        Msg::CliMcpAdded { name, path, program, args } =>
+            format!("  已添加 MCP 服务器 {name} -> {path}（stdio：{program} + {args} 个参数）").into(),
+        Msg::CliMcpAddedGithub { name, path } =>
+            format!("  已添加 GitHub OAuth MCP 服务器 {name} -> {path}").into(),
+        Msg::CliMcpLoginSaved { provider, name, scopes } =>
+            format!("  已为 MCP 服务器 {name} 保存 {provider} OAuth 令牌（{scopes} 个 scope）").into(),
+        Msg::CliMcpLogoutRemoved { name } =>
+            format!("  已移除 MCP 服务器 {name} 保存的 OAuth 令牌").into(),
+        Msg::CliMcpLogoutNotFound { name } =>
+            format!("  未找到 MCP 服务器 {name} 已保存的 OAuth 令牌").into(),
+        Msg::CliMcpServerNotFound { name } =>
+            format!("配置中未找到 MCP 服务器 {name}").into(),
+
+        // ── `rustcode hooks` ──
+        Msg::CliHooksLoadedHeader => "\n已加载的 Hooks：".into(),
+        Msg::CliHooksNone => "  （未加载任何 hook）".into(),
+        Msg::CliHooksTableEvent => "事件".into(),
+        Msg::CliHooksTableCount => "数量".into(),
+        Msg::CliHooksTableTotal => "总计".into(),
+        Msg::CliHooksConfigFiles => "\nHook 配置文件：".into(),
+        Msg::CliHooksPathGlobal { path } => format!("全局：   {path}").into(),
+        Msg::CliHooksPathProject { path } => format!("项目：  {path}").into(),
+        Msg::CliHooksPathNoHome => "全局：   （无 home 目录）".into(),
+        Msg::CliHooksUntrustedHeader => "未受信任的插件 hook（不会加载）：".into(),
+        Msg::CliHooksUntrustedRow { plugin, count, events } =>
+            format!("  {plugin} —— {count} 个 hook [{events}]。运行：rustcode plugin trust {plugin}").into(),
+        Msg::CliHooksTestNotFound { name } =>
+            format!("[x] 未找到匹配 '{name}' 的 hook。").into(),
+        Msg::CliHooksTestNoneLoaded =>
+            "\n  （未加载任何 hook，请检查 hooks.json / .hooks.json。）".into(),
+        Msg::CliHooksTestAvailable =>
+            "\n可用的 hook（按事件名或命令子串测试）：".into(),
+        Msg::CliHooksTesting { event } => format!("\n[*] 正在测试 Hook（{event}）").into(),
+        Msg::CliHooksFieldCommand { command } => format!("  命令：    {command}").into(),
+        Msg::CliHooksFieldTimeout { ms } => format!("  超时：    {ms} ms").into(),
+        Msg::CliHooksFieldMatcher { matcher } => format!("  匹配器：  {matcher}").into(),
+        Msg::CliHooksResultHeader => "[+] 结果：".into(),
+        Msg::CliHooksDuration { duration } => format!("  耗时：    {duration}").into(),
+        Msg::CliHooksFieldStatus { label, detail } =>
+            format!("  状态：    {label}（{detail}）").into(),
+        Msg::CliHooksStatusSuccess => "退出码 0".into(),
+        Msg::CliHooksStatusBlock => "退出码 2 —— hook 请求阻止（CC 协议约定）".into(),
+        Msg::CliHooksStatusExitCode { code } => format!("退出码 {code}").into(),
+        Msg::CliHooksStatusSignal => "被信号终止".into(),
+        Msg::CliHooksDidNotComplete { ms } =>
+            format!("  [x] Hook 未完成：超时（>{ms} ms）或启动失败。").into(),
+        Msg::CliHooksPathsHeader => "\nHook 配置文件：".into(),
+        Msg::CliHooksDocsHeader => "\n文档：".into(),
+        Msg::CliHooksDocsEntry => "  docs/hooks.md - Hook 使用指南".into(),
+
+        // ── `rustcode plugin` / `marketplace` ──
+        Msg::CliPluginMpAdded { name, commit, plugins } =>
+            format!("  已添加 marketplace `{name}`（{commit}，{plugins} 个插件）").into(),
+        Msg::CliPluginMpRemoved { name } =>
+            format!("  已移除 marketplace `{name}`").into(),
+        Msg::CliPluginMpUpdated { name, commit } =>
+            format!("  marketplace `{name}` 已更新到 {commit}").into(),
+        Msg::CliPluginMpNone => "  未注册任何 marketplace".into(),
+        Msg::CliPluginMpRow { name, source, commit, plugins } =>
+            format!("  {name}  {source}  {commit}（{plugins} 个插件）").into(),
+        Msg::CliPluginInstalled { plugin, marketplace } =>
+            format!("  已安装 `{plugin}@{marketplace}`").into(),
+        Msg::CliPluginInstallAmbiguous { plugin, list } =>
+            format!("插件 `{plugin}` 存在于多个 marketplace，请指定：\n{list}").into(),
+        Msg::CliPluginNotFound { plugin } =>
+            format!("在任何 marketplace 中都找不到插件 `{plugin}`").into(),
+        Msg::CliPluginUntrustedNotice { plugin, count, events } =>
+            format!(
+                "插件 `{plugin}` 附带 {count} 个 hook（[{events}]）。在受信任之前它们不会运行：\n  rustcode plugin trust {plugin}"
+            ).into(),
+        Msg::CliPluginUninstalled { plugin, marketplace } =>
+            format!("  已卸载 `{plugin}@{marketplace}`").into(),
+        Msg::CliPluginNotInstalled { plugin } =>
+            format!("插件 `{plugin}` 未安装").into(),
+        Msg::CliPluginUninstallAmbiguous { plugin, list } =>
+            format!(
+                "插件 `{plugin}` 从多个 marketplace 安装，请指定：\n{list}请使用 /plugin 选择要移除的安装范围。"
+            ).into(),
+        Msg::CliPluginNoHooks { name } =>
+            format!("插件 `{name}` 没有 hook（或未安装）").into(),
+        Msg::CliPluginTrusted { count, name, events } =>
+            format!("已信任来自 `{name}` 的 {count} 个 hook（[{events}]）。").into(),
+        Msg::CliPluginTrustAmbiguous { name, list } =>
+            format!(
+                "插件 `{name}` 的 hook 存在于多个安装中：\n{list}请使用 /plugin 查看安装范围。"
+            ).into(),
+        Msg::CliPluginUntrusted { name } =>
+            format!("已取消信任来自 `{name}` 的 hook。").into(),
+        Msg::CliPluginNone => "  没有已安装的插件".into(),
+        Msg::CliPluginErrAddMp => "添加 marketplace".into(),
+        Msg::CliPluginErrRemoveMp => "移除 marketplace".into(),
+        Msg::CliPluginErrUpdateMp => "更新 marketplace".into(),
+        Msg::CliPluginErrInstall => "安装".into(),
+        Msg::CliPluginErrResolve => "解析".into(),
+        Msg::CliPluginErrUninstall => "卸载".into(),
+
+        // ── `rustcode schedule` ──
+        Msg::CliSchedDailyBad { value } =>
+            format!("--daily 需要 HH:MM 格式，实际为 {value}").into(),
+        Msg::CliSchedWeeklyBad { value } =>
+            format!("--weekly 需要 N@HH:MM 格式，实际为 {value}").into(),
+        Msg::CliSchedWeekdayBad { value } =>
+            format!("--weekly 星期必须为 1..7，实际为 {value}").into(),
+        Msg::CliSchedWeeklyTimeBad { value } =>
+            format!("--weekly 时间必须为 HH:MM，实际为 {value}").into(),
+        Msg::CliSchedEveryBad { value } =>
+            format!("--every 需要类似 '30m' 的格式，实际为 {value}").into(),
+        Msg::CliSchedEveryIntBad { value } =>
+            format!("--every 分钟数必须为正整数，实际为 {value}").into(),
+        Msg::CliSchedEveryZero => "--every 分钟数必须大于 0".into(),
+        Msg::CliSchedFrequencyRequired =>
+            "必须指定一个频率参数：--daily HH:MM | --weekly N@HH:MM | --every Nm | --hourly | --cron EXPR".into(),
+        Msg::CliSchedRemoveFailed { id } => format!("移除任务 {id} 失败").into(),
+        Msg::CliSchedTaskNotFound { id } => format!("未找到任务 {id}").into(),
+        Msg::CliSchedSaveFailed { id } => format!("保存任务 {id} 失败").into(),
+        Msg::CliSchedRegFailed { id, error } =>
+            format!("[schedule] 警告：任务 {id} 注册到系统调度器失败：{error}\n可运行 `rustcode schedule sync` 重试。").into(),
+        Msg::CliSchedSyncInstalled { id } => format!("  sync：已安装 {id}").into(),
+        Msg::CliSchedSyncInstallFailed { id, error } =>
+            format!("  sync：安装 {id} 失败：{error}").into(),
+        Msg::CliSchedSyncUninstalled { id } => format!("  sync：已卸载 {id}").into(),
+        Msg::CliSchedSyncUninstallFailed { id, error } =>
+            format!("  sync：卸载 {id} 失败：{error}").into(),
+        Msg::CliSchedSyncDone { installed, uninstalled, errors } =>
+            format!("  sync 完成：已安装 {installed} 个，已卸载 {uninstalled} 个，{errors} 个错误").into(),
+        Msg::CliSchedAdded { id, title } => format!("  已添加任务 {id}（{title}）").into(),
+        Msg::CliSchedNone =>
+            "  暂无计划任务。使用 `rustcode schedule add` 创建一个。".into(),
+        Msg::CliSchedRemoved { id } => format!("  已移除任务 {id}").into(),
+        Msg::CliSchedEnabled { id } => format!("  已启用任务 {id}").into(),
+        Msg::CliSchedDisabled { id } => format!("  已禁用任务 {id}").into(),
+        Msg::CliSchedRunSkipped { id } =>
+            format!("  schedule run：任务 {id} 已禁用，跳过").into(),
+        Msg::CliSchedBadCwd { cwd, id } =>
+            format!("[schedule] 任务 {id} 的工作目录 {cwd} 不存在").into(),
+        Msg::CliSchedListRow { id, title, next, last, state, reg } =>
+            format!("  {id} | {title} | 下次：{next} | 上次：{last} | {state} | {reg}").into(),
+        Msg::CliSchedStateOn => "开".into(),
+        Msg::CliSchedStateOff => "关".into(),
+        Msg::CliSchedRegRegistered => "已注册".into(),
+        Msg::CliSchedRegMissing => "缺失".into(),
+        Msg::CliSchedRegUnknown => "未知".into(),
+
+        // ── `rustcode uninstall` ──
+        Msg::CliUninstallPurgeConflict =>
+            "rustcode uninstall：--purge 与 --keep-data 冲突".into(),
+        Msg::CliUninstallNoTty =>
+            "rustcode uninstall：没有 TTY，拒绝交互式运行。\n请指定以下参数之一：--yes（使用默认项）、--purge（删除全部）、--keep-data（仅二进制）、--dry-run。".into(),
+        Msg::CliUninstallBinaryRequired =>
+            "rustcode uninstall：不删除二进制就无法卸载，已中止。".into(),
+        Msg::CliUninstallProcsAborted => "已中止：仍在运行的进程未被终止。".into(),
+        Msg::CliUninstallProcsFound { count } =>
+            format!("\n发现 {count} 个正在运行的 rustcode 进程：").into(),
+        Msg::CliUninstallKillPrompt => "终止这些进程并继续？[y/N]：".into(),
+        Msg::CliUninstallKillFailed { pid, error } =>
+            format!("无法终止进程 pid {pid}：{error}").into(),
+        Msg::CliUninstallKillWarn { pid, error } =>
+            format!("警告：无法终止进程 pid {pid}：{error}（继续 —— Unix 下 unlink 不需要终止进程）").into(),
+        Msg::CliUninstallDryRun => "试运行（DRY RUN）—— 不会做任何更改。\n".into(),
+        Msg::CliUninstallGroup1Plan => "[组 1] 二进制文件 + PATH 修改".into(),
+        Msg::CliUninstallGroup2Plan => "[组 2] 凭据与全局配置".into(),
+        Msg::CliUninstallGroup3Plan => "[组 3] 本地状态与扩展".into(),
+        Msg::CliUninstallGroup1Prompt => "[组 1] 删除二进制文件并撤销 PATH 修改？".into(),
+        Msg::CliUninstallGroup2Prompt => "[组 2] 删除凭据与全局配置？".into(),
+        Msg::CliUninstallGroup3Prompt => "[组 3] 删除本地状态与扩展？".into(),
+        Msg::CliUninstallTagWillRemove => "将删除".into(),
+        Msg::CliUninstallTagKeep => "保留".into(),
+        Msg::CliUninstallIntro => "这将从系统中卸载 RustCode。\n".into(),
+        Msg::CliUninstallGroup1Declined =>
+            "组 1 被拒绝；已中止（删除数据时不能保留二进制）。".into(),
+        Msg::CliUninstallSummaryHeader => "\n汇总：".into(),
+        Msg::CliUninstallContinuePrompt => "\n是否继续？[y/N]：".into(),
+        Msg::CliUninstallProceedPrompt { suffix } => format!("是否继续？{suffix}：").into(),
+        Msg::CliUninstallActionRemove => "删除".into(),
+        Msg::CliUninstallActionKeep => "保留".into(),
+        Msg::CliUninstallLabelBinary => "二进制 + PATH".into(),
+        Msg::CliUninstallLabelCredentials => "凭据".into(),
+        Msg::CliUninstallLabelState => "本地状态".into(),
+        Msg::CliUninstallSummaryRow { action, count, label } =>
+            format!("  {action}：{count} 项（{label}）").into(),
+        Msg::CliUninstallResultRemoved => "已删除：".into(),
+        Msg::CliUninstallResultKept => "已保留（以后可用 --purge 删除）：".into(),
+        Msg::CliUninstallResultFailed => "失败：".into(),
+        Msg::CliUninstallResultBackups => "备份：".into(),
+        Msg::CliWebuiNotBuilt =>
+            "本二进制未内嵌 webui 资源。\n请先构建前端，再重新构建：\n\n   cd webui && npm install && npm run build\n   cargo build -p rustcode\n".into(),
 
         // ── /config ──
         Msg::ConfigProviderLabel { provider, path } =>
@@ -653,10 +969,11 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("历史未归属用量\n  Token 总计：       {}", tokens).into(),
 
         // ── /think ──
-        Msg::ThinkStatus { status, budget, provider } =>
+        Msg::ThinkStatus { enabled, budget, provider } =>
             format!(
                 "  深度思考：{}\n  预算：{} Token\n  Provider：{}\n\n  用法：/think on | off | budget <N>\n",
-                status, budget, provider
+                if enabled { "已启用" } else { "已禁用" },
+                budget, provider
             ).into(),
         Msg::ThinkEnabled { budget } =>
             format!("  深度思考已启用（预算：{} Token）。\n", budget).into(),
@@ -676,6 +993,37 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "用法：/remember <要记住的内容>（--global 为全局范围）".into(),
         Msg::ForgetUsage =>
             "用法：/forget <关键词>".into(),
+        Msg::MemoryScopeGlobal => "全局".into(),
+        Msg::MemoryScopeProject => "项目".into(),
+        Msg::Remembered { scope, content } =>
+            format!("已记住（{scope}）：{content}").into(),
+        Msg::AlreadyRemembered { scope, content } =>
+            format!("此前已记住（{scope}）：{content}").into(),
+        Msg::RememberFailed { error } =>
+            format!("记忆写入失败：{error}").into(),
+        Msg::ForgetNoMatch { keyword } =>
+            format!("没有匹配的记忆条目：“{keyword}”。").into(),
+        Msg::ForgotOne => "已忘记 1 条记忆。".into(),
+        Msg::ForgotMany { count } => format!("已忘记 {count} 条记忆。").into(),
+        Msg::MemoryEmpty => "（记忆为空）".into(),
+
+        // ── /team ──
+        Msg::TeamNoRuns => "暂无团队运行。".into(),
+        Msg::TeamSummary { runs, completed, running, failed, stopped } => format!(
+            "团队：{runs} 个运行 · 已完成 {completed} · 运行中 {running} · 失败 {failed} · 已停止 {stopped}"
+        ).into(),
+
+        // ── 通用开关词 ──
+        Msg::WordOn => "开".into(),
+        Msg::WordOff => "关".into(),
+
+        // ── /schedule list ──
+        Msg::ScheduleListEmpty =>
+            "  暂无定时任务。使用 `rustcode schedule add` 创建一个。\n".into(),
+        Msg::ScheduleListHeader => "  定时任务：\n\n".into(),
+        Msg::ScheduleRow { id, title, next, last, state } => format!(
+            "  {id} | {title} | 下次：{next} | 上次：{last} | {state}\n"
+        ).into(),
 
         // ── /background ──
         Msg::BackgroundUsage =>
@@ -811,7 +1159,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── /setup ──
         Msg::SetupHeader { installed, skipped, failed, duration_ms } =>
-            format!("\n[+] Setup 完成 -- {} 装好, {} 跳过, {} 失败  . 耗时 {}ms\n\n", installed, skipped, failed, duration_ms).into(),
+            format!("\n[+] Setup 完成 -- {} 已安装, {} 已跳过, {} 失败  . 耗时 {}ms\n\n", installed, skipped, failed, duration_ms).into(),
         Msg::SetupInstalledLabel =>
             "已安装:\n".into(),
         Msg::SetupSkippedLabel =>
@@ -961,6 +1309,51 @@ Msg::PluginActionBackDesc => "返回已安装插件列表".into(),
         Msg::SetupAutoReloaded { skills, warnings } =>
             format!("[+] Setup 完成，已自动刷新：{skills} 个 skill，{warnings} 个警告").into(),
 
+        // ── 插件管理模态框 ──
+        Msg::PluginTabAll => "全部插件".into(),
+        Msg::PluginTabInstalled { count } => format!("已安装（{count}）").into(),
+        Msg::PluginTabMarketplaces => "插件市场".into(),
+        Msg::PluginAutoUninstallFailed { name, error } =>
+            format!("自动卸载插件 '{name}' 失败：{error}").into(),
+        Msg::PluginNoPluginsMatch { query } =>
+            format!("没有匹配的插件：'{query}'").into(),
+        Msg::PluginNoInstalledMatch { query } =>
+            format!("已安装插件中没有匹配项：'{query}'").into(),
+        Msg::PluginAddMarketplaceRow => "添加插件市场".into(),
+        Msg::PluginAddMarketplacePlus => "+ 添加插件市场".into(),
+        Msg::PluginEnterSourceRow => "输入市场来源：".into(),
+        Msg::PluginExamplesRow => "示例：".into(),
+        Msg::PluginBrowseRow { count } => format!("浏览插件（{count}）").into(),
+        Msg::PluginUpdateRow { date } =>
+            format!("更新市场（上次更新 {date}）").into(),
+        Msg::PluginRemoveMarketplaceRow => "移除市场".into(),
+        Msg::PluginInfoHeader => "  * 插件信息".into(),
+        Msg::PluginNameLabel => "  名称：       ".into(),
+        Msg::PluginMarketplaceLabel => "  市场：       ".into(),
+        Msg::PluginVersionLabel => "  版本：       ".into(),
+        Msg::PluginScopeLabel => "  范围：       ".into(),
+        Msg::PluginDescriptionLabel => "  描述：       ".into(),
+        Msg::PluginSelectScopeHeader => "  选择安装范围：".into(),
+        Msg::PluginManageHeader => "  管理插件：".into(),
+        Msg::PluginStatusInstalling { label } =>
+            format!("  状态：       {label}…").into(),
+        Msg::PluginAvailableCount { count } =>
+            format!("  {count} 个可用插件").into(),
+        Msg::PluginModalInstalledHeader { count } =>
+            format!("  \x1b[1m已安装插件（{count}）：\x1b[22m").into(),
+        Msg::PluginNoInstalledFromMarketplace =>
+            "尚未从该市场安装插件。".into(),
+        Msg::PluginVersionUnknown => "未知".into(),
+        Msg::PluginCategoryGit => "Git".into(),
+        Msg::PluginCategoryLinter => "代码检查".into(),
+        Msg::PluginCategoryFormatter => "格式化".into(),
+        Msg::PluginCategoryLanguage => "语言".into(),
+        Msg::PluginCategorySecurity => "安全".into(),
+        Msg::PluginCategoryAi => "AI".into(),
+        Msg::PluginCategoryUtility => "实用工具".into(),
+        Msg::PluginCategoryTool => "工具".into(),
+        Msg::PluginCategoryCompletion => "补全".into(),
+
         // ── 命令描述 ──
         Msg::CmdDescWebui => "启动浏览器 webui（子命令：stop / lan / --host <地址>）".into(),
 Msg::CmdDescSetup =>
@@ -1032,6 +1425,20 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CmdDescSchedule => "查看定时任务列表和下次运行时间".into(),
         Msg::CmdDescDesktop =>
             "打开 {brand} 桌面端（已安装则启动，否则显示下载地址）".into(),
+        // ── /proxy 选择器 ──
+        Msg::ProxyTitleFollowSystem => "跟随系统".into(),
+        Msg::ProxyTitleDefaultProxy => "默认代理".into(),
+        Msg::ProxyTitleNoProxy => "无代理".into(),
+        Msg::ProxyDescFollowSystem =>
+            "跟随当前启动环境 / 系统代理状态".into(),
+        Msg::ProxyDescDefaultProxy =>
+            "固定当前代理环境变量，后续启动继续复用".into(),
+        Msg::ProxyDescNoProxy =>
+            "出站 HTTP 客户端禁用代理解析".into(),
+        Msg::ProxyModeLine { mode } => format!("  代理模式：{mode}\n").into(),
+        Msg::ProxyDefaultPinned { count } =>
+            format!("默认代理（已固定 {count} 个环境变量）").into(),
+        Msg::ProxyDefaultEmpty => "默认代理（未捕获到环境变量）".into(),
         Msg::DesktopOpening { name, path } =>
             format!("正在打开 {}...\n  {}\n", name, path).into(),
         Msg::DesktopNotInstalled { url } =>
@@ -1090,6 +1497,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             "* 兼容所有 OpenAI 风格 API".into(),
         Msg::OnboardingIntroBullet3 =>
             "* 通过 CodingPlan 获取免费额度".into(),
+        Msg::OnboardingIntroBullet3Neutral =>
+            "* 自带 API Key，无需注册账号".into(),
         Msg::OnboardingIntroPressEnter => "按 Enter 继续。".into(),
         Msg::OnboardingIntroCtrlC => "Ctrl+C 可随时退出。".into(),
         Msg::OnboardingIntroCompactTagline =>
@@ -1105,18 +1514,20 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::OnboardingSetupTitle => "想怎么开始？".into(),
         Msg::OnboardingNavHint =>
             "1-3 选择 . Enter 确认 . ← 返回 . Esc 跳过".into(),
+        Msg::OnboardingSetupNavHint =>
+            "数字键选择 . Enter 确认 . ← 返回 . Esc 跳过".into(),
         Msg::OnboardingConfirmClear =>
             "/welcome 会清屏。是否继续？[y/N]".into(),
         Msg::CmdWelcomeDescription => "重新运行 onboarding 向导".into(),
         Msg::VisionPreprocessSuccess { char_count } =>
-            format!("[+] VL 识别图片成功，返回 {char_count} chars").into(),
+            format!("[+] VL 识别图片成功，返回 {char_count} 个字符").into(),
         Msg::VisionPreprocessFailed { reason } =>
             format!("VL 预处理失败：{reason} . 本轮以纯文字继续，图片已恢复可重试").into(),
         Msg::TurnSummary { done, turn_count, tool_call_count, duration, total_tokens, cached_pct } =>
             format!(
                 "[+] {done} . {turn_count} 轮 . {tool_call_count} 工具 . {duration} . {} tokens{}",
                 super::fmt_tokens(total_tokens),
-                cached_pct.map(|p| format!(" . {p}% cached")).unwrap_or_default(),
+                cached_pct.map(|p| format!(" · 缓存命中 {p}%")).unwrap_or_default(),
             ).into(),
         Msg::TurnSummaryError { turn_count, tool_call_count, duration, total_tokens, reason } => {
             let cause = reason.map(|r| format!("：{r}")).unwrap_or_default();
@@ -1126,6 +1537,204 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             let cause = reason.map(|r| format!("：{r}")).unwrap_or_default();
             format!("[x] 安全策略已终止本回合{cause} . {turn_count} 轮 . {tool_call_count} 工具 . {duration} . {} tokens", super::fmt_tokens(total_tokens)).into()
         }
+        Msg::SpinnerEffortSuffix { effort } => format!(" · {effort}强度思考").into(),
+        Msg::SpinnerQueuedSuffix { count } => format!(" · {count} 条排队").into(),
+        Msg::SpinnerElapsedTokens { elapsed, tokens } =>
+            format!(" ({elapsed} · ↑ {tokens} tokens)").into(),
+        Msg::SpinnerElapsedOnly { elapsed } => format!(" ({elapsed})").into(),
+        Msg::SpinnerSubAgents { done, total } => format!("子代理 {done}/{total}").into(),
+        Msg::SpinnerWaitingApproval => "等待审批".into(),
+
+        // ── Live hub / 手机远程同步错误 ──
+        Msg::LiveSyncEventFailed { error } =>
+            format!("实时事件同步失败：{error}").into(),
+        Msg::LiveSyncProviderFailed { error } =>
+            format!("实时 Provider 同步失败：{error}").into(),
+        Msg::LiveSyncGoalFailed { error } =>
+            format!("实时 Goal 同步失败：{error}").into(),
+        Msg::LiveSyncRemoteOutputFailed { error } =>
+            format!("远程命令输出同步失败：{error}").into(),
+        Msg::LiveSyncRemoteRejectFailed { error } =>
+            format!("远程命令拒绝通知同步失败：{error}").into(),
+        Msg::LiveRemoteCommandEcho { display } =>
+            format!("（手机端执行 {display}）").into(),
+        Msg::LiveRemoteCommandRejected =>
+            "  该命令需要在桌面端执行（手机端仅支持 /status /cost /whoami /diff）".into(),
+        Msg::LiveProjectionNoSessionIdentity =>
+            "会话切换已完成但缺少会话标识".into(),
+        Msg::LiveProjectionUnexpectedIdentity =>
+            "能力重载返回了意外的会话标识".into(),
+        Msg::LiveCapabilitySnapshotFailed { error } =>
+            format!("更新实时能力快照失败：{error}").into(),
+        Msg::LiveSessionDecodeFailed { session_id, error } =>
+            format!("解码会话 {session_id} 失败：{error}").into(),
+        Msg::LiveSessionDisappeared { session_id } =>
+            format!("会话 {session_id} 在运行时切换后消失").into(),
+        Msg::LiveSessionResolveFailed { session_id, error } =>
+            format!("解析会话 {session_id} 失败：{error}").into(),
+        Msg::LiveSessionSnapshotFailed { error } =>
+            format!("更新实时会话快照失败：{error}").into(),
+
+        // ── 渲染：状态徽标 / agent 分组标题 ──
+        Msg::BadgeSearchPrefix => " 搜索：'".into(),
+        Msg::BadgeSearchCount { current, total } =>
+            format!(" {current}/{total} ").into(),
+        Msg::BadgeHistory { current, total } =>
+            format!(" 历史 {current}/{total} ").into(),
+        Msg::AgentGroupTeamKind => "团队代理".into(),
+        Msg::AgentGroupSubKind => "子代理".into(),
+        Msg::AgentGroupFinished { marker, kind, terminal, total, failed } => format!(
+            "{marker} {kind} · 已完成 {terminal}/{total} · 失败 {failed}"
+        ).into(),
+        Msg::AgentGroupRunning { marker, kind, running, total } =>
+            format!("{marker} 运行中 {running}/{total} {kind}…").into(),
+        Msg::SubtaskCounts { finished, total, running, pending } => format!(
+            " · 已完成 {finished}/{total} · 运行中 {running} · 排队 {pending}"
+        ).into(),
+        Msg::SubtaskPanelTeamTitle => " 团队".into(),
+        Msg::SubtaskPanelSubTitle => " 子任务".into(),
+        Msg::SubtaskActivityAnalyzing => "正在分析任务".into(),
+        Msg::SubtaskSummaryRunning { count } => format!("{count} 个运行中").into(),
+        Msg::SubtaskSummaryPending { count } => format!("{count} 个排队中").into(),
+        Msg::SubtaskSummaryFailed { count } => format!("{count} 个失败").into(),
+        Msg::SubtaskSummaryStopped { count } => format!("{count} 个已停止").into(),
+        Msg::SubtaskPendingSuffix => " · 排队中".into(),
+        Msg::SubtaskStatePending => "排队中".into(),
+        Msg::SubtaskStateRunning => "运行中".into(),
+        Msg::SubtaskStateQueued => "已排队".into(),
+        Msg::SubtaskStateDone => "完成".into(),
+        Msg::SubtaskStateStopped => "已停止".into(),
+        Msg::SubtaskStateFailed => "失败".into(),
+        Msg::TodoHeaderTitle => "任务 ".into(),
+        Msg::TodoHeaderCounts { completed, in_progress, open } =>
+            format!("（已完成 {completed} · 进行中 {in_progress} · 待办 {open}）").into(),
+        Msg::TodoMoreFold { hidden, ellipsis } =>
+            format!("  +{hidden} 项更多{ellipsis}").into(),
+        Msg::MoreLinesHint { count } => format!(" +{count} 行已折叠 ").into(),
+        Msg::BodyMoreLines { ellipsis, count } =>
+            format!("  {ellipsis} 还有 {count} 行").into(),
+        Msg::RoundMeta { round, elapsed } => format!(" · 第 {round} 轮 · {elapsed}").into(),
+        Msg::RoundBare { round, elapsed } => format!("第 {round} 轮 · {elapsed}").into(),
+        Msg::GoalRowPausedBody => "goal 已暂停".into(),
+        Msg::GoalRowPausedMeta => " · 继续对话即恢复 · /goal stop 结束".into(),
+        Msg::GoalRowPausedAtCapBody => "goal 暂停".into(),
+        Msg::GoalRowPausedAtCapMeta { round } =>
+            format!(" · 已达 {round} 轮 · 继续对话即推进").into(),
+        Msg::GoalRowSatisfiedBody => "goal 已达成".into(),
+        Msg::GoalRowSatisfiedMeta => " · /goal clear 结束".into(),
+        Msg::SlashOutputSyncFailed { error } =>
+            format!("斜杠命令输出同步失败：{error}").into(),
+        Msg::RefreshContextStartFailed { error } =>
+            format!("无法启动上下文统计刷新：{error}").into(),
+        Msg::RefreshContextFailed { error } =>
+            format!("刷新上下文统计失败：{error}").into(),
+        Msg::SyncStoppedSharing => "已停止共享当前会话".into(),
+        Msg::SyncNotActive => "当前未处于同步模式".into(),
+        Msg::AppRemoteStopped => "已停止 App 远程访问".into(),
+        Msg::AppRemoteNotRunning => "App 远程访问未在运行".into(),
+        Msg::AppRemoteDetachSuffix { error } =>
+            format!("\n{error}；TUI 暂时保持同步").into(),
+        Msg::BgSessionLoadFailed { error } =>
+            format!("无法加载后台会话：{error}").into(),
+        Msg::McpToolsHeader => "工具列表：\n".into(),
+        Msg::McpToolsEmpty { status } => format!("  （无 -- {status}）\n").into(),
+        Msg::McpToolsNoServer => "  （无 -- 未配置该服务器）\n".into(),
+        Msg::TeamPanelShown => "团队面板已显示。".into(),
+        Msg::TeamPanelHidden => "团队面板已隐藏。".into(),
+        Msg::TeamPanelCleared => "团队面板已清空。".into(),
+        Msg::TeamPanelUsage => "用法：/team [show|hide|status|clear]".into(),
+        Msg::InternalError { error } => format!("内部错误：{error}").into(),
+        Msg::LoginFailedHint { reason } =>
+            format!("登录失败：{reason}。运行 /login 可重试。").into(),
+        Msg::SteerQueuedLine { prompt } => format!("  ↳ 已排队：{prompt}\n").into(),
+        Msg::EmptyCompletionReasoningOnly =>
+            "本轮模型只输出了推理、未给出正文。按 Ctrl+O 可查看推理内容；可直接重试或换个问法。".into(),
+        Msg::EmptyCompletionNoOutput =>
+            "本轮模型未输出任何正文内容。可直接重试或换个问法。".into(),
+        Msg::TaskWordFinished => "已结束".into(),
+        Msg::TaskWordCompleted => "已完成".into(),
+        Msg::UndoFailed { error } => format!("回退失败：{error}").into(),
+        Msg::CompactFailed { error } => format!("压缩失败：{error}").into(),
+        Msg::WebSourcesPrefix { sources } => format!("来源：{sources}").into(),
+        Msg::GoalExecFailed { error } => format!("Goal 执行失败：{error}").into(),
+        Msg::TurnDoneDispatched => "已派发".into(),
+        Msg::BgProjectionSessionless =>
+            "后台运行时已切换到无会话状态".into(),
+        Msg::BgProjectionLoadFailed { bucket, session_id, error } =>
+            format!("加载后台会话 {bucket}/{session_id} 失败：{error}").into(),
+        Msg::BgProjectionDecodeFailed { session_id, error } =>
+            format!("解码后台会话 {session_id} 失败：{error}").into(),
+        Msg::BgProjectionIdentityMismatchRuntime { session_id, catalog } =>
+            format!("后台会话标识不匹配：运行时={session_id:?}，目录={catalog:?}").into(),
+        Msg::BgProjectionIdentityMismatchLoaded { expected, loaded } =>
+            format!("后台会话标识不匹配：运行时={expected:?}，已加载={loaded:?}").into(),
+        Msg::ReviewCompleteClean { changed_files } =>
+            format!("代码评审完成 —— {changed_files} 个变更文件中未发现问题。").into(),
+        Msg::ReviewHeader { findings, changed_files } =>
+            format!("代码评审：{changed_files} 个变更文件中发现 {findings} 个问题。\n").into(),
+        Msg::ReviewFindingEntry { index, priority, confidence, location, title } =>
+            format!("\n{index}. [{priority} · 置信度 {confidence}] {location}\n   {title}\n").into(),
+        Msg::ReviewFixSuggestion { suggestion } =>
+            format!("   ↳ 修复建议：{suggestion}\n").into(),
+        Msg::ReviewMoreFindings { hidden, shown } =>
+            format!("\n… 另有 {hidden} 个问题（按优先级仅显示前 {shown} 个）。\n").into(),
+        Msg::ReviewIncompleteHeader { stop, findings, changed_files } =>
+            format!("代码评审未完成（{stop}）—— 覆盖不完整，并非一次干净的评审。{changed_files} 个变更文件中有 {findings} 个已确认问题。").into(),
+        Msg::ReviewIncompleteReason { reason } => format!("\n原因：{reason}").into(),
+        Msg::ReviewDeepIncomplete { total, note } =>
+            format!("深度评审未完成 -- 所有维度均失败（0/{total}），覆盖结果不可靠。{note}\n").into(),
+        Msg::ReviewDeepClean { changed_files, completed, total, note } =>
+            format!("深度评审完成 -- {changed_files} 个变更文件中未发现问题（{completed}/{total} 个维度已完成）{note}。\n").into(),
+        Msg::ReviewDeepHeader { findings, changed_files, completed, total } =>
+            format!("深度评审：{changed_files} 个变更文件中发现 {findings} 个问题 . {completed}/{total} 个维度已完成").into(),
+        Msg::ReviewDeepDeduped { count } => format!(" . 已去重 {count} 项").into(),
+        Msg::ReviewVerifyDropped { count } => format!(" . 验证阶段剔除 {count} 项").into(),
+        Msg::ReviewFailedDimensions { list } => format!("失败的维度：{list}\n").into(),
+        Msg::ReviewDeepFindingEntry { index, priority, confidence, location, dims, title } =>
+            format!("\n{index}. [{priority} . 置信度 {confidence}] {location} . 维度：{dims}\n   {title}\n").into(),
+        Msg::ReviewActivityHead => "评审".into(),
+        Msg::ReviewActivityHeadLabeled { label } => format!("评审 [{label}]").into(),
+        Msg::ReviewActivityFindingOne { count } => format!("{count} 个问题").into(),
+        Msg::ReviewActivityFindingMany { count } => format!("{count} 个问题").into(),
+        Msg::ReviewActivityThinking => "思考中".into(),
+        Msg::ReviewActivityReporting => "正在上报问题".into(),
+        Msg::ReviewActivityPreparing => "评审 · 正在准备差异".into(),
+        Msg::ReviewActivityAnalyzing { files } =>
+            format!("评审 · 正在分析 {files} 个文件").into(),
+        Msg::ReviewStageVerify => "验证".into(),
+        Msg::ModeWordPlan => "计划".into(),
+        Msg::ModeWordAcceptEdits => "自动编辑".into(),
+        Msg::ModeWordBuild => "构建".into(),
+        Msg::ModeWordAuto => "自动".into(),
+        Msg::ModeSwitchedLine { mode } => format!("  已切换到{mode}模式。\n").into(),
+        Msg::GoalMetBanner { reason } => format!("  [+] 目标已达成：{reason}\n").into(),
+        Msg::GoalPausedBanner { reason } => format!("  ⏸ 目标已暂停：{reason}\n").into(),
+        Msg::GoalStoppedBanner { reason } => format!("  [!] 目标已停止：{reason}\n").into(),
+        Msg::ParallelDispatchStart { count } => format!("正在并行派发 {count} 个子代理…").into(),
+        Msg::WordFailed => "失败".into(),
+        Msg::ParallelSummaryOk { ok, total, elapsed } =>
+            format!("● 并行编辑 . {ok}/{total} 成功 . 耗时 {elapsed}").into(),
+        Msg::ParallelSummaryFail { ok, failed, elapsed } =>
+            format!("● 并行编辑 . {ok} 成功 . {failed} 失败 . 耗时 {elapsed}").into(),
+        Msg::BashInflightCtrlOHint => "按 Ctrl+o 查看运行中的实时输出".into(),
+        Msg::VerboseOnLine { mute, reset } =>
+            format!("{mute}  o 详细模式已开启（显示工具输出 + 推理）（Ctrl+o 关闭）{reset}\n").into(),
+        Msg::VerboseOffLine { mute, reset } =>
+            format!("{mute}  o 详细模式已关闭（Ctrl+o 显示工具输出 + 推理）{reset}\n").into(),
+        Msg::EffortLevelLow => "最低推理强度".into(),
+        Msg::EffortLevelMedium => "中等推理强度".into(),
+        Msg::EffortLevelHigh => "更深度推理".into(),
+        Msg::EffortLevelXhigh => "超高推理强度".into(),
+        Msg::EffortLevelMax => "最大推理深度".into(),
+        Msg::EffortLevelDefault => "恢复 API 默认（保留能力）".into(),
+        Msg::EffortUsage { levels } =>
+            format!("  用法：/effort {levels} | default\n  快捷键：Ctrl+T\n").into(),
+        Msg::EffortCurrent { current, usage } =>
+            format!("  当前推理强度：{current}\n{usage}").into(),
+        Msg::EffortStatusUnsupported => "不支持".into(),
+        Msg::EffortStatusDefault => "默认（API 默认）".into(),
+        Msg::EffortSet { level } => format!("  o 推理强度已设为：{level}\n").into(),
+        Msg::EffortSetDefault => "  o 推理强度：默认（API 选择；保留能力）\n".into(),
         Msg::LoginQrHeader =>
             "  登录 -- 使用微信扫描下方二维码：\n\n".into(),
         Msg::LoginUrlAfterQr =>
@@ -1269,6 +1878,15 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::BgInvalidSlot { slot, available } =>
             format!("无效的后台槽位 {slot}（可用：{available}）").into(),
         Msg::BgNoRuntimeClient => "后台槽位没有运行时客户端".into(),
+        Msg::BgSwitchProviderTransition =>
+            "/bg 无法切换前台：提供商切换正在进行中".into(),
+        Msg::BgSwitchRuntimePending =>
+            "/bg 无法切换前台：交互式运行时请求尚未完成".into(),
+        Msg::BgSwitchLiveSync =>
+            "/bg 无法切换前台：实时同步已连接，请先执行 /sync off".into(),
+        Msg::BgTaskFallbackName => "后台任务".into(),
+        Msg::BgStartFailed { error } =>
+            format!("后台任务无法启动：{error}").into(),
         Msg::BgResumed { slot, short_id } =>
             format!("  已恢复后台 [#{slot}] {short_id}\n").into(),
         Msg::BgPreviousForegroundMoved { slot } =>
@@ -1285,9 +1903,11 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::BgTaskNoSummary => "任务完成（无摘要文本）。".into(),
         // ── CLI rustcode --help i18n ──
         Msg::CliAbout => "终端中的 AI 编程助手".into(),
-        Msg::CliAboutLogin => "通过 {oauth} 登录并领取 CodingPlan 模型".into(),
+        Msg::CliAboutLogin => "通过 OAuth 登录并领取 CodingPlan 模型".into(),
+        Msg::CliAboutLoginNeutral =>
+            "托管登录(仅发行版本提供) -- 此开源构建使用自带 API Key 的第三方供应商,请在 config.toml 中配置".into(),
         Msg::CliAboutLogout => "退出登录".into(),
-        Msg::CliAboutStatus => "查看当前登录状态".into(),
+        Msg::CliAboutStatus => "查看当前供应商与登录状态".into(),
         Msg::CliAboutUpgrade => "就地升级 rustcode 到最新发布版本".into(),
         Msg::CliAboutRollback => "回退到上一个版本（与 .bak 交换）".into(),
         Msg::CliAboutMcp => "管理 .mcp.json 中的 MCP 服务器配置".into(),
@@ -1372,21 +1992,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             format!("剩余 {remaining}/{total} 天").into(),
         Msg::UsageCopied => "已复制到剪贴板".into(),
         Msg::UsageCodingPlanOnly =>
-            "使用情况仅 CodingPlan 可用 -- 请先 /login。".into(),
+            "当前构建不支持托管账号用量查询。运行 /cost 可查看本会话的本地 Token 用量。".into(),
 
-        // ── CodingRuntime provider init ──
-        Msg::ProviderInitFailed { detail } =>
-            format!("模型初始化失败：{detail}").into(),
-        Msg::ProviderInitNeedsLogin =>
-            "尚未登录，模型暂不可用；运行 /login 后可继续对话。".into(),
-        Msg::ProviderInitSourceBuild =>
-            "当前为源码构建，无法使用免费网关。请用 /provider 配置一个自带 api_key \
-             的模型（如 DeepSeek 官方 / GLM / OpenAI），或改用官方发布版。".into(),
-        Msg::GatewayAuthUnavailable { base_url } =>
-            format!(
-                "provider base_url「{base_url}」是网关，当前构建无法对其鉴权。请使用官方版本，\
-                 或将该 provider 指向带 api_key 的标准 OpenAI 兼容端点。"
-            ).into(),
         Msg::StreamStalled => "按 esc 可取消".into(),
         Msg::StreamRecoveryRunning { attempt, max_attempts } => format!(
             "流响应超时，正在从已保存进度安全续接（{attempt}/{max_attempts}）..."
@@ -1415,10 +2022,12 @@ mod codingplan_crypto_tests {
     use crate::i18n::Msg;
 
     #[test]
-    fn zh_official_build_required_mentions_official_and_releases() {
+    fn zh_official_build_required_guides_byo_or_distribution() {
+        // 中立 fork：无"官方 releases"主机。文案仍须给出解决路径——第三方
+        // 自带 Key provider，或提供该能力的发行版本。
         let s = zh_cn(Msg::CpOfficialBuildRequired);
-        assert!(s.contains("官方"));
-        assert!(s.contains("releases") || s.contains("发布"));
+        assert!(s.contains("第三方提供商"));
+        assert!(s.contains("发行"));
     }
 
     #[test]

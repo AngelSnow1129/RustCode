@@ -316,7 +316,7 @@ mod tests {
             "provider_accounts": {
                 "taotoken": {
                     "provider": "openai",
-                    "base_url": "https://taotoken.net/api/v1",
+                    "base_url": "https://taotoken.example.com/api/v1",
                     "api_key": "must-not-leave-daemon"
                 }
             },
@@ -344,7 +344,7 @@ mod tests {
             "provider_accounts": {
                 "taotoken": {
                     "provider": "openai",
-                    "base_url": "https://taotoken.net/api/v1",
+                    "base_url": "https://taotoken.example.com/api/v1",
                     "api_key": "account-only-secret"
                 },
                 "RustCode": {

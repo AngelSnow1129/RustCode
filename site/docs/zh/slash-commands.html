@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>斜杠命令 · RustCode 文档</title>
 <meta name="description" content="斜杠命令 — RustCode 文档。">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -84,13 +84,13 @@
           <tr><th>命令</th><th>作用</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/login</code></td><td><strong>推荐</strong> — 一条命令完成 OAuth + 申领 CodingPlan 免费额度 + 自动根据额度模型列表写好 provider 配置。首次启动最省事的入口;已登录后重跑会幂等地同步最新模型列表。<em>v4.25.0 起 <code>/codingplan</code> 已折进 <code>/login</code>,旧入口已移除</em></td></tr>
+          <tr><td><code>/login</code></td><td><strong>仅发行版本</strong> — 在内置托管服务的发行版本中,一条命令完成 OAuth 并根据下发的模型列表自动写好 provider 配置;已登录后重跑会幂等地同步。开源默认构建没有托管账号,因此此命令不可用,请改用 <code>/provider</code> 自带 Key。<em>发行版本中旧的 <code>/codingplan</code> 入口已折进 <code>/login</code></em></td></tr>
           <tr><td><code>/resume</code></td><td>打开会话选择器,恢复任意一个之前的持久化会话(含消息、目录和模型状态)</td></tr>
           <tr><td><code>/session</code></td><td>创建一个全新的、干净的会话</td></tr>
           <tr><td><code>/bg</code></td><td>将当前会话放到后台并打开新的前台会话;子命令: <code>/bg list</code>、<code>/bg &lt;N&gt;</code>、<code>/bg drop &lt;N&gt;</code>、<code>/bg help</code>。详见 <a href="./sessions.html#bg">后台会话</a></td></tr>
           <tr><td><code>/background &lt;task&gt;</code></td><td>兼容入口:在一个 <code>/bg</code> 槽位中启动一次性后台任务(<a href="./sessions.html#bg">详解</a>)</td></tr>
           <tr><td><code>/rename &lt;新名字&gt;</code></td><td>重命名当前会话(影响 <code>/resume</code> 选择器里的显示名)</td></tr>
-          <tr><td><code>/provider</code></td><td>管理供应商账号及其模型；支持预设供应商和自定义接口</td></tr>
+          <tr><td><code>/provider</code></td><td><strong>推荐</strong> — 管理供应商账号及其模型,支持第三方预设 (Claude、OpenAI、DeepSeek、GLM、Qwen、Ollama 等) 或自定义 OpenAI 风格接口,填入你自己的 API Key。无需在 RustCode 注册账号,这是开源默认构建的上手方式</td></tr>
           <tr><td><code>/model</code></td><td>设置默认模型 / provider，并切换当前会话；其他已打开会话不变</td></tr>
           <tr><td><code>/cd</code></td><td>切换工作目录并开启新建对话,并写回 <code>default_workdir</code>。也可以直接输入 <code>cd /path</code>(无需斜杠前缀)</td></tr>
         </tbody>
@@ -107,7 +107,7 @@
           <tr><td><code>/diff</code></td><td>显示当前工作目录未提交改动的 git diff(文件列表一次最多显示 5 行,并带「更多文件」滚动提示)</td></tr>
           <tr><td><code>/review</code></td><td>对当前改动做代码审查:<code>/review</code> 审查未提交改动,<code>/review staged</code> 审查暂存区,<code>/review &lt;base&gt;</code> 对比某个基准 ref</td></tr>
           <tr><td><code>/paste</code></td><td>从剪贴板粘贴图片(Windows 下 <code>Ctrl+V</code> 被终端拦截时的备用入口)</td></tr>
-          <tr><td><code>/cost</code></td><td>按模型显示当前会话累计的提示、补全和缓存 Token。与 <code>/usage</code> 不同,后者查询的是 CodingPlan 网关的套餐额度</td></tr>
+          <tr><td><code>/cost</code></td><td>按模型显示当前会话累计的提示、补全和缓存 Token。与 <code>/usage</code> 不同:后者在发行版本中查询托管服务的账号额度(开源默认构建中不可用,此时 <code>/cost</code> 即全部用量)</td></tr>
           <tr><td><code>/context</code></td><td>显示本轮上下文预算分解:系统提示、工具定义、冷区压缩、总消息数、context window 占用</td></tr>
           <tr><td><code>/compact</code></td><td>压缩历史消息,把早期对话压缩成摘要以腾出上下文预算</td></tr>
           <tr><td><code>/rewind</code></td><td>选择历史提示，并回退对话、代码或两者；详见 <a href="./sessions.html">会话与撤销</a></td></tr>
@@ -122,8 +122,8 @@
       </table>
 
       <div class="callout callout-info">
-        <strong>平台 Issue 现在由内置工具处理</strong>
-        <p><code>/issue</code> 已移除。执行 <code>/login</code> 后，直接用自然语言提出需求即可，例如“为这个 Bug 创建一个 平台 Issue”。RustCode 会选择内置的 <code>platform_issue</code> 工具，写操作仍需权限确认。详见<a href="./tools.html#platform">内置工具</a>。</p>
+        <strong>托管平台的 Issue 由内置工具处理</strong>
+        <p><code>/issue</code> 已移除。在附带托管平台支持的发行版中，执行 <code>/login</code> 后直接用自然语言提出需求即可，例如“为这个 Bug 在平台上创建一个 Issue”。RustCode 会选择内置的 <code>platform_issue</code> 工具，写操作仍需权限确认。详见<a href="./tools.html#platform">内置工具</a>。</p>
       </div>
 
       <div class="callout callout-info">
@@ -180,9 +180,9 @@
         </tbody>
       </table>
       <p>详细配置与使用见 <a href="./skills.html">Skills 扩展</a> 和 <a href="./plugins.html">Plugin 系统</a>。</p>
-      <p>插件可以注册自己的斜杠命令。例如官方频道插件会新增 <code>/wechat</code>(显示 RustCode 微信用户群二维码):</p>
-      <pre><code>/plugin marketplace add https://gitcode.com/SecLab/RustCode-Channel
-/plugin install weixin@rustcode-channel</code></pre>
+      <p>插件可以注册自己的斜杠命令。先添加你的发行渠道提供的 marketplace 地址,再安装提供对应命令的插件,例如:</p>
+      <pre><code>/plugin marketplace add https://example.com/&lt;your-org&gt;/&lt;marketplace&gt;.git
+/plugin install &lt;plugin&gt;@&lt;marketplace&gt;</code></pre>
 
       <h2 id="mcp-集成">MCP 集成</h2>
       <table>
@@ -208,7 +208,7 @@
           <tr><td><code>/webui stop</code></td><td>关闭 webui 服务</td></tr>
           <tr><td><code>/sync</code></td><td>把当前 TUI 接入正在运行的 webui 会话(需先 <code>/webui</code>)。两端实时双向同步,多个浏览器 / 终端可同时围观同一会话</td></tr>
           <tr><td><code>/sync off</code></td><td>退出同步,回到独立会话</td></tr>
-          <tr><td><code>/app</code></td><td>把当前会话通过官方中继暴露给 <strong>手机 App</strong>:终端里直接吐出一个二维码,用 App 扫码即可配对,在手机上实时查看并接管这段对话(与 <code>/webui</code> 同源共用同一段会话,双向实时同步;区别是不开浏览器、走中继而非局域网)。需先 <code>/login</code> 登录</td></tr>
+          <tr><td><code>/app</code></td><td>内置托管中继的发行版本:把当前会话暴露给 <strong>手机 App</strong> —— 终端里直接吐出一个二维码,用 App 扫码即可配对,在手机上实时查看并接管这段对话(与 <code>/webui</code> 同源共用同一段会话,双向实时同步;区别是不开浏览器、走中继而非局域网)。需先完成发行版本的 <code>/login</code>;开源默认构建不支持</td></tr>
           <tr><td><code>/app stop</code></td><td>停止 App 远程访问,断开中继并回到本地会话</td></tr>
         </tbody>
       </table>
@@ -220,14 +220,14 @@
           <tr><th>命令</th><th>作用</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/status</code></td><td>显示登录状态、当前 provider、模型、上下文预算、CodingPlan 用量和重置时间</td></tr>
-          <tr><td><code>/whoami</code></td><td>显示当前 平台登录用户的用户名 / 邮箱</td></tr>
+          <tr><td><code>/status</code></td><td>显示 provider 与鉴权状态、当前 provider、模型、上下文预算(发行版本还会显示托管账号用量和重置时间)</td></tr>
+          <tr><td><code>/whoami</code></td><td>显示当前托管平台登录用户的用户名 / 邮箱(仅发行版本)</td></tr>
           <tr><td><code>/config</code></td><td>显示 <code>~/.rustcode/config.toml</code> 的路径</td></tr>
-          <tr><td><code>/reload</code></td><td>从磁盘热加载 <code>~/.rustcode/config.toml</code>,不需要重启 rustcode 就能让外部修改(或另一个终端的 <code>/login</code> 带来的变更)生效</td></tr>
+          <tr><td><code>/reload</code></td><td>从磁盘热加载 <code>~/.rustcode/config.toml</code>,不需要重启 rustcode 就能让外部修改(或另一个终端里改动的 provider / 凭据)生效</td></tr>
           <tr><td><code>/proxy</code></td><td>切换出站代理模式:跟随系统代理(默认)/ 指定固定代理 / 直连不走代理。适合公司代理网、需要强制走某个代理或强制直连等场景,选择会写回配置</td></tr>
           <tr><td><code>/language</code></td><td>切换界面语言:自动检测(<code>LC_ALL</code> / <code>LANG</code>)、English、或 简体中文。立即生效并写回 <code>~/.rustcode/config.toml</code></td></tr>
           <tr><td><code>/welcome</code></td><td>重新打开 3 步首次启动向导(欢迎页 → 语言 → 接入方式)。会话非空时会先弹 <code>y/N</code> 二次确认,确认后清屏。语言和默认接入方式都可以从这里再调一次</td></tr>
-          <tr><td><code>/logout</code></td><td>清除 OAuth token</td></tr>
+          <tr><td><code>/logout</code></td><td>清除已保存的托管账号登录凭据(仅发行版本;自带 Key 的 provider 其 API Key 仍保存在配置中)</td></tr>
           <tr><td><code>/upgrade</code></td><td>自动升级到最新版本;子命令 <code>/upgrade rollback</code> 回滚到上一个版本</td></tr>
           <tr><td><code>/guide</code></td><td>内置上手向导:<code>/guide</code> 列出可问的主题(快速开始、换模型、MCP、Skills、记忆、后台任务、上下文、快捷键、配置),<code>/guide &lt;主题&gt;</code> 直接在对话里讲解(首次会自动安装 <code>rustcode-skills</code> 插件)</td></tr>
           <tr><td><code>/help</code></td><td>展示所有可用斜杠命令的列表</td></tr>
@@ -246,19 +246,22 @@
 
       <h2 id="典型工作流">典型工作流</h2>
 
-      <h3 id="第一次启动-一键接入">第一次启动 — 一键接入</h3>
-      <pre><code>&gt; /login
-  ✔ Logged in as alice (alice, alice@example.com)
-  ✔ CodingPlan claimed — CodingPlan Lite · expires 2026-05-22 (29d / 30d)
-  ✔ 3 models registered as 平台-* providers
-  ✔ Default provider set to 平台-GLM
+      <h3 id="第一次启动-自带-key">第一次启动 — 自带 Key</h3>
+      <pre><code>&gt; /provider
+  1. 添加供应商账号   (选预设 —— Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama,或自定义 OpenAI 风格接口)
+  2. 粘贴你的 API Key  (保存在 ~/.rustcode/config.toml;可用 env:变量名 从环境读取)
+  3. 在该账号下添加一个模型
+  ✔ provider 就绪
+&gt; /model
+  ✔ 默认模型已设置
 &gt; 你好</code></pre>
+      <p>开源默认构建的全部配置就是这些 —— 无需注册账号。内置托管服务的发行版本也可以改用 <code>/login</code> 一键 OAuth。</p>
 
       <h3 id="做完一件事前看一眼-token-用量">做完一件事前看一眼 Token 用量</h3>
       <pre><code>&gt; 重构 src/db 使用连接池
 ... (AI 执行)
 &gt; /cost
-平台 · deepseek-v4-flash
+deepseek · deepseek-chat
   提示 Token：       7210
   补全 Token：       1132
   缓存 Token：       5080（70% 命中率）
@@ -285,7 +288,7 @@
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

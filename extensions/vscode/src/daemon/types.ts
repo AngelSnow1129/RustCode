@@ -116,6 +116,10 @@ export interface UserInfo {
 export interface AuthStatusResponse {
   logged_in: boolean;
   expired: boolean;
+  // Whether this daemon build ships a managed sign-in service at all.
+  // Absent on older daemons: fail closed (treat as unavailable); the
+  // extension bundles its matched daemon, so version skew is not expected.
+  managed_available?: boolean;
   auth_path: string;
   user: UserInfo | null;
   token: {

@@ -428,26 +428,36 @@ fn load_content(path: &Path) -> Result<Content> {
     // Reject anything that isn't a regular file *before* reading a byte. A FIFO
     // or char device (e.g. /dev/zero) would otherwise make the blocking read
     // below hang or stream forever and freeze the event loop.
-    let meta =
-        std::fs::metadata(path).with_context(|| format!("Failed to read {}", path.display()))?;
+    let read_failed = || format!("{}: {}", l("Failed to read", "读取失败"), path.display());
+    let meta = std::fs::metadata(path).with_context(read_failed)?;
     if !meta.is_file() {
-        anyhow::bail!("Not a regular file: {}", path.display());
+        anyhow::bail!(
+            "{}: {}",
+            l("Not a regular file", "不是常规文件"),
+            path.display()
+        );
     }
 
     use std::io::Read;
     let mut sample = Vec::new();
     std::fs::File::open(path)
-        .with_context(|| format!("Failed to read {}", path.display()))?
+        .with_context(read_failed)?
         .take(MAX_READ_BYTES)
         .read_to_end(&mut sample)
-        .with_context(|| format!("Failed to read {}", path.display()))?;
+        .with_context(read_failed)?;
     let byte_truncated = meta.len() > MAX_READ_BYTES;
 
     // Binary sniff: scan the first 8 KB for NUL bytes.
     let sample_len = sample.len().min(8192);
     let nul_count = sample[..sample_len].iter().filter(|&&b| b == 0).count();
     if nul_count > 0 {
-        anyhow::bail!("File appears to be binary (contains NUL bytes)");
+        anyhow::bail!(
+            "{}",
+            l(
+                "File appears to be binary (contains NUL bytes)",
+                "文件似乎是二进制（包含 NUL 字节）"
+            )
+        );
     }
 
     // Decode as UTF-8. When we stopped at the byte cap the cut may have split a
@@ -459,7 +469,10 @@ fn load_content(path: &Path) -> Result<Content> {
                 .unwrap()
                 .to_string()
         }
-        Err(_) => anyhow::bail!("File is not valid UTF-8"),
+        Err(_) => anyhow::bail!(
+            "{}",
+            l("File is not valid UTF-8", "文件不是有效的 UTF-8 编码")
+        ),
     };
 
     // Split into lines, truncate long ones, cap total count.

@@ -29,6 +29,10 @@ data class ConfigResponse(
 data class AuthStatusResponse(
     val loggedIn: Boolean,
     val expired: Boolean = false,
+    // Whether the bundled daemon ships a managed sign-in service. Open
+    // builds return false; older daemons omit the field -> fail closed
+    // (hide managed account UI) unless explicitly advertised.
+    val managedAvailable: Boolean = false,
     val authPath: String,
     val userName: String?,
 )

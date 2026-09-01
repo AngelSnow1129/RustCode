@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>使用指南 · RustCode 文档</title>
 <meta name="description" content="使用指南 — RustCode 文档。">
-<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
 </head>
@@ -13,7 +13,7 @@
 
 <header class="dhdr" id="dhdr">
   <a class="dhdr-logo" href="../../index.html">
-    <img src="https://cdn-news.gitcode.com/news/rustcode-icon1.png" alt="RustCode">
+    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
     <span>RustCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
     <span class="dhdr-ver">v5.0.9</span>
@@ -26,7 +26,7 @@
     </button>
     <button class="icon-btn" id="themeBtn" data-i18n-aria="aria.theme" aria-label="切换主题"></button>
     <button class="icon-btn" id="langBtn" data-i18n-aria="aria.lang" aria-label="切换语言">中</button>
-    <a class="dhdr-link" href="https://gitcode.com/SecLab/RustCode" target="_blank" rel="noopener" data-i18n="hdr.repo">仓库 →</a>
+    <span class="dhdr-link" data-i18n="hdr.repo">源码 · 发行渠道</span>
     <button class="icon-btn sb-toggle" id="sbToggle" data-i18n-aria="aria.sidebar" aria-label="目录">☰</button>
   </div>
 </header>
@@ -91,7 +91,7 @@
       <h2 id="三步开始">三步开始</h2>
       <ol>
         <li><strong>安装</strong> —— 一条 curl 命令或者从源码构建，参见 <a href="./getting-started.html">快速开始</a>。</li>
-        <li><strong>登录或配置模型</strong> —— OAuth 一键登录最省事，也支持任意 OpenAI 兼容 API Key，参见 <a href="./login.html">登录方式</a> 和 <a href="./configuration.html">配置文件</a>。</li>
+        <li><strong>配置模型</strong> —— 用 <code>/provider</code> 或 <code>~/.rustcode/config.toml</code> 为任一第三方供应商(Claude、OpenAI、DeepSeek、GLM、Qwen、Ollama,或任意 OpenAI 兼容接口)填入你自己的 API Key。这是默认方式,无需注册账号;发行版本也可能额外提供 <code>/login</code> 一键 OAuth。参见 <a href="./login.html">登录方式</a> 和 <a href="./configuration.html">配置文件</a>。</li>
         <li><strong>开始提问</strong> —— 在项目目录下运行 <code>rustcode</code>，用自然语言描述你的任务即可。</li>
       </ol>
 
@@ -112,7 +112,7 @@
         </a>
         <a class="doc-card" href="./login.html">
           <h3 id="登录方式">登录方式</h3>
-          <p>OAuth 一键登录(自动持久化)与 API Key 配置对比。</p>
+          <p>自带 API Key(默认)与发行版本可选的一键 OAuth 登录,两者对比。</p>
         </a>
         <a class="doc-card" href="./basic-usage.html">
           <h3 id="基本使用">基本使用</h3>
@@ -157,16 +157,16 @@
       </div>
 
       <h2 id="反馈与参与">反馈与参与</h2>
-      <p>RustCode 是开源项目,欢迎提交 issue 或 PR:</p>
+      <p>RustCode 是开源项目,源码、问题跟踪与 PR 均由你的发行渠道提供:</p>
       <ul>
-        <li>开源仓库:<a href="https://gitcode.com/SecLab/RustCode" target="_blank">https://gitcode.com/SecLab/RustCode</a></li>
-        <li>Issue：执行 <code>/login</code> 后，直接让 RustCode 使用内置平台工具创建，也可以前往仓库的 <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank">Issues 页面</a></li>
+        <li>源码:请从你的发行渠道获取仓库,例如 <code>https://example.com/&lt;your-org&gt;/rustcode</code></li>
+        <li>Issue:请通过你安装 rustcode 的发行渠道的问题跟踪系统反馈。</li>
         <li>许可证:MIT</li>
       </ul>
 
     <footer class="dftr">
       <span data-i18n="ftr.copy">© 2026 RustCode · MIT</span>
-      <a href="https://gitcode.com/SecLab/RustCode/issues" target="_blank" rel="noopener" data-i18n="ftr.issue">报告问题</a>
+      <span data-i18n="ftr.issue">问题反馈请通过你的发行渠道</span>
     </footer>
   </main>
 </div>

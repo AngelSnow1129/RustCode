@@ -22,11 +22,9 @@ interface ChatContextValue {
   renameSession: (session: { id: string; project_hash?: string; name?: string; title?: string }) => void;
   deleteSession: (session: { id: string; project_hash?: string; name?: string; title?: string }) => void;
   deleteSessions: (sessions: Array<{ id: string; project_hash?: string; name?: string }>) => void;
-  startLogin: () => void;
-  cancelLogin: () => void;
-  setupCodingPlan: () => void;
-  refreshSetupState: () => void;
-  setDefaultProvider: (name: string) => void;
+  // Setup/login actions are intentionally not context methods: the only
+  // consumer (WelcomeScreen) posts them directly with local handlers, and the
+  // dead ProviderSettings overlay that used context wrappers was removed.
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -458,26 +456,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const startLogin = useCallback(() => {
-    postMessage({ type: 'authLoginStart' });
-  }, []);
-
-  const cancelLogin = useCallback(() => {
-    postMessage({ type: 'authLoginCancel' });
-  }, []);
-
-  const setupCodingPlan = useCallback(() => {
-    postMessage({ type: 'codingPlanSetup' });
-  }, []);
-
-  const refreshSetupState = useCallback(() => {
-    postMessage({ type: 'refreshSetupState' });
-  }, []);
-
-  const setDefaultProvider = useCallback((name: string) => {
-    postMessage({ type: 'providerSetDefault', name });
-  }, []);
-
   const value: ChatContextValue = {
     state,
     dispatch,
@@ -493,11 +471,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     renameSession,
     deleteSession,
     deleteSessions,
-    startLogin,
-    cancelLogin,
-    setupCodingPlan,
-    refreshSetupState,
-    setDefaultProvider,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

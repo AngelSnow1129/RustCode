@@ -38,9 +38,9 @@ RustCode 提供面向开发流程的辅助能力，包括代码理解、上下�
 ## 快速开始
 
 1. 安装扩展并打开 Activity Bar 中的 RustCode 面板
-2. 首次使用选择模型配置方式：
-   - **平台登录** → 同步 CodingPlan 模型（推荐）
-   - **手动添加** → 填写 provider name / model / base URL / API key
+2. 首次使用在欢迎卡片中配置第三方模型服务（自带 API Key）：
+   - 填写 provider name / model / base URL / API key 即可开始
+   - 开源构建不包含托管账号入口；部分发行构建会额外提供平台登录，可一键同步托管模型
 3. 在输入框描述任务，或选中代码使用右键菜单
 4. 查看建议并手动确认是否应用变更
 
@@ -75,7 +75,9 @@ RustCode 提供面向开发流程的辅助能力，包括代码理解、上下�
 
 输入框键入 `/` 打开命令菜单：
 
-`/login` · `/logout` · `/whoami` · `/status` · `/config` · `/reload`
+`/status` · `/config` · `/reload`
+
+> 内置托管登录服务的发行版本还会显示 `/login` · `/logout` · `/whoami`；开源默认构建隐藏这些命令，手敲时会提示改用第三方供应商（自带 API Key）配置。
 
 ---
 
@@ -142,6 +144,5 @@ RustCode 通过本地运行的辅助服务与 VS Code 进行通信，用于处�
 
 ## 链接
 
-- [官网](https://gitcode.com/SecLab/RustCode)
-- [源码仓库](https://gitcode.com/SecLab/RustCode)
-- [MIT License](https://gitcode.com/SecLab/RustCode/blob/main/LICENSE)
+- 官网与源码仓库：请通过你的分发渠道获取（例如渠道的发布页），源码仓库地址形如 `https://example.com/<your-org>/rustcode`
+- [MIT License](../../LICENSE)（见仓库根目录 LICENSE）
