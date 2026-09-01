@@ -410,19 +410,154 @@ fn build_i18n_command() -> clap::Command {
         }
     })
     .mut_subcommand("status", |s| s.about(t(Msg::CliAboutStatus).into_owned()))
-    .mut_subcommand("upgrade", |s| s.about(t(Msg::CliAboutUpgrade).into_owned()))
+    .mut_subcommand("upgrade", |s| {
+        s.about(t(Msg::CliAboutUpgrade).into_owned())
+            .mut_arg("force", |a| a.help(t(Msg::CliHelpForce).into_owned()))
+    })
     .mut_subcommand("rollback", |s| {
         s.about(t(Msg::CliAboutRollback).into_owned())
     })
-    .mut_subcommand("mcp", |s| s.about(t(Msg::CliAboutMcp).into_owned()))
-    .mut_subcommand("daemon", |s| s.about(t(Msg::CliAboutDaemon).into_owned()))
-    .mut_subcommand("webui", |s| s.about(t(Msg::CliAboutWebui).into_owned()))
-    .mut_subcommand("plugin", |s| s.about(t(Msg::CliAboutPlugin).into_owned()))
+    .mut_subcommand("resume", |s| {
+        s.about(t(Msg::CliAboutResume).into_owned()).mut_arg("session", |a| {
+            a.help(t(Msg::CliHelpResumeSession).into_owned())
+        })
+    })
+    .mut_subcommand("mcp", |s| {
+        s.about(t(Msg::CliAboutMcp).into_owned())
+            .mut_subcommand("add", |s| {
+                s.about(t(Msg::CliAboutMcpAdd).into_owned())
+                    .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+                    .mut_arg("command", |a| {
+                        a.help(t(Msg::CliHelpMcpCommand).into_owned())
+                    })
+                    .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
+                    .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
+            })
+            .mut_subcommand("add-github-oauth", |s| {
+                s.about(t(Msg::CliAboutMcpAddGithubOauth).into_owned())
+                    .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+                    .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
+                    .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
+            })
+            .mut_subcommand("login", |s| {
+                s.about(t(Msg::CliAboutMcpLogin).into_owned())
+                    .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+            })
+            .mut_subcommand("logout", |s| {
+                s.about(t(Msg::CliAboutMcpLogout).into_owned())
+                    .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+            })
+    })
+    .mut_subcommand("daemon", |s| {
+        s.about(t(Msg::CliAboutDaemon).into_owned())
+            .mut_arg("port", |a| a.help(t(Msg::CliHelpPortDaemon).into_owned()))
+            .mut_arg("idle_timeout", |a| {
+                a.help(t(Msg::CliHelpIdleTimeout).into_owned())
+            })
+    })
+    .mut_subcommand("webui", |s| {
+        s.about(t(Msg::CliAboutWebui).into_owned())
+            .mut_arg("port", |a| a.help(t(Msg::CliHelpPortWebui).into_owned()))
+            .mut_arg("host", |a| a.help(t(Msg::CliHelpHost).into_owned()))
+    })
+    .mut_subcommand("plugin", |s| {
+        s.about(t(Msg::CliAboutPlugin).into_owned())
+            .mut_subcommand("marketplace", |s| {
+                s.about(t(Msg::CliAboutPluginMarketplace).into_owned())
+                    .mut_subcommand("add", |s| {
+                        s.about(t(Msg::CliAboutMarketplaceAdd).into_owned()).mut_arg("url", |a| {
+                            a.help(t(Msg::CliHelpMarketplaceUrl).into_owned())
+                        })
+                    })
+                    .mut_subcommand("remove", |s| {
+                        s.about(t(Msg::CliAboutMarketplaceRemove).into_owned())
+                            .mut_arg("name", |a| {
+                                a.help(t(Msg::CliHelpMarketplaceName).into_owned())
+                            })
+                    })
+                    .mut_subcommand("update", |s| {
+                        s.about(t(Msg::CliAboutMarketplaceUpdate).into_owned())
+                            .mut_arg("name", |a| {
+                                a.help(t(Msg::CliHelpMarketplaceName).into_owned())
+                            })
+                    })
+                    .mut_subcommand("list", |s| {
+                        s.about(t(Msg::CliAboutMarketplaceList).into_owned())
+                    })
+            })
+            .mut_subcommand("install", |s| {
+                s.about(t(Msg::CliAboutPluginInstall).into_owned()).mut_arg("spec", |a| {
+                    a.help(t(Msg::CliHelpPluginSpec).into_owned())
+                })
+            })
+            .mut_subcommand("uninstall", |s| {
+                s.about(t(Msg::CliAboutPluginUninstall).into_owned()).mut_arg("spec", |a| {
+                    a.help(t(Msg::CliHelpPluginSpec).into_owned())
+                })
+            })
+            .mut_subcommand("list", |s| s.about(t(Msg::CliAboutPluginList).into_owned()))
+    })
     .mut_subcommand("uninstall", |s| {
         s.about(t(Msg::CliAboutUninstall).into_owned())
+            .mut_arg("yes", |a| a.help(t(Msg::CliHelpUninstallYes).into_owned()))
+            .mut_arg("purge", |a| a.help(t(Msg::CliHelpUninstallPurge).into_owned()))
+            .mut_arg("keep_data", |a| {
+                a.help(t(Msg::CliHelpUninstallKeepData).into_owned())
+            })
+            .mut_arg("dry_run", |a| {
+                a.help(t(Msg::CliHelpUninstallDryRun).into_owned())
+            })
     })
     .mut_subcommand("setup", |s| s.about(t(Msg::CliAboutSetup).into_owned()))
-    .mut_subcommand("hooks", |s| s.about(t(Msg::CliAboutHooks).into_owned()))
+    .mut_subcommand("hooks", |s| {
+        s.about(t(Msg::CliAboutHooks).into_owned())
+            .mut_subcommand("list", |s| s.about(t(Msg::CliAboutHooksList).into_owned()))
+            .mut_subcommand("test", |s| {
+                s.about(t(Msg::CliAboutHooksTest).into_owned()).mut_arg("name", |a| {
+                    a.help(t(Msg::CliHelpHooksTestName).into_owned())
+                })
+            })
+            .mut_subcommand("paths", |s| s.about(t(Msg::CliAboutHooksPaths).into_owned()))
+    })
+    .mut_subcommand("schedule", |s| {
+        s.about(t(Msg::CliAboutSchedule).into_owned())
+            .mut_subcommand("add", |s| {
+                s.about(t(Msg::CliAboutScheduleAdd).into_owned())
+                    .mut_arg("title", |a| a.help(t(Msg::CliHelpSchedTitle).into_owned()))
+                    .mut_arg("prompt", |a| a.help(t(Msg::CliHelpSchedPrompt).into_owned()))
+                    .mut_arg("cwd", |a| a.help(t(Msg::CliHelpSchedCwd).into_owned()))
+                    .mut_arg("daily", |a| a.help(t(Msg::CliHelpSchedDaily).into_owned()))
+                    .mut_arg("weekly", |a| a.help(t(Msg::CliHelpSchedWeekly).into_owned()))
+                    .mut_arg("every", |a| a.help(t(Msg::CliHelpSchedEvery).into_owned()))
+                    .mut_arg("hourly", |a| a.help(t(Msg::CliHelpSchedHourly).into_owned()))
+                    .mut_arg("cron", |a| a.help(t(Msg::CliHelpSchedCron).into_owned()))
+                    .mut_arg("mode", |a| a.help(t(Msg::CliHelpSchedMode).into_owned()))
+                    .mut_arg("notify", |a| a.help(t(Msg::CliHelpSchedNotify).into_owned()))
+            })
+            .mut_subcommand("list", |s| s.about(t(Msg::CliAboutScheduleList).into_owned()))
+            .mut_subcommand("remove", |s| {
+                s.about(t(Msg::CliAboutScheduleRemove).into_owned()).mut_arg("id", |a| {
+                    a.help(t(Msg::CliHelpSchedId).into_owned())
+                })
+            })
+            .mut_subcommand("enable", |s| {
+                s.about(t(Msg::CliAboutScheduleEnable).into_owned()).mut_arg("id", |a| {
+                    a.help(t(Msg::CliHelpSchedId).into_owned())
+                })
+            })
+            .mut_subcommand("disable", |s| {
+                s.about(t(Msg::CliAboutScheduleDisable).into_owned()).mut_arg("id", |a| {
+                    a.help(t(Msg::CliHelpSchedId).into_owned())
+                })
+            })
+            .mut_subcommand("run", |s| {
+                s.about(t(Msg::CliAboutScheduleRun).into_owned()).mut_arg("id", |a| {
+                    a.help(t(Msg::CliHelpSchedId).into_owned())
+                })
+            })
+            .mut_subcommand("sync", |s| s.about(t(Msg::CliAboutScheduleSync).into_owned()))
+    })
+    .mut_subcommand("help", |s| s.about(t(Msg::CliAboutHelp).into_owned()))
 }
 
 /// Body of the detached upgrade-prep worker. One call to
