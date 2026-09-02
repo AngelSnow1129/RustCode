@@ -4,7 +4,6 @@
 /// unquoted keys, invalid backslash escapes, and markdown code fences.
 /// These functions attempt to repair such output before falling back to
 /// last-resort key-value extraction.
-
 const MAX_REPAIR_BYTES: usize = 512 * 1024;
 
 /// Normalize tool-call arguments into valid JSON before execution.
@@ -587,9 +586,8 @@ pub fn repair_json(s: &str) -> String {
             rebuilt.push(c);
         }
         // Any insertion queued at end-of-string (pos == chars.len()).
-        for _ in ins {
-            rebuilt.push(',');
-        }
+        let extra = ins.count();
+        rebuilt.extend(std::iter::repeat_n(',', extra));
         result = rebuilt.into_iter().collect();
     }
 
@@ -896,14 +894,14 @@ pub fn extract_edit_file_args(raw: &str) -> Option<serde_json::Value> {
 
 fn unescape_field_value(raw: &str) -> String {
     let t = raw.trim().trim_end_matches(',').trim();
-    let inner = if t.starts_with('"') { &t[1..] } else { t };
+    let inner = t.strip_prefix('"').unwrap_or(t);
     let inner = inner.trim_end_matches('"');
     unescape_json_string_contents(inner)
 }
 
 fn unescape_field_value_end(raw: &str) -> String {
     let t = raw.trim();
-    let inner = if t.starts_with('"') { &t[1..] } else { t };
+    let inner = t.strip_prefix('"').unwrap_or(t);
     // Remove trailing "} or ", "replace_all": ... }
     let end = inner
         .rfind("\", \"replace_all\"")

@@ -982,6 +982,8 @@ fn authentication_expired_error(code: u16) -> ProviderError {
 /// (if any) re-auths with a new nonce/timestamp. Returns the live `Response` on
 /// a 2xx, or a terminal `ProviderError`. Shared by the initial open and the
 /// mid-stream re-open so both paths behave identically.
+// Provider open_stream helpers take many config knobs; grouping them as args is clearer than a struct here.
+#[allow(clippy::too_many_arguments)]
 async fn open_stream(
     client: &SwappableClient,
     url: &str,
@@ -1579,6 +1581,7 @@ fn truncate_msg(s: &str) -> String {
 /// - OpenAI / Anthropic: `{"error":{"message","type","code"}}` (kept as the tagged
 ///   `[type/code] message` form via [`parse_error_obj`])
 /// - Top-level `{"code","message"}` (e.g. GLM `{"code":"1113","message":"余额不足..."}`)
+///
 /// Falls back to the truncated raw body when nothing parses. Mirrors
 /// `rustcode_core::provider::extract_error_message`'s shape list (kept LOCAL -- L1 must
 /// not depend on core). Previously only the `error` object was handled, so GLM-style
@@ -2209,8 +2212,10 @@ mod tests {
             max_delay: Duration::ZERO,
         };
         let provider = OpenAiCompatProvider::new(cfg).unwrap();
-        let mut options = ChatOptions::default();
-        options.rate_limit_retry_owner = owner;
+        let options = ChatOptions {
+            rate_limit_retry_owner: owner,
+            ..Default::default()
+        };
         let result = provider.chat_stream(&[], &[], &options).await;
         assert!(matches!(result, Err(e) if e.http_status == Some(429)));
         server.received_requests().await.unwrap().len()

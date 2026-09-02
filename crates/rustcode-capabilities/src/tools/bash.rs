@@ -353,6 +353,8 @@ pub(crate) fn windows_bash_active() -> bool {
 
 /// Short label for the system-prompt `Shell:` line on Windows: the POSIX bash when one
 /// is active, else cmd.exe. Pure (takes the flag) so it is unit-testable off Windows.
+// Only called from `env_block` on `cfg(windows)`; keep reachable for the off-Windows lib build.
+#[allow(dead_code)]
 pub(crate) fn windows_shell_label(bash_present: bool) -> &'static str {
     if bash_present {
         "bash"
@@ -3987,7 +3989,7 @@ mod tests {
             None
         );
         assert_eq!(
-            decode_stream_chunk(&mut pending, &[b'\n'], false).as_deref(),
+            decode_stream_chunk(&mut pending, b"\n", false).as_deref(),
             Some("福建省新闻正文，已移送司法机关处理。\n")
         );
         assert!(pending.is_empty());

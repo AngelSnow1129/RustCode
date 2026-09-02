@@ -325,6 +325,8 @@ impl LlmProvider for AnthropicProvider {
 /// Open one `/v1/messages` stream, retrying the OPEN (transient status /
 /// transport) per `policy`. Shared by the initial open and the mid-stream
 /// re-open so both paths behave identically.
+// Provider open_stream helpers take many config knobs; grouping them as args is clearer than a struct here.
+#[allow(clippy::too_many_arguments)]
 async fn open_stream(
     client: &reqwest::Client,
     url: &str,

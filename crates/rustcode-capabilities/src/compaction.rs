@@ -945,6 +945,20 @@ pub fn build_compact_stub(tool_name: &str, output: &str, success: bool) -> Strin
     format!("[{tool_name} {status}: {line_count} lines, first: {first_line}]")
 }
 
+/// Tiny test helper to chain two assistant tool calls into one message (a real assistant
+/// turn can call several tools at once). Test-only.
+#[cfg(test)]
+trait AlsoCalls {
+    fn also(self, other: Message) -> Message;
+}
+#[cfg(test)]
+impl AlsoCalls for Message {
+    fn also(mut self, other: Message) -> Message {
+        self.tool_calls.extend(other.tool_calls);
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -987,7 +1001,7 @@ mod tests {
         let mut msgs = vec![Message::user("go")];
         for i in 0..10 {
             msgs.push(asst_call(&format!("c{i}"), "bash"));
-            msgs.push(Message::tool_result(&format!("c{i}"), &big("out"), false));
+            msgs.push(Message::tool_result(format!("c{i}"), big("out"), false));
         }
         let floor = 0;
         let total: usize = msgs.iter().map(|m| m.estimate_tokens() as usize).sum();
@@ -1014,7 +1028,7 @@ mod tests {
         let msgs = vec![
             Message::user("go"),
             asst_call("c1", "bash"),
-            Message::tool_result("c1", &big("out"), false),
+            Message::tool_result("c1", big("out"), false),
         ];
         let budget = 1; // absurdly small -> would keep only the last (Tool) message
         let b = recent_keep_boundary_splitting(&msgs, budget, 0);
@@ -1035,7 +1049,7 @@ mod tests {
         let msgs = vec![
             Message::user("t1"),
             asst_call("c1", "bash"),
-            Message::tool_result("c1", &big("o1"), false),
+            Message::tool_result("c1", big("o1"), false),
             Message::user("t2"),
             asst_call("c2", "bash"),
             Message::tool_result("c2", "small", false),
@@ -1109,11 +1123,11 @@ mod tests {
             Message::system("persona"),
             Message::user("first"),
             asst_call("b1", "bash").also(asst_call("r1", "read_file")),
-            Message::tool_result("b1", &big("bash out"), false),
-            Message::tool_result("r1", &big("file contents"), false),
+            Message::tool_result("b1", big("bash out"), false),
+            Message::tool_result("r1", big("file contents"), false),
             Message::user("second"),
             asst_call("g1", "grep"),
-            Message::tool_result("g1", &big("grep out"), false),
+            Message::tool_result("g1", big("grep out"), false),
         ];
         let mut conv = Conversation::new();
         conv.messages = msgs;
@@ -1146,10 +1160,10 @@ mod tests {
             Message::system("persona"),
             Message::user("first"),
             asst_call("b1", "bash"),
-            Message::tool_result("b1", &big("bash out"), false),
+            Message::tool_result("b1", big("bash out"), false),
             Message::user("second"),
             asst_call("g1", "grep"),
-            Message::tool_result("g1", &big("grep out"), false),
+            Message::tool_result("g1", big("grep out"), false),
         ];
         let mut conv = Conversation::new();
         conv.messages = msgs;
@@ -1185,7 +1199,7 @@ mod tests {
             Message::system("persona"),
             Message::user("only"),
             asst_call("b1", "bash"),
-            Message::tool_result("b1", &big("bash out"), false),
+            Message::tool_result("b1", big("bash out"), false),
         ];
         let mut conv = Conversation::new();
         conv.messages = msgs;
@@ -1206,7 +1220,7 @@ mod tests {
             Message::system("persona"),
             Message::user("u1"),
             asst_call("r1", "read_file"),
-            Message::tool_result("r1", &big("file body"), false),
+            Message::tool_result("r1", big("file body"), false),
         ];
         let mut conv = Conversation::new();
         conv.messages = msgs;
@@ -1283,10 +1297,10 @@ mod tests {
             Message::system("p"),
             Message::user("u1"),
             asst_call("b1", "bash"),
-            Message::tool_result("b1", &big("out"), false),
+            Message::tool_result("b1", big("out"), false),
             Message::user("u2"),
             asst_call("g1", "grep"),
-            Message::tool_result("g1", &big("o2"), false),
+            Message::tool_result("g1", big("o2"), false),
         ];
         let mut a = Conversation::new();
         a.messages = msgs.clone();
@@ -1393,10 +1407,10 @@ mod tests {
             Message::system("persona"),
             Message::user("first"),
             asst_call("b1", "bash"),
-            Message::tool_result("b1", &big("bash out"), false),
+            Message::tool_result("b1", big("bash out"), false),
             Message::user("second"),
             asst_call("g1", "grep"),
-            Message::tool_result("g1", &big("grep out"), false),
+            Message::tool_result("g1", big("grep out"), false),
             Message::user("third-active"),
         ];
         let mut conv = Conversation::new();
@@ -1747,7 +1761,7 @@ mod tests {
             let s = plan
                 .summary
                 .as_deref()
-                .expect(&format!("plain/blank manual summarizes (focus={focus:?})"));
+                .unwrap_or_else(|| panic!("plain/blank manual summarizes (focus={focus:?})"));
             assert!(s.starts_with(ANCHOR_SENTINEL) && s.contains("PRIOR CONTEXT SUMMARY"));
             assert!(
                 plan.drain_from == floor && plan.drain_to > floor,
@@ -1768,7 +1782,7 @@ mod tests {
             Message::system("p"),
             Message::user("u1-active"),
             asst_call("b1", "bash"),
-            Message::tool_result("b1", &big("out"), false),
+            Message::tool_result("b1", big("out"), false),
         ];
         let mut conv = Conversation::new();
         conv.messages = msgs;
@@ -1847,7 +1861,7 @@ mod tests {
             Message::system("p"),
             Message::user("u1"),
             asst_call("b1", "bash"),
-            Message::tool_result("b1", &big("bash out"), false),
+            Message::tool_result("b1", big("bash out"), false),
             Message::user("u2-active"),
         ];
         let mut conv = Conversation::new();
@@ -1878,7 +1892,7 @@ mod tests {
             Message::system("p"),
             Message::user("u1"),
             asst_call("b1", "bash"),
-            Message::tool_result("b1", &big("bash out"), false),
+            Message::tool_result("b1", big("bash out"), false),
             Message::assistant("a1", vec![]),
             Message::user("u2"),
             Message::assistant("a2", vec![]),
@@ -1907,7 +1921,7 @@ mod tests {
         let msgs = vec![
             Message::system("p"),
             // Huge first paste -- protected by sacred_floor, un-drainable.
-            Message::user(&"x".repeat(5000)),
+            Message::user("x".repeat(5000)),
             Message::assistant("a1", vec![]),
             Message::user("u2"),
             Message::assistant("a2", vec![]),
@@ -2010,7 +2024,7 @@ mod tests {
             Message::system("p"),
             Message::user("u1-active"),
             asst_call("b1", "bash"),
-            Message::tool_result("b1", &big("out"), false),
+            Message::tool_result("b1", big("out"), false),
         ];
         let mut sc = Conversation::new();
         sc.messages = short;
@@ -2343,19 +2357,5 @@ mod tests {
             out.contains("[2 image(s) attached]"),
             "image presence must be recorded in the summary input, got: {out}"
         );
-    }
-}
-
-/// Tiny test helper to chain two assistant tool calls into one message (a real assistant
-/// turn can call several tools at once). Test-only.
-#[cfg(test)]
-trait AlsoCalls {
-    fn also(self, other: Message) -> Message;
-}
-#[cfg(test)]
-impl AlsoCalls for Message {
-    fn also(mut self, other: Message) -> Message {
-        self.tool_calls.extend(other.tool_calls);
-        self
     }
 }

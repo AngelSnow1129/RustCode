@@ -38,8 +38,7 @@ fn load_last_event(name: &str) -> Value {
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
     let last = text
         .lines()
-        .filter(|l| !l.trim().is_empty())
-        .last()
+        .rfind(|l| !l.trim().is_empty())
         .unwrap_or_else(|| panic!("fixture {} is empty", name));
     serde_json::from_str(last).unwrap_or_else(|e| panic!("parse {}: {}", path.display(), e))
 }

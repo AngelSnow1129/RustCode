@@ -532,6 +532,8 @@ pub struct TaskTool {
     make_fast_provider: Box<dyn Fn() -> Arc<dyn LlmProvider> + Send + Sync>,
     make_capable_provider: Box<dyn Fn() -> Arc<dyn LlmProvider> + Send + Sync>,
     make_host_provider: Option<Box<dyn Fn() -> Arc<dyn LlmProvider> + Send + Sync>>,
+    // Provider factory closures are inherently complex closure types; aliasing adds no clarity here.
+    #[allow(clippy::type_complexity)]
     make_named_provider:
         Option<Box<dyn Fn(&str) -> Result<Option<Arc<dyn LlmProvider>>, String> + Send + Sync>>,
     make_explore_tools: Box<dyn Fn() -> MountedTools + Send + Sync>,
@@ -683,12 +685,9 @@ parallel workers NON-OVERLAPPING scopes."
     }
 
     fn take_policy_intervention(&self, result: &mut ToolResult) -> Option<PolicyIntervention> {
-        let Some(rest) = result
+        let rest = result
             .content
-            .strip_prefix(CHILD_POLICY_INTERVENTION_MARKER)
-        else {
-            return None;
-        };
+            .strip_prefix(CHILD_POLICY_INTERVENTION_MARKER)?;
         // The blocked child's block was already sanitized at render time (fixed
         // notice, no child-derived data), so just strip the internal signal marker
         // -- never expose it -- and KEEP the surviving siblings' output. Lift the
@@ -1025,50 +1024,48 @@ parallel workers NON-OVERLAPPING scopes."
                     },
                 };
                 let mut final_model = model.clone();
-                if fallback_provider.is_some()
-                    && retryable_content_free_failure(&outcome)
-                    && !child_cancel.is_cancelled()
-                {
-                    let fallback = fallback_provider.expect("checked above");
-                    let fallback_model = fallback.model_name().to_string();
-                    // `MemberStarted` is attempt-scoped: publishing the retry
-                    // keeps typed Team projections aligned with the provider
-                    // that is actually running. Existing consumers already
-                    // update an existing member in place on repeated starts.
-                    if let Some(events) = &member_events {
-                        events.emit(crate::team::TeamEventPayload::MemberStarted {
-                            member_id: member_id.clone(),
-                            role: t.role,
-                            model: fallback_model.clone(),
-                            description: desc.clone(),
-                        });
-                    }
-                    progress_hook.publish(
-                        Some(format!(
+                if let Some(fallback) = &fallback_provider {
+                    if retryable_content_free_failure(&outcome) && !child_cancel.is_cancelled() {
+                        let fallback_model = fallback.model_name().to_string();
+                        // `MemberStarted` is attempt-scoped: publishing the retry
+                        // keeps typed Team projections aligned with the provider
+                        // that is actually running. Existing consumers already
+                        // update an existing member in place on repeated starts.
+                        if let Some(events) = &member_events {
+                            events.emit(crate::team::TeamEventPayload::MemberStarted {
+                                member_id: member_id.clone(),
+                                role: t.role,
+                                model: fallback_model.clone(),
+                                description: desc.clone(),
+                            });
+                        }
+                        progress_hook.publish(
+                            Some(format!(
                             "{model} failed before producing output; retrying with {fallback_model}"
                         )),
-                        true,
-                    );
-                    let fallback_child = build_task_child(
-                        fallback,
-                        tools,
-                        persona,
-                        wd,
-                        child_cancel,
-                        progress_hook.clone(),
-                        tool_loop_policy,
-                        max_rounds,
-                        stream_timeout,
-                        child_middlewares,
-                    );
-                    outcome = run_child_to_completion(
-                        fallback_child,
-                        prompt,
-                        AutoRespond::AllowAll,
-                        progress_hook,
-                    )
-                    .await;
-                    final_model = fallback_model;
+                            true,
+                        );
+                        let fallback_child = build_task_child(
+                            fallback.clone(),
+                            tools,
+                            persona,
+                            wd,
+                            child_cancel,
+                            progress_hook.clone(),
+                            tool_loop_policy,
+                            max_rounds,
+                            stream_timeout,
+                            child_middlewares,
+                        );
+                        outcome = run_child_to_completion(
+                            fallback_child,
+                            prompt,
+                            AutoRespond::AllowAll,
+                            progress_hook,
+                        )
+                        .await;
+                        final_model = fallback_model;
+                    }
                 }
                 // Include the failure reason on the terminal [x] line. Retained UIs
                 // commit terminal child events to scrollback while keeping only
@@ -1529,6 +1526,8 @@ fn readable_progress_tail(text: &str) -> Option<String> {
     (!clean.is_empty()).then(|| first_line_capped(&clean, 88))
 }
 
+// Child builder needs every runtime knob passed in; a struct would be noisier at the single call site.
+#[allow(clippy::too_many_arguments)]
 fn build_task_child(
     provider: Arc<dyn LlmProvider>,
     tools: MountedTools,

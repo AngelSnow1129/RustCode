@@ -648,10 +648,8 @@ fn black_hole_gateway() -> String {
     let addr = listener.local_addr().unwrap();
     std::thread::spawn(move || {
         let mut held = Vec::new();
-        for stream in listener.incoming() {
-            if let Ok(s) = stream {
-                held.push(s); // hold it open, never read, never write
-            }
+        for s in listener.incoming().flatten() {
+            held.push(s); // hold it open, never read, never write
         }
     });
     format!("http://{addr}")

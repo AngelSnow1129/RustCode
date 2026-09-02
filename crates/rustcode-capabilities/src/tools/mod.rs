@@ -158,7 +158,7 @@ pub fn coding_tool_names() -> &'static [&'static str] {
     }
     #[cfg(not(feature = "memory"))]
     {
-        return &[
+        &[
             "read_file",
             "write_file",
             "edit_file",
@@ -172,7 +172,7 @@ pub fn coding_tool_names() -> &'static [&'static str] {
             "todowrite",
             "fetch_output",
             "request_user_input",
-        ];
+        ]
     }
 }
 

@@ -289,6 +289,8 @@ impl LlmProvider for OllamaProvider {
 
 /// Open one `/api/chat` stream, retrying the OPEN (transient status / transport)
 /// per `policy`. Shared by the initial open and the mid-stream re-open.
+// Provider open_stream helpers take many config knobs; grouping them as args is clearer than a struct here.
+#[allow(clippy::too_many_arguments)]
 async fn open_stream(
     client: &reqwest::Client,
     url: &str,

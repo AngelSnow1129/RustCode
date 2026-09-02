@@ -208,16 +208,11 @@ pub fn start(
     };
 
     tokio::spawn(async move {
-        loop {
-            match listener.accept().await {
-                Ok((stream, _)) => {
-                    let token_c = token.clone();
-                    let cache_c = cache.clone();
-                    let tx_c = tx.clone();
-                    tokio::spawn(handle_connection(stream, token_c, cache_c, tx_c));
-                }
-                Err(_) => break,
-            }
+        while let Ok((stream, _)) = listener.accept().await {
+            let token_c = token.clone();
+            let cache_c = cache.clone();
+            let tx_c = tx.clone();
+            tokio::spawn(handle_connection(stream, token_c, cache_c, tx_c));
         }
     });
 
