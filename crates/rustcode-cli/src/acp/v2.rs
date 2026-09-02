@@ -1534,17 +1534,17 @@ mod tests {
             "additionalDirectories capability advertised"
         );
         assert!(
-            json.get("auth").map_or(true, serde_json::Value::is_null),
+            json.get("auth").is_none_or(serde_json::Value::is_null),
             "auth extension must not be advertised"
         );
         // MCP `http` transport is advertised; `sse` is not (no SSE transport).
         let mcp = session.get("mcp").expect("mcp capability present");
         assert!(
-            mcp.get("http").map_or(false, |v| !v.is_null()),
+            mcp.get("http").is_some_and(|v| !v.is_null()),
             "http MCP transport advertised: {mcp}"
         );
         assert!(
-            mcp.get("sse").map_or(true, serde_json::Value::is_null),
+            mcp.get("sse").is_none_or(serde_json::Value::is_null),
             "sse MCP transport not advertised"
         );
         assert!(

@@ -426,11 +426,11 @@ async fn resume_reconnects_to_persisted_session() {
         .filter_map(|u| u["content"]["text"].as_str())
         .collect();
     assert!(
-        texts.iter().any(|t| *t == "first"),
+        texts.contains(&"first"),
         "turn 1 streamed before close: {texts:?}"
     );
     assert!(
-        texts.iter().any(|t| *t == "second"),
+        texts.contains(&"second"),
         "turn 2 streamed after resume: {texts:?}"
     );
 

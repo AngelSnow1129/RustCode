@@ -594,7 +594,7 @@ mod tests {
         // supported. (`auth` itself is a struct field, always present.)
         let logout = json.get("auth").and_then(|a| a.get("logout"));
         assert!(
-            logout.map_or(true, serde_json::Value::is_null),
+            logout.is_none_or(serde_json::Value::is_null),
             "logout must not be advertised: {json}"
         );
         // MCP `http` transport is advertised; `sse` is not (no SSE transport).

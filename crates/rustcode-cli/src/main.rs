@@ -733,11 +733,7 @@ async fn sync_stage_and_apply_if_newer() {
                     eprintln!("{}", t(Msg::CliUpgradeAvailable { version: &version }));
                 }
                 UpgradeEvent::Downloading { bytes, total } => {
-                    let pct = if total == 0 {
-                        0
-                    } else {
-                        ((bytes * 100) / total) as i32
-                    };
+                    let pct = ((bytes * 100).checked_div(total).unwrap_or(0)) as i32;
                     if pct != last_pct {
                         let mb = format!("{:.1}", bytes as f64 / 1_048_576.0);
                         let total_mb = format!("{:.1}", total as f64 / 1_048_576.0);
@@ -2976,6 +2972,7 @@ fn write_headless_json_event(event: &headless_json::HeadlessEvent) -> io::Result
     output.flush()
 }
 
+#[allow(clippy::too_many_arguments)] // 12 params thread the headless session config into the runtime; callers are few and stable
 pub(crate) async fn run_native_headless(
     notifications_cfg: rustcode_config::config::NotificationConfig,
     runtime: rustcode_coding::CodingRuntime,
@@ -3365,22 +3362,20 @@ pub(crate) async fn run_native_headless(
                     .unwrap_or(serde_json::Value::Null);
                 let _ = handle.respond(request.id, value).await;
             }
-            CodingRuntimeEvent::CompactionFinished { completion } => {
-                if let rustcode_coding::runtime::CompactionCompletion::Completed(outcome) =
-                    completion
-                {
-                    if outcome.committed {
-                        eprintln!(
-                            "[compact] {}",
-                            rustcode_config::i18n::format_compaction_mark(
-                                outcome.removed_messages,
-                                outcome.estimated_tokens_before,
-                                outcome.estimated_tokens_after
-                            )
-                        );
-                    }
-                }
+            CodingRuntimeEvent::CompactionFinished {
+                completion:
+                    rustcode_coding::runtime::CompactionCompletion::Completed(outcome),
+            } if outcome.committed => {
+                eprintln!(
+                    "[compact] {}",
+                    rustcode_config::i18n::format_compaction_mark(
+                        outcome.removed_messages,
+                        outcome.estimated_tokens_before,
+                        outcome.estimated_tokens_after
+                    )
+                );
             }
+            CodingRuntimeEvent::CompactionFinished { .. } => {}
             CodingRuntimeEvent::TurnFinished(completion) => {
                 saw_turn_terminal = true;
                 close_native_thinking(&mut thinking_line_open);
@@ -4395,11 +4390,7 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
                 // Debounce to whole percents so we don't spam stdout --
                 // piping the CLI through `tee` with 10k updates is no
                 // fun for anyone.
-                let pct = if total == 0 {
-                    0
-                } else {
-                    ((bytes * 100) / total) as i32
-                };
+                let pct = ((bytes * 100).checked_div(total).unwrap_or(0)) as i32;
                 if pct != last_pct {
                     print!(
                         "{}",

@@ -818,7 +818,7 @@ mod tests {
         // Mixed ASCII + CJK: only ASCII letters survive
         let s2 = slug("My重要Task");
         assert!(
-            s2.chars().all(|c| c.is_ascii()),
+            s2.is_ascii(),
             "slug must be all-ASCII: {s2}"
         );
         assert!(s2.contains("my"), "ASCII part 'my' must survive: {s2}");
@@ -1006,8 +1006,8 @@ mod tests {
         // next session write elsewhere fails with a spurious `NotFound`.
         let home = rustcode_kernel::test_support::isolate_home_subdir("schedule-store");
         std::env::set_var("RUSTCODE_HOME", &home);
-        let result = f();
-        result
+        
+        f()
     }
 
     // ── OS-integration tests ──────────────────────────────────────────────────
