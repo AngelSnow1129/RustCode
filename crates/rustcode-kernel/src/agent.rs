@@ -1487,6 +1487,7 @@ impl RunningAgent {
     /// push the prompt, then drive the turn while servicing commands.
     /// Returns `true` iff a `Shutdown` (or a closed command channel) was observed
     /// mid-turn, so the caller must tear down without draining further.
+    #[allow(clippy::too_many_arguments)] // 9 params is the stable turn-driver signature; splitting would churn all callers
     async fn process_send_message(
         &self,
         convo: &mut Conversation,
@@ -5709,13 +5710,14 @@ mod provider_message_pairing_tests {
             "a dropped orphan must not trigger an over-window advisory: {warnings:?}"
         );
 
-        let recorded = calls.lock().unwrap();
-        let outgoing = &recorded[0].0;
-        assert!(
-            outgoing.iter().all(|message| message.role != Role::Tool),
-            "the provider must not receive the hook-created orphan result"
-        );
-        drop(recorded);
+        {
+            let recorded = calls.lock().unwrap();
+            let outgoing = &recorded[0].0;
+            assert!(
+                outgoing.iter().all(|message| message.role != Role::Tool),
+                "the provider must not receive the hook-created orphan result"
+            );
+        }
 
         handle.commands.send(AgentCommand::Snapshot).unwrap();
         let snapshot = loop {

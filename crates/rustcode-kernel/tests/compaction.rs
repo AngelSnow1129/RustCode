@@ -448,7 +448,7 @@ async fn manual_compaction_success_is_checkpointed_before_event() {
     };
 
     let persisted = saved.lock().unwrap().clone();
-    assert_eq!(persisted.as_slice(), &[committed.clone()]);
+    assert_eq!(persisted.as_slice(), std::slice::from_ref(&committed));
     assert_eq!(
         snapshot(&mut handle).await,
         committed,

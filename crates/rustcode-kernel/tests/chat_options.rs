@@ -124,8 +124,10 @@ async fn default_agent_sends_neutral_options() {
         !calls.is_empty(),
         "the turn must have made at least one chat_stream call"
     );
-    let mut expected = ChatOptions::default();
-    expected.rate_limit_retry_owner = RateLimitRetryOwner::Kernel;
+    let expected = ChatOptions {
+        rate_limit_retry_owner: RateLimitRetryOwner::Kernel,
+        ..Default::default()
+    };
     assert_eq!(
         calls[0].2, expected,
         "an agent built without chat_options must keep neutral model knobs"
