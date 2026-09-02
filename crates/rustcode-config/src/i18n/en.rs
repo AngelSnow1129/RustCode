@@ -135,6 +135,10 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("Running {count} {tool} calls").into(),
         Msg::TuixToolBatchParallel { count } => format!("Running {count} tools in parallel").into(),
         Msg::TuixToolBatch { count } => format!("Running {count} tools").into(),
+        Msg::TuixRuntimeDeliveryFailed { operation } =>
+            format!("coding runtime {operation} delivery failed").into(),
+        Msg::TuixShellContextQueueFailed =>
+            "[failed to add shell output to runtime context]".into(),
         Msg::KernelNoticeEmptyRetryMalformed {
             wait_secs,
             attempt,
@@ -1288,6 +1292,8 @@ Skip `/login` and configure a third-party provider directly in\n\
             "  No user-invocable skills loaded.\n".into(),
         Msg::SkillsAvailable =>
             "  Available skills:\n".into(),
+        Msg::CmdSkillsEmptyHint =>
+            "No user-invocable skills installed yet.\n    \u{2022} Drop SKILL.md into ~/.rustcode/skills/<name>/ \n      (Windows: %USERPROFILE%\\.rustcode\\skills\\<name>\\)\n    \u{2022} Or install a plugin that ships skills via /plugin install <git-url>\n\n".into(),
         Msg::SkillUnknown { name } =>
             format!("Unknown skill: {} (try /skills to list)", name).into(),
         Msg::SkillsLoaded { names } =>
@@ -1724,6 +1730,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
 
         // ── reasoning effort ──
         Msg::ReasoningEffortNoEffect => "The current model is not configured to support reasoning_effort; enable it in /provider".into(),
+        Msg::EffortCleared => "  reasoning_effort cleared (API default)\n".into(),
 
         // ── config save failed ──
         Msg::ConfigSaveFailed { error } =>

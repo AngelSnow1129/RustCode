@@ -239,6 +239,15 @@ pub enum Msg<'a> {
     TuixToolBatch {
         count: usize,
     },
+    /// Edge diagnostic rendered when a native runtime event cannot be delivered
+    /// to the live renderer channel (the runtime was likely tearing down).
+    /// `operation` is the internal event/operation name and stays raw.
+    TuixRuntimeDeliveryFailed {
+        operation: &'a str,
+    },
+    /// Bracketed notice appended to local shell output when queueing that output
+    /// into the runtime context failed.
+    TuixShellContextQueueFailed,
     // ── kernel AgentNotice family (L0 kernel emits a neutral structured notice;
     //    the edge localizes these -- see rustcode_coding::localize_agent_notice) ──
     /// Transient retry after a MALFORMED completion (adapter dropped unparseable chunks).
@@ -1821,6 +1830,10 @@ pub enum Msg<'a> {
     // ── /skills ──
     SkillsNone,
     SkillsAvailable,
+    /// Long install-guidance body shown (after a `i`/`ⓘ` marker) when the user
+    /// opens `/skills` but no user-invocable skills are installed. Paths and
+    /// the `/plugin install` command stay raw; only the prose is localized.
+    CmdSkillsEmptyHint,
     SkillUnknown {
         name: &'a str,
     },
@@ -2453,6 +2466,10 @@ pub enum Msg<'a> {
     /// Rendered when the user tries to set reasoning_effort on a
     /// model that doesn't support it (only DeepSeek V4 / reasoner).
     ReasoningEffortNoEffect,
+    /// Confirmation line after Ctrl+T cycles the effort back to "no override"
+    /// (the provider's API default). The `reasoning_effort` config key itself
+    /// stays raw in the output; only the prose is localized.
+    EffortCleared,
 
     // ── config save failed ──
     ConfigSaveFailed {

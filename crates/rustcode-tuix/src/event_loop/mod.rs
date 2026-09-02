@@ -2533,7 +2533,8 @@ impl ReadyRuntimeControl {
         };
         let _ = event_tx.send(bg_runtime::RuntimeEventPayload::Native(
             CodingRuntimeEvent::Agent(rustcode_kernel::event::AgentEvent::Error {
-                message: format!("coding runtime {operation} delivery failed"),
+                message: crate::i18n::t(crate::i18n::Msg::TuixRuntimeDeliveryFailed { operation })
+                    .into_owned(),
                 http_status: None,
                 code: None,
                 retryable: None,
@@ -3591,6 +3592,11 @@ mod local_restore_scope_tests {
 
     #[tokio::test]
     async fn ready_runtime_reports_later_submit_delivery_failure_after_undo_channel_closes() {
+        // The delivery-failure message now routes through i18n ("delivery failed"
+        // in English / "投递失败" in zh-CN); pin English so the marker substring
+        // below is stable regardless of the default locale.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let (handle, mut owner) = coding_runtime_control_channel();
         let (failure_tx, mut failure_rx) =
             mpsc::unbounded_channel::<bg_runtime::RuntimeEventPayload>();
@@ -15820,13 +15826,10 @@ fn confirm_idle_menu_selected(
                 return Ok(());
             }
             if name == "skills" {
-                renderer.render(UiLine::CommandOutput(
-                    "  i No user-invocable skills installed yet.\n    \
-                    • Drop SKILL.md into ~/.rustcode/skills/<name>/ \n      \
-                      (Windows: %USERPROFILE%\\.rustcode\\skills\\<name>\\)\n    \
-                    • Or install a plugin that ships skills via /plugin install <git-url>\n\n"
-                        .into(),
-                ));
+                renderer.render(UiLine::CommandOutput(format!(
+                    "  i {}",
+                    crate::i18n::t(crate::i18n::Msg::CmdSkillsEmptyHint)
+                )));
             }
         }
         redraw_idle_plain(&app.buf, &app.state, ctx, renderer);
@@ -16170,13 +16173,10 @@ fn handle_idle_key(
                         // hint pointing at the install paths so they
                         // know what to do next; keep the buffer at
                         // `/skills ` so backspace still recovers.
-                        renderer.render(UiLine::CommandOutput(
-                            "  \u{24d8} No user-invocable skills installed yet.\n    \
-                            \u{2022} Drop SKILL.md into ~/.rustcode/skills/<name>/ \n      \
-                              (Windows: %USERPROFILE%\\.rustcode\\skills\\<name>\\)\n    \
-                            \u{2022} Or install a plugin that ships skills via /plugin install <git-url>\n\n"
-                                .into(),
-                        ));
+                        renderer.render(UiLine::CommandOutput(format!(
+                            "  \u{24d8} {}",
+                            crate::i18n::t(crate::i18n::Msg::CmdSkillsEmptyHint)
+                        )));
                     }
 
                     // `/effort` gateway: render the high/max/off sub-menu
@@ -16483,7 +16483,7 @@ fn handle_idle_key(
         persist_reasoning_effort(ctx);
         let msg = match new_val.as_deref() {
             Some(v) => format!("  reasoning_effort -> {}\n", v),
-            None => "  reasoning_effort cleared (API default)\n".into(),
+            None => crate::i18n::t(crate::i18n::Msg::EffortCleared).into_owned(),
         };
         renderer.render(UiLine::CommandOutput(msg));
         renderer.flush();
@@ -25072,7 +25072,10 @@ fn run_local_shell_command(command: String, ctx: &LoopCtx) {
             .is_err();
         let failed = result.is_error || queue_failed;
         let output = if queue_failed {
-            format!("{output}\n[failed to add shell output to runtime context]")
+            format!(
+                "{output}\n{}",
+                crate::i18n::t(crate::i18n::Msg::TuixShellContextQueueFailed)
+            )
         } else {
             output
         };

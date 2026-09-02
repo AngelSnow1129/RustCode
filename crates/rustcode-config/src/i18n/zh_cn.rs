@@ -121,6 +121,10 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::TuixToolBatchSame { count, tool } => format!("运行 {count} 个 {tool} 调用").into(),
         Msg::TuixToolBatchParallel { count } => format!("并行运行 {count} 个工具").into(),
         Msg::TuixToolBatch { count } => format!("运行 {count} 个工具").into(),
+        Msg::TuixRuntimeDeliveryFailed { operation } =>
+            format!("运行时 {operation} 事件投递失败").into(),
+        Msg::TuixShellContextQueueFailed =>
+            "[将 shell 输出加入运行时上下文失败]".into(),
         Msg::KernelNoticeEmptyRetryMalformed {
             wait_secs,
             attempt,
@@ -564,7 +568,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::PolicyRecoveryInstructionsDesc => "仅展示本地固定指引和占位符".into(),
         Msg::PolicyRecoveryEnd => "结束任务".into(),
         Msg::PolicyRecoveryEndDesc => "关闭本次介入，不调用模型".into(),
-        Msg::PolicyRecoverySafeInstructions => "安全手动路径：\n  1. 打开一个由你控制的独立终端。\n  2. 使用服务官方登录流程或凭据感知的专用工具。\n  3. 在该终端完成认证操作；不要把密钥粘贴到 {brand}。\n  4. 返回这里并选择“我已在外部完成”。\n{brand} 不会重构或展示刚才被拒绝的命令。".into(),
+        Msg::PolicyRecoverySafeInstructions => "安全手动路径：\n  1. 打开一个由你控制的独立终端。\n  2. 使用服务自身的登录流程或凭据感知的专用工具。\n  3. 在该终端完成认证操作；不要把密钥粘贴到 {brand}。\n  4. 返回这里并选择“我已在外部完成”。\n{brand} 不会重构或展示刚才被拒绝的命令。".into(),
         Msg::PolicyRecoveryCompletedLocally => "已确认认证步骤在外部完成。为避免重新生成敏感命令，本次恢复未调用模型；你可以继续提交不涉及凭据的任务。".into(),
         Msg::PolicyRecoverySkippedLocally => "已跳过需要访问凭据的步骤。为避免重新生成敏感命令，本次恢复未调用模型；你可以继续提交其他安全任务。".into(),
         Msg::PolicyRecoverySubmitError => "无法提交安全恢复选择，请重试。".into(),
@@ -1232,6 +1236,8 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
             "  没有可调用的技能。\n".into(),
         Msg::SkillsAvailable =>
             "  可用技能：\n".into(),
+        Msg::CmdSkillsEmptyHint =>
+            "尚未安装可供调用的技能。\n    \u{2022} 将 SKILL.md 放入 ~/.rustcode/skills/<name>/ \n      （Windows：%USERPROFILE%\\.rustcode\\skills\\<name>\\）\n    \u{2022} 或通过 /plugin install <git-url> 安装自带技能的插件\n\n".into(),
         Msg::SkillUnknown { name } =>
             format!("未知技能：{}（输入 /skills 查看列表）", name).into(),
         Msg::SkillsLoaded { names } =>
@@ -1665,6 +1671,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
 
         // ── reasoning effort ──
         Msg::ReasoningEffortNoEffect => "当前模型未配置 reasoning_effort 支持，请在 /provider 中启用".into(),
+        Msg::EffortCleared => "  reasoning_effort 已清除（API 默认值）\n".into(),
 
         // ── 配置保存失败 ──
         Msg::ConfigSaveFailed { error } =>
