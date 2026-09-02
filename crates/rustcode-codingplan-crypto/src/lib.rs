@@ -13,6 +13,8 @@ pub const ALGORITHM_VERSION: u8 = 0;
 /// Placeholder matching the real crate's signature so the workspace
 /// type-checks. Unreachable in open-source builds; the closed-source overlay
 /// replaces this file wholesale.
+// Signature mirrors the closed-source overlay; argument count is fixed.
+#[allow(clippy::too_many_arguments)]
 pub fn sign_v1(
     _method: &str,
     _path: &str,
