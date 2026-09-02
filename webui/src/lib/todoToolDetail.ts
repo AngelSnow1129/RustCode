@@ -1,3 +1,5 @@
+import { translate } from '../i18n.ts';
+
 export type TodoTitles = Map<number, string>;
 
 function parseArgs(argsJson: string): Record<string, unknown> | null {
@@ -28,7 +30,11 @@ export function todoToolDetail(
   if (!args) return '';
 
   const todos = parseTodos(args.todos);
-  if (todos) return `${todos.length} ${todos.length === 1 ? 'task' : 'tasks'}`;
+  if (todos) {
+    return todos.length === 1
+      ? translate('tool.todo.countOne')
+      : translate('tool.todo.countMany', { count: todos.length });
+  }
 
   const action = typeof args.action === 'string' ? args.action : '';
   if (action === 'add') return typeof args.content === 'string' ? args.content : '';
@@ -39,7 +45,7 @@ export function todoToolDetail(
     if (!id) return status;
     return [`#${id}`, title, status ? `→ ${status}` : ''].filter(Boolean).join(' ');
   }
-  if (action === 'list') return 'list all';
+  if (action === 'list') return translate('tool.todo.listAll');
   return '';
 }
 

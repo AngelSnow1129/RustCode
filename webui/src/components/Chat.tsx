@@ -354,7 +354,7 @@ function formatToolDetail(name: string, argsJson: string, todoTitles: TodoTitles
       const file = getStr('file_path') ? basename(getStr('file_path')) : '';
       if (!sym) return file;
       if (!file) return sym;
-      return `${sym} in ${file}`;
+      return translate('tool.readSymbol.detail', { sym, file });
     }
     case 'glob':
     case 'grep':
@@ -916,7 +916,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
               pushCommandNotice(t('cmd.session.busy'));
               return;
             }
-            throw new Error(result.error ?? 'live runtime rejected the session switch');
+            throw new Error(result.error ?? t('sync.switchRejectedFallback'));
           })
           .catch((error) => {
             if (sessionGenerationRef.current !== switchGeneration) return;
@@ -1757,7 +1757,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
           postLiveSwitchSession(sid)
             .then((result) => {
               if (!result.ok) {
-                throw new Error(result.error ?? 'live runtime rejected the session switch');
+                throw new Error(result.error ?? t('sync.switchRejectedFallback'));
               }
               startLiveStream();
             })

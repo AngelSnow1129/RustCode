@@ -26,8 +26,17 @@ test('failed calls can remain staged without changing task titles', () => {
 });
 
 test('todowrite full plans keep the compact task-count label', () => {
+  // node tests have no localStorage, so translate() resolves to the zh default.
   assert.equal(
     todoToolDetail('todowrite', '{"todos":[{"content":"one","status":"pending"}]}', new Map()),
-    '1 task',
+    '1 个任务',
+  );
+  assert.equal(
+    todoToolDetail('todowrite', '{"todos":[{"content":"a"},{"content":"b"},{"content":"c"}]}', new Map()),
+    '3 个任务',
+  );
+  assert.equal(
+    todoToolDetail('todowrite', '{"action":"list"}', new Map()),
+    '列出全部',
   );
 });
