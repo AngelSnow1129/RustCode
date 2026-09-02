@@ -102,7 +102,7 @@ fn list_in(root: &std::path::Path) -> Vec<ScheduleTask> {
             }
         }
     }
-    out.sort_by_key(|t| t.created_at);
+    out.sort_by(|a, b| a.created_at.cmp(&b.created_at));
     out
 }
 

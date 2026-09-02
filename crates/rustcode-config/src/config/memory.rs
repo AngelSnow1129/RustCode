@@ -64,7 +64,11 @@ impl MemoryStore {
             .lines()
             .filter_map(|line| {
                 let trimmed = line.trim();
-                trimmed.strip_prefix("- ").map(|s| s.to_string())
+                if trimmed.starts_with("- ") {
+                    Some(trimmed[2..].to_string())
+                } else {
+                    None
+                }
             })
             .collect()
     }

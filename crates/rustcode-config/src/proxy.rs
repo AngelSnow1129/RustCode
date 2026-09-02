@@ -25,7 +25,6 @@ pub enum ProxyMode {
     NoProxy,
 }
 
-#[allow(clippy::derivable_impls)]
 impl Default for ProxyMode {
     // Respect the environment's proxy by default (matches curl / reqwest-native
     // behavior). A `NoProxy` default silently stripped `https_proxy` and forced

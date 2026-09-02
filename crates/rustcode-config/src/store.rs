@@ -222,7 +222,6 @@ impl ConfigStore {
         ensure_parent(&self.lock_path)?;
         let lock = OpenOptions::new()
             .create(true)
-            .truncate(false)
             .read(true)
             .write(true)
             .open(&self.lock_path)

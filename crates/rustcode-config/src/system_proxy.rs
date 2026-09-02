@@ -77,7 +77,6 @@ pub(crate) fn parse_win_bypass(raw: &str) -> Option<String> {
 
 /// Parse `scutil --proxy` output. Only surfaces HTTP/HTTPS static proxies whose
 /// `*Enable` flag is `1`; `ExceptionsList` entries become `NO_PROXY`.
-#[allow(dead_code)]
 pub(crate) fn parse_scutil_proxy(raw: &str) -> SystemProxy {
     // Flat "Key : Value" scan; ExceptionsList is an indented `<array>` block.
     let mut kv = std::collections::HashMap::new();

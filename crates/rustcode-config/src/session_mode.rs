@@ -52,7 +52,9 @@ pub fn detect_repo_origin(remote_url: &str) -> Option<RepoOrigin> {
     let host = host_userinfo.split(':').next().unwrap_or(host_userinfo);
     let path = without_scheme.trim_start_matches(authority);
     let path = path.trim_start_matches('/');
-    let (owner, name) = path.split_once('/')?;
+    let mut parts = path.splitn(2, '/');
+    let owner = parts.next()?;
+    let name = parts.next()?;
     let name = name.strip_suffix(".git").unwrap_or(name);
     if owner.is_empty() || name.is_empty() {
         return None;
