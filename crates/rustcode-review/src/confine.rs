@@ -248,7 +248,7 @@ mod tests {
     }
 
     fn allow(files: &[&str]) -> HashSet<PathBuf> {
-        files.iter().map(|f| PathBuf::from(f)).collect()
+        files.iter().map(PathBuf::from).collect()
     }
 
     #[test]
