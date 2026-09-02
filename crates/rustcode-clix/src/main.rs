@@ -34,6 +34,8 @@ struct Cli {
     cmd: Cmd,
 }
 
+// Variant size differs by design (args carry distinct capabilities); boxing yields no benefit here.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Cmd {
     /// Interactive coding agent (full assembly: tools+codeintel+web+skills+mcp+session+memory).
