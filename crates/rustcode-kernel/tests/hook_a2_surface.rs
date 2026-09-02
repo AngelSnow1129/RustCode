@@ -11,7 +11,7 @@
 //!   * `session_start(&mut Conversation, resumed: bool)` -- the `resumed` flag lets
 //!     a seed hook SKIP re-injecting on resume (closes the double-seed bug).
 //!   * `on_request` -- read-only wire observation AFTER `pre_request` projects, so
-//!     telemetry/datalog/cache-RCA sees the FINAL outgoing request.
+//!     observability/datalog/cache-RCA sees the FINAL outgoing request.
 
 use async_trait::async_trait;
 use rustcode_kernel::agent::{Agent, AgentHandle};

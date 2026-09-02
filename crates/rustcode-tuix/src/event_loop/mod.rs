@@ -975,7 +975,9 @@ mod image_path_tests {
     fn decoded_pixels(dib: &[u8]) -> (u32, u32, Vec<[u8; 4]>) {
         let (w, h, rgba) = decode_cf_dib_to_rgba(dib).expect("DIB must decode");
         let px = rgba
-            .as_chunks::<4>().0.iter()
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| [c[0], c[1], c[2], c[3]])
             .collect();
         (w, h, px)
@@ -8705,6 +8707,8 @@ mod tool_format_tests {
 
     #[test]
     fn summarise_mcp_result_strips_markdown_heading() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // MCP markdown result: `### Result` -> `Result (N lines)`.
         assert_eq!(summarise_mcp_result("### Result\na\nb"), "Result (3 lines)");
         assert_eq!(summarise_mcp_result("### Error\nboom"), "Error (2 lines)");
@@ -8835,6 +8839,11 @@ mod tool_format_tests {
 
     #[test]
     fn summarise_multi_line_adds_line_count() {
+        // Locale-AGNOSTIC test: it renders the expected suffix through `i18n::t`
+        // and compares. It therefore must NOT pin a locale -- but it MUST hold
+        // the lock so no other test can flip the global locale between the
+        // `summarise()` call and the `t()` call, which would desync them.
+        let _locale = crate::i18n::test_lock();
         let out = summarise("first line\nsecond line\nthird line");
         assert!(out.starts_with("first line"));
         // Locale-agnostic: expect the exact line-count suffix the catalog emits.
@@ -8894,6 +8903,8 @@ mod tool_format_tests {
     /// Multi-line output keeps the line-count suffix.
     #[test]
     fn summarise_multi_line_still_appends_count() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let err = "Error: foo\nbar\nbaz";
         let out = summarise(err);
         assert!(out.starts_with("Error: foo"));
@@ -8902,6 +8913,8 @@ mod tool_format_tests {
 
     #[test]
     fn summarise_read_result_collapses_line_number_and_indent() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // read_file emits `{n}\t{indented source line}` (legacy transcripts may
         // carry a padded `{n:>6}\t`, which the parser's `trim` still handles);
         // the preview should show `{n}  {trimmed content}` with no big left gap.
@@ -8920,6 +8933,8 @@ mod tool_format_tests {
 
     #[test]
     fn summarise_read_result_falls_back_when_not_line_numbered() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Directory listing / skeleton header / error have no `<digits>\t` prefix.
         let out = "[File skeleton: foo.rs (10 lines)]\n\nbody";
         assert_eq!(
@@ -17959,9 +17974,11 @@ fn stage_committed_config_reload(
         })
         .into_owned();
         if let Some(rollback_error) = rollback.error {
-            reload_error.push_str(&crate::i18n::t(crate::i18n::Msg::TuixConfigRollbackFailed {
-                error: &rollback_error.to_string(),
-            }));
+            reload_error.push_str(&crate::i18n::t(
+                crate::i18n::Msg::TuixConfigRollbackFailed {
+                    error: &rollback_error.to_string(),
+                },
+            ));
         }
         renderer.render(UiLine::Error(reload_error));
         renderer.flush();
@@ -18285,9 +18302,11 @@ pub(crate) fn set_default_provider_and_reload(
         })
         .into_owned();
         if let Some(rollback_error) = rollback.error {
-            reload_error.push_str(&crate::i18n::t(crate::i18n::Msg::TuixConfigRollbackFailed {
-                error: &rollback_error.to_string(),
-            }));
+            reload_error.push_str(&crate::i18n::t(
+                crate::i18n::Msg::TuixConfigRollbackFailed {
+                    error: &rollback_error.to_string(),
+                },
+            ));
         }
         renderer.render(UiLine::Error(reload_error));
         renderer.flush();
@@ -18508,17 +18527,9 @@ fn handle_streaming_key(
             "\x1b[2m"
         };
         let status = if app.state.show_tool_output {
-            crate::i18n::t(crate::i18n::Msg::VerboseOnLine {
-                mute,
-                reset,
-            })
-            .into_owned()
+            crate::i18n::t(crate::i18n::Msg::VerboseOnLine { mute, reset }).into_owned()
         } else {
-            crate::i18n::t(crate::i18n::Msg::VerboseOffLine {
-                mute,
-                reset,
-            })
-            .into_owned()
+            crate::i18n::t(crate::i18n::Msg::VerboseOffLine { mute, reset }).into_owned()
         };
         renderer.render(UiLine::CommandOutput(status));
         renderer.flush();
@@ -23570,11 +23581,9 @@ fn handle_runtime_event(
                             reason: rustcode_kernel::event::StopReason::Cancelled,
                             snapshot,
                             ..
-                        } => {
-                            AgentEvent::TurnCancelled {
-                                snapshot: snapshot.as_ref().clone(),
-                            }
-                        }
+                        } => AgentEvent::TurnCancelled {
+                            snapshot: snapshot.as_ref().clone(),
+                        },
                         rustcode_coding::TurnCompletion::Completed {
                             reason,
                             snapshot,
@@ -30022,8 +30031,7 @@ pub(crate) fn summarise_read_result(output: &str) -> String {
     let cleaned = match output.lines().next() {
         Some(first) => match first.split_once('\t') {
             Some((lead, content))
-                if !lead.trim().is_empty()
-                    && lead.trim().chars().all(|c| c.is_ascii_digit()) =>
+                if !lead.trim().is_empty() && lead.trim().chars().all(|c| c.is_ascii_digit()) =>
             {
                 format!("{}  {}", lead.trim(), content.trim_start())
             }
@@ -31032,6 +31040,8 @@ mod task_render_tests {
 
     #[test]
     fn result_non_task_output_falls_back() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Defensive: not a task block ⇒ generic summarise, not blank.
         let s = summarise_task_result("plain text\nsecond line");
         assert_eq!(s, "plain text (2 lines)");

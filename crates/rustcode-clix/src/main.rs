@@ -484,7 +484,7 @@ async fn review(args: ReviewArgs) -> Result<()> {
     };
     let model_label = cfg.model.clone();
 
-    // The standalone reviewer used to wrap its provider in a telemetry metering
+    // The standalone reviewer used to wrap its provider in an observability metering
     // decorator. The reporting pipeline is gone, so it now uses the bare provider.
     let provider = code::build_review_provider(&cfg).map_err(|e| anyhow::anyhow!(e))?;
 

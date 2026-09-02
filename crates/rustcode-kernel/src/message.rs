@@ -382,7 +382,7 @@ impl Message {
     /// always comes from the provider's usage when present; this keeps utilization --
     /// and thus auto-compaction -- tracking when it is absent (without it, a non-
     /// reporting provider records utilization 0.0 forever and never compacts).
-    /// Mirrors the legacy estimate heuristic (see `rustcode-coding`'s telemetry copy).
+    /// Mirrors the legacy estimate heuristic (see `rustcode-coding`'s copy).
     pub fn estimate_tokens(&self) -> u32 {
         // Images dominate when present (vision ≈ 1600 tok each).
         if !self.images.is_empty() {

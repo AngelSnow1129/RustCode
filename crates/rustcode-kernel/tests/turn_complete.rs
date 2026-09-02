@@ -1,7 +1,7 @@
 //! The `turn_complete` terminal hook is the per-turn twin of `session_end`: it fires
 //! EXACTLY ONCE per turn on EVERY terminal path the driver sees a `TurnComplete` for --
 //! normal stop AND error/fuse/cancel -- carrying the `StopReason`. This is the seam a
-//! per-turn persistence / telemetry hook builds on (run however the turn ended). These
+//! per-turn persistence / observability hook builds on (run however the turn ended). These
 //! tests prove the `finish_turn` funnel reaches the hook with the RIGHT reason on a
 //! success terminal and an error terminal, and that a prompt BLOCKED before any turn
 //! ran does NOT fire it (no turn -> no terminal).

@@ -4,8 +4,8 @@
 
 All 5 dimensions of the migration finalization are complete:
 
-### 1. 命名清理 (atomcode -> rustcode)
-- `webui/package-lock.json`: `atomcode-webui` -> `rustcode-webui`
+### 1. 命名清理 (产品标识统一为 `rustcode-*`)
+- `webui/package-lock.json`: 包名统一为 `rustcode-webui`
 - `extensions/vscode/package-lock.json`: already `rustcode-tools` (verified)
 - G7 (crates/scripts/.github): 0 hits
 - G8 (docs/architecture.md): 0 hits

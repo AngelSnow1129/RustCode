@@ -522,7 +522,7 @@ pub enum AgentEvent {
     /// command. Serializable for web/daemon drivers.
     Compacted {
         /// WHY this compaction ran -- `Auto` (task-boundary pressure), `Manual` (`/compact`),
-        /// or `Overflow { attempt }` (hard context-overflow recovery). Lets a telemetry sink
+        /// or `Overflow { attempt }` (hard context-overflow recovery). Lets an observability sink
         /// distinguish normal-path compaction from emergency overflow recovery.
         trigger: crate::message::CompactTrigger,
         epoch: u64,

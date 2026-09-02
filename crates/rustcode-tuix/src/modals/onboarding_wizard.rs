@@ -2055,9 +2055,7 @@ mod tests {
         let rows_with_bracket: Vec<String> = (0..24)
             .map(|r| vt.row_text(r))
             .filter(|r| {
-                
-                r
-                    .find("[1] Configure")
+                r.find("[1] Configure")
                     .or_else(|| r.find("[2] Skip"))
                     .is_some()
             })

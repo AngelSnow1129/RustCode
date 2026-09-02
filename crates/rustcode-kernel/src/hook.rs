@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 /// Per-LLM-call execution context handed to hooks that need to know where in the loop
 /// they are (e.g. to project round budget to the LLM, or to stamp correlation IDs into
-/// logs/telemetry).
+/// logs/observability sinks).
 ///
 /// CORRELATION IDS (observability): `session_id` is INJECTED (the driver owns session
 /// identity -- see `AgentBuilder::session_id`); `turn_id` and `request_id` are
@@ -224,7 +224,7 @@ pub trait LifecycleHooks: Send + Sync {
     /// BEFORE the provider call -- so the observer sees the EXACT FINAL outgoing
     /// request: post-projection `messages`, the frozen `tools` block, the sideband
     /// `options`, and round/epoch via `ctx`. This is the kernel HOME for the
-    /// project's telemetry / datalog / prefix-cache-RCA discipline (e.g. hash the
+    /// project's observability / datalog / prefix-cache-RCA discipline (e.g. hash the
     /// prefix, dump the bytes). It is `&` (read-only) ON PURPOSE: it MUST NOT mutate
     /// the outgoing wire -- mutation is `pre_request`'s job (the ephemeral clone),
     /// which keeps the prefix-cache contract owned by exactly one message seam;
@@ -292,7 +292,7 @@ pub trait LifecycleHooks: Send + Sync {
     /// (normal stop, `max_rounds` / `max_continuations` fuse, provider
     /// error, stream timeout, cancel), AFTER any `offer_continuation` continuations are
     /// exhausted. The TERMINAL TWIN of [`session_end`](Self::session_end) (which
-    /// fires once per SESSION): the clean seam for per-turn persistence / telemetry
+    /// fires once per SESSION): the clean seam for per-turn persistence / observability
     /// that must run HOWEVER the turn ended -- not just the success path. Carries the
     /// read-only `convo` (as it stands at the terminal), the `reason`, and the
     /// turn's `ctx` (`turn_id` / `session_id` / `round`).
@@ -317,7 +317,7 @@ pub trait LifecycleHooks: Send + Sync {
         None
     }
 
-    /// Session ends (any exit path). Read-only conversation for cleanup / telemetry.
+    /// Session ends (any exit path). Read-only conversation for cleanup / observability.
     async fn session_end(&self, _convo: &Conversation) {}
 }
 

@@ -35,8 +35,8 @@ use std::time::Duration;
 // OpenRouter app attribution
 // ---------------------------------------------------------------------------
 
-/// App-attribution headers sent to OpenRouter so real user traffic is credited
-/// to a public "RustCode" app entry on openrouter.ai (rankings / app page).
+/// OpenRouter app-attribution headers, sent to credit real user traffic to a
+/// public "RustCode" app entry on openrouter.ai (rankings / app page).
 ///
 /// Per OpenRouter's app-attribution contract:
 ///   - `X-OpenRouter-Title` is the display name on the rankings;
@@ -45,11 +45,17 @@ use std::time::Duration;
 ///     creates the app page. That referer is deliberately NOT compiled in: the
 ///     platform-neutral fork names no vendor/host of its own, so a deployer who
 ///     wants the OpenRouter app page to bind to a domain sets
-///     `RUSTCODE_OPENROUTER_REFERER` (see [`openrouter_referer`]); unset, the
-///     referer header is omitted while title + categories still attribute traffic.
+///     `RUSTCODE_OPENROUTER_REFERER` (see [`openrouter_referer`]).
 ///
-/// These are sent ONLY when the request actually targets `openrouter.ai` (see
-/// [`is_openrouter_url`]) so other OpenAI-compatible endpoints never receive them.
+/// These are sent ONLY when BOTH conditions hold (see
+/// [`apply_openrouter_attribution`]):
+///   1. attribution is explicitly opted in via
+///      `RUSTCODE_OPENROUTER_ATTRIBUTION`, and
+///   2. the request actually targets `openrouter.ai` (see [`is_openrouter_url`]).
+///
+/// Default is OFF: this fork ships no unsolicited product identity to any
+/// third-party model vendor. Only third-party endpoint configuration
+/// (`base_url` / `api_key` / `model`) travels by default.
 pub const OPENROUTER_ATTRIBUTION_HEADERS: &[(&str, &str); 2] = &[
     ("X-OpenRouter-Title", "RustCode"),
     ("X-OpenRouter-Categories", "cli-agent"),
@@ -62,6 +68,31 @@ fn openrouter_referer() -> Option<String> {
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+/// Attribution is opt-in and defaults to OFF: set
+/// `RUSTCODE_OPENROUTER_ATTRIBUTION` to `1` / `true` / `on` / `yes`
+/// (case-insensitive). Anything else -- unset, empty, `0`, `false` -- leaves
+/// every attribution header unsent, so no product identity reaches a
+/// third-party model vendor unless the operator explicitly asked for it.
+///
+/// Parsing is separated from the env read (see
+/// [`attribution_enabled_from`]) so the decision is unit-testable without
+/// mutating process-global environment state.
+fn openrouter_attribution_enabled() -> bool {
+    attribution_enabled_from(
+        std::env::var("RUSTCODE_OPENROUTER_ATTRIBUTION")
+            .ok()
+            .as_deref(),
+    )
+}
+
+/// Pure parser for the `RUSTCODE_OPENROUTER_ATTRIBUTION` opt-in flag.
+fn attribution_enabled_from(raw: Option<&str>) -> bool {
+    matches!(
+        raw.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        Some("1") | Some("true") | Some("on") | Some("yes")
+    )
 }
 
 /// True when `url` targets the OpenRouter API (any path under the `openrouter.ai`
@@ -89,16 +120,35 @@ pub fn is_openrouter_url(url: &str) -> bool {
     rustcode_config::endpoints::host_matches_domain(host, "openrouter.ai")
 }
 
-/// Attach the OpenRouter app-attribution headers to `req` when `url` targets
-/// OpenRouter. Credit real user traffic to the public "RustCode" app entry so
-/// it can appear in openrouter.ai rankings. Gated to `openrouter.ai` only --
-/// the headers are meaningless on any other OpenAI-compatible endpoint and
-/// would only leak product identity there.
+/// Attach the OpenRouter app-attribution headers, reading the opt-in flag and
+/// the referer from the environment. See
+/// [`apply_openrouter_attribution_with`] for the deterministic core.
 fn apply_openrouter_attribution(
     url: &str,
     req: reqwest::RequestBuilder,
 ) -> reqwest::RequestBuilder {
-    if !is_openrouter_url(url) {
+    apply_openrouter_attribution_with(
+        url,
+        req,
+        openrouter_attribution_enabled(),
+        openrouter_referer(),
+    )
+}
+
+/// Env-free core of the attribution gate. Headers are added only when the
+/// deployer opted in (`enabled`) AND `url` targets OpenRouter; otherwise the
+/// request passes through untouched.
+///
+/// The host gate is load-bearing even with attribution enabled: the headers are
+/// meaningless on any other OpenAI-compatible endpoint and would only leak
+/// product identity there.
+fn apply_openrouter_attribution_with(
+    url: &str,
+    req: reqwest::RequestBuilder,
+    enabled: bool,
+    referer: Option<String>,
+) -> reqwest::RequestBuilder {
+    if !enabled || !is_openrouter_url(url) {
         return req;
     }
     let mut req = req;
@@ -106,7 +156,7 @@ fn apply_openrouter_attribution(
         req = req.header(*name, *value);
     }
     // Referer is opt-in (RUSTCODE_OPENROUTER_REFERER); never name a vendor host.
-    if let Some(referer) = openrouter_referer() {
+    if let Some(referer) = referer {
         req = req.header("HTTP-Referer", referer);
     }
     req
@@ -4077,37 +4127,156 @@ mod tests {
     }
 
     #[test]
-    fn apply_openrouter_attribution_only_targets_openrouter() {
-        let client = reqwest::Client::new();
+    fn attribution_enabled_from_parses_opt_in_flag() {
+        for on in ["1", "true", "TRUE", "on", "yes", " 1 ", "Yes"] {
+            assert!(
+                attribution_enabled_from(Some(on)),
+                "{on:?} must opt in to attribution"
+            );
+        }
+        for off in ["0", "false", "off", "no", "", "  ", "2"] {
+            assert!(
+                !attribution_enabled_from(Some(off)),
+                "{off:?} must NOT opt in to attribution"
+            );
+        }
+        assert!(
+            !attribution_enabled_from(None),
+            "unset env must default to attribution OFF"
+        );
+    }
 
-        // OpenRouter endpoint -> every attribution header present.
+    #[test]
+    fn apply_openrouter_attribution_is_off_by_default() {
+        let client = reqwest::Client::new();
         let req = client
             .post("https://openrouter.ai/api/v1/chat/completions")
             .header(reqwest::header::CONTENT_TYPE, "application/json");
-        let built =
-            apply_openrouter_attribution("https://openrouter.ai/api/v1/chat/completions", req)
-                .build()
-                .expect("request must build");
+        let built = apply_openrouter_attribution_with(
+            "https://openrouter.ai/api/v1/chat/completions",
+            req,
+            false,
+            None,
+        )
+        .build()
+        .expect("request must build");
+
+        // Default OFF: even on the real OpenRouter host, no product identity is
+        // shipped to a third-party model vendor without an explicit opt-in.
+        for (name, _) in OPENROUTER_ATTRIBUTION_HEADERS {
+            assert!(
+                !built.headers().contains_key(*name),
+                "{name} must be omitted while attribution is not opted in"
+            );
+        }
+        assert!(
+            !built.headers().contains_key("HTTP-Referer"),
+            "referer must be omitted while attribution is not opted in"
+        );
+    }
+
+    #[test]
+    fn apply_openrouter_attribution_sends_when_opted_in() {
+        let client = reqwest::Client::new();
+
+        // Opted in + real OpenRouter host -> every attribution header present.
+        let req = client
+            .post("https://openrouter.ai/api/v1/chat/completions")
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
+        let built = apply_openrouter_attribution_with(
+            "https://openrouter.ai/api/v1/chat/completions",
+            req,
+            true,
+            Some("https://example.com".to_string()),
+        )
+        .build()
+        .expect("request must build");
         for (name, value) in OPENROUTER_ATTRIBUTION_HEADERS {
             assert_eq!(
                 built.headers().get(*name).and_then(|v| v.to_str().ok()),
                 Some(*value),
-                "{name} must be set on openrouter.ai"
+                "{name} must be set on openrouter.ai once opted in"
             );
         }
+        assert_eq!(
+            built
+                .headers()
+                .get("HTTP-Referer")
+                .and_then(|v| v.to_str().ok()),
+            Some("https://example.com"),
+            "configured referer must be forwarded once opted in"
+        );
+    }
 
-        // Non-OpenRouter endpoint -> NONE of the attribution headers leak.
+    #[test]
+    fn apply_openrouter_attribution_omits_referer_unless_configured() {
+        let client = reqwest::Client::new();
+        let req = client
+            .post("https://openrouter.ai/api/v1/chat/completions")
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
+        let built = apply_openrouter_attribution_with(
+            "https://openrouter.ai/api/v1/chat/completions",
+            req,
+            true,
+            None,
+        )
+        .build()
+        .expect("request must build");
+
+        assert!(
+            !built.headers().contains_key("HTTP-Referer"),
+            "unset referer must be omitted rather than hard-code a vendor host"
+        );
+        assert!(
+            built.headers().contains_key("X-OpenRouter-Title"),
+            "title + categories still attribute traffic without a referer"
+        );
+    }
+
+    #[test]
+    fn apply_openrouter_attribution_never_leaks_off_openrouter() {
+        let client = reqwest::Client::new();
+
+        // Opted in, but a non-OpenRouter endpoint -> NONE of the headers leak.
         let req = client
             .post("https://api.example.com/v1/chat/completions")
             .header(reqwest::header::CONTENT_TYPE, "application/json");
-        let built =
-            apply_openrouter_attribution("https://api.example.com/v1/chat/completions", req)
-                .build()
-                .expect("request must build");
+        let built = apply_openrouter_attribution_with(
+            "https://api.example.com/v1/chat/completions",
+            req,
+            true,
+            Some("https://example.com".to_string()),
+        )
+        .build()
+        .expect("request must build");
         for (name, _) in OPENROUTER_ATTRIBUTION_HEADERS {
             assert!(
                 !built.headers().contains_key(*name),
                 "{name} must not be sent to non-OpenRouter endpoints"
+            );
+        }
+        assert!(
+            !built.headers().contains_key("HTTP-Referer"),
+            "referer must not be sent to non-OpenRouter endpoints"
+        );
+
+        // Userinfo-spoofed host is evil.com, not openrouter.ai -- must not leak
+        // even while attribution is opted in.
+        let req = client
+            .post("https://openrouter.ai:x@evil.com/v1")
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
+        let built = apply_openrouter_attribution_with(
+            "https://openrouter.ai:x@evil.com/v1",
+            req,
+            true,
+            None,
+        )
+        .build()
+        .expect("request must build");
+        for (name, _) in OPENROUTER_ATTRIBUTION_HEADERS {
+            assert!(
+                !built.headers().contains_key(*name),
+                "{name} must not leak to the spoofed evil.com host"
             );
         }
     }

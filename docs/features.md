@@ -7,10 +7,10 @@
 
 ## 产品定位
 
-RustCode 是 `atomgit_atomcode/atomcode` 的二次开发 fork,核心诉求:
+RustCode 是上游项目的二次开发 fork,核心诉求:
 
-1. **产品重命名** — 全量 `atomcode-*` → `rustcode-*`,配置目录 `~/.rustcode`,
-   环境变量前缀 `RUSTCODE_*`。
+1. **产品重命名** — 产品标识统一为 `rustcode-*`(crate、二进制、命令名),配置
+   目录 `~/.rustcode`,环境变量前缀 `RUSTCODE_*`。
 2. **零遥测** — 删除 `rustcode-telemetry`,无任何 Sentry/PostHog/Segment/GA
    埋点 SDK 或上报调用;崩溃仅输出 stderr。
 3. **平台中立** — 不硬编码任何签名网关 host,不默认注册平台专属 REST 工具;

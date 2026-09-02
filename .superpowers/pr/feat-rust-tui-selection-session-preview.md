@@ -84,10 +84,10 @@ N/A
 
 ## 测试计划
 
-- [x] `cargo test -p atomcode-tuix --lib --locked` — 1965 passed
-- [x] `cargo test -p atomcode-capabilities --features session --lib session --locked` — 169 passed
-- [x] `cargo test -p atomcode-daemon --lib legacy_convert --locked` — 57 passed
-- [x] `cargo check -p atomcode --all-targets --locked`
+- [x] `cargo test -p rustcode-tuix --lib --locked` — 1965 passed
+- [x] `cargo test -p rustcode-capabilities --features session --lib session --locked` — 169 passed
+- [x] `cargo test -p rustcode-daemon --lib legacy_convert --locked` — 57 passed
+- [x] `cargo check -p rustcode --all-targets --locked`
 - [x] `git diff --check`
 - [ ] 手动验证：composer ASCII / CJK / emoji 正向与反向拖选、替换及折叠
 - [ ] 手动验证：transcript soft wrap / hard newline 复制及 Shift + drag 宿主选择

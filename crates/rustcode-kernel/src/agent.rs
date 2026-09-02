@@ -1752,7 +1752,7 @@ impl RunningAgent {
     }
 
     /// The single funnel for a turn's END: fire the `turn_complete` terminal hook
-    /// (so a persistence / telemetry hook observes EVERY terminal -- normal stop,
+    /// (so a persistence / observability hook observes EVERY terminal -- normal stop,
     /// fuse, provider error, timeout, cancel -- with the conversation + reason + turn
     /// ctx), THEN emit the `TurnComplete` event to the driver. EVERY terminal path in
     /// `run_turn` returns through here, so the hook and the driver see EXACTLY the
@@ -2153,7 +2153,7 @@ impl RunningAgent {
                 )));
             }
             // READ-ONLY wire observation of the FINAL outgoing request (post
-            // pre_request projection, pre chat_stream): telemetry/datalog/cache-RCA
+            // pre_request projection, pre chat_stream): observability/datalog/cache-RCA
             // sees the exact bytes about to hit the provider. It gets `&` -- it
             // cannot mutate the wire (mutation is pre_request's job above).
             let mut request_options = self.chat_options.clone();

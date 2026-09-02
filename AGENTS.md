@@ -67,11 +67,18 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 
 **[CHECK] `rustcode` 是已锁定的产品身份**(决策 D1,见 `docs/REFACTOR_DESIGN_PHASE1.md` §2.0),不是中间态;不要再次改名。O1 剩余工作只有 `extensions/` / `site/` / `docs/architecture.md` 的旧 `rustcode` 前缀收尾。
 
-### [OBJECTIVE-2] 零遥测 — [DONE, 仅文档口径残留]
+### [OBJECTIVE-2] 零遥测 — [DONE, 仅守卫性声明残留]
 
 `rustcode-telemetry` crate 已删除;`Telemetry`/`Event`/`track`/`install_panic_hook` 等上报调用已移除。**全仓不存在 Sentry/PostHog/Segment/GA 等第三方埋点 SDK 或依赖**。崩溃处理仅保留 stderr 输出。
 
-文档口径已对齐:`docs/telemetry.md` 已改为"Telemetry — removed"说明页;`README.zh-CN.md` 零遥测声明与事实一致;`site/docs/{en,zh}/headless-daemon.html` 中 `--no-telemetry` 标注为"accepted and ignored"。kernel 与 capabilities 注释里仍有 `telemetry` 字样(纯注释,无上报,属词义歧义)。
+文档口径已对齐:`docs/telemetry.md` 已改为"Telemetry — removed"说明页;`README.zh-CN.md` 零遥测声明与事实一致;`site/docs/{en,zh}/headless-daemon.html` 中 `--no-telemetry` 标注为"accepted and ignored"。
+
+**[CHECK] 词义歧义已清零**:kernel(`hook.rs` / `agent.rs` / `event.rs` / `message.rs` / `tests/turn_complete.rs` / `tests/hook_a2_surface.rs`)与 capabilities(`mcp/mod.rs`)、clix(`main.rs`)里把"可观测性挂载点"误写为 `telemetry` 的 hook seam 注释已统一改为 `observability`。
+
+**[ERROR] 剩余 `telemetry` 字样只有三类,全部是守卫而非生产方,禁止"顺手清理"式删除**:
+1. 断言式澄清 —— `daemon/src/client_mode.rs`("NOT telemetry")、`cli/src/main.rs`("no network, no telemetry" ×2、"--client is NOT telemetry")、`config/src/config/provider.rs`("telemetry-free logs")、`cli/tests/shell_completion.rs`(断言不创建遥测状态)。删掉会让"本 fork 无遥测"失去可执行证据。
+2. legacy 兼容与清理 —— `config/src/config/mod.rs` 的 `legacy_telemetry_section_tests` 守卫决策 D4(旧 `[telemetry]` 段被**忽略而非报错**,含 save/reload 往返);`cli/src/uninstall/{mod,paths}.rs` 卸载时清理旧 `telemetry/` 目录名(真实历史目录,删了会漏清理)。
+3. 历史迁移说明 —— `config/src/session_mode.rs` / `config/src/lib.rs` 中被删 `telemetry_legacy` 模块的迁移目标。
 
 **[CHECK] 客户端身份现状(不得误删)**:daemon 的 `ClientMode`(`daemon/src/client_mode.rs`)是本地分支逻辑,不是遥测;`RepoOrigin` / `detect_repo_origin` 已迁至 `rustcode-config/src/session_mode.rs`(纯字符串解析,无网络)。
 
@@ -82,6 +89,7 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 - 工厂是 **trait** `CodingProviderFactory`(`coding/src/provider_factory.rs:74`),默认实现按 `provider_type` 分发。ACP / daemon / clix 都通过它注入。
 - 配置(`config/src/config/provider.rs`)已支持:`base_url`、`api_key`(支持 `$VAR` / `${VAR}` / `${VAR:-default}` 展开)、`extra_headers`、`proxy`、`skip_tls_verify`、`retry_max_attempts`、`thinking_*` / `reasoning_*` 系列等。
 - **平台中立**:默认不绑定任何平台。`is_codingplan_llm_gateway` 不再硬编码 host,仅当操作者显式配置 `RUSTCODE_CODINGPLAN_LLM_BASE_URL` 时才识别为签名网关;否则所有 provider 走纯 `bearer_auth(api_key)`。`/login` 在无 `RUSTCODE_PLATFORM_SERVER` 时提示用户直接配置 provider。AtomGit REST 工具(`atomgit_repo/pr/issue`)由 `atomgit` Cargo feature 门控,默认成员不启用。
+- **不向第三方模型厂商外发产品身份(默认关闭)**:`capabilities/src/provider/openai_compat.rs` 的 OpenRouter app 归因头(`X-OpenRouter-Title` / `X-OpenRouter-Categories` / `HTTP-Referer`)**默认全部不发**,需 `RUSTCODE_OPENROUTER_ATTRIBUTION=1|true|on|yes` 显式 opt-in(解析抽为纯函数 `attribution_enabled_from`,便于不改动进程级 env 地单测);`HTTP-Referer` 永不硬编码 host,由 `RUSTCODE_OPENROUTER_REFERER` 单独 opt-in。默认出站只携带第三方配置(`base_url` / `api_key` / `model` / `extra_headers`)本身。host 门禁 `is_openrouter_url` 保留(含 `openrouter.ai:x@evil.com` userinfo 冒用防护),即使 opt-in 也不会泄漏到非 OpenRouter 端点。落实 `docs/REFACTOR_DESIGN_PHASE1.md` §4.3 G6。
 - 强类型错误分类器已就位:`capabilities/src/provider/error.rs` 的 `LlmError`(thiserror,`retryable()` 单点判定);**新代码必须经 `LlmError` 转换,存量按 `docs/phase1-refactor-design.md` 第 3 节渐进迁移**。
 
 **[ERROR] 禁止在 kernel 之上再叠第二套 `LlmClient` trait。** 解耦落点是**配置 + 装配 + 错误映射**,即复用既有 `CodingProviderFactory` 与 `reassemble_provider` 热切换命令。
@@ -194,9 +202,10 @@ G3  cargo test --workspace
 G4  ./scripts/test-headless.sh                    (需先 cargo build)
 G5  python3 scripts/acp_smoke.py
 G6  grep -riE "sentry|posthog|segment|google-analytics|googletagmanager|mixpanel|amplitude"
-    --include=*.rs --include=*.toml   必须 0 命中(rustcode-telemetry 已删除;
-    代码里仅剩的 "telemetry" 字样是卸载时清理遗留 telemetry/ 目录名、以及"旧
-    [telemetry] 配置段被忽略而非报错"的兼容测试,均非遥测采集)
+    --include=*.rs --include=*.toml   必须 0 命中(rustcode-telemetry 已删除)。
+    注意该正则会把英文单词 `segment`(路径段/正文分段)与第三方 MCP 推荐文档
+    (skills/.../mcp-servers.md 中的 "Sentry MCP")算成命中,属误报,须人工判定。
+    `telemetry` 字样不作为 G6 判据——残留见 OBJECTIVE-2 的三类守卫清单。
 G7  grep -rni "atomcode" crates/ scripts/ .github/   0 命中(描述已退役 core 的
     历史注释除外,须逐条人工确认确属历史名)。`atomgit` 字样仅允许三类:
     (1) opt-in `atomgit` Cargo feature(capabilities/src/atomgit/、tools/atomgit*、
@@ -270,7 +279,7 @@ G8  grep -rni "atomcode" docs/architecture.md   0 命中(描述已退役 core �
   - **S3 README**:`README.zh-CN.md:94` 智谱 GLM 行去掉虚构的"（RustCode Pro 套餐专属模型）"(不存在任何付费套餐;en README 本就平铺 GLM-4/5/5.2),与 en 对齐。
   - **NIT 批**:(N1)两份 README "会话与登录/Sessions & Login" 的 OAuth/SSO bullet 加"仅发行版本/distribution builds only"并新增首条"第三方供应商(BYO)——配置自己的 base_url+api_key,无需注册,开源默认方式";README 斜杠命令表 `/login` 行从"claim CodingPlan free models"改"登录托管服务(仅发行版;BYO 用 `/provider`)"。(N4)`docs/zh/login.html` 单薄 meta("登录方式 — RustCode 文档。")补成与 en 同义的丰富描述;该页正文已是 BYO 默认 + 托管登录门控,无需改。(N6)安装占位符统一中立域:`site/index.html` unix/win 安装命令 `https://your-host/...` → `https://example.com/your-host/...`,README(en/zh)PowerShell 与 bash 的 `RUSTCODE_RELEASE_BASE=https://<host>/...` → `https://example.com/your-host/...`(与同仓 `git clone https://example.com/<your-org>/...` 及站点 `RELEASE_BASE` 口径一致;`api.deepseek.com/v1` 等是**真实第三方 BYO provider 端点示例**,属正确用户文档,保留)。(N7)README 隐私/遥测节链接补齐:en Privacy bullet 原只链 ORIGINAL_LICENSE/UPSTREAM_CREDITS,补上 `docs/telemetry.md`(zh `零遥测` bullet 本就链该文件),中英对齐。(N5)`site/index.html` 无 JS 静态兜底与 i18n dict 对齐:静态 `step2.t` "配置 API Key" → "配置 provider"、`step2.d` 换成 dict 的富文本"Claude/OpenAI/DeepSeek/GLM/Qwen/Ollama 等第三方 API 任一 · 自带 Key";dict `wiz.s3.skip.hint` en 残片 "explore first" → "Set up later"(配 zh 稍后再说)。(N3)`build-search-index.mjs` 的 GROUPS 进阶组补 `headless-daemon` slug——该页被 webui/webui-remote-access 链接引用、此前却不在任何组里,索引阶段被 `skip ungrouped` 丢弃且拿不到 heading id 注入。
   - **搜索索引重生成**:`cd site && node build-search-index.mjs`(不手改 JSON)——en/zh 各 **21 pages**(headless-daemon 现入索引),各向 1 页注入 heading id(即 headless-daemon:h1/h2/h3 获 `id` 保证搜索 `#anchor` 可滚动);`search-index.{en,zh}.json` 随内容更新。
-  - **未改/刻意保留**:README 与 docs 里 `atomgit_atomcode/atomcode` 仅出现在 fork 归属声明与 ORIGINAL_LICENSE/UPSTREAM_CREDITS(合法历史出处,G7/G8 逐案豁免);"关于可选的 CodingPlan 网关(闭源签名)" 小节是对 opt-in 发行版能力的正确门控说明,保留;`atomgit` cargo feature、`#[cfg(feature="codingplan")]` 块、`LEGACY_CODINGPLAN_PREFIX` 识别器按 fork 铁律**不动**。本轮零 `.rs` 改动,G1–G3 不受影响。
+  - **未改/刻意保留** —— **[SUPERSEDED 2026-09-02,见第三十二轮]**:README 与 docs 里 `atomgit_atomcode/atomcode` 仅出现在 fork 归属声明与 ORIGINAL_LICENSE/UPSTREAM_CREDITS(合法历史出处,G7/G8 逐案豁免)。**该「保留 README 与 features/platform-neutralization」的结论已被第三十二轮用户裁决推翻**:这两个 README 与 `docs/{features,platform-neutralization}.md` 正文中的上游 slug 已清除(改述为「上游项目」,并保留指向归属文档的链接);**仅** `LICENSE`、`docs/{UPSTREAM_RUSTCODE_LICENSE,UPSTREAM_CREDITS,THIRD_PARTY_NOTICES,ORIGINAL_LICENSE}.md` 保留完整 MIT 归属原文——那才是 MIT 的合规落点,README 点名上游 slug 并非 MIT 要求。"关于可选的 CodingPlan 网关(闭源签名)" 小节是对 opt-in 发行版能力的正确门控说明,保留;`atomgit` cargo feature、`#[cfg(feature="codingplan")]` 块、`LEGACY_CODINGPLAN_PREFIX` 识别器按 fork 铁律**不动**。本轮零 `.rs` 改动,G1–G3 不受影响。
 - **[DONE] 第三轮多 agent 校准:斜杠命令发现面按构建门控(2026-09-01,代码复核 MED 落地,含 Rust 改动)**:
   - **问题(代码复核 agent MED)**:上一轮文档把门控口径写进了文档,但 `rustcode-tuix/src/commands.rs` 的命令发现面只按静态 `hidden` 标志过滤、**从不查 `platform_server()`**——中立构建里 `/help`、`/` 斜杠菜单、Tab 补全、ACP `available_commands` 仍展示 `/login`("Sign in with OAuth and claim CodingPlan models")与 `/usage`("Show CodingPlan usage",该行 `acp: true`,此前**确实**被广告给 ACP 客户端),即首启引导 `setup_choices()`/欢迎 pinned tip 已消除的"死路托管推销"在命令发现面残留。
   - **修复**:`commands.rs` 新增 `const MANAGED_ONLY_COMMANDS: &[&str] = &["login", "logout", "whoami", "usage"];` 与 `fn command_visible(cmd) -> bool`——静态 `hidden` 恒隐藏;名字 ∈ MANAGED_ONLY_COMMANDS **且** `!crate::modals::onboarding_wizard::managed_login_available()`(即空 `platform_server` 的中立构建)时隐藏。五个发现面全部改走该谓词:`matching_prefix`(斜杠菜单)、`help_text` 两处(最大列宽计算 + 输出循环)、`acp_commands`(ACP v1/v2 广告与 ACP `/help` 同源)、`complete_commands`(Tab 补全)。**派发表 `find()` 不查可见性**:四个命令在中立构建仍可手动输入执行(走既有 BYO `LoginManagedUnavailable` / 本地用量提示),只是从所有发现面消失——与 onboarding 2/3 行门控同一谓词,dispatch 与 discovery 分离。
@@ -523,6 +532,127 @@ G8  grep -rni "atomcode" docs/architecture.md   0 命中(描述已退役 core �
 - `ProviderConfig` / `ModelProfileConfig` 新增了**非 Option** 的 `model_mapping: ModelMapping`(空表即恒等映射),是**必填字段**。新增结构体字面量时必须显式给 `ModelMapping::default()`。
 - `docs/architecture.md` 正文已改为 `rustcode-*` 命名;残留的 `rustcode` 字样仅在描述已退役 `rustcode-core` 的历史小节中(合法的历史名引用)。
 - **[CHECK] 产品身份已锁定为 `rustcode`**(见 `docs/REFACTOR_DESIGN_PHASE1.md` §2.0 决策 D1),并已在 commit `6dbf57bb` 落地。不要再提议或先行改名。
+
+- **[DONE] 第二十九轮:第三方模型厂商身份外发归零 + 遥测词义残留清零(2026-09-02)**:
+  - **OpenRouter 归因改为 opt-in(落实 `docs/REFACTOR_DESIGN_PHASE1.md` §4.3 G6)**:`capabilities/src/provider/openai_compat.rs` 的归因头此前**无条件**随每个 `openrouter.ai` 请求外发 `X-OpenRouter-Title: RustCode` / `X-OpenRouter-Categories: cli-agent`(仅 Referer 上一轮已 opt-in)。现整体默认关闭:新增 `RUSTCODE_OPENROUTER_ATTRIBUTION=1|true|on|yes` 门控,解析抽为纯函数 `attribution_enabled_from`(避免测试改动进程级 env);`apply_openrouter_attribution` 拆出 env-free 的 `apply_openrouter_attribution_with(url, req, enabled, referer)` 供确定性单测。**默认出站只携带第三方配置本身(`base_url` / `api_key` / `model` / `extra_headers`),不向任何模型厂商外发本产品身份。** host 门禁 `is_openrouter_url` 与 userinfo 冒用防护(`openrouter.ai:x@evil.com`)原样保留。归因测试由 2 个扩到 6 个,覆盖默认关 / opt-in 开 / 无 Referer / 非 OR 端点 / 伪造 host 五路。
+  - **遥测词义残留清零**:kernel(`hook.rs` ×4、`agent.rs` ×2、`event.rs`、`message.rs`、`tests/turn_complete.rs`、`tests/hook_a2_surface.rs`)、capabilities(`mcp/mod.rs`)、clix(`main.rs`)中把"可观测性挂载点"误写为 `telemetry` 的 hook seam 注释统一改为 `observability`。剩余 `telemetry` 字样收敛为 OBJECTIVE-2 列出的三类守卫,已标注禁止误删。
+  - **文档旧名收尾**:`docs/multi-agent-collaboration-solution.md` 中 `atomcode-{kernel,capabilities,coding}` 与 `crates/atomcode-coding/src/session.rs` 更正为 `rustcode-*`;`docs/REFACTOR_DESIGN_PHASE1.md` §4.3 G6 行标注 [DONE]。刻意**未改** README 与 `docs/{UPSTREAM_RUSTCODE_LICENSE,UPSTREAM_CREDITS,THIRD_PARTY_NOTICES,platform-neutralization,features}.md` 中的 `atomgit_atomcode/atomcode`——那是 MIT 归属声明,删改有合规风险。**[SUPERSEDED 2026-09-02,见第三十二轮]** 该判断已修正:用户裁决要求清干净 README,`docs/{features,platform-neutralization}.md` 的正文 slug 亦一并清除;**MIT 归属原文仅在 `LICENSE` 与 `docs/{UPSTREAM_*,THIRD_PARTY_NOTICES,ORIGINAL_LICENSE}.md` 保留**,README 改述为「上游项目」并保留归属链接,故合规归属未丢失。
+  - **验证(零回归,经 stash 基线逐项比对)**:`cargo check --workspace --all-targets` 0 错;capabilities lib **827/0**(新增 4 项归因测试全绿)、kernel 全部测试目标全绿;改动文件 `cargo fmt` 后 0 格式差异。全工作区 `cargo test -j 1 --workspace --no-fail-fast` 的失败集与**无改动基线完全一致**(tuix 5:`event_loop::task_render_tests::result_non_task_output_falls_back` + `tool_format_tests::summarise_*` ×4;cli 1:`acp::translate::tests::policy_intervention_exposes_safe_recovery_without_secret_material`;capabilities 1:文档化已知红 `mcp::registry::tests::trust_key_golden_matches_core_algorithm`,铁律禁改),**未引入任何新失败**。G7/G8 `atomcode` 均 0 命中。
+  - **[CORRECTION] 本条前述"review 1 为 locale 竞态,单跑 100/0"结论错误,已由第三十轮推翻**:review 那 1 个失败是**确定性**的,非竞态。正解见第三十轮。
+  - **[WARN] 环境限制**:cgroup 内存上限 8GB,`cargo test --workspace` 默认并发下 rustc 会 SIGBUS(曾崩于 `rustcode-coding` 与 `rustcode` 的 `acp_end_to_end` 测试目标),**须用 `-j 1`**;崩溃产生的 `core.*` 已清理。
+  - **[WARN] 存量 G1 违规(非本轮引入,本轮未触碰这些文件)**:`cargo fmt --check` 有 19 处差异,全在 `crates/rustcode-cli/src/{main.rs,schedule_cmd.rs}`、`crates/rustcode-coding/src/runtime.rs`、`crates/rustcode-tuix/src/event_loop/*`。
+
+- **[DONE] 第三十轮:G1 格式门禁归零(19 处存量违规)(2026-09-02)**:
+  - **范围**:`cargo fmt --check` 由 exit=1(19 处)归零。违规集中在 4 个包的 10 个文件——`cli/{main.rs,schedule_cmd.rs}`、`coding/runtime.rs`、`tuix/{event_loop/commands.rs,event_loop/mod.rs,modals/dir_picker.rs,modals/onboarding_wizard.rs,render/cell.rs,test_term.rs}`、`updater/lib.rs`。全部为纯格式问题(换行/缩进/行尾空格),非本轮引入。
+  - **执行**:逐包 `cargo fmt -p rustcode|coding|tuix|updater`(裸 `cargo fmt` 会波及全工作区,刻意不用)。注意 **cli 的包名是 `rustcode`**。
+  - **纯格式证明方法学(留档复用)**:`git diff -w` **不能**用于此证明——它只忽略行内空白,无法忽略 rustfmt 的换行合并(实测 258 行"假阳性")。正确做法是剥离**全部**空白字符后比对字符序列(`''.join(text.split())`)。结果:6 个文件完全一致;4 个文件的差异经 Python 定位为 **尾随逗号增删** 与 rustfmt `merge_derives` 合并相邻 `#[derive(...)]`,均零语义影响。
+  - **越界证明**:21 个改动文件 283 增/104 删,减上一轮 11 文件的 230/44,余 53 增/60 删=113 行,恰等于本轮 10 个文件的行数之和(3+7+3+16+43+19+4+3+7+8)。上一轮改动未被触碰。
+  - **验证**:G1 `cargo fmt --check` **exit=0 / 0 处差异**;G2 `cargo check -j 1 --workspace --all-targets` **exit=0 / 0 error**;单跑 `rustcode-coding --lib` **430/0**、`rustcode-updater --lib` **41/0** 全绿;全工作区 8 个失败**逐名比对零新增**(tuix 5 / cli 1 / capabilities 1 与 stash 基线一致,review 1 见下)。
+  - **[CORRECTION] review 失败定性修正(推翻第二十九轮结论)**:`review_tool::tests::review_activity_line_composes_label_findings_and_tail` **不是** locale 竞态,而是**确定性失败**。实测断言 `left: "评审 · thinking"` vs `right: "review · thinking"`——该测试断言英文输出却**未持 locale 锁**,在默认中文(O5)下必然红。本轮 `--test-threads=1` 与单独过滤运行均 **4/4 失败**;第二十九轮单跑之所以 100/0,是**测试顺序运气**(别的 `pin_en()` 用例抢先设了 En),据此得出的"竞态"结论不成立。修法即 `:349` 已确立的 `let _g = pin_en();`,不改断言、不削弱测试。
+  - **[DONE] 该缺锁已修(用户裁决「加 pin_en()」)**:`review_tool.rs` **+1 行**,用例首行加 `let _g = pin_en();`,**未改任何断言**。范围经核实精确到 1 处:`paths_match_*` 断言路径匹配、`sort_findings_*` 断言输入数据,均不含本地化文本;`render_findings_*` 本已持锁。验证:`cargo test -p rustcode-review --lib` **100/0**,且串行(`--test-threads=1`)+ 默认并发共 **4/4 全绿**,证明确定性转绿;G1 复检仍 **exit=0 / 0 差异**。
+  - **[BLOCKER] 并发会话冲突(需用户裁决)**:本轮作业期间实测发现**另一编排会话在同一 worktree 并发写入**——`ps` 抓到非本会话的 `cargo test -p rustcode-codingplan --lib sync_marker`,对应看板 `.codebuddy/artifacts/2026-09-02-cleanup-codingplan-legacy/` 处于 **G3 实现中(T1 in_progress)**。本轮开始时改动面 11 文件,收尾时 **28 文件**,新增 6 个(`codingplan/src/{client,lib,setup,sync_marker,types}.rs`、`config/src/i18n/messages.rs`)来自对方。**直接冲突点**:对方 T3 要删 `crates/rustcode-cli/src/main.rs` 的 `Commands::Codingplan`(`:1696`/`:3573`,仍在、未执行),而本轮格式化了同文件 `:3363`;其决策日志把该文件的回滚策略记为「非 dirty,可安全 `git checkout`」,**执行回滚会抹掉本轮格式改动**。缓解事实:双方已写文件当前无交集,且对方写入后 G1 复检仍 exit=0。**本轮已停止一切 worktree 写入**;全量 `cargo test --workspace` 未复跑(与对方争用 target 锁与 daemon 固定端口会产生假红,参见前述 daemon 教训)。
+  - **[WARN] 操作教训(防复发)**:工具会话超时约 60–90s,长任务须 `setsid nohup ... &` 脱离会话后轮询。第二十九轮的超时残留进程与本轮 `setsid` 进程**并发跑了两个全量测试**,既污染了同一日志路径(出现重复失败目标),又使两个 daemon 测试二进制争用固定端口 13456-13458,导致 `daemon_token_auth` 单次假红(事后单跑 **3/3 全绿**)。**同一日志路径绝不可被两个进程共用**。
+  - **[WARN] 子代理通道不稳定**:本轮 `code-implementer` / `code-reviewer` 派发连续失败(一次 "No result found"、一次 idle timeout)。因 `cargo fmt` 是确定性工具调用而非业务代码编写,改由编排者直接执行并以只读命令完成等效验证。
+
+- **[DONE] 第三十一轮:locale 锁缺陷批量修复——存量红 8 → 1(2026-09-02)**:
+  - **根因同类**:第三十轮修的 review 缺锁并非孤例。tuix 的 5 个 `summarise_*` /
+    `result_non_task_output_falls_back` 与 cli 的 `acp::translate` 共 **6 个用例**同为
+    「断言英文串却未钉 locale」,在默认中文(O5)下必然红。实测断言
+    `left: "Result（3 行）"` vs `right: "Result (3 lines)"`、
+    `text.contains("separate terminal")` 不成立。依据 `:231` 约定逐个补
+    `test_lock()` + `set_locale(Locale::En)`,**未改任何断言**。
+  - **[CHECK] 关键教训:locale 锁分两种,用错会制造新红**。`summarise_multi_line_adds_line_count`
+    是**刻意与 locale 无关**的测试——用 `i18n::t(Msg::TuixFoldLinesSuffix{count})` 现算期望后缀再比对,
+    要求 `summarise()` 与 `t()` 两次调用间 **locale 保持稳定**。把它连同兄弟用例一起 set 成 En,
+    反而**新增 2 个红**:(1) 该用例因我增多的 En 设置翻转了全局 locale,使两次调用拿到不同 locale 而失配;
+    (2) 见下条。**正解:此类用例只持 `test_lock()` 取稳定性,绝不 `set_locale`**。
+    **凡给断言英文的用例补锁时,必须先判明同模块是否存在 locale 无关型兄弟用例。**
+  - **[WARN] 新发现的独立缺陷(未修,待裁决)**:`modals::session_picker::tests::replay_keeps_current_model_window_and_ignores_accounting_only_turn_positions`
+    断言 `!label.contains("987")`(987654 为其「仅记账」哨兵值),但标签渲染了会话 ID
+    `session-1788360798786`,该**毫秒时间戳数字串恰好含子串 "987" 时**断言失败。
+    **与时间相关的固有偶发缺陷**,与 locale 无关、与本轮改动无关(末次运行该用例通过)。
+    修法需改哨兵判定(改判 `total_tokens` 字段而非字符串包含)或改用固定会话 ID,涉及测试语义。
+  - **验证(净减红,零新增)**:`rustcode-tuix --lib` **2059/5 → 2064/0**;`rustcode --lib`
+    **115/1 → 116/0**;`rustcode-review --lib` **100/0**(第三十轮);`coding` 430/0;`updater` 41/0;
+    `rustcode-capabilities --lib` 仍 1 个——文档化已知红 `trust_key_golden_matches_core_algorithm`(铁律禁改)。
+    **存量红由 8 个降至 1 个。** G1 复检 **exit=0 / 0 差异**;本轮触碰文件严格限于自有 10 个,
+    `cargo fmt -p` 未波及额外文件。
+  - **[CHECK] G3 全量验证已锁定(用户裁决)**:`cargo test -j 1 --workspace --no-fail-fast`
+    → **5481 passed / 1 failed**,90 个测试目标中 **89 个全绿**。分项:`cli --lib` 116/0、
+    `tuix --lib` **2064/0**、`review --lib` 100/0、`coding --lib` 430/0、`config --lib` 327/0、
+    `daemon --lib` 307/0、`updater --lib` 41/0、`kernel` 全绿;`capabilities --lib` 1475/1。
+    **唯一失败即 `trust_key_golden_matches_core_algorithm`**(`AGENTS.md:226` 文档化已知红,
+    DefaultHasher 跨工具链不稳定,铁律禁改)。存量红演进:**8 → 7(T3)→ 1(T4),净减 7,零新增**。
+    执行要点:后台 `setsid` + 唯一日志路径,启动前确认 `pgrep -c cargo = 0`,
+    规避双进程污染日志与争用 daemon 端口(参见第三十轮教训)。
+  - **[WARN] 子代理通道不可用**:本轮派发 2 个 `code-implementer`(tuix / cli,`files_owned` 不相交),
+    **均因 idle timeout 取消**,未落盘交接件、未产生代码改动(已核验)。cargo 编译期无增量输出触发空闲超时。
+    **累计 3 次派发失败**(1 次 "No result found" + 2 次 idle timeout)。第三十轮与本轮均改由编排者
+    直接执行 + 只读命令验证,**未绕过任何门禁**。后续长编译任务宜直接执行或先拆小。
+  - **并发会话**:`cleanup-codingplan-legacy` 在本轮作业期间持续推进(已落地 T1 注释清零、
+    T4 `docs/config.example.toml` 去重、T5 十份文档 `git mv` 到 `docs/archive/`)。
+    **新增冲突点:其 T6 目标是 `docs/REFACTOR_DESIGN_PHASE1.md`,与本会话改动同一文件。**
+    其 T3(`cli/src/main.rs` 删 `Commands::Codingplan`)截至本轮结束**仍未执行**。
+    交接件见 `HANDOFF-codingplan-legacy.md`。
+
+- **[DONE] 第三十二轮:用户可见文档 `atomcode` 残留清理 + 统计方法学纠错(2026-09-02)**:
+  - **[ERROR] 方法学纠错:此前"全仓 9 文件 / 约 26 处"的统计是错的**。真实为 **92 处 / 29 文件**
+    (`grep -rIoi "atomcode" --exclude-dir={target,.git,node_modules} . | wc -l`)。
+    教训:`search_content` 工具的 `count` 模式**会低估**,统计残留面**必须用 shell 精确计数**,
+    不要复用工具聚合结果。编排者据此错误统计得出过"O1 无剩余面"的结论,现予推翻。
+  - **残留分布**:`AGENTS.md` 18、`.codebuddy/` ~40(交接件与 agent 定义)、`.goals/` 11、
+    `.superpowers/pr/` 4、合规归属文档 9(`UPSTREAM_*`/`THIRD_PARTY_NOTICES`)、
+    门禁定义 5、`docs/{features,platform-neutralization,REFACTOR_DESIGN_PHASE1}.md` 11、两个 README 4。
+  - **三分法(后续清理照此判定)**:① **合规归属必留** —— `LICENSE`、
+    `docs/{UPSTREAM_RUSTCODE_LICENSE,UPSTREAM_CREDITS,THIRD_PARTY_NOTICES,ORIGINAL_LICENSE}.md`;
+    ② **门禁定义必留** —— G7/G8 那几行**本身就是 grep 模式**,删掉 `atomcode` 字样会让门禁失效
+    (`docs/features.md:113-114`、`docs/platform-neutralization.md:204-206`);
+    ③ **可清** —— 用户可见正文里把旧名当当前事物描述处。
+  - **本轮清理**(doc-writer 执行,4 文件 7 增 7 删):两个 README 与
+    `docs/{features,platform-neutralization}.md` 正文中的上游 slug `atomgit_atomcode/atomcode`
+    改为「上游项目」,**并保留指向 `ORIGINAL_LICENSE.md` / `UPSTREAM_CREDITS.md` 的归属链接**;
+    `docs/features.md:12` 的「产品重命名」项由 `atomcode-* → rustcode-*` 改为现状表述。
+    **两个 README 现为 0 命中**;剩余 4 处全为规则②门禁定义,原样保留。
+  - **[CHECK] MIT 合规性判定**:MIT 要求保留的是**版权声明与许可文本**,落点是 `LICENSE` 与上述
+    归属文档,**并不要求 README 内联点名上游仓库 slug**。故本次删除 README 中的 slug 不削弱合规,
+    归属信息仍完整可达。第二十八轮(`:282`)与第二十九轮(`:539`)「刻意保留 README 中该 slug」
+    的相反决策已标 `[SUPERSEDED]`。
+  - **G7/G8 结构性不受影响**:两者分别扫描 `crates/ scripts/ .github/` 与 `docs/architecture.md`,
+    本轮改动的 4 个文件均不在其 grep 范围内,故清理**不可能**改变门禁结果。
+  - **[CHECK] 子代理通道 :`doc-writer` 首次派发成功**(42 次工具调用)。关键差异:该角色**不执行
+    构建/测试命令**,无 cargo 编译静默期,故不触发此前 3 次 `code-implementer` 的 idle timeout。
+    **结论:涉及编译的任务慎用子代理,纯文档任务可正常派发。**
+  - **[WARN] 子代理验证能力缺口**:`doc-writer` **无 shell 工具**,无法执行 `git diff --stat` 验证,
+    已如实标注为验证缺口(未粉饰)。**该验证由编排者补齐**:确认改动严格限于 4 文件、
+    7 增 7 删、`crates/` 无越界。
+
+- **[DONE] 第三十三轮:`.goals`/`.superpowers` 清理 + 交付产物生成 + 流水线核查(2026-09-02)**:
+  - **`.goals/` 清理**:2 文件 3 增 3 删。残留 **6 处全为 G7/G8 门禁定义与验收证据(必留)**;
+    `inspector-feedback-1.md` 零改动(全文仅含验收证据)。
+  - **`.superpowers/` 清理:残留归零**。修正 4 处**已失效的可执行命令**
+    (`cargo test -p atomcode-{tuix,capabilities,daemon}` → `rustcode-*`,及任务书未点名的
+    `cargo check -p atomcode` → `-p rustcode`)。映射依据 `crates/rustcode-cli/Cargo.toml:2`
+    的 `name = "rustcode"`,**非臆测**。注意 cli 包名是 `rustcode` 而非 `rustcode-cli`。
+  - **[CORRECTION] 子代理的 gitignore 判断有误,已由编排者实测纠正**:它据 `.gitignore` 条文推断
+    `.superpowers/` 被忽略、改动不会入库。**实测 `git ls-files` 显示该文件已被跟踪、
+    `git status` 显示 ` M`——会进入提交。** 教训:**已跟踪文件不受 gitignore 约束**,
+    判断入库状态必须用 `git ls-files` / `git status` 实测,不能只读 `.gitignore`。
+  - **产物已生成**:`05-test-report.md`(验证基线/逐门禁/逐套件/存量红演进/失败归因/零回归论证/未验证范围)、
+    `06-release.md`(四段式交付清单 + 回滚方案 + 唯一下一步)、`03-impl/T6/T7/T8.md`、
+    `HANDOFF-codingplan-legacy.md`。均位于 `.codebuddy/artifacts/2026-09-02-g1-fmt-gate/`。
+  - **流水线核查(`.github/`)**:**无任何改动**(本会话与对方会话均未触碰)。现有 job 仅
+    `cargo fmt --all -- --check` / `cargo clippy --workspace --all-targets` / `cargo test --workspace`,
+    对应 G1–G3;**G6/G7/G8 无 CI job**,仅本地人工门禁。**影响推论**:① 本 feature 修好 19 处
+    格式违规,**使 CI 的 `fmt` job 由红转绿**;② CI `test` job 跑裸 `cargo test --workspace`,
+    而 `trust_key` 确定性失败,**该 job 仍将为红**(既有状态,非本轮引入);③ `clippy` job 未加
+    `-D warnings`,不会失败。是否补 G6–G8 的 CI job 需用户裁决,本轮未改流水线。
+  - **对方 T3 已落地,恢复验证通过**:`crates/` 下 `Commands::Codingplan` **0 命中**(由 `doc-writer`
+    实测发现并上报「编排者数据已过期」,核验属实)。恢复验证:**我的 fmt hunk
+    (`cli/src/main.rs:3363`)存活**,与对方删除在同一文件共存;G1 **exit=0 / 0 差异**;
+    G2 **exit=0 / 0 error**;G3 **5481 passed / 1 failed**、89 目标全绿,唯一失败仍为 `trust_key`。
+    **G3 与 T3 落地前完全一致**,双方改动共存无损。
+  - **[WARN] G2 口径澄清**:`AGENTS.md` 的 G2 真义是 `cargo clippy --workspace --all-targets`,
+    本轮全程只跑了 `cargo check`。`clippy` 全量**尚未验证**,不得记为 G2 通过。
 
 ## 高信号文档索引
 

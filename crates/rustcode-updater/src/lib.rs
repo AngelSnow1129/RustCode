@@ -1293,10 +1293,10 @@ mod tests {
             target_os = "macos",
             target_os = "linux",
             target_os = "windows"
-        ))
-            && cfg!(any(target_arch = "x86_64", target_arch = "aarch64")) {
-                assert!(t.is_some(), "expected target tag on this host");
-            }
+        )) && cfg!(any(target_arch = "x86_64", target_arch = "aarch64"))
+        {
+            assert!(t.is_some(), "expected target tag on this host");
+        }
     }
 
     #[test]

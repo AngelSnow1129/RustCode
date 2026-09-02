@@ -5563,15 +5563,13 @@ pub(crate) fn build_schedule_list_text(
         } else {
             t(Msg::WordOff)
         };
-        out.push_str(
-            &t(Msg::ScheduleRow {
-                id: &task.id,
-                title: &task.title,
-                next: &next,
-                last: task.last_status.as_deref().unwrap_or("-"),
-                state: &state,
-            }),
-        );
+        out.push_str(&t(Msg::ScheduleRow {
+            id: &task.id,
+            title: &task.title,
+            next: &next,
+            last: task.last_status.as_deref().unwrap_or("-"),
+            state: &state,
+        }));
     }
     out
 }

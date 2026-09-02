@@ -72,15 +72,13 @@ impl Default for GridCell {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct Style {
     bold: bool,
     faint: bool,
     reverse: bool,
     fg: Option<Color>,
 }
-
 
 /// In-process VT terminal model -- advance ANSI bytes, expose the
 /// resulting 2D char grid + cursor + visibility state.
@@ -515,7 +513,8 @@ impl Perform for VirtualTerminal {
                         }
                         1 => {
                             // start to cursor
-                            let end = (self.cursor_col as usize).min(row.len().saturating_sub(1)) + 1;
+                            let end =
+                                (self.cursor_col as usize).min(row.len().saturating_sub(1)) + 1;
                             for cell in row.iter_mut().take(end) {
                                 *cell = GridCell::default();
                             }

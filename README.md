@@ -45,8 +45,8 @@ Think of it as an open-source alternative to Claude Code / Cursor Agent, but run
 
 ---
 
-> **Fork notice.** This repository is a secondary-development
-> fork of `atomgit_atomcode/atomcode`. Relative to upstream it (1) renames the
+> **Fork notice.** This repository is a secondary-development fork of an
+> upstream project. Relative to upstream it (1) renames the
 > product to `rustcode` (crates, binaries, config dir `~/.rustcode`, `RUSTCODE_*`
 > env vars); (2) removes **all** telemetry/analytics — the `rustcode-telemetry`
 > crate and every reporting call site are gone; (3) **fully decouples from any

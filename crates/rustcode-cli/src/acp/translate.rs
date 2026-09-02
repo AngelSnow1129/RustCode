@@ -187,6 +187,9 @@ mod tests {
 
     #[test]
     fn policy_intervention_exposes_safe_recovery_without_secret_material() {
+        // Default locale is ZhCn; pin explicitly so the English assertions hold.
+        let _g = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         let event = AgentEvent::PolicyIntervention {
             intervention: rustcode_kernel::event::PolicyIntervention::credential_shell_blocked(),
         };

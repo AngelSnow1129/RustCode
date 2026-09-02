@@ -12466,7 +12466,8 @@ mod tests {
                         Some(_) => {}
                         None => panic!("runtime event stream closed"),
                     }
-                    if let (Some(auth), Some(ack)) = (authoritative.as_ref(), acknowledged.as_ref()) {
+                    if let (Some(auth), Some(ack)) = (authoritative.as_ref(), acknowledged.as_ref())
+                    {
                         break (auth.clone(), ack.clone());
                     }
                 }

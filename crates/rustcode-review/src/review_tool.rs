@@ -961,6 +961,7 @@ mod tests {
 
     #[test]
     fn review_activity_line_composes_label_findings_and_tail() {
+        let _g = pin_en();
         // No label, no findings → bare marker text + tail (round is never shown).
         assert_eq!(
             review_activity_line(None, 0, "thinking"),

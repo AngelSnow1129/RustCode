@@ -1375,8 +1375,7 @@ mod tests {
                 width: 1,
             })
             .collect();
-        let s =
-            String::from_utf8(serialize_frames_tight(&[prev_row], &[next_row])).unwrap();
+        let s = String::from_utf8(serialize_frames_tight(&[prev_row], &[next_row])).unwrap();
         assert!(
             s.contains("\x1b[1;1H\x1b[K"),
             "row cleared with EL: {:?}",

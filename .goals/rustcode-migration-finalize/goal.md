@@ -3,7 +3,7 @@
 ## Goal
 
 完成 RustCode fork 的迁移收尾工作,覆盖四个维度:
-1. **命名清理** — 去除剩余 `atomcode` 残留(package-lock.json + 历史文本口径)
+1. **命名清理** — 产品标识统一为 `rustcode-*`,package-lock.json 与历史文本口径已收尾
 2. **平台中立** — 确认不与任何模型/平台关联,只保留第三方 provider 配置
 3. **零遥测** — 确认无遥测 SDK 残留,`install_panic_hook` 是本地逻辑不删
 4. **中文默认** — 使 `Locale::default()` trait 与运行时产品默认(zh_CN)一致

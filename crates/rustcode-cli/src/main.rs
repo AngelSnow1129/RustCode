@@ -3358,8 +3358,7 @@ pub(crate) async fn run_native_headless(
                 let _ = handle.respond(request.id, value).await;
             }
             CodingRuntimeEvent::CompactionFinished {
-                completion:
-                    rustcode_coding::runtime::CompactionCompletion::Completed(outcome),
+                completion: rustcode_coding::runtime::CompactionCompletion::Completed(outcome),
             } if outcome.committed => {
                 eprintln!(
                     "[compact] {}",

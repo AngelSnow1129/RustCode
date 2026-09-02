@@ -5,8 +5,8 @@
 //! Ported from `rustcode-core::mcp` into L1 with ZERO dependency on core:
 //! - the Tool adapter ([`tool`]) targets the kernel trait,
 //! - the home/config-dir + console helpers are local ([`util`]),
-//! - the core telemetry block is dropped -- a driver re-attaches it by observing
-//!   [`McpConnectEvent`] (cross-cutting telemetry lives on a seam, not hard-coded
+//! - the core observability block is dropped -- a driver re-attaches it by observing
+//!   [`McpConnectEvent`] (cross-cutting observability lives on a seam, not hard-coded
 //!   in the registry).
 //!
 //! # Runtime boundary
