@@ -981,11 +981,11 @@ pub async fn prepare_deferred_upgrade(
 ///
 ///   * `Ok(None)`                  -- no pending upgrade, continue normally.
 ///   * `Ok(Some(AppliedUpgrade))`  -- staged binary is now live; caller must
-///                                   `re_exec_self` to hand control over.
+///     `re_exec_self` to hand control over.
 ///   * `Err(e)`                    -- apply failed; caller should log and
-///                                   continue with the OLD binary. We've
-///                                   already bumped the attempt counter
-///                                   (or discarded the stage past the cap).
+///     continue with the OLD binary. We've
+///     already bumped the attempt counter
+///     (or discarded the stage past the cap).
 ///
 /// SHA256 is re-verified here even though we verified at download time:
 /// a session-external process (backup tool, AV software, buggy sync)
@@ -1293,11 +1293,10 @@ mod tests {
             target_os = "macos",
             target_os = "linux",
             target_os = "windows"
-        )) {
-            if cfg!(any(target_arch = "x86_64", target_arch = "aarch64")) {
+        ))
+            && cfg!(any(target_arch = "x86_64", target_arch = "aarch64")) {
                 assert!(t.is_some(), "expected target tag on this host");
             }
-        }
     }
 
     #[test]
