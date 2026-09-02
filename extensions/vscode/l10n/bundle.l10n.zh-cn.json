@@ -66,5 +66,15 @@
   "Unable to read config: {message}": "无法读取配置：{message}",
   "Reloaded config. Default provider: {provider}.": "已重新加载配置。默认 Provider：{provider}。",
   "Unable to reload config: {message}": "无法重新加载配置：{message}",
-  "New session": "新建会话"
+  "New session": "新建会话",
+  "RustCode daemon build mismatch. RustCode could not stop the old daemon. Please stop the old RustCode daemon or reload VS Code.": "RustCode daemon 版本不匹配，无法停止旧版 daemon。请停止旧的 RustCode daemon，或重新加载 VS Code。",
+  "RustCode daemon not found for this platform. Reinstall the RustCode extension, install rustcode, or set rustcode.daemon.binaryPath in settings.": "未找到当前平台的 RustCode daemon。请重新安装 RustCode 扩展、安装 rustcode，或在设置中配置 rustcode.daemon.binaryPath。",
+  "RustCode daemon started but not responding. Check if port {port} is available.": "RustCode daemon 已启动但无响应。请检查端口 {port} 是否可用。",
+  "RustCode is using a development build of the daemon ({path}). The bundled daemon was not found. Reinstall the extension or set rustcode.daemon.binaryPath in settings.": "RustCode 正在使用开发版 daemon（{path}），未找到随扩展打包的 daemon。请重新安装扩展，或在设置中配置 rustcode.daemon.binaryPath。",
+  "Unable to confirm the turn stopped: {message}": "无法确认回合已停止：{message}",
+  "[File too large to attach ({size} KB). Use a specific selection instead.]": "[文件过大，无法附加（{size} KB）。请改为附加特定选区。]",
+  "Invalid permission decision": "无效的权限决定",
+  "Login timed out; start a new login.": "登录超时；请重新发起登录。",
+  "Login {status}; start a new login.": "登录状态为 {status}；请重新发起登录。",
+  "Unable to load session: {message}": "无法加载会话：{message}"
 }

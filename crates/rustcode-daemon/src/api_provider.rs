@@ -4,6 +4,7 @@ use rustcode_capabilities::egress::{build_http_client, HttpClientSpec};
 use rustcode_config::config::provider::{
     default_context_window_for, ModelProfileConfig, ProviderConfig,
 };
+use rustcode_config::i18n::{t, Msg};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -65,12 +66,16 @@ fn selection_name_is_reserved(config: &rustcode_config::config::Config, name: &s
 /// own api_key instead.
 fn managed_provider_locked_message(action: &str) -> String {
     if rustcode_auth::managed_login_available() {
-        format!("CodingPlan providers are managed by /login and cannot be {action}")
+        let action = match action {
+            "modified" => t(Msg::DaemonProvActionModified),
+            "replaced" => t(Msg::DaemonProvActionReplaced),
+            "edited" => t(Msg::DaemonProvActionEdited),
+            "deleted" => t(Msg::DaemonProvActionDeleted),
+            _ => t(Msg::DaemonProvActionEdited),
+        };
+        t(Msg::DaemonProvManagedLocked { action: &action }).into_owned()
     } else {
-        "This provider name or base URL is reserved for managed accounts, \
-         which this build does not provide. Rename the provider (or change its \
-         base URL) and configure it with your own api_key."
-            .to_string()
+        t(Msg::DaemonProvManagedReserved).into_owned()
     }
 }
 
@@ -358,10 +363,10 @@ fn discovery_url(base_url: &str, provider_type: &str) -> anyhow::Result<reqwest:
     };
     let mut url = reqwest::Url::parse(base_url.trim())?;
     if !matches!(url.scheme(), "http" | "https") {
-        anyhow::bail!("model discovery supports only http and https URLs");
+        anyhow::bail!("{}", t(Msg::DaemonProvDiscoveryScheme));
     }
     if !url.username().is_empty() || url.password().is_some() {
-        anyhow::bail!("model discovery URL must not contain credentials");
+        anyhow::bail!("{}", t(Msg::DaemonProvDiscoveryNoCreds));
     }
     let path = format!("{}{}", url.path().trim_end_matches('/'), suffix);
     url.set_path(&path);
@@ -452,7 +457,7 @@ fn validate_selection_id(value: &str) -> anyhow::Result<String> {
             .chars()
             .any(|ch| matches!(ch, '\0' | '\n' | '\r' | '\t' | '\\'))
     {
-        anyhow::bail!("model selection id is empty or contains an invalid character");
+        anyhow::bail!("{}", t(Msg::DaemonProvInvalidModelId));
     }
     Ok(trimmed.to_string())
 }
@@ -463,14 +468,16 @@ fn insert_account_models(
     requests: &[CreateAccountModelRequest],
 ) -> anyhow::Result<Vec<String>> {
     if requests.is_empty() || requests.len() > 100 {
-        anyhow::bail!("select between 1 and 100 models");
+        anyhow::bail!("{}", t(Msg::DaemonProvModelCountRange));
     }
     let account = config
         .logical_accounts()
         .remove(account_id)
-        .ok_or_else(|| anyhow::anyhow!("provider account `{account_id}` not found"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("{}", t(Msg::DaemonProvAccountNotFoundId { id: account_id }))
+        })?;
     if account.ephemeral {
-        anyhow::bail!("runtime-only provider accounts cannot be modified");
+        anyhow::bail!("{}", t(Msg::DaemonProvRuntimeReadOnly));
     }
 
     // Validate the complete batch before upgrading a legacy provider or adding
@@ -482,39 +489,49 @@ fn insert_account_models(
     for request in requests {
         let model = request.model.trim();
         if model.is_empty() {
-            anyhow::bail!("model cannot be empty");
+            anyhow::bail!("{}", t(Msg::DaemonProvModelEmpty));
         }
         if request.context_window == Some(0) {
-            anyhow::bail!("context_window must be greater than zero");
+            anyhow::bail!("{}", t(Msg::DaemonProvContextWindowPositive));
         }
         if request.max_tokens == Some(0) {
-            anyhow::bail!("max_tokens must be greater than zero");
+            anyhow::bail!("{}", t(Msg::DaemonProvMaxTokensPositive));
         }
         if !batch_models.insert(model.to_string()) {
-            return Err(account_model_conflict(format!(
-                "duplicate model `{model}` in request"
-            )));
+            return Err(account_model_conflict(
+                t(Msg::DaemonProvDupModelInRequest { model }).into_owned(),
+            ));
         }
         if logical_models
             .values()
             .any(|existing| existing.account == account_id && existing.model.trim() == model)
         {
-            return Err(account_model_conflict(format!(
-                "model `{model}` already exists in account `{account_id}`"
-            )));
+            return Err(account_model_conflict(
+                t(Msg::DaemonProvModelExistsInAccount {
+                    model,
+                    account: account_id,
+                })
+                .into_owned(),
+            ));
         }
         let default_id = format!("{account_id}/{model}");
         let selection_id =
             validate_selection_id(request.selection_id.as_deref().unwrap_or(&default_id))?;
         if !batch_ids.insert(selection_id.clone()) {
-            return Err(account_model_conflict(format!(
-                "duplicate model selection `{selection_id}` in request"
-            )));
+            return Err(account_model_conflict(
+                t(Msg::DaemonProvDupSelectionInRequest {
+                    selection: &selection_id,
+                })
+                .into_owned(),
+            ));
         }
         if config.selection_exists(&selection_id) {
-            return Err(account_model_conflict(format!(
-                "model selection `{selection_id}` already exists"
-            )));
+            return Err(account_model_conflict(
+                t(Msg::DaemonProvSelectionExists {
+                    selection: &selection_id,
+                })
+                .into_owned(),
+            ));
         }
         prepared.push((selection_id, model.to_string(), request));
     }
@@ -687,7 +704,7 @@ pub(crate) async fn discover_models(Json(req): Json<DiscoverModelsRequest>) -> i
     ) {
         return json_error(
             StatusCode::BAD_REQUEST,
-            "This provider protocol has no supported model listing; enter the model manually",
+            t(Msg::DaemonProvDiscoveryNoListing).into_owned(),
         )
         .into_response();
     }
@@ -712,32 +729,31 @@ pub(crate) async fn discover_models(Json(req): Json<DiscoverModelsRequest>) -> i
     let body = match fetch_discovery_body(url, &transport, DISCOVERY_TIMEOUT).await {
         Ok(body) => body,
         Err(DiscoveryRequestError::Timeout) => {
-            return json_error(StatusCode::GATEWAY_TIMEOUT, "Model discovery timed out")
-                .into_response()
+            return json_error(
+                StatusCode::GATEWAY_TIMEOUT,
+                t(Msg::DaemonProvDiscoveryTimeout).into_owned(),
+            )
+            .into_response()
         }
         Err(DiscoveryRequestError::ResponseTooLarge) => {
             return json_error(
                 StatusCode::BAD_GATEWAY,
-                "model listing exceeds the 4 MiB response limit",
+                t(Msg::DaemonProvDiscoveryTooLarge).into_owned(),
             )
             .into_response()
         }
         Err(DiscoveryRequestError::UpstreamStatus(status)) => {
-            let suffix = if matches!(status, 401 | 403) {
-                "; check the API key"
+            let message = if matches!(status, 401 | 403) {
+                t(Msg::DaemonProvDiscoveryHttpStatusAuth { status })
             } else {
-                ""
+                t(Msg::DaemonProvDiscoveryHttpStatus { status })
             };
-            return json_error(
-                StatusCode::BAD_GATEWAY,
-                format!("Model endpoint returned HTTP {status}{suffix}"),
-            )
-            .into_response();
+            return json_error(StatusCode::BAD_GATEWAY, message.into_owned()).into_response();
         }
         Err(DiscoveryRequestError::Transport) => {
             return json_error(
                 StatusCode::BAD_GATEWAY,
-                "Could not reach the model endpoint",
+                t(Msg::DaemonProvDiscoveryUnreachable).into_owned(),
             )
             .into_response()
         }
@@ -746,11 +762,11 @@ pub(crate) async fn discover_models(Json(req): Json<DiscoverModelsRequest>) -> i
         Ok(models) => models,
         Err(_) => {
             let message = if provider_type == "ollama" {
-                "Ollama model listing has no valid models array"
+                t(Msg::DaemonProvDiscoveryOllamaParse)
             } else {
-                "Model listing has no valid data array; enter the model manually"
+                t(Msg::DaemonProvDiscoveryParse)
             };
-            return json_error(StatusCode::BAD_GATEWAY, message).into_response();
+            return json_error(StatusCode::BAD_GATEWAY, message.into_owned()).into_response();
         }
     };
     Json(DiscoverModelsResponse { models }).into_response()
@@ -769,11 +785,11 @@ pub(crate) async fn create_account_models(
     let config = match update_config(|config| {
         if !config.logical_accounts().contains_key(&account) {
             missing = true;
-            anyhow::bail!("provider account not found");
+            anyhow::bail!("{}", t(Msg::DaemonProvAccountNotFound));
         }
         if account_is_managed(config, &account) {
             managed = true;
-            anyhow::bail!("managed CodingPlan provider account");
+            anyhow::bail!("{}", t(Msg::DaemonProvManagedAccount));
         }
         created = insert_account_models(config, &account, &req.models).inspect_err(|error| {
             if error.downcast_ref::<AccountModelConflict>().is_some() {
@@ -784,7 +800,11 @@ pub(crate) async fn create_account_models(
     }) {
         Ok(config) => config,
         Err(_) if missing => {
-            return json_error(StatusCode::NOT_FOUND, "Provider account not found").into_response()
+            return json_error(
+                StatusCode::NOT_FOUND,
+                t(Msg::DaemonProvAccountNotFound).into_owned(),
+            )
+            .into_response()
         }
         Err(_) if managed => {
             return json_error(
@@ -842,17 +862,27 @@ pub(crate) async fn create_provider(Json(req): Json<CreateProviderRequest>) -> i
     };
     // Validate required fields
     if req.provider_type.trim().is_empty() {
-        return json_error(StatusCode::BAD_REQUEST, "Provider type cannot be empty")
-            .into_response();
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            t(Msg::DaemonProvTypeEmpty).into_owned(),
+        )
+        .into_response();
     }
     if req.model.trim().is_empty() {
-        return json_error(StatusCode::BAD_REQUEST, "Model cannot be empty").into_response();
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            t(Msg::DaemonProvModelEmpty).into_owned(),
+        )
+        .into_response();
     }
     // Validate thinking budget
     if let Some(budget) = req.thinking_budget {
         if budget < 1024 {
-            return json_error(StatusCode::BAD_REQUEST, "thinking_budget must be >= 1024")
-                .into_response();
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                t(Msg::DaemonProvThinkingBudgetMin).into_owned(),
+            )
+            .into_response();
         }
     }
     let context_window = req
@@ -892,11 +922,16 @@ pub(crate) async fn create_provider(Json(req): Json<CreateProviderRequest>) -> i
     let config = match update_config(|config| {
         if selection_is_managed(config, &name) {
             managed = true;
-            anyhow::bail!("managed CodingPlan provider");
+            anyhow::bail!("{}", t(Msg::DaemonProvManagedProvider));
         }
         if selection_name_is_reserved(config, &name) {
             conflict = true;
-            anyhow::bail!("model selection {name:?} already exists");
+            anyhow::bail!(
+                "{}",
+                t(Msg::DaemonProvModelExists {
+                    name: &format!("{name:?}"),
+                })
+            );
         }
         is_new = !config.providers.contains_key(&name);
         config.providers.insert(name.clone(), provider);
@@ -923,7 +958,7 @@ pub(crate) async fn create_provider(Json(req): Json<CreateProviderRequest>) -> i
         Err(_) if conflict => {
             return json_error(
                 StatusCode::CONFLICT,
-                format!("Provider '{}' already exists", name),
+                t(Msg::DaemonProvProviderExists { name: &name }).into_owned(),
             )
             .into_response()
         }
@@ -958,15 +993,22 @@ pub(crate) async fn patch_provider(
         .as_deref()
         .is_some_and(|value| value.trim().is_empty())
     {
-        return json_error(StatusCode::BAD_REQUEST, "Provider type cannot be empty")
-            .into_response();
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            t(Msg::DaemonProvTypeEmpty).into_owned(),
+        )
+        .into_response();
     }
     if req
         .model
         .as_deref()
         .is_some_and(|value| value.trim().is_empty())
     {
-        return json_error(StatusCode::BAD_REQUEST, "Model cannot be empty").into_response();
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            t(Msg::DaemonProvModelEmpty).into_owned(),
+        )
+        .into_response();
     }
     if req
         .thinking_budget
@@ -974,8 +1016,11 @@ pub(crate) async fn patch_provider(
         .and_then(|budget| budget.as_ref())
         .is_some_and(|budget| *budget < 1024)
     {
-        return json_error(StatusCode::BAD_REQUEST, "thinking_budget must be >= 1024")
-            .into_response();
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            t(Msg::DaemonProvThinkingBudgetMin).into_owned(),
+        )
+        .into_response();
     }
     let final_name = match req.name.as_deref() {
         Some(new_name) if new_name.trim() != name => {
@@ -993,11 +1038,16 @@ pub(crate) async fn patch_provider(
     let config = match update_config(|config| {
         if selection_is_managed(config, &name) {
             managed = true;
-            anyhow::bail!("managed CodingPlan provider");
+            anyhow::bail!("{}", t(Msg::DaemonProvManagedProvider));
         }
         if final_name != name && config.selection_exists(&final_name) {
             conflict = true;
-            anyhow::bail!("provider {final_name:?} already exists");
+            anyhow::bail!(
+                "{}",
+                t(Msg::DaemonProvProviderExists {
+                    name: &format!("{final_name:?}"),
+                })
+            );
         }
         // The webui lists the unified catalog, so `name` may be a NEW-SCHEMA model
         // (in `config.models`) rather than a legacy provider. Editing only
@@ -1007,7 +1057,12 @@ pub(crate) async fn patch_provider(
                 if !apply_patch_to_new_schema_model(config, &name, req) {
                     // Model's account is missing (corrupted config) -- refuse the whole
                     // edit rather than half-applying it. Nothing was mutated.
-                    anyhow::bail!("account for model {name:?} not found");
+                    anyhow::bail!(
+                        "{}",
+                        t(Msg::DaemonProvAccountForModelNotFound {
+                            name: &format!("{name:?}"),
+                        })
+                    );
                 }
                 if final_name != name {
                     let model = config
@@ -1020,7 +1075,12 @@ pub(crate) async fn patch_provider(
                 return Ok(());
             }
             missing = true;
-            anyhow::bail!("provider {name:?} not found");
+            anyhow::bail!(
+                "{}",
+                t(Msg::DaemonProvProviderNotFound {
+                    name: &format!("{name:?}"),
+                })
+            );
         }
         let existing = config
             .providers
@@ -1099,14 +1159,14 @@ pub(crate) async fn patch_provider(
         Err(_) if missing => {
             return json_error(
                 StatusCode::NOT_FOUND,
-                format!("Provider '{}' not found", name),
+                t(Msg::DaemonProvProviderNotFound { name: &name }).into_owned(),
             )
             .into_response()
         }
         Err(_) if conflict => {
             return json_error(
                 StatusCode::CONFLICT,
-                format!("Provider '{}' already exists", final_name),
+                t(Msg::DaemonProvProviderExists { name: &final_name }).into_owned(),
             )
             .into_response()
         }
@@ -1126,7 +1186,7 @@ pub(crate) async fn patch_provider(
         .into_response(),
         None => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Provider '{}' vanished after update", final_name),
+            t(Msg::DaemonProvVanished { name: &final_name }).into_owned(),
         )
         .into_response(),
     }
@@ -1139,13 +1199,18 @@ pub(crate) async fn delete_provider(Path(name): Path<String>) -> impl IntoRespon
     let config = match update_config(|config| {
         if selection_is_managed(config, &name) {
             managed = true;
-            anyhow::bail!("managed CodingPlan provider");
+            anyhow::bail!("{}", t(Msg::DaemonProvManagedProvider));
         }
         // Remove from the SAME unified catalog the webui lists (new-schema
         // `config.models` ∪ legacy `config.providers`) -- not just legacy providers.
         if !remove_selection(config, &name) {
             missing = true;
-            anyhow::bail!("provider {name:?} not found");
+            anyhow::bail!(
+                "{}",
+                t(Msg::DaemonProvProviderNotFound {
+                    name: &format!("{name:?}"),
+                })
+            );
         }
         replace_deleted_default_selection(config, &name);
         Ok(())
@@ -1161,7 +1226,7 @@ pub(crate) async fn delete_provider(Path(name): Path<String>) -> impl IntoRespon
         Err(_) if missing => {
             return json_error(
                 StatusCode::NOT_FOUND,
-                format!("Provider '{}' not found", name),
+                t(Msg::DaemonProvProviderNotFound { name: &name }).into_owned(),
             )
             .into_response()
         }
@@ -1187,7 +1252,12 @@ pub(crate) async fn set_default_provider(Path(name): Path<String>) -> impl IntoR
     let config = match update_config(|config| {
         if !config.selection_exists(&requested) {
             missing = true;
-            anyhow::bail!("provider {requested:?} not found");
+            anyhow::bail!(
+                "{}",
+                t(Msg::DaemonProvProviderNotFound {
+                    name: &format!("{requested:?}"),
+                })
+            );
         }
         // `default_model` is the canonical selection (`effective_model_selection`
         // prefers it); keep the legacy `default_provider` synced so a new-schema
@@ -1200,7 +1270,7 @@ pub(crate) async fn set_default_provider(Path(name): Path<String>) -> impl IntoR
         Err(_) if missing => {
             return json_error(
                 StatusCode::NOT_FOUND,
-                format!("Provider '{}' not found", name),
+                t(Msg::DaemonProvProviderNotFound { name: &name }).into_owned(),
             )
             .into_response()
         }
@@ -1217,8 +1287,11 @@ pub(crate) async fn patch_thinking(
 ) -> impl IntoResponse {
     if let Some(budget) = req.budget {
         if budget < 1024 {
-            return json_error(StatusCode::BAD_REQUEST, "thinking_budget must be >= 1024")
-                .into_response();
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                t(Msg::DaemonProvThinkingBudgetMin).into_owned(),
+            )
+            .into_response();
         }
     }
     let mut missing = false;
@@ -1226,7 +1299,7 @@ pub(crate) async fn patch_thinking(
     let config = match update_config(|config| {
         if selection_is_managed(config, &name) {
             managed = true;
-            anyhow::bail!("managed CodingPlan provider");
+            anyhow::bail!("{}", t(Msg::DaemonProvManagedProvider));
         }
         // Keep writes schema-aware for user-managed model profiles. Managed
         // Managed-namespace selections are rejected above; in distribution builds
@@ -1255,7 +1328,12 @@ pub(crate) async fn patch_thinking(
         });
         if !found {
             missing = true;
-            anyhow::bail!("provider {name:?} not found");
+            anyhow::bail!(
+                "{}",
+                t(Msg::DaemonProvProviderNotFound {
+                    name: &format!("{name:?}"),
+                })
+            );
         }
         Ok(())
     }) {
@@ -1270,7 +1348,7 @@ pub(crate) async fn patch_thinking(
         Err(_) if missing => {
             return json_error(
                 StatusCode::NOT_FOUND,
-                format!("Provider '{}' not found", name),
+                t(Msg::DaemonProvProviderNotFound { name: &name }).into_owned(),
             )
             .into_response()
         }
@@ -1281,7 +1359,7 @@ pub(crate) async fn patch_thinking(
     let Some(p) = config.provider_config_for_selection(&name) else {
         return json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Provider '{}' vanished after update", name),
+            t(Msg::DaemonProvVanished { name: &name }).into_owned(),
         )
         .into_response();
     };

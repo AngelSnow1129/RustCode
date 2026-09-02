@@ -91,7 +91,7 @@
       "activitybar": [
         {
           "id": "rustcode",
-          "title": "RustCode",
+          "title": "%rustcode.viewsContainers.activitybar.title%",
           "icon": "resources/icon.svg"
         }
       ]
@@ -131,7 +131,7 @@
       ]
     },
     "configuration": {
-      "title": "RustCode",
+      "title": "%rustcode.configuration.title%",
       "properties": {
         "rustcode.daemon.port": {
           "type": "number",

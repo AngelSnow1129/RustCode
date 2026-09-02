@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Instant};
 
 use rustcode_auth as auth;
+use rustcode_config::i18n::{t, Msg};
 
 use crate::{
     client_mode::ClientMode,
@@ -180,8 +181,7 @@ pub(crate) fn managed_login_unavailable_response() -> axum::response::Response {
     coded_json_error(
         StatusCode::NOT_IMPLEMENTED,
         "managed_login_unavailable",
-        "This build has no managed sign-in service. Configure a third-party \
-         provider with your own API key in provider settings instead.",
+        t(Msg::DaemonApiManagedUnavailable).into_owned(),
         false,
     )
     .into_response()
@@ -198,7 +198,7 @@ pub(crate) async fn auth_login_start(
         return coded_json_error(
             StatusCode::TOO_MANY_REQUESTS,
             "login_session_limit",
-            "Too many login sessions are active; cancel or wait for an existing login",
+            t(Msg::DaemonApiLoginSessionLimit).into_owned(),
             true,
         )
         .into_response();
@@ -232,7 +232,7 @@ pub(crate) async fn auth_login_start(
             return coded_json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "login_start_failed",
-                "Failed to start login",
+                t(Msg::DaemonApiLoginStartFailed).into_owned(),
                 true,
             )
             .into_response();
@@ -242,7 +242,7 @@ pub(crate) async fn auth_login_start(
             return coded_json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "login_task_failed",
-                "Login task failed",
+                t(Msg::DaemonApiLoginTaskFailed).into_owned(),
                 true,
             )
             .into_response();
@@ -311,7 +311,7 @@ pub(crate) async fn auth_login_cancel(
         return coded_json_error(
             StatusCode::BAD_REQUEST,
             "invalid_login_id",
-            "Invalid login session ID",
+            t(Msg::DaemonApiInvalidLoginId).into_owned(),
             false,
         )
         .into_response();
@@ -353,7 +353,10 @@ pub(crate) async fn auth_logout(
         }
         Err(e) => json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Logout failed: {:#}", e),
+            t(Msg::DaemonApiLogoutFailed {
+                error: &format!("{e:#}"),
+            })
+            .into_owned(),
         )
         .into_response(),
     }
@@ -367,7 +370,7 @@ pub(crate) async fn poll_login_session(
         return Err(LoginPollError {
             status: StatusCode::BAD_REQUEST,
             code: "invalid_login_id",
-            message: "Invalid login session ID".to_string(),
+            message: t(Msg::DaemonApiInvalidLoginId).into_owned(),
             retryable: false,
         });
     }
@@ -382,7 +385,7 @@ pub(crate) async fn poll_login_session(
         .ok_or_else(|| LoginPollError {
             status: StatusCode::GONE,
             code: "login_session_gone",
-            message: "Login session no longer exists; start a new login".to_string(),
+            message: t(Msg::DaemonApiLoginSessionGone).into_owned(),
             retryable: false,
         })?;
 
@@ -404,7 +407,7 @@ pub(crate) async fn poll_login_session(
                     PollCompletion::Retryable {
                         session,
                         code: "login_poll_unavailable".to_string(),
-                        message: "Login service is temporarily unavailable".to_string(),
+                        message: t(Msg::DaemonApiLoginPollUnavailable).into_owned(),
                     }
                 }
                 Ok(auth::PollOutcome::Authorized) => match session.finish() {
@@ -412,7 +415,7 @@ pub(crate) async fn poll_login_session(
                         tracing::warn!(error = ?error, "OAuth token exchange failed");
                         PollCompletion::Failed {
                             code: "login_exchange_failed".to_string(),
-                            message: "Login authorization exchange failed".to_string(),
+                            message: t(Msg::DaemonApiLoginExchangeFailed).into_owned(),
                         }
                     }
                     Ok(auth_info) => PollCompletion::AuthorizationReady(auth_info),
@@ -423,7 +426,7 @@ pub(crate) async fn poll_login_session(
                 tracing::error!(error = ?error, "OAuth poll task failed");
                 PollCompletion::Failed {
                     code: "login_task_failed".to_string(),
-                    message: "Login task failed".to_string(),
+                    message: t(Msg::DaemonApiLoginTaskFailed).into_owned(),
                 }
             });
 
@@ -437,7 +440,7 @@ pub(crate) async fn poll_login_session(
                     PollCompletion::PersistFailed {
                         auth,
                         code: "auth_persist_failed".to_string(),
-                        message: "Failed to save login credentials".to_string(),
+                        message: t(Msg::DaemonApiAuthPersistFailed).into_owned(),
                     }
                 }
             })
@@ -446,7 +449,7 @@ pub(crate) async fn poll_login_session(
                 tracing::error!(error = ?error, "OAuth credential persistence task failed");
                 PollCompletion::Failed {
                     code: "login_task_failed".to_string(),
-                    message: "Login task failed".to_string(),
+                    message: t(Msg::DaemonApiLoginTaskFailed).into_owned(),
                 }
             });
 
@@ -639,6 +642,10 @@ mod tests {
 
     #[tokio::test]
     async fn neutral_build_login_start_returns_actionable_501() {
+        // This test asserts the English BYO-guidance prose; pin the
+        // locale because the product default is Simplified Chinese.
+        let _locale = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         // Old client builds that still show a sign-in button get a
         // deterministic, non-retryable code instead of a generic 500, so
         // they can surface bring-your-own-key guidance.

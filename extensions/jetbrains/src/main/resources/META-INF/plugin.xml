@@ -3,6 +3,9 @@
   <name>RustCode</name>
   <vendor email="rustcode@rustcode.dev">RustCode</vendor>
 
+  <!-- Localized action text/description (%action.* keys in messages.RustCodeBundle) -->
+  <resource-bundle>messages.RustCodeBundle</resource-bundle>
+
   <description><![CDATA[
     RustCode brings a local AI coding agent into JetBrains IDEs.
 
@@ -71,32 +74,32 @@
     <action
       id="rustcode.openChat"
       class="com.rustcode.jetbrains.actions.OpenChatAction"
-      text="RustCode: Open Chat"
-      description="Open the RustCode chat tool window">
+      text="%action.openChat.text"
+      description="%action.openChat.desc">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
       id="rustcode.openWelcome"
       class="com.rustcode.jetbrains.actions.OpenWelcomeAction"
-      text="RustCode: Welcome"
-      description="Open the RustCode welcome and quick start page">
+      text="%action.openWelcome.text"
+      description="%action.openWelcome.desc">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
       id="rustcode.openChatInNewTab"
       class="com.rustcode.jetbrains.actions.OpenChatInNewTabAction"
-      text="RustCode: Open Chat in New Tab"
-      description="Open an independent RustCode chat tab in the tool window">
+      text="%action.openChatInNewTab.text"
+      description="%action.openChatInNewTab.desc">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
       id="rustcode.focusInput"
       class="com.rustcode.jetbrains.actions.FocusInputAction"
-      text="RustCode: Focus Input"
-      description="Open RustCode and focus the chat input">
+      text="%action.focusInput.text"
+      description="%action.focusInput.desc">
       <add-to-group group-id="ToolsMenu" anchor="last" />
       <keyboard-shortcut keymap="$default" first-keystroke="control alt shift I" />
     </action>
@@ -104,8 +107,8 @@
     <action
       id="rustcode.newConversation"
       class="com.rustcode.jetbrains.actions.NewConversationAction"
-      text="RustCode: New Conversation"
-      description="Start a new RustCode conversation">
+      text="%action.newConversation.text"
+      description="%action.newConversation.desc">
       <add-to-group group-id="ToolsMenu" anchor="last" />
       <keyboard-shortcut keymap="$default" first-keystroke="control alt shift N" />
     </action>
@@ -113,32 +116,32 @@
     <action
       id="rustcode.stopGeneration"
       class="com.rustcode.jetbrains.actions.StopGenerationAction"
-      text="RustCode: Stop Generation"
-      description="Stop the current RustCode generation">
+      text="%action.stopGeneration.text"
+      description="%action.stopGeneration.desc">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
       id="rustcode.openChanges"
       class="com.rustcode.jetbrains.actions.OpenChangesAction"
-      text="RustCode: Open Changes"
-      description="Open project changes used by RustCode">
+      text="%action.openChanges.text"
+      description="%action.openChanges.desc">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
       id="rustcode.openSettings"
       class="com.rustcode.jetbrains.actions.OpenSettingsAction"
-      text="RustCode: Open Settings"
-      description="Open RustCode plugin settings">
+      text="%action.openSettings.text"
+      description="%action.openSettings.desc">
       <add-to-group group-id="ToolsMenu" anchor="last" />
     </action>
 
     <action
       id="rustcode.explainSelection"
       class="com.rustcode.jetbrains.actions.ExplainSelectionAction"
-      text="RustCode: Explain Selection"
-      description="Explain the selected code with RustCode">
+      text="%action.explainSelection.text"
+      description="%action.explainSelection.desc">
       <add-to-group group-id="EditorPopupMenu" anchor="last" />
       <keyboard-shortcut keymap="$default" first-keystroke="control alt shift E" />
     </action>
@@ -146,24 +149,24 @@
     <action
       id="rustcode.fixSelection"
       class="com.rustcode.jetbrains.actions.FixSelectionAction"
-      text="RustCode: Fix Selection"
-      description="Fix the selected code with RustCode">
+      text="%action.fixSelection.text"
+      description="%action.fixSelection.desc">
       <add-to-group group-id="EditorPopupMenu" anchor="last" />
     </action>
 
     <action
       id="rustcode.optimizeSelection"
       class="com.rustcode.jetbrains.actions.OptimizeSelectionAction"
-      text="RustCode: Optimize Selection"
-      description="Optimize the selected code with RustCode">
+      text="%action.optimizeSelection.text"
+      description="%action.optimizeSelection.desc">
       <add-to-group group-id="EditorPopupMenu" anchor="last" />
     </action>
 
     <action
       id="rustcode.addContext"
       class="com.rustcode.jetbrains.actions.AddContextAction"
-      text="RustCode: Add Selection/File as Context"
-      description="Attach the current selection or file to the next RustCode message">
+      text="%action.addContext.text"
+      description="%action.addContext.desc">
       <add-to-group group-id="EditorPopupMenu" anchor="last" />
     </action>
   </actions>

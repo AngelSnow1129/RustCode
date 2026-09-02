@@ -310,13 +310,114 @@ impl GoalState {
 pub fn goal_cap_stop_note(why: &str, max_rounds: Option<u32>) -> String {
     // No leading subject word: this composes under a "Goal stopped: " progress
     // prefix and also reads standalone when the call site adds its own "goal ".
+    use rustcode_config::i18n::{t, Msg};
     match why {
         "round limit" => match max_rounds {
-            Some(max) => format!("已达轮数预算（{max} 轮）. 继续对话即推进"),
-            None => "已达轮数预算 . 继续对话即推进".to_string(),
+            Some(max) => t(Msg::GoalCapRound { max }).into_owned(),
+            None => t(Msg::GoalCapRoundNoMax).into_owned(),
         },
-        "time limit" => "已达时间上限 . 继续对话即推进".to_string(),
-        other => format!("已停止（{other}）. 继续对话即推进"),
+        "time limit" => t(Msg::GoalCapTime).into_owned(),
+        other => t(Msg::GoalCapStopped { other }).into_owned(),
+    }
+}
+
+/// Localized short label for a kernel [`rustcode_kernel::event::RetryReason`].
+/// The kernel (L0, no internal deps) stays locale-neutral and emits a structured
+/// retry reason; every driver resolves the user-facing label here in coding,
+/// which depends on the i18n catalog.
+pub fn retry_reason_label(
+    reason: rustcode_kernel::event::RetryReason,
+) -> std::borrow::Cow<'static, str> {
+    use rustcode_config::i18n::{t, Msg};
+    match reason {
+        rustcode_kernel::event::RetryReason::RateLimited => t(Msg::RetryReasonRateLimited),
+        rustcode_kernel::event::RetryReason::UpstreamUnavailable => t(Msg::RetryReasonUpstream),
+        rustcode_kernel::event::RetryReason::Timeout => t(Msg::RetryReasonTimeout),
+        rustcode_kernel::event::RetryReason::Network => t(Msg::RetryReasonNetwork),
+    }
+}
+
+/// Localize a kernel [`rustcode_kernel::event::AgentNotice`] to active-locale prose.
+/// The kernel (L0, no internal deps) emits a locale-neutral structured notice;
+/// coding (L2, which depends on the i18n catalog) renders it here for the
+/// interactive surface. Machine-facing raw-event consumers (lifecycle hooks,
+/// sub-agent tool results in `capabilities`) instead use the kernel's
+/// `AgentNotice::english_diagnostic()`/`machine_token()`.
+pub fn localize_agent_notice(
+    notice: &rustcode_kernel::event::AgentNotice,
+) -> std::borrow::Cow<'static, str> {
+    use rustcode_config::i18n::{t, Msg};
+    use rustcode_kernel::event::AgentNotice::*;
+    match *notice {
+        MalformedCompletionRetrying {
+            wait_secs,
+            attempt,
+            max_attempts,
+        } => t(Msg::KernelNoticeEmptyRetryMalformed {
+            wait_secs,
+            attempt,
+            max: max_attempts,
+        }),
+        EmptyCompletionRetrying {
+            wait_secs,
+            attempt,
+            max_attempts,
+        } => t(Msg::KernelNoticeEmptyRetryEmpty {
+            wait_secs,
+            attempt,
+            max: max_attempts,
+        }),
+        ReplyTruncated => t(Msg::KernelNoticeReplyTruncated),
+        OverWindowAdvisory { est_k, window_k } => {
+            t(Msg::KernelNoticeOverWindow { est_k, window_k })
+        }
+        EmptyExhaustedMalformed { max_retries } => {
+            t(Msg::KernelNoticeEmptyExhMalformed { max_retries })
+        }
+        EmptyExhaustedOverWindowBrief { max_retries } => {
+            t(Msg::KernelNoticeEmptyExhOverWindowBrief { max_retries })
+        }
+        EmptyExhaustedOverWindowFull {
+            max_retries,
+            est_k,
+            window_k,
+        } => t(Msg::KernelNoticeEmptyExhOverWindowFull {
+            max_retries,
+            est_k,
+            window_k,
+        }),
+        EmptyExhaustedTransient { max_retries } => {
+            t(Msg::KernelNoticeEmptyExhTransient { max_retries })
+        }
+    }
+}
+
+/// Map a kernel [`rustcode_kernel::event::AgentEvent`] into its edge-localized
+/// form: an `AgentNotice` becomes a localized `Warning` (transient advisory) or
+/// `Error` (terminal, carrying the stable machine token in `code`); every other
+/// event passes through unchanged. Applied once at the owner-loop chokepoint
+/// (after compaction handling) so ALL drivers -- TUI, headless, daemon, ACP/clix
+/// via `CodingRuntimeEvent` -- receive prose already localized to the active
+/// locale, while machine consumers still get the structured token via `code`.
+pub fn localize_kernel_event(
+    event: rustcode_kernel::event::AgentEvent,
+) -> rustcode_kernel::event::AgentEvent {
+    use rustcode_kernel::event::AgentEvent;
+    match event {
+        AgentEvent::AgentNotice(notice) => {
+            let message = localize_agent_notice(&notice).into_owned();
+            if notice.is_error() {
+                AgentEvent::Error {
+                    message,
+                    http_status: None,
+                    code: Some(notice.machine_token().to_string()),
+                    retryable: None,
+                }
+            } else {
+                AgentEvent::Warning(message)
+            }
+        }
+        other => other,
     }
 }
 
@@ -900,11 +1001,78 @@ mod tests {
 
     #[test]
     fn cap_stop_note_handles_time_cap_and_unbounded_rounds() {
+        let _i18n_guard = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
         // The optional time cap (env-enabled) and a round cap with no configured
         // max still produce a continue-able, non-failure note.
         assert!(goal_cap_stop_note("time limit", None).contains("继续对话"));
         assert!(!goal_cap_stop_note("time limit", None).contains("not met"));
         assert!(goal_cap_stop_note("round limit", None).contains("继续对话"));
+    }
+
+    #[test]
+    fn kernel_notices_localize_and_route_by_error_class() {
+        use rustcode_kernel::event::{AgentEvent, AgentNotice};
+        // Edge localization: the L0 kernel emits a locale-neutral `AgentNotice`;
+        // coding (L2, which owns the catalog) renders it to the active locale and
+        // routes error-class notices to `Error` (carrying the stable machine token)
+        // and advisory notices to `Warning`.
+        {
+            let _g = rustcode_config::i18n::test_lock();
+            rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
+            match super::localize_kernel_event(AgentEvent::AgentNotice(AgentNotice::ReplyTruncated))
+            {
+                AgentEvent::Warning(w) => {
+                    assert!(
+                        w.contains("长度上限") && w.contains("继续"),
+                        "zh warning: {w}"
+                    );
+                }
+                other => panic!("truncation advisory must become a Warning; got {other:?}"),
+            }
+            match super::localize_kernel_event(AgentEvent::AgentNotice(
+                AgentNotice::EmptyExhaustedTransient { max_retries: 5 },
+            )) {
+                AgentEvent::Error { message, code, .. } => {
+                    assert!(
+                        message.contains("空响应") && message.contains('5'),
+                        "zh error: {message}"
+                    );
+                    assert_eq!(code.as_deref(), Some("empty_exhausted_transient"));
+                }
+                other => {
+                    panic!("exhaustion must become an Error with a machine code; got {other:?}")
+                }
+            }
+        }
+        {
+            let _g = rustcode_config::i18n::test_lock();
+            rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
+            match super::localize_kernel_event(AgentEvent::AgentNotice(AgentNotice::ReplyTruncated))
+            {
+                AgentEvent::Warning(w) => {
+                    assert!(
+                        w.to_lowercase().contains("length limit") && w.contains("continue"),
+                        "en warning: {w}"
+                    );
+                }
+                other => panic!("expected Warning; got {other:?}"),
+            }
+        }
+        // Idempotent + passthrough: applying the map on BOTH event channels must
+        // not double-transform -- a non-notice event and an already-localized
+        // Warning come back unchanged.
+        let _g = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
+        let already = AgentEvent::Warning("已本地化".into());
+        assert!(matches!(
+            super::localize_kernel_event(already.clone()),
+            AgentEvent::Warning(ref w) if w == "已本地化"
+        ));
+        assert!(matches!(
+            super::localize_kernel_event(AgentEvent::TurnStarted),
+            AgentEvent::TurnStarted
+        ));
     }
 
     #[test]

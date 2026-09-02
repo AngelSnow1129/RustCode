@@ -74,7 +74,7 @@ export class DaemonProcess {
           `[RustCode] Refusing to start daemon because an incompatible daemon ${health.version} is still running`
         );
         vscode.window.showWarningMessage(
-          'RustCode daemon build mismatch. RustCode could not stop the old daemon. Please stop the old RustCode daemon or reload VS Code.'
+          vscode.l10n.t('RustCode daemon build mismatch. RustCode could not stop the old daemon. Please stop the old RustCode daemon or reload VS Code.')
         );
         return false;
       }
@@ -225,7 +225,7 @@ export class DaemonProcess {
     const binary = this.findBinary(port);
     if (!binary) {
       vscode.window.showErrorMessage(
-        'RustCode daemon not found for this platform. Reinstall the RustCode extension, install rustcode, or set rustcode.daemon.binaryPath in settings.'
+        vscode.l10n.t('RustCode daemon not found for this platform. Reinstall the RustCode extension, install rustcode, or set rustcode.daemon.binaryPath in settings.')
       );
       return false;
     }
@@ -252,7 +252,7 @@ export class DaemonProcess {
     }
 
     vscode.window.showWarningMessage(
-      `RustCode daemon started but not responding. Check if port ${port} is available.`
+      vscode.l10n.t('RustCode daemon started but not responding. Check if port {port} is available.', { port })
     );
     return false;
   }
@@ -434,7 +434,7 @@ export class DaemonProcess {
       if (fs.existsSync(p)) {
         console.warn(`[RustCode] Using dev build daemon: ${p}. The bundled daemon was not found — the extension package may be missing resources/bin/<platform>/rustcode-daemon.`);
         vscode.window.showWarningMessage(
-          `RustCode is using a development build of the daemon (${p}). The bundled daemon was not found. Reinstall the extension or set rustcode.daemon.binaryPath in settings.`
+          vscode.l10n.t('RustCode is using a development build of the daemon ({path}). The bundled daemon was not found. Reinstall the extension or set rustcode.daemon.binaryPath in settings.', { path: p })
         );
         return { path: p, args: portArgs };
       }

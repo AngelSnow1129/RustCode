@@ -278,11 +278,17 @@ impl UsageModal {
             // (indented past the weekday-label column). A label is skipped if it
             // can't fit before the next month, so a sliver month at the edge
             // doesn't show a cramped/clipped name.
-            let month_names = [
-                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-            ];
+            // Localized month labels ("Jan".."Dec" / "1月".."12月"). The
+            // fit check and char placement below use DISPLAY width (CJK labels
+            // render two columns per char), not char count.
+            let month_names: Vec<String> = (1..=12u8)
+                .map(|m| t(Msg::UsageMonthShort { month: m }).into_owned())
+                .collect();
+            // Localized weekday labels ("Sun".."Sat" / "周日".."周六").
+            let weekdays: Vec<String> = (0..=6u8)
+                .map(|wd| t(Msg::UsageWeekdayShort { weekday: wd }).into_owned())
+                .collect();
             const CELL_W: usize = 4; // display width per week-column cell (bigger grid)
-            const WD_LABEL_W: usize = 4; // "Sun " weekday-label column width
             let header_len = (max_week + 1) * CELL_W;
             let mut header_buf: Vec<char> = vec![' '; header_len];
             let mut month_starts: Vec<(usize, &str)> = cells
@@ -290,7 +296,7 @@ impl UsageModal {
                 .filter(|c| c.month_start)
                 .map(|c| {
                     let idx = (c.month as usize).saturating_sub(1).min(11);
-                    (c.week_col, month_names[idx])
+                    (c.week_col, month_names[idx].as_str())
                 })
                 .collect();
             month_starts.sort_by_key(|&(col, _)| col);
@@ -304,21 +310,30 @@ impl UsageModal {
                 };
                 // Skip the label if its full name can't fit -- avoids a truncated
                 // month name at a narrow edge column.
-                if end.saturating_sub(start) < label.chars().count() {
+                if end.saturating_sub(start) < crate::width::display_width(label) {
                     continue;
                 }
-                for (j, ch) in label.chars().enumerate() {
-                    if start + j < header_buf.len() {
-                        header_buf[start + j] = ch;
+                // Place by display column: a CJK char advances two buffer
+                // slots (it renders two columns), leaving the second slot blank.
+                let mut p = start;
+                for ch in label.chars() {
+                    if p < header_buf.len() {
+                        header_buf[p] = ch;
                     }
+                    let mut buf = [0u8; 4];
+                    p += crate::width::display_width(ch.encode_utf8(&mut buf));
                 }
             }
             let month_header_str: String = header_buf.into_iter().collect();
+            // Weekday-label column width = label display width + the trailing
+            // separator space; the month header must indent past it (plus the
+            // same leading "  " the weekday rows get when they are pushed).
+            let wd_col_w = crate::width::display_width(&weekdays[0]) + 1;
             lines.push(format!(
-                "{m}  {:pad$}{}\x1b[39m",
+                "{m}{:indent$}{}\x1b[39m",
                 "",
                 month_header_str.trim_end(),
-                pad = WD_LABEL_W
+                indent = 2 + wd_col_w
             ));
 
             // Claude-Code-style calendar. Index 0 = a day in-range with zero
@@ -356,7 +371,6 @@ impl UsageModal {
             for c in &cells {
                 grid.insert((c.weekday, c.week_col), c.level);
             }
-            let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
             for wd in 0u8..7 {
                 let mut row = format!("{m}{}\x1b[39m ", weekdays[wd as usize]);
                 for col in 0..=max_week {
@@ -422,11 +436,17 @@ impl UsageModal {
         }
         pairs.push((
             t(Msg::UsageStatLongestStreak).into_owned(),
-            format!("{} days", overview.longest_streak),
+            t(Msg::UsageDays {
+                n: overview.longest_streak,
+            })
+            .into_owned(),
         ));
         pairs.push((
             t(Msg::UsageStatCurrentStreak).into_owned(),
-            format!("{} days", overview.current_streak),
+            t(Msg::UsageDays {
+                n: overview.current_streak,
+            })
+            .into_owned(),
         ));
         lines.extend(align_stat_lines(&pairs, m));
 
@@ -550,7 +570,10 @@ impl UsageModal {
                 .collect();
 
             // Chart title
-            rows.push(("  \x1b[1mTokens per Day\x1b[22m".to_string(), String::new()));
+            rows.push((
+                format!("  \x1b[1m{}\x1b[22m", t(Msg::UsageTokensPerDay)),
+                String::new(),
+            ));
 
             // Render rows: merge grids, colour by first model with a dot
             for ri in 0..chart_h {
@@ -644,10 +667,32 @@ impl UsageModal {
 
             // Per-model table -- the coloured * also serves as the chart legend.
             // Columns: * Model | Tokens | Requests | Share (aligned).
+            // Pad by DISPLAY width: CJK labels render two columns per char,
+            // and Rust's `{:<n}` pads by char count, which would shift every
+            // numeric column. Column widths 26/10/9/7 match the data rows.
+            let pad_left = |s: &str, w: usize| {
+                format!(
+                    "{s}{}",
+                    " ".repeat(w.saturating_sub(crate::width::display_width(s)))
+                )
+            };
+            let pad_right = |s: &str, w: usize| {
+                format!(
+                    "{}{s}",
+                    " ".repeat(w.saturating_sub(crate::width::display_width(s)))
+                )
+            };
+            let model_hdr = t(Msg::UsageTableModel);
+            let tokens_hdr = t(Msg::UsageTableTokens);
+            let requests_hdr = t(Msg::UsageStatRequests);
+            let share_hdr = t(Msg::UsageTableShare);
             rows.push((
                 format!(
-                    "  {m}  {:<26}{:>10}{:>9}{:>7}\x1b[39m",
-                    "Model", "Tokens", "Requests", "Share"
+                    "  {m}  {}{}{}{}\x1b[39m",
+                    pad_left(&model_hdr, 26),
+                    pad_right(&tokens_hdr, 10),
+                    pad_right(&requests_hdr, 9),
+                    pad_right(&share_hdr, 7)
                 ),
                 String::new(),
             ));
@@ -688,10 +733,15 @@ impl UsageModal {
                     format!("    \x1b[38;5;{color}m{spark}\x1b[39m"),
                     String::new(),
                 ));
+                let tokens_str = humanize_tokens(*tok);
                 rows.push((
                     format!(
-                        "    {m}{pct}%  .  {req} reqs  .  {}\x1b[39m",
-                        humanize_tokens(*tok)
+                        "    {m}{}\x1b[39m",
+                        t(Msg::UsageSparkMeta {
+                            pct,
+                            reqs: *req,
+                            tokens: &tokens_str,
+                        })
                     ),
                     String::new(),
                 ));
@@ -1107,6 +1157,11 @@ mod tests {
 
     #[test]
     fn streaming_snapshot_keeps_all_three_tab_labels() {
+        // Assertions compare against localized `t(...)` output; pin the
+        // locale so parallel wizard tests can't flip the global locale
+        // mid-render.
+        let _g = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Default tab is Current; sample_modal has no window -> "unavailable".
         let text = sample_modal().active_snapshot_text(true, true);
 
@@ -1121,6 +1176,8 @@ mod tests {
 
     #[test]
     fn active_snapshot_text_always_keeps_all_three_tab_labels() {
+        let _g = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // The tab bar must render on every tab so the footer snapshot preserves
         // the modal's information hierarchy while streaming.
         for tab in [Tab::Current, Tab::Overview, Tab::Models] {
@@ -1174,6 +1231,8 @@ mod tests {
 
     #[test]
     fn current_tab_window_unavailable_when_no_window() {
+        let _g = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let m = sample_modal();
         let rows = m.current_rows();
         let all: String = rows
@@ -1182,7 +1241,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            all.contains("unavailable") || all.contains("Unavailable") || all.contains("不可用"),
+            all.contains(t(Msg::UsageWindowUnavailable).as_ref()),
             "expected unavailable message on Current tab with no window; got:\n{all}"
         );
     }
@@ -1205,6 +1264,8 @@ mod tests {
 
     #[test]
     fn models_rows_unified_chart_contains_breakdown_percent() {
+        let _g = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let m = sample_modal();
         let rows = m.models_rows(true, true);
         let all: String = rows
@@ -1214,20 +1275,23 @@ mod tests {
             .join("\n");
         // GLM-5.2 has 717016/717116 ≈ 100% of tokens
         assert!(all.contains('%'), "expected percent breakdown; got:\n{all}");
-        // The per-model TABLE has a "Requests" column header.
+        // The per-model TABLE has a "Requests" column header (locale-independent:
+        // assert against the localized string, not the English literal).
         assert!(
-            all.contains("Requests"),
+            all.contains(t(Msg::UsageStatRequests).as_ref()),
             "expected 'Requests' table column; got:\n{all}"
         );
         // Title should appear
         assert!(
-            all.contains("Tokens per Day"),
+            all.contains(t(Msg::UsageTokensPerDay).as_ref()),
             "expected chart title; got:\n{all}"
         );
     }
 
     #[test]
     fn models_rows_fallback_contains_breakdown() {
+        let _g = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let m = sample_modal();
         let rows = m.models_rows(false, false);
         let all: String = rows
@@ -1243,14 +1307,25 @@ mod tests {
             all.contains('%'),
             "expected percent in fallback breakdown; got:\n{all}"
         );
+        // The fallback meta line is localized; assert against the rendered
+        // message (GLM-5.2 is 717016 tokens -> 100%, 21 requests, 717.0k).
         assert!(
-            all.contains("reqs"),
-            "expected 'reqs' in fallback breakdown; got:\n{all}"
+            all.contains(
+                t(Msg::UsageSparkMeta {
+                    pct: 100,
+                    reqs: 21,
+                    tokens: "717.0k"
+                })
+                .as_ref()
+            ),
+            "expected localized reqs breakdown line; got:\n{all}"
         );
     }
 
     #[test]
     fn current_rows_shows_plan_info_when_present() {
+        let _g = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use rustcode_codingplan::types::PlanInfo;
         let plan = PlanInfo {
             plan_name: "CodingPlan Pro".into(),

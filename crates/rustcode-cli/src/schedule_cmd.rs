@@ -108,7 +108,12 @@ fn parse_schedule(
     if let Some(value) = daily {
         // Validate HH:MM format minimally.
         if !value.contains(':') {
-            anyhow::bail!("{}", t(Msg::CliSchedDailyBad { value: &format!("{value:?}") }));
+            anyhow::bail!(
+                "{}",
+                t(Msg::CliSchedDailyBad {
+                    value: &format!("{value:?}")
+                })
+            );
         }
         return Ok(Schedule::Daily {
             time: value.to_string(),

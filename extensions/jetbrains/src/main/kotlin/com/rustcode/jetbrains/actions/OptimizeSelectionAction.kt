@@ -1,5 +1,7 @@
 package com.rustcode.jetbrains.actions
 
+import com.rustcode.jetbrains.i18n.RustCodeBundle
+
 class OptimizeSelectionAction : EditorSelectionCommandAction(
-    "请优化这段代码，提升性能和可读性。",
+    RustCodeBundle.message("intention.optimize.prompt"),
 )

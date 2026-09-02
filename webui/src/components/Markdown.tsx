@@ -1,6 +1,10 @@
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { useMemo } from 'preact/hooks';
+// The code-block renderer below builds HTML strings at marked-parse time,
+// outside the React tree, so it uses the framework-free translate() rather
+// than a hook. It reads the same persisted language preference as the app.
+import { translate } from '../i18n.ts';
 
 marked.setOptions({ gfm: true, breaks: false });
 
@@ -21,7 +25,7 @@ renderer.code = function (code: string, infostring?: string) {
   return (
     `<div class="code-block-wrapper">` +
     `<pre><code class="${lang ? `language-${lang}` : ''}">${esc}</code></pre>` +
-    `<button class="copy-button" type="button" data-copy="${encodeURIComponent(text)}">Copy</button>` +
+    `<button class="copy-button" type="button" data-copy="${encodeURIComponent(text)}">${translate('copy.copy')}</button>` +
     `</div>`
   );
 };
@@ -85,7 +89,7 @@ export function Markdown({ content, search }: { content: string; search?: string
     if (t?.dataset.copy) {
       navigator.clipboard?.writeText(decodeURIComponent(t.dataset.copy)).catch(() => {});
       const prev = t.textContent;
-      t.textContent = 'Copied';
+      t.textContent = translate('copy.copied');
       setTimeout(() => {
         t.textContent = prev;
       }, 1200);

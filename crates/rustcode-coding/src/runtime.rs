@@ -2084,6 +2084,12 @@ impl CodingRuntime {
                     },
                     event = kernel_events.recv(), if kernel_open => match event {
                         Some(event) => {
+                            // Edge-localize kernel notices on the raw (non-native-protocol)
+                            // channel too, so a `CodingRuntimeEvent::Agent` is localized no
+                            // matter which path produced it. Idempotent: the native owner
+                            // loop already localized its events, and `AgentNotice` is the
+                            // only variant this transforms (Warning/Error pass through).
+                            let event = crate::controllers::localize_kernel_event(event);
                             let envelope = SequencedRuntimeEvent {
                                 generation: task_handle.status().generation,
                                 sequence,
@@ -5719,7 +5725,12 @@ fn spawn_runtime_owner_with_optional_agent(
                             &mut compactions,
                             &mut observed_tokens,
                             &runtime_event_tx,
-                        );
+                        )
+                        // Edge-localize kernel notices (L0 kernel emits a locale-neutral
+                        // `AgentNotice`; render it to active-locale Warning/Error here so
+                        // every driver receives localized prose and machine consumers still
+                        // see the stable token via `code`).
+                        .map(crate::controllers::localize_kernel_event);
                         if let Some(error) = uncertain_compaction {
                             persistence_failure = Some(error.clone());
                             let message = format!(

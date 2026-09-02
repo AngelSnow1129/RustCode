@@ -1,5 +1,7 @@
 package com.rustcode.jetbrains.ui.message
 
+import com.rustcode.jetbrains.i18n.RustCodeBundle
+
 import com.google.gson.Gson
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
@@ -126,7 +128,7 @@ class JBCefMessageView(
             LOG.warn("RustCode message rendering failed to initialize JCEF", cause)
         }
         removeAll()
-        add(JLabel("RustCode message rendering is unavailable in this IDE runtime.").apply {
+        add(JLabel(RustCodeBundle.message("webview.unavailable")).apply {
             foreground = JBColor.GRAY
             border = BorderFactory.createEmptyBorder(16, 16, 16, 16)
         }, BorderLayout.NORTH)
@@ -388,6 +390,21 @@ class JBCefMessageView(
         val sfg = if (dark) "#888" else "#666"       // system
         val vfg = if (dark) "#8fbc72" else "#4f7f3a" // avatar
 
+        // Localized labels for the live-chat JS (thinking/reasoning/turn-summary/
+        // attachment fallbacks). Baked into the page as UTF-8 JSON; the welcome page
+        // has its own bilingual welcomeContent() map. Units `ms`/`tokens` stay English.
+        val uiLabels = gson.toJson(
+            mapOf(
+                "thinking" to RustCodeBundle.message("jcef.thinking"),
+                "reasoning" to RustCodeBundle.message("jcef.reasoning"),
+                "done" to RustCodeBundle.message("jcef.done"),
+                "rounds" to RustCodeBundle.message("jcef.rounds"),
+                "tools" to RustCodeBundle.message("jcef.tools"),
+                "image" to RustCodeBundle.message("jcef.image"),
+                "attachedFile" to RustCodeBundle.message("jcef.attachedFile"),
+            )
+        )
+
         return """
 <!DOCTYPE html><html><head><meta charset="UTF-8"><style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -517,6 +534,7 @@ class JBCefMessageView(
 <script>$purifyScript</script>
 <script>
 		var m=document.getElementById('m'),last=null,active=null,ti=-1,nb=true,cv=false,sr=0,useq=0,ss=null;
+		var UI=$uiLabels;
 	function scroller(){return document.scrollingElement||document.documentElement||document.body}
 	function updateNearBottom(){var e=scroller();nb=e.scrollHeight-e.scrollTop-e.clientHeight<120}
 	document.addEventListener('scroll',updateNearBottom,true);
@@ -846,7 +864,7 @@ function h(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 	function normalizeAttachment(x){return typeof x==='string'?{displayName:x}:x||{}}
 	function isImageAttachment(x){return x&&x.imageData&&String(x.imageMediaType||'').indexOf('image/')===0}
 	function imageSrc(x){return 'data:'+String(x.imageMediaType||'image/png')+';base64,'+String(x.imageData||'')}
-	function attachmentHtml(items){if(!items||!items.length)return '';var rows=items.map(function(raw){var x=normalizeAttachment(raw),label=x.displayName||x.path||'',p=fileParts(label);if(isImageAttachment(x)){var src=imageSrc(x);return '<button class="u-image" data-src="'+h(src)+'" data-name="'+h(p.name||label||'Image')+'" title="'+h(label)+'"><img src="'+h(src)+'" alt="'+h(p.name||label||'Image')+'"><span class="u-image-name">'+h(p.name||label||'Image')+'</span></button>'}return '<div class="u-file" title="'+h(label)+'"><span class="u-file-icon">'+h(fileType(p.name))+'</span><span class="u-file-copy"><div class="u-file-name">'+h(p.name||label)+'</div><div class="u-file-path">'+h(p.path||'Attached file')+'</div></span></div>'}).join('');return '<div class="u-files">'+rows+'</div>'}
+	function attachmentHtml(items){if(!items||!items.length)return '';var rows=items.map(function(raw){var x=normalizeAttachment(raw),label=x.displayName||x.path||'',p=fileParts(label);if(isImageAttachment(x)){var src=imageSrc(x);return '<button class="u-image" data-src="'+h(src)+'" data-name="'+h(p.name||label||UI.image)+'" title="'+h(label)+'"><img src="'+h(src)+'" alt="'+h(p.name||label||UI.image)+'"><span class="u-image-name">'+h(p.name||label||UI.image)+'</span></button>'}return '<div class="u-file" title="'+h(label)+'"><span class="u-file-icon">'+h(fileType(p.name))+'</span><span class="u-file-copy"><div class="u-file-name">'+h(p.name||label)+'</div><div class="u-file-path">'+h(p.path||UI.attachedFile)+'</div></span></div>'}).join('');return '<div class="u-files">'+rows+'</div>'}
 	function showImagePreview(src,name){var old=document.querySelector('.img-modal');if(old)old.remove();var o=document.createElement('div');o.className='img-modal';o.innerHTML='<button aria-label="Close"></button><figure><img src="'+h(src)+'" alt="'+h(name||'Image')+'"><figcaption>'+h(name||'Image')+'</figcaption></figure>';o.querySelector('button').onclick=function(){o.remove()};o.onclick=function(e){if(e.target===o)o.remove()};document.addEventListener('keydown',function esc(e){if(e.key==='Escape'){o.remove();document.removeEventListener('keydown',esc)}});document.body.appendChild(o)}
 	function bindImagePreviews(root){var imgs=root.querySelectorAll('.u-image');Array.prototype.forEach.call(imgs,function(btn){btn.onclick=function(){showImagePreview(btn.getAttribute('data-src')||'',btn.getAttribute('data-name')||'Image')}})}
 		function addUserMessage(t,a){clearHome();var d=document.createElement('div');d.className='um';d.innerHTML='<div class="u-card"><div class="u-text">'+h(t)+'</div>'+attachmentHtml(a)+'</div>';bindImagePreviews(d);m.appendChild(d);last=null;sd(true)}
@@ -876,13 +894,13 @@ function h(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 		function updateToolCall(n,s,d,a){var ps=parts();var tools=Array.prototype.slice.call(ps.querySelectorAll('.tm')).reverse();var e=tools.find(function(x){return x.getAttribute('data-name')===n})||tools[0];if(e){setTool(e,n,s,d,a);sd()}else addToolCall(n,s,d,a)}
 	function addError(t){clearHome();var d=document.createElement('div');d.className='em';d.innerHTML='[!] '+h(t);m.appendChild(d);last=null;sd()}
 function addQueuedMessage(t){clearHome();var d=document.createElement('div');d.className='qm';d.innerHTML='<span class="b">[>] '+h(t)+'</span>';m.appendChild(d);last=null;sd()}
-	function addThinkingIndicator(){var d=document.createElement('div');d.className='rm thp';d.innerHTML='[~] 思考中<span class="dots"></span>';parts().appendChild(d);sd()}
+	function addThinkingIndicator(){var d=document.createElement('div');d.className='rm thp';d.innerHTML='[~] '+h(UI.thinking)+'<span class="dots"></span>';parts().appendChild(d);sd()}
 	function replaceThinkingWithAssistant(t){var a=ensureAssistant();var th=a.querySelector('.thp');if(th)th.remove();addAssistantMessage(t||'')}
 		function removeThinkingIndicator(){var a=currentAssistant();if(a){var th=a.querySelector('.thp');if(th)th.remove()}}
 	function addSystemMessage(t){clearHome();var d=document.createElement('div');d.className='sm';d.textContent=t;m.appendChild(d);last=null;sd()}
 	function addAssistantEvent(t){var d=document.createElement('div');d.className='sm';d.textContent=t;parts().appendChild(d);sd()}
-	function addTurnSummary(label,rounds,tools,duration,tokens,failed){var d=document.createElement('div');d.className='turn-summary'+(failed?' failed':'');d.textContent=(failed?'[X] ':'✓ ')+String(label||'Done')+' · '+Number(rounds||0)+' rounds · '+Number(tools||0)+' tools · '+String(duration||'0ms')+' · '+Number(tokens||0)+' tokens';m.appendChild(d);last=null;active=null;sd(true)}
-	function reasoningPreview(t){var fl=String(t||'').split('\n')[0].substring(0,80);if(String(t||'').length>fl.length)fl+='...';return '[~] 思考 — '+h(fl)}
+	function addTurnSummary(label,rounds,tools,duration,tokens,failed){var d=document.createElement('div');d.className='turn-summary'+(failed?' failed':'');d.textContent=(failed?'[X] ':'✓ ')+String(label||UI.done)+' · '+Number(rounds||0)+' '+h(UI.rounds)+' · '+Number(tools||0)+' '+h(UI.tools)+' · '+String(duration||'0ms')+' · '+Number(tokens||0)+' tokens';m.appendChild(d);last=null;active=null;sd(true)}
+	function reasoningPreview(t){var fl=String(t||'').split('\n')[0].substring(0,80);if(String(t||'').length>fl.length)fl+='...';return '[~] '+h(UI.reasoning)+' — '+h(fl)}
 	function addReasoningBlock(t){var p=parts(),th=p.querySelector('.thp');if(th)th.remove();var d=document.createElement('div');d.className='rm reasoning-content';d.innerHTML=reasoningPreview(t);p.insertBefore(d,p.firstChild);sd()}
 	function updateReasoningBlock(t){var p=parts(),d=p.querySelector('.reasoning-content');if(!d){addReasoningBlock(t);return}d.innerHTML=reasoningPreview(t);sd()}
 	function removeReasoningBlock(){var a=currentAssistant();if(!a)return;var blocks=a.querySelectorAll('.reasoning-content');Array.prototype.forEach.call(blocks,function(x){x.remove()})}

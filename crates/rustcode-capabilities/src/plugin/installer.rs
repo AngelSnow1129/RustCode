@@ -10,11 +10,7 @@ pub struct AlreadyInstalledError {
 
 impl std::fmt::Display for AlreadyInstalledError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "plugin `{}` is already installed.\nPS: To reinstall, first run `/plugin uninstall {}` then `/plugin install {}`",
-            self.id, self.id, self.id
-        )
+        f.write_str(t(Msg::PluginAlreadyInstalledError { id: &self.id }).as_ref())
     }
 }
 
@@ -30,6 +26,7 @@ use super::state::{
     InstallScope, InstalledPluginEntry,
 };
 use super::url::validate_git_url;
+use rustcode_config::i18n::{t, Msg};
 
 #[derive(Debug, Clone)]
 pub struct InstalledPluginInfo {
@@ -77,10 +74,8 @@ fn install_external(plugin_key: &str, marketplace: &str, ext: &ExternalSource) -
             .map(|f| f.plugins.contains_key(&id))
             .unwrap_or(false);
         if is_registered {
-            bail!(
-                "plugin install dir already exists and is registered: {}",
-                target_abs.display()
-            );
+            let path = target_abs.display().to_string();
+            bail!("{}", t(Msg::PluginInstallDirRegistered { path: &path }));
         }
         // Stale leftover -- remove and continue.
         std::fs::remove_dir_all(&target_abs).with_context(|| {
@@ -138,7 +133,7 @@ fn git_subdir_clone(git: &Path, url: &str, path: &str, pin: &GitPin, target: &Pa
     validate_plugin_source(path)?;
     let sub = normalize_rel_subdir(path);
     if sub.is_empty() {
-        bail!("git-subdir source has empty path");
+        bail!("{}", t(Msg::PluginSubdirEmpty));
     }
     let clone_url = resolve_subdir_url(url)?;
 
@@ -192,10 +187,8 @@ fn git_subdir_clone(git: &Path, url: &str, path: &str, pin: &GitPin, target: &Pa
         .output()
         .context("spawn git sparse-checkout")?;
     if !sparse.status.success() {
-        bail!(
-            "git sparse-checkout failed: {}",
-            String::from_utf8_lossy(&sparse.stderr)
-        );
+        let stderr = String::from_utf8_lossy(&sparse.stderr);
+        bail!("{}", t(Msg::PluginSparseCheckoutFailed { stderr: &stderr }));
     }
     let checkout = Command::new(git)
         .args(["checkout"])
@@ -203,16 +196,20 @@ fn git_subdir_clone(git: &Path, url: &str, path: &str, pin: &GitPin, target: &Pa
         .output()
         .context("spawn git checkout (git-subdir)")?;
     if !checkout.status.success() {
-        bail!(
-            "git checkout failed: {}",
-            String::from_utf8_lossy(&checkout.stderr)
-        );
+        let stderr = String::from_utf8_lossy(&checkout.stderr);
+        bail!("{}", t(Msg::PluginCheckoutFailed { stderr: &stderr }));
     }
 
     // The subdir must actually exist in the repo, or this plugin is empty.
     let materialised = target.join(&sub);
     if !materialised.is_dir() {
-        bail!("git-subdir path `{}` not found in repo {}", sub, clone_url);
+        bail!(
+            "{}",
+            t(Msg::PluginSubdirNotFound {
+                sub: &sub,
+                url: &clone_url
+            })
+        );
     }
     Ok(())
 }
@@ -240,7 +237,7 @@ fn expand_github_repo(repo: &str) -> Result<String> {
     let trimmed = repo.trim().trim_end_matches(".git").trim_matches('/');
     let parts: Vec<&str> = trimmed.split('/').collect();
     if parts.len() != 2 || parts.iter().any(|s| s.is_empty()) {
-        bail!("github repo must be in `owner/name` form, got `{}`", repo);
+        bail!("{}", t(Msg::PluginGithubForm { repo }));
     }
     for seg in &parts {
         if !seg
@@ -248,13 +245,13 @@ fn expand_github_repo(repo: &str) -> Result<String> {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
             || seg.contains("..")
         {
-            bail!("github repo `{}` contains disallowed characters", repo);
+            bail!("{}", t(Msg::PluginGithubChars { repo }));
         }
         // Reject leading `-`: `git clone https://github.com/-x/foo.git`
         // (or any URL whose path component begins with `-`) lets git
         // interpret the segment as a flag -- CVE-2017-1000117 family.
         if seg.starts_with('-') {
-            bail!("github repo `{}` segment must not start with '-'", repo);
+            bail!("{}", t(Msg::PluginGithubDash { repo }));
         }
     }
     Ok(format!("https://github.com/{}/{}.git", parts[0], parts[1]))
@@ -273,7 +270,8 @@ fn expand_local_path(path: &str) -> Result<PathBuf> {
         PathBuf::from(path)
     };
     if !expanded.exists() {
-        bail!("local plugin source does not exist: {}", expanded.display());
+        let path = expanded.display().to_string();
+        bail!("{}", t(Msg::PluginLocalMissing { path: &path }));
     }
     Ok(expanded)
 }
@@ -335,10 +333,13 @@ fn git_clone_with_pin(git: &Path, url: &str, target: &Path, pin: &GitPin) -> Res
             .output()
             .context("spawn git checkout")?;
         if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
             bail!(
-                "git checkout {} failed: {}",
-                rev,
-                String::from_utf8_lossy(&out.stderr)
+                "{}",
+                t(Msg::PluginPinCheckoutFailed {
+                    rev,
+                    stderr: &stderr
+                })
             );
         }
     }
@@ -390,20 +391,14 @@ fn validate_plugin_source(source: &str) -> Result<()> {
             Component::Normal(s) => {
                 let s = s.to_string_lossy();
                 if s.is_empty() || s == ".." || s.contains('\0') {
-                    bail!(
-                        "plugin source path '{}' contains disallowed components",
-                        source
-                    );
+                    bail!("{}", t(Msg::PluginSourceBadComponents { source }));
                 }
             }
             Component::CurDir => {
                 // "./" is fine; skip.
             }
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                bail!(
-                    "plugin source path '{}' contains disallowed components",
-                    source
-                );
+                bail!("{}", t(Msg::PluginSourceBadComponents { source }));
             }
         }
     }
@@ -457,12 +452,14 @@ pub fn install(
     let entry = mp_state
         .marketplaces
         .get(marketplace)
-        .ok_or_else(|| anyhow!("marketplace `{}` not registered", marketplace))?;
+        .ok_or_else(|| anyhow!("{}", t(Msg::PluginMpNotRegistered { name: marketplace })))?;
     if !entry.plugins.iter().any(|p| p == plugin) {
         bail!(
-            "plugin `{}` not found in marketplace `{}`",
-            plugin,
-            marketplace
+            "{}",
+            t(Msg::PluginNotInMarketplace {
+                plugin,
+                marketplace
+            })
         );
     }
 
@@ -598,10 +595,8 @@ pub fn install(
                     .map(|f| f.plugins.contains_key(&id))
                     .unwrap_or(false);
                 if is_registered {
-                    bail!(
-                        "plugin already installed in project at {}",
-                        dest_abs.display()
-                    );
+                    let path = dest_abs.display().to_string();
+                    bail!("{}", t(Msg::PluginAlreadyInProject { path: &path }));
                 }
                 // Stale leftover -- remove and continue.
                 std::fs::remove_dir_all(&dest_abs).with_context(|| {
@@ -627,10 +622,13 @@ pub fn install(
             if state.plugins.contains_key(&id) {
                 // Clean up the copy we just made.
                 std::fs::remove_dir_all(&dest_abs).ok();
+                let scope = scope.to_string();
                 bail!(
-                    "plugin `{}` already installed in project scope {}",
-                    id,
-                    scope
+                    "{}",
+                    t(Msg::PluginAlreadyInProjectScope {
+                        id: &id,
+                        scope: &scope
+                    })
                 );
             }
             state.plugins.insert(
@@ -912,6 +910,9 @@ mod tests {
     #[serial_test::serial]
     fn install_rejects_traversal_in_plugin_source() {
         let _home = isolated_home();
+        // Asserts English prose; pin locale (product default is ZhCn).
+        let _locale = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         let manifest = r#"{"name":"mp2","plugins":[{"name":"esc","source":"../../etc"}]}"#;
         let repo = make_repo("mp2", Some(manifest));
         add_marketplace(&format!("file://{}", repo.display())).unwrap();

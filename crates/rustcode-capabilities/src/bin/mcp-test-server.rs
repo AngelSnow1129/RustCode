@@ -128,7 +128,7 @@ fn main() -> io::Result<()> {
                     return Ok(());
                 }
                 if std::env::var_os("MCP_TEST_STDOUT_NOISE_AFTER_INITIALIZED").is_some() {
-                    writeln!(writer, "✅ MCP server initialized and ready (stdio).")?;
+                    writeln!(writer, "[OK] MCP server initialized and ready (stdio).")?;
                     writer.flush()?;
                 }
                 None

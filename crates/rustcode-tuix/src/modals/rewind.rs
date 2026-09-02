@@ -3,7 +3,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 
 use super::{Modal, ModalAction};
 use crate::event_loop::{Buffer, LoopCtx};
-use crate::i18n::{current_locale, Locale};
+use crate::i18n::{t, Msg};
 use crate::render::{DiffPanelRow, DiffPanelSpan, DiffPanelTone, Renderer, UiLine};
 use crate::state::UiState;
 
@@ -31,13 +31,6 @@ impl RewindModal {
         }
     }
 
-    fn l<'a>(en: &'a str, zh: &'a str) -> &'a str {
-        match current_locale() {
-            Locale::ZhCn => zh,
-            Locale::En => en,
-        }
-    }
-
     fn close(renderer: &mut dyn Renderer) -> ModalAction {
         renderer.render(UiLine::ModalOverlayClear);
         renderer.flush();
@@ -62,14 +55,7 @@ impl RewindModal {
 
     fn target_rows(&self, max_entries: usize) -> Vec<DiffPanelRow> {
         let mut rows = vec![
-            row(
-                Self::l(
-                    "Restore the conversation to the point before...",
-                    "将对话恢复到以下提示之前...",
-                ),
-                DiffPanelTone::Default,
-                false,
-            ),
+            row(t(Msg::RewindTargetHeader), DiffPanelTone::Default, false),
             DiffPanelRow::new(Vec::new()),
         ];
         let total = self.catalog.points.len() + 1;
@@ -82,10 +68,7 @@ impl RewindModal {
         let end = (start + window).min(total);
         if start > 0 {
             rows.push(row(
-                match current_locale() {
-                    Locale::ZhCn => format!("↑ 上方还有 {start} 个回退点"),
-                    Locale::En => format!("↑ {start} more above"),
-                },
+                t(Msg::RewindMoreAbove { count: start }),
                 DiffPanelTone::Muted,
                 false,
             ));
@@ -111,19 +94,18 @@ impl RewindModal {
                 index == self.selected_target,
             ));
             let detail = if self.catalog.code_unavailable.is_some() {
-                Self::l("  Conversation checkpoint", "  对话检查点").to_string()
+                t(Msg::RewindCheckpoint).to_string()
             } else if point.files.is_empty() {
-                Self::l("  No code changes", "  无代码变更").to_string()
+                t(Msg::RewindNoCodeChanges).to_string()
             } else if point.files.len() == 1 {
                 let file = &point.files[0];
                 format!("  {} +{} -{}", file.path, file.additions, file.deletions)
             } else {
                 format!(
                     "  {}",
-                    match current_locale() {
-                        Locale::ZhCn => format!("{} 个文件有变更", point.files.len()),
-                        Locale::En => format!("{} files changed", point.files.len()),
-                    }
+                    t(Msg::RewindFilesChanged {
+                        count: point.files.len()
+                    })
                 )
             };
             rows.push(row(detail, DiffPanelTone::Muted, false));
@@ -132,12 +114,13 @@ impl RewindModal {
         if end == total {
             rows.push(row(
                 format!(
-                    "{} (current)",
+                    "{} {}",
                     if self.selected_target == self.catalog.points.len() {
                         "›"
                     } else {
                         " "
-                    }
+                    },
+                    t(Msg::RewindCurrent)
                 ),
                 if self.selected_target == self.catalog.points.len() {
                     DiffPanelTone::Highlight
@@ -148,10 +131,7 @@ impl RewindModal {
             ));
         } else {
             rows.push(row(
-                match current_locale() {
-                    Locale::ZhCn => format!("↓ 下方还有 {} 个回退点", total - end),
-                    Locale::En => format!("↓ {} more below", total - end),
-                },
+                t(Msg::RewindMoreBelow { count: total - end }),
                 DiffPanelTone::Muted,
                 false,
             ));
@@ -167,28 +147,24 @@ impl RewindModal {
             .expect("scope selection requires a rewind point");
         let mut rows = vec![
             row(
-                format!(
-                    "{} “{}”",
-                    Self::l("Rewind to before", "回退到此提示之前："),
-                    point.prompt_preview
-                ),
+                format!("{} “{}”", t(Msg::RewindScopeTitle), point.prompt_preview),
                 DiffPanelTone::Default,
                 true,
             ),
             DiffPanelRow::new(Vec::new()),
         ];
         let labels = [
-            Self::l("Conversation only", "仅回退对话"),
-            Self::l("Code only", "仅回退代码"),
-            Self::l("Conversation and code", "回退对话和代码"),
+            t(Msg::RewindScopeMenuConversation),
+            t(Msg::RewindScopeMenuCode),
+            t(Msg::RewindScopeMenuBoth),
         ];
         for (index, label) in labels.iter().enumerate() {
             let disabled = index != 0 && self.catalog.code_unavailable.is_some();
             let selected = index == self.selected_scope;
             let suffix = if disabled {
-                Self::l("  (unavailable)", "  (不可用)")
+                t(Msg::RewindUnavailable)
             } else {
-                ""
+                "".into()
             };
             rows.push(row(
                 format!("{} {label}{suffix}", if selected { "›" } else { " " }),
@@ -219,14 +195,8 @@ impl RewindModal {
             Stage::Scope => self.scope_rows(),
         };
         let footer = match self.stage {
-            Stage::Target => Self::l(
-                "↑/↓ select . Enter continue . Esc cancel",
-                "↑/↓ 选择 . Enter 继续 . Esc 取消",
-            ),
-            Stage::Scope => Self::l(
-                "↑/↓ select . Enter rewind . ← back . Esc cancel",
-                "↑/↓ 选择 . Enter 回退 . ← 返回 . Esc 取消",
-            ),
+            Stage::Target => t(Msg::RewindFooterTarget),
+            Stage::Scope => t(Msg::RewindFooterScope),
         };
         renderer.render(UiLine::DiffPanel {
             // Rewind is the product feature name and remains untranslated.
@@ -293,7 +263,7 @@ impl Modal for RewindModal {
                     ) {
                         renderer.render(UiLine::Error(format!(
                             "{}: {error}",
-                            Self::l("Could not start Rewind", "无法开始回退")
+                            t(Msg::RewindStartFailed)
                         )));
                         renderer.flush();
                         return Ok(ModalAction::Continue);
@@ -378,6 +348,8 @@ mod tests {
 
     #[test]
     fn bounded_target_window_keeps_default_current_row_visible() {
+        let _g = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let mut catalog = catalog();
         let template = catalog.points[0].clone();
         catalog.points = (1..=20)

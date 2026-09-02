@@ -2266,10 +2266,16 @@ fn execute_slash_command_impl(
                         .into_owned(),
                     }
                 }
-                None => t(Msg::DesktopNotInstalled {
-                    url: super::desktop::download_url(),
-                })
-                .into_owned(),
+                None => {
+                    let url = super::desktop::download_url();
+                    if url.is_empty() {
+                        // Neutral build with no desktop release: say so plainly
+                        // instead of printing a dangling "download:" line.
+                        t(Msg::DesktopNotInstalledNoUrl).into_owned()
+                    } else {
+                        t(Msg::DesktopNotInstalled { url }).into_owned()
+                    }
+                }
             };
             renderer.render(UiLine::CommandOutput(line));
             renderer.flush();
@@ -2362,16 +2368,12 @@ fn execute_slash_command_impl(
                 };
                 match relay_base.filter(|s| !s.is_empty()) {
                     // 仅在显式给了空参数（如 `/app --relay`）时可达。
-                    None => {
-                        "用法：/app <中继地址>；或先设置 RUSTCODE_APP_RELAY 指定默认中继后直接 /app"
-                            .to_string()
-                    }
+                    None => t(Msg::AppRemoteUsage).into_owned(),
                     Some(relay) => {
                         // 1) 检查登录态：未登录不允许开启远程访问。
                         if rustcode_auth::oauth::get_stored_auth().is_none() {
                             renderer.render(UiLine::CommandOutput(
-                                "远程访问需要先登录。输入 /login 完成登录后，再执行 /app。"
-                                    .to_string(),
+                                t(Msg::AppRemoteLoginRequired).into_owned(),
                             ));
                             renderer.flush();
                             return Ok(());
@@ -2394,7 +2396,10 @@ fn execute_slash_command_impl(
                             )
                         });
                         match started {
-                            Err(e) => format!("App server 启动失败：{e}"),
+                            Err(e) => t(Msg::AppServerStartFailed {
+                                error: &e.to_string(),
+                            })
+                            .into_owned(),
                             Ok((_h, port)) => {
                                 // 3) route token（中继路由 key + 凭证）+ 中继 URL。
                                 // token = user_id.随机hex，App 端扫码后校验 user_id 是否一致。
@@ -2419,7 +2424,10 @@ fn execute_slash_command_impl(
                                 //    --no-supervise-daemon。kill_on_drop：TUI 退出随之清理。
                                 let daemon_url = format!("http://127.0.0.1:{port}");
                                 let spawn_result = match ensure_relay_client_bin(&https_base) {
-                                    Err(e) => format!("启动 relay-client 失败：{e}"),
+                                    Err(e) => t(Msg::AppRelayClientStartFailed {
+                                        error: &e.to_string(),
+                                    })
+                                    .into_owned(),
                                     Ok(bin) => {
                                         let mut cmd = tokio::process::Command::new(&bin);
                                         cmd.arg("run")
@@ -2448,12 +2456,14 @@ fn execute_slash_command_impl(
                                             cmd.arg("--register-secret").arg(secret);
                                         }
                                         match cmd.spawn() {
-                                            Err(e) => format!(
-                                                "启动 relay-client 失败（{e}）。已尝试路径 `{bin}`。\
-                                                 请确认 relay-client 在 {cache} 目录下，\
-                                                 或删除该目录后重试 /app 自动下载。",
-                                                cache = relay_client_cache_dir().display()
-                                            ),
+                                            Err(e) => t(Msg::AppRelayClientSpawnFailed {
+                                                error: &e.to_string(),
+                                                bin: &bin,
+                                                cache: &relay_client_cache_dir()
+                                                    .display()
+                                                    .to_string(),
+                                            })
+                                            .into_owned(),
                                             Ok(child) => {
                                                 if let Some(mut old) = ctx.app_relay_child.take() {
                                                     let _ = old.start_kill();
@@ -2471,36 +2481,36 @@ fn execute_slash_command_impl(
                                                     m_param
                                                 );
                                                 // 6) 手机视图复用 TUI 当前 CodingRuntime。
-                                                if let Err(error) = attach_live_runtime(ctx, state.agent_mode, state, renderer) {
-                                                    if let Some(mut child) = ctx.app_relay_child.take() {
+                                                if let Err(error) = attach_live_runtime(
+                                                    ctx,
+                                                    state.agent_mode,
+                                                    state,
+                                                    renderer,
+                                                ) {
+                                                    if let Some(mut child) =
+                                                        ctx.app_relay_child.take()
+                                                    {
                                                         let _ = child.start_kill();
                                                     }
                                                     return Err(anyhow::anyhow!(error));
                                                 }
                                                 use base64::Engine;
-                                                let encoded = base64::engine::general_purpose::STANDARD
-                                                    .encode(pair_uri.as_bytes());
+                                                let encoded =
+                                                    base64::engine::general_purpose::STANDARD
+                                                        .encode(pair_uri.as_bytes());
                                                 match crate::render::qr::render_login_qr(
                                                     &pair_uri,
                                                     crate::render::qr::QrStyle::Dense1x2,
                                                 ) {
-                                                    Some(q) => format!(
-                                                        "[*] 移动端配对连接\n\
-                                                        \n\
-                                                        配套的移动端 App 由你的中继部署方提供：\n\
-                                                        1. 打开移动端 App 的扫一扫功能\n\
-                                                        2. 对准下方二维码即可配对连接\n\
-                                                        \n\
-                                                        {q}\n\
-                                                        \n\
-                                                        也可复制以下口令在 App 中连接：\n\
-                                                        {encoded}\n\
-                                                        \n\
-                                                        （/app stop 断开连接）"
-                                                    ),
-                                                    None => format!(
-                                                        "配对链接（二维码生成失败，手动填）：{pair_uri}"
-                                                    ),
+                                                    Some(q) => t(Msg::AppPairQrBlock {
+                                                        qr: &q,
+                                                        encoded: &encoded,
+                                                    })
+                                                    .into_owned(),
+                                                    None => t(Msg::AppPairLinkFallback {
+                                                        pair_uri: &pair_uri,
+                                                    })
+                                                    .into_owned(),
                                                 }
                                             }
                                         }
@@ -2596,6 +2606,16 @@ fn execute_slash_command_impl(
                 if !force && !arg_norm.is_empty() {
                     renderer.render(UiLine::Error(
                         t(Msg::UpgradeUnknownArg { arg }).into_owned(),
+                    ));
+                    renderer.flush();
+                    return Ok(());
+                }
+                // Neutral build ships no update manifest: a GET to the empty
+                // URL only errors as "relative URL without a base". Say so
+                // (mirrors `version_check::check_latest`'s early return).
+                if !rustcode_updater::update_endpoint_configured() {
+                    renderer.render(UiLine::CommandOutput(
+                        t(Msg::UpgradeNoEndpoint).into_owned(),
                     ));
                     renderer.flush();
                     return Ok(());
@@ -6407,7 +6427,7 @@ pub(crate) fn format_rate_limited_line(
     if auto_resuming {
         // WaitAndRetry: kernel is sleeping then will retry automatically.
         let n = secs_until_reset.unwrap_or(0);
-        return format!("⏳ 限流，{n}s 后自动继续...");
+        return t(Msg::TuixRateLimitAutoResume { secs: n }).into_owned();
     }
     // Pause: kernel stopped, user must act. A CodingPlan verdict (decide_from_windows)
     // carries window data -- a reset time AND/OR a window label. The kernel's generic
@@ -6419,30 +6439,35 @@ pub(crate) fn format_rate_limited_line(
     let is_coding_plan = !reset_at_display.is_empty() || !reset_label.is_empty();
     if !is_coding_plan {
         let tail = match secs_until_reset {
-            Some(s) => format!("（约 {} 后可重试）", fmt_dur(s)),
+            Some(s) => t(Msg::TuixRateLimitRetryAfter { dur: &fmt_dur(s) }).into_owned(),
             None => String::new(),
         };
-        // Surface the provider's OWN 429 reason when it carried one (e.g. an external
-        // model's "余额不足...请充值") so the user sees the actionable cause, not a bare 429.
+        // Surface the provider's OWN 429 reason when it carried one (raw passthrough
+        // of an external model's balance/quota message) so the user sees the
+        // actionable cause, not a bare 429. Only the framing is localized.
         let reason = match server_message {
-            Some(m) if !m.trim().is_empty() => format!("：{}", m.trim()),
+            Some(m) if !m.trim().is_empty() => format!(": {}", m.trim()),
             _ => String::new(),
         };
-        return format!("⏸ 限流（HTTP 429）{reason}{tail} · 已保留已完成内容 · 稍后重试或换模型");
+        return t(Msg::TuixRateLimit429 {
+            reason: &reason,
+            tail: &tail,
+        })
+        .into_owned();
     }
     // Confirmed CodingPlan window exhaustion.
     let tail = match secs_until_reset {
-        Some(s) => format!("（还有 {}）", fmt_dur(s)),
+        Some(s) => t(Msg::TuixRateLimitWindowRemaining { dur: &fmt_dur(s) }).into_owned(),
         None => String::new(),
     };
     if reset_at_display.is_empty() {
-        return format!(
-            "⏸ 5小时窗口已用尽，稍后恢复{tail} · 已保留已完成内容 · 可换模型或稍后重试"
-        );
+        return t(Msg::TuixRateLimitWindowNoTime { tail: &tail }).into_owned();
     }
-    format!(
-        "⏸ 5小时窗口已用尽，约 {reset_at_display} 恢复{tail} · 已保留已完成内容 · 可换模型或稍后重试"
-    )
+    t(Msg::TuixRateLimitWindowWithTime {
+        reset_at: reset_at_display,
+        tail: &tail,
+    })
+    .into_owned()
 }
 
 /// Format a duration in seconds as a compact human string: "2h11m" / "45m" / "30s".
@@ -6673,6 +6698,8 @@ mod rate_limited_tests {
     // Branch 1: auto_resuming=true -> countdown line (WaitAndRetry)
     #[test]
     fn rate_limited_wait_shows_countdown() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line = format_rate_limited_line("", "", Some(45), true, None);
         assert!(line.contains("45"), "should contain countdown seconds");
         assert!(line.contains("自动继续"), "should mention auto-continue");
@@ -6689,6 +6716,8 @@ mod rate_limited_tests {
     // Branch 2: auto_resuming=false, reset_at_display non-empty -> pause with time (Pause)
     #[test]
     fn rate_limited_renders_non_error_pause_line() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line =
             format_rate_limited_line("18:09", "（每 5 小时一个窗口）", Some(7200), false, None);
         assert!(line.contains("18:09"), "should contain reset time");
@@ -6707,6 +6736,8 @@ mod rate_limited_tests {
     // "5h window exhausted" message. Locks the mis-attribution fix.
     #[test]
     fn rate_limited_pause_empty_reset_is_generic_not_coding_plan() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line = format_rate_limited_line("", "", None, false, None);
         assert!(line.contains('⏸'), "must use pause glyph ⏸");
         assert!(!line.contains("自动继续"), "must not say 自动继续");
@@ -6731,6 +6762,8 @@ mod rate_limited_tests {
     fn rate_limited_generic_surfaces_provider_reason() {
         // A generic (non-CodingPlan) 429 that carried a real provider body -- e.g. an
         // external model's "余额不足...请充值" -- must surface that actionable reason.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line =
             format_rate_limited_line("", "", None, false, Some("余额不足或无可用资源包,请充值"));
         assert!(
@@ -6751,6 +6784,8 @@ mod rate_limited_tests {
     fn rate_limited_coding_plan_ignores_server_message() {
         // A CodingPlan window pause (has reset time) keeps its window message even if a
         // server_message tags along -- the reason line is only for the generic branch.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line = format_rate_limited_line("18:09", "", Some(7200), false, Some("请充值"));
         assert!(
             line.contains("5小时窗口"),
@@ -6765,6 +6800,8 @@ mod rate_limited_tests {
     // A gateway CodingPlan quota (real reset time) KEEPS the "5h window" message.
     #[test]
     fn rate_limited_pause_with_reset_time_keeps_coding_plan_message() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line = format_rate_limited_line("18:09", "", Some(7200), false, None);
         assert!(
             line.contains("5小时窗口"),
@@ -6778,6 +6815,8 @@ mod rate_limited_tests {
     // message -- keying on reset_at_display alone would wrongly go generic.
     #[test]
     fn rate_limited_empty_display_but_label_keeps_coding_plan() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line = format_rate_limited_line("", "（每 5 小时一个窗口）", Some(7200), false, None);
         assert!(
             line.contains("5小时窗口"),
@@ -6791,6 +6830,8 @@ mod rate_limited_tests {
 
     #[test]
     fn rate_limited_no_secs_shows_no_duration() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line = format_rate_limited_line("23:59", "", None, false, None);
         assert!(line.contains("23:59"));
         assert!(!line.contains("还有"));
@@ -6801,6 +6842,8 @@ mod rate_limited_tests {
         // Pause (auto_resuming=false) with no wall-clock display but a known
         // remaining duration: the duration must NOT be dropped. (Generic 429 line
         // now -- no CodingPlan claim without a real reset time.)
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line = format_rate_limited_line("", "", Some(7200), false, None);
         assert!(line.contains('⏸'), "must use pause glyph");
         assert!(
@@ -9151,6 +9194,10 @@ mod todo_command_tests {
         // This is the closest unit-testable seam to the real dispatcher; the
         // full LoopCtx is intentionally avoided (it'd require constructing an
         // AgentClient + a dozen channels just to reach one arm).
+        // Pin locale: the test compares the rendered Error line against `t(..)`,
+        // so a sibling test flipping the global locale mid-test would race it.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let mut custom = crate::custom_commands::CustomCommandRegistry::empty();
         custom.register(crate::custom_commands::CustomCommand {
             name: "myreview".into(),

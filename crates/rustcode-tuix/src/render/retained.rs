@@ -32,7 +32,7 @@ use super::theme::{role, Role};
 use super::{
     DiffPanelRow, DiffPanelSpan, DiffPanelTone, MenuPayload, Renderer, StatusLine, UiLine,
 };
-use crate::i18n::{t, Msg};
+use crate::i18n::{current_locale, t, t_with, Locale, Msg};
 use crate::sanitize::scrub_controls;
 use crate::terminal::TerminalCaps;
 use crossterm::style::Color;
@@ -2081,7 +2081,11 @@ impl<W: Write + Send> RetainedRenderer<W> {
             // the inflight strip so ticks replace it in place and commit/cancel
             // erase it atomically together with the hint and Running row.
             new_rows.push(Vec::new());
-            let label = format!("Running{meta}");
+            let label = format!(
+                "{}{}",
+                crate::i18n::t(crate::i18n::Msg::SpinnerRunningLabel),
+                meta
+            );
             new_rows.push(self.build_spinner_body_row(icon, &label));
         }
 
@@ -4098,11 +4102,13 @@ impl<W: Write + Send> RetainedRenderer<W> {
         let indicator = |direction: &str, hidden: usize| {
             let mut row = Vec::new();
             push_str_cells(&mut row, "  ", &style);
-            push_str_cells(
-                &mut row,
-                &format!("{direction} {hidden} hidden lines · PgUp/PgDn"),
-                &style,
+            // The arrow glyph and the `PgUp/PgDn` key names stay verbatim;
+            // only the "N hidden lines" words are localized.
+            let text = format!(
+                "{direction} {}",
+                t(Msg::ScrollHiddenLines { count: hidden })
             );
+            push_str_cells(&mut row, &text, &style);
             row
         };
 
@@ -4136,6 +4142,13 @@ impl<W: Write + Send> RetainedRenderer<W> {
     ) -> UserInputRows {
         use rustcode_capabilities::tools::request_user_input::UserInputMode;
         let unicode = self.caps.unicode_symbols;
+        // Language follows the active locale; on ASCII-only terminals CJK is
+        // not renderable at all, so the English arms are used there.
+        let lang = if unicode {
+            current_locale()
+        } else {
+            Locale::En
+        };
         let mut out: Vec<Vec<Cell>> = Vec::new();
         let mut active = 0..1;
 
@@ -4334,9 +4347,9 @@ impl<W: Write + Send> RetainedRenderer<W> {
                         } else {
                             budget
                         };
-                        let placeholder = "输入自己的答案\u{2026}"; // 输入自己的答案...
+                        let placeholder = t_with(lang, Msg::UserInputOwnAnswer);
                         let ph = crate::width::truncate_with_ellipsis(
-                            &scrub_controls(placeholder),
+                            &scrub_controls(&placeholder),
                             ph_budget,
                         );
                         let ph_style = self.style_faint(Role::Muted);
@@ -4395,11 +4408,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
                     } else {
                         "  "
                     };
-                    let submit_label = if unicode {
-                        "\u{2714} \u{63d0}\u{4ea4}"
-                    } else {
-                        "+ Submit"
-                    };
+                    let submit_label = t_with(lang, Msg::UserInputSubmitRow);
                     let label_style = if on_cursor {
                         self.style_bold(Role::Plan)
                     } else {
@@ -4411,8 +4420,10 @@ impl<W: Write + Send> RetainedRenderer<W> {
                         self.style_for(Role::Secondary)
                     };
                     let budget = rule_width.saturating_sub(crate::width::display_width(marker));
-                    let lbl =
-                        crate::width::truncate_with_ellipsis(&scrub_controls(submit_label), budget);
+                    let lbl = crate::width::truncate_with_ellipsis(
+                        &scrub_controls(&submit_label),
+                        budget,
+                    );
                     let mut row = Vec::new();
                     push_str_cells(&mut row, marker, &chrome_style);
                     push_str_cells(&mut row, &lbl, &label_style);
@@ -4433,11 +4444,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 blank_row(&mut out);
 
                 let field_width = rule_width;
-                let placeholder = if unicode {
-                    "输入答案..."
-                } else {
-                    "Enter answer..."
-                };
+                let placeholder = t_with(lang, Msg::UserInputTextPlaceholder);
                 let safe_text = scrub_controls(&panel.text);
                 if field_width < 5 {
                     let mut row = Vec::new();
@@ -4478,7 +4485,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
                         )
                     };
                     let visible_text = if buf.is_empty() {
-                        crate::width::truncate_with_ellipsis(placeholder, text_budget)
+                        crate::width::truncate_with_ellipsis(&placeholder, text_budget)
                     } else {
                         buf
                     };
@@ -4527,15 +4534,14 @@ impl<W: Write + Send> RetainedRenderer<W> {
         // Hint row: mode-appropriate guidance, muted + glyph-downgraded. N is the
         // number of navigable options INCLUDING the always-appended "Other".
         let n = panel.options.len() + panel.custom as usize;
-        let single_hint = format!(
-            "\u{2191}\u{2193} move \u{00b7} 1-{n} select \u{00b7} Enter confirm \u{00b7} Esc cancel"
-        );
+        let single_hint = t_with(lang, Msg::UserInputHintSingle { n });
         // Multiple: Enter toggles rows, confirms only on the Submit row.
-        let multiple_hint = "\u{2191}\u{2193} move \u{00b7} Space toggle \u{00b7} Enter \u{63d0}\u{4ea4}\u{884c}\u{786e}\u{8ba4} \u{00b7} Esc cancel".to_string();
+        let multiple_hint = t_with(lang, Msg::UserInputHintMultiple);
+        let text_hint = t_with(lang, Msg::UserInputHintText);
         let hint_raw: &str = match panel.mode {
-            UserInputMode::Single => &single_hint,
-            UserInputMode::Multiple => &multiple_hint,
-            UserInputMode::Text => "type answer \u{00b7} Enter confirm \u{00b7} Esc cancel",
+            UserInputMode::Single => single_hint.as_ref(),
+            UserInputMode::Multiple => multiple_hint.as_ref(),
+            UserInputMode::Text => text_hint.as_ref(),
         };
         let hint = crate::glyph::downgrade_glyphs(hint_raw, unicode);
         let hint_budget = rule_width.saturating_sub(2);
@@ -4573,6 +4579,13 @@ impl<W: Write + Send> RetainedRenderer<W> {
             }
         };
         let unicode = self.caps.unicode_symbols;
+        // Same rule as build_user_input_rows: locale-driven language, English
+        // arms on ASCII-only terminals where CJK cannot be rendered.
+        let lang = if unicode {
+            current_locale()
+        } else {
+            Locale::En
+        };
         let mut out: Vec<Vec<Cell>> = Vec::new();
         let mut active = 0..1;
         let push_line = |out: &mut Vec<Vec<Cell>>, text: &str, style: &CellStyle| {
@@ -4624,7 +4637,17 @@ impl<W: Write + Send> RetainedRenderer<W> {
         } else {
             meta.index
         };
-        let nav = format!("\u{95ee}\u{9898} {}/{}  {}", nav_idx, meta.total, markers); // 问题
+        let nav = format!(
+            "{}  {}",
+            t_with(
+                lang,
+                Msg::UserInputBatchNav {
+                    index: nav_idx,
+                    total: meta.total
+                }
+            ),
+            markers
+        );
         push_line(&mut out, &nav, &self.style_bold(Role::Plan));
         out.push(Vec::new()); // blank
 
@@ -4632,11 +4655,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
             let answered = meta.answered.iter().filter(|a| **a).count();
             push_line(
                 &mut out,
-                if unicode {
-                    "提交前确认"
-                } else {
-                    "Review answers"
-                },
+                &t_with(lang, Msg::UserInputReviewTitle),
                 &self.style_bold(Role::Plan),
             );
             out.push(Vec::new());
@@ -4650,16 +4669,12 @@ impl<W: Write + Send> RetainedRenderer<W> {
                 match summary.answer.as_deref() {
                     Some(answer) => push_wrapped(
                         &mut out,
-                        &if unicode {
-                            format!("回答：{answer}")
-                        } else {
-                            format!("Answer: {answer}")
-                        },
+                        &t_with(lang, Msg::UserInputAnswer { answer }),
                         &self.style_for(Role::Secondary),
                     ),
                     None => push_wrapped(
                         &mut out,
-                        if unicode { "未回答" } else { "Unanswered" },
+                        &t_with(lang, Msg::UserInputUnanswered),
                         &self.style_bold(Role::Warning),
                     ),
                 }
@@ -4670,21 +4685,22 @@ impl<W: Write + Send> RetainedRenderer<W> {
             } else {
                 "> + "
             }; // > [+]
-            let label = if unicode {
-                "\u{63d0}\u{4ea4}\u{5168}\u{90e8}"
-            } else {
-                "Submit all"
-            }; // 提交全部
             let submit = format!(
-                "{marker}{label} ({answered}/{} \u{5df2}\u{7b54})",
-                meta.total
-            ); // 已答
+                "{marker}{}",
+                t_with(
+                    lang,
+                    Msg::UserInputSubmitAll {
+                        answered,
+                        total: meta.total
+                    }
+                )
+            );
             push_line(&mut out, &submit, &self.style_bold(Role::Plan));
             active = out.len().saturating_sub(1)..out.len();
             out.push(Vec::new()); // blank
-                                  // Enter 提交 . Tab/Shift+Tab 切换问题 . Esc 放弃
-            let hint = "Enter \u{63d0}\u{4ea4} \u{00b7} PgUp/PgDn \u{67e5}\u{770b} \u{00b7} Shift+Tab \u{8fd4}\u{56de} \u{00b7} Esc \u{653e}\u{5f03}";
-            push_line(&mut out, hint, &hint_style);
+                                  // Submit-screen batch hint (Enter submits all answers).
+            let hint = t_with(lang, Msg::UserInputHintSubmit);
+            push_line(&mut out, &hint, &hint_style);
         } else {
             // The current question's own rows. Drop its trailing hint row -- the single
             // hint ("Enter confirm . Esc cancel") is misleading inside a batch (Enter
@@ -4694,9 +4710,9 @@ impl<W: Write + Send> RetainedRenderer<W> {
             q.rows.pop(); // the per-question hint (always the last row)
             active = (out.len() + q.active.start)..(out.len() + q.active.end);
             out.extend(q.rows);
-            // 作答 . Tab/Shift+Tab 切换问题 . 到提交行 Enter 交全部 . Esc 放弃
-            let hint = "\u{4f5c}\u{7b54} \u{00b7} Tab/Shift+Tab \u{5207}\u{6362}\u{95ee}\u{9898} \u{00b7} \u{5230}\u{63d0}\u{4ea4}\u{884c} Enter \u{4ea4}\u{5168}\u{90e8} \u{00b7} Esc \u{653e}\u{5f03}";
-            push_line(&mut out, hint, &hint_style);
+            // Question-screen batch hint (answer, switch questions, submit all).
+            let hint = t_with(lang, Msg::UserInputHintBatch);
+            push_line(&mut out, &hint, &hint_style);
         }
         self.fit_user_input_rows(
             UserInputRows { rows: out, active },
@@ -5372,25 +5388,21 @@ impl<W: Write + Send> RetainedRenderer<W> {
                     // Locale-aware, menu-neutral: `Plugin` is shared by the plugin
                     // manager AND the provider panel, so the placeholder must not
                     // say "plugins". Both are type-to-filter boxes.
-                    let zh = matches!(crate::i18n::current_locale(), crate::i18n::Locale::ZhCn);
-                    let placeholder = if menu_kind == super::MenuKind::SessionList {
-                        if zh {
-                            "搜索会话..."
-                        } else {
-                            "Search sessions..."
-                        }
-                    } else if menu_kind == super::MenuKind::DirectoryList {
-                        if zh {
-                            "搜索历史目录或输入路径..."
-                        } else {
-                            "Search saved directories or enter a path..."
-                        }
-                    } else if zh {
-                        "输入以筛选..."
+                    // ASCII-only terminals cannot render CJK; force English there,
+                    // matching the user-input/permission rows' `lang` gate.
+                    let lang = if self.caps.unicode_symbols {
+                        crate::i18n::current_locale()
                     } else {
-                        "Type to filter..."
+                        crate::i18n::Locale::En
                     };
-                    push_str_cells(&mut content_row, placeholder, &muted);
+                    let placeholder = if menu_kind == super::MenuKind::SessionList {
+                        crate::i18n::t_with(lang, crate::i18n::Msg::MenuPlaceholderSearchSessions)
+                    } else if menu_kind == super::MenuKind::DirectoryList {
+                        crate::i18n::t_with(lang, crate::i18n::Msg::MenuPlaceholderSearchDirs)
+                    } else {
+                        crate::i18n::t_with(lang, crate::i18n::Msg::MenuPlaceholderFilter)
+                    };
+                    push_str_cells(&mut content_row, &placeholder, &muted);
                 } else {
                     push_str_cells(&mut content_row, name, &CellStyle::default());
                     if box_focused {
@@ -7866,28 +7878,6 @@ impl<W: Write + Send> RetainedRenderer<W> {
             }
         }
         normalized
-    }
-
-    #[allow(dead_code)]
-    fn build_wrapped_text_rows(
-        &self,
-        parts: &[(&str, CellStyle)],
-        content_width: usize,
-    ) -> Vec<Vec<Cell>> {
-        let mut content = Vec::new();
-        for (text, style) in parts {
-            push_str_cells(&mut content, text, style);
-        }
-        let chunks = wrap_cells_to_width(&content, content_width.max(1));
-        let mut rows = Vec::with_capacity(chunks.len().max(1));
-        for chunk in chunks {
-            let mut row = Vec::new();
-            let pad = CellStyle::default();
-            push_str_cells(&mut row, &" ".repeat(PAD_COL), &pad);
-            row.extend(chunk);
-            rows.push(row);
-        }
-        rows
     }
 
     /// Render the baked mascot const into cell rows (no leading pad; caller
@@ -10532,7 +10522,14 @@ fn truncate_body_str(body_str: &str, max_cols: usize) -> String {
 /// leading ` · ` separator so callers can concatenate it directly, or `""` if
 /// there's no time/queue metadata yet.
 fn spinner_meta_suffix(label: &str) -> &str {
-    const EFFORT_MARK: &str = " · thinking with ";
+    // The effort hint is localized, so its in-label marker differs by locale:
+    // English ` · thinking with <level> effort` vs zh-CN ` · <level>强度思考`.
+    // In English the fixed lead-in (` · thinking with `) precedes the variable
+    // level word; in zh the fixed tail (`强度思考`) CLOSES the segment (the
+    // variable level word precedes it). Each const marks the point INSIDE the
+    // effort segment from which the next boundary scan should start.
+    const EFFORT_MARK_EN: &str = " · thinking with ";
+    const EFFORT_TAIL_ZH: &str = "强度思考";
     // The metadata that trails the base label comes in two shapes: a ` · …`
     // run (queue / fold) and the trailing phase-clock group, which
     // `format_spinner_label` wraps in ONE pair of parens opening with ` (`
@@ -10550,13 +10547,17 @@ fn spinner_meta_suffix(label: &str) -> &str {
             (None, p) => p,
         }
     };
-    if let Some(start) = label.find(EFFORT_MARK) {
-        // Effort is the first metadata segment (a tool "isn't thinking", so
-        // splice it out). It runs until the next boundary — a ` · ` queue run
-        // or the ` (` clock group. Scanning past the fixed marker lands inside
-        // the ASCII effort value, so the next boundary is unambiguously the
-        // following segment.
-        let scan_from = start + EFFORT_MARK.len();
+    // Effort is the first metadata segment (a tool "isn't thinking", so splice
+    // it out). It runs until the next boundary — a ` · ` queue run or the ` (`
+    // clock group. Pick the marker for the active locale; scanning from the
+    // point just inside the segment lands on/after the effort value, so the
+    // next boundary is unambiguously the following segment.
+    let effort_scan_from = if matches!(crate::i18n::current_locale(), crate::i18n::Locale::ZhCn) {
+        label.find(EFFORT_TAIL_ZH).map(|i| i + EFFORT_TAIL_ZH.len())
+    } else {
+        label.find(EFFORT_MARK_EN).map(|i| i + EFFORT_MARK_EN.len())
+    };
+    if let Some(scan_from) = effort_scan_from {
         return meta_start(scan_from).map(|i| &label[i..]).unwrap_or("");
     }
     // No effort hint: metadata begins at the first ` · ` or ` (` after the base.
@@ -14553,6 +14554,10 @@ mod tests {
     /// time anchor appears next to the tool row.
     #[test]
     fn retained_inflight_tool_renders_elapsed_meta_suffix() {
+        // The bash liveness word now routes through i18n (`Running` / `运行中`);
+        // pin English so the assertion below matches the English label.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let (mut r, _buf) = new_capturing(80, 24);
         // Seed an inflight tool so the Spinner branch routes through
         // render_inflight_tool (mirrors the real call path).
@@ -14589,6 +14594,10 @@ mod tests {
 
     #[test]
     fn spinner_meta_suffix_extracts_after_first_separator() {
+        // These fixtures use the ENGLISH effort marker (` · thinking with `);
+        // the suffix parser picks its marker by locale, so pin English.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         assert_eq!(spinner_meta_suffix("Running Bash… · 12s"), " · 12s");
         // Effort now leads the metadata run and elapsed trails it; queue (when
         // present) sits between. The effort hint must NOT ride onto a tool row.
@@ -14616,7 +14625,38 @@ mod tests {
     }
 
     #[test]
+    fn spinner_meta_suffix_splices_localized_zh_effort_hint() {
+        // zh-CN localizes the effort segment as ` · <level>强度思考` (the fixed
+        // tail `强度思考` closes it, vs English's fixed lead-in). The parser
+        // must recognize it so the effort hint never leaks onto a tool row.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
+        // Effort + queue + parenthesized clock → forward queue + clock only.
+        assert_eq!(
+            spinner_meta_suffix("沉思中… · 高强度思考 · 2 条排队 (12s)"),
+            " · 2 条排队 (12s)"
+        );
+        // Effort + parenthesized clock → forward just the clock group.
+        assert_eq!(
+            spinner_meta_suffix("沉思中… · 高强度思考 (12s · ↑ 1.93K tokens)"),
+            " (12s · ↑ 1.93K tokens)"
+        );
+        // Effort alone (nothing after) → empty suffix.
+        assert_eq!(spinner_meta_suffix("沉思中… · 高强度思考"), "");
+        // No effort hint: the plain ` · `/` (` boundaries still work in zh.
+        assert_eq!(
+            spinner_meta_suffix("沉思中… · 2 条排队 (12s)"),
+            " · 2 条排队 (12s)"
+        );
+        assert_eq!(spinner_meta_suffix("沉思中… (12s)"), " (12s)");
+    }
+
+    #[test]
     fn spinner_meta_suffix_keeps_parenthesized_elapsed_group_intact() {
+        // Fixtures below use the ENGLISH effort marker; pin English so the
+        // locale-selected splice marker matches.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // `format_spinner_label` now wraps the phase clock + live token counter
         // in ONE parenthesized group: `Pondering… (3s · ↑ 1.93K tokens)`. The
         // forwarded suffix must include the opening `(` so a bash row reads
@@ -15616,7 +15656,7 @@ mod tests {
 
         r.render(UiLine::Welcome {
             model: "MiniMax-M2.7-long".into(),
-            working_dir: "~/workspace/gitcode_project/rustcode_family/rustcode".into(),
+            working_dir: "~/workspace/example-project/rustcode".into(),
         });
         r.render(UiLine::InputPrompt {
             buf: String::new(),
@@ -20031,6 +20071,10 @@ mod tests {
     // render, in the same modal slot as approval (replacing the input box).
     #[test]
     fn user_input_panel_renders_all_three_modes() {
+        // Chinese-prose assertions below require the zh locale; ASCII-caps
+        // sub-renderers still force English inside build_user_input_rows.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         use rustcode_capabilities::tools::request_user_input::UserInputMode;
 
         // Single: numbered list with per-item descriptions, cursor row has the
@@ -20110,8 +20154,10 @@ mod tests {
                 !vterm.any_row(|r| r.contains("[x]") || r.contains("[ ]")),
                 "single must NOT render checkboxes\n{dump}"
             );
+            // CJK chars are double-cell padded by the test vterm ("选 择"),
+            // so match the ASCII part plus one CJK char rather than the phrase.
             assert!(
-                vterm.any_row(|r| r.contains("1-3 select")),
+                vterm.any_row(|r| r.contains("1-3") && r.contains('选')),
                 "single hint\n{dump}"
             );
         }
@@ -20180,8 +20226,10 @@ mod tests {
                 "Submit row must be rendered\n{dump}"
             );
             // Multiple hint no longer says "1-N toggle ... Enter confirm" -- it says Submit row confirms.
+            // CJK is double-cell padded by the test vterm, so match the key name
+            // (Space stays English in both locales) plus one CJK char.
             assert!(
-                vterm.any_row(|r| r.contains("Space toggle")),
+                vterm.any_row(|r| r.contains("Space") && r.contains('切')),
                 "multiple hint Space toggle\n{dump}"
             );
         }
@@ -20260,6 +20308,8 @@ mod tests {
 
     #[test]
     fn custom_answer_cursor_renders_before_the_placeholder() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         use rustcode_capabilities::tools::request_user_input::UserInputMode;
 
         // When the empty custom-answer row is on the cursor, the caret ▏ must sit
@@ -20312,6 +20362,8 @@ mod tests {
 
     #[test]
     fn active_custom_answer_keeps_trailing_input_visible() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         use rustcode_capabilities::tools::request_user_input::UserInputMode;
 
         let (r, _) = new_capturing(40, 20);
@@ -20357,6 +20409,8 @@ mod tests {
 
     #[test]
     fn empty_text_answer_cursor_renders_before_the_placeholder() {
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         use rustcode_capabilities::tools::request_user_input::UserInputMode;
 
         let (mut r, buf) = new_capturing(80, 24);
@@ -20404,6 +20458,10 @@ mod tests {
 
     #[test]
     fn long_user_input_wraps_and_short_terminals_follow_cursor() {
+        // The overflow indicator ("N hidden lines") now routes through `t()`;
+        // pin English so the assertion below is stable under the zh_CN default.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         use rustcode_capabilities::tools::request_user_input::UserInputMode;
         let (r, _buf) = new_capturing(42, 12);
         let view = crate::render::UserInputPanelView {
@@ -20498,6 +20556,10 @@ mod tests {
 
     #[test]
     fn user_input_batch_navigator_and_parity() {
+        // Unicode-caps assertions expect zh prose; the ASCII-caps renderer
+        // below forces English internally, so one zh pin covers both.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         use crate::render::{UserInputBatchMeta, UserInputPanelView};
         use rustcode_capabilities::tools::request_user_input::UserInputMode;
         let (r, _buf) = new_capturing(80, 24);
@@ -20625,6 +20687,8 @@ mod tests {
     /// `UserInputPanelView` with the correct header, question, and two options.
     #[test]
     fn round_cap_view_renders_header_and_two_options() {
+        let _i18n_guard = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         // cap=400 (after one continuation) but base=200 (the re-arm step): the
         // question shows the grown cap, the "continue" description must show base.
         let view = crate::render::round_cap_view(400, 200, 0, "2h0m0s · 305.00K tokens");
@@ -22777,6 +22841,10 @@ mod tests {
     /// to the committed `*` (bash-only, since only bash gets the hint).
     #[test]
     fn retained_bash_inflight_hint_is_part_of_strip_and_cleared_on_commit() {
+        // The bash liveness row word is localized (`Running` / `运行中`); pin
+        // English so the `.contains("Running")` row locator below is stable.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let (mut r, buf) = new_capturing(80, 24);
         let mut vterm = crate::test_term::VirtualTerminal::new(80, 24);
         let status = status_basic();
@@ -22851,6 +22919,10 @@ mod tests {
     /// invariant: one blank row separates the command block from `Running`.
     #[test]
     fn retained_bash_inflight_without_hint_keeps_blank_above_running() {
+        // The bash liveness row word is localized (`Running` / `运行中`); pin
+        // English so the `.contains("Running")` row locator below is stable.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let (mut r, buf) = new_capturing(80, 24);
         let mut vterm = crate::test_term::VirtualTerminal::new(80, 24);
 

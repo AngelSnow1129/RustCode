@@ -9,6 +9,10 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+// Only the Windows atomic-replace path carries a localized guidance
+// string today; gate the import so Unix builds don't flag it unused.
+#[cfg(target_os = "windows")]
+use rustcode_config::i18n::{t, Msg};
 
 pub mod gateway_crypto;
 pub mod oauth;
@@ -63,7 +67,7 @@ pub fn write_auth_file_secure(path: &Path, content: &str) -> Result<()> {
     {
         let parent = path
             .parent()
-            .context("Invalid auth file path -- please sign in again")?;
+            .context(t(Msg::AuthInvalidFilePath).into_owned())?;
         let mut temp = tempfile::NamedTempFile::new_in(parent).with_context(|| {
             format!("Failed to create temp auth file beside {}", path.display())
         })?;

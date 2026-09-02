@@ -1,9 +1,11 @@
 // Account / login state for the settings menu (the gear's "Account" entry).
-// Self-contained: reads the webui token from the URL, calls /auth/* directly,
-// and picks zh/en labels from settings — to stay decoupled from api.ts/i18n.ts.
+// Self-contained: reads the webui token from the URL and calls /auth/*
+// directly (decoupled from api.ts). Labels live in the shared i18n catalog;
+// neutral/open builds hide the whole entry point (managed_available=false).
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useSettings } from '../settings';
+import type { MsgKey } from '../i18n';
 
 const TOKEN = new URLSearchParams(location.search).get('token') ?? '';
 function authHeaders(): Record<string, string> {
@@ -17,27 +19,19 @@ export interface UserInfo {
   avatar_url?: string | null;
 }
 
-const L = {
-  zh: {
-    signIn: '登录',
-    signingIn: '登录中…',
-    signOut: '退出登录',
-    hint: '已在浏览器打开登录页…',
-    expired: '登录已过期，点击重新登录',
-  },
-  en: {
-    signIn: 'Sign in',
-    signingIn: 'Signing in…',
-    signOut: 'Sign out',
-    hint: 'Opened sign-in in your browser…',
-    expired: 'Session expired — click to sign in again',
-  },
-};
-
 // Login/logout state + actions, consumed by the Sidebar settings menu.
 export function useAuth() {
-  const { lang } = useSettings();
-  const labels = L[lang === 'en' ? 'en' : 'zh'];
+  const { t } = useSettings();
+  // Keep the same `labels` shape consumers expect, but source every string
+  // from the shared catalog so zh/en parity is type-checked with MsgKey.
+  const label = (key: MsgKey) => t(key);
+  const labels = {
+    signIn: label('login.signIn'),
+    signingIn: label('login.signingIn'),
+    signOut: label('login.signOut'),
+    hint: label('login.hint'),
+    expired: label('login.expired'),
+  };
 
   const [loggedIn, setLoggedIn] = useState(false);
   // Credentials exist but the token is dead (expired + unrefreshable). The

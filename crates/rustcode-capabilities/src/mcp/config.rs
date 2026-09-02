@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use rustcode_config::i18n::{t, Msg};
 use serde_json::{json, Map, Value};
 
 /// MCP server transport configuration.
@@ -275,11 +276,8 @@ fn read_json_for_rewrite(path: &Path) -> Result<Value> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read MCP config from {}", path.display()))?;
     if has_json_comments(&text) {
-        bail!(
-            "{} contains comments, and rewriting it would delete them. \
-             Edit the file by hand, or remove the comments and retry.",
-            path.display()
-        );
+        let path = path.display().to_string();
+        bail!("{}", t(Msg::McpCfgCommentsWouldDelete { path: &path }));
     }
     serde_json::from_str(&text)
         .with_context(|| format!("Failed to parse MCP config JSON from {}", path.display()))
@@ -345,10 +343,7 @@ fn server_entry_to_config(name: &str, entry: McpServerEntry) -> Result<McpServer
             timeout_ms: entry.timeout_ms,
         }
     } else {
-        bail!(
-            "MCP server '{}' must have either 'command' (stdio) or 'url' (http)",
-            name
-        );
+        bail!("{}", t(Msg::McpServerNeedsCommandOrUrl { name }));
     };
 
     Ok(McpServerConfig {
@@ -390,11 +385,7 @@ fn parse_http_auth(name: &str, auth: Option<McpAuthEntry>) -> Result<ParsedHttpA
             }));
             Ok(parsed)
         }
-        Some(other) => bail!(
-            "MCP server '{}' has unsupported auth.type '{}'",
-            name,
-            other
-        ),
+        Some(other) => bail!("{}", t(Msg::McpAuthTypeUnsupported { name, ty: other })),
         None => Ok(parsed),
     }
 }
@@ -425,10 +416,10 @@ pub fn merge_stdio_mcp_server_into_json_file(
     args: &[String],
 ) -> Result<()> {
     if server_key.is_empty() {
-        bail!("MCP server name must not be empty");
+        bail!("{}", t(Msg::McpCfgNameEmpty));
     }
     if program.is_empty() {
-        bail!("command must not be empty");
+        bail!("{}", t(Msg::McpCfgCommandEmpty));
     }
 
     let mut root: Value = if path.exists() {
@@ -439,7 +430,7 @@ pub fn merge_stdio_mcp_server_into_json_file(
 
     let root_obj = root
         .as_object_mut()
-        .ok_or_else(|| anyhow::anyhow!("MCP config root must be a JSON object"))?;
+        .ok_or_else(|| anyhow::anyhow!("{}", t(Msg::McpCfgRootNotObject)))?;
 
     let mut servers = collect_merged_mcp_server_maps(root_obj);
     let entry = json!({
@@ -473,13 +464,10 @@ pub fn merge_http_oauth_mcp_server_into_json_file(
     provider: &str,
 ) -> Result<()> {
     if server_key.is_empty() {
-        bail!("MCP server name must not be empty");
+        bail!("{}", t(Msg::McpCfgNameEmpty));
     }
     if url.is_empty() {
-        bail!("url must not be empty");
-    }
-    if provider.is_empty() {
-        bail!("provider must not be empty");
+        bail!("{}", t(Msg::McpCfgUrlEmpty));
     }
 
     let mut root: Value = if path.exists() {
@@ -490,15 +478,24 @@ pub fn merge_http_oauth_mcp_server_into_json_file(
 
     let root_obj = root
         .as_object_mut()
-        .ok_or_else(|| anyhow::anyhow!("MCP config root must be a JSON object"))?;
+        .ok_or_else(|| anyhow::anyhow!("{}", t(Msg::McpCfgRootNotObject)))?;
 
     let mut servers = collect_merged_mcp_server_maps(root_obj);
-    let entry = json!({
-        "url": url,
-        "auth": {
+    // An empty `provider` means a provider-neutral OAuth server: omit the field
+    // entirely so login runs generic RFC-8414 metadata discovery rather than any
+    // vendor-specific fast path. A non-empty provider is written verbatim for
+    // servers (e.g. a user-configured GitHub OAuth App) that need the interop path.
+    let auth = if provider.is_empty() {
+        json!({ "type": "oauth" })
+    } else {
+        json!({
             "type": "oauth",
             "provider": provider,
-        },
+        })
+    };
+    let entry = json!({
+        "url": url,
+        "auth": auth,
     });
     servers.insert(server_key.to_string(), entry);
     root_obj.insert("mcpServers".to_string(), Value::Object(servers));
@@ -737,6 +734,10 @@ mod jsonc_tests {
 
     #[test]
     fn rewriting_a_commented_file_is_refused_instead_of_dropping_comments() {
+        // Asserts the English refusal prose; pin the locale because the
+        // product default is Simplified Chinese.
+        let _locale = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".mcp.json");
         let original = "{\n  // 别删我\n  \"mcpServers\": {}\n}";
@@ -1042,6 +1043,29 @@ mod tests {
         );
         assert_eq!(p["auth"]["type"].as_str(), Some("oauth"));
         assert_eq!(p["auth"]["provider"].as_str(), Some("github"));
+    }
+
+    #[test]
+    fn merge_http_oauth_neutral_omits_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        // Empty provider => provider-neutral OAuth server (generic RFC-8414
+        // metadata discovery); no vendor field is written for the third-party URL.
+        merge_http_oauth_mcp_server_into_json_file(
+            &path,
+            "remote",
+            "https://mcp.example.test/sse",
+            "",
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let p = v["mcpServers"]["remote"].as_object().unwrap();
+        assert_eq!(p["url"].as_str(), Some("https://mcp.example.test/sse"));
+        assert_eq!(p["auth"]["type"].as_str(), Some("oauth"));
+        assert!(
+            p["auth"].get("provider").is_none(),
+            "neutral OAuth config must omit the provider field"
+        );
     }
 }
 

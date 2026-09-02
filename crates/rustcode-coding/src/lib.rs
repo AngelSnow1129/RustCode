@@ -66,7 +66,10 @@ pub use config::{
     CodingRuntimeConfig, SubagentModelProviders, SubagentModelResolver, SubagentProvider,
     TierProvider,
 };
-pub use controllers::{GoalPhase, GoalProgress, GoalTerminal, LoopProgress};
+pub use controllers::{
+    localize_agent_notice, localize_kernel_event, retry_reason_label, GoalPhase, GoalProgress,
+    GoalTerminal, LoopProgress,
+};
 pub use discipline::VerifyCadenceHook;
 pub use init_prompt::{build_init_prompt, INIT_PROMPT, INIT_PROMPT_ZH_CN};
 pub use parts::{

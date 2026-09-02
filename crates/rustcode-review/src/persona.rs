@@ -2,8 +2,8 @@
 //! diff with read/search/code-intelligence tools and reports each issue as a structured
 //! `report_finding` -- it never edits, builds, or runs the project.
 //!
-//! SYNC POINT: this text is the single source of truth for the review persona. The Go
-//! engineering layer (gitcode-assist-service) appends domain-specific sections via
+//! SYNC POINT: this text is the single source of truth for the review persona. An
+//! external host layer may append domain-specific sections via
 //! `--append-system-prompt-file` instead of copying this text.
 
 /// Build the reviewer system prompt for `model`. Weak models additionally get the

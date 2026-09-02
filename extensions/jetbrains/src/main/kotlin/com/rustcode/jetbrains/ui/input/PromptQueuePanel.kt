@@ -1,5 +1,7 @@
 package com.rustcode.jetbrains.ui.input
 
+import com.rustcode.jetbrains.i18n.RustCodeBundle
+
 import com.intellij.ui.JBColor
 import java.awt.FlowLayout
 import java.awt.Font
@@ -49,7 +51,7 @@ class PromptQueuePanel : JPanel(FlowLayout(FlowLayout.LEFT, 4, 2)) {
         }
 
         isVisible = true
-        add(JLabel("Queue ${items.size}").apply {
+        add(JLabel(RustCodeBundle.message("queue.title", items.size)).apply {
             font = font.deriveFont(Font.BOLD, font.size2D - 2f)
             foreground = LABEL_FG
             border = BorderFactory.createEmptyBorder(0, 0, 0, 4)
@@ -85,7 +87,7 @@ class PromptQueuePanel : JPanel(FlowLayout(FlowLayout.LEFT, 4, 2)) {
                 isFocusPainted = false
                 foreground = REMOVE_FG
                 border = BorderFactory.createEmptyBorder(0, 5, 0, 3)
-                toolTipText = "Remove from queue"
+                toolTipText = RustCodeBundle.message("queue.remove")
                 addActionListener { onRemove(item) }
             })
             add(chip)

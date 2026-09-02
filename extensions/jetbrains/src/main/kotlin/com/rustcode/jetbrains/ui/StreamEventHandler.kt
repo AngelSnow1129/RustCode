@@ -1,5 +1,7 @@
 package com.rustcode.jetbrains.ui
 
+import com.rustcode.jetbrains.i18n.RustCodeBundle
+
 import com.rustcode.jetbrains.daemon.ChatEvent
 import com.rustcode.jetbrains.ui.message.JBCefMessageView
 import com.google.gson.JsonParser
@@ -143,14 +145,14 @@ class StreamEventHandler(
         flushAssistantSegment()
         messageView.finishAssistantTurn()
         messageView.addAssistantEvent("[Stopped]")
-        addTurnSummary("Stopped", tokens = 0, toolCalls = 0, failed = true)
+        addTurnSummary(RustCodeBundle.message("turn.stopped"), tokens = 0, toolCalls = 0, failed = true)
     }
 
     fun onError(message: String) {
         flushAssistantSegment()
         messageView.finishAssistantTurn()
         messageView.addError(message)
-        addTurnSummary("Error", tokens = 0, toolCalls = 0, failed = true)
+        addTurnSummary(RustCodeBundle.message("turn.error"), tokens = 0, toolCalls = 0, failed = true)
         hasOutput = true
     }
 
@@ -167,7 +169,7 @@ class StreamEventHandler(
     fun onDone(tokens: Int, toolCalls: Int) {
         flushAssistantSegment()
         messageView.finishAssistantTurn()
-        addTurnSummary("Dialed in", tokens, toolCalls, failed = false)
+        addTurnSummary(RustCodeBundle.message("turn.dialedIn"), tokens, toolCalls, failed = false)
     }
 
     /** 流完成时收尾：如果没有输出，清理思考指示器 */
@@ -177,7 +179,7 @@ class StreamEventHandler(
         if (!hasOutput) {
             messageView.replaceThinkingWithAssistant("(no output)")
         }
-        addTurnSummary("Dialed in", tokens = 0, toolCalls = 0, failed = false)
+        addTurnSummary(RustCodeBundle.message("turn.dialedIn"), tokens = 0, toolCalls = 0, failed = false)
     }
 
     /** 重置状态，准备新一轮对话 */

@@ -10,6 +10,14 @@ enum class RustCodeContextLevel {
     Minimal,
     CurrentFile,
     ProjectContext,
+    ;
+
+    // Combo-box label; persistence still uses the enum constant name.
+    override fun toString(): String = when (this) {
+        Minimal -> com.rustcode.jetbrains.i18n.RustCodeBundle.message("context.level.minimal")
+        CurrentFile -> com.rustcode.jetbrains.i18n.RustCodeBundle.message("context.level.currentFile")
+        ProjectContext -> com.rustcode.jetbrains.i18n.RustCodeBundle.message("context.level.project")
+    }
 }
 
 data class RustCodeSettings(

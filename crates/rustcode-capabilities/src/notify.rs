@@ -236,26 +236,35 @@ fn build_turn_terminal_notification_text(
 }
 
 fn build_turn_system_notification_text(turn: &TurnNotification<'_>) -> (Cow<'static, str>, String) {
+    use rustcode_config::i18n::{t, Msg};
     let title = match turn.stop_reason {
-        NotifyStopReason::Natural => Cow::Borrowed("RustCode done"),
-        NotifyStopReason::Cancelled => Cow::Borrowed("RustCode cancelled"),
-        NotifyStopReason::Error => Cow::Borrowed("RustCode failed"),
-        NotifyStopReason::TurnLimit => Cow::Borrowed("RustCode stopped"),
-        NotifyStopReason::StepLimit => Cow::Borrowed("RustCode stopped"),
+        NotifyStopReason::Natural => t(Msg::NotifyTitleDone),
+        NotifyStopReason::Cancelled => t(Msg::NotifyTitleCancelled),
+        NotifyStopReason::Error => t(Msg::NotifyTitleFailed),
+        NotifyStopReason::TurnLimit => t(Msg::NotifyTitleStopped),
+        NotifyStopReason::StepLimit => t(Msg::NotifyTitleStopped),
     };
     let status = match turn.stop_reason {
-        NotifyStopReason::Natural => "Done",
-        NotifyStopReason::Cancelled => "Cancelled",
-        NotifyStopReason::Error => "Failed",
-        NotifyStopReason::TurnLimit => "Stopped",
-        NotifyStopReason::StepLimit => "Stopped",
+        NotifyStopReason::Natural => t(Msg::NotifyStatusDone),
+        NotifyStopReason::Cancelled => t(Msg::NotifyStatusCancelled),
+        NotifyStopReason::Error => t(Msg::NotifyStatusFailed),
+        NotifyStopReason::TurnLimit => t(Msg::NotifyStatusStopped),
+        NotifyStopReason::StepLimit => t(Msg::NotifyStatusStopped),
     };
     let mut body = format!("{} . {}", status, fmt_duration(turn.duration));
     if turn.turn_count > 0 {
-        body.push_str(&format!(" . {} rounds", turn.turn_count));
+        body.push_str(&format!(
+            " . {}",
+            t(Msg::NotifyRounds { n: turn.turn_count })
+        ));
     }
     if turn.tool_call_count > 0 {
-        body.push_str(&format!(" . {} tools", turn.tool_call_count));
+        body.push_str(&format!(
+            " . {}",
+            t(Msg::NotifyTools {
+                n: turn.tool_call_count
+            })
+        ));
     }
     (title, body)
 }
@@ -267,8 +276,12 @@ fn build_system_notification_text(turn: &TurnNotification<'_>) -> (Cow<'static, 
 fn build_approval_notification_text(
     approval: &ApprovalNotification<'_>,
 ) -> (Cow<'static, str>, String) {
-    let title = Cow::Borrowed("RustCode approval needed");
-    let mut body = format!("{} is waiting for Y/A/N", approval.tool_name);
+    use rustcode_config::i18n::{t, Msg};
+    let title = t(Msg::NotifyApprovalTitle);
+    let mut body = t(Msg::NotifyApprovalBody {
+        tool: approval.tool_name,
+    })
+    .into_owned();
     if let Some(scope) = approval
         .working_dir
         .and_then(|p| p.file_name())
@@ -549,8 +562,17 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
     }
 
+    /// Pin the process locale to English for tests that assert notification
+    /// prose (the catalog defaults to zh_CN, mirroring the product default).
+    fn en_locale() -> rustcode_config::i18n::LocaleTestGuard {
+        let guard = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
+        guard
+    }
+
     #[test]
     fn builds_human_readable_notification_text() {
+        let _locale = en_locale();
         let (title, body) = build_system_notification_text(&TurnNotification {
             duration: Duration::from_secs(12),
             turn_count: 3,
@@ -565,6 +587,7 @@ mod tests {
 
     #[test]
     fn terminal_text_is_compact_for_iterm() {
+        let _locale = en_locale();
         let (title, body) = build_turn_terminal_notification_text(
             TerminalApp::ITerm2,
             &TurnNotification {
@@ -582,6 +605,7 @@ mod tests {
 
     #[test]
     fn terminal_text_keeps_scope_for_split_title_body_protocols() {
+        let _locale = en_locale();
         let (_title, body) = build_turn_terminal_notification_text(
             TerminalApp::WezTerm,
             &TurnNotification {
@@ -600,6 +624,7 @@ mod tests {
 
     #[test]
     fn approval_notification_is_action_oriented() {
+        let _locale = en_locale();
         let (title, body) = build_approval_notification_text(&ApprovalNotification {
             tool_name: "Bash",
             detail: Some("ls -la ~/.ssh/"),

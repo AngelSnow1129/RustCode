@@ -1,6 +1,7 @@
 package com.rustcode.jetbrains.ui
 
 import com.rustcode.jetbrains.daemon.ConnectionState
+import com.rustcode.jetbrains.i18n.RustCodeBundle
 import com.rustcode.jetbrains.services.RustCodeProjectService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.StatusBar
@@ -69,16 +70,16 @@ private class RustCodeStatusBarWidget(private val project: Project) : StatusBarW
 
     override fun getTooltipText(): String =
         when (val state = service.connectionState) {
-            is ConnectionState.Ready -> "RustCode: Connected (${state.daemonVersion}). Click to open chat."
-            ConnectionState.Idle -> "RustCode: Not connected. Click to open chat."
-            ConnectionState.CheckingDaemon -> "RustCode: Checking daemon..."
-            ConnectionState.StartingDaemon -> "RustCode: Starting daemon..."
-            ConnectionState.Connecting -> "RustCode: Connecting..."
-            ConnectionState.SyncingProject -> "RustCode: Syncing project..."
-            ConnectionState.CheckingProvider -> "RustCode: Checking provider..."
-            is ConnectionState.SetupRequired -> "RustCode: Setup required - ${state.reason}"
-            is ConnectionState.ProviderMissing -> "RustCode: Provider missing"
-            is ConnectionState.Error -> "RustCode: ${state.message}"
+            is ConnectionState.Ready -> RustCodeBundle.message("statusbar.ready", state.daemonVersion)
+            ConnectionState.Idle -> RustCodeBundle.message("statusbar.notConnected")
+            ConnectionState.CheckingDaemon -> RustCodeBundle.message("statusbar.checkingDaemon")
+            ConnectionState.StartingDaemon -> RustCodeBundle.message("statusbar.startingDaemon")
+            ConnectionState.Connecting -> RustCodeBundle.message("statusbar.connecting")
+            ConnectionState.SyncingProject -> RustCodeBundle.message("statusbar.syncingProject")
+            ConnectionState.CheckingProvider -> RustCodeBundle.message("statusbar.checkingProvider")
+            is ConnectionState.SetupRequired -> RustCodeBundle.message("statusbar.setupRequired", state.reason)
+            is ConnectionState.ProviderMissing -> RustCodeBundle.message("statusbar.providerMissing")
+            is ConnectionState.Error -> RustCodeBundle.message("statusbar.error", state.message)
         }
 
     override fun getAlignment(): Float = 0.5f

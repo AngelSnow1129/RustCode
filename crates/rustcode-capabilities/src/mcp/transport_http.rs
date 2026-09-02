@@ -17,6 +17,7 @@ use super::oauth::{refresh_mcp_oauth_token, token_is_expired, McpTokenStore};
 use super::types::{
     initialize_params, CallToolResult, InitializeResult, ListToolsResult, ServerStatus,
 };
+use rustcode_config::i18n::{t, Msg};
 
 /// Default timeout for HTTP operations (30 seconds).
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
@@ -218,10 +219,10 @@ impl HttpClient {
                 && self.auth.is_some()
             {
                 bail!(
-                    "MCP server {} requires OAuth; run `rustcode mcp login {}` or `/mcp login {}`",
-                    self.server_name,
-                    self.server_name,
-                    self.server_name
+                    "{}",
+                    t(Msg::McpOAuthRequiredHint {
+                        name: &self.server_name
+                    })
                 );
             }
             let body = read_limited_response_text(response, &self.server_name).await?;

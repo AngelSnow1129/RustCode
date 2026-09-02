@@ -873,11 +873,12 @@ impl ProviderPanel {
         let mut ids: Vec<String> = with_count.into_iter().map(|(id, _)| id).collect();
         // Unconfigured preset vendors as quick-add rows. A vendor is only
         // quick-addable as a raw-key account when it has a concrete endpoint
-        // that isn't the CodingPlan gateway: the compat presets are reached via
-        // the trailing custom row; the gateway (id "atomgit", matched
-        // case-insensitively vs the CodingPlan fold) must go through
-        // the OAuth signer via /login; and presets without a default base_url
-        // (the `*-compatible` presets) have nothing to dispatch against.
+        // that isn't the managed gateway: the compat presets are reached via
+        // the trailing custom row; a managed-gateway vendor (recognized by URL
+        // via is_codingplan_gateway, or by the folded provider-name prefix via
+        // is_codingplan_provider_name) must go through the OAuth signer via
+        // /login; and presets without a default base_url (the `*-compatible`
+        // presets) have nothing to dispatch against.
         for p in provider_preset::PRESETS {
             let has_dispatchable_endpoint = p
                 .default_base_url
@@ -1982,7 +1983,11 @@ impl Modal for ProviderPanel {
                             items.push((Self::account_label(&ctx.config, id), desc));
                         }
                         // Trailing "+ 添加自定义 provider" affordance (also Ctrl+A).
-                        items.push(("＋ 添加自定义 provider".to_string(), String::new()));
+                        items.push((
+                            crate::i18n::t(crate::i18n::Msg::ProviderPanelAddAccountRow)
+                                .into_owned(),
+                            String::new(),
+                        ));
                         let selected_managed = self
                             .selected_id(&ctx.config)
                             .filter(|id| id != ADD_PROVIDER_ROW)
@@ -2083,19 +2088,19 @@ impl Modal for ProviderPanel {
                 ));
                 items.push((String::new(), String::new()));
                 let name = if form.name.is_empty() {
-                    "(必填)".to_string()
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelRequiredMark).into_owned()
                 } else {
                     form.name.clone()
                 };
                 items.push(editable_field_row(
-                    "名称",
+                    &crate::i18n::t(crate::i18n::Msg::ProviderPanelFieldName),
                     &name,
                     form.focus == FormField::Name,
                     form.cursor_byte,
                     form_cols,
                 ));
                 items.push(field_row(
-                    "协议",
+                    &crate::i18n::t(crate::i18n::Msg::ProviderPanelFieldProtocol),
                     format!(
                         "‹ {} ›   ({})",
                         form.protocol_label(),
@@ -2138,7 +2143,7 @@ impl Modal for ProviderPanel {
                 }
                 // Account-only form -- model/window/default moved to the 模型 tab.
                 hint =
-                    "Tab 下一项  ←-> 切协议  ↵ 保存  Esc 返回  （名称必填；模型到模型页加）".into();
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelAddAccountFormHint).into_owned();
             }
             Mode::EditAccount(form) => {
                 let field_row = |label: &str, value: String, focused: bool| {
@@ -2158,12 +2163,15 @@ impl Modal for ProviderPanel {
                     // Gateway-managed accounts lock protocol + key; curated
                     // preset rows lock only the protocol.
                     items.push((
-                        format!("  协议: {} (锁定)", form.protocol_label()),
+                        crate::i18n::t(crate::i18n::Msg::ProviderPanelProtocolLocked {
+                            protocol: form.protocol_label(),
+                        })
+                        .into_owned(),
                         String::new(),
                     ));
                 } else {
                     items.push(field_row(
-                        "协议",
+                        &crate::i18n::t(crate::i18n::Msg::ProviderPanelFieldProtocol),
                         format!(
                             "‹ {} ›   ({})",
                             form.protocol_label(),
@@ -2200,11 +2208,13 @@ impl Modal for ProviderPanel {
                     ));
                 }
                 hint = if form.vendor_locked {
-                    "Tab 下一项  ↵ 保存  Esc 返回  （CodingPlan 仅可改 base_url）".into()
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelEditFormVendorLockedHint)
+                        .into_owned()
                 } else if form.protocol_locked {
-                    "Tab 下一项  ↵ 保存  Esc 返回  （厂商协议已锁定）".into()
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelEditFormProtocolLockedHint)
+                        .into_owned()
                 } else {
-                    "Tab 下一项  ←-> 切协议  ↵ 保存  Esc 返回".into()
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelEditAccountFormHint).into_owned()
                 };
             }
             Mode::Model(form) => {
@@ -2249,7 +2259,12 @@ impl Modal for ProviderPanel {
                             * '•'.len_utf8();
                         items.push(editable_field_row(
                             "api_key",
-                            &format!("{masked}   (该 provider 尚未配置)"),
+                            &format!(
+                                "{masked}   ({})",
+                                crate::i18n::t(
+                                    crate::i18n::Msg::ProviderPanelProviderNotConfigured
+                                )
+                            ),
                             form.focus == ModelField::ApiKey,
                             masked_cursor,
                             form_cols,
@@ -3031,8 +3046,9 @@ mod tests {
         // Custom-endpoint presets are reached via the add-custom row, not listed.
         assert!(!ids.contains(&"openai-compatible".to_string()));
         assert!(!ids.contains(&"anthropic-compatible".to_string()));
-        // The lowercase "atomgit" gateway preset (if it existed) must NOT be quick-addable as a
-        // raw-key account -- it has to go through the CodingPlan OAuth signer.
+        // Neutrality guard: the legacy upstream gateway vendor id must never
+        // appear as a quick-add raw-key account -- the managed gateway is
+        // reached exclusively through the /login OAuth signer.
         assert!(!ids.contains(&"atomgit".to_string()));
         // A preset with a concrete default endpoint is quick-addable.
         assert!(ids.contains(&"xiaomi-mimo".to_string()));

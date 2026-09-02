@@ -1633,6 +1633,17 @@ async fn run_child_to_completion(
                 outcome.error_code = code;
                 outcome.provider_retryable = retryable;
             }
+            AgentEvent::AgentNotice(notice) => {
+                // Sub-agent tool results are machine-facing (read by the parent
+                // model), so keep the kernel's neutral English diagnostic + stable
+                // token, matching raw transport errors. Transient advisory notices
+                // (retry/truncation/over-window) are non-errors and ignored, like
+                // ordinary Warnings.
+                if notice.is_error() {
+                    outcome.error = Some(notice.english_diagnostic());
+                    outcome.error_code = Some(notice.machine_token().to_string());
+                }
+            }
             AgentEvent::PolicyIntervention { intervention } => {
                 outcome.policy_intervention = Some(intervention);
             }

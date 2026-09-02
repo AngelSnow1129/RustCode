@@ -104,6 +104,7 @@ use rustcode_capabilities::mcp::McpRegistry;
 use rustcode_capabilities::session::{SessionManager as NativeSessionManager, SessionStoreError};
 use rustcode_coding::CodingRuntimeEvent;
 use rustcode_config::config::Config;
+use rustcode_config::i18n::{t, Msg};
 
 const CHAT_REQUEST_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 
@@ -486,13 +487,13 @@ impl ActiveChatRegistry {
         let mut index = self.inner.write().await;
         if let Some(owner) = index.aliases.get(session_id) {
             if owner != operation_id {
-                anyhow::bail!("chat session {session_id} became active while this turn started");
+                anyhow::bail!("{}", t(Msg::DaemonChatSessionStolen { session_id }));
             }
         }
         let operation = index
             .operations
             .get_mut(operation_id)
-            .ok_or_else(|| anyhow::anyhow!("chat operation is no longer active"))?;
+            .ok_or_else(|| anyhow::anyhow!("{}", t(Msg::DaemonChatOperationInactive)))?;
         operation.session_id = Some(session_id.to_string());
         if !operation.aliases.iter().any(|alias| alias == session_id) {
             operation.aliases.push(session_id.to_string());
@@ -3084,10 +3085,22 @@ fn resolve_chat_provider(
 ) -> anyhow::Result<(String, rustcode_config::config::provider::ProviderConfig)> {
     let selection = requested
         .or_else(|| config.effective_model_selection())
-        .ok_or_else(|| anyhow::anyhow!("no model selected"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CfgResolveNoModel)
+            )
+        })?;
     let provider = config
         .provider_config_for_selection(&selection)
-        .ok_or_else(|| anyhow::anyhow!("Provider '{}' not found", selection))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CfgResolveModelNotFound {
+                    id: &selection
+                })
+            )
+        })?;
     Ok((selection, provider))
 }
 
@@ -3935,7 +3948,7 @@ impl ChatRuntimeProjector {
                 vec![ChatEvent::PermissionRequest {
                     session_id: permission_session_id.to_string(),
                     tool_name: approval.tool,
-                    reason: "Requires approval".into(),
+                    reason: t(Msg::PermissionReasonRequiresApproval).into_owned(),
                     call_id: approval.call_id,
                     arguments: approval.args,
                 }]
@@ -3980,7 +3993,10 @@ impl ChatRuntimeProjector {
                         error,
                     },
             } => vec![ChatEvent::Error {
-                message: format!("compact failed: {error}"),
+                message: rustcode_config::i18n::t(rustcode_config::i18n::Msg::LiveCompactFailed {
+                    error: &error.to_string(),
+                })
+                .into_owned(),
             }],
             CodingRuntimeEvent::TurnFinished(TurnCompletion::Completed {
                 reason, stats, ..
@@ -4120,17 +4136,23 @@ impl ChatRuntimeProjector {
                 backoff_secs,
                 reason,
             } => vec![ChatEvent::Warning {
-                message: format!(
-                    "API error {reason}，{backoff_secs} 秒后重试({attempt}/{max_attempts})..."
-                ),
+                message: t(Msg::LiveApiProviderRetry {
+                    reason: &rustcode_coding::retry_reason_label(reason),
+                    backoff_secs,
+                    attempt,
+                    max_attempts,
+                })
+                .into_owned(),
             }],
             Agent::OutputTruncationRecovery {
                 attempt,
                 max_attempts,
             } => vec![ChatEvent::Warning {
-                message: format!(
-                    "output limit reached; automatically continuing ({attempt}/{max_attempts})"
-                ),
+                message: t(Msg::LiveApiOutputLimit {
+                    attempt,
+                    max_attempts,
+                })
+                .into_owned(),
             }],
             Agent::PolicyIntervention { intervention } => {
                 vec![ChatEvent::PolicyIntervention {
@@ -4600,7 +4622,12 @@ async fn process_chat_request(
                 &session_id,
                 &snapshot,
             ) {
-                eprintln!("Warning: Failed to save native session after early stop: {e}");
+                eprintln!(
+                    "{}",
+                    t(Msg::DaemonSessionSaveEarlyStopFailed {
+                        error: &e.to_string()
+                    })
+                );
             }
         }
         let _ = event_tx.send(ChatEvent::Stopped);
@@ -5082,7 +5109,13 @@ fn install_panic_hook() {
             .map(|s| s.to_string())
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_default();
-        eprintln!("[rustcode] panic at {loc}: {msg}");
+        eprintln!(
+            "{}",
+            t(Msg::DaemonPanicHook {
+                loc: &loc.to_string(),
+                msg: &msg
+            })
+        );
         default_hook(info);
     }));
 }
@@ -5241,7 +5274,12 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
         let (listener, actual_port) = match bind_scanning(host, port, 100).await {
             Ok(v) => v,
             Err(e) => {
-                return format!("webui 启动失败：{host}:{port} 起的端口绑定失败（{e}）");
+                return t(Msg::WebuiBindFailed {
+                    host,
+                    port,
+                    error: &e.to_string(),
+                })
+                .into_owned();
             }
         };
         let tokens = auth_token::WebuiTokenStore::new();
@@ -5319,16 +5357,17 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
     );
     let opened = rustcode_auth::oauth::open_browser(&local_url).is_ok();
     let mut msg = if opened {
-        format!("已在浏览器打开 webui：{local_url}")
+        t(Msg::WebuiOpenedBrowser { url: &local_url }).into_owned()
     } else {
-        format!("请手动在浏览器打开：{local_url}")
+        t(Msg::WebuiOpenManually { url: &local_url }).into_owned()
     };
 
     // 复用了一个绑定地址不同的运行实例：提示如何换绑。
     if bound_host.as_str() != host {
-        msg.push_str(&format!(
-            "\n（webui 已在运行，绑定 {bound_host}；如需改绑 {host}，请先 /webui stop 再重试）"
-        ));
+        msg.push_str(&t(Msg::WebuiRebindHint {
+            bound_host: &bound_host,
+            host,
+        }));
     }
 
     // 绑定了非回环地址：给出访问 URL + 安全/作用域提示。
@@ -5336,14 +5375,10 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
         if is_wildcard {
             // 主 URL（local_url）已是局域网 IP（若探测到），它在本机自身也可访问
             // （0.0.0.0 监听所有接口，含回环），故无需再单列 127.0.0.1 那条冗余链接。
-            msg.push_str(
-                "\n[!] 主地址为局域网 IP，仅同一网络内的设备可访问；公网访问请用隧道（如 cloudflared / Tailscale）。无 TLS，凡能访问者凭 token 即可进入。",
-            );
+            msg.push_str(&t(Msg::WebuiLanWarning));
         } else {
             // 显式指定了具体地址：local_url 已是该地址，这里仅补安全提示。
-            msg.push_str(
-                "\n[!] 已绑定非回环地址：凡能访问该地址者凭此 token 即可进入，请仅在可信网络使用（无 TLS）。",
-            );
+            msg.push_str(&t(Msg::WebuiNonLoopbackWarning));
         }
     }
 
@@ -5355,9 +5390,9 @@ pub fn stop_server() -> String {
     let mut guard = WEBUI.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(handle) = guard.take() {
         handle.abort.abort();
-        "已停止 webui server".to_string()
+        t(Msg::WebuiStopped).into_owned()
     } else {
-        "webui server 未在运行".to_string()
+        t(Msg::WebuiNotRunning).into_owned()
     }
 }
 
@@ -5407,9 +5442,14 @@ pub async fn ensure_app_server(
         return Ok((h, p));
     }
 
-    let (listener, actual_port) = bind_scanning(host, port, 100)
-        .await
-        .map_err(|e| format!("绑定 {host}:{port} 失败（{e}）"))?;
+    let (listener, actual_port) = bind_scanning(host, port, 100).await.map_err(|e| {
+        t(Msg::AppServerBindFailed {
+            host,
+            port,
+            error: &e.to_string(),
+        })
+        .into_owned()
+    })?;
     let opts = ServerOpts {
         host: host.to_string(),
         port: actual_port,
@@ -5916,12 +5956,22 @@ async fn fs_open(
             } else {
                 StatusCode::BAD_REQUEST
             };
-            return json_error(status, format!("cannot open file: {error}")).into_response();
+            return json_error(
+                status,
+                t(Msg::DaemonApiCannotOpenFile {
+                    error: &error.to_string(),
+                })
+                .into_owned(),
+            )
+            .into_response();
         }
         Err(error) => {
             return json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("file resolution task failed: {error}"),
+                t(Msg::DaemonApiFileResolveFailed {
+                    error: &error.to_string(),
+                })
+                .into_owned(),
             )
             .into_response();
         }
@@ -6245,9 +6295,14 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     );
     if !quiet {
         if idle_timeout_secs > 0 {
-            println!("Idle timeout: {} minutes", idle_timeout_secs / 60);
+            println!(
+                "{}",
+                t(Msg::DaemonIdleTimeout {
+                    minutes: idle_timeout_secs / 60
+                })
+            );
         } else {
-            println!("Idle timeout: disabled");
+            println!("{}", t(Msg::DaemonIdleTimeoutDisabled));
         }
     }
 
@@ -6264,66 +6319,117 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     // 非 loopback 的安全警告即便在 quiet 模式也应输出（仅独立二进制可能触发，
     // 进程内 webui 恒为 127.0.0.1）。
     if host != "127.0.0.1" && host != "localhost" && host != "::1" {
-        eprintln!(
-            "Warning: binding to non-loopback address '{}'. \
-            The daemon exposes sensitive endpoints (chat, file-edit, tool-execution). \
-            Ensure the network is trusted or use a reverse proxy with authentication.",
-            host
-        );
+        eprintln!("{}", t(Msg::DaemonWarnNonLoopback { host: &host }));
     }
     if dangerous_tools_enabled() {
         eprintln!(
-            "Warning: {}=1 enables bash and write-capable daemon tools.",
-            DANGEROUS_TOOLS_ENV
+            "{}",
+            t(Msg::DaemonWarnDangerousTools {
+                env: DANGEROUS_TOOLS_ENV
+            })
         );
     }
     // 启动横幅（监听地址 + API 端点清单）仅在非 quiet 模式打印。TUI 内 `/webui`
     // 走 quiet 路径，由 ensure_server_and_open 单独返回一行干净的浏览器地址。
     if !quiet {
-        println!("RustCode API server listening on http://{}", addr);
-        println!("\nAPI endpoints:");
-        println!("  GET    /health                        - Health check");
-        println!("  GET    /project                        - Get current working directory");
-        println!(
-            "  POST   /cd                             - Change working directory (like /cd command)"
-        );
-        println!("  GET    /projects                       - List historical projects");
-        println!("  GET    /projects/:hash/sessions        - List sessions in a project");
-        println!("  GET    /projects/:hash/sessions/:id    - Get session detail");
-        println!("  DELETE /projects/:hash/sessions/:id    - Delete a session");
-        println!("  PATCH  /projects/:hash/sessions/:id/rename - Rename a session");
-        println!("  POST   /projects/:hash/sessions/:id/repair - Inspect or repair a session");
-        println!("  GET    /sessions                       - List all sessions (cross-project)");
-        println!("  GET    /sessions/search?q=<keyword>    - Search sessions by name");
-        println!("  GET    /models                         - List available models");
-        println!("  POST   /chat                           - Stream chat response (SSE)");
-        println!("  GET    /config                         - Get sanitized config");
-        println!("  POST   /config/reload                  - Reload config from disk");
-        println!("  GET    /providers                      - List providers");
-        println!("  POST   /providers                      - Create/replace provider");
-        println!("  PATCH  /providers/:name                - Partially update provider");
-        println!("  DELETE /providers/:name                - Delete provider");
-        println!("  POST   /providers/:name/default        - Set default provider");
-        println!("  PATCH  /providers/:name/thinking       - Update thinking settings");
-        println!("  GET    /skills                         - List user-invocable skills");
-        println!("  GET    /auth/status                    - Auth status");
-        println!("  POST   /auth/login/start               - Start OAuth login");
-        println!("  POST   /auth/login/:login_id/poll      - Poll login session");
-        println!("  DELETE /auth/login/:login_id           - Cancel login session");
-        println!("  POST   /auth/logout                    - Logout");
+        println!("{}", t(Msg::DaemonListening { addr: &addr }));
+        println!();
+        println!("{}", t(Msg::DaemonApiEndpoints));
+        // HTTP 方法与路径是 API 标识符（保持英文）；只有破折号后的描述走 i18n。
+        // Column widths: method field 7, path field 40.
+        const ENDPOINTS: &[(&str, &str, Msg)] = &[
+            ("GET", "/health", Msg::DaemonEpHealth),
+            ("GET", "/project", Msg::DaemonEpProject),
+            ("POST", "/cd", Msg::DaemonEpCd),
+            ("GET", "/projects", Msg::DaemonEpProjects),
+            (
+                "GET",
+                "/projects/:hash/sessions",
+                Msg::DaemonEpProjectSessions,
+            ),
+            (
+                "GET",
+                "/projects/:hash/sessions/:id",
+                Msg::DaemonEpSessionDetail,
+            ),
+            (
+                "DELETE",
+                "/projects/:hash/sessions/:id",
+                Msg::DaemonEpSessionDelete,
+            ),
+            (
+                "PATCH",
+                "/projects/:hash/sessions/:id/rename",
+                Msg::DaemonEpSessionRename,
+            ),
+            (
+                "POST",
+                "/projects/:hash/sessions/:id/repair",
+                Msg::DaemonEpSessionRepair,
+            ),
+            ("GET", "/sessions", Msg::DaemonEpSessionsAll),
+            (
+                "GET",
+                "/sessions/search?q=<keyword>",
+                Msg::DaemonEpSessionsSearch,
+            ),
+            ("GET", "/models", Msg::DaemonEpModels),
+            ("POST", "/chat", Msg::DaemonEpChat),
+            ("GET", "/config", Msg::DaemonEpConfigGet),
+            ("POST", "/config/reload", Msg::DaemonEpConfigReload),
+            ("GET", "/providers", Msg::DaemonEpProvidersList),
+            ("POST", "/providers", Msg::DaemonEpProvidersCreate),
+            ("PATCH", "/providers/:name", Msg::DaemonEpProvidersUpdate),
+            ("DELETE", "/providers/:name", Msg::DaemonEpProvidersDelete),
+            (
+                "POST",
+                "/providers/:name/default",
+                Msg::DaemonEpProviderDefault,
+            ),
+            (
+                "PATCH",
+                "/providers/:name/thinking",
+                Msg::DaemonEpProviderThinking,
+            ),
+            ("GET", "/skills", Msg::DaemonEpSkills),
+            ("GET", "/auth/status", Msg::DaemonEpAuthStatus),
+            ("POST", "/auth/login/start", Msg::DaemonEpLoginStart),
+            ("POST", "/auth/login/:login_id/poll", Msg::DaemonEpLoginPoll),
+            ("DELETE", "/auth/login/:login_id", Msg::DaemonEpLoginCancel),
+            ("POST", "/auth/logout", Msg::DaemonEpLogout),
+        ];
+        for (method, path, msg) in ENDPOINTS {
+            println!("  {method:<7}{path:<40} - {}", t(*msg));
+        }
         // `/codingplan/*` 路由仅在 `codingplan` feature 下挂载（见
         // `codingplan_routes()`）；默认构建里这些路径返回 404，横幅不得
         // 宣传不存在的端点。
         #[cfg(feature = "codingplan")]
         {
-            println!("  POST   /codingplan/setup               - Run CodingPlan setup");
-            println!("  GET    /codingplan/usage/summary       - CodingPlan quota summary");
-            println!("  GET    /codingplan/usage/daily         - CodingPlan daily usage");
+            const CP_ENDPOINTS: &[(&str, &str, Msg)] = &[
+                ("POST", "/codingplan/setup", Msg::DaemonEpCpSetup),
+                (
+                    "GET",
+                    "/codingplan/usage/summary",
+                    Msg::DaemonEpCpUsageSummary,
+                ),
+                ("GET", "/codingplan/usage/daily", Msg::DaemonEpCpUsageDaily),
+            ];
+            for (method, path, msg) in CP_ENDPOINTS {
+                println!("  {method:<7}{path:<40} - {}", t(*msg));
+            }
         }
-        println!("\nChange directory body:");
-        println!("  {{\"path\": \"/path/to/project\"}}  or {{\"path\": \"-\"}} to go back");
-        println!("\nChat request body:");
-        println!("  {{\"message\": \"your question\", \"provider\": \"optional\"}}");
+        println!();
+        println!("{}", t(Msg::DaemonCdBodyHeading));
+        // JSON 示例体是机器面负载样例，保持英文原样；仅后半句提示走 i18n。
+        println!(
+            "  {}  {}",
+            r#"{"path": "/path/to/project"}"#,
+            t(Msg::DaemonCdBodyHint)
+        );
+        println!();
+        println!("{}", t(Msg::DaemonChatBodyHeading));
+        println!(r#"  {{"message": "your question", "provider": "optional"}}"#);
     }
 
     // Step 9: Bind listener (R4.1 gate). 进程内 webui 已预先绑定并传入 listener
@@ -6334,7 +6440,13 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         None => match tokio::net::TcpListener::bind(&addr).await {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("Fatal: failed to bind to {}: {}", addr, e);
+                eprintln!(
+                    "{}",
+                    t(Msg::DaemonFatalBind {
+                        addr: &addr,
+                        error: &e.to_string()
+                    })
+                );
                 std::process::exit(1);
             }
         },
@@ -6506,6 +6618,9 @@ mod tests {
 
     #[test]
     fn chat_projector_keeps_output_truncation_recovery_visible() {
+        // Asserted prose is the English arm; pin locale (default is ZhCn).
+        let _locale_guard = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         let mut projector = ChatRuntimeProjector::default();
         let events = projector.project_agent(
             rustcode_kernel::event::AgentEvent::OutputTruncationRecovery {
@@ -6817,8 +6932,12 @@ mod tests {
         }))
         .unwrap();
 
+        // Asserts the English resolution prose; pin the locale because
+        // the product default is Simplified Chinese.
+        let _locale = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         let error = resolve_chat_provider(&config, Some("missing".into())).unwrap_err();
-        assert_eq!(error.to_string(), "Provider 'missing' not found");
+        assert_eq!(error.to_string(), "model `missing` not found");
     }
 
     #[test]

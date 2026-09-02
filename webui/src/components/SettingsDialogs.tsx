@@ -623,7 +623,7 @@ function AddAccountModelsDialog({
           <input
             class="menu-input"
             type="text"
-            placeholder="your-model-id"
+            placeholder={t('settings.modelIdPlaceholder')}
             value={manualModel}
             onInput={(e) => setManualModel((e.target as HTMLInputElement).value)}
           />
@@ -833,7 +833,7 @@ function ProviderFormDialog({
           <input
             class="menu-input"
             type="text"
-            placeholder="my-provider"
+            placeholder={t('settings.providerNamePlaceholder')}
             value={nameInput}
             onInput={(e) => setNameInput((e.target as HTMLInputElement).value)}
           />
@@ -855,7 +855,7 @@ function ProviderFormDialog({
           <input
             class="menu-input"
             type="text"
-            placeholder="your-model-id"
+            placeholder={t('settings.modelIdPlaceholder')}
             value={model}
             onInput={(e) => setModel((e.target as HTMLInputElement).value)}
           />
@@ -979,7 +979,7 @@ function ProviderFormDialog({
   );
 }
 
-/** 远程访问（蒲公英 / Oray PGY）：检测状态，给出可扫码的私网 URL。 */
+/** 远程访问（局域网 / 虚拟局域网隧道）：检测状态，给出可扫码的私网 URL。 */
 export function RemoteAccessDialog({ onClose }: { onClose: () => void }) {
   const { t, lang } = useSettings();
   const [status, setStatus] = useState<TunnelStatus | null>(null);
@@ -1023,18 +1023,11 @@ export function RemoteAccessDialog({ onClose }: { onClose: () => void }) {
 
         {!loading && status && (
           <>
-            {/* 1) 未装 / 未连蒲公英 */}
+            {/* 1) 未检测到可用隧道 / 未获得可达 IP —— 给中性的局域网/隧道指引，
+                不硬编码任何第三方厂商下载链接；文档链接见底部「使用引导」。 */}
             {(!pgy?.installed || !pgy?.ipv4) && (
               <div class="remote-state">
                 <p>{pgy?.installed ? t('remote.notConnected') : t('remote.notInstalled')}</p>
-                <a
-                  class="btn btn-primary"
-                  href="https://pgy.oray.com"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t('remote.installLink')}
-                </a>
               </div>
             )}
 

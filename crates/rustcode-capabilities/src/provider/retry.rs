@@ -261,17 +261,20 @@ pub(crate) fn stream_read_error_message(
         // Each recovery mode owns its full lead sentence -- the PartialResponse
         // case is NOT a bare connection drop (we kept output), so it must not be
         // wrapped in the "网络连接中断" framing that fits RetryExhausted.
-        let lead = match recovery {
-            StreamReadRecovery::RetryExhausted { attempts } => {
-                format!("网络连接中断:远端关闭或重置了连接,自动重连 {attempts} 次后仍失败,可重试。")
-            }
-            StreamReadRecovery::PartialResponse => {
-                "响应中断:为避免重复输出或工具执行,未自动重放;已保留可安全保存的部分回复,可继续。"
-                    .to_string()
-            }
-        };
+        let lead =
+            match recovery {
+                StreamReadRecovery::RetryExhausted { attempts } => rustcode_config::i18n::t(
+                    rustcode_config::i18n::Msg::ProviderErrConnResetRetried { attempts },
+                )
+                .into_owned(),
+                StreamReadRecovery::PartialResponse => rustcode_config::i18n::t(
+                    rustcode_config::i18n::Msg::ProviderErrConnResetPartial,
+                )
+                .into_owned(),
+            };
+        let label = rustcode_config::i18n::t(rustcode_config::i18n::Msg::ProviderErrDetailLabel);
         format!(
-            "{lead}{}详情: {}",
+            "{lead}{}{label}: {}",
             connection_reset_hint(err),
             err_chain(err)
         )
@@ -285,15 +288,17 @@ pub(crate) fn stream_read_error_message(
 /// server fault, so point the user at the actionable cause. Empty for other
 /// transport drops (macOS `os error 54` / Linux `104`), where a proxy hint would
 /// misdirect. Matches on the numeric code so it is locale-independent.
-fn connection_reset_hint(err: &(dyn std::error::Error + 'static)) -> &'static str {
+fn connection_reset_hint(
+    err: &(dyn std::error::Error + 'static),
+) -> std::borrow::Cow<'static, str> {
     let mut cur: Option<&(dyn std::error::Error + 'static)> = Some(err);
     while let Some(e) = cur {
         if e.to_string().contains("os error 10054") {
-            return "此错误常见于公司网络或代理环境,请检查代理/VPN/防火墙设置后重试。";
+            return rustcode_config::i18n::t(rustcode_config::i18n::Msg::ProviderErrCorpProxyHint);
         }
         cur = e.source();
     }
-    ""
+    std::borrow::Cow::Borrowed("")
 }
 
 /// Strip any `user:pass@` userinfo from a proxy URL so credentials never land
@@ -360,12 +365,15 @@ pub(crate) fn proxy_unreachable_hint(chain: &str, proxy: Option<&str>) -> String
     // shared tail names the exact `/proxy` menu option (`no_proxy`) to pick --
     // the bare term "直连" is jargon users won't map to an action.
     let who = match proxy {
-        Some(p) if !p.is_empty() => format!("代理 {p}"),
-        _ => "配置的代理".to_string(),
+        Some(p) if !p.is_empty() => {
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::ProviderErrProxyNamed { proxy: p })
+                .into_owned()
+        }
+        _ => rustcode_config::i18n::t(rustcode_config::i18n::Msg::ProviderErrProxyConfigured)
+            .into_owned(),
     };
-    format!(
-        "无法连接到{who}(代理可能未运行或地址不可达)。若你不需要代理,请运行 /proxy 并选择 no_proxy(不使用代理)后重试。"
-    )
+    rustcode_config::i18n::t(rustcode_config::i18n::Msg::ProviderErrProxyUnreachable { who: &who })
+        .into_owned()
 }
 
 /// The user-facing `open failed: ...` message for a connection-open failure,
@@ -380,7 +388,8 @@ pub(crate) fn open_failed_message(e: &reqwest::Error) -> String {
     if hint.is_empty() {
         format!("open failed: {chain}")
     } else {
-        format!("open failed: {hint}详情: {chain}")
+        let label = rustcode_config::i18n::t(rustcode_config::i18n::Msg::ProviderErrDetailLabel);
+        format!("open failed: {hint}{label}: {chain}")
     }
 }
 
@@ -688,6 +697,8 @@ mod tests {
 
     #[test]
     fn chain_has_transient_io_detects_connection_timeout() {
+        let _i18n_guard = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
         use std::io::{Error, ErrorKind};
         // The reported case: a streamed body read that dies with
         // `Connection timed out (os error 110)` (Linux ETIMEDOUT -> ErrorKind::TimedOut)
@@ -835,6 +846,8 @@ mod tests {
 
     #[test]
     fn stream_read_error_message_explains_a_connection_reset_in_plain_language() {
+        let _i18n_guard = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
         use std::io::{Error, ErrorKind};
         // The reported Windows case: a gateway forcibly closing the connection
         // mid-body surfaces as the opaque "os error 10054 / 远程主机强迫关闭了一个
@@ -872,6 +885,8 @@ mod tests {
 
     #[test]
     fn non_10054_transport_drop_omits_the_corporate_network_hint() {
+        let _i18n_guard = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
         use std::io::{Error, ErrorKind};
         // macOS ECONNRESET (os error 54) is a generic transport drop -- the
         // proxy/VPN hint would misdirect, so it must NOT appear.

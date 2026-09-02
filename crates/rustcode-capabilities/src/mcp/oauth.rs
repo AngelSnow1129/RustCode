@@ -14,6 +14,7 @@ use url::Url;
 use uuid::Uuid;
 
 use super::config::{McpHttpAuthConfig, McpOAuthConfig, McpServerConfig, McpTransportConfig};
+use rustcode_config::i18n::{t, Msg};
 
 const GITHUB_AUTHORIZE_URL: &str = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
@@ -162,20 +163,26 @@ pub fn token_is_expired(token: &McpOAuthToken) -> bool {
 pub fn refresh_mcp_oauth_token(server_name: &str, token: &McpOAuthToken) -> Result<McpOAuthToken> {
     let Some(refresh_token) = token.refresh_token.as_deref() else {
         bail!(
-            "MCP server {} OAuth token is expired and has no refresh token",
-            server_name
+            "{}",
+            t(Msg::McpOAuthRefreshNoRefreshToken {
+                server: server_name
+            })
         );
     };
     let Some(token_endpoint) = token.token_endpoint.as_deref() else {
         bail!(
-            "MCP server {} OAuth token is expired and has no saved token endpoint",
-            server_name
+            "{}",
+            t(Msg::McpOAuthRefreshNoTokenEndpoint {
+                server: server_name
+            })
         );
     };
     let Some(client_id) = token.client_id.as_deref() else {
         bail!(
-            "MCP server {} OAuth token is expired and has no saved client id",
-            server_name
+            "{}",
+            t(Msg::McpOAuthRefreshNoClientId {
+                server: server_name
+            })
         );
     };
 
@@ -207,7 +214,12 @@ pub fn refresh_mcp_oauth_token(server_name: &str, token: &McpOAuthToken) -> Resu
         .send()
         .context("Failed to refresh MCP OAuth token")?;
     if !resp.status().is_success() {
-        bail!("MCP OAuth refresh failed: HTTP {}", resp.status());
+        bail!(
+            "{}",
+            t(Msg::McpOAuthRefreshFailed {
+                status: resp.status().as_u16()
+            })
+        );
     }
     let refreshed: TokenResponse = resp
         .json()
@@ -239,15 +251,12 @@ pub fn login_mcp_oauth(
             ..
         } => (url.as_str(), auth.clone()),
         McpTransportConfig::Http { .. } => {
-            bail!(
-                "MCP server '{}' is HTTP but does not use OAuth auth",
-                server.name
-            )
+            bail!("{}", t(Msg::McpOAuthHttpNotOAuth { name: &server.name }))
         }
         McpTransportConfig::Stdio { .. } => {
             bail!(
-                "MCP server '{}' uses stdio; OAuth login only applies to HTTP MCP servers",
-                server.name
+                "{}",
+                t(Msg::McpOAuthStdioUnsupported { name: &server.name })
             )
         }
     };
@@ -319,15 +328,15 @@ pub fn login_mcp_oauth(
     }
 
     println!(
-        "  Browser didn't open? Open the URL below to authorize MCP server '{}':",
-        server.name
+        "{}",
+        t(Msg::McpOAuthBrowserHintServer { name: &server.name })
     );
     println!("  {}", authorize_url);
     let _ = open_browser(authorize_url.as_str());
 
     let (code, returned_state) = await_oauth_callback(listener)?;
     if returned_state != state {
-        bail!("OAuth state mismatch");
+        bail!("{}", t(Msg::McpOAuthStateMismatch));
     }
 
     let mut form = vec![
@@ -351,7 +360,12 @@ pub fn login_mcp_oauth(
         .send()
         .context("Failed to exchange MCP OAuth code")?;
     if !resp.status().is_success() {
-        bail!("MCP OAuth token exchange failed: HTTP {}", resp.status());
+        bail!(
+            "{}",
+            t(Msg::McpOAuthExchangeFailed {
+                status: resp.status().as_u16()
+            })
+        );
     }
     let token: TokenResponse = resp
         .json()
@@ -376,12 +390,10 @@ pub fn login_github_oauth(
     scopes: &[String],
 ) -> Result<McpOAuthToken> {
     if client_id.trim().is_empty() {
-        bail!("GitHub OAuth client id is required");
+        bail!("{}", t(Msg::McpGithubClientIdRequired));
     }
     let Some(client_secret_env) = client_secret_env else {
-        bail!(
-            "GitHub MCP OAuth requires --client-secret-env or auth.client_secret_env in mcp.json"
-        );
+        bail!("{}", t(Msg::McpGithubSecretEnvRequired));
     };
     let client_secret = std::env::var(client_secret_env).with_context(|| {
         format!(
@@ -405,13 +417,13 @@ pub fn login_github_oauth(
         .append_pair("scope", &scope)
         .append_pair("state", &state);
 
-    println!("  Browser didn't open? Open the URL below to authorize GitHub MCP:");
+    println!("{}", t(Msg::McpOAuthBrowserHintGithub));
     println!("  {}", url);
     let _ = open_browser(url.as_str());
 
     let (code, returned_state) = await_oauth_callback(listener)?;
     if returned_state != state {
-        bail!("OAuth state mismatch");
+        bail!("{}", t(Msg::McpOAuthStateMismatch));
     }
 
     let client = crate::proxy::apply_blocking_proxy_policy(reqwest::blocking::Client::builder())
@@ -431,7 +443,12 @@ pub fn login_github_oauth(
         .send()
         .context("Failed to exchange GitHub OAuth code")?;
     if !resp.status().is_success() {
-        bail!("GitHub OAuth token exchange failed: HTTP {}", resp.status());
+        bail!(
+            "{}",
+            t(Msg::McpGithubExchangeFailed {
+                status: resp.status().as_u16()
+            })
+        );
     }
     let token: TokenResponse = resp
         .json()
@@ -596,11 +613,7 @@ fn register_oauth_client(
     redirect_uri: &str,
 ) -> Result<ClientRegistrationResponse> {
     let Some(registration_endpoint) = metadata.registration_endpoint.as_deref() else {
-        bail!(
-            "MCP OAuth requires a pre-registered client_id because the authorization server \
-             does not support dynamic client registration (RFC 7591). \
-             Add a pre-registered client_id to auth.client_id in your .mcp.json and try again."
-        );
+        bail!("{}", t(Msg::McpOAuthRegistrationRequired));
     };
     let resp = client
         .post(registration_endpoint)
@@ -619,14 +632,20 @@ fn register_oauth_client(
         let body = resp.text().unwrap_or_default();
         if status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::UNAUTHORIZED {
             bail!(
-                "MCP OAuth dynamic client registration failed: HTTP {status} -- \
-                 the authorization server rejected the request. \
-                 Add a pre-registered client_id to auth.client_id \
-                 in your .mcp.json and try again.\n\
-                 Response: {body}"
+                "{}",
+                t(Msg::McpOAuthRegisterRejected {
+                    status: status.as_u16(),
+                    body: &body
+                })
             );
         }
-        bail!("MCP OAuth dynamic client registration failed: HTTP {status}\nResponse: {body}");
+        bail!(
+            "{}",
+            t(Msg::McpOAuthRegisterFailed {
+                status: status.as_u16(),
+                body: &body
+            })
+        );
     }
     resp.json()
         .context("Failed to parse MCP OAuth dynamic client registration response")

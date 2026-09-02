@@ -121,6 +121,16 @@ impl<W: Write + Send> PlainRenderer<W> {
         }
     }
 
+    /// Language for user-facing prose: the active locale on unicode-capable
+    /// terminals, English on ASCII-only ones where CJK glyphs cannot render.
+    fn prose_lang(&self) -> crate::i18n::Locale {
+        if self.caps.unicode_symbols {
+            crate::i18n::current_locale()
+        } else {
+            crate::i18n::Locale::En
+        }
+    }
+
     /// If a spinner is on screen, wipe it before emitting persistent
     /// content. Called from every match arm that writes a "real" row,
     /// so a missing `ClearTransient` event from upstream doesn't glue
@@ -301,10 +311,15 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                         .count();
                     let _ = writeln!(
                         self.out,
-                        "Agents: {}/{} finished . {} failed",
-                        progress.items.len(),
-                        progress.total,
-                        failed
+                        "{}",
+                        crate::i18n::t_with(
+                            self.prose_lang(),
+                            crate::i18n::Msg::PlainAgentsStatus {
+                                finished: progress.items.len(),
+                                total: progress.total,
+                                failed
+                            }
+                        )
                     );
                 }
             }
@@ -458,9 +473,14 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                 let reset = if self.caps.colors { SGR_RESET } else { "" };
                 let _ = writeln!(
                     self.out,
-                    "{}[Error: {}]{}",
+                    "{}{}{}",
                     color,
-                    scrub_controls(&msg),
+                    crate::i18n::t_with(
+                        self.prose_lang(),
+                        crate::i18n::Msg::ErrorPrefix {
+                            msg: &scrub_controls(&msg)
+                        }
+                    ),
                     reset
                 );
             }
@@ -493,7 +513,11 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
             }
             UiLine::TurnCancelled => {
                 self.drop_transient();
-                let _ = writeln!(self.out, "(cancelled)");
+                let _ = writeln!(
+                    self.out,
+                    "{}",
+                    crate::i18n::t_with(self.prose_lang(), crate::i18n::Msg::Cancelled)
+                );
             }
             UiLine::TurnComplete => {
                 self.drop_transient();
@@ -590,14 +614,25 @@ impl<W: Write + Send> Renderer for PlainRenderer<W> {
                             {
                                 let other_no = panel.options.len() + 1;
                                 let custom = if panel.custom_text.trim().is_empty() {
-                                    "输入自己的答案\u{2026}".to_string()
+                                    crate::i18n::t_with(
+                                        self.prose_lang(),
+                                        crate::i18n::Msg::UserInputOwnAnswer,
+                                    )
+                                    .into_owned()
                                 } else {
                                     scrub_controls(&panel.custom_text)
                                 };
                                 let _ = writeln!(self.out, "  {}. {}", other_no, custom);
                                 // Multiple: explicit Submit row after Other.
                                 if matches!(panel.mode, UserInputMode::Multiple) {
-                                    let _ = writeln!(self.out, "  + Submit");
+                                    let _ = writeln!(
+                                        self.out,
+                                        "  + {}",
+                                        crate::i18n::t_with(
+                                            self.prose_lang(),
+                                            crate::i18n::Msg::UserInputSubmitLabel
+                                        )
+                                    );
                                 }
                             }
                         }

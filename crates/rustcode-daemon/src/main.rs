@@ -120,6 +120,20 @@ async fn main() {
     // rather than by the CLI, so it resolves the tree on its own.
     rustcode_config::distribution::bootstrap_home();
 
+    // Locale: the daemon renders its startup banner and API error messages
+    // through t(). It has no --lang flag, so resolve from config `language`
+    // then LC_* env (default Simplified Chinese, like the other binaries).
+    // A missing/malformed config simply falls through to the default.
+    {
+        let language =
+            rustcode_config::config::Config::load(&rustcode_config::config::Config::default_path())
+                .ok()
+                .and_then(|c| c.language);
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::resolve_initial_locale(
+            None, language,
+        ));
+    }
+
     // On Windows, when built as a GUI-subsystem binary (windows_subsystem = "windows"),
     // there is no default console. If launched from a terminal (cmd.exe / PowerShell),
     // re-attach to the parent's console so eprintln!/tracing output is visible.
@@ -173,7 +187,12 @@ async fn main() {
     })
     .await
     {
-        eprintln!("Fatal: daemon server error: {e:#}");
+        eprintln!(
+            "{}",
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::DaemonFatalServer {
+                error: &format!("{e:#}")
+            })
+        );
         std::process::exit(1);
     }
 }

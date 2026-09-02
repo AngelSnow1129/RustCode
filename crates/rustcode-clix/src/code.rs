@@ -23,6 +23,7 @@ use rustcode_coding::{
     CodingRuntimeStart, DefaultCodingProviderFactory, PrepareOptions, SessionMode,
     StaticPluginHookSource, TurnCompletion, UserInput,
 };
+use rustcode_config::i18n::{resolve_initial_locale, set_locale, t, Msg};
 use rustcode_kernel::event::{AgentEvent, StopReason};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -102,34 +103,52 @@ pub fn build_review_provider(
 }
 
 pub fn sessions(args: SessionsArgs) -> Result<()> {
-    let dir = args.dir.canonicalize().context("project dir not found")?;
+    // Resolve UI language the same way `code` does (default config path only --
+    // `sessions` has no --config flag); a missing/malformed config is fine.
+    let selection = crate::load_config_selection(None, None).unwrap_or_default();
+    set_locale(resolve_initial_locale(None, selection.language));
+
+    let dir = args
+        .dir
+        .canonicalize()
+        .context(t(Msg::ClixProjectDirNotFound))?;
     let mgr = SessionManager::for_project(&dir);
     let list = mgr.list();
     if list.is_empty() {
         println!(
-            "No sessions for {} (bucket: {})",
-            dir.display(),
-            mgr.root().display()
+            "{}",
+            t(Msg::ClixSessionsNone {
+                dir: &dir.display().to_string(),
+                bucket: &mgr.root().display().to_string(),
+            })
         );
         return Ok(());
     }
     for m in list {
         println!(
-            "{}  {:<28} turns {:<4} {}",
-            m.id,
-            m.name,
-            m.turn_count,
-            fmt_ts(m.updated_at)
+            "{}",
+            t(Msg::ClixSessionsRow {
+                id: &m.id,
+                name: &m.name,
+                turns: m.turn_count as usize,
+                ts: &fmt_ts(m.updated_at),
+            })
         );
     }
     Ok(())
 }
 
 pub async fn code(args: CodeArgs) -> Result<()> {
-    let dir = args.dir.canonicalize().context("working dir not found")?;
+    let dir = args
+        .dir
+        .canonicalize()
+        .context(t(Msg::ClixWorkingDirNotFound))?;
 
     // Provider creds: flag > env > config.toml (same resolution as `review`).
     let selected = crate::load_config_selection(args.config.as_deref(), args.provider.as_deref())?;
+    // Settle the UI language before any user-facing line (same source the model
+    // gets via preferred_language below).
+    set_locale(resolve_initial_locale(None, selected.language));
     let entry = selected.provider.as_ref();
     let base_url = crate::first_nonempty([
         args.base_url.clone(),
@@ -138,9 +157,7 @@ pub async fn code(args: CodeArgs) -> Result<()> {
             .and_then(|e| e.base_url.clone())
             .map(|v| crate::expand_env(&v)),
     ])
-    .context(
-        "missing base URL: pass --base-url, set $RUSTCODE_BASE_URL, or configure a provider",
-    )?;
+    .context(t(Msg::ClixMissingBaseUrl))?;
     let model = crate::first_nonempty([
         args.model.clone(),
         crate::env("RUSTCODE_MODEL"),
@@ -148,12 +165,9 @@ pub async fn code(args: CodeArgs) -> Result<()> {
             .and_then(|e| e.model.clone())
             .map(|v| crate::expand_env(&v)),
     ])
-    .context("missing model: pass --model, set $RUSTCODE_MODEL, or configure a provider")?;
+    .context(t(Msg::ClixMissingModel))?;
     if crate::is_signing_gateway(&base_url) {
-        bail!(
-            "provider base_url '{base_url}' needs RustCode's proprietary request signing, \
-             which rustcodex cannot produce -- use a plain OpenAI-compatible endpoint"
-        );
+        bail!("{}", t(Msg::ClixSigningGatewayCode { url: &base_url }));
     }
     let api_key = crate::first_nonempty([
         args.api_key.clone(),
@@ -175,7 +189,7 @@ pub async fn code(args: CodeArgs) -> Result<()> {
     } else if args.continue_latest {
         let latest = SessionManager::for_project(&dir)
             .latest()
-            .context("no session to continue in this project -- start one without --continue")?;
+            .context(t(Msg::ClixNoSessionToContinue))?;
         SessionMode::Resume(latest.id)
     } else {
         SessionMode::Fresh
@@ -186,11 +200,21 @@ pub async fn code(args: CodeArgs) -> Result<()> {
     // and `rustcode` CLI do. A missing config file means "no external agents";
     // a present-but-malformed one surfaces (same contract as provider loading).
     let loaded_config = match &args.config {
-        Some(path) => rustcode_config::Config::load(path)
-            .with_context(|| format!("failed to load config: {}", path.display()))?,
+        Some(path) => rustcode_config::Config::load(path).with_context(|| {
+            t(Msg::ClixConfigLoadFailed {
+                path: &path.display().to_string(),
+            })
+            .into_owned()
+        })?,
         None => match crate::default_config_path() {
-            Some(path) if path.exists() => rustcode_config::Config::load(&path)
-                .with_context(|| format!("failed to load config: {}", path.display()))?,
+            Some(path) if path.exists() => {
+                rustcode_config::Config::load(&path).with_context(|| {
+                    t(Msg::ClixConfigLoadFailed {
+                        path: &path.display().to_string(),
+                    })
+                    .into_owned()
+                })?
+            }
             _ => rustcode_config::Config::default(),
         },
     };
@@ -219,7 +243,7 @@ pub async fn code(args: CodeArgs) -> Result<()> {
         rate_limit_source: None,
     };
 
-    eprintln!("preparing ({model}) ...");
+    eprintln!("{}", t(Msg::ClixPreparing { model: &model }));
     let runtime = CodingRuntime::start(CodingRuntimeStart {
         agent: cfg,
         prepare: opts,
@@ -231,7 +255,7 @@ pub async fn code(args: CodeArgs) -> Result<()> {
         image_preprocessor: None,
     })
     .await
-    .context("runtime start failed")?;
+    .context(t(Msg::ClixRuntimeStartFailed))?;
     let session_id = runtime.session.as_ref().map(|session| session.id.clone());
     let resumed = runtime
         .session
@@ -246,9 +270,12 @@ pub async fn code(args: CodeArgs) -> Result<()> {
 
     if let Some(id) = &session_id {
         eprintln!(
-            "session {} {}",
-            id,
-            if resumed { "(resumed)" } else { "(new)" }
+            "{}",
+            if resumed {
+                t(Msg::ClixSessionResumed { id })
+            } else {
+                t(Msg::ClixSessionNew { id })
+            }
         );
     }
 
@@ -271,17 +298,24 @@ pub async fn code(args: CodeArgs) -> Result<()> {
         finish(handle, task, session_id).await?;
         return match outcome {
             Some(TurnOutcome::Completed(StopReason::Stopped)) => Ok(()),
-            Some(TurnOutcome::Completed(other)) => {
-                bail!("turn did not complete normally: {other:?}")
-            }
-            Some(TurnOutcome::SnapshotUnavailable { reason, error }) => {
-                bail!("turn snapshot unavailable after {reason:?}: {error}")
-            }
-            None => bail!("agent terminated unexpectedly"),
+            Some(TurnOutcome::Completed(other)) => bail!(
+                "{}",
+                t(Msg::ClixTurnAbnormal {
+                    reason: &format!("{other:?}")
+                })
+            ),
+            Some(TurnOutcome::SnapshotUnavailable { reason, error }) => bail!(
+                "{}",
+                t(Msg::ClixTurnSnapshotUnavailable {
+                    reason: &format!("{reason:?}"),
+                    error: &error,
+                })
+            ),
+            None => bail!("{}", t(Msg::ClixAgentTerminatedUnexpectedly)),
         };
     }
 
-    eprintln!("interactive mode -- /help for commands, /quit to exit");
+    eprintln!("{}", t(Msg::ClixInteractiveHint));
     loop {
         eprint!("› ");
         let line = tokio::select! {
@@ -292,12 +326,17 @@ pub async fn code(args: CodeArgs) -> Result<()> {
                 Ok(Some(l)) => l,
                 Ok(None) => break,
                 Err(e) => {
-                    eprintln!("[stdin error: {e} -- exiting]");
+                    eprintln!(
+                        "[stdin error] {}",
+                        t(Msg::ClixStdinError {
+                            error: &e.to_string()
+                        })
+                    );
                     break;
                 }
             },
             _ = sigint.recv() => {
-                eprintln!("\n(exiting -- session saved; /quit next time, or just Ctrl-C again)");
+                eprintln!("\n{}", t(Msg::ClixSigintExit));
                 break;
             }
         };
@@ -312,14 +351,14 @@ pub async fn code(args: CodeArgs) -> Result<()> {
             }
         }
         if handle.submit(UserInput::from(line)).await.is_err() {
-            eprintln!("[agent terminated -- exiting]");
+            eprintln!("[agent terminated] {}", t(Msg::ClixAgentTerminatedNote));
             break;
         }
         if drive_turn(&handle, &mut events, &mut input, args.yolo, &mut sigint)
             .await
             .is_none()
         {
-            eprintln!("[agent terminated -- exiting]");
+            eprintln!("[agent terminated] {}", t(Msg::ClixAgentTerminatedNote));
             break;
         }
     }
@@ -353,7 +392,7 @@ async fn finish(
     let _ = handle.shutdown().await;
     let _ = task.await;
     if let Some(id) = session_id {
-        eprintln!("session saved -- resume with: rustcodex code --resume {id}");
+        eprintln!("{}", t(Msg::ClixSessionSaved { id: &id }));
     }
     Ok(())
 }
@@ -397,7 +436,7 @@ async fn drive_turn(
         let ev = tokio::select! {
             ev = events.recv() => match ev { Some(ev) => ev.event, None => return None },
             _ = sigint.recv() => {
-                eprintln!("\n[cancelling ...]");
+                eprintln!("\n[{}]", t(Msg::ClixCancelling));
                 cancelled = true;
                 let _ = handle.cancel().await;
                 continue;
@@ -418,7 +457,12 @@ async fn drive_turn(
             }
             CodingRuntimeEvent::Agent(AgentEvent::ToolResult { result }) => {
                 let mark = if result.is_error { "[x]" } else { "[+]" };
-                eprintln!("    {mark} ({} chars)", result.content.chars().count());
+                eprintln!(
+                    "    {mark} {}",
+                    t(Msg::ClixToolResultChars {
+                        count: result.content.chars().count()
+                    })
+                );
             }
             CodingRuntimeEvent::Request(request) if request.kind == APPROVAL_KIND && !cancelled => {
                 match approval_decision(&request.payload, input, yolo, sigint).await {
@@ -428,7 +472,7 @@ async fn drive_turn(
                     ApprovalAnswer::Cancelled => {
                         // Ctrl-C at the approval prompt: cancel the TURN -- the kernel
                         // flushes this very round-trip to Null (deny) and unparks.
-                        eprintln!("\n[cancelling ...]");
+                        eprintln!("\n[{}]", t(Msg::ClixCancelling));
                         cancelled = true;
                         let _ = handle.cancel().await;
                     }
@@ -449,7 +493,13 @@ async fn drive_turn(
                 backoff_secs,
                 reason,
             }) => eprintln!(
-                "[retry] API error {reason}; retrying in {backoff_secs}s ({attempt}/{max_attempts})"
+                "[retry] {}",
+                t(Msg::ClixRetry {
+                    reason: &rustcode_coding::retry_reason_label(reason),
+                    backoff_secs,
+                    attempt,
+                    max_attempts,
+                })
             ),
             CodingRuntimeEvent::Agent(AgentEvent::StreamRecovery {
                 attempt,
@@ -457,10 +507,14 @@ async fn drive_turn(
                 recovered,
             }) => {
                 if recovered {
-                    eprintln!("[ok] recovered from the interrupted stream");
+                    eprintln!("[ok] {}", t(Msg::ClixStreamRecovered));
                 } else {
                     eprintln!(
-                        "[retry] safely continuing from saved progress ({attempt}/{max_attempts})"
+                        "[retry] {}",
+                        t(Msg::ClixStreamContinuing {
+                            attempt,
+                            max_attempts
+                        })
                     );
                 }
             }
@@ -470,24 +524,29 @@ async fn drive_turn(
                 // compaction that escalated past the high-water mark. Show a progress
                 // line for ALL of them so a headless run isn't silently blocked.
                 let _ = &trigger;
-                eprintln!("[compacting ...]");
+                eprintln!("[{}]", t(Msg::ClixCompacting));
             }
             CodingRuntimeEvent::CompactionFinished {
                 completion: rustcode_coding::runtime::CompactionCompletion::Completed(outcome),
             } => {
                 eprintln!(
-                    "[compacted{}]",
+                    "[{}]",
                     if outcome.committed {
-                        ""
+                        t(Msg::ClixCompacted)
                     } else {
-                        " -- refused (no gain)"
+                        t(Msg::ClixCompactedNoGain)
                     }
                 );
             }
             CodingRuntimeEvent::CompactionFinished {
                 completion: rustcode_coding::runtime::CompactionCompletion::Failed { error, .. },
             } => {
-                eprintln!("[compact failed] {error}");
+                eprintln!(
+                    "[{}]",
+                    t(Msg::ClixCompactFailed {
+                        error: &error.to_string()
+                    })
+                );
             }
             CodingRuntimeEvent::TurnFinished(completion) => {
                 if streamed {
@@ -496,10 +555,19 @@ async fn drive_turn(
                 let outcome = turn_outcome(completion);
                 match &outcome {
                     TurnOutcome::Completed(StopReason::Stopped) => {}
-                    TurnOutcome::Completed(other) => eprintln!("[turn ended: {other:?}]"),
-                    TurnOutcome::SnapshotUnavailable { reason, error } => {
-                        eprintln!("[turn snapshot unavailable after {reason:?}: {error}]")
-                    }
+                    TurnOutcome::Completed(other) => eprintln!(
+                        "[{}]",
+                        t(Msg::ClixTurnEnded {
+                            reason: &format!("{other:?}")
+                        })
+                    ),
+                    TurnOutcome::SnapshotUnavailable { reason, error } => eprintln!(
+                        "[{}]",
+                        t(Msg::ClixTurnSnapshotUnavailable {
+                            reason: &format!("{reason:?}"),
+                            error,
+                        })
+                    ),
                 }
                 return Some(outcome);
             }
@@ -538,7 +606,13 @@ async fn approval_decision(
     };
     if yolo {
         // The audit line is the ONLY record of what was auto-allowed -- UNABRIDGED.
-        eprintln!("  [yolo] auto-allow {} {}", req.tool, req.args);
+        eprintln!(
+            "  [yolo] {}",
+            t(Msg::ClixYoloAutoAllow {
+                tool: &req.tool,
+                args: &req.args,
+            })
+        );
         return ApprovalAnswer::Respond(
             serde_json::to_value(ApprovalResponse::allow()).unwrap_or(serde_json::Value::Null),
         );
@@ -551,14 +625,16 @@ async fn approval_decision(
         discarded += 1;
     }
     if discarded > 0 {
-        eprintln!("  (discarded {discarded} typed-ahead line(s) -- an approval prompt needs a fresh answer)");
+        eprintln!("  {}", t(Msg::ClixDiscardedTypedAhead { count: discarded }));
     }
     eprintln!(
-        "  approval needed: {} {}",
-        req.tool,
-        crate::truncate(&req.args, 200)
+        "  {}",
+        t(Msg::ClixApprovalNeeded {
+            tool: &req.tool,
+            args: &crate::truncate(&req.args, 200),
+        })
     );
-    eprint!("  allow? [y = once / always = remember / N = deny] ");
+    eprint!("  {} ", t(Msg::ClixApprovalPrompt));
     let answer = tokio::select! {
         l = input.next_line() => l.ok().flatten().unwrap_or_default(),
         _ = sigint.recv() => return ApprovalAnswer::Cancelled,
@@ -594,20 +670,13 @@ fn handle_slash(cmd: &str, dir: &std::path::Path, handle: &CodingRuntimeHandle) 
     match name {
         "quit" | "exit" | "q" => SlashOutcome::Quit,
         "help" | "?" => {
-            eprintln!(
-                "  /remember [-g] <fact>   append to project (or -g: global) memory.md\n\
-                 \x20 /forget [-g] <keyword>  remove matching entries\n\
-                 \x20 /memory                 show the merged memory the model gets\n\
-                 \x20 /compact [focus]        compact the conversation (turn boundary)\n\
-                 \x20 /sessions               list this project's sessions\n\
-                 \x20 /quit                   exit (session persists)"
-            );
+            eprintln!("{}", t(Msg::ClixSlashHelp));
             SlashOutcome::Handled
         }
         "remember" => {
             let (global, text) = split_global_flag(rest);
             if text.is_empty() {
-                eprintln!("  usage: /remember [-g] <fact>");
+                eprintln!("  {}", t(Msg::ClixRememberUsage));
                 return SlashOutcome::Handled;
             }
             let store = if global {
@@ -616,18 +685,27 @@ fn handle_slash(cmd: &str, dir: &std::path::Path, handle: &CodingRuntimeHandle) 
                 MemoryStore::project(dir)
             };
             match store.append(text) {
-                Ok(()) => eprintln!(
-                    "  remembered ({}) -- injected from the next session start",
-                    if global { "global" } else { "project" }
+                Ok(()) => {
+                    let scope = if global {
+                        t(Msg::MemoryScopeGlobal)
+                    } else {
+                        t(Msg::MemoryScopeProject)
+                    };
+                    eprintln!("  {}", t(Msg::ClixRemembered { scope: &scope }));
+                }
+                Err(e) => eprintln!(
+                    "  {}",
+                    t(Msg::ClixMemoryWriteFailed {
+                        error: &e.to_string()
+                    })
                 ),
-                Err(e) => eprintln!("  failed to write memory: {e}"),
             }
             SlashOutcome::Handled
         }
         "forget" => {
             let (global, kw) = split_global_flag(rest);
             if kw.is_empty() {
-                eprintln!("  usage: /forget [-g] <keyword>");
+                eprintln!("  {}", t(Msg::ClixForgetUsage));
                 return SlashOutcome::Handled;
             }
             let store = if global {
@@ -636,13 +714,20 @@ fn handle_slash(cmd: &str, dir: &std::path::Path, handle: &CodingRuntimeHandle) 
                 MemoryStore::project(dir)
             };
             match store.remove_matching(kw) {
-                Ok(removed) if removed.is_empty() => eprintln!("  nothing matched '{kw}'"),
+                Ok(removed) if removed.is_empty() => {
+                    eprintln!("  {}", t(Msg::ClixForgetNoMatch { keyword: kw }))
+                }
                 Ok(removed) => {
                     for r in &removed {
-                        eprintln!("  forgot: {r}");
+                        eprintln!("  {}", t(Msg::ClixForgotEntry { entry: r }));
                     }
                 }
-                Err(e) => eprintln!("  failed to update memory: {e}"),
+                Err(e) => eprintln!(
+                    "  {}",
+                    t(Msg::ClixMemoryUpdateFailed {
+                        error: &e.to_string()
+                    })
+                ),
             }
             SlashOutcome::Handled
         }
@@ -655,7 +740,7 @@ fn handle_slash(cmd: &str, dir: &std::path::Path, handle: &CodingRuntimeHandle) 
                     .unwrap_or_else(|| "project".into()),
             );
             if merged.is_empty() {
-                eprintln!("  (memory is empty -- /remember <fact>)");
+                eprintln!("  {}", t(Msg::ClixMemoryEmptyHint));
             } else {
                 eprintln!("{merged}");
             }
@@ -664,18 +749,20 @@ fn handle_slash(cmd: &str, dir: &std::path::Path, handle: &CodingRuntimeHandle) 
         "compact" => {
             let focus = (!rest.is_empty()).then(|| rest.to_string());
             let _ = handle.compact(focus);
-            eprintln!("  compaction requested");
+            eprintln!("  {}", t(Msg::ClixCompactionRequested));
             SlashOutcome::Handled
         }
         "sessions" => {
             let mgr = SessionManager::for_project(dir);
             for m in mgr.list() {
                 eprintln!(
-                    "  {}  {:<28} turns {:<4} {}",
-                    m.id,
-                    m.name,
-                    m.turn_count,
-                    fmt_ts(m.updated_at)
+                    "  {}",
+                    t(Msg::ClixSessionsRow {
+                        id: &m.id,
+                        name: &m.name,
+                        turns: m.turn_count as usize,
+                        ts: &fmt_ts(m.updated_at),
+                    })
                 );
             }
             SlashOutcome::Handled
@@ -683,7 +770,7 @@ fn handle_slash(cmd: &str, dir: &std::path::Path, handle: &CodingRuntimeHandle) 
         _ => {
             // Warn-and-SKIP: a typo'd /quti must not silently burn a model turn
             // (and, under --yolo, execute whatever the model makes of it).
-            eprintln!("  unknown command /{name} -- /help (a leading '/' is command space)");
+            eprintln!("  {}", t(Msg::ClixUnknownSlash { name }));
             SlashOutcome::Handled
         }
     }

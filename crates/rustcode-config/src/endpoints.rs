@@ -404,7 +404,9 @@ mod tests {
         for url in [
             "https://llm-api.example.com/v1",
             "https://pre-llm-api-cce.example.com/v1/chat/completions",
-            "https://api-ai.gitcode.com/v1",
+            // A gateway-shaped URL (the old hosted subdomain pattern) is likewise
+            // external by default — neutrality must not depend on the host name.
+            "https://api-ai.upstream.example/v1",
             "https://api.openai.com/v1",
             "not a url",
         ] {

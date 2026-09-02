@@ -8,6 +8,11 @@
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "strict": true,
     "skipLibCheck": true,
+    // Runtime value imports that must also load under `node --test`
+    // (--experimental-strip-types, no bundler resolution) spell out the .ts
+    // extension; e.g. lib/notifications.ts -> ../i18n.ts. Vite resolves the
+    // same explicit extension at build time.
+    "allowImportingTsExtensions": true,
     "types": ["vite/client"]
   },
   "include": ["src"],

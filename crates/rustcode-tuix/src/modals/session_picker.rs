@@ -24,6 +24,7 @@ use super::{
 use crate::event_loop::{
     build_status, format_tool_detail, provider_transition_pending, summarise, Buffer, LoopCtx,
 };
+use crate::i18n::{t, Msg};
 use crate::render::{MenuPayload, Renderer, UiLine};
 use crate::state::UiState;
 
@@ -742,7 +743,7 @@ fn build_menu_payload_with_preview(
                     metadata.push('\n');
                     metadata.push_str(&match (&preview.provider_id, &preview.model_id) {
                         (Some(provider), Some(model)) => format!("{provider} · {model}"),
-                        _ => preview_unavailable_label().to_string(),
+                        _ => t(Msg::SessionPreviewUnavailable).to_string(),
                     });
                     for line in &preview.excerpt {
                         metadata.push('\n');
@@ -751,11 +752,11 @@ fn build_menu_payload_with_preview(
                 }
                 Some(Ok(None)) | Some(Err(_)) => {
                     metadata.push('\n');
-                    metadata.push_str(preview_unavailable_label());
+                    metadata.push_str(&t(Msg::SessionPreviewUnavailable));
                 }
                 None => {
                     metadata.push('\n');
-                    metadata.push_str(preview_loading_label());
+                    metadata.push_str(&t(Msg::SessionPreviewLoading));
                 }
             }
         }
@@ -776,20 +777,6 @@ fn build_menu_payload_with_preview(
         selected,
         items,
         kind: crate::render::MenuKind::SessionList,
-    }
-}
-
-fn preview_loading_label() -> &'static str {
-    match crate::i18n::current_locale() {
-        crate::i18n::Locale::ZhCn => "正在加载预览...",
-        crate::i18n::Locale::En => "Loading preview...",
-    }
-}
-
-fn preview_unavailable_label() -> &'static str {
-    match crate::i18n::current_locale() {
-        crate::i18n::Locale::ZhCn => "预览不可用",
-        crate::i18n::Locale::En => "Preview unavailable",
     }
 }
 
@@ -1836,6 +1823,11 @@ mod tests {
     fn replay_rebuilds_parallel_batch_group() {
         use rustcode_kernel::message::Message;
         use rustcode_kernel::tool::ToolCall;
+        // Pin English: the assertion below keys off the "Running N bash calls"
+        // wording of the rebuilt batch header (the localized label is exercised
+        // via `tool_batch_label`'s own tests).
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
 
         #[derive(Default)]
         struct Rec {

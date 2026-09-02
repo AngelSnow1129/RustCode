@@ -658,6 +658,10 @@ mod tests {
     #[test]
     fn finalize_output_is_unchanged_after_the_split() {
         // The no-verify path must be byte-identical to Phase 1's behavior.
+        // Pin the locale: this asserts EQUALITY between two sequential renders,
+        // and a concurrent pin_en() test could flip the global locale between
+        // them (or mid-render) without the lock.
+        let _g = pin_en();
         let outcomes = vec![
             DimensionOutcome {
                 dimension: "correctness",

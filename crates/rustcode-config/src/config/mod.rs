@@ -735,50 +735,55 @@ impl Config {
     /// context/token limits, and `default_model` resolvability. Mixed-schema
     /// loading (Task 3) uses this to quarantine, rather than fail, bad entries.
     pub fn validate_provider_accounts_and_models(&self) -> Vec<String> {
+        use crate::i18n::{t, Msg};
         let mut diags = Vec::new();
         for (id, account) in &self.provider_accounts {
             if account.provider.trim().is_empty() {
-                diags.push(format!("provider account `{id}` is missing `provider`"));
+                diags.push(t(Msg::CfgDiagAccountMissingProvider { id }).into_owned());
                 continue;
             }
             // A preset (or the custom-compatible fallback) without a built-in
             // base URL needs one supplied on the account.
             let preset = provider_preset::preset_or_compatible(&account.provider);
             if preset.default_base_url.is_none() && account.base_url.is_none() {
-                diags.push(format!(
-                    "provider account `{id}` uses `{}`, which has no default endpoint; set `base_url`",
-                    account.provider
-                ));
+                diags.push(
+                    t(Msg::CfgDiagAccountNoEndpoint {
+                        id,
+                        provider: &account.provider,
+                    })
+                    .into_owned(),
+                );
             }
         }
         for (id, model) in &self.models {
             if model.model.trim().is_empty() {
-                diags.push(format!("model `{id}` is missing `model`"));
+                diags.push(t(Msg::CfgDiagModelMissingModel { id }).into_owned());
             }
             if model.account.trim().is_empty() {
-                diags.push(format!("model `{id}` is missing `account`"));
+                diags.push(t(Msg::CfgDiagModelMissingAccount { id }).into_owned());
             } else if !self.provider_accounts.contains_key(&model.account)
                 // A model may reference a legacy provider (which projects to a
                 // synthetic account of the same id) -- that resolves, so accept it.
                 && !self.providers.contains_key(&model.account)
             {
-                diags.push(format!(
-                    "model `{id}` references unknown account `{}`",
-                    model.account
-                ));
+                diags.push(
+                    t(Msg::CfgDiagModelUnknownAccount {
+                        id,
+                        account: &model.account,
+                    })
+                    .into_owned(),
+                );
             }
             if model.context_window == 0 {
-                diags.push(format!("model `{id}` has context_window = 0"));
+                diags.push(t(Msg::CfgDiagModelContextWindow { id }).into_owned());
             }
             if model.max_tokens == Some(0) {
-                diags.push(format!("model `{id}` has max_tokens = 0"));
+                diags.push(t(Msg::CfgDiagModelMaxTokens { id }).into_owned());
             }
         }
         if let Some(sel) = &self.default_model {
             if !self.models.contains_key(sel) {
-                diags.push(format!(
-                    "default_model `{sel}` does not match any model profile"
-                ));
+                diags.push(t(Msg::CfgDiagDefaultModelMismatch { sel }).into_owned());
             }
         }
         diags
@@ -884,19 +889,16 @@ impl Config {
     /// Diagnostics for exact id collisions between new-schema entries and
     /// legacy provider names (the new-schema entry wins). Visible, not silent.
     pub fn model_catalog_collisions(&self) -> Vec<String> {
+        use crate::i18n::{t, Msg};
         let mut diags = Vec::new();
         for id in self.provider_accounts.keys() {
             if self.providers.contains_key(id) {
-                diags.push(format!(
-                    "provider account `{id}` collides with a legacy provider of the same name; the new-schema account wins"
-                ));
+                diags.push(t(Msg::CfgDiagAccountCollision { id }).into_owned());
             }
         }
         for id in self.models.keys() {
             if self.providers.contains_key(id) {
-                diags.push(format!(
-                    "model `{id}` collides with a legacy provider of the same name; the new-schema model wins"
-                ));
+                diags.push(t(Msg::CfgDiagModelCollision { id }).into_owned());
             }
         }
         diags
@@ -918,14 +920,13 @@ impl Config {
     /// mutation; the caller persists it through `ConfigStore` CAS. Errors if the
     /// provider is unknown or the target ids already exist in the new schema.
     pub fn upgrade_legacy_provider(&mut self, name: &str) -> Result<()> {
+        use crate::i18n::{t, Msg};
         let provider = self
             .providers
             .get(name)
-            .ok_or_else(|| anyhow::anyhow!("legacy provider `{name}` not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("{}", t(Msg::CfgLegacyProviderNotFound { name })))?;
         if self.provider_accounts.contains_key(name) || self.models.contains_key(name) {
-            anyhow::bail!(
-                "cannot upgrade `{name}`: a new-schema account or model already uses that id"
-            );
+            anyhow::bail!("{}", t(Msg::CfgLegacyProviderExists { name }));
         }
         let account = project_legacy_account(provider);
         let model = project_legacy_model(name, provider);
@@ -950,21 +951,23 @@ impl Config {
     /// raw fields (§14.1). Errors are secret-safe: they name ids/models, never
     /// credentials.
     pub fn resolve_model(&self, selection: Option<&str>) -> Result<ResolvedModelConfig> {
+        use crate::i18n::{t, Msg};
         let selection_id = selection
             .map(str::to_string)
             .or_else(|| self.effective_model_selection())
-            .ok_or_else(|| {
-                anyhow::anyhow!("no model selected (set `default_model` or `default_provider`)")
-            })?;
+            .ok_or_else(|| anyhow::anyhow!("{}", t(Msg::CfgResolveNoModel)))?;
         let models = self.logical_models();
-        let model = models
-            .get(&selection_id)
-            .ok_or_else(|| anyhow::anyhow!("model `{selection_id}` not found"))?;
+        let model = models.get(&selection_id).ok_or_else(|| {
+            anyhow::anyhow!("{}", t(Msg::CfgResolveModelNotFound { id: &selection_id }))
+        })?;
         let accounts = self.logical_accounts();
         let account = accounts.get(&model.account).ok_or_else(|| {
             anyhow::anyhow!(
-                "model `{selection_id}` references unknown account `{}`",
-                model.account
+                "{}",
+                t(Msg::CfgResolveModelUnknownAccount {
+                    id: &selection_id,
+                    account: &model.account,
+                })
             )
         })?;
         let preset = provider_preset::preset_or_compatible(&account.provider);
@@ -3864,6 +3867,10 @@ capable_model = 5
 
     #[test]
     fn validation_catches_bad_references_and_limits() {
+        // Diags + assertions both render through t(); hold the locale
+        // lock so parallel tests can't flip the global locale between.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let mut cfg = Config::default();
         cfg.provider_accounts.insert(
             "corp".into(),
@@ -3904,25 +3911,46 @@ capable_model = 5
         );
         cfg.default_model = Some("nope".into()); // unresolvable default -> error
 
+        // Assert against the localized diagnostics (not English literals)
+        // so the checks hold under the Simplified-Chinese product default.
+        use crate::i18n::{t, Msg};
         let diags = cfg.validate_provider_accounts_and_models();
         assert!(
-            diags.iter().any(|d| d.contains("no default endpoint")),
+            diags.iter().any(|d| d.contains(
+                t(Msg::CfgDiagAccountNoEndpoint {
+                    id: "corp",
+                    provider: "openai-compatible",
+                })
+                .as_ref()
+            )),
             "{diags:?}"
         );
         assert!(
-            diags.iter().any(|d| d.contains("unknown account")),
+            diags.iter().any(|d| d.contains(
+                t(Msg::CfgDiagModelUnknownAccount {
+                    id: "corp/bad",
+                    account: "does-not-exist",
+                })
+                .as_ref()
+            )),
             "{diags:?}"
         );
         assert!(
-            diags.iter().any(|d| d.contains("missing `model`")),
+            diags
+                .iter()
+                .any(|d| d.contains(t(Msg::CfgDiagModelMissingModel { id: "corp/bad" }).as_ref())),
             "{diags:?}"
         );
         assert!(
-            diags.iter().any(|d| d.contains("context_window = 0")),
+            diags
+                .iter()
+                .any(|d| d.contains(t(Msg::CfgDiagModelContextWindow { id: "corp/bad" }).as_ref())),
             "{diags:?}"
         );
         assert!(
-            diags.iter().any(|d| d.contains("default_model")),
+            diags
+                .iter()
+                .any(|d| d.contains(t(Msg::CfgDiagDefaultModelMismatch { sel: "nope" }).as_ref())),
             "{diags:?}"
         );
     }

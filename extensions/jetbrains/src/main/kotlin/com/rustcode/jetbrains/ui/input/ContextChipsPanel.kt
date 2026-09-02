@@ -1,5 +1,7 @@
 package com.rustcode.jetbrains.ui.input
 
+import com.rustcode.jetbrains.i18n.RustCodeBundle
+
 import com.rustcode.jetbrains.ui.ChatContextItem
 import com.intellij.ui.JBColor
 import java.awt.BorderLayout
@@ -57,11 +59,11 @@ class ContextChipsPanel(
 
     private fun buildHeader(count: Int) = JPanel(BorderLayout()).apply {
         isOpaque = false
-        add(JLabel("附件  $count").apply {
+        add(JLabel(RustCodeBundle.message("chips.attachments", count)).apply {
             font = font.deriveFont(java.awt.Font.BOLD, font.size2D - 2f)
             foreground = HEADER_FG
         }, BorderLayout.WEST)
-        add(makeTextButton("全部移除", onClear), BorderLayout.EAST)
+        add(makeTextButton(RustCodeBundle.message("chips.removeAll"), onClear), BorderLayout.EAST)
     }
 
     private fun buildAttachmentRow(
@@ -92,7 +94,7 @@ class ContextChipsPanel(
                 horizontalAlignment = SwingConstants.CENTER
                 verticalAlignment = SwingConstants.CENTER
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                toolTipText = "查看大图"
+                toolTipText = RustCodeBundle.message("chips.viewImage")
                 border = BorderFactory.createLineBorder(ATTACHMENT_BORDER, 1, true)
                 preferredSize = Dimension(82, 62)
                 addMouseListener(object : java.awt.event.MouseAdapter() {
@@ -122,7 +124,7 @@ class ContextChipsPanel(
                 foreground = FILE_FG
                 toolTipText = item.path
             })
-            add(JLabel(parentPath.ifBlank { "已附加到下一条消息" }).apply {
+            add(JLabel(parentPath.ifBlank { RustCodeBundle.message("chips.attachedHint") }).apply {
                 font = font.deriveFont(font.size2D - 3f)
                 foreground = PATH_FG
                 toolTipText = item.path
@@ -132,7 +134,7 @@ class ContextChipsPanel(
         add(makeTextButton("×") { onRemove(item) }.apply {
             font = font.deriveFont(java.awt.Font.PLAIN, font.size2D + 3f)
             foreground = REMOVE_FG
-            toolTipText = "移除附件"
+            toolTipText = RustCodeBundle.message("chips.remove")
             preferredSize = Dimension(28, 28)
         }, BorderLayout.EAST)
     }

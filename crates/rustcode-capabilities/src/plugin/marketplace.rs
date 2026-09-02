@@ -6,6 +6,7 @@ use super::manifest::{load_marketplace_manifest, MarketplaceManifest, PluginSour
 use super::paths;
 use super::state::{load_marketplaces_file, save_marketplaces_file, MarketplaceEntry};
 use super::url::{infer_marketplace_name_from_url, validate_git_url};
+use rustcode_config::i18n::{t, Msg};
 
 /// Locate the `git` executable on the system.
 ///
@@ -26,12 +27,7 @@ pub fn find_git() -> Result<PathBuf> {
         if p.exists() {
             return Ok(p);
         }
-        bail!(
-            "git is not installed or not on PATH. \
-             RustCode requires git to manage plugin marketplaces. \
-             Please install git (e.g. `xcode-select --install` on macOS, \
-             `sudo apt install git` on Ubuntu) and restart RustCode."
-        );
+        bail!("{}", t(Msg::PluginGitRequired));
     }
 
     // 1. Default PATH resolution -- works on most Linux systems and in
@@ -67,12 +63,7 @@ pub fn find_git() -> Result<PathBuf> {
         }
     }
 
-    bail!(
-        "git is not installed or not on PATH. \
-         RustCode requires git to manage plugin marketplaces. \
-         Please install git (e.g. `xcode-select --install` on macOS, \
-         `sudo apt install git` on Ubuntu) and restart RustCode."
-    )
+    bail!("{}", t(Msg::PluginGitRequired));
 }
 
 /// Simple `which`-like resolution for an executable name.
@@ -196,10 +187,7 @@ pub fn add_marketplace(url: &str) -> Result<MarketplaceInfo> {
     let mp_name = sanitize_name(&raw_mp_name);
     if mp_name.is_empty() {
         cleanup(&tmp_dir);
-        bail!(
-            "marketplace name `{}` sanitized to empty string",
-            raw_mp_name
-        );
+        bail!("{}", t(Msg::PluginMpNameEmpty { name: &raw_mp_name }));
     }
 
     let target = mp_root.join(&mp_name);
@@ -208,14 +196,12 @@ pub fn add_marketplace(url: &str) -> Result<MarketplaceInfo> {
     let mut state = load_marketplaces_file(&mp_file)?;
     if state.marketplaces.contains_key(&mp_name) {
         cleanup(&tmp_dir);
-        bail!("marketplace `{}` already exists; remove first", mp_name);
+        bail!("{}", t(Msg::PluginMpExists { name: &mp_name }));
     }
     if target.exists() {
         cleanup(&tmp_dir);
-        bail!(
-            "directory {} already exists but is not registered; remove it manually",
-            target.display()
-        );
+        let path = target.display().to_string();
+        bail!("{}", t(Msg::PluginMpDirExists { path: &path }));
     }
 
     if let Err(e) = std::fs::rename(&tmp_dir, &target) {
@@ -354,36 +340,28 @@ pub(super) fn auth_retry_args(url: &str) -> Option<[String; 2]> {
 /// Tail clause for "the authenticated retry still failed" errors. A neutral
 /// build can hold a stale `auth.toml` from a former distribution install, so
 /// pitching `/login` there is a dead end -- point at SSH / git creds instead.
-fn relogin_hint() -> &'static str {
+fn relogin_hint() -> std::borrow::Cow<'static, str> {
     if rustcode_auth::managed_login_available() {
-        "可 /login 重新登录后重试"
+        t(Msg::PluginReloginHintManaged)
     } else {
-        "本构建无托管登录服务；请改用 SSH 地址或更新本地 git 凭证后重试"
+        t(Msg::PluginReloginHintNeutral)
     }
 }
 
-/// `verb` is 克隆 / 更新. Shared by clone + pull so the wording can't drift.
+/// `verb` is the localized clone/update verb. Shared by clone + pull so the
+/// wording can't drift.
 fn auth_required_message(verb: &str, url: &str, stderr: &str) -> String {
     let stderr = stderr.trim();
     // Untrusted host: the platform token is never sent to non-allowlisted
     // hosts, so /login could not help. Same guidance applies in a neutral
     // build: there is no managed service to log into even for trusted hosts.
     if !super::url::host_is_trusted(url) || !rustcode_auth::managed_login_available() {
-        return format!(
-            "{verb}失败：该仓库需要认证（私有仓库）。请改用 SSH 地址（git@...）\
-             或先用 git 配置好凭证后重试。\n原始错误：{stderr}"
-        );
+        return t(Msg::PluginGitAuthUntrusted { verb, stderr }).into_owned();
     }
     if rustcode_auth::get_stored_auth().is_some() {
-        format!(
-            "{verb}失败：登录已过期或凭证无效，请运行 /login 重新登录后重试。\n原始错误：{stderr}"
-        )
+        t(Msg::PluginGitAuthExpired { verb, stderr }).into_owned()
     } else {
-        format!(
-            "{verb}失败：该私有仓库需要认证。请先 /login 登录\
-             （配置了凭证后可自动使用），或改用 SSH 地址（git@...）。\
-             \n原始错误：{stderr}"
-        )
+        t(Msg::PluginGitAuthLoginRequired { verb, stderr }).into_owned()
     }
 }
 
@@ -417,16 +395,23 @@ pub(super) fn clone_with_optional_auth(
             if out2.status.success() {
                 return Ok(());
             }
+            let verb = t(Msg::PluginVerbClone);
+            let hint = relogin_hint();
+            let stderr2 = String::from_utf8_lossy(&out2.stderr);
+            let stderr2 = stderr2.trim();
             bail!(
-                "克隆失败：使用已登录凭证仍无法访问该私有仓库（可能无权限或登录已过期，{}）。\
-                 \n原始错误：{}",
-                relogin_hint(),
-                String::from_utf8_lossy(&out2.stderr).trim()
+                "{}",
+                t(Msg::PluginGitAuthRetryFailed {
+                    verb: &verb,
+                    hint: &hint,
+                    stderr: stderr2,
+                })
             );
         }
-        bail!("{}", auth_required_message("克隆", url, &stderr));
+        let verb = t(Msg::PluginVerbClone);
+        bail!("{}", auth_required_message(&verb, url, &stderr));
     }
-    bail!("git clone failed: {}", stderr);
+    bail!("{}", t(Msg::PluginGitCloneFailed { stderr: &stderr }));
 }
 
 /// `git pull --ff-only` in `repo`, anonymously first; on auth failure for a
@@ -454,16 +439,23 @@ pub(super) fn git_pull_ff(repo: &Path, source_url: &str) -> Result<()> {
             if out2.status.success() {
                 return Ok(());
             }
+            let verb = t(Msg::PluginVerbUpdate);
+            let hint = relogin_hint();
+            let stderr2 = String::from_utf8_lossy(&out2.stderr);
+            let stderr2 = stderr2.trim();
             bail!(
-                "更新失败：使用已登录凭证仍无法访问（无权限或登录已过期，{}）。\
-                 \n原始错误：{}",
-                relogin_hint(),
-                String::from_utf8_lossy(&out2.stderr).trim()
+                "{}",
+                t(Msg::PluginGitAuthRetryFailed {
+                    verb: &verb,
+                    hint: &hint,
+                    stderr: stderr2,
+                })
             );
         }
-        bail!("{}", auth_required_message("更新", source_url, &stderr));
+        let verb = t(Msg::PluginVerbUpdate);
+        bail!("{}", auth_required_message(&verb, source_url, &stderr));
     }
-    bail!("git pull failed: {}", stderr);
+    bail!("{}", t(Msg::PluginGitPullFailed { stderr: &stderr }));
 }
 
 /// True when `git`'s stderr indicates it failed because it needed interactive
@@ -490,10 +482,8 @@ fn git_rev_parse(repo: &Path) -> Result<String> {
         .output()
         .context("spawn git rev-parse")?;
     if !out.status.success() {
-        bail!(
-            "git rev-parse failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        bail!("{}", t(Msg::PluginGitRevParseFailed { stderr: &stderr }));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
@@ -506,16 +496,13 @@ pub fn remove_marketplace(name: &str) -> Result<()> {
     let mp_file = paths::marketplaces_file().ok_or_else(|| anyhow!("no plugin home"))?;
     let mut state = load_marketplaces_file(&mp_file)?;
     if !state.marketplaces.contains_key(name) {
-        bail!("marketplace `{}` not found", name);
+        bail!("{}", t(Msg::PluginMpNotFound { name }));
     }
     // Refuse if any installed plugin still references this marketplace.
     let installed =
         super::state::load_installed_plugins_file(&paths::installed_plugins_file().unwrap())?;
     if installed.plugins.values().any(|p| p.marketplace == name) {
-        bail!(
-            "marketplace `{}` has installed plugins; uninstall them first",
-            name
-        );
+        bail!("{}", t(Msg::PluginMpHasPlugins { name }));
     }
     let target = paths::marketplaces_root().unwrap().join(name);
     if target.exists() {
@@ -532,7 +519,7 @@ pub fn update_marketplace(name: &str) -> Result<MarketplaceInfo> {
     let entry = state
         .marketplaces
         .get(name)
-        .ok_or_else(|| anyhow!("marketplace `{}` not found", name))?
+        .ok_or_else(|| anyhow!("{}", t(Msg::PluginMpNotFound { name })))?
         .clone();
     let target = paths::marketplaces_root().unwrap().join(name);
 
@@ -743,7 +730,11 @@ mod tests {
     fn auth_required_message_untrusted_host_suggests_ssh_not_login() {
         // Platform token is never sent to non-allowlisted hosts, so /login
         // wouldn't help -- guide to SSH/creds instead.
-        let m = auth_required_message("克隆", "https://github.com/o/r", "fatal: auth");
+        let m = auth_required_message(
+            &t(Msg::PluginVerbClone),
+            "https://github.com/o/r",
+            "fatal: auth",
+        );
         assert!(m.contains("SSH"), "got: {m}");
         assert!(
             !m.contains("/login"),
@@ -759,7 +750,7 @@ mod tests {
             return; // no trusted domain configured -- this branch is unreachable
         };
         let url = format!("https://{domain}/o/r");
-        let m = auth_required_message("克隆", &url, "fatal: auth");
+        let m = auth_required_message(&t(Msg::PluginVerbClone), &url, "fatal: auth");
         assert!(
             m.contains("/login"),
             "trusted host + not logged in should guide to /login: {m}"
@@ -777,7 +768,7 @@ mod tests {
             return;
         }
         for url in ["https://github.com/o/r", "https://git.example.com/o/r"] {
-            let m = auth_required_message("克隆", url, "fatal: auth");
+            let m = auth_required_message(&t(Msg::PluginVerbClone), url, "fatal: auth");
             assert!(
                 !m.contains("/login"),
                 "neutral build pitched /login for {url}: {m}"
@@ -810,7 +801,7 @@ mod tests {
             return; // no trusted domain configured -- this branch is unreachable
         };
         let url = format!("https://{domain}/o/r");
-        let m = auth_required_message("更新", &url, "fatal: auth");
+        let m = auth_required_message(&t(Msg::PluginVerbUpdate), &url, "fatal: auth");
         assert!(
             m.contains("登录已过期") || m.contains("重新登录"),
             "logged-in-but-dead-token should indicate re-login: {m}"
@@ -883,6 +874,9 @@ mod tests {
     #[serial_test::serial]
     fn add_marketplace_rejects_duplicate() {
         let _home = isolated_home();
+        // Asserts English prose; pin locale (product default is ZhCn).
+        let _locale = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         let repo = make_bare_repo_with_manifest("dup", None);
         let url = format!("file://{}", repo.display());
         add_marketplace(&url).unwrap();

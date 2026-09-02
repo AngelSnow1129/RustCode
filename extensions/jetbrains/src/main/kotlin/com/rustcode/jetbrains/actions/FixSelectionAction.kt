@@ -1,5 +1,7 @@
 package com.rustcode.jetbrains.actions
 
+import com.rustcode.jetbrains.i18n.RustCodeBundle
+
 class FixSelectionAction : EditorSelectionCommandAction(
-    "请修复这段代码中的错误或问题。",
+    RustCodeBundle.message("intention.fix.prompt"),
 )

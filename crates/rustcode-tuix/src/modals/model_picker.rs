@@ -10,6 +10,7 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyModifiers};
 use rustcode_config::config::Config;
+use rustcode_config::i18n::{t, Msg};
 
 use super::{
     backspace_at_cursor, delete_at_cursor, insert_at_cursor, next_grapheme_boundary,
@@ -344,11 +345,11 @@ fn build_menu_payload(p: &ModelPicker, ctx: &LoopCtx) -> MenuPayload {
     // renders as blank space and looks like the modal hung).
     if p.filtered.is_empty() {
         let label = if p.providers.is_empty() {
-            "(no models configured -- use /provider add)".to_string()
+            t(Msg::ModelPickerEmptyNoProviders).into_owned()
         } else if p.query.is_empty() {
-            "(no models match)".to_string()
+            t(Msg::ModelPickerEmptyNoMatch).into_owned()
         } else {
-            format!("(no models match \"{}\" -- Backspace to clear)", p.query)
+            t(Msg::ModelPickerEmptyQuery { query: &p.query }).into_owned()
         };
         return MenuPayload {
             items: vec![(label, String::new())],

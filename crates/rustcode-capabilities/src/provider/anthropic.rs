@@ -367,8 +367,12 @@ async fn open_stream(
                 return Err(ProviderError {
                     retryable: true,
                     message: format!(
-                        "open failed: 等待首字节超过 {}s(网关无响应)",
-                        open_timeout.as_secs()
+                        "open failed: {}",
+                        rustcode_config::i18n::t(
+                            rustcode_config::i18n::Msg::ProviderErrTtfbTimeout {
+                                secs: open_timeout.as_secs()
+                            }
+                        )
                     ),
                     ..Default::default()
                 });

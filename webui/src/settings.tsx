@@ -4,7 +4,7 @@
 
 import { createContext, ComponentChildren } from 'preact';
 import { useContext, useEffect, useState } from 'preact/hooks';
-import { messages, Lang, MsgKey, DEFAULT_LANG } from './i18n';
+import { Lang, MsgKey, I18nParams, resolveI18n, readStoredLang, LANG_STORAGE_KEY } from './i18n';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -25,8 +25,6 @@ const FONT_SCALE_FACTORS: Record<FontScale, number> = {
 /** Which settings dialog to open from the sidebar settings menu. */
 export type SettingsSection = 'theme' | 'language' | 'model' | 'remote' | 'notifications';
 
-type TParams = Record<string, string | number>;
-
 interface SettingsCtx {
   theme: Theme;
   setTheme: (t: Theme) => void;
@@ -34,13 +32,12 @@ interface SettingsCtx {
   setFontScale: (s: FontScale) => void;
   lang: Lang;
   setLang: (l: Lang) => void;
-  t: (key: MsgKey, params?: TParams) => string;
+  t: (key: MsgKey, params?: I18nParams) => string;
 }
 
 const Ctx = createContext<SettingsCtx | null>(null);
 
 const THEME_KEY = 'rustcode.theme';
-const LANG_KEY = 'rustcode.lang';
 const FONT_SCALE_KEY = 'rustcode.fontScale';
 
 function readTheme(): Theme {
@@ -55,15 +52,10 @@ function readTheme(): Theme {
   return 'light';
 }
 
-function readLang(): Lang {
-  try {
-    const v = localStorage.getItem(LANG_KEY);
-    if (v === 'zh' || v === 'en') return v;
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_LANG;
-}
+// Language persistence/read is shared with non-React modules via
+// readStoredLang()/LANG_STORAGE_KEY in i18n.ts; the React context adds
+// re-rendering on language switch on top of the same lookup.
+
 
 function readFontScale(): FontScale {
   try {
@@ -77,7 +69,7 @@ function readFontScale(): FontScale {
 
 export function SettingsProvider({ children }: { children: ComponentChildren }) {
   const [theme, setThemeState] = useState<Theme>(readTheme);
-  const [lang, setLangState] = useState<Lang>(readLang);
+  const [lang, setLangState] = useState<Lang>(readStoredLang);
   const [fontScale, setFontScaleState] = useState<FontScale>(readFontScale);
 
   // Apply theme to <html data-theme>; theme.css keys light/dark off this.
@@ -93,7 +85,7 @@ export function SettingsProvider({ children }: { children: ComponentChildren }) 
   useEffect(() => {
     document.documentElement.setAttribute('lang', lang === 'zh' ? 'zh-CN' : 'en');
     try {
-      localStorage.setItem(LANG_KEY, lang);
+      localStorage.setItem(LANG_STORAGE_KEY, lang);
     } catch {
       /* ignore */
     }
@@ -116,22 +108,12 @@ export function SettingsProvider({ children }: { children: ComponentChildren }) 
   }, [fontScale]);
 
   /**
-   * Translate a key for the current language with the fallback chain:
-   *   1. user language table
-   *   2. product default (zh)
-   *   3. the key itself (last resort, so missing translations are visible)
-   *
-   * Placeholders use `{name}` syntax, replaced via split/join (no regex).
+   * Translate a key for the current language. Lookup/interpolation live in
+   * i18n.ts (resolveI18n) so non-React modules share the exact same behavior;
+   * this closure additionally re-renders consumers when `lang` changes.
    */
-  function t(key: MsgKey, params?: TParams): string {
-    const table = messages[lang] ?? messages[DEFAULT_LANG];
-    let s = table[key] ?? messages[DEFAULT_LANG][key] ?? key;
-    if (params) {
-      for (const k of Object.keys(params)) {
-        s = s.split(`{${k}}`).join(String(params[k]));
-      }
-    }
-    return s;
+  function t(key: MsgKey, params?: I18nParams): string {
+    return resolveI18n(lang, key, params);
   }
 
   return (

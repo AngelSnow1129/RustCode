@@ -1360,17 +1360,9 @@ impl Modal for PluginManager {
                 .filter(|i| i.marketplace == *mp)
                 .collect();
             if !installed_from_mp.is_empty() {
-                let warning_text = if crate::i18n::current_locale() == crate::i18n::Locale::ZhCn {
-                    format!(
-                        "  此操作将同时卸载该市场下的 {} 个插件：",
-                        installed_from_mp.len()
-                    )
-                } else {
-                    format!(
-                        "  This will also uninstall {} plugins from this marketplace:",
-                        installed_from_mp.len()
-                    )
-                };
+                let warning_text = t(Msg::PluginUninstallMarketplaceWarning {
+                    count: installed_from_mp.len(),
+                });
                 final_items.push((format!("\x1b[33m{}\x1b[39m", warning_text), String::new()));
                 added_lines += 1;
                 for i in &installed_from_mp {

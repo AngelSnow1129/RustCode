@@ -1,5 +1,7 @@
 package com.rustcode.jetbrains.ui
 
+import com.rustcode.jetbrains.i18n.RustCodeBundle
+
 import com.rustcode.jetbrains.persistence.WorkspaceTabState
 import com.rustcode.jetbrains.session.ChatRuntime
 import com.rustcode.jetbrains.session.SessionWorkspace
@@ -47,7 +49,7 @@ private fun createRustCodeChatContent(
     val panel = RustCodeChatPanel(project, runtime)
     val content = ContentFactory.getInstance().createContent(panel, name, false).apply {
         isCloseable = closeable
-        description = "RustCode Chat"
+        description = RustCodeBundle.message("toolwindow.chatTab")
         putUserData(RUSTCODE_TAB_ID_KEY, runtime.tabId)
         setDisposer(panel)
     }
@@ -143,7 +145,7 @@ fun updateRustCodeChatTabTitle(project: Project, panel: RustCodeChatPanel, title
 
 private fun nextChatTabName(toolWindow: ToolWindow): String {
     val count = toolWindow.contentManager.contentCount
-    return if (count == 0) "Chat" else "Chat ${count + 1}"
+    return if (count == 0) RustCodeBundle.message("tab.chat") else RustCodeBundle.message("tab.chatN", count + 1)
 }
 
 /**
@@ -170,7 +172,7 @@ private fun installTabPopupMenu(toolWindow: ToolWindow, project: Project) {
                 val clickedContent = contentManager.getContent(index) ?: return
 
                 val menu = JPopupMenu()
-                menu.add(JMenuItem("关闭标签页").apply {
+                menu.add(JMenuItem(RustCodeBundle.message("tab.close")).apply {
                     addActionListener {
                         if (contentManager.contentCount <= 1) {
                             val panel = clickedContent.component as? RustCodeChatPanel
@@ -181,7 +183,7 @@ private fun installTabPopupMenu(toolWindow: ToolWindow, project: Project) {
                         }
                     }
                 })
-                menu.add(JMenuItem("关闭其他标签页").apply {
+                menu.add(JMenuItem(RustCodeBundle.message("tab.closeOthers")).apply {
                     isEnabled = contentManager.contentCount > 1
                     addActionListener {
                         val others = contentManager.contents.filter { it != clickedContent }
@@ -192,7 +194,7 @@ private fun installTabPopupMenu(toolWindow: ToolWindow, project: Project) {
                     }
                 })
                 menu.add(JSeparator())
-                menu.add(JMenuItem("新建标签页").apply {
+                menu.add(JMenuItem(RustCodeBundle.message("titlebar.newTab")).apply {
                     addActionListener { openRustCodeChatTab(project, newTab = true) }
                 })
                 menu.show(tabPane, e.x, e.y)

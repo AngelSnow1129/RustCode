@@ -1087,7 +1087,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       current.terminal = {
         type: 'error',
         generation: stopGeneration,
-        message: `Unable to confirm the turn stopped: ${this._messageFromError(error)}`,
+        message: vscode.l10n.t('Unable to confirm the turn stopped: {message}', { message: this._messageFromError(error) }),
       };
       this._postTerminalForSession(sid, this._terminalForWebview(current.terminal), stopGeneration);
       this._postTerminalForSession(sid, { type: 'recoveryRequired' }, stopGeneration);
@@ -1230,7 +1230,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             const MAX_FILE_SIZE_BYTES = 512 * 1024;
 
             if (content.byteLength > MAX_FILE_SIZE_BYTES) {
-              parts.push(`File: ${ctx.fileName || path.basename(ctx.path)}\n[File too large to attach (${Math.round(content.byteLength / 1024)} KB). Use a specific selection instead.]`);
+              parts.push(`File: ${ctx.fileName || path.basename(ctx.path)}\n` + vscode.l10n.t('[File too large to attach ({size} KB). Use a specific selection instead.]', { size: Math.round(content.byteLength / 1024) }));
               continue;
             }
 
@@ -1607,7 +1607,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         type: 'permissionResponseResult',
         id: msg.id,
         success: false,
-        message: 'Invalid permission decision',
+        message: vscode.l10n.t('Invalid permission decision'),
       });
       return;
     }
@@ -1975,7 +1975,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       while (this._loginId === loginId && this._loginGeneration === generation) {
         if (Date.now() >= deadline) {
           await this._client.cancelLogin(loginId).catch(() => undefined);
-          throw new Error('Login timed out; start a new login.');
+          throw new Error(vscode.l10n.t('Login timed out; start a new login.'));
         }
 
         let result;
@@ -1996,7 +1996,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           continue;
         }
         if (result.status !== 'authorized') {
-          throw new Error(result.message || `Login ${result.status}; start a new login.`);
+          throw new Error(result.message || vscode.l10n.t('Login {status}; start a new login.', { status: result.status }));
         }
 
         if (this._loginId !== loginId || this._loginGeneration !== generation) return;
@@ -2295,7 +2295,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         } catch (e) {
           if (this._panels.get(sessionId) !== existing) return;
           if (this._panelSessions.get(sessionId)?.projectHash !== hash) return;
-          vscode.window.showErrorMessage(`Unable to load session: ${this._messageFromError(e)}`);
+          vscode.window.showErrorMessage(vscode.l10n.t('Unable to load session: {message}', { message: this._messageFromError(e) }));
           return;
         }
       }
@@ -2319,7 +2319,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const detail = await this._client.getSession(hash, sessionId);
       messages = detail?.messages;
     } catch (e) {
-      vscode.window.showErrorMessage(`Unable to load session: ${this._messageFromError(e)}`);
+      vscode.window.showErrorMessage(vscode.l10n.t('Unable to load session: {message}', { message: this._messageFromError(e) }));
       return;
     }
 

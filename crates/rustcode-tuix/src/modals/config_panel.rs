@@ -15,6 +15,7 @@ use super::{
 use crate::event_loop::{
     apply_config_panel_commit, build_status, Buffer, LoopCtx, PersistedConfigReload,
 };
+use crate::i18n::{t, Msg};
 use crate::render::{MenuKind, MenuPayload, Renderer, UiLine};
 use crate::state::UiState;
 
@@ -72,8 +73,9 @@ impl PanelSetting {
                 setting.label_en
             }
             .to_string(),
-            Self::RetryMaxAttempts if zh => format!("最大重试次数（当前模型：{selection}）"),
-            Self::RetryMaxAttempts => format!("Retry attempts (current model: {selection})"),
+            Self::RetryMaxAttempts => {
+                t(Msg::ConfigPanelRetryAttempts { model: selection }).into_owned()
+            }
         }
     }
 
@@ -228,26 +230,20 @@ impl ConfigPanel {
     fn draw_payload(&self, ctx: &LoopCtx) -> MenuPayload {
         let filtered = self.filtered();
         let zh = matches!(crate::i18n::current_locale(), crate::i18n::Locale::ZhCn);
-        let title = if zh {
-            format!("配置 ({} / {})", filtered.len(), SETTINGS.len() + 1)
-        } else {
-            format!("Config ({} / {})", filtered.len(), SETTINGS.len() + 1)
-        };
+        let title = t(Msg::ConfigPanelTitle {
+            shown: filtered.len(),
+            total: SETTINGS.len() + 1,
+        })
+        .into_owned();
         let search = if let Some(setting) = self.editing {
             format!("{} = {}", setting.id(), self.edit_value)
         } else {
             self.query.clone()
         };
         let hint = if let Some(id) = self.pending_reset {
-            if zh {
-                format!("再次按 Delete 恢复 {id} 的默认值")
-            } else {
-                format!("Press Delete again to reset {id}")
-            }
-        } else if zh {
-            "↑↓ 选择 . Enter 修改 . Delete 恢复默认 . Esc 返回".to_string()
+            t(Msg::ConfigPanelResetHint { id }).into_owned()
         } else {
-            "↑↓ select . Enter change . Delete reset . Esc close".to_string()
+            t(Msg::ConfigPanelFooter).into_owned()
         };
         let mut items = vec![
             (title, String::new()),
@@ -257,41 +253,11 @@ impl ConfigPanel {
         ];
         items.extend(filtered.iter().map(|setting| {
             let policy = match setting.apply() {
-                ApplyPolicy::ImmediateUi => {
-                    if zh {
-                        "立即"
-                    } else {
-                        "now"
-                    }
-                }
-                ApplyPolicy::NextTurn => {
-                    if zh {
-                        "下一轮"
-                    } else {
-                        "next turn"
-                    }
-                }
-                ApplyPolicy::AgentReassemble => {
-                    if zh {
-                        "重新加载"
-                    } else {
-                        "reload"
-                    }
-                }
-                ApplyPolicy::CapabilityReprepare => {
-                    if zh {
-                        "重建能力"
-                    } else {
-                        "reprepare"
-                    }
-                }
-                ApplyPolicy::NextStartup => {
-                    if zh {
-                        "重启后"
-                    } else {
-                        "restart"
-                    }
-                }
+                ApplyPolicy::ImmediateUi => t(Msg::ConfigPanelPolicyImmediate),
+                ApplyPolicy::NextTurn => t(Msg::ConfigPanelPolicyNextTurn),
+                ApplyPolicy::AgentReassemble => t(Msg::ConfigPanelPolicyReload),
+                ApplyPolicy::CapabilityReprepare => t(Msg::ConfigPanelPolicyReprepare),
+                ApplyPolicy::NextStartup => t(Msg::ConfigPanelPolicyRestart),
             };
             (
                 setting.label(zh, &ctx.provider_selection),

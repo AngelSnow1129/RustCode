@@ -1,5 +1,7 @@
 package com.rustcode.jetbrains.actions
 
+import com.rustcode.jetbrains.i18n.RustCodeBundle
+
 import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
@@ -29,21 +31,21 @@ abstract class RustCodeSelectionIntention(
 }
 
 class ExplainSelectionIntention : RustCodeSelectionIntention(
-    "RustCode：解释选中内容",
-    "请解释这段代码。它做了什么，为什么这样实现？",
+    RustCodeBundle.message("intention.explain.title"),
+    RustCodeBundle.message("intention.explain.prompt"),
 )
 
 class FixSelectionIntention : RustCodeSelectionIntention(
-    "RustCode：修复选中内容",
-    "请修复这段代码中的错误或问题。",
+    RustCodeBundle.message("intention.fix.title"),
+    RustCodeBundle.message("intention.fix.prompt"),
 )
 
 class OptimizeSelectionIntention : RustCodeSelectionIntention(
-    "RustCode：优化选中内容",
-    "请优化这段代码，提升性能和可读性。",
+    RustCodeBundle.message("intention.optimize.title"),
+    RustCodeBundle.message("intention.optimize.prompt"),
 )
 
 class AddContextIntention : RustCodeSelectionIntention(
-    "RustCode：添加选中内容/文件为上下文",
+    RustCodeBundle.message("intention.addContext.title"),
     null,
 )

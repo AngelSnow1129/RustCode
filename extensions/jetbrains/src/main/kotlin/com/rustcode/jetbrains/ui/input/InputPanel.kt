@@ -1,5 +1,7 @@
 package com.rustcode.jetbrains.ui.input
 
+import com.rustcode.jetbrains.i18n.RustCodeBundle
+
 import com.rustcode.jetbrains.daemon.ApprovalMode
 import com.rustcode.jetbrains.ui.ChatContextItem
 import com.intellij.ide.PasteProvider
@@ -87,12 +89,12 @@ class InputPanel(
         font = font.deriveFont(font.size2D)
     }
 
-    private val sendButton = makeToolButton("↑ 发送") { fireSend() }.apply {
+    private val sendButton = makeToolButton(RustCodeBundle.message("input.send")) { fireSend() }.apply {
         font = font.deriveFont(java.awt.Font.BOLD, font.size2D - 1f)
         preferredSize = Dimension(preferredSize.width.coerceAtLeast(92), 30)
     }
 
-    private val stopButton = JButton("⏹ 停止").apply {
+    private val stopButton = JButton(RustCodeBundle.message("input.stop")).apply {
         font = font.deriveFont(java.awt.Font.BOLD, font.size2D - 1f)
         preferredSize = Dimension(92, 30)
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
@@ -125,8 +127,8 @@ class InputPanel(
         font = font.deriveFont(java.awt.Font.BOLD, font.size2D - 2f)
         isOpaque = false
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        toolTipText = "模式"
-        accessibleContext.accessibleName = "Approval mode"
+        toolTipText = RustCodeBundle.message("input.modeTooltip")
+        accessibleContext.accessibleName = RustCodeBundle.message("input.modeA11y")
         border = BorderFactory.createEmptyBorder(5, 8, 5, 8)
         addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
@@ -163,8 +165,8 @@ class InputPanel(
             verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_NEVER
         }
 
-        val attachButton = makeCompactToolButton("[+]", "附件", onAttach)
-        val commandButton = makeCompactToolButton("/", "命令") { showSlashCommandsFromButton() }
+        val attachButton = makeCompactToolButton("[+]", RustCodeBundle.message("input.attachTooltip"), onAttach)
+        val commandButton = makeCompactToolButton("/", RustCodeBundle.message("input.commandTooltip")) { showSlashCommandsFromButton() }
 
         // 工具栏与输入框放在同一个 composer 容器内，状态切换时布局保持稳定。
         val toolbar = object : JPanel(null) {
@@ -261,7 +263,7 @@ class InputPanel(
     override fun isPasteEnabled(dataContext: DataContext): Boolean = inputArea.isEnabled
 
     private inner class PasteAwareTextArea : JTextArea(), DataProvider, PasteProvider {
-        var placeholderText: String = "Enter 发送 · Shift+Enter 换行"
+        var placeholderText: String = RustCodeBundle.message("input.placeholderShort")
 
         override fun paintComponent(graphics: Graphics) {
             super.paintComponent(graphics)
@@ -277,7 +279,7 @@ class InputPanel(
                 var y = insets.top
 
                 graphics2D.font = baseFont
-                val primary = "输入消息"
+                val primary = RustCodeBundle.message("input.placeholderPrimary")
                 val primaryMetrics = graphics2D.fontMetrics
                 y += primaryMetrics.ascent
                 graphics2D.color = PLACEHOLDER_FG
@@ -438,9 +440,9 @@ class InputPanel(
         })
 
         inputArea.placeholderText = if (sendWithCtrlEnter) {
-            "Ctrl+Enter 发送 · Enter 换行"
+            RustCodeBundle.message("input.placeholderCtrl")
         } else {
-            "Enter 发送 · Shift+Enter 换行"
+            RustCodeBundle.message("input.placeholderShort")
         }
         inputArea.repaint()
 

@@ -26,15 +26,15 @@ pub fn parse_loop_arg(arg: &str) -> LoopArg {
     if let Some(secs) = parse_interval(head) {
         let payload = rest.trim();
         if payload.is_empty() {
-            return LoopArg::Error(
-                "用法：/loop <间隔> <prompt 或 /命令>，例 /loop 5m /diff".into(),
-            );
+            return LoopArg::Error(crate::i18n::t(crate::i18n::Msg::TuixLoopUsage).into_owned());
         }
         if payload.split_whitespace().next() == Some("/loop") {
-            return LoopArg::Error("不能对 /loop 自身循环".into());
+            return LoopArg::Error(crate::i18n::t(crate::i18n::Msg::TuixLoopSelfRef).into_owned());
         }
         if !(10..=86_400).contains(&secs) {
-            return LoopArg::Error("间隔需在 10s-24h 之间".into());
+            return LoopArg::Error(
+                crate::i18n::t(crate::i18n::Msg::TuixLoopIntervalRange).into_owned(),
+            );
         }
         return LoopArg::Interval {
             secs,
@@ -42,7 +42,7 @@ pub fn parse_loop_arg(arg: &str) -> LoopArg {
         };
     }
     if t.split_whitespace().next() == Some("/loop") {
-        return LoopArg::Error("不能对 /loop 自身循环".into());
+        return LoopArg::Error(crate::i18n::t(crate::i18n::Msg::TuixLoopSelfRef).into_owned());
     }
     LoopArg::SelfPaced {
         prompt: t.to_string(),

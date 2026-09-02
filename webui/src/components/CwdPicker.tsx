@@ -254,7 +254,7 @@ export function CwdPicker({ current, onPick, onClose }: CwdPickerProps) {
                     {isCurrent && <span class="badge">● {t('cwd.current')}</span>}
                     <button
                       type="button"
-                      title="移除此项目"
+                      title={t('cwd.removeProject')}
                       style="background:none;border:none;cursor:pointer;padding:2px 4px;opacity:0.6;font-size:0.75rem;margin-left:auto;color:inherit;"
                       onClick={(e) => handleDeleteProject(p.hash, e)}
                     >

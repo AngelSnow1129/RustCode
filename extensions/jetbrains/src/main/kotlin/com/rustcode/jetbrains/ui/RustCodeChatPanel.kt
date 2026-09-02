@@ -131,24 +131,24 @@ private fun sessionUpdatedInstant(updatedAt: Long): Instant? {
 }
 
 private fun formatSessionUpdatedAt(updatedAt: Long): String {
-    val instant = sessionUpdatedInstant(updatedAt) ?: return "未知"
+    val instant = sessionUpdatedInstant(updatedAt) ?: return RustCodeBundle.message("time.unknown")
     val now = Instant.now()
     val minutes = Duration.between(instant, now).toMinutes()
-    if (minutes in 0..1) return "刚刚"
-    if (minutes in 2..59) return "${minutes} 分钟前"
+    if (minutes in 0..1) return RustCodeBundle.message("time.justNow")
+    if (minutes in 2..59) return RustCodeBundle.message("time.minutesAgo", minutes)
 
     val zone = ZoneId.systemDefault()
     val dateTime = instant.atZone(zone)
     val today = LocalDate.now(zone)
     return when {
-        dateTime.toLocalDate() == today -> "今天 ${SESSION_HISTORY_TODAY_TIME_FORMAT.format(dateTime)}"
+        dateTime.toLocalDate() == today -> RustCodeBundle.message("time.today", SESSION_HISTORY_TODAY_TIME_FORMAT.format(dateTime))
         dateTime.year == today.year -> SESSION_HISTORY_YEAR_TIME_FORMAT.format(dateTime)
         else -> SESSION_HISTORY_FULL_TIME_FORMAT.format(dateTime)
     }
 }
 
 private fun formatSessionUpdatedAtFull(updatedAt: Long): String {
-    val instant = sessionUpdatedInstant(updatedAt) ?: return "未知"
+    val instant = sessionUpdatedInstant(updatedAt) ?: return RustCodeBundle.message("time.unknown")
     return SESSION_HISTORY_FULL_TIME_FORMAT.format(instant.atZone(ZoneId.systemDefault()))
 }
 
@@ -186,7 +186,7 @@ private class SessionHistoryCellRenderer : JPanel(BorderLayout(12, 0)), ListCell
         } else {
             title.text = "${value.displayName} (${value.messageCount})"
             updated.text = formatSessionUpdatedAt(value.updatedAt)
-            toolTipText = "最后更新：${formatSessionUpdatedAtFull(value.updatedAt)}"
+            toolTipText = RustCodeBundle.message("time.lastUpdated", formatSessionUpdatedAtFull(value.updatedAt))
         }
         return this
     }
@@ -221,7 +221,7 @@ class RustCodeChatPanel(
                 isOpaque = false
                 border = BorderFactory.createEmptyBorder(0, 4, 0, 0)
                 isContentAreaFilled = false
-                toolTipText = "Dismiss"
+                toolTipText = RustCodeBundle.message("chat.dismiss")
                 addActionListener { dismissPersistenceWarning() }
             },
             BorderLayout.EAST,
@@ -415,11 +415,11 @@ class RustCodeChatPanel(
             service.stopGeneration(currentSession?.id)
             return
         }
-        addSystemMessage("[Stopping]")
+        addSystemMessage(RustCodeBundle.message("chat.stopping"))
         service.stopGeneration(currentSession?.id).whenComplete { _, error ->
             SwingUtilities.invokeLater {
                 if (error != null) {
-                    addErrorMessage("Stop failed: ${error.cause?.message ?: error.message ?: "failed"}")
+                    addErrorMessage(RustCodeBundle.message("chat.stopFailed", error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.failedFallback")))
                 }
             }
         }
@@ -460,7 +460,7 @@ class RustCodeChatPanel(
             SwingUtilities.invokeLater {
                 if (error != null) {
                     if (!silent) {
-                        addErrorMessage(error.cause?.message ?: error.message ?: "failed to load setup")
+                        addErrorMessage(error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.loadSetupFailed"))
                     }
                     return@invokeLater
                 }
@@ -486,7 +486,7 @@ class RustCodeChatPanel(
         // Update input panel model name
         val currentModel = snapshot.models.firstOrNull { it.isDefault }?.model
             ?: snapshot.currentModel.ifBlank { null }
-            ?: "No model"
+            ?: RustCodeBundle.message("chat.noModel")
         inputPanel.setModelName(currentModel)
         if (currentSession == null && !generating) {
             showWelcomePage()
@@ -502,7 +502,7 @@ class RustCodeChatPanel(
             SwingUtilities.invokeLater {
                 if (error != null) {
                     header.updateLoginStatus(
-                        "Login failed: ${error.cause?.message ?: error.message ?: "failed"}",
+                        RustCodeBundle.message("chat.loginFailed", error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.failedFallback")),
                         failed = true,
                     )
                     refreshSetupSnapshot()
@@ -525,7 +525,7 @@ class RustCodeChatPanel(
                     return@invokeLater
                 }
                 renderSetupSnapshot(snapshot)
-                addSystemMessage("Default model set to ${model.model}.")
+                addSystemMessage(RustCodeBundle.message("chat.modelSet", model.model))
             }
         }
     }
@@ -552,11 +552,11 @@ class RustCodeChatPanel(
         service.setupCodingPlan().whenComplete { report, error ->
             SwingUtilities.invokeLater {
                 if (error != null) {
-                    addErrorMessage("Setup failed: ${error.cause?.message ?: error.message ?: "failed"}")
+                    addErrorMessage(RustCodeBundle.message("chat.setupFailed", error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.failedFallback")))
                     refreshSetupSnapshot()
                     return@invokeLater
                 }
-                addSystemMessage("Setup:\n$report")
+                addSystemMessage(RustCodeBundle.message("chat.setupReport", report))
                 refreshSetupSnapshot()
             }
         }
@@ -570,21 +570,21 @@ class RustCodeChatPanel(
         val model = JTextField("gpt-4o-mini")
         val apiKey = JPasswordField()
         val baseUrl = JTextField()
-        val setDefault = JCheckBox("Set as default", true)
+        val setDefault = JCheckBox(RustCodeBundle.message("form.setDefault"), true)
 
         val form = JPanel(GridBagLayout())
         fun addRow(row: Int, label: String, field: java.awt.Component) {
             form.add(JLabel(label), GridBagConstraints().apply { gridx = 0; gridy = row; anchor = GridBagConstraints.WEST; insets = Insets(4, 4, 4, 8) })
             form.add(field, GridBagConstraints().apply { gridx = 1; gridy = row; weightx = 1.0; fill = GridBagConstraints.HORIZONTAL; insets = Insets(4, 4, 4, 4) })
         }
-        addRow(0, "Name", name)
-        addRow(1, "Type", type)
-        addRow(2, "Model", model)
-        addRow(3, "API Key", apiKey)
-        addRow(4, "Base URL", baseUrl)
+        addRow(0, RustCodeBundle.message("form.name"), name)
+        addRow(1, RustCodeBundle.message("form.type"), type)
+        addRow(2, RustCodeBundle.message("form.model"), model)
+        addRow(3, RustCodeBundle.message("form.apiKey"), apiKey)
+        addRow(4, RustCodeBundle.message("form.baseUrl"), baseUrl)
         form.add(setDefault, GridBagConstraints().apply { gridx = 1; gridy = 5; anchor = GridBagConstraints.WEST; insets = Insets(4, 4, 4, 4) })
 
-        val choice = JOptionPane.showConfirmDialog(this, form, "Create RustCode Provider", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
+        val choice = JOptionPane.showConfirmDialog(this, form, RustCodeBundle.message("dialog.providerCreate"), JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
         if (choice != JOptionPane.OK_OPTION) return
 
         val request = CreateProviderRequest(
@@ -593,12 +593,12 @@ class RustCodeChatPanel(
             baseUrl = baseUrl.text.trim().ifBlank { null }, setDefault = setDefault.isSelected,
         )
         if (request.name.isBlank() || request.type.isBlank() || request.model.isBlank()) {
-            Messages.showWarningDialog(this, "Name, type, and model are required.", "RustCode"); return
+            Messages.showWarningDialog(this, RustCodeBundle.message("dialog.fieldsRequired"), "RustCode"); return
         }
         service.createProvider(request).whenComplete { snapshot, error ->
             SwingUtilities.invokeLater {
-                if (error != null) { addErrorMessage("Provider failed: ${error.cause?.message ?: error.message ?: "failed"}"); refreshSetupSnapshot(); return@invokeLater }
-                renderSetupSnapshot(snapshot); addSystemMessage("Provider ${request.name} saved.")
+                if (error != null) { addErrorMessage(RustCodeBundle.message("chat.providerFailed", error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.failedFallback"))); refreshSetupSnapshot(); return@invokeLater }
+                renderSetupSnapshot(snapshot); addSystemMessage(RustCodeBundle.message("chat.providerSaved", request.name))
             }
         }
     }
@@ -609,21 +609,21 @@ class RustCodeChatPanel(
         val type = JComboBox(arrayOf("openai", "claude", "ollama")).apply { selectedItem = selected.type.ifBlank { "openai" } }
         val model = JTextField(selected.model)
         val apiKey = JPasswordField()
-        val clearApiKey = JCheckBox("Clear API key", false)
+        val clearApiKey = JCheckBox(RustCodeBundle.message("form.clearApiKey"), false)
         val baseUrl = JTextField()
-        val clearBaseUrl = JCheckBox("Clear Base URL", false)
+        val clearBaseUrl = JCheckBox(RustCodeBundle.message("form.clearBaseUrl"), false)
 
         val form = JPanel(GridBagLayout())
         fun addRow(row: Int, label: String, field: java.awt.Component) {
             form.add(JLabel(label), GridBagConstraints().apply { gridx = 0; gridy = row; anchor = GridBagConstraints.WEST; insets = Insets(4, 4, 4, 8) })
             form.add(field, GridBagConstraints().apply { gridx = 1; gridy = row; weightx = 1.0; fill = GridBagConstraints.HORIZONTAL; insets = Insets(4, 4, 4, 4) })
         }
-        addRow(0, "Name", name); addRow(1, "Type", type); addRow(2, "Model", model)
-        addRow(3, "New API Key", apiKey); addRow(4, "Base URL", baseUrl)
+        addRow(0, RustCodeBundle.message("form.name"), name); addRow(1, RustCodeBundle.message("form.type"), type); addRow(2, RustCodeBundle.message("form.model"), model)
+        addRow(3, RustCodeBundle.message("form.newApiKey"), apiKey); addRow(4, "Base URL", baseUrl)
         form.add(clearApiKey, GridBagConstraints().apply { gridx = 1; gridy = 5; anchor = GridBagConstraints.WEST; insets = Insets(4, 4, 4, 4) })
         form.add(clearBaseUrl, GridBagConstraints().apply { gridx = 1; gridy = 6; anchor = GridBagConstraints.WEST; insets = Insets(4, 4, 4, 4) })
 
-        val choice = JOptionPane.showConfirmDialog(this, form, "Edit RustCode Provider", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
+        val choice = JOptionPane.showConfirmDialog(this, form, RustCodeBundle.message("dialog.providerEdit"), JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
         if (choice != JOptionPane.OK_OPTION) return
 
         val request = PatchProviderRequest(
@@ -633,31 +633,31 @@ class RustCodeChatPanel(
             clearBaseUrl = clearBaseUrl.isSelected,
         )
         if (request.name.isBlank() || request.type.isBlank() || request.model.isBlank()) {
-            Messages.showWarningDialog(this, "Name, type, and model are required.", "RustCode"); return
+            Messages.showWarningDialog(this, RustCodeBundle.message("dialog.fieldsRequired"), "RustCode"); return
         }
         service.patchProvider(request).whenComplete { snapshot, error ->
             SwingUtilities.invokeLater {
-                if (error != null) { addErrorMessage("Provider update failed: ${error.cause?.message ?: error.message ?: "failed"}"); refreshSetupSnapshot(); return@invokeLater }
-                renderSetupSnapshot(snapshot); addSystemMessage("Provider ${request.name} updated.")
+                if (error != null) { addErrorMessage(RustCodeBundle.message("chat.providerUpdateFailed", error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.failedFallback"))); refreshSetupSnapshot(); return@invokeLater }
+                renderSetupSnapshot(snapshot); addSystemMessage(RustCodeBundle.message("chat.providerUpdated", request.name))
             }
         }
     }
 
     private fun deleteSelectedProvider() {
         val selected = selectedProvider() ?: return
-        val choice = Messages.showYesNoDialog(this, "Delete provider \"${selected.name}\" from RustCode config?", "RustCode", Messages.getWarningIcon())
+        val choice = Messages.showYesNoDialog(this, RustCodeBundle.message("dialog.providerDeleteConfirm", selected.name), "RustCode", Messages.getWarningIcon())
         if (choice != Messages.YES) return
         service.deleteProvider(selected.name).whenComplete { snapshot, error ->
             SwingUtilities.invokeLater {
-                if (error != null) { addErrorMessage("Provider delete failed: ${error.cause?.message ?: error.message ?: "failed"}"); refreshSetupSnapshot(); return@invokeLater }
-                renderSetupSnapshot(snapshot); addSystemMessage("Provider ${selected.name} deleted.")
+                if (error != null) { addErrorMessage(RustCodeBundle.message("chat.providerDeleteFailed", error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.failedFallback"))); refreshSetupSnapshot(); return@invokeLater }
+                renderSetupSnapshot(snapshot); addSystemMessage(RustCodeBundle.message("chat.providerDeleted", selected.name))
             }
         }
     }
 
     private fun showThinkingDialog() {
         val selected = selectedProvider() ?: return
-        val enabled = JCheckBox("Enable thinking/reasoning", selected.thinkingEnabled)
+        val enabled = JCheckBox(RustCodeBundle.message("form.enableThinking"), selected.thinkingEnabled)
         val budget = JTextField(selected.thinkingBudget?.toString() ?: "10000")
         val type = JTextField(selected.thinkingType.orEmpty())
         val keep = JTextField(selected.thinkingKeep.orEmpty())
@@ -668,18 +668,18 @@ class RustCodeChatPanel(
             form.add(field, GridBagConstraints().apply { gridx = 1; gridy = row; weightx = 1.0; fill = GridBagConstraints.HORIZONTAL; insets = Insets(4, 4, 4, 4) })
         }
         form.add(enabled, GridBagConstraints().apply { gridx = 1; gridy = 0; anchor = GridBagConstraints.WEST; insets = Insets(4, 4, 4, 4) })
-        addRow(1, "Budget", budget); addRow(2, "Type", type); addRow(3, "Keep", keep)
+        addRow(1, RustCodeBundle.message("form.budget"), budget); addRow(2, RustCodeBundle.message("form.type"), type); addRow(3, RustCodeBundle.message("form.keep"), keep)
 
-        val choice = JOptionPane.showConfirmDialog(this, form, "RustCode Thinking - ${selected.name}", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
+        val choice = JOptionPane.showConfirmDialog(this, form, RustCodeBundle.message("dialog.thinkingTitle", selected.name), JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
         if (choice != JOptionPane.OK_OPTION) return
 
         val budgetValue = budget.text.trim().takeIf { it.isNotBlank() }?.toIntOrNull()
-        if (budget.text.trim().isNotBlank() && budgetValue == null) { Messages.showWarningDialog(this, "Thinking budget must be a number.", "RustCode"); return }
+        if (budget.text.trim().isNotBlank() && budgetValue == null) { Messages.showWarningDialog(this, RustCodeBundle.message("dialog.budgetNumber"), "RustCode"); return }
         service.patchProviderThinking(selected.name, PatchThinkingRequest(enabled = enabled.isSelected, budget = budgetValue, type = type.text.trim().ifBlank { null }, keep = keep.text.trim().ifBlank { null })).whenComplete { snapshot, error ->
             SwingUtilities.invokeLater {
-                if (error != null) { addErrorMessage("Thinking update failed: ${error.cause?.message ?: error.message ?: "failed"}"); refreshSetupSnapshot(); return@invokeLater }
+                if (error != null) { addErrorMessage(RustCodeBundle.message("chat.thinkingUpdateFailed", error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.failedFallback"))); refreshSetupSnapshot(); return@invokeLater }
                 renderSetupSnapshot(snapshot)
-                val state = if (enabled.isSelected) "enabled" else "disabled"; addSystemMessage("Thinking $state for ${selected.name}.")
+                val state = if (enabled.isSelected) RustCodeBundle.message("chat.thinkingEnabled") else RustCodeBundle.message("chat.thinkingDisabled"); addSystemMessage(RustCodeBundle.message("chat.thinkingState", state, selected.name))
             }
         }
     }
@@ -701,7 +701,7 @@ class RustCodeChatPanel(
                 persistRuntimeSession()
                 messageView.clear()
                 dismissPersistenceWarning()
-                addSystemMessage("Started new session ${session.name.ifBlank { session.id.take(8) }}.")
+                addSystemMessage(RustCodeBundle.message("chat.sessionStarted", session.name.ifBlank { session.id.take(8) }))
                 refreshSessionList()
                 inputPanel.focusInput()
             }
@@ -711,7 +711,7 @@ class RustCodeChatPanel(
     internal fun showSessionHistory() {
         service.refreshSessions().whenComplete { sessions, error ->
             SwingUtilities.invokeLater {
-                if (error != null) { addErrorMessage(error.cause?.message ?: error.message ?: "failed to load sessions"); return@invokeLater }
+                if (error != null) { addErrorMessage(error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.loadSessionsFailed")); return@invokeLater }
                 openSessionHistoryDialog(sessions)
             }
         }
@@ -727,8 +727,8 @@ class RustCodeChatPanel(
             fixedCellHeight = 34
             cellRenderer = SessionHistoryCellRenderer()
         }
-        val load = JButton("Load"); val rename = JButton("Rename"); val delete = JButton("Delete Selected")
-        val refresh = JButton("Refresh"); val close = JButton("Close")
+        val load = JButton(RustCodeBundle.message("form.load")); val rename = JButton(RustCodeBundle.message("form.rename")); val delete = JButton(RustCodeBundle.message("form.deleteSelected"))
+        val refresh = JButton(RustCodeBundle.message("form.refresh")); val close = JButton(RustCodeBundle.message("form.close"))
         var searchGeneration = 0
 
         fun updateHistoryButtons() {
@@ -772,14 +772,14 @@ class RustCodeChatPanel(
             add(JPanel().apply { add(load); add(rename); add(delete); add(refresh); add(close) }, BorderLayout.SOUTH)
             preferredSize = Dimension(560, 360)
         }
-        val dialog = JDialog(SwingUtilities.getWindowAncestor(this), "RustCode Session History", Dialog.ModalityType.APPLICATION_MODAL).apply {
+        val dialog = JDialog(SwingUtilities.getWindowAncestor(this), RustCodeBundle.message("dialog.sessionHistory"), Dialog.ModalityType.APPLICATION_MODAL).apply {
             contentPane = panel; pack(); setLocationRelativeTo(this@RustCodeChatPanel)
         }
         load.addActionListener { val selected = list.selectedValue ?: return@addActionListener; dialog.dispose(); loadSession(selected) }
         rename.addActionListener {
             val selected = list.selectedValue ?: return@addActionListener
-            val nextName = JOptionPane.showInputDialog(dialog, "Session name", selected.displayName)?.trim() ?: return@addActionListener
-            if (nextName.isBlank()) { Messages.showWarningDialog(dialog, "Session name cannot be empty.", "RustCode"); return@addActionListener }
+            val nextName = JOptionPane.showInputDialog(dialog, RustCodeBundle.message("dialog.sessionName"), selected.displayName)?.trim() ?: return@addActionListener
+            if (nextName.isBlank()) { Messages.showWarningDialog(dialog, RustCodeBundle.message("dialog.sessionNameEmpty"), "RustCode"); return@addActionListener }
             rename.isEnabled = false
             service.renameSession(selected, nextName).whenComplete { updated, error ->
                 SwingUtilities.invokeLater {
@@ -787,13 +787,13 @@ class RustCodeChatPanel(
                     if (error != null) { addErrorMessage(error.cause?.message ?: error.message ?: "failed to rename session"); return@invokeLater }
                     sessions = updated.sortedByDescending { it.updatedAt }; replaceSessions(sessions, selected.id); refill(sessions)
                     updateCurrentSessionTitle(selected.id, nextName)
-                    addSystemMessage("Session renamed to $nextName.")
+                    addSystemMessage(RustCodeBundle.message("chat.sessionRenamed", nextName))
                 }
             }
         }
         delete.addActionListener {
             val selected = list.selectedValuesList; if (selected.isEmpty()) return@addActionListener
-            val label = if (selected.size == 1) "Delete RustCode session \"${selected.first().displayName}\" from local history?" else "Delete ${selected.size} RustCode sessions from local history?"
+            val label = if (selected.size == 1) RustCodeBundle.message("dialog.sessionDeleteOne", selected.first().displayName) else RustCodeBundle.message("dialog.sessionDeleteMany", selected.size)
             val choice = Messages.showYesNoDialog(dialog, label, "RustCode", Messages.getWarningIcon())
             if (choice != Messages.YES) return@addActionListener
             delete.isEnabled = false
@@ -804,7 +804,7 @@ class RustCodeChatPanel(
                     sessions = updated.sortedByDescending { it.updatedAt }
                     if (selected.any { it.id == currentSession?.id }) { currentSession = null }
                     replaceSessions(sessions, currentSession?.id)
-                    refill(sessions); addSystemMessage("Deleted ${selected.size} session(s).")
+                    refill(sessions); addSystemMessage(RustCodeBundle.message("chat.sessionsDeleted", selected.size))
                     if (currentSession == null) showWelcomePage()
                 }
             }
@@ -825,28 +825,28 @@ class RustCodeChatPanel(
 
     private fun renameSelectedSession() {
         val selected = sessionPicker.selectedItem as? SessionMeta ?: return
-        val nextName = JOptionPane.showInputDialog(this, "Session name", selected.displayName)?.trim() ?: return
-        if (nextName.isBlank()) { Messages.showWarningDialog(this, "Session name cannot be empty.", "RustCode"); return }
+        val nextName = JOptionPane.showInputDialog(this, RustCodeBundle.message("dialog.sessionName"), selected.displayName)?.trim() ?: return
+        if (nextName.isBlank()) { Messages.showWarningDialog(this, RustCodeBundle.message("dialog.sessionNameEmpty"), "RustCode"); return }
         service.renameSession(selected, nextName).whenComplete { sessions, error ->
             SwingUtilities.invokeLater {
                 if (error != null) { addErrorMessage(error.cause?.message ?: error.message ?: "failed to rename session"); return@invokeLater }
                 replaceSessions(sessions, selected.id)
                 updateCurrentSessionTitle(selected.id, nextName)
-                addSystemMessage("Session renamed to $nextName.")
+                addSystemMessage(RustCodeBundle.message("chat.sessionRenamed", nextName))
             }
         }
     }
 
     private fun deleteSelectedSession() {
         val selected = sessionPicker.selectedItem as? SessionMeta ?: return
-        val choice = Messages.showYesNoDialog(this, "Delete RustCode session \"${selected.displayName}\" from local history?", "RustCode", Messages.getWarningIcon())
+        val choice = Messages.showYesNoDialog(this, RustCodeBundle.message("dialog.sessionDeleteOne", selected.displayName), "RustCode", Messages.getWarningIcon())
         if (choice != Messages.YES) return
         service.deleteSession(selected).whenComplete { sessions, error ->
             SwingUtilities.invokeLater {
                 if (error != null) { addErrorMessage(error.cause?.message ?: error.message ?: "failed to delete session"); return@invokeLater }
                 if (currentSession?.id == selected.id) { currentSession = null }
                 replaceSessions(sessions, currentSession?.id)
-                addSystemMessage("Session deleted.")
+                addSystemMessage(RustCodeBundle.message("chat.sessionDeleted"))
                 if (currentSession == null) showWelcomePage()
             }
         }
@@ -856,8 +856,8 @@ class RustCodeChatPanel(
         service.fileChangeService.openChangedFiles().whenComplete { files, error ->
             SwingUtilities.invokeLater {
                 if (error != null) { addErrorMessage(error.cause?.message ?: error.message ?: "failed to open changes"); service.fileChangeService.openLocalChanges(); return@invokeLater }
-                if (files.isEmpty()) { addSystemMessage("No Git changes found. Opened Local Changes."); service.fileChangeService.openLocalChanges() }
-                else { addSystemMessage("Opened changed files: ${files.joinToString()}") }
+                if (files.isEmpty()) { addSystemMessage(RustCodeBundle.message("chat.noGitChanges")); service.fileChangeService.openLocalChanges() }
+                else { addSystemMessage(RustCodeBundle.message("chat.openedChangedFiles", files.joinToString())) }
             }
         }
     }
@@ -883,7 +883,7 @@ class RustCodeChatPanel(
         val text = RustCodeDiagnostics.summary(project, details)
         CopyPasteManager.getInstance().setContents(StringSelection(text))
         val area = JTextArea(text).apply { isEditable = false; lineWrap = false; rows = 22; columns = 72 }
-        JOptionPane.showMessageDialog(this, JScrollPane(area), "RustCode Diagnostics (copied)", JOptionPane.INFORMATION_MESSAGE)
+        JOptionPane.showMessageDialog(this, JScrollPane(area), RustCodeBundle.message("dialog.diagnostics"), JOptionPane.INFORMATION_MESSAGE)
     }
 
     // ── Session list ──
@@ -923,7 +923,7 @@ class RustCodeChatPanel(
     private fun loadSession(meta: SessionMeta) {
         service.loadSessionDetail(meta).whenComplete { detail, error ->
             SwingUtilities.invokeLater {
-                if (error != null) { addErrorMessage(error.cause?.message ?: error.message ?: "failed to load session"); return@invokeLater }
+                if (error != null) { addErrorMessage(error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.loadSessionFailed")); return@invokeLater }
                 currentSession = SessionRefView(detail.id, detail.name, detail.projectHash, detail.workingDir)
                 updateRustCodeChatTabTitle(project, this@RustCodeChatPanel, detail.name.ifBlank { detail.id.take(8) })
                 persistRuntimeSession()
@@ -1019,7 +1019,7 @@ class RustCodeChatPanel(
     private fun renderHistoryToolMessage(content: String) {
         val detail = content.trim()
         if (detail.isBlank()) return
-        messageView.addToolCall("tool", "done", detail, "历史工具结果")
+        messageView.addToolCall("tool", "done", detail, RustCodeBundle.message("toolcall.historyResult"))
     }
 
     private fun renderHistoryAssistantToolCalls(message: MessageInfo) {
@@ -1029,7 +1029,7 @@ class RustCodeChatPanel(
                 toolCall.name.ifBlank { "tool" },
                 "done",
                 detail.takeIf { it.isNotBlank() },
-                "历史工具调用",
+                RustCodeBundle.message("toolcall.historyCall"),
             )
         }
     }
@@ -1234,29 +1234,29 @@ class RustCodeChatPanel(
     private fun copyLastAssistantResponse() {
         if (streamHandler.assistantText.isBlank()) return
         CopyPasteManager.getInstance().setContents(StringSelection(streamHandler.assistantText))
-        addSystemMessage("Copied last response.")
+        addSystemMessage(RustCodeBundle.message("chat.copiedResponse"))
     }
 
     private fun applyLastCodeBlock() {
         val code = extractLastCodeBlock(streamHandler.assistantText)
-        if (code.isNullOrBlank()) { Messages.showWarningDialog(project, "No code block found in the last RustCode response.", "RustCode"); return }
+        if (code.isNullOrBlank()) { Messages.showWarningDialog(project, RustCodeBundle.message("dialog.noCodeBlock"), "RustCode"); return }
         val editor = FileEditorManager.getInstance(project).selectedTextEditor
-        if (editor == null) { Messages.showWarningDialog(project, "Open an editor file before applying code.", "RustCode"); return }
+        if (editor == null) { Messages.showWarningDialog(project, RustCodeBundle.message("dialog.openEditorFirst"), "RustCode"); return }
         val document = editor.document
         val selection = editor.selectionModel
         val start = if (selection.hasSelection()) selection.selectionStart else editor.caretModel.offset
         val end = if (selection.hasSelection()) selection.selectionEnd else editor.caretModel.offset
         val before = document.text; val after = before.replaceRange(start, end, code)
         val contentFactory = DiffContentFactory.getInstance()
-        val request = SimpleDiffRequest("RustCode Apply Code Preview", contentFactory.create(before), contentFactory.create(after), "Current editor", "After RustCode")
+        val request = SimpleDiffRequest(RustCodeBundle.message("dialog.diffTitle"), contentFactory.create(before), contentFactory.create(after), RustCodeBundle.message("dialog.diffCurrent"), RustCodeBundle.message("dialog.diffAfter"))
         DiffManager.getInstance().showDiff(project, request)
-        val choice = Messages.showYesNoDialog(project, "Apply the previewed RustCode code block to the active editor?", "RustCode", Messages.getQuestionIcon())
-        if (choice != Messages.YES) { addSystemMessage("Apply Code cancelled after preview."); return }
-        WriteCommandAction.runWriteCommandAction(project, "Apply RustCode Code", null, Runnable {
+        val choice = Messages.showYesNoDialog(project, RustCodeBundle.message("dialog.applyConfirm"), "RustCode", Messages.getQuestionIcon())
+        if (choice != Messages.YES) { addSystemMessage(RustCodeBundle.message("chat.applyCancelled")); return }
+        WriteCommandAction.runWriteCommandAction(project, RustCodeBundle.message("command.applyCode"), null, Runnable {
             if (selection.hasSelection()) { document.replaceString(selection.selectionStart, selection.selectionEnd, code); selection.removeSelection() }
             else { document.insertString(editor.caretModel.offset, code) }
         })
-        addSystemMessage("Applied the last code block to the active editor.")
+        addSystemMessage(RustCodeBundle.message("chat.appliedCode"))
     }
 
     private fun renderQueueState() {
@@ -1280,31 +1280,36 @@ class RustCodeChatPanel(
         // 破坏性操作（bash、write、edit）在 UI 中异步确认
         val isDestructive = event.toolName in setOf("bash", "execute_command", "write_to_file", "replace_in_file", "delete_files")
         if (!isDestructive) {
-            addSystemMessage("[Permission] auto-allowed: ${event.toolName}")
+            addSystemMessage(RustCodeBundle.message("chat.permissionAutoAllowed", event.toolName))
             service.respondToPermission(event.sessionId, "allow", event.toolName)
             return
         }
 
         // 破坏性操作：在 UI 中展示确认信息，通过 daemon 异步响应
-        addSystemMessage("[Permission required] ${event.toolName}: ${event.reason}")
+        addSystemMessage(RustCodeBundle.message("chat.permissionRequired", event.toolName, event.reason))
         SwingUtilities.invokeLater {
             val args = event.arguments.take(1200)
             val message = buildString {
-                appendLine("RustCode wants to run a tool."); appendLine()
-                appendLine("Tool: ${event.toolName}")
-                if (event.reason.isNotBlank()) appendLine("Reason: ${event.reason}")
+                appendLine(RustCodeBundle.message("permission.intro")); appendLine()
+                appendLine(RustCodeBundle.message("permission.toolLabel", event.toolName))
+                if (event.reason.isNotBlank()) appendLine(RustCodeBundle.message("permission.reasonLabel", event.reason))
                 if (args.isNotBlank()) { appendLine(); appendLine(args) }
             }
             val choice = Messages.showDialog(
-                this, message, "RustCode Tool Permission",
-                arrayOf("Allow Once", "Deny", "Always Allow"), 0, Messages.getWarningIcon()
+                this, message, RustCodeBundle.message("dialog.permissionTitle"),
+                arrayOf(RustCodeBundle.message("permission.allowOnce"), RustCodeBundle.message("permission.deny"), RustCodeBundle.message("permission.alwaysAllow")), 0, Messages.getWarningIcon()
             )
             val decision = when (choice) { 0 -> "allow"; 2 -> "allow_persist"; else -> "deny" }
-            addSystemMessage("[Permission] $decision")
+            val decisionLabel = when (choice) {
+                0 -> RustCodeBundle.message("permission.allowOnce")
+                2 -> RustCodeBundle.message("permission.alwaysAllow")
+                else -> RustCodeBundle.message("permission.deny")
+            }
+            addSystemMessage(RustCodeBundle.message("chat.permissionDecision", decisionLabel))
             service.respondToPermission(event.sessionId, decision, event.toolName).whenComplete { ok, error ->
                 SwingUtilities.invokeLater {
-                    if (error != null) addErrorMessage("Permission error: ${error.cause?.message ?: error.message ?: "failed"}")
-                    else if (ok != true) addErrorMessage("no pending permission for this session")
+                    if (error != null) addErrorMessage(RustCodeBundle.message("chat.permissionError", error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.failedFallback")))
+                    else if (ok != true) addErrorMessage(RustCodeBundle.message("chat.noPendingPermission"))
                 }
             }
         }
@@ -1402,7 +1407,7 @@ class RustCodeChatPanel(
         if (existingContext.any { it.path == virtualFile.path } || result.any { it.path == virtualFile.path }) return result
         val path = virtualFile.path
         when (SensitivePathClassifier.classify(path)) {
-            PathSensitivity.Block, PathSensitivity.StrongConfirm -> { addSystemMessage("Skipped automatic context for sensitive file ${virtualFile.name}."); return result }
+            PathSensitivity.Block, PathSensitivity.StrongConfirm -> { addSystemMessage(RustCodeBundle.message("chat.skippedSensitive", virtualFile.name)); return result }
             PathSensitivity.Warn, PathSensitivity.Normal -> Unit
         }
         if (settings.state.autoSaveBeforeRead) {
@@ -1412,7 +1417,7 @@ class RustCodeChatPanel(
         }
         val content = editor.document.text
         if (content.isBlank()) return result
-        if (content.length > MAX_ATTACHED_FILE_CHARS) { addSystemMessage("Skipped automatic context for ${virtualFile.name}; file is too large."); return result }
+        if (content.length > MAX_ATTACHED_FILE_CHARS) { addSystemMessage(RustCodeBundle.message("chat.skippedLarge", virtualFile.name)); return result }
         val relative = project.basePath?.let { base -> if (path.startsWith(base)) path.removePrefix(base).trimStart('/', '\\') else path } ?: path
         val displayName = if (settings.state.sendRelativePathWithSelection) relative else path
         result += ChatContextItem(path = path, displayName = displayName, language = virtualFile.extension ?: "text", content = content, selection = null, startLine = null, endLine = null)
@@ -1422,7 +1427,7 @@ class RustCodeChatPanel(
     // ── File attachment ──
 
     private fun chooseFilesForContext() {
-        val descriptor = FileChooserDescriptor(true, false, false, false, false, true).withTitle("Attach Files to RustCode")
+        val descriptor = FileChooserDescriptor(true, false, false, false, false, true).withTitle(RustCodeBundle.message("dialog.attachFiles"))
         val projectDir = project.basePath?.let { LocalFileSystem.getInstance().refreshAndFindFileByPath(it) }
         val files = FileChooser.chooseFiles(descriptor, project, projectDir)
         if (files.isEmpty()) return
@@ -1432,9 +1437,9 @@ class RustCodeChatPanel(
     private fun attachVirtualFile(file: VirtualFile) {
         val path = file.path
         when (SensitivePathClassifier.classify(path)) {
-            PathSensitivity.Block -> { Messages.showWarningDialog(project, "RustCode will not attach this sensitive file.", "RustCode"); return }
+            PathSensitivity.Block -> { Messages.showWarningDialog(project, RustCodeBundle.message("editor.fileBlocked"), "RustCode"); return }
             PathSensitivity.StrongConfirm -> {
-                val choice = Messages.showYesNoDialog(project, "This file may contain sensitive information. Attach it to the next RustCode message?", "RustCode", Messages.getWarningIcon())
+                val choice = Messages.showYesNoDialog(project, RustCodeBundle.message("editor.fileConfirm"), "RustCode", Messages.getWarningIcon())
                 if (choice != Messages.YES) return
             }
             PathSensitivity.Warn, PathSensitivity.Normal -> Unit
@@ -1450,9 +1455,9 @@ class RustCodeChatPanel(
             attachImageFile(file, mediaType)
             return
         }
-        val content = try { String(file.contentsToByteArray(), Charsets.UTF_8) } catch (error: Exception) { Messages.showWarningDialog(project, "Could not read ${file.name}: ${error.message}", "RustCode"); return }
+        val content = try { String(file.contentsToByteArray(), Charsets.UTF_8) } catch (error: Exception) { Messages.showWarningDialog(project, RustCodeBundle.message("editor.couldNotRead", file.name, error.message), "RustCode"); return }
         if (content.isBlank()) return
-        if (content.length > MAX_ATTACHED_FILE_CHARS) { Messages.showWarningDialog(project, "This file is too large to attach. Select a smaller file or attach a selection.", "RustCode"); return }
+        if (content.length > MAX_ATTACHED_FILE_CHARS) { Messages.showWarningDialog(project, RustCodeBundle.message("editor.fileTooLarge"), "RustCode"); return }
         val relative = project.basePath?.let { base -> if (path.startsWith(base)) path.removePrefix(base).trimStart('/', '\\') else path } ?: path
         addContext(ChatContextItem(path = path, displayName = relative, language = file.extension ?: "text", content = content, selection = null, startLine = null, endLine = null))
     }
@@ -1461,7 +1466,7 @@ class RustCodeChatPanel(
         val bytes = try {
             file.contentsToByteArray()
         } catch (error: Exception) {
-            Messages.showWarningDialog(project, "Could not read ${file.name}: ${error.message}", "RustCode")
+            Messages.showWarningDialog(project, RustCodeBundle.message("editor.couldNotRead", file.name, error.message), "RustCode")
             return
         }
         if (bytes.isEmpty()) return
@@ -1469,7 +1474,7 @@ class RustCodeChatPanel(
         if (attachedBytes + bytes.size > MAX_ATTACHED_IMAGE_BYTES) {
             Messages.showWarningDialog(
                 project,
-                "Attached images are too large. Select image(s) totaling under $MAX_ATTACHED_IMAGE_MB MB.",
+                RustCodeBundle.message("chat.imagesTooLargeSelect", MAX_ATTACHED_IMAGE_MB),
                 "RustCode",
             )
             return
@@ -1577,7 +1582,7 @@ class RustCodeChatPanel(
             .joinToString(separator = "\n") { "- $it" }
             .ifBlank { "- <none or unavailable>" }
             .take(2000)
-        return "检测到图片剪贴板，但未能解析为附件，已阻止 IDE 默认粘贴写入项目文件。Java clipboard flavors:\n$javaFlavors\nmacOS pasteboard types:\n$macTypeText"
+        return RustCodeBundle.message("image.clipboardDiagnostic", javaFlavors, macTypeText)
     }
 
     private fun macPasteboardTypeNames(): List<String> {
@@ -1795,7 +1800,7 @@ class RustCodeChatPanel(
         if (attachedBytes + bytes.size > MAX_ATTACHED_IMAGE_BYTES) {
             Messages.showWarningDialog(
                 project,
-                "Attached images are too large. Paste image(s) totaling under $MAX_ATTACHED_IMAGE_MB MB.",
+                RustCodeBundle.message("chat.imagesTooLargePaste", MAX_ATTACHED_IMAGE_MB),
                 "RustCode",
             )
             return
@@ -1905,8 +1910,8 @@ class RustCodeChatPanel(
         // /login is a managed-account command: hidden from discovery in open
         // builds (typed /login still dispatches and prints BYO guidance).
         val items = buildList {
-            if (managedLogin) add(SlashCommand("/login", "登录平台账号"))
-            add(SlashCommand("/review", "审查代码"))
+            if (managedLogin) add(SlashCommand("/login", RustCodeBundle.message("slash.login")))
+            add(SlashCommand("/review", RustCodeBundle.message("slash.review")))
         }
         items.forEach { command ->
             menu.add(JMenuItem("${command.name} - ${command.description}").apply {
@@ -2050,7 +2055,7 @@ internal fun slashPromptTemplate(prompt: String): String? {
     val command = parts.firstOrNull()?.lowercase() ?: return null
     val suffix = parts.getOrNull(1)?.trim().orEmpty()
     val template = when (command) {
-        "/review" -> "请审查这段代码，重点关注潜在问题、改进建议和最佳实践。"
+        "/review" -> RustCodeBundle.message("slash.reviewPrompt")
         else -> return null
     }
     return if (suffix.isBlank()) template else "$template\n\n$suffix"

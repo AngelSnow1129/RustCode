@@ -1053,8 +1053,12 @@ async fn open_stream(
                 return Err(ProviderError {
                     retryable: true,
                     message: format!(
-                        "open failed: 等待首字节超过 {}s(网关无响应)",
-                        open_timeout.as_secs()
+                        "open failed: {}",
+                        rustcode_config::i18n::t(
+                            rustcode_config::i18n::Msg::ProviderErrTtfbTimeout {
+                                secs: open_timeout.as_secs()
+                            }
+                        )
                     ),
                     ..Default::default()
                 });
@@ -1509,9 +1513,8 @@ fn is_reasoning_effort_rejection(e: &ProviderError) -> bool {
 fn effort_unsupported_error() -> ProviderError {
     ProviderError {
         retryable: false,
-        message: "当前模型/网关不支持「强度」(reasoning_effort) 设置，已为本会话自动禁用----请重新发送。\
-                  (Provider rejected reasoning_effort; auto-disabled for this session -- resend to continue.)"
-            .to_string(),
+        message: rustcode_config::i18n::t(rustcode_config::i18n::Msg::ProviderErrEffortUnsupported)
+            .into_owned(),
         http_status: Some(400),
         ..Default::default()
     }
@@ -3534,6 +3537,8 @@ mod tests {
 
     #[test]
     fn friendly_http_error_wraps_billing_and_auth_codes() {
+        let _i18n_guard = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
         // Shared across provider protocols; lives in the parent `provider` module.
         use super::super::friendly_http_error;
         // 402 欠费: concise actionable headline + the code; raw English detail is

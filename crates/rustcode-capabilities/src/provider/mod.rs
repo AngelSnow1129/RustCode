@@ -146,15 +146,24 @@ pub(crate) fn friendly_http_error(code: u16, detail: &str) -> String {
             .to_ascii_lowercase()
             .contains("user has no codingplan")
     {
-        return "账号未开通该模型套餐或授权已失效（HTTP 403），请检查 API key 权限与账户状态。"
-            .to_string();
+        return rustcode_config::i18n::t(rustcode_config::i18n::Msg::ProviderErrEntitlement403)
+            .into_owned();
     }
-    let headline = match code {
-        401 => "API key 未授权或已失效",
-        402 => "账户余额不足",
-        _ => return format!("HTTP {code}: {detail}"),
-    };
-    format!("{headline}（HTTP {code}）")
+    match code {
+        401 => {
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::ProviderErrUnauthorized { code })
+                .into_owned()
+        }
+        402 => {
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::ProviderErrInsufficientBalance {
+                code,
+            })
+            .into_owned()
+        }
+        // 429 keeps the literal `HTTP 429: ` prefix the kernel rate-limit path
+        // strips; all other codes keep `HTTP {code}: {detail}` (raw, parse contract).
+        _ => format!("HTTP {code}: {detail}"),
+    }
 }
 
 #[cfg(test)]

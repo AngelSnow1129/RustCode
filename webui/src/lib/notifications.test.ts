@@ -13,6 +13,7 @@ import {
   type NotificationPrefs,
   type TurnFinishedInfo,
 } from './notifications.ts';
+import { LANG_STORAGE_KEY } from '../i18n.ts';
 
 const DEFAULTS: NotificationPrefs = {
   enabled: true,
@@ -539,6 +540,8 @@ test('initNotificationPermissionPrompt rechecks disabled preference before reque
 
 test('maybeNotifyTurnFinished: creates a notification with mirrored title/body', () => {
   withBrowserGlobals(() => {
+    // 标题/正文断言镜像 notify.rs 的英文文案；固定 en 语言，避免依赖默认语言。
+    localStorage.setItem(LANG_STORAGE_KEY, 'en');
     const { instances } = installNotification('granted');
     maybeNotifyTurnFinished(makeInfo({ stopReason: 'natural', durationMs: 60_000 }));
     assert.equal(instances.length, 1);
@@ -551,6 +554,8 @@ test('maybeNotifyTurnFinished: creates a notification with mirrored title/body',
 
 test('maybeNotifyTurnFinished: title mapping for every stop reason', () => {
   withBrowserGlobals(() => {
+    // 断言英文文案（与 notify.rs 镜像）；固定 en 语言。
+    localStorage.setItem(LANG_STORAGE_KEY, 'en');
     const cases: [string | undefined, string, string][] = [
       ['natural', 'RustCode done', /^Done/],
       ['cancelled', 'RustCode cancelled', /^Cancelled/],

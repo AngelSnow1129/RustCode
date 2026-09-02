@@ -203,8 +203,19 @@ impl Tool for ParallelEditTool {
         // child is stopped only by `ctx.cancel.child_token()` cascading in.
         // Dispatch header so the user sees the fan-out begin (v1 SubAgentDispatchStart
         // parity). Per-file ↻/[+]/[x] lines follow via `ctx.progress` -> ToolProgress.
-        ctx.progress
-            .emit(format!("并行编辑 {} 个文件(子代理)", a.files.len()));
+        ctx.progress.emit({
+            #[cfg(feature = "provider")]
+            {
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::ToolProgressParallelEdit {
+                    count: a.files.len(),
+                })
+                .into_owned()
+            }
+            #[cfg(not(feature = "provider"))]
+            {
+                format!("Parallel editing of {} files (subagents)", a.files.len())
+            }
+        });
         let mut handles = Vec::with_capacity(a.files.len());
         for f in &a.files {
             let task = format!(

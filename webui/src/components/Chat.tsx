@@ -49,7 +49,7 @@ import { PermissionCard } from './PermissionCard';
 import { UserInputCard } from './UserInputCard';
 import { PolicyInterventionCard } from './PolicyInterventionCard';
 import { useT } from '../settings';
-import type { MsgKey } from '../i18n';
+import { translate, type MsgKey } from '../i18n';
 import {
   applyAtMentionSelection,
   detectAtMentionRange,
@@ -175,8 +175,10 @@ function messageFullText(m: Message): string {
       lines.push(displayToolName(tool.name));
       const detail = formatToolDetail(tool.name, tool.args);
       if (detail) lines.push(`   ${detail}`);
-      if (tool.args) lines.push(`   参数: ${tool.args}`);
-      if (tool.output) lines.push(`   输出: ${tool.output}`);
+      // messageFullText 是模块级函数（复制按钮用），不在组件树内，走无 React
+      // 依赖的 translate()；标签复用工具详情行同款 tool.args/tool.output 键。
+      if (tool.args) lines.push(`   ${translate('tool.args')}: ${tool.args}`);
+      if (tool.output) lines.push(`   ${translate('tool.output')}: ${tool.output}`);
     } else if (p.kind === 'notice') {
       lines.push(p.text);
     } else if (p.kind === 'rate_limited') {
@@ -3170,7 +3172,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
       )}
       {atOpen && (
         <div class="at-popover" ref={atRef}>
-          {atMenuLoading && <div class="at-loading">Loading...</div>}
+          {atMenuLoading && <div class="at-loading">{t('at.loading')}</div>}
           {!atMenuLoading && atRows.map((item, i) => (
             <button
               key={(item.up ? 'up:' : item.is_dir ? 'd:' : 'f:') + item.name}
@@ -3191,7 +3193,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
             </button>
           ))}
           {!atMenuLoading && atRows.length === 0 && (
-            <div class="at-empty">No files found</div>
+            <div class="at-empty">{t('at.noFiles')}</div>
           )}
         </div>
       )}
@@ -3758,7 +3760,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
           <button
             type="button"
             class="persistence-warning-dismiss"
-            aria-label="Dismiss"
+            aria-label={t('chat.dismiss')}
             onClick={() => setPersistenceWarning(null)}
           >
             ×

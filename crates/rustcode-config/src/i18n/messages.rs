@@ -34,6 +34,250 @@ pub enum Msg<'a> {
     /// surface the verbatim server error so user-supplied API keys (sk-...)
     /// get the diagnostic detail.
     ChatAuthExpired,
+    /// Provider HTTP error: managed-gateway plan/entitlement rejected (403).
+    ProviderErrEntitlement403,
+    /// Provider HTTP error: 401 API key unauthorized/invalid (includes HTTP code).
+    ProviderErrUnauthorized {
+        code: u16,
+    },
+    /// Provider HTTP error: 402 insufficient balance (includes HTTP code).
+    ProviderErrInsufficientBalance {
+        code: u16,
+    },
+    /// Stream read: connection dropped after exhausting automatic retries.
+    ProviderErrConnResetRetried {
+        attempts: u32,
+    },
+    /// Stream read: response interrupted; partial reply kept, no auto-replay.
+    ProviderErrConnResetPartial,
+    /// Detail label preceding the raw error chain (`详情`/`Details`).
+    ProviderErrDetailLabel,
+    /// Hint for a forced connection reset common on corporate networks/proxies.
+    ProviderErrCorpProxyHint,
+    /// Proxy reference naming the configured proxy when reachable.
+    ProviderErrProxyNamed {
+        proxy: &'a str,
+    },
+    /// Generic proxy reference when its address cannot be read.
+    ProviderErrProxyConfigured,
+    /// Full hint when an HTTP proxy cannot be reached.
+    ProviderErrProxyUnreachable {
+        who: &'a str,
+    },
+    /// Time-to-first-byte timeout against an unresponsive gateway.
+    ProviderErrTtfbTimeout {
+        secs: u64,
+    },
+    /// Gateway rejected reasoning_effort; auto-disabled for the session.
+    ProviderErrEffortUnsupported,
+    /// Tool-progress header for a fan-out parallel edit over N files.
+    ToolProgressParallelEdit {
+        count: usize,
+    },
+    // ── round-cap checkpoint panel (tuix render; sibling of OutputTruncation*) ──
+    /// Round-cap panel: header label.
+    RoundCapHeader,
+    /// Round-cap panel: question without stats.
+    RoundCapQuestion {
+        cap: u32,
+    },
+    /// Round-cap panel: question with pre-formatted stats suffix.
+    RoundCapQuestionStats {
+        cap: u32,
+        stats: &'a str,
+    },
+    /// Round-cap panel: "continue" option label.
+    RoundCapContinue,
+    /// Round-cap panel: "continue" option description (grants `base` more rounds).
+    RoundCapContinueDesc {
+        base: u32,
+    },
+    /// Round-cap panel: "stop" option label.
+    RoundCapStop,
+    /// Round-cap panel: "stop" option description.
+    RoundCapStopDesc,
+    // ── git diff diagnostics (tuix git_diff; body of the diff modal / DiffFailed) ──
+    /// `git rev-parse --show-toplevel` returned an empty root.
+    GitRepoRootEmpty,
+    /// A git subcommand exited non-zero (`{detail}` is the raw stderr, kept verbatim).
+    GitCmdFailed {
+        cmd: &'a str,
+        detail: &'a str,
+    },
+    /// A git subcommand's stdout exceeded the display cap.
+    GitOutputTooLarge {
+        cmd: &'a str,
+        kib: usize,
+    },
+    /// The git process could not be spawned.
+    GitSpawnFailed {
+        error: &'a str,
+    },
+    /// git child stdout handle was unavailable.
+    GitStdoutUnavailable,
+    /// git child stderr handle was unavailable.
+    GitStderrUnavailable,
+    /// Waiting on the git child process failed.
+    GitWaitFailed {
+        error: &'a str,
+    },
+    /// The git command exceeded its wall-clock timeout.
+    GitTimeout {
+        secs: u64,
+    },
+    /// Polling the git child's exit status failed.
+    GitStatusPollFailed {
+        error: &'a str,
+    },
+    /// The thread reading git stdout panicked.
+    GitStdoutThreadPanicked,
+    /// Reading bounded git stdout failed.
+    GitStdoutReadFailed {
+        error: &'a str,
+    },
+    /// The thread reading git stderr panicked.
+    GitStderrThreadPanicked,
+    /// Reading drained git stderr failed.
+    GitStderrReadFailed {
+        error: &'a str,
+    },
+    /// numstat record is missing the file path.
+    GitNumstatMissingPath,
+    /// numstat rename record is missing the pre-rename path.
+    GitNumstatMissingOldPath,
+    /// numstat rename record is missing the post-rename path.
+    GitNumstatMissingNewPath,
+    /// numstat record is missing the add/delete counts.
+    GitNumstatMissingCount,
+    /// numstat count field is not valid UTF-8.
+    GitNumstatCountNotUtf8,
+    /// numstat count field failed to parse.
+    GitNumstatCountInvalid {
+        text: &'a str,
+    },
+    // ── goal-mode budget stop notes (coding controllers) ──
+    /// Goal stopped on the round budget (configured max rounds known).
+    GoalCapRound {
+        max: u32,
+    },
+    /// Goal stopped on the round budget (no explicit max configured).
+    GoalCapRoundNoMax,
+    /// Goal stopped on the env-enabled time cap.
+    GoalCapTime,
+    /// Goal stopped for another reason (free-form, raw).
+    GoalCapStopped {
+        other: &'a str,
+    },
+    // ── provider-retry reason labels (kernel RetryReason, localized by drivers) ──
+    /// Retry reason: rate-limited / out of credit (HTTP 429 class).
+    RetryReasonRateLimited,
+    /// Retry reason: upstream 5xx temporarily unavailable.
+    RetryReasonUpstream,
+    /// Retry reason: model response timeout.
+    RetryReasonTimeout,
+    /// Retry reason: generic network/transport failure.
+    RetryReasonNetwork,
+    /// Interactive (TUI) provider-retry notice framing.
+    TuixProviderRetry {
+        reason: &'a str,
+        backoff_secs: u64,
+        attempt: u32,
+        max_attempts: u32,
+    },
+    // ── /loop command parse errors (tuix event_loop/loop_parse.rs) ──
+    /// `/loop` usage hint: an interval was given without a payload.
+    TuixLoopUsage,
+    /// `/loop` refuses to target `/loop` itself.
+    TuixLoopSelfRef,
+    /// `/loop` interval outside the allowed 10s..=24h range.
+    TuixLoopIntervalRange,
+    // ── inline rate-limit / HTTP 429 pause line (tuix format_rate_limited_line) ──
+    /// Kernel is auto-retrying after a 429 (WaitAndRetry): countdown to resume.
+    TuixRateLimitAutoResume {
+        secs: u64,
+    },
+    /// Generic HTTP 429 from an external/BYO model (no managed window data).
+    /// `reason` carries the provider's own 429 message (raw passthrough, may be
+    /// empty); `tail` is the localized "retry available in about …" suffix.
+    TuixRateLimit429 {
+        reason: &'a str,
+        tail: &'a str,
+    },
+    /// "retry available in about <dur>" parenthetical for a generic 429.
+    TuixRateLimitRetryAfter {
+        dur: &'a str,
+    },
+    /// Managed 5-hour quota window exhausted; no reset time carried.
+    TuixRateLimitWindowNoTime {
+        tail: &'a str,
+    },
+    /// Managed 5-hour quota window exhausted; a reset time is carried.
+    TuixRateLimitWindowWithTime {
+        reset_at: &'a str,
+        tail: &'a str,
+    },
+    /// "<dur> remaining" parenthetical for a managed window-exhaustion line.
+    TuixRateLimitWindowRemaining {
+        dur: &'a str,
+    },
+    // ── parallel/serial tool-batch header (the `● Running N tools` row) ──
+    /// Same-tool batch running concurrently: "Running N <tool> calls in parallel".
+    TuixToolBatchSameParallel {
+        count: usize,
+        tool: &'a str,
+    },
+    /// Same-tool batch running serially: "Running N <tool> calls".
+    TuixToolBatchSame {
+        count: usize,
+        tool: &'a str,
+    },
+    /// Mixed-tool batch running concurrently: "Running N tools in parallel".
+    TuixToolBatchParallel {
+        count: usize,
+    },
+    /// Mixed-tool batch running serially: "Running N tools".
+    TuixToolBatch {
+        count: usize,
+    },
+    // ── kernel AgentNotice family (L0 kernel emits a neutral structured notice;
+    //    the edge localizes these -- see rustcode_coding::localize_agent_notice) ──
+    /// Transient retry after a MALFORMED completion (adapter dropped unparseable chunks).
+    KernelNoticeEmptyRetryMalformed {
+        wait_secs: u64,
+        attempt: u32,
+        max: u32,
+    },
+    /// Transient retry after an EMPTY completion (model returned no content).
+    KernelNoticeEmptyRetryEmpty {
+        wait_secs: u64,
+        attempt: u32,
+        max: u32,
+    },
+    /// Reply ended on the length cap with unfinished work; user can ask to continue.
+    KernelNoticeReplyTruncated,
+    /// Pre-send advisory: request near the model's usable context window.
+    KernelNoticeOverWindow {
+        est_k: u32,
+        window_k: u32,
+    },
+    /// Empty-response budget exhausted; responses were unparseable (upstream flakiness).
+    KernelNoticeEmptyExhMalformed {
+        max_retries: u32,
+    },
+    /// Empty-response budget exhausted; over-window, advisory already shown (short terminal).
+    KernelNoticeEmptyExhOverWindowBrief {
+        max_retries: u32,
+    },
+    /// Empty-response budget exhausted; request at/over the window (full size blame).
+    KernelNoticeEmptyExhOverWindowFull {
+        max_retries: u32,
+        est_k: u32,
+        window_k: u32,
+    },
+    /// Empty-response budget exhausted; within window (transient upstream fault).
+    KernelNoticeEmptyExhTransient {
+        max_retries: u32,
+    },
     /// Hint appended to a login connection failure (connect/timeout): the
     /// endpoint is reachable from a browser but the client was reset -- likely a
     /// proxy/firewall path difference. Points at the actionable knobs.
@@ -782,6 +1026,64 @@ pub enum Msg<'a> {
         exe: &'a str,
         backup: &'a str,
     },
+    /// `replace_binary` failed after download and the previous binary
+    /// was restored in place. `error` is the raw OS rename error.
+    UpgradeReplaceRestored {
+        error: &'a str,
+    },
+    /// Stderr note: the new binary is in place but the old one could
+    /// not be parked as `.bak`, so rollback is unavailable until the
+    /// next upgrade. `error` is the raw OS rename error.
+    UpgradeBackupPreserveFailed {
+        error: &'a str,
+    },
+    /// Stderr note: a stale `.bak` could not be removed; the leftover
+    /// `.rolling` is cleaned up on the next upgrade and rollback may
+    /// target an older version. Paths are pre-rendered.
+    UpgradeBackupRemoveFailed {
+        backup: &'a str,
+        rolling: &'a str,
+    },
+    /// No release artifact is published for this os/arch pair.
+    UpgradeNoRelease {
+        os: &'a str,
+        arch: &'a str,
+    },
+    /// The release manifest carries no binary entry for this target
+    /// triple -- this platform may not be in this release.
+    UpgradeNoTarget {
+        target: &'a str,
+    },
+    /// `latest.json` fetch returned a non-2xx HTTP status.
+    UpgradeManifestHttp {
+        status: u16,
+    },
+    /// Release-binary download returned a non-2xx HTTP status.
+    UpgradeDownloadHttp {
+        url: &'a str,
+        status: u16,
+    },
+    /// Downloaded byte count does not match the manifest size.
+    UpgradeShortDownload {
+        got: u64,
+        expected: u64,
+    },
+    /// SHA256 of the downloaded binary does not match the manifest.
+    UpgradeChecksumMismatch {
+        expected: &'a str,
+        got: &'a str,
+    },
+    /// `current_exe()` somehow has no parent directory. `exe` is
+    /// pre-rendered.
+    UpgradeExeNoParent {
+        exe: &'a str,
+    },
+    /// The binary's directory is not writable by the current user.
+    /// `dir` is pre-rendered, `error` is the raw OS error.
+    UpgradeDirNotWritable {
+        dir: &'a str,
+        error: &'a str,
+    },
 
     // ── CLI startup auto-upgrade (stderr progress) ──
     // Distinct shapes from the interactive `/upgrade` flow above (no
@@ -924,6 +1226,14 @@ pub enum Msg<'a> {
     /// `rustcode rollback`: hint to run the rolled-back binary.
     CliRollbackStartHint,
 
+    // ── `rustcode plugin install/uninstall <spec>` argument parsing ──
+    /// Empty plugin spec on the command line.
+    CliPluginSpecEmpty,
+    /// `plugin@marketplace` with an empty plugin or marketplace part.
+    CliPluginSpecPartEmpty {
+        spec: &'a str,
+    },
+
     // ── Headless (`-p`/`--print`) stderr lines ──
     /// Provider connection retry backoff line (non-JSONL headless mode).
     CliHeadlessProviderRetry {
@@ -1033,6 +1343,12 @@ pub enum Msg<'a> {
         path: &'a str,
         program: &'a str,
         args: usize,
+    },
+    /// `mcp add-oauth`: provider-neutral OAuth MCP server registered by URL.
+    CliMcpAddedOauth {
+        name: &'a str,
+        path: &'a str,
+        url: &'a str,
     },
     /// `mcp add-github-oauth`: GitHub OAuth MCP server registered.
     CliMcpAddedGithub {
@@ -1426,6 +1742,37 @@ pub enum Msg<'a> {
         failed: usize,
         stopped: usize,
     },
+    /// Inline body acknowledgement after a successful `team`/`delegate` tool
+    /// call dispatches a run: `  ○ Team dispatched · <run_id>`. The `○` glyph
+    /// and `run_id` stay verbatim; only the words are localized.
+    TeamNoticeDispatched {
+        run_id: &'a str,
+    },
+    /// Inline body acknowledgement after a team run is stopped:
+    /// `  ○ Team stopped · <run_id>`.
+    TeamNoticeStopped {
+        run_id: &'a str,
+    },
+    /// Inline body header for a team result summary: `  Team results · <run_id>`.
+    TeamNoticeResultsHeader {
+        run_id: &'a str,
+    },
+    /// Fallback member id when a result record omits `id`.
+    TeamMemberFallbackId,
+    /// Fallback member status when a result record omits `status`.
+    TeamStatusUnknown,
+    /// Fallback member result text when a member produced no report.
+    TeamResultNone,
+    /// Compact batch suffix for a delegate action: `dispatched · <run_id>`.
+    TeamSuffixDispatched {
+        run_id: &'a str,
+    },
+    /// Compact batch suffix for a stop action: `stopped · <run_id>`.
+    TeamSuffixStopped {
+        run_id: &'a str,
+    },
+    /// Compact batch suffix for status/wait/result actions: `updated`.
+    TeamSuffixUpdated,
 
     // ── 通用开关词 ──
     WordOn,
@@ -1465,6 +1812,11 @@ pub enum Msg<'a> {
     UpgradeUnknownArg {
         arg: &'a str,
     },
+    /// `/upgrade` in a neutral build that ships no update-manifest endpoint:
+    /// there is nothing to self-update against, so say so instead of issuing
+    /// a GET to an empty URL (which only errors as "relative URL without a
+    /// base"). Mirrors the `version_check` neutral-build early return.
+    UpgradeNoEndpoint,
 
     // ── /skills ──
     SkillsNone,
@@ -1874,7 +2226,12 @@ pub enum Msg<'a> {
     CmdDescSetup,
     CmdDescResume,
     CmdDescRename,
+    /// `/login` description in a distribution build that ships a managed sign-in
+    /// service (mentions the managed models flow).
     CmdDescLogin,
+    /// `/login` description in a neutral, bring-your-own-key build -- no managed
+    /// service is compiled in, so the text points the user at config.toml.
+    CmdDescLoginNeutral,
     CmdDescLogout,
     CmdDescWhoami,
     CmdDescModel,
@@ -1890,8 +2247,12 @@ pub enum Msg<'a> {
     CmdDescClear,
     CmdDescSession,
     CmdDescCost,
-    /// Description for the `/usage` slash command -- opens the CodingPlan usage modal.
+    /// `/usage` description in a distribution build that ships a managed
+    /// account-usage backend (mentions the managed usage modal).
     CmdDescUsage,
+    /// `/usage` description in a neutral, bring-your-own-key build -- phrased
+    /// around provider/model agnostic usage rather than a managed service.
+    CmdDescUsageNeutral,
     CmdDescContext,
     CmdDescCompact,
     CmdDescRemember,
@@ -2023,6 +2384,10 @@ pub enum Msg<'a> {
     DesktopNotInstalled {
         url: &'a str,
     },
+    /// `/desktop` -- app not found AND this build ships no download URL (a
+    /// neutral distribution). States that plainly instead of printing a
+    /// dangling "download:" line with an empty address.
+    DesktopNotInstalledNoUrl,
     /// `/desktop` -- the app was found but the OS launch call failed.
     DesktopLaunchFailed {
         path: &'a str,
@@ -2094,12 +2459,91 @@ pub enum Msg<'a> {
         error: &'a str,
     },
 
+    // ── legacy `[providers.<name>]` -> new-schema account/model migration ──
+    /// The named legacy provider entry does not exist.
+    CfgLegacyProviderNotFound {
+        name: &'a str,
+    },
+    /// A new-schema account or model already occupies that id, so the
+    /// legacy entry cannot be upgraded in place.
+    CfgLegacyProviderExists {
+        name: &'a str,
+    },
+
+    // ── config resolution + validation diagnostics ──
+    // Backticked fragments are config keys/ids and stay verbatim in
+    // every locale; only the prose around them is translated.
+    /// No model selection anywhere (`default_model`/`default_provider`
+    /// both unset).
+    CfgResolveNoModel,
+    /// The selected model id does not exist in the unified catalog.
+    CfgResolveModelNotFound {
+        id: &'a str,
+    },
+    /// A model profile points at an account id that does not exist.
+    CfgResolveModelUnknownAccount {
+        id: &'a str,
+        account: &'a str,
+    },
+    /// Validation: provider account has empty `provider` field.
+    CfgDiagAccountMissingProvider {
+        id: &'a str,
+    },
+    /// Validation: account's preset has no built-in endpoint and no
+    /// `base_url` was supplied.
+    CfgDiagAccountNoEndpoint {
+        id: &'a str,
+        provider: &'a str,
+    },
+    /// Validation: model profile has empty `model` field.
+    CfgDiagModelMissingModel {
+        id: &'a str,
+    },
+    /// Validation: model profile has empty `account` field.
+    CfgDiagModelMissingAccount {
+        id: &'a str,
+    },
+    /// Validation: model profile references a missing account.
+    CfgDiagModelUnknownAccount {
+        id: &'a str,
+        account: &'a str,
+    },
+    /// Validation: model profile has `context_window = 0`.
+    CfgDiagModelContextWindow {
+        id: &'a str,
+    },
+    /// Validation: model profile has `max_tokens = 0`.
+    CfgDiagModelMaxTokens {
+        id: &'a str,
+    },
+    /// Validation: `default_model` names a profile that does not exist.
+    CfgDiagDefaultModelMismatch {
+        sel: &'a str,
+    },
+    /// Collision diagnostic: new-schema account shadows a legacy
+    /// provider of the same id.
+    CfgDiagAccountCollision {
+        id: &'a str,
+    },
+    /// Collision diagnostic: new-schema model shadows a legacy provider
+    /// of the same id.
+    CfgDiagModelCollision {
+        id: &'a str,
+    },
+
     // ── OnboardingWizard (multi-step first-run + `/welcome`). Spec:
     //    docs/superpowers/specs/2026-05-11-welcome-wizard-redesign-design.md
     OnboardingStepHeaderWelcome,
     OnboardingStepHeaderLanguage,
     OnboardingStepHeaderSetup,
     OnboardingPanelTitle,
+    /// Bottom-border step indicator inside the panel box, e.g.
+    /// `Step 1/3` / `第 1/3 步`. Mirrors the `Step N/M` prefix of the
+    /// step headers above the box.
+    OnboardingStepIndicator {
+        current: u8,
+        total: u8,
+    },
     OnboardingIntroVersionLine {
         v: &'a str,
     },
@@ -2226,6 +2670,10 @@ pub enum Msg<'a> {
     },
     /// Spinner label while blocked on an interactive approval answer.
     SpinnerWaitingApproval,
+    /// Liveness word on the live bash tool row (the animated row riding below
+    /// the static command block), e.g. `Running` / `运行中`. The elapsed meta
+    /// suffix (` · 12s` / ` (3s · ↑ …)`) is appended directly after it.
+    SpinnerRunningLabel,
 
     // ── Live hub / phone remote synchronization errors ──
     /// Forwarding a runtime event to the live hub failed. `error` is pre-formatted.
@@ -2362,6 +2810,12 @@ pub enum Msg<'a> {
     MoreLinesHint {
         count: usize,
     },
+    /// Approval/question panel scroll indicator: `<arrow> <N> hidden lines · PgUp/PgDn`.
+    /// The leading arrow glyph and the trailing key names stay verbatim; only
+    /// the "N hidden lines" words are localized.
+    ScrollHiddenLines {
+        count: usize,
+    },
     /// Body diff fold line, e.g. `  … +10 more lines` / `  … 还有 10 行`.
     BodyMoreLines {
         ellipsis: &'a str,
@@ -2409,6 +2863,65 @@ pub enum Msg<'a> {
     /// Extra suffix when detach left the TUI synced.
     AppRemoteDetachSuffix {
         error: &'a str,
+    },
+    /// `/webui` server: browser opened automatically.
+    WebuiOpenedBrowser {
+        url: &'a str,
+    },
+    /// `/webui` server: auto-open failed, open this URL manually.
+    WebuiOpenManually {
+        url: &'a str,
+    },
+    /// `/webui` server: port bind failed.
+    WebuiBindFailed {
+        host: &'a str,
+        port: u16,
+        error: &'a str,
+    },
+    /// `/webui` server: already running on a different host.
+    WebuiRebindHint {
+        bound_host: &'a str,
+        host: &'a str,
+    },
+    /// `/webui` server: wildcard/LAN bind security hint.
+    WebuiLanWarning,
+    /// `/webui` server: non-loopback bind security hint.
+    WebuiNonLoopbackWarning,
+    /// `/webui stop` outcomes.
+    WebuiStopped,
+    WebuiNotRunning,
+    /// `/app` server: port bind failed.
+    AppServerBindFailed {
+        host: &'a str,
+        port: u16,
+        error: &'a str,
+    },
+    /// `/app`: usage hint when no relay is configured.
+    AppRemoteUsage,
+    /// `/app`: sign-in required before remote access.
+    AppRemoteLoginRequired,
+    /// `/app`: local App server failed to start.
+    AppServerStartFailed {
+        error: &'a str,
+    },
+    /// `/app`: relay-client binary could not be prepared.
+    AppRelayClientStartFailed {
+        error: &'a str,
+    },
+    /// `/app`: relay-client process could not spawn.
+    AppRelayClientSpawnFailed {
+        error: &'a str,
+        bin: &'a str,
+        cache: &'a str,
+    },
+    /// `/app`: pairing QR block (QR text + manual token).
+    AppPairQrBlock {
+        qr: &'a str,
+        encoded: &'a str,
+    },
+    /// `/app`: QR generation failed, raw pairing link fallback.
+    AppPairLinkFallback {
+        pair_uri: &'a str,
     },
     /// Background session projection could not be loaded for the live panel.
     BgSessionLoadFailed {
@@ -2709,6 +3222,284 @@ pub enum Msg<'a> {
     /// Footer line: "Press ESC to cancel" with surrounding
     /// blank-line padding.
     LoginCancelHint,
+
+    // ── rustcode-auth: stdout login flow + credential guidance ──
+    /// Stdout OAuth flow: line printed above the login URL when the
+    /// browser may not have opened. Leading "  " indent is part of
+    /// the template.
+    AuthLoginBrowserHint,
+    /// Stdout OAuth flow: "Press ESC to cancel" line (the TUI uses
+    /// [`LoginCancelHint`] with its own padding). Leading "  " indent
+    /// is part of the template.
+    AuthLoginEscHint,
+    /// Stdout OAuth flow: background poller thread vanished mid-login.
+    AuthLoginPollerStopped,
+    /// Stdout OAuth flow: user pressed ESC to cancel.
+    AuthLoginCancelled,
+    /// Windows-only: auth file path has no parent directory.
+    AuthInvalidFilePath,
+    /// Stored credentials missing/invalid; directs the user to /login.
+    AuthNotLoggedIn,
+    /// auth.toml parsed but holds no usable token; directs to /login.
+    AuthInvalidAuthToml,
+    /// The stored account identity no longer matches the session the
+    /// request was started under.
+    AuthAccountChanged,
+    /// Access token expired and the refresh attempt failed. `error`
+    /// is the pre-rendered refresh error.
+    AuthTokenRefreshFailed {
+        error: &'a str,
+    },
+
+    // ── rustcode-capabilities: MCP config validation ──
+    /// Rewriting an MCP config file would erase its JSON comments.
+    /// `path` is the pre-rendered file path.
+    McpCfgCommentsWouldDelete {
+        path: &'a str,
+    },
+    /// An MCP server entry has neither `command` (stdio) nor `url` (http).
+    McpServerNeedsCommandOrUrl {
+        name: &'a str,
+    },
+    /// An MCP server entry carries an unknown `auth.type`.
+    McpAuthTypeUnsupported {
+        name: &'a str,
+        ty: &'a str,
+    },
+    McpCfgNameEmpty,
+    McpCfgCommandEmpty,
+    McpCfgUrlEmpty,
+    McpCfgProviderEmpty,
+    /// MCP config file root is not a JSON object.
+    McpCfgRootNotObject,
+
+    // ── rustcode-capabilities: MCP OAuth flow ──
+    /// Stdout hint above the authorize URL for a named MCP server;
+    /// leading "  " indent is part of the template.
+    McpOAuthBrowserHintServer {
+        name: &'a str,
+    },
+    /// Stdout hint above the authorize URL for the GitHub MCP flow;
+    /// leading "  " indent is part of the template.
+    McpOAuthBrowserHintGithub,
+    /// OAuth `state` parameter mismatch on callback (possible CSRF /
+    /// mismatched login attempt).
+    McpOAuthStateMismatch,
+    /// Token expired and there is no refresh token / token endpoint /
+    /// client id saved, so a silent refresh is impossible. `server`
+    /// is the MCP server name.
+    McpOAuthRefreshNoRefreshToken {
+        server: &'a str,
+    },
+    McpOAuthRefreshNoTokenEndpoint {
+        server: &'a str,
+    },
+    McpOAuthRefreshNoClientId {
+        server: &'a str,
+    },
+    /// Refresh-token exchange returned a non-success HTTP status.
+    McpOAuthRefreshFailed {
+        status: u16,
+    },
+    /// `mcp login` was run against an HTTP server that has no OAuth
+    /// auth configured.
+    McpOAuthHttpNotOAuth {
+        name: &'a str,
+    },
+    /// `mcp login` was run against a stdio server; OAuth only applies
+    /// to HTTP servers.
+    McpOAuthStdioUnsupported {
+        name: &'a str,
+    },
+    /// The OAuth authorization-code exchange returned a non-success
+    /// HTTP status.
+    McpOAuthExchangeFailed {
+        status: u16,
+    },
+    /// GitHub MCP OAuth flow needs a client id.
+    McpGithubClientIdRequired,
+    /// GitHub MCP OAuth flow needs a client secret env var.
+    McpGithubSecretEnvRequired,
+    /// The GitHub OAuth token exchange returned a non-success HTTP status.
+    McpGithubExchangeFailed {
+        status: u16,
+    },
+    /// Authorization server has no dynamic registration endpoint and
+    /// no pre-registered client id was supplied.
+    McpOAuthRegistrationRequired,
+    /// Dynamic client registration was rejected (401/403): the server
+    /// demands a pre-registered client id. `body` is the (truncated)
+    /// response body.
+    McpOAuthRegisterRejected {
+        status: u16,
+        body: &'a str,
+    },
+    /// Dynamic client registration failed for any other non-success
+    /// HTTP status.
+    McpOAuthRegisterFailed {
+        status: u16,
+        body: &'a str,
+    },
+    /// An MCP server answered 401/403 on a request: actionable hint to
+    /// run the CLI or TUI login command for that server.
+    McpOAuthRequiredHint {
+        name: &'a str,
+    },
+
+    // ── rustcode-capabilities: plugin marketplace / installer ──
+    /// git is unavailable and an explicit plugin/marketplace operation
+    /// was requested (the softer startup hint uses `PluginGitNotFound`).
+    /// Long install-guidance message.
+    PluginGitRequired,
+    /// Localized verbs for plugin git-operation messages.
+    PluginVerbClone,
+    PluginVerbUpdate,
+    /// Marketplace name sanitized down to an empty string.
+    PluginMpNameEmpty {
+        name: &'a str,
+    },
+    /// A marketplace with this name is already registered.
+    PluginMpExists {
+        name: &'a str,
+    },
+    /// A marketplace directory exists on disk but is not registered.
+    PluginMpDirExists {
+        path: &'a str,
+    },
+    /// Marketplace name not found in the marketplaces state file.
+    PluginMpNotFound {
+        name: &'a str,
+    },
+    /// Refusing to remove a marketplace that still has installed plugins.
+    PluginMpHasPlugins {
+        name: &'a str,
+    },
+    /// `git clone`/`git pull`/`git rev-parse` failed; `stderr` is the
+    /// raw git output (left untranslated).
+    PluginGitCloneFailed {
+        stderr: &'a str,
+    },
+    PluginGitPullFailed {
+        stderr: &'a str,
+    },
+    PluginGitRevParseFailed {
+        stderr: &'a str,
+    },
+    /// Parenthetical hint inside the "still inaccessible after
+    /// re-login" message: managed build -> re-run /login.
+    PluginReloginHintManaged,
+    /// Parenthetical hint: neutral build has no managed sign-in; use
+    /// SSH or local git credentials. Must NOT pitch /login.
+    PluginReloginHintNeutral,
+    /// Private-repo auth failure on an untrusted host (or in a neutral
+    /// build): guide to SSH / local git credentials. `verb` is the
+    /// localized clone/update verb.
+    PluginGitAuthUntrusted {
+        verb: &'a str,
+        stderr: &'a str,
+    },
+    /// Auth failure despite stored credentials: session expired.
+    PluginGitAuthExpired {
+        verb: &'a str,
+        stderr: &'a str,
+    },
+    /// Trusted host, not logged in: pitch /login, offer SSH as
+    /// alternative.
+    PluginGitAuthLoginRequired {
+        verb: &'a str,
+        stderr: &'a str,
+    },
+    /// Retry with signed-in credentials still failed. `hint` is the
+    /// localized relogin hint sentence.
+    PluginGitAuthRetryFailed {
+        verb: &'a str,
+        hint: &'a str,
+        stderr: &'a str,
+    },
+    /// Plugin git URL validation failed.
+    PluginUrlMalformed {
+        url: &'a str,
+    },
+    PluginUrlUnsupported {
+        url: &'a str,
+    },
+    PluginUrlMissingHost {
+        url: &'a str,
+    },
+    PluginUrlMissingPath {
+        url: &'a str,
+    },
+    PluginUrlBadScheme {
+        scheme: &'a str,
+    },
+    /// Installer: target directory exists and is already registered.
+    PluginInstallDirRegistered {
+        path: &'a str,
+    },
+    /// Installer error: plugin id already present in
+    /// installed_plugins.json, with a reinstall hint. The TUI/CLI toast
+    /// form uses `PluginAlreadyInstalled` (indented, trailing newline).
+    PluginAlreadyInstalledError {
+        id: &'a str,
+    },
+    /// Project-scope install: target directory already registered.
+    PluginAlreadyInProject {
+        path: &'a str,
+    },
+    /// Project-scope install: id already recorded for this scope.
+    /// `scope` is pre-rendered.
+    PluginAlreadyInProjectScope {
+        id: &'a str,
+        scope: &'a str,
+    },
+    /// git-subdir source declared an empty subdir path.
+    PluginSubdirEmpty,
+    /// `git sparse-checkout`/`git checkout` during a git-subdir install
+    /// failed; `stderr` is raw git output.
+    PluginSparseCheckoutFailed {
+        stderr: &'a str,
+    },
+    PluginCheckoutFailed {
+        stderr: &'a str,
+    },
+    /// The declared subdir does not exist in the cloned repository.
+    PluginSubdirNotFound {
+        sub: &'a str,
+        url: &'a str,
+    },
+    /// GitHub `owner/name` shorthand validation.
+    PluginGithubForm {
+        repo: &'a str,
+    },
+    PluginGithubChars {
+        repo: &'a str,
+    },
+    PluginGithubDash {
+        repo: &'a str,
+    },
+    /// A `local` plugin source path does not exist on disk.
+    PluginLocalMissing {
+        path: &'a str,
+    },
+    /// Pinned revision checkout failed.
+    PluginPinCheckoutFailed {
+        rev: &'a str,
+        stderr: &'a str,
+    },
+    /// Inline plugin source path contains `..` / absolute / NUL
+    /// components.
+    PluginSourceBadComponents {
+        source: &'a str,
+    },
+    /// Bare-name plugin install: marketplace not registered / plugin
+    /// not listed in that marketplace.
+    PluginMpNotRegistered {
+        name: &'a str,
+    },
+    PluginNotInMarketplace {
+        plugin: &'a str,
+        marketplace: &'a str,
+    },
 
     // ── /context report ──
     CtxUsageHeader,
@@ -3030,6 +3821,7 @@ pub enum Msg<'a> {
     CliAboutMarketplaceUpdate,
     CliAboutMarketplaceList,
     CliAboutMcpAdd,
+    CliAboutMcpAddOauth,
     CliAboutMcpAddGithubOauth,
     CliAboutMcpLogin,
     CliAboutMcpLogout,
@@ -3056,6 +3848,9 @@ pub enum Msg<'a> {
     CliHelpMcpGlobal,
     CliHelpMcpDir,
     CliHelpMcpName,
+    CliHelpMcpUrl,
+    CliHelpMcpProvider,
+    CliHelpMcpClientId,
     CliHelpHooksTestName,
     CliHelpPluginSpec,
     CliHelpMarketplaceUrl,
@@ -3063,6 +3858,9 @@ pub enum Msg<'a> {
     CliHelpMcpCommand,
     /// About for the built-in help subcommand.
     CliAboutHelp,
+    /// `rustcode completion` about line and its shell-argument help.
+    CliAboutCompletion,
+    CliHelpCompletionShell,
     /// `rustcode resume` about line.
     CliAboutResume,
     /// `rustcode resume <session>` positional help.
@@ -3090,6 +3888,377 @@ pub enum Msg<'a> {
     CliHelpSchedCron,
     CliHelpSchedMode,
     CliHelpSchedNotify,
+
+    // ── rustcodex standalone CLI (rustcode-clix) ──
+    // Human-facing lines for `rustcodex code|sessions|review`. Model-facing text
+    // (review task prompts, persona overrides) and stable ASCII trace tags
+    // ([error]/[warn]/[retry]/[ok]/[rules]/[scope]/[coverage]/[yolo]/[x]/[+])
+    // stay English; the sentence AFTER a tag is what localizes.
+    /// clap `about`: the rustcodex binary itself.
+    ClixAbout,
+    /// clap `about`: the `code` subcommand.
+    ClixAboutCode,
+    /// clap `about`: the `sessions` subcommand.
+    ClixAboutSessions,
+    /// clap `about`: the `review` subcommand.
+    ClixAboutReview,
+    /// `rustcodex sessions`: no resumable sessions in this project.
+    ClixSessionsNone {
+        dir: &'a str,
+        bucket: &'a str,
+    },
+    /// `rustcodex sessions` / `/sessions` one row; `ts` is pre-formatted UTC.
+    ClixSessionsRow {
+        id: &'a str,
+        name: &'a str,
+        turns: usize,
+        ts: &'a str,
+    },
+    /// `sessions`: project dir missing.
+    ClixProjectDirNotFound,
+    /// `code`: working dir missing.
+    ClixWorkingDirNotFound,
+    /// `review`: repo dir missing.
+    ClixRepoNotFound {
+        path: &'a str,
+    },
+    /// `code`: no base URL resolved.
+    ClixMissingBaseUrl,
+    /// `review`: no base URL resolved (config wording differs).
+    ClixMissingBaseUrlReview,
+    /// `code`: no model resolved.
+    ClixMissingModel,
+    /// `review`: no model resolved (config wording differs).
+    ClixMissingModelReview,
+    /// `code`: base URL points at the proprietary signing gateway.
+    ClixSigningGatewayCode {
+        url: &'a str,
+    },
+    /// `review`: base URL points at the proprietary signing gateway.
+    ClixSigningGatewayReview {
+        url: &'a str,
+    },
+    /// `code --continue`: no session exists in this project yet.
+    ClixNoSessionToContinue,
+    /// `code`: config file load failure (path pre-formatted).
+    ClixConfigLoadFailed {
+        path: &'a str,
+    },
+    /// config.toml parse failure.
+    ClixConfigParseFailed,
+    /// explicit --config path unreadable.
+    ClixConfigReadFailed {
+        path: &'a str,
+    },
+    /// config file present but malformed.
+    ClixConfigMalformed {
+        path: &'a str,
+    },
+    /// `code`: runtime preparation banner.
+    ClixPreparing {
+        model: &'a str,
+    },
+    /// `code`: runtime start failed.
+    ClixRuntimeStartFailed,
+    /// `code`: session started fresh.
+    ClixSessionNew {
+        id: &'a str,
+    },
+    /// `code`: session resumed from storage.
+    ClixSessionResumed {
+        id: &'a str,
+    },
+    /// One-shot turn ended on a non-Stopped terminal.
+    ClixTurnAbnormal {
+        reason: &'a str,
+    },
+    /// One-shot turn snapshot unavailable.
+    ClixTurnSnapshotUnavailable {
+        reason: &'a str,
+        error: &'a str,
+    },
+    /// Agent task ended without a terminal turn.
+    ClixAgentTerminatedUnexpectedly,
+    /// Interactive REPL entry hint.
+    ClixInteractiveHint,
+    /// stdin read error (follows the `[stdin error]` tag).
+    ClixStdinError {
+        error: &'a str,
+    },
+    /// Ctrl-C at the idle prompt (session already persisted).
+    ClixSigintExit,
+    /// Follows the `[agent terminated]` tag when the REPL exits.
+    ClixAgentTerminatedNote,
+    /// Shutdown line with the resume command.
+    ClixSessionSaved {
+        id: &'a str,
+    },
+    /// Turn cancel in progress (rendered inside `[ ... ]`).
+    ClixCancelling,
+    /// Provider retry (follows the `[retry]` tag).
+    ClixRetry {
+        reason: &'a str,
+        backoff_secs: u64,
+        attempt: u32,
+        max_attempts: u32,
+    },
+    /// Stream recovered (follows the `[ok]` tag).
+    ClixStreamRecovered,
+    /// Stream continuing after a retryable break (follows `[retry]`).
+    ClixStreamContinuing {
+        attempt: u32,
+        max_attempts: u32,
+    },
+    /// Compaction starting (rendered inside `[ ... ]`).
+    ClixCompacting,
+    /// Compaction finished and committed (rendered inside `[ ... ]`).
+    ClixCompacted,
+    /// Compaction ran but refused (no context gain; rendered inside `[ ... ]`).
+    ClixCompactedNoGain,
+    /// Compaction failed (rendered inside `[ ... ]`).
+    ClixCompactFailed {
+        error: &'a str,
+    },
+    /// Turn ended on a non-Stopped terminal (rendered inside `[ ... ]`).
+    ClixTurnEnded {
+        reason: &'a str,
+    },
+    /// Tool result size for `code` traces (follows the `[+]`/`[x]` mark).
+    ClixToolResultChars {
+        count: usize,
+    },
+    /// Tool result size for `review` traces (names the tool).
+    ClixToolResultCharsNamed {
+        name: &'a str,
+        count: usize,
+    },
+    /// `--yolo` audit line (follows the `[yolo]` tag).
+    ClixYoloAutoAllow {
+        tool: &'a str,
+        args: &'a str,
+    },
+    /// Buffered typed-ahead lines discarded before an approval prompt.
+    ClixDiscardedTypedAhead {
+        count: usize,
+    },
+    /// Approval prompt header.
+    ClixApprovalNeeded {
+        tool: &'a str,
+        args: &'a str,
+    },
+    /// Approval prompt answer line (tokens y/always/N stay literal).
+    ClixApprovalPrompt,
+    /// `/help` block; slash command names stay literal.
+    ClixSlashHelp,
+    /// `/remember` with no text.
+    ClixRememberUsage,
+    /// `/forget` with no keyword.
+    ClixForgetUsage,
+    /// `/remember` success; `scope` is the localized global/project label.
+    ClixRemembered {
+        scope: &'a str,
+    },
+    /// `/remember` write failure.
+    ClixMemoryWriteFailed {
+        error: &'a str,
+    },
+    /// `/forget` update failure.
+    ClixMemoryUpdateFailed {
+        error: &'a str,
+    },
+    /// `/forget` matched nothing.
+    ClixForgetNoMatch {
+        keyword: &'a str,
+    },
+    /// `/forget` removed one entry.
+    ClixForgotEntry {
+        entry: &'a str,
+    },
+    /// `/memory` with an empty merged memory.
+    ClixMemoryEmptyHint,
+    /// `/compact` queued acknowledgement.
+    ClixCompactionRequested,
+    /// Unknown slash command.
+    ClixUnknownSlash {
+        name: &'a str,
+    },
+    /// More than one `-` stdin user among the file flags.
+    ClixStdinConflict {
+        flags: &'a str,
+    },
+    /// Empty diff (stdout prose; the JSON payload keeps its own English text).
+    ClixNoChanges,
+    /// Language rules injected (follows the `[rules]` tag).
+    ClixRulesInjected {
+        files: usize,
+        chars: usize,
+    },
+    /// No language rules matched (follows the `[rules]` tag).
+    ClixRulesNone,
+    /// Trace label for a custom task.
+    ClixTraceCustomTask {
+        chars: usize,
+    },
+    /// Trace label for a diff review.
+    ClixTraceChangedLines {
+        lines: usize,
+    },
+    /// `Running <label> with <model> ...` banner.
+    ClixRunning {
+        label: &'a str,
+        model: &'a str,
+    },
+    /// Tool-call trace summary.
+    ClixTraceTools {
+        count: usize,
+        profile: &'a str,
+    },
+    /// Token usage trace line.
+    ClixTraceTokens {
+        prompt: u32,
+        completion: u32,
+        cached: u32,
+    },
+    /// Incomplete-reason label: the first review pass.
+    ClixPassInitial,
+    /// Incomplete-reason label: the coverage re-review pass.
+    ClixPassCoverage,
+    /// Out-of-scope findings dropped (follows the `[scope]` tag).
+    ClixScopeDropped {
+        dropped: usize,
+        files: usize,
+    },
+    /// Coverage skipped due to --no-coverage (follows the `[coverage]` tag).
+    ClixCoverageSkippedFlag,
+    /// Coverage re-review starting (follows the `[coverage]` tag).
+    ClixCoverageRereview {
+        count: usize,
+        files: &'a str,
+    },
+    /// Coverage pass tool trace.
+    ClixCoverageTrace {
+        count: usize,
+        profile: &'a str,
+    },
+    /// Coverage re-review recovered findings (follows the `[coverage]` tag).
+    ClixCoverageRecovered {
+        added: usize,
+    },
+    /// Coverage skipped: nothing high-signal left (follows `[coverage]`).
+    ClixCoverageSkippedNoSignal {
+        findings: usize,
+    },
+    /// Coverage skipped: first pass incomplete (follows `[coverage]`).
+    ClixCoverageSkippedIncomplete {
+        reasons: &'a str,
+    },
+    /// Coverage fan-out capped (follows the `[coverage]` tag).
+    ClixCoverageCapped {
+        cap: usize,
+        dropped: usize,
+    },
+    /// Review stopped early with zero collected findings.
+    ClixReviewIncompleteNoFindings,
+    /// Clean review: zero findings.
+    ClixReviewClean,
+    /// Findings report header.
+    ClixFindingsHeader {
+        total: usize,
+        p0: usize,
+        p1: usize,
+        p2: usize,
+        p3: usize,
+    },
+    /// Reviewer closing summary section.
+    ClixReviewerSummary {
+        text: &'a str,
+    },
+    /// Review incomplete and nothing collected (bail message).
+    ClixReviewBailIncomplete {
+        why: &'a str,
+    },
+    /// Review ended early but findings exist (warning).
+    ClixReviewEndedEarly {
+        why: &'a str,
+        count: usize,
+    },
+    /// Reading a --task from stdin failed.
+    ClixTaskStdinFailed,
+    /// Reading a --task-file failed.
+    ClixTaskFileFailed {
+        path: &'a str,
+    },
+    /// --task-file is empty.
+    ClixTaskFileEmpty {
+        path: &'a str,
+    },
+    /// Reading a system prompt from stdin failed.
+    ClixPromptStdinFailed,
+    /// Reading a system-prompt file failed.
+    ClixPromptFileFailed {
+        path: &'a str,
+    },
+    /// Reading a diff from stdin failed.
+    ClixDiffStdinFailed,
+    /// Reading a --diff-file failed.
+    ClixDiffFileFailed {
+        path: &'a str,
+    },
+    /// `gh` CLI missing or failed to launch.
+    ClixGhFailed,
+    /// `gh pr diff <N>` exited non-zero.
+    ClixGhPrFailed {
+        pr: u64,
+        error: &'a str,
+    },
+    /// `git` missing or failed to launch.
+    ClixGitFailed,
+    /// `git diff` exited non-zero.
+    ClixGitDiffFailed {
+        error: &'a str,
+    },
+    /// A --skill-dir path does not exist.
+    ClixSkillDirNotFound {
+        path: &'a str,
+    },
+
+    // ── clix (`rustcodex`) clap per-argument help: interactive `code` + `sessions`
+    // subcommands. The `review` subcommand flags are dense engineering reference with
+    // embedded shell examples and intentionally stay on the English derive defaults. ──
+    /// `code -p/--prompt` help line.
+    ClixHelpCodePrompt,
+    /// `code --dir` help line.
+    ClixHelpCodeDir,
+    /// `code --resume` help line.
+    ClixHelpCodeResume,
+    /// `code --continue` help line.
+    ClixHelpCodeContinue,
+    /// `code --yolo` help line.
+    ClixHelpCodeYolo,
+    /// `code --no-mcp` help line.
+    ClixHelpCodeNoMcp,
+    /// `code --no-memory` help line.
+    ClixHelpCodeNoMemory,
+    /// `code --no-web` help line.
+    ClixHelpCodeNoWeb,
+    /// `code --model` help line.
+    ClixHelpCodeModel,
+    /// `code --api-key` help line.
+    ClixHelpCodeApiKey,
+    /// `code --base-url` help line.
+    ClixHelpCodeBaseUrl,
+    /// `code --provider` help line.
+    ClixHelpCodeProvider,
+    /// `code --config` help line.
+    ClixHelpCodeConfig,
+    /// `code --stream-timeout` help line.
+    ClixHelpCodeStreamTimeout,
+    /// `sessions --dir` help line.
+    ClixHelpSessionsDir,
+    /// `review --repo` help line.
+    ClixHelpReviewRepo,
+    /// `review --json` help line.
+    ClixHelpReviewJson,
 
     // ── /usage modal ──
     /// Tab label: current rate-limit window.
@@ -3156,6 +4325,453 @@ pub enum Msg<'a> {
     },
     /// Brief confirmation shown after Ctrl+S copy.
     UsageCopied,
+    /// Per-model table headers (the stats-block "Requests" label reuses
+    /// `UsageStatRequests`).
+    UsageTableModel,
+    UsageTableTokens,
+    UsageTableShare,
+    /// 3-letter month abbreviation above the calendar heatmap. `month`
+    /// is 1..=12.
+    UsageMonthShort {
+        month: u8,
+    },
+    /// Weekday abbreviation beside the heatmap. `weekday` is 0..=6,
+    /// Sunday-first.
+    UsageWeekdayShort {
+        weekday: u8,
+    },
+    /// Bold chart title above the per-day token braille plot.
+    UsageTokensPerDay,
+    /// Streak suffix, e.g. `12 days` / `12 天`.
+    UsageDays {
+        n: usize,
+    },
+    /// Sparkline-fallback per-model meta line:
+    /// `42%  .  17 reqs  .  717.1k`. `tokens` is the pre-humanized total.
+    UsageSparkMeta {
+        pct: u64,
+        reqs: u64,
+        tokens: &'a str,
+    },
+
+    // ── desktop notifications (capabilities::notify; mirrors webui notify.*) ──
+    /// Notification title for a naturally finished turn.
+    NotifyTitleDone,
+    /// Notification title for a cancelled turn.
+    NotifyTitleCancelled,
+    /// Notification title for a turn that ended in error.
+    NotifyTitleFailed,
+    /// Notification title for a turn stopped by turn/step limit.
+    NotifyTitleStopped,
+    /// Status word used in the notification body for a natural finish.
+    NotifyStatusDone,
+    /// Status word used in the notification body for cancellation.
+    NotifyStatusCancelled,
+    /// Status word used in the notification body for an error.
+    NotifyStatusFailed,
+    /// Status word used in the notification body for a limit stop.
+    NotifyStatusStopped,
+    /// Body segment: turn count, e.g. `3 rounds` / `3 轮`.
+    NotifyRounds {
+        n: usize,
+    },
+    /// Body segment: tool call count, e.g. `5 tools` / `5 次工具调用`.
+    NotifyTools {
+        n: usize,
+    },
+    /// Title of the tool-approval notification.
+    NotifyApprovalTitle,
+    /// Body of the tool-approval notification: `{tool} is waiting for Y/A/N`.
+    NotifyApprovalBody {
+        tool: &'a str,
+    },
+
+    // ── TUI user-input panel (tuix render) ──
+    // Language follows the active locale; renderers on ASCII-only terminals
+    // (legacy conhost / dumb pipes) force the English arms because CJK cannot
+    // be rendered there at all.
+    /// Placeholder inside the free-text answer box.
+    UserInputTextPlaceholder,
+    /// Placeholder for the inline "type your own answer" (Other) row.
+    UserInputOwnAnswer,
+    /// Label of the multiple-choice navigable submit row.
+    UserInputSubmitRow,
+    /// Submit label used by the plain renderer (its leading ` + ` marker is
+    /// ASCII layout, rendered by the caller).
+    UserInputSubmitLabel,
+    /// Single-choice hint: arrows move, `1..N` select, Enter confirms.
+    UserInputHintSingle {
+        n: usize,
+    },
+    /// Multiple-choice hint: Space toggles, Enter confirms on the submit row.
+    UserInputHintMultiple,
+    /// Free-text mode hint.
+    UserInputHintText,
+    /// Batch navigator: `Question i/N` (answered markers appended by caller).
+    UserInputBatchNav {
+        index: usize,
+        total: usize,
+    },
+    /// Batch submit-screen title.
+    UserInputReviewTitle,
+    /// Batch submit-screen answered line.
+    UserInputAnswer {
+        answer: &'a str,
+    },
+    /// Batch submit-screen unanswered line.
+    UserInputUnanswered,
+    /// Batch submit-screen submit row (glyph marker prefixed by caller).
+    UserInputSubmitAll {
+        answered: usize,
+        total: usize,
+    },
+    /// Hint on the batch submit screen.
+    UserInputHintSubmit,
+    /// Hint on the batch question screen.
+    UserInputHintBatch,
+    /// Plain (pipe / legacy console) renderer sub-agent status line.
+    PlainAgentsStatus {
+        finished: usize,
+        total: usize,
+        failed: usize,
+    },
+
+    // ── model picker empty states (tuix modal) ──
+    /// No providers configured yet.
+    ModelPickerEmptyNoProviders,
+    /// Filter yields nothing with an empty query.
+    ModelPickerEmptyNoMatch,
+    /// Filter query excludes every model.
+    ModelPickerEmptyQuery {
+        query: &'a str,
+    },
+
+    // ── CLI crash panic hook ──
+    /// Crash banner; `{info}` is the panic payload.
+    CliCrashHeader {
+        info: &'a str,
+    },
+    /// Crash report instruction printed after the backtrace.
+    CliCrashReport,
+
+    // ── TUI session resume / rewind notices (tuix event_loop) ──
+    /// Session resume cancelled by the user (Esc / Ctrl-C).
+    SessionResumeCancelled,
+    /// Session resume cancellation in progress.
+    SessionResumeCancelling,
+    /// `/rewind` opened but the current session has no rewind points.
+    RewindNoPoints,
+    /// Rewind catalog load failed (`{label}: {error}`).
+    RewindCatalogLoadFailed {
+        error: &'a str,
+    },
+    /// Rewind execution failed (`{label}: {error}`).
+    RewindFailed {
+        error: &'a str,
+    },
+    /// Rewind scope word (conversation / code / both).
+    RewindScopeConversation,
+    RewindScopeCode,
+    RewindScopeConversationAndCode,
+    /// Rewind success banner; `{files}` suffix appended separately when non-empty.
+    RewindSuccessMain {
+        scope: &'a str,
+        prompt: &'a str,
+    },
+    /// Rewind success suffix reporting restored-file count.
+    RewindSuccessFiles {
+        n: usize,
+    },
+    /// Rewind success sentence terminator (locale-specific period), appended
+    /// after the optional files suffix.
+    RewindSuccessEnd,
+    /// Attachment image cache was lost on resume; the `[Image #N]` marker was
+    /// stripped from the replayed message.
+    ImageCacheDropped {
+        n: usize,
+    },
+    /// Diff/file panel footer: `N more files (arrows to scroll)`.
+    MoreFilesHint {
+        hidden: usize,
+    },
+
+    // ── TUI diff viewer modal (diff_viewer.rs; converged from local l(en,zh) pairs
+    // and inline current_locale() match arms for compile-checked en/zh parity) ──
+    /// Diff panel header: `N files changed`.
+    DiffPanelFilesChanged {
+        count: usize,
+    },
+    /// Diff panel rename note: `renamed from <path>`.
+    DiffPanelRenamedFrom {
+        path: &'a str,
+    },
+    /// Diff panel empty state.
+    DiffPanelNoChanges,
+    /// Diff panel truncation notice (one file).
+    DiffPanelTruncated,
+    /// Diff panel section title.
+    DiffPanelTitle,
+    /// Diff panel footer: Esc closes the modal.
+    DiffPanelEscToClose,
+    /// Diff panel: whole snapshot was bounded/truncated.
+    DiffPanelBoundedSnapshot,
+    /// Diff panel: untracked file hint.
+    DiffPanelUntracked,
+    /// Diff panel: patch exceeded the display limit.
+    DiffPanelPatchLimit,
+    /// Diff panel scope label: staged.
+    DiffScopeStaged,
+    /// Diff panel scope label: unstaged.
+    DiffScopeUnstaged,
+    /// Diff panel loading state.
+    DiffPanelLoading,
+    /// Diff panel file-list footer (select / view / close).
+    DiffPanelFooterSelect,
+    /// Diff panel detail footer (scroll / back).
+    DiffPanelFooterScroll,
+    /// Diff panel: background worker stopped.
+    DiffPanelWorkerStopped,
+    /// Diff panel: binary file notice.
+    DiffPanelBinary,
+    /// Diff panel: metadata changed with no text hunks.
+    DiffPanelMetadataNoHunks,
+    /// Diff panel title: initial changes (repository has no HEAD).
+    DiffPanelInitialChanges,
+    /// Diff panel title: uncommitted changes (git diff HEAD).
+    DiffPanelUncommittedChanges,
+    /// File viewer picker title.
+    FileViewerSelectFile,
+    /// File viewer: external file prefix (followed by path).
+    FileViewerOpenExternal,
+    /// File viewer picker: empty, no query.
+    FileViewerTypeToSearch,
+    /// File viewer picker: no matches.
+    FileViewerNoMatches,
+    /// File viewer picker footer.
+    FileViewerFooter,
+    /// File viewer error prefix: `Failed to read: <path>`.
+    FileViewerReadFailed,
+    /// File viewer error: not a regular file.
+    FileViewerNotRegular,
+    /// File viewer error: binary content.
+    FileViewerBinary,
+    /// File viewer error: not valid UTF-8.
+    FileViewerNotUtf8,
+    /// File viewer title marker for truncated content.
+    FileViewerTruncatedMarker,
+    /// File viewer content footer (picker open: Esc goes back).
+    FileViewerFooterBack,
+    /// File viewer content footer (no picker: Esc closes).
+    FileViewerFooterClose,
+    /// Rewind modal: target-list header.
+    RewindTargetHeader,
+    /// Rewind modal: more checkpoints above the window.
+    RewindMoreAbove {
+        count: usize,
+    },
+    /// Rewind modal: a conversation-only checkpoint.
+    RewindCheckpoint,
+    /// Rewind modal: checkpoint with no code changes.
+    RewindNoCodeChanges,
+    /// Rewind modal: N files changed at a checkpoint.
+    RewindFilesChanged {
+        count: usize,
+    },
+    /// Rewind modal: the current (HEAD) row marker.
+    RewindCurrent,
+    /// Rewind modal: more checkpoints below the window.
+    RewindMoreBelow {
+        count: usize,
+    },
+    /// Rewind modal: scope-stage title prefix.
+    RewindScopeTitle,
+    /// Rewind modal: scope menu label conversation only.
+    RewindScopeMenuConversation,
+    /// Rewind modal: scope menu label code only.
+    RewindScopeMenuCode,
+    /// Rewind modal: scope menu label conversation and code.
+    RewindScopeMenuBoth,
+    /// Rewind modal: disabled scope option suffix.
+    RewindUnavailable,
+    /// Rewind modal: target-stage footer.
+    RewindFooterTarget,
+    /// Rewind modal: scope-stage footer.
+    RewindFooterScope,
+    /// Rewind modal: failed-to-start error prefix.
+    RewindStartFailed,
+    /// Session picker: preview loading label.
+    SessionPreviewLoading,
+    /// Session picker: preview unavailable label.
+    SessionPreviewUnavailable,
+    /// Plugin manager: uninstall-marketplace warning (N plugins).
+    PluginUninstallMarketplaceWarning {
+        count: usize,
+    },
+    /// Config panel title: `Config (shown / total)`.
+    ConfigPanelTitle {
+        shown: usize,
+        total: usize,
+    },
+    /// Config panel: reset-confirmation hint for a setting id.
+    ConfigPanelResetHint {
+        id: &'a str,
+    },
+    /// Config panel footer key hints.
+    ConfigPanelFooter,
+    /// Config panel: retry-attempts setting label for the current model.
+    ConfigPanelRetryAttempts {
+        model: &'a str,
+    },
+    /// Config panel apply-policy word: takes effect immediately.
+    ConfigPanelPolicyImmediate,
+    /// Config panel apply-policy word: takes effect next turn.
+    ConfigPanelPolicyNextTurn,
+    /// Config panel apply-policy word: reloads the agent.
+    ConfigPanelPolicyReload,
+    /// Config panel apply-policy word: reprepares capabilities.
+    ConfigPanelPolicyReprepare,
+    /// Config panel apply-policy word: takes effect after restart.
+    ConfigPanelPolicyRestart,
+    /// Provider panel: accounts-tab trailing "add custom provider" row.
+    ProviderPanelAddAccountRow,
+    /// Provider panel: required-field marker for an empty name.
+    ProviderPanelRequiredMark,
+    /// Provider panel: account name field label.
+    ProviderPanelFieldName,
+    /// Provider panel: protocol field label.
+    ProviderPanelFieldProtocol,
+    /// Provider panel: add-account form footer (name required note).
+    ProviderPanelAddAccountFormHint,
+    /// Provider panel: locked protocol row in edit-account form.
+    ProviderPanelProtocolLocked {
+        protocol: &'a str,
+    },
+    /// Provider panel: edit form footer when vendor is locked.
+    ProviderPanelEditFormVendorLockedHint,
+    /// Provider panel: edit form footer when protocol is locked.
+    ProviderPanelEditFormProtocolLockedHint,
+    /// Provider panel: edit form footer (protocol switchable).
+    ProviderPanelEditAccountFormHint,
+    /// Provider panel: note for an api_key field with no configured key.
+    ProviderPanelProviderNotConfigured,
+    /// Menu search-box placeholder: session list.
+    MenuPlaceholderSearchSessions,
+    /// Menu search-box placeholder: saved-directory list.
+    MenuPlaceholderSearchDirs,
+    /// Menu search-box placeholder: generic type-to-filter.
+    MenuPlaceholderFilter,
+
+    /// TUI provider reload failure banner and its two lifecycle diagnostics.
+    ProviderReloadFailed {
+        error: &'a str,
+    },
+    ProviderReloadSupersededNote,
+    ProviderRollbackFailed {
+        error: &'a str,
+    },
+
+    // ── daemon live-wire errors (live_api; shown in WebUI chat) ──
+    LiveCompactFailed {
+        error: &'a str,
+    },
+    /// `/chat` turn: runtime mode switch failed before submit.
+    LiveSetModeFailed {
+        error: &'a str,
+    },
+    /// `/chat` turn: user message submit failed.
+    LiveSubmitFailed {
+        error: &'a str,
+    },
+    LiveProviderReloadFailed {
+        error: &'a str,
+    },
+    LiveProviderDeactivationFailed {
+        error: &'a str,
+    },
+    LiveSnapshotRestoreFailed {
+        error: &'a str,
+    },
+    LiveUndoFailed {
+        error: &'a str,
+    },
+    LiveProviderNotConfigured,
+    LiveProviderAuthRequired,
+    LiveProviderUnsupportedBuild,
+
+    // ── daemon auth poll errors (api_auth) ──
+    DaemonApiLoginSessionGone,
+    DaemonApiLoginPollUnavailable,
+    DaemonApiLoginExchangeFailed,
+    DaemonApiAuthPersistFailed,
+
+    // ── daemon live-wire warnings / errors (live_api SSE + HTTP bodies) ──
+    /// Session auto-naming failed after a turn; non-fatal warning.
+    LiveApiSessionNamingFailed {
+        error: &'a str,
+    },
+    /// The coding runtime exited before the in-flight turn reached a terminal
+    /// state.
+    LiveApiRuntimeStoppedEarly,
+    /// Transient provider error with automatic backoff-and-retry. `reason` is
+    /// the raw kernel error text (kept untranslated).
+    LiveApiProviderRetry {
+        reason: &'a str,
+        backoff_secs: u64,
+        attempt: u32,
+        max_attempts: u32,
+    },
+    /// The interrupted stream was reopened and the round resumed.
+    LiveApiStreamRecovered,
+    /// Stream reopen timed out; the kernel safely continues from the last
+    /// saved progress snapshot.
+    LiveApiStreamTimeout {
+        attempt: u32,
+        max_attempts: u32,
+    },
+    /// The model hit the output-length limit; the kernel auto-continues.
+    LiveApiOutputLimit {
+        attempt: u32,
+        max_attempts: u32,
+    },
+    /// Runtime stopped state banner; `reason` is the Debug rendering of the
+    /// stop reason (machine text). Append [`Msg::LiveApiRuntimeStoppedForcedSuffix`]
+    /// when the stop was force-killed.
+    LiveApiRuntimeStopped {
+        reason: &'a str,
+    },
+    /// Locale-specific suffix for a force-killed runtime stop.
+    LiveApiRuntimeStoppedForcedSuffix,
+    /// SSE frame serialization failed; `error` is raw serde detail.
+    LiveApiEventSerializationFailed {
+        error: &'a str,
+    },
+    /// SSE frame payload was not a JSON object (should be unreachable).
+    LiveApiEventNotObject,
+    /// The live SSE channel lagged and dropped events; the client must
+    /// reconnect.
+    LiveApiStreamLagged {
+        skipped: u64,
+    },
+    /// HTTP 409-style body for a model-switch attempt while a turn is running
+    /// (clients gate on the `active_turn` flag; this is the human-readable
+    /// fallback).
+    LiveApiActiveTurnModelSwitch,
+    /// HTTP body for goal/start with an empty condition.
+    LiveApiGoalConditionEmpty,
+    /// `reason` field on a permission-request event (clients normally render
+    /// their own permission UI; this is the fallback text).
+    PermissionReasonRequiresApproval,
+
+    // ── daemon headless stderr (lib.rs) ──
+    /// Early-stop path failed to persist the native session snapshot.
+    DaemonSessionSaveEarlyStopFailed {
+        error: &'a str,
+    },
+    /// Daemon panic hook banner; `loc`/`msg` are raw panic location/payload.
+    DaemonPanicHook {
+        loc: &'a str,
+        msg: &'a str,
+    },
 
     // ── streaming liveness (rustcode-tuix spinner) ──
     /// Spinner hint shown when a streaming response has gone silent past the stall
@@ -3191,4 +4807,282 @@ pub enum Msg<'a> {
     /// user that scrolling resumes when the task finishes, and that Windows
     /// Terminal has no such limitation.
     ConhostScrollHint,
+
+    // ── rustcode-daemon startup banner + fatal lines ──
+    // The standalone daemon (`rustcode-daemon` / `rustcode daemon`) prints a
+    // listening banner with an API endpoint listing. HTTP methods and paths
+    // are API identifiers (English); only the prose descriptions localize.
+    /// "Idle timeout: {minutes} minutes".
+    DaemonIdleTimeout {
+        minutes: u64,
+    },
+    /// "Idle timeout: disabled".
+    DaemonIdleTimeoutDisabled,
+    /// Warning when binding a non-loopback host. `{host}` is the bind address.
+    DaemonWarnNonLoopback {
+        host: &'a str,
+    },
+    /// Warning when the dangerous-tools env var is enabled.
+    DaemonWarnDangerousTools {
+        env: &'a str,
+    },
+    /// "RustCode API server listening on http://{addr}".
+    DaemonListening {
+        addr: &'a str,
+    },
+    /// "API endpoints:" listing heading.
+    DaemonApiEndpoints,
+    /// Endpoint description: GET /health.
+    DaemonEpHealth,
+    /// Endpoint description: GET /project.
+    DaemonEpProject,
+    /// Endpoint description: POST /cd.
+    DaemonEpCd,
+    /// Endpoint description: GET /projects.
+    DaemonEpProjects,
+    /// Endpoint description: GET /projects/:hash/sessions.
+    DaemonEpProjectSessions,
+    /// Endpoint description: GET /projects/:hash/sessions/:id.
+    DaemonEpSessionDetail,
+    /// Endpoint description: DELETE /projects/:hash/sessions/:id.
+    DaemonEpSessionDelete,
+    /// Endpoint description: PATCH .../sessions/:id/rename.
+    DaemonEpSessionRename,
+    /// Endpoint description: POST .../sessions/:id/repair.
+    DaemonEpSessionRepair,
+    /// Endpoint description: GET /sessions.
+    DaemonEpSessionsAll,
+    /// Endpoint description: GET /sessions/search.
+    DaemonEpSessionsSearch,
+    /// Endpoint description: GET /models.
+    DaemonEpModels,
+    /// Endpoint description: POST /chat.
+    DaemonEpChat,
+    /// Endpoint description: GET /config.
+    DaemonEpConfigGet,
+    /// Endpoint description: POST /config/reload.
+    DaemonEpConfigReload,
+    /// Endpoint description: GET /providers.
+    DaemonEpProvidersList,
+    /// Endpoint description: POST /providers.
+    DaemonEpProvidersCreate,
+    /// Endpoint description: PATCH /providers/:name.
+    DaemonEpProvidersUpdate,
+    /// Endpoint description: DELETE /providers/:name.
+    DaemonEpProvidersDelete,
+    /// Endpoint description: POST /providers/:name/default.
+    DaemonEpProviderDefault,
+    /// Endpoint description: PATCH /providers/:name/thinking.
+    DaemonEpProviderThinking,
+    /// Endpoint description: GET /skills.
+    DaemonEpSkills,
+    /// Endpoint description: GET /auth/status.
+    DaemonEpAuthStatus,
+    /// Endpoint description: POST /auth/login/start.
+    DaemonEpLoginStart,
+    /// Endpoint description: POST /auth/login/:login_id/poll.
+    DaemonEpLoginPoll,
+    /// Endpoint description: DELETE /auth/login/:login_id.
+    DaemonEpLoginCancel,
+    /// Endpoint description: POST /auth/logout.
+    DaemonEpLogout,
+    /// Endpoint description: POST /codingplan/setup (codingplan feature only).
+    DaemonEpCpSetup,
+    /// Endpoint description: GET /codingplan/usage/summary.
+    DaemonEpCpUsageSummary,
+    /// Endpoint description: GET /codingplan/usage/daily.
+    DaemonEpCpUsageDaily,
+    /// "Change directory body:" example heading.
+    DaemonCdBodyHeading,
+    /// Hint after the /cd JSON example: `or {"path": "-"} to go back`.
+    DaemonCdBodyHint,
+    /// "Chat request body:" example heading.
+    DaemonChatBodyHeading,
+    /// Fatal: TcpListener bind failed.
+    DaemonFatalBind {
+        addr: &'a str,
+        error: &'a str,
+    },
+    /// Fatal: run_server returned an error (standalone binary main).
+    DaemonFatalServer {
+        error: &'a str,
+    },
+
+    // ── rustcode-daemon HTTP API error messages ──
+    // JSON error bodies returned to webui/IDE clients. Machine-facing `code`
+    // keys stay English; only the human `message`/`error` string localizes.
+    /// 501: this build has no managed sign-in service (neutral build).
+    DaemonApiManagedUnavailable,
+    /// 429: too many concurrent login sessions.
+    DaemonApiLoginSessionLimit,
+    /// 500: start_login() errored.
+    DaemonApiLoginStartFailed,
+    /// 500: the spawn_blocking login task itself failed.
+    DaemonApiLoginTaskFailed,
+    /// 400: malformed login session id (two sites).
+    DaemonApiInvalidLoginId,
+    /// 500: logout failed. `{error}` is the formatted anyhow chain.
+    DaemonApiLogoutFailed {
+        error: &'a str,
+    },
+    /// 401: CodingPlan usage endpoint without a login (codingplan feature).
+    DaemonApiCpNotLoggedIn,
+    /// 502: CodingPlan usage query failed (codingplan feature).
+    DaemonApiCpUsageLoadFailed,
+    /// /command: malformed project session bucket.
+    DaemonCmdInvalidBucket,
+    /// /command: session id not found. `{id}` is pre-rendered with Debug quotes.
+    DaemonCmdSessionNotFound {
+        id: &'a str,
+    },
+    /// /command: the provider build blocking task panicked.
+    DaemonCmdProviderBuildPanicked {
+        error: &'a str,
+    },
+    /// /command: provider construction returned an error.
+    DaemonCmdProviderBuildFailed {
+        error: &'a str,
+    },
+    /// /command: a session-bound command was called without session_id.
+    /// `{cmd}` is the command name (undo/context/compact/cost/todo -- English identifier).
+    DaemonCmdSessionIdRequired {
+        cmd: &'a str,
+    },
+    /// /remember with no content.
+    DaemonCmdRememberNeedsContent,
+    /// /forget with no keyword.
+    DaemonCmdForgetNeedsKeyword,
+    /// /command dispatcher: unknown command name.
+    DaemonCmdUnknown {
+        name: &'a str,
+    },
+    /// Provider settings: model discovery only supports http/https URLs.
+    DaemonProvDiscoveryScheme,
+    /// Provider settings: discovery URL may not embed credentials.
+    DaemonProvDiscoveryNoCreds,
+    /// Provider settings: model selection id empty or invalid characters.
+    DaemonProvInvalidModelId,
+    /// Provider settings: bulk-add must select 1..=100 models.
+    DaemonProvModelCountRange,
+    /// Bulk add: duplicate model id inside the request batch.
+    DaemonProvDupModelInRequest {
+        model: &'a str,
+    },
+    /// Bulk add: model already attached to the account.
+    DaemonProvModelExistsInAccount {
+        model: &'a str,
+        account: &'a str,
+    },
+    /// Bulk add: duplicate model-selection id inside the request batch.
+    DaemonProvDupSelectionInRequest {
+        selection: &'a str,
+    },
+    /// Bulk add: a model selection with that id already exists in the config.
+    DaemonProvSelectionExists {
+        selection: &'a str,
+    },
+    /// Provider settings: provider account id not found (backticks kept in en).
+    DaemonProvAccountNotFoundId {
+        id: &'a str,
+    },
+    /// Provider settings: runtime-only accounts cannot be modified.
+    DaemonProvRuntimeReadOnly,
+    /// Provider settings: model name must not be empty.
+    DaemonProvModelEmpty,
+    /// Provider settings: context_window must be > 0.
+    DaemonProvContextWindowPositive,
+    /// Provider settings: max_tokens must be > 0.
+    DaemonProvMaxTokensPositive,
+    /// Provider settings: provider account not found (bare).
+    DaemonProvAccountNotFound,
+    /// Provider settings: the managed CodingPlan account cannot be touched.
+    DaemonProvManagedAccount,
+    /// Provider settings: the managed CodingPlan provider cannot be touched.
+    DaemonProvManagedProvider,
+    /// Provider settings: model selection already exists. `{name}` pre-rendered Debug.
+    DaemonProvModelExists {
+        name: &'a str,
+    },
+    /// Provider settings: provider already exists. `{name}` pre-rendered Debug.
+    DaemonProvProviderExists {
+        name: &'a str,
+    },
+    /// Provider settings: no account for the named model. `{name}` pre-rendered Debug.
+    DaemonProvAccountForModelNotFound {
+        name: &'a str,
+    },
+    /// Provider settings: provider not found. `{name}` pre-rendered Debug.
+    DaemonProvProviderNotFound {
+        name: &'a str,
+    },
+    /// Managed build: CodingPlan providers are managed by /login. `{action}` is
+    /// the pre-localized verb (modified/replaced/edited/deleted).
+    DaemonProvManagedLocked {
+        action: &'a str,
+    },
+    /// Neutral build: the reserved managed-provider name/URL cannot be used.
+    DaemonProvManagedReserved,
+    /// Action verb in DaemonProvManagedLocked.
+    DaemonProvActionModified,
+    /// Action verb in DaemonProvManagedLocked.
+    DaemonProvActionReplaced,
+    /// Action verb in DaemonProvManagedLocked.
+    DaemonProvActionEdited,
+    /// Action verb in DaemonProvManagedLocked.
+    DaemonProvActionDeleted,
+    /// Model discovery: protocol has no listable endpoint; enter model manually.
+    DaemonProvDiscoveryNoListing,
+    /// Model discovery: request timed out.
+    DaemonProvDiscoveryTimeout,
+    /// Model discovery: response over the 4 MiB cap.
+    DaemonProvDiscoveryTooLarge,
+    /// Model discovery: upstream HTTP error status (no auth hint).
+    DaemonProvDiscoveryHttpStatus {
+        status: u16,
+    },
+    /// Model discovery: upstream HTTP 401/403 (append "check the API key").
+    DaemonProvDiscoveryHttpStatusAuth {
+        status: u16,
+    },
+    /// Model discovery: endpoint unreachable (transport error).
+    DaemonProvDiscoveryUnreachable,
+    /// Model discovery: ollama response has no valid models array.
+    DaemonProvDiscoveryOllamaParse,
+    /// Model discovery: response has no valid data array.
+    DaemonProvDiscoveryParse,
+    /// Provider settings: provider type must not be empty.
+    DaemonProvTypeEmpty,
+    /// Provider settings: thinking_budget must be >= 1024.
+    DaemonProvThinkingBudgetMin,
+    /// Provider settings: provider vanished after a successful update.
+    DaemonProvVanished {
+        name: &'a str,
+    },
+    /// live settings: reasoning_effort level not supported by the target.
+    DaemonApiEffortUnsupported {
+        level: &'a str,
+        target: &'a str,
+    },
+    /// live settings HTTP response: reasoning_effort not supported (no level detail).
+    DaemonApiEffortUnsupportedTarget {
+        target: &'a str,
+    },
+    /// live settings HTTP 500: provider config save failed.
+    DaemonApiProviderSaveFailed {
+        error: &'a str,
+    },
+    /// Chat turn: session was activated by a newer turn mid-start.
+    DaemonChatSessionStolen {
+        session_id: &'a str,
+    },
+    /// Chat turn: the operation handle is gone (cancel/restart race).
+    DaemonChatOperationInactive,
+    /// fs/open: open_local_path failed.
+    DaemonApiCannotOpenFile {
+        error: &'a str,
+    },
+    /// fs/open: the blocking resolution task failed.
+    DaemonApiFileResolveFailed {
+        error: &'a str,
+    },
 }

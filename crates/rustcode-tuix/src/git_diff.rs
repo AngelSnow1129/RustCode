@@ -382,7 +382,7 @@ fn git_repo_root(working_dir: &Path) -> Result<PathBuf, String> {
     )?;
     let root = raw.strip_suffix(b"\n").unwrap_or(&raw);
     if root.is_empty() {
-        return Err("git 未返回仓库根目录".to_string());
+        return Err(crate::i18n::t(crate::i18n::Msg::GitRepoRootEmpty).into_owned());
     }
     Ok(bytes_to_path(root))
 }
@@ -410,18 +410,18 @@ fn git_capture(
     let output = run_git(repo_root, args, stdout_limit)?;
     if !output.status.success() && !(allow_truncated && output.stdout_truncated) {
         let detail = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "git {} 失败：{}",
-            args.first().copied().unwrap_or("命令"),
-            detail.trim()
-        ));
+        return Err(crate::i18n::t(crate::i18n::Msg::GitCmdFailed {
+            cmd: args.first().copied().unwrap_or("command"),
+            detail: detail.trim(),
+        })
+        .into_owned());
     }
     if output.stdout_truncated && !allow_truncated {
-        return Err(format!(
-            "git {} 输出超过 {} KiB，无法可靠展示",
-            args.first().copied().unwrap_or("命令"),
-            stdout_limit / 1024
-        ));
+        return Err(crate::i18n::t(crate::i18n::Msg::GitOutputTooLarge {
+            cmd: args.first().copied().unwrap_or("command"),
+            kib: stdout_limit / 1024,
+        })
+        .into_owned());
     }
     Ok((output.stdout, output.stdout_truncated))
 }
@@ -434,15 +434,20 @@ fn run_git(repo_root: &Path, args: &[&str], stdout_limit: usize) -> Result<Comma
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("无法启动 git：{error}"))?;
+        .map_err(|error| {
+            crate::i18n::t(crate::i18n::Msg::GitSpawnFailed {
+                error: &error.to_string(),
+            })
+            .into_owned()
+        })?;
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| "无法读取 git 输出".to_string())?;
+        .ok_or_else(|| crate::i18n::t(crate::i18n::Msg::GitStdoutUnavailable).into_owned())?;
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| "无法读取 git 错误输出".to_string())?;
+        .ok_or_else(|| crate::i18n::t(crate::i18n::Msg::GitStderrUnavailable).into_owned())?;
     let exceeded = Arc::new(AtomicBool::new(false));
     let stdout_exceeded = Arc::clone(&exceeded);
     let stdout_reader =
@@ -454,31 +459,49 @@ fn run_git(repo_root: &Path, args: &[&str], stdout_limit: usize) -> Result<Comma
     let status = loop {
         if exceeded.load(Ordering::Relaxed) {
             let _ = child.kill();
-            break child
-                .wait()
-                .map_err(|error| format!("等待 git 退出失败：{error}"))?;
+            break child.wait().map_err(|error| {
+                crate::i18n::t(crate::i18n::Msg::GitWaitFailed {
+                    error: &error.to_string(),
+                })
+                .into_owned()
+            })?;
         }
         if started.elapsed() >= COMMAND_TIMEOUT {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(format!("git 命令执行超过 {} 秒", COMMAND_TIMEOUT.as_secs()));
+            return Err(crate::i18n::t(crate::i18n::Msg::GitTimeout {
+                secs: COMMAND_TIMEOUT.as_secs(),
+            })
+            .into_owned());
         }
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| format!("查询 git 状态失败：{error}"))?
-        {
+        if let Some(status) = child.try_wait().map_err(|error| {
+            crate::i18n::t(crate::i18n::Msg::GitStatusPollFailed {
+                error: &error.to_string(),
+            })
+            .into_owned()
+        })? {
             break status;
         }
         std::thread::sleep(Duration::from_millis(10));
     };
     let stdout = stdout_reader
         .join()
-        .map_err(|_| "读取 git 输出的线程异常退出".to_string())?
-        .map_err(|error| format!("读取 git 输出失败：{error}"))?;
+        .map_err(|_| crate::i18n::t(crate::i18n::Msg::GitStdoutThreadPanicked).into_owned())?
+        .map_err(|error| {
+            crate::i18n::t(crate::i18n::Msg::GitStdoutReadFailed {
+                error: &error.to_string(),
+            })
+            .into_owned()
+        })?;
     let stderr = stderr_reader
         .join()
-        .map_err(|_| "读取 git 错误输出的线程异常退出".to_string())?
-        .map_err(|error| format!("读取 git 错误输出失败：{error}"))?;
+        .map_err(|_| crate::i18n::t(crate::i18n::Msg::GitStderrThreadPanicked).into_owned())?
+        .map_err(|error| {
+            crate::i18n::t(crate::i18n::Msg::GitStderrReadFailed {
+                error: &error.to_string(),
+            })
+            .into_owned()
+        })?;
     Ok(CommandOutput {
         status,
         stdout,
@@ -540,14 +563,14 @@ fn parse_numstat(raw: &[u8]) -> Result<Vec<NumstatRow>, String> {
         let deletions = parse_count(fields.next())?;
         let path_field = fields
             .next()
-            .ok_or_else(|| "git numstat 缺少文件路径".to_string())?;
+            .ok_or_else(|| crate::i18n::t(crate::i18n::Msg::GitNumstatMissingPath).into_owned())?;
         let (old_path, path) = if path_field.is_empty() {
-            let old = records
-                .get(index)
-                .ok_or_else(|| "git numstat 缺少重命名前路径".to_string())?;
-            let new = records
-                .get(index + 1)
-                .ok_or_else(|| "git numstat 缺少重命名后路径".to_string())?;
+            let old = records.get(index).ok_or_else(|| {
+                crate::i18n::t(crate::i18n::Msg::GitNumstatMissingOldPath).into_owned()
+            })?;
+            let new = records.get(index + 1).ok_or_else(|| {
+                crate::i18n::t(crate::i18n::Msg::GitNumstatMissingNewPath).into_owned()
+            })?;
             index += 2;
             (Some(bytes_to_path(old)), bytes_to_path(new))
         } else {
@@ -564,14 +587,16 @@ fn parse_numstat(raw: &[u8]) -> Result<Vec<NumstatRow>, String> {
 }
 
 fn parse_count(field: Option<&[u8]>) -> Result<Option<usize>, String> {
-    let field = field.ok_or_else(|| "git numstat 缺少行数".to_string())?;
+    let field = field
+        .ok_or_else(|| crate::i18n::t(crate::i18n::Msg::GitNumstatMissingCount).into_owned())?;
     if field == b"-" {
         return Ok(None);
     }
-    let text = std::str::from_utf8(field).map_err(|_| "git numstat 行数不是 UTF-8".to_string())?;
+    let text = std::str::from_utf8(field)
+        .map_err(|_| crate::i18n::t(crate::i18n::Msg::GitNumstatCountNotUtf8).into_owned())?;
     text.parse::<usize>()
         .map(Some)
-        .map_err(|_| format!("git numstat 行数无效：{text}"))
+        .map_err(|_| crate::i18n::t(crate::i18n::Msg::GitNumstatCountInvalid { text }).into_owned())
 }
 
 fn status_from_patch(summary: Option<&str>, renamed: bool) -> DiffFileStatus {

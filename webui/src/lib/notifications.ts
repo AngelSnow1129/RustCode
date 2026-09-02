@@ -5,7 +5,10 @@
 // - maybeNotifyTurnFinished 负责收集浏览器全局（Notification/BroadcastChannel/
 //   document.visibilityState/localStorage）并执行副作用；
 // - 去重：localStorage 时间戳是权威（跨标签共享），BroadcastChannel 只作即时信号；
-// - 标题/正文文案镜像 rustcode-capabilities/src/notify.rs，保证跨端一致。
+// - 标题/正文文案镜像 rustcode-capabilities/src/notify.rs，保证跨端一致；
+// - 文案走 i18n 目录（translate 为无 React 依赖的查表器，本模块不在组件树内）。
+
+import { translate } from '../i18n.ts';
 
 export interface NotificationPrefs {
   /** 总开关，默认 true。 */
@@ -228,35 +231,37 @@ function fmtDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+// 文案走 i18n 目录（translate 是无 React 依赖的查表器，读取与设置面板相同的
+// 'rustcode.lang' 持久化偏好）；key 的镜像关系与 notify.rs 的分支一一对应。
 function titleForStopReason(stopReason?: string): string {
   switch (stopReason) {
     case 'natural':
-      return 'RustCode done';
+      return translate('notify.title.done');
     case 'cancelled':
-      return 'RustCode cancelled';
+      return translate('notify.title.cancelled');
     case 'error':
-      return 'RustCode failed';
+      return translate('notify.title.failed');
     case 'turn_limit':
     case 'step_limit':
-      return 'RustCode stopped';
+      return translate('notify.title.stopped');
     default:
-      return 'RustCode finished';
+      return translate('notify.title.finished');
   }
 }
 
 function statusForStopReason(stopReason?: string): string {
   switch (stopReason) {
     case 'natural':
-      return 'Done';
+      return translate('notify.status.done');
     case 'cancelled':
-      return 'Cancelled';
+      return translate('notify.status.cancelled');
     case 'error':
-      return 'Failed';
+      return translate('notify.status.failed');
     case 'turn_limit':
     case 'step_limit':
-      return 'Stopped';
+      return translate('notify.status.stopped');
     default:
-      return 'Finished';
+      return translate('notify.status.finished');
   }
 }
 

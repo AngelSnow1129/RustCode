@@ -723,7 +723,9 @@ fn hydrate_recalled_attachments_from_caches(
             }
             Err(_) => {
                 *line = line.replace(&format!("[Image #{}]", refed.n), "");
-                notices.push(format!("[Image #{}] 缓存已丢失，已从消息中移除", refed.n));
+                notices.push(
+                    crate::i18n::t(crate::i18n::Msg::ImageCacheDropped { n: refed.n }).into_owned(),
+                );
             }
         }
     }
@@ -9009,6 +9011,10 @@ mod tool_format_tests {
     #[test]
     fn tool_batch_label_serial_calls_omit_in_parallel() {
         use rustcode_kernel::event::ToolBatchCall;
+        // Pin English: these tests key off the "in parallel" / "Running N tools"
+        // wording to assert the concurrent-vs-serial branch was selected.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Simulate two bash calls -- parallel_safe:false (write-lock, serial)
         let calls: Vec<ToolBatchCall> = vec![
             ToolBatchCall {
@@ -9028,20 +9034,9 @@ mod tool_format_tests {
         let concurrent = calls.iter().filter(|c| c.parallel_safe).count() >= 2;
         let unique_names: std::collections::HashSet<&str> =
             calls.iter().map(|c| c.name.as_str()).collect();
-        let label = match (unique_names.len() == 1, concurrent) {
-            (true, true) => format!(
-                "Running {} {} calls in parallel",
-                count,
-                unique_names.iter().next().copied().unwrap_or("tool")
-            ),
-            (true, false) => format!(
-                "Running {} {} calls",
-                count,
-                unique_names.iter().next().copied().unwrap_or("tool")
-            ),
-            (false, true) => format!("Running {} tools in parallel", count),
-            (false, false) => format!("Running {} tools", count),
-        };
+        let single = unique_names.len() == 1;
+        let tool = unique_names.iter().next().copied().filter(|_| single);
+        let label = tool_batch_label(count, tool, concurrent);
         assert!(
             !label.contains("in parallel"),
             "serial (write-lock) bash batch must NOT say 'in parallel', got: {label}"
@@ -9057,6 +9052,10 @@ mod tool_format_tests {
     #[test]
     fn tool_batch_label_parallel_safe_calls_include_in_parallel() {
         use rustcode_kernel::event::ToolBatchCall;
+        // Pin English: these tests key off the "in parallel" / "Running N tools"
+        // wording to assert the concurrent-vs-serial branch was selected.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         // Simulate two read_file calls -- parallel_safe:true (read-lock, concurrent)
         let calls: Vec<ToolBatchCall> = vec![
             ToolBatchCall {
@@ -9076,20 +9075,9 @@ mod tool_format_tests {
         let concurrent = calls.iter().filter(|c| c.parallel_safe).count() >= 2;
         let unique_names: std::collections::HashSet<&str> =
             calls.iter().map(|c| c.name.as_str()).collect();
-        let label = match (unique_names.len() == 1, concurrent) {
-            (true, true) => format!(
-                "Running {} {} calls in parallel",
-                count,
-                unique_names.iter().next().copied().unwrap_or("tool")
-            ),
-            (true, false) => format!(
-                "Running {} {} calls",
-                count,
-                unique_names.iter().next().copied().unwrap_or("tool")
-            ),
-            (false, true) => format!("Running {} tools in parallel", count),
-            (false, false) => format!("Running {} tools", count),
-        };
+        let single = unique_names.len() == 1;
+        let tool = unique_names.iter().next().copied().filter(|_| single);
+        let label = tool_batch_label(count, tool, concurrent);
         assert!(
             label.contains("in parallel"),
             "read-only (parallel_safe) batch MUST say 'in parallel', got: {label}"
@@ -9105,6 +9093,10 @@ mod tool_format_tests {
     #[test]
     fn tool_batch_label_mixed_one_safe_one_not_omits_in_parallel() {
         use rustcode_kernel::event::ToolBatchCall;
+        // Pin English: these tests key off the "in parallel" / "Running N tools"
+        // wording to assert the concurrent-vs-serial branch was selected.
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         let calls: Vec<ToolBatchCall> = vec![
             ToolBatchCall {
                 id: "1".into(),
@@ -9123,20 +9115,9 @@ mod tool_format_tests {
         let concurrent = calls.iter().filter(|c| c.parallel_safe).count() >= 2;
         let unique_names: std::collections::HashSet<&str> =
             calls.iter().map(|c| c.name.as_str()).collect();
-        let label = match (unique_names.len() == 1, concurrent) {
-            (true, true) => format!(
-                "Running {} {} calls in parallel",
-                count,
-                unique_names.iter().next().copied().unwrap_or("tool")
-            ),
-            (true, false) => format!(
-                "Running {} {} calls",
-                count,
-                unique_names.iter().next().copied().unwrap_or("tool")
-            ),
-            (false, true) => format!("Running {} tools in parallel", count),
-            (false, false) => format!("Running {} tools", count),
-        };
+        let single = unique_names.len() == 1;
+        let tool = unique_names.iter().next().copied().filter(|_| single);
+        let label = tool_batch_label(count, tool, concurrent);
         assert!(
             !label.contains("in parallel"),
             "mixed batch with only 1 parallel_safe call must NOT say 'in parallel', got: {label}"
@@ -15930,10 +15911,9 @@ fn handle_idle_key(
         || code == KeyCode::Char('c')
             && modifiers.contains(crossterm::event::KeyModifiers::CONTROL);
     if cancel_resume && ctx.pending_session_resume_preparation.take().is_some() {
-        renderer.render(UiLine::Warning(match crate::i18n::current_locale() {
-            crate::i18n::Locale::ZhCn => "已取消加载会话".into(),
-            crate::i18n::Locale::En => "Session loading cancelled".into(),
-        }));
+        renderer.render(UiLine::Warning(
+            crate::i18n::t(crate::i18n::Msg::SessionResumeCancelled).into_owned(),
+        ));
         redraw_idle_plain(&app.buf, &app.state, ctx, renderer);
         commands::request_session_catalog(ctx, renderer);
         return Ok(());
@@ -15946,10 +15926,9 @@ fn handle_idle_key(
         {
             pending.cancel_requested = true;
             pending.cancel.cancel();
-            renderer.render(UiLine::Warning(match crate::i18n::current_locale() {
-                crate::i18n::Locale::ZhCn => "正在取消加载会话...".into(),
-                crate::i18n::Locale::En => "Cancelling session loading...".into(),
-            }));
+            renderer.render(UiLine::Warning(
+                crate::i18n::t(crate::i18n::Msg::SessionResumeCancelling).into_owned(),
+            ));
             renderer.flush();
             return Ok(());
         }
@@ -22024,25 +22003,39 @@ fn team_success_notice(action: &str, output: &str) -> Option<String> {
     let value = serde_json::from_str::<serde_json::Value>(output).ok()?;
     let run_id = value.get("run_id")?.as_str()?;
     match action {
-        "delegate" => Some(format!("  ○ Team dispatched · {run_id}\n")),
-        "stop" => Some(format!("  ○ Team stopped · {run_id}\n")),
+        "delegate" => {
+            Some(crate::i18n::t(crate::i18n::Msg::TeamNoticeDispatched { run_id }).into_owned())
+        }
+        "stop" => Some(crate::i18n::t(crate::i18n::Msg::TeamNoticeStopped { run_id }).into_owned()),
         "result" => {
             let members = value.get("members")?.as_array()?;
-            let mut lines = vec![format!("  Team results · {run_id}")];
+            let mut lines =
+                vec![
+                    crate::i18n::t(crate::i18n::Msg::TeamNoticeResultsHeader { run_id })
+                        .into_owned(),
+                ];
             for member in members {
                 let id = member
                     .get("id")
                     .and_then(|value| value.as_str())
-                    .unwrap_or("agent");
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| {
+                        crate::i18n::t(crate::i18n::Msg::TeamMemberFallbackId).into_owned()
+                    });
                 let status = member
                     .get("status")
                     .and_then(|value| value.as_str())
-                    .unwrap_or("unknown");
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| {
+                        crate::i18n::t(crate::i18n::Msg::TeamStatusUnknown).into_owned()
+                    });
                 let result = member.get("result").and_then(|value| value.as_str());
                 let result = result
                     .map(|text| crate::width::truncate_with_ellipsis(&summarise(text), 500))
                     .filter(|text| !text.is_empty())
-                    .unwrap_or_else(|| "no report".into());
+                    .unwrap_or_else(|| {
+                        crate::i18n::t(crate::i18n::Msg::TeamResultNone).into_owned()
+                    });
                 lines.push(format!("  └ {id} · {status} · {result}"));
             }
             lines.push(String::new());
@@ -22056,9 +22049,21 @@ fn team_success_notice(action: &str, output: &str) -> Option<String> {
 fn team_batch_result_suffix(action: &str, output: &str) -> Option<String> {
     let value = serde_json::from_str::<serde_json::Value>(output).ok()?;
     match action {
-        "delegate" => Some(format!("dispatched · {}", value.get("run_id")?.as_str()?)),
-        "stop" => Some(format!("stopped · {}", value.get("run_id")?.as_str()?)),
-        "status" | "wait" | "result" => Some("updated".into()),
+        "delegate" => Some(
+            crate::i18n::t(crate::i18n::Msg::TeamSuffixDispatched {
+                run_id: value.get("run_id")?.as_str()?,
+            })
+            .into_owned(),
+        ),
+        "stop" => Some(
+            crate::i18n::t(crate::i18n::Msg::TeamSuffixStopped {
+                run_id: value.get("run_id")?.as_str()?,
+            })
+            .into_owned(),
+        ),
+        "status" | "wait" | "result" => {
+            Some(crate::i18n::t(crate::i18n::Msg::TeamSuffixUpdated).into_owned())
+        }
         _ => None,
     }
 }
@@ -22502,6 +22507,11 @@ mod subtask_progress_projection_tests {
 
     #[test]
     fn team_tool_success_is_compact_for_interactive_projection() {
+        // The notices now route through `t()`; pin English so the exact-string
+        // assertions below are stable under the zh_CN default (other tests set
+        // En in parallel).
+        let _locale = crate::i18n::test_lock();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
         assert_eq!(
             team_action(r#"{"action":"delegate","tasks":[]}"#),
             Some("delegate".into())
@@ -22896,9 +22906,18 @@ fn project_kernel_event(
             max_attempts,
             backoff_secs,
             reason,
-        } => Some(AgentEvent::Warning(format!(
-            "API error {reason}，{backoff_secs} 秒后重试({attempt}/{max_attempts})..."
-        ))),
+        } => {
+            let reason_label = rustcode_coding::retry_reason_label(reason);
+            Some(AgentEvent::Warning(
+                crate::i18n::t(crate::i18n::Msg::TuixProviderRetry {
+                    reason: &reason_label,
+                    backoff_secs,
+                    attempt,
+                    max_attempts,
+                })
+                .into_owned(),
+            ))
+        }
         Kernel::StreamRecovery {
             attempt,
             max_attempts,
@@ -23195,11 +23214,7 @@ fn install_pending_rewind_modal(app: &mut App, ctx: &mut LoopCtx, renderer: &mut
     {
         Ok(catalog) if catalog.points.is_empty() => {
             renderer.render(UiLine::CommandOutput(
-                match crate::i18n::current_locale() {
-                    crate::i18n::Locale::ZhCn => "当前会话还没有可回退的回合。",
-                    crate::i18n::Locale::En => "This session has no Rewind points yet.",
-                }
-                .to_string(),
+                crate::i18n::t(crate::i18n::Msg::RewindNoPoints).into_owned(),
             ));
             renderer.flush();
         }
@@ -23210,13 +23225,12 @@ fn install_pending_rewind_modal(app: &mut App, ctx: &mut LoopCtx, renderer: &mut
             app.active_modal = Some(modal);
         }
         Err(error) => {
-            renderer.render(UiLine::Error(format!(
-                "{}: {error}",
-                match crate::i18n::current_locale() {
-                    crate::i18n::Locale::ZhCn => "加载回退点失败",
-                    crate::i18n::Locale::En => "Failed to load Rewind points",
-                }
-            )));
+            renderer.render(UiLine::Error(
+                crate::i18n::t(crate::i18n::Msg::RewindCatalogLoadFailed {
+                    error: &error.to_string(),
+                })
+                .into_owned(),
+            ));
             renderer.flush();
         }
     }
@@ -23865,13 +23879,12 @@ fn handle_runtime_event(
                         handle_rewind_success(result, state, renderer, ctx, buf);
                     }
                     Err(error) => {
-                        renderer.render(UiLine::Error(format!(
-                            "{}: {error}",
-                            match crate::i18n::current_locale() {
-                                crate::i18n::Locale::ZhCn => "回退失败",
-                                crate::i18n::Locale::En => "Rewind failed",
-                            }
-                        )));
+                        renderer.render(UiLine::Error(
+                            crate::i18n::t(crate::i18n::Msg::RewindFailed {
+                                error: &error.to_string(),
+                            })
+                            .into_owned(),
+                        ));
                         renderer.flush();
                     }
                 },
@@ -23977,7 +23990,10 @@ fn handle_runtime_event(
                     apply_reasoning_effort_projection(ctx, &provider, effort, applicable);
                 }
                 CodingRuntimeEvent::ProviderReloadFinished(Err(error)) => {
-                    let mut message = format!("provider reload failed: {error}");
+                    let mut message = crate::i18n::t(crate::i18n::Msg::ProviderReloadFailed {
+                        error: &error.to_string(),
+                    })
+                    .into_owned();
                     let mut retry_provider_projection = false;
                     if let Some(pending) = ctx.pending_provider_reload.take() {
                         let current_generation = ctx.runtime.current_generation();
@@ -23996,9 +24012,9 @@ fn handle_runtime_event(
                                 current_generation,
                             )
                             .is_some();
-                            message.push_str(
-                                "; a newer runtime generation won the transition; following the runtime owner",
-                            );
+                            message.push_str(&crate::i18n::t(
+                                crate::i18n::Msg::ProviderReloadSupersededNote,
+                            ));
                         } else {
                             if ctx
                                 .pending_provider_projection
@@ -24017,8 +24033,10 @@ fn handle_runtime_event(
                                 ctx.observed_config_revision = None;
                             }
                             if let Some(rollback_error) = rollback.error {
-                                message.push_str(&format!(
-                                    "; config rollback failed: {rollback_error}"
+                                message.push_str(&crate::i18n::t(
+                                    crate::i18n::Msg::ProviderRollbackFailed {
+                                        error: &rollback_error.to_string(),
+                                    },
                                 ));
                             }
                         }
@@ -25128,38 +25146,26 @@ fn handle_rewind_success(
         }
     }
 
-    let scope = match (crate::i18n::current_locale(), result.scope) {
-        (crate::i18n::Locale::ZhCn, rustcode_coding::RewindScope::Conversation) => "对话",
-        (crate::i18n::Locale::ZhCn, rustcode_coding::RewindScope::Code) => "代码",
-        (crate::i18n::Locale::ZhCn, rustcode_coding::RewindScope::ConversationAndCode) => {
-            "对话和代码"
+    let scope = match result.scope {
+        rustcode_coding::RewindScope::Conversation => {
+            crate::i18n::t(crate::i18n::Msg::RewindScopeConversation)
         }
-        (crate::i18n::Locale::En, rustcode_coding::RewindScope::Conversation) => "conversation",
-        (crate::i18n::Locale::En, rustcode_coding::RewindScope::Code) => "code",
-        (crate::i18n::Locale::En, rustcode_coding::RewindScope::ConversationAndCode) => {
-            "conversation and code"
+        rustcode_coding::RewindScope::Code => crate::i18n::t(crate::i18n::Msg::RewindScopeCode),
+        rustcode_coding::RewindScope::ConversationAndCode => {
+            crate::i18n::t(crate::i18n::Msg::RewindScopeConversationAndCode)
         }
     };
-    let message = match crate::i18n::current_locale() {
-        crate::i18n::Locale::ZhCn => format!(
-            "↩ 已将{scope}回退到“{}”之前{}。",
-            result.point.prompt_preview,
-            if result.restored_files.is_empty() {
-                String::new()
-            } else {
-                format!("（恢复 {} 个文件）", result.restored_files.len())
-            }
-        ),
-        crate::i18n::Locale::En => format!(
-            "↩ Rewound {scope} to before “{}”{}.",
-            result.point.prompt_preview,
-            if result.restored_files.is_empty() {
-                String::new()
-            } else {
-                format!(" (restored {} files)", result.restored_files.len())
-            }
-        ),
-    };
+    let mut message = crate::i18n::t(crate::i18n::Msg::RewindSuccessMain {
+        scope: &scope,
+        prompt: &result.point.prompt_preview,
+    })
+    .into_owned();
+    if !result.restored_files.is_empty() {
+        message.push_str(&crate::i18n::t(crate::i18n::Msg::RewindSuccessFiles {
+            n: result.restored_files.len(),
+        }));
+    }
+    message.push_str(&crate::i18n::t(crate::i18n::Msg::RewindSuccessEnd));
     renderer.render(UiLine::CommandOutput(message));
     renderer.flush();
     state.on_turn_complete();
@@ -27261,20 +27267,9 @@ fn handle_agent_event(
             // a `match tool_name { "bash" => "Running" ... }` table
             // that drifts whenever new tools land or models invent
             // names (mcp.foo, custom plugins).
-            let label = match (unique_names.len() == 1, concurrent) {
-                (true, true) => format!(
-                    "Running {} {} calls in parallel",
-                    count,
-                    unique_names.iter().next().copied().unwrap_or("tool")
-                ),
-                (true, false) => format!(
-                    "Running {} {} calls",
-                    count,
-                    unique_names.iter().next().copied().unwrap_or("tool")
-                ),
-                (false, true) => format!("Running {} tools in parallel", count),
-                (false, false) => format!("Running {} tools", count),
-            };
+            let single = unique_names.len() == 1;
+            let tool = unique_names.iter().next().copied().filter(|_| single);
+            let label = crate::event_loop::tool_batch_label(count, tool, concurrent);
             // Header alone -- child rows are NOT pre-rendered. Each
             // child surfaces as a `  ↳ [+] name` line when its
             // ToolCallResult arrives. Trade-off:
@@ -29820,6 +29815,25 @@ pub(crate) fn web_search_result_suffix(output: &str) -> Option<String> {
 /// output)), so the replayed group matches a *completed* live batch without any
 /// in-place child updates. `todo_titles` enriches `todo update` child rows the
 /// same way the live path does.
+/// Localized `● Running N ...` batch header. `tool` is `Some(name)` for a
+/// same-tool batch (the raw tool name is interpolated verbatim) or `None` for a
+/// mixed-tool batch; `concurrent` selects the "in parallel" wording. Shared by
+/// the live render path and session replay so the two cannot drift apart.
+pub(crate) fn tool_batch_label(count: usize, tool: Option<&str>, concurrent: bool) -> String {
+    match (tool, concurrent) {
+        (Some(tool), true) => {
+            crate::i18n::t(crate::i18n::Msg::TuixToolBatchSameParallel { count, tool }).into_owned()
+        }
+        (Some(tool), false) => {
+            crate::i18n::t(crate::i18n::Msg::TuixToolBatchSame { count, tool }).into_owned()
+        }
+        (None, true) => {
+            crate::i18n::t(crate::i18n::Msg::TuixToolBatchParallel { count }).into_owned()
+        }
+        (None, false) => crate::i18n::t(crate::i18n::Msg::TuixToolBatch { count }).into_owned(),
+    }
+}
+
 pub(crate) fn build_replay_tool_batch(
     calls: &[rustcode_kernel::tool::ToolCall],
     result_of: &std::collections::HashMap<String, (bool, String)>,
@@ -29832,15 +29846,11 @@ pub(crate) fn build_replay_tool_batch(
     let count = calls.len();
     let unique_names: std::collections::HashSet<&str> =
         calls.iter().map(|c| c.name.as_str()).collect();
-    let label = if unique_names.len() == 1 {
-        format!(
-            "Running {} {} calls",
-            count,
-            unique_names.iter().next().copied().unwrap_or("tool")
-        )
-    } else {
-        format!("Running {} tools", count)
-    };
+    let single = unique_names.len() == 1;
+    let tool = unique_names.iter().next().copied().filter(|_| single);
+    // Replay never re-runs the batch, so it is always shown serially (no
+    // "in parallel") -- the live-only concurrent wording is not persisted.
+    let label = tool_batch_label(count, tool, false);
     let head_glyph = "\u{25cf}";
     let child_glyph = "\u{2514}";
     let arrow = "\u{2192}";

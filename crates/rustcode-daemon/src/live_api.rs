@@ -15,6 +15,7 @@ use rustcode_capabilities::mcp::McpRegistry;
 use rustcode_capabilities::tools::PermissionDecision;
 use rustcode_coding::runtime::{CodingRuntimeEvent, CompactionCompletion};
 use rustcode_config::config::Config;
+use rustcode_config::i18n::{t, Msg};
 use rustcode_kernel::message::{ImageContent, Message as KernelMessage, SessionSnapshot};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -463,7 +464,12 @@ pub(crate) async fn run_chat_turn_v2(
         user_images
     };
     if let Err(error) = handle.set_mode(native_runtime_mode(approval_mode)).await {
-        send_chat_runtime_error(&runtime_event_tx, format!("切换模式失败：{error}"));
+        send_chat_runtime_error(
+            &runtime_event_tx,
+            t(Msg::LiveSetModeFailed {
+                error: &error.to_string(),
+            }),
+        );
         return;
     }
     let input = rustcode_coding::UserInput {
@@ -471,7 +477,12 @@ pub(crate) async fn run_chat_turn_v2(
         images: user_images,
     };
     if let Err(error) = handle.submit(input).await {
-        send_chat_runtime_error(&runtime_event_tx, format!("发送用户消息失败：{error}"));
+        send_chat_runtime_error(
+            &runtime_event_tx,
+            t(Msg::LiveSubmitFailed {
+                error: &error.to_string(),
+            }),
+        );
         return;
     }
 
@@ -591,15 +602,18 @@ pub(crate) async fn run_chat_turn_v2(
                     &naming_session_id,
                     &name,
                 ) {
-                    let _ = runtime_event_tx.send(CodingRuntimeEvent::ControllerWarning(format!(
-                        "session naming failed: {error}"
-                    )));
+                    let _ = runtime_event_tx.send(CodingRuntimeEvent::ControllerWarning(
+                        t(Msg::LiveApiSessionNamingFailed {
+                            error: &error.to_string(),
+                        })
+                        .into_owned(),
+                    ));
                 }
             }
             CodingRuntimeEvent::RuntimeStopped(_) => {
                 send_chat_runtime_error(
                     &runtime_event_tx,
-                    "coding runtime stopped before turn terminal",
+                    t(Msg::LiveApiRuntimeStoppedEarly).into_owned(),
                 );
                 break None;
             }
@@ -918,9 +932,13 @@ impl NativeLiveWireProjector {
                     backoff_secs,
                     reason,
                 } => LiveWireEvent::Warning {
-                    message: format!(
-                        "API error {reason}，{backoff_secs} 秒后重试({attempt}/{max_attempts})..."
-                    ),
+                    message: t(Msg::LiveApiProviderRetry {
+                        reason: &rustcode_coding::retry_reason_label(reason),
+                        backoff_secs,
+                        attempt,
+                        max_attempts,
+                    })
+                    .into_owned(),
                 },
                 Kernel::StreamRecovery {
                     attempt,
@@ -928,20 +946,24 @@ impl NativeLiveWireProjector {
                     recovered,
                 } => LiveWireEvent::Warning {
                     message: if recovered {
-                        "recovered from the interrupted stream".to_string()
+                        t(Msg::LiveApiStreamRecovered).into_owned()
                     } else {
-                        format!(
-                            "stream timed out; safely continuing from saved progress ({attempt}/{max_attempts})"
-                        )
+                        t(Msg::LiveApiStreamTimeout {
+                            attempt,
+                            max_attempts,
+                        })
+                        .into_owned()
                     },
                 },
                 Kernel::OutputTruncationRecovery {
                     attempt,
                     max_attempts,
                 } => LiveWireEvent::Warning {
-                    message: format!(
-                        "output limit reached; automatically continuing ({attempt}/{max_attempts})"
-                    ),
+                    message: t(Msg::LiveApiOutputLimit {
+                        attempt,
+                        max_attempts,
+                    })
+                    .into_owned(),
                 },
                 Kernel::RateLimited {
                     reset_at_display,
@@ -974,7 +996,7 @@ impl NativeLiveWireProjector {
                     let approval: ApprovalRequest = serde_json::from_value(request.payload).ok()?;
                     LiveWireEvent::PermissionRequest {
                         tool_name: approval.tool,
-                        reason: "Requires approval".into(),
+                        reason: t(Msg::PermissionReasonRequiresApproval).into_owned(),
                         call_id: approval.call_id,
                         arguments: approval.args,
                     }
@@ -1119,14 +1141,17 @@ impl NativeLiveWireProjector {
             }
             crate::live_hub::LiveViewEvent::Runtime(Runtime::RuntimeStopped(exit)) => {
                 self.tools.clear();
+                let mut stopped_message = t(Msg::LiveApiRuntimeStopped {
+                    reason: &format!("{:?}", exit.reason),
+                })
+                .into_owned();
+                if exit.forced {
+                    stopped_message.push_str(&t(Msg::LiveApiRuntimeStoppedForcedSuffix));
+                }
                 LiveWireEvent::State {
                     running: false,
                     stop_reason: Some("runtime_stopped".into()),
-                    message: Some(format!(
-                        "coding runtime stopped: {:?}{}",
-                        exit.reason,
-                        if exit.forced { " (forced)" } else { "" }
-                    )),
+                    message: Some(stopped_message),
                     stats: None,
                 }
             }
@@ -1149,33 +1174,58 @@ impl NativeLiveWireProjector {
             crate::live_hub::LiveViewEvent::Runtime(Runtime::CompactionFinished {
                 completion: CompactionCompletion::Failed { error, .. },
             }) => LiveWireEvent::Error {
-                message: format!("compact failed: {error}"),
+                message: t(Msg::LiveCompactFailed {
+                    error: &error.to_string(),
+                })
+                .into_owned(),
             },
             crate::live_hub::LiveViewEvent::Runtime(Runtime::ProviderUnavailable {
                 reason,
                 ..
             }) => LiveWireEvent::Error {
-                message: reason.to_string(),
+                message: match reason {
+                    rustcode_coding::ProviderUnavailableReason::NotConfigured => {
+                        t(Msg::LiveProviderNotConfigured).into_owned()
+                    }
+                    rustcode_coding::ProviderUnavailableReason::AuthenticationRequired => {
+                        t(Msg::LiveProviderAuthRequired).into_owned()
+                    }
+                    rustcode_coding::ProviderUnavailableReason::UnsupportedBuild => {
+                        t(Msg::LiveProviderUnsupportedBuild).into_owned()
+                    }
+                },
             },
             crate::live_hub::LiveViewEvent::Runtime(Runtime::ProviderReloadFinished(Err(
                 error,
             ))) => LiveWireEvent::Error {
-                message: format!("provider reload failed: {error}"),
+                message: t(Msg::LiveProviderReloadFailed {
+                    error: &error.to_string(),
+                })
+                .into_owned(),
             },
             crate::live_hub::LiveViewEvent::Runtime(Runtime::ProviderDeactivationFinished(
                 Err(error),
             )) => LiveWireEvent::Error {
-                message: format!("provider deactivation failed: {error}"),
+                message: t(Msg::LiveProviderDeactivationFailed {
+                    error: &error.to_string(),
+                })
+                .into_owned(),
             },
             crate::live_hub::LiveViewEvent::Runtime(Runtime::SnapshotRestoreFinished {
                 result: Err(error),
                 ..
             }) => LiveWireEvent::Error {
-                message: format!("snapshot restore failed: {error}"),
+                message: t(Msg::LiveSnapshotRestoreFailed {
+                    error: &error.to_string(),
+                })
+                .into_owned(),
             },
             crate::live_hub::LiveViewEvent::Runtime(Runtime::UndoFinished(Err(error))) => {
                 LiveWireEvent::Error {
-                    message: format!("undo failed: {error}"),
+                    message: t(Msg::LiveUndoFailed {
+                        error: &error.to_string(),
+                    })
+                    .into_owned(),
                 }
             }
             crate::live_hub::LiveViewEvent::Runtime(_) => return None,
@@ -1248,7 +1298,10 @@ fn serialize_scoped_live_event(session_id: String, event: &LiveWireEvent) -> Str
             return serde_json::json!({
                 "type": "error",
                 "session_id": session_id,
-                "message": format!("live event serialization failed: {error}"),
+                "message": t(Msg::LiveApiEventSerializationFailed {
+                    error: &error.to_string()
+                })
+                .into_owned(),
             })
             .to_string();
         }
@@ -1259,7 +1312,10 @@ fn serialize_scoped_live_event(session_id: String, event: &LiveWireEvent) -> Str
             crate::ctrace!("LIVE", "live event JSON serialization failed: {error}");
             serde_json::json!({
                 "type": "error",
-                "message": format!("live event serialization failed: {error}"),
+                "message": t(Msg::LiveApiEventSerializationFailed {
+                    error: &error.to_string()
+                })
+                .into_owned(),
             })
             .to_string()
         });
@@ -1267,7 +1323,7 @@ fn serialize_scoped_live_event(session_id: String, event: &LiveWireEvent) -> Str
     serde_json::json!({
         "type": "error",
         "session_id": session_id,
-        "message": "live event is not a JSON object",
+        "message": t(Msg::LiveApiEventNotObject).into_owned(),
     })
     .to_string()
 }
@@ -1412,7 +1468,7 @@ pub(crate) async fn live_stream(
                     let _ = tx.send((
                         projector.session_id.clone(),
                         LiveWireEvent::Error {
-                            message: format!("live stream lagged by {skipped} events; reconnect"),
+                            message: t(Msg::LiveApiStreamLagged { skipped }).into_owned(),
                         },
                     ));
                     break;
@@ -1986,7 +2042,7 @@ pub(crate) async fn live_provider(
         Err(crate::live_hub::HubError::ActiveTurn) => Json(serde_json::json!({
             "ok": false,
             "active_turn": true,
-            "error": "a turn is running; stop it before switching the model",
+            "error": t(Msg::LiveApiActiveTurnModelSwitch).into_owned(),
         })),
         Err(error) => Json(serde_json::json!({
             "ok": false,
@@ -2117,7 +2173,13 @@ pub(crate) async fn live_reasoning_effort(
                 .is_none()
             {
                 level_disallowed = true;
-                anyhow::bail!("reasoning_effort {level:?} not supported by {target:?}");
+                anyhow::bail!(
+                    "{}",
+                    t(Msg::DaemonApiEffortUnsupported {
+                        level: &format!("{level:?}"),
+                        target: &format!("{target:?}"),
+                    })
+                );
             }
         }
         // Schema-aware write: new-schema models live in `[models.*]`, legacy in
@@ -2131,7 +2193,12 @@ pub(crate) async fn live_reasoning_effort(
         });
         if !found {
             provider_missing = true;
-            anyhow::bail!("provider {target:?} not found");
+            anyhow::bail!(
+                "{}",
+                t(Msg::DaemonProvProviderNotFound {
+                    name: &format!("{target:?}"),
+                })
+            );
         }
         Ok(())
     }) {
@@ -2141,7 +2208,10 @@ pub(crate) async fn live_reasoning_effort(
                 axum::http::StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
                     "ok": false,
-                    "error": format!("provider {target:?} not found"),
+                    "error": t(Msg::DaemonProvProviderNotFound {
+                        name: &format!("{target:?}"),
+                    })
+                    .into_owned(),
                 })),
             )
                 .into_response();
@@ -2151,7 +2221,10 @@ pub(crate) async fn live_reasoning_effort(
                 axum::http::StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
                     "ok": false,
-                    "error": format!("reasoning_effort not supported by {target:?}"),
+                    "error": t(Msg::DaemonApiEffortUnsupportedTarget {
+                        target: &format!("{target:?}"),
+                    })
+                    .into_owned(),
                 })),
             )
                 .into_response();
@@ -2161,7 +2234,10 @@ pub(crate) async fn live_reasoning_effort(
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
                     "ok": false,
-                    "error": format!("save provider config failed: {error}"),
+                    "error": t(Msg::DaemonApiProviderSaveFailed {
+                        error: &error.to_string(),
+                    })
+                    .into_owned(),
                 })),
             )
                 .into_response();
@@ -2380,7 +2456,10 @@ pub(crate) async fn live_goal_start(
 ) -> impl IntoResponse {
     let condition = req.condition.unwrap_or_default().trim().to_string();
     if condition.is_empty() {
-        return Json(serde_json::json!({"accepted": false, "error": "goal condition is empty"}));
+        return Json(serde_json::json!({
+            "accepted": false,
+            "error": t(Msg::LiveApiGoalConditionEmpty).into_owned()
+        }));
     }
     // When the TUI owns the embedded runtime, route through its command
     // boundary as well. The TUI keeps a presentation/input Goal state of its

@@ -901,10 +901,10 @@ export function Sidebar({
         mcpPollAttemptsRef.current = 0;
         refreshMcpStatus();
       } else {
-        setTrustError(result.error ?? 'Trust failed');
+        setTrustError(result.error ?? t('mcp.trustFailed'));
       }
     } catch (e) {
-      setTrustError(e instanceof Error ? e.message : 'Trust failed');
+      setTrustError(e instanceof Error ? e.message : t('mcp.trustFailed'));
     } finally {
       setTrusting(false);
     }
@@ -1502,7 +1502,7 @@ export function Sidebar({
           && (auth.loggedIn && !auth.expired ? (
           <div
             class="sidebar-account"
-            title={auth.user?.name || auth.user?.username || 'account'}
+            title={auth.user?.name || auth.user?.username || t('sidebar.accountFallback')}
           >
             <span class="login-avatar">
               {auth.user?.avatar_url ? (
@@ -1519,7 +1519,7 @@ export function Sidebar({
                 (auth.user?.name || auth.user?.username || 'A').slice(0, 1).toUpperCase()
               )}
             </span>
-            <span class="login-name">{auth.user?.name || auth.user?.username || 'account'}</span>
+            <span class="login-name">{auth.user?.name || auth.user?.username || t('sidebar.accountFallback')}</span>
           </div>
         ) : (
           <button

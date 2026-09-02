@@ -26,6 +26,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
+use rustcode_config::i18n::{t, Msg};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
@@ -245,22 +246,27 @@ pub fn rolling_path(exe: &Path) -> PathBuf {
 /// false positives from filesystems that claim metadata writability
 /// but reject opens.
 pub fn ensure_writable(exe: &Path) -> Result<()> {
-    let dir = exe
-        .parent()
-        .ok_or_else(|| anyhow!("executable has no parent directory: {}", exe.display()))?;
+    let dir = exe.parent().ok_or_else(|| {
+        let exe_str = exe.display().to_string();
+        anyhow!("{}", t(Msg::UpgradeExeNoParent { exe: &exe_str }))
+    })?;
     let probe = dir.join(rustcode_config::distribution::update_probe_name());
     match std::fs::File::create(&probe) {
         Ok(_) => {
             let _ = std::fs::remove_file(&probe);
             Ok(())
         }
-        Err(e) => Err(anyhow!(
-            "{} is not writable by the current user ({}).\n\
-             Re-run with elevated privileges:  sudo rustcode upgrade\n\
-             Or reinstall into a user-writable location (e.g. ~/.local/bin).",
-            dir.display(),
-            e
-        )),
+        Err(e) => {
+            let dir_str = dir.display().to_string();
+            let error = e.to_string();
+            Err(anyhow!(
+                "{}",
+                t(Msg::UpgradeDirNotWritable {
+                    dir: &dir_str,
+                    error: &error,
+                })
+            ))
+        }
     }
 }
 
@@ -281,8 +287,10 @@ pub async fn fetch_manifest() -> Result<Manifest> {
         .context("failed to fetch latest.json")?;
     if !resp.status().is_success() {
         return Err(anyhow!(
-            "fetching latest.json returned HTTP {}",
-            resp.status()
+            "{}",
+            t(Msg::UpgradeManifestHttp {
+                status: resp.status().as_u16()
+            })
         ));
     }
     let body = resp.text().await.context("reading latest.json body")?;
@@ -331,9 +339,11 @@ async fn download_and_verify(
         .with_context(|| format!("GET {}", url))?;
     if !resp.status().is_success() {
         return Err(anyhow!(
-            "downloading {} returned HTTP {} -- release may not exist for this platform",
-            url,
-            resp.status()
+            "{}",
+            t(Msg::UpgradeDownloadHttp {
+                url,
+                status: resp.status().as_u16(),
+            })
         ));
     }
 
@@ -375,9 +385,11 @@ async fn download_and_verify(
     if written != expected_size {
         let _ = std::fs::remove_file(dest);
         return Err(anyhow!(
-            "short download: got {} bytes, expected {}",
-            written,
-            expected_size
+            "{}",
+            t(Msg::UpgradeShortDownload {
+                got: written,
+                expected: expected_size,
+            })
         ));
     }
 
@@ -386,9 +398,11 @@ async fn download_and_verify(
     if !got.eq_ignore_ascii_case(expected_sha256) {
         let _ = std::fs::remove_file(dest);
         return Err(anyhow!(
-            "checksum mismatch -- possible corruption or tampering.\n  expected: {}\n  got:      {}",
-            expected_sha256,
-            got
+            "{}",
+            t(Msg::UpgradeChecksumMismatch {
+                expected: expected_sha256,
+                got: &got,
+            })
         ));
     }
 
@@ -600,9 +614,10 @@ fn replace_binary(new_bin: &Path, exe: &Path) -> Result<()> {
         // Best-effort unwind of step 1 so the user isn't left without
         // a live binary.
         let _ = std::fs::rename(&rolling, exe);
+        let error = e.to_string();
         return Err(anyhow!(
-            "moving new binary into place failed ({}). Previous version restored.",
-            e
+            "{}",
+            t(Msg::UpgradeReplaceRestored { error: &error })
         ));
     }
 
@@ -616,20 +631,22 @@ fn replace_binary(new_bin: &Path, exe: &Path) -> Result<()> {
             // Upgrade succeeded but we couldn't preserve the old version
             // as .bak. The .rolling file lingers; next upgrade will
             // clean it up. Rollback won't be available this session.
-            eprintln!(
-                "Note: could not preserve previous version as backup ({}). Rollback unavailable until next upgrade.",
-                e
-            );
+            let error = e.to_string();
+            eprintln!("{}", t(Msg::UpgradeBackupPreserveFailed { error: &error }));
         }
     } else {
         // Old .bak couldn't be removed (locked by AV, running process, etc.).
         // The .rolling file stays behind; next upgrade attempt will clean
         // it up. Rollback points to the version before this upgrade's
         // predecessor, which is still better than failing the upgrade.
+        let backup_str = backup.display().to_string();
+        let rolling_str = rolling.display().to_string();
         eprintln!(
-            "Note: could not remove old backup {}. Rollback may point to an older version.\n  The .rolling file at {} will be cleaned up on the next upgrade.",
-            backup.display(),
-            rolling.display()
+            "{}",
+            t(Msg::UpgradeBackupRemoveFailed {
+                backup: &backup_str,
+                rolling: &rolling_str,
+            })
         );
     }
 
@@ -655,9 +672,11 @@ pub async fn run_upgrade(
     let current_version = current_version.as_str();
     let target = detect_target().ok_or_else(|| {
         anyhow!(
-            "this platform has no published rustcode release ({}/{})",
-            std::env::consts::OS,
-            std::env::consts::ARCH
+            "{}",
+            t(Msg::UpgradeNoRelease {
+                os: std::env::consts::OS,
+                arch: std::env::consts::ARCH,
+            })
         )
     })?;
     let exe = current_exe_path()?;
@@ -677,12 +696,10 @@ pub async fn run_upgrade(
         ));
     }
 
-    let entry = manifest.binaries.get(target).ok_or_else(|| {
-        anyhow!(
-            "manifest has no entry for target {} -- this platform may not be in this release",
-            target
-        )
-    })?;
+    let entry = manifest
+        .binaries
+        .get(target)
+        .ok_or_else(|| anyhow!("{}", t(Msg::UpgradeNoTarget { target })))?;
 
     let url = binary_url(&manifest.version, target);
     let download = download_path(&exe);
@@ -902,9 +919,11 @@ pub async fn prepare_deferred_upgrade(
     }
     let target = detect_target().ok_or_else(|| {
         anyhow!(
-            "this platform has no published rustcode release ({}/{})",
-            std::env::consts::OS,
-            std::env::consts::ARCH
+            "{}",
+            t(Msg::UpgradeNoRelease {
+                os: std::env::consts::OS,
+                arch: std::env::consts::ARCH,
+            })
         )
     })?;
 
@@ -933,12 +952,10 @@ pub async fn prepare_deferred_upgrade(
         }
     }
 
-    let entry = manifest.binaries.get(target).ok_or_else(|| {
-        anyhow!(
-            "manifest has no entry for target {} -- this platform may not be in this release",
-            target
-        )
-    })?;
+    let entry = manifest
+        .binaries
+        .get(target)
+        .ok_or_else(|| anyhow!("{}", t(Msg::UpgradeNoTarget { target })))?;
 
     let dir = staged_dir();
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
@@ -1425,6 +1442,10 @@ mod tests {
 
     #[test]
     fn ensure_writable_probes_containing_dir() {
+        // Asserts the English sudo-guidance prose; pin the locale
+        // because the product default is Simplified Chinese.
+        let _locale = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         // A path inside tempdir must pass; a path whose parent doesn't
         // exist must fail with a clear message.
         let tmp = tempfile::tempdir().unwrap();
@@ -1768,6 +1789,10 @@ mod tests {
     /// count doesn't match the manifest size (post-download size check).
     #[tokio::test]
     async fn download_rejects_wrong_actual_size() {
+        // Asserts the English "short download" prose; pin the locale
+        // because the product default is Simplified Chinese.
+        let _locale = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -1815,6 +1840,10 @@ mod tests {
     /// doesn't match the manifest, even if the size is correct.
     #[tokio::test]
     async fn download_rejects_checksum_mismatch() {
+        // Asserts the English "checksum mismatch" prose; pin the locale
+        // because the product default is Simplified Chinese.
+        let _locale = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 

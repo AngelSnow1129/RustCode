@@ -10,6 +10,7 @@ use rustcode_capabilities::session::{
     SessionStoreError,
 };
 use rustcode_config::config::memory::MemoryStore;
+use rustcode_config::i18n::{t, Msg};
 
 #[derive(serde::Serialize)]
 pub(crate) struct CostModelResult {
@@ -120,7 +121,7 @@ fn command_project_bucket(
         .map(str::to_owned)
         .unwrap_or_else(|| NativeSessionManager::project_hash(working_dir));
     if bucket.len() != 16 || !bucket.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        anyhow::bail!("invalid project session bucket")
+        anyhow::bail!("{}", t(Msg::DaemonCmdInvalidBucket));
     }
     Ok(bucket)
 }
@@ -159,8 +160,14 @@ fn load_command_session_view(
     id: &str,
 ) -> anyhow::Result<crate::legacy_convert::CatalogSessionView> {
     let bucket = command_project_bucket(working_dir, project_hash)?;
-    crate::legacy_convert::load_catalog_session_view_in_project(&bucket, id)?
-        .ok_or_else(|| anyhow::anyhow!("session {id:?} not found"))
+    crate::legacy_convert::load_catalog_session_view_in_project(&bucket, id)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "{}",
+            t(Msg::DaemonCmdSessionNotFound {
+                id: &format!("{id:?}")
+            })
+        )
+    })
 }
 
 fn exec_native_undo(session: NativeCommandSession, arg: &str) -> anyhow::Result<CommandResult> {
@@ -294,7 +301,7 @@ async fn exec_native_compact(
     // `providers.get(...).ok_or("Provider not found")`); without this a missing
     // key surfaces as a murkier build/network failure deeper in.
     if !config.selection_exists(&resolved) {
-        anyhow::bail!("Provider '{resolved}' not found");
+        anyhow::bail!("{}", t(Msg::DaemonProvProviderNotFound { name: &resolved }));
     }
 
     // Build the summarizing provider via the SAME native chain `/chat` uses
@@ -307,8 +314,22 @@ async fn exec_native_compact(
     let factory = crate::runtime_host::coding_provider_factory();
     let provider = tokio::task::spawn_blocking(move || factory.build(&coding_cfg, None))
         .await
-        .map_err(|e| anyhow::anyhow!("provider build task panicked: {e}"))?
-        .map_err(|e| anyhow::anyhow!("provider construction failed: {e}"))?;
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "{}",
+                t(Msg::DaemonCmdProviderBuildPanicked {
+                    error: &e.to_string()
+                })
+            )
+        })?
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "{}",
+                t(Msg::DaemonCmdProviderBuildFailed {
+                    error: &e.to_string()
+                })
+            )
+        })?;
 
     let compacted = rustcode_coding::runtime::compact_snapshot(
         session.loaded.snapshot.messages.clone(),
@@ -333,9 +354,16 @@ fn exec_undo(
     arg: &str,
     project_hash: Option<&str>,
 ) -> anyhow::Result<CommandResult> {
-    let sid = session_id.ok_or_else(|| anyhow::anyhow!("session_id required for undo"))?;
-    let native = load_native_command_session(working_dir, project_hash, sid)?
-        .ok_or_else(|| anyhow::anyhow!("session {sid:?} not found"))?;
+    let sid = session_id
+        .ok_or_else(|| anyhow::anyhow!("{}", t(Msg::DaemonCmdSessionIdRequired { cmd: "undo" })))?;
+    let native = load_native_command_session(working_dir, project_hash, sid)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "{}",
+            t(Msg::DaemonCmdSessionNotFound {
+                id: &format!("{sid:?}")
+            })
+        )
+    })?;
     exec_native_undo(native, arg)
 }
 
@@ -361,7 +389,9 @@ async fn exec_context(
     session_id: Option<&str>,
     provider: Option<&str>,
 ) -> anyhow::Result<CommandResult> {
-    let sid = session_id.ok_or_else(|| anyhow::anyhow!("session_id required for context"))?;
+    let sid = session_id.ok_or_else(|| {
+        anyhow::anyhow!("{}", t(Msg::DaemonCmdSessionIdRequired { cmd: "context" }))
+    })?;
     let session = load_command_session_view(working_dir, project_hash, sid)?;
     // Report the SAME context the live (native) turn tracks: the prompt tokens the
     // provider reported on the last assistant turn, projected onto the CURRENT
@@ -372,7 +402,9 @@ async fn exec_context(
     let resolved = crate::live_api::resolve_provider_name(&config, provider);
     let provider_config = config
         .provider_config_for_selection(&resolved)
-        .ok_or_else(|| anyhow::anyhow!("Provider '{}' not found", resolved))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("{}", t(Msg::DaemonProvProviderNotFound { name: &resolved }))
+        })?;
     let ctx_window = provider_config.context_window as u32;
     let used_tokens = snapshot_used_tokens(&session.snapshot.messages);
     let utilization = if ctx_window > 0 {
@@ -403,7 +435,7 @@ pub(crate) fn parse_remember_arg(arg: &str) -> (bool, &str) {
 fn exec_remember(working_dir: &Path, arg: &str) -> anyhow::Result<CommandResult> {
     let (global, content) = parse_remember_arg(arg);
     if content.is_empty() {
-        anyhow::bail!("remember needs content");
+        anyhow::bail!("{}", t(Msg::DaemonCmdRememberNeedsContent));
     }
     let store = if global {
         MemoryStore::global()
@@ -419,7 +451,7 @@ fn exec_remember(working_dir: &Path, arg: &str) -> anyhow::Result<CommandResult>
 fn exec_forget(working_dir: &Path, arg: &str) -> anyhow::Result<CommandResult> {
     let keyword = arg.trim();
     if keyword.is_empty() {
-        anyhow::bail!("forget needs a keyword");
+        anyhow::bail!("{}", t(Msg::DaemonCmdForgetNeedsKeyword));
     }
     let mut removed = MemoryStore::global().remove_matching(keyword)?;
     removed.extend(MemoryStore::project(working_dir).remove_matching(keyword)?);
@@ -440,9 +472,17 @@ async fn exec_compact(
     provider: Option<&str>,
     arg: &str,
 ) -> anyhow::Result<CommandResult> {
-    let sid = session_id.ok_or_else(|| anyhow::anyhow!("session_id required for compact"))?;
-    let native = load_native_command_session(working_dir, project_hash, sid)?
-        .ok_or_else(|| anyhow::anyhow!("session {sid:?} not found"))?;
+    let sid = session_id.ok_or_else(|| {
+        anyhow::anyhow!("{}", t(Msg::DaemonCmdSessionIdRequired { cmd: "compact" }))
+    })?;
+    let native = load_native_command_session(working_dir, project_hash, sid)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "{}",
+            t(Msg::DaemonCmdSessionNotFound {
+                id: &format!("{sid:?}")
+            })
+        )
+    })?;
     exec_native_compact(provider, arg, native, working_dir).await
 }
 
@@ -737,7 +777,8 @@ fn exec_cost(
     project_hash: Option<&str>,
     session_id: Option<&str>,
 ) -> anyhow::Result<CommandResult> {
-    let sid = session_id.ok_or_else(|| anyhow::anyhow!("session_id required for cost"))?;
+    let sid = session_id
+        .ok_or_else(|| anyhow::anyhow!("{}", t(Msg::DaemonCmdSessionIdRequired { cmd: "cost" })))?;
     let session = load_command_session_view(working_dir, project_hash, sid)?;
     let report = rustcode_capabilities::session::aggregate_session_cost(&session.meta);
     Ok(CommandResult::Cost {
@@ -763,7 +804,8 @@ fn exec_todo(
     project_hash: Option<&str>,
     session_id: Option<&str>,
 ) -> anyhow::Result<CommandResult> {
-    let sid = session_id.ok_or_else(|| anyhow::anyhow!("session_id required for todo"))?;
+    let sid = session_id
+        .ok_or_else(|| anyhow::anyhow!("{}", t(Msg::DaemonCmdSessionIdRequired { cmd: "todo" })))?;
     let session = load_command_session_view(working_dir, project_hash, sid)?;
 
     Ok(CommandResult::Todo {
@@ -846,7 +888,10 @@ pub(crate) async fn run_command(
             req.project_hash.as_deref(),
             req.session_id.as_deref(),
         ),
-        other => Err(anyhow::anyhow!("unknown command: {other}")),
+        other => Err(anyhow::anyhow!(
+            "{}",
+            t(Msg::DaemonCmdUnknown { name: other })
+        )),
     };
     match result {
         Ok(r) => Json(r),

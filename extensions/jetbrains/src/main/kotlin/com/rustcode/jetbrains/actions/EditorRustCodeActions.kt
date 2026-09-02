@@ -1,5 +1,7 @@
 package com.rustcode.jetbrains.actions
 
+import com.rustcode.jetbrains.i18n.RustCodeBundle
+
 import com.rustcode.jetbrains.security.PathSensitivity
 import com.rustcode.jetbrains.security.SensitivePathClassifier
 import com.rustcode.jetbrains.settings.RustCodeSettingsState
@@ -22,14 +24,14 @@ internal object EditorRustCodeActions {
 
     fun sendSelectionCommand(project: Project, editor: Editor, instruction: String) {
         if (!settings.state.allowSelectedTextContext) {
-            Messages.showWarningDialog(project, "Selected text context is disabled in RustCode settings.", "RustCode")
+            Messages.showWarningDialog(project, RustCodeBundle.message("editor.selectionDisabled"), "RustCode")
             return
         }
         val selection = editor.selectionModel.selectedText?.takeIf { it.isNotBlank() } ?: return
         val virtualFile = FileDocumentManager.getInstance().getFile(editor.document)
         val path = virtualFile?.path.orEmpty()
 
-        if (!confirmPath(project, path, "RustCode will not send this sensitive file selection.", "This selection is from a sensitive file. Send it to the configured model provider?")) {
+        if (!confirmPath(project, path, RustCodeBundle.message("editor.sensitiveBlocked"), RustCodeBundle.message("editor.sensitiveConfirm"))) {
             return
         }
 
@@ -61,7 +63,7 @@ internal object EditorRustCodeActions {
         val virtualFile = FileDocumentManager.getInstance().getFile(editor.document) ?: return
         val path = virtualFile.path
 
-        if (!confirmPath(project, path, "RustCode will not attach this sensitive file.", "This file may contain sensitive information. Attach it to the next RustCode message?")) {
+        if (!confirmPath(project, path, RustCodeBundle.message("editor.fileBlocked"), RustCodeBundle.message("editor.fileConfirm"))) {
             return
         }
 
@@ -71,7 +73,7 @@ internal object EditorRustCodeActions {
         val content = selectedText ?: editor.document.text
         if (content.isBlank()) return
         if (content.length > MAX_CONTEXT_CHARS) {
-            Messages.showWarningDialog(project, "This context is too large to attach. Select a smaller range.", "RustCode")
+            Messages.showWarningDialog(project, RustCodeBundle.message("editor.contextTooLarge"), "RustCode")
             return
         }
 

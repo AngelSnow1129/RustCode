@@ -15,7 +15,8 @@ mod code;
 
 use anyhow::{bail, Context, Result};
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use rustcode_config::i18n::{resolve_initial_locale, set_locale, t, Msg};
 use rustcode_kernel::agent::Agent;
 use rustcode_kernel::event::{AgentCommand, AgentEvent, StopReason};
 use rustcode_review::{
@@ -166,11 +167,101 @@ struct ReviewArgs {
     skill_dirs: Vec<PathBuf>,
 }
 
+/// Build the top-level clap Command with i18n-localised about text and per-argument
+/// help for the interactive `code` and `sessions` subcommands, so that
+/// `rustcodex --help` / `rustcodex <sub> --help` respect the locale resolved in
+/// main() before parsing. The `review` subcommand flags are dense engineering
+/// reference with embedded shell examples and intentionally stay on the English
+/// derive defaults.
+fn build_i18n_command() -> clap::Command {
+    Cli::command()
+        .about(t(Msg::ClixAbout).into_owned())
+        .mut_subcommand("code", |s| {
+            s.about(t(Msg::ClixAboutCode).into_owned())
+                .mut_arg("prompt", |a| {
+                    a.help(t(Msg::ClixHelpCodePrompt).into_owned())
+                })
+                .mut_arg("dir", |a| a.help(t(Msg::ClixHelpCodeDir).into_owned()))
+                .mut_arg("resume", |a| {
+                    a.help(t(Msg::ClixHelpCodeResume).into_owned())
+                })
+                .mut_arg("continue_latest", |a| {
+                    a.help(t(Msg::ClixHelpCodeContinue).into_owned())
+                })
+                .mut_arg("yolo", |a| a.help(t(Msg::ClixHelpCodeYolo).into_owned()))
+                .mut_arg("no_mcp", |a| a.help(t(Msg::ClixHelpCodeNoMcp).into_owned()))
+                .mut_arg("no_memory", |a| {
+                    a.help(t(Msg::ClixHelpCodeNoMemory).into_owned())
+                })
+                .mut_arg("no_web", |a| a.help(t(Msg::ClixHelpCodeNoWeb).into_owned()))
+                .mut_arg("model", |a| a.help(t(Msg::ClixHelpCodeModel).into_owned()))
+                .mut_arg("api_key", |a| {
+                    a.help(t(Msg::ClixHelpCodeApiKey).into_owned())
+                })
+                .mut_arg("base_url", |a| {
+                    a.help(t(Msg::ClixHelpCodeBaseUrl).into_owned())
+                })
+                .mut_arg("provider", |a| {
+                    a.help(t(Msg::ClixHelpCodeProvider).into_owned())
+                })
+                .mut_arg("config", |a| {
+                    a.help(t(Msg::ClixHelpCodeConfig).into_owned())
+                })
+                .mut_arg("stream_timeout", |a| {
+                    a.help(t(Msg::ClixHelpCodeStreamTimeout).into_owned())
+                })
+        })
+        .mut_subcommand("sessions", |s| {
+            s.about(t(Msg::ClixAboutSessions).into_owned())
+                .mut_arg("dir", |a| a.help(t(Msg::ClixHelpSessionsDir).into_owned()))
+        })
+        .mut_subcommand("review", |s| {
+            // Common connection/output flags reuse the `code` subcommand's help text;
+            // the diff-source and engineering-fuse flags (--base/--pr/--max-rounds/...)
+            // stay on the English derive defaults.
+            s.about(t(Msg::ClixAboutReview).into_owned())
+                .mut_arg("repo", |a| a.help(t(Msg::ClixHelpReviewRepo).into_owned()))
+                .mut_arg("model", |a| a.help(t(Msg::ClixHelpCodeModel).into_owned()))
+                .mut_arg("api_key", |a| {
+                    a.help(t(Msg::ClixHelpCodeApiKey).into_owned())
+                })
+                .mut_arg("base_url", |a| {
+                    a.help(t(Msg::ClixHelpCodeBaseUrl).into_owned())
+                })
+                .mut_arg("provider", |a| {
+                    a.help(t(Msg::ClixHelpCodeProvider).into_owned())
+                })
+                .mut_arg("config", |a| {
+                    a.help(t(Msg::ClixHelpCodeConfig).into_owned())
+                })
+                .mut_arg("json", |a| a.help(t(Msg::ClixHelpReviewJson).into_owned()))
+                .mut_arg("stream_timeout", |a| {
+                    a.help(t(Msg::ClixHelpCodeStreamTimeout).into_owned())
+                })
+        })
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // `rustcodex` shares the config tree with `rustcode` but is often invoked
     // directly, so it cannot rely on inheriting the variable from a parent.
     rustcode_config::distribution::bootstrap_home();
+
+    // Locale: clix has no --lang flag; resolve from the config language only
+    // (env LC_* is handled inside resolve_initial_locale). A missing/malformed
+    // default config is ignored here -- review()/code() surface it again.
+    let selection = load_config_selection(None, None).unwrap_or_default();
+    set_locale(resolve_initial_locale(None, selection.language));
+
+    // clap renders help during parse, so intercept --help/-h BEFORE
+    // Cli::parse() (which would print the English derive abouts and exit) and
+    // route it through the localised command. Mirrors rustcode-cli.
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        build_i18n_command()
+            .try_get_matches_from(std::env::args_os())
+            .unwrap_or_else(|e| e.exit());
+    }
 
     let cli = Cli::parse();
     match cli.cmd {
@@ -198,14 +289,18 @@ async fn review(args: ReviewArgs) -> Result<()> {
         .collect();
     if on_stdin.len() > 1 {
         bail!(
-            "{} all read stdin; give all but one of them a file path",
-            on_stdin.join(" and ")
+            "{}",
+            t(Msg::ClixStdinConflict {
+                flags: &on_stdin.join(" and ")
+            })
         );
     }
-    let repo = args
-        .repo
-        .canonicalize()
-        .with_context(|| format!("repo not found: {}", args.repo.display()))?;
+    let repo = args.repo.canonicalize().with_context(|| {
+        t(Msg::ClixRepoNotFound {
+            path: &args.repo.display().to_string(),
+        })
+        .into_owned()
+    })?;
 
     // Two modes: a CUSTOM task (chat/explain/summary -- no diff) or the built-in diff review.
     let custom_task = resolve_task(args.task.clone(), args.task_file.clone())?;
@@ -218,9 +313,13 @@ async fn review(args: ReviewArgs) -> Result<()> {
     // hunks for files the first pass left unreviewed and re-review just those.
     let mut annotated_diff = String::new();
     let (task, trace_label) = match custom_task {
-        Some(t) => {
-            let label = format!("custom task ({} chars)", t.len());
-            (t, label)
+        // NB: bind as `custom_text` -- `t` is the i18n lookup function in scope.
+        Some(custom_text) => {
+            let label = t(Msg::ClixTraceCustomTask {
+                chars: custom_text.len(),
+            })
+            .into_owned();
+            (custom_text, label)
         }
         None => {
             let diff = obtain_diff(&repo, &args)?;
@@ -229,13 +328,17 @@ async fn review(args: ReviewArgs) -> Result<()> {
                 // A bare "No changes" line makes downstream JSON parsers fail on `N...`; an
                 // empty diff is a clean outcome (nothing to review), not a failure.
                 if args.json {
+                    // JSON envelope text is a stable machine-facing value -- stays English.
                     println!("{}", render_json(&[], "No changes to review.", None)?);
                 } else {
-                    println!("No changes to review.");
+                    println!("{}", t(Msg::ClixNoChanges));
                 }
                 return Ok(());
             }
-            let label = format!("{} changed line(s)", diff.lines().count());
+            let label = t(Msg::ClixTraceChangedLines {
+                lines: diff.lines().count(),
+            })
+            .into_owned();
             // Changed-file set (from the `+++` lines) -- drives rule matching AND the
             // out-of-diff finding filter below.
             changed_files = rustcode_review::changed_files_from_diff(&diff);
@@ -249,13 +352,15 @@ async fn review(args: ReviewArgs) -> Result<()> {
                     // Observability: confirm on stderr that rules actually got injected
                     // (the composed system prompt is not otherwise visible to callers).
                     eprintln!(
-                        "[rules] injected for {} changed file(s) ({} chars)",
-                        changed_files.len(),
-                        section.len()
+                        "[rules] {}",
+                        t(Msg::ClixRulesInjected {
+                            files: changed_files.len(),
+                            chars: section.len(),
+                        })
                     );
                     rules_section = Some(section);
                 } else {
-                    eprintln!("[rules] no language rules matched the changed files");
+                    eprintln!("[rules] {}", t(Msg::ClixRulesNone));
                 }
             }
             // Explicit changed-file checklist: the agent decides what to read, and on
@@ -303,30 +408,23 @@ async fn review(args: ReviewArgs) -> Result<()> {
     let base_url = first_nonempty([
         args.base_url,
         env("RUSTCODE_BASE_URL"),
-        entry.and_then(|e| e.base_url.clone()).map(|v| expand_env(&v)),
+        entry
+            .and_then(|e| e.base_url.clone())
+            .map(|v| expand_env(&v)),
     ])
-    .context("missing base URL: pass --base-url, set $RUSTCODE_BASE_URL, or add base_url to the config provider")?;
+    .context(t(Msg::ClixMissingBaseUrlReview))?;
     let model = first_nonempty([
         args.model,
         env("RUSTCODE_MODEL"),
         entry.and_then(|e| e.model.clone()).map(|v| expand_env(&v)),
     ])
-    .context(
-        "missing model: pass --model, set $RUSTCODE_MODEL, or add model to the config provider",
-    )?;
+    .context(t(Msg::ClixMissingModelReview))?;
     // Managed signing gateways require proprietary request signing (a closed-source
     // overlay that only certain distribution builds ship). rustcodex uses the neutral
     // provider and cannot sign -- fail fast with an actionable message instead of a
     // confusing 401.
     if is_signing_gateway(&base_url) {
-        bail!(
-            "provider base_url '{base_url}' is a managed signing-enforced gateway, \
-             which rustcodex cannot authenticate against (it needs the proprietary \
-             request signing). Use a standard third-party provider with an explicit \
-             api_key -- select a named [providers.<name>] entry with `--provider <name>`, \
-             or set RUSTCODE_API_KEY/RUSTCODE_BASE_URL/RUSTCODE_MODEL to a plain \
-             OpenAI-compatible endpoint."
-        );
+        bail!("{}", t(Msg::ClixSigningGatewayReview { url: &base_url }));
     }
     // api_key is OPTIONAL -- some gateways need none. Config values may be `$ENV` refs.
     let api_key = first_nonempty([
@@ -360,8 +458,12 @@ async fn review(args: ReviewArgs) -> Result<()> {
         .skill_dirs
         .iter()
         .map(|d| {
-            d.canonicalize()
-                .with_context(|| format!("--skill-dir not found: {}", d.display()))
+            d.canonicalize().with_context(|| {
+                t(Msg::ClixSkillDirNotFound {
+                    path: &d.display().to_string(),
+                })
+                .into_owned()
+            })
         })
         .collect::<Result<Vec<_>, _>>()?;
     // Full system-prompt override (flag text > file/stdin). None ⇒ built-in reviewer persona.
@@ -396,7 +498,13 @@ async fn review(args: ReviewArgs) -> Result<()> {
 
     // Live trace on stderr (stdout stays clean for findings / --json). The run is one LLM
     // turn loop -- without this the terminal looks frozen while the model thinks + calls tools.
-    eprintln!("Running {trace_label} with {model_label} ...");
+    eprintln!(
+        "{}",
+        t(Msg::ClixRunning {
+            label: &trace_label,
+            model: &model_label,
+        })
+    );
     let run = run_review_streaming(agent, task).await;
 
     // Trace summary: tool-usage profile + token spend -- exactly what you need to optimize.
@@ -407,21 +515,28 @@ async fn review(args: ReviewArgs) -> Result<()> {
             .map(|(n, c)| format!("{n}x{c}"))
             .collect();
         eprintln!(
-            "-- trace -- {} tool call(s): {}",
-            run.tool_calls,
-            profile.join(", ")
+            "{}",
+            t(Msg::ClixTraceTools {
+                count: run.tool_calls,
+                profile: &profile.join(", "),
+            })
         );
     }
     if let Some(u) = run.usage {
         eprintln!(
-            "-- tokens -- prompt {} / completion {} / cached {}",
-            u.prompt, u.completion, u.cached
+            "{}",
+            t(Msg::ClixTraceTokens {
+                prompt: u.prompt,
+                completion: u.completion,
+                cached: u.cached,
+            })
         );
     }
 
-    let mut incomplete_reasons: Vec<String> = review_incomplete_reason("initial pass", &run)
-        .into_iter()
-        .collect();
+    let mut incomplete_reasons: Vec<String> =
+        review_incomplete_reason(&t(Msg::ClixPassInitial), &run)
+            .into_iter()
+            .collect();
     let mut findings = report.findings();
     // Drop findings anchored to files OUTSIDE the diff's changed set -- the reviewer is
     // scoped to diff-introduced problems, but the model occasionally reads an un-changed
@@ -431,8 +546,11 @@ async fn review(args: ReviewArgs) -> Result<()> {
     let dropped = drop_out_of_scope(&mut findings, &changed_files);
     if dropped > 0 {
         eprintln!(
-            "[scope] dropped {dropped} finding(s) anchored outside the {} changed file(s)",
-            changed_files.len()
+            "[scope] {}",
+            t(Msg::ClixScopeDropped {
+                dropped,
+                files: changed_files.len()
+            })
         );
     }
 
@@ -448,15 +566,17 @@ async fn review(args: ReviewArgs) -> Result<()> {
     //   the shared --max-duration budget (observed: both Cancelled on 5min recipe runs)
     // - after priority / scaffold filter, nothing high-signal left
     if args.no_coverage {
-        eprintln!("[coverage] skipped -- --no-coverage");
+        eprintln!("[coverage] {}", t(Msg::ClixCoverageSkippedFlag));
     } else if !annotated_diff.is_empty() && incomplete_reasons.is_empty() {
         let uncovered = uncovered_files(&changed_files, &findings);
         let sub = sub_diff_for_files(&annotated_diff, &uncovered);
         if !sub.trim().is_empty() {
             eprintln!(
-                "[coverage] {} changed file(s) had no findings; re-reviewing: {}",
-                uncovered.len(),
-                uncovered.join(", ")
+                "[coverage] {}",
+                t(Msg::ClixCoverageRereview {
+                    count: uncovered.len(),
+                    files: &uncovered.join(", "),
+                })
             );
             let scoped_task = format!(
                 "A prior review pass did NOT report on the changed file(s) below. Review EACH \
@@ -474,29 +594,34 @@ async fn review(args: ReviewArgs) -> Result<()> {
                     .map(|(n, c)| format!("{n}x{c}"))
                     .collect();
                 eprintln!(
-                    "-- coverage trace -- {} tool call(s): {}",
-                    run2.tool_calls,
-                    profile.join(", ")
+                    "{}",
+                    t(Msg::ClixCoverageTrace {
+                        count: run2.tool_calls,
+                        profile: &profile.join(", "),
+                    })
                 );
             }
-            if let Some(reason) = review_incomplete_reason("coverage pass", &run2) {
+            if let Some(reason) = review_incomplete_reason(&t(Msg::ClixPassCoverage), &run2) {
                 incomplete_reasons.push(reason);
             }
             let mut extra = report2.findings();
             drop_out_of_scope(&mut extra, &changed_files);
             let added = merge_findings(&mut findings, extra);
-            eprintln!("[coverage] recovered {added} finding(s) from the re-review");
+            eprintln!("[coverage] {}", t(Msg::ClixCoverageRecovered { added }));
         } else if !changed_files.is_empty() {
             eprintln!(
-                "[coverage] skipped -- no high-signal uncovered files after filter \
-                 (first_pass_findings={})",
-                findings.len()
+                "[coverage] {}",
+                t(Msg::ClixCoverageSkippedNoSignal {
+                    findings: findings.len()
+                })
             );
         }
     } else if !annotated_diff.is_empty() && !incomplete_reasons.is_empty() {
         eprintln!(
-            "[coverage] skipped -- initial pass incomplete ({})",
-            incomplete_reasons.join("; ")
+            "[coverage] {}",
+            t(Msg::ClixCoverageSkippedIncomplete {
+                reasons: &incomplete_reasons.join("; ")
+            })
         );
     }
 
@@ -509,12 +634,17 @@ async fn review(args: ReviewArgs) -> Result<()> {
     } else if !incomplete_reasons.is_empty() {
         // Don't claim "clean" -- at least one pass did not finish, so zero collected
         // findings is not evidence that the whole diff is clean.
-        println!("Review did not complete -- no findings were collected.");
+        println!("{}", t(Msg::ClixReviewIncompleteNoFindings));
     } else {
-        println!("No findings -- the diff looks clean.");
+        print!("{}", t(Msg::ClixReviewClean));
     }
     if !args.json && !run.text.trim().is_empty() {
-        println!("\n-- reviewer summary --\n{}", run.text.trim());
+        println!(
+            "{}",
+            t(Msg::ClixReviewerSummary {
+                text: run.text.trim()
+            })
+        );
     }
 
     // Exit policy: a clean run exits 0. On error, exit non-zero ONLY when nothing was
@@ -526,11 +656,14 @@ async fn review(args: ReviewArgs) -> Result<()> {
     if !incomplete_reasons.is_empty() {
         let why = incomplete_reasons.join("; ");
         if findings.is_empty() {
-            bail!("review did not complete ({why}): no findings collected");
+            bail!("{}", t(Msg::ClixReviewBailIncomplete { why: &why }));
         }
         eprintln!(
-            "warning: review ended early ({why}); {} finding(s) collected before it stopped",
-            findings.len()
+            "{}",
+            t(Msg::ClixReviewEndedEarly {
+                why: &why,
+                count: findings.len()
+            })
         );
     }
     Ok(())
@@ -606,8 +739,11 @@ impl ReviewRun {
                     .unwrap_or("tool");
                 let mark = if result.is_error { "[x]" } else { "[+]" };
                 eprintln!(
-                    "    {mark} {name} ({} chars)",
-                    result.content.chars().count()
+                    "    {mark} {}",
+                    t(Msg::ClixToolResultCharsNamed {
+                        name,
+                        count: result.content.chars().count(),
+                    })
                 );
             }
             AgentEvent::TextDelta(t) => self.text.push_str(&t),
@@ -631,7 +767,13 @@ impl ReviewRun {
                 backoff_secs,
                 reason,
             } => eprintln!(
-                "    [retry] API error {reason}; retrying in {backoff_secs}s ({attempt}/{max_attempts})"
+                "    [retry] {}",
+                t(Msg::ClixRetry {
+                    reason: &rustcode_coding::retry_reason_label(reason),
+                    backoff_secs,
+                    attempt,
+                    max_attempts,
+                })
             ),
             AgentEvent::StreamRecovery {
                 attempt,
@@ -639,16 +781,31 @@ impl ReviewRun {
                 recovered,
             } => {
                 if recovered {
-                    eprintln!("    [ok] recovered from the interrupted stream");
+                    eprintln!("    [ok] {}", t(Msg::ClixStreamRecovered));
                 } else {
                     eprintln!(
-                        "    [retry] safely continuing from saved progress ({attempt}/{max_attempts})"
+                        "    [retry] {}",
+                        t(Msg::ClixStreamContinuing {
+                            attempt,
+                            max_attempts
+                        })
                     );
                 }
             }
             AgentEvent::TurnComplete { reason } => {
                 self.stop = reason;
                 return false;
+            }
+            AgentEvent::AgentNotice(notice) => {
+                // Direct-kernel spawn (bypasses the coding owner loop), so localize
+                // the kernel's neutral notice here. Terminal notices are errors.
+                let text = rustcode_coding::localize_agent_notice(&notice);
+                if notice.is_error() {
+                    eprintln!("    [error] {text}");
+                    self.error = Some(text.into_owned());
+                } else {
+                    eprintln!("    [warn] {text}");
+                }
             }
             _ => {}
         }
@@ -779,7 +936,7 @@ pub(crate) struct ConfigSelection {
 
 /// Parse a config.toml string into the subset we need (ignoring unrelated keys).
 fn parse_file_config(toml_str: &str) -> Result<FileConfig> {
-    toml::from_str(toml_str).context("failed to parse config.toml")
+    toml::from_str(toml_str).context(t(Msg::ClixConfigParseFailed))
 }
 
 /// Pick the provider entry: `override_name` ⊳ the config's `default_provider`.
@@ -837,13 +994,21 @@ pub(crate) fn load_config_selection(
     let text = match std::fs::read_to_string(&path) {
         Ok(t) => t,
         Err(e) if explicit => {
-            return Err(anyhow::Error::new(e))
-                .with_context(|| format!("cannot read config file: {}", path.display()))
+            return Err(anyhow::Error::new(e)).with_context(|| {
+                t(Msg::ClixConfigReadFailed {
+                    path: &path.display().to_string(),
+                })
+                .into_owned()
+            })
         }
         Err(_) => return Ok(ConfigSelection::default()), // default path simply absent -- fine
     };
-    let fc = parse_file_config(&text)
-        .with_context(|| format!("malformed config file: {}", path.display()))?;
+    let fc = parse_file_config(&text).with_context(|| {
+        t(Msg::ClixConfigMalformed {
+            path: &path.display().to_string(),
+        })
+        .into_owned()
+    })?;
     Ok(select_config(&fc, provider))
 }
 
@@ -878,13 +1043,14 @@ fn resolve_task(text: Option<String>, file: Option<String>) -> Result<Option<Str
             let mut buf = String::new();
             std::io::stdin()
                 .read_to_string(&mut buf)
-                .context("failed to read task from stdin")?;
+                .context(t(Msg::ClixTaskStdinFailed))?;
             buf
         } else {
-            std::fs::read_to_string(&f).with_context(|| format!("failed to read task file: {f}"))?
+            std::fs::read_to_string(&f)
+                .with_context(|| t(Msg::ClixTaskFileFailed { path: &f }).into_owned())?
         };
         if content.trim().is_empty() {
-            bail!("task file is empty: {f}");
+            bail!("{}", t(Msg::ClixTaskFileEmpty { path: &f }));
         }
         return Ok(Some(content));
     }
@@ -903,11 +1069,11 @@ fn resolve_system_prompt(text: Option<String>, file: Option<String>) -> Result<O
             let mut buf = String::new();
             std::io::stdin()
                 .read_to_string(&mut buf)
-                .context("failed to read system prompt from stdin")?;
+                .context(t(Msg::ClixPromptStdinFailed))?;
             buf
         } else {
             std::fs::read_to_string(&f)
-                .with_context(|| format!("failed to read system prompt file: {f}"))?
+                .with_context(|| t(Msg::ClixPromptFileFailed { path: &f }).into_owned())?
         };
         return Ok(Some(content));
     }
@@ -921,10 +1087,11 @@ fn read_diff_file(path: &str) -> Result<String> {
         let mut buf = String::new();
         std::io::stdin()
             .read_to_string(&mut buf)
-            .context("failed to read diff from stdin")?;
+            .context(t(Msg::ClixDiffStdinFailed))?;
         Ok(buf)
     } else {
-        std::fs::read_to_string(path).with_context(|| format!("failed to read diff file: {path}"))
+        std::fs::read_to_string(path)
+            .with_context(|| t(Msg::ClixDiffFileFailed { path }).into_owned())
     }
 }
 
@@ -937,10 +1104,16 @@ fn gh_pr_diff(repo: &Path, pr: u64) -> Result<String> {
         .current_dir(repo)
         .args(["pr", "diff", &pr.to_string()])
         .output()
-        .context("failed to run `gh` -- install the GitHub CLI, or pipe the diff via `--diff-file -` (e.g. for GitLab/other forges)")?;
+        .context(t(Msg::ClixGhFailed))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        bail!("`gh pr diff {pr}` failed: {}", stderr.trim());
+        bail!(
+            "{}",
+            t(Msg::ClixGhPrFailed {
+                pr,
+                error: stderr.trim()
+            })
+        );
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
@@ -961,10 +1134,15 @@ fn git_diff(repo: &Path, base: Option<&str>, staged: bool) -> Result<String> {
         .arg(repo)
         .args(&args)
         .output()
-        .context("failed to run `git` -- is it installed and on PATH?")?;
+        .context(t(Msg::ClixGitFailed))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        bail!("git diff failed: {}", stderr.trim());
+        bail!(
+            "{}",
+            t(Msg::ClixGitDiffFailed {
+                error: stderr.trim()
+            })
+        );
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
@@ -996,7 +1174,7 @@ fn priority_ord(p: &str) -> u8 {
 /// Human-readable report: a count header, then one block per finding.
 fn render_findings(findings: &[Finding]) -> String {
     if findings.is_empty() {
-        return "No findings -- the diff looks clean.\n".to_string();
+        return t(Msg::ClixReviewClean).into_owned();
     }
     let mut counts = [0usize; 4];
     for f in findings {
@@ -1005,14 +1183,14 @@ fn render_findings(findings: &[Finding]) -> String {
             counts[o as usize] += 1;
         }
     }
-    let mut out = format!(
-        "{} finding(s): {} P0, {} P1, {} P2, {} P3\n\n",
-        findings.len(),
-        counts[0],
-        counts[1],
-        counts[2],
-        counts[3]
-    );
+    let mut out = t(Msg::ClixFindingsHeader {
+        total: findings.len(),
+        p0: counts[0],
+        p1: counts[1],
+        p2: counts[2],
+        p3: counts[3],
+    })
+    .into_owned();
     for f in findings {
         let loc = if f.line_start == f.line_end {
             format!("{}:{}", f.file_path, f.line_start)
@@ -1139,7 +1317,11 @@ fn uncovered_files(changed_files: &[String], findings: &[Finding]) -> Vec<String
     let dropped = files.len() - MAX_COVERAGE_REREVIEW_FILES;
     files.truncate(MAX_COVERAGE_REREVIEW_FILES);
     eprintln!(
-        "[coverage] capped re-review to {MAX_COVERAGE_REREVIEW_FILES} highest-priority file(s); dropped {dropped} lower-priority uncovered file(s)"
+        "[coverage] {}",
+        t(Msg::ClixCoverageCapped {
+            cap: MAX_COVERAGE_REREVIEW_FILES,
+            dropped,
+        })
     );
     files
 }
@@ -1234,6 +1416,10 @@ mod tests {
 
     #[test]
     fn coverage_pass_terminal_is_reported_with_its_own_reason() {
+        // The pass label is localized at the call site; pin En so the asserted
+        // reason strings stay byte-stable regardless of the default locale.
+        let _g = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         let run = ReviewRun {
             stop: StopReason::ToolLoopDetected,
             ..ReviewRun::default()
@@ -1554,11 +1740,15 @@ diff --git a/pkg/b.go b/pkg/b.go\n\
 
     #[test]
     fn render_empty_is_clean() {
+        let _g = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         assert!(render_findings(&[]).contains("looks clean"));
     }
 
     #[test]
     fn render_has_header_and_blocks() {
+        let _g = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::En);
         let mut fs = vec![finding("P0", 0.95, "fix: x"), finding("P2", 0.5, "tidy: y")];
         sort_findings(&mut fs);
         let out = render_findings(&fs);

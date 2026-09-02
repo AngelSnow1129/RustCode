@@ -11,7 +11,7 @@ use crate::git_diff::{
     capture_diff_snapshot, display_path, DiffBase, DiffContent, DiffFile, DiffFileStatus,
     DiffScope, DiffSnapshot,
 };
-use crate::i18n::{current_locale, Locale};
+use crate::i18n::{t, Msg};
 use crate::render::diff::{diff_gutter_width, diff_row_text};
 use crate::render::{DiffKind, DiffPanelRow, DiffPanelSpan, DiffPanelTone, Renderer, UiLine};
 use crate::state::UiState;
@@ -91,10 +91,12 @@ impl DiffViewer {
         let mut rows = vec![
             DiffPanelRow::new(vec![
                 DiffPanelSpan::new(
-                    match current_locale() {
-                        Locale::ZhCn => format!("{} 个文件有变更  ", snapshot.files_changed),
-                        Locale::En => format!("{} files changed  ", snapshot.files_changed),
-                    },
+                    format!(
+                        "{}  ",
+                        t(Msg::DiffPanelFilesChanged {
+                            count: snapshot.files_changed
+                        })
+                    ),
                     DiffPanelTone::Muted,
                 ),
                 DiffPanelSpan::new(format!("+{}", snapshot.additions), DiffPanelTone::Add),
@@ -104,15 +106,12 @@ impl DiffViewer {
             DiffPanelRow::new(Vec::new()),
         ];
         if snapshot.files.is_empty() {
-            rows.push(notice_row(l("No changes yet", "暂无变更")));
+            rows.push(notice_row(&t(Msg::DiffPanelNoChanges)));
             return rows;
         }
         if snapshot.truncated {
             rows.push(DiffPanelRow::new(vec![DiffPanelSpan::new(
-                l(
-                    "Showing a bounded snapshot; some files or lines were truncated",
-                    "快照超过展示上限，部分文件或行已截断",
-                ),
+                t(Msg::DiffPanelBoundedSnapshot),
                 DiffPanelTone::Warning,
             )]));
         }
@@ -146,36 +145,28 @@ impl DiffViewer {
         let mut rows: Vec<DiffPanelRow> = Vec::new();
         if let Some(old_path) = &file.old_path {
             rows.push(DiffPanelRow::new(vec![DiffPanelSpan::new(
-                match current_locale() {
-                    Locale::ZhCn => format!("重命名前：{}", display_path(old_path)),
-                    Locale::En => format!("renamed from {}", display_path(old_path)),
-                },
+                t(Msg::DiffPanelRenamedFrom {
+                    path: &display_path(old_path),
+                }),
                 DiffPanelTone::Muted,
             )]));
         }
         rows.push(DiffPanelRow::new(Vec::new()));
 
         match file.content {
-            DiffContent::Binary => rows.push(notice_row(l(
-                "Binary file; content diff is unavailable",
-                "二进制文件，无法展示内容差异",
-            ))),
-            DiffContent::Untracked => rows.push(notice_row(l(
-                "Untracked file; add it to the index to view a patch",
-                "未跟踪文件；加入暂存区后可查看补丁",
-            ))),
-            DiffContent::Truncated if file.sections.is_empty() => rows.push(notice_row(l(
-                "Patch exceeded the display limit",
-                "补丁超过展示上限",
-            ))),
+            DiffContent::Binary => rows.push(notice_row(&t(Msg::DiffPanelBinary))),
+            DiffContent::Untracked => rows.push(notice_row(&t(Msg::DiffPanelUntracked))),
+            DiffContent::Truncated if file.sections.is_empty() => {
+                rows.push(notice_row(&t(Msg::DiffPanelPatchLimit)))
+            }
             DiffContent::Text | DiffContent::Truncated => {
                 for section in &file.sections {
                     if section.scope != DiffScope::Combined {
                         rows.push(DiffPanelRow::new(vec![DiffPanelSpan::new(
                             match section.scope {
-                                DiffScope::Staged => l("Staged", "已暂存"),
-                                DiffScope::Unstaged => l("Unstaged", "未暂存"),
-                                DiffScope::Combined => "",
+                                DiffScope::Staged => t(Msg::DiffScopeStaged).into_owned(),
+                                DiffScope::Unstaged => t(Msg::DiffScopeUnstaged).into_owned(),
+                                DiffScope::Combined => String::new(),
                             },
                             DiffPanelTone::Brand,
                         )
@@ -195,13 +186,10 @@ impl DiffViewer {
                     }
                 }
                 if file.sections.is_empty() {
-                    rows.push(notice_row(l(
-                        "Metadata changed; no text hunks",
-                        "文件元数据已变更，没有文本块",
-                    )));
+                    rows.push(notice_row(&t(Msg::DiffPanelMetadataNoHunks)));
                 }
                 if file.truncated || file.content == DiffContent::Truncated {
-                    rows.push(notice_row(l("... diff truncated", "... 差异已截断")));
+                    rows.push(notice_row(&t(Msg::DiffPanelTruncated)));
                 }
             }
         }
@@ -220,14 +208,14 @@ impl DiffViewer {
             match &self.view {
                 View::Loading => {
                     let rows = vec![DiffPanelRow::new(vec![DiffPanelSpan::new(
-                        l("Loading repository changes...", "正在读取仓库变更..."),
+                        t(Msg::DiffPanelLoading),
                         DiffPanelTone::Muted,
                     )])];
                     let h = fit(&rows);
                     (
-                        title_row(l("Diff", "差异")),
+                        title_row(&t(Msg::DiffPanelTitle)),
                         rows,
-                        l("Esc to close", "Esc 关闭").to_string(),
+                        t(Msg::DiffPanelEscToClose).to_string(),
                         h,
                     )
                 }
@@ -238,9 +226,9 @@ impl DiffViewer {
                     )])];
                     let h = fit(&rows);
                     (
-                        title_row(l("Diff", "差异")),
+                        title_row(&t(Msg::DiffPanelTitle)),
                         rows,
-                        l("Esc to close", "Esc 关闭").to_string(),
+                        t(Msg::DiffPanelEscToClose).to_string(),
                         h,
                     )
                 }
@@ -253,20 +241,14 @@ impl DiffViewer {
                     let title = if is_empty {
                         // Body reads "No changes yet"; keep the title neutral so it
                         // doesn't assert changes that aren't there.
-                        title_row(l("Diff", "差异"))
+                        title_row(&t(Msg::DiffPanelTitle))
                     } else if matches!(
                         self.snapshot.as_ref().map(|s| s.base),
                         Some(DiffBase::Unborn)
                     ) {
-                        title_row(l(
-                            "Initial changes  (repository has no HEAD)",
-                            "初始变更  (仓库还没有 HEAD)",
-                        ))
+                        title_row(&t(Msg::DiffPanelInitialChanges))
                     } else {
-                        title_row(l(
-                            "Uncommitted changes  (git diff HEAD)",
-                            "未提交变更  (git diff HEAD)",
-                        ))
+                        title_row(&t(Msg::DiffPanelUncommittedChanges))
                     };
                     // Cap the window at MAX_VISIBLE_FILES, but never more than the
                     // screen can hold once chrome + summary/blank rows are taken.
@@ -275,16 +257,7 @@ impl DiffViewer {
                         .max(1);
                     let rows = self.list_rows(*selected, max_files, win_width as usize);
                     let h = fit(&rows);
-                    (
-                        title,
-                        rows,
-                        l(
-                            "↑/↓ to select . Enter to view . Esc to close",
-                            "↑/↓ 选择 . Enter 查看 . Esc 关闭",
-                        )
-                        .to_string(),
-                        h,
-                    )
+                    (title, rows, t(Msg::DiffPanelFooterSelect).to_string(), h)
                 }
                 View::Detail { file, scroll } => {
                     let (_, panel_h, content_height) = Self::geometry(true);
@@ -300,15 +273,11 @@ impl DiffViewer {
                         .as_ref()
                         .and_then(|snapshot| snapshot.files.get(*file))
                         .map(|file| DiffPanelRow::new(file_summary_spans(file)))
-                        .unwrap_or_else(|| title_row(l("Diff", "差异")));
+                        .unwrap_or_else(|| title_row(&t(Msg::DiffPanelTitle)));
                     (
                         title,
                         visible,
-                        l(
-                            "↑/↓ to scroll . ← to back . Esc to back",
-                            "↑/↓ 滚动 . ← 返回 . Esc 返回",
-                        )
-                        .to_string(),
+                        t(Msg::DiffPanelFooterScroll).to_string(),
                         panel_h,
                     )
                 }
@@ -432,9 +401,7 @@ impl Modal for DiffViewer {
             }
             Err(TryRecvError::Empty) => false,
             Err(TryRecvError::Disconnected) => {
-                self.view = View::Error(
-                    l("Diff worker stopped unexpectedly", "差异读取线程意外停止").to_string(),
-                );
+                self.view = View::Error(t(Msg::DiffPanelWorkerStopped).to_string());
                 self.receiver = None;
                 true
             }
@@ -528,12 +495,5 @@ fn status_label(status: DiffFileStatus) -> &'static str {
         DiffFileStatus::Renamed => "R",
         DiffFileStatus::ModeChanged => "T",
         DiffFileStatus::Untracked => "U",
-    }
-}
-
-fn l(en: &'static str, zh: &'static str) -> &'static str {
-    match current_locale() {
-        Locale::En => en,
-        Locale::ZhCn => zh,
     }
 }

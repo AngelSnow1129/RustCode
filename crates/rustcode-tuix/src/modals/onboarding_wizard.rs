@@ -756,7 +756,10 @@ impl OnboardingWizard {
         out.extend(draw_panel(
             &t(Msg::OnboardingPanelTitle),
             &content,
-            "Step 1/3",
+            &t(Msg::OnboardingStepIndicator {
+                current: 1,
+                total: 3,
+            }),
             panel_width,
             unicode_symbols,
         ));
@@ -797,7 +800,10 @@ impl OnboardingWizard {
         out.extend(draw_panel(
             &t(Msg::OnboardingPanelTitle),
             &content,
-            "Step 2/3",
+            &t(Msg::OnboardingStepIndicator {
+                current: 2,
+                total: 3,
+            }),
             calc_panel_width(term_cols),
             unicode_symbols,
         ));
@@ -894,7 +900,10 @@ impl OnboardingWizard {
         out.extend(draw_panel(
             &t(Msg::OnboardingPanelTitle),
             &content,
-            "Step 3/3",
+            &t(Msg::OnboardingStepIndicator {
+                current: 3,
+                total: 3,
+            }),
             calc_panel_width(term_cols),
             unicode_symbols,
         ));
@@ -1021,13 +1030,20 @@ impl OnboardingWizard {
             "{legend_prefix}Esc 跳过 · /login 重试 · /provider 手动配置"
         )));
 
+        // The QR fast path only renders in managed builds (neutral builds
+        // never reach this screen), but it still compiles in every build,
+        // so the panel chrome goes through i18n like the other steps.
+        use crate::i18n::{t, Msg};
         let mut out = Vec::new();
         out.push("扫码登录 . 领取CodingPlan".to_string());
         let panel_title = format!("RustCode . v{}", env!("CARGO_PKG_VERSION"));
         out.extend(draw_panel(
             &panel_title,
             &content,
-            "Step 1/1",
+            &t(Msg::OnboardingStepIndicator {
+                current: 1,
+                total: 1,
+            }),
             panel_width,
             unicode_symbols,
         ));

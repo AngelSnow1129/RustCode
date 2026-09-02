@@ -161,14 +161,24 @@ fn confirm_and_kill_running_processes() -> anyhow::Result<bool> {
 fn print_plan(plan: &super::scan::Plan, decisions: Decisions) {
     println!("{}", t(Msg::CliUninstallDryRun));
 
-    print_group(plan, Group::Binary, &t(Msg::CliUninstallGroup1Plan), decisions.binary);
+    print_group(
+        plan,
+        Group::Binary,
+        &t(Msg::CliUninstallGroup1Plan),
+        decisions.binary,
+    );
     print_group(
         plan,
         Group::Credentials,
         &t(Msg::CliUninstallGroup2Plan),
         decisions.credentials,
     );
-    print_group(plan, Group::State, &t(Msg::CliUninstallGroup3Plan), decisions.state);
+    print_group(
+        plan,
+        Group::State,
+        &t(Msg::CliUninstallGroup3Plan),
+        decisions.state,
+    );
 }
 
 fn print_group(plan: &super::scan::Plan, g: Group, label: &str, will_remove: bool) {

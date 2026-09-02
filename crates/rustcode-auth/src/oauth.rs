@@ -7,6 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use rustcode_config::i18n::{t, Msg};
 use serde::{Deserialize, Serialize};
 
 /// Sanitize a user-supplied base URL: add `http://` if no scheme is present,
@@ -687,7 +688,7 @@ pub fn login() -> Result<AuthInfo> {
     // Always print the URL -- `xdg-open` on Linux/WSL silently fails
     // often enough that we can't rely on it. On the desktop happy path
     // the browser opens *and* the URL stays in scrollback as a backup.
-    println!("  Browser didn't open? Open the URL below in any browser to sign in:");
+    println!("{}", t(Msg::AuthLoginBrowserHint));
     println!("  {}", session.url());
 
     // Try to enter cbreak so we can detect a bare-ESC keypress. None
@@ -696,7 +697,7 @@ pub fn login() -> Result<AuthInfo> {
     let cbreak = CbreakGuard::new();
     if cbreak.is_some() {
         println!();
-        println!("  Press ESC to cancel");
+        println!("{}", t(Msg::AuthLoginEscHint));
     }
 
     session.open_browser_best_effort();
@@ -712,12 +713,12 @@ pub fn login() -> Result<AuthInfo> {
             Ok(Ok(PollOutcome::Pending)) => {}
             Ok(Err(e)) => return Err(e),
             Err(mpsc::TryRecvError::Disconnected) => {
-                anyhow::bail!("login poller stopped unexpectedly")
+                anyhow::bail!("{}", t(Msg::AuthLoginPollerStopped))
             }
             Err(mpsc::TryRecvError::Empty) => {}
         }
         match wait_for_esc_or_timeout(&cbreak, Duration::from_millis(100)) {
-            EscOutcome::Cancelled => anyhow::bail!("login cancelled by user"),
+            EscOutcome::Cancelled => anyhow::bail!("{}", t(Msg::AuthLoginCancelled)),
             EscOutcome::Timeout | EscOutcome::OtherInput => {}
         }
     }
@@ -1330,7 +1331,7 @@ pub fn recover_auth_after_unauthorized(
 ) -> Result<ValidAuthSession> {
     let auth = refresh_auth_if_current(rejected_access_token, Some(expected_user_id))?;
     if auth.access_token.trim().is_empty() || auth.user.id.trim().is_empty() {
-        anyhow::bail!("Invalid auth.toml -- please use /login first");
+        anyhow::bail!("{}", t(Msg::AuthInvalidAuthToml));
     }
     Ok(ValidAuthSession {
         access_token: auth.access_token,
@@ -1346,14 +1347,14 @@ fn refresh_auth_if_current(
     expected_user_id: Option<&str>,
 ) -> Result<AuthInfo> {
     with_auth_lock(|| {
-        let auth = get_stored_auth().context("Not logged in -- please use /login first")?;
+        let auth = get_stored_auth().context(t(Msg::AuthNotLoggedIn).into_owned())?;
         // Only the account-checked recovery entry point enforces identity. The
         // proactive-refresh path passes `None`: it just needs any currently-valid
         // stored token, so a concurrent login as a different account should be
         // adopted, not turned into a spurious "Login account changed" hard failure.
         if let Some(expected) = expected_user_id {
             if auth.user.id != expected {
-                anyhow::bail!("Login account changed -- please retry the request");
+                anyhow::bail!("{}", t(Msg::AuthAccountChanged));
             }
         }
         if auth.access_token != rejected_access_token {
@@ -1364,7 +1365,7 @@ fn refresh_auth_if_current(
 }
 
 fn get_valid_auth_info() -> Result<AuthInfo> {
-    let auth = get_stored_auth().context("Not logged in -- please use /login first")?;
+    let auth = get_stored_auth().context(t(Msg::AuthNotLoggedIn).into_owned())?;
 
     // Check if token is expired (with 5-minute safety margin)
     if let Some(expires_in) = auth.expires_in {
@@ -1383,7 +1384,10 @@ fn get_valid_auth_info() -> Result<AuthInfo> {
             // consumption and re-check auth.toml after taking the lock.
             match refresh_auth_if_current(&auth.access_token, None) {
                 Ok(new_auth) => return Ok(new_auth),
-                Err(e) => anyhow::bail!("Token expired and refresh failed: {}", e),
+                Err(e) => {
+                    let error = e.to_string();
+                    anyhow::bail!("{}", t(Msg::AuthTokenRefreshFailed { error: &error }));
+                }
             }
         }
     } else if auth.created_at == 0 {
@@ -1405,7 +1409,7 @@ fn get_valid_auth_info() -> Result<AuthInfo> {
 pub fn get_valid_auth_session() -> Result<ValidAuthSession> {
     let auth = get_valid_auth_info()?;
     if auth.access_token.trim().is_empty() || auth.user.id.trim().is_empty() {
-        anyhow::bail!("Invalid auth.toml -- please use /login first");
+        anyhow::bail!("{}", t(Msg::AuthInvalidAuthToml));
     }
     Ok(ValidAuthSession {
         access_token: auth.access_token,
@@ -1418,7 +1422,7 @@ pub fn get_valid_auth_session() -> Result<ValidAuthSession> {
 pub fn get_valid_token() -> Result<String> {
     let auth = get_valid_auth_info()?;
     if auth.access_token.trim().is_empty() {
-        anyhow::bail!("Invalid auth.toml -- please use /login first");
+        anyhow::bail!("{}", t(Msg::AuthInvalidAuthToml));
     }
     Ok(auth.access_token)
 }
@@ -1487,7 +1491,7 @@ fn with_auth_lock<T>(operation: impl FnOnce() -> Result<T>) -> Result<T> {
     let auth_path = auth_file_path();
     let parent = auth_path
         .parent()
-        .context("Invalid auth file path -- please use /login again")?;
+        .context(t(Msg::AuthInvalidFilePath).into_owned())?;
     std::fs::create_dir_all(parent).context("Failed to create auth directory")?;
     #[cfg(unix)]
     {

@@ -1,10 +1,10 @@
 //! Background OAuth polling for the QR-fast-path onboarding modal.
 //!
-//! On first-launch the wizard renders a QR for the AtomGit OAuth
-//! short link and synchronously holds onto the `LoginSession`. This
-//! module spawns a background thread that calls `LoginSession::
-//! poll_once` every 2s -- the moment AtomGit reports the user has
-//! finished the in-browser consent, the task calls `finish()` to
+//! On first-launch the wizard renders a QR for the managed-login
+//! OAuth short link and synchronously holds onto the `LoginSession`.
+//! This module spawns a background thread that calls `LoginSession::
+//! poll_once` every 2s -- the moment the endpoint reports the user
+//! has finished the in-browser consent, the task calls `finish()` to
 //! exchange state -> token (writing `auth.toml` as a side effect) and
 //! pushes an [`OauthEvent::Authorized`] onto the event-loop channel.
 //!
@@ -38,7 +38,7 @@ use rustcode_auth::oauth::{LoginSession, PollOutcome};
 /// (never) cancellation -- the thread doesn't observe cancel signals.
 #[derive(Debug)]
 pub enum OauthEvent {
-    /// The user finished AtomGit consent and `finish()` successfully
+    /// The user finished in-browser consent and `finish()` successfully
     /// wrote `auth.toml`. Event loop closes the modal + flips
     /// `pending_run_codingplan` so the existing `/codingplan` driver
     /// picks up the freshly-saved auth and claims the plan.

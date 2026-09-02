@@ -182,6 +182,159 @@ pub struct ToolBatchCall {
     pub parallel_safe: bool,
 }
 
+/// Coarse, locale-neutral reason a transient provider *open* is being retried.
+/// The kernel (L0, no internal deps) never holds product/i18n strings: drivers
+/// map this to a localized label (see `rustcode_coding::retry_reason_label`),
+/// and [`RetryReason::as_token`] is the stable machine token used by
+/// non-interactive (e.g. headless jsonl) surfaces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RetryReason {
+    /// HTTP 429 / quota-or-billing exhaustion class.
+    RateLimited,
+    /// Upstream 5xx (500/502/503/504/529).
+    UpstreamUnavailable,
+    /// Request/response timed out.
+    Timeout,
+    /// Generic transport / network failure.
+    Network,
+}
+
+impl RetryReason {
+    /// Stable lowercase machine token for structured/non-interactive consumers.
+    pub fn as_token(self) -> &'static str {
+        match self {
+            RetryReason::RateLimited => "rate_limited",
+            RetryReason::UpstreamUnavailable => "upstream_unavailable",
+            RetryReason::Timeout => "timeout",
+            RetryReason::Network => "network",
+        }
+    }
+}
+
+/// Locale-neutral, structured counterpart to the user-facing `Warning`/`Error`
+/// prose the kernel would otherwise embed directly. The kernel (L0, no internal
+/// deps) never holds product/i18n strings: interactive drivers localize these at
+/// the edge (see `rustcode_coding::localize_agent_notice`), while machine-facing
+/// consumers that read raw kernel events -- lifecycle hooks (`on_error`) and
+/// sub-agent tool results -- use [`AgentNotice::english_diagnostic`] /
+/// [`AgentNotice::machine_token`], matching the kernel's other English diagnostics.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentNotice {
+    /// A retried EMPTY completion (model returned no content), backing off.
+    EmptyCompletionRetrying {
+        wait_secs: u64,
+        attempt: u32,
+        max_attempts: u32,
+    },
+    /// A retried MALFORMED completion (adapter dropped unparseable chunks), backing off.
+    MalformedCompletionRetrying {
+        wait_secs: u64,
+        attempt: u32,
+        max_attempts: u32,
+    },
+    /// The reply ended on `finish_reason=length` with work unfinished and no
+    /// auto-continuation left; the user can ask to continue.
+    ReplyTruncated,
+    /// Pre-send advisory: the outgoing request is near the model's usable window.
+    OverWindowAdvisory { est_k: u32, window_k: u32 },
+    /// Empty-response retry budget exhausted; responses were unparseable (upstream flakiness).
+    EmptyExhaustedMalformed { max_retries: u32 },
+    /// Empty-response budget exhausted; the request was already over-window and
+    /// the pre-send advisory explained the size cause (short terminal that points back).
+    EmptyExhaustedOverWindowBrief { max_retries: u32 },
+    /// Empty-response budget exhausted; request is at/over the window (full size blame).
+    EmptyExhaustedOverWindowFull {
+        max_retries: u32,
+        est_k: u32,
+        window_k: u32,
+    },
+    /// Empty-response budget exhausted; request comfortably within window (transient upstream).
+    EmptyExhaustedTransient { max_retries: u32 },
+}
+
+impl AgentNotice {
+    /// True when this notice is a terminal ERROR (fails the turn) vs a transient advisory.
+    pub fn is_error(&self) -> bool {
+        matches!(
+            self,
+            AgentNotice::EmptyExhaustedMalformed { .. }
+                | AgentNotice::EmptyExhaustedOverWindowBrief { .. }
+                | AgentNotice::EmptyExhaustedOverWindowFull { .. }
+                | AgentNotice::EmptyExhaustedTransient { .. }
+        )
+    }
+
+    /// Stable lowercase machine token (jsonl `code`, sub-agent `error_code`, hook keys).
+    pub fn machine_token(&self) -> &'static str {
+        match self {
+            AgentNotice::EmptyCompletionRetrying { .. } => "empty_completion_retrying",
+            AgentNotice::MalformedCompletionRetrying { .. } => "malformed_completion_retrying",
+            AgentNotice::ReplyTruncated => "reply_truncated",
+            AgentNotice::OverWindowAdvisory { .. } => "over_window_advisory",
+            AgentNotice::EmptyExhaustedMalformed { .. } => "empty_exhausted_malformed",
+            AgentNotice::EmptyExhaustedOverWindowBrief { .. } => {
+                "empty_exhausted_over_window_brief"
+            }
+            AgentNotice::EmptyExhaustedOverWindowFull { .. } => "empty_exhausted_over_window_full",
+            AgentNotice::EmptyExhaustedTransient { .. } => "empty_exhausted_transient",
+        }
+    }
+
+    /// Neutral ENGLISH diagnostic for machine-facing raw-event consumers (lifecycle
+    /// hooks, sub-agent tool results). Mirrors the kernel's other English diagnostics;
+    /// interactive drivers use the localized edge mapping instead.
+    pub fn english_diagnostic(&self) -> String {
+        match self {
+            AgentNotice::EmptyCompletionRetrying {
+                wait_secs,
+                attempt,
+                max_attempts,
+            } => format!(
+                "model returned an empty response; retrying in {wait_secs}s ({attempt}/{max_attempts})..."
+            ),
+            AgentNotice::MalformedCompletionRetrying {
+                wait_secs,
+                attempt,
+                max_attempts,
+            } => format!(
+                "malformed response; retrying in {wait_secs}s ({attempt}/{max_attempts})..."
+            ),
+            AgentNotice::ReplyTruncated => {
+                "the model's reply reached the length limit and may be incomplete; ask it to \
+                 continue and it will finish the rest."
+                    .to_string()
+            }
+            AgentNotice::OverWindowAdvisory { est_k, window_k } => format!(
+                "request is about {est_k}K tokens, near the model's usable limit (window about \
+                 {window_k}K; room must be reserved for the reply); trim the input or use a \
+                 larger-window model."
+            ),
+            AgentNotice::EmptyExhaustedMalformed { max_retries } => format!(
+                "the model returned {max_retries} consecutive unparseable responses (transient \
+                 upstream fault); retry now or later."
+            ),
+            AgentNotice::EmptyExhaustedOverWindowBrief { max_retries } => format!(
+                "the model returned {max_retries} consecutive empty responses; as noted earlier \
+                 this request exceeds the model's context window -- trim the input or /compact and \
+                 retry."
+            ),
+            AgentNotice::EmptyExhaustedOverWindowFull {
+                max_retries,
+                est_k,
+                window_k,
+            } => format!(
+                "the model returned {max_retries} consecutive empty responses; the request is \
+                 about {est_k}K tokens, at or over the context window (about {window_k}K), so it is \
+                 likely too large -- /compact or trim the input and retry."
+            ),
+            AgentNotice::EmptyExhaustedTransient { max_retries } => format!(
+                "the model returned {max_retries} consecutive empty responses (transient upstream \
+                 fault, unrelated to context length); retry now or later."
+            ),
+        }
+    }
+}
+
 /// Agent -> driver. Serializable for the same reason. The id-correlated
 /// Request/Respond pair replaces any in-process oneshot, so the round-trip
 /// works identically in-process and over the wire.
@@ -306,8 +459,15 @@ pub enum AgentEvent {
         attempt: u32,
         max_attempts: u32,
         backoff_secs: u64,
-        reason: String,
+        reason: RetryReason,
     },
+    /// Locale-neutral structured advisory/error notice. The kernel emits this
+    /// instead of embedding localized prose in `Warning`/`Error`: interactive
+    /// drivers map it to localized text at the edge
+    /// (`rustcode_coding::localize_agent_notice`), and machine-facing raw-event
+    /// consumers use [`AgentNotice::english_diagnostic`]. [`AgentNotice::is_error`]
+    /// routes it to an Error (terminal) vs a Warning (transient).
+    AgentNotice(AgentNotice),
     /// The provider ended a text response with `finish_reason=length`, and the
     /// kernel is using one of its bounded automatic continuation attempts.
     /// Purely observational: drivers may update transient progress UI.

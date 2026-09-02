@@ -3,7 +3,7 @@ name = "rustcode-auth"
 version.workspace = true
 edition = "2021"
 license.workspace = true
-description = "rustcode OAuth login flow + secure (chmod-600) auth-token file. Leaf crate: depends only on rustcode-config + reqwest, so any stack layer can authenticate without an rustcode-core dependency."
+description = "rustcode OAuth login flow + secure (chmod-600) auth-token file. Leaf crate: depends only on rustcode-config + reqwest, so any stack layer can authenticate without a rustcode-core dependency."
 publish = false
 
 [dependencies]

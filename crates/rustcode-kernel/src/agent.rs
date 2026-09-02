@@ -346,16 +346,17 @@ fn strip_leading_parameter_tail(input: &str) -> (String, bool) {
 /// message sniff for transport errors that carry no status. Mirrors v1's
 /// `public_error_reason` but only for the transient (retryable) classes -- the
 /// only ones that reach the retry notice.
-fn retry_reason(e: &crate::stream::ProviderError) -> &'static str {
+fn retry_reason(e: &crate::stream::ProviderError) -> crate::event::RetryReason {
+    use crate::event::RetryReason;
     match e.http_status {
-        Some(429) => "请求过于频繁或额度已用尽",
-        Some(500 | 502 | 503 | 504 | 529) => "上游服务暂时不可用",
+        Some(429) => RetryReason::RateLimited,
+        Some(500 | 502 | 503 | 504 | 529) => RetryReason::UpstreamUnavailable,
         _ => {
             let m = e.message.to_ascii_lowercase();
             if m.contains("timeout") || m.contains("timed out") {
-                "模型响应超时"
+                RetryReason::Timeout
             } else {
-                "网络连接失败"
+                RetryReason::Network
             }
         }
     }
@@ -436,17 +437,16 @@ fn is_terminal_rate_limit(e: &crate::stream::ProviderError) -> bool {
 /// size-independent claim is reserved for requests comfortably within the window
 /// (where an empty 200 really is upstream flakiness), or kept for the malformed
 /// case. `ctx_window == 0` (window unknown) can never claim an over-size cause.
-fn empty_exhaustion_message(
+fn empty_exhaustion_notice(
     saw_malformed: bool,
     est_prompt_tokens: u32,
     ctx_window: u32,
     max_retries: u32,
     already_advised: bool,
-) -> String {
+) -> crate::event::AgentNotice {
+    use crate::event::AgentNotice::*;
     if saw_malformed {
-        return format!(
-            "模型连续 {max_retries} 次返回无法解析的响应（上游偶发）。可直接重试，或稍后再试。"
-        );
+        return EmptyExhaustedMalformed { max_retries };
     }
     // u64 to avoid overflow on the *10 / *9 scaling for very large windows.
     let near_or_over_window =
@@ -455,19 +455,15 @@ fn empty_exhaustion_message(
         // The pre-send over-window advisory already explained the size cause and
         // the remedy this turn -- don't repeat the full size-blame. Keep a SHORT
         // terminal that points back to it.
-        format!(
-            "模型连续 {max_retries} 次返回空响应。如开头所述，本次请求已超过模型上下文窗口----请精简输入或 /compact 后重试。"
-        )
+        EmptyExhaustedOverWindowBrief { max_retries }
     } else if near_or_over_window {
-        format!(
-            "模型连续 {max_retries} 次返回空响应。当前请求约 {}K tokens，已接近或超过模型上下文窗口（约 {}K），很可能是请求过大所致。建议 /compact 或精简输入后重试。",
-            est_prompt_tokens / 1000,
-            ctx_window / 1000,
-        )
+        EmptyExhaustedOverWindowFull {
+            max_retries,
+            est_k: est_prompt_tokens / 1000,
+            window_k: ctx_window / 1000,
+        }
     } else {
-        format!(
-            "模型连续 {max_retries} 次返回空响应（上游偶发，与上下文长度无关）。可直接重试，或稍后再试。"
-        )
+        EmptyExhaustedTransient { max_retries }
     }
 }
 
@@ -500,15 +496,14 @@ fn over_window_advisory(
     est_prompt_tokens: u32,
     ctx_window: u32,
     trigger_limit: u32,
-) -> Option<String> {
+) -> Option<crate::event::AgentNotice> {
     if ctx_window == 0 || (est_prompt_tokens as u64) < (trigger_limit as u64) {
         return None;
     }
-    Some(format!(
-        "请求约 {}K tokens 接近当前模型可用上限（窗口约 {}K，需为回复预留空间）：请精简输入或换用更大窗口的模型。",
-        est_prompt_tokens / 1000,
-        ctx_window / 1000,
-    ))
+    Some(crate::event::AgentNotice::OverWindowAdvisory {
+        est_k: est_prompt_tokens / 1000,
+        window_k: ctx_window / 1000,
+    })
 }
 
 /// Auto-compaction pressure verdict: `used_tokens / ctx_window >= threshold`.
@@ -1023,6 +1018,15 @@ impl Agent {
                     outcome.http_status = http_status;
                     outcome.error_code = code;
                     outcome.provider_retryable = retryable;
+                }
+                // Structured notice: terminal error notices populate `Outcome.error`
+                // (with the stable machine token) so failure perception is preserved;
+                // transient advisory notices are not errors.
+                AgentEvent::AgentNotice(notice) => {
+                    if notice.is_error() {
+                        outcome.error = Some(notice.english_diagnostic());
+                        outcome.error_code = Some(notice.machine_token().to_string());
+                    }
                 }
                 AgentEvent::PolicyIntervention { intervention } => {
                     outcome.policy_intervention = Some(intervention);
@@ -2127,7 +2131,7 @@ impl RunningAgent {
                 let limit = effective_input_limit(window, self.chat_options.max_tokens);
                 if let Some(advisory) = over_window_advisory(est, window, limit) {
                     over_window_warned = true;
-                    self.rt.emit(AgentEvent::Warning(advisory));
+                    self.rt.emit(AgentEvent::AgentNotice(advisory));
                 }
             }
             // CACHE-PREFIX GUARD: pre_request is documented APPEND-ONLY at the tail -- it
@@ -2328,7 +2332,7 @@ impl RunningAgent {
                         attempt: provider_retry,
                         max_attempts: self.max_provider_retries,
                         backoff_secs: wait,
-                        reason: retry_reason(&e).to_string(),
+                        reason: retry_reason(&e),
                     });
                     // Cancellable backoff: Esc during the wait aborts the turn instead
                     // of forcing the user to sit through the full delay.
@@ -2866,11 +2870,19 @@ impl RunningAgent {
                     // Distinguish a GARBLED response (adapter dropped unparseable chunks)
                     // from a truly EMPTY one -- different upstream faults, different wording.
                     let notice = if saw_malformed {
-                        format!("响应格式异常，{wait} 秒后重试({empty_retries}/{EMPTY_RESPONSE_MAX_RETRIES})...")
+                        crate::event::AgentNotice::MalformedCompletionRetrying {
+                            wait_secs: wait,
+                            attempt: empty_retries,
+                            max_attempts: EMPTY_RESPONSE_MAX_RETRIES,
+                        }
                     } else {
-                        format!("模型返回空响应，{wait} 秒后重试({empty_retries}/{EMPTY_RESPONSE_MAX_RETRIES})...")
+                        crate::event::AgentNotice::EmptyCompletionRetrying {
+                            wait_secs: wait,
+                            attempt: empty_retries,
+                            max_attempts: EMPTY_RESPONSE_MAX_RETRIES,
+                        }
                     };
-                    self.rt.emit(AgentEvent::Warning(notice));
+                    self.rt.emit(AgentEvent::AgentNotice(notice));
                     // Cancellable backoff: Esc during the wait aborts the turn instead
                     // of forcing the user to sit through the delay (same shape as the
                     // retryable-open arm above).
@@ -2901,20 +2913,18 @@ impl RunningAgent {
                 // very likely a too-large request, so don't assert it's
                 // context-independent -- point at /compact instead.
                 let est_prompt: u32 = messages.iter().map(|m| m.estimate_tokens()).sum();
-                let msg = empty_exhaustion_message(
+                let notice = empty_exhaustion_notice(
                     saw_malformed,
                     est_prompt,
                     self.provider.context_window(),
                     EMPTY_RESPONSE_MAX_RETRIES,
                     over_window_warned,
                 );
-                self.hooks.on_error(&msg).await;
-                self.rt.emit(AgentEvent::Error {
-                    message: msg,
-                    http_status: None,
-                    code: None,
-                    retryable: None,
-                });
+                // Machine-facing hook payload uses the kernel's neutral English
+                // diagnostic; the interactive notice is localized at the edge (see
+                // `AgentNotice` in `event.rs`).
+                self.hooks.on_error(&notice.english_diagnostic()).await;
+                self.rt.emit(AgentEvent::AgentNotice(notice));
                 self.finish_turn(convo, StopReason::ProviderError, &turn_ctx)
                     .await;
                 return;
@@ -3159,8 +3169,8 @@ impl RunningAgent {
                 // continuation), surface the warning now -- this is the one case the
                 // user needs to see: real work was cut off and is not being finished.
                 if truncated {
-                    self.rt.emit(AgentEvent::Warning(
-                        "模型这次回复达到了长度上限，内容可能没写完。可以让它「继续」，会接着把剩下的部分补完。".into(),
+                    self.rt.emit(AgentEvent::AgentNotice(
+                        crate::event::AgentNotice::ReplyTruncated,
                     ));
                 }
                 if partial_stream_recoveries > 0 {
@@ -4406,72 +4416,93 @@ mod effective_retry_after_tests {
 }
 
 #[cfg(test)]
-mod empty_exhaustion_message_tests {
-    use super::empty_exhaustion_message;
+mod empty_exhaustion_notice_tests {
+    use super::empty_exhaustion_notice;
+    use crate::event::AgentNotice;
 
     #[test]
     fn size_aware_when_near_or_over_window() {
         // 339k prompt into a 200k window (170%) must blame request size, NOT
         // assert it's context-independent.
-        let m = empty_exhaustion_message(false, 339_000, 200_000, 5, false);
-        assert!(m.contains("请求过大"), "over-window must blame size: {m}");
+        let n = empty_exhaustion_notice(false, 339_000, 200_000, 5, false);
         assert!(
-            !m.contains("与上下文长度无关"),
-            "must not claim size-independent over window: {m}"
+            matches!(
+                n,
+                AgentNotice::EmptyExhaustedOverWindowFull {
+                    max_retries: 5,
+                    est_k: 339,
+                    window_k: 200,
+                }
+            ),
+            "over-window must blame size: {n:?}"
         );
+        assert!(n.is_error());
+        assert_eq!(n.machine_token(), "empty_exhausted_over_window_full");
     }
 
     #[test]
     fn upstream_framing_when_comfortably_within_window() {
-        let m = empty_exhaustion_message(false, 5_000, 200_000, 5, false);
+        let n = empty_exhaustion_notice(false, 5_000, 200_000, 5, false);
         assert!(
-            m.contains("与上下文长度无关"),
-            "small request keeps upstream framing: {m}"
+            matches!(n, AgentNotice::EmptyExhaustedTransient { max_retries: 5 }),
+            "small request keeps upstream framing: {n:?}"
         );
-        assert!(!m.contains("请求过大"), "{m}");
+        assert!(
+            n.english_diagnostic()
+                .contains("unrelated to context length"),
+            "{}",
+            n.english_diagnostic()
+        );
     }
 
     #[test]
     fn unknown_window_cannot_claim_over_size() {
         // window unknown (0) -- never attribute to size even with a huge estimate.
-        let m = empty_exhaustion_message(false, 999_999, 0, 5, false);
+        let n = empty_exhaustion_notice(false, 999_999, 0, 5, false);
         assert!(
-            !m.contains("请求过大"),
-            "unknown window cannot claim over-size: {m}"
+            matches!(n, AgentNotice::EmptyExhaustedTransient { .. }),
+            "unknown window cannot claim over-size: {n:?}"
         );
     }
 
     #[test]
-    fn malformed_keeps_distinct_wording_and_no_size_blame() {
-        let m = empty_exhaustion_message(true, 339_000, 200_000, 5, false);
-        assert!(m.contains("无法解析"), "malformed keeps its wording: {m}");
+    fn malformed_keeps_distinct_variant_and_no_size_blame() {
+        let n = empty_exhaustion_notice(true, 339_000, 200_000, 5, false);
         assert!(
-            !m.contains("请求过大"),
-            "malformed is not size-attributed: {m}"
+            matches!(n, AgentNotice::EmptyExhaustedMalformed { max_retries: 5 }),
+            "malformed keeps its variant: {n:?}"
         );
+        assert!(n.english_diagnostic().contains("unparseable"));
     }
 
     #[test]
     fn already_advised_avoids_duplicating_the_full_size_blame() {
         // When the pre-send over-window advisory already fired this turn, the
-        // exhaustion terminal must be SHORT and reference it -- not repeat the
-        // full "约 NNN K tokens ... 接近或超过窗口" blurb (the double-show fix).
-        let m = empty_exhaustion_message(false, 339_000, 200_000, 5, true);
+        // exhaustion terminal is the SHORT brief variant, not the full est/window
+        // blurb (the double-show fix).
+        let n = empty_exhaustion_notice(false, 339_000, 200_000, 5, true);
         assert!(
-            m.contains("如开头"),
-            "should point back to the earlier advisory: {m}"
+            matches!(
+                n,
+                AgentNotice::EmptyExhaustedOverWindowBrief { max_retries: 5 }
+            ),
+            "should point back to the earlier advisory: {n:?}"
         );
         assert!(
-            !m.contains("约"),
-            "must not restate the token estimate: {m}"
+            !matches!(n, AgentNotice::EmptyExhaustedOverWindowFull { .. }),
+            "must not restate the token estimate: {n:?}"
         );
-        assert!(m.contains("/compact"), "still actionable: {m}");
+        assert!(
+            n.english_diagnostic().contains("/compact"),
+            "still actionable"
+        );
     }
 }
 
 #[cfg(test)]
 mod over_window_advisory_tests {
     use super::over_window_advisory;
+    use crate::event::AgentNotice;
 
     #[test]
     fn fires_at_or_over_window() {
@@ -4496,18 +4527,23 @@ mod over_window_advisory_tests {
     }
 
     #[test]
-    fn advisory_is_actionable_and_one_line() {
-        let m = over_window_advisory(339_000, 200_000, 200_000).expect("over-window must warn");
-        assert!(!m.contains('\n'), "must be a single line: {m}");
-        assert!(m.contains("窗口"), "must name the window: {m}");
+    fn advisory_is_actionable_and_carries_window() {
+        let n = over_window_advisory(339_000, 200_000, 200_000).expect("over-window must warn");
+        assert!(matches!(
+            n,
+            AgentNotice::OverWindowAdvisory {
+                est_k: 339,
+                window_k: 200
+            }
+        ));
+        let d = n.english_diagnostic();
+        assert!(!d.contains('\n'), "must be a single line: {d}");
+        assert!(d.contains("usable limit"), "must name the limit: {d}");
         assert!(
-            m.contains("精简") || m.contains("更大窗口"),
-            "must give actionable advice (trim / larger window): {m}"
+            d.contains("larger-window model"),
+            "must give actionable advice: {d}"
         );
-        assert!(
-            !m.contains("/compact"),
-            "must NOT suggest /compact (already ran): {m}"
-        );
+        assert!(!n.is_error(), "advisory is a warning, not an error");
     }
 
     #[test]

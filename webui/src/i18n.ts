@@ -20,6 +20,7 @@ const zh = {
   'sidebar.collapse': '收起侧栏',
   'sidebar.newChat': '新建对话',
   'sidebar.newInProject': '在此目录新建对话',
+  'sidebar.accountFallback': '账号',
   'sidebar.skills': '技能',
   'sidebar.skillsEmpty': '暂无可用技能',
   'sidebar.skillsLoading': '加载中…',
@@ -33,10 +34,9 @@ const zh = {
   'sidebar.mcpTools': '{n} 个工具',
   'mcp.blockedUntrusted': '已拦截 {n} 个来自不受信任项目的 MCP server。',
   'mcp.trustProject': '信任本项目',
+  'mcp.trustFailed': '信任操作失败',
   'sidebar.search': '搜索会话',
   'sidebar.searchPlaceholder': '搜索会话…',
-  'sidebar.searchHint': '输入关键词搜索会话记录',
-  'sidebar.recent': '最近',
   'sidebar.workspace': '工作区',
   'sidebar.sessions': '会话',
   'sidebar.addWorkspace': '添加工作区',
@@ -48,26 +48,18 @@ const zh = {
   'sidebar.timeDays': '{n}天前',
   'sidebar.timeMonths': '{n}个月前',
   'sidebar.timeYears': '{n}年前',
-  'sidebar.switchProject': '切换项目',
-  'sidebar.openOtherDir': '切换到其他目录…',
   'sidebar.dateToday': '今天',
   'sidebar.dateYesterday': '昨天',
   'sidebar.group': '分组',
   'sidebar.groupBy': '分组方式',
   'sidebar.groupWorkspace': '工作目录',
   'sidebar.groupFlat': '单列表',
-  'sidebar.groupNone': '默认',
-  'sidebar.groupDate': '日期',
   'sidebar.loading': '加载中…',
   'sidebar.loadFailedRetry': '加载失败，点击重试',
   'sidebar.empty': '暂无会话',
   'sidebar.emptyInCwd': '该目录暂无会话',
   'sidebar.noMatch': '无匹配会话',
   'sidebar.searching': '搜索中…',
-  'sidebar.msgCount': '{n} 条',
-  'sidebar.sessionCount': '{n} 个会话',
-  'sidebar.sessionCountFiltered': '{f} / {t} 个会话',
-  'sidebar.noRecords': '无会话记录',
   'sidebar.settings': '设置',
   'sidebar.itemMenu': '更多操作',
   'sidebar.rename': '重命名',
@@ -91,13 +83,7 @@ const zh = {
   'delete.failed': '删除会话失败，请查看 RustCode 日志了解详情。',
 
   // Relative time
-  'time.justNow': '刚刚',
-  'time.minutesAgo': '{n}分钟前',
-  'time.hoursAgo': '{n}小时前',
-  'time.yesterday': '昨天',
   // PR #601 消息时间标签 — formatMsgTime 用 {y}/{m}/{d}/{hm} 插值
-  'time.sameYear': '{m}月{d}日 {hm}',
-  'time.otherYear': '{y}/{m}/{d} {hm}',
 
   // Model selector
   'model.label': '模型',
@@ -167,6 +153,11 @@ const zh = {
   'chat.rateLimited.hint': '已保留已完成内容 · 可换模型或稍后重试',
   'chat.rateLimited.waiting': '限流，{secs}s 后自动继续…',
   'chat.waiting': '思考中…',
+  'chat.dismiss': '关闭',
+
+  // @ 文件引用弹出层
+  'at.loading': '加载中…',
+  'at.noFiles': '未找到文件',
 
   // 会话内浮动搜索框 (Cmd/Ctrl+F 呼出,Esc 关闭,反查定位)
   'chat.searchPlaceholder': '搜索本会话消息…',
@@ -180,7 +171,6 @@ const zh = {
   'attach.image': '上传图片',
   'attach.file': '上传文件',
   'attach.skill': '选择技能',
-  'attach.imageSoon': '即将支持',
   'attach.removeImage': '移除图片',
   'attach.tooLarge': '图片不能超过 {mb}M，已自动忽略超限图片。',
   'attach.dismissError': '关闭提示',
@@ -190,7 +180,6 @@ const zh = {
   'filepicker.title': '选择文件',
   'filepicker.empty': '（空目录）',
   'filepicker.loading': '加载中…',
-  'filepicker.noFiles': '（无文件）',
 
   // Tool rows
   'tool.waiting': '等待批准…',
@@ -211,7 +200,6 @@ const zh = {
   'todo.panel.status.completed': '已完成',
 
   // Settings panel
-  'settings.title': '设置',
   'settings.theme': '主题',
   'settings.fontScale': '字号',
   'settings.fontScale.small': '紧凑',
@@ -222,16 +210,12 @@ const zh = {
   'settings.theme.dark': '深色',
   'settings.theme.system': '跟随系统',
   'settings.language': '语言',
-  'settings.modelConfig': '模型配置',
   'settings.modelsTitle': '模型',
   'settings.modelsIntro': '配置提供方凭据与模型。第三方供应商使用自带 API Key，可在下方添加或编辑。',
   'settings.modelsIntroManaged': '官方 CodingPlan 模型随托管登录状态同步，无需手动配置凭据。',
   'settings.close': '关闭',
   'settings.loadFailed': '加载失败',
   'settings.loading': '加载中…',
-  'settings.defaultProvider': '默认 Provider',
-  'settings.defaultWorkdir': '默认工作目录',
-  'settings.configFile': '配置文件',
   'settings.default': '默认',
   'settings.model': '模型',
   'settings.fetchModels': '获取可用模型',
@@ -241,10 +225,10 @@ const zh = {
   'settings.searchModels': '搜索模型…',
   'settings.noMatchingModels': '没有匹配的模型，仍可在上方手动填写',
   'settings.contextWindow': '上下文窗口',
-  'settings.apiKey': 'API Key',
   'settings.configured': '已配置',
   'settings.notConfigured': '未配置',
-  'settings.providers': 'Providers',
+  'settings.modelIdPlaceholder': '你的模型 ID',
+  'settings.providerNamePlaceholder': '我的 Provider',
   'settings.menuTheme': '主题设置',
   'settings.menuLang': '语言设置',
   'settings.menuModel': '模型配置',
@@ -260,15 +244,14 @@ const zh = {
   'settings.notifications.permissionDenied': '权限已被拒绝：请在浏览器站点设置中允许通知后重试',
   'settings.notifications.unsupported': '当前地址不支持浏览器通知（需通过 127.0.0.1/localhost 访问）',
 
-  // Remote access (蒲公英 / Oray PGY) dialog
+  // Remote access (LAN / virtual-LAN tunnel) dialog
   'remote.title': '远程访问',
-  'remote.intro': '通过蒲公英私有网络，从手机等设备安全访问本机 webui（虚拟局域网、不暴露公网）。',
+  'remote.intro': '从手机等设备安全访问本机 webui：把服务绑定到局域网地址，或经由你自选的虚拟局域网 / 内网穿透工具访问；不暴露到公网。',
   'remote.loading': '检测中…',
-  'remote.ready': '已就绪，用手机扫码或打开下面的地址（手机需登录同一蒲公英账号、加入同一网络）：',
-  'remote.notReachable': '已检测到蒲公英，但 webui 仅绑定了本机。请在 TUI 运行 /webui --host {ip} 后刷新本页。',
-  'remote.notConnected': '已安装蒲公英，但本机还没分配虚拟 IP。请在蒲公英客户端连接组网后，回到这里重新检测。',
-  'remote.notInstalled': '未检测到蒲公英。请在本机与手机都安装蒲公英并登录同一账号、加入同一网络，然后回到这里。',
-  'remote.installLink': '下载蒲公英',
+  'remote.ready': '已就绪：在手机上扫码或打开下面的地址（手机需能访问同一局域网或同一虚拟网络）：',
+  'remote.notReachable': '服务当前仅绑定本机。请在 TUI 运行 /webui --host {ip} 后刷新本页，或用任意隧道 / 虚拟局域网工具接入。',
+  'remote.notConnected': '已检测到隧道，但本机还没获得可达 IP。请在你的隧道 / 虚拟局域网客户端连接组网后，回到这里重新检测。',
+  'remote.notInstalled': '尚未检测到可用的远程通道。请把服务绑定到局域网地址（/webui --host <IP>），或在本机与手机上用任意虚拟局域网 / 内网穿透工具组成同一网络，然后回到这里。',
   'remote.guide': '使用引导',
   'remote.copy': '复制链接',
   'remote.copied': '已复制',
@@ -310,7 +293,6 @@ const zh = {
   'settings.deleteTitle': '删除模型',
   'settings.deleteConfirm': '确定删除模型「{name}」？',
   'settings.addFailed': '添加失败',
-  'settings.nameModelRequired': '名称和模型必填',
   'settings.allRequired': '请填写所有字段',
   'settings.nameExists': '模型名称已存在，请使用其他名称',
 
@@ -325,13 +307,12 @@ const zh = {
   'cwd.noSubdirs': '（无子目录）',
   'cwd.recentProjects': '最近项目',
   'cwd.current': '当前',
-  'cwd.setDefault': '设为默认目录（重启后仍生效）',
-  'cwd.newFolder': '新建文件夹',
   'cwd.folderName': '文件夹名称',
   'cwd.create': '创建',
   'cwd.createFailed': '创建失败',
   'cwd.cancel': '取消',
   'cwd.confirm': '确定',
+  'cwd.removeProject': '移除此项目',
 
   // Permission card
   'perm.title': '工具请求批准',
@@ -347,6 +328,7 @@ const zh = {
   'userInput.close': '关闭并跳过',
   'userInput.other': 'Other',
   'userInput.error': '提交失败，请重试',
+  'userInput.ownAnswer': '输入自己的答案…',
 
   'policyRecovery.title': '安全策略需要你的选择',
   'policyRecovery.question': '凭据保护已阻止不安全的 shell 操作。请选择安全的后续处理方式：',
@@ -431,8 +413,26 @@ const zh = {
   'cmd.todo.header': '当前待办：',
   'cmd.todo.empty': '暂无待办',
 
+  // 浏览器完成通知（文案与 rustcode-capabilities/src/notify.rs 对齐）
+  'notify.title.done': 'RustCode 已完成',
+  'notify.title.cancelled': 'RustCode 已取消',
+  'notify.title.failed': 'RustCode 执行失败',
+  'notify.title.stopped': 'RustCode 已停止',
+  'notify.title.finished': 'RustCode 已结束',
+  'notify.status.done': '已完成',
+  'notify.status.cancelled': '已取消',
+  'notify.status.failed': '失败',
+  'notify.status.stopped': '已停止',
+  'notify.status.finished': '已结束',
+
+  // 托管账号登录（中立构建不渲染入口；仅托管构建可见）
+  'login.signIn': '登录',
+  'login.signingIn': '登录中…',
+  'login.signOut': '退出登录',
+  'login.hint': '已在浏览器打开登录页…',
+  'login.expired': '登录已过期，点击重新登录',
+
   // Common
-  'common.readonly': '只读',
   'common.cancel': '取消',
 } as const;
 
@@ -448,6 +448,7 @@ const en: Record<MsgKey, string> = {
   'sidebar.collapse': 'Collapse sidebar',
   'sidebar.newChat': 'New chat',
   'sidebar.newInProject': 'New chat in this directory',
+  'sidebar.accountFallback': 'account',
   'sidebar.skills': 'Skills',
   'sidebar.skillsEmpty': 'No skills available',
   'sidebar.skillsLoading': 'Loading…',
@@ -461,10 +462,9 @@ const en: Record<MsgKey, string> = {
   'sidebar.mcpTools': '{n} tools',
   'mcp.blockedUntrusted': 'Blocked {n} MCP server(s) from an untrusted project.',
   'mcp.trustProject': 'Trust this project',
+  'mcp.trustFailed': 'Trust failed',
   'sidebar.search': 'Search sessions',
   'sidebar.searchPlaceholder': 'Search sessions…',
-  'sidebar.searchHint': 'Type to search session records',
-  'sidebar.recent': 'Recent',
   'sidebar.workspace': 'Workspace',
   'sidebar.sessions': 'Sessions',
   'sidebar.addWorkspace': 'Add workspace',
@@ -476,26 +476,18 @@ const en: Record<MsgKey, string> = {
   'sidebar.timeDays': '{n}d',
   'sidebar.timeMonths': '{n}mo',
   'sidebar.timeYears': '{n}y',
-  'sidebar.switchProject': 'Switch project',
-  'sidebar.openOtherDir': 'Open another directory…',
   'sidebar.dateToday': 'Today',
   'sidebar.dateYesterday': 'Yesterday',
   'sidebar.group': 'Group',
   'sidebar.groupBy': 'Group by',
   'sidebar.groupWorkspace': 'Work directory',
   'sidebar.groupFlat': 'Flat list',
-  'sidebar.groupNone': 'None',
-  'sidebar.groupDate': 'Date',
   'sidebar.loading': 'Loading…',
   'sidebar.loadFailedRetry': 'Load failed. Click to retry',
   'sidebar.empty': 'No sessions',
   'sidebar.emptyInCwd': 'No sessions in this directory',
   'sidebar.noMatch': 'No matches',
   'sidebar.searching': 'Searching…',
-  'sidebar.msgCount': '{n} msgs',
-  'sidebar.sessionCount': '{n} sessions',
-  'sidebar.sessionCountFiltered': '{f} / {t} sessions',
-  'sidebar.noRecords': 'No session records',
   'sidebar.settings': 'Settings',
   'sidebar.itemMenu': 'More actions',
   'sidebar.rename': 'Rename',
@@ -516,12 +508,6 @@ const en: Record<MsgKey, string> = {
   'delete.invalid': 'The project or session identifier is invalid.',
   'delete.failed': 'Failed to delete the session. Check the RustCode logs for details.',
 
-  'time.justNow': 'just now',
-  'time.minutesAgo': '{n} min ago',
-  'time.hoursAgo': '{n} hr ago',
-  'time.yesterday': 'yesterday',
-  'time.sameYear': '{m}/{d} {hm}',
-  'time.otherYear': '{y}/{m}/{d} {hm}',
 
   'model.label': 'Model',
 
@@ -589,6 +575,11 @@ const en: Record<MsgKey, string> = {
   'chat.rateLimited.hint': 'Completed work is preserved · switch model or retry later',
   'chat.rateLimited.waiting': 'Rate limited — auto-continuing in {secs}s…',
   'chat.waiting': 'Thinking…',
+  'chat.dismiss': 'Dismiss',
+
+  // @ file-mention popover
+  'at.loading': 'Loading…',
+  'at.noFiles': 'No files found',
 
   // 会话内浮动搜索框 (Cmd/Ctrl+F 呼出,Esc 关闭,反查定位)
   'chat.searchPlaceholder': 'Search this conversation…',
@@ -601,7 +592,6 @@ const en: Record<MsgKey, string> = {
   'attach.image': 'Upload image',
   'attach.file': 'Upload file',
   'attach.skill': 'Choose skill',
-  'attach.imageSoon': 'Coming soon',
   'attach.removeImage': 'Remove image',
   'attach.tooLarge': 'Images must be under {mb}M; oversized images were skipped.',
   'attach.dismissError': 'Dismiss',
@@ -610,7 +600,6 @@ const en: Record<MsgKey, string> = {
   'filepicker.title': 'Choose a file',
   'filepicker.empty': '(empty)',
   'filepicker.loading': 'Loading…',
-  'filepicker.noFiles': '(no files)',
 
   'tool.waiting': 'Awaiting approval…',
   'tool.running': 'Running…',
@@ -629,7 +618,6 @@ const en: Record<MsgKey, string> = {
   'todo.panel.status.in_progress': 'In progress',
   'todo.panel.status.completed': 'Completed',
 
-  'settings.title': 'Settings',
   'settings.theme': 'Theme',
   'settings.fontScale': 'Text size',
   'settings.fontScale.small': 'Compact',
@@ -640,16 +628,12 @@ const en: Record<MsgKey, string> = {
   'settings.theme.dark': 'Dark',
   'settings.theme.system': 'System',
   'settings.language': 'Language',
-  'settings.modelConfig': 'Model configuration',
   'settings.modelsTitle': 'Models',
   'settings.modelsIntro': 'Configure provider credentials and models. Third-party providers use your own API key -- add or edit them below.',
   'settings.modelsIntroManaged': 'Official CodingPlan models stay in sync with your managed sign-in -- no credentials to configure.',
   'settings.close': 'Close',
   'settings.loadFailed': 'Load failed',
   'settings.loading': 'Loading…',
-  'settings.defaultProvider': 'Default provider',
-  'settings.defaultWorkdir': 'Default working directory',
-  'settings.configFile': 'Config file',
   'settings.default': 'Default',
   'settings.model': 'Model',
   'settings.fetchModels': 'Fetch available models',
@@ -659,10 +643,10 @@ const en: Record<MsgKey, string> = {
   'settings.searchModels': 'Search models…',
   'settings.noMatchingModels': 'No matching models; you can still enter one above',
   'settings.contextWindow': 'Context window',
-  'settings.apiKey': 'API Key',
   'settings.configured': 'Configured',
   'settings.notConfigured': 'Not configured',
-  'settings.providers': 'Providers',
+  'settings.modelIdPlaceholder': 'your-model-id',
+  'settings.providerNamePlaceholder': 'my-provider',
   'settings.menuTheme': 'Theme settings',
   'settings.menuLang': 'Language settings',
   'settings.menuModel': 'Model configuration',
@@ -679,13 +663,12 @@ const en: Record<MsgKey, string> = {
   'settings.notifications.unsupported': 'Browser notifications are unavailable on this address (use 127.0.0.1/localhost)',
 
   'remote.title': 'Remote access',
-  'remote.intro': 'Reach this webui from your phone or other devices over the 蒲公英 (Oray PGY) private network — a virtual LAN, nothing exposed publicly.',
+  'remote.intro': 'Reach this webui from your phone or other devices: bind it to a LAN address or connect through any virtual-LAN / tunnel tool of your choice. Nothing is exposed publicly.',
   'remote.loading': 'Checking…',
-  'remote.ready': 'Ready — scan the QR or open the URL below on your phone (it must be signed into the same 蒲公英 account and joined to the same network):',
-  'remote.notReachable': '蒲公英 detected, but the webui is bound to localhost only. Run /webui --host {ip} in the TUI, then refresh this page.',
-  'remote.notConnected': '蒲公英 is installed but this machine has no virtual IP yet. Connect it in the 蒲公英 client, then re-check here.',
-  'remote.notInstalled': '蒲公英 not detected. Install 蒲公英 on both this machine and your phone, sign into the same account and join the same network, then come back.',
-  'remote.installLink': 'Download 蒲公英',
+  'remote.ready': 'Ready — scan the QR or open the URL below on your phone (it must be on the same LAN or virtual network):',
+  'remote.notReachable': 'The webui is bound to localhost only. Run /webui --host {ip} in the TUI (or expose it via any tunnel / virtual LAN), then refresh this page.',
+  'remote.notConnected': 'A tunnel is present but this machine has no reachable virtual IP yet. Connect your tunnel / virtual-LAN client, then re-check here.',
+  'remote.notInstalled': 'No remote path detected yet. Bind the service to a LAN address (/webui --host <IP>), or put this machine and your phone on the same network using any virtual-LAN / tunnel tool, then come back.',
   'remote.guide': 'Usage guide',
   'remote.copy': 'Copy link',
   'remote.copied': 'Copied',
@@ -727,7 +710,6 @@ const en: Record<MsgKey, string> = {
   'settings.deleteTitle': 'Delete model',
   'settings.deleteConfirm': 'Delete model "{name}"?',
   'settings.addFailed': 'Add failed',
-  'settings.nameModelRequired': 'Name and model are required',
   'settings.allRequired': 'Please fill in all fields',
   'settings.nameExists': 'Model name already exists, please use a different name',
 
@@ -741,13 +723,12 @@ const en: Record<MsgKey, string> = {
   'cwd.noSubdirs': '(No subdirectories)',
   'cwd.recentProjects': 'Recent projects',
   'cwd.current': 'Current',
-  'cwd.setDefault': 'Set as default directory (persists across restarts)',
-  'cwd.newFolder': 'New folder',
   'cwd.folderName': 'Folder name',
   'cwd.create': 'Create',
   'cwd.createFailed': 'Create failed',
   'cwd.cancel': 'Cancel',
   'cwd.confirm': 'Confirm',
+  'cwd.removeProject': 'Remove this project',
 
   'perm.title': 'Tool approval request',
   'perm.args': 'Arguments',
@@ -762,6 +743,7 @@ const en: Record<MsgKey, string> = {
   'userInput.close': 'Close and skip',
   'userInput.other': 'Other',
   'userInput.error': 'Submit failed, please retry',
+  'userInput.ownAnswer': 'Type your own answer…',
 
   'policyRecovery.title': 'Security policy needs your decision',
   'policyRecovery.question': 'Credential protection blocked an unsafe shell operation. Choose a safe next step:',
@@ -846,7 +828,26 @@ const en: Record<MsgKey, string> = {
   'cmd.todo.header': 'Current todos:',
   'cmd.todo.empty': 'No todos',
 
-  'common.readonly': 'Read-only',
+  // Browser turn-finished notifications (wording mirrors
+  // rustcode-capabilities/src/notify.rs)
+  'notify.title.done': 'RustCode done',
+  'notify.title.cancelled': 'RustCode cancelled',
+  'notify.title.failed': 'RustCode failed',
+  'notify.title.stopped': 'RustCode stopped',
+  'notify.title.finished': 'RustCode finished',
+  'notify.status.done': 'Done',
+  'notify.status.cancelled': 'Cancelled',
+  'notify.status.failed': 'Failed',
+  'notify.status.stopped': 'Stopped',
+  'notify.status.finished': 'Finished',
+
+  // Managed account sign-in (entry points hidden in neutral builds)
+  'login.signIn': 'Sign in',
+  'login.signingIn': 'Signing in…',
+  'login.signOut': 'Sign out',
+  'login.hint': 'Opened sign-in in your browser…',
+  'login.expired': 'Session expired — click to sign in again',
+
   'common.cancel': 'Cancel',
 };
 
@@ -871,3 +872,61 @@ export function i18nKeyMismatches(): { onlyZh: string[]; onlyEn: string[] } {
  * is stored. Must stay in sync with Rust `Locale::default()` (zh_CN).
  */
 export const DEFAULT_LANG: Lang = 'zh';
+
+/**
+ * localStorage key holding the persisted language. Must stay in sync with
+ * `LANG_KEY` in settings.tsx; duplicated as a literal so non-React modules
+ * can read the same contract without importing the settings context.
+ */
+export const LANG_STORAGE_KEY = 'rustcode.lang';
+
+export type I18nParams = Record<string, string | number>;
+
+/**
+ * Core lookup with the fallback chain:
+ *   1. the requested language table
+ *   2. the product default (zh)
+ *   3. the key itself (last resort, so missing translations stay visible)
+ *
+ * Placeholders use `{name}` syntax, replaced via split/join (no regex).
+ * Shared by the React `t()` in settings.tsx and the framework-free
+ * `translate()` below so both paths interpolate identically.
+ */
+export function resolveI18n(lang: Lang, key: MsgKey, params?: I18nParams): string {
+  const table = messages[lang] ?? messages[DEFAULT_LANG];
+  let s = table[key] ?? messages[DEFAULT_LANG][key] ?? key;
+  if (params) {
+    for (const k of Object.keys(params)) {
+      s = s.split(`{${k}}`).join(String(params[k]));
+    }
+  }
+  return s;
+}
+
+/**
+ * Read the persisted language preference outside React. Falls back to
+ * DEFAULT_LANG when storage is unavailable (node tests, privacy mode) or
+ * holds an unknown value.
+ */
+export function readStoredLang(): Lang {
+  try {
+    if (typeof localStorage === 'undefined') return DEFAULT_LANG;
+    const v = localStorage.getItem(LANG_STORAGE_KEY);
+    if (v === 'zh' || v === 'en') return v;
+  } catch {
+    /* storage unavailable: use the product default */
+  }
+  return DEFAULT_LANG;
+}
+
+/**
+ * Framework-free translator for non-React modules (e.g. the browser
+ * Notification helpers in lib/notifications.ts and the marked.js renderer
+ * in components/Markdown.tsx, which build HTML strings outside the component
+ * tree). It reads the persisted language on every call, so it cannot
+ * re-render anything on language switch — React components should use the
+ * `t()` from useSettings() instead.
+ */
+export function translate(key: MsgKey, params?: I18nParams): string {
+  return resolveI18n(readStoredLang(), key, params);
+}

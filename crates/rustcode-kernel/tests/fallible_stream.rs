@@ -2,7 +2,7 @@
 //! reasoning content, and a `finish_reason=length` truncation are all first-class
 //! -- none silently degrades into an empty SUCCESSFUL turn.
 
-use rustcode_kernel::event::{AgentCommand, AgentEvent};
+use rustcode_kernel::event::{AgentCommand, AgentEvent, AgentNotice};
 use rustcode_kernel::message::{Message, Role};
 use rustcode_kernel::stream::{ProviderError, StreamEvent};
 use rustcode_kernel::testkit::{MockProvider, RecorderHook, ScriptedProvider};
@@ -266,10 +266,10 @@ async fn repeated_truncation_is_bounded() {
     handle.commands.send(send("go")).unwrap();
 
     let mut completed = false;
-    let mut warning: Option<String> = None;
+    let mut notice: Option<AgentNotice> = None;
     while let Some(ev) = handle.events.recv().await {
         match ev {
-            AgentEvent::Warning(w) => warning = Some(w),
+            AgentEvent::AgentNotice(n) => notice = Some(n),
             AgentEvent::TurnComplete { .. } => {
                 completed = true;
                 break;
@@ -295,10 +295,8 @@ async fn repeated_truncation_is_bounded() {
     // UNRECOVERABLE truncation (budget exhausted, turn actually stops) MUST warn --
     // this is the one case the user needs to see, and the only case that should.
     assert!(
-        warning
-            .as_deref()
-            .is_some_and(|w| w.contains("上限") && w.contains("继续")),
-        "an exhausted, turn-ending truncation must surface the warning; got {warning:?}"
+        matches!(notice, Some(AgentNotice::ReplyTruncated)),
+        "an exhausted, turn-ending truncation must surface the ReplyTruncated notice; got {notice:?}"
     );
 }
 
@@ -692,13 +690,18 @@ async fn empty_response_is_retried_then_succeeds() {
     handle.commands.send(send("go")).unwrap();
 
     let mut events = handle.events;
-    let mut warnings: Vec<String> = Vec::new();
+    let mut notices: Vec<AgentNotice> = Vec::new();
     let mut text = String::new();
     let mut errored = false;
     let mut stop: Option<String> = None;
     while let Some(ev) = events.recv().await {
         match ev {
-            AgentEvent::Warning(w) => warnings.push(w),
+            AgentEvent::AgentNotice(n) => {
+                if n.is_error() {
+                    errored = true;
+                }
+                notices.push(n);
+            }
             AgentEvent::TextDelta(t) => text.push_str(&t),
             AgentEvent::Error { .. } => errored = true,
             AgentEvent::TurnComplete { reason } => {
@@ -719,10 +722,10 @@ async fn empty_response_is_retried_then_succeeds() {
         "the recovered response text must reach the driver"
     );
     assert!(
-        warnings
+        notices
             .iter()
-            .any(|w| w.contains("空响应") && w.contains("重试")),
-        "an empty response must emit a VISIBLE retry notice; got {warnings:?}"
+            .any(|n| matches!(n, AgentNotice::EmptyCompletionRetrying { .. })),
+        "an empty response must emit a VISIBLE EmptyCompletionRetrying notice; got {notices:?}"
     );
     assert!(
         !errored,
@@ -754,12 +757,18 @@ async fn empty_response_exhaustion_fails_visibly() {
 
     let mut events = handle.events;
     let mut retry_notices = 0usize;
-    let mut error_msg: Option<String> = None;
+    let mut terminal: Option<AgentNotice> = None;
     let mut stop: Option<String> = None;
     while let Some(ev) = events.recv().await {
         match ev {
-            AgentEvent::Warning(w) if w.contains("空响应") => retry_notices += 1,
-            AgentEvent::Error { message, .. } => error_msg = Some(message),
+            AgentEvent::AgentNotice(n) => {
+                if matches!(n, AgentNotice::EmptyCompletionRetrying { .. }) {
+                    retry_notices += 1;
+                }
+                if n.is_error() {
+                    terminal = Some(n);
+                }
+            }
             AgentEvent::TurnComplete { reason } => {
                 stop = Some(format!("{reason:?}"));
                 break;
@@ -778,8 +787,10 @@ async fn empty_response_exhaustion_fails_visibly() {
         "1 initial empty open + 5 retries = 6 chat_stream calls; got {calls}"
     );
     assert!(
-        error_msg.as_deref().is_some_and(|m| m.contains("空响应")),
-        "exhaustion must surface a clear empty-response Error; got {error_msg:?}"
+        terminal
+            .as_ref()
+            .is_some_and(|n| n.is_error() && n.machine_token().starts_with("empty_exhausted")),
+        "exhaustion must surface an error-class empty-exhaustion notice; got {terminal:?}"
     );
     assert_eq!(
         stop.as_deref(),
@@ -816,12 +827,12 @@ async fn malformed_response_retried_with_distinct_notice() {
     handle.commands.send(send("go")).unwrap();
 
     let mut events = handle.events;
-    let mut warnings: Vec<String> = Vec::new();
+    let mut notices: Vec<AgentNotice> = Vec::new();
     let mut text = String::new();
     let mut stop: Option<String> = None;
     while let Some(ev) = events.recv().await {
         match ev {
-            AgentEvent::Warning(w) => warnings.push(w),
+            AgentEvent::AgentNotice(n) => notices.push(n),
             AgentEvent::TextDelta(t) => text.push_str(&t),
             AgentEvent::TurnComplete { reason } => {
                 stop = Some(format!("{reason:?}"));
@@ -838,14 +849,16 @@ async fn malformed_response_retried_with_distinct_notice() {
     );
     assert_eq!(text, "ok", "the recovered response must reach the driver");
     assert!(
-        warnings
+        notices
             .iter()
-            .any(|w| w.contains("格式异常") && w.contains("重试")),
-        "a malformed response must emit a格式异常 retry notice; got {warnings:?}"
+            .any(|n| matches!(n, AgentNotice::MalformedCompletionRetrying { .. })),
+        "a malformed response must emit a MalformedCompletionRetrying notice; got {notices:?}"
     );
     assert!(
-        !warnings.iter().any(|w| w.contains("空响应")),
-        "a malformed response must NOT use the empty-response (空响应) wording; got {warnings:?}"
+        !notices
+            .iter()
+            .any(|n| matches!(n, AgentNotice::EmptyCompletionRetrying { .. })),
+        "a malformed response must NOT use the EmptyCompletionRetrying notice; got {notices:?}"
     );
     assert_eq!(
         stop.as_deref(),

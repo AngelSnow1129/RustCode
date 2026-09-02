@@ -26,6 +26,137 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
                 .into(),
         Msg::ChatAuthExpired =>
             "认证已过期，请执行 /login 重新登录".into(),
+        Msg::ProviderErrEntitlement403 =>
+            "账号未开通该模型套餐或授权已失效（HTTP 403），请检查 API key 权限与账户状态。".into(),
+        Msg::ProviderErrUnauthorized { code } =>
+            format!("API key 未授权或已失效（HTTP {code}）").into(),
+        Msg::ProviderErrInsufficientBalance { code } =>
+            format!("账户余额不足（HTTP {code}）").into(),
+        Msg::ProviderErrConnResetRetried { attempts } =>
+            format!("网络连接中断：远端关闭或重置了连接，自动重连 {attempts} 次后仍失败，可重试。").into(),
+        Msg::ProviderErrConnResetPartial =>
+            "响应中断：为避免重复输出或工具执行，未自动重放；已保留可安全保存的部分回复，可继续。".into(),
+        Msg::ProviderErrDetailLabel => "详情".into(),
+        Msg::ProviderErrCorpProxyHint =>
+            "此错误常见于公司网络或代理环境，请检查代理/VPN/防火墙设置后重试。".into(),
+        Msg::ProviderErrProxyNamed { proxy } => format!("代理 {proxy}").into(),
+        Msg::ProviderErrProxyConfigured => "配置的代理".into(),
+        Msg::ProviderErrProxyUnreachable { who } => format!(
+            "无法连接到{who}（代理可能未运行或地址不可达）。若你不需要代理，请运行 /proxy 并选择 no_proxy（不使用代理）后重试。"
+        )
+        .into(),
+        Msg::ProviderErrTtfbTimeout { secs } =>
+            format!("等待首字节超过 {secs}s（网关无响应）").into(),
+        Msg::ProviderErrEffortUnsupported =>
+            "当前模型/网关不支持「强度」（reasoning_effort）设置，已为本会话自动禁用，请重新发送。".into(),
+        Msg::ToolProgressParallelEdit { count } =>
+            format!("并行编辑 {count} 个文件（子代理）").into(),
+        Msg::RoundCapHeader => "轮次上限".into(),
+        Msg::RoundCapQuestion { cap } => format!("已运行 {cap} 轮，继续吗？").into(),
+        Msg::RoundCapQuestionStats { cap, stats } =>
+            format!("已运行 {cap} 轮（{stats}），继续吗？").into(),
+        Msg::RoundCapContinue => "继续".into(),
+        Msg::RoundCapContinueDesc { base } => format!("再跑 {base} 轮后重新确认").into(),
+        Msg::RoundCapStop => "停止".into(),
+        Msg::RoundCapStopDesc => "结束本回合".into(),
+        Msg::GitRepoRootEmpty => "git 未返回仓库根目录".into(),
+        Msg::GitCmdFailed { cmd, detail } => format!("git {cmd} 失败：{detail}").into(),
+        Msg::GitOutputTooLarge { cmd, kib } =>
+            format!("git {cmd} 输出超过 {kib} KiB，无法可靠展示").into(),
+        Msg::GitSpawnFailed { error } => format!("无法启动 git：{error}").into(),
+        Msg::GitStdoutUnavailable => "无法读取 git 输出".into(),
+        Msg::GitStderrUnavailable => "无法读取 git 错误输出".into(),
+        Msg::GitWaitFailed { error } => format!("等待 git 退出失败：{error}").into(),
+        Msg::GitTimeout { secs } => format!("git 命令执行超过 {secs} 秒").into(),
+        Msg::GitStatusPollFailed { error } => format!("查询 git 状态失败：{error}").into(),
+        Msg::GitStdoutThreadPanicked => "读取 git 输出的线程异常退出".into(),
+        Msg::GitStdoutReadFailed { error } => format!("读取 git 输出失败：{error}").into(),
+        Msg::GitStderrThreadPanicked => "读取 git 错误输出的线程异常退出".into(),
+        Msg::GitStderrReadFailed { error } => format!("读取 git 错误输出失败：{error}").into(),
+        Msg::GitNumstatMissingPath => "git numstat 缺少文件路径".into(),
+        Msg::GitNumstatMissingOldPath => "git numstat 缺少重命名前路径".into(),
+        Msg::GitNumstatMissingNewPath => "git numstat 缺少重命名后路径".into(),
+        Msg::GitNumstatMissingCount => "git numstat 缺少行数".into(),
+        Msg::GitNumstatCountNotUtf8 => "git numstat 行数不是 UTF-8".into(),
+        Msg::GitNumstatCountInvalid { text } => format!("git numstat 行数无效：{text}").into(),
+        Msg::GoalCapRound { max } => format!("已达轮数预算（{max} 轮），继续对话即推进").into(),
+        Msg::GoalCapRoundNoMax => "已达轮数预算，继续对话即推进".into(),
+        Msg::GoalCapTime => "已达时间上限，继续对话即推进".into(),
+        Msg::GoalCapStopped { other } => format!("已停止（{other}），继续对话即推进").into(),
+        Msg::RetryReasonRateLimited => "请求过于频繁或额度已用尽".into(),
+        Msg::RetryReasonUpstream => "上游服务暂时不可用".into(),
+        Msg::RetryReasonTimeout => "模型响应超时".into(),
+        Msg::RetryReasonNetwork => "网络连接失败".into(),
+        Msg::TuixProviderRetry {
+            reason,
+            backoff_secs,
+            attempt,
+            max_attempts,
+        } => format!(
+            "API 错误 {reason}，{backoff_secs} 秒后重试（{attempt}/{max_attempts}）..."
+        )
+        .into(),
+        Msg::TuixLoopUsage =>
+            "用法：/loop <间隔> <prompt 或 /命令>，例 /loop 5m /diff".into(),
+        Msg::TuixLoopSelfRef => "不能对 /loop 自身循环".into(),
+        Msg::TuixLoopIntervalRange => "间隔需在 10s-24h 之间".into(),
+        Msg::TuixRateLimitAutoResume { secs } =>
+            format!("⏳ 限流，{secs}s 后自动继续...").into(),
+        Msg::TuixRateLimit429 { reason, tail } => format!(
+            "⏸ 限流（HTTP 429）{reason}{tail} · 已保留已完成内容 · 稍后重试或换模型"
+        )
+        .into(),
+        Msg::TuixRateLimitRetryAfter { dur } => format!("（约 {dur} 后可重试）").into(),
+        Msg::TuixRateLimitWindowNoTime { tail } => format!(
+            "⏸ 5小时窗口已用尽，稍后恢复{tail} · 已保留已完成内容 · 可换模型或稍后重试"
+        )
+        .into(),
+        Msg::TuixRateLimitWindowWithTime { reset_at, tail } => format!(
+            "⏸ 5小时窗口已用尽，约 {reset_at} 恢复{tail} · 已保留已完成内容 · 可换模型或稍后重试"
+        )
+        .into(),
+        Msg::TuixRateLimitWindowRemaining { dur } => format!("（还有 {dur}）").into(),
+        Msg::TuixToolBatchSameParallel { count, tool } =>
+            format!("并行运行 {count} 个 {tool} 调用").into(),
+        Msg::TuixToolBatchSame { count, tool } => format!("运行 {count} 个 {tool} 调用").into(),
+        Msg::TuixToolBatchParallel { count } => format!("并行运行 {count} 个工具").into(),
+        Msg::TuixToolBatch { count } => format!("运行 {count} 个工具").into(),
+        Msg::KernelNoticeEmptyRetryMalformed {
+            wait_secs,
+            attempt,
+            max,
+        } => format!("响应格式异常，{wait_secs} 秒后重试（{attempt}/{max}）...").into(),
+        Msg::KernelNoticeEmptyRetryEmpty {
+            wait_secs,
+            attempt,
+            max,
+        } => format!("模型返回空响应，{wait_secs} 秒后重试（{attempt}/{max}）...").into(),
+        Msg::KernelNoticeReplyTruncated =>
+            "模型这次回复达到了长度上限，内容可能没写完。可以让它「继续」，会接着把剩下的部分补完。".into(),
+        Msg::KernelNoticeOverWindow { est_k, window_k } => format!(
+            "请求约 {est_k}K tokens 接近当前模型可用上限（窗口约 {window_k}K，需为回复预留空间）：请精简输入或换用更大窗口的模型。"
+        )
+        .into(),
+        Msg::KernelNoticeEmptyExhMalformed { max_retries } => format!(
+            "模型连续 {max_retries} 次返回无法解析的响应（上游偶发）。可直接重试，或稍后再试。"
+        )
+        .into(),
+        Msg::KernelNoticeEmptyExhOverWindowBrief { max_retries } => format!(
+            "模型连续 {max_retries} 次返回空响应。如开头所述，本次请求已超过模型上下文窗口----请精简输入或 /compact 后重试。"
+        )
+        .into(),
+        Msg::KernelNoticeEmptyExhOverWindowFull {
+            max_retries,
+            est_k,
+            window_k,
+        } => format!(
+            "模型连续 {max_retries} 次返回空响应。当前请求约 {est_k}K tokens，已接近或超过模型上下文窗口（约 {window_k}K），很可能是请求过大所致。建议 /compact 或精简输入后重试。"
+        )
+        .into(),
+        Msg::KernelNoticeEmptyExhTransient { max_retries } => format!(
+            "模型连续 {max_retries} 次返回空响应（上游偶发，与上下文长度无关）。可直接重试，或稍后再试。"
+        )
+        .into(),
         Msg::NetworkConnectHint =>
             "网络连接失败。若浏览器能打开，可能是代理/防火墙差异：用 /proxy 配置代理或设置 HTTPS_PROXY，或在浏览器打开上面的登录链接完成扫码。可按 Esc 跳过，稍后 /login 重试。".into(),
         Msg::CpSetupHeader =>
@@ -654,6 +785,33 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("升级失败: {}", error).into(),
         Msg::UpgradeRolledBack { exe, backup } =>
             format!("\n[+] 已回滚。当前二进制: {}；另一版本保存在 {}\n  正在重启回滚版本...\n", exe, backup).into(),
+        Msg::UpgradeReplaceRestored { error } =>
+            format!("替换为新二进制失败（{error}）。已恢复为先前版本。").into(),
+        Msg::UpgradeBackupPreserveFailed { error } =>
+            format!("注意：无法将先前版本保留为备份（{error}）。在下次升级之前无法回滚。").into(),
+        Msg::UpgradeBackupRemoveFailed { backup, rolling } =>
+            format!("注意：无法移除旧备份 {backup}，回滚可能指向更旧的版本。\n  {rolling} 处的 .rolling 文件将在下次升级时清理。").into(),
+        Msg::UpgradeNoRelease { os, arch } =>
+            format!("当前平台没有已发布的 rustcode 版本（{os}/{arch}）").into(),
+        Msg::UpgradeNoTarget { target } =>
+            format!("发布清单中没有目标 {target} 的条目 —— 此版本可能不包含该平台").into(),
+        Msg::UpgradeManifestHttp { status } =>
+            format!("获取 latest.json 时返回 HTTP {status}").into(),
+        Msg::UpgradeDownloadHttp { url, status } =>
+            format!("下载 {url} 时返回 HTTP {status} —— 该平台可能没有对应的发布版本").into(),
+        Msg::UpgradeShortDownload { got, expected } =>
+            format!("下载不完整：实际 {got} 字节，预期 {expected} 字节").into(),
+        Msg::UpgradeChecksumMismatch { expected, got } =>
+            format!("校验和不匹配 —— 文件可能已损坏或被篡改。\n  预期: {expected}\n  实际: {got}").into(),
+        Msg::UpgradeExeNoParent { exe } =>
+            format!("可执行文件没有父目录：{exe}").into(),
+        Msg::UpgradeDirNotWritable { dir, error } =>
+            format!(
+                "当前用户无权写入 {dir}（{error}）。\n\
+                 可使用提升的权限重新运行：sudo rustcode upgrade\n\
+                 或重新安装到用户可写的位置（例如 ~/.local/bin）。"
+            )
+            .into(),
         Msg::CliUpgradeAvailable { version } =>
             format!("[*] 发现新版本：{version}").into(),
         Msg::CliUpgradeDownloading { pct, mb, total_mb } =>
@@ -714,6 +872,10 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
         Msg::CliRollbackCmdDoneTwo { current, saved } =>
             format!("[+] 已回退。当前二进制位于 {current}，另一版本保存在 {saved}").into(),
         Msg::CliRollbackStartHint => "  运行 `rustcode` 启动回退后的版本。".into(),
+        Msg::CliPluginSpecEmpty =>
+            "应为 <plugin> 或 <plugin>@<marketplace> 形式，但得到空字符串".into(),
+        Msg::CliPluginSpecPartEmpty { spec } =>
+            format!("`{spec}` 中的插件名或市场名不能为空").into(),
 
         // ── Headless（`-p`/`--print`）stderr 输出 ──
         Msg::CliHeadlessProviderRetry { reason, backoff_secs, attempt, max_attempts } =>
@@ -770,6 +932,8 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
         // ── `rustcode mcp` ──
         Msg::CliMcpAdded { name, path, program, args } =>
             format!("  已添加 MCP 服务器 {name} -> {path}（stdio：{program} + {args} 个参数）").into(),
+        Msg::CliMcpAddedOauth { name, path, url } =>
+            format!("  已添加 OAuth MCP 服务器 {name} -> {path}（{url}）").into(),
         Msg::CliMcpAddedGithub { name, path } =>
             format!("  已添加 GitHub OAuth MCP 服务器 {name} -> {path}").into(),
         Msg::CliMcpLoginSaved { provider, name, scopes } =>
@@ -1012,6 +1176,20 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
         Msg::TeamSummary { runs, completed, running, failed, stopped } => format!(
             "团队：{runs} 个运行 · 已完成 {completed} · 运行中 {running} · 失败 {failed} · 已停止 {stopped}"
         ).into(),
+        Msg::TeamNoticeDispatched { run_id } =>
+            format!("  ○ 团队已派发 · {run_id}\n").into(),
+        Msg::TeamNoticeStopped { run_id } =>
+            format!("  ○ 团队已停止 · {run_id}\n").into(),
+        Msg::TeamNoticeResultsHeader { run_id } =>
+            format!("  团队结果 · {run_id}").into(),
+        Msg::TeamMemberFallbackId => "子代理".into(),
+        Msg::TeamStatusUnknown => "未知".into(),
+        Msg::TeamResultNone => "无报告".into(),
+        Msg::TeamSuffixDispatched { run_id } =>
+            format!("已派发 · {run_id}").into(),
+        Msg::TeamSuffixStopped { run_id } =>
+            format!("已停止 · {run_id}").into(),
+        Msg::TeamSuffixUpdated => "已更新".into(),
 
         // ── 通用开关词 ──
         Msg::WordOn => "开".into(),
@@ -1046,6 +1224,8 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
             "本版本由 HarmonyBrew 管理，请运行 `brew upgrade rustcode` 升级".into(),
         Msg::UpgradeUnknownArg { arg } =>
             format!("未知的 /upgrade 参数：{}\n  用法：/upgrade [rollback|--force]", arg).into(),
+        Msg::UpgradeNoEndpoint =>
+            "  当前构建不支持自升级：未配置更新清单端点。\n  此开源构建请通过包管理器或发布压缩包安装更新。\n".into(),
 
         // ── /skills ──
         Msg::SkillsNone =>
@@ -1361,6 +1541,8 @@ Msg::CmdDescSetup =>
         Msg::CmdDescResume => "恢复上次会话".into(),
         Msg::CmdDescRename => "重命名当前会话".into(),
         Msg::CmdDescLogin => "使用 {oauth} 登录并领取 CodingPlan 模型".into(),
+        Msg::CmdDescLoginNeutral =>
+            "托管登录(仅发行版本提供) -- 此开源构建使用自带 API Key 的第三方供应商,请在 config.toml 中配置".into(),
         Msg::CmdDescLogout => "退出登录".into(),
         Msg::CmdDescWhoami => "显示当前登录用户".into(),
         Msg::CmdDescModel => "设置默认 Provider / 模型，并切换当前会话".into(),
@@ -1377,6 +1559,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CmdDescSession => "开始新会话（清除对话）".into(),
         Msg::CmdDescCost => "显示本会话 Token 用量".into(),
         Msg::CmdDescUsage => "显示 CodingPlan 用量（标签：当前窗口 / 总览 / 模型）".into(),
+        Msg::CmdDescUsageNeutral =>
+            "显示令牌用量（标签：当前窗口 / 总览 / 模型）".into(),
         Msg::CmdDescContext => "显示上下文预算明细".into(),
         Msg::CmdDescCompact => "压缩对话历史".into(),
         Msg::CmdDescRemember => "保存记忆（/remember --global 为全局）".into(),
@@ -1443,6 +1627,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             format!("正在打开 {}...\n  {}\n", name, path).into(),
         Msg::DesktopNotInstalled { url } =>
             format!("未检测到 {{brand}} 桌面端。下载安装：\n  {}\n", url).into(),
+        Msg::DesktopNotInstalledNoUrl =>
+            "未检测到 {brand} 桌面端，且当前构建未提供桌面端下载地址。\n  请使用终端界面，或在 config.toml 中配置你自己的供应商。\n".into(),
         Msg::DesktopLaunchFailed { path, err } =>
             format!("找到了应用但启动失败：{}\n  {}\n", err, path).into(),
         Msg::TodoNoList => "当前无任务清单（模型尚未创建 todo）。".into(),
@@ -1483,12 +1669,48 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         // ── 配置保存失败 ──
         Msg::ConfigSaveFailed { error } =>
             format!("配置保存失败：{}", error).into(),
+        Msg::CfgLegacyProviderNotFound { name } =>
+            format!("未找到旧版 provider `{name}`").into(),
+        Msg::CfgLegacyProviderExists { name } =>
+            format!("无法升级 `{name}`：新结构的账号或模型已占用该 id").into(),
+        Msg::CfgResolveNoModel =>
+            "未选择模型（请设置 `default_model` 或 `default_provider`）".into(),
+        Msg::CfgResolveModelNotFound { id } => format!("未找到模型 `{id}`").into(),
+        Msg::CfgResolveModelUnknownAccount { id, account } =>
+            format!("模型 `{id}` 引用了未知账号 `{account}`").into(),
+        Msg::CfgDiagAccountMissingProvider { id } =>
+            format!("Provider 账号 `{id}` 缺少 `provider` 字段").into(),
+        Msg::CfgDiagAccountNoEndpoint { id, provider } =>
+            format!(
+                "Provider 账号 `{id}` 使用的 `{provider}` 没有默认端点；请设置 `base_url`"
+            )
+            .into(),
+        Msg::CfgDiagModelMissingModel { id } =>
+            format!("模型 `{id}` 缺少 `model` 字段").into(),
+        Msg::CfgDiagModelMissingAccount { id } =>
+            format!("模型 `{id}` 缺少 `account` 字段").into(),
+        Msg::CfgDiagModelUnknownAccount { id, account } =>
+            format!("模型 `{id}` 引用了未知账号 `{account}`").into(),
+        Msg::CfgDiagModelContextWindow { id } =>
+            format!("模型 `{id}` 的 context_window = 0").into(),
+        Msg::CfgDiagModelMaxTokens { id } => format!("模型 `{id}` 的 max_tokens = 0").into(),
+        Msg::CfgDiagDefaultModelMismatch { sel } =>
+            format!("default_model `{sel}` 不匹配任何模型配置").into(),
+        Msg::CfgDiagAccountCollision { id } =>
+            format!(
+                "Provider 账号 `{id}` 与同名旧版 provider 冲突；以新结构账号为准"
+            )
+            .into(),
+        Msg::CfgDiagModelCollision { id } =>
+            format!("模型 `{id}` 与同名旧版 provider 冲突；以新结构模型为准").into(),
 
         // ── OnboardingWizard ──
         Msg::OnboardingStepHeaderWelcome => "第 1/3 步 . 欢迎".into(),
         Msg::OnboardingStepHeaderLanguage => "第 2/3 步 . 语言".into(),
         Msg::OnboardingStepHeaderSetup => "第 3/3 步 . 配置".into(),
         Msg::OnboardingPanelTitle => "{brand}".into(),
+        Msg::OnboardingStepIndicator { current, total } =>
+            format!("第 {current}/{total} 步").into(),
         Msg::OnboardingIntroVersionLine { v } =>
             format!("版本 {v}  .  在终端里运行的 AI 编程代理").into(),
         Msg::OnboardingIntroBullet1 =>
@@ -1544,6 +1766,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::SpinnerElapsedOnly { elapsed } => format!(" ({elapsed})").into(),
         Msg::SpinnerSubAgents { done, total } => format!("子代理 {done}/{total}").into(),
         Msg::SpinnerWaitingApproval => "等待审批".into(),
+        Msg::SpinnerRunningLabel => "运行中".into(),
 
         // ── Live hub / 手机远程同步错误 ──
         Msg::LiveSyncEventFailed { error } =>
@@ -1611,6 +1834,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::TodoMoreFold { hidden, ellipsis } =>
             format!("  +{hidden} 项更多{ellipsis}").into(),
         Msg::MoreLinesHint { count } => format!(" +{count} 行已折叠 ").into(),
+        Msg::ScrollHiddenLines { count } =>
+            format!("{count} 行被隐藏 · PgUp/PgDn").into(),
         Msg::BodyMoreLines { ellipsis, count } =>
             format!("  {ellipsis} 还有 {count} 行").into(),
         Msg::RoundMeta { round, elapsed } => format!(" · 第 {round} 轮 · {elapsed}").into(),
@@ -1634,6 +1859,37 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::AppRemoteNotRunning => "App 远程访问未在运行".into(),
         Msg::AppRemoteDetachSuffix { error } =>
             format!("\n{error}；TUI 暂时保持同步").into(),
+        Msg::WebuiOpenedBrowser { url } => format!("已在浏览器打开 webui：{url}").into(),
+        Msg::WebuiOpenManually { url } => format!("请手动在浏览器打开：{url}").into(),
+        Msg::WebuiBindFailed { host, port, error } =>
+            format!("webui 启动失败：{host}:{port} 起的端口绑定失败（{error}）").into(),
+        Msg::WebuiRebindHint { bound_host, host } => format!(
+            "\n（webui 已在运行，绑定 {bound_host}；如需改绑 {host}，请先 /webui stop 再重试）"
+        )
+        .into(),
+        Msg::WebuiLanWarning => "\n[!] 主地址为局域网 IP，仅同一网络内的设备可访问；公网访问请用隧道（如 cloudflared / Tailscale）。无 TLS，凡能访问者凭 token 即可进入。".into(),
+        Msg::WebuiNonLoopbackWarning => "\n[!] 已绑定非回环地址：凡能访问该地址者凭此 token 即可进入，请仅在可信网络使用（无 TLS）。".into(),
+        Msg::WebuiStopped => "已停止 webui server".into(),
+        Msg::WebuiNotRunning => "webui server 未在运行".into(),
+        Msg::AppServerBindFailed { host, port, error } =>
+            format!("绑定 {host}:{port} 失败（{error}）").into(),
+        Msg::AppRemoteUsage =>
+            "用法：/app <中继地址>；或先设置 RUSTCODE_APP_RELAY 指定默认中继后直接 /app".into(),
+        Msg::AppRemoteLoginRequired =>
+            "远程访问需要先登录。输入 /login 完成登录后，再执行 /app。".into(),
+        Msg::AppServerStartFailed { error } => format!("App server 启动失败：{error}").into(),
+        Msg::AppRelayClientStartFailed { error } =>
+            format!("启动 relay-client 失败：{error}").into(),
+        Msg::AppRelayClientSpawnFailed { error, bin, cache } => format!(
+            "启动 relay-client 失败（{error}）。已尝试路径 `{bin}`。请确认 relay-client 在 {cache} 目录下，或删除该目录后重试 /app 自动下载。"
+        )
+        .into(),
+        Msg::AppPairQrBlock { qr, encoded } => format!(
+            "[*] 移动端配对连接\n\n配套的移动端 App 由你的中继部署方提供：\n1. 打开移动端 App 的扫一扫功能\n2. 对准下方二维码即可配对连接\n\n{qr}\n\n也可复制以下口令在 App 中连接：\n{encoded}\n\n（/app stop 断开连接）"
+        )
+        .into(),
+        Msg::AppPairLinkFallback { pair_uri } =>
+            format!("配对链接（二维码生成失败，手动填）：{pair_uri}").into(),
         Msg::BgSessionLoadFailed { error } =>
             format!("无法加载后台会话：{error}").into(),
         Msg::McpToolsHeader => "工具列表：\n".into(),
@@ -1746,6 +2002,199 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::LoginUrlOnly =>
             "  在浏览器中打开此链接以登录：\n  ".into(),
         Msg::LoginCancelHint => "\n\n  按 ESC 取消\n".into(),
+        Msg::AuthLoginBrowserHint =>
+            "  浏览器没有自动打开？请在任意浏览器中打开下方网址进行登录：".into(),
+        Msg::AuthLoginEscHint => "  按 ESC 取消".into(),
+        Msg::AuthLoginPollerStopped => "登录轮询线程意外停止".into(),
+        Msg::AuthLoginCancelled => "登录已被用户取消".into(),
+        Msg::AuthInvalidFilePath => "认证文件路径无效 -- 请重新登录".into(),
+        Msg::AuthNotLoggedIn => "尚未登录 -- 请先使用 /login 登录".into(),
+        Msg::AuthInvalidAuthToml => "auth.toml 无效 -- 请先使用 /login 登录".into(),
+        Msg::AuthAccountChanged => "登录账号已变更 -- 请重试该请求".into(),
+        Msg::AuthTokenRefreshFailed { error } => {
+            format!("令牌已过期且刷新失败：{error}").into()
+        }
+        Msg::McpCfgCommentsWouldDelete { path } => format!(
+            "{path} 中包含注释，重写该文件会删除这些注释。\
+             请手动编辑该文件，或先移除注释后重试。"
+        )
+        .into(),
+        Msg::McpServerNeedsCommandOrUrl { name } => format!(
+            "MCP 服务器“{name}”必须提供 command（stdio）或 url（http）之一"
+        )
+        .into(),
+        Msg::McpAuthTypeUnsupported { name, ty } => {
+            format!("MCP 服务器“{name}”使用了不支持的 auth.type“{ty}”").into()
+        }
+        Msg::McpCfgNameEmpty => "MCP 服务器名称不能为空".into(),
+        Msg::McpCfgCommandEmpty => "command 不能为空".into(),
+        Msg::McpCfgUrlEmpty => "url 不能为空".into(),
+        Msg::McpCfgProviderEmpty => "provider 不能为空".into(),
+        Msg::McpCfgRootNotObject => "MCP 配置文件的根节点必须是 JSON 对象".into(),
+        Msg::McpOAuthBrowserHintServer { name } => format!(
+            "  浏览器没有自动打开？请在浏览器中打开下方网址，为 MCP 服务器“{name}”授权："
+        )
+        .into(),
+        Msg::McpOAuthBrowserHintGithub =>
+            "  浏览器没有自动打开？请在浏览器中打开下方网址，为 GitHub MCP 授权：".into(),
+        Msg::McpOAuthStateMismatch => "OAuth state 不匹配".into(),
+        Msg::McpOAuthRefreshNoRefreshToken { server } => format!(
+            "MCP 服务器 {server} 的 OAuth 令牌已过期，且没有保存刷新令牌"
+        )
+        .into(),
+        Msg::McpOAuthRefreshNoTokenEndpoint { server } => format!(
+            "MCP 服务器 {server} 的 OAuth 令牌已过期，且没有保存令牌端点"
+        )
+        .into(),
+        Msg::McpOAuthRefreshNoClientId { server } => format!(
+            "MCP 服务器 {server} 的 OAuth 令牌已过期，且没有保存 client id"
+        )
+        .into(),
+        Msg::McpOAuthRefreshFailed { status } => {
+            format!("MCP OAuth 刷新失败：HTTP {status}").into()
+        }
+        Msg::McpOAuthHttpNotOAuth { name } => format!(
+            "MCP 服务器“{name}”是 HTTP 类型，但未使用 OAuth 认证"
+        )
+        .into(),
+        Msg::McpOAuthStdioUnsupported { name } => format!(
+            "MCP 服务器“{name}”使用 stdio；OAuth 登录仅适用于 HTTP 类型的 MCP 服务器"
+        )
+        .into(),
+        Msg::McpOAuthExchangeFailed { status } => {
+            format!("MCP OAuth 令牌交换失败：HTTP {status}").into()
+        }
+        Msg::McpGithubClientIdRequired => "GitHub OAuth 需要提供 client id".into(),
+        Msg::McpGithubSecretEnvRequired =>
+            "GitHub MCP OAuth 需要 --client-secret-env 参数，或在 mcp.json 中配置 \
+             auth.client_secret_env"
+                .into(),
+        Msg::McpGithubExchangeFailed { status } => {
+            format!("GitHub OAuth 令牌交换失败：HTTP {status}").into()
+        }
+        Msg::McpOAuthRegistrationRequired =>
+            "授权服务器不支持动态客户端注册（RFC 7591），MCP OAuth 需要预先注册的 \
+             client_id。请在 .mcp.json 的 auth.client_id 中填入预先注册的 client_id 后重试。"
+                .into(),
+        Msg::McpOAuthRegisterRejected { status, body } => format!(
+            "MCP OAuth 动态客户端注册失败：HTTP {status} -- 授权服务器拒绝了该请求。\
+             请在 .mcp.json 的 auth.client_id 中填入预先注册的 client_id 后重试。\n\
+             响应内容：{body}"
+        )
+        .into(),
+        Msg::McpOAuthRegisterFailed { status, body } => format!(
+            "MCP OAuth 动态客户端注册失败：HTTP {status}\n响应内容：{body}"
+        )
+        .into(),
+        Msg::McpOAuthRequiredHint { name } => format!(
+            "MCP 服务器 {name} 需要 OAuth；请运行 `rustcode mcp login {name}` 或 \
+             `/mcp login {name}`"
+        )
+        .into(),
+        Msg::PluginGitRequired =>
+            "未安装 git 或 git 不在 PATH 中。RustCode 需要 git 来管理插件市场。\
+             请安装 git（例如 macOS 上运行 `xcode-select --install`，\
+             Ubuntu 上运行 `sudo apt install git`）后重启 RustCode。"
+                .into(),
+        Msg::PluginVerbClone => "克隆".into(),
+        Msg::PluginVerbUpdate => "更新".into(),
+        Msg::PluginMpNameEmpty { name } => {
+            format!("市场名称 `{name}` 净化后为空字符串").into()
+        }
+        Msg::PluginMpExists { name } => {
+            format!("市场 `{name}` 已存在，请先移除").into()
+        }
+        Msg::PluginMpDirExists { path } => format!(
+            "目录 {path} 已存在但未注册，请手动移除该目录"
+        )
+        .into(),
+        Msg::PluginMpNotFound { name } => format!("未找到市场 `{name}`").into(),
+        Msg::PluginMpHasPlugins { name } => {
+            format!("市场 `{name}` 中仍有已安装的插件，请先卸载这些插件").into()
+        }
+        Msg::PluginGitCloneFailed { stderr } => format!("git clone 失败：{stderr}").into(),
+        Msg::PluginGitPullFailed { stderr } => format!("git pull 失败：{stderr}").into(),
+        Msg::PluginGitRevParseFailed { stderr } => {
+            format!("git rev-parse 失败：{stderr}").into()
+        }
+        Msg::PluginReloginHintManaged => "可运行 /login 重新登录后重试".into(),
+        Msg::PluginReloginHintNeutral =>
+            "本构建无托管登录服务；请改用 SSH 地址或更新本地 git 凭证后重试".into(),
+        Msg::PluginGitAuthUntrusted { verb, stderr } => format!(
+            "{verb}失败：该仓库需要认证（私有仓库）。请改用 SSH 地址（git@...）\
+             或先用 git 配置好凭证后重试。\n原始错误：{stderr}"
+        )
+        .into(),
+        Msg::PluginGitAuthExpired { verb, stderr } => format!(
+            "{verb}失败：登录已过期或凭证无效，请运行 /login 重新登录后重试。\n原始错误：{stderr}"
+        )
+        .into(),
+        Msg::PluginGitAuthLoginRequired { verb, stderr } => format!(
+            "{verb}失败：该私有仓库需要认证。请先运行 /login 登录\
+             （配置凭证后可自动使用），或改用 SSH 地址（git@...）。\n原始错误：{stderr}"
+        )
+        .into(),
+        Msg::PluginGitAuthRetryFailed { verb, hint, stderr } => format!(
+            "{verb}失败：使用已登录凭证仍无法访问该仓库（{hint}）。\n原始错误：{stderr}"
+        )
+        .into(),
+        Msg::PluginUrlMalformed { url } => format!("git 网址格式不正确：{url}").into(),
+        Msg::PluginUrlUnsupported { url } => {
+            format!("不支持或格式不正确的 git 网址：{url}").into()
+        }
+        Msg::PluginUrlMissingHost { url } => format!("git 网址缺少主机名：{url}").into(),
+        Msg::PluginUrlMissingPath { url } => {
+            format!("git 网址缺少仓库路径：{url}").into()
+        }
+        Msg::PluginUrlBadScheme { scheme } => {
+            format!("不支持的 git 网址协议：{scheme}").into()
+        }
+        Msg::PluginInstallDirRegistered { path } => {
+            format!("插件安装目录已存在且已注册：{path}").into()
+        }
+        Msg::PluginAlreadyInstalledError { id } => format!(
+            "插件 `{id}` 已安装。\n提示：如需重新安装，请先运行 `/plugin uninstall {id}`，\
+             再运行 `/plugin install {id}`"
+        )
+        .into(),
+        Msg::PluginAlreadyInProject { path } => {
+            format!("插件已安装到项目目录：{path}").into()
+        }
+        Msg::PluginAlreadyInProjectScope { id, scope } => {
+            format!("插件 `{id}` 已安装到项目范围 {scope}").into()
+        }
+        Msg::PluginSubdirEmpty => "git-subdir 来源的子目录路径为空".into(),
+        Msg::PluginSparseCheckoutFailed { stderr } => {
+            format!("git sparse-checkout 失败：{stderr}").into()
+        }
+        Msg::PluginCheckoutFailed { stderr } => format!("git checkout 失败：{stderr}").into(),
+        Msg::PluginSubdirNotFound { sub, url } => {
+            format!("在仓库 {url} 中未找到 git-subdir 路径 `{sub}`").into()
+        }
+        Msg::PluginGithubForm { repo } => {
+            format!("GitHub 仓库必须是 `owner/name` 形式，收到 `{repo}`").into()
+        }
+        Msg::PluginGithubChars { repo } => {
+            format!("GitHub 仓库 `{repo}` 包含不允许的字符").into()
+        }
+        Msg::PluginGithubDash { repo } => {
+            format!("GitHub 仓库 `{repo}` 的各段不能以 '-' 开头").into()
+        }
+        Msg::PluginLocalMissing { path } => {
+            format!("本地插件来源路径不存在：{path}").into()
+        }
+        Msg::PluginPinCheckoutFailed { rev, stderr } => {
+            format!("git checkout {rev} 失败：{stderr}").into()
+        }
+        Msg::PluginSourceBadComponents { source } => {
+            format!("插件来源路径“{source}”包含不允许的路径分量").into()
+        }
+        Msg::PluginMpNotRegistered { name } => {
+            format!("市场 `{name}` 未注册").into()
+        }
+        Msg::PluginNotInMarketplace { plugin, marketplace } => {
+            format!("在市场 `{marketplace}` 中未找到插件 `{plugin}`").into()
+        }
         Msg::CtxUsageHeader => "上下文用量".into(),
         Msg::CtxUsageNoTurns => "（请至少完成一轮对话 -- 统计在每轮结束时记录）".into(),
         Msg::CtxUsageWaiting => "（等待首轮完成 -- 当前仅为部分统计）".into(),
@@ -1929,6 +2378,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliAboutMarketplaceUpdate => "重新拉取已注册的市场并刷新插件索引".into(),
         Msg::CliAboutMarketplaceList => "列出已注册的市场".into(),
         Msg::CliAboutMcpAdd => "添加或替换 stdio MCP 服务器".into(),
+        Msg::CliAboutMcpAddOauth => "按 URL 添加远程 OAuth MCP 服务器（任意服务商）".into(),
         Msg::CliAboutMcpAddGithubOauth => "使用 OAuth 添加 GitHub 远程 MCP 服务器".into(),
         Msg::CliAboutMcpLogin => "完成远程 MCP 服务器的 OAuth 登录".into(),
         Msg::CliAboutMcpLogout => "删除远程 MCP 服务器的已保存 OAuth 凭证".into(),
@@ -1955,12 +2405,17 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliHelpMcpGlobal => "写入 ~/.rustcode/mcp.json 而非 <dir>/.mcp.json".into(),
         Msg::CliHelpMcpDir => "项目 .mcp.json 的目录".into(),
         Msg::CliHelpMcpName => "服务器键名".into(),
+        Msg::CliHelpMcpUrl => "服务器 HTTP URL（将从中发现 OAuth 元数据）".into(),
+        Msg::CliHelpMcpProvider => "可选的 OAuth 服务商提示（通常从服务器配置读取）".into(),
+        Msg::CliHelpMcpClientId => "OAuth 客户端 ID".into(),
         Msg::CliHelpHooksTestName => "要测试的钩子名称".into(),
         Msg::CliHelpPluginSpec => "如 plugin@marketplace".into(),
         Msg::CliHelpMarketplaceUrl => "市场仓库的 Git URL".into(),
         Msg::CliHelpMarketplaceName => "市场名称".into(),
         Msg::CliAboutHelp => "打印帮助信息".into(),
         Msg::CliHelpMcpCommand => "可执行文件及参数".into(),
+        Msg::CliAboutCompletion => "在标准输出生成 shell 补全脚本".into(),
+        Msg::CliHelpCompletionShell => "要生成补全的 shell".into(),
         Msg::CliAboutResume => "按 id 或名称恢复会话（在其上启动 TUI）".into(),
         Msg::CliHelpResumeSession => "要恢复的会话 id 或名称（默认：最近一次会话）".into(),
         Msg::CliAboutSchedule => "管理定时任务（添加/列表/移除/启用/禁用/同步）".into(),
@@ -1982,6 +2437,185 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliHelpSchedCron => "cron 表达式（如 \"0 9 * * 1-5\"）".into(),
         Msg::CliHelpSchedMode => "权限模式：plan | accept_edits | auto".into(),
         Msg::CliHelpSchedNotify => "通知级别：off | important | all".into(),
+
+        // ── rustcodex 独立 CLI（rustcode-clix）──
+        Msg::ClixAbout => "RustCode 独立命令行（新栈）".into(),
+        Msg::ClixAboutCode => "交互式编码代理（完整装配：工具 + 代码索引 + Web + 技能 + MCP + 会话 + 记忆）。".into(),
+        Msg::ClixAboutSessions => "列出当前项目可恢复的会话。".into(),
+        Msg::ClixAboutReview => "审查本地 git 差异并输出结构化发现。".into(),
+        Msg::ClixSessionsNone { dir, bucket } => {
+            format!("{dir} 没有可恢复的会话（存储位置：{bucket}）").into()
+        }
+        Msg::ClixSessionsRow { id, name, turns, ts } => {
+            format!("{id}  {name:<28}  {turns:<4} 轮  {ts}").into()
+        }
+        Msg::ClixProjectDirNotFound => "项目目录不存在".into(),
+        Msg::ClixWorkingDirNotFound => "工作目录不存在".into(),
+        Msg::ClixRepoNotFound { path } => format!("仓库目录不存在：{path}").into(),
+        Msg::ClixMissingBaseUrl => "缺少 base URL：请传入 --base-url、设置 $RUSTCODE_BASE_URL，或在配置中提供供应商".into(),
+        Msg::ClixMissingBaseUrlReview => "缺少 base URL：请传入 --base-url、设置 $RUSTCODE_BASE_URL，或在配置的供应商条目中添加 base_url".into(),
+        Msg::ClixMissingModel => "缺少模型：请传入 --model、设置 $RUSTCODE_MODEL，或在配置中提供供应商".into(),
+        Msg::ClixMissingModelReview => "缺少模型：请传入 --model、设置 $RUSTCODE_MODEL，或在配置的供应商条目中添加 model".into(),
+        Msg::ClixSigningGatewayCode { url } => {
+            format!("供应商 base_url '{url}' 需要 RustCode 专有的请求签名，rustcodex 无法生成 -- 请使用普通的 OpenAI 兼容端点").into()
+        }
+        Msg::ClixSigningGatewayReview { url } => {
+            format!("供应商 base_url '{url}' 是强制签名的受管网关，rustcodex 无法向其认证（需要专有的请求签名）。请使用带显式 api_key 的标准第三方供应商：用 `--provider <name>` 选择已命名的 [providers.<name>] 条目，或把 RUSTCODE_API_KEY/RUSTCODE_BASE_URL/RUSTCODE_MODEL 指向普通的 OpenAI 兼容端点。").into()
+        }
+        Msg::ClixNoSessionToContinue => {
+            "本项目没有可继续的会话 -- 不加 --continue 直接启动一个新会话".into()
+        }
+        Msg::ClixConfigLoadFailed { path } => format!("加载配置失败：{path}").into(),
+        Msg::ClixConfigParseFailed => "解析 config.toml 失败".into(),
+        Msg::ClixConfigReadFailed { path } => format!("无法读取配置文件：{path}").into(),
+        Msg::ClixConfigMalformed { path } => format!("配置文件格式错误：{path}").into(),
+        Msg::ClixPreparing { model } => format!("准备中（{model}）...").into(),
+        Msg::ClixRuntimeStartFailed => "运行时启动失败".into(),
+        Msg::ClixSessionNew { id } => format!("会话 {id}（新建）").into(),
+        Msg::ClixSessionResumed { id } => format!("会话 {id}（已恢复）").into(),
+        Msg::ClixTurnAbnormal { reason } => format!("回合未正常结束：{reason}").into(),
+        Msg::ClixTurnSnapshotUnavailable { reason, error } => {
+            format!("{reason} 之后回合快照不可用：{error}").into()
+        }
+        Msg::ClixAgentTerminatedUnexpectedly => "代理意外终止".into(),
+        Msg::ClixInteractiveHint => "交互模式 -- 输入 /help 查看命令，/quit 退出".into(),
+        Msg::ClixStdinError { error } => format!("{error} -- 正在退出").into(),
+        Msg::ClixSigintExit => "（正在退出 -- 会话已保存；下次可用 /quit，或再按一次 Ctrl-C）".into(),
+        Msg::ClixAgentTerminatedNote => "正在退出".into(),
+        Msg::ClixSessionSaved { id } => {
+            format!("会话已保存 -- 恢复命令：rustcodex code --resume {id}").into()
+        }
+        Msg::ClixCancelling => "正在取消 ...".into(),
+        Msg::ClixRetry {
+            reason,
+            backoff_secs,
+            attempt,
+            max_attempts,
+        } => format!("API 错误 {reason}；{backoff_secs} 秒后重试（{attempt}/{max_attempts}）").into(),
+        Msg::ClixStreamRecovered => "已从中断的流恢复".into(),
+        Msg::ClixStreamContinuing {
+            attempt,
+            max_attempts,
+        } => format!("正从已保存的进度安全继续（{attempt}/{max_attempts}）").into(),
+        Msg::ClixCompacting => "正在压缩 ...".into(),
+        Msg::ClixCompacted => "已压缩".into(),
+        Msg::ClixCompactedNoGain => "已压缩 -- 无收益，未写入".into(),
+        Msg::ClixCompactFailed { error } => format!("压缩失败：{error}").into(),
+        Msg::ClixTurnEnded { reason } => format!("回合结束：{reason}").into(),
+        Msg::ClixToolResultChars { count } => format!("（{count} 字符）").into(),
+        Msg::ClixToolResultCharsNamed { name, count } => {
+            format!("{name}（{count} 字符）").into()
+        }
+        Msg::ClixYoloAutoAllow { tool, args } => format!("自动允许 {tool} {args}").into(),
+        Msg::ClixDiscardedTypedAhead { count } => {
+            format!("（已丢弃 {count} 行提前输入的内容 -- 批准提示需要当场给出回答）").into()
+        }
+        Msg::ClixApprovalNeeded { tool, args } => format!("需要批准：{tool} {args}").into(),
+        Msg::ClixApprovalPrompt => "允许？[y = 一次 / always = 记住 / N = 拒绝]".into(),
+        // 单行 + 显式 \n：Rust 字符串的 `\` 续行会吞掉下一行前导空格。
+        Msg::ClixSlashHelp => "  /remember [-g] <事实>    追加到项目（-g：全局）memory.md\n  /forget [-g] <关键词>  删除匹配的记忆条目\n  /memory                 查看模型拿到的合并记忆\n  /compact [焦点]         压缩对话（回合边界）\n  /sessions               列出本项目的会话\n  /quit                   退出（会话会保留）".into(),
+        Msg::ClixRememberUsage => "用法：/remember [-g] <事实>".into(),
+        Msg::ClixForgetUsage => "用法：/forget [-g] <关键词>".into(),
+        Msg::ClixRemembered { scope } => {
+            format!("已记住（{scope}）-- 下次启动会话时注入").into()
+        }
+        Msg::ClixMemoryWriteFailed { error } => format!("写入记忆失败：{error}").into(),
+        Msg::ClixMemoryUpdateFailed { error } => format!("更新记忆失败：{error}").into(),
+        Msg::ClixForgetNoMatch { keyword } => format!("没有匹配 '{keyword}' 的条目").into(),
+        Msg::ClixForgotEntry { entry } => format!("已忘记：{entry}").into(),
+        Msg::ClixMemoryEmptyHint => "（记忆为空 -- 用 /remember <事实> 添加）".into(),
+        Msg::ClixCompactionRequested => "已请求压缩".into(),
+        Msg::ClixUnknownSlash { name } => {
+            format!("未知命令 /{name} -- 输入 /help 查看（以 / 开头的是命令）").into()
+        }
+        Msg::ClixStdinConflict { flags } => {
+            format!("{flags} 都从标准输入读取；请只保留一个用 -，其余给文件路径").into()
+        }
+        Msg::ClixNoChanges => "没有需要审查的更改。".into(),
+        Msg::ClixRulesInjected { files, chars } => {
+            format!("已为 {files} 个变更文件注入规则（{chars} 字符）").into()
+        }
+        Msg::ClixRulesNone => "没有语言规则匹配变更文件".into(),
+        Msg::ClixTraceCustomTask { chars } => format!("自定义任务（{chars} 字符）").into(),
+        Msg::ClixTraceChangedLines { lines } => format!("{lines} 个变更行").into(),
+        Msg::ClixRunning { label, model } => {
+            format!("正在运行 {label}（模型 {model}）...").into()
+        }
+        Msg::ClixTraceTools { count, profile } => {
+            format!("-- 跟踪 -- {count} 次工具调用：{profile}").into()
+        }
+        Msg::ClixTraceTokens {
+            prompt,
+            completion,
+            cached,
+        } => format!("-- token -- 提示 {prompt} / 补全 {completion} / 缓存 {cached}").into(),
+        Msg::ClixPassInitial => "首轮".into(),
+        Msg::ClixPassCoverage => "覆盖率复审".into(),
+        Msg::ClixScopeDropped { dropped, files } => {
+            format!("丢弃了 {dropped} 条锚定在 {files} 个变更文件之外的发现").into()
+        }
+        Msg::ClixCoverageSkippedFlag => "已跳过 -- --no-coverage".into(),
+        Msg::ClixCoverageRereview { count, files } => {
+            format!("{count} 个变更文件没有发现；正在复审：{files}").into()
+        }
+        Msg::ClixCoverageTrace { count, profile } => {
+            format!("-- 覆盖率跟踪 -- {count} 次工具调用：{profile}").into()
+        }
+        Msg::ClixCoverageRecovered { added } => format!("复审补回 {added} 条发现").into(),
+        Msg::ClixCoverageSkippedNoSignal { findings } => {
+            format!("已跳过 -- 过滤后没有高信号的未覆盖文件（首轮发现数={findings}）").into()
+        }
+        Msg::ClixCoverageSkippedIncomplete { reasons } => {
+            format!("已跳过 -- 首轮未完成（{reasons}）").into()
+        }
+        Msg::ClixCoverageCapped { cap, dropped } => {
+            format!("复审上限为 {cap} 个最高优先级文件；丢弃了 {dropped} 个较低优先级的未覆盖文件").into()
+        }
+        Msg::ClixReviewIncompleteNoFindings => "审查未完成 -- 没有收集到发现。".into(),
+        Msg::ClixReviewClean => "没有发现 -- 此 diff 看起来没有问题。\n".into(),
+        Msg::ClixFindingsHeader {
+            total,
+            p0,
+            p1,
+            p2,
+            p3,
+        } => format!("发现 {total} 条：{p0} 个 P0，{p1} 个 P1，{p2} 个 P2，{p3} 个 P3\n\n").into(),
+        Msg::ClixReviewerSummary { text } => format!("\n-- 审查员总结 --\n{text}").into(),
+        Msg::ClixReviewBailIncomplete { why } => {
+            format!("审查未完成（{why}）：没有收集到发现").into()
+        }
+        Msg::ClixReviewEndedEarly { why, count } => {
+            format!("警告：审查提前结束（{why}）；停止前已收集 {count} 条发现").into()
+        }
+        Msg::ClixTaskStdinFailed => "从标准输入读取任务失败".into(),
+        Msg::ClixTaskFileFailed { path } => format!("读取任务文件失败：{path}").into(),
+        Msg::ClixTaskFileEmpty { path } => format!("任务文件为空：{path}").into(),
+        Msg::ClixPromptStdinFailed => "从标准输入读取系统提示失败".into(),
+        Msg::ClixPromptFileFailed { path } => format!("读取系统提示文件失败：{path}").into(),
+        Msg::ClixDiffStdinFailed => "从标准输入读取 diff 失败".into(),
+        Msg::ClixDiffFileFailed { path } => format!("读取 diff 文件失败：{path}").into(),
+        Msg::ClixGhFailed => "运行 `gh` 失败 -- 请安装 GitHub CLI，或通过 `--diff-file -` 管道传入 diff（如 GitLab 等其他平台）".into(),
+        Msg::ClixGhPrFailed { pr, error } => format!("`gh pr diff {pr}` 失败：{error}").into(),
+        Msg::ClixGitFailed => "运行 `git` 失败 -- 它是否已安装并在 PATH 上？".into(),
+        Msg::ClixGitDiffFailed { error } => format!("git diff 失败：{error}").into(),
+        Msg::ClixSkillDirNotFound { path } => format!("--skill-dir 目录不存在：{path}").into(),
+        Msg::ClixHelpCodePrompt => "一次性提示：运行单个回合、打印回答后退出（会话仍会保存且可恢复）。".into(),
+        Msg::ClixHelpCodeDir => "代理工具所限定的工作目录。".into(),
+        Msg::ClixHelpCodeResume => "按 id 恢复会话（参见 `rustcodex sessions`）。".into(),
+        Msg::ClixHelpCodeContinue => "恢复本项目最近更新的会话。".into(),
+        Msg::ClixHelpCodeYolo => "自动批准所有有风险的工具调用（CI / 受信任运行）。".into(),
+        Msg::ClixHelpCodeNoMcp => "跳过 MCP 服务器连接。".into(),
+        Msg::ClixHelpCodeNoMemory => "跳过 memory.md 注入。".into(),
+        Msg::ClixHelpCodeNoWeb => "跳过 web_fetch / web_search 工具。".into(),
+        Msg::ClixHelpCodeModel => "模型 id（覆盖 $RUSTCODE_MODEL）。".into(),
+        Msg::ClixHelpCodeApiKey => "第三方 Provider 的 API 密钥（覆盖 $RUSTCODE_API_KEY）。".into(),
+        Msg::ClixHelpCodeBaseUrl => "第三方 Provider 的基础 URL（覆盖 $RUSTCODE_BASE_URL）。".into(),
+        Msg::ClixHelpCodeProvider => "使用配置文件中指定的 `[providers.<name>]` 条目（覆盖 `default_provider`）。".into(),
+        Msg::ClixHelpCodeConfig => "配置文件路径（默认：~/.rustcode/config.toml）。".into(),
+        Msg::ClixHelpCodeStreamTimeout => "等待每个流事件的最长秒数（存活守卫）。".into(),
+        Msg::ClixHelpSessionsDir => "项目目录（默认：当前目录）。".into(),
+        Msg::ClixHelpReviewRepo => "仓库根目录（默认：当前目录）。".into(),
+        Msg::ClixHelpReviewJson => "以 JSON 输出审查结果，而不是人类可读的报告。".into(),
 
         // ── /usage modal ──
         Msg::UsageTabCurrent => "当前窗口".into(),
@@ -2012,8 +2646,250 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::UsagePlanRemaining { remaining, total } =>
             format!("剩余 {remaining}/{total} 天").into(),
         Msg::UsageCopied => "已复制到剪贴板".into(),
+        Msg::UsageTableModel => "模型".into(),
+        Msg::UsageTableTokens => "Token 数".into(),
+        Msg::UsageTableShare => "占比".into(),
+        Msg::UsageMonthShort { month } => format!("{month}月").into(),
+        Msg::UsageWeekdayShort { weekday } => match weekday {
+            0 => "周日",
+            1 => "周一",
+            2 => "周二",
+            3 => "周三",
+            4 => "周四",
+            5 => "周五",
+            6 => "周六",
+            _ => "",
+        }
+        .into(),
+        Msg::UsageTokensPerDay => "每日 Token 数".into(),
+        Msg::UsageDays { n } => format!("{n} 天").into(),
+        Msg::UsageSparkMeta { pct, reqs, tokens } =>
+            format!("{pct}%  .  {reqs} 次请求  .  {tokens}").into(),
         Msg::UsageCodingPlanOnly =>
             "当前构建不支持托管账号用量查询。运行 /cost 可查看本会话的本地 Token 用量。".into(),
+
+        Msg::NotifyTitleDone => "RustCode 已完成".into(),
+        Msg::NotifyTitleCancelled => "RustCode 已取消".into(),
+        Msg::NotifyTitleFailed => "RustCode 执行失败".into(),
+        Msg::NotifyTitleStopped => "RustCode 已停止".into(),
+        Msg::NotifyStatusDone => "已完成".into(),
+        Msg::NotifyStatusCancelled => "已取消".into(),
+        Msg::NotifyStatusFailed => "失败".into(),
+        Msg::NotifyStatusStopped => "已停止".into(),
+        Msg::NotifyRounds { n } => format!("{n} 轮").into(),
+        Msg::NotifyTools { n } => format!("{n} 次工具调用").into(),
+        Msg::NotifyApprovalTitle => "RustCode 需要批准".into(),
+        Msg::NotifyApprovalBody { tool } =>
+            format!("{tool} 等待批准（Y/A/N）").into(),
+
+        // ── TUI 用户输入面板 ──
+        Msg::UserInputTextPlaceholder => "输入答案...".into(),
+        Msg::UserInputOwnAnswer => "输入自己的答案\u{2026}".into(),
+        Msg::UserInputSubmitRow => "\u{2714} 提交".into(),
+        Msg::UserInputSubmitLabel => "提交".into(),
+        Msg::UserInputHintSingle { n } => format!(
+            "\u{2191}\u{2193} 移动 \u{00b7} 1-{n} 选择 \u{00b7} Enter 确认 \u{00b7} Esc 取消"
+        ).into(),
+        Msg::UserInputHintMultiple =>
+            "\u{2191}\u{2193} 移动 \u{00b7} Space 切换 \u{00b7} Enter 在提交行确认 \u{00b7} Esc 取消".into(),
+        Msg::UserInputHintText =>
+            "输入答案 \u{00b7} Enter 确认 \u{00b7} Esc 取消".into(),
+        Msg::UserInputBatchNav { index, total } =>
+            format!("问题 {index}/{total}").into(),
+        Msg::UserInputReviewTitle => "提交前确认".into(),
+        Msg::UserInputAnswer { answer } => format!("回答：{answer}").into(),
+        Msg::UserInputUnanswered => "未回答".into(),
+        Msg::UserInputSubmitAll { answered, total } =>
+            format!("提交全部 ({answered}/{total} 已答)").into(),
+        Msg::UserInputHintSubmit =>
+            "Enter 提交 \u{00b7} PgUp/PgDn 查看 \u{00b7} Shift+Tab 返回 \u{00b7} Esc 放弃".into(),
+        Msg::UserInputHintBatch =>
+            "作答 \u{00b7} Tab/Shift+Tab 切换问题 \u{00b7} 到提交行 Enter 交全部 \u{00b7} Esc 放弃".into(),
+        Msg::PlainAgentsStatus { finished, total, failed } =>
+            format!("子代理：{finished}/{total} 完成 \u{00b7} {failed} 失败").into(),
+        Msg::ModelPickerEmptyNoProviders =>
+            "（未配置模型 -- 使用 /provider add）".into(),
+        Msg::ModelPickerEmptyNoMatch => "（无匹配模型）".into(),
+        Msg::ModelPickerEmptyQuery { query } =>
+            format!("（无匹配模型 “{query}” -- 按 Backspace 清除）").into(),
+        Msg::CliCrashHeader { info } => format!("\nRustCode 崩溃：{info}").into(),
+        Msg::CliCrashReport =>
+            "\n请将此崩溃信息（连同上方堆栈）反馈给 RustCode 安装渠道的问题追踪器。".into(),
+
+        // ── TUI 会话恢复 / 回退 ──
+        Msg::SessionResumeCancelled => "已取消加载会话".into(),
+        Msg::SessionResumeCancelling => "正在取消加载会话...".into(),
+        Msg::RewindNoPoints => "当前会话还没有可回退的回合。".into(),
+        Msg::RewindCatalogLoadFailed { error } =>
+            format!("加载回退点失败：{error}").into(),
+        Msg::RewindFailed { error } => format!("回退失败：{error}").into(),
+        Msg::RewindScopeConversation => "对话".into(),
+        Msg::RewindScopeCode => "代码".into(),
+        Msg::RewindScopeConversationAndCode => "对话和代码".into(),
+        Msg::RewindSuccessMain { scope, prompt } =>
+            format!("\u{21a9} 已将{scope}回退到\u{201c}{prompt}\u{201d}之前").into(),
+        Msg::RewindSuccessFiles { n } => format!("（恢复 {n} 个文件）").into(),
+        Msg::RewindSuccessEnd => "。".into(),
+        Msg::ImageCacheDropped { n } =>
+            format!("[Image #{n}] 缓存已丢失，已从消息中移除").into(),
+        Msg::MoreFilesHint { hidden } =>
+            format!("还有 {hidden} 个文件 (\u{2191}/\u{2193} 滚动)").into(),
+        Msg::DiffPanelFilesChanged { count } => format!("{count} 个文件有变更").into(),
+        Msg::DiffPanelRenamedFrom { path } => format!("重命名前：{path}").into(),
+        Msg::DiffPanelNoChanges => "暂无变更".into(),
+        Msg::DiffPanelTruncated => "... 差异已截断".into(),
+        Msg::DiffPanelTitle => "差异".into(),
+        Msg::DiffPanelEscToClose => "Esc 关闭".into(),
+        Msg::FileViewerSelectFile => "选择文件".into(),
+        Msg::DiffPanelBoundedSnapshot => "快照超过展示上限，部分文件或行已截断".into(),
+        Msg::DiffPanelUntracked => "未跟踪文件；加入暂存区后可查看补丁".into(),
+        Msg::DiffPanelPatchLimit => "补丁超过展示上限".into(),
+        Msg::DiffScopeStaged => "已暂存".into(),
+        Msg::DiffScopeUnstaged => "未暂存".into(),
+        Msg::DiffPanelLoading => "正在读取仓库变更...".into(),
+        Msg::DiffPanelFooterSelect => "↑/↓ 选择 . Enter 查看 . Esc 关闭".into(),
+        Msg::DiffPanelFooterScroll => "↑/↓ 滚动 . ← 返回 . Esc 返回".into(),
+        Msg::DiffPanelWorkerStopped => "差异读取线程意外停止".into(),
+        Msg::DiffPanelBinary => "二进制文件，无法展示内容差异".into(),
+        Msg::DiffPanelMetadataNoHunks => "文件元数据已变更，没有文本块".into(),
+        Msg::DiffPanelInitialChanges => "初始变更  (仓库还没有 HEAD)".into(),
+        Msg::DiffPanelUncommittedChanges => "未提交变更  (git diff HEAD)".into(),
+        Msg::FileViewerOpenExternal => "打开外部文件:".into(),
+        Msg::FileViewerTypeToSearch => "输入以搜索文件".into(),
+        Msg::FileViewerNoMatches => "无匹配文件".into(),
+        Msg::FileViewerFooter => "↑↓ 选择 . Enter 打开 . 输入 /~ 路径打开外部文件 . Esc 取消".into(),
+        Msg::FileViewerReadFailed => "读取失败".into(),
+        Msg::FileViewerNotRegular => "不是常规文件".into(),
+        Msg::FileViewerBinary => "文件似乎是二进制（包含 NUL 字节）".into(),
+        Msg::FileViewerNotUtf8 => "文件不是有效的 UTF-8 编码".into(),
+        Msg::FileViewerTruncatedMarker => "已截断".into(),
+        Msg::FileViewerFooterBack => "↑↓/PgUp 滚动 . Esc 返回".into(),
+        Msg::FileViewerFooterClose => "↑↓/PgUp 滚动 . Esc 关闭".into(),
+        Msg::RewindTargetHeader => "将对话恢复到以下提示之前...".into(),
+        Msg::RewindMoreAbove { count } => format!("↑ 上方还有 {count} 个回退点").into(),
+        Msg::RewindCheckpoint => "  对话检查点".into(),
+        Msg::RewindNoCodeChanges => "  无代码变更".into(),
+        Msg::RewindFilesChanged { count } => format!("{count} 个文件有变更").into(),
+        Msg::RewindCurrent => "(当前)".into(),
+        Msg::RewindMoreBelow { count } => format!("↓ 下方还有 {count} 个回退点").into(),
+        Msg::RewindScopeTitle => "回退到此提示之前：".into(),
+        Msg::RewindScopeMenuConversation => "仅回退对话".into(),
+        Msg::RewindScopeMenuCode => "仅回退代码".into(),
+        Msg::RewindScopeMenuBoth => "回退对话和代码".into(),
+        Msg::RewindUnavailable => "  (不可用)".into(),
+        Msg::RewindFooterTarget => "↑/↓ 选择 . Enter 继续 . Esc 取消".into(),
+        Msg::RewindFooterScope => "↑/↓ 选择 . Enter 回退 . ← 返回 . Esc 取消".into(),
+        Msg::RewindStartFailed => "无法开始回退".into(),
+        Msg::SessionPreviewLoading => "正在加载预览...".into(),
+        Msg::SessionPreviewUnavailable => "预览不可用".into(),
+        Msg::PluginUninstallMarketplaceWarning { count } =>
+            format!("  此操作将同时卸载该市场下的 {count} 个插件：").into(),
+        Msg::ConfigPanelTitle { shown, total } => format!("配置 ({shown} / {total})").into(),
+        Msg::ConfigPanelResetHint { id } => format!("再次按 Delete 恢复 {id} 的默认值").into(),
+        Msg::ConfigPanelFooter => "↑↓ 选择 . Enter 修改 . Delete 恢复默认 . Esc 返回".into(),
+        Msg::ConfigPanelRetryAttempts { model } =>
+            format!("最大重试次数（当前模型：{model}）").into(),
+        Msg::ConfigPanelPolicyImmediate => "立即".into(),
+        Msg::ConfigPanelPolicyNextTurn => "下一轮".into(),
+        Msg::ConfigPanelPolicyReload => "重新加载".into(),
+        Msg::ConfigPanelPolicyReprepare => "重建能力".into(),
+        Msg::ConfigPanelPolicyRestart => "重启后".into(),
+        Msg::ProviderPanelAddAccountRow => "＋ 添加自定义 provider".into(),
+        Msg::ProviderPanelRequiredMark => "(必填)".into(),
+        Msg::ProviderPanelFieldName => "名称".into(),
+        Msg::ProviderPanelFieldProtocol => "协议".into(),
+        Msg::ProviderPanelAddAccountFormHint =>
+            "Tab 下一项  ←-> 切协议  ↵ 保存  Esc 返回  （名称必填；模型到模型页加）".into(),
+        Msg::ProviderPanelProtocolLocked { protocol } =>
+            format!("  协议: {protocol} (锁定)").into(),
+        Msg::ProviderPanelEditFormVendorLockedHint =>
+            "Tab 下一项  ↵ 保存  Esc 返回  （CodingPlan 仅可改 base_url）".into(),
+        Msg::ProviderPanelEditFormProtocolLockedHint =>
+            "Tab 下一项  ↵ 保存  Esc 返回  （厂商协议已锁定）".into(),
+        Msg::ProviderPanelEditAccountFormHint =>
+            "Tab 下一项  ←-> 切协议  ↵ 保存  Esc 返回".into(),
+        Msg::ProviderPanelProviderNotConfigured => "该 provider 尚未配置".into(),
+        Msg::MenuPlaceholderSearchSessions => "搜索会话...".into(),
+        Msg::MenuPlaceholderSearchDirs => "搜索历史目录或输入路径...".into(),
+        Msg::MenuPlaceholderFilter => "输入以筛选...".into(),
+
+        // ── TUI Provider 重载失败 ──
+        Msg::ProviderReloadFailed { error } =>
+            format!("Provider 重载失败：{error}").into(),
+        Msg::ProviderReloadSupersededNote =>
+            "；较新的运行时世代赢得了切换，以运行时归属方状态为准".into(),
+        Msg::ProviderRollbackFailed { error } =>
+            format!("；配置回滚失败：{error}").into(),
+
+        // ── daemon 实时线错误（WebUI 聊天面） ──
+        Msg::LiveCompactFailed { error } => format!("压缩失败：{error}").into(),
+        Msg::LiveSetModeFailed { error } => format!("切换模式失败：{error}").into(),
+        Msg::LiveSubmitFailed { error } => format!("发送用户消息失败：{error}").into(),
+        Msg::LiveProviderReloadFailed { error } =>
+            format!("Provider 重载失败：{error}").into(),
+        Msg::LiveProviderDeactivationFailed { error } =>
+            format!("Provider 停用失败：{error}").into(),
+        Msg::LiveSnapshotRestoreFailed { error } =>
+            format!("快照恢复失败：{error}").into(),
+        Msg::LiveUndoFailed { error } => format!("撤销失败：{error}").into(),
+        Msg::LiveProviderNotConfigured =>
+            "未配置 Provider——请在设置中添加第三方 API Key".into(),
+        Msg::LiveProviderAuthRequired =>
+            "Provider 认证失败——请在设置中检查或更新 API Key".into(),
+        Msg::LiveProviderUnsupportedBuild =>
+            "当前构建无法为受管签名网关签署请求——请使用带签名支持的发行版构建，或在设置中配置标准第三方 Provider".into(),
+
+        // ── daemon 登录轮询错误 ──
+        Msg::DaemonApiLoginSessionGone => "登录会话已不存在，请重新发起登录".into(),
+        Msg::DaemonApiLoginPollUnavailable => "登录服务暂时不可用".into(),
+        Msg::DaemonApiLoginExchangeFailed => "登录授权交换失败".into(),
+        Msg::DaemonApiAuthPersistFailed => "登录凭证保存失败".into(),
+        Msg::LiveApiSessionNamingFailed { error } => {
+            format!("会话自动命名失败：{error}").into()
+        }
+        Msg::LiveApiRuntimeStoppedEarly => "编码运行时在回合到达终态前已停止".into(),
+        Msg::LiveApiProviderRetry {
+            reason,
+            backoff_secs,
+            attempt,
+            max_attempts,
+        } => format!(
+            "API 错误 {reason}，{backoff_secs} 秒后重试（{attempt}/{max_attempts}）..."
+        )
+        .into(),
+        Msg::LiveApiStreamRecovered => "已从中断的流中恢复".into(),
+        Msg::LiveApiStreamTimeout {
+            attempt,
+            max_attempts,
+        } => format!(
+            "流超时；正从已保存的进度安全继续（{attempt}/{max_attempts}）"
+        )
+        .into(),
+        Msg::LiveApiOutputLimit {
+            attempt,
+            max_attempts,
+        } => format!("已达输出长度上限；自动继续中（{attempt}/{max_attempts}）").into(),
+        Msg::LiveApiRuntimeStopped { reason } => {
+            format!("编码运行时已停止：{reason}").into()
+        }
+        Msg::LiveApiRuntimeStoppedForcedSuffix => "（已强制停止）".into(),
+        Msg::LiveApiEventSerializationFailed { error } => {
+            format!("实时事件序列化失败：{error}").into()
+        }
+        Msg::LiveApiEventNotObject => "实时事件不是 JSON 对象".into(),
+        Msg::LiveApiStreamLagged { skipped } => {
+            format!("实时流滞后，已跳过 {skipped} 个事件；请重连").into()
+        }
+        Msg::LiveApiActiveTurnModelSwitch => "有回合正在运行；切换模型前请先停止该回合".into(),
+        Msg::LiveApiGoalConditionEmpty => "目标条件为空".into(),
+        Msg::PermissionReasonRequiresApproval => "需要批准".into(),
+        Msg::DaemonSessionSaveEarlyStopFailed { error } => format!(
+            "警告：提前停止后保存本地会话失败：{error}"
+        )
+        .into(),
+        Msg::DaemonPanicHook { loc, msg } => {
+            format!("[rustcode] 发生崩溃，位置 {loc}：{msg}").into()
+        }
 
         Msg::StreamStalled => "按 esc 可取消".into(),
         Msg::StreamRecoveryRunning { attempt, max_attempts } => format!(
@@ -2034,6 +2910,151 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             "提示：经典 Windows 控制台功能受限----任务执行中无法上滚查看历史，字符与吉祥物也会降级显示。\
              换用 \x1b[1;96mWindows Terminal\x1b[0m 体验更佳。"
                 .into(),
+
+        // ── rustcode-daemon 启动横幅与致命错误 ──
+        Msg::DaemonIdleTimeout { minutes } => format!("空闲超时：{minutes} 分钟").into(),
+        Msg::DaemonIdleTimeoutDisabled => "空闲超时：已禁用".into(),
+        Msg::DaemonWarnNonLoopback { host } => format!(
+            "警告：正在绑定到非回环地址 '{host}'。守护进程暴露了敏感端点（聊天、文件编辑、工具执行）。\
+             请确保所在网络可信，或改用带认证的反向代理。"
+        )
+        .into(),
+        Msg::DaemonWarnDangerousTools { env } => {
+            format!("警告：{env}=1 会启用 bash 以及具备写入能力的守护进程工具。").into()
+        }
+        Msg::DaemonListening { addr } => {
+            format!("RustCode API 服务已启动，监听地址 http://{addr}").into()
+        }
+        Msg::DaemonApiEndpoints => "API 端点：".into(),
+        Msg::DaemonEpHealth => "健康检查".into(),
+        Msg::DaemonEpProject => "获取当前工作目录".into(),
+        Msg::DaemonEpCd => "切换工作目录（同 /cd 命令）".into(),
+        Msg::DaemonEpProjects => "列出历史项目".into(),
+        Msg::DaemonEpProjectSessions => "列出项目内的会话".into(),
+        Msg::DaemonEpSessionDetail => "获取会话详情".into(),
+        Msg::DaemonEpSessionDelete => "删除会话".into(),
+        Msg::DaemonEpSessionRename => "重命名会话".into(),
+        Msg::DaemonEpSessionRepair => "检查或修复会话".into(),
+        Msg::DaemonEpSessionsAll => "列出全部会话（跨项目）".into(),
+        Msg::DaemonEpSessionsSearch => "按名称搜索会话".into(),
+        Msg::DaemonEpModels => "列出可用模型".into(),
+        Msg::DaemonEpChat => "流式聊天响应（SSE）".into(),
+        Msg::DaemonEpConfigGet => "获取脱敏后的配置".into(),
+        Msg::DaemonEpConfigReload => "从磁盘重新加载配置".into(),
+        Msg::DaemonEpProvidersList => "列出供应商".into(),
+        Msg::DaemonEpProvidersCreate => "创建/替换供应商".into(),
+        Msg::DaemonEpProvidersUpdate => "部分更新供应商".into(),
+        Msg::DaemonEpProvidersDelete => "删除供应商".into(),
+        Msg::DaemonEpProviderDefault => "设置默认供应商".into(),
+        Msg::DaemonEpProviderThinking => "更新思考（thinking）设置".into(),
+        Msg::DaemonEpSkills => "列出用户可调用的技能".into(),
+        Msg::DaemonEpAuthStatus => "登录状态".into(),
+        Msg::DaemonEpLoginStart => "发起 OAuth 登录".into(),
+        Msg::DaemonEpLoginPoll => "轮询登录会话".into(),
+        Msg::DaemonEpLoginCancel => "取消登录会话".into(),
+        Msg::DaemonEpLogout => "退出登录".into(),
+        Msg::DaemonEpCpSetup => "运行 CodingPlan 初始化".into(),
+        Msg::DaemonEpCpUsageSummary => "CodingPlan 配额汇总".into(),
+        Msg::DaemonEpCpUsageDaily => "CodingPlan 每日用量".into(),
+        Msg::DaemonCdBodyHeading => "切换目录请求体：".into(),
+        Msg::DaemonCdBodyHint => r#"或用 {"path": "-"} 返回上一级目录"#.into(),
+        Msg::DaemonChatBodyHeading => "聊天请求体：".into(),
+        Msg::DaemonFatalBind { addr, error } => {
+            format!("致命错误：无法绑定到 {addr}：{error}").into()
+        }
+        Msg::DaemonFatalServer { error } => format!("致命错误：守护进程服务出错：{error}").into(),
+
+        // ── rustcode-daemon HTTP API 错误消息（机器面 code 保持英文）──
+        Msg::DaemonApiManagedUnavailable => "当前构建未提供托管登录服务。请在供应商设置中用你自己的 API 密钥配置第三方供应商。".into(),
+        Msg::DaemonApiLoginSessionLimit => "进行中的登录会话过多；请取消或等待一个已有登录完成".into(),
+        Msg::DaemonApiLoginStartFailed => "发起登录失败".into(),
+        Msg::DaemonApiLoginTaskFailed => "登录任务失败".into(),
+        Msg::DaemonApiInvalidLoginId => "登录会话 ID 无效".into(),
+        Msg::DaemonApiLogoutFailed { error } => format!("退出登录失败：{error}").into(),
+        Msg::DaemonApiCpNotLoggedIn => "CodingPlan 账号尚未登录".into(),
+        Msg::DaemonApiCpUsageLoadFailed => "无法加载 CodingPlan 用量".into(),
+        Msg::DaemonCmdInvalidBucket => "项目会话桶标识无效".into(),
+        Msg::DaemonCmdSessionNotFound { id } => format!("未找到会话 {id}").into(),
+        Msg::DaemonCmdProviderBuildPanicked { error } => {
+            format!("供应商构建任务发生 panic：{error}").into()
+        }
+        Msg::DaemonCmdProviderBuildFailed { error } => {
+            format!("供应商构建失败：{error}").into()
+        }
+        Msg::DaemonCmdSessionIdRequired { cmd } => format!("{cmd} 命令需要 session_id").into(),
+        Msg::DaemonCmdRememberNeedsContent => "/remember 需要提供内容".into(),
+        Msg::DaemonCmdForgetNeedsKeyword => "/forget 需要提供关键词".into(),
+        Msg::DaemonCmdUnknown { name } => format!("未知命令：{name}").into(),
+        Msg::DaemonProvDiscoveryScheme => "模型发现仅支持 http 和 https 地址".into(),
+        Msg::DaemonProvDiscoveryNoCreds => "模型发现地址中不能包含凭证信息".into(),
+        Msg::DaemonProvInvalidModelId => "模型选择 id 为空或包含非法字符".into(),
+        Msg::DaemonProvModelCountRange => "一次请选择 1 到 100 个模型".into(),
+        Msg::DaemonProvDupModelInRequest { model } => {
+            format!("请求中模型 `{model}` 重复").into()
+        }
+        Msg::DaemonProvModelExistsInAccount { model, account } => {
+            format!("账号 `{account}` 下已存在模型 `{model}`").into()
+        }
+        Msg::DaemonProvDupSelectionInRequest { selection } => {
+            format!("请求中模型选择 `{selection}` 重复").into()
+        }
+        Msg::DaemonProvSelectionExists { selection } => {
+            format!("模型选择 `{selection}` 已存在").into()
+        }
+        Msg::DaemonProvAccountNotFoundId { id } => format!("未找到供应商账号 `{id}`").into(),
+        Msg::DaemonProvRuntimeReadOnly => "运行时内置的供应商账号不可修改".into(),
+        Msg::DaemonProvModelEmpty => "模型名称不能为空".into(),
+        Msg::DaemonProvContextWindowPositive => "context_window 必须大于零".into(),
+        Msg::DaemonProvMaxTokensPositive => "max_tokens 必须大于零".into(),
+        Msg::DaemonProvAccountNotFound => "未找到供应商账号".into(),
+        Msg::DaemonProvManagedAccount => "CodingPlan 托管供应商账号不可修改".into(),
+        Msg::DaemonProvManagedProvider => "CodingPlan 托管供应商不可修改".into(),
+        Msg::DaemonProvModelExists { name } => format!("模型选择 {name} 已存在").into(),
+        Msg::DaemonProvProviderExists { name } => format!("供应商“{name}”已存在").into(),
+        Msg::DaemonProvAccountForModelNotFound { name } => {
+            format!("未找到模型 {name} 对应的账号").into()
+        }
+        Msg::DaemonProvProviderNotFound { name } => format!("未找到供应商“{name}”").into(),
+        Msg::DaemonProvManagedLocked { action } => {
+            format!("CodingPlan 供应商由 /login 统一管理，无法{action}").into()
+        }
+        Msg::DaemonProvManagedReserved => "该供应商名称或 base URL 为托管账号保留，而当前构建不提供托管服务。\
+             请重命名供应商（或更改其 base URL），并用你自己的 api_key 完成配置。"
+            .into(),
+        Msg::DaemonProvActionModified => "修改".into(),
+        Msg::DaemonProvActionReplaced => "替换".into(),
+        Msg::DaemonProvActionEdited => "编辑".into(),
+        Msg::DaemonProvActionDeleted => "删除".into(),
+        Msg::DaemonProvDiscoveryNoListing => "该供应商协议不支持列出模型，请手动输入模型名称".into(),
+        Msg::DaemonProvDiscoveryTimeout => "模型发现请求超时".into(),
+        Msg::DaemonProvDiscoveryTooLarge => "模型列表响应超过 4 MiB 上限".into(),
+        Msg::DaemonProvDiscoveryHttpStatus { status } => {
+            format!("模型端点返回 HTTP {status}").into()
+        }
+        Msg::DaemonProvDiscoveryHttpStatusAuth { status } => {
+            format!("模型端点返回 HTTP {status}；请检查 API 密钥").into()
+        }
+        Msg::DaemonProvDiscoveryUnreachable => "无法连接到模型端点".into(),
+        Msg::DaemonProvDiscoveryOllamaParse => "Ollama 返回的模型列表中没有有效的 models 数组".into(),
+        Msg::DaemonProvDiscoveryParse => "模型列表响应中没有有效的 data 数组，请手动输入模型名称".into(),
+        Msg::DaemonProvTypeEmpty => "供应商类型不能为空".into(),
+        Msg::DaemonProvThinkingBudgetMin => "thinking_budget 必须大于等于 1024".into(),
+        Msg::DaemonProvVanished { name } => format!("供应商“{name}”在更新后消失了").into(),
+        Msg::DaemonApiEffortUnsupported { level, target } => {
+            format!("{target} 不支持 reasoning_effort 取值 {level}").into()
+        }
+        Msg::DaemonApiEffortUnsupportedTarget { target } => {
+            format!("{target} 不支持所请求的 reasoning_effort 取值").into()
+        }
+        Msg::DaemonApiProviderSaveFailed { error } => {
+            format!("保存供应商配置失败：{error}").into()
+        }
+        Msg::DaemonChatSessionStolen { session_id } => {
+            format!("本轮启动时聊天会话 {session_id} 已被另一个回合占用").into()
+        }
+        Msg::DaemonChatOperationInactive => "聊天操作已不再处于活动状态".into(),
+        Msg::DaemonApiCannotOpenFile { error } => format!("无法打开文件：{error}").into(),
+        Msg::DaemonApiFileResolveFailed { error } => format!("文件解析任务失败：{error}").into(),
     }
 }
 

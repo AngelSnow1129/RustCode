@@ -47,7 +47,17 @@ fn command_visible(cmd: &Command) -> bool {
     {
         return false;
     }
-    true
+    // Endpoint-dependent commands only make sense in a distribution build that
+    // ships the matching hosted endpoint. In a neutral bring-your-own-key build
+    // they stay dispatchable but are hidden from discovery, so users are never
+    // offered a blank desktop download link (/desktop) or a self-update that
+    // only errors against an empty manifest URL (/upgrade). The command arms
+    // themselves also short-circuit with a neutral message when typed directly.
+    match cmd.name {
+        "desktop" if rustcode_config::endpoints::desktop_download_url().is_empty() => false,
+        "upgrade" if !rustcode_updater::update_endpoint_configured() => false,
+        _ => true,
+    }
 }
 
 pub struct CommandRegistry {
@@ -284,7 +294,19 @@ pub fn cmd_desc_i18n(name: &str) -> Option<std::borrow::Cow<'static, str>> {
         "setup" => Msg::CmdDescSetup,
         "resume" => Msg::CmdDescResume,
         "rename" => Msg::CmdDescRename,
-        "login" => Msg::CmdDescLogin,
+        // Managed-account commands: advertise the managed flow only in a
+        // distribution build that ships a sign-in gateway; a neutral
+        // bring-your-own-key build gets a neutral description (mirroring the
+        // CLI's `CliAboutLogin` / `CliAboutLoginNeutral` swap). The command is
+        // hidden from discovery in a neutral build via `command_visible`, but
+        // keep the desc itself neutral too so no surface leaks the brand.
+        "login" => {
+            if crate::modals::onboarding_wizard::managed_login_available() {
+                Msg::CmdDescLogin
+            } else {
+                Msg::CmdDescLoginNeutral
+            }
+        }
         "logout" => Msg::CmdDescLogout,
         "whoami" => Msg::CmdDescWhoami,
         "model" => Msg::CmdDescModel,
@@ -300,7 +322,13 @@ pub fn cmd_desc_i18n(name: &str) -> Option<std::borrow::Cow<'static, str>> {
         "clear" => Msg::CmdDescClear,
         "session" => Msg::CmdDescSession,
         "cost" => Msg::CmdDescCost,
-        "usage" => Msg::CmdDescUsage,
+        "usage" => {
+            if crate::modals::onboarding_wizard::managed_login_available() {
+                Msg::CmdDescUsage
+            } else {
+                Msg::CmdDescUsageNeutral
+            }
+        }
         "context" => Msg::CmdDescContext,
         "compact" => Msg::CmdDescCompact,
         "remember" => Msg::CmdDescRemember,
@@ -814,6 +842,20 @@ mod tests {
                 .all(|c| c.name != "login"),
             "Tab completion must not surface /login in a neutral build"
         );
+        // Endpoint-dependent commands are likewise hidden: /desktop only leads
+        // to a blank download link and /upgrade only errors against an empty
+        // manifest URL when the build ships neither endpoint. Both stay
+        // dispatchable (their arms print a neutral message) but are unadvertised.
+        for gated in ["desktop", "upgrade"] {
+            assert!(
+                !help.contains(&format!("/{gated} ")),
+                "neutral /help must not pitch /{gated} (no endpoint configured)"
+            );
+            assert!(
+                reg.matching_prefix(gated).is_empty(),
+                "slash menu must not surface /{gated} in a neutral build"
+            );
+        }
     }
 
     #[test]

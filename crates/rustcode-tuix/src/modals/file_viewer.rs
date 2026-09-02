@@ -35,6 +35,7 @@ use super::{
 };
 use crate::event_loop::file_index::{Entry, FileIndex};
 use crate::event_loop::{Buffer, LoopCtx};
+use crate::i18n::{t, Msg};
 use crate::render::{DiffPanelRow, DiffPanelSpan, DiffPanelTone, Renderer, UiLine};
 use crate::state::UiState;
 
@@ -51,14 +52,6 @@ const MAX_READ_BYTES: u64 = 8 * 1024 * 1024;
 /// `DiffViewer::MAX_VISIBLE_FILES`); larger result sets scroll the window and a
 /// "more files" indicator appears so the panel stays compact.
 const MAX_VISIBLE_FILES: usize = 5;
-
-/// Locale-picked literal (matches `DiffViewer`'s `l` helper).
-fn l(en: &'static str, zh: &'static str) -> &'static str {
-    match crate::i18n::current_locale() {
-        crate::i18n::Locale::ZhCn => zh,
-        _ => en,
-    }
-}
 
 /// Fixed geometry for the file-content view: `(screen_w, panel_height,
 /// content_height)`. A FIXED-height panel drawn inline where the input box sits
@@ -161,10 +154,7 @@ impl Picker {
         if let Some(external) = &self.external {
             if i == 0 {
                 let shown = crate::platform::collapse_home(&external.display().to_string());
-                return (
-                    format!("{}{shown}", l("open external: ", "打开外部文件: ")),
-                    true,
-                );
+                return (format!("{} {shown}", t(Msg::FileViewerOpenExternal)), true);
             }
             return (self.matches[i - 1].rel_path.clone(), false);
         }
@@ -182,7 +172,7 @@ impl Picker {
             '\u{258f}',
         );
         let title = DiffPanelRow::new(vec![
-            DiffPanelSpan::new(l("Select file", "选择文件"), DiffPanelTone::Brand),
+            DiffPanelSpan::new(t(Msg::FileViewerSelectFile), DiffPanelTone::Brand),
             DiffPanelSpan::new(format!("  {query_with_cursor}"), DiffPanelTone::Muted),
         ]);
 
@@ -195,9 +185,9 @@ impl Picker {
             )]));
         } else if total == 0 {
             let msg = if self.query.is_empty() {
-                l("Type to search files", "输入以搜索文件")
+                t(Msg::FileViewerTypeToSearch)
             } else {
-                l("No matching files", "无匹配文件")
+                t(Msg::FileViewerNoMatches)
             };
             rows.push(DiffPanelRow::new(vec![DiffPanelSpan::new(
                 msg,
@@ -238,11 +228,7 @@ impl Picker {
         UiLine::DiffPanel {
             title,
             rows,
-            footer: l(
-                "↑↓ select . Enter open . type /~ path for external file . Esc cancel",
-                "↑↓ 选择 . Enter 打开 . 输入 /~ 路径打开外部文件 . Esc 取消",
-            )
-            .to_string(),
+            footer: t(Msg::FileViewerFooter).to_string(),
             win_width: screen_w,
             win_height,
         }
@@ -428,14 +414,10 @@ fn load_content(path: &Path) -> Result<Content> {
     // Reject anything that isn't a regular file *before* reading a byte. A FIFO
     // or char device (e.g. /dev/zero) would otherwise make the blocking read
     // below hang or stream forever and freeze the event loop.
-    let read_failed = || format!("{}: {}", l("Failed to read", "读取失败"), path.display());
+    let read_failed = || format!("{}: {}", t(Msg::FileViewerReadFailed), path.display());
     let meta = std::fs::metadata(path).with_context(read_failed)?;
     if !meta.is_file() {
-        anyhow::bail!(
-            "{}: {}",
-            l("Not a regular file", "不是常规文件"),
-            path.display()
-        );
+        anyhow::bail!("{}: {}", t(Msg::FileViewerNotRegular), path.display());
     }
 
     use std::io::Read;
@@ -451,13 +433,7 @@ fn load_content(path: &Path) -> Result<Content> {
     let sample_len = sample.len().min(8192);
     let nul_count = sample[..sample_len].iter().filter(|&&b| b == 0).count();
     if nul_count > 0 {
-        anyhow::bail!(
-            "{}",
-            l(
-                "File appears to be binary (contains NUL bytes)",
-                "文件似乎是二进制（包含 NUL 字节）"
-            )
-        );
+        anyhow::bail!("{}", t(Msg::FileViewerBinary));
     }
 
     // Decode as UTF-8. When we stopped at the byte cap the cut may have split a
@@ -469,10 +445,7 @@ fn load_content(path: &Path) -> Result<Content> {
                 .unwrap()
                 .to_string()
         }
-        Err(_) => anyhow::bail!(
-            "{}",
-            l("File is not valid UTF-8", "文件不是有效的 UTF-8 编码")
-        ),
+        Err(_) => anyhow::bail!("{}", t(Msg::FileViewerNotUtf8)),
     };
 
     // Split into lines, truncate long ones, cap total count.
@@ -527,7 +500,7 @@ fn build_content_panel(
     ];
     if c.truncated {
         title_spans.push(DiffPanelSpan::new(
-            l(" · truncated", " · 已截断"),
+            format!(" · {}", t(Msg::FileViewerTruncatedMarker)),
             DiffPanelTone::Warning,
         ));
     }
@@ -549,9 +522,9 @@ fn build_content_panel(
     }
 
     let footer = if has_picker {
-        l("↑↓/PgUp scroll . Esc back", "↑↓/PgUp 滚动 . Esc 返回")
+        t(Msg::FileViewerFooterBack)
     } else {
-        l("↑↓/PgUp scroll . Esc close", "↑↓/PgUp 滚动 . Esc 关闭")
+        t(Msg::FileViewerFooterClose)
     }
     .to_string();
 

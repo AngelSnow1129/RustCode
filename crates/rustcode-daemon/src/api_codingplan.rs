@@ -12,6 +12,7 @@ use crate::{
 };
 use rustcode_auth as auth;
 use rustcode_codingplan as coding_plan;
+use rustcode_config::i18n::{t, Msg};
 
 // ============================================================================
 // Request/Response DTOs
@@ -310,11 +311,15 @@ fn codingplan_usage_error(context: &'static str, error: anyhow::Error) -> axum::
     if unauthorized {
         json_error(
             StatusCode::UNAUTHORIZED,
-            "CodingPlan account is not logged in",
+            t(Msg::DaemonApiCpNotLoggedIn).into_owned(),
         )
         .into_response()
     } else {
-        json_error(StatusCode::BAD_GATEWAY, "Unable to load CodingPlan usage").into_response()
+        json_error(
+            StatusCode::BAD_GATEWAY,
+            t(Msg::DaemonApiCpUsageLoadFailed).into_owned(),
+        )
+        .into_response()
     }
 }
 

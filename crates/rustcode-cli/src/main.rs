@@ -152,8 +152,7 @@ fn resume_hint_line(session_id: &str, headless: bool) -> String {
     } else {
         format!("{BIN_NAME} resume {session_id}")
     };
-    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliResumeHint { cmd: &cmd })
-        .into_owned()
+    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliResumeHint { cmd: &cmd }).into_owned()
 }
 
 /// What session to resume at launch, unified across `--continue`, `--resume`,
@@ -418,9 +417,10 @@ fn build_i18n_command() -> clap::Command {
         s.about(t(Msg::CliAboutRollback).into_owned())
     })
     .mut_subcommand("resume", |s| {
-        s.about(t(Msg::CliAboutResume).into_owned()).mut_arg("session", |a| {
-            a.help(t(Msg::CliHelpResumeSession).into_owned())
-        })
+        s.about(t(Msg::CliAboutResume).into_owned())
+            .mut_arg("session", |a| {
+                a.help(t(Msg::CliHelpResumeSession).into_owned())
+            })
     })
     .mut_subcommand("mcp", |s| {
         s.about(t(Msg::CliAboutMcp).into_owned())
@@ -433,8 +433,18 @@ fn build_i18n_command() -> clap::Command {
                     .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
                     .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
             })
+            .mut_subcommand("add-oauth", |s| {
+                s.about(t(Msg::CliAboutMcpAddOauth).into_owned())
+                    .mut_arg("url", |a| a.help(t(Msg::CliHelpMcpUrl).into_owned()))
+                    .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+                    .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
+                    .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
+            })
             .mut_subcommand("add-github-oauth", |s| {
+                // Retained for backward compatibility but no longer advertised:
+                // the provider-neutral `add-oauth <url>` covers any OAuth MCP server.
                 s.about(t(Msg::CliAboutMcpAddGithubOauth).into_owned())
+                    .hide(true)
                     .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
                     .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
                     .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
@@ -442,6 +452,12 @@ fn build_i18n_command() -> clap::Command {
             .mut_subcommand("login", |s| {
                 s.about(t(Msg::CliAboutMcpLogin).into_owned())
                     .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+                    .mut_arg("provider", |a| {
+                        a.help(t(Msg::CliHelpMcpProvider).into_owned())
+                    })
+                    .mut_arg("client_id", |a| {
+                        a.help(t(Msg::CliHelpMcpClientId).into_owned())
+                    })
             })
             .mut_subcommand("logout", |s| {
                 s.about(t(Msg::CliAboutMcpLogout).into_owned())
@@ -465,9 +481,10 @@ fn build_i18n_command() -> clap::Command {
             .mut_subcommand("marketplace", |s| {
                 s.about(t(Msg::CliAboutPluginMarketplace).into_owned())
                     .mut_subcommand("add", |s| {
-                        s.about(t(Msg::CliAboutMarketplaceAdd).into_owned()).mut_arg("url", |a| {
-                            a.help(t(Msg::CliHelpMarketplaceUrl).into_owned())
-                        })
+                        s.about(t(Msg::CliAboutMarketplaceAdd).into_owned())
+                            .mut_arg("url", |a| {
+                                a.help(t(Msg::CliHelpMarketplaceUrl).into_owned())
+                            })
                     })
                     .mut_subcommand("remove", |s| {
                         s.about(t(Msg::CliAboutMarketplaceRemove).into_owned())
@@ -486,21 +503,21 @@ fn build_i18n_command() -> clap::Command {
                     })
             })
             .mut_subcommand("install", |s| {
-                s.about(t(Msg::CliAboutPluginInstall).into_owned()).mut_arg("spec", |a| {
-                    a.help(t(Msg::CliHelpPluginSpec).into_owned())
-                })
+                s.about(t(Msg::CliAboutPluginInstall).into_owned())
+                    .mut_arg("spec", |a| a.help(t(Msg::CliHelpPluginSpec).into_owned()))
             })
             .mut_subcommand("uninstall", |s| {
-                s.about(t(Msg::CliAboutPluginUninstall).into_owned()).mut_arg("spec", |a| {
-                    a.help(t(Msg::CliHelpPluginSpec).into_owned())
-                })
+                s.about(t(Msg::CliAboutPluginUninstall).into_owned())
+                    .mut_arg("spec", |a| a.help(t(Msg::CliHelpPluginSpec).into_owned()))
             })
             .mut_subcommand("list", |s| s.about(t(Msg::CliAboutPluginList).into_owned()))
     })
     .mut_subcommand("uninstall", |s| {
         s.about(t(Msg::CliAboutUninstall).into_owned())
             .mut_arg("yes", |a| a.help(t(Msg::CliHelpUninstallYes).into_owned()))
-            .mut_arg("purge", |a| a.help(t(Msg::CliHelpUninstallPurge).into_owned()))
+            .mut_arg("purge", |a| {
+                a.help(t(Msg::CliHelpUninstallPurge).into_owned())
+            })
             .mut_arg("keep_data", |a| {
                 a.help(t(Msg::CliHelpUninstallKeepData).into_owned())
             })
@@ -509,55 +526,75 @@ fn build_i18n_command() -> clap::Command {
             })
     })
     .mut_subcommand("setup", |s| s.about(t(Msg::CliAboutSetup).into_owned()))
+    .mut_subcommand("completion", |s| {
+        s.about(t(Msg::CliAboutCompletion).into_owned())
+            .mut_arg("shell", |a| {
+                a.help(t(Msg::CliHelpCompletionShell).into_owned())
+            })
+    })
     .mut_subcommand("hooks", |s| {
         s.about(t(Msg::CliAboutHooks).into_owned())
             .mut_subcommand("list", |s| s.about(t(Msg::CliAboutHooksList).into_owned()))
             .mut_subcommand("test", |s| {
-                s.about(t(Msg::CliAboutHooksTest).into_owned()).mut_arg("name", |a| {
-                    a.help(t(Msg::CliHelpHooksTestName).into_owned())
-                })
+                s.about(t(Msg::CliAboutHooksTest).into_owned())
+                    .mut_arg("name", |a| {
+                        a.help(t(Msg::CliHelpHooksTestName).into_owned())
+                    })
             })
-            .mut_subcommand("paths", |s| s.about(t(Msg::CliAboutHooksPaths).into_owned()))
+            .mut_subcommand("paths", |s| {
+                s.about(t(Msg::CliAboutHooksPaths).into_owned())
+            })
     })
     .mut_subcommand("schedule", |s| {
         s.about(t(Msg::CliAboutSchedule).into_owned())
             .mut_subcommand("add", |s| {
                 s.about(t(Msg::CliAboutScheduleAdd).into_owned())
                     .mut_arg("title", |a| a.help(t(Msg::CliHelpSchedTitle).into_owned()))
-                    .mut_arg("prompt", |a| a.help(t(Msg::CliHelpSchedPrompt).into_owned()))
+                    .mut_arg("prompt", |a| {
+                        a.help(t(Msg::CliHelpSchedPrompt).into_owned())
+                    })
                     .mut_arg("cwd", |a| a.help(t(Msg::CliHelpSchedCwd).into_owned()))
                     .mut_arg("daily", |a| a.help(t(Msg::CliHelpSchedDaily).into_owned()))
-                    .mut_arg("weekly", |a| a.help(t(Msg::CliHelpSchedWeekly).into_owned()))
+                    .mut_arg("weekly", |a| {
+                        a.help(t(Msg::CliHelpSchedWeekly).into_owned())
+                    })
                     .mut_arg("every", |a| a.help(t(Msg::CliHelpSchedEvery).into_owned()))
-                    .mut_arg("hourly", |a| a.help(t(Msg::CliHelpSchedHourly).into_owned()))
+                    .mut_arg("hourly", |a| {
+                        a.help(t(Msg::CliHelpSchedHourly).into_owned())
+                    })
                     .mut_arg("cron", |a| a.help(t(Msg::CliHelpSchedCron).into_owned()))
                     .mut_arg("mode", |a| a.help(t(Msg::CliHelpSchedMode).into_owned()))
-                    .mut_arg("notify", |a| a.help(t(Msg::CliHelpSchedNotify).into_owned()))
+                    .mut_arg("notify", |a| {
+                        a.help(t(Msg::CliHelpSchedNotify).into_owned())
+                    })
             })
-            .mut_subcommand("list", |s| s.about(t(Msg::CliAboutScheduleList).into_owned()))
+            .mut_subcommand("list", |s| {
+                s.about(t(Msg::CliAboutScheduleList).into_owned())
+            })
             .mut_subcommand("remove", |s| {
-                s.about(t(Msg::CliAboutScheduleRemove).into_owned()).mut_arg("id", |a| {
-                    a.help(t(Msg::CliHelpSchedId).into_owned())
-                })
+                s.about(t(Msg::CliAboutScheduleRemove).into_owned())
+                    .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
             })
             .mut_subcommand("enable", |s| {
-                s.about(t(Msg::CliAboutScheduleEnable).into_owned()).mut_arg("id", |a| {
-                    a.help(t(Msg::CliHelpSchedId).into_owned())
-                })
+                s.about(t(Msg::CliAboutScheduleEnable).into_owned())
+                    .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
             })
             .mut_subcommand("disable", |s| {
-                s.about(t(Msg::CliAboutScheduleDisable).into_owned()).mut_arg("id", |a| {
-                    a.help(t(Msg::CliHelpSchedId).into_owned())
-                })
+                s.about(t(Msg::CliAboutScheduleDisable).into_owned())
+                    .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
             })
             .mut_subcommand("run", |s| {
-                s.about(t(Msg::CliAboutScheduleRun).into_owned()).mut_arg("id", |a| {
-                    a.help(t(Msg::CliHelpSchedId).into_owned())
-                })
+                s.about(t(Msg::CliAboutScheduleRun).into_owned())
+                    .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
             })
-            .mut_subcommand("sync", |s| s.about(t(Msg::CliAboutScheduleSync).into_owned()))
+            .mut_subcommand("sync", |s| {
+                s.about(t(Msg::CliAboutScheduleSync).into_owned())
+            })
     })
-    .mut_subcommand("help", |s| s.about(t(Msg::CliAboutHelp).into_owned()))
+    // NOTE: clap only instantiates the built-in `help` subcommand during
+    // `build()` (i.e. at parse time), so `mut_subcommand("help", ..)` here
+    // panics with "Command `help` is undefined". Its about text stays the
+    // clap default; `CliAboutHelp` remains for callers that render help text.
 }
 
 /// Body of the detached upgrade-prep worker. One call to
@@ -1008,12 +1045,14 @@ enum Commands {
         #[arg(long)]
         idle_timeout: Option<u64>,
     },
-    /// 启动本地浏览器 webui（进程内起 server，无需额外二进制）
+    /// Start the local in-process browser webui server (no separate binary needed)
     Webui {
-        /// 端口（默认 13457，刻意错开 VSCode 守护进程的 13456，避免抢端口导致扩展 401/无响应）
+        /// Port (default 13457; deliberately offset from the VSCode daemon's 13456 to avoid
+        /// port clashes that cause extension 401 / no-response)
         #[arg(long, default_value_t = rustcode_daemon::WEBUI_DEFAULT_PORT)]
         port: u16,
-        /// 绑定地址（默认 127.0.0.1；用 0.0.0.0 暴露到局域网/外网，注意仅 token 保护、无 TLS）
+        /// Bind address (default 127.0.0.1; use 0.0.0.0 to expose over LAN/public -- note it
+        /// is token-protected only, with no TLS)
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
     },
@@ -1099,7 +1138,19 @@ fn try_print_shell_completion() -> bool {
             true
         }
         Ok(_) => false,
-        Err(error) => error.exit(),
+        Err(error) => {
+            // `--help`/`--version` must fall through to the i18n help
+            // renderer in main() (build_i18n_command); the raw derive
+            // parser above would print English doc-comment help. Any
+            // other error (unknown shell, bad usage) exits here as before.
+            use clap::error::ErrorKind;
+            match error.kind() {
+                ErrorKind::DisplayHelp
+                | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+                | ErrorKind::DisplayVersion => false,
+                _ => error.exit(),
+            }
+        }
     }
 }
 
@@ -1255,7 +1306,22 @@ enum McpCli {
         #[arg(short = 'C', long, value_hint = clap::ValueHint::DirPath)]
         dir: Option<PathBuf>,
     },
+    /// Add a remote MCP server that authenticates with OAuth (provider-neutral).
+    AddOauth {
+        /// Server HTTP URL; OAuth metadata is discovered from the server.
+        url: String,
+        /// Server key (tools appear as `mcp__<name>__...`); defaults to the URL host.
+        #[arg(long)]
+        name: Option<String>,
+        /// Write `~/.rustcode/mcp.json` instead of `<dir>/.mcp.json`
+        #[arg(long)]
+        global: bool,
+        /// Directory for project `.mcp.json` (defaults to current directory)
+        #[arg(short = 'C', long, value_hint = clap::ValueHint::DirPath)]
+        dir: Option<PathBuf>,
+    },
     /// Add GitHub's remote MCP server using OAuth.
+    #[doc(hidden)]
     AddGithubOauth {
         /// Server key (tools appear as `mcp__<name>__...`)
         #[arg(default_value = "github")]
@@ -1269,18 +1335,18 @@ enum McpCli {
     },
     /// Complete OAuth login for a remote MCP server.
     Login {
-        /// Server key in mcpServers (for GitHub, usually `github`)
+        /// Server key in mcpServers.
         name: String,
-        /// OAuth provider to use.
-        #[arg(long, default_value = "github")]
-        provider: String,
-        /// OAuth client id. Defaults to RUSTCODE_GITHUB_MCP_CLIENT_ID.
+        /// OAuth provider hint (optional; usually read from the server config).
+        #[arg(long)]
+        provider: Option<String>,
+        /// OAuth client id.
         #[arg(long)]
         client_id: Option<String>,
         /// Environment variable containing the OAuth client secret.
         #[arg(long)]
         client_secret_env: Option<String>,
-        /// OAuth scopes. Defaults to GitHub MCP's broad repo-oriented set.
+        /// OAuth scopes.
         #[arg(long, value_delimiter = ',')]
         scopes: Vec<String>,
     },
@@ -1663,9 +1729,11 @@ async fn run() -> Result<i32> {
                     Err(e) => {
                         eprintln!(
                             "{}",
-                            rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliLoginSetupFailed {
-                                error: &format!("{e:#}")
-                            })
+                            rustcode_config::i18n::t(
+                                rustcode_config::i18n::Msg::CliLoginSetupFailed {
+                                    error: &format!("{e:#}")
+                                }
+                            )
                         );
                     }
                 }
@@ -2020,24 +2088,22 @@ async fn run() -> Result<i32> {
                     .map(|warning| format!("  - {warning}"))
                     .collect::<Vec<_>>()
                     .join("\n");
-                let notice = rustcode_config::i18n::t(
-                    rustcode_config::i18n::Msg::CliConfigLoadWarnings {
+                let notice =
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliConfigLoadWarnings {
                         path: &config_path.display().to_string(),
                         warnings: &warning_list,
-                    },
-                )
-                .into_owned();
+                    })
+                    .into_owned();
                 eprintln!("{notice}");
                 (config, Some(notice))
             }
             Err(error) => {
-                let notice = rustcode_config::i18n::t(
-                    rustcode_config::i18n::Msg::CliConfigLoadFailed {
+                let notice =
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliConfigLoadFailed {
                         path: &config_path.display().to_string(),
                         error: &error.to_string(),
-                    },
-                )
-                .into_owned();
+                    })
+                    .into_owned();
                 eprintln!("{notice}");
                 (Config::default(), Some(notice))
             }
@@ -2256,12 +2322,10 @@ async fn run() -> Result<i32> {
             Err(e) => {
                 eprintln!(
                     "{}",
-                    rustcode_config::i18n::t(
-                        rustcode_config::i18n::Msg::CliPromptFileReadFailed {
-                            path: &path.display().to_string(),
-                            error: &e.to_string(),
-                        }
-                    )
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliPromptFileReadFailed {
+                        path: &path.display().to_string(),
+                        error: &e.to_string(),
+                    })
                 );
                 std::process::exit(2);
             }
@@ -2732,19 +2796,17 @@ pub(crate) fn headless_missing_provider_message(
     let path = rustcode_config::config::Config::default_path();
     let path = path.display().to_string();
     Some(match requested {
-        Some(name) => rustcode_config::i18n::t(
-            rustcode_config::i18n::Msg::CliHeadlessNoProviderNamed {
+        Some(name) => {
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliHeadlessNoProviderNamed {
                 name,
-                path: &path,
-            },
-        )
-        .into_owned(),
-        None => {
-            rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliHeadlessNoProvider {
                 path: &path,
             })
             .into_owned()
         }
+        None => rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliHeadlessNoProvider {
+            path: &path,
+        })
+        .into_owned(),
     })
 }
 
@@ -3183,13 +3245,13 @@ pub(crate) async fn run_native_headless(
                         max_attempts,
                         recovered: None,
                         backoff_secs: Some(backoff_secs),
-                        reason: Some(reason),
+                        reason: Some(reason.as_token().to_string()),
                     })?;
                 } else {
                     eprintln!(
                         "{}",
                         t(Msg::CliHeadlessProviderRetry {
-                            reason: &reason,
+                            reason: &rustcode_coding::retry_reason_label(reason),
                             backoff_secs,
                             attempt,
                             max_attempts,
@@ -3558,6 +3620,42 @@ async fn handle_command(cmd: Commands) -> Result<()> {
             );
             Ok(())
         }
+        Commands::Mcp(McpCli::AddOauth {
+            url,
+            name,
+            global,
+            dir,
+        }) => {
+            let base = resolve_working_dir(dir);
+            let path = if global {
+                Config::config_dir().join("mcp.json")
+            } else {
+                base.join(".mcp.json")
+            };
+            // Default the server key to the URL host so the command is one-shot;
+            // fall back to a neutral key if the URL cannot be parsed.
+            let name = name
+                .filter(|n| !n.trim().is_empty())
+                .or_else(|| {
+                    url::Url::parse(&url)
+                        .ok()
+                        .and_then(|u| u.host_str().map(|h| h.to_string()))
+                        .filter(|h| !h.is_empty())
+                })
+                .unwrap_or_else(|| "remote".to_string());
+            // Empty provider => provider-neutral OAuth (generic RFC-8414 metadata
+            // discovery at login). No vendor is baked into the default command.
+            merge_http_oauth_mcp_server_into_json_file(&path, &name, &url, "")?;
+            println!(
+                "{}",
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliMcpAddedOauth {
+                    name: &format!("{name:?}"),
+                    path: &path.display().to_string(),
+                    url: &url,
+                })
+            );
+            Ok(())
+        }
         Commands::Mcp(McpCli::AddGithubOauth { name, global, dir }) => {
             let base = resolve_working_dir(dir);
             let path = if global {
@@ -3594,9 +3692,11 @@ async fn handle_command(cmd: Commands) -> Result<()> {
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "{}",
-                        rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliMcpServerNotFound {
-                            name: &format!("{name:?}"),
-                        })
+                        rustcode_config::i18n::t(
+                            rustcode_config::i18n::Msg::CliMcpServerNotFound {
+                                name: &format!("{name:?}"),
+                            }
+                        )
                     )
                 })?;
             let is_github_server = matches!(
@@ -3606,8 +3706,12 @@ async fn handle_command(cmd: Commands) -> Result<()> {
                     ..
                 } if auth.provider.as_deref() == Some("github")
             );
+            // GitHub's classic OAuth flow is a per-server interop path, driven by
+            // the server's own config (or an explicit `--provider github` hint) --
+            // never a vendor default for a bare `mcp login`.
+            let github_mode = is_github_server || provider.as_deref() == Some("github");
             let client_id = client_id.or_else(|| {
-                if is_github_server && provider == "github" {
+                if github_mode {
                     std::env::var("RUSTCODE_GITHUB_MCP_CLIENT_ID").ok()
                 } else {
                     None
@@ -3644,9 +3748,9 @@ async fn handle_command(cmd: Commands) -> Result<()> {
             } else {
                 println!(
                     "{}",
-                    rustcode_config::i18n::t(
-                        rustcode_config::i18n::Msg::CliMcpLogoutNotFound { name: &name_dbg }
-                    )
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliMcpLogoutNotFound {
+                        name: &name_dbg
+                    })
                 );
             }
             Ok(())
@@ -3747,11 +3851,7 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
                     println!("  {:<20} {:>5}", ev, n);
                 }
                 println!("  {:<20} {:>5}", "─".repeat(20), "─".repeat(5));
-                println!(
-                    "  {:<20} {:>5}",
-                    t(Msg::CliHooksTableTotal),
-                    hooks.len()
-                );
+                println!("  {:<20} {:>5}", t(Msg::CliHooksTableTotal), hooks.len());
             }
             println!("{}", t(Msg::CliHooksConfigFiles));
             println!("─────────────────────────────────────────────");
@@ -3879,9 +3979,7 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
                             let detail = match out.exit_code {
                                 Some(0) => t(Msg::CliHooksStatusSuccess).into_owned(),
                                 Some(2) => t(Msg::CliHooksStatusBlock).into_owned(),
-                                Some(c) => {
-                                    t(Msg::CliHooksStatusExitCode { code: c }).into_owned()
-                                }
+                                Some(c) => t(Msg::CliHooksStatusExitCode { code: c }).into_owned(),
                                 None => t(Msg::CliHooksStatusSignal).into_owned(),
                             };
                             println!(
@@ -4112,10 +4210,7 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                         .collect();
                     match matches.len() {
                         0 => {
-                            anyhow::bail!(
-                                "{}",
-                                t(Msg::CliPluginNotInstalled { plugin: &plugin })
-                            )
+                            anyhow::bail!("{}", t(Msg::CliPluginNotInstalled { plugin: &plugin }))
                         }
                         1 => {
                             let p = &matches[0];
@@ -4173,10 +4268,7 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                 many => {
                     let mut list = String::new();
                     for s in many {
-                        list.push_str(&format!(
-                            "  {}@{} ({})\n",
-                            s.plugin, s.marketplace, s.scope
-                        ));
+                        list.push_str(&format!("  {}@{} ({})\n", s.plugin, s.marketplace, s.scope));
                     }
                     anyhow::bail!(
                         "{}",
@@ -4205,10 +4297,7 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                 many => {
                     let mut list = String::new();
                     for s in many {
-                        list.push_str(&format!(
-                            "  {}@{} ({})\n",
-                            s.plugin, s.marketplace, s.scope
-                        ));
+                        list.push_str(&format!("  {}@{} ({})\n", s.plugin, s.marketplace, s.scope));
                     }
                     anyhow::bail!(
                         "{}",
@@ -4248,13 +4337,14 @@ enum PluginSpec {
 /// Parse a plugin spec string. Accepts both `plugin@marketplace` and
 /// bare `plugin` (resolved across all registered marketplaces).
 fn parse_plugin_spec(s: &str) -> Result<PluginSpec> {
+    use rustcode_config::i18n::{t, Msg};
     let s = s.trim();
     if s.is_empty() {
-        anyhow::bail!("expected <plugin> or <plugin>@<marketplace>, got empty string");
+        anyhow::bail!("{}", t(Msg::CliPluginSpecEmpty));
     }
     if let Some((plugin, mp)) = s.split_once('@') {
         if plugin.trim().is_empty() || mp.trim().is_empty() {
-            anyhow::bail!("plugin/marketplace name must not be empty in `{}`", s);
+            anyhow::bail!("{}", t(Msg::CliPluginSpecPartEmpty { spec: s }));
         }
         Ok(PluginSpec::Qualified {
             plugin: plugin.trim().to_string(),
@@ -4265,6 +4355,21 @@ fn parse_plugin_spec(s: &str) -> Result<PluginSpec> {
             plugin: s.to_string(),
         })
     }
+}
+
+/// Extract current + latest version from the updater's `ALREADY_LATEST`
+/// error body. The shape is a fixed English contract owned by
+/// `rustcode-updater` (the TUI's `parse_already_latest_versions` parses
+/// the same string):
+///   `already on {current} (latest is {latest}). Pass --force to reinstall.`
+/// Returns `None` if the format ever drifts; the caller uses "?"
+/// placeholders so the localized sentence still renders cleanly.
+fn parse_already_latest_versions(s: &str) -> Option<(&str, &str)> {
+    let after_on = s.strip_prefix("already on ")?;
+    let (current, rest) = after_on.split_once(" (latest is ")?;
+    let latest = rest.strip_suffix(". Pass --force to reinstall.")?;
+    let latest = latest.strip_suffix(')')?;
+    Some((current, latest))
 }
 
 /// CLI (non-TUI) upgrade driver -- prints progress to stdout and
@@ -4365,7 +4470,13 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
                 Ok(())
             } else if msg.contains(ALREADY_LATEST) {
                 // Friendly path -- not an error, just "nothing to do".
-                println!("  {}", msg.replace(&format!("{}: ", ALREADY_LATEST), ""));
+                // The updater's body is fixed-format English (the TUI
+                // parses the same shape in parse_already_latest_versions);
+                // extract the versions and render the localized sentence
+                // instead of pasting English prose.
+                let body = msg.replace(&format!("{}: ", ALREADY_LATEST), "");
+                let (current, latest) = parse_already_latest_versions(&body).unwrap_or(("?", "?"));
+                println!("  {}", t(Msg::UpgradeAlreadyLatest { current, latest }));
                 Ok(())
             } else {
                 Err(e)
@@ -4414,10 +4525,7 @@ fn run_rollback_cli() -> Result<()> {
 /// managed login. Direct the operator to their own third-party provider instead.
 #[cfg(not(feature = "codingplan"))]
 fn run_codingplan_core() -> Result<String> {
-    Ok(rustcode_config::i18n::t(
-        rustcode_config::i18n::Msg::CliManagedLoginNotBuilt,
-    )
-    .into_owned())
+    Ok(rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliManagedLoginNotBuilt).into_owned())
 }
 
 /// `rustcode status` auth hint for a neutral build: there is no managed account to
@@ -4606,7 +4714,12 @@ fn install_crash_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         write_crash_log(info);
         restore_terminal_if_tui();
-        eprintln!("\nRustCode crashed: {}", info);
+        eprintln!(
+            "{}",
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliCrashHeader {
+                info: &info.to_string()
+            })
+        );
         if let Some(location) = info.location() {
             eprintln!(
                 "  at {}:{}:{}",
@@ -4615,7 +4728,10 @@ fn install_crash_panic_hook() {
                 location.column()
             );
         }
-        eprintln!("\nPlease report this crash (with the trace above) to the issue tracker of the channel you installed RustCode from.");
+        eprintln!(
+            "{}",
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliCrashReport)
+        );
     }));
 }
 

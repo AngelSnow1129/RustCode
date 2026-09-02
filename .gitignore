@@ -137,3 +137,4 @@ codearts.zip
 
 # 本地代码搜索索引缓存(zvec grep 工具生成,勿入库)
 .zvec-grep/
+CODEBUDDY.md

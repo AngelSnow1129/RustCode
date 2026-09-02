@@ -1,6 +1,7 @@
 package com.rustcode.jetbrains.settings
 
 import com.intellij.openapi.options.Configurable
+import com.rustcode.jetbrains.i18n.RustCodeBundle
 import java.awt.BorderLayout
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
@@ -38,21 +39,21 @@ class RustCodeConfigurable : Configurable {
         daemonPath = JTextField()
         host = JTextField()
         port = JSpinner(SpinnerNumberModel(13456, 1, 65535, 1))
-        autoStart = JCheckBox("Auto-start daemon after user action")
-        autoSaveBeforeRead = JCheckBox("Auto-save files before RustCode reads them")
+        autoStart = JCheckBox(RustCodeBundle.message("settings.autoStart"))
+        autoSaveBeforeRead = JCheckBox(RustCodeBundle.message("settings.autoSave"))
         timeout = JSpinner(SpinnerNumberModel(30_000, 1_000, 300_000, 1_000))
         contextLevel = JComboBox(RustCodeContextLevel.entries.toTypedArray())
-        allowSelection = JCheckBox("Allow selected text context")
-        sendRelativePath = JCheckBox("Send relative path with selection")
-        sendWithCtrlEnter = JCheckBox("Use Ctrl+Enter to send chat messages")
+        allowSelection = JCheckBox(RustCodeBundle.message("settings.allowSelection"))
+        sendRelativePath = JCheckBox(RustCodeBundle.message("settings.sendRelativePath"))
+        sendWithCtrlEnter = JCheckBox(RustCodeBundle.message("settings.ctrlEnter"))
         chatFontSize = JSpinner(SpinnerNumberModel(13, 9, 30, 1))
 
-        form.addRow(row++, "Daemon binary path", daemonPath)
-        form.addRow(row++, "Host", host)
-        form.addRow(row++, "Port", port)
-        form.addRow(row++, "Request timeout (ms)", timeout)
-        form.addRow(row++, "Chat font size", chatFontSize)
-        form.addRow(row++, "Context level", contextLevel)
+        form.addRow(row++, RustCodeBundle.message("settings.daemonPath"), daemonPath)
+        form.addRow(row++, RustCodeBundle.message("settings.host"), host)
+        form.addRow(row++, RustCodeBundle.message("settings.port"), port)
+        form.addRow(row++, RustCodeBundle.message("settings.timeout"), timeout)
+        form.addRow(row++, RustCodeBundle.message("settings.fontSize"), chatFontSize)
+        form.addRow(row++, RustCodeBundle.message("settings.contextLevel"), contextLevel)
         form.addFullRow(row++, autoStart)
         form.addFullRow(row++, autoSaveBeforeRead)
         form.addFullRow(row++, allowSelection)

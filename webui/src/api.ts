@@ -566,8 +566,9 @@ export async function getSkills(): Promise<SkillInfo[]> {
   return resp.json();
 }
 
-// --- Remote access (蒲公英 / Oray PGY) status ---
+// --- Remote access (LAN / virtual-LAN tunnel) status ---
 
+/** Detected virtual-LAN / tunnel client (field name kept for wire compatibility). */
 export interface PgyInfo {
   installed: boolean;
   ipv4: string | null;
@@ -579,7 +580,7 @@ export interface TunnelStatus {
   /** server bound to a non-loopback address (reachable by other devices) */
   reachable: boolean;
   pgy: PgyInfo;
-  /** ready-to-use remote URL (蒲公英 ip + token); null when not usable */
+  /** ready-to-use remote URL (virtual-LAN ip + token); null when not usable */
   remote_url: string | null;
   /** SVG string of the QR code for remote_url; null when not usable */
   qr_svg: string | null;

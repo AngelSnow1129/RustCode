@@ -1,10 +1,11 @@
 use anyhow::{anyhow, bail, Result};
+use rustcode_config::i18n::{t, Msg};
 use url::Url;
 
 /// Accept https / http / ssh / git@host: / file scheme. Reject everything else.
 pub fn validate_git_url(url: &str) -> Result<()> {
     if url.is_empty() || url != url.trim() {
-        bail!("malformed git url: {}", url);
+        bail!("{}", t(Msg::PluginUrlMalformed { url }));
     }
 
     if is_git_ssh_shorthand(url) {
@@ -12,24 +13,24 @@ pub fn validate_git_url(url: &str) -> Result<()> {
     }
 
     let parsed =
-        Url::parse(url).map_err(|_| anyhow!("unsupported or malformed git url: {}", url))?;
+        Url::parse(url).map_err(|_| anyhow!("{}", t(Msg::PluginUrlUnsupported { url })))?;
     match parsed.scheme() {
         "http" | "https" | "ssh" => {
             if parsed.host_str().is_none() {
-                bail!("git url missing host: {}", url);
+                bail!("{}", t(Msg::PluginUrlMissingHost { url }));
             }
             if !has_repo_path(&parsed) {
-                bail!("git url missing repository path: {}", url);
+                bail!("{}", t(Msg::PluginUrlMissingPath { url }));
             }
             Ok(())
         }
         "file" => {
             if !has_repo_path(&parsed) {
-                bail!("git url missing repository path: {}", url);
+                bail!("{}", t(Msg::PluginUrlMissingPath { url }));
             }
             Ok(())
         }
-        scheme => Err(anyhow!("unsupported git url scheme: {}", scheme)),
+        scheme => Err(anyhow!("{}", t(Msg::PluginUrlBadScheme { scheme }))),
     }
 }
 
