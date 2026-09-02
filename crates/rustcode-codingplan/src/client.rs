@@ -1,4 +1,4 @@
-// crates/rustcode-core/src/coding_plan/client.rs
+// crates/rustcode-codingplan/src/client.rs
 //
 // Blocking HTTP client for the three CodingPlan REST endpoints. Reuses the
 // OAuth token already on disk (from `rustcode_auth`) -- the same token

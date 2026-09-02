@@ -6,7 +6,7 @@
 > 仍保留。
 >
 > 最终实现结论、开发踩坑和后续命令复用清单见
-> [`compact-native-migration-retrospective.md`](compact-native-migration-retrospective.md)。本文
+> [`compact-native-migration-retrospective.md`](../compact-native-migration-retrospective.md)。本文
 > 后续章节保留各切片当时的设计基线和中间状态，不应脱离章节时间点引用其中的
 > “尚未完成”结论。
 >
@@ -66,9 +66,9 @@ kernel AgentHandle
 
 本文与以下文档的关系：
 
-- [target-architecture.md](target-architecture.md)：定义最终依赖方向和北极星；
+- [target-architecture.md](../target-architecture.md)：定义最终依赖方向和北极星；
 - [v5.0.0-retire-bridge-core-progress.md](v5.0.0-retire-bridge-core-progress.md)：记录 bridge/core 退役进度；
-- [compact-native-migration-retrospective.md](compact-native-migration-retrospective.md)：记录
+- [compact-native-migration-retrospective.md](../compact-native-migration-retrospective.md)：记录
   `/compact` 最终实现、纠偏结论、开发踩坑和下一条命令的复用清单；
 - 本文：定义 `CodingRuntime` 的近期承载位置、职责边界和小步迁移方法。
 

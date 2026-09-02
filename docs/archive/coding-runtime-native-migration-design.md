@@ -10,9 +10,9 @@
 >
 > 关联文档：
 >
-> - [`compact-native-migration-retrospective.md`](compact-native-migration-retrospective.md)
+> - [`compact-native-migration-retrospective.md`](../compact-native-migration-retrospective.md)
 > - [`coding-runtime-incremental-migration.md`](coding-runtime-incremental-migration.md)
-> - [`target-architecture.md`](target-architecture.md)
+> - [`target-architecture.md`](../target-architecture.md)
 >
 > 本文实施结论以最终复核基线为准；在后续分支引用时仍须重新搜索当前代码。旧文档中
 > “55 个命令”“v1 AgentLoop 仍存在”“memory/background 仍有 core command”等历史结论

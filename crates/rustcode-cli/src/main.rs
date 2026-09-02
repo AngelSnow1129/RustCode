@@ -1019,11 +1019,6 @@ enum Commands {
     },
     /// Roll back to the previous version (swap with .bak on disk)
     Rollback,
-    /// Hidden alias for `rustcode login` -- kept so existing scripts /
-    /// muscle memory don't break after `/codingplan` and `rustcode
-    /// codingplan` were folded into the unified `/login` flow.
-    #[command(hide = true)]
-    Codingplan,
     /// Manage MCP server entries in `.mcp.json` (similar to `claude mcp add`)
     #[command(subcommand)]
     Mcp(McpCli),
@@ -1666,7 +1661,7 @@ async fn run() -> Result<i32> {
     // ── End early config / offline seed ──────────────────────────────────────
 
     // Handle subcommands. Most are self-contained (`handle_command` runs
-    // and exits); `Login` (and its hidden alias `Codingplan`) run the
+    // and exits); `Login` runs the
     // full OAuth + CodingPlan setup flow and then fall through to the
     // TUI.
 
@@ -1693,7 +1688,7 @@ async fn run() -> Result<i32> {
             // `resume_selector` already captured above (interactive by default; add
             // `-p` to run headless resumed).
             Commands::Resume { .. } => {}
-            Commands::Login | Commands::Codingplan => {
+            Commands::Login => {
                 // Unified login flow: OAuth (if needed) -> claim -> fetch
                 // models -> register providers -> fetch status. Falls
                 // through to TUI startup regardless of outcome. On
@@ -3516,7 +3511,7 @@ async fn handle_command(cmd: Commands) -> Result<()> {
 
     match cmd {
         Commands::Login => {
-            // `run()` intercepts Login (and its Codingplan alias) before
+            // `run()` intercepts Login before
             // handle_command is called, running the full OAuth + setup
             // flow and falling through to the TUI. This arm is
             // unreachable in normal execution but kept defensive.
@@ -3571,11 +3566,6 @@ async fn handle_command(cmd: Commands) -> Result<()> {
             keep_data,
             dry_run,
         }),
-        Commands::Codingplan => {
-            // Hidden alias for Login -- `run()` intercepts both before
-            // handle_command is called, so this arm is unreachable.
-            unreachable!("Codingplan is handled inline in run() before handle_command")
-        }
         Commands::Daemon { .. } => {
             unreachable!("Daemon is handled inline in run() before handle_command")
         }

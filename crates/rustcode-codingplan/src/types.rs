@@ -1,4 +1,4 @@
-// crates/rustcode-core/src/coding_plan/types.rs
+// crates/rustcode-codingplan/src/types.rs
 //
 // Serde types for the three CodingPlan REST endpoints. Field shapes come
 // from the API contract (see module-level doc in mod.rs). Everything is

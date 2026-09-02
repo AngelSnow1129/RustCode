@@ -1,4 +1,4 @@
-// crates/rustcode-core/src/coding_plan/mod.rs
+// crates/rustcode-codingplan/src/lib.rs
 //
 // CodingPlan integration: claim the free plan, fetch the eligible model
 // list, set up matching provider entries, and pull plan status. Drives

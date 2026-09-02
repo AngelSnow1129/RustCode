@@ -35,25 +35,6 @@ offline_mode = "off"
 # Provider 示例
 # =============================================================================
 
-# ─── Example: CodingPlan gateway (recommended) ───
-# Run `rustcode login` to auto-configure via OAuth, which writes
-# providers like the one below. Manual setup is for reference only.
-#
-# [providers.RustCode-deepseek-v4-flash]
-# type = "openai"
-# api_key = "<your-codingplan-api-key>"
-# model = "deepseek-v4-flash"
-# base_url = "https://gateway.example.com/v1"
-# context_window = 1000000
-#
-# [providers.RustCode-Qwen-Qwen3-VL-8B-Instruct]
-# type = "openai"
-# api_key = "<your-codingplan-api-key>"
-# model = "Qwen/Qwen3-VL-8B-Instruct"
-# base_url = "https://gateway.example.com/v1"
-# context_window = 64000
-# ─────────────────────────────────────────────────
-
 # -------- DeepSeek ----------
 [providers.deepseek]
 type = "openai"

@@ -316,7 +316,7 @@ pub enum Msg<'a> {
     /// endpoint is reachable from a browser but the client was reset -- likely a
     /// proxy/firewall path difference. Points at the actionable knobs.
     NetworkConnectHint,
-    // SetupReport renderer (core/coding_plan/setup.rs)
+    // SetupReport renderer (rustcode-codingplan::setup)
     CpSetupHeader,
     CpLoggedIn {
         who: &'a str,
@@ -373,7 +373,7 @@ pub enum Msg<'a> {
     },
     /// Locked-model row. `name` is expected to be pre-decorated with
     /// U+0336 combining strikethrough by the caller (see
-    /// `coding_plan::setup::strikethrough`), so the template itself
+    /// `rustcode_codingplan::setup::strikethrough`), so the template itself
     /// stays a plain `format!` and survives every renderer's CSI
     /// scrubber without needing SGR escapes.
     CpLocked {

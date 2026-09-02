@@ -1,4 +1,4 @@
-// crates/rustcode-core/src/coding_plan/sync_marker.rs
+// crates/rustcode-codingplan/src/sync_marker.rs
 //
 // Persist the last time `/codingplan` successfully wrote provider entries
 // to `config.toml`. The monitor (tuix side) reads this to decide whether

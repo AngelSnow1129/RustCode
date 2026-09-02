@@ -1,5 +1,7 @@
 # `/compact` Native 迁移复盘与后续命令迁移手册
 
+> [ARCHIVED-IN-PLACE] 本文档为历史记录；因被 docs/compact-durable-checkpoint-design.md:9 引用，按 AC-17 不移动。
+
 > 最终核对基线：`release/v5.0.0@a102ff814bb685c706b346fa9d29e2481c3680cf`
 >
 > 结论：`/compact` 专属的 core command/event variant、bridge handler、事件转换和 fallback

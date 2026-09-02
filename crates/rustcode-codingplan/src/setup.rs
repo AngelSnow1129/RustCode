@@ -1,4 +1,4 @@
-// crates/rustcode-core/src/coding_plan/setup.rs
+// crates/rustcode-codingplan/src/setup.rs
 //
 // Orchestrator for the 4-step CodingPlan flow. Single `run` entrypoint
 // shared by the CLI subcommand and the TUI slash command; both render

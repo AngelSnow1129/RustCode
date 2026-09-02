@@ -1,5 +1,7 @@
 # PHASE-1: System Analysis & Refactor Design
 
+> [SUPERSEDED BY docs/phase1-refactor-design.md]
+
 > [INFO] Lead Orchestrator design document. GATEWAY deliverable.
 > [INFO] No production source edit happens until this design is reviewed and confirmed.
 > [INFO] Source root: `/workspace/gitCode/SecLab/RustCode`
