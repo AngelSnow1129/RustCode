@@ -808,6 +808,28 @@ impl CodingAgentConfig {
     }
 }
 
+// Manual Debug: redact the api_key while we are here.
+impl std::fmt::Debug for CodingAgentConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CodingAgentConfig")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("provider_name", &self.provider_name)
+            .field("working_dir", &self.working_dir)
+            .field("context_window", &self.context_window)
+            .field("stream_timeout", &self.stream_timeout)
+            .field("request_timeout", &self.request_timeout)
+            .field("interactive", &self.interactive)
+            .field("max_continuations", &self.max_continuations)
+            .field("max_rounds", &self.max_rounds)
+            .field("tool_loop_policy", &self.tool_loop_policy)
+            .field("goal_max_rounds", &self.goal_max_rounds)
+            .field("goal_max_duration_secs", &self.goal_max_duration_secs)
+            .field("chat_options", &self.chat_options)
+            .finish_non_exhaustive()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -918,8 +940,10 @@ mod tests {
 
     #[test]
     fn runtime_config_passes_preferred_language_to_agent() {
-        let mut source = rustcode_config::config::Config::default();
-        source.language = Some(Locale::ZhCn);
+        let source = rustcode_config::config::Config {
+            language: Some(Locale::ZhCn),
+            ..Default::default()
+        };
         let runtime = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
@@ -937,10 +961,12 @@ mod tests {
 
     #[test]
     fn runtime_config_passes_datalog_settings_to_agent() {
-        let mut source = rustcode_config::config::Config::default();
-        source.datalog = rustcode_config::config::DatalogConfig {
-            enabled: false,
-            dir: Some("/var/tmp/rustcode-datalog".into()),
+        let source = rustcode_config::config::Config {
+            datalog: rustcode_config::config::DatalogConfig {
+                enabled: false,
+                dir: Some("/var/tmp/rustcode-datalog".into()),
+            },
+            ..Default::default()
         };
         let runtime = CodingRuntimeConfig::from_config(
             &source,
@@ -1321,27 +1347,5 @@ mod tests {
             Some("parent-sess-123"),
             "the tier provider must bind the parent session id when built"
         );
-    }
-}
-
-// Manual Debug: redact the api_key while we are here.
-impl std::fmt::Debug for CodingAgentConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CodingAgentConfig")
-            .field("base_url", &self.base_url)
-            .field("model", &self.model)
-            .field("provider_name", &self.provider_name)
-            .field("working_dir", &self.working_dir)
-            .field("context_window", &self.context_window)
-            .field("stream_timeout", &self.stream_timeout)
-            .field("request_timeout", &self.request_timeout)
-            .field("interactive", &self.interactive)
-            .field("max_continuations", &self.max_continuations)
-            .field("max_rounds", &self.max_rounds)
-            .field("tool_loop_policy", &self.tool_loop_policy)
-            .field("goal_max_rounds", &self.goal_max_rounds)
-            .field("goal_max_duration_secs", &self.goal_max_duration_secs)
-            .field("chat_options", &self.chat_options)
-            .finish_non_exhaustive()
     }
 }

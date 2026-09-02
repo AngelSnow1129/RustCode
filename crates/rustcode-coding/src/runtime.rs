@@ -2196,6 +2196,7 @@ impl CodingRuntimeControlReceiver {
 ///
 /// Drivers should use capability methods on [`CodingRuntimeHandle`].
 #[doc(hidden)]
+#[allow(clippy::large_enum_variant)] // control channel carries payloads of differing sizes; boxing would churn every match arm
 pub enum CodingRuntimeControl {
     Compact {
         generation: u64,
@@ -2356,6 +2357,7 @@ pub enum RewindFinalization {
 
 #[doc(hidden)]
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)] // `Exact` carries a large input payload; boxing it would complicate every construction site
 pub enum ReprepareTarget {
     Exact(ReprepareInput),
     Reload {
@@ -2666,6 +2668,7 @@ pub fn spawn_runtime_owner(
     )
 }
 
+#[allow(clippy::too_many_arguments)] // 8 params thread the control/event channels into the owner task; collapsing would obscure the spawn sites
 fn spawn_runtime_owner_with_protocol(
     initial: AgentHandle,
     controls: CodingRuntimeControlReceiver,
@@ -2693,6 +2696,7 @@ fn spawn_runtime_owner_with_protocol(
     )
 }
 
+#[allow(clippy::too_many_arguments)] // 9 params carry the optional-agent bootstrap into the owner task; callers are few and stable
 fn spawn_runtime_owner_with_optional_agent(
     initial: Option<AgentHandle>,
     mut controls: CodingRuntimeControlReceiver,
@@ -3646,11 +3650,10 @@ fn spawn_runtime_owner_with_optional_agent(
                                 != runtime_phase_state(generation, RuntimePhase::Ready)
                         {
                             let _ = done.send(Err(RuntimeError::Unavailable));
-                        } else if pending_policy_intervention.as_ref().is_none() {
-                            let _ = done.send(Err(RuntimeError::NoPendingPolicyIntervention));
-                        } else if pending_policy_intervention
-                            .as_ref()
-                            .is_some_and(|intervention| intervention.id != intervention_id)
+                        } else if pending_policy_intervention.as_ref().is_none()
+                            || pending_policy_intervention
+                                .as_ref()
+                                .is_some_and(|intervention| intervention.id != intervention_id)
                         {
                             let _ = done.send(Err(RuntimeError::NoPendingPolicyIntervention));
                         } else if !pending_policy_intervention
@@ -6788,6 +6791,7 @@ async fn receive_agent_event(agent: &mut Option<AgentHandle>) -> Option<AgentEve
     }
 }
 
+#[allow(clippy::type_complexity)] // return bundles four related params; a named type would be used only here
 fn resolve_reprepare_input(
     runtime: &RuntimeResources,
     target: ReprepareTarget,
@@ -7571,6 +7575,7 @@ fn emit_terminal_persistence_warnings(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // 8 params pass the stopped-turn side effects to one aggregation point; callers are few
 fn finish_stopped_native_turn(
     report: &StopReport,
     resources: Option<&RuntimeResources>,
@@ -8514,6 +8519,7 @@ mod tests {
     }
 
     #[derive(Default)]
+    #[allow(clippy::type_complexity)] // test-only recorder; the tuple field mirrors the provider-input signature exactly
     struct TierRecordingFactory {
         models: std::sync::Mutex<Vec<String>>,
         provider_inputs: std::sync::Mutex<Vec<(String, String, String, Option<String>)>>,
@@ -8716,8 +8722,10 @@ mod tests {
 
     #[test]
     fn goal_evaluator_uses_configured_provider() {
-        let mut registry = rustcode_config::config::Config::default();
-        registry.evaluator_provider = Some("judge".into());
+        let mut registry = rustcode_config::config::Config {
+            evaluator_provider: Some("judge".into()),
+            ..Default::default()
+        };
         registry
             .providers
             .insert("judge".into(), tier_provider("judge-model", 0));
@@ -8739,8 +8747,10 @@ mod tests {
 
     #[test]
     fn goal_evaluator_falls_back_to_host_when_configured_provider_fails() {
-        let mut registry = rustcode_config::config::Config::default();
-        registry.evaluator_provider = Some("judge".into());
+        let mut registry = rustcode_config::config::Config {
+            evaluator_provider: Some("judge".into()),
+            ..Default::default()
+        };
         registry
             .providers
             .insert("judge".into(), tier_provider("judge-model", 0));
@@ -8766,8 +8776,10 @@ mod tests {
 
     #[test]
     fn goal_evaluator_never_inherits_host_endpoint_or_credentials() {
-        let mut registry = rustcode_config::config::Config::default();
-        registry.evaluator_provider = Some("judge".into());
+        let mut registry = rustcode_config::config::Config {
+            evaluator_provider: Some("judge".into()),
+            ..Default::default()
+        };
         let mut judge = tier_provider("judge-model", 0);
         judge.base_url = Some("https://judge.example/v1".into());
         judge.api_key = None;
@@ -12454,8 +12466,8 @@ mod tests {
                         Some(_) => {}
                         None => panic!("runtime event stream closed"),
                     }
-                    if authoritative.is_some() && acknowledged.is_some() {
-                        break (authoritative.unwrap(), acknowledged.unwrap());
+                    if let (Some(auth), Some(ack)) = (authoritative.as_ref(), acknowledged.as_ref()) {
+                        break (auth.clone(), ack.clone());
                     }
                 }
             })

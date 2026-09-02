@@ -1474,6 +1474,7 @@ async fn publish_ready_mcp_tools(
     catalog_publisher.publish(&tool_registry, &refs);
 }
 
+#[allow(clippy::too_many_arguments)] // 8 params reflect the distinct MCP-publish channels; grouping would obscure the call sites
 async fn publish_connected_mcp_server(
     mcp_registry: Arc<McpRegistry>,
     server: String,
@@ -2226,16 +2227,18 @@ mod tests {
         assert!(off.is_empty(), "template off mounts no built-in roles");
 
         // An explicit [[subagent.external]] named "builder" overrides the role.
-        let mut sub = SubAgentConfig::default();
-        sub.external = vec![rustcode_config::config::ExternalSubagentConfig {
-            name: "builder".into(),
-            kind: "claude-code".into(),
-            model: Some("sonnet".into()),
-            permission: Some("bypass".into()),
-            allow_dangerous: true,
-            timeout_secs: None,
-            enabled: true,
-        }];
+        let sub = SubAgentConfig {
+            external: vec![rustcode_config::config::ExternalSubagentConfig {
+                name: "builder".into(),
+                kind: "claude-code".into(),
+                model: Some("sonnet".into()),
+                permission: Some("bypass".into()),
+                allow_dangerous: true,
+                timeout_secs: None,
+                enabled: true,
+            }],
+            ..Default::default()
+        };
         let profiles = resolve_external_subagents(&sub, true);
         assert_eq!(
             profiles.len(),
@@ -2447,7 +2450,7 @@ mod tests {
         // Remove RUSTCODE_REQUEST_USER_INPUT so the persona is deterministic regardless
         // of what other tests may have set concurrently (we hold the serial lock, so this
         // is safe -- no other test in this serial group can observe the removal).
-        let _rui_guard = std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
+        std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
         let mut snapshot = SessionSnapshot::new(vec![
             Message::system(coding_persona(
                 "old-model",
@@ -2488,7 +2491,7 @@ mod tests {
     #[serial_test::serial(offline_verdict)]
     fn repeated_model_switch_keeps_system_context_leading() {
         rustcode_config::config::offline::reset_offline_verdict_for_test();
-        let _rui_guard = std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
+        std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
         let mut snapshot = SessionSnapshot::new(vec![
             Message::system(coding_persona(
                 "model-a",
@@ -2553,7 +2556,7 @@ mod tests {
         // Remove RUSTCODE_REQUEST_USER_INPUT so the persona is stable for both builds of
         // the persona string (captured and reconciled).  We hold the serial lock, so this
         // is safe.
-        let _rui_guard = std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
+        std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
         let persona = coding_persona(
             "deepseek-v4-flash",
             crate::persona::todo_switch_enabled(),
@@ -2584,7 +2587,7 @@ mod tests {
         use rustcode_config::locale::Locale;
 
         rustcode_config::config::offline::reset_offline_verdict_for_test();
-        let _rui_guard = std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
+        std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
         let mut snapshot = SessionSnapshot::new(vec![Message::system(
             crate::persona::coding_persona_with_language(
                 "model-a",
@@ -2614,7 +2617,7 @@ mod tests {
         use rustcode_config::locale::Locale;
 
         rustcode_config::config::offline::reset_offline_verdict_for_test();
-        let _rui_guard = std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
+        std::env::remove_var("RUSTCODE_REQUEST_USER_INPUT");
         let mut snapshot = SessionSnapshot::new(vec![
             Message::system(coding_persona(
                 "model-a",

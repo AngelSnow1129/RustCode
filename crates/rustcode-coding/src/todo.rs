@@ -282,6 +282,7 @@ fn managed_todos_this_turn(convo: &Conversation) -> bool {
 /// - An `in_progress` task -> name its `#<id>` + title and force a reconcile.
 /// - No `in_progress` but open (pending) items remain -> tell it to mark what it's on.
 /// - Otherwise (all completed) -> `None` (nothing to reconcile; don't add noise).
+///
 /// `id` is the 1-based position, matching `render_todos_numbered`.
 fn todo_anchor_line(todos: &[TodoItem]) -> Option<String> {
     if let Some(i) = todos

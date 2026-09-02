@@ -1176,7 +1176,7 @@ mod tests {
         assert_eq!(g.progress().phase, GoalPhase::Satisfied);
         // Minor fix 1: terminal and active also checked via progress()
         assert_eq!(g.progress().terminal, Some(GoalTerminal::Met));
-        assert_eq!(g.progress().active, false);
+        assert!(!g.progress().active);
 
         let mut g2 = GoalState::new(2, "finish".into(), 300, 0);
         g2.round = 300;

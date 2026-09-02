@@ -15,6 +15,7 @@ use rustcode_config::config::Config;
 /// - `fast` = the lowest-ranked participant, `capable` = the highest-ranked.
 /// - Returns `None` when the host model doesn't itself participate (a self-configured model),
 ///   or when there are fewer than 2 participants.
+///
 /// Deterministic: ties in rank are broken by selection id.
 pub fn resolve_tier_keys(config: &Config, host_model: &str) -> Option<(String, String)> {
     let models = config.logical_models();
