@@ -2694,7 +2694,7 @@ fn execute_slash_command_impl(
                         provider_transition_pending(ctx),
                         ctx.pending_runtime_request_id.is_some(),
                     ) {
-                        renderer.render(UiLine::Error(error.into()));
+                        renderer.render(UiLine::Error(error));
                         renderer.flush();
                         return Ok(());
                     }
@@ -2774,7 +2774,7 @@ fn execute_slash_command_impl(
                         provider_transition_pending(ctx),
                         ctx.pending_runtime_request_id.is_some(),
                     ) {
-                        renderer.render(UiLine::Error(error.into()));
+                        renderer.render(UiLine::Error(error));
                         renderer.flush();
                         return Ok(());
                     }
@@ -5427,11 +5427,7 @@ pub(crate) fn build_cost_report_text(
         let prompt = item.tokens.input.saturating_add(item.tokens.cached_input) as usize;
         let completion = item.tokens.output as usize;
         let cached = item.tokens.cached_input as usize;
-        let cache_rate = if prompt == 0 {
-            0
-        } else {
-            cached.saturating_mul(100) / prompt
-        };
+        let cache_rate = cached.saturating_mul(100).checked_div(prompt).unwrap_or(0);
         let total = prompt.saturating_add(completion);
         let body = t(Msg::CostTokenReport {
             prompt,
@@ -5574,8 +5570,7 @@ pub(crate) fn build_schedule_list_text(
                 next: &next,
                 last: task.last_status.as_deref().unwrap_or("-"),
                 state: &state,
-            })
-            .into_owned(),
+            }),
         );
     }
     out

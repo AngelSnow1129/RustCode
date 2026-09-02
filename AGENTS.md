@@ -60,7 +60,7 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 
 ### [OBJECTIVE-1] 产品重命名 — [DONE]
 
-14 个 crate 全部 `atomcode-*` -> `rustcode-*`。配置目录 `~/.rustcode`;环境变量前缀 `RUSTCODE_*`。
+13 个 crate 全部 `atomcode-*` -> `rustcode-*`。配置目录 `~/.rustcode`;环境变量前缀 `RUSTCODE_*`。
 
 重命名的事实源集中在两个文件(改这两处即可带动大部分):
 `rustcode-config/src/distribution.rs`(`HOME_ENV` / `HOME_DIR_NAME` / 端口 `13456,13457,13458` / `PROCESS_NAMES` / `RELEASE_ASSET_PREFIX` 等)与 `rustcode-config/src/endpoints.rs`(11 个 `RUSTCODE_*` 环境变量名 + 4 个托管端点)。

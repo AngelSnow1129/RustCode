@@ -690,9 +690,7 @@ pub fn slice_cols(s: &str, start_col: usize, max_cols: usize) -> String {
     // result and render as gibberish downstream.
     for g in s.graphemes(true) {
         let w = cluster_width(g);
-        if col + w <= start_col {
-            col += w;
-        } else if col < start_col {
+        if col < start_col {
             col += w;
         } else {
             if acc_w + w > max_cols {

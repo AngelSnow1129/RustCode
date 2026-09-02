@@ -112,9 +112,8 @@ fn cjk_diagram_correction_columns(source: &str) -> HashSet<usize> {
 
     let mut by_source_col: HashMap<usize, BoundaryEvidence> = HashMap::new();
     for line in source.lines() {
-        let mut source_col = 0usize;
         let mut display_col = 0usize;
-        for ch in line.chars() {
+        for (source_col, ch) in line.chars().enumerate() {
             if is_vertical_boundary(ch) {
                 let evidence =
                     by_source_col
@@ -128,7 +127,6 @@ fn cjk_diagram_correction_columns(source: &str) -> HashSet<usize> {
                 evidence.min_display_col = evidence.min_display_col.min(display_col);
                 evidence.max_display_col = evidence.max_display_col.max(display_col);
             }
-            source_col += 1;
             display_col += crate::width::display_width(ch.encode_utf8(&mut [0; 4]));
         }
     }
@@ -144,10 +142,9 @@ fn cjk_diagram_correction_columns(source: &str) -> HashSet<usize> {
 
 fn normalize_cjk_diagram_line(line: &str, correction_columns: &HashSet<usize>) -> String {
     let mut out = String::with_capacity(line.len());
-    let mut source_col = 0usize;
     let mut display_col = 0usize;
 
-    for ch in line.chars() {
+    for (source_col, ch) in line.chars().enumerate() {
         if is_vertical_boundary(ch) && correction_columns.contains(&source_col) {
             let mut excess = display_col.saturating_sub(source_col);
             while excess > 0 && out.ends_with(' ') {
@@ -158,7 +155,6 @@ fn normalize_cjk_diagram_line(line: &str, correction_columns: &HashSet<usize>) -
         }
 
         out.push(ch);
-        source_col += 1;
         display_col += crate::width::display_width(ch.encode_utf8(&mut [0; 4]));
     }
 

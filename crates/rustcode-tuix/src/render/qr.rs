@@ -95,10 +95,10 @@ fn render_braille(code: &QrCode) -> String {
     for cy in 0..rows {
         for cx in 0..cols {
             let mut bits: u32 = 0;
-            for dx in 0..2usize {
-                for dy in 0..4usize {
+            for (dx, row) in BRAILLE_BITS.iter().enumerate() {
+                for (dy, &bit) in row.iter().enumerate() {
                     if is_dark(cx * 2 + dx, cy * 4 + dy) {
-                        bits |= BRAILLE_BITS[dx][dy];
+                        bits |= bit;
                     }
                 }
             }

@@ -597,7 +597,7 @@ impl OnboardingWizard {
                 }
                 PureOutcome::Redraw
             }
-            (Setup, KeyCode::Char('1')) if setup_choices().len() >= 1 => {
+            (Setup, KeyCode::Char('1')) if !setup_choices().is_empty() => {
                 self.setup_idx = 0;
                 PureOutcome::ApplySetupThenClose
             }
@@ -783,12 +783,13 @@ impl OnboardingWizard {
             t(Msg::OnboardingLanguageOptionZhCn).into_owned(),
         ];
 
-        let mut content: Vec<String> = Vec::new();
-        content.push(String::new());
-        content.push(t(Msg::OnboardingLanguageTitleBilingual).into_owned());
-        content.push(String::new());
-        content.push(t(Msg::OnboardingLanguagePrompt).into_owned());
-        content.push(String::new());
+        let mut content: Vec<String> = vec![
+            String::new(),
+            t(Msg::OnboardingLanguageTitleBilingual).into_owned(),
+            String::new(),
+            t(Msg::OnboardingLanguagePrompt).into_owned(),
+            String::new(),
+        ];
         for (i, label) in options.iter().enumerate() {
             let bullet = if i == self.language_idx { '●' } else { '○' };
             content.push(format!("{bullet}  [{}] {}", i + 1, label));
@@ -2054,11 +2055,11 @@ mod tests {
         let rows_with_bracket: Vec<String> = (0..24)
             .map(|r| vt.row_text(r))
             .filter(|r| {
-                let n = r
+                
+                r
                     .find("[1] Configure")
                     .or_else(|| r.find("[2] Skip"))
-                    .is_some();
-                n
+                    .is_some()
             })
             .collect();
         assert_eq!(

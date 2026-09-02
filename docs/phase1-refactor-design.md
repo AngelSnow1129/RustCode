@@ -65,7 +65,7 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
                     rustcode-codingplan / rustcode-codingplan-crypto
 ```
 
-- 工作区 `members = ["crates/*"]`（14 个目录），`default-members` 为 cli / daemon / tuix。
+- 工作区 `members = ["crates/*"]`（13 个目录），`default-members` 为 cli / daemon / tuix。
 - `rustcode-codingplan-crypto` 是闭源签名占位桩，默认成员外，官方构建用 `--features rustcode/codingplan-crypto`。
 - 依赖只向下；`rustcode-capabilities` 禁止反向依赖 coding / driver / 前端（编译期强制）。
 
@@ -115,7 +115,7 @@ tokio   = { version = "1", features = ["rt", "macros", "sync", "time"] }
 
 | 维度 | 当前（D1 已锁定） | 备用示例（未提案） |
 |---|---|---|
-| crate 前缀 | `rustcode-*` (14 个) | 例 `codeforge-*` |
+| crate 前缀 | `rustcode-*` (13 个) | 例 `codeforge-*` |
 | CLI 包名 / 二进制 | package `rustcode` / bin `rustcode` | 例 `codeforge` |
 | daemon 二进制 | `rustcode-daemon` | 例 `codeforge-daemon` |
 | TUI crate | `rustcode-tuix` | 例 `codeforgex` |
@@ -553,7 +553,7 @@ G8  许可档案无悬空交叉引用（docs/ 与 docs/licenses/ 之间）
 G9  全仓新增代码 0 Emoji（grep -P "[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]"）
 ```
 
-**[WARN] CI 现状缺口**：`.github/workflows/` **只有 `build.yml`**（release 构建矩阵），**没有 fmt / clippy / test job**。建议 BATCH-5 补一份 `ci.yml`。
+**[WARN] CI 现状缺口（已部分补齐）**：`.github/workflows/build.yml` 仍只管 release 构建矩阵；`ci.yml` 已创建，在 push/PR 到 `main`/`dev` 时触发 `G1`(fmt)、`G2`(clippy，暂未 `-D warnings`，约 420 条存量 warning)、`G3`(test) 三个 job。G4–G9 尚未成为 CI job（仍为本地/人工门禁），建议后续补齐。
 
 ### 6.5 Mock Provider 测试基建
 

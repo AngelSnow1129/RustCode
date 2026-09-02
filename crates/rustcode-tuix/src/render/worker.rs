@@ -100,6 +100,7 @@ pub(crate) fn interaction_surface_for_line(line: &UiLine) -> Option<InteractionS
 }
 
 /// Commands sent to the render worker thread.
+#[allow(clippy::large_enum_variant)]
 enum RenderCmd {
     Line {
         line: UiLine,

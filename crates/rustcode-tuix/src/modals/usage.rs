@@ -532,7 +532,7 @@ impl UsageModal {
                 (model, series, total_tok, total_req)
             })
             .collect();
-        model_stats.sort_by(|a, b| b.2.cmp(&a.2)); // sort by tokens desc
+        model_stats.sort_by_key(|a| std::cmp::Reverse(a.2)); // sort by tokens desc
 
         if caps_colors && caps_unicode {
             // ── Unified braille line chart ──
@@ -622,7 +622,7 @@ impl UsageModal {
                 let x_label_line = if n == 1 {
                     format!("  {indent}{m}{}\x1b[39m", u.rows[0].date.as_str())
                 } else {
-                    let ticks = n.min(5).max(2);
+                    let ticks = n.clamp(2, 5);
                     let mut buf: Vec<char> = vec![' '; chart_w];
                     let mut used_end = 0usize; // rightmost filled col + gap, prevents overlap
                     for k in 0..ticks {

@@ -534,12 +534,12 @@ fn login_poll_response(result: LoginPollResult) -> axum::response::Response {
         LoginPollStep::Expired => terminal_login_response(
             StatusCode::GONE,
             "login_session_expired",
-            "Login session expired; start a new login",
+            t(Msg::DaemonApiLoginExpired),
         ),
         LoginPollStep::Cancelled => terminal_login_response(
             StatusCode::GONE,
             "login_session_cancelled",
-            "Login session was cancelled",
+            t(Msg::DaemonApiLoginCancelled),
         ),
         LoginPollStep::Failed { code, message } => {
             terminal_login_response(StatusCode::INTERNAL_SERVER_ERROR, code, message)

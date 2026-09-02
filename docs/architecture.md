@@ -73,6 +73,7 @@ L0                     rustcode-kernel
 | `rustcode-review` | L2/L3 | 基于 kernel + capabilities 的独立代码审查 agent |
 | `rustcode-updater` | service | 安装包与版本更新能力 |
 | `rustcode-codingplan` | capability | coding plan 相关能力；可选 crypto overlay 由发布构建注入 |
+| `rustcode-codingplan-crypto` | capability | coding plan 的闭源签名覆盖层；默认成员外，官方构建通过 `--features rustcode/codingplan-crypto` 注入 |
 
 ## rustcode-kernel：中立执行边界
 

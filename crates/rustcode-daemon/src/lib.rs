@@ -1787,7 +1787,7 @@ async fn change_dir(
             None => {
                 return Json(ChangeDirResponse {
                     success: false,
-                    message: "No previous directory to go back to".to_string(),
+                    message: t(Msg::DaemonApiCdNoPrevious).to_string(),
                     current_dir: project.working_dir.clone(),
                     project_hash: hash_path(&project.working_dir),
                 });
@@ -1820,7 +1820,10 @@ async fn change_dir(
         if !resolved.exists() {
             return Json(ChangeDirResponse {
                 success: false,
-                message: format!("Directory does not exist: {}", resolved.display()),
+                message: t(Msg::DaemonApiCdNotExist {
+                    path: &resolved.display().to_string(),
+                })
+                .to_string(),
                 current_dir: project.working_dir.clone(),
                 project_hash: hash_path(&project.working_dir),
             });
@@ -1829,7 +1832,10 @@ async fn change_dir(
         if !resolved.is_dir() {
             return Json(ChangeDirResponse {
                 success: false,
-                message: format!("Not a directory: {}", resolved.display()),
+                message: t(Msg::DaemonApiCdNotDir {
+                    path: &resolved.display().to_string(),
+                })
+                .to_string(),
                 current_dir: project.working_dir.clone(),
                 project_hash: hash_path(&project.working_dir),
             });
@@ -1914,7 +1920,10 @@ async fn change_dir(
 
     Json(ChangeDirResponse {
         success: true,
-        message: format!("Changed to {}", new_path.display()),
+        message: t(Msg::DaemonApiCdChanged {
+            path: &new_path.display().to_string(),
+        })
+        .to_string(),
         current_dir: new_path,
         project_hash: hash,
     })
@@ -1949,7 +1958,11 @@ async fn get_project_sessions(Path(hash): Path<String>) -> impl IntoResponse {
 async fn resolve_session(Path(id): Path<String>) -> impl IntoResponse {
     match resolve_session_by_id(&id) {
         Ok(Some(s)) => Json(s).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, Json("Session not found")).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(t(Msg::DaemonApiSessionNotFound).to_string()),
+        )
+            .into_response(),
         Err(rustcode_capabilities::session::SessionStoreError::AmbiguousId { query, matches }) => {
             let locations: Vec<String> = matches
                 .iter()
@@ -2020,7 +2033,11 @@ async fn get_session_detail(Path((hash, id)): Path<(String, String)>) -> impl In
             };
             Json(detail).into_response()
         }
-        Ok(None) => (StatusCode::NOT_FOUND, Json("Session not found")).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(t(Msg::DaemonApiSessionNotFound).to_string()),
+        )
+            .into_response(),
         Err(e) => {
             let msg = format!("Failed to load session: {}", e);
             (StatusCode::NOT_FOUND, Json(msg)).into_response()
@@ -2514,7 +2531,7 @@ async fn search_sessions(Query(query): Query<SearchQuery>) -> impl IntoResponse 
     if query.q.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json("Search keyword cannot be empty"),
+            Json(t(Msg::DaemonApiSearchEmpty).to_string()),
         )
             .into_response();
     }
@@ -2546,13 +2563,13 @@ fn valid_project_bucket(project_bucket: &str) -> bool {
 fn delete_session_api_error(
     status: StatusCode,
     code: &'static str,
-    message: &'static str,
+    message: impl Into<String>,
 ) -> (StatusCode, Json<ApiError>) {
     (
         status,
         Json(ApiError {
             success: false,
-            error: message.to_string(),
+            error: message.into(),
             code: Some(code.to_string()),
             retryable: Some(false),
         }),
@@ -2564,24 +2581,24 @@ fn classify_delete_session_error(error: &anyhow::Error) -> (StatusCode, Json<Api
         Some(SessionStoreError::SessionInUse { .. }) => delete_session_api_error(
             StatusCode::CONFLICT,
             "SESSION_IN_USE",
-            "This session is active. Switch to or create another session, then try again.",
+            t(Msg::DaemonApiSessionActive),
         ),
         Some(SessionStoreError::NotFound { .. }) => delete_session_api_error(
             StatusCode::NOT_FOUND,
             "SESSION_NOT_FOUND",
-            "The session was not found.",
+            t(Msg::DaemonApiDeleteNotFound),
         ),
         Some(SessionStoreError::InvalidId { .. } | SessionStoreError::AmbiguousId { .. }) => {
             delete_session_api_error(
                 StatusCode::BAD_REQUEST,
                 "INVALID_SESSION",
-                "The session identifier is invalid.",
+                t(Msg::DaemonApiDeleteInvalidId),
             )
         }
         _ => delete_session_api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DELETE_FAILED",
-            "Failed to delete the session. Check the RustCode logs for details.",
+            t(Msg::DaemonApiDeleteFailed),
         ),
     }
 }
@@ -2749,7 +2766,7 @@ fn classify_repair_session_error(
         SessionStoreError::SessionInUse { .. } => delete_session_api_error(
             StatusCode::CONFLICT,
             "SESSION_IN_USE",
-            "This session is active. Switch to or create another session, then try again.",
+            t(Msg::DaemonApiSessionActive),
         )
         .into_response(),
         SessionStoreError::NotFound { path }
@@ -2758,7 +2775,7 @@ fn classify_repair_session_error(
             delete_session_api_error(
                 StatusCode::NOT_FOUND,
                 "SESSION_NOT_FOUND",
-                "The session metadata was not found.",
+                t(Msg::DaemonApiMetadataNotFound),
             )
             .into_response()
         }
@@ -2766,7 +2783,7 @@ fn classify_repair_session_error(
             delete_session_api_error(
                 StatusCode::BAD_REQUEST,
                 "INVALID_SESSION",
-                "The project or session identifier is invalid.",
+                t(Msg::DaemonApiProjectInvalid),
             )
             .into_response()
         }
@@ -2781,7 +2798,7 @@ fn classify_repair_session_error(
         _ => delete_session_api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "REPAIR_FAILED",
-            "Failed to inspect or repair the session. Check the RustCode logs for details.",
+            t(Msg::DaemonApiRepairFailed),
         )
         .into_response(),
     }
@@ -2796,7 +2813,7 @@ async fn repair_session(
         return delete_session_api_error(
             StatusCode::BAD_REQUEST,
             "INVALID_SESSION",
-            "The project or session identifier is invalid.",
+            t(Msg::DaemonApiProjectInvalid),
         )
         .into_response();
     }
@@ -2812,7 +2829,7 @@ async fn repair_session(
             delete_session_api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "REPAIR_FAILED",
-                "Failed to inspect or repair the session. Check the RustCode logs for details.",
+                t(Msg::DaemonApiRepairFailed),
             )
             .into_response()
         }
@@ -2832,7 +2849,7 @@ async fn delete_session(
         return delete_session_api_error(
             StatusCode::BAD_REQUEST,
             "INVALID_SESSION",
-            "The project or session identifier is invalid.",
+            t(Msg::DaemonApiProjectInvalid),
         )
         .into_response();
     }
@@ -2888,7 +2905,7 @@ async fn delete_session(
                     return delete_session_api_error(
                         StatusCode::CONFLICT,
                         "SESSION_IN_USE",
-                        "This session has an active turn. Stop it, then try again.",
+                        t(Msg::DaemonApiSessionActiveTurn),
                     )
                     .into_response();
                 }
@@ -2908,7 +2925,7 @@ async fn delete_session(
                     return delete_session_api_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "DELETE_FAILED",
-                        "Failed to release the current session before deleting it.",
+                        t(Msg::DaemonApiDeleteReleaseFailed),
                     )
                     .into_response();
                 }
@@ -2922,7 +2939,7 @@ async fn delete_session(
         tokio::task::spawn_blocking(move || delete_session_file(&delete_hash, &delete_id)).await;
     match deleted {
         Ok(Ok(())) => {
-            let msg = format!("Session {} deleted successfully", id);
+            let msg = t(Msg::DaemonApiSessionDeleted { id: &id }).into_owned();
             (StatusCode::OK, Json(msg)).into_response()
         }
         Ok(Err(e)) => {
@@ -2947,7 +2964,7 @@ async fn delete_session(
             delete_session_api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DELETE_FAILED",
-                "Failed to delete the session. Check the RustCode logs for details.",
+                t(Msg::DaemonApiDeleteFailed),
             )
             .into_response()
         }
@@ -2982,11 +2999,18 @@ async fn rename_session(
     let _state = state.clone();
     match rename_session_file(&hash, &id, &req.name) {
         Ok(()) => {
-            let msg = format!("Session {} renamed to '{}'", id, req.name);
+            let msg = t(Msg::DaemonApiSessionRenamed {
+                id: &id,
+                name: &req.name,
+            })
+            .into_owned();
             (StatusCode::OK, Json(msg)).into_response()
         }
         Err(e) => {
-            let msg = format!("Failed to rename session: {}", e);
+            let msg = t(Msg::DaemonApiRenameFailed {
+                error: &e.to_string(),
+            })
+            .into_owned();
             (StatusCode::NOT_FOUND, Json(msg)).into_response()
         }
     }
@@ -4271,11 +4295,11 @@ async fn chat_stream(
             let (code, message) = match error {
                 ActiveChatAdmissionError::SessionBusy => (
                     "session_busy",
-                    "This session already has an active chat operation",
+                    t(Msg::DaemonApiChatBusySession).into_owned(),
                 ),
                 ActiveChatAdmissionError::RequestBusy => (
                     "request_busy",
-                    "This request id already has an active chat operation",
+                    t(Msg::DaemonApiChatBusyRequest).into_owned(),
                 ),
             };
             return (

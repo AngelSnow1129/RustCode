@@ -24,6 +24,7 @@ pub struct RuntimeEvent {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum RuntimeEventPayload {
     Ui(AgentEvent),
     Native(CodingRuntimeEvent),
@@ -32,6 +33,7 @@ pub enum RuntimeEventPayload {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum DriverEvent {
     LocalShellFinished {
         output: String,

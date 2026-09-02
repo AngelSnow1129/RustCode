@@ -248,6 +248,31 @@ pub enum Msg<'a> {
     /// Bracketed notice appended to local shell output when queueing that output
     /// into the runtime context failed.
     TuixShellContextQueueFailed,
+    /// Provider/model reload could not be started before a new runtime was
+    /// spawned. `error` is the underlying Display error and stays raw.
+    TuixProviderReloadStartFailed {
+        error: &'a str,
+    },
+    /// Suffix appended to `TuixProviderReloadStartFailed` when rolling the
+    /// persisted config back also failed. Includes its own leading separator.
+    /// `error` is the underlying Display error and stays raw.
+    TuixConfigRollbackFailed {
+        error: &'a str,
+    },
+    /// A provider/model selection id no longer resolves (it was removed or
+    /// renamed). `name` is the selection id and stays raw.
+    TuixProviderNoLongerAvailable {
+        name: &'a str,
+    },
+    /// Fallback first line for a folded tool-result preview when the tool
+    /// produced no output at all.
+    TuixFoldNoOutput,
+    /// Suffix appended to a folded tool-result preview when the result spans
+    /// multiple lines. Includes its own leading separator (a space in English,
+    /// a fullwidth parenthesis in Chinese).
+    TuixFoldLinesSuffix {
+        count: usize,
+    },
     // ── kernel AgentNotice family (L0 kernel emits a neutral structured notice;
     //    the edge localizes these -- see rustcode_coding::localize_agent_notice) ──
     /// Transient retry after a MALFORMED completion (adapter dropped unparseable chunks).
@@ -977,6 +1002,17 @@ pub enum Msg<'a> {
     CmdUndoBadArg,
     CmdNoChanges,
     CmdDiffTruncated,
+    /// `/diff` compact stat: label for an untracked file (no +/- counts).
+    CmdDiffUntracked,
+    /// `/diff` compact stat: label for a binary file (no +/- counts).
+    CmdDiffBinary,
+    /// `/diff` compact stat summary: `N files changed, +A -D`. The +/- columns
+    /// stay raw; only the "files changed" wording localizes.
+    CmdDiffSummary {
+        files: usize,
+        additions: usize,
+        deletions: usize,
+    },
     CmdCheckingUpdate,
     CmdNoActiveProvider,
     /// Live/sync binding requested but no model selection is configured yet.
@@ -2623,6 +2659,23 @@ pub enum Msg<'a> {
         cached_pct: Option<u8>,
     },
 
+    /// Stats fragment shared by the `/goal` end-of-goal and `/goal`/loop
+    /// round banners: `N tools . <dur> . N tokens[ . n% cached]`. "tokens"
+    /// stays untranslated by convention; the tool-count word and cache-hit
+    /// suffix localize. Field semantics mirror `TurnSummary`.
+    TurnStatsFragment {
+        tool_call_count: usize,
+        duration: &'a str,
+        total_tokens: usize,
+        cached_pct: Option<u8>,
+    },
+    /// Mid-goal continuation banner `↻ goal round N . <stats>`. Mirrors
+    /// `LoopRound`; the feature name "goal" stays raw as "loop" does.
+    GoalRound {
+        round: u32,
+        stats: &'a str,
+    },
+
     /// Turn-end summary when the turn terminated in an error (the red
     /// error line is rendered separately, just above this). Same stats
     /// as `TurnSummary` but with a [x] marker and a neutral "stopped"
@@ -3145,6 +3198,9 @@ pub enum Msg<'a> {
     GoalPausedBanner {
         reason: &'a str,
     },
+    /// Goal paused by the user themselves (no authoritative reason): tells them
+    /// how to resume or end it. The `/goal stop` command stays raw.
+    GoalPausedByUserBanner,
     /// Goal ended without satisfaction (failure / explicit stop).
     GoalStoppedBanner {
         reason: &'a str,
@@ -4946,6 +5002,73 @@ pub enum Msg<'a> {
     DaemonApiCpNotLoggedIn,
     /// 502: CodingPlan usage query failed (codingplan feature).
     DaemonApiCpUsageLoadFailed,
+    /// POST /cd: no prior directory to return to.
+    DaemonApiCdNoPrevious,
+    /// POST /cd: path does not exist. `{path}` is the resolved path.
+    DaemonApiCdNotExist {
+        path: &'a str,
+    },
+    /// POST /cd: path exists but is not a directory. `{path}` is the resolved path.
+    DaemonApiCdNotDir {
+        path: &'a str,
+    },
+    /// POST /cd: directory changed successfully. `{path}` is the new cwd.
+    DaemonApiCdChanged {
+        path: &'a str,
+    },
+    /// Session lookup/detail: 404 plain-body not found (two resolve sites).
+    DaemonApiSessionNotFound,
+    /// Session search: empty keyword.
+    DaemonApiSearchEmpty,
+    /// Delete/repair: the session is currently active (two sites).
+    DaemonApiSessionActive,
+    /// Delete: session not found.
+    DaemonApiDeleteNotFound,
+    /// Delete: session identifier invalid.
+    DaemonApiDeleteInvalidId,
+    /// Delete/repair: generic failure pointing at the logs (two sites).
+    DaemonApiDeleteFailed,
+    /// Repair: inspection/repair task failure pointing at the logs (two sites).
+    DaemonApiRepairFailed,
+    /// Delete: the active session could not be released before deletion.
+    DaemonApiDeleteReleaseFailed,
+    /// Rename: on-disk rename failed. `{error}` is the raw io error chain.
+    DaemonApiRenameFailed {
+        error: &'a str,
+    },
+    /// Repair: session metadata not found.
+    DaemonApiMetadataNotFound,
+    /// Repair: project or session identifier invalid (three sites).
+    DaemonApiProjectInvalid,
+    /// Delete/repair: session has an in-flight turn.
+    DaemonApiSessionActiveTurn,
+    /// Delete: success. `{id}` is the session id.
+    DaemonApiSessionDeleted {
+        id: &'a str,
+    },
+    /// Rename: success. `{id}` is the id and `{name}` the new title.
+    DaemonApiSessionRenamed {
+        id: &'a str,
+        name: &'a str,
+    },
+    /// POST /chat admission 409 (code session_busy): session already running a turn.
+    DaemonApiChatBusySession,
+    /// POST /chat admission 409 (code request_busy): request id already in flight.
+    DaemonApiChatBusyRequest,
+    /// Login poll terminal state: login session expired (HTTP 410).
+    DaemonApiLoginExpired,
+    /// Login poll terminal state: user cancelled the login (HTTP 410).
+    DaemonApiLoginCancelled,
+    /// Provider validation: display name empty.
+    DaemonProvNameEmpty,
+    /// Provider validation: name is "." or "..".
+    DaemonProvNameDot,
+    /// Provider validation: name contains forbidden path/control characters.
+    DaemonProvNameInvalidChars,
+    /// ACP/IDE adapter: inline notice shown when credential protection blocks an
+    /// unsafe shell step and the IDE has no interactive recovery UI (mirrors the
+    /// TUI's localized policy-recovery guidance; shown as an agent message).
+    CliAcpPolicyInterventionNotice,
     /// /command: malformed project session bucket.
     DaemonCmdInvalidBucket,
     /// /command: session id not found. `{id}` is pre-rendered with Debug quotes.

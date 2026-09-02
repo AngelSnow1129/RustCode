@@ -1696,6 +1696,7 @@ impl UiState {
     /// snapshot. The runtime may emit a narrow update followed by a rich update.
     /// Each leaves the fields it doesn't know at 0 / empty — we keep the
     /// most-recent non-zero value per field so either order works.
+    #[allow(clippy::too_many_arguments)]
     pub fn on_context_stats(
         &mut self,
         system_tokens: usize,

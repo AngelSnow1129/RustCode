@@ -295,7 +295,7 @@ mod tests {
         // 9% of 10 cells ≈ 0.9 cell -> at least one partial/edge cell, not full
         let b = progress_bar(9.0, 10);
         assert_eq!(b.chars().count(), 10);
-        assert!(b.chars().next().unwrap() != '░' || b.chars().any(|c| c != '░'));
+        assert!(!b.starts_with('\u{2591}') || b.chars().any(|c| c != '░'));
     }
 
     #[test]

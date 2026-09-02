@@ -139,6 +139,14 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("coding runtime {operation} delivery failed").into(),
         Msg::TuixShellContextQueueFailed =>
             "[failed to add shell output to runtime context]".into(),
+        Msg::TuixProviderReloadStartFailed { error } =>
+            format!("provider reload could not be started: {error}").into(),
+        Msg::TuixConfigRollbackFailed { error } =>
+            format!("; config rollback failed: {error}").into(),
+        Msg::TuixProviderNoLongerAvailable { name } =>
+            format!("provider {name:?} is no longer available").into(),
+        Msg::TuixFoldNoOutput => "(no output)".into(),
+        Msg::TuixFoldLinesSuffix { count } => format!(" ({count} lines)").into(),
         Msg::KernelNoticeEmptyRetryMalformed {
             wait_secs,
             attempt,
@@ -781,6 +789,10 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "  (no changes)\n".into(),
         Msg::CmdDiffTruncated =>
             "  ... diff output truncated\n".into(),
+        Msg::CmdDiffUntracked => "untracked".into(),
+        Msg::CmdDiffBinary => "binary".into(),
+        Msg::CmdDiffSummary { files, additions, deletions } =>
+            format!("{files} files changed, +{additions} -{deletions}").into(),
         Msg::CmdCheckingUpdate =>
             "  Checking for updates...\n".into(),
         Msg::CmdNoActiveProvider =>
@@ -1820,6 +1832,14 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
                 super::fmt_tokens(total_tokens),
                 cached_pct.map(|p| format!(" . {p}% cached")).unwrap_or_default(),
             ).into(),
+        Msg::TurnStatsFragment { tool_call_count, duration, total_tokens, cached_pct } =>
+            format!(
+                "{tool_call_count} tools . {duration} . {} tokens{}",
+                super::fmt_tokens(total_tokens),
+                cached_pct.map(|p| format!(" . {p}% cached")).unwrap_or_default(),
+            ).into(),
+        Msg::GoalRound { round, stats } =>
+            format!("\u{21bb} goal round {round} . {stats}").into(),
         Msg::TurnSummaryError { turn_count, tool_call_count, duration, total_tokens, reason } => {
             let cause = reason.map(|r| format!(": {r}")).unwrap_or_default();
             format!("[x] Stopped{cause} . {turn_count} rounds . {tool_call_count} tools . {duration} . {} tokens", super::fmt_tokens(total_tokens)).into()
@@ -2037,6 +2057,9 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::ModeSwitchedLine { mode } => format!("  Switched to {mode} mode.\n").into(),
         Msg::GoalMetBanner { reason } => format!("  [+] Goal met: {reason}\n").into(),
         Msg::GoalPausedBanner { reason } => format!("  \u{23f8} Goal paused: {reason}\n").into(),
+        Msg::GoalPausedByUserBanner =>
+            "  \u{23f8} Goal paused; continue the conversation to resume, or use /goal stop to end.\n"
+                .into(),
         Msg::GoalStoppedBanner { reason } => format!("  [!] Goal stopped: {reason}\n").into(),
         Msg::ParallelDispatchStart { count } =>
             format!("Dispatching {count} sub-agents in parallel...").into(),
@@ -3134,6 +3157,45 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::DaemonApiLogoutFailed { error } => format!("Logout failed: {error}").into(),
         Msg::DaemonApiCpNotLoggedIn => "CodingPlan account is not logged in".into(),
         Msg::DaemonApiCpUsageLoadFailed => "Unable to load CodingPlan usage".into(),
+        Msg::DaemonApiCdNoPrevious => "No previous directory to go back to".into(),
+        Msg::DaemonApiCdNotExist { path } => format!("Directory does not exist: {path}").into(),
+        Msg::DaemonApiCdNotDir { path } => format!("Not a directory: {path}").into(),
+        Msg::DaemonApiCdChanged { path } => format!("Changed to {path}").into(),
+        Msg::DaemonApiSessionNotFound => "Session not found".into(),
+        Msg::DaemonApiSearchEmpty => "Search keyword cannot be empty".into(),
+        Msg::DaemonApiSessionActive =>
+            "This session is active. Switch to or create another session, then try again.".into(),
+        Msg::DaemonApiDeleteNotFound => "The session was not found.".into(),
+        Msg::DaemonApiDeleteInvalidId => "The session identifier is invalid.".into(),
+        Msg::DaemonApiDeleteFailed =>
+            "Failed to delete the session. Check the RustCode logs for details.".into(),
+        Msg::DaemonApiRepairFailed =>
+            "Failed to inspect or repair the session. Check the RustCode logs for details.".into(),
+        Msg::DaemonApiDeleteReleaseFailed =>
+            "Failed to release the current session before deleting it.".into(),
+        Msg::DaemonApiRenameFailed { error } => format!("Failed to rename session: {error}").into(),
+        Msg::DaemonApiMetadataNotFound => "The session metadata was not found.".into(),
+        Msg::DaemonApiProjectInvalid => "The project or session identifier is invalid.".into(),
+        Msg::DaemonApiSessionActiveTurn =>
+            "This session has an active turn. Stop it, then try again.".into(),
+        Msg::DaemonApiSessionDeleted { id } => format!("Session {id} deleted successfully").into(),
+        Msg::DaemonApiSessionRenamed { id, name } =>
+            format!("Session {id} renamed to '{name}'").into(),
+        Msg::DaemonApiChatBusySession =>
+            "This session already has an active chat operation".into(),
+        Msg::DaemonApiChatBusyRequest =>
+            "This request id already has an active chat operation".into(),
+        Msg::DaemonApiLoginExpired => "Login session expired; start a new login".into(),
+        Msg::DaemonApiLoginCancelled => "Login session was cancelled".into(),
+        Msg::DaemonProvNameEmpty => "Provider name cannot be empty".into(),
+        Msg::DaemonProvNameDot => "Provider name cannot be '.' or '..'".into(),
+        Msg::DaemonProvNameInvalidChars =>
+            "Provider name cannot contain /, \\, NUL, newline, carriage return, or tab".into(),
+        Msg::CliAcpPolicyInterventionNotice =>
+            "Credential protection blocked an unsafe shell operation. Complete the authenticated \
+             step in a separate terminal and then ask RustCode to continue, skip the blocked \
+             step, or end the task. Do not paste credentials into chat."
+                .into(),
         Msg::DaemonCmdInvalidBucket => "invalid project session bucket".into(),
         Msg::DaemonCmdSessionNotFound { id } => format!("session {id} not found").into(),
         Msg::DaemonCmdProviderBuildPanicked { error } => {

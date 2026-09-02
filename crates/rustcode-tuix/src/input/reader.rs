@@ -1026,6 +1026,7 @@ mod tests {
     /// genuinely chunked paste's 2nd record can surface and confirm the
     /// burst -- a strict poll(0) would misread it as a lone key).
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn burst_pending_timeout_is_small_and_nonzero() {
         assert!(
             BURST_PENDING_TIMEOUT_MS >= 1,
@@ -1202,9 +1203,9 @@ mod tests {
     fn classify_poll_err_is_sleep_not_exit() {
         // Real error construction -- ErrorKind doesn't matter, the
         // classifier treats all Err the same.
-        let boom = std::io::Error::new(std::io::ErrorKind::Other, "resize glitch");
+        let boom = std::io::Error::other("resize glitch");
         assert_eq!(classify_poll(Err(boom), false), PollAction::Sleep);
-        let boom = std::io::Error::new(std::io::ErrorKind::Other, "another glitch");
+        let boom = std::io::Error::other("another glitch");
         assert_eq!(
             classify_poll(Err(boom), true),
             PollAction::Sleep,

@@ -293,15 +293,22 @@ pub(crate) fn format_compact_snapshot(snapshot: &DiffSnapshot) -> String {
             (Some(additions), Some(deletions)) => {
                 output.push_str(&format!("  +{additions} -{deletions}"));
             }
-            _ if file.status == DiffFileStatus::Untracked => output.push_str("  untracked"),
-            _ => output.push_str("  binary"),
+            _ if file.status == DiffFileStatus::Untracked => {
+                output.push_str("  ");
+                output.push_str(&crate::i18n::t(crate::i18n::Msg::CmdDiffUntracked));
+            }
+            _ => {
+                output.push_str("  ");
+                output.push_str(&crate::i18n::t(crate::i18n::Msg::CmdDiffBinary));
+            }
         }
         output.push('\n');
     }
-    output.push_str(&format!(
-        "{} files changed, +{} -{}",
-        snapshot.files_changed, snapshot.additions, snapshot.deletions
-    ));
+    output.push_str(&crate::i18n::t(crate::i18n::Msg::CmdDiffSummary {
+        files: snapshot.files_changed,
+        additions: snapshot.additions,
+        deletions: snapshot.deletions,
+    }));
     if snapshot.truncated {
         output.push('\n');
         output.push_str(crate::i18n::t(crate::i18n::Msg::CmdDiffTruncated).trim());

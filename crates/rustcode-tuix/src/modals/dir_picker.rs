@@ -862,7 +862,7 @@ mod tests {
         let desktop = root.path().join("Desktop");
         std::fs::create_dir(&desktop).unwrap();
         let partial = format!("{}/Des", root.path().display()); // path-looking, does NOT exist
-        let resolved = resolve_enter_target(&[desktop.clone()], 0, &partial, root.path(), None)
+        let resolved = resolve_enter_target(std::slice::from_ref(&desktop), 0, &partial, root.path(), None)
             .expect("a partial path prefix must not error when a match is highlighted")
             .expect("the highlighted match is selected");
         assert_eq!(resolved, desktop);
@@ -873,7 +873,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let app = root.path().join("project-name");
         std::fs::create_dir(&app).unwrap();
-        let resolved = resolve_enter_target(&[app.clone()], 0, "project", root.path(), None)
+        let resolved = resolve_enter_target(std::slice::from_ref(&app), 0, "project", root.path(), None)
             .expect("plain search resolves")
             .expect("saved directory is selected");
         assert_eq!(resolved, app);

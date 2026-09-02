@@ -1198,6 +1198,7 @@ pub struct RetainedRenderer<W: Write + Send> {
     interaction_publisher: crate::render::interaction::InteractionPublisher,
     pending_interactions: Vec<crate::render::interaction::HitRegion>,
     pending_copy_runs: Vec<crate::render::interaction::CopyRun>,
+    #[allow(clippy::type_complexity)]
     interaction_surface: Option<(String, super::MenuKind, Vec<(String, String)>)>,
     interaction_surface_session: u64,
     screen: Screen,
@@ -2192,6 +2193,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
     /// `name` in `name_style`, `detail` in `detail_style`. Continuation
     /// rows use `detail_style`. Falls back to `build_prefixed_rows` with
     /// `name_style` when detail is empty.
+    #[allow(clippy::too_many_arguments)]
     fn build_mixed_style_rows(
         &self,
         prefix: &str,
@@ -2877,7 +2879,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
         } else {
             let avail_w = rule_width.saturating_sub(4).max(1);
             let chunks = crate::width::wrap_line_to_width(description, avail_w);
-            1 + chunks.len().min(2).max(1)
+            1 + chunks.len().clamp(1, 2)
         }
     }
 
@@ -9403,8 +9405,7 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                             &crate::i18n::t(crate::i18n::Msg::BodyMoreLines {
                                 ellipsis,
                                 count: more,
-                            })
-                            .into_owned(),
+                            }),
                             &muted,
                         );
                         break;
@@ -9449,8 +9450,7 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
                             &crate::i18n::t(crate::i18n::Msg::BodyMoreLines {
                                 ellipsis,
                                 count: content_total - shown,
-                            })
-                            .into_owned(),
+                            }),
                             &muted,
                         );
                         break;
@@ -11559,8 +11559,8 @@ mod tests {
         assert!(runs
             .windows(2)
             .any(|pair| pair == [("abcdefgh", true), ("ij", false)]));
-        assert!(runs.iter().any(|run| *run == ("hard", false)));
-        assert!(runs.iter().any(|run| *run == ("  code", false)));
+        assert!(runs.contains(&("hard", false)));
+        assert!(runs.contains(&("  code", false)));
         assert!(runs.iter().any(|run| run.0.contains("你好")));
         assert!(runs
             .windows(2)
@@ -14244,7 +14244,7 @@ mod tests {
         r.render(UiLine::StreamingBox {
             buf: String::new(),
             cursor_byte: 0,
-            frame: "⠋".into(),
+            frame: "⠋",
             label: "Pondering".into(),
             menu: None,
             status: status.clone(),
@@ -14276,7 +14276,7 @@ mod tests {
         // path (prev_rows>0). This is what the user's session looks
         // like every 80ms while the tool runs.
         r.render(UiLine::Spinner {
-            frame: "⠙".into(),
+            frame: "⠙",
             label: "Running Bash".into(),
         });
         r.flush_deferred();
@@ -14314,7 +14314,7 @@ mod tests {
         r.render(UiLine::StreamingBox {
             buf: "/s".into(),
             cursor_byte: 2,
-            frame: "⠹".into(),
+            frame: "⠹",
             label: "Running Bash".into(),
             menu: Some(MenuPayload {
                 // Selected=1 -> /session selected -> first menu row
@@ -14384,7 +14384,7 @@ mod tests {
         r.render(UiLine::StreamingBox {
             buf: String::new(),
             cursor_byte: 0,
-            frame: "⠋".into(),
+            frame: "⠋",
             label: "Pondering".into(),
             menu: None,
             status: status.clone(),
@@ -14407,7 +14407,7 @@ mod tests {
             hint: None,
         });
         r.render(UiLine::Spinner {
-            frame: "⠙".into(),
+            frame: "⠙",
             label: "Running Bash".into(),
         });
         r.flush_deferred();
@@ -14427,7 +14427,7 @@ mod tests {
         r.render(UiLine::StreamingBox {
             buf: String::new(),
             cursor_byte: 0,
-            frame: "⠹".into(),
+            frame: "⠹",
             label: "Running Bash".into(),
             menu: None,
             status: with_pending,
@@ -14445,7 +14445,7 @@ mod tests {
         r.render(UiLine::StreamingBox {
             buf: String::new(),
             cursor_byte: 0,
-            frame: "⠸".into(),
+            frame: "⠸",
             label: "Running Bash".into(),
             menu: None,
             status: status.clone(),
@@ -14487,7 +14487,7 @@ mod tests {
         r.render(UiLine::StreamingBox {
             buf: String::new(),
             cursor_byte: 0,
-            frame: "⠋".into(),
+            frame: "⠋",
             label: "Pondering".into(),
             menu: None,
             status: status.clone(),
@@ -14506,7 +14506,7 @@ mod tests {
             hint: None,
         });
         r.render(UiLine::Spinner {
-            frame: "⠙".into(),
+            frame: "⠙",
             label: "Running · 1s".into(),
         });
         r.flush_deferred();
@@ -14520,7 +14520,7 @@ mod tests {
         for i in 0..6 {
             r.render(UiLine::CommandOutput(format!("STREAM{:02}\n", i)));
             r.render(UiLine::Spinner {
-                frame: "⠹".into(),
+                frame: "⠹",
                 label: format!("Running · {i}s"),
             });
             r.flush_deferred();
@@ -14568,7 +14568,7 @@ mod tests {
             hint: None,
         });
         r.render(UiLine::Spinner {
-            frame: "⠋".into(),
+            frame: "⠋",
             label: "Running Bash… · 12s".into(),
         });
         // Bash renders the command as a static block; the elapsed meta now
@@ -14726,7 +14726,7 @@ mod tests {
         });
         // A spinner tick to exercise the in-place branch.
         r.render(UiLine::Spinner {
-            frame: "⠙".into(),
+            frame: "⠙",
             label: "Running Bash".into(),
         });
         r.flush_deferred();
@@ -14843,7 +14843,7 @@ mod tests {
             hint: None,
         });
         r.render(UiLine::Spinner {
-            frame: "⠙".into(),
+            frame: "⠙",
             label: "Running Bash".into(),
         });
         r.flush_deferred();
@@ -14880,7 +14880,7 @@ mod tests {
             hint: None,
         });
         r.render(UiLine::Spinner {
-            frame: "⠙".into(),
+            frame: "⠙",
             label: "Running Bash".into(),
         });
         r.flush_deferred();
@@ -14948,7 +14948,7 @@ mod tests {
         // disappear.
         for frame in ["⠋", "⠙", "⠹", "⠸"] {
             r.render(UiLine::Spinner {
-                frame: frame.into(),
+                frame,
                 label: "thinking".into(),
             });
         }
@@ -15112,7 +15112,7 @@ mod tests {
         // to 6, bot_rule moves from row H-2 to row H-2 (same), but
         // top_rule's emit path passes through rows that previously
         // held body content.
-        let long: String = std::iter::repeat('中').take(40).collect();
+        let long: String = std::iter::repeat_n('中', 40).collect();
         r.render(UiLine::InputPrompt {
             buf: long.clone(),
             cursor_byte: long.len(),
@@ -18035,7 +18035,7 @@ mod tests {
         r.flush_deferred();
 
         // Long input -> 2-row middle.
-        let long: String = std::iter::repeat('中').take(40).collect();
+        let long: String = std::iter::repeat_n('中', 40).collect();
         r.render(UiLine::InputPrompt {
             buf: long.clone(),
             cursor_byte: long.len(),
@@ -18084,7 +18084,7 @@ mod tests {
         let (mut r, _buf) = new_capturing(40, 24);
         // 40 CJK characters = 80 display cols -> wraps to 3 rows (cols
         // 0..33, 34..67, 68..79). Each row has ~17 Chinese chars.
-        let long: String = std::iter::repeat('中').take(40).collect();
+        let long: String = std::iter::repeat_n('中', 40).collect();
         // cursor_byte = full UTF-8 length of the input (3 bytes per char x 40).
         r.render(UiLine::InputPrompt {
             buf: long.clone(),
@@ -18233,7 +18233,7 @@ mod tests {
         // moves emitted via separate `write!` calls outside the loop)
         // legitimately appear as their own sub-512 chunks.
         assert!(
-            sizes.iter().any(|&s| s == 512),
+            sizes.contains(&512),
             "expected at least one 512 B chunk from the chunking loop; sizes: {:?}",
             sizes
         );
@@ -19924,7 +19924,7 @@ mod tests {
         r.render(UiLine::StreamingBox {
             buf: String::new(),
             cursor_byte: 0,
-            frame: "\u{25d0}".into(),
+            frame: "\u{25d0}",
             label: "Thinking\u{2026} (2s)".into(),
             status,
             menu: None,
@@ -21429,7 +21429,7 @@ mod tests {
         for i in 0..vterm.height() as usize {
             let text = vterm.row_text(i);
             if text.contains("Bash") {
-                let has_spinner = text.chars().any(|c| c >= '\u{2800}' && c <= '\u{28FF}');
+                let has_spinner = text.chars().any(|c| ('\u{2800}'..='\u{28FF}').contains(&c));
                 assert!(
                     !has_spinner,
                     "terminal row {} still has a spinner glyph alongside Bash: {:?}",
@@ -22192,7 +22192,7 @@ mod tests {
         // Spinner push is transient even though body_lines.len() == cap:
         // it must not LF the PROBE row into native scrollback.
         r.render(UiLine::Spinner {
-            frame: "⠋".into(),
+            frame: "⠋",
             label: "Pondering...".into(),
         });
         r.flush_deferred();
@@ -22293,7 +22293,7 @@ mod tests {
                     .map(|cell| cell.ch)
                     .collect();
                 r.render(UiLine::Spinner {
-                    frame: "⠋".into(),
+                    frame: "⠋",
                     label: format!("{case} Pondering {i}"),
                 });
                 r.flush_deferred();
@@ -22349,7 +22349,7 @@ mod tests {
                 }
 
                 r.render(UiLine::Spinner {
-                    frame: "⠙".into(),
+                    frame: "⠙",
                     label: format!("{case} Pondering {i}"),
                 });
                 r.flush_deferred();
@@ -22544,12 +22544,12 @@ mod tests {
         let probe = "BULLET-FIRST-RESIZE";
         r.render(UiLine::AssistantText("🛠️ 技术特色\n".into()));
         r.render(UiLine::Spinner {
-            frame: "⠋".into(),
+            frame: "⠋",
             label: "Pondering...".into(),
         });
         r.render(UiLine::AssistantText(format!("{}\n", probe)));
         r.render(UiLine::Spinner {
-            frame: "⠙".into(),
+            frame: "⠙",
             label: "Pondering...".into(),
         });
         // Push past the small cap to trigger several overflow LFs.
@@ -22557,7 +22557,7 @@ mod tests {
             r.render(UiLine::AssistantText(format!("filler-bullet-{:03}\n", i)));
             if i % 3 == 0 {
                 r.render(UiLine::Spinner {
-                    frame: "⠹".into(),
+                    frame: "⠹",
                     label: "Pondering...".into(),
                 });
             }
@@ -22577,7 +22577,7 @@ mod tests {
             )));
             if i % 2 == 0 {
                 r.render(UiLine::Spinner {
-                    frame: "⠸".into(),
+                    frame: "⠸",
                     label: "Pondering...".into(),
                 });
             }
@@ -22639,7 +22639,7 @@ mod tests {
             "sources: tianqi.com, exa.ai +3\n".into(),
         ));
         r.render(UiLine::Spinner {
-            frame: "⠋".into(),
+            frame: "⠋",
             label: "Pondering...".into(),
         });
         r.flush_deferred();
@@ -25222,7 +25222,7 @@ mod tests {
             r.render(UiLine::AssistantText(format!("filler-bullet-{:03}\n", i)));
             if i % 4 == 0 {
                 r.render(UiLine::Spinner {
-                    frame: "⠋".into(),
+                    frame: "⠋",
                     label: "Pondering…".into(),
                 });
             }

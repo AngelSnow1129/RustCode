@@ -1376,7 +1376,7 @@ mod tests {
             })
             .collect();
         let s =
-            String::from_utf8(serialize_frames_tight(&vec![prev_row], &vec![next_row])).unwrap();
+            String::from_utf8(serialize_frames_tight(&[prev_row], &[next_row])).unwrap();
         assert!(
             s.contains("\x1b[1;1H\x1b[K"),
             "row cleared with EL: {:?}",
@@ -1419,7 +1419,7 @@ mod tests {
             })
             .collect();
         let next = vec![vec![Cell::blank(); 2]];
-        let s = String::from_utf8(serialize_frames_tight(&vec![prev_row], &next)).unwrap();
+        let s = String::from_utf8(serialize_frames_tight(&[prev_row], &next)).unwrap();
         assert_eq!(
             s, "\x1b[1;1H\x1b[K",
             "blank row emits only the clear: {:?}",

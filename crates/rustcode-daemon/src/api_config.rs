@@ -1,6 +1,7 @@
 use axum::{response::IntoResponse, Json};
 use rustcode_config::config::provider::ProviderConfig;
 use rustcode_config::config::Config;
+use rustcode_config::i18n::{t, Msg};
 use rustcode_config::ConfigStore;
 
 use crate::{json_error, ConfigResponse, ProviderAccountInfo, ProviderInfo, ProviderPresetInfo};
@@ -170,10 +171,10 @@ pub(crate) fn provider_info(
 pub(crate) fn validate_provider_name(name: &str) -> Result<String, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err("Provider name cannot be empty".into());
+        return Err(t(Msg::DaemonProvNameEmpty).into_owned());
     }
     if trimmed == "." || trimmed == ".." {
-        return Err("Provider name cannot be '.' or '..'".into());
+        return Err(t(Msg::DaemonProvNameDot).into_owned());
     }
     if trimmed.contains('/')
         || trimmed.contains('\\')
@@ -182,9 +183,7 @@ pub(crate) fn validate_provider_name(name: &str) -> Result<String, String> {
         || trimmed.contains('\r')
         || trimmed.contains('\t')
     {
-        return Err(
-            "Provider name cannot contain /, \\, NUL, newline, carriage return, or tab".into(),
-        );
+        return Err(t(Msg::DaemonProvNameInvalidChars).into_owned());
     }
     Ok(trimmed.to_string())
 }

@@ -1,5 +1,16 @@
 // crates/rustcode-tuix/src/lib.rs
 
+// Crate-level allows for purely-cosmetic clippy lints that recur many times
+// across this large UI crate. Each is behavior-preserving:
+//   * field_reassign_with_default   -- test/builder setup using `let mut x = T::default(); x.f = ..;`
+//   * doc_lazy_continuation         -- markdown soft-wrap continuation in doc comments
+//   * doc_overindented_list_items    -- list indentation in doc comments
+#![allow(
+    clippy::field_reassign_with_default,
+    clippy::doc_lazy_continuation,
+    clippy::doc_overindented_list_items
+)]
+
 // Redirect RUSTCODE_HOME to a throwaway temp dir before any test in this binary
 // runs, so the crate's own unit tests never persist commands/plugins/config into
 // the developer's real `~/.rustcode`. Individual tests can install their own
@@ -337,6 +348,7 @@ pub(crate) fn sync_history_replay_config(
     renderer.set_history_replay_max_rows(resolve_history_replay_max_rows(config, caps));
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     config: Config,
     provider_selection: String,

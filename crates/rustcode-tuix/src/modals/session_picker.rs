@@ -822,7 +822,7 @@ fn turn_divider_label(stat: Option<&TurnStat>) -> String {
         })
         .into_owned(),
         Some(s) => crate::i18n::t(crate::i18n::Msg::TurnSummary {
-            done: crate::state::done_label(s.turn_count.saturating_sub(1) as usize),
+            done: crate::state::done_label(s.turn_count.saturating_sub(1)),
             turn_count: s.turn_count,
             tool_call_count: s.tool_call_count,
             duration: &crate::render::fmt_dur(std::time::Duration::from_millis(s.duration_ms)),

@@ -287,6 +287,7 @@ fn open_lock(path: &std::path::Path) -> io::Result<fs::File> {
     }
     fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(path)

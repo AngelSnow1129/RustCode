@@ -2,10 +2,8 @@ use agent_client_protocol::schema::v1::{
     ContentBlock, ContentChunk, MessageId, SessionUpdate, TextContent, ToolCall as AcpToolCall,
     ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind, UsageUpdate,
 };
+use rustcode_config::i18n::{t, Msg};
 use rustcode_kernel::event::AgentEvent;
-
-const POLICY_INTERVENTION_NOTICE: &str =
-    "Credential protection blocked an unsafe shell operation. Complete the authenticated step in a separate terminal and then ask RustCode to continue, skip the blocked step, or end the task. Do not paste credentials into chat.";
 
 pub fn tool_kind(name: &str) -> ToolKind {
     let n = name.to_ascii_lowercase();
@@ -83,7 +81,7 @@ pub fn event_to_update(ev: &AgentEvent, message_id: Option<&str>) -> Option<Sess
         }
         AgentEvent::PolicyIntervention { .. } => Some(SessionUpdate::AgentMessageChunk(
             ContentChunk::new(ContentBlock::Text(TextContent::new(
-                POLICY_INTERVENTION_NOTICE.to_string(),
+                t(Msg::CliAcpPolicyInterventionNotice).into_owned(),
             )))
             .message_id(msg),
         )),

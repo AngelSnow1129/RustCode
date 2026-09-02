@@ -975,7 +975,7 @@ mod image_path_tests {
     fn decoded_pixels(dib: &[u8]) -> (u32, u32, Vec<[u8; 4]>) {
         let (w, h, rgba) = decode_cf_dib_to_rgba(dib).expect("DIB must decode");
         let px = rgba
-            .chunks_exact(4)
+            .as_chunks::<4>().0.iter()
             .map(|c| [c[0], c[1], c[2], c[3]])
             .collect();
         (w, h, px)
@@ -8837,15 +8837,18 @@ mod tool_format_tests {
     fn summarise_multi_line_adds_line_count() {
         let out = summarise("first line\nsecond line\nthird line");
         assert!(out.starts_with("first line"));
-        assert!(out.contains("(3 lines)"));
+        // Locale-agnostic: expect the exact line-count suffix the catalog emits.
+        let suffix = crate::i18n::t(crate::i18n::Msg::TuixFoldLinesSuffix { count: 3 });
+        assert!(out.contains(&*suffix), "got: {out}");
     }
 
     #[test]
     fn summarise_empty_string_has_fallback() {
         let out = summarise("");
-        // Empty input: `lines()` yields nothing, so first falls back
-        // to "(no output)" and n==0 means no " (N lines)" suffix.
-        assert!(out.contains("(no output)"), "got: {}", out);
+        // Empty input: `lines()` yields nothing, so first falls back to the
+        // localized no-output marker, and n==0 means no line-count suffix.
+        let marker = crate::i18n::t(crate::i18n::Msg::TuixFoldNoOutput);
+        assert!(out.contains(&*marker), "got: {out}");
     }
 
     /// A long diagnostic line (e.g. a deep WSL path) must survive intact --
@@ -11994,7 +11997,10 @@ fn reconcile_persisted_config(
     if let Err(error) = reload_runtime_provider_from(ctx, &desired) {
         rustcode_config::proxy::apply_process_proxy_config(&ctx.config.network.proxy);
         return Err(anyhow::anyhow!(
-            "provider reload could not be started: {error}"
+            "{}",
+            crate::i18n::t(crate::i18n::Msg::TuixProviderReloadStartFailed {
+                error: &error.to_string(),
+            })
         ));
     }
     ctx.observed_config_revision = Some(snapshot.revision.clone());
@@ -17948,13 +17954,16 @@ fn stage_committed_config_reload(
                 selection_mode_after_success: None,
             },
         );
-        let suffix = rollback
-            .error
-            .map(|error| format!("; config rollback failed: {error}"))
-            .unwrap_or_default();
-        renderer.render(UiLine::Error(format!(
-            "provider reload could not be started: {error}{suffix}"
-        )));
+        let mut reload_error = crate::i18n::t(crate::i18n::Msg::TuixProviderReloadStartFailed {
+            error: &error.to_string(),
+        })
+        .into_owned();
+        if let Some(rollback_error) = rollback.error {
+            reload_error.push_str(&crate::i18n::t(crate::i18n::Msg::TuixConfigRollbackFailed {
+                error: &rollback_error.to_string(),
+            }));
+        }
+        renderer.render(UiLine::Error(reload_error));
         renderer.flush();
         return false;
     }
@@ -18102,9 +18111,12 @@ pub(crate) fn select_provider_and_reload(
         return false;
     }
     let Some(selected) = ctx.config.provider_config_for_selection(provider_name) else {
-        renderer.render(UiLine::Error(format!(
-            "provider {provider_name:?} is no longer available"
-        )));
+        renderer.render(UiLine::Error(
+            crate::i18n::t(crate::i18n::Msg::TuixProviderNoLongerAvailable {
+                name: provider_name,
+            })
+            .into_owned(),
+        ));
         renderer.flush();
         return false;
     };
@@ -18119,9 +18131,12 @@ pub(crate) fn select_provider_and_reload(
     rustcode_config::proxy::apply_process_proxy_config(&desired.network.proxy);
     if let Err(error) = reload_runtime_provider_from(ctx, &desired) {
         rustcode_config::proxy::apply_process_proxy_config(&ctx.config.network.proxy);
-        renderer.render(UiLine::Error(format!(
-            "provider reload could not be started: {error}"
-        )));
+        renderer.render(UiLine::Error(
+            crate::i18n::t(crate::i18n::Msg::TuixProviderReloadStartFailed {
+                error: &error.to_string(),
+            })
+            .into_owned(),
+        ));
         renderer.flush();
         return false;
     }
@@ -18164,9 +18179,12 @@ pub(crate) fn set_default_provider_and_reload(
     let resolved = match ctx.config.resolve_model(Some(provider_name)) {
         Ok(r) => r,
         Err(_) => {
-            renderer.render(UiLine::Error(format!(
-                "provider {provider_name:?} is no longer available"
-            )));
+            renderer.render(UiLine::Error(
+                crate::i18n::t(crate::i18n::Msg::TuixProviderNoLongerAvailable {
+                    name: provider_name,
+                })
+                .into_owned(),
+            ));
             renderer.flush();
             return false;
         }
@@ -18186,7 +18204,12 @@ pub(crate) fn set_default_provider_and_reload(
     let mut previous_persisted = None;
     let commit = match store.update(|config| {
         if config.resolve_model(Some(provider_name)).is_err() {
-            anyhow::bail!("provider {provider_name:?} is no longer available");
+            anyhow::bail!(
+                "{}",
+                crate::i18n::t(crate::i18n::Msg::TuixProviderNoLongerAvailable {
+                    name: provider_name,
+                })
+            );
         }
         previous_persisted = Some(config.clone());
         // `default_model` is the canonical selection (§14.1); keep the legacy
@@ -18257,13 +18280,16 @@ pub(crate) fn set_default_provider_and_reload(
                 selection_mode_after_success: None,
             },
         );
-        let suffix = rollback
-            .error
-            .map(|error| format!("; config rollback failed: {error}"))
-            .unwrap_or_default();
-        renderer.render(UiLine::Error(format!(
-            "provider reload could not be started: {error}{suffix}"
-        )));
+        let mut reload_error = crate::i18n::t(crate::i18n::Msg::TuixProviderReloadStartFailed {
+            error: &error.to_string(),
+        })
+        .into_owned();
+        if let Some(rollback_error) = rollback.error {
+            reload_error.push_str(&crate::i18n::t(crate::i18n::Msg::TuixConfigRollbackFailed {
+                error: &rollback_error.to_string(),
+            }));
+        }
+        renderer.render(UiLine::Error(reload_error));
         renderer.flush();
         return false;
     }
@@ -18483,14 +18509,14 @@ fn handle_streaming_key(
         };
         let status = if app.state.show_tool_output {
             crate::i18n::t(crate::i18n::Msg::VerboseOnLine {
-                mute: &mute,
-                reset: &reset,
+                mute,
+                reset,
             })
             .into_owned()
         } else {
             crate::i18n::t(crate::i18n::Msg::VerboseOffLine {
-                mute: &mute,
-                reset: &reset,
+                mute,
+                reset,
             })
             .into_owned()
         };
@@ -21029,11 +21055,7 @@ pub(super) fn handle_upgrade_event(
             ));
         }
         UpgradeEvent::Downloading { bytes, total } => {
-            let pct = if total == 0 {
-                0
-            } else {
-                ((bytes * 100) / total) as i32
-            };
+            let pct = ((bytes * 100).checked_div(total).unwrap_or(0)) as i32;
             if pct != *last_pct {
                 *last_pct = pct;
                 // Emit at 25/50/75/100 to keep output tidy. Finer-grained
@@ -21723,10 +21745,15 @@ fn flush_pending_separator(state: &mut UiState, renderer: &mut dyn Renderer, as_
         return;
     };
     let dur = crate::render::fmt_dur(ps.duration);
-    let cached = ps
-        .cached_pct
-        .map(|p| format!(" . {p}% cached"))
-        .unwrap_or_default();
+    // Shared stats fragment (tools / duration / tokens / cache-hit) localized;
+    // "tokens" stays raw by convention, tool-count word and cache suffix localize.
+    let stats = crate::i18n::t(crate::i18n::Msg::TurnStatsFragment {
+        tool_call_count: ps.tool_call_count,
+        duration: &dur,
+        total_tokens: ps.total_tokens,
+        cached_pct: ps.cached_pct,
+    })
+    .into_owned();
     let label = if matches!(ps.stop_reason, ui_event::UiTurnStopReason::PolicyDenied) {
         state.turn_error_line_shown = ps.error_line_shown;
         state.last_policy_denial_reason = ps.policy_denial_reason;
@@ -21740,33 +21767,17 @@ fn flush_pending_separator(state: &mut UiState, renderer: &mut dyn Renderer, as_
             &dur,
         )
     } else if as_goal_end {
-        format!(
-            "{} tools . {} . {} tokens{}",
-            ps.tool_call_count,
-            dur,
-            crate::i18n::fmt_tokens(ps.total_tokens),
-            cached,
-        )
+        stats
     } else if ps.was_goal_round {
-        format!(
-            "↻ goal round {} . {} tools . {} . {} tokens{}",
-            state.goal_round.max(1),
-            ps.tool_call_count,
-            dur,
-            crate::i18n::fmt_tokens(ps.total_tokens),
-            cached,
-        )
+        crate::i18n::t(crate::i18n::Msg::GoalRound {
+            round: state.goal_round.max(1),
+            stats: &stats,
+        })
+        .into_owned()
     } else if ps.was_loop_round {
         // Mid-loop continuation banner: `[*] loop round N . stats`.
         // Uses state.loop_round directly (0-based internally; we show 1-based
         // by adding 1 and then taking max(1) so round 0 displays as 1).
-        let stats = format!(
-            "{} tools . {} . {} tokens{}",
-            ps.tool_call_count,
-            dur,
-            crate::i18n::fmt_tokens(ps.total_tokens),
-            cached,
-        );
         crate::i18n::t(crate::i18n::Msg::LoopRound {
             round: (state.loop_round + 1).max(1),
             stats: &stats,
@@ -22188,9 +22199,7 @@ fn update_subtask_progress(
             )
         };
 
-    let Some(item) = progress.items.iter_mut().find(|item| item.label == label) else {
-        return None;
-    };
+    let item = progress.items.iter_mut().find(|item| item.label == label)?;
     let was_terminal = matches!(
         item.status,
         SubtaskStatus::Completed | SubtaskStatus::Stopped | SubtaskStatus::Failed
@@ -23252,6 +23261,7 @@ fn drain_foreground_replay_events(app: &mut App, ctx: &mut LoopCtx, renderer: &m
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_runtime_event(
     event: bg_runtime::RuntimeEventPayload,
     state: &mut UiState,
@@ -23557,8 +23567,10 @@ fn handle_runtime_event(
                     );
                     let event = match completion {
                         rustcode_coding::TurnCompletion::Completed {
-                            reason, snapshot, ..
-                        } if matches!(reason, rustcode_kernel::event::StopReason::Cancelled) => {
+                            reason: rustcode_kernel::event::StopReason::Cancelled,
+                            snapshot,
+                            ..
+                        } => {
                             AgentEvent::TurnCancelled {
                                 snapshot: snapshot.as_ref().clone(),
                             }
@@ -25088,6 +25100,7 @@ fn run_local_shell_command(command: String, ctx: &LoopCtx) {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_undo_success(
     snapshot: rustcode_kernel::message::SessionSnapshot,
     restored_prompt: String,
@@ -25869,6 +25882,7 @@ mod goal_end_tests {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_agent_event(
     ev: AgentEvent,
     state: &mut UiState,
@@ -27491,7 +27505,8 @@ fn handle_agent_event(
                     rustcode_coding::GoalPhase::Paused => {
                         if state.goal_condition.is_some() {
                             renderer.render(UiLine::CommandOutput(
-                                "  ⏸ Goal paused; continue the conversation to resume, or use /goal stop to end.\n".into(),
+                                crate::i18n::t(crate::i18n::Msg::GoalPausedByUserBanner)
+                                    .into_owned(),
                             ));
                             renderer.flush();
                         }
@@ -29941,13 +29956,18 @@ pub(crate) fn build_replay_tool_batch(
 }
 
 pub(crate) fn summarise(output: &str) -> String {
-    let first = output.lines().next().unwrap_or("(no output)");
     let n = output.lines().count();
     // `truncate_with_ellipsis` (not bare `truncate_to_width`) so that if
     // the safety bound ever does bite, the cut is visibly marked.
-    let trimmed = crate::width::truncate_with_ellipsis(first, 512);
+    let trimmed = match output.lines().next() {
+        Some(first) => crate::width::truncate_with_ellipsis(first, 512),
+        None => crate::i18n::t(crate::i18n::Msg::TuixFoldNoOutput).into_owned(),
+    };
     if n > 1 {
-        format!("{} ({} lines)", trimmed, n)
+        format!(
+            "{trimmed}{}",
+            crate::i18n::t(crate::i18n::Msg::TuixFoldLinesSuffix { count: n })
+        )
     } else {
         trimmed
     }
@@ -29972,11 +29992,16 @@ fn strip_atx_heading(line: &str) -> &str {
 /// has any leading markdown heading stripped (see [`strip_atx_heading`]) so a
 /// server returning `### Result\n...` folds to `Result (N lines)`.
 pub(crate) fn summarise_mcp_result(output: &str) -> String {
-    let first = output.lines().next().unwrap_or("(no output)");
     let n = output.lines().count();
-    let trimmed = crate::width::truncate_with_ellipsis(strip_atx_heading(first), 512);
+    let trimmed = match output.lines().next() {
+        Some(first) => crate::width::truncate_with_ellipsis(strip_atx_heading(first), 512),
+        None => crate::i18n::t(crate::i18n::Msg::TuixFoldNoOutput).into_owned(),
+    };
     if n > 1 {
-        format!("{} ({} lines)", trimmed, n)
+        format!(
+            "{trimmed}{}",
+            crate::i18n::t(crate::i18n::Msg::TuixFoldLinesSuffix { count: n })
+        )
     } else {
         trimmed
     }
@@ -29993,19 +30018,25 @@ pub(crate) fn summarise_mcp_result(output: &str) -> String {
 /// two spaces; fall back to the raw first line for anything else (directory
 /// listing, `[File skeleton...]` header, error message).
 pub(crate) fn summarise_read_result(output: &str) -> String {
-    let first = output.lines().next().unwrap_or("(no output)");
     let n = output.lines().count();
-    let cleaned = match first.split_once('\t') {
-        Some((lead, content))
-            if !lead.trim().is_empty() && lead.trim().chars().all(|c| c.is_ascii_digit()) =>
-        {
-            format!("{}  {}", lead.trim(), content.trim_start())
-        }
-        _ => first.to_string(),
+    let cleaned = match output.lines().next() {
+        Some(first) => match first.split_once('\t') {
+            Some((lead, content))
+                if !lead.trim().is_empty()
+                    && lead.trim().chars().all(|c| c.is_ascii_digit()) =>
+            {
+                format!("{}  {}", lead.trim(), content.trim_start())
+            }
+            _ => first.to_string(),
+        },
+        None => crate::i18n::t(crate::i18n::Msg::TuixFoldNoOutput).into_owned(),
     };
     let trimmed = crate::width::truncate_with_ellipsis(&cleaned, 512);
     if n > 1 {
-        format!("{} ({} lines)", trimmed, n)
+        format!(
+            "{trimmed}{}",
+            crate::i18n::t(crate::i18n::Msg::TuixFoldLinesSuffix { count: n })
+        )
     } else {
         trimmed
     }

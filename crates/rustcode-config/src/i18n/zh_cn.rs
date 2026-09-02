@@ -125,6 +125,14 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("运行时 {operation} 事件投递失败").into(),
         Msg::TuixShellContextQueueFailed =>
             "[将 shell 输出加入运行时上下文失败]".into(),
+        Msg::TuixProviderReloadStartFailed { error } =>
+            format!("无法启动 provider 重载：{error}").into(),
+        Msg::TuixConfigRollbackFailed { error } =>
+            format!("；配置回滚失败：{error}").into(),
+        Msg::TuixProviderNoLongerAvailable { name } =>
+            format!("provider「{name}」已不可用").into(),
+        Msg::TuixFoldNoOutput => "（无输出）".into(),
+        Msg::TuixFoldLinesSuffix { count } => format!("（{count} 行）").into(),
         Msg::KernelNoticeEmptyRetryMalformed {
             wait_secs,
             attempt,
@@ -735,6 +743,10 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "  （无变更）\n".into(),
         Msg::CmdDiffTruncated =>
             "  ... diff 输出已截断\n".into(),
+        Msg::CmdDiffUntracked => "未跟踪".into(),
+        Msg::CmdDiffBinary => "二进制".into(),
+        Msg::CmdDiffSummary { files, additions, deletions } =>
+            format!("{files} 个文件已修改，+{additions} -{deletions}").into(),
         Msg::CmdCheckingUpdate =>
             "  正在检查更新...\n".into(),
         Msg::CmdNoActiveProvider =>
@@ -1758,6 +1770,14 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
                 super::fmt_tokens(total_tokens),
                 cached_pct.map(|p| format!(" · 缓存命中 {p}%")).unwrap_or_default(),
             ).into(),
+        Msg::TurnStatsFragment { tool_call_count, duration, total_tokens, cached_pct } =>
+            format!(
+                "{tool_call_count} 工具 . {duration} . {} tokens{}",
+                super::fmt_tokens(total_tokens),
+                cached_pct.map(|p| format!(" · 缓存命中 {p}%")).unwrap_or_default(),
+            ).into(),
+        Msg::GoalRound { round, stats } =>
+            format!("\u{21bb} goal 第 {round} 轮 . {stats}").into(),
         Msg::TurnSummaryError { turn_count, tool_call_count, duration, total_tokens, reason } => {
             let cause = reason.map(|r| format!("：{r}")).unwrap_or_default();
             format!("[x] 已中断{cause} . {turn_count} 轮 . {tool_call_count} 工具 . {duration} . {} tokens", super::fmt_tokens(total_tokens)).into()
@@ -1972,6 +1992,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::ModeSwitchedLine { mode } => format!("  已切换到{mode}模式。\n").into(),
         Msg::GoalMetBanner { reason } => format!("  [+] 目标已达成：{reason}\n").into(),
         Msg::GoalPausedBanner { reason } => format!("  ⏸ 目标已暂停：{reason}\n").into(),
+        Msg::GoalPausedByUserBanner =>
+            "  ⏸ 目标已暂停；继续发消息即可恢复，或使用 /goal stop 结束。\n".into(),
         Msg::GoalStoppedBanner { reason } => format!("  [!] 目标已停止：{reason}\n").into(),
         Msg::ParallelDispatchStart { count } => format!("正在并行派发 {count} 个子代理…").into(),
         Msg::WordFailed => "失败".into(),
@@ -2980,6 +3002,37 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::DaemonApiLogoutFailed { error } => format!("退出登录失败：{error}").into(),
         Msg::DaemonApiCpNotLoggedIn => "CodingPlan 账号尚未登录".into(),
         Msg::DaemonApiCpUsageLoadFailed => "无法加载 CodingPlan 用量".into(),
+        Msg::DaemonApiCdNoPrevious => "没有可返回的上一个目录".into(),
+        Msg::DaemonApiCdNotExist { path } => format!("目录不存在：{path}").into(),
+        Msg::DaemonApiCdNotDir { path } => format!("不是目录：{path}").into(),
+        Msg::DaemonApiCdChanged { path } => format!("已切换到 {path}").into(),
+        Msg::DaemonApiSessionNotFound => "未找到会话".into(),
+        Msg::DaemonApiSearchEmpty => "搜索关键字不能为空".into(),
+        Msg::DaemonApiSessionActive =>
+            "该会话正在使用中。请切换到或新建另一个会话后重试。".into(),
+        Msg::DaemonApiDeleteNotFound => "未找到该会话。".into(),
+        Msg::DaemonApiDeleteInvalidId => "会话标识符无效。".into(),
+        Msg::DaemonApiDeleteFailed => "删除会话失败。详情请查看 RustCode 日志。".into(),
+        Msg::DaemonApiRepairFailed => "检查或修复会话失败。详情请查看 RustCode 日志。".into(),
+        Msg::DaemonApiDeleteReleaseFailed => "删除前未能释放当前会话。".into(),
+        Msg::DaemonApiRenameFailed { error } => format!("重命名会话失败：{error}").into(),
+        Msg::DaemonApiMetadataNotFound => "未找到该会话的元数据。".into(),
+        Msg::DaemonApiProjectInvalid => "项目或会话标识符无效。".into(),
+        Msg::DaemonApiSessionActiveTurn => "该会话有正在执行的回合。请先停止后再试。".into(),
+        Msg::DaemonApiSessionDeleted { id } => format!("会话 {id} 已删除").into(),
+        Msg::DaemonApiSessionRenamed { id, name } => format!("会话 {id} 已重命名为「{name}」").into(),
+        Msg::DaemonApiChatBusySession => "该会话已有正在进行的对话操作".into(),
+        Msg::DaemonApiChatBusyRequest => "该请求 ID 已有正在进行的对话操作".into(),
+        Msg::DaemonApiLoginExpired => "登录会话已过期，请重新发起登录".into(),
+        Msg::DaemonApiLoginCancelled => "登录会话已取消".into(),
+        Msg::DaemonProvNameEmpty => "提供商名称不能为空".into(),
+        Msg::DaemonProvNameDot => "提供商名称不能为 '.' 或 '..'".into(),
+        Msg::DaemonProvNameInvalidChars =>
+            "提供商名称不能包含 /、\\、NUL、换行、回车或制表符".into(),
+        Msg::CliAcpPolicyInterventionNotice =>
+            "凭据保护已拦截一次不安全的 shell 操作。请在独立终端中完成需要认证的步骤，然后让 \
+             RustCode 继续、跳过被拦截的步骤或结束任务。请勿把凭据粘贴到对话中。"
+                .into(),
         Msg::DaemonCmdInvalidBucket => "项目会话桶标识无效".into(),
         Msg::DaemonCmdSessionNotFound { id } => format!("未找到会话 {id}").into(),
         Msg::DaemonCmdProviderBuildPanicked { error } => {

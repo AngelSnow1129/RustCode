@@ -73,6 +73,7 @@ impl Default for GridCell {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 struct Style {
     bold: bool,
     faint: bool,
@@ -80,16 +81,6 @@ struct Style {
     fg: Option<Color>,
 }
 
-impl Default for Style {
-    fn default() -> Self {
-        Self {
-            bold: false,
-            faint: false,
-            reverse: false,
-            fg: None,
-        }
-    }
-}
 
 /// In-process VT terminal model -- advance ANSI bytes, expose the
 /// resulting 2D char grid + cursor + visibility state.
@@ -443,8 +434,8 @@ impl Perform for VirtualTerminal {
                 let mut it = params.iter();
                 let row = it.next().and_then(|p| p.first().copied()).unwrap_or(1);
                 let col = it.next().and_then(|p| p.first().copied()).unwrap_or(1);
-                self.cursor_row = (row.saturating_sub(1) as u16).min(self.height.saturating_sub(1));
-                self.cursor_col = (col.saturating_sub(1) as u16).min(self.width.saturating_sub(1));
+                self.cursor_row = row.saturating_sub(1).min(self.height.saturating_sub(1));
+                self.cursor_col = col.saturating_sub(1).min(self.width.saturating_sub(1));
             }
             // ED: erase in display. `\x1b[2J` = whole screen,
             // `\x1b[J` / `\x1b[0J` = cursor to end of display,
@@ -464,8 +455,8 @@ impl Perform for VirtualTerminal {
                         let row_idx = self.cursor_row as usize;
                         let col_idx = self.cursor_col as usize;
                         if let Some(row) = self.grid.get_mut(row_idx) {
-                            for col in col_idx..row.len() {
-                                row[col] = GridCell::default();
+                            for cell in row.iter_mut().skip(col_idx) {
+                                *cell = GridCell::default();
                             }
                         }
                         for row in self.grid.iter_mut().skip(row_idx + 1) {
@@ -483,8 +474,8 @@ impl Perform for VirtualTerminal {
                         }
                         if let Some(row) = self.grid.get_mut(row_idx) {
                             let end = (col_idx + 1).min(row.len());
-                            for col in 0..end {
-                                row[col] = GridCell::default();
+                            for cell in row.iter_mut().take(end) {
+                                *cell = GridCell::default();
                             }
                         }
                     }
@@ -518,16 +509,15 @@ impl Perform for VirtualTerminal {
                     match mode {
                         0 => {
                             // cursor to end
-                            for col in (self.cursor_col as usize)..row.len() {
-                                row[col] = GridCell::default();
+                            for cell in row.iter_mut().skip(self.cursor_col as usize) {
+                                *cell = GridCell::default();
                             }
                         }
                         1 => {
                             // start to cursor
-                            for col in
-                                0..=(self.cursor_col as usize).min(row.len().saturating_sub(1))
-                            {
-                                row[col] = GridCell::default();
+                            let end = (self.cursor_col as usize).min(row.len().saturating_sub(1)) + 1;
+                            for cell in row.iter_mut().take(end) {
+                                *cell = GridCell::default();
                             }
                         }
                         2 => {
@@ -548,7 +538,7 @@ impl Perform for VirtualTerminal {
                 let bot = it
                     .next()
                     .and_then(|p| p.first().copied())
-                    .unwrap_or(self.height as u16);
+                    .unwrap_or(self.height);
                 let top0 = top.saturating_sub(1).min(self.height.saturating_sub(1));
                 let bot0 = bot.saturating_sub(1).min(self.height.saturating_sub(1));
                 if top0 < bot0 {
@@ -566,11 +556,10 @@ impl Perform for VirtualTerminal {
                     .next()
                     .and_then(|p| p.first().copied())
                     .unwrap_or(0);
-                match code {
-                    25 => self.cursor_visible = on,
-                    // 7 (autowrap), 1049 (alt-screen), 2004 (bracketed
-                    // paste) -- retained is agnostic to these, no-op.
-                    _ => {}
+                // 7 (autowrap), 1049 (alt-screen), 2004 (bracketed
+                // paste) -- retained is agnostic to these, no-op.
+                if code == 25 {
+                    self.cursor_visible = on;
                 }
             }
             _ => {
