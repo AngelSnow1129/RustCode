@@ -1516,6 +1516,7 @@ fn with_auth_lock_file<T>(
 
     let lock = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(lock_path)
