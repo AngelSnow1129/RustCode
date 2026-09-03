@@ -201,6 +201,64 @@
 
 aarch64 / Windows 产物**只做了 `file` 架构校验，未在本机执行**（架构不匹配，无法运行）——属已知未验证范围。
 
+## T2：产物分析 + 运行测试（已完成，报告见 `03-impl/T2.md`）
+
+### 静态分析结论（8 个产物）
+
+- **musl 版为 `static-pie linked`，零外部依赖** —— 跨发行版可移植性最佳，Linux 分发首选
+- 原生 gnu 依赖 `libgcc_s.so.1` / `libm.so.6` / `libc.so.6`；aarch64 依赖 aarch64 glibc
+- Windows：CLI 为 **CUI 控制台子系统**，daemon 为 **GUI 子系统**（符合后台服务定位）
+- 加固属性三者一致：**PIE + Full RELRO（BIND_NOW）+ NX**，符号已剥离（无 `.debug_*`、无 `.symtab`）
+- Stack canary：gnu 产物检出引用（CLI 206 / daemon 86）；musl 与 aarch64 检出 0，
+  但**产物已剥离符号，该计数不可靠，不作结论**
+
+### 运行测试结果（原生 gnu + musl，均通过）
+
+| 测试 | 原生 gnu | musl |
+|---|---|---|
+| `--version` / `--help` | exit=0 | exit=0 |
+| **ACP stdio 端到端** `scripts/acp_smoke.py` | **SMOKE OK, exit=0** | **SMOKE OK, exit=0** |
+| daemon 启动监听 13456 | 成功 | 成功 |
+| `GET /health` | **200** + 完整 JSON | **200** + 完整 JSON |
+| `GET /project` `/projects` | 401 | 401（**正确**：令牌鉴权 fail-closed） |
+| `GET /`（根路径） | 404 | 404（**符合预期**：前端未构建，AGENTS.md 已记载） |
+
+ACP 冒烟覆盖 v1 + v2 双协议全流程，含**失败路径**（`resume` 不存在 id → `Invalid params`）。
+两版 `/health` 的 `binary_hash` 不同，证明是各自独立构建的可执行文件。
+
+### 未执行项（诚实标注）
+
+aarch64 与 Windows 产物**仅做静态分析，未运行**：本机无 `qemu-user-static` 与 `wine`，
+**未擅自安装**（系统级改动，未授权）。
+跳过：`scripts/test-headless.sh`（硬编码 `target/debug/rustcode`，本轮只有 release 产物）；
+依赖 LLM provider 凭据的联网用例。
+
+### [WARN] 构建溯源问题 —— 已处置
+
+发现原生 gnu 产物版本串为 `rustcode 5.0.9 (2e5baa33+dirty)`：该产物构建于本轮四次提交**之前**，
+与源码状态不同步。已在提交后**重建**（`Finished in 1m 20s`），版本串现为干净的
+**`rustcode 5.0.9 (73efc258)`**。musl / aarch64 / Windows 产物本就在提交后构建，版本串干净。
+
+### 观测到的行为（非缺陷，供参考）
+
+`rustcode-daemon --help` **不打印帮助而是直接启动服务器**（与 `--version` 行为不同）。
+该 daemon 不消费 `--help`，直接走默认启动路径。属 CLI 一致性小问题，未改动。
+
+## [ERROR] 并发会话事件（2026-09-03 19:13）
+
+作业期间检测到**另一个编排会话向同一 worktree 提交**：
+
+- 提交 `73efc258 docs(consistency): fix rustcode-cli commands and stale rebrand facts`
+  作者同为 `rustcode-builder <builder@rustcode.local>`，但**非本会话产出**
+- 改动 12 文件（README × 2、`docs/` 若干、`site/index.html`、`scripts/linux-release-linux.sh`），
+  内容为文档一致性修正（`-p rustcode-cli` → `-p rustcode`、旧品牌事实、`.atom` → `.rustcode` 等）
+- **与我改动的 `README.md` / `README.zh-CN.md` 存在文件重叠**
+- **已验证未破坏我的成果**：两个 README 横幅仍与 `pyfiglet('RustCode')` 逐字节一致，
+  旧字形 `|_| |_| |_|` 无残留。双方改动互补且无冲突（其提交是我已推送提交的快进子节点）
+- 该提交将随本看板提交一并推送（**仅快进，无 force**）
+
+此现象与 `2026-09-02-g1-fmt-gate` 看板记载的并发会话冲突属同类，属环境事实。
+
 ## 需要回写的环境事实（待用户决定是否改 `AGENTS.md`）
 
 `AGENTS.md` 记载「cgroup 内存上限 8GB，`cargo test` 必须 `-j 1`」。本轮实测：
