@@ -259,6 +259,77 @@ aarch64 与 Windows 产物**仅做静态分析，未运行**：本机无 `qemu-u
 
 此现象与 `2026-09-02-g1-fmt-gate` 看板记载的并发会话冲突属同类，属环境事实。
 
+## T3：深层兼容性分析（无需运行即可判定发布适配范围）
+
+### glibc 版本需求 —— 最要紧的发布约束
+
+| 产物 | 最低 glibc | 影响 |
+|---|---|---|
+| 原生 gnu（x86_64） | **2.39** | 仅 Ubuntu 24.04+ / glibc ≥ 2.39 的系统可运行 |
+| aarch64 gnu | **2.39** | 同上（aarch64 基线符号从 2.17 起，但最高到 2.39） |
+| **musl** | **无（0 个 GLIBC 符号、0 个 NEEDED）** | **任意 Linux 发行版可运行** |
+
+**实测影响面**：gnu 与 aarch64 产物在 Ubuntu 22.04(2.35)、Debian 12(2.36)、RHEL 9(2.34) 上**均无法启动**。
+→ **Linux 分发应以 musl 产物为主**，gnu 产物仅适配与构建机同代或更新的系统。
+
+### Windows 依赖面
+
+两个 exe 仅导入**系统自带 DLL**（`kernel32` / `advapi32` / `ws2_32` / `bcrypt` / `crypt32` / `ntdll` /
+`userenv` / `shell32` 等），**无第三方可再发行组件**。
+差异：CLI 额外导入 `user32` / `ole32` / `oleaut32` / `pdh` / `powrprof` / `PSAPI`（TUI + 剪贴板 + 性能计数），
+daemon 不导入这些（无头服务）。Subsystem 版本 5.2。
+
+## T4：WebUI 嵌入缺失 —— 已定位并修复
+
+### 定性：不是产品缺陷，是构建流程被绕过
+
+`scripts/release.sh:52-71` **会先构建前端再编译**，并在缺失时**报错退出**，原文：
+「A release built now would serve 404 for /webui」。
+本轮 8 个产物是用裸 `cargo build --release` 构建的，**跳过了这一步**，因此
+`crates/rustcode-daemon/src/webui.rs`（`rust_embed`，`#[folder = "../../webui/dist/"]`，带 `#[allow_missing]`）
+在编译期不报错、运行期才 404。
+
+### 处置
+
+1. 构建前端：`cd webui && npm ci && npm run build` → `npm_build_exit=0`，
+   `webui/dist/index.html` 生成，31 个文件 / 1004K（`lang="zh"`，与默认中文目标一致）
+2. `cargo clean -p rustcode-daemon`（**cargo 不追踪 `webui/dist`**，AGENTS.md 明载）
+3. 重建 4 个目标的 daemon，**全部 exit=0**
+
+| 目标 | 嵌入前 | 嵌入后 | 增量 |
+|---|---|---|---|
+| native gnu | 27,304,112 | 28,241,840 | +937,728 |
+| musl | 27,448,888 | 28,374,584 | +925,696 |
+| aarch64 | 25,654,680 | 26,637,720 | +983,040 |
+| windows | 26,045,440 | 26,989,056 | +943,616 |
+
+增量均在 0.9–1.0 MB，与 1004K 前端吻合。
+
+### 运行期验证（决定性）
+
+| 产物 | `GET /` | 标题 | `GET /health` |
+|---|---|---|---|
+| native gnu（`target/release/`） | **200** | `RustCode · 在你的终端中运行的 AI 编程助手` | 200 |
+| native gnu（`target/x86_64-.../release/`） | **200** | 同上 | 200 |
+| musl | **200** | 同上 | 200 |
+
+修复前三者均为 404 + 「webui assets are not embedded」。`/health` 全程 200，无回归。
+aarch64 与 Windows 产物**按体积增量判定已嵌入**，但**未运行验证**（无 qemu / wine）。
+
+### [WARN] 我自己的执行错误（已纠正）
+
+首次验证时 native 仍报 404，一度疑似嵌入失败。真实原因：
+传 `--target x86_64-unknown-linux-gnu` 后产物落在 `target/x86_64-unknown-linux-gnu/release/`，
+而**不是** `target/release/`，我测的是 18:15 的旧文件（`binary_hash` 与重建前完全一致，是该线索让我定位到）。
+已补一次不带 `--target` 的重建，使 `target/release/rustcode-daemon` 同步为带前端版本（22:17）。
+
+### 遗留的装饰性不一致
+
+各产物内嵌提交号不同（native `73efc258`、musl `3d8466c0`）。
+**已核实不影响功能**：`git diff --name-only 3d8466c0..HEAD -- crates/` 为**空**，
+该区间 14 个改动文件全为 docs/scripts/site，**无任何 Rust 源码变更**。
+正式发布前建议统一重建以获得一致的版本串。
+
 ## 需要回写的环境事实（待用户决定是否改 `AGENTS.md`）
 
 `AGENTS.md` 记载「cgroup 内存上限 8GB，`cargo test` 必须 `-j 1`」。本轮实测：
