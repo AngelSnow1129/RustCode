@@ -128,7 +128,10 @@ extensions/jetbrains/.spec_docs
 
 # Codex 子代理在项目目录生成的运行时目录(external subagent driver)
 .codex/
-.codebuddy/
+# [2026-09-03] `.codebuddy/` 已从本忽略清单移除,改为随仓库跟踪 --
+# 它承载 project 级 Agent 定义(agents/)、协作规则(rules/)与运行看板(artifacts/),
+# 需随仓库共享给团队。此前被忽略导致新克隆拿不到任何 Agent 定义。
+# 注意:勿再加回 `.codebuddy/`,否则子路径无法用 `!` 重新纳入。
 .codegraph/
 .codeartsdoer/
 
