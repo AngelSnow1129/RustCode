@@ -2119,6 +2119,12 @@ mod tests {
         }
 
         let mut session = Session::new(PathBuf::from("/tmp/x"));
+        // `Session::new` names the session `session-<ms-timestamp>` and that name is
+        // rendered into the resumed TurnSeparator label (`:913`), so a timestamp whose
+        // digits happen to contain "987" would trip the accounting-leak assertion below.
+        // Pin a fixed name to remove the time dependency -- same shape as
+        // `TuiSession::default_session` (crates/rustcode-tuix/src/session.rs:137).
+        session.name = "session-test".to_string();
         session.messages = vec![
             Message::user("q1"),
             Message::assistant("a1", vec![]),
