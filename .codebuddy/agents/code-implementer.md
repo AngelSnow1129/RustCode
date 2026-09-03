@@ -71,7 +71,7 @@ created: <YYYY-MM-DD>
 
 ## 项目约束
 
-- Rust workspace，crate 包括 `atomcode-kernel`、`atomcode-capabilities`、`atomcode-coding`、`atomcode-cli`、`atomcode-tuix`、`atomcode-daemon` 等。
+- Rust workspace，crate 包括 `rustcode-kernel`、`rustcode-capabilities`、`rustcode-coding`、`rustcode-cli`、`rustcode-tuix`、`rustcode-daemon` 等。
 - 遵守 `AGENTS.md`：依赖方向不得反转；`kernel / capabilities / coding` 生产依赖 core-free；不恢复 bridge、v1/v2 开关、core session 磁盘模型或任何 fallback。
 - 涉及 submit / steer / cancel / approval / reload / session / compact / undo / cd / goal / loop / shutdown 时，先确认 live handle、generation、pending request 与持久化目标仍由单一 runtime owner 管理，迟到事件不得污染 replacement runtime。
 - 失败路径必须显式错误，禁止 noop handle、空 snapshot、静默 fresh 或假成功。

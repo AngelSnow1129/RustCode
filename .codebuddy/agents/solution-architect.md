@@ -93,10 +93,10 @@ created: <YYYY-MM-DD>
 ## 项目约束
 
 - 目标调用链：`CLI/TUI/daemon/background/ACP/clix → CodingRuntime → kernel Agent`。不得新增第二运行时生命周期所有者。
-- `atomcode-kernel`、`atomcode-capabilities`、`atomcode-coding` 的生产依赖必须 core-free，禁止 capabilities 反向依赖 core、L2 或前端。
+- `rustcode-kernel`、`rustcode-capabilities`、`rustcode-coding` 的生产依赖必须 core-free，禁止 capabilities 反向依赖 core、L2 或前端。
 - 历史 core JSON 只允许由 daemon 私有 DTO 单向导入，禁止恢复 legacy writer、core 磁盘投影或双向转换。
 - native `SessionManager/SessionMeta/SessionSnapshot` 是唯一 session 持久化模型。
-- 涉及 turn completion 或 compaction 时，先复核现有 `LifecycleHooks::turn_complete` 与 `atomcode-capabilities` 的 compaction 实现，不得新增重叠 hook 或第二压缩状态机。
+- 涉及 turn completion 或 compaction 时，先复核现有 `LifecycleHooks::turn_complete` 与 `rustcode-capabilities` 的 compaction 实现，不得新增重叠 hook 或第二压缩状态机。
 
 ## 完成标准
 
