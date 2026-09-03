@@ -360,3 +360,6 @@ git revert --no-edit <C3-sha>   # T1 修复
 | 时间 | 修订内容 | 依据 | 修订人 |
 |---|---|---|---|
 | 2026-09-03 | 初版冻结：18 个任务 / 9 个批次 / 6 个待裁决项 | 编排者 2026-09-03 Git 盘点事实包 + 只读勘查 | solution-architect |
+| 2026-09-03 | **修订 1（§1.1 假设 A1 证伪）**：A1「`.codebuddy/artifacts/**` 已被 git 跟踪」**不成立**。实测 `.gitignore:131` 排除整个 `.codebuddy/`，该目录零文件被跟踪，导致 GW-04 闭板改动无提交内容、且文档 §9.1「随仓库共享给团队」为失实表述。已升级用户，裁决 **CB=解除整个 `.codebuddy/` 忽略**。据此 GW-04 的 `files_owned` 追加 `.gitignore`，提交粒度契约 §5.1 由 C1/C2/C3 扩展为 C1–C4(dev)+C5(merge) | `git check-ignore -v` / `git ls-files .codebuddy` 实测；用户 2026-09-03 裁决 CB | project-manager |
+| 2026-09-03 | **修订 2（执行环境）**：`rustup` 于 09:18 被外部删除，`/root/.cargo/bin/cargo` 变悬空链接。全部构建/验证改用工具链绝对路径 `/root/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/{cargo,rustc,cargo-fmt}` + PATH 注入完成。§8 的命令示例在 rustup 恢复前需按此方式调用 | `/root/.cargo/bin` mtime=09:18；`ls /root/.cargo/bin/rustup` → No such file | project-manager |
+| 2026-09-03 | **修订 3（Q1/Q2/Q3 裁决落地）**：Q1=`--no-ff`（→ `a81fb69f`，2 parent，`git diff --stat main dev` 空）；Q2=白名单守卫（→ `f3489055`，三场景本地等价验证）；Q3=写入仓库级 git config（非全局，沿用 `rustcode-builder`）。GW-01/02/03/04/08/09/10/12 全部 done；GW-15/16/17/18 与 GW-13 未执行，见 `STATUS.md` 未完事项 | 用户 2026-09-03 四项裁决；实测命令输出 | project-manager |
