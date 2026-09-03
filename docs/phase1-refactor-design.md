@@ -15,7 +15,7 @@
 | # | v1 的判断 | v2 的实测结论 |
 |---|---|---|
 | 1 | O3 缺 model mapping / 重试配置 / 统一错误类型 | `ModelMapping` 已落地并接入工厂；`retry_max_attempts` 已可配；`LlmError` 已落地。真正缺口收窄为**超时不可配**与**适配器构造点未走 `LlmError`** |
-| 2 | O4 只有一套许可档案 | 新增 `docs/licenses/`（第二套），与 `docs/*.md` 四件套**内容重复**，且其中 `LICENSE-MIT-ORIGINAL.md` 含模板 MIT 正文（臆造风险） |
+| 2 | O4 只有一套许可档案 | **v2 实测**：仅四个顶层合规文件（`docs/UPSTREAM_RUSTCODE_LICENSE.md`、`docs/ORIGINAL_LICENSE.md`、`docs/THIRD_PARTY_NOTICES.md`、`docs/UPSTREAM_CREDITS.md`），`docs/licenses/` 目录**不存在**；`docs/ORIGINAL_LICENSE.md` 为诚实占位（无许可正文），无第二套重复档案 |
 | 3 | 测试基线 4 个既有失败 | 现状 **6 个失败**：4 个既有 + **2 个重命名回归**（`rustcode-tuix` skills 菜单测试，工作区在途改动引入） |
 
 ---
@@ -26,7 +26,7 @@
 
 | 目标 | 现状（2026-08-30 实测） | 真实剩余工作量 |
 |---|---|---|
-| O1 重命名 | `crates/` 内 `rustcode` 命中 **0**。包/二进制/配置目录/env 前缀全部落地 | 小：仅 `extensions/` 类名与 `site/` 品牌字符串收尾 |
+| O1 重命名 | `crates/` 内 `atomcode` 命中 **0**（现役 crate 一律 `rustcode-*`）。包/二进制/配置目录/env 前缀全部落地 | 小：仅 `extensions/` 类名与 `site/` 品牌字符串收尾 |
 | O2 零遥测 | 上报运行时已删；第三方埋点 SDK 依赖 **0 命中**；代码内仅剩注释 | 小：文档口径（`docs/telemetry.md`、`README.zh-CN.md`）与注释 |
 | O3 LLM 解耦 | kernel 已有中立 `LlmProvider`（含**非流式 `chat()` 默认实现**）；capabilities 已有三套适配器 + SSE 解码器 + `LlmError` + `egress` 出站工厂 | 中：超时配置下沉、适配器错误构造迁移、装配层收口 |
 | O4 合规 | 存在**两套**许可档案 | 小但必须先做：去重 + 删除模板 MIT 正文 |
@@ -43,7 +43,7 @@
 | # | 位置 | 问题 |
 |---|---|---|
 | X1 | `crates/rustcode-capabilities/src/provider/error.rs:13` | 注释中英混排：`"... ) is承重 and stays exactly as-is."` |
-| X2 | `AGENTS.md` | 写 `bind_session`，代码里是 `bind_session_id`（`kernel/src/provider.rs:186`）——文档漂移 |
+| X2 | [RESOLVED] `AGENTS.md` | 原写 `bind_session`，代码里是 `bind_session_id`（`kernel/src/provider.rs:186`）——文档漂移已修复，无 ERROR |
 | X3 | `docs/licenses/LICENSE-MIT-ORIGINAL.md` | 声明是占位文件，却在 `---` 之后附了一份 `Copyright (c) [YEAR] [UPSTREAM_AUTHOR]` 的**模板 MIT 正文**；违反"绝不臆造许可文本" |
 | X4 | `crates/rustcode-tuix/src/event_loop/mod.rs:6850,7010` | 重命名回归：`/skills atom smoke` 过滤片段未随 fixture 改名，2 个测试失败 |
 
@@ -186,7 +186,7 @@ STEP A9  packages/ 发布通道改名（独立批次）
 | `config/src/telemetry_legacy.rs` | 已删除；`SessionMode` / `RepoOrigin` / `detect_repo_origin` 迁至 `config/src/session_mode.rs`；`CliOverride` 已删 |
 | `clix/src/tel.rs` | 已删除（空桩、`meter_provider`、`.clix_telemetry_notice`）；`build_review_provider` 迁至 `clix/src/code.rs` |
 | `cli/src/telemetry_cmd.rs` + `tests/telemetry_cmd.rs` | 已删除 |
-| `telemetry` 子命令与 `[telemetry]` 配置段 | 已从 schema 移除；遗留段**静默忽略**（回归测试 `config/mod.rs:4310 legacy_telemetry_section_tests`） |
+| `telemetry` 子命令与 `[telemetry]` 配置段 | 已从 schema 移除；遗留段**静默忽略**（回归测试 `config/mod.rs:4396 legacy_telemetry_section_tests`） |
 | daemon `--no-telemetry` | 降级为被忽略的 no-op + stderr 告警（老 IDE 扩展仍会传） |
 | 崩溃处理 | 仅 stderr，无离箱上报 |
 | 第三方埋点 SDK 依赖 | 0 命中 |
@@ -438,19 +438,21 @@ STEP C7  文档：docs/config.example.toml 补 timeout / retry / model_mapping �
 
 ### 5.1 现状（实测）
 
-存在**两套**许可档案，且根 `LICENSE` 指向后者：
+仅存在**一套**许可档案：四个顶层合规文件（`docs/UPSTREAM_RUSTCODE_LICENSE.md`、
+`docs/ORIGINAL_LICENSE.md`、`docs/THIRD_PARTY_NOTICES.md`、`docs/UPSTREAM_CREDITS.md`）。
+`docs/licenses/` 目录**不存在**，根 `LICENSE`（MIT）指向这四个顶层文件，而非 `docs/licenses/` 树：
 
 | 位置 | 文件 | 判定 |
 |---|---|---|
-| `LICENSE` | 本项目 MIT，双版权行 `Copyright (c) 2026 Yubang Xu` + `Copyright (c) 2026 The rustcode authors (fork of rustcode)`；正文指向 `docs/licenses/` | [OK] 但需随去重结果定稿 |
+| `LICENSE` | 本项目 MIT，双版权行 `Copyright (c) 2026 Yubang Xu` + `Copyright (c) 2026 The rustcode authors (fork of rustcode)`；正文指向四个顶层合规文件 | [OK] |
 | `docs/ORIGINAL_LICENSE.md` | 上游 rustcode 的**诚实占位**（无许可正文） | [OK] 语义正确 |
 | `docs/UPSTREAM_RUSTCODE_LICENSE.md` | 前身 `SecLab/RustCode`（Yubang Xu）MIT 全文 | [OK] |
-| `docs/THIRD_PARTY_NOTICES.md` / `docs/UPSTREAM_CREDITS.md` | 存在 | 需与 `docs/licenses/` 内同名文件去重 |
-| `docs/licenses/README.md` | 许可链图：rustcode -> RustCode -> rustcode | [OK] 内容正确 |
-| `docs/licenses/LICENSE-MIT-FORK.md` | 本 fork MIT | 与根 `LICENSE` 重复 |
-| `docs/licenses/LICENSE-MIT-PREDECESSOR.md` | 前身 MIT | 与 `docs/UPSTREAM_RUSTCODE_LICENSE.md` 重复 |
-| `docs/licenses/LICENSE-MIT-ORIGINAL.md` | 声明占位，**但附了模板 MIT 正文** | **[ERROR] 见 5.2** |
-| `docs/licenses/THIRD-PARTY-NOTICES.md` / `UPSTREAM-CREDITS.md` | 与 docs 顶层同名文件重复 | 需去重 |
+| `docs/THIRD_PARTY_NOTICES.md` / `docs/UPSTREAM_CREDITS.md` | 存在 | 单一事实源（`docs/licenses/` 不存在，无需去重） |
+| `docs/licenses/README.md` | 许可链图（**提议布局，磁盘上不存在**）：rustcode -> RustCode -> rustcode | [PROPOSED] 内容正确，但非当前事实源 |
+| `docs/licenses/LICENSE-MIT-FORK.md` | 本 fork MIT | [PROPOSED] 与根 `LICENSE` 重复（若创建） |
+| `docs/licenses/LICENSE-MIT-PREDECESSOR.md` | 前身 MIT | [PROPOSED] 与 `docs/UPSTREAM_RUSTCODE_LICENSE.md` 重复（若创建） |
+| `docs/licenses/LICENSE-MIT-ORIGINAL.md` | 声明占位，**但附了模板 MIT 正文** | **[PROPOSED][ERROR] 见 5.2**（若该文件被创建，须删除模板正文） |
+| `docs/licenses/THIRD-PARTY-NOTICES.md` / `UPSTREAM-CREDITS.md` | 与 docs 顶层同名文件重复 | [PROPOSED] 需去重（若创建） |
 
 ### 5.2 [ERROR] 必须先修的合规缺陷
 
@@ -477,8 +479,8 @@ docs/licenses/UPSTREAM-CREDITS.md          上游致谢
 ```
 
 `docs/ORIGINAL_LICENSE.md`、`docs/UPSTREAM_RUSTCODE_LICENSE.md`、
-`docs/THIRD_PARTY_NOTICES.md`、`docs/UPSTREAM_CREDITS.md` 四个顶层文件改为
-**指向 `docs/licenses/` 的索引**（或删除，由 GATEWAY 定）。
+`docs/THIRD_PARTY_NOTICES.md`、`docs/UPSTREAM_CREDITS.md` 四个顶层文件即当前单一事实源
+（`docs/licenses/` 目录**不存在**；是否新建 `docs/licenses/` 树由 GATEWAY 定）。
 
 ### 5.4 执行要点
 
@@ -674,7 +676,7 @@ crates/rustcode-capabilities/src/provider/mod.rs             适配器导出
 crates/rustcode-capabilities/src/provider/{openai_compat,anthropic,ollama}.rs  三套适配器
 crates/rustcode-capabilities/src/provider/retry.rs           RetryPolicy（Retry-After HTTP-date）
 crates/rustcode-config/src/config/provider.rs           :110  model_mapping  :483  ModelMapping
-crates/rustcode-config/src/config/mod.rs                :4310 legacy_telemetry_section_tests
+crates/rustcode-config/src/config/mod.rs                :4396 legacy_telemetry_section_tests
 crates/rustcode-config/src/session_mode.rs                   SessionMode / RepoOrigin（非遥测）
 crates/rustcode-config/src/distribution.rs                   HOME_ENV / 端口 / 进程名 / 发布前缀
 crates/rustcode-config/src/endpoints.rs                      11 个 RUSTCODE_* 环境变量

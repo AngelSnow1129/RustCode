@@ -1,7 +1,7 @@
 # RustCode 功能与能力总览
 
 > 本文档面向使用者和二次开发者,汇总 RustCode fork 的产品能力、平台定位与
-> 近期新增功能。面向 Agent 的开发约束见 `AGENTS.md`;运行时术语见 `CONTEXT.md`;
+> 近期新增功能。面向 Agent 的开发约束见 `AGENTS.md`;运行时术语见 `../CONTEXT.md`;
 > 架构分层见 `docs/architecture.md`;平台中立化 / 发行去厂商化 / 输出 ASCII 化等
 > 工程卫生的落地明细见 `docs/platform-neutralization.md`。
 

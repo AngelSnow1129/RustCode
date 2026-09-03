@@ -54,7 +54,7 @@
 
 1. Run the focused capabilities, CLI, and TUI tests.
 2. Run `cargo test -p rustcode-capabilities --features session`.
-3. Run `cargo test -p rustcode-cli`.
+3. Run `cargo test -p rustcode`.
 4. Run `cargo test -p rustcode-tuix`.
 5. Run `git diff --check`.
 6. Audit session owner, lease transfer, source/destination IDs, replay binding, telemetry binding, error propagation, headless behavior, and dirty-worktree isolation.

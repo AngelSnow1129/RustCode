@@ -735,14 +735,14 @@ cargo build --release
 
 ```bash
 # Run the TUI directly (debug mode)
-cargo run -p rustcode-cli
+cargo run -p rustcode
 
 # With arguments
-cargo run -p rustcode-cli -- -C /path/to/project
-cargo run -p rustcode-cli -- --model gpt-4o
+cargo run -p rustcode -- -C /path/to/project
+cargo run -p rustcode -- --model gpt-4o
 
 # Headless mode
-cargo run -p rustcode-cli -- -p "summarize this repo"
+cargo run -p rustcode -- -p "summarize this repo"
 
 # Daemon (HTTP API)
 cargo run -p rustcode-daemon

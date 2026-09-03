@@ -6,9 +6,16 @@ set -e
 # Always run from project root
 cd "$(dirname "$0")/.."
 
-VERSION=$(git describe --tags --abbrev=0 2>/dev/null)
+# Derive version from Cargo.toml [workspace.package].version, matching the
+# other release scripts (release.sh / release-daemon.sh / macos-release-*.sh).
+# git tag is no longer the source of truth to avoid drift between tag and crate.
+VERSION=$(awk -F'"' '
+    /^\[workspace\.package\]/ { in_section = 1; next }
+    /^\[/ { in_section = 0 }
+    in_section && /^version *=/ { print "v"$2; exit }
+' Cargo.toml)
 if [ -z "$VERSION" ]; then
-    echo "No git tag found. Create one first: git tag -a v1.0.0 -m 'v1.0.0'"
+    echo "Could not determine version from Cargo.toml. Set [workspace.package].version."
     exit 1
 fi
 

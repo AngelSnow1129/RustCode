@@ -10,7 +10,7 @@
 
 | Agent | 范围 | 状态 | 已完成 | 剩余 |
 |---|---|---|---|---|
-| **AGENT-A** | 重命名收尾 + 合规 | [PENDING] | — | `docs/architecture.md` 的 `rustcode-*` 修正；`extensions/`（vscode/jetbrains）与 `site/` 旧前缀；O4 License 缺陷 |
+| **AGENT-A** | 重命名收尾 + 合规 | [DONE] | `docs/architecture.md` / `docs/mcp.md` / `docs/target-architecture.md` / `docs/testing/windows-path-normalization.md` 的 `rustcode-*` 修正 + O4 License 合规（见 3.7） | `extensions/`（vscode/jetbrains）与 `site/` 旧前缀（已评估规模，单独立项，见 3.7） |
 | **AGENT-B** | 零遥测死脚手架 | [DONE]（主 Agent 收尾） | B1-B5、B7-B12 | B6 部分、B10 文档、B9 改名 |
 | **AGENT-C** | 外部调用收敛（egress） | [PARTIAL] | 见 3.4 | MCP 传输层的静默降级（见 3.5） |
 | **AGENT-D** | 门禁 / 测试 / 收口 | [PENDING] | — | G1-G8；补 `ci.yml`；Mock/wire 一致性测试 |

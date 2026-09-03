@@ -2,15 +2,15 @@
 
 Secondary-development fork of `https://gitcode.com/SecLab/RustCode`. Three objectives delivered:
 
-1. [OBJECTIVE-1] Product rebrand `rustcode` -> `rustcode` (crates, binaries, config dir, env vars).
+1. [OBJECTIVE-1] Product rebrand `atomcode` -> `rustcode` (crates, binaries, config dir, env vars).
 2. [OBJECTIVE-2] Zero telemetry — `rustcode-telemetry` crate deleted, all reporting removed.
 3. [OBJECTIVE-3] LLM provider decoupling — self-hosted OpenAI/Anthropic endpoints.
 
 ## 1. Rebrand (rustcode)
 
-- 14 crates renamed `rustcode-*` -> `rustcode-*` (e.g. `rustcode-cli`, `rustcode-daemon`, `rustcode-coding`, `rustcode-kernel`, `rustcode-capabilities`, `rustcode-config`).
-- Binaries: `rustcode` -> `rustcode`, `rustcode-daemon` -> `rustcode-daemon`, `rustcodex` -> `rustcodex`.
-- Config dir `.rustcode` -> `.rustcode`; env vars `RUSTCODE_*` -> `RUSTCODE_*` (centralized in `rustcode-config/src/distribution.rs`).
+- 13 crates renamed `atomcode-*` -> `rustcode-*` (e.g. `rustcode-cli`, `rustcode-daemon`, `rustcode-coding`, `rustcode-kernel`, `rustcode-capabilities`, `rustcode-config`).
+- Binaries: `atomcode` -> `rustcode`, `atomcode-daemon` -> `rustcode-daemon`, `atomcodex` -> `rustcodex`.
+- Config dir `.rustcode` -> `.rustcode`; env vars `ATOMCODE_*` -> `RUSTCODE_*` (centralized in `rustcode-config/src/endpoints.rs`).
 - Wire-contract keys migrated to the `rustcode.*` namespace (no compatibility read of old `~/.rustcode` sessions), per the approved "fresh start" decision.
 - In-code product strings updated; OpenRouter attribution now references `rustcode` / the fork repo.
 
@@ -19,7 +19,7 @@ Secondary-development fork of `https://gitcode.com/SecLab/RustCode`. Three objec
 - Deleted `crates/rustcode-telemetry/`.
 - Removed `Telemetry`/`Event`/`CurrentContext`/`track`/`install_panic_hook`/panic-reporting across `cli`, `daemon`, `coding`, `auth`, `clix`, `tuix`, `config`.
 - Removed `--no-telemetry` flag, the `telemetry` CLI subcommand, the `telemetry = {}` config section, and all `rustcode_telemetry::` references (now 0 in `crates/*/src`).
-- Pure non-reporting types that other code needed (`SessionMode`, `CliOverride`, `RepoOrigin`, `detect_repo_origin`) re-homed in `rustcode-config/src/telemetry_legacy.rs` — no network, no events.
+- Pure non-reporting types that other code needed (`SessionMode`, `RepoOrigin`, `detect_repo_origin`) re-homed in `rustcode-config/src/session_mode.rs` — no network, no events.
 - Crash handling keeps a stderr-only panic printer; nothing is sent off-box.
 
 ## 3. LLM provider decoupling
@@ -37,7 +37,7 @@ Secondary-development fork of `https://gitcode.com/SecLab/RustCode`. Three objec
 
 ## License & compliance
 
-- `docs/ORIGINAL_LICENSE.md` — verbatim upstream MIT license (Copyright (c) 2026 Yubang Xu).
+- `docs/ORIGINAL_LICENSE.md` — placement / declaration note (no verbatim license text); the verbatim upstream MIT license text lives in `docs/UPSTREAM_RUSTCODE_LICENSE.md` (Copyright (c) 2026 Yubang Xu).
 - `docs/THIRD_PARTY_NOTICES.md` — third-party / inherited-component notice.
 - `docs/UPSTREAM_CREDITS.md` — fork provenance and change summary.
 - Root `LICENSE` remains MIT.

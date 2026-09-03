@@ -687,14 +687,14 @@ cargo build --release
 
 ```bash
 # 直接运行 TUI（debug 模式）
-cargo run -p rustcode-cli
+cargo run -p rustcode
 
 # 带参数
-cargo run -p rustcode-cli -- -C /path/to/project
-cargo run -p rustcode-cli -- --model gpt-4o
+cargo run -p rustcode -- -C /path/to/project
+cargo run -p rustcode -- --model gpt-4o
 
 # Headless 模式
-cargo run -p rustcode-cli -- -p "总结一下这个仓库"
+cargo run -p rustcode -- -p "总结一下这个仓库"
 
 # Daemon（HTTP API）
 cargo run -p rustcode-daemon

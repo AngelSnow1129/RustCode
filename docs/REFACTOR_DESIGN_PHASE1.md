@@ -794,9 +794,9 @@ grep -rnE "(sk-[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,})"
 grep -rn "\.unwrap()\|\.expect(" --include=*.rs crates/*/src/ | grep -v "#\[cfg(test)\]" || true
 
 # [CHECK] 9 — runtime smoke
-cargo run -p rustcode-cli -- --help          # no `telemetry` subcommand, no --no-telemetry
-cargo run -p rustcode-cli -- -p "say ok"     # headless turn against a configured provider
-RUSTCODE_WIRE_DUMP=1 cargo run -p rustcode-cli -- -p "say ok"
+cargo run -p rustcode -- --help          # no `telemetry` subcommand, no --no-telemetry
+cargo run -p rustcode -- -p "say ok"     # headless turn against a configured provider
+RUSTCODE_WIRE_DUMP=1 cargo run -p rustcode -- -p "say ok"
 ls ~/.rustcode/wire-dump                     # proves the new name is live
 ```
 
@@ -825,7 +825,7 @@ Manual model-connectivity check (requires the user's own credentials; never comm
 ```bash
 export RUSTCODE_BASE_URL="https://<your-gateway>/v1"
 export RUSTCODE_API_KEY="<your-key>"          # or api_key = "env:YOUR_KEY" in config.toml
-cargo run -p rustcode-cli -- --model <model> -p "reply with the single word: ok"
+cargo run -p rustcode -- --model <model> -p "reply with the single word: ok"
 ```
 
 ---
