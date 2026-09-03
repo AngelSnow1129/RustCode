@@ -128,3 +128,85 @@
 | 2026-09-03 | 原生构建用 `-j 2` 而非 `-j 1` | 实测可用内存 241GB，AGENTS.md 记载的 8GB cgroup 限制在当前环境不成立 |
 | 2026-09-03 | T3 派发 doc-writer 而非编排者代行 | 纯文档 token 替换，doc-writer 通道此前验证可用（对比 code-implementer 5 连败） |
 | 2026-09-03 | 不擅自恢复 rustup / 装系统包 | 系统级改动超出编排者权限，须显式授权 |
+
+---
+
+# [IN PROGRESS] 多平台产物（用户已授权恢复 rustup + apt 装交叉工具链）
+
+## 环境恢复（2026-09-03，已授权执行）
+
+| 项 | 结果 |
+|---|---|
+| rustup | **已恢复** —— `rustup 1.29.1 (d95a37b6a 2026-08-13)`；`stable-x86_64-unknown-linux-gnu` 自动识别为 active/default（原有工具链未重装） |
+| `cargo` 悬空链接 | **已修复** —— `/root/.cargo/bin/cargo` 现在能正常解析，`cargo 1.93.0` 可直接调用，**不再需要工具链绝对路径** |
+| musl-tools | `musl-gcc` → `/usr/bin/musl-gcc` |
+| gcc-aarch64-linux-gnu | `aarch64-linux-gnu-gcc` → `/usr/bin/aarch64-linux-gnu-gcc` |
+| mingw-w64 | `x86_64-w64-mingw32-gcc` → `/usr/bin/x86_64-w64-mingw32-gcc` |
+| `apt-get install` | `install_exit=0` |
+
+**副作用（正面）**：此前所有构建/测试命令都必须走
+`/root/.rustup/toolchains/.../bin/cargo` + PATH 注入；**该变通即日起不再需要**。
+这条应回写到 `AGENTS.md` 的环境约束段（待用户决定是否改 `AGENTS.md`）。
+
+## 已安装的编译目标
+
+`rustup target list --installed`：
+`x86_64-unknown-linux-gnu`（原有）、`x86_64-unknown-linux-musl`、`aarch64-unknown-linux-gnu`、
+`aarch64-unknown-linux-musl`、`x86_64-pc-windows-gnu`。
+
+## 构建结果（按可行性排序，逐个执行，失败不阻断后续）
+
+| 目标 | 状态 | 产物 |
+|---|---|---|
+| `x86_64-unknown-linux-gnu` | **done** | `rustcode` 32,701,552 B；`rustcode-daemon` 27,304,112 B（ELF x86-64，dynamically linked） |
+| `x86_64-unknown-linux-musl` | **done** | `rustcode` 32,851,064 B；`rustcode-daemon` 27,448,888 B（ELF x86-64，**static-pie linked**，完全静态） |
+| `aarch64-unknown-linux-gnu` | **done**（首次失败，补装 `libc6-dev-arm64-cross` 后重试成功，2m20s） | `rustcode` 29,791,176 B；`rustcode-daemon` 25,654,680 B（**ELF ARM aarch64**） |
+| `x86_64-pc-windows-gnu` | **done** | `rustcode.exe` 30,920,192 B；`rustcode-daemon.exe` 26,045,440 B（**PE32+ x86-64 for MS Windows**；daemon 为 GUI 子系统） |
+| `aarch64-unknown-linux-musl` | **failed** | `failed to find tool "aarch64-linux-musl-gcc"` —— apt 无 aarch64 版 musl 交叉工具链，`musl-tools` 只提供 x86_64 的 `musl-gcc`。**未强推**，避免继续装外部工具链扩大系统改动面 |
+| `*-apple-darwin` / `*-pc-windows-msvc` | **不可行** | 需 macOS SDK / MSVC，只能由 `build.yml` 在 `macos-latest` / `windows-latest` 原生 runner 产出 |
+
+日志：`/tmp/multi_target.log`；分目标日志 `/tmp/relbuild/<target>.log`。
+构建脚本 `/tmp/multi_target_build.sh`（`-j 4`；实测内存 252GB / 可用 241GB，无 8GB cgroup 限制）。
+
+## 已推送的四次原子提交（2026-09-03）
+
+| 提交 | sha | 内容 |
+|---|---|---|
+| C1 | `98616b0f` | `docs(readme)` README 字符画 → RustCode（2 files / +10 / -10） |
+| C2 | `fac2cc11` | `fix(jetbrains)` 夹具重命名（5 files，R100 纯重命名，0 增 0 删） |
+| C3 | `20e36caf` | `chore(agents)` 旧 crate 名清理（2 files / +3 / -3） |
+| C4 | `3d8466c0` | `chore(board)` 本看板入库 |
+
+推送：`2e5baa33..3d8466c0 dev -> dev`，远端 Hooks `[PASSED]`；工作区干净。
+
+## [WARN] 本轮执行偏差
+
+1. **C1 首次提交误带入已暂存的重命名**（`git commit` 不带路径会提交整个索引）。
+   已用 `git reset --soft HEAD~1` 回退（**未动工作区**），改用路径限定提交 `git commit -- <paths>` 纠正。
+2. **纠正过程中暴露又一个隐藏约束**：`extensions/jetbrains/.gitignore:7` 的 `bin/` 规则忽略了该目录，
+   这些夹具在版本库里只是因为历史上被强制加入。回退暂存后新文件名变回「未跟踪且被忽略」，
+   需用 `git add -fA` 才能重新暂存重命名（已验证 5 个均识别为 R100）。
+3. **aarch64 首次构建失败**，根因 `bits/libc-header-start.h: No such file or directory`
+   —— `gcc-aarch64-linux-gnu` 抓的是宿主机 `/usr/include` 而非 aarch64 sysroot。
+   补装 `libc6-dev-arm64-cross`（提供 `/usr/aarch64-linux-gnu/include`）后重试成功。
+   **教训**：装交叉编译器 ≠ 装齐交叉 libc 头文件，两者是不同包。
+
+## 冒烟验证
+
+| 命令 | 输出 |
+|---|---|
+| `./target/release/rustcode --version` | `rustcode 5.0.9 (2e5baa33+dirty)`（该产物建于提交前，故带 `+dirty`） |
+| `./target/x86_64-unknown-linux-musl/release/rustcode --version` | `rustcode 5.0.9 (3d8466c0)`（提交后构建，干净） |
+| `./target/release/rustcode-daemon` | `RustCode API server listening on http://127.0.0.1:13456`（daemon 正常拉起，后因空闲超时中止） |
+
+aarch64 / Windows 产物**只做了 `file` 架构校验，未在本机执行**（架构不匹配，无法运行）——属已知未验证范围。
+
+## 需要回写的环境事实（待用户决定是否改 `AGENTS.md`）
+
+`AGENTS.md` 记载「cgroup 内存上限 8GB，`cargo test` 必须 `-j 1`」。本轮实测：
+
+- `free -m` 显示 **252GB 总量 / 241GB 可用**，未观察到 8GB cgroup 限制
+- 因此 release 构建用 `-j 4` 全程正常；本轮全工作区测试是用 `-j 1` 跑的（沿用旧约束，偏保守但未出错）
+- rustup 已恢复，`cargo` 直连可用，此前「工具链绝对路径 + PATH 注入」的变通**已不需要**
+
+`AGENTS.md` 属受保护文件（GW-18 默认 blocked），是否更新需你单独授权。
