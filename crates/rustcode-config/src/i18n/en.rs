@@ -2977,6 +2977,9 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::ProviderPanelEditAccountFormHint =>
             "Tab Next  \u{2190}-> Switch protocol  \u{21b5} Save  Esc Back".into(),
         Msg::ProviderPanelProviderNotConfigured => "this provider is not configured yet".into(),
+        Msg::ProviderPanelDiscoveryTitle => "Discovered Models:".into(),
+        Msg::ProviderPanelDiscoveryHint =>
+            "Space Toggle  Enter Add  Ctrl+A All  Ctrl+N None  Esc Cancel".into(),
         Msg::MenuPlaceholderSearchSessions => "Search sessions...".into(),
         Msg::MenuPlaceholderSearchDirs =>
             "Search saved directories or enter a path...".into(),

@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use predicates::prelude::PredicateBooleanExt;
 use std::fs;
 use tempfile::TempDir;
 
@@ -54,7 +55,10 @@ fn no_tty_no_flag_exits_2() {
         .assert()
         .failure()
         .code(2)
-        .stderr(predicates::str::contains("refusing to run interactively"));
+        .stderr(
+            predicates::str::contains("refusing to run interactively")
+                .or(predicates::str::contains("拒绝交互式运行")),
+        );
     // Nothing touched.
     assert!(data.join("auth.toml").exists());
 }

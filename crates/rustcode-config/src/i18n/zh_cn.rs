@@ -2838,6 +2838,9 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::ProviderPanelEditAccountFormHint =>
             "Tab 下一项  ←-> 切协议  ↵ 保存  Esc 返回".into(),
         Msg::ProviderPanelProviderNotConfigured => "该 provider 尚未配置".into(),
+        Msg::ProviderPanelDiscoveryTitle => "发现的模型：".into(),
+        Msg::ProviderPanelDiscoveryHint =>
+            "Space 切换  Enter 添加  Ctrl+A 全选  Ctrl+N 取消全选  Esc 取消".into(),
         Msg::MenuPlaceholderSearchSessions => "搜索会话...".into(),
         Msg::MenuPlaceholderSearchDirs => "搜索历史目录或输入路径...".into(),
         Msg::MenuPlaceholderFilter => "输入以筛选...".into(),

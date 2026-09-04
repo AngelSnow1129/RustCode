@@ -10,6 +10,41 @@ use rustcode_config::config::provider::{ModelProfileConfig, ProviderAccountConfi
 use rustcode_config::config::{provider_preset, Config};
 use unicode_segmentation::UnicodeSegmentation;
 
+/// Discovered model from remote provider discovery API.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DiscoveredModel {
+    id: String,
+    name: Option<String>,
+    context_window: Option<usize>,
+    max_tokens: Option<usize>,
+}
+
+/// State for async model discovery.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum DiscoveryState {
+    /// No discovery in progress.
+    Idle,
+    /// Discovery request has been sent, waiting for response.
+    Pending {
+        account_id: String,
+        base_url: String,
+    },
+    /// Discovery completed with results, showing selection UI.
+    Completed {
+        account_id: String,
+        models: Vec<DiscoveredModel>,
+        selected: Vec<bool>, // Selection state for each model
+    },
+    /// Discovery failed.
+    Failed { account_id: String, error: String },
+}
+
+/// Result from async discovery thread.
+struct DiscoveryResult {
+    account_id: String,
+    result: Result<Vec<DiscoveredModel>, String>,
+}
+
 use super::{tab_chip, Modal, ModalAction};
 use crate::event_loop::{
     build_status, set_default_provider_and_reload, update_config_and_reload, Buffer,
@@ -717,6 +752,13 @@ enum Mode {
     Add(AddForm),
     EditAccount(EditForm),
     Model(ModelForm),
+    /// Show discovered models and let user select which to add.
+    DiscoveryResults {
+        account_id: String,
+        models: Vec<DiscoveredModel>,
+        selected: Vec<bool>,
+        cursor: usize, // Current cursor position in the list
+    },
 }
 
 pub struct ProviderPanel {
@@ -735,6 +777,10 @@ pub struct ProviderPanel {
     /// The row armed by the first Ctrl+D. A second Ctrl+D deletes only when the
     /// same logical row is still selected; every other list action disarms it.
     pending_delete: Option<(String, bool)>,
+    /// Async model discovery state.
+    discovery_state: DiscoveryState,
+    /// Channel receiver for discovery results (polled in main loop).
+    discovery_rx: Option<std::sync::mpsc::Receiver<DiscoveryResult>>,
 }
 
 /// Rows the List layout pushes before the first account/model row: the tab bar,
@@ -833,6 +879,9 @@ impl ProviderPanel {
                 self.selected = 0;
                 self.pending_delete = None;
             }
+            Mode::DiscoveryResults { .. } => {
+                // Paste in discovery results mode does nothing
+            }
         }
     }
 
@@ -846,6 +895,8 @@ impl ProviderPanel {
             search_focused: false,
             account_filter: None,
             pending_delete: None,
+            discovery_state: DiscoveryState::Idle,
+            discovery_rx: None,
         }
     }
 
@@ -995,6 +1046,197 @@ impl ProviderPanel {
         self.search_focused = false;
         self.account_filter = Some(account_id.to_string());
         self.pending_delete = None;
+    }
+
+    /// Start async model discovery for an account.
+    /// Returns true if discovery was started, false if already in progress.
+    fn start_discovery(&mut self, account_id: &str, config: &Config) -> bool {
+        // Don't start if already discovering
+        if self.discovery_state != DiscoveryState::Idle {
+            return false;
+        }
+
+        // Get account info
+        let account = match config.provider_accounts.get(account_id) {
+            Some(a) => a.clone(),
+            None => return false,
+        };
+
+        // Get effective base_url
+        let preset = provider_preset::preset_or_compatible(&account.provider);
+        let base_url = match account
+            .base_url
+            .clone()
+            .or_else(|| preset.default_base_url.map(str::to_string))
+        {
+            Some(url) => url,
+            None => return false,
+        };
+
+        // Determine provider type for discovery
+        let provider_type = match preset.provider_type {
+            provider_preset::ProviderType::OpenAi => "openai",
+            provider_preset::ProviderType::Anthropic => "openai", // Anthropic uses OpenAI-compatible for discovery
+            provider_preset::ProviderType::Ollama => "ollama",
+        };
+
+        // Create channel for async result
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        // Set pending state
+        self.discovery_state = DiscoveryState::Pending {
+            account_id: account_id.to_string(),
+            base_url: base_url.clone(),
+        };
+        self.discovery_rx = Some(rx);
+
+        // Spawn background task
+        let account_id_owned = account_id.to_string();
+        let api_key = account.api_key.clone();
+        let base_url_owned = base_url;
+        let provider_type_owned = provider_type.to_string();
+
+        std::thread::spawn(move || {
+            let result = Self::discover_models_sync(
+                &base_url_owned,
+                api_key.as_deref(),
+                &provider_type_owned,
+            );
+            let _ = tx.send(DiscoveryResult {
+                account_id: account_id_owned,
+                result,
+            });
+        });
+
+        true
+    }
+
+    /// Synchronous model discovery (runs in background thread).
+    fn discover_models_sync(
+        base_url: &str,
+        api_key: Option<&str>,
+        provider_type: &str,
+    ) -> Result<Vec<DiscoveredModel>, String> {
+        // Build HTTP client (blocking)
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .danger_accept_invalid_certs(false)
+            .build()
+            .map_err(|e| format!("HTTP client error: {e}"))?;
+
+        // Construct discovery URL
+        let suffix = if provider_type == "ollama" {
+            "/api/tags"
+        } else {
+            "/models"
+        };
+        let url = format!("{}{}", base_url.trim_end_matches('/'), suffix);
+
+        // Build request
+        let mut request = client.get(&url).header("accept", "application/json");
+
+        if let Some(key) = api_key {
+            if !key.trim().is_empty() {
+                request = request.bearer_auth(key.trim());
+            }
+        }
+
+        // Execute request (blocking)
+        let response = request.send().map_err(|e| format!("Request failed: {e}"))?;
+
+        if !response.status().is_success() {
+            return Err(format!("HTTP {}", response.status().as_u16()));
+        }
+
+        let body = response
+            .text()
+            .map_err(|e| format!("Read body failed: {e}"))?;
+
+        // Parse response
+        Self::parse_models_response(provider_type, &body)
+    }
+
+    /// Parse models from provider response.
+    fn parse_models_response(
+        provider_type: &str,
+        body: &str,
+    ) -> Result<Vec<DiscoveredModel>, String> {
+        let json: serde_json::Value =
+            serde_json::from_str(body).map_err(|e| format!("JSON parse error: {e}"))?;
+
+        let models = if provider_type == "ollama" {
+            // Ollama: { models: [{ name: "...", model: "..." }] }
+            json["models"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|m| {
+                            let id = m["model"].as_str().or_else(|| m["name"].as_str())?;
+                            Some(DiscoveredModel {
+                                id: id.to_string(),
+                                name: m["name"].as_str().map(String::from),
+                                context_window: None,
+                                max_tokens: None,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            // OpenAI: { data: [{ id: "...", name: "...", context_length: N }] }
+            json["data"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|m| {
+                            let id = m["id"].as_str()?;
+                            Some(DiscoveredModel {
+                                id: id.to_string(),
+                                name: m["name"].as_str().map(String::from),
+                                context_window: m["context_length"]
+                                    .as_u64()
+                                    .or_else(|| m["context_window"].as_u64())
+                                    .map(|v| v as usize),
+                                max_tokens: m["max_output_tokens"]
+                                    .as_u64()
+                                    .or_else(|| m["max_tokens"].as_u64())
+                                    .map(|v| v as usize),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        Ok(models)
+    }
+
+    /// Poll discovery results (call from main loop).
+    fn poll_discovery(&mut self) -> Option<(String, Result<Vec<DiscoveredModel>, String>)> {
+        if let Some(rx) = &self.discovery_rx {
+            if let Ok(result) = rx.try_recv() {
+                self.discovery_rx = None;
+                let outcome = match &result.result {
+                    Ok(models) => {
+                        self.discovery_state = DiscoveryState::Completed {
+                            account_id: result.account_id.clone(),
+                            models: models.clone(),
+                            selected: vec![true; models.len()], // All selected by default
+                        };
+                        Ok(models.clone())
+                    }
+                    Err(e) => {
+                        self.discovery_state = DiscoveryState::Failed {
+                            account_id: result.account_id.clone(),
+                            error: e.clone(),
+                        };
+                        Err(e.clone())
+                    }
+                };
+                return Some((result.account_id, outcome));
+            }
+        }
+        None
     }
 
     /// Arm a row on the first Ctrl+D and confirm it on the second. Returning
@@ -1582,6 +1824,8 @@ impl Modal for ProviderPanel {
                 KeyCode::Enter => {
                     let form = form.clone();
                     if let Some(account_id) = self.save_add(&form, ctx, renderer) {
+                        // Start async model discovery
+                        self.start_discovery(&account_id, &ctx.config);
                         self.show_models_for_account(&account_id);
                     } else {
                         // Save refused (missing endpoint): keep editing.
@@ -1751,6 +1995,75 @@ impl Modal for ProviderPanel {
                         return Ok(ModalAction::Close);
                     }
                     self.mode = Mode::Model(form);
+                }
+                _ => {}
+            }
+            self.draw(buf, state, ctx, renderer);
+            return Ok(ModalAction::Continue);
+        }
+
+        // ── Discovery results mode ──
+        if let Mode::DiscoveryResults {
+            ref account_id,
+            ref models,
+            ref mut selected,
+            ref mut cursor,
+        } = &mut self.mode
+        {
+            let account_id = account_id.clone();
+            match code {
+                KeyCode::Esc => {
+                    // Cancel and go back to list
+                    self.mode = Mode::List;
+                    self.account_filter = Some(account_id);
+                }
+                KeyCode::Up => {
+                    *cursor = cursor.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    if *cursor + 1 < models.len() {
+                        *cursor += 1;
+                    }
+                }
+                KeyCode::Char(' ') => {
+                    // Toggle selection
+                    if *cursor < selected.len() {
+                        selected[*cursor] = !selected[*cursor];
+                    }
+                }
+                KeyCode::Char('a') if mods.contains(KeyModifiers::CONTROL) => {
+                    // Select all
+                    for s in selected.iter_mut() {
+                        *s = true;
+                    }
+                }
+                KeyCode::Char('n') if mods.contains(KeyModifiers::CONTROL) => {
+                    // Deselect all
+                    for s in selected.iter_mut() {
+                        *s = false;
+                    }
+                }
+                KeyCode::Enter => {
+                    // Add selected models to account
+                    let models_to_add: Vec<_> = models
+                        .iter()
+                        .zip(selected.iter())
+                        .filter(|(_, &sel)| sel)
+                        .map(|(m, _)| m.clone())
+                        .collect();
+
+                    if !models_to_add.is_empty() {
+                        // Store models for later addition
+                        self.discovery_state = DiscoveryState::Completed {
+                            account_id: account_id.clone(),
+                            models: models_to_add,
+                            selected: selected.clone(),
+                        };
+                        // Return to list mode, models will be added by event loop
+                        self.mode = Mode::List;
+                        self.account_filter = Some(account_id);
+                        return Ok(ModalAction::Continue);
+                    }
                 }
                 _ => {}
             }
@@ -2315,6 +2628,33 @@ impl Modal for ProviderPanel {
                 ));
                 hint = crate::i18n::t(crate::i18n::Msg::ProviderPanelModelFormHint).into_owned();
             }
+            Mode::DiscoveryResults {
+                models,
+                selected,
+                cursor,
+                ..
+            } => {
+                kind = MenuKind::PluginInfo;
+                buf = String::new();
+
+                // Header
+                items.push((
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelDiscoveryTitle).into_owned(),
+                    String::new(),
+                ));
+                items.push((String::new(), String::new()));
+
+                // Model list with checkboxes
+                for (i, (model, &sel)) in models.iter().zip(selected.iter()).enumerate() {
+                    let checkbox = if sel { "[x]" } else { "[ ]" };
+                    let marker = if i == *cursor { "> " } else { "  " };
+                    let name = model.name.as_deref().unwrap_or(&model.id);
+                    items.push((format!("{marker}{checkbox} {name}"), model.id.clone()));
+                }
+
+                // Footer with instructions
+                hint = crate::i18n::t(crate::i18n::Msg::ProviderPanelDiscoveryHint).into_owned();
+            }
         }
 
         items.push((format!("— {hint} —"), String::new()));
@@ -2352,6 +2692,35 @@ impl Modal for ProviderPanel {
         self.apply_paste_text(text);
         self.draw(buf, state, ctx, renderer);
         Ok(ModalAction::Continue)
+    }
+
+    fn poll_background(&mut self) -> bool {
+        if let Some((account_id, result)) = self.poll_discovery() {
+            match result {
+                Ok(models) if !models.is_empty() => {
+                    // Switch to discovery results mode
+                    let selected = vec![true; models.len()];
+                    self.mode = Mode::DiscoveryResults {
+                        account_id,
+                        models,
+                        selected,
+                        cursor: 0,
+                    };
+                    self.tab = Tab::Models;
+                    true
+                }
+                Ok(_) => {
+                    // No models discovered - show message
+                    false
+                }
+                Err(_e) => {
+                    // Discovery failed - stay in list mode, error will be shown
+                    false
+                }
+            }
+        } else {
+            false
+        }
     }
 }
 

@@ -4727,6 +4727,10 @@ pub enum Msg<'a> {
     ProviderPanelEditAccountFormHint,
     /// Provider panel: note for an api_key field with no configured key.
     ProviderPanelProviderNotConfigured,
+    /// Provider panel: discovery results title.
+    ProviderPanelDiscoveryTitle,
+    /// Provider panel: discovery results hint.
+    ProviderPanelDiscoveryHint,
     /// Menu search-box placeholder: session list.
     MenuPlaceholderSearchSessions,
     /// Menu search-box placeholder: saved-directory list.
