@@ -317,6 +317,9 @@ export function ModelConfigDialog({ onClose }: { onClose: () => void }) {
         {config && (
           <>
             <div class="provider-list model-provider-list">
+              {config.providers.length === 0 && (
+                <div class="provider-empty-hint">{t('settings.noProviderHint')}</div>
+              )}
               {[...config.providers].sort((a, b) => {
                 if (a.is_default !== b.is_default) return a.is_default ? -1 : 1;
                 return a.name.localeCompare(b.name);

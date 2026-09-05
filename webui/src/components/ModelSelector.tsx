@@ -38,11 +38,13 @@ export function ModelSelector({
   liveEffort,
   onChange,
   onDefaultChange,
+  onOpenSettings,
 }: {
   value: string | null;
   liveEffort?: string | null;
   onChange: (p: string) => void;
   onDefaultChange?: (p: string) => void;
+  onOpenSettings?: (section: string) => void;
 }) {
   const t = useT();
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -179,6 +181,16 @@ export function ModelSelector({
         </button>
         {open && (
           <div class="model-dropdown">
+            {models.length === 0 && (
+              <div class="model-empty-hint">
+                <span>{t('model.noProvider')}</span>
+                {onOpenSettings && (
+                  <button class="model-empty-action" onClick={() => { onOpenSettings('model'); setOpen(false); }}>
+                    {t('model.goSettings')}
+                  </button>
+                )}
+              </div>
+            )}
             {models.map((m) => (
               <button
                 key={m.provider}

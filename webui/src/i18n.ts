@@ -87,6 +87,8 @@ const zh = {
 
   // Model selector
   'model.label': '模型',
+  'model.noProvider': '尚未配置 provider',
+  'model.goSettings': '去设置',
 
   // Approval mode selector (Build / Accept Edits / Auto / Plan)
   'mode.label': '模式',
@@ -112,6 +114,9 @@ const zh = {
   'chat.startHint': '发送消息开始对话…',
   'chat.continueHint': '发送消息继续此会话',
   'chat.greeting': '今天想构建点什么？',
+  'chat.noProviderTitle': '尚未配置 Provider',
+  'chat.noProviderHint': '需要先配置一个 LLM Provider 才能开始对话。点击下方按钮添加你的 API Key。',
+  'chat.configureNow': '立即配置 Provider',
   'chat.chipReview': '/review 审查改动',
   'chat.chipExplain': '解释这段代码',
   'chat.chipTest': '运行测试并修复',
@@ -217,6 +222,7 @@ const zh = {
   'settings.modelsTitle': '模型',
   'settings.modelsIntro': '配置提供方凭据与模型。第三方供应商使用自带 API Key，可在下方添加或编辑。',
   'settings.modelsIntroManaged': '官方 CodingPlan 模型随托管登录状态同步，无需手动配置凭据。',
+  'settings.noProviderHint': '尚未配置任何 provider。点击下方按钮添加你的第一个 provider。',
   'settings.close': '关闭',
   'settings.loadFailed': '加载失败',
   'settings.loading': '加载中…',
@@ -515,6 +521,8 @@ const en: Record<MsgKey, string> = {
 
 
   'model.label': 'Model',
+  'model.noProvider': 'No provider configured',
+  'model.goSettings': 'Settings',
 
   // Approval mode selector (Build / Accept Edits / Auto / Plan)
   'mode.label': 'Mode',
@@ -539,6 +547,9 @@ const en: Record<MsgKey, string> = {
   'chat.startHint': 'Send a message to start a conversation…',
   'chat.continueHint': 'Send a message to continue this session',
   'chat.greeting': 'What would you like to build today?',
+  'chat.noProviderTitle': 'No Provider Configured',
+  'chat.noProviderHint': 'You need to configure an LLM provider before chatting. Click the button below to add your API key.',
+  'chat.configureNow': 'Configure Provider',
   'chat.chipReview': '/review the changes',
   'chat.chipExplain': 'Explain this code',
   'chat.chipTest': 'Run the tests and fix failures',
@@ -640,6 +651,7 @@ const en: Record<MsgKey, string> = {
   'settings.modelsTitle': 'Models',
   'settings.modelsIntro': 'Configure provider credentials and models. Third-party providers use your own API key -- add or edit them below.',
   'settings.modelsIntroManaged': 'Official CodingPlan models stay in sync with your managed sign-in -- no credentials to configure.',
+  'settings.noProviderHint': 'No provider configured yet. Click the button below to add your first provider.',
   'settings.close': 'Close',
   'settings.loadFailed': 'Load failed',
   'settings.loading': 'Loading…',

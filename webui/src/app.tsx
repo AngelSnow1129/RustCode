@@ -497,6 +497,7 @@ export function App() {
             onLanding={setIsLanding}
             skillInsert={skillInsert}
             onSessionRenamed={(name) => setActiveSession((prev) => prev ? { ...prev, name } : prev)}
+            onOpenSettings={(section) => setSettingsSection(section as SettingsSection)}
           />
         </div>
       </div>

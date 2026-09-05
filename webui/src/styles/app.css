@@ -3096,6 +3096,34 @@ body {
   flex-direction: column;
   gap: 2px;
 }
+.model-empty-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 8px;
+  color: var(--app-secondary-foreground);
+  font-size: 0.8125rem;
+}
+.model-empty-action {
+  padding: 4px 12px;
+  border: 1px solid var(--app-border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--app-accent-color, #4a90d9);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.model-empty-action:hover { background: var(--app-hover-bg, #ffffff1a); }
+.provider-empty-hint {
+  padding: 12px 16px;
+  border: 1px dashed var(--app-border-color);
+  border-radius: 8px;
+  color: var(--app-secondary-foreground);
+  font-size: 0.875rem;
+  text-align: center;
+  margin-bottom: 8px;
+}
 
 /* Up variant — used inside the input footer so dropdown opens above.
    Anchor the dropdown's RIGHT edge to the trigger (which sits near the
@@ -3336,6 +3364,41 @@ body {
   color: var(--app-secondary-foreground);
   margin-top: -8px;
 }
+
+.landing-no-provider {
+  margin: 16px auto 0;
+  max-width: 480px;
+  padding: 16px 20px;
+  border: 1px solid var(--app-border-color);
+  border-radius: 10px;
+  background: var(--app-sidebar-bg);
+  text-align: center;
+}
+.landing-no-provider-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--app-brand-text);
+  margin-bottom: 6px;
+}
+.landing-no-provider-hint {
+  font-size: 0.875rem;
+  color: var(--app-secondary-foreground);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+.landing-no-provider-btn {
+  display: inline-block;
+  padding: 8px 20px;
+  border: none;
+  border-radius: 6px;
+  background: var(--app-accent-color, #4a90d9);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.landing-no-provider-btn:hover { opacity: 0.88; }
 
 /* Input column (box + cwd breadcrumb below). */
 .landing-input {

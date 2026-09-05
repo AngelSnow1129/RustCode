@@ -284,6 +284,8 @@ interface ChatProps {
   onLanding?: (landing: boolean) => void;
   /** 侧栏「技能」菜单选中的技能：变化时把 `/name ` 插入输入框。 */
   skillInsert?: { name: string; seq: number } | null;
+  /** 打开设置弹窗的指定分区（如 'model' 打开 provider 配置）。 */
+  onOpenSettings?: (section: string) => void;
 }
 
 function formatArgs(args: unknown): string {
@@ -439,7 +441,7 @@ function detectSkillContent(text: string): string | null {
   return title || null;
 }
 
-export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermission, onPermissionResolved, activeSession, restoring, onLiveTurnDone, onOptimisticSession, onOpenCwd, onCwdChanged, onLanding, skillInsert, onSessionRenamed }: ChatProps) {
+export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermission, onPermissionResolved, activeSession, restoring, onLiveTurnDone, onOptimisticSession, onOpenCwd, onCwdChanged, onLanding, skillInsert, onSessionRenamed, onOpenSettings }: ChatProps) {
   const t = useT();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -546,6 +548,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
   // 正在拉取某会话历史：用于抑制落地页，避免切到「有内容的会话」时先闪一下落地页。
   const [loading, setLoading] = useState(false);
   const [provider, setProvider] = useState<string | null>(null);
+  const [noProvider, setNoProvider] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<{
     provider: string;
     effort: string | null;
@@ -557,6 +560,20 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
       providerRef.current = name;
       setProvider(name);
     }
+  }, []);
+  // Detect whether any provider is configured so the landing page can show a
+  // friendly setup nudge instead of silently letting the user send into a void.
+  useEffect(() => {
+    let active = true;
+    const check = () => {
+      getModels().then((models) => {
+        if (!active) return;
+        setNoProvider(models.length === 0);
+      }).catch(() => {});
+    };
+    check();
+    const timer = window.setInterval(check, 5_000);
+    return () => { active = false; window.clearInterval(timer); };
   }, []);
   // 审批模式（build / accept_edits / bypass / plan）。进程级 runtime 状态，
   // 由 /live snapshot + 'mode' 事件同步，切换调 postLiveMode（下一轮生效）。
@@ -3279,6 +3296,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
             liveEffort={reasoningEffort?.provider === provider ? reasoningEffort.effort : undefined}
             onChange={(p) => switchProvider(p)}
             onDefaultChange={followDefaultProvider}
+            onOpenSettings={onOpenSettings}
           />
           <div class="input-turn-controls">
             {busy || recoveryPolicy.allowStop ? (
@@ -3472,6 +3490,17 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
               <span class="landing-brand-name">RustCode</span>
             </div>
             <div class="landing-tagline">{t('chat.greeting')}</div>
+            {noProvider && (
+              <div class="landing-no-provider">
+                <div class="landing-no-provider-title">{t('chat.noProviderTitle')}</div>
+                <div class="landing-no-provider-hint">{t('chat.noProviderHint')}</div>
+                {onOpenSettings && (
+                  <button class="landing-no-provider-btn" onClick={() => onOpenSettings('model')}>
+                    {t('chat.configureNow')}
+                  </button>
+                )}
+              </div>
+            )}
             <div class="landing-input">
               {blockingInteraction ? (
                 <div class="interaction-dock-seat">{blockingInteraction}</div>
