@@ -2086,7 +2086,7 @@ mod tests {
             .iter()
             .any(|m| { m.internal_origin.as_deref() == Some(LEGACY_COLD_SUMMARY_ORIGIN) }));
         // meta: naming flags and seconds -> milliseconds timestamp conversion
-        assert_eq!(out.meta.user_renamed, true);
+        assert!(out.meta.user_renamed);
         assert_eq!(out.meta.created_at, session.created_at as i64 * 1000);
         // presentation: the fixture has 2 display_messages
         assert_eq!(out.presentation.entries.len(), 2);
@@ -3124,7 +3124,7 @@ mod tests {
         let original_presentation = presentation.clone();
 
         let diagnostic =
-            repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &mut presentation).unwrap();
+            repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &presentation).unwrap();
 
         assert_eq!(
             diagnostic,
@@ -3165,7 +3165,7 @@ mod tests {
         let original_presentation = presentation.clone();
 
         let diagnostic =
-            repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &mut presentation).unwrap();
+            repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &presentation).unwrap();
 
         assert_eq!(
             diagnostic,
@@ -3260,7 +3260,7 @@ mod tests {
         let original_presentation = presentation.clone();
 
         let diagnostic =
-            repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &mut presentation).unwrap();
+            repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &presentation).unwrap();
 
         assert_eq!(
             diagnostic,
@@ -3303,7 +3303,7 @@ mod tests {
         let mut presentation = PresentationFile::default();
 
         let diagnostic =
-            repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &mut presentation).unwrap();
+            repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &presentation).unwrap();
 
         assert_eq!(
             diagnostic,
@@ -3329,7 +3329,7 @@ mod tests {
         let mut presentation = PresentationFile::default();
 
         let diagnostic =
-            repair_metadata_only_sidecars(legacy_bytes, usize::MAX, &mut meta, &mut presentation)
+            repair_metadata_only_sidecars(legacy_bytes, usize::MAX, &mut meta, &presentation)
                 .unwrap();
 
         assert_eq!(
@@ -3387,7 +3387,7 @@ mod tests {
             legacy_bytes,
             converted.snapshot.messages.len(),
             &mut meta,
-            &mut presentation,
+            &presentation,
         )
         .unwrap();
 
@@ -3425,7 +3425,7 @@ mod tests {
         let original_presentation = presentation.clone();
 
         let diagnostic =
-            repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &mut presentation).unwrap();
+            repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &presentation).unwrap();
 
         assert_eq!(
             diagnostic,
@@ -3457,7 +3457,7 @@ mod tests {
             legacy_bytes,
             native_message_count,
             &mut meta,
-            &mut presentation,
+            &presentation,
         )
         .unwrap();
 
@@ -3496,7 +3496,7 @@ mod tests {
         let original_presentation = presentation.clone();
 
         let diagnostic =
-            repair_metadata_only_sidecars(&legacy_bytes, 0, &mut meta, &mut presentation).unwrap();
+            repair_metadata_only_sidecars(&legacy_bytes, 0, &mut meta, &presentation).unwrap();
 
         assert_eq!(
             diagnostic,

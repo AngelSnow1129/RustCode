@@ -128,7 +128,7 @@ mod tests {
     fn load_returns_none_for_corrupt_json() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".rustcode")).unwrap();
-        std::fs::write(&state_path(dir.path()), "{not json").unwrap();
+        std::fs::write(state_path(dir.path()), "{not json").unwrap();
         assert!(load_setup_state(dir.path()).is_none());
     }
 
@@ -137,7 +137,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("marker.txt");
         std::fs::write(&f, b"line1\nline2\n").unwrap();
-        let lf_hash = compute_signals_hash(&[f.clone()]);
+        let lf_hash = compute_signals_hash(std::slice::from_ref(&f));
         std::fs::write(&f, b"line1\r\nline2\r\n").unwrap();
         let crlf_hash = compute_signals_hash(&[f]);
         assert_eq!(lf_hash, crlf_hash);
@@ -148,7 +148,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("marker.txt");
         std::fs::write(&f, b"hello").unwrap();
-        let nobom_hash = compute_signals_hash(&[f.clone()]);
+        let nobom_hash = compute_signals_hash(std::slice::from_ref(&f));
         std::fs::write(&f, b"\xEF\xBB\xBFhello").unwrap();
         let bom_hash = compute_signals_hash(&[f]);
         assert_eq!(nobom_hash, bom_hash);

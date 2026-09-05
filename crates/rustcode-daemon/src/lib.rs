@@ -6447,8 +6447,7 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         println!("{}", t(Msg::DaemonCdBodyHeading));
         // JSON 示例体是机器面负载样例，保持英文原样；仅后半句提示走 i18n。
         println!(
-            "  {}  {}",
-            r#"{"path": "/path/to/project"}"#,
+            "  {{\"path\": \"/path/to/project\"}}  {}",
             t(Msg::DaemonCdBodyHint)
         );
         println!();

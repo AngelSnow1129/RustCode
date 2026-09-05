@@ -29,7 +29,7 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # TODO: tighten to "-- -D warnings" once the ~420 existing clippy warnings are cleaned up
+      # TODO: tighten to "-- -D warnings" once the remaining clippy warnings are cleaned up
       - run: cargo clippy --workspace --all-targets
 
   test:
@@ -78,3 +78,59 @@ jobs:
             exit 1
           fi
           echo "[OK] only known-red test(s) failed; job passes"
+
+  # G6: Zero telemetry SDK check -- ensures no Sentry/PostHog/Segment/GA/etc.
+  # tracking SDKs are introduced into the codebase (see AGENTS.md OBJECTIVE-2).
+  no-telemetry:
+    name: G6 - no telemetry SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for telemetry SDKs in Rust source
+        run: |
+          # Match telemetry SDK names precisely, avoiding false positives from
+          # common words like "segment" (path segment) or "amplitude" (audio).
+          # - sentry: SDK crate/dependency, not the English word
+          # - posthog, mixpanel: unambiguous product names
+          # - @segment/analytics or segment.io: the analytics SDK, not "segment"
+          # - google-analytics, googletagmanager, gtag: GA family
+          hits=$(grep -riE "sentry_(crash|event|init)|posthog|@segment/analytics|segment\.io|google-analytics|googletagmanager|gtag\(|mixpanel|amplitude_(init|track|log)" \
+              --include="*.rs" --include="*.toml" crates/ || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::Telemetry SDK reference found in Rust source or Cargo.toml"
+            exit 1
+          fi
+          echo "[OK] no telemetry SDK references in Rust source"
+      - name: Check for telemetry SDKs in package.json
+        run: |
+          for f in $(find . -name "package.json" -not -path "*/node_modules/*"); do
+            if grep -qE '"(sentry|posthog|@segment/analytics|mixpanel|amplitude|@amplitude)"' "$f"; then
+              echo "::error::Telemetry SDK dependency found in $f"
+              exit 1
+            fi
+          done
+          echo "[OK] no telemetry SDK dependencies in package.json files"
+
+  # G7/G8: No stale atomcode naming -- ensures the rename to rustcode-* is complete
+  # (see AGENTS.md OBJECTIVE-1). Historical references in docs describing the
+  # retired core are exempt and must be verified manually.
+  no-stale-naming:
+    name: G7/G8 - no stale atomcode naming
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check crates/scripts for atomcode references
+        run: |
+          if grep -rni "atomcode" crates/ scripts/ --include="*.rs" --include="*.sh" --include="*.toml" --include="*.py"; then
+            echo "::error::Stale 'atomcode' reference found in crates/scripts"
+            exit 1
+          fi
+          echo "[OK] no stale atomcode references in crates/scripts"
+      - name: Check docs/architecture.md for atomcode references
+        run: |
+          if grep -rni "atomcode" docs/architecture.md 2>/dev/null; then
+            echo "::error::Stale 'atomcode' reference found in docs/architecture.md"
+            exit 1
+          fi
+          echo "[OK] no stale atomcode references in docs/architecture.md"

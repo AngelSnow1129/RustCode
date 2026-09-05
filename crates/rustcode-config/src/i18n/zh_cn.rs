@@ -3121,6 +3121,18 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
     }
 }
 
+/// 同 `en.rs` 的对应函数：重载在这条提示打印之前就已经做完，这里报的是结果。
+fn plugin_reload_summary(loaded: usize, skipped: usize, show_details_hint: bool) -> String {
+    let mut out = format!("已加载 {loaded} 个技能");
+    if skipped > 0 {
+        out.push_str(&format!("，跳过 {skipped} 个"));
+    }
+    if show_details_hint {
+        out.push_str("（Ctrl+O 查看详情）");
+    }
+    out
+}
+
 #[cfg(test)]
 mod codingplan_crypto_tests {
     use super::*;
@@ -3165,16 +3177,4 @@ mod codingplan_crypto_tests {
         assert!(s.contains("Windows Terminal"));
         assert!(s.contains("滚"));
     }
-}
-
-/// 同 `en.rs` 的对应函数：重载在这条提示打印之前就已经做完，这里报的是结果。
-fn plugin_reload_summary(loaded: usize, skipped: usize, show_details_hint: bool) -> String {
-    let mut out = format!("已加载 {loaded} 个技能");
-    if skipped > 0 {
-        out.push_str(&format!("，跳过 {skipped} 个"));
-    }
-    if show_details_hint {
-        out.push_str("（Ctrl+O 查看详情）");
-    }
-    out
 }

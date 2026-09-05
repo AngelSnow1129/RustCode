@@ -135,7 +135,7 @@ mod tests {
         let read = std::fs::read(&path).unwrap();
         assert_eq!(&read, short);
         // Explicitly no old bytes
-        assert!(!read.iter().any(|&b| b == b'A'), "no trailing old bytes");
+        assert!(!read.contains(&b'A'), "no trailing old bytes");
     }
 
     #[test]

@@ -109,6 +109,6 @@ mod tests {
         atomic_write(&path, b"BBBBBBBBBB", 0o644).unwrap();
         let read = std::fs::read(&path).unwrap();
         assert_eq!(read, b"BBBBBBBBBB");
-        assert!(!read.iter().any(|&b| b == b'A'));
+        assert!(!read.contains(&b'A'));
     }
 }

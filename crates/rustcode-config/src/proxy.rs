@@ -19,21 +19,12 @@ const ENV_NO_PROXY: &[&str] = &["NO_PROXY", "no_proxy"];
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ProxyMode {
+    #[default]
     FollowSystem,
     DefaultProxy,
     NoProxy,
-}
-
-impl Default for ProxyMode {
-    // Respect the environment's proxy by default (matches curl / reqwest-native
-    // behavior). A `NoProxy` default silently stripped `https_proxy` and forced
-    // `.no_proxy()` on every client, breaking every corporate-proxy user out of
-    // the box (their requests would time out). Users who want to ignore a system
-    // proxy can pick `no_proxy` via `/proxy`.
-    fn default() -> Self {
-        Self::FollowSystem
-    }
 }
 
 impl ProxyMode {

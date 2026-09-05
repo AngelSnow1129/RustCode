@@ -535,7 +535,8 @@ mod tests {
             r#"{"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}"#,
         )
         .unwrap();
-        for a in [["init", "-q"].as_slice()] {
+        {
+            let a = ["init", "-q"].as_slice();
             std::process::Command::new("git")
                 .args(a)
                 .current_dir(&repo)
@@ -716,7 +717,7 @@ mod tests {
                             let content = std::fs::read_to_string(p.join("SKILL.md")).unwrap();
                             eprintln!(
                                 "        SKILL.md first 100 chars: {:?}",
-                                &content.chars().take(100).collect::<String>()
+                                content.chars().take(100).collect::<String>()
                             );
                             // Try parsing just this one skill
                             let mut tmp_reg = crate::skills::SkillRegistry::new();
