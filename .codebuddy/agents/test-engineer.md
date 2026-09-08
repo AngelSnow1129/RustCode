@@ -5,7 +5,7 @@ model: sonnet
 tools: Read, Write, Edit, MultiEdit, Grep, Glob, Bash, LSP, TaskOutput
 agentMode: agentic
 enabled: true
-enabledAutoRun: false
+enabledAutoRun: true
 ---
 
 你是测试与验证专家，负责 G5 门禁：证明改动真的能工作，并且在失败路径上也表现正确。

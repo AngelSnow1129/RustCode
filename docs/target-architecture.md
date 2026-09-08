@@ -54,10 +54,10 @@ kernel ← capabilities ← L2 specialization ← frontend/transport
 
 `CodingRuntime` 统一拥有：
 
-- live agent、config、parts、provider、session binding；
-- generation、pending request、snapshot broker；
-- submit/steer/cancel/approval/request/compact；
-- provider/model reload、fresh/resume/restore/undo/cd；
+- live agent、config、parts、provider、session binding 等运行时状态；
+- generation、pending request、snapshot broker 等代际与待处理状态；
+- submit/steer/cancel/approval/request/compact 等运行时命令；
+- provider/model reload、fresh/resume/restore/undo/cd 等重载与恢复操作；
 - goal/self-paced loop 和 shutdown。
 
 driver 可以执行不需要运行中状态的本地操作。凡是会改变 conversation、snapshot、provider、

@@ -1189,7 +1189,7 @@ Skip `/login` and configure a third-party provider directly in\n\
         Msg::CliUninstallResultFailed => "Failed:".into(),
         Msg::CliUninstallResultBackups => "Backups:".into(),
         Msg::CliWebuiNotBuilt =>
-            "webui assets are not embedded in this binary.\nBuild the frontend first, then rebuild:\n\n   cd webui && npm install && npm run build\n   cargo build -p rustcode\n".into(),
+            "webui assets are not embedded in this binary.\nBuild the frontend first, then rebuild:\n\n   ./scripts/build-webui.sh\n   cargo clean -p rustcode-daemon\n   cargo build -p rustcode\n\nOr run the equivalent steps manually:\n   cd webui && npm ci && npm run build\n   cargo clean -p rustcode-daemon\n   cargo build -p rustcode\n".into(),
 
         // ── /config ──
         Msg::ConfigProviderLabel { provider, path } =>
@@ -2518,7 +2518,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliHelpPortDaemon => "Port to listen on (default: 13456)".into(),
         Msg::CliHelpIdleTimeout => "Idle-shutdown timeout in seconds; 0 disables".into(),
         Msg::CliHelpPortWebui => "Port (default: 13457)".into(),
-        Msg::CliHelpHost => "Bind address (default: 127.0.0.1)".into(),
+        Msg::CliHelpHost => "Bind address (default: 0.0.0.0; use 127.0.0.1 for local-only)".into(),
         Msg::CliHelpUninstallYes => "Skip prompts; use per-group default decisions".into(),
         Msg::CliHelpUninstallPurge => "Wipe ~/.rustcode/ entirely".into(),
         Msg::CliHelpUninstallKeepData => "Keep ~/.rustcode/ entirely".into(),

@@ -66,14 +66,14 @@ AgentLoop / TurnRunner
 | 实现 | Trait 数 | 具体覆盖 |
 |------|:---:|------|
 | **ShellCommandHook** | 6 | PreTool + PostTool + OnSessionStart + OnSessionEnd + OnUserPromptSubmit + OnToolCallStart（空操作占位） |
-| **ScriptHook** | 4 | PreTool + PostTool + PostTurn + SystemPrompt |
+| **ScriptHook** | 4 | PreTool + PostTool + PostTurn + SystemPrompt（4 类触发时机） |
 | **WebhookHook** | 12 | 除 OnUserPromptSubmitHook 外的全部（含 trigger 字段过滤） |
-| **ToolAuditLogHook** | 1 | OnToolCallStartHook |
-| **TurnStatsHook** | 2 | OnTurnStartHook + OnTurnCompleteHook |
-| **AutoCommitHook** | 1 | OnTurnCompleteHook |
-| **SessionSummaryHook** | 2 | OnSessionStartHook + OnSessionEndHook |
-| **ErrorReportHook** | 1 | OnErrorHook |
-| **ResponseValidationHook** | 1 | OnModelResponseHook |
+| **ToolAuditLogHook** | 1 | OnToolCallStartHook（工具调用审计） |
+| **TurnStatsHook** | 2 | OnTurnStartHook + OnTurnCompleteHook（轮次耗时统计） |
+| **AutoCommitHook** | 1 | OnTurnCompleteHook（自动提交） |
+| **SessionSummaryHook** | 2 | OnSessionStartHook + OnSessionEndHook（会话摘要） |
+| **ErrorReportHook** | 1 | OnErrorHook（错误日志） |
+| **ResponseValidationHook** | 1 | OnModelResponseHook（敏感信息检测） |
 
 ## 配置体系
 
@@ -101,7 +101,7 @@ AgentLoop / TurnRunner
 
 `HookEngine::load_all()` 按以下顺序加载：
 1. **JSON hooks** (`load_json_hooks`) → ShellCommandHook（CC 兼容）
-2. **TOML hooks** (`load_toml_hooks`) → ScriptHook + WebhookHook
+2. **TOML hooks** 配置（`load_toml_hooks`）→ ScriptHook + WebhookHook 两类实现
 3. **内置 Hook** (`register_builtins`) → 6 个内置 Hook
 4. **Webhook 异步关联** (`load_webhook_hooks`) → AsyncWebhookBatcher 关联
 

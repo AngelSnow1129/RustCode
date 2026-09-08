@@ -55,7 +55,7 @@ Live View: TUI / WebUI / mobile
 
 当前生产消费者：
 
-- daemon `/live` SSE、message、cancel、permission、user-input、provider、mode、cd、session switch；
+- daemon `/live` SSE、message、cancel、permission、user-input、provider、mode、cd 与 session switch；
 - daemon `/chat` 的 `TurnEvent` 中间投影；
 - TUI `/webui`、`/sync`、session switch、输入、cancel、审批、remote slash command 和 live forwarder；
 - Web/mobile 的 `LiveWireEvent` 外部兼容面。
@@ -137,7 +137,7 @@ Live View: TUI / WebUI / mobile
 | 切片 | 最小测试 | 切片完成测试 |
 |---|---|---|
 | LT1 | daemon/TUI tool batch 与 wire projector | daemon、TUI 受影响测试 |
-| LT2 | hub unit tests：binding、generation、replay、pending request | daemon lib tests |
+| LT2 | hub 单元测试：binding、generation、replay、pending request | daemon lib tests |
 | LT3 | `/live` API：message、cancel、approval、input、reload、headless | daemon 全 crate |
 | LT4 | TUI sync：同 runtime、switch、detach、late event | TUI 全 crate + CLI all-targets |
 | LT5 | 全仓符号/依赖搜索 | core、daemon、TUI、CLI 相关 workspace 检查 |
@@ -147,10 +147,10 @@ Live View: TUI / WebUI / mobile
 | 范围 | 结果 |
 |---|---|
 | core | 既有实施验证 1236 passed，1 ignored；本次未修改，不重复运行 |
-| coding | 174 passed |
-| daemon | 137 passed |
-| TUI | 1406 passed；plugin target 1 passed |
-| CLI | 82 passed |
+| coding | 174 项通过 |
+| daemon | 137 项通过 |
+| TUI | 1406 项通过；plugin target 1 项通过 |
+| CLI | 82 项通过 |
 | WebUI | 60 passed；TypeScript typecheck、production build 通过 |
 | workspace | `cargo check --workspace --all-targets` 通过；仅保留既有 kernel liveness 测试 unused import 警告 |
 | legacy 搜索 | 生产代码中无 `LiveSession/TurnExecutor/TurnEvent/core::live/live_sync` 引用 |

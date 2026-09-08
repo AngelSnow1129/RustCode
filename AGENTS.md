@@ -14,6 +14,7 @@
 - `cargo build --workspace` — 构建全部 `crates/*`(含默认成员外的 `clix`、`review`、`codingplan`)。
 - `cargo install --path crates/rustcode-cli --locked` — 安装到 `~/.cargo/bin`。
 - WebUI 需先构建前端:`cd webui && npm ci && npm run build` 产出 `webui/dist/`(gitignored)。重建前端后必须 `cargo clean -p rustcode-daemon`,cargo 不追踪 `webui/dist/` 变化;缺失时所有 webui 页面返回 `webui not built`。
+- scripts/build-webui.sh —— WebUI 前端一键构建(等价 cd webui && npm ci && npm run build,可重复执行)。--if-missing 仅在 webui/dist/index.html 不存在时才构建(已存在则跳过并 exit 0);成功结尾会主动打印上一条要求的 cargo clean -p rustcode-daemon。前置检查 fail-closed:缺 node / 缺 npm / 缺 webui/package-lock.json / node 版本低于 webui/package.json 的 engines.node 时,打印可执行的修复指引并 exit 2;npm ci 或 npm run build 失败 exit 1;构建命令返回 0 但 dist/index.html 仍缺失(半产出)同样判失败。环境不足时绝不降级为警告继续。
 - 发布打包:`scripts/release*.sh`、`scripts/macOS-release-*.sh`、`scripts/linux-release-*.sh`、`scripts/sign-macos.sh`;矩阵见 `.github/workflows/build.yml`。
 - `RUSTCODE_HOME` 覆盖配置目录(默认 `~/.rustcode`)。**禁止 `sudo` 运行**——`~/.rustcode` 一旦出现 root 属主文件,后续非 root 启动在 runtime 初始化即失败。
 
@@ -24,12 +25,18 @@
 - `./scripts/test-all.sh` — 全量测试并产出 `test-report.md`,能区分"编译失败 / 测试失败 / 全部通过"。
 - `./scripts/test-headless.sh` — headless 冒烟(需先 `cargo build`);未设 `RUSTCODE_TEST_PROVIDER` 时跳过联网用例。
 - `./scripts/smoke-test-all.sh`(校验 test-all.sh 自身)、`python3 scripts/acp_smoke.py`(ACP stdio 冒烟)、`python3 scripts/analyze_datalogs.py`(turn datalog 分析)。
+- python3 scripts/check-zh-docs.py gate —— 中文文档门禁(全量,判定全仓 md 的英文化残留);check --files <path> 只查指定文件,inventory 产出 md 清单,hostscan 仅产出「默认绑定语义」的 127.0.0.1 / localhost 叙述清单(清单工具,非门禁,恒返回 0)。
 - 测试隔离:`coding` / `tuix` / `daemon` / `capabilities` / `cli` 的入口文件顶部有 `#[ctor]` 把 `RUSTCODE_HOME` 重定向到临时目录。新增测试不得依赖真实 `~/.rustcode`;**重命名这批目录/变量名时同步修改,否则测试隔离失效**。
 
 Lint / 格式:
 - `cargo fmt` / `cargo fmt --check`;提交前 `cargo clippy --workspace --all-targets`。
 - `cargo check --workspace --all-targets` — 快速编译校验;`cargo test` 已覆盖相同编译验证时不再重复 `cargo check`。
 - 仓库当前无 `rustfmt.toml` / `clippy.toml` / `[lints]` 段,无需新增。
+
+WebUI 默认绑定地址(改这里前必读,默认值按入口而不同):
+- CLI 两个入口默认绑定 0.0.0.0:rustcode webui 的 --host 默认值为 0.0.0.0(crates/rustcode-cli/src/main.rs:1047),rustcode daemon 子命令同样支持 --host 且默认值同为 0.0.0.0(crates/rustcode-cli/src/main.rs:1031-1034 的 default_value,由 main.rs:1786 传入 ServerOpts),即局域网可达,仅靠 token 保护、无 TLS。rustcode webui --host 127.0.0.1 与 rustcode daemon --host 127.0.0.1 都可退回仅本机;两处 --host 的 help 文案共用 Msg::CliHelpHost,逐字一致。
+- 独立 rustcode-daemon 二进制与 TUI 的 /webui 默认仍是 127.0.0.1:前者见 crates/rustcode-daemon/src/main.rs:21 的 DEFAULT_HOST,后者见 crates/rustcode-tuix/src/event_loop/commands.rs:2207。这是刻意保留的安全边界,**不要为了「统一默认值」把它们也改成 0.0.0.0**。
+- 非回环风险提示:旧的启动横幅 Msg::DaemonWarnNonLoopback 已从 run_server 移除,改由 Msg::WebuiLanWarning(0.0.0.0 或 ::)与 Msg::WebuiNonLoopbackWarning(其它非回环地址)承担 —— run_server 在非 quiet 分支(crates/rustcode-daemon/src/lib.rs:6381)绑定非回环时补发,回环绑定保持静默。判定谓词是 is_loopback_bind_host(crates/rustcode-daemon/src/lib.rs:1300,在 is_loopback_authority 之外额外认 ::1 与 ::ffff:127.0.0.1),故 IPv6 回环写法不告警;该谓词**只用于是否打印提示,不得用于任何鉴权判定**。Msg::DaemonWarnNonLoopback 变体本身按契约保留在 crates/rustcode-config/src/i18n/messages.rs:4903,勿当死码清理。
 
 ## 架构总览(分层与 crate 地图)
 
@@ -71,7 +78,7 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 
 `rustcode-telemetry` crate 已删除;`Telemetry`/`Event`/`track`/`install_panic_hook` 等上报调用已移除。**全仓不存在 Sentry/PostHog/Segment/GA 等第三方埋点 SDK 或依赖**。崩溃处理仅保留 stderr 输出。
 
-文档口径已对齐:`docs/telemetry.md` 已改为"Telemetry — removed"说明页;`README.zh-CN.md` 零遥测声明与事实一致;`site/docs/{en,zh}/headless-daemon.html` 中 `--no-telemetry` 标注为"accepted and ignored"。
+文档口径已对齐:`docs/telemetry.md` 已改为"Telemetry — removed"说明页;原中文 README 的零遥测声明与事实一致;`site/docs/{en,zh}/headless-daemon.html` 中 `--no-telemetry` 标注为"accepted and ignored"。
 
 **[CHECK] 词义歧义已清零**:kernel(`hook.rs` / `agent.rs` / `event.rs` / `message.rs` / `tests/turn_complete.rs` / `tests/hook_a2_surface.rs`)与 capabilities(`mcp/mod.rs`)、clix(`main.rs`)里把"可观测性挂载点"误写为 `telemetry` 的 hook seam 注释已统一改为 `observability`。
 
@@ -240,7 +247,7 @@ G8  grep -rni "atomcode" docs/architecture.md   0 命中(描述已退役 core �
 - **[DONE] 全仓 emoji ASCII 化扫尾**(2026-08-31,多 agent 并行):
   - **文档(子 agent)**:脚本化把 `docs/` 下 ~49 个 md 的装饰性/状态 emoji 转 ASCII——表格 `✅/❌→[+]/[-]`、编号完成清单 `✅→[x]`、banner `⚠️→[!]/[WARN]`、装饰 `✨/🎉→[*]`,并剥掉残留 U+FE0F;fenced 代码块与 TUI 字形设计稿受保护,表格管道数逐一核对不变。`hooks.md`/`hook-architecture.md`/`async-webhook-{summary,guide}.md`/`hook-expansion-summary.md` 等通用文档已 0 装饰 emoji。
   - **扩展/前端(子 agent)**:vscode/jetbrains 扩展与 webui 共 12 文件——`📋⚙🗑✎📄📁🔧⬆⚡☕📝🌐🐛🧪💬🧠🔍🔌🔟` 等图形 emoji 全部删除或改 ASCII 标签(`[#]/[X]/[EDIT]/[F]/[D]/[=]/[*]/[KEY]/[~]/[!]`),U+FE0F 残基清零;JetBrains 齿轮菜单生产标签在 `RustCodeBundle*.properties`(9/10 此前已迁移,本轮补齐 `gear.settings`),测试 `GearMenuLabelsTest.kt` 同步锁定到实际标签。
-  - **顶层/CI(主 agent)**:`README.md`/`README.zh-CN.md` 贡献 bullets 与捐赠行、`extensions/vscode/README.md` 能力 bullets、`.github/workflows/build.yml` 步骤标记 `🔟→[10]` 均 ASCII 化;捐赠行顺带去掉"Coding Plan 免费"这类托管服务口径。
+  - **顶层/CI(主 agent)**:`README.md` 与原中文 README 的贡献 bullets 与捐赠行、`extensions/vscode/README.md` 能力 bullets、`.github/workflows/build.yml` 步骤标记 `🔟→[10]` 均 ASCII 化;捐赠行顺带去掉"Coding Plan 免费"这类托管服务口径。
   - **刻意保留(有界例外)**:① TUI 终端状态点**设计稿**(`docs/superpowers/{plans,specs}/2026-07-03-terminal-status-glyph*.md` 与 `...-round-cap-checkpoint.md`)里的 `🟢/🟡/🔴` 是该彩色状态点特性的**规格主语义**(实际渲染为 `●` + ANSI 色),ASCII `[+]/[-]` 无法表达颜色,故保留——仅此 3 个视觉规格文件、仅这 3 个彩色圆点;② 排版类标记 `✓/✗/⚠(无 FE0F)/→/·/●/❯/☐/☑(线框)` 在浏览器/JCEF/终端等 unicode 能力端与 TUI 字形政策一致,保留;③ `tab-title-truncation.test.ts` 的 `🎉` 是被测输入;④ AGENTS.md 里 backtick 包裹的字形名是字形政策文档引用。新增 UI/文档一律用 ASCII 标签,不要再引入图形 emoji。
 - **[DONE] 发行/安装/打包/CI 功能面去平台化**(2026-08-31,多 agent 协作):此前的中立化聚焦 LLM/relay/marketplace 运行时;本轮清掉**发行链路上仍硬编码的厂商主机/账号**,原则统一为"发行主机一律由 env / 运营方注入,构建里不带厂商默认":
   - **安装器** `scripts/install.sh`、`scripts/install.ps1`:删掉硬编码 `gitcode.com/SecLab/RustCode` 的 `REPO_BASE`/`REPO_LATEST_API` 与 `v5.0.2` 兜底 tag;改 `RUSTCODE_RELEASE_BASE`(必填,未设则 fail-closed 打印可操作指引)、`RUSTCODE_RELEASE_LATEST_API`(可选,用于 latest 自动探测)、`RUSTCODE_VERSION`。**删除 referral/invite 代码块**(写 `~/.rustcode/pending_invite` + install_uuid):遥测上报路径随 telemetry crate 删除后已无任何 Rust 读取方(grep 0),纯平台增长残留。`install.ps1` 失实注释 `crates/rustcode-core/...` 改 `rustcode-cli`;uninstall.sh/uninstall.ps1 头部 `curl|sh`/`irm` 厂商 URL 改本地/发行渠道口径。
@@ -276,7 +283,7 @@ G8  grep -rni "atomcode" docs/architecture.md   0 命中(描述已退役 core �
   - **M1 快速开始文档改为 BYO 默认**(`site/docs/{en,zh}/getting-started.html`):banner 第三条 "Free tokens via CodingPlan/通过 CodingPlan 获取免费额度" → "Bring your own API key — no account or signup/自带 API Key,无需注册账号";Step 3/3 配置转录从 3 项(1. CodingPlan 推荐领免费额度)改为 **2 项**(1. 手动配置 provider 推荐自带 Key,2. 跳过),`<ul>` 首条改为手动 `/provider` 推荐路径并列出 Claude/OpenAI/DeepSeek/GLM/Qwen/Ollama,另加一段说明"内置托管服务的发行版可能额外显示一键登录行(等价 `/login`),开源默认构建无此行、默认自带 Key"——与真实二进制 `setup_choices()` 的 2/3 行门控一致。
   - **S1 斜杠命令文档门控**(`site/docs/{en,zh}/slash-commands.html`):`/login` 表格行从"推荐·一条命令 OAuth + 领免费额度"改为"**仅发行版本/Distribution builds only**……开源默认构建无此命令,用 `/provider` 自带 Key";`/provider` 行改标 **推荐** 并写明第三方预设 + 自定义 OpenAI 风格接口 + 无需注册;`/cost` 行的 `/usage` 说明改"发行版查询托管账号额度,开源构建不可用、`/cost` 即全部用量";`/status` 去 "CodingPlan 用量" 改"provider 与鉴权状态(发行版另显托管账号用量)";`/whoami` 加"仅发行版本";`/logout` 从"清除 OAuth token"改"清除托管账号凭据(BYO 的 API Key 仍存配置)";`/reload` 括号里"另一个终端的 /login"改"provider/凭据变更";`/app` 中继行加"内置托管中继的发行版…开源默认构建不支持";典型工作流标题 "First launch — one-click onboarding/第一次启动-一键接入" 改 "bring-your-own-key/自带 Key",转录从 `/login`+CodingPlan claimed 改 `/provider` 三步(加账号→粘 Key→加模型)+ `/model`,末尾补"发行版也可 `/login` 一键 OAuth"。
   - **S2 daemon HTTP 文档与代码对齐**(`site/docs/{en,zh}/headless-daemon.html`):"Auth / CodingPlan" 小节改名 "认证与托管账号(仅发行版本)" 并加一段:开源默认构建无托管端点,BYO 走上文 `POST /providers` 或 `config.toml`;该构建里 `/auth/*` 路由虽注册但 OAuth 无法完成(无服务可登,`auth::start_login()` 对空 `platform_server` 报错返回 500),`/codingplan/*` 路由由 `#[cfg(feature="codingplan")]` 门控、**不参与编译返回 404**(`lib.rs::codingplan_routes()` 空 router 证实)。修正一处**事实错误**:原表称 `rustcode codingplan` 作为隐藏别名保留——实际 CLI 补全测试 `main.rs:4339` 断言 `!script.contains("codingplan")`,该别名已移除,文档改为"CLI 没有单独的 `rustcode codingplan` 命令";并补登 `/codingplan/usage/summary`、`/codingplan/usage/daily` 两条仅发行版路由(此前漏列)。
-  - **S3 README**:`README.zh-CN.md:94` 智谱 GLM 行去掉虚构的"（RustCode Pro 套餐专属模型）"(不存在任何付费套餐;en README 本就平铺 GLM-4/5/5.2),与 en 对齐。
+  - **S3 README**:原中文 README 第 94 行的智谱 GLM 行去掉虚构的"（RustCode Pro 套餐专属模型）"(不存在任何付费套餐;en README 本就平铺 GLM-4/5/5.2),与 en 对齐。
   - **NIT 批**:(N1)两份 README "会话与登录/Sessions & Login" 的 OAuth/SSO bullet 加"仅发行版本/distribution builds only"并新增首条"第三方供应商(BYO)——配置自己的 base_url+api_key,无需注册,开源默认方式";README 斜杠命令表 `/login` 行从"claim CodingPlan free models"改"登录托管服务(仅发行版;BYO 用 `/provider`)"。(N4)`docs/zh/login.html` 单薄 meta("登录方式 — RustCode 文档。")补成与 en 同义的丰富描述;该页正文已是 BYO 默认 + 托管登录门控,无需改。(N6)安装占位符统一中立域:`site/index.html` unix/win 安装命令 `https://your-host/...` → `https://example.com/your-host/...`,README(en/zh)PowerShell 与 bash 的 `RUSTCODE_RELEASE_BASE=https://<host>/...` → `https://example.com/your-host/...`(与同仓 `git clone https://example.com/<your-org>/...` 及站点 `RELEASE_BASE` 口径一致;`api.deepseek.com/v1` 等是**真实第三方 BYO provider 端点示例**,属正确用户文档,保留)。(N7)README 隐私/遥测节链接补齐:en Privacy bullet 原只链 ORIGINAL_LICENSE/UPSTREAM_CREDITS,补上 `docs/telemetry.md`(zh `零遥测` bullet 本就链该文件),中英对齐。(N5)`site/index.html` 无 JS 静态兜底与 i18n dict 对齐:静态 `step2.t` "配置 API Key" → "配置 provider"、`step2.d` 换成 dict 的富文本"Claude/OpenAI/DeepSeek/GLM/Qwen/Ollama 等第三方 API 任一 · 自带 Key";dict `wiz.s3.skip.hint` en 残片 "explore first" → "Set up later"(配 zh 稍后再说)。(N3)`build-search-index.mjs` 的 GROUPS 进阶组补 `headless-daemon` slug——该页被 webui/webui-remote-access 链接引用、此前却不在任何组里,索引阶段被 `skip ungrouped` 丢弃且拿不到 heading id 注入。
   - **搜索索引重生成**:`cd site && node build-search-index.mjs`(不手改 JSON)——en/zh 各 **21 pages**(headless-daemon 现入索引),各向 1 页注入 heading id(即 headless-daemon:h1/h2/h3 获 `id` 保证搜索 `#anchor` 可滚动);`search-index.{en,zh}.json` 随内容更新。
   - **未改/刻意保留** —— **[SUPERSEDED 2026-09-02,见第三十二轮]**:README 与 docs 里 `atomgit_atomcode/atomcode` 仅出现在 fork 归属声明与 ORIGINAL_LICENSE/UPSTREAM_CREDITS(合法历史出处,G7/G8 逐案豁免)。**该「保留 README 与 features/platform-neutralization」的结论已被第三十二轮用户裁决推翻**:这两个 README 与 `docs/{features,platform-neutralization}.md` 正文中的上游 slug 已清除(改述为「上游项目」,并保留指向归属文档的链接);**仅** `LICENSE`、`docs/{UPSTREAM_RUSTCODE_LICENSE,UPSTREAM_CREDITS,THIRD_PARTY_NOTICES,ORIGINAL_LICENSE}.md` 保留完整 MIT 归属原文——那才是 MIT 的合规落点,README 点名上游 slug 并非 MIT 要求。"关于可选的 CodingPlan 网关(闭源签名)" 小节是对 opt-in 发行版能力的正确门控说明,保留;`atomgit` cargo feature、`#[cfg(feature="codingplan")]` 块、`LEGACY_CODINGPLAN_PREFIX` 识别器按 fork 铁律**不动**。本轮零 `.rs` 改动,G1–G3 不受影响。

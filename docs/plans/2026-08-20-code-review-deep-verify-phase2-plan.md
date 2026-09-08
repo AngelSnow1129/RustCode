@@ -1,47 +1,47 @@
-# code-review deep+verify (Phase 2) Implementation Plan
+# code-review deep+verify（Phase 2）实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法跟踪进度。
 
-**Goal:** Add an opt-in `depth:"deep+verify"` that culls false positives from the deep-mode merged findings — one verify agent per surviving finding, single vote biased toward keep — while `single` and `deep` stay unchanged.
+**目标：** 新增可选的 `depth:"deep+verify"`，从 deep 模式合并后的发现中剔除误报 —— 每条存活的发现配一个 verify agent，单票判定且偏向保留 —— 同时 `single` 与 `deep` 保持不变。
 
-**Architecture:** Split Phase 1's `finalize_deep_review` in `rustcode-review/src/fanout.rs` into reusable pieces (`merge_deep_findings`, `dimension_coverage`, `render_deep_result` with an optional `verify_dropped` count); add a verifier persona lens, a bounded-concurrency `run_verify` keep-mask runner, and a `render_verify_task` helper. `review_tool.rs` gains `wants_verify()`, the schema enum value, and a `deep+verify` branch that runs the verify pass between merge and render. Verify reuses `build_review_agent_with` + `report_finding` — a verify agent that re-reports the finding means keep; reporting nothing means drop; error/cancel keeps (fail-open).
+**架构：** 把 Phase 1 位于 `rustcode-review/src/fanout.rs` 的 `finalize_deep_review` 拆成可复用的几块（`merge_deep_findings`、`dimension_coverage`、带可选 `verify_dropped` 计数的 `render_deep_result`）；新增 verifier 人设视角、一个有并发上限的 keep-mask runner `run_verify`，以及辅助函数 `render_verify_task`。`review_tool.rs` 新增 `wants_verify()`、schema 枚举值，以及一个在 merge 与 render 之间执行 verify 的 `deep+verify` 分支。verify 复用 `build_review_agent_with` + `report_finding` —— verify agent 重新报告该发现即保留；未报告任何内容即丢弃；出错/取消则保留（fail-open）。
 
-**Tech Stack:** Rust, tokio (`rt-multi-thread`, `sync`, `macros` — already enabled), `rustcode-kernel` Agent, `rustcode-capabilities` `Finding`/`ReportFindingTool`. No new dependencies.
+**技术栈：** Rust、tokio（`rt-multi-thread`、`sync`、`macros` —— 均已启用）、`rustcode-kernel` 的 Agent、`rustcode-capabilities` 的 `Finding`/`ReportFindingTool`。不引入新依赖。
 
-**Spec:** `docs/plans/2026-08-20-code-review-deep-mode-fanout-design.md` (§ "Phase 2 — adversarial verify pass").
+**规范：** `docs/plans/2026-08-20-code-review-deep-mode-fanout-design.md`（§ "Phase 2 — adversarial verify pass" 一节）。
 
-## Global Constraints
+## 全局约束
 
-- No new crate dependencies. Concurrency uses `tokio::task::JoinSet` (NOT `futures`).
-- `single` and `deep` paths stay behavior-identical. All existing `rustcode-review` and `rustcode-tuix` tests stay green unchanged; in particular `finalize_deep_review`'s output for the no-verify path must be byte-identical after the refactor (it delegates with `verify_dropped = None`).
-- Verify is opt-in (`depth:"deep+verify"` only). Single vote is biased toward KEEP: a finding is dropped only when its verify agent completes cleanly AND re-reports nothing. Error/cancel/panic keeps the finding (fail-open).
-- Scope preflight stays before fan-out (unchanged).
-- Findings render in English.
-- `Finding` fields (do NOT modify, from `rustcode-capabilities`): `title: String, body: String, priority: String ("P0".."P3"), confidence: f32, file_path: String, line_start: u32, line_end: u32, suggestion: String, suggested_code: String`.
-- Current relevant landmarks (Phase 1, already merged): `fanout.rs` has `finalize_deep_review` (line ~151), `render_deep` (line ~192), `MergedFinding`/`DimensionOutcome`, `merge_findings`, `run_deep_review`; `review_tool.rs` has `Args.depth` + `is_deep()` (line ~307), the schema `depth` entry (line ~439), and the deep branch calling `finalize_deep_review` (line ~567). `annotated`, `files`, `rules`, `task` are already in scope at the deep branch.
+- 不新增 crate 依赖。并发使用 `tokio::task::JoinSet`（而非 `futures`）。
+- `single` 与 `deep` 路径保持行为一致。`rustcode-review` 与 `rustcode-tuix` 的所有既有测试保持通过且不改动；特别是重构之后，无 verify 路径下 `finalize_deep_review` 的输出必须逐字节相同（它委托时传入 `verify_dropped = None`）。
+- verify 仅按需开启（只有 `depth:"deep+verify"`）。单票判定偏向 KEEP：只有当某条发现的 verify agent 干净完成**且**未重新报告任何内容时，该发现才会被丢弃。出错/取消/panic 一律保留该发现（fail-open）。
+- 范围预检仍保持在 fan-out 之前（不变）。
+- 发现以英文渲染。
+- `Finding` 字段（来自 `rustcode-capabilities`，禁止修改）：`title: String, body: String, priority: String ("P0".."P3"), confidence: f32, file_path: String, line_start: u32, line_end: u32, suggestion: String, suggested_code: String`。
+- 当前相关地标（Phase 1，已合入）：`fanout.rs` 中有 `finalize_deep_review`（约 151 行）、`render_deep`（约 192 行）、`MergedFinding`/`DimensionOutcome`、`merge_findings`、`run_deep_review`；`review_tool.rs` 中有 `Args.depth` + `is_deep()`（约 307 行）、schema 的 `depth` 条目（约 439 行），以及调用 `finalize_deep_review` 的 deep 分支（约 567 行）。`annotated`、`files`、`rules`、`task` 在 deep 分支处已在作用域内。
 
 ---
 
-### Task 1: Split finalize + add verifier lens, run_verify, verify-task helper (fanout.rs)
+### 任务 1：拆分 finalize，并新增 verifier 视角、run_verify 与 verify 任务辅助函数（fanout.rs）
 
-**Files:**
-- Modify: `crates/rustcode-review/src/fanout.rs`
-- Modify: `crates/rustcode-review/src/lib.rs` (export new items)
-- Test: in `fanout.rs` `#[cfg(test)]`
+**文件：**
+- 修改：`crates/rustcode-review/src/fanout.rs`
+- 修改：`crates/rustcode-review/src/lib.rs`（导出新增项）
+- 测试：位于 `fanout.rs` 的 `#[cfg(test)]`
 
-**Interfaces:**
-- Consumes: `MergedFinding`, `DimensionOutcome`, `merge_findings`, `REVIEW_DIMENSIONS`, `crate::Finding`, `crate::review_tool::{cmp_finding, paths_match}` (already used in this file).
-- Produces:
+**接口：**
+- 消费：`MergedFinding`、`DimensionOutcome`、`merge_findings`、`REVIEW_DIMENSIONS`、`crate::Finding`、`crate::review_tool::{cmp_finding, paths_match}`（本文件已在使用）。
+- 产出：
   - `pub fn merge_deep_findings(outcomes: &[DimensionOutcome], changed_paths: &[String]) -> (Vec<MergedFinding>, usize)`
   - `pub fn dimension_coverage(outcomes: &[DimensionOutcome]) -> (Vec<&'static str>, Vec<&'static str>)`
   - `pub fn render_deep_result(merged: &[MergedFinding], changed_files: usize, completed: &[&str], failed: &[&str], deduped: usize, verify_dropped: Option<usize>) -> (bool, String)`
   - `pub const VERIFY_LENS: &str`, `pub const VERIFY_CONCURRENCY: usize`
   - `pub fn render_verify_task(f: &Finding, rules: &str, annotated: &str) -> String`
-  - `pub async fn run_verify<F, Fut>(n: usize, cap: usize, verify_one: F) -> Vec<bool>` where `F: Fn(usize) -> Fut`, `Fut: Future<Output = (usize, bool)> + Send + 'static`
+  - `pub async fn run_verify<F, Fut>(n: usize, cap: usize, verify_one: F) -> Vec<bool>`，其中 `F: Fn(usize) -> Fut`、`Fut: Future<Output = (usize, bool)> + Send + 'static`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **步骤 1：编写失败测试**
 
-Add to `fanout.rs` `mod tests` (the `f(...)` helper already exists there):
+在 `fanout.rs` 的 `mod tests` 中补充（`f(...)` 辅助函数已存在于此）：
 
 ```rust
     #[test]
@@ -85,16 +85,16 @@ Add to `fanout.rs` `mod tests` (the `f(...)` helper already exists there):
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **步骤 2：运行测试确认它们失败**
 
-Run: `cargo test -p rustcode-review --lib fanout::tests::finalize_output_is_unchanged_after_the_split fanout::tests::render_deep_result_notes_verify_dropped fanout::tests::run_verify_applies fanout::tests::verify_task_embeds`
-Expected: FAIL to compile — the new functions/consts don't exist yet.
+运行：`cargo test -p rustcode-review --lib fanout::tests::finalize_output_is_unchanged_after_the_split fanout::tests::render_deep_result_notes_verify_dropped fanout::tests::run_verify_applies fanout::tests::verify_task_embeds`
+预期：编译失败 —— 新函数/常量尚不存在。
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **步骤 3：编写实现**
 
-In `fanout.rs`, replace the body of `finalize_deep_review` (currently lines ~151–190) so it delegates, and add the new items. Also change `render_deep`'s signature to accept `verify_dropped: Option<usize>`.
+在 `fanout.rs` 中，把 `finalize_deep_review` 的函数体（当前约 151–190 行）改为委托实现，并新增各项。同时修改 `render_deep` 的签名，使其接受 `verify_dropped: Option<usize>`。
 
-Replace `finalize_deep_review` with:
+把 `finalize_deep_review` 替换为：
 
 ```rust
 pub fn finalize_deep_review(
@@ -179,7 +179,7 @@ pub fn render_deep_result(
 }
 ```
 
-Change the existing `fn render_deep(...)` signature to add the trailing param and emit the note. Its current header-building block (the `if is_error {..} else if merged.is_empty() {..} else {..}` at lines ~200–224) becomes:
+修改既有的 `fn render_deep(...)` 签名，加上末尾参数并输出该提示。它当前用于构建头部信息的代码块（约 200–224 行的 `if is_error {..} else if merged.is_empty() {..} else {..}`）变为：
 
 ```rust
 fn render_deep(
@@ -224,11 +224,11 @@ fn render_deep(
     // ... the rest (failed line + the per-finding loop) is UNCHANGED ...
 ```
 
-Keep the remainder of `render_deep` (the `if !failed.is_empty()` line and the `for (i, m) in merged.iter()...` loop) exactly as-is.
+`render_deep` 的其余部分（`if !failed.is_empty()` 那一行与 `for (i, m) in merged.iter()...` 循环）保持原样。
 
-Note: `verify_dropped = None` yields an empty `verify_note`, so `finalize_deep_review`'s output is byte-identical to Phase 1 — the `finalize_output_is_unchanged_after_the_split` test asserts this.
+注意：`verify_dropped = None` 会生成空的 `verify_note`，因此 `finalize_deep_review` 的输出与 Phase 1 逐字节相同 —— `finalize_output_is_unchanged_after_the_split` 测试即断言这一点。
 
-Then add the verify machinery at the end of the module body (before `#[cfg(test)]`):
+然后在模块体末尾（`#[cfg(test)]` 之前）补充 verify 机制：
 
 ```rust
 /// Concurrency cap for the verify pass (one agent per surviving finding).
@@ -291,7 +291,7 @@ where
 }
 ```
 
-In `lib.rs`, extend the fanout re-export to include the new public items:
+在 `lib.rs` 中扩展 fanout 的再导出，纳入新增的公开项：
 
 ```rust
 pub use fanout::{
@@ -300,14 +300,14 @@ pub use fanout::{
     VERIFY_LENS,
 };
 ```
-(Keep whatever fanout items were already re-exported; add these. If `finalize_deep_review`/`run_deep_review` were exported, leave them.)
+（保留已再导出的 fanout 项，只做追加。若 `finalize_deep_review`/`run_deep_review` 已导出，保持不动。）
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **步骤 4：运行测试确认它们通过**
 
-Run: `cargo test -p rustcode-review --lib fanout` then `cargo test -p rustcode-review`.
-Expected: PASS, including the pre-existing `finalize_*` / `run_deep_review_*` tests (unchanged output).
+运行：`cargo test -p rustcode-review --lib fanout`，再运行 `cargo test -p rustcode-review`。
+预期：PASS，包括既有的 `finalize_*` / `run_deep_review_*` 测试（输出不变）。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-review/src/fanout.rs crates/rustcode-review/src/lib.rs
@@ -316,19 +316,19 @@ git commit -m "feat(review): split deep finalize + add verify lens/runner (phase
 
 ---
 
-### Task 2: Wire `deep+verify` into `code_review` execute (review_tool.rs)
+### 任务 2：把 `deep+verify` 接入 `code_review` 的 execute（review_tool.rs）
 
-**Files:**
-- Modify: `crates/rustcode-review/src/review_tool.rs`
-- Test: in `review_tool.rs` `#[cfg(test)]`
+**文件：**
+- 修改：`crates/rustcode-review/src/review_tool.rs`
+- 测试：位于 `review_tool.rs` 的 `#[cfg(test)]`
 
-**Interfaces:**
-- Consumes: `fanout::{merge_deep_findings, dimension_coverage, render_deep_result, render_verify_task, run_verify, VERIFY_LENS, VERIFY_CONCURRENCY}`, plus the already-imported `run_deep_review`, `DimensionOutcome`, `REVIEW_DIMENSIONS`.
-- Produces: `code_review` accepting `{"depth":"deep+verify"}`; `Args::wants_verify()`; schema enum grows.
+**接口：**
+- 消费：`fanout::{merge_deep_findings, dimension_coverage, render_deep_result, render_verify_task, run_verify, VERIFY_LENS, VERIFY_CONCURRENCY}`，以及已导入的 `run_deep_review`、`DimensionOutcome`、`REVIEW_DIMENSIONS`。
+- 产出：`code_review` 接受 `{"depth":"deep+verify"}`；新增 `Args::wants_verify()`；schema 枚举扩展。
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **步骤 1：编写失败测试**
 
-Add to `review_tool.rs` `mod tests`:
+在 `review_tool.rs` 的 `mod tests` 中补充：
 
 ```rust
     #[test]
@@ -372,14 +372,14 @@ Add to `review_tool.rs` `mod tests`:
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **步骤 2：运行测试确认它们失败**
 
-Run: `cargo test -p rustcode-review --lib args_parse_deep_verify_depth deep_verify_keeps_a_confirmed_finding`
-Expected: FAIL to compile — `wants_verify` missing / `deep+verify` not handled.
+运行：`cargo test -p rustcode-review --lib args_parse_deep_verify_depth deep_verify_keeps_a_confirmed_finding`
+预期：编译失败 —— 缺少 `wants_verify` / 未处理 `deep+verify`。
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **步骤 3：编写实现**
 
-(a) Update `is_deep` and add `wants_verify` in `impl Args` (replace the existing `is_deep`):
+(a) 在 `impl Args` 中更新 `is_deep` 并新增 `wants_verify`（替换既有的 `is_deep`）：
 
 ```rust
     fn is_deep(&self) -> bool {
@@ -397,7 +397,7 @@ Expected: FAIL to compile — `wants_verify` missing / `deep+verify` not handled
     }
 ```
 
-(b) Update the imports (the `use crate::fanout::...` line ~36) to add the new items:
+(b) 更新 import（约 36 行的 `use crate::fanout::...`）以纳入新增项：
 
 ```rust
 use crate::fanout::{
@@ -405,15 +405,15 @@ use crate::fanout::{
     run_verify, DimensionOutcome, REVIEW_DIMENSIONS, VERIFY_CONCURRENCY, VERIFY_LENS,
 };
 ```
-(Drop `finalize_deep_review` from the import if it is no longer referenced — the deep branch now uses `merge_deep_findings`/`render_deep_result`. Leave it imported only if still used elsewhere.)
+（若 `finalize_deep_review` 已不再被引用，就从 import 中去掉 —— deep 分支现在使用 `merge_deep_findings`/`render_deep_result`。只有在别处仍被使用时才保留其导入。）
 
-(c) Update the schema `depth` entry (line ~439) to the new enum + description:
+(c) 更新 schema 的 `depth` 条目（约 439 行）为新的枚举与描述：
 
 ```rust
                 "depth": { "type": "string", "enum": ["single", "deep", "deep+verify"], "description": "Review depth. `deep` fans out one reviewer per concern dimension (correctness/security/performance/tests) and merges findings; `deep+verify` additionally runs one verify pass per finding to cull false positives; omit for the default single reviewer." }
 ```
 
-(d) Replace the deep-path tail (currently the two lines `let (is_error, content) = finalize_deep_review(&outcomes, files.len(), &files); if is_error { err(content) } else { ok(content) }` at lines ~567–568) with the merge → optional-verify → render sequence:
+(d) 把 deep 路径的尾部（当前约 567–568 行的两行 `let (is_error, content) = finalize_deep_review(&outcomes, files.len(), &files); if is_error { err(content) } else { ok(content) }`）替换为 merge → 可选 verify → render 的序列：
 
 ```rust
         // Merge the fan-out outcomes; optionally cull false positives with a
@@ -459,14 +459,14 @@ use crate::fanout::{
         if is_error { err(content) } else { ok(content) }
 ```
 
-Note on the closure: `render_verify_task` and `make_cfg()` are called synchronously (producing owned `String`/`cfg`) BEFORE `async move`, and `provider`/`cancel` are cloned — so each verify future is `Send + 'static`, exactly like the dimension closure. `inputs[i].clone()` reads the local `inputs` (kept alive across the `.await`). Do NOT weaken `run_verify`'s bounds; if the borrow checker fights the closure, mirror the dimension closure's structure. If you cannot satisfy `Send + 'static` after honest effort, STOP and report BLOCKED with the exact error.
+关于闭包的说明：`render_verify_task` 与 `make_cfg()` 在 `async move` **之前**同步调用（生成所有权的 `String`/`cfg`），且 `provider`/`cancel` 都被克隆 —— 因此每个 verify future 都是 `Send + 'static`，与维度闭包完全一样。`inputs[i].clone()` 读取的是局部变量 `inputs`（它跨 `.await` 保持存活）。**不要**削弱 `run_verify` 的约束；若借用检查器与该闭包冲突，就照搬维度闭包的结构。若经过认真尝试仍无法满足 `Send + 'static`，请停下并报告 BLOCKED，附上确切的报错信息。
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **步骤 4：运行测试确认它们通过**
 
-Run: `cargo test -p rustcode-review --lib args_parse_deep_verify_depth deep_verify_keeps_a_confirmed_finding` then `cargo test -p rustcode-review`.
-Expected: PASS; all Phase 1 tests (incl. `deep_review_fans_out_and_dedups_across_dimensions`, single-path tests) stay green.
+运行：`cargo test -p rustcode-review --lib args_parse_deep_verify_depth deep_verify_keeps_a_confirmed_finding`，再运行 `cargo test -p rustcode-review`。
+预期：PASS；所有 Phase 1 测试（含 `deep_review_fans_out_and_dedups_across_dimensions` 与单路径测试）保持通过。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-review/src/review_tool.rs
@@ -475,18 +475,18 @@ git commit -m "feat(review): code_review deep+verify runs one verify pass per fi
 
 ---
 
-### Task 3: `/review deep+verify` command mapping (commands.rs)
+### 任务 3：`/review deep+verify` 命令映射（commands.rs）
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/event_loop/commands.rs` (`review_prompt`)
-- Test: in `commands.rs` `#[cfg(test)]`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/event_loop/commands.rs`（`review_prompt`）
+- 测试：位于 `commands.rs` 的 `#[cfg(test)]`
 
-**Interfaces:**
-- Produces: `/review deep+verify [scope]` synthesizes a tool call carrying `"depth":"deep+verify"`; `deep` and plain scopes unchanged.
+**接口：**
+- 产出：`/review deep+verify [scope]` 合成携带 `"depth":"deep+verify"` 的工具调用；`deep` 与普通 scope 不变。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
-Add to `commands.rs` `mod tests`:
+在 `commands.rs` 的 `mod tests` 中补充：
 
 ```rust
     #[test]
@@ -509,14 +509,14 @@ Add to `commands.rs` `mod tests`:
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认其失败**
 
-Run: `cargo test -p rustcode-tuix --lib review_prompt_deep_verify_sets_depth`
-Expected: FAIL — `deep+verify` is currently parsed as a git ref, emitting a range scope with no depth.
+运行：`cargo test -p rustcode-tuix --lib review_prompt_deep_verify_sets_depth`
+预期：FAIL —— 当前 `deep+verify` 会被当成 git ref 解析，输出一个不带 depth 的 range scope。
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **步骤 3：编写实现**
 
-Replace the leading-keyword parse + args-object build inside `review_prompt` (the current `let (deep, scope) = match arg.strip_prefix("deep") {...};` block and the `let args = if deep {...} else {...};` block) with a depth-aware version that checks `deep+verify` before `deep`:
+把 `review_prompt` 内部的前导关键字解析与参数对象构建（当前的 `let (deep, scope) = match arg.strip_prefix("deep") {...};` 块与 `let args = if deep {...} else {...};` 块）替换为可感知 depth 的版本，先判 `deep+verify` 再判 `deep`：
 
 ```rust
     // A leading `deep+verify` or `deep` keyword (alone or before a scope) sets depth.
@@ -549,14 +549,14 @@ Replace the leading-keyword parse + args-object build inside `review_prompt` (th
     };
 ```
 
-Keep the closing `format!("Review the requested changes: call the `code_review` tool with {args}, ...")` line unchanged. This preserves every substring the existing tests assert (plain scopes → no `depth`; `deep` → `"depth":"deep"`; range JSON escaping via `serde_json::to_string`).
+保持结尾那行 `format!("Review the requested changes: call the `code_review` tool with {args}, ...")` 不变。这样可以保留既有测试断言的每一个子串（普通 scope → 无 `depth`；`deep` → `"depth":"deep"`；range 的 JSON 转义仍由 `serde_json::to_string` 负责）。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认其通过**
 
-Run: `cargo test -p rustcode-tuix --lib review_prompt`
-Expected: PASS — the new deep+verify test plus the existing `review_prompt_uses_explicit_tool_scopes`, `review_prompt_json_escapes_the_base_ref`, and `review_prompt_deep_adds_depth_and_keeps_scope` all green.
+运行：`cargo test -p rustcode-tuix --lib review_prompt`
+预期：PASS —— 新增的 deep+verify 测试，以及既有的 `review_prompt_uses_explicit_tool_scopes`、`review_prompt_json_escapes_the_base_ref`、`review_prompt_deep_adds_depth_and_keeps_scope` 全部通过。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/event_loop/commands.rs
@@ -565,14 +565,14 @@ git commit -m "feat(tuix): /review deep+verify maps to depth deep+verify"
 
 ---
 
-### Task 4: Full-suite regression + doc note
+### 任务 4：全量回归 + 文档备注
 
-**Files:**
-- Modify: `crates/rustcode-review/src/review_tool.rs` (extend the module header note)
+**文件：**
+- 修改：`crates/rustcode-review/src/review_tool.rs`（扩展模块头部备注）
 
-- [ ] **Step 1: Extend the doc note**
+- [ ] **步骤 1：扩展文档备注**
 
-In the `review_tool.rs` module header, update the deep-mode note to mention verify:
+在 `review_tool.rs` 模块头部，更新 deep 模式备注以提及 verify：
 
 ```rust
 //! Deep mode: `{"depth":"deep"}` fans out one read-only reviewer per concern
@@ -582,16 +582,16 @@ In the `review_tool.rs` module header, update the deep-mode note to mention veri
 //! single-reviewer path is unchanged.
 ```
 
-- [ ] **Step 2: Run the suites**
+- [ ] **步骤 2：运行测试套件**
 
 ```bash
 cargo test -p rustcode-review
 cargo test -p rustcode-tuix --lib
 cargo build -p rustcode-review -p rustcode-tuix
 ```
-Expected: all green, zero new warnings.
+预期：全绿，零新增告警。
 
-- [ ] **Step 3: Commit**
+- [ ] **步骤 3：提交**
 
 ```bash
 git add crates/rustcode-review/src/review_tool.rs
@@ -600,18 +600,18 @@ git commit -m "docs(review): note deep+verify pass in code_review header"
 
 ---
 
-## Self-Review
+## 自检
 
-**Spec coverage:**
-- `depth:"deep+verify"` trigger + `is_deep` true for both + `wants_verify` → Task 2 (Args), Task 3 (command).
-- Verify between merge and render → Task 2 (deep branch: merge_deep_findings → run_verify → render_deep_result).
-- Verify agent reuses `build_review_agent_with` + `report_finding`; keep = re-reported; drop = reported nothing; fail-open on error/cancel → Task 2 closure (`clean` gate; `unwrap_or(true)`), Task 1 `run_verify` default-true.
-- Single vote biased toward keep → `VERIFY_LENS` wording (Task 1) + fail-open logic (Task 2).
-- Bounded concurrency via JoinSet, no `futures` → Task 1 `run_verify` (`VERIFY_CONCURRENCY`).
-- Reporting "verify dropped K" → Task 1 `render_deep`/`render_deep_result` verify_note.
-- No-verify path byte-identical → Task 1 `finalize_deep_review` delegates with `None`; `finalize_output_is_unchanged_after_the_split` asserts it.
-- single/deep unchanged → Task 2 keeps the `!is_deep()` block and the deep fan-out untouched except its render tail.
+**规范覆盖：**
+- `depth:"deep+verify"` 触发，且两种深度下 `is_deep` 均为真，另有 `wants_verify` → 任务 2（Args）、任务 3（命令）。
+- verify 位于 merge 与 render 之间 → 任务 2（deep 分支：merge_deep_findings → run_verify → render_deep_result）。
+- verify agent 复用 `build_review_agent_with` + `report_finding`；keep = 被重新报告；drop = 未报告任何内容；出错/取消时 fail-open → 任务 2 的闭包（`clean` 判定；`unwrap_or(true)`）、任务 1 中默认为 true 的 `run_verify`。
+- 单票判定偏向 keep → `VERIFY_LENS` 的措辞（任务 1）+ fail-open 逻辑（任务 2）。
+- 通过 JoinSet 实现有界并发、不引入 `futures` → 任务 1 的 `run_verify`（`VERIFY_CONCURRENCY`）。
+- 报告 “verify dropped K” → 任务 1 中 `render_deep`/`render_deep_result` 的 verify_note。
+- 无 verify 路径逐字节一致 → 任务 1 中 `finalize_deep_review` 以 `None` 委托；由 `finalize_output_is_unchanged_after_the_split` 断言。
+- single/deep 不变 → 任务 2 保持 `!is_deep()` 块与 deep fan-out 不动，只改其渲染尾部。
 
-**Placeholder scan:** none — all steps carry concrete code.
+**占位符扫描：** 无 —— 所有步骤都带有具体代码。
 
-**Type consistency:** `merge_deep_findings`/`dimension_coverage`/`render_deep_result`/`render_verify_task`/`run_verify`/`VERIFY_LENS`/`VERIFY_CONCURRENCY` are defined in Task 1 and consumed with identical signatures in Task 2. `run_verify` returns `Vec<bool>` consumed as a keep-mask via `retain`. `wants_verify`/`is_deep` defined in Task 2 and used there. The verify closure mirrors the Phase-1 dimension closure's `Send + 'static` structure.
+**类型一致性：** `merge_deep_findings`/`dimension_coverage`/`render_deep_result`/`render_verify_task`/`run_verify`/`VERIFY_LENS`/`VERIFY_CONCURRENCY` 在任务 1 定义，并在任务 2 以完全相同的签名被消费。`run_verify` 返回 `Vec<bool>`，通过 `retain` 当作 keep-mask 使用。`wants_verify`/`is_deep` 在任务 2 定义并使用。verify 闭包沿用了 Phase 1 维度闭包的 `Send + 'static` 结构。

@@ -99,16 +99,16 @@ cargo test  -p rustcode-clix       7 + 3 + 0 + 44 passed / 0 failed
 新增（子 Agent 产出 `client.rs` / `error.rs`，主 Agent 补 `mod.rs` / `config.rs`：
 
 - `capabilities/src/egress/client.rs` —— 唯一 HTTP 客户端工厂。
-  `HttpClientSpec`（connect / request / pool-idle / UA / proxy / skip_tls_verify /
-  follow_redirects / trust_os_roots / max_tls_version）+ `build_http_client()` +
+  `HttpClientSpec`（字段：connect / request / pool-idle / UA / proxy / skip_tls_verify /
+  follow_redirects / trust_os_roots / max_tls_version）+ `build_http_client()` 与
   `build_pinned_http_client()`（给 `web_fetch` 的 DNS pin）+ `spec_builder()`。
   完整移植并泛化了 issue #514 的信任根逻辑：OS 根 + `SSL_CERT_FILE` 逐证书预校验后
   叠加，构建失败则回退 webpki base 一次并 `tracing::warn!`。
-- `capabilities/src/egress/error.rs` —— `EgressError`（thiserror）+ `brief()` /
+- `capabilities/src/egress/error.rs` —— `EgressError`（thiserror 派生）+ `brief()` /
   `detail()` 两件套（对标参考项目 `ToolResultBuilder.error(msg, brief=...)`），
   响应体一律截断到 `BODY_EXCERPT_BYTES = 512` 字节，避免整页 HTML 灌进上下文；
   含 `retryable()` 判定（408/429/5xx 可重试）。
-- `capabilities/src/egress/config.rs` —— `ExternalServiceConfig`（base_url /
+- `capabilities/src/egress/config.rs` —— `ExternalServiceConfig`（含 base_url /
   api_key / custom_headers / timeout）+ `SecretString`（`zeroize` 落盘即擦，
   `Debug` 打印 `***`，不实现 `Serialize` 以免凭据被写进配置文件）。
 - feature gating：新增 `egress` feature，由 `provider` / `web` / `atomgit` / `mcp`

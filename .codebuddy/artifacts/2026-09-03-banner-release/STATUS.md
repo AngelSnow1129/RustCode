@@ -77,10 +77,10 @@
 
 | 产物 | 大小 | 类型 |
 |---|---|---|
-| `target/release/rustcode` | 32,701,552 B | ELF 64-bit LSB pie, x86-64, dynamically linked |
+| `target/release/rustcode` | 32,701,552 B | ELF 64 位 LSB pie，x86-64，动态链接 |
 | `target/release/rustcode-daemon` | 27,304,112 B | 同上 |
 
-- `cargo build --release -j 2`（default-members）→ **exit=0**
+- `cargo build --release -j 2`（构建默认成员）→ **退出码=0**
 - 冒烟：`./target/release/rustcode --version` → `rustcode 5.0.9 (2e5baa33+dirty)`
 - `rustcode-tuix` 是 lib，无独立二进制，故产物为 2 个
 
@@ -139,9 +139,9 @@
 |---|---|
 | rustup | **已恢复** —— `rustup 1.29.1 (d95a37b6a 2026-08-13)`；`stable-x86_64-unknown-linux-gnu` 自动识别为 active/default（原有工具链未重装） |
 | `cargo` 悬空链接 | **已修复** —— `/root/.cargo/bin/cargo` 现在能正常解析，`cargo 1.93.0` 可直接调用，**不再需要工具链绝对路径** |
-| musl-tools | `musl-gcc` → `/usr/bin/musl-gcc` |
-| gcc-aarch64-linux-gnu | `aarch64-linux-gnu-gcc` → `/usr/bin/aarch64-linux-gnu-gcc` |
-| mingw-w64 | `x86_64-w64-mingw32-gcc` → `/usr/bin/x86_64-w64-mingw32-gcc` |
+| musl-tools（已安装） | `musl-gcc` → `/usr/bin/musl-gcc` |
+| gcc-aarch64-linux-gnu（已安装） | `aarch64-linux-gnu-gcc` → `/usr/bin/aarch64-linux-gnu-gcc` |
+| mingw-w64（已安装） | `x86_64-w64-mingw32-gcc` → `/usr/bin/x86_64-w64-mingw32-gcc` |
 | `apt-get install` | `install_exit=0` |
 
 **副作用（正面）**：此前所有构建/测试命令都必须走
@@ -158,7 +158,7 @@
 
 | 目标 | 状态 | 产物 |
 |---|---|---|
-| `x86_64-unknown-linux-gnu` | **done** | `rustcode` 32,701,552 B；`rustcode-daemon` 27,304,112 B（ELF x86-64，dynamically linked） |
+| `x86_64-unknown-linux-gnu` | **done** | `rustcode` 32,701,552 B；`rustcode-daemon` 27,304,112 B（ELF x86-64，动态链接） |
 | `x86_64-unknown-linux-musl` | **done** | `rustcode` 32,851,064 B；`rustcode-daemon` 27,448,888 B（ELF x86-64，**static-pie linked**，完全静态） |
 | `aarch64-unknown-linux-gnu` | **done**（首次失败，补装 `libc6-dev-arm64-cross` 后重试成功，2m20s） | `rustcode` 29,791,176 B；`rustcode-daemon` 25,654,680 B（**ELF ARM aarch64**） |
 | `x86_64-pc-windows-gnu` | **done** | `rustcode.exe` 30,920,192 B；`rustcode-daemon.exe` 26,045,440 B（**PE32+ x86-64 for MS Windows**；daemon 为 GUI 子系统） |
@@ -216,7 +216,7 @@ aarch64 / Windows 产物**只做了 `file` 架构校验，未在本机执行**�
 
 | 测试 | 原生 gnu | musl |
 |---|---|---|
-| `--version` / `--help` | exit=0 | exit=0 |
+| `--version` / `--help` | 退出码=0 | 退出码=0 |
 | **ACP stdio 端到端** `scripts/acp_smoke.py` | **SMOKE OK, exit=0** | **SMOKE OK, exit=0** |
 | daemon 启动监听 13456 | 成功 | 成功 |
 | `GET /health` | **200** + 完整 JSON | **200** + 完整 JSON |
@@ -284,7 +284,7 @@ daemon 不导入这些（无头服务）。Subsystem 版本 5.2。
 ### 定性：不是产品缺陷，是构建流程被绕过
 
 `scripts/release.sh:52-71` **会先构建前端再编译**，并在缺失时**报错退出**，原文：
-「A release built now would serve 404 for /webui」。
+「现在构建出的 release 会对 /webui 返回 404」。
 本轮 8 个产物是用裸 `cargo build --release` 构建的，**跳过了这一步**，因此
 `crates/rustcode-daemon/src/webui.rs`（`rust_embed`，`#[folder = "../../webui/dist/"]`，带 `#[allow_missing]`）
 在编译期不报错、运行期才 404。
@@ -298,10 +298,10 @@ daemon 不导入这些（无头服务）。Subsystem 版本 5.2。
 
 | 目标 | 嵌入前 | 嵌入后 | 增量 |
 |---|---|---|---|
-| native gnu | 27,304,112 | 28,241,840 | +937,728 |
-| musl | 27,448,888 | 28,374,584 | +925,696 |
-| aarch64 | 25,654,680 | 26,637,720 | +983,040 |
-| windows | 26,045,440 | 26,989,056 | +943,616 |
+| 原生 gnu 产物 | 27,304,112 | 28,241,840 | +937,728 |
+| musl 产物 | 27,448,888 | 28,374,584 | +925,696 |
+| aarch64 产物 | 25,654,680 | 26,637,720 | +983,040 |
+| windows 产物 | 26,045,440 | 26,989,056 | +943,616 |
 
 增量均在 0.9–1.0 MB，与 1004K 前端吻合。
 
@@ -309,7 +309,7 @@ daemon 不导入这些（无头服务）。Subsystem 版本 5.2。
 
 | 产物 | `GET /` | 标题 | `GET /health` |
 |---|---|---|---|
-| native gnu（`target/release/`） | **200** | `RustCode · 在你的终端中运行的 AI 编程助手` | 200 |
+| 原生 gnu（`target/release/`） | **200** | `RustCode · 在你的终端中运行的 AI 编程助手` | 200 |
 | native gnu（`target/x86_64-.../release/`） | **200** | 同上 | 200 |
 | musl | **200** | 同上 | 200 |
 

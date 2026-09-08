@@ -1,15 +1,15 @@
-# Internal continuation compaction
+# 内部续写（continuation）压缩
 
-## Problem
+## 问题
 
-Automatic compaction currently runs when `handle_prompt` accepts a user or host-provided synthetic prompt. This already covers Goal-controller continuations dispatched through `AgentCommand::SendSyntheticMessage`. Kernel-internal continuations created by output-truncation recovery or `LifecycleHooks::offer_typed_continuation` bypass that entry point: they append a synthetic message directly inside `run_turn` and start another model round. A long hook-driven verification or recovery loop can therefore pass the configured `compact_threshold` without giving the existing compaction policy a chance to run.
+自动压缩目前在 `handle_prompt` 接受用户或宿主提供的合成提示时运行。这已经覆盖了通过 `AgentCommand::SendSyntheticMessage` 派发的 Goal-controller 续写。由输出截断恢复或 `LifecycleHooks::offer_typed_continuation` 创建的内核内部续写绕过了该入口：它们直接在 `run_turn` 内部追加一条合成消息，并开启下一轮模型调用。因此，一条由 hook 驱动的长时间验证或恢复循环，可能在既有压缩策略获得执行机会之前就越过配置好的 `compact_threshold`。
 
-## Design
+## 设计
 
-Reuse the kernel's existing `should_compact` pressure check and `run_compaction` policy at the safe boundary immediately before an internal continuation is appended. At this point the provider stream has ended, the assistant message and metadata have been stored, and no tool call is pending or executing. This keeps `CodingRuntime` as the single lifecycle owner and does not introduce another compaction strategy, command, or persistence model.
+在内部续写被追加之前的那个安全边界上，复用内核现有的 `should_compact` 压力检查与 `run_compaction` 策略。此时 provider 流已结束，助手消息与元数据已存储，且没有待处理或执行中的工具调用。这让 `CodingRuntime` 继续作为唯一的生命周期所有者，并且不引入另一套压缩策略、命令或持久化模型。
 
-Only one internal automatic-compaction attempt is allowed per policy stage and accepted turn. The stage comes from the existing strategy's `will_summarize` verdict: a moderate-pressure rewrite/no-op cannot repeat every round, but it also cannot suppress the later high-pressure summary stage. The same boundary is shared by output-limit recovery and hook-driven verification continuations. Normal replies, tool execution, external Goal synthetic prompts, manual compaction, overflow recovery, cancellation, and provider reload retain their existing paths.
+每个策略阶段、每个被接受的轮次只允许一次内部自动压缩尝试。阶段来自现有策略的 `will_summarize` 判定：中等压力下的重写/空操作不能每轮重复，但它也不能压制后续的高压摘要阶段。输出上限恢复与 hook 驱动的验证续写共用同一边界。普通回复、工具执行、外部 Goal 合成提示、手动压缩、溢出恢复、取消与 provider 重载都沿用各自现有的路径。
 
-## Failure and verification
+## 失败与验证
 
-Automatic compaction remains best-effort and uses the existing `Compacted`/`CompactionFailed` events. A failed or refused plan does not discard conversation state; the internal continuation proceeds with the original conversation. Tests cover an above-threshold hook continuation producing a compaction event before continuing, a below-threshold continuation not compacting, and the existing truncation/compaction suites guard unchanged behavior.
+自动压缩仍是尽力而为，并沿用现有的 `Compacted`/`CompactionFailed` 事件。失败或被拒绝的计划不会丢弃会话状态；内部续写会带着原始会话继续推进。测试覆盖：超过阈值的 hook 续写在继续之前产生压缩事件；低于阈值的续写不压缩；既有的截断/压缩测试套件继续守护未变化的行为。

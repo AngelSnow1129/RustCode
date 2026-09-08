@@ -1,55 +1,48 @@
-# First-stage planning quality design
+# 首阶段规划质量设计
 
-## Scope
+## 范围
 
-Improve the planning floor for weaker models without introducing a plan artifact,
-approval transition, new protocol, or second runtime owner. Todo remains execution
-tracking; the existing coding runtime and tool lifecycle remain authoritative.
+在不引入计划产物、审批流转、新协议或第二个运行时所有者的前提下，提升
+较弱模型的规划下限。Todo 仍然是执行跟踪；既有的编码运行时与工具生命周期
+保持权威性。
 
-## Behavior
+## 行为
 
-- The system prompt and `todowrite` description define a useful initial list as the
-  complete work surface: investigation, architecture/module design, implementation,
-  and verification where relevant. Items must describe concrete outcomes that a later
-  turn can execute without re-planning.
-- DeepSeek under `tools.todo.eager = "auto"` keeps the normal preferred reminder, but
-  high-confidence architecture, refactor, migration, redesign, and feature-development
-  requests force `todowrite` as the first tool. Simple and informational turns remain
-  judgment-based, including requests that explicitly prohibit modification or ask for
-  read-only explanation. A scoped read-only clause does not suppress planning when the
-  same request explicitly asks for a complex code change. Providers that cannot express
-  forced tool choice retain only the reminder.
-- The todo parser rejects only unmistakable placeholder labels such as `task 1`,
-  `step 2`, `阶段3`, and bare `处理功能`. It does not attempt semantic scoring or require
-  every task to use fixed phase names. This quality gate applies to newly executed
-  full plans and incremental additions; persisted transcript replay retains the older
-  structural parser so existing sessions do not lose their todo state. Failed current
-  calls are excluded from transcript-derived state by their tool-result correlation id.
-  Daemon and TUI `/todo`, session replay, and runtime reminders all use that same
-  result-aware projection. The TUI stages live mutations at call start and commits them
-  only after a successful matching tool result, so rejected calls cannot flash or persist
-  as current work.
-- Before the skill catalog's existing byte-budget truncation, installed skill names
-  explicitly referenced at token boundaries in the effective instruction tiers are
-  promoted. Matching is exact and case-insensitive; the runtime never guesses a skill
-  from generic workflow prose.
+- 系统提示与 `todowrite` 的描述把一份有用的初始清单定义为完整的工作面：
+  调研、架构/模块设计、实现，以及在相关时的验证。条目必须描述具体的产出，
+  使后续轮次无需重新规划即可执行。
+- DeepSeek 在 `tools.todo.eager = "auto"` 下保留常规的推荐式提醒，但对于
+  高置信度的架构、重构、迁移、重设计与特性开发请求，会强制把 `todowrite`
+  作为第一个工具。简单与信息查询类轮次仍按判断处理，包括那些显式禁止改动
+  或只要求只读解释的请求。当同一请求显式要求一次复杂的代码变更时，
+  带作用域限制的只读条款不会抑制规划。无法表达强制工具选择的 provider
+  只保留提醒。
+- todo 解析器只拒绝无可误解的占位标签，例如 `task 1`、`step 2`、`阶段3`
+  与光秃秃的 `处理功能`。它不尝试语义打分，也不要求每个任务都使用固定的
+  阶段名。该质量闸门适用于新执行的完整计划与增量补充；持久化的记录回放
+  沿用较旧的结构化解析器，以免既有会话丢失其 todo 状态。失败的当前调用
+  会依据其工具结果关联 id 被排除在记录派生状态之外。daemon 与 TUI 的
+  `/todo`、会话回放与运行时提醒都使用这一同一套感知结果的投影。TUI 在调用
+  开始时暂存变更，仅在出现匹配的成功工具结果后才提交，因此被拒绝的调用
+  不会闪现或持久化为当前工作项。
+- 在技能目录既有的字节预算截断之前，会先提升那些在生效指令层级中以
+  token 边界被显式引用的已安装技能名。匹配是精确且不区分大小写的；
+  运行时绝不会从泛泛的工作流描述中猜测某个技能。
 
-## Ownership and failure semantics
+## 所有权与失败语义
 
-Planning policy stays in `rustcode-coding`; todo argument validation and skill catalog
-rendering stay in `rustcode-capabilities`. Project-instruction precedence is read through
-the existing `SessionContextHook`, so catalog ranking cannot invent a parallel loader.
-Rejected placeholder todos return a normal tool error for correction. Missing or
-unresolvable skill names do not change existing behavior.
+规划策略留在 `rustcode-coding`；todo 参数校验与技能目录渲染留在
+`rustcode-capabilities`。项目指令优先级通过既有的 `SessionContextHook` 读取，
+因此目录排序不可能另造一个并行加载器。被拒绝的占位 todo 返回普通工具错误
+以供更正。缺失或无法解析的技能名不改变既有行为。
 
-## Verification
+## 验证
 
-- DeepSeek complex requests force `todowrite`; simple requests do not.
-- Mixed requests with a scoped read-only clause still force planning for an explicit
-  complex code change.
-- Placeholder-only todo labels fail while specific numbered tasks remain valid.
-- Failed todo calls do not alter daemon/TUI command output or the live TUI panel.
-- An explicitly named low-source-rank skill sorts ahead of an unreferenced native skill.
-- Instruction-name matching rejects prefixes and suffix collisions.
-- Run the affected `rustcode-capabilities` and `rustcode-coding` library tests, followed
-  by the CLI/TUI/daemon compile checks because all production drivers share assembly.
+- DeepSeek 的复杂请求强制 `todowrite`；简单请求不强制。
+- 带有作用域限制只读条款的混合请求，对显式的复杂代码变更仍强制规划。
+- 纯占位 todo 标签失败，而具体的编号任务仍然有效。
+- 失败的 todo 调用不改变 daemon/TUI 命令输出，也不改变实时 TUI 面板。
+- 被显式点名但来源排名较低的技能，排在未被引用的原生技能之前。
+- 指令名匹配会拒绝前缀与后缀冲突。
+- 运行受影响的 `rustcode-capabilities` 与 `rustcode-coding` 库测试，随后
+  运行 CLI/TUI/daemon 的编译检查，因为所有生产驱动共用同一装配层。

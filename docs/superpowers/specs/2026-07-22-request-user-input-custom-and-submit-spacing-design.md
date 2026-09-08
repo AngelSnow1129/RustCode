@@ -1,115 +1,111 @@
-# `request_user_input` UI: optional custom-answer row + Submit spacing
+# `request_user_input` 界面：可选的自定义答案行 + Submit 行间距
 
-**Date:** 2026-07-22
-**Status:** Approved, ready for implementation plan
-**Scope:** Medium — two related tweaks to the `request_user_input` panel (tool + TUI + webui + daemon for #1; TUI render only for #2). No kernel change.
+**日期:** 2026-07-22
+**状态:** 已批准，可进入实现计划
+**范围:** 中 —— 对 `request_user_input` 面板的两处相关打磨（第 1 项涉及工具 + TUI + webui + daemon；第 2 项只涉及 TUI 渲染）。不动 kernel。
 
-## Goal
+## 目标
 
-Two polish fixes to the structured-question panel:
+对结构化问题面板的两处打磨：
 
-1. **Optional custom-answer row.** The "输入自己的答案…" (Other free-text) row is
-   currently appended UNCONDITIONALLY to every single/multiple question. Make it
-   controllable per question via a `custom` flag (default `true` = current
-   behavior). When the model's options are exhaustive it sets `custom: false` and
-   the free-text row disappears. Also guide the model NOT to add its own
-   "其他 / Other / catch-all" option (which currently duplicates the auto row).
-2. **Submit-row spacing.** In multiple mode, the `✔ 提交` Submit row currently sits
-   directly under the last option, visually crammed. Add one blank spacer row
-   above it so Submit reads as separate from the choices.
+1. **可选的自定义答案行。** 目前"输入自己的答案…"（Other 自由文本）这一行是
+   **无条件**追加到每一个 single/multiple 问题上的。改为通过 `custom` 标志
+   按题控制（默认 `true`，即当前行为）。当模型给出的 options 已经穷尽时，
+   它可以设 `custom: false`，自由文本行随即消失。同时引导模型**不要**自己
+   再塞一个"其他 / Other / catch-all"选项（目前这会与自动追加的那行重复）。
+2. **Submit 行的间距。** 在 multiple 模式下，`✔ 提交` 这一行目前紧贴着
+   最后一个选项，视觉上很挤。在其上方加一个空白间隔行，
+   让 Submit 读起来与选项区分开。
 
-## Background / reference
+## 背景 / 参考
 
-- Current: `UserInputPanel` always has an Other row at index `options.len()`
-  (`crates/rustcode-tuix/src/state.rs`), and `build_user_input_rows`
-  (`crates/rustcode-tuix/src/render/retained.rs`) always renders it; the tool
-  schema has no way to suppress it.
-- opencode's `question` tool (verified from local source) has a per-question
-  `custom: Boolean` (default true) — "Allow typing a custom answer" — and its tool
-  description says: *"When `custom` is enabled (default), a 'Type your own answer'
-  option is added automatically; don't include 'Other' or catch-all options."* This
-  design mirrors that.
+- 现状：`UserInputPanel` 在 `options.len()` 这个下标上总有一个 Other 行
+  （`crates/rustcode-tuix/src/state.rs`），而 `build_user_input_rows`
+  （`crates/rustcode-tuix/src/render/retained.rs`）也总会把它渲染出来；
+  工具 schema 里没有任何办法把它关掉。
+- opencode 的 `question` 工具（已由本地源码核实）有一个按题生效的
+  `custom: Boolean`（默认 true）—— 语义是"允许输入自定义答案" —— 它的工具
+  description 里写着：*"当 `custom` 处于启用状态（默认）时，会自动追加一个
+  'Type your own answer' 选项；不要再自行加入 'Other' 或兜底选项。"*
+  本设计即照此对齐。
 
-## Design
+## 设计
 
-### #1 — the `custom` flag
+### 第 1 项 —— `custom` 标志
 
-**Tool (`crates/rustcode-capabilities/src/tools/request_user_input.rs`):**
-- Add `pub custom: bool` to `UserInputRequest`, `#[serde(default = "…true")]` so an
-  absent `custom` deserializes to `true` (backward-compatible: existing callers and
-  the current UI behavior are unchanged).
-- Add `custom` to the per-question JSON schema (`"type": "boolean"`), and to the
-  `questions[]` item schema. Update the tool `description`: a free-text
-  "type your own answer" row is added automatically unless you set `custom: false`;
-  set `custom: false` when your `options` are exhaustive; do NOT add your own
-  "Other"/catch-all option.
-- `custom` rides the payload for both the flat single question and each item of the
-  batch `questions[]` array (it is a field of `UserInputRequest`, already serialized).
+**工具（`crates/rustcode-capabilities/src/tools/request_user_input.rs`）：**
+- 给 `UserInputRequest` 加上 `pub custom: bool`，并用 `#[serde(default = "…true")]`，
+  这样缺省的 `custom` 会被反序列化为 `true`（向后兼容：既有调用方与
+  当前 UI 行为都不变）。
+- 把 `custom` 加进按题的 JSON schema（`"type": "boolean"`），以及 `questions[]`
+  的条目 schema。更新工具的 `description`：除非你设置了 `custom: false`，
+  否则会自动追加一个自由文本的 "type your own answer" 行；当你的 `options`
+  已经穷尽时请设 `custom: false`；**不要**自己再加一个 "Other" / 兜底选项。
+- `custom` 会随载荷一起传递，扁平的单问题与批量 `questions[]` 数组的每一项
+  都带上它（它是 `UserInputRequest` 的一个字段，本来就参与序列化）。
 
-**TUI state (`crates/rustcode-tuix/src/state.rs`):**
-- `UserInputPanel` gains `custom: bool` (from the request). When `custom == false`,
-  the Other row does not exist:
-  - `other_index` / `last_row` / the cursor range / the `checked` vec length /
-    `build_response` (no custom-text branch) / `is_other_row` all account for its
-    absence. When `custom == true`, every one of these is byte-for-byte the current
-    behavior.
-- `UserInputBatch` per-question panels inherit each question's own `custom` (they
-  are built from `UserInputRequest` via `UserInputPanel::new`).
+**TUI 状态（`crates/rustcode-tuix/src/state.rs`）：**
+- `UserInputPanel` 增加一个 `custom: bool`（来自请求）。当 `custom == false` 时，
+  Other 行不存在：
+  - `other_index` / `last_row` / 光标范围 / `checked` 向量长度 /
+    `build_response`（不再有自定义文本分支）/ `is_other_row` 都要考虑到它的缺失。
+    当 `custom == true` 时，上述每一项都与当前行为逐字节一致。
+- `UserInputBatch` 里的每题面板各自继承该题自己的 `custom`
+  （它们都是由 `UserInputRequest` 经 `UserInputPanel::new` 构造出来的）。
 
-**TUI render (`crates/rustcode-tuix/src/render/retained.rs`):**
-- `build_user_input_rows` renders the Other row only when `custom == true`;
-  `user_input_panel_row_count` drops the Other row's rows (and its checkbox slot in
-  multiple mode) when `custom == false`. The view (`UserInputPanelView`) carries
-  `custom`.
+**TUI 渲染（`crates/rustcode-tuix/src/render/retained.rs`）：**
+- `build_user_input_rows` 只在 `custom == true` 时渲染 Other 行；
+  `user_input_panel_row_count` 在 `custom == false` 时减掉 Other 行所占的行
+  （以及它在 multiple 模式下占用的复选框槽位）。视图（`UserInputPanelView`）
+  需要携带 `custom`。
 
-**webui (`webui/src/components/UserInputCard.tsx`, `webui/src/api.ts`):**
-- `UserInputQuestion` / `UserInputRequestEvent` gain `custom?: boolean` (absent ⇒
-  treated as `true`). The "Other" radio/checkbox + free-text input render only when
-  `custom !== false`.
+**webui（涉及 `webui/src/components/UserInputCard.tsx`、`webui/src/api.ts`）：**
+- `UserInputQuestion` / `UserInputRequestEvent` 增加 `custom?: boolean`
+  （缺省 ⇒ 视为 `true`）。那个 "Other" 单选框 / 复选框加自由文本输入框，
+  只在 `custom !== false` 时渲染。
 
-**daemon (`crates/rustcode-daemon/src/live_api.rs`):**
-- Forward `custom` on the single-question `user_input_request` event (the batch path
-  already carries it inside the `questions` array).
+**daemon（涉及 `crates/rustcode-daemon/src/live_api.rs`）：**
+- 在单问题的 `user_input_request` 事件上转发 `custom`
+  （批量路径已经通过 `questions` 数组带上它了）。
 
-### #2 — Submit-row spacing (multiple mode only)
+### 第 2 项 —— Submit 行的间距（仅 multiple 模式）
 
-**TUI render only (`crates/rustcode-tuix/src/render/retained.rs`):**
-- In `build_user_input_rows`, for multiple mode, push one blank spacer row before the
-  Submit row. Bump `user_input_panel_row_count` by 1 for multiple mode so the
-  row-count invariant (`row_count == build_user_input_rows(..).len()`) holds.
-- Single mode has no Submit row → unaffected.
+**仅涉及 TUI 渲染（`crates/rustcode-tuix/src/render/retained.rs`）：**
+- 在 `build_user_input_rows` 里，对 multiple 模式在 Submit 行之前压入一个
+  空白间隔行；并把 multiple 模式下的 `user_input_panel_row_count` 加 1，
+  使行数不变式（`row_count == build_user_input_rows(..).len()`）继续成立。
+- single 模式没有 Submit 行 → 不受影响。
 
-## Out of scope (deferred)
+## 范围之外（延后）
 
-- Changing multiple-mode selection semantics.
-- Enforcing that the model actually omits its own "Other" option — a duplicate is
-  cosmetic, not fatal; the tool-description guidance mitigates it.
-- A `custom` control for `text` mode (text mode has no options / Other row; N/A).
+- 修改 multiple 模式的选择语义。
+- 强制模型真的省掉它自己的 "Other" 选项 —— 重复只是观感问题，不致命；
+  靠工具 description 里的引导来缓解。
+- 给 `text` 模式也加 `custom` 控制（text 模式没有 options / Other 行，不适用）。
 
-## Testing
+## 测试
 
-- **Tool:** `custom` defaults to `true` when absent; parses `false` when present;
-  the schema includes `custom`. Existing parse/format tests unchanged.
-- **TUI state:** a `custom == false` single panel has no Other row (cursor range
-  ends at the last concrete option; `build_response` has no custom-text branch);
-  a `custom == false` multiple panel's Submit index shifts down by one; `custom ==
-  true` panels are unchanged.
-- **TUI render:** `custom == false` drops the Other row(s) and the row-count matches
-  `build_user_input_rows(..).len()`; multiple mode gains exactly one blank row above
-  Submit and the count matches; single/multiple `custom == true` panels keep their
-  current row counts except the new multiple-mode +1 blank.
-- **webui:** the Other row is hidden when `custom === false`, shown otherwise.
-- Run existing `request_user_input` + tuix panel tests — single-question default
-  (`custom` absent ⇒ true) must be unchanged except the multiple-mode Submit blank.
+- **工具：** 缺省时 `custom` 默认为 `true`；显式给出时能解析为 `false`；
+  schema 中包含 `custom`。既有的解析 / 格式化测试不变。
+- **TUI 状态：** `custom == false` 的 single 面板没有 Other 行（光标范围
+  止于最后一个具体选项；`build_response` 没有自定义文本分支）；
+  `custom == false` 的 multiple 面板，其 Submit 下标下移一位；
+  `custom == true` 的面板保持原样。
+- **TUI 渲染：** `custom == false` 时去掉 Other 行，且行数与
+  `build_user_input_rows(..).len()` 相符；multiple 模式在 Submit 上方
+  恰好多出一个空行，且行数相符；single/multiple 且 custom == true 的面板，
+  除 multiple 模式新增的 +1 空行外，行数保持当前值。
+- **webui：** `custom === false` 时隐藏 Other 行，否则显示。
+- 运行已有的 `request_user_input` + tuix 面板测试 —— 单问题默认路径
+  （`custom` 缺省 ⇒ true）除 multiple 模式新增的 Submit 空行外必须保持不变。
 
-## Risks / notes
+## 风险 / 备注
 
-- **Row-count invariant** (`user_input_panel_row_count == build_user_input_rows.len()`)
-  is the main hazard — both the `custom == false` path and the new multiple-mode
-  blank must be reflected in BOTH functions. The existing invariant tests + new
-  cases guard it.
-- **Existing tests** assert specific multiple-mode row counts; the +1 blank will
-  change those expected numbers — update them as part of the change.
-- **Working-tree note:** `crates/rustcode-tuix/src/state.rs` currently has unrelated
-  uncommitted changes (not part of this work). Implementation must stage only this
-  change's hunks (`git add -p`) and never commit the unrelated WIP.
+- **行数不变式**（`user_input_panel_row_count == build_user_input_rows.len()`）
+  是主要隐患 —— `custom == false` 这条路径与 multiple 模式新增的空行，
+  都必须同时反映到**两个**函数里。由既有的不变式测试加上新增用例来守住。
+- **既有测试**会断言 multiple 模式的具体行数；新增的 +1 空行会改变这些
+  期望值 —— 应作为本次改动的一部分同步更新。
+- **工作区提示：** `crates/rustcode-tuix/src/state.rs` 目前带有与本工作无关的
+  未提交改动。实现时只应暂存本次改动相关的 hunk（`git add -p`），
+  绝不把那些无关的 WIP 一起提交。

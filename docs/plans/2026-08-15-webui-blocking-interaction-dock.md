@@ -1,54 +1,54 @@
-# WebUI Blocking Interaction Dock Implementation Plan
+# WebUI 阻塞式交互停靠栏实施计划
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **致 Claude：** 必需子技能：使用 superpowers:executing-plans 按任务逐条实施本计划。
 
-**Goal:** Replace full-screen overlays for turn-blocking approvals, user questions, and policy recovery choices with one composer-area interaction dock that leaves conversation context visible and scrollable.
+**目标：** 用统一的 composer 区域交互停靠栏取代面向轮次阻塞型审批、用户提问与策略恢复选择的全屏遮罩，使会话上下文保持可见且可滚动。
 
-**Architecture:** Keep `/chat` and `/live` request ownership, response APIs, and terminal cleanup unchanged. Move only presentation into `Chat`: app-owned `/chat` permission state is passed down, while live permission, structured user input, and policy intervention retain their existing state owners. A shared dock shell replaces the normal composer while one blocking interaction is pending.
+**架构：** `/chat` 与 `/live` 的请求归属、响应 API 以及终态清理保持不变。只把呈现层移入 `Chat`：应用自有的 `/chat` 权限状态向下传递，而 live 权限、结构化用户输入与策略干预沿用各自现有的状态所有者。当存在一个待处理的阻塞交互时，共享的停靠栏外壳会取代常规 composer。
 
-**Tech Stack:** Preact, TypeScript, CSS, Node test runner.
+**技术栈：** Preact、TypeScript、CSS、Node test runner。
 
 ---
 
-### Task 1: Lock the interaction-shell contract with tests
+### 任务 1：用测试锁定交互外壳契约
 
-**Files:**
-- Modify: `webui/src/lib/userInputCard.test.ts`
-- Create: `webui/src/lib/interactionDock.test.ts`
+**文件：**
+- 修改：`webui/src/lib/userInputCard.test.ts`
+- 新建：`webui/src/lib/interactionDock.test.ts`
 
-1. Add failing source-contract tests proving turn-blocking cards no longer use `.modal-overlay`.
-2. Add a failing test proving the dock replaces the composer and has an internally scrollable body.
-3. Run the focused WebUI tests and confirm they fail for the expected old overlay markup.
+1. 补充失败的源码契约测试，证明轮次阻塞型卡片不再使用 `.modal-overlay`。
+2. 补充一个失败测试，证明停靠栏取代 composer 且具备内部可滚动的正文区。
+3. 运行聚焦的 WebUI 测试，确认它们因预期的旧遮罩标记而失败。
 
-### Task 2: Add the shared dock presentation
+### 任务 2：新增共享停靠栏呈现
 
-**Files:**
-- Create: `webui/src/components/InteractionDock.tsx`
-- Modify: `webui/src/components/PermissionCard.tsx`
-- Modify: `webui/src/components/UserInputCard.tsx`
-- Modify: `webui/src/components/PolicyInterventionCard.tsx`
-- Modify: `webui/src/styles/app.css`
+**文件：**
+- 新建：`webui/src/components/InteractionDock.tsx`
+- 修改：`webui/src/components/PermissionCard.tsx`
+- 修改：`webui/src/components/UserInputCard.tsx`
+- 修改：`webui/src/components/PolicyInterventionCard.tsx`
+- 修改：`webui/src/styles/app.css`
 
-1. Add a non-modal region shell with fixed header/footer and scrollable body.
-2. Convert all three blocking cards to the shared shell without changing decisions or response payloads.
-3. Add responsive height caps and mobile-safe sizing.
-4. Run the component/source-contract tests.
+1. 新增非模态区域外壳，带固定 header/footer 与可滚动正文。
+2. 把三张阻塞型卡片全部改为共享外壳，不改变决策与响应载荷。
+3. 增加自适应高度上限与移动端安全的尺寸。
+4. 运行组件/源码契约测试。
 
-### Task 3: Route every blocking interaction through the composer seat
+### 任务 3：把所有阻塞交互路由到 composer 席位
 
-**Files:**
-- Modify: `webui/src/components/Chat.tsx`
-- Modify: `webui/src/app.tsx`
-- Modify: `webui/src/lib/interactionDock.test.ts`
+**文件：**
+- 修改：`webui/src/components/Chat.tsx`
+- 修改：`webui/src/app.tsx`
+- 修改：`webui/src/lib/interactionDock.test.ts`
 
-1. Pass the app-owned `/chat` permission request into `Chat`.
-2. Select the active blocking interaction from `/chat` permission, `/live` permission, user input, and policy recovery.
-3. Replace the landing and regular composer contents with the dock while pending; restore the composer on terminal cleanup.
-4. Verify ordinary management dialogs still use `.modal-overlay`.
+1. 把应用自有的 `/chat` 权限请求传入 `Chat`。
+2. 从 `/chat` 权限、`/live` 权限、用户输入与策略恢复中选出当前活跃的阻塞交互。
+3. 挂起期间用停靠栏替换落地页与常规 composer 内容；终态清理时恢复 composer。
+4. 确认常规管理对话框仍使用 `.modal-overlay`。
 
-### Task 4: Verify behavior and regression surface
+### 任务 4：验证行为与回归面
 
-1. Run focused WebUI tests.
-2. Run the WebUI build/type check.
-3. Review the final diff for accidental Rust or management-dialog changes.
-4. Report that browser visual/mobile behavior still requires a manual screenshot check if no browser fixture is available.
+1. 运行聚焦的 WebUI 测试。
+2. 运行 WebUI 构建/类型检查。
+3. 复查最终 diff，排查意外的 Rust 或管理对话框改动。
+4. 报告说明：若无可用浏览器夹具，浏览器视觉/移动端行为仍需人工截图核对。

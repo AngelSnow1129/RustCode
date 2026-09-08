@@ -9,21 +9,17 @@
 </div>
 
 <p align="center">
-  <strong>Open-source terminal AI coding agent written in Rust</strong>
+  <strong>用 Rust 编写的开源终端 AI 编码助手</strong>
 </p>
 
 <p align="center">
-  English · <a href="./README.zh-CN.md">简体中文</a>
-</p>
-
-<p align="center">
-  <a href="#installation">Install</a> ·
-  <a href="#quick-start">Quick Start</a> ·
-  <a href="#features">Features</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="#development">Development</a> ·
-  <a href="#contributing">Contributing</a> ·
-  <a href="#community">Community</a>
+  <a href="#安装">安装</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#功能特性">功能</a> ·
+  <a href="#架构">架构</a> ·
+  <a href="#开发">开发</a> ·
+  <a href="#贡献指南">贡献</a> ·
+  <a href="#社区交流">社区</a>
 </p>
 
 <p align="center">
@@ -35,149 +31,132 @@
 
 ---
 
-> **This project is 100% AI-generated.** Every line of code, every architectural decision's implementation, and every commit was written by AI. The human developer serves solely as the decision-maker and product manager — defining what to build, not how to build it.
+> **本项目 100% 由 AI 生成。** 每一行代码、每一个架构决策的实现、每一次提交都由 AI 完成。人类开发者仅担任决策者和产品经理的角色——定义"要做什么"，而不是"怎么做"。
 
 ---
 
-RustCode is an AI coding agent that lives in your terminal. Give it a task in natural language, and it will read your codebase, edit files, run commands, and verify its work — autonomously.
+RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它一个任务，它会自动阅读代码、编辑文件、执行命令、验证结果——全程自主完成。
 
-Think of it as an open-source alternative to Claude Code / Cursor Agent, but running entirely in your terminal and connecting to any OpenAI-compatible API.
+你可以把它理解为 Claude Code / Cursor Agent 的开源替代品，完全运行在终端里，并且可以接入任何兼容 OpenAI 接口的模型。
 
----
+> **Fork 声明。** 本仓库是上游项目的二次开发 fork。相对上游：(1) 将产品重命名为 `rustcode`（crate、二进制、配置目录 `~/.rustcode`、`RUSTCODE_*` 环境变量）；(2) **完整移除**遥测/分析上报——`rustcode-telemetry` crate 及所有上报调用点均已删除；(3) **完全解除平台绑定**——不硬编码任何签名网关 host，默认不注册平台专属 REST 工具，`/login` 可选：直接在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key` 即可开始使用；(4) **默认简体中文**——TUI/CLI 界面与 Agent 回复均默认中文（可通过 `--lang en`、配置项 `language` 或 `LANG`/`LC_ALL` 切换为英文）。原始 MIT 许可证与版权（© 2026 Yubang Xu）保留于 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)，完整归属见 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)。
 
-> **Fork notice.** This repository is a secondary-development fork of an
-> upstream project. Relative to upstream it (1) renames the
-> product to `rustcode` (crates, binaries, config dir `~/.rustcode`, `RUSTCODE_*`
-> env vars); (2) removes **all** telemetry/analytics — the `rustcode-telemetry`
-> crate and every reporting call site are gone; (3) **fully decouples from any
-> platform** — no host is hard-coded as a signing gateway, no platform-specific
-> REST tools are registered by default, and `/login` is optional: configure a
-> provider directly in `~/.rustcode/config.toml` with your own `base_url` and
-> `api_key` and start coding; (4) **defaults to Simplified Chinese** for both the
-> TUI/CLI interface and agent replies (override with `--lang en`, the config
-> `language` field, or `LANG`/`LC_ALL`). The original MIT license and copyright (© 2026 Yubang
-> Xu) are preserved in [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md), with
-> full attribution in [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md).
+## 功能特性
 
-## Features
+### Agent 循环
 
-### Agent Loop
+- **自主多步执行** —— 读文件、改代码、跑测试、修错误，循环直到完成
+- **验证回路** —— 每次编辑后自动跑语法检查确认无误，才算任务完成
+- **动态步数预算** —— 根据编辑文件数动态放宽步数上限，同时封顶以控成本
+- **循环检测** —— 识别并打破重复调用同一工具的死循环
+- **三层 JSON 修复** —— 修复畸形工具调用参数
+- **Turn 级 datalog** —— 结构化记录每一轮工具调用，便于回放、调试和评测
 
-- **Autonomous multi-step execution** — reads files, edits code, runs tests, fixes errors, all in a loop
-- **Verification loop** — automatically verifies edits via syntax checks before declaring success
-- **Dynamic step budget** — scales with the number of edited files, capped per turn to bound cost
-- **Loop detection** — detects and breaks out of repetitive tool-call patterns
-- **3-layer JSON repair** — recovers malformed tool-call arguments
-- **Turn-level datalog** — structured per-turn logs for replay, debugging, and eval harnesses
+### 模式与自主
 
-### Modes & Autonomy
+- **Plan / Build 模式** —— `/plan` 切换到只读探索模式（agent 只调研、不改文件），`/build` 切回完整执行
+- **目标模式** —— `/goal <text>` 设定完成条件后，agent 会一轮接一轮自动循环执行，直到目标达成
+- **代码审查** —— `/review` 审查当前改动，`/review staged` 审查暂存区，`/review <base>` 对比某个基准 ref
+- **后台会话** —— `/bg` 把任务放到分离的槽位执行，长任务进行时你仍可继续使用 TUI
 
-- **Plan / Build modes** — `/plan` switches to read-only exploration (the agent investigates without touching files); `/build` switches back to full execution
-- **Goal mode** — `/goal <text>` sets a completion condition and the agent loops autonomously, turn after turn, until the goal is met
-- **Code review** — `/review` reviews your current changes, `/review staged` the staged diff, and `/review <base>` against a base ref
-- **Background sessions** — `/bg` runs work in detached slots so you can keep using the TUI while a long task progresses
+### 内置工具
 
-### Built-in Tools
+文件与 Shell：
 
-File & shell:
+- `read_file`、`write_file`、`edit_file`、`search_replace`
+- `bash`、`grep`、`glob`、`list_directory`、`change_dir`
+- `web_search`、`web_fetch`
 
-- `read_file`, `write_file`, `edit_file`, `search_replace`
-- `bash`, `grep`, `glob`, `list_directory`, `change_dir`
-- `web_search`, `web_fetch`
+代码图谱（语言感知的代码智能）：
 
-Code graph (language-aware code intelligence):
+- `list_symbols`、`read_symbol`、`find_references`
+- `trace_callers`、`trace_callees`、`trace_chain`
+- `file_deps`、`blast_radius`
 
-- `list_symbols`, `read_symbol`, `find_references`
-- `trace_callers`, `trace_callees`, `trace_chain`
-- `file_deps`, `blast_radius`
+自动化：
 
-Automation:
+- `auto_fix` —— 自动 lint / 类型检查修复循环
+- `use_skill` —— 调用用户自定义 skill
 
-- `auto_fix` — automatic lint/typecheck fix loop
-- `use_skill` — invoke a user-defined skill
+### 多模型支持
 
-### Multi-Provider Support
+支持任何实现了 OpenAI function calling 接口的模型：
 
-Connect to any LLM that supports OpenAI's function-calling API:
+| 提供方               | Function Calling | 已验证模型                                         |
+| -------------------- | :--------------: | -------------------------------------------------- |
+| Claude（Anthropic）  |       支持       | Claude Sonnet 4.5/4.6、Opus 4.6                    |
+| OpenAI               |       支持       | GPT-4o、GPT-4.1                                    |
+| DeepSeek             |       支持       | DeepSeek V3、DeepSeek R1、DeepSeek V4              |
+| 智谱（GLM）          |       支持       | GLM-4、GLM-5、GLM-5.2                              |
+| 通义千问（阿里）     |       支持       | Qwen-Plus、Qwen-Max                                |
+| SiliconFlow          |       支持       | 多种开源模型                                       |
+| Ollama（本地）       |     部分支持     | Llama 3、Qwen2 等                                  |
+| 任意 OpenAI 兼容接口 |       支持       | —                                                  |
 
-| Provider                  | Function Calling | Tested Models                         |
-| ------------------------- | :--------------: | ------------------------------------- |
-| Claude (Anthropic)        |       Yes        | Claude Sonnet 4.5/4.6, Opus 4.6       |
-| OpenAI                    |       Yes        | GPT-4o, GPT-4.1                       |
-| DeepSeek                  |       Yes        | DeepSeek V3, DeepSeek R1, DeepSeek V4 |
-| Zhipu (GLM)               |       Yes        | GLM-4, GLM-5, GLM-5.2                 |
-| Qwen (Alibaba)            |       Yes        | Qwen-Plus, Qwen-Max                   |
-| SiliconFlow               |       Yes        | Various open models                   |
-| Ollama (local)            |     Partial      | Llama 3, Qwen2, etc.                  |
-| Any OpenAI-compatible API |       Yes        | —                                     |
+### 会话与登录
 
-### Sessions & Login
+- **持久化会话** —— 每次对话都会保存；命令行可用 `rustcode --continue` 或 `-c` 继续上一次会话，在 TUI 内可用 `/resume` 恢复或切换
+- **第三方供应商（BYO）** —— 在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key`（或用 `/provider`），无需注册账号。这是开源默认构建的使用方式
+- **OAuth 登录** —— `/login`（或 `rustcode login`）将 CLI 与托管账号绑定；**仅发行版本**（开源默认构建不提供托管服务）
+- **SSO 登录** —— `/login-with-sso`，供支持 SSO 的托管部署使用（仅发行版本）
+- **Headless 模式** —— `rustcode -p "..."` 非交互式跑一条 prompt，结果直接输出到 stdout（类似 Claude Code 的 `-p`）；需要确认的 `bash` 会自动批准，其他需要确认的工具会被拒绝
+- **Daemon 模式** —— `rustcode-daemon` 提供 HTTP API，用于查询会话历史和 SSE 流式对话
 
-- **Persistent sessions** — every conversation is saved; continue the last session with `rustcode --continue` / `-c`, or resume/switch inside the TUI with `/resume`
-- **Third-party providers (BYO)** — configure your own `base_url` + `api_key` in `~/.rustcode/config.toml` (or via `/provider`); no account or signup needed. This is the default in the open-source build
-- **OAuth login** — `/login` (or `rustcode login`) pairs your CLI with a managed account; **distribution builds only** (the open-source build ships no managed service)
-- **SSO login** — `/login-with-sso` for SSO-enabled managed deployments (distribution builds only)
-- **Headless mode** — `rustcode -p "..."` runs a single prompt non-interactively and streams the reply on stdout (Claude Code `-p` style); approval-required `bash` calls are auto-approved, while other approval-required tools are denied
-- **Daemon mode** — `rustcode-daemon` exposes an HTTP API for session history and SSE streaming chat
+### 终端 UI
 
-### Terminal UI
-
-- **Real-time streaming** with markdown rendering and syntax highlighting
-- **Code blocks** with language labels, line numbers, and `base16-ocean.dark` theme
-- **Multi-line input** with Shift+Enter (or `\` + Enter), auto-growing height, input history
-- **Task completion notifications** — long-running tasks trigger terminal-native notifications first (kitty / WezTerm / iTerm2), falling back to OS-native alerts
-- **Text selection** with mouse drag, auto-scroll, and clipboard copy
-- **Slash commands** — `/model`, `/provider`, `/resume`, `/bg`, `/diff`, `/undo`, `/cost`, `/clear`, `/compact`, etc. (see table below)
-- **File attachment** — paste file paths to attach content as context
-- **Bracketed paste** — long paste content collapsed to a compact indicator
-- **Skills** — user-defined commands loaded from your skill directory, invoked like any slash command
+- **实时流式输出** —— Markdown 渲染 + 语法高亮
+- **代码块** —— 语言标签、行号、`base16-ocean.dark` 主题
+- **多行输入** —— Shift+Enter 或 `\` + Enter 换行、高度自适应、历史记录
+- **任务完成通知** —— 长任务结束后优先走终端原生通知协议，必要时回退到系统通知
+- **文本选择** —— 鼠标拖选、自动滚动、复制到剪贴板
+- **斜杠命令** —— `/model`、`/provider`、`/resume`、`/bg`、`/diff`、`/undo`、`/cost`、`/clear`、`/compact` 等（完整列表见下）
+- **文件附加** —— 粘贴文件路径即可把内容作为上下文带入
+- **Bracketed paste** —— 长文本粘贴自动折叠为紧凑的指示器
+- **Skills** —— 从 skill 目录加载的用户自定义命令，像普通斜杠命令一样调用
 
 ### Web UI
 
-- **`/webui`** (in the TUI) or **`rustcode webui`** (CLI) launches a local browser UI as an alternative to the terminal interface — same agent, same sessions, rendered in your browser
-- **Loopback only** — the server binds to `127.0.0.1` and uses a one-time token; nothing is exposed to the network
-- **`/webui stop`** stops the in-process server (a later `/webui` restarts it)
+- **`/webui`**（TUI 内）或 **`rustcode webui`**（命令行）会在浏览器里打开一个 Web 界面，作为终端界面之外的另一种选择——同一个 agent、同一份会话，渲染在浏览器中
+- **默认绑定 0.0.0.0** —— rustcode webui 与 rustcode daemon 两个子命令默认绑定所有网卡，局域网内的其它设备也能访问；仅靠一次性 token 保护、没有 TLS。显式改回 `127.0.0.1` 即仅本机可访问
+- **TUI 内的 /webui 启动路径默认仍是 127.0.0.1** —— 跨设备访问要显式加 --host 0.0.0.0（等价写法 lan）
+- **无需预先配置 provider** —— 没有 provider 也能打开 Web UI；可在网页「设置」中可视化配置 provider：新增、编辑、删除、设为默认，以及发现模型
+- **`/webui stop`** 停止进程内 server（之后再次 `/webui` 会重新启动）
 
-### App Remote Access
+### App 远程访问
 
-- **`/app`** (in the TUI) enables mobile remote access — prints a QR code; scan it with the mobile app from any network to connect to your current session
-- **Any-network reachable** — your PC connects to a public relay via a reverse WSS tunnel; the phone reaches your PC through the relay. No public IP, DDNS, or port forwarding required
-- **Bidirectional real-time sync** — messages from either end appear on the other in real time (streaming replies, tool call cards, token usage)
-- **Remote commands** — the phone can run `/status`, `/cost`, `/diff`, `/whoami` etc., which execute on the desktop and echo results back
-- **Switch projects / sessions** — switch projects or open a history session on the phone, and the desktop follows immediately
-- **Model sync** — switching models on either end keeps the other in sync
-- **`/app stop`** disconnects remote access
+- **`/app`**（TUI 内）开启移动端远程访问，终端打印二维码，用手机 App 扫码即可在任意网络下连入当前对话
+- **任意网络可达** —— 电脑通过反向 WSS 隧道连接到公网中继，手机经中继访问电脑，不需要公网 IP、DDNS 或路由器端口映射
+- **双向实时同步** —— 任一端发消息，另一端实时显示（AI 流式回复、工具调用卡片、token 用量）
+- **远程命令** —— 手机端支持 `/status`、`/cost`、`/diff`、`/whoami` 等斜杠命令，在桌面端执行并回显
+- **切项目 / 切会话** —— 手机端切换项目或点开历史对话，桌面端跟随切换
+- **模型双向同步** —— 任一端切换模型，另一端同步跟随
+- **`/app stop`** 断开远程访问
 
-### Safety
+### 安全性
 
-- **Destructive command detection** — `rm -rf`, `git push --force`, `DROP TABLE`, etc. require explicit approval
-- **Path-aware confirmations** — external reads, sensitive paths, and all writes outside the workspace can require confirmation depending on risk level
-- **Sensitive file protection** — protected system paths, credential directories, shell configs, `.env` files, and key/cert files receive stronger confirmation rules
-- **Shell bypass protection** — common shell file commands like `cat`, `head`, `ls`, `cp`, `mv`, and `tee` inherit the same path approval model as file tools
-- **Per-session permission grants** — approve once per tool pattern, or always-allow
-- **Source file deletion requires approval** — `rm` on code files is never auto-approved
-- **Undo** — `/undo` rolls back the last turn's file edits via file-history snapshots
+- **破坏性命令检测** —— `rm -rf`、`git push --force`、`DROP TABLE` 等需要显式确认
+- **按路径分层确认** —— 工作区外读取、敏感路径访问、以及所有工作区外写入会按风险等级请求确认
+- **敏感文件保护** —— 系统保护路径、凭证目录、shell 配置、`.env` 文件、密钥/证书文件会触发更强的确认规则
+- **Shell 绕过防护** —— `cat`、`head`、`ls`、`cp`、`mv`、`tee` 等常见 shell 文件命令会继承和文件工具一致的路径审批模型
+- **按会话的权限授予** —— 单条工具模式一次授权，或设为始终允许
+- **源码文件删除必须确认** —— 对代码文件执行 `rm` 从不自动放行
+- **撤销** —— `/undo` 通过文件历史快照回滚上一轮的所有文件编辑
 
-See [Permission Model](./docs/security/permission-model.md) for the full design and current boundaries.
+完整设计与当前边界见 [权限模型](./docs/security/permission-model.md)。
 
-### Privacy
+### 隐私
 
-- [CHECK] Zero telemetry — this fork (RustCode) has removed the entire reporting
-  pipeline (`rustcode-telemetry` crate deleted). No events, usage stats, or crash
-  reports are sent anywhere. See [docs/telemetry.md](docs/telemetry.md) for what was
-  removed, and [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)
-  and [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md) for provenance.
+- **零遥测** —— 本分支已删除 `rustcode-telemetry` crate 及全部上报调用点，不采集、不发送任何使用事件；详见 [docs/telemetry.md](docs/telemetry.md)，溯源见 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md) 与 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)
 
-## Installation
+## 安装
 
-### Installation Script (recommended)
+### 安装脚本（推荐）
 
-The installer ships no built-in release host: obtain `install.ps1` (Windows
-PowerShell) or `install.sh` (Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS
-PC) from your distribution channel — e.g. the release assets page of the
-channel you got RustCode from — and run it as follows.
+安装脚本不内置任何发布站点 host：请从你的分发渠道（即你获取 RustCode 的渠道，
+例如其发布资产页面）获取 `install.ps1`（Windows PowerShell）或 `install.sh`
+（Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC），然后按以下方式运行。
 
-For Windows PowerShell users:
+Windows PowerShell 用户：
 
 ```powershell
 # Obtain install.ps1 from your distribution channel's release assets, then
@@ -186,7 +165,7 @@ $env:RUSTCODE_RELEASE_BASE = "https://example.com/your-host/releases/download"
 ./install.ps1
 ```
 
-For Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC users:
+Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC 用户：
 
 ```bash
 # Obtain install.sh from your distribution channel, then point it at that
@@ -194,19 +173,16 @@ For Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC users:
 RUSTCODE_RELEASE_BASE=https://example.com/your-host/releases/download sh install.sh
 ```
 
-The script downloads the prebuilt binary for the latest release
-(auto-detected from the release API when your channel provides one), installs
-it, and adds it to your `PATH`. Builds from a distribution channel that ships
-the optional managed-signing component can use `/login` with that channel's
-managed CodingPlan endpoint (see "About the optional CodingPlan gateway"
-below); bring-your-own-key third-party providers need no signer.
+脚本会下载最新版本的预编译二进制（当渠道提供发布 API 时自动探测最新版本），
+安装并写入 `PATH`。由分发渠道提供、包含可选托管签名组件的构建，可通过 `/login`
+使用该渠道的托管 CodingPlan 端点（见下文「关于可选的 CodingPlan 网关」）；
+自带密钥（BYO）的第三方 provider 无需签名器即可使用。
 
-Environment variable overrides: `RUSTCODE_RELEASE_BASE` sets the download root
-that hosts the release binaries (required for the shell installer),
-`RUSTCODE_VERSION` pins a release tag, and `RUSTCODE_PREFIX` picks the install
-directory (see the script headers for details).
+环境变量覆盖项：`RUSTCODE_RELEASE_BASE` 指定托管发布二进制的下载根目录
+（shell 安装器必填），`RUSTCODE_VERSION` 用于固定某个发布版本，`RUSTCODE_PREFIX`
+用于指定安装目录（详见脚本头部注释）。
 
-### From Source
+### 从源码构建
 
 ```bash
 # Clone from your distribution channel, e.g.:
@@ -214,13 +190,19 @@ git clone https://example.com/<your-org>/rustcode.git
 cd rustcode
 ```
 
-#### WebUI build (required for the webui feature — runs before the Rust build)
+#### WebUI 构建（使用 webui 功能时需要 —— 在 Rust 构建之前进行）
 
-The `rustcode webui` browser UI is embedded into the binary from `webui/dist/`,
-which is gitignored (not committed). The Rust build needs no Node.js toolchain
-and succeeds without it, but a binary built without `webui/dist/` serves
-`webui not built` for every webui page. To get a working webui, build the
-frontend before the Rust build:
+`rustcode webui` 浏览器 UI 从 `webui/dist/` 嵌入二进制，该目录被 gitignore、不入库。
+Rust 构建本身不需要 Node.js 工具链，缺少该目录也能编译通过，但构建出的二进制在所有
+webui 页面上都会返回 `webui not built`。如需可用的 webui，请在 Rust 构建之前先构建前端：
+
+```bash
+./scripts/build-webui.sh
+```
+
+该脚本会依次执行 npm ci 与 vite build，产物输出 webui/dist/，并在成功结尾打印下一步
+cargo clean -p rustcode-daemon。不使用 webui 可跳过这一步（发布脚本会在 `cargo build` 前自动调用该脚本）。
+或手工执行等价步骤：
 
 ```bash
 cd webui
@@ -232,22 +214,18 @@ npm run build    # outputs webui/dist/, embedded by the next Rust build
 cd ..
 ```
 
-Skip this step if you don't use the webui. The release scripts build the
-frontend automatically before `cargo build`. After rebuilding the frontend,
-force a daemon recompile so the new bundle is re-embedded (`cargo clean -p
-rustcode-daemon`) — cargo does not track changes under `webui/dist/`. Then
-build and install:
+注意 cargo build 不会触发 npm，也不跟踪 `webui/dist/` 的变化：重新构建前端后，必须执行上面那条 (`cargo clean -p
+rustcode-daemon`) — cargo does not track changes under `webui/dist/`，需重编 daemon 才能嵌入新 bundle。然后构建并安装：
 
 ```bash
 cargo install --path crates/rustcode-cli --locked
 ```
 
-The binary will be generated at `target/release/rustcode` and installed to
-`~/.cargo/bin/rustcode` for macOS / Linux / HarmonyOS PC and `$env:USERPROFILE/.cargo/bin/rustcode.exe`
-for Windows. Make sure that `~/.cargo/bin` (or `%USERPROFILE%\.cargo\bin` on Windows) is
-in your `PATH`.
+编译产物位于 `target/release/rustcode`。在 macOS / Linux / HarmonyOS PC 其被安装到 `~/.cargo/bin/rustcode`，
+在 Windows 系统上其被安装到 `$env:USERPROFILE/.cargo/bin/rustcode.exe`。请确保 `~/.cargo/bin`
+（或 `%USERPROFILE%\.cargo\bin`）已经被添加到 `PATH` 环境变量中。
 
-To compile without installing, run:
+如果只想要编译，不要安装，运行：
 
 ```bash
 # Builds only the CLI package (`rustcode`) — skips the standalone
@@ -255,47 +233,39 @@ To compile without installing, run:
 cargo build --release -p rustcode
 ```
 
-and the binary will be generated at `target/release/rustcode`.
+编译产物会在 `target/release/rustcode` 生成。
 
-### About the optional CodingPlan gateway (closed-source signer)
+### 关于可选的 CodingPlan 网关（闭源签名）
 
-`crates/rustcode-codingplan-crypto/` in this repository is an open-source
-placeholder. The real request-signing implementation is closed-source and is
-only overlaid by distribution release pipelines that opt into the managed
-CodingPlan gateway, so a self-built binary cannot sign requests to such a
-managed endpoint. Binaries obtained from a distribution channel that ships
-the signer (for example via the installer above or the package managers
-below) include it. In practice this means:
+本仓库中的 `crates/rustcode-codingplan-crypto/` 是一个开源占位实现。真正的请求签名实现是闭源的，
+只由选择接入托管 CodingPlan 网关的分发渠道发布流水线覆盖注入，因此自行构建的二进制无法对
+这类托管端点进行请求签名。从附带签名器的分发渠道获取的二进制（例如通过上方安装脚本或下方
+包管理器安装的渠道构建）包含签名器。实际影响：
 
-- `/login` cannot claim a managed gateway's **free CodingPlan models** in
-  self-built binaries. Signing is kept closed-source to prevent the free plan
-  from being abused outside that channel's builds.
-- Connecting **your own third-party providers** (bring your own key) is
-  unaffected and is the default: any provider configured under `providers.*`
-  in `~/.rustcode/config.toml` (DeepSeek, OpenAI, or any OpenAI-compatible
-  endpoint) works without the signer.
+- 自行构建的二进制中，`/login` 无法领取托管网关的**免费 CodingPlan 模型**。签名保持闭源是为了
+  防止免费计划在该渠道构建之外被滥用。
+- 连接**你自己的第三方 API 提供商**（自带密钥 / BYO，也是默认方式）不受影响：在
+  `~/.rustcode/config.toml` 的 `providers.*` 下配置的任意提供商（DeepSeek、OpenAI 或任意
+  OpenAI 兼容端点）无需签名器即可使用。
 
-### Package Managers
+### 包管理器安装
 
-RustCode CLI can also be installed via the following package managers:
+除了从源码构建外，RustCode CLI 也可以通过以下包管理器安装：
 
 ```bash
 # Install using npm
 npm install -g @rustcode/rustcode
-
 # Install using Homebrew
 brew install --cask rustcode
 ```
 
-### Shell Completion
+### Shell 补全
 
-RustCode can generate completion scripts for Bash, Zsh, Fish, PowerShell, and
-Elvish. For example:
+RustCode 可为 Bash、Zsh、Fish、PowerShell 和 Elvish 生成补全脚本。例如：
 
 ```bash
 # Bash (current session)
 source <(rustcode completion bash)
-
 # Zsh (persistent)
 mkdir -p ~/.zfunc
 rustcode completion zsh > ~/.zfunc/_rustcode
@@ -306,45 +276,40 @@ mkdir -p ~/.config/fish/completions
 rustcode completion fish > ~/.config/fish/completions/rustcode.fish
 ```
 
-For PowerShell, run `rustcode completion powershell | Out-String |
-Invoke-Expression`. Run `rustcode completion --help` for the complete shell
-list. This affects command-line completion only; inside the TUI, `Tab` completes
-input and `Shift+Tab` cycles execution mode.
+PowerShell 可运行 `rustcode completion powershell | Out-String |
+Invoke-Expression`. Run `rustcode completion --help` 可查看完整 Shell 列表。该能力只作用于
+外部命令行；TUI 内仍由 `Tab` 完成输入补全、`Shift+Tab` 切换执行模式。
 
-### Requirements
+### 依赖
 
-- Rust 1.88+ (for building; older Cargo versions cannot parse the current lockfile)
-- An API key from any supported provider (bring your own key; or a platform
-  account for `/login` with a managed gateway — the free CodingPlan models
-  require a channel build that ships the signer; see "About the optional
-  CodingPlan gateway" above)
+- Rust 1.88+（用于构建；更旧的 Cargo 无法解析当前 lock 文件）
+- 任一支持的模型提供方的 API Key（自带密钥 / BYO；或使用 `/login` 接入托管网关——免费 CodingPlan 模型需要附带签名器的渠道构建，见上文「关于可选的 CodingPlan 网关」）
 
-### Permissions — don't run with `sudo`
+### 权限 —— 不要用 `sudo` 启动
 
-Run RustCode as your **normal user**, never with `sudo`. RustCode keeps its
-config, sessions, and logs under `~/.rustcode`; running once as root leaves
-root-owned files there, so every later non-root start fails at runtime init with:
+请用**普通用户**运行 RustCode，切勿 `sudo`。RustCode 把配置、会话、日志都放在
+`~/.rustcode`；一旦用 root 跑过一次，就会在那里留下 root 属主的文件，之后非 root
+启动会在运行时初始化阶段报错：
 
 ```
 coding runtime assemble failed: Permission denied (os error 13)
 ```
 
-(the message may say `prepare` instead of `assemble` — same cause.) If you hit
-this, reclaim ownership and stop using `sudo`:
+（提示里可能是 `prepare` 而非 `assemble`——同一个原因。）遇到这种情况，把属主收回
+并停止使用 `sudo`：
 
 ```bash
 sudo chown -R "$(id -un):$(id -gn)" ~/.rustcode
 rustcode        # start WITHOUT sudo
 ```
 
-On a Linux guest, a working directory on a VirtualBox shared folder
-(`/media/sf_*`, owned by `root:vboxsf`) can also trigger permission errors — add
-yourself to the group with `sudo usermod -aG vboxsf "$USER"` and re-login, rather
-than using `sudo`.
+在 Linux 客户机上，工作目录若在 VirtualBox 共享文件夹（`/media/sf_*`，属主
+`root:vboxsf`）也会导致权限错误——用 `sudo usermod -aG vboxsf "$USER"` 把自己加进
+该组（重新登录后生效），而不是用 `sudo`。
 
-### Uninstall
+### 卸载
 
-Remove RustCode and (optionally) its data:
+移除 RustCode 及（可选）其数据：
 
 ```bash
 rustcode uninstall                # interactive: per-group prompts
@@ -353,9 +318,8 @@ rustcode uninstall --purge        # remove everything, including ~/.rustcode
 rustcode uninstall --dry-run      # show plan, change nothing
 ```
 
-If the binary is already broken or missing, obtain `uninstall.sh` (or
-`uninstall.ps1` on Windows) from your distribution channel and run it. The
-uninstaller only removes the local install, so it needs no download base:
+二进制已损坏或丢失时，可从你的分发渠道获取 `uninstall.sh`（Windows 为
+`uninstall.ps1`）后运行。卸载脚本只删除本地安装，不需要下载根目录：
 
 ```bash
 sh uninstall.sh
@@ -363,17 +327,17 @@ sh uninstall.sh
 ./uninstall.ps1
 ```
 
-By default credentials (`auth.toml`, `mcp.json`, `config.toml`, `RUSTCODE.md`) are kept; pass `--purge` to remove them too.
+默认保留凭据（`auth.toml`、`mcp.json`、`config.toml`、`RUSTCODE.md`），传 `--purge` 才会一起清除。
 
-## Quick Start
+## 快速开始
 
-### 1. First Run
+### 1. 首次运行
 
 ```bash
 rustcode
 ```
 
-On first run, a setup wizard will guide you through configuring your LLM provider:
+首次运行会有一个向导帮你配置模型：
 
 ```
 Welcome to RustCode! Let's set up your first provider.
@@ -385,10 +349,9 @@ Select provider:
   [4] Ollama (local)
 ```
 
-### 2. Configuration
+### 2. 配置
 
-Config is stored at `~/.rustcode/config.toml`. A minimal single-provider
-setup looks like this:
+配置文件位于 `~/.rustcode/config.toml`，最小单 provider 样例：
 
 ```toml
 default_provider = "deepseek"
@@ -401,17 +364,15 @@ base_url       = "https://api.deepseek.com/v1"
 context_window = 64000
 ```
 
-You can declare multiple providers and switch between them with `/model`
-or `/provider`. A **complete reference** covering Claude / OpenAI /
-OpenAI-compatible endpoints (DeepSeek, GLM, SiliconFlow, OpenRouter...) /
-Ollama, plus the `[datalog]` section, lives at
-[`docs/config.example.toml`](docs/config.example.toml) — copy and edit the
-bits you need.
+可以配置多个 provider，用 `/model` 或 `/provider` 切换。完整示例
+（涵盖 Claude / OpenAI / OpenAI-兼容 endpoint 如 DeepSeek / GLM /
+SiliconFlow / OpenRouter / Ollama，以及 `[datalog]` 段）见
+[`docs/config.example.toml`](docs/config.example.toml)——拷出来按需改。
 
-After editing `config.toml` by hand, run `/reload` inside rustcode to pick
-up the changes without restarting.
+手动改完 `config.toml` 后，在 rustcode 里执行 `/reload` 重新加载配置，
+不用重启。
 
-### 3. Start Coding
+### 3. 开始编码
 
 ```bash
 # Open in your project directory
@@ -431,9 +392,9 @@ rustcode -p "Explain the agent loop in this repo"
 rustcode --prompt-file task.md
 ```
 
-In headless mode, approval-required `bash` calls are auto-approved and logged to stderr; other approval-required tools are denied.
+在 headless 模式下，需要确认的 `bash` 会自动批准并写到 stderr；其他需要确认的工具会被拒绝。
 
-Then just type what you want:
+然后直接用自然语言描述你想做的事：
 
 ```
 > Fix the login bug where users get redirected to 404 after OAuth callback
@@ -445,171 +406,167 @@ Then just type what you want:
 > Write tests for the payment processing module
 ```
 
-## Keybindings
+## 快捷键
 
-### Input
+### 输入
 
-| Key | Action |
+| 键位 | 动作 |
 |-----|--------|
-| `Enter` | Send message |
-| `Shift+Enter` | New line (requires Kitty keyboard protocol) |
-| `Ctrl+Enter` | New line (requires Kitty keyboard protocol) |
-| `Ctrl+J` | New line (when the terminal distinguishes the chord) |
-| `Alt+Enter` | New line (most terminals; see compatibility note below) |
-| `\` + `Enter` | New line (works on all terminals — type a `\` and press Enter; the `\` is consumed) |
-| `Esc` | Clear input / Cancel stream |
-| `Esc` ×2 | Undo the previous turn |
-| `Up/Down` | Browse input history |
-| `Tab` | Accept slash-command, skill, or file completion |
-| `Shift+Tab` | Cycle to the next execution mode when no completion menu is open |
-| `F2 / Shift+F2` | Switch to next / previous model (usually `Fn+F2 / Fn+Shift+F2` on Mac) |
-| `Ctrl+R` | Reverse-search input history |
-| `Ctrl+T` | Cycle `reasoning_effort` |
-| `Ctrl+U` | Clear line |
-| `Ctrl+W` | Delete word |
-| `Ctrl+K` | Delete to end of line |
-| `Ctrl+V / Ctrl+Alt+V` | Paste text or image from clipboard (Windows can also use `/paste`) |
+| `Enter` | 发送消息 |
+| `Shift+Enter` | 换行（需要终端支持 Kitty 键盘协议） |
+| `Ctrl+Enter` | 换行（需要终端支持 Kitty 键盘协议） |
+| `Ctrl+J` | 换行（终端能区分该组合键时） |
+| `Alt+Enter` | 换行（多数终端可用，见下方兼容性说明） |
+| `\` + `Enter` | 换行（所有终端通用——输入一个 `\` 后按回车，`\` 会被自动删除） |
+| `Esc` | 清空输入 / 取消流式输出 |
+| `Esc` ×2 | 撤销上一轮 |
+| `Up/Down` | 浏览输入历史 |
+| `Tab` | 接受斜杠命令、Skill 或文件补全 |
+| `Shift+Tab` | 无补全菜单时切换到下一个执行模式 |
+| `F2 / Shift+F2` | 切换下一个 / 上一个模型（Mac 通常按 `Fn+F2 / Fn+Shift+F2`） |
+| `Ctrl+R` | 反向搜索输入历史 |
+| `Ctrl+T` | 切换 `reasoning_effort` |
+| `Ctrl+U` | 清空当前行 |
+| `Ctrl+W` | 删除一个单词 |
+| `Ctrl+K` | 删除到行尾 |
+| `Ctrl+V / Ctrl+Alt+V` | 从剪贴板粘贴文本或图片（Windows 也可用 `/paste`） |
 
-> **Terminal compatibility for newline chords:**
+> **换行快捷键的终端兼容性：**
 >
-> - `Shift+Enter` and `Ctrl+Enter` need a terminal that speaks the Kitty keyboard protocol — kitty, WezTerm, Alacritty, iTerm2 ≥3.5, Windows Terminal ≥1.21. Older terminals (and Windows, where rustcode doesn't enable the protocol) collapse them to plain `Enter` (which sends the message) — use `\` + `Enter`, which works everywhere.
-> - RustCode enables the Kitty keyboard protocol only for known-compatible terminals. Generic web terminals such as JumpServer use legacy key reporting by default. Set `RUSTCODE_KITTY=1` to force it on or `RUSTCODE_KITTY=0` to force it off.
-> - `Alt+Enter` works at the byte level on most terminals, but **Windows Terminal binds it to "toggle full screen" by default** — remove that binding under Settings → Actions to free it up.
-> - Xshell does not support the Kitty protocol; in its keymap settings, map a free chord to send `ESC, Enter` (`\x1b\r`) to get the same effect, or paste multi-line text via the clipboard (bracketed paste is enabled).
+> - `Shift+Enter`、`Ctrl+Enter` 需要终端支持 Kitty 键盘协议 — kitty、WezTerm、Alacritty、iTerm2 ≥3.5、Windows Terminal ≥1.21。不支持的终端（以及 Windows，rustcode 在其上不启用该协议）会把它们退化成普通 `Enter`（直接发送消息）—— 请改用 `\` + `Enter`，它在所有终端都生效。
+> - RustCode 仅在明确兼容的终端中自动启用 Kitty 键盘协议。JumpServer 等通用 WebTerminal 默认使用传统键盘上报；可通过 `RUSTCODE_KITTY=1` 强制开启，或用 `RUSTCODE_KITTY=0` 强制关闭。
+> - `Alt+Enter` 在多数终端的字节层面就能工作，但 **Windows Terminal 默认把它绑给"切换全屏"** — 在 设置 → 操作 中删掉那条绑定即可释放。
+> - Xshell 不支持 Kitty 协议；可在键盘映射设置中把某个空闲组合映射为发送 `ESC, Enter`（`\x1b\r`）达到同样效果，或直接从剪贴板粘贴多行文本（已启用 bracketed paste）。
 
-> **Pasting images on Windows:**
-> Windows Terminal and conhost bind `Ctrl+V` to their own `paste` action, which only forwards `CF_UNICODETEXT` from the clipboard — an image-only clipboard sends nothing, so the in-app `Ctrl+V` handler never fires. Two ways out:
+> **Windows 下粘贴图片：**
+> Windows Terminal 和 conhost 默认把 `Ctrl+V` 绑给它们自己的 `paste` action — 这个 action 只会从剪贴板读 `CF_UNICODETEXT`，剪贴板上只有图片时它什么都不会发，应用里的 `Ctrl+V` 处理器根本收不到事件。两种解法：
 >
-> 1. Use **`/paste`** — the slash command pulls the clipboard image and attaches it as `[Image #N]`. Works in every terminal, including Windows Terminal, PowerShell 7, conhost, and git bash. The TUI's bottom-right hint on Windows says `Image in clipboard · /paste` automatically.
-> 2. If you want `Ctrl+V` muscle memory: open Windows Terminal `settings.json` (`Ctrl+,` → "Open JSON file") and either delete the `{ "command": "paste", "keys": "ctrl+v" }` entry under `"actions"`, or rebind it to `ctrl+shift+v`. After a restart, `Ctrl+V` passes through to rustcode.
+> 1. 使用 **`/paste`** —— 这个斜杠命令直接读取剪贴板图片并以 `[Image #N]` 的形式附加到输入框，在 Windows Terminal、PowerShell 7、conhost、git bash 等所有终端里都能正常工作。Windows 版的 TUI 右下角会自动显示 `Image in clipboard · /paste` 提示（中文界面下为「剪贴板有图片 · /paste 粘贴」）。
+> 2. 若想保留 `Ctrl+V` 的肌肉记忆：打开 Windows Terminal 的 `settings.json`（`Ctrl+,` → 右下角"打开 JSON 文件"），在 `"actions"` 数组里删掉 `{ "command": "paste", "keys": "ctrl+v" }`，或把它改绑到 `ctrl+shift+v`。重启 Windows Terminal 后，`Ctrl+V` 就能透传给 rustcode 了。
 >
-> Git Bash (MinTTY) doesn't intercept `Ctrl+V`, so it works there out of the box.
+> Git Bash（MinTTY）不拦截 `Ctrl+V`，开箱即用。
 
-### Navigation
+### 导航
 
-| Key                      | Action                                |
-| ------------------------ | ------------------------------------- |
-| `Shift+Up/Down`          | Scroll chat one line                  |
-| `PageUp/PageDown`        | Scroll chat 10 lines                  |
-| `Alt+Up/Down`            | Jump to previous / next message       |
-| `Ctrl+Up/Down`           | Jump to previous / next user message  |
-| Empty input + `Home/End` | Jump to top / bottom of conversation  |
-| `Ctrl+Shift+C`           | Copy selection                        |
-| `Ctrl+C`                 | Cancel operation (double-tap to exit) |
+| 键位                | 动作                         |
+| ------------------- | ---------------------------- |
+| `Shift+Up/Down`     | 滚动聊天区（一行）           |
+| `PageUp/PageDown`   | 滚动聊天区（10 行）          |
+| `Alt+Up/Down`       | 跳到上一条 / 下一条消息      |
+| `Ctrl+Up/Down`      | 跳到上一条 / 下一条用户消息  |
+| 空输入时 `Home/End` | 跳到对话顶部 / 底部          |
+| `Ctrl+Shift+C`      | 复制选中内容                 |
+| `Ctrl+C`            | 取消当前操作（连按两次退出） |
 
-### Slash Commands
+### 斜杠命令
 
-Type `/` in the TUI to browse the full list with live completion; `/help` shows commands and shortcuts.
+在 TUI 中输入 `/` 即可浏览完整列表并实时补全；`/help` 会列出命令与快捷键。
 
-**Sessions & workspace**
+**会话与工作区**
 
-| Command              | Action                                                                                     |
-| -------------------- | ------------------------------------------------------------------------------------------ |
-| `/resume`            | Resume or switch session                                                                   |
-| `/session`           | Start a new session                                                                        |
-| `/rename <name>`     | Rename the current session                                                                 |
-| `/clear`             | Start a new conversation (clears context + screen)                                         |
-| `/bg`                | Background current session; subcommands: `/bg list`, `/bg <N>`, `/bg drop <N>`, `/bg help` |
-| `/background <task>` | Compatibility alias: start a one-shot task in a `/bg` slot                                 |
-| `/cd`                | Change working directory and start a new session                                           |
-| `/worktree`          | Git worktree isolation (`create` / `list` / `done` / `cleanup`)                            |
-| `/webui`             | Launch the browser webui (subcommands: `stop`, `lan`, `--host <addr>`)                     |
-| `/sync`              | Attach to the live webui session (`/sync off` to detach)                                   |
+| 命令                 | 动作                                                                          |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `/resume`            | 恢复或切换会话                                                                |
+| `/session`           | 创建新会话                                                                    |
+| `/rename <name>`     | 重命名当前会话                                                                |
+| `/clear`             | 开始新对话（清空上下文与屏幕）                                                |
+| `/bg`                | 将当前会话放到后台；子命令：`/bg list`、`/bg <N>`、`/bg drop <N>`、`/bg help` |
+| `/background <task>` | 兼容入口：在 `/bg` 槽位中启动一次性后台任务                                   |
+| `/cd`                | 切换工作目录并开启新建对话                                                    |
+| `/worktree`          | Git worktree 隔离（`create` / `list` / `done` / `cleanup`）                   |
+| `/webui`             | 启动浏览器 webui（子命令：`stop`、`lan`、`--host <addr>`）                    |
+| `/sync`              | 连接到实时 webui 会话（`/sync off` 断开）                                     |
 
-**Modes, autonomy & review**
+**模式、自主与审查**
 
-| Command        | Action                                                                            |
-| -------------- | --------------------------------------------------------------------------------- |
-| `/plan`        | Switch to Plan mode (read-only exploration)                                       |
-| `/build`       | Switch to Build mode (full execution)                                             |
-| `/goal <text>` | Set a completion goal — the agent loops autonomously until it's met               |
-| `/review`      | Code review the current changes (`/review` · `/review staged` · `/review <base>`) |
-| `/think`       | Control extended thinking (on / off / budget N)                                   |
-| `/effort`      | DeepSeek reasoning effort control (high / max / off)                              |
+| 命令           | 动作                                                                |
+| -------------- | ------------------------------------------------------------------- |
+| `/plan`        | 切换到 Plan 模式（只读探索）                                        |
+| `/build`       | 切换到 Build 模式（完整执行）                                       |
+| `/goal <text>` | 设置完成目标——agent 自动循环执行直到条件满足                        |
+| `/review`      | 代码审查当前改动（`/review` · `/review staged` · `/review <base>`） |
+| `/think`       | 控制深度思考（on / off / budget N）                                 |
+| `/effort`      | DeepSeek 推理努力控制（high / max / off）                           |
 
-**Providers & account**
+**Provider 与账号**
 
-| Command     | Action                                                      |
-| ----------- | ----------------------------------------------------------- |
-| `/model`    | Switch model / provider                                     |
-| `/provider` | Manage providers (add / edit / delete)                      |
-| `/proxy`    | Switch outbound proxy mode                                  |
-| `/login`    | Sign in with OAuth to a managed service (distribution builds only; use `/provider` for BYO in the open-source build) |
-| `/logout`   | Sign out of a managed account (distribution builds only) |
-| `/whoami`   | Show the current managed-account user (distribution builds only) |
-| `/status`   | Show provider status and model info (distribution builds also show the managed-account sign-in section) |
+| 命令        | 动作                                              |
+| ----------- | ------------------------------------------------- |
+| `/model`    | 切换模型 / provider                               |
+| `/provider` | 管理 provider（添加 / 编辑 / 删除）               |
+| `/proxy`    | 切换出站代理模式                                  |
+| `/login`    | 通过 OAuth 登录托管服务（仅发行版本；开源默认构建请用 `/provider` 自带 Key） |
+| `/logout`   | 退出托管账号（仅发行版本）                 |
+| `/whoami`   | 查看当前托管账号用户（仅发行版本）          |
+| `/status`   | 查看供应商状态与模型信息（发行版本还会显示托管账号登录段） |
 
-**Files, edits & context**
+**文件、编辑与上下文**
 
-| Command            | Action                                                                  |
-| ------------------ | ----------------------------------------------------------------------- |
-| `/diff`            | Show git diff of current changes                                        |
-| `/undo`            | Undo a turn's file edits (`/undo` or `/undo N`)                         |
-| `/view <filepath>` | View file content in an overlay modal                                   |
-| `/paste`           | Attach an image from the clipboard (Windows fallback for Ctrl+V)        |
-| `/copy`            | Copy a code block from the last reply (`/copy`, `/copy N`, `/copy all`) |
-| `/cost`            | Show token usage for this session                                       |
-| `/context`         | Show the context budget breakdown                                       |
-| `/compact`         | Compact conversation history                                            |
+| 命令               | 动作                                                         |
+| ------------------ | ------------------------------------------------------------ |
+| `/diff`            | 显示当前修改的 git diff                                      |
+| `/undo`            | 撤销某一轮的文件编辑（`/undo` 或 `/undo N`）                 |
+| `/view <filepath>` | 在浮层窗口中查看文件内容                                     |
+| `/paste`           | 从剪贴板粘贴图片（Windows 下 Ctrl+V 被终端拦截时的备用入口） |
+| `/copy`            | 从上一条回复复制代码块（`/copy`、`/copy N`、`/copy all`）    |
+| `/cost`            | 显示本次会话的 token 消耗                                    |
+| `/context`         | 查看上下文预算占用明细                                       |
+| `/compact`         | 压缩对话历史                                                 |
 
-**Memory**
+**记忆**
 
-| Command            | Action                                              |
-| ------------------ | --------------------------------------------------- |
-| `/remember <fact>` | Save a fact to memory (`--global` for all projects) |
-| `/forget <query>`  | Remove matching memories                            |
-| `/memory`          | Show all saved memories                             |
+| 命令               | 动作                                      |
+| ------------------ | ----------------------------------------- |
+| `/remember <fact>` | 保存一条记忆（`--global` 对所有项目生效） |
+| `/forget <query>` | 删除匹配的记忆                            |
+| `/memory`          | 查看所有已保存的记忆                      |
 
-**Extensions**
+**扩展**
 
-| Command   | Action                                                                |
-| --------- | --------------------------------------------------------------------- |
-| `/mcp`    | MCP server status (subcommands: `reload`, `tools`, `login`, `logout`) |
-| `/plugin` | Plugin marketplace (`marketplace` / `install` / `uninstall` / `list`) |
-| `/skills` | Browse loaded skills                                                  |
+| 命令      | 动作                                                         |
+| --------- | ------------------------------------------------------------ |
+| `/mcp`    | MCP 服务状态（子命令：`reload`、`tools`、`login`、`logout`） |
+| `/plugin` | 插件市场（`marketplace` / `install` / `uninstall` / `list`） |
+| `/skills` | 浏览已加载的 skills                                          |
 
-**Project & system**
+**项目与系统**
 
-| Command | Action |
+| 命令 | 动作 |
 |---------|--------|
-| `/init` | Create or improve the active project instruction file, following the current language and optional custom prompt |
-| `/config` | Show config path |
-| `/reload` | Reload `~/.rustcode/config.toml` from disk |
-| `/upgrade` | Upgrade rustcode to latest (subcommand: `rollback`) |
-| `/setup` | First run: install the recommended skill and run it |
-| `/welcome` | Re-run the onboarding wizard |
-| `/language` | Switch display and default Git commit-message language |
-| `/guide <question>` | Ask rustcode-guide how to use RustCode |
-| `/keys` | Show keyboard shortcuts |
-| `/help` | Show commands & shortcuts |
-| `/quit`, `/exit` | Exit RustCode (or Ctrl+C ×2) |
+| `/init` | 按当前语言及可选自定义提示词，创建或完善当前生效的项目指令文件 |
+| `/config` | 显示配置文件路径 |
+| `/reload` | 从磁盘重新加载 `~/.rustcode/config.toml` |
+| `/upgrade` | 升级 rustcode 到最新版（子命令：`rollback`） |
+| `/setup` | 首次运行：安装推荐 skill 并执行 |
+| `/welcome` | 重新运行引导向导 |
+| `/language` | 切换显示语言及默认 Git 提交消息语言 |
+| `/guide <question>` | 向 rustcode-guide 询问使用方式 |
+| `/keys` | 查看键盘快捷键 |
+| `/help` | 查看命令与快捷键 |
+| `/quit`、`/exit` | 退出 RustCode（或连按 Ctrl+C） |
 
-> **Platform issues.** `/issue` has been removed. In distributions that ship
-> managed-platform support, after `/login` you can ask in natural language—for
-> example, “Create an issue for this bug on our platform”—and RustCode selects
-> the built-in `platform_issue` tool. Reading issues is automatic; creating an
-> issue or adding, editing, or deleting comments still requires approval.
+> **平台 Issue**：`/issue` 已移除。在附带托管平台支持的发行版中，执行 `/login` 后直接用自然语言提出需求即可，例如“为这个 Bug 在平台上创建一个 Issue”，RustCode 会选择内置的 `platform_issue` 工具。读取 Issue 可直接执行；创建 Issue，以及新增、编辑或删除评论仍需权限确认。
 >
-> **Plugin commands.** Beyond the built-ins above, plugins can register their own slash commands. Add the plugin marketplace provided by your distribution channel (set the marketplace URL via config/env or install from your distribution's plugin index), then install plugins from it. For example, a channel community plugin might expose a `/wechat` command showing the community group QR code:
+> **插件命令**：除了上面的内置命令，插件还能注册自己的斜杠命令。先添加你的分发渠道提供的插件市场（通过配置/环境变量设置市场 URL，或从分发渠道的插件索引安装），再从中安装插件。例如渠道社区插件可能提供 `/wechat` 命令（显示社区群二维码）：
 >
 > ```text
 > /plugin marketplace add https://example.com/<your-org>/rustcode-plugins
 > /plugin install <plugin>@<channel>
 > ```
 
-### Custom Commands
+### 自定义命令
 
-Beyond built-ins and plugin commands, you can define your own slash commands as Markdown template files — perfect for prompt patterns you use frequently.
+除了内置命令和插件命令，你还可以通过 Markdown（.md）模板文件定义自己的斜杠命令，适用于频繁使用的提示词。
 
-**Locations** (lowest to highest priority):
+**存放位置**（按优先级从低到高）：
 
-| Location                                                     | Scope                                                |
-| ------------------------------------------------------------ | ---------------------------------------------------- |
-| `$RUSTCODE_HOME/commands/` (default `~/.rustcode/commands/`) | Global — applies to every project                    |
-| `<project>/.rustcode/commands/`                              | Project-level — overrides same-named global commands |
-| `plugins/<name>/commands/`                                   | Plugin-contributed — installed via `/plugin install` |
+| 位置                                                         | 作用域                                  |
+| ------------------------------------------------------------ | --------------------------------------- |
+| `$RUSTCODE_HOME/commands/`（默认为 `~/.rustcode/commands/`） | 全局 —— 所有项目生效                    |
+| `<project>/.rustcode/commands/`                              | 项目级 —— 覆盖同名的全局命令            |
+| `plugins/<name>/commands/`                                   | 插件贡献 —— 通过 `/plugin install` 安装 |
 
-**File format:**
+**文件格式**：
 
 ```markdown
 ---
@@ -625,21 +582,21 @@ $ARGUMENTS
 Cover: function signature & parameters, core business logic, data flow & side effects.
 ```
 
-- **`name`** — Required. The command name; `/explain` triggers it.
-- **`description`** — Optional. Shown in Tab completion.
-- **`args`** — Optional. Controls argument expectation and UX:
+- **`name`** —— 必填。命令名，输入 `/explain` 触发。
+- **`description`** —— 可选。Tab 补全时显示。
+- **`args`** —— 可选。控制参数期望与交互行为：
 
-  | Value            | Menu Enter                           | Empty-arg submit            |
-  | ---------------- | ------------------------------------ | --------------------------- |
-  | `none` (default) | Execute immediately                  | Accepted (substitutes `""`) |
-  | `optional`       | Complete to `/name `, wait for input | Accepted                    |
-  | `required`       | Complete to `/name `, wait for input | Rejected with error message |
+  | 值             | 菜单 Enter 行为           | 空参提交               |
+  | -------------- | ------------------------- | ---------------------- |
+  | `none`（默认） | 立即执行                  | 允许（替换为 `""`）       |
+  | `optional`     | 补全到 `/name `，等待输入 | 允许                   |
+  | `required`     | 补全到 `/name `，等待输入 | 拒绝并提示错误         |
 
-  The template variable `$ARGUMENTS` / `${ARGUMENTS}` is always replaced with whatever the user types after the command name (empty string if nothing is typed).
+  模板变量 `$ARGUMENTS` / `${ARGUMENTS}` 始终替换为用户在命令名后输入的内容（未输入则为空字符串）。
 
-- **Template body** — The prompt sent to the AI when the command is invoked. `$ARGUMENTS` or `${ARGUMENTS}` is replaced with whatever the user types after the command name.
+- **模板正文** —— 输入命令后发送给 AI 的提示词。`$ARGUMENTS` 或 `${ARGUMENTS}` 会被替换为用户输入的命令参数。
 
-**Example: create a code-review command**
+**示例：创建一个审查命令**
 
 ```bash
 mkdir -p .rustcode/commands
@@ -656,13 +613,13 @@ If specific files are given, review only: $ARGUMENTS
 EOF
 ```
 
-Run `/help commands` to list all loaded custom commands.
+输入 `/help commands` 可查看所有已加载的自定义命令。
 
-> **Priority rule.** A custom command cannot shadow a built-in command with the same name. If a built-in `/review` already exists, a project-level `review.md` won't appear in completion or dispatch.
+> **优先级规则**：自定义命令名不能覆盖同名内置命令。如果内置已有 `/review`，项目级自定义的 `review.md` 不会出现在补全菜单中，也不会被 dispatch。
 
-## Architecture
+## 架构
 
-RustCode is a layered Rust workspace:
+RustCode 是一个分层的 Rust workspace：
 
 ```
 rustcode/
@@ -676,24 +633,24 @@ rustcode/
     rustcode-daemon/        # HTTP/SSE/WebSocket transport + legacy session importer
 ```
 
-The coding path is `CLI/TUI/daemon → CodingRuntime → kernel`. The retired core
-agent protocol and `rustcode-bridge` are no longer part of the runtime path.
+coding 主调用链是 `CLI/TUI/daemon → CodingRuntime → kernel`。已经退役的 core agent
+协议和 `rustcode-bridge` 不再位于运行时路径中。
 
-### Design Principles
+### 设计原则
 
-1. **Tech-stack agnostic** — never hardcodes language-specific logic. Detects project type dynamically from descriptor files (`package.json`, `Cargo.toml`, `pyproject.toml`, `pom.xml`, etc.).
+1. **技术栈无关** —— 核心引擎不硬编码任何特定语言的逻辑，通过 `package.json`、`Cargo.toml`、`pyproject.toml`、`pom.xml` 等描述文件动态探测项目类型。
 
-2. **Single runtime owner** — `CodingRuntime` owns the live coding agent, provider/session lifecycle, pending requests, snapshots, and controllers. Drivers handle input, presentation, and transport without rebuilding a second agent runtime.
+2. **单一运行时所有者** —— `CodingRuntime` 统一拥有 live coding agent、provider/session 生命周期、pending request、snapshot 和 controller。driver 只负责输入、展示和传输，不重建第二套 agent runtime。
 
-3. **Tool safety** — all destructive operations require explicit user approval. Tool failures become LLM observations, never panics.
+3. **工具安全** —— 所有破坏性操作必须经用户显式确认。工具失败会作为 observation 返回给模型，绝不 panic。
 
-4. **Context-aware** — token-budget-aware conversation windowing, project file-tree injection, and per-turn system reminders keep the model focused without exceeding context limits.
+4. **上下文感知** —— token 预算感知的会话窗口、项目文件树注入、每轮系统提醒，在不超出上下文限制的同时让模型保持专注。
 
-5. **Directed dependencies** — kernel stays neutral; capabilities and coding stay free of `rustcode-core`; legacy session data is handled at an explicit compatibility boundary rather than as a runtime fallback.
+5. **依赖单向** —— kernel 保持中立；capabilities 与 coding 不依赖 `rustcode-core`；历史 session 数据只在显式兼容边界处理，不作为 runtime fallback。
 
-## Project Instruction File
+## 项目指令文件
 
-Create a `.rustcode.md` file in your project root to give RustCode persistent context:
+在项目根目录创建 `.rustcode.md` 文件，给 RustCode 提供持久化上下文：
 
 ```markdown
 # Project Instructions
@@ -705,19 +662,19 @@ This is a Vue 3 + TypeScript project using Pinia for state management.
 - Run `npm run lint` after editing .vue/.ts files
 ```
 
-RustCode reads this file automatically and includes it in the system prompt. RustCode also supports `AGENTS.md` (the [open standard](https://agents.md/) for AI coding agents) as an alternative — if both files exist, `.rustcode.md` takes priority.
+RustCode 会自动读取这个文件并注入到系统提示中。RustCode 也支持 `AGENTS.md`（AI 编程代理的[开放标准](https://agents.md/)）作为替代——如果两个文件同时存在，`.rustcode.md` 优先。
 
-Run `/init` to analyze the repository and create or improve the active instruction file. Its output follows the current `/language`. To append organization-specific requirements, set **Custom /init prompt file** in `/config`, or add `init_prompt_file = "prompts/init.md"` to `$RUSTCODE_HOME/config.toml`; relative paths resolve from `$RUSTCODE_HOME`.
+运行 `/init` 可分析仓库并创建或完善当前生效的项目指令文件，生成语言跟随当前 `/language`。如需追加团队自定义要求，可在 `/config` 中设置“自定义 /init 提示词文件”，或在 `$RUSTCODE_HOME/config.toml` 中添加 `init_prompt_file = "prompts/init.md"`；相对路径基于 `$RUSTCODE_HOME` 解析。
 
-## Development
+## 开发
 
-### Prerequisites
+### 前置条件
 
-- **Rust 1.88+** — install via [rustup](https://rustup.rs/)
+- **Rust 1.88+** —— 通过 [rustup](https://rustup.rs/) 安装
 - **Git**
-- A supported LLM provider API key (for runtime testing)
+- 任一支持的模型 API Key（用于运行时测试）
 
-### Build from Source
+### 从源码构建
 
 ```bash
 # Clone from your distribution channel, e.g.:
@@ -731,7 +688,7 @@ cargo build
 cargo build --release
 ```
 
-### Run in Development
+### 开发时运行
 
 ```bash
 # Run the TUI directly (debug mode)
@@ -748,7 +705,7 @@ cargo run -p rustcode -- -p "summarize this repo"
 cargo run -p rustcode-daemon
 ```
 
-### Testing
+### 测试
 
 ```bash
 # Run all tests
@@ -762,7 +719,7 @@ cargo test -p rustcode-tuix
 cargo test -p rustcode-capabilities test_name
 ```
 
-### Useful Commands
+### 常用命令
 
 ```bash
 # Check compilation without building
@@ -778,100 +735,101 @@ cargo clippy
 cargo install --path crates/rustcode-cli
 ```
 
-## Contributing
+## 贡献指南
 
-Contributions are welcome! RustCode is in active development.
+欢迎贡献！RustCode 正在积极迭代中。
 
-### How to Contribute
+### 如何贡献
 
-1. **Fork** the repository
-2. **Clone** your fork locally (use your distribution channel's host):
+1. **Fork** 仓库
+2. 克隆你的 fork（使用你分发渠道的 host）：
    ```bash
    git clone https://example.com/<your-username>/rustcode.git
    cd rustcode
    ```
-3. **Create a branch** for your change:
+3. 创建分支：
    ```bash
    git checkout -b feat/your-feature
    # or
    git checkout -b fix/your-bugfix
    ```
-4. **Make your changes**, ensure the project builds and tests pass:
+4. 修改代码，确保能编译、测试通过：
    ```bash
    cargo build && cargo test && cargo clippy
    ```
-5. **Commit** with a clear message:
+5. 清晰地写 commit：
    ```bash
    git commit -m "feat: add xxx support"
    ```
-6. **Push** and open a **Pull Request** against `main`
+6. **Push** 并向 `main` 分支提交 **Pull Request**
 
-### Branch Naming
+### 分支命名
 
-| Prefix      | Purpose                               |
-| ----------- | ------------------------------------- |
-| `feat/`     | New feature                           |
-| `fix/`      | Bug fix                               |
-| `refactor/` | Code refactoring (no behavior change) |
-| `docs/`     | Documentation only                    |
-| `chore/`    | Build, CI, tooling changes            |
+| 前缀        | 用途               |
+| ----------- | ------------------ |
+| `feat/`     | 新功能             |
+| `fix/`      | Bug 修复           |
+| `refactor/` | 重构（不改变行为） |
+| `docs/`     | 仅文档             |
+| `chore/`    | 构建、CI、工具链   |
 
-### Guidelines
+### 约定
 
-- Follow the project's core principles — especially **tech-stack neutrality**
-  (no language/framework-specific logic in the core engine; detect via probes
-  like `package.json` / `Cargo.toml` / `pom.xml` and route through adapters)
-- All tool failures must be graceful — return the error as an observation to the LLM, never panic
-- Destructive operations must require user approval
-- Keep the system prompt compact (~1.5K tokens)
-- Run `cargo fmt` and `cargo clippy` before submitting
+- 遵守项目的核心原则，尤其是 **技术栈中立**
+  （核心引擎中不写任何针对特定语言/框架的逻辑；通过
+  `package.json` / `Cargo.toml` / `pom.xml` 等探测，并通过 adapter 分发）
+- 工具失败必须优雅处理——把错误作为 observation 返回给模型，绝不 panic
+- 破坏性操作必须需要用户确认
+- 系统提示保持紧凑（约 1.5K tokens）
+- 提交前先跑 `cargo fmt` 和 `cargo clippy`
 
-### Where to Start
+### 从哪里上手
 
-- **Add a new tool** — implement the `Tool` trait in `crates/rustcode-capabilities/src/tools/`
-- **Add a new provider** — implement `LlmProvider` in `crates/rustcode-capabilities/src/provider/`
-- **Improve the UI** — rendering lives in `crates/rustcode-tuix/src/render/`
-- **Fix bugs** — check your distribution channel's issue tracker for open bugs
+- **新增工具** —— 在 `crates/rustcode-capabilities/src/tools/` 下实现 `Tool` trait
+- **新增模型提供方** —— 在 `crates/rustcode-capabilities/src/provider/` 下实现 `LlmProvider`
+- **改进 UI** —— 渲染相关代码在 `crates/rustcode-tuix/src/render/`
+- **修 Bug** —— 到你的分发渠道的 issue 跟踪器上挑一个
 
-### Non-Rust Contributions
+### 非 Rust 贡献者
 
-Don't know Rust? No problem! There are many ways to contribute without writing Rust code:
+不会 Rust？没关系！有很多方式可以不写 Rust 代码就能参与贡献：
 
-- **[*] Documentation** — Improve the README, fix typos, enhance the [docs site](site/docs/en/index.html), or add examples. Docs live in the root `docs/` directory, `site/docs/`, and the main README files.
-- **[*] Localization & Translation** — Help translate the docs site, README, or UI strings into more languages. Check `site/docs/` for existing translations.
-- **[*] Skills & Plugins** — Create new skills (Markdown + JSON, no Rust needed) that extend RustCode's capabilities, or package them for your distribution's plugin index. Skills are loaded from `~/.rustcode/skills/`.
-- **[*] Bug Reports** — Found a bug? Open an issue in your distribution channel's issue tracker with clear reproduction steps, screenshots, and environment info. High-quality bug reports are invaluable.
-- **[*] Test Cases & Examples** — Add test scenarios, example projects, or usage demos that help validate features and onboard new users.
-- **[*] Community Support** — Help answer questions in the community group, write tutorials, or create video guides.
+- **[*] 文档** — 改进 README、修正错别字、完善[文档站](site/docs/en/index.html)、添加使用示例。文档位于仓库根目录的 `docs/` 目录、`site/docs/` 以及 README 文件中。
+- **[*] 本地化与翻译** — 帮助将文档站、README 或界面文案翻译成更多语言。查看 `site/docs/` 了解现有翻译。
+- **[*] Skills 与插件** — 创建新的 skill（Markdown + JSON，无需 Rust），扩展 RustCode 的能力，或为分发渠道的插件索引打包插件。Skill 从 `~/.rustcode/skills/` 加载。
+- **[*] Bug 报告** — 发现 Bug？在你的分发渠道的 issue 跟踪器中提交清晰的复现步骤、截图和环境信息。高质量的 Bug 报告非常宝贵。
+- **[*] 测试用例与示例** — 添加测试场景、示例项目或使用演示，帮助验证功能并帮助新用户上手。
+- **[*] 社区支持** — 在社区群中回答问题、编写教程或制作视频指南。
 
-Every contribution, code or not, makes RustCode better for everyone. When in doubt, open an Issue or start a Discussion!
+每一份贡献，无论是代码还是非代码，都能让 RustCode 变得更好。不确定从哪里开始？开一个 Issue 或发起讨论吧！
 
-## Community
+## 社区交流
 
 ---
 
-Scan the community QR code shared by your distribution channel (e.g. a WeChat group QR) to join the RustCode community — share feedback, report issues, and talk to other users and maintainers. The QR image asset itself is published by your channel:
+扫描你的分发渠道提供的社区二维码（例如微信群二维码）加入 RustCode 用户群，反馈问题、
+分享使用心得，和其他用户、维护者一起交流。二维码图片资源由你的渠道发布：
 
 <p align="center">
-  <em>[ Community QR code image — your distribution channel publishes this asset ]</em>
+  <em>[ 社区二维码图片 —— 该资源由你的分发渠道发布 ]</em>
 </p>
 
-## Donate
+## 打赏
 
 ---
 
-RustCode is free, open-source software that works with any third-party provider you bring your own key for. If it has saved you a bit of time, consider buying the maintainers a coffee — it keeps us motivated to keep making it better.
+RustCode 是免费的开源软件，可搭配任意你自带密钥的第三方服务商使用。如果它帮你省下了一点时间，欢迎请维护者喝杯咖啡，让我们更有动力把它做下去。
 
 <p align="center">
-  <em>[ Donate QR codes (Alipay / WeChat Pay) — supplied by your distribution channel ]</em>
+  <em>[ 赞赏码图片（支付宝 / 微信支付）—— 由你的分发渠道提供 ]</em>
 </p>
 
-## License
+## 许可证
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT License。详见 [LICENSE](LICENSE)。
 
 ---
 
 <p align="center">
-  Built with Rust, ratatui, and a lot of late nights.
+  用 Rust、ratatui 以及无数个深夜构建而成。
 </p>

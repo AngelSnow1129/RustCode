@@ -1,263 +1,263 @@
-# MCP Server Recommendations
+# MCP Server 推荐
 
-MCP (Model Context Protocol) servers extend RustCode's capabilities by connecting to external tools and services.
+MCP（Model Context Protocol）server 通过连接外部工具与服务来扩展 RustCode 的能力。
 
-**Note**: These are common MCP servers. Use web search to find MCP servers specific to the codebase's services and integrations.
+**说明**：以下是常见 MCP server。针对代码库所用的具体服务与集成，请用 Web 搜索查找对应的 MCP server。
 
-## Setup & Team Sharing
+## 配置与团队共享
 
-**Connection methods:**
-1. **Project config** (`.mcp.json`) - Available only in that directory
-2. **Global config** (`~/.rustcode/mcp.json`) - Available across all projects
-3. **Checked-in `.mcp.json`** - Available to entire team (recommended!)
+**连接方式：**
+1. **项目配置**（`.mcp.json`）—— 仅在该目录内可用
+2. **全局配置**（`~/.rustcode/mcp.json`）—— 在所有项目中可用
+3. **提交进仓库的 `.mcp.json`** —— 整个团队都可用（推荐！）
 
-**Tip**: Check `.mcp.json` into git so your whole team gets the same MCP servers.
+**提示**：把 `.mcp.json` 提交进 git，整个团队就能用上同一批 MCP server。
 
-**Debugging**: Use `rustcode --mcp-debug` to identify configuration issues.
+**调试**：用 `rustcode --mcp-debug` 定位配置问题。
 
-## Documentation & Knowledge
+## 文档与知识
 
-### context7
-**Best for**: Projects using popular libraries/SDKs where you want RustCode to code with up-to-date documentation
+### context7（实时文档查询）
+**适用场景**：项目使用了流行库/SDK，你希望 RustCode 依据最新文档写代码
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Using React, Vue, Angular | Frontend frameworks |
-| Using Express, FastAPI, Django | Backend frameworks |
-| Using Prisma, Drizzle | ORMs |
-| Using Stripe, Twilio, SendGrid | Third-party APIs |
-| Using AWS SDK, Google Cloud | Cloud SDKs |
-| Using LangChain, OpenAI SDK | AI/ML libraries |
+| 使用了 React、Vue、Angular | 前端框架 |
+| 使用了 Express、FastAPI、Django | 后端框架 |
+| 使用了 Prisma、Drizzle | ORM |
+| 使用了 Stripe、Twilio、SendGrid | 第三方 API |
+| 使用了 AWS SDK、Google Cloud | 云 SDK |
+| 使用了 LangChain、OpenAI SDK | AI/ML 库 |
 
-**Value**: RustCode fetches live documentation instead of relying on training data, reducing hallucinated APIs and outdated patterns.
+**价值**：RustCode 会抓取实时文档，而不是依赖训练数据，从而减少幻觉出来的 API 与过时写法。
 
 ---
 
-## Browser & Frontend
+## 浏览器与前端
 
-### Playwright MCP
-**Best for**: Frontend projects needing browser automation, testing, or screenshots
+### Playwright MCP（浏览器自动化）
+**适用场景**：需要浏览器自动化、测试或截图的前端项目
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| React/Vue/Angular app | UI component testing |
-| E2E tests needed | User flow validation |
-| Visual regression testing | Screenshot comparisons |
-| Debugging UI issues | See what user sees |
-| Form testing | Multi-step workflows |
+| React/Vue/Angular 应用 | UI 组件测试 |
+| 需要 E2E 测试 | 验证用户流程 |
+| 视觉回归测试 | 截图对比 |
+| 调试 UI 问题 | 看到用户所见 |
+| 表单测试 | 多步骤工作流 |
 
-**Value**: RustCode can interact with your running app, take screenshots, fill forms, and verify UI behavior.
+**价值**：RustCode 可以与运行中的应用交互、截图、填写表单并验证 UI 行为。
 
-### Puppeteer MCP
-**Best for**: Headless browser automation, web scraping
+### Puppeteer MCP（无头浏览器）
+**适用场景**：无头浏览器自动化、网页抓取
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| PDF generation from HTML | Report generation |
-| Web scraping tasks | Data extraction |
-| Headless testing | CI environments |
+| 由 HTML 生成 PDF | 生成报告 |
+| 网页抓取任务 | 数据提取 |
+| 无头测试 | CI 环境 |
 
 ---
 
-## Databases
+## 数据库
 
-### Supabase MCP
-**Best for**: Projects using Supabase for backend/database
+### Supabase MCP（托管后端）
+**适用场景**：用 Supabase 做后端/数据库的项目
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Supabase project detected | `@supabase/supabase-js` in deps |
-| Auth + database needs | User management apps |
-| Real-time features | Live data sync |
+| 检测到 Supabase 项目 | 依赖中有 `@supabase/supabase-js` |
+| 需要认证 + 数据库 | 用户管理类应用 |
+| 实时功能 | 数据实时同步 |
 
-**Value**: RustCode can query tables, manage auth, and interact with Supabase storage directly.
+**价值**：RustCode 可以直接查询数据表、管理认证并操作 Supabase 存储。
 
-### PostgreSQL MCP
-**Best for**: Direct PostgreSQL database access
+### PostgreSQL MCP（数据库直连）
+**适用场景**：直接访问 PostgreSQL 数据库
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Raw PostgreSQL usage | No ORM layer |
-| Database migrations | Schema management |
-| Data analysis tasks | Complex queries |
-| Debugging data issues | Inspect actual data |
+| 直接使用 PostgreSQL | 没有 ORM 层 |
+| 数据库迁移 | 管理 schema |
+| 数据分析任务 | 复杂查询 |
+| 排查数据问题 | 查看真实数据 |
 
-### Neon MCP
-**Best for**: Neon serverless Postgres users
+### Neon MCP（serverless Postgres 数据库）
+**适用场景**：使用 Neon serverless Postgres 的用户
 
-### Turso MCP
-**Best for**: Turso/libSQL edge database users
+### Turso MCP（边缘数据库）
+**适用场景**：使用 Turso/libSQL 边缘数据库的用户
 
 ---
 
-## Version Control & DevOps
+## 版本控制与 DevOps
 
-### GitHub MCP
-**Best for**: GitHub-hosted repositories needing issue/PR integration
+### GitHub MCP（仓库与协作）
+**适用场景**：托管在 GitHub 上、需要 issue/PR 集成的仓库
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| GitHub repository | `.git` with GitHub remote |
-| Issue-driven development | Reference issues in commits |
-| PR workflows | Review, merge operations |
-| GitHub Actions | CI/CD pipeline access |
-| Release management | Tag and release automation |
+| 仓库托管在 GitHub | `.git` 的远端指向 GitHub |
+| 以 issue 驱动开发 | 在提交信息中引用 issue |
+| PR 工作流 | 评审、合并操作 |
+| 使用 GitHub Actions | 访问 CI/CD 流水线 |
+| 发布管理 | 打标签与发布自动化 |
 
-**Value**: RustCode can create issues, review PRs, check workflow runs, and manage releases.
+**价值**：RustCode 可以创建 issue、评审 PR、查看 workflow 运行状态并管理发布。
 
-### GitLab MCP
-**Best for**: GitLab-hosted repositories
+### GitLab MCP（GitLab 仓库）
+**适用场景**：托管在 GitLab 上的仓库
 
-### Linear MCP
-**Best for**: Teams using Linear for issue tracking
+### Linear MCP（Linear 工单）
+**适用场景**：用 Linear 做 issue 追踪的团队
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Linear workspace | Issue references like `ABC-123` |
-| Sprint planning | Backlog management |
-| Issue creation from code | Auto-create issues for TODOs |
+| 使用 Linear 工作区 | 形如 `ABC-123` 的 issue 引用 |
+| 迭代规划 | 管理待办列表 |
+| 从代码创建 issue | 为 TODO 自动建 issue |
 
 ---
 
-## Cloud Infrastructure
+## 云基础设施
 
-### AWS MCP
-**Best for**: AWS infrastructure management
+### AWS MCP（AWS 基础设施管理）
+**适用场景**：AWS 基础设施管理
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| AWS SDK in dependencies | `@aws-sdk/*` packages |
-| Infrastructure as code | Terraform, CDK, SAM |
-| Lambda development | Serverless functions |
-| S3, DynamoDB usage | Cloud data services |
+| 依赖中含 AWS SDK | `@aws-sdk/*` 包 |
+| 基础设施即代码 | Terraform、CDK、SAM |
+| Lambda 开发 | 无服务器函数 |
+| 使用 S3、DynamoDB | 云数据服务 |
 
-### Cloudflare MCP
-**Best for**: Cloudflare Workers, Pages, R2, D1
+### Cloudflare MCP（Workers、Pages、R2、D1 服务）
+**适用场景**：Cloudflare Workers、Pages、R2、D1
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Cloudflare Workers | Edge functions |
-| Pages deployment | Static site hosting |
-| R2 storage | Object storage |
-| D1 database | Edge SQL database |
+| 使用 Cloudflare Workers | 边缘函数 |
+| Pages 部署 | 静态站点托管 |
+| R2 存储 | 对象存储 |
+| D1 数据库 | 边缘 SQL 数据库 |
 
-### Vercel MCP
-**Best for**: Vercel deployment and configuration
+### Vercel MCP（部署与配置）
+**适用场景**：Vercel 部署与配置
 
 ---
 
-## Monitoring & Observability
+## 监控与可观测性
 
-### Sentry MCP
-**Best for**: Error tracking and debugging
+### Sentry MCP（错误追踪）
+**适用场景**：错误追踪与调试
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Sentry configured | `@sentry/*` in deps |
-| Production debugging | Investigate errors |
-| Error patterns | Group similar issues |
-| Release tracking | Correlate deploys with errors |
+| 已配置 Sentry | 依赖中有 `@sentry/*` |
+| 生产环境调试 | 排查错误 |
+| 错误模式 | 归类相似问题 |
+| 发布追踪 | 把部署与错误关联起来 |
 
-**Value**: RustCode can investigate Sentry issues, find root causes, and suggest fixes.
+**价值**：RustCode 可以排查 Sentry 问题、定位根因并给出修复建议。
 
-### Datadog MCP
-**Best for**: APM, logs, and metrics
+### Datadog MCP（APM、日志与指标）
+**适用场景**：APM、日志与指标
 
 ---
 
-## Communication
+## 沟通协作
 
-### Slack MCP
-**Best for**: Slack workspace integration
+### Slack MCP（Slack 工作区集成）
+**适用场景**：Slack 工作区集成
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Team uses Slack | Send notifications |
-| Deployment notifications | Alert channels |
-| Incident response | Post updates |
+| 团队使用 Slack | 发送消息通知 |
+| 部署通知 | 告警频道 |
+| 故障响应 | 发布进展更新 |
 
-### Notion MCP
-**Best for**: Notion workspace for documentation
+### Notion MCP（文档工作区）
+**适用场景**：用 Notion 工作区存放文档
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Notion for docs | Read/update pages |
-| Knowledge base | Search documentation |
-| Meeting notes | Create summaries |
+| 用 Notion 写文档 | 读取/更新页面 |
+| 知识库 | 检索文档 |
+| 会议记录 | 生成摘要 |
 
 ---
 
-## File & Data
+## 文件与数据
 
-### Filesystem MCP
-**Best for**: Enhanced file operations beyond built-in tools
+### Filesystem MCP（增强文件操作）
+**适用场景**：超出内置工具能力的进阶文件操作
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Complex file operations | Batch processing |
-| File watching | Monitor changes |
-| Advanced search | Custom patterns |
+| 复杂文件操作 | 批量处理 |
+| 监听文件 | 监控变更 |
+| 高级搜索 | 自定义模式 |
 
-### Memory MCP
-**Best for**: Persistent memory across sessions
+### Memory MCP（跨会话记忆）
+**适用场景**：跨会话的持久化记忆
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Long-running projects | Remember context |
-| User preferences | Store settings |
-| Learning patterns | Build knowledge |
+| 长期项目 | 记住上下文 |
+| 用户偏好 | 保存设置 |
+| 学习模式 | 沉淀知识 |
 
-**Value**: RustCode remembers project context, decisions, and patterns across conversations.
+**价值**：RustCode 能在多次对话之间记住项目上下文、决策与模式。
 
 ---
 
-## Containers & DevOps
+## 容器与 DevOps
 
-### Docker MCP
-**Best for**: Container management
+### Docker MCP（容器管理）
+**适用场景**：容器管理
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Docker Compose file | Container orchestration |
-| Dockerfile present | Build images |
-| Container debugging | Inspect logs, exec |
+| 存在 Docker Compose 文件 | 容器编排 |
+| 存在 Dockerfile | 构建镜像 |
+| 容器调试 | 查看日志、exec 进入 |
 
-### Kubernetes MCP
-**Best for**: Kubernetes cluster management
+### Kubernetes MCP（集群管理）
+**适用场景**：Kubernetes 集群管理
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| K8s manifests | Deploy, scale pods |
-| Helm charts | Package management |
-| Cluster debugging | Pod logs, status |
+| K8s manifest | 部署、扩缩 Pod |
+| Helm chart | 包管理 |
+| 集群调试 | Pod 日志与状态 |
 
 ---
 
-## AI & ML
+## AI 与 ML
 
-### Exa MCP
-**Best for**: Web search and research
+### Exa MCP（Web 搜索与调研）
+**适用场景**：Web 搜索与资料调研
 
-| Recommend When | Examples |
+| 推荐时机 | 示例 |
 |----------------|----------|
-| Research tasks | Find current info |
-| Competitive analysis | Market research |
-| Documentation gaps | Find examples |
+| 调研任务 | 查找最新信息 |
+| 竞品分析 | 市场调研 |
+| 文档缺失 | 查找示例 |
 
 ---
 
-## Quick Reference: Detection Patterns
+## 速查：检测依据 -> 推荐的 MCP server
 
-| Look For | Suggests MCP Server |
+| 检测依据 | 推荐的 MCP server |
 |----------|-------------------|
-| Popular npm packages | context7 |
-| React/Vue/Next.js | Playwright MCP |
-| `@supabase/supabase-js` | Supabase MCP |
-| `pg` or `postgres` | PostgreSQL MCP |
-| GitHub remote | GitHub MCP |
-| `.linear` or Linear refs | Linear MCP |
-| `@aws-sdk/*` | AWS MCP |
-| `@sentry/*` | Sentry MCP |
-| `docker-compose.yml` | Docker MCP |
-| Slack webhook URLs | Slack MCP |
-| `@anthropic-ai/sdk` | context7 for Anthropic docs |
+| 使用了热门 npm 包 | context7 |
+| React/Vue/Next.js 项目 | Playwright MCP |
+| 依赖含 `@supabase/supabase-js` | Supabase MCP |
+| 依赖含 `pg` 或 `postgres` | PostgreSQL MCP |
+| 远端是 GitHub | GitHub MCP |
+| 存在 `.linear` 或 Linear 引用 | Linear MCP |
+| 依赖含 `@aws-sdk/*` | AWS MCP |
+| 依赖含 `@sentry/*` | Sentry MCP |
+| 存在 `docker-compose.yml` | Docker MCP |
+| 存在 Slack webhook URL | Slack MCP |
+| 依赖含 `@anthropic-ai/sdk` | 用 context7 查 Anthropic 文档 |

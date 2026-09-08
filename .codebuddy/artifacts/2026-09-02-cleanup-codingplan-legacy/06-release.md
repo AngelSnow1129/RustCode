@@ -64,7 +64,7 @@ created: 2026-09-02
 
 **链接修正**：Group A 中指向留驻文档（`compact-native-migration-retrospective.md` / `target-architecture.md`）的同级链接改为 `../<name>.md`（4 处），断链校验 NONE。
 
-### ② `rustcode codingplan` → exit 2（breaking change）
+### ② `rustcode codingplan` → exit 2（破坏性变更）
 
 见第二节风险 1。删除点：`cli/main.rs` 的 `Commands::Codingplan` 枚举变体定义块、`Commands::Login | Commands::Codingplan =>` 匹配臂改为 `Commands::Login =>`、移除 `unreachable!` 兜底臂，并同步 2 处注释。`rg "Commands::Codingplan" crates/` 现为 **0 命中**。
 

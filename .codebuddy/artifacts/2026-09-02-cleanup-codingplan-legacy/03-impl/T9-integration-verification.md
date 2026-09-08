@@ -31,7 +31,7 @@ created: 2026-09-02
 |---|---|---|---|
 | AC-1 | PASS | `cargo build`（默认成员）| 由 AC-14 编译阶段覆盖：全部 crate `Compiling` 且 **0 error**（仅 `parse_scutil_proxy` / `migrate_sessions_from` 两条预存 dead_code warning，非本 feature 引入） |
 | AC-2 | PASS | `cargo check --workspace --all-targets` | 前序会话 Finished；warning 数未增加（同上两条预存 warning） |
-| AC-3 | PASS | `cargo check -p rustcode-codingplan --features client --all-targets` | Finished |
+| AC-3 | PASS | `cargo check -p rustcode-codingplan --features client --all-targets` | Finished（编译完成） |
 | AC-4 | PASS | tuix / daemon / cli `--features codingplan` 三条 | 均 Finished |
 | AC-5 | PASS | rustcode / daemon `--features codingplan-crypto` 两条 | 本次补跑 daemon 路径 `cargo check -p rustcode-daemon --features codingplan-crypto --all-targets -j 1` → **Finished**；rustcode 路径前序 Finished。闭源 overlay 两接入路径均可编译（S3 生死线保持绿） |
 | AC-6 | PASS | `cargo test -p rustcode-codingplan --lib` | **27 passed / 0 failed**（本会话复跑） |

@@ -1,5 +1,4 @@
-# Architecture
+# 架构
 
-`Runtime` is the sole owner of mutable application state. `Driver` handles input
-and display and must delegate state changes to Runtime. `legacy.py` is a one-way
-data importer only and must never be called by production request handling.
+`Runtime` 是可变应用状态的唯一所有者。`Driver` 负责输入与展示，必须把状态变更
+委托给 Runtime。`legacy.py` 只是单向的数据导入器，绝不能被生产请求处理路径调用。

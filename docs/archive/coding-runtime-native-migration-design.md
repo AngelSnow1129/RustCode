@@ -10,9 +10,9 @@
 >
 > 关联文档：
 >
-> - [`compact-native-migration-retrospective.md`](../compact-native-migration-retrospective.md)
-> - [`coding-runtime-incremental-migration.md`](coding-runtime-incremental-migration.md)
-> - [`target-architecture.md`](../target-architecture.md)
+> - [`compact-native-migration-retrospective.md`](../compact-native-migration-retrospective.md)（压缩原生迁移复盘）
+> - [`coding-runtime-incremental-migration.md`](coding-runtime-incremental-migration.md)（编码运行时增量迁移）
+> - [`target-architecture.md`](../target-architecture.md)（目标架构）
 >
 > 本文实施结论以最终复核基线为准；在后续分支引用时仍须重新搜索当前代码。旧文档中
 > “55 个命令”“v1 AgentLoop 仍存在”“memory/background 仍有 core command”等历史结论
@@ -101,7 +101,7 @@ driver 不再发送 core `AgentCommand`，不再消费 core `AgentEvent`。daemo
 
 迁移完成的删除目标是：
 
-- `rustcode-bridge` crate；
+- `rustcode-bridge` 这个 crate；
 - core `AgentClient/AgentCommand/AgentEvent` driver 协议；
 - daemon `KernelDriver/KernelToWebui` 重复实现；
 - `RUSTCODE_DAEMON_ENGINE` 双路径开关；
@@ -142,7 +142,7 @@ CodingRuntimeHandle::compact
 它证明了以下迁移方法可行：
 
 1. 单一 `AgentHandle` owner；
-2. stable handle + generation；
+2. stable handle（稳定句柄）+ generation；
 3. owner 按事件类型截流，未迁移事件暂交 legacy adapter；
 4. replace/shutdown 时排空旧 agent terminal；
 5. 完整 terminal 后删除旧 sender、variant、handler、converter 和 fallback。
@@ -154,11 +154,11 @@ shutdown 和 compaction terminal。以下状态仍由 bridge 或 daemon 自己�
 
 - `CodingAgentConfig` 和 `CodingParts`；
 - provider 构建与 tier provider；
-- provider reload/reassemble；
-- prepare/reprepare/fresh/resume/cd；
-- approval request mirror；
+- provider 重载（reload）与重建（reassemble）；
+- 准备（prepare）、重准备（reprepare）、新建（fresh）、恢复（resume）与切目录（cd）；
+- 审批请求（approval request）镜像；
 - turn stats 与 terminal Snapshot 聚合；
-- goal/loop controller；
+- 目标（goal）与循环（loop）控制器；
 - AI session naming、local shell pending input 等 driver parity 状态。
 
 因此下一步不是给 handle 批量增加转发方法，而是先让 `rustcode-coding` 成为完整 runtime owner。
@@ -182,8 +182,8 @@ shutdown 和 compaction terminal。以下状态仍由 bridge 或 daemon 自己�
 ### 3.1 本方案范围
 
 - CLI/headless、TUI/background、daemon/webui 的运行时命令和事件；
-- provider、session、working directory、mode、approval、snapshot、cancel、shutdown；
-- MCP/plugin reprepare；
+- provider、session、工作目录（working directory）、mode、审批（approval）、快照（snapshot）、取消（cancel）与关闭（shutdown）；
+- MCP/plugin 重准备（reprepare）；
 - goal 和 self-paced loop；
 - `/compact` 已有 native control/event 的兼容与保留；
 - 删除 bridge 和 core legacy driver surface。
@@ -241,10 +241,10 @@ driver 继续拥有：
 - slash 字符串解析、modal 和渲染；
 - OAuth/auth 文件读写；
 - `!cmd` 的 shell 进程执行；
-- updater、clipboard、file view/save；
-- memory CRUD；
+- 更新器（updater）、剪贴板（clipboard）、文件查看与保存（file view/save）；
+- 记忆（memory）的增删改查（CRUD）；
 - fixed-interval `/loop` 的 slash 调度器；
-- daemon wire protocol。
+- daemon 线路协议（wire protocol）。
 
 driver 可以把本地操作的结果作为结构化输入交给 runtime，但不能直接修改 runtime 持有的
 conversation、provider 或 session 状态。
@@ -364,7 +364,7 @@ pub enum SubmitReceipt {
 
 第二个输入在运行中的 turn 内进入 kernel steer buffer，不产生独立 `TurnFinished`。
 
-### 5.1 Provider factory
+### 5.1 provider 工厂（factory）
 
 runtime 必须持有可重复构建 provider 的 factory，而不是只接收一次性 provider：
 
@@ -388,7 +388,7 @@ bridge 当前的 OpenAI/Claude/Ollama 选择、UA、TLS、reasoning、AtomGit si
 逻辑必须迁入一个共享实现。gateway signing 所需的低层能力应下沉到 auth/atomgit capability，
 不能让 `rustcode-coding` 反向依赖 bridge。
 
-### 5.2 Plugin hook source
+### 5.2 plugin hook 来源（source）
 
 `reprepare` 必须重新读取最新 plugin hooks，不能捕获启动时的静态 `Vec<HookConfig>`：
 
@@ -484,12 +484,12 @@ batch/tool progress/tool result、usage、warning、rate-limit、steered、error
 
 runtime 截获而不直接外泄：
 
-- kernel `Snapshot`；
-- kernel `TurnComplete`；
-- kernel compaction started/terminal；
+- kernel 的 `Snapshot`；
+- kernel 的 `TurnComplete`；
+- kernel 压缩（compaction）的开始（started）与终结（terminal）；
 - runtime 已识别的 approval request。
 
-### 7.1 Turn terminal
+### 7.1 回合终结（turn terminal）
 
 kernel `TurnComplete` 到达后：
 
@@ -520,7 +520,7 @@ pub enum TurnCompletion {
 snapshot，并记录来源；不得用 `SessionSnapshot::default()` 假装成功。ephemeral runtime 无 snapshot
 时发布 `SnapshotUnavailable`，driver 必须释放 busy 状态并显示持久化失败。
 
-### 7.2 Snapshot broker
+### 7.2 快照代理（snapshot broker）
 
 kernel Snapshot 没有 request id，且 turn 中的 Snapshot 会排队到 turn 结束。runtime 必须保证同一
 时间只有一个 kernel Snapshot 在途，并在内部标记用途：
@@ -535,7 +535,7 @@ Reconfiguration
 多个显式查询可以共享同一个结果。terminal snapshot 优先；状态不能靠“下一个 Snapshot 大概属于
 谁”猜测。
 
-### 7.3 Approval
+### 7.3 审批（approval）
 
 approval 事件保留 kernel request id：
 
@@ -565,7 +565,7 @@ receiver 关闭或请求被 replacement 失效时，必须显式 Null/deny 或 c
 
 ## 8. 生命周期事务
 
-### 8.1 Shutdown
+### 8.1 关闭（shutdown）
 
 1. actor 将状态线性化为 ShuttingDown，拒绝新 operation；
 2. 若有 pending request，发送 Null/deny 或利用 kernel Cancel 的 `cancel_pending` fail-closed；
@@ -578,7 +578,7 @@ receiver 关闭或请求被 replacement 失效时，必须显式 Null/deny 或 c
 
 关闭 control sender 与显式 shutdown 使用同一 teardown funnel。
 
-### 8.2 Provider reassemble
+### 8.2 provider 重建（reassemble）
 
 适用 `/model`、`/provider`、`/proxy`、`/think`、`/effort` 和 provider-only reload。
 
@@ -596,14 +596,14 @@ assemble SAME parts + next provider
 必须保留：
 
 - session id 和 snapshot；
-- mode；
-- approval/grant stores；
+- 模式（mode）；
+- 审批（approval）与授权（grant）存储；
 - hook 长生命周期状态；
-- gateway affinity；
+- 网关亲和性（gateway affinity）；
 - review/subagent provider slot 与 tier provider session binding；
-- telemetry attribution。
+- 遥测归因（telemetry attribution）。
 
-### 8.3 Capability reprepare
+### 8.3 能力重准备（capability reprepare）
 
 适用 MCP/plugin/hooks/skills 等 capability graph 变化。
 
@@ -622,7 +622,7 @@ candidate 必须使用当前 session id 的 `SessionMode::Resume`，并显式迁
 通过把旧 `CodingParts` 字段逐个拍脑袋复制来维持状态；应提供一个集中、穷举的
 `RuntimeContinuity::transfer(old, candidate)`，新增状态字段时编译或测试必须暴露遗漏。
 
-### 8.4 Fresh / Resume / ChangeDir
+### 8.4 新建（fresh）/ 恢复（resume）/ 切换目录（ChangeDir）
 
 三者都创建 candidate parts，但目标不同：
 
@@ -637,40 +637,40 @@ runtime 结果。
 
 `/cd` 与 agent 工具内部改变 `shared_cwd` 要区分：
 
-- slash/project switch：new project + fresh session + reprepare；
+- 斜杠命令或项目切换（slash/project switch）：新建项目（new project）+ 新建会话（fresh session）+ 重准备（reprepare）；
 - tool `change_dir`：当前 runtime 内更新 shared cwd，默认不清 conversation。
 
-### 8.5 Undo
+### 8.5 撤销（undo）
 
 1. 通过 snapshot broker 获取 exact live snapshot；
 2. 对真实 user prompt 计算截断，跳过 synthetic user；
 3. out-of-range 返回错误，不改变状态；
 4. 保存 original snapshot；
-5. settle/stop old agent；
-6. durable write truncated candidate；
-7. reassemble current parts/provider；
+5. 收敛（settle）并停止旧 agent；
+6. 持久化写入（durable write）截断后的 candidate；
+7. 用当前 parts/provider 重建（reassemble）；
 8. assemble 失败时恢复 original snapshot，并尝试恢复旧 agent；
 9. 新 agent ready 后才发布 `UndoCompleted`。
 
 `compute_undo` 应移动到 core-free 的 coding/session 模块。不得把 core message 往返转换后再截断。
 
-### 8.6 Local shell input
+### 8.6 本地 shell 输入
 
 `!cmd` 的进程执行、stdout/stderr 展示仍在 TUI。runtime 只接收结构化结果并加入
 `pending_local_context`；下一次 `submit` 在 user text 前合并。它不单独启动 LLM turn，也不新增
-kernel command。
+kernel 命令（command）。
 
 ## 9. Goal 与 Loop
 
-### 9.1 Goal
+### 9.1 目标（goal）
 
 Goal controller 属于 CodingRuntime，因为它依赖：
 
 - 当前 conversation snapshot；
-- turn terminal；
-- evaluator provider；
-- continuation；
-- cancel、round/duration fuse；
+- 回合终结（turn terminal）；
+- 评估器（evaluator）provider；
+- 续跑（continuation）；
+- 取消（cancel）与轮次/时长熔断（round/duration fuse）；
 - reconfigure/session switch 清理。
 
 一个用户 goal 对 driver 表现为一个持续 operation：内部每个 kernel turn 仍正常触发
@@ -681,16 +681,16 @@ evaluator 必须运行在可取消 task 中，结果携带 generation + controll
 session。provider reload 可选择取消当前 evaluator 后用新 provider 重新评估，不能让旧 provider
 结果跨 generation 生效。
 
-### 9.2 Loop
+### 9.2 循环（loop）
 
 self-paced prompt loop 迁入 CodingRuntime，覆盖：
 
 - continuation 和 wakeup；
-- max rounds；
-- delay/clock；
-- cancel/stop/replace；
-- session/provider reconfiguration；
-- turn completion。
+- 最大轮次（max rounds）；
+- 延迟与时钟（delay/clock）；
+- 取消（cancel）、停止（stop）与替换（replace）；
+- session/provider 重配置（reconfiguration）；
+- 回合完成（turn completion）。
 
 fixed-interval `/loop <duration> <payload>` 可以重复 slash command，runtime 不应解析 slash 字符串，
 因此保留为 driver `LoopScheduler`。它必须绑定 runtime id/generation，foreground 切换、session fresh、
@@ -752,7 +752,7 @@ runtime 共用。`/context prompt` 返回当前 generation 真正组装的 syste
   turn terminal 后完成。
 
 因此实现不能用最后一次 Usage 假装“当前精确上下文”，也不能为了即时响应增加第二个 conversation
-reader。
+读取器（reader）。
 
 ## 11. Daemon-first 迁移
 
@@ -775,20 +775,20 @@ HTTP / WS / live session
 `DaemonEventAdapter` 只做 wire shape 和展示字段映射，不持有 provider、parts、approval、session 或
 AgentHandle，不执行 respawn。
 
-### 11.2 parity gate
+### 11.2 parity 验收门（gate）
 
 删除 daemon fallback 前必须覆盖：
 
 | 能力 | 必测 |
 |---|---|
 | turn | text/reasoning、正常 terminal、provider error、timeout |
-| tools | streaming、batch、progress、result、duration |
-| approval | allow、always、deny、cancel、driver disconnect |
-| usage | token usage、context projection、rate limit |
-| persistence | user prompt crash-save、terminal snapshot、immediate resume |
-| lifecycle | reload provider、resume、fresh、cd、shutdown |
-| compaction | started、committed、no-op、failed、interrupted |
-| handoff | existing session seed、sync detach/reattach |
+| tools | 流式（streaming）、批量（batch）、进度（progress）、结果（result）与耗时（duration） |
+| approval | 允许（allow）、始终（always）、拒绝（deny）、取消（cancel）与 driver 断开（disconnect） |
+| usage | token 用量（usage）、上下文投影（context projection）与限流（rate limit） |
+| persistence | 用户提示崩溃保存（user prompt crash-save）、终局快照（terminal snapshot）与立即恢复（immediate resume） |
+| lifecycle | 重载 provider（reload provider）、恢复（resume）、新建（fresh）、切目录（cd）与关闭（shutdown） |
+| compaction | 开始（started）、提交（committed）、空操作（no-op）、失败（failed）与中断（interrupted） |
+| handoff | 既有会话种子（existing session seed）与同步解绑/重绑（sync detach/reattach） |
 
 daemon native path通过 parity 后：
 
@@ -821,7 +821,7 @@ error；不得回落到 bridge 自己执行。这样 M0 的所有权是实际迁
 
 项目约束要求 daemon parity 在前，然后处理 goal/loop，再切 CLI/TUI。
 
-### 12.1 CLI/headless
+### 12.1 CLI 与无头模式（headless）
 
 - `main.rs` 直接 `CodingRuntime::start`；
 - prompt 使用 `submit`；
@@ -831,7 +831,7 @@ error；不得回落到 bridge 自己执行。这样 M0 的所有权是实际迁
 - 删除 `spawn_bridged_runtime_with_control`；
 - ACP、clix 已是 kernel-native 参考路径，只统一 provider factory 和 event projection，不倒退到 facade。
 
-### 12.2 TUI/background
+### 12.2 TUI 与后台（background）
 
 `RuntimeEndpoint` 收敛为一个 handle：
 
@@ -846,13 +846,13 @@ background manager 以 runtime id 持有 endpoint 和单一 event stream。foreg
 
 TUI 命令切换顺序：
 
-1. shutdown：`/quit`、`/exit`、`/upgrade`；
+1. 关闭（shutdown）：`/quit`、`/exit`、`/upgrade`；
 2. turn：普通输入、custom command、`/init`、`/review`、`/guide`、`/skills`、`/setup`；
-3. approval/cancel/mode/context；
-4. provider/config cluster；
-5. MCP/plugin reprepare；
-6. session/resume/cd/undo/bg；
-7. goal/self-paced loop。
+3. 审批（approval）、取消（cancel）、模式（mode）与上下文（context）；
+4. provider/config 命令簇（cluster）；
+5. MCP/plugin 重准备（reprepare）；
+6. 会话（session）、恢复（resume）、切目录（cd）、撤销（undo）与后台（bg）；
+7. 目标（goal）与自定步调循环（self-paced loop）。
 
 每个垂直切片切完所有实际 sender 后，立即删除对应 core command variant 和 bridge handler；不要等到
 最后一次性清枚举。
@@ -863,12 +863,12 @@ TUI 命令切换顺序：
 |---|---|---|
 | 已迁移 | `/compact` | CodingRuntime native compaction |
 | prompt/退出 | `/init` `/review` `/guide` `/skills` `/setup` `/quit` `/exit` `/upgrade` | runtime submit/shutdown |
-| mode/context | `/plan` `/build` `/auto` `/context` | runtime mode/query |
-| provider | `/login` `/logout` `/model` `/provider` `/proxy` `/reload` `/think` `/effort` | local config + runtime reassemble |
-| session/project | `/resume` `/rename` `/cd` `/bg` `/background` `/clear` `/session` `/undo` `/worktree` | runtime/session manager/runtime pool |
-| transport | `/webui` `/sync` `/app` | daemon registry + runtime handoff |
-| capability | `/remember` `/forget` `/memory` `/mcp` `/plugin` | local capability + runtime reprepare |
-| controller | `/goal` `/loop` | runtime goal/self-paced；driver fixed interval |
+| mode/context | `/plan` `/build` `/auto` `/context` | runtime 模式与查询（mode/query） |
+| provider | `/login` `/logout` `/model` `/provider` `/proxy` `/reload` `/think` `/effort` | 本地配置（local config）+ runtime 重建（reassemble） |
+| session/project | `/resume` `/rename` `/cd` `/bg` `/background` `/clear` `/session` `/undo` `/worktree` | runtime、会话管理器（session manager）与 runtime 池（pool） |
+| transport | `/webui` `/sync` `/app` | daemon 注册表（registry）+ runtime 移交（handoff） |
+| capability | `/remember` `/forget` `/memory` `/mcp` `/plugin` | 本地能力（capability）+ runtime 重准备（reprepare） |
+| controller | `/goal` `/loop` | runtime 目标（goal）与自定步调（self-paced）；driver 固定间隔（fixed interval） |
 | 纯前端 | `/whoami` `/status` `/config` `/diff` `/usage` `/cost` `/help` `/keys` `/language` `/welcome` `/paste` `/copy` `/save` `/view` `/todo` `/desktop` | driver/local service |
 
 还必须迁移普通输入、custom command、approval key、Esc/Ctrl-C、`!cmd`、启动 continue、modal 回调和
@@ -878,25 +878,25 @@ daemon live endpoints；只改 slash match arms 不算 driver 切换完成。
 
 | core variant | native replacement | 删除切片 |
 |---|---|---|
-| SendMessage | runtime submit → kernel SendMessage | turn |
-| Cancel | runtime cancel → kernel Cancel | turn |
-| ApproveTool/Always/DenyTool | runtime respond(id,value) | approval |
+| SendMessage | runtime 提交（submit）→ kernel 的 SendMessage | 回合切片（turn） |
+| Cancel | runtime 取消（cancel）→ kernel 的 Cancel | 回合切片（turn） |
+| ApproveTool/Always/DenyTool | runtime 的 respond(id,value) | 审批切片（approval） |
 | AppendInput | 删除；mid-turn submit = steer | turn |
-| SyncMessages | runtime snapshot broker | snapshot |
-| Shutdown | runtime shutdown | shutdown |
+| SyncMessages | runtime 快照代理（snapshot broker） | 快照切片（snapshot） |
+| Shutdown | runtime 关闭（shutdown） | 关闭切片（shutdown） |
 | SetPlanMode | 删除；统一 mode | mode |
-| SetMode | runtime set_mode | mode |
-| RefreshContextStats | runtime context query/event | context |
-| LocalShell | driver execution + runtime pending local context | turn |
-| ReloadConfig | runtime reassemble/reprepare | provider |
-| ReloadHooks | runtime reprepare | capability |
-| ChangeDir | runtime change_directory | session/project |
-| ClearConversation | runtime fresh_session | session |
-| SetConversation | runtime resume/install | session |
+| SetMode | runtime 设置模式（set_mode） | 模式切片（mode） |
+| RefreshContextStats | runtime 上下文查询与事件（context query/event） | 上下文切片（context） |
+| LocalShell | driver 执行（execution）+ runtime 待处理本地上下文（pending local context） | 回合切片（turn） |
+| ReloadConfig | runtime 重建或重准备（reassemble/reprepare） | provider 切片 |
+| ReloadHooks | runtime 重准备（reprepare） | 能力切片（capability） |
+| ChangeDir | runtime 切换目录（change_directory） | 会话与项目切片（session/project） |
+| ClearConversation | runtime 新建会话（fresh_session） | 会话切片（session） |
+| SetConversation | runtime 恢复或装载（resume/install） | 会话切片（session） |
 | SetSessionId | SessionBinding 创建参数 | session |
-| UndoToPrompt | runtime undo_to_prompt | session |
-| SetGoal/ClearGoal | runtime goal controller | controller |
-| SetLoop/ClearLoop | runtime self-paced loop controller | controller |
+| UndoToPrompt | runtime 撤销到提示（undo_to_prompt） | 会话切片（session） |
+| SetGoal/ClearGoal | runtime 目标控制器（goal controller） | 控制器切片（controller） |
+| SetLoop/ClearLoop | runtime 自定步调循环控制器（self-paced loop controller） | 控制器切片（controller） |
 
 ## 15. 实施里程碑与四态
 
@@ -953,7 +953,7 @@ P0 只清理完整 owner 的依赖前置，不改变 driver 行为。
    `RateLimitWindowSource` 注入；
 3. 建立 `CodingProviderFactory` 及默认共享实现；
 4. 把 bridge 的 provider 类型选择、UA、TLS、reasoning、max tokens、tier provider 构建迁入共享
-   factory；
+   factory（工厂）；
 5. AtomGit signing 低层能力移到 auth/atomgit capability，factory 调用该能力；
 6. 建立 `PluginHookSource` trait，bridge 暂时提供基于现有 plugin loader 的实现；
 7. `rustcode-coding/Cargo.toml` 删除生产 `rustcode-core` 依赖；
@@ -963,14 +963,14 @@ P0 只清理完整 owner 的依赖前置，不改变 driver 行为。
 
 P0 是搬迁和依赖反转，不改变 provider 行为。必须锁定：
 
-1. OpenAI/Claude/Ollama provider dispatch；
+1. OpenAI/Claude/Ollama 的 provider 选择（dispatch）；
 2. AtomGit signing 与普通 endpoint 非签名路径；
-3. reasoning history、reasoning effort、thinking type/keep；
-4. max tokens fallback；
-5. stream/request timeout；
+3. 推理历史（reasoning history）、推理强度（reasoning effort）与思考类型/保留（thinking type/keep）；
+4. 最大 token 数回退（max tokens fallback）；
+5. 流式与请求超时（stream/request timeout）；
 6. User-Agent 和 skip TLS；
-7. session id/gateway affinity；
-8. fast/capable tier lazy build、host-equal collapse、model swap reset；
+7. 会话 id 与网关亲和性（session id/gateway affinity）；
+8. fast/capable 分档（tier）惰性构建（lazy build）、同宿主折叠（host-equal collapse）与换模型重置（model swap reset）；
 9. vision model 判定与迁移前逐例一致；
 10. CodingPlan window source 失败时保留现有 fail-open/fail-closed 决策，不吞错；
 11. `cargo tree -p rustcode-coding` 生产依赖中无 `rustcode-core`。
@@ -1000,9 +1000,9 @@ P0 是搬迁和依赖反转，不改变 provider 行为。必须锁定：
 
 暂时保留：
 
-- bridge command/event/lifecycle；
+- bridge 的命令、事件与生命周期（command/event/lifecycle）；
 - daemon KernelDriver 和 feature flag；
-- TUI/CLI legacy endpoint；
+- TUI/CLI 的遗留入口（legacy endpoint）；
 - `/compact` 现有 native API。
 
 P0 不达到任何命令退役状态，交付必须写“driver legacy surface 未变化”。
@@ -1026,8 +1026,8 @@ command/event adapter。不能只接管 AgentHandle 却让 bridge 继续修改 p
 |---|---|
 | `runtime/mod.rs` | public start/handle/events 类型 |
 | `runtime/actor.rs` | control 与 kernel event 的唯一 select loop |
-| `runtime/state.rs` | phase、generation、accepted operation |
-| `runtime/events.rs` | sequence envelope、terminal/event projection |
+| `runtime/state.rs` | 阶段（phase）、代次（generation）与已受理操作（accepted operation） |
+| `runtime/events.rs` | 序号封装（sequence envelope）与终结/事件投影（terminal/event projection） |
 | `runtime/snapshot.rs` | 单在途 snapshot broker |
 | `runtime/lifecycle.rs` | provider/reprepare/session replacement 事务 |
 | `runtime/context.rs` | core-free 精确 context stats |
@@ -1043,26 +1043,26 @@ handle。M0 完成后仍是“逻辑已实现，尚未退役”；core `Shutdown
 
 ### 17.1 Runtime 单元/集成测试
 
-- state operation matrix；
-- start/shutdown/failure；
-- submit/steer/turn terminal；
+- 状态与操作矩阵（state operation matrix）；
+- 启动（start）、关闭（shutdown）与失败（failure）；
+- 提交（submit）、引导（steer）与回合终结（turn terminal）；
 - request id correlation 与 fail-closed；
-- snapshot broker；
-- compaction exactly-once terminal；
-- provider reassemble success/build-failure/assemble-failure/rollback-failure；
+- 快照代理（snapshot broker）；
+- 压缩（compaction）恰好一次的终结（exactly-once terminal）；
+- provider 重建（reassemble）成功、构建失败（build-failure）、装配失败（assemble-failure）与回滚失败（rollback-failure）；
 - reprepare candidate failure 与 old-runtime rollback；
-- fresh/resume/cd/undo；
+- 新建（fresh）、恢复（resume）、切目录（cd）与撤销（undo）；
 - generation 和 late event；
-- goal/loop cancel/reload/session switch；
+- 目标（goal）与循环（loop）的取消（cancel）、重载（reload）与会话切换（session switch）；
 - 一个 `CodingParts` 不产生两个 live Agent。
 
-### 17.2 Driver parity
+### 17.2 driver parity 对照
 
 | driver | 场景 |
 |---|---|
 | daemon/webui | live turn、approval、cancel、reload、resume、cd、compact、disconnect、`/chat` 文本模型图片 VL 预处理 |
-| CLI/headless | prompt、approval policy、cancel、rate limit、terminal、shutdown |
-| TUI | foreground、background、mode、context、modal reload、session replay、undo |
+| CLI/headless | 提示（prompt）、审批策略（approval policy）、取消（cancel）、限流（rate limit）、终结（terminal）与关闭（shutdown） |
+| TUI | 前台（foreground）、后台（background）、模式（mode）、上下文（context）、弹窗重载（modal reload）、会话回放（session replay）与撤销（undo） |
 | clix/ACP | 共享 provider/event 语义不回退 |
 
 ### 17.3 静态退役检查

@@ -59,12 +59,12 @@ schedule enable          ──► install ;  schedule sync ──► 按 store 
 
 ## Schedule → OS 翻译（纯函数）
 
-| Schedule | launchd | systemd OnCalendar | schtasks |
+| Schedule（调度频率） | launchd | systemd OnCalendar | schtasks |
 |---|---|---|---|
-| Daily{HH:MM} | StartCalendarInterval{Hour,Minute} | `*-*-* HH:MM:00` | `/SC DAILY /ST HH:MM` |
-| Weekly{wd,HH:MM} | +Weekday | `<Dow> *-*-* HH:MM` | `/SC WEEKLY /D <DOW> /ST HH:MM` |
-| Hourly | StartCalendarInterval{Minute:0} | `hourly` | `/SC HOURLY` |
-| Interval{N min} | StartInterval=N*60 | `OnUnitActiveSec=Nmin` | `/SC MINUTE /MO N` |
+| Daily{HH:MM}（每天） | StartCalendarInterval{Hour,Minute} | `*-*-* HH:MM:00` | `/SC DAILY /ST HH:MM` |
+| Weekly{wd,HH:MM}（每周） | +Weekday | `<Dow> *-*-* HH:MM` | `/SC WEEKLY /D <DOW> /ST HH:MM` |
+| Hourly（每小时） | StartCalendarInterval{Minute:0} | `hourly` | `/SC HOURLY` |
+| Interval{N min}（间隔 N 分钟） | StartInterval=N*60 | `OnUnitActiveSec=Nmin` | `/SC MINUTE /MO N` |
 | Cron{expr} | 拒绝并提示（launchd 无 cron 表达式）| 尽量转 `OnCalendar`，转不了退 crontab | 尽量，复杂拒绝提示 |
 
 Cron kind 阶段 2 的支持：Linux 直接进 crontab / OnCalendar 最自然；mac/win 若无法表达则 `install` 返回明确错误（不静默失败）。

@@ -182,14 +182,14 @@ MCP 总开关：`CodingRuntimeConfig.mcp` 默认 `true`；`rustcode-clix` 提供
 
 ## 8. 代码布局
 
-`crates/rustcode-capabilities/src/mcp/`（feature `mcp`）：
+`crates/rustcode-capabilities/src/mcp/`（feature `mcp` 开启时）：
 
 | 文件 | 职责 |
 |---|---|
 | `mod.rs` | 导出 + `register_mcp_tools` + `CONNECT_TIMEOUT` |
 | `config.rs` | `.mcp.json` 解析、两级合并、env/`~` 展开、`add_auto_approved_tool` |
 | `types.rs` | JSON-RPC / initialize / list / call 类型、`MCP_PROTOCOL_VERSION`、`initialize_params()`、`ServerStatus`、工具注解判定 |
-| `client.rs` | `McpClient` trait + `McpToolInfo` |
+| `client.rs` | `McpClient` trait 与 `McpToolInfo` 定义 |
 | `registry.rs` | `McpRegistry`：后台并行连接、trust 分区、`tools/list`、`call_tool`、状态、`McpConnectEvent` |
 | `transport_stdio.rs` | stdio 子进程、NDJSON 读写、重连、Windows `.cmd` 包装 |
 | `transport_http.rs` | Streamable HTTP、SSE 帧解析、会话 id、协议头、OAuth token 注入 |

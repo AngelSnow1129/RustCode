@@ -1,4 +1,4 @@
-# RustCode for VS Code
+# RustCode for VS Code（VS Code 扩展）
 
 RustCode 是一款集成在 VS Code 中的开发辅助工具，用于帮助开发者更高效地理解、编辑与管理代码。
 

@@ -1,41 +1,41 @@
-# code-review deep mode (dimension fan-out) Implementation Plan
+# code-review deep mode（维度 fan-out）实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法跟踪进度。
 
-**Goal:** Add an opt-in `/review deep` mode that fans out one read-only reviewer per concern dimension (correctness / security / performance / tests&contracts), runs them concurrently, and merges/dedups their findings — while the default `/review` keeps running a single agent unchanged.
+**目标：** 新增可选的 `/review deep` 模式：按关注维度（correctness / security / performance / tests&contracts）各派发一个只读 reviewer 并发执行，再合并并去重它们的发现；而默认的 `/review` 保持原样，仍只运行单个 agent。
 
-**Architecture:** A new `rustcode-review/src/fanout.rs` owns a fixed dimension table (each dimension is a `persona_append` lens), a pure `merge_findings` deduplicator, a pure deep-review renderer, and a generic `run_deep_review` orchestrator (concurrency via `tokio::task::JoinSet`, injectable per-dimension runner for tests). `ReviewTool::execute` gains a `depth` arg and dispatches: `single` (today's exact path, untouched) vs `deep` (build N dimension agents via `build_review_agent_with` + `ReviewAgentConfig::with_persona_append`, each with its own `ReportFindingTool` sink, then merge → scope-filter → render).
+**架构：** 新增 `rustcode-review/src/fanout.rs`，承载一张固定的维度表（每个维度是一段 `persona_append` 视角）、一个纯函数去重器 `merge_findings`、一个纯 deep-review 渲染器，以及一个泛型编排器 `run_deep_review`（并发用 `tokio::task::JoinSet`，每维度的 runner 可注入以便测试）。`ReviewTool::execute` 新增 `depth` 参数并分派：`single`（完全沿用现有路径，不做改动）与 `deep`（通过 `build_review_agent_with` + `ReviewAgentConfig::with_persona_append` 构建 N 个维度 agent，每个 agent 自带 `ReportFindingTool` 汇聚点，然后 merge → 范围过滤 → 渲染）。
 
-**Tech Stack:** Rust, tokio (`rt-multi-thread`, `macros`, `time`, `sync` — already enabled), `rustcode-kernel` Agent, `rustcode-capabilities` `Finding`/`ReportFindingTool`. No new dependencies.
+**技术栈：** Rust、tokio（`rt-multi-thread`、`macros`、`time`、`sync` —— 均已启用）、`rustcode-kernel` 的 Agent、`rustcode-capabilities` 的 `Finding`/`ReportFindingTool`。不引入新依赖。
 
-**Spec:** `docs/plans/2026-08-20-code-review-deep-mode-fanout-design.md`
+**规范：** `docs/plans/2026-08-20-code-review-deep-mode-fanout-design.md`
 
-## Global Constraints
+## 全局约束
 
-- No new crate dependencies. `futures` is dev-only in `rustcode-review`, so production orchestration MUST use `tokio::task::JoinSet` (NOT `futures::future::join_all`).
-- The single-agent path (`depth` absent or `"single"`) MUST be behavior-identical to today. All existing `rustcode-review` and `rustcode-tuix` tests stay green unchanged.
-- Deep mode is opt-in only (`/review deep` / tool arg `depth:"deep"`). Default stays single.
-- Scope preflight/confirmation runs BEFORE any fan-out (reuse the existing `ScopeManifest`/`ScopeLimits` block in `execute()`).
-- Review findings render in English (match the existing `render_findings` output).
-- `Finding` fields (from `rustcode-capabilities`, do NOT modify): `title: String`, `body: String`, `priority: String` (`"P0"`..`"P3"`, 0 most severe), `confidence: f32` (0.0..=1.0), `file_path: String`, `line_start: u32`, `line_end: u32`, `suggestion: String`, `suggested_code: String`.
+- 不新增 crate 依赖。`futures` 在 `rustcode-review` 中仅为 dev 依赖，因此生产环境的编排必须使用 `tokio::task::JoinSet`（而非 `futures::future::join_all`）。
+- 单 agent 路径（`depth` 缺省或 `"single"`）必须与当前行为完全一致。`rustcode-review` 与 `rustcode-tuix` 的所有既有测试保持通过且不改动。
+- deep 模式仅按需开启（`/review deep` / 工具参数 `depth:"deep"`）。默认仍为 single。
+- 范围预检/确认必须在任何 fan-out 之前执行（复用 `execute()` 中现有的 `ScopeManifest`/`ScopeLimits` 代码块）。
+- review 发现以英文渲染（与现有 `render_findings` 的输出保持一致）。
+- `Finding` 字段（来自 `rustcode-capabilities`，禁止修改）：`title: String`、`body: String`、`priority: String`（`"P0"`..`"P3"`，0 最严重）、`confidence: f32`（0.0..=1.0）、`file_path: String`、`line_start: u32`、`line_end: u32`、`suggestion: String`、`suggested_code: String`。
 
 ---
 
-### Task 1: Dimension table + module wiring
+### 任务 1：维度表与模块接线
 
-**Files:**
-- Create: `crates/rustcode-review/src/fanout.rs`
-- Modify: `crates/rustcode-review/src/lib.rs` (declare + export the module)
-- Test: in `fanout.rs` `#[cfg(test)]`
+**文件：**
+- 新增：`crates/rustcode-review/src/fanout.rs`
+- 修改：`crates/rustcode-review/src/lib.rs`（声明并导出该模块）
+- 测试：位于 `fanout.rs` 的 `#[cfg(test)]`
 
-**Interfaces:**
-- Produces:
+**接口：**
+- 产出：
   - `pub struct ReviewDimension { pub id: &'static str, pub display: &'static str, pub lens: &'static str }`
-  - `pub const REVIEW_DIMENSIONS: &[ReviewDimension]` (4 entries: `correctness`, `security`, `performance`, `tests_contracts`)
+  - `pub const REVIEW_DIMENSIONS: &[ReviewDimension]`（4 项：`correctness`、`security`、`performance`、`tests_contracts`）
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
-In a new `crates/rustcode-review/src/fanout.rs`, put the table + this test:
+在新建的 `crates/rustcode-review/src/fanout.rs` 中，放入这张维度表与下面的测试：
 
 ```rust
 //! Deep-mode dimension fan-out for `code_review`: many read-only reviewers, one
@@ -113,27 +113,27 @@ mod tests {
 }
 ```
 
-Then wire the module in `crates/rustcode-review/src/lib.rs`: add `pub mod fanout;` next to the other `pub mod` lines, and add to the re-export list:
+然后在 `crates/rustcode-review/src/lib.rs` 中接线：在其他 `pub mod` 行旁边加上 `pub mod fanout;`，并在再导出列表中补充：
 
 ```rust
 pub use fanout::{ReviewDimension, REVIEW_DIMENSIONS};
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认其失败**
 
-Run: `cargo test -p rustcode-review --lib fanout::tests::dimension_table_is_the_four_expected_lenses`
-Expected: FAIL to compile first (module not declared) → after declaring, PASS. If it compiles and fails, the table is wrong; fix until it fails only for a real reason. (This task is mostly data; once the file + module wiring exist it passes.)
+运行：`cargo test -p rustcode-review --lib fanout::tests::dimension_table_is_the_four_expected_lenses`
+预期：先编译失败（模块未声明）→ 声明后转为 PASS。若编译通过却测试失败，说明维度表写错了；修正到它只因真实原因而失败为止。（本任务以数据为主，文件与模块接线就绪后即通过。）
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
-Already written in Step 1 (the table IS the implementation). Ensure `lib.rs` declares `pub mod fanout;` and the re-export compiles.
+已在步骤 1 写好（这张表本身就是实现）。确保 `lib.rs` 声明了 `pub mod fanout;`，且再导出能编译通过。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认其通过**
 
-Run: `cargo test -p rustcode-review --lib fanout`
-Expected: PASS.
+运行：`cargo test -p rustcode-review --lib fanout`
+预期：PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-review/src/fanout.rs crates/rustcode-review/src/lib.rs
@@ -142,21 +142,21 @@ git commit -m "feat(review): deep-mode dimension table (fanout scaffolding)"
 
 ---
 
-### Task 2: `merge_findings` deduplicator (pure)
+### 任务 2：`merge_findings` 去重器（纯函数）
 
-**Files:**
-- Modify: `crates/rustcode-review/src/fanout.rs`
-- Test: in `fanout.rs` `#[cfg(test)]`
+**文件：**
+- 修改：`crates/rustcode-review/src/fanout.rs`
+- 测试：位于 `fanout.rs` 的 `#[cfg(test)]`
 
-**Interfaces:**
-- Consumes: `Finding` (`crate::Finding`).
-- Produces:
+**接口：**
+- 消费：`Finding`（`crate::Finding`）。
+- 产出：
   - `pub struct MergedFinding { pub finding: Finding, pub dimensions: Vec<&'static str> }`
   - `pub fn merge_findings(per_dim: Vec<(&'static str, Vec<Finding>)>) -> Vec<MergedFinding>`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
-Add to `fanout.rs` (top-of-file `use`):
+在 `fanout.rs` 中补充（文件顶部的 `use`）：
 
 ```rust
 use std::cmp::Ordering;
@@ -164,7 +164,7 @@ use std::cmp::Ordering;
 use crate::Finding;
 ```
 
-Add the test module cases (inside the existing `mod tests`):
+在既有的 `mod tests` 内补充以下测试用例：
 
 ```rust
     fn f(priority: &str, conf: f32, file: &str, ls: u32, le: u32, title: &str) -> Finding {
@@ -214,14 +214,14 @@ Add the test module cases (inside the existing `mod tests`):
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认其失败**
 
-Run: `cargo test -p rustcode-review --lib fanout::tests::merge_`
-Expected: FAIL to compile — `merge_findings` / `MergedFinding` not defined.
+运行：`cargo test -p rustcode-review --lib fanout::tests::merge_`
+预期：编译失败 —— `merge_findings` / `MergedFinding` 尚未定义。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
-Add to `fanout.rs` (module body, above `#[cfg(test)]`):
+在 `fanout.rs` 中补充（模块体内，`#[cfg(test)]` 之上）：
 
 ```rust
 /// A finding that survived dedup, tagged with every dimension that reported it.
@@ -304,12 +304,12 @@ fn outranks(candidate: &Finding, current: &Finding) -> bool {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认其通过**
 
-Run: `cargo test -p rustcode-review --lib fanout::tests::merge_`
-Expected: PASS (3 tests).
+运行：`cargo test -p rustcode-review --lib fanout::tests::merge_`
+预期：PASS（3 个测试）。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-review/src/fanout.rs
@@ -318,22 +318,22 @@ git commit -m "feat(review): merge_findings deduplicator for deep mode"
 
 ---
 
-### Task 3: Shared finding comparator + deep renderer (pure)
+### 任务 3：共享的 finding 比较器与 deep 渲染器（纯函数）
 
-**Files:**
-- Modify: `crates/rustcode-review/src/review_tool.rs` (extract `cmp_finding`, make `paths_match` reusable)
-- Modify: `crates/rustcode-review/src/fanout.rs` (add `DimensionOutcome`, `finalize_deep_review`, `render_deep`)
-- Test: in `fanout.rs` `#[cfg(test)]`
+**文件：**
+- 修改：`crates/rustcode-review/src/review_tool.rs`（抽出 `cmp_finding`，并让 `paths_match` 可复用）
+- 修改：`crates/rustcode-review/src/fanout.rs`（新增 `DimensionOutcome`、`finalize_deep_review`、`render_deep`）
+- 测试：位于 `fanout.rs` 的 `#[cfg(test)]`
 
-**Interfaces:**
-- Consumes: `merge_findings`, `MergedFinding`, `REVIEW_DIMENSIONS`, `crate::review_tool::{cmp_finding, paths_match}`.
-- Produces:
+**接口：**
+- 消费：`merge_findings`、`MergedFinding`、`REVIEW_DIMENSIONS`、`crate::review_tool::{cmp_finding, paths_match}`。
+- 产出：
   - `pub struct DimensionOutcome { pub dimension: &'static str, pub findings: Vec<Finding>, pub completed: bool, pub error: Option<String> }`
-  - `pub fn finalize_deep_review(outcomes: &[DimensionOutcome], changed_files: usize, changed_paths: &[String]) -> (bool, String)` — returns `(is_error, rendered)`. `is_error` is true only when NO dimension completed cleanly.
+  - `pub fn finalize_deep_review(outcomes: &[DimensionOutcome], changed_files: usize, changed_paths: &[String]) -> (bool, String)` —— 返回 `(is_error, rendered)`；`is_error` 仅在**没有任何**维度干净完成时为真。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
-First, in `crates/rustcode-review/src/review_tool.rs`, extract the comparator and widen visibility so `fanout` can reuse them. Replace the body of `sort_findings` and expose `cmp_finding` + `paths_match`:
+首先，在 `crates/rustcode-review/src/review_tool.rs` 中抽出比较器并放宽可见性，让 `fanout` 可以复用它们。替换 `sort_findings` 的函数体，并对外暴露 `cmp_finding` 与 `paths_match`：
 
 ```rust
 /// Priority ascending (`P0` most severe) then confidence descending. Shared with
@@ -351,9 +351,9 @@ fn sort_findings(findings: &mut [Finding]) {
 }
 ```
 
-and change `fn paths_match(` to `pub(crate) fn paths_match(` (line ~668).
+并把 `fn paths_match(` 改为 `pub(crate) fn paths_match(`（约 668 行）。
 
-Then add these tests to `fanout.rs` `mod tests`:
+然后在 `fanout.rs` 的 `mod tests` 中补充以下测试：
 
 ```rust
     fn outcome(dim: &'static str, completed: bool, findings: Vec<Finding>) -> DimensionOutcome {
@@ -417,14 +417,14 @@ Then add these tests to `fanout.rs` `mod tests`:
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认其失败**
 
-Run: `cargo test -p rustcode-review --lib fanout::tests::finalize_`
-Expected: FAIL to compile — `DimensionOutcome` / `finalize_deep_review` not defined.
+运行：`cargo test -p rustcode-review --lib fanout::tests::finalize_`
+预期：编译失败 —— `DimensionOutcome` / `finalize_deep_review` 尚未定义。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
-Add to `fanout.rs` (module body). Add the imports it needs at the top of the file:
+在 `fanout.rs` 中补充（模块体），并在文件顶部补上所需的 import：
 
 ```rust
 use crate::review_tool::{cmp_finding, paths_match};
@@ -546,12 +546,12 @@ fn render_deep(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认其通过**
 
-Run: `cargo test -p rustcode-review --lib fanout::tests::finalize_` then `cargo test -p rustcode-review --lib` (ensure `sort_findings`/`paths_match` refactor kept existing tests green).
-Expected: PASS; no regressions.
+运行：`cargo test -p rustcode-review --lib fanout::tests::finalize_`，再运行 `cargo test -p rustcode-review --lib`（确认 `sort_findings`/`paths_match` 的重构没让既有测试变红）。
+预期：PASS，无回归。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-review/src/fanout.rs crates/rustcode-review/src/review_tool.rs
@@ -560,20 +560,20 @@ git commit -m "feat(review): deep-review finalize/merge/render + shared cmp_find
 
 ---
 
-### Task 4: `run_deep_review` orchestrator (concurrent, injectable)
+### 任务 4：`run_deep_review` 编排器（并发、可注入）
 
-**Files:**
-- Modify: `crates/rustcode-review/src/fanout.rs`
-- Test: in `fanout.rs` `#[cfg(test)]`
+**文件：**
+- 修改：`crates/rustcode-review/src/fanout.rs`
+- 测试：位于 `fanout.rs` 的 `#[cfg(test)]`
 
-**Interfaces:**
-- Consumes: `ReviewDimension`, `REVIEW_DIMENSIONS`, `DimensionOutcome`.
-- Produces:
-  - `pub async fn run_deep_review<F, Fut>(dims: &'static [ReviewDimension], run_one: F) -> Vec<DimensionOutcome>` where `F: Fn(&'static ReviewDimension) -> Fut`, `Fut: std::future::Future<Output = DimensionOutcome> + Send + 'static`. Results are returned in `dims` order regardless of completion order.
+**接口：**
+- 消费：`ReviewDimension`、`REVIEW_DIMENSIONS`、`DimensionOutcome`。
+- 产出：
+  - `pub async fn run_deep_review<F, Fut>(dims: &'static [ReviewDimension], run_one: F) -> Vec<DimensionOutcome>` where `F: Fn(&'static ReviewDimension) -> Fut`，`Fut: std::future::Future<Output = DimensionOutcome> + Send + 'static`。结果按 `dims` 顺序返回，与完成顺序无关。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
-Add to `fanout.rs` `mod tests`:
+在 `fanout.rs` 的 `mod tests` 中补充：
 
 ```rust
     #[tokio::test]
@@ -596,14 +596,14 @@ Add to `fanout.rs` `mod tests`:
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认其失败**
 
-Run: `cargo test -p rustcode-review --lib fanout::tests::run_deep_review_runs_all`
-Expected: FAIL to compile — `run_deep_review` not defined.
+运行：`cargo test -p rustcode-review --lib fanout::tests::run_deep_review_runs_all`
+预期：编译失败 —— `run_deep_review` 尚未定义。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
-Add to `fanout.rs`. Uses `tokio::task::JoinSet` (no `futures` dep). Because `JoinSet` yields in completion order, reorder by dimension index before returning:
+在 `fanout.rs` 中补充。使用 `tokio::task::JoinSet`（不引入 `futures` 依赖）。由于 `JoinSet` 按完成顺序产出结果，返回前需按维度索引重新排序：
 
 ```rust
 /// Run every dimension concurrently and collect their outcomes in `dims` order.
@@ -641,12 +641,12 @@ where
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认其通过**
 
-Run: `cargo test -p rustcode-review --lib fanout::tests::run_deep_review_runs_all`
-Expected: PASS.
+运行：`cargo test -p rustcode-review --lib fanout::tests::run_deep_review_runs_all`
+预期：PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-review/src/fanout.rs
@@ -655,19 +655,19 @@ git commit -m "feat(review): run_deep_review concurrent orchestrator (JoinSet)"
 
 ---
 
-### Task 5: Wire `depth` into `code_review` execute + tool schema
+### 任务 5：把 `depth` 接入 `code_review` 的 execute 与工具 schema
 
-**Files:**
-- Modify: `crates/rustcode-review/src/review_tool.rs` (`Args.depth`, `is_deep`, schema, `execute` dispatch, real per-dimension runner)
-- Test: in `review_tool.rs` `#[cfg(test)]` (reuse `ScriptedReviewProvider`)
+**文件：**
+- 修改：`crates/rustcode-review/src/review_tool.rs`（`Args.depth`、`is_deep`、schema、`execute` 分派、真实的每维度 runner）
+- 测试：位于 `review_tool.rs` 的 `#[cfg(test)]`（复用 `ScriptedReviewProvider`）
 
-**Interfaces:**
-- Consumes: `fanout::{run_deep_review, finalize_deep_review, DimensionOutcome, REVIEW_DIMENSIONS}`, `build_review_agent_with`, `ReviewAgentConfig::with_persona_append`.
-- Produces: `code_review` accepting `{"depth":"deep"}` and running the fan-out; default/`"single"` unchanged.
+**接口：**
+- 消费：`fanout::{run_deep_review, finalize_deep_review, DimensionOutcome, REVIEW_DIMENSIONS}`、`build_review_agent_with`、`ReviewAgentConfig::with_persona_append`。
+- 产出：`code_review` 接受 `{"depth":"deep"}` 并执行 fan-out；默认值与 `"single"` 行为不变。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
-Add to `review_tool.rs` `mod tests` (the `ScriptedReviewProvider` reports one `unchecked unwrap` finding at `a.rs:1` per agent; deep runs 4 agents → 4 identical findings → dedup to 1):
+在 `review_tool.rs` 的 `mod tests` 中补充（`ScriptedReviewProvider` 每个 agent 会在 `a.rs:1` 报告一条 `unchecked unwrap` 发现；deep 会跑 4 个 agent → 4 条相同发现 → 去重为 1 条）：
 
 ```rust
     #[test]
@@ -724,14 +724,14 @@ Add to `review_tool.rs` `mod tests` (the `ScriptedReviewProvider` reports one `u
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认其失败**
 
-Run: `cargo test -p rustcode-review --lib deep_review_fans_out`
-Expected: FAIL to compile — `Args::is_deep` not defined / `depth` field missing.
+运行：`cargo test -p rustcode-review --lib deep_review_fans_out`
+预期：编译失败 —— `Args::is_deep` 尚未定义 / 缺少 `depth` 字段。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
-(a) Add the field to `struct Args` (after `confirm_scope`):
+(a) 在 `struct Args` 中新增字段（放在 `confirm_scope` 之后）：
 
 ```rust
     /// Review depth. `"deep"` fans out one read-only reviewer per concern
@@ -741,7 +741,7 @@ Expected: FAIL to compile — `Args::is_deep` not defined / `depth` field missin
     depth: Option<String>,
 ```
 
-and add the helper in `impl Args`:
+并在 `impl Args` 中新增辅助方法：
 
 ```rust
     fn is_deep(&self) -> bool {
@@ -752,19 +752,19 @@ and add the helper in `impl Args`:
     }
 ```
 
-(b) Add `depth` to the tool schema `parameters()` `properties` (next to `confirm_scope`, line ~421):
+(b) 把 `depth` 加进工具 schema 的 `parameters()` `properties`（紧邻 `confirm_scope`，约 421 行）：
 
 ```rust
                 "depth": { "type": "string", "enum": ["single", "deep"], "description": "Review depth. `deep` fans out one reviewer per concern dimension (correctness/security/performance/tests) and merges findings; omit for the default single reviewer." }
 ```
 
-(c) Import the fanout entry points at the top of `review_tool.rs`:
+(c) 在 `review_tool.rs` 顶部导入 fanout 的入口：
 
 ```rust
 use crate::fanout::{finalize_deep_review, run_deep_review, DimensionOutcome, REVIEW_DIMENSIONS};
 ```
 
-(d) In `execute()`, replace the single-agent block (steps 3–5, the current lines that build one `cfg`, call `build_review_agent_with`, `tokio::select!`, and render) with a dispatch. Keep the shared prep (`annotated`, `files`, `rules`, `impact_plan`, `task`, `provider`) exactly as-is, then:
+(d) 在 `execute()` 中，把单 agent 代码块（步骤 3–5，即当前构建单个 `cfg`、调用 `build_review_agent_with`、`tokio::select!` 并渲染的那几行）替换为分派逻辑。共享的准备部分（`annotated`、`files`、`rules`、`impact_plan`、`task`、`provider`）保持原样，然后：
 
 ```rust
         // Shared per-agent config seed (both paths).
@@ -830,15 +830,15 @@ use crate::fanout::{finalize_deep_review, run_deep_review, DimensionOutcome, REV
         return if is_error { err(content) } else { ok(content) };
 ```
 
-Note: `make_cfg` borrows `self`, `ctx`, `files`. The deep closure calls `make_cfg()` synchronously (before the `async move`) so the produced owned `cfg` is what moves into the future — no borrow of `self`/`ctx` crosses the await. Confirm this compiles; if the borrow checker complains about `make_cfg` in the closure, inline the cfg construction into the closure body BEFORE `async move` (build the owned `cfg` first, then `let cfg = cfg;` moved in).
+注意：`make_cfg` 借用了 `self`、`ctx`、`files`。deep 闭包在 `async move` **之前**同步调用 `make_cfg()`，因此移入 future 的是生成的所有权 `cfg` —— `self`/`ctx` 的借用不会跨越 await。请确认能编译；若借用检查器对闭包中的 `make_cfg` 报错，就把 cfg 构造内联到闭包体内、放在 `async move` 之前（先构建出所有权 `cfg`，再以 `let cfg = cfg;` 移入）。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认其通过**
 
-Run: `cargo test -p rustcode-review --lib deep_review_fans_out args_parse_depth_field`
-then the full crate: `cargo test -p rustcode-review`
-Expected: PASS; the pre-existing single-path tests (`review_tool_reviews_a_real_diff`, round/duration tests) still green.
+运行：`cargo test -p rustcode-review --lib deep_review_fans_out args_parse_depth_field`
+然后跑整个 crate：`cargo test -p rustcode-review`。
+预期：PASS；既有的单路径测试（`review_tool_reviews_a_real_diff`、轮次/时长测试）仍然通过。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-review/src/review_tool.rs
@@ -847,19 +847,19 @@ git commit -m "feat(review): code_review deep depth arg → dimension fan-out"
 
 ---
 
-### Task 6: `/review deep` command mapping
+### 任务 6：`/review deep` 命令映射
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/event_loop/commands.rs` (`review_prompt`)
-- Test: in `commands.rs` `#[cfg(test)]`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/event_loop/commands.rs`（`review_prompt`）
+- 测试：位于 `commands.rs` 的 `#[cfg(test)]`
 
-**Interfaces:**
-- Consumes: none new.
-- Produces: `/review deep [scope]` synthesizes a tool call carrying `"depth":"deep"`; `/review [scope]` unchanged.
+**接口：**
+- 消费：无新增。
+- 产出：`/review deep [scope]` 合成携带 `"depth":"deep"` 的工具调用；`/review [scope]` 不变。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
-Add to `commands.rs` `mod tests` (near `review_prompt_uses_explicit_tool_scopes`):
+在 `commands.rs` 的 `mod tests` 中补充（靠近 `review_prompt_uses_explicit_tool_scopes`）：
 
 ```rust
     #[test]
@@ -885,14 +885,14 @@ Add to `commands.rs` `mod tests` (near `review_prompt_uses_explicit_tool_scopes`
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认其失败**
 
-Run: `cargo test -p rustcode-tuix --lib review_prompt_deep_adds_depth`
-Expected: FAIL (current `review_prompt` emits no `depth` and treats `deep` as a git ref).
+运行：`cargo test -p rustcode-tuix --lib review_prompt_deep_adds_depth`
+预期：FAIL（当前 `review_prompt` 不输出 `depth`，且把 `deep` 当作 git ref 处理）。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
-Replace `review_prompt` (commands.rs:90) with a version that parses a leading `deep` keyword and composes the tool-args object:
+把 `review_prompt`（commands.rs:90）替换为能解析前导 `deep` 关键字并组装工具参数对象的版本：
 
 ```rust
 fn review_prompt(arg: &str) -> String {
@@ -924,14 +924,14 @@ fn review_prompt(arg: &str) -> String {
 }
 ```
 
-Note: this preserves the existing substrings the current tests assert (`{"scope":{"kind":"working_tree"}}`, `{"scope":{"kind":"staged"}}`, `{"scope":{"kind":"range","base":"release/v5.0.9","head":"HEAD"}}`, and JSON-escaped odd refs), so `review_prompt_uses_explicit_tool_scopes` and `review_prompt_json_escapes_the_base_ref` stay green.
+注意：该实现保留了当前测试断言的那些既有子串（`{"scope":{"kind":"working_tree"}}`、`{"scope":{"kind":"staged"}}`、`{"scope":{"kind":"range","base":"release/v5.0.9","head":"HEAD"}}`，以及经 JSON 转义的奇特 ref），因此 `review_prompt_uses_explicit_tool_scopes` 与 `review_prompt_json_escapes_the_base_ref` 仍会通过。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认其通过**
 
-Run: `cargo test -p rustcode-tuix --lib review_prompt`
-Expected: PASS (new deep test + the two existing review_prompt tests).
+运行：`cargo test -p rustcode-tuix --lib review_prompt`
+预期：PASS（新增的 deep 测试 + 既有的两个 review_prompt 测试）。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/event_loop/commands.rs
@@ -940,15 +940,15 @@ git commit -m "feat(tuix): /review deep opts code_review into dimension fan-out"
 
 ---
 
-### Task 7: Full-suite regression + docs note
+### 任务 7：全量回归 + 文档备注
 
-**Files:**
-- Modify: `crates/rustcode-review/src/review_tool.rs` (module-level doc note on deep mode — 2 lines)
-- No new tests (verification task).
+**文件：**
+- 修改：`crates/rustcode-review/src/review_tool.rs`（模块级 deep 模式文档备注 —— 2 行）
+- 不新增测试（本任务为验证任务）。
 
-- [ ] **Step 1: Add the doc note**
+- [ ] **步骤 1：补充文档备注**
 
-At the end of the `review_tool.rs` module header (after line ~12), add:
+在 `review_tool.rs` 模块头部末尾（约 12 行之后）补充：
 
 ```rust
 //! Deep mode: passing `{"depth":"deep"}` fans out one read-only reviewer per
@@ -956,17 +956,17 @@ At the end of the `review_tool.rs` module header (after line ~12), add:
 //! default single-reviewer path is unchanged.
 ```
 
-- [ ] **Step 2: Run the full relevant suites**
+- [ ] **步骤 2：运行全部相关测试套件**
 
-Run:
+运行：
 ```bash
 cargo test -p rustcode-review
 cargo test -p rustcode-tuix --lib
 cargo build -p rustcode-review -p rustcode-tuix
 ```
-Expected: all green, zero warnings.
+预期：全绿，零告警。
 
-- [ ] **Step 3: Commit**
+- [ ] **步骤 3：提交**
 
 ```bash
 git add crates/rustcode-review/src/review_tool.rs
@@ -975,19 +975,19 @@ git commit -m "docs(review): note deep-mode fan-out in code_review header"
 
 ---
 
-## Self-Review
+## 自检
 
-**Spec coverage:**
-- Interface `/review deep` + tool `depth` arg → Task 5 (arg/schema/dispatch), Task 6 (command).
-- Dimension fan-out (correctness/security/performance/tests_contracts, full-diff lens via `persona_append`) → Task 1 (table), Task 5 (runner uses `with_persona_append`).
-- Concurrent run, cancellable, `JoinSet` (no `futures` prod dep) → Task 4, Task 5.
-- Merge/dedup by (file + overlapping range + similar title), keep higher priority/confidence, accumulate dimension tags → Task 2.
-- Scope preflight BEFORE fan-out → Task 5 keeps the existing `ScopeManifest` block ahead of dispatch (shared prep untouched).
-- Error handling: partial dimensions still contribute; hard error only when none completed → Task 3 (`finalize_deep_review` is_error rule) + Task 5 (`completed` flag).
-- Reporting: reuse sort + per-dimension summary + dimension tags → Task 3 (`render_deep`).
-- Default single path unchanged → Task 5 dispatch returns the original block verbatim.
-- Phase-2 verify reserved (not built) → out of scope by design; `depth` enum can grow later.
+**规范覆盖：**
+- 接口 `/review deep` + 工具 `depth` 参数 → 任务 5（参数/schema/分派）、任务 6（命令）。
+- 维度 fan-out（correctness/security/performance/tests_contracts，通过 `persona_append` 施加全量 diff 视角）→ 任务 1（维度表）、任务 5（runner 使用 `with_persona_append`）。
+- 并发执行、可取消、使用 `JoinSet`（生产环境不引入 `futures` 依赖）→ 任务 4、任务 5。
+- 按（文件 + 重叠行范围 + 相似标题）合并/去重，保留更高优先级/置信度的一方，并累积维度标签 → 任务 2。
+- 范围预检在 fan-out 之前 → 任务 5 把既有的 `ScopeManifest` 代码块保留在分派之前（共享准备部分未动）。
+- 错误处理：部分维度仍然贡献结果；仅当全部未完成时才是硬错误 → 任务 3（`finalize_deep_review` 的 is_error 规则）+ 任务 5（`completed` 标志）。
+- 报告：复用排序 + 每维度汇总 + 维度标签 → 任务 3（`render_deep`）。
+- 默认 single 路径不变 → 任务 5 的分派原样返回原有代码块。
+- Phase-2 verify 预留（未实现）→ 按设计不在范围内；`depth` 枚举可后续扩展。
 
-**Placeholder scan:** none — every step has concrete code.
+**占位符扫描：** 无 —— 每个步骤都有具体代码。
 
-**Type consistency:** `Finding` fields match the capabilities struct verbatim; `cmp_finding`/`paths_match` are defined in Task 3 and consumed in Task 3's `finalize_deep_review`; `DimensionOutcome`/`MergedFinding`/`run_deep_review`/`finalize_deep_review` signatures are identical where produced (Tasks 2–4) and consumed (Task 5). `is_deep` defined and used in Task 5.
+**类型一致性：** `Finding` 字段与 capabilities 结构体逐字一致；`cmp_finding`/`paths_match` 在任务 3 定义并在任务 3 的 `finalize_deep_review` 中消费；`DimensionOutcome`/`MergedFinding`/`run_deep_review`/`finalize_deep_review` 在产出方（任务 2–4）与消费方（任务 5）的签名完全一致。`is_deep` 在任务 5 定义并使用。

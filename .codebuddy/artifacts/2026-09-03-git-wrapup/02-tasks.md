@@ -68,7 +68,7 @@ created: 2026-09-03
 
 | 任务 | 负责人 | files_owned |
 |---|---|---|
-| GW-02 | doc-writer | `docs/multi-agent-collaboration-solution.md` |
+| GW-02 | doc-writer | `docs/multi-agent-collaboration-solution.md`（协作方案文档） |
 | GW-03 | code-implementer（第 2 次失败 → 编排者代行） | `crates/rustcode-tuix/src/modals/session_picker.rs` |
 | GW-04 | 编排者(project-manager) | `.codebuddy/artifacts/2026-09-02-*/STATUS.md`（3 个文件，同一人顺序处理） |
 
@@ -196,7 +196,7 @@ B0 (GW-01 身份)                        <- Day0 硬前置，阻塞全部写操�
    依据 Batch 1 回退规则代行，验收全过（2064/0 + 20/20 + fmt exit=0）。**第 3 次同类失败将强制升级用户。**
 2. **提交数 3 → 5** —— 因 CB 裁决（解除 `.codebuddy/` 忽略）引入 `.gitignore` 变更，
    另按 Q2 裁决新增 CI 守卫提交。最终 C1 `270e5073` / C2 `1146685f` / C3 `2fe5aaf8` /
-   C4 `f3489055` / C5(merge) `a81fb69f`。
+   C4 `f3489055` / C5（合并提交）`a81fb69f`。
 3. **GW-04 `files_owned` 追加 `.gitignore`** —— 原契约只含三个 `STATUS.md`，
    但解除忽略必须改 `.gitignore` 才能实现，故一并纳入 C2。
 

@@ -1,6 +1,6 @@
-# Project-scope 记忆目录可配置 Implementation Plan
+# Project-scope 记忆目录可配置实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必备子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
 **Goal:** 让 project-scope 记忆文件目录可经环境变量 `RUSTCODE_PROJECT_MEMORY_DIR` 覆盖（默认 `.rustcode` 不变），消除与 global scope（`RUSTCODE_HOME`）的不对称。
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust；`rustcode-capabilities`、`rustcode-config`；各自 `#[cfg(test)] mod tests`。
 
-## Global Constraints
+## 全局约束
 
 - 默认（env 未设/空）行为**与现状逐字节一致**：`<project_root>/.rustcode/memory.md`。
 - **两份 store 都要改，且逐字镜像**：`rustcode-capabilities/src/memory/store.rs` 与 `rustcode-config/src/config/memory.rs`（保持它们既有的 verbatim-port 关系）。
@@ -20,16 +20,16 @@
 
 ---
 
-### Task 1: capabilities `MemoryStore::project` 读 env
+### 任务 1：capabilities `MemoryStore::project` 读 env
 
-**Files:**
-- Modify: `crates/rustcode-capabilities/src/memory/store.rs`（`project()` 约 L29-31；`mod tests` 约 L172+）
+**文件：**
+- 修改：`crates/rustcode-capabilities/src/memory/store.rs`（`project()` 约 L29-31；`mod tests` 约 L172+）
 
-**Interfaces:**
-- Consumes: 既有 `MemoryStore::new(PathBuf) -> Self`。
-- Produces: `fn project_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathBuf`（私有纯函数）；`pub fn project(project_root: &Path) -> Self` 行为变更（读 env）。
+**接口：**
+- 消费： 既有 `MemoryStore::new(PathBuf) -> Self`。
+- 产出： `fn project_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathBuf`（私有纯函数）；`pub fn project(project_root: &Path) -> Self` 行为变更（读 env）。
 
-- [ ] **Step 1: 写失败测试**（`mod tests` 内新增）
+- [ ] **步骤 1：写失败测试**（`mod tests` 内新增）
 
 ```rust
     #[test]
@@ -58,12 +58,12 @@
     }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [ ] **步骤 2：跑测试确认失败**
 
-Run: `cargo test -p rustcode-capabilities --lib project_memory_path_resolves_override`
-Expected: FAIL — `project_memory_path` 未定义（编译错误）。
+运行：`cargo test -p rustcode-capabilities --lib project_memory_path_resolves_override`
+预期：FAIL — `project_memory_path` 未定义（编译错误）。
 
-- [ ] **Step 3: 实现纯函数 + 改 `project()`**
+- [ ] **步骤 3：实现纯函数 + 改 `project()`**
 
 把 store.rs 的：
 
@@ -95,17 +95,17 @@ Expected: FAIL — `project_memory_path` 未定义（编译错误）。
 
 注意：`project_memory_path` 作为 `impl MemoryStore` 的关联函数（`Self::project_memory_path`）；测试里以 `super::MemoryStore::project_memory_path` 调用——若测试写的是 `super::project_memory_path`，改成关联函数路径或把纯函数放模块级。**本计划采用模块级私有 `fn project_memory_path`（非关联函数）**，故测试用 `super::project_memory_path` 正确；`project()` 内改调 `project_memory_path(...)`（不加 `Self::`）。`PathBuf` 已在文件顶部 `use std::path::{Path, PathBuf}` 导入。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [ ] **步骤 4：跑测试确认通过**
 
-Run: `cargo test -p rustcode-capabilities --lib project_memory_path_resolves_override`
-Expected: PASS。
+运行：`cargo test -p rustcode-capabilities --lib project_memory_path_resolves_override`
+预期：测试通过（PASS）。
 
-- [ ] **Step 5: 跑 crate 全量确认无回归**
+- [ ] **步骤 5：跑 crate 全量确认无回归**
 
-Run: `cargo test -p rustcode-capabilities`
-Expected: 全绿；尤其 `tools/memory.rs::remember_writes_project_entry`（env 未设 → 默认 `.rustcode`）与 `memory/hook.rs` 测试仍通过。
+运行：`cargo test -p rustcode-capabilities`
+预期：全绿；尤其 `tools/memory.rs::remember_writes_project_entry`（env 未设 → 默认 `.rustcode`）与 `memory/hook.rs` 测试仍通过。
 
-- [ ] **Step 6: 提交**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-capabilities/src/memory/store.rs
@@ -114,17 +114,17 @@ git commit -m "feat(memory): honor RUSTCODE_PROJECT_MEMORY_DIR in capabilities s
 
 ---
 
-### Task 2: config `MemoryStore::project` 读 env(逐字镜像)+ 文档
+### 任务 2：config `MemoryStore::project` 读 env(逐字镜像)+ 文档
 
-**Files:**
-- Modify: `crates/rustcode-config/src/config/memory.rs`（`project()` 约 L22-24；`mod tests` 约 L155+）
-- Modify（文档，best-effort）: `site/docs/en/configuration.html` 与 `site/docs/zh/configuration.html`（在 `RUSTCODE_HOME` 说明旁补一条）
+**文件：**
+- 修改：`crates/rustcode-config/src/config/memory.rs`（`project()` 约 L22-24；`mod tests` 约 L155+）
+- 修改（文档，尽力而为）：`site/docs/en/configuration.html` 与 `site/docs/zh/configuration.html`（在 `RUSTCODE_HOME` 说明旁补一条）
 
-**Interfaces:**
-- Consumes: 既有 `MemoryStore::new(PathBuf) -> Self`。
-- Produces: 与 Task 1 同签名的模块级 `fn project_memory_path`；`pub fn project` 行为变更。二者与 Task 1 **逐字一致**（保持字节兼容端口关系）。
+**接口：**
+- 消费： 既有 `MemoryStore::new(PathBuf) -> Self`。
+- 产出： 与 任务 1 同签名的模块级 `fn project_memory_path`；`pub fn project` 行为变更。二者与 任务 1 **逐字一致**（保持字节兼容端口关系）。
 
-- [ ] **Step 1: 写失败测试**（`config/memory.rs` 的 `mod tests` 内新增，与 Task 1 同）
+- [ ] **步骤 1：写失败测试**（`config/memory.rs` 的 `mod tests` 内新增，与 任务 1 同）
 
 ```rust
     #[test]
@@ -150,12 +150,12 @@ git commit -m "feat(memory): honor RUSTCODE_PROJECT_MEMORY_DIR in capabilities s
     }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [ ] **步骤 2：跑测试确认失败**
 
-Run: `cargo test -p rustcode-config --lib project_memory_path_resolves_override`
-Expected: FAIL — `project_memory_path` 未定义。
+运行：`cargo test -p rustcode-config --lib project_memory_path_resolves_override`
+预期：FAIL — `project_memory_path` 未定义。
 
-- [ ] **Step 3: 实现(逐字镜像 Task 1)**
+- [ ] **步骤 3：实现(逐字镜像 任务 1)**
 
 把 config/memory.rs 的：
 
@@ -165,14 +165,14 @@ Expected: FAIL — `project_memory_path` 未定义。
     }
 ```
 
-改成与 Task 1 **逐字相同**的 `project_memory_path`（模块级私有 `fn`）+ `project()`（读 `RUSTCODE_PROJECT_MEMORY_DIR`）。`PathBuf` 已在 config/memory.rs 顶部 `use std::path::{Path, PathBuf}` 导入。
+改成与 任务 1 **逐字相同**的 `project_memory_path`（模块级私有 `fn`）+ `project()`（读 `RUSTCODE_PROJECT_MEMORY_DIR`）。`PathBuf` 已在 config/memory.rs 顶部 `use std::path::{Path, PathBuf}` 导入。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [ ] **步骤 4：跑测试确认通过**
 
-Run: `cargo test -p rustcode-config --lib project_memory_path_resolves_override`
-Expected: PASS。
+运行：`cargo test -p rustcode-config --lib project_memory_path_resolves_override`
+预期：测试通过（PASS）。
 
-- [ ] **Step 5: 补文档(best-effort)**
+- [ ] **步骤 5：补文档(best-effort)**
 
 在 `site/docs/en/configuration.html` 与 `site/docs/zh/configuration.html` 里，找到描述 `RUSTCODE_HOME` 的环境变量小节，紧随其后补一条：
 - en: `<code>RUSTCODE_PROJECT_MEMORY_DIR</code> — overrides the per-project memory directory (default <code>.rustcode</code>); relative values nest under the working directory, absolute paths are used as-is. Only affects the project-scope memory file.`
@@ -180,12 +180,12 @@ Expected: PASS。
 
 若该页结构不便插入（找不到清晰的 env 小节），跳过文档改动并在提交信息/报告中说明，不阻塞 Task。
 
-- [ ] **Step 6: 跑 crate 全量确认无回归**
+- [ ] **步骤 6：跑 crate 全量确认无回归**
 
-Run: `cargo test -p rustcode-config`
-Expected: 全绿（含 config/memory.rs 既有测试）。
+运行：`cargo test -p rustcode-config`
+预期：全绿（含 config/memory.rs 既有测试）。
 
-- [ ] **Step 7: 提交**
+- [ ] **步骤 7：提交**
 
 ```bash
 git status --short   # 确认只暂存 config/memory.rs (+ 可能的两个 configuration.html)
@@ -196,16 +196,16 @@ git commit -m "feat(memory): honor RUSTCODE_PROJECT_MEMORY_DIR in config store +
 
 ---
 
-## Self-Review
+## 自审
 
-**1. Spec coverage：**
-- env 覆盖 `RUSTCODE_PROJECT_MEMORY_DIR` + 默认不变 + 值语义（相对/绝对/空）→ Task 1/2 Step 3 + 纯函数测试。
-- **两份 store 都改**（capabilities + config，daemon 路径）→ Task 1（capabilities）+ Task 2（config）。
-- prompt 注入 hook 走 `project()` 自动覆盖 → 无需独立任务；Task 1 Step 5 断言 hook 测试仍绿。
+**1. 规格覆盖：**
+- env 覆盖 `RUSTCODE_PROJECT_MEMORY_DIR` + 默认不变 + 值语义（相对/绝对/空）→ 任务 1/2 步骤 3 + 纯函数测试。
+- **两份 store 都改**（capabilities + config，daemon 路径）→ 任务 1（capabilities）+ 任务 2（config）。
+- prompt 注入 hook 走 `project()` 自动覆盖 → 无需独立任务；任务 1 步骤 5 断言 hook 测试仍绿。
 - 只测纯函数、不做 env 集成测试（flakiness）→ Global Constraints + 两任务测试步。
-- 文档 → Task 2 Step 5。
-- 不迁移/不缓存/不装配期 → Global Constraints。 [+] 无缺口。
+- 文档 → 任务 2 步骤 5。
+- 不迁移/不缓存/不装配期 → 全局约束。 [+] 无缺口。
 
-**2. Placeholder scan：** 无 TBD/TODO；代码步骤含完整代码；文档步骤给了逐字文案。 [x]
+**2. 占位符扫描：** 无 TBD/TODO；代码步骤含完整代码；文档步骤给了逐字文案。 [x]
 
-**3. Type consistency：** 两任务 `project_memory_path(&Path, Option<&str>) -> PathBuf` 签名逐字一致；`project()` 读同一 env 名 `RUSTCODE_PROJECT_MEMORY_DIR`；测试断言路径与实现一致（`.rustcode`/`.myapp`/`/opt/brand/mem` + `memory.md`）。 [x]
+**3. 类型一致性：** 两任务 `project_memory_path(&Path, Option<&str>) -> PathBuf` 签名逐字一致；`project()` 读同一 env 名 `RUSTCODE_PROJECT_MEMORY_DIR`；测试断言路径与实现一致（`.rustcode`/`.myapp`/`/opt/brand/mem` + `memory.md`）。 [x]

@@ -5,7 +5,7 @@ model: sonnet
 tools: Read, Write, Edit, MultiEdit, Grep, Glob, Bash, LSP, TaskList, TaskGet, TaskUpdate
 agentMode: agentic
 enabled: true
-enabledAutoRun: false
+enabledAutoRun: true
 ---
 
 你是编码实现专家，负责在已冻结的契约下完成高质量、最小化的代码改动，并提供可复现的自验证证据。

@@ -33,7 +33,7 @@
 
 - [ ] `write_file` / `create_file` → `Created C:/...` / `Overwrote ...`
 - [ ] `edit_file` → `Edited C:/...`;以及 "old_string not found in C:/..." 错误
-- [ ] `read_file` → "resolved to C:/..."
+- [ ] `read_file` → 返回 "resolved to C:/..."
 - [ ] `search_replace` → 每文件报告 + 根目录
 - [ ] `grep` / `glob` / `list` → **相对结果** `src/main.rs`(不是 `src\main.rs`)
 - [ ] `change_dir` → `Working directory changed to C:/...`
@@ -79,7 +79,7 @@
 
 覆盖三个 P0/P1 修复点 + 一个安全回归:
 
-- [ ] §1.1（write → run）
+- [ ] §1.1（写入 → 运行）
 - [ ] §3.1（open_file 真打开）
 - [ ] §3.3（webui / TUI 会话对齐）
 - [ ] §4.1（review 能用）

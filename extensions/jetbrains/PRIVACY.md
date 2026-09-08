@@ -1,44 +1,44 @@
-# RustCode Privacy Policy
+# RustCode 隐私政策
 
-Last updated: June 23, 2026
+最后更新：June 23, 2026
 
-RustCode for JetBrains connects JetBrains IDEs to a local RustCode daemon. This policy explains what data the JetBrains plugin handles, what it sends to the local daemon, and when data may leave your machine.
+RustCode for JetBrains 把 JetBrains IDE 连接到本地的 RustCode 后端。本政策说明 JetBrains 插件会处理哪些数据、会向本地后端发送哪些数据，以及数据在什么情况下会离开你的机器。
 
-## Data handled by the plugin
+## 插件处理的数据
 
-The JetBrains plugin may process the following data when you use RustCode features:
+当你使用 RustCode 功能时，JetBrains 插件可能处理以下数据：
 
-- Chat prompts and assistant responses.
-- Selected code, attached files, current file context, and project metadata that you choose or configure RustCode to include.
-- Local project paths and session metadata used to keep RustCode sessions associated with your project.
-- Provider settings that you enter, including provider type, model name, base URL, and API key.
-- Local diagnostics generated on request. Diagnostics are redacted before display or copying where possible.
+- 聊天提示词与助手回复。
+- 你选择或配置 RustCode 包含的选中代码、附加文件、当前文件上下文与项目元数据。
+- 用于将 RustCode 会话与你的项目保持关联的本地项目路径与会话元数据。
+- 你输入的供应商设置，包括供应商类型、模型名称、base URL 与 API key。
+- 按需生成的本地诊断信息。诊断信息在显示或复制前会尽可能做脱敏处理。
 
-## Local daemon communication
+## 与本地后端通信
 
-By default, the plugin connects to a RustCode daemon at `127.0.0.1:13456`. The plugin can also start a bundled or configured daemon process on your machine. The plugin sends requests to this local daemon so it can run coding-agent workflows, manage sessions, communicate with model providers, and apply user-approved actions.
+默认情况下，插件会连接到位于 `127.0.0.1:13456` 的 RustCode 后端。插件也可以在你的机器上启动打包的或已配置的后端进程。插件向该本地后端发送请求，以便后端运行编码智能体工作流、管理会话、与模型供应商通信，并执行经用户批准的操作。
 
-The JetBrains plugin does not intentionally send your code or project data directly to any RustCode service. Data leaves the IDE through the local daemon only as needed for user-initiated actions: requests to the third-party model providers you configure with your own API keys, or -- only in distribution builds that ship a managed sign-in service -- that optional managed account workflow. Open builds (the default source build) contain no managed service and connect only to the providers you configure.
+JetBrains 插件不会有意把你的代码或项目数据直接发送到任何 RustCode 服务。数据只在用户主动发起的操作确实需要时，才会经由本地后端离开 IDE：向你使用自有 API key 配置的第三方模型供应商发起请求；或者——仅在附带托管登录服务的发行构建中——使用该可选的托管账号流程。开源构建（默认的源码构建）不包含任何托管服务，只会连接你自己配置的供应商。
 
-## External model providers
+## 外部模型供应商
 
-If you configure providers such as OpenAI, Claude, Ollama, or a custom compatible endpoint, the local RustCode daemon may send prompts, selected code, file context, project metadata, and related request data to that provider according to your configuration and the provider's terms.
+如果你配置了 OpenAI、Claude、Ollama 或自定义的兼容端点，本地 RustCode 后端可能会根据你的配置以及该供应商的条款，把提示词、选中代码、文件上下文、项目元数据及相关请求数据发送给该供应商。
 
-API keys entered in the JetBrains plugin are sent to the local RustCode daemon so the daemon can store or use them for provider requests. Do not enter API keys unless you trust the local daemon and the configured provider.
+在 JetBrains 插件中输入的 API key 会被发送到本地 RustCode 后端，供后端存储或用于供应商请求。除非你信任该本地后端与所配置的供应商，否则不要输入 API key。
 
-## Telemetry
+## 遥测
 
-This fork ships ZERO telemetry. No event queue, no sender, no endpoint. Crash reporting writes to stderr only; nothing leaves the machine. The `--no-telemetry` flag is accepted and ignored for backward compatibility. A legacy `[telemetry]` section in `config.toml` is silently ignored.
+本 fork 的遥测为零：没有事件队列，没有发送器，没有上报端点。崩溃报告只写入 stderr，不会有任何数据离开本机。`--no-telemetry` 参数会被接受并忽略，仅为向后兼容。`config.toml` 中遗留的 `[telemetry]` 配置段会被静默忽略。
 
 
-## User controls
+## 用户控制
 
-The plugin includes settings that affect what context is sent to the daemon, including daemon host and port, daemon binary path, selected-text context, relative path sharing, automatic file saving before reads, and context level. You can review and adjust these settings from the RustCode settings page in the IDE.
+插件提供的设置会影响哪些上下文被发送到后端，包括后端主机与端口、后端二进制路径、选中文本上下文、相对路径共享、读取前自动保存文件，以及上下文级别。你可以在 IDE 的 RustCode 设置页面中查看并调整这些设置。
 
-## Sensitive files
+## 敏感文件
 
-RustCode classifies sensitive paths such as private keys, `.env` files, credentials, SSH configuration, AWS configuration, GnuPG data, Terraform state, logs, dumps, backups, and similar files. Some paths are blocked, and others require stronger confirmation before being used as context. This classification is best-effort and does not replace your own review before sending context to a model provider.
+RustCode 会对私钥、`.env` 文件、凭据、SSH 配置、AWS 配置、GnuPG 数据、Terraform state、日志、转储文件、备份以及类似文件等敏感路径进行分类。部分路径会被直接阻止，另一些在作为上下文使用前需要更强的确认。该分类是尽力而为的，不能替代你在把上下文发送给模型供应商之前自行进行的检查。
 
-## Contact
+## 联系方式
 
-For privacy questions, contact `rustcode@rustcode.dev`.
+如有隐私相关问题，请联系 `rustcode@rustcode.dev`。

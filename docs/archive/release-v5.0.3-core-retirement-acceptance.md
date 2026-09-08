@@ -117,7 +117,7 @@ session_404_recovery.jsonl
 建议归属：
 
 - prompt/tool-call/result parity：`rustcode-coding` 或 `rustcode-kernel`
-- bash exit marker、shell workaround：`rustcode-capabilities`
+- bash exit marker 与 shell workaround：`rustcode-capabilities`
 - unified prompt tests：`rustcode-config` 或 `rustcode-coding`
 
 不要为了删除 crate 直接丢弃仍能防回归的测试。
@@ -360,13 +360,13 @@ git diff --check
 退役实现已通过：
 
 - [x] `cargo check --workspace --all-targets`
-- [x] `rustcode` lib：52 tests
-- [x] `rustcode-daemon` lib：202 tests
-- [x] `rustcode-tuix` lib：1633 tests
-- [x] `rustcode-capabilities` lib：1094 tests
+- [x] `rustcode` lib：52 个测试
+- [x] `rustcode-daemon` lib：202 个测试
+- [x] `rustcode-tuix` lib：1633 个测试
+- [x] `rustcode-capabilities` lib：1094 个测试
 - [x] 迁移后的 session fixture invariants：8 tests
-- [x] daemon legacy boundary repair：5 tests
-- [x] config unified prompt：3 tests
+- [x] daemon legacy boundary repair：5 个测试
+- [x] config unified prompt：3 个测试
 - [x] `cargo check -p rustcode --features codingplan-crypto`
 - [x] kernel、capabilities 不依赖 core
 - [x] `git diff --check`

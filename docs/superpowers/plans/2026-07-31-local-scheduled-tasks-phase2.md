@@ -1,14 +1,14 @@
-# 本地定时任务 `rustcode schedule` —— 阶段 2 Implementation Plan
+# 本地定时任务 `rustcode schedule` —— 阶段 2 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 按任务逐步实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** `schedule add` 自动注册 OS 调度条目(launchd/Task Scheduler/systemd-timer)到点唤醒 `rustcode schedule run <id>`,并让 scheduled 执行走更严 approver(无人值守下拒绝危险/越界 bash)。
+**目标：** `schedule add` 自动注册 OS 调度条目(launchd/Task Scheduler/systemd-timer)到点唤醒 `rustcode schedule run <id>`,并让 scheduled 执行走更严 approver(无人值守下拒绝危险/越界 bash)。
 
-**Architecture:** 新 `OsScheduler` trait + 3 平台 cfg-gated 实现(命令走注入的 `CommandRunner`、文件根可注入 → 纯逻辑可测,不真动系统)。`Schedule`→OS 规格是纯函数。接线进阶段 1 的 schedule_cmd.rs（add/remove/enable/disable/sync）。I1:`run_native_headless` 加 `strict_unattended` 参数不再 blanket-approve bash;`run_task` 从不全 bypass gates、auto 封顶为 accept-edits-级 gating。
+**架构：** 新 `OsScheduler` trait + 3 平台 cfg-gated 实现(命令走注入的 `CommandRunner`、文件根可注入 → 纯逻辑可测,不真动系统)。`Schedule`→OS 规格是纯函数。接线进阶段 1 的 schedule_cmd.rs（add/remove/enable/disable/sync）。I1:`run_native_headless` 加 `strict_unattended` 参数不再 blanket-approve bash;`run_task` 从不全 bypass gates、auto 封顶为 accept-edits-级 gating。
 
-**Tech Stack:** Rust。crate `rustcode-cli`(schedule_os.rs 新建 + schedule_cmd.rs + main.rs)。无新第三方依赖(plist/unit/schtasks 都是字符串生成 + 进程调用)。
+**技术栈：** Rust。crate `rustcode-cli`(schedule_os.rs 新建 + schedule_cmd.rs + main.rs)。无新第三方依赖(plist/unit/schtasks 都是字符串生成 + 进程调用)。
 
-## Global Constraints
+## 全局约束
 
 - 纯本地,无云端。
 - 条目命令 = `std::env::current_exe()` 的**绝对路径** + `schedule run <id>`,headless、无终端。
@@ -24,19 +24,19 @@
 
 ### Task 1: Schedule→OS 翻译纯函数 + OsScheduler trait + CommandRunner
 
-**Files:**
-- Create: `crates/rustcode-cli/src/schedule_os.rs`
-- Modify: `crates/rustcode-cli/src/main.rs`(加 `mod schedule_os;`)
+**文件：**
+- 新建：`crates/rustcode-cli/src/schedule_os.rs`
+- 修改：`crates/rustcode-cli/src/main.rs`(加 `mod schedule_os;`)
 
-**Interfaces:**
-- Consumes: `rustcode_config::schedule::{ScheduleTask, Schedule}`。
-- Produces:
+**接口：**
+- 消费：`rustcode_config::schedule::{ScheduleTask, Schedule}`。
+- 产出：
   - `pub trait CommandRunner { fn run(&self, program: &str, args: &[String]) -> std::io::Result<std::process::Output>; }` + `pub struct RealCommandRunner`(用 `std::process::Command`)。
   - `pub trait OsScheduler { fn install(&self, task: &ScheduleTask) -> anyhow::Result<()>; fn uninstall(&self, id: &str) -> anyhow::Result<()>; fn status(&self, id: &str) -> InstallState; }`
   - `pub enum InstallState { Installed, Missing }`
   - 纯翻译函数(下列),供各平台 impl 用,单独可测。
 
-- [ ] **Step 1: 写失败测试**(schedule_os.rs 内 `#[cfg(test)] mod tests`;测翻译纯函数)
+- [ ] **步骤 1：写失败测试**(schedule_os.rs 内 `#[cfg(test)] mod tests`;测翻译纯函数)
 
 ```rust
 #[cfg(test)]
@@ -80,9 +80,9 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: 跑确认失败** — `cargo test -p rustcode-cli --lib schedule_os::` → FAIL(未定义)。
+- [ ] **步骤 2：跑确认失败** — `cargo test -p rustcode-cli --lib schedule_os::` → FAIL(未定义)。
 
-- [ ] **Step 3: 实现翻译 + trait + CommandRunner**
+- [ ] **步骤 3：实现翻译 + trait + CommandRunner**
 
 ```rust
 use rustcode_config::schedule::{Schedule, ScheduleTask};
@@ -158,10 +158,10 @@ fn schtasks_dow(wd: u8) -> anyhow::Result<&'static str> {
 }
 ```
 
-Add `mod schedule_os;` to main.rs.
+在 main.rs 添加 `mod schedule_os;`。
 
-- [ ] **Step 4: 跑通过 + 提交**
-Run: `cargo test -p rustcode-cli --lib schedule_os::` → PASS。`cargo build -p rustcode-cli`。
+- [ ] **步骤 4：跑通过 + 提交**
+运行：`cargo test -p rustcode-cli --lib schedule_os::` → PASS。`cargo build -p rustcode-cli`。
 ```bash
 git add crates/rustcode-cli/src/schedule_os.rs crates/rustcode-cli/src/main.rs
 git commit -m "feat(schedule): OsScheduler trait + Schedule→OS translation" -- crates/rustcode-cli/src/schedule_os.rs crates/rustcode-cli/src/main.rs
@@ -171,14 +171,14 @@ git commit -m "feat(schedule): OsScheduler trait + Schedule→OS translation" --
 
 ### Task 2: 三平台 OsScheduler 实现(cfg-gated,CommandRunner + 文件根可注入)
 
-**Files:**
-- Modify: `crates/rustcode-cli/src/schedule_os.rs`
+**文件：**
+- 修改：`crates/rustcode-cli/src/schedule_os.rs`
 
-**Interfaces:**
-- Consumes: Task 1 的 trait + 翻译函数 + CommandRunner。
-- Produces: `Launchd`/`SystemdTimer`/`TaskSched` 结构(各含 `runner: Box<dyn CommandRunner>` + `root: PathBuf`);`pub fn current() -> Box<dyn OsScheduler>`(cfg 选平台,root=真实系统路径、runner=RealCommandRunner)。
+**接口：**
+- 消费：Task 1 的 trait + 翻译函数 + CommandRunner。
+- 产出：`Launchd`/`SystemdTimer`/`TaskSched` 结构(各含 `runner: Box<dyn CommandRunner>` + `root: PathBuf`);`pub fn current() -> Box<dyn OsScheduler>`(cfg 选平台,root=真实系统路径、runner=RealCommandRunner)。
 
-- [ ] **Step 1: 写失败测试**(以 systemd 为例,注入 fake runner + tempdir root,断言写了 .service/.timer + 调了 systemctl)
+- [ ] **步骤 1：写失败测试**(以 systemd 为例,注入 fake runner + tempdir root,断言写了 .service/.timer + 调了 systemctl)
 
 ```rust
 struct FakeRunner { calls: std::sync::Mutex<Vec<(String, Vec<String>)>> }
@@ -210,14 +210,14 @@ fn systemd_install_writes_units_and_enables() {
 ```
 (注:测试用的具体平台结构需 `#[cfg(...)]` 或让结构体非 cfg-gated、只有 `current()` cfg-gated——**推荐后者**:三个结构体都编译(不依赖平台特有 API,只生成字符串 + 调命令),这样每个平台的 impl 都能在任意开发机上单测;只有 `current()` 按 target_os 选。)
 
-- [ ] **Step 2: 跑确认失败** → FAIL。
+- [ ] **步骤 2：跑确认失败** → FAIL。
 
-- [ ] **Step 3: 实现三平台**(结构体都可编译;install=生成条目内容 via Task1 翻译 + 写到 `root` 下 + 调 runner 激活;uninstall=删文件 + 调 runner 注销,幂等;status=文件存在性 + 可选查询)。exe 路径用 `std::env::current_exe()?`。命令:
+- [ ] **步骤 3：实现三平台**(结构体都可编译;install=生成条目内容 via Task1 翻译 + 写到 `root` 下 + 调 runner 激活;uninstall=删文件 + 调 runner 注销,幂等;status=文件存在性 + 可选查询)。exe 路径用 `std::env::current_exe()?`。命令:
   - Launchd:写 `<root>/com.rustcode.schedule.<id>.plist`(plist XML,ProgramArguments + StartCalendarInterval/StartInterval),`runner.run("launchctl", ["bootstrap","gui/<uid>",path])` / `["bootout",...]`。
   - Systemd:写 `.service`+`.timer` 到 `<root>`,`runner.run("systemctl",["--user","daemon-reload"])` + `["--user","enable","--now",unit]` / `["--user","disable","--now",unit]`;**crontab fallback** 另判(`which systemctl` 失败时,用 `crontab` 读改写带 `# rustcode-schedule:<id>` 标记的行)——本任务可先只做 systemd,crontab fallback 作为 Task 2 内的次条目或紧跟的小步骤。
-  - TaskSched:`runner.run("schtasks",["/Create","/F","/TN",format!("rustcode\\schedule\\{id}"),"/TR",format!("\"{exe}\" schedule run {id}"), ...schtasks_args])` / `["/Delete","/F","/TN",...]`。
+  - TaskSched：创建走 `runner.run("schtasks",["/Create","/F","/TN",format!("rustcode\\schedule\\{id}"),"/TR",format!("\"{exe}\" schedule run {id}"), ...schtasks_args])`，删除走 `["/Delete","/F","/TN",...]`。
 
-- [ ] **Step 4: 跑通过 + 提交** — `cargo test -p rustcode-cli --lib schedule_os::`(至少 systemd 那套 fake-runner 测试)+ `cargo build`。
+- [ ] **步骤 4：跑通过 + 提交** — `cargo test -p rustcode-cli --lib schedule_os::`(至少 systemd 那套 fake-runner 测试)+ `cargo build`。
 ```bash
 git commit -m "feat(schedule): launchd/systemd/schtasks OsScheduler impls" -- crates/rustcode-cli/src/schedule_os.rs
 ```
@@ -226,14 +226,14 @@ git commit -m "feat(schedule): launchd/systemd/schtasks OsScheduler impls" -- cr
 
 ### Task 3: 接线 add/remove/enable/disable + sync + list 状态
 
-**Files:**
-- Modify: `crates/rustcode-cli/src/schedule_cmd.rs`
+**文件：**
+- 修改：`crates/rustcode-cli/src/schedule_cmd.rs`
 
-**Interfaces:**
-- Consumes: `schedule_os::{current, OsScheduler, InstallState}`;阶段 1 的 store。
-- Produces: `ScheduleCli` 加 `Sync` 变体;各分支调 OsScheduler。
+**接口：**
+- 消费：`schedule_os::{current, OsScheduler, InstallState}`;阶段 1 的 store。
+- 产出：`ScheduleCli` 加 `Sync` 变体;各分支调 OsScheduler。
 
-- [ ] **Step 1: 写失败测试**(纯逻辑:注入 fake OsScheduler,断言 add→install 被调、remove→uninstall、disable→uninstall、enable→install、sync→对每个 task install。用一个可注入的 scheduler 参数或把 handler 拆成接收 `&dyn OsScheduler` 的内部函数便于测试)
+- [ ] **步骤 1：写失败测试**(纯逻辑:注入 fake OsScheduler,断言 add→install 被调、remove→uninstall、disable→uninstall、enable→install、sync→对每个 task install。用一个可注入的 scheduler 参数或把 handler 拆成接收 `&dyn OsScheduler` 的内部函数便于测试)
 
 ```rust
 #[test]
@@ -245,16 +245,16 @@ fn add_registers_via_os_scheduler() {
 }
 ```
 
-- [ ] **Step 2: 跑确认失败** → FAIL。
+- [ ] **步骤 2：跑确认失败** → FAIL。
 
-- [ ] **Step 3: 实现**
+- [ ] **步骤 3：实现**
   - 把 add/remove/enable/disable/sync 的核心逻辑抽成接收 `&dyn OsScheduler` 的内部函数(便于注入 fake);`handle_schedule` 用 `schedule_os::current()` 注入真实实现。
   - add:save 成功后 `os.install(&task)`;失败 → `eprintln!` 警告 + 提示 `rustcode schedule sync`,**不删任务**。
   - remove:`os.uninstall(id)` + 删任务文件。disable:load→enabled=false→save + `os.uninstall(id)`。enable:load→enabled=true→save + `os.install(&task)`。
   - `Sync`:遍历 `schedule::list()`,enabled 的 `install`、disabled 的 `uninstall`。
   - `list`:每条追加 `os.status(&id)`(installed/missing)。
 
-- [ ] **Step 4: 跑通过 + 提交** — `cargo test -p rustcode-cli`;`cargo build`。
+- [ ] **步骤 4：跑通过 + 提交** — `cargo test -p rustcode-cli`;`cargo build`。
 ```bash
 git commit -m "feat(schedule): auto-register OS entries on add/enable + sync + list status" -- crates/rustcode-cli/src/schedule_cmd.rs
 ```
@@ -263,15 +263,15 @@ git commit -m "feat(schedule): auto-register OS entries on add/enable + sync + l
 
 ### Task 4: I1 —— scheduled 执行走更严 approver(拒危险/越界 bash)
 
-**Files:**
-- Modify: `crates/rustcode-cli/src/main.rs`(`run_native_headless` 审批循环 L2525-2548)
-- Modify: `crates/rustcode-cli/src/schedule_cmd.rs`(`run_task`)
+**文件：**
+- 修改：`crates/rustcode-cli/src/main.rs`(`run_native_headless` 审批循环 L2525-2548)
+- 修改：`crates/rustcode-cli/src/schedule_cmd.rs`(`run_task`)
 
-**Interfaces:**
-- Consumes: `run_native_headless`(阶段 1 已 pub(crate))。
-- Produces: `run_native_headless` 增参 `strict_unattended: bool`(所有现有调用点传 `false`,保持 `-p` 行为不变;`run_task` 传 `true`)。
+**接口：**
+- 消费：`run_native_headless`(阶段 1 已 pub(crate))。
+- 产出：`run_native_headless` 增参 `strict_unattended: bool`(所有现有调用点传 `false`,保持 `-p` 行为不变;`run_task` 传 `true`)。
 
-- [ ] **Step 1: 写失败测试**(把审批决策抽成纯函数便于测)
+- [ ] **步骤 1：写失败测试**(把审批决策抽成纯函数便于测)
 
 ```rust
 // 在 main.rs(或 schedule_cmd.rs)加纯函数:给定 (strict_unattended, skip_permissions, tool) → allow?
@@ -288,9 +288,9 @@ fn strict_unattended_denies_escalated_bash() {
 }
 ```
 
-- [ ] **Step 2: 跑确认失败** → FAIL(`headless_auto_approve` 未定义)。
+- [ ] **步骤 2：跑确认失败** → FAIL(`headless_auto_approve` 未定义)。
 
-- [ ] **Step 3: 实现**
+- [ ] **步骤 3：实现**
   纯函数:
 ```rust
 /// Auto-approve decision for headless approval requests. A request only reaches
@@ -303,21 +303,21 @@ fn headless_auto_approve(strict_unattended: bool, skip_permissions: bool, tool: 
 }
 ```
   改审批循环 L2529-2540:把 `if skip_permissions || approval.tool == "bash"` 换成 `if headless_auto_approve(strict_unattended, skip_permissions, &approval.tool)`。给 `run_native_headless` 加参 `strict_unattended: bool`;现有调用点(顶层 `-p` 分支)传 `false`。
-  `run_task`(schedule_cmd.rs):
+  `run_task`（schedule_cmd.rs）需做以下改动：
   - **从不设 skip_permissions / 从不全 bypass**:`runtime_config_from(..., dangerously_skip_permissions=false, ...)`(不再用 `mode.is_auto()` 开 skip);spawn 后按 mode set_mode,但 **auto 封顶为 accept-edits 级 gating**(避免 Auto/bypass 在中间件层放行危险 bash):`let effective = if task_mode==Auto { AcceptEdits } else { task_mode }; runtime.handle.set_mode(effective)`(Plan/AcceptEdits 照常)。
   - 调 `run_native_headless(..., strict_unattended=true)`,`skip_permissions` 参也传 `false`。
   - 在代码/文档注明:scheduled 任务**不做完整 bypass**(无人值守安全),auto 等价 accept-edits + 严格 bash。
 
-- [ ] **Step 4: 跑通过 + 提交** — `cargo test -p rustcode-cli`(纯函数测试 + 全量);`cargo build -p rustcode`。
+- [ ] **步骤 4：跑通过 + 提交** — `cargo test -p rustcode-cli`(纯函数测试 + 全量);`cargo build -p rustcode`。
 ```bash
 git commit -m "feat(schedule): strict unattended approver — deny risky bash for scheduled runs" -- crates/rustcode-cli/src/main.rs crates/rustcode-cli/src/schedule_cmd.rs
 ```
 
 ---
 
-## Self-Review
+## 自查
 
-**1. Spec coverage:**
+**1. 规格覆盖：**
 - OsScheduler trait + 翻译 + CommandRunner → Task 1。
 - 三平台 install/uninstall/status(+crontab fallback)→ Task 2。
 - add/remove/enable/disable 接线 + sync + list 状态 → Task 3。
@@ -325,9 +325,9 @@ git commit -m "feat(schedule): strict unattended approver — deny risky bash fo
 - install 失败警告不回滚 → Task 3 add 分支。cron 无法表达→报错 → Task 1 翻译 bail。 [x]
 - DEFER(webui UI / Task 2b / 云端)→ 全程无。 [x]
 
-**2. Placeholder scan:** Task 2 的平台命令细节(launchctl/systemctl/schtasks 参数)给了具体命令+参数形态;crontab fallback 标为 Task 2 内次条目(真实集成点,非 TBD)。Task 4 给了纯函数 + 精确改点 L2529。无 TBD。
+**2. 占位符扫描：** Task 2 的平台命令细节(launchctl/systemctl/schtasks 参数)给了具体命令+参数形态;crontab fallback 标为 Task 2 内次条目(真实集成点,非 TBD)。Task 4 给了纯函数 + 精确改点 L2529。无 TBD。
 
-**3. Type consistency:** `OsScheduler`/`CommandRunner`/`InstallState`/翻译函数签名贯穿 Task 1→2→3;`headless_auto_approve(strict_unattended,skip_permissions,tool)` + `run_native_headless` 增参 `strict_unattended: bool` 一致;`Schedule`/`ScheduleTask` 来自阶段 1。 [x]
+**3. 类型一致性：** `OsScheduler`/`CommandRunner`/`InstallState`/翻译函数签名贯穿 Task 1→2→3;`headless_auto_approve(strict_unattended,skip_permissions,tool)` + `run_native_headless` 增参 `strict_unattended: bool` 一致;`Schedule`/`ScheduleTask` 来自阶段 1。 [x]
 
 ## 非目标(阶段 2 不做)
 webui/桌面「定时任务」面板;Task 2b catalog 过滤 scheduled 会话;云端;比 OS 更强的自定义补跑。

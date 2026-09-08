@@ -71,7 +71,7 @@ checkpoint 返回错误时：
 
 - conversation/session revision 或 CAS；
 - operation ID、去重日志或 coordinator actor；
-- runtime lease/fencing；
+- runtime lease/fencing（运行时租约与栅栏机制）；
 - fsync journal、跨文件事务或恢复状态机；
 - daemon offline compact 的整体并发重构。
 
@@ -80,7 +80,7 @@ revision/fencing；当前没有为假设中的并发提前建设。
 
 ## 4. 实现边界
 
-### kernel
+### kernel（内核层）
 
 - `Conversation::prepare_plan`：构造完整 candidate 和 report，不修改 `self`；
 - `Conversation::commit_prepared`：只做最终 ownership move；
@@ -92,14 +92,14 @@ revision/fencing；当前没有为假设中的并发提前建设。
 原有公开 `Conversation::apply_plan` 保留，内部复用 prepare/commit，因此 auto、overflow 和现有调用方
 没有行为迁移。
 
-### capabilities / coding assembly
+### capabilities / coding assembly（能力装配层）
 
 - `SnapshotHook` 同时实现 `LifecycleHooks` 和 `CompactionCheckpoint`；
 - 两个 trait object 共享同一个 `Arc<SnapshotHook>` 和 `SessionManager`；
 - `SessionMode::Fresh/Resume` 注入 checkpoint，`Disabled` 不注入；
 - coding runtime 将失败映射为 `CompactionCompletion::Failed`，并转发 exact committed snapshot。
 
-### drivers
+### drivers（驱动层）
 
 - TUI foreground：先把 exact snapshot 写入 core session mirror，再画 success marker；mirror 保存失败时
   显示保存错误并抑制 marker；
@@ -119,8 +119,8 @@ mirror；本次保证正常路径在成功提示前收敛，但不宣称两个�
 
 - `rustcode_core::agent::AgentCommand::Compact`；
 - compact 专属 core event；
-- `rustcode-bridge::runtime::on_command` compact handler；
-- v1 compact fallback。
+- `rustcode-bridge::runtime::on_command` compact handler（compact 处理器）；
+- v1 compact fallback（v1 回退路径）。
 
 因此 `/compact` 仍处于项目定义的第 4 级：legacy 接口面已退役。本次是退役后的正确性加固，
 实际删除 legacy 项为零。
@@ -151,6 +151,6 @@ mirror；本次保证正常路径在成功提示前收敛，但不宣称两个�
 - 要承诺断电级 durability：评估 unique temp、file/directory fsync 和恢复测试；
 - 要删除 core session mirror：让 TUI/daemon 的 resume/list 全部读取 native session store；
 - 要让 meta 在 idle compact 后立即反映 message count：增加独立的派生 metadata 更新，但不得阻塞
-  canonical snapshot commit。
+  canonical snapshot commit（规范化快照提交）。
 
 本修复已完成实现、最新基线合入与验证；后续按项目流程进行同行 Review 和推送/合入。

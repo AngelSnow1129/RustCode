@@ -1,94 +1,94 @@
-# VS Code i18n Implementation Plan
+# VS Code i18n 实施计划
 
-## Goal
+## 目标
 
-Make the VS Code extension follow VS Code's locale for IDE-facing strings and make the RustCode webview render Chinese or English consistently from the same locale signal.
+让 VS Code 扩展中面向 IDE 的字符串跟随 VS Code 的语言区域(locale),并让 RustCode webview 依据同一个 locale 信号一致地渲染中文或英文。
 
-## Current State
+## 现状
 
-- `extensions/vscode/package.json` contains hardcoded English command titles, view names, and configuration descriptions.
-- Extension host code uses hardcoded English strings in commands, code actions, status bar tooltips, input boxes, warning messages, and slash-command replies.
-- `extensions/vscode/webview/index.html` hardcodes `<html lang="en">`.
-- `extensions/vscode/webview-ui/src` has no translation catalog or translation hook. User-facing copy is hardcoded in React components.
-- The root browser webui already has a useful catalog pattern in `webui/src/i18n.ts` and `webui/src/settings.tsx`, but the VS Code webview does not consume it.
-- Rust core/TUI i18n is independent and should remain independent.
+- `extensions/vscode/package.json` 中硬编码了英文的命令标题、视图名称和配置项描述。
+- 扩展宿主(extension host)代码在命令、code action、状态栏 tooltip、输入框、warning 消息和斜杠命令回复中使用硬编码英文字符串。
+- `extensions/vscode/webview/index.html` 硬编码了 `<html lang="en">`。
+- `extensions/vscode/webview-ui/src` 既没有翻译词表,也没有翻译 hook。面向用户的文案硬编码在 React 组件中。
+- 根目录的浏览器版 webui 已经有一套可用的词表模式(`webui/src/i18n.ts` 与 `webui/src/settings.tsx`),但 VS Code webview 并未复用它。
+- Rust core/TUI 的 i18n 是独立的,并且应保持独立。
 
-## Architecture
+## 架构
 
-- VS Code manifest strings use the official `package.nls.json` and `package.nls.zh-cn.json` mechanism.
-- Extension host runtime strings use `vscode.l10n.t`.
-- Webview UI strings use a local TypeScript catalog and `I18nProvider`.
-- `ChatViewProvider` passes `vscode.env.language` into webview HTML and the `init` message.
-- The webview maps `zh`, `zh-CN`, and `zh-TW` to Simplified Chinese for now; all other locales fall back to English.
-- Prompts sent to the model stay English unless they are purely user-visible UI labels. This keeps model behavior stable while localizing the interface.
+- VS Code manifest 字符串使用官方的 `package.nls.json` 与 `package.nls.zh-cn.json` 机制。
+- 扩展宿主运行时字符串使用 `vscode.l10n.t`。
+- Webview UI 字符串使用本地 TypeScript 词表和 `I18nProvider`。
+- `ChatViewProvider` 把 `vscode.env.language` 传入 webview HTML 和 `init` 消息。
+- Webview 目前把 `zh`、`zh-CN`、`zh-TW` 都映射为简体中文;其他 locale 一律回退到英文。
+- 发送给模型的 prompt 保持英文,除非它本身就是纯用户可见的 UI 标签。这样可以在本地化界面的同时保持模型行为稳定。
 
-## Files
+## 文件
 
-- Create `extensions/vscode/package.nls.json`.
-- Create `extensions/vscode/package.nls.zh-cn.json`.
-- Create `extensions/vscode/webview-ui/src/i18n.ts`.
-- Create `extensions/vscode/webview-ui/test/i18n-regression.test.ts`.
-- Create `extensions/vscode/webview-ui/test/run-tests.js`.
-- Modify `extensions/vscode/package.json`.
-- Modify `extensions/vscode/src/chat/provider.ts`.
-- Modify `extensions/vscode/src/editor/actions.ts`.
-- Modify `extensions/vscode/src/extension.ts`.
-- Modify `extensions/vscode/src/status.ts`.
-- Modify `extensions/vscode/webview/index.html`.
-- Modify React webview components under `extensions/vscode/webview-ui/src/components`.
-- Modify `extensions/vscode/webview-ui/src/state/types.ts` and `ChatProvider.tsx` to carry locale.
-- Modify `extensions/vscode/webview-ui/src/utils/format.ts` to accept translated time/token labels.
+- 新建 `extensions/vscode/package.nls.json`。
+- 新建 `extensions/vscode/package.nls.zh-cn.json`。
+- 新建 `extensions/vscode/webview-ui/src/i18n.ts`。
+- 新建 `extensions/vscode/webview-ui/test/i18n-regression.test.ts`。
+- 新建 `extensions/vscode/webview-ui/test/run-tests.js`。
+- 修改 `extensions/vscode/package.json`。
+- 修改 `extensions/vscode/src/chat/provider.ts`。
+- 修改 `extensions/vscode/src/editor/actions.ts`。
+- 修改 `extensions/vscode/src/extension.ts`。
+- 修改 `extensions/vscode/src/status.ts`。
+- 修改 `extensions/vscode/webview/index.html`。
+- 修改 `extensions/vscode/webview-ui/src/components` 下的 React webview 组件。
+- 修改 `extensions/vscode/webview-ui/src/state/types.ts` 与 `ChatProvider.tsx`,使其携带 locale。
+- 修改 `extensions/vscode/webview-ui/src/utils/format.ts`,使其接受已翻译的时间/token 标签。
 
-## Phases
+## 阶段
 
-### Phase 1: Test Harness and Catalog Foundation
+### Phase 1:测试脚手架与词表基础
 
-Acceptance:
-- `npm run test:webview` runs webview regression tests through esbuild and Node.
-- Tests fail before implementation for missing locale normalization, missing Chinese strings, and missing manifest localization files.
-- `i18n.ts` exports `normalizeLocale`, `createTranslator`, `messages`, `Lang`, and `MsgKey`.
+验收标准:
+- `npm run test:webview` 能通过 esbuild 和 Node 运行 webview 回归测试。
+- 在实现之前,测试会因为缺少 locale 归一化、缺少中文字符串、缺少 manifest 本地化文件而失败。
+- `i18n.ts` 导出 `normalizeLocale`、`createTranslator`、`messages`、`Lang` 和 `MsgKey`。
 
-### Phase 2: Webview Locale Wiring
+### Phase 2:Webview locale 接线
 
-Acceptance:
-- `index.html` no longer hardcodes English language.
-- `ChatViewProvider` injects locale into HTML and `init`.
-- `ChatState` stores `locale`.
-- `I18nProvider` sets `document.documentElement.lang`.
-- Webview defaults to VS Code locale, with English fallback.
+验收标准:
+- `index.html` 不再硬编码英文语言。
+- `ChatViewProvider` 把 locale 注入 HTML 和 `init`。
+- `ChatState` 保存 `locale`。
+- `I18nProvider` 设置 `document.documentElement.lang`。
+- Webview 默认使用 VS Code 的 locale,并回退到英文。
 
-### Phase 3: Webview Copy Coverage
+### Phase 3:Webview 文案覆盖
 
-Acceptance:
-- Home page, quick actions, setup flow, input area, attach menu, file picker, header tooltips, session list, search bar, model selector, permission request, tool call labels, assistant copy button, provider settings, and relative time use `t()`.
-- Chinese copy follows `docs/i18n-style.md`.
-- Model/provider names, file paths, command names, API keys, and daemon/model output remain untranslated data.
+验收标准:
+- 首页、快捷操作、设置流程、输入区、附加菜单、文件选择器、头部 tooltip、会话列表、搜索栏、模型选择器、权限请求、工具调用标签、助手复制按钮、provider 设置以及相对时间都改用 `t()`。
+- 中文文案遵循 `docs/i18n-style.md`。
+- 模型/provider 名称、文件路径、命令名、API key 以及 daemon/模型输出仍作为不翻译的数据。
 
-### Phase 4: VS Code IDE Integration
+### Phase 4:VS Code IDE 集成
 
-Acceptance:
-- `package.json` contribution strings use `%key%` placeholders.
-- English and Chinese `package.nls` files cover every placeholder.
-- Runtime extension strings use `vscode.l10n.t`.
-- Quick action display strings are localized, while the prompts sent to the model stay English.
+验收标准:
+- `package.json` 的 contribution 字符串使用 `%key%` 占位符。
+- 中英文 `package.nls` 文件覆盖每一个占位符。
+- 运行时扩展字符串使用 `vscode.l10n.t`。
+- 快捷操作的展示文案被本地化,而发送给模型的 prompt 保持英文。
 
-### Phase 5: Verification
+### Phase 5:验证
 
-Acceptance:
-- `npm run test:webview` passes.
-- `npm run compile` passes.
-- A search for known homepage English strings confirms they are no longer hardcoded in JSX.
-- A search confirms no `package.json` contribution titles/descriptions remain hardcoded except stable product names and enum values.
+验收标准:
+- `npm run test:webview` 通过。
+- `npm run compile` 通过。
+- 搜索已知的首页英文字符串,确认它们不再硬编码在 JSX 中。
+- 搜索确认 `package.json` 的 contribution 标题/描述除稳定的产品名和枚举值外,不再有硬编码。
 
-## Out of Scope
+## 不在范围内
 
-- Translating daemon API error payloads returned by remote providers.
-- Translating model output.
-- Adding an in-webview language switcher independent of VS Code locale.
-- Sharing Rust enum-based i18n directly with TypeScript.
+- 翻译远端 provider 返回的 daemon API 错误载荷。
+- 翻译模型输出。
+- 增加一个独立于 VS Code locale 的 webview 内语言切换器。
+- 把 Rust 基于枚举的 i18n 直接共享给 TypeScript。
 
-## Risks
+## 风险
 
-- VS Code static contribution strings and webview runtime strings use different localization mechanisms. Keep them separate.
-- Over-translating prompts can change model behavior. Keep agent prompts stable.
-- Some existing Chinese hardcoded text exists in session-management UI. Move it into the catalog rather than treating it as complete localization.
+- VS Code 静态 contribution 字符串与 webview 运行时字符串使用不同的本地化机制。两者要保持分开。
+- 过度翻译 prompt 会改变模型行为。agent prompt 要保持稳定。
+- 会话管理 UI 中已经存在一些硬编码的中文。应将其移入词表,而不是当成已经完成本地化。

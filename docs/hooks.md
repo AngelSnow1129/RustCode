@@ -1,12 +1,12 @@
-# RustCode Hooks
+# RustCode Hooks(钩子)
 
-The Hooks system allows you to insert custom logic at key execution points in RustCode, enabling flexible extensibility.
+Hooks 系统允许你在 RustCode 的关键执行点插入自定义逻辑,从而获得灵活的扩展能力。
 
-## Quick Start
+## 快速开始
 
-### Three-step setup: Directory → Script → TOML
+### 三步配置:目录 → 脚本 → TOML
 
-**Step 1**: Create the hooks directory
+**第 1 步**:创建 hooks 目录
 
 ```bash
 # Global hooks (apply to all projects)
@@ -16,9 +16,9 @@ mkdir -p ~/.rustcode/hooks
 mkdir -p .rustcode/hooks
 ```
 
-**Step 2**: Write a hook script
+**第 2 步**:编写 hook 脚本
 
-Create `~/.rustcode/hooks/my_hook.sh`:
+创建 `~/.rustcode/hooks/my_hook.sh`:
 
 ```bash
 #!/bin/bash
@@ -39,15 +39,15 @@ fi
 echo "ok"
 ```
 
-Make it executable:
+给它加可执行权限:
 
 ```bash
 chmod +x ~/.rustcode/hooks/my_hook.sh
 ```
 
-**Step 3**: Configure `hooks.toml`
+**第 3 步**:配置 `hooks.toml`
 
-Create `~/.rustcode/hooks/hooks.toml`:
+创建 `~/.rustcode/hooks/hooks.toml`:
 
 ```toml
 [[hooks]]
@@ -60,41 +60,41 @@ enabled = true
 timeout_secs = 2
 ```
 
-Done! Hooks are automatically loaded when RustCode starts.
+完成!RustCode 启动时会自动加载 hooks。
 
 ---
 
-## Configuration Overview
+## 配置总览
 
-RustCode supports **three** hook implementations, managed via two config files:
+RustCode 支持**三种** hook 实现,由两个配置文件管理:
 
-| Method | Config file | Implementation | Use case |
+| 方式 | 配置文件 | 实现 | 适用场景 |
 |------|---------|------|---------|
-| **TOML ScriptHook** | `hooks.toml` → `[[hooks]]` | Local script (shell/python) | Local customization, rapid prototyping |
-| **TOML Webhook** | `hooks.toml` → `[[webhooks]]` / `[[async_webhooks]]` | HTTP remote call | Cloud services, external integrations |
-| **JSON CC Compatible** | `.hooks.json` / `hooks.json` | Shell command (legacy protocol) | CC plugin compatibility |
+| **TOML ScriptHook** | `hooks.toml` → `[[hooks]]` | 本地脚本(shell/python) | 本地定制、快速原型 |
+| **TOML Webhook** | `hooks.toml` → `[[webhooks]]` / `[[async_webhooks]]` | HTTP 远程调用 | 云服务、外部集成 |
+| **JSON CC 兼容** | `.hooks.json` / `hooks.json` | Shell 命令(旧协议) | CC 插件兼容 |
 
-> All three methods can coexist. They are loaded uniformly via `HookEngine::load_all()`:
-> 1. JSON hooks（`hooks.json`）
-> 2. TOML hooks (ScriptHook + WebhookHook, from `hooks.toml`)
-> 3. Built-in Hooks (native Rust, auto-registered)
+> 三种方式可以共存。它们统一通过 `HookEngine::load_all()` 加载:
+> 1. JSON hooks(来自 `hooks.json`)
+> 2. TOML hooks(ScriptHook + WebhookHook,来自 `hooks.toml`)
+> 3. 内置 Hooks(Rust 原生,自动注册)
 >
-> Global hooks load first, project hooks load after. Same-name project hooks **override** global hooks (last-loaded wins).
+> 全局 hooks 先加载,项目 hooks 后加载。同名项目 hooks **覆盖**全局 hooks(后加载者优先)。
 
 ---
 
-## TOML ScriptHook (Recommended)
+## TOML ScriptHook(推荐)
 
-### Supported trigger values
+### 支持的 trigger 取值
 
-| trigger value | Alias | When triggered | Can affect flow |
+| trigger 取值 | 别名 | 触发时机 | 能否影响流程 |
 |-----------|------|---------|:--:|
-| `pre_tool` | `pre_tool_execution` | Before tool execution | [+] Can block/modify args |
-| `post_tool` | `post_tool_execution` | After tool execution | [-] fire-and-forget |
-| `post_turn` | — | After turn completes | [-] fire-and-forget |
-| `system_prompt` | — | When building system prompt | [+] Can append instructions |
+| `pre_tool` | `pre_tool_execution` | 工具执行前 | [+] 可阻止/修改参数 |
+| `post_tool` | `post_tool_execution` | 工具执行后 | [-] 发出即忘 |
+| `post_turn` | — | 轮次结束后 | [-] 发出即忘 |
+| `system_prompt` | — | 构建 system prompt 时 | [+] 可追加指令 |
 
-### Script input (stdin JSON)
+### 脚本输入(stdin JSON)
 
 ```json
 {
@@ -106,7 +106,7 @@ RustCode supports **three** hook implementations, managed via two config files:
 }
 ```
 
-`post_tool`'s stdin is a nested structure that additionally includes `result_context` (a sibling of `hook_context`):
+`post_tool` 的 stdin 是嵌套结构,额外包含 `result_context`(与 `hook_context` 平级):
 
 ```json
 {
@@ -127,9 +127,9 @@ RustCode supports **three** hook implementations, managed via two config files:
 }
 ```
 
-`system_prompt` stdin input is the same as `post_turn` (includes base context, no `tool_args`/`result_context`). The script should output appended system prompt content to stdout (plain text or JSON `message` field).
+`system_prompt` 的 stdin 输入与 `post_turn` 相同(包含基础上下文,没有 `tool_args`/`result_context`)。脚本应把要追加的 system prompt 内容输出到 stdout(纯文本,或 JSON 的 `message` 字段)。
 
-### Script output format
+### 脚本输出格式
 
 ```
 ok                    # Continue (default)
@@ -138,7 +138,7 @@ modify: <new_args>    # Replace args (only effective for pre_tool)
 warning: <message>    # Continue but print warning
 ```
 
-JSON output is also supported (recommended):
+也支持 JSON 输出(推荐):
 
 ```json
 {"result": "ok", "message": "checked"}
@@ -147,7 +147,7 @@ JSON output is also supported (recommended):
 {"result": "warning", "message": "file is large, review carefully"}
 ```
 
-### Full configuration example
+### 完整配置示例
 
 ```toml
 [[hooks]]
@@ -162,30 +162,30 @@ timeout_secs = 3
 
 ---
 
-## TOML Webhook
+## TOML Webhook 配置
 
-### Supported trigger values (comma-separated for multiple)
+### 支持的 trigger 取值(多个用逗号分隔)
 
-| trigger value (canonical) | Alias | When triggered |
+| trigger 取值(规范名) | 别名 | 触发时机 |
 |-----------|------|---------|
-| `turn_start` | — | Before turn starts |
-| `tool_call_start` | — | When tool call starts |
-| `pre_tool` | `before_tool` | Before tool execution |
-| `post_tool` | `after_tool` | After tool execution |
-| `turn_complete` | `after_turn` | After turn completes (detailed stats) |
-| `post_turn` | — | After turn completes (legacy compat) |
-| `session_start` | — | On session start |
-| `session_end` | — | On session end |
-| `error` | — | On error |
-| `model_response` | — | After model response |
-| `system_prompt` | — | When building system prompt |
-| `message`² | `message_received` | On user message received |
+| `turn_start` | — | 轮次开始前 |
+| `tool_call_start` | — | 工具调用开始时 |
+| `pre_tool` | `before_tool` | 工具执行前 |
+| `post_tool` | `after_tool` | 工具执行后 |
+| `turn_complete` | `after_turn` | 轮次结束后(含详细统计) |
+| `post_turn` | — | 轮次结束后(旧版兼容) |
+| `session_start` | — | 会话开始时 |
+| `session_end` | — | 会话结束时 |
+| `error` | — | 发生错误时 |
+| `model_response` | — | 模型响应后 |
+| `system_prompt` | — | 构建 system prompt 时 |
+| `message`² | `message_received` | 收到用户消息时 |
 
-> Uses **contains matching** (comma-separated triggers). E.g. `trigger = "pre_tool,post_tool"` fires on both occasions.
+> 采用**包含匹配**(trigger 以逗号分隔)。例如 `trigger = "pre_tool,post_tool"` 会在两个时机都触发。
 >
-> ² `message`: WebhookHook has implemented the corresponding trait, but the engine has not registered a trigger slot yet; currently not functional.
+> ² `message`:WebhookHook 已实现对应 trait,但引擎尚未注册 trigger 槽位,当前不可用。
 
-### Synchronous Webhook
+### 同步 Webhook
 
 ```toml
 [[webhooks]]
@@ -202,7 +202,7 @@ enabled = true
 Authorization = "Bearer YOUR_TOKEN"
 ```
 
-### Async Batch Webhook (recommended for high-frequency scenarios)
+### 异步批量 Webhook(高频场景推荐)
 
 ```toml
 [[async_webhooks]]
@@ -219,16 +219,16 @@ enabled = true
 Authorization = "Bearer AUDIT_TOKEN"
 ```
 
-> Async webhooks do not block the main flow. See [Webhook Guide](./webhook-guide.md) and [Async Webhook Guide](./async-webhook-guide.md).
+> 异步 webhook 不阻塞主流程。详见 [Webhook 指南](./webhook-guide.md) 与 [异步 Webhook 指南](./async-webhook-guide.md)。
 
 ---
 
-## JSON CC Compatible Configuration
+## JSON CC 兼容配置
 
-Compatible with Claude Code plugin's `.hooks.json`. Load paths:
+兼容 Claude Code 插件的 `.hooks.json`。加载路径:
 
-- `~/.rustcode/hooks.json` — Global
-- `<project>/.hooks.json` — Project (overrides same-name global)
+- `~/.rustcode/hooks.json` —— 全局
+- `<project>/.hooks.json` —— 项目(覆盖同名全局 hook)
 
 ```json
 {
@@ -244,35 +244,35 @@ Compatible with Claude Code plugin's `.hooks.json`. Load paths:
 }
 ```
 
-Supported `event` values: `pre_tool_use`, `post_tool_use`, `post_tool_use_failure`, `session_start`, `session_end`, `user_prompt_submit`.
+支持的 `event` 取值:`pre_tool_use`、`post_tool_use`、`post_tool_use_failure`、`session_start`、`session_end`、`user_prompt_submit`。
 
-> **Case/style-insensitive:** the loader accepts both CC PascalCase (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `SessionStart`, `UserPromptSubmit`) and snake_case (`pre_tool_use`, `post_tool_use_failure`, `session_start`, …) — the two spellings are equivalent.
+> **大小写/风格不敏感:** 加载器同时接受 CC 的 PascalCase(`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`SessionStart`、`UserPromptSubmit`)和 snake_case(`pre_tool_use`、`post_tool_use_failure`、`session_start` 等)—— 两种写法等价。
 
-Hooks receive context via environment variables (`RUSTCODE_HOOK_EVENT`, `RUSTCODE_HOOK_CONTEXT`, `RUSTCODE_TOOL_NAME`, etc.). The stdout protocol varies by event:
+Hook 通过环境变量接收上下文(`RUSTCODE_HOOK_EVENT`、`RUSTCODE_HOOK_CONTEXT`、`RUSTCODE_TOOL_NAME` 等)。stdout 协议按 event 而不同:
 
-- **`pre_tool_use`** — output `{"action":"allow"}` / `{"action":"block","reason":"..."}` / `{"action":"modify","args":{...}}` (`args` replaces the tool-call arguments)
-- **`user_prompt_submit`** — output `{"decision":"block","reason":"..."}` to block submission, or `{"hookSpecificOutput":{"additionalContext":"..."}}` to inject extra context; plain-text stdout is treated as an additionalContext injection
-- **`post_tool_use`** — fire-and-forget; stdout does not affect the flow
-- **`post_tool_use_failure`** — like `post_tool_use`, but fired only when the tool call FAILED (`tool_response` carries the error output), so a plugin can tell success from failure
+- **`pre_tool_use`** —— 输出 `{"action":"allow"}` / `{"action":"block","reason":"..."}` / `{"action":"modify","args":{...}}`(`args` 会替换工具调用参数)
+- **`user_prompt_submit`** —— 输出 `{"decision":"block","reason":"..."}` 阻止提交,或输出 `{"hookSpecificOutput":{"additionalContext":"..."}}` 注入额外上下文;纯文本 stdout 也被视为 additionalContext 注入
+- **`post_tool_use`** —— 发出即忘;stdout 不影响流程
+- **`post_tool_use_failure`** —— 与 `post_tool_use` 类似,但仅在工具调用失败时触发(`tool_response` 携带错误输出),因此插件可区分成功与失败
 
 ---
 
-## Built-in Hooks (no configuration needed, auto-enabled)
+## 内置 Hooks(无需配置,自动启用)
 
-| Hook | When triggered | Function |
+| Hook | 触发时机 | 作用 |
 |------|---------|------|
-| `ToolAuditLogHook` | On tool call | Log calls to audit log (tracing) |
-| `TurnStatsHook` | Turn start + complete | Track turn duration and operations |
-| `AutoCommitHook` | Turn complete | Auto `git commit` every N turns |
-| `SessionSummaryHook` | Session start + end | Print session summary |
-| `ErrorReportHook` | On error | Log error details |
-| `ResponseValidationHook` | After model response | Detect sensitive information |
+| `ToolAuditLogHook` | 工具调用时 | 将调用记录到审计日志(tracing) |
+| `TurnStatsHook` | 轮次开始 + 结束 | 统计轮次耗时与操作数 |
+| `AutoCommitHook` | 轮次结束 | 每 N 个轮次自动 `git commit` |
+| `SessionSummaryHook` | 会话开始 + 结束 | 打印会话摘要 |
+| `ErrorReportHook` | 发生错误时 | 记录错误详情 |
+| `ResponseValidationHook` | 模型响应后 | 检测敏感信息 |
 
-Built-in hooks auto-register and cannot be disabled via configuration yet (future CLI will provide enable/disable switches). Same-name project-level hooks cannot override built-in hooks (built-in hooks are native Rust, outside the TOML configuration system).
+内置 hooks 自动注册,目前尚不能通过配置禁用(未来的 CLI 会提供启用/禁用开关)。同名项目级 hooks 不能覆盖内置 hooks(内置 hooks 是 Rust 原生实现,位于 TOML 配置体系之外)。
 
 ---
 
-## CLI Commands
+## CLI 命令
 
 ```bash
 # List loaded hooks
@@ -346,21 +346,21 @@ rustcode hooks test <hook-name>
 
 ---
 
-## Security Notes
+## 安全注意事项
 
-1. **Project hooks override same-name global hooks** (project hooks load after global hooks)
-2. **Hooks cannot bypass the permission system** — `pre_tool` deny does not override the user's `always_allow` settings
-3. **Script execution has timeouts** — TOML ScriptHook default 2s, JSON default 10s, Webhook default 10s
-4. **Scripts run under user permissions** — be mindful of script security itself
-5. **Timeout/crash is fail-open** — a script timeout or crash is treated as `ok`, not blocking the flow
-6. **Windows compatibility** — `~` is not auto-expanded; use absolute paths (e.g. `C:\Users\you\...` or `/home/you/...`); use `\\` or `/` as the path separator; for Python scripts, specify the interpreter path explicitly
+1. **项目 hooks 覆盖同名全局 hooks**(项目 hooks 后加载)
+2. **Hooks 不能绕过权限系统** —— `pre_tool` 的 deny 不会覆盖用户自己的 `always_allow` 设置
+3. **脚本执行有超时** —— TOML ScriptHook 默认 2s,JSON 默认 10s,Webhook 默认 10s
+4. **脚本以用户权限运行** —— 需自行注意脚本本身的安全性
+5. **超时/崩溃为 fail-open** —— 脚本超时或崩溃被视为 `ok`,不会阻塞流程
+6. **Windows 兼容性** —— `~` 不会自动展开;请使用绝对路径(如 `C:\Users\you\...` 或 `/home/you/...`);路径分隔符用 `\\` 或 `/`;Python 脚本请显式指定解释器路径
 
 ---
 
-## Related Docs
+## 相关文档
 
-- [CLI Guide](./hook-cli-guide.md) — `rustcode hooks` command reference
-- [Complete Timing List](./hook-timing-complete.md) — all hook timings and available configurations
-- [Webhook Guide](./webhook-guide.md) — HTTP remote calls
-- [Async Webhook Guide](./async-webhook-guide.md) — batch async delivery
-- [Architecture](./hook-architecture.md) — developer-oriented architecture reference
+- [CLI 指南](./hook-cli-guide.md) —— `rustcode hooks` 命令参考
+- [完整时机清单](./hook-timing-complete.md) —— 所有 hook 时机与可用配置
+- [Webhook 指南](./webhook-guide.md) —— HTTP 远程调用
+- [异步 Webhook 指南](./async-webhook-guide.md) —— 批量异步投递
+- [架构说明](./hook-architecture.md) —— 面向开发者的架构参考

@@ -1,4 +1,4 @@
-# RustCode for JetBrains
+# RustCode for JetBrains（JetBrains 插件）
 
 RustCode for JetBrains 是本地 `rustcode-daemon` 的 IntelliJ 平台前端。
 
@@ -8,7 +8,7 @@ RustCode for JetBrains 是本地 `rustcode-daemon` 的 IntelliJ 平台前端。
 
 - JDK 21
 - 已生成的 Gradle wrapper
-- Kotlin Gradle Plugin 2.2.21
+- Kotlin Gradle Plugin（版本 2.2.21）
 
 常用命令：
 

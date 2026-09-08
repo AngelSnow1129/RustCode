@@ -1,29 +1,29 @@
-# 双击 Esc 撤销加冷却 Implementation Plan
+# 双击 Esc 撤销加冷却实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **致 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** 给双击 Esc 触发的 `/undo` 加一个撤后冷却，使快速连按 Esc 最多撤一轮（防误撤连撤多轮）。
+**目标：** 给双击 Esc 触发的 `/undo` 加一个撤后冷却，使快速连按 Esc 最多撤一轮（防误撤连撤多轮）。
 
-**Architecture:** 纯逻辑集中在 `event_loop/mod.rs` 的 `intercept_empty_bare_esc`：给它加一个 `last_undo_at` 入参，冷却期内 bare Esc 既不武装也不触发。`App` 加一个 `esc_undo_last_at` 时间戳字段，调用点在 `TriggerUndo` 时记录它。单次撤销手感不变，只杀"多轮"。
+**架构：** 纯逻辑集中在 `event_loop/mod.rs` 的 `intercept_empty_bare_esc`：给它加一个 `last_undo_at` 入参，冷却期内 bare Esc 既不武装也不触发。`App` 加一个 `esc_undo_last_at` 时间戳字段，调用点在 `TriggerUndo` 时记录它。单次撤销手感不变，只杀"多轮"。
 
-**Tech Stack:** Rust；crossterm 键事件；`std::time::Instant`。
+**技术栈：** Rust；crossterm 键事件；`std::time::Instant`。
 
-## Global Constraints
+## 全局约束
 
 - 冷却常量 `DOUBLE_ESC_UNDO_COOLDOWN = Duration::from_millis(1500)`。
 - 作用域仅"空闲 + 输入框为空"的 bare Esc（`intercept_empty_bare_esc` 那条路径）；不触碰流式中 Esc 取消 turn。
 - 单次双击 Esc 撤一轮的行为**必须完全不变**（`last_undo_at = None` 时逻辑与现在一致）。
 - 不做 redo、不加确认卡、不加冷却提示行、不加 min-gap。
 - 构建约束：`CARGO_INCREMENTAL=0`，按 package 编（`-p rustcode-tuix`）。
-- Commit message 结尾加：`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+- 提交信息结尾加：`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 - 当前分支 `release/v4.26.0`，直接在此分支提交。
 
 ---
 
-### Task 1: 撤后冷却（常量 + 字段 + 纯函数 + 接线 + 测试）
+### 任务 1：撤后冷却（常量 + 字段 + 纯函数 + 接线 + 测试）
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/event_loop/mod.rs`
   - 常量：`:3497` `DOUBLE_ESC_UNDO_WINDOW` 之后加冷却常量
   - `App` 字段：`:3470` `esc_undo_pending` 之后加 `esc_undo_last_at`
   - `App` 构造：`:3540` `esc_undo_pending: None,` 之后加 init
@@ -32,13 +32,13 @@
   - 现有测试调用点：`:1507`、`:1520` 补中间实参
   - 新测试：`mod tests` 里 `second_empty_bare_esc_triggers_undo_and_clears_pending`（`:1524`）之后追加
 
-**Interfaces:**
-- Produces:
+**接口：**
+- 产出：
   - `const DOUBLE_ESC_UNDO_COOLDOWN: std::time::Duration`
   - `App.esc_undo_last_at: Option<std::time::Instant>`
   - `fn intercept_empty_bare_esc(pending: &mut Option<Instant>, last_undo_at: Option<Instant>, now: Instant) -> EmptyEscIntercept`（签名新增第二参）
 
-- [ ] **Step 1: 写失败测试 + 改现有两个测试调用点**
+- [ ] **步骤 1：写失败测试 + 改现有两个测试调用点**
 
 先把现有两个调用点补上新的中间实参 `None`（`crates/rustcode-tuix/src/event_loop/mod.rs`）：
 
@@ -110,15 +110,15 @@
     }
 ```
 
-- [ ] **Step 2: 跑测试确认失败（编译红）**
+- [ ] **步骤 2：跑测试确认失败（编译红）**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
 CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib cooldown 2>&1 | tail -20
 ```
-Expected: 编译失败 —— `intercept_empty_bare_esc` 目前是 2 参，新测试和改过的调用点传了 3 参 / `DOUBLE_ESC_UNDO_COOLDOWN` 未定义 / `App.esc_undo_last_at` 未定义。（这就是本步的 red。）
+预期：编译失败 —— `intercept_empty_bare_esc` 目前是 2 参，新测试和改过的调用点传了 3 参 / `DOUBLE_ESC_UNDO_COOLDOWN` 未定义 / `App.esc_undo_last_at` 未定义。（这就是本步的 red。）
 
-- [ ] **Step 3: 实现（常量 + 字段 + init + 函数 + 调用点）**
+- [ ] **步骤 3：实现（常量 + 字段 + init + 函数 + 调用点）**
 
 **(a) 冷却常量** —— 在 `crates/rustcode-tuix/src/event_loop/mod.rs:3497`（`const DOUBLE_ESC_UNDO_WINDOW: Duration = Duration::from_secs(2);`）之后加：
 ```rust
@@ -192,25 +192,25 @@ fn intercept_empty_bare_esc(
                 app.esc_undo_last_at = Some(now);
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [ ] **步骤 4：跑测试确认通过**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
 CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib cooldown 2>&1 | tail -8
 CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib esc 2>&1 | tail -12
 ```
-Expected: 4 个新 `*cooldown*`/`after_cooldown*`/`no_prior*` 测试通过；现有 `second_esc_within_window_triggers_undo` / `second_esc_after_window_does_not_trigger_undo` / `first_empty_bare_esc_is_consumed_and_arms_undo` / `second_empty_bare_esc_triggers_undo_and_clears_pending` 仍绿。
+预期：4 个新 `*cooldown*`/`after_cooldown*`/`no_prior*` 测试通过；现有 `second_esc_within_window_triggers_undo` / `second_esc_after_window_does_not_trigger_undo` / `first_empty_bare_esc_is_consumed_and_arms_undo` / `second_empty_bare_esc_triggers_undo_and_clears_pending` 仍绿。
 
-- [ ] **Step 5: 全 lib 测试 + clippy（确认没打破别处）**
+- [ ] **步骤 5：全 lib 测试 + clippy（确认没打破别处）**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
 CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib 2>&1 | grep -E "^test result" | tail
 CARGO_INCREMENTAL=0 cargo clippy -p rustcode-tuix 2>&1 | grep -iE "intercept_empty_bare_esc|esc_undo_last_at|DOUBLE_ESC_UNDO_COOLDOWN" | head
 ```
-Expected: `test result: ok`（可能有 4 个预存的 `render::retained::tests::retained_*` 字节预算红测试，与本改动无关——确认失败列表只有这 4 个且都是 `retained_*`）；clippy 对新增代码无告警（grep 空）。
+预期：`test result: ok`（可能有 4 个预存的 `render::retained::tests::retained_*` 字节预算红测试，与本改动无关——确认失败列表只有这 4 个且都是 `retained_*`）；clippy 对新增代码无告警（grep 空）。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
@@ -227,17 +227,17 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Self-Review
+## 自审
 
-**1. Spec coverage：**
-- 冷却常量 1500ms → Step 3(a)。 [x]
-- `intercept_empty_bare_esc` 加 `last_undo_at` + 冷却分支 → Step 3(d)。 [x]
-- `App.esc_undo_last_at` 字段 + init → Step 3(b)(c)。 [x]
-- 调用点 `TriggerUndo` 记 `last_undo_at` + 传参 → Step 3(e)。 [x]
+**1. Spec 覆盖：**
+- 冷却常量 1500ms → 步骤 3(a)。 [x]
+- `intercept_empty_bare_esc` 加 `last_undo_at` + 冷却分支 → 步骤 3(d)。 [x]
+- `App.esc_undo_last_at` 字段 + init → 步骤 3(b)(c)。 [x]
+- 调用点 `TriggerUndo` 记 `last_undo_at` + 传参 → 步骤 3(e)。 [x]
 - 单次双击不变（`last_undo_at=None` 一致）→ 由 `no_prior_undo_keeps_original_behaviour` 测试 + 保留原逻辑保证。 [x]
-- 测试：冷却内不触发/不武装、冷却过后可再撤、无前置照常、现有 4 测试仍绿 → Step 1 + Step 4。 [x]
+- 测试：冷却内不触发/不武装、冷却过后可再撤、无前置照常、现有 4 测试仍绿 → 步骤 1 + 步骤 4。 [x]
 - 不做 redo/确认卡/提示行/min-gap；不碰流式 Esc → 计划未引入。 [x]
 
-**2. Placeholder scan：** 无 TBD/TODO；每处 code step 均有完整前后代码与预期输出。 [x]
+**2. 占位符扫描：** 无 TBD/TODO；每处 code step 均有完整前后代码与预期输出。 [x]
 
-**3. Type consistency：** `intercept_empty_bare_esc(&mut Option<Instant>, Option<Instant>, Instant) -> EmptyEscIntercept` 在函数定义、主调用点、两个既有测试点、四个新测试点全部一致；`esc_undo_last_at: Option<Instant>` 字段/init/读写一致；`DOUBLE_ESC_UNDO_COOLDOWN: Duration` 常量定义与使用一致。 [x]
+**3. 类型一致：** `intercept_empty_bare_esc(&mut Option<Instant>, Option<Instant>, Instant) -> EmptyEscIntercept` 在函数定义、主调用点、两个既有测试点、四个新测试点全部一致；`esc_undo_last_at: Option<Instant>` 字段/init/读写一致；`DOUBLE_ESC_UNDO_COOLDOWN: Duration` 常量定义与使用一致。 [x]

@@ -1,24 +1,24 @@
-# Persistent Todo Panel Implementation Plan
+# 持久化待办面板实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **致 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** Replace the reprinted inline todowrite blocks with a persistent, in-place-updating multi-line todo panel pinned in the footer above the input.
+**目标：** 用固定在输入框上方页脚中的多行待办面板替换反复重印的内联 todowrite 块；该面板持久存在并原地更新。
 
-**Architecture:** Extend the existing footer "todo row" (a single `TodoProgress` line) into a variable-height panel. The panel is driven by a persistent, in-memory `UiState.active_todos` cache (written live from `todowrite` calls, seeded from the transcript via `derive_current_todos` on resume/switch, reset on `/clear`/`/new`). A pure collapse function caps the panel height; the retained-mode cell/diff renderer updates it in place. Inline todowrite blocks are removed from both live and replay paths.
+**架构：** 把现有页脚的“待办行”（单行 `TodoProgress`）扩展为高度可变的面板。面板由持久化的内存态 `UiState.active_todos` 缓存驱动（由 `todowrite` 调用实时写入，在恢复/切换会话时通过 `derive_current_todos` 从 transcript 播种，在 `/clear`/`/new` 时重置）。一个纯折叠函数负责限制面板高度；retained-mode 的 cell/diff 渲染器负责原地更新。内联 todowrite 块从实时与回放两条路径中同时移除。
 
-**Tech Stack:** Rust, `rustcode-tuix` (retained-mode TUI), `rustcode-capabilities::tools::todo` (todo data types, unchanged), `rustcode-core` i18n.
+**技术栈：** Rust、`rustcode-tuix`（retained-mode TUI）、`rustcode-capabilities::tools::todo`（待办数据类型，不变）、`rustcode-core` i18n。
 
-## Global Constraints
+## 全局约束
 
-- Never hardcode natural-language strings in the TUI — use `rustcode-core` i18n `Msg` (add variants to `messages.rs` + `en.rs` + `zh_cn.rs`). Verbatim from spec §样式/§边界.
-- Never hardcode colors — compose on `self.style_for(Role)` (which resolves theme-aware fg); only add `bold`/`faint` cell attributes. `CellStyle` supports `fg`/`bold`/`reverse`/`faint` ONLY (no strikethrough) — completed items use `faint`.
-- All glyphs must have an ASCII fallback gated on `self.caps.unicode_symbols` (reuse `todo_glyph` / `todo_marker`).
-- Panel never overflows the screen: it is folded into the input-box height reservation (`max_input_rows(..., status_rows + goal_rows + todo_rows)`); `todo_rows` = panel row count.
-- `active_todos` is in-memory only — never written to disk. Resume rehydration is derived from the transcript.
-- Feature stays behind the existing `RUSTCODE_TODO` env gate (no change needed — the tool is only registered when gated on; the panel is only fed by `todowrite` calls).
-- After editing anything in `rustcode-core` (i18n), when running `rustcode-tuix` tests, `touch crates/rustcode-core/src/lib.rs` first to avoid stale build artifacts (per repo lore).
+- 绝不在 TUI 中硬编码自然语言字符串 —— 一律使用 `rustcode-core` 的 i18n `Msg`（在 `messages.rs` + `en.rs` + `zh_cn.rs` 中新增变体）。逐字取自规范 §样式/§边界。
+- 绝不硬编码颜色 —— 在 `self.style_for(Role)`（它会解析出与主题相关的前景色）之上叠加；只允许追加 `bold`/`faint` 两种 cell 属性。`CellStyle` 仅支持 `fg`/`bold`/`reverse`/`faint`（没有删除线）—— 已完成项使用 `faint`。
+- 所有字形都必须具备 ASCII 回退，并以 `self.caps.unicode_symbols` 作为开关（复用 `todo_glyph` / `todo_marker`）。
+- 面板绝不溢出屏幕：它被折进输入框的高度预留里（`max_input_rows(..., status_rows + goal_rows + todo_rows)`）；`todo_rows` 即面板行数。
+- `active_todos` 纯内存 —— 绝不落盘。恢复会话时的再水化由 transcript 推导得出。
+- 特性保持在现有 `RUSTCODE_TODO` 环境变量开关之后（无需改动 —— 该工具仅在开关打开时才注册；面板只由 `todowrite` 调用供数）。
+- 修改 `rustcode-core`（i18n）中的任何内容后，运行 `rustcode-tuix` 测试前先 `touch crates/rustcode-core/src/lib.rs`，以避免陈旧构建产物（依据仓库 lore）。
 
-**Panel visual (unicode):**
+**面板视觉（unicode）：**
 ```
 ☑ Todos · 2/5          ← header: ☑ marker (Brand), "Todos", " · N/M" (Muted)
   [✓] 2 completed      ← completed fold (faint), one line
@@ -29,31 +29,31 @@
 
 ---
 
-## File Structure
+## 文件结构
 
-| File | Responsibility | Change |
+| 文件 | 职责 | 变更 |
 |---|---|---|
-| `crates/rustcode-tuix/src/render/mod.rs` | `TodoProgress` type | Add `items` field |
-| `crates/rustcode-core/src/i18n/messages.rs` + `en.rs` + `zh_cn.rs` | i18n | 3 new `Msg` variants |
-| `crates/rustcode-tuix/src/render/retained.rs` | Footer rendering | Pure collapse fn + cell builder + footer wiring + height |
-| `crates/rustcode-tuix/src/state.rs` | UI state | Rename `live_turn_todo`→`active_todos`, drop turn-end clears |
-| `crates/rustcode-tuix/src/event_loop/mod.rs` | Live capture / helpers | Capture-only (no inline block), hide-all-done filter, `todo_progress_from_messages`, delete dead block fns |
-| `crates/rustcode-tuix/src/modals/session_picker.rs` | Replay | Remove inline block, seed `active_todos` |
-| `crates/rustcode-tuix/src/event_loop/commands.rs` | `/clear`/`/new` reset | Reset `active_todos` |
+| `crates/rustcode-tuix/src/render/mod.rs` | `TodoProgress` 类型 | 新增 `items` 字段 |
+| `crates/rustcode-core/src/i18n/messages.rs` + `en.rs` + `zh_cn.rs` | i18n | 3 个新的 `Msg` 变体 |
+| `crates/rustcode-tuix/src/render/retained.rs` | 页脚渲染 | 纯折叠函数 + cell 构造器 + 页脚接线 + 高度 |
+| `crates/rustcode-tuix/src/state.rs` | UI 状态 | 重命名 `live_turn_todo`→`active_todos`，去掉 turn 结束时的清理 |
+| `crates/rustcode-tuix/src/event_loop/mod.rs` | 实时捕获 / 辅助函数 | 仅捕获（无内联块）、全部完成时的隐藏过滤、`todo_progress_from_messages`、删除失效的块函数 |
+| `crates/rustcode-tuix/src/modals/session_picker.rs` | 回放 | 移除内联块，播种 `active_todos` |
+| `crates/rustcode-tuix/src/event_loop/commands.rs` | `/clear`/`/new` 重置 | 重置 `active_todos` |
 
 ---
 
-## Task 1: Extend `TodoProgress` with full item list
+## 任务 1：为 `TodoProgress` 扩展完整条目列表
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/mod.rs:516-525`
-- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs:11821-11835` (`todo_progress_from_items`)
-- Test: `crates/rustcode-tuix/src/event_loop/mod.rs` (existing `todo_block_tests` mod near 11848)
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/mod.rs:516-525`
+- 修改：`crates/rustcode-tuix/src/event_loop/mod.rs:11821-11835`（`todo_progress_from_items`）
+- 测试：`crates/rustcode-tuix/src/event_loop/mod.rs`（现有 `todo_block_tests` mod，约在 11848 行附近）
 
-**Interfaces:**
-- Produces: `TodoProgress.items: Vec<(rustcode_capabilities::tools::todo::TodoStatus, String)>` — the full ordered list, populated by `todo_progress_from_items`.
+**接口：**
+- 产出：`TodoProgress.items: Vec<(rustcode_capabilities::tools::todo::TodoStatus, String)>` —— 完整有序列表，由 `todo_progress_from_items` 填充。
 
-- [ ] **Step 1: Write the failing test** — append to the `todo_block_tests` module in `event_loop/mod.rs`:
+- [ ] **步骤 1：编写失败测试** —— 追加到 `event_loop/mod.rs` 的 `todo_block_tests` 模块：
 
 ```rust
     #[test]
@@ -75,12 +75,12 @@
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试以确认它失败**
 
-Run: `cargo test -p rustcode-tuix todo_progress_carries_full_items_in_order`
-Expected: FAIL — `no field 'items' on type TodoProgress`.
+运行：`cargo test -p rustcode-tuix todo_progress_carries_full_items_in_order`
+预期：FAIL —— `no field 'items' on type TodoProgress`。
 
-- [ ] **Step 3: Add the field.** In `render/mod.rs`, replace the `TodoProgress` struct (lines 516-525) with:
+- [ ] **步骤 3：添加该字段。** 在 `render/mod.rs` 中，把 `TodoProgress` 结构体（516-525 行）替换为：
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -99,7 +99,7 @@ pub struct TodoProgress {
 }
 ```
 
-- [ ] **Step 4: Populate it.** In `event_loop/mod.rs`, replace the body of `todo_progress_from_items` (lines 11821-11835) with:
+- [ ] **步骤 4：填充该字段。** 在 `event_loop/mod.rs` 中，把 `todo_progress_from_items` 的函数体（11821-11835 行）替换为：
 
 ```rust
 pub(crate) fn todo_progress_from_items(
@@ -124,12 +124,12 @@ pub(crate) fn todo_progress_from_items(
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **步骤 5：运行测试以确认它通过**
 
-Run: `cargo test -p rustcode-tuix todo_progress_carries_full_items_in_order`
-Expected: PASS. Also run `cargo build -p rustcode-tuix` — the `retained.rs` test fixtures that build `TodoProgress { current, completed, total, .. }` or `TodoProgress::default()` still compile (new field defaults to empty vec via `..Default` / literal). If any literal `TodoProgress { current, completed, total }` fails to compile, add `items: vec![],` to it.
+运行：`cargo test -p rustcode-tuix todo_progress_carries_full_items_in_order`
+预期：PASS。同时运行 `cargo build -p rustcode-tuix` —— 构造 `TodoProgress { current, completed, total, .. }` 或 `TodoProgress::default()` 的 `retained.rs` 测试夹具仍需能编译（新字段通过 `..Default` / 字面量默认为空 vec）。若任何字面量 `TodoProgress { current, completed, total }` 编译失败，给它补上 `items: vec![],`。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/mod.rs crates/rustcode-tuix/src/event_loop/mod.rs
@@ -138,18 +138,18 @@ git commit -m "feat(tuix): TodoProgress carries the full ordered item list"
 
 ---
 
-## Task 2: i18n `Msg` variants for the panel labels
+## 任务 2：面板标签的 i18n `Msg` 变体
 
-**Files:**
-- Modify: `crates/rustcode-core/src/i18n/messages.rs` (enum, near line 228)
-- Modify: `crates/rustcode-core/src/i18n/en.rs` (arm, near line 310)
-- Modify: `crates/rustcode-core/src/i18n/zh_cn.rs` (arm, near line 300)
-- Test: `crates/rustcode-core/src/i18n/mod.rs` or the nearest existing i18n test (add a small render assertion)
+**文件：**
+- 修改：`crates/rustcode-core/src/i18n/messages.rs`（enum，约 228 行）
+- 修改：`crates/rustcode-core/src/i18n/en.rs`（arm，约 310 行）
+- 修改：`crates/rustcode-core/src/i18n/zh_cn.rs`（arm，约 300 行）
+- 测试：`crates/rustcode-core/src/i18n/mod.rs` 或最近的现有 i18n 测试（新增一小段渲染断言）
 
-**Interfaces:**
-- Produces: `Msg::TodoPanelTitle`, `Msg::TodoPanelCompleted { n: usize }`, `Msg::TodoPanelMore { n: usize }` — rendered via `crate::i18n::t(...)` returning `Cow<'static, str>`.
+**接口：**
+- 产出：`Msg::TodoPanelTitle`、`Msg::TodoPanelCompleted { n: usize }`、`Msg::TodoPanelMore { n: usize }` —— 通过 `crate::i18n::t(...)` 渲染，返回 `Cow<'static, str>`。
 
-- [ ] **Step 1: Write the failing test** — add to the test module in `rustcode-core/src/i18n/mod.rs` (create a `#[cfg(test)] mod tests` block if none exists; if one exists, append):
+- [ ] **步骤 1：编写失败测试** —— 添加到 `rustcode-core/src/i18n/mod.rs` 的测试模块（若不存在则新建 `#[cfg(test)] mod tests` 块；若已存在则追加）：
 
 ```rust
 #[cfg(test)]
@@ -165,12 +165,12 @@ mod todo_panel_i18n_tests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试以确认它失败**
 
-Run: `cargo test -p rustcode-core todo_panel_labels_render`
-Expected: FAIL — `no variant named TodoPanelTitle`.
+运行：`cargo test -p rustcode-core todo_panel_labels_render`
+预期：FAIL —— `no variant named TodoPanelTitle`。
 
-- [ ] **Step 3: Add the enum variants.** In `messages.rs`, after `SessionResumedLabel { name: &'a str },` (line 228) add:
+- [ ] **步骤 3：添加 enum 变体。** 在 `messages.rs` 中，于 `SessionResumedLabel { name: &'a str },`（228 行）之后添加：
 
 ```rust
     // ── Todo panel ──
@@ -179,7 +179,7 @@ Expected: FAIL — `no variant named TodoPanelTitle`.
     TodoPanelMore { n: usize },
 ```
 
-- [ ] **Step 4: Add the English arms.** In `en.rs`, after the `Msg::SessionResumedLabel` arm (line 309-310) add:
+- [ ] **步骤 4：添加英文 arm。** 在 `en.rs` 中，于 `Msg::SessionResumedLabel` arm（309-310 行）之后添加：
 
 ```rust
         // ── Todo panel ──
@@ -188,7 +188,7 @@ Expected: FAIL — `no variant named TodoPanelTitle`.
         Msg::TodoPanelMore { n } => format!("+{n} more…").into(),
 ```
 
-- [ ] **Step 5: Add the Chinese arms.** In `zh_cn.rs`, after the `Msg::SessionResumedLabel` arm (line 299-300) add:
+- [ ] **步骤 5：添加中文 arm。** 在 `zh_cn.rs` 中，于 `Msg::SessionResumedLabel` arm（299-300 行）之后添加：
 
 ```rust
         // ── 待办面板 ──
@@ -197,12 +197,12 @@ Expected: FAIL — `no variant named TodoPanelTitle`.
         Msg::TodoPanelMore { n } => format!("+{n} 更多…").into(),
 ```
 
-- [ ] **Step 6: Run test to verify it passes**
+- [ ] **步骤 6：运行测试以确认它通过**
 
-Run: `cargo test -p rustcode-core todo_panel_labels_render`
-Expected: PASS. Also `cargo build -p rustcode-core` — the `t()` match must be exhaustive across all locales; a missing arm is a compile error (that is the intended safety net).
+运行：`cargo test -p rustcode-core todo_panel_labels_render`
+预期：PASS。同时 `cargo build -p rustcode-core` —— `t()` 的 match 必须对所有 locale 穷尽；缺一个 arm 就是编译错误（这正是预期中的安全网）。
 
-- [ ] **Step 7: Commit**
+- [ ] **步骤 7：提交**
 
 ```bash
 git add crates/rustcode-core/src/i18n/messages.rs crates/rustcode-core/src/i18n/en.rs crates/rustcode-core/src/i18n/zh_cn.rs crates/rustcode-core/src/i18n/mod.rs
@@ -211,19 +211,19 @@ git commit -m "i18n: add todo panel labels (title, completed fold, more)"
 
 ---
 
-## Task 3: Pure collapse function `todo_panel_rows`
+## 任务 3：纯折叠函数 `todo_panel_rows`
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs` — add const + enum + fn near the other footer-row helpers (after `todo_row_parts`, ~line 252)
-- Test: same file (there is a `#[cfg(test)] mod` with footer fixtures — add a nested test module)
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs` —— 在其他页脚行辅助函数附近新增 const + enum + fn（`todo_row_parts` 之后，约 252 行）
+- 测试：同一文件（其中已有带页脚夹具的 `#[cfg(test)] mod` —— 新增一个嵌套测试模块）
 
-**Interfaces:**
-- Produces:
+**接口：**
+- 产出：
   - `const MAX_TODO_PANEL_ROWS: usize = 6;`
   - `enum TodoPanelRow { Header { completed, total }, CompletedFold { count }, Item { status, content }, More { hidden } }`
-  - `fn todo_panel_rows(items: &[(TodoStatus, String)], completed: usize, total: usize, max_rows: usize) -> Vec<TodoPanelRow>` — total rows ≤ `max_rows`; in-progress always shown when present; display order Header, CompletedFold?, InProgress?, Pending…, More?.
+  - `fn todo_panel_rows(items: &[(TodoStatus, String)], completed: usize, total: usize, max_rows: usize) -> Vec<TodoPanelRow>` —— 总行数 ≤ `max_rows`；存在 in-progress 时必定显示；显示顺序为 Header、CompletedFold?、InProgress?、Pending…、More?。
 
-- [ ] **Step 1: Write the failing tests** — add near the retained-mode test fixtures:
+- [ ] **步骤 1：编写失败测试** —— 添加到 retained-mode 测试夹具附近：
 
 ```rust
 #[cfg(test)]
@@ -292,12 +292,12 @@ mod todo_panel_rows_tests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试以确认它失败**
 
-Run: `cargo test -p rustcode-tuix todo_panel_rows_tests`
-Expected: FAIL — `cannot find function todo_panel_rows`.
+运行：`cargo test -p rustcode-tuix todo_panel_rows_tests`
+预期：FAIL —— `cannot find function todo_panel_rows`。
 
-- [ ] **Step 3: Implement the const, enum, and function** (place after `todo_row_parts`, ~line 252):
+- [ ] **步骤 3：实现 const、enum 与函数**（放在 `todo_row_parts` 之后，约 252 行）：
 
 ```rust
 /// Max rows the footer todo panel may occupy, INCLUDING the header. The panel
@@ -393,12 +393,12 @@ fn todo_panel_rows(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **步骤 4：运行测试以确认它们通过**
 
-Run: `cargo test -p rustcode-tuix todo_panel_rows_tests`
-Expected: PASS (all 5).
+运行：`cargo test -p rustcode-tuix todo_panel_rows_tests`
+预期：PASS（全部 5 个）。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
@@ -407,21 +407,21 @@ git commit -m "feat(tuix): pure todo-panel collapse (todo_panel_rows)"
 
 ---
 
-## Task 4: Render the panel into cells + wire footer height
+## 任务 4：把面板渲染为 cell 并接入页脚高度
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
-  - Add `build_todo_rows` + `todo_panel_row_count` (near `build_todo_row`, ~1707)
-  - `paint_footer`: `todo_rows` calc (1816), `todo_cells` build (1878-1881), draw loop (1964-1974)
-  - `current_footer_rows`: `todo_rows` calc (~2034)
-  - Remove the now-unused single-line `build_todo_row` (1707-1717)
-- Test: same file
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
+  - 新增 `build_todo_rows` + `todo_panel_row_count`（在 `build_todo_row` 附近，约 1707 行）
+  - `paint_footer`：`todo_rows` 计算（1816）、`todo_cells` 构造（1878-1881）、绘制循环（1964-1974）
+  - `current_footer_rows`：`todo_rows` 计算（约 2034）
+  - 删除现已不再使用的单行 `build_todo_row`（1707-1717）
+- 测试：同一文件
 
-**Interfaces:**
-- Consumes: `todo_panel_rows`, `MAX_TODO_PANEL_ROWS`, `TodoPanelRow` (Task 3); `TodoProgress.items` (Task 1); `Msg::TodoPanel*` (Task 2); `todo_marker`, `todo_glyph`, `build_marker_row`, `push_str_cells`, `style_for`, `CellStyle`, `scrub_controls`, `crate::width`.
-- Produces: `fn build_todo_rows(&self, todo: &TodoProgress, rule_width: usize) -> Vec<Vec<Cell>>`; `fn todo_panel_row_count(&self, todo: &TodoProgress) -> usize`.
+**接口：**
+- 消费：`todo_panel_rows`、`MAX_TODO_PANEL_ROWS`、`TodoPanelRow`（任务 3）；`TodoProgress.items`（任务 1）；`Msg::TodoPanel*`（任务 2）；`todo_marker`、`todo_glyph`、`build_marker_row`、`push_str_cells`、`style_for`、`CellStyle`、`scrub_controls`、`crate::width`。
+- 产出：`fn build_todo_rows(&self, todo: &TodoProgress, rule_width: usize) -> Vec<Vec<Cell>>`；`fn todo_panel_row_count(&self, todo: &TodoProgress) -> usize`。
 
-- [ ] **Step 1: Write the failing test** — add to the retained test module:
+- [ ] **步骤 1：编写失败测试** —— 添加到 retained 测试模块：
 
 ```rust
     #[test]
@@ -447,14 +447,14 @@ git commit -m "feat(tuix): pure todo-panel collapse (todo_panel_rows)"
     }
 ```
 
-Note: if `renderer_80x24_unicode()` / an equivalent constructor is not the exact helper name in the test module, use whatever helper the surrounding tests already use to build a `Renderer` (grep the test module for `fn renderer` / `Renderer::new`). The assertion logic is unchanged.
+注意：若 `renderer_80x24_unicode()` / 等价构造器在测试模块中并非确切的辅助函数名，请使用周围测试已经在用的、构造 `Renderer` 的辅助函数（在测试模块中 grep `fn renderer` / `Renderer::new`）。断言逻辑不变。
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试以确认它失败**
 
-Run: `cargo test -p rustcode-tuix build_todo_rows_header_and_inprogress`
-Expected: FAIL — `no method named build_todo_rows`.
+运行：`cargo test -p rustcode-tuix build_todo_rows_header_and_inprogress`
+预期：FAIL —— `no method named build_todo_rows`。
 
-- [ ] **Step 3: Replace `build_todo_row` (1707-1717) with the multi-row builder + count helper:**
+- [ ] **步骤 3：把 `build_todo_row`（1707-1717）替换为多行构造器 + 计数辅助函数：**
 
 ```rust
     /// Effective panel height cap: `MAX_TODO_PANEL_ROWS`, clamped so the panel
@@ -530,9 +530,9 @@ Expected: FAIL — `no method named build_todo_rows`.
     }
 ```
 
-- [ ] **Step 4: Update `paint_footer` height + draw.**
+- [ ] **步骤 4：更新 `paint_footer` 的高度与绘制。**
 
-(4a) Replace the `todo_rows` line (1816):
+（4a）替换 `todo_rows` 那一行（1816）：
 
 ```rust
         let todo_rows = self
@@ -543,7 +543,7 @@ Expected: FAIL — `no method named build_todo_rows`.
             .unwrap_or(0);
 ```
 
-(4b) Replace the `todo_cells` pre-build (1878-1881):
+（4b）替换 `todo_cells` 的预构造（1878-1881）：
 
 ```rust
         let todo_cells: Vec<Vec<Cell>> = status_clone
@@ -553,7 +553,7 @@ Expected: FAIL — `no method named build_todo_rows`.
             .unwrap_or_default();
 ```
 
-(4c) Replace the todo draw + status draw block (1964-1974):
+（4c）替换待办绘制 + 状态绘制代码块（1964-1974）：
 
 ```rust
         let todo_top = goal_top + goal_rows;
@@ -569,7 +569,7 @@ Expected: FAIL — `no method named build_todo_rows`.
         }
 ```
 
-- [ ] **Step 5: Update `current_footer_rows`** — replace the `todo_rows` line (~2034):
+- [ ] **步骤 5：更新 `current_footer_rows`** —— 替换 `todo_rows` 那一行（约 2034）：
 
 ```rust
         let todo_rows = self
@@ -580,12 +580,12 @@ Expected: FAIL — `no method named build_todo_rows`.
             .unwrap_or(0);
 ```
 
-- [ ] **Step 6: Run tests**
+- [ ] **步骤 6：运行测试**
 
-Run: `cargo test -p rustcode-tuix build_todo_rows_header_and_inprogress` then `cargo test -p rustcode-tuix --lib`
-Expected: PASS. The 4 pre-existing retained byte-budget red tests are known-unrelated (per repo lore) — confirm no NEW failures.
+运行：`cargo test -p rustcode-tuix build_todo_rows_header_and_inprogress`，然后 `cargo test -p rustcode-tuix --lib`
+预期：PASS。4 个既有的 retained byte-budget 红测属于已知无关项（依据仓库 lore）—— 确认没有**新增**失败。
 
-- [ ] **Step 7: Commit**
+- [ ] **步骤 7：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
@@ -594,18 +594,18 @@ git commit -m "feat(tuix): render multi-line todo panel in footer"
 
 ---
 
-## Task 5: Persistent state + live capture (no inline block) + hide-all-done + reset
+## 任务 5：持久化状态 + 实时捕获（无内联块）+ 全部完成时隐藏 + 重置
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/state.rs` (341 field, 475 init, 724/742/753 clears)
-- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs` (8754-8774 live arm, 10767 read filter)
-- Modify: `crates/rustcode-tuix/src/event_loop/commands.rs` (reset_to_new_session, ~4295)
-- Test: `crates/rustcode-tuix/src/state.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/state.rs`（341 字段，475 初始化，724/742/753 清理）
+- 修改：`crates/rustcode-tuix/src/event_loop/mod.rs`（8754-8774 实时分支，10767 读取过滤）
+- 修改：`crates/rustcode-tuix/src/event_loop/commands.rs`（reset_to_new_session，约 4295）
+- 测试：`crates/rustcode-tuix/src/state.rs`
 
-**Interfaces:**
-- Produces: `UiState.active_todos: Option<TodoProgress>` — persistent (NOT cleared at turn end); read by the footer with a `total > 0 && completed < total` filter.
+**接口：**
+- 产出：`UiState.active_todos: Option<TodoProgress>` —— 持久化（turn 结束时**不**清理）；页脚以 `total > 0 && completed < total` 过滤后读取。
 
-- [ ] **Step 1: Write the failing test** — add to the state.rs test module (grep for `mod tests` in state.rs; if absent, add one):
+- [ ] **步骤 1：编写失败测试** —— 添加到 state.rs 的测试模块（在 state.rs 中 grep `mod tests`；若不存在就新增一个）：
 
 ```rust
     #[test]
@@ -622,14 +622,14 @@ git commit -m "feat(tuix): render multi-line todo panel in footer"
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试以确认它失败**
 
-Run: `cargo test -p rustcode-tuix active_todos_persists_across_turn_end`
-Expected: FAIL — `no field active_todos` (field still named `live_turn_todo`).
+运行：`cargo test -p rustcode-tuix active_todos_persists_across_turn_end`
+预期：FAIL —— `no field active_todos`（字段仍名为 `live_turn_todo`）。
 
-- [ ] **Step 3: Rename + change semantics in `state.rs`.**
+- [ ] **步骤 3：在 `state.rs` 中重命名并修改语义。**
 
-(3a) Replace the field (335-341) doc + decl:
+（3a）替换字段（335-341）的文档注释与声明：
 
 ```rust
     /// Active todo list for the persistent footer todo PANEL. Written from the
@@ -640,11 +640,11 @@ Expected: FAIL — `no field active_todos` (field still named `live_turn_todo`).
     pub active_todos: Option<crate::render::TodoProgress>,
 ```
 
-(3b) Init (475): `live_turn_todo: None,` → `active_todos: None,`
+（3b）初始化（475）：`live_turn_todo: None,` → `active_todos: None,`
 
-(3c) Remove the three turn-end clears — delete `self.live_turn_todo = None;` at lines 724, 742, 753. (Leave the surrounding `subagent_activity = None;` etc. intact. Also remove/adjust the now-stale comment block at 720-723 that explains the live-only hand-back.)
+（3c）移除三处 turn 结束清理 —— 删除 724、742、753 行的 `self.live_turn_todo = None;`。（保留其周围的 `subagent_activity = None;` 等不动。同时删除/调整 720-723 行那段解释 live-only 交接、现已过时的注释块。）
 
-- [ ] **Step 4: Update the live capture arm** in `event_loop/mod.rs` (8754-8774) — replace the whole `if name == "todowrite" { … }` block with capture-only (no inline block, still suppress the tool result):
+- [ ] **步骤 4：更新实时捕获分支** —— 在 `event_loop/mod.rs`（8754-8774）中，把整个 `if name == "todowrite" { … }` 块替换为仅捕获（没有内联块，仍然抑制工具结果）：
 
 ```rust
             // todowrite: the persistent footer PANEL is the sole view. Capture the
@@ -662,9 +662,9 @@ Expected: FAIL — `no field active_todos` (field still named `live_turn_todo`).
             }
 ```
 
-(Note: `todo_block_styled_lines`, `UiLine::AssistantLineBreak` / `CommandOutput` for the block, and `renderer.flush()` in the old block are gone — the panel replaces them.)
+（注意：`todo_block_styled_lines`、用于该块的 `UiLine::AssistantLineBreak` / `CommandOutput`，以及旧块中的 `renderer.flush()` 均已消失 —— 由面板取而代之。）
 
-- [ ] **Step 5: Update the footer read filter** (10761-10767) — replace the comment + `let todo = …` with:
+- [ ] **步骤 5：更新页脚读取过滤**（10761-10767）—— 把注释 + `let todo = …` 替换为：
 
 ```rust
     // Todo panel source: the persistent `active_todos` cache. Hidden when the
@@ -676,18 +676,18 @@ Expected: FAIL — `no field active_todos` (field still named `live_turn_todo`).
         .filter(|p| p.total > 0 && p.completed < p.total);
 ```
 
-- [ ] **Step 6: Reset on new session** — in `commands.rs` `reset_to_new_session`, after `state.on_turn_complete();` (line 4295) add:
+- [ ] **步骤 6：新会话时重置** —— 在 `commands.rs` 的 `reset_to_new_session` 中，于 `state.on_turn_complete();`（4295 行）之后添加：
 
 ```rust
     state.active_todos = None;
 ```
 
-- [ ] **Step 7: Run tests + build**
+- [ ] **步骤 7：运行测试 + 构建**
 
-Run: `cargo build -p rustcode-tuix && cargo test -p rustcode-tuix active_todos_persists_across_turn_end`
-Expected: build clean (all `live_turn_todo` references updated — the compiler enforces this), test PASS.
+运行：`cargo build -p rustcode-tuix && cargo test -p rustcode-tuix active_todos_persists_across_turn_end`
+预期：构建干净（所有 `live_turn_todo` 引用均已更新 —— 由编译器强制保证），测试 PASS。
 
-- [ ] **Step 8: Commit**
+- [ ] **步骤 8：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/state.rs crates/rustcode-tuix/src/event_loop/mod.rs crates/rustcode-tuix/src/event_loop/commands.rs
@@ -696,18 +696,18 @@ git commit -m "feat(tuix): persistent active_todos, capture-only todowrite, hide
 
 ---
 
-## Task 6: Replay — remove inline block, seed the panel from the transcript
+## 任务 6：回放 —— 移除内联块，从 transcript 播种面板
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/modals/session_picker.rs` (576-593 replay arm; end of `replay_session` ~ after the message loop)
-- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs` — add `todo_progress_from_messages`
-- Test: `crates/rustcode-tuix/src/modals/session_picker.rs` (existing replay tests at ~998/1083)
+**文件：**
+- 修改：`crates/rustcode-tuix/src/modals/session_picker.rs`（576-593 回放分支；`replay_session` 的末尾，约在消息循环之后）
+- 修改：`crates/rustcode-tuix/src/event_loop/mod.rs` —— 新增 `todo_progress_from_messages`
+- 测试：`crates/rustcode-tuix/src/modals/session_picker.rs`（现有回放测试位于约 998/1083 行）
 
-**Interfaces:**
-- Consumes: `derive_current_todos` (capabilities), `todo_progress_from_items` (Task 1).
-- Produces: `fn todo_progress_from_messages(messages: &[Message]) -> Option<TodoProgress>`.
+**接口：**
+- 消费：`derive_current_todos`（capabilities）、`todo_progress_from_items`（任务 1）。
+- 产出：`fn todo_progress_from_messages(messages: &[Message]) -> Option<TodoProgress>`。
 
-- [ ] **Step 1: Write the failing test** — add to the session_picker test module:
+- [ ] **步骤 1：编写失败测试** —— 添加到 session_picker 测试模块：
 
 ```rust
     #[test]
@@ -732,14 +732,14 @@ git commit -m "feat(tuix): persistent active_todos, capture-only todowrite, hide
     }
 ```
 
-(Match `rec`/`state` construction to the two existing `replay_session(&mut rec, &mut state, &session, false)` tests at lines ~998/1083 — copy their setup verbatim.)
+（把 `rec`/`state` 的构造与 998/1083 行附近两处现有 `replay_session(&mut rec, &mut state, &session, false)` 测试对齐 —— 逐字复制它们的 setup。）
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试以确认它失败**
 
-Run: `cargo test -p rustcode-tuix replay_seeds_active_todos_from_transcript`
-Expected: FAIL — `active_todos` is `None` after replay.
+运行：`cargo test -p rustcode-tuix replay_seeds_active_todos_from_transcript`
+预期：FAIL —— 回放后 `active_todos` 仍是 `None`。
 
-- [ ] **Step 3: Add `todo_progress_from_messages`** in `event_loop/mod.rs` (next to `todo_progress_from_args`, ~11842):
+- [ ] **步骤 3：新增 `todo_progress_from_messages`** —— 在 `event_loop/mod.rs` 中（`todo_progress_from_args` 旁，约 11842 行）：
 
 ```rust
 /// Todo panel state derived from a full transcript — the last VALID `todowrite`
@@ -758,9 +758,9 @@ pub(crate) fn todo_progress_from_messages(
 }
 ```
 
-(If `rustcode_kernel::message::Message` is not the type held by `Session.messages`, use the same type the replay loop iterates — grep `session.messages` element type; `derive_current_todos` takes `&[rustcode_kernel::message::Message]`, so convert/borrow accordingly. `session_picker.rs` already imports the message types it needs.)
+（若 `rustcode_kernel::message::Message` 并非 `Session.messages` 所持有的类型，请使用回放循环实际迭代的那个类型 —— grep `session.messages` 的元素类型；`derive_current_todos` 接收 `&[rustcode_kernel::message::Message]`，据此转换/借用。`session_picker.rs` 已经导入了它所需的消息类型。）
 
-- [ ] **Step 4: Strip the inline block from replay** — replace the todowrite arm (576-593) with suppress-only:
+- [ ] **步骤 4：从回放中剥离内联块** —— 把 todowrite 分支（576-593）替换为仅抑制：
 
 ```rust
                 for tc in tool_calls {
@@ -784,7 +784,7 @@ pub(crate) fn todo_progress_from_messages(
                 }
 ```
 
-- [ ] **Step 5: Seed the panel** — at the end of `replay_session`, after the `for (i, m) in session.messages.iter().enumerate()` loop closes and before the final `renderer.end_sync()` / return, add:
+- [ ] **步骤 5：播种面板** —— 在 `replay_session` 末尾，`for (i, m) in session.messages.iter().enumerate()` 循环闭合之后、最后的 `renderer.end_sync()` / return 之前，添加：
 
 ```rust
     // Seed the persistent todo panel from the transcript (zero extra storage).
@@ -793,14 +793,14 @@ pub(crate) fn todo_progress_from_messages(
     state.active_todos = crate::event_loop::todo_progress_from_messages(&session.messages);
 ```
 
-(Locate the exact insertion point by reading the tail of `replay_session`; place it just before the function's final renderer flush/`end_sync`.)
+（通过阅读 `replay_session` 的尾部定位确切插入点；放在该函数最后一次 renderer flush/`end_sync` 之前。）
 
-- [ ] **Step 6: Run tests**
+- [ ] **步骤 6：运行测试**
 
-Run: `touch crates/rustcode-core/src/lib.rs && cargo test -p rustcode-tuix replay_seeds_active_todos_from_transcript`
-Expected: PASS.
+运行：`touch crates/rustcode-core/src/lib.rs && cargo test -p rustcode-tuix replay_seeds_active_todos_from_transcript`
+预期：PASS。
 
-- [ ] **Step 7: Commit**
+- [ ] **步骤 7：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/modals/session_picker.rs crates/rustcode-tuix/src/event_loop/mod.rs
@@ -809,26 +809,26 @@ git commit -m "feat(tuix): seed todo panel on resume, drop inline replay block"
 
 ---
 
-## Task 7: Delete the now-dead inline-block helpers
+## 任务 7：删除现已失效的内联块辅助函数
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs` — remove `todo_block_lines` (11781-11798), `todo_block_styled_lines` (11800-11817), and their `todo_block_tests` cases that reference them (the `..._weights_by_status` test and the raw-SGR assertions).
+**文件：**
+- 修改：`crates/rustcode-tuix/src/event_loop/mod.rs` —— 移除 `todo_block_lines`（11781-11798）、`todo_block_styled_lines`（11800-11817），以及 `todo_block_tests` 中引用它们的用例（`..._weights_by_status` 测试与原始 SGR 断言）。
 
-**Interfaces:** none (pure removal). Verify no remaining callers before deleting.
+**接口：** 无（纯删除）。删除前先确认没有剩余调用者。
 
-- [ ] **Step 1: Verify no callers remain**
+- [ ] **步骤 1：确认没有剩余调用者**
 
-Run: `grep -rn "todo_block_styled_lines\|todo_block_lines" crates/`
-Expected: only the definitions + their own tests (both call sites removed in Tasks 5 and 6). If any non-test caller remains, STOP and fix it first.
+运行：`grep -rn "todo_block_styled_lines\|todo_block_lines" crates/`
+预期：仅剩定义及其自身测试（两处调用点已在任务 5 和任务 6 中移除）。若仍有任何非测试调用者，先停下修复。
 
-- [ ] **Step 2: Delete the two functions** (`todo_block_lines`, `todo_block_styled_lines`) and the tests that call them. Keep the `todo_progress_*` tests (still valid). If `todo_block_tests` becomes empty, remove the empty module.
+- [ ] **步骤 2：删除这两个函数**（`todo_block_lines`、`todo_block_styled_lines`）以及调用它们的测试。保留 `todo_progress_*` 测试（它们仍然有效）。若 `todo_block_tests` 因此变成空模块，则删除该空模块。
 
-- [ ] **Step 3: Run build + tests**
+- [ ] **步骤 3：运行构建 + 测试**
 
-Run: `cargo build -p rustcode-tuix && cargo test -p rustcode-tuix --lib`
-Expected: clean build (no `unused function` warnings for the deleted fns), tests green apart from the 4 known-unrelated retained byte-budget reds.
+运行：`cargo build -p rustcode-tuix && cargo test -p rustcode-tuix --lib`
+预期：构建干净（被删函数不再产生 `unused function` 警告），测试除 4 个已知无关的 retained byte-budget 红测外全绿。
 
-- [ ] **Step 4: Commit**
+- [ ] **步骤 4：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/event_loop/mod.rs
@@ -837,30 +837,30 @@ git commit -m "refactor(tuix): remove dead inline todo-block renderers"
 
 ---
 
-## Task 8: Full verification
+## 任务 8：整体验证
 
-- [ ] **Step 1: Whole-workspace build + test**
+- [ ] **步骤 1：全工作区构建 + 测试**
 
-Run: `touch crates/rustcode-core/src/lib.rs && cargo build && cargo test -p rustcode-tuix -p rustcode-capabilities -p rustcode-core`
-Expected: build clean; tuix green except the 4 pre-existing retained byte-budget red tests (confirm they are the SAME 4 as on a clean checkout — `git stash` is FORBIDDEN per repo lore; instead compare against a fresh `cargo test` on the parent commit in a separate worktree if unsure).
+运行：`touch crates/rustcode-core/src/lib.rs && cargo build && cargo test -p rustcode-tuix -p rustcode-capabilities -p rustcode-core`
+预期：构建干净；tuix 除 4 个既有的 retained byte-budget 红测外全绿（确认它们与干净检出下是**同样的 4 个** —— 依据仓库 lore 禁止 `git stash`；若不确定，改为在独立 worktree 中对父提交跑一次全新的 `cargo test` 来对比）。
 
-- [ ] **Step 2: Manual smoke (documented, not automated)** — record in the commit/PR body that the following need a real terminal (cannot be unit-tested):
-  1. Trigger a multi-step `todowrite` (with `RUSTCODE_TODO` enabled); confirm the panel appears above the input and UPDATES IN PLACE across turns (no repeated inline blocks in scrollback).
-  2. Long list (>5 items) → completed collapses to one line, in-progress shown, pending capped with `+K more…`.
-  3. Mark all complete → panel disappears.
-  4. `/resume` a session that used todowrite → panel rehydrates.
-  5. `/clear` → panel gone.
-  6. Non-unicode terminal (`TERM` without unicode / caps off) → `+`/`[~]`/`[x]`/`[ ]` ASCII fallbacks.
-  7. Narrow + short terminal → input box still usable (panel yields), no overflow.
+- [ ] **步骤 2：手工冒烟（记录在案，非自动化）** —— 在 commit/PR 描述中记录以下需要真实终端的项（无法单元测试）：
+  1. 触发一次多步 `todowrite`（开启 `RUSTCODE_TODO`）；确认面板出现在输入框上方，并跨 turn **原地更新**（滚动区中不再出现重复的内联块）。
+  2. 长列表（>5 项）→ 已完成项折叠为一行，显示 in-progress，pending 以 `+K more…` 截断。
+  3. 全部标记完成 → 面板消失。
+  4. `/resume` 一个用过 todowrite 的会话 → 面板再水化。
+  5. `/clear` → 面板消失。
+  6. 非 unicode 终端（`TERM` 不带 unicode / caps 关闭）→ 回退到 `+`/`[~]`/`[x]`/`[ ]` 这些 ASCII 字形。
+  7. 窄且矮的终端 → 输入框仍然可用（面板让位），无溢出。
 
-- [ ] **Step 3: Request code review**
+- [ ] **步骤 3：申请代码评审**
 
-Use the `superpowers:requesting-code-review` skill (or `/code-review`) on the branch diff before merge.
+合并前对分支 diff 使用 `superpowers:requesting-code-review` 技能（或 `/code-review`）。
 
 ---
 
-## Self-Review (completed during authoring)
+## 自审（撰写期间完成）
 
-- **Spec coverage:** §数据模型→T1; §生命周期(跨turn/隐藏/清空)→T5; §Resume→T6; §渲染→T4; §折叠算法→T3; §样式/主题→T4; §字形/降级→T4 (ASCII via todo_glyph/todo_marker); §内联块移除→T5(live)+T6(replay)+T7(delete); §开关→unchanged (Global Constraints); §测试→per-task + T8. i18n discipline → T2.
-- **Placeholder scan:** none — every code step shows full code. Two flagged lookups (`renderer_80x24_unicode` helper name in T4-S1, replay test `rec`/`state` setup in T6-S1) are explicitly "copy the neighbouring test's setup", not TODOs.
-- **Type consistency:** `active_todos: Option<TodoProgress>` (T5) used identically in read filter (T5), replay seed (T6), reset (T5). `TodoProgress.items: Vec<(TodoStatus, String)>` (T1) consumed by `todo_panel_rows` (T3) and `build_todo_rows` (T4). `todo_panel_rows`/`TodoPanelRow`/`MAX_TODO_PANEL_ROWS` names consistent across T3/T4. `Msg::TodoPanelTitle|Completed{n}|More{n}` consistent T2/T4.
+- **规范覆盖：** §数据模型→T1；§生命周期(跨turn/隐藏/清空)→T5；§Resume→T6；§渲染→T4；§折叠算法→T3；§样式/主题→T4；§字形/降级→T4（ASCII 经由 todo_glyph/todo_marker）；§内联块移除→T5(live)+T6(replay)+T7(delete)；§开关→不变（全局约束）；§测试→各任务自测 + T8。i18n 纪律 → T2。
+- **占位符扫描：** 无 —— 每个代码步骤都给出了完整代码。两处被标记的查找（T4-S1 的 `renderer_80x24_unicode` 辅助函数名，T6-S1 的回放测试 `rec`/`state` setup）明确是“复制邻近测试的 setup”，不是 TODO。
+- **类型一致性：** `active_todos: Option<TodoProgress>`（T5）在读取过滤（T5）、回放播种（T6）、重置（T5）中的用法完全一致。`TodoProgress.items: Vec<(TodoStatus, String)>`（T1）被 `todo_panel_rows`（T3）和 `build_todo_rows`（T4）消费。`todo_panel_rows`/`TodoPanelRow`/`MAX_TODO_PANEL_ROWS` 的命名在 T3/T4 中一致。`Msg::TodoPanelTitle|Completed{n}|More{n}` 在 T2/T4 中一致。

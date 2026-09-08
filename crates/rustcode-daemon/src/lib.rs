@@ -1278,6 +1278,29 @@ fn is_loopback_authority(authority: &str) -> bool {
     matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
+/// Loopback test used **only** to decide whether the daemon prints the
+/// non-loopback risk notice (`Msg::WebuiLanWarning` / `Msg::WebuiNonLoopbackWarning`)
+/// in `run_server`. It must never be used for any authorization decision.
+///
+/// Why a separate predicate instead of fixing `is_loopback_authority` directly:
+/// `is_loopback_authority` takes an authority, so a bare IPv6 literal such as
+/// `::1` falls through its `split(':').next()` branch and yields an empty host
+/// (i.e. it reports `false`). That is a real bug, but `is_loopback_authority` is
+/// also consumed by `client_interactive_permission`, where `true` grants local
+/// known clients the right to receive interactive approval prompts. Widening
+/// that predicate therefore widens a security decision, which is an architect
+/// call and out of scope here.
+///
+/// So this helper only adds the two bare IPv6 loopback spellings that the
+/// warning path can actually receive from a driver (`--host ::1`,
+/// `--host ::ffff:127.0.0.1`). It is deliberately narrow: no `IpAddr` parsing
+/// and no broader matching, so the security surface stays exactly as it is.
+/// Under-warning (missing a notice) is the fail-safe direction here, because
+/// every non-public route stays token-protected regardless of the notice.
+fn is_loopback_bind_host(host: &str) -> bool {
+    is_loopback_authority(host) || host == "::1" || host.eq_ignore_ascii_case("::ffff:127.0.0.1")
+}
+
 /// Whether this client can receive interactive approval prompts.
 /// Token-protected webui mode is always interactive. Local known clients are
 /// also allowed on loopback because their UI can answer `/chat/permission`.
@@ -5272,7 +5295,8 @@ pub const WEBUI_DEFAULT_PORT: u16 = rustcode_config::distribution::WEBUI_PORT;
 /// 确保进程内 webui server 已起（已停止则重启），mint 一次性 token，开浏览器。
 ///
 /// 返回给用户展示的状态串。在 `rustcode` 主程序（已有 tokio runtime）内调用。
-/// `host` 为绑定地址（默认 `127.0.0.1`；`0.0.0.0` 暴露到局域网/外网）。
+/// `host` 为绑定地址（本函数无默认值，由调用方决定：CLI `rustcode webui` / `rustcode daemon`
+/// 默认 `0.0.0.0`；TUI `/webui` 默认 `127.0.0.1`，见设计 O-1。`0.0.0.0` 暴露到局域网/外网）。
 /// `port` 为首选端口（CLI 子命令可自定义；TUI 传 13456）；被占用时自动向上扫描。
 ///
 /// 不再轮询等待绑定：先在本函数内同步绑定端口（亚毫秒级，且借此拿到真实端口、
@@ -6031,7 +6055,8 @@ async fn fs_mkdir(
 /// Field types intentionally mirror the tuple returned by the binary's
 /// `parse_daemon_args()` so the two stay in lock-step.
 pub struct ServerOpts {
-    /// Bind host (e.g. `127.0.0.1`). Non-loopback hosts emit a security warning.
+    /// Bind host (e.g. `0.0.0.0` / `127.0.0.1`). Decided by the driver; this
+    /// function does not warn on non-loopback binds.
     pub host: String,
     /// Bind port (e.g. `13456`).
     pub port: u16,
@@ -6330,21 +6355,19 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         }
     }
 
-    // Default to loopback-only for security. The daemon hosts chat / file-edit /
-    // tool-execution endpoints that should not be reachable from another host on
-    // the LAN without explicit configuration (PR #82 briefly broke this by
-    // hard-coding 0.0.0.0; see commit `tianchang fix(daemon): harden daemon chat
-    // access` for the original loopback-default rationale).
-    //
-    // Users can override the bind address via --host <ip>. When binding a
-    // non-loopback address, a security warning is printed. For production use,
-    // consider running a reverse proxy in front instead.
+    // The bind address is decided by the driver (CLI / TUI / standalone binary),
+    // not by this function; the current default is 0.0.0.0 so the daemon is
+    // reachable over the LAN. Every non-public route is token-protected (see
+    // `auth_token::require_webui_token`), but the connection is plain HTTP with
+    // no TLS. The old loopback-only startup banner (`Msg::DaemonWarnNonLoopback`)
+    // was removed because under the new default it fired on every startup; the
+    // non-loopback risk notice now reuses `Msg::WebuiLanWarning` /
+    // `Msg::WebuiNonLoopbackWarning` -- emitted by `ensure_server_and_open`
+    // together with the reachable URLs, and by this function right after the
+    // listening line for drivers that bind directly (e.g. `rustcode daemon`).
+    // Pass `--host 127.0.0.1` (or put a reverse proxy in front) to restrict
+    // access to this machine.
     let addr = format!("{host}:{port}");
-    // 非 loopback 的安全警告即便在 quiet 模式也应输出（仅独立二进制可能触发，
-    // 进程内 webui 恒为 127.0.0.1）。
-    if host != "127.0.0.1" && host != "localhost" && host != "::1" {
-        eprintln!("{}", t(Msg::DaemonWarnNonLoopback { host: &host }));
-    }
     if dangerous_tools_enabled() {
         eprintln!(
             "{}",
@@ -6357,6 +6380,18 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     // 走 quiet 路径，由 ensure_server_and_open 单独返回一行干净的浏览器地址。
     if !quiet {
         println!("{}", t(Msg::DaemonListening { addr: &addr }));
+        // `rustcode daemon` 与独立二进制直连 `run_server`，不经 `ensure_server_and_open`，
+        // 因此拿不到那里随访问 URL 一起打印的非回环风险提示。此处按同一判据
+        //（`is_loopback_bind_host`，即 `is_loopback_authority` 加上裸 IPv6 回环写法）
+        // 补发，使「绑定非回环」在任何 driver 下都有用户可见
+        // 提示；回环绑定保持静默，避免每次启动刷噪音。
+        if !is_loopback_bind_host(&host) {
+            if host == "0.0.0.0" || host == "::" {
+                println!("{}", t(Msg::WebuiLanWarning));
+            } else {
+                println!("{}", t(Msg::WebuiNonLoopbackWarning));
+            }
+        }
         println!();
         println!("{}", t(Msg::DaemonApiEndpoints));
         // HTTP 方法与路径是 API 标识符（保持英文）；只有破折号后的描述走 i18n。

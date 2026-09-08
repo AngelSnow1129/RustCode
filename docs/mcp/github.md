@@ -150,7 +150,7 @@ rustcode
 
 ## 8. 常见问题
 
-### MCP server not found in config
+### 配置中没有找到 MCP server
 
 说明还没有写入 `github` 这个 MCP server 配置。先执行：
 
@@ -164,7 +164,7 @@ rustcode mcp add-github-oauth github
 rustcode mcp add-github-oauth github --global
 ```
 
-### missing field `access_token`
+### 缺少 `access_token` 字段
 
 通常是 GitHub token endpoint 返回了错误 JSON。常见原因是没有传 `client_secret`。
 
@@ -183,7 +183,7 @@ rustcode mcp login github \
   --client-secret-env GITHUB_MCP_CLIENT_SECRET
 ```
 
-### tools/list timed out
+### tools/list 超时
 
 GitHub Remote MCP 首次 `tools/list` 可能较慢。建议在 MCP 配置里设置：
 

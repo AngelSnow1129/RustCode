@@ -1,38 +1,38 @@
 ---
 name: setup
-description: Analyze a codebase and recommend RustCode automations (hooks, subagents, skills, plugins, MCP servers). Use when user asks for automation recommendations, wants to optimize their RustCode setup, mentions improving RustCode workflows, asks how to first set up RustCode for a project, or wants to know what RustCode features they should use.
+description: 分析代码库并推荐 RustCode 自动化配置（hooks、subagents、skills、plugins、MCP servers）。当用户询问自动化推荐、希望优化 RustCode 配置、提到改进 RustCode 工作流、询问如何为一个项目首次配置 RustCode，或想知道该使用哪些 RustCode 功能时使用。
 user_invocable: true
 argument_hint: "[focus area, e.g. hooks, mcp, skills, all]"
 allowed_tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
-# RustCode Automation Recommender
+# RustCode 自动化推荐器
 
-Analyze codebase patterns to recommend tailored RustCode automations, then **offer to install them**.
+分析代码库模式，推荐量身定制的 RustCode 自动化配置，然后**询问是否需要安装**。
 
-## Core Principles
+## 核心原则
 
-1. **Recommend first, install on request** — output recommendations, then ask "要我帮你装上吗？"
-2. **Prefer configured registries, local fallback** — if your distribution exposes a community skill-registry CLI (e.g. the community `npx skills` client), search it for the latest community skills; fall back to the bundled reference files when no such CLI is configured
-3. **Friendly error handling** — if tools are missing (no Node.js, no npx), explain clearly and continue with local recommendations
-4. **1-2 per category** — don't overwhelm; surface the most valuable automations
+1. **先推荐，按请求再安装** —— 先输出推荐，再问“要我帮你装上吗？”
+2. **优先使用已配置的 registry，本地兜底** —— 如果你的发行版提供了社区 skill registry CLI（例如社区的 `npx skills` 客户端），就先搜索其中的最新社区 skill；未配置此类 CLI 时回退到内置的 reference 文件
+3. **友好的错误提示** —— 如果缺少工具（没有 Node.js、没有 npx），要清楚说明情况，并继续给出本地推荐
+4. **每个类别 1-2 项** —— 不要堆砌，只呈现最有价值的自动化配置
 
-## Automation Types
+## 自动化类型
 
-| Type | Best For | How to Install |
+| 类型 | 适用场景 | 安装方式 |
 |------|----------|----------------|
-| **Skills** | Packaged expertise, workflows, repeatable tasks | your skill-registry CLI (e.g. `npx skills add <pkg>`, if your distribution configures one) or create `.rustcode/skills/<name>/SKILL.md` |
-| **Plugins** | Collections of skills, commands, agents, hooks | `/plugin marketplace add <url>` then `/plugin install <name>` |
-| **MCP Servers** | External tool integrations (databases, APIs, docs) | Write to `.mcp.json` (project root) or `~/.rustcode/mcp.json` (global) |
-| **Hooks** | Automatic actions on tool events (format, lint, block) | Write to `.rustcode/settings.json` |
-| **Subagents** | Specialized reviewers (security, performance, a11y) | Create `.rustcode/skills/<name>/SKILL.md` with reviewer prompt |
-| **Commands** | Quick slash commands (/test, /review, /deploy) | Create `.rustcode/commands/<name>.md` |
+| **Skills** | 打包好的经验、工作流、可重复任务 | 你的 skill registry CLI（例如 `npx skills add <pkg>`，前提是你的发行版配置了它），或创建 `.rustcode/skills/<name>/SKILL.md` |
+| **Plugins** | skill、命令、agent、hook 的集合 | `/plugin marketplace add <url>` 然后 `/plugin install <name>` |
+| **MCP Servers** | 外部工具集成（数据库、API、文档） | 写入 `.mcp.json`（项目根目录）或 `~/.rustcode/mcp.json`（全局） |
+| **Hooks** | 工具事件触发的自动动作（格式化、lint、拦截） | 写入 `.rustcode/settings.json` |
+| **Subagents** | 专门的审查者（安全、性能、无障碍） | 创建 `.rustcode/skills/<name>/SKILL.md`，内容为审查提示词 |
+| **Commands** | 快捷 slash 命令（/test、/review、/deploy） | 创建 `.rustcode/commands/<name>.md` |
 
-## Workflow
+## 工作流
 
-### Phase 1: Codebase Analysis
+### 阶段 1：代码库分析
 
-Gather project context:
+收集项目上下文：
 
 ```bash
 # Detect project type and tools
@@ -49,24 +49,24 @@ ls -la .rustcode/ CLAUDE.md .mcp.json 2>/dev/null
 ls -la src/ app/ lib/ tests/ components/ pages/ api/ 2>/dev/null
 ```
 
-**Key Indicators:**
+**关键指示信号：**
 
-| Category | What to Look For | Informs |
+| 类别 | 关注什么 | 影响哪类推荐 |
 |----------|------------------|---------|
-| Language/Framework | package.json, Cargo.toml, pyproject.toml | Skills, Hooks |
-| Frontend stack | React, Vue, Angular, Next.js | Playwright MCP, frontend skills |
-| Backend stack | Express, FastAPI, Django | API documentation tools |
-| Database | Prisma, Supabase, raw SQL | Database MCP servers |
-| External APIs | Stripe, OpenAI, AWS SDKs | context7 MCP for docs |
-| Testing | Jest, pytest, Playwright configs | Testing hooks/skills |
-| CI/CD | GitHub Actions, GitLab CI | VCS MCP server |
-| Docs patterns | OpenAPI, JSDoc, docstrings | Documentation skills |
+| 语言/框架 | package.json、Cargo.toml、pyproject.toml | Skills、Hooks |
+| 前端技术栈 | React、Vue、Angular、Next.js | Playwright MCP、前端类 skill |
+| 后端技术栈 | Express、FastAPI、Django | API 文档工具 |
+| 数据库 | Prisma、Supabase、裸 SQL | 数据库类 MCP server |
+| 外部 API | Stripe、OpenAI、AWS SDK | context7 查文档 |
+| 测试 | Jest、pytest、Playwright 配置 | 测试类 hooks/skills |
+| 存在 CI/CD 配置 | GitHub Actions、GitLab CI | VCS MCP server |
+| 文档模式 | OpenAPI、JSDoc、docstring | 文档类 skill |
 
-### Phase 2: Search for Skills (Online + Local)
+### 阶段 2：搜索 Skills（在线 + 本地）
 
-**Search strategy by recommendation type:**
+**按推荐类型的搜索策略：**
 
-| Type | Online registry (only if a registry CLI is configured) | Local reference files |
+| 类型 | 在线 registry（仅当配置了 registry CLI） | 本地 reference 文件 |
 |------|--------------------------|----------------------|
 | **Skills** | [+] 若已配置 registry CLI，**先搜在线** — 社区生态有数千个 skill | [+] 补充自定义 skill 创建建议 |
 | **MCP Servers** | [-] 在线 registry 不提供 MCP | [+] **只用本地** reference |
@@ -74,19 +74,18 @@ ls -la src/ app/ lib/ tests/ components/ pages/ api/ 2>/dev/null
 | **Subagents** | [-] 在线 registry 不提供 agents | [+] **只用本地** reference |
 | **Commands** | [-] 在线 registry 不提供 commands | [+] **只用本地** reference |
 
-#### Step 2a: Online skill search (optional community registry)
+#### 步骤 2a：在线 skill 搜索（可选的社区 registry）
 
-This step only applies if the user's distribution/path provides a community
-skill-registry CLI. The example below uses the community `npx skills` client;
-if your distribution ships a different registry CLI (or none at all), use that
-one or skip straight to Step 2b.
+本步骤仅当用户的发行版/安装途径提供了社区 skill registry CLI 时才适用。
+下面的示例使用社区的 `npx skills` 客户端；如果你的发行版提供的是其他 registry CLI
+（或根本没有），就改用那一个，或直接跳到步骤 2b。
 
 ```bash
 # Check if a registry CLI is available
 npx --version 2>/dev/null
 ```
 
-**If a registry CLI is available**, search for relevant skills based on detected project type:
+**如果 registry CLI 可用**，根据检测到的项目类型搜索相关 skill：
 
 ```bash
 npx skills find <detected-language>
@@ -94,15 +93,15 @@ npx skills find <detected-framework>
 npx skills find <specific-library>
 ```
 
-Examples:
-- Rust project → `npx skills find rust`
-- React + Next.js → `npx skills find react nextjs`
-- Python + Django → `npx skills find django`
-- Docker → `npx skills find docker`
+示例：
+- Rust 项目 → `npx skills find rust`
+- React + Next.js 项目 → `npx skills find react nextjs`
+- Python + Django 项目 → `npx skills find django`
+- 用到 Docker → `npx skills find docker`
 
-Include the most relevant results (by install count) in your Skills recommendations.
+把最相关的结果（按安装量）写进你的 Skills 推荐。
 
-**If npx is NOT available** (Node.js not installed), show this friendly message and continue:
+**如果 npx 不可用**（未安装 Node.js），显示下面这段友好提示并继续：
 
 ```
 [*] 提示：安装 Node.js 后可以使用在线 skill 搜索功能，获取社区最新推荐。
@@ -110,85 +109,85 @@ Include the most relevant results (by install count) in your Skills recommendati
    目前使用内置推荐列表为您分析，功能不受影响。
 ```
 
-#### Step 2b: Local reference lookup (always runs)
+#### 步骤 2b：本地 reference 查询（总会执行）
 
-For **all recommendation types** (MCP / Hooks / Subagents / Commands + skill supplements), use the local reference files. These are always available regardless of Node.js:
+对**所有推荐类型**（MCP / Hooks / Subagents / Commands，以及 skill 的补充建议），都使用本地 reference 文件。无论有没有 Node.js，它们始终可用：
 
-### Phase 3: Generate Recommendations
+### 阶段 3：生成推荐
 
-Combine online search results + local reference knowledge to generate recommendations.
+把在线搜索结果与本地 reference 知识结合起来生成推荐。
 
-#### A. Skills Recommendations
+#### A. Skills 推荐
 
-**From online registry** (if available):
-- Include skills found via `npx skills find` with high install counts
-- Provide the exact install command: `npx skills add <owner/repo@skill> -g -y`
+**来自在线 registry**（若可用）：
+- 纳入通过 `npx skills find` 找到、安装量较高的 skill
+- 给出确切的安装命令：`npx skills add <owner/repo@skill> -g -y`
 
-**From reference files** (always available):
-See [references/skills-reference.md](references/skills-reference.md) for built-in patterns.
+**来自 reference 文件**（始终可用）：
+内置模式见 [references/skills-reference.md](references/skills-reference.md)。
 
-**Plugin skills to recommend installing:**
+**建议安装的 plugin skill：**
 
-| Codebase Signal | Skill | Install Command | Invocation |
+| 代码库信号 | Skill | 安装命令 | 调用方式 |
 |-----------------|-------|-----------------|------------|
-| Any project (RustCode Q&A) | **/guide** | Built in — no install. Run `/guide <question>` (also auto-dispatches). | Both |
+| 任何项目（RustCode 使用问答） | **/guide** | 内置 —— 无需安装。直接运行 `/guide <question>`（也会自动派发）。 | 两者皆可 |
 
-> Your distribution channel may provide a plugin marketplace (configure its URL via config/env, e.g. `/plugin marketplace add https://example.com/<your-org>/rustcode-plugins`) shipping workflow plugins like `rustcode-workflows`, `commit-craft`, and `git-worktree`; install them from your distribution's plugin index. RustCode usage Q&A is now the built-in `/guide` subagent, so it no longer needs a plugin install.
+> 你的发行渠道可能提供 plugin marketplace（通过配置/环境变量设置其 URL，例如 `/plugin marketplace add https://example.com/<your-org>/rustcode-plugins`），其中提供 `rustcode-workflows`、`commit-craft`、`git-worktree` 等工作流 plugin；请从你所用发行版的 plugin 索引安装。RustCode 使用问答现在是内置的 `/guide` subagent，因此不再需要安装 plugin。
 
-**Custom skills to suggest creating:**
+**建议创建的自定义 skill：**
 
-| Codebase Signal | Skill to Create | Invocation |
+| 代码库信号 | 要创建的 Skill | 调用方式 |
 |-----------------|-----------------|------------|
-| API routes | **api-doc** (OpenAPI template) | Both |
-| Database project | **create-migration** | User-only |
-| Test suite | **gen-test** (example tests) | User-only |
-| Component library | **new-component** (templates) | User-only |
-| PR workflow | **pr-check** (checklist) | User-only |
-| Code style | **project-conventions** | RustCode-only |
+| API 路由 | **api-doc**（OpenAPI 模板） | 两者皆可 |
+| 数据库项目 | **create-migration** | 仅用户 |
+| 测试套件 | **gen-test**（示例测试） | 仅用户 |
+| 组件库 | **new-component**（模板） | 仅用户 |
+| PR 工作流 | **pr-check**（检查清单） | 仅用户 |
+| 代码风格 | **project-conventions** | 仅 RustCode |
 
-#### B. MCP Server Recommendations
+#### B. MCP Server 推荐
 
-See [references/mcp-servers.md](references/mcp-servers.md) for detailed patterns.
+详细模式见 [references/mcp-servers.md](references/mcp-servers.md)。
 
-| Codebase Signal | Recommended MCP Server |
+| 代码库信号 | 推荐的 MCP Server |
 |-----------------|------------------------|
-| Uses popular libraries | **context7** - Live documentation lookup |
-| Frontend with UI testing | **Playwright** - Browser automation |
-| Uses Supabase | **Supabase MCP** - Database operations |
-| PostgreSQL/MySQL | **Database MCP** - Query and schema |
-| GitHub/GitLab repository | **VCS MCP** - Issues, PRs/MRs |
-| Docker containers | **Docker MCP** - Container management |
+| 使用了流行库 | **context7** - 实时文档查询 |
+| 前端且需要 UI 测试 | **Playwright** - 浏览器自动化 |
+| 使用了 Supabase | **Supabase MCP** - 数据库操作 |
+| PostgreSQL/MySQL | **Database MCP** - 查询与 schema |
+| GitHub/GitLab 仓库 | **VCS MCP** - Issue、PR/MR |
+| Docker 容器 | **Docker MCP** - 容器管理 |
 
-#### C. Hooks Recommendations
+#### C. Hooks 推荐
 
-See [references/hooks-patterns.md](references/hooks-patterns.md) for configurations.
+配置写法见 [references/hooks-patterns.md](references/hooks-patterns.md)。
 
-| Codebase Signal | Recommended Hook |
+| 代码库信号 | 推荐的 Hook |
 |-----------------|------------------|
-| Prettier configured | PostToolUse: auto-format on edit |
-| ESLint/Ruff configured | PostToolUse: auto-lint on edit |
-| TypeScript project | PostToolUse: type-check on edit |
-| Tests directory exists | PostToolUse: run related tests |
-| `.env` files present | PreToolUse: block `.env` edits |
-| Lock files present | PreToolUse: block lock file edits |
+| 配置了 Prettier | PostToolUse：编辑后自动格式化 |
+| 配置了 ESLint/Ruff | PostToolUse：编辑后自动 lint |
+| TypeScript 项目 | PostToolUse：编辑后做类型检查 |
+| 存在测试目录 | PostToolUse：运行相关测试 |
+| 存在 `.env` 文件 | PreToolUse：拦截 `.env` 编辑 |
+| 存在 lock 文件 | PreToolUse：拦截 lock 文件编辑 |
 
-#### D. Subagent Recommendations
+#### D. Subagent 推荐
 
-See [references/subagent-templates.md](references/subagent-templates.md) for templates.
+模板见 [references/subagent-templates.md](references/subagent-templates.md)。
 
-In RustCode, subagents are implemented as skills with specialized reviewer prompts:
+在 RustCode 中，subagent 以带有专门审查提示词的 skill 形式实现：
 
-| Codebase Signal | Recommended Subagent |
+| 代码库信号 | 推荐的 Subagent |
 |-----------------|---------------------|
-| Large codebase (>500 files) | **code-reviewer** |
-| Auth/payments code | **security-reviewer** |
-| API project | **api-documenter** |
-| Performance critical | **performance-analyzer** |
-| Frontend heavy | **ui-reviewer** (accessibility) |
+| 大型代码库（>500 个文件） | **code-reviewer** |
+| 认证/支付代码 | **security-reviewer** |
+| API 项目 | **api-documenter** |
+| 性能敏感 | **performance-analyzer** |
+| 前端偏重 | **ui-reviewer**（无障碍） |
 
-### Phase 4: Output Report + Offer Installation
+### 阶段 4：输出报告 + 询问是否安装
 
-Format recommendations clearly, then **offer to install**.
+把推荐清晰地排版输出，然后**询问是否需要安装**。
 
 ```markdown
 ## RustCode Automation Recommendations
@@ -250,17 +249,17 @@ Format recommendations clearly, then **offer to install**.
 - "先不装" — 只看推荐，稍后自行安装
 ```
 
-### Phase 5: Execute Installation (on user request)
+### 阶段 5：执行安装（用户同意后）
 
-When the user agrees to install, execute the appropriate action for each type:
+用户同意安装后，按类型执行相应动作：
 
-**Skills (from an online registry, if a registry CLI is configured):**
+**Skills（来自在线 registry，前提是你的发行版配置了 registry CLI）：**
 ```bash
 # example using the community `skills` CLI; use your distribution's registry CLI if different
 npx skills add <owner/repo@skill> -g -y
 ```
 
-If the registry command fails, show:
+如果 registry 命令失败，显示：
 ```
 [!] 安装失败。可能原因：
 1. 未安装 registry CLI（如 Node.js/npx）— 参考你的发行版文档
@@ -273,30 +272,30 @@ If the registry command fails, show:
 3. 创建 ~/.rustcode/skills/[name]/SKILL.md
 ```
 
-**Skills (custom creation):**
-Use the Write tool to create `.rustcode/skills/<name>/SKILL.md` with the recommended content.
+**Skills（自定义创建）：**
+用 Write 工具按推荐内容创建 `.rustcode/skills/<name>/SKILL.md`。
 
-**MCP Servers:**
-Use the Write/Edit tool to add the server config to `.mcp.json` in the project root (NOT `.rustcode/mcp.json` — the loader does not read that) or the global `~/.rustcode/mcp.json`:
+**MCP Servers 的安装：**
+用 Write/Edit 工具把 server 配置写入项目根目录的 `.mcp.json`（**不要**写 `.rustcode/mcp.json` —— 加载器不读它），或写入全局的 `~/.rustcode/mcp.json`：
 ```bash
 # Read existing config
 cat .mcp.json 2>/dev/null || echo '{}'
 # Merge new server config
 ```
 
-**Hooks:**
-Use the Write/Edit tool to add hook config to `.rustcode/settings.json`:
+**Hooks 的安装：**
+用 Write/Edit 工具把 hook 配置写入 `.rustcode/settings.json`：
 ```bash
 cat .rustcode/settings.json 2>/dev/null || echo '{}'
 ```
 
-**Subagents (as skills):**
-Use the Write tool to create `.rustcode/skills/<name>/SKILL.md` with the reviewer prompt from the subagent template.
+**Subagents（以 skill 形式）：**
+用 Write 工具按 subagent 模板中的审查提示词创建 `.rustcode/skills/<name>/SKILL.md`。
 
-**Commands:**
-Use the Write tool to create `.rustcode/commands/<name>.md`.
+**Commands 的创建：**
+用 Write 工具创建 `.rustcode/commands/<name>.md`。
 
-**After installation**, confirm with the user:
+**安装完成后**，向用户确认：
 ```
 [SUCCESS] 安装完成！
 
@@ -310,38 +309,38 @@ Use the Write tool to create `.rustcode/commands/<name>.md`.
 [*] 输入 /help 查看新增的 slash commands。
 ```
 
-## Decision Framework
+## 决策框架
 
-### When to Recommend MCP Servers
-- External service integration needed (databases, APIs)
-- Documentation lookup for libraries/SDKs
-- Browser automation or testing
-- Team tool integration (GitHub, GitLab, Linear, Slack)
+### 何时推荐 MCP Servers
+- 需要集成外部服务（数据库、API）
+- 需要查询库/SDK 的文档
+- 需要浏览器自动化或测试
+- 需要接入团队工具（GitHub、GitLab、Linear、Slack）
 
-### When to Recommend Skills
-- Frequently repeated prompts or workflows
-- Project-specific tasks with arguments
-- Applying templates or scripts to tasks
-- Quick actions invoked with `/skill-name`
+### 何时推荐 Skills
+- 频繁重复的提示词或工作流
+- 带参数的项目专属任务
+- 需要把模板或脚本套用到任务上
+- 用 `/skill-name` 调用的快捷动作
 
-**Invocation control:**
-- `disable_model_invocation: true` — User-only (for side effects: deploy, commit)
-- `user_invocable: false` — RustCode-only (for background knowledge)
-- Default — Both can invoke
+**调用控制：**
+- `disable_model_invocation: true` —— 仅用户（用于有副作用的动作：deploy、commit）
+- `user_invocable: false` —— 仅 RustCode（用于背景知识）
+- 默认 —— 两者皆可调用
 
-### When to Recommend Hooks
-- Repetitive post-edit actions (formatting, linting)
-- Protection rules (block sensitive file edits)
-- Validation checks (tests, type checks)
+### 何时推荐 Hooks
+- 编辑后重复执行的动作（格式化、lint）
+- 保护规则（拦截敏感文件编辑）
+- 校验检查（测试、类型检查）
 
-### When to Recommend Subagents
-- Specialized expertise needed (security, performance)
-- Review workflows
-- Background quality checks
+### 何时推荐 Subagents
+- 需要专门能力（安全、性能）
+- 审查工作流
+- 后台质量检查
 
-## Error Handling
+## 错误处理
 
-### Node.js / npx not available
+### Node.js / npx 不可用
 ```
 [*] 提示：当前环境未安装 Node.js，在线 skill 搜索功能不可用。
    安装 Node.js 后可使用 `npx skills find` 搜索社区 skill。
@@ -350,14 +349,14 @@ Use the Write tool to create `.rustcode/commands/<name>.md`.
    目前使用内置推荐列表为您分析，功能不受影响。
 ```
 
-### Online skill search returns no results
+### 在线 skill 搜索无结果
 ```
 [i] 在线 skill 库中暂无 [keyword] 相关的社区 skill。
    已使用内置推荐列表为您分析。
    你也可以稍后在你所用 skill registry 的页面浏览所有可用 skill。
 ```
 
-### Online skill installation fails
+### 在线 skill 安装失败
 ```
 [!] skill 安装失败：[error message]
 
@@ -371,7 +370,7 @@ Use the Write tool to create `.rustcode/commands/<name>.md`.
   # 然后将 SKILL.md 内容粘贴进去
 ```
 
-### .rustcode directory not writable
+### .rustcode 目录不可写
 ```
 [!] 无法写入 .rustcode/ 目录。
 
@@ -382,14 +381,14 @@ Use the Write tool to create `.rustcode/commands/<name>.md`.
   mkdir -p .rustcode/skills .rustcode/commands
 ```
 
-## Configuration Tips
+## 配置提示
 
-### MCP Server Setup
-- **Team sharing**: Check `.mcp.json` into repo so the entire team gets same MCP servers
-- **Debugging**: Use `--mcp-debug` flag to identify configuration issues
+### MCP Server 配置
+- **团队共享**：把 `.mcp.json` 提交进仓库，整个团队就都能用上同一批 MCP server
+- **调试**：用 `--mcp-debug` 参数定位配置问题
 
-### Permissions for Hooks
-Configure allowed tools in `.rustcode/settings.json`:
+### Hooks 的权限
+在 `.rustcode/settings.json` 中配置允许的工具：
 ```json
 {
   "permissions": {

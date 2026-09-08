@@ -1,14 +1,14 @@
 # v2 5 小时窗口限流"暂停-自愈"体验 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **致 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 来逐任务实施本计划。步骤使用复选框（`- [ ]`）语法跟踪进度。
 
 **Goal:** v2 引擎收到 5 小时滚动窗口限流(429)时，按 reset 剩余时间分流——≤2 分钟可取消挂起+自动续跑，>2 分钟优雅暂停并显示恢复时间，不再粗暴红字报错、保住已产出内容。
 
 **Architecture:** 路线 A（Hook 注入决策）。kernel 检测 `http_status==429` → 调新 `LifecycleHooks::on_rate_limit` 取决策；决策逻辑（含 usage 数据访问）放宿主侧 `rustcode-coding` 的 `RateLimitHook`，kernel 只执行（可取消等待+续跑 / emit 新 `AgentEvent::RateLimited` 非红字事件）。事件经 bridge → core `TurnEvent` → TUI/daemon-webui 两路渲染暂停态。kernel 不依赖 core。
 
-**Tech Stack:** Rust（rustcode-kernel / rustcode-coding / rustcode-core / rustcode-bridge / rustcode-daemon / rustcode-tuix），Preact+TS（webui），async-trait，tokio。
+**技术栈：** Rust（rustcode-kernel / rustcode-coding / rustcode-core / rustcode-bridge / rustcode-daemon / rustcode-tuix），Preact+TS（webui），async-trait，tokio。
 
-## Global Constraints
+## 全局约束
 
 - 仅 v2（kernel）。v1（`--engine v1`）保持现状，不改。
 - 仅 5 小时滚动窗口；月度限流已下线。
@@ -23,13 +23,13 @@
 
 ### Task 1: kernel 新类型 + on_rate_limit hook + 事件/StopReason 变体
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-kernel/src/hook.rs`（新增类型 + trait 方法 + HookChain 转发）
 - Modify: `crates/rustcode-kernel/src/event.rs`（`StopReason::RateLimited` + `AgentEvent::RateLimited`，约 `event.rs:18` 与 `event.rs:79` 两个枚举）
 - Test: `crates/rustcode-kernel/src/hook.rs`（`#[cfg(test)]` 模块内）
 
-**Interfaces:**
-- Produces:
+**接口：**
+- 产生：
   - `pub struct RateLimitHint { pub http_status: Option<u16>, pub retry_after_secs: Option<u64> }`
   - `pub enum RateLimitDecision { WaitAndRetry { secs: u64 }, Pause { reset_at_display: String, reset_label: String, secs_until_reset: Option<u64> } }`
   - `pub const RATE_LIMIT_AUTO_WAIT_SECS: u64 = 120;`
@@ -38,7 +38,7 @@
   - `AgentEvent::RateLimited { reset_at_display: String, reset_label: String, secs_until_reset: Option<u64> }`
   - `StopReason::RateLimited`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 在 `crates/rustcode-kernel/src/hook.rs` 末尾的 `#[cfg(test)] mod tests` 里（若无则新建）加：
 
@@ -76,12 +76,12 @@ async fn default_hook_on_rate_limit_returns_none() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认失败**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel from_hint_ 2>&1 | tail -20`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel from_hint_ 2>&1 | tail -20`
 Expected: 编译失败 —— `cannot find type RateLimitHint` / `RateLimitDecision`。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
 在 `crates/rustcode-kernel/src/hook.rs`（trait 定义上方）加类型：
 
@@ -178,12 +178,12 @@ async fn on_rate_limit(&self, hint: &RateLimitHint) -> Option<RateLimitDecision>
     },
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认通过**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel from_hint_ default_hook_on_rate_limit 2>&1 | tail -20`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel from_hint_ default_hook_on_rate_limit 2>&1 | tail -20`
 Expected: 3 个测试 PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-kernel/src/hook.rs crates/rustcode-kernel/src/event.rs
@@ -196,15 +196,15 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 2: testkit 可编程 RateLimitHook（测试基建）
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-kernel/src/testkit.rs`（新增 `ScriptedRateLimitHook`）
 - Test: `crates/rustcode-kernel/src/testkit.rs`（同文件 `#[cfg(test)]`，仅验证 hook 自身行为）
 
-**Interfaces:**
-- Consumes: `RateLimitHint`, `RateLimitDecision`, `LifecycleHooks`（Task 1）
+**接口：**
+- 消费：`RateLimitHint`, `RateLimitDecision`, `LifecycleHooks`（Task 1）
 - Produces: `pub struct ScriptedRateLimitHook { decision: RateLimitDecision }`，`ScriptedRateLimitHook::new(decision: RateLimitDecision) -> Self`，实现 `on_rate_limit` 恒返回 `Some(self.decision.clone())`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 在 `crates/rustcode-kernel/src/testkit.rs` 的测试模块加：
 
@@ -219,12 +219,12 @@ async fn scripted_rate_limit_hook_returns_programmed_decision() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认失败**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel scripted_rate_limit 2>&1 | tail -20`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel scripted_rate_limit 2>&1 | tail -20`
 Expected: 编译失败 `cannot find ScriptedRateLimitHook`。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
 在 `crates/rustcode-kernel/src/testkit.rs`（其它 hook 定义旁）加（注意 import `RateLimitHint`/`RateLimitDecision`）：
 
@@ -252,12 +252,12 @@ impl LifecycleHooks for ScriptedRateLimitHook {
 
 文件顶部 use 补 `RateLimitHint, RateLimitDecision`（与现有 `use crate::hook::...` 合并）。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认通过**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel scripted_rate_limit 2>&1 | tail -20`
-Expected: PASS。
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel scripted_rate_limit 2>&1 | tail -20`
+预期：PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-kernel/src/testkit.rs
@@ -270,17 +270,17 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 3: kernel 循环 429 分支（open + mid-stream）
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-kernel/src/agent.rs`（OPEN 失败分支 `:967` 区，mid-stream `:1135` 区，新增 `parse_retry_after_secs` 辅助函数）
 - Test: `crates/rustcode-kernel/tests/`（新增集成测试文件 `rate_limit.rs`，或追加现有 agent-loop 集成测试文件）
 
-**Interfaces:**
+**接口：**
 - Consumes: `ScriptedRateLimitHook`（Task 2），`AgentEvent::RateLimited` / `StopReason::RateLimited`（Task 1），现有 `MockProvider`/测试夹具（参照同目录现有集成测试的 provider mock 模式）
 - Produces: kernel 行为——429 + `WaitAndRetry` ⇒ 等待后续跑；429 + `Pause` ⇒ emit `RateLimited` + `TurnComplete{RateLimited}`，不 emit `Error`
 
 **说明：** 先按现有集成测试约定（参照 `crates/rustcode-kernel/tests/` 下已有文件如 agent-loop / empty-response 测试）确认 mock provider 如何返回一个 `ProviderError { http_status: Some(429), retryable: true, .. }`。下方测试以该夹具为前提；若现有夹具命名不同，按现有命名套用（不要新造一套）。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 新建 `crates/rustcode-kernel/tests/rate_limit.rs`（import 路径参照同目录现有测试文件头部）：
 
@@ -314,12 +314,12 @@ async fn rate_limit_wait_then_resumes_turn() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认失败**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel --test rate_limit 2>&1 | tail -30`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel --test rate_limit 2>&1 | tail -30`
 Expected: FAIL —— 当前 429 走 3/6/9s 重试后 emit `Error`，断言"无 Error / 有 RateLimited"失败。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
 在 `crates/rustcode-kernel/src/agent.rs` 顶部辅助函数区加：
 
@@ -399,13 +399,13 @@ async fn handle_rate_limit(
 
 > 实施提示：若抽方法因借用 `round`/`continue` 不便，可保持 open 分支内联、mid-stream 分支内联，但务必把决策→执行的核心抽成一个返回 `RateLimitDecision` 已解析后的小 helper，二者共享。优先 DRY，但不要为此与借用检查器硬刚到改坏循环结构。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认通过**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel --test rate_limit 2>&1 | tail -30`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel --test rate_limit 2>&1 | tail -30`
 Expected: 两个测试 PASS。
 再跑回归：`CARGO_INCREMENTAL=0 cargo test -p rustcode-kernel 2>&1 | tail -20` —— 既有测试全过（尤其非 429 retryable 仍走 3/6/9s 的测试）。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-kernel/src/agent.rs crates/rustcode-kernel/tests/rate_limit.rs
@@ -418,19 +418,19 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 4: 宿主 RateLimitHook（usage 关联 + 阈值策略）
 
-**Files:**
-- Create: `crates/rustcode-coding/src/rate_limit.rs`
-- Modify: `crates/rustcode-coding/src/lib.rs`（`mod rate_limit;`）
-- Modify: `crates/rustcode-coding/src/parts.rs`（`hooks.push(Arc::new(RateLimitHook::new()))`）
-- Test: `crates/rustcode-coding/src/rate_limit.rs`（`#[cfg(test)]`）
+**文件：**
+- 新建：`crates/rustcode-coding/src/rate_limit.rs`
+- 修改：`crates/rustcode-coding/src/lib.rs`（`mod rate_limit;`）
+- 修改：`crates/rustcode-coding/src/parts.rs`（`hooks.push(Arc::new(RateLimitHook::new()))`）
+- 测试：`crates/rustcode-coding/src/rate_limit.rs`（`#[cfg(test)]`）
 
-**Interfaces:**
-- Consumes: `rustcode_kernel::hook::{LifecycleHooks, RateLimitHint, RateLimitDecision, RATE_LIMIT_AUTO_WAIT_SECS}`，`rustcode_core::coding_plan::types::RateLimitWindow`
+**接口：**
+- 消费：`rustcode_kernel::hook::{LifecycleHooks, RateLimitHint, RateLimitDecision, RATE_LIMIT_AUTO_WAIT_SECS}`，`rustcode_core::coding_plan::types::RateLimitWindow`
 - Produces: `pub struct RateLimitHook`，`RateLimitHook::new()`，纯函数 `decide_from_windows(windows: &[RateLimitWindow], hint: &RateLimitHint) -> RateLimitDecision`（可单测，不触网）；`on_rate_limit` 调 `status_v2()` 取 windows 后委托纯函数
 
 **说明：** 把"挑 5h 窗口 + 套 120s 阈值 + fallback 链"做成**纯函数** `decide_from_windows`，单测覆盖；`on_rate_limit` 只负责取数据（`Client::from_stored_auth().status_v2()`，非 CodingPlan / 取数失败时 `None` 让 kernel 回退）。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 新建 `crates/rustcode-coding/src/rate_limit.rs`，先写测试（用 `RateLimitWindow` 构造，参照 `crates/rustcode-core/src/coding_plan/setup.rs` 测试里的字段写法）：
 
@@ -485,12 +485,12 @@ mod tests {
 
 > 若 `RateLimitWindow` 未派生 `Default`，测试里改为显式构造全字段（参照 `setup.rs` 测试中的写法），不要给生产类型加 `Default` 仅为测试。
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认失败**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-coding rate_limit::tests 2>&1 | tail -20`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-coding rate_limit::tests 2>&1 | tail -20`
 Expected: 编译失败 `cannot find function decide_from_windows`。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
 在 `crates/rustcode-coding/src/rate_limit.rs`（测试模块上方）写：
 
@@ -573,12 +573,12 @@ impl LifecycleHooks for RateLimitHook {
 hooks.push(Arc::new(crate::rate_limit::RateLimitHook::new()) as Arc<dyn LifecycleHooks>);
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认通过**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-coding rate_limit::tests 2>&1 | tail -20`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-coding rate_limit::tests 2>&1 | tail -20`
 Expected: 3 个测试 PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-coding/src/rate_limit.rs crates/rustcode-coding/src/lib.rs crates/rustcode-coding/src/parts.rs
@@ -591,16 +591,16 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 5: core TurnEvent::RateLimited + bridge 映射
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-core/src/turn/event.rs`（在 `Error(String)`/`Warning(String)` 旁，约 `:61`/`:65`，加 `RateLimited` 变体）
 - Modify: `crates/rustcode-bridge/src/runtime.rs`（`on_kernel_event` 的 `KEv::Warning`/`KEv::Error` 旁，约 `:1517`，加 `KEv::RateLimited`）
 - Test: `crates/rustcode-bridge/`（追加单测断言映射，或随 Task 6 的 wire 测试覆盖）
 
-**Interfaces:**
-- Consumes: `AgentEvent::RateLimited`（Task 1）
-- Produces: `rustcode_core::turn::event::TurnEvent::RateLimited { reset_at_display: String, reset_label: String, secs_until_reset: Option<u64> }`
+**接口：**
+- 消费：`AgentEvent::RateLimited`（Task 1）
+- 产生：`rustcode_core::turn::event::TurnEvent::RateLimited { reset_at_display: String, reset_label: String, secs_until_reset: Option<u64> }`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 在 `crates/rustcode-bridge/src/runtime.rs` 测试模块（若无独立映射测试，加一个最小的）：
 
@@ -616,12 +616,12 @@ fn ratelimited_event_variant_exists() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认失败**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-bridge ratelimited_event_variant 2>&1 | tail -20`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-bridge ratelimited_event_variant 2>&1 | tail -20`
 Expected: 编译失败 —— core 无 `TurnEvent::RateLimited`。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
 在 `crates/rustcode-core/src/turn/event.rs`（`Warning(String)` 下一行）加：
 
@@ -645,13 +645,13 @@ KEv::RateLimited { reset_at_display, reset_label, secs_until_reset } => {
 
 （`CoreEv` 是 `rustcode_core::turn::event::TurnEvent` 的别名；按文件顶部现有别名用法写。）
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认通过**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-bridge ratelimited_event_variant 2>&1 | tail -20`
-Expected: PASS。
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-bridge ratelimited_event_variant 2>&1 | tail -20`
+预期：PASS。
 注意：加了 `KEv::RateLimited` 分支后，若 `on_kernel_event` 的 match 是穷尽的，编译器会要求 core/其它消费 `TurnEvent` 的 match 也处理新变体——Task 7/Task 6 会补；本 task 编译可能因下游 match 未尽而报错，属预期，下游 task 补齐。**若下游 match 报 non-exhaustive 阻塞本 task 提交，临时在下游加 `TurnEvent::RateLimited { .. } => {}` 占位，并在对应 task 替换为真实渲染。**
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-core/src/turn/event.rs crates/rustcode-bridge/src/runtime.rs
@@ -664,15 +664,15 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 6: daemon LiveWire 事件（webui 传输）
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-daemon/src/live_api.rs`（`enum LiveWireEvent` 约 `:1248`，`to_wire` 的 `TE::Warning` 旁约 `:1378`）
 - Test: `crates/rustcode-daemon/src/live_api.rs`（参照现有 `chat_warning_serializes_as_its_own_type` 风格的 `#[test]`）
 
-**Interfaces:**
-- Consumes: `TurnEvent::RateLimited`（Task 5）
-- Produces: wire JSON `{"type":"rate_limited","reset_at_display":...,"reset_label":...,"secs_until_reset":...}`
+**接口：**
+- 消费：`TurnEvent::RateLimited`（Task 5）
+- 产生：wire JSON `{"type":"rate_limited","reset_at_display":...,"reset_label":...,"secs_until_reset":...}`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 在 `crates/rustcode-daemon/src/live_api.rs` 测试区加：
 
@@ -693,12 +693,12 @@ fn rate_limited_serializes_as_its_own_type() {
 
 （`LiveEvent::Turn(...)` 的确切包裹方式参照同文件 `to_wire` 里 `TE::Warning` 那条 case 的写法。）
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认失败**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-daemon rate_limited_serializes 2>&1 | tail -20`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-daemon rate_limited_serializes 2>&1 | tail -20`
 Expected: 编译失败 —— `LiveWireEvent` 无 `RateLimited`。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
 在 `enum LiveWireEvent`（`:1248`）加（参照 `Warning { message: String }` 的 serde tag 风格，确认其 `#[serde(tag = "type", rename_all = "snake_case")]` 或逐变体 `rename`，与现有一致）：
 
@@ -719,12 +719,12 @@ Expected: 编译失败 —— `LiveWireEvent` 无 `RateLimited`。
 
 > 若枚举用逐变体 `#[serde(rename = "...")]` 而非容器级 `rename_all`，给本变体加 `#[serde(rename = "rate_limited")]` 以匹配测试里的 `"type":"rate_limited"`。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认通过**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-daemon rate_limited_serializes 2>&1 | tail -20`
-Expected: PASS。
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-daemon rate_limited_serializes 2>&1 | tail -20`
+预期：PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-daemon/src/live_api.rs
@@ -737,16 +737,16 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 7: TUI 渲染暂停态
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-tuix/src/event_loop/commands.rs`（处理 `CoreEv`/`TurnEvent` 的 match —— 加 `TurnEvent::RateLimited` 分支）
 - Modify: `crates/rustcode-tuix/src/render/...`（若需新增 `UiLine` 暂停样式；否则复用现有非红 hint 行）
 - Test: 渲染纯函数若有则单测；否则手动验证（见下）
 
-**Interfaces:**
-- Consumes: `TurnEvent::RateLimited { reset_at_display, reset_label, secs_until_reset }`（Task 5）
+**接口：**
+- 消费：`TurnEvent::RateLimited { reset_at_display, reset_label, secs_until_reset }`（Task 5）
 - Produces: TUI body/footer 一条非红暂停行，文案如 `⏸ 5小时窗口已用尽，约 18:09 恢复（还有 2h11m）· 已保留已完成内容 · 可换模型或稍后重试`；`WaitAndRetry` 场景（`reset_at_display` 空、`secs_until_reset` 小）显示 `⏳ 限流，{N}s 后自动继续…`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 若 commands.rs 有可单测的"事件→UiLine"纯函数，加：
 
@@ -767,12 +767,12 @@ fn rate_limited_wait_shows_countdown() {
 
 > 若现有架构无此纯函数接缝，则**新建** `format_rate_limited_line(reset_at_display: &str, reset_label: &str, secs_until_reset: Option<u64>) -> String` 纯函数承载文案逻辑（便于单测），分支只调它。
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认失败**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix rate_limited 2>&1 | tail -20`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix rate_limited 2>&1 | tail -20`
 Expected: 编译失败 `cannot find function format_rate_limited_line`。
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **步骤 3：编写最小实现**
 
 新增纯函数（放 commands.rs 或就近 render 模块）：
 
@@ -813,16 +813,16 @@ TurnEvent::RateLimited { reset_at_display, reset_label, secs_until_reset } => {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认通过**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix rate_limited 2>&1 | tail -20`
-Expected: PASS。
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix rate_limited 2>&1 | tail -20`
+预期：PASS。
 
 - [ ] **Step 5: 手动验证（无法自动测真 TUI）**
 
 构建二进制并人工触发：`CARGO_INCREMENTAL=0 cargo build -p rustcode-tuix 2>&1 | tail -5`。在 CodingPlan 5h 窗口接近耗尽时观察：限流出现为暗色暂停行（非红错误），含 reset 时间；esc 仍可退出。**若无法构造真限流，至少确认编译通过 + 单测通过 + match 非红样式，标注"真机限流待验"。**
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/event_loop/commands.rs crates/rustcode-tuix/src/render
@@ -835,13 +835,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 8: webui 渲染暂停卡片 + 倒计时 + i18n
 
-**Files:**
+**文件：**
 - Modify: `webui/src/api.ts`（事件类型加 `rate_limited`）
 - Modify: `webui/src/components/Chat.tsx`（事件处理 `case 'rate_limited'` + 暂停卡片渲染，非 `chat.error` 红字）
 - Modify: `webui/src/i18n.ts`（zh + en 新文案）
 - Test: `webui` 现有 node --test 套路（若 Chat 事件归并有可测纯函数则加；否则手动验证）
 
-**Interfaces:**
+**接口：**
 - Consumes: wire 事件 `{"type":"rate_limited", reset_at_display, reset_label, secs_until_reset}`（Task 6）
 - Produces: 聊天流里一张暂停卡片（暗色非红），含 reset 时间 + "可换模型/稍后重试"；`secs_until_reset` 小且无 reset_at_display 时显示倒计时
 
@@ -891,7 +891,7 @@ case 'rate_limited': {
 若有 node --test 纯函数测试套：`node --test 2>&1 | tail -20`。
 手动：webui 触发限流（或临时注入一条 `rate_limited` 事件）确认渲染为暗色暂停卡片含 reset 时间，非红错误。**真限流难构造时标注"待验"。**
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add webui/src/api.ts webui/src/components/Chat.tsx webui/src/i18n.ts
@@ -904,7 +904,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 9: 清理月度死代码（独立 commit）
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-core/src/coding_plan/setup.rs`（删 `blocking_exhausted_window` 约 `:1050` + 其调用处约 `:385` 的月度分支 + 相关测试 `blocking_exhausted_window_detects_hidden_monthly` 等）
 
 **Interfaces:** 无对外接口变化（纯删死代码）。
@@ -913,7 +913,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: 确认引用点**
 
-Run: `rg -n "blocking_exhausted_window" crates/`
+运行：`rg -n "blocking_exhausted_window" crates/`
 Expected: 仅 `setup.rs` 定义 + `setup.rs:385` 调用 + 测试。若有别处引用，停下评估，不删。
 
 - [ ] **Step 2: 删除**
@@ -922,10 +922,10 @@ Expected: 仅 `setup.rs` 定义 + `setup.rs:385` 调用 + 测试。若有别处�
 
 - [ ] **Step 3: 编译 + 测试**
 
-Run: `CARGO_INCREMENTAL=0 cargo test -p rustcode-core coding_plan 2>&1 | tail -25`
+运行：`CARGO_INCREMENTAL=0 cargo test -p rustcode-core coding_plan 2>&1 | tail -25`
 Expected: 编译通过、剩余 coding_plan 测试全过（5h 窗口渲染、fallback 测试仍在）。
 
-- [ ] **Step 4: Commit**
+- [ ] **步骤 4：提交**
 
 ```bash
 git add crates/rustcode-core/src/coding_plan/setup.rs
@@ -938,9 +938,9 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Self-Review
+## 自查
 
-**Spec coverage：**
+**Spec 覆盖：**
 - ① 范围与行为 → Task 3（分流逻辑）+ Task 4（阈值/reset 数据） [x]
 - ② 新 kernel 接口（hook + 事件 + StopReason）→ Task 1 [x]
 - ③ kernel 循环改动（open + mid-stream）→ Task 3 [x]

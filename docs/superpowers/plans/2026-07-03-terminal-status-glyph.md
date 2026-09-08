@@ -1,14 +1,14 @@
-# 终端标题状态圆点 Implementation Plan
+# 终端标题状态圆点实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 按任务逐步实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** 在终端标签栏/窗口标题前缀一个按状态变化的彩色圆点（🟢 空闲 / 🟡 忙 / 🔴 待确认），让用户不切换到 rustcode 窗口就能看出任务状态。
+**目标：** 在终端标签栏/窗口标题前缀一个按状态变化的彩色圆点（🟢 空闲 / 🟡 忙 / 🔴 待确认），让用户不切换到 rustcode 窗口就能看出任务状态。
 
-**Architecture:** 全部判断逻辑落在 `title.rs` 的三个纯函数里（映射、组装、决策），返回 `Option<String>` 表达"Suspended 时不动标题"。事件循环里的 `sync_terminal_title` 只做 plumbing：读 `ctx.config.ui.terminal_status_glyph` + `app.state.phase`，调纯函数，变了才 `set_title`。config 加一个默认 `true` 的开关。
+**架构：** 全部判断逻辑落在 `title.rs` 的三个纯函数里（映射、组装、决策），返回 `Option<String>` 表达"Suspended 时不动标题"。事件循环里的 `sync_terminal_title` 只做 plumbing：读 `ctx.config.ui.terminal_status_glyph` + `app.state.phase`，调纯函数，变了才 `set_title`。config 加一个默认 `true` 的开关。
 
-**Tech Stack:** Rust；`crossterm::terminal::SetTitle`（unix OSC / windows `SetConsoleTitleW`）；serde config。
+**技术栈：** Rust；`crossterm::terminal::SetTitle`（unix OSC / windows `SetConsoleTitleW`）；serde config。
 
-## Global Constraints
+## 全局约束
 
 - 状态源是现有 `crate::state::UiPhase`（`crates/rustcode-tuix/src/state.rs:33`）四态：`Idle` / `Streaming` / `Approval` / `Suspended`。不新增事件、不新增 phase。
 - 圆点映射：`Idle → 🟢`、`Streaming → 🟡`、`Approval → 🔴`、`Suspended → None`（不改标题）。
@@ -23,17 +23,17 @@
 
 ### Task 1: `title.rs` 纯函数（映射 + 组装 + 决策）
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/title.rs`（顶部加 import；新增三个函数；在 `#[cfg(test)] mod tests` 追加测试）
+**文件：**
+- 修改：`crates/rustcode-tuix/src/title.rs`（顶部加 import；新增三个函数；在 `#[cfg(test)] mod tests` 追加测试）
 
-**Interfaces:**
-- Consumes: `crate::state::UiPhase`（现有枚举）；现有 `session_terminal_title(name: &str, fallback: &str) -> String`。
-- Produces:
+**接口：**
+- 消费：`crate::state::UiPhase`（现有枚举）；现有 `session_terminal_title(name: &str, fallback: &str) -> String`。
+- 产出：
   - `fn phase_status_glyph(phase: UiPhase) -> Option<&'static str>`
   - `pub fn session_terminal_title_with_status(name: &str, fallback: &str, glyph: Option<&str>) -> String`
   - `pub fn status_title(name: &str, fallback: &str, phase: UiPhase, glyph_enabled: bool) -> Option<String>`（`None` = 不动标题）
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **步骤 1：编写失败测试**
 
 在 `crates/rustcode-tuix/src/title.rs` 的 `mod tests` 里（`FB` 常量已存在 = `"rustcode v9.9.9"`），追加：
 
@@ -109,15 +109,15 @@
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **步骤 2：运行测试确认失败**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
 CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib title::tests 2>&1 | tail -20
 ```
-Expected: FAIL — `cannot find function phase_status_glyph` / `session_terminal_title_with_status` / `status_title`.
+预期：FAIL —— `cannot find function phase_status_glyph` / `session_terminal_title_with_status` / `status_title`。
 
-- [ ] **Step 3: Implement the three functions**
+- [ ] **步骤 3：实现三个函数**
 
 在 `crates/rustcode-tuix/src/title.rs` 顶部，`use crate::sanitize::scrub_controls;` 下面加：
 
@@ -167,15 +167,15 @@ pub fn status_title(name: &str, fallback: &str, phase: UiPhase, glyph_enabled: b
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **步骤 4：运行测试确认通过**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
 CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib title:: 2>&1 | tail -20
 ```
-Expected: PASS — all `title::tests` (existing + new) green.
+预期：PASS —— 全部 `title::tests`（既有 + 新增）通过。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
@@ -189,13 +189,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 2: config 开关 `ui.terminal_status_glyph`
 
-**Files:**
-- Modify: `crates/rustcode-core/src/config/mod.rs`（加默认函数、`UiConfig` 字段、`Default` impl、测试）
+**文件：**
+- 修改：`crates/rustcode-core/src/config/mod.rs`（加默认函数、`UiConfig` 字段、`Default` impl、测试）
 
-**Interfaces:**
-- Produces: `UiConfig.terminal_status_glyph: bool`（TOML `ui.terminal_status_glyph`，缺省 `true`）— Task 3 读取。
+**接口：**
+- 产出：`UiConfig.terminal_status_glyph: bool`（TOML `ui.terminal_status_glyph`，缺省 `true`）— Task 3 读取。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 在 `crates/rustcode-core/src/config/mod.rs` 的测试模块里（紧挨现有 `auto_copy_code_blocks_defaults_off` 附近，约 `:836`），加：
 
@@ -209,15 +209,15 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认失败**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
 CARGO_INCREMENTAL=0 cargo test -p rustcode-core --lib terminal_status_glyph_defaults_on 2>&1 | tail -20
 ```
-Expected: FAIL — `no field terminal_status_glyph on type UiConfig` (compile error).
+预期：FAIL —— `no field terminal_status_glyph on type UiConfig`（编译错误）。
 
-- [ ] **Step 3: Add the default fn, struct field, and Default entry**
+- [ ] **步骤 3：添加默认函数、结构体字段与 Default 条目**
 
 在 `crates/rustcode-core/src/config/mod.rs`，`default_ai_session_naming` 函数附近加：
 
@@ -248,15 +248,15 @@ fn default_terminal_status_glyph() -> bool {
             terminal_status_glyph: default_terminal_status_glyph(),
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **步骤 4：运行测试确认通过**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
 CARGO_INCREMENTAL=0 cargo test -p rustcode-core --lib terminal_status_glyph_defaults_on 2>&1 | tail -20
 ```
-Expected: PASS.
+预期：PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
@@ -270,15 +270,15 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 3: 接线 `sync_terminal_title`（phase + config → status_title）
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs:6546-6553`（`sync_terminal_title` 函数体 + 签名）
-- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs:3817`（调用点，传 `app.state.phase`）
+**文件：**
+- 修改：`crates/rustcode-tuix/src/event_loop/mod.rs:6546-6553`（`sync_terminal_title` 函数体 + 签名）
+- 修改：`crates/rustcode-tuix/src/event_loop/mod.rs:3817`（调用点，传 `app.state.phase`）
 
-**Interfaces:**
-- Consumes: `crate::title::status_title`（Task 1）；`ctx.config.ui.terminal_status_glyph`（Task 2）；`crate::state::UiPhase`（现有，`event_loop` 已 import）；`app.state.phase`（现有字段）。
-- Produces: 无对外新符号；行为改动 = 标题带状态圆点。
+**接口：**
+- 消费：`crate::title::status_title`（Task 1）；`ctx.config.ui.terminal_status_glyph`（Task 2）；`crate::state::UiPhase`（现有，`event_loop` 已 import）；`app.state.phase`（现有字段）。
+- 产出：无对外新符号；行为改动 = 标题带状态圆点。
 
-- [ ] **Step 1: 改函数签名与函数体**
+- [ ] **步骤 1：改函数签名与函数体**
 
 把 `crates/rustcode-tuix/src/event_loop/mod.rs` 现有的（`:6546` 起）：
 
@@ -328,7 +328,7 @@ fn sync_terminal_title(
 /// is on; a phase change re-emits on the next loop iteration.
 ```
 
-- [ ] **Step 2: 改调用点传 phase**
+- [ ] **步骤 2：改调用点传 phase**
 
 把 `crates/rustcode-tuix/src/event_loop/mod.rs:3817` 的：
 
@@ -342,17 +342,17 @@ fn sync_terminal_title(
         sync_terminal_title(&ctx, renderer, &mut last_terminal_title, app.state.phase);
 ```
 
-- [ ] **Step 3: 编译 + 跑 tuix 测试**
+- [ ] **步骤 3：编译 + 跑 tuix 测试**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
 CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib 2>&1 | tail -25
 ```
-Expected: 编译通过；`title::tests` 全绿；无因签名改动导致的编译错误。（`app.state.phase` 现字段、`UiPhase` 已在 `event_loop/mod.rs` import——见 `:7750` 等处的 `use crate::state::…`；若报未 import，在文件顶部 `use` 区补 `UiPhase`。）
+预期：编译通过；`title::tests` 全绿；无因签名改动导致的编译错误。（`app.state.phase` 现字段、`UiPhase` 已在 `event_loop/mod.rs` import——见 `:7750` 等处的 `use crate::state::…`；若报未 import，在文件顶部 `use` 区补 `UiPhase`。）
 
 > 说明：`sync_terminal_title` 是纯 plumbing，全部判断逻辑已在 Task 1 的 `status_title` 里单测覆盖（含 Suspended → 不 emit）。此处不再为它单独构造 `LoopCtx` 写测试——那需要重量级 fixture 且只会重复 Task 1 已验证的逻辑。
 
-- [ ] **Step 4: Commit**
+- [ ] **步骤 4：Commit**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
@@ -366,26 +366,26 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ### Task 4: 全量验证 + 真机自检提示
 
-**Files:** 无改动（验证任务）。
+**文件：** 无改动（验证任务）。
 
-- [ ] **Step 1: 两个 crate 全 lib 测试**
+- [ ] **步骤 1：两个 crate 全 lib 测试**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
 CARGO_INCREMENTAL=0 cargo test -p rustcode-tuix --lib 2>&1 | tail -8
 CARGO_INCREMENTAL=0 cargo test -p rustcode-core --lib 2>&1 | tail -8
 ```
-Expected: 两者 `test result: ok`。
+预期：两者 `test result: ok`。
 
-- [ ] **Step 2: clippy（改动文件不引入新告警）**
+- [ ] **步骤 2：clippy（改动文件不引入新告警）**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode
 CARGO_INCREMENTAL=0 cargo clippy -p rustcode-tuix -p rustcode-core 2>&1 | tail -15
 ```
-Expected: 无新增 warning/error（预存告警不算）。
+预期：无新增 warning/error（预存告警不算）。
 
-- [ ] **Step 3: 真机自检清单（人工，非自动化）**
+- [ ] **步骤 3：真机自检清单（人工，非自动化）**
 
 在支持彩色 emoji 的终端（iTerm2 / WT / VS Code 内置）跑 `cargo run -p rustcode`（或已编译二进制），确认标签栏标题：
 1. 启动后空闲 → `🟢 rustcode v4.25.9`（或会话名）。
@@ -398,9 +398,9 @@ Expected: 无新增 warning/error（预存告警不算）。
 
 ---
 
-## Self-Review
+## 自查
 
-**1. Spec coverage：**
+**1. 规格覆盖：**
 - 状态→圆点映射 → Task 1 `phase_status_glyph`。 [x]
 - 组装标题（不动名字预算） → Task 1 `session_terminal_title_with_status`。 [x]
 - 触发（phase 变化 re-emit、Suspended 不动、开关关退化） → Task 1 `status_title` + Task 3 接线。 [x]
@@ -409,6 +409,6 @@ Expected: 无新增 warning/error（预存告警不算）。
 - 明确不做（动画/任务栏色/思考回答拆分/[x] 态/ASCII） → 计划未引入，符合 YAGNI。 [x]
 - 偏离 spec 记录：spec 原文把 Suspended early-return 放在 `sync`、开关"启动读一次"。计划改为：判断全进 `status_title` 纯函数（更好测），开关改为从 `ctx.config` 内联读取（`/reload` 免费生效）。功能等价、更简洁——见本文件顶部 Architecture 段。
 
-**2. Placeholder scan：** 无 TBD/TODO；每个 code step 均有完整代码与预期输出。 [x]
+**2. 占位符扫描：** 无 TBD/TODO；每个 code step 均有完整代码与预期输出。 [x]
 
-**3. Type consistency：** `phase_status_glyph(UiPhase) -> Option<&'static str>`、`session_terminal_title_with_status(&str,&str,Option<&str>) -> String`、`status_title(&str,&str,UiPhase,bool) -> Option<String>`、`UiConfig.terminal_status_glyph: bool` —— 三个 Task 引用一致；调用点传 `app.state.phase`（`UiPhase`）匹配签名。 [x]
+**3. 类型一致性：** `phase_status_glyph(UiPhase) -> Option<&'static str>`、`session_terminal_title_with_status(&str,&str,Option<&str>) -> String`、`status_title(&str,&str,UiPhase,bool) -> Option<String>`、`UiConfig.terminal_status_glyph: bool` —— 三个 Task 引用一致；调用点传 `app.state.phase`（`UiPhase`）匹配签名。 [x]

@@ -1,44 +1,44 @@
-# Cache-Friendly History Compaction — Implementation Plan
+# 缓存友好的历史压缩 —— 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** Stop prompt-prefix-cache breaks on near-1M-token deepseek-v4-flash sessions by replacing the ephemeral per-render `microcompact` with a committed, idempotent, monotonic collapse of old tool results.
+**目标：** 用一次已提交、幂等、单调的旧 tool result 折叠，替换掉每次渲染时临时执行的 `microcompact`，从而消除接近 1M token 的 deepseek-v4-flash 会话中 prompt 前缀缓存被打断的问题。
 
-**Architecture:** Today `microcompact` (render.rs) re-derives which old `ToolResult`s to stub on every render against a throwaway Vec, never persisting — so the rendered prefix drifts byte-for-byte between turns and the provider cache collapses. We move the stub into a committed step (`collapse_committed`) that mutates `conv.messages` once, idempotently, before the actual-send render in `turn/runner.rs`. Old tool results, once stubbed, stay byte-identical forever (monotonic), so the prefix is append-only. The active turn (everything after the last `Role::User`) stays full; `read_file` is exempt on this normal path. The independent 80% `FINAL BYTE CEILING` and emergency Tier-3 truncate (the real overflow guards) are untouched, so no litellm context-overflow regression.
+**架构：** 目前 `microcompact`（render.rs）在每次渲染时都针对一个临时 Vec 重新推导要把哪些旧 `ToolResult` 打桩，且从不持久化 —— 于是渲染出的前缀在各轮之间逐字节漂移，provider 的缓存随之失效。我们把打桩搬到一个已提交的步骤（`collapse_committed`）中：它在 `turn/runner.rs` 真正发送前的渲染之前，一次性、幂等地修改 `conv.messages`。旧 tool result 一旦被打桩就永久保持逐字节一致（单调），因此前缀是只追加的。活动轮（最后一个 `Role::User` 之后的所有内容）保持完整；在正常路径上 `read_file` 被豁免。独立的 80% `FINAL BYTE CEILING` 与紧急 Tier-3 截断（真正的溢出防线）不受影响，因此不会引入 litellm 上下文溢出回归。
 
-**Tech Stack:** Rust, `cargo` workspace, crate `rustcode-core`. Tests are `#[test]` fns in the same files (`mod tests`).
+**技术栈：** Rust、`cargo` workspace、crate `rustcode-core`。测试是同文件内的 `#[test]` 函数（`mod tests`）。
 
-**Spec:** `docs/superpowers/specs/2026-06-09-cache-friendly-compaction-design.md`
+**规格：** `docs/superpowers/specs/2026-06-09-cache-friendly-compaction-design.md`
 
-**Worktree / branch:** `/Users/lichao/project/gitcode/ai/rustcode-v4.25.1`, branch `fix/cache-friendly-compaction`.
+**工作树 / 分支：** `/Users/lichao/project/gitcode/ai/rustcode-v4.25.1`，分支 `fix/cache-friendly-compaction`。
 
 ---
 
-## File Structure
+## 文件结构
 
-| File | Responsibility | Change |
+| 文件 | 职责 | 改动 |
 |---|---|---|
-| `crates/rustcode-core/src/ctx/render.rs` | Rendering + compaction policy | Add `exempt_read_file` param to `compact_old_tool_results_in_place`; add `collapse_committed` free fn; delete `microcompact` fn + its call inside `build_messages`; migrate tests |
-| `crates/rustcode-core/src/turn/runner.rs` | Per-turn provider render/send | Call `collapse_committed(&mut conversation, context_window)` immediately before the actual-send `build_messages` |
-| `crates/rustcode-core/src/agent/mod.rs` | Agent loop, emergency compaction | Update emergency Tier-1 call site to pass `exempt_read_file = false` (behavior unchanged) |
-| `crates/rustcode-core/src/agent/compression.rs` | Compression helpers | Update `compact_old_tool_results_in_place` call site to pass `false` |
+| `crates/rustcode-core/src/ctx/render.rs` | 渲染 + 压缩策略 | 给 `compact_old_tool_results_in_place` 增加 `exempt_read_file` 参数；新增 `collapse_committed` 自由函数；删除 `microcompact` 函数及其在 `build_messages` 内的调用；迁移测试 |
+| `crates/rustcode-core/src/turn/runner.rs` | 每轮的 provider 渲染/发送 | 在真正发送前的 `build_messages` 之前立即调用 `collapse_committed(&mut conversation, context_window)` |
+| `crates/rustcode-core/src/agent/mod.rs` | Agent 循环、紧急压缩 | 更新紧急 Tier-1 调用点，传入 `exempt_read_file = false`（行为不变）|
+| `crates/rustcode-core/src/agent/compression.rs` | 压缩辅助函数 | 更新 `compact_old_tool_results_in_place` 调用点，传入 `false` |
 
-All work happens in the worktree above. Run all commands from `/Users/lichao/project/gitcode/ai/rustcode-v4.25.1`.
+所有工作都在上述工作树中进行。所有命令都在 `/Users/lichao/project/gitcode/ai/rustcode-v4.25.1` 下执行。
 
 ---
 
-## Task 1: Add `exempt_read_file` to `compact_old_tool_results_in_place`
+## Task 1: 为 `compact_old_tool_results_in_place` 增加 `exempt_read_file`
 
-Adds a flag so the normal path can skip `read_file` (avoids "伪自信" re-edit loop) while the emergency path keeps collapsing it under real budget pressure.
+增加一个开关，使正常路径可以跳过 `read_file`（避免“伪自信”式的重复编辑循环），而紧急路径在真实的预算压力下仍然继续折叠它。
 
-**Files:**
-- Modify: `crates/rustcode-core/src/ctx/render.rs` (fn at ~869–900, signature line 869)
-- Modify call sites: `crates/rustcode-core/src/agent/mod.rs:2936`, `crates/rustcode-core/src/agent/compression.rs:282`, and every other caller the compiler flags
-- Test: `crates/rustcode-core/src/ctx/render.rs` (`mod tests`)
+**文件：**
+- 修改：`crates/rustcode-core/src/ctx/render.rs`（函数位于约 869–900 行，签名在第 869 行）
+- 修改调用点：`crates/rustcode-core/src/agent/mod.rs:2936`、`crates/rustcode-core/src/agent/compression.rs:282`，以及编译器报出的其他所有调用方
+- 测试：`crates/rustcode-core/src/ctx/render.rs`（`mod tests`）
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: 编写失败测试**
 
-Add to the `mod tests` block in `render.rs` (near the other `collapse_*` tests):
+在 `render.rs` 的 `mod tests` 块中添加（靠近其他 `collapse_*` 测试）：
 
 ```rust
     #[test]
@@ -107,14 +107,14 @@ Add to the `mod tests` block in `render.rs` (near the other `collapse_*` tests):
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail to compile**
+- [ ] **Step 2: 运行测试确认无法编译**
 
-Run: `cargo test -p rustcode-core compact_old_exempts_read_file_when_flagged 2>&1 | tail -20`
-Expected: compile error — `compact_old_tool_results_in_place` takes 2 args, 3 supplied.
+运行：`cargo test -p rustcode-core compact_old_exempts_read_file_when_flagged 2>&1 | tail -20`
+预期：编译错误 —— `compact_old_tool_results_in_place` 只接受 2 个参数，却传入了 3 个。
 
-- [ ] **Step 3: Add the parameter and the skip**
+- [ ] **Step 3: 添加参数与跳过逻辑**
 
-In `render.rs`, change the signature (line ~869) from:
+在 `render.rs` 中，把签名（约第 869 行）从：
 
 ```rust
 pub(crate) fn compact_old_tool_results_in_place(
@@ -123,7 +123,7 @@ pub(crate) fn compact_old_tool_results_in_place(
 ) {
 ```
 
-to:
+改为：
 
 ```rust
 pub(crate) fn compact_old_tool_results_in_place(
@@ -133,7 +133,7 @@ pub(crate) fn compact_old_tool_results_in_place(
 ) {
 ```
 
-Inside the loop, immediately after `let tool_name = call_id_to_tool.get(&tr.call_id).map(|s| s.as_str()).unwrap_or("tool");` and BEFORE `let summary = build_compact_stub(...)`, insert:
+在循环内，紧接 `let tool_name = call_id_to_tool.get(&tr.call_id).map(|s| s.as_str()).unwrap_or("tool");` 之后、且在 `let summary = build_compact_stub(...)` 之前，插入：
 
 ```rust
         if exempt_read_file && tool_name == "read_file" {
@@ -141,22 +141,22 @@ Inside the loop, immediately after `let tool_name = call_id_to_tool.get(&tr.call
         }
 ```
 
-- [ ] **Step 4: Fix all existing call sites (compiler-guided)**
+- [ ] **Step 4: 修复所有既有调用点（由编译器指引）**
 
-Run: `cargo build -p rustcode-core 2>&1 | grep -E 'compact_old_tool_results_in_place|error\[' | head`
-Every call site errors on arity. Add a third argument `false` to **every** existing call (all of them must preserve today's behavior — only the new `collapse_committed` in Task 2 passes `true`):
+运行：`cargo build -p rustcode-core 2>&1 | grep -E 'compact_old_tool_results_in_place|error\[' | head`
+每处调用点都会因参数个数报错。给**每一处**既有调用加上第三个参数 `false`（它们都必须保持今天的行为 —— 只有 Task 2 中新增的 `collapse_committed` 传入 `true`）：
 - `agent/mod.rs:2936` → `compact_old_tool_results_in_place(&mut self.conversation, 3, false)`
 - `agent/compression.rs:282` → `..., 3, false)`
-- Any call inside `render.rs`/`agent/mod.rs` test modules (e.g. `compact_old_tool_results_in_place(&mut conv, 3, false)`, `..., 2, false)`, `..., 1, false)`) → append `, false`.
+- `render.rs`/`agent/mod.rs` 测试模块内的任何调用（例如 `compact_old_tool_results_in_place(&mut conv, 3, false)`、`..., 2, false)`、`..., 1, false)`）→ 追加 `, false`。
 
-Repeat `cargo build -p rustcode-core` until it compiles.
+重复执行 `cargo build -p rustcode-core`，直到编译通过。
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 5: 运行测试确认通过**
 
-Run: `cargo test -p rustcode-core compact_old 2>&1 | tail -20`
-Expected: `compact_old_exempts_read_file_when_flagged` and `compact_old_stubs_read_file_when_not_exempt` PASS, plus the pre-existing `collapse_*` tests still PASS.
+运行：`cargo test -p rustcode-core compact_old 2>&1 | tail -20`
+预期：`compact_old_exempts_read_file_when_flagged` 与 `compact_old_stubs_read_file_when_not_exempt` PASS，且既有的 `collapse_*` 测试仍然 PASS。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: 提交**
 
 ```bash
 git add crates/rustcode-core/src/ctx/render.rs crates/rustcode-core/src/agent/mod.rs crates/rustcode-core/src/agent/compression.rs
@@ -165,15 +165,15 @@ git commit -m "feat(ctx): add exempt_read_file flag to compact_old_tool_results_
 
 ---
 
-## Task 2: Add the committed `collapse_committed` collapse
+## Task 2: 增加已提交的 `collapse_committed` 折叠
 
-The normal-path entry point: threshold-gated, keeps the active turn full, exempts read_file, commits to `conv.messages`.
+正常路径的入口：受阈值门控，保持活动轮完整，豁免 read_file，提交到 `conv.messages`。
 
-**Files:**
-- Modify: `crates/rustcode-core/src/ctx/render.rs` (add free fn near `compact_old_tool_results_in_place`)
-- Test: `crates/rustcode-core/src/ctx/render.rs` (`mod tests`)
+**文件：**
+- 修改：`crates/rustcode-core/src/ctx/render.rs`（在 `compact_old_tool_results_in_place` 附近新增自由函数）
+- 测试：`crates/rustcode-core/src/ctx/render.rs` (`mod tests`)
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: 编写失败测试**
 
 ```rust
     #[test]
@@ -292,14 +292,14 @@ The normal-path entry point: threshold-gated, keeps the active turn full, exempt
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p rustcode-core collapse_committed 2>&1 | tail -20`
-Expected: compile error — `collapse_committed` not found.
+运行：`cargo test -p rustcode-core collapse_committed 2>&1 | tail -20`
+预期：编译错误 —— 找不到 `collapse_committed`。
 
-- [ ] **Step 3: Implement `collapse_committed`**
+- [ ] **Step 3: 实现 `collapse_committed`**
 
-In `render.rs`, immediately after the `compact_old_tool_results_in_place` fn (after its closing `}` at ~line 900), add:
+在 `render.rs` 中，紧接 `compact_old_tool_results_in_place` 函数之后（其结束的 `}` 约在第 900 行），添加：
 
 ```rust
 /// Normal-path committed collapse (cache-friendly replacement for the
@@ -329,12 +329,12 @@ pub(crate) fn collapse_committed(conv: &mut crate::conversation::Conversation, t
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: 运行测试确认通过**
 
-Run: `cargo test -p rustcode-core collapse_committed 2>&1 | tail -20`
-Expected: all three `collapse_committed_*` tests PASS.
+运行：`cargo test -p rustcode-core collapse_committed 2>&1 | tail -20`
+预期：三个 `collapse_committed_*` 测试全部 PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 提交**
 
 ```bash
 git add crates/rustcode-core/src/ctx/render.rs
@@ -343,14 +343,14 @@ git commit -m "feat(ctx): add committed, idempotent collapse_committed (replaces
 
 ---
 
-## Task 3: Core regression — prefix stays byte-frozen across turns
+## Task 3: 核心回归 —— 前缀在各轮之间保持字节冻结
 
-This is the central acceptance test: the property whose absence let the cache break. Once a tool result is stubbed, it must stay byte-identical on every later turn.
+这是最核心的验收测试：正是缺少这条性质才导致缓存被打断。一个 tool result 一旦被打桩，就必须在之后每一轮都保持逐字节一致。
 
-**Files:**
-- Test: `crates/rustcode-core/src/ctx/render.rs` (`mod tests`)
+**文件：**
+- 测试：`crates/rustcode-core/src/ctx/render.rs` (`mod tests`)
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: 编写失败测试**
 
 ```rust
     #[test]
@@ -416,14 +416,14 @@ This is the central acceptance test: the property whose absence let the cache br
     }
 ```
 
-- [ ] **Step 2: Run test to verify it passes immediately**
+- [ ] **Step 2: 运行测试确认立即通过**
 
-Run: `cargo test -p rustcode-core collapse_committed_freezes_stubbed_prefix_across_turns 2>&1 | tail -20`
-Expected: PASS (the implementation from Task 2 already guarantees this; this test pins the invariant against regressions).
+运行：`cargo test -p rustcode-core collapse_committed_freezes_stubbed_prefix_across_turns 2>&1 | tail -20`
+预期：PASS（Task 2 的实现已经保证了这一点；本测试用于把这条不变量钉死，防止回归）。
 
-> If it FAILS, do not proceed — the monotonic/idempotent guarantee is broken. Re-check Task 2's `compact_old_tool_results_in_place` idempotence (stub `< MIN_COLLAPSE_SIZE` skip).
+> 如果 FAIL，就不要继续 —— 单调/幂等保证已被破坏。重新检查 Task 2 中 `compact_old_tool_results_in_place` 的幂等性（stub `< MIN_COLLAPSE_SIZE` 时跳过）。
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: 提交**
 
 ```bash
 git add crates/rustcode-core/src/ctx/render.rs
@@ -432,15 +432,15 @@ git commit -m "test(ctx): pin byte-frozen prefix invariant across turns"
 
 ---
 
-## Task 4: Wire `collapse_committed` into the send path; stop calling `microcompact` in `build_messages`
+## Task 4: 把 `collapse_committed` 接入发送路径；停止在 `build_messages` 中调用 `microcompact`
 
-**Files:**
-- Modify: `crates/rustcode-core/src/turn/runner.rs:124-128`
-- Modify: `crates/rustcode-core/src/ctx/render.rs:312-313` (remove the microcompact call + threshold local)
+**文件：**
+- 修改：`crates/rustcode-core/src/turn/runner.rs:124-128`
+- 修改：`crates/rustcode-core/src/ctx/render.rs:312-313` (remove the microcompact call + threshold local)
 
-- [ ] **Step 1: Insert the committed collapse before the actual-send render**
+- [ ] **Step 1: 在真正发送前的渲染之前插入已提交的折叠**
 
-In `turn/runner.rs`, the actual-send render is at lines 124–128:
+在 `turn/runner.rs` 中，真正发送前的渲染位于第 124–128 行：
 
 ```rust
         let context_window = self.ctx.ctx_window();
@@ -450,7 +450,7 @@ In `turn/runner.rs`, the actual-send render is at lines 124–128:
                 .build_messages(conversation, system_prompt, turn_reminder);
 ```
 
-Insert one line between `context_window` and the `build_messages` call (`conversation` is `&mut Conversation` per the `run` signature at runner.rs:62-64):
+在 `context_window` 与 `build_messages` 调用之间插入一行（按 runner.rs:62-64 中 `run` 的签名，`conversation` 是 `&mut Conversation`）：
 
 ```rust
         let context_window = self.ctx.ctx_window();
@@ -465,16 +465,16 @@ Insert one line between `context_window` and the `build_messages` call (`convers
                 .build_messages(conversation, system_prompt, turn_reminder);
 ```
 
-- [ ] **Step 2: Remove the microcompact call from `build_messages`**
+- [ ] **Step 2: 从 `build_messages` 中移除 microcompact 调用**
 
-In `render.rs`, delete lines 312-313 (the threshold local and the call):
+在 `render.rs` 中，删除第 312-313 行（阈值局部变量与调用）：
 
 ```rust
     let microcompact_threshold = (token_budget as u64 * 4 * 70 / 100) as usize;
     microcompact(&mut result, conv.messages.len(), microcompact_threshold);
 ```
 
-Leave the surrounding comment block (291-329) — but update the stale claim. Replace the comment paragraph at 291-311 with a one-line pointer:
+保留周围的注释块（291-329）—— 但要更新其中已经过时的说法。把第 291-311 行的注释段落替换为一行指引：
 
 ```rust
     // Prior-turn ToolResult stubbing now happens via the COMMITTED
@@ -484,14 +484,14 @@ Leave the surrounding comment block (291-329) — but update the stale claim. Re
     // CEILING below remains the render-time overflow backstop.
 ```
 
-(The `NOTE (prompt-cache)` block about `replace_stale_reads` at 315-329 stays as-is.)
+（第 315-329 行关于 `replace_stale_reads` 的 `NOTE (prompt-cache)` 块保持原样。）
 
-- [ ] **Step 3: Build — expect microcompact-test breakage only**
+- [ ] **Step 3: 构建 —— 预期只有 microcompact 测试会挂**
 
-Run: `cargo build -p rustcode-core 2>&1 | tail -20`
-Expected: library compiles (the `microcompact` fn still exists, just unused → a dead-code warning). Test compilation is handled in Task 5.
+运行：`cargo build -p rustcode-core 2>&1 | tail -20`
+预期：库可以编译（`microcompact` 函数仍然存在，只是未使用 → 会产生一个 dead-code 警告）。测试的编译在 Task 5 中处理。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: 提交**
 
 ```bash
 git add crates/rustcode-core/src/turn/runner.rs crates/rustcode-core/src/ctx/render.rs
@@ -500,54 +500,54 @@ git commit -m "feat(ctx): collapse old tool results committed on the send path; 
 
 ---
 
-## Task 5: Delete `microcompact` and migrate its tests
+## Task 5: 删除 `microcompact` 并迁移其测试
 
-**Files:**
-- Modify: `crates/rustcode-core/src/ctx/render.rs` — delete `microcompact` fn (~925-1001) and reconcile its tests
+**文件：**
+- 修改：`crates/rustcode-core/src/ctx/render.rs` —— 删除 `microcompact` 函数（约 925-1001 行）并处理其测试
 
-- [ ] **Step 1: Delete the `microcompact` function**
+- [ ] **Step 1: 删除 `microcompact` 函数**
 
-Remove the entire `fn microcompact(...)` (from the doc-comment at ~902 through the closing `}` at ~1001). The helper `build_call_id_to_tool_map` (used by `compact_old_tool_results_in_place`) and `build_compact_stub` MUST remain.
+移除整个 `fn microcompact(...)`（从约第 902 行的文档注释到约第 1001 行结束的 `}`）。辅助函数 `build_call_id_to_tool_map`（被 `compact_old_tool_results_in_place` 使用）和 `build_compact_stub` 必须保留。
 
-- [ ] **Step 2: Build the test target to list breakage**
+- [ ] **Step 2: 构建测试目标以列出破坏点**
 
-Run: `cargo test -p rustcode-core --no-run 2>&1 | grep -E "cannot find function .microcompact|error" | head`
-Expected: errors only in tests that call `microcompact(...)` directly.
+运行：`cargo test -p rustcode-core --no-run 2>&1 | grep -E "cannot find function .microcompact|error" | head`
+预期：只有直接调用 `microcompact(...)` 的测试会报错。
 
-- [ ] **Step 3: Reconcile each broken / now-redundant test (deterministic rule)**
+- [ ] **Step 3: 逐个处理被破坏 / 现已冗余的测试（确定性规则）**
 
-Apply this exact rule per failing test:
+对每个失败的测试套用下面这条确切规则：
 
-1. **Tests that call `microcompact(&mut msgs, ...)` directly** — these tested the ephemeral function that no longer exists. Their behavior is now covered by the `collapse_committed_*` tests added in Tasks 2–3. **Delete** them:
+1. **直接调用 `microcompact(&mut msgs, ...)` 的测试** —— 它们测的是那个已不存在的临时函数。其行为现在已由 Tasks 2–3 中新增的 `collapse_committed_*` 测试覆盖。**删除**它们：
    - `microcompact_uses_generic_format_with_tool_label_from_call_id`
    - `microcompact_preserves_current_turn_in_full`
    - `microcompact_is_idempotent_no_double_stub`
    - `microcompact_respects_threshold_parameter`
    - `microcompact_scales_with_window`
 
-2. **`microcompact_skips_read_file_to_preserve_long_session_context`** (calls `build_messages`, asserts read_file stays full) — read_file is now exempted by `collapse_committed`, not by `build_messages`. **Rewrite** its single render call: replace
+2. **`microcompact_skips_read_file_to_preserve_long_session_context`**（调用 `build_messages`，断言 read_file 保持完整）—— read_file 现在由 `collapse_committed` 豁免，而不是由 `build_messages` 豁免。**改写**它那唯一一次渲染调用：把
 
    ```rust
         let (msgs, _) = build_messages(&conv, "sys", 40_000, "");
    ```
 
-   with
+   改为
 
    ```rust
         collapse_committed(&mut conv, 40_000);
         let (msgs, _) = build_messages(&conv, "sys", 40_000, "");
    ```
 
-   (Everything else in that test is unchanged — it still asserts `c_read` is full and at least one bash is `[bash ok: ...]`. Note `conv` must be `let mut conv` — it already is.)
+   （该测试的其余部分不变 —— 它仍然断言 `c_read` 是完整的，且至少有一个 bash 是 `[bash ok: ...]`。注意 `conv` 必须是 `let mut conv` —— 它本来就是。）
 
-3. **Any other `build_messages` test that asserts a prior-turn ToolResult was stubbed** (search: `cargo test -p rustcode-core --no-run` then run the render tests and inspect failures) — apply the same mechanical fix as (2): insert `collapse_committed(&mut conv, <same budget>);` on the line before the `build_messages(&conv, …, <budget>, …)` call. Below-threshold / current-turn / overflow-ceiling tests need no change.
+3. **任何其他断言“上一轮的 ToolResult 已被打桩”的 `build_messages` 测试**（排查方式：先 `cargo test -p rustcode-core --no-run`，再跑 render 测试并查看失败项）—— 套用与 (2) 相同的机械修复：在 `build_messages(&conv, …, <budget>, …)` 调用的上一行插入 `collapse_committed(&mut conv, <same budget>);`。低于阈值 / 当前轮 / 溢出上限的测试无需改动。
 
-- [ ] **Step 4: Run the full render test module**
+- [ ] **Step 4: 运行完整的 render 测试模块**
 
-Run: `cargo test -p rustcode-core ctx::render 2>&1 | tail -30`
-Expected: all PASS. If a `build_messages`-based test still fails on a missing stub, apply rule (2)/(3) to it; if it fails because it asserted *no* stub and now there is one, the budget was below threshold — leave it and recheck the assertion.
+运行：`cargo test -p rustcode-core ctx::render 2>&1 | tail -30`
+预期：全部 PASS。若某个基于 `build_messages` 的测试仍因缺少 stub 而失败，就对它套用规则 (2)/(3)；若它因为断言“没有 stub”而现在出现了 stub 而失败，说明预算低于阈值 —— 保持原样并重新检查该断言。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 提交**
 
 ```bash
 git add crates/rustcode-core/src/ctx/render.rs
@@ -556,29 +556,29 @@ git commit -m "refactor(ctx): delete microcompact; migrate tests to collapse_com
 
 ---
 
-## Task 6: Full verification
+## Task 6: 完整验证
 
-**Files:** none (verification only)
+**文件：** 无（仅验证）
 
-- [ ] **Step 1: Workspace build + lint**
+- [ ] **Step 1: workspace 构建 + lint**
 
-Run: `cargo build --workspace 2>&1 | tail -15`
-Expected: success, no errors. Resolve any dead-code warning for now-unused items by deleting them.
+运行：`cargo build --workspace 2>&1 | tail -15`
+预期：成功，无错误。对现已未使用的条目，通过删除来消除 dead-code 警告。
 
-Run: `cargo clippy -p rustcode-core 2>&1 | tail -25`
-Expected: no new warnings introduced by these files.
+运行：`cargo clippy -p rustcode-core 2>&1 | tail -25`
+预期：这些文件不引入新的警告。
 
-- [ ] **Step 2: Run the affected crate's tests**
+- [ ] **Step 2: 运行受影响 crate 的测试**
 
-Run: `cargo test -p rustcode-core 2>&1 | tail -30`
-Expected: all PASS, including `collapse_committed_*`, `compact_old_*`, the emergency-compaction tests (`proactive_tier1_*`, `collapse_keeps_last_n_turns_full`, etc.), and the migrated read_file test.
+运行：`cargo test -p rustcode-core 2>&1 | tail -30`
+预期：全部 PASS，包括 `collapse_committed_*`、`compact_old_*`、紧急压缩测试（`proactive_tier1_*`、`collapse_keeps_last_n_turns_full` 等），以及迁移后的 read_file 测试。
 
-- [ ] **Step 3: Targeted invariant re-run**
+- [ ] **Step 3: 定向重跑不变量测试**
 
-Run: `cargo test -p rustcode-core collapse_committed_freezes_stubbed_prefix_across_turns -- --nocapture 2>&1 | tail -10`
-Expected: PASS — the byte-frozen-prefix guarantee holds.
+运行：`cargo test -p rustcode-core collapse_committed_freezes_stubbed_prefix_across_turns -- --nocapture 2>&1 | tail -10`
+预期：PASS —— 字节冻结前缀的保证成立。
 
-- [ ] **Step 4: Final commit (if any cleanup)**
+- [ ] **Step 4: 最终提交（若有清理）**
 
 ```bash
 git add -A
@@ -587,15 +587,15 @@ git commit -m "chore(ctx): cleanup after cache-friendly compaction" --allow-empt
 
 ---
 
-## Done criteria
+## 完成标准
 
-- `microcompact` is gone; `build_messages` no longer mutates stub state.
-- `collapse_committed` runs once before the actual-send render in `turn/runner.rs`, committed + idempotent + monotonic, threshold-gated at `70% × budget × 4` chars, keeps the active turn full, exempts `read_file`.
-- Emergency path unchanged (`compact_old_tool_results_in_place(..., 3, false)`).
-- 80% `FINAL BYTE CEILING` and emergency Tier-3 untouched → no overflow regression.
-- `collapse_committed_freezes_stubbed_prefix_across_turns` passes (the cache invariant).
-- `cargo test -p rustcode-core` green.
+- `microcompact` 已消失；`build_messages` 不再修改 stub 状态。
+- `collapse_committed` 在 `turn/runner.rs` 中真正发送前的渲染之前运行一次：已提交 + 幂等 + 单调，按 `70% × budget × 4` 字符做阈值门控，保持活动轮完整，豁免 `read_file`。
+- 紧急路径不变（`compact_old_tool_results_in_place(..., 3, false)`）。
+- 80% `FINAL BYTE CEILING` 与紧急 Tier-3 未受影响 → 无溢出回归。
+- `collapse_committed_freezes_stubbed_prefix_across_turns` 通过（缓存不变量）。
+- `cargo test -p rustcode-core` 全绿。
 
-## Post-merge measurement (not a code task)
+## 合入后度量（非代码任务）
 
-After release, re-run the `cache-hit-rca` skill on 4.25.x: `find_pairs --version <new> --day today` → `classify_pairs` → confirm the `tool_*改写/截断` share and the `bad_hit<10%` front-break volume drop. If the one-time first-crossing front break is still material, evaluate spec item ② (fold oldest turns into the frozen `cold_summaries` prefix).
+发布后，在 4.25.x 上重跑 `cache-hit-rca` skill：`find_pairs --version <new> --day today` → `classify_pairs` → 确认 `tool_*改写/截断` 的占比以及 `bad_hit<10%` 的前缀打断量下降。若首次跨阈值那一次性的前缀打断仍然显著，则评估规格第 ② 项（把最旧的轮次折叠进已冻结的 `cold_summaries` 前缀）。

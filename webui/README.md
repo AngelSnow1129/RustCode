@@ -1,10 +1,10 @@
-# RustCode webui
+# RustCode webui（浏览器界面）
 
-A local browser UI for RustCode (Preact + Vite + Tailwind), served by the
-`rustcode-daemon` HTTP server. Launch it with `/webui` inside the TUI or
-`rustcode webui` from the CLI — both open a loopback-only page in your browser.
+RustCode 的本地浏览器界面（Preact + Vite + Tailwind），由 `rustcode-daemon` 的
+HTTP 服务提供。可以在 TUI 中输入 `/webui`，或在命令行执行 `rustcode webui` 启动；
+两种方式都只会在浏览器中打开一个仅监听回环地址的页面。
 
-## Develop the frontend
+## 前端开发
 
 ```bash
 cd webui
@@ -12,9 +12,8 @@ npm install
 npm run dev          # vite dev server on http://localhost:5173
 ```
 
-For hot reload against a running daemon, set `RUSTCODE_WEBUI_DEV` so the daemon
-redirects page requests to the vite dev server instead of serving the embedded
-bundle:
+若要在已运行的后端上获得热重载，请设置 `RUSTCODE_WEBUI_DEV`，让后端把页面请求
+重定向到 vite 开发服务器，而不是提供内嵌的产物包：
 
 ```bash
 RUSTCODE_WEBUI_DEV=http://localhost:5173 rustcode webui
@@ -22,10 +21,9 @@ RUSTCODE_WEBUI_DEV=http://localhost:5173 rustcode webui
 RUSTCODE_WEBUI_DEV=http://localhost:5173 cargo run -p rustcode-daemon -- --port 13456
 ```
 
-API calls still hit the daemon; only the static page is redirected, so you keep
-live HMR while talking to the real backend.
+API 请求仍然直接打到后端，只有静态页面会被重定向，因此你既能保留实时 HMR，又能与真实的后端通信。
 
-## Build for release
+## 发布构建
 
 ```bash
 cd webui
@@ -33,23 +31,18 @@ npm run build        # outputs webui/dist/
 cargo build          # re-embeds webui/dist/ into the binary
 ```
 
-The compiled assets in `webui/dist/` are committed to the repo and embedded into
-the binary at build time via `rust-embed` (see
-`crates/rustcode-daemon/src/webui.rs`). After changing frontend code, run
-`npm run build` and commit the updated `dist/` so the embedded bundle stays in
-sync.
+`webui/dist/` 中已编译的产物会提交到仓库，并在构建时通过 `rust-embed` 内嵌进二进制文件
+（见 `crates/rustcode-daemon/src/webui.rs`）。修改前端代码后，请运行
+`npm run build` 并提交更新后的 `dist/`，使内嵌的产物包保持同步。
 
-## Build artifacts
+## 构建产物
 
-`webui/dist/` is **intentionally committed** to the repository. This allows
-`cargo build` to produce a working binary in any environment without requiring a
-Node.js / npm toolchain — the embedded UI is always available from the committed
-snapshot.
+`webui/dist/` 是**有意提交**到仓库的。这样在任何环境下执行 `cargo build` 都能产出可用的二进制，
+而无需 Node.js / npm 工具链 —— 内嵌的界面始终来自已提交的快照。
 
-The release scripts (`scripts/release.sh`, `scripts/release-daemon.sh`,
-`scripts/build-official.sh`, `scripts/linux-release-linux.sh`,
-`scripts/macos-release-linux.sh`, `scripts/macos-release-windows.sh`) each
-rebuild `webui/dist/` via `npm ci && npm run build` before invoking `cargo
-build`, so release binaries always embed the latest frontend. If `npm` is not
-available in the build environment, the scripts fall back to the committed
-`webui/dist/` with a warning rather than failing.
+以下发布脚本（`scripts/release.sh`、`scripts/release-daemon.sh`、
+`scripts/build-official.sh`、`scripts/linux-release-linux.sh`、
+`scripts/macos-release-linux.sh`、`scripts/macos-release-windows.sh`）都会先通过
+`npm ci && npm run build` 重建 `webui/dist/`（使发行二进制总是内嵌最新前端），再调用 `cargo
+build`, so release binaries always embed the latest frontend. If `npm`在构建环境中不可用，脚本会回退到已提交的
+`webui/dist/` 并给出警告，而不是直接失败。

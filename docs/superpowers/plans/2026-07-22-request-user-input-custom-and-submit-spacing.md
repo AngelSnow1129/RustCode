@@ -1,44 +1,44 @@
-# `request_user_input` custom-answer flag + Submit spacing — Implementation Plan
+# `request_user_input` custom 答案标志 + Submit 行间距 —— 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必备子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** Add a per-question `custom` flag (default true) that hides the auto "type your own answer" free-text row when false, plus a blank spacer above the multiple-mode Submit row.
+**目标：** 新增按题目生效的 `custom` 标志（默认 true），当其为 false 时隐藏自动追加的 "type your own answer" 自由文本行；并在 multiple 模式的 Submit 行上方增加一个空行间隔。
 
-**Architecture:** `custom` is a new field on `UserInputRequest` (serde-default true), threaded to `UserInputPanel` and the render view; the Other row's existence is gated on it across the state index math, the renderer, and the event-loop digit handler. The Submit-spacing tweak is render-only. No kernel change.
+**架构：** `custom` 是 `UserInputRequest` 上的新字段（serde 默认 true），一路传递到 `UserInputPanel` 与渲染视图；Other 行是否存在由它控制，涉及状态索引计算、渲染器与事件循环的数字键处理器三处。Submit 间距调整仅影响渲染。内核无需改动。
 
-**Tech Stack:** Rust (`rustcode-capabilities`, `rustcode-tuix`, `rustcode-daemon`), React/TS (`webui`), `cargo test`.
+**技术栈：** Rust（`rustcode-capabilities`、`rustcode-tuix`、`rustcode-daemon`）、React/TS（`webui`）、`cargo test`。
 
-## Global Constraints
+## 全局约束
 
-- `custom` defaults to `true` (`#[serde(default = ...)]`) — absent ⇒ current behavior, zero regression for existing callers.
-- The Other row exists iff `custom == true`. Every index that counted it (`other_index`, `submit_index`, `last_row`, the `checked` vec length, the render rows, the row-count, the digit handler) must gate on `custom`.
-- Row-count invariant: `user_input_panel_row_count(view) == build_user_input_rows(view).len()` must hold for BOTH `custom` values AND with the new multiple-mode blank.
-- The Submit blank is multiple-mode only (single mode has no Submit row).
-- Neutral wording. Work on `release/v5.0.1`. Commit trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
-- **WIP caution:** `crates/rustcode-tuix/src/{state.rs, event_loop/mod.rs}` may carry unrelated uncommitted changes at implementation time. Stage ONLY this change's hunks (`git add -p <file>`); never commit the unrelated WIP.
-
----
-
-## File Structure
-
-- `crates/rustcode-capabilities/src/tools/request_user_input.rs` — `custom` field, serde default, schema, description. (Task 1)
-- `crates/rustcode-tuix/src/state.rs` — `UserInputPanel.custom` + index math. (Task 2)
-- `crates/rustcode-tuix/src/render/mod.rs` + `render/retained.rs` — gate Other row, blank-before-Submit, row count, view field. (Task 3)
-- `crates/rustcode-tuix/src/event_loop/mod.rs` — digit-key handler must not jump to the Other row when `custom == false`; view construction passes `custom`. (Task 4)
-- `crates/rustcode-daemon/src/live_api.rs`, `webui/src/api.ts`, `webui/src/components/UserInputCard.tsx` — forward + honor `custom`. (Task 5)
+- `custom` 默认为 `true`（`#[serde(default = ...)]`）—— 缺省即当前行为，对既有调用方零回归。
+- Other 行存在当且仅当 `custom == true`。所有曾把它计入的索引（`other_index`、`submit_index`、`last_row`、`checked` 向量长度、渲染行、行数统计、数字键处理器）都必须按 `custom` 做门控。
+- 行数不变量：`user_input_panel_row_count(view) == build_user_input_rows(view).len()` 必须在 `custom` 两种取值下、以及新增 multiple 模式空行的情况下都成立。
+- Submit 空行仅限 multiple 模式（single 模式没有 Submit 行）。
+- 措辞保持中立。在 `release/v5.0.1` 上工作。提交 trailer：`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`。
+- **WIP 提醒：** 实施时 `crates/rustcode-tuix/src/{state.rs, event_loop/mod.rs}` 可能带有与本次无关的未提交改动。只暂存本次改动的 hunk（`git add -p <file>`）；绝不提交无关的 WIP。
 
 ---
 
-### Task 1: Tool layer — the `custom` field
+## 文件结构
 
-**Files:** Modify + test `crates/rustcode-capabilities/src/tools/request_user_input.rs`
+- `crates/rustcode-capabilities/src/tools/request_user_input.rs` —— `custom` 字段、serde 默认值、schema、描述。（任务 1）
+- `crates/rustcode-tuix/src/state.rs` —— `UserInputPanel.custom` 与索引计算。（任务 2）
+- `crates/rustcode-tuix/src/render/mod.rs` 与 `render/retained.rs` —— 门控 Other 行、Submit 前空行、行数统计、视图字段。（任务 3）
+- `crates/rustcode-tuix/src/event_loop/mod.rs` —— `custom == false` 时数字键不得跳到 Other 行；构造视图时传入 `custom`。（任务 4）
+- `crates/rustcode-daemon/src/live_api.rs`、`webui/src/api.ts`、`webui/src/components/UserInputCard.tsx` —— 转发并遵循 `custom`。（任务 5）
 
-**Interfaces:**
-- Produces: `UserInputRequest` gains `pub custom: bool` (serde default true). Task 2/3/5 read `req.custom`.
+---
 
-- [ ] **Step 1: Write the failing test**
+### 任务 1：工具层 —— `custom` 字段
 
-Add to `mod tests`:
+**文件：** 修改并测试 `crates/rustcode-capabilities/src/tools/request_user_input.rs`
+
+**接口：**
+- 产出：`UserInputRequest` 新增 `pub custom: bool`（serde 默认 true）。任务 2/3/5 读取 `req.custom`。
+
+- [ ] **步骤 1：编写失败测试**
+
+加入 `mod tests`：
 
 ```rust
     #[test]
@@ -58,14 +58,14 @@ Add to `mod tests`:
     }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [ ] **步骤 2：运行以确认它失败**
 
-Run: `cargo test -p rustcode-capabilities --lib parse_custom_defaults_true_and_reads_false`
-Expected: FAIL to compile (`UserInputRequest` has no field `custom`).
+运行：`cargo test -p rustcode-capabilities --lib parse_custom_defaults_true_and_reads_false`
+预期：编译失败（`UserInputRequest` 没有 `custom` 字段）。
 
-- [ ] **Step 3: Add the field with a serde default**
+- [ ] **步骤 3：加入带 serde 默认值的字段**
 
-In `crates/rustcode-capabilities/src/tools/request_user_input.rs`, add a default helper and the field. After the `UserInputMode` enum (or near the top of the structs), add:
+在 `crates/rustcode-capabilities/src/tools/request_user_input.rs` 中，加入默认值辅助函数与该字段。在 `UserInputMode` 枚举之后（或结构体靠前的位置）添加：
 
 ```rust
 fn default_true() -> bool {
@@ -73,7 +73,7 @@ fn default_true() -> bool {
 }
 ```
 
-Then change the `UserInputRequest` struct:
+然后修改 `UserInputRequest` 结构体：
 
 ```rust
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -91,29 +91,29 @@ pub struct UserInputRequest {
 }
 ```
 
-Any struct literal of `UserInputRequest` in this file's tests must add `custom: true` — update the existing `roundtrip_serde` test's literal and the `format_batch_*` test literals to include `custom: true`.
+本文件测试中任何 `UserInputRequest` 的结构体字面量都必须补上 `custom: true` —— 更新既有的 `roundtrip_serde` 测试字面量以及 `format_batch_*` 测试字面量，使其包含 `custom: true`。
 
-- [ ] **Step 4: Update schema + description**
+- [ ] **步骤 4：更新 schema 与描述**
 
-In `parameters_schema`, add `custom` to the shared `question` object's `properties` (so it applies to both the flat form and `questions[]` items):
+在 `parameters_schema` 中，把 `custom` 加入共享的 `question` 对象的 `properties`（这样平铺形式与 `questions[]` 条目同时生效）：
 
 ```rust
                 "options": { /* unchanged */ },
                 "custom": {"type": "boolean", "description": "Offer a free-text 'type your own answer' row (default true). Set false when your options are exhaustive."}
 ```
 
-Update `description`: append to the existing text:
+更新 `description`：在既有文本后追加：
 
 ```
  A free-text \"type your own answer\" row is added automatically for single/multiple unless you set `custom` to false — so do NOT add your own \"Other\"/catch-all option; set `custom:false` when your options already cover every case.
 ```
 
-- [ ] **Step 5: Run tests to verify pass**
+- [ ] **步骤 5：运行测试以确认通过**
 
-Run: `cargo test -p rustcode-capabilities --lib request_user_input`
-Expected: PASS (new test + existing, with the updated literals).
+运行：`cargo test -p rustcode-capabilities --lib request_user_input`
+预期：PASS（新测试与既有测试，且字面量已更新）。
 
-- [ ] **Step 6: Commit** (stage only this file)
+- [ ] **步骤 6：提交**（仅暂存本文件）
 
 ```bash
 git add crates/rustcode-capabilities/src/tools/request_user_input.rs
@@ -128,17 +128,17 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 2: TUI state — gate the Other row on `custom`
+### 任务 2：TUI 状态 —— 用 `custom` 门控 Other 行
 
-**Files:** Modify + test `crates/rustcode-tuix/src/state.rs`
+**文件：** 修改并测试 `crates/rustcode-tuix/src/state.rs`
 
-**Interfaces:**
-- Consumes: `UserInputRequest.custom` (Task 1).
-- Produces: `UserInputPanel` gains `pub custom: bool`. `submit_index`/`last_row`/`is_other_row`/`checked` length account for it. Task 3/4 read `panel.custom`.
+**接口：**
+- 消费：`UserInputRequest.custom`（任务 1）。
+- 产出：`UserInputPanel` 新增 `pub custom: bool`。`submit_index`/`last_row`/`is_other_row`/`checked` 长度均需考虑它。任务 3/4 读取 `panel.custom`。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
-Add near the `UserInputPanel` (in the file's test module, or a new `#[cfg(test)] mod`):
+在 `UserInputPanel` 附近添加（在该文件的测试模块内，或新建 `#[cfg(test)] mod`）：
 
 ```rust
 #[cfg(test)]
@@ -185,16 +185,16 @@ mod user_input_custom_tests {
 }
 ```
 
-Note: `last_row` is currently private. To test it, add a `#[cfg(test)] pub fn last_row_for_test(&self) -> usize { self.last_row() }` to `impl UserInputPanel`, OR make `last_row` `pub(crate)`. Use the `pub(crate)` route (simpler): change `fn last_row` → `pub(crate) fn last_row` and drop the `last_row_for_test` shim + the `p_move_to_bottom` line (delete that stray line). The final test asserts `p2.last_row()` / `p3.last_row()` directly.
+注意：`last_row` 目前是私有的。为便于测试，可在 `impl UserInputPanel` 中添加 `#[cfg(test)] pub fn last_row_for_test(&self) -> usize { self.last_row() }`，或者把 `last_row` 改为 `pub(crate)`。采用 `pub(crate)` 方案（更简单）：把 `fn last_row` 改为 `pub(crate) fn last_row`，并去掉 `last_row_for_test` 垫片与 `p_move_to_bottom` 那行（删掉那行多余代码）。最终测试直接断言 `p2.last_row()` / `p3.last_row()`。
 
-- [ ] **Step 2: Run to verify it fails**
+- [ ] **步骤 2：运行以确认它失败**
 
-Run: `cargo test -p rustcode-tuix --lib user_input_custom`
-Expected: FAIL to compile (`custom` field missing on `UserInputRequest` construction is fine — Task 1 added it; the failure is `UserInputPanel` has no `custom` field / `last_row` private).
+运行：`cargo test -p rustcode-tuix --lib user_input_custom`
+预期：编译失败（构造 `UserInputRequest` 缺 `custom` 字段没关系 —— 任务 1 已补上；真正的失败是 `UserInputPanel` 没有 `custom` 字段 / `last_row` 为私有）。
 
-- [ ] **Step 3: Add `custom` to the struct + `new`**
+- [ ] **步骤 3：把 `custom` 加入结构体与 `new`**
 
-In `crates/rustcode-tuix/src/state.rs`, add the field to `UserInputPanel` (after `custom_text`):
+在 `crates/rustcode-tuix/src/state.rs` 中，给 `UserInputPanel` 添加字段（放在 `custom_text` 之后）：
 
 ```rust
     /// Whether the always-appended "Other" free-text row is offered. Mirrors
@@ -202,7 +202,7 @@ In `crates/rustcode-tuix/src/state.rs`, add the field to `UserInputPanel` (after
     pub custom: bool,
 ```
 
-In `UserInputPanel::new`, read it and size `checked` accordingly:
+在 `UserInputPanel::new` 中读取它，并据此设置 `checked` 的长度：
 
 ```rust
         // One checkbox slot per concrete option PLUS the trailing "Other" row —
@@ -222,9 +222,9 @@ In `UserInputPanel::new`, read it and size `checked` accordingly:
         }
 ```
 
-- [ ] **Step 4: Gate the index helpers on `custom`**
+- [ ] **步骤 4：让索引辅助函数按 `custom` 门控**
 
-Change `submit_index`, `last_row`, `is_other_row` in `impl UserInputPanel`:
+修改 `impl UserInputPanel` 中的 `submit_index`、`last_row`、`is_other_row`：
 
 ```rust
     /// Index of the Submit row (multiple mode only). After the concrete options,
@@ -260,14 +260,14 @@ Change `submit_index`, `last_row`, `is_other_row` in `impl UserInputPanel`:
     }
 ```
 
-`other_index` stays `self.options.len()` (only meaningful when `custom`). `build_response` needs no change: with `custom == false` the cursor never reaches `options.len()` (single) and `custom_text` stays empty (multiple), so its existing branches are naturally correct.
+`other_index` 保持 `self.options.len()`（仅在 `custom` 为真时有意义）。`build_response` 无需改动：`custom == false` 时 single 模式的光标永远到不了 `options.len()`，multiple 模式下 `custom_text` 保持为空，因此它既有的分支天然正确。
 
-- [ ] **Step 5: Run tests to verify pass**
+- [ ] **步骤 5：运行测试以确认通过**
 
-Run: `cargo test -p rustcode-tuix --lib user_input_custom`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib user_input_custom`
+预期：PASS。
 
-- [ ] **Step 6: Commit** (stage only your hunks)
+- [ ] **步骤 6：提交**（仅暂存你自己的 hunk）
 
 ```bash
 git add -p crates/rustcode-tuix/src/state.rs
@@ -281,43 +281,43 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 3: TUI render — gate Other row, blank-before-Submit, row count
+### 任务 3：TUI 渲染 —— 门控 Other 行、Submit 前空行、行数统计
 
-**Files:** Modify `crates/rustcode-tuix/src/render/mod.rs` (view struct), `crates/rustcode-tuix/src/render/retained.rs` (`build_user_input_rows`, `user_input_panel_row_count`).
+**文件：** 修改 `crates/rustcode-tuix/src/render/mod.rs`（视图结构体）、`crates/rustcode-tuix/src/render/retained.rs`（`build_user_input_rows`、`user_input_panel_row_count`）。
 
-**Interfaces:**
-- Consumes: `panel.custom` (Task 2).
-- Produces: `UserInputPanelView` gains `pub custom: bool`. Renders the Other row only when `custom`; adds a blank row before the multiple-mode Submit row.
+**接口：**
+- 消费：`panel.custom`（任务 2）。
+- 产出：`UserInputPanelView` 新增 `pub custom: bool`。仅在 `custom` 为真时渲染 Other 行；在 multiple 模式的 Submit 行之前增加一个空行。
 
-- [ ] **Step 1: Add `custom` to the view struct**
+- [ ] **步骤 1：把 `custom` 加入视图结构体**
 
-In `render/mod.rs`, add to `UserInputPanelView` (after `custom_text`, before `batch`):
+在 `render/mod.rs` 中，给 `UserInputPanelView` 添加字段（`custom_text` 之后、`batch` 之前）：
 
 ```rust
     /// Whether to render the "Other" free-text row (mirrors UserInputPanel.custom).
     pub custom: bool,
 ```
 
-Update the 3 test constructions of `UserInputPanelView` in `retained.rs` (grep `custom_text: ` in the test module) to add `custom: true,`, and the batch-render test's `base` closure likewise.
+更新 `retained.rs` 中 3 处 `UserInputPanelView` 的测试构造（在测试模块中 grep `custom_text: `）以补上 `custom: true,`，批量渲染测试的 `base` 闭包同理。
 
-- [ ] **Step 2: Read the current renderer**
+- [ ] **步骤 2：阅读当前渲染器**
 
-Run: `sed -n '2515,2560p' crates/rustcode-tuix/src/render/retained.rs` and read `build_user_input_rows` (the option loop, the Other-row block, and the multiple-mode Submit block).
+运行：`sed -n '2515,2560p' crates/rustcode-tuix/src/render/retained.rs`，并阅读 `build_user_input_rows`（选项循环、Other 行代码块、multiple 模式的 Submit 代码块）。
 
-- [ ] **Step 3: Gate the Other row + add the Submit blank in `build_user_input_rows`**
+- [ ] **步骤 3：在 `build_user_input_rows` 中门控 Other 行并加入 Submit 空行**
 
-In the single/multiple arm of `build_user_input_rows`:
-- Wrap the entire "Always-appended custom-answer row" block (the `{ let idx = other_index; ... out.push(row); }` block) in `if panel.custom { ... }`.
-- Before the multiple-mode Submit block, push one blank spacer row: `if multiple { blank_row(&mut out); /* then the existing Submit row */ }`. The submit-row's `on_cursor` index must use `submit_index = panel.options.len() + panel.custom as usize` (was `other_index + 1`).
-- The hint's `n` (navigable count) becomes `panel.options.len() + panel.custom as usize` (was `+ 1`).
+在 `build_user_input_rows` 的 single/multiple 分支中：
+- 把整个 "Always-appended custom-answer row" 代码块（`{ let idx = other_index; ... out.push(row); }`）包进 `if panel.custom { ... }`。
+- 在 multiple 模式的 Submit 代码块之前，压入一个空行占位行：`if multiple { blank_row(&mut out); /* then the existing Submit row */ }`。Submit 行的 `on_cursor` 索引必须使用 `submit_index = panel.options.len() + panel.custom as usize`（原来是 `other_index + 1`）。
+- 提示行中的 `n`（可导航行数）改为 `panel.options.len() + panel.custom as usize`（原来是 `+ 1`）。
 
-- [ ] **Step 4: Match `user_input_panel_row_count`**
+- [ ] **步骤 4：同步修改 `user_input_panel_row_count`**
 
-In `user_input_panel_row_count`, for single/multiple:
-- Change the unconditional `n += 1;` for the custom row to `if panel.custom { n += 1; }`.
-- For multiple, the Submit contribution becomes `+2` (blank + submit) instead of `+1`.
+在 `user_input_panel_row_count` 中，对 single/multiple：
+- 把 custom 行那句无条件的 `n += 1;` 改为 `if panel.custom { n += 1; }`。
+- 对 multiple，Submit 部分的贡献从 `+1` 变为 `+2`（空行 + Submit）。
 
-Concretely the single/multiple branch becomes:
+具体来说，single/multiple 分支变为：
 
 ```rust
             UserInputMode::Single | UserInputMode::Multiple => {
@@ -339,13 +339,13 @@ Concretely the single/multiple branch becomes:
             }
 ```
 
-- [ ] **Step 5: Wire `custom` into the view construction**
+- [ ] **步骤 5：把 `custom` 接入视图构造**
 
-(Deferred to Task 4's event-loop edit, which builds `UserInputPanelView` — but if any `UserInputPanelView { .. }` literal exists in `render/` non-test code, add `custom: panel.custom`.) In this task, only the struct field + tests + renderer change; the production construction is in event_loop (Task 4).
+（推迟到任务 4 的事件循环改动，那里构造 `UserInputPanelView` —— 但如果 `render/` 的非测试代码中存在 `UserInputPanelView { .. }` 字面量，则补上 `custom: panel.custom`。）本任务只做结构体字段 + 测试 + 渲染器改动；生产代码的构造位于 event_loop（任务 4）。
 
-- [ ] **Step 6: Update/extend tests + run**
+- [ ] **步骤 6：更新/扩充测试并运行**
 
-Update the existing `user_input_panel_renders_all_three_modes` multiple-mode row-count expectation (it gains +1 for the new blank). Add a `custom: false` case asserting the Other row is absent and the invariant holds:
+更新既有的 `user_input_panel_renders_all_three_modes` 中 multiple 模式的行数期望值（因新增空行而 +1）。添加一个 `custom: false` 用例，断言 Other 行不存在且不变量成立：
 
 ```rust
         // custom == false: no Other row; row_count still matches build.
@@ -357,10 +357,10 @@ Update the existing `user_input_panel_renders_all_three_modes` multiple-mode row
         );
 ```
 
-Run: `cargo test -p rustcode-tuix --lib user_input`
-Expected: PASS (row-count invariant holds for both `custom` values and the new blank).
+运行：`cargo test -p rustcode-tuix --lib user_input`
+预期：PASS（`custom` 两种取值与新增空行下行数不变量均成立）。
 
-- [ ] **Step 7: Commit** (stage only render/ hunks)
+- [ ] **步骤 7：提交**（仅暂存 render/ 的 hunk）
 
 ```bash
 git add crates/rustcode-tuix/src/render/mod.rs crates/rustcode-tuix/src/render/retained.rs
@@ -371,17 +371,17 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 4: TUI events — digit handler + view construction
+### 任务 4：TUI 事件 —— 数字键处理器与视图构造
 
-**Files:** Modify `crates/rustcode-tuix/src/event_loop/mod.rs`.
+**文件：** 修改 `crates/rustcode-tuix/src/event_loop/mod.rs`。
 
-**Interfaces:**
-- Consumes: `panel.custom` (Task 2).
-- Produces: number keys can't jump to a non-existent Other row when `custom == false`; the `UserInputPanelView` construction passes `custom`.
+**接口：**
+- 消费：`panel.custom`（任务 2）。
+- 产出：`custom == false` 时数字键无法跳到不存在的 Other 行；`UserInputPanelView` 构造时传入 `custom`。
 
-- [ ] **Step 1: Gate the digit handler (single + batch)**
+- [ ] **步骤 1：门控数字键处理器（single 与 batch）**
 
-In `handle_user_input_key` (single) and `handle_user_input_batch_key` (batch), the digit-key arm does `if idx == p.other_index() { p.cursor = p.other_index(); }`. Guard both with `custom`:
+在 `handle_user_input_key`（single）与 `handle_user_input_batch_key`（batch）中，数字键分支里是 `if idx == p.other_index() { p.cursor = p.other_index(); }`。两处都用 `custom` 加保护：
 
 ```rust
                 if idx < p.options.len() {
@@ -391,18 +391,18 @@ In `handle_user_input_key` (single) and `handle_user_input_batch_key` (batch), t
                 }
 ```
 
-(i.e. only treat the Nth+1 number as the Other row when `p.custom`; otherwise ignore it.) Adjust the existing `if idx <= p.other_index()` outer guard to `if idx < p.options.len() || (idx == p.other_index() && p.custom)`.
+（即仅当 `p.custom` 为真时，才把第 N+1 个数字当作 Other 行；否则忽略它。）把既有的外层 `if idx <= p.other_index()` 判定改为 `if idx < p.options.len() || (idx == p.other_index() && p.custom)`。
 
-- [ ] **Step 2: Pass `custom` in view construction**
+- [ ] **步骤 2：在视图构造中传入 `custom`**
 
-At the `UserInputPanelView { .. }` construction sites in `event_loop/mod.rs` (the single-panel `.map(|p| ...)` and the batch branch), add `custom: p.custom,` (single) and `custom: p.custom,` where `p = &b.questions[idx]` (batch).
+在 `event_loop/mod.rs` 的 `UserInputPanelView { .. }` 构造处（单面板的 `.map(|p| ...)` 与批量分支），分别添加 `custom: p.custom,`（single）以及 `custom: p.custom,`（batch，其中 `p = &b.questions[idx]`）。
 
-- [ ] **Step 3: Build + run the suite**
+- [ ] **步骤 3：构建并运行测试套件**
 
-Run: `cargo build -p rustcode-tuix && cargo test -p rustcode-tuix`
-Expected: compiles; full suite green (single-question default `custom=true` unchanged; the multiple-mode blank updated in Task 3's tests).
+运行：`cargo build -p rustcode-tuix && cargo test -p rustcode-tuix`
+预期：编译通过；整套测试为绿（单问题默认 `custom=true` 行为不变；multiple 模式空行已在任务 3 的测试中更新）。
 
-- [ ] **Step 4: Commit** (stage only your hunks)
+- [ ] **步骤 4：提交**（仅暂存你自己的 hunk）
 
 ```bash
 git add -p crates/rustcode-tuix/src/event_loop/mod.rs
@@ -413,32 +413,32 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 5: daemon + webui — forward and honor `custom`
+### 任务 5：daemon 与 webui —— 转发并遵循 `custom`
 
-**Files:** Modify `crates/rustcode-daemon/src/live_api.rs`, `webui/src/api.ts`, `webui/src/components/UserInputCard.tsx`.
+**文件：** 修改 `crates/rustcode-daemon/src/live_api.rs`、`webui/src/api.ts`、`webui/src/components/UserInputCard.tsx`。
 
-**Interfaces:**
-- Consumes: the `custom` field on the request payload (Task 1).
-- Produces: the webui hides the Other radio/checkbox + free-text when `custom === false`.
+**接口：**
+- 消费：请求载荷上的 `custom` 字段（任务 1）。
+- 产出：`custom === false` 时 webui 隐藏 Other 单选/复选与自由文本输入。
 
-- [ ] **Step 1: daemon — forward `custom` on the single-question event**
+- [ ] **步骤 1：daemon —— 在单问题事件上转发 `custom`**
 
-In `live_api.rs`, the `LiveWireEvent::UserInputRequest` projection: add a `custom: bool` field to the event (default true) read from `request.payload.get("custom").and_then(Value::as_bool).unwrap_or(true)`. (The batch path already carries `custom` inside each `questions[]` item.)
+在 `live_api.rs` 的 `LiveWireEvent::UserInputRequest` 投影中：给事件添加 `custom: bool` 字段（默认 true），取值来自 `request.payload.get("custom").and_then(Value::as_bool).unwrap_or(true)`。（批量路径已经在每个 `questions[]` 条目内携带 `custom`。）
 
-- [ ] **Step 2: webui types**
+- [ ] **步骤 2：webui 类型**
 
-In `api.ts`: add `custom?: boolean` to `UserInputQuestion` and to `UserInputRequestEvent`.
+在 `api.ts` 中：给 `UserInputQuestion` 与 `UserInputRequestEvent` 添加 `custom?: boolean`。
 
-- [ ] **Step 3: webui — honor `custom` in `QuestionBody`/`SingleCard`**
+- [ ] **步骤 3：webui —— 在 `QuestionBody`/`SingleCard` 中遵循 `custom`**
 
-In `UserInputCard.tsx`, compute `const showOther = q.custom !== false;` and render the "Other" radio (single) / checkbox (multiple) + the free-text input only when `showOther`. For the single card, `q.custom` comes from `req.custom`; for the batch stepper, from `req.questions[step].custom`.
+在 `UserInputCard.tsx` 中计算 `const showOther = q.custom !== false;`，仅在 `showOther` 为真时渲染 "Other" 单选框（single）/复选框（multiple）与自由文本输入。对单卡片，`q.custom` 来自 `req.custom`；对批量步进器，来自 `req.questions[step].custom`。
 
-- [ ] **Step 4: Type-check**
+- [ ] **步骤 4：类型检查**
 
-Run: `cd webui && npx tsc --noEmit`
-Expected: no errors.
+运行：`cd webui && npx tsc --noEmit`
+预期：无错误。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-daemon/src/live_api.rs webui/src/
@@ -449,25 +449,25 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Self-Review
+## 自审
 
-**Spec coverage:**
-- `custom` field + serde default + schema + description → Task 1. [x]
-- TUI state gates Other row (index math) → Task 2. [x]
-- Render gates Other row + blank-before-Submit + row count → Task 3. [x]
-- Event-loop digit handler + view `custom` → Task 4. [x]
-- daemon forward + webui honor → Task 5. [x]
-- Row-count invariant for both `custom` values + new blank → Task 3 Steps 4/6. [x]
-- Existing multiple-mode row-count test updated for the +1 blank → Task 3 Step 6. [x]
-- WIP-staging caution → Global Constraints + `git add -p` in Tasks 2/4. [x]
+**规格覆盖：**
+- `custom` 字段 + serde 默认值 + schema + 描述 → 任务 1。[x]
+- TUI 状态按 Other 行做门控（索引计算）→ 任务 2。[x]
+- 渲染门控 Other 行 + Submit 前空行 + 行数统计 → 任务 3。[x]
+- 事件循环数字键处理器 + 视图 `custom` → 任务 4。[x]
+- daemon 转发 + webui 遵循 → 任务 5。[x]
+- `custom` 两种取值 + 新增空行下的行数不变量 → 任务 3 步骤 4/6。[x]
+- 既有 multiple 模式行数测试已按 +1 空行更新 → 任务 3 步骤 6。[x]
+- WIP 暂存提醒 → 全局约束及任务 2/4 中的 `git add -p`。[x]
 
-**Placeholder scan:** Tasks 1-2 carry complete code; 3-5 give exact anchors + the specific gating/edits (they modify large existing functions, so they show the delta not the whole 300-line renderer). No "TBD"/"handle edge cases".
+**占位符扫描：** 任务 1-2 给出了完整代码；3-5 给出了精确的锚点与具体的门控/改动（它们修改的是既有的大函数，因此展示的是增量而非 300 行渲染器的全貌）。没有 "TBD"/"handle edge cases" 这类表述。
 
-**Type consistency:** `custom: bool` used consistently on `UserInputRequest` (Task 1), `UserInputPanel` (Task 2), `UserInputPanelView` (Task 3), the webui types (Task 5). `submit_index = options.len() + custom as usize` used identically in state (Task 2) and render (Task 3).
+**类型一致性：** `custom: bool` 在 `UserInputRequest`（任务 1）、`UserInputPanel`（任务 2）、`UserInputPanelView`（任务 3）、webui 类型（任务 5）上用法一致。`submit_index = options.len() + custom as usize` 在状态层（任务 2）与渲染层（任务 3）中写法完全相同。
 
 ---
 
-## Execution Notes
+## 执行说明
 
-- Tasks 2 & 4 touch `state.rs` / `event_loop/mod.rs`, which may hold unrelated WIP — use `git add -p` and stage only the described hunks.
-- Ships **未真机** for the visual effect (Other row hidden on `custom:false`; blank above Submit). Verify by asking a question with `custom:false` (exhaustive options) and a multiple-choice question in a real terminal / webui.
+- 任务 2 与 4 会触及 `state.rs` / `event_loop/mod.rs`，其中可能含有无关的 WIP —— 使用 `git add -p`，只暂存本计划描述的 hunk。
+- 视觉效果（Other 行在 `custom:false` 时隐藏；Submit 上方空行）标注为 **未真机**。请在真实终端 / webui 中提出一个 `custom:false`（选项已穷举）的问题以及一个多选题来验证。

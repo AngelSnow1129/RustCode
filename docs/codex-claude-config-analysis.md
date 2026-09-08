@@ -61,4 +61,4 @@ supports_vision = false
 - `ProviderConfig` 无 `timeout` 字段（仅适配器内部默认）
 - `mcp::registry::tests::trust_key_golden_matches_core_algorithm` 当前红（`DefaultHasher` 不稳定）
 - `.github/workflows/build.yml` 无 fmt/clippy/test job（`ci.yml` 未建）
-- `docs/telemetry.md` / `README.zh-CN.md` 第 151 行与零遥测事实矛盾（仅文档口径残留）
+- `docs/telemetry.md` 与原中文 README 第 151 行与零遥测事实矛盾（仅文档口径残留）

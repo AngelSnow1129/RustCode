@@ -216,7 +216,7 @@ VL 调用通常 1–3s，主模型在等待期间无任何输出，用户体验�
 
 1. `images.is_empty()` → Skipped（不应发起任何 HTTP）。
 2. 主 provider `accepts_images() == true` → Skipped（同上不发请求）。
-3. `vision_preprocessor_provider = None` → Skipped。
+3. `vision_preprocessor_provider = None` → Skipped（未配置）。
 4. 配置了 key 但 `config.providers` 中不存在该 key → Failed（reason 含 "not found"）。
 5. 假后端返回正常 SSE `[DONE]` 流，文本内容 `"image describes a Python stack trace"` → Replaced，text 等于聚合后的字符串。
 6. 假后端返回 HTTP 500 → Failed，reason 含状态码。

@@ -467,6 +467,7 @@ fn build_i18n_command() -> clap::Command {
     .mut_subcommand("daemon", |s| {
         s.about(t(Msg::CliAboutDaemon).into_owned())
             .mut_arg("port", |a| a.help(t(Msg::CliHelpPortDaemon).into_owned()))
+            .mut_arg("host", |a| a.help(t(Msg::CliHelpHost).into_owned()))
             .mut_arg("idle_timeout", |a| {
                 a.help(t(Msg::CliHelpIdleTimeout).into_owned())
             })
@@ -1027,6 +1028,10 @@ enum Commands {
         /// Port to listen on
         #[arg(long, default_value_t = rustcode_config::distribution::DAEMON_PORT)]
         port: u16,
+        /// Bind address (default 0.0.0.0: reachable over LAN; use 127.0.0.1 to
+        /// restrict to this machine. Token-protected only, with no TLS)
+        #[arg(long, default_value = "0.0.0.0")]
+        host: String,
         /// Client identifier (drives LOCAL client-mode branching, not reporting;
         /// e.g. "vscode", "rustcode-air")
         #[arg(long)]
@@ -1042,9 +1047,9 @@ enum Commands {
         /// port clashes that cause extension 401 / no-response)
         #[arg(long, default_value_t = rustcode_daemon::WEBUI_DEFAULT_PORT)]
         port: u16,
-        /// Bind address (default 127.0.0.1; use 0.0.0.0 to expose over LAN/public -- note it
-        /// is token-protected only, with no TLS)
-        #[arg(long, default_value = "127.0.0.1")]
+        /// Bind address (default 0.0.0.0: reachable over LAN; use 127.0.0.1 to
+        /// restrict to this machine. Token-protected only, with no TLS)
+        #[arg(long, default_value = "0.0.0.0")]
         host: String,
     },
     /// Manage skill/command plugins (mirrors `claude plugin ...`).
@@ -1737,6 +1742,7 @@ async fn run() -> Result<i32> {
             }
             Commands::Daemon {
                 port,
+                host,
                 client,
                 idle_timeout,
             } => {
@@ -1777,7 +1783,7 @@ async fn run() -> Result<i32> {
                     &token_store,
                 );
                 let res = rustcode_daemon::run_server(rustcode_daemon::ServerOpts {
-                    host: "127.0.0.1".to_string(),
+                    host,
                     port,
                     idle_timeout_secs: idle,
                     startup_mode,
@@ -5461,6 +5467,89 @@ mod tests {
         assert_eq!(
             buf,
             "[thinking] I should check the file\n[tool-> read_file]\n"
+        );
+    }
+}
+
+/// T-03 锁定测试：`rustcode webui` 的绑定地址默认值，以及显式 `--host` 对默认值的覆盖。
+///
+/// 默认值从 `127.0.0.1` 改成 `0.0.0.0` 是**对外暴露面**的变更：默认值的含义变了，
+/// 而"显式指定必须赢过默认值"这条不变式一旦破掉，`--host 127.0.0.1` 就会静默失效。
+/// 这里在参数解析层把两件事钉死，作为 AC-19 / AC-20 的回归哨兵。
+#[cfg(test)]
+mod default_host_tests {
+    use super::{Cli, Commands};
+    use clap::Parser;
+
+    /// 解析 `rustcode webui <args...>`，返回最终生效的绑定地址。
+    fn webui_host(args: &[&str]) -> String {
+        let argv: Vec<&str> = ["rustcode", "webui"]
+            .into_iter()
+            .chain(args.iter().copied())
+            .collect();
+        let cli = Cli::try_parse_from(argv).expect("`rustcode webui` 参数解析失败");
+        match cli.command {
+            Some(Commands::Webui { host, .. }) => host,
+            Some(_) => panic!("解析出了非 webui 子命令"),
+            None => panic!("未解析出任何子命令"),
+        }
+    }
+
+    /// 不带 `--host`：默认绑定 `0.0.0.0`（T-03 K1，AC-19 的正向断言）。
+    #[test]
+    fn webui_defaults_to_all_interfaces() {
+        assert_eq!(
+            webui_host(&[]),
+            "0.0.0.0",
+            "`rustcode webui` 不带 --host 时必须默认绑定 0.0.0.0"
+        );
+    }
+
+    /// 显式 `--host` 必须覆盖默认值（AC-20 的参数解析侧）。
+    #[test]
+    fn webui_explicit_host_overrides_default() {
+        assert_eq!(
+            webui_host(&["--host", "127.0.0.1"]),
+            "127.0.0.1",
+            "显式 --host 127.0.0.1 必须覆盖默认值，把服务收回本机"
+        );
+        assert_eq!(
+            webui_host(&["--host", "0.0.0.0"]),
+            "0.0.0.0",
+            "显式给出与默认值相同的值时行为不变"
+        );
+        assert_eq!(webui_host(&["--host", "192.168.1.7"]), "192.168.1.7");
+    }
+
+    /// 解析 `rustcode daemon <args...>`，返回最终生效的绑定地址。
+    ///
+    /// 与 `webui_host()` 对称：T-15 之前 `daemon` 没有 `--host`，绑定地址是
+    /// `ServerOpts { host: "0.0.0.0" }` 的硬编码字面量，改坏它没有任何解析层
+    /// 哨兵会拦。T-15 把它提升为带默认值的参数后，默认值就是唯一剩下的
+    /// 「不传参也生效」的暴露面，必须在解析层钉死。
+    fn daemon_host(args: &[&str]) -> String {
+        let argv: Vec<&str> = ["rustcode", "daemon"]
+            .into_iter()
+            .chain(args.iter().copied())
+            .collect();
+        let cli = Cli::try_parse_from(argv).expect("`rustcode daemon` 参数解析失败");
+        match cli.command {
+            Some(Commands::Daemon { host, .. }) => host,
+            Some(_) => panic!("解析出了非 daemon 子命令"),
+            None => panic!("未解析出任何子命令"),
+        }
+    }
+
+    /// 不带 `--host`：默认绑定 `0.0.0.0`（T-15 的 Q2-A 冻结默认值，与 `webui` 同源）。
+    ///
+    /// 只断言默认值：显式 `--host <ip>` 的取值由调用方自行负责，且 Q2-A 冻结的是
+    /// 「默认暴露面」，故这里不锁定任何非默认值。
+    #[test]
+    fn daemon_defaults_to_all_interfaces() {
+        assert_eq!(
+            daemon_host(&[]),
+            "0.0.0.0",
+            "`rustcode daemon` 不带 --host 时必须默认绑定 0.0.0.0"
         );
     }
 }

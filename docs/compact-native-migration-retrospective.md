@@ -111,8 +111,8 @@ kernel 负责 compaction 的串行执行、sacred floor、net-loss guard、cache
 
 ### 4.1 已删除
 
-- core `AgentCommand::Compact`；
-- core `CompactionUi` / `CompactionUiKind`；
+- core 的 `AgentCommand::Compact`；
+- core 的 `CompactionUi` / `CompactionUiKind`；
 - bridge `on_runtime_control` 和 `forward_runtime_control`；
 - bridge 对 compact control 的 select 分支；
 - bridge `on_kernel_event` 中 compaction started/finished 转换；
@@ -172,8 +172,8 @@ core 整体清理问题，应单独立项，不能反向否定本命令的退役
 首次实现只完成了“能发送、能收到结果”，review 后才发现 runtime replace/shutdown 可能
 发生在 compaction started 与 compacted 之间。最终增加：
 
-- stable handle generation；
-- suspend/resume；
+- 稳定的 handle generation；
+- suspend/resume 机制；
 - stop/replace 时继续排空旧 agent event；
 - `Completed` 与 `Interrupted` 两类终态；
 - 已接收 compact 的 exactly-once terminal；
@@ -236,7 +236,7 @@ stopped
 
 早期 owner 在 stop/replace 中只等待旧 kernel task，没有继续读取旧 `AgentHandle.events`。
 如果 TUI 已收到 `CompactionStarted`，而 `Compacted` 留在旧 receiver 中，UI 会永久停在
-compacting/Streaming。
+compacting/Streaming 状态。
 
 修复原则：
 
@@ -380,14 +380,14 @@ review 发现问题时也要判断：
 
 | 检查面 | 当前路径 | 目标路径 | 本次删除 | 本次保留 |
 |---|---|---|---|---|
-| TUI sender |  |  |  |  |
-| CLI/headless/clix sender |  |  |  |  |
-| daemon/webui sender |  |  |  |  |
-| core command/event |  |  |  |  |
-| bridge handler/converter |  |  |  |  |
-| runtime lifecycle |  |  |  |  |
-| driver consumer/state |  |  |  |  |
-| v1/fallback/tests |  |  |  |  |
+| TUI 发送方 |  |  |  |  |
+| CLI/headless/clix 发送方 |  |  |  |  |
+| daemon/webui 发送方 |  |  |  |  |
+| core 命令/事件 |  |  |  |  |
+| bridge 处理器/转换器 |  |  |  |  |
+| runtime 生命周期 |  |  |  |  |
+| driver 消费方/状态 |  |  |  |  |
+| v1/fallback/测试 |  |  |  |  |
 
 ### 7.2 设计时
 

@@ -1,4 +1,4 @@
-# RustCode Architecture
+# RustCode 架构
 
 本文描述当前生产架构及其依赖边界。历史迁移方案和已经完成的 bridge/core
 退役过程不属于当前架构；如需了解迁移背景，应查阅相关 Git 历史和归档文档。
@@ -119,18 +119,18 @@ runtime 重建或切换时必须保持 session、cwd、provider、审批、gatew
 
 ## Driver 与服务边界
 
-### CLI / TUI
+### CLI / TUI（命令行入口与终端界面）
 
 `rustcode-cli` 负责进程入口和模式选择；`rustcode-tuix` 负责终端交互与展示。TUI
 消费 runtime event 并产生 driver command，不拥有第二套 agent、provider 或 session
 状态机。
 
-### daemon / WebUI
+### daemon / WebUI（守护进程与 Web 界面）
 
 `rustcode-daemon` 通过 `CodingRuntime` 提供 headless chat，并通过 live hub 复用 TUI
 附加的运行时。WebUI/HTTP DTO 是传输和展示投影，不是运行时状态的权威来源。
 
-### ACP / clix / background
+### ACP / clix / background（协议入口、独立命令行驱动与后台任务）
 
 这些入口同样应通过 coding runtime 驱动 coding agent。它们可以适配各自协议和 I/O，
 但不能重新实现 provider/session/cancel/reload 生命周期。

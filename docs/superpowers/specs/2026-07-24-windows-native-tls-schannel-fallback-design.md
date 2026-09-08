@@ -15,7 +15,7 @@
 |---|---|
 | curl（**SChannel**）TLS 1.3（默认） | [-] reset |
 | curl（**SChannel**）**TLS 1.2**（`--tls-max 1.2`） | [+] 通（HTTP 405） |
-| rustcode（**rustls**）TLS 1.3 | [-] reset |
+| rustcode（**rustls**）TLS 1.3 | [-] 被 reset |
 | rustcode（**rustls**）**TLS 1.2**（`RUSTCODE_TLS_MAX=1.2`，v5.0.3 带修复、env 确认生效） | [-] **仍 reset** |
 
 **结论**：中间设备同时按两轴拦——(a) **TLS 1.3**（任何客户端）、(b) **rustls 的 ClientHello 指纹**（任何版本）。唯一能穿的组合是 **SChannel + TLS 1.2**。rustcode 是 rustls-only，配不出，故 `522c6f2a` 的"只锁版本"对该网络不足。
@@ -77,9 +77,9 @@ reqwest = { version = "0.12", features = ["native-tls"], default-features = fals
 | crate / 文件 | client | 种类 |
 |---|---|---|
 | `rustcode-auth/src/oauth.rs` | 登录 gateway.example.com | blocking |
-| `rustcode-codingplan/src/client.rs` | api.gitcode.com | blocking |
+| `rustcode-codingplan/src/client.rs` | api.gitcode.com | blocking（阻塞式） |
 | `rustcode-capabilities/src/provider/openai_compat.rs` | v2 聊天 gateway.example.com | async(SSE) |
-| `rustcode-core/src/provider/mod.rs`+`openai.rs` | core provider | async |
+| `rustcode-core/src/provider/mod.rs`+`openai.rs` | core provider | async（异步） |
 
 `build_http_client*` 的 `max_tls_version` 回退与 `#[cfg(not(windows))] add_trusted_roots` 改动落在 core 与 capabilities 两处 `build_http_client*`；auth/codingplan 的 blocking client 同样 Windows→SChannel 默认（无 add_trusted_roots，本就没有），版本回退已在 `522c6f2a`。
 

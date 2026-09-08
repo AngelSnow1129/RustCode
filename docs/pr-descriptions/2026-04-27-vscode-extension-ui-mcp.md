@@ -38,7 +38,7 @@ N/A
 - [x] TypeScript 编译无错误
 
 ## 已验证的 Provider
-- [x] DeepSeek
+- [x] DeepSeek 模型
 
 ## 检查清单
 - [ ] 代码符合 Rust 格式化规范（`cargo fmt`）

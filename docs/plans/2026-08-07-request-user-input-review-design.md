@@ -1,45 +1,45 @@
-# RequestUserInput Review Page Implementation Plan
+# RequestUserInput 复核页实施计划
 
-> **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this plan task-by-task.
+> **致 Claude：** 必需子技能：使用 `executing-plans` 按任务逐条实施本计划。
 
-**Goal:** Replace the full-width reverse-video text field with a readable boxed input and make the final batch stop review every answer before submission.
+**目标：** 用可读的框式输入框取代通栏反显文本字段，并让最后一个批次停靠点在提交前复核每一个答案。
 
-**Architecture:** Keep `UserInputBatch` as the sole owner of in-progress answers. Project immutable answer summaries into the renderer-facing batch metadata; the renderer wraps and scrolls the review page without changing the tool wire response. Existing partial-submit semantics remain: unanswered questions are shown explicitly and serialize as declined responses.
+**架构：** `UserInputBatch` 仍是进行中答案的唯一所有者。把不可变的答案摘要投影进面向渲染器的批次元数据；渲染器负责复核页的换行与滚动，不改变工具的线上响应。既有的部分提交语义保持不变：未回答的问题显式展示，并序列化为 declined 响应。
 
-**Tech Stack:** Rust, RustCode TUI retained renderer, crossterm key events, existing virtual-terminal tests.
+**技术栈：** Rust、RustCode TUI retained renderer、crossterm 按键事件、既有的虚拟终端测试。
 
 ---
 
-### Task 1: Model review summaries and scrolling
+### 任务 1：建模复核摘要与滚动
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/state.rs`
-- Modify: `crates/rustcode-tuix/src/render/mod.rs`
-- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/state.rs`
+- 修改：`crates/rustcode-tuix/src/render/mod.rs`
+- 修改：`crates/rustcode-tuix/src/event_loop/mod.rs`
 
-1. Add a renderer-neutral summary record containing header, question, and optional formatted answer.
-2. Add batch-owned submit-page scroll state.
-3. Project summaries and submit scrolling through `UserInputBatchMeta`/`UserInputPanelView`.
-4. Handle PageUp/PageDown while the batch cursor is on the submit stop; preserve Tab/Shift+Tab and Enter behavior.
-5. Add state/key tests for selected, custom, text, and unanswered summaries.
+1. 新增与渲染器无关的摘要记录，包含表头、问题与可选的格式化答案。
+2. 新增由批次自有的提交页滚动状态。
+3. 通过 `UserInputBatchMeta`/`UserInputPanelView` 投影摘要与提交滚动。
+4. 当批次光标停在提交停靠点时处理 PageUp/PageDown；保留 Tab/Shift+Tab 与 Enter 行为。
+5. 为 selected、custom、text 与未回答摘要补充状态/按键测试。
 
-### Task 2: Render a real text input field
+### 任务 2：渲染真正的文本输入框
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
-1. Add a failing renderer test that rejects reverse-video cells in text input mode.
-2. Render a theme-aware three-row box with a prompt marker, answer text, and insertion caret.
-3. Wrap or truncate within the field width without emitting control characters.
-4. Update row-count assertions and verify light/dark-compatible styles.
+1. 新增一个失败的渲染器测试，拒绝文本输入模式下的反显单元格。
+2. 渲染一个随主题自适应的三行方框，带提示符标记、答案文本与插入光标。
+3. 在字段宽度内换行或截断，且不输出控制字符。
+4. 更新行数断言，并验证浅色/深色兼容样式。
 
-### Task 3: Render the final review page
+### 任务 3：渲染最终复核页
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
-1. Add a failing test requiring every question and answer on the submit stop.
-2. Render answered values and an explicit `未回答` marker.
-3. Keep the confirm action as the active row so small terminals retain an actionable viewport.
-4. Support PageUp/PageDown indicators for summaries taller than the terminal.
-5. Run focused tests, then `cargo test -p rustcode-tuix --lib` and `git diff --check`.
+1. 新增一个失败测试，要求提交停靠点上列出全部问题与答案。
+2. 渲染已回答的值与显式的 `未回答` 标记。
+3. 让确认动作保持为活动行，使小尺寸终端仍保留可操作的视口。
+4. 对高于终端的摘要支持 PageUp/PageDown 指示。
+5. 运行聚焦测试，然后执行 `cargo test -p rustcode-tuix --lib` 与 `git diff --check`。

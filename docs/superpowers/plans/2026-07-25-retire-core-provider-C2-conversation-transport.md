@@ -1,6 +1,6 @@
 # 退役 core::provider 子项目C2 — daemon 传输层脱 core::conversation 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`).
+> **面向 agentic worker：** 必备子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans。步骤使用复选框（`- [ ]`）。
 > **[!] 高风险**：这是 daemon 活传输层（webui `/chat` + `/live`）的重构，牵涉持久化/取消/图片恢复/cold_summaries/轮次语义，回归即用户可见。每个可编译步必须是某条路径的**完整**切换（core Conversation 与 kernel 缓冲不能在同一路径混用）。
 
 **Goal:** 把 daemon `/chat`（`process_chat_request`）+ `/live`（`run_chat_turn_v2`）的 core `Conversation` 缓冲换成 kernel-native，消除 `snapshot_to_core ↔ snapshot_to_kernel` 无谓往返，使 `core::conversation` 外部消费者归零（C3 才删模块）。
@@ -9,15 +9,15 @@
 
 **Tech Stack:** Rust workspace；crate `rustcode-daemon`（+ 可能薄助手在 daemon 内）。core 类型：`Conversation`/`ConversationSnapshot`/`TurnTracker`。kernel：`Message`/`SessionSnapshot`/`Role`/cold-summary-as-synthetic-message 编码（`LEGACY_COLD_SUMMARY_*`）。
 
-## Global Constraints
+## 全局约束
 
 - 每任务后 `cargo build --workspace` + `cargo test --workspace --no-run`；daemon 套件绿（webui embedded-asset 两测试是既有环境性失败，无关）。
 - 每任务一提交；`docs/superpowers` 用 `git add -f`。
 - **parity 硬约束**：持久化、turn 取消、图片恢复、cold_summaries、轮次语义逐条不变。
 - **不半迁**：每个可编译步是某条路径的完整切换。
-- worktree `retire-core-conversation`，push release/v5.0.3。
+- 在 worktree `retire-core-conversation` 上工作，推送到 release/v5.0.3。
 
-## 前置调查（Task 0，执行者必做，不写代码）
+## 前置调查（任务 0，执行者必做，不写代码）
 
 在动手前，执行者须精确回答并记录（写进本计划的"调查记录"节）：
 
@@ -28,51 +28,51 @@
 5. **图片恢复**（lib.rs:3855 `conv.messages` restore images）：语义 + kernel Message 上的等价实现。
 6. **持久化**：`persist_pre_runtime_terminal(&Path,&str,&ConversationSnapshot)`（legacy_convert）+ `conv.snapshot()`（lib.rs:3759）——原生持久化是否已有 kernel snapshot 落盘路径可复用（`SessionManager` 存 `SessionSnapshot`，manager.rs:453）？
 
-**Task 0 产出**：把上述答案回填本节，据此可能需要**修订下面的 Task 划分**（尤其 turn_tracker/cancel 若冗余则删而非重建，能大幅缩小 C2）。
+**任务 0 产出**：把上述答案回填本节，据此可能需要**修订下面的 Task 划分**（尤其 turn_tracker/cancel 若冗余则删而非重建，能大幅缩小 C2）。
 
-## Task 1: 引入 daemon kernel 缓冲 + 纯转换助手（不切换路径）
+## 任务 1: 引入 daemon kernel 缓冲 + 纯转换助手（不切换路径）
 
-**Files:** Create `crates/rustcode-daemon/src/live_buffer.rs`（或加进 live_api）；Modify daemon lib.rs 注册。
+**文件：** 新建 `crates/rustcode-daemon/src/live_buffer.rs`（或并入 live_api）；修改 daemon 的 lib.rs 做注册。
 
-**目标**：新增一个薄的 kernel-native 缓冲（据 Task 0 决策，或是 `struct LiveBuffer { messages: Vec<kernel::Message> }` + 方法 `from_kernel_snapshot`/`to_kernel_snapshot`/`push_user_text`/`push_user_with_images`/`cancel_current_turn`(若非冗余)/`cold_summaries`），逐条镜像 core `Conversation` 被 daemon 用到的方法，但全 kernel 类型。纯逻辑，可 TDD 单测（建 user message、取消截断、cold_summary 取值）。
+**目标**：新增一个薄的 kernel-native 缓冲（据 任务 0 决策，或是 `struct LiveBuffer { messages: Vec<kernel::Message> }` + 方法 `from_kernel_snapshot`/`to_kernel_snapshot`/`push_user_text`/`push_user_with_images`/`cancel_current_turn`(若非冗余)/`cold_summaries`），逐条镜像 core `Conversation` 被 daemon 用到的方法，但全 kernel 类型。纯逻辑，可 TDD 单测（建 user message、取消截断、cold_summary 取值）。
 
-- [ ] Step 1-N：按 Task 0 清单，为每个被消费的 Conversation 方法写失败测试 → 实现 → 绿。（cancel/turn 边界逻辑若保留则从 core `TurnTracker` port 纯逻辑；若 Task 0 判定冗余则不建。）
-- [ ] Commit：`feat(daemon): kernel-native live buffer（镜像 Conversation daemon 消费面，纯 kernel）`
+- [ ] 步骤 1-N：按 任务 0 清单，为每个被消费的 Conversation 方法写失败测试 → 实现 → 绿。（cancel/turn 边界逻辑若保留则从 core `TurnTracker` port 纯逻辑；若 任务 0 判定冗余则不建。）
+- [ ] 提交：`feat(daemon): kernel-native live buffer（镜像 Conversation daemon 消费面，纯 kernel）`
 
-## Task 2: 切换 `/live` 的 `run_chat_turn_v2` 到 kernel 缓冲
+## 任务 2: 切换 `/live` 的 `run_chat_turn_v2` 到 kernel 缓冲
 
-**Files:** Modify `crates/rustcode-daemon/src/live_api.rs`（`run_chat_turn_v2` :357-550、`AuthoritativeTerminal` :72、`install_authoritative_terminal_snapshot` :267、`committed_compaction_snapshot` :276）。
+**文件：** 修改 `crates/rustcode-daemon/src/live_api.rs`（`run_chat_turn_v2` :357-550、`AuthoritativeTerminal` :72、`install_authoritative_terminal_snapshot` :267、`committed_compaction_snapshot` :276）。
 
 **目标**：`conv: Arc<Mutex<Conversation>>` → `Arc<Mutex<LiveBuffer>>`（或直接 `Arc<Mutex<Vec<kernel::Message>>>`+侧带 cold_summaries）。删 `snapshot_to_kernel(&prefix)`（:387，prefix 已是 kernel）+ 终结 `snapshot_to_core`（:495，直接用 kernel 终结 snapshot）。`extract_user_input` 改吃 kernel Message。这是**一条路径的完整切换**——run_chat_turn_v2 及其 conv 类型、所有读写点同一 commit 内改完。
 
-- [ ] Step 1：改 `run_chat_turn_v2` 签名 + prefix 提取（kernel 直取，去 snapshot_to_kernel）。
-- [ ] Step 2：终结回填改 kernel（去 snapshot_to_core，AuthoritativeTerminal→SessionSnapshot）。
-- [ ] Step 3：`extract_user_input` kernel 版；cold_summaries 取值改 kernel 编码。
-- [ ] Step 4：`cargo build -p rustcode-daemon`（此时 `/chat` 调用点 conv 类型仍 core → 会红；若 run_chat_turn_v2 被 `/chat` 与 `/live` 共用，Task 2/3 可能**必须合并为一个 commit**——以编译边界为准，宁可一个较大 commit 也不留半迁）。
-- [ ] Commit（可能与 Task 3 合并）。
+- [ ] 步骤 1：改 `run_chat_turn_v2` 签名 + prefix 提取（kernel 直取，去 snapshot_to_kernel）。
+- [ ] 步骤 2：终结回填改 kernel（去 snapshot_to_core，AuthoritativeTerminal→SessionSnapshot）。
+- [ ] 步骤 3：`extract_user_input` kernel 版；cold_summaries 取值改 kernel 编码。
+- [ ] 步骤 4：`cargo build -p rustcode-daemon`（此时 `/chat` 调用点 conv 类型仍 core → 会红；若 run_chat_turn_v2 被 `/chat` 与 `/live` 共用，任务 2/3 可能**必须合并为一个 commit**——以编译边界为准，宁可一个较大 commit 也不留半迁）。
+- [ ] 提交（可能与任务 3 合并为一个提交）。
 
-## Task 3: 切换 `/chat` 的 `process_chat_request` 到 kernel 缓冲
+## 任务 3: 切换 `/chat` 的 `process_chat_request` 到 kernel 缓冲
 
-**Files:** Modify `crates/rustcode-daemon/src/lib.rs`（:3665 load、:3687 from_snapshot、:3717 add_user_message、:3720 messages.push、:3733 turn_tracker、:3759 snapshot+persist、:3844 cancel、:3855 图片恢复）。
+**文件：** 修改 `crates/rustcode-daemon/src/lib.rs`（:3665 load、:3687 from_snapshot、:3717 add_user_message、:3720 messages.push、:3733 turn_tracker、:3759 snapshot+persist、:3844 cancel、:3855 图片恢复）。
 
-**目标**：删 `snapshot_to_core`（:3665，直接持 kernel snapshot）；`Conversation::from_snapshot` → `LiveBuffer::from_kernel_snapshot`；`add_user_message`/`messages.push(MultiPart)` → kernel `Message::user`/`user_with_images`；`turn_tracker`/`cancel_current_turn` 按 Task 0 决策（删或用 LiveBuffer）；`conv.snapshot()`+`persist_pre_runtime_terminal` → kernel snapshot 落盘（复用原生持久化）；图片恢复在 kernel Vec 上重建。
+**目标**：删 `snapshot_to_core`（:3665，直接持 kernel snapshot）；`Conversation::from_snapshot` → `LiveBuffer::from_kernel_snapshot`；`add_user_message`/`messages.push(MultiPart)` → kernel `Message::user`/`user_with_images`；`turn_tracker`/`cancel_current_turn` 按 任务 0 决策（删或用 LiveBuffer）；`conv.snapshot()`+`persist_pre_runtime_terminal` → kernel snapshot 落盘（复用原生持久化）；图片恢复在 kernel Vec 上重建。
 
-- [ ] Step 1-N：逐点切换（同一 commit，完整路径）。
+- [ ] 步骤 1-N：逐点切换（同一 commit，完整路径）。
 - [ ] Build + daemon 测试绿。
-- [ ] Commit：`refactor(daemon): /chat + /live 传输层脱 core::conversation（去 snapshot 往返，缓冲改 kernel）`
+- [ ] 提交：`refactor(daemon): /chat + /live 传输层脱 core::conversation（去 snapshot 往返，缓冲改 kernel）`
 
-## Task 4: 消除 legacy_convert 的 core↔kernel 往返函数
+## 任务 4: 消除 legacy_convert 的 core↔kernel 往返函数
 
-**Files:** Modify `crates/rustcode-daemon/src/legacy_convert.rs` + 其测试。
+**文件：** 修改 `crates/rustcode-daemon/src/legacy_convert.rs` 及其测试。
 
 **目标**：`snapshot_to_core` / `message_to_core` / `snapshot_to_kernel` / `persist_pre_runtime_terminal` 消费者归零后删除；`message_to_kernel`（若 legacy importer 历史读取仍需则保留最小面——以实际消费为准）。删对应往返测试。
 
-- [ ] Step 1：`grep` 确认各函数零消费 → 删除。
-- [ ] Step 2：`snapshot_to_core` 若还被 KernelSummaryProvider 遗留引用？（A 已删该 adapter，应已零）——确认。
+- [ ] 步骤 1：`grep` 确认各函数零消费 → 删除。
+- [ ] 步骤 2：`snapshot_to_core` 若还被 KernelSummaryProvider 遗留引用？（A 已删该 adapter，应已零）——确认。
 - [ ] Build + test 绿。
-- [ ] Commit：`chore(daemon): 删 legacy_convert 的 core↔kernel 往返（传输已全 kernel）`
+- [ ] 提交：`chore(daemon): 删 legacy_convert 的 core↔kernel 往返（传输已全 kernel）`
 
-## Task 5: 真机验收（仅用户可做）
+## 任务 5: 真机验收（仅用户可做）
 
 webui 各跑并确认无回归：`/chat` 与 `/live` 新会话贴图（VL caption）、续聊历史、turn 取消（Esc/cancel）、压缩后续聊、页面刷新重连、并发两 tab。
 
@@ -82,12 +82,12 @@ webui 各跑并确认无回归：`/chat` 与 `/live` 新会话贴图（VL captio
 
 C2 落地 + 真机绿后：确认 `core::conversation`/`core::provider`/`core::ctx` 外部消费者全零 → 删三模块本体 + lib.rs 声明 + orphan 测试；daemon Cargo.toml 视情去 `rustcode-core` 依赖。
 
-## 调查记录（Task 0 已完成 — 三处全绿，C2 大幅缩小）
+## 调查记录（任务 0 已完成 — 三处全绿，C2 大幅缩小）
 
 **决策1：turn_tracker + cancel_current_turn 可直接 DROP（不重建）。**
 - core `cancel_current_turn`（conversation/mod.rs:247-269）做：收尾流式 buffer→assistant、清 partial tool-call、`backfill_cancelled_tool_results` 给孤儿 tool call 补 `(cancelled)` result、标记 turn Completed。
 - kernel `Conversation`（kernel message.rs:393-420）有**同名** `backfill_cancelled_tool_results()`；SessionSnapshot 用 `message.meta.turn_id` 做轮次；原生 runtime 自管轮界+取消并产出**权威** kernel 终结 snapshot（install_authoritative_terminal_snapshot 整体覆盖）。
-- daemon 的 cancel 路径（lib.rs:3825-3834）只在 `was_stopped && Cancelled` 触发，随即被 kernel 终结 snapshot 覆盖 → **冗余**。迁移后：daemon 只需 `handle.cancel()`（lib.rs:3840）让 kernel 产终结 snapshot，**不做 daemon 侧 turn 清理**。→ Task1 不建 turn_tracker/cancel；Task3 删这些点。
+- daemon 的 cancel 路径（lib.rs:3825-3834）只在 `was_stopped && Cancelled` 触发，随即被 kernel 终结 snapshot 覆盖 → **冗余**。迁移后：daemon 只需 `handle.cancel()`（lib.rs:3840）让 kernel 产终结 snapshot，**不做 daemon 侧 turn 清理**。→ 任务 1 不建 turn_tracker/cancel；任务 3 删这些点。
 
 **决策2：cold_summaries 有 kernel 助手，双向已就绪。**
 - daemon 读点：live_api.rs:380（塞进 startup snapshot）、:516（压缩完清空）。
@@ -96,10 +96,10 @@ C2 落地 + 真机绿后：确认 `core::conversation`/`core::provider`/`core::c
 
 **决策3：持久化复用 `SessionManager::save_snapshot(id: &str, snap: &SessionSnapshot) -> SessionResult<()>`**（capabilities manager.rs:748）。`persist_pre_runtime_terminal`（legacy_convert）内部已走它 → daemon 迁移后直接 `manager.save_snapshot(id, &kernel_snapshot)`，去掉 core ConversationSnapshot 中间态。
 
-**规模影响**：Task1（LiveBuffer）可能**不再需要独立类型**——daemon 可直接持 `Arc<Mutex<Vec<kernel::Message>>>`（+ 用 cold_summaries helper 抽取），无 turn_tracker/cancel 要镜像。C2 收敛为：①提 cold_summaries_from_messages 到共享层 ②两路径把 Conversation→kernel Vec 并删 snapshot 往返+cancel 记账 ③删 legacy_convert 往返。**Task 1 可能并入 Task 2/3**（执行者据编译边界定）。
+**规模影响**：任务 1（LiveBuffer）可能**不再需要独立类型**——daemon 可直接持 `Arc<Mutex<Vec<kernel::Message>>>`（+ 用 cold_summaries helper 抽取），无 turn_tracker/cancel 要镜像。C2 收敛为：①提 cold_summaries_from_messages 到共享层 ②两路径把 Conversation→kernel Vec 并删 snapshot 往返+cancel 记账 ③删 legacy_convert 往返。**任务 1 可能并入 任务 2/3**（执行者据编译边界定）。
 
-## Self-Review 记录
+## 自审记录
 
-- **Spec 覆盖**：spec C §2 的 C2 = 本计划 Task 1-4；C3 = 尾节。spec §5 高风险"不半迁"约束落在 Task 2/3 的"完整路径切换 + 可能合并 commit"。
-- **已知不确定性**：本计划**刻意含 Task 0 调查**——turn_tracker/cancel 在原生 runtime 下是否冗余、cold_summaries 的 kernel 取值助手是否存在，会实质改变 Task 1/3 规模。这不是 placeholder，而是高风险重构必须先测的真实分叉点（比盲写实现代码更安全）。
-- **风险顺序**：Task 1（纯加法缓冲+单测，零切换）→ Task 2/3（路径切换，可能合并）→ Task 4（删往返）→ C3（删模块）。Task 1 独立安全；切换步是主体风险；每步编译边界为准。
+- **Spec 覆盖**：spec C §2 的 C2 = 本计划 任务 1-4；C3 = 尾节。spec §5 高风险"不半迁"约束落在 任务 2/3 的"完整路径切换 + 可能合并 commit"。
+- **已知不确定性**：本计划**刻意含 任务 0 调查**——turn_tracker/cancel 在原生 runtime 下是否冗余、cold_summaries 的 kernel 取值助手是否存在，会实质改变 任务 1/3 规模。这不是 placeholder，而是高风险重构必须先测的真实分叉点（比盲写实现代码更安全）。
+- **风险顺序**：任务 1（纯加法缓冲+单测，零切换）→ 任务 2/3（路径切换，可能合并）→ 任务 4（删往返）→ C3（删模块）。任务 1 独立安全；切换步是主体风险；每步编译边界为准。

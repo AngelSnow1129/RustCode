@@ -81,7 +81,7 @@ let (agent, report) = rustcode_review::build_review_agent(cfg)?;
 | `request_timeout` | `300s` | 驱动方响应上限 |
 | `persona` | `None` | **全量** system-prompt 覆盖(`with_persona`) |
 
-## Findings
+## 发现项（Findings）
 
 `report.findings()` / `report.take_findings()` 返回 `Vec<Finding>`;`Finding` 实现了
 `Serialize`:
@@ -98,7 +98,7 @@ pub struct Finding {
 }
 ```
 
-## Cargo features
+## Cargo 特性
 
 以 `["provider", "tools", "codeintel", "web"]` 引入 `rustcode-capabilities` —— 即完整的只读评审
 工具集。

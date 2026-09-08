@@ -1,14 +1,14 @@
-# Windows SChannel(native-tls) 默认后端 Implementation Plan
+# Windows SChannel(native-tls) 默认后端实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必备子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
 **Goal:** 在 Windows 上让 rustcode 的 reqwest client 以 SChannel(native-tls) 为默认 TLS 后端，绕过 middlebox 对 rustls 指纹的拦截（现有 TLS-1.2 版本回退保持不变，届时作用于 SChannel）。
 
 **Architecture:** 仅 Windows target 给 reqwest 启用 `native-tls` feature → reqwest 默认后端在 Windows 构建里翻为 SChannel（feature unification 使整个 Windows 构建生效）。SChannel 原生信任 Windows 系统证书库，故 Windows 下跳过 rustls 专用的 `add_trusted_roots`（否则会把系统证书重新喂进 native-tls 解析器，风险引入 #514 式构建失败）。非 Windows 完全不变。
 
-**Tech Stack:** Rust；Cargo target-specific dependencies；reqwest 0.12（rustls-tls + native-tls）；`cfg!(target_os = "windows")`。
+**技术栈：** Rust；Cargo 的 target-specific dependencies；reqwest 0.12（rustls-tls + native-tls）；`cfg!(target_os = "windows")`。
 
-## Global Constraints
+## 全局约束
 
 - native-tls **只在 Windows target** 启用：`[target.'cfg(target_os = "windows")'.dependencies]`，`default-features = false`（避免打开 reqwest 一堆默认 feature）。非 Windows 绝不引入 native-tls / OpenSSL。
 - `add_trusted_roots` 在 Windows 用 `if !cfg!(target_os = "windows")` **运行时常量**门控（**不用** `#[cfg]` 属性），以保证函数在 Windows 仍被引用、不触发 `dead_code` 警告，同时调用被编译期消除。
@@ -20,19 +20,19 @@
 
 ### Task 1: Windows SChannel 默认后端 + Windows 跳过 add_trusted_roots
 
-**Files:**
-- Modify: `crates/rustcode-auth/Cargo.toml`（已有 windows target 段，约 31 行）
-- Modify: `crates/rustcode-core/Cargo.toml`（已有 windows target 段，约 87 行）
-- Modify: `crates/rustcode-capabilities/Cargo.toml`（已有 windows target 段，约 228 行）
-- Modify: `crates/rustcode-codingplan/Cargo.toml`（**无** windows target 段 → 文件末尾新增）
-- Modify: `crates/rustcode-core/src/provider/mod.rs:152`（gate add_trusted_roots 调用）
-- Modify: `crates/rustcode-capabilities/src/provider/openai_compat.rs:262-263`（gate add_trusted_roots 调用）
+**文件：**
+- 修改：`crates/rustcode-auth/Cargo.toml`（已有 windows target 段，约 31 行）
+- 修改：`crates/rustcode-core/Cargo.toml`（已有 windows target 段，约 87 行）
+- 修改：`crates/rustcode-capabilities/Cargo.toml`（已有 windows target 段，约 228 行）
+- 修改：`crates/rustcode-codingplan/Cargo.toml`（**无** windows target 段 → 文件末尾新增）
+- 修改：`crates/rustcode-core/src/provider/mod.rs:152`（gate add_trusted_roots 调用）
+- 修改：`crates/rustcode-capabilities/src/provider/openai_compat.rs:262-263`（gate add_trusted_roots 调用）
 
-**Interfaces:**
-- Consumes: 现有 `add_trusted_roots(builder)`（两处 crate-local，签名不变）；reqwest `native-tls` feature（提供 SChannel 后端 + `.build()` 走 native-tls 默认）。
-- Produces: 无新公共符号。行为变化：Windows 构建的 reqwest 默认后端 = SChannel。
+**接口：**
+- 消费： 现有 `add_trusted_roots(builder)`（两处 crate-local，签名不变）；reqwest `native-tls` feature（提供 SChannel 后端 + `.build()` 走 native-tls 默认）。
+- 产出： 无新公共符号。行为变化：Windows 构建的 reqwest 默认后端 = SChannel。
 
-- [ ] **Step 1: auth — 给 windows target 的 reqwest 加 native-tls**
+- [ ] **步骤 1：auth — 给 windows target 的 reqwest 加 native-tls**
 
 在 `crates/rustcode-auth/Cargo.toml` 的 `[target.'cfg(target_os = "windows")'.dependencies]` 段内（`windows-sys = ...` 那行后面）追加：
 
@@ -44,7 +44,7 @@
 reqwest = { version = "0.12", features = ["native-tls"], default-features = false }
 ```
 
-- [ ] **Step 2: core — 同样加 native-tls**
+- [ ] **步骤 2：core — 同样加 native-tls**
 
 在 `crates/rustcode-core/Cargo.toml` 的 `[target.'cfg(target_os = "windows")'.dependencies]` 段内追加同一行（同上注释可精简为一行注释）：
 
@@ -53,7 +53,7 @@ reqwest = { version = "0.12", features = ["native-tls"], default-features = fals
 reqwest = { version = "0.12", features = ["native-tls"], default-features = false }
 ```
 
-- [ ] **Step 3: capabilities — 同样加 native-tls**
+- [ ] **步骤 3：capabilities — 同样加 native-tls**
 
 在 `crates/rustcode-capabilities/Cargo.toml` 的 `[target.'cfg(target_os = "windows")'.dependencies]` 段内追加：
 
@@ -68,7 +68,7 @@ reqwest = { version = "0.12", features = ["native-tls"], default-features = fals
 reqwest = { version = "0.12", features = ["native-tls"], default-features = false, optional = true }
 ```
 
-- [ ] **Step 4: codingplan — 新增 windows target 段**
+- [ ] **步骤 4：codingplan — 新增 windows target 段**
 
 `crates/rustcode-codingplan/Cargo.toml` 没有 windows target 段。在文件末尾（`[dev-dependencies]` 段之前或之后均可，惯例放 `[dependencies]` 之后、`[dev-dependencies]` 之前）新增：
 
@@ -78,7 +78,7 @@ reqwest = { version = "0.12", features = ["native-tls"], default-features = fals
 reqwest = { version = "0.12", features = ["native-tls"], default-features = false }
 ```
 
-- [ ] **Step 5: core — Windows 跳过 add_trusted_roots**
+- [ ] **步骤 5：core — Windows 跳过 add_trusted_roots**
 
 `crates/rustcode-core/src/provider/mod.rs` 第 152 行，把：
 
@@ -100,7 +100,7 @@ reqwest = { version = "0.12", features = ["native-tls"], default-features = fals
     }
 ```
 
-- [ ] **Step 6: capabilities — Windows 跳过 add_trusted_roots**
+- [ ] **步骤 6：capabilities — Windows 跳过 add_trusted_roots**
 
 `crates/rustcode-capabilities/src/provider/openai_compat.rs` 第 262-263 行，把：
 
@@ -122,33 +122,33 @@ reqwest = { version = "0.12", features = ["native-tls"], default-features = fals
     }
 ```
 
-- [ ] **Step 7: 验证非 Windows 构建不变（rustls 路径）**
+- [ ] **步骤 7：验证非 Windows 构建不变（rustls 路径）**
 
-Run:
+运行：
 ```bash
 cargo check --workspace 2>&1 | tail -5
 ```
-Expected: `Finished`，无 error（默认 target 非 Windows：native-tls 未启用，reqwest 仍 rustls-only；`if !cfg!(windows)` = `if !false` → add_trusted_roots 仍调用，路径与今天逐字节一致）。
+预期：`Finished`，无 error（默认 target 非 Windows：native-tls 未启用，reqwest 仍 rustls-only；`if !cfg!(windows)` = `if !false` → add_trusted_roots 仍调用，路径与今天逐字节一致）。
 
-- [ ] **Step 8: 验证 provider / #514 证书测试仍绿（非 Windows rustls 路径）**
+- [ ] **步骤 8：验证 provider / #514 证书测试仍绿（非 Windows rustls 路径）**
 
-Run:
+运行：
 ```bash
 cargo test -p rustcode-core -p rustcode-capabilities --features provider 2>&1 | grep -E "test result: (ok|FAIL)|error\[" | tail -20
 ```
-Expected: 全部 `test result: ok`，无 `FAIL`/`error`。特别是 `rustcode-core` 的 `build_http_client_tls_tests`（#514）在非 Windows 仍走 rustls + add_trusted_roots，应全绿。
+预期：全部 `test result: ok`，无 `FAIL`/`error`。特别是 `rustcode-core` 的 `build_http_client_tls_tests`（#514）在非 Windows 仍走 rustls + add_trusted_roots，应全绿。
 
-- [ ] **Step 9: 尝试验证 Windows target 编译（有工具链才做）**
+- [ ] **步骤 9：尝试验证 Windows target 编译（有工具链才做）**
 
-Run:
+运行：
 ```bash
 rustup target list --installed | grep -q windows && \
   cargo check -p rustcode-capabilities --features provider --target "$(rustup target list --installed | grep windows | head -1)" 2>&1 | tail -15 || \
   echo "no windows target installed — defer Windows compile check to real-machine build"
 ```
-Expected: 若装了 windows target → `Finished`（native-tls feature + cfg 门控在 Windows 编译通过、无 dead_code 警告）；否则打印跳过提示（Windows 编译由真机 build 兜底）。
+预期：若装了 windows target → `Finished`（native-tls feature + cfg 门控在 Windows 编译通过、无 dead_code 警告）；否则打印跳过提示（Windows 编译由真机 build 兜底）。
 
-- [ ] **Step 10: 提交**
+- [ ] **步骤 10：提交**
 
 ```bash
 git add crates/rustcode-auth/Cargo.toml \
@@ -166,7 +166,7 @@ Windows target 给 reqwest 加 native-tls feature(默认后端翻为 SChannel),
 拒证书)。非 Windows 完全不变。"
 ```
 
-- [ ] **Step 11: 记录真机验证待办（唯一权威）**
+- [ ] **步骤 11：记录真机验证待办（唯一权威）**
 
 在提交说明或 PR 描述里注明：**需 Windows 真机验证**——用带此修复的 Windows build，在复现网络下确认：
 1. 聊天到 `gateway.example.com` 能通（不再 10054）；
@@ -176,16 +176,16 @@ CI 与本开发环境均无法复现 SChannel 行为，故此步只能由用户�
 
 ---
 
-## Self-Review
+## 自审
 
-**Spec coverage：**
-- spec §1（Windows-only native-tls，4 crates，feature unification）→ Steps 1-4。
-- spec §2（Windows 跳过 add_trusted_roots，两处 build_http_client*，SChannel 原生信任）→ Steps 5-6。
+**规格覆盖：**
+- spec §1（仅 Windows 启用 native-tls，覆盖 4 个 crate，靠 feature unification 生效）→ 步骤 1-4。
+- spec §2（Windows 跳过 add_trusted_roots，两处 build_http_client*，SChannel 原生信任）→ 步骤 5-6。
 - spec §3（现有 max_tls_version(1.2) 回退不变，作用于 SChannel）→ 未改动即满足（无对应 step，正确）。
-- spec §4（覆盖 auth/codingplan/core/capabilities）→ Steps 1-4 覆盖四 crate 的 Cargo；auth/codingplan blocking client 无 add_trusted_roots，仅需 Cargo（Steps 1、4）。
-- spec §测试（无新增纯逻辑；编译门控；真机权威）→ Steps 7-9（编译/回归）+ Step 11（真机待办）。
-- spec §风险（SSL_CERT_FILE 在 Windows 失效、blast radius、#514 反向风险）→ 已在 Step 5-6 注释与 Step 11 说明中体现。
+- spec §4（覆盖 auth/codingplan/core/capabilities）→ 步骤 1-4 覆盖四 crate 的 Cargo；auth/codingplan blocking client 无 add_trusted_roots，仅需 Cargo（步骤 1、4）。
+- spec §测试（无新增纯逻辑；编译门控；真机权威）→ 步骤 7-9（编译/回归）+ 步骤 11（真机待办）。
+- spec §风险（SSL_CERT_FILE 在 Windows 失效、blast radius、#514 反向风险）→ 已在 步骤 5-6 注释与 步骤 11 说明中体现。
 
-**Placeholder scan：** 无 TBD/TODO；每个代码步骤含完整改前/改后代码与确切命令、预期输出；Step 9 对"无 windows 工具链"给了确定的降级分支。
+**占位符扫描：** 无 TBD/TODO；每个代码步骤含完整改前/改后代码与确切命令、预期输出；步骤 9 对"无 windows 工具链"给了确定的降级分支。
 
-**Type consistency：** 未引入新符号；`add_trusted_roots(builder)` 签名沿用现有；两处门控均为 `if [trust_os_roots &&] !cfg!(target_os = "windows")` 同一口径；Cargo target 行四处一致（capabilities 额外带 `optional = true` 以匹配其 optional reqwest 基座声明——已在 Step 3 显式说明）。
+**类型一致性：** 未引入新符号；`add_trusted_roots(builder)` 签名沿用现有；两处门控均为 `if [trust_os_roots &&] !cfg!(target_os = "windows")` 同一口径；Cargo target 行四处一致（capabilities 额外带 `optional = true` 以匹配其 optional reqwest 基座声明——已在 步骤 3 显式说明）。

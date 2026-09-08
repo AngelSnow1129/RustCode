@@ -1,7 +1,7 @@
-# @rustcode/rustcode
+# @rustcode/rustcode（RustCode 的 npm 分发包）
 
-[![npm version](https://img.shields.io/npm/v/@rustcode/rustcode)](https://www.npmjs.com/package/@rustcode/rustcode)
-[![license](https://img.shields.io/npm/l/@rustcode/rustcode)](https://www.npmjs.com/package/@rustcode/rustcode)
+[![npm 版本号](https://img.shields.io/npm/v/@rustcode/rustcode)](https://www.npmjs.com/package/@rustcode/rustcode)
+[![许可证](https://img.shields.io/npm/l/@rustcode/rustcode)](https://www.npmjs.com/package/@rustcode/rustcode)
 
 **RustCode** — 开源终端 AI 编码助手。用自然语言描述任务，自动阅读代码、编辑文件、执行命令、验证结果。
 
@@ -58,4 +58,4 @@ npm 版本号与 RustCode 发布版本一致，发布说明请见你的发行渠
 
 ---
 
-Built with Rust, ratatui, and a lot of late nights.
+由 Rust 与 ratatui 构建而成，外加许多个深夜。

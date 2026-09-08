@@ -87,7 +87,7 @@ rustcode_core::agent::AgentEvent
 它们仍然能工作，但属于旧 driver 协议。bridge 负责将它们转换为 kernel v2
 命令和事件。
 
-### 2.2 core-free
+### 2.2 core-free 架构属性
 
 `core-free` 是架构属性，不是模块名，表示某个模块的实现和 Cargo 依赖图中不再包含
 `rustcode-core`。
@@ -166,9 +166,9 @@ Shutdown
 - `CodingParts`；
 - `prepare`：加载 MCP、skills、memory、session、hooks；
 - `assemble`：把 parts 与 provider 组装成 kernel `Agent`；
-- session binding；
+- 会话绑定；
 - plan、bypass、accept-edits 等共享模式状态；
-- review/subagent provider slot；
+- review/subagent provider 槽位；
 - reassemble 时保留 session identity、snapshot、approval grant 和 hook 状态的基础能力。
 
 因此 `CodingRuntime` 不需要重新实现 assembly，应建立在现有
@@ -234,7 +234,7 @@ rustcode-coding/src/runtime/
 
 应包含：
 
-- send/respond/compact/snapshot/cancel/shutdown；
+- send/respond/compact/snapshot/cancel/shutdown 等运行态操作；
 - provider/model 参数变化后的 reassemble；
 - MCP/hooks/skills/plugin 等变化后的 reprepare；
 - fresh session、resume、working directory 切换、undo；
@@ -311,7 +311,7 @@ pub struct CodingRuntimeEvents {
 
 不能把所有切换统一实现成一个无差别 `restart()`。至少需要区分：
 
-### 6.1 reassemble
+### 6.1 reassemble（重新组装）
 
 复用同一 `CodingParts`，使用新 provider/config 重新组装 Agent。
 
@@ -328,14 +328,14 @@ provider-only reload
 
 应保留：
 
-- session ID；
-- conversation snapshot；
-- approval grants；
+- 会话 ID；
+- conversation 快照；
+- 审批授权；
 - mode 状态；
 - hook 长生命周期状态；
-- gateway affinity。
+- gateway 亲和性。
 
-### 6.2 reprepare
+### 6.2 reprepare（重新准备）
 
 重新执行有 I/O 的 `prepare`，再 assemble 新 Agent。
 
@@ -355,7 +355,7 @@ memory/project capability reload
 - snapshot/session identity 延续；
 - prepare 失败时的回滚语义。
 
-### 6.3 fresh
+### 6.3 fresh（全新会话）
 
 建立新的 session binding 和新的 `CodingParts`。
 
@@ -371,8 +371,8 @@ memory/project capability reload
 需要明确清除：
 
 - 旧 conversation；
-- pending approval；
-- goal/loop controller；
+- 未决审批；
+- goal/loop 控制器；
 - turn/UI 统计；
 - 不应跨 session 保留的 hook 状态。
 
@@ -385,8 +385,8 @@ memory/project capability reload
 - legacy bridge adapter 服务未迁移命令；
 - `CodingRuntimeHandle` 服务已迁移命令。
 
-两套接口必须指向同一个 `CodingRuntime`，不能各自持有 Agent、session 或 event
-receiver。
+两套接口必须指向同一个 `CodingRuntime`，不能各自持有 Agent、session 或事件
+接收端（receiver）。
 
 ### 7.2 阶段 1：建立 runtime 基础，不改变外部行为
 
@@ -451,9 +451,9 @@ approval Request/Respond
 - `plan_mode`；
 - `bypass_mode`；
 - `accept_edits`；
-- pending request ID；
-- approval grant；
-- context usage/report。
+- 待处理请求 ID；
+- 审批授权；
+- context 用量/报告。
 
 ### 7.5 阶段 4：provider 配置簇
 
@@ -617,10 +617,10 @@ enum RuntimeState {
 具体实现必须覆盖：
 
 - AtomGit gateway 签名；
-- session affinity；
-- proxy/TLS/user-agent；
-- reasoning/chat options；
-- review/subagent tier；
+- session 亲和性；
+- proxy/TLS/user-agent 配置；
+- reasoning/chat 选项；
+- review/subagent 档位；
 - provider 构建失败后的回滚。
 
 ### 9.4 Approval 生命周期
@@ -649,16 +649,16 @@ enum RuntimeState {
 
 至少覆盖：
 
-- start/send/terminal event；
-- approval request/respond/cancel；
-- snapshot/compact/shutdown；
+- start/send/terminal 事件；
+- approval 请求/响应/取消；
+- snapshot/compact/shutdown 行为；
 - provider reload 保持 session ID 与 snapshot；
 - reprepare 清理旧资源；
-- resume/undo；
+- resume/undo 流程；
 - respawn 失败回滚；
 - 同一 parts 不产生双 live Agent。
 
-### 10.2 Driver parity
+### 10.2 Driver parity（驱动一致性）
 
 每个迁移簇都要覆盖受影响的：
 
@@ -679,10 +679,10 @@ provider reload
 
 - 所有 driver legacy 发送点；
 - core `AgentCommand/AgentEvent` 对应 variant；
-- bridge `on_command` handler；
+- bridge 的 `on_command` handler；
 - bridge event 转换；
 - CLI/TUI/daemon 对 legacy 类型的依赖；
-- v1/bridge fallback；
+- v1/bridge fallback 路径；
 - 只验证旧路径的测试。
 
 ## 11. 建议的第一实施里程碑
@@ -825,7 +825,7 @@ CodingRuntimeHandle      处理已迁移的 native 控制
 
 完成后仍保留，且必须明确标记“尚未退役”：
 
-- core `AgentEvent::CompactionUi`；
+- core 的 `AgentEvent::CompactionUi`；
 - bridge/daemon 的 kernel compaction 事件转换；
 - daemon `commands.rs` 的离线 session compact；
 - bridge 及 TUI 的其他 core command/event 依赖；
@@ -872,9 +872,9 @@ bridge fallback 已删除         否
 
 ### 15.2 已删除的 legacy surface
 
-- core `AgentCommand::Compact` variant；
+- core 的 `AgentCommand::Compact` variant；
 - TUI 对 core compact variant 的发送点；
-- bridge `CoreCmd::Compact` handler；
+- bridge 的 `CoreCmd::Compact` handler；
 - daemon kernel translator 的 `CoreCmd::Compact` 分支；
 - daemon 中只验证该旧映射的测试断言。
 
@@ -902,13 +902,13 @@ WebUI 离线 session 路径和 bridge fallback 均尚未退役**。
 
 ### 15.4 验证结果
 
-- `cargo test -p rustcode-coding runtime::tests`：2 passed；
-- `cargo test -p rustcode-bridge runtime_control_tests`：1 passed；
-- `cargo test -p rustcode-tuix resume_restores_the_native_handle_for_that_runtime`：1 passed；
-- `cargo test -p rustcode-daemon shutdown_maps_directly`：1 passed；
-- `cargo test -p rustcode-core --lib`：1555 passed，1 ignored；
-- `cargo test -p rustcode-kernel --test compaction`：13 passed；
-- `cargo check -p rustcode-coding -p rustcode-bridge -p rustcode-tuix \
+- `cargo test -p rustcode-coding runtime::tests`：2 项通过；
+- `cargo test -p rustcode-bridge runtime_control_tests`：1 项通过；
+- `cargo test -p rustcode-tuix resume_restores_the_native_handle_for_that_runtime`：1 项通过；
+- `cargo test -p rustcode-daemon shutdown_maps_directly`：1 项通过；
+- `cargo test -p rustcode-core --lib`：1555 项通过，1 项忽略；
+- `cargo test -p rustcode-kernel --test compaction`：13 项通过；
+- 依赖检查 `cargo check -p rustcode-coding -p rustcode-bridge -p rustcode-tuix \
   -p rustcode-daemon -p rustcode`：通过。
 
 仓库当前全量 `cargo fmt --all -- --check` 会报告大量与本切片无关的既有格式差异，
@@ -1210,15 +1210,15 @@ native compaction 到 daemon `TurnEvent` 的映射：
 |---|---|
 | Started | 当前 SSE/WebUI 无 spinner，忽略 |
 | Finished + committed | `TurnEvent::Warning(localized_mark)`，保持现有 wire 行为 |
-| Finished + manual no-op | `TurnEvent::TextDelta(localized_noop)` |
+| Finished + 手动 no-op | `TurnEvent::TextDelta(localized_noop)` |
 | Finished + auto/overflow no-op | 静默 |
 
 必须同时切换：
 
-- persistent `/live` `KernelTurnExecutor`；
+- 常驻 `/live` `KernelTurnExecutor`；
 - `/chat` 的 `run_chat_turn_v2`；
-- daemon bridge fallback；
-- daemon opt-in kernel driver；
+- daemon bridge fallback 路径；
+- daemon 的 opt-in kernel driver；
 - `agent_to_turn` 及其测试。
 
 live-sync 当前会把 daemon committed marker 作为 Warning 传给远端视图，本切片保持 wire
@@ -1308,15 +1308,15 @@ rustcode-daemon
 
 ### 16.14 验证矩阵
 
-runtime/domain：
+runtime 与领域：
 
 - usage 存在时的 before/after token 估算；
 - usage 缺失时 `bytes / 4` fallback；
 - `bytes_before == 0`；
-- committed drain、committed stub、manual no-op、auto no-op、overflow no-op；
+- committed drain、committed stub、手动 no-op、自动 no-op、溢出 no-op；
 - outcome 保留 trigger、epoch 和 exact byte/message 数据。
 
-bridge/order：
+bridge 与顺序：
 
 - Started → Finished → ContextStats 顺序；
 - Finished 后的 TextDelta/ToolStarted 不越过 native 事件；
@@ -1333,9 +1333,9 @@ TUI：
 - plain/retained 两种 renderer；
 - compaction 后 `/context` 读取刷新后的统计。
 
-CLI/daemon：
+CLI 与 daemon：
 
-- headless committed marker；
+- headless 下的 committed marker；
 - daemon bridge 与 kernel path 输出一致；
 - `/live` 与 `/chat` 映射一致；
 - approval、cancel、provider reload、working-dir reload 和 terminal snapshot 的 legacy
@@ -1352,7 +1352,7 @@ CLI/daemon：
 - `rustcode-coding::runtime` 现在拥有 driver-neutral 的
   `CodingRuntimeEvent` 与 `CompactionOutcome`；
 - bridge、TUI 和 daemon 分别使用单 channel 的有序 `Legacy/Native` envelope；
-- CLI headless、TUI foreground/background、daemon `/live`、`/chat`、bridge fallback
+- CLI headless、TUI 前台/后台、daemon `/live`、`/chat`、bridge fallback
   和 daemon kernel path 均已切换 native compaction event；
 - committed compaction 后仍按 `CompactionFinished → ContextStats` 的顺序立即刷新 usage；
 - compaction 展示文案统一由 `rustcode-config::i18n` 格式化；
@@ -1382,7 +1382,7 @@ rg "CompactionUi|CompactionUiKind" crates
 
 结果必须为空；同时检查旧 bridge/daemon helper、旧 spawn wrapper 和只验证 legacy
 转换的测试均已删除。之后依次运行受影响 crate 的针对性测试和实际可行的最广
-workspace check。
+workspace 检查。
 
 ### 16.16 第二切片验收口径与后续唯一下一步
 

@@ -1,14 +1,14 @@
-# `/skills` 多 skill 组合 Implementation Plan
+# `/skills` 多 skill 组合实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必备子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
 **Goal:** 让 `/skills` 命令用贪婪前缀匹配接受多个 skill 名，把它们的正文一起注入到一个任务回合；单 skill 用法完全不变。
 
 **Architecture:** 新增一个纯函数 `split_skill_names`（TDD 全覆盖）把参数串切成"skill 名前缀列表 + 任务描述"；`/skills` 分支改用它，循环调用现有 `expand_skill` 拼接注入，并回显已加载的 skill 名。新增一条 i18n `Msg` 供回显。不改内核、不改 `rustcode-core::skill`。
 
-**Tech Stack:** Rust；`rustcode-tuix`（命令层）+ `rustcode-config`（i18n）。
+**技术栈：** Rust；`rustcode-tuix`（命令层）+ `rustcode-config`（i18n）。
 
-## Global Constraints
+## 全局约束
 
 - 单 skill（无第二个 skill 词）行为必须与当前逐字节一致——零回归。
 - 首词非 skill → 沿用现有 `Msg::SkillUnknown { name }` 报错，`name` = 第一个词。
@@ -20,16 +20,16 @@
 
 ---
 
-### Task 1: `split_skill_names` 纯函数 + 单元测试
+### 任务 1：`split_skill_names` 纯函数 + 单元测试
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-tuix/src/event_loop/commands.rs`（在 `expand_skill`（约 3644 行）附近新增函数 + 同文件 `#[cfg(test)]` 测试）
 
-**Interfaces:**
-- Produces: `fn split_skill_names(arg: &str, resolve: impl Fn(&str) -> bool) -> (Vec<String>, String)` —
+**接口：**
+- 产出： `fn split_skill_names(arg: &str, resolve: impl Fn(&str) -> bool) -> (Vec<String>, String)` —
   返回 (去重后保持首见顺序的 skill 名列表, 任务描述串)。`resolve(token)` 返回 `true` 表示该 token 是已知 user-invocable skill。
 
-- [ ] **Step 1: 写失败测试**
+- [ ] **步骤 1：写失败测试**
 
 在 `commands.rs` 末尾的 `#[cfg(test)] mod tests`（若无则新建）中加入：
 
@@ -97,12 +97,12 @@ mod split_skill_names_tests {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **步骤 2：运行测试确认失败**
 
-Run: `cargo test -p rustcode-tuix split_skill_names_tests 2>&1 | tail -20`
-Expected: 编译失败 `cannot find function split_skill_names in this scope`（函数尚未定义）。
+运行：`cargo test -p rustcode-tuix split_skill_names_tests 2>&1 | tail -20`
+预期：编译失败 `cannot find function split_skill_names in this scope`（函数尚未定义）。
 
-- [ ] **Step 3: 实现纯函数**
+- [ ] **步骤 3：实现纯函数**
 
 在 `commands.rs` 中 `expand_skill` 函数上方新增：
 
@@ -129,12 +129,12 @@ fn split_skill_names(arg: &str, resolve: impl Fn(&str) -> bool) -> (Vec<String>,
 }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **步骤 4：运行测试确认通过**
 
-Run: `cargo test -p rustcode-tuix split_skill_names_tests 2>&1 | tail -20`
-Expected: `test result: ok. 7 passed`。
+运行：`cargo test -p rustcode-tuix split_skill_names_tests 2>&1 | tail -20`
+预期：7 个用例全部通过（输出 `test result: ok. 7 passed`）。
 
-- [ ] **Step 5: 提交**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/event_loop/commands.rs
@@ -143,19 +143,19 @@ git commit -m "feat(skills): split_skill_names 贪婪前缀解析纯函数"
 
 ---
 
-### Task 2: i18n 回显文案 + 接线 `/skills` 分支
+### 任务 2：i18n 回显文案 + 接线 `/skills` 分支
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-config/src/i18n/messages.rs:719`（`SkillUnknown` 之后加 `SkillsLoaded`）
 - Modify: `crates/rustcode-config/src/i18n/en.rs:613`（`SkillUnknown` 臂之后加 `SkillsLoaded` 臂）
 - Modify: `crates/rustcode-config/src/i18n/zh_cn.rs:596`（同上）
 - Modify: `crates/rustcode-tuix/src/event_loop/commands.rs:3462-3480`（`"skills"` 分支的 `else` 块）
 
-**Interfaces:**
-- Consumes: `split_skill_names`（Task 1）；现有 `expand_skill(ctx: &LoopCtx, name: &str, arg: &str) -> Option<String>`；现有 `submit_agent_turn(ctx: &LoopCtx, state: &mut UiState, text: String)`；现有 `Msg::SkillUnknown { name: &str }`。
-- Produces: `Msg::SkillsLoaded { names: &'a str }`。
+**接口：**
+- 消费： `split_skill_names`（任务 1）；现有 `expand_skill(ctx: &LoopCtx, name: &str, arg: &str) -> Option<String>`；现有 `submit_agent_turn(ctx: &LoopCtx, state: &mut UiState, text: String)`；现有 `Msg::SkillUnknown { name: &str }`。
+- 产出： `Msg::SkillsLoaded { names: &'a str }`。
 
-- [ ] **Step 1: 新增 i18n `Msg` 变体**
+- [ ] **步骤 1：新增 i18n `Msg` 变体**
 
 在 `crates/rustcode-config/src/i18n/messages.rs` 的 `SkillUnknown { name: &'a str },`（719-721 行）之后插入：
 
@@ -165,7 +165,7 @@ git commit -m "feat(skills): split_skill_names 贪婪前缀解析纯函数"
     },
 ```
 
-- [ ] **Step 2: 加 en 匹配臂**
+- [ ] **步骤 2：加 en 匹配臂**
 
 在 `crates/rustcode-config/src/i18n/en.rs` 的 `Msg::SkillUnknown { name } => ...`（612-613 行）之后插入：
 
@@ -174,7 +174,7 @@ git commit -m "feat(skills): split_skill_names 贪婪前缀解析纯函数"
             format!("  Loaded skills: {}\n", names).into(),
 ```
 
-- [ ] **Step 3: 加 zh_cn 匹配臂**
+- [ ] **步骤 3：加 zh_cn 匹配臂**
 
 在 `crates/rustcode-config/src/i18n/zh_cn.rs` 的 `Msg::SkillUnknown { name } => ...`（596 行附近）之后插入：
 
@@ -183,12 +183,12 @@ git commit -m "feat(skills): split_skill_names 贪婪前缀解析纯函数"
             format!("  已加载 skills：{}\n", names).into(),
 ```
 
-- [ ] **Step 4: 运行 i18n 测试确认新变体编译通过**
+- [ ] **步骤 4：运行 i18n 测试确认新变体编译通过**
 
-Run: `cargo test -p rustcode-config 2>&1 | tail -5`
-Expected: 编译通过、`test result: ok`（穷尽匹配下 en/zh 都补齐才会编译成功）。
+运行：`cargo test -p rustcode-config 2>&1 | tail -5`
+预期：编译通过、`test result: ok`（穷尽匹配下 en/zh 都补齐才会编译成功）。
 
-- [ ] **Step 5: 接线 `/skills` 分支**
+- [ ] **步骤 5：接线 `/skills` 分支**
 
 把 `crates/rustcode-tuix/src/event_loop/commands.rs` 中 `"skills"` 分支里 `arg_trim` 非空的整个 `else { ... }` 块（当前 3462-3480 行，`splitn(2)` 那段）替换为：
 
@@ -244,17 +244,17 @@ Expected: 编译通过、`test result: ok`（穷尽匹配下 en/zh 都补齐才�
             }
 ```
 
-- [ ] **Step 6: 构建确认接线编译通过**
+- [ ] **步骤 6：构建确认接线编译通过**
 
-Run: `cargo build -p rustcode-tuix 2>&1 | tail -8`
-Expected: `Finished`，无 error（可能存在与本改动无关的既有告警）。
+运行：`cargo build -p rustcode-tuix 2>&1 | tail -8`
+预期：`Finished`，无 error（可能存在与本改动无关的既有告警）。
 
-- [ ] **Step 7: 回归 —— 全量相关测试**
+- [ ] **步骤 7：回归 —— 全量相关测试**
 
-Run: `cargo test -p rustcode-tuix -p rustcode-config 2>&1 | grep -E "test result: FAIL|test result: ok|error\[" | tail -20`
-Expected: 全部 `test result: ok`，无 `FAIL`/`error`。
+运行：`cargo test -p rustcode-tuix -p rustcode-config 2>&1 | grep -E "test result: FAIL|test result: ok|error\[" | tail -20`
+预期：全部 `test result: ok`，无 `FAIL`/`error`。
 
-- [ ] **Step 8: 手动验证（真机/交互，无法自动化的 TUI 路径）**
+- [ ] **步骤 8：手动验证（真机/交互，无法自动化的 TUI 路径）**
 
 在 rustcode 交互会话中依次执行并观察：
 - `/skills brainstorming` → 仅加载 brainstorming（同今天）。
@@ -263,7 +263,7 @@ Expected: 全部 `test result: ok`，无 `FAIL`/`error`。
 - `/skills 不存在的名字` → `Unknown skill: 不存在的名字`。
 （`adapt-agent`/`skill-creator` 需为当前工程已安装的 user-invocable skill；否则换两个实际已安装的 skill 名验证。）
 
-- [ ] **Step 9: 提交**
+- [ ] **步骤 9：提交**
 
 ```bash
 git add crates/rustcode-config/src/i18n/messages.rs \
@@ -275,16 +275,16 @@ git commit -m "feat(skills): /skills 支持贪婪匹配多个 skill 名 + 回显
 
 ---
 
-## Self-Review
+## 自审
 
-**Spec coverage：**
-- §1 解析（贪婪前缀纯函数）→ Task 1。
-- §2 单 skill 向后兼容 → Task 1 的 `single_skill_*` 测试 + Global Constraints。
-- §3 组合注入（顺序=输入顺序、分隔符、任务传给每个 skill）→ Task 2 Step 5（`blocks.join("\n\n---\n\n")`、`expand_skill(.., &skill_args)`）。
-- §4 回显防 typo → Task 2 Step 1-3（Msg）+ Step 5（`SkillsLoaded` 渲染）。
-- §5 边界（首词非 skill 报错 / 去重）→ Task 2 Step 5（`skills.is_empty()` 分支）+ Task 1 `duplicate_skill_deduped`。
-- 测试清单 → Task 1 七个用例逐条对应。
+**规格覆盖：**
+- §1 解析（贪婪前缀纯函数）→ 任务 1。
+- §2 单 skill 向后兼容 → 任务 1 的 `single_skill_*` 测试 + Global Constraints。
+- §3 组合注入（顺序=输入顺序、分隔符、任务传给每个 skill）→ 任务 2 步骤 5（`blocks.join("\n\n---\n\n")`、`expand_skill(.., &skill_args)`）。
+- §4 回显防 typo → 任务 2 步骤 1-3（Msg）+ 步骤 5（`SkillsLoaded` 渲染）。
+- §5 边界（首词非 skill 报错 / 去重）→ 任务 2 步骤 5（`skills.is_empty()` 分支）+ 任务 1 `duplicate_skill_deduped`。
+- 测试清单 → 任务 1 七个用例逐条对应。
 
-**Placeholder scan：** 无 TBD/TODO；每个代码步骤含完整代码；手动验证步骤给了具体命令与预期。
+**占位符扫描：** 无 TBD/TODO；每个代码步骤含完整代码；手动验证步骤给了具体命令与预期。
 
-**Type consistency：** `split_skill_names(&str, impl Fn(&str)->bool) -> (Vec<String>, String)` 在 Task 1 定义、Task 2 Step 5 消费一致；`Msg::SkillsLoaded { names: &'a str }` 定义（messages.rs）与消费（`names: names.as_str()`）一致；`expand_skill(ctx, name.as_str(), &skill_args)` 与现有签名 `(&LoopCtx, &str, &str)` 一致。
+**类型一致性：** `split_skill_names(&str, impl Fn(&str)->bool) -> (Vec<String>, String)` 在 任务 1 定义、任务 2 步骤 5 消费一致；`Msg::SkillsLoaded { names: &'a str }` 定义（messages.rs）与消费（`names: names.as_str()`）一致；`expand_skill(ctx, name.as_str(), &skill_args)` 与现有签名 `(&LoopCtx, &str, &str)` 一致。

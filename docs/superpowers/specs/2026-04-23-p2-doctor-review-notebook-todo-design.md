@@ -1,45 +1,45 @@
-# P2: /doctor + /review + Notebook + TodoWrite
+# P2: /doctor + /review + Notebook + TodoWrite 设计
 
-Date: 2026-04-23
+日期：2026-04-23
 
-## 1. /doctor
+## 1. /doctor 诊断命令
 
-Slash command. No AgentLoop involvement — pure TUI-side diagnostics.
+斜杠命令。不涉及 AgentLoop —— 纯 TUI 侧诊断。
 
-Checks:
-- Provider: send a minimal API call (list models or 1-token completion), report latency or error
-- MCP: read from `mcp::get_statuses()`
-- Settings: load and report allow/deny/hook counts
-- Git: run `git status --porcelain` + `git branch --show-current`
-- Project: check `.rustcode.md` existence
-- Tools: count registered tools from ToolRegistry (passed via LoopCtx or static)
+检查项：
+- Provider：发一个最小 API 调用（列举模型或 1-token 补全），报告延迟或错误
+- MCP：从 `mcp::get_statuses()` 读取
+- Settings：加载并报告 allow/deny/hook 计数
+- Git：执行 `git status --porcelain` + `git branch --show-current`
+- Project：检查 `.rustcode.md` 是否存在
+- Tools：从 ToolRegistry 统计已注册工具数（经 LoopCtx 或静态传入）
 
-Output format: `✓`/`✗` per component with detail.
+输出格式：每个组件用 `✓`/`✗` 标记，并附详情。
 
-Files: `commands.rs` (slash handler), `commands.rs` (register in help)
+涉及文件：`commands.rs`（斜杠处理器）、`commands.rs`（注册到帮助）
 
-## 2. /review
+## 2. /review 代码评审
 
-Slash command that reads `git diff` and sends it as a review prompt to the agent.
+读取 `git diff` 并把它作为评审 prompt 发给 agent 的斜杠命令。
 
-Implementation:
-1. Run `git diff` (or `git diff --staged` if arg is `--staged`)
-2. If diff is empty, show "No changes to review"
-3. Construct prompt: `"Review the following code changes for bugs, security issues, and improvements:\n\n```diff\n{diff}\n```"`
-4. Send as `AgentCommand::SendMessage(prompt)`
-5. Agent streams the review as normal text response
+实现：
+1. 执行 `git diff`（参数为 `--staged` 时执行 `git diff --staged`）
+2. diff 为空则显示 "No changes to review"
+3. 构造 prompt：`"Review the following code changes for bugs, security issues, and improvements:\n\n```diff\n{diff}\n```"`
+4. 以 `AgentCommand::SendMessage(prompt)` 发出
+5. Agent 以普通文本响应流式输出评审内容
 
-Files: `commands.rs` (slash handler + register)
+涉及文件：`commands.rs`（斜杠处理器 + 注册）
 
-## 3. Notebook (.ipynb) support
+## 3. Notebook（.ipynb）支持
 
-Add `.ipynb` parsing to `read_file` tool. No new files — extend existing `read.rs`.
+为 `read_file` 工具增加 `.ipynb` 解析。不新增文件 —— 扩展现有 `read.rs`。
 
-When `read_file` encounters a `.ipynb` file:
-1. Parse as JSON (`serde_json::Value`)
-2. Extract `cells` array
-3. For each cell: render `cell_type` (code/markdown), `source` lines, and `outputs` (text/plain only)
-4. Return formatted text like:
+当 `read_file` 遇到 `.ipynb` 文件时：
+1. 按 JSON 解析（`serde_json::Value`）
+2. 提取 `cells` 数组
+3. 每个 cell：渲染 `cell_type`（code/markdown）、`source` 行，以及 `outputs`（仅 text/plain）
+4. 返回如下格式的文本：
 ```
 [Cell 1 - code]
 import pandas as pd
@@ -55,11 +55,11 @@ df = pd.read_csv("data.csv")
 This notebook analyzes...
 ```
 
-Files: `crates/rustcode-core/src/tool/read.rs` (add ipynb handler before binary fallback)
+涉及文件：`crates/rustcode-core/src/tool/read.rs`（在二进制回退之前加 ipynb handler）
 
-## 4. TodoWrite tool
+## 4. TodoWrite 工具
 
-New tool `todo` registered in ToolRegistry. In-memory task list per session.
+新工具 `todo` 注册进 ToolRegistry。每个会话一份内存任务列表。
 
 ```rust
 pub struct TodoTool {
@@ -73,12 +73,12 @@ struct TodoItem {
 }
 ```
 
-Actions: `add`, `update`, `complete`, `list`
-- `add`: push new item, return id
-- `update`: change status to in_progress
-- `complete`: mark done
-- `list`: return all items with status
+动作：`add`、`update`、`complete`、`list`
+- `add`：压入新项，返回 id
+- `update`：把状态改为 in_progress
+- `complete`：标记为已完成
+- `list`：返回所有项及其状态
 
-LLM uses this to track multi-step tasks. `/todo` slash command shows current list.
+LLM 用它跟踪多步任务。`/todo` 斜杠命令展示当前列表。
 
-Files: `crates/rustcode-core/src/tool/todo.rs` (new), `tool/mod.rs`, `cli/main.rs` (register), `commands.rs` (slash /todo)
+涉及文件：`crates/rustcode-core/src/tool/todo.rs`（新增）、`tool/mod.rs`、`cli/main.rs`（注册）、`commands.rs`（斜杠命令 /todo）

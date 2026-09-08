@@ -1,44 +1,44 @@
-# Brainstorming → request_user_input Persona Bridge — Implementation Plan
+# Brainstorming → request_user_input Persona 桥接 —— 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **致 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** Make the model route a skill-driven brainstorming/interview's choice questions through the existing `request_user_input` tool (answerable in the TUI/webui UI) instead of writing them as prose.
+**目标：** 让模型把技能驱动的 brainstorming/interview 里的选择题，通过既有的 `request_user_input` 工具（可在 TUI/webui 界面中作答）提出，而不是把它们写成散文式的问题。
 
-**Architecture:** Prompt-only change. All machinery (tool, TUI panel, webui modal, kernel roundtrip, env gate, `coding_persona` param + call sites) already exists and is wired. The single gap is that the persona's `## SKILLS:` and `## ASKING THE USER:` blocks don't connect during brainstorming — the "ask sparingly" framing reads as a reason NOT to use the tool for exploratory questions. We add one bridging clause inside the already-gated `REQUEST_USER_INPUT_USAGE` block.
+**架构：** 纯 prompt 改动。全部机制（工具、TUI 面板、webui 弹窗、kernel 往返、环境变量开关、`coding_persona` 参数 + 调用点）都已存在并已接好。唯一的缺口是：在 brainstorming 过程中，persona 里的 `## SKILLS:` 与 `## ASKING THE USER:` 两段没有衔接——「尽量少问」的措辞会被读成「探索性问题不要用这个工具」的理由。我们在已被开关控制的 `REQUEST_USER_INPUT_USAGE` 段内加一句桥接条款。
 
-**Tech Stack:** Rust, `rustcode-coding` crate, `cargo test`.
+**技术栈：** Rust、`rustcode-coding` crate、`cargo test`。
 
-## Global Constraints
+## 全局约束
 
-- Change lives INSIDE `REQUEST_USER_INPUT_USAGE` (`crates/rustcode-coding/src/persona.rs:303`) so it is automatically governed by the existing `request_user_input_enabled` gate — when the tool is off (`RUSTCODE_REQUEST_USER_INPUT=0`), the clause must disappear with the rest of the block. Never nudge toward an unmounted tool.
-- No new function params, no new call sites, no changes to the external superpowers skill files.
-- webui `/chat` path (`build_api_system_prompt`, does not use `coding_persona`) is explicitly out of scope this round.
-- Do not weaken the general scarcity rule for the model's OWN ad-hoc questions; scope the new clause to "a skill is driving the Q&A."
-- Commit message trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. Current branch is `release/v5.0.1`; commit there (already the working branch).
-
----
-
-## File Structure
-
-- `crates/rustcode-coding/src/persona.rs` — the ONLY production file changed. Modify the `REQUEST_USER_INPUT_USAGE` string constant (line ~303). Add one test in the existing `mod tests` (line ~406).
-
-No new files.
+- 改动位于 `REQUEST_USER_INPUT_USAGE` **内部**（`crates/rustcode-coding/src/persona.rs:303`），因此自动受既有的 `request_user_input_enabled` 开关管辖——当工具关闭（`RUSTCODE_REQUEST_USER_INPUT=0`）时，该条款必须随整段一起消失。绝不引导模型去使用未挂载的工具。
+- 不新增函数参数、不新增调用点、不改动外部 superpowers 技能文件。
+- webui 的 `/chat` 路径（`build_api_system_prompt`，不使用 `coding_persona`）本轮明确不在范围内。
+- 不得削弱针对模型**自身**临时提问的通用稀缺性规则；新条款的适用范围限定为「由某个技能在驱动这轮问答」。
+- 提交信息尾部：`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`。当前分支是 `release/v5.0.1`；就提交在该分支上（它已是工作分支）。
 
 ---
 
-### Task 1: Add the brainstorming bridge clause to `## ASKING THE USER`
+## 文件结构
 
-**Files:**
-- Modify: `crates/rustcode-coding/src/persona.rs` — `REQUEST_USER_INPUT_USAGE` const (~line 303–311)
-- Test: `crates/rustcode-coding/src/persona.rs` — `mod tests` (~line 406)
+- `crates/rustcode-coding/src/persona.rs` —— 唯一改动的生产文件。修改 `REQUEST_USER_INPUT_USAGE` 字符串常量（约 303 行）。在既有的 `mod tests` 里加一个测试（约 406 行）。
 
-**Interfaces:**
-- Consumes: existing `coding_persona(model: &str, todo_enabled: bool, request_user_input_enabled: bool) -> String`. Unchanged signature.
-- Produces: no new symbols. Behavioral: when `request_user_input_enabled == true`, the persona string additionally contains the substring `structured interview`; when `false`, it does not (already guaranteed by the gate).
+不新增文件。
 
-- [ ] **Step 1: Write the failing test**
+---
 
-Add this test inside `mod tests` in `crates/rustcode-coding/src/persona.rs` (e.g. right after the existing `request_user_input_guidance_gated` test at ~line 425):
+### 任务 1：给 `## ASKING THE USER` 加上 brainstorming 桥接条款
+
+**文件：**
+- 修改：`crates/rustcode-coding/src/persona.rs` —— `REQUEST_USER_INPUT_USAGE` 常量（约 303–311 行）
+- 测试：`crates/rustcode-coding/src/persona.rs` —— `mod tests`（约 406 行）
+
+**接口：**
+- 消费：既有的 `coding_persona(model: &str, todo_enabled: bool, request_user_input_enabled: bool) -> String`。签名不变。
+- 产出：无新符号。行为上：当 `request_user_input_enabled == true` 时，persona 字符串额外包含子串 `structured interview`；为 `false` 时则不包含（这已由开关保证）。
+
+- [ ] **步骤 1：写失败测试**
+
+在 `crates/rustcode-coding/src/persona.rs` 的 `mod tests` 内加下面这个测试（例如放在既有的 `request_user_input_guidance_gated` 测试之后，约 425 行处）：
 
 ```rust
     #[test]
@@ -60,14 +60,14 @@ Add this test inside `mod tests` in `crates/rustcode-coding/src/persona.rs` (e.g
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **步骤 2：跑测试确认失败**
 
-Run: `cargo test -p rustcode-coding brainstorming_bridge_present_only_when_enabled`
-Expected: FAIL — the `on.contains("structured interview")` assertion panics (`enabled → brainstorming bridge clause present`), because the clause isn't in the const yet.
+运行：`cargo test -p rustcode-coding brainstorming_bridge_present_only_when_enabled`
+预期：FAIL —— `on.contains("structured interview")` 这条断言会 panic（`enabled → brainstorming bridge clause present`），因为该条款还没写进常量。
 
-- [ ] **Step 3: Append the bridge clause to the const**
+- [ ] **步骤 3：把桥接条款追加到常量末尾**
 
-In `crates/rustcode-coding/src/persona.rs`, the `REQUEST_USER_INPUT_USAGE` const currently ends like this:
+在 `crates/rustcode-coding/src/persona.rs` 里，`REQUEST_USER_INPUT_USAGE` 常量目前的结尾是这样的：
 
 ```rust
 for what you genuinely cannot decide, look up, or verify yourself — never for something the \
@@ -76,13 +76,13 @@ user to type a secret (password, API key, token) into the prompt — those come 
 environment or a secrets store, not a question.";
 ```
 
-Change the final line so the string continues instead of closing, and append the clause. Replace:
+把最后一行改成让字符串继续（而不是收尾），然后追加该条款。将：
 
 ```rust
 environment or a secrets store, not a question.";
 ```
 
-with:
+替换为：
 
 ```rust
 environment or a secrets store, not a question. \
@@ -94,17 +94,17 @@ you cannot decide yourself' guidance above governs YOUR OWN ad-hoc questions; it
 constrain a skill's structured interview.";
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **步骤 4：跑测试确认通过**
 
-Run: `cargo test -p rustcode-coding brainstorming_bridge_present_only_when_enabled`
-Expected: PASS.
+运行：`cargo test -p rustcode-coding brainstorming_bridge_present_only_when_enabled`
+预期：PASS。
 
-- [ ] **Step 5: Run the full persona test suite (no regressions)**
+- [ ] **步骤 5：跑完整 persona 测试套件（无回归）**
 
-Run: `cargo test -p rustcode-coding persona`
-Expected: all persona tests PASS (including the pre-existing `request_user_input_guidance_gated`, which still holds because the clause is inside the same gated block).
+运行：`cargo test -p rustcode-coding persona`
+预期：全部 persona 测试 PASS（包括既有的 `request_user_input_guidance_gated`；因为该条款位于同一个受控段内，它依然成立）。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-coding/src/persona.rs
@@ -124,20 +124,20 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 2 (OPTIONAL): Cross-reference the bridge from `## SKILLS`
+### 任务 2（可选）：从 `## SKILLS` 反向引用该桥接
 
-Low-value, low-risk polish. The `SKILLS_USAGE` block already says brainstorming should "let it drive the questions"; this adds a pointer so the two blocks reference each other. Skip if you prefer the minimal diff — Task 1 stands alone.
+价值低、风险低的润色。`SKILLS_USAGE` 段已经说了 brainstorming 应该「让它来主导提问」；这里加一个指引，使两段互相引用。如果你更想要最小的 diff，可以跳过——任务 1 本身已能独立成立。
 
-**Files:**
-- Modify: `crates/rustcode-coding/src/persona.rs` — `SKILLS_USAGE` const (~line 288–296)
+**文件：**
+- 修改：`crates/rustcode-coding/src/persona.rs` —— `SKILLS_USAGE` 常量（约 288–296 行）
 
-**Interfaces:**
-- Consumes: nothing new.
-- Produces: no new symbols. Behavioral: adds a substring `answer in the UI` to the always-present `## SKILLS` block.
+**接口：**
+- 消费：无新增。
+- 产出：无新符号。行为上：给始终存在的 `## SKILLS` 段增加子串 `answer in the UI`。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：写失败测试**
 
-Add inside `mod tests`:
+在 `mod tests` 内加：
 
 ```rust
     #[test]
@@ -151,20 +151,20 @@ Add inside `mod tests`:
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **步骤 2：跑测试确认失败**
 
-Run: `cargo test -p rustcode-coding skills_block_points_at_ui_answering`
-Expected: FAIL on `p.contains("answer in the UI")`.
+运行：`cargo test -p rustcode-coding skills_block_points_at_ui_answering`
+预期：在 `p.contains("answer in the UI")` 处 FAIL。
 
-- [ ] **Step 3: Append the pointer to `SKILLS_USAGE`**
+- [ ] **步骤 3：把指引追加到 `SKILLS_USAGE`**
 
-The `SKILLS_USAGE` const currently ends:
+`SKILLS_USAGE` 常量目前的结尾是：
 
 ```rust
 use the minimal set; if none match, proceed normally.";
 ```
 
-Replace with:
+替换为：
 
 ```rust
 use the minimal set; if none match, proceed normally. When the loaded skill runs an interview \
@@ -172,17 +172,17 @@ use the minimal set; if none match, proceed normally. When the loaded skill runs
 prefer `request_user_input` for its choice questions when that tool is available.";
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **步骤 4：跑测试确认通过**
 
-Run: `cargo test -p rustcode-coding skills_block_points_at_ui_answering`
-Expected: PASS.
+运行：`cargo test -p rustcode-coding skills_block_points_at_ui_answering`
+预期：PASS。
 
-- [ ] **Step 5: Run the full persona suite**
+- [ ] **步骤 5：跑完整 persona 套件**
 
-Run: `cargo test -p rustcode-coding persona`
-Expected: all PASS.
+运行：`cargo test -p rustcode-coding persona`
+预期：全部 PASS。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-coding/src/persona.rs
@@ -196,24 +196,24 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Self-Review
+## 自审
 
-**Spec coverage:**
-- "Add bridging clause inside `REQUEST_USER_INPUT_USAGE`, governed by existing gate" → Task 1. [x]
-- "No new params/call sites/external-skill edits" → honored (only the const string + a test change). [x]
-- "Optional pointer in `SKILLS_USAGE`" → Task 2, marked optional. [x]
-- "Persona unit test: present when enabled, absent when disabled" → Task 1 Step 1. [x]
-- "Run existing persona tests, stay green" → Task 1 Step 5. [x]
-- "webui `/chat` deferred" → not implemented, matches spec out-of-scope. [x]
-- "Real validation manual / 未真机" → no automated real-terminal step; correct, user verifies. [x]
+**Spec 覆盖：**
+- 「在 `REQUEST_USER_INPUT_USAGE` 内加桥接条款，受既有开关管辖」→ 任务 1。 [x]
+- 「不新增参数/调用点/外部技能改动」→ 已遵守（只改了常量字符串 + 一个测试）。 [x]
+- 「`SKILLS_USAGE` 里的可选指引」→ 任务 2，已标注为可选。 [x]
+- 「Persona 单测：开启时存在、关闭时消失」→ 任务 1 步骤 1。 [x]
+- 「跑既有 persona 测试，保持全绿」→ 任务 1 步骤 5。 [x]
+- 「webui `/chat` 延后」→ 未实现，与 spec 中「不在范围内」一致。 [x]
+- 「真实验证靠人工 / 未真机」→ 没有自动化的真机步骤；正确，由用户验证。 [x]
 
-**Placeholder scan:** No TBD/TODO; every code step shows the exact string. [x]
+**占位符扫描：** 无 TBD/TODO；每个代码步骤都给出了确切字符串。 [x]
 
-**Type consistency:** No signatures change. Test asserts on the literal substring `structured interview`, which appears verbatim in the Step 3 appended text. Task 2 asserts on `answer in the UI`, which appears verbatim in its Step 3 text. [x]
+**类型一致：** 无签名变更。测试断言的是字面子串 `structured interview`，它逐字出现在步骤 3 追加的文本里。任务 2 断言 `answer in the UI`，它同样逐字出现在其步骤 3 的文本里。 [x]
 
 ---
 
-## Execution Notes
+## 执行说明
 
-- Both tasks touch only `crates/rustcode-coding/src/persona.rs`. This crate builds and tests without special feature flags (`persona.rs` is in the default build); no `touch core/lib.rs` staleness dance is needed since `core` is untouched.
-- After merging, this ships un-real-machine-tested ("未真机") — the behavioral effect (panel appearing during a live brainstorming session) is only observable by the user on a real terminal.
+- 两个任务都只触碰 `crates/rustcode-coding/src/persona.rs`。该 crate 无需特殊 feature flag 即可构建和测试（`persona.rs` 在默认构建里）；因为 `core` 未被改动，所以不需要 `touch core/lib.rs` 那套防陈旧的操作。
+- 合并之后，本改动是未经真机验证（「未真机」）就发出的——其行为效果（在真实的 brainstorming 会话中出现面板）只有用户在真机终端上才能观察到。

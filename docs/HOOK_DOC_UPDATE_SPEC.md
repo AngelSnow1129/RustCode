@@ -36,8 +36,8 @@ AgentLoop / TurnRunner
 | # | Trait | 关键方法 | 可否影响流程 |
 |---|-------|---------|------------|
 | 1 | `PreToolExecutionHook` | `on_pre_execute(ctx) -> HookResult` | [+] 可修改/阻止 |
-| 2 | `PostToolExecutionHook` | `on_post_execute(ctx, result_ctx) -> HookResult` | [-] fire-and-forget |
-| 3 | `PostTurnHook` | `on_post_turn(ctx, turn_result) -> HookResult` | [-] fire-and-forget |
+| 2 | `PostToolExecutionHook` | `on_post_execute(ctx, result_ctx) -> HookResult` | [-] fire-and-forget（不阻断流程） |
+| 3 | `PostTurnHook` | `on_post_turn(ctx, turn_result) -> HookResult` | [-] fire-and-forget（不阻断流程） |
 | 4 | `SystemPromptHook` | `extend_system_prompt() -> Option<String>` | [+] 追加 prompt |
 | 5 | `OnUserPromptSubmitHook` | `on_user_prompt_submit(payload) -> UserPromptSubmitResult` | [+] 可注入/阻止 |
 | 6 | `OnMessageReceivedHook` | `on_message_received(ctx) -> HookResult` | [-] |
@@ -54,14 +54,14 @@ AgentLoop / TurnRunner
 | Hook 实现 | 实现的 Trait 数 | 具体 Trait |
 |-----------|:---:|----------|
 | **ShellCommandHook** | 6 | `PreToolExecution` + `PostToolExecution` + `OnSessionStart` + `OnSessionEnd` + `OnUserPromptSubmit` + `OnToolCallStart`（后一个是空操作占位）|
-| **ScriptHook** | 4 | `PreToolExecution` + `PostToolExecution` + `PostTurn` + `SystemPrompt` |
+| **ScriptHook** | 4 | `PreToolExecution` 与 `PostToolExecution` 与 `PostTurn` 与 `SystemPrompt` |
 | **WebhookHook** | 12 | 全部 13 个中除 `OnUserPromptSubmitHook` 外全部（含匹配过滤）|
-| **ToolAuditLogHook** (built-in) | 1 | `OnToolCallStartHook` |
-| **TurnStatsHook** (built-in) | 2 | `OnTurnStartHook` + `OnTurnCompleteHook` |
-| **AutoCommitHook** (built-in) | 1 | `OnTurnCompleteHook` |
-| **SessionSummaryHook** (built-in) | 2 | `OnSessionStartHook` + `OnSessionEndHook` |
-| **ErrorReportHook** (built-in) | 1 | `OnErrorHook` |
-| **ResponseValidationHook** (built-in) | 1 | `OnModelResponseHook` |
+| **ToolAuditLogHook** (内置) | 1 | `OnToolCallStartHook` |
+| **TurnStatsHook** (内置) | 2 | `OnTurnStartHook` + `OnTurnCompleteHook` |
+| **AutoCommitHook** (内置) | 1 | `OnTurnCompleteHook` |
+| **SessionSummaryHook** (内置) | 2 | `OnSessionStartHook` + `OnSessionEndHook` |
+| **ErrorReportHook** (内置) | 1 | `OnErrorHook` |
+| **ResponseValidationHook** (内置) | 1 | `OnModelResponseHook` |
 
 ### 2.4 配置体系
 
@@ -156,7 +156,7 @@ Webhook 通过 contains 匹配，支持以下 trigger 值（可逗号组合）�
 1. JSON 配置（`load_json_hooks`）→ ShellCommandHook
 2. TOML 配置（`load_toml_hooks`）→ ScriptHook + WebhookHook
 3. 内置 Hook（`register_builtins`）
-4. Webhook（`load_webhook_hooks`）
+4. Webhook 钩子（`load_webhook_hooks`）
 
 全局 hooks 先加载，项目 hooks 后加载（同名可覆盖）。
 
@@ -250,7 +250,7 @@ UserPromptSubmitResult::Block(s)  → 阻止消息
 - 保留完整的 13 个时机列表（加 `OnUserPromptSubmit` = 13），这是好的参考文档
 - **关键**：添加清晰说明——每个时机通过什么配置方式可用
   - TOML ScriptHook：仅 pre_tool / post_tool / post_turn / system_prompt
-  - JSON ShellCommandHook：pre_tool_use / post_tool_use / session_start / session_end / user_prompt_submit
+  - JSON ShellCommandHook：支持 pre_tool_use / post_tool_use / session_start / session_end / user_prompt_submit
   - Webhook：11 种（全部除 OnUserPromptSubmit/OnMessageReceived）
   - BuiltIn：6 种（OnToolCallStart / OnTurnStart / OnTurnComplete / OnSessionStart / OnSessionEnd / OnError / OnModelResponse）
 - 配置示例使用正确的 trigger 值，或分别标注 TOML/JSON/Webhook 的写法

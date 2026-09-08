@@ -1,103 +1,91 @@
-# RustCode Rewind Design
+# RustCode Rewind 设计
 
-## Goal
+## 目标
 
-Replace the unsafe “double Esc immediately runs `/undo`” gesture with an explicit
-Rewind workflow that restores conversation state to a selected prompt boundary.
-The picker opens on `(current)`, so an accidental double Esc plus Enter is a no-op.
+把不安全的“双击 Esc 立即执行 `/undo`”手势，替换为显式的 Rewind 流程：
+把会话状态恢复到所选的提示边界。选择器默认停在 `(current)`，因此误触
+双击 Esc 再按 Enter 是一个空操作。
 
-> **v5.0.5 safety status:** Workspace/code restoration is disabled. The original
-> per-session shadow-Git implementation had no disk quota or object collection and
-> could exhaust the system disk. Rewind points now persist independently of Git
-> trees, so conversation Rewind remains available without creating
-> `~/.rustcode/rewind` objects. Code restoration may return only after a bounded,
-> project-shared snapshot design is implemented and reviewed separately.
-> The retained compatibility backend routes every Git child through Windows
-> `CREATE_NO_WINDOW`; this is defense in depth and does not re-enable capture.
+> **v5.0.5 安全状态：** 工作区/代码恢复已禁用。最初按会话建立的影子 Git
+> 实现既没有磁盘配额也没有对象回收，可能耗尽系统磁盘。现在 Rewind 点
+> 独立于 Git 树持久化，因此会话 Rewind 仍然可用，且不会创建
+> `~/.rustcode/rewind` 对象。只有在实现了有界的、项目级共享的快照设计
+> 并单独评审之后，代码恢复才可能回归。保留的兼容后端会把每个 Git 子进程
+> 都经 Windows `CREATE_NO_WINDOW` 路由；这属于纵深防御，并不重新启用捕获。
 
-## Ownership and boundaries
+## 所有权与边界
 
-`CodingRuntime` remains the only owner of the live coding lifecycle. Rewind is a
-runtime operation, not a TUI-side combination of filesystem writes and `/undo`.
-The TUI lists targets, selects a scope, submits one request, and waits for one
-success or failure terminal.
+`CodingRuntime` 仍是活体编码生命周期的唯一所有者。Rewind 是运行时操作，
+而非 TUI 侧把文件系统写入与 `/undo` 拼在一起。TUI 负责列出目标、选择范围、
+提交一次请求，并等待一个成功或失败的终态。
 
-Conversation checkpoint metadata belongs to `rustcode-capabilities::session`. It
-uses the existing `SnapshotHook::turn_start` and `turn_complete` seams, so no
-second per-turn state machine is introduced. The kernel remains neutral and
-unchanged.
+会话检查点元数据归属 `rustcode-capabilities::session`。它复用既有的
+`SnapshotHook::turn_start` 与 `turn_complete` 接缝，因此不引入第二套
+每轮状态机。kernel 保持中立且不变。
 
-The following historical v1 workspace layout is retained only for compatibility
-and cleanup; v5.0.5 does not initialize or write it:
+下列 v1 历史工作区布局仅为兼容与清理而保留，v5.0.5 不会初始化或写入它：
 
 ```text
 ~/.rustcode/rewind/<project-hash>/
 ```
 
-Existing code must not treat the presence of an old object store as evidence that
-code restoration is available.
+既存代码不得把旧对象库的存在当作代码恢复可用的证据。
 
-v5.0.5 intentionally does not delete an existing store automatically. On the
-first affected-session load it uses an existing store only to finish compensation
-for an interrupted v5.0.3 code-Rewind transaction, then drops the backend again.
-Operators must preserve the store whenever RustCode reports a pending-Rewind
-recovery failure or any `*.rewind.txn.json` sidecar still exists under the native
-sessions root. After those transaction sidecars are absent and RustCode is
-stopped, they may remove `$RUSTCODE_HOME/rewind` (or `~/.rustcode/rewind` when
-`RUSTCODE_HOME` is unset). This removes only historical code checkpoints; native
-conversation sessions are stored separately and remain available.
+v5.0.5 有意不自动删除已有的对象库。在首次加载受影响会话时，它只会用
+已有对象库去完成一次被中断的 v5.0.3 代码 Rewind 事务的补偿，随后再次
+丢弃该后端。当 RustCode 报告存在待处理的 Rewind 恢复失败，或原生会话根目录下
+仍有任何 `*.rewind.txn.json` 附属文件时，运维人员必须保留该对象库。
+待这些事务附属文件消失且 RustCode 已停止后，方可删除 `$RUSTCODE_HOME/rewind`
+（当 `RUSTCODE_HOME` 未设置时为 `~/.rustcode/rewind`）。这只会删除历史代码
+检查点；原生会话数据分开存储，仍然可用。
 
-## Per-turn data
+## 每轮数据
 
-Each accepted user turn records a rewind point:
+每个被接受的用户轮次都记录一个 rewind 点：
 
 ```text
 prompt ordinal and preview
 conversation revision/boundary
 ```
 
-`turn_start` records prompt metadata without scanning the worktree.
-`turn_complete`, including cancelled and failed turns, persists the conversation
-point with absent workspace-tree fields. Older ledgers containing Git tree IDs
-remain readable, but v5.0.5 does not offer code scopes against them.
+`turn_start` 只记录提示元数据，不扫描工作树。`turn_complete`（含被取消
+与失败的轮次）持久化会话点，其中工作区树字段缺失。含有 Git 树 ID 的旧
+账本仍可读，但 v5.0.5 不会基于它们提供代码范围。
 
-## Rewind transaction
+## Rewind 事务
 
-Rewind is accepted only while the runtime is idle. It validates generation,
-session binding, conversation revision, and selected target, then uses the
-existing native undo transaction. Code-only and combined requests fail before
-mutation with an explicit `CodeRewindUnavailable` reason.
+Rewind 只在运行时空闲时才被接受。它校验世代、会话绑定、会话修订与所选
+目标，随后复用既有的原生 undo 事务。纯代码与合并范围的请求在任何改动
+之前就会失败，并给出明确的 `CodeRewindUnavailable` 原因。
 
-## TUI interaction
+## TUI 交互
 
-While an agent is running, Esc only cancels. Cancellation clears and suppresses
-the idle Rewind gesture so repeated Esc key events cannot spill into a rewind.
+当 agent 正在运行时，Esc 只做取消。取消会清除并抑制空闲态的 Rewind 手势，
+使重复的 Esc 按键事件不会溢出成一次 rewind。
 
-While idle:
+空闲时：
 
-1. first bare Esc shows the existing hint;
-2. second bare Esc opens `Rewind`;
-3. `(current)` is selected initially;
-4. Up/Down selects a prior prompt;
-5. Enter on `(current)` closes as a no-op;
-6. Enter on a prompt opens the scope step;
-7. scope defaults to “conversation only”;
-8. Enter submits; Esc returns or cancels.
+1. 第一次裸 Esc 显示既有提示；
+2. 第二次裸 Esc 打开 `Rewind`；
+3. 初始选中 `(current)`；
+4. 上/下键选择更早的提示；
+5. 在 `(current)` 上按 Enter 以空操作关闭；
+6. 在某个提示上按 Enter 则进入范围选择步骤；
+7. 范围默认为“仅会话”；
+8. Enter 提交；Esc 返回或取消。
 
-Targets display prompt previews as conversation checkpoints. Code-only and
-combined scopes are disabled with an explicit disk-safety reason.
+目标把提示预览显示为会话检查点。纯代码与合并范围被禁用，并给出明确的
+磁盘安全理由。
 
-## Failure semantics
+## 失败语义
 
-All failures are visible. Stale generations, busy runtime, revision changes and
-persistence rollback failures must not be reported as success. No ordinary turn
-may scan or write a workspace checkpoint while code Rewind is disabled.
-Pending approval/request state remains fail-closed because rewind is idle-only.
+所有失败都必须可见。世代过期、运行时忙碌、修订变更与持久化回滚失败
+不得被报成成功。在代码 Rewind 禁用期间，任何普通轮次都不得扫描或写入
+工作区检查点。待处理的审批/请求状态保持 fail-closed，因为 rewind 仅在空闲时可用。
 
-## Verification
+## 验证
 
-Tests cover picker default/current behavior, Esc cancellation isolation, target
-selection, conversation-point creation without workspace trees, explicit code
-scope rejection, stale generation/revision rejection, session resume, and TUI
-transcript repaint. Historical workspace tests remain as compatibility coverage;
-they do not imply that v5.0.5 enables the backend.
+测试覆盖选择器的默认/current 行为、Esc 取消隔离、目标选择、
+不含工作区树的会话点创建、显式的代码范围拒绝、世代/修订过期拒绝、
+会话恢复，以及 TUI 记录重绘。历史工作区测试保留为兼容性覆盖；
+它们并不意味着 v5.0.5 启用了该后端。

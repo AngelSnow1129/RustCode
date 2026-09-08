@@ -1,60 +1,60 @@
-# Vision Preprocessor: Auto-Config from /codingplan Implementation Plan
+# Vision Preprocessor：来自 /codingplan 的自动配置 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必备子技能：使用 superpowers:subagent-driven-development 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法跟踪进度。
 
-**Goal:** When `/codingplan` populates the AtomGit-* provider list, automatically set `vision_preprocessor_provider` to the first vision-capable model in the list. Recognizes both vision-language models (e.g. `Qwen3-VL-32B-Instruct`) and OCR models (e.g. `PaddleOCR-2.0`, `GOT-OCR-2.0`). Preserves user-supplied non-AtomGit values; clears stale AtomGit-* references when the list contains no VL candidate.
+**目标：** 当 `/codingplan` 填充 AtomGit-* provider 列表时，自动将 `vision_preprocessor_provider` 设为列表中第一个支持视觉的模型。既能识别视觉语言模型（如 `Qwen3-VL-32B-Instruct`），也能识别 OCR 模型（如 `PaddleOCR-2.0`、`GOT-OCR-2.0`）。保留用户自行填写的非 AtomGit 值；当列表中没有 VL 候选时，清除失效的 AtomGit-* 引用。
 
-**Architecture:** Three small additions, all confined to `rustcode-core`: extend the existing `model_name_suggests_vision` heuristic, add VL-detection-and-precedence logic to `coding_plan::setup::step_models_and_register`, surface the outcome in `ModelsInfo` + `SetupReport::render`. No new modules, no agent / TUI changes.
+**架构：** 三处小改动，全部局限在 `rustcode-core`：扩展已有的 `model_name_suggests_vision` 启发式；在 `coding_plan::setup::step_models_and_register` 中加入 VL 检测与优先级逻辑；在 `ModelsInfo` + `SetupReport::render` 中呈现结果。不新增模块，不改动 agent / TUI。
 
-**Tech Stack:** Rust. Reuses `is_codingplan_provider_name`, `model_name_suggests_vision`, `provider_names_for`, all already present in the file under modification.
-
----
-
-## Reference
-
-Spec at `docs/superpowers/specs/2026-05-08-vision-preprocessor-design.md` (the original feature). This plan addresses the §风险与权衡 item 4 follow-up plus the user's request to detect OCR-named models.
-
-Original feature commits 1379510..4ce8bc0 are already merged. This plan adds three more commits on top.
+**技术栈：** Rust。复用 `is_codingplan_provider_name`、`model_name_suggests_vision`、`provider_names_for`，三者均已存在于待修改文件中。
 
 ---
 
-## Precedence Rule (Encoded in Task 8)
+## 参考
 
-| Current `config.vision_preprocessor_provider` | List has VL/OCR | Action |
+Spec 位于 `docs/superpowers/specs/2026-05-08-vision-preprocessor-design.md`（原始功能）。本计划处理该 spec 中 §风险与权衡 第 4 项的后续事项，以及用户提出的「识别 OCR 命名模型」需求。
+
+原始功能的提交 1379510..4ce8bc0 已合入。本计划在其之上再增加三个提交。
+
+---
+
+## 优先级规则（编码于任务 8）
+
+| 当前 `config.vision_preprocessor_provider` | 列表含 VL/OCR | 动作 |
 |---|---|---|
-| `None` | yes | set to first VL/OCR provider key |
-| `None` | no | leave None |
-| `Some("AtomGit-*")` (was set by previous /codingplan) | yes | replace with new VL/OCR key |
-| `Some("AtomGit-*")` | no | clear to None (avoid pointing at a wiped key) |
-| `Some("X")` where X is NOT `AtomGit-*` (user manual setting) | yes or no | leave unchanged |
+| `None` | 是 | 设为第一个 VL/OCR provider key |
+| `None` | 否 | 保持 None |
+| `Some("AtomGit-*")`（由上一次 /codingplan 设置） | 是 | 替换为新的 VL/OCR key |
+| `Some("AtomGit-*")` | 否 | 清空为 None（避免指向已被清除的 key） |
+| `Some("X")`，其中 X 不是 `AtomGit-*`（用户手动设置） | 是或否 | 保持不变 |
 
-The `is_codingplan_provider_name` helper (already in `setup.rs`) is the precise discriminator.
+`is_codingplan_provider_name` 辅助函数（已在 `setup.rs` 中）就是精确的判别依据。
 
 ---
 
-## File Structure
+## 文件结构
 
-| File | Action | Responsibility |
+| 文件 | 动作 | 职责 |
 |---|---|---|
-| `crates/rustcode-core/src/provider/mod.rs` | **Modify** | Extend `model_name_suggests_vision` to match `ocr` substring + tests |
-| `crates/rustcode-core/src/coding_plan/setup.rs` | **Modify** | Auto-set logic in `step_models_and_register`; new field on `ModelsInfo`; render line in `SetupReport::render` + tests |
+| `crates/rustcode-core/src/provider/mod.rs` | **修改** | 扩展 `model_name_suggests_vision` 以匹配 `ocr` 子串 + 测试 |
+| `crates/rustcode-core/src/coding_plan/setup.rs` | **修改** | `step_models_and_register` 中的自动设置逻辑；`ModelsInfo` 上的新字段；`SetupReport::render` 中的渲染行 + 测试 |
 
 ---
 
-## Task 7: Extend `model_name_suggests_vision` to recognize OCR
+## 任务 7：扩展 `model_name_suggests_vision` 以识别 OCR
 
-**Files:**
-- Modify: `crates/rustcode-core/src/provider/mod.rs:298-336` (the `model_name_suggests_vision` function and its tests)
+**文件：**
+- 修改：`crates/rustcode-core/src/provider/mod.rs:298-336`（`model_name_suggests_vision` 函数及其测试）
 
-- [ ] **Step 1: Update the heuristic body**
+- [ ] **步骤 1：更新启发式函数体**
 
-In `crates/rustcode-core/src/provider/mod.rs`, locate `pub fn model_name_suggests_vision(name: &str) -> bool` (around line 312) and add an `ocr` clause. The function currently has a chain of `||`. Add this clause anywhere in the chain (before the closing `}`):
+在 `crates/rustcode-core/src/provider/mod.rs` 中定位 `pub fn model_name_suggests_vision(name: &str) -> bool`（约 312 行），添加一个 `ocr` 子句。该函数当前是一串 `||`，把该子句加到链中任意位置（在闭合的 `}` 之前）：
 
 ```rust
         || n.contains("ocr")
 ```
 
-A reasonable position: after `n.contains("vl-")`, before `n.contains("-4v")`, so the OCR-family substring sits next to the VL substrings semantically. Final shape:
+合理位置：放在 `n.contains("vl-")` 之后、`n.contains("-4v")` 之前，使 OCR 系列子串在语义上紧邻 VL 子串。最终形态：
 
 ```rust
 pub fn model_name_suggests_vision(name: &str) -> bool {
@@ -70,11 +70,11 @@ pub fn model_name_suggests_vision(name: &str) -> bool {
 }
 ```
 
-- [ ] **Step 2: Update the doc comment to explain the OCR addition**
+- [ ] **步骤 2：更新文档注释以说明 OCR 的加入**
 
-The function's doc comment (lines 298-311) currently explains the rationale for the heuristic and the false-positive vs. false-negative trade-off. Add a sentence about OCR:
+该函数的文档注释（298-311 行）目前说明了该启发式的理由，以及假阳性与假阴性之间的权衡。补充一句关于 OCR 的说明：
 
-Replace the existing doc block ending at `false-positives waste a turn on a 400, so when in doubt this returns false.` with:
+将既有的文档注释块（以 `false-positives waste a turn on a 400, so when in doubt this returns false.` 结尾）替换为：
 
 ```rust
 /// Heuristic: does this model name look like a vision-capable model?
@@ -104,9 +104,9 @@ Replace the existing doc block ending at `false-positives waste a turn on a 400,
 pub fn model_name_suggests_vision(name: &str) -> bool {
 ```
 
-- [ ] **Step 3: Add OCR tests**
+- [ ] **步骤 3：添加 OCR 测试**
 
-In the existing `mod tests` block of `provider/mod.rs` (the `vision_heuristic_*` tests around lines 462-499), append:
+在 `provider/mod.rs` 已有的 `mod tests` 块（`vision_heuristic_*` 测试，约 462-499 行）中追加：
 
 ```rust
     /// OCR family: PaddleOCR-VL is already covered by the `-vl` clause,
@@ -140,18 +140,18 @@ In the existing `mod tests` block of `provider/mod.rs` (the `vision_heuristic_*`
     }
 ```
 
-The second test is informational — it documents the trade-off. If a real model name contains `ocr` but isn't visual, the test will need adjustment.
+第二个测试只是信息性说明 —— 它记录了该权衡。若将来真有模型名包含 `ocr` 但并非视觉模型，该测试需要调整。
 
-- [ ] **Step 4: Run tests**
+- [ ] **步骤 4：运行测试**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode/
 cargo test -p rustcode-core --lib provider::tests::vision_heuristic
 ```
 
-Expected: all `vision_heuristic_*` tests pass (existing 2 + new 2).
+预期：所有 `vision_heuristic_*` 测试通过（原有 2 个 + 新增 2 个）。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 cat > /tmp/rustcode-task7-msg.txt <<'EOF'
@@ -174,14 +174,14 @@ git commit -F /tmp/rustcode-task7-msg.txt -- crates/rustcode-core/src/provider/m
 
 ---
 
-## Task 8: Auto-set `vision_preprocessor_provider` in `/codingplan`
+## 任务 8：在 `/codingplan` 中自动设置 `vision_preprocessor_provider`
 
-**Files:**
-- Modify: `crates/rustcode-core/src/coding_plan/setup.rs` — function `step_models_and_register` (around line 422-469) and `ModelsInfo` struct (around line 257-265)
+**文件：**
+- 修改：`crates/rustcode-core/src/coding_plan/setup.rs` —— 函数 `step_models_and_register`（约 422-469 行）与 `ModelsInfo` 结构体（约 257-265 行）
 
-- [ ] **Step 1: Add a new variant enum to communicate the outcome**
+- [ ] **步骤 1：新增一个用于表达结果的变体枚举**
 
-Near the top of `setup.rs` (after the existing `StepResult` definition or near `ModelsInfo`), add:
+在 `setup.rs` 靠顶部位置（既有的 `StepResult` 定义之后，或 `ModelsInfo` 附近）添加：
 
 ```rust
 /// Describes how the auto-detected vision_preprocessor_provider was
@@ -206,9 +206,9 @@ pub enum VisionPreprocessorOutcome {
 }
 ```
 
-- [ ] **Step 2: Add the field to `ModelsInfo`**
+- [ ] **步骤 2：为 `ModelsInfo` 添加字段**
 
-The existing struct (around line 257-265):
+既有结构体（约 257-265 行）：
 
 ```rust
 #[derive(Debug, Clone)]
@@ -219,7 +219,7 @@ pub struct ModelsInfo {
 }
 ```
 
-Add a fourth field:
+添加第四个字段：
 
 ```rust
 #[derive(Debug, Clone)]
@@ -233,9 +233,9 @@ pub struct ModelsInfo {
 }
 ```
 
-- [ ] **Step 3: Implement the auto-set logic in `step_models_and_register`**
+- [ ] **步骤 3：在 `step_models_and_register` 中实现自动设置逻辑**
 
-The existing function (around line 422-469) currently ends:
+既有函数（约 422-469 行）当前结尾如下：
 
 ```rust
     config.default_provider = default_provider.clone();
@@ -248,7 +248,7 @@ The existing function (around line 422-469) currently ends:
 }
 ```
 
-Insert the auto-set logic after `config.default_provider = ...` and before the `StepResult::Ok(...)`:
+在 `config.default_provider = ...` 之后、`StepResult::Ok(...)` 之前插入自动设置逻辑：
 
 ```rust
     config.default_provider = default_provider.clone();
@@ -303,9 +303,9 @@ Insert the auto-set logic after `config.default_provider = ...` and before the `
 }
 ```
 
-- [ ] **Step 4: Update render() to print the outcome**
+- [ ] **步骤 4：更新 render() 以输出结果**
 
-In `SetupReport::render` (around line 132-162, the `match &self.models { StepResult::Ok(info) => { ... } }` arm), after the existing bullet loop that prints provider names, add:
+在 `SetupReport::render` 中（约 132-162 行，即 `match &self.models { StepResult::Ok(info) => { ... } }` 分支），在既有打印 provider 名称的 bullet 循环之后添加：
 
 ```rust
                 for (pname, model) in info.provider_names.iter().zip(info.display_names.iter()) {
@@ -342,18 +342,18 @@ In `SetupReport::render` (around line 132-162, the `match &self.models { StepRes
                 }
 ```
 
-- [ ] **Step 5: Update existing render tests to construct the new field**
+- [ ] **步骤 5：更新既有 render 测试以构造新字段**
 
-The render tests in `setup.rs` (around `render_happy_path_has_all_checkmarks`, `render_claim_duplicate_renders_as_success`, `render_status_pending_activation_omits_zero_expiry`, `render_login_failed_blocks_persist_and_suppresses_cascade`, `render_multi_model_lists_all_providers_with_default_mark`, `render_claim_failed_suppresses_cascade_rows`, `render_skipped_with_non_cascade_reason_still_shows`, `render_status_error_truncates_long_message`) construct `ModelsInfo` literals. Each of those literals needs the new field.
+`setup.rs` 中的 render 测试（约 `render_happy_path_has_all_checkmarks`、`render_claim_duplicate_renders_as_success`、`render_status_pending_activation_omits_zero_expiry`、`render_login_failed_blocks_persist_and_suppresses_cascade`、`render_multi_model_lists_all_providers_with_default_mark`、`render_claim_failed_suppresses_cascade_rows`、`render_skipped_with_non_cascade_reason_still_shows`、`render_status_error_truncates_long_message`）会构造 `ModelsInfo` 字面量，每个字面量都需要补上这个新字段。
 
-Run:
+运行：
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode/
 grep -n "ModelsInfo {" crates/rustcode-core/src/coding_plan/setup.rs
 ```
 
-For each `ModelsInfo {` literal that's `StepResult::Ok(ModelsInfo { ... })` in a test fixture, add `vision_preprocessor: VisionPreprocessorOutcome::UnchangedNone,` (the no-op variant — keeps test output unchanged). Example:
+对测试 fixture 中每个形如 `StepResult::Ok(ModelsInfo { ... })` 的 `ModelsInfo {` 字面量，添加 `vision_preprocessor: VisionPreprocessorOutcome::UnchangedNone,`（该变体为空操作 —— 可保持测试输出不变）。示例：
 
 ```rust
             models: StepResult::Ok(ModelsInfo {
@@ -364,11 +364,11 @@ For each `ModelsInfo {` literal that's `StepResult::Ok(ModelsInfo { ... })` in a
             }),
 ```
 
-Don't add the import to each test — the tests already `use super::*;` so the variant should resolve. Verify by running tests in the next step.
+不要为每个测试单独添加导入 —— 测试里已有 `use super::*;`，该变体应当可以直接解析。可在下一步运行测试时验证。
 
-- [ ] **Step 6: Add unit tests for the new logic**
+- [ ] **步骤 6：为新逻辑添加单元测试**
 
-In the existing `#[cfg(test)] mod tests` block of `setup.rs`, after `step_models_wipes_stale_atomgit_entries` (around line 635-692), add five tests covering each row of the precedence table:
+在 `setup.rs` 已有的 `#[cfg(test)] mod tests` 块中，于 `step_models_wipes_stale_atomgit_entries`（约 635-692 行）之后添加五个测试，覆盖优先级表的每一行：
 
 ```rust
     fn vl_model_entry(model: &str) -> ModelEntry {
@@ -544,31 +544,31 @@ In the existing `#[cfg(test)] mod tests` block of `setup.rs`, after `step_models
     }
 ```
 
-- [ ] **Step 7: Run tests**
+- [ ] **步骤 7：运行测试**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode/
 cargo test -p rustcode-core --lib coding_plan
 ```
 
-Expected: all coding_plan tests pass — existing ones (which now have the new field in `ModelsInfo` literals) plus the 6 new ones.
+预期：所有 coding_plan 测试通过 —— 既有测试（其 `ModelsInfo` 字面量现已包含新字段）加上 6 个新测试。
 
-If any existing test fails because a `ModelsInfo` literal is incomplete, find it and add `vision_preprocessor: VisionPreprocessorOutcome::UnchangedNone,`.
+若某个既有测试因 `ModelsInfo` 字面量不完整而失败，找到它并补上 `vision_preprocessor: VisionPreprocessorOutcome::UnchangedNone,`。
 
-- [ ] **Step 8: Run render tests specifically and inspect output**
+- [ ] **步骤 8：单独运行 render 测试并检查输出**
 
-The new render-line code adds output for AutoSet / UserSupplied / Cleared variants. Render tests use `UnchangedNone` (no-op), so they should still pass without output changes. Verify:
+新增的渲染行代码会为 AutoSet / UserSupplied / Cleared 变体输出内容。render 测试使用 `UnchangedNone`（空操作），因此输出不变、应仍通过。验证：
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode/
 cargo test -p rustcode-core --lib coding_plan::setup::tests::render -- --nocapture
 ```
 
-Expected: all pass. (The `--nocapture` is just so you eyeball the output if curious.)
+预期：全部通过。（加 `--nocapture` 只是方便你顺便看一眼输出。）
 
-- [ ] **Step 9: Add a render test for the new line**
+- [ ] **步骤 9：为新渲染行添加 render 测试**
 
-Append to `mod tests`:
+追加到 `mod tests`：
 
 ```rust
     /// Render exercise: the vision-preprocessor line shows up under
@@ -680,16 +680,16 @@ Append to `mod tests`:
     }
 ```
 
-- [ ] **Step 10: Re-run all coding_plan tests**
+- [ ] **步骤 10：重跑全部 coding_plan 测试**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode/
 cargo test -p rustcode-core --lib coding_plan
 ```
 
-Expected: all pass.
+预期：全部通过。
 
-- [ ] **Step 11: Workspace clippy + build**
+- [ ] **步骤 11：Workspace clippy + 构建**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode/
@@ -697,9 +697,9 @@ cargo build --workspace --all-targets 2>&1 | tail -20
 cargo clippy -p rustcode-core --lib --all-targets -- -D warnings 2>&1 | tail -30
 ```
 
-Expected: build OK, no NEW clippy warnings introduced by this commit.
+预期：构建通过，且本提交不引入新的 clippy 警告。
 
-- [ ] **Step 12: Commit**
+- [ ] **步骤 12：提交**
 
 ```bash
 cat > /tmp/rustcode-task8-msg.txt <<'EOF'
@@ -725,40 +725,40 @@ git commit -F /tmp/rustcode-task8-msg.txt -- crates/rustcode-core/src/coding_pla
 
 ---
 
-## Task 9: Workspace verification
+## 任务 9：Workspace 验证
 
-This is a verification-only task — no code changes unless verification reveals a regression.
+本任务仅做验证 —— 除非验证发现回归，否则不改动代码。
 
-- [ ] **Step 1: Run full rustcode-core tests**
+- [ ] **步骤 1：运行 rustcode-core 全量测试**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode/
 cargo test -p rustcode-core --lib 2>&1 | tail -10
 ```
 
-Expected: pass count equals or exceeds baseline (after Tasks 1–6 we had 1104 passing). New tests from Tasks 7+8 should add ~10. Pre-existing failures unchanged.
+预期：通过数不低于基线（任务 1–6 之后为 1104 个通过）。任务 7+8 的新测试应增加约 10 个。既有失败项保持不变。
 
-- [ ] **Step 2: Workspace build**
+- [ ] **步骤 2：Workspace 构建**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode/
 cargo build --workspace --all-targets 2>&1 | tail -10
 ```
 
-Expected: success.
+预期：成功。
 
-- [ ] **Step 3: Workspace clippy**
+- [ ] **步骤 3：Workspace clippy**
 
 ```bash
 cd /Users/theo/Documents/workspace/rustcode/
 cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tail -30
 ```
 
-Expected: only pre-existing warnings (same as Task 6 reported).
+预期：只有既有警告（与任务 6 报告的一致）。
 
-- [ ] **Step 4: If any fixups were needed, commit them**
+- [ ] **步骤 4：若确有修补，提交它们**
 
-If verification surfaced a struct-literal that needs the new `vision_preprocessor` field initializer (mirror of the daemon fix in commit `4ce8bc0`), apply it:
+若验证发现某个结构体字面量需要补上新的 `vision_preprocessor` 字段初始化（类似提交 `4ce8bc0` 中对 daemon 的修复），则应用之：
 
 ```bash
 cat > /tmp/rustcode-task9-msg.txt <<'EOF'
@@ -774,36 +774,36 @@ git add -A
 git commit -F /tmp/rustcode-task9-msg.txt
 ```
 
-If no fixups needed, skip this step.
+若无需修补，跳过本步骤。
 
 ---
 
-## Manual Verification (post-merge)
+## 手动验证（合入后）
 
-1. Save current `~/.rustcode/config.toml`.
-2. Edit it to remove the `vision_preprocessor_provider = ...` line so the field becomes None.
-3. Run `cargo run -p rustcode-cli --release -- /codingplan` (or invoke `/codingplan` from inside the TUI).
-4. Inspect the `/codingplan` output: expect a `✔ Vision preprocessor → AtomGit-...  (auto-detected)` line if the API returned a VL model in the list.
-5. Confirm `~/.rustcode/config.toml` now contains `vision_preprocessor_provider = "AtomGit-..."`.
-6. Set the field to your own non-AtomGit value (e.g. `Qwen3-VL-32B-Instruct` from your SiliconFlow setup), re-run /codingplan, and verify it stays untouched + the report says `(user setting kept)`.
+1. 备份当前 `~/.rustcode/config.toml`。
+2. 编辑该文件，删除 `vision_preprocessor_provider = ...` 一行，使该字段变为 None。
+3. 运行 `cargo run -p rustcode-cli --release -- /codingplan`（或在 TUI 内调用 `/codingplan`）。
+4. 检查 `/codingplan` 的输出：若 API 返回的列表中含有 VL 模型，应能看到 `✔ Vision preprocessor → AtomGit-...  (auto-detected)` 一行。
+5. 确认 `~/.rustcode/config.toml` 中现在含有 `vision_preprocessor_provider = "AtomGit-..."`。
+6. 将该字段设为你自己的非 AtomGit 值（例如你 SiliconFlow 配置中的 `Qwen3-VL-32B-Instruct`），重跑 /codingplan，确认其值未被改动，且报告显示 `(user setting kept)`。
 
 ---
 
-## Self-Review Checklist (run before handoff)
+## 自查清单（交接前执行）
 
-**1. Spec coverage:**
-- OCR models recognized → Task 7. [x]
-- Auto-set on None → Task 8 step 3 + test. [x]
-- Auto-overwrite on AtomGit-* stale → Task 8 step 3 + test. [x]
-- Cleared on AtomGit-* + no-VL list → Task 8 step 3 + test. [x]
-- Preserved on non-AtomGit user value → Task 8 step 3 + test. [x]
-- Render line for each outcome → Task 8 steps 4 + 9. [x]
-- UnchangedNone silent → Task 8 step 9 (`render_omits_vision_preprocessor_line_when_unchanged_none`). [x]
+**1. Spec 覆盖情况：**
+- OCR 模型可被识别 → 任务 7。[x]
+- None 时自动设置 → 任务 8 步骤 3 + 测试。[x]
+- AtomGit-* 失效值时自动覆盖 → 任务 8 步骤 3 + 测试。[x]
+- AtomGit-* 且列表无 VL 时清空 → 任务 8 步骤 3 + 测试。[x]
+- 非 AtomGit 的用户值被保留 → 任务 8 步骤 3 + 测试。[x]
+- 每种结果都有对应渲染行 → 任务 8 步骤 4 + 9。[x]
+- UnchangedNone 静默不输出 → 任务 8 步骤 9（`render_omits_vision_preprocessor_line_when_unchanged_none`）。[x]
 
-**2. Placeholder scan:** No "TBD"/"TODO"/"add error handling" in any task. The "[describe specific fixes here]" placeholder in Task 9's optional commit is fine — it's only used IF a fixup is actually needed, and in that case the implementer fills it in.
+**2. 占位符扫描：** 各任务中均无 "TBD"/"TODO"/"add error handling"。任务 9 可选提交中的 "[describe specific fixes here]" 占位符是可接受的 —— 它仅在确实需要修补时才会用到，届时由实施者填写。
 
-**3. Type consistency:**
-- `VisionPreprocessorOutcome` defined once (Task 8 step 1) and used in both production (Task 8 steps 2–4) and tests (Task 8 steps 5, 6, 9). [x]
-- `model_name_suggests_vision` (free function) used identically across Tasks 7 and 8. [x]
-- `is_codingplan_provider_name` used in both wipe step and the precedence check. [x]
-- `ModelsInfo` literal updates (Task 8 step 5) cover all 8 existing render tests. [x]
+**3. 类型一致性：**
+- `VisionPreprocessorOutcome` 只定义一次（任务 8 步骤 1），在生产代码（任务 8 步骤 2–4）与测试（任务 8 步骤 5、6、9）中均有使用。[x]
+- `model_name_suggests_vision`（自由函数）在任务 7 与任务 8 中使用方式一致。[x]
+- `is_codingplan_provider_name` 在清除步骤与优先级判断中均有使用。[x]
+- `ModelsInfo` 字面量更新（任务 8 步骤 5）覆盖了全部 8 个既有 render 测试。[x]

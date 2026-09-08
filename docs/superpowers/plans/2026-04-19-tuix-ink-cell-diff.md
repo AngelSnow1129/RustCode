@@ -2,7 +2,7 @@
 
 **目标**：对齐 CC 视觉（两条铺满 UTF-8 rule + 菜单扩展 footer）+ CC 流畅度。通过 cell-level diff 让 footer 高度变化的字节量从 ~1900 B 压到 ~600 B 以下。
 
-**Scope**：**只对 footer + menu 区域做 cell-diff**。body（scroll region 内的 streaming / tool output / history）保持 pure-append。这是最小 Ink 化 — 不重写整个 render，只把 footer path 的 row-level diff 升级到 cell-level。
+**范围**：**只对 footer + menu 区域做 cell-diff**。body（scroll region 内的 streaming / tool output / history）保持 pure-append。这是最小 Ink 化 — 不重写整个 render，只把 footer path 的 row-level diff 升级到 cell-level。
 
 **不动的**：DECSTBM 固定 footer 架构、body append 路径、streaming flush_assistant_lines、lifecycle（shutdown/suspend/resume）。
 
@@ -10,7 +10,7 @@
 
 ## 核心原理
 
-当前 footer render：
+当前 footer 渲染：
 ```
 build_X_row -> Vec<u8>  (pre-encoded ANSI bytes)
 emit_footer_absolute: 按 row index diff; 任何 row 变 → 整行 emit
@@ -43,11 +43,11 @@ pub struct Cell {
 
 只覆盖 footer 用到的 SGR：fg color、bold、reverse video。不支持 bg color、underline、italic 等（footer 不用）。如未来要扩展，加字段即可。
 
-### Cell equality
+### Cell 相等性
 
 `#[derive(PartialEq, Eq)]`。crossterm::style::Color 已 derive PartialEq。Cell 比较 = 所有字段相同 = 字节级相同。
 
-### Frame buffer
+### 帧缓冲区
 
 `last_footer_cells: Vec<Vec<Cell>>` 替代 `last_footer_rows: Vec<Vec<u8>>`。按 footer row 相对索引存储（0 = footer top row, N-1 = footer bottom）。
 
@@ -58,7 +58,7 @@ pub struct Cell {
 serialize(patches) 时维护 `current_style`：
 - 只在 cell.style 和 current_style 不同时 emit SGR 序列
 - 合并相邻 cell 同一样式 → 一次 SGR 覆盖多 cell
-- 光标连续 cell 时 auto-advance，不重发 `\x1b[row;col H`
+- 光标连续 cell 时自动前进，不重发 `\x1b[row;col H`
 
 预期 SGR 开销降低 30-50%。
 
@@ -74,9 +74,9 @@ serialize(patches) 时维护 `current_style`：
 
 ## 实施步骤
 
-### Task 17: Cell struct + CellStyle
+### 任务 17：Cell struct + CellStyle
 
-**Files**:
+**文件**：
 - 新 `crates/rustcode-tuix/src/render/cell.rs`
 
 ```rust
@@ -103,11 +103,11 @@ pub fn push_str_cells(row: &mut Vec<Cell>, s: &str, style: CellStyle) {
 }
 ```
 
-**Tests**: `Cell::default()` == 全默认、相同 cell eq、不同 cell neq。
+**测试**：`Cell::default()` == 全默认值、相同 cell 相等、不同 cell 不相等。
 
-### Task 18: 改 build_X_row 返回 Vec<Cell>
+### 任务 18：改 build_X_row 返回 Vec<Cell>
 
-**Files**:
+**文件**：
 - `crates/rustcode-tuix/src/render/ansi.rs`
 
 5 个方法改造：
@@ -122,11 +122,11 @@ pub fn push_str_cells(row: &mut Vec<Cell>, s: &str, style: CellStyle) {
 - 右填充用 `Cell { ch: ' ', style: default }` 填到 rule_width
 - PAD_COL 用 default style 空格
 
-**回退兼容**: 加一个 `cell_row_to_bytes(cells: &[Cell]) -> Vec<u8>` 把 cells 序列化成 ANSI 字节（for legacy 非 DECSTBM 路径）。
+**回退兼容**：加一个 `cell_row_to_bytes(cells: &[Cell]) -> Vec<u8>` 把 cells 序列化成 ANSI 字节（for legacy 非 DECSTBM 路径）。
 
-### Task 19: cell-diff + serialize
+### 任务 19：cell-diff + serialize
 
-**Files**:
+**文件**：
 - `crates/rustcode-tuix/src/render/cell.rs` (加 diff 函数)
 
 ```rust
@@ -148,9 +148,9 @@ pub fn diff_cells(
 pub fn serialize_patches(patches: &[Patch]) -> Vec<u8>;
 ```
 
-### Task 20: emit_footer_cell_diff
+### 任务 20：emit_footer_cell_diff
 
-**Files**:
+**文件**：
 - `crates/rustcode-tuix/src/render/ansi.rs`
 
 新 `emit_footer_cell_diff(&mut self, new_cells: Vec<Vec<Cell>>)`:
@@ -163,17 +163,17 @@ pub fn serialize_patches(patches: &[Patch]) -> Vec<u8>;
 
 在 `draw_footer_here_with_prev_cursor` 里 DECSTBM 路径改走这个方法。
 
-### Task 21: 验证
+### 任务 21：验证
 
-新 byte test `footer_menu_toggle_byte_cost`：
-- 先 render 基础 footer (5 rows, no menu) 稳态
-- open menu（5→9 rows）测字节
-- close menu（9→5 rows）测字节
+新增字节测试 `footer_menu_toggle_byte_cost`：
+- 先渲染基础 footer（5 行，无菜单）稳态
+- 打开菜单（5→9 行）测字节
+- 关闭菜单（9→5 行）测字节
 - 目标：**单次 toggle < 600 B**（原 ~1900 B）
 
 158 lib test 保持全绿。
 
-手测 checklist：
+手测清单：
 - streaming 流畅（确认 43 B/delta 没回归）
 - 打字稳态（56 B/keystroke 没回归）
 - 菜单开合不卡顿
@@ -184,21 +184,21 @@ pub fn serialize_patches(patches: &[Patch]) -> Vec<u8>;
 
 ## 工期
 
-| Task | 规模 | 风险 |
+| 任务 | 规模 | 风险 |
 |---|---|---|
-| 17 Cell struct | ~80 行 | Low |
-| 18 build_X_row 改造 | ~200 行改 | Medium（要重写 SGR emission） |
-| 19 diff + serialize | ~150 行 | Medium（SGR 状态机 edge case） |
-| 20 集成到 footer 路径 | ~100 行 | Medium（确保 cache 正确） |
-| 21 验证 | ~80 行 | Low |
+| 17 Cell struct | ~80 行 | 低 |
+| 18 build_X_row 改造 | ~200 行改 | 中（要重写 SGR emission） |
+| 19 diff + serialize | ~150 行 | 中（SGR 状态机 edge case） |
+| 20 集成到 footer 路径 | ~100 行 | 中（确保 cache 正确） |
+| 21 验证 | ~80 行 | 低 |
 | **合计** | **~610 行** | 约 6-8 小时 |
 
 ---
 
-## 不做的（out of scope）
+## 不做的（范围外）
 
 - body 区 cell-diff（streaming body 仍走 append）
 - 菜单剥离到 scroll region（C 方案已证伪）
-- alt-screen
+- alt-screen（备用屏幕）
 - ratatui 迁移
 - 响应式布局调整（rule 居中 / 缩短等视觉改动）

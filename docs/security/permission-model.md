@@ -1,95 +1,95 @@
-# Permission Model
+# 权限模型
 
-## Overview
+## 概述
 
-RustCode uses a unified permission model to control access to files, directories, and shell commands.
+RustCode 使用统一的权限模型来控制对文件、目录与 shell 命令的访问。
 
-The goals are:
+其目标是：
 
-- prevent unconfirmed access to paths outside the current working directory
-- prevent common shell-based bypasses after a file tool is denied
-- keep permission behavior explicit and traceable in code
+- 阻止在未经确认的情况下访问当前工作目录之外的路径
+- 在某个文件工具被拒绝后，阻止常见的基于 shell 的绕过手段
+- 让权限行为在代码中保持显式且可追溯
 
-This document describes the current behavior of the implementation.
+本文档描述当前实现的行为。
 
-## Design Goals
+## 设计目标
 
-RustCode's permission model is designed to:
+RustCode 的权限模型旨在：
 
-- distinguish normal project work from external-system access
-- distinguish low-risk reads from high-risk writes
-- apply consistent path rules across file tools
-- apply equivalent path rules to common shell file commands
-- preserve a simple mental model for users and maintainers
+- 区分常规项目工作与外部系统访问
+- 区分低风险读取与高风险写入
+- 在各文件工具之间应用一致的路径规则
+- 对常见的 shell 文件命令应用等价的路径规则
+- 为用户与维护者保留一个简单的心智模型
 
-## Non-Goals
+## 非目标
 
-The current model does not aim to:
+当前模型并不追求：
 
-- implement a full shell parser
-- statically analyze interpreter code such as `python -c "open(...)"`
-- infer all runtime-expanded paths from shell variables or substitutions
-- replace sandboxing or OS-level security boundaries
+- 实现完整的 shell 解析器
+- 静态分析解释器代码，例如 `python -c "open(...)"`
+- 从 shell 变量或命令替换推断所有运行时展开的路径
+- 取代沙箱机制或操作系统级的安全边界
 
-Sandboxing and host-level permissions remain important defense layers.
+沙箱机制与主机级权限仍然是重要的防御层。
 
-## Core Concepts
+## 核心概念
 
-### Working Directory Boundary
+### 工作目录边界
 
-All path checks begin by resolving the requested path and determining whether it stays within the current working directory.
+所有路径检查都从解析被请求的路径开始，并判断它是否仍位于当前工作目录之内。
 
-- paths inside the working directory are auto-approved
-- paths outside the working directory are classified by action and sensitivity
+- 位于工作目录内的路径自动批准
+- 位于工作目录外的路径按动作与敏感度分类
 
-### Access Actions
+### 访问动作
 
-RustCode currently models external path access with three actions:
+RustCode 当前用三种动作建模外部路径访问：
 
 - `Enumerate`
-  directory listing, structural exploration, changing directories
+  目录列举、结构性探查、切换目录
 - `Read`
-  reading file contents or searching file contents
+  读取文件内容或搜索文件内容
 - `Write`
-  creating, editing, overwriting, renaming, or otherwise mutating files
+  创建、编辑、覆盖、重命名或以其他方式修改文件
 
-### Approval Results
+### 批准结果
 
-Permission checks return one of three outcomes:
+权限检查返回三种结果之一：
 
 - `AutoApprove`
 - `RequireApproval`
 - `RequireApprovalAlways`
 
-`RequireApprovalAlways` is the stronger form and is intended for high-risk operations such as sensitive reads or any write outside the workspace.
+`RequireApprovalAlways` 是更强的一种形式，用于高风险操作，例如敏感读取或工作区之外的任何写入。
 
-## Path Approval Rules
+## 路径批准规则
 
-Current external-path behavior is:
+当前外部路径行为如下：
 
-| Scenario | Result |
+| 场景 | 结果 |
 |---|---|
-| Path stays inside working directory | `AutoApprove` |
-| Outside workspace, non-sensitive `Enumerate` | `AutoApprove` |
-| Outside workspace, sensitive `Enumerate` | `RequireApprovalAlways` |
-| Outside workspace, non-sensitive `Read` | `RequireApproval` |
-| Outside workspace, sensitive `Read` | `RequireApprovalAlways` |
-| Outside workspace, any `Write` | `RequireApprovalAlways` |
+| 路径位于工作目录内 | `AutoApprove` |
+| 工作区外、非敏感 `Enumerate` | `AutoApprove` |
+| 工作区外、敏感 `Enumerate` | `RequireApprovalAlways` |
+| 工作区外、非敏感 `Read` | `RequireApproval` |
+| 工作区外、敏感 `Read` | `RequireApprovalAlways` |
+| 工作区外、任何 `Write` | `RequireApprovalAlways` |
 
-This means:
+这意味着：
 
-- normal external directory browsing is allowed by default
-- normal external file reads require confirmation
-- sensitive reads always require strong confirmation
-- any write outside the workspace always requires strong confirmation
+- 常规的外部目录浏览默认允许
+- 常规的外部文件读取需要确认
+- 敏感读取始终需要强确认
+- 工作区之外的任何写入始终需要强确认
 
-## Sensitive Path Classification
+## 敏感路径分类
 
-A path is currently treated as sensitive if it matches one of the built-in protected system prefixes, unless it also matches an exception prefix, or if it matches credential/config-like file rules.
+当前，若路径命中内置受保护系统前缀之一，则被视为敏感路径，除非它同时命中例外前缀，或者命中凭据/配置类文件的规则。
 
-### Built-in Protected Prefixes
+### 内置受保护前缀
 
-Current built-in protected prefixes are:
+当前内置受保护前缀包括：
 
 - `/System`
 - `/bin`
@@ -103,9 +103,9 @@ Current built-in protected prefixes are:
 - `/var/root`
 - `/private/var/root`
 
-### Built-in Exceptions
+### 内置例外
 
-These paths are currently exempted from the protected-prefix rule:
+以下路径当前被豁免于受保护前缀规则：
 
 - `/usr/local`
 - `/private/usr/local`
@@ -116,20 +116,20 @@ These paths are currently exempted from the protected-prefix rule:
 - `/var/tmp`
 - `/private/var/tmp`
 
-These exceptions exist to avoid over-classifying common writable or user-owned areas as sensitive.
+设置这些例外，是为了避免把常见的可写区域或用户所有的区域过度归类为敏感。
 
-### Home and Secret-Like Paths
+### Home 与类密钥路径
 
-RustCode also treats the following as sensitive:
+RustCode 也将以下路径视为敏感：
 
-Sensitive home directories:
+敏感 home 目录：
 
 - `~/.ssh`
 - `~/.aws`
 - `~/.gnupg`
 - `~/.config`
 
-Sensitive filenames:
+敏感文件名：
 
 - `.bashrc`
 - `.bash_profile`
@@ -147,7 +147,7 @@ Sensitive filenames:
 - `id_ecdsa`
 - `id_ed25519`
 
-Sensitive extensions:
+敏感扩展名：
 
 - `.pem`
 - `.key`
@@ -157,22 +157,22 @@ Sensitive extensions:
 - `.crt`
 - `.cer`
 
-## Tool Integration
+## 工具集成
 
-Most built-in file and path tools already use the shared path approval model.
+大多数内置文件与路径工具已经使用共享的路径批准模型。
 
-### File and Directory Tools
+### 文件与目录工具
 
-Current mappings are:
+当前映射如下：
 
-| Tool | Action |
+| 工具 | 动作 |
 |---|---|
 | `read_file` | `Read` |
 | `grep` | `Read` |
 | `find_references` | `Read` |
 | `list_symbols` | `Read` |
 | `read_symbol` | `Read` |
-| `lsp` (all phase-one operations) | `Read` |
+| `lsp`（第一阶段全部操作） | `Read` |
 | `list_directory` | `Enumerate` |
 | `glob` | `Enumerate` |
 | `cd` | `Enumerate` |
@@ -182,33 +182,33 @@ Current mappings are:
 | `write_file` | `Write` |
 | `search_replace` | `Write` |
 
-This gives RustCode a single path policy for file tools instead of per-tool ad hoc logic.
+这让 RustCode 对文件工具使用统一的路径策略，而不是每个工具各自一套临时逻辑。
 
-## Bash Permission Model
+## Bash 权限模型
 
-`bash` uses a two-layer permission model.
+`bash` 采用两层权限模型。
 
-### Layer 1: Dangerous Command Detection
+### 第 1 层：危险命令检测
 
-Some commands are flagged because the command itself is risky, regardless of path.
+部分命令被标记，是因为无论路径如何，命令本身就具有风险。
 
-Examples include:
+例如包括：
 
-- privileged execution such as `sudo`
-- destructive deletion such as `rm -rf`
-- dangerous networking or shell-tunneling patterns
-- remote script execution piped into a shell
-- force-push and other destructive VCS operations
+- 特权执行，例如 `sudo`
+- 破坏性删除，例如 `rm -rf`
+- 危险的网络或 shell 隧道模式
+- 通过管道送入 shell 执行的远程脚本
+- force-push 以及其他破坏性 VCS 操作
 
-These return `RequireApproval`.
+这些返回 `RequireApproval`。
 
-### Layer 2: Common Shell File Command Path Checks
+### 第 2 层：常见 shell 文件命令的路径检查
 
-For common shell file commands, RustCode extracts path arguments and maps them onto the same shared path approval model used by file tools.
+对于常见的 shell 文件命令，RustCode 会提取其中的路径参数，并把它们映射到文件工具所使用的同一套共享路径批准模型上。
 
-Current categories:
+当前分类如下：
 
-Read-like commands:
+读取类命令：
 
 - `cat`
 - `head`
@@ -236,14 +236,14 @@ Read-like commands:
 - `source`
 - `.`
 
-Enumerate-like commands:
+列举类命令：
 
 - `ls`
 - `dir`
 - `tree`
 - `find`
 
-Write-like commands:
+写入类命令：
 
 - `cp`
 - `mv`
@@ -256,129 +256,129 @@ Write-like commands:
 - `tee`
 - `install`
 
-This layer exists to prevent common bypasses such as:
+该层用于阻止常见的绕过手段，例如：
 
-- using `cat` after `read_file` was denied
-- using `ls` or `find` to inspect a sensitive external path
-- using `cp`, `mv`, or redirection to mutate files outside the workspace
+- 在 `read_file` 被拒绝后改用 `cat`
+- 使用 `ls` 或 `find` 探查敏感外部路径
+- 使用 `cp`、`mv` 或重定向修改工作区之外的文件
 
-### Shell Wrappers and Redirection
+### Shell wrapper 与重定向
 
-The current implementation also handles:
+当前实现还处理以下情况：
 
 - `bash -c ...`
 - `bash -lc ...`
-- input redirection with `<`
-- output redirection with `>` and `>>`
+- 使用 `<` 的输入重定向
+- 使用 `>` 与 `>>` 的输出重定向
 
-This allows common wrapped shell patterns to inherit the same path checks.
+这使得常见的 shell 包装模式能够继承同样的路径检查。
 
-## Explicit Boundary: Interpreter Code
+## 明确边界：解释器代码
 
-RustCode currently does not perform semantic inspection of interpreter code passed through shell commands.
+RustCode 当前不会对通过 shell 命令传入的解释器代码做语义检查。
 
-For example:
+例如：
 
 ```bash
 cat /etc/hosts
 ```
 
-and
+与
 
 ```bash
 python -c "print(open('/etc/hosts').read())"
 ```
 
-are treated differently.
+会被区别对待。
 
-The first is checked by the shell file-command permission layer. The second is currently outside that layer.
+前者由 shell 文件命令权限层检查。后者当前位于该层之外。
 
-## Why This Boundary Exists
+## 该边界为何存在
 
-This boundary keeps the model practical.
+该边界让模型保持可落地。
 
-Without it, RustCode would need to:
+若没有该边界，RustCode 将不得不：
 
-- parse many scripting languages
-- understand nested quoting and runtime string construction
-- infer file access from interpreter semantics
-- maintain a much larger and less predictable security surface
+- 解析大量脚本语言
+- 理解嵌套引号与运行时字符串构造
+- 从解释器语义推断文件访问
+- 维护一个大得多且更不可预测的安全面
 
-The current implementation instead focuses on:
+当前实现转而聚焦于：
 
-- file tools
-- common shell file commands
-- explicit path-bearing shell syntax
-- dangerous command patterns
+- 文件工具
+- 常见的 shell 文件命令
+- 显式携带路径的 shell 语法
+- 危险命令模式
 
-## User Experience Model
+## 用户体验模型
 
-From the user's perspective, the current model should be understood like this:
+从用户视角看，当前模型应这样理解：
 
-- project-local work is usually frictionless
-- external file reads ask for confirmation
-- external sensitive reads ask more strongly
-- any external write asks more strongly
-- dangerous shell commands ask for confirmation
-- common shell file-command bypasses are blocked by the same path rules
-- interpreter-internal file access is currently outside this approval layer
+- 项目内工作通常是无摩擦的
+- 外部文件读取会请求确认
+- 外部敏感读取会以更强的方式请求确认
+- 任何外部写入都会以更强的方式请求确认
+- 危险 shell 命令会请求确认
+- 常见的 shell 文件命令绕过手段由同一套路径规则阻断
+- 解释器内部的文件访问当前位于该批准层之外
 
-## Strengths of the Current Model
+## 当前模型的优势
 
-The current model has several strengths:
+当前模型具备若干优势：
 
-- path policy is unified across tools
-- common shell bypasses are covered
-- approval strength is explicit
-- workspace boundary and sensitivity boundary are modeled separately
-- behavior is inspectable in code rather than hidden in scattered conditionals
+- 路径策略在各工具之间统一
+- 常见的 shell 绕过手段被覆盖
+- 批准强度是显式的
+- 工作区边界与敏感度边界分别建模
+- 行为可在代码中检视，而不是隐藏在零散的条件判断里
 
-## Known Limitations
+## 已知局限
 
-The current model also has tradeoffs:
+当前模型也存在以下取舍：
 
-- shell command coverage is heuristic, not complete
-- protected-path and exception lists require maintenance
-- platform-specific filesystem behavior can cause edge cases
-- users may still see some cases as inconsistent when shell commands are parsed but interpreter code is not
+- shell 命令覆盖是启发式的，并不完整
+- 受保护路径列表与例外列表需要维护
+- 平台相关的文件系统行为可能导致边界情况
+- 当 shell 命令被解析而解释器代码未被解析时，用户仍可能认为某些情况不一致
 
-## Recommended Evolution
+## 建议的演进方向
 
-The recommended direction is to refine the current model rather than replace it.
+建议的方向是在当前模型上做细化，而不是替换它。
 
-### Keep
+### 保留
 
-- shared path approval core
-- `Read / Write / Enumerate` action model
-- `RequireApproval` vs `RequireApprovalAlways`
-- dangerous shell command detection
-- common shell file-command protection
+- 共享的路径批准核心
+- `Read / Write / Enumerate` 动作模型
+- `RequireApproval` 与 `RequireApprovalAlways`
+- 危险 shell 命令检测
+- 常见 shell 文件命令保护
 
-### Reduce
+### 收敛
 
-- breadth of shell command parsing
-- pressure to model complex shell semantics
-- reliance on ever-growing hardcoded shell heuristics
+- shell 命令解析的广度
+- 建模复杂 shell 语义的压力
+- 对不断增长的手写 shell 启发式规则的依赖
 
-### Add Later
+### 后续补充
 
-- configurable sensitive prefixes
-- configurable sensitive globs
-- configurable exceptions
-- clearer user-facing documentation for what is and is not covered
+- 可配置的敏感前缀
+- 可配置的敏感 glob
+- 可配置的例外
+- 面向用户更清晰地说明哪些场景被覆盖、哪些未被覆盖
 
-## Summary
+## 小结
 
-RustCode currently uses a unified path-based approval model for file tools and common shell file commands.
+RustCode 当前对文件工具与常见 shell 文件命令使用统一的基于路径的批准模型。
 
-It protects:
+它保护：
 
-- workspace boundaries
-- sensitive external reads
-- all external writes
-- common shell-based file access bypasses
-- dangerous shell commands
+- 工作区边界
+- 敏感外部读取
+- 全部外部写入
+- 常见的基于 shell 的文件访问绕过手段
+- 危险 shell 命令
 
-It intentionally does not attempt to analyze interpreter code or become a full shell security engine.
+它有意不尝试分析解释器代码，也不追求成为完整的 shell 安全引擎。
 
-This keeps the model strong on common cases, explicit in code, and maintainable enough to evolve.
+这让模型在常见场景上保持强健、在代码中保持显式，并具备足以持续演进的可维护性。

@@ -1,41 +1,41 @@
-# Batch User Questions Persona Nudge — Implementation Plan
+# 批量用户提问的 Persona 提示 —— 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **致 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** Add a persona rule telling the model to put multiple user questions into ONE `request_user_input` call's `questions[]` array (the existing Tab-navigated batch form) instead of emitting N separate single-question calls.
+**目标：** 在 persona 里加一条规则，让模型把多个用户问题放进**一次** `request_user_input` 调用的 `questions[]` 数组（即已发布的、用 Tab 导航的批量表单），而不是发出 N 次独立的单问题调用。
 
-**Architecture:** One clause added to the already-gated `REQUEST_USER_INPUT_USAGE` block in the coding persona. No code/mechanism change — reuses the shipped batch UI. Rides the existing `request_user_input_enabled` gate so it vanishes when the tool is disabled.
+**架构：** 在 coding persona 中已被开关控制的 `REQUEST_USER_INPUT_USAGE` 段里加一条条款。无代码/机制改动——复用已发布的批量 UI。依托既有的 `request_user_input_enabled` 开关，因此在工具关闭时该条款会随之消失。
 
-**Tech Stack:** Rust, `rustcode-coding` crate, `cargo test`.
+**技术栈：** Rust、`rustcode-coding` crate、`cargo test`。
 
-## Global Constraints
+## 全局约束
 
-- The clause lives INSIDE `REQUEST_USER_INPUT_USAGE` (`crates/rustcode-coding/src/persona.rs:336`), so it only appears when `request_user_input_enabled == true` (never nudge toward an unmounted tool).
-- Model-agnostic (no per-model gating this round).
-- Must reconcile with the existing "One focused question at a time" wording — each question stays focused, but multiple focused questions go in ONE call.
-- Neutral wording — no opencode/codex names in code/commits.
-- Work on branch `release/v5.0.1`. Commit trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
-
----
-
-## File Structure
-
-- `crates/rustcode-coding/src/persona.rs` — the ONLY file changed. Modify the `REQUEST_USER_INPUT_USAGE` string constant (~line 336) and add one gated-behavior unit test in `mod tests`.
+- 该条款位于 `REQUEST_USER_INPUT_USAGE` **内部**（`crates/rustcode-coding/src/persona.rs:336`），因此只在 `request_user_input_enabled == true` 时出现（绝不引导模型去使用未挂载的工具）。
+- 与模型无关（本轮不做按模型的开关）。
+- 必须与既有的 "One focused question at a time" 措辞调和——每个问题仍然保持聚焦，但多个聚焦的问题要放进**一次**调用。
+- 措辞中立——代码与提交里不得出现 opencode/codex 的名字。
+- 在分支 `release/v5.0.1` 上工作。提交尾部：`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`。
 
 ---
 
-### Task 1: Add the batching rule to `## ASKING THE USER`
+## 文件结构
 
-**Files:**
-- Modify: `crates/rustcode-coding/src/persona.rs` — `REQUEST_USER_INPUT_USAGE` const (~line 336) and `mod tests`.
+- `crates/rustcode-coding/src/persona.rs` —— 唯一改动的文件。修改 `REQUEST_USER_INPUT_USAGE` 字符串常量（约 336 行），并在 `mod tests` 里加一个验证开关行为的单元测试。
 
-**Interfaces:**
-- Consumes: existing `coding_persona(model: &str, todo_enabled: bool, request_user_input_enabled: bool) -> String`. Unchanged signature.
-- Produces: behavioral — when `request_user_input_enabled == true`, the persona additionally contains the substring `answers them together in one form`; absent when `false`.
+---
 
-- [ ] **Step 1: Write the failing test**
+### 任务 1：给 `## ASKING THE USER` 加上批量提问规则
 
-Add to `mod tests` in `crates/rustcode-coding/src/persona.rs` (near the other `request_user_input` persona tests):
+**文件：**
+- 修改：`crates/rustcode-coding/src/persona.rs` —— `REQUEST_USER_INPUT_USAGE` 常量（约 336 行）与 `mod tests`。
+
+**接口：**
+- 消费：既有的 `coding_persona(model: &str, todo_enabled: bool, request_user_input_enabled: bool) -> String`。签名不变。
+- 产出：行为上——当 `request_user_input_enabled == true` 时，persona 额外包含子串 `answers them together in one form`；为 `false` 时则没有。
+
+- [ ] **步骤 1：写失败测试**
+
+加到 `crates/rustcode-coding/src/persona.rs` 的 `mod tests` 里（放在其它 `request_user_input` persona 测试附近）：
 
 ```rust
     #[test]
@@ -57,21 +57,21 @@ Add to `mod tests` in `crates/rustcode-coding/src/persona.rs` (near the other `r
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **步骤 2：跑测试确认失败**
 
-Run: `cargo test -p rustcode-coding --lib batch_questions_rule_present_only_when_enabled`
-Expected: FAIL — `on.contains("answers them together in one form")` panics (the clause isn't in the const yet).
+运行：`cargo test -p rustcode-coding --lib batch_questions_rule_present_only_when_enabled`
+预期：FAIL —— `on.contains("answers them together in one form")` 会 panic（该条款还没写进常量）。
 
-- [ ] **Step 3: Insert the batching clause**
+- [ ] **步骤 3：插入批量提问条款**
 
-In `crates/rustcode-coding/src/persona.rs`, the `REQUEST_USER_INPUT_USAGE` const contains the sentence `One focused question at a time.` followed by `Never ask the user to type a secret`. Insert the batching clause between them. Replace:
+在 `crates/rustcode-coding/src/persona.rs` 里，`REQUEST_USER_INPUT_USAGE` 常量中有 `One focused question at a time.` 这一句，其后是 `Never ask the user to type a secret`。把批量条款插在两者之间。将：
 
 ```rust
 code, the task, or a quick check already answers. One focused question at a time. Never ask the \
 user to type a secret (password, API key, token) into the prompt — those come from the \
 ```
 
-with:
+替换为：
 
 ```rust
 code, the task, or a quick check already answers. Keep each question focused. If you have MORE \
@@ -81,19 +81,19 @@ write a multiple-choice question as prose; the user answers them together in one
 the user to type a secret (password, API key, token) into the prompt — those come from the \
 ```
 
-(This drops the standalone "One focused question at a time." and folds "Keep each question focused" into the batching rule so the two no longer read as "make separate calls".)
+（这删掉了独立的 "One focused question at a time." 一句，并把 "Keep each question focused" 折进批量规则，使两者不再被读成「要分多次调用」。）
 
-- [ ] **Step 4: Run the test to verify it passes + no persona regression**
+- [ ] **步骤 4：跑测试确认通过 + 无 persona 回归**
 
-Run: `cargo test -p rustcode-coding --lib persona`
-Expected: PASS — the new `batch_questions_rule_present_only_when_enabled` plus all existing persona tests (the `## ASKING THE USER` block still contains `## ASKING THE USER`, `request_user_input`, `structured interview`, etc.).
+运行：`cargo test -p rustcode-coding --lib persona`
+预期：PASS —— 新增的 `batch_questions_rule_present_only_when_enabled` 以及全部既有 persona 测试（`## ASKING THE USER` 段仍包含 `## ASKING THE USER`、`request_user_input`、`structured interview` 等）。
 
-- [ ] **Step 5: Verify the string is compiled into the binary (optional sanity)**
+- [ ] **步骤 5：确认该字符串已编译进二进制（可选的健康检查）**
 
-Run: `cargo build --bin rustcode && strings target/debug/rustcode | grep -c "answers them together in one form"`
-Expected: prints `1`.
+运行：`cargo build --bin rustcode && strings target/debug/rustcode | grep -c "answers them together in one form"`
+预期：输出 `1`。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-coding/src/persona.rs
@@ -112,23 +112,23 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Self-Review
+## 自审
 
-**Spec coverage:**
-- "Add batching rule inside the gated `REQUEST_USER_INPUT_USAGE`" → Task 1 Step 3. [x]
-- "Reconcile with 'One focused question at a time'" → Step 3 folds it into "Keep each question focused". [x]
-- "Model-agnostic, no mechanism change" → only the const string + a test. [x]
-- "Persona test present-when-enabled / absent-when-disabled" → Step 1. [x]
-- "Run existing persona tests" → Step 4. [x]
-- Runtime coalescing deferred → not implemented, matches spec. [x]
+**Spec 覆盖：**
+- 「在受控的 `REQUEST_USER_INPUT_USAGE` 内加批量规则」→ 任务 1 步骤 3。 [x]
+- 「与 'One focused question at a time' 调和」→ 步骤 3 把它折进 "Keep each question focused"。 [x]
+- 「与模型无关、无机制改动」→ 只改了常量字符串 + 一个测试。 [x]
+- 「Persona 测试：开启时存在 / 关闭时消失」→ 步骤 1。 [x]
+- 「跑既有 persona 测试」→ 步骤 4。 [x]
+- 运行时合并已延后 → 未实现，与 spec 一致。 [x]
 
-**Placeholder scan:** No TBD/TODO. Every step shows the exact string. [x]
+**占位符扫描：** 无 TBD/TODO。每个步骤都给出确切字符串。 [x]
 
-**Type consistency:** No signatures change. The test asserts on `answers them together in one form` and `` `questions` array ``, both appearing verbatim in the Step 3 inserted text. [x]
+**类型一致：** 无签名变更。测试断言 `answers them together in one form` 与 `` `questions` array ``，两者都逐字出现在步骤 3 插入的文本里。 [x]
 
 ---
 
-## Execution Notes
+## 执行说明
 
-- Only `rustcode-coding/persona.rs` is touched; no `core` change, no staleness dance.
-- Ships **未真机** for the behavioral effect — verify by asking deepseek/GLM something that surfaces several choices and confirming ONE `request_user_input` with `questions[]` (the Tab form) rather than N calls. If deepseek still won't batch, escalate to the deferred runtime-coalescing fallback.
+- 只触碰 `rustcode-coding/persona.rs`；没有 `core` 改动，也不需要防陈旧操作。
+- 行为效果属于**未真机**就发出的——验证方式：向 deepseek/GLM 提一个会引出多个选项的问题，确认只出现**一次**带 `questions[]` 的 `request_user_input`（Tab 表单），而不是 N 次调用。若 deepseek 仍不批量提问，则升级到已延后的运行时合并兜底方案。

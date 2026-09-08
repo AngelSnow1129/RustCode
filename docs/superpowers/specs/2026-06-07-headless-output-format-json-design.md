@@ -1,4 +1,4 @@
-# Headless `--output-format json` / `stream-json`
+# Headless 模式的 `--output-format json` / `stream-json`
 
 ## 背景与目标
 
@@ -38,7 +38,7 @@ RustCode 的 headless(非交互)模式当前只把助手文本写到 stdout(Clau
 
 挂载点:`run_headless`(`main.rs:1696`)已经在 `while let Some(event) = event_rx.recv().await` 里逐个消费 `AgentEvent`(`rustcode-core/src/agent/mod.rs:190`)——这正是把事件流投影成 JSON 的天然位置。
 
-### 1. CLI flag
+### 1. CLI flag 定义
 
 在 `Cli` struct(`main.rs:427`,`verbose` 字段之后)新增:
 
@@ -92,8 +92,8 @@ enum OutputFormat {
 | `SubAgentTaskDone{index,elapsed_ms,turns,summary}` | `{"type":"sub_agent","subtype":"done","index":...,"elapsed_ms":...,"turns":...,"summary":...}` |
 | `SubAgentTaskFailed{index,elapsed_ms,turns,reason}` | `{"type":"sub_agent","subtype":"failed","index":...,"elapsed_ms":...,"turns":...,"reason":...}` |
 | `TurnComplete{...}` | `result`(success,见下) |
-| `Error{error}` | `result`(error) |
-| `TurnCancelled` | `result`(cancelled) |
+| `Error{error}` | `result`（error 子型） |
+| `TurnCancelled` | `result`（cancelled 子型） |
 
 未列出的 `AgentEvent` 变体(`PhaseChange`、`ContextStats`、`ToolCallStreaming`、`ToolBatchStarted/Completed`、`ToolOutputChunk`、`ApprovalNeeded`、sync/echo 类等)在 JSON 模式下**不进流**(返回 `None`)。`ApprovalNeeded` 的决策逻辑不变(bash 自动批准、其余拒绝),但 JSON 模式下不发对应日志行;后续如需可补一条 `{"type":"approval",...}`(本期不做)。
 

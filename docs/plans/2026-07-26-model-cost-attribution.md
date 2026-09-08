@@ -1,80 +1,88 @@
-# Model Cost Attribution Implementation Plan
+# 模型成本归因实施计划
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **给 Claude：** 必需子技能：使用 superpowers:executing-plans 逐任务实施本计划。
 
-**Goal:** Make `/cost` attribute token usage and estimated cost to the provider/model that produced it, without relabeling historical usage after `/model`.
+**目标：** 让 `/cost` 把 token 用量与估算成本归因到产出它的 provider/model 上，
+并且不在 `/model` 之后重新标注历史用量。
 
-**Architecture:** `CodingRuntime` already rebuilds its assembled agent for provider/model changes. Each generation will construct the native `SnapshotHook` with that generation's stable provider/model identity and optional pricing snapshot. The hook will accumulate every model response in the turn and persist additive model-usage records in native session metadata. TUI, daemon, and remote `/cost` will consume one session aggregation model; live TUI counters remain presentation-only.
+**架构：** `CodingRuntime` 已经在 provider/model 变更时重建其装配好的 agent。
+每一代都会用该代稳定的 provider/model 身份与可选的定价快照来构造原生
+`SnapshotHook`。该 hook 会累加本轮中的每一次模型响应，并把可累加的模型用量
+记录持久化到原生会话元数据中。TUI、daemon 与远端 `/cost` 复用同一套会话
+聚合模型；TUI 的实时计数器仍然只作展示之用。
 
-**Tech Stack:** Rust, serde-compatible native session metadata, rustcode-kernel lifecycle hooks, rustcode-coding runtime assembly, TUI/daemon command projections.
+**技术栈：** Rust、serde 兼容的原生会话元数据、rustcode-kernel 生命周期 hook、rustcode-coding 运行时装配、TUI/daemon 命令投影。
 
 ---
 
-### Task 1: Native usage schema and aggregation
+### Task 1：原生用量 schema 与聚合
 
-**Files:**
-- Modify: `crates/rustcode-capabilities/src/session/manager.rs`
-- Modify: `crates/rustcode-capabilities/src/session/mod.rs`
-- Test: `crates/rustcode-capabilities/src/session/manager.rs`
+**文件：**
+- 修改：`crates/rustcode-capabilities/src/session/manager.rs`
+- 修改：`crates/rustcode-capabilities/src/session/mod.rs`
+- 测试：`crates/rustcode-capabilities/src/session/manager.rs`
 
-**Steps:**
-1. Add failing tests for provider/model grouping, same model names under different providers, unknown pricing, and legacy unattributed totals.
-2. Add serde-defaulted token, pricing snapshot, per-model usage, and report types.
-3. Implement aggregation by `(provider_id, model_id)` while retaining legacy `TurnStat.total_tokens` as unattributed data only when no detailed records exist.
-4. Run the focused session tests.
+**步骤：**
+1. 增加失败测试，覆盖 provider/model 分组、同名模型分属不同 provider、
+   定价未知，以及遗留的未归因总量。
+2. 增加带 serde 默认值的 token、定价快照、每模型用量与报表类型。
+3. 按 `(provider_id, model_id)` 实现聚合，同时仅在没有任何明细记录时，
+   才把遗留的 `TurnStat.total_tokens` 保留为未归因数据。
+4. 运行聚焦的会话测试。
 
-### Task 2: Runtime-owned attribution
+### Task 2：运行时持有的归因
 
-**Files:**
-- Modify: `crates/rustcode-capabilities/src/session/snapshot.rs`
-- Modify: `crates/rustcode-coding/src/parts.rs`
-- Test: `crates/rustcode-capabilities/src/session/snapshot.rs`
+**文件：**
+- 修改：`crates/rustcode-capabilities/src/session/snapshot.rs`
+- 修改：`crates/rustcode-coding/src/parts.rs`
+- 测试：`crates/rustcode-capabilities/src/session/snapshot.rs`
 
-**Steps:**
-1. Add a failing hook test with two model responses in one turn.
-2. Give `SnapshotHook` an immutable generation attribution configured by `rustcode-coding`.
-3. Accumulate prompt, completion, and cached tokens for every response.
-4. Persist detailed usage at `turn_complete`; keep old constructors unattributed for compatibility tests.
-5. Verify model reload naturally rebuilds the hook with the new runtime config.
+**步骤：**
+1. 增加一个失败 hook 测试，在一轮内包含两次模型响应。
+2. 给 `SnapshotHook` 一份由 `rustcode-coding` 配置的、不可变的世代归属信息。
+3. 累加每次响应的 prompt、completion 与 cached token。
+4. 在 `turn_complete` 持久化明细用量；为兼容测试保留未归因的旧构造函数。
+5. 验证模型重载会自然地使用新的运行时配置重建该 hook。
 
-### Task 3: Provider pricing configuration
+### Task 3：provider 定价配置
 
-**Files:**
-- Modify: `crates/rustcode-config/src/config/provider.rs`
-- Modify: `crates/rustcode-coding/src/config.rs`
-- Modify provider API projections only where compilation requires it.
-- Test: `crates/rustcode-config/src/config/provider.rs`
+**文件：**
+- 修改：`crates/rustcode-config/src/config/provider.rs`
+- 修改：`crates/rustcode-coding/src/config.rs`
+- 仅在编译需要之处修改 provider API 投影。
+- 测试：`crates/rustcode-config/src/config/provider.rs`
 
-**Steps:**
-1. Add tests for omitted, explicit-free, and configured per-million prices.
-2. Add an optional provider pricing object; omitted means unknown rather than zero.
-3. Resolve the immutable pricing snapshot into `CodingRuntimeConfig`.
-4. Do not introduce a remote model-price service in this change.
+**步骤：**
+1. 增加测试，覆盖省略、显式免费与已配置的每百万价格。
+2. 增加一个可选的 provider 定价对象；省略表示未知，而非零。
+3. 把不可变的定价快照解析进 `CodingRuntimeConfig`。
+4. 本次改动不引入远端模型价格服务。
 
-### Task 4: Unified `/cost` projection
+### Task 4：统一的 `/cost` 投影
 
-**Files:**
-- Modify: `crates/rustcode-daemon/src/commands.rs`
-- Modify: `crates/rustcode-tuix/src/event_loop/commands.rs`
-- Modify: `crates/rustcode-tuix/src/session.rs`
-- Modify: `crates/rustcode-tuix/src/i18n` files as required.
-- Test: command and rendering unit tests in the touched crates.
+**文件：**
+- 修改：`crates/rustcode-daemon/src/commands.rs`
+- 修改：`crates/rustcode-tuix/src/event_loop/commands.rs`
+- 修改：`crates/rustcode-tuix/src/session.rs`
+- 按需修改 `crates/rustcode-tuix/src/i18n` 下的文件。
+- 测试：所涉 crate 中的命令与渲染单元测试。
 
-**Steps:**
-1. Add failing tests for A usage followed by a switch to unused B.
-2. Replace current-model repricing with the native session aggregation.
-3. Render per-provider/model token lines, estimated cost only for known/free pricing, and a legacy “unattributed” section.
-4. Make TUI, daemon, and remote command projections use the same report semantics.
-5. Remove the unknown-model `$1/$3` fallback from the `/cost` path.
+**步骤：**
+1. 增加失败测试：先使用 A，随后切换到未被使用的 B。
+2. 把按当前模型重新计价的逻辑替换为原生会话聚合。
+3. 渲染按 provider/model 分组的 token 行；仅对已知/免费定价给出估算成本；
+   并保留一个遗留的“未归因”分区。
+4. 让 TUI、daemon 与远端命令投影使用同一套报表语义。
+5. 从 `/cost` 路径中移除未知模型的 `$1/$3` 兜底。
 
-### Task 5: Compatibility and verification
+### Task 5：兼容性与验证
 
-**Files:**
-- Review all modified files and relevant fixtures.
+**文件：**
+- 复查所有被修改的文件与相关 fixture。
 
-**Steps:**
-1. Run affected crate tests after each logical unit.
-2. Run cross-crate tests/checks for config, capabilities, coding, daemon, and tuix.
-3. Verify old metadata deserializes and remains unattributed.
-4. Audit provider reload, resume, undo, compaction, cancel, and generation boundaries.
-5. Inspect the final diff for unrelated changes and document any unverified true-device behavior.
+**步骤：**
+1. 每个逻辑单元完成后运行受影响 crate 的测试。
+2. 运行 config、capabilities、coding、daemon 与 tuix 的跨 crate 测试/检查。
+3. 验证旧元数据可反序列化且仍为未归因状态。
+4. 审计 provider 重载、恢复、undo、压缩、取消与世代边界。
+5. 检查最终 diff 是否夹杂无关改动，并记录任何未经真机验证的行为。

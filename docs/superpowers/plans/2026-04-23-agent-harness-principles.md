@@ -1,8 +1,8 @@
 # rustcode Agent Harness —— 四条设计原则
 
-**Status:** roadmap / 顶层设计文档,不是可执行 plan。每条原则对应一个或多个 implementation plan。
+**状态：** roadmap / 顶层设计文档,不是可执行 plan。每条原则对应一个或多个 implementation plan。
 
-**Scope:** 这份文档规定 rustcode 作为**通用 agent framework** 该做什么,不该做什么。所有 "agent 层" 改动(prompt、guard、discipline、tool trait 扩展)都应该能映射到下面四条之一;映射不上就说明在做特定生态优化,不属于 harness 本身。
+**范围：** 这份文档规定 rustcode 作为**通用 agent framework** 该做什么,不该做什么。所有 "agent 层" 改动(prompt、guard、discipline、tool trait 扩展)都应该能映射到下面四条之一;映射不上就说明在做特定生态优化,不属于 harness 本身。
 
 ---
 
@@ -34,18 +34,18 @@
 
 ## 原则 1 · Hypothesis-first —— 让搜索空间显式化
 
-### What
+### 是什么
 
 在 tool args 的 schema 里加可选字段 `hypothesis: string`。高成本 tool(bash 复杂命令、大文件 read、全仓 grep)调用时,建议(不强制)声明"我期望看到 X"。Framework 执行后把 tool 输出和 hypothesis 对比,落差大时注入反思 prompt。
 
-### Why(dogfooding 证据)
+### 为什么（dogfooding 证据）
 
 - dead-code 任务中 agent 瞎试 25 次 RUSTFLAGS,没在第 1 次失败后问"为什么空输出"
 - session.rs 调查中 agent 在错误 crate 里反复 grep,没声明"我在验证 session 持久化在 tuix 还是 daemon"
 
 这是**所有 agent 框架的共性缺陷**,不是模型特异的。模型训练默认"产出下一个动作",不默认"验证上一个动作的预期"。
 
-### How
+### 怎么做
 
 - Tool args schema 扩展:可选 `hypothesis` 字段
 - Framework 层:tool 执行后 diff(output, hypothesis),差异大注入提示
@@ -55,15 +55,15 @@
 
 中。依赖模型愿意填字段,但至少**每个 tool call 都变成"验证"载体**,比每 N 步一次反思密度更高。
 
-### Status: 未启动
+### 状态：未启动
 
-### Related plan: TBD(尚未开)
+### 相关计划：待定（尚未开）
 
 ---
 
 ## 原则 2 · Actionable failure —— 失败是开始不是终点
 
-### What
+### 是什么
 
 每个 tool 的**失败分支**必须返回 2-3 条 **candidate next actions**。候选**由 tool 自己提供**(它知道自己的 domain),framework **不代说**。
 
@@ -72,11 +72,11 @@
 - `grep` 0 匹配 → "放宽 regex / 换路径 / 改大小写敏感" 候选
 - `bash` 非零 exit → stderr 的前 10 行 + 建议加 `-v` / `--verbose`
 
-### Why
+### 为什么
 
 dogfooding 每次都看到同一模式:tool 失败 → agent 不知道下一步是啥 → 换种参数再试 → 又失败 → 循环。agent 元认知弱时尤其严重。**让 tool 自己说 "下一步试这个"** 是最便宜的救命稻草。
 
-### How
+### 怎么做
 
 Tool trait 扩展:
 
@@ -98,7 +98,7 @@ Framework 在 tool 失败时把 candidate 拼到 error message 尾部,进 conver
 
 **高**。不依赖模型产生 idea,候选来自 tool 代码。模型只需"从 3 条里挑 1 条"——这是模型最擅长的任务。
 
-### Status: 部分实现(只有 `read_file` skeleton 做了)
+### 状态：部分实现(只有 `read_file` skeleton 做了)
 
 ### Related plan: `tool-failure-hints`(未开)
 
@@ -106,15 +106,15 @@ Framework 在 tool 失败时把 candidate 拼到 error message 尾部,进 conver
 
 ## 原则 3 · Cadence reflection —— 周期反思不依赖是否卡住
 
-### What
+### 是什么
 
 每 N 次 tool call,post-turn 注入一段 "restate goal / what ruled out / next output" 的反思 prompt。**不是 guard(卡了才拦),是节拍器(周期自检)**。
 
-### Why
+### 为什么
 
 agent 在"慢慢走错路"时 guard 不触发,但走完后回头一看已经浪费 10+ 步。周期反思让 agent 每 N 步校准一次目标。
 
-### How
+### 怎么做
 
 已实现。见 `crates/rustcode-core/src/agent/discipline.rs` 的 `should_inject_reflection` + `reflection_prompt`。默认 `reflection_cadence = 7`,0 禁用。
 
@@ -127,9 +127,9 @@ agent 在"慢慢走错路"时 guard 不触发,但走完后回头一看已经浪�
 
 说明 cadence reflection 是**认知层软约束**,对模型顺从性敏感。**不能作为主防线**,只能锦上添花。跨模型硬约束要靠原则 2 和 4。
 
-### Status: 已 ship(v4.20)
+### 状态：已 ship(v4.20)
 
-### Related plans:
+### 相关计划：
 - `2026-04-23-cadence-reflection.md`(已完成)
 - `tui-render-silent-injections`(未开 —— 解决 TUI 看不到注入的架构 gap)
 
@@ -137,7 +137,7 @@ agent 在"慢慢走错路"时 guard 不触发,但走完后回头一看已经浪�
 
 ## 原则 4 · Cost awareness —— 把代价做进框架
 
-### What
+### 是什么
 
 Agent 对"错了撤销多贵"无感。framework 的独特价值就是**算给它看**:
 
@@ -147,7 +147,7 @@ Agent 对"错了撤销多贵"无感。framework 的独特价值就是**算给它
 | Token 代价 | 本 turn 累计 / context budget | 超阈值在 tool output 尾部追加 "context 70% used" |
 | 时间代价 | wall clock | 超阈值在下 turn 注入 "elapsed 3min, $0.xx" |
 
-### Why
+### 为什么
 
 dogfooding 三次都见 agent 干 `sed -i` 全项目改源码:
 
@@ -157,7 +157,7 @@ dogfooding 三次都见 agent 干 `sed -i` 全项目改源码:
 
 **只有 framework 能可靠地做代价分级**。模型能读到分级,但自己算不出。
 
-### How
+### 怎么做
 
 Tool trait 扩展:
 
@@ -176,7 +176,7 @@ enum Reversibility {
 ```
 
 Framework 按分级决定 `approval`:
-- `ReadOnly` → auto
+- `ReadOnly` → 自动放行
 - `Mutating` → session-default(user 可设)
 - `Irreversible` → 强制 approval prompt
 
@@ -186,9 +186,9 @@ Token/time 代价通过 AgentEvent 推到 UI + 超阈值注入 meta message。
 
 **最高**。分级由 tool 代码决定,model 只能看不能改。即使模型想无视 approval,framework 层直接拒绝执行。
 
-### Status: 未启动
+### 状态：未启动
 
-### Related plans:
+### 相关计划：
 - ~~`mutating-bash-approval`~~ —— 取消。原构想是重新引入 `sed -i` / `perl -pi` / `awk -i` 等 pattern 识别,但 upstream 于 2026-04-22 (`ff540aa`) 明确以 effect-based 机制(post-exec `snapshot_workspace_changes` diff + 文本 nudge)替代 pattern 枚举,判定 pattern list 必然 whack-a-mole。要重开需先 brainstorm 与 upstream 决策对齐的新方向(例如 pre-exec 预测、或升级 effect nudge 为 pre-exec gate)。
 - `tool-reversibility-trait`(更广,所有 tool 声明 reversibility)
 - `token-cost-feedback`(P2)
@@ -211,7 +211,7 @@ Token/time 代价通过 AgentEvent 推到 UI + 超阈值注入 meta message。
 
 ---
 
-## Ship 顺序(建议)
+## 落地顺序（建议）
 
 | 阶段 | 原则 | Plan | 估规模 | 理由 |
 |---|---|---|---|---|
@@ -239,8 +239,8 @@ Token/time 代价通过 AgentEvent 推到 UI + 超阈值注入 meta message。
 
 ---
 
-## Revision policy
+## 修订策略
 
-- 每完成一个 related plan 更新对应原则的 Status 段
+- 每完成一个相关 plan 即更新对应原则的状态段
 - Ship 顺序可以随 dogfooding 新证据调整,但**不要轻易加第 5 条原则**。新原则出现前先问:能否映射到 1-4 之一?
 - 这份 doc 的改动应与代码 commit 同批次(不是独立 commit)

@@ -1,77 +1,68 @@
-# Session Persistence Recovery Design
+# 会话持久化恢复设计
 
-## Goal
+## 目标
 
-Make disk-exhaustion failures visible and provide an explicit, conservative way
-to restore a native session whose committed snapshot is intact but whose
-presentation sidecar is missing. This complements the v5.0.5 safety stop for
-workspace/code Rewind; it does not re-enable workspace snapshots.
+让磁盘耗尽类失败可见，并提供一种显式且保守的方式，去恢复这样一个原生
+会话：它已提交的快照完好，但展示状态附属文件缺失。本设计是对 v5.0.5 针对
+工作区/代码 Rewind 所做安全停用的补充；它不会重新启用工作区快照。
 
-## Ownership and recovery boundary
+## 所有权与恢复边界
 
-The native aggregate remains `SessionMeta + SessionSnapshot + PresentationFile`.
-`SessionSnapshot` is the runtime conversation authority, `PresentationFile`
-contains display-only entries, and the append-only JSONL transcript remains a
-recall artifact. JSONL must never overwrite or replace a native snapshot.
+原生聚合依然是 `SessionMeta + SessionSnapshot + PresentationFile`。
+`SessionSnapshot` 是运行时的会话权威，`PresentationFile` 只含展示用条目，
+而仅追加的 JSONL 记录则属于回忆用途的产物。JSONL 绝不能覆盖或替换原生快照。
 
-Normal readers stay strict. They must not manufacture an empty presentation or
-silently fall back to JSONL. Recovery is an explicit daemon operation that
-acquires the exact session lease and succeeds only when all of the following are
-true:
+常规读取方保持严格。它们不得凭空造出一个空的展示状态，也不得静默回退到
+JSONL。恢复是一个显式的 daemon 操作，它获取精确的会话租约，并且只有在
+下列条件全部成立时才成功：
 
-- metadata exists, validates, and has `owner = native`;
-- the canonical snapshot exists and validates;
-- the presentation path is absent, rather than corrupt, oversized, unsafe, or
-  an unsupported future version;
-- no runtime currently owns the session lease.
+- 元数据存在、可校验，且 `owner = native`；
+- 权威快照存在且可校验；
+- 展示状态路径是缺失的，而不是损坏、超大、不安全或属于不支持的未来版本；
+- 当前没有运行时持有该会话租约。
 
-The repair writes a versioned empty `PresentationFile` atomically, then reloads
-the strict aggregate before reporting success. Existing valid or invalid bytes
-are never overwritten. A valid presentation is reported as already healthy.
+修复动作会原子地写入一个带版本号的空 `PresentationFile`，然后在报告成功之前
+重新加载严格聚合。既有的有效或无效字节绝不被覆盖。若展示状态本就有效，
+则报告为已然健康。
 
-## Daemon API
+## Daemon 接口
 
-Add an authenticated endpoint:
+新增一个需要鉴权的端点：
 
 ```text
 POST /projects/:hash/sessions/:id/repair
 ```
 
-The request defaults to inspection. Mutation requires an explicit `apply: true`.
-The response reports the observed metadata, snapshot, presentation and transcript
-states plus one of `healthy`, `repairable_missing_presentation`, `repaired`, or
-`not_repairable`. Busy sessions return the existing session-in-use conflict.
+请求默认为只检查。要产生改动必须显式传 `apply: true`。响应会报告观测到的
+元数据、快照、展示状态与记录状态，并给出 `healthy`、
+`repairable_missing_presentation`、`repaired` 或 `not_repairable` 之一。
+会话忙碌时返回既有的 session-in-use 冲突。
 
-The endpoint is the driver boundary: filesystem mutation stays in
-`SessionManager`, while HTTP validation and response projection stay in daemon.
+该端点就是驱动边界：文件系统改动留在 `SessionManager`，而 HTTP 校验与
+响应投影留在 daemon。
 
-## Persistence failure visibility
+## 持久化失败可见性
 
-`TranscriptHook` currently discards append errors. It will share the runtime's
-persistence status channel and report an auxiliary persistence warning containing
-the session operation and concrete storage error. On the turn terminal,
-`CodingRuntime` emits the existing `ControllerWarning` event. Snapshot aggregate
-failures retain their current stronger fail-closed semantics; a JSONL failure
-does not invalidate a successfully committed native aggregate.
+`TranscriptHook` 目前会丢弃追加错误。它将共用运行时的持久化状态通道，并
+上报一条辅助持久化告警，其中包含会话操作与具体的存储错误。在轮次终态时，
+`CodingRuntime` 发出既有的 `ControllerWarning` 事件。快照聚合失败保留其当前
+更强的 fail-closed 语义；JSONL 失败不会让一个已成功提交的原生聚合失效。
 
-Warnings are one-shot and bounded. They are diagnostic, not model conversation
-messages, and therefore do not change provider context or session state.
+告警是一次性的且有界。它们属于诊断信息，而非模型会话消息，因此不会改变
+provider 上下文或会话状态。
 
-## JSONL recovery
+## JSONL 恢复
 
-v5.0.5 does not synthesize canonical JSONL from snapshot. A compacted snapshot
-may omit old turns, and cannot reliably recover original timestamps, per-round
-usage, or the exact raw reasoning/tool transcript. Generating apparently complete
-records would create a second, misleading history owner.
+v5.0.5 不会从快照合成权威 JSONL。压缩过的快照可能省略较早的轮次，也无法
+可靠还原原始时间戳、每轮用量或确切的原始推理/工具记录。生成看起来完整的
+记录会造出第二个具有误导性的历史所有者。
 
-An external support tool may export clearly labelled, lossy records from an
-intact snapshot, but those records must use a separate filename and must not be
-consumed as canonical recall data. The product repair endpoint reports transcript
-absence so support can distinguish it from a display-sidecar failure.
+外部支持工具可以从完好的快照导出标注清晰的有损记录，但这些记录必须使用
+单独的文件名，且不得被当作权威回忆数据消费。产品化的修复端点会上报记录
+缺失，以便支持人员将其与展示附属文件失败区分开来。
 
-## Verification
+## 验证
 
-Tests cover dry-run inspection, successful missing-presentation repair, no-op on
-a healthy aggregate, rejection of corrupt presentation, session-lease conflicts,
-strict reload after repair, transcript append warning propagation, and unchanged
-snapshot fail-close behavior.
+测试覆盖空跑检查、缺失展示状态时的成功修复、健康聚合上的空操作、
+对损坏展示状态的拒绝、会话租约冲突、修复后的严格重载、
+记录追加告警的传播，以及快照 fail-close 行为保持不变。

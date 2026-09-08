@@ -13,8 +13,8 @@ bash scripts/dev-env-quickstart.sh --with-opencode
 
 | 工具 | 命令 | 版本 |
 |------|------|------|
-| Node | `node -v` | v24.20.0 |
-| Rust | `rustc -V` | 1.98.0 |
+| Node 运行时 | `node -v` | v24.20.0 |
+| Rust 工具链 | `rustc -V` | 1.98.0 |
 | Codex（可选） | `codex -V` | 0.151.0 |
 | Claude（可选） | `claude -V` | 2.1.251 |
 | opencode（可选） | `opencode -V` | 1.18.25 |
@@ -47,5 +47,5 @@ export MY_PROVIDER_API_KEY="sk-your-own-key"   # 在 ~/.rustcode/config.toml 用
 ## 加速镜像（可选）
 
 - npm: `https://registry.npmmirror.com`
-- cargo: `https://rsproxy.cn` (sparse index)
+- cargo: `https://rsproxy.cn`（sparse index 镜像源）
 - GitHub: `https://ghfast.top` (opencode 下载)

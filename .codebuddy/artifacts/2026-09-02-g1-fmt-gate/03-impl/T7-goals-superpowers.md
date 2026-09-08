@@ -225,8 +225,8 @@ git diff --stat
 
 预期**恰好 2 个文件**（不是 4 个）：
 
-- `.goals/rustcode-migration-finalize/goal.md`（1 insertion / 1 deletion）
-- `.goals/rustcode-migration-finalize/summary.md`（2 insertions / 2 deletions）
+- `.goals/rustcode-migration-finalize/goal.md`（1 增 / 1 删）
+- `.goals/rustcode-migration-finalize/summary.md`（2 增 / 2 删）
 
 理由：`.superpowers/` 被 `.gitignore:102`、`.gitignore:125` 忽略，
 `.codebuddy/` 被 `.gitignore:131` 忽略，二者默认不出现在 diff 中。

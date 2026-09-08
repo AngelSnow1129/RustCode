@@ -1,67 +1,67 @@
-# GitHub-style Diff (line numbers + color) Implementation Plan
+# GitHub 风格 Diff（行号 + 颜色）实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** Render edit/write diffs in a GitHub-ish style — a real line diff with a right-aligned line-number gutter, `+`/`-`/context signs, and foreground green/red/muted coloring.
+**目标：** 以 GitHub 风格渲染 edit/write diff —— 真正的行级 diff，带右对齐的行号 gutter、`+`/`-`/context 符号，以及绿/红/灰的前景着色。
 
-**Architecture:** Replace the naive `build_compact_diff` (first-4-old / first-4-new, no real matching) in `rustcode-capabilities` with a real unified diff computed by the `similar` crate over the WHOLE old vs new file (context radius 3, capped) — this yields correct file line numbers + hunks for free, exactly as codex does. The diff still travels to the TUI as the tool-result string (no new event plumbing); the TUI re-parses the unified diff into line-numbered, color-coded rows. Foreground-only color (the cell model has no background), no syntax highlighting.
+**架构：** 把 `rustcode-capabilities` 中简陋的 `build_compact_diff`（只取旧的头几行 / 新的头几行，没有真正做匹配）替换为由 `similar` crate 在**整个**旧文件与新文件上计算出的真正 unified diff（上下文半径 3，带上限）—— 这样可以直接得到正确的文件行号 + hunk，正如 codex 的做法。diff 仍然作为 tool-result 字符串传给 TUI（不新增事件管线）；TUI 再把该 unified diff 重新解析成带行号、按颜色编码的行。仅使用前景色（cell 模型没有背景），不做语法高亮。
 
-**Tech Stack:** Rust, `similar` crate (line diff, same crate codex uses), `rustcode-capabilities` (diff compute), `rustcode-tuix` (parse + render).
+**技术栈：** Rust、`similar` crate（行 diff，与 codex 使用的是同一个 crate）、`rustcode-capabilities`（diff 计算）、`rustcode-tuix`（解析 + 渲染）。
 
-## Global Constraints
+## 全局约束
 
-- Foreground color ONLY. The `CellStyle` has no background (`fg`/`bold`/`reverse`/`faint`); do NOT add background shading. Color via existing `Role::DiffAdd` (green) / `Role::DiffRemove` (red) / `Role::Muted` (context), which are theme-aware.
-- NO syntax highlighting. The repo deliberately removed syntect from the TUI (macOS Terminal selection-overlay bug); coloring is line-level only.
-- `similar` is added as an OPTIONAL dependency, gated under the existing `tools` feature of `rustcode-capabilities` (the same feature that gates `edit_file`).
-- Scope is the `rustcode-capabilities` diff (feeds the default v2 engine → TUI). The parallel `rustcode-core/src/tool/edit.rs::build_compact_diff` (v1/legacy, being retired on this branch) is OUT of scope.
-- COMMIT DISCIPLINE: stage ONLY the files each task changes with `git add <path>`; never `-A`/`.`/`-u`.
-- Known: ~4 pre-existing "byte budget" retained tests fail in rustcode-tuix — unrelated; confirm the count does not increase. After editing a lower crate, `touch crates/rustcode-core/src/lib.rs` before running tuix tests if you hit stale artifacts.
+- 仅使用前景色。`CellStyle` 没有背景（`fg`/`bold`/`reverse`/`faint`）；不要添加背景底纹。着色沿用现有的 `Role::DiffAdd`（绿）/ `Role::DiffRemove`（红）/ `Role::Muted`（context），它们都跟随主题。
+- 不做语法高亮。本仓库有意从 TUI 中移除了 syntect（macOS Terminal 选区叠加层 bug）；着色仅到行级别。
+- `similar` 作为**可选**依赖加入，由 `rustcode-capabilities` 现有的 `tools` feature 控制（与 `edit_file` 所用的 feature 相同）。
+- 范围限定在 `rustcode-capabilities` 的 diff（喂给默认的 v2 引擎 → TUI）。与之平行的 `rustcode-core/src/tool/edit.rs::build_compact_diff`（v1/legacy，本分支正在退役）不在范围内。
+- 提交纪律：只用 `git add <path>` 暂存每个任务所改动的文件；绝不使用 `-A`/`.`/`-u`。
+- 已知问题：rustcode-tuix 中约有 4 个既有的 "byte budget" retained 测试失败 —— 与本任务无关；确认失败数量不增加。改动下层 crate 后，若遇到产物过期，跑 tuix 测试前先 `touch crates/rustcode-core/src/lib.rs`。
 
-## File Structure
+## 文件结构
 
-| File | Responsibility | Change |
+| 文件 | 职责 | 改动 |
 |---|---|---|
-| `Cargo.toml` (workspace) | dep versions | add `similar = "2"` to `[workspace.dependencies]` |
-| `crates/rustcode-capabilities/Cargo.toml` | crate deps | add optional `similar`, put in `tools` feature |
-| `crates/rustcode-capabilities/src/tools/edit.rs` | diff compute | `build_compact_diff` → unified diff over whole files; 2 call sites; tests |
-| `crates/rustcode-tuix/src/render/mod.rs` | diff data type | `DiffEntry` → `{ kind, old_lineno, new_lineno, text }` + `DiffKind` enum |
-| `crates/rustcode-tuix/src/render/diff.rs` (NEW) | pure diff logic | `parse_unified_diff`, `diff_gutter_width`, `diff_row_text` (+ tests) |
-| `crates/rustcode-tuix/src/render/mod.rs` | module wiring | `pub(crate) mod diff;` |
-| `crates/rustcode-tuix/src/event_loop/mod.rs` | wire parser | replace the `strip_prefix` parser with `parse_unified_diff` |
-| `crates/rustcode-tuix/src/render/retained.rs` | interactive render | draw the gutter + sign, color by kind |
-| `crates/rustcode-tuix/src/render/plain.rs` | pipe render | same, with SGR |
+| `Cargo.toml`（workspace）| 依赖版本 | 在 `[workspace.dependencies]` 中添加 `similar = "2"` |
+| `crates/rustcode-capabilities/Cargo.toml` | crate 依赖 | 添加可选的 `similar`，放进 `tools` feature |
+| `crates/rustcode-capabilities/src/tools/edit.rs` | diff 计算 | `build_compact_diff` → 对整个文件做 unified diff；2 处调用点；测试 |
+| `crates/rustcode-tuix/src/render/mod.rs` | diff 数据类型 | `DiffEntry` → `{ kind, old_lineno, new_lineno, text }` + `DiffKind` 枚举 |
+| `crates/rustcode-tuix/src/render/diff.rs`（新增）| 纯 diff 逻辑 | `parse_unified_diff`、`diff_gutter_width`、`diff_row_text`（+ 测试）|
+| `crates/rustcode-tuix/src/render/mod.rs` | 模块接线 | `pub(crate) mod diff;` |
+| `crates/rustcode-tuix/src/event_loop/mod.rs` | 接入解析器 | 把 `strip_prefix` 解析器替换为 `parse_unified_diff` |
+| `crates/rustcode-tuix/src/render/retained.rs` | 交互式渲染 | 绘制 gutter + 符号，按 kind 着色 |
+| `crates/rustcode-tuix/src/render/plain.rs` | 管道渲染 | 同上，使用 SGR |
 
 ---
 
-## Task 1: Real unified diff in capabilities
+## Task 1: 在 capabilities 中实现真正的 unified diff
 
-**Files:**
-- Modify: `Cargo.toml` (workspace `[workspace.dependencies]`, ~line 38)
-- Modify: `crates/rustcode-capabilities/Cargo.toml` (`[dependencies]` + `tools` feature)
-- Modify: `crates/rustcode-capabilities/src/tools/edit.rs:177-204` (`build_compact_diff`), call sites `:123` and `:167`, tests `:356-357` and `:362-371`
+**文件：**
+- 修改：`Cargo.toml` (workspace `[workspace.dependencies]`, ~line 38)
+- 修改：`crates/rustcode-capabilities/Cargo.toml` (`[dependencies]` + `tools` feature)
+- 修改：`crates/rustcode-capabilities/src/tools/edit.rs:177-204` (`build_compact_diff`), call sites `:123` and `:167`, tests `:356-357` and `:362-371`
 
-**Interfaces:**
-- Produces: `fn build_compact_diff(old_file: &str, new_file: &str) -> String` — a git unified diff (`@@ -a,b +c,d @@` hunks, 3 lines context, capped to 60 lines). Callers pass the WHOLE pre-edit and post-edit file contents.
+**接口：**
+- 产出： `fn build_compact_diff(old_file: &str, new_file: &str) -> String` —— 一个 git unified diff（`@@ -a,b +c,d @@` hunk，3 行上下文，上限 60 行）。调用方传入**完整**的编辑前与编辑后文件内容。
 
-- [ ] **Step 1: Add the `similar` dependency**
+- [ ] **Step 1: 添加 `similar` 依赖**
 
-In the workspace `Cargo.toml`, under `[workspace.dependencies]` (alphabetical, after `anyhow = "1"`), add:
+在 workspace 的 `Cargo.toml` 中，在 `[workspace.dependencies]` 下（按字母序，放在 `anyhow = "1"` 之后）添加：
 ```toml
 similar = "2"
 ```
-In `crates/rustcode-capabilities/Cargo.toml`, in `[dependencies]` add (near the other optional tools deps like `regex`):
+在 `crates/rustcode-capabilities/Cargo.toml` 的 `[dependencies]` 中添加（靠近 `regex` 等其他可选 tools 依赖）：
 ```toml
 # Real line diff for edit_file's compact diff (git-style unified hunks + line numbers).
 similar = { workspace = true, optional = true }
 ```
-and add `"dep:similar"` to the `tools` feature list:
+并把 `"dep:similar"` 加入 `tools` feature 列表：
 ```toml
 tools = ["dep:ignore", "dep:regex", "dep:grep", "dep:globset", "dep:encoding_rs", "dep:tokio-util", "dep:similar", "tokio/fs", "tokio/process", "tokio/io-util"]
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 2: 编写失败测试**
 
-In `edit.rs`, REPLACE the existing `compact_diff_truncates_each_side` test (lines 362-371) with:
+在 `edit.rs` 中，把既有的 `compact_diff_truncates_each_side` 测试（第 362-371 行）替换为：
 ```rust
     #[test]
     fn compact_diff_is_unified_with_line_numbers() {
@@ -86,26 +86,26 @@ In `edit.rs`, REPLACE the existing `compact_diff_truncates_each_side` test (line
         assert!(diff.contains("more diff lines"), "shows a truncation note: {diff}");
     }
 ```
-Also UPDATE the assertions in the existing `unique_replace_succeeds` test (lines 356-357) from:
+同时把既有 `unique_replace_succeeds` 测试（第 356-357 行）中的断言从：
 ```rust
         assert!(r.content.contains("- let x = 1;"), "{}", r.content);
         assert!(r.content.contains("+ let x = 2;"), "{}", r.content);
 ```
-to (the new format has no space after the sign, and the surrounding `fn main` lines are unchanged file context):
+改为（新格式在符号后没有空格，且周围的 `fn main` 行是未改动的文件上下文）：
 ```rust
         assert!(r.content.contains("-    let x = 1;"), "{}", r.content);
         assert!(r.content.contains("+    let x = 2;"), "{}", r.content);
 ```
-(Note: `unique_replace_succeeds` writes the file `"fn main() {\n    let x = 1;\n}\n"` and edits `let x = 1;`→`let x = 2;`, so the diff is over the whole file and the changed line keeps its 4-space indent.)
+（注意：`unique_replace_succeeds` 写入文件 `"fn main() {\n    let x = 1;\n}\n"`，并把 `let x = 1;` 改为 `let x = 2;`，因此 diff 覆盖整个文件，被改动的行保留其 4 空格缩进。）
 
-- [ ] **Step 3: Run test to verify it fails**
+- [ ] **Step 3: 运行测试确认失败**
 
-Run: `cargo test -p rustcode-capabilities compact_diff_is_unified_with_line_numbers`
-Expected: FAIL — the old `build_compact_diff` produces `- 1`-style output with no `@@`.
+运行：`cargo test -p rustcode-capabilities compact_diff_is_unified_with_line_numbers`
+预期：FAIL —— 旧的 `build_compact_diff` 产出的是 `- 1` 风格的输出，没有 `@@`。
 
-- [ ] **Step 4: Rewrite `build_compact_diff`**
+- [ ] **Step 4: 重写 `build_compact_diff`**
 
-Replace `build_compact_diff` (lines 177-204) with:
+把 `build_compact_diff`（第 177-204 行）替换为：
 ```rust
 /// A compact GIT UNIFIED DIFF (`@@` hunks, 3 lines of context) between the OLD
 /// and NEW whole-file contents, capped so a large edit can't flood the model
@@ -131,33 +131,33 @@ fn build_compact_diff(old_file: &str, new_file: &str) -> String {
 }
 ```
 
-- [ ] **Step 5: Update the two call sites to pass whole files**
+- [ ] **Step 5: 更新两处调用点以传入完整文件**
 
-At `edit.rs:123` (fuzzy path — `content` is the old file, `fuzzy_result` the new), change:
+在 `edit.rs:123`（fuzzy 路径 —— `content` 是旧文件，`fuzzy_result` 是新文件），把：
 ```rust
                 let diff = build_compact_diff(&a.old_string, &a.new_string);
 ```
-to:
+改为：
 ```rust
                 let diff = build_compact_diff(&content, &fuzzy_result);
 ```
-At `edit.rs:167` (normal path — `content` old, `updated` new), change:
+在 `edit.rs:167`（普通路径 —— `content` 旧，`updated` 新），把：
 ```rust
         let diff = build_compact_diff(&a.old_string, &a.new_string);
 ```
-to:
+改为：
 ```rust
         let diff = build_compact_diff(&content, &updated);
 ```
 
-- [ ] **Step 6: Run tests + build**
+- [ ] **Step 6: 运行测试 + 构建**
 
-Run: `cargo test -p rustcode-capabilities compact_diff unique_replace_succeeds`
-Expected: PASS (both new diff tests + the updated edit test).
-Run: `cargo build -p rustcode-capabilities`
-Expected: clean.
+运行：`cargo test -p rustcode-capabilities compact_diff unique_replace_succeeds`
+预期：PASS（两个新的 diff 测试 + 更新后的 edit 测试）。
+运行：`cargo build -p rustcode-capabilities`
+预期：干净无错误。
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: 提交**
 ```bash
 git add Cargo.toml crates/rustcode-capabilities/Cargo.toml crates/rustcode-capabilities/src/tools/edit.rs Cargo.lock
 git commit -m "feat(capabilities): compute edit diffs as real unified diffs (similar)"
@@ -165,23 +165,23 @@ git commit -m "feat(capabilities): compute edit diffs as real unified diffs (sim
 
 ---
 
-## Task 2: TUI diff types + pure parse/format logic
+## Task 2: TUI diff 类型 + 纯解析/格式化逻辑
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/mod.rs:560-565` (`DiffEntry`) + add `pub(crate) mod diff;`
-- Create: `crates/rustcode-tuix/src/render/diff.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/mod.rs:560-565` (`DiffEntry`) + add `pub(crate) mod diff;`
+- 新建：`crates/rustcode-tuix/src/render/diff.rs`
 
-**Interfaces:**
-- Produces:
+**接口：**
+- 产出：
   - `pub enum DiffKind { Add, Del, Context }`
   - `pub struct DiffEntry { pub kind: DiffKind, pub old_lineno: Option<usize>, pub new_lineno: Option<usize>, pub text: String }`
   - `pub(crate) fn parse_unified_diff(diff: &str, max_lines: usize) -> Vec<DiffEntry>`
   - `pub(crate) fn diff_gutter_width(entries: &[DiffEntry]) -> usize`
   - `pub(crate) fn diff_row_text(entry: &DiffEntry, gutter: usize) -> String` — `"  {num:>gutter} {sign} {text}"`
 
-- [ ] **Step 1: Replace the `DiffEntry` type**
+- [ ] **Step 1: 替换 `DiffEntry` 类型**
 
-In `render/mod.rs`, replace (lines 560-565):
+在 `render/mod.rs` 中，替换（第 560-565 行）：
 ```rust
 /// One line in a diff batch. `added = true` renders as `+`, false as `-`.
 #[derive(Debug, Clone)]
@@ -190,7 +190,7 @@ pub struct DiffEntry {
     pub text: String,
 }
 ```
-with:
+为：
 ```rust
 /// The role of a diff line: an addition (`+`), a deletion (`-`), or unchanged
 /// context (` `). Drives the sign + color in the renderer.
@@ -211,12 +211,12 @@ pub struct DiffEntry {
     pub text: String,
 }
 ```
-Then add the module declaration near the other `mod` lines at the top of `render/mod.rs` (search for `mod retained;` / `mod plain;` and add alongside):
+然后在 `render/mod.rs` 顶部其他 `mod` 行附近添加模块声明（搜索 `mod retained;` / `mod plain;`，与它们并列添加）：
 ```rust
 pub(crate) mod diff;
 ```
 
-- [ ] **Step 2: Write the failing tests** — create `crates/rustcode-tuix/src/render/diff.rs` with ONLY the test module first (so it fails to compile against missing fns):
+- [ ] **Step 2: 编写失败测试** —— 先创建 `crates/rustcode-tuix/src/render/diff.rs`，其中只放测试模块（这样会因缺少相应 fn 而编译失败）：
 ```rust
 //! Pure diff-parsing and row-formatting logic for `UiLine::DiffBlock`.
 //! Rendering (cells/SGR) lives in retained.rs / plain.rs; this module only
@@ -293,12 +293,12 @@ Edited a.rs (1 replacement)
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [ ] **Step 3: 运行测试确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib render::diff`
-Expected: FAIL to compile — `parse_unified_diff` / `diff_gutter_width` / `diff_row_text` not found.
+运行：`cargo test -p rustcode-tuix --lib render::diff`
+预期：编译 FAIL —— 找不到 `parse_unified_diff` / `diff_gutter_width` / `diff_row_text`。
 
-- [ ] **Step 4: Implement the pure functions** — add ABOVE the `#[cfg(test)] mod tests` in `diff.rs`:
+- [ ] **Step 4: 实现纯函数** —— 添加到 `diff.rs` 中 `#[cfg(test)] mod tests` 的上方：
 ```rust
 /// Parse a git unified diff (`@@ -a,b +c,d @@` hunks + ` `/`+`/`-` lines) into
 /// line-numbered entries. Lines before the first `@@`, and `---`/`+++` file
@@ -410,14 +410,14 @@ pub(crate) fn diff_row_text(entry: &DiffEntry, gutter: usize) -> String {
     )
 }
 ```
-Note on `scrub_controls`: if `scrub_controls` is a private helper not reachable from `render/diff.rs`, either (a) make a small `pub(crate) fn scrub_controls_pub` re-export in the module where `scrub_controls` lives, or (b) inline the existing `scrub_controls` call at the two RENDER sites (retained/plain) instead of inside `diff_row_text` and drop the scrub here. Prefer (b): remove the `crate::render::scrub_controls_pub(&entry.text)` wrap here (use `&entry.text` raw) and keep the existing `scrub_controls(&…)` in retained.rs/plain.rs. Update the Step-2 test's expected strings accordingly (they use plain ASCII, so no change needed). Confirm which by grepping `fn scrub_controls` before implementing.
+关于 `scrub_controls` 的说明：如果 `scrub_controls` 是 `render/diff.rs` 无法访问的私有辅助函数，那么要么 (a) 在 `scrub_controls` 所在模块中做一个小的 `pub(crate) fn scrub_controls_pub` 再导出，要么 (b) 把既有的 `scrub_controls` 调用内联到两处 RENDER 站点（retained/plain），而不是放在 `diff_row_text` 内部，并去掉这里的 scrub。推荐 (b)：去掉这里的 `crate::render::scrub_controls_pub(&entry.text)` 包裹（直接使用原始的 `&entry.text`），并保留 retained.rs/plain.rs 中既有的 `scrub_controls(&…)`。据此更新 Step-2 测试的期望字符串（它们用的是纯 ASCII，因此无需改动）。实现前先 grep `fn scrub_controls` 确认采用哪一种。
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 5: 运行测试确认通过**
 
-Run: `cargo test -p rustcode-tuix --lib render::diff`
-Expected: PASS (all 4).
+运行：`cargo test -p rustcode-tuix --lib render::diff`
+预期：PASS（全部 4 个）。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: 提交**
 ```bash
 git add crates/rustcode-tuix/src/render/mod.rs crates/rustcode-tuix/src/render/diff.rs
 git commit -m "feat(tuix): line-numbered DiffEntry + pure unified-diff parser/formatter"
@@ -425,17 +425,17 @@ git commit -m "feat(tuix): line-numbered DiffEntry + pure unified-diff parser/fo
 
 ---
 
-## Task 3: Wire the parser + render the gutter
+## Task 3: 接入解析器 + 渲染 gutter
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs:9017-9040` (the diff parser call)
-- Modify: `crates/rustcode-tuix/src/render/retained.rs:4448-4459` (`UiLine::DiffBlock` arm)
-- Modify: `crates/rustcode-tuix/src/render/plain.rs:287-306` (`UiLine::DiffBlock` arm)
+**文件：**
+- 修改：`crates/rustcode-tuix/src/event_loop/mod.rs:9017-9040` (the diff parser call)
+- 修改：`crates/rustcode-tuix/src/render/retained.rs:4448-4459` (`UiLine::DiffBlock` arm)
+- 修改：`crates/rustcode-tuix/src/render/plain.rs:287-306` (`UiLine::DiffBlock` arm)
 
-**Interfaces:**
-- Consumes: `parse_unified_diff`, `diff_gutter_width`, `diff_row_text`, `DiffKind` (Task 2).
+**接口：**
+- 消费： `parse_unified_diff`, `diff_gutter_width`, `diff_row_text`, `DiffKind` (Task 2).
 
-- [ ] **Step 1: Write the failing test** — add to the retained test module (uses `new_capturing`/`drain_into_vterm`, same module as the other vterm tests):
+- [ ] **Step 1: 编写失败测试** —— 添加到 retained 测试模块中（使用 `new_capturing`/`drain_into_vterm`，与其他 vterm 测试位于同一模块）：
 ```rust
     #[test]
     fn diff_block_renders_line_number_gutter() {
@@ -461,14 +461,14 @@ git commit -m "feat(tuix): line-numbered DiffEntry + pure unified-diff parser/fo
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p rustcode-tuix diff_block_renders_line_number_gutter`
-Expected: FAIL — the current renderer emits `       - old line` (7 spaces, no gutter) and won't compile against the new `DiffEntry` fields anyway.
+运行：`cargo test -p rustcode-tuix diff_block_renders_line_number_gutter`
+预期：FAIL —— 当前渲染器输出的是 `       - old line`（7 个空格，没有 gutter），而且本来就无法针对新的 `DiffEntry` 字段编译通过。
 
-- [ ] **Step 3: Rewrite the event_loop parser**
+- [ ] **Step 3: 重写 event_loop 解析器**
 
-Replace `event_loop/mod.rs:9017-9040` (the `if emits_diff { … }` block that builds `diff_entries` via `strip_prefix`) with:
+把 `event_loop/mod.rs:9017-9040`（通过 `strip_prefix` 构建 `diff_entries` 的 `if emits_diff { … }` 块）替换为：
 ```rust
             if emits_diff {
                 let diff_entries = crate::render::diff::parse_unified_diff(&output, 120);
@@ -478,9 +478,9 @@ Replace `event_loop/mod.rs:9017-9040` (the `if emits_diff { … }` block that bu
             }
 ```
 
-- [ ] **Step 4: Rewrite the retained renderer**
+- [ ] **Step 4: 重写 retained 渲染器**
 
-Replace `retained.rs:4448-4459` (`UiLine::DiffBlock(entries) => { … }`) with:
+把 `retained.rs:4448-4459`（`UiLine::DiffBlock(entries) => { … }`）替换为：
 ```rust
             UiLine::DiffBlock(entries) => {
                 let gutter = crate::render::diff::diff_gutter_width(&entries);
@@ -496,11 +496,11 @@ Replace `retained.rs:4448-4459` (`UiLine::DiffBlock(entries) => { … }`) with:
                 }
             }
 ```
-(`diff_row_text` returns the raw text per Task 2's note (b); `scrub_controls` is applied here at the render site, matching the old behavior.)
+（按 Task 2 的说明 (b)，`diff_row_text` 返回原始文本；`scrub_controls` 在此处的渲染站点上应用，与旧行为一致。）
 
-- [ ] **Step 5: Rewrite the plain renderer**
+- [ ] **Step 5: 重写 plain 渲染器**
 
-Replace `plain.rs:287-306` (`UiLine::DiffBlock(entries) => { … }`) with:
+把 `plain.rs:287-306`（`UiLine::DiffBlock(entries) => { … }`）替换为：
 ```rust
             UiLine::DiffBlock(entries) => {
                 self.drop_transient();
@@ -522,15 +522,15 @@ Replace `plain.rs:287-306` (`UiLine::DiffBlock(entries) => { … }`) with:
             }
 ```
 
-- [ ] **Step 6: Run tests + build**
+- [ ] **Step 6: 运行测试 + 构建**
 
-Run: `cargo build -p rustcode-tuix` — clean (the `DiffEntry.added` field is gone; the compiler confirms all users updated). If `UiLine::DiffLine { added, text }` (a separate single-line variant at `render/mod.rs:116`) still compiles — it uses its OWN `added`/`text`, not `DiffEntry`, so it is unaffected; leave it.
-Run: `cargo test -p rustcode-tuix diff_block_renders_line_number_gutter`
-Expected: PASS.
-Run: `cargo test -p rustcode-tuix --lib`
-Expected: PASS except the ~4 pre-existing byte-budget reds (unchanged count).
+运行：`cargo build -p rustcode-tuix` —— 干净通过（`DiffEntry.added` 字段已移除；编译器会确认所有使用方都已更新）。若 `UiLine::DiffLine { added, text }`（位于 `render/mod.rs:116` 的另一个单行变体）仍能编译 —— 它用的是自己的 `added`/`text`，而非 `DiffEntry`，因此不受影响；保持原样。
+运行：`cargo test -p rustcode-tuix diff_block_renders_line_number_gutter`
+预期：PASS。
+运行：`cargo test -p rustcode-tuix --lib`
+预期：PASS，除了约 4 个既有的 byte-budget 红灯（数量不变）。
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: 提交**
 ```bash
 git add crates/rustcode-tuix/src/event_loop/mod.rs crates/rustcode-tuix/src/render/retained.rs crates/rustcode-tuix/src/render/plain.rs
 git commit -m "feat(tuix): render diffs with a line-number gutter + kind coloring"
@@ -538,31 +538,31 @@ git commit -m "feat(tuix): render diffs with a line-number gutter + kind colorin
 
 ---
 
-## Task 4: Verification
+## Task 4: 验证
 
-- [ ] **Step 1: Whole-workspace build + touched-crate tests**
+- [ ] **Step 1: 全 workspace 构建 + 受影响 crate 的测试**
 
-Run: `touch crates/rustcode-core/src/lib.rs && cargo build`
-Expected: clean.
-Run: `cargo test -p rustcode-capabilities -p rustcode-tuix`
-Expected: green except the ~4 pre-existing tuix byte-budget reds (same count as a clean checkout).
+运行：`touch crates/rustcode-core/src/lib.rs && cargo build`
+预期：干净无错误。
+运行：`cargo test -p rustcode-capabilities -p rustcode-tuix`
+预期：全绿，除了约 4 个既有的 tuix byte-budget 红灯（与干净 checkout 的数量相同）。
 
-- [ ] **Step 2: Manual smoke (documented, real terminal only)**
+- [ ] **Step 2: 手动冒烟（记录在案，仅限真实终端）**
 
-Record in the PR/commit that these need a real terminal:
-1. `edit_file` a real source file → the diff shows a right-aligned line-number gutter, `+`/`-`/context signs, green/red/muted lines with CORRECT file line numbers.
-2. A multi-hunk edit (`replace_all`) → multiple hunks, each with its own line numbers.
-3. A huge rewrite → capped diff with `… (N more diff lines)`.
-4. Non-color terminal (`caps.colors=false`) → gutter + signs still present, no color.
-5. `/resume` a session that had an edit → the diff re-renders from the stored tool result (same parser path).
+在 PR/commit 中记录以下各项需要真实终端：
+1. 对一个真实源文件执行 `edit_file` → diff 显示右对齐的行号 gutter、`+`/`-`/context 符号，以及绿/红/灰的行，且文件行号正确。
+2. 多 hunk 编辑（`replace_all`）→ 多个 hunk，每个都有自己的行号。
+3. 一次超大改写 → 截断后的 diff，带 `… (N more diff lines)`。
+4. 非彩色终端（`caps.colors=false`）→ gutter + 符号仍然存在，无颜色。
+5. `/resume` 一个包含编辑操作的会话 → diff 从存储的 tool result 重新渲染（走同一个解析器路径）。
 
-- [ ] **Step 3: Request review** — `/code-review` on the branch diff before merge.
+- [ ] **Step 3: 申请评审** —— 合并前对分支 diff 执行 `/code-review`。
 
 ---
 
-## Self-Review (completed during authoring)
+## 自审（编写期间完成）
 
-- **Coverage:** real diff + line numbers → Task 1 (similar unified diff) + Task 2 (parser assigns file line numbers from hunk headers). Color distinction → Task 3 (DiffAdd/DiffRemove/Muted, fg-only). Gutter render → Task 3. Cap → Task 1 + parser `max_lines`. fg-only / no-syntect constraints honored (no bg, no highlighter). `similar` gating → Task 1 Step 1.
-- **Placeholders:** none — every code step is complete. The one flagged lookup (`scrub_controls` visibility, Task 2 Step 4) resolves to option (b): scrub at the render site (retained/plain), not inside `diff_row_text` — the render steps (Task 3) already wrap with `scrub_controls`, and `diff_row_text` returns raw text. Ensure `diff_row_text` uses `&entry.text` (not a scrub wrapper) when implementing.
-- **Type consistency:** `DiffEntry { kind, old_lineno, new_lineno, text }` + `DiffKind { Add, Del, Context }` used identically across Task 2 (definition/parser/formatter) and Task 3 (event_loop/retained/plain). `parse_unified_diff(&str, usize)`, `diff_gutter_width(&[DiffEntry])`, `diff_row_text(&DiffEntry, usize)` signatures consistent between definition (Task 2) and call sites (Task 3).
-- **Open item for the implementer:** in Task 2 Step 4, before implementing, `grep -n "fn scrub_controls" crates/rustcode-tuix/src` and adopt option (b): `diff_row_text` returns `format!("  {numstr:>gutter$} {sign} {}", entry.text)` (raw), scrubbing stays at the two render sites.
+- **覆盖度：** 真正的 diff + 行号 → Task 1（similar unified diff）+ Task 2（解析器从 hunk header 中取文件行号）。颜色区分 → Task 3（DiffAdd/DiffRemove/Muted，仅前景色）。gutter 渲染 → Task 3。截断上限 → Task 1 + 解析器的 `max_lines`。遵守了仅前景色 / 不使用 syntect 的约束（无背景、无高亮器）。`similar` 的 feature 门控 → Task 1 Step 1。
+- **占位符：** 无 —— 每个代码步骤都是完整的。唯一被标记的待查项（`scrub_controls` 的可见性，Task 2 Step 4）采用方案 (b)：在渲染站点（retained/plain）做 scrub，而不是在 `diff_row_text` 内部 —— 渲染步骤（Task 3）已经用 `scrub_controls` 包裹，且 `diff_row_text` 返回原始文本。实现时确保 `diff_row_text` 使用 `&entry.text`（而非 scrub 包装）。
+- **类型一致性：** `DiffEntry { kind, old_lineno, new_lineno, text }` + `DiffKind { Add, Del, Context }` 在 Task 2（定义/解析器/格式化）与 Task 3（event_loop/retained/plain）中用法完全一致。`parse_unified_diff(&str, usize)`、`diff_gutter_width(&[DiffEntry])`、`diff_row_text(&DiffEntry, usize)` 的签名在定义处（Task 2）与调用点（Task 3）保持一致。
+- **留给实现者的开放项：** 在 Task 2 Step 4 实现之前，先 `grep -n "fn scrub_controls" crates/rustcode-tuix/src`，并采用方案 (b)：`diff_row_text` 返回 `format!("  {numstr:>gutter$} {sign} {}", entry.text)`（原始文本），scrub 仍留在两处渲染站点。

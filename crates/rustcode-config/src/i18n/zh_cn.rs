@@ -1133,7 +1133,7 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
         Msg::CliUninstallResultFailed => "失败：".into(),
         Msg::CliUninstallResultBackups => "备份：".into(),
         Msg::CliWebuiNotBuilt =>
-            "本二进制未内嵌 webui 资源。\n请先构建前端，再重新构建：\n\n   cd webui && npm install && npm run build\n   cargo build -p rustcode\n".into(),
+            "本二进制未内嵌 webui 资源。\n请先构建前端，再重新构建：\n\n   ./scripts/build-webui.sh\n   cargo clean -p rustcode-daemon\n   cargo build -p rustcode\n\n或手工执行等价步骤：\n   cd webui && npm ci && npm run build\n   cargo clean -p rustcode-daemon\n   cargo build -p rustcode\n".into(),
 
         // ── /config ──
         Msg::ConfigProviderLabel { provider, path } =>
@@ -2426,7 +2426,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliHelpPortDaemon => "监听端口（默认：13456）".into(),
         Msg::CliHelpIdleTimeout => "空闲关闭超时（秒）；0 禁用".into(),
         Msg::CliHelpPortWebui => "端口（默认：13457）".into(),
-        Msg::CliHelpHost => "绑定地址（默认：127.0.0.1）".into(),
+        Msg::CliHelpHost => "绑定地址（默认：0.0.0.0；改 127.0.0.1 则仅本机可访问）".into(),
         Msg::CliHelpUninstallYes => "跳过提示；使用每组的默认决定".into(),
         Msg::CliHelpUninstallPurge => "完全清除 ~/.rustcode/".into(),
         Msg::CliHelpUninstallKeepData => "完全保留 ~/.rustcode/".into(),

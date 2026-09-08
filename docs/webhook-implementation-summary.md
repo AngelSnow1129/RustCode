@@ -59,18 +59,18 @@ pub struct WebhookHook {
    ```
 
 4. **支持所有 Hook 时机（12 个）**
-   - [+] OnTurnStart
-   - [+] OnToolCallStart
-   - [+] PreToolExecution
-   - [+] PostToolExecution
-   - [+] OnTurnComplete
-   - [+] PostTurn
-   - [+] OnSessionStart
-   - [+] OnSessionEnd
-   - [+] OnError
-   - [+] OnModelResponse
-   - [+] SystemPrompt
-   - [+] OnMessageReceived
+   - [+] OnTurnStart（Turn 开始）
+   - [+] OnToolCallStart（工具调用开始）
+   - [+] PreToolExecution（工具执行前）
+   - [+] PostToolExecution（工具执行后）
+   - [+] OnTurnComplete（Turn 完成）
+   - [+] PostTurn（Turn 结束后）
+   - [+] OnSessionStart（会话开始）
+   - [+] OnSessionEnd（会话结束）
+   - [+] OnError（发生错误时）
+   - [+] OnModelResponse（模型响应后）
+   - [+] SystemPrompt（系统提示词）
+   - [+] OnMessageReceived（收到消息时）
 
 ### 2. 配置加载
 

@@ -35,9 +35,9 @@ created: 2026-09-02
 
 | 项 | 值 |
 |---|---|
-| branch | `dev` |
-| commit | `8e772dbf` |
-| worktree | **dirty** |
+| 分支 | `dev` |
+| 提交 | `8e772dbf` |
+| 工作树 | **dirty** |
 | dirty 构成 | 上一轮（OpenRouter 归因 opt-in / 遥测词义清零）遗留 11 个文件 + 并发会话 `2026-09-02-cleanup-codingplan-legacy` 写入的 6 个文件 + 本 feature 13 个文件（10 格式 + 3 锁） |
 | 冻结时改动文件总数 | 29（含未跟踪：`docs/multi-agent-collaboration-solution.md`、`.codebuddy/`） |
 
@@ -239,7 +239,7 @@ right: "review · thinking"  期望（英文）
 3. **G9 纯格式证明**（A 组 10 文件 / 113 行）：
    - 方法：剥离**全部空白字符（含换行）**后比对 HEAD 与工作区的字符序列。
    - 结果：**6 个文件 `TOKENS_IDENTICAL`**（纯空白/换行）——cli/main.rs、cli/schedule_cmd.rs、
-     coding/runtime.rs、tuix/modals/onboarding_wizard.rs、tuix/render/cell.rs、updater/lib.rs；
+     coding/runtime.rs、tuix/modals/onboarding_wizard.rs、tuix/render/cell.rs、updater/lib.rs（共 6 个文件）；
      **4 个文件**用 Python 做 Unicode 安全比对并定位首个差异字符，性质均为零语义：
 
      | 文件 | 差异性质 | 语义影响 |

@@ -1,36 +1,36 @@
-# Merge CURRENT TASK Injection Into Cadence Reflection
+# 把 CURRENT TASK 注入合并进 Cadence Reflection
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 按任务逐步实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** 把每轮注入的 `=== CURRENT TASK ===` block 合并进 `reflection_prompt`，由 cadence 统一调度；删除现有的 per-turn `render_turn_reminder` 路径和配套的 `prev_turn_edited_files` 辅助状态。
+**目标：** 把每轮注入的 `=== CURRENT TASK ===` block 合并进 `reflection_prompt`，由 cadence 统一调度；删除现有的 per-turn `render_turn_reminder` 路径和配套的 `prev_turn_edited_files` 辅助状态。
 
-**Architecture:** 
+**架构：** 
 - `reflection_prompt` 扩签名为 `(delta: usize, current_task: &str)`。当 task 非空时在 delta 行后插入 `=== ORIGINAL TASK ===\n<verbatim, 300 字截断>\n` 段；且 Q1 从 "Restate the original goal" 改为 "Does your current plan still match the task above?"——任务已 verbatim 可见，Q1 的真实价值是 coherence check，不是记忆测试。
 - `apply_post_turn_discipline` 在 cadence 触发时传入 `self.current_task`。
 - `CtxBuilder::render_turn_reminder` + `ctx::render::render_turn_reminder` 自由函数 + `AgentLoop::prev_turn_edited_files` 字段全部删除。调用点 `agent/mod.rs:930-932` 改为直接传 `""` 给下游 `turn_reminder`。
 - `build_messages` / `run_with_filter` 的 `turn_reminder: &str` 形参**保留**——其他 caller（`basic_run`、子 agent `try_sub_agent_dispatch`）本就传 `""`，删签名只添 churn。
 - Post-compression state restoration（`agent/mod.rs:1760-1790`）**不动**。它已经覆盖"压缩事件丢任务"这个独立场景，和 cadence 是互补而不是竞态。
 
-**Tech Stack:** Rust，现有 AgentLoop / DisciplineState / CtxBuilder / Conversation。无新依赖、无新 config。
+**技术栈：** Rust，现有 AgentLoop / DisciplineState / CtxBuilder / Conversation。无新依赖、无新 config。
 
 ---
 
-## File Structure
+## 文件结构
 
-- Modify: `crates/rustcode-core/src/agent/discipline.rs` — `reflection_prompt` 新签名 + 现有 reflection_tests 更新 + 新 test
-- Modify: `crates/rustcode-core/src/agent/mod.rs` — discipline 调用点新签名；删 `prev_turn_edited_files` 字段 / init / 赋值 / `render_turn_reminder` 调用点
-- Modify: `crates/rustcode-core/src/ctx/render.rs` — 删 `render_turn_reminder` free fn + 相关测试（保留 `build_messages` 的 `turn_reminder` 形参路径）
-- Modify: `crates/rustcode-core/src/ctx/mod.rs` — 删 `CtxBuilder::render_turn_reminder` trait 默认方法及其 doc
+- 修改：`crates/rustcode-core/src/agent/discipline.rs` — `reflection_prompt` 新签名 + 现有 reflection_tests 更新 + 新 test
+- 修改：`crates/rustcode-core/src/agent/mod.rs` — discipline 调用点新签名；删 `prev_turn_edited_files` 字段 / init / 赋值 / `render_turn_reminder` 调用点
+- 修改：`crates/rustcode-core/src/ctx/render.rs` — 删 `render_turn_reminder` free fn + 相关测试（保留 `build_messages` 的 `turn_reminder` 形参路径）
+- 修改：`crates/rustcode-core/src/ctx/mod.rs` — 删 `CtxBuilder::render_turn_reminder` trait 默认方法及其 doc
 
 ---
 
 ### Task 1: `reflection_prompt` 接收 current_task，插入 verbatim task 段 + 改 Q1
 
-**Files:**
-- Modify: `crates/rustcode-core/src/agent/discipline.rs:135-145` (reflection_prompt body)
-- Modify: `crates/rustcode-core/src/agent/discipline.rs:193-267` (reflection_tests module)
+**文件：**
+- 修改：`crates/rustcode-core/src/agent/discipline.rs:135-145` (reflection_prompt body)
+- 修改：`crates/rustcode-core/src/agent/discipline.rs:193-267` (reflection_tests module)
 
-- [ ] **Step 1: 更新现有测试使用新签名（传空 task）**
+- [ ] **步骤 1：更新现有测试使用新签名（传空 task）**
 
 当前 reflection_prompt 测试都用 `reflection_prompt(N)`。先全部改成 `reflection_prompt(N, "")`，并调整内容断言以匹配"空 task 分支保持原样"。
 
@@ -108,7 +108,7 @@
     }
 ```
 
-- [ ] **Step 2: 追加新测试 — verbatim task 段、截断、Q1 改写**
+- [ ] **步骤 2：追加新测试 — verbatim task 段、截断、Q1 改写**
 
 在 `reflection_tests` 模块末尾（`}` 前）追加：
 
@@ -172,15 +172,15 @@
     }
 ```
 
-- [ ] **Step 3: 运行测试确认失败**
+- [ ] **步骤 3：运行测试确认失败**
 
 ```bash
 cargo test -p rustcode-core --lib agent::discipline::reflection_tests
 ```
 
-Expected: 新测试 compile 失败（`reflection_prompt` 目前只接受 1 个参数），或 compile 通过后新的 `_verbatim_task_`/`_coherence_check_`/`_truncates_`/`_empty_task_omits_` 四个断言失败。现有 6 个测试因签名变更也会编译失败。
+预期：新测试 compile 失败（`reflection_prompt` 目前只接受 1 个参数），或 compile 通过后新的 `_verbatim_task_`/`_coherence_check_`/`_truncates_`/`_empty_task_omits_` 四个断言失败。现有 6 个测试因签名变更也会编译失败。
 
-- [ ] **Step 4: 实现新签名 + 任务分支**
+- [ ] **步骤 4：实现新签名 + 任务分支**
 
 把 `crates/rustcode-core/src/agent/discipline.rs` 的 `reflection_prompt` 整体替换为：
 
@@ -231,15 +231,15 @@ pub(crate) fn reflection_prompt(delta: usize, current_task: &str) -> String {
 }
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [ ] **步骤 5：运行测试确认通过**
 
 ```bash
 cargo test -p rustcode-core --lib agent::discipline::reflection_tests
 ```
 
-Expected: 10 个测试全部通过（6 个原有改写 + 4 个新增）。
+预期：10 个测试全部通过（6 个原有改写 + 4 个新增）。
 
-- [ ] **Step 6: 更新调用点**
+- [ ] **步骤 6：更新调用点**
 
 `crates/rustcode-core/src/agent/discipline.rs:31` 当前：
 
@@ -253,15 +253,15 @@ Expected: 10 个测试全部通过（6 个原有改写 + 4 个新增）。
             let msg = reflection_prompt(delta, &self.current_task);
 ```
 
-- [ ] **Step 7: 确保 core crate 通过构建**
+- [ ] **步骤 7：确保 core crate 通过构建**
 
 ```bash
 cargo build -p rustcode-core
 ```
 
-Expected: clean build.
+预期：干净构建。
 
-- [ ] **Step 8: Commit**
+- [ ] **步骤 8：Commit**
 
 ```bash
 git add crates/rustcode-core/src/agent/discipline.rs
@@ -272,16 +272,16 @@ git commit -m "feat(discipline): inject verbatim task into cadence reflection"
 
 ### Task 2: 删除 per-turn `render_turn_reminder` 路径 + `prev_turn_edited_files` 字段
 
-**Files:**
-- Modify: `crates/rustcode-core/src/ctx/render.rs:20-67` (render_turn_reminder 自由函数 + 其 rustdoc)
-- Modify: `crates/rustcode-core/src/ctx/render.rs:927-967` (render_turn_reminder 的 5 个 unit test)
-- Modify: `crates/rustcode-core/src/ctx/mod.rs:72-90` (CtxBuilder::render_turn_reminder trait 方法 + rustdoc)
-- Modify: `crates/rustcode-core/src/agent/mod.rs:310-313` (prev_turn_edited_files 字段声明)
-- Modify: `crates/rustcode-core/src/agent/mod.rs:545` (init)
-- Modify: `crates/rustcode-core/src/agent/mod.rs:805` (赋值)
-- Modify: `crates/rustcode-core/src/agent/mod.rs:929-932` (turn_reminder 计算)
+**文件：**
+- 修改：`crates/rustcode-core/src/ctx/render.rs:20-67` (render_turn_reminder 自由函数 + 其 rustdoc)
+- 修改：`crates/rustcode-core/src/ctx/render.rs:927-967` (render_turn_reminder 的 5 个 unit test)
+- 修改：`crates/rustcode-core/src/ctx/mod.rs:72-90` (CtxBuilder::render_turn_reminder trait 方法 + rustdoc)
+- 修改：`crates/rustcode-core/src/agent/mod.rs:310-313` (prev_turn_edited_files 字段声明)
+- 修改：`crates/rustcode-core/src/agent/mod.rs:545` (init)
+- 修改：`crates/rustcode-core/src/agent/mod.rs:805` (赋值)
+- 修改：`crates/rustcode-core/src/agent/mod.rs:929-932` (turn_reminder 计算)
 
-- [ ] **Step 1: 删除 `render_turn_reminder` 相关测试**
+- [ ] **步骤 1：删除 `render_turn_reminder` 相关测试**
 
 在 `crates/rustcode-core/src/ctx/render.rs` 中删除以下五个测试（保留 `apply_model_directives_*` 和其他不相关测试）：
 - `render_turn_reminder_empty_when_no_state`
@@ -290,23 +290,23 @@ git commit -m "feat(discipline): inject verbatim task into cadence reflection"
 - `render_turn_reminder_truncates_long_task_at_300_chars`
 - `render_turn_reminder_task_appears_after_prev_files`
 
-- [ ] **Step 2: 运行 core 测试确认编译失败（因 render_turn_reminder 还在）**
+- [ ] **步骤 2：运行 core 测试确认编译失败（因 render_turn_reminder 还在）**
 
 ```bash
 cargo test -p rustcode-core --lib ctx::render 2>&1 | tail -20
 ```
 
-Expected: 通过（测试文件此时没有引用 render_turn_reminder 的断言了），剩余测试通过。若仍有编译错误说明漏删引用，修掉再继续。
+预期：通过（测试文件此时没有引用 render_turn_reminder 的断言了），剩余测试通过。若仍有编译错误说明漏删引用，修掉再继续。
 
-- [ ] **Step 3: 删除自由函数 `render_turn_reminder`**
+- [ ] **步骤 3：删除自由函数 `render_turn_reminder`**
 
 在 `crates/rustcode-core/src/ctx/render.rs` 删除 L20-67（`Render the per-turn dynamic reminder ...` rustdoc 块 + `pub fn render_turn_reminder(...) -> String { ... }` 整体）。
 
-- [ ] **Step 4: 删除 trait 方法 `CtxBuilder::render_turn_reminder`**
+- [ ] **步骤 4：删除 trait 方法 `CtxBuilder::render_turn_reminder`**
 
 在 `crates/rustcode-core/src/ctx/mod.rs` 删除 L72-90（从 `/// Render the per-turn dynamic reminder from agent state.` 到闭合 `}`）。
 
-- [ ] **Step 5: 删除 AgentLoop 的 `prev_turn_edited_files` 字段 / init / 赋值**
+- [ ] **步骤 5：删除 AgentLoop 的 `prev_turn_edited_files` 字段 / init / 赋值**
 
 `crates/rustcode-core/src/agent/mod.rs` 三处删除：
 
@@ -318,7 +318,7 @@ Expected: 通过（测试文件此时没有引用 render_turn_reminder 的断言
   ```
   整段删掉。
 
-- L545 init：
+- L545 初始化：
   ```rust
               prev_turn_edited_files: Vec::new(),
   ```
@@ -331,7 +331,7 @@ Expected: 通过（测试文件此时没有引用 render_turn_reminder 的断言
   ```
   整两行删掉（注释 + 赋值）。
 
-- [ ] **Step 6: 修改 turn_reminder 计算点**
+- [ ] **步骤 6：修改 turn_reminder 计算点**
 
 `crates/rustcode-core/src/agent/mod.rs:929-932` 当前：
 
@@ -354,26 +354,26 @@ Expected: 通过（测试文件此时没有引用 render_turn_reminder 的断言
             let turn_reminder = String::new();
 ```
 
-- [ ] **Step 7: 全工作区构建**
+- [ ] **步骤 7：全工作区构建**
 
 ```bash
 cargo build
 ```
 
-Expected: clean。若有任何 `no method named 'render_turn_reminder'` / `no field 'prev_turn_edited_files'` 报错，回到对应 step 补删；这是 schema 变更导致的 downstream 影响，不要引入 shim。
+预期：干净。若有任何 `no method named 'render_turn_reminder'` / `no field 'prev_turn_edited_files'` 报错，回到对应 step 补删；这是 schema 变更导致的 downstream 影响，不要引入 shim。
 
-- [ ] **Step 8: 全工作区测试**
+- [ ] **步骤 8：全工作区测试**
 
 ```bash
 cargo test
 ```
 
-Expected: 所有测试通过。重点关注：
+预期：所有测试通过。重点关注：
 - `agent::discipline::reflection_tests` 10 项（Task 1 的全部）
 - `ctx::render::tests` 剩余项（仅 apply_model_directives / build_messages / microcompact 相关）
-- `agent::mod` / TUI 里任何对 `prev_turn_edited_files` 的引用都应已被 Step 5 清干净
+- `agent::mod` / TUI 里任何对 `prev_turn_edited_files` 的引用都应已被 步骤 5 清干净
 
-- [ ] **Step 9: Commit**
+- [ ] **步骤 9：Commit**
 
 ```bash
 git add crates/rustcode-core/src/ctx/render.rs \
@@ -386,9 +386,9 @@ git commit -m "refactor(ctx): drop per-turn render_turn_reminder and prev_turn_e
 
 ### Task 3: 端到端验证
 
-**Files:** 无代码修改；验证 + 跨模型对照。
+**文件：** 无代码修改；验证 + 跨模型对照。
 
-- [ ] **Step 1: datalog smoke test — Claude**
+- [ ] **步骤 1：datalog smoke test — Claude**
 
 在一个小 demo 工作区跑一个长任务（≥ `reflection_cadence=10` 次 tool call），模型用 `claude-opus-4-7` 或 `claude-sonnet-4-6`：
 
@@ -406,9 +406,9 @@ grep -l "ORIGINAL TASK" ~/.rustcode/datalog/*/llm/*.json | head -5
 grep -l "System meta" ~/.rustcode/datalog/*/llm/*.json | head -5
 ```
 
-Expected: 至少一个 llm request 文件包含 `=== ORIGINAL TASK ===` 块（在第 ≥10 次 tool call 之后）。第一轮 request 不该包含——说明 per-turn 注入已被移除。
+预期：至少一个 llm request 文件包含 `=== ORIGINAL TASK ===` 块（在第 ≥10 次 tool call 之后）。第一轮 request 不该包含——说明 per-turn 注入已被移除。
 
-- [ ] **Step 2: datalog smoke test — GLM**
+- [ ] **步骤 2：datalog smoke test — GLM**
 
 同一命题换 `--provider glm`（或 memory 里登记的 GLM 入口）跑一次。
 
@@ -418,9 +418,9 @@ rustcode --provider glm
 
 再 grep 同样 pattern。memory `feedback_cross_model_verify.md` 明确要求 Claude + GLM 双跑。
 
-Expected: 行为一致——第一轮无 ORIGINAL TASK 块，第 ≥10 次 tool call 后出现。两模型都是。
+预期：行为一致——第一轮无 ORIGINAL TASK 块，第 ≥10 次 tool call 后出现。两模型都是。
 
-- [ ] **Step 3: 记录结论到 memory**
+- [ ] **步骤 3：记录结论到 memory**
 
 如果两跑都按预期工作，更新 `feedback_cross_model_verify.md`（或追加 memo）记录本次是双模型验证后 ship 的，形成 positive 判例。如果有差异（例如某个模型对新 Q1 wording 响应率明显不同），把差异写进 project 级 memory，**不要** ship。
 
@@ -429,7 +429,7 @@ Expected: 行为一致——第一轮无 ORIGINAL TASK 块，第 ≥10 次 tool 
 # 如果任一模型异常 — 停，不要 merge，回到设计
 ```
 
-- [ ] **Step 4: （可选但推荐）SWE-bench A/B**
+- [ ] **步骤 4：（可选但推荐）SWE-bench A/B**
 
 memory `project_swebench_phase1.md` 表明 eval/swebench 已落地 main，predict + grade 双阶段 + dual-score。本改动是对 agent 行为的直接修改，推荐：
 
@@ -449,7 +449,7 @@ diff baseline_score.json after_score.json
 
 判据：after_score ≥ baseline_score（允许小幅浮动，因 LLM 随机性）。若后者显著下降，回到设计层反思 Q1 改写或截断长度。
 
-- [ ] **Step 5: final commit（如果有 memory 更新）**
+- [ ] **步骤 5：final commit（如果有 memory 更新）**
 
 ```bash
 git add /Users/lichao/.claude/projects/-Users-lichao-project-gitcode-ai-rustcode/memory/
@@ -458,11 +458,11 @@ git commit -m "docs(memory): record cross-model verification of cadence-merged t
 
 ---
 
-## Self-Review Checklist
+## 自查清单
 
-- **Spec coverage:** 每条设计决策都对应 task —— reflection_prompt 合并（Task 1 Steps 1-5）、discipline 调用点（Task 1 Step 6）、per-turn 路径删除（Task 2 Steps 3-6）、prev_turn_edited_files 字段清理（Task 2 Step 5）、post-compression 机制不动（显式不在 scope 中）、跨模型验证（Task 3 Steps 1-3）。
-- **Placeholder scan:** 无 TODO/TBD；每个 code step 给出完整替换内容；每个测试给出完整断言；每个命令附 expected output 说明。
-- **Type consistency:** `reflection_prompt` 签名在 Task 1 Step 4 确定为 `(delta: usize, current_task: &str) -> String`，Step 6 调用点与 Step 2/4 新测试断言一致；`prev_turn_edited_files` 字段名在 Task 2 Step 5 三个删除点完全一致。
+- **规格覆盖：** 每条设计决策都对应 task —— reflection_prompt 合并（Task 1 步骤 1-5）、discipline 调用点（Task 1 步骤 6）、per-turn 路径删除（Task 2 步骤 3-6）、prev_turn_edited_files 字段清理（Task 2 步骤 5）、post-compression 机制不动（显式不在 scope 中）、跨模型验证（Task 3 步骤 1-3）。
+- **占位符扫描：** 无 TODO/TBD；每个 code step 给出完整替换内容；每个测试给出完整断言；每个命令附 expected output 说明。
+- **类型一致性：** `reflection_prompt` 签名在 Task 1 步骤 4 确定为 `(delta: usize, current_task: &str) -> String`，步骤 6 调用点与 步骤 2/4 新测试断言一致；`prev_turn_edited_files` 字段名在 Task 2 步骤 5 三个删除点完全一致。
 
 ---
 

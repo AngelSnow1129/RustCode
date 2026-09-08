@@ -1,68 +1,68 @@
-# Skills Recommendations
+# Skills 推荐
 
-Skills are packaged expertise with workflows, reference materials, and best practices. Create them in `.rustcode/skills/<name>/SKILL.md`. Skills can be invoked by RustCode automatically when relevant, or by users directly with `/skill-name`.
+Skills 是把工作流、参考资料与最佳实践打包在一起的专家经验。在 `.rustcode/skills/<name>/SKILL.md` 中创建。RustCode 会在相关时自动调用，用户也可以直接用 `/skill-name` 调用。
 
-Some pre-built skills are available through the setup installer (`rustcode setup`).
+部分预置 skills 可通过安装器（`rustcode setup`）获取。
 
-**Note**: These are common patterns. Use web search to find skill ideas specific to the codebase's tools and frameworks.
+**说明**：以下是常见模式。请用 Web 搜索查找与代码库所用工具/框架匹配的 skill。
 
 ---
 
-## Available from Setup Seeds
+## 安装器内置的 skills
 
-### Built-in Skills (installed via `rustcode setup`)
+### 内置 Skills（通过 `rustcode setup` 安装）
 
-| Skill | Best For |
+| Skill | 适用场景 |
 |-------|----------|
-| **rust-best-practices** | Idiomatic Rust development |
-| **vue-best-practices** | Vue 3 Composition API |
-| **react-native-best-practices** | React Native performance |
-| **spring-boot-engineer** | Spring Boot 3.x apps |
-| **code-review-excellence** | Code review practices |
-| **kubernetes** | K8s operations |
-| **docker** | Containerization |
-| **api-design-patterns** | REST/GraphQL API design |
-| **sql-optimization-patterns** | Query optimization |
-| **frontend-testing** | Vitest + RTL tests |
+| **rust-best-practices** | 符合惯例的 Rust 开发 |
+| **vue-best-practices** | Vue 3 Composition API 用法 |
+| **react-native-best-practices** | React Native 性能 |
+| **spring-boot-engineer** | Spring Boot 3.x 应用 |
+| **code-review-excellence** | 代码评审实践 |
+| **kubernetes** | K8s 运维 |
+| **docker** | 容器化 |
+| **api-design-patterns** | REST/GraphQL API 设计 |
+| **sql-optimization-patterns** | 查询优化 |
+| **frontend-testing** | Vitest + RTL 测试 |
 
-### Built-in Commands (installed via `rustcode setup`)
+### 内置命令（通过 `rustcode setup` 安装）
 
-| Command | Best For |
+| 命令 | 适用场景 |
 |---------|----------|
-| **/review** | Code review workflow |
-| **/refactor** | Code refactoring |
-| **/lint** | Linting workflow |
-| **/clippy** | Rust clippy checks |
-| **/cargo-test** | Rust test runner |
-| **/cargo-run** | Rust build & run |
-| **/pytest** | Python test runner |
-| **/tsc-check** | TypeScript type checking |
-| **/changelog** | Changelog generation |
-| **/fixissue** | Issue fixing workflow |
+| **/review** | 代码评审流程 |
+| **/refactor** | 代码重构 |
+| **/lint** | lint 流程 |
+| **/clippy** | Rust clippy 检查 |
+| **/cargo-test** | Rust 测试执行 |
+| **/cargo-run** | Rust 构建与运行 |
+| **/pytest** | Python 测试执行 |
+| **/tsc-check** | TypeScript 类型检查 |
+| **/changelog** | 生成 changelog |
+| **/fixissue** | 修复 issue 的流程 |
 
 ---
 
-## Plugin Skills
+## 插件 Skills
 
-Skills distributed as plugins — add the plugin marketplace provided by your distribution channel (set its URL via config/env, or install from your distribution's plugin index), then run `/plugin install <name>`. Use a placeholder URL such as `https://example.com/<your-org>/rustcode-plugins` if your channel does not give you a concrete one.
+以插件形式分发的 skills —— 先添加你的分发渠道提供的插件 marketplace（通过配置/环境变量设置其 URL，或从你的分发渠道插件索引安装），再执行 `/plugin install <name>`。若渠道未提供具体地址，可用 `https://example.com/<your-org>/rustcode-plugins` 这样的占位 URL。
 
-| Skill | Plugin | Install | Best For |
+| Skill | 插件 | 安装方式 | 适用场景 |
 |-------|--------|---------|----------|
-| **rustcode-workflows** | rustcode-workflows | `/plugin marketplace add <your-channel-marketplace-url>` then `/plugin install rustcode-workflows@rustcode` | Plan / review / debug / brainstorm workflow skills |
-| **commit-craft** | commit-craft | (same marketplace) `/plugin install commit-craft@rustcode` | Conventional commit messages, PR descriptions, changelogs |
-| **git-worktree** | git-worktree | (same marketplace) `/plugin install git-worktree@rustcode` | `/worktree` — isolated worktrees for parallel work |
+| **rustcode-workflows** | rustcode-workflows | `/plugin marketplace add <your-channel-marketplace-url>` 后执行 `/plugin install rustcode-workflows@rustcode` | 规划/评审/调试/头脑风暴等工作流 skill |
+| **commit-craft** | commit-craft |（同一 marketplace）`/plugin install commit-craft@rustcode` | 约定式提交信息、PR 描述、changelog |
+| **git-worktree** | git-worktree |（同一 marketplace）`/plugin install git-worktree@rustcode` | `/worktree` —— 隔离的 worktree，用于并行工作 |
 
-> **RustCode usage & docs Q&A** (installation, config, slash commands,
-> troubleshooting) is now the **built-in `/guide`** subagent — run
-> `/guide <question>`, no plugin install needed.
+> **RustCode 用法与文档问答**（安装、配置、slash 命令、
+> 排障等）现在由**内置的 `/guide`** subagent 提供 —— 直接运行
+> `/guide <question>` 即可，无需安装插件。
 
 ---
 
-## Custom Project Skills
+## 自定义项目 Skills
 
-Create project-specific skills in `.rustcode/skills/<name>/SKILL.md`.
+在 `.rustcode/skills/<name>/SKILL.md` 中创建项目专属的 skill。
 
-### Skill Structure
+### Skill 目录结构
 
 ```
 .rustcode/skills/
@@ -74,7 +74,7 @@ Create project-specific skills in `.rustcode/skills/<name>/SKILL.md`.
     examples/          # Reference examples
 ```
 
-### Frontmatter Reference
+### Frontmatter 参考
 
 ```yaml
 ---
@@ -86,21 +86,21 @@ allowed-tools: Read, Grep, Glob # Restrict tool access
 ---
 ```
 
-### Invocation Control
+### 调用控制
 
-| Setting | User | RustCode | Use for |
+| 设置 | 用户 | RustCode | 用途 |
 |---------|------|----------|---------|
-| (default) | Yes | Yes | General-purpose skills |
-| `disable-model-invocation: true` | Yes | No | Side effects (deploy, send) |
-| `user-invocable: false` | No | Yes | Background knowledge |
+|（默认）| 是 | 是 | 通用型 skill |
+| `disable-model-invocation: true` | 是 | 否 | 有副作用的操作（部署、发送） |
+| `user-invocable: false` | 否 | 是 | 背景知识 |
 
 ---
 
-## Custom Skill Examples
+## 自定义 Skill 示例
 
-### API Documentation with OpenAPI Template
+### 用 OpenAPI 模板生成 API 文档
 
-Apply a YAML template to generate consistent API docs:
+应用 YAML 模板生成风格一致的 API 文档：
 
 ```
 .rustcode/skills/api-doc/
@@ -108,7 +108,7 @@ Apply a YAML template to generate consistent API docs:
   openapi-template.yaml
 ```
 
-**SKILL.md:**
+**SKILL.md 内容：**
 ```yaml
 ---
 name: api-doc
@@ -125,7 +125,7 @@ Use the template in [openapi-template.yaml](openapi-template.yaml) as the struct
 4. Output the completed YAML
 ```
 
-**openapi-template.yaml:**
+**openapi-template.yaml 内容：**
 ```yaml
 paths:
   /{path}:
@@ -147,9 +147,9 @@ paths:
 
 ---
 
-### Database Migration Generator with Script
+### 带校验脚本的数据库迁移生成器
 
-Generate and validate migrations using a bundled script:
+用随 skill 附带的脚本生成并校验迁移：
 
 ```
 .rustcode/skills/create-migration/
@@ -158,7 +158,7 @@ Generate and validate migrations using a bundled script:
     validate-migration.sh
 ```
 
-**SKILL.md:**
+**SKILL.md 内容：**
 ```yaml
 ---
 name: create-migration
@@ -175,7 +175,7 @@ Create a migration for: $ARGUMENTS
 4. Report any issues found
 ```
 
-**scripts/validate-migration.sh:**
+**scripts/validate-migration.sh 内容：**
 ```bash
 #!/bin/bash
 # Validate migration syntax
@@ -184,9 +184,9 @@ npx prisma validate 2>&1 || echo "Validation failed"
 
 ---
 
-### Test Generator with Examples
+### 带示例的测试生成器
 
-Generate tests following project patterns:
+按项目既有模式生成测试：
 
 ```
 .rustcode/skills/gen-test/
@@ -196,7 +196,7 @@ Generate tests following project patterns:
     integration-test.ts
 ```
 
-**SKILL.md:**
+**SKILL.md 内容：**
 ```yaml
 ---
 name: gen-test
@@ -218,9 +218,9 @@ Reference these examples for the expected patterns:
 
 ---
 
-### Component Generator with Template
+### 基于模板的组件生成器
 
-Scaffold new components from a template:
+用模板脚手架生成新组件：
 
 ```
 .rustcode/skills/new-component/
@@ -231,7 +231,7 @@ Scaffold new components from a template:
     component.stories.tsx.template
 ```
 
-**SKILL.md:**
+**SKILL.md 内容：**
 ```yaml
 ---
 name: new-component
@@ -252,9 +252,9 @@ Replace {{component-name}} with the kebab-case name.
 
 ---
 
-### PR Review with Checklist
+### 按清单评审 PR
 
-Review PRs against a project-specific checklist:
+按项目专属清单评审 PR：
 
 ```
 .rustcode/skills/pr-check/
@@ -262,7 +262,7 @@ Review PRs against a project-specific checklist:
   checklist.md
 ```
 
-**SKILL.md:**
+**SKILL.md 内容：**
 ```yaml
 ---
 name: pr-check
@@ -279,7 +279,7 @@ Review against [checklist.md](checklist.md).
 For each item, mark pass or fail with explanation.
 ```
 
-**checklist.md:**
+**checklist.md 内容：**
 ```markdown
 ## PR Checklist
 
@@ -292,11 +292,11 @@ For each item, mark pass or fail with explanation.
 
 ---
 
-### Release Notes Generator
+### 发布说明生成器
 
-Generate release notes from git history:
+从 git 历史生成发布说明：
 
-**SKILL.md:**
+**SKILL.md 内容：**
 ```yaml
 ---
 name: release-notes
@@ -317,11 +317,11 @@ Generate release notes:
 
 ---
 
-### Project Conventions (RustCode-only)
+### 项目约定（仅 RustCode 使用）
 
-Background knowledge RustCode applies automatically:
+RustCode 自动应用的背景知识：
 
-**SKILL.md:**
+**SKILL.md 内容：**
 ```yaml
 ---
 name: project-conventions
@@ -348,9 +348,9 @@ user-invocable: false
 
 ---
 
-### Environment Setup
+### 环境搭建
 
-Onboard new developers with setup script:
+用配置脚本帮新开发者完成上手：
 
 ```
 .rustcode/skills/setup-dev/
@@ -359,7 +359,7 @@ Onboard new developers with setup script:
     check-prerequisites.sh
 ```
 
-**SKILL.md:**
+**SKILL.md 内容：**
 ```yaml
 ---
 name: setup-dev
@@ -380,17 +380,17 @@ Report any issues encountered.
 
 ---
 
-## Argument Patterns
+## 参数模式
 
-| Pattern | Meaning | Example |
+| 模式 | 含义 | 示例 |
 |---------|---------|---------|
-| `$ARGUMENTS` | All args as string | `/deploy staging` -> "staging" |
+| `$ARGUMENTS` | 全部参数拼成的字符串 | `/deploy staging` -> "staging" |
 
-Arguments are appended as `ARGUMENTS: <value>` if `$ARGUMENTS` isn't in the skill.
+若 skill 中没有出现 `$ARGUMENTS`，参数会以 `ARGUMENTS: <value>` 的形式追加。
 
-## Dynamic Context Injection
+## 动态上下文注入
 
-Use `` !`command` `` to inject live data before the skill runs:
+用 `` !`command` `` 在 skill 运行前注入实时数据：
 
 ```yaml
 ## Current State
@@ -398,4 +398,4 @@ Use `` !`command` `` to inject live data before the skill runs:
 - Status: !`git status --short`
 ```
 
-The command output replaces the placeholder before RustCode sees the skill content.
+命令输出会在 RustCode 看到 skill 内容之前替换掉该占位符。

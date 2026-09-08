@@ -1,6 +1,6 @@
 # 回合上限检查点问询 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **致 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 来逐任务实施本计划。步骤使用复选框（`- [ ]`）语法跟踪进度。
 
 **Goal:** 把主对话回合数上限从「红色错误硬中断」改为「继续 / 停止」的可选问询卡片，每次「继续」重新武装计数器；顺带把上限做成 `[coding] max_rounds` TOML 可配。
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust（rustcode-kernel / rustcode-coding / rustcode-config / rustcode-tuix 四 crate），tokio，serde_json。
 
-## Global Constraints
+## 全局约束
 
 - 默认开关 `round_cap_checkpoint = false`；只有 TUI 置 `true`。非 TUI 路径必须逐字保持今天的 `emit(Error)+finish_turn(MaxRounds)` 行为。
 - 任何降级 `Null` 响应（无 requester / 超时 / Cancel）一律视为「停止」（fail-closed）→ `finish_turn(StopReason::MaxRounds)`。
@@ -20,7 +20,7 @@
 
 ---
 
-## File Structure
+## 文件结构
 
 - `crates/rustcode-kernel/src/event.rs` — 新增 `ROUND_CAP_CHECKPOINT_KIND` 常量（挨着 `AgentEvent::Request`）。
 - `crates/rustcode-kernel/src/agent.rs` — `AgentBuilder` + `RunningAgent` 加 `round_cap_checkpoint: bool`；`build()` 透传；`max_rounds` setter 旁加 setter；`run_turn` 熔断分支改造 + 可变 `round_cap` 再武装。
@@ -35,12 +35,12 @@
 
 ## Task 1: Kernel — 检查点熔断分支 + 再武装
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-kernel/src/event.rs`（`AgentEvent::Request` 定义附近）
 - Modify: `crates/rustcode-kernel/src/agent.rs:3191`（builder 字段）、`:3227`（default）、`:3310` 后（setter）、`:851`(build 透传)、`:952`(running 字段)、`:1642`（run_turn 循环前）、`:1662-1674`（熔断分支）
-- Test: `crates/rustcode-kernel/tests/failure_perception.rs`
+- 测试：`crates/rustcode-kernel/tests/failure_perception.rs`
 
-**Interfaces:**
+**接口：**
 - Produces: `rustcode_kernel::ROUND_CAP_CHECKPOINT_KIND: &str`（Task 3 import）；`AgentBuilder::round_cap_checkpoint(bool) -> Self`（Task 2 调用）。
 - Consumes: 现有 `RequestCtx::request(&str, Value) -> Value`（`request.rs:155`）、`StopReason::MaxRounds`、`finish_turn`。
 
@@ -139,9 +139,9 @@ async fn round_cap_checkpoint_off_keeps_hard_error() {
 
 > 注：`scripted_tool_rounds(n)` / `noop_tools()` 若文件内命名不同，用 `max_rounds_stop_reason`（failure_perception.rs:119）里同款脚手架照抄——它已构造「脚本足够多轮以超过 cap」的 provider。
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **步骤 2：运行测试确认失败**
 
-Run: `cargo test -p rustcode-kernel --test failure_perception round_cap_checkpoint`
+运行：`cargo test -p rustcode-kernel --test failure_perception round_cap_checkpoint`
 Expected: 编译失败 `no method named round_cap_checkpoint` / `no ROUND_CAP_CHECKPOINT_KIND`。
 
 - [ ] **Step 3: 加 kind 常量**
@@ -233,14 +233,14 @@ RunningAgent 字段（`agent.rs` struct，`keep_interrupted_context` 字段旁�
 
 > `turn_ctx.max_rounds`（agent.rs:1657）保持读 `self.max_rounds`（展示用原始配置值，不动）。
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [ ] **步骤 6：运行测试确认通过**
 
-Run: `cargo test -p rustcode-kernel --test failure_perception round_cap_checkpoint`
+运行：`cargo test -p rustcode-kernel --test failure_perception round_cap_checkpoint`
 Expected: 3 个新测试 PASS。
 
 - [ ] **Step 7: 全量 kernel 回归 + commit**
 
-Run: `cargo test -p rustcode-kernel`
+运行：`cargo test -p rustcode-kernel`
 Expected: 绿（含既有 `max_rounds_stop_reason` 等）。
 ```bash
 git add crates/rustcode-kernel/src/event.rs crates/rustcode-kernel/src/agent.rs crates/rustcode-kernel/src/lib.rs crates/rustcode-kernel/tests/failure_perception.rs
@@ -253,15 +253,15 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Task 2: Config — `[coding] max_rounds` TOML + checkpoint 标志透传
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-config/src/config/mod.rs`（新 `CodingConfig`；`Config` 加 `coding` 字段；`save()` 注释）
 - Modify: `crates/rustcode-coding/src/config.rs`（`CodingAgentConfig` 加 `round_cap_checkpoint`；`resolve_turn_max_rounds`；`CodingRuntimeConfig` 透传 turn 上限）
-- Modify: `crates/rustcode-coding/src/parts.rs:1333`、`crates/rustcode-coding/src/assemble.rs:113`
+- 修改：`crates/rustcode-coding/src/parts.rs:1333`、`crates/rustcode-coding/src/assemble.rs:113`
 - Test: `crates/rustcode-coding/src/config.rs`（`#[cfg(test)]` 内，同文件已有 `resolve_loop_max_rounds` 测试 ~525）
 
-**Interfaces:**
-- Consumes: `AgentBuilder::round_cap_checkpoint(bool)`（Task 1）。
-- Produces: `CodingAgentConfig.round_cap_checkpoint: bool`（Task 3 flip）；`Config.coding.max_rounds: u32`。
+**接口：**
+- 消费：`AgentBuilder::round_cap_checkpoint(bool)`（Task 1）。
+- 产生：`CodingAgentConfig.round_cap_checkpoint: bool`（Task 3 flip）；`Config.coding.max_rounds: u32`。
 
 - [ ] **Step 1: 加 `[coding]` config 段（失败测试）**
 
@@ -298,9 +298,9 @@ impl Default for CodingConfig {
     }
 ```
 
-- [ ] **Step 2: Run to verify fail**
+- [ ] **步骤 2：运行确认失败**
 
-Run: `cargo test -p rustcode-coding --lib turn_max_rounds`
+运行：`cargo test -p rustcode-coding --lib turn_max_rounds`
 Expected: 编译失败 `cannot find function resolve_turn_max_rounds`。
 
 - [ ] **Step 3: 加 `resolve_turn_max_rounds` + `CodingAgentConfig` 字段**
@@ -349,10 +349,10 @@ pub fn resolve_turn_max_rounds(configured: u32, env: Option<&str>) -> u32 {
 
 - [ ] **Step 7: Run tests to verify pass + 回归**
 
-Run: `cargo test -p rustcode-coding --lib turn_max_rounds && cargo test -p rustcode-config && cargo build -p rustcode-coding`
+运行：`cargo test -p rustcode-coding --lib turn_max_rounds && cargo test -p rustcode-config && cargo build -p rustcode-coding`
 Expected: 绿。
 
-- [ ] **Step 8: Commit**
+- [ ] **步骤 8：提交**
 ```bash
 git add crates/rustcode-config/src/config/mod.rs crates/rustcode-coding/src/config.rs crates/rustcode-coding/src/parts.rs crates/rustcode-coding/src/assemble.rs
 git commit -m "feat(config): [coding] max_rounds TOML + thread round_cap_checkpoint flag
@@ -364,13 +364,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Task 3: TUI — flip 开关 + 分派臂 + 面板状态 + deliver
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-tuix/src/state.rs`（`RoundCapPanel`；`UiState.round_cap_panel`；`UiPhase::RoundCap`；reset 清理 :1394/:1418/:1633）
 - Modify: `crates/rustcode-tuix/src/event_loop/mod.rs`（flip :102；分派臂 :14878 前；`deliver_round_cap` 挨 :12428）
-- Test: `crates/rustcode-tuix/src/state.rs`（`#[cfg(test)]`）
+- 测试：`crates/rustcode-tuix/src/state.rs`（`#[cfg(test)]`）
 
-**Interfaces:**
-- Consumes: `rustcode_kernel::ROUND_CAP_CHECKPOINT_KIND`；`CodingAgentConfig.round_cap_checkpoint`。
+**接口：**
+- 消费：`rustcode_kernel::ROUND_CAP_CHECKPOINT_KIND`；`CodingAgentConfig.round_cap_checkpoint`。
 - Produces: `RoundCapPanel { id, cap, cursor }`；`deliver_round_cap(ctx, id, cont: bool)`；`UiPhase::RoundCap`（Task 4/5 消费）。
 
 - [ ] **Step 1: 面板状态 + phase（失败测试）**
@@ -410,9 +410,9 @@ impl RoundCapPanel {
     }
 ```
 
-- [ ] **Step 2: Run to verify fail**
+- [ ] **步骤 2：运行确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib round_cap_panel_toggle`
+运行：`cargo test -p rustcode-tuix --lib round_cap_panel_toggle`
 Expected: 编译失败（类型不存在 / match 非穷尽）。
 
 - [ ] **Step 3: flip 开关（仅 TUI）**
@@ -429,7 +429,7 @@ Expected: 编译失败（类型不存在 / match 非穷尽）。
 ```
 > 说明：默认 false，此为唯一 flip 点。若 TUI 另有构造 `CodingAgentConfig` 的 spawn 站点（grep `agent_config()` 于 tuix crate 确认），同样置 true；漏设某站点只是那里退回旧硬停（安全，绝不 park）。
 
-- [ ] **Step 4: deliver helper**
+- [ ] **步骤 4：deliver 辅助函数**
 
 `event_loop/mod.rs`，挨 `deliver_user_input`（:12428）加：
 ```rust
@@ -469,9 +469,9 @@ fn deliver_round_cap(ctx: &mut LoopCtx, id: u64, cont: bool) {
 
 测试（分派 + auto-skip）留给 Task 5 的集成断言；本 Task 编译 + 单元 toggle 测试通过即可。
 
-- [ ] **Step 6: Run + commit**
+- [ ] **步骤 6：运行测试 + 提交**
 
-Run: `cargo build -p rustcode-tuix && cargo test -p rustcode-tuix --lib round_cap_panel_toggle`
+运行：`cargo build -p rustcode-tuix && cargo test -p rustcode-tuix --lib round_cap_panel_toggle`
 Expected: 绿。
 ```bash
 git add crates/rustcode-tuix/src/state.rs crates/rustcode-tuix/src/title.rs crates/rustcode-tuix/src/event_loop/mod.rs crates/rustcode-tuix/src/event_loop/commands.rs
@@ -484,14 +484,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Task 4: TUI — 渲染（复用 Single picker，样式 B）
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-tuix/src/render/mod.rs`（RoundCap 面板视图接入）
 - Modify: `crates/rustcode-tuix/src/render/retained.rs`（复用 `build_user_input_rows`）
 - Modify: `crates/rustcode-tuix/src/event_loop/mod.rs`（把 state.round_cap_panel 喂给渲染，随 `redraw_idle_plain`）
-- Test: `crates/rustcode-tuix/src/render/retained.rs`（`#[cfg(test)]`）
+- 测试：`crates/rustcode-tuix/src/render/retained.rs`（`#[cfg(test)]`）
 
-**Interfaces:**
-- Consumes: `RoundCapPanel { id, cap, cursor }`；`state.turn_elapsed() -> Option<Duration>`（state.rs:1255）；`state.total_tokens`（state.rs:707）；`build_user_input_rows`（retained.rs:2729）；`UserInputPanelView`（render/mod.rs:643）。
+**接口：**
+- 消费：`RoundCapPanel { id, cap, cursor }`；`state.turn_elapsed() -> Option<Duration>`（state.rs:1255）；`state.total_tokens`（state.rs:707）；`build_user_input_rows`（retained.rs:2729）；`UserInputPanelView`（render/mod.rs:643）。
 - Produces: 一个把 `RoundCapPanel` + 统计渲染成行的函数 `round_cap_view(panel, elapsed, tokens) -> UserInputPanelView`。
 
 - [ ] **Step 1: 视图构造函数（失败测试）**
@@ -554,21 +554,21 @@ fn round_cap_stats(state: &UiState) -> String {
     }
 ```
 
-- [ ] **Step 2: Run to verify fail**
+- [ ] **步骤 2：运行确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib round_cap_view_renders`
+运行：`cargo test -p rustcode-tuix --lib round_cap_view_renders`
 Expected: 编译失败（`round_cap_view` 未定义）。
 
 - [ ] **Step 3: 渲染接入**
 
 在渲染帧里，凡是现在读 `state.user_input_panel` 构造 `UserInputPanelView` 并调 `build_user_input_rows` 的地方（grep `build_user_input_rows` 的调用点 + `user_input_panel` 在 render 路径的消费点），并列加一支：当 `state.round_cap_panel` 为 `Some` 时，用 `round_cap_view(panel.cap, panel.cursor, &round_cap_stats(state))` 得到视图，走同一个 `build_user_input_rows` 渲染。镜像 `user_input_panel` 的渲染分支即可（同一 chokepoint，多一个 Option 判定）。
 
-- [ ] **Step 4: Run to verify pass**
+- [ ] **步骤 4：运行确认通过**
 
-Run: `cargo test -p rustcode-tuix --lib round_cap_view_renders && cargo build -p rustcode-tuix`
+运行：`cargo test -p rustcode-tuix --lib round_cap_view_renders && cargo build -p rustcode-tuix`
 Expected: 绿。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 ```bash
 git add crates/rustcode-tuix/src/render/mod.rs crates/rustcode-tuix/src/render/retained.rs crates/rustcode-tuix/src/event_loop/mod.rs
 git commit -m "feat(tuix): render round-cap checkpoint via reused Single picker (样式 B)
@@ -580,12 +580,12 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Task 5: TUI — 按键路由 + 端到端
 
-**Files:**
+**文件：**
 - Modify: `crates/rustcode-tuix/src/event_loop/mod.rs`（key 路由 :9383；新 `handle_round_cap_key`）
-- Test: `crates/rustcode-tuix/src/event_loop/mod.rs`（`#[cfg(test)]`）
+- 测试：`crates/rustcode-tuix/src/event_loop/mod.rs`（`#[cfg(test)]`）
 
-**Interfaces:**
-- Consumes: `RoundCapPanel`（Task 3）；`deliver_round_cap`（Task 3）。
+**接口：**
+- 消费：`RoundCapPanel`（Task 3）；`deliver_round_cap`（Task 3）。
 
 - [ ] **Step 1: key handler（失败测试）**
 
@@ -651,12 +651,12 @@ key 路由（:9383 `UiPhase::UserInput => handle_user_input_key(...)` 旁）加�
 
 - [ ] **Step 2: Run to verify fail** → **Step 3: 实现（上）** → **Step 4: Run to verify pass**
 
-Run: `cargo test -p rustcode-tuix --lib round_cap_ && cargo build -p rustcode-tuix`
+运行：`cargo test -p rustcode-tuix --lib round_cap_ && cargo build -p rustcode-tuix`
 Expected: 绿。
 
 - [ ] **Step 5: 全量 tuix 回归 + commit**
 
-Run: `cargo test -p rustcode-tuix`
+运行：`cargo test -p rustcode-tuix`
 Expected: 绿。
 ```bash
 git add crates/rustcode-tuix/src/event_loop/mod.rs
@@ -671,7 +671,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: 全仓构建 + 相关 crate 测试**
 
-Run: `cargo build --workspace && cargo test -p rustcode-kernel -p rustcode-coding -p rustcode-config -p rustcode-tuix`
+运行：`cargo build --workspace && cargo test -p rustcode-kernel -p rustcode-coding -p rustcode-config -p rustcode-tuix`
 Expected: 绿。
 
 - [ ] **Step 2: 交叉编译门（若 CI 要求 Windows/musl，按项目惯例跑）**
@@ -698,7 +698,7 @@ TUI 里设 `RUSTCODE_TURN_MAX_ROUNDS=3` 跑一个会多轮调工具的任务，�
 - **Spec 边界（Null/Cancel/无 requester）** → Task 1 Step 1 的 `null_response_stops` 测试 + `unwrap_or(false)`；Cancel 经 `cancel_pending → Null → false`（同路径，Task 6 Step 3 复核）。
 - **类型一致性**：`ROUND_CAP_CHECKPOINT_KIND`、`round_cap_checkpoint(bool)`、`RoundCapPanel{id,cap,cursor}`、`deliver_round_cap(ctx,id,bool)`、`round_cap_view(cap,cursor,stats)` 全计划内一致。
 
-## Deferred
+## 延后项
 
 - webui/daemon 检查点镜像。
 - 递增间隔（200→400→800…）。

@@ -47,7 +47,7 @@ RustCode 是上游项目的二次开发 fork。中立化的目标是:
   - 注册表:`crates/rustcode-config/src/config/provider_preset.rs:98`
   - 锁定测试:`generic_endpoints_lead_the_registry`
     (`crates/rustcode-config/src/config/provider_preset.rs:303`)
-  - TUI fallback:`crates/rustcode-tuix/src/modals/provider_panel.rs:71`
+  - TUI 回退:`crates/rustcode-tuix/src/modals/provider_panel.rs:71`
 - **[DONE] atomgit REST 工具门控**:`atomgit_repo` / `pr` / `issue` 等平台 REST 工具
   与 `api.atomgit.com/api/v5` 装配、push-label 中间件整体由 `atomgit` Cargo feature
   `#[cfg(feature = "atomgit")]` 门控,默认成员不启用。这是刻意保留的上游开关,不是
@@ -140,7 +140,7 @@ RustCode 是上游项目的二次开发 fork。中立化的目标是:
   删除或改 ASCII 标签(`[#]/[X]/[EDIT]/[F]/[D]/[=]/[*]/[KEY]/[~]/[!]`),U+FE0F
   残基清零;JetBrains 齿轮菜单生产标签在 `RustCodeBundle*.properties` 补齐
   `gear.settings`,测试 `GearMenuLabelsTest.kt` 锁定实际标签。
-- **[DONE] 顶层 / CI**:`README.md` / `README.zh-CN.md` 贡献 bullets 与捐赠行、
+- **[DONE] 顶层 / CI**:`README.md` 与原中文 README 的贡献 bullets 与捐赠行、
   `extensions/vscode/README.md` 能力 bullets、`.github/workflows/build.yml` 步骤标记
   `🔟 -> [10]` 均 ASCII 化;捐赠行顺带去掉"Coding Plan 免费"这类托管服务口径。
 - **TUI 排版字形政策(不是 emoji,保留)**:平台中立化重构时 TUI 渲染串曾被机械

@@ -1,198 +1,144 @@
-# `rustcode acp` — ACP Agent Mode (v1)
+# `rustcode acp` —— ACP Agent 模式（v1）
 
-Date: 2026-06-29
-Branch: `feat/acp-agent` (worktree off `main`)
-Status: design approved, pending spec review
+日期：2026-06-29
+分支：`feat/acp-agent`（基于 `main` 的 worktree）
+状态：设计已批准，待 spec 评审
 
-## Motivation
+## 动机
 
-Multi-agent collaboration is increasingly common. rustcode currently cannot be
-plugged into editors/orchestrators that speak the **Agent Client Protocol (ACP)**
-— the JSON-RPC-over-stdio protocol (from Zed) that lets a *client* (editor or
-multi-agent orchestrator) launch an *agent* subprocess and drive it. We want
-`rustcode acp` so rustcode can act as one of the agents in such a team — the same
-way Claude Code can be dropped into Zed.
+多 agent 协作越来越常见。rustcode 目前还无法接入使用 **Agent Client Protocol（ACP）** 的编辑器 / 编排器 —— 那是来自 Zed 的、基于 stdio 的 JSON-RPC 协议，它让 *client*（编辑器或多 agent 编排器）启动一个 *agent* 子进程并驱动它。我们希望提供 `rustcode acp`，让 rustcode 能作为这类团队中的一个 agent —— 就像 Claude Code 可以被直接放进 Zed 一样。
 
-## Scope (v1)
+## 范围（v1）
 
-**Role: Agent side only.** rustcode runs as an ACP agent subprocess, driven over
-stdio. (Client side — rustcode orchestrating *other* ACP agents — is explicitly
-out of scope; future separate spec.)
+**角色：仅 Agent 侧。** rustcode 作为 ACP agent 子进程运行，经 stdio 被驱动。（Client 侧 —— 由 rustcode 编排 *其它* ACP agent —— 明确不在范围内，未来单独出 spec。）
 
-**Feature set: core + permissions.**
+**功能集：核心 + 权限。**
 
-In scope:
-- `initialize`, `session/new`, `session/prompt`, `session/cancel`
-- streaming `session/update` notifications (text, reasoning, tool calls)
-- `session/request_permission` wired to rustcode's existing approval flow
-- tool-call updates carry `raw_input` + plain-text result content and a
-  `ToolKind` (read/edit/execute/…) so the client renders sensible affordances
+范围内：
+- `initialize`、`session/new`、`session/prompt`、`session/cancel`
+- 流式 `session/update` 通知（文本、推理、工具调用）
+- `session/request_permission` 接到 rustcode 现有的审批流程
+- 工具调用更新携带 `raw_input` + 纯文本结果内容，以及一个
+  `ToolKind`（read/edit/execute/…），让客户端渲染出合理的操作入口
 
-> **Implementation note (deferred):** structured `ToolCallContent::Diff { path,
-> old_text, new_text }` for edit tools — so Zed renders a rich diff view — was
-> scoped here originally but **deferred to Phase 2**: producing it requires
-> parsing each edit tool's arguments into old/new text, which is closer to the
-> filesystem-delegation work than to the v1 translation layer. v1 ships the
-> plain-text baseline above; the diff content lands with Phase 2.
+> **实现说明（已推迟）：** 为编辑类工具提供结构化 `ToolCallContent::Diff { path,
+> old_text, new_text }` —— 让 Zed 渲染富 diff 视图 —— 原本在本 spec 范围内，但**已推迟到 Phase 2**：生成它需要把每个编辑工具的参数解析成 old/new 文本，这更接近文件系统委派的工作，而不是 v1 的转换层。v1 先交付上面的纯文本基线；diff 内容随 Phase 2 落地。
 
-Out of scope (future phases, each its own spec):
-- Phase 2: filesystem delegation (`fs/read_text_file`, `fs/write_text_file`) so the
-  editor's unsaved buffers are respected, **and** structured edit-tool `Diff`
-  content for rich client-side diff rendering
-- Per-session teardown: v1 frees all sessions only when the connection ends
-  (ACP has no `session/close`); dropping a session when its kernel task completes
-  is deferred
-- Phase 3: terminal delegation (`terminal/*`), `plan` updates, `available_commands`
-  (slash commands), `authenticate`
-- `session/load` (session resume) — advertised as unsupported in v1
+不在范围内（后续阶段，各自独立 spec）：
+- Phase 2：文件系统委派（`fs/read_text_file`、`fs/write_text_file`），以尊重编辑器未保存的缓冲区，**并**提供结构化编辑工具 `Diff` 内容，供客户端渲染富 diff
+- 每会话拆除：v1 只在连接结束时释放所有会话（ACP 没有 `session/close`）；在 kernel task 完成时丢弃会话已推迟
+- Phase 3：终端委派（`terminal/*`）、`plan` 更新、`available_commands`（斜杠命令）、`authenticate`
+- `session/load`（会话恢复）—— v1 中声明为不支持
 
-## Key decisions
+## 关键决策
 
-| Decision | Choice | Rationale |
+| 决策 | 选择 | 理由 |
 |---|---|---|
-| Role | Agent (driven) | Direct meaning of "plug rustcode into a multi-agent team" |
-| v1 scope | Core + permissions | Minimal complete set that actually runs inside an ACP client; nearly a pure translation layer over existing kernel channels |
-| Engine | kernel-native `AgentHandle` via coding `assemble` | ACP permissions need JSON-RPC request-id correlation; the kernel's native `RequestId` maps 1:1, while the legacy bridge collapses concurrent approvals |
-| Protocol types | official `agent-client-protocol` crate | Wire-format + version-negotiation correctness, best Zed interop; isolated behind a thin adapter so it can be swapped |
-| Isolation | dedicated worktree off `main`, new branch `feat/acp-agent` | New feature, keep release branch clean, avoid per-turn auto-commit hook packaging WIP |
+| 角色 | Agent（被驱动） | "把 rustcode 接入多 agent 团队"的直接含义 |
+| v1 范围 | 核心 + 权限 | 能在 ACP 客户端里真正跑起来的最小完整集；几乎就是现有 kernel channel 之上的纯转换层 |
+| 引擎 | kernel 原生 `AgentHandle`，经 coding `assemble` | ACP 权限需要 JSON-RPC request-id 关联；kernel 原生 `RequestId` 是 1:1 映射，而 legacy bridge 会合并并发审批 |
+| 协议类型 | 官方 `agent-client-protocol` crate | 保证 wire format 与版本协商的正确性，Zed 互操作性最好；隔离在薄适配层之后，可替换 |
+| 隔离方式 | 基于 `main` 的独立 worktree，新分支 `feat/acp-agent` | 新特性，保持发布分支干净，避免 per-turn 自动提交钩子把 WIP 打包进去 |
 
-## Architecture
+## 架构
 
-New crate **`rustcode-acp`**, depending on `rustcode-kernel`,
-`rustcode-coding`, `rustcode-capabilities`, the official `agent-client-protocol`
-crate, plus `serde_json` / `tokio`.
+新 crate **`rustcode-acp`**，依赖 `rustcode-kernel`、`rustcode-coding`、`rustcode-capabilities`、官方 `agent-client-protocol` crate，以及 `serde_json` / `tokio`。
 
-Single public entry point:
+唯一公开入口：
 
 ```rust
 pub async fn serve_stdio(opts: AcpServeOptions) -> anyhow::Result<()>
 ```
 
-`AcpServeOptions` carries provider/model overrides resolved from CLI global flags
-and the resolved rustcode config. The working directory is NOT fixed here — the
-client supplies it per session via `session/new`.
+`AcpServeOptions` 承载由 CLI 全局 flag 与已解析的 rustcode config 得到的 provider/model 覆盖。工作目录不在这里固定 —— 客户端通过 `session/new` 按会话提供。
 
-CLI: add an `Acp` variant to the `Commands` enum in
-`crates/rustcode-cli/src/main.rs`. The handler resolves config (reusing the
-existing provider/model resolution the headless path uses) and calls
-`rustcode_acp::serve_stdio`. The subcommand reuses the existing global
-`--provider` / `--model` flags; cwd comes from the client.
+CLI：在 `crates/rustcode-cli/src/main.rs` 的 `Commands` 枚举中增加一个 `Acp` 变体。处理函数解析 config（复用 headless 路径现有的 provider/model 解析逻辑）并调用 `rustcode_acp::serve_stdio`。该子命令复用现有全局 `--provider` / `--model` flag；cwd 来自客户端。
 
-### Stdout discipline (hard invariant)
+### stdout 纪律（硬性不变量）
 
-In ACP mode **stdout is reserved exclusively for the ACP JSON-RPC stream**. Any
-stray `println!` corrupts the protocol. rustcode's headless mode already leaves
-stderr pointed at the real terminal and keeps stdout clean (no global stdout sink
-— confirmed in cli startup). All diagnostics in `rustcode-acp` go to stderr or a
-file sink. This is guarded by code review and a transport-level single-writer.
+ACP 模式下 **stdout 专用于 ACP JSON-RPC 流**。任何游离的 `println!` 都会破坏协议。rustcode 的 headless 模式已经把 stderr 指向真实终端并保持 stdout 干净（没有全局 stdout sink —— 已在 cli 启动处确认）。`rustcode-acp` 中的所有诊断信息都走 stderr 或文件 sink。这由代码评审与传输层 single-writer 共同保障。
 
-## Crate / API generation (resolved)
+## Crate / API 代次（已确定）
 
-We use `agent-client-protocol = "1.0.1"` — the latest published version. Its API
-is a **builder + handler-closure** model (NOT the older `trait Agent` /
-`AgentSideConnection` shape, which only exists in ~year-old 0.4.x releases — both
-0.15.x and 1.0.x already moved to the builder API). The wire data types live in
-`agent-client-protocol-schema` v1.1.0, re-exported as
-`agent_client_protocol::schema::v1::*`.
+我们使用 `agent-client-protocol = "1.0.1"` —— 最新发布版本。它的 API 是 **builder + handler 闭包** 模型（不是更老的 `trait Agent` / `AgentSideConnection` 形态，后者只存在于约一年前的 0.4.x 版本 —— 0.15.x 与 1.0.x 都已转向 builder API）。wire 数据类型位于 `agent-client-protocol-schema` v1.1.0，以 `agent_client_protocol::schema::v1::*` 重新导出。
 
-Key facts that shape the code:
-- The crate is **edition 2024** and uses **native async closures** (`AsyncFnMut`),
-  so it needs a Rust toolchain ≥ 1.85. Our `rustcode-acp` crate stays edition 2021
-  and just depends on it.
-- An agent is built as
-  `Agent.builder().name("rustcode").on_receive_request::<InitializeRequest>(handler, on_receive_request!())… .connect_to(Stdio::new()).await`.
-  Each request handler closure receives `(req, responder, cx: ConnectionTo<Client>)`;
-  it calls `responder.respond(resp)` to answer and uses `cx.send_notification(...)`
-  / `cx.send_request(...)` to stream updates and request permission.
-- The `on_receive_request!()` / `on_receive_notification!()` macros supply a
-  required `to_future_hack` boxing argument.
-- Nearly every schema type is `#[non_exhaustive]`; construct via `::new(...)`
-  builders, not struct literals.
-- Wire protocol is identical to the older series (advertise `ProtocolVersion::V1`),
-  so editor/orchestrator interop (e.g. Zed) is unaffected by the crate generation.
+塑造代码实现的关键事实：
+- 该 crate 是 **edition 2024**，并使用 **原生异步闭包**（`AsyncFnMut`），因此需要 Rust 工具链 ≥ 1.85。我们的 `rustcode-acp` crate 保持 edition 2021，只是依赖它。
+- agent 的构造方式为
+  `Agent.builder().name("rustcode").on_receive_request::<InitializeRequest>(handler, on_receive_request!())… .connect_to(Stdio::new()).await`。
+  每个请求处理闭包接收 `(req, responder, cx: ConnectionTo<Client>)`；
+  它调用 `responder.respond(resp)` 作答，并用 `cx.send_notification(...)`
+  / `cx.send_request(...)` 来流式推送更新与请求权限。
+- `on_receive_request!()` / `on_receive_notification!()` 宏会提供一个必需的 `to_future_hack` boxing 参数。
+- 几乎所有 schema 类型都是 `#[non_exhaustive]`；应通过 `::new(...)` builder 构造，不能用结构体字面量。
+- wire 协议与更老的系列完全相同（声明 `ProtocolVersion::V1`），因此编辑器/编排器互操作（例如 Zed）不受 crate 代次影响。
 
-**Open risk to confirm in the first task (spike):** whether `connect_to`'s
-dispatch loop runs handler futures concurrently — i.e. whether a `session/cancel`
-notification is delivered while a `session/prompt` handler is still awaiting. Our
-cancel semantics depend on it; the spike's smoke test pins this behavior.
+**待首个任务（spike）确认的开放风险：** `connect_to` 的分发循环是否并发运行各个处理 future —— 即 `session/cancel` 通知能否在 `session/prompt` 处理函数仍在 await 时被投递。我们的取消语义依赖于此；spike 的冒烟测试会把这个行为钉死。
 
-## Components
+## 组件
 
-Three internal modules, each independently testable. (The crate's builder
-subsumes what would otherwise be a hand-rolled JSON-RPC transport, so there is no
-separate `transport` module — but the **single-writer / stdout-discipline**
-invariant still applies and is owned by the crate's `Stdio` transport.)
+三个内部模块，各自可独立测试。（crate 的 builder 已经涵盖了原本需要手写的 JSON-RPC 传输层，因此没有独立的 `transport` 模块 —— 但 **single-writer / stdout 纪律** 这一不变量依然适用，由 crate 的 `Stdio` 传输层负责。）
 
 ### `protocol`
-Thin adapter over `agent_client_protocol` (incl. `schema::v1::*`): re-exports the
-types the rest of the crate uses and centralizes capability/version construction,
-so dispatch/translate depend on our adapter surface rather than scattering crate
-paths. Also owns construction of the agent `Builder` with all handlers wired.
+`agent_client_protocol`（含 `schema::v1::*`）之上的薄适配层：重新导出 crate 其余部分用到的类型，并集中构造 capability/version，这样 dispatch/translate 依赖的是我们的适配层接口，而不是散落各处的 crate 路径。同时负责构造接好所有 handler 的 agent `Builder`。
 
 ### `dispatch`
-Method router + session table (`HashMap<SessionId, SessionState>`; multiple
-concurrent sessions supported).
-- `initialize` → capabilities response (see below)
-- `session/new` → run `prepare → assemble → spawn` bound to the client-supplied
-  cwd; store the `AgentHandle`; return a fresh `sessionId`
-- `session/prompt` → translate prompt content blocks into
-  `AgentCommand::SendMessage { text, images }`, pump kernel events into
-  `session/update` notifications until `TurnComplete`, then return
+方法路由 + 会话表（`HashMap<SessionId, SessionState>`；支持多个并发会话）。
+- `initialize` → 返回 capabilities（见下）
+- `session/new` → 在客户端提供的 cwd 上运行 `prepare → assemble → spawn`；保存 `AgentHandle`；返回一个新的 `sessionId`
+- `session/prompt` → 把 prompt content block 翻译成
+  `AgentCommand::SendMessage { text, images }`，把 kernel 事件泵成
+  `session/update` 通知直到 `TurnComplete`，然后返回
   `{ stopReason }`
-- `session/cancel` (notification) → `AgentCommand::Cancel`
+- `session/cancel`（通知）→ `AgentCommand::Cancel`
 
 ### `translate`
-Pure functions: kernel `AgentEvent` → ACP `session/update` (and `StopReason` →
-ACP `stopReason`). The primary unit-test target (table-driven).
+纯函数：kernel `AgentEvent` → ACP `session/update`（以及 `StopReason` → ACP `stopReason`）。单元测试的主要目标（表驱动）。
 
-## Engine integration (path (a))
+## 引擎集成（路径 (a)）
 
-Per session:
+每个会话：
 1. `prepare(&cfg, PrepareOptions { cwd, ... }).await` → `CodingParts`
-   (`rustcode-coding`; handles MCP connect, skill loading, session binding)
-2. `assemble(&mut parts, &cfg, provider).await` → kernel-native `Agent`
-   (`crates/rustcode-coding/src/parts.rs:396`)
+   （`rustcode-coding`；负责 MCP 连接、skill 加载、会话绑定）
+2. `assemble(&mut parts, &cfg, provider).await` → kernel 原生 `Agent`
+   （`crates/rustcode-coding/src/parts.rs:396`）
 3. `agent.spawn()` → `AgentHandle { commands, events, task }`
-   (`crates/rustcode-kernel/src/agent.rs:366`)
-4. pump loop: drain `events` → `session/update`; route inbound prompt/cancel →
+   （`crates/rustcode-kernel/src/agent.rs:366`）
+4. 泵循环：把 `events` 抽干 → `session/update`；把入站 prompt/cancel 路由到
    `commands`
-5. on session end / shutdown: `AgentCommand::Shutdown`, await `task`
+5. 会话结束 / 关闭时：`AgentCommand::Shutdown`，await `task`
 
-This mirrors how the cli builds a provider and `CodingAgentConfig` for its
-headless path, but keeps the **native** handle (the cli headless v2 path routes
-through `spawn_bridged_runtime`; ACP deliberately does not, to preserve native
-`RequestId`).
+这与 cli 为其 headless 路径构造 provider 和 `CodingAgentConfig` 的方式一致，但保留 **原生** handle（cli headless v2 路径走 `spawn_bridged_runtime`；ACP 刻意不走，以保留原生 `RequestId`）。
 
-## Event mapping
+## 事件映射
 
-| kernel `AgentEvent` | ACP |
+| kernel `AgentEvent` | ACP 事件 |
 |---|---|
 | `TextDelta(s)` | `session/update` → `agent_message_chunk` |
 | `Reasoning(s)` | `session/update` → `agent_thought_chunk` |
-| `ToolStarted { call }` | `session/update` → `tool_call` (id, title, kind, status; edit tools carry structured diff content) |
-| `ToolResult { result }` | `session/update` → `tool_call_update` (status completed/failed + content) |
-| `Request { id, kind:"approval", payload }` | `session/request_permission` request; client choice → `AgentCommand::Respond { id, value }` |
-| `TurnComplete { reason }` | prompt response `stopReason` |
-| `Error` / provider failure | prompt returns a JSON-RPC error |
+| `ToolStarted { call }` | `session/update` → `tool_call`（id、title、kind、status；编辑类工具携带结构化 diff 内容） |
+| `ToolResult { result }` | `session/update` → `tool_call_update`（status 为 completed/failed + content） |
+| `Request { id, kind:"approval", payload }` | `session/request_permission` 请求；客户端选择 → `AgentCommand::Respond { id, value }` |
+| `TurnComplete { reason }` | prompt 响应中的 `stopReason` |
+| `Error` / provider 失败 | prompt 返回一个 JSON-RPC 错误 |
 | `Cancelled` | `stopReason: cancelled` |
-| `Usage` / `RateLimited` / `Warning` | v1: log only (no standard ACP update field) |
+| `Usage` / `RateLimited` / `Warning` | v1 仅记日志（ACP 没有对应的标准 update 字段） |
 
-kernel `StopReason` → ACP `schema::v1::StopReason`: `Stopped → EndTurn`;
-`MaxRounds`/`MaxContinuations → MaxTurnRequests`; `Cancelled → Cancelled`;
-`PromptRejected → Refusal`; `ProviderError`/`Timeout`/`RateLimited` → JSON-RPC
-error returned from the prompt handler (not a stop reason).
+kernel `StopReason` → ACP `schema::v1::StopReason` 的映射：`Stopped → EndTurn`；
+`MaxRounds`/`MaxContinuations → MaxTurnRequests`；`Cancelled → Cancelled`；
+`PromptRejected → Refusal`；`ProviderError`/`Timeout`/`RateLimited` 则由 prompt 处理函数返回 JSON-RPC
+错误（不作为 stop reason）。
 
-Tool **kind** mapping: rustcode tool names → ACP `ToolKind` (`Read` / `Edit` /
-`Execute` / `Search` / `Fetch` / … / `Other`) so the client shows appropriate
-affordances/icons. Edit/write tools attach a `ToolCallContent::Diff { path,
-old_text, new_text }` so the client renders a diff.
+工具 **kind** 映射：rustcode 工具名 → ACP `ToolKind`（`Read` / `Edit` /
+`Execute` / `Search` / `Fetch` / … / `Other`），让客户端展示合适的操作入口与图标。编辑/写入类工具附带一个 `ToolCallContent::Diff { path,
+old_text, new_text }`，让客户端渲染 diff。
 
-## Permission flow
+## 权限流程
 
-The kernel approval request carries `ApprovalRequest { call_id, tool, args }`
-(`rustcode-capabilities/src/tools/approval.rs`); the response it expects is
+kernel 的审批请求携带 `ApprovalRequest { call_id, tool, args }`
+（`rustcode-capabilities/src/tools/approval.rs`）；它期望的响应是
 `ApprovalResponse { decision: "allow"|"allow_always"|"deny", remember: bool }`
-(fail-closed to `deny`).
+（失败时保守落到 `deny`）。
 
 ```
 kernel  AgentEvent::Request{ id: RequestId(u64), kind:"approval",
@@ -210,61 +156,49 @@ kernel  AgentEvent::Request{ id: RequestId(u64), kind:"approval",
   → AgentCommand::Respond{ id, value }
 ```
 
-The kernel-native `RequestId` lets multiple concurrent approvals correlate
-correctly — the reason for choosing the kernel-native path over the legacy bridge.
+kernel 原生 `RequestId` 让多个并发审批能正确关联 —— 这正是选择 kernel 原生路径而非 legacy bridge 的原因。
 
-## `initialize` capabilities (v1)
+## `initialize` 的 capabilities（v1）
 
-`InitializeResponse::new(req.protocol_version).agent_capabilities(...)`:
-- `prompt_capabilities`: `image(true)` (kernel `SendMessage` already carries
-  `images: Vec<ImageContent>`); `embedded_context` left false in v1
-- `load_session`: false (resume deferred to a later phase)
-- `auth_methods`: `[]` — rustcode authenticates via its own `/login` / config.
-  When unauthenticated, `session/new` returns a clear error directing the user to
-  run `rustcode login`.
+`InitializeResponse::new(req.protocol_version).agent_capabilities(...)`：
+- `prompt_capabilities`：`image(true)`（kernel `SendMessage` 已携带
+  `images: Vec<ImageContent>`）；v1 中 `embedded_context` 保持 false
+- `load_session`：false（会话恢复推迟到后续阶段）
+- `auth_methods`：`[]` —— rustcode 通过自己的 `/login` / config 完成认证。
+  未认证时，`session/new` 返回清晰的错误，引导用户去
+  执行 `rustcode login`。
 
-Echo the client's `protocol_version` back (clamped to a version we support;
-`ProtocolVersion::V1`).
+把客户端的 `protocol_version` 原样回传（并收敛到我们支持的版本；`ProtocolVersion::V1`）。
 
-## Error handling
+## 错误处理
 
-- unknown/unhandled method → answered via the crate's catch-all dispatch with a
-  JSON-RPC error; the dispatch loop survives (1.0.1 also ignores unhandled
-  notifications by default)
-- kernel fatal (`ProviderError` / `Timeout` / `Error`) → the prompt handler
-  returns `Err(agent_client_protocol::Error)` → JSON-RPC error response
-- stdout-corruption prevented by routing ALL diagnostics to stderr/file (the
-  crate's `Stdio` owns stdout); enforced by review + a no-`println!`-in-crate rule
+- 未知/未处理的方法 → 由 crate 的 catch-all 分发以 JSON-RPC 错误应答，分发循环继续存活（1.0.1 也默认忽略未处理的通知）
+- kernel 致命错误（`ProviderError` / `Timeout` / `Error`）→ prompt 处理函数
+  返回 `Err(agent_client_protocol::Error)` → JSON-RPC 错误响应
+- 通过把全部诊断信息路由到 stderr/文件来防止 stdout 被污染（crate 的 `Stdio` 持有 stdout）；由评审 + crate 内禁止 `println!` 的规则保障
 
-## Testing strategy (TDD)
+## 测试策略（TDD）
 
-- **Unit — `translate`**: table-driven; each kernel `AgentEvent` → asserted ACP
-  `SessionUpdate` (compare serialized JSON). Pure functions, highest-value
-  coverage. Also `StopReason` mapping and tool-name → `ToolKind`.
-- **Unit — `dispatch` session map + permission mapping**: pure helpers — session
-  insert/lookup, `option_id → ApprovalResponse` decision mapping — tested directly
-  without the transport.
-- **Integration**: a fake ACP client (itself built with `Client.builder()` over an
-  in-process duplex, or a spawned `rustcode acp` child over stdio pipes) drives
-  `initialize → session/new → session/prompt`, asserting it receives
-  `agent_message_chunk`s, a `request_permission` round-trip, and a terminal
-  `stop_reason`. Uses a stub provider so no network is required.
+- **单元 —— `translate`**：表驱动；每个 kernel `AgentEvent` 断言出对应的 ACP
+  `SessionUpdate`（比较序列化后的 JSON）。纯函数，性价比最高的
+  覆盖。另外还包括 `StopReason` 映射与工具名 → `ToolKind`。
+- **单元 —— `dispatch` 会话表 + 权限映射**：纯辅助逻辑 —— 会话
+  插入/查找、`option_id → ApprovalResponse` 决策映射 —— 不经过传输层直接测试。
+- **集成**：一个假 ACP 客户端（自身用 `Client.builder()` 建立在进程内双工之上，或用 stdio 管道拉起 `rustcode acp` 子进程）驱动
+  `initialize → session/new → session/prompt`，断言它收到了
+  `agent_message_chunk`、一次 `request_permission` 往返，以及一个终态
+  `stop_reason`。使用 stub provider，因此不需要网络。
 
-## File touch list (anticipated)
+## 涉及文件清单（预计）
 
-- `crates/rustcode-acp/` — new crate (`Cargo.toml`, `src/lib.rs`,
-  `src/protocol.rs`, `src/dispatch.rs`, `src/translate.rs`, `src/engine.rs`,
-  tests)
-- `crates/rustcode-cli/src/main.rs` — `Acp` command variant + handler
-- `Cargo.toml` (workspace) — `agent-client-protocol` + `agent-client-protocol-schema`
-  in `[workspace.dependencies]` (pinned `=1.0.1` / matching schema)
-- `crates/rustcode-cli/Cargo.toml` — depend on `rustcode-acp`
+- `crates/rustcode-acp/` —— 新 crate（`Cargo.toml`、`src/lib.rs`、
+  `src/protocol.rs`、`src/dispatch.rs`、`src/translate.rs`、`src/engine.rs`、
+  测试）
+- `crates/rustcode-cli/src/main.rs` —— `Acp` 命令变体 + 处理函数
+- `Cargo.toml`（workspace）—— 在 `[workspace.dependencies]` 中加入 `agent-client-protocol` + `agent-client-protocol-schema`
+  （锁定 `=1.0.1` / 匹配的 schema）
+- `crates/rustcode-cli/Cargo.toml` —— 依赖 `rustcode-acp`
 
-## Build notes
+## 构建说明
 
-Per repo constraints: build per-package with `CARGO_INCREMENTAL=0`, not the whole
-workspace. The `agent-client-protocol` 1.0.1 dep is **edition 2024 + native async
-closures** → needs toolchain ≥ 1.85 (fine for 2026); `rustcode-acp` itself stays
-edition 2021. Watch the added dependency weight under the size-optimized release
-profile (`opt-level=z`, `lto`, `panic=abort`); pin `=1.0.1` to avoid surprise
-API churn in this young crate.
+按仓库约束：用 `CARGO_INCREMENTAL=0` 按包构建，而不是整个 workspace。`agent-client-protocol` 1.0.1 依赖是 **edition 2024 + 原生异步闭包** → 需要工具链 ≥ 1.85（对 2026 年没问题）；`rustcode-acp` 自身保持 edition 2021。注意在尺寸优化的 release profile（`opt-level=z`、`lto`、`panic=abort`）下新增依赖带来的体积；锁定 `=1.0.1` 以避免这个年轻 crate 的意外 API 变动。

@@ -126,9 +126,9 @@ python3 -c "import json; ..."
 | 端 | zh keys | en keys | 对齐 |
 |----|---------|---------|------|
 | Rust (Msg 枚举) | 781 分支 | 781 分支 | PASS(编译期穷尽) |
-| WebUI (i18n.ts) | 381 | 381 | PASS |
-| VS Code (NLS) | 26 | 26 | PASS |
-| JetBrains (Bundle) | 15 | 15 | PASS |
+| WebUI (i18n.ts) | 381 | 381 | PASS(键集合一致) |
+| VS Code (NLS) | 26 | 26 | PASS(键集合一致) |
+| JetBrains (Bundle) | 15 | 15 | PASS(键集合一致) |
 
 ## 新增翻译流程
 

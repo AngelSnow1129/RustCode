@@ -35,7 +35,7 @@
 |---|---|
 | 当前分支 | `release/v5.0.1_1@cfe4209c` |
 | 最新远端 | `origin/release/v5.0.1@9fcc92d9` |
-| merge-base | `9fcc92d9` |
+| 合并基线 | `9fcc92d9` |
 | 分叉关系 | 远端独有 0 个提交，当前独有 5 个提交 |
 | 工作区 | 基线采集时 clean；生成报告后仅新增本文档 |
 | 当前分支净改动 | 115 文件，`+12,860 / -21,905` |
@@ -108,10 +108,10 @@ DaemonRuntimeEvent::Native
 `CodingRuntime` 成为唯一 runtime owner，统一管理：
 
 - provider 构建、reload 和 reassemble；
-- fresh、resume、restore、undo、change directory；
+- fresh、resume、restore、undo 与 change directory；
 - session id、working directory、snapshot 和 generation；
 - submit、steer、cancel、approval 和 shutdown；
-- compact exactly-once terminal；
+- compact 的 exactly-once terminal；
 - goal/self-paced loop 的互斥、held turn、wakeup 和 terminal；
 - background、daemon、TUI 和 headless 的统一事件来源。
 
@@ -139,7 +139,7 @@ CLI/headless、clix 和 daemon 对无法交互处理的非 approval request 统�
 ### 3.4 request_user_input 合并适配
 
 最新 `release/v5.0.1` 新增了 `request_user_input`。本分支保留其产品行为，但将协议接入点迁到
-native runtime：
+原生 runtime：
 
 - kernel 增加 `Requester` 和 `ToolContext.request`；
 - capability 注册 `request_user_input`，默认关闭，由 `RUSTCODE_REQUEST_USER_INPUT` 控制；
@@ -173,7 +173,7 @@ TUI：
 - `/usage` 按显示宽度处理 CJK 对齐；
 - foreground/background、approval、mode、session replay 和 undo 继续使用统一 runtime。
 
-VSCode：
+VSCode 侧：
 
 - chat font family 和输入框字体行为调整；
 - provider queue 在无 focused panel 时仍按 session 正确排队和出队；

@@ -1,10 +1,10 @@
-# MCP readiness is decoupled from session transitions
+# MCP 就绪判定与会话状态流转解耦
 
-## Context
+## 背景
 
 MCP transport initialization and `tools/list` can wait for DNS、TLS、OAuth、stdio 子进程或服务器超时。旧实现把这段网络等待放在 `CodingParts::prepare`，因此 fresh、resume、change-directory 和 capability reload 都会被最慢的 MCP server 阻塞；CLI/TUI 同时维护管理 registry，又让 CodingRuntime 建立一套 model-facing registry，造成重复连接和刷新语义分叉。
 
-## Decision
+## 决策
 
 CodingRuntime 是 model-facing MCP Scope 的唯一 owner。`prepare` 只加载配置并启动后台连接，不等待 readiness；每个候选 `CodingParts` 持有独立 registry 和 Tool Catalog，候选提交后其后台发现结果只能发布到自己的 catalog，无法污染 replacement generation。每个 server 连接成功后只发现并发布该 server 的工具，初始连接全部进入终态后再做一次完整 reconciliation。后台 publisher 本身没有 driver 启动超时，因此晚于 headless 等待上限才连接的 server 仍会发布到后续 turn。
 
@@ -18,7 +18,7 @@ CLI、TUI 和 clix 不再建立第二套 model-facing registry。`/mcp status` �
 
 状态查询覆盖 connecting、connected、untrusted blocked、连接失败、配置解析失败和 `tools/list` 失败。配置错误不得降级成“未配置”，空工具列表也必须携带 server 的准确状态。
 
-## Consequences
+## 结论
 
 - session candidate 的提交时延不再受 MCP 网络超时支配；
 - 一个 turn 内工具定义与执行集合保持一致；

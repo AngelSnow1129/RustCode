@@ -1,35 +1,32 @@
-# Runtime-owned per-turn execution policy
+# 每回合执行策略由 Runtime 持有
 
-## Context
+## 背景
 
-The coding persona and VerifyCadence previously encouraged verification even when the real user
-explicitly prohibited compiling, testing, or executing scripts. Prompt wording alone is not an
-execution boundary. A main agent can also delegate to a worker whose independent tool stack runs
-with automatic approval, so gating only the main `bash` leaves a bypass.
+过去 coding persona 与 VerifyCadence 会在真实用户已明确禁止编译、测试或执行脚本的情况下，
+仍然鼓励执行验证。仅靠提示词措辞并不构成执行边界。主 agent 还可以把任务委派给 worker，
+而 worker 拥有独立工具栈并以自动批准运行，因此只拦截主 `bash` 会留下绕过路径。
 
-## Decision
+## 决策
 
-`CodingRuntime` owns one per-turn execution-policy handle. A real user Submit or steer replaces its
-state immediately; the lifecycle hook re-derives the same state from the latest non-synthetic user
-message after resume, compaction, or reassembly. Synthetic reminders never acquire authority.
+`CodingRuntime` 持有一个按回合的执行策略句柄。真实用户的 Submit 或 steer 会立即替换其状态；
+lifecycle hook 则在 resume、compaction 或 reassembly 之后，从最新的非合成用户消息重新推导出
+同样的状态。合成提醒永远不会获得授权。
 
-The handle is installed before approval as middleware on the main agent and inherited by worker
-subagents. `rustcode-capabilities::TaskTool` only transports generic worker middleware and remains
-unaware of coding policy. Read-only explore subagents do not receive it because they mount no shell
-or write tools.
+该句柄在批准之前作为 middleware 安装到主 agent 上，并由 worker subagent 继承。
+`rustcode-capabilities::TaskTool` 只传输通用的 worker middleware，对 coding policy 保持无感知。
+只读的 explore subagent 不会收到该句柄，因为它们不挂载任何 shell 或写入类工具。
 
-Build, test, script, and all-shell restrictions are independent flags. Bash syntax is parsed once by
-the capabilities layer with tree-sitter; it exposes neutral command invocations, while the coding
-layer assigns product semantics. An incomplete parse fails closed under an active restriction.
+构建、测试、脚本以及全部 shell 限制是彼此独立的开关。Bash 语法由 capabilities 层用
+tree-sitter 只解析一次；它暴露中性的命令调用，而由 coding 层赋予产品语义。在限制生效期间，
+解析不完整会 fail-closed。
 
-## Consequences
+## 结论
 
-- user restrictions apply consistently across main and worker execution;
-- a test-only restriction does not unnecessarily block compilation, and vice versa;
-- common shell wrappers, nested command substitutions, quoted separators, and Windows executable
-  forms are classified from syntax rather than a second hand-written shell parser;
-- natural-language detection remains a convenience interface, not a complete language parser;
-  quoted examples are ignored and explicit structured controls can be added later without changing
-  the runtime/middleware ownership boundary;
-- a process that crossed middleware before a steer cannot be retroactively prevented from starting;
-  normal cancellation remains the mechanism for already-running work.
+- 用户限制在主执行与 worker 执行之间一致生效；
+- 仅限制测试不会不必要地阻断编译，反之亦然；
+- 常见的 shell wrapper、嵌套命令替换、带引号的分隔符以及 Windows 可执行文件形式，都依据语法
+  进行分类，而不是依赖第二套手写的 shell 解析器；
+- 自然语言检测仍然只是便利入口，而非完整的语言解析器；带引号的示例会被忽略，日后也可以
+  在不改变 runtime/middleware 所有权边界的前提下增加显式的结构化控制；
+- 在 steer 之前已经越过 middleware 的进程，无法被追溯性地阻止启动；对已在运行的工作，
+  仍然以常规取消作为处理手段。

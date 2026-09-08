@@ -404,7 +404,7 @@ Webhook 错误会显示为警告，不会中断流程：
 
 ## 完整示例
 
-### hooks.toml
+### hooks.toml（完整配置文件）
 
 ```toml
 # Slack 工具调用通知

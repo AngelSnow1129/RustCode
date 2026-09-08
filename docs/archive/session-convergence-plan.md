@@ -29,7 +29,7 @@ S4d 才停止。
 ### 范围
 
 - core `Session/SessionMeta/SessionManager` 与 `ConversationSnapshot`；
-- native `SessionSnapshot/SessionMeta/SessionManager/SnapshotHook/TranscriptHook`；
+- 原生 `SessionSnapshot/SessionMeta/SessionManager/SnapshotHook/TranscriptHook`；
 - CLI、TUI、daemon、background 的 list/load/save/rename/delete/resume/undo/session switch；
 - headless、clix、ACP 的 native session 路径作为回归范围；
 - core ↔ kernel message/snapshot 转换；
@@ -102,7 +102,7 @@ S4d 才停止。
 UI-only replay 数据不应塞回 kernel message，也不应继续要求 core `Message`。目标增加一个版本化的
 `<id>.ui.json`（名称可在实现前确认），只保存：
 
-- schema version；
+- schema 版本；
 - 稳定的 `DisplayAnchor`：v1 只允许 `AtStart` 或 `AfterTurn(turn_id)`，不得使用可被
   compaction/undo 重排的消息数组下标；
 - kernel-neutral 的展示文本/结构，不包含可被 provider 发送的 message 类型。
@@ -117,7 +117,7 @@ turn 级锚点。legacy `after_message` 只在 importer 中按确定性规则转
 继续扩展现有 `rustcode-capabilities::session::SessionManager`，不先新建 repository/foundation crate。
 目标能力按职责分三组：
 
-### Runtime store
+### Runtime 存储
 
 - `save_snapshot/load_snapshot`；
 - snapshot version、cache epoch、turn/request counter 校验；
@@ -126,14 +126,14 @@ turn 级锚点。legacy `after_message` 只在 importer 中按确定性规则转
   在 session 活跃期间持有；不使用单纯的存在标记或 TTL 猜测存活状态；
 - importer、delete 和所有权切换必须持有同一 session 的排他 lease。
 
-### Catalog store
+### Catalog 存储
 
 - `list/read_meta/write_meta/latest`；
 - `rename/delete/find_by_id_across_projects`；
-- AI naming、turn stats、context restore、working directory；
+- AI 命名、回合统计、上下文恢复、工作目录；
 - 逻辑 delete 必须删除 snapshot/meta/jsonl/presentation，并在显式用户删除时同时删除对应 legacy JSON。
 
-### Compatibility importer
+### 兼容性 importer
 
 importer 暂时放在接入/兼容层，不允许 capabilities 或 coding 依赖 core。第一阶段收口到 CLI/TUI/daemon
 已经共享依赖的 daemon 兼容模块（现有 `legacy_convert`，实施时可按职责改名为
@@ -274,7 +274,7 @@ S0 不提交预期失败的测试，也不为尚不存在的 importer、安全�
 
 删除项：无。状态仍为③。
 
-### S1：Native schema parity
+### S1：Native schema 对齐
 
 目标：native store 能表达现有 UI/session 行为，但消费者暂不切换。
 
@@ -565,7 +565,7 @@ legacy-only 条目保持只读发现，损坏和歧义显式返回，生产入�
 完成情况：所有入口已通过 owner-aware 兼容模块；S4b cutover 后 rename/AI naming 在同一 lease 下先迁移
 再写 native meta，legacy JSON 不再被生产写路径修改。
 
-#### S3c：Delete
+#### S3c：删除
 
 - 所有入口改用 owner-aware facade，在 active lease 下执行删除，运行中 session 显式拒绝；
 - `owner=native` 清理 snapshot/meta/jsonl/ui 和对应 legacy；`owner=legacy` 清理 legacy 及非权威 native staging；

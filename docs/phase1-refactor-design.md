@@ -27,7 +27,7 @@
 | 目标 | 现状（2026-08-30 实测） | 真实剩余工作量 |
 |---|---|---|
 | O1 重命名 | `crates/` 内 `atomcode` 命中 **0**（现役 crate 一律 `rustcode-*`）。包/二进制/配置目录/env 前缀全部落地 | 小：仅 `extensions/` 类名与 `site/` 品牌字符串收尾 |
-| O2 零遥测 | 上报运行时已删；第三方埋点 SDK 依赖 **0 命中**；代码内仅剩注释 | 小：文档口径（`docs/telemetry.md`、`README.zh-CN.md`）与注释 |
+| O2 零遥测 | 上报运行时已删；第三方埋点 SDK 依赖 **0 命中**；代码内仅剩注释 | 小：文档口径（`docs/telemetry.md` 与原中文 README）与注释 |
 | O3 LLM 解耦 | kernel 已有中立 `LlmProvider`（含**非流式 `chat()` 默认实现**）；capabilities 已有三套适配器 + SSE 解码器 + `LlmError` + `egress` 出站工厂 | 中：超时配置下沉、适配器错误构造迁移、装配层收口 |
 | O4 合规 | 存在**两套**许可档案 | 小但必须先做：去重 + 删除模板 MIT 正文 |
 
@@ -196,7 +196,7 @@ STEP A9  packages/ 发布通道改名（独立批次）
 | # | 文件 | 内容 | 动作 |
 |---|---|---|---|
 | B10 | `docs/telemetry.md` | 整篇仍在描述 "RustCode ships anonymous usage telemetry by default"、队列目录、`rustcode telemetry disable` 子命令 | **删除**，或改写为"本项目零遥测"的单页声明 |
-| B10b | `README.zh-CN.md:151` | "匿名遥测（默认开启，可关闭）" —— 与零遥测事实**直接矛盾** | 改写为零遥测声明（注意该行含 Emoji，一并清除） |
+| B10b | 原中文 README 第 151 行 | "匿名遥测（默认开启，可关闭）" —— 与零遥测事实**直接矛盾** | 改写为零遥测声明（注意该行含 Emoji，一并清除） |
 | B10c | `site/docs/en/headless-daemon.html`、`site/docs/zh/headless-daemon.html` | 旧遥测口径 + `--no-telemetry` 说明 | 改写 |
 | B11 | `kernel/src/{hook.rs:10,227,295,320; message.rs:385; event.rs:365; agent.rs:1739,2140; conformance/provider.rs:29}`、`kernel/tests/{turn_complete.rs:4, hook_a2_surface.rs:14}`、`tuix/src/event_loop/{commands.rs:4056,8887,9017; mod.rs:9469}`、`cli/src/main.rs:{835,1136,1361,1363,2020,2118,4009}` | 仅**注释**里出现 telemetry 字样（多为"telemetry/datalog 的 home seam"这类词义歧义） | 只改注释为中性描述，**不动语义** |
 | B12 | `capabilities/Cargo.toml` | 注释 "config→telemetry (and its reqwest/rustls/flate2 stack)" | 改注释 |
@@ -598,7 +598,7 @@ cargo test --workspace --lib -j 1 --no-fail-fast         [6 FAILED]
 
 ```text
 [1] Changelog            变更汇总 + 关键架构改动说明
-[2] README.md / README.zh-CN.md   零遥测口径统一；清除 Emoji；补"自定义网关"配置章节
+[2] README.md   零遥测口径统一；清除 Emoji；补"自定义网关"配置章节
 [3] config.example.toml  升级 docs/config.example.toml（当前 331 行，缺 timeout / retry /
                          model_mapping 示例），并在仓库根提供可发现的入口
 [4] .env.example         新增：RUSTCODE_HOME / RUSTCODE_API_KEY / RUSTCODE_BASE_URL /

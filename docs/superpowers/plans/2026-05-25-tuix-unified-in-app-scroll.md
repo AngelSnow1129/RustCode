@@ -1,6 +1,6 @@
-# TUI Unified In-App Scroll Implementation Plan
+# TUI 统一应用内滚动实施方案
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **致 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 来逐任务实施本计划。步骤使用复选框（`- [ ]`）语法跟踪进度。
 
 **Goal:** 把 retained 和 alt-screen 两个 renderer 的 body 滚动统一到 in-app 缓冲，消除 retained 模式下偶现的"无法滚动"问题，并加可视滚动条 + 跳消息键 + `/keys` 文档。
 
@@ -10,14 +10,14 @@
 
 ---
 
-## File Structure
+## 文件结构
 
-**New files:**
+**新增文件：**
 - `crates/rustcode-tuix/src/render/selection.rs` — 共享选择模块（trait + 状态 + 高亮 + OSC 52 / arboard 复制）
 - `crates/rustcode-tuix/src/render/scrollbar.rs` — 滚动条绘制 helper
 - `crates/rustcode-tuix/src/render/ui_state.rs` — `$RUSTCODE_HOME/ui-state.toml` 读写
 
-**Modified files:**
+**修改的文件：**
 - `crates/rustcode-tuix/src/render/mod.rs` — `Renderer` trait 加方法
 - `crates/rustcode-tuix/src/render/worker.rs` — 新方法通过 worker 转发
 - `crates/rustcode-tuix/src/render/alt_screen.rs` — 切到 shared selection 模块，加 scrollbar 接入，加 MessageMark + 跳转
@@ -31,20 +31,20 @@
 
 ---
 
-## Phase 0: i18n message variants
+## 阶段 0：i18n 消息变体
 
-### Task 0.1: Add new Msg variants
+### 任务 0.1：添加新的 Msg 变体
 
-**Files:**
-- Modify: `crates/rustcode-core/src/i18n/messages.rs`
-- Modify: `crates/rustcode-core/src/i18n/zh_cn.rs`
-- Modify: `crates/rustcode-core/src/i18n/en.rs`
+**文件：**
+- 修改：`crates/rustcode-core/src/i18n/messages.rs`
+- 修改：`crates/rustcode-core/src/i18n/zh_cn.rs`
+- 修改：`crates/rustcode-core/src/i18n/en.rs`
 
 后续 phase 引用 `Msg::ScrollbarOn` / `Msg::ScrollbarOff` / `CmdDescScrollbar`。先添加，避免后面分散加。
 
-- [ ] **Step 1: Add Msg enum variants**
+- [ ] **步骤 1：添加 Msg 枚举变体**
 
-Edit `crates/rustcode-core/src/i18n/messages.rs`, add to the `Msg` enum:
+编辑 `crates/rustcode-core/src/i18n/messages.rs`，在 `Msg` 枚举中添加：
 
 ```rust
 ScrollbarOn,
@@ -52,9 +52,9 @@ ScrollbarOff,
 CmdDescScrollbar,
 ```
 
-- [ ] **Step 2: Add zh_cn translations**
+- [ ] **步骤 2：添加 zh_cn 翻译**
 
-Edit `crates/rustcode-core/src/i18n/zh_cn.rs`, add new arms in the `t()` match:
+编辑 `crates/rustcode-core/src/i18n/zh_cn.rs`，在 `t()` 的 match 中添加新的分支：
 
 ```rust
 Msg::ScrollbarOn => "Scrollbar: ON".into(),
@@ -62,9 +62,9 @@ Msg::ScrollbarOff => "Scrollbar: OFF".into(),
 Msg::CmdDescScrollbar => "切换右侧滚动条显示".into(),
 ```
 
-- [ ] **Step 3: Add en translations**
+- [ ] **步骤 3：添加 en 翻译**
 
-Edit `crates/rustcode-core/src/i18n/en.rs`:
+编辑 `crates/rustcode-core/src/i18n/en.rs`：
 
 ```rust
 Msg::ScrollbarOn => "Scrollbar: ON".into(),
@@ -72,12 +72,12 @@ Msg::ScrollbarOff => "Scrollbar: OFF".into(),
 Msg::CmdDescScrollbar => "Toggle the right-side scrollbar".into(),
 ```
 
-- [ ] **Step 4: Build to verify**
+- [ ] **步骤 4：构建验证**
 
-Run: `cargo check -p rustcode-core`
-Expected: clean build, no warnings about non-exhaustive match.
+运行：`cargo check -p rustcode-core`
+预期：构建干净，没有 match 非穷尽的告警。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-core/src/i18n/{messages.rs,zh_cn.rs,en.rs}
@@ -88,17 +88,17 @@ git commit -m "i18n: add ScrollbarOn/Off + CmdDescScrollbar messages"
 
 ## Phase 1: Selection 共享模块
 
-### Task 1.1: Create selection.rs skeleton
+### 任务 1.1：创建 selection.rs 骨架
 
-**Files:**
-- Create: `crates/rustcode-tuix/src/render/selection.rs`
-- Modify: `crates/rustcode-tuix/src/render/mod.rs` (declare module)
+**文件：**
+- 新建：`crates/rustcode-tuix/src/render/selection.rs`
+- 修改：`crates/rustcode-tuix/src/render/mod.rs`（声明模块）
 
 抽 alt-screen 的 selection 代码到独立模块，先建骨架与类型。
 
-- [ ] **Step 1: Create selection.rs with types**
+- [ ] **步骤 1：创建带类型的 selection.rs**
 
-Create `crates/rustcode-tuix/src/render/selection.rs`:
+创建 `crates/rustcode-tuix/src/render/selection.rs`：
 
 ```rust
 //! Shared text-selection module used by both AltScreenRenderer and
@@ -144,45 +144,45 @@ impl BodyLineView for Vec<String> {
 }
 ```
 
-- [ ] **Step 2: Wire module into render/mod.rs**
+- [ ] **步骤 2：把模块接入 render/mod.rs**
 
-Edit `crates/rustcode-tuix/src/render/mod.rs`. Find existing `pub mod alt_screen;` block and add nearby:
+编辑 `crates/rustcode-tuix/src/render/mod.rs`。找到现有的 `pub mod alt_screen;` 代码块，并在其附近添加：
 
 ```rust
 pub mod selection;
 ```
 
-- [ ] **Step 3: Build to verify wiring**
+- [ ] **步骤 3：构建验证接线**
 
-Run: `cargo check -p rustcode-tuix`
-Expected: clean build.
+运行：`cargo check -p rustcode-tuix`
+预期：构建干净。
 
-- [ ] **Step 4: Commit**
+- [ ] **步骤 4：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/{mod.rs,selection.rs}
 git commit -m "tuix(render): add selection module skeleton + BodyLineView trait"
 ```
 
-### Task 1.2: Move SGR-aware text helpers + OSC 52 emitter
+### 任务 1.2：迁移 SGR 感知的文本辅助函数 + OSC 52 发送器
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/selection.rs`
-- Modify: `crates/rustcode-tuix/src/render/alt_screen.rs` (delete moved functions)
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/selection.rs`
+- 修改：`crates/rustcode-tuix/src/render/alt_screen.rs`（删除已迁移的函数）
 
 把 alt_screen.rs 现有的 `line_display_width_sgr_aware`、`extract_line_selection_text`、`render_line_with_selection`、`selection_col_range_for_line` 搬到 selection.rs。**同时移走** `base64_encode`（alt_screen.rs:269）和 `write_osc52_clipboard`（line 953），后者改名为 `pub fn emit_osc52(out: &mut dyn Write, text: &str)` 以便两个 renderer 共用。
 
-- [ ] **Step 1: Find existing functions**
+- [ ] **步骤 1：定位现有函数**
 
-Run:
+运行：
 ```bash
 grep -nE "^fn line_display_width_sgr_aware|^fn extract_line_selection_text|^fn render_line_with_selection|^fn selection_col_range_for_line|^fn base64_encode|fn write_osc52_clipboard" crates/rustcode-tuix/src/render/alt_screen.rs
 ```
-Expected: 6 line numbers (4 text helpers + base64_encode + write_osc52_clipboard).
+预期：6 个行号（4 个文本辅助函数 + base64_encode + write_osc52_clipboard）。
 
-- [ ] **Step 2: Copy functions verbatim to selection.rs**
+- [ ] **步骤 2：把函数原样复制到 selection.rs**
 
-Open `crates/rustcode-tuix/src/render/alt_screen.rs`, copy the body of all 6 functions. Paste into `crates/rustcode-tuix/src/render/selection.rs` after the trait impls. Change `fn` to `pub fn` and adjust any internal `use` paths to point at `crate::width::display_width` etc. For `write_osc52_clipboard`, rename to `emit_osc52` and change signature so `out` is `&mut dyn std::io::Write`:
+打开 `crates/rustcode-tuix/src/render/alt_screen.rs`，复制全部 6 个函数的函数体。粘贴到 `crates/rustcode-tuix/src/render/selection.rs` 的 trait impl 之后。把 `fn` 改成 `pub fn`，并把内部的 `use` 路径调整为指向 `crate::width::display_width` 等。对于 `write_osc52_clipboard`，重命名为 `emit_osc52`，并把签名改为 `out` 是 `&mut dyn std::io::Write`：
 
 ```rust
 pub fn emit_osc52(out: &mut dyn std::io::Write, text: &str) {
@@ -193,59 +193,59 @@ pub fn emit_osc52(out: &mut dyn std::io::Write, text: &str) {
 }
 ```
 
-Verify imports compile:
+确认 import 能编译通过：
 
-Run: `cargo check -p rustcode-tuix`
-Expected: probably duplicated symbols error — that's correct, fix in next step.
+运行：`cargo check -p rustcode-tuix`
+预期：很可能报重复符号错误 —— 这是对的，下一步会修掉。
 
-- [ ] **Step 3: Delete the originals from alt_screen.rs**
+- [ ] **步骤 3：从 alt_screen.rs 删除原函数**
 
-Remove the original 6 functions from alt_screen.rs (the 4 text helpers, `base64_encode`, and `write_osc52_clipboard`).
+从 alt_screen.rs 中删除原来的 6 个函数（4 个文本辅助函数、`base64_encode` 和 `write_osc52_clipboard`）。
 
-- [ ] **Step 4: Update call sites in alt_screen.rs**
+- [ ] **步骤 4：更新 alt_screen.rs 中的调用点**
 
-Add `use crate::render::selection::{self, selection_col_range_for_line, render_line_with_selection, extract_line_selection_text, line_display_width_sgr_aware, emit_osc52};` at the top of alt_screen.rs. Replace bare calls with imported names. The previous `self.write_osc52_clipboard(text)` call site (in `end_selection`) becomes `selection::emit_osc52(&mut self.out, text);`.
+在 alt_screen.rs 顶部添加 `use crate::render::selection::{self, selection_col_range_for_line, render_line_with_selection, extract_line_selection_text, line_display_width_sgr_aware, emit_osc52};`。把裸调用换成导入进来的名字。原先的 `self.write_osc52_clipboard(text)` 调用点（在 `end_selection` 中）改成 `selection::emit_osc52(&mut self.out, text);`。
 
-- [ ] **Step 5: Run alt_screen selection tests**
+- [ ] **步骤 5：运行 alt_screen 的选择相关测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::alt_screen::tests:: -- selection 2>&1 | tail -30`
-Expected: all selection-related tests pass (`line_display_width_skips_sgr`, `extract_line_selection_strips_sgr_and_clips_to_range`, `render_line_with_selection_emits_reverse_video`, `render_line_with_selection_drops_inline_csi_inside_range`, `render_line_with_empty_selection_is_plain_truncate`, `selection_range_clamps_to_line_width`, `selection_range_multi_line_shape`).
+运行：`cargo test -p rustcode-tuix --lib render::alt_screen::tests:: -- selection 2>&1 | tail -30`
+预期：所有与选择相关的测试通过（`line_display_width_skips_sgr`、`extract_line_selection_strips_sgr_and_clips_to_range`、`render_line_with_selection_emits_reverse_video`、`render_line_with_selection_drops_inline_csi_inside_range`、`render_line_with_empty_selection_is_plain_truncate`、`selection_range_clamps_to_line_width`、`selection_range_multi_line_shape`）。
 
-- [ ] **Step 6: Move test bodies to selection.rs**
+- [ ] **步骤 6：把测试体迁移到 selection.rs**
 
-Move the tests from alt_screen.rs's `tests` module into a new `#[cfg(test)] mod tests` block at the bottom of selection.rs. Adjust import paths.
+把测试从 alt_screen.rs 的 `tests` 模块迁移到 selection.rs 底部新建的 `#[cfg(test)] mod tests` 代码块中。调整 import 路径。
 
-- [ ] **Step 7: Run shared module tests**
+- [ ] **步骤 7：运行共享模块测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::selection::tests 2>&1 | tail -30`
-Expected: all 7 tests pass.
+运行：`cargo test -p rustcode-tuix --lib render::selection::tests 2>&1 | tail -30`
+预期：7 个测试全部通过。
 
-- [ ] **Step 8: Commit**
+- [ ] **步骤 8：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/{alt_screen.rs,selection.rs}
 git commit -m "tuix(selection): move SGR-aware text helpers + tests to shared module"
 ```
 
-### Task 1.3: Move SelectionState mouse-handling logic
+### 任务 1.3：迁移 SelectionState 鼠标处理逻辑
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/selection.rs`
-- Modify: `crates/rustcode-tuix/src/render/alt_screen.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/selection.rs`
+- 修改：`crates/rustcode-tuix/src/render/alt_screen.rs`
 
 把 alt-screen 的 `begin_selection`/`update_selection`/`end_selection`/`copy_selection` 逻辑搬到 `SelectionState` methods，参数化 `BodyLineView`。
 
-- [ ] **Step 1: Locate existing implementations**
+- [ ] **步骤 1：定位现有实现**
 
-Run:
+运行：
 ```bash
 grep -nE "fn begin_selection|fn update_selection|fn end_selection|fn copy_selection|fn screen_to_body" crates/rustcode-tuix/src/render/alt_screen.rs
 ```
-Expected: 5 line numbers (4 trait impls + 1 helper `screen_to_body`).
+预期：5 个行号（4 个 trait impl + 1 个辅助函数 `screen_to_body`）。
 
-- [ ] **Step 2: Add SelectionState methods to selection.rs**
+- [ ] **步骤 2：向 selection.rs 添加 SelectionState 方法**
 
-In `selection.rs`, add (assuming you've extracted the original logic; preserve OSC 52 + arboard behavior):
+在 `selection.rs` 中添加（假定你已经抽出了原有逻辑；保留 OSC 52 + arboard 行为）：
 
 ```rust
 impl SelectionState {
@@ -317,9 +317,9 @@ fn ord(a: BodyPos, b: BodyPos) -> (BodyPos, BodyPos) {
 }
 ```
 
-- [ ] **Step 3: Add unit tests**
+- [ ] **步骤 3：添加单元测试**
 
-In selection.rs `#[cfg(test)] mod tests`:
+在 selection.rs 的 `#[cfg(test)] mod tests` 中：
 
 ```rust
 #[test]
@@ -354,43 +354,43 @@ fn selection_state_end_returns_concatenated_text() {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [ ] **步骤 4：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::selection::tests -- 2>&1 | tail -20`
-Expected: all pass.
+运行：`cargo test -p rustcode-tuix --lib render::selection::tests -- 2>&1 | tail -20`
+预期：全部通过。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/selection.rs
 git commit -m "tuix(selection): add SelectionState begin/update/end/copy with tests"
 ```
 
-### Task 1.4: alt-screen uses shared SelectionState
+### 任务 1.4：alt-screen 使用共享的 SelectionState
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/alt_screen.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/alt_screen.rs`
 
 替换 alt-screen 的 `selection: Option<Selection>` + `selection_active: bool` 字段为 `SelectionState`，trait 方法委托。
 
-- [ ] **Step 1: Replace fields**
+- [ ] **步骤 1：替换字段**
 
-In `AltScreenRenderer` struct definition, remove:
+在 `AltScreenRenderer` 结构体定义中删除：
 ```rust
 selection: Option<Selection>,
 selection_active: bool,
 ```
 
-Add:
+添加：
 ```rust
 selection: crate::render::selection::SelectionState,
 ```
 
-Update the `Self { ... }` constructor accordingly (initialize to `SelectionState::default()`). Delete the old `Selection` struct definition in alt_screen.rs (now defined in selection.rs).
+相应更新 `Self { ... }` 构造函数（初始化为 `SelectionState::default()`）。删除 alt_screen.rs 中旧的 `Selection` 结构体定义（现在定义在 selection.rs 中）。
 
-- [ ] **Step 2: Update trait method bodies**
+- [ ] **步骤 2：更新 trait 方法体**
 
-Replace `begin_selection` body:
+替换 `begin_selection` 的方法体：
 ```rust
 fn begin_selection(&mut self, col: u16, row: u16) {
     if let Some(pos) = self.screen_to_body(col, row) {
@@ -403,7 +403,7 @@ fn begin_selection(&mut self, col: u16, row: u16) {
 }
 ```
 
-`update_selection`:
+`update_selection` 方法体：
 ```rust
 fn update_selection(&mut self, col: u16, row: u16) {
     if let Some(pos) = self.screen_to_body(col, row) {
@@ -414,7 +414,7 @@ fn update_selection(&mut self, col: u16, row: u16) {
 }
 ```
 
-`end_selection`:
+`end_selection` 方法体：
 ```rust
 fn end_selection(&mut self) {
     if let Some(text) = self.selection.end(&self.body_lines) {
@@ -423,7 +423,7 @@ fn end_selection(&mut self) {
 }
 ```
 
-`copy_selection`:
+`copy_selection` 方法体：
 ```rust
 fn copy_selection(&mut self) -> bool {
     let copied = self.selection.copy(&self.body_lines);
@@ -435,18 +435,18 @@ fn copy_selection(&mut self) -> bool {
 }
 ```
 
-Note: preserve the exact OSC 52 wire format from the original implementation. If the original uses a different base64 lib path, mirror it.
+注意：保留原实现中 OSC 52 的确切报文格式。如果原实现用的是另一个 base64 库路径，照搬它的写法。
 
-- [ ] **Step 3: Update paint_body to use shared range helpers**
+- [ ] **步骤 3：更新 paint_body 以使用共享范围 helper**
 
-In `paint_body`, the existing selection-highlight code probably calls `selection_col_range_for_line` / `render_line_with_selection`. Update the imports to point at `crate::render::selection::*`. Replace `self.selection` reads with `self.selection.selection`.
+在 `paint_body` 中，现有的选择高亮代码大概会调用 `selection_col_range_for_line` / `render_line_with_selection`。把 import 指向 `crate::render::selection::*`。把 `self.selection` 的读取改成 `self.selection.selection`。
 
-- [ ] **Step 4: Run full alt-screen tests**
+- [ ] **步骤 4：运行 alt-screen 全量测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::alt_screen::tests 2>&1 | tail -30`
-Expected: all tests pass (including `multi_line_drag_extracts_across_rows` etc.).
+运行：`cargo test -p rustcode-tuix --lib render::alt_screen::tests 2>&1 | tail -30`
+预期：所有测试通过（包括 `multi_line_drag_extracts_across_rows` 等）。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/alt_screen.rs
@@ -455,18 +455,18 @@ git commit -m "tuix(alt-screen): delegate selection to shared SelectionState"
 
 ---
 
-## Phase 2: retained body buffer + MessageMark
+## 阶段 2：retained body 缓冲 + MessageMark
 
-### Task 2.1: Extend body_lines cap to 5000
+### 任务 2.1：把 body_lines 上限扩展到 5000
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
 把 `height * 4` 的 cap 改为 `MAX_SCROLLBACK_ROWS = 5000` 常量，与 alt-screen 对齐。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
-Add to retained.rs `#[cfg(test)] mod tests`:
+在 retained.rs 的 `#[cfg(test)] mod tests` 中添加：
 
 ```rust
 #[test]
@@ -480,14 +480,14 @@ fn retained_body_lines_cap_is_5000_not_height_times_4() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **步骤 2：运行测试确认其失败**
 
-Run: `cargo test -p rustcode-tuix --lib retained_body_lines_cap_is_5000 2>&1 | tail -10`
-Expected: FAIL — current cap is `height * 4 = 96`.
+运行：`cargo test -p rustcode-tuix --lib retained_body_lines_cap_is_5000 2>&1 | tail -10`
+预期：FAIL —— 当前上限是 `height * 4 = 96`。
 
-- [ ] **Step 3: Implement constant + replace inline expressions**
+- [ ] **步骤 3：实现常量并替换内联表达式**
 
-Near the top of `retained.rs` (after imports), add:
+在 `retained.rs` 顶部附近（import 之后）添加：
 
 ```rust
 /// Max body_lines kept in the in-app scrollback buffer (matches alt-screen).
@@ -495,39 +495,39 @@ Near the top of `retained.rs` (after imports), add:
 pub const MAX_SCROLLBACK_ROWS: usize = 5000;
 ```
 
-Replace every `(self.screen.height() as usize).saturating_mul(4).max(128)` with `MAX_SCROLLBACK_ROWS`. Confirm with grep:
+把每一处 `(self.screen.height() as usize).saturating_mul(4).max(128)` 替换为 `MAX_SCROLLBACK_ROWS`。用 grep 确认：
 
-Run: `grep -nE "saturating_mul\(4\)" crates/rustcode-tuix/src/render/retained.rs`
-Expected: no results.
+运行：`grep -nE "saturating_mul\(4\)" crates/rustcode-tuix/src/render/retained.rs`
+预期：没有结果。
 
-- [ ] **Step 4: Run test**
+- [ ] **步骤 4：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib retained_body_lines_cap_is_5000 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib retained_body_lines_cap_is_5000 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 5: Run full retained test suite**
+- [ ] **步骤 5：运行 retained 全量测试套件**
 
-Run: `cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
-Expected: all pass.
+运行：`cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
+预期：全部通过。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
 git commit -m "tuix(retained): cap body_lines at MAX_SCROLLBACK_ROWS=5000"
 ```
 
-### Task 2.2: Add MessageMark struct + field
+### 任务 2.2：添加 MessageMark 结构体与字段
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
-- Modify: `crates/rustcode-tuix/src/render/alt_screen.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
+- 修改：`crates/rustcode-tuix/src/render/alt_screen.rs`
 
 两个 renderer 都加 `message_marks: Vec<MessageMark>` 字段。共享 `MessageMark` 类型放 `render/mod.rs`。
 
-- [ ] **Step 1: Add types in render/mod.rs**
+- [ ] **步骤 1：在 render/mod.rs 中添加类型**
 
-Add near the top of `crates/rustcode-tuix/src/render/mod.rs` (after the module decls):
+在 `crates/rustcode-tuix/src/render/mod.rs` 顶部附近（模块声明之后）添加：
 
 ```rust
 /// Boundary marker for an originated message in the body buffer. Drives
@@ -548,43 +548,43 @@ pub struct MessageMark {
 }
 ```
 
-- [ ] **Step 2: Add field to RetainedRenderer**
+- [ ] **步骤 2：为 RetainedRenderer 添加字段**
 
-In `RetainedRenderer<W>` struct definition, add (place near `body_lines`):
+在 `RetainedRenderer<W>` 结构体定义中添加（放在 `body_lines` 附近）：
 
 ```rust
 message_marks: Vec<crate::render::MessageMark>,
 ```
 
-Add to constructor:
+在构造函数中添加：
 ```rust
 message_marks: Vec::new(),
 ```
 
-- [ ] **Step 3: Add field to AltScreenRenderer**
+- [ ] **步骤 3：为 AltScreenRenderer 添加字段**
 
-Same change in `alt_screen.rs`.
+在 `alt_screen.rs` 中做同样的改动。
 
-- [ ] **Step 4: Build to verify**
+- [ ] **步骤 4：构建验证**
 
-Run: `cargo check -p rustcode-tuix`
-Expected: clean build (no usages yet, just field).
+运行：`cargo check -p rustcode-tuix`
+预期：构建干净（目前还没有使用方，只是加了字段）。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/{mod.rs,retained.rs,alt_screen.rs}
 git commit -m "tuix(render): add MessageMark type + message_marks field on both renderers"
 ```
 
-### Task 2.3: Mark messages on push + drain sync (retained)
+### 任务 2.3：push 时打消息标记 + drain 同步（retained）
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
 在 retained 的 `render(UiLine)` 的 User/Assistant/ToolCall/ToolResult 分支入口处打标记；body_lines drain front 时同步更新 marks。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 ```rust
 #[test]
@@ -609,14 +609,14 @@ fn retained_message_marks_decremented_on_drain() {
 }
 ```
 
-- [ ] **Step 2: Run to verify fail**
+- [ ] **步骤 2：运行以确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib retained_message_marks 2>&1 | tail -15`
-Expected: FAIL — no marks pushed.
+运行：`cargo test -p rustcode-tuix --lib retained_message_marks 2>&1 | tail -15`
+预期：FAIL —— 还没有 push 任何标记。
 
-- [ ] **Step 3: Add mark_message helper**
+- [ ] **步骤 3：添加 mark_message 辅助函数**
 
-In retained.rs impl block:
+在 retained.rs 的 impl 代码块中：
 
 ```rust
 fn mark_message(&mut self, kind: crate::render::MarkKind) {
@@ -627,23 +627,23 @@ fn mark_message(&mut self, kind: crate::render::MarkKind) {
 }
 ```
 
-- [ ] **Step 4: Wire mark_message into render(UiLine) branches**
+- [ ] **步骤 4：把 mark_message 接入 render(UiLine) 各分支**
 
-In retained.rs `render(line: UiLine)` (look for the big `match line { UiLine::User(...) => ..., UiLine::AssistantText(...) => ..., UiLine::ToolCall(...) => ..., UiLine::ToolResult(...) => ..., ... }`).
+在 retained.rs 的 `render(line: UiLine)` 中（找到那个大的 `match line { UiLine::User(...) => ..., UiLine::AssistantText(...) => ..., UiLine::ToolCall(...) => ..., UiLine::ToolResult(...) => ..., ... }`）。
 
-For each branch that starts a new logical message (the existing code likely already has a helper like `push_user_row` / `push_tool_row`), insert a call to `self.mark_message(MarkKind::...)` **before** the first body_lines push of that message.
+对每个开启新逻辑消息的分支（现有代码大概已经有 `push_user_row` / `push_tool_row` 之类的辅助函数），在该消息第一次 push body_lines **之前**插入 `self.mark_message(MarkKind::...)` 调用。
 
-Specifically:
-- `UiLine::User(...)` arm → `self.mark_message(MarkKind::User);` before pushing.
-- `UiLine::AssistantText(...)` arm: mark only on the FIRST chunk of a turn. The simplest heuristic: if `message_marks.last()` is not `MarkKind::Assistant` OR if a `UiLine::TurnSeparator` / new turn boundary fired since, push a new mark. Concretely add a `last_mark_was_assistant: bool` (cleared on `UiLine::User` / `UiLine::ToolCall` / `UiLine::TurnSeparator`) and gate mark insertion on it.
-- `UiLine::ToolCall(...)` arm → `MarkKind::ToolCall`.
-- `UiLine::ToolResult(...)` arm → `MarkKind::ToolResult`.
+具体来说：
+- `UiLine::User(...)` 分支 → 在 push 之前调用 `self.mark_message(MarkKind::User);`。
+- `UiLine::AssistantText(...)` 分支：只在一轮的第一个 chunk 上打标记。最简单的判断方式：如果 `message_marks.last()` 不是 `MarkKind::Assistant`，或者其间触发过 `UiLine::TurnSeparator` / 新一轮边界，就 push 一个新标记。具体做法是加一个 `last_mark_was_assistant: bool`（在 `UiLine::User` / `UiLine::ToolCall` / `UiLine::TurnSeparator` 时清零），并用它控制是否插入标记。
+- `UiLine::ToolCall(...)` 分支 → `MarkKind::ToolCall`。
+- `UiLine::ToolResult(...)` 分支 → `MarkKind::ToolResult`。
 
-Mirror the new `last_mark_was_assistant` field in the struct and constructor.
+在结构体和构造函数中同步新增 `last_mark_was_assistant` 字段。
 
-- [ ] **Step 5: Sync drain in push_body_row**
+- [ ] **步骤 5：在 push_body_row 中同步 drain**
 
-Find the existing `body_lines.drain(0..drain)` in `push_body_row` (around line 1426). Replace with:
+在 `push_body_row` 中找到现有的 `body_lines.drain(0..drain)`（约在第 1426 行）。替换为：
 
 ```rust
 let drain = self.body_lines.len() - MAX_SCROLLBACK_ROWS;
@@ -654,33 +654,33 @@ for m in self.message_marks.iter_mut() {
 }
 ```
 
-Do the same in any other place that drains body_lines (search: `grep -nE "body_lines\.drain|body_lines\.remove" retained.rs`).
+在其他任何会 drain body_lines 的地方做同样处理（搜索：`grep -nE "body_lines\.drain|body_lines\.remove" retained.rs`）。
 
-- [ ] **Step 6: Run tests**
+- [ ] **步骤 6：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib retained_message_marks 2>&1 | tail -15`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib retained_message_marks 2>&1 | tail -15`
+预期：PASS。
 
-- [ ] **Step 7: Run full retained suite**
+- [ ] **步骤 7：运行 retained 全量测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
-Expected: all pass.
+运行：`cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
+预期：全部通过。
 
-- [ ] **Step 8: Commit**
+- [ ] **步骤 8：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
 git commit -m "tuix(retained): mark message boundaries + sync marks on drain"
 ```
 
-### Task 2.4: Mark messages on push (alt-screen)
+### 任务 2.4：push 时打消息标记（alt-screen）
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/alt_screen.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/alt_screen.rs`
 
 镜像 retained 的逻辑到 alt-screen。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 ```rust
 #[test]
@@ -704,14 +704,14 @@ fn alt_message_marks_decremented_on_drain() {
 }
 ```
 
-- [ ] **Step 2: Verify fail**
+- [ ] **步骤 2：确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib alt_message_marks 2>&1 | tail -15`
-Expected: FAIL.
+运行：`cargo test -p rustcode-tuix --lib alt_message_marks 2>&1 | tail -15`
+预期：FAIL。
 
-- [ ] **Step 3: Add mark_message + wiring**
+- [ ] **步骤 3：添加 mark_message 及接线**
 
-Mirror Phase 2.3 in alt_screen.rs. Same `mark_message` helper, same branch insertions. The drain location in alt_screen.rs is in `push_body_row` (line ~740 `body_lines.remove(0)`); convert to:
+在 alt_screen.rs 中镜像阶段 2.3 的做法。同样的 `mark_message` 辅助函数，同样的分支插入。alt_screen.rs 中 drain 的位置在 `push_body_row`（约第 740 行 `body_lines.remove(0)`）；改成：
 
 ```rust
 while self.body_lines.len() > self.max_scrollback_rows {
@@ -723,16 +723,16 @@ while self.body_lines.len() > self.max_scrollback_rows {
 }
 ```
 
-(`remove(0)` per row keeps the existing logic; drain semantics identical.)
+（每行一次 `remove(0)` 保留了现有逻辑；drain 语义完全一致。）
 
-Also adjust `reflow_body_lines` drain block at the bottom of that function with the same retain+shift.
+同时用相同的 retain+shift 调整该函数底部 `reflow_body_lines` 的 drain 代码块。
 
-- [ ] **Step 4: Verify tests pass**
+- [ ] **步骤 4：确认测试通过**
 
-Run: `cargo test -p rustcode-tuix --lib message_marks 2>&1 | tail -15`
-Expected: both retained and alt tests pass.
+运行：`cargo test -p rustcode-tuix --lib message_marks 2>&1 | tail -15`
+预期：retained 与 alt 两处测试都通过。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/alt_screen.rs
@@ -741,16 +741,16 @@ git commit -m "tuix(alt-screen): mirror MessageMark push + drain sync from retai
 
 ---
 
-## Phase 3: retained view_mode state machine + scroll
+## 阶段 3：retained view_mode 状态机 + 滚动
 
-### Task 3.1: Add view_mode + viewport_top + sticky_bottom fields
+### 任务 3.1：添加 view_mode + viewport_top + sticky_bottom 字段
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
-- [ ] **Step 1: Add fields**
+- [ ] **步骤 1：添加字段**
 
-In `RetainedRenderer<W>`:
+在 `RetainedRenderer<W>` 中：
 
 ```rust
 /// True iff user has scrolled away from the tail. While true, body
@@ -763,26 +763,26 @@ viewport_top: usize,
 sticky_bottom: bool,
 ```
 
-Constructor: `view_mode: false, viewport_top: 0, sticky_bottom: true,`.
+构造函数：`view_mode: false, viewport_top: 0, sticky_bottom: true,`。
 
-- [ ] **Step 2: Build to verify**
+- [ ] **步骤 2：构建验证**
 
-Run: `cargo check -p rustcode-tuix`
-Expected: clean.
+运行：`cargo check -p rustcode-tuix`
+预期：干净。
 
-- [ ] **Step 3: Commit**
+- [ ] **步骤 3：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
 git commit -m "tuix(retained): add view_mode/viewport_top/sticky_bottom state fields"
 ```
 
-### Task 3.2: Implement scroll_body + variants
+### 任务 3.2：实现 scroll_body 及相关变体
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
-- [ ] **Step 1: Write failing tests**
+- [ ] **步骤 1：编写失败测试**
 
 ```rust
 #[test]
@@ -823,14 +823,14 @@ fn retained_scroll_up_then_to_top_lands_at_zero() {
 }
 ```
 
-- [ ] **Step 2: Verify fail**
+- [ ] **步骤 2：确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib retained_scroll 2>&1 | tail -15`
-Expected: FAIL.
+运行：`cargo test -p rustcode-tuix --lib retained_scroll 2>&1 | tail -15`
+预期：FAIL。
 
-- [ ] **Step 3: Implement scroll_body**
+- [ ] **步骤 3：实现 scroll_body**
 
-Inside `impl<W> Renderer for RetainedRenderer<W>` (find the existing trait impl block), add:
+在 `impl<W> Renderer for RetainedRenderer<W>` 内部（找到现有的 trait impl 代码块）添加：
 
 ```rust
 fn scroll_body(&mut self, delta: i32) {
@@ -889,7 +889,7 @@ fn scroll_body_to_bottom(&mut self) {
 }
 ```
 
-Also add the helper:
+另外添加该辅助函数：
 
 ```rust
 /// Force a fresh paint of body region rows from body_lines.
@@ -927,31 +927,31 @@ fn repaint_body_region(&mut self) {
 }
 ```
 
-If retained's existing `screen` cell-diff cache complicates this, an alternative is to just set `self.body_dirty = true` (if such a field exists) and call the existing paint path. Either is fine — choose whatever fits the existing patterns in retained.rs.
+如果 retained 现有的 `screen` 单元格 diff 缓存让这一步变得复杂，另一种做法是只设置 `self.body_dirty = true`（若存在该字段）并调用现有绘制路径。两者皆可 —— 选一个最贴合 retained.rs 现有写法的。
 
-- [ ] **Step 4: Run tests**
+- [ ] **步骤 4：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib retained_scroll 2>&1 | tail -15`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib retained_scroll 2>&1 | tail -15`
+预期：PASS。
 
-- [ ] **Step 5: Run full retained suite**
+- [ ] **步骤 5：运行 retained 全量测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
-Expected: all pass (no regression).
+运行：`cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
+预期：全部通过（无回归）。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
 git commit -m "tuix(retained): implement scroll_body + scroll_body_to_top/bottom"
 ```
 
-### Task 3.3: emit_body_line_inner suppresses writes in view_mode
+### 任务 3.3：emit_body_line_inner 在 view_mode 下抑制写入
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
-- [ ] **Step 1: Write failing test**
+- [ ] **步骤 1：编写失败测试**
 
 ```rust
 #[test]
@@ -977,14 +977,14 @@ fn retained_view_mode_suppresses_terminal_writes() {
 }
 ```
 
-- [ ] **Step 2: Verify fail**
+- [ ] **步骤 2：确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib retained_view_mode_suppresses 2>&1 | tail -10`
-Expected: FAIL — current emit always writes.
+运行：`cargo test -p rustcode-tuix --lib retained_view_mode_suppresses 2>&1 | tail -10`
+预期：FAIL —— 当前 emit 总会写入。
 
-- [ ] **Step 3: Fork emit_body_line_inner**
+- [ ] **步骤 3：改造 emit_body_line_inner**
 
-Find `emit_body_line_inner` (line ~1324). Add an early-return at the top:
+找到 `emit_body_line_inner`（约第 1324 行）。在开头加一个提前返回：
 
 ```rust
 fn emit_body_line_inner(&mut self, row: &[Cell], bottom: u16) {
@@ -998,31 +998,31 @@ fn emit_body_line_inner(&mut self, row: &[Cell], bottom: u16) {
 }
 ```
 
-Note: pushing the row to `body_lines` happens in the *caller* (`push_body_row`), so the row will still be buffered. The terminal write is what we skip.
+注意：把该行 push 进 `body_lines` 发生在*调用方*（`push_body_row`），所以该行仍会被缓冲。我们跳过的是写终端。
 
-- [ ] **Step 4: Run test**
+- [ ] **步骤 4：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib retained_view_mode_suppresses 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib retained_view_mode_suppresses 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 5: Run full suite**
+- [ ] **步骤 5：运行全量测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
-Expected: all pass.
+运行：`cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
+预期：全部通过。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
 git commit -m "tuix(retained): suppress terminal writes in emit_body_line_inner while view_mode"
 ```
 
-### Task 3.4: Force exit view_mode on reset / clear / resize / approval
+### 任务 3.4：在 reset / clear / resize / 审批时强制退出 view_mode
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
-- [ ] **Step 1: Write tests**
+- [ ] **步骤 1：编写测试**
 
 ```rust
 #[test]
@@ -1047,14 +1047,14 @@ fn retained_resize_clears_view_mode() {
 }
 ```
 
-- [ ] **Step 2: Verify fail**
+- [ ] **步骤 2：确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib "retained_reset_clears_view|retained_resize_clears_view" 2>&1 | tail -10`
-Expected: FAIL.
+运行：`cargo test -p rustcode-tuix --lib "retained_reset_clears_view|retained_resize_clears_view" 2>&1 | tail -10`
+预期：FAIL。
 
-- [ ] **Step 3: Add force-exit helper + invoke from reset/clear/resize/approval**
+- [ ] **步骤 3：添加强制退出辅助函数并在 reset/clear/resize/审批处调用**
 
-Add helper:
+添加辅助函数：
 ```rust
 fn exit_view_mode(&mut self) {
     if self.view_mode {
@@ -1065,13 +1065,13 @@ fn exit_view_mode(&mut self) {
 }
 ```
 
-Call `self.exit_view_mode();` at the start of:
+在下列函数的开头调用 `self.exit_view_mode();`：
 - `fn reset(&mut self)` 
-- `fn clear_screen(&mut self)` (if separate from reset)
+- `fn clear_screen(&mut self)`（如果与 reset 是分开的）
 - `fn on_resize(&mut self, ...)`
-- The approval-prompt arm in `render(UiLine)` for `UiLine::ApprovalPrompt` (or whatever the existing variant is — grep for `ApprovalPrompt` in retained.rs and find the push arm)
+- `render(UiLine)` 中处理 `UiLine::ApprovalPrompt` 的审批提示分支（或者不管现有变体叫什么 —— 在 retained.rs 里 grep `ApprovalPrompt` 并找到 push 的那个分支）
 
-- [ ] **Step 4: Add approval test**
+- [ ] **步骤 4：添加审批提示测试**
 
 ```rust
 #[test]
@@ -1092,14 +1092,14 @@ fn retained_approval_prompt_forces_view_exit() {
 }
 ```
 
-If the actual `UiLine::ApprovalPrompt` shape differs, adjust the test to the real fields.
+如果实际的 `UiLine::ApprovalPrompt` 结构不同，按真实字段调整测试。
 
-- [ ] **Step 5: Run tests**
+- [ ] **步骤 5：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib "retained_reset_clears_view|retained_resize_clears_view|retained_approval_prompt_forces_view" 2>&1 | tail -15`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib "retained_reset_clears_view|retained_resize_clears_view|retained_approval_prompt_forces_view" 2>&1 | tail -15`
+预期：PASS。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
@@ -1108,14 +1108,14 @@ git commit -m "tuix(retained): force exit view_mode on reset/clear/resize/approv
 
 ---
 
-## Phase 4: retained mouse capture
+## 阶段 4：retained 鼠标捕获
 
-### Task 4.1: Emit ?1002h ?1006h at startup + ?1002l ?1006l on shutdown
+### 任务 4.1：启动时发送 ?1002h ?1006h，关闭时发送 ?1002l ?1006l
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 ```rust
 #[test]
@@ -1142,56 +1142,56 @@ fn retained_shutdown_disables_mouse_capture() {
 }
 ```
 
-- [ ] **Step 2: Verify fail**
+- [ ] **步骤 2：确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib "retained_with_writer_enables_mouse|retained_shutdown_disables_mouse" 2>&1 | tail -15`
-Expected: FAIL.
+运行：`cargo test -p rustcode-tuix --lib "retained_with_writer_enables_mouse|retained_shutdown_disables_mouse" 2>&1 | tail -15`
+预期：FAIL。
 
-- [ ] **Step 3: Update with_writer**
+- [ ] **步骤 3：更新 with_writer**
 
-Locate the `with_writer` constructor (line ~385). Find the existing `out.write_all(b"\x1b[3J")` line. Change to:
+定位 `with_writer` 构造函数（约第 385 行）。找到现有的 `out.write_all(b"\x1b[3J")` 行。改成：
 
 ```rust
 let _ = out.write_all(b"\x1b[3J\x1b[?1002h\x1b[?1006h");
 let _ = out.flush();
 ```
 
-- [ ] **Step 4: Update shutdown**
+- [ ] **步骤 4：更新 shutdown**
 
-Locate `fn shutdown(&mut self)` (search: `grep -nE "fn shutdown" crates/rustcode-tuix/src/render/retained.rs`). At the start (or wherever existing cleanup happens), prepend:
+定位 `fn shutdown(&mut self)`（搜索：`grep -nE "fn shutdown" crates/rustcode-tuix/src/render/retained.rs`）。在开头（或现有清理逻辑所在处）前置：
 
 ```rust
 let _ = self.out.write_all(b"\x1b[?1006l\x1b[?1002l");
 let _ = self.out.flush();
 ```
 
-- [ ] **Step 5: Update Drop impl**
+- [ ] **步骤 5：更新 Drop 实现**
 
-Find `impl<W> Drop for RetainedRenderer<W>` (if exists; otherwise add to shutdown only). Mirror the same disable sequence in Drop as belt-and-suspenders for panic paths.
+找到 `impl<W> Drop for RetainedRenderer<W>`（若存在；否则只在 shutdown 里加）。在 Drop 中镜像同样的关闭序列，作为 panic 路径下的双保险。
 
-- [ ] **Step 6: Run tests**
+- [ ] **步骤 6：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib "retained_with_writer_enables_mouse|retained_shutdown_disables_mouse" 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib "retained_with_writer_enables_mouse|retained_shutdown_disables_mouse" 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 7: Run full retained suite**
+- [ ] **步骤 7：运行 retained 全量测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
-Expected: all pass.
+运行：`cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
+预期：全部通过。
 
-- [ ] **Step 8: Commit**
+- [ ] **步骤 8：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
 git commit -m "tuix(retained): enable button-event + SGR mouse capture at startup"
 ```
 
-### Task 4.2: Suspend/resume mouse capture for external children
+### 任务 4.2：为外部子进程挂起/恢复鼠标捕获
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 ```rust
 #[test]
@@ -1220,57 +1220,57 @@ fn retained_resume_reenables_mouse_capture() {
 }
 ```
 
-- [ ] **Step 2: Verify fail**
+- [ ] **步骤 2：确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib "retained_suspend_disables_mouse|retained_resume_reenables_mouse" 2>&1 | tail -10`
-Expected: FAIL.
+运行：`cargo test -p rustcode-tuix --lib "retained_suspend_disables_mouse|retained_resume_reenables_mouse" 2>&1 | tail -10`
+预期：FAIL。
 
-- [ ] **Step 3: Implement**
+- [ ] **步骤 3：实现**
 
-In `suspend_for_external` (line ~2985), find the existing cleanup block (raw_mode, bracketed paste, Kitty enhancement). Prepend a mouse-disable write:
+在 `suspend_for_external`（约第 2985 行）中找到现有的清理代码块（raw_mode、bracketed paste、Kitty 增强）。在其前面加一次关闭鼠标的写入：
 
 ```rust
 let _ = self.out.write_all(b"\x1b[?1006l\x1b[?1002l");
 // ... existing code follows
 ```
 
-In `resume_from_external`, after the existing re-enable block, append:
+在 `resume_from_external` 中，在现有的重新启用代码块之后追加：
 
 ```rust
 let _ = self.out.write_all(b"\x1b[?1002h\x1b[?1006h");
 let _ = self.out.flush();
 ```
 
-- [ ] **Step 4: Run tests**
+- [ ] **步骤 4：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib "retained_suspend_disables_mouse|retained_resume_reenables_mouse" 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib "retained_suspend_disables_mouse|retained_resume_reenables_mouse" 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
 git commit -m "tuix(retained): pop/repush mouse capture in suspend/resume_for_external"
 ```
 
-### Task 4.3: Windows conhost mouse capture parity
+### 任务 4.3：Windows conhost 鼠标捕获对齐
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
 复用 alt-screen 的 `enable_conhost_mouse_capture()` 和 `restore_conhost_console_in_mode()`。
 
-- [ ] **Step 1: Locate alt-screen Windows helpers**
+- [ ] **步骤 1：定位 alt-screen 的 Windows 辅助函数**
 
-Run:
+运行：
 ```bash
 grep -nE "fn enable_conhost_mouse_capture|fn restore_conhost_console_in_mode|prior_console_in_mode" crates/rustcode-tuix/src/render/alt_screen.rs | head -5
 ```
-Expected: definitions on alt_screen.rs.
+预期：定义在 alt_screen.rs 中。
 
-- [ ] **Step 2: Hoist helpers to a Windows-only module**
+- [ ] **步骤 2：把辅助函数上提到仅 Windows 的模块**
 
-Create `crates/rustcode-tuix/src/render/conhost.rs` (windows-only):
+创建 `crates/rustcode-tuix/src/render/conhost.rs`（仅 Windows）：
 
 ```rust
 //! Windows conhost mouse capture helpers, used by both AltScreenRenderer
@@ -1291,38 +1291,38 @@ pub fn restore_conhost_console_in_mode(prior: u32) {
 }
 ```
 
-Declare module in `crates/rustcode-tuix/src/render/mod.rs`:
+在 `crates/rustcode-tuix/src/render/mod.rs` 中声明模块：
 
 ```rust
 #[cfg(windows)]
 pub mod conhost;
 ```
 
-- [ ] **Step 3: Update alt_screen.rs to use the shared module**
+- [ ] **步骤 3：更新 alt_screen.rs 以使用共享模块**
 
-Replace local calls with `crate::render::conhost::enable_conhost_mouse_capture()` etc. Delete the local definitions.
+把本地调用替换为 `crate::render::conhost::enable_conhost_mouse_capture()` 等。删除本地定义。
 
-- [ ] **Step 4: Add Windows field + invocations in retained.rs**
+- [ ] **步骤 4：在 retained.rs 中添加 Windows 字段与调用**
 
-In `RetainedRenderer<W>`:
+在 `RetainedRenderer<W>` 中：
 
 ```rust
 #[cfg(windows)]
 prior_console_in_mode: Option<u32>,
 ```
 
-Constructor: `#[cfg(windows)] prior_console_in_mode: None,`.
+构造函数：`#[cfg(windows)] prior_console_in_mode: None,`。
 
-In `with_writer`, after the `\x1b[3J\x1b[?1002h\x1b[?1006h` write:
+在 `with_writer` 中，在写入 `\x1b[3J\x1b[?1002h\x1b[?1006h` 之后：
 
 ```rust
 #[cfg(windows)]
 let prior_console_in_mode = crate::render::conhost::enable_conhost_mouse_capture();
 ```
 
-Set the field in `Self { ... #[cfg(windows)] prior_console_in_mode, ... }`.
+在 `Self { ... #[cfg(windows)] prior_console_in_mode, ... }` 中设置该字段。
 
-In `suspend_for_external`:
+在 `suspend_for_external` 中：
 
 ```rust
 #[cfg(windows)]
@@ -1331,7 +1331,7 @@ if let Some(prior) = self.prior_console_in_mode.take() {
 }
 ```
 
-In `resume_from_external`:
+在 `resume_from_external` 中：
 
 ```rust
 #[cfg(windows)] {
@@ -1339,7 +1339,7 @@ In `resume_from_external`:
 }
 ```
 
-In `shutdown` and Drop:
+在 `shutdown` 与 Drop 中：
 
 ```rust
 #[cfg(windows)]
@@ -1348,19 +1348,19 @@ if let Some(prior) = self.prior_console_in_mode.take() {
 }
 ```
 
-- [ ] **Step 5: Build check (cross-platform)**
+- [ ] **步骤 5：跨平台构建检查**
 
-Run: `cargo check -p rustcode-tuix`
-Expected: clean on macOS/Linux (the `#[cfg(windows)]` blocks compile out).
+运行：`cargo check -p rustcode-tuix`
+预期：在 macOS/Linux 上干净（`#[cfg(windows)]` 代码块会被编译掉）。
 
-If you have a Windows environment, also run `cargo check --target x86_64-pc-windows-msvc -p rustcode-tuix` (or equivalent).
+如果你有 Windows 环境，也运行 `cargo check --target x86_64-pc-windows-msvc -p rustcode-tuix`（或等价命令）。
 
-- [ ] **Step 6: Run full alt-screen + retained tests**
+- [ ] **步骤 6：运行 alt-screen 与 retained 全量测试**
 
-Run: `cargo test -p rustcode-tuix --lib 2>&1 | tail -10`
-Expected: all pass.
+运行：`cargo test -p rustcode-tuix --lib 2>&1 | tail -10`
+预期：全部通过。
 
-- [ ] **Step 7: Commit**
+- [ ] **步骤 7：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/{mod.rs,conhost.rs,alt_screen.rs,retained.rs}
@@ -1369,16 +1369,16 @@ git commit -m "tuix: hoist conhost mouse-capture helpers into shared module; ret
 
 ---
 
-## Phase 5: retained selection wiring
+## 阶段 5：retained 选择功能接线
 
-### Task 5.1: impl BodyLineView for Vec<Vec<Cell>>
+### 任务 5.1：为 Vec<Vec<Cell>> 实现 BodyLineView
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/selection.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/selection.rs`
 
-- [ ] **Step 1: Add the impl**
+- [ ] **步骤 1：添加该 impl**
 
-In `selection.rs`:
+在 `selection.rs` 中：
 
 ```rust
 use crate::render::cell::Cell;
@@ -1395,7 +1395,7 @@ impl BodyLineView for Vec<Vec<Cell>> {
 }
 ```
 
-- [ ] **Step 2: Add test**
+- [ ] **步骤 2：添加测试**
 
 ```rust
 #[cfg(test)]
@@ -1417,24 +1417,24 @@ mod cell_view_tests {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [ ] **步骤 3：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::selection 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib render::selection 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 4: Commit**
+- [ ] **步骤 4：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/selection.rs
 git commit -m "tuix(selection): impl BodyLineView for Vec<Vec<Cell>> (retained body type)"
 ```
 
-### Task 5.2: Add SelectionState field + trait methods to retained
+### 任务 5.2：为 retained 添加 SelectionState 字段与 trait 方法
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **步骤 1：编写失败测试**
 
 ```rust
 #[test]
@@ -1456,24 +1456,24 @@ fn retained_copy_selection_writes_clipboard() {
 }
 ```
 
-- [ ] **Step 2: Verify fail**
+- [ ] **步骤 2：确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib "retained_begin_selection_records|retained_copy_selection_writes" 2>&1 | tail -10`
-Expected: FAIL.
+运行：`cargo test -p rustcode-tuix --lib "retained_begin_selection_records|retained_copy_selection_writes" 2>&1 | tail -10`
+预期：FAIL。
 
-- [ ] **Step 3: Add field**
+- [ ] **步骤 3：添加字段**
 
-In `RetainedRenderer<W>`:
+在 `RetainedRenderer<W>` 中：
 
 ```rust
 selection: crate::render::selection::SelectionState,
 ```
 
-Constructor: `selection: Default::default(),`.
+构造函数：`selection: Default::default(),`。
 
-- [ ] **Step 4: Implement trait methods**
+- [ ] **步骤 4：实现 trait 方法**
 
-In `impl<W> Renderer for RetainedRenderer<W>`:
+在 `impl<W> Renderer for RetainedRenderer<W>` 中：
 
 ```rust
 fn begin_selection(&mut self, col: u16, row: u16) {
@@ -1505,9 +1505,9 @@ fn copy_selection(&mut self) -> bool {
 }
 ```
 
-- [ ] **Step 5: Add screen_to_body helper**
+- [ ] **步骤 5：添加 screen_to_body 辅助函数**
 
-Mirror alt-screen's `fn screen_to_body(&self, col: u16, row: u16) -> Option<(usize, u16)>` for retained. In retained's case, the body region is rows `1..=body_bottom_row()`. The function converts screen coordinates → body_lines index. If `view_mode`, the index is `viewport_top + (row - 1)`; otherwise it's the tail-relative index.
+为 retained 镜像 alt-screen 的 `fn screen_to_body(&self, col: u16, row: u16) -> Option<(usize, u16)>`。在 retained 的场景下，body 区域是 `1..=body_bottom_row()` 这些行。该函数把屏幕坐标转换成 body_lines 下标。若处于 `view_mode`，下标是 `viewport_top + (row - 1)`；否则是相对尾部的下标。
 
 ```rust
 fn screen_to_body(&self, col: u16, row: u16) -> Option<(usize, u16)> {
@@ -1526,28 +1526,28 @@ fn screen_to_body(&self, col: u16, row: u16) -> Option<(usize, u16)> {
 }
 ```
 
-- [ ] **Step 6: Run tests**
+- [ ] **步骤 6：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib "retained_begin_selection_records|retained_copy_selection_writes" 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib "retained_begin_selection_records|retained_copy_selection_writes" 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 7: Commit**
+- [ ] **步骤 7：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
 git commit -m "tuix(retained): wire SelectionState begin/update/end/copy via trait"
 ```
 
-### Task 5.3: Apply selection highlight in retained paint_body
+### 任务 5.3：在 retained 的 paint_body 中应用选择高亮
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
 退出 view_mode 后 `repaint_body_region` 当前没有应用 selection 高亮。要让选中范围用反色显示。
 
-- [ ] **Step 1: Update repaint_body_region**
+- [ ] **步骤 1：更新 repaint_body_region**
 
-Modify the `repaint_body_region` body to apply selection per row:
+修改 `repaint_body_region` 的函数体，逐行应用选择高亮：
 
 ```rust
 fn repaint_body_region(&mut self) {
@@ -1592,7 +1592,7 @@ fn repaint_body_region(&mut self) {
 }
 ```
 
-- [ ] **Step 2: Add test**
+- [ ] **步骤 2：添加测试**
 
 ```rust
 #[test]
@@ -1610,12 +1610,12 @@ fn retained_selection_highlight_emits_reverse_video() {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [ ] **步骤 3：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib retained_selection_highlight 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib retained_selection_highlight 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 4: Commit**
+- [ ] **步骤 4：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
@@ -1624,17 +1624,17 @@ git commit -m "tuix(retained): apply selection highlight via shared render_line_
 
 ---
 
-## Phase 6: scrollbar + /scrollbar command + ui-state.toml
+## 阶段 6：滚动条 + /scrollbar 命令 + ui-state.toml
 
-### Task 6.1: Create ui_state.rs persistence
+### 任务 6.1：创建 ui_state.rs 持久化
 
-**Files:**
-- Create: `crates/rustcode-tuix/src/render/ui_state.rs`
-- Modify: `crates/rustcode-tuix/src/render/mod.rs`
+**文件：**
+- 新建：`crates/rustcode-tuix/src/render/ui_state.rs`
+- 修改：`crates/rustcode-tuix/src/render/mod.rs`
 
-- [ ] **Step 1: Write failing test**
+- [ ] **步骤 1：编写失败测试**
 
-Create `crates/rustcode-tuix/src/render/ui_state.rs`:
+创建 `crates/rustcode-tuix/src/render/ui_state.rs`：
 
 ```rust
 //! UI state persisted between sessions. Currently: scrollbar visibility.
@@ -1710,39 +1710,39 @@ mod tests {
 }
 ```
 
-Declare in `render/mod.rs`:
+在 `render/mod.rs` 中声明：
 ```rust
 pub mod ui_state;
 ```
 
-Check `Cargo.toml` for `tempfile` dev-dep — likely already present; if not, add `tempfile = "3"` to `[dev-dependencies]`.
+检查 `Cargo.toml` 里是否有 `tempfile` 这个 dev-dep —— 多半已经有了；如果没有，把 `tempfile = "3"` 加到 `[dev-dependencies]`。
 
-- [ ] **Step 2: Verify dependencies**
+- [ ] **步骤 2：确认依赖**
 
-Run: `grep -nE "^(toml|dirs|serde)" crates/rustcode-tuix/Cargo.toml`
-Expected: all present (serde + toml are pervasive; dirs likely present too). Add any missing.
+运行：`grep -nE "^(toml|dirs|serde)" crates/rustcode-tuix/Cargo.toml`
+预期：全部存在（serde + toml 用得很普遍；dirs 多半也有）。缺哪个就补哪个。
 
-- [ ] **Step 3: Run test**
+- [ ] **步骤 3：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::ui_state 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib render::ui_state 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 4: Commit**
+- [ ] **步骤 4：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/{mod.rs,ui_state.rs} crates/rustcode-tuix/Cargo.toml
 git commit -m "tuix(ui_state): persist UI prefs to \$RUSTCODE_HOME/ui-state.toml"
 ```
 
-### Task 6.2: Create scrollbar.rs helper
+### 任务 6.2：创建 scrollbar.rs 辅助模块
 
-**Files:**
-- Create: `crates/rustcode-tuix/src/render/scrollbar.rs`
-- Modify: `crates/rustcode-tuix/src/render/mod.rs`
+**文件：**
+- 新建：`crates/rustcode-tuix/src/render/scrollbar.rs`
+- 修改：`crates/rustcode-tuix/src/render/mod.rs`
 
-- [ ] **Step 1: Write failing test + module skeleton**
+- [ ] **步骤 1：编写失败测试与模块骨架**
 
-Create `crates/rustcode-tuix/src/render/scrollbar.rs`:
+创建 `crates/rustcode-tuix/src/render/scrollbar.rs`：
 
 ```rust
 //! Pure compute for the right-edge scrollbar. Both renderers call into
@@ -1831,35 +1831,35 @@ mod tests {
 }
 ```
 
-Declare in `render/mod.rs`:
+在 `render/mod.rs` 中声明：
 ```rust
 pub mod scrollbar;
 ```
 
-- [ ] **Step 2: Run tests**
+- [ ] **步骤 2：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::scrollbar 2>&1 | tail -15`
-Expected: PASS (6 tests).
+运行：`cargo test -p rustcode-tuix --lib render::scrollbar 2>&1 | tail -15`
+预期：PASS（6 个测试）。
 
-- [ ] **Step 3: Commit**
+- [ ] **步骤 3：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/{mod.rs,scrollbar.rs}
 git commit -m "tuix(scrollbar): add pure compute module for thumb shape + placement"
 ```
 
-### Task 6.3: Add show_scrollbar field + toggle_scrollbar trait method
+### 任务 6.3：添加 show_scrollbar 字段与 toggle_scrollbar trait 方法
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/mod.rs`
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
-- Modify: `crates/rustcode-tuix/src/render/alt_screen.rs`
-- Modify: `crates/rustcode-tuix/src/render/plain.rs`
-- Modify: `crates/rustcode-tuix/src/render/worker.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/mod.rs`
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
+- 修改：`crates/rustcode-tuix/src/render/alt_screen.rs`
+- 修改：`crates/rustcode-tuix/src/render/plain.rs`
+- 修改：`crates/rustcode-tuix/src/render/worker.rs`
 
-- [ ] **Step 1: Add trait method**
+- [ ] **步骤 1：添加 trait 方法**
 
-In `render/mod.rs` `Renderer` trait:
+在 `render/mod.rs` 的 `Renderer` trait 中：
 
 ```rust
 /// Toggle the right-side visible scrollbar. Default: no-op for renderers
@@ -1867,17 +1867,17 @@ In `render/mod.rs` `Renderer` trait:
 fn toggle_scrollbar(&mut self) -> bool { false }
 ```
 
-(Returns the new state — true = now shown.)
+（返回新状态 —— true 表示现在显示。）
 
-- [ ] **Step 2: Add field + impl in alt-screen**
+- [ ] **步骤 2：在 alt-screen 中添加字段与实现**
 
-In `AltScreenRenderer`:
+在 `AltScreenRenderer` 中：
 
 ```rust
 show_scrollbar: bool,
 ```
 
-Constructor: read from `ui_state::load().ui.show_scrollbar`. Override the trait method:
+构造函数：从 `ui_state::load().ui.show_scrollbar` 读取。覆盖该 trait 方法：
 
 ```rust
 fn toggle_scrollbar(&mut self) -> bool {
@@ -1893,15 +1893,15 @@ fn toggle_scrollbar(&mut self) -> bool {
 }
 ```
 
-- [ ] **Step 3: Add field + impl in retained**
+- [ ] **步骤 3：在 retained 中添加字段与实现**
 
-In `RetainedRenderer<W>`:
+在 `RetainedRenderer<W>` 中：
 
 ```rust
 show_scrollbar: bool,
 ```
 
-Constructor same load. Trait impl:
+构造函数同样读取。trait 实现：
 
 ```rust
 fn toggle_scrollbar(&mut self) -> bool {
@@ -1915,9 +1915,9 @@ fn toggle_scrollbar(&mut self) -> bool {
 }
 ```
 
-- [ ] **Step 4: Pipe through worker**
+- [ ] **步骤 4：经 worker 转发**
 
-In `crates/rustcode-tuix/src/render/worker.rs`, add a `RenderCmd` variant + AckOp (need a return value, so AckOp pattern):
+在 `crates/rustcode-tuix/src/render/worker.rs` 中添加一个 `RenderCmd` 变体 + AckOp（需要返回值，所以用 AckOp 模式）：
 
 ```rust
 pub enum AckOp {
@@ -1926,7 +1926,7 @@ pub enum AckOp {
 }
 ```
 
-Handle in `run_worker`:
+在 `run_worker` 中处理：
 
 ```rust
 AckOp::ToggleScrollbar => {
@@ -1935,7 +1935,7 @@ AckOp::ToggleScrollbar => {
 }
 ```
 
-In `TaskRenderer`:
+在 `TaskRenderer` 中：
 
 ```rust
 fn toggle_scrollbar(&mut self) -> bool {
@@ -1946,26 +1946,26 @@ fn toggle_scrollbar(&mut self) -> bool {
 }
 ```
 
-(If existing `ack()` pattern signals completion via a channel, ensure the new variant is plumbed identically.)
+（如果现有的 `ack()` 模式是用 channel 通知完成的，确保新变体以同样的方式接通。）
 
-- [ ] **Step 5: Build**
+- [ ] **步骤 5：构建**
 
-Run: `cargo check -p rustcode-tuix`
-Expected: clean.
+运行：`cargo check -p rustcode-tuix`
+预期：干净。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/{mod.rs,retained.rs,alt_screen.rs,plain.rs,worker.rs}
 git commit -m "tuix(scrollbar): add show_scrollbar field + toggle_scrollbar trait method"
 ```
 
-### Task 6.4: Apply scrollbar in alt-screen paint_body
+### 任务 6.4：在 alt-screen 的 paint_body 中应用滚动条
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/alt_screen.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/alt_screen.rs`
 
-- [ ] **Step 1: Write failing test**
+- [ ] **步骤 1：编写失败测试**
 
 ```rust
 #[test]
@@ -1993,14 +1993,14 @@ fn alt_scrollbar_not_painted_when_disabled() {
 }
 ```
 
-- [ ] **Step 2: Verify fail**
+- [ ] **步骤 2：确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib "alt_scrollbar_paints_thumb|alt_scrollbar_not_painted" 2>&1 | tail -10`
-Expected: FAIL.
+运行：`cargo test -p rustcode-tuix --lib "alt_scrollbar_paints_thumb|alt_scrollbar_not_painted" 2>&1 | tail -10`
+预期：FAIL。
 
-- [ ] **Step 3: Update paint_body**
+- [ ] **步骤 3：更新 paint_body**
 
-In `paint_body` (line ~800 in alt_screen.rs), after the existing per-row paint, add scrollbar column:
+在 `paint_body` 中（alt_screen.rs 约第 800 行），在现有的逐行绘制之后添加滚动条列：
 
 ```rust
 let scrollbar_shape = crate::render::scrollbar::compute(
@@ -2021,31 +2021,31 @@ if let Some(shape) = &scrollbar_shape {
 }
 ```
 
-If body content currently writes into column `width`, also need to clamp the body row paint to `width - 1` when `scrollbar_shape.is_some()` to avoid overwrite. The cleanest way: when `show_scrollbar = true` AND overflow exists, the per-row content emit truncates at `width - 1` (use `truncate_to_width` helper if present, else slice). Add that conditional clamp in the existing row paint loop.
+如果 body 内容目前会写到 `width` 列，那么当 `scrollbar_shape.is_some()` 时还需要把 body 行绘制限制到 `width - 1`，避免覆盖。最省事的做法：当 `show_scrollbar = true` 且存在溢出时，逐行内容 emit 在 `width - 1` 处截断（若有 `truncate_to_width` 辅助函数就用它，否则直接切片）。在现有的行绘制循环里加上这个条件限制。
 
-- [ ] **Step 4: Run tests**
+- [ ] **步骤 4：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib "alt_scrollbar_paints_thumb|alt_scrollbar_not_painted" 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib "alt_scrollbar_paints_thumb|alt_scrollbar_not_painted" 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 5: Run full alt-screen suite**
+- [ ] **步骤 5：运行 alt-screen 全量测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::alt_screen::tests 2>&1 | tail -10`
-Expected: all pass.
+运行：`cargo test -p rustcode-tuix --lib render::alt_screen::tests 2>&1 | tail -10`
+预期：全部通过。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/alt_screen.rs
 git commit -m "tuix(alt-screen): paint right-side scrollbar when overflow + show_scrollbar"
 ```
 
-### Task 6.5: Apply scrollbar in retained paint
+### 任务 6.5：在 retained 的绘制中应用滚动条
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
-- [ ] **Step 1: Write failing test**
+- [ ] **步骤 1：编写失败测试**
 
 ```rust
 #[test]
@@ -2059,14 +2059,14 @@ fn retained_scrollbar_paints_when_enabled_in_view_mode() {
 }
 ```
 
-- [ ] **Step 2: Verify fail**
+- [ ] **步骤 2：确认失败**
 
-Run: `cargo test -p rustcode-tuix --lib retained_scrollbar_paints 2>&1 | tail -10`
-Expected: FAIL.
+运行：`cargo test -p rustcode-tuix --lib retained_scrollbar_paints 2>&1 | tail -10`
+预期：FAIL。
 
-- [ ] **Step 3: Update repaint_body_region**
+- [ ] **步骤 3：更新 repaint_body_region**
 
-In `repaint_body_region`, after the per-row paint loop, mirror the alt-screen scrollbar paint:
+在 `repaint_body_region` 中，在逐行绘制循环之后镜像 alt-screen 的滚动条绘制：
 
 ```rust
 let scrollbar_shape = crate::render::scrollbar::compute(
@@ -2087,48 +2087,48 @@ if let Some(shape) = &scrollbar_shape {
 }
 ```
 
-Also: when scrollbar visible, in the `emit_body_line_inner` path (sticky mode), truncate row content to `width - 1` so it doesn't overlap the scrollbar column. Easiest: in `serialize_row`-time, clamp; or pre-truncate the row before serializing.
+另外：当滚动条可见时，在 `emit_body_line_inner` 路径（sticky 模式）中把行内容截断到 `width - 1`，避免与滚动条列重叠。最简单的做法：在 `serialize_row` 时做限制；或者在序列化之前先截断该行。
 
-- [ ] **Step 4: Run test**
+- [ ] **步骤 4：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib retained_scrollbar_paints 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib retained_scrollbar_paints 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 5: Run full retained suite**
+- [ ] **步骤 5：运行 retained 全量测试**
 
-Run: `cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
-Expected: all pass.
+运行：`cargo test -p rustcode-tuix --lib render::retained::tests 2>&1 | tail -10`
+预期：全部通过。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/retained.rs
 git commit -m "tuix(retained): paint right-side scrollbar in repaint_body_region"
 ```
 
-### Task 6.6: Register /scrollbar slash command
+### 任务 6.6：注册 /scrollbar 斜杠命令
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/commands.rs`
-- Modify: `crates/rustcode-tuix/src/event_loop/commands.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/commands.rs`
+- 修改：`crates/rustcode-tuix/src/event_loop/commands.rs`
 
-- [ ] **Step 1: Register command**
+- [ ] **步骤 1：注册命令**
 
-In `commands.rs` BUILT_INS array, add (near `keys` / `help`):
+在 `commands.rs` 的 BUILT_INS 数组中添加（放在 `keys` / `help` 附近）：
 
 ```rust
 Command { name: "scrollbar", desc: "Toggle the right-side scrollbar", needs_args: false },
 ```
 
-In the `cmd_desc_i18n` arm:
+在 `cmd_desc_i18n` 分支中：
 
 ```rust
 "scrollbar" => Msg::CmdDescScrollbar,
 ```
 
-- [ ] **Step 2: Handle command**
+- [ ] **步骤 2：处理命令**
 
-In `event_loop/commands.rs`, add an arm in the slash dispatch (near `keys`):
+在 `event_loop/commands.rs` 中，在斜杠命令分发处添加一个分支（放在 `keys` 附近）：
 
 ```rust
 "scrollbar" => {
@@ -2140,14 +2140,14 @@ In `event_loop/commands.rs`, add an arm in the slash dispatch (near `keys`):
 }
 ```
 
-- [ ] **Step 3: Build**
+- [ ] **步骤 3：构建**
 
-Run: `cargo build -p rustcode-tuix 2>&1 | tail -10`
-Expected: clean.
+运行：`cargo build -p rustcode-tuix 2>&1 | tail -10`
+预期：干净。
 
-- [ ] **Step 4: Add command-registration test**
+- [ ] **步骤 4：添加命令注册测试**
 
-In `commands.rs` `#[cfg(test)] mod tests`:
+在 `commands.rs` 的 `#[cfg(test)] mod tests` 中：
 
 ```rust
 #[test]
@@ -2162,10 +2162,10 @@ fn scrollbar_command_registered_with_i18n_description_in_both_locales() {
 }
 ```
 
-Run: `cargo test -p rustcode-tuix --lib scrollbar_command_registered 2>&1 | tail -10`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib scrollbar_command_registered 2>&1 | tail -10`
+预期：PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/{commands.rs,event_loop/commands.rs}
@@ -2174,19 +2174,19 @@ git commit -m "tuix(commands): register /scrollbar + i18n description"
 
 ---
 
-## Phase 7: extra scroll keys (Alt+↑/↓, Ctrl+↑/↓)
+## 阶段 7：附加滚动按键（Alt+↑/↓、Ctrl+↑/↓）
 
-### Task 7.1: Add scroll_to_prev_message / scroll_to_next_message
+### 任务 7.1：添加 scroll_to_prev_message / scroll_to_next_message
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/mod.rs`
-- Modify: `crates/rustcode-tuix/src/render/alt_screen.rs`
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
-- Modify: `crates/rustcode-tuix/src/render/worker.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/mod.rs`
+- 修改：`crates/rustcode-tuix/src/render/alt_screen.rs`
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
+- 修改：`crates/rustcode-tuix/src/render/worker.rs`
 
-- [ ] **Step 1: Add trait methods**
+- [ ] **步骤 1：添加 trait 方法**
 
-In `Renderer` trait:
+在 `Renderer` trait 中：
 
 ```rust
 /// Jump body viewport to the prev/next message boundary. No-op when no
@@ -2197,7 +2197,7 @@ fn scroll_to_prev_user_message(&mut self) {}
 fn scroll_to_next_user_message(&mut self) {}
 ```
 
-- [ ] **Step 2: Write tests (alt-screen)**
+- [ ] **步骤 2：编写测试（alt-screen）**
 
 ```rust
 #[test]
@@ -2217,9 +2217,9 @@ fn alt_scroll_to_prev_message_finds_nearest_above() {
 }
 ```
 
-(Fill in `UiLine::ToolCall { ... }` per the real shape — grep `grep -nE "enum UiLine" crates/rustcode-tuix/src/render/mod.rs` to find it.)
+（按真实结构填写 `UiLine::ToolCall { ... }` —— 用 `grep -nE "enum UiLine" crates/rustcode-tuix/src/render/mod.rs` 找到它。）
 
-- [ ] **Step 3: Implement on alt-screen**
+- [ ] **步骤 3：在 alt-screen 上实现**
 
 ```rust
 fn scroll_to_prev_message(&mut self) {
@@ -2255,7 +2255,7 @@ fn scroll_to_next_user_message(&mut self) {
 }
 ```
 
-Add helper:
+添加辅助函数：
 ```rust
 fn scroll_body_to(&mut self, target: usize) {
     let body_height = self.body_height() as usize;
@@ -2268,9 +2268,9 @@ fn scroll_body_to(&mut self, target: usize) {
 }
 ```
 
-- [ ] **Step 4: Implement on retained**
+- [ ] **步骤 4：在 retained 上实现**
 
-Mirror, using `repaint_body_region()` instead of `paint_frame`:
+镜像实现，但用 `repaint_body_region()` 代替 `paint_frame`：
 
 ```rust
 fn scroll_to_prev_message(&mut self) {
@@ -2291,9 +2291,9 @@ fn scroll_body_to(&mut self, target: usize) {
 }
 ```
 
-- [ ] **Step 5: Wire through worker**
+- [ ] **步骤 5：经 worker 接线**
 
-Add 4 new `RenderCmd` variants + handlers in `worker.rs`:
+在 `worker.rs` 中添加 4 个新的 `RenderCmd` 变体及处理逻辑：
 
 ```rust
 RenderCmd::ScrollToPrevMessage,
@@ -2302,33 +2302,33 @@ RenderCmd::ScrollToPrevUserMessage,
 RenderCmd::ScrollToNextUserMessage,
 ```
 
-And 4 forwarding methods on `TaskRenderer`.
+并在 `TaskRenderer` 上添加 4 个转发方法。
 
-- [ ] **Step 6: Run tests**
+- [ ] **步骤 6：运行测试**
 
-Run: `cargo test -p rustcode-tuix --lib "scroll_to_prev_message|scroll_to_next_message|scroll_to_prev_user|scroll_to_next_user" 2>&1 | tail -15`
-Expected: PASS.
+运行：`cargo test -p rustcode-tuix --lib "scroll_to_prev_message|scroll_to_next_message|scroll_to_prev_user|scroll_to_next_user" 2>&1 | tail -15`
+预期：PASS。
 
-- [ ] **Step 7: Commit**
+- [ ] **步骤 7：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/render/{mod.rs,alt_screen.rs,retained.rs,worker.rs}
 git commit -m "tuix(scroll): add scroll_to_prev/next_message and _user_message variants"
 ```
 
-### Task 7.2: Bind Alt+↑/↓ + Ctrl+↑/↓ in handle_scroll_key
+### 任务 7.2：在 handle_scroll_key 中绑定 Alt+↑/↓ 与 Ctrl+↑/↓
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/event_loop/mod.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/event_loop/mod.rs`
 
-- [ ] **Step 1: Locate handle_scroll_key**
+- [ ] **步骤 1：定位 handle_scroll_key**
 
-Run: `grep -nE "fn handle_scroll_key" crates/rustcode-tuix/src/event_loop/mod.rs`
-Expected: line ~4160.
+运行：`grep -nE "fn handle_scroll_key" crates/rustcode-tuix/src/event_loop/mod.rs`
+预期：约第 4160 行。
 
-- [ ] **Step 2: Add key arms**
+- [ ] **步骤 2：添加按键分支**
 
-In `handle_scroll_key`, add (inside the existing `match code { ... }`):
+在 `handle_scroll_key` 中添加（放进现有的 `match code { ... }`）：
 
 ```rust
 KeyCode::Up if modifiers.contains(KeyModifiers::ALT) && !modifiers.contains(KeyModifiers::SHIFT) => {
@@ -2349,14 +2349,14 @@ KeyCode::Down if modifiers.contains(KeyModifiers::CONTROL) && !modifiers.contain
 }
 ```
 
-(Place these BEFORE the existing `KeyCode::Up if has_shift =>` arms so the modifier check ordering is unambiguous.)
+（把这些放在现有的 `KeyCode::Up if has_shift =>` 分支**之前**，使修饰键的判断顺序没有歧义。）
 
-- [ ] **Step 3: Build**
+- [ ] **步骤 3：构建**
 
-Run: `cargo build -p rustcode-tuix 2>&1 | tail -10`
-Expected: clean.
+运行：`cargo build -p rustcode-tuix 2>&1 | tail -10`
+预期：干净。
 
-- [ ] **Step 4: Commit**
+- [ ] **步骤 4：提交**
 
 ```bash
 git add crates/rustcode-tuix/src/event_loop/mod.rs
@@ -2365,16 +2365,16 @@ git commit -m "tuix(event_loop): bind Alt+↑/↓ + Ctrl+↑/↓ to message-jump
 
 ---
 
-## Phase 8: /keys docs update
+## 阶段 8：/keys 文档更新
 
-### Task 8.1: Update Chinese KeybindingsHelp
+### 任务 8.1：更新中文 KeybindingsHelp
 
-**Files:**
-- Modify: `crates/rustcode-core/src/i18n/zh_cn.rs`
+**文件：**
+- 修改：`crates/rustcode-core/src/i18n/zh_cn.rs`
 
-- [ ] **Step 1: Edit KeybindingsHelp text**
+- [ ] **步骤 1：编辑 KeybindingsHelp 文案**
 
-Find `Msg::KeybindingsHelp => r#"..."#.into(),` (line ~161). After the existing `── 历史 ──` block (before `── 会话 ──`), insert:
+找到 `Msg::KeybindingsHelp => r#"..."#.into(),`（约第 161 行）。在现有的 `── 历史 ──` 代码块之后（`── 会话 ──` 之前）插入：
 
 ```
   ── 翻看输出 ──
@@ -2390,7 +2390,7 @@ Find `Msg::KeybindingsHelp => r#"..."#.into(),` (line ~161). After the existing 
     /scrollbar                       切换右侧滚动条显示
 ```
 
-And append to the existing footnotes block:
+并在现有的脚注代码块后追加：
 
 ```
   *** Alt+↑/↓ macOS Apple Terminal 需在
@@ -2398,26 +2398,26 @@ And append to the existing footnotes block:
       才会发送修饰键。其他终端默认即可。
 ```
 
-- [ ] **Step 2: Run i18n consistency test**
+- [ ] **步骤 2：运行 i18n 一致性测试**
 
-Run: `cargo test -p rustcode-tuix --lib keys_command_is_registered_with_i18n_description_in_both_locales 2>&1 | tail -10`
-Expected: PASS (now or unchanged).
+运行：`cargo test -p rustcode-tuix --lib keys_command_is_registered_with_i18n_description_in_both_locales 2>&1 | tail -10`
+预期：PASS（现在通过或保持不变）。
 
-- [ ] **Step 3: Commit**
+- [ ] **步骤 3：提交**
 
 ```bash
 git add crates/rustcode-core/src/i18n/zh_cn.rs
 git commit -m "i18n(zh-cn): add scroll keys + /scrollbar to /keys help"
 ```
 
-### Task 8.2: Update English KeybindingsHelp
+### 任务 8.2：更新英文 KeybindingsHelp
 
-**Files:**
-- Modify: `crates/rustcode-core/src/i18n/en.rs`
+**文件：**
+- 修改：`crates/rustcode-core/src/i18n/en.rs`
 
-- [ ] **Step 1: Mirror the change**
+- [ ] **步骤 1：镜像该改动**
 
-Add to `Msg::KeybindingsHelp` in en.rs:
+在 en.rs 的 `Msg::KeybindingsHelp` 中添加：
 
 ```
   ── Scrollback ──
@@ -2433,7 +2433,7 @@ Add to `Msg::KeybindingsHelp` in en.rs:
     /scrollbar                       Toggle right-side scrollbar
 ```
 
-Add footnote:
+添加脚注：
 
 ```
   *** Alt+↑/↓ on macOS Apple Terminal requires enabling "Use Option as
@@ -2441,12 +2441,12 @@ Add footnote:
       send the modifier by default.
 ```
 
-- [ ] **Step 2: Build**
+- [ ] **步骤 2：构建**
 
-Run: `cargo build -p rustcode-core 2>&1 | tail -10`
-Expected: clean.
+运行：`cargo build -p rustcode-core 2>&1 | tail -10`
+预期：干净。
 
-- [ ] **Step 3: Commit**
+- [ ] **步骤 3：提交**
 
 ```bash
 git add crates/rustcode-core/src/i18n/en.rs
@@ -2455,27 +2455,27 @@ git commit -m "i18n(en): add scroll keys + /scrollbar to /keys help"
 
 ---
 
-## Phase 9: Final integration QA
+## 阶段 9：最终集成 QA
 
-### Task 9.1: Run full test suite
+### 任务 9.1：运行全量测试套件
 
-**Files:** none
+**文件：** 无
 
-- [ ] **Step 1: Full workspace test**
+- [ ] **步骤 1：全工作区测试**
 
-Run: `cargo test --workspace 2>&1 | tail -30`
-Expected: all green. If failures, fix and re-run; do not proceed.
+运行：`cargo test --workspace 2>&1 | tail -30`
+预期：全绿。若有失败，修复后重跑；不要继续往下做。
 
-- [ ] **Step 2: Lint**
+- [ ] **步骤 2：Lint 检查**
 
-Run: `cargo clippy --workspace --all-targets 2>&1 | tail -30`
-Expected: no new warnings introduced by this branch (compare against `main`).
+运行：`cargo clippy --workspace --all-targets 2>&1 | tail -30`
+预期：本分支不引入新的告警（与 `main` 对比）。
 
-### Task 9.2: Manual integration checklist
+### 任务 9.2：手工集成检查清单
 
-**Files:** none — this task produces a checklist for the user, not code.
+**文件：** 无 —— 本任务产出的是给用户的检查清单，不是代码。
 
-Output to the user (do not auto-execute):
+输出给用户（不要自动执行）：
 
 ```
 请手动验证以下场景（在你日常使用的终端上）：
@@ -2494,21 +2494,21 @@ Output to the user (do not auto-execute):
 复测后告诉我结果。如果有失败的，反馈是哪条 + 终端/OS 信息。
 ```
 
-Do not auto-execute; the user must drive these. Mark task complete only after user confirms manual checklist done.
+不要自动执行；这些必须由用户手动驱动。只有在用户确认手工检查清单完成后，才把任务标记为完成。
 
 ---
 
-## Self-Review
+## 自查
 
 跑完所有 Phase 后，按照 spec 的每段对照检查任务覆盖：
 
-- [x] Phase 0: Msg variants — Task 0.1
+- [x] 阶段 0：Msg 变体 —— 任务 0.1
 - [x] Phase 1: Selection 共享模块 — Tasks 1.1-1.4
-- [x] Phase 2: body buffer + MessageMark — Tasks 2.1-2.4
-- [x] Phase 3: retained view_mode + scroll — Tasks 3.1-3.4
+- [x] 阶段 2：body 缓冲 + MessageMark —— 任务 2.1-2.4
+- [x] 阶段 3：retained view_mode + 滚动 —— 任务 3.1-3.4
 - [x] Phase 4: retained 鼠标接管 — Tasks 4.1-4.3
 - [x] Phase 5: retained selection 接入 — Tasks 5.1-5.3
-- [x] Phase 6: scrollbar + /scrollbar + ui-state.toml — Tasks 6.1-6.6
-- [x] Phase 7: extra scroll keys — Tasks 7.1-7.2
-- [x] Phase 8: /keys docs — Tasks 8.1-8.2
+- [x] 阶段 6：滚动条 + /scrollbar + ui-state.toml —— 任务 6.1-6.6
+- [x] 阶段 7：附加滚动按键 —— 任务 7.1-7.2
+- [x] 阶段 8：/keys 文档 —— 任务 8.1-8.2
 - [x] Phase 9: 集成 QA — Tasks 9.1-9.2

@@ -1,7 +1,7 @@
 # TUI 统一 in-app 滚动设计
 
-**Date**: 2026-05-25
-**Status**: Design
+**日期**: 2026-05-25
+**状态**: 设计
 
 ## 背景
 
@@ -44,7 +44,7 @@
 
 ### 两个 renderer 收敛后的差异
 
-| | retained | alt-screen |
+| 对比项 | retained | alt-screen |
 |---|---|---|
 | 切 alt buffer | 否 | 是（`\x1b[?1049h`） |
 | 接管鼠标 | **是**（新增） | 是 |
@@ -271,7 +271,7 @@ struct MessageMark {
 
 1. 用户输入 `/scrollbar` 回车
 2. `event_loop/commands.rs` 找到 `scrollbar` 分支
-3. `renderer.toggle_scrollbar()` flip `show_scrollbar`
+3. `renderer.toggle_scrollbar()` 翻转 `show_scrollbar`
 4. 写 `$RUSTCODE_HOME/ui-state.toml`（写失败不阻塞，记 trace 日志）
 5. `body_dirty = true; paint_frame()`
 6. 回显 `Scrollbar: ON` / `OFF` 到 body

@@ -4895,6 +4895,10 @@ pub enum Msg<'a> {
     },
     /// "Idle timeout: disabled".
     DaemonIdleTimeoutDisabled,
+    // 已无发射点：Q3 裁决删除了 `run_server` 的启动横幅（该变体在默认 0.0.0.0 下
+    // 每次启动必打印，退化为噪音）。变体与 `en.rs` / `zh_cn.rs` 两语种文案按 T-04
+    // 契约 K4 **保留**，勿当死码清理；非回环风险提示现由 `WebuiLanWarning` /
+    // `WebuiNonLoopbackWarning` 承担。
     /// Warning when binding a non-loopback host. `{host}` is the bind address.
     DaemonWarnNonLoopback {
         host: &'a str,

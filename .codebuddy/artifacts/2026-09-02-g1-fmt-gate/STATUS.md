@@ -60,7 +60,7 @@
 （`git diff -w` 不可用——它只忽略行内空白，无法忽略 rustfmt 的换行合并。）
 
 - 6 个文件 `TOKENS_IDENTICAL`（纯空白/换行）：cli/main.rs、cli/schedule_cmd.rs、
-  coding/runtime.rs、tuix/modals/onboarding_wizard.rs、tuix/render/cell.rs、updater/lib.rs
+  coding/runtime.rs、tuix/modals/onboarding_wizard.rs、tuix/render/cell.rs、updater/lib.rs（共 6 个文件）
 - 4 个文件用 Python 做 Unicode 安全比对并定位首个差异字符，性质如下：
 
 | 文件 | 差异性质 | 语义影响 |
@@ -157,7 +157,7 @@ worktree 快照、共用环境约束（`-j 1` / daemon 端口 / 日志路径）�
 ## T4：tuix 5 + cli 1 缺 locale 锁修复（已完成，零回归且**净减红**）
 
 根因与 T3 **同类**：断言英文串却未钉 locale。实测断言
-`left: "Result（3 行）"` vs `right: "Result (3 lines)"`（tuix）、
+`left: "Result（3 行）"` vs `right: "Result (3 lines)"`（tuix 侧）、
 `text.contains("separate terminal")` 不成立（cli，`acp/translate.rs:196`）。
 依据 `AGENTS.md:231` 约定「断言英文串的测试均显式 `test_lock()` + `set_locale(En)`」。
 
@@ -190,9 +190,9 @@ worktree 快照、共用环境约束（`-j 1` / daemon 端口 / 日志路径）�
 
 | 套件 | 修复前 | 修复后 |
 |---|---|---|
-| `rustcode-tuix --lib` | 2059 / **5 failed** | **2064 / 0** |
-| `rustcode --lib` | 115 / **1 failed** | **116 / 0** |
-| `rustcode-review --lib` | 99 / **1 failed** | **100 / 0**（T3） |
+| `rustcode-tuix --lib` | 2059 / **5 个失败** | **2064 / 0** |
+| `rustcode --lib` | 115 / **1 个失败** | **116 / 0** |
+| `rustcode-review --lib` | 99 / **1 个失败** | **100 / 0**（T3） |
 | `rustcode-coding --lib` | — | 430 / 0 |
 | `rustcode-updater --lib` | — | 41 / 0 |
 | `rustcode-capabilities --lib` | 1475 / **1 failed** | 仍 1（`trust_key`，铁律禁改） |
@@ -262,7 +262,7 @@ T4 首次尝试派发 2 个 `code-implementer`（tuix / cli 各一，`files_owne
 | 我的 fmt hunk(`cli/src/main.rs:3363`)是否存活 | **存活** —— 与对方 T3 的删除在同一文件共存 |
 | `cli/src/main.rs` 合并后 diff | 4 增 15 删（含我的 fmt hunk） |
 | G1 `cargo fmt --check` | **exit=0 / 0 差异** |
-| G2 `cargo check -j 1 --workspace --all-targets` | **exit=0 / 0 error** |
+| G2 `cargo check -j 1 --workspace --all-targets` | **exit=0 / 0 错误** |
 | G3 `cargo test -j 1 --workspace --no-fail-fast` | **5481 passed / 1 failed**，89 目标全绿 |
 | 唯一失败 | `mcp::registry::tests::trust_key_golden_matches_core_algorithm`（已知红，铁律禁改） |
 

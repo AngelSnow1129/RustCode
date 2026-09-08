@@ -35,6 +35,6 @@ use rustcode_kernel::agent::Agent;
 coding 的 verify loop 接入的是已有的 **`offer_continuation`** seam（edit 后自动
 verify、未通过则续跑），无需在内核新增任何回合末 hook。
 
-## Cargo features
+## Cargo 特性
 
 - `test-support`（dev）：gates `test_support::isolate_home()`，供各 crate 测试隔离 `~/.rustcode`。

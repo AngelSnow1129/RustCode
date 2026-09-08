@@ -1,6 +1,6 @@
 # rustcode-tuix Retained-mode 渲染重写计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
 **Goal:** 把 rustcode-tuix 从 immediate-mode（"UiLine 事件直接变 ANSI bytes"）改造成 retained-mode（"UiLine 变化更新内存 screen buffer，独立 render loop 按节奏 diff + emit"），消除 Ink Phase 1 之后仍残留的 5 类固有 bug（footer/body 交界漂移、submit 4ms 空窗、terminal state drift、无 full-repaint 能力、scroll 出屏幕的 body 无法 recover）。对齐 CC / Ink 的渲染架构。
 
@@ -95,8 +95,8 @@ body 进 Screen 的 top 部分（rows `[0, H - footer_rows)`），footer 占 row
 
 ### Phase 0: Cell 结构扩容 + 辅助函数
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/cell.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/cell.rs`
 
 - [ ] **Step 0.1: Cell 加 bg 字段**（为未来可能的 bg color，但**目前 always None**，不影响现有用法）
 
@@ -143,10 +143,10 @@ pub fn diff_cells(
 
 ---
 
-### Phase 1: Screen struct
+### Phase 1: Screen 结构体
 
-**Files:**
-- Create: `crates/rustcode-tuix/src/render/screen.rs`
+**文件：**
+- 新建：`crates/rustcode-tuix/src/render/screen.rs`
 
 - [ ] **Step 1.1: Screen struct 定义**
 
@@ -365,11 +365,11 @@ mod tests {
 
 **目的**：让 `Screen` 能被现有 event loop 使用，**先不引入异步 render loop**（Phase 5 再引入节奏），保持简单。
 
-**Files:**
-- Create: `crates/rustcode-tuix/src/render/retained.rs`
-- Modify: `crates/rustcode-tuix/src/render/mod.rs`
+**文件：**
+- 新建：`crates/rustcode-tuix/src/render/retained.rs`
+- 修改：`crates/rustcode-tuix/src/render/mod.rs`
 
-- [ ] **Step 2.1: RetainedRenderer impl Renderer**
+- [ ] **Step 2.1: RetainedRenderer 实现 Renderer trait**
 
 ```rust
 use std::io::{BufWriter, Stdout, Write};
@@ -509,8 +509,8 @@ let inner: Box<dyn Renderer> = if caps.tty {
 
 ### Phase 3: footer widget 完整迁移
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
 - [ ] **Step 3.1: `paint_footer` 完整实现**，对齐现有 `AnsiRenderer::draw_footer_here_with_prev_cursor`
 
@@ -519,8 +519,8 @@ let inner: Box<dyn Renderer> = if caps.tty {
 逻辑：
 - footer_rows 根据 input buf 跨几行 + menu 是否打开计算
 - middle_rows 用 `wrap_with_cursor` 算
-- rule_width = screen.width - PAD_COL*2
-- footer_top = H - footer_rows
+- rule_width（分隔线宽度）= screen.width - PAD_COL*2
+- footer_top（footer 顶部行）= H - footer_rows
 
 - [ ] **Step 3.2: 所有 footer 相关 UiLine 分发**
 
@@ -530,14 +530,14 @@ let inner: Box<dyn Renderer> = if caps.tty {
 
 目标：
 - menu open ≤ 900 B (现 880)
-- menu close ≤ 900 B
-- keystroke ≤ 30 B
-- menu nav ≤ 300 B
+- menu 关闭 ≤ 900 B
+- 单次按键 ≤ 30 B
+- menu 导航 ≤ 300 B
 
-### Phase 4: body widget + scrollback
+### Phase 4: body 组件 + scrollback
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs`
 
 - [ ] **Step 4.1: body 写入用 scroll_up + draw**
 
@@ -573,10 +573,10 @@ markdown 渲染继续用 `crate::markdown::render_line`，返回的 String 直�
 
 `streaming_text_delta_byte_cost` 改跑 RetainedRenderer，assert <60 B/delta。
 
-### Phase 5: async render loop + 16ms coalesce
+### Phase 5: 异步 render loop + 16ms 合并
 
-**Files:**
-- Modify: `crates/rustcode-tuix/src/render/retained.rs` 或新 `render/frame_loop.rs`
+**文件：**
+- 修改：`crates/rustcode-tuix/src/render/retained.rs` 或新 `render/frame_loop.rs`
 
 - [ ] **Step 5.1: 把 flush_frame 改成 "标记 dirty"，不立即 emit**
 
@@ -604,7 +604,7 @@ flush_deferred 目前是旧 InputThrottle 用。改语义为"如果 dirty 则 em
 
 ---
 
-## Verification
+## 验证
 
 **测试 gate**（每 phase 必须过）：
 
@@ -625,7 +625,7 @@ flush_deferred 目前是旧 InputThrottle 用。改语义为"如果 dirty 则 em
 - [ ] `/logout` → `/login` 再次
 - [ ] `/clear` 清屏 → 继续打字（**关键：不再出现"输入框消失"**）
 - [ ] `/session` 新会话
-- [ ] `/resume` session picker
+- [ ] `/resume` 会话选择器
 - [ ] streaming 期间打字（type-ahead queue）
 - [ ] agent edit 工具流 spinner 不卡
 - [ ] Window resize 拖大拖小 — footer 重画正确
@@ -635,13 +635,13 @@ flush_deferred 目前是旧 InputThrottle 用。改语义为"如果 dirty 则 em
 
 - keystroke 稳态：≤ 30 B
 - menu open/close：≤ 950 B（物理下界约 880）
-- menu nav：≤ 300 B
-- streaming delta：≤ 60 B
+- menu 导航：≤ 300 B
+- streaming 增量：≤ 60 B
 - resize 全量重画：≤ 5000 B（一次性）
 
 ---
 
-## Critical files
+## 关键文件
 
 已熟悉，Phase 执行中主要改这几个：
 

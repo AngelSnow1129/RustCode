@@ -1,71 +1,71 @@
-# DeepSeek Skill-First Reminder — Implementation Plan
+# DeepSeek Skill-First 提醒 —— 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 按任务逐步实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
-**Goal:** Make DeepSeek load a matching process skill (e.g. `brainstorming`) before it explores or solutions, by injecting a forceful skill-first `<system-reminder>` on the opening turn.
+**目标：** 通过在开场 turn 注入一段强硬的 skill-first `<system-reminder>`，让 DeepSeek 在探索或给出方案之前先加载匹配的流程类 skill（例如 `brainstorming`）。
 
-**Architecture:** A new deepseek-only `LifecycleHooks` implementation (`SkillFirstHook`) that fires once, on `turn_id==1 && round==1`, appending a `<system-reminder>` at the request tail — the same ephemeral per-turn injection mechanism `StatusReminderHook`/`TodoHook` use, which has far higher recency for a weak model than a static persona line. Gated to DeepSeek + a non-empty skill catalog. Registered in `prepare()`, so it reaches both TUI/CLI and daemon/webui (identical `CodingRuntime` pipeline).
+**架构：** 新增一个仅限 DeepSeek 的 `LifecycleHooks` 实现（`SkillFirstHook`），只在 `turn_id==1 && round==1` 时触发一次，在请求尾部追加一个 `<system-reminder>` —— 与 `StatusReminderHook`/`TodoHook` 所用的是同一种每轮临时注入机制；对弱模型而言，它的时效性强于静态 persona 行。仅在 DeepSeek 且 skill 目录非空时启用。在 `prepare()` 中注册，因此同时覆盖 TUI/CLI 与 daemon/webui（二者共用同一条 `CodingRuntime` 流水线）。
 
-**Tech Stack:** Rust, `rustcode-coding` crate, `rustcode-kernel` hook trait, `rustcode-capabilities::reminder`, `cargo test`.
+**技术栈：** Rust、`rustcode-coding` crate、`rustcode-kernel` hook trait、`rustcode-capabilities::reminder`、`cargo test`。
 
-## Global Constraints
+## 全局约束
 
-- **DeepSeek-only.** Gate via the existing `crate::persona::model_needs_firm_execution(model)` predicate. GLM / frontier never get the hook.
-- **Never nudge an unmounted tool.** Also gate on a non-empty skill catalog — when no skills are installed, the hook is a no-op (mirrors `TodoHook` / `request_user_input` gating discipline).
-- **Opening turn only, one-shot** (`ctx.turn_id == 1 && ctx.round == 1`). No injection on later rounds/turns — no per-turn noise on ongoing coding.
-- **Fire on round 1 (deliberately, unlike `StatusReminderHook`).** The reminder must preempt the model's very first action. The resulting user-after-user tail is safe *because the hook is DeepSeek-only* (OpenAI-compatible API tolerates consecutive user messages; the Anthropic-strict rejection that makes `StatusReminderHook` skip round 1 never applies here).
-- **Ephemeral injection**, wrapped in `<system-reminder>` via `rustcode_capabilities::reminder::system_reminder`, appended as `Message::user(...)` — same convention as `TodoHook`/`StatusReminderHook`. Never mutate the persisted user message.
-- Reaches both TUI/CLI and daemon/webui (same `CodingRuntime` → `prepare()` pipeline).
-- Commit trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. Work on the current branch `release/v5.0.1`.
-
----
-
-## File Structure
-
-- `crates/rustcode-coding/src/skill_first.rs` — **new.** The `SkillFirstHook` unit: construct-time gating, the pure reminder body, and the `pre_request` firing logic. Self-contained + unit-tested.
-- `crates/rustcode-coding/src/lib.rs` — add `mod skill_first;` (mirror `mod todo;` at line ~56).
-- `crates/rustcode-coding/src/persona.rs:181` — widen `fn model_needs_firm_execution` to `pub(crate) fn` so the hook can reuse the DeepSeek predicate.
-- `crates/rustcode-coding/src/parts.rs` — capture a `has_skills` flag before `skill_catalog` is moved (line ~509) and register the hook after `TodoHook` (line ~541).
+- **仅限 DeepSeek。** 通过既有的 `crate::persona::model_needs_firm_execution(model)` 谓词做门控。GLM / frontier 模型永远拿不到该 hook。
+- **绝不对未挂载的工具做提示。** 同时以 skill 目录非空为门控 —— 未安装任何 skill 时该 hook 是 no-op（沿用 `TodoHook` / `request_user_input` 的门控纪律）。
+- **仅开场 turn、一次性**（`ctx.turn_id == 1 && ctx.round == 1`）。后续 round/turn 不再注入 —— 避免在进行中的编码过程里产生每轮噪声。
+- **刻意在 round 1 触发（与 `StatusReminderHook` 不同）。** 该提醒必须先于模型的第一个动作。由此产生的 user-after-user 尾部是安全的，*正因为该 hook 仅限 DeepSeek*（OpenAI 兼容 API 容忍连续的 user 消息；导致 `StatusReminderHook` 跳过 round 1 的那条 Anthropic 严格拒绝规则在此根本不适用）。
+- **临时注入**，经 `rustcode_capabilities::reminder::system_reminder` 包成 `<system-reminder>`，以 `Message::user(...)` 追加 —— 与 `TodoHook`/`StatusReminderHook` 同一约定。绝不改动被持久化的 user 消息。
+- 同时覆盖 TUI/CLI 与 daemon/webui（同一条 `CodingRuntime` → `prepare()` 流水线）。
+- 提交 trailer：`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`。在当前分支 `release/v5.0.1` 上工作。
 
 ---
 
-### Task 1: `SkillFirstHook` — the hook unit
+## 文件结构
 
-**Files:**
-- Modify: `crates/rustcode-coding/src/persona.rs:181` (visibility)
-- Modify: `crates/rustcode-coding/src/lib.rs` (module declaration, ~line 56)
-- Create: `crates/rustcode-coding/src/skill_first.rs`
-- Test: `crates/rustcode-coding/src/skill_first.rs` (`#[cfg(test)] mod tests`)
+- `crates/rustcode-coding/src/skill_first.rs` —— **新建。** `SkillFirstHook` 单元：构造期门控、纯提醒正文，以及 `pre_request` 触发逻辑。自包含 + 带单测。
+- `crates/rustcode-coding/src/lib.rs` —— 添加 `mod skill_first;`（照 `mod todo;` 的写法，约第 56 行）。
+- `crates/rustcode-coding/src/persona.rs:181` —— 把 `fn model_needs_firm_execution` 放宽为 `pub(crate) fn`，以便该 hook 复用 DeepSeek 谓词。
+- `crates/rustcode-coding/src/parts.rs` —— 在 `skill_catalog` 被 move 之前（约第 509 行）捕获 `has_skills` 标志，并在 `TodoHook` 之后（约第 541 行）注册该 hook。
 
-**Interfaces:**
-- Consumes: `crate::persona::model_needs_firm_execution(&str) -> bool` (made `pub(crate)` here); `rustcode_capabilities::reminder::system_reminder(&str) -> String`; `rustcode_kernel::hook::{LifecycleHooks, TurnCtx}`; `rustcode_kernel::message::Message`.
-- Produces: `pub struct SkillFirstHook` with `pub fn new(model: &str, has_skills: bool) -> Self`, implementing `LifecycleHooks`. Task 2 constructs it as `crate::skill_first::SkillFirstHook::new(&cfg.model, has_skills)`.
+---
 
-- [ ] **Step 1: Widen the DeepSeek predicate's visibility**
+### Task 1: `SkillFirstHook` —— hook 单元
 
-In `crates/rustcode-coding/src/persona.rs`, line 181, change:
+**文件：**
+- 修改：`crates/rustcode-coding/src/persona.rs:181`（可见性）
+- 修改：`crates/rustcode-coding/src/lib.rs`（模块声明，约第 56 行）
+- 新建：`crates/rustcode-coding/src/skill_first.rs`
+- 测试：`crates/rustcode-coding/src/skill_first.rs`（`#[cfg(test)] mod tests`）
+
+**接口：**
+- 消费：`crate::persona::model_needs_firm_execution(&str) -> bool`（在此改为 `pub(crate)`）；`rustcode_capabilities::reminder::system_reminder(&str) -> String`；`rustcode_kernel::hook::{LifecycleHooks, TurnCtx}`；`rustcode_kernel::message::Message`。
+- 产出：`pub struct SkillFirstHook`，带 `pub fn new(model: &str, has_skills: bool) -> Self`，实现 `LifecycleHooks`。Task 2 以 `crate::skill_first::SkillFirstHook::new(&cfg.model, has_skills)` 构造它。
+
+- [ ] **步骤 1：放宽 DeepSeek 谓词的可见性**
+
+在 `crates/rustcode-coding/src/persona.rs` 第 181 行，将：
 
 ```rust
 fn model_needs_firm_execution(model: &str) -> bool {
 ```
 
-to:
+改为：
 
 ```rust
 pub(crate) fn model_needs_firm_execution(model: &str) -> bool {
 ```
 
-- [ ] **Step 2: Declare the module**
+- [ ] **步骤 2：声明模块**
 
-In `crates/rustcode-coding/src/lib.rs`, next to `mod todo;` (line ~56), add:
+在 `crates/rustcode-coding/src/lib.rs` 中，紧邻 `mod todo;`（约第 56 行）添加：
 
 ```rust
 mod skill_first;
 ```
 
-- [ ] **Step 3: Create the hook file with a NO-OP `pre_request` and the full tests (red step)**
+- [ ] **步骤 3：创建 hook 文件，带 NO-OP `pre_request` 和完整测试（red 步骤）**
 
-Create `crates/rustcode-coding/src/skill_first.rs` with the struct, a real `body()`, an intentionally-empty `pre_request` (so the firing tests fail first), and the tests:
+创建 `crates/rustcode-coding/src/skill_first.rs`，包含结构体、真实的 `body()`、故意留空的 `pre_request`（以便触发类测试先失败），以及测试：
 
 ```rust
 //! `SkillFirstHook` — a DeepSeek-only opening-turn `<system-reminder>` that forces a
@@ -193,14 +193,15 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify the firing tests FAIL**
+- [ ] **步骤 4：运行测试，确认触发类测试 FAIL**
 
-Run: `cargo test -p rustcode-coding --lib skill_first`
-Expected: `body_names_...` and `disabled_...` PASS (no-op hook injects nothing, which matches the disabled expectation), but `deepseek_opening_turn_injects_one_wrapped_reminder` and `does_not_fire_after_the_opening_turn` — specifically the *opening-turn* one — FAIL (asserts `msgs.len() == 3` but the no-op left it at 2).
+运行：`cargo test -p rustcode-coding --lib skill_first`
 
-- [ ] **Step 5: Implement `pre_request`**
+预期：`body_names_...` 与 `disabled_...` PASS（no-op hook 不注入任何内容，正好符合“已禁用”的预期），但 `deepseek_opening_turn_injects_one_wrapped_reminder` 与 `does_not_fire_after_the_opening_turn` —— 特别是*开场 turn* 那一个 —— FAIL（断言 `msgs.len() == 3`，而 no-op 让它停在 2）。
 
-Replace the no-op `pre_request` body with:
+- [ ] **步骤 5：实现 `pre_request`**
+
+把 no-op 的 `pre_request` 函数体替换为：
 
 ```rust
     async fn pre_request(&self, messages: &mut Vec<Message>, ctx: &TurnCtx) {
@@ -217,17 +218,19 @@ Replace the no-op `pre_request` body with:
     }
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **步骤 6：运行测试确认通过**
 
-Run: `cargo test -p rustcode-coding --lib skill_first`
-Expected: all four tests PASS.
+运行：`cargo test -p rustcode-coding --lib skill_first`
 
-- [ ] **Step 7: Confirm no regressions in the crate**
+预期：四个测试全部 PASS。
 
-Run: `cargo test -p rustcode-coding`
-Expected: full suite PASS (including the existing `model_needs_firm_execution_is_deepseek_only` at persona.rs — visibility change does not affect behavior).
+- [ ] **步骤 7：确认该 crate 无回归**
 
-- [ ] **Step 8: Commit**
+运行：`cargo test -p rustcode-coding`
+
+预期：全量套件 PASS（包括 persona.rs 中既有的 `model_needs_firm_execution_is_deepseek_only` —— 可见性改动不影响行为）。
+
+- [ ] **步骤 8：提交**
 
 ```bash
 git add crates/rustcode-coding/src/skill_first.rs crates/rustcode-coding/src/lib.rs crates/rustcode-coding/src/persona.rs
@@ -246,18 +249,18 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 2: Wire `SkillFirstHook` into `prepare()`
+### Task 2: 把 `SkillFirstHook` 接入 `prepare()`
 
-**Files:**
-- Modify: `crates/rustcode-coding/src/parts.rs` (capture `has_skills` before line ~509; register hook after line ~541)
+**文件：**
+- 修改：`crates/rustcode-coding/src/parts.rs`（在第 ~509 行之前捕获 `has_skills`；在第 ~541 行之后注册 hook）
 
-**Interfaces:**
-- Consumes: `crate::skill_first::SkillFirstHook::new(&cfg.model, has_skills)` from Task 1; the existing `skill_catalog: Option<String>` local and `cfg.model` in `prepare()`.
-- Produces: nothing new — appends one hook to the existing `hooks` vec.
+**接口：**
+- 消费：Task 1 的 `crate::skill_first::SkillFirstHook::new(&cfg.model, has_skills)`；`prepare()` 中既有的 `skill_catalog: Option<String>` 局部变量与 `cfg.model`。
+- 产出：无新增 —— 只是往既有的 `hooks` vec 追加一个 hook。
 
-- [ ] **Step 1: Capture a `has_skills` flag before `skill_catalog` is moved**
+- [ ] **步骤 1：在 `skill_catalog` 被 move 之前捕获 `has_skills` 标志**
 
-In `crates/rustcode-coding/src/parts.rs`, the catalog is moved into `SkillCatalogHook::new(skill_catalog)` at line ~509. Immediately BEFORE that line, add the capture. Change:
+在 `crates/rustcode-coding/src/parts.rs` 中，目录在约第 509 行被 move 进 `SkillCatalogHook::new(skill_catalog)`。在该行**之前**立即加入捕获。将：
 
 ```rust
     // Skill catalog — leading system message (persona → context → memory → skills), so
@@ -266,7 +269,7 @@ In `crates/rustcode-coding/src/parts.rs`, the catalog is moved into `SkillCatalo
     hooks.push(Arc::new(SkillCatalogHook::new(skill_catalog)));
 ```
 
-to:
+改为：
 
 ```rust
     // Skill catalog — leading system message (persona → context → memory → skills), so
@@ -278,9 +281,9 @@ to:
     hooks.push(Arc::new(SkillCatalogHook::new(skill_catalog)));
 ```
 
-- [ ] **Step 2: Register the hook after `TodoHook`**
+- [ ] **步骤 2：在 `TodoHook` 之后注册该 hook**
 
-In `crates/rustcode-coding/src/parts.rs`, after the `TodoHook` block (line ~539-541):
+在 `crates/rustcode-coding/src/parts.rs` 中，`TodoHook` 块（约第 539-541 行）之后：
 
 ```rust
     if crate::persona::todo_switch_enabled() {
@@ -288,7 +291,7 @@ In `crates/rustcode-coding/src/parts.rs`, after the `TodoHook` block (line ~539-
     }
 ```
 
-add:
+添加：
 
 ```rust
     // DeepSeek-only opening-turn skill-first reminder. A weak model (deepseek) skips
@@ -302,17 +305,19 @@ add:
     )));
 ```
 
-- [ ] **Step 3: Build and run the crate suite**
+- [ ] **步骤 3：构建并运行该 crate 的测试套件**
 
-Run: `cargo test -p rustcode-coding`
-Expected: compiles and the full suite PASSES (no behavior change to existing hooks; the new hook is appended).
+运行：`cargo test -p rustcode-coding`
 
-- [ ] **Step 4: Verify the reminder is compiled into the rustcode binary**
+预期：编译通过且全量套件 PASS（既有 hook 行为不变；新 hook 只是被追加）。
 
-Run: `cargo build --bin rustcode && strings target/debug/rustcode | grep -c "ONE question at a time"`
-Expected: prints `1` (the reminder body is baked into the binary).
+- [ ] **步骤 4：确认提醒正文已被编译进 rustcode 二进制**
 
-- [ ] **Step 5: Commit**
+运行：`cargo build --bin rustcode && strings target/debug/rustcode | grep -c "ONE question at a time"`
+
+预期：打印 `1`（提醒正文已被烘焙进二进制）。
+
+- [ ] **步骤 5：提交**
 
 ```bash
 git add crates/rustcode-coding/src/parts.rs
@@ -327,25 +332,25 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Self-Review
+## 自查
 
-**Spec coverage:**
-- "Deepseek-only lifecycle hook" → Task 1 (`SkillFirstHook`, gated via `model_needs_firm_execution`). [x]
-- "Non-empty catalog gate" → Task 1 `new(model, has_skills)` + Task 2 `has_skills` capture. [x]
-- "Opening turn only, one-shot; fire on round 1" → Task 1 Step 5 (`turn_id==1 && round==1`) + module doc rationale. [x]
-- "Tail `<system-reminder>` via `system_reminder`, `Message::user`" → Task 1 Step 5. [x]
-- "Register in `prepare()`, reaches TUI + webui" → Task 2. [x]
-- "Pure reminder-text builder tested; gating tested; firing tested" → Task 1 Steps 3/6. [x]
-- "Run existing tests" → Task 1 Step 7, Task 2 Step 3. [x]
-- Rejected/deferred (intent classification, force-load, all-models, mid-session) → not implemented, matches spec out-of-scope. [x]
+**规格覆盖：**
+- “仅限 DeepSeek 的 lifecycle hook” → Task 1（`SkillFirstHook`，经 `model_needs_firm_execution` 门控）。[x]
+- “目录非空门控” → Task 1 的 `new(model, has_skills)` + Task 2 的 `has_skills` 捕获。[x]
+- “仅开场 turn、一次性；在 round 1 触发” → Task 1 步骤 5（`turn_id==1 && round==1`）+ 模块文档中的理由。[x]
+- “经 `system_reminder` 追加尾部 `<system-reminder>`，用 `Message::user`” → Task 1 步骤 5。[x]
+- “在 `prepare()` 中注册，覆盖 TUI + webui” → Task 2。[x]
+- “纯提醒文本构造被测试；门控被测试；触发被测试” → Task 1 步骤 3/6。[x]
+- “跑既有测试” → Task 1 步骤 7、Task 2 步骤 3。[x]
+- 已否决/已推迟项（意图分类、强制加载、全模型、会话中途）→ 未实现，与 spec 的范围外一致。[x]
 
-**Placeholder scan:** No TBD/TODO. Every code step shows exact content. The Step 3 no-op `pre_request` is an intentional red-step stub, replaced verbatim in Step 5. [x]
+**占位符扫描：** 无 TBD/TODO。每个代码步骤都给出了确切内容。步骤 3 的 no-op `pre_request` 是刻意的 red 步骤桩，在步骤 5 中被逐字替换。[x]
 
-**Type consistency:** `SkillFirstHook::new(model: &str, has_skills: bool)` is defined in Task 1 and called identically in Task 2. `body()` returns `&'static str`, wrapped by `system_reminder(&str) -> String`, pushed as `Message::user(String)`. `TurnCtx { turn_id: u64, round: u32, ..Default::default() }` matches the kernel definition. [x]
+**类型一致性：** `SkillFirstHook::new(model: &str, has_skills: bool)` 在 Task 1 定义，在 Task 2 以完全相同的方式调用。`body()` 返回 `&'static str`，经 `system_reminder(&str) -> String` 包装，以 `Message::user(String)` 推入。`TurnCtx { turn_id: u64, round: u32, ..Default::default() }` 与 kernel 定义一致。[x]
 
 ---
 
-## Execution Notes
+## 执行备注
 
-- Only `rustcode-coding` is touched; no `core` change, so no `touch core/lib.rs` staleness dance. `#[tokio::test]` and `async-trait` are already available in the crate.
-- After merge this ships **未真机** for the behavioral effect — whether deepseek now calls `use_skill(brainstorming)` on the opening turn is only observable by the user on a real terminal (rebuild `target/debug/rustcode`, run deepseek-v4-flash, send the design request). Per the spec's honest-limitation note, the hook guarantees delivery, not the model's subsequent adherence to the skill's one-at-a-time discipline.
+- 只触及 `rustcode-coding`；没有 `core` 改动，因此无需 `touch core/lib.rs` 那套应对陈旧产物的动作。`#[tokio::test]` 与 `async-trait` 在该 crate 中已可用。
+- 合并之后，本次改动在行为效果上是**未真机**发货的 —— deepseek 是否真的会在开场 turn 调用 `use_skill(brainstorming)`，只有用户在真实终端上才能观察到（重新构建 `target/debug/rustcode`，跑 deepseek-v4-flash，发出设计类请求）。按 spec 中那条诚实的局限性说明，该 hook 保证的是送达，而不是模型此后是否遵守 skill 的“一次一个问题”纪律。

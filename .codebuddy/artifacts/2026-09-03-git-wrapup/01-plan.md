@@ -172,7 +172,7 @@ CI: fmt=绿, clippy=绿, test=按 Q2 裁决口径（现状为红于 trust_key）
 
 ### 5.2 门禁基线契约（fail-closed）
 
-- G-A：`cargo fmt --all -- --check` exit=0。
+- G-A：`cargo fmt --all -- --check` 退出码=0。
 - G-B：`cargo test -j 1 --workspace --no-fail-fast` 的失败集 **必须 ⊆** `{mcp::registry::tests::trust_key_golden_matches_core_algorithm}`；出现任何集合外失败即判定回归，停止后续合并动作。
 - G-C：`git status --short` 输出为空（每次提交前/合并前）。
 - G-D：`git var GIT_AUTHOR_IDENT` exit=0 且输出不含 `(none)`（每个写操作前）。

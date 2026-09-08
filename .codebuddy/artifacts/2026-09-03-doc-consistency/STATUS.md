@@ -36,7 +36,7 @@
 | D1 | 根文档：AGENTS.md / CONTEXT.md / README.md / README.zh-CN.md | code-explorer | in_progress |
 | D2 | docs/ 设计与架构文档 | code-explorer | in_progress |
 | D3 | site/ 网页文档 + extensions/ 文档 + packages/ | code-explorer | in_progress |
-| D4 | .codebuddy/agents/*.md + scripts/*.sh + .github/workflows/* | code-explorer | in_progress |
+| D4 | .codebuddy/agents/*.md + scripts/*.sh + .github/workflows/*（Agent 定义 + 脚本 + 工作流） | code-explorer | in_progress |
 
 ## 任务（Phase 2 修复）
 
@@ -47,7 +47,7 @@
 | T3 | `docs/features.md:4` 链接 `CONTEXT.md`→`../CONTEXT.md` | D2 | doc-writer-A | ready | low |
 | T4 | `docs/REFACTOR_SUMMARY.md` 5 处事实过期（重命名方向/数量/env/telemetry_legacy/ORIGINAL_LICENSE） | D2 | doc-writer-B | ready | medium |
 | T5 | `docs/phase1-refactor-design.md` `docs/licenses/` 虚假现状断言 + X2 + L29 + L677 | D2 | doc-writer-B | ready | medium |
-| T6 | `docs/REFACTOR_DESIGN_PHASE1.md:797-828` `-p rustcode-cli`×4 | D2 | doc-writer-B | ready | low |
+| T6 | `docs/REFACTOR_DESIGN_PHASE1.md:797-828` 内 `-p rustcode-cli`×4 | D2 | doc-writer-B | ready | low |
 | T7 | `docs/phase2-subagent-status.md:13` AGENT-A [PENDING]→对齐 [DONE] | D2 | doc-writer-B | ready | low |
 | T8 | `scripts/linux-release-linux.sh:9` 版本来源统一为 Cargo.toml | D4 | 编排者 | done | medium |
 
@@ -58,7 +58,7 @@
   - `AGENTS.md:236`、`platform-neutralization.md:119` → 解释性语境（描述「已修正为 -p rustcode」），**保留**
   - `docs/plans/*.md`（×4）→ **F1 历史规划文档，待裁决**
 - `grep -n "\.atom" site/index.html` → 0 命中（已统一 `.rustcode`）
-- `bash -n scripts/linux-release-linux.sh` → SYNTAX_OK
+- `bash -n scripts/linux-release-linux.sh` → 语法检查通过（SYNTAX_OK）
 - 未触碰：AGENTS.md / LICENSE / docs/UPSTREAM_* / THIRD_PARTY_NOTICES / ORIGINAL_LICENSE / .codebuddy/agents/ / 合规归属声明中的 atomcode
 
 ## Flagged（待裁决 / 待授权，本轮不擅自改）

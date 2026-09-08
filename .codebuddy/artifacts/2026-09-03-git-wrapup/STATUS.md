@@ -83,11 +83,11 @@
 
 | 次数 | 目标 Agent | 结果 |
 |---|---|---|
-| 1 | requirements-analyst | No result found |
-| 2 | code-implementer | idle timeout |
-| 3 | code-implementer | idle timeout |
-| 4 | code-implementer（T1） | No result found |
-| 5 | code-implementer（GW-03） | No result found |
+| 1 | requirements-analyst | 未返回结果 |
+| 2 | code-implementer | 空闲超时 |
+| 3 | code-implementer | 空闲超时 |
+| 4 | code-implementer（T1） | 未返回结果 |
+| 5 | code-implementer（GW-03） | 未返回结果 |
 
 **成功**：`solution-architect`（GW-01/02 计划编制，25 次工具调用）、`doc-writer`（GW-02，44 次工具调用）。
 即：**分析与文档类子代理可用，代码实现类子代理连续 4 次失败**。
@@ -143,7 +143,7 @@
 | C2 | `1146685f` | `chore(collab)` 解除 `.codebuddy/` 忽略并纳入 + 三看板闭板 | 42 files / +5926 / -1 |
 | C3 | `2fe5aaf8` | `fix(tuix)` 钉定 replay 会话名（偶发红） | 1 file / +6 |
 | C4 | `f3489055` | `ci` 已知红白名单守卫 | 1 file / +39 / -1 |
-| C5 | `a81fb69f` | `merge` dev → main（`--no-ff`） | 1027 files / +61882 / -44000 |
+| C5 | `a81fb69f` | `merge` dev → main（`--no-ff`）合并提交 | 1027 files / +61882 / -44000 |
 
 ## 门禁终态
 
@@ -155,7 +155,7 @@
 | G-D 身份 | **pass** | `git var GIT_AUTHOR_IDENT` 正常，无 `(none)` |
 
 分项与基线一致：`tuix --lib` 2064/0、`capabilities --lib` 1475/1、`cli --lib` 116/0、
-`config --lib` 327/0、`daemon --lib` 307/0、`coding --lib` 430/0(8 ignored)、`updater --lib` 41/0。
+`config --lib` 327/0、`daemon --lib` 307/0、`coding --lib` 430/0（8 项忽略）、`updater --lib` 41/0。
 
 ## 用户裁决落地情况
 

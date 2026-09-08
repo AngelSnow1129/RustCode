@@ -1,6 +1,6 @@
 # 本地定时任务 `rustcode schedule` —— 阶段 1 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向 agentic worker：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实施本计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
 
 **Goal:** 让 rustcode 支持纯本地定时任务的存储、管理与执行:`rustcode schedule add/list/remove/enable/disable/run`,`run` 复用 headless 跑任务并把结果落成一个标记为 scheduled 的 session + 通知。
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust。crates: `rustcode-config`(store)、`rustcode-capabilities`(SessionMeta origin)、`rustcode-cli`(子命令+执行器)。无新第三方依赖(cron 表达式阶段 1 只存不算)。
 
-## Global Constraints
+## 全局约束
 
 - **纯本地,无云端。** 阶段 1 不碰 OS 调度器;`schedule run` 是执行入口(手动/外部 cron/阶段 2 OS 触发)。
 - 任务 store:`~/.rustcode/schedules/<id>.json`,一任务一文件。config 根用 `rustcode_config::config::Config::config_dir()`(`$RUSTCODE_HOME` 或 `~/.rustcode`)。
@@ -23,15 +23,15 @@
 
 ### Task 1: ScheduleTask 模型 + store + next_run(rustcode-config)
 
-**Files:**
-- Create: `crates/rustcode-config/src/schedule.rs`
-- Modify: `crates/rustcode-config/src/lib.rs`(加 `pub mod schedule;`)
+**文件：**
+- 新建：`crates/rustcode-config/src/schedule.rs`
+- 修改：`crates/rustcode-config/src/lib.rs`(加 `pub mod schedule;`)
 
-**Interfaces:**
-- Consumes: `rustcode_config::config::Config::config_dir() -> PathBuf`(mod.rs L1529)。
-- Produces:
+**接口：**
+- 消费： `rustcode_config::config::Config::config_dir() -> PathBuf`（mod.rs 第 1529 行）。
+- 产出：
   - `pub struct ScheduleTask { id, title, prompt, cwd, schedule: Schedule, permission_mode: String, notify: String, enabled: bool, created_at: i64, last_run_at: Option<i64>, last_status: Option<String> }`
-  - `pub enum Schedule { Daily{time}, Weekly{weekday,time}, Hourly, Interval{every_minutes}, Cron{expr} }`(serde tag = "kind")
+  - `pub enum Schedule { Daily{time}, Weekly{weekday,time}, Hourly, Interval{every_minutes}, Cron{expr} }`（serde 标签 = "kind"）
   - `pub fn schedules_root() -> PathBuf`、`pub fn save(&ScheduleTask)`, `pub fn load(id) -> Result<ScheduleTask>`, `pub fn list() -> Vec<ScheduleTask>`, `pub fn remove(id) -> Result<()>`
   - `pub fn next_run(&Schedule, now_epoch_secs: i64) -> Option<i64>`
 
@@ -91,8 +91,8 @@ mod tests {
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cargo test -p rustcode-config --lib schedule::`
-Expected: FAIL(模块/类型未定义,编译错误)。
+运行：`cargo test -p rustcode-config --lib schedule::`
+预期：FAIL(模块/类型未定义,编译错误)。
 
 - [ ] **Step 3: 实现 `schedule.rs`**
 
@@ -215,16 +215,16 @@ pub fn next_run(schedule: &Schedule, now_epoch_secs: i64) -> Option<i64> {
 }
 ```
 
-Add `pub mod schedule;` to `crates/rustcode-config/src/lib.rs`. Ensure `tempfile` is a dev-dependency of `rustcode-config` (it already is — used by config/memory.rs tests).
+把 `pub mod schedule;` 添加到 `crates/rustcode-config/src/lib.rs`。确保 `tempfile` 是 `rustcode-config` 的 dev-dependency（它本来就是 —— 被 config/memory.rs 的测试使用）。
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `cargo test -p rustcode-config --lib schedule::`
-Expected: PASS(4 tests)。
+运行：`cargo test -p rustcode-config --lib schedule::`
+预期：PASS(4 tests)。
 
 - [ ] **Step 5: 跑 crate 全量 + 提交**
 
-Run: `cargo test -p rustcode-config`
+运行：`cargo test -p rustcode-config`
 ```bash
 git add crates/rustcode-config/src/schedule.rs crates/rustcode-config/src/lib.rs
 git commit -m "feat(schedule): task store + model + next_run in rustcode-config" -- crates/rustcode-config/src/schedule.rs crates/rustcode-config/src/lib.rs
@@ -234,11 +234,11 @@ git commit -m "feat(schedule): task store + model + next_run in rustcode-config"
 
 ### Task 2: SessionMeta `origin` 字段 + 列表默认过滤(rustcode-capabilities)
 
-**Files:**
-- Modify: `crates/rustcode-capabilities/src/session/manager.rs`(SessionMeta struct L333;`SessionMeta::new` L390;`list()` L2715)
+**文件：**
+- 修改：`crates/rustcode-capabilities/src/session/manager.rs`（SessionMeta struct L333；`SessionMeta::new` L390；`list()` L2715）
 
-**Interfaces:**
-- Produces: `pub enum SessionOrigin { Manual, Scheduled }`(default Manual);`SessionMeta.origin`;`SessionManager::list_visible() -> Vec<SessionMeta>`(排除 Scheduled)。既有 `list()` 保持返回全部(供 scheduled 视图用)。
+**接口：**
+- 产出： `pub enum SessionOrigin { Manual, Scheduled }`(default Manual);`SessionMeta.origin`;`SessionManager::list_visible() -> Vec<SessionMeta>`(排除 Scheduled)。既有 `list()` 保持返回全部(供 scheduled 视图用)。
 
 - [ ] **Step 1: 写失败测试**（manager.rs 的 `#[cfg(test)] mod tests`,或新增测试）
 
@@ -260,8 +260,8 @@ fn session_origin_defaults_manual_and_roundtrips() {
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cargo test -p rustcode-capabilities --lib session_origin_defaults_manual_and_roundtrips`
-Expected: FAIL(`origin`/`SessionOrigin` 未定义)。
+运行：`cargo test -p rustcode-capabilities --lib session_origin_defaults_manual_and_roundtrips`
+预期：FAIL(`origin`/`SessionOrigin` 未定义)。
 
 - [ ] **Step 3: 实现**
 
@@ -294,8 +294,8 @@ pub fn list_visible(&self) -> Vec<SessionMeta> {
 
 - [ ] **Step 4: 跑测试确认通过 + 提交**
 
-Run: `cargo test -p rustcode-capabilities --lib session_origin_defaults_manual_and_roundtrips`
-Expected: PASS。
+运行：`cargo test -p rustcode-capabilities --lib session_origin_defaults_manual_and_roundtrips`
+预期：PASS。
 ```bash
 git add crates/rustcode-capabilities/src/session/manager.rs
 git commit -m "feat(session): add SessionOrigin + list_visible filter" -- crates/rustcode-capabilities/src/session/manager.rs
@@ -305,7 +305,7 @@ git commit -m "feat(session): add SessionOrigin + list_visible filter" -- crates
 
 ### Task 2b: 普通列表消费者改用 `list_visible()`
 
-**Files:**
+**文件：**
 - Modify: /resume 选择器的会话枚举数据源 + webui 侧栏会话数据源(实现者 grep `\.list()` 在 `crates/rustcode-tuix`、`crates/rustcode-daemon` 中的调用点,判断哪些是"给用户看的普通列表",改成 `list_visible()`;scheduled 视图/全量统计仍用 `list()`)。
 
 - [ ] **Step 1**: grep `SessionManager` + `.list()` / `scan_all` / `scan_catalog` 的消费者;列出哪些是面向用户的会话选择器/侧栏。
@@ -319,13 +319,13 @@ git commit -m "feat(session): add SessionOrigin + list_visible filter" -- crates
 
 ### Task 3: CLI `schedule` 管理子命令(add/list/remove/enable/disable)
 
-**Files:**
-- Create: `crates/rustcode-cli/src/schedule_cmd.rs`(ScheduleCli enum + 管理处理函数)
-- Modify: `crates/rustcode-cli/src/main.rs`(`Commands` enum L689 加 `Schedule`;dispatch)
+**文件：**
+- 新建：`crates/rustcode-cli/src/schedule_cmd.rs`(ScheduleCli enum + 管理处理函数)
+- 修改：`crates/rustcode-cli/src/main.rs`(`Commands` enum L689 加 `Schedule`;dispatch)
 
-**Interfaces:**
-- Consumes: `rustcode_config::schedule::{ScheduleTask, Schedule, save, load, list, remove, next_run}`(Task 1)。
-- Produces: `pub enum ScheduleCli { Add{...}, List, Remove{id}, Enable{id}, Disable{id}, Run{id} }`(Run 的处理在 Task 4)。`pub async fn handle_schedule(cli: ScheduleCli) -> anyhow::Result<i32>`。
+**接口：**
+- 消费： `rustcode_config::schedule::{ScheduleTask, Schedule, save, load, list, remove, next_run}`（Task 1）。
+- 产出： `pub enum ScheduleCli { Add{...}, List, Remove{id}, Enable{id}, Disable{id}, Run{id} }`(Run 的处理在 Task 4)。`pub async fn handle_schedule(cli: ScheduleCli) -> anyhow::Result<i32>`。
 
 - [ ] **Step 1: 写失败测试**（schedule_cmd.rs 内;测纯逻辑:参数→ScheduleTask 构造 + add/list/remove 对 store 的效果,用 RUSTCODE_HOME 隔离)
 
@@ -357,7 +357,7 @@ mod tests {
   - main.rs `Commands` 加 `#[command(subcommand)] Schedule(schedule_cmd::ScheduleCli)`,dispatch 到 `handle_schedule`。
 
 - [ ] **Step 4: 跑通过 + 提交**
-Run: `cargo test -p rustcode-cli --lib schedule_cmd::` → PASS。
+运行：`cargo test -p rustcode-cli --lib schedule_cmd::` → PASS。
 ```bash
 git add crates/rustcode-cli/src/schedule_cmd.rs crates/rustcode-cli/src/main.rs
 git commit -m "feat(schedule): CLI add/list/remove/enable/disable subcommands" -- crates/rustcode-cli/src/schedule_cmd.rs crates/rustcode-cli/src/main.rs
@@ -367,17 +367,17 @@ git commit -m "feat(schedule): CLI add/list/remove/enable/disable subcommands" -
 
 ### Task 4: `schedule run <id>` 执行器(复用 headless + origin 标记 + notify + last_run 回写)
 
-**Files:**
-- Modify: `crates/rustcode-cli/src/schedule_cmd.rs`(Run 分支 → 执行器);可能 `crates/rustcode-cli/src/main.rs`(把 headless bootstrap 的复用点暴露成 crate-内可调,或直接在 schedule_cmd 里复刻)。
+**文件：**
+- 修改：`crates/rustcode-cli/src/schedule_cmd.rs`(Run 分支 → 执行器);可能 `crates/rustcode-cli/src/main.rs`(把 headless bootstrap 的复用点暴露成 crate-内可调,或直接在 schedule_cmd 里复刻)。
 
-**Interfaces:**
+**接口：**
 - Consumes(main.rs 现有,实现者复用/提取为 crate 内可见):
-  - `runtime_config_from(config, working_dir, provider_override, telemetry, dangerously_skip_permissions, interactive) -> CodingRuntimeConfig`(main.rs L2213)
+  - `runtime_config_from(config, working_dir, provider_override, telemetry, dangerously_skip_permissions, interactive) -> CodingRuntimeConfig`（main.rs 第 2213 行）
   - `spawn_native_cli_runtime(cfg, resume_session_id: Option<String>, bootstrap, fork_on_session_in_use, round_cap_checkpoint) -> (CodingRuntime, CodingAgentConfig, Option<ContinuedCliSession>)`(L2252)
   - `interactive_provider_bootstrap(&runtime_cfg) -> ProviderBootstrap`(L2240)
   - `run_native_headless(notifications_cfg, runtime, prompt, provider_name, verbose, capture, working_dir, skip_permissions, is_admin) -> (i32, Option<String>)`(L2362)
   - `CodingRuntime.session: Option<RuntimeSessionInfo>`(runtime.rs L647)——取新建 session id
-  - `SessionManager::for_project(cwd).update_meta(id, |m| ...)`(manager.rs L1412)+ `SessionOrigin`(Task 2)
+  - `SessionManager::for_project(cwd).update_meta(id, |m| ...)`（manager.rs 第 1412 行）+ `SessionOrigin`（Task 2）
   - `RuntimeMode::{Plan, AcceptEdits, Auto}`;`runtime.handle.set_mode(mode)`
 
 - [ ] **Step 1: 写失败测试**（执行器的纯逻辑可测部分:completion→last_status 映射、permission_mode 字符串→RuntimeMode 映射)
@@ -421,7 +421,7 @@ fn last_status_for(exit_code: i32) -> &'static str {
   2. 载入 `Config`(复刻 main.rs 顶层 headless 载 config 的方式);`cwd = PathBuf::from(&task.cwd)`;`cwd` 不存在 → `last_status=error` + save + 返回非 0。
   3. `let runtime_cfg = runtime_config_from(&config, &cwd, None, telemetry, mode_from_str(&task.permission_mode).is_auto(), false);`(auto 走 skip_permissions=true;plan/accept_edits 走 false 再 set_mode)
   4. `let bootstrap = interactive_provider_bootstrap(&runtime_cfg);`
-  5. `let (runtime, _agent, _cont) = spawn_native_cli_runtime(&runtime_cfg, None, bootstrap, false, false).await?;`(None → Fresh session)
+  5. `let (runtime, _agent, _cont) = spawn_native_cli_runtime(&runtime_cfg, None, bootstrap, false, false).await?;`（None → 新建 session）
   6. **打 origin 标记**:`if let Some(sid) = runtime.session.as_ref().and_then(|s| s.id-accessor) { SessionManager::for_project(&cwd).update_meta(&sid, |m| { m.origin = SessionOrigin::Scheduled; })?; }`(实现者确认 `RuntimeSessionInfo` 的 id 字段名——runtime.rs L143/647 附近)
   7. 非 auto 模式:`runtime.handle.set_mode(mode_from_str(&task.permission_mode)).await?;`(auto 已在 spawn 内 set)
   8. `let notifications_cfg = config.notifications(...)`(按任务 `notify`:off→构造 disabled 的 NotificationConfig;important/all→用 config 的 + 复用现有 `run_native_headless` 内的 `notify_turn_finished`)。
@@ -435,7 +435,7 @@ fn last_status_for(exit_code: i32) -> &'static str {
 - [ ] **Step 4: 跑通过** — `cargo test -p rustcode-cli --lib schedule_cmd::` → PASS(纯函数测试)。执行器端到端需真机(需 provider),阶段 1 不做自动化 e2e,靠纯函数单测 + 手动 `rustcode schedule run <id>` 验证。
 
 - [ ] **Step 5: 全量 + 提交**
-Run: `cargo test -p rustcode-cli`
+运行：`cargo test -p rustcode-cli`
 ```bash
 git add crates/rustcode-cli/src/schedule_cmd.rs crates/rustcode-cli/src/main.rs
 git commit -m "feat(schedule): schedule run executor (headless + scheduled-origin session + notify)" -- crates/rustcode-cli/src/schedule_cmd.rs crates/rustcode-cli/src/main.rs
@@ -443,21 +443,21 @@ git commit -m "feat(schedule): schedule run executor (headless + scheduled-origi
 
 ---
 
-## Self-Review
+## 自审
 
-**1. Spec coverage:**
+**1. 规格覆盖度：**
 - 任务 store CRUD + `~/.rustcode/schedules` → Task 1. [x]
 - next_run(简单频率算/cron None) → Task 1. [x]
-- CLI add/list/remove/enable/disable → Task 3. [x]
+- CLI 的 add/list/remove/enable/disable 子命令 → Task 3. [x]
 - `schedule run` 执行器(复用 headless + 新 session + notify + last_run) → Task 4. [x]
 - SessionMeta origin + 普通列表默认过滤 → Task 2 + Task 2b. [x]
 - 权限默认 plan、可提权 → Task 4 mode_from_str(default plan). [x]
 - 简单频率 + cron 字段 → Task 1 Schedule enum. [x]
 - 不碰云端 / 不碰 OS 调度器 → 全程无,阶段 2 defer. [x]
 
-**2. Placeholder scan:** Task 2b 和 Task 4 有"实现者读参照/确认字段名/判断 catalog 是否带 origin"——这些是**真实的集成判断点**(依现有代码结构定),已给出确切 grep 目标 + 参照行号 + 决策规则,非 TBD。其余步骤含真实代码。
+**2. 占位符扫描：** Task 2b 和 Task 4 有"实现者读参照/确认字段名/判断 catalog 是否带 origin"——这些是**真实的集成判断点**(依现有代码结构定),已给出确切 grep 目标 + 参照行号 + 决策规则,非 TBD。其余步骤含真实代码。
 
-**3. Type consistency:** `ScheduleTask`/`Schedule` 字段贯穿 Task 1/3/4 一致;`SessionOrigin`/`origin`/`list_visible` 贯穿 Task 2/2b/4;`mode_from_str`/`last_status_for`/`run_task`/`handle_schedule`/`build_task` 命名一致;复用的 main.rs 函数签名逐字取自现有代码。 [x]
+**3. 类型一致性：** `ScheduleTask`/`Schedule` 字段贯穿 Task 1/3/4 一致;`SessionOrigin`/`origin`/`list_visible` 贯穿 Task 2/2b/4;`mode_from_str`/`last_status_for`/`run_task`/`handle_schedule`/`build_task` 命名一致;复用的 main.rs 函数签名逐字取自现有代码。 [x]
 
 ## 阶段 2(另出 spec,不在本计划)
 三平台 OS 调度器自动注册/注销(launchd/schtasks/systemd-timer/crontab)+ 到点调 `rustcode schedule run <id>`。

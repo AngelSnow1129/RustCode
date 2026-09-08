@@ -74,7 +74,7 @@ println!("{}", outcome.text);
 
 ---
 
-## Cargo features
+## Cargo 特性
 
 以 `["provider", "tools", "web", "codeintel", "skills", "mcp", "session",
 "memory", "cc-hooks", "offline"]` 引入 **coding 默认装配所需的能力集**（注意：

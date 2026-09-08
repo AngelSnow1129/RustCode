@@ -20,7 +20,7 @@ feat(tuix): add mouse text selection and session preview
   - 保留 Down / Up / Drag / Move / Scroll、按钮、修饰键及 0-based 坐标
   - 非滚轮 pointer 在通用 input prelude 前处理，避免 ignored pointer 改变 App state
   - 滚轮继续复用现有 retained body scroll，并通过 epoch authority 关闭旧命中帧
-- InteractionPublisher：
+- InteractionPublisher 交互发布器：
   - 只在完整 frame write + flush 成功后发布可点击坐标
   - generation / surface session / epoch 防止 resize、滚动、异步 worker 和 modal 切换后使用旧坐标
   - 写失败、逻辑帧切换和生命周期命令立即 fail closed
@@ -35,7 +35,7 @@ feat(tuix): add mouse text selection and session preview
   - soft wrap 拼接、hard newline 保留；compaction gap 不误拼接不可见内容
   - mouse Up 单次复制，优先使用系统剪贴板，OSC52 仅在终端能力允许时使用
   - worker stale epoch、overlay 覆盖、滚动和 resize 下保持 selection authority
-- Session Preview：
+- Session Preview 会话预览：
   - `/resume` 选择变化时由单一后台 worker 读取 bounded meta + presentation，不加载完整 snapshot
   - 展示 cwd、provider/model 与最多 6 条净化后的最近消息摘要
   - generation + project bucket + session id 三重匹配，过期结果不重画当前 modal
@@ -58,7 +58,7 @@ feat(tuix): add mouse text selection and session preview
 3. 软换行不会额外插入换行，真实段落换行会保留
 4. Shift + drag 保留给宿主终端原生选择，不触发应用内复制
 
-### Session Preview
+### Session Preview 会话预览
 
 1. 输入 `/resume`
 2. 使用 Up / Down 或鼠标选择会话
@@ -84,9 +84,9 @@ N/A
 
 ## 测试计划
 
-- [x] `cargo test -p rustcode-tuix --lib --locked` — 1965 passed
-- [x] `cargo test -p rustcode-capabilities --features session --lib session --locked` — 169 passed
-- [x] `cargo test -p rustcode-daemon --lib legacy_convert --locked` — 57 passed
+- [x] `cargo test -p rustcode-tuix --lib --locked` — 1965 项测试通过
+- [x] `cargo test -p rustcode-capabilities --features session --lib session --locked` — 169 项测试通过
+- [x] `cargo test -p rustcode-daemon --lib legacy_convert --locked` — 57 项测试通过
 - [x] `cargo check -p rustcode --all-targets --locked`
 - [x] `git diff --check`
 - [ ] 手动验证：composer ASCII / CJK / emoji 正向与反向拖选、替换及折叠

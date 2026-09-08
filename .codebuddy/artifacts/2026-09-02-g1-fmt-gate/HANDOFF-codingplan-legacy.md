@@ -75,7 +75,7 @@
 | 门禁 | 状态 |
 |---|---|
 | G1 `cargo fmt --check` | **exit=0 / 0 处差异**（含贵方写入后复检） |
-| G2 `cargo check -j 1 --workspace --all-targets` | exit=0 / 0 error |
+| G2 `cargo check -j 1 --workspace --all-targets` | exit=0 / 0 错误 |
 | review --lib | **100/0**（修复后） |
 | coding --lib / updater --lib | 430/0、41/0 |
 | 全量 `cargo test --workspace` | **未复跑**（避免与贵方争锁/端口，见下） |
