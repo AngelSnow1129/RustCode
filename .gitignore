@@ -141,3 +141,9 @@ codearts.zip
 # 本地代码搜索索引缓存(zvec grep 工具生成,勿入库)
 .zvec-grep/
 CODEBUDDY.md
+
+# CodeBuddy 的**运行时**目录(与 .codebuddy/agents、rules、artifacts 相对):
+# memory/ 是本机跨会话工作笔记、teams/ 是子代理会话邮箱,均随机器/会话变化,
+# 不随仓库共享。注意只忽略这两个子路径,勿写整个 `.codebuddy/`(见上方 2026-09-03 注记)。
+.codebuddy/memory/
+.codebuddy/teams/
