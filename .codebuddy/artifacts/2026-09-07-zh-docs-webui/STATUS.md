@@ -1,14 +1,10 @@
 # 2026-09-07-zh-docs-webui 看板
 
-- 当前阶段：**已完成**（G6 `pass`；T-15 / T-16 已 `done`，R2 返工的 3 条提交判据中第 1、2 条已由本轮 doc-writer 闭环；R3 提交口径**已裁决** = 全部提交含 artifacts；**待 PM 执行 commit**）
-- 基线：branch=`dev` commit=`3ee655e381d28052e428196daedd456cc6079520` worktree=**staged（未 commit）**
-  - `git status --porcelain | wc -l` = **233**
-    - 索引内（staged）**230**：`M` 159 / `A` 64 / `AM` 4 / `MM` 2 / `D` 1
-    - 未跟踪 **3 个条目**（展开为 7 个文件）：`04-review/REVIEW-T15-T16.md`、`.codebuddy/memory/2026-09-09.md`、`.codebuddy/teams/`（目录，内含 5 个 json）
-  - `git diff --cached --name-only | wc -l` = **230**；`git diff --name-only | wc -l` = **8** —— 索引后又改、需 PM 在 commit 前 `git add` 的 8 个：`03-impl/T-15.md`（§10 哨兵）、`03-impl/T-16-artifacts-exempt.md`（§9 更正）、`crates/rustcode-cli/src/main.rs`、`scripts/check-zh-docs.py`（以上为 R2 追加，非本轮产物）＋ 本轮 doc-writer 的 `00-decisions.md`（Q6）、`STATUS.md`、`06-release.md`、`AGENTS.md`（`:37`）；另需 `git add` 未跟踪的 `04-review/REVIEW-T15-T16.md`（另外 2 个未跟踪条目属 agent 运行时目录，建议**不**入库）
-  - `git rev-parse HEAD` = `3ee655e381d28052e428196daedd456cc6079520` —— **HEAD 仍等于基线**，未 commit
-  - 删除项：`D  README.zh-CN.md`（已落索引，未 commit）
-  - `.codebuddy/memory/` 与 `.codebuddy/teams/` 已按 T-16 §7-B 用 `git restore --staged` 移出索引（**工作区文件保留**），属 agent 运行时目录，非本 feature 交付物
+- 当前阶段：**已完成并已提交**（G1–G6 全绿；T-15 / T-16 已 `done`；R2 返工 3 条提交判据全部闭环；R3 提交口径按用户裁决 = **全部提交含 artifacts**，PM 已执行 commit）
+- 提交结果：**`3c8df5cc`**（`feat(docs): zh-CN docs, one-shot webui build, CLI daemon binds 0.0.0.0`），**231 files changed, +30063 / -9864**；提交后 `gate --base 3ee655e3` 复跑 **PASS / exit 0**
+- 基线：branch=`dev` 提交前基线 `3ee655e3` → 现 HEAD `3c8df5cc`；worktree **clean**（仅余 2 个未跟踪条目）
+  - `git status --porcelain` = `?? .codebuddy/memory/`、`?? .codebuddy/teams/` —— 均为 agent 运行时目录，按 T-16 §7-B 刻意**不入库**
+  - 删除项 `README.zh-CN.md` 已随提交落库（`D` 已生效）
 - 本看板数字由 doc-writer 于 2026-09-09 复跑实测，命令均可原样复现
 - **数字口径已按 `00-decisions.md` Q6 变更**：AC-1 分母 = 全仓已跟踪 md 减显式豁免域 `.codebuddy/artifacts/`，故 285 → **248**、全量受检 231 → **194**
 
@@ -48,7 +44,7 @@
 | G3 实现 | **done** | `03-impl/*`：T-01…T-06、T-08、T-09、T-11、T-13、T-14、**T-15**（`rustcode daemon` 补 `--host`）、**T-16**（artifacts 提升为门禁豁免域）与 D-01…D-36 全部落盘 |
 | G4 审查 | **approved** | `04-review/CODE-REVIEW.md`（裁决 `request-changes` → 返工）+ `03-impl/T-13-r1-rework.md`（R1 返工 8 条全部核实属实）+ **`04-review/REVIEW-T15-T16.md`**（R2：T-15 **approve**；T-16 `request-changes` 的 major-1/2 已由 `T-16-artifacts-exempt.md` §9 闭环，major-3 = `AGENTS.md:37` / 本看板 D-5 行已由本轮 doc-writer 闭环；剩余 2 条 minor 转遗留、不阻塞） |
 | G5 测试 | **pass** | `05-test-report.md`（AC **29 PASS / 2 部分验证 / 2 未验证 / 0 FAIL**）+ `03-impl/zh-check-gate.md`（`gate --report` 产出）+ T-15 §10（`default_host_tests` **3 passed**） |
-| G6 交付 | **pass / done** | `06-release.md`（四段式完整，本轮补 D-5/T-15 与 T-16 两节）+ `03-impl/zh-check-D-34a.md` + `03-impl/zh-check-D-35.md` + T-10b `AGENTS.md` 同步；`gate --base 3ee655e3` 复跑 **PASS / exit 0**；**无悬挂任务，唯一悬挂动作 = 待 PM 执行 commit** |
+| G6 交付 | **pass / done** | `06-release.md`（四段式完整，本轮补 D-5/T-15 与 T-16 两节）+ `03-impl/zh-check-D-34a.md` + `03-impl/zh-check-D-35.md` + T-10b `AGENTS.md` 同步；`gate --base 3ee655e3` 复跑 **PASS / exit 0**；**无悬挂任务，R3 已裁决并已于 `3c8df5cc` 提交** |
 
 ## 任务
 
@@ -139,7 +135,7 @@
 
 ### 其它
 
-- **改动仍全部未 commit**（索引内 230 / 未跟踪 3 个条目 / 未重新 stage 的 R2 追加 4 个）。R3 提交口径**已裁决**为「全部提交，含 artifacts」，交接件出域由 T-16 保障；**待 PM 执行 commit**，doc-writer 本轮不执行 `git add` / `git commit`。
+- **已由 PM 于 `3c8df5cc` 提交**（本条为提交前的历史记录，保留不改）：提交内容含本 feature 全部 231 项改动（含 `.codebuddy/artifacts/` 交接件），`.codebuddy/memory/` 与 `.codebuddy/teams/` 两个 agent 运行时目录刻意**不入库**。
 - `.codebuddy/artifacts/**` 交接件：T-16 后由「未跟踪故排除」改为「**artifacts 豁免域**排除」（`gate` 首行第二段提示，当前 **101 个**）。域内文件不进 AC-1 分母、不受 AC-2/4/6/7b/32 与 AC-8 段 1 约束，**仍受 AC-7a 约束、仍是 AC-8 段 2 的历史域**（详见 `00-decisions.md` Q6）。显式 `--files` 仍可单点检。
 - **`SKILL.md` 未闭合围栏（doc-writer 于 D-34a 新发现，基线既有）**：`crates/rustcode-capabilities/assets/setup-seeds/skills/rustcode-automation-recommender/SKILL.md` 存在一个**基线即有**的未闭合 ` ```markdown ` 围栏（工作区第 192 行），既是 D-3 的可复现实例（AC-2 围栏状态机错位，JSON 模板行被误计为 en），也是**真实渲染缺陷**（其后内容被当作代码块）。已用基线与工作区双向对照确认**非本轮引入**（两侧均 32 条围栏、终态 `False`）。方向 fail-safe、不阻塞门禁；修复需改 md 正文且与 D-3 同根因，**建议下轮由 T-01 / architect 统一处理**。
 - **`AGENTS.md` 反引号风格与 AC-4 冲突（待 PM 决定是否另派单）**：AC-4 要求 code span 多重集严格相等，而 `AGENTS.md` 不在 `AC4_ALLOWED_ADDED_BY_FILE`（现仅 `README.md`，`AC4_MAX_PER_ENTRY=1`），故 T-10b 新增行一律未加反引号。**本轮 T-15 引发的 `AGENTS.md:37` 修订沿用同一写法（0 新增 code span，`127.0.0.1` 等一律纯文本），`check --files AGENTS.md` 实测 PASS / exit 0**。若希望恢复反引号风格，需走补遗 v3 登记约 50 个 span 并放宽配额，属**门禁策略变更**。
@@ -155,8 +151,8 @@
 ## 编排终态（2026-09-09，PM 写入）
 
 - **G1–G6 全部达成**，看板无悬挂任务（T-12 为编号空置，非任务）。
-- 终态复核（doc-writer 本轮复跑）：`git rev-parse --short HEAD` = `3ee655e3`；`git status --porcelain | wc -l` = **233**（索引内 230 + 未跟踪 3 个条目）；`python3 scripts/check-zh-docs.py gate --base 3ee655e3` = **exit 0 / PASS**（`total=248`、`受检 194 / FAIL 0`）。
-- **唯一悬挂动作 = 待 PM 执行 commit**：R3 已裁决「全部提交，含 artifacts」，T-16 已提供豁免域、`00-decisions.md` Q6 已登记分母口径，门禁在 stage 前后均 exit 0。commit 前需 PM 补 stage 当前 4 个未 staged 文件与 3 个未跟踪条目中的 `04-review/REVIEW-T15-T16.md`（`.codebuddy/memory/`、`.codebuddy/teams/` 按 T-16 §7-B 已移出索引，建议**不**入库）。
+- **已提交（PM 执行）**：`3c8df5cc`，231 files changed / `+30063 -9864`；提交后复跑 `python3 scripts/check-zh-docs.py gate --base 3ee655e3` = **exit 0 / PASS**（`total=248`、`受检 194 / FAIL 0`）；`git status --porcelain` 仅余 `?? .codebuddy/memory/`、`?? .codebuddy/teams/`（agent 运行时目录，刻意不入库）。
+- R3 提交口径 = **全部提交（含 artifacts）**，由 T-16 豁免域 + `00-decisions.md` Q6 分母口径登记共同保障：stage 前后与 commit 后门禁数字完全一致。
 - 下轮建议优先级（均不阻塞本 feature 交付）：
   1. AC-22 / AC-23 / AC-25 / AC-26 的真实浏览器与跨主机补验；
   2. ~~`rustcode daemon` 补 `--host` 参数（D-5）~~ **已由 T-15 完成**；剩余半条 = JetBrains 回退路径显式传 `127.0.0.1`（待裁决第 3 条，与 T-15 §8 O-4 的版本门控一并评估）；
