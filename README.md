@@ -97,7 +97,7 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 - **持久化会话** —— 每次对话都会保存；命令行可用 `rustcode --continue` 或 `-c` 继续上一次会话，在 TUI 内可用 `/resume` 恢复或切换
 - **第三方供应商（BYO）** —— 在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key`（或用 `/provider`），无需注册账号。这是开源默认构建的使用方式
-- **OAuth 登录** —— `/login`（或 `rustcode login`）将 CLI 与托管账号绑定；**仅发行版本**（开源默认构建不提供托管服务）
+- **OAuth 登录** —— `/login`（或 `rustcode login`）将 CLI 与平台账号绑定；需要配置 RUSTCODE_PLATFORM_SERVER（可指向自建网关），未配置时请改用 /provider 自带 Key
 - **SSO 登录** —— `/login-with-sso`，供支持 SSO 的托管部署使用（仅发行版本）
 - **Headless 模式** —— `rustcode -p "..."` 非交互式跑一条 prompt，结果直接输出到 stdout（类似 Claude Code 的 `-p`）；需要确认的 `bash` 会自动批准，其他需要确认的工具会被拒绝
 - **Daemon 模式** —— `rustcode-daemon` 提供 HTTP API，用于查询会话历史和 SSE 流式对话
@@ -490,15 +490,15 @@ rustcode --prompt-file task.md
 
 **Provider 与账号**
 
-| 命令        | 动作                                              |
-| ----------- | ------------------------------------------------- |
-| `/model`    | 切换模型 / provider                               |
-| `/provider` | 管理 provider（添加 / 编辑 / 删除）               |
-| `/proxy`    | 切换出站代理模式                                  |
-| `/login`    | 通过 OAuth 登录托管服务（仅发行版本；开源默认构建请用 `/provider` 自带 Key） |
-| `/logout`   | 退出托管账号（仅发行版本）                 |
-| `/whoami`   | 查看当前托管账号用户（仅发行版本）          |
-| `/status`   | 查看供应商状态与模型信息（发行版本还会显示托管账号登录段） |
+| 命令        | 动作                                                                            |
+| ----------- | ------------------------------------------------------------------------------- |
+| `/model`    | 切换模型 / provider                                                             |
+| `/provider` | 管理 provider（添加 / 编辑 / 删除）                                             |
+| `/proxy`    | 切换出站代理模式                                                                |
+| `/login`    | OAuth 登录平台账号；未配置 RUSTCODE_PLATFORM_SERVER 时改用 `/provider` 自带 Key |
+| `/logout`   | 清除本地平台凭证并停用当前 provider（无凭证时为空操作）                         |
+| `/whoami`   | 查看已登录账号；未登录时提示 /login（未配置平台时提示 /provider）               |
+| `/status`   | 查看 provider、模型与上下文文件状态；已登录时追加托管账号与套餐段               |
 
 **文件、编辑与上下文**
 
