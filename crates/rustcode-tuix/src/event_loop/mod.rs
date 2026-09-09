@@ -8,7 +8,7 @@
 //                  (handle_input / handle_idle_key / handle_streaming_key /
 //                  handle_approval_key / redraw helpers), plus Buffer +
 //                  BufferResult + agent-event handler + spinner draw.
-//   commands.rs  -- slash-command dispatcher + /login (OAuth child handoff)
+//   commands.rs  -- slash-command dispatcher
 //
 // Over time more subfiles should split out (agent_events, redraw helpers,
 // Buffer); modal overlays already live in `crate::modals`.
@@ -19,7 +19,6 @@ pub(crate) mod desktop;
 pub(crate) mod file_index;
 pub(crate) mod loop_ctrl;
 pub(crate) mod loop_parse;
-pub(crate) mod oauth_poll;
 pub(crate) mod pointer_select;
 pub(crate) mod ui_event;
 use commands::{execute_slash_command, format_rate_limited_line};
@@ -164,23 +163,6 @@ pub(crate) fn request_context_stats_render(
     runtime.refresh_context_stats(runtime_id, event_tx)?;
     *pending_render = Some(show_prompt);
     Ok(())
-}
-
-/// Reconcile the credential observation right after `/logout` removed the
-/// stored credentials. No live provider is assembled from those credentials --
-/// providers come from config.toml alone -- so there is nothing to tear down
-/// here. The fresh observation is committed so the external-auth poller does
-/// not replay this transition, and `false` reports that no asynchronous
-/// provider deactivation was queued.
-pub(crate) fn deactivate_runtime_provider_after_logout(
-    ctx: &mut LoopCtx,
-) -> Result<bool, rustcode_coding::RuntimeUnavailable> {
-    // Current credential observation (tokens never enter UI state). After
-    // logout this reflects the freshly-read credential file; falls back to the
-    // "no auth" observation when the file is unreadable.
-    let auth = AuthObservation::read_checked().unwrap_or(AuthObservation { user_id: None });
-    commit_auth_observation(&mut ctx.observed_auth, auth, true);
-    Ok(false)
 }
 
 /// Encode raw RGBA pixel data as a PNG image in memory.
@@ -3927,15 +3909,6 @@ pub struct LoopCtx {
     /// `/model` switches, pre-turn triggers, and the like can wake the
     /// event loop after updating their hint slot.
     pub wake_tx: mpsc::Sender<()>,
-    /// Receiver for `OauthEvent`s emitted by the QR-fast-path onboarding
-    /// poll thread (see `event_loop::oauth_poll`). One event arrives
-    /// per spawned poll task (Authorized or Failed). The `tokio::select!`
-    /// arm that reads this channel closes the wizard modal + flips
-    /// `pending_run_login_setup` on Authorized, or surfaces the failure
-    /// reason in scrollback on Failed.
-    pub oauth_event_rx: mpsc::UnboundedReceiver<oauth_poll::OauthEvent>,
-    /// Sender cloned into each spawned poll task.
-    pub oauth_event_tx: mpsc::UnboundedSender<oauth_poll::OauthEvent>,
     /// Control handle for the crossterm reader thread -- `Some` in raw-mode
     /// TTY sessions, `None` in pipe mode. Used by child-process handoffs
     /// (OAuth login, future `/shell`) to pause+resume event consumption
@@ -3956,12 +3929,6 @@ pub struct LoopCtx {
     /// `select!` arm. Unbounded -- events are tiny terminal results.
     pub plugin_job_tx: mpsc::UnboundedSender<rustcode_capabilities::plugin::PluginJobEvent>,
     pub plugin_job_rx: mpsc::UnboundedReceiver<rustcode_capabilities::plugin::PluginJobEvent>,
-    /// Set by `OnboardingWizard` (step 3, Setup) when the user picks
-    /// option 0 (sign in). The event loop drains this on modal close
-    /// and runs the full `/login` flow (OAuth if needed -> fetch
-    /// models -> register providers). Needs raw-mode suspend/resume,
-    /// something modals can't drive themselves.
-    pub pending_run_login_setup: bool,
     /// Set by `OnboardingWizard` (step 3, Setup) when the user picks
     /// option 1 (Configure manually). The event loop drains this on
     /// modal close and swaps in `ProviderWizard::MainMenu` -- a
@@ -9401,30 +9368,19 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
         // managed platform server is configured:
         //
         //  * Managed build -- jump straight to the single-page QR + URL sign-in.
-        //    A background poll thread (PR 1b) watches `/auth/check` and auto-closes
-        //    the modal the moment the server reports authorisation, then the
-        //    `OauthEvent::Authorized` branch in the main `select!` flips
-        //    `pending_run_login_setup` so `/login` finishes setup immediately --
-        //    zero keystrokes after the browser flow.
+        //    The user scans / opens the link and resumes with Esc once the
+        //    browser flow is done; there is no background poll thread.
         //  * Neutral build -- `start_login()` has no platform server to target
         //    and only errors, so the QR screen would dead-end the user on a
         //    sign-in pitch they can never complete.
         //    Open the full Intro -> Language -> Setup wizard instead; its Setup
         //    step leads with the bring-your-own-key /provider path and never
-        //    shows the Login row. Its `pending_session` is None so no OAuth poll
-        //    thread is spawned below.
-        let mut wizard = if crate::modals::onboarding_wizard::managed_login_available() {
+        //    shows the Login row.
+        let wizard = if crate::modals::onboarding_wizard::managed_login_available() {
             crate::modals::OnboardingWizard::new_qr_fast_path()
         } else {
             crate::modals::OnboardingWizard::new()
         };
-        // Pull the LoginSession out of the wizard before boxing -- the
-        // background poll thread owns it from here (managed fast path only;
-        // the neutral full-wizard wizard holds no session). wizard.draw still
-        // has access to `qr_login_url` so the QR keeps rendering.
-        if let Some(session) = wizard.take_pending_session() {
-            oauth_poll::spawn_oauth_poll(session, ctx.oauth_event_tx.clone(), ctx.wake_tx.clone());
-        }
         wizard.draw(&app.buf, &app.state, &ctx, renderer);
         app.active_modal = Some(Box::new(wizard));
     } else {
@@ -9678,69 +9634,6 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                         );
                     } else {
                         redraw_idle_plain(&app.buf, &app.state, &ctx, renderer);
-                    }
-                }
-            }
-
-            // ── OAuth poll thread results ──
-            // Emitted by `event_loop::oauth_poll::spawn_oauth_poll`
-            // once per QR-fast-path session. Authorized -> close the
-            // wizard + flip `pending_run_login_setup` so the existing
-            // /login driver picks up the just-written auth.toml and
-            // finishes provider setup. Failed -> close the wizard too and
-            // surface the reason in scrollback with a retry hint;
-            // leaving the modal open would require a Modal trait
-            // extension (as_any_mut + downcast) we don't yet have.
-            Some(ev) = ctx.oauth_event_rx.recv() => {
-                use oauth_poll::OauthEvent;
-                let was_modal_open = app.active_modal.is_some();
-                if was_modal_open {
-                    app.active_modal = None;
-                    renderer.clear_screen();
-                }
-                match ev {
-                    OauthEvent::Authorized => {
-                        // Banner FIRST, /login output below -- per
-                        // user direction: RustCode chrome should anchor
-                        // the top of scrollback, the login setup output
-                        // is verbose detail underneath. Model bullet is
-                        // blank at this point because login hasn't
-                        // picked a default provider yet --
-                        // refreshed below once the claim writes
-                        // ctx.model_name.
-                        crate::modals::onboarding_wizard::paint_welcome(&ctx, renderer);
-                        // `pending_run_login_setup` is only drained by the
-                        // keystroke-handler path (handle_input -> modal
-                        // close -> drain flag). The OAuth poll path doesn't
-                        // route through there, so just call the login
-                        // driver directly -- same effect, runs in this
-                        // select! arm's scope where renderer + ctx are
-                        // already mutable.
-                        if let Err(e) = crate::event_loop::commands::run_login_flow(renderer, &mut ctx) {
-                            renderer.render(crate::render::UiLine::Error(
-                                format!("自动配置失败: {e:#}。可运行 /login 手动重试。"),
-                            ));
-                            renderer.flush();
-                        }
-                        // Splice the resolved model name into the
-                        // banner painted above. `run_login_flow`
-                        // updates `ctx.model_name` from the picked
-                        // default provider (see commands.rs:2906) -- at
-                        // this point the banner's cached model="" is
-                        // stale, so refresh in place.
-                        let dir_display = crate::platform::collapse_home(
-                            &ctx.working_dir.to_string_lossy(),
-                        );
-                        renderer.refresh_welcome_banner(&ctx.model_name, &dir_display);
-                    }
-                    OauthEvent::Failed(reason) => {
-                        renderer.render(crate::render::UiLine::Error(
-                            crate::i18n::t(crate::i18n::Msg::LoginFailedHint {
-                                reason: &reason,
-                            })
-                            .into_owned(),
-                        ));
-                        renderer.flush();
                     }
                 }
             }
@@ -10106,69 +9999,6 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                         );
                     } else {
                         redraw_idle_plain(&app.buf, &app.state, &ctx, renderer);
-                    }
-                }
-            }
-
-            // ── OAuth poll thread results ──
-            // Emitted by `event_loop::oauth_poll::spawn_oauth_poll`
-            // once per QR-fast-path session. Authorized -> close the
-            // wizard + flip `pending_run_login_setup` so the existing
-            // /login driver picks up the just-written auth.toml and
-            // finishes provider setup. Failed -> close the wizard too and
-            // surface the reason in scrollback with a retry hint;
-            // leaving the modal open would require a Modal trait
-            // extension (as_any_mut + downcast) we don't yet have.
-            Some(ev) = ctx.oauth_event_rx.recv() => {
-                use oauth_poll::OauthEvent;
-                let was_modal_open = app.active_modal.is_some();
-                if was_modal_open {
-                    app.active_modal = None;
-                    renderer.clear_screen();
-                }
-                match ev {
-                    OauthEvent::Authorized => {
-                        // Banner FIRST, /login output below -- per
-                        // user direction: RustCode chrome should anchor
-                        // the top of scrollback, the login setup output
-                        // is verbose detail underneath. Model bullet is
-                        // blank at this point because login hasn't
-                        // picked a default provider yet --
-                        // refreshed below once the claim writes
-                        // ctx.model_name.
-                        crate::modals::onboarding_wizard::paint_welcome(&ctx, renderer);
-                        // `pending_run_login_setup` is only drained by the
-                        // keystroke-handler path (handle_input -> modal
-                        // close -> drain flag). The OAuth poll path doesn't
-                        // route through there, so just call the login
-                        // driver directly -- same effect, runs in this
-                        // select! arm's scope where renderer + ctx are
-                        // already mutable.
-                        if let Err(e) = crate::event_loop::commands::run_login_flow(renderer, &mut ctx) {
-                            renderer.render(crate::render::UiLine::Error(
-                                format!("自动配置失败: {e:#}。可运行 /login 手动重试。"),
-                            ));
-                            renderer.flush();
-                        }
-                        // Splice the resolved model name into the
-                        // banner painted above. `run_login_flow`
-                        // updates `ctx.model_name` from the picked
-                        // default provider (see commands.rs:2906) -- at
-                        // this point the banner's cached model="" is
-                        // stale, so refresh in place.
-                        let dir_display = crate::platform::collapse_home(
-                            &ctx.working_dir.to_string_lossy(),
-                        );
-                        renderer.refresh_welcome_banner(&ctx.model_name, &dir_display);
-                    }
-                    OauthEvent::Failed(reason) => {
-                        renderer.render(crate::render::UiLine::Error(
-                            crate::i18n::t(crate::i18n::Msg::LoginFailedHint {
-                                reason: &reason,
-                            })
-                            .into_owned(),
-                        ));
-                        renderer.flush();
                     }
                 }
             }
@@ -13423,18 +13253,12 @@ fn handle_input(
                     )?;
                     if matches!(action, ModalAction::Close) {
                         app.active_modal = None;
-                        // OnboardingWizard signals its follow-up via two bool
-                        // flags. Drain one, execute it here -- the
-                        // login flow (which internally handles
-                        // OAuth login when needed) needs suspend/resume
-                        // of raw mode (only event-loop scope can drive
-                        // that safely), and opening ProviderWizard is a
+                        // OnboardingWizard signals its follow-up via the
+                        // `pending_open_provider_wizard` flag. Drain it and
+                        // execute it here -- opening ProviderWizard is a
                         // Modal-to-Modal swap that needs mutable
                         // `active_modal` access the modals themselves
                         // don't have.
-                        if std::mem::take(&mut ctx.pending_run_login_setup) {
-                            crate::event_loop::commands::run_login_flow(renderer, ctx)?;
-                        }
                         if std::mem::take(&mut ctx.pending_open_provider_wizard) {
                             let panel = crate::modals::ProviderPanel::open();
                             app.active_modal = Some(Box::new(panel));

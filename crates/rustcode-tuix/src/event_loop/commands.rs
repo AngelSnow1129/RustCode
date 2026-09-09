@@ -1,8 +1,8 @@
 // crates/rustcode-tuix/src/event_loop/commands.rs
 //
 // Slash-command dispatcher. Everything the user can invoke by typing
-// `/name` lives here -- built-in info commands, modal openers, the cd
-// helper, and the blocking OAuth flow that suspends the reader + renderer.
+// `/name` lives here -- built-in info commands, modal openers and the cd
+// helper.
 //
 // ─── bot review response ledger (feat/save-export-markdown, PR #562) ───
 // 每条 bot 审查意见均在代码层响应:
@@ -22,9 +22,8 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    bg_runtime, deactivate_runtime_provider_after_logout, provider_transition_pending,
-    reload_persisted_config, request_context_stats_render, save_and_reload,
-    save_language_and_reload, LoopCtx, PersistedConfigReload,
+    bg_runtime, provider_transition_pending, reload_persisted_config, request_context_stats_render,
+    save_and_reload, save_language_and_reload, LoopCtx, PersistedConfigReload,
 };
 use crate::custom_commands::ArgsRequirement;
 use crate::i18n::{t, Msg};
@@ -835,7 +834,7 @@ impl Renderer for CaptureRenderer<'_> {
 
 /// 同步模式下输出**不**镜像到手机的命令：它们的输出是桌面侧的接入引导
 /// （二维码、浏览器地址、同步提示），对手机端没有意义甚至是噪音。
-const MIRROR_EXCLUDED: &[&str] = &["app", "webui", "sync", "login", "logout"];
+const MIRROR_EXCLUDED: &[&str] = &["app", "webui", "sync"];
 
 fn command_output_should_mirror(
     live_binding: bool,
@@ -2497,51 +2496,6 @@ fn execute_slash_command_impl(
                 }
             };
             renderer.render(UiLine::CommandOutput(msg));
-            renderer.flush();
-        }
-        "login" => {
-            run_login_flow(renderer, ctx)?;
-        }
-        "logout" => {
-            // Provider config is a user asset and stays in config.toml. Logout removes
-            // credentials first, then asks the runtime owner to destroy the live provider;
-            // a later /login can reassemble it without losing the user's provider choice.
-            //
-            // 安全：登出时自动关闭 App 远程访问，防止隧道仍在线。
-            if ctx
-                .app_relay_child
-                .take()
-                .is_some_and(|mut c| c.start_kill().is_ok())
-            {
-                let _ = ctx.app_relay_child.take();
-            }
-            rustcode_daemon::stop_app_server();
-            match rustcode_auth::logout() {
-                Ok(()) => {
-                    match deactivate_runtime_provider_after_logout(ctx) {
-                        Ok(true) => {
-                            // Runtime owner emits the completion only after the
-                            // active AtomGit provider has been torn down.
-                        }
-                        Ok(false) => renderer
-                            .render(UiLine::CommandOutput(t(Msg::CmdLogoutDone).into_owned())),
-                        Err(error) => {
-                            let message = format!(
-                                "credentials removed, but provider deactivation failed: {error}"
-                            );
-                            renderer.render(UiLine::Error(
-                                t(Msg::CmdLogoutFailed { error: &message }).into_owned(),
-                            ));
-                        }
-                    }
-                }
-                Err(e) => {
-                    let msg = format!("{}", e);
-                    renderer.render(UiLine::Error(
-                        t(Msg::CmdLogoutFailed { error: &msg }).into_owned(),
-                    ));
-                }
-            }
             renderer.flush();
         }
         "whoami" => {
@@ -6539,16 +6493,6 @@ mod rate_limited_tests {
         assert_eq!(fmt_dur(45), "45s");
         assert_eq!(fmt_dur(0), "0s");
     }
-}
-
-/// `/login`: no managed account setup flow is wired into this build, so the
-/// command points the operator at configuring their own third-party provider.
-pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, _ctx: &mut LoopCtx) -> Result<()> {
-    renderer.render(UiLine::CommandOutput(
-        t(Msg::LoginManagedUnavailable).into_owned(),
-    ));
-    renderer.flush();
-    Ok(())
 }
 
 /// The synthetic `todowrite`-empty call + its tool result. Appended to the

@@ -391,14 +391,6 @@ pub struct OnboardingWizard {
     /// blank panel; Esc bails, Enter retries by re-running
     /// `start_login()` in `handle_key_pure`'s `Retry` outcome.
     pub(super) qr_login_error: Option<String>,
-    /// Live `LoginSession` produced by the most recent `start_login()`
-    /// call. The event loop pulls this out via `take_pending_session`
-    /// right after constructing the wizard so a background poll
-    /// thread (see `event_loop::oauth_poll`) can watch for the user
-    /// completing the in-browser consent and auto-close the modal --
-    /// no manual Enter required. `None` after a take, after an Esc,
-    /// or when `start_login()` itself errored at construction.
-    pub(super) pending_session: Option<rustcode_auth::oauth::LoginSession>,
     /// Transient "link copied" feedback for the QR step: flipped true
     /// when the user presses `c` to copy `qr_login_url` to the
     /// clipboard, swapping the `c 复制链接` legend hint for a
@@ -420,7 +412,6 @@ impl OnboardingWizard {
             needs_confirm: false,
             qr_login_url: None,
             qr_login_error: None,
-            pending_session: None,
             qr_url_copied: false,
         }
     }
@@ -436,15 +427,13 @@ impl OnboardingWizard {
             needs_confirm: true,
             qr_login_url: None,
             qr_login_error: None,
-            pending_session: None,
             qr_url_copied: false,
         }
     }
 
     /// First-launch fast path. Skips the old 3-step Intro / Language /
     /// Setup flow and goes straight to a single QR screen for the
-    /// OAuth short link -- scan, log in, the background poll
-    /// thread auto-closes the modal once the login completes. Language
+    /// OAuth short link -- scan, log in, then Esc out of the modal. Language
     /// defaults to auto-detect from `$LC_ALL`
     /// / `$LANG` (i18n step gone); user can switch later via
     /// `/language`.
@@ -455,17 +444,14 @@ impl OnboardingWizard {
     /// rendered in place of the QR -- Esc bails, Enter retries via
     /// `handle_key_pure`'s `RetryQrLogin` outcome.
     ///
-    /// The successful `LoginSession` is held on `pending_session` so
-    /// the event loop can pull it out (see `take_pending_session`)
-    /// and hand it to a background poll thread. The wizard itself
-    /// doesn't know about polling -- that plumbing stays in the event
-    /// loop.
+    /// No background poll thread is spawned: the managed login
+    /// orchestrator (`/login`) is gone, so the modal is dismissed by the
+    /// user once the browser flow completes.
     pub fn new_qr_fast_path() -> Self {
-        let (qr_login_url, qr_login_error, pending_session) =
-            match rustcode_auth::oauth::start_login() {
-                Ok(session) => (Some(session.url().to_string()), None, Some(session)),
-                Err(e) => (None, Some(format!("{e:#}")), None),
-            };
+        let (qr_login_url, qr_login_error) = match rustcode_auth::oauth::start_login() {
+            Ok(session) => (Some(session.url().to_string()), None),
+            Err(e) => (None, Some(format!("{e:#}"))),
+        };
         Self {
             step: Step::QrLogin,
             language_idx: 0,
@@ -473,26 +459,12 @@ impl OnboardingWizard {
             needs_confirm: false,
             qr_login_url,
             qr_login_error,
-            pending_session,
             qr_url_copied: false,
         }
     }
 
-    /// Pull the freshly-constructed `LoginSession` out so the event
-    /// loop can spawn a background poll thread against it. Returns
-    /// `None` if there is no session to take (Esc was hit, or
-    /// `start_login` errored at construction, or another caller
-    /// already took it). Called exactly once per QR session by
-    /// `event_loop::run_loop`'s first-launch setup; subsequent calls
-    /// return None and are harmless.
-    pub fn take_pending_session(&mut self) -> Option<rustcode_auth::oauth::LoginSession> {
-        self.pending_session.take()
-    }
-
-    // (set_qr_login_error removed -- the event-loop's Failed handler
-    // closes the modal instead of injecting state, so this is unused.
-    // Re-add if PR 1c lands a Modal trait extension + downcast path
-    // that keeps the wizard open on poll failure.)
+    // (set_qr_login_error removed -- the QR step renders `qr_login_error`
+    // in place of the QR, so no external injection is needed.)
 
     /// Pre-select the language idx based on existing config. Used by
     /// `/welcome` so a user who already picked ZhCn lands on row 3 of
@@ -986,9 +958,9 @@ impl OnboardingWizard {
                     // or auto-continue in the copy: the short link lands on
                     // the OAuth page (already-signed-in users skip
                     // straight through without scanning anything), so a hard claim
-                    // would be wrong for a large share of users. The background
-                    // poll (see `event_loop::oauth_poll`) still advances the flow
-                    // silently either way.
+                    // would be wrong for a large share of users. There is no
+                    // background poll either -- the user dismisses the modal
+                    // once the browser flow is done.
                     content.push(center("打开链接登录账号"));
                     content.push(String::new());
                     content.push(center(url));
@@ -1127,9 +1099,8 @@ impl crate::modals::Modal for OnboardingWizard {
                 // Re-run start_login() in-place so the user can recover
                 // from a transient network blip without restarting
                 // rustcode. Mirrors the constructor -- synchronous
-                // round-trip, store either url or error, AND on success
-                // spawn a fresh background poll thread so the new
-                // session auto-completes the way the original did.
+                // round-trip, store either url or error. No background poll
+                // thread: the managed login orchestrator is gone.
                 match rustcode_auth::oauth::start_login() {
                     Ok(session) => {
                         self.qr_login_url = Some(session.url().to_string());
@@ -1137,14 +1108,6 @@ impl crate::modals::Modal for OnboardingWizard {
                         // Fresh URL -> the old "copied" confirmation no longer
                         // applies; restore the `c 复制链接` hint.
                         self.qr_url_copied = false;
-                        // session is consumed by `spawn_oauth_poll`;
-                        // `pending_session` stays None because the
-                        // task owns it now.
-                        crate::event_loop::oauth_poll::spawn_oauth_poll(
-                            session,
-                            ctx.oauth_event_tx.clone(),
-                            ctx.wake_tx.clone(),
-                        );
                     }
                     Err(e) => {
                         self.qr_login_url = None;
@@ -1573,17 +1536,11 @@ mod tests {
         // The event loop's first-launch gate picks `new_qr_fast_path()`
         // only when `managed_login_available()`; a neutral build gets
         // `new()` (Intro -> Language -> neutral Setup). Pin that contract
-        // here: the neutral constructor must never open the QR screen and
-        // must never carry a pending OAuth session (which would spawn a
-        // background poll thread against a non-existent platform server).
+        // here: the neutral constructor must never open the QR screen.
         assert!(!managed_login_available());
         let mut w = OnboardingWizard::new();
         assert_eq!(w.step, Step::Intro, "neutral first launch opens at Intro");
         assert_ne!(w.step, Step::QrLogin);
-        assert!(
-            w.take_pending_session().is_none(),
-            "neutral wizard must hold no OAuth session to poll"
-        );
         // Intro Enter advances inline to Language; the Language -> Setup
         // transition is applied by the event loop on ApplyLanguageThenAdvance,
         // so pin the neutral Setup menu shape directly.
@@ -2193,7 +2150,6 @@ mod tests {
             needs_confirm: false,
             qr_login_url: Some(url.to_string()),
             qr_login_error: None,
-            pending_session: None,
             qr_url_copied: false,
         }
     }
@@ -2206,7 +2162,6 @@ mod tests {
             needs_confirm: false,
             qr_login_url: None,
             qr_login_error: Some(msg.to_string()),
-            pending_session: None,
             qr_url_copied: false,
         }
     }

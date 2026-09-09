@@ -615,13 +615,6 @@ pub async fn run(
     // instead of waiting for the user's next keystroke.
     let update_hint = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
     let (wake_tx, wake_rx) = tokio::sync::mpsc::channel::<()>(1);
-    // Background OAuth poll -> event-loop channel. Unbounded so the
-    // poll thread never blocks waiting for the consumer (poll thread
-    // is std::thread, can't `await`). One event per spawned task,
-    // capacity is irrelevant -- even an unbounded channel is essentially
-    // empty here.
-    let (oauth_event_tx, oauth_event_rx) =
-        tokio::sync::mpsc::unbounded_channel::<crate::event_loop::oauth_poll::OauthEvent>();
 
     // Seed the hint from any prior-session staged upgrade so the user
     // sees the pending status on the very first frame rather than
@@ -857,14 +850,11 @@ pub async fn run(
         hook_warning_hint: std::sync::Arc::new(std::sync::Mutex::new(None)),
         wake_rx,
         wake_tx: wake_tx.clone(),
-        oauth_event_rx,
-        oauth_event_tx,
         reader: reader_handle,
         upgrade_tx,
         upgrade_rx,
         plugin_job_tx,
         plugin_job_rx,
-        pending_run_login_setup: false,
         pending_open_provider_wizard: false,
         worktree_original_dir: None,
         custom_commands,

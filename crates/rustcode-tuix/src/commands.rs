@@ -31,8 +31,8 @@ pub struct Command {
 /// `available_commands` set) so a BYO user is never pitched a sign-in /
 /// free-model flow the build does not ship. This mirrors the first-launch
 /// wizard's `managed_login_available()` gating; keep in sync with the
-/// `login` / `logout` / `whoami` / `usage` rows below.
-const MANAGED_ONLY_COMMANDS: &[&str] = &["login", "logout", "whoami", "usage"];
+/// `whoami` / `usage` rows below.
+const MANAGED_ONLY_COMMANDS: &[&str] = &["whoami", "usage"];
 
 /// Whether a built-in command should appear in discovery surfaces for the
 /// running build. Deprecated aliases (`hidden`) are always excluded;
@@ -188,10 +188,6 @@ pub fn command_display_name(canonical: &str) -> String {
 }
 
 const BUILTIN_COMMANDS: &[Command] = &[
-    // `desc` is only a fallback: `cmd_desc_i18n` picks the managed wording
-    // (`Msg::CmdDescLogin`) or this neutral one (`Msg::CmdDescLoginNeutral`)
-    // at render time, so the static table stays vendor-neutral.
-    Command { name: "login",   desc: "Managed sign-in (distribution builds only) -- this open build uses bring-your-own-key providers; configure config.toml", needs_args: false, hidden: false, acp: false },
     // needs_args=true so selecting it only completes to `/webui ` (does NOT
     // launch) -- lets the user append a subcommand (stop / lan / --host <addr>)
     // before Enter. A bare `/webui ` + Enter still launches on 127.0.0.1.
@@ -201,7 +197,6 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "setup",      desc: "First run: install recommender skill + run it. Extra text forwarded as a steering hint", needs_args: true, hidden: false, acp: false },
     Command { name: "resume",  desc: "Resume a previous session", needs_args: false, hidden: false, acp: false },
     Command { name: "rename",  desc: "Rename current session", needs_args: true, hidden: false, acp: false },
-    Command { name: "logout",  desc: "Sign out", needs_args: false, hidden: false, acp: false },
     Command { name: "whoami",  desc: "Show current logged-in user", needs_args: false, hidden: false, acp: false },
     Command { name: "model",   desc: "Switch provider / model", needs_args: false, hidden: false, acp: true },
     Command { name: "provider", desc: "Manage providers (add / edit / delete)", needs_args: false, hidden: false, acp: false },
@@ -216,7 +211,7 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "diff",    desc: "Show git diff", needs_args: false, hidden: false, acp: true },
     Command { name: "clear",   desc: "Start a new conversation (clears context + screen)", needs_args: false, hidden: false, acp: false },
     Command { name: "session", desc: "Start a new session (clears conversation)", needs_args: false, hidden: false, acp: false },
-    // Same neutral-variant fallback as `/login` above (`Msg::CmdDescUsageNeutral`).
+    // Same neutral-variant fallback as the managed-account rows above.
     Command { name: "usage",   desc: "Show token usage (tabs: current / overview / models)", needs_args: false, hidden: false, acp: true },
     // `/cost` reports THIS SESSION's local token accounting for any model,
     // including self-integrated ones the gateway-only `/usage` modal can't see.
@@ -300,18 +295,9 @@ pub fn cmd_desc_i18n(name: &str) -> Option<std::borrow::Cow<'static, str>> {
         "rename" => Msg::CmdDescRename,
         // Managed-account commands: advertise the managed flow only in a
         // distribution build that ships a sign-in gateway; a neutral
-        // bring-your-own-key build gets a neutral description (mirroring the
-        // CLI's `CliAboutLogin` / `CliAboutLoginNeutral` swap). The command is
+        // bring-your-own-key build gets a neutral description. The command is
         // hidden from discovery in a neutral build via `command_visible`, but
         // keep the desc itself neutral too so no surface leaks the brand.
-        "login" => {
-            if crate::modals::onboarding_wizard::managed_login_available() {
-                Msg::CmdDescLogin
-            } else {
-                Msg::CmdDescLoginNeutral
-            }
-        }
-        "logout" => Msg::CmdDescLogout,
         "whoami" => Msg::CmdDescWhoami,
         "model" => Msg::CmdDescModel,
         "provider" => Msg::CmdDescProvider,
@@ -838,13 +824,6 @@ mod tests {
         assert!(
             !reg.acp_commands().iter().any(|c| c.name == "usage"),
             "ACP must not advertise the gateway-only /usage in a neutral build"
-        );
-        // Tab completion likewise must not surface /login.
-        assert!(
-            complete_commands("log", &[])
-                .iter()
-                .all(|c| c.name != "login"),
-            "Tab completion must not surface /login in a neutral build"
         );
         // Endpoint-dependent commands are likewise hidden: /desktop only leads
         // to a blank download link and /upgrade only errors against an empty
