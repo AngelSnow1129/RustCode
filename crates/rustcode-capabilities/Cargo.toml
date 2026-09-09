@@ -147,11 +147,11 @@ tar = { version = "0.4", optional = true }
 default = ["provider", "tools"]
 # Real LlmProvider adapters (OpenAI-compatible: GLM / DeepSeek / …). `dirs` resolves the
 # wire-dump output dir (config_dir()/wire-dump) for the byte-level RUSTCODE_WIRE_DUMP.
-provider = ["egress", "dep:reqwest", "dep:rustls-native-certs", "dep:rustls", "dep:bytes", "dep:async-stream", "dep:dirs", "dep:httpdate", "dep:rustcode-auth", "dep:rustcode-config", "dep:getrandom", "dep:tracing", "dep:fs2", "dep:hyper"]
+provider = ["egress", "dep:reqwest", "dep:rustls-native-certs", "dep:rustls", "dep:bytes", "dep:async-stream", "dep:dirs", "dep:httpdate", "dep:rustcode-config", "dep:getrandom", "dep:tracing", "dep:fs2", "dep:hyper"]
 # Unified outbound-HTTP client factory + external-service config (`egress` module):
 # ONE home for TLS trust-root layering (issue #514), proxy policy, timeouts, UA and
 # redirect policy, so every egress call site (provider / web_fetch / web_search /
-# atomgit / mcp) shares a single auditable policy instead of 8 divergent builders.
+# mcp) shares a single auditable policy instead of 8 divergent builders.
 # Never enabled directly — pulled in by each feature that performs outbound HTTP
 # (a lean build with none of them compiles NO egress code and no HTTP stack).
 egress = ["dep:reqwest", "dep:rustls", "dep:rustls-native-certs", "dep:tracing", "dep:zeroize", "dep:thiserror"]
@@ -162,10 +162,6 @@ tools = ["dep:ignore", "dep:regex", "dep:grep", "dep:globset", "dep:encoding_rs"
 # (reqwest + url + tokio/net for SSRF DNS checks). NOT in default: a tools-only embedder
 # that wants no network egress skips it.
 web = ["tools", "egress", "dep:reqwest", "dep:url", "tokio/net"]
-# AtomGit REST tools (atomgit_repo / atomgit_pr / atomgit_issue). Opt-in on top of
-# `tools`; pulls the async HTTP stack (reqwest). NOT in default — an embedder that
-# wants no AtomGit egress skips it.
-atomgit = ["tools", "egress", "dep:reqwest", "dep:rustcode-auth"]
 # Code-intelligence tools (tree-sitter symbol extraction): list_symbols / read_symbol.
 # Opt-in (NOT default) — pulls 12 tree-sitter grammar crates (heavy C compilation).
 codeintel = [
@@ -195,8 +191,8 @@ skills = []
 # seams (LifecycleHooks + ToolMiddleware). Spawns subprocesses, so it pulls the
 # process/io tokio features; `dirs` resolves $RUSTCODE_HOME. Opt-in (NOT default).
 # `cc_hooks` uses `crate::tools::{request_approval_decision, PermissionDecision, …}`,
-# so it needs `tools` — without this it only compiled when a consumer happened to enable
-# `tools` transitively (e.g. via `atomgit`).
+# so it needs `tools` — without this it only compiled when a consumer happened to
+# enable `tools` transitively.
 cc-hooks = ["tools", "dep:dirs", "tokio/process", "tokio/io-util"]
 # E2E tests that hit a REAL provider (network + API key). Separate from the default
 # suite; run on demand: `cargo test -p rustcode-capabilities --features e2e --test e2e`.

@@ -87,7 +87,7 @@ pub mod pathnorm;
 /// Unified outbound HTTP: the ONE client factory (TLS trust roots / proxy /
 /// timeouts / UA / redirects), the non-LLM external-service config, and the
 /// `brief`+`detail` error pair. Pulled in by every feature that performs egress
-/// (`provider`, `web`, `atomgit`, `mcp`) -- never enabled directly, so a lean build
+/// (`provider`, `web`, `mcp`) -- never enabled directly, so a lean build
 /// with none of them compiles no HTTP stack at all. See [`egress`].
 #[cfg(feature = "egress")]
 pub mod egress;
@@ -96,12 +96,7 @@ pub mod egress;
 /// `core::proxy` (reads the process `RUSTCODE_PROXY_MODE` env) so native clients
 /// honor `no_proxy` without `capabilities` depending on `core`. Compiled
 /// whenever a reqwest-using capability is enabled.
-#[cfg(any(
-    feature = "provider",
-    feature = "web",
-    feature = "atomgit",
-    feature = "mcp"
-))]
+#[cfg(any(feature = "provider", feature = "web", feature = "mcp"))]
 pub(crate) mod proxy;
 
 /// Ungated path helpers (leading-`~` expansion, home dir) shared by the `tools` and
@@ -166,10 +161,6 @@ pub mod file_index;
 /// `docs/plans/2026-08-21-external-agent-subagent-drivers-spec.md`.
 #[cfg(feature = "tools")]
 pub mod subagent;
-
-/// AtomGit REST tools (repo / pull-request / issue). Opt-in `atomgit` feature.
-#[cfg(feature = "atomgit")]
-pub mod atomgit;
 
 /// Code-intelligence capability: tree-sitter `list_symbols` / `read_symbol` over 12
 /// languages. Single-file + stateless (no shared index, no ctx coupling). Opt-in

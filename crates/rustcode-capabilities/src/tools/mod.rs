@@ -35,11 +35,6 @@ const DEFAULT_CHILD_MAX_ROUNDS: u32 = 200;
 
 pub mod approval;
 pub mod ast_grep;
-/// AtomGit REST tools (repo / pr / issue). Opt-in `atomgit` feature.
-#[cfg(feature = "atomgit")]
-pub mod atomgit;
-#[cfg(feature = "atomgit")]
-pub mod atomgit_bash_gate;
 pub mod bash;
 pub mod bash_workspace_gate;
 pub mod cd;
@@ -73,23 +68,11 @@ pub mod write_approval;
 #[cfg(feature = "memory")]
 pub use memory::MemoryTool;
 
-#[cfg(feature = "atomgit")]
-pub use crate::atomgit::push_label_mw::GitPushLabelMiddleware;
-#[cfg(feature = "atomgit")]
-pub use crate::atomgit::{
-    AtomgitClient, AtomgitConfig, LiveTokenProvider, StaticTokenProvider, TokenProvider,
-};
 pub use approval::{
     parse_permission_decision, request_approval_decision, ApprovalMiddleware, ApprovalRequest,
     ApprovalResponse, InMemoryPermissionStore, PermissionDecision, PermissionStore, APPROVAL_KIND,
 };
 pub use ast_grep::AstGrepTool;
-#[cfg(feature = "atomgit")]
-pub use atomgit::{
-    atomgit_tool_names, register_atomgit_tools, AtomgitIssueTool, AtomgitPrTool, AtomgitRepoTool,
-};
-#[cfg(feature = "atomgit")]
-pub use atomgit_bash_gate::AtomgitBashGate;
 pub use bash::{
     bash_invocations, normalize_command_for_grant, run_shell, BashInvocation, BashTool, ShellExit,
     ShellOutcome,

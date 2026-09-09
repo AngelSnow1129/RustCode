@@ -70,7 +70,7 @@ fn apply_non_interactive_env(cmd: &mut tokio::process::Command) {
 /// shell paths' `pre_exec` (`BashTool::execute` and `run_shell`) so the two can't
 /// drift -- previously only `run_shell` had the full detach while the agent path had
 /// bare `setsid()`, leaving the model's own `git push` hooks free to scribble ANSI
-/// (the AtomGit `[PASSED]` box) onto the TUI past our piped stdout/stderr.
+/// (a remote's `[PASSED]` push banner) onto the TUI past our piped stdout/stderr.
 ///
 /// `setsid()` puts the child in a new session with no controlling tty; the explicit
 /// `open("/dev/tty")` + `TIOCNOTTY` is belt-and-suspenders for the case `setsid()`
@@ -2625,7 +2625,7 @@ pub async fn run_shell(
         // rendered by git) can write directly to /dev/tty.  Without this,
         // programs that open /dev/tty bypass our piped stdout/stderr and
         // scribble ANSI escape sequences onto the TUI -- producing artifacts
-        // like the [PASSED] box from AtomGit push hooks. Shared with
+        // like a remote's [PASSED] push banner. Shared with
         // BashTool::execute so the two paths can't drift.
         unsafe {
             cmd.pre_exec(|| {

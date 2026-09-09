@@ -38,6 +38,19 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+/// `User-Agent` this build sends on outbound HTTP.
+///
+/// Lowercase `rustcode/<version>` is deliberate -- the gateway UA filter
+/// hijacks capital-A `RustCode`. Sourced from `CARGO_PKG_VERSION`, which every
+/// workspace crate inherits from `[workspace.package]`, so the version it
+/// reports is the version of the build, not of whichever crate happens to send
+/// the request.
+pub const RUSTCODE_USER_AGENT: &str = concat!("rustcode/", env!("CARGO_PKG_VERSION"));
+
+// ---------------------------------------------------------------------------
 // Config tree
 // ---------------------------------------------------------------------------
 

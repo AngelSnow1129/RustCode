@@ -15,8 +15,8 @@
 //!
 //! - [`client`] -- [`build_http_client`](client::build_http_client) plus
 //!   [`HttpClientSpec`]: TLS trust-root layering (issue #514), proxy policy,
-//!   timeouts, UA, redirect policy. `provider` adapters, `web_fetch`, `web_search`,
-//!   `atomgit` and `mcp` all go through it.
+//!   timeouts, UA, redirect policy. `provider` adapters, `web_fetch`, `web_search`
+//!   and `mcp` all go through it.
 //! - [`config`] -- [`ExternalServiceConfig`]: the non-LLM flavour of an outbound
 //!   endpoint (base url + credential + custom headers), deliberately shaped like a
 //!   provider config so the two are configured and validated the same way.
@@ -28,7 +28,7 @@
 //! # Feature gating
 //!
 //! `egress` is never enabled directly. It is pulled in by each feature that
-//! performs outbound HTTP (`provider`, `web`, `atomgit`, `mcp`), so a lean build
+//! performs outbound HTTP (`provider`, `web`, `mcp`), so a lean build
 //! with none of them compiles no egress code and no HTTP stack.
 
 pub mod client;

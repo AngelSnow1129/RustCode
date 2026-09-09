@@ -4,11 +4,6 @@ version.workspace = true
 edition = "2021"
 description = "L2 coding specialization: assembles the neutral kernel + capabilities into a runnable, self-correcting coding agent."
 
-[features]
-# Forward the AtomGit REST tool feature to the capabilities layer so the
-# CLI can enable it on the coding dep without reaching into capabilities directly.
-atomgit = ["rustcode-capabilities/atomgit"]
-
 [dependencies]
 rustcode-kernel = { path = "../rustcode-kernel" }
 # Config system leaf consumed directly by the coding assembly.

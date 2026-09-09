@@ -69,7 +69,7 @@ pub async fn check_latest(current: &str) -> Option<String> {
     // a reqwest client here.
     let spec = rustcode_capabilities::egress::HttpClientSpec::default()
         .with_request_timeout(Some(std::time::Duration::from_secs(5)))
-        .with_user_agent(rustcode_auth::RUSTCODE_USER_AGENT);
+        .with_user_agent(rustcode_config::RUSTCODE_USER_AGENT);
     let client = rustcode_capabilities::egress::build_http_client(&spec).ok()?;
     let resp = client.get(manifest_url()).send().await.ok()?;
     if !resp.status().is_success() {

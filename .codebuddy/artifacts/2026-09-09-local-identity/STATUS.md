@@ -28,3 +28,20 @@
   login_state.rs:3/69、login_state_tests.rs:7-8
 - `endpoints.rs:33` PLATFORM_SERVER_ENV、:161 platform_server()、:299 测试、:64 注释
 - `tuix/commands.rs:35` MANAGED_ONLY_COMMANDS = ["login","logout","whoami","usage"]
+
+## 补充裁决（2026-09-09，编排者按推荐项定档）
+| 项 | 裁决 |
+| `atomgit` feature | **一并删除**（用户未答复，采纳推荐项）：删 `capabilities/src/atomgit/**`、`tools/*` 的 cfg 分支、
+  `capabilities/Cargo.toml:168`、`coding/Cargo.toml:10`。理由：与「不依赖外部平台」一致，且零新增依赖 |
+| `RUSTCODE_USER_AGENT` | 迁至 `rustcode-config`（`distribution.rs`）；外部使用点仅 `daemon/runtime_host.rs:46`、
+  `tuix/version_check.rs:72`；`updater/src/lib.rs:59` 已有独立副本（leaf crate，本轮不动，登记为 follow-up） |
+
+## 批次计划
+1. UA 常量迁移（config + daemon + tuix）
+2. `atomgit` feature 移除（capabilities + coding）
+3. marketplace 无认证化（capabilities/plugin/marketplace.rs）
+4. daemon：删 `/auth/*` 路由 + `login_state.rs` + `commands.rs` 状态字段
+5. tuix：删 `/login` `/logout`、改 `/whoami` `/status`、清 `MANAGED_ONLY_COMMANDS` 与 i18n
+6. 删 `rustcode-auth` crate + `endpoints::platform_server()` + `RUSTCODE_PLATFORM_SERVER` + 依赖边 + Cargo.lock
+7. 存量 `auth.toml` 清除 + uninstall 同步
+8. 文档 / 扩展 / webui 口径同步

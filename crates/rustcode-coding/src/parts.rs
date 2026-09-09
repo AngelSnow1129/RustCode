@@ -556,12 +556,6 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         any
     };
 
-    #[cfg(feature = "atomgit")]
-    if opts.tools {
-        crate::assemble::register_atomgit_capabilities(&mut registry, &mut names)
-            .map_err(|error| io::Error::other(format!("AtomGit tool setup failed: {error}")))?;
-    }
-
     if opts.tools && opts.web && !rustcode_config::config::offline::is_offline_active() {
         registry.register(Arc::new(WebFetchTool));
         // web_search backend: explicit config wins; else the `RUSTCODE_WEB_SEARCH_PROVIDER`
@@ -1700,8 +1694,7 @@ pub fn assemble(
         // that keeps a user's external-model 429 from being mislabelled as a plan quota;
         // a prepare-frozen base_url would defeat it after a model switch.
         .hook(rate_limit_hook)
-        // Credentials are a product-wide security boundary, independent of whether
-        // the optional AtomGit integration is compiled in. It must run before the
+        // Credentials are a product-wide security boundary. It must run before the
         // approval-oriented SensitivePathGate so an explicit extraction cannot be
         // downgraded from terminal denial into a retryable approval denial.
         .middleware(Arc::new(
@@ -1716,14 +1709,6 @@ pub fn assemble(
         .middleware(Arc::new(SensitivePathGate::with_store(
             parts.sensitive_path_grants.clone(),
         )));
-    #[cfg(feature = "atomgit")]
-    {
-        // Typed AtomGit tools are the only supported API path: they keep credentials
-        // outside model-visible arguments and retain action-aware approval semantics.
-        builder = builder.middleware(Arc::new(
-            rustcode_capabilities::tools::AtomgitBashGate::new(),
-        ));
-    }
     // CC external hooks (PreToolUse gate). Runs AFTER the hard PlanMode/SensitivePath gates
     // (which must stay un-bypassable by a hook `allow`) but BEFORE every auto-approve
     // convenience gate -- OpenFileWorkspaceGate and especially WriteApprovalGate, which
@@ -1911,18 +1896,6 @@ pub fn assemble(
             parts.has_external_subagents,
         );
         builder = builder.resume(snapshot);
-    }
-    // Ensure the repo's project label after a successful `git push` to a
-    // platform remote. THIS is the production mount: the terminal TUI, daemon, and
-    // webui all build their agent here via `parts::assemble`. (`assemble.rs::build_coding_agent`
-    // also mounts it, but that path is reachable only from tests/examples -- so before this the
-    // middleware never ran for a real session.) Best-effort: every failure is a `tracing::warn`
-    // and the turn proceeds. Gated on `atomgit` (its sole consumer).
-    #[cfg(feature = "atomgit")]
-    {
-        builder = builder.middleware(Arc::new(
-            rustcode_capabilities::tools::GitPushLabelMiddleware::new(cfg.working_dir.clone()),
-        ));
     }
     // Artifact spill middleware: intercepts oversized tool results and saves them to disk so
     // the conversation only carries a preview + handle. Only wired when a session is present
@@ -2793,22 +2766,6 @@ mod tests {
         assert!(parts.review_provider.is_none());
         assert!(!parts.has_external_subagents);
         assert!(parts.mcp_registry.is_none());
-    }
-
-    #[cfg(feature = "atomgit")]
-    #[tokio::test]
-    async fn production_prepare_exposes_atomgit_tools() {
-        let project = tempfile::tempdir().unwrap();
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
-        let parts = prepare(&cfg, io_free_opts()).await.unwrap();
-        let names = parts.selected_tool_names();
-
-        for expected in ["atomgit_repo", "atomgit_pr", "atomgit_issue"] {
-            assert!(
-                names.iter().any(|name| name == expected),
-                "production tool catalog must expose {expected}: {names:?}"
-            );
-        }
     }
 
     async fn resume_prepare_error(cfg: &CodingAgentConfig, id: &str) -> io::Error {

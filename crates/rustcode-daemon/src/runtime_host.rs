@@ -43,6 +43,6 @@ pub fn gather_plugin_skill_dirs_for(
 
 pub fn coding_provider_factory() -> Arc<dyn rustcode_coding::CodingProviderFactory> {
     Arc::new(rustcode_coding::DefaultCodingProviderFactory::new(
-        rustcode_auth::RUSTCODE_USER_AGENT,
+        rustcode_config::RUSTCODE_USER_AGENT,
     ))
 }

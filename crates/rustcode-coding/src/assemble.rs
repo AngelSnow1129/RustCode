@@ -127,10 +127,6 @@ fn build_coding_agent_from_tools(
         .middleware(Arc::new(
             rustcode_capabilities::tools::CredentialBashGate::new(cfg.credential_shell_policy),
         ));
-    #[cfg(feature = "atomgit")]
-    let builder = builder.middleware(Arc::new(
-        rustcode_capabilities::tools::AtomgitBashGate::new(),
-    ));
     let mut builder = builder
         // Auto-approve in-workspace open_file (it's Risky -> would otherwise prompt on every
         // preview). This path pins an immutable working_dir, so the gate pins the same root.
@@ -199,12 +195,6 @@ fn build_coding_agent_from_tools(
             cfg.todo.eager,
         )));
     }
-    #[cfg(feature = "atomgit")]
-    {
-        builder = builder.middleware(Arc::new(
-            rustcode_capabilities::tools::GitPushLabelMiddleware::new(cfg.working_dir.clone()),
-        ));
-    }
     builder.build()
 }
 
@@ -216,12 +206,6 @@ fn mount_coding_tools(
     lsp: &LspSettings,
 ) -> Result<MountedTools, String> {
     let (registry, names) = base_coding_tools(vision, todo_enabled, lsp);
-    #[cfg(feature = "atomgit")]
-    let (registry, names) = {
-        let (mut registry, mut names) = (registry, names);
-        register_atomgit_capabilities(&mut registry, &mut names)?;
-        (registry, names)
-    };
     let refs: Vec<&str> = names.iter().map(String::as_str).collect();
     Ok(registry.mount(&refs))
 }
@@ -250,30 +234,6 @@ fn base_coding_tools(
         names.push("lsp".into());
     }
     (registry, names)
-}
-
-/// Register the shipped AtomGit REST capabilities into a coding tool catalog.
-///
-/// Both the minimal builder above and the production `parts::prepare -> assemble`
-/// path use this helper so a feature-enabled build cannot expose different tools
-/// depending on which assembly entry point the driver uses.
-#[cfg(feature = "atomgit")]
-pub(crate) fn register_atomgit_capabilities(
-    registry: &mut ToolRegistry,
-    names: &mut Vec<String>,
-) -> Result<(), String> {
-    use rustcode_capabilities::tools::{
-        atomgit_tool_names, register_atomgit_tools, AtomgitClient, AtomgitConfig, LiveTokenProvider,
-    };
-
-    let client = AtomgitClient::new(AtomgitConfig {
-        base_url: "https://api.atomgit.com/api/v5".to_string(),
-        user_agent: format!("rustcode/{}", env!("CARGO_PKG_VERSION")),
-        token: Arc::new(LiveTokenProvider),
-    })?;
-    register_atomgit_tools(registry, Arc::new(client));
-    names.extend(atomgit_tool_names().iter().map(|name| (*name).to_string()));
-    Ok(())
 }
 
 #[cfg(test)]
