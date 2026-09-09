@@ -280,6 +280,41 @@ mod tests {
     }
 
     #[test]
+    fn config_response_reports_saved_credential_before_first_model_is_added() {
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "provider_accounts": {
+                "taotoken": {
+                    "provider": "openai",
+                    "base_url": "https://taotoken.example.com/api/v1",
+                    "api_key": "account-only-secret"
+                },
+                "RustCode": {
+                    "provider": "openai",
+                    "base_url": "https://gateway.test.example/v1"
+                }
+            }
+        }))
+        .unwrap();
+
+        let response = config_response(&config);
+        let taotoken = response
+            .provider_accounts
+            .iter()
+            .find(|account| account.id == "taotoken")
+            .unwrap();
+        assert!(taotoken.has_api_key);
+        assert!(taotoken.model_ids.is_empty());
+        let gateway = response
+            .provider_accounts
+            .iter()
+            .find(|account| account.id == "RustCode")
+            .unwrap();
+        assert!(gateway.model_ids.is_empty());
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(!json.contains("account-only-secret"));
+    }
+
+    #[test]
     fn config_response_preserves_auto_override_separately_from_effective_capability() {
         let mut config = Config::with_default_provider("custom");
         let mut auto = provider("https://example.test/v1");
