@@ -3523,56 +3523,6 @@ mod tests {
     }
 
     #[test]
-    fn codingplan_models_are_read_only_in_the_panel() {
-        let cfg: Config = serde_json::from_value(serde_json::json!({
-            "provider_accounts": {
-                "RustCode": { "provider": "openai", "base_url": "https://gateway.test.example/v1" },
-                "official-alias": { "provider": "openai", "base_url": "https://gateway.test.example/v1" },
-                "other": { "provider": "openai-compatible", "base_url": "https://example.invalid/v1" }
-            },
-            "models": {
-                "RustCode-deepseek-v4-flash": {
-                    "account": "RustCode",
-                    "model": "deepseek-v4-flash",
-                    "context_window": 1000000
-                },
-                "flash-primary": {
-                    "account": "official-alias",
-                    "model": "deepseek-v4-flash",
-                    "context_window": 1000000
-                },
-                "other/model": { "account": "other", "model": "model", "context_window": 8000 }
-            }
-        }))
-        .unwrap();
-
-        assert!(ProviderPanel::managed_account(&cfg, "RustCode"));
-        assert!(ProviderPanel::managed_account(&cfg, "official-alias"));
-        assert!(ProviderPanel::managed_model(
-            &cfg,
-            "RustCode-deepseek-v4-flash"
-        ));
-        assert!(!ProviderPanel::managed_model(&cfg, "other/model"));
-        assert!(ProviderPanel::managed_model(&cfg, "flash-primary"));
-
-        let add = ModelForm::new_add(&cfg, Some("RustCode")).unwrap();
-        assert_ne!(add.account_id(), "RustCode");
-        assert!(!add.account_ids.iter().any(|id| id == "RustCode"));
-        assert!(!add.account_ids.iter().any(|id| id == "official-alias"));
-
-        let mut panel = ProviderPanel::open();
-        panel.tab = Tab::Models;
-        panel.account_filter = Some("RustCode".into());
-        let visible = panel.filtered_ids(&cfg);
-        assert_eq!(visible, vec!["RustCode-deepseek-v4-flash".to_string()]);
-        assert!(!panel.can_add_model(&cfg));
-        assert!(!panel.has_add_row(&cfg));
-        assert_eq!(panel.current_len(&cfg), visible.len());
-        panel.selected = visible.len();
-        assert_eq!(panel.selected_id(&cfg), None);
-    }
-
-    #[test]
     fn added_account_stays_open_on_its_models_page() {
         let mut panel = ProviderPanel::open();
         panel.selected = 3;

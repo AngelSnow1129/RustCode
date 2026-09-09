@@ -113,10 +113,6 @@ fn mode_setter_residual_message(cmd: &str, arg: &str) -> Option<crate::state::Ag
     }
 }
 
-fn reload_runtime_provider(ctx: &LoopCtx) -> Result<(), rustcode_coding::RuntimeUnavailable> {
-    reload_runtime_provider_from(ctx, &ctx.config)
-}
-
 fn reload_runtime_provider_from(
     ctx: &LoopCtx,
     source: &Config,
@@ -172,41 +168,21 @@ pub(crate) fn request_context_stats_render(
     Ok(())
 }
 
-fn deactivate_runtime_provider(ctx: &LoopCtx) -> Result<(), rustcode_coding::RuntimeUnavailable> {
-    ctx.runtime.deactivate_provider(
-        rustcode_coding::ProviderUnavailableReason::AuthenticationRequired,
-        ctx.foreground_runtime_id,
-        ctx.runtime_event_tx.clone(),
-    )
-}
-
+/// Reconcile the credential observation right after `/logout` removed the
+/// stored credentials. No live provider is assembled from those credentials --
+/// providers come from config.toml alone -- so there is nothing to tear down
+/// here. The fresh observation is committed so the external-auth poller does
+/// not replay this transition, and `false` reports that no asynchronous
+/// provider deactivation was queued.
 pub(crate) fn deactivate_runtime_provider_after_logout(
     ctx: &mut LoopCtx,
 ) -> Result<bool, rustcode_coding::RuntimeUnavailable> {
-    // Current gateway credential observation (tokens never enter UI state). After
+    // Current credential observation (tokens never enter UI state). After
     // logout this reflects the freshly-read credential file; falls back to the
     // "no auth" observation when the file is unreadable.
     let auth = AuthObservation::read_checked().unwrap_or(AuthObservation { user_id: None });
-    let availability = ctx.runtime.ui_availability();
-    if availability == RuntimeUiAvailability::Starting
-        && provider_requires_codingplan_auth(&ctx.config)
-    {
-        // Reconcile again once startup settles; the provider may have been
-        // assembled from credentials that disappeared during construction.
-        ctx.observed_auth = None;
-        return Ok(false);
-    }
-    if !should_deactivate_for_missing_auth(&ctx.config, availability) {
-        commit_auth_observation(&mut ctx.observed_auth, auth, true);
-        return Ok(false);
-    }
-    if let Err(error) = deactivate_runtime_provider(ctx) {
-        commit_auth_observation(&mut ctx.observed_auth, auth, false);
-        return Err(error);
-    }
     commit_auth_observation(&mut ctx.observed_auth, auth, true);
-    ctx.pending_provider_deactivation = true;
-    Ok(true)
+    Ok(false)
 }
 
 /// Encode raw RGBA pixel data as a PNG image in memory.
@@ -3983,10 +3959,10 @@ pub struct LoopCtx {
     pub plugin_job_tx: mpsc::UnboundedSender<rustcode_capabilities::plugin::PluginJobEvent>,
     pub plugin_job_rx: mpsc::UnboundedReceiver<rustcode_capabilities::plugin::PluginJobEvent>,
     /// Set by `OnboardingWizard` (step 3, Setup) when the user picks
-    /// option 0 (Set up CodingPlan). The event loop drains this on
-    /// modal close and runs the full `/login` flow (OAuth if needed ->
-    /// claim -> fetch models -> register providers). Needs raw-mode
-    /// suspend/resume, something modals can't drive themselves.
+    /// option 0 (sign in). The event loop drains this on modal close
+    /// and runs the full `/login` flow (OAuth if needed -> fetch
+    /// models -> register providers). Needs raw-mode suspend/resume,
+    /// something modals can't drive themselves.
     pub pending_run_login_setup: bool,
     /// Set by `OnboardingWizard` (step 3, Setup) when the user picks
     /// option 1 (Configure manually). The event loop drains this on
@@ -9333,17 +9309,6 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
             ));
         }
     }
-    // Same env-var handoff from `rustcode codingplan` (see CLI `run()`):
-    // the subcommand stashes its rendered SetupReport here instead of
-    // printing to stdout, so the user sees the [+]/[x] lines in the chat
-    // scrollback rather than scrolled off above the welcome banner.
-    if let Ok(report) = std::env::var("RUSTCODE_CODINGPLAN_REPORT") {
-        std::env::remove_var("RUSTCODE_CODINGPLAN_REPORT");
-        if !report.is_empty() {
-            renderer.render(UiLine::CommandOutput(report));
-        }
-    }
-
     // Terminal keyboard hint: shown when crossterm couldn't negotiate
     // the Kitty keyboard protocol (CSI u). The previous copy claimed
     // "Shift+Enter won't work" -- but Kitty is only ONE of several ways
@@ -9441,11 +9406,11 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
         //    A background poll thread (PR 1b) watches `/auth/check` and auto-closes
         //    the modal the moment the server reports authorisation, then the
         //    `OauthEvent::Authorized` branch in the main `select!` flips
-        //    `pending_run_login_setup` so `/codingplan` claims immediately --
+        //    `pending_run_login_setup` so `/login` finishes setup immediately --
         //    zero keystrokes after the browser flow.
         //  * Neutral build -- `start_login()` has no platform server to target
         //    and only errors, so the QR screen would dead-end the user on a
-        //    "claim free CodingPlan quota" pitch they can never complete.
+        //    sign-in pitch they can never complete.
         //    Open the full Intro -> Language -> Setup wizard instead; its Setup
         //    step leads with the bring-your-own-key /provider path and never
         //    shows the Login row. Its `pending_session` is None so no OAuth poll
@@ -9723,8 +9688,8 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
             // Emitted by `event_loop::oauth_poll::spawn_oauth_poll`
             // once per QR-fast-path session. Authorized -> close the
             // wizard + flip `pending_run_login_setup` so the existing
-            // /codingplan driver picks up the just-written auth.toml
-            // and claims the plan. Failed -> close the wizard too and
+            // /login driver picks up the just-written auth.toml and
+            // finishes provider setup. Failed -> close the wizard too and
             // surface the reason in scrollback with a retry hint;
             // leaving the modal open would require a Modal trait
             // extension (as_any_mut + downcast) we don't yet have.
@@ -9737,25 +9702,25 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                 }
                 match ev {
                     OauthEvent::Authorized => {
-                        // Banner FIRST, /codingplan output below -- per
+                        // Banner FIRST, /login output below -- per
                         // user direction: RustCode chrome should anchor
-                        // the top of scrollback, the codingplan claim
-                        // output is verbose detail underneath. Model
-                        // bullet is blank at this point because the
-                        // claim hasn't picked a default provider yet --
+                        // the top of scrollback, the login setup output
+                        // is verbose detail underneath. Model bullet is
+                        // blank at this point because login hasn't
+                        // picked a default provider yet --
                         // refreshed below once the claim writes
                         // ctx.model_name.
                         crate::modals::onboarding_wizard::paint_welcome(&ctx, renderer);
                         // `pending_run_login_setup` is only drained by the
                         // keystroke-handler path (handle_input -> modal
                         // close -> drain flag). The OAuth poll path doesn't
-                        // route through there, so just call the codingplan
+                        // route through there, so just call the login
                         // driver directly -- same effect, runs in this
                         // select! arm's scope where renderer + ctx are
                         // already mutable.
                         if let Err(e) = crate::event_loop::commands::run_login_flow(renderer, &mut ctx) {
                             renderer.render(crate::render::UiLine::Error(
-                                format!("CodingPlan 自动配置失败: {e:#}。可运行 /login 手动重试。"),
+                                format!("自动配置失败: {e:#}。可运行 /login 手动重试。"),
                             ));
                             renderer.flush();
                         }
@@ -10151,8 +10116,8 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
             // Emitted by `event_loop::oauth_poll::spawn_oauth_poll`
             // once per QR-fast-path session. Authorized -> close the
             // wizard + flip `pending_run_login_setup` so the existing
-            // /codingplan driver picks up the just-written auth.toml
-            // and claims the plan. Failed -> close the wizard too and
+            // /login driver picks up the just-written auth.toml and
+            // finishes provider setup. Failed -> close the wizard too and
             // surface the reason in scrollback with a retry hint;
             // leaving the modal open would require a Modal trait
             // extension (as_any_mut + downcast) we don't yet have.
@@ -10165,25 +10130,25 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                 }
                 match ev {
                     OauthEvent::Authorized => {
-                        // Banner FIRST, /codingplan output below -- per
+                        // Banner FIRST, /login output below -- per
                         // user direction: RustCode chrome should anchor
-                        // the top of scrollback, the codingplan claim
-                        // output is verbose detail underneath. Model
-                        // bullet is blank at this point because the
-                        // claim hasn't picked a default provider yet --
+                        // the top of scrollback, the login setup output
+                        // is verbose detail underneath. Model bullet is
+                        // blank at this point because login hasn't
+                        // picked a default provider yet --
                         // refreshed below once the claim writes
                         // ctx.model_name.
                         crate::modals::onboarding_wizard::paint_welcome(&ctx, renderer);
                         // `pending_run_login_setup` is only drained by the
                         // keystroke-handler path (handle_input -> modal
                         // close -> drain flag). The OAuth poll path doesn't
-                        // route through there, so just call the codingplan
+                        // route through there, so just call the login
                         // driver directly -- same effect, runs in this
                         // select! arm's scope where renderer + ctx are
                         // already mutable.
                         if let Err(e) = crate::event_loop::commands::run_login_flow(renderer, &mut ctx) {
                             renderer.render(crate::render::UiLine::Error(
-                                format!("CodingPlan 自动配置失败: {e:#}。可运行 /login 手动重试。"),
+                                format!("自动配置失败: {e:#}。可运行 /login 手动重试。"),
                             ));
                             renderer.flush();
                         }
@@ -10465,44 +10430,19 @@ fn resolved_provider_fingerprint(config: &Config) -> Option<Vec<u8>> {
     serde_json::to_vec(&(name, pc)).ok()
 }
 
-fn provider_requires_codingplan_auth(config: &Config) -> bool {
-    config
-        .active_provider(None)
-        .ok()
-        .and_then(|provider| provider.base_url)
-        .is_some_and(|url| rustcode_auth::gateway_crypto::is_codingplan_gateway(&url))
-}
-
 fn should_reload_provider(
     mode: crate::ProviderSelectionMode,
     current: &Config,
     desired: &Config,
-    runtime_availability: RuntimeUiAvailability,
-    auth_available: bool,
 ) -> bool {
-    let requires_codingplan_auth = provider_requires_codingplan_auth(desired);
-    if requires_codingplan_auth && !auth_available {
-        return false;
-    }
-    let recovering_codingplan_auth =
-        requires_codingplan_auth && runtime_availability == RuntimeUiAvailability::AwaitingProvider;
     let prompt_language_changed = current.language != desired.language;
-    recovering_codingplan_auth
-        || prompt_language_changed
+    prompt_language_changed
         || (mode == crate::ProviderSelectionMode::FollowGlobalDefault
             && !current
                 .providers
                 .get(&current.default_provider)
                 .is_some_and(|provider| provider.ephemeral)
             && resolved_provider_fingerprint(current) != resolved_provider_fingerprint(desired))
-}
-
-fn should_deactivate_for_missing_auth(
-    config: &Config,
-    runtime_availability: RuntimeUiAvailability,
-) -> bool {
-    provider_requires_codingplan_auth(config)
-        && runtime_availability == RuntimeUiAvailability::Available
 }
 
 /// Merge freshly-persisted config on top of the running one while keeping the
@@ -10739,10 +10679,6 @@ mod external_config_tests {
         config
     }
 
-    fn codingplan_config(model: &str) -> Config {
-        config_with_url(model, false, "https://gateway.test.example/v1")
-    }
-
     fn new_schema_config(default_model: &str) -> Config {
         serde_json::from_value(serde_json::json!({
             "default_model": default_model,
@@ -10774,8 +10710,6 @@ mod external_config_tests {
             crate::ProviderSelectionMode::FollowGlobalDefault,
             &config("model-a", false),
             &config("model-b", false),
-            RuntimeUiAvailability::Available,
-            true,
         ));
     }
 
@@ -10785,8 +10719,6 @@ mod external_config_tests {
             crate::ProviderSelectionMode::Pinned,
             &config("model-a", false),
             &config("model-b", false),
-            RuntimeUiAvailability::Available,
-            true,
         ));
     }
 
@@ -10801,8 +10733,6 @@ mod external_config_tests {
             crate::ProviderSelectionMode::Pinned,
             &current,
             &desired,
-            RuntimeUiAvailability::Available,
-            true,
         ));
     }
 
@@ -10819,8 +10749,6 @@ mod external_config_tests {
             crate::ProviderSelectionMode::FollowGlobalDefault,
             &config("oauth-model", true),
             &config("disk-model", false),
-            RuntimeUiAvailability::Available,
-            true,
         ));
     }
 
@@ -11256,73 +11184,13 @@ mod external_config_tests {
     }
 
     #[test]
-    fn codingplan_auth_dependency_uses_gateway_not_provider_name() {
-        let mut renamed = codingplan_config("model-a");
-        let provider = renamed.providers.remove("main").unwrap();
-        renamed
-            .providers
-            .insert("renamed-provider".into(), provider);
-        renamed.default_provider = "renamed-provider".into();
-
-        assert!(provider_requires_codingplan_auth(&renamed));
-        assert!(!provider_requires_codingplan_auth(&config(
-            "model-a", false
-        )));
-    }
-
-    #[test]
-    fn awaiting_codingplan_runtime_recovers_even_when_config_is_unchanged() {
-        let current = codingplan_config("model-a");
-
-        assert!(should_reload_provider(
-            crate::ProviderSelectionMode::FollowGlobalDefault,
-            &current,
-            &current,
-            RuntimeUiAvailability::AwaitingProvider,
-            true,
-        ));
-        assert!(should_reload_provider(
-            crate::ProviderSelectionMode::Pinned,
-            &current,
-            &current,
-            RuntimeUiAvailability::AwaitingProvider,
-            true,
-        ));
-    }
-
-    #[test]
     fn ready_runtime_does_not_reload_for_unchanged_config() {
-        let current = codingplan_config("model-a");
+        let current = config("model-a", false);
 
         assert!(!should_reload_provider(
             crate::ProviderSelectionMode::FollowGlobalDefault,
             &current,
             &current,
-            RuntimeUiAvailability::Available,
-            true,
-        ));
-    }
-
-    #[test]
-    fn missing_codingplan_auth_defers_config_reload_until_login() {
-        assert!(!should_reload_provider(
-            crate::ProviderSelectionMode::FollowGlobalDefault,
-            &codingplan_config("model-a"),
-            &codingplan_config("model-b"),
-            RuntimeUiAvailability::Available,
-            false,
-        ));
-    }
-
-    #[test]
-    fn codingplan_logout_deactivates_only_codingplan_provider() {
-        assert!(should_deactivate_for_missing_auth(
-            &codingplan_config("model-a"),
-            RuntimeUiAvailability::Available,
-        ));
-        assert!(!should_deactivate_for_missing_auth(
-            &config("model-a", false),
-            RuntimeUiAvailability::Available,
         ));
     }
 
@@ -11718,21 +11586,14 @@ fn reconcile_persisted_config(
     manual_reload_announce: bool,
 ) -> Result<PersistedConfigReload, anyhow::Error> {
     let desired = desired_config_from_snapshot(ctx, snapshot.config, manual_reload_announce);
-    let auth_available = AuthObservation::read().is_available();
 
     // An explicit `/reload` on a pinned session keeps the same provider but must
     // still reconfigure the runtime when that provider's own settings were edited
     // (e.g. `context_window`) -- otherwise the running provider keeps the stale
     // window and `/context` / the footer never update. `should_reload_provider`
     // only follows shared-default changes, so add the manual-edit trigger here.
-    let wants_reload = should_reload_provider(
-        ctx.provider_selection_mode,
-        &ctx.config,
-        &desired,
-        ctx.runtime.ui_availability(),
-        auth_available,
-    ) || (manual_reload_announce
-        && active_provider_config_changed(&ctx.config, &desired));
+    let wants_reload = should_reload_provider(ctx.provider_selection_mode, &ctx.config, &desired)
+        || (manual_reload_announce && active_provider_config_changed(&ctx.config, &desired));
 
     if !wants_reload {
         let (provider, model) = resolved_provider_and_model(&desired);
@@ -11846,16 +11707,9 @@ pub(crate) fn apply_config_panel_commit(
         commit.snapshot.config,
         adopt_active_provider_edit,
     );
-    let auth_available = AuthObservation::read().is_available();
     let wants_reload = force_agent_reassemble
         || force_capability_reprepare
-        || should_reload_provider(
-            ctx.provider_selection_mode,
-            &ctx.config,
-            &desired,
-            ctx.runtime.ui_availability(),
-            auth_available,
-        )
+        || should_reload_provider(ctx.provider_selection_mode, &ctx.config, &desired)
         || active_provider_config_changed(&ctx.config, &desired);
 
     if !wants_reload {
@@ -11999,57 +11853,10 @@ fn poll_external_auth(ctx: &mut LoopCtx) -> bool {
         return true;
     }
 
-    let mut reconciled = true;
-    if current.is_available()
-        && provider_requires_codingplan_auth(&ctx.config)
-        && availability == RuntimeUiAvailability::AwaitingProvider
-    {
-        let origin_generation = ctx.runtime.current_generation();
-        rustcode_config::proxy::apply_process_proxy_config(&ctx.config.network.proxy);
-        match reload_runtime_provider(ctx) {
-            Ok(()) => {
-                ctx.pending_provider_reload = Some(PendingProviderReload {
-                    origin_generation,
-                    desired_config: ctx.config.clone(),
-                    persisted_revision: None,
-                    rollback_persisted_config: None,
-                    rollback_persisted_document: None,
-                    rollback_runtime_config: None,
-                    previous_model_name: None,
-                    announce: None,
-                    language_change_notice: LanguageChangeNotice::None,
-                    manual_reload_announce: false,
-                    selection_mode_after_success: None,
-                });
-            }
-            Err(error) => {
-                reconciled = false;
-                crate::tuix_trace!(
-                    "AUTH",
-                    "provider recovery after external login could not be queued: {error}"
-                );
-            }
-        }
-    } else if !current.is_available()
-        && should_deactivate_for_missing_auth(&ctx.config, availability)
-    {
-        match deactivate_runtime_provider(ctx) {
-            Ok(()) => ctx.pending_provider_deactivation = true,
-            Err(error) => {
-                reconciled = false;
-                crate::tuix_trace!(
-                    "AUTH",
-                    "provider deactivation after external logout could not be queued: {error}"
-                );
-            }
-        }
-    }
-
-    // Commit the observation after the transition was queued (or proven
-    // irrelevant). A later opposite transition remains visible while an async
-    // provider operation is pending because the early return above does not
-    // overwrite this value.
-    commit_auth_observation(&mut ctx.observed_auth, current, reconciled);
+    // The live provider is assembled from config.toml alone, so a credential
+    // transition never activates or tears down a provider on its own. Commit the
+    // observation so the next opposite transition stays detectable.
+    commit_auth_observation(&mut ctx.observed_auth, current, true);
     true
 }
 
@@ -13620,7 +13427,7 @@ fn handle_input(
                         app.active_modal = None;
                         // OnboardingWizard signals its follow-up via two bool
                         // flags. Drain one, execute it here -- the
-                        // CodingPlan flow (which internally handles
+                        // login flow (which internally handles
                         // OAuth login when needed) needs suspend/resume
                         // of raw mode (only event-loop scope can drive
                         // that safely), and opening ProviderWizard is a
@@ -18027,27 +17834,6 @@ pub(crate) fn set_default_provider_and_reload(
         selection_mode_after_success: Some(crate::ProviderSelectionMode::Pinned),
     });
     true
-}
-
-/// Apply the config `/login` just persisted (fresh CodingPlan claim) to the
-/// running session. Passes `adopt_active_edits = true` (same as `/reload`): a
-/// successful `/login` re-claims models and rewrites the ACTIVE provider's own
-/// settings -- notably `context_window` -- so the running conversation MUST adopt
-/// them, otherwise the merge keeps the stale runtime copy and the footer window
-/// (e.g. `/100k`) never updates to the model's real window until the user runs
-/// `/reload` manually. When the active provider's config actually changed this
-/// triggers an async provider reload whose completion projects the new window.
-#[cfg(feature = "codingplan")]
-pub(crate) fn apply_persisted_config(
-    ctx: &mut LoopCtx,
-    config: Config,
-    revision: ConfigRevision,
-    renderer: &mut dyn Renderer,
-) {
-    if let Err(error) = reconcile_persisted_config(ctx, ConfigSnapshot { config, revision }, true) {
-        renderer.render(UiLine::Error(error.to_string()));
-        renderer.flush();
-    }
 }
 
 /// On Ctrl+C / Esc during streaming, pull the running message back
@@ -23887,9 +23673,9 @@ fn handle_runtime_event(
                 CodingRuntimeEvent::ProviderDeactivationFinished(Err(error)) => {
                     ctx.pending_provider_deactivation = false;
                     // Credentials are already gone. Keep the missing-auth
-                    // transition observable so the next poll retries the
-                    // fail-closed deactivation instead of leaving a live
-                    // CodingPlan provider behind after a transient runtime race.
+                    // transition observable so the next poll re-reads the
+                    // credential state instead of trusting an observation that
+                    // was committed before this failure.
                     ctx.observed_auth = None;
                     let message =
                         format!("credentials removed, but provider deactivation failed: {error}");
@@ -27493,10 +27279,10 @@ fn handle_agent_event(
         } => {
             // Non-error pause line: dim/plain body row, never red.
             // auto_resuming=true (WaitAndRetry): "⏳ 限流，Ns 后自动继续..."
-            // auto_resuming=false + CodingPlan window data (reset time and/or label):
+            // auto_resuming=false + window data (reset time and/or label):
             //   "⏸ 5小时窗口已用尽，约 HH:MM 恢复..." / "...稍后恢复..."
             // auto_resuming=false + NO window data (external-model / generic 429):
-            //   "⏸ 限流（HTTP 429）[：<provider reason>]..." -- not a CodingPlan quota.
+            //   "⏸ 限流（HTTP 429）[：<provider reason>]..." -- no quota window.
             // UiLine::Muted: theme-aware muted gray (legible on dark AND light),
             // no forced prefix, non-bold. Rate-limit is a pause, not an
             // error/warning -- it must not render with the yellow `! ` prefix
@@ -28002,7 +27788,7 @@ fn status_context_usage(
 /// Configuration has two supported schemas: legacy `[providers.*]` and native
 /// `[provider_accounts.*]` + `[models.*]`. Checking `config.providers` directly
 /// only sees the legacy half and makes a perfectly usable native model appear
-/// as "(未配置)" whenever no CodingPlan auth is stored. Route through the same
+/// as "(未配置)" whenever no credentials are stored. Route through the same
 /// active-provider resolution boundary used to build the runtime instead.
 fn status_provider_unconfigured(
     unavailable_reason: Option<rustcode_coding::ProviderUnavailableReason>,
@@ -28148,32 +27934,11 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
         RuntimeUiAvailability::AwaitingProvider
     ) && !no_provider;
     let runtime_failed = matches!(runtime_availability, RuntimeUiAvailability::Failed);
-    // A build without the managed-signing overlay pointed at a managed
-    // gateway: any chat will fail-fast with the unsupported-build error.
-    // Surface that diagnosis up front (red, beats every other hint) so the
-    // user doesn't have to type a message to discover the dead-end --
-    // `/login` won't help, only a distribution build that ships the
-    // managed-signing support (or switching to a plain BYO provider) will.
-    let active_base_url = ctx
-        .config
-        .active_provider(None)
-        .ok()
-        .and_then(|p| p.base_url.clone())
-        .unwrap_or_default();
-    let needs_official_build = !rustcode_capabilities::provider::signer_available()
-        && rustcode_capabilities::provider::is_codingplan_gateway(&active_base_url);
-    // Priority: needs-official-build (Warning red) > no-provider (Warning
-    // red) > CodingPlan drift monitor (Warning red) > CodingPlan
-    // token-usage hint (Info ≥80%, Warning ≥95%) > upgrade banner
-    // (Info dim). Usage outranks upgrade because ">80% in this rolling
-    // window" is more actionable than "new version available". Only one
-    // hint renders at a time (right-aligned on the status row).
-    let hint: Option<(String, crate::render::HintSeverity)> = if needs_official_build {
-        Some((
-            crate::i18n::t(crate::i18n::Msg::StatusOfficialBuildRequired).into_owned(),
-            crate::render::HintSeverity::Warning,
-        ))
-    } else if no_provider {
+    // Priority: no-provider (Warning red) > provider-waiting (Warning red) >
+    // runtime-unavailable (Warning red) > hook warning (Warning) > clipboard
+    // image cue (Info) > upgrade banner (Info dim). Only one hint renders at a
+    // time (right-aligned on the status row).
+    let hint: Option<(String, crate::render::HintSeverity)> = if no_provider {
         Some((
             crate::i18n::t(crate::i18n::Msg::StatusNoProvider).into_owned(),
             crate::render::HintSeverity::Warning,

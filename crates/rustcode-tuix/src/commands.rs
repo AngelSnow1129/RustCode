@@ -188,7 +188,10 @@ pub fn command_display_name(canonical: &str) -> String {
 }
 
 const BUILTIN_COMMANDS: &[Command] = &[
-    Command { name: "login",   desc: "Sign in with OAuth and claim CodingPlan models", needs_args: false, hidden: false, acp: false },
+    // `desc` is only a fallback: `cmd_desc_i18n` picks the managed wording
+    // (`Msg::CmdDescLogin`) or this neutral one (`Msg::CmdDescLoginNeutral`)
+    // at render time, so the static table stays vendor-neutral.
+    Command { name: "login",   desc: "Managed sign-in (distribution builds only) -- this open build uses bring-your-own-key providers; configure config.toml", needs_args: false, hidden: false, acp: false },
     // needs_args=true so selecting it only completes to `/webui ` (does NOT
     // launch) -- lets the user append a subcommand (stop / lan / --host <addr>)
     // before Enter. A bare `/webui ` + Enter still launches on 127.0.0.1.
@@ -213,7 +216,8 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "diff",    desc: "Show git diff", needs_args: false, hidden: false, acp: true },
     Command { name: "clear",   desc: "Start a new conversation (clears context + screen)", needs_args: false, hidden: false, acp: false },
     Command { name: "session", desc: "Start a new session (clears conversation)", needs_args: false, hidden: false, acp: false },
-    Command { name: "usage",   desc: "Show CodingPlan usage (tabs: current / overview / models)", needs_args: false, hidden: false, acp: true },
+    // Same neutral-variant fallback as `/login` above (`Msg::CmdDescUsageNeutral`).
+    Command { name: "usage",   desc: "Show token usage (tabs: current / overview / models)", needs_args: false, hidden: false, acp: true },
     // `/cost` reports THIS SESSION's local token accounting for any model,
     // including self-integrated ones the gateway-only `/usage` modal can't see.
     Command { name: "cost",    desc: "Show this session's token usage (any model)", needs_args: false, hidden: false, acp: true },

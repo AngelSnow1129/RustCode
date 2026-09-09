@@ -24,8 +24,8 @@
 //! on a closed-modal event loop is a silent no-op -- the handler
 //! checks `app.active_modal.is_some()` before acting. Worst case the
 //! thread quietly writes a fresh `auth.toml` on its own -- which is
-//! the same effect as the user later running `/codingplan` after Esc,
-//! so it's harmless.
+//! the same effect as the user later running the managed sign-in flow
+//! after Esc, so it's harmless.
 
 use std::time::Duration;
 
@@ -40,13 +40,13 @@ use rustcode_auth::oauth::{LoginSession, PollOutcome};
 pub enum OauthEvent {
     /// The user finished in-browser consent and `finish()` successfully
     /// wrote `auth.toml`. Event loop closes the modal + flips
-    /// `pending_run_codingplan` so the existing `/codingplan` driver
-    /// picks up the freshly-saved auth and claims the plan.
+    /// pending managed-login flag so the existing sign-in driver
+    /// picks up the freshly-saved auth and claims the managed plan quota.
     Authorized,
     /// Either `poll_once` or `finish` returned an error. Carries the
     /// `Display`-formatted reason for the user -- event loop closes
     /// the modal and surfaces this in scrollback so the user knows
-    /// whether to retry (`/codingplan`), check the network, or check
+    /// whether to retry the managed sign-in, check the network, or check
     /// their system clock (for sign-stale errors).
     Failed(String),
 }
@@ -87,8 +87,8 @@ pub fn spawn_oauth_poll(
                 // existing CLI `login()` driver pairs finish + save;
                 // we have to mirror it here or downstream
                 // `is_logged_in()` returns false and the subsequent
-                // /codingplan flow re-runs login, popping a second
-                // QR + asking the user to scan AGAIN.
+                // The managed sign-in flow re-runs login, popping a
+                // second QR + asking the user to scan AGAIN.
                 match session.finish() {
                     Ok(auth_info) => match rustcode_auth::save_auth(&auth_info) {
                         Ok(()) => OauthEvent::Authorized,

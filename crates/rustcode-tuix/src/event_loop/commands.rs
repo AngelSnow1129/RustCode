@@ -4939,7 +4939,7 @@ fn render_login_line_from_stored_auth() -> String {
 
 /// No managed plan section is appended to `/status`: there is no managed
 /// usage endpoint compiled into this build.
-fn render_codingplan_status_for_status_cmd() -> String {
+fn render_plan_section_for_status_cmd() -> String {
     String::new()
 }
 
@@ -5114,23 +5114,24 @@ fn format_context_report(
 
 /// Assemble the `/status` body in canonical display order: the login line FIRST
 /// (so you see who you're signed in as at a glance), then the model/dir/config
-/// block, the CodingPlan section, an optional Proxy line (interactive `/status`
-/// only -- the remote/phone view omits it), a blank separator, then the
-/// instruction-files block. Pure over its already-rendered pieces so the order is
-/// unit-testable and the interactive + remote renderers can't drift apart.
+/// block, the plan section (empty in this build), an optional Proxy line
+/// (interactive `/status` only -- the remote/phone view omits it), a blank
+/// separator, then the instruction-files block. Pure over its already-rendered
+/// pieces so the order is unit-testable and the interactive + remote renderers
+/// can't drift apart.
 fn assemble_status(
     login: &str,
     body: &str,
-    codingplan: &str,
+    plan_section: &str,
     proxy: Option<&str>,
     instructions: &str,
 ) -> String {
     let mut txt = String::with_capacity(
-        login.len() + body.len() + codingplan.len() + instructions.len() + 16,
+        login.len() + body.len() + plan_section.len() + instructions.len() + 16,
     );
     txt.push_str(login);
     txt.push_str(body);
-    txt.push_str(codingplan);
+    txt.push_str(plan_section);
     if let Some(p) = proxy {
         txt.push_str(p);
     }
@@ -5151,7 +5152,7 @@ pub(super) fn build_status_text(ctx: &LoopCtx, proxy: Option<&str>) -> String {
     assemble_status(
         &render_login_line_from_stored_auth(),
         &body,
-        &render_codingplan_status_for_status_cmd(),
+        &render_plan_section_for_status_cmd(),
         proxy,
         &render_context_file_status_block(&ctx.working_dir),
     )
@@ -5219,7 +5220,7 @@ fn open_usage(renderer: &mut dyn Renderer, _active_modal: &mut Option<Box<dyn Mo
     renderer.flush();
 }
 
-/// `/cost` 的本会话 Token 报告。与 `/usage`（只查 CodingPlan 网关）不同，
+/// `/cost` 的本会话 Token 报告。与 `/usage`（本构建没有用量端点）不同，
 /// 这是本地统计，任何模型（含自接入）都能出数。TUI 与手机远程执行共用。
 pub(crate) fn build_cost_report_text(
     mut report: rustcode_capabilities::session::SessionCostReport,
@@ -5242,7 +5243,7 @@ pub(crate) fn build_cost_report_text(
     }
 
     // Resolve a selection id to its account for a friendly `account . model`
-    // header (folded CodingPlan models share one `AtomGit` account); fall back to
+    // header (folded gateway models share one account); fall back to
     // the raw id when it isn't in the catalog (e.g. a since-removed provider).
     let catalog = config.logical_models();
     let account_of = |pid: &str| -> String {
@@ -5776,134 +5777,6 @@ pub(crate) fn expand_cd_target(
     Ok(if p.is_absolute() { p } else { cwd.join(p) })
 }
 
-/// Build the OAuth-prompt body shown in scrollback while waiting for
-/// the user to complete sign-in. Always includes the URL and ESC
-/// affordance; renders a QR code above the URL when the terminal can
-/// display it and the rendered block fits the current width.
-///
-/// Style selection (Unicode-capable terminals):
-/// * `RUSTCODE_QR_DENSE=1` -> force `Dense1x2` half-block (≈ 45 cols).
-///   Override for users on terminals where braille mis-renders.
-/// * `RUSTCODE_QR_BRAILLE=1` -> force braille (≈ 23 cols). Opt-in for
-///   users who know their terminal renders braille at single cell
-///   width and don't add line spacing.
-/// * JediTerm (Android Studio / IntelliJ / GoLand / any JetBrains IDE
-///   embedded terminal) -> no QR. JediTerm renders rows with extra
-///   line spacing, vertically stretching every text-based QR beyond
-///   scanner aspect tolerance. URLs are clickable in JediTerm
-///   anyway, so URL-only is actually a better UX.
-/// * Otherwise -> `Dense1x2`. Block elements (U+2580-U+259F) are
-///   Unicode-Neutral width and render at single cell on every
-///   terminal -- universally scannable.
-///
-/// On terminals without Unicode block-glyph support
-/// (`TerminalCaps::unicode_symbols == false` -- POSIX locale, dumb
-/// TERM, legacy Windows conhost) we likewise skip the QR: the only
-/// scannable ASCII form is ≈ 90 columns wide, which doesn't fit any
-/// realistic terminal window, and those environments are typically
-/// keyboard-driven anyway.
-#[cfg(feature = "codingplan")]
-fn compose_login_chrome(url: &str, unicode: bool) -> String {
-    compose_login_chrome_inner(url, unicode, cfg!(target_env = "ohos"))
-}
-
-/// Testable core of `compose_login_chrome`. `omit_url=true` drops the
-/// clickable URL block -- wired to `cfg!(target_env = "ohos")` by the
-/// outer fn because the AtomGit OAuth callback's redirect-based flow
-/// breaks on OpenHarmony PC (system browser hands control back with
-/// "Invalid state" before the callback can complete; WeChat QR scan
-/// works because it's a phone-side approval that posts directly to the
-/// gateway). Surfacing the URL there would just lead users into the
-/// dead path; QR-only is the better UX. Parameterised so the QR-present
-/// vs URL-fallback shapes can be unit-tested on every platform.
-#[cfg(feature = "codingplan")]
-fn compose_login_chrome_inner(url: &str, unicode: bool, omit_url: bool) -> String {
-    let qr_block = pick_qr_style(unicode).and_then(|style| {
-        let s = crate::render::qr::render_login_qr(url, style)?;
-        let cols = crate::render::qr::block_cols(&s);
-        let term_cols = crossterm::terminal::size().map(|(c, _)| c).unwrap_or(80);
-        // Reserve 2 cols for the leading indent + 2 cols breathing room.
-        if (cols as u16).saturating_add(4) <= term_cols {
-            Some(
-                s.lines()
-                    .map(|l| format!("  {}", l))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            )
-        } else {
-            None
-        }
-    });
-
-    let mut out = String::new();
-    if let Some(block) = qr_block {
-        out.push_str(&t(Msg::LoginQrHeader));
-        out.push_str(&block);
-        if !omit_url {
-            out.push_str(&t(Msg::LoginUrlAfterQr));
-            out.push_str(url);
-        }
-    } else if omit_url {
-        // No QR + URL doesn't work on this platform -> there's nothing
-        // actionable to offer. Tell the user explicitly rather than
-        // dropping them into a screen with just "Press ESC to cancel".
-        out.push_str(&t(Msg::LoginNoQrNoUrl));
-    } else {
-        out.push_str(&t(Msg::LoginUrlOnly));
-        out.push_str(url);
-    }
-    out.push_str(&t(Msg::LoginCancelHint));
-    out
-}
-
-/// Choose a QR rendering style for the current environment, or return
-/// `None` to skip the QR entirely (URL-only output).
-///
-/// Pure function -- env vars / TERMINAL_EMULATOR are read once and
-/// passed through `decide_qr_style` so the decision logic stays unit
-/// testable.
-#[cfg(feature = "codingplan")]
-fn pick_qr_style(unicode: bool) -> Option<crate::render::qr::QrStyle> {
-    let env_flag = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty()).is_some();
-    let is_jediterm = std::env::var("TERMINAL_EMULATOR")
-        .map(|v| v == "JetBrains-JediTerm")
-        .unwrap_or(false);
-    decide_qr_style(
-        unicode,
-        env_flag("RUSTCODE_QR_DENSE"),
-        env_flag("RUSTCODE_QR_BRAILLE"),
-        is_jediterm,
-    )
-}
-
-/// Pure decision table for `pick_qr_style`. Explicit overrides win
-/// over auto-detection; auto-detection only suppresses the QR when
-/// no override is set.
-#[cfg(feature = "codingplan")]
-fn decide_qr_style(
-    unicode: bool,
-    force_dense: bool,
-    force_braille: bool,
-    is_jediterm: bool,
-) -> Option<crate::render::qr::QrStyle> {
-    use crate::render::qr::QrStyle;
-    if !unicode {
-        return None;
-    }
-    if force_dense {
-        return Some(QrStyle::Dense1x2);
-    }
-    if force_braille {
-        return Some(QrStyle::Braille);
-    }
-    if is_jediterm {
-        // JediTerm adds line spacing -- every text-based QR vertically
-        // stretches past scanner tolerance. URL-only is the better UX.
-        return None;
-    }
-    Some(QrStyle::Dense1x2)
-}
-
 /// Extract the verbatim bodies of fenced (```` ``` ```` / `~~~`) code blocks
 /// from markdown, in document order. Used by `/copy` to recover the ORIGINAL
 /// unwrapped command text -- never the rendered body cells, which are already
@@ -6231,11 +6104,11 @@ pub(crate) fn encode_osc52(buffer: &str, text: &str) -> String {
 
 /// Build the non-error rate-limit pause body line. Three branches:
 /// - `auto_resuming` -> kernel is auto-retrying (WaitAndRetry); generic countdown.
-/// - Pause, `reset_at_display` NON-empty -> a CONFIRMED CodingPlan quota exhaustion
-///   (real reset time from the usage windows) -> the CodingPlan "5h window" message.
+/// - Pause, `reset_at_display` NON-empty -> a CONFIRMED quota-window exhaustion
+///   (real reset time from the usage windows) -> the "5h window" message.
 /// - Pause, `reset_at_display` EMPTY -> generic 429 (a user's external-model 429, or
 ///   a gateway 429 with no window data) -> a neutral "limited (HTTP 429)" line, NOT
-///   the CodingPlan message. The `RateLimitHook` gates itself to gateway 429s, so an
+///   the window message. The `RateLimitHook` gates itself to gateway 429s, so an
 ///   external-model 429 lands here via the kernel's generic default.
 ///
 /// Kept as a pure function so it is unit-testable without a renderer.
@@ -6251,15 +6124,15 @@ pub(crate) fn format_rate_limited_line(
         let n = secs_until_reset.unwrap_or(0);
         return t(Msg::TuixRateLimitAutoResume { secs: n }).into_owned();
     }
-    // Pause: kernel stopped, user must act. A CodingPlan verdict (decide_from_windows)
-    // carries window data -- a reset time AND/OR a window label. The kernel's generic
-    // default (from_hint, used for non-CodingPlan / external-model 429s) carries
-    // NEITHER. So "has any window signal" ⇒ a real CodingPlan quota; otherwise it's a
-    // generic 429 and must NOT be dressed up as a CodingPlan quota exhaustion. Keying
-    // on reset_at_display ALONE would wrongly go generic for an exhausted window whose
+    // Pause: kernel stopped, user must act. A quota-window verdict
+    // (decide_from_windows) carries window data -- a reset time AND/OR a window
+    // label. The kernel's generic default (from_hint, used for external-model
+    // 429s) carries NEITHER. So "has any window signal" ⇒ a real quota window;
+    // otherwise it's a generic 429 and must NOT be dressed up as a quota-window
+    // exhaustion. Keying on reset_at_display ALONE would wrongly go generic for an exhausted window whose
     // display string the server omitted (both fields are `#[serde(default)]`).
-    let is_coding_plan = !reset_at_display.is_empty() || !reset_label.is_empty();
-    if !is_coding_plan {
+    let is_quota_window = !reset_at_display.is_empty() || !reset_label.is_empty();
+    if !is_quota_window {
         let tail = match secs_until_reset {
             Some(s) => t(Msg::TuixRateLimitRetryAfter { dur: &fmt_dur(s) }).into_owned(),
             None => String::new(),
@@ -6277,7 +6150,7 @@ pub(crate) fn format_rate_limited_line(
         })
         .into_owned();
     }
-    // Confirmed CodingPlan window exhaustion.
+    // Confirmed quota-window exhaustion.
     let tail = match secs_until_reset {
         Some(s) => t(Msg::TuixRateLimitWindowRemaining { dur: &fmt_dur(s) }).into_owned(),
         None => String::new(),
@@ -6412,12 +6285,12 @@ mod status_login_tests {
     }
 
     #[test]
-    fn status_order_is_login_first_then_body_codingplan_proxy() {
-        // Reorder spec: login line at the very top; Proxy AFTER CodingPlan.
+    fn status_order_is_login_first_then_body_plan_proxy() {
+        // Reorder spec: login line at the very top; Proxy AFTER the plan section.
         let s = assemble_status(
             "LOGIN\n",
             "BODY\n",
-            "CODINGPLAN\n",
+            "PLAN\n",
             Some("PROXY\n"),
             "INSTRUCTIONS",
         );
@@ -6425,23 +6298,23 @@ mod status_login_tests {
         let (login, body, cp, proxy, instr) = (
             s.find("LOGIN").unwrap(),
             s.find("BODY").unwrap(),
-            s.find("CODINGPLAN").unwrap(),
+            s.find("PLAN").unwrap(),
             s.find("PROXY").unwrap(),
             s.find("INSTRUCTIONS").unwrap(),
         );
-        // login < body < codingplan < proxy < instructions
+        // login < body < plan < proxy < instructions
         assert!(
             login < body && body < cp,
-            "body sits between login and codingplan: {s:?}"
+            "body sits between login and plan: {s:?}"
         );
-        assert!(cp < proxy, "Proxy must come AFTER CodingPlan: {s:?}");
+        assert!(cp < proxy, "Proxy must come AFTER the plan section: {s:?}");
         assert!(proxy < instr, "instructions come last: {s:?}");
     }
 
     #[test]
     fn status_omits_proxy_line_when_none() {
         // The remote/phone view passes None -> no Proxy line at all.
-        let s = assemble_status("LOGIN\n", "BODY\n", "CODINGPLAN\n", None, "INSTRUCTIONS");
+        let s = assemble_status("LOGIN\n", "BODY\n", "PLAN\n", None, "INSTRUCTIONS");
         assert!(
             !s.contains("PROXY"),
             "proxy must be absent when None: {s:?}"
@@ -6475,40 +6348,6 @@ mod status_login_tests {
         assert!(
             !zh.contains("Token"),
             "zh StatusBody must not carry a Token line: {zh}"
-        );
-    }
-
-    #[cfg(feature = "codingplan")]
-    #[test]
-    fn cp_auth_error_expired_ignores_fallback_and_prompts_relogin() {
-        use rustcode_codingplan::AuthExpired;
-        let err = anyhow::Error::new(AuthExpired { status: 401 });
-        let line = render_cp_auth_error(&err, || "FALLBACK".to_string());
-        assert!(
-            line.contains("/login"),
-            "auth-expired must prompt /login: {line:?}"
-        );
-        assert!(
-            !line.contains("FALLBACK"),
-            "expired must not use the fallback: {line:?}"
-        );
-        // Must NOT bury it as the raw error text.
-        assert!(
-            !line.contains("authentication failed (401)"),
-            "auth-expired should be a clean localized message, not the raw error: {line:?}"
-        );
-    }
-
-    #[cfg(feature = "codingplan")]
-    #[test]
-    fn cp_auth_error_non_auth_uses_fallback() {
-        // A genuine not-signed-in / network error falls through to the caller's
-        // fallback (not-signed-in hint, or the raw fetch-failure line).
-        let err = anyhow::anyhow!("network boom");
-        let line = render_cp_auth_error(&err, || format!("fetch failed -- {err:#}"));
-        assert!(
-            line.contains("network boom"),
-            "non-auth errors fall through to the fallback: {line:?}"
         );
     }
 }
@@ -6554,7 +6393,7 @@ mod rate_limited_tests {
     }
 
     // Branch 3: auto_resuming=false, reset_at_display EMPTY -> GENERIC 429 (a user's
-    // external-model 429, or a gateway 429 with no window data), NOT the CodingPlan
+    // external-model 429, or a gateway 429 with no window data), NOT the quota-window
     // "5h window exhausted" message. Locks the mis-attribution fix.
     #[test]
     fn rate_limited_pause_empty_reset_is_generic_not_coding_plan() {
@@ -6568,10 +6407,10 @@ mod rate_limited_tests {
             "must not show countdown when no reset time"
         );
         // The regression guard: an empty-reset 429 must NOT be dressed up as a
-        // CodingPlan quota exhaustion.
+        // quota-window exhaustion.
         assert!(
             !line.contains("5小时窗口"),
-            "empty-reset 429 must not claim CodingPlan quota: {line}"
+            "empty-reset 429 must not claim a quota window: {line}"
         );
         assert!(
             line.contains("HTTP 429") || line.contains("限流"),
@@ -6582,7 +6421,7 @@ mod rate_limited_tests {
 
     #[test]
     fn rate_limited_generic_surfaces_provider_reason() {
-        // A generic (non-CodingPlan) 429 that carried a real provider body -- e.g. an
+        // A generic 429 that carried a real provider body -- e.g. an
         // external model's "余额不足...请充值" -- must surface that actionable reason.
         let _locale = crate::i18n::test_lock();
         crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
@@ -6598,28 +6437,28 @@ mod rate_limited_tests {
         );
         assert!(
             !line.contains("5小时窗口"),
-            "must not claim CodingPlan quota: {line}"
+            "must not claim a quota window: {line}"
         );
     }
 
     #[test]
     fn rate_limited_coding_plan_ignores_server_message() {
-        // A CodingPlan window pause (has reset time) keeps its window message even if a
+        // A quota-window pause (has reset time) keeps its window message even if a
         // server_message tags along -- the reason line is only for the generic branch.
         let _locale = crate::i18n::test_lock();
         crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line = format_rate_limited_line("18:09", "", Some(7200), false, Some("请充值"));
         assert!(
             line.contains("5小时窗口"),
-            "CodingPlan quota keeps its message: {line}"
+            "quota window keeps its message: {line}"
         );
         assert!(
             !line.contains("请充值"),
-            "server_message must not leak into the CodingPlan line: {line}"
+            "server_message must not leak into the quota-window line: {line}"
         );
     }
 
-    // A gateway CodingPlan quota (real reset time) KEEPS the "5h window" message.
+    // A gateway quota window (real reset time) KEEPS the "5h window" message.
     #[test]
     fn rate_limited_pause_with_reset_time_keeps_coding_plan_message() {
         let _locale = crate::i18n::test_lock();
@@ -6627,13 +6466,13 @@ mod rate_limited_tests {
         let line = format_rate_limited_line("18:09", "", Some(7200), false, None);
         assert!(
             line.contains("5小时窗口"),
-            "confirmed CodingPlan quota keeps its message: {line}"
+            "confirmed quota window keeps its message: {line}"
         );
         assert!(line.contains("18:09"), "shows the window reset time");
     }
 
-    // Regression (review F2): an exhausted CodingPlan window whose server OMITTED
-    // reset_at_display but provided a window LABEL must STILL keep the CodingPlan
+    // Regression (review F2): an exhausted quota window whose server OMITTED
+    // reset_at_display but provided a window LABEL must STILL keep the window
     // message -- keying on reset_at_display alone would wrongly go generic.
     #[test]
     fn rate_limited_empty_display_but_label_keeps_coding_plan() {
@@ -6642,7 +6481,7 @@ mod rate_limited_tests {
         let line = format_rate_limited_line("", "（每 5 小时一个窗口）", Some(7200), false, None);
         assert!(
             line.contains("5小时窗口"),
-            "label alone must keep CodingPlan framing: {line}"
+            "label alone must keep the window framing: {line}"
         );
         assert!(
             !line.contains("HTTP 429"),
@@ -6663,7 +6502,7 @@ mod rate_limited_tests {
     fn rate_limited_pause_no_reset_time_still_shows_remaining_secs() {
         // Pause (auto_resuming=false) with no wall-clock display but a known
         // remaining duration: the duration must NOT be dropped. (Generic 429 line
-        // now -- no CodingPlan claim without a real reset time.)
+        // now -- no quota-window claim without a real reset time.)
         let _locale = crate::i18n::test_lock();
         crate::i18n::set_locale(crate::i18n::Locale::ZhCn);
         let line = format_rate_limited_line("", "", Some(7200), false, None);
@@ -6674,7 +6513,7 @@ mod rate_limited_tests {
         );
         assert!(
             !line.contains("5小时窗口"),
-            "empty-reset 429 must not claim CodingPlan quota: {line}"
+            "empty-reset 429 must not claim a quota window: {line}"
         );
         assert!(
             line.contains("后可重试"),
@@ -6702,442 +6541,8 @@ mod rate_limited_tests {
     }
 }
 
-#[cfg(all(test, feature = "codingplan"))]
-mod qr_style_tests {
-    use super::*;
-    use crate::render::qr::QrStyle;
-
-    #[test]
-    fn no_unicode_means_no_qr() {
-        assert_eq!(decide_qr_style(false, false, false, false), None);
-        // overrides do not bring back QR when terminal can't render unicode
-        assert_eq!(decide_qr_style(false, true, false, false), None);
-        assert_eq!(decide_qr_style(false, false, true, false), None);
-    }
-
-    #[test]
-    fn jediterm_default_skips_qr() {
-        assert_eq!(decide_qr_style(true, false, false, true), None);
-    }
-
-    #[test]
-    fn jediterm_with_braille_override_renders_braille() {
-        assert_eq!(
-            decide_qr_style(true, false, true, true),
-            Some(QrStyle::Braille)
-        );
-    }
-
-    #[test]
-    fn jediterm_with_dense_override_renders_dense() {
-        assert_eq!(
-            decide_qr_style(true, true, false, true),
-            Some(QrStyle::Dense1x2)
-        );
-    }
-
-    #[test]
-    fn dense_override_wins_over_braille_override() {
-        assert_eq!(
-            decide_qr_style(true, true, true, false),
-            Some(QrStyle::Dense1x2)
-        );
-    }
-
-    #[test]
-    fn braille_override_picks_braille_outside_jediterm() {
-        assert_eq!(
-            decide_qr_style(true, false, true, false),
-            Some(QrStyle::Braille)
-        );
-    }
-
-    #[test]
-    fn default_is_dense1x2() {
-        assert_eq!(
-            decide_qr_style(true, false, false, false),
-            Some(QrStyle::Dense1x2)
-        );
-    }
-}
-
-#[cfg(all(test, feature = "codingplan"))]
-mod compose_login_chrome_tests {
-    use super::*;
-
-    const URL: &str = "https://acs.atomgit.com/login?client_id=test";
-
-    /// Non-OH default: QR + URL fallback line both present.
-    #[test]
-    fn omit_url_false_keeps_url_block_alongside_qr() {
-        let _g = crate::i18n::test_lock();
-        crate::i18n::set_locale(crate::i18n::Locale::En);
-        let s = compose_login_chrome_inner(URL, true, false);
-        assert!(s.contains("scan the QR code"), "QR header missing:\n{s}");
-        assert!(
-            s.contains("OR open the URL below"),
-            "URL fallback header missing on non-OH build:\n{s}"
-        );
-        assert!(s.contains(URL), "URL itself missing on non-OH build:\n{s}");
-    }
-
-    /// OH: QR present, URL line dropped entirely. The clickable AtomGit
-    /// callback fails on OpenHarmony PC, so surfacing the URL would just
-    /// lead the user into a dead path.
-    #[test]
-    fn omit_url_true_drops_url_block_when_qr_present() {
-        let _g = crate::i18n::test_lock();
-        crate::i18n::set_locale(crate::i18n::Locale::En);
-        let s = compose_login_chrome_inner(URL, true, true);
-        assert!(s.contains("scan the QR code"), "QR header missing:\n{s}");
-        assert!(
-            !s.contains("OR open the URL below"),
-            "URL fallback header must NOT appear when omit_url:\n{s}"
-        );
-        assert!(
-            !s.contains(URL),
-            "URL itself must NOT appear when omit_url:\n{s}"
-        );
-    }
-
-    /// OH + terminal too narrow / non-unicode: no QR available, URL
-    /// path disabled. Must tell the user explicitly that switching to a
-    /// Unicode-capable terminal is the way out, otherwise they'd see
-    /// only "Press ESC to cancel" with no actionable hint.
-    #[test]
-    fn omit_url_true_without_qr_explains_dead_end() {
-        let _g = crate::i18n::test_lock();
-        crate::i18n::set_locale(crate::i18n::Locale::En);
-        let s = compose_login_chrome_inner(URL, false, true);
-        assert!(!s.contains(URL), "URL must not appear when omit_url:\n{s}");
-        assert!(
-            s.contains("Unicode-capable terminal"),
-            "must guide the user to a unicode terminal:\n{s}"
-        );
-    }
-
-    /// Non-OH terminal too narrow / non-unicode: URL fallback header
-    /// present. Regression guard for the existing pre-OH behaviour.
-    #[test]
-    fn omit_url_false_without_qr_shows_url_fallback() {
-        let _g = crate::i18n::test_lock();
-        crate::i18n::set_locale(crate::i18n::Locale::En);
-        let s = compose_login_chrome_inner(URL, false, false);
-        assert!(
-            s.contains("Open this URL in any browser"),
-            "URL fallback header missing on non-OH terminal-without-unicode:\n{s}"
-        );
-        assert!(s.contains(URL));
-    }
-}
-
-/// Render the OAuth URL block + ESC affordance into scrollback, then
-/// drive the auth/check poll loop without leaving raw mode. ESC is read
-/// from `ctx.input_rx` (the same channel the main event loop uses) so
-/// no termios manipulation is needed and the input box stays visible
-/// alongside the URL -- same UX as any other slash command.
-///
-/// Earlier revisions suspended `renderer` for the OAuth window and let
-/// `auth::login()` println straight to stdout. That collapsed the input
-/// box and (worse) wrote URL bytes on top of existing scrollback because
-/// the cursor was wherever the last paint left it. The renderer-driven
-/// path here avoids both problems.
-#[cfg(feature = "codingplan")]
-fn run_oauth_with_renderer(
-    renderer: &mut dyn Renderer,
-    ctx: &mut LoopCtx,
-) -> Result<rustcode_auth::AuthInfo> {
-    use crossterm::event::KeyCode;
-    use std::time::Duration;
-    use tokio::sync::mpsc::error::TryRecvError;
-
-    let session = rustcode_auth::start_login()?;
-
-    // QR + URL + ESC affordance go through the body via UiLine::CommandOutput
-    // so they sit in scrollback above the input box exactly like any other
-    // slash-command output. The QR is the primary CTA (scan with phone); the
-    // URL is the fallback for users who'd rather click into a desktop browser.
-    // Both render before the best-effort browser launch so the QR is on
-    // screen even when the browser opens instantly.
-    renderer.render(UiLine::CommandOutput(compose_login_chrome(
-        session.url(),
-        ctx.caps.unicode_symbols,
-    )));
-    renderer.flush();
-
-    session.open_browser_best_effort();
-
-    // Poll loop. The network `/auth/check` runs on a DETACHED background
-    // thread (`spawn_poller`) and reports outcomes over `poll_rx`; the
-    // foreground here only drains that channel and the input channel. This
-    // is the fix for the Windows "pressing ESC to cancel /login freezes the
-    // console" bug: the previous `session.poll_once().join()` blocked this
-    // very thread on the HTTP request, so a wedged socket (hung DNS/connect
-    // that reqwest's timeout can't interrupt) meant ESC was never observed.
-    // Now ESC is checked every ~50ms regardless of network state.
-    //
-    // We stay in raw mode and consume keyboard events from the existing
-    // reader thread via `input_rx`. The main event loop is blocked while we
-    // run, so non-ESC events queue harmlessly -- we drain them here so they
-    // don't fire as stale input the moment we return.
-    let poll_rx = session.spawn_poller(Duration::from_secs(2));
-    loop {
-        match poll_rx.try_recv() {
-            Ok(Ok(rustcode_auth::PollOutcome::Authorized)) => break,
-            Ok(Ok(rustcode_auth::PollOutcome::Pending)) => {}
-            Ok(Err(e)) => {
-                // Dropping `poll_rx` on the way out stops the poller.
-                return Err(e);
-            }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                anyhow::bail!("login poller stopped unexpectedly");
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => {}
-        }
-
-        // Drain ALL pending input each tick so a queued ESC cancels
-        // immediately rather than one-event-per-sleep.
-        loop {
-            match ctx.input_rx.try_recv() {
-                Ok(crate::input::InputEvent::Key(k)) if k.code == KeyCode::Esc => {
-                    anyhow::bail!("login cancelled by user");
-                }
-                Ok(_) => {
-                    // Non-ESC events during OAuth are silently dropped:
-                    // typing in the input box wouldn't render anyway
-                    // (main thread blocked) and processing them after
-                    // the loop would replay stale state.
-                    continue;
-                }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    anyhow::bail!("input channel closed");
-                }
-            }
-        }
-
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    // Stop the poller before the token exchange.
-    drop(poll_rx);
-
-    session.finish()
-}
-
-/// Run `coding_plan::run()` on a blocking thread to prevent
-/// `reqwest::blocking::Client`'s internal tokio runtime from being
-/// dropped inside the TUI's async context. Returns the mutated config
-/// alongside the report -- the caller MUST write the returned config back
-/// into `ctx.config`.
-///
-/// See `run_login_flow` for the rationale -- the short version is that
-/// `reqwest::blocking::Client` creates its own runtime, and dropping it
-/// inside an existing runtime panics with "Cannot drop a runtime in a
-/// context where blocking is not allowed".
-#[cfg(feature = "codingplan")]
-fn run_coding_plan_blocking(
-    config: &rustcode_config::config::Config,
-) -> Result<(
-    rustcode_config::config::Config,
-    rustcode_codingplan::SetupReport,
-)> {
-    let mut cfg = config.clone();
-    // Run on a dedicated OS thread so `reqwest::blocking::Client`'s
-    // internal tokio runtime is created AND dropped outside the TUI's
-    // async context. Using `std::thread` instead of
-    // `tokio::task::spawn_blocking` keeps the call site synchronous
-    // (`run_login_flow` isn't async) and avoids the need to
-    // `Handle::block_on`.
-    std::thread::spawn(move || {
-        // Interactive `/login`: reset the active default to the server's primary model.
-        let report = rustcode_codingplan::run(
-            &mut cfg,
-            rustcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
-        );
-        (cfg, report)
-    })
-    .join()
-    .map_err(|_| anyhow::anyhow!("coding plan flow panicked"))
-    .and_then(|(cfg, report)| Ok((cfg, report?)))
-}
-
-/// Run the full login + CodingPlan setup flow: OAuth (if needed) ->
-/// claim -> fetch models + register providers -> fetch status. Shares
-/// the orchestrator with `rustcode login` / `rustcode codingplan` (CLI).
-///
-/// `/codingplan` used to be a separate slash command; it has been
-/// folded into `/login` so users have one canonical entry point.
-/// The CLI keeps `rustcode codingplan` as a hidden alias for
-/// `rustcode login` to avoid breaking scripts / muscle memory.
-///
-/// When the user isn't already logged in we pre-flight the OAuth via
-/// `run_oauth_with_renderer` so the URL/ESC UI integrates with the TUI
-/// (input box stays visible). The subsequent `coding_plan::run` call
-/// then sees `is_logged_in() == true` and skips its own `auth::login`
-/// path -- that path prints to stdout and is reserved for CLI callers.
-#[cfg(feature = "codingplan")]
-pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> Result<()> {
-    // Phase 1: pre-flight login if needed.
-    if !rustcode_auth::is_logged_in() {
-        if let Err(e) = run_oauth_with_renderer(renderer, ctx)
-            .and_then(|auth| rustcode_auth::save_auth(&auth).map(|_| auth))
-        {
-            // Login failed/cancelled. Surface as a top-level error;
-            // skip the rest of setup since claim/models/status all
-            // need a token.
-            renderer.render(UiLine::Error(
-                t(Msg::CodingPlanSetupFailed {
-                    error: &e.to_string(),
-                })
-                .into_owned(),
-            ));
-            renderer.flush();
-            return Ok(());
-        }
-    }
-
-    // Phase 2: claim/models/status. Pure HTTP + config mutation -- no
-    // stdin / stdout interaction, so we don't need to suspend the
-    // renderer. `step_login` short-circuits via `is_logged_in()`.
-    //
-    // CodingPlan's `Client` wraps `reqwest::blocking::Client`, which
-    // internally creates its own tokio runtime. Dropping that runtime
-    // inside the TUI's async context (where this slash command runs)
-    // panics with "Cannot drop a runtime in a context where blocking is
-    // not allowed" and `panic = "abort"` kills the process. Run the
-    // whole flow on a blocking thread so the internal runtime is created
-    // and dropped outside the async context.
-    //
-    // If the stored token is locally valid (file present, expires_in
-    // not yet past) but the server rejects it (revoked, refresh-token
-    // dead, etc.), the orchestrator surfaces `report.auth_expired =
-    // true`. Run OAuth *once* on that path -- same flow `/login` would
-    // have used -- then re-run setup against the fresh token. Without
-    // this the user sees "[+] already logged in as X" followed by
-    // "[x] claim failed -- run `rustcode login` again" and has to do
-    // manually what `/codingplan` could do itself.
-    let (mut prepared_config, mut report) = match run_coding_plan_blocking(&ctx.config) {
-        Ok((cfg, r)) => (cfg, r),
-        Err(e) => {
-            renderer.render(UiLine::Error(
-                t(Msg::InternalError {
-                    error: &format!("{e:#}"),
-                })
-                .into_owned(),
-            ));
-            renderer.flush();
-            return Ok(());
-        }
-    };
-    if report.auth_expired {
-        renderer.render(UiLine::CommandOutput(t(Msg::CpReauthAfter401).into_owned()));
-        renderer.flush();
-        match run_oauth_with_renderer(renderer, ctx)
-            .and_then(|auth| rustcode_auth::save_auth(&auth).map(|_| auth))
-        {
-            Ok(_) => {
-                let (cfg_after2, r2) = match run_coding_plan_blocking(&prepared_config) {
-                    Ok((cfg, r)) => (cfg, r),
-                    Err(e) => {
-                        renderer.render(UiLine::Error(
-                            t(Msg::InternalError {
-                                error: &format!("{e:#}"),
-                            })
-                            .into_owned(),
-                        ));
-                        renderer.flush();
-                        return Ok(());
-                    }
-                };
-                prepared_config = cfg_after2;
-                report = r2;
-            }
-            Err(e) => {
-                // Re-OAuth itself failed (user pressed ESC, network
-                // dead, etc.). Render the *original* report so they
-                // still see what triggered the retry, then surface the
-                // OAuth error.
-                renderer.render(UiLine::CommandOutput(report.render()));
-                renderer.render(UiLine::Error(
-                    t(Msg::CodingPlanSetupFailed {
-                        error: &e.to_string(),
-                    })
-                    .into_owned(),
-                ));
-                renderer.flush();
-                return Ok(());
-            }
-        }
-    }
-
-    if report.should_persist_config() {
-        // Config mutation only persists when critical steps passed --
-        // don't write a half-set-up config if login or models failed.
-        match ctx.config_store.update(|latest| {
-            rustcode_codingplan::merge_successful_config(
-                latest,
-                &prepared_config,
-                &report,
-                rustcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
-            )
-        }) {
-            Ok(commit) => {
-                // Interactive `/login` overrides any runtime pin: drop back to
-                // FollowGlobalDefault so applying the freshly-persisted config
-                // switches the live session to the new server default. (A pin is
-                // a runtime-only state; cross-window sessions keep their own mode.)
-                ctx.provider_selection_mode = crate::ProviderSelectionMode::FollowGlobalDefault;
-                apply_persisted_config(
-                    ctx,
-                    commit.snapshot.config,
-                    commit.snapshot.revision,
-                    renderer,
-                )
-            }
-            Err(error) => {
-                renderer.render(UiLine::Error(
-                    t(Msg::ConfigSaveFailed {
-                        error: &error.to_string(),
-                    })
-                    .into_owned(),
-                ));
-                renderer.flush();
-                return Ok(());
-            }
-        }
-        // Stamp the drift-monitor sync marker alongside the config
-        // write. Failures are non-fatal: at worst the 24h staleness
-        // hint mis-fires once.
-        let _ = rustcode_codingplan::write_last_sync_now();
-        // Also bump our own last-seen timestamp so the cross-process
-        // sync-check on the next keystroke doesn't redundantly
-        // reload the config we just saved ourselves.
-        ctx.monitor_last_sync_seen = rustcode_codingplan::read_last_sync();
-        // Clear any stale drift warning now that we've just
-        // re-synced. Also reset the cooldown so the next
-        // pre-turn trigger (if conditions change) can fire
-        // immediately -- no need to wait 15 min after a manual
-        // refresh.
-        if let Ok(mut g) = ctx.monitor_warning.lock() {
-            *g = None;
-        }
-        ctx.monitor_last_check_at = None;
-        // Same for usage slot -- a fresh /login run may have
-        // rotated the quota window or switched plan tiers.
-        if let Ok(mut g) = ctx.usage_slot.lock() {
-            *g = None;
-        }
-        ctx.usage_last_check_at = None;
-    }
-    renderer.render(UiLine::CommandOutput(report.render()));
-    renderer.flush();
-    Ok(())
-}
-
-/// Neutral-build `/login`: the managed gateway client is not compiled in (the
-/// `codingplan` feature is off), so there is no managed OAuth/claim/setup flow.
-/// Direct the operator to configure their own third-party provider instead.
-#[cfg(not(feature = "codingplan"))]
+/// `/login`: no managed account setup flow is wired into this build, so the
+/// command points the operator at configuring their own third-party provider.
 pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, _ctx: &mut LoopCtx) -> Result<()> {
     renderer.render(UiLine::CommandOutput(
         t(Msg::LoginManagedUnavailable).into_owned(),
