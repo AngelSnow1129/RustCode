@@ -145,16 +145,6 @@ async fn main() {
         }
     }
 
-    // Used by IDE packaging to reject a daemon compiled after the private
-    // signer overlay was removed. Keep this check side-effect free.
-    if std::env::args().any(|arg| arg == "--check-official-build") {
-        std::process::exit(if rustcode_capabilities::provider::signer_available() {
-            0
-        } else {
-            1
-        });
-    }
-
     // Ensure legacy sessions (macOS pre-v4.16 ~/Library/Application Support/rustcode/sessions)
     // are migrated to the canonical location ($RUSTCODE_HOME/sessions) before any handler reads it.
     if let Err(error) = rustcode_capabilities::session::SessionManager::migrate_from_legacy() {

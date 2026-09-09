@@ -6,9 +6,8 @@
 // existing scrollback.
 //
 // Replaces `welcome_wizard.rs` (deleted in Task 9). Same `LoopCtx`
-// post-close flag side-channel (`pending_run_codingplan`,
-// `pending_open_provider_wizard`) as before -- only the in-modal flow
-// changes.
+// post-close flag side-channel (`pending_open_provider_wizard`) as
+// before -- only the in-modal flow changes.
 //
 // This file lands in slices across the plan tasks:
 //   * Task 2 (this slice): `draw_panel` box-drawing helper + tests.
@@ -302,12 +301,12 @@ pub enum Step {
     Intro,
     Language,
     Setup,
-    /// One-shot CodingPlan fast path entered on first-launch only
+    /// One-shot managed sign-in fast path entered on first-launch only
     /// (NOT from `/welcome`). Renders a QR for the OAuth
-    /// short link + the raw URL fallback. Enter -> close with
-    /// `pending_run_codingplan = true` so the existing `/codingplan`
-    /// driver picks up the just-completed login + claim flow.
-    /// Esc bails to the welcome banner with no auth changes.
+    /// short link + the raw URL fallback. Enter -> opens the URL in the
+    /// platform browser; the background poll closes the modal once the
+    /// login completes. Esc bails to the welcome banner with no auth
+    /// changes.
     ///
     /// PR 1a (this commit): user manually presses Enter after
     /// scanning. PR 1b will spawn a polling task that closes the
@@ -318,9 +317,6 @@ pub enum Step {
 /// A selectable row on the Setup step, in presentation order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum SetupChoice {
-    /// Managed CodingPlan sign-in -- only present when a managed platform is
-    /// configured for this build.
-    Login,
     /// Configure a third-party bring-your-own-key provider.
     Manual,
     /// Skip setup and explore.
@@ -368,15 +364,9 @@ pub(crate) fn provider_unavailable_msg() -> crate::i18n::Msg<'static> {
     }
 }
 
-/// The ordered Setup rows for the running build (Login first only when managed).
+/// The ordered Setup rows: bring-your-own-key first, then skip.
 pub(super) fn setup_choices() -> Vec<SetupChoice> {
-    let mut choices = Vec::with_capacity(3);
-    if managed_login_available() {
-        choices.push(SetupChoice::Login);
-    }
-    choices.push(SetupChoice::Manual);
-    choices.push(SetupChoice::Skip);
-    choices
+    vec![SetupChoice::Manual, SetupChoice::Skip]
 }
 
 pub struct OnboardingWizard {
@@ -454,8 +444,8 @@ impl OnboardingWizard {
     /// First-launch fast path. Skips the old 3-step Intro / Language /
     /// Setup flow and goes straight to a single QR screen for the
     /// OAuth short link -- scan, log in, the background poll
-    /// thread auto-closes the modal and hands off to `/codingplan`
-    /// for the claim. Language defaults to auto-detect from `$LC_ALL`
+    /// thread auto-closes the modal once the login completes. Language
+    /// defaults to auto-detect from `$LC_ALL`
     /// / `$LANG` (i18n step gone); user can switch later via
     /// `/language`.
     ///
@@ -619,8 +609,7 @@ impl OnboardingWizard {
             // QrLogin (fast path, first-launch only).
             // - start_login failed -> Enter retries, Esc bails.
             // - start_login ok -> Enter mirrors the
-            //   `session.open_browser_best_effort()` call that
-            //   `/codingplan`'s `run_oauth_with_renderer` makes
+            //   platform-browser launch that the CLI login flow makes
             //   automatically, so a user who'd rather click than scan
             //   gets a one-key path into the consent page. We
             //   deliberately do NOT re-run start_login here -- that's
@@ -852,11 +841,11 @@ impl OnboardingWizard {
 
     /// Build all output lines for step 3 (Setup). Reuses the existing
     /// `WelcomeOption*` Msg variants from the old wizard so the
-    /// already-translated CodingPlan / Manual / Skip labels stay
+    /// already-translated Manual / Skip labels stay
     /// consistent. Labels are right-padded to 22 visible cols so the
     /// hint column lines up across rows even when one label is
     /// English ("Configure manually") and another is Chinese
-    /// ("配置 CodingPlan") that takes fewer chars but more grid cells.
+    /// ("手动配置") that takes fewer chars but more grid cells.
     pub(super) fn draw_setup_lines(&self, term_cols: u16, unicode_symbols: bool) -> Vec<String> {
         use crate::i18n::{t, Msg};
 
@@ -864,16 +853,10 @@ impl OnboardingWizard {
         out.push(t(Msg::OnboardingStepHeaderSetup).into_owned());
         out.push(String::new());
 
-        // Rows depend on the build: the managed CodingPlan sign-in row only
-        // appears when a platform server is configured; neutral builds lead with
-        // the bring-your-own-key "Configure manually" row.
+        // The bring-your-own-key "Configure manually" row leads, then Skip.
         let options: Vec<(String, String)> = setup_choices()
             .iter()
             .map(|choice| match choice {
-                SetupChoice::Login => (
-                    t(Msg::WelcomeOptionCodingPlan).into_owned(),
-                    t(Msg::WelcomeOptionCodingPlanHint).into_owned(),
-                ),
                 SetupChoice::Manual => (
                     t(Msg::WelcomeOptionConfigureManually).into_owned(),
                     t(Msg::WelcomeOptionConfigureManuallyHint).into_owned(),
@@ -917,7 +900,7 @@ impl OnboardingWizard {
     /// ```text
     /// Step 1/1 · 扫码登录
     /// ┌─ RustCode ──────────────────────────────────┐
-    /// │   扫码登录,自动领取 CodingPlan 免费额度    │
+    /// │   微信扫码登录,自动完成账号登录            │
     /// │                                              │
     /// │              <QR block>                      │
     /// │                                              │
@@ -960,9 +943,9 @@ impl OnboardingWizard {
             format!("{}{}", " ".repeat(pad), s)
         };
 
-        // Shared "scan to claim the plan" header for every state EXCEPT the
+        // Shared "scan to sign in" header for every state EXCEPT the
         // no-QR fallback, which leads with its own link-first header instead.
-        let scan_header = "微信扫码登录,自动领取 CodingPlan 免费额度";
+        let scan_header = "微信扫码登录,自动完成账号登录";
 
         let mut content: Vec<String> = Vec::new();
 
@@ -1006,7 +989,7 @@ impl OnboardingWizard {
                     // would be wrong for a large share of users. The background
                     // poll (see `event_loop::oauth_poll`) still advances the flow
                     // silently either way.
-                    content.push(center("领取 CodingPlan 免费额度"));
+                    content.push(center("打开链接登录账号"));
                     content.push(String::new());
                     content.push(center(url));
                     content.push(center("> 按 Enter 打开浏览器  .  或手动复制上面的链接"));
@@ -1036,7 +1019,7 @@ impl OnboardingWizard {
         // so the panel chrome goes through i18n like the other steps.
         use crate::i18n::{t, Msg};
         let mut out = Vec::new();
-        out.push("扫码登录 . 领取CodingPlan".to_string());
+        out.push("扫码登录 . 自动完成账号配置".to_string());
         let panel_title = format!("RustCode . v{}", env!("CARGO_PKG_VERSION"));
         out.extend(draw_panel(
             &panel_title,
@@ -1114,8 +1097,8 @@ impl crate::modals::Modal for OnboardingWizard {
                 Ok(ModalAction::Continue)
             }
             PureOutcome::OpenQrUrlInBrowser => {
-                // Same call /codingplan's run_oauth_with_renderer
-                // makes after rendering the QR. Best-effort: failures
+                // Same best-effort browser launch the CLI login flow
+                // makes after rendering the QR. Failures
                 // (xdg-open missing on a minimal Linux image, no
                 // $DISPLAY in an SSH session, etc.) are swallowed so
                 // the modal stays put and the user falls back to
@@ -1175,7 +1158,6 @@ impl crate::modals::Modal for OnboardingWizard {
             PureOutcome::ApplySetupThenClose => {
                 let choice = setup_choices().get(self.setup_idx).copied();
                 match choice {
-                    Some(SetupChoice::Login) => ctx.pending_run_login_setup = true,
                     Some(SetupChoice::Manual) => ctx.pending_open_provider_wizard = true,
                     Some(SetupChoice::Skip) | None => { /* Skip / out-of-range -- no flag */ }
                 }
@@ -1187,9 +1169,9 @@ impl crate::modals::Modal for OnboardingWizard {
                 // render the welcome banner here so the user lands
                 // on the regular idle session view (RustCode banner
                 // + cwd + model + tips), not a blank screen with
-                // just an input prompt. CodingPlan and Provider
-                // takeovers paint their own UI, so we only emit
-                // Welcome for the Skip branch.
+                // just an input prompt. The provider takeover paints
+                // its own UI, so we only emit Welcome for the Skip
+                // branch.
                 renderer.clear_screen();
                 if choice == Some(SetupChoice::Skip) {
                     paint_welcome(ctx, renderer);
@@ -1345,7 +1327,7 @@ pub(super) enum PureOutcome {
     RetryQrLogin,
     /// QR step Enter on the happy path -- launch the platform browser
     /// at the already-displayed login URL, mirroring the
-    /// `session.open_browser_best_effort()` call `/codingplan` makes
+    /// platform-browser launch the CLI login flow makes
     /// automatically. Failures are silently swallowed (xdg-open
     /// missing, headless Linux, etc.); the QR + URL remain on screen
     /// as fallbacks, so the modal layout doesn't change.
@@ -1516,8 +1498,7 @@ mod tests {
     fn setup_up_down_bounded() {
         let mut w = make_wizard();
         w.step = Step::Setup;
-        // Neutral build: setup rows are [Configure manually, Skip] (2 rows);
-        // the managed CodingPlan row only appears when a platform is configured.
+        // Setup rows are [Configure manually, Skip] (2 rows).
         assert_eq!(
             setup_choices().len(),
             2,
@@ -1585,10 +1566,6 @@ mod tests {
         assert_eq!(choices.len(), 2, "neutral setup is [Manual, Skip]");
         assert_eq!(choices[0], SetupChoice::Manual);
         assert_eq!(choices[1], SetupChoice::Skip);
-        assert!(
-            !choices.contains(&SetupChoice::Login),
-            "neutral setup must not offer managed Login"
-        );
     }
 
     #[test]
@@ -1853,10 +1830,8 @@ mod tests {
 
     // ── Step 3 (Setup) draw tests ──
 
-    /// Setup panel in a neutral build renders the two localised BYO rows
-    /// (Configure manually, Skip) with the SetupTitle and nav hint. The managed
-    /// CodingPlan row (and its "free tokens" pitch) only appears when a platform
-    /// server is configured.
+    /// Setup panel renders the two localised BYO rows
+    /// (Configure manually, Skip) with the SetupTitle and nav hint.
     #[test]
     fn setup_layout_neutral_has_two_byo_options() {
         let _g = crate::i18n::test_lock();
@@ -1869,8 +1844,6 @@ mod tests {
             .join("\n");
         assert!(joined.contains("Step 3/3 . Setup"));
         assert!(joined.contains("How would you like to set up?"));
-        // No managed CodingPlan row in a neutral build.
-        assert!(!joined.contains("CodingPlan"));
         assert!(!joined.contains("Free tokens"));
         // Two numbered rows: manual leads, then skip.
         assert!(joined.contains("[1] Configure manually"));
@@ -1893,38 +1866,12 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(joined.contains("第 3/3 步 . 配置"));
-        // Neutral build: no managed CodingPlan row; the BYO manual row leads.
-        assert!(!joined.contains("CodingPlan"));
         assert!(joined.contains("[1]"));
         assert!(joined.contains("手动配置"));
         assert!(joined.contains("暂时跳过"));
     }
 
-    /// Neutral build: the managed CodingPlan row must NOT appear, and the
-    /// bring-your-own-key "Configure manually" row must lead the list, before
-    /// Skip. Pins option order so a reorder needs a deliberate test update.
-    #[test]
-    fn setup_options_omit_codingplan_manual_first() {
-        let _g = crate::i18n::test_lock();
-        crate::i18n::set_locale(crate::i18n::Locale::En);
-        let lines = OnboardingWizard::new().draw_setup_lines(80, true);
-        let joined: String = lines
-            .iter()
-            .map(|s| strip_sgr(s))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(
-            !joined.contains("CodingPlan"),
-            "neutral build must not show the managed CodingPlan row: {joined}"
-        );
-        let pos_manual = joined
-            .find("Configure manually")
-            .expect("manual label missing");
-        let pos_skip = joined.find("Skip for now").expect("skip label missing");
-        assert!(pos_manual < pos_skip);
-    }
-
-    /// Filled marker tracks setup_idx across the neutral 2-row menu.
+    /// Filled marker tracks setup_idx across the 2-row menu.
     #[test]
     fn setup_selected_marker_follows_idx() {
         let _g = crate::i18n::test_lock();
@@ -2192,11 +2139,7 @@ mod tests {
                 joined
             );
         }
-        // Visible content is still readable in ASCII (neutral 2-row menu).
-        assert!(
-            !joined.contains("CodingPlan"),
-            "managed row leaked: {joined}"
-        );
+        // Visible content is still readable in ASCII (2-row menu).
         assert!(joined.contains("Configure manually"));
         assert!(joined.contains("[1]") && joined.contains("[2]"));
         assert!(!joined.contains("[3]"));
@@ -2270,9 +2213,8 @@ mod tests {
 
     #[test]
     fn qr_login_enter_when_url_present_opens_browser() {
-        // Enter on the happy QR path now mirrors /codingplan's
-        // `session.open_browser_best_effort()` -- same platform
-        // browser launch the CLI flow makes automatically, just
+        // Enter on the happy QR path opens the platform browser
+        // -- the same launch the CLI login flow makes automatically, just
         // user-triggered. The historical Noop was a fix for a
         // duplicate-QR bug caused by re-running start_login on
         // Enter (ApplyQrLoginThenClose); the new outcome doesn't
@@ -2353,8 +2295,8 @@ mod tests {
     }
 
     #[test]
-    fn qr_login_esc_closes_without_codingplan_flag() {
-        // Esc bails to the welcome banner -- no pending_run_codingplan,
+    fn qr_login_esc_closes_without_pending_flag() {
+        // Esc bails to the welcome banner -- no pending_* flag,
         // no setup_idx mutation. Pin against accidental future drift
         // into the Setup-step's ApplySetupThenClose flag-setting path.
         let mut w = qr_wizard_with_url("https://gateway.test.example/s/AbC123");

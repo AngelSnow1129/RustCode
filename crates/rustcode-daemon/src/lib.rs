@@ -148,7 +148,6 @@ pub(crate) struct ProviderAccountInfo {
     pub has_api_key: bool,
     pub model_ids: Vec<String>,
     pub legacy: bool,
-    pub managed: bool,
 }
 
 /// Sanitized view of one compiled provider preset.
@@ -195,7 +194,6 @@ pub(crate) struct ProviderInfo {
     pub supports_vision_override: Option<bool>,
     pub base_url: Option<String>,
     pub has_api_key: bool,
-    pub requires_login: bool,
     pub is_default: bool,
     pub context_window: usize,
     pub max_tokens: Option<usize>,
@@ -3059,8 +3057,8 @@ pub struct ModelInfo {
 }
 
 /// Build the `/models` list from the UNIFIED model catalog (`logical_models`)
-/// so folded CodingPlan / new-schema `[models.*]` models -- which no longer live
-/// in `config.providers` -- appear in the webui + VSCode model pickers, matching
+/// so folded / new-schema `[models.*]` models -- which no longer live in
+/// `config.providers` -- appear in the webui + VSCode model pickers, matching
 /// `/config` (`config_response`) and `/providers` (`get_providers`). The old
 /// body iterated only `config.providers` and so silently dropped them.
 fn models_from_config(config: &Config) -> Vec<ModelInfo> {
@@ -3118,7 +3116,7 @@ async fn get_models() -> impl IntoResponse {
 
 /// Resolve the model selection used by `/chat` through the unified config boundary.
 ///
-/// New-schema CodingPlan models live in `[models.*]` and therefore are not present in
+/// New-schema models live in `[models.*]` and therefore are not present in
 /// the legacy `config.providers` map. Keep the selection id intact for the runtime while
 /// projecting the flattened provider config needed by image preprocessing and runtime
 /// metadata.
@@ -4557,7 +4555,7 @@ async fn process_chat_request(
     let config = rustcode_config::ConfigStore::default_store().read()?.config;
     rustcode_config::proxy::apply_process_proxy_config(&config.network.proxy);
 
-    // Determine the unified model selection. CodingPlan/new-schema selections live in
+    // Determine the unified model selection. New-schema selections live in
     // `[models.*]`, not the retired per-model `[providers.*]` projection.
     let (provider_name, provider_config) = resolve_chat_provider(&config, req.provider)?;
     // The provider config's existence is validated above; the native runtime
@@ -6820,7 +6818,7 @@ mod tests {
 
     #[test]
     fn models_from_config_shows_effort_for_any_model_that_advertises_levels() {
-        // A CodingPlan model whose server-advertised `reasoning_effort_levels` is
+        // A model whose server-advertised `reasoning_effort_levels` is
         // non-empty (e.g. qwen3.8-27b) must be effort_applicable in the webui -- driven
         // by config, not a hardcoded `deepseek-v4-flash` name. A level-less model stays off.
         let config: Config = serde_json::from_value(serde_json::json!({
@@ -6952,7 +6950,7 @@ mod tests {
     }
 
     #[test]
-    fn models_endpoint_lists_new_schema_and_folded_codingplan_models() {
+    fn models_endpoint_lists_new_schema_and_folded_models() {
         // Selectable models living ONLY in the new schema (models/provider_accounts),
         // NOT in [providers.*] -- the `/models` endpoint used to iterate only
         // `config.providers` and silently dropped these from the webui picker.

@@ -33,9 +33,9 @@ fn empty_config() -> Config {
 /// Build a sanitized ConfigResponse from a loaded Config.
 ///
 /// Lists the unified model catalog (`logical_models`) so new-schema and folded
-/// CodingPlan models -- which no longer live in `config.providers` -- are still
-/// selectable in the webui. Each selection id is reconstructed into a
-/// `ProviderConfig` view via the resolution boundary.
+/// models -- which no longer live in `config.providers` -- are still selectable
+/// in the webui. Each selection id is reconstructed into a `ProviderConfig` view
+/// via the resolution boundary.
 pub(crate) fn config_response(config: &Config) -> ConfigResponse {
     let default_selection = config.effective_model_selection().unwrap_or_default();
     let logical_models = config.logical_models();
@@ -80,9 +80,6 @@ pub(crate) fn config_response(config: &Config) -> ConfigResponse {
                         .api_key
                         .as_deref()
                         .is_some_and(|key| !key.trim().is_empty());
-                    let managed = base_url
-                        .as_deref()
-                        .is_some_and(rustcode_auth::gateway_crypto::is_codingplan_gateway);
                     ProviderAccountInfo {
                         id: id.clone(),
                         provider: account.provider,
@@ -91,7 +88,6 @@ pub(crate) fn config_response(config: &Config) -> ConfigResponse {
                         base_url,
                         has_api_key: has_saved_api_key
                             || resolved.iter().any(|model| model.api_key.is_some()),
-                        managed,
                         model_ids,
                         legacy: config.providers.contains_key(&id),
                     }
@@ -102,10 +98,10 @@ pub(crate) fn config_response(config: &Config) -> ConfigResponse {
         },
         provider_presets: rustcode_config::config::provider_preset::PRESETS
             .iter()
-            // CodingPlan is provisioned by `/login`; presenting it as a
-            // manually configurable API-key provider would create a broken,
-            // user-owned lookalike. Existing CodingPlan models are still listed
-            // above through the unified model catalog.
+            // Compatible presets are provisioned by other flows; presenting
+            // them as manually configurable API-key providers would create a
+            // broken, user-owned lookalike. Existing compatible models are
+            // still listed above through the unified model catalog.
             .filter(|preset| !matches!(preset.id, "openai-compatible" | "anthropic-compatible"))
             .map(|preset| ProviderPresetInfo {
                 id: preset.id.to_string(),
@@ -149,10 +145,6 @@ pub(crate) fn provider_info(
         supports_vision_override,
         base_url: p.base_url.clone(),
         has_api_key: p.resolved_api_key().is_some(),
-        requires_login: p
-            .base_url
-            .as_deref()
-            .is_some_and(rustcode_auth::gateway_crypto::is_codingplan_gateway),
         is_default: name == default_provider,
         context_window: p.context_window,
         max_tokens: p.max_tokens,
@@ -260,56 +252,6 @@ mod tests {
     }
 
     #[test]
-    fn config_response_lists_new_schema_and_folded_codingplan_models() {
-        // A config where the selectable models live ONLY in the new schema
-        // (provider_accounts + models) -- none in [providers.*].
-        let config: Config = serde_json::from_value(serde_json::json!({
-            "default_model": "RustCode-GLM-5.2",
-            "provider_accounts": { "RustCode": { "provider": "openai", "base_url": "https://gateway.test.example/v1" } },
-            "models": {
-                "RustCode-GLM-5.2": { "account": "RustCode", "model": "GLM-5.2", "context_window": 128000 },
-                "RustCode-Qwen": { "account": "RustCode", "model": "Qwen", "context_window": 128000 }
-            }
-        }))
-        .unwrap();
-        let resp = config_response(&config);
-        let names: Vec<&str> = resp.providers.iter().map(|p| p.name.as_str()).collect();
-        assert!(
-            names.contains(&"RustCode-GLM-5.2"),
-            "new-schema model listed"
-        );
-        assert!(names.contains(&"RustCode-Qwen"));
-        assert_eq!(resp.default_provider, "RustCode-GLM-5.2");
-        let glm = resp
-            .providers
-            .iter()
-            .find(|p| p.name == "RustCode-GLM-5.2")
-            .unwrap();
-        assert!(glm.is_default);
-        // Platform-neutral: requires_login is true only when the base_url matches
-        // an explicitly configured gateway (RUSTCODE_CODINGPLAN_LLM_BASE_URL).
-        // An unconfigured test URL is not a gateway, so requires_login is false.
-        assert!(
-            !glm.requires_login,
-            "non-gateway base_url ⇒ no login required"
-        );
-        assert_eq!(glm.model, "GLM-5.2");
-        assert!(resp
-            .provider_presets
-            .iter()
-            .any(|preset| preset.id == "deepseek"));
-        let codingplan = resp
-            .provider_accounts
-            .iter()
-            .find(|account| account.id == "RustCode")
-            .unwrap();
-        assert_eq!(codingplan.model_ids.len(), 2);
-        // Platform-neutral: managed is true only when the base_url matches an
-        // explicitly configured gateway. An unconfigured test URL is not managed.
-        assert!(!codingplan.managed);
-    }
-
-    #[test]
     fn config_response_exposes_only_credential_presence_for_accounts() {
         let config: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
@@ -335,69 +277,6 @@ mod tests {
         assert_eq!(account.model_ids, ["taotoken/model-a"]);
         let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("must-not-leave-daemon"));
-    }
-
-    #[test]
-    fn config_response_reports_saved_credential_before_first_model_is_added() {
-        let config: Config = serde_json::from_value(serde_json::json!({
-            "provider_accounts": {
-                "taotoken": {
-                    "provider": "openai",
-                    "base_url": "https://taotoken.example.com/api/v1",
-                    "api_key": "account-only-secret"
-                },
-                "RustCode": {
-                    "provider": "openai",
-                    "base_url": "https://gateway.test.example/v1"
-                }
-            }
-        }))
-        .unwrap();
-
-        let response = config_response(&config);
-        let taotoken = response
-            .provider_accounts
-            .iter()
-            .find(|account| account.id == "taotoken")
-            .unwrap();
-        assert!(taotoken.has_api_key);
-        assert!(taotoken.model_ids.is_empty());
-        let codingplan = response
-            .provider_accounts
-            .iter()
-            .find(|account| account.id == "RustCode")
-            .unwrap();
-        // Platform-neutral: managed is true only when the base_url matches an
-        // explicitly configured gateway. An unconfigured test URL is not managed.
-        assert!(!codingplan.managed);
-        assert!(codingplan.model_ids.is_empty());
-        let json = serde_json::to_string(&response).unwrap();
-        assert!(!json.contains("account-only-secret"));
-    }
-
-    #[test]
-    fn provider_info_reports_login_dependency_from_gateway() {
-        // Platform-neutral: no URL is a gateway unless explicitly configured via
-        // RUSTCODE_CODINGPLAN_LLM_BASE_URL. In an unconfigured test process,
-        // requires_login is always false.
-        assert!(
-            !provider_info(
-                "renamed",
-                &provider("https://gateway.test.example/v1"),
-                None,
-                "renamed"
-            )
-            .requires_login
-        );
-        assert!(
-            !provider_info(
-                "RustCode-looking-custom",
-                &provider("https://example.test/v1"),
-                None,
-                "RustCode-looking-custom"
-            )
-            .requires_login
-        );
     }
 
     #[test]

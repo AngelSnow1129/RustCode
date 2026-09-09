@@ -166,9 +166,6 @@ pub async fn code(args: CodeArgs) -> Result<()> {
             .map(|v| crate::expand_env(&v)),
     ])
     .context(t(Msg::ClixMissingModel))?;
-    if crate::is_signing_gateway(&base_url) {
-        bail!("{}", t(Msg::ClixSigningGatewayCode { url: &base_url }));
-    }
     let api_key = crate::first_nonempty([
         args.api_key.clone(),
         crate::env("RUSTCODE_API_KEY"),

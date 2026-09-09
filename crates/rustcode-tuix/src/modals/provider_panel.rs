@@ -257,9 +257,6 @@ struct EditForm {
     /// when the user actually changed it (a no-op edit must not lossily normalize
     /// a `deepseek`/custom provider to the `openai` fallback).
     original_preset_idx: usize,
-    /// CodingPlan account: gateway-managed, so only base_url is editable
-    /// -- the protocol and api_key are locked (rewriting them breaks the gateway).
-    vendor_locked: bool,
     /// A curated preset quick-add row has a fixed wire protocol. Its endpoint
     /// and key are editable, but changing the protocol would turn (for example)
     /// a DeepSeek row into an Anthropic-compatible account with a DeepSeek URL.
@@ -280,11 +277,8 @@ impl EditForm {
         protocol_label(self.preset().provider_type)
     }
 
-    /// Field sequence. A gateway-locked account only exposes base_url.
+    /// Field sequence. A protocol-locked account omits the preset toggle.
     fn fields(&self) -> Vec<FormField> {
-        if self.vendor_locked {
-            return vec![FormField::BaseUrl];
-        }
         let mut v = Vec::new();
         if !self.protocol_locked {
             v.push(FormField::Preset);
@@ -317,8 +311,8 @@ impl EditForm {
     }
 
     fn cycle_preset(&mut self, forward: bool) {
-        if self.vendor_locked || self.protocol_locked {
-            return; // managed/curated vendor -- protocol not editable
+        if self.protocol_locked {
+            return; // curated vendor -- protocol not editable
         }
         // OpenAI-compatible -> Anthropic-compatible -> Ollama -> ... (see cycle_protocol,
         // which also manages Ollama's auto-filled local endpoint).
@@ -432,12 +426,9 @@ enum ModelField {
 }
 
 /// True iff adding a model to `account_id` should prompt for the provider's
-/// api_key: a non-CodingPlan account (CodingPlan uses the gateway signer) that
-/// has no explicit api_key yet. Filled once, stored on the account.
+/// api_key: an account that has no explicit api_key yet. Filled once, stored
+/// on the account.
 fn account_needs_key(config: &Config, account_id: &str) -> bool {
-    if config.account_is_codingplan_managed(account_id) {
-        return false;
-    }
     match config.provider_accounts.get(account_id) {
         Some(a) => a.api_key.as_deref().unwrap_or("").trim().is_empty(),
         // Not yet configured (a preset-vendor quick-add) -- needs a key iff the
@@ -517,10 +508,7 @@ fn effort_levels_to_config(bits: [bool; EFFORT_LEVEL_COUNT]) -> Option<Vec<Strin
 
 impl ModelForm {
     fn new_add(config: &Config, preferred: Option<&str>) -> Option<Self> {
-        let account_ids: Vec<String> = ProviderPanel::account_ids(config)
-            .into_iter()
-            .filter(|id| !ProviderPanel::managed_account(config, id))
-            .collect();
+        let account_ids: Vec<String> = ProviderPanel::account_ids(config);
         if account_ids.is_empty() {
             return None;
         }
@@ -803,26 +791,10 @@ fn is_add_shortcut(code: &KeyCode, mods: KeyModifiers) -> bool {
 }
 
 impl ProviderPanel {
-    fn managed_account(config: &Config, account_id: &str) -> bool {
-        config.account_is_codingplan_managed(account_id)
-    }
-
-    fn managed_model(config: &Config, model_id: &str) -> bool {
-        config
-            .logical_models()
-            .get(model_id)
-            .is_some_and(|model| Self::managed_account(config, &model.account))
-    }
-
+    /// A model can be added whenever there is an account to attach it to: the
+    /// drilled-into account when the 模型 tab is filtered, else any account row.
     fn can_add_model(&self, config: &Config) -> bool {
-        self.account_filter.as_deref().map_or_else(
-            || {
-                Self::account_ids(config)
-                    .iter()
-                    .any(|id| !Self::managed_account(config, id))
-            },
-            |account| !Self::managed_account(config, account),
-        )
+        self.account_filter.is_some() || !Self::account_ids(config).is_empty()
     }
 
     fn has_add_row(&self, config: &Config) -> bool {
@@ -900,8 +872,8 @@ impl ProviderPanel {
         }
     }
 
-    /// The 账号 tab list: configured accounts first (new-schema + folded
-    /// CodingPlan, sorted by model-count DESC), then every unconfigured preset
+    /// The 账号 tab list: configured accounts first (new-schema, sorted by
+    /// model-count DESC), then every unconfigured preset
     /// VENDOR (deepseek/openai/... -- name only) so the user can pick one and add a
     /// model to it. Pure-legacy `[providers.*]` are excluded (they show flattened
     /// on the 模型 tab); the custom-endpoint presets are reached via the trailing
@@ -911,10 +883,7 @@ impl ProviderPanel {
         let models = config.logical_models();
         let mut with_count: Vec<(String, usize)> = accounts
             .keys()
-            .filter(|id| {
-                config.provider_accounts.contains_key(*id)
-                    || rustcode_config::config::is_codingplan_provider_name(id)
-            })
+            .filter(|id| config.provider_accounts.contains_key(*id))
             .map(|id| {
                 let count = models.values().filter(|m| &m.account == id).count();
                 (id.clone(), count)
@@ -923,20 +892,13 @@ impl ProviderPanel {
         with_count.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         let mut ids: Vec<String> = with_count.into_iter().map(|(id, _)| id).collect();
         // Unconfigured preset vendors as quick-add rows. A vendor is only
-        // quick-addable as a raw-key account when it has a concrete endpoint
-        // that isn't the managed gateway: the compat presets are reached via
-        // the trailing custom row; a managed-gateway vendor (recognized by URL
-        // via is_codingplan_gateway, or by the folded provider-name prefix via
-        // is_codingplan_provider_name) must go through the OAuth signer via
-        // /login; and presets without a default base_url (the `*-compatible`
+        // quick-addable as a raw-key account when it has a concrete dispatch
+        // endpoint: the compat presets are reached via the trailing custom
+        // row; and presets without a default base_url (the `*-compatible`
         // presets) have nothing to dispatch against.
         for p in provider_preset::PRESETS {
-            let has_dispatchable_endpoint = p
-                .default_base_url
-                .is_some_and(|u| !rustcode_auth::gateway_crypto::is_codingplan_gateway(u));
-            if !has_dispatchable_endpoint
+            if p.default_base_url.is_none()
                 || matches!(p.id, "openai-compatible" | "anthropic-compatible")
-                || rustcode_config::config::is_codingplan_provider_name(p.id)
                 || ids.iter().any(|i| i == p.id)
             {
                 continue;
@@ -1296,15 +1258,9 @@ impl ProviderPanel {
     ) -> Option<String> {
         let preset = form.preset();
         // A fully-custom provider requires a name (it becomes the account id).
-        let mut base_id = sanitize_account_name(form.name.trim());
+        let base_id = sanitize_account_name(form.name.trim());
         if base_id.is_empty() {
             return None;
-        }
-        // Don't let a user account land in the CodingPlan (`RustCode*`) namespace,
-        // or it'd be misclassified as gateway-managed (undeletable, never prompts
-        // for a key).
-        if rustcode_config::config::is_codingplan_provider_name(&base_id) {
-            base_id = format!("custom-{base_id}");
         }
         // base_url is pre-filled with the preset default and editable. Persist
         // only a genuine override; blank + no preset default = missing endpoint.
@@ -1381,24 +1337,22 @@ impl ProviderPanel {
         // (e.g. "deepseek"/"openai"/"ollama") untouched (see save_edit's guard).
         let preset_idx =
             protocol_preset_idx(provider_preset::preset_or_compatible(&provider).provider_type);
-        let vendor_locked = config.account_is_codingplan_managed(id);
         EditForm {
             id: id.to_string(),
             is_legacy,
             materialize_provider: virtual_preset.then_some(provider),
             preset_idx,
             original_preset_idx: preset_idx,
-            vendor_locked,
             protocol_locked: virtual_preset,
             api_key: String::new(),
             base_url: effective_base_url.clone().unwrap_or_default(),
-            // Locked accounts start on the only editable field.
-            focus: if vendor_locked || virtual_preset {
+            // A curated preset row exposes only the endpoint first.
+            focus: if virtual_preset {
                 FormField::BaseUrl
             } else {
                 FormField::Preset
             },
-            cursor_byte: if vendor_locked || virtual_preset {
+            cursor_byte: if virtual_preset {
                 effective_base_url.as_deref().map(str::len).unwrap_or(0)
             } else {
                 0
@@ -1408,9 +1362,6 @@ impl ProviderPanel {
 
     /// Apply an account edit in place (blank fields keep the current value), save.
     fn save_edit(&self, form: &EditForm, ctx: &mut LoopCtx, renderer: &mut dyn Renderer) -> bool {
-        if Self::managed_account(&ctx.config, &form.id) {
-            return false;
-        }
         let form = form.clone();
         let account_id = form.id.clone();
         update_config_and_reload(
@@ -1439,13 +1390,10 @@ impl ProviderPanel {
         let base_url = form.base_url.trim();
         let preset = form.preset();
         // Only rewrite the vendor when the user actually changed it (and the
-        // account isn't gateway-locked) -- a no-op edit must not normalize a
-        // `deepseek`/custom provider to the fallback preset, and a CodingPlan
-        // account's wire must never change. When the new preset is keyless, drop
-        // any stale api_key.
-        let vendor_changed = !form.vendor_locked
-            && !form.protocol_locked
-            && form.preset_idx != form.original_preset_idx;
+        // protocol isn't locked) -- a no-op edit must not normalize a
+        // `deepseek`/custom provider to the fallback preset. When the new
+        // preset is keyless, drop any stale api_key.
+        let vendor_changed = !form.protocol_locked && form.preset_idx != form.original_preset_idx;
         let clear_key =
             vendor_changed && matches!(preset.auth_kind, provider_preset::AuthKind::None);
         if form.is_legacy {
@@ -1512,14 +1460,6 @@ impl ProviderPanel {
     /// + window in place (preserving its other fields), then save.
     fn save_model(&self, form: &ModelForm, ctx: &mut LoopCtx, renderer: &mut dyn Renderer) -> bool {
         let account_id = form.account_id().to_string();
-        if Self::managed_account(&ctx.config, &account_id)
-            || form
-                .edit_id
-                .as_deref()
-                .is_some_and(|id| Self::managed_model(&ctx.config, id))
-        {
-            return false;
-        }
         let model_name = form.model.trim().to_string();
         let supports_vision = form.supports_vision;
         let reasoning_effort_levels = effort_levels_to_config(form.effort_levels);
@@ -1566,9 +1506,7 @@ impl ProviderPanel {
                     && !persisted.provider_accounts.contains_key(&account_id)
                     && !persisted.providers.contains_key(&account_id)
                 {
-                    if !was_virtual_account
-                        || rustcode_config::config::is_codingplan_provider_name(&account_id)
-                    {
+                    if !was_virtual_account {
                         anyhow::bail!("provider account {account_id:?} changed; reopen /provider");
                     }
                     let preset = provider_preset::preset_or_compatible(&account_id);
@@ -1687,11 +1625,6 @@ impl ProviderPanel {
         ctx: &mut LoopCtx,
         renderer: &mut dyn Renderer,
     ) -> bool {
-        if (is_account && Self::managed_account(&ctx.config, id))
-            || (!is_account && Self::managed_model(&ctx.config, id))
-        {
-            return false;
-        }
         let active_selection = ctx.config.effective_model_selection();
         let deletes_active = if is_account {
             active_selection.as_deref().is_some_and(|selection| {
@@ -2108,14 +2041,6 @@ impl Modal for ProviderPanel {
                     .selected_id(&ctx.config)
                     .filter(|i| i != ADD_PROVIDER_ROW && i != ADD_MODEL_ROW)
                 {
-                    let managed = match self.tab {
-                        Tab::Accounts => Self::managed_account(&ctx.config, &id),
-                        Tab::Models => Self::managed_model(&ctx.config, &id),
-                    };
-                    if managed {
-                        self.draw(buf, state, ctx, renderer);
-                        return Ok(ModalAction::Continue);
-                    }
                     self.mode = match self.tab {
                         Tab::Accounts => Mode::EditAccount(Self::open_edit(&ctx.config, &id)),
                         Tab::Models => match ModelForm::new_edit(&ctx.config, &id) {
@@ -2133,19 +2058,11 @@ impl Modal for ProviderPanel {
                     .filter(|i| i != ADD_PROVIDER_ROW && i != ADD_MODEL_ROW)
                 {
                     let is_account = self.tab == Tab::Accounts;
+                    // Unconfigured preset rows have no persisted object to
+                    // delete.
                     let is_virtual_preset =
                         is_account && Self::is_virtual_account_row(&ctx.config, &id);
-                    // Managed-namespace rows are owned by the managed sign-in
-                    // flow in distribution builds and can't be deleted here
-                    // (neutral builds only hit this via a hand-written reserved
-                    // name/URL). Unconfigured preset rows likewise have no
-                    // persisted object to delete.
-                    let is_managed = if is_account {
-                        Self::managed_account(&ctx.config, &id)
-                    } else {
-                        Self::managed_model(&ctx.config, &id)
-                    };
-                    if is_virtual_preset || is_managed {
+                    if is_virtual_preset {
                         self.pending_delete = None;
                     } else if self.confirm_double_delete(&id, is_account)
                         && self.commit_delete(&id, is_account, ctx, renderer)
@@ -2301,25 +2218,8 @@ impl Modal for ProviderPanel {
                                 .into_owned(),
                             String::new(),
                         ));
-                        let selected_managed = self
-                            .selected_id(&ctx.config)
-                            .filter(|id| id != ADD_PROVIDER_ROW)
-                            .is_some_and(|id| Self::managed_account(&ctx.config, &id));
-                        let managed_hint =
-                            if crate::modals::onboarding_wizard::managed_login_available() {
-                                crate::i18n::Msg::ProviderPanelManagedAccountHint
-                            } else {
-                                // Neutral build: the row only got here via a
-                                // hand-written reserved name/URL; pitching the
-                                // managed service would be a dead end.
-                                crate::i18n::Msg::ProviderPanelManagedAccountHintNeutral
-                            };
-                        hint = crate::i18n::t(if selected_managed {
-                            managed_hint
-                        } else {
-                            crate::i18n::Msg::ProviderPanelAccountsHint
-                        })
-                        .into_owned();
+                        hint = crate::i18n::t(crate::i18n::Msg::ProviderPanelAccountsHint)
+                            .into_owned();
                     }
                     Tab::Models => {
                         let ids = self.filtered_ids(&ctx.config);
@@ -2358,21 +2258,7 @@ impl Modal for ProviderPanel {
                                 empty_description,
                             ));
                         }
-                        let filter_is_managed = self
-                            .account_filter
-                            .as_deref()
-                            .is_some_and(|account| Self::managed_account(&ctx.config, account));
-                        hint = if filter_is_managed {
-                            // Neutral build: a reserved-name collision must not
-                            // pitch the managed service this build lacks.
-                            let msg = if crate::modals::onboarding_wizard::managed_login_available()
-                            {
-                                crate::i18n::Msg::ProviderPanelManagedModelsHint
-                            } else {
-                                crate::i18n::Msg::ProviderPanelManagedModelsHintNeutral
-                            };
-                            crate::i18n::t(msg).into_owned()
-                        } else if let Some(acct) = &self.account_filter {
+                        hint = if let Some(acct) = &self.account_filter {
                             crate::i18n::t(crate::i18n::Msg::ProviderPanelFilteredModelsHint {
                                 account: acct,
                             })
@@ -2472,9 +2358,8 @@ impl Modal for ProviderPanel {
                 ));
                 items.push((String::new(), String::new()));
                 let p = form.preset();
-                if form.vendor_locked || form.protocol_locked {
-                    // Gateway-managed accounts lock protocol + key; curated
-                    // preset rows lock only the protocol.
+                if form.protocol_locked {
+                    // Curated preset rows lock the protocol.
                     items.push((
                         crate::i18n::t(crate::i18n::Msg::ProviderPanelProtocolLocked {
                             protocol: form.protocol_label(),
@@ -2500,7 +2385,7 @@ impl Modal for ProviderPanel {
                     form.cursor_byte,
                     form_cols,
                 ));
-                if !form.vendor_locked && !matches!(p.auth_kind, provider_preset::AuthKind::None) {
+                if !matches!(p.auth_kind, provider_preset::AuthKind::None) {
                     let masked = "*".repeat(form.api_key.chars().count());
                     let masked_cursor = "*"
                         .repeat(
@@ -2520,10 +2405,7 @@ impl Modal for ProviderPanel {
                         form_cols,
                     ));
                 }
-                hint = if form.vendor_locked {
-                    crate::i18n::t(crate::i18n::Msg::ProviderPanelEditFormVendorLockedHint)
-                        .into_owned()
-                } else if form.protocol_locked {
+                hint = if form.protocol_locked {
                     crate::i18n::t(crate::i18n::Msg::ProviderPanelEditFormProtocolLockedHint)
                         .into_owned()
                 } else {
@@ -3310,7 +3192,6 @@ mod tests {
             materialize_provider: None,
             preset_idx: protocol_preset_idx(provider_preset::ProviderType::OpenAi),
             original_preset_idx: protocol_preset_idx(provider_preset::ProviderType::OpenAi),
-            vendor_locked: false,
             protocol_locked: false,
             api_key: String::new(),
             base_url: String::new(),
@@ -3423,7 +3304,6 @@ mod tests {
         assert!(ids.contains(&"xiaomi-mimo".to_string()));
         // A keyed preset vendor prompts for a key when you add its first model.
         assert!(account_needs_key(&cfg, "deepseek"));
-        assert!(!account_needs_key(&cfg, "RustCode"));
     }
 
     #[test]
@@ -3450,23 +3330,6 @@ mod tests {
     }
 
     #[test]
-    fn edit_codingplan_account_locks_vendor_and_key() {
-        let cfg: Config = serde_json::from_value(serde_json::json!({
-            "provider_accounts": {
-                "RustCode": { "provider": "openai", "base_url": "https://gateway.test.example/v1" },
-                "custom": { "provider": "openai-compatible", "base_url": "https://x/v1", "api_key": "sk-1" }
-            }
-        }))
-        .unwrap();
-        let locked = ProviderPanel::open_edit(&cfg, "RustCode");
-        assert!(locked.vendor_locked);
-        // Only base_url is editable -- no protocol toggle, no api_key.
-        assert_eq!(locked.fields(), vec![FormField::BaseUrl]);
-        // A user account is not locked.
-        assert!(!ProviderPanel::open_edit(&cfg, "custom").vendor_locked);
-    }
-
-    #[test]
     fn model_form_prompts_for_key_on_keyless_provider() {
         let cfg: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": {
@@ -3477,8 +3340,6 @@ mod tests {
         .unwrap();
         assert!(account_needs_key(&cfg, "custom"));
         assert!(!account_needs_key(&cfg, "keyed"));
-        // CodingPlan uses the gateway signer -- never prompt.
-        assert!(!account_needs_key(&cfg, "RustCode"));
         // The model form shows an api_key field only for the keyless provider.
         assert!(ModelForm::new_add(&cfg, Some("custom"))
             .unwrap()

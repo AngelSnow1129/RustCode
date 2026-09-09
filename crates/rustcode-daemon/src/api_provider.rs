@@ -35,48 +35,8 @@ fn account_model_conflict(message: impl Into<String>) -> anyhow::Error {
     anyhow::Error::new(AccountModelConflict(message.into()))
 }
 
-fn selection_is_managed(config: &rustcode_config::config::Config, name: &str) -> bool {
-    config
-        .provider_config_for_selection(name)
-        .and_then(|provider| provider.base_url)
-        .as_deref()
-        .is_some_and(rustcode_auth::gateway_crypto::is_codingplan_gateway)
-}
-
-fn account_is_managed(config: &rustcode_config::config::Config, account_id: &str) -> bool {
-    let Some(account) = config.logical_accounts().remove(account_id) else {
-        return false;
-    };
-    let preset = rustcode_config::config::provider_preset::preset_or_compatible(&account.provider);
-    account
-        .base_url
-        .as_deref()
-        .or(preset.default_base_url)
-        .is_some_and(rustcode_auth::gateway_crypto::is_codingplan_gateway)
-}
-
 fn selection_name_is_reserved(config: &rustcode_config::config::Config, name: &str) -> bool {
     config.selection_exists(name) && !config.providers.contains_key(name)
-}
-
-/// 403 body for attempts to mutate a provider/selection whose name or base URL
-/// collides with the managed-account namespace. Open builds ship no managed
-/// sign-in service, so the `/login` resolution would be a dead end there --
-/// point those users at renaming the provider and configuring it with their
-/// own api_key instead.
-fn managed_provider_locked_message(action: &str) -> String {
-    if rustcode_auth::managed_login_available() {
-        let action = match action {
-            "modified" => t(Msg::DaemonProvActionModified),
-            "replaced" => t(Msg::DaemonProvActionReplaced),
-            "edited" => t(Msg::DaemonProvActionEdited),
-            "deleted" => t(Msg::DaemonProvActionDeleted),
-            _ => t(Msg::DaemonProvActionEdited),
-        };
-        t(Msg::DaemonProvManagedLocked { action: &action }).into_owned()
-    } else {
-        t(Msg::DaemonProvManagedReserved).into_owned()
-    }
 }
 
 fn rename_default_selection(
@@ -780,16 +740,11 @@ pub(crate) async fn create_account_models(
 ) -> impl IntoResponse {
     let mut created = Vec::new();
     let mut missing = false;
-    let mut managed = false;
     let mut conflict = false;
     let config = match update_config(|config| {
         if !config.logical_accounts().contains_key(&account) {
             missing = true;
             anyhow::bail!("{}", t(Msg::DaemonProvAccountNotFound));
-        }
-        if account_is_managed(config, &account) {
-            managed = true;
-            anyhow::bail!("{}", t(Msg::DaemonProvManagedAccount));
         }
         created = insert_account_models(config, &account, &req.models).inspect_err(|error| {
             if error.downcast_ref::<AccountModelConflict>().is_some() {
@@ -803,13 +758,6 @@ pub(crate) async fn create_account_models(
             return json_error(
                 StatusCode::NOT_FOUND,
                 t(Msg::DaemonProvAccountNotFound).into_owned(),
-            )
-            .into_response()
-        }
-        Err(_) if managed => {
-            return json_error(
-                StatusCode::FORBIDDEN,
-                managed_provider_locked_message("modified"),
             )
             .into_response()
         }
@@ -833,8 +781,8 @@ pub(crate) async fn get_providers() -> impl IntoResponse {
         Ok(c) => c,
         Err(e) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
     };
-    // List the unified catalog so new-schema / folded CodingPlan models (absent
-    // from `config.providers`) remain visible and selectable.
+    // List the unified catalog so new-schema models (absent from
+    // `config.providers`) remain visible and selectable.
     let default_selection = config.effective_model_selection().unwrap_or_default();
     let mut ids: Vec<String> = config.logical_models().into_keys().collect();
     ids.sort();
@@ -917,13 +865,8 @@ pub(crate) async fn create_provider(Json(req): Json<CreateProviderRequest>) -> i
     };
 
     let mut is_new = false;
-    let mut managed = false;
     let mut conflict = false;
     let config = match update_config(|config| {
-        if selection_is_managed(config, &name) {
-            managed = true;
-            anyhow::bail!("{}", t(Msg::DaemonProvManagedProvider));
-        }
         if selection_name_is_reserved(config, &name) {
             conflict = true;
             anyhow::bail!(
@@ -937,7 +880,7 @@ pub(crate) async fn create_provider(Json(req): Json<CreateProviderRequest>) -> i
         config.providers.insert(name.clone(), provider);
         // Only claim the default when there isn't already a valid one -- check the
         // effective selection (new-schema `default_model` or legacy
-        // `default_provider`) so a CodingPlan default isn't wrongly clobbered.
+        // `default_provider`) so an existing default isn't wrongly clobbered.
         let has_valid_default = config
             .effective_model_selection()
             .is_some_and(|s| config.selection_exists(&s));
@@ -948,13 +891,6 @@ pub(crate) async fn create_provider(Json(req): Json<CreateProviderRequest>) -> i
         Ok(())
     }) {
         Ok(config) => config,
-        Err(_) if managed => {
-            return json_error(
-                StatusCode::FORBIDDEN,
-                managed_provider_locked_message("replaced"),
-            )
-            .into_response()
-        }
         Err(_) if conflict => {
             return json_error(
                 StatusCode::CONFLICT,
@@ -1034,12 +970,7 @@ pub(crate) async fn patch_provider(
 
     let mut missing = false;
     let mut conflict = false;
-    let mut managed = false;
     let config = match update_config(|config| {
-        if selection_is_managed(config, &name) {
-            managed = true;
-            anyhow::bail!("{}", t(Msg::DaemonProvManagedProvider));
-        }
         if final_name != name && config.selection_exists(&final_name) {
             conflict = true;
             anyhow::bail!(
@@ -1149,13 +1080,6 @@ pub(crate) async fn patch_provider(
         Ok(())
     }) {
         Ok(config) => config,
-        Err(_) if managed => {
-            return json_error(
-                StatusCode::FORBIDDEN,
-                managed_provider_locked_message("edited"),
-            )
-            .into_response()
-        }
         Err(_) if missing => {
             return json_error(
                 StatusCode::NOT_FOUND,
@@ -1195,12 +1119,7 @@ pub(crate) async fn patch_provider(
 /// DELETE /providers/:name - Delete a provider.
 pub(crate) async fn delete_provider(Path(name): Path<String>) -> impl IntoResponse {
     let mut missing = false;
-    let mut managed = false;
     let config = match update_config(|config| {
-        if selection_is_managed(config, &name) {
-            managed = true;
-            anyhow::bail!("{}", t(Msg::DaemonProvManagedProvider));
-        }
         // Remove from the SAME unified catalog the webui lists (new-schema
         // `config.models` ∪ legacy `config.providers`) -- not just legacy providers.
         if !remove_selection(config, &name) {
@@ -1216,13 +1135,6 @@ pub(crate) async fn delete_provider(Path(name): Path<String>) -> impl IntoRespon
         Ok(())
     }) {
         Ok(config) => config,
-        Err(_) if managed => {
-            return json_error(
-                StatusCode::FORBIDDEN,
-                managed_provider_locked_message("deleted"),
-            )
-            .into_response()
-        }
         Err(_) if missing => {
             return json_error(
                 StatusCode::NOT_FOUND,
@@ -1295,15 +1207,9 @@ pub(crate) async fn patch_thinking(
         }
     }
     let mut missing = false;
-    let mut managed = false;
     let config = match update_config(|config| {
-        if selection_is_managed(config, &name) {
-            managed = true;
-            anyhow::bail!("{}", t(Msg::DaemonProvManagedProvider));
-        }
-        // Keep writes schema-aware for user-managed model profiles. Managed
-        // Managed-namespace selections are rejected above; in distribution builds
-        // they stay owned by the managed sign-in flow.
+        // Keep writes schema-aware for every entry in the unified catalog
+        // (new-schema `config.models` ∪ legacy `config.providers`).
         let found = config.update_selection_reasoning(&name, |r| {
             if let Some(enabled) = req.enabled {
                 *r.thinking_enabled = Some(enabled);
@@ -1338,13 +1244,6 @@ pub(crate) async fn patch_thinking(
         Ok(())
     }) {
         Ok(config) => config,
-        Err(_) if managed => {
-            return json_error(
-                StatusCode::FORBIDDEN,
-                managed_provider_locked_message("edited"),
-            )
-            .into_response()
-        }
         Err(_) if missing => {
             return json_error(
                 StatusCode::NOT_FOUND,
@@ -1375,12 +1274,11 @@ pub(crate) async fn patch_thinking(
 #[cfg(test)]
 mod tests {
     use super::{
-        account_is_managed, apply_patch_to_new_schema_model, discovery_url, fetch_discovery_body,
-        insert_account_models, managed_provider_locked_message, normalize_discovered_models,
-        parse_discovered_models, remove_selection, rename_default_selection,
-        replace_deleted_default_selection, selection_is_managed, selection_name_is_reserved,
-        stored_discovery_transport, AccountModelConflict, CreateAccountModelRequest,
-        DiscoveryRequestError, DiscoveryTransport, PatchProviderRequest,
+        apply_patch_to_new_schema_model, discovery_url, fetch_discovery_body,
+        insert_account_models, normalize_discovered_models, parse_discovered_models,
+        remove_selection, rename_default_selection, replace_deleted_default_selection,
+        selection_name_is_reserved, stored_discovery_transport, AccountModelConflict,
+        CreateAccountModelRequest, DiscoveryRequestError, DiscoveryTransport, PatchProviderRequest,
     };
     use crate::DiscoveredModelInfo;
     use axum::{
@@ -1412,69 +1310,6 @@ mod tests {
             serde_json::from_value(serde_json::json!({ "clear_supports_vision": true })).unwrap();
         assert_eq!(auto.supports_vision, None);
         assert!(auto.clear_supports_vision);
-    }
-
-    #[test]
-    fn managed_locked_message_is_neutral_without_service() {
-        // Open build: a reserved-name collision must explain the lock and the
-        // BYO escape hatch, never dead-end at /login (no service to log into).
-        if rustcode_auth::managed_login_available() {
-            return; // distribution builds keep the "managed by /login" wording
-        }
-        for action in ["modified", "replaced", "edited", "deleted"] {
-            let m = managed_provider_locked_message(action);
-            assert!(
-                !m.contains("/login"),
-                "neutral locked message ({action}): {m}"
-            );
-            assert!(
-                m.contains("api_key"),
-                "neutral locked message must point at the BYO path ({action}): {m}"
-            );
-        }
-    }
-
-    #[test]
-    fn codingplan_models_are_managed_but_similarly_named_custom_models_are_not() {
-        // Platform-neutral: no URL is a gateway unless explicitly configured via
-        // RUSTCODE_CODINGPLAN_LLM_BASE_URL. In an unconfigured test process,
-        // is_codingplan_gateway returns false for all URLs, so nothing is managed.
-        let managed: Config = serde_json::from_value(serde_json::json!({
-            "provider_accounts": {
-                "RustCode": {
-                    "provider": "openai",
-                    "base_url": "https://gateway.test.example/v1"
-                }
-            },
-            "models": {
-                "RustCode-GLM": { "account": "RustCode", "model": "GLM-5.2" }
-            }
-        }))
-        .unwrap();
-        assert!(!selection_is_managed(&managed, "RustCode-GLM"));
-
-        let account_only: Config = serde_json::from_value(serde_json::json!({
-            "provider_accounts": {
-                "RustCode": {
-                    "provider": "openai",
-                    "base_url": "https://gateway.test.example/v1"
-                }
-            }
-        }))
-        .unwrap();
-        assert!(!account_is_managed(&account_only, "RustCode"));
-
-        let custom: Config = serde_json::from_value(serde_json::json!({
-            "providers": {
-                "RustCode-looking": {
-                    "type": "openai",
-                    "model": "custom",
-                    "base_url": "https://example.test/v1"
-                }
-            }
-        }))
-        .unwrap();
-        assert!(!selection_is_managed(&custom, "RustCode-looking"));
     }
 
     // The webui lists the UNIFIED catalog (new-schema `config.models` ∪ legacy

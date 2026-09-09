@@ -169,3 +169,6 @@
 
 **注**：本仓库存在**并行编排会话**（已观察到 `ea16dc88` / `d9a85069` 两次非本会话提交）。
 后续批次开工前**必须先读本节**，已被登记的文件不得重复派发。
+
+| **P5 / T-18'** | **本会话（编排者 OPT 轮）** | `daemon/src/api_provider.rs`、`api_config.rs`、`main.rs`、`runtime_host.rs`、`lib.rs`；`clix/src/main.rs`（仅 2 处，并入本任务） | 2026-09-09 |
+| **P5 / T-19** | **本会话（编排者 OPT 轮）** | `tuix/src/modals/provider_panel.rs`（17 处） | 2026-09-09 |

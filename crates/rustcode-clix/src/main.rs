@@ -421,13 +421,6 @@ async fn review(args: ReviewArgs) -> Result<()> {
         entry.and_then(|e| e.model.clone()).map(|v| expand_env(&v)),
     ])
     .context(t(Msg::ClixMissingModelReview))?;
-    // Managed signing gateways require proprietary request signing (a closed-source
-    // overlay that only certain distribution builds ship). rustcodex uses the neutral
-    // provider and cannot sign -- fail fast with an actionable message instead of a
-    // confusing 401.
-    if is_signing_gateway(&base_url) {
-        bail!("{}", t(Msg::ClixSigningGatewayReview { url: &base_url }));
-    }
     // api_key is OPTIONAL -- some gateways need none. Config values may be `$ENV` refs.
     let api_key = first_nonempty([
         args.api_key,
@@ -878,12 +871,6 @@ pub(crate) fn first_nonempty(vals: impl IntoIterator<Item = Option<String>>) -> 
 /// Read an env var, returning `None` when unset or empty.
 pub(crate) fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|s| !s.trim().is_empty())
-}
-
-/// True if `base_url`'s host is a signing-enforced LLM gateway -- those require
-/// RustCode's proprietary request signing, which this neutral CLI cannot produce.
-pub(crate) fn is_signing_gateway(base_url: &str) -> bool {
-    rustcode_capabilities::provider::is_codingplan_gateway(base_url)
 }
 
 /// Expand a WHOLE-VALUE env reference, consistent with the rest of the ecosystem:
@@ -1849,27 +1836,6 @@ base_url = "https://openrouter.example.com/api/v1"
             selected.language,
             Some(rustcode_config::locale::Locale::ZhCn)
         );
-    }
-
-    #[test]
-    fn detects_signing_gateways_by_host() {
-        // Platform-neutral: no host is a signing gateway by default. An operator
-        // must explicitly configure RUSTCODE_CODINGPLAN_LLM_BASE_URL for gateway
-        // detection to engage.
-        assert!(!is_signing_gateway("https://llm-api.example.com/v1"));
-        assert!(!is_signing_gateway(
-            "https://api-ai.example.net/v1/chat/completions"
-        ));
-        assert!(!is_signing_gateway(
-            "https://pre-llm-api-cce.example.com/v1"
-        ));
-        // plain third-party providers are fine (reserved example domains).
-        assert!(!is_signing_gateway("https://openrouter.example.com/api/v1"));
-        assert!(!is_signing_gateway("https://deepseek.example.com/v1"));
-        // a lookalike path must NOT trip the host check.
-        assert!(!is_signing_gateway(
-            "https://evil.com/llm-api.example.com/v1"
-        ));
     }
 
     #[test]
