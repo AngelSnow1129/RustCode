@@ -65,15 +65,7 @@ pub(crate) enum CommandResult {
         before_tokens: usize,
         after_tokens: usize,
     },
-    Whoami {
-        logged_in: bool,
-        username: Option<String>,
-        name: Option<String>,
-        email: Option<String>,
-    },
     Status {
-        logged_in: bool,
-        username: Option<String>,
         provider: String,
         model: String,
         working_dir: String,
@@ -486,23 +478,6 @@ async fn exec_compact(
     exec_native_compact(provider, arg, native, working_dir).await
 }
 
-fn exec_whoami() -> anyhow::Result<CommandResult> {
-    match rustcode_auth::get_stored_auth() {
-        Some(auth) => Ok(CommandResult::Whoami {
-            logged_in: true,
-            username: Some(auth.user.username),
-            name: auth.user.name,
-            email: auth.user.email,
-        }),
-        None => Ok(CommandResult::Whoami {
-            logged_in: false,
-            username: None,
-            name: None,
-            email: None,
-        }),
-    }
-}
-
 fn exec_config() -> anyhow::Result<CommandResult> {
     let path = rustcode_config::config::Config::default_path();
     let provider = rustcode_config::config::Config::load(&path)
@@ -584,45 +559,8 @@ fn render_context_file_status_block(working_dir: &std::path::Path) -> String {
     out
 }
 
-fn render_login_line(user: Option<&str>) -> String {
-    use rustcode_config::i18n::{t, Msg};
-    match user {
-        Some(u) => t(Msg::StatusLoginLoggedIn { user: u }).into_owned(),
-        None => t(Msg::StatusLoginNotSignedIn).into_owned(),
-    }
-}
-
-fn format_login_identity(name: Option<&str>, username: &str) -> String {
-    match name
-        .map(str::trim)
-        .filter(|n| !n.is_empty() && *n != username)
-    {
-        Some(n) => format!("{n}({username})"),
-        None => username.to_string(),
-    }
-}
-
-fn render_login_line_from_stored_auth() -> String {
-    // Neutral builds ship no managed sign-in service: omit the Login line
-    // entirely rather than print "not signed in (run /login)" for a command
-    // that cannot exist. Parity with the TUI status renderer, which returns an
-    // empty string for the same predicate.
-    if !rustcode_auth::managed_login_available() {
-        return String::new();
-    }
-    match rustcode_auth::get_stored_auth() {
-        Some(a) => {
-            let identity = format_login_identity(a.user.name.as_deref(), &a.user.username);
-            render_login_line(Some(&identity))
-        }
-        None => render_login_line(None),
-    }
-}
-
-fn assemble_status(login: &str, body: &str, proxy: &str, instructions: &str) -> String {
-    let mut txt =
-        String::with_capacity(login.len() + body.len() + proxy.len() + instructions.len() + 16);
-    txt.push_str(login);
+fn assemble_status(body: &str, proxy: &str, instructions: &str) -> String {
+    let mut txt = String::with_capacity(body.len() + proxy.len() + instructions.len() + 16);
     txt.push_str(body);
     txt.push_str(proxy);
     txt.push('\n');
@@ -646,8 +584,6 @@ fn exec_status(
         .and_then(|c| c.provider_config_for_selection(&provider_name))
         .map(|p| p.model)
         .unwrap_or_default();
-    let auth = rustcode_auth::get_stored_auth();
-
     let body = t(Msg::StatusBody {
         model: &model,
         dir: &working_dir.display().to_string(),
@@ -661,15 +597,12 @@ fn exec_status(
     let proxy_line = format!("  Proxy:  {}\n", proxy_summary);
 
     let text = assemble_status(
-        &render_login_line_from_stored_auth(),
         &body,
         &proxy_line,
         &render_context_file_status_block(working_dir),
     );
 
     Ok(CommandResult::Status {
-        logged_in: auth.is_some(),
-        username: auth.map(|a| a.user.username),
         provider: provider_name,
         model,
         working_dir: working_dir.display().to_string(),
@@ -780,7 +713,6 @@ pub(crate) async fn run_command(
             )
             .await
         }
-        "whoami" => exec_whoami(),
         "config" => exec_config(),
         "diff" => exec_diff(&working_dir),
         "status" => exec_status(&working_dir, req.provider.as_deref()),
@@ -813,26 +745,6 @@ mod tests {
     use rustcode_capabilities::session::PresentationFile;
     use rustcode_capabilities::session::{StorageOwner, TurnStat};
     use rustcode_config::config::memory::MemoryStore;
-
-    #[test]
-    fn neutral_status_omits_managed_login_line() {
-        // Tests run with no platform server -> the `/status` Login section must
-        // be omitted entirely instead of printing "not signed in (run /login)"
-        // for a sign-in command that cannot exist in this build.
-        assert!(!rustcode_auth::managed_login_available());
-        assert_eq!(render_login_line_from_stored_auth(), String::new());
-
-        // End-to-end: the assembled `/status` text carries no /login guidance.
-        let result = exec_status(std::path::Path::new("."), None).unwrap();
-        if let CommandResult::Status { text, .. } = result {
-            assert!(
-                !text.contains("/login"),
-                "neutral /status advertises /login: {text}"
-            );
-        } else {
-            panic!("expected CommandResult::Status");
-        }
-    }
 
     #[test]
     fn context_file_status_shows_instruction_and_memory_paths() {
