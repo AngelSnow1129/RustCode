@@ -20,9 +20,8 @@
 //!
 //! # Scope
 //!
-//! Addresses, plus the two settings that only make sense beside them:
-//! [`relay_enabled`] (a deployment with no relay to reach) and
-//! [`codingplan_provider_prefix`] (the name its CodingPlan entries carry).
+//! Addresses, plus the one setting that only makes sense beside them:
+//! [`relay_enabled`] (a deployment with no relay to reach).
 //!
 //! Being one module is the point: a distribution retargets a build by
 //! replacing this file, so anything it needs to change belongs here rather
@@ -32,8 +31,6 @@ use std::sync::OnceLock;
 
 /// Address overrides. Each takes a complete URL.
 pub const PLATFORM_SERVER_ENV: &str = "RUSTCODE_PLATFORM_SERVER";
-pub const CODINGPLAN_API_BASE_ENV: &str = "RUSTCODE_CODINGPLAN_API_BASE";
-pub const CODINGPLAN_LLM_BASE_URL_ENV: &str = "RUSTCODE_CODINGPLAN_LLM_BASE_URL";
 pub const UPDATE_MANIFEST_URL_ENV: &str = "RUSTCODE_UPDATE_MANIFEST_URL";
 pub const UPDATE_DOWNLOAD_BASE_ENV: &str = "RUSTCODE_UPDATE_DOWNLOAD_BASE";
 pub const DESKTOP_DOWNLOAD_URL_ENV: &str = "RUSTCODE_DESKTOP_DOWNLOAD_URL";
@@ -49,9 +46,6 @@ pub const PLUGIN_AUTO_INSTALL_ENV: &str = "RUSTCODE_PLUGIN_AUTO_INSTALL";
 
 /// Whether `/app` remote access is offered. Defaults to on.
 pub const ENABLE_RELAY_ENV: &str = "RUSTCODE_ENABLE_RELAY";
-
-/// Overrides the prefix CodingPlan provider keys are written with.
-pub const CODINGPLAN_PROVIDER_PREFIX_ENV: &str = "RUSTCODE_CODINGPLAN_PROVIDER_PREFIX";
 
 /// Hosts to treat as first-party, comma-separated. **Replaces** the default
 /// set rather than adding to it: a deployment that has moved off the hosted
@@ -69,14 +63,6 @@ pub const TRUSTED_HOSTS_ENV: &str = "RUSTCODE_TRUSTED_HOSTS";
 /// hosted platform server. A deployment that runs its own platform sets
 /// `RUSTCODE_PLATFORM_SERVER` to point `/login` at it.
 const HOSTED_PLATFORM_SERVER: &str = "";
-/// Empty by default: this build is platform-neutral and does not assume any
-/// hosted CodingPlan API. A deployment that runs its own platform sets
-/// `RUSTCODE_CODINGPLAN_API_BASE` to point `/login` at it.
-const HOSTED_CODINGPLAN_API_BASE: &str = "";
-/// Empty by default: no LLM gateway is assumed. A deployment that operates a
-/// signed gateway sets `RUSTCODE_CODINGPLAN_LLM_BASE_URL`; until then every
-/// provider uses plain bearer auth and `is_codingplan_llm_gateway` is false.
-const HOSTED_CODINGPLAN_LLM_BASE_URL: &str = "";
 /// Empty by default: auto-update is disabled. A deployment that publishes its
 /// own releases sets `RUSTCODE_UPDATE_MANIFEST_URL` to the manifest URL.
 const HOSTED_UPDATE_MANIFEST_URL: &str = "";
@@ -110,10 +96,6 @@ const HOSTED_TRUSTED_DOMAINS: &[&str] = &[];
 /// not run. A deployment that stands up its own relay sets
 /// `RUSTCODE_ENABLE_RELAY=1` (and `RUSTCODE_APP_RELAY`) to turn it back on.
 const HOSTED_RELAY_ENABLED: bool = false;
-/// Prefix for CodingPlan provider keys. User-visible: it is the selection id in
-/// the model picker's left column and the account label in its right one, so a
-/// build serving its own gateway wants it to say something else.
-const HOSTED_CODINGPLAN_PROVIDER_PREFIX: &str = "RustCode";
 /// Empty by default: no TLS-1.2 fallback domain is assumed. A deployment that
 /// needs the SChannel TLS-1.2 fallback sets `RUSTCODE_TLS_FALLBACK_DOMAINS`.
 const HOSTED_TLS_FALLBACK_DOMAINS: &[&str] = &[];
@@ -181,46 +163,6 @@ pub fn platform_server() -> &'static str {
     URL.get_or_init(|| resolve(PLATFORM_SERVER_ENV, HOSTED_PLATFORM_SERVER))
 }
 
-/// CodingPlan REST control plane, including the API version segment.
-pub fn codingplan_api_base() -> &'static str {
-    static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| resolve(CODINGPLAN_API_BASE_ENV, HOSTED_CODINGPLAN_API_BASE))
-}
-
-/// OpenAI-compatible LLM gateway for CodingPlan-managed providers. The
-/// `models-v2` payload may override this per model.
-pub fn codingplan_llm_base_url() -> &'static str {
-    static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| resolve(CODINGPLAN_LLM_BASE_URL_ENV, HOSTED_CODINGPLAN_LLM_BASE_URL))
-}
-
-/// Whether `base_url` is one of the authenticated CodingPlan LLM gateways.
-///
-/// Platform-neutral: no host is treated as a gateway by default. A gateway is
-/// recognised only when the operator has **explicitly** configured
-/// `RUSTCODE_CODINGPLAN_LLM_BASE_URL` (or the compile-time default is non-empty
-/// and the `base_url` matches its HTTPS origin). This lets every user bring
-/// their own model endpoint with plain bearer auth, with zero platform binding.
-pub fn is_codingplan_llm_gateway(base_url: &str) -> bool {
-    let Ok(url) = url::Url::parse(base_url) else {
-        return false;
-    };
-    if url.scheme() != "https" {
-        return false;
-    }
-
-    // A distribution may retarget the official gateway through the endpoint
-    // override. Match its HTTPS origin too, without widening trust to sibling
-    // hosts or a plaintext variant.
-    url::Url::parse(codingplan_llm_base_url())
-        .ok()
-        .filter(|configured| configured.scheme() == "https")
-        .is_some_and(|configured| {
-            url.host_str() == configured.host_str()
-                && url.port_or_known_default() == configured.port_or_known_default()
-        })
-}
-
 /// Version manifest (`latest.json`) for self-update.
 pub fn update_manifest_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
@@ -254,34 +196,6 @@ pub fn relay_url() -> &'static str {
 pub fn relay_enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| env_bool(ENABLE_RELAY_ENV).unwrap_or(HOSTED_RELAY_ENABLED))
-}
-
-/// Prefix that new CodingPlan entries are written with.
-///
-/// Recognition of already-written keys is a separate question owned by
-/// `config::is_codingplan_provider_name`, which keeps accepting the historical
-/// prefix whatever this returns -- so changing it does not orphan an existing
-/// `config.toml`.
-pub fn codingplan_provider_prefix() -> &'static str {
-    static PREFIX: OnceLock<String> = OnceLock::new();
-    PREFIX.get_or_init(|| {
-        std::env::var(CODINGPLAN_PROVIDER_PREFIX_ENV)
-            .ok()
-            .and_then(|raw| normalize_codingplan_prefix(&raw))
-            .unwrap_or_else(|| HOSTED_CODINGPLAN_PROVIDER_PREFIX.to_string())
-    })
-}
-
-/// Accept only what survives as a TOML bare key, since the prefix becomes one.
-/// A rejected value falls back to the default rather than producing a config
-/// file that cannot be re-read.
-fn normalize_codingplan_prefix(raw: &str) -> Option<String> {
-    let prefix = raw.trim();
-    let is_bare_key = !prefix.is_empty()
-        && prefix
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-    is_bare_key.then(|| prefix.to_string())
 }
 
 /// Git URLs of the marketplaces registered on first run, in order.
@@ -383,35 +297,13 @@ mod tests {
         // The central promise of this module: it is additive. With no variable
         // set, every address is byte-identical to the const it replaced.
         assert_eq!(platform_server(), HOSTED_PLATFORM_SERVER);
-        assert_eq!(codingplan_api_base(), HOSTED_CODINGPLAN_API_BASE);
-        assert_eq!(codingplan_llm_base_url(), HOSTED_CODINGPLAN_LLM_BASE_URL);
         assert_eq!(update_manifest_url(), HOSTED_UPDATE_MANIFEST_URL);
         assert_eq!(update_download_base(), HOSTED_UPDATE_DOWNLOAD_BASE);
         assert_eq!(desktop_download_url(), HOSTED_DESKTOP_DOWNLOAD_URL);
         assert_eq!(relay_url(), HOSTED_RELAY_URL);
         assert_eq!(plugin_marketplaces(), HOSTED_MARKETPLACES);
         assert_eq!(plugin_auto_install(), HOSTED_AUTO_INSTALL);
-        assert_eq!(
-            codingplan_provider_prefix(),
-            HOSTED_CODINGPLAN_PROVIDER_PREFIX
-        );
         assert_eq!(relay_enabled(), HOSTED_RELAY_ENABLED);
-    }
-
-    #[test]
-    fn codingplan_gateway_is_neutral_by_default() {
-        // No hosted gateway is assumed: every URL is external (plain bearer).
-        for url in [
-            "https://llm-api.example.com/v1",
-            "https://pre-llm-api-cce.example.com/v1/chat/completions",
-            // A gateway-shaped URL (the old hosted subdomain pattern) is likewise
-            // external by default — neutrality must not depend on the host name.
-            "https://api-ai.upstream.example/v1",
-            "https://api.openai.com/v1",
-            "not a url",
-        ] {
-            assert!(!is_codingplan_llm_gateway(url), "expected external: {url}");
-        }
     }
 
     #[test]
@@ -484,31 +376,6 @@ mod tests {
             vec!["a.git".to_string(), "b.git".to_string()]
         );
         assert!(split_list("").is_empty());
-    }
-
-    #[test]
-    fn a_prefix_must_survive_as_a_toml_bare_key() {
-        assert_eq!(
-            normalize_codingplan_prefix("Longyuan").as_deref(),
-            Some("Longyuan")
-        );
-        assert_eq!(
-            normalize_codingplan_prefix("  Longyuan  ").as_deref(),
-            Some("Longyuan")
-        );
-        assert_eq!(
-            normalize_codingplan_prefix("ly_gw-1").as_deref(),
-            Some("ly_gw-1")
-        );
-    }
-
-    #[test]
-    fn a_prefix_that_would_break_the_config_file_is_rejected() {
-        // Each would produce a key TOML cannot round-trip, leaving a config
-        // that no longer parses -- fall back to the default instead.
-        for bad in ["", "   ", "Long Yuan", "long.yuan", "[ly]", "ly=1", "ly\"q"] {
-            assert_eq!(normalize_codingplan_prefix(bad), None, "{bad:?}");
-        }
     }
 
     #[test]

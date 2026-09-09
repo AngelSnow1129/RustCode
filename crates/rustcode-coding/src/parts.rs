@@ -1045,11 +1045,11 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     hooks.push(Arc::new(crate::skill_first::SkillFirstHook::new(
         &cfg.model, has_skills,
     )));
-    // NOTE: the `RateLimitHook` is NOT built here. It gates CodingPlan-specific 429
-    // messaging on `cfg.base_url` being the gateway, so it must be built in
-    // `assemble` (which re-runs on a /model
+    // NOTE: the `RateLimitHook` is NOT built here. It gates quota-specific 429
+    // messaging on the active base_url matching the host window source, so it must
+    // be built in `assemble` (which re-runs on a /model
     // swap), NOT here in `prepare` (which does not). A prepare-frozen base_url would
-    // keep mislabelling an external-model 429 as a CodingPlan quota after a switch.
+    // keep mislabelling an external-model 429 as a plan quota after a switch.
     // CC external hooks: user/project `hooks.json` + plugin-contributed inline hooks
     // (`plugin_cc_hooks`, resolved by the host) on the kernel seams -- the port of core's
     // CC-parity hook engine onto CodingRuntime. ONE instance serves both seams: pushed here
@@ -1181,7 +1181,7 @@ fn session_lease(
 }
 
 impl CodingParts {
-    /// The host-owned CodingPlan quota source, if any. Used at `/goal` start to
+    /// The host-owned quota-window source, if any. Used at `/goal` start to
     /// size the round budget from the live request quota.
     pub(crate) fn rate_limit_source(&self) -> Option<&Arc<dyn RateLimitWindowSource>> {
         self.rate_limit_source.as_ref()
@@ -1694,10 +1694,10 @@ pub fn assemble(
         .hook(Arc::new(crate::plan_mode::PlanModeReminderHook::new(
             parts.plan_mode.clone(),
         )))
-        // Rate-limit hook: on a 429 it decides wait-vs-pause from CodingPlan usage windows.
+        // Rate-limit hook: on a 429 it decides wait-vs-pause from quota usage windows.
         // Built HERE (not in `prepare`) so a /model swap (which re-runs
         // assemble only) re-captures the CURRENT provider's base_url. That base_url is the gate
-        // that keeps a user's external-model 429 from being mislabelled as a CodingPlan quota;
+        // that keeps a user's external-model 429 from being mislabelled as a plan quota;
         // a prepare-frozen base_url would defeat it after a model switch.
         .hook(rate_limit_hook)
         // Credentials are a product-wide security boundary, independent of whether

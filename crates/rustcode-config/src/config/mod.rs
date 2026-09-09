@@ -7,7 +7,6 @@ pub mod provider_preset;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -789,67 +788,23 @@ impl Config {
         diags
     }
 
-    /// The unified account catalog: real `provider_accounts` plus one synthetic
-    /// account projected from each legacy `[providers.*]` (design §5). On an
-    /// exact id collision the new-schema account wins; see
+    /// The unified account catalog: real `provider_accounts` plus one account
+    /// projected from each legacy `[providers.*]`, keyed by the legacy provider
+    /// name (design §5). Every `[providers.*]` entry is an ordinary, editable
+    /// account of its own -- no grouping, and no read-only entries. On an exact
+    /// id collision the new-schema account wins; see
     /// [`Self::model_catalog_collisions`] for the diagnostics. Read-only -- never
     /// rewrites config.
     pub fn logical_accounts(&self) -> HashMap<String, ProviderAccountConfig> {
         let mut out: HashMap<String, ProviderAccountConfig> = HashMap::new();
         for (name, p) in &self.providers {
-            if is_codingplan_provider_name(name) {
-                // All CodingPlan flat providers share one gateway + OAuth signer;
-                // fold them into a single account per wire format. Fields are
-                // uniform across the group, so the first one seen defines them.
-                let id = codingplan_group_account_id(&p.provider_type);
-                out.entry(id.to_string())
-                    .or_insert_with(|| project_legacy_account(p));
-            } else {
-                out.insert(name.clone(), project_legacy_account(p));
-            }
+            out.insert(name.clone(), project_legacy_account(p));
         }
         // New-schema accounts take precedence on an exact id collision.
         for (id, a) in &self.provider_accounts {
             out.insert(id.clone(), a.clone());
         }
         out
-    }
-
-    /// Whether an account is owned by the CodingPlan login flow and therefore
-    /// read-only in manual provider management.
-    pub fn account_is_codingplan_managed(&self, account_id: &str) -> bool {
-        if is_codingplan_provider_name(account_id) {
-            return true;
-        }
-        let Some(account) = self.provider_accounts.get(account_id) else {
-            return self.providers.get(account_id).is_some_and(|provider| {
-                provider
-                    .base_url
-                    .as_deref()
-                    .is_some_and(crate::endpoints::is_codingplan_llm_gateway)
-            });
-        };
-        let preset = provider_preset::preset_or_compatible(&account.provider);
-        account
-            .base_url
-            .as_deref()
-            .or(preset.default_base_url)
-            .is_some_and(crate::endpoints::is_codingplan_llm_gateway)
-    }
-
-    /// Managed status for a concrete model selection, following its owning
-    /// account rather than assuming model ids use the `RustCode-*` convention.
-    pub fn selection_is_codingplan_managed(&self, selection_id: &str) -> bool {
-        if let Some(model) = self.models.get(selection_id) {
-            return self.account_is_codingplan_managed(&model.account);
-        }
-        is_codingplan_provider_name(selection_id)
-            || self.providers.get(selection_id).is_some_and(|provider| {
-                provider
-                    .base_url
-                    .as_deref()
-                    .is_some_and(crate::endpoints::is_codingplan_llm_gateway)
-            })
     }
 
     /// The unified model catalog: real `models` plus one synthetic model
@@ -859,29 +814,13 @@ impl Config {
     pub fn logical_models(&self) -> HashMap<String, ModelProfileConfig> {
         let mut out: HashMap<String, ModelProfileConfig> = HashMap::new();
         for (name, p) in &self.providers {
-            // Model id stays the legacy provider name (so `default_provider`
-            // resolves); only the parent account folds for CodingPlan providers.
-            let account = if is_codingplan_provider_name(name) {
-                codingplan_group_account_id(&p.provider_type).to_string()
-            } else {
-                name.clone()
-            };
-            let mut model = project_legacy_model(&account, p);
-            model.reasoning_effort_levels = effective_reasoning_effort_levels(
-                self.selection_is_codingplan_managed(name),
-                &model.model,
-                model.reasoning_effort_levels.as_deref(),
-            );
-            out.insert(name.clone(), model);
+            // The projected model keeps the legacy provider name as both its
+            // selection id and its owning account id, so `default_provider`
+            // resolves and any edit lands on the entry the user can see.
+            out.insert(name.clone(), project_legacy_model(name, p));
         }
         for (id, m) in &self.models {
-            let mut model = m.clone();
-            model.reasoning_effort_levels = effective_reasoning_effort_levels(
-                self.account_is_codingplan_managed(&model.account),
-                &model.model,
-                model.reasoning_effort_levels.as_deref(),
-            );
-            out.insert(id.clone(), model);
+            out.insert(id.clone(), m.clone());
         }
         out
     }
@@ -930,8 +869,9 @@ impl Config {
         }
         let account = project_legacy_account(provider);
         let model = project_legacy_model(name, provider);
-        // Note: manual upgrade keeps the model under its own account `name`;
-        // CodingPlan grouping happens only via the read-only projection above.
+        // The projected model keeps the provider name as both its selection id
+        // and its account id, so an upgraded entry stays editable under the id
+        // the user already sees.
         self.provider_accounts.insert(name.to_string(), account);
         self.models.insert(name.to_string(), model);
         self.providers.remove(name);
@@ -1014,10 +954,9 @@ impl Config {
     }
 
     /// A legacy-shaped [`ProviderConfig`] view of any selection id -- a legacy
-    /// `[providers.*]` key OR a new-schema model id (including a folded
-    /// CodingPlan model). Consumers that still key off `config.providers`
-    /// (the daemon live runtime, `/think`/`/effort`) call this so a new-schema
-    /// selection resolves instead of returning `None`.
+    /// `[providers.*]` key OR a new-schema model id. Consumers that still key
+    /// off `config.providers` (the daemon live runtime, `/think`/`/effort`) call
+    /// this so a new-schema selection resolves instead of returning `None`.
     ///
     /// Legacy providers are returned verbatim (raw api_key preserved for the
     /// caller's own env expansion); new-schema selections are reconstructed via
@@ -1033,11 +972,6 @@ impl Config {
         }
         if let Some(p) = self.providers.get(selection_id) {
             let mut provider = p.clone();
-            provider.reasoning_effort_levels = effective_reasoning_effort_levels(
-                self.selection_is_codingplan_managed(selection_id),
-                &provider.model,
-                provider.reasoning_effort_levels.as_deref(),
-            );
             provider.reasoning_effort = clamp_effort_to_levels(
                 provider.reasoning_effort.as_deref(),
                 provider.reasoning_effort_levels.as_deref(),
@@ -1183,84 +1117,6 @@ fn legacy_provider_to_preset_id(provider_type: &str) -> &'static str {
     }
 }
 
-/// The prefix shipped before it became configurable.
-///
-/// Pinned here rather than in [`crate::endpoints`] on purpose: that module is
-/// the one a distribution replaces wholesale to retarget a build, and
-/// recognition of already-written `AtomGit-*` keys must survive that regardless
-/// of what the replacement says.
-const LEGACY_CODINGPLAN_PREFIX: &str = "AtomGit";
-
-/// Whether `name` is `prefix` itself or `prefix-<something>`.
-///
-/// The separator is what makes a key CodingPlan-managed, so `AtomGitx` and
-/// `AtomGit_GLM` are ordinary custom providers.
-fn name_matches_prefix(name: &str, prefix: &str) -> bool {
-    name == prefix
-        || name
-            .strip_prefix(prefix)
-            .is_some_and(|rest| rest.starts_with('-'))
-}
-
-/// The prefix set to recognise, given the one currently configured.
-///
-/// Always includes [`LEGACY_CODINGPLAN_PREFIX`]. A config written before the
-/// prefix changed still holds `AtomGit-*` keys; if those stopped being
-/// recognised they would silently degrade into ordinary custom providers -- no
-/// plan info, and the next `/login` would leave them behind instead of
-/// replacing them. Recognising both means the next login adopts them on its own.
-fn prefixes_for(configured: &str) -> Vec<String> {
-    if configured == LEGACY_CODINGPLAN_PREFIX {
-        vec![configured.to_string()]
-    } else {
-        vec![configured.to_string(), LEGACY_CODINGPLAN_PREFIX.to_string()]
-    }
-}
-
-/// Prefixes recognised as CodingPlan-managed, resolved once per process.
-fn codingplan_prefixes() -> &'static [String] {
-    static PREFIXES: OnceLock<Vec<String>> = OnceLock::new();
-    PREFIXES.get_or_init(|| prefixes_for(crate::endpoints::codingplan_provider_prefix()))
-}
-
-/// The `[providers.*]` keys the CodingPlan login flow writes: the bare prefix
-/// (single model) plus `<prefix>-<sanitized>` (multi-model). They all share one
-/// gateway base_url + OAuth signer, so the projection folds them into one
-/// synthetic account per wire format rather than one account each.
-///
-/// Single source of truth -- `rustcode-codingplan` and `rustcode-tuix` delegate
-/// here instead of re-implementing the prefix rule.
-pub fn is_codingplan_provider_name(name: &str) -> bool {
-    codingplan_prefixes()
-        .iter()
-        .any(|prefix| name_matches_prefix(name, prefix))
-}
-
-/// The synthetic account id a legacy CodingPlan provider folds into. An account
-/// carries exactly one preset (one wire format), so models are grouped by wire
-/// format: openai -> `<prefix>`, claude -> `<prefix>-anthropic`, ollama ->
-/// `<prefix>-ollama`. Matches the ids the `/login` flow writes into the new
-/// schema, so a re-login is a no-op transition. `pub` so `rustcode-codingplan`
-/// can label the login report by account.
-pub fn codingplan_group_account_id(provider_type: &str) -> &'static str {
-    // Cached so this keeps returning `&'static str` and every call site stays
-    // unchanged even though the prefix is now resolved at runtime.
-    static IDS: OnceLock<(String, String, String)> = OnceLock::new();
-    let (openai, anthropic, ollama) = IDS.get_or_init(|| {
-        let prefix = crate::endpoints::codingplan_provider_prefix();
-        (
-            prefix.to_string(),
-            format!("{prefix}-anthropic"),
-            format!("{prefix}-ollama"),
-        )
-    });
-    match legacy_provider_to_preset_id(provider_type) {
-        "anthropic" => anthropic.as_str(),
-        "ollama" => ollama.as_str(),
-        _ => openai.as_str(),
-    }
-}
-
 /// The canonical reasoning-effort levels, in the order UIs cycle through them.
 /// The single source of truth for the level SET, so the TUI cycle, the
 /// `/provider` panel, `/effort`, the daemon, and the webui can never disagree
@@ -1268,42 +1124,9 @@ pub fn codingplan_group_account_id(provider_type: &str) -> &'static str {
 /// separately, not levels.)
 pub const REASONING_EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
-/// Built-in reasoning levels advertised by an official CodingPlan model.
-/// `None` means the model has no product-owned restriction and should use its
-/// persisted declaration. The API-default state is represented separately by
-/// `reasoning_effort = None`, so it does not appear in this level list.
-pub fn codingplan_builtin_effort_levels(model: &str) -> Option<Vec<String>> {
-    model
-        .eq_ignore_ascii_case("deepseek-v4-flash")
-        .then(|| vec!["high".to_string(), "max".to_string()])
-}
-
-/// Resolve a model's effective level declaration. A `declared` list (persisted
-/// from the CodingPlan gateway's `reasoning_effort_levels`, or a custom provider's
-/// own config) is AUTHORITATIVE. The client-side [`codingplan_builtin_effort_levels`]
-/// table is only a FALLBACK for CodingPlan models on older/production servers that
-/// don't advertise the field yet -- once the server sends a list, it wins.
-pub fn effective_reasoning_effort_levels(
-    codingplan_managed: bool,
-    model: &str,
-    declared: Option<&[String]>,
-) -> Option<Vec<String>> {
-    // A NON-EMPTY declared list is authoritative. An empty list is "no opinion"
-    // (matching `build_codingplan_provider`'s empty->None filter), so it falls through
-    // rather than being taken as an authoritative "unrestricted" that would widen a
-    // CodingPlan model past its builtin.
-    if let Some(levels) = declared.filter(|l| !l.is_empty()) {
-        return Some(levels.to_vec());
-    }
-    if codingplan_managed {
-        return codingplan_builtin_effort_levels(model);
-    }
-    None
-}
-
 /// Whether an endpoint exposes a reasoning-effort control, derived purely from CONFIG:
 /// an explicitly configured `reasoning_effort`, OR a non-empty `reasoning_effort_levels`
-/// (server-advertised via `models-v2`, or the CodingPlan builtin already folded into it).
+/// (server-advertised via `models-v2`).
 /// The SINGLE source of truth for every "does this model support effort" gate -- the webui
 /// selector, the TUI `/effort`, and the wire capability -- so none can disagree, and no
 /// hardcoded model name (`deepseek-v4-flash`) is needed anywhere.
@@ -1363,73 +1186,6 @@ pub fn clamp_effort_to_levels(effort: Option<&str>, declared: Option<&[String]>)
     }
 }
 
-#[cfg(test)]
-mod codingplan_prefix_tests {
-    use super::*;
-
-    #[test]
-    fn default_prefix_recognises_exactly_what_it_always_did() {
-        assert!(is_codingplan_provider_name("AtomGit"));
-        assert!(is_codingplan_provider_name("AtomGit-GLM-5.2"));
-        assert!(is_codingplan_provider_name("AtomGit-anthropic"));
-        // A name that merely starts with the letters is not a CodingPlan key --
-        // the separator is what makes it one.
-        assert!(!is_codingplan_provider_name("AtomGitx"));
-        assert!(!is_codingplan_provider_name("AtomGit_GLM"));
-        assert!(!is_codingplan_provider_name("deepseek"));
-        assert!(!is_codingplan_provider_name(""));
-    }
-
-    #[test]
-    fn account_ids_group_by_wire_format() {
-        // The rule under test is the grouping -- one account per wire format,
-        // all under the configured prefix -- not what that prefix happens to
-        // say, which a distribution may replace.
-        let prefix = crate::endpoints::codingplan_provider_prefix();
-        assert_eq!(codingplan_group_account_id("openai"), prefix);
-        assert_eq!(
-            codingplan_group_account_id("claude"),
-            format!("{prefix}-anthropic")
-        );
-        assert_eq!(
-            codingplan_group_account_id("ollama"),
-            format!("{prefix}-ollama")
-        );
-        // Distinct wire formats must never collapse into one account.
-        assert_ne!(
-            codingplan_group_account_id("openai"),
-            codingplan_group_account_id("claude")
-        );
-    }
-
-    // `codingplan_prefixes` caches the configured prefix once per process, so
-    // the override path is covered through the two pure helpers it is built
-    // from -- the same ones the shipped predicate calls, not copies of them.
-
-    #[test]
-    fn an_override_keeps_the_historical_prefix_in_the_set() {
-        assert_eq!(prefixes_for("Longyuan"), vec!["Longyuan", "AtomGit"]);
-        // No duplicate when the configured prefix already is the historical one.
-        assert_eq!(prefixes_for("AtomGit"), vec!["AtomGit"]);
-    }
-
-    #[test]
-    fn a_key_written_under_either_prefix_is_recognised() {
-        for prefix in prefixes_for("Longyuan") {
-            assert!(name_matches_prefix(&prefix, &prefix), "{prefix}");
-            assert!(
-                name_matches_prefix(&format!("{prefix}-GLM-5.2"), &prefix),
-                "{prefix}"
-            );
-        }
-        // A config written before the prefix changed must not degrade into an
-        // ordinary custom provider.
-        assert!(name_matches_prefix("AtomGit-GLM-5.2", "AtomGit"));
-        assert!(!name_matches_prefix("deepseek", "Longyuan"));
-        assert!(!name_matches_prefix("Longyuanx", "Longyuan"));
-    }
-}
-
 /// Project a legacy provider into a synthetic [`ProviderAccountConfig`].
 fn project_legacy_account(p: &ProviderConfig) -> ProviderAccountConfig {
     ProviderAccountConfig {
@@ -1448,8 +1204,7 @@ fn project_legacy_account(p: &ProviderConfig) -> ProviderAccountConfig {
 
 /// Project a legacy provider into a synthetic [`ModelProfileConfig`] belonging to
 /// `account_id`. The model's own id (the catalog key) stays the legacy provider
-/// name at the call site, so `default_provider` keeps resolving; only the parent
-/// account can differ (CodingPlan providers fold into a shared account).
+/// name at the call site, so `default_provider` keeps resolving.
 fn project_legacy_model(account_id: &str, p: &ProviderConfig) -> ModelProfileConfig {
     ModelProfileConfig {
         account: account_id.to_string(),
@@ -2066,7 +1821,7 @@ impl Config {
     }
 
     /// The active provider resolved to a legacy-shaped [`ProviderConfig`], via
-    /// the unified catalog so a new-schema / folded-CodingPlan selection resolves
+    /// the unified catalog so a new-schema / projected legacy selection resolves
     /// (its id no longer lives in `config.providers`). Falls back to the first
     /// catalog model when the selection is empty or dangling, so the TUI still
     /// boots and the user can self-correct via `/provider`.
@@ -2365,41 +2120,99 @@ kind = "claude-code"
         );
     }
 
+    // A persisted `reasoning_effort_levels` list is the ONLY source of a
+    // restriction. There is no client-side per-model builtin to fall back to, so
+    // a model that used to be narrowed by one is now unrestricted until the
+    // endpoint declares a list of its own.
     #[test]
-    fn official_deepseek_flash_exposes_only_high_and_max() {
-        let expected = ["high".to_string(), "max".to_string()];
+    fn declared_effort_levels_are_authoritative_without_builtin_fallback() {
+        let catalog: Config = serde_json::from_value(serde_json::json!({
+            "providers": {
+                "legacy-flash": {
+                    "type": "openai",
+                    "base_url": "https://gateway.test.example/v1",
+                    "model": "deepseek-v4-flash",
+                    "context_window": 1000000,
+                    "reasoning_effort_levels": ["low", "medium"]
+                }
+            },
+            "provider_accounts": {
+                "official": {
+                    "provider": "openai",
+                    "base_url": "https://gateway.test.example/v1"
+                }
+            },
+            "models": {
+                "flash-declared": {
+                    "account": "official",
+                    "model": "deepseek-v4-flash",
+                    "context_window": 1000000,
+                    "reasoning_effort_levels": ["high", "max"]
+                },
+                "flash-undeclared": {
+                    "account": "official",
+                    "model": "deepseek-v4-flash",
+                    "context_window": 1000000
+                }
+            }
+        }))
+        .unwrap();
+
+        // A declared list wins verbatim, in both schemas.
+        let declared = catalog.resolve_model(Some("flash-declared")).unwrap();
         assert_eq!(
-            codingplan_builtin_effort_levels("deepseek-v4-flash").as_deref(),
-            Some(expected.as_slice())
+            declared.reasoning_effort_levels.as_deref(),
+            Some(["high".to_string(), "max".to_string()].as_slice()),
+            "the persisted list must reach the wire unchanged"
         );
-        assert_eq!(codingplan_builtin_effort_levels("GLM-5.2"), None);
+        let legacy = catalog
+            .provider_config_for_selection("legacy-flash")
+            .unwrap();
+        assert_eq!(
+            legacy.reasoning_effort_levels.as_deref(),
+            Some(["low".to_string(), "medium".to_string()].as_slice())
+        );
+
+        // No declared list means NO builtin fallback: the endpoint is
+        // unrestricted, not silently narrowed to a hardcoded subset.
+        let undeclared = catalog.resolve_model(Some("flash-undeclared")).unwrap();
+        assert_eq!(
+            undeclared.reasoning_effort_levels, None,
+            "an undeclared endpoint must not inherit any builtin level list"
+        );
+        assert_eq!(
+            allowed_effort_levels(undeclared.reasoning_effort_levels.as_deref()),
+            REASONING_EFFORT_LEVELS.to_vec()
+        );
     }
 
-    // Once the CodingPlan gateway advertises per-model `reasoning_effort_levels`, that
-    // server list is authoritative: it must override the client-side builtin (which knew
-    // only `deepseek-v4-flash -> [high, max]`). With NO server list the builtin remains
-    // the fallback for older/production servers that don't send the field yet.
     #[test]
-    fn server_declared_effort_levels_win_over_the_client_builtin() {
-        let declared = ["low".to_string(), "medium".to_string(), "xhigh".to_string()];
+    fn empty_declared_levels_mean_unrestricted() {
+        let catalog: Config = serde_json::from_value(serde_json::json!({
+            "provider_accounts": {
+                "custom": { "provider": "openai-compatible", "base_url": "https://example.invalid/v1" }
+            },
+            "models": {
+                "custom/model": {
+                    "account": "custom",
+                    "model": "deepseek-v4-flash",
+                    "context_window": 1000000,
+                    "reasoning_effort_levels": [],
+                    "reasoning_effort": "medium"
+                }
+            }
+        }))
+        .unwrap();
+        let resolved = catalog.resolve_model(Some("custom/model")).unwrap();
+        // An EMPTY list is "no restriction", never "zero levels" and never a
+        // trigger for a builtin fallback: every canonical level stays offered.
         assert_eq!(
-            effective_reasoning_effort_levels(true, "deepseek-v4-flash", Some(&declared)),
-            Some(declared.to_vec()),
-            "a server-advertised effort list must win over the builtin"
+            allowed_effort_levels(resolved.reasoning_effort_levels.as_deref()),
+            REASONING_EFFORT_LEVELS.to_vec(),
+            "an empty declared list must leave the endpoint unrestricted"
         );
-        assert_eq!(
-            effective_reasoning_effort_levels(true, "deepseek-v4-flash", None),
-            Some(vec!["high".to_string(), "max".to_string()]),
-            "with no server list, the builtin stays the CodingPlan fallback"
-        );
-        // An EMPTY declared list is "no authoritative opinion" (same as build's
-        // empty->None filter), NOT an authoritative "unrestricted" that would widen a
-        // CodingPlan model past its builtin -- fall through to the builtin.
-        assert_eq!(
-            effective_reasoning_effort_levels(true, "deepseek-v4-flash", Some(&[])),
-            Some(vec!["high".to_string(), "max".to_string()]),
-            "an empty declared list falls through to the CodingPlan builtin"
-        );
+        // ...so a persisted value outside any builtin subset survives the clamp.
+        assert_eq!(resolved.reasoning_effort.as_deref(), Some("medium"));
     }
 
     #[test]
@@ -2416,9 +2229,9 @@ kind = "claude-code"
 
     #[test]
     fn stale_official_deepseek_effort_falls_back_to_api_default() {
-        // Platform-neutral: llm-api.atomgit.com is no longer treated as a
-        // gateway by default, so the user's reasoning_effort is preserved
-        // as-is and no CodingPlan effort-level override is applied.
+        // Platform-neutral: no endpoint is treated as a managed gateway, so the
+        // user's reasoning_effort is preserved as-is and no client-side
+        // effort-level override is applied.
         let cfg: Config = serde_json::from_value(serde_json::json!({
             "providers": {
                 "my-deepseek": {
@@ -4165,7 +3978,7 @@ context_window = 131072
 
     #[test]
     fn active_provider_resolves_new_schema_when_providers_empty() {
-        // A CodingPlan-style config: everything in the new schema, no legacy
+        // A new-schema-only config: everything in the new schema, no legacy
         // `[providers.*]`. active_provider must still resolve (regression: it
         // used to read only config.providers -> Err -> footer "未配置").
         let cfg: Config = serde_json::from_value(serde_json::json!({
@@ -4218,57 +4031,92 @@ context_window = 131072
         assert!(!cfg.update_selection_reasoning("nope", |r| *r.thinking_enabled = Some(false)));
     }
 
+    // Every `[providers.*]` entry projects to exactly one account of the same
+    // name -- including the flat prefixed keys a login flow may have written.
+    // There is no folding into a shared group account any more.
     #[test]
-    fn codingplan_flat_providers_fold_into_grouped_accounts() {
+    fn legacy_providers_project_one_account_per_provider() {
         let cfg: Config = serde_json::from_value(serde_json::json!({
             "providers": {
-                "RustCode-GLM-5.2": { "type": "openai", "base_url": "https://gateway.test.example/v1", "model": "GLM-5.2", "context_window": 64000 },
-                "RustCode-Qwen": { "type": "openai", "base_url": "https://gateway.test.example/v1", "model": "Qwen", "context_window": 64000 },
-                "RustCode-anthropic-claude": { "type": "claude", "base_url": "https://gateway.test.example/v1", "model": "claude-3.5", "context_window": 200000 },
+                "RustCode": { "type": "openai", "base_url": "https://gateway.test.example/v1", "model": "GLM-5.2", "context_window": 64000 },
+                "RustCode-anthropic": { "type": "claude", "base_url": "https://gateway.test.example/v1", "model": "claude-3.5", "context_window": 200000 },
+                "RustCode-ollama": { "type": "ollama", "base_url": "https://gateway.test.example/v1", "model": "qwen", "context_window": 64000 },
+                "AtomGit-GLM-5.2": { "type": "openai", "base_url": "https://gateway.test.example/v1", "model": "GLM-5.2", "context_window": 64000 },
                 "my-openai": { "type": "openai", "base_url": "https://api.openai.com/v1", "model": "gpt-4", "context_window": 128000 }
             }
         }))
         .unwrap();
-        // Keys stay written under the historical prefix on purpose: this also
-        // exercises the path a config predating a prefix change takes. The
-        // account ids they fold into follow the *configured* prefix, so derive
-        // them rather than spelling a vendor name.
-        let openai_account = codingplan_group_account_id("openai");
-        let claude_account = codingplan_group_account_id("claude");
 
         let accounts = cfg.logical_accounts();
-        // Two openai CodingPlan models collapse into ONE account; claude gets its
-        // own; the user's manual provider is untouched.
-        assert!(accounts.contains_key(openai_account));
-        assert!(accounts.contains_key(claude_account));
-        assert!(accounts.contains_key("my-openai"));
-        assert!(!accounts.contains_key("RustCode-GLM-5.2"), "folded away");
-        assert!(!accounts.contains_key("RustCode-Qwen"), "folded away");
+        let names = [
+            "RustCode",
+            "RustCode-anthropic",
+            "RustCode-ollama",
+            "AtomGit-GLM-5.2",
+            "my-openai",
+        ];
+        for name in names {
+            assert!(
+                accounts.contains_key(name),
+                "{name} must stay its own addressable account"
+            );
+        }
+        assert_eq!(accounts.len(), names.len(), "{:?}", accounts.keys());
+        // Distinct wire formats never collapse into one account.
+        assert_eq!(accounts["RustCode-anthropic"].provider, "anthropic");
+        assert_eq!(accounts["RustCode-ollama"].provider, "ollama");
+        assert_eq!(accounts["RustCode"].provider, "openai");
 
         let models = cfg.logical_models();
-        // Model ids stay = legacy provider keys (default_provider stays resolvable),
-        // only the parent account folds.
-        assert_eq!(models["RustCode-GLM-5.2"].account, openai_account);
-        assert_eq!(models["RustCode-Qwen"].account, openai_account);
-        assert_eq!(models["RustCode-anthropic-claude"].account, claude_account);
-        assert_eq!(models["my-openai"].account, "my-openai");
+        // Each legacy key stays its own selection, owned by the account of the
+        // same name, so `default_provider` keeps resolving.
+        for name in names {
+            assert_eq!(models[name].account, name, "{name}");
+        }
 
-        // Resolving by the stable legacy id still works and keeps the gateway
-        // base_url (so the OAuth request signer still fires).
-        let r = cfg.resolve_model(Some("RustCode-GLM-5.2")).unwrap();
-        assert_eq!(r.account_id, openai_account);
-        assert_eq!(r.model, "GLM-5.2");
-        assert_eq!(r.provider_type, "openai");
+        let r = cfg.resolve_model(Some("RustCode-anthropic")).unwrap();
+        assert_eq!(r.account_id, "RustCode-anthropic");
+        assert_eq!(r.model, "claude-3.5");
+        assert_eq!(r.provider_type, "anthropic");
         assert!(r
             .base_url
             .as_deref()
             .unwrap()
             .contains("gateway.test.example"));
-        let c = cfg
-            .resolve_model(Some("RustCode-anthropic-claude"))
-            .unwrap();
-        assert_eq!(c.account_id, claude_account);
-        assert_eq!(c.provider_type, "anthropic");
+    }
+
+    // A legacy provider name is an ordinary, editable entry: no id is
+    // read-protected, so reasoning fields can be written and the entry can be
+    // upgraded in place into the new schema.
+    #[test]
+    fn legacy_provider_names_are_editable() {
+        let mut cfg: Config = serde_json::from_value(serde_json::json!({
+            "providers": {
+                "RustCode": { "type": "openai", "base_url": "https://gateway.test.example/v1", "model": "GLM-5.2", "context_window": 64000 },
+                "AtomGit-GLM-5.2": { "type": "openai", "base_url": "https://gateway.test.example/v1", "model": "GLM-5.2", "context_window": 64000 }
+            }
+        }))
+        .unwrap();
+
+        assert!(
+            cfg.update_selection_reasoning("RustCode", |r| {
+                *r.reasoning_effort = Some("high".into());
+                *r.thinking_enabled = Some(true);
+            }),
+            "a legacy provider name must be writable"
+        );
+        assert_eq!(
+            cfg.providers["RustCode"].reasoning_effort.as_deref(),
+            Some("high")
+        );
+        assert_eq!(cfg.providers["RustCode"].thinking_enabled, Some(true));
+
+        // ...and it can be upgraded in place, keeping its own name.
+        cfg.upgrade_legacy_provider("AtomGit-GLM-5.2")
+            .expect("a legacy provider name must be upgradable");
+        assert!(!cfg.providers.contains_key("AtomGit-GLM-5.2"));
+        assert_eq!(cfg.models["AtomGit-GLM-5.2"].account, "AtomGit-GLM-5.2");
+        assert_eq!(cfg.provider_accounts["AtomGit-GLM-5.2"].provider, "openai");
     }
 
     #[test]

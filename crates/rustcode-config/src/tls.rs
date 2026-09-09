@@ -45,7 +45,7 @@ pub fn managed_tls12_latched() -> bool {
 /// Whether a client for `url` should start capped at TLS 1.2.
 ///
 /// The explicit env override is intentionally global. Automatic state applies
-/// only to HTTPS endpoints owned by the managed CodingPlan service.
+/// only to HTTPS endpoints owned by the managed service.
 pub fn should_cap_url(url: &str) -> bool {
     env_forces_tls12() || (managed_tls12_latched() && is_managed_https_url(url))
 }

@@ -622,14 +622,14 @@ fn default_stream_timeout() -> Duration {
         .map(Duration::from_secs)
         .unwrap_or_else(|| Duration::from_secs(300))
 }
-/// Share of the CodingPlan 5h rolling `call_limit` a single `/goal` may consume
+/// Share of the provider's 5h rolling `call_limit` a single `/goal` may consume
 /// (percent). A goal that eats more than this starves the user's interactive work
 /// and other controllers within the same rolling window.
 const GOAL_ROUND_SHARE_PERCENT: i64 = 30;
 /// Floor so a micro plan still yields a usable goal budget.
 const GOAL_ROUND_FLOOR: u32 = 50;
-/// Fallback when there is no CodingPlan `call_limit` to derive from
-/// (non-CodingPlan provider, offline, pre-login) and no explicit env override.
+/// Fallback when there is no quota-window `call_limit` to derive from
+/// (no window source, offline, pre-login) and no explicit env override.
 const GOAL_ROUND_FALLBACK: u32 = 300;
 
 /// Explicit `RUSTCODE_GOAL_MAX_ROUNDS` override, if set and parseable.
@@ -640,7 +640,7 @@ pub fn goal_max_rounds_env() -> Option<u32> {
 }
 
 /// Resolve the `/goal` round cap. Precedence: explicit env override -> a share of
-/// the CodingPlan binding-window `call_limit` (Pro 1000 -> 300, Lite 800 -> 240) ->
+/// the binding quota-window `call_limit` (1000 -> 300, 800 -> 240) ->
 /// a flat fallback. Pure so the host can call it once `call_limit` is known
 /// without threading config plumbing.
 pub fn derive_goal_max_rounds(env_override: Option<u32>, call_limit: Option<i64>) -> u32 {
@@ -658,7 +658,7 @@ pub fn derive_goal_max_rounds(env_override: Option<u32>, call_limit: Option<i64>
 }
 
 fn default_goal_max_rounds() -> u32 {
-    // Construction happens before CodingPlan `call_limit` is known; the host
+    // Construction happens before the quota-window `call_limit` is known; the host
     // re-derives with the real limit after login via `derive_goal_max_rounds`.
     derive_goal_max_rounds(goal_max_rounds_env(), None)
 }
@@ -854,7 +854,7 @@ mod tests {
     fn ordinary_turns_are_unbounded_by_default() {
         let c = CodingAgentConfig::new("k", "https://x/v1", "m", "/tmp");
         assert_eq!(c.max_rounds, 0);
-        // No CodingPlan info at construction -> the non-CodingPlan fallback.
+        // No quota-window info at construction -> the flat fallback.
         assert_eq!(c.goal_max_rounds, 300);
         // The wall-clock cap is OFF by default (0 = disabled); the goal is bounded
         // by the round cap + evaluator instead. Re-enable via env if ever needed.
@@ -912,7 +912,7 @@ mod tests {
 
     #[test]
     fn derive_goal_rounds_falls_back_without_plan() {
-        // Non-CodingPlan / offline / unknown call_limit -> flat fallback, never a
+        // No window source / offline / unknown call_limit -> flat fallback, never a
         // hardcoded 200 tied to one plan tier.
         assert_eq!(derive_goal_max_rounds(None, None), 300);
         assert_eq!(derive_goal_max_rounds(None, Some(0)), 300);

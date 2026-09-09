@@ -313,7 +313,7 @@ impl ResolvedModelConfig {
     /// Reconstruct a legacy-shaped [`ProviderConfig`] from this resolution.
     /// Lets consumers that still key off `config.providers` (the daemon live
     /// runtime, the TUI `/think`/`/effort` readers) accept a new-schema or
-    /// folded-CodingPlan selection without a full schema migration. `ephemeral`
+    /// projected legacy selection without a full schema migration. `ephemeral`
     /// is always `false` -- a resolved selection is a persisted/projected model,
     /// never a runtime-only provider handle.
     pub fn to_provider_config(&self) -> ProviderConfig {

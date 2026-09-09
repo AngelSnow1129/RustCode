@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use rustcode_capabilities::provider::{
     AnthropicConfig, AnthropicProvider, OllamaConfig, OllamaProvider, OpenAiCompatConfig,
-    OpenAiCompatProvider, ReasoningPolicy, RequestSigner, RetryPolicy,
+    OpenAiCompatProvider, ReasoningPolicy, RetryPolicy,
 };
 use rustcode_kernel::provider::LlmProvider;
 
@@ -31,16 +31,6 @@ impl std::fmt::Display for ProviderBuildError {
 
 impl std::error::Error for ProviderBuildError {}
 
-/// Host seam for endpoint-specific request authentication. Returning `None` means the endpoint
-/// uses the configured static API key. The implementation owns gateway identification as well as
-/// signer construction, keeping auth and stored-credential access out of the coding layer.
-pub trait ProviderAuthenticator: Send + Sync {
-    fn request_signer(
-        &self,
-        base_url: &str,
-    ) -> Result<Option<Arc<dyn RequestSigner>>, ProviderBuildError>;
-}
-
 pub trait CodingProviderFactory: Send + Sync {
     fn build(
         &self,
@@ -52,20 +42,13 @@ pub trait CodingProviderFactory: Send + Sync {
 #[derive(Clone)]
 pub struct DefaultCodingProviderFactory {
     default_user_agent: String,
-    authenticator: Option<Arc<dyn ProviderAuthenticator>>,
 }
 
 impl DefaultCodingProviderFactory {
     pub fn new(default_user_agent: impl Into<String>) -> Self {
         Self {
             default_user_agent: default_user_agent.into(),
-            authenticator: None,
         }
-    }
-
-    pub fn with_authenticator(mut self, authenticator: Arc<dyn ProviderAuthenticator>) -> Self {
-        self.authenticator = Some(authenticator);
-        self
     }
 }
 
@@ -167,7 +150,7 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
                 pc.supports_vision = cfg.supports_vision;
                 pc.max_tokens = Some(default_max_tokens(cfg.context_window));
                 // An explicit per-model default is also an explicit capability
-                // declaration. CodingPlan's DeepSeek V4 Flash predates server-side
+                // declaration. Some vendor models predate server-side
                 // capability metadata, so keep that one exact built-in fallback.
                 pc.supports_reasoning_effort = supports_reasoning_effort(cfg);
                 pc.reasoning_policy =
@@ -180,9 +163,6 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
                 pc.extra_headers = cfg.extra_headers.clone();
                 pc.proxy = cfg.proxy.clone();
                 pc.retry = retry_policy_for(cfg.retry_max_attempts)?;
-                if let Some(authenticator) = &self.authenticator {
-                    pc.request_signer = authenticator.request_signer(&cfg.base_url)?;
-                }
                 Arc::new(
                     OpenAiCompatProvider::new(pc)
                         .map_err(|e| ProviderBuildError::Adapter(e.message))?,

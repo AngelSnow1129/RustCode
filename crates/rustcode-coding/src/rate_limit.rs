@@ -1,12 +1,12 @@
 // crates/rustcode-coding/src/rate_limit.rs
 //
-// CodingPlan-aware rate-limit hook.
+// Quota-window rate-limit hook.
 //
-// When the kernel fires `on_rate_limit` on a 429, this hook fetches the
-// current CodingPlan usage windows via the blocking REST client and delegates
-// to the pure policy function `decide_from_windows`. Non-CodingPlan users and
-// any fetch failure return `None` so the kernel falls back to its built-in
-// hint-based default -- no behavior change for non-CodingPlan providers.
+// When the kernel fires `on_rate_limit` on a 429, this hook asks the injected
+// host source for the current usage windows and delegates to the pure policy
+// function `decide_from_windows`. Endpoints the source does not apply to, plus
+// any fetch failure, return `None` so the kernel falls back to its built-in
+// hint-based default -- no behavior change for unmanaged providers.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -16,7 +16,7 @@ use rustcode_kernel::hook::{
     LifecycleHooks, RateLimitDecision, RateLimitHint, RATE_LIMIT_AUTO_WAIT_SECS,
 };
 
-/// Driver-neutral projection of the CodingPlan window fields used by the runtime policy.
+/// Driver-neutral projection of the quota-window fields used by the runtime policy.
 /// The HTTP/auth owner maps its wire response into this type; coding never reaches back into
 /// the legacy core client.
 #[derive(Debug, Clone, PartialEq)]
@@ -34,7 +34,7 @@ pub struct RateLimitWindow {
 /// The most-constraining rolling-window request budget, used to size a single
 /// `/goal`'s round cap. Among the short rolling windows (<= 5h) with a known
 /// positive `call_limit`, pick the smallest -- that is the budget a runaway goal
-/// would exhaust first. `None` when no window carries a usable limit (non-CodingPlan
+/// would exhaust first. `None` when no window carries a usable limit (no quota data
 /// / offline), so the caller falls back to the flat default.
 pub fn binding_window_call_limit(windows: &[RateLimitWindow]) -> Option<i64> {
     windows
@@ -49,7 +49,7 @@ pub fn binding_window_call_limit(windows: &[RateLimitWindow]) -> Option<i64> {
 /// Host-owned source for provider-specific quota windows.
 ///
 /// `applies_to` is deliberately part of the source: only the host knows which endpoints carry
-/// CodingPlan semantics. An external endpoint's 429 must remain a generic provider rate limit.
+/// quota-window semantics. An external endpoint's 429 must remain a generic provider rate limit.
 #[async_trait]
 pub trait RateLimitWindowSource: Send + Sync + std::fmt::Debug {
     fn applies_to(&self, base_url: &str) -> bool;
@@ -116,21 +116,22 @@ pub fn decide_from_windows(windows: &[RateLimitWindow], hint: &RateLimitHint) ->
     }
 }
 
-/// Host hook: on a 429, fetch the current CodingPlan usage windows and delegate
-/// to `decide_from_windows`. Non-CodingPlan users / fetch failures return `None`
-/// so the kernel falls back to its hint-based default (no behavior change).
+/// Host hook: on a 429, fetch the current quota usage windows and delegate
+/// to `decide_from_windows`. Endpoints the source does not apply to, plus fetch
+/// failures, return `None` so the kernel falls back to its hint-based default
+/// (no behavior change).
 ///
 /// Holds a small last-good cache so consecutive WaitAndRetry re-entries don't each
 /// re-hit the gateway (which is already shedding load -- that's why we got a 429),
 /// and so a transient `status_v2` failure degrades to a slightly-aged reset time
 /// rather than losing the reset info entirely.
 pub struct RateLimitHook {
-    /// The active provider's base URL. The CodingPlan-specific verdict (window
-    /// fetch + reset time) is produced ONLY when THIS 429 came from the CodingPlan
-    /// gateway; a 429 from a user's own external model/endpoint returns `None` so
+    /// The active provider's base URL. The quota-specific verdict (window
+    /// fetch + reset time) is produced ONLY when THIS 429 came from an endpoint the
+    /// source applies to; a 429 from any other endpoint returns `None` so
     /// the kernel falls back to a GENERIC rate-limit message instead of dressing it
-    /// up as a CodingPlan quota exhaustion. Mirrors codex/opencode: plan-quota
-    /// messaging is gated to the platform's own endpoint. Empty ⇒ not the gateway.
+    /// up as a quota exhaustion. Mirrors codex/opencode: plan-quota
+    /// messaging is gated to the platform's own endpoint. Empty ⇒ not managed.
     base_url: String,
     source: Option<Arc<dyn RateLimitWindowSource>>,
     cache: Mutex<Option<(Instant, Vec<RateLimitWindow>)>>,
@@ -181,13 +182,13 @@ impl RateLimitHook {
 
 impl Default for RateLimitHook {
     fn default() -> Self {
-        // Empty base_url ⇒ not the gateway ⇒ every 429 defers to the kernel's
-        // generic default. A safe, no-CodingPlan-claim default.
+        // Empty base_url ⇒ not a managed endpoint ⇒ every 429 defers to the kernel's
+        // generic default. A safe, no-quota-claim default.
         Self::new(String::new())
     }
 }
 
-/// Map a window set to a decision; empty windows (non-CodingPlan) -> None so the
+/// Map a window set to a decision; empty windows (no quota data) -> None so the
 /// kernel uses its own hint default.
 fn decide_or_none(windows: &[RateLimitWindow], hint: &RateLimitHint) -> Option<RateLimitDecision> {
     (!windows.is_empty()).then(|| decide_from_windows(windows, hint))
@@ -210,9 +211,9 @@ impl LifecycleHooks for RateLimitHook {
                 secs_until_reset: hint.retry_after_secs,
             });
         }
-        // Only a 429 FROM the CodingPlan gateway carries a CodingPlan quota meaning.
-        // A 429 from a user's own external model/endpoint must NOT be dressed up as a
-        // CodingPlan window exhaustion -- bail before any status_v2 fetch so the kernel
+        // Only a 429 from an endpoint the source applies to carries a quota meaning.
+        // A 429 from any other endpoint must NOT be dressed up as a
+        // quota-window exhaustion -- bail before any window fetch so the kernel
         // uses its generic hint-based default (mirrors codex/opencode: plan-quota
         // messaging is gated to the platform's own endpoint, everything else generic).
         let source = self.source.as_ref()?;
@@ -227,7 +228,7 @@ impl LifecycleHooks for RateLimitHook {
         // source implementation's responsibility and never leaks into the coding layer.
         if let Ok(w) = source.fetch_windows().await {
             if w.is_empty() {
-                // No CodingPlan / no windows: defer to the kernel default.
+                // No quota data / no windows: defer to the kernel default.
                 return None;
             }
             self.store(w.clone());
@@ -266,13 +267,13 @@ mod tests {
         }
     }
 
-    // ---- gateway gate: only the CodingPlan gateway's 429 is treated as a plan quota ----
+    // ---- source gate: only a managed endpoint's 429 is treated as a plan quota ----
 
     #[tokio::test]
     async fn external_provider_429_returns_none_without_fetch() {
         // A user's own external endpoint: the hook must bail BEFORE any status_v2
         // fetch (no network in this test) and return None so the kernel shows a
-        // generic rate-limit message -- not a bogus "CodingPlan quota exhausted".
+        // generic rate-limit message -- not a bogus "quota exhausted".
         let hook = RateLimitHook::new("https://api.openai.com/v1".to_string());
         let hint = RateLimitHint {
             http_status: Some(429),
@@ -377,7 +378,7 @@ mod tests {
 
     #[test]
     fn binding_call_limit_is_none_without_a_usable_window() {
-        // No windows (non-CodingPlan / offline), a zero/negative limit, and a window
+        // No windows (no quota data / offline), a zero/negative limit, and a window
         // longer than the 5h rolling band all yield None -> caller uses the flat default.
         assert_eq!(binding_window_call_limit(&[]), None);
         assert_eq!(binding_window_call_limit(&[win_limit(18000, 0)]), None);

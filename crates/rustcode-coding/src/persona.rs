@@ -111,7 +111,7 @@ or project commit-message rule takes precedence."
 
 /// Best-effort content-safety boundary injected into EVERY coding system prompt
 /// (always on, not model-gated). External providers may lack the server-side
-/// moderation the official CodingPlan gateway applies, so this instructs any
+/// moderation the managed gateway applies, so this instructs any
 /// model to decline GENERATING/promoting politically restricted (涉政),
 /// pornographic (涉黄), or violent (涉暴) content -- while explicitly still
 /// permitting benign classification / detection / redaction / compliance review,

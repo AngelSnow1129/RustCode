@@ -7894,7 +7894,7 @@ impl Error for RuntimeUnavailable {}
 /// Otherwise size the budget from the account's live request quota -- a share of the
 /// tightest rolling window's `call_limit` -- fetched best-effort through the host
 /// source with a short timeout. Any miss (no source, fetch error/timeout, no usable
-/// window, non-CodingPlan user) falls back to `config_default` so `/goal` never blocks.
+/// window, unmanaged endpoint) falls back to `config_default` so `/goal` never blocks.
 async fn resolve_goal_round_cap(
     rate_limit_source: Option<&Arc<dyn crate::rate_limit::RateLimitWindowSource>>,
     config_default: u32,

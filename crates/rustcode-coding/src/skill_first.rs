@@ -15,7 +15,7 @@
 //!
 //! Unlike `StatusReminderHook` we DO fire on round 1 -- the reminder must preempt the model's
 //! very first action. The resulting user-after-user tail is safe because every firm-execution
-//! model runs on an OpenAI-compatible transport (DeepSeek and Qwen both go through CodingPlan's
+//! model runs on an OpenAI-compatible transport (DeepSeek and Qwen both go through an
 //! OpenAI-compatible path), which accepts consecutive user messages -- unlike the
 //! Anthropic-strict rejection that makes `StatusReminderHook` skip round 1. SAFETY INVARIANT:
 //! if a model on an Anthropic-strict transport is ever added to `model_needs_firm_execution`,
