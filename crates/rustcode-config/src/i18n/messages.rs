@@ -3,27 +3,15 @@ pub enum Msg<'a> {
     // WelcomeWizard
     WelcomeBannerLine1,
     WelcomeBannerLine2,
-    WelcomeOptionCodingPlan,
-    WelcomeOptionCodingPlanHint,
     WelcomeOptionConfigureManually,
     WelcomeOptionConfigureManuallyHint,
     WelcomeOptionSkip,
     WelcomeOptionSkipHint,
 
     // ── /login (full setup flow) ──
-    CodingPlanSetupFailed {
-        error: &'a str,
-    },
-    /// Emitted inline by `/login` and `rustcode login` when the stored
-    /// OAuth token comes back 401 from the CodingPlan API mid-flow.
-    /// We re-run the OAuth dance, save the fresh token, and retry the
-    /// whole setup once -- this line tells the user that's what's about
-    /// to happen so the second "Open this URL in any browser..." block
-    /// isn't a surprise.
-    CpReauthAfter401,
-    /// Neutral-build `/login`: the managed gateway client is not compiled in
-    /// (the `codingplan` feature is off), so direct the operator to configure
-    /// their own third-party provider instead of running a managed login.
+    /// Neutral-build `/login`: the managed gateway client is not compiled in,
+    /// so direct the operator to configure their own third-party provider
+    /// instead of running a managed login.
     LoginManagedUnavailable,
     /// Emitted by the OpenAI provider when a gateway chat
     /// request returns 401 and our one automatic refresh_token attempt
@@ -316,141 +304,6 @@ pub enum Msg<'a> {
     /// endpoint is reachable from a browser but the client was reset -- likely a
     /// proxy/firewall path difference. Points at the actionable knobs.
     NetworkConnectHint,
-    // SetupReport renderer (rustcode-codingplan::setup)
-    CpSetupHeader,
-    CpLoggedIn {
-        who: &'a str,
-        username: &'a str,
-        email: &'a str,
-    },
-    CpStepSkipped {
-        reason: &'a str,
-    },
-    CpLoginFailed {
-        error: &'a str,
-    },
-    CpClaimed {
-        message: &'a str,
-        plan_type: &'a str,
-    },
-    CpClaimSuccessFallback,
-    CpAlreadyClaimed {
-        reason: &'a str,
-    },
-    CpClaimFailed {
-        error: &'a str,
-    },
-    /// Same as `CpClaimFailed` but with no trailing detail body.
-    /// Used in the rare edge case where every tier returned success=
-    /// false with an empty server message AND no transport error
-    /// text -- there's nothing to put after `-- `, so the line stops
-    /// at the prefix.
-    CpClaimFailedBare,
-    /// Per-tier cascade row -- winning tier, fresh claim. `plan` is the
-    /// full plan label already including the "CodingPlan " prefix (the
-    /// server's `plan_name`, e.g. "CodingPlan Pro", or "CodingPlan
-    /// {tier}" fallback). Example (zh-CN): `  [+] CodingPlan Pro 生效`
-    CpClaimTierSucceeded {
-        plan: &'a str,
-    },
-    /// Per-tier cascade row -- winning tier, server reported the user
-    /// already holds this tier or higher (`duplicate=true`). `plan` as
-    /// above.
-    CpClaimTierAlreadyHeld {
-        plan: &'a str,
-    },
-    /// Per-tier cascade row -- tier was refused (2xx with success=
-    /// false / 5xx / transport). `reason` is the server's human-
-    /// readable message (e.g. `额度已满`, `暂无开放`) or a short
-    /// rendering of the transport error.
-    CpClaimTierFailed {
-        tier: &'a str,
-        reason: &'a str,
-    },
-    CpAddedProviders {
-        accounts: usize,
-        models: usize,
-    },
-    /// Locked-model row. `name` is expected to be pre-decorated with
-    /// U+0336 combining strikethrough by the caller (see
-    /// `rustcode_codingplan::setup::strikethrough`), so the template itself
-    /// stays a plain `format!` and survives every renderer's CSI
-    /// scrubber without needing SGR escapes.
-    CpLocked {
-        name: &'a str,
-    },
-    CpProviderRow {
-        provider: &'a str,
-        model: &'a str,
-        default_suffix: &'a str,
-    },
-    CpDefaultSuffix,
-    CpVisionAuto {
-        kind: &'a str,
-    },
-    CpVisionUserSupplied {
-        kind: &'a str,
-    },
-    CpVisionCleared,
-    CpModelsSkipped {
-        reason: &'a str,
-    },
-    CpModelsFailed {
-        error: &'a str,
-    },
-    CpStatusHeader,
-    CpPlanPending {
-        plan: &'a str,
-    },
-    CpPlanActive {
-        plan: &'a str,
-        expires_at: &'a str,
-        remaining_days: i32,
-        total_days: i32,
-    },
-    CpUsageLine {
-        usage: &'a str,
-        reset_at: &'a str,
-        duration: &'a str,
-    },
-    CpWindowQuotaExhausted,
-    CpWindowQuotaHint {
-        hint: &'a str,
-    },
-    CpStatusFetchSkipped {
-        reason: &'a str,
-    },
-    CpStatusFetchFailed {
-        error: &'a str,
-    },
-    /// Open-source build attempted to use a CodingPlan provider. The
-    /// signing capability is not present in this build, so the request
-    /// can't reach the LLM gateway. Surface a clear hint
-    /// pointing to the official Releases page.
-    CpOfficialBuildRequired,
-    /// Official build, but no stored auth (or auth has empty
-    /// `user.id` / `access_token`). The signing path needs these
-    /// fields to derive a per-user key; without them the request
-    /// can't be signed. Surface a "please run `/codingplan` to log
-    /// in" hint instead of the misleading "official build required"
-    /// message -- the user IS on an official build.
-    CpAuthRequired,
-    /// Server returned `RUSTCODE_SIG_STALE` -- the request's signed
-    /// timestamp is outside the ±5min window the gateway accepts.
-    /// Typically caused by an unsynced local clock.
-    CpSignStaleClockSkew,
-    /// Server returned `RUSTCODE_SIG_REPLAY` even after the client's
-    /// one automatic retry with a fresh nonce. Surface a "please retry
-    /// the command" hint -- usually self-heals on the next attempt.
-    CpSignReplayPersisted,
-    /// Server returned `RUSTCODE_SIG_INVALID` AND the alg_version is
-    /// no longer in the server's `accepted_versions` set -- the client
-    /// binary is too old. Force-upgrade hint.
-    CpSignVersionTooOld,
-    /// Server returned `426 Upgrade Required` -- emergency rotation
-    /// playbook in progress; this build cannot continue without
-    /// upgrading.
-    CpUpgradeRequired,
 
     // i18n self-errors
     ErrUnsupportedLocale {
@@ -460,11 +313,6 @@ pub enum Msg<'a> {
     // ── Status bar (build_status) ──
     StatusNoProvider,
     StatusRuntimeUnavailable,
-    /// Open-source build with a gateway provider configured.
-    /// Sending any chat will fail with `CpOfficialBuildRequired`; this
-    /// hint surfaces the same diagnosis up-front so the user doesn't
-    /// have to type a message to discover the dead-end.
-    StatusOfficialBuildRequired,
     StatusUpgradeHint {
         version: &'a str,
     },
@@ -500,29 +348,6 @@ pub enum Msg<'a> {
     },
     /// `/status` login line -- not signed in.
     StatusLoginNotSignedIn,
-    StatusCpNotSignedIn,
-    StatusCpFetchFailed {
-        error: &'a str,
-    },
-    /// `/status` CodingPlan line when the fetch failed specifically because auth
-    /// expired (`is_auth_expired`) -- a clear re-login prompt instead of the raw error.
-    StatusCpAuthExpired,
-    StatusCpNoActive,
-    StatusCpLine {
-        plan: &'a str,
-        expires_at: &'a str,
-        remaining_days: i32,
-        total_days: i32,
-    },
-    StatusCpUsage {
-        usage: &'a str,
-        reset_at: &'a str,
-        duration: &'a str,
-    },
-    StatusCpWindowExhausted,
-    StatusCpWindowHint {
-        hint: &'a str,
-    },
     StatusInstructionFilesHeader,
     StatusInstructionScopeGlobal,
     StatusInstructionScopeProject,
@@ -649,16 +474,7 @@ pub enum Msg<'a> {
     },
     ProviderPanelAddModelRow,
     ProviderPanelAccountsHint,
-    ProviderPanelManagedAccountHint,
-    /// Neutral-build counterpart to [`Msg::ProviderPanelManagedAccountHint`]:
-    /// the row collides with the reserved managed-account namespace, but this
-    /// build ships no managed service -- never pitch `/login`.
-    ProviderPanelManagedAccountHintNeutral,
     ProviderPanelModelsHint,
-    ProviderPanelManagedModelsHint,
-    /// Neutral-build counterpart to [`Msg::ProviderPanelManagedModelsHint`]
-    /// (same reason; the managed hint says "managed by /login").
-    ProviderPanelManagedModelsHintNeutral,
     ProviderPanelFilteredModelsHint {
         account: &'a str,
     },
@@ -1224,10 +1040,6 @@ pub enum Msg<'a> {
         path: &'a str,
         error: &'a str,
     },
-    /// Writing the managed sync marker failed (non-fatal; feature-gated).
-    CliSyncMarkerWriteFailed {
-        error: &'a str,
-    },
     /// `rustcode upgrade`: manifest fetched line.
     CliUpgradeLatest {
         version: &'a str,
@@ -1729,8 +1541,9 @@ pub enum Msg<'a> {
     },
 
     // ── /usage command ──
-    /// Shown when the user runs /usage but has no stored CodingPlan auth.
-    UsageCodingPlanOnly,
+    /// Shown when the user runs /usage: this build has no remote quota
+    /// source, so point at the local `/cost` statistics instead.
+    UsageUnavailableNeutral,
 
     // ── /think command ──
     ThinkStatus {
@@ -3277,7 +3090,7 @@ pub enum Msg<'a> {
     /// Confirmation after resetting to the API default.
     EffortSetDefault,
 
-    // ── OAuth login chrome (/login + /codingplan share these) ──
+    // ── OAuth login chrome (/login) ──
     /// Header above the QR block when scanning with WeChat is the
     /// expected flow. Includes the leading "  " indent and trailing
     /// "\n\n" paragraph break that the caller used to inline.
@@ -4003,14 +3816,6 @@ pub enum Msg<'a> {
     ClixMissingModel,
     /// `review`: no model resolved (config wording differs).
     ClixMissingModelReview,
-    /// `code`: base URL points at the proprietary signing gateway.
-    ClixSigningGatewayCode {
-        url: &'a str,
-    },
-    /// `review`: base URL points at the proprietary signing gateway.
-    ClixSigningGatewayReview {
-        url: &'a str,
-    },
     /// `code --continue`: no session exists in this project yet.
     ClixNoSessionToContinue,
     /// `code`: config file load failure (path pre-formatted).
@@ -4333,100 +4138,6 @@ pub enum Msg<'a> {
     /// `review --json` help line.
     ClixHelpReviewJson,
 
-    // ── /usage modal ──
-    /// Tab label: current rate-limit window.
-    UsageTabCurrent,
-    /// Tab label: 60-day token/request overview.
-    UsageTabOverview,
-    /// Tab label: per-model breakdown.
-    UsageTabModels,
-    /// Title line on the Current tab ("Rate-limit window").
-    UsageCurrentTitle,
-    /// "Resets in HH:MM:SS". `hms` is the pre-formatted countdown string.
-    UsageResetsIn {
-        hms: &'a str,
-    },
-    /// "{hours}-hour rolling window" hint below the reset countdown.
-    UsageWindowHours {
-        hours: i32,
-    },
-    /// Shown on Current tab when window data is unavailable.
-    UsageWindowUnavailable,
-    /// Label: "Favorite model".
-    UsageStatFavorite,
-    /// Label: "Total tokens".
-    UsageStatTotal,
-    /// Label: "Requests".
-    UsageStatRequests,
-    /// Label: "Active days".
-    UsageStatActiveDays,
-    /// Label: "Most active day".
-    UsageStatMostActive,
-    /// Label: "Longest streak".
-    UsageStatLongestStreak,
-    /// Label: "Current streak".
-    UsageStatCurrentStreak,
-    /// Heat-map legend: "Less" (left side of ramp).
-    UsageHeatLess,
-    /// Heat-map legend: "More" (right side of ramp).
-    UsageHeatMore,
-    /// Title line on the Models tab.
-    UsageModelsTitle,
-    /// Shown when usage data is unavailable (Overview / Models tabs).
-    UsageNoData,
-    /// Footer navigation hint inside the /usage modal.
-    UsageFooterHint,
-    /// Shown when the fetch failed and we have an error string.
-    UsageFetchFailed {
-        error: &'a str,
-    },
-    /// Plan section title on the Current tab.
-    UsagePlanTitle,
-    /// Plan status label when active (status == 1).
-    UsagePlanActive,
-    /// Plan status label when expired (status != 1).
-    UsagePlanExpired,
-    /// "Claimed {claimed} . Expires {expires}" line.
-    UsagePlanClaimedExpires {
-        claimed: &'a str,
-        expires: &'a str,
-    },
-    /// "Remaining {remaining}/{total} days" line.
-    UsagePlanRemaining {
-        remaining: i32,
-        total: i32,
-    },
-    /// Brief confirmation shown after Ctrl+S copy.
-    UsageCopied,
-    /// Per-model table headers (the stats-block "Requests" label reuses
-    /// `UsageStatRequests`).
-    UsageTableModel,
-    UsageTableTokens,
-    UsageTableShare,
-    /// 3-letter month abbreviation above the calendar heatmap. `month`
-    /// is 1..=12.
-    UsageMonthShort {
-        month: u8,
-    },
-    /// Weekday abbreviation beside the heatmap. `weekday` is 0..=6,
-    /// Sunday-first.
-    UsageWeekdayShort {
-        weekday: u8,
-    },
-    /// Bold chart title above the per-day token braille plot.
-    UsageTokensPerDay,
-    /// Streak suffix, e.g. `12 days` / `12 天`.
-    UsageDays {
-        n: usize,
-    },
-    /// Sparkline-fallback per-model meta line:
-    /// `42%  .  17 reqs  .  717.1k`. `tokens` is the pre-humanized total.
-    UsageSparkMeta {
-        pct: u64,
-        reqs: u64,
-        tokens: &'a str,
-    },
-
     // ── desktop notifications (capabilities::notify; mirrors webui notify.*) ──
     /// Notification title for a naturally finished turn.
     NotifyTitleDone,
@@ -4719,8 +4430,6 @@ pub enum Msg<'a> {
     ProviderPanelProtocolLocked {
         protocol: &'a str,
     },
-    /// Provider panel: edit form footer when vendor is locked.
-    ProviderPanelEditFormVendorLockedHint,
     /// Provider panel: edit form footer when protocol is locked.
     ProviderPanelEditFormProtocolLockedHint,
     /// Provider panel: edit form footer (protocol switchable).
@@ -4967,12 +4676,6 @@ pub enum Msg<'a> {
     DaemonEpLoginCancel,
     /// Endpoint description: POST /auth/logout.
     DaemonEpLogout,
-    /// Endpoint description: POST /codingplan/setup (codingplan feature only).
-    DaemonEpCpSetup,
-    /// Endpoint description: GET /codingplan/usage/summary.
-    DaemonEpCpUsageSummary,
-    /// Endpoint description: GET /codingplan/usage/daily.
-    DaemonEpCpUsageDaily,
     /// "Change directory body:" example heading.
     DaemonCdBodyHeading,
     /// Hint after the /cd JSON example: `or {"path": "-"} to go back`.
@@ -5006,10 +4709,6 @@ pub enum Msg<'a> {
     DaemonApiLogoutFailed {
         error: &'a str,
     },
-    /// 401: CodingPlan usage endpoint without a login (codingplan feature).
-    DaemonApiCpNotLoggedIn,
-    /// 502: CodingPlan usage query failed (codingplan feature).
-    DaemonApiCpUsageLoadFailed,
     /// POST /cd: no prior directory to return to.
     DaemonApiCdNoPrevious,
     /// POST /cd: path does not exist. `{path}` is the resolved path.
@@ -5143,10 +4842,6 @@ pub enum Msg<'a> {
     DaemonProvMaxTokensPositive,
     /// Provider settings: provider account not found (bare).
     DaemonProvAccountNotFound,
-    /// Provider settings: the managed CodingPlan account cannot be touched.
-    DaemonProvManagedAccount,
-    /// Provider settings: the managed CodingPlan provider cannot be touched.
-    DaemonProvManagedProvider,
     /// Provider settings: model selection already exists. `{name}` pre-rendered Debug.
     DaemonProvModelExists {
         name: &'a str,
@@ -5163,21 +4858,8 @@ pub enum Msg<'a> {
     DaemonProvProviderNotFound {
         name: &'a str,
     },
-    /// Managed build: CodingPlan providers are managed by /login. `{action}` is
-    /// the pre-localized verb (modified/replaced/edited/deleted).
-    DaemonProvManagedLocked {
-        action: &'a str,
-    },
     /// Neutral build: the reserved managed-provider name/URL cannot be used.
     DaemonProvManagedReserved,
-    /// Action verb in DaemonProvManagedLocked.
-    DaemonProvActionModified,
-    /// Action verb in DaemonProvManagedLocked.
-    DaemonProvActionReplaced,
-    /// Action verb in DaemonProvManagedLocked.
-    DaemonProvActionEdited,
-    /// Action verb in DaemonProvManagedLocked.
-    DaemonProvActionDeleted,
     /// Model discovery: protocol has no listable endpoint; enter model manually.
     DaemonProvDiscoveryNoListing,
     /// Model discovery: request timed out.

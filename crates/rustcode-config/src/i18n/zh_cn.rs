@@ -7,18 +7,12 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "欢迎使用 {brand}，请选择一项开始：".into(),
         Msg::WelcomeBannerLine2 =>
             "（↑↓ 切换，Enter 确认，Esc 跳过）".into(),
-        Msg::WelcomeOptionCodingPlan => "配置 CodingPlan".into(),
-        Msg::WelcomeOptionCodingPlanHint => "免费额度 . 推荐".into(),
         Msg::WelcomeOptionConfigureManually => "手动配置".into(),
         Msg::WelcomeOptionConfigureManuallyHint => "使用 API key".into(),
         Msg::WelcomeOptionSkip => "暂时跳过".into(),
         Msg::WelcomeOptionSkipHint => "稍后再说".into(),
 
         // ── /login（完整配置流程） ──
-        Msg::CodingPlanSetupFailed { error } =>
-            format!("CodingPlan 设置失败：{error}").into(),
-        Msg::CpReauthAfter401 =>
-            "  [!] 登录凭证已失效 -- 正在重新登录...\n".into(),
         Msg::LoginManagedUnavailable =>
             "  [*] 当前构建未包含托管登录。\n  \
              请直接在 ~/.rustcode/config.toml 配置第三方 provider（base_url + api_key），\n  \
@@ -171,91 +165,6 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         .into(),
         Msg::NetworkConnectHint =>
             "网络连接失败。若浏览器能打开，可能是代理/防火墙差异：用 /proxy 配置代理或设置 HTTPS_PROXY，或在浏览器打开上面的登录链接完成扫码。可按 Esc 跳过，稍后 /login 重试。".into(),
-        Msg::CpSetupHeader =>
-            "  {brand} CodingPlan 配置：\n\n".into(),
-        Msg::CpLoggedIn { who, username, email } =>
-            format!("  [+] 已登录：{} ({}，{})\n", who, username, email).into(),
-        Msg::CpStepSkipped { reason } =>
-            format!("  [+] {}\n", reason).into(),
-        Msg::CpLoginFailed { error } =>
-            format!("  [x] 登录失败 -- {}\n", error).into(),
-        Msg::CpClaimed { message, plan_type } =>
-            format!("  [+] CodingPlan 已领取 -- {}（CodingPlan {}）\n", message, plan_type).into(),
-        Msg::CpClaimSuccessFallback => "成功".into(),
-        Msg::CpAlreadyClaimed { reason } =>
-            format!("  [+] CodingPlan 已领取 -- {}\n", reason).into(),
-        Msg::CpClaimFailed { error } =>
-            format!("  [x] CodingPlan 套餐配置失败 -- {}\n", error).into(),
-        Msg::CpClaimFailedBare =>
-            "  [x] CodingPlan 套餐配置失败\n".into(),
-        Msg::CpClaimTierSucceeded { plan } =>
-            format!("  [+] {} 生效\n", plan).into(),
-        Msg::CpClaimTierAlreadyHeld { plan } =>
-            format!("  [+] {} 生效\n", plan).into(),
-        Msg::CpClaimTierFailed { tier, reason } =>
-            format!("  [x] CodingPlan {} 套餐配置失败 -- {}\n", tier, reason).into(),
-        Msg::CpAddedProviders { accounts, models } =>
-            format!("  [+] 已添加 {} 个账号 . {} 个模型：\n", accounts, models).into(),
-        Msg::CpLocked { name } =>
-            // SGR 31 / 39 = 标准红前景 + 默认色重置。用标准色（不
-            // 是亮色）让终端按当前主题映射 ---- Solarized / Dracula /
-            // 浅色模式都会落到各自的「红」上，不会被一个写死的 RGB
-            // 锁住。retained 渲染器走严格 sanitizer 会把 SGR 剥光，
-            // 但 `[x] ... （需要升级成 Pro 以上套餐）` 文本本身仍能传达含义。
-            format!("      \x1b[31m[x] {}  （需要升级成 Pro 以上套餐）\x1b[39m\n", name).into(),
-        Msg::CpProviderRow { provider, model, default_suffix } =>
-            format!("      * {}  .  {}{}\n", provider, model, default_suffix).into(),
-        Msg::CpDefaultSuffix => "  （默认）".into(),
-        Msg::CpVisionAuto { kind } =>
-            format!("  [+] 视觉预处理器 -> {}  （自动检测）\n", kind).into(),
-        Msg::CpVisionUserSupplied { kind } =>
-            format!("  [+] 视觉预处理器 -> {}  （保留用户设置）\n", kind).into(),
-        Msg::CpVisionCleared =>
-            "  [!] 视觉预处理器已清除 -- 当前模型列表中没有可用的 VL/OCR 模型\n".into(),
-        Msg::CpModelsSkipped { reason } =>
-            format!("  [+] 模型步骤已跳过 -- {}\n", reason).into(),
-        Msg::CpModelsFailed { error } =>
-            format!("  [x] 模型步骤失败 -- {}\n", error).into(),
-        Msg::CpStatusHeader =>
-            "  [+] CodingPlan 状态：\n".into(),
-        Msg::CpPlanPending { plan } =>
-            format!("      套餐：{}  .  正在激活\n", plan).into(),
-        Msg::CpPlanActive { plan, expires_at, remaining_days, total_days } =>
-            format!(
-                "      套餐：{}  .  到期时间 {}（剩余 {}d / 共 {}d）\n",
-                plan, expires_at, remaining_days, total_days,
-            ).into(),
-        Msg::CpUsageLine { usage, reset_at, duration } =>
-            format!("      用量：{}  .  重置于 {}（{} 后）\n", usage, reset_at, duration).into(),
-        Msg::CpWindowQuotaExhausted =>
-            "      [!] 当前窗口配额已耗尽\n".into(),
-        Msg::CpWindowQuotaHint { hint } =>
-            format!("      [!] {}\n", hint).into(),
-        Msg::CpStatusFetchSkipped { reason } =>
-            format!("  [!] 状态获取已跳过 -- {}\n", reason).into(),
-        Msg::CpStatusFetchFailed { error } =>
-            format!("  [!] 状态获取失败（非致命） -- {}\n", error).into(),
-        Msg::CpOfficialBuildRequired => Cow::Borrowed(
-            "当前配置的 CodingPlan 网关需要带托管签名支持的构建，当前 {brand} 构建不包含该能力。\
-             请改用第三方提供商（自带 API Key），或使用提供 CodingPlan 支持的发行版本。",
-        ),
-        Msg::CpAuthRequired => Cow::Borrowed(
-            "未登录 {brand} CodingPlan。请运行 /login 完成登录后再发送请求。",
-        ),
-        Msg::CpSignStaleClockSkew => Cow::Borrowed(
-            "请求被服务端拒绝：签名时间戳已过期。请校准本地系统时间（NTP 同步）后重试。",
-        ),
-        Msg::CpSignReplayPersisted => Cow::Borrowed(
-            "请求多次被识别为重放，请重新运行命令。",
-        ),
-        Msg::CpSignVersionTooOld => Cow::Borrowed(
-            "当前 {brand} 版本过旧，已不兼容 CodingPlan。请升级 {brand} 后继续使用。",
-        ),
-        Msg::CpUpgradeRequired => Cow::Borrowed(
-            "需要升级才能继续使用 CodingPlan。请升级到你所用发行版提供的新版 {brand}，\
-             或用 /provider 配置第三方 Provider（自带 API Key）。",
-        ),
-
         Msg::ErrUnsupportedLocale { input } =>
             format!("不支持的语言：{input}").into(),
 
@@ -264,8 +173,6 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "未配置 Provider . 使用 /provider 配置".into(),
         Msg::StatusRuntimeUnavailable =>
             "Runtime 不可用 . 请重启或查看上方错误".into(),
-        Msg::StatusOfficialBuildRequired =>
-            "当前构建不支持 CodingPlan".into(),
         Msg::StatusUpgradeHint { version } =>
             format!("↑ {version} 可用 . 使用 /upgrade 升级").into(),
         Msg::StatusUpgradeHintPm { version } =>
@@ -289,25 +196,6 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("  登录：  {}\n", user).into(),
         Msg::StatusLoginNotSignedIn =>
             "  登录：  未登录（运行 /login）\n".into(),
-        Msg::StatusCpNotSignedIn =>
-            "  CodingPlan：（未登录 -- 运行 /login 进行配置）\n".into(),
-        Msg::StatusCpFetchFailed { error } =>
-            format!("  CodingPlan：（状态获取失败 -- {}）\n", error).into(),
-        Msg::StatusCpAuthExpired =>
-            "  CodingPlan：（登录已过期 -- 运行 /login 重新登录）\n".into(),
-        Msg::StatusCpNoActive =>
-            "  CodingPlan：（无激活套餐 -- 运行 /login）\n".into(),
-        Msg::StatusCpLine { plan, expires_at, remaining_days, total_days } =>
-            format!(
-                "  CodingPlan：{}  .  到期 {}（{}d / 共 {}d）\n",
-                plan, expires_at, remaining_days, total_days,
-            ).into(),
-        Msg::StatusCpUsage { usage, reset_at, duration } =>
-            format!("  用量：{}  .  重置于 {}（{} 后）\n", usage, reset_at, duration).into(),
-        Msg::StatusCpWindowExhausted =>
-            "  [!] 当前窗口配额已耗尽\n".into(),
-        Msg::StatusCpWindowHint { hint } =>
-            format!("  [!] {}\n", hint).into(),
         Msg::StatusInstructionFilesHeader =>
             "  指令文件：\n".into(),
         Msg::StatusInstructionScopeGlobal => "用户全局".into(),
@@ -479,16 +367,8 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderPanelAddModelRow => "＋ 添加模型".into(),
         Msg::ProviderPanelAccountsHint =>
             "筛选 . ↑↓选择 . ↵模型 . Ctrl+A添加 . Ctrl+E编辑 . Ctrl+Dx2 删除 . Tab切换 . Esc关闭".into(),
-        Msg::ProviderPanelManagedAccountHint =>
-            "托管 CodingPlan 账号 . 仅支持查看 . ↵模型 . Tab切换 . Esc关闭".into(),
-        Msg::ProviderPanelManagedAccountHintNeutral =>
-            "名称属托管账号保留名，本构建无托管服务 . 仅支持查看 . ↵模型 . Tab切换 . Esc关闭".into(),
         Msg::ProviderPanelModelsHint =>
             "筛选 . ↑↓选择 . ↵默认/添加 . Ctrl+A添加 . Ctrl+E编辑 . Ctrl+Dx2 删除 . Tab切换 . Esc关闭".into(),
-        Msg::ProviderPanelManagedModelsHint =>
-            "CodingPlan 模型由 /login 管理 . ↑↓选择 . ↵设为默认 . Tab全部 . Esc关闭".into(),
-        Msg::ProviderPanelManagedModelsHintNeutral =>
-            "名称属托管保留名，本构建无托管服务 . ↑↓选择 . ↵设为默认 . Tab全部 . Esc关闭".into(),
         Msg::ProviderPanelFilteredModelsHint { account } =>
             format!("〔{account}〕. ↑↓选择 . ↵默认/添加 . Ctrl+A加模型 . Ctrl+E编辑 . Ctrl+Dx2 删除 . Tab全部 . Esc关闭").into(),
         Msg::ProviderPanelModelSaved { model } => format!("已保存模型“{model}”。").into(),
@@ -871,8 +751,6 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
         Msg::CliReauthFailed { error } => format!("重新认证失败：{error}").into(),
         Msg::CliConfigSaveFailed { path, error } =>
             format!("  [!] 保存配置到 {path} 失败：{error}").into(),
-        Msg::CliSyncMarkerWriteFailed { error } =>
-            format!("  [!] 写入 codingplan 同步标记失败：{error}").into(),
         Msg::CliUpgradeLatest { version } => format!("==> 最新版本：{version}").into(),
         Msg::CliUpgradeDownloadProgress { pct, bytes, total } =>
             format!("\r    下载中 {pct}%（{bytes} / {total} 字节）   ").into(),
@@ -1558,7 +1436,7 @@ Msg::CmdDescSetup =>
 "扫描项目、安装种子文件并运行 setup skill [hooks|mcp|skills|all]".into(),
         Msg::CmdDescResume => "恢复上次会话".into(),
         Msg::CmdDescRename => "重命名当前会话".into(),
-        Msg::CmdDescLogin => "使用 {oauth} 登录并领取 CodingPlan 模型".into(),
+        Msg::CmdDescLogin => "使用 {oauth} 登录并领取托管套餐模型".into(),
         Msg::CmdDescLoginNeutral =>
             "托管登录(仅发行版本提供) -- 此开源构建使用自带 API Key 的第三方供应商,请在 config.toml 中配置".into(),
         Msg::CmdDescLogout => "退出登录".into(),
@@ -1576,7 +1454,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CmdDescClear => "清屏".into(),
         Msg::CmdDescSession => "开始新会话（清除对话）".into(),
         Msg::CmdDescCost => "显示本会话 Token 用量".into(),
-        Msg::CmdDescUsage => "显示 CodingPlan 用量（标签：当前窗口 / 总览 / 模型）".into(),
+        Msg::CmdDescUsage => "显示托管套餐用量（标签：当前窗口 / 总览 / 模型）".into(),
         Msg::CmdDescUsageNeutral =>
             "显示令牌用量（标签：当前窗口 / 总览 / 模型）".into(),
         Msg::CmdDescContext => "显示上下文预算明细".into(),
@@ -1737,7 +1615,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::OnboardingIntroBullet2 =>
             "* 兼容所有 OpenAI 风格 API".into(),
         Msg::OnboardingIntroBullet3 =>
-            "* 通过 CodingPlan 获取免费额度".into(),
+            "* 通过托管套餐获取免费额度".into(),
         Msg::OnboardingIntroBullet3Neutral =>
             "* 自带 API Key，无需注册账号".into(),
         Msg::OnboardingIntroPressEnter => "按 Enter 继续。".into(),
@@ -2381,7 +2259,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::BgTaskNoSummary => "任务完成（无摘要文本）。".into(),
         // ── CLI rustcode --help i18n ──
         Msg::CliAbout => "终端中的 AI 编程助手".into(),
-        Msg::CliAboutLogin => "通过 OAuth 登录并领取 CodingPlan 模型".into(),
+        Msg::CliAboutLogin => "通过 OAuth 登录并领取托管套餐模型".into(),
         Msg::CliAboutLoginNeutral =>
             "托管登录(仅发行版本提供) -- 此开源构建使用自带 API Key 的第三方供应商,请在 config.toml 中配置".into(),
         Msg::CliAboutLogout => "退出登录".into(),
@@ -2485,12 +2363,6 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::ClixMissingBaseUrlReview => "缺少 base URL：请传入 --base-url、设置 $RUSTCODE_BASE_URL，或在配置的供应商条目中添加 base_url".into(),
         Msg::ClixMissingModel => "缺少模型：请传入 --model、设置 $RUSTCODE_MODEL，或在配置中提供供应商".into(),
         Msg::ClixMissingModelReview => "缺少模型：请传入 --model、设置 $RUSTCODE_MODEL，或在配置的供应商条目中添加 model".into(),
-        Msg::ClixSigningGatewayCode { url } => {
-            format!("供应商 base_url '{url}' 需要 RustCode 专有的请求签名，rustcodex 无法生成 -- 请使用普通的 OpenAI 兼容端点").into()
-        }
-        Msg::ClixSigningGatewayReview { url } => {
-            format!("供应商 base_url '{url}' 是强制签名的受管网关，rustcodex 无法向其认证（需要专有的请求签名）。请使用带显式 api_key 的标准第三方供应商：用 `--provider <name>` 选择已命名的 [providers.<name>] 条目，或把 RUSTCODE_API_KEY/RUSTCODE_BASE_URL/RUSTCODE_MODEL 指向普通的 OpenAI 兼容端点。").into()
-        }
         Msg::ClixNoSessionToContinue => {
             "本项目没有可继续的会话 -- 不加 --continue 直接启动一个新会话".into()
         }
@@ -2646,55 +2518,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::ClixHelpReviewRepo => "仓库根目录（默认：当前目录）。".into(),
         Msg::ClixHelpReviewJson => "以 JSON 输出审查结果，而不是人类可读的报告。".into(),
 
-        // ── /usage modal ──
-        Msg::UsageTabCurrent => "当前窗口".into(),
-        Msg::UsageTabOverview => "总览".into(),
-        Msg::UsageTabModels => "模型".into(),
-        Msg::UsageCurrentTitle => "速率限制窗口".into(),
-        Msg::UsageResetsIn { hms } => format!("剩余重置时间 {hms}").into(),
-        Msg::UsageWindowHours { hours } => format!("{hours} 小时滚动窗口").into(),
-        Msg::UsageWindowUnavailable => "窗口数据不可用".into(),
-        Msg::UsageStatFavorite => "最常用模型".into(),
-        Msg::UsageStatTotal => "总 Token 数".into(),
-        Msg::UsageStatRequests => "请求次数".into(),
-        Msg::UsageStatActiveDays => "活跃天数".into(),
-        Msg::UsageStatMostActive => "最活跃日期".into(),
-        Msg::UsageStatLongestStreak => "最长连续天数".into(),
-        Msg::UsageStatCurrentStreak => "当前连续天数".into(),
-        Msg::UsageHeatLess => "少".into(),
-        Msg::UsageHeatMore => "多".into(),
-        Msg::UsageModelsTitle => "各模型用量".into(),
-        Msg::UsageNoData => "暂无用量数据".into(),
-        Msg::UsageFooterHint => "← / -> 或 Tab 切换 . Ctrl+S 复制 . Esc 关闭".into(),
-        Msg::UsageFetchFailed { error } => format!("加载用量失败：{error}").into(),
-        Msg::UsagePlanTitle => "计划".into(),
-        Msg::UsagePlanActive => "生效中".into(),
-        Msg::UsagePlanExpired => "已过期".into(),
-        Msg::UsagePlanClaimedExpires { claimed, expires } =>
-            format!("领取 {claimed} . 到期 {expires}").into(),
-        Msg::UsagePlanRemaining { remaining, total } =>
-            format!("剩余 {remaining}/{total} 天").into(),
-        Msg::UsageCopied => "已复制到剪贴板".into(),
-        Msg::UsageTableModel => "模型".into(),
-        Msg::UsageTableTokens => "Token 数".into(),
-        Msg::UsageTableShare => "占比".into(),
-        Msg::UsageMonthShort { month } => format!("{month}月").into(),
-        Msg::UsageWeekdayShort { weekday } => match weekday {
-            0 => "周日",
-            1 => "周一",
-            2 => "周二",
-            3 => "周三",
-            4 => "周四",
-            5 => "周五",
-            6 => "周六",
-            _ => "",
-        }
-        .into(),
-        Msg::UsageTokensPerDay => "每日 Token 数".into(),
-        Msg::UsageDays { n } => format!("{n} 天").into(),
-        Msg::UsageSparkMeta { pct, reqs, tokens } =>
-            format!("{pct}%  .  {reqs} 次请求  .  {tokens}").into(),
-        Msg::UsageCodingPlanOnly =>
+        // ── /usage 命令 ──
+        Msg::UsageUnavailableNeutral =>
             "当前构建不支持托管账号用量查询。运行 /cost 可查看本会话的本地 Token 用量。".into(),
 
         Msg::NotifyTitleDone => "RustCode 已完成".into(),
@@ -2831,8 +2656,6 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             "Tab 下一项  ←-> 切协议  ↵ 保存  Esc 返回  （名称必填；模型到模型页加）".into(),
         Msg::ProviderPanelProtocolLocked { protocol } =>
             format!("  协议: {protocol} (锁定)").into(),
-        Msg::ProviderPanelEditFormVendorLockedHint =>
-            "Tab 下一项  ↵ 保存  Esc 返回  （CodingPlan 仅可改 base_url）".into(),
         Msg::ProviderPanelEditFormProtocolLockedHint =>
             "Tab 下一项  ↵ 保存  Esc 返回  （厂商协议已锁定）".into(),
         Msg::ProviderPanelEditAccountFormHint =>
@@ -2985,9 +2808,6 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::DaemonEpLoginPoll => "轮询登录会话".into(),
         Msg::DaemonEpLoginCancel => "取消登录会话".into(),
         Msg::DaemonEpLogout => "退出登录".into(),
-        Msg::DaemonEpCpSetup => "运行 CodingPlan 初始化".into(),
-        Msg::DaemonEpCpUsageSummary => "CodingPlan 配额汇总".into(),
-        Msg::DaemonEpCpUsageDaily => "CodingPlan 每日用量".into(),
         Msg::DaemonCdBodyHeading => "切换目录请求体：".into(),
         Msg::DaemonCdBodyHint => r#"或用 {"path": "-"} 返回上一级目录"#.into(),
         Msg::DaemonChatBodyHeading => "聊天请求体：".into(),
@@ -3003,8 +2823,6 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::DaemonApiLoginTaskFailed => "登录任务失败".into(),
         Msg::DaemonApiInvalidLoginId => "登录会话 ID 无效".into(),
         Msg::DaemonApiLogoutFailed { error } => format!("退出登录失败：{error}").into(),
-        Msg::DaemonApiCpNotLoggedIn => "CodingPlan 账号尚未登录".into(),
-        Msg::DaemonApiCpUsageLoadFailed => "无法加载 CodingPlan 用量".into(),
         Msg::DaemonApiCdNoPrevious => "没有可返回的上一个目录".into(),
         Msg::DaemonApiCdNotExist { path } => format!("目录不存在：{path}").into(),
         Msg::DaemonApiCdNotDir { path } => format!("不是目录：{path}").into(),
@@ -3070,24 +2888,15 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::DaemonProvContextWindowPositive => "context_window 必须大于零".into(),
         Msg::DaemonProvMaxTokensPositive => "max_tokens 必须大于零".into(),
         Msg::DaemonProvAccountNotFound => "未找到供应商账号".into(),
-        Msg::DaemonProvManagedAccount => "CodingPlan 托管供应商账号不可修改".into(),
-        Msg::DaemonProvManagedProvider => "CodingPlan 托管供应商不可修改".into(),
         Msg::DaemonProvModelExists { name } => format!("模型选择 {name} 已存在").into(),
         Msg::DaemonProvProviderExists { name } => format!("供应商“{name}”已存在").into(),
         Msg::DaemonProvAccountForModelNotFound { name } => {
             format!("未找到模型 {name} 对应的账号").into()
         }
         Msg::DaemonProvProviderNotFound { name } => format!("未找到供应商“{name}”").into(),
-        Msg::DaemonProvManagedLocked { action } => {
-            format!("CodingPlan 供应商由 /login 统一管理，无法{action}").into()
-        }
         Msg::DaemonProvManagedReserved => "该供应商名称或 base URL 为托管账号保留，而当前构建不提供托管服务。\
              请重命名供应商（或更改其 base URL），并用你自己的 api_key 完成配置。"
             .into(),
-        Msg::DaemonProvActionModified => "修改".into(),
-        Msg::DaemonProvActionReplaced => "替换".into(),
-        Msg::DaemonProvActionEdited => "编辑".into(),
-        Msg::DaemonProvActionDeleted => "删除".into(),
         Msg::DaemonProvDiscoveryNoListing => "该供应商协议不支持列出模型，请手动输入模型名称".into(),
         Msg::DaemonProvDiscoveryTimeout => "模型发现请求超时".into(),
         Msg::DaemonProvDiscoveryTooLarge => "模型列表响应超过 4 MiB 上限".into(),
@@ -3134,42 +2943,9 @@ fn plugin_reload_summary(loaded: usize, skipped: usize, show_details_hint: bool)
 }
 
 #[cfg(test)]
-mod codingplan_crypto_tests {
+mod message_text_tests {
     use super::*;
     use crate::i18n::Msg;
-
-    #[test]
-    fn zh_official_build_required_guides_byo_or_distribution() {
-        // 中立 fork：无"官方 releases"主机。文案仍须给出解决路径——第三方
-        // 自带 Key provider，或提供该能力的发行版本。
-        let s = zh_cn(Msg::CpOfficialBuildRequired);
-        assert!(s.contains("第三方提供商"));
-        assert!(s.contains("发行"));
-    }
-
-    #[test]
-    fn zh_stale_clock_mentions_time() {
-        let s = zh_cn(Msg::CpSignStaleClockSkew);
-        assert!(s.contains("时间") || s.contains("时钟"));
-    }
-
-    #[test]
-    fn zh_replay_persisted_is_non_empty() {
-        let s = zh_cn(Msg::CpSignReplayPersisted);
-        assert!(!s.is_empty());
-    }
-
-    #[test]
-    fn zh_version_too_old_mentions_upgrade() {
-        let s = zh_cn(Msg::CpSignVersionTooOld);
-        assert!(s.contains("升级") || s.contains("更新"));
-    }
-
-    #[test]
-    fn zh_upgrade_required_is_non_empty() {
-        let s = zh_cn(Msg::CpUpgradeRequired);
-        assert!(!s.is_empty());
-    }
 
     #[test]
     fn zh_conhost_scroll_hint_recommends_windows_terminal() {

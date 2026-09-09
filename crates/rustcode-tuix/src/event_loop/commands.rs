@@ -1988,7 +1988,7 @@ fn execute_slash_command_impl(
                 // Mid-turn there is no interactive report to install (live token
                 // redraws own the footer), so the footer snapshot is the
                 // managed-usage-unavailable notice.
-                state.footer_command_output = Some(t(Msg::UsageCodingPlanOnly).into_owned());
+                state.footer_command_output = Some(t(Msg::UsageUnavailableNeutral).into_owned());
             } else {
                 open_usage(renderer, active_modal);
             }
@@ -5215,7 +5215,7 @@ pub(super) fn build_diff_stat_text(ctx: &LoopCtx) -> Result<String, String> {
 /// opening a modal that could never be populated.
 fn open_usage(renderer: &mut dyn Renderer, _active_modal: &mut Option<Box<dyn Modal>>) {
     renderer.render(UiLine::CommandOutput(
-        t(Msg::UsageCodingPlanOnly).into_owned(),
+        t(Msg::UsageUnavailableNeutral).into_owned(),
     ));
     renderer.flush();
 }

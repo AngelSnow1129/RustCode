@@ -7,18 +7,12 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "Welcome to {brand}. Pick an option to get started:".into(),
         Msg::WelcomeBannerLine2 =>
             "(↑↓ to navigate, Enter to confirm, Esc to skip)".into(),
-        Msg::WelcomeOptionCodingPlan => "Set up CodingPlan".into(),
-        Msg::WelcomeOptionCodingPlanHint => "Free tokens . recommended".into(),
         Msg::WelcomeOptionConfigureManually => "Configure manually".into(),
         Msg::WelcomeOptionConfigureManuallyHint => "API key".into(),
         Msg::WelcomeOptionSkip => "Skip for now".into(),
         Msg::WelcomeOptionSkipHint => "explore first".into(),
 
         // ── /login (full setup flow) ──
-        Msg::CodingPlanSetupFailed { error } =>
-            format!("/login setup failed: {error}").into(),
-        Msg::CpReauthAfter401 =>
-            "  [!] Stored login expired -- re-authenticating...\n".into(),
         Msg::LoginManagedUnavailable =>
             "  [*] Managed login is not built into this build.\n  \
              Configure a third-party provider directly in ~/.rustcode/config.toml \
@@ -188,108 +182,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         .into(),
         Msg::NetworkConnectHint =>
             "Network connect failed. If this works in a browser you may be behind a proxy/firewall: configure a proxy with /proxy or set HTTPS_PROXY, or open the login URL above in a browser to finish. Press Esc to skip and /login later.".into(),
-        Msg::CpSetupHeader =>
-            "  {brand} CodingPlan setup:\n\n".into(),
-        Msg::CpLoggedIn { who, username, email } =>
-            format!("  [+] Logged in as {} ({}, {})\n", who, username, email).into(),
-        Msg::CpStepSkipped { reason } =>
-            format!("  [+] {}\n", reason).into(),
-        Msg::CpLoginFailed { error } =>
-            format!("  [x] Login failed -- {}\n", error).into(),
-        Msg::CpClaimed { message, plan_type } =>
-            format!("  [+] CodingPlan claimed -- {} (CodingPlan {})\n", message, plan_type).into(),
-        Msg::CpClaimSuccessFallback => "success".into(),
-        Msg::CpAlreadyClaimed { reason } =>
-            format!("  [+] CodingPlan already claimed -- {}\n", reason).into(),
-        Msg::CpClaimFailed { error } =>
-            format!("  [x] CodingPlan tier setup failed -- {}\n", error).into(),
-        Msg::CpClaimFailedBare =>
-            "  [x] CodingPlan tier setup failed\n".into(),
-        Msg::CpClaimTierSucceeded { plan } =>
-            format!("  [+] {} active\n", plan).into(),
-        Msg::CpClaimTierAlreadyHeld { plan } =>
-            format!("  [+] {} active\n", plan).into(),
-        Msg::CpClaimTierFailed { tier, reason } =>
-            format!("  [x] CodingPlan {} tier setup failed -- {}\n", tier, reason).into(),
-        Msg::CpAddedProviders { accounts, models } =>
-            format!(
-                "  [+] Added {} account{} . {} model{}:\n",
-                accounts,
-                if accounts == 1 { "" } else { "s" },
-                models,
-                if models == 1 { "" } else { "s" }
-            )
-            .into(),
-        Msg::CpLocked { name } =>
-            // SGR 31 = standard red foreground, SGR 39 = reset to
-            // default fg. Standard (not bright) so the terminal's
-            // theme palette decides the exact shade -- Solarized,
-            // Dracula, light-mode, etc. all map this onto their
-            // own "red" rather than a hard-coded RGB the user can't
-            // tune. The `[x] ... (requires Pro plan or higher)` text inside is
-            // a redundant signal so retained-mode terminals (which
-            // strip SGR via the strict sanitizer path) still get
-            // the meaning, just without the colour.
-            format!("      \x1b[31m[x] {}  (requires Pro plan or higher)\x1b[39m\n", name).into(),
-        Msg::CpProviderRow { provider, model, default_suffix } =>
-            format!("      * {}  .  {}{}\n", provider, model, default_suffix).into(),
-        Msg::CpDefaultSuffix => "  (default)".into(),
-        Msg::CpVisionAuto { kind } =>
-            format!("  [+] Vision preprocessor -> {}  (auto-detected)\n", kind).into(),
-        Msg::CpVisionUserSupplied { kind } =>
-            format!("  [+] Vision preprocessor -> {}  (user setting kept)\n", kind).into(),
-        Msg::CpVisionCleared =>
-            "  [!] Vision preprocessor cleared -- no VL/OCR model in current list\n".into(),
-        Msg::CpModelsSkipped { reason } =>
-            format!("  [+] Models step skipped -- {}\n", reason).into(),
-        Msg::CpModelsFailed { error } =>
-            format!("  [x] Models step failed -- {}\n", error).into(),
-        Msg::CpStatusHeader =>
-            "  [+] CodingPlan status:\n".into(),
-        Msg::CpPlanPending { plan } =>
-            format!("      Plan: {}  .  pending activation\n", plan).into(),
-        Msg::CpPlanActive { plan, expires_at, remaining_days, total_days } =>
-            format!(
-                "      Plan: {}  .  expires {} ({}d / {}d remaining)\n",
-                plan, expires_at, remaining_days, total_days,
-            ).into(),
-        Msg::CpUsageLine { usage, reset_at, duration } =>
-            format!("      Usage: {}  .  resets {} (in {})\n", usage, reset_at, duration).into(),
-        Msg::CpWindowQuotaExhausted =>
-            "      [!] Current window quota exhausted\n".into(),
-        Msg::CpWindowQuotaHint { hint } =>
-            format!("      [!] {}\n", hint).into(),
-        Msg::CpStatusFetchSkipped { reason } =>
-            format!("  [!] Status fetch skipped -- {}\n", reason).into(),
-        Msg::CpStatusFetchFailed { error } =>
-            format!("  [!] Status fetch failed (non-fatal) -- {}\n", error).into(),
-        Msg::CpOfficialBuildRequired => Cow::Borrowed(
-            "The configured CodingPlan gateway needs a build with managed-signing \
-             support, which this {brand} build does not include. Configure a third-party \
-             provider (bring your own key) instead, or use a distribution that ships \
-             CodingPlan support.",
-        ),
-        Msg::CpAuthRequired => Cow::Borrowed(
-            "Not signed in to {brand} CodingPlan. Run /login to sign in \
-             before sending a request.",
-        ),
-        Msg::CpSignStaleClockSkew => Cow::Borrowed(
-            "Request rejected: signed timestamp outside the accepted window. \
-             Please check your system clock (NTP sync) and retry.",
-        ),
-        Msg::CpSignReplayPersisted => Cow::Borrowed(
-            "Request was repeatedly flagged as a replay. Please try the command again.",
-        ),
-        Msg::CpSignVersionTooOld => Cow::Borrowed(
-            "{brand} is out of date and no longer compatible with CodingPlan. \
-             Please upgrade {brand} to continue.",
-        ),
-        Msg::CpUpgradeRequired => Cow::Borrowed(
-            "An upgrade is required to continue using CodingPlan. \
-             Please update to a newer {brand} build from your distribution, or configure \
-             a third-party provider (bring your own key) with /provider.",
-        ),
-
         Msg::ErrUnsupportedLocale { input } =>
             format!("unsupported locale: {input}").into(),
 
@@ -298,8 +190,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "no provider . /provider to configure".into(),
         Msg::StatusRuntimeUnavailable =>
             "runtime unavailable . restart or inspect the error above".into(),
-        Msg::StatusOfficialBuildRequired =>
-            "CodingPlan unsupported in this build".into(),
         Msg::StatusUpgradeHint { version } =>
             format!("↑ {version} available . /upgrade").into(),
         Msg::StatusUpgradeHintPm { version } =>
@@ -323,25 +213,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("  Login:  {}\n", user).into(),
         Msg::StatusLoginNotSignedIn =>
             "  Login:  not signed in (run /login)\n".into(),
-        Msg::StatusCpNotSignedIn =>
-            "  CodingPlan: (not signed in -- run /login to set up)\n".into(),
-        Msg::StatusCpFetchFailed { error } =>
-            format!("  CodingPlan: (status fetch failed -- {})\n", error).into(),
-        Msg::StatusCpAuthExpired =>
-            "  CodingPlan: (login expired -- run /login to sign in again)\n".into(),
-        Msg::StatusCpNoActive =>
-            "  CodingPlan: (no active plan -- run /login)\n".into(),
-        Msg::StatusCpLine { plan, expires_at, remaining_days, total_days } =>
-            format!(
-                "  CodingPlan: {}  .  expires {} ({}d/{}d)\n",
-                plan, expires_at, remaining_days, total_days,
-            ).into(),
-        Msg::StatusCpUsage { usage, reset_at, duration } =>
-            format!("  Usage: {}  .  resets {} (in {})\n", usage, reset_at, duration).into(),
-        Msg::StatusCpWindowExhausted =>
-            "  [!] Current window quota exhausted\n".into(),
-        Msg::StatusCpWindowHint { hint } =>
-            format!("  [!] {}\n", hint).into(),
         Msg::StatusInstructionFilesHeader =>
             "  Instruction files:\n".into(),
         Msg::StatusInstructionScopeGlobal => "User global".into(),
@@ -516,16 +387,8 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderPanelAddModelRow => "+ Add model".into(),
         Msg::ProviderPanelAccountsHint =>
             "Filter . ↑↓ select . ↵ models . Ctrl+A add . Ctrl+E edit . Ctrl+Dx2 delete . Tab switch . Esc close".into(),
-        Msg::ProviderPanelManagedAccountHint =>
-            "Managed CodingPlan account . view only . ↵ models . Tab switch . Esc close".into(),
-        Msg::ProviderPanelManagedAccountHintNeutral =>
-            "Reserved managed-account name; this build has no managed service . view only . ↵ models . Tab switch . Esc close".into(),
         Msg::ProviderPanelModelsHint =>
             "Filter . ↑↓ select . ↵ default/add . Ctrl+A add . Ctrl+E edit . Ctrl+Dx2 delete . Tab switch . Esc close".into(),
-        Msg::ProviderPanelManagedModelsHint =>
-            "CodingPlan models are managed by /login . ↑↓ select . ↵ default . Tab all . Esc close".into(),
-        Msg::ProviderPanelManagedModelsHintNeutral =>
-            "Reserved managed name; this build has no managed service . ↑↓ select . ↵ default . Tab all . Esc close".into(),
         Msg::ProviderPanelFilteredModelsHint { account } =>
             format!("[{account}] . ↑↓ select . ↵ default/add . Ctrl+A add model . Ctrl+E edit . Ctrl+Dx2 delete . Tab all . Esc close").into(),
         Msg::ProviderPanelModelSaved { model } => format!("Saved model \"{model}\".").into(),
@@ -917,8 +780,6 @@ Skip `/login` and configure a third-party provider directly in\n\
         Msg::CliReauthFailed { error } => format!("re-authentication failed: {error}").into(),
         Msg::CliConfigSaveFailed { path, error } =>
             format!("  [!] Failed to save config to {path}: {error}").into(),
-        Msg::CliSyncMarkerWriteFailed { error } =>
-            format!("  [!] Failed to write codingplan sync marker: {error}").into(),
         Msg::CliUpgradeLatest { version } => format!("==> Latest: {version}").into(),
         Msg::CliUpgradeDownloadProgress { pct, bytes, total } =>
             format!("\r    downloading {pct}% ({bytes} / {total} bytes)   ").into(),
@@ -1615,7 +1476,7 @@ Msg::CmdDescSetup =>
 "Scan project, install seeds, and run setup skill [hooks|mcp|skills|all]".into(),
         Msg::CmdDescResume => "Resume a previous session".into(),
         Msg::CmdDescRename => "Rename current session".into(),
-        Msg::CmdDescLogin => "Sign in with {oauth} and claim CodingPlan models".into(),
+        Msg::CmdDescLogin => "Sign in with {oauth} and claim managed-plan models".into(),
         Msg::CmdDescLoginNeutral =>
             "Managed sign-in (distribution builds only) -- this open build uses bring-your-own-key providers; configure config.toml".into(),
         Msg::CmdDescLogout => "Sign out".into(),
@@ -1635,7 +1496,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CmdDescClear => "Clear screen".into(),
         Msg::CmdDescSession => "Start a new session (clears conversation)".into(),
         Msg::CmdDescCost => "Show session token usage".into(),
-        Msg::CmdDescUsage => "Show CodingPlan usage (tabs: current / overview / models)".into(),
+        Msg::CmdDescUsage => "Show managed-plan usage (tabs: current / overview / models)".into(),
         Msg::CmdDescUsageNeutral =>
             "Show token usage (tabs: current / overview / models)".into(),
         Msg::CmdDescContext => "Show context budget breakdown".into(),
@@ -1799,7 +1660,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::OnboardingIntroBullet2 =>
             "* Connects to any OpenAI-compatible API".into(),
         Msg::OnboardingIntroBullet3 =>
-            "* Free tokens via CodingPlan".into(),
+            "* Free tokens via the managed plan".into(),
         Msg::OnboardingIntroBullet3Neutral =>
             "* Bring your own API key -- no account or signup".into(),
         Msg::OnboardingIntroPressEnter => "Press Enter to continue.".into(),
@@ -2473,7 +2334,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::BgTaskNoSummary => "Task completed (no summary text).".into(),
         // -- CLI rustcode --help i18n --
         Msg::CliAbout => "AI coding assistant in your terminal".into(),
-        Msg::CliAboutLogin => "Sign in with OAuth and claim CodingPlan models in one flow".into(),
+        Msg::CliAboutLogin => "Sign in with OAuth and claim managed-plan models in one flow".into(),
         Msg::CliAboutLoginNeutral =>
             "Managed sign-in (distribution builds only) -- this open build uses bring-your-own-key providers; configure config.toml".into(),
         Msg::CliAboutLogout => "Sign out".into(),
@@ -2579,12 +2440,6 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::ClixMissingBaseUrlReview => "missing base URL: pass --base-url, set $RUSTCODE_BASE_URL, or add base_url to the config provider".into(),
         Msg::ClixMissingModel => "missing model: pass --model, set $RUSTCODE_MODEL, or configure a provider".into(),
         Msg::ClixMissingModelReview => "missing model: pass --model, set $RUSTCODE_MODEL, or add model to the config provider".into(),
-        Msg::ClixSigningGatewayCode { url } => {
-            format!("provider base_url '{url}' needs RustCode's proprietary request signing, which rustcodex cannot produce -- use a plain OpenAI-compatible endpoint").into()
-        }
-        Msg::ClixSigningGatewayReview { url } => {
-            format!("provider base_url '{url}' is a managed signing-enforced gateway, which rustcodex cannot authenticate against (it needs the proprietary request signing). Use a standard third-party provider with an explicit api_key -- select a named [providers.<name>] entry with `--provider <name>`, or set RUSTCODE_API_KEY/RUSTCODE_BASE_URL/RUSTCODE_MODEL to a plain OpenAI-compatible endpoint.").into()
-        }
         Msg::ClixNoSessionToContinue => {
             "no session to continue in this project -- start one without --continue".into()
         }
@@ -2769,70 +2624,8 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::ClixHelpReviewRepo => "Repository root (default: current directory).".into(),
         Msg::ClixHelpReviewJson => "Emit findings as JSON instead of a human-readable report.".into(),
 
-        // ── /usage modal ──
-        Msg::UsageTabCurrent => "Current".into(),
-        Msg::UsageTabOverview => "Overview".into(),
-        Msg::UsageTabModels => "Models".into(),
-        Msg::UsageCurrentTitle => "Rate-limit window".into(),
-        Msg::UsageResetsIn { hms } => format!("Resets in {hms}").into(),
-        Msg::UsageWindowHours { hours } => format!("{hours}-hour rolling window").into(),
-        Msg::UsageWindowUnavailable => "Window data unavailable".into(),
-        Msg::UsageStatFavorite => "Favorite model".into(),
-        Msg::UsageStatTotal => "Total tokens".into(),
-        Msg::UsageStatRequests => "Requests".into(),
-        Msg::UsageStatActiveDays => "Active days".into(),
-        Msg::UsageStatMostActive => "Most active day".into(),
-        Msg::UsageStatLongestStreak => "Longest streak".into(),
-        Msg::UsageStatCurrentStreak => "Current streak".into(),
-        Msg::UsageHeatLess => "Less".into(),
-        Msg::UsageHeatMore => "More".into(),
-        Msg::UsageModelsTitle => "Per-model usage".into(),
-        Msg::UsageNoData => "No usage data available".into(),
-        Msg::UsageFooterHint => "← / -> or Tab switch . Ctrl+S copy . Esc close".into(),
-        Msg::UsageFetchFailed { error } => format!("Failed to load usage: {error}").into(),
-        Msg::UsagePlanTitle => "Plan".into(),
-        Msg::UsagePlanActive => "Active".into(),
-        Msg::UsagePlanExpired => "Expired".into(),
-        Msg::UsagePlanClaimedExpires { claimed, expires } =>
-            format!("Claimed {claimed} . Expires {expires}").into(),
-        Msg::UsagePlanRemaining { remaining, total } =>
-            format!("Remaining {remaining}/{total} days").into(),
-        Msg::UsageCopied => "Copied to clipboard".into(),
-        Msg::UsageTableModel => "Model".into(),
-        Msg::UsageTableTokens => "Tokens".into(),
-        Msg::UsageTableShare => "Share".into(),
-        Msg::UsageMonthShort { month } => match month {
-            1 => "Jan",
-            2 => "Feb",
-            3 => "Mar",
-            4 => "Apr",
-            5 => "May",
-            6 => "Jun",
-            7 => "Jul",
-            8 => "Aug",
-            9 => "Sep",
-            10 => "Oct",
-            11 => "Nov",
-            12 => "Dec",
-            _ => "",
-        }
-        .into(),
-        Msg::UsageWeekdayShort { weekday } => match weekday {
-            0 => "Sun",
-            1 => "Mon",
-            2 => "Tue",
-            3 => "Wed",
-            4 => "Thu",
-            5 => "Fri",
-            6 => "Sat",
-            _ => "",
-        }
-        .into(),
-        Msg::UsageTokensPerDay => "Tokens per Day".into(),
-        Msg::UsageDays { n } => format!("{n} days").into(),
-        Msg::UsageSparkMeta { pct, reqs, tokens } =>
-            format!("{pct}%  .  {reqs} reqs  .  {tokens}").into(),
-        Msg::UsageCodingPlanOnly =>
+        // ── /usage command ──
+        Msg::UsageUnavailableNeutral =>
             "Managed-account usage isn't available in this build. Run /cost for this session's local token usage.".into(),
 
         Msg::NotifyTitleDone => "RustCode done".into(),
@@ -2970,8 +2763,6 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             "Tab Next  \u{2190}-> Switch protocol  \u{21b5} Save  Esc Back  (name required; add models on the Models tab)".into(),
         Msg::ProviderPanelProtocolLocked { protocol } =>
             format!("  Protocol: {protocol} (locked)").into(),
-        Msg::ProviderPanelEditFormVendorLockedHint =>
-            "Tab Next  \u{21b5} Save  Esc Back  (CodingPlan: only base_url can be changed)".into(),
         Msg::ProviderPanelEditFormProtocolLockedHint =>
             "Tab Next  \u{21b5} Save  Esc Back  (vendor protocol locked)".into(),
         Msg::ProviderPanelEditAccountFormHint =>
@@ -3136,9 +2927,6 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::DaemonEpLoginPoll => "Poll login session".into(),
         Msg::DaemonEpLoginCancel => "Cancel login session".into(),
         Msg::DaemonEpLogout => "Logout".into(),
-        Msg::DaemonEpCpSetup => "Run CodingPlan setup".into(),
-        Msg::DaemonEpCpUsageSummary => "CodingPlan quota summary".into(),
-        Msg::DaemonEpCpUsageDaily => "CodingPlan daily usage".into(),
         Msg::DaemonCdBodyHeading => "Change directory body:".into(),
         Msg::DaemonCdBodyHint => r#"or {"path": "-"} to go back"#.into(),
         Msg::DaemonChatBodyHeading => "Chat request body:".into(),
@@ -3158,8 +2946,6 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::DaemonApiLoginTaskFailed => "Login task failed".into(),
         Msg::DaemonApiInvalidLoginId => "Invalid login session ID".into(),
         Msg::DaemonApiLogoutFailed { error } => format!("Logout failed: {error}").into(),
-        Msg::DaemonApiCpNotLoggedIn => "CodingPlan account is not logged in".into(),
-        Msg::DaemonApiCpUsageLoadFailed => "Unable to load CodingPlan usage".into(),
         Msg::DaemonApiCdNoPrevious => "No previous directory to go back to".into(),
         Msg::DaemonApiCdNotExist { path } => format!("Directory does not exist: {path}").into(),
         Msg::DaemonApiCdNotDir { path } => format!("Not a directory: {path}").into(),
@@ -3241,8 +3027,6 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::DaemonProvContextWindowPositive => "context_window must be greater than zero".into(),
         Msg::DaemonProvMaxTokensPositive => "max_tokens must be greater than zero".into(),
         Msg::DaemonProvAccountNotFound => "Provider account not found".into(),
-        Msg::DaemonProvManagedAccount => "managed CodingPlan provider account".into(),
-        Msg::DaemonProvManagedProvider => "managed CodingPlan provider".into(),
         Msg::DaemonProvModelExists { name } => {
             format!("model selection {name} already exists").into()
         }
@@ -3251,17 +3035,10 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             format!("account for model {name} not found").into()
         }
         Msg::DaemonProvProviderNotFound { name } => format!("Provider '{name}' not found").into(),
-        Msg::DaemonProvManagedLocked { action } => {
-            format!("CodingPlan providers are managed by /login and cannot be {action}").into()
-        }
         Msg::DaemonProvManagedReserved => "This provider name or base URL is reserved for managed accounts, \
              which this build does not provide. Rename the provider (or change its \
              base URL) and configure it with your own api_key."
             .into(),
-        Msg::DaemonProvActionModified => "modified".into(),
-        Msg::DaemonProvActionReplaced => "replaced".into(),
-        Msg::DaemonProvActionEdited => "edited".into(),
-        Msg::DaemonProvActionDeleted => "deleted".into(),
         Msg::DaemonProvDiscoveryNoListing => {
             "This provider protocol has no supported model listing; enter the model manually".into()
         }
@@ -3322,43 +3099,9 @@ fn plugin_reload_summary(loaded: usize, skipped: usize, show_details_hint: bool)
 }
 
 #[cfg(test)]
-mod codingplan_crypto_tests {
+mod message_text_tests {
     use super::*;
     use crate::i18n::Msg;
-
-    #[test]
-    fn en_official_build_required_guides_byo_or_distribution() {
-        // Neutral fork: no "official releases" host. The message must still point
-        // the user at a resolution -- a third-party BYO provider, or a distribution
-        // that ships the managed-signing capability.
-        let s = en(Msg::CpOfficialBuildRequired);
-        assert!(s.contains("bring your own key"));
-        assert!(s.contains("distribution"));
-    }
-
-    #[test]
-    fn en_stale_clock_mentions_system_time() {
-        let s = en(Msg::CpSignStaleClockSkew);
-        assert!(s.to_lowercase().contains("clock") || s.to_lowercase().contains("time"));
-    }
-
-    #[test]
-    fn en_replay_persisted_is_non_empty() {
-        let s = en(Msg::CpSignReplayPersisted);
-        assert!(!s.is_empty());
-    }
-
-    #[test]
-    fn en_version_too_old_mentions_upgrade() {
-        let s = en(Msg::CpSignVersionTooOld);
-        assert!(s.to_lowercase().contains("upgrade") || s.to_lowercase().contains("update"));
-    }
-
-    #[test]
-    fn en_upgrade_required_is_non_empty() {
-        let s = en(Msg::CpUpgradeRequired);
-        assert!(!s.is_empty());
-    }
 
     #[test]
     fn en_conhost_scroll_hint_recommends_windows_terminal() {
