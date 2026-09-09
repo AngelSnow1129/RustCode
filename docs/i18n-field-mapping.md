@@ -37,6 +37,9 @@ pub enum Msg<'a> {
 }
 ```
 
+> 注：上例中 Cp 前缀的 CodingPlan 模块变体已于 2026-09-09 随 codingplan 整体退役，i18n 目录里
+> 不再有该族变体；这里保留仅为演示「模块前缀 + PascalCase」的命名形状，新增变体请用现存模块前缀。
+
 ### WebUI 端(`MsgKey` 字符串)
 
 ```typescript
@@ -82,7 +85,7 @@ gear.provider=Provider
 | 类别 | 术语 | 说明 |
 |------|------|------|
 | 产品名 | RustCode, Claude, Anthropic, Codex | 品牌名保持原文 |
-| 模块名 | Provider, CodingPlan, Skill, MCP | 功能专有名词 |
+| 模块名 | Provider, Skill, MCP | 功能专有名词 |
 | 技术标识 | API key, Base URL, token, model | 技术术语 |
 | 命令 | `--provider`, `--model`, `/login` | CLI 参数/斜杠命令 |
 

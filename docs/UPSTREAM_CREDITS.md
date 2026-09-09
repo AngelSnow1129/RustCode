@@ -33,7 +33,9 @@ not remove or alter the upstream notice on inherited code.
 3. **LLM provider decoupling (OBJECTIVE-3):** the `LlmProvider` adapter layer
    was fully decoupled from any platform-specific request-signing gateway.
    Gateway detection is now platform-neutral — no host is treated as a signing
-   gateway unless an operator explicitly configures `RUSTCODE_CODINGPLAN_LLM_BASE_URL`.
+   gateway at all: the managed-gateway layer, its detector, and the former
+   `RUSTCODE_CODINGPLAN_LLM_BASE_URL` escape hatch were removed on 2026-09-09,
+   so every provider uses plain bearer authentication.
    Self-hosted configuration was extended with `extra_headers`, `proxy`,
    `model_mapping`, per-provider `timeout`, and explicit `openai-compatible` /
    `anthropic-compatible` provider types. Users can bring any model with zero

@@ -9,7 +9,7 @@
 //!
 //! Scope note: this is the TAXONOMY, not a rewrite. The existing adapter error
 //! construction (including the shared [`super::friendly_http_error`] wording --
-//! the 401/402 headlines, the CodingPlan 403 hint, and the literal `HTTP 429: `
+//! the 401/402 headlines, the managed-plan 403 hint, and the literal `HTTP 429: `
 //! prefix the kernel rate-limit path strips) is load-bearing and stays exactly
 //! as-is.
 //! New code converts THROUGH [`LlmError`]; the existing sites are migrated

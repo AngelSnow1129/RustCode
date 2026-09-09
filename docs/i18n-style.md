@@ -37,7 +37,7 @@
 | 类别 | 示例 |
 |------|------|
 | 产品名 / 品牌名 | RustCode、Claude、Anthropic |
-| 功能模块专有名词 | Provider、CodingPlan、Skill |
+| 功能模块专有名词 | Provider、Skill、MCP |
 | 技术标识符 | API key、Base URL、model name、token |
 | 命令 / CLI 参数 | `--provider`、`--model` |
 
@@ -47,6 +47,9 @@
 使用 CodingPlan 配置你的工作流。       ← 正确
 使用CodingPlan配置你的工作流。         ← 错误，缺少空格
 ```
+
+> 注：上例只示范半角空格规则，其中的 CodingPlan 是已于 2026-09-09 退役的旧模块名，
+> 新写文档时请换用现存术语（如 Provider、Skill、MCP）。
 
 ---
 

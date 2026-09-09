@@ -59,7 +59,7 @@ impl ImagePreprocessor for VlImagePreprocessor {
         else {
             return (UserInput { text, images }, None);
         };
-        // Resolve through the boundary so a new-schema / folded-CodingPlan VL
+        // Resolve through the boundary so a new-schema / folded managed-plan VL
         // selection (no longer in `config.providers`) still resolves. Absent ⇒
         // Failed (mirror the retired core `maybe_preprocess`): fold the failure
         // marker + clear the images so raw bytes never reach a text-only model.

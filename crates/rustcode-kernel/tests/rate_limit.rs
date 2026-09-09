@@ -310,8 +310,8 @@ async fn empty_mid_stream_429_uses_one_turn_owned_fuse() {
 //    is retried SILENTLY (no banner) so a momentary burst does not spam the UI. ──
 
 /// A host that offers NO rate-limit opinion, so the kernel uses its `from_hint`
-/// fallback -- the exact path a generic gateway 429 (no CodingPlan window data)
-/// takes. `on_rate_limit` defaults to `None`.
+/// fallback -- the exact path a generic gateway 429 (no managed plan-quota
+/// window data) takes. `on_rate_limit` defaults to `None`.
 struct NoVerdictHook;
 
 #[async_trait]
@@ -367,8 +367,9 @@ async fn first_fallback_429_retries_silently_without_banner() {
 #[tokio::test]
 async fn host_verdict_429_still_surfaces_banner_on_first_occurrence() {
     // Quiet-first is scoped to the from_hint FALLBACK. When a host supplies a
-    // verdict (e.g. CodingPlan window data), its WaitAndRetry must STILL surface
-    // the banner on the first occurrence -- the quiet path must not swallow it.
+    // verdict (e.g. managed plan-quota window data), its WaitAndRetry must STILL
+    // surface the banner on the first occurrence -- the quiet path must not
+    // swallow it.
     let provider = Arc::new(Once429Provider::new());
     let hook = Arc::new(ScriptedRateLimitHook::new(
         RateLimitDecision::WaitAndRetry { secs: 0 },

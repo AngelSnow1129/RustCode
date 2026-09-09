@@ -149,8 +149,8 @@ const MAX_RATE_LIMIT_WAITS: u32 = 5;
 /// limit re-trips on the retry and surfaces normally from the SECOND wait onward
 /// (escalating countdown + `MAX_RATE_LIMIT_WAITS` fuse). Mirrors opencode's silent
 /// low-level retries before it shows a retry status. Only the FALLBACK path is
-/// affected: a host-supplied verdict (CodingPlan window) or a server `Retry-After`
-/// is always honoured and surfaced.
+/// affected: a host-supplied verdict (managed plan-quota window) or a server
+/// `Retry-After` is always honoured and surfaced.
 const SILENT_FIRST_RATE_LIMIT_RETRY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// How many times the agent loop re-issues a round after the provider returns a

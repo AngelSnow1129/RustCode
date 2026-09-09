@@ -723,6 +723,9 @@ rustcode-daemon/
     └── api_codingplan.rs  # CodingPlan 初始化接口（#[cfg(feature = "codingplan")] 门控，开源默认构建不编译）
 ```
 
+> 注：上面目录树最后一行的 api_codingplan.rs 已于 2026-09-09 随 codingplan 一并删除，源码树中
+> 不再有该文件，也不再有 codingplan Cargo feature；此处保留仅为与历史文档对照。
+
 ## 配置文件
 
 daemon 使用以下配置文件（位于 `~/.rustcode/` 目录）：

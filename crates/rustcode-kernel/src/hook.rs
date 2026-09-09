@@ -89,9 +89,9 @@ impl Continuation {
     }
 }
 
-/// What the kernel knows about a 429 at the moment it fires. CodingPlan usage is
-/// product-layer state outside the neutral kernel, so this carries only the
-/// kernel's best-effort signal: the status and any
+/// What the kernel knows about a 429 at the moment it fires. Managed plan-quota
+/// window usage is product-layer state outside the neutral kernel, so this
+/// carries only the kernel's best-effort signal: the status and any
 /// `Retry-After`-style seconds parsed from the error text.
 #[derive(Debug, Clone)]
 pub struct RateLimitHint {
@@ -121,9 +121,9 @@ pub enum RateLimitDecision {
 }
 
 impl RateLimitDecision {
-    /// Conservative fallback when NO host hook supplies a verdict (non-CodingPlan,
-    /// or usage data unavailable): wait only if the kernel's own hint says the
-    /// reset is imminent, otherwise pause with whatever little we know.
+    /// Conservative fallback when NO host hook supplies a verdict (no managed
+    /// plan quota, or usage data unavailable): wait only if the kernel's own hint
+    /// says the reset is imminent, otherwise pause with whatever little we know.
     pub fn from_hint(hint: &RateLimitHint) -> Self {
         let jitter = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

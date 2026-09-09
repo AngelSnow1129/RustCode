@@ -36,10 +36,11 @@ RustCode 是上游项目的二次开发 fork。中立化的目标是:
   - 代码:`headless_missing_provider_message()`(`crates/rustcode-cli/src/main.rs:2789`)
   - 测试:`headless_missing_provider_message_fires_only_without_resolved_model`
     (`crates/rustcode-cli/src/main.rs:5081`)
-- **[DONE] 签名网关仅显式 env 识别**:`is_codingplan_llm_gateway` 不再硬编码 host,
-  只有操作者显式配置 `RUSTCODE_CODINGPLAN_LLM_BASE_URL` 时才识别为签名网关;其余
-  所有 provider 走纯 `bearer_auth(api_key)`。装配说明见
-  `crates/rustcode-codingplan/src/setup.rs:52`。
+- **[SUPERSEDED 2026-09-09] 签名网关识别整体删除**:识别器 `is_codingplan_llm_gateway`
+  与其唯一开关 `RUSTCODE_CODINGPLAN_LLM_BASE_URL` 已随 codingplan 一并删除 —— 现在没有任何
+  base_url 会被判为签名网关,所有 provider 一律走纯 `bearer_auth(api_key)`,该环境变量设置后
+  被直接忽略、不报错。原装配说明所在的
+  `crates/rustcode-codingplan/src/setup.rs:52` 连同整个 crate 已不存在,此路径仅作历史指引。
 - **[DONE] 预设顺序中立**:厂商预设原先把某商业 token 转售商放在索引 0,TUI 的
   `preset_idx_by_id` 防御性 fallback(`unwrap_or(0)`)也会落到它。现把两个中立的
   `*-compatible` 自带端点预设移到注册表最前(索引 0 = `OPENAI_COMPATIBLE`),厂商
@@ -235,7 +236,7 @@ G8  docs/architecture.md 无 atomcode 残留
 | 功能 | 位置 |
 |------|------|
 | headless 无 provider 预检 | `crates/rustcode-cli/src/main.rs:2789` |
-| 签名网关 env 识别(已于 2026-09-09 移除) | `crates/rustcode-codingplan/src/setup.rs:52` |
+| 签名网关 env 识别(已于 2026-09-09 移除,以下路径与 crate 均已不存在,仅作历史指引) | `crates/rustcode-codingplan/src/setup.rs:52` |
 | provider 预设注册表 / 中立顺序 | `crates/rustcode-config/src/config/provider_preset.rs:98` |
 | TUI 预设 fallback | `crates/rustcode-tuix/src/modals/provider_panel.rs:71` |
 | TUI 字形降级 | `crates/rustcode-tuix/src/glyph.rs:77` |

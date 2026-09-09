@@ -490,10 +490,10 @@ pub enum AgentEvent {
         auto_resuming: bool,
         /// The provider's OWN 429 message (already extracted, no `HTTP ...:` prefix),
         /// when the 429 carried an actionable body -- e.g. a user's external model
-        /// replying `余额不足或无可用资源包,请充值`. `None` for CodingPlan-window
+        /// replying `余额不足或无可用资源包,请充值`. `None` for managed plan-quota
         /// pauses (they carry `reset_*` instead) and for auto-retry. A driver surfaces
-        /// it ONLY on the generic (non-CodingPlan) pause so an external-model 429 shows
-        /// its real reason instead of a bare "HTTP 429".
+        /// it ONLY on the generic pause (no managed plan quota) so an external-model
+        /// 429 shows its real reason instead of a bare "HTTP 429".
         #[serde(default)]
         server_message: Option<String>,
     },

@@ -238,8 +238,9 @@ crates/rustcode-agent-api/
 
 - provider 层已有 `retry_max_attempts` (OpenAI/Anthropic 适配器)。
 - task 层额外: 收到 429 时退避重排回 `pending` (借用 `RateLimitWindowSource`
-  的 `seconds_until_reset` 信息, 来自 `runtime_host.rs` 的 `CodingPlanRateLimitSource`),
-  避免雪崩。
+  的 `seconds_until_reset` 信息), 避免雪崩。原先提供该信息的
+  `runtime_host.rs` 的 `CodingPlanRateLimitSource` 已于 2026-09-09 随 codingplan 一并删除,
+  落地时需另接中性来源(如 provider 返回的 Retry-After)。
 
 ### 8.3 task 超时
 

@@ -65,8 +65,8 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
                     rustcode-codingplan / rustcode-codingplan-crypto
 ```
 
-- 工作区 `members = ["crates/*"]`（13 个目录），`default-members` 为 cli / daemon / tuix。
-- `rustcode-codingplan-crypto` 是闭源签名占位桩，默认成员外，官方构建用 `--features rustcode/codingplan-crypto`。
+- 工作区 `members = ["crates/*"]`（原 13 个目录；codingplan 两个 crate 删除后为 11 个），`default-members` 为 cli / daemon / tuix。
+- `rustcode-codingplan-crypto` 曾是闭源签名占位桩（默认成员外，官方构建用 `--features rustcode/codingplan-crypto` 开启）；该 crate 与上图 leaf 行的 rustcode-codingplan 已于 2026-09-09 按用户裁决 Q1=B 一并删除，工作区不再包含这两个成员，该 feature 也不存在。
 - 依赖只向下；`rustcode-capabilities` 禁止反向依赖 coding / driver / 前端（编译期强制）。
 
 ### 1.2 出站网络交互入口清单（实测）
@@ -82,11 +82,11 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 | `capabilities/src/provider/anthropic.rs:150` | async | [否] | 自建 UA/代理 |
 | `capabilities/src/provider/ollama.rs:110` | async | [否] | 自建 |
 | `rustcode-auth/src/oauth.rs:116,120` | **blocking** | [否] | 有自己的 `apply_blocking_proxy_policy`；**已确认**在独立 `std::thread` 上调用（`tuix/src/event_loop/oauth_poll.rs:67`），未污染 tokio worker |
-| `rustcode-codingplan/src/client.rs:103` | **blocking** | [否] | 含 TLS 1.2 强制降级逻辑，同步登录流程 |
+| `rustcode-codingplan/src/client.rs:103` | **blocking** | [否] | 已于 2026-09-09 随 codingplan 一并删除（原为含 TLS 1.2 强制降级逻辑的同步登录流程），该自建 blocking client 已归零 |
 | `rustcode-tuix/src/version_check.rs:77` | async | [否] | 自建 builder + `apply_async_proxy_policy`；是**升级检查**不是埋点 |
 | `rustcode-updater/src/lib.rs` | async | [否] | 30s / 600s 超时是刻意设计 |
 
-**[CHECK] 结论**：异步出站面的 7 个入口中 4 个已收敛；剩余 3 个 LLM 适配器是**已决策不动**的已验证热路径。同步面（auth / codingplan）与 `version_check` / `updater` 保持现状。全仓 `reqwest::Client::new()` 仅剩测试代码与注释。
+**[CHECK] 结论**：异步出站面的 7 个入口中 4 个已收敛；剩余 3 个 LLM 适配器是**已决策不动**的已验证热路径。同步面（auth；codingplan 一侧已于 2026-09-09 整体删除）与 `version_check` / `updater` 保持现状。全仓 `reqwest::Client::new()` 仅剩测试代码与注释。
 
 ### 1.3 依赖侧核验（TIP-2）
 
