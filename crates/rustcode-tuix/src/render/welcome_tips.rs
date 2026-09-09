@@ -1,6 +1,5 @@
 //! Curated, usage-informed pool of "getting started" tips for the welcome banner.
-//! One tip is pinned first (BYO `/provider` in a neutral build, `/login` in a
-//! managed distribution that ships sign-in); 3 more are chosen at random from
+//! One tip is pinned first (BYO `/provider`); 3 more are chosen at random from
 //! `POOL`, with the pinned command excluded so it never repeats.
 //! The pool is a hand-edited const, refreshed per release from the usage dashboard.
 
@@ -14,28 +13,13 @@ pub struct Tip {
     pub desc: Msg<'static>,
 }
 
-/// Managed sign-in tip -- only meaningful when a platform server is configured.
-pub const LOGIN_TIP: Tip = Tip {
-    cmd: "/login",
-    desc: Msg::WelcomeTipLogin,
-};
-
-/// The pinned first tip for the running build. `/login` (managed sign-in) leads when a
-/// platform server is configured; otherwise `/provider` leads, because a neutral build
-/// ships no managed service and `/login` fail-closes -- so the bring-your-own-key setup
-/// is the real first step and must not be hidden behind a dead-end sign-in tip.
+/// The pinned first tip: bring-your-own-key `/provider`. Managed sign-in
+/// (`/login`) and its welcome tip are gone, so the BYO setup step is the real
+/// first step in every build -- there is no sign-in tip to lead with.
 fn pinned() -> Tip {
-    // Single-source the predicate: the onboarding wizard delegates to
-    // `rustcode_auth::managed_login_available()` (RAW server value, trimmed).
-    // Reading `platform_server()` directly here drifted from that (no trim);
-    // the divergence was unreachable but defense-in-depth wants one gate.
-    if crate::modals::onboarding_wizard::managed_login_available() {
-        LOGIN_TIP
-    } else {
-        Tip {
-            cmd: "/provider",
-            desc: Msg::WelcomeTipProvider,
-        }
+    Tip {
+        cmd: "/provider",
+        desc: Msg::WelcomeTipProvider,
     }
 }
 
@@ -172,13 +156,6 @@ mod tests {
         let t = choose_tips(&mut fixed(1));
         assert_eq!(t[0], pinned());
         assert_eq!(t[0].cmd, "/provider");
-    }
-
-    #[test]
-    fn login_tip_is_managed_only() {
-        // The /login tip exists for managed builds but is never the neutral default.
-        assert_eq!(LOGIN_TIP.cmd, "/login");
-        assert_ne!(pinned().cmd, "/login");
     }
 
     #[test]

@@ -9364,23 +9364,13 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
         // OnboardingWizard's Modal impl owns the per-step box drawing.
         use crate::modals::Modal;
         renderer.clear_screen();
-        // Which onboarding flow first launch opens depends on whether a
-        // managed platform server is configured:
-        //
-        //  * Managed build -- jump straight to the single-page QR + URL sign-in.
-        //    The user scans / opens the link and resumes with Esc once the
-        //    browser flow is done; there is no background poll thread.
-        //  * Neutral build -- `start_login()` has no platform server to target
-        //    and only errors, so the QR screen would dead-end the user on a
-        //    sign-in pitch they can never complete.
-        //    Open the full Intro -> Language -> Setup wizard instead; its Setup
-        //    step leads with the bring-your-own-key /provider path and never
-        //    shows the Login row.
-        let wizard = if crate::modals::onboarding_wizard::managed_login_available() {
-            crate::modals::OnboardingWizard::new_qr_fast_path()
-        } else {
-            crate::modals::OnboardingWizard::new()
-        };
+        // First launch always opens the full Intro -> Language -> Setup
+        // wizard. The managed build used to branch to a single-page QR
+        // + URL sign-in screen here, but the only flow that could
+        // complete that QR handshake is deleted, so the branch would
+        // paint a QR code the user can never finish. Setup leads with
+        // the bring-your-own-key /provider path instead.
+        let wizard = crate::modals::OnboardingWizard::new();
         wizard.draw(&app.buf, &app.state, &ctx, renderer);
         app.active_modal = Some(Box::new(wizard));
     } else {
