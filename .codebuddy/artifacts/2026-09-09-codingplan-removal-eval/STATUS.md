@@ -172,3 +172,24 @@
 
 | **P5 / T-18'** | **本会话（编排者 OPT 轮）** | `daemon/src/api_provider.rs`、`api_config.rs`、`main.rs`、`runtime_host.rs`、`lib.rs`；`clix/src/main.rs`（仅 2 处，并入本任务） | 2026-09-09 |
 | **P5 / T-19** | **本会话（编排者 OPT 轮）** | `tuix/src/modals/provider_panel.rs`（17 处） | 2026-09-09 |
+
+## P9 终验结果（2026-09-09，编排者 OPT 轮执行）
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 编译 | `cargo check --workspace --all-targets` | **exit 0** |
+| 格式 | `cargo fmt --check` | exit 0 |
+| 全量测试 | `cargo test -j 1 --workspace --no-fail-fast` | exit 101；**2 failed** |
+| 失败 1 | `mcp::registry::tests::trust_key_golden_matches_core_algorithm` | 已知红（铁律禁改，基线即红） |
+| 失败 2 | `plugin::marketplace::tests::git_runs_rejects_present_but_failing_stub` | **环境依赖抖动**：`crates/rustcode-capabilities/src/plugin/marketplace.rs` 自基线 `e80fb7ae` **零改动**（`git diff --stat e80fb7ae HEAD --` 为空），panic 为 "a binary whose --version succeeds must count as git"，判定非本次回归，**待复验** |
+| AC-4 | 7 条 feature/package 不存在断言 | **全部通过**（措辞为 `does not contain this feature` / `cannot specify features for packages outside of workspace`） |
+| AC-6 | `grep -rniI codingplan crates/ --include=*.rs --include=*.toml` | **7 行，全部白名单**（`uninstall/paths.rs` 2、`main.rs` completion 断言 2、`provider/mod.rs` 403 匹配串 1、`openai_compat.rs` 夹具 2） |
+| AC-13 | `grep -n rustcode-codingplan Cargo.lock` | **0** |
+| 门禁 | `python3 scripts/check-zh-docs.py gate` | **exit 0** |
+
+**遗留白名单（非 rs/toml 口径）**：`README.md` 1 处、`crates/rustcode-daemon/README.md` 9 处均为
+「已于 2026-09-09 移除」的历史对照段落（AC-12 例外登记）；`AGENTS.md` 82 处均为 `[SUPERSEDED]` / 已移除标注。
+
+**提交序列**：`877cee1a`（P2+F）→ `ea16dc88` → `d9a85069`（P3）→ `96225871`（P4）→ `9e5e89aa`/`3c6df312`（P5）
+→ `1fcf860a`（P6）→ `d7d72640`（T-23）→ `da3ee382`（P7/P8）。其中 `ea16dc88`/`3c6df312`/`1fcf860a`/`d7d72640`
+由并行编排会话提交，本会话与并行会话曾双向接手被中断的批次。
