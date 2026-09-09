@@ -280,178 +280,65 @@ pub(super) fn git_command(git: &Path) -> Command {
     cmd
 }
 
-/// Build the `Authorization: Basic` header value from credentials. Pure
-/// (creds passed in) so it's unit-testable without touching auth.toml.
-fn basic_auth_header(username: &str, token: &str) -> String {
-    use base64::Engine;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", username, token));
-    format!("Authorization: Basic {}", b64)
-}
-
-/// `-c` value scoping the auth header to this repo's host only, so git won't
-/// send it on a cross-host redirect. git matches `http.<base-url>.*` by URL
-/// prefix; we scope to `scheme://host` (no path). Falls back to the full URL
-/// if it can't be parsed (caller only reaches here for trusted hosts).
-fn extra_header_config(url: &str, header: &str) -> String {
-    let base = super::url::scheme_host_prefix(url).unwrap_or_else(|| url.to_string());
-    format!("http.{}.extraHeader={}", base, header)
-}
-
-/// Fetch (username, fresh access token) from the stored login, refreshing the
-/// token if expired. None when not logged in or refresh fails.
-fn live_credentials() -> Option<(String, String)> {
-    let auth = rustcode_auth::get_stored_auth()?;
-    let token = rustcode_auth::get_valid_token().ok()?;
-    if token.is_empty() {
-        return None;
-    }
-    Some((auth.user.username, token))
-}
-
-/// If `url` is a trusted-host repo and we're logged in, return the
-/// `["-c", "http.<host>.extraHeader=Authorization: Basic ..."]` args to inject
-/// on an authenticated clone/pull retry. Centralizes host-gate + cred fetch +
-/// per-URL scoping. None -> caller must NOT inject the token.
-pub(super) fn auth_retry_args(url: &str) -> Option<[String; 2]> {
-    if !super::url::host_is_trusted(url) {
-        return None;
-    }
-    let (username, token) = live_credentials()?;
-    let header = basic_auth_header(&username, &token);
-    Some(["-c".to_string(), extra_header_config(url, &header)])
-}
-
-/// Run `git clone ...` built by `add_args`, anonymously first. If it fails with
-/// an auth error on a trusted-host repo while logged in, wipe the partial
-/// `target` and retry once with the per-URL auth header injected. `add_args`
-/// must append the full `clone ... <url> <target>` arguments and is called fresh
-/// per attempt. `target` is passed so the failed-attempt dir can be removed
-/// before the authenticated retry (git refuses to clone into a non-empty dir).
-/// User-facing error when an auth failure could NOT be resolved automatically
-/// (no credential was injected). Tailors the hint to the cause so a logged-in
-/// user with a dead token isn't told "just log in" as if they hadn't:
-/// - untrusted host -> SSH / configure git creds (the platform token is never
-///   sent to non-allowlisted hosts, so /login wouldn't help);
-/// - neutral build (no managed service), regardless of host -> same SSH / git
-///   creds guidance, since there is no service to log into;
-/// - trusted host + a stored login present (token expired AND refresh failed) ->
-///   re-login;
-/// - trusted host + not logged in -> /login (auto-creds) or SSH.
-/// Tail clause for "the authenticated retry still failed" errors. A neutral
-/// build can hold a stale `auth.toml` from a former distribution install, so
-/// pitching `/login` there is a dead end -- point at SSH / git creds instead.
-fn relogin_hint() -> std::borrow::Cow<'static, str> {
-    if rustcode_auth::managed_login_available() {
-        t(Msg::PluginReloginHintManaged)
-    } else {
-        t(Msg::PluginReloginHintNeutral)
-    }
-}
-
 /// `verb` is the localized clone/update verb. Shared by clone + pull so the
 /// wording can't drift.
+///
+/// Downloads are unauthenticated: no credential is injected for ANY host, so
+/// signing in can no longer unlock a private repository -- not even on a
+/// trusted platform host. Every host therefore gets the SSH / local git
+/// credentials guidance; a trusted host additionally gets the "no managed
+/// sign-in service" note so the removal isn't mistaken for a broken login.
 fn auth_required_message(verb: &str, url: &str, stderr: &str) -> String {
     let stderr = stderr.trim();
-    // Untrusted host: the platform token is never sent to non-allowlisted
-    // hosts, so /login could not help. Same guidance applies in a neutral
-    // build: there is no managed service to log into even for trusted hosts.
-    if !super::url::host_is_trusted(url) || !rustcode_auth::managed_login_available() {
-        return t(Msg::PluginGitAuthUntrusted { verb, stderr }).into_owned();
+    let hint = t(Msg::PluginGitAuthUntrusted { verb, stderr }).into_owned();
+    if !super::url::host_is_trusted(url) {
+        return hint;
     }
-    if rustcode_auth::get_stored_auth().is_some() {
-        t(Msg::PluginGitAuthExpired { verb, stderr }).into_owned()
-    } else {
-        t(Msg::PluginGitAuthLoginRequired { verb, stderr }).into_owned()
-    }
+    format!("{}\n{}", hint, t(Msg::PluginReloginHintNeutral))
 }
 
+/// Run `git clone ...` built by `add_args`, unauthenticated: no credential is
+/// ever injected (the platform token was removed), so a private remote fails
+/// fast instead of blocking on a tty prompt (see [`git_command`]). `add_args`
+/// must append the full `clone ... <url> <target>` arguments. `_target` is the
+/// destination the caller already appends via `add_args`; it stays in the
+/// signature so the installer call sites keep one symmetric argument list.
 pub(super) fn clone_with_optional_auth(
     git: &Path,
     url: &str,
-    target: &Path,
+    _target: &Path,
     add_args: impl Fn(&mut Command),
 ) -> Result<()> {
-    let run = |extra: Option<&[String]>| -> Result<std::process::Output> {
-        let mut cmd = git_command(git);
-        if let Some(e) = extra {
-            cmd.args(e);
-        }
-        add_args(&mut cmd);
-        cmd.output().context("spawn git clone")
-    };
-
-    let out = run(None)?;
+    let mut cmd = git_command(git);
+    add_args(&mut cmd);
+    let out = cmd.output().context("spawn git clone")?;
     if out.status.success() {
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&out.stderr);
 
     if is_git_auth_failure(&stderr) {
-        if let Some(cargs) = auth_retry_args(url) {
-            if target.exists() {
-                std::fs::remove_dir_all(target).ok();
-            }
-            let out2 = run(Some(&cargs))?;
-            if out2.status.success() {
-                return Ok(());
-            }
-            let verb = t(Msg::PluginVerbClone);
-            let hint = relogin_hint();
-            let stderr2 = String::from_utf8_lossy(&out2.stderr);
-            let stderr2 = stderr2.trim();
-            bail!(
-                "{}",
-                t(Msg::PluginGitAuthRetryFailed {
-                    verb: &verb,
-                    hint: &hint,
-                    stderr: stderr2,
-                })
-            );
-        }
         let verb = t(Msg::PluginVerbClone);
         bail!("{}", auth_required_message(&verb, url, &stderr));
     }
     bail!("{}", t(Msg::PluginGitCloneFailed { stderr: &stderr }));
 }
 
-/// `git pull --ff-only` in `repo`, anonymously first; on auth failure for a
-/// trusted-host `source_url` while logged in, retry once with the injected
-/// header. Symmetric with `clone_with_optional_auth` for the update path.
+/// `git pull --ff-only` in `repo`, unauthenticated: no credential is ever
+/// injected, so an auth failure surfaces the SSH / git-credentials hint.
+/// Symmetric with `clone_with_optional_auth` for the update path.
 pub(super) fn git_pull_ff(repo: &Path, source_url: &str) -> Result<()> {
     let git = find_git()?;
-    let run = |extra: Option<&[String]>| -> Result<std::process::Output> {
-        let mut cmd = git_command(&git);
-        if let Some(e) = extra {
-            cmd.args(e);
-        }
-        cmd.args(["pull", "--ff-only"]).current_dir(repo);
-        cmd.output().context("spawn git pull")
-    };
-
-    let out = run(None)?;
+    let out = git_command(&git)
+        .args(["pull", "--ff-only"])
+        .current_dir(repo)
+        .output()
+        .context("spawn git pull")?;
     if out.status.success() {
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&out.stderr);
     if is_git_auth_failure(&stderr) {
-        if let Some(cargs) = auth_retry_args(source_url) {
-            let out2 = run(Some(&cargs))?;
-            if out2.status.success() {
-                return Ok(());
-            }
-            let verb = t(Msg::PluginVerbUpdate);
-            let hint = relogin_hint();
-            let stderr2 = String::from_utf8_lossy(&out2.stderr);
-            let stderr2 = stderr2.trim();
-            bail!(
-                "{}",
-                t(Msg::PluginGitAuthRetryFailed {
-                    verb: &verb,
-                    hint: &hint,
-                    stderr: stderr2,
-                })
-            );
-        }
         let verb = t(Msg::PluginVerbUpdate);
         bail!("{}", auth_required_message(&verb, source_url, &stderr));
     }
@@ -691,41 +578,6 @@ mod tests {
     }
 
     #[test]
-    fn basic_auth_header_encodes_user_colon_token() {
-        // base64("alice:tok123") = "YWxpY2U6dG9rMTIz"
-        assert_eq!(
-            basic_auth_header("alice", "tok123"),
-            "Authorization: Basic YWxpY2U6dG9rMTIz"
-        );
-    }
-
-    #[test]
-    fn extra_header_config_is_scoped_to_host() {
-        let cfg = extra_header_config(
-            "https://example.com/owner/repo.git",
-            "Authorization: Basic XYZ",
-        );
-        assert_eq!(
-            cfg,
-            "http.https://example.com.extraHeader=Authorization: Basic XYZ"
-        );
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn auth_retry_args_none_when_untrusted_host() {
-        // github.com 非白名单 -> 永不注入 token，即使已登录
-        assert!(auth_retry_args("https://github.com/owner/repo").is_none());
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn auth_retry_args_none_when_not_logged_in() {
-        let _home = isolated_home(); // 无 auth.toml
-        assert!(auth_retry_args("https://example.com/owner/repo").is_none());
-    }
-
-    #[test]
     #[serial_test::serial]
     fn auth_required_message_untrusted_host_suggests_ssh_not_login() {
         // Platform token is never sent to non-allowlisted hosts, so /login
@@ -739,106 +591,6 @@ mod tests {
         assert!(
             !m.contains("/login"),
             "must not suggest /login for untrusted host: {m}"
-        );
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn auth_required_message_trusted_not_logged_in_suggests_login() {
-        let _home = isolated_home(); // no auth.toml under the temp RUSTCODE_HOME
-        let Some(domain) = rustcode_config::endpoints::trusted_domains().first() else {
-            return; // no trusted domain configured -- this branch is unreachable
-        };
-        let url = format!("https://{domain}/o/r");
-        let m = auth_required_message(&t(Msg::PluginVerbClone), &url, "fatal: auth");
-        assert!(
-            m.contains("/login"),
-            "trusted host + not logged in should guide to /login: {m}"
-        );
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn auth_required_message_neutral_build_never_pitches_login() {
-        // Open build: no managed service, so even a trusted-host auth failure
-        // must not dead-end at /login -- the SSH/git-creds path is the only one
-        // that can work. Distribution builds skip this (their wording does pitch
-        // /login for trusted hosts).
-        if rustcode_auth::managed_login_available() {
-            return;
-        }
-        for url in ["https://github.com/o/r", "https://git.example.com/o/r"] {
-            let m = auth_required_message(&t(Msg::PluginVerbClone), url, "fatal: auth");
-            assert!(
-                !m.contains("/login"),
-                "neutral build pitched /login for {url}: {m}"
-            );
-            assert!(
-                m.contains("SSH"),
-                "neutral hint must offer the SSH path: {m}"
-            );
-        }
-        let h = relogin_hint();
-        assert!(!h.contains("/login"), "neutral relogin hint: {h}");
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn auth_required_message_trusted_logged_in_says_session_expired() {
-        // Logged in (auth.toml present) but no usable token (expired + refresh
-        // failed) -> must say the session expired, not "just log in" as if the
-        // user never had. RUSTCODE_HOME is isolated, so this writes to a
-        // tempdir, never the real ~/.rustcode/auth.toml.
-        let _home = isolated_home();
-        let dir = rustcode_config::config::Config::config_dir();
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("auth.toml"),
-            "access_token = \"x\"\ntoken_type = \"Bearer\"\n[user]\nid = \"1\"\nusername = \"alice\"\n",
-        )
-        .unwrap();
-        let Some(domain) = rustcode_config::endpoints::trusted_domains().first() else {
-            return; // no trusted domain configured -- this branch is unreachable
-        };
-        let url = format!("https://{domain}/o/r");
-        let m = auth_required_message(&t(Msg::PluginVerbUpdate), &url, "fatal: auth");
-        assert!(
-            m.contains("登录已过期") || m.contains("重新登录"),
-            "logged-in-but-dead-token should indicate re-login: {m}"
-        );
-    }
-
-    #[test]
-    fn injected_auth_header_is_not_persisted_to_git_config() {
-        // Security invariant lock: we inject the credential via a TOP-LEVEL
-        // `git -c <cfg> clone ...` (one-shot, NOT written to the new repo), never
-        // the clone-option form `git clone -c <cfg> ...` (which git PERSISTS into
-        // the cloned `.git/config` -- a plaintext-token-on-disk leak). Verified
-        // empirically 2026-06-17 that the two forms differ; this test fails if
-        // the arg order ever regresses to the persisting form.
-        let Ok(git) = find_git() else {
-            return; // no git on this machine -- skip
-        };
-        let src = make_bare_repo_with_manifest("persist-src", None);
-        let dst = tempfile::tempdir().unwrap();
-        let clone_dir = dst.path().join("clone");
-        let header = basic_auth_header("alice", "tok-SECRET-123");
-        let cfg = extra_header_config("https://example.com/o/r", &header);
-        // EXACT arg order produced by clone_with_optional_auth's run(Some(..)):
-        // git_command base, then `-c <cfg>`, then the `clone ...` args.
-        let status = git_command(&git)
-            .args(["-c", &cfg, "clone", "--depth", "1"])
-            .arg(&src)
-            .arg(&clone_dir)
-            .status()
-            .expect("spawn git clone");
-        assert!(status.success(), "local clone should succeed");
-        let config = std::fs::read_to_string(clone_dir.join(".git/config")).unwrap();
-        let lc = config.to_lowercase();
-        assert!(
-            !lc.contains("extraheader") && !config.contains("tok-SECRET-123"),
-            "auth header / token must NOT be persisted to .git/config; got:\n{}",
-            config
         );
     }
 

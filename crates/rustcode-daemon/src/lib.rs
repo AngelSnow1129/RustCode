@@ -25,7 +25,6 @@ fn _isolate_rustcode_home() {
     rustcode_kernel::test_support::isolate_home();
 }
 
-mod api_auth;
 mod api_config;
 mod api_provider;
 pub mod approval_mode;
@@ -34,9 +33,6 @@ mod commands;
 pub(crate) mod kernel_runtime;
 pub mod legacy_convert;
 pub mod live_hub;
-mod login_state;
-#[cfg(test)]
-mod login_state_tests;
 pub mod native_live;
 mod runtime_host;
 /// File-sink diagnostic trace (`ctrace!` macro), enabled via `RUSTCODE_TUIX_LOG`.
@@ -81,7 +77,7 @@ use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, request::Parts as RequestParts, HeaderValue, Method, StatusCode},
     response::{sse::Sse, IntoResponse, Json},
-    routing::{delete, get, post},
+    routing::{get, post},
     Router,
 };
 use futures::stream::StreamExt;
@@ -90,7 +86,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, watch, Mutex, RwLock};
+use tokio::sync::{mpsc, watch, RwLock};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -207,11 +203,6 @@ pub(crate) struct ProviderInfo {
     pub ephemeral: bool,
 }
 
-/// Login attempts stay addressable while a blocking poll is in flight. Per-record
-/// synchronization prevents a concurrent poll/cancel from observing false absence.
-pub(crate) type LoginSessionsStore =
-    Arc<RwLock<HashMap<String, Arc<Mutex<login_state::LoginRecord>>>>>;
-
 /// Create a structured JSON error response.
 pub(crate) fn json_error(
     status: StatusCode,
@@ -224,23 +215,6 @@ pub(crate) fn json_error(
             error: message.into(),
             code: None,
             retryable: None,
-        }),
-    )
-}
-
-pub(crate) fn coded_json_error(
-    status: StatusCode,
-    code: impl Into<String>,
-    message: impl Into<String>,
-    retryable: bool,
-) -> (StatusCode, Json<ApiError>) {
-    (
-        status,
-        Json(ApiError {
-            success: false,
-            error: message.into(),
-            code: Some(code.into()),
-            retryable: Some(retryable),
         }),
     )
 }
@@ -607,10 +581,6 @@ pub struct AppState {
     pub mcp_registry: Arc<RwLock<Arc<McpRegistry>>>,
     /// Per-project MCP registry cache (keyed by working_dir)
     pub mcp_cache: Arc<RwLock<HashMap<PathBuf, CachedMcpRegistry>>>,
-    /// In-flight OAuth login sessions (login_id -> entry)
-    pub(crate) login_sessions: LoginSessionsStore,
-    /// Serializes external OAuth attempt creation with capacity accounting.
-    pub(crate) login_start_lock: Arc<Mutex<()>>,
     /// Process-unique generation for invalidating daemon-owned operation IDs.
     pub(crate) daemon_instance_id: Arc<str>,
     /// Sender to trigger graceful shutdown via POST /shutdown (R7.1, R7.2)
@@ -6139,8 +6109,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         active_chats: ActiveChatRegistry::default(),
         mcp_registry: Arc::new(RwLock::new(Arc::new(mcp_registry))),
         mcp_cache: Arc::new(RwLock::new(HashMap::new())),
-        login_sessions: Arc::new(RwLock::new(HashMap::new())),
-        login_start_lock: Arc::new(Mutex::new(())),
         daemon_instance_id: Arc::from(uuid::Uuid::new_v4().to_string()),
         shutdown_tx: shutdown_tx.clone(),
         last_activity: last_activity.clone(),
@@ -6276,15 +6244,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
             "/providers/:name/thinking",
             patch(api_provider::patch_thinking),
         )
-        // Auth API (P0)
-        .route("/auth/status", get(api_auth::auth_status))
-        .route("/auth/login/start", post(api_auth::auth_login_start))
-        .route(
-            "/auth/login/:login_id/poll",
-            post(api_auth::auth_login_poll),
-        )
-        .route("/auth/login/:login_id", delete(api_auth::auth_login_cancel))
-        .route("/auth/logout", post(api_auth::auth_logout))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_token::require_webui_token,
@@ -6420,11 +6379,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
                 Msg::DaemonEpProviderThinking,
             ),
             ("GET", "/skills", Msg::DaemonEpSkills),
-            ("GET", "/auth/status", Msg::DaemonEpAuthStatus),
-            ("POST", "/auth/login/start", Msg::DaemonEpLoginStart),
-            ("POST", "/auth/login/:login_id/poll", Msg::DaemonEpLoginPoll),
-            ("DELETE", "/auth/login/:login_id", Msg::DaemonEpLoginCancel),
-            ("POST", "/auth/logout", Msg::DaemonEpLogout),
         ];
         for (method, path, msg) in ENDPOINTS {
             println!("  {method:<7}{path:<40} - {}", t(*msg));
@@ -7213,8 +7167,6 @@ mod tests {
             active_chats: ActiveChatRegistry::default(),
             mcp_registry: Arc::new(RwLock::new(Arc::new(McpRegistry::new()))),
             mcp_cache: Arc::new(RwLock::new(HashMap::new())),
-            login_sessions: Arc::new(RwLock::new(HashMap::new())),
-            login_start_lock: Arc::new(Mutex::new(())),
             daemon_instance_id: Arc::from("chat-test-instance"),
             shutdown_tx,
             last_activity: Arc::new(std::sync::atomic::AtomicI64::new(now_unix_ms())),
