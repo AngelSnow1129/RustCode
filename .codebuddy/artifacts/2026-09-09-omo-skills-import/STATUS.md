@@ -1,17 +1,17 @@
 # 2026-09-09-omo-skills-import 看板
 
-- 当前阶段：交付（G1–G5 已过，G6 完成）
-- 基线：branch=dev commit=ee96e1e4 worktree=dirty（仅 README.md 改动 + 未跟踪 artifacts 目录，均为本特性产出）
+- 当前阶段：**已完成（CLOSED）** —— 用户裁决 `2026-09-09`：OMO 候选已全部分配（采纳 8 / 延后 1 / 放弃 8），收尾关闭，不再开第三批。
+- 基线：branch=dev commit=d4695013 worktree=clean（仅与本特性无关的未跟踪目录，非本特性产物）
 
 ## 门禁
 
 | 门禁 | 状态 | 依据 |
 | G1 需求 | pass | 用户裁决：不复制 SUL-1.0 原文，按 RustCode 方式重写等价技能；纯运行时导入（零代码） |
 | G2 设计 | pass | 工具映射表冻结（call_omo_agent→task、lsp_diagnostics→bash+cargo check/clippy、background_output→task 直返、session_*→原生会话命令） |
-| G3 开发 | pass | 03-impl/T-01.md |
-| G4 审查 | pass | 静态校验 6/6 + 工具名真实性 13/13 |
-| G5 测试 | pass | 05-test-report.md（72 用例 0 失败） |
-| G6 交付 | pass | 06-release.md + 01-import-plan.md |
+| G3 开发 | pass | 03-impl/T-01.md、T-04.md、T-05.md |
+| G4 审查 | pass | 静态校验全 8 个 + 工具名真实性 13/13 + 16/16 |
+| G5 测试 | pass | 05-test-report.md（72 用例 0 失败）、05-test-report-batch2.md（8 加载 + 49 回归 + 16 工具名 + 4 键名） |
+| G6 交付 | pass | 06-release.md + 01-import-plan.md + 本看板 |
 
 ## 任务
 
@@ -52,11 +52,32 @@ oh-my-openagent 采用 SUL-1.0（非 OSI 开源、不可再许可/不可转让�
   V4 门禁 PASS；V5 LSP 键名 4/4 属实。
 - 已定级 17 个中：采纳并重写 8、需改造后可行 1（data-scientist，本仓无使用场景暂不立项）、放弃 8。
 
-## 遗留
+## 收尾决策（CLOSED）
+
+用户裁决（`2026-09-09`）：OMO 定级方案 17 个技能已全部分配 —— **采纳并重写 8 / 需改造后可行 1（data-scientist，本仓无使用场景，暂不立项）/ 放弃 8**。
+据此**关闭本工作，不再开第三批**。理由：
+- `data-scientist` 方案自评「对本仓库（Rust CLI/TUI/daemon）几乎没有使用场景」，且依赖 `uv`/`numpy`/`DuckDB`/`Polars` 均不在工具集内，只适合做成薄壳；用户裁决不立项。
+- 已放弃的 `coding-agent-sessions` 用户明确不再改写成基于原生 SessionManager 的检索技能。
+- 其余 6 个放弃项（init-deep / ulw-plan / ulw-research / start-work / frontend / visual-qa / ultimate-browsing）分别因与 AGENTS.md 冲突、绑定 OMO 私有工作流、重资产或依赖不存在的浏览器/截图工具，维持放弃。
+
+**已交付的 8 个技能（全部安装到 `~/.rustcode/skills/`，仓库零代码改动）**：
+
+| 技能 | 行数 | 来源骨架 |
+| --- | --- | --- |
+| rustcode-ast-grep | 110 | ast-grep（改写走 search_replace/parallel_edit/bash+sg） |
+| rustcode-debugging | 122 | debugging（lsp_diagnostics → bash+cargo check/clippy/test） |
+| rustcode-refactor | 116 | refactor（先补测试再改，用 task explore 车道） |
+| rustcode-git-master | 134 | git-master（无 git 工具，经 bash，禁自动 push） |
+| rustcode-remove-ai-slops | 133 | remove-ai-slops（对齐 AGENTS.md 禁 Emoji/ASCII 标签） |
+| rustcode-parallel-review | 116 | review-work（与内置 code_review/`/review` 分工，只读不派 worker） |
+| rustcode-lsp-setup | 190 | lsp-setup（LSP config 键名独立核实，规避 migrate_legacy_lsp_default 重置坑） |
+| rustcode-rust-standards | 176 | programming rust 子集（24 条逐项比对 AGENTS.md，冲突以 AGENTS.md 为准） |
+
+## 遗留（收尾后仍有效，非阻塞）
 
 - `lsp` 工具本身未实机验证（需写用户 config + 重启 runtime），本批次不动用户环境。
 - `allowed-tools` 是否被 L2 审批策略消费未确认（`skill.rs:17` 注明为元数据，L1 不强制）。
-- `skills` 是 opt-in Cargo feature（不在 default），验证必须带 `--features skills`。
-- 技能正文对 `AGENTS.md` 的行号引用会随其修订漂移，结构变动时需同步复核。
-- `frontend`（2.9MB / 24 个 CSV）、`programming` 非 rust 子集、`visual-qa` / `ultimate-browsing`
-  均未引入；第三方 vendored 许可链未做法律澄清。
+- `skills` 是 opt-in Cargo feature（不在 default），任何验证必须带 `--features skills`。
+- 技能正文对 `AGENTS.md` 的行号引用、config 键名、运行时结构的引用，会随上游修订漂移，结构变动时需同步复核。
+- 技能能否在 TUI `/` 菜单被正确触发，从 `reload()` 加载成功推定，未跑 runtime 实测；建议后续实机试用后反馈。
+- 未引入项（frontend / programming 非 rust 子集 / visual-qa / ultimate-browsing）的第三方 vendored 许可链未做法律澄清；若未来立项，须先解决。
