@@ -638,9 +638,13 @@ curl -N -X POST http://127.0.0.1:13456/chat \
 
 ---
 
-### CodingPlan（仅发行版本）
+### CodingPlan（已于 2026-09-09 移除）
 
-本节端点用于发行版本提供的托管服务。开源默认构建不内置任何托管端点——请通过上文的 Provider 管理路由（`POST /providers`）或 `~/.rustcode/config.toml` 用你自己的 API Key 配置第三方供应商。`/codingplan/*` 路由位于 `#[cfg(feature = "codingplan")]` 门控之后，在默认构建中根本不参与编译，请求这些路径返回 404。
+本节所述的托管端点已于 2026-09-09 随 codingplan 一并移除：`/codingplan/*` 路由、其
+`#[cfg(feature = "codingplan")]` 门控以及对应的 Cargo feature 均已删除，daemon 不再注册这些
+路径，任何构建请求这些路径都会得到 404。请通过上文的 Provider 管理路由（`POST /providers`）
+或 `~/.rustcode/config.toml` 用你自己的 API Key 配置第三方供应商。以下请求与响应示例仅作为
+历史接口形状留档，不代表当前仍可调用的能力。
 
 #### `POST /codingplan/setup`
 

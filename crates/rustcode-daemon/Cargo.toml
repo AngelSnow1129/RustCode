@@ -14,15 +14,8 @@ path = "src/main.rs"
 
 [features]
 default = []
-# Managed signing-gateway client (CodingPlan sync/usage HTTP routes). OFF by
-# default for the neutral fork; `codingplan-crypto` (the official signed build)
-# pulls it in automatically. Enabling the dep also turns on codingplan's
-# `client` feature -- the gated code below calls its reqwest-backed `Client`.
-codingplan = ["dep:rustcode-codingplan", "rustcode-codingplan/client"]
-codingplan-crypto = ["rustcode-auth/codingplan-crypto", "codingplan"]
 
 [dependencies]
-rustcode-codingplan = { path = "../rustcode-codingplan", optional = true }
 # Config system used directly by the daemon.
 rustcode-config = { path = "../rustcode-config" }
 rustcode-auth = { path = "../rustcode-auth" }

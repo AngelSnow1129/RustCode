@@ -1,5 +1,5 @@
 //! Render a URL as a terminal-friendly QR code for the OAuth login
-//! flow (`/login`, `/codingplan`).
+//! flow (`/login`, third-party provider onboarding).
 //!
 //! Two styles, both Unicode:
 //! * `Dense1x2` (default): 1x2 modules per char using `▀▄█`.

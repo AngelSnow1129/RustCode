@@ -463,7 +463,7 @@ pub trait Renderer: Send {
 
     /// Update the cached welcome banner's model / working_dir fields in
     /// place and trigger a repaint of the banner rows. Used after the
-    /// QR-onboarding `/codingplan` claim finishes: the banner was
+    /// QR-onboarding gateway claim finishes: the banner was
     /// painted at the top of scrollback with `model=""` (the claim
     /// hadn't picked a default provider yet) -- once the claim writes
     /// `ctx.model_name`, this hook splices the resolved model into the
@@ -638,8 +638,8 @@ pub struct StatusLine {
     /// falls back to a bare "12.3k tok" display in that case.
     pub ctx_window: usize,
     /// Right-aligned passive hint with severity. `Warning` renders red
-    /// (no-provider nudge, CodingPlan model-missing); `Info` renders
-    /// muted (upgrade banner, CodingPlan drift notice). None -> no hint.
+    /// (no-provider nudge, managed-gateway model-missing); `Info` renders
+    /// muted (upgrade banner, third-party provider drift notice). None -> no hint.
     pub hint: Option<(String, HintSeverity)>,
     /// Left-aligned mode badge (`ModeBadge`), prepended before `model`.
     /// `None` for the default Build startup so the status row stays clean.

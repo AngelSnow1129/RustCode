@@ -479,7 +479,7 @@ pub fn serialize_patches(patches: &[Patch]) -> Vec<u8> {
         // streams subsequent cells straight to stdout at the wrong physical
         // columns, and the error accumulates across the row — characters
         // from different source cells get smashed into each other's
-        // positions, producing the "RustCodePCodingPlan" / "已添加o4G个"
+        // positions, producing the "RustCodePProvider" / "已添加o4G个"
         // bleed seen on Win11 VSCode pwsh and legacy conhost.
         //
         // Pragmatic fix: keep run-packing for ASCII (which every terminal

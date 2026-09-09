@@ -288,8 +288,8 @@ pub(crate) fn chat_runtime_config(
     provider_name: &str,
     working_dir: &Path,
 ) -> rustcode_coding::CodingRuntimeConfig {
-    // Resolve through the boundary so a new-schema / folded-CodingPlan selection
-    // (which no longer lives in `config.providers`) still builds a runtime.
+    // Resolve through the boundary so a new-schema selection (which no longer
+    // lives in `config.providers`) still builds a runtime.
     let resolved = config.provider_config_for_selection(provider_name);
     let p = resolved.as_ref();
     rustcode_coding::CodingRuntimeConfig {
@@ -2122,7 +2122,7 @@ pub(crate) struct LiveReasoningEffortReq {
 /// 与 /live/provider 同源：持久化进目标 provider 的 `config.reasoning_effort`，
 /// 下一轮 turn 经 `build_turn_parts` -> `create_provider` 自动生效----live 与
 /// /chat 两条路径都现读 config，故两端都会跟随。模型实例必须由配置或内置
-/// CodingPlan 能力声明支持；服务端同时校验取值。
+/// 能力声明支持；服务端同时校验取值。
 pub(crate) async fn live_reasoning_effort(
     State(_state): State<AppState>,
     Json(req): Json<LiveReasoningEffortReq>,

@@ -26,8 +26,6 @@ fn _isolate_rustcode_home() {
 }
 
 mod api_auth;
-#[cfg(feature = "codingplan")]
-mod api_codingplan;
 mod api_config;
 mod api_provider;
 pub mod approval_mode;
@@ -51,8 +49,6 @@ pub use kernel_runtime::{
     spawn_native_runtime_for_session_deferred_with_preprocessor, start_native_runtime,
     start_native_runtime_with_session,
 };
-#[cfg(feature = "codingplan")]
-pub use runtime_host::coding_plan_rate_limit_source;
 pub use runtime_host::{
     coding_provider_factory, gather_plugin_skill_dirs, gather_plugin_skill_dirs_for,
     installed_plugin_hook_source,
@@ -6093,29 +6089,6 @@ pub struct ServerOpts {
 /// bootstrap sequence (config load, MCP registry init,
 /// MCP registry init, `AppState` construction) before binding and serving.
 ///
-/// CodingPlan gateway routes. In a neutral build the `codingplan` feature is off,
-/// the `api_codingplan` module is not compiled, and this returns an empty router,
-/// so no gateway HTTP surface exists.
-#[cfg(feature = "codingplan")]
-fn codingplan_routes() -> axum::Router<AppState> {
-    use axum::routing::{get, post};
-    axum::Router::new()
-        .route("/codingplan/setup", post(api_codingplan::codingplan_setup))
-        .route(
-            "/codingplan/usage/summary",
-            get(api_codingplan::codingplan_usage_summary),
-        )
-        .route(
-            "/codingplan/usage/daily",
-            get(api_codingplan::codingplan_usage_daily),
-        )
-}
-
-#[cfg(not(feature = "codingplan"))]
-fn codingplan_routes() -> axum::Router<AppState> {
-    axum::Router::new()
-}
-
 /// Note: early bootstrap that is process-global (panic hook, Windows console
 /// attach, legacy session migration) is handled by the binary's `main()` before
 /// calling this; see `src/main.rs`.
@@ -6314,8 +6287,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         )
         .route("/auth/login/:login_id", delete(api_auth::auth_login_cancel))
         .route("/auth/logout", post(api_auth::auth_logout))
-        // CodingPlan API (P0) -- only compiled when the platform client feature is on.
-        .merge(codingplan_routes())
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_token::require_webui_token,
@@ -6459,24 +6430,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         ];
         for (method, path, msg) in ENDPOINTS {
             println!("  {method:<7}{path:<40} - {}", t(*msg));
-        }
-        // `/codingplan/*` 路由仅在 `codingplan` feature 下挂载（见
-        // `codingplan_routes()`）；默认构建里这些路径返回 404，横幅不得
-        // 宣传不存在的端点。
-        #[cfg(feature = "codingplan")]
-        {
-            const CP_ENDPOINTS: &[(&str, &str, Msg)] = &[
-                ("POST", "/codingplan/setup", Msg::DaemonEpCpSetup),
-                (
-                    "GET",
-                    "/codingplan/usage/summary",
-                    Msg::DaemonEpCpUsageSummary,
-                ),
-                ("GET", "/codingplan/usage/daily", Msg::DaemonEpCpUsageDaily),
-            ];
-            for (method, path, msg) in CP_ENDPOINTS {
-                println!("  {method:<7}{path:<40} - {}", t(*msg));
-            }
         }
         println!();
         println!("{}", t(Msg::DaemonCdBodyHeading));

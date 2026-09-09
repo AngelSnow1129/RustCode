@@ -3939,53 +3939,19 @@ pub struct LoopCtx {
     /// on each redraw. `None` = no hint (either check still pending,
     /// network failed silently, or already up to date).
     pub update_hint: std::sync::Arc<std::sync::Mutex<Option<String>>>,
-    /// Shared CodingPlan drift-monitor warning slot. Written by the
-    /// detached check task (see `monitor::spawn_check`); read by
-    /// `build_status` on each redraw. Takes precedence over `update_hint`
-    /// so a drift warning isn't buried by an upgrade banner. Cleared
-    /// when `/codingplan` persists a fresh config (re-sync resets the
-    /// hint state).
-    pub monitor_warning: std::sync::Arc<std::sync::Mutex<Option<monitor::CodingPlanWarning>>>,
     /// Hook execution failure hint for the status bar. Written by the
     /// `AgentEvent::HookWarningHint` handler; read by `build_status` on
     /// each redraw. Takes precedence over `usage_hint` so a broken hook
     /// is immediately visible. Cleared at the start of each new turn.
     pub hook_warning_hint: std::sync::Arc<std::sync::Mutex<Option<String>>>,
-    /// Last time a monitor check was fired this session. Pre-turn
-    /// triggers respect `monitor::CHECK_COOLDOWN` (15 min) against this
-    /// timestamp; startup + `/model` switch bypass the cooldown.
-    /// `None` = no check has run yet this session.
-    pub monitor_last_check_at: Option<std::time::Instant>,
-    /// CodingPlan token-usage snapshot. Populated by
-    /// `usage_monitor::spawn_check` at startup and after each
-    /// TurnComplete (30s cooldown). Read on every redraw to construct
-    /// the right-aligned usage hint when usage_percent ≥ 80% and the
-    /// current model is on a CodingPlan provider.
-    pub usage_slot: std::sync::Arc<
-        std::sync::Mutex<Option<(rustcode_codingplan::types::UsageInfo, std::time::Instant)>>,
-    >,
-    /// Last time `usage_monitor::spawn_check` was invoked. Used to
-    /// enforce `usage_monitor::USAGE_COOLDOWN` on TurnComplete-triggered
-    /// refreshes. `None` = no check has run yet this session.
-    pub usage_last_check_at: Option<std::time::Instant>,
-    /// Last-observed timestamp from the shared CodingPlan sync marker
-    /// (`~/.rustcode/codingplan_sync.json`). On every user input we
-    /// re-read it; a change means ANOTHER rustcode process (e.g. a
-    /// second terminal) just ran `/codingplan` and the server is now
-    /// in sync with the on-disk config. We then hot-reload config
-    /// from disk + clear the stale drift warning. Without this,
-    /// Terminal A's "CodingPlan 模型列表更新" hint would stick forever
-    /// after Terminal B ran the fix.
-    pub monitor_last_sync_seen: Option<std::time::SystemTime>,
-    /// Wake signal from background tasks (version check + CodingPlan
-    /// drift monitor). One `()` sent when any task needs the event loop
-    /// to repaint so a freshly-computed hint/warning appears without
-    /// waiting for the user's next keystroke. Bounded at 1 -- overlapping
-    /// wakes coalesce since the redraw is idempotent.
+    /// Wake signal from background tasks (version check). One `()` sent when
+    /// any task needs the event loop to repaint so a freshly-computed hint
+    /// appears without waiting for the user's next keystroke. Bounded at 1 --
+    /// overlapping wakes coalesce since the redraw is idempotent.
     pub wake_rx: mpsc::Receiver<()>,
-    /// Sender side of `wake_rx`. Cloned into every spawned check task
-    /// so `/model` switches, pre-turn triggers, and the like can wake
-    /// the event loop after updating `monitor_warning`.
+    /// Sender side of `wake_rx`. Cloned into every spawned check task so
+    /// `/model` switches, pre-turn triggers, and the like can wake the
+    /// event loop after updating their hint slot.
     pub wake_tx: mpsc::Sender<()>,
     /// Receiver for `OauthEvent`s emitted by the QR-fast-path onboarding
     /// poll thread (see `event_loop::oauth_poll`). One event arrives
@@ -5487,148 +5453,6 @@ mod buffer_tests {
         assert!(dismiss_footer_command_output(&mut state));
         assert!(state.footer_persistence_warning.is_none());
         assert_eq!(state.footer_command_output.as_deref(), Some("usage report"));
-    }
-
-    fn empty_usage_panel() -> crate::modals::usage::UsageModal {
-        crate::modals::usage::UsageModal::new(crate::modals::usage::UsageData {
-            window: None,
-            plan: None,
-            usage: None,
-            overview: None,
-            error: None,
-        })
-    }
-
-    #[test]
-    fn footer_usage_tab_key_switches_tab_and_refreshes_report() {
-        use crate::modals::usage::Tab;
-        let mut state = UiState::new();
-        state.phase = UiPhase::Streaming;
-        state.footer_usage = Some(empty_usage_panel());
-        state.footer_command_output = Some("stale".into());
-
-        // Tab advances to the next tab and re-renders the footer snapshot.
-        // (buffer_empty = true: the user isn't composing a queued message.)
-        assert!(handle_footer_usage_tab_key(
-            &mut state,
-            KeyCode::Tab,
-            true,
-            true,
-            true
-        ));
-        assert_eq!(state.footer_usage.as_ref().unwrap().tab, Tab::Overview);
-        assert_ne!(
-            state.footer_command_output.as_deref(),
-            Some("stale"),
-            "footer must be re-rendered from the newly active tab"
-        );
-
-        // BackTab / arrows also steer the same panel.
-        assert!(handle_footer_usage_tab_key(
-            &mut state,
-            KeyCode::Right,
-            true,
-            true,
-            true
-        ));
-        assert_eq!(state.footer_usage.as_ref().unwrap().tab, Tab::Models);
-        assert!(handle_footer_usage_tab_key(
-            &mut state,
-            KeyCode::BackTab,
-            true,
-            true,
-            true
-        ));
-        assert_eq!(state.footer_usage.as_ref().unwrap().tab, Tab::Overview);
-    }
-
-    #[test]
-    fn footer_usage_tab_key_never_steals_character_keys() {
-        use crate::modals::usage::Tab;
-        let mut state = UiState::new();
-        state.phase = UiPhase::Streaming;
-        state.footer_usage = Some(empty_usage_panel());
-
-        // Even on an empty buffer, a digit is message text: it must start a queued
-        // message ("3 retries"), NOT jump to the Models tab. Digit tab-jump stays
-        // modal-only; the streaming footer only owns pure navigation keys.
-        assert!(!handle_footer_usage_tab_key(
-            &mut state,
-            KeyCode::Char('3'),
-            true,
-            true,
-            true
-        ));
-        assert!(!handle_footer_usage_tab_key(
-            &mut state,
-            KeyCode::Char('x'),
-            true,
-            true,
-            true
-        ));
-        assert_eq!(
-            state.footer_usage.as_ref().unwrap().tab,
-            Tab::Current,
-            "character keys must never switch tabs"
-        );
-    }
-
-    #[test]
-    fn footer_usage_tab_key_yields_to_type_ahead_composition() {
-        use crate::modals::usage::Tab;
-        let mut state = UiState::new();
-        state.phase = UiPhase::Streaming;
-        state.footer_usage = Some(empty_usage_panel());
-
-        // buffer_empty = false: the user is typing a queued message. Even the nav
-        // keys must edit the buffer (cursor movement / completion Tab), NOT steer
-        // the report.
-        assert!(!handle_footer_usage_tab_key(
-            &mut state,
-            KeyCode::Tab,
-            false,
-            true,
-            true
-        ));
-        assert!(!handle_footer_usage_tab_key(
-            &mut state,
-            KeyCode::Left,
-            false,
-            true,
-            true
-        ));
-        assert_eq!(
-            state.footer_usage.as_ref().unwrap().tab,
-            Tab::Current,
-            "composing must not switch tabs"
-        );
-    }
-
-    #[test]
-    fn footer_usage_tab_key_noop_without_panel() {
-        let mut state = UiState::new();
-        // `/cost` shows a report but installs no panel -- tab keys must fall through.
-        state.footer_command_output = Some("cost report".into());
-        assert!(!handle_footer_usage_tab_key(
-            &mut state,
-            KeyCode::Tab,
-            true,
-            true,
-            true
-        ));
-    }
-
-    #[test]
-    fn dismiss_footer_report_clears_usage_panel() {
-        let mut state = UiState::new();
-        state.footer_command_output = Some("usage report".into());
-        state.footer_usage = Some(empty_usage_panel());
-
-        assert!(dismiss_footer_command_output(&mut state));
-        assert!(
-            state.footer_usage.is_none(),
-            "dismissing the report must drop the panel so stale tab keys are inert"
-        );
     }
 
     #[test]
@@ -9299,46 +9123,7 @@ fn dismiss_footer_command_output(state: &mut UiState) -> bool {
     if state.footer_persistence_warning.take().is_some() {
         return true;
     }
-    // Drop the panel alongside the text so a stale tab key can't steer a
-    // report that's no longer on screen.
-    state.footer_usage = None;
     state.footer_command_output.take().is_some()
-}
-
-/// Steer the streaming `/usage` footer report between its tabs. The interactive
-/// modal can't install mid-turn (live token redraws own the footer), so the
-/// report re-renders the newly active tab into `footer_command_output` in
-/// place. Returns `true` when the key was a tab-navigation key AND a panel is
-/// present -- the caller must then repaint and consume the key so it never
-/// reaches turn cancellation. Any other key (or no panel) returns `false` and
-/// falls through untouched.
-///
-/// Two gates keep this from stealing message input:
-///  - Character keys (digits, letters) are NEVER stolen -- a queued message may
-///    start with a digit ("3 retries"), so digit tab-jump stays modal-only and
-///    the streaming footer owns only pure navigation keys (Tab/BackTab/←/->).
-///  - `buffer_empty`: while composing a queued (type-ahead) message even those
-///    nav keys belong to the draft (cursor movement, completion Tab), so the
-///    report only owns them when the input box is empty.
-fn handle_footer_usage_tab_key(
-    state: &mut UiState,
-    code: KeyCode,
-    buffer_empty: bool,
-    caps_colors: bool,
-    caps_unicode: bool,
-) -> bool {
-    if !buffer_empty || matches!(code, KeyCode::Char(_)) {
-        return false;
-    }
-    let Some(panel) = state.footer_usage.as_mut() else {
-        return false;
-    };
-    if panel.handle_tab_nav(code) {
-        state.footer_command_output = Some(panel.active_snapshot_text(caps_colors, caps_unicode));
-        true
-    } else {
-        false
-    }
 }
 
 /// Grace period after a quit request before the force-exit watchdog fires. The
@@ -9702,43 +9487,6 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
             attachments: Vec::new(),
         });
         renderer.flush();
-    }
-
-    // Startup CodingPlan drift check. Without this, a user who ran
-    // `/codingplan` days ago and now sees a new model in the plan lineup
-    // wouldn't learn until they typed a message -- the mid-turn trigger
-    // at the submit-path only fires on user action. Gating:
-    //
-    //   * Only when the active provider is a CodingPlan (RustCode*)
-    //     provider -- non-CodingPlan users do zero network work on boot.
-    //   * Still respects the 15-min cooldown against `monitor_last_check_at`
-    //     so rapid restarts (e.g. crash-loop during development) don't
-    //     spam the API gateway.
-    //
-    // The check itself is fully async (`spawn_check` returns immediately
-    // and runs on a tokio task); the event loop entering its main tick
-    // loop below isn't blocked, and the warning -- when it arrives a
-    // second or two later -- wakes the loop via `wake_tx` so the status
-    // row repaints without the user needing to press a key.
-    if monitor::is_codingplan_provider(&resolved_provider_and_model(&ctx.config).0) {
-        let cooled = ctx
-            .monitor_last_check_at
-            .map(|t| t.elapsed() >= monitor::CHECK_COOLDOWN)
-            .unwrap_or(true);
-        if cooled {
-            ctx.monitor_last_check_at = Some(std::time::Instant::now());
-            monitor::spawn_check(
-                ctx.config.clone(),
-                ctx.model_name.clone(),
-                ctx.monitor_warning.clone(),
-                ctx.wake_tx.clone(),
-            );
-        }
-        // Startup usage check (separate cooldown -- 30s vs drift's 15min).
-        // Always fires once at startup so the user sees current quota
-        // immediately if they're already over 80%.
-        ctx.usage_last_check_at = Some(std::time::Instant::now());
-        usage_monitor::spawn_check(ctx.usage_slot.clone(), ctx.wake_tx.clone());
     }
 
     // Spinner tick channel -- a background task fires a tick every 100ms
@@ -12314,38 +12062,6 @@ fn poll_shared_state(ctx: &mut LoopCtx, renderer: &mut dyn Renderer) -> bool {
     config_changed || auth_changed
 }
 
-/// If another rustcode process just ran `/codingplan`, clear stale plan hints.
-/// Provider/model reconciliation is handled generically by `poll_external_config`.
-fn refresh_after_cross_process_codingplan_sync(ctx: &mut LoopCtx) {
-    let current = rustcode_codingplan::read_last_sync();
-    let advanced = match (current, ctx.monitor_last_sync_seen) {
-        (Some(new), Some(old)) => new > old,
-        (Some(_), None) => true, // marker just appeared
-        _ => false,
-    };
-    if !advanced {
-        return;
-    }
-    ctx.monitor_last_sync_seen = current;
-
-    // Sync marker = another process just reconciled config with
-    // server, so any drift warning we're still showing is stale by
-    // definition. Reset the cooldown too so the next drift check
-    // (if needed) fires immediately instead of waiting 15 min from
-    // whenever we last checked.
-    if let Ok(mut g) = ctx.monitor_warning.lock() {
-        *g = None;
-    }
-    ctx.monitor_last_check_at = None;
-    // Same logic for the usage slot -- a cross-process /codingplan
-    // re-sync may also have rotated the quota window. Clear + reset
-    // so the next opportunity fetches fresh.
-    if let Ok(mut g) = ctx.usage_slot.lock() {
-        *g = None;
-    }
-    ctx.usage_last_check_at = None;
-}
-
 /// Common attach-orchestration shared by every "I just got an image
 /// from somewhere" entry point: bracketed-paste with empty payload
 /// (clipboard image), bracketed-paste with file-path payload (iTerm2
@@ -13486,8 +13202,6 @@ fn handle_input(
             {
                 redraw_idle_plain(&app.buf, &app.state, ctx, renderer);
             }
-            // `/codingplan` has extra warning/quota caches beyond the generic config.
-            refresh_after_cross_process_codingplan_sync(ctx);
 
             crate::tuix_trace!(
                 "IN",
@@ -16986,27 +16700,6 @@ fn handle_idle_key(
                             submit_foreground_runtime(ctx, runtime_user_input(expanded, images));
                         if submitted {
                             app.state.on_submit();
-                            // CodingPlan drift check -- fire before every turn sent
-                            // to a CodingPlan-managed provider, gated by a 15-min
-                            // cooldown so rapid-fire messages don't spam the API.
-                            // Non-CodingPlan users skip entirely (zero network).
-                            if monitor::is_codingplan_provider(
-                                &resolved_provider_and_model(&ctx.config).0,
-                            ) {
-                                let cooled = ctx
-                                    .monitor_last_check_at
-                                    .map(|t| t.elapsed() >= monitor::CHECK_COOLDOWN)
-                                    .unwrap_or(true);
-                                if cooled {
-                                    ctx.monitor_last_check_at = Some(std::time::Instant::now());
-                                    monitor::spawn_check(
-                                        ctx.config.clone(),
-                                        ctx.model_name.clone(),
-                                        ctx.monitor_warning.clone(),
-                                        ctx.wake_tx.clone(),
-                                    );
-                                }
-                            }
                         } else {
                             app.state.on_submit_rejected();
                             let message = match unavailable_reason {
@@ -18562,28 +18255,6 @@ fn handle_streaming_key(
             app.state.spinner_label
         );
         restore_cancelled_message_to_buf(app, renderer, ctx);
-        return Ok(());
-    }
-
-    // A live `/usage` report owns the navigation keys: Tab/←-> cycle between its
-    // Current/Overview/Models tabs, re-rendering in place. Consume before
-    // cancellation so switching tabs can never stop the turn. Only when the
-    // input box is empty -- a queued draft keeps its own keys (digits included).
-    if handle_footer_usage_tab_key(
-        &mut app.state,
-        code,
-        app.buf.text.is_empty(),
-        ctx.caps.colors,
-        ctx.caps.unicode_symbols,
-    ) {
-        draw_spinner_now(
-            &mut app.state,
-            &app.buf,
-            ctx,
-            renderer,
-            app.message_queue.len(),
-            app.menu.selected,
-        );
         return Ok(());
     }
 
@@ -22995,23 +22666,6 @@ fn apply_provider_projection(
     rustcode_config::proxy::apply_process_proxy_config(&ctx.config.network.proxy);
     state.on_model_window_changed(ctx.config.default_context_window());
     sync_reasoning_effort_from_provider(ctx);
-    if let Ok(mut warning) = ctx.monitor_warning.lock() {
-        *warning = None;
-    }
-    if let Ok(mut usage) = ctx.usage_slot.lock() {
-        *usage = None;
-    }
-    if monitor::is_codingplan_provider(&provider) {
-        ctx.monitor_last_check_at = Some(std::time::Instant::now());
-        monitor::spawn_check(
-            ctx.config.clone(),
-            ctx.model_name.clone(),
-            ctx.monitor_warning.clone(),
-            ctx.wake_tx.clone(),
-        );
-        ctx.usage_last_check_at = Some(std::time::Instant::now());
-        usage_monitor::spawn_check(ctx.usage_slot.clone(), ctx.wake_tx.clone());
-    }
     let dir_display = crate::platform::collapse_home(&ctx.working_dir.to_string_lossy());
     renderer.refresh_welcome_banner(&ctx.model_name, &dir_display);
 }
@@ -25354,11 +25008,6 @@ fn handle_coding_runtime_event(
                 state.compaction_forced_streaming = false;
                 state.phase = UiPhase::Idle;
                 state.spinner_label.clear();
-                // This Streaming->Idle path bypasses on_turn_complete/cancelled, so
-                // drop the interactive `/usage` panel here too -- otherwise a panel
-                // armed during a forced-streaming compaction would bleed its tab
-                // keys into the next real streaming turn.
-                state.footer_usage = None;
             }
         }
         CodingRuntimeEvent::ProviderUnavailable { reason, .. } => {
@@ -26843,21 +26492,6 @@ fn handle_agent_event(
             // Persist session after every completed turn so /resume can
             // find it after a clean exit -- the whole point of sessions.
             persist_current_session(ctx, snapshot, renderer);
-
-            // CodingPlan usage refresh -- fire after each completed turn
-            // (with cooldown) so the right-aligned hint reflects the
-            // tokens the turn just consumed. Gated to CodingPlan users
-            // only; non-CodingPlan paths skip all network activity.
-            if monitor::is_codingplan_provider(&resolved_provider_and_model(&ctx.config).0) {
-                let cooled = ctx
-                    .usage_last_check_at
-                    .map(|t| t.elapsed() >= usage_monitor::USAGE_COOLDOWN)
-                    .unwrap_or(true);
-                if cooled {
-                    ctx.usage_last_check_at = Some(std::time::Instant::now());
-                    usage_monitor::spawn_check(ctx.usage_slot.clone(), ctx.wake_tx.clone());
-                }
-            }
 
             // setup post-run side effects -- only on successful TurnComplete.
             // Reload skills/commands so newly-created skills become visible
@@ -28564,23 +28198,8 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
             crate::i18n::t(crate::i18n::Msg::StatusRuntimeUnavailable).into_owned(),
             crate::render::HintSeverity::Warning,
         ))
-    } else if let Some(warning) =
-        monitor::is_codingplan_provider(&resolved_provider_and_model(&ctx.config).0)
-            .then(|| ctx.monitor_warning.lock().ok().and_then(|g| g.clone()))
-            .flatten()
-    {
-        // Only surface the CodingPlan drift warning while a CodingPlan-managed
-        // (RustCode*) provider is active. A warning set on a CodingPlan provider
-        // must not linger after the user switches to a custom provider via a
-        // path that doesn't clear the slot (e.g. `/provider`) -- the hint is
-        // meaningless for non-CodingPlan models.
-        Some((warning.display_text(), crate::render::HintSeverity::Warning))
     } else if let Some(hook_msg) = ctx.hook_warning_hint.lock().ok().and_then(|g| g.clone()) {
         Some((hook_msg, crate::render::HintSeverity::Warning))
-    } else if let Some(usage) =
-        usage_monitor::build_usage_hint(&ctx.usage_slot, &ctx.config.default_provider)
-    {
-        Some(usage)
     } else if let Some(h) =
         clipboard_image_hint_hash(&ctx.clipboard_check, &state.pending_image_hashes)
     {

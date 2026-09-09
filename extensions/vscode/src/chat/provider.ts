@@ -8,7 +8,6 @@ import {
   AuthStatusResponse,
   ChatRequest,
   ChatStopReason,
-  CodingPlanSetupResponse,
   ConfigResponse,
   CreateProviderRequest,
   ModelInfo,
@@ -675,9 +674,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'authLoginCancel':
           await this._cancelLogin();
-          break;
-        case 'codingPlanSetup':
-          await this._setupCodingPlan({ loginIfNeeded: true });
           break;
         case 'providerCreate':
           await this._createProvider(msg.provider);
@@ -2033,7 +2029,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async _ensureLoggedInForCodingPlan(announceInChat = false): Promise<boolean> {
+  private async _ensureLoggedIn(announceInChat = false): Promise<boolean> {
     let ownsLogin = false;
     try {
       const auth = await this._client.authStatus();
@@ -2111,44 +2107,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return false;
     } finally {
       if (ownsLogin) this._loginInFlight = false;
-    }
-  }
-
-  private async _setupCodingPlan(
-    options: { loginIfNeeded?: boolean; announceInChat?: boolean } = {},
-  ): Promise<CodingPlanSetupResponse | undefined> {
-    try {
-      if (!this._managedLoginAvailable) {
-        // Open build: the daemon route 404s and /auth/login/start 501s.
-        // Steer the user to the bring-your-own-key provider form.
-        const message = this._managedLoginUnavailableMessage();
-        this._broadcastMessage({ type: 'setupError', message });
-        if (options.announceInChat) {
-          this._postMessage({ type: 'error', message });
-        }
-        return undefined;
-      }
-      if (options.loginIfNeeded) {
-        const loggedIn = await this._ensureLoggedInForCodingPlan(options.announceInChat);
-        if (!loggedIn) {
-          return undefined;
-        }
-      }
-
-      if (options.announceInChat) {
-        this._postMessage({
-          type: 'assistantMessage',
-          text: vscode.l10n.t('Syncing CodingPlan models...'),
-        });
-      }
-      this._broadcastMessage({ type: 'setupWorking', message: vscode.l10n.t('Syncing CodingPlan models...') });
-      const result: CodingPlanSetupResponse = await this._client.setupCodingPlan(this._loginId);
-      this._broadcastMessage({ type: 'codingPlanResult', result });
-      await this._sendSetupState();
-      return result;
-    } catch (e) {
-      this._broadcastMessage({ type: 'setupError', message: this._messageFromError(e) });
-      return undefined;
     }
   }
 
@@ -2654,10 +2612,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           return true;
         }
         {
-          const result = await this._setupCodingPlan({ loginIfNeeded: true, announceInChat: true });
-          if (result) {
-            this._postSlashInfo('```\n' + result.report_text + '\n```', sessionId, text);
-          }
+          const loggedIn = await this._ensureLoggedIn(true);
+          this._postSlashInfo(
+            loggedIn
+              ? vscode.l10n.t('Signed in. Run /whoami to see account details.')
+              : vscode.l10n.t('Sign-in did not complete; run /login to try again.'),
+            sessionId,
+            text,
+          );
         }
         return true;
       case '/logout':

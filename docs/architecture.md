@@ -72,8 +72,8 @@ L0                     rustcode-kernel
 | `rustcode-clix` | L3 | 独立 coding CLI driver |
 | `rustcode-review` | L2/L3 | 基于 kernel + capabilities 的独立代码审查 agent |
 | `rustcode-updater` | service | 安装包与版本更新能力 |
-| `rustcode-codingplan` | capability | coding plan 相关能力；可选 crypto overlay 由发布构建注入 |
-| `rustcode-codingplan-crypto` | capability | coding plan 的闭源签名覆盖层；默认成员外，官方构建通过 `--features rustcode/codingplan-crypto` 注入 |
+| `rustcode-codingplan` | 已移除 | 已于 2026-09-09 随 codingplan 一并移除；工作区不再包含该 crate |
+| `rustcode-codingplan-crypto` | 已移除 | 已于 2026-09-09 随 codingplan 一并移除；闭源签名覆盖层与 `--features rustcode/codingplan-crypto` 开关同时退役 |
 
 ## rustcode-kernel：中立执行边界
 

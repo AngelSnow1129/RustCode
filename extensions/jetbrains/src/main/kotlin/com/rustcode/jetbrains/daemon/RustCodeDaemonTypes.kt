@@ -115,12 +115,6 @@ data class ModelInfo(
     }
 }
 
-data class CodingPlanSetupResponse(
-    val success: Boolean,
-    val reportText: String,
-    val defaultProvider: String,
-)
-
 data class SetupSnapshot(
     val auth: AuthStatusResponse?,
     val providers: List<ProviderInfo>,

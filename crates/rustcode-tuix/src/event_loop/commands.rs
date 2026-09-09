@@ -26,13 +26,8 @@ use super::{
     reload_persisted_config, request_context_stats_render, save_and_reload,
     save_language_and_reload, LoopCtx, PersistedConfigReload,
 };
-// Only the gated managed-login flow (`/login` with the `codingplan` feature)
-// applies a freshly-claimed CodingPlan config to the running session.
-#[cfg(feature = "codingplan")]
-use super::apply_persisted_config;
 use crate::custom_commands::ArgsRequirement;
 use crate::i18n::{t, Msg};
-use crate::modals::usage::{UsageData, UsageModal};
 use crate::modals::{
     ConfigPanel, DiffViewer, DirPicker, FileViewer, LanguagePicker, Modal, ModelPicker, ProxyPicker,
 };
@@ -505,10 +500,10 @@ mod bg_live_guard_tests {
 }
 
 // Historical note: there was a `const OAUTH_PROVIDER_NAME = "AtomGit"`
-// and a `build_oauth_provider` helper here. Both are owned by
-// `coding_plan::setup` now -- `/login` runs the full CodingPlan
-// orchestrator (claim + model list + provider registration), so there
-// is no need for a separately maintained hardcoded fallback provider.
+// and a `build_oauth_provider` helper here. Both are owned by the managed
+// setup flow now -- `/login` runs the full managed-login orchestrator
+// (sign-in + provider registration), so there is no need for a separately
+// maintained hardcoded fallback provider.
 
 /// Maximum length for a session name.
 pub const MAX_SESSION_NAME_LEN: usize = 100;
@@ -664,7 +659,7 @@ pub(crate) fn attach_live_runtime(
     // `default_provider`, with a catalog fallback when both raw fields are
     // empty. Reuse that exact selection for the live binding. In particular,
     // first login can leave `default_provider == ""` while the runtime already
-    // runs the newly published CodingPlan model.
+    // runs the newly published managed model.
     let provider_selection = live_provider_selection(&ctx.config)?;
     let provider_fingerprint =
         rustcode_daemon::native_live::provider_fingerprint(&ctx.config, &provider_selection)?;
@@ -1943,17 +1938,16 @@ fn execute_slash_command_impl(
             *active_modal = Some(Box::new(ProxyPicker::open(&ctx.config)));
         }
         "status" => {
-            // Interactive `/status` shows the Proxy line (after CodingPlan); the
-            // remote/phone view omits it. Order is owned by `assemble_status`.
+            // Interactive `/status` shows the Proxy line (after the managed-plan
+            // section); the remote/phone view omits it. Order is owned by
+            // `assemble_status`.
             let proxy = format!("  Proxy:  {}\n", ctx.config.network.proxy.summary());
             let txt = build_status_text(ctx, Some(&proxy));
             if matches!(state.phase, crate::state::UiPhase::Streaming) && !ctx.is_plain_renderer {
                 // Mid-turn: keep the report in the footer snapshot below the input
                 // box (like `/usage` and `/cost`) instead of injecting it into
                 // conversation scrollback, where live tool output would interleave
-                // with it. Drop any live `/usage` panel so its tab keys don't steer
-                // a report that's no longer on screen.
-                state.footer_usage = None;
+                // with it.
                 state.footer_command_output = Some(txt);
             } else {
                 renderer.render(UiLine::CommandOutput(txt));
@@ -1965,7 +1959,6 @@ fn execute_slash_command_impl(
                 // Mid-turn: footer snapshot, not scrollback (see `/status`). The
                 // error text folds into the same snapshot so a failed diff still
                 // reports below the input box.
-                state.footer_usage = None;
                 state.footer_command_output = Some(build_diff_stat_text(ctx).unwrap_or_else(|e| e));
             } else if ctx.is_plain_renderer || !matches!(state.phase, crate::state::UiPhase::Idle) {
                 match build_diff_stat_text(ctx) {
@@ -1992,26 +1985,10 @@ fn execute_slash_command_impl(
             // and Esc dismisses it without cancelling the running turn.
             // Idle: open the interactive modal.
             if matches!(state.phase, crate::state::UiPhase::Streaming) {
-                // Fetch the FULL dataset (overview + models) so the footer report
-                // is tab-switchable mid-stream -- the interactive modal can't
-                // install here (live token redraws own the footer), so we stash
-                // the panel and re-render its active tab in place on each tab
-                // key. Two gateway calls, once per `/usage`; switching tabs is
-                // then purely local.
-                match fetch_usage_data() {
-                    Some(data) => {
-                        let panel = UsageModal::new(data);
-                        state.footer_command_output = Some(
-                            panel.active_snapshot_text(ctx.caps.colors, ctx.caps.unicode_symbols),
-                        );
-                        state.footer_usage = Some(panel);
-                    }
-                    None => {
-                        state.footer_command_output =
-                            Some(t(Msg::UsageCodingPlanOnly).into_owned());
-                        state.footer_usage = None;
-                    }
-                }
+                // Mid-turn there is no interactive report to install (live token
+                // redraws own the footer), so the footer snapshot is the
+                // managed-usage-unavailable notice.
+                state.footer_command_output = Some(t(Msg::UsageCodingPlanOnly).into_owned());
             } else {
                 open_usage(renderer, active_modal);
             }
@@ -2019,9 +1996,6 @@ fn execute_slash_command_impl(
         "cost" => {
             let text = build_session_cost_text(ctx, state);
             if matches!(state.phase, crate::state::UiPhase::Streaming) {
-                // `/cost` is a static report -- drop any live `/usage` panel so
-                // tab keys don't steer a report that's no longer on screen.
-                state.footer_usage = None;
                 state.footer_command_output = Some(text);
             } else {
                 renderer.render(UiLine::CommandOutput(text));
@@ -4963,104 +4937,8 @@ fn render_login_line_from_stored_auth() -> String {
     }
 }
 
-/// Render a CodingPlan auth failure. An EXPIRED login (`is_auth_expired` on the error
-/// chain -- dead local token, or a 401 from the server) -> a clear localized "run
-/// /login" prompt; otherwise `fallback()` (a genuine not-signed-in hint, or the raw
-/// fetch-failure line). `from_stored_auth` returns `AuthExpired` for a dead token but a
-/// PLAIN error when never logged in, so the two stay distinguishable.
-#[cfg(feature = "codingplan")]
-fn render_cp_auth_error(e: &anyhow::Error, fallback: impl FnOnce() -> String) -> String {
-    if rustcode_codingplan::is_auth_expired(e) {
-        t(Msg::StatusCpAuthExpired).into_owned()
-    } else {
-        fallback()
-    }
-}
-
-/// Fetch + format the CodingPlan section appended to `/status`. Runs a
-/// blocking HTTP call (~100-500ms) against `/coding-plan/status` -- same
-/// endpoint as the `/codingplan` flow's step 4. Falls back to a one-line
-/// hint when the user isn't signed in, has no active plan, or the API
-/// call fails. Never panics and never returns an error: `/status` is a
-/// quick-glance command, so any fetch problem degrades into a visible
-/// note instead of aborting the whole command.
-#[cfg(feature = "codingplan")]
-fn render_codingplan_status_for_status_cmd() -> String {
-    tokio::task::block_in_place(|| {
-        use rustcode_codingplan::client::Client;
-
-        let client = match Client::from_stored_auth() {
-            Ok(c) => c,
-            // Expired login -> clear re-login prompt; genuinely not signed in -> the
-            // not-signed-in hint. Without this split a dead token showed "not signed in"
-            // while the Login line above said "signed in as X" -- contradictory.
-            Err(e) => return render_cp_auth_error(&e, || t(Msg::StatusCpNotSignedIn).into_owned()),
-        };
-        let status = match client.status_v2() {
-            Ok(s) => s,
-            Err(e) => {
-                return render_cp_auth_error(&e, || {
-                    t(Msg::StatusCpFetchFailed {
-                        error: &format!("{:#}", e),
-                    })
-                    .into_owned()
-                })
-            }
-        };
-        let plan = match &status.codingplan_free {
-            Some(p) => p,
-            None => {
-                return t(Msg::StatusCpNoActive).into_owned();
-            }
-        };
-
-        let mut out = t(Msg::StatusCpLine {
-            plan: &plan.plan_name,
-            expires_at: &plan.expires_at,
-            remaining_days: plan.remaining_days,
-            total_days: plan.total_days,
-        })
-        .into_owned();
-        // Prefer the per-window `rate_limit_windows` schema when present, mirroring
-        // `/login` (setup.rs). Iterate visible short windows (show_enable=1) normally.
-        if !status.rate_limit_windows.is_empty() {
-            use rustcode_codingplan::format_duration_secs;
-            for w in status
-                .rate_limit_windows
-                .iter()
-                .filter(|w| w.show_enable == 1)
-            {
-                out.push_str(&t(Msg::StatusCpUsage {
-                    usage: &w.usage_status_desc,
-                    reset_at: &w.reset_at_display,
-                    duration: &format_duration_secs(w.seconds_until_reset),
-                }));
-            }
-        } else if status.window_quota_exhausted {
-            // Legacy backward-compat path (old server, no `rate_limit_windows`):
-            // when `window_quota_exhausted` is set we suppress the usage line
-            // (which the server often reports as 0% for a freshly-reset short
-            // window even while the longer quota is exhausted). Showing both
-            // produced the visibly contradictory `用量 0% / [!]额度已满` pair the
-            // user surfaced as the "v4.23.2 still displays it this way" report.
-            if let Some(hint) = &status.window_quota_hint {
-                out.push_str(&t(Msg::StatusCpWindowHint { hint }));
-            } else {
-                out.push_str(&t(Msg::StatusCpWindowExhausted));
-            }
-        } else if let Some(u) = &status.current_usage {
-            out.push_str(&t(Msg::StatusCpUsage {
-                usage: &u.display_desc(),
-                reset_at: &u.reset_at_display,
-                duration: &rustcode_codingplan::format_duration_secs(u.seconds_until_reset),
-            }));
-        }
-        out
-    })
-}
-
-/// Neutral build: no managed plan section is appended to `/status`.
-#[cfg(not(feature = "codingplan"))]
+/// No managed plan section is appended to `/status`: there is no managed
+/// usage endpoint compiled into this build.
 fn render_codingplan_status_for_status_cmd() -> String {
     String::new()
 }
@@ -5331,63 +5209,14 @@ pub(super) fn build_diff_stat_text(ctx: &LoopCtx) -> Result<String, String> {
     Ok(crate::git_diff::format_compact_snapshot(&snapshot))
 }
 
-/// Fetch CodingPlan usage from the gateway (BLOCKING network call). `None` when the
-/// user isn't logged into a CodingPlan account -- the caller then shows
-/// `UsageCodingPlanOnly`. Shared by the interactive modal (`open_usage`) and the
-/// mid-turn footer report; both now render all three tabs.
-///
-/// Two round-trips: `status_v2` (plan + window) and the heavier `usage()` that powers
-/// the Overview/Models tabs.
-#[cfg(feature = "codingplan")]
-fn fetch_usage_data() -> Option<UsageData> {
-    tokio::task::block_in_place(|| {
-        let client = rustcode_codingplan::client::Client::from_stored_auth().ok()?;
-        let status = client.status_v2().ok();
-        let window = status.as_ref().and_then(|s| {
-            s.rate_limit_windows
-                .iter()
-                .filter(|w| w.show_enable == 1)
-                .filter(|w| w.window_hours > 0)
-                .min_by_key(|w| w.window_hours)
-                .cloned()
-        });
-        let plan = status.and_then(|s| s.codingplan_free);
-        let (usage, error) = match client.usage() {
-            Ok(u) => (Some(u), None),
-            Err(e) => (None, Some(format!("{e}"))),
-        };
-        let overview = usage
-            .as_ref()
-            .map(rustcode_codingplan::usage::compute_overview);
-        Some(UsageData {
-            window,
-            plan,
-            usage,
-            overview,
-            error,
-        })
-    })
-}
-
-/// Neutral build: the gateway usage endpoint is not compiled in, so `/usage`
-/// always reports that managed usage is unavailable (the caller shows the notice).
-#[cfg(not(feature = "codingplan"))]
-fn fetch_usage_data() -> Option<UsageData> {
-    None
-}
-
-/// `/usage` -- open the CodingPlan usage modal (idle). Renders a notice when the user
-/// isn't on a CodingPlan account, otherwise pushes the modal into `active_modal`.
-fn open_usage(renderer: &mut dyn Renderer, active_modal: &mut Option<Box<dyn Modal>>) {
-    match fetch_usage_data() {
-        Some(data) => *active_modal = Some(Box::new(UsageModal::new(data))),
-        None => {
-            renderer.render(UiLine::CommandOutput(
-                t(Msg::UsageCodingPlanOnly).into_owned(),
-            ));
-            renderer.flush();
-        }
-    }
+/// `/usage` (idle). There is no managed usage endpoint compiled into this build, so
+/// the command always renders the "managed usage unavailable" notice instead of
+/// opening a modal that could never be populated.
+fn open_usage(renderer: &mut dyn Renderer, _active_modal: &mut Option<Box<dyn Modal>>) {
+    renderer.render(UiLine::CommandOutput(
+        t(Msg::UsageCodingPlanOnly).into_owned(),
+    ));
+    renderer.flush();
 }
 
 /// `/cost` 的本会话 Token 报告。与 `/usage`（只查 CodingPlan 网关）不同，
@@ -8150,54 +7979,6 @@ mod tests {
         assert!(
             status.contains("Memory files") || status.contains("记忆文件"),
             "memory section should be visible: {status}"
-        );
-    }
-
-    #[test]
-    fn streaming_usage_snapshot_composes_plan_and_window_lines() {
-        use rustcode_codingplan::types::{PlanInfo, RateLimitWindow};
-        // Build fixtures from JSON (serde defaults fill the fields we don't care about).
-        let plan: PlanInfo = serde_json::from_value(serde_json::json!({
-            "plan_name": "AtomPlan-Pro", "expires_at": "2026-12-31",
-            "remaining_days": 30, "total_days": 365
-        }))
-        .unwrap();
-        let window: RateLimitWindow = serde_json::from_value(serde_json::json!({
-            "usage_status_desc": "42% used", "reset_at_display": "12:00",
-            "usage_percent": 42.0, "seconds_until_reset": 3600,
-            "window_hours": 5, "show_enable": 1
-        }))
-        .unwrap();
-        let data = UsageData {
-            window: Some(window),
-            plan: Some(plan),
-            usage: None,
-            overview: None,
-            error: None,
-        };
-        // The streaming footer report renders the active (default: Current) tab.
-        let text = UsageModal::new(data).active_snapshot_text(true, true);
-        assert!(text.contains("AtomPlan-Pro"), "plan name present: {text}");
-        assert!(text.contains("42.0%"), "window progress present: {text}");
-        assert!(
-            text.contains("\x1b[32m") && text.contains("\x1b[1m"),
-            "streaming snapshot must preserve modal colors and emphasis: {text:?}"
-        );
-
-        // Logged in but empty gateway response -> still non-blank (tab bar + the
-        // Current tab's "unavailable" body), never a bare footer.
-        let empty = UsageData {
-            window: None,
-            plan: None,
-            usage: None,
-            overview: None,
-            error: None,
-        };
-        assert!(
-            !UsageModal::new(empty)
-                .active_snapshot_text(true, true)
-                .is_empty(),
-            "empty data must not render blank"
         );
     }
 

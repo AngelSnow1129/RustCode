@@ -11,7 +11,7 @@ CODING 特化层。它把中性内核（[`rustcode_kernel`]）+ 能力层
 
 `rustcode-core` 已从 workspace 删除。`rustcode-coding` 的模型能力判断由
 `rustcode-capabilities` 提供；限流逻辑只依赖可注入的 `RateLimitWindowSource`，具体
-CodingPlan 客户端由 CLI/daemon 等 host adapter 实现；plugin hook 同样通过
+数据源客户端由 CLI/daemon 等 host adapter 实现；plugin hook 同样通过
 `PluginHookSource` 注入。
 
 直接依赖的 workspace crate 是 `rustcode-kernel`、`rustcode-capabilities`、
@@ -66,7 +66,7 @@ println!("{}", outcome.text);
 **内部实现**（私有 `mod`，未直接公开）：
 
 - `mod rate_limit` —— 限速决策（`RateLimitHook`）及可注入的数据源接口，不直接读取
-  CodingPlan 或依赖 core。
+  具体额度数据源或依赖 core。
 - `mod todo` —— todo 钩子内部实现（`TodoHook` 已 re-export）。
 - `mod assemble` —— `build_coding_agent` 等最小装配（已 re-export）。
 - `mod init_prompt` —— 初始化提示词。

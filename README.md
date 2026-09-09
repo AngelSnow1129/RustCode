@@ -174,9 +174,8 @@ RUSTCODE_RELEASE_BASE=https://example.com/your-host/releases/download sh install
 ```
 
 脚本会下载最新版本的预编译二进制（当渠道提供发布 API 时自动探测最新版本），
-安装并写入 `PATH`。由分发渠道提供、包含可选托管签名组件的构建，可通过 `/login`
-使用该渠道的托管 CodingPlan 端点（见下文「关于可选的 CodingPlan 网关」）；
-自带密钥（BYO）的第三方 provider 无需签名器即可使用。
+安装并写入 `PATH`。托管订阅套餐网关已于 2026-09-09 移除，`/login`
+不再领取任何托管额度；第三方 provider 一律使用自带密钥（BYO）配置。
 
 环境变量覆盖项：`RUSTCODE_RELEASE_BASE` 指定托管发布二进制的下载根目录
 （shell 安装器必填），`RUSTCODE_VERSION` 用于固定某个发布版本，`RUSTCODE_PREFIX`
@@ -235,18 +234,16 @@ cargo build --release -p rustcode
 
 编译产物会在 `target/release/rustcode` 生成。
 
-### 关于可选的 CodingPlan 网关（闭源签名）
+### 关于曾经可选的托管网关（已于 2026-09-09 移除）
 
-本仓库中的 `crates/rustcode-codingplan-crypto/` 是一个开源占位实现。真正的请求签名实现是闭源的，
-只由选择接入托管 CodingPlan 网关的分发渠道发布流水线覆盖注入，因此自行构建的二进制无法对
-这类托管端点进行请求签名。从附带签名器的分发渠道获取的二进制（例如通过上方安装脚本或下方
-包管理器安装的渠道构建）包含签名器。实际影响：
+托管订阅套餐网关及其闭源签名层已于 2026-09-09 一并移除：占位 crate
+`crates/rustcode-codingplan-crypto/`、对应的 Cargo feature 与分发渠道覆盖注入机制均已删除，
+本仓库不再包含任何托管端点。实际影响：
 
-- 自行构建的二进制中，`/login` 无法领取托管网关的**免费 CodingPlan 模型**。签名保持闭源是为了
-  防止免费计划在该渠道构建之外被滥用。
-- 连接**你自己的第三方 API 提供商**（自带密钥 / BYO，也是默认方式）不受影响：在
+- `/login` 不再领取任何托管额度或托管模型；构建来源（自行构建或渠道构建）不再造成能力差异。
+- 连接**你自己的第三方 API 提供商**（自带密钥 / BYO）是唯一方式，且行为不变：在
   `~/.rustcode/config.toml` 的 `providers.*` 下配置的任意提供商（DeepSeek、OpenAI 或任意
-  OpenAI 兼容端点）无需签名器即可使用。
+  OpenAI 兼容端点）都可直接使用。
 
 ### 包管理器安装
 
@@ -283,7 +280,7 @@ Invoke-Expression`. Run `rustcode completion --help` 可查看完整 Shell 列�
 ### 依赖
 
 - Rust 1.88+（用于构建；更旧的 Cargo 无法解析当前 lock 文件）
-- 任一支持的模型提供方的 API Key（自带密钥 / BYO；或使用 `/login` 接入托管网关——免费 CodingPlan 模型需要附带签名器的渠道构建，见上文「关于可选的 CodingPlan 网关」）
+- 任一支持的模型提供方的 API Key（自带密钥 / BYO；托管网关已于 2026-09-09 移除，`/login` 不再提供托管模型，见上文「关于曾经可选的托管网关」）
 
 ### 权限 —— 不要用 `sudo` 启动
 

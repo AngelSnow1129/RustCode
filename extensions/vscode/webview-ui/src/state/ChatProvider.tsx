@@ -271,12 +271,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         case 'setupWorking':
           dispatch({ type: 'SET_SETUP_STATUS', status: msg.message });
           break;
-        case 'codingPlanResult':
-          dispatch({
-            type: 'SET_SETUP_STATUS',
-            status: msg.result.report_text,
-          });
-          break;
         case 'setupError':
           dispatch({ type: 'SET_SETUP_STATUS', error: msg.message });
           break;

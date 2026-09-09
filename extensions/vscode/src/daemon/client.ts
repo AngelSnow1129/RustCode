@@ -10,7 +10,6 @@ import {
   AuthStatusResponse,
   ConfigResponse,
   ChatEvent,
-  CodingPlanSetupResponse,
   CreateProviderRequest,
   HealthResponse,
   LoginPollResponse,
@@ -347,7 +346,7 @@ export class DaemonClient {
     return this.patch<ProviderInfo>(`/providers/${encodeURIComponent(name)}/thinking`, req);
   }
 
-  // ── Auth / CodingPlan ────────────────────────────────────────
+  // ── Auth ──────────────────────────────────────────────────────
 
   authStatus(): Promise<AuthStatusResponse> {
     return this.get<AuthStatusResponse>('/auth/status');
@@ -369,10 +368,6 @@ export class DaemonClient {
 
   logout(): Promise<AuthStatusResponse> {
     return this.post<AuthStatusResponse>('/auth/logout');
-  }
-
-  setupCodingPlan(loginId?: string): Promise<CodingPlanSetupResponse> {
-    return this.post<CodingPlanSetupResponse>('/codingplan/setup', { login_id: loginId });
   }
 
   // ── Sessions ──────────────────────────────────────────────────

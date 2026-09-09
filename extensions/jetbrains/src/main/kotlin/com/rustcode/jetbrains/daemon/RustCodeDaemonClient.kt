@@ -198,15 +198,6 @@ class RustCodeDaemonClient(
             )
         }
 
-    fun setupCodingPlan(): CompletableFuture<CodingPlanSetupResponse> =
-        send("POST", "/codingplan/setup", "{}").thenApply {
-            CodingPlanSetupResponse(
-                success = it.jsonBoolean("success") ?: false,
-                reportText = it.jsonString("report_text").orEmpty(),
-                defaultProvider = it.jsonString("default_provider").orEmpty(),
-            )
-        }
-
     fun createSession(title: String?, workingDir: String): CompletableFuture<SessionRef> =
         send("POST", "/sessions", """{"title":${title.jsonQuotedOrNull()},"working_dir":${workingDir.jsonQuoted()}}""").thenApply {
             SessionRef(

@@ -127,28 +127,6 @@ base_url = "https://api.xiaomimimo.com/v1"
 context_window = 1000000
 max_tokens = 131072
 
-# -------- CodingPlan 网关（OAuth 自动配置）----------
-# /login 命令会自动写入，无需手动填写 api_key
-# 以下仅为展示格式，实际由系统自动生成。
-# [providers."RustCode-GLM-5.2"]
-# type = "openai"
-# model = "GLM-5.2"
-# base_url = "https://gateway.example.com/v1"
-# context_window = 1000000
-# max_tokens = 131072
-#
-# [providers."RustCode-deepseek-v4-flash"]
-# type = "openai"
-# model = "deepseek-v4-flash"
-# base_url = "https://gateway.example.com/v1"
-# context_window = 1000000
-#
-# [providers."RustCode-Qwen-Qwen3-VL-8B-Instruct"]
-# type = "openai"
-# model = "Qwen/Qwen3-VL-8B-Instruct"
-# base_url = "https://gateway.example.com/v1"
-# context_window = 64000
-
 # =============================================================================
 # 视觉预处理（当主 provider 不支持图片时，用此 provider 代为识别）
 # =============================================================================

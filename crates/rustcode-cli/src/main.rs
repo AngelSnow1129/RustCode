@@ -1384,7 +1384,7 @@ fn main() {
     // Run the entire program on a thread with a large, explicit stack.
     // Rust gives the *main* OS thread the platform-default stack -- on
     // Windows that's only ~1 MB (vs 8 MB on Linux/macOS). The TUI event
-    // loop, the synchronous codingplan/OAuth work, and the rustls TLS
+    // loop, the synchronous OAuth work, and the rustls TLS
     // handshakes all run on it via `block_on`, and a deep call chain there
     // can overflow 1 MB. A stack overflow on Windows kills the process via
     // an OS exception (STATUS_STACK_OVERFLOW) WITHOUT a Rust panic -- so it
@@ -1666,8 +1666,7 @@ async fn run() -> Result<i32> {
     // ── End early config / offline seed ──────────────────────────────────────
 
     // Handle subcommands. Most are self-contained (`handle_command` runs
-    // and exits); `Login` runs the
-    // full OAuth + CodingPlan setup flow and then fall through to the
+    // and exits); `Login` prints its notice and then falls through to the
     // TUI.
 
     let force_verbose = false;
@@ -1694,45 +1693,15 @@ async fn run() -> Result<i32> {
             // `-p` to run headless resumed).
             Commands::Resume { .. } => {}
             Commands::Login => {
-                // Unified login flow: OAuth (if needed) -> claim -> fetch
-                // models -> register providers -> fetch status. Falls
-                // through to TUI startup regardless of outcome. On
-                // success the freshly saved config.toml is picked up by
-                // `Config::load` further down. On failure the TUI opens
-                // in onboarding mode (no providers) so the user can
-                // retry via `/login` without re-launching the binary.
-                // Emits open_rustcode (mode=headless) then take_codingplan
-                // (emitted internally by run_codingplan_core via coding_plan::run).
+                // Neutral build: there is no managed sign-in service, so
+                // `login` prints the bring-your-own-key provider notice
+                // and falls through to TUI startup (see the `Login`
+                // variant's docs). Kept explicit -- never a silent no-op.
                 HEADLESS_MODE.store(true, Ordering::Relaxed);
-                // The OAuth + claim flow is fully synchronous and builds a
-                // `reqwest::blocking` client, which stands up its own tokio
-                // runtime. Running it directly on an async worker thread panics
-                // when that inner runtime is dropped ("Cannot drop a runtime in
-                // a context where blocking is not allowed"). Move it onto a
-                // dedicated blocking thread -- the same convention the plugin
-                // bootstrap uses.
-                let outcome = {
-                    tokio::task::spawn_blocking(run_codingplan_core)
-                        .await
-                        .unwrap_or_else(|e| {
-                            Err(anyhow::anyhow!("codingplan login task failed: {e}"))
-                        })
-                };
-                match outcome {
-                    Ok(report) => {
-                        print!("{}", report);
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "{}",
-                            rustcode_config::i18n::t(
-                                rustcode_config::i18n::Msg::CliLoginSetupFailed {
-                                    error: &format!("{e:#}")
-                                }
-                            )
-                        );
-                    }
-                }
+                print!(
+                    "{}",
+                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliManagedLoginNotBuilt)
+                );
                 println!(
                     "{}",
                     rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliStartingAfterLogin)
@@ -2895,8 +2864,6 @@ pub(crate) async fn spawn_native_cli_runtime(
         web: !no_tools,
         review: !no_tools,
         request_user_input: !no_tools,
-        #[cfg(feature = "codingplan")]
-        rate_limit_source: Some(rustcode_daemon::coding_plan_rate_limit_source()),
         ..rustcode_coding::PrepareOptions::default()
     };
     let start = rustcode_coding::CodingRuntimeStart {
@@ -4506,124 +4473,12 @@ fn run_rollback_cli() -> Result<()> {
     Ok(())
 }
 
-/// Neutral-build fallback: the platform signing-gateway client is not compiled in
-/// (the `codingplan` feature is off by default), so `rustcode login` cannot perform a
-/// managed login. Direct the operator to their own third-party provider instead.
-#[cfg(not(feature = "codingplan"))]
-fn run_codingplan_core() -> Result<String> {
-    Ok(rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliManagedLoginNotBuilt).into_owned())
-}
-
-/// `rustcode status` auth hint for a neutral build: there is no managed account to
-/// sign into, so steer to bring-your-own-key provider config rather than a dead-end
+/// `rustcode status` auth hint: there is no managed account to sign into, so
+/// steer to bring-your-own-key provider config rather than a dead-end
 /// `rustcode login`.
-#[cfg(not(feature = "codingplan"))]
 fn print_status_auth_hint() {
     use rustcode_config::i18n::{t, Msg};
     println!("{}", t(Msg::CliStatusHintNeutral));
-}
-
-/// `rustcode status` auth hint for a managed build: point at the login command.
-#[cfg(feature = "codingplan")]
-fn print_status_auth_hint() {
-    use rustcode_config::i18n::{t, Msg};
-    println!("{}", t(Msg::CliStatusNotLoggedInManaged));
-    println!("{}", t(Msg::CliStatusLoginHint));
-}
-
-/// Core CodingPlan flow shared by CLI-exit and CLI->TUI paths. Loads
-/// the config (or starts from defaults if missing), runs the shared
-/// `coding_plan::setup` orchestrator, persists the config on success,
-/// and returns the rendered human-readable report -- the caller decides
-/// whether to print it to stdout or stash it for the TUI to surface.
-#[cfg(feature = "codingplan")]
-fn run_codingplan_core() -> Result<String> {
-    let path = Config::default_path();
-    // Missing config is legitimate on first install -- start from defaults
-    // so the flow can still add CodingPlan providers to a fresh config.toml.
-    let mut config = Config::load(&path).unwrap_or_default();
-    rustcode_config::proxy::apply_process_proxy_config(&config.network.proxy);
-
-    // If the stored token is locally valid (file present, expires_in
-    // not yet past) but the server rejects it (revoked, refresh-token
-    // dead, etc.), the orchestrator sets `report.auth_expired = true`.
-    // Run OAuth *once* on that path -- same flow `rustcode login` would
-    // use -- then re-run setup against the fresh token. Without this
-    // the user sees the report ending in "claim failed -- run `rustcode
-    // login` again" and has to do manually what `codingplan` could
-    // do itself.
-    let mut report = rustcode_codingplan::run(
-        &mut config,
-        rustcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
-    )?;
-    if report.auth_expired {
-        use rustcode_config::i18n::{t, Msg};
-        print!("{}", t(Msg::CpReauthAfter401));
-        match rustcode_auth::login().and_then(|auth| rustcode_auth::save_auth(&auth).map(|_| auth))
-        {
-            Ok(_) => {
-                report = rustcode_codingplan::run(
-                    &mut config,
-                    rustcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
-                )?;
-            }
-            Err(e) => {
-                // Re-OAuth itself failed (user pressed Ctrl+C, network
-                // dead, etc.). Print the *original* report so users
-                // still see what triggered the retry, then bail.
-                println!("{}", report.render());
-                anyhow::bail!(
-                    "{}",
-                    t(Msg::CliReauthFailed {
-                        error: &format!("{e:#}")
-                    })
-                );
-            }
-        }
-    }
-
-    if report.should_persist_config() {
-        use rustcode_config::i18n::{t, Msg};
-        let persisted = match rustcode_config::ConfigStore::new(&path).update(|latest| {
-            rustcode_codingplan::merge_successful_config(
-                latest,
-                &config,
-                &report,
-                rustcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
-            )
-        }) {
-            Ok(_) => true,
-            Err(e) => {
-                let path = path.display().to_string();
-                eprintln!(
-                    "{}",
-                    t(Msg::CliConfigSaveFailed {
-                        path: &path,
-                        error: &format!("{e:#}")
-                    })
-                );
-                false
-            }
-        };
-        // Stamp the sync marker alongside the config write. The drift
-        // monitor on the TUI side reads this to decide whether to warn
-        // about stale provider lists (> 24h + server drift). A failed
-        // marker write is non-fatal -- the config already landed; only
-        // the 24h hint would be miscounted, which self-corrects on the
-        // next successful run.
-        if persisted {
-            if let Err(e) = rustcode_codingplan::write_last_sync_now() {
-                eprintln!(
-                    "{}",
-                    t(Msg::CliSyncMarkerWriteFailed {
-                        error: &format!("{e:#}")
-                    })
-                );
-            }
-        }
-    }
-
-    Ok(report.render())
 }
 
 /// Guard so the two-link panic-hook chain (installed hook + install-aware

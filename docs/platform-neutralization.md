@@ -218,8 +218,9 @@ G8  docs/architecture.md 无 atomcode 残留
 
 - **[CHECK] `atomgit` Cargo feature** 是刻意保留的上游开关(平台 REST 工具、
   `api.atomgit.com/api/v5` 装配、push-label 中间件),默认成员不启用,不是残留。
-- **[CHECK] 旧 `AtomGit-*` provider 前缀兼容**(`is_codingplan_provider_name` /
-  `LEGACY_CODINGPLAN_PREFIX`):旧配置键仍需识别,勿删。
+- **[DONE] 旧 `AtomGit-*` provider 前缀兼容**(`is_codingplan_provider_name` /
+  `LEGACY_CODINGPLAN_PREFIX`):此前的保留结论已被推翻 —— 两个符号已于 2026-09-09
+  随 codingplan 一并移除,旧配置键不再享有前缀识别与折叠保护。
 - **[CHECK] 自有品牌域名** `*.rustcode.dev` 是本项目重命名后的自有域名(品牌),
   非厂商主机,保留。
 - **[WARN] 已知红测试** `mcp::registry::tests::trust_key_golden_matches_core_algorithm`
@@ -234,7 +235,7 @@ G8  docs/architecture.md 无 atomcode 残留
 | 功能 | 位置 |
 |------|------|
 | headless 无 provider 预检 | `crates/rustcode-cli/src/main.rs:2789` |
-| 签名网关 env 识别 | `crates/rustcode-codingplan/src/setup.rs:52` |
+| 签名网关 env 识别(已于 2026-09-09 移除) | `crates/rustcode-codingplan/src/setup.rs:52` |
 | provider 预设注册表 / 中立顺序 | `crates/rustcode-config/src/config/provider_preset.rs:98` |
 | TUI 预设 fallback | `crates/rustcode-tuix/src/modals/provider_panel.rs:71` |
 | TUI 字形降级 | `crates/rustcode-tuix/src/glyph.rs:77` |

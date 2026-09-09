@@ -174,9 +174,6 @@ async fn start_native_runtime_with_session_bootstrap(
         memory: true,
         web: true,
         review: true,
-        #[cfg(feature = "codingplan")]
-        rate_limit_source: Some(crate::coding_plan_rate_limit_source()),
-        #[cfg(not(feature = "codingplan"))]
         rate_limit_source: None,
     };
     let start = rustcode_coding::CodingRuntimeStart {

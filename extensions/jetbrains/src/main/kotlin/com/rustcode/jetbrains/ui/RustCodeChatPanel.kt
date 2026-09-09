@@ -547,21 +547,6 @@ class RustCodeChatPanel(
         }
     }
 
-    private fun runSetup() {
-        header.updateConnectionState(ConnectionState.CheckingDaemon)
-        service.setupCodingPlan().whenComplete { report, error ->
-            SwingUtilities.invokeLater {
-                if (error != null) {
-                    addErrorMessage(RustCodeBundle.message("chat.setupFailed", error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.failedFallback")))
-                    refreshSetupSnapshot()
-                    return@invokeLater
-                }
-                addSystemMessage(RustCodeBundle.message("chat.setupReport", report))
-                refreshSetupSnapshot()
-            }
-        }
-    }
-
     // ── Provider dialogs (unchanged logic) ──
 
     private fun showCreateProviderDialog() {
@@ -1886,12 +1871,10 @@ class RustCodeChatPanel(
         providerMenu.add(JSeparator())
         providerMenu.add(JMenuItem(labels.thinkingSettings).apply { addActionListener { showThinkingDialog() } })
         menu.add(providerMenu); menu.add(JSeparator())
-        // Open builds ship no managed account service: hide the sign-in and
-        // CodingPlan setup entries entirely (the daemon would only return
-        // 501/404 for them).
+        // Open builds ship no managed account service: hide the sign-in entry
+        // entirely (the daemon would only return 501 for it).
         if (managedLogin) {
             menu.add(JMenuItem(labels.login).apply { addActionListener { login() } })
-            menu.add(JMenuItem(labels.codingPlanSetup).apply { addActionListener { runSetup() } })
             menu.add(JSeparator())
         }
         menu.add(JMenuItem(labels.sessionHistory).apply { addActionListener { showSessionHistory() } })

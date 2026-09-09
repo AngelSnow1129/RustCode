@@ -24,20 +24,11 @@ const MAX_LOGIN_RECORDS: usize = 64;
 
 pub(crate) enum LoginPollStep {
     Pending,
-    Authorized {
-        user: auth::UserInfo,
-        newly_authorized: bool,
-    },
+    Authorized { user: auth::UserInfo },
     Expired,
     Cancelled,
-    Failed {
-        code: String,
-        message: String,
-    },
-    Retryable {
-        code: String,
-        message: String,
-    },
+    Failed { code: String, message: String },
+    Retryable { code: String, message: String },
 }
 
 pub(crate) struct LoginPollResult {
@@ -270,33 +261,14 @@ pub(crate) async fn auth_login_start(
 /// POST /auth/login/:login_id/poll - Polls one OAuth login session.
 pub(crate) async fn auth_login_poll(
     State(state): State<AppState>,
-    axum::Extension(client_mode): axum::Extension<ClientMode>,
+    // `ClientMode` stays extracted so the route contract is unchanged (a
+    // missing extension still fails the same way); a neutral build has no
+    // post-login gateway sync to dispatch it to.
+    axum::Extension(_client_mode): axum::Extension<ClientMode>,
     Path(login_id): Path<String>,
 ) -> impl IntoResponse {
-    let state_inner = state.clone();
-    match poll_login_session(&state_inner, &login_id).await {
-        Ok(result) => {
-            if let LoginPollStep::Authorized {
-                user: _user,
-                newly_authorized: true,
-            } = &result.step
-            {
-                // Fire-and-forget: after a fresh login, sync gateway
-                // models in the background so both IDE plugins (VS Code /
-                // JetBrains) get a populated model list on their next
-                // `/models` refresh without a manual "sync" click.
-                // Platform client only -- absent from a neutral build.
-                #[cfg(feature = "codingplan")]
-                crate::api_codingplan::sync_codingplan_after_login(
-                    state_inner.clone(),
-                    client_mode,
-                );
-                #[cfg(not(feature = "codingplan"))]
-                let _ = client_mode;
-            }
-
-            login_poll_response(result)
-        }
+    match poll_login_session(&state, &login_id).await {
+        Ok(result) => login_poll_response(result),
         Err(error) => coded_json_error(error.status, error.code, error.message, error.retryable)
             .into_response(),
     }
@@ -394,8 +366,8 @@ pub(crate) async fn poll_login_session(
         record.begin_poll(Instant::now())
     };
 
-    let (step, newly_authorized) = match work {
-        BeginPoll::Current(snapshot) => (step_from_snapshot(snapshot, false), false),
+    let step = match work {
+        BeginPoll::Current(snapshot) => step_from_snapshot(snapshot),
         BeginPoll::Poll {
             generation,
             session,
@@ -457,50 +429,29 @@ pub(crate) async fn poll_login_session(
         }
     };
 
-    Ok(LoginPollResult {
-        step: match step {
-            LoginPollStep::Authorized { user, .. } => LoginPollStep::Authorized {
-                user,
-                newly_authorized,
-            },
-            other => other,
-        },
-    })
+    Ok(LoginPollResult { step })
 }
 
 async fn apply_poll_completion(
     record: &Arc<tokio::sync::Mutex<LoginRecord>>,
     generation: u64,
     completion: PollCompletion<auth::LoginSession>,
-) -> (LoginPollStep, bool) {
+) -> LoginPollStep {
     match record
         .lock()
         .await
         .apply_poll(generation, completion, Instant::now())
     {
-        ApplyPoll::NewlyAuthorized(user) => (
-            LoginPollStep::Authorized {
-                user,
-                newly_authorized: true,
-            },
-            true,
-        ),
-        ApplyPoll::Retryable { code, message } => {
-            (LoginPollStep::Retryable { code, message }, false)
-        }
-        ApplyPoll::Current(snapshot) | ApplyPoll::Ignored(snapshot) => {
-            (step_from_snapshot(snapshot, false), false)
-        }
+        ApplyPoll::NewlyAuthorized(user) => LoginPollStep::Authorized { user },
+        ApplyPoll::Retryable { code, message } => LoginPollStep::Retryable { code, message },
+        ApplyPoll::Current(snapshot) | ApplyPoll::Ignored(snapshot) => step_from_snapshot(snapshot),
     }
 }
 
-fn step_from_snapshot(snapshot: LoginStateSnapshot, newly_authorized: bool) -> LoginPollStep {
+fn step_from_snapshot(snapshot: LoginStateSnapshot) -> LoginPollStep {
     match snapshot {
         LoginStateSnapshot::Pending => LoginPollStep::Pending,
-        LoginStateSnapshot::Authorized(user) => LoginPollStep::Authorized {
-            user,
-            newly_authorized,
-        },
+        LoginStateSnapshot::Authorized(user) => LoginPollStep::Authorized { user },
         LoginStateSnapshot::Expired => LoginPollStep::Expired,
         LoginStateSnapshot::Cancelled => LoginPollStep::Cancelled,
         LoginStateSnapshot::Failed { code, message } => LoginPollStep::Failed { code, message },
@@ -525,9 +476,7 @@ fn login_poll_response(result: LoginPollResult) -> axum::response::Response {
 
     match result.step {
         LoginPollStep::Pending => response("pending", None, None, None, Some(LOGIN_RETRY_AFTER_MS)),
-        LoginPollStep::Authorized { user, .. } => {
-            response("authorized", Some(user), None, None, None)
-        }
+        LoginPollStep::Authorized { user } => response("authorized", Some(user), None, None, None),
         LoginPollStep::Retryable { code, message } => {
             coded_json_error(StatusCode::SERVICE_UNAVAILABLE, code, message, true).into_response()
         }
@@ -731,7 +680,6 @@ mod tests {
                     email: None,
                     avatar_url: None,
                 },
-                newly_authorized: false,
             },
         });
         assert_eq!(authorized.status(), StatusCode::OK);

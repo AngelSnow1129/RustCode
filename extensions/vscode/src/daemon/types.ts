@@ -223,19 +223,6 @@ export interface PatchThinkingRequest {
   reasoning_history?: string | null;
 }
 
-export interface CodingPlanSetupResponse {
-  success: boolean;
-  report_text: string;
-  default_provider: string;
-  providers: ProviderInfo[];
-  steps: {
-    login: { status: string; message: string };
-    claim: { status: string; message: string };
-    models: { status: string; message: string };
-    status: { status: string; message: string };
-  };
-}
-
 // Sessions
 export interface SessionMeta {
   id: string;

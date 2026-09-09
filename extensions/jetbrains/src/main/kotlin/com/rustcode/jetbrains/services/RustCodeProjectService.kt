@@ -543,21 +543,6 @@ class RustCodeProjectService(private val project: Project) : Disposable {
         }
     }
 
-    fun setupCodingPlan(): CompletableFuture<String> {
-        val client = getOrCreateClient()
-        return client.setupCodingPlan().thenCompose { response ->
-            loadSetupSnapshot().thenApply {
-                response.reportText.ifBlank {
-                    if (response.success) {
-                        "CodingPlan setup completed. Default provider: ${response.defaultProvider}"
-                    } else {
-                        "CodingPlan setup did not complete."
-                    }
-                }
-            }
-        }
-    }
-
     private fun refreshConnectionHealth() {
         if (project.isDisposed) return
         if (connectionState.isConnecting()) return

@@ -324,7 +324,6 @@ export type ExtensionMessage =
   | { type: 'loginPending' }
   | { type: 'loginAuthorized'; user: UserInfo | null }
   | { type: 'setupWorking'; message: string }
-  | { type: 'codingPlanResult'; result: { success: boolean; report_text: string } }
   | { type: 'setupError'; message: string }
   | { type: 'context'; filePath: string; fileName: string; selection?: string; language?: string; startLine?: number; endLine?: number }
   | { type: 'insertText'; text: string }

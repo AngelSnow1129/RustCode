@@ -42,10 +42,6 @@ export function WelcomeScreen() {
     postMessage({ type: 'authLoginCancel' });
   }
 
-  function setupCodingPlan() {
-    postMessage({ type: 'codingPlanSetup' });
-  }
-
   function refreshSetupState() {
     postMessage({ type: 'refreshSetupState' });
   }
@@ -130,11 +126,6 @@ export function WelcomeScreen() {
                       ? t('setup.syncOrAddProvider')
                       : t('setup.addProviderHint')}
                 </div>
-              </div>
-              <div className="setup-actions">
-                {authUsable && (
-                  <button type="button" className="setup-primary" onClick={setupCodingPlan}>{t('setup.syncCodingPlanModels')}</button>
-                )}
               </div>
             </div>
 

@@ -1,11 +1,7 @@
 use std::sync::Arc;
 
-#[cfg(feature = "codingplan")]
-use async_trait::async_trait;
 use rustcode_coding::cc_hooks::HookConfig;
 use rustcode_coding::PluginHookSource;
-#[cfg(feature = "codingplan")]
-use rustcode_coding::{RateLimitWindow, RateLimitWindowSource};
 
 #[derive(Debug, Default)]
 pub struct InstalledPluginHookSource;
@@ -43,45 +39,6 @@ pub fn gather_plugin_skill_dirs_for(
     working_dir: &std::path::Path,
 ) -> Vec<(std::path::PathBuf, String)> {
     rustcode_capabilities::plugin::loader::installed_plugin_skill_dirs(working_dir)
-}
-
-#[cfg(feature = "codingplan")]
-#[derive(Debug, Default)]
-pub struct CodingPlanRateLimitSource;
-
-#[cfg(feature = "codingplan")]
-#[async_trait]
-impl RateLimitWindowSource for CodingPlanRateLimitSource {
-    fn applies_to(&self, base_url: &str) -> bool {
-        rustcode_capabilities::provider::is_codingplan_gateway(base_url)
-    }
-
-    async fn fetch_windows(&self) -> Result<Vec<RateLimitWindow>, String> {
-        tokio::task::spawn_blocking(|| {
-            let client = rustcode_codingplan::Client::from_stored_auth()
-                .map_err(|error| error.to_string())?;
-            let status = client.status_v2().map_err(|error| error.to_string())?;
-            Ok(status
-                .rate_limit_windows
-                .into_iter()
-                .map(|window| RateLimitWindow {
-                    window_size_seconds: window.window_size_seconds,
-                    quota_exhausted: window.quota_exhausted,
-                    reset_at_display: window.reset_at_display,
-                    seconds_until_reset: window.seconds_until_reset,
-                    reset_label: window.reset_label,
-                    call_limit: window.call_limit,
-                })
-                .collect())
-        })
-        .await
-        .map_err(|error| error.to_string())?
-    }
-}
-
-#[cfg(feature = "codingplan")]
-pub fn coding_plan_rate_limit_source() -> Arc<dyn RateLimitWindowSource> {
-    Arc::new(CodingPlanRateLimitSource)
 }
 
 pub fn coding_provider_factory() -> Arc<dyn rustcode_coding::CodingProviderFactory> {

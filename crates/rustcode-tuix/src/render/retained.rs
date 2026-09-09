@@ -7482,7 +7482,7 @@ impl<W: Write + Send> RetainedRenderer<W> {
 
     /// SGR-aware variant of `push_body_text` for **trusted** content
     /// that may carry inline `\x1b[...m` colour / bold / faint /
-    /// reverse spans (e.g. the `/codingplan` setup report's red
+    /// reverse spans (e.g. the managed-gateway setup report's red
     /// locked-model rows). Splits on `\n`, wraps each physical line,
     /// and feeds each chunk through `push_str_cells_sgr` so the
     /// working style mutates as cells are produced. SGR state resets
@@ -9552,7 +9552,7 @@ impl<W: Write + Send> Renderer for RetainedRenderer<W> {
 
                 // CommandOutput is trusted internal text -- let SGR
                 // through the sanitizer so colour / bold / faint
-                // attributes survive (e.g. the `/codingplan` red
+                // attributes survive (e.g. the setup report's red
                 // locked-model row). `push_body_text_sgr` parses
                 // those escapes into `CellStyle` mutations so the
                 // cell pipeline renders the same colours that the
@@ -21017,7 +21017,7 @@ mod tests {
     }
 
     /// Regression: SGR (`\x1b[31m…\x1b[39m`) embedded in a
-    /// `UiLine::CommandOutput` payload — emitted by the `/codingplan`
+    /// `UiLine::CommandOutput` payload — emitted by the managed-gateway
     /// SetupReport for locked-model rows — must reach the cell grid
     /// as a `CellStyle::fg = Some(DarkRed)` span rather than landing
     /// as literal `^[[31m` characters. Without the SGR-aware

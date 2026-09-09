@@ -1,0 +1,29 @@
+# T-10 补采：clippy 基线（cargo clippy --workspace --all-targets）
+commit: e80fb7ae4299b471f26aa658b55197be5a1ee5ac
+exit: CLIPPY_EXIT=0
+
+## per-lint 计数
+      3 clippy::duplicated_attributes
+      2 clippy::suspicious_open_options
+      2 clippy::field_reassign_with_default
+      2 clippy::doc_lazy_continuation
+      1 clippy::type_complexity
+      1 clippy::too_many_arguments
+      1 clippy::should_implement_trait
+      1 clippy::nonminimal_bool
+      1 clippy::manual_map
+      1 clippy::enum_variant_names
+      1 clippy::empty_line_after_doc_comments
+      1 clippy::collapsible_else_if
+
+## crate 级告警汇总
+      1 warning: `rustcode-capabilities` (lib) generated 11 warnings
+      1 warning: `rustcode-capabilities` (lib test) generated 12 warnings (10 duplicates)
+      1 warning: `rustcode-config` (lib) generated 3 warnings (run `cargo clippy --fix --lib -p rustcode-config` to apply 1 suggestion)
+      1 warning: `rustcode-config` (lib test) generated 4 warnings (2 duplicates)
+      1 warning: `rustcode-daemon` (lib) generated 6 warnings
+      1 warning: `rustcode-daemon` (lib test) generated 14 warnings (6 duplicates) (run `cargo clippy --fix --lib -p rustcode-daemon --tests` to apply 7 suggestions)
+      1 warning: `rustcode` (lib) generated 1 warning
+      1 warning: `rustcode` (lib test) generated 1 warning (1 duplicate)
+      1 warning: `rustcode-tuix` (lib) generated 8 warnings (run `cargo clippy --fix --lib -p rustcode-tuix` to apply 7 suggestions)
+      1 warning: `rustcode-tuix` (lib test) generated 10 warnings (8 duplicates) (run `cargo clippy --fix --lib -p rustcode-tuix --tests` to apply 1 suggestion)

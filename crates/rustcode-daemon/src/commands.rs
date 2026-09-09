@@ -619,104 +619,11 @@ fn render_login_line_from_stored_auth() -> String {
     }
 }
 
-#[cfg(feature = "codingplan")]
-fn render_cp_auth_error(e: &anyhow::Error, fallback: impl FnOnce() -> String) -> String {
-    use rustcode_codingplan::is_auth_expired;
-    use rustcode_config::i18n::{t, Msg};
-    if is_auth_expired(e) {
-        t(Msg::StatusCpAuthExpired).into_owned()
-    } else {
-        fallback()
-    }
-}
-
-/// Neutral build: no gateway status to report -- the `/status` codingplan
-/// section renders empty.
-#[cfg(not(feature = "codingplan"))]
-fn render_codingplan_status_for_status_cmd() -> String {
-    String::new()
-}
-
-#[cfg(feature = "codingplan")]
-fn render_codingplan_status_for_status_cmd() -> String {
-    tokio::task::block_in_place(|| {
-        // `format_duration_secs` is re-exported at the crate root from the
-        // always-on `usage` module; `setup` only imports it privately.
-        use rustcode_codingplan::format_duration_secs;
-        use rustcode_codingplan::Client;
-        use rustcode_config::i18n::{t, Msg};
-
-        let client = match Client::from_stored_auth() {
-            Ok(c) => c,
-            Err(e) => return render_cp_auth_error(&e, || t(Msg::StatusCpNotSignedIn).into_owned()),
-        };
-        let status = match client.status_v2() {
-            Ok(s) => s,
-            Err(e) => {
-                return render_cp_auth_error(&e, || {
-                    t(Msg::StatusCpFetchFailed {
-                        error: &format!("{:#}", e),
-                    })
-                    .into_owned()
-                })
-            }
-        };
-        let plan = match &status.codingplan_free {
-            Some(p) => p,
-            None => {
-                return t(Msg::StatusCpNoActive).into_owned();
-            }
-        };
-
-        let mut out = t(Msg::StatusCpLine {
-            plan: &plan.plan_name,
-            expires_at: &plan.expires_at,
-            remaining_days: plan.remaining_days,
-            total_days: plan.total_days,
-        })
-        .into_owned();
-        if !status.rate_limit_windows.is_empty() {
-            for w in status
-                .rate_limit_windows
-                .iter()
-                .filter(|w| w.show_enable == 1)
-            {
-                out.push_str(&t(Msg::StatusCpUsage {
-                    usage: &w.usage_status_desc,
-                    reset_at: &w.reset_at_display,
-                    duration: &format_duration_secs(w.seconds_until_reset),
-                }));
-            }
-        } else if status.window_quota_exhausted {
-            if let Some(hint) = &status.window_quota_hint {
-                out.push_str(&t(Msg::StatusCpWindowHint { hint }));
-            } else {
-                out.push_str(&t(Msg::StatusCpWindowExhausted));
-            }
-        } else if let Some(u) = &status.current_usage {
-            out.push_str(&t(Msg::StatusCpUsage {
-                usage: &u.display_desc(),
-                reset_at: &u.reset_at_display,
-                duration: &format_duration_secs(u.seconds_until_reset),
-            }));
-        }
-        out
-    })
-}
-
-fn assemble_status(
-    login: &str,
-    body: &str,
-    codingplan: &str,
-    proxy: &str,
-    instructions: &str,
-) -> String {
-    let mut txt = String::with_capacity(
-        login.len() + body.len() + codingplan.len() + proxy.len() + instructions.len() + 16,
-    );
+fn assemble_status(login: &str, body: &str, proxy: &str, instructions: &str) -> String {
+    let mut txt =
+        String::with_capacity(login.len() + body.len() + proxy.len() + instructions.len() + 16);
     txt.push_str(login);
     txt.push_str(body);
-    txt.push_str(codingplan);
     txt.push_str(proxy);
     txt.push('\n');
     txt.push_str(instructions);
@@ -756,7 +663,6 @@ fn exec_status(
     let text = assemble_status(
         &render_login_line_from_stored_auth(),
         &body,
-        &render_codingplan_status_for_status_cmd(),
         &proxy_line,
         &render_context_file_status_block(working_dir),
     );

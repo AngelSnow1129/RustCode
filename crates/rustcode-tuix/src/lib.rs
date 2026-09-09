@@ -20,13 +20,6 @@
 #[ctor::ctor]
 fn _isolate_rustcode_home() {
     rustcode_kernel::test_support::isolate_home();
-    // Platform-neutral gateway detection: no host is a CodingPlan gateway by
-    // default, so the auth-gating tests point the explicit override at a
-    // neutral example origin (only `gateway.test.example` URLs are affected).
-    std::env::set_var(
-        "RUSTCODE_CODINGPLAN_LLM_BASE_URL",
-        "https://gateway.test.example/v1",
-    );
 }
 
 pub mod commands;
@@ -861,15 +854,7 @@ pub async fn run(
         commands: CommandRegistry::builtin(),
         current_session,
         update_hint,
-        monitor_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         hook_warning_hint: std::sync::Arc::new(std::sync::Mutex::new(None)),
-        monitor_last_check_at: None,
-        usage_slot: std::sync::Arc::new(std::sync::Mutex::new(None)),
-        usage_last_check_at: None,
-        // Seed with whatever's on disk now -- any NEWER mtime observed
-        // later means another rustcode process resynced and our drift
-        // warning (if any) is stale.
-        monitor_last_sync_seen: rustcode_codingplan::read_last_sync(),
         wake_rx,
         wake_tx: wake_tx.clone(),
         oauth_event_rx,
@@ -920,20 +905,6 @@ pub async fn run(
         askpass_rx,
         loop_ctrl: None,
     };
-
-    // CodingPlan drift monitor -- kick off a startup check if the current
-    // default provider is CodingPlan-managed. Non-CodingPlan users skip
-    // this entirely (no HTTP, no state touched). Check runs in the
-    // background via tokio::spawn -> the warning shows up on the next
-    // footer repaint once it resolves.
-    if event_loop::monitor::is_codingplan_provider(&ctx.config.default_provider) {
-        event_loop::monitor::spawn_check(
-            ctx.config.clone(),
-            ctx.model_name.clone(),
-            ctx.monitor_warning.clone(),
-            ctx.wake_tx.clone(),
-        );
-    }
 
     crate::tuix_trace!(
         "START",

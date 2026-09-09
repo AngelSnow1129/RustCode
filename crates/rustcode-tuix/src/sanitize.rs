@@ -22,7 +22,7 @@ pub fn scrub_controls(input: &str) -> String {
 /// clipboard, sets the window title, or otherwise reaches outside
 /// the display rectangle. Allowing it through is what `less`, `git`,
 /// `bat`, and every other "safe ANSI" tool does, and it lets trusted
-/// internal output (e.g. the `/codingplan` SetupReport's locked-model
+/// internal output (e.g. the managed-gateway SetupReport's locked-model
 /// rows that render in the terminal's theme red) survive sanitisation
 /// without each caller having to roll its own emission path.
 ///
