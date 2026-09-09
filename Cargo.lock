@@ -2720,7 +2720,6 @@ dependencies = [
  "fs2",
  "libc",
  "reqwest",
- "rustcode-codingplan-crypto",
  "rustcode-config",
  "serde",
  "serde_json",
@@ -2840,10 +2839,6 @@ dependencies = [
  "tracing",
  "uuid",
 ]
-
-[[package]]
-name = "rustcode-codingplan-crypto"
-version = "0.1.0"
 
 [[package]]
 name = "rustcode-config"

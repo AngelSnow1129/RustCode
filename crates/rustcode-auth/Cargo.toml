@@ -18,11 +18,9 @@ uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
 url = "2"
 rustcode-config = { path = "../rustcode-config" }
-rustcode-codingplan-crypto = { path = "../rustcode-codingplan-crypto", optional = true }
 
 [features]
 default = []
-codingplan-crypto = ["dep:rustcode-codingplan-crypto"]
 
 [target.'cfg(unix)'.dependencies]
 # `tcgetattr`/`tcsetattr` for the cbreak (ESC-to-cancel) terminal guard during login.

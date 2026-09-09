@@ -2,9 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rustcode_capabilities::provider::{
-    codingplan_request_signer, is_codingplan_gateway, signer_available, AnthropicConfig,
-    AnthropicProvider, OllamaConfig, OllamaProvider, OpenAiCompatConfig, OpenAiCompatProvider,
-    ReasoningPolicy, RequestSigner, RetryPolicy,
+    AnthropicConfig, AnthropicProvider, OllamaConfig, OllamaProvider, OpenAiCompatConfig,
+    OpenAiCompatProvider, ReasoningPolicy, RequestSigner, RetryPolicy,
 };
 use rustcode_kernel::provider::LlmProvider;
 
@@ -40,36 +39,6 @@ pub trait ProviderAuthenticator: Send + Sync {
         &self,
         base_url: &str,
     ) -> Result<Option<Arc<dyn RequestSigner>>, ProviderBuildError>;
-}
-
-pub struct CodingPlanProviderAuthenticator;
-
-impl ProviderAuthenticator for CodingPlanProviderAuthenticator {
-    fn request_signer(
-        &self,
-        base_url: &str,
-    ) -> Result<Option<Arc<dyn RequestSigner>>, ProviderBuildError> {
-        if !is_codingplan_gateway(base_url) {
-            return Ok(None);
-        }
-        if !signer_available() {
-            return Err(ProviderBuildError::SourceBuildGatewayUnsupported {
-                base_url: base_url.to_string(),
-            });
-        }
-        codingplan_request_signer(base_url)
-            .map(Some)
-            .map_err(ProviderBuildError::Authentication)
-    }
-}
-
-pub fn codingplan_provider_factory(
-    default_user_agent: impl Into<String>,
-) -> Arc<dyn CodingProviderFactory> {
-    Arc::new(
-        DefaultCodingProviderFactory::new(default_user_agent)
-            .with_authenticator(Arc::new(CodingPlanProviderAuthenticator)),
-    )
 }
 
 pub trait CodingProviderFactory: Send + Sync {

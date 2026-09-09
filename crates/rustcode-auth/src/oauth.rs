@@ -601,8 +601,8 @@ pub fn start_login() -> Result<LoginSession> {
         // connection is RST at the handshake -- the signature of a middlebox that
         // resets TLS 1.3 to the managed login endpoint (Windows `os error 10054`)
         // -- retry once with a fresh TLS-1.2 client. Only a successful retry
-        // latches the managed-endpoint policy for later auth/codingplan/provider
-        // clients. Third-party endpoints remain unaffected.
+        // latches the capped-TLS policy for later auth/provider clients.
+        // Third-party endpoints remain unaffected.
         let login_url = platform_login_url();
         let was_capped = rustcode_config::tls::should_cap_url(&login_url);
         match attempt_login(was_capped) {
@@ -676,7 +676,7 @@ fn strip_force_login(url: &str) -> String {
 
 /// Stdout-driven OAuth login: prints the URL, opens the browser,
 /// polls `/auth/check` with stdin-driven ESC cancel. Used by the CLI
-/// (`rustcode login`, `rustcode codingplan`) and by `setup.rs`'s
+/// (`rustcode login`) and by `setup.rs`'s
 /// `step_login` when the TUI hasn't already pre-flighted login.
 ///
 /// TUI callers should NOT use this -- render via `start_login()` +

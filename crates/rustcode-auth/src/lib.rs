@@ -14,7 +14,6 @@ use anyhow::{Context, Result};
 #[cfg(target_os = "windows")]
 use rustcode_config::i18n::{t, Msg};
 
-pub mod gateway_crypto;
 pub mod oauth;
 
 pub use oauth::*;

@@ -81,10 +81,9 @@ pub use persona::{coding_persona, coding_persona_with_language, commit_language_
 pub use plan_mode::PlanModeGate;
 pub use plugin_hooks::{PluginHookSource, StaticPluginHookSource};
 pub use provider_factory::{
-    codingplan_provider_factory, derive_tier_config, install_subagent_tiers,
-    refresh_subagent_tiers, resolve_subagent_tier_thunks, tier_provider_builder,
-    CodingPlanProviderAuthenticator, CodingProviderFactory, DefaultCodingProviderFactory,
-    ProviderAuthenticator, ProviderBuildError,
+    derive_tier_config, install_subagent_tiers, refresh_subagent_tiers,
+    resolve_subagent_tier_thunks, tier_provider_builder, CodingProviderFactory,
+    DefaultCodingProviderFactory, ProviderAuthenticator, ProviderBuildError,
 };
 pub use rate_limit::{RateLimitWindow, RateLimitWindowSource};
 pub use runtime::{

@@ -16,7 +16,6 @@
 //!     echoed back ([`ReasoningPolicy`]).
 
 mod anthropic;
-mod codingplan_sign;
 mod error;
 mod ollama;
 mod openai_compat;
@@ -25,7 +24,6 @@ mod retry;
 mod sign;
 
 pub use anthropic::{AnthropicConfig, AnthropicProvider};
-pub use codingplan_sign::{codingplan_request_signer, is_codingplan_gateway, signer_available};
 pub use error::LlmError;
 pub use ollama::{OllamaConfig, OllamaProvider};
 pub use openai_compat::{
