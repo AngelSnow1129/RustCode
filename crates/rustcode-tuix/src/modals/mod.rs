@@ -88,8 +88,6 @@ pub mod proxy_picker;
 mod qr;
 pub mod rewind;
 pub mod session_picker;
-pub mod usage;
-pub mod usage_render;
 pub use config_panel::ConfigPanel;
 pub use diff_viewer::DiffViewer;
 pub use dir_picker::DirPicker;

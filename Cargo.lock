@@ -2842,19 +2842,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustcode-codingplan"
-version = "5.0.9"
-dependencies = [
- "anyhow",
- "reqwest",
- "rustcode-auth",
- "rustcode-config",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "rustcode-codingplan-crypto"
 version = "0.1.0"
 
@@ -2963,7 +2950,6 @@ dependencies = [
  "rustcode-auth",
  "rustcode-capabilities",
  "rustcode-coding",
- "rustcode-codingplan",
  "rustcode-config",
  "rustcode-daemon",
  "rustcode-kernel",

@@ -19,11 +19,9 @@ pub(crate) mod desktop;
 pub(crate) mod file_index;
 pub(crate) mod loop_ctrl;
 pub(crate) mod loop_parse;
-pub(crate) mod monitor;
 pub(crate) mod oauth_poll;
 pub(crate) mod pointer_select;
 pub(crate) mod ui_event;
-pub(crate) mod usage_monitor;
 use commands::{execute_slash_command, format_rate_limited_line};
 pub use commands::{perform_session_rename, validate_session_name, MAX_SESSION_NAME_LEN};
 

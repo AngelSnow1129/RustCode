@@ -159,3 +159,13 @@
       各自单文件单 Agent，并**禁用需审批命令**；
 - (b) 用 git worktree 隔离后续批次，彻底消除并发污染；
 - (c) 停手，交人工/更小的步子推进。
+
+## 批次所有权登记（避免与并行会话撞车）
+
+| 批次 | 独占方 | files_owned | 登记时间 |
+|---|---|---|---|
+| **P4 / T-16'** | **本会话（编排者 OPT 轮）** | `tuix/src/event_loop/monitor.rs`（删）、`event_loop/usage_monitor.rs`（删）、`modals/usage.rs`（删）、`modals/usage_render.rs`（删）、`modals/mod.rs`、`event_loop/mod.rs`（仅两条 `mod` 声明）、`tuix/Cargo.toml`、`crates/rustcode-codingplan/**`（删）、`Cargo.lock` | 2026-09-09 |
+| P3 | 已完成并提交（`d9a85069`，并行会话执行的 T-13a/b/c/d） | — | — |
+
+**注**：本仓库存在**并行编排会话**（已观察到 `ea16dc88` / `d9a85069` 两次非本会话提交）。
+后续批次开工前**必须先读本节**，已被登记的文件不得重复派发。
