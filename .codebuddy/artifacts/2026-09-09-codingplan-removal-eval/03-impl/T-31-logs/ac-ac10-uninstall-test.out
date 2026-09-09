@@ -1,0 +1,59 @@
+warning: function `parse_scutil_proxy` is never used
+  --> crates/rustcode-config/src/system_proxy.rs:80:15
+   |
+80 | pub(crate) fn parse_scutil_proxy(raw: &str) -> SystemProxy {
+   |               ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rustcode-config` (lib) generated 1 warning
+warning: function `migrate_sessions_from` is never used
+    --> crates/rustcode-capabilities/src/session/manager.rs:3318:4
+     |
+3318 | fn migrate_sessions_from(legacy_root: &Path, target_root: &Path) -> SessionResult<usize> {
+     |    ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rustcode-capabilities` (lib) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running unittests src/lib.rs (target/debug/deps/rustcode-4c9e3e7eea85a06a)
+
+running 34 tests
+test uninstall::actions::execute_tests::purge_removes_everything_under_data ... ok
+test uninstall::actions::execute_tests::execution_order_state_then_credentials_then_binary ... ok
+test uninstall::actions::execute_tests::keep_data_only_removes_binary ... ok
+test uninstall::actions::execute_tests::defaults_keep_credentials_remove_state ... ok
+test uninstall::actions::path_line_tests::does_not_touch_user_written_path_lines ... ok
+test uninstall::actions::path_line_tests::returns_none_when_no_block ... ok
+test uninstall::actions::path_line_tests::ignores_block_with_different_prefix ... ok
+test uninstall::actions::path_line_tests::handles_block_at_end_of_file ... ok
+test uninstall::actions::path_line_tests::strips_canonical_block ... ok
+test uninstall::actions::path_line_tests::strips_multiple_blocks_from_repeat_installs ... ok
+test uninstall::actions::process_tests::name_matcher_recognizes_rustcode_variants ... ok
+test uninstall::actions::remove_tests::nonexistent_path_is_ok ... ok
+test uninstall::actions::rc_apply_tests::no_change_when_block_absent ... ok
+test uninstall::actions::rc_apply_tests::backup_created_and_block_removed ... ok
+test uninstall::actions::windows_path_tests::case_insensitive ... ok
+test uninstall::actions::remove_tests::removes_file ... ok
+test uninstall::actions::remove_tests::removes_dir_recursively ... ok
+test uninstall::actions::windows_path_tests::ignores_trailing_backslash ... ok
+test uninstall::actions::windows_path_tests::matches_unexpanded_localappdata ... ok
+test uninstall::actions::windows_path_tests::preserves_other_rustcode_substring_entries ... ok
+test uninstall::actions::windows_path_tests::returns_none_when_not_present ... ok
+test uninstall::actions::windows_path_tests::strips_exact_match ... ok
+test uninstall::paths::tests::manifest_groups_credentials_correctly ... ok
+test uninstall::paths::tests::manifest_groups_state_correctly ... ok
+test uninstall::paths::tests::rc_files_includes_zshrc_and_bashrc ... ok
+test uninstall::paths::tests::rustcode_home_env_wins ... ok
+test uninstall::paths::tests::rustcode_dir_follows_home ... ok
+test uninstall::scan::tests::needs_privilege_true_for_path_with_no_parent ... ok
+test uninstall::scan::tests::needs_privilege_false_for_user_writable_tempdir ... ok
+test uninstall::scan::tests::scan_classifies_credentials_and_state ... ok
+test uninstall::scan::tests::scan_finds_binary_and_artifacts ... ok
+test uninstall::scan::tests::scan_returns_items_in_group_order ... ok
+test uninstall::scan::tests::scan_skips_missing_files_silently ... ok
+test uninstall::actions::process_tests::excludes_self ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 82 filtered out; finished in 0.05s
+

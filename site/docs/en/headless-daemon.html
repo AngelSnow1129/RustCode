@@ -227,7 +227,7 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
       </table>
 
       <h4>Auth &amp; managed account (distribution builds only)</h4>
-      <p>These endpoints drive a distribution-provided managed service. The default open-source build ships no managed endpoint — configure third-party providers with your own API key via the <strong>Config / providers</strong> routes above (<code>POST /providers</code>) or <code>~/.rustcode/config.toml</code>. In that build the <code>/auth/*</code> routes are registered but OAuth cannot complete (there is no service to log into), and the <code>/codingplan/*</code> routes are not compiled at all (they return 404).</p>
+      <p>These endpoints drive a distribution-provided managed service. The default open-source build ships no managed endpoint — configure third-party providers with your own API key via the <strong>Config / providers</strong> routes above (<code>POST /providers</code>) or <code>~/.rustcode/config.toml</code>. In that build the <code>/auth/*</code> routes are registered but OAuth cannot complete (there is no service to log into), and the <code>/codingplan/*</code> routes were removed on 2026-09-09 and are no longer registered in any build, so requests to them return 404.</p>
       <table>
         <thead><tr><th>Method + Path</th><th>Description</th></tr></thead>
         <tbody>
@@ -236,8 +236,6 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
           <tr><td><code>POST /auth/login/:login_id/poll</code></td><td>Poll for the login result</td></tr>
           <tr><td><code>DELETE /auth/login/:login_id</code></td><td>Cancel an in-flight login</td></tr>
           <tr><td><code>POST /auth/logout</code></td><td>Log out of the managed account</td></tr>
-          <tr><td><code>POST /codingplan/setup</code></td><td>Distribution builds only: claim the managed entitlement and write the provider config (equivalent to the CLI <code>rustcode login</code> in a distribution build). There is no visible <code>rustcode codingplan</code> command (it is absent from help and shell completion); only a hidden compatibility alias remains, which runs the same path as <code>rustcode login</code> — in the open build both print the bring-your-own-key notice rather than performing a login.</td></tr>
-          <tr><td><code>GET /codingplan/usage/summary</code> · <code>GET /codingplan/usage/daily</code></td><td>Distribution builds only: managed-account quota summary and daily usage</td></tr>
         </tbody>
       </table>
 

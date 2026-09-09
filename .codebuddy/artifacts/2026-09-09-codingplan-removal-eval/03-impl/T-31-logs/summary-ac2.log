@@ -1,0 +1,42 @@
+########## R1: completion guard (bins) ##########
+test tests::completion_early_exit_only_matches_the_root_subcommand ... ok
+test tests::completion_subcommand_defaults_to_bash_and_accepts_all_supported_shells ... ok
+test tests::completion_scripts_cover_all_supported_shells ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 88 filtered out; finished in 0.05s
+
+rc=0
+########## R2: shell_completion integration ##########
+running 1 test
+test completion_exits_before_startup_side_effects ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+rc=0
+########## R3: AC-9 four new tests ##########
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (target/debug/deps/rustcode_config-1bebe07002604a2f)
+
+running 4 tests
+test config::legacy_projection_tests::legacy_provider_names_are_editable ... ok
+test config::legacy_projection_tests::legacy_providers_project_one_account_per_provider ... ok
+test config::tests::empty_declared_levels_mean_unrestricted ... ok
+test config::tests::declared_effort_levels_are_authoritative_without_builtin_fallback ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 306 filtered out; finished in 0.00s
+
+rc=0
+########## R4: known-red isolated (features mcp) ##########
+assertion `left == right` failed
+  left: "e07a86b0ce8a1c59"
+ right: "8b6a67e0b2c06dae"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    mcp::registry::tests::trust_key_golden_matches_core_algorithm
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 930 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p rustcode-capabilities --lib`
+rc=0

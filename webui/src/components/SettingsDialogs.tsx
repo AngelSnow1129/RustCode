@@ -336,9 +336,6 @@ export function ModelConfigDialog({ onClose }: { onClose: () => void }) {
                     {p.is_default && (
                       <span class="provider-default-badge">{t('settings.default')}</span>
                     )}
-                    {isManagedProvider(p) && (
-                      <span class="provider-managed-badge">{t('settings.officialCodingPlan')}</span>
-                    )}
                     <span class="provider-type">{p.type}</span>
                     <div class="provider-card-actions">
                       {!p.is_default && (

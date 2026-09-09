@@ -1,0 +1,29 @@
+   Compiling rustcode-config v5.0.9 (/workspace/RustCode/crates/rustcode-config)
+   Compiling rustcode-kernel v5.0.9 (/workspace/RustCode/crates/rustcode-kernel)
+   Compiling rustcode v5.0.9 (/workspace/RustCode/crates/rustcode-cli)
+warning: function `parse_scutil_proxy` is never used
+  --> crates/rustcode-config/src/system_proxy.rs:80:15
+   |
+80 | pub(crate) fn parse_scutil_proxy(raw: &str) -> SystemProxy {
+   |               ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling rustcode-auth v5.0.9 (/workspace/RustCode/crates/rustcode-auth)
+   Compiling rustcode-updater v5.0.9 (/workspace/RustCode/crates/rustcode-updater)
+   Compiling rustcode-capabilities v5.0.9 (/workspace/RustCode/crates/rustcode-capabilities)
+warning: `rustcode-config` (lib) generated 1 warning
+warning: function `migrate_sessions_from` is never used
+    --> crates/rustcode-capabilities/src/session/manager.rs:3318:4
+     |
+3318 | fn migrate_sessions_from(legacy_root: &Path, target_root: &Path) -> SessionResult<usize> {
+     |    ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling rustcode-review v5.0.9 (/workspace/RustCode/crates/rustcode-review)
+   Compiling rustcode-coding v5.0.9 (/workspace/RustCode/crates/rustcode-coding)
+   Compiling rustcode-daemon v5.0.9 (/workspace/RustCode/crates/rustcode-daemon)
+warning: `rustcode-capabilities` (lib) generated 1 warning
+   Compiling rustcode-tuix v5.0.9 (/workspace/RustCode/crates/rustcode-tuix)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 15s

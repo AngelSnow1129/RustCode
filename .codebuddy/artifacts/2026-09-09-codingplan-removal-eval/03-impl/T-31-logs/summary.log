@@ -1,0 +1,29 @@
+=== T-31 START 2026-09-09T12:05:55Z ===
+=== HEAD: 757f8ec51f765fd22f9c27c9f531f2ef5c587b47 branch: dev ===
+
+########## CMD-1: cargo fmt --check ##########
+exit=0
+
+########## CMD-2: cargo build ##########
+exit=0
+
+########## CMD-3: cargo build --workspace ##########
+exit=0
+
+########## CMD-4: cargo clippy --workspace --all-targets ##########
+exit=0
+
+########## CMD-5: cargo test -j 1 --workspace --no-fail-fast ##########
+exit=101
+
+########## CMD-6: python3 scripts/check-zh-docs.py gate ##########
+exit=0
+
+########## CMD-7..10: residual greps ##########
+CMD7 exit_count=7
+CMD8 exit_count=1
+CMD9 exit_count=118
+CMD10 exit=1 count=0
+
+=== T-31 END 2026-09-09T12:13:32Z ===
+ALLDONE

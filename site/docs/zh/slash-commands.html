@@ -84,7 +84,7 @@
           <tr><th>命令</th><th>作用</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/login</code></td><td><strong>仅发行版本</strong> — 在内置托管服务的发行版本中,一条命令完成 OAuth 并根据下发的模型列表自动写好 provider 配置;已登录后重跑会幂等地同步。开源默认构建没有托管账号,因此此命令不可用,请改用 <code>/provider</code> 自带 Key。<em>发行版本中旧的 <code>/codingplan</code> 入口已折进 <code>/login</code></em></td></tr>
+          <tr><td><code>/login</code></td><td><strong>仅发行版本</strong> — 在内置托管服务的发行版本中,一条命令完成 OAuth 并根据下发的模型列表自动写好 provider 配置;已登录后重跑会幂等地同步。开源默认构建没有托管账号,因此此命令不可用,请改用 <code>/provider</code> 自带 Key</td></tr>
           <tr><td><code>/resume</code></td><td>打开会话选择器,恢复任意一个之前的持久化会话(含消息、目录和模型状态)</td></tr>
           <tr><td><code>/session</code></td><td>创建一个全新的、干净的会话</td></tr>
           <tr><td><code>/bg</code></td><td>将当前会话放到后台并打开新的前台会话;子命令: <code>/bg list</code>、<code>/bg &lt;N&gt;</code>、<code>/bg drop &lt;N&gt;</code>、<code>/bg help</code>。详见 <a href="./sessions.html#bg">后台会话</a></td></tr>
