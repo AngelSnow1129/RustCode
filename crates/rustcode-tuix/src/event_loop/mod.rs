@@ -3799,26 +3799,19 @@ pub(crate) struct ProviderProjectionObservation {
     model: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AuthObservation {
-    user_id: Option<String>,
-}
+/// Observation of the shared credential file.
+///
+/// Managed platform accounts were removed, so there is no longer any account
+/// identity or token to observe and an observation deliberately carries no
+/// payload (no local identity id is introduced as a replacement). The type is
+/// kept so `LoopCtx` construction stays source-compatible; the poll below still
+/// performs its single startup reconcile and stays a no-op afterwards.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AuthObservation;
 
 impl AuthObservation {
-    fn read() -> Self {
-        Self {
-            user_id: rustcode_auth::get_stored_auth().map(|auth| auth.user.id),
-        }
-    }
-
     fn read_checked() -> anyhow::Result<Self> {
-        Ok(Self {
-            user_id: rustcode_auth::get_stored_auth_checked()?.map(|auth| auth.user.id),
-        })
-    }
-
-    fn is_available(&self) -> bool {
-        self.user_id.is_some()
+        Ok(Self)
     }
 }
 
@@ -11013,18 +11006,14 @@ mod external_config_tests {
     }
 
     #[test]
-    fn failed_auth_transition_keeps_the_previous_observation_for_retry() {
-        let previous = AuthObservation {
-            user_id: Some("user-a".into()),
-        };
-        let missing = AuthObservation { user_id: None };
-        let mut observed = Some(previous.clone());
+    fn unreconciled_auth_observation_is_not_committed() {
+        let mut observed = None;
 
-        commit_auth_observation(&mut observed, missing.clone(), false);
-        assert_eq!(observed, Some(previous));
+        commit_auth_observation(&mut observed, AuthObservation, false);
+        assert_eq!(observed, None);
 
-        commit_auth_observation(&mut observed, missing.clone(), true);
-        assert_eq!(observed, Some(missing));
+        commit_auth_observation(&mut observed, AuthObservation, true);
+        assert_eq!(observed, Some(AuthObservation));
     }
 
     #[test]
@@ -16272,22 +16261,13 @@ fn handle_idle_key(
                         // until the runtime becomes available, so readiness may
                         // consume it without waiting for a turn terminal.
                         app.queue_drain_authorized = true;
-                        // AwaitingProvider covers both a transient auth race (user
-                        // IS logged in, recovery imminent) and genuinely-not-logged-in.
-                        // For the latter, keep the old actionable guidance to run
-                        // /login -- the held message auto-sends once auth lands.
-                        // Neutral builds have no sign-in service, so "not logged in"
-                        // cannot be the cause there: the provider-ready hint is the
+                        // Managed login was removed, so there is no sign-in
+                        // action to point at. The provider-ready hint is the
                         // only honest guidance (the queue still auto-sends).
-                        let hint = if availability == RuntimeUiAvailability::AwaitingProvider
-                            && crate::modals::onboarding_wizard::managed_login_available()
-                            && !AuthObservation::read().is_available()
-                        {
-                            crate::i18n::Msg::SubmitHeldUntilLogin
-                        } else {
-                            crate::i18n::Msg::SubmitHeldUntilProviderReady
-                        };
-                        renderer.render(UiLine::CommandOutput(crate::i18n::t(hint).into_owned()));
+                        renderer.render(UiLine::CommandOutput(
+                            crate::i18n::t(crate::i18n::Msg::SubmitHeldUntilProviderReady)
+                                .into_owned(),
+                        ));
                         redraw_idle_plain(&app.buf, &app.state, ctx, renderer);
                         renderer.flush();
                     } else {
@@ -16690,20 +16670,19 @@ fn redraw_idle_plain(buf: &Buffer, state: &UiState, ctx: &LoopCtx, renderer: &mu
 }
 
 /// True iff startup should auto-open the OnboardingWizard:
-/// no providers configured AND no OAuth login on disk AND we're
-/// running in an interactive renderer. Plain mode (CI / pipe /
-/// non-TTY) falls through to the "no provider configured" status
-/// hint instead -- the bordered-panel wizard can't sensibly run
-/// without a human watching keystrokes.
+/// no providers configured AND we're running in an interactive
+/// renderer. Plain mode (CI / pipe / non-TTY) falls through to the
+/// "no provider configured" status hint instead -- the bordered-panel
+/// wizard can't sensibly run without a human watching keystrokes.
 pub(crate) fn should_auto_show_onboarding(ctx: &LoopCtx) -> bool {
     if ctx.is_plain_renderer {
         return false;
     }
-    provider_configuration_missing(&ctx.config, rustcode_auth::get_stored_auth().is_some())
+    provider_configuration_missing(&ctx.config)
 }
 
-fn provider_configuration_missing(config: &Config, has_stored_auth: bool) -> bool {
-    config.active_provider(None).is_err() && !has_stored_auth
+fn provider_configuration_missing(config: &Config) -> bool {
+    config.active_provider(None).is_err()
 }
 
 #[cfg(test)]
@@ -16732,9 +16711,8 @@ mod onboarding_provider_tests {
         .unwrap();
 
         assert!(config.providers.is_empty(), "legacy table stays empty");
-        assert!(!provider_configuration_missing(&config, false));
-        assert!(provider_configuration_missing(&Config::default(), false));
-        assert!(!provider_configuration_missing(&Config::default(), true));
+        assert!(!provider_configuration_missing(&config));
+        assert!(provider_configuration_missing(&Config::default()));
     }
 }
 
@@ -27605,7 +27583,6 @@ fn status_context_usage(
 fn status_provider_unconfigured(
     unavailable_reason: Option<rustcode_coding::ProviderUnavailableReason>,
     config: &Config,
-    has_stored_auth: bool,
 ) -> bool {
     match unavailable_reason {
         Some(rustcode_coding::ProviderUnavailableReason::NotConfigured) => true,
@@ -27613,7 +27590,7 @@ fn status_provider_unconfigured(
             rustcode_coding::ProviderUnavailableReason::AuthenticationRequired
             | rustcode_coding::ProviderUnavailableReason::UnsupportedBuild,
         ) => false,
-        None => config.active_provider(None).is_err() && !has_stored_auth,
+        None => config.active_provider(None).is_err(),
     }
 }
 
@@ -27687,28 +27664,24 @@ mod status_context_usage_tests {
         .unwrap();
 
         assert!(config.providers.is_empty(), "legacy table stays empty");
-        assert!(!status_provider_unconfigured(None, &config, false));
+        assert!(!status_provider_unconfigured(None, &config));
     }
 
     #[test]
     fn provider_reason_distinguishes_configuration_from_other_unavailability() {
         let config = Config::default();
-        assert!(status_provider_unconfigured(None, &config, false));
-        assert!(!status_provider_unconfigured(None, &config, true));
+        assert!(status_provider_unconfigured(None, &config));
         assert!(status_provider_unconfigured(
             Some(ProviderUnavailableReason::NotConfigured),
-            &config,
-            true
+            &config
         ));
         assert!(!status_provider_unconfigured(
             Some(ProviderUnavailableReason::AuthenticationRequired),
-            &config,
-            false
+            &config
         ));
         assert!(!status_provider_unconfigured(
             Some(ProviderUnavailableReason::UnsupportedBuild),
-            &config,
-            false
+            &config
         ));
     }
 }
@@ -27736,11 +27709,7 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
     //   3. None.
     let runtime_availability = ctx.runtime.ui_availability();
     let unavailable_reason = ctx.runtime.provider_unavailable_reason();
-    let no_provider = status_provider_unconfigured(
-        unavailable_reason,
-        &ctx.config,
-        rustcode_auth::get_stored_auth().is_some(),
-    );
+    let no_provider = status_provider_unconfigured(unavailable_reason, &ctx.config);
     let provider_waiting = matches!(
         runtime_availability,
         RuntimeUiAvailability::AwaitingProvider

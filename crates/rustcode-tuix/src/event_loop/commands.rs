@@ -2343,28 +2343,18 @@ fn execute_slash_command_impl(
                     // 仅在显式给了空参数（如 `/app --relay`）时可达。
                     None => t(Msg::AppRemoteUsage).into_owned(),
                     Some(relay) => {
-                        // 1) 检查登录态：未登录不允许开启远程访问。
-                        if rustcode_auth::oauth::get_stored_auth().is_none() {
-                            renderer.render(UiLine::CommandOutput(
-                                t(Msg::AppRemoteLoginRequired).into_owned(),
-                            ));
-                            renderer.flush();
-                            return Ok(());
-                        }
-                        // 2) 起本机 App server（daemon 模式、不开浏览器、回环绑定）。
-                        //    每次 /app 都重建 server，确保 app_user_id 始终是当前登录用户。
+                        // 1) 起本机 App server（daemon 模式、不开浏览器、回环绑定）。
                         //    Keep any current sync attachment until startup succeeds;
                         //    attach_live_session replaces it atomically on the success path.
                         rustcode_daemon::stop_app_server();
-                        //    传入当前登录 user_id 启用双向校验。
-                        let app_user_id =
-                            rustcode_auth::oauth::get_stored_auth().map(|a| a.user.id);
+                        //    本地中立构建没有平台账号概念：不传 user_id，daemon 侧
+                        //    相应关闭 `X-Atom-User-Id` 请求头校验。
                         let started = tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(
                                 rustcode_daemon::ensure_app_server(
                                     "127.0.0.1",
                                     rustcode_daemon::APP_DEFAULT_PORT,
-                                    app_user_id,
+                                    None,
                                 ),
                             )
                         });
@@ -2374,25 +2364,15 @@ fn execute_slash_command_impl(
                             })
                             .into_owned(),
                             Ok((_h, port)) => {
-                                // 3) route token（中继路由 key + 凭证）+ 中继 URL。
-                                // token = user_id.随机hex，App 端扫码后校验 user_id 是否一致。
-                                let token = match rustcode_auth::oauth::get_stored_auth() {
-                                    Some(auth) => format!(
-                                        "{}.{}",
-                                        auth.user.id,
-                                        uuid::Uuid::new_v4().simple()
-                                    ),
-                                    None => format!(
-                                        "{}{}",
-                                        uuid::Uuid::new_v4().simple(),
-                                        uuid::Uuid::new_v4().simple()
-                                    ),
-                                };
+                                // 2) route token（中继路由 key + 凭证）+ 中继 URL。
+                                //    纯 128bit 随机 hex：token 只做路由 key 与凭证，
+                                //    不编码任何平台身份（本地构建无账号概念）。
+                                let token = hex_encode(&rand::random::<[u8; 16]>());
                                 let (ws_url, https_base) = derive_relay_urls(&relay);
                                 let machine = std::env::var("HOSTNAME")
                                     .ok()
                                     .or_else(|| std::env::var("COMPUTERNAME").ok());
-                                // 4) 确保 relay-client 二进制可用（查找本地或自动下载），
+                                // 3) 确保 relay-client 二进制可用（查找本地或自动下载），
                                 //    然后拉起子进程。自身即 daemon，故
                                 //    --no-supervise-daemon。kill_on_drop：TUI 退出随之清理。
                                 let daemon_url = format!("http://127.0.0.1:{port}");
@@ -2499,7 +2479,7 @@ fn execute_slash_command_impl(
             renderer.flush();
         }
         "whoami" => {
-            renderer.render(UiLine::CommandOutput(build_whoami_text()));
+            renderer.render(UiLine::CommandOutput(build_whoami_text(ctx)));
             renderer.flush();
         }
         "upgrade" => {
@@ -4847,48 +4827,15 @@ pub(super) fn render_context_report(state: &UiState, ctx: &LoopCtx, show_prompt:
     format_context_report(state.last_context.as_ref(), &ctx.model_name, show_prompt)
 }
 
-/// `/status` login line: the signed-in identity (already formatted, e.g.
-/// `昵称(用户名)`), or a not-signed-in prompt. Pure over the resolved string.
-fn render_login_line(user: Option<&str>) -> String {
-    match user {
-        Some(u) => t(Msg::StatusLoginLoggedIn { user: u }).into_owned(),
-        None => t(Msg::StatusLoginNotSignedIn).into_owned(),
-    }
-}
-
-/// Format the signed-in identity as `display_name(username)` -- the agreed
-/// `昵称(用户名)` form. Falls back to just `username` when there is no distinct
-/// display name: name absent, empty/whitespace, or identical to the username
-/// (so we never render `Saulcy(Saulcy)`).
-fn format_login_identity(name: Option<&str>, username: &str) -> String {
-    match name
-        .map(str::trim)
-        .filter(|n| !n.is_empty() && *n != username)
-    {
-        Some(n) => format!("{n}({username})"),
-        None => username.to_string(),
-    }
-}
-
-/// The `/status` login line sourced from stored auth: `昵称(用户名)` (display
-/// name + username), or just the username when there is no distinct display
-/// name. Shared by both `/status` renderers so the interactive and remote
-/// outputs can't drift.
+/// The `/status` login line. The managed account system is gone (`/login` and
+/// `/logout` were removed), so there is no platform identity left to render and
+/// the line is always omitted. Rendering "not signed in (run /login)" here
+/// would steer the operator at a removed command -- BYO providers are managed
+/// via `/provider` and already surface in the status body's model line. Shared
+/// by both `/status` renderers so the interactive and remote outputs can't
+/// drift.
 fn render_login_line_from_stored_auth() -> String {
-    // Neutral build: there is no managed account to sign into, so omit the
-    // Login line entirely. Rendering "not signed in (run /login)" here would
-    // steer the operator to a dead-end -- BYO providers are managed via
-    // /provider and already surface in the status body's model line.
-    if !crate::modals::onboarding_wizard::managed_login_available() {
-        return String::new();
-    }
-    match rustcode_auth::get_stored_auth() {
-        Some(a) => {
-            let identity = format_login_identity(a.user.name.as_deref(), &a.user.username);
-            render_login_line(Some(&identity))
-        }
-        None => render_login_line(None),
-    }
+    String::new()
 }
 
 /// No managed plan section is appended to `/status`: there is no managed
@@ -5112,22 +5059,53 @@ pub(super) fn build_status_text(ctx: &LoopCtx, proxy: Option<&str>) -> String {
     )
 }
 
-/// `/whoami` 的账号信息文本。TUI arm 与手机远程执行共用。
-pub(super) fn build_whoami_text() -> String {
-    if let Some(auth) = rustcode_auth::get_stored_auth() {
-        let email = auth.user.email.as_deref().unwrap_or("--");
-        let name = auth.user.name.as_deref().unwrap_or(&auth.user.username);
-        format!(
-            "  {} ({})\n  {}\n  auth: {}\n",
-            name,
-            auth.user.username,
-            email,
-            rustcode_auth::auth_file_path().display(),
-        )
+/// `/whoami` 的本地运行报告文本。TUI arm 与手机远程执行共用。
+///
+/// 回答的是"这台机器现在用什么在跑"，不是"你是谁"：只报告 provider / model /
+/// base_url / 凭据是否已配置 / RUSTCODE_HOME / 当前 session 与 turn 数。
+/// 刻意不回显密钥本身，也不打印平台账号、邮箱、登录态、套餐、到期、组织或
+/// auth 文件路径——本机不保存任何本地身份 ID，因此也没有 ID 可打印。
+pub(super) fn build_whoami_text(ctx: &LoopCtx) -> String {
+    // 与 `/cost` 的当前 turn 行同一取值口径（见 build_session_cost_text）：
+    // 运行时精确的 `provider_selection` 优先，缺失时退回 config 的当前选择。
+    let selection = if ctx.provider_selection.trim().is_empty() {
+        ctx.config.effective_model_selection().unwrap_or_default()
     } else {
-        // Build-aware: managed builds point at /login, neutral builds at /provider.
-        t(crate::modals::onboarding_wizard::not_signed_in_msg()).into_owned()
-    }
+        ctx.provider_selection.clone()
+    };
+    let active = ctx.config.provider_config_for_selection(&selection);
+    // base_url 仅在显式配置时出现；未配置就整行省略，不留占位空壳。
+    let base_url_line = match active
+        .as_ref()
+        .and_then(|provider| provider.base_url.as_deref())
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    {
+        Some(url) => format!("  base_url:      {url}\n"),
+        None => String::new(),
+    };
+    // 凭据只报"有没有"：`resolved_api_key()` 的返回值仅用于判空，绝不进入输出。
+    let credential = match active
+        .as_ref()
+        .and_then(|provider| provider.resolved_api_key())
+    {
+        Some(key) if !key.trim().is_empty() => "configured",
+        _ => "not configured",
+    };
+    format!(
+        "  provider:      {}\n  model:         {}\n{}  credential:    {}\n  RUSTCODE_HOME: {}\n  session:       {}\n  turns:         {}\n",
+        if selection.is_empty() {
+            "--"
+        } else {
+            selection.as_str()
+        },
+        ctx.model_name,
+        base_url_line,
+        credential,
+        Config::config_dir().display(),
+        ctx.current_session.id,
+        ctx.current_session.turn_stats.len(),
+    )
 }
 
 /// Resolve a user-typed `/view <path>` argument to an absolute-ish path.
@@ -5433,7 +5411,7 @@ pub(super) fn run_remote_command(ctx: &LoopCtx, state: &UiState, cmd: &str) -> O
     {
         "status" => Some(build_status_text(ctx, None)),
         "cost" => Some(build_session_cost_text(ctx, state)),
-        "whoami" => Some(build_whoami_text()),
+        "whoami" => Some(build_whoami_text(ctx)),
         "diff" => Some(build_diff_stat_text(ctx).unwrap_or_else(|e| e)),
         _ => None,
     }
@@ -6183,59 +6161,15 @@ mod status_login_tests {
     use super::*;
 
     #[test]
-    fn login_line_shows_username_when_signed_in() {
-        let line = render_login_line(Some("张三"));
-        assert!(
-            line.contains("张三"),
-            "signed-in line must show the username: {line:?}"
-        );
-    }
-
-    #[test]
-    fn login_line_prompts_login_when_not_signed_in() {
-        let line = render_login_line(None);
-        assert!(
-            line.contains("/login"),
-            "not-signed-in line must point to /login: {line:?}"
-        );
-        assert!(!line.contains("张三"));
-    }
-
-    #[test]
     fn neutral_status_omits_managed_login_line() {
-        // A neutral build ships no managed account, so /status must not render
-        // a "Login: not signed in (run /login)" line -- that /login dead-ends.
-        // The managed renderer helper (`render_login_line`) is exercised
-        // separately; here we pin the gating the real /status path uses.
-        if !crate::modals::onboarding_wizard::managed_login_available() {
-            let line = render_login_line_from_stored_auth();
-            assert!(
-                line.is_empty(),
-                "neutral /status must omit the managed login line, got: {line:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn login_identity_is_name_paren_username() {
-        // The agreed 昵称(用户名) form: display name with the username in parens.
-        assert_eq!(
-            format_login_identity(Some("TheoCui"), "Saulcy"),
-            "TheoCui(Saulcy)"
+        // The managed account system is gone (`/login` / `/logout` removed), so
+        // /status must never render a "Login: not signed in (run /login)" line
+        // -- that would point at a command that no longer exists.
+        let line = render_login_line_from_stored_auth();
+        assert!(
+            line.is_empty(),
+            "neutral /status must omit the managed login line, got: {line:?}"
         );
-        assert_eq!(
-            format_login_identity(Some("  Theo  "), "Saulcy"),
-            "Theo(Saulcy)"
-        );
-    }
-
-    #[test]
-    fn login_identity_falls_back_to_bare_username() {
-        // No distinct display name -> just the username (never `Saulcy(Saulcy)`).
-        assert_eq!(format_login_identity(None, "Saulcy"), "Saulcy");
-        assert_eq!(format_login_identity(Some(""), "Saulcy"), "Saulcy");
-        assert_eq!(format_login_identity(Some("   "), "Saulcy"), "Saulcy");
-        assert_eq!(format_login_identity(Some("Saulcy"), "Saulcy"), "Saulcy");
     }
 
     #[test]
@@ -8581,32 +8515,5 @@ mod split_skill_names_tests {
         let (skills, task) = split_skill_names("BrainStorming brainstorming 任务", resolve);
         assert_eq!(skills, vec!["BrainStorming"]);
         assert_eq!(task, "任务");
-    }
-
-    #[test]
-    fn neutral_build_whoami_points_at_provider_not_login() {
-        // Neutral builds have no managed account: the not-signed-in copy must
-        // lead with /provider (bring-your-own-key), never pitch the unavailable
-        // /login. Same predicate as the daemon's /auth/status flag and the
-        // TUI command-registry visibility gate.
-        let _g = crate::i18n::test_lock();
-        crate::i18n::set_locale(crate::i18n::Locale::En);
-        assert!(
-            !rustcode_auth::managed_login_available(),
-            "the test build is neutral (no compiled-in platform server)"
-        );
-        let text = crate::i18n::t(crate::modals::onboarding_wizard::not_signed_in_msg());
-        assert!(
-            text.contains("/provider"),
-            "neutral hint must point at /provider: {text}"
-        );
-        assert!(
-            !text.contains("/login"),
-            "neutral hint must not pitch /login: {text}"
-        );
-        // build_whoami_text() with no stored auth renders the same neutral copy.
-        let whoami = super::build_whoami_text();
-        assert!(whoami.contains("/provider"), "{whoami}");
-        assert!(!whoami.contains("/login"), "{whoami}");
     }
 }

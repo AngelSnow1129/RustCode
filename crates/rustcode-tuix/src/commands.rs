@@ -23,28 +23,23 @@ pub struct Command {
     pub acp: bool,
 }
 
-/// Managed-account commands that only exist in distribution builds which ship a
-/// managed service (a sign-in gateway / account-usage backend). They stay
-/// *dispatchable* in a neutral build -- typing one prints a bring-your-own-key
-/// "managed service unavailable" message -- but are hidden from every discovery
-/// surface (the `/` slash menu, Tab completion, `/help`, the ACP
-/// `available_commands` set) so a BYO user is never pitched a sign-in /
-/// free-model flow the build does not ship. This mirrors the first-launch
-/// wizard's `managed_login_available()` gating; keep in sync with the
-/// `whoami` / `usage` rows below.
+/// Managed-account commands that only existed in distribution builds which
+/// shipped a managed service (a sign-in gateway / account-usage backend). They
+/// stay *dispatchable* -- typing one prints a bring-your-own-key "managed
+/// service unavailable" message -- but are hidden from every discovery surface
+/// (the `/` slash menu, Tab completion, `/help`, the ACP `available_commands`
+/// set) so a BYO user is never pitched a sign-in / free-model flow the build
+/// does not ship. Keep in sync with the `whoami` / `usage` rows below.
 const MANAGED_ONLY_COMMANDS: &[&str] = &["whoami", "usage"];
 
 /// Whether a built-in command should appear in discovery surfaces for the
-/// running build. Deprecated aliases (`hidden`) are always excluded;
-/// managed-account commands are additionally excluded in a neutral build (no
-/// compiled-in platform server). Dispatch is unaffected either way.
+/// running build. Deprecated aliases (`hidden`) and managed-account commands
+/// are always excluded. Dispatch is unaffected either way.
 fn command_visible(cmd: &Command) -> bool {
     if cmd.hidden {
         return false;
     }
-    if MANAGED_ONLY_COMMANDS.contains(&cmd.name)
-        && !crate::modals::onboarding_wizard::managed_login_available()
-    {
+    if MANAGED_ONLY_COMMANDS.contains(&cmd.name) {
         return false;
     }
     // Endpoint-dependent commands only make sense in a distribution build that
@@ -312,13 +307,7 @@ pub fn cmd_desc_i18n(name: &str) -> Option<std::borrow::Cow<'static, str>> {
         "clear" => Msg::CmdDescClear,
         "session" => Msg::CmdDescSession,
         "cost" => Msg::CmdDescCost,
-        "usage" => {
-            if crate::modals::onboarding_wizard::managed_login_available() {
-                Msg::CmdDescUsage
-            } else {
-                Msg::CmdDescUsageNeutral
-            }
-        }
+        "usage" => Msg::CmdDescUsageNeutral,
         "context" => Msg::CmdDescContext,
         "compact" => Msg::CmdDescCompact,
         "remember" => Msg::CmdDescRemember,

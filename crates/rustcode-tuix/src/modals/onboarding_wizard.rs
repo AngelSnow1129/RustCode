@@ -312,45 +312,20 @@ pub(super) enum SetupChoice {
     Skip,
 }
 
-/// Whether the managed sign-in path is available. A neutral build ships
-/// no compiled-in platform server, so `/login`, the sign-in setup row, and the
-/// managed-account pitch are hidden and the BYO provider path leads. Distributions
-/// that configure a managed endpoint (`RUSTCODE_*` platform env) get sign-in back.
-///
-/// `pub(crate)` (not just `pub(super)`) because the event loop's first-launch
-/// auto-onboarding gates the QR sign-in fast path on the same predicate: a
-/// neutral build must open the full BYO wizard, never the QR screen. The
-/// slash-command visibility filter (`commands::command_visible`) and the
-/// daemon's `/auth/status.managed_available` use the same predicate via
-/// `rustcode_auth::managed_login_available()` -- delegate here so the TUI
-/// can't drift from them.
-pub(crate) fn managed_login_available() -> bool {
-    rustcode_auth::managed_login_available()
-}
-
-/// The "not signed in / authentication required" line for the running build.
-/// Managed builds point at `/login`; neutral builds have no account system, so
-/// they point at `/provider` (bring-your-own-key). Used by `/whoami` and by the
-/// provider `AuthenticationRequired` status hints -- every place that used to
-/// print "Use /login to authenticate" unconditionally.
+/// The "not signed in / authentication required" line. The managed account
+/// system is gone (`/login` / `/logout` were removed), so the hint always
+/// points at `/provider` (bring-your-own-key) -- every place that used to
+/// print "Use /login to authenticate" now leads with BYO setup instead.
 pub(crate) fn not_signed_in_msg() -> crate::i18n::Msg<'static> {
-    if managed_login_available() {
-        crate::i18n::Msg::CmdWhoamiNotSignedIn
-    } else {
-        crate::i18n::Msg::CmdWhoamiNotSignedInNeutral
-    }
+    crate::i18n::Msg::CmdWhoamiNotSignedInNeutral
 }
 
-/// The "provider unavailable" error for the running build. Managed builds can
-/// steer to `/login`; a neutral build has no sign-in service, so the message
-/// points at `/provider` (bring-your-own-key) instead of a dead-end `/login`.
-/// Used for submit/steer/queue-drain rejections and goal/loop start failures.
+/// The "provider unavailable" error. Managed sign-in no longer exists, so the
+/// message always points at `/provider` (bring-your-own-key) instead of a
+/// dead-end `/login`. Used for submit/steer/queue-drain rejections and
+/// goal/loop start failures.
 pub(crate) fn provider_unavailable_msg() -> crate::i18n::Msg<'static> {
-    if managed_login_available() {
-        crate::i18n::Msg::CmdProviderUnavailable
-    } else {
-        crate::i18n::Msg::CmdProviderUnavailableNeutral
-    }
+    crate::i18n::Msg::CmdProviderUnavailableNeutral
 }
 
 /// The ordered Setup rows: bring-your-own-key first, then skip.
@@ -583,13 +558,7 @@ impl OnboardingWizard {
             content.push(String::new());
             content.push(t(Msg::OnboardingIntroBullet1).into_owned());
             content.push(t(Msg::OnboardingIntroBullet2).into_owned());
-            if managed_login_available() {
-                content.push(t(Msg::OnboardingIntroBullet3).into_owned());
-            } else {
-                // Neutral build: no managed service to promise free tokens from;
-                // lead with bring-your-own-key instead.
-                content.push(t(Msg::OnboardingIntroBullet3Neutral).into_owned());
-            }
+            content.push(t(Msg::OnboardingIntroBullet3Neutral).into_owned());
             content.push(String::new());
             content.push(t(Msg::OnboardingIntroPressEnter).into_owned());
             content.push(t(Msg::OnboardingIntroCtrlC).into_owned());
@@ -601,13 +570,7 @@ impl OnboardingWizard {
             content.push(String::new());
             content.push(t(Msg::OnboardingIntroBullet1).into_owned());
             content.push(t(Msg::OnboardingIntroBullet2).into_owned());
-            if managed_login_available() {
-                content.push(t(Msg::OnboardingIntroBullet3).into_owned());
-            } else {
-                // Neutral build: no managed service to promise free tokens from;
-                // lead with bring-your-own-key instead.
-                content.push(t(Msg::OnboardingIntroBullet3Neutral).into_owned());
-            }
+            content.push(t(Msg::OnboardingIntroBullet3Neutral).into_owned());
             content.push(String::new());
             content.push(t(Msg::OnboardingIntroPressEnter).into_owned());
         }
@@ -1177,26 +1140,9 @@ mod tests {
     }
 
     #[test]
-    fn neutral_build_hides_managed_login() {
-        // The gating predicate every managed surface (QR fast path, login
-        // setup row, /login) keys off. A neutral build compiles in no
-        // platform server, so this must be false and setup_choices() must
-        // lead with the BYO row, never Login.
-        assert!(
-            !managed_login_available(),
-            "neutral build must report no managed login"
-        );
-        let choices = setup_choices();
-        assert_eq!(choices.len(), 2, "neutral setup is [Manual, Skip]");
-        assert_eq!(choices[0], SetupChoice::Manual);
-        assert_eq!(choices[1], SetupChoice::Skip);
-    }
-
-    #[test]
     fn neutral_first_launch_wizard_is_full_byo_flow() {
         // First launch always opens `new()` (Intro -> Language -> neutral
         // Setup); the QR sign-in fast path is gone with managed `/login`.
-        assert!(!managed_login_available());
         let mut w = OnboardingWizard::new();
         assert_eq!(w.step, Step::Intro, "neutral first launch opens at Intro");
         // Intro Enter advances inline to Language; the Language -> Setup

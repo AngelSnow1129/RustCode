@@ -88,17 +88,16 @@ pub const POOL: &[Tip] = &[
     },
 ];
 
-/// Tips for commands that only exist in managed distributions. These commands
-/// are hidden from every discovery surface in a neutral build (see
+/// Tips for commands that only existed in managed distributions. These
+/// commands are hidden from every discovery surface (see
 /// `commands::command_visible`), so advertising them as tips would be a
 /// dead-end: the typed command answers with a "not available in this build"
-/// notice. Filtered from the random pool (and defensively from cached indices)
-/// unless the running build ships managed sign-in.
+/// notice. Always filtered from the random pool (and defensively from cached
+/// indices).
 const MANAGED_ONLY_TIP_CMDS: &[&str] = &["/usage"];
 
 fn tip_allowed(tip: &Tip) -> bool {
-    crate::modals::onboarding_wizard::managed_login_available()
-        || !MANAGED_ONLY_TIP_CMDS.contains(&tip.cmd)
+    !MANAGED_ONLY_TIP_CMDS.contains(&tip.cmd)
 }
 
 /// How many random tips to show below the pinned one.
