@@ -23,7 +23,8 @@ pub mod proxy;
 pub mod endpoints;
 
 /// Every name this build occupies locally -- config dir, ports, executables,
-/// self-update scratch files. The local-resources companion to `endpoints`.
+/// self-update scratch files -- plus the `User-Agent` it presents outbound.
+/// The local-resources companion to `endpoints`.
 pub mod distribution;
 
 /// TLS-version policy for the explicit process-wide env ceiling and the
@@ -58,4 +59,5 @@ pub mod schedule;
 pub mod session_mode;
 
 pub use config::{provider::ProviderConfig, Config};
+pub use distribution::RUSTCODE_USER_AGENT;
 pub use store::{ConfigCommit, ConfigRevision, ConfigSnapshot, ConfigStore};
