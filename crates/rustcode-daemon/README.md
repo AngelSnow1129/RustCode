@@ -492,108 +492,21 @@ curl -N -X POST http://127.0.0.1:13456/chat \
 
 ---
 
-### 认证
+### 认证与本地身份
 
-#### `GET /auth/status`
+守护进程**不提供任何托管登录、平台账号或 OAuth 登录端点**。`rustcode-auth` crate、`platform_server()` 与 `managed_login_available()` 已随本地身份体系改造一并移除；历史上记载的以下端点均**已删除**（现访问返回 404）：
 
-获取当前认证状态。
+- `GET /auth/status`
+- `POST /auth/login/start`
+- `POST /auth/login/:login_id/poll`
+- `DELETE /auth/login/:login_id`
+- `POST /auth/logout`
 
-`managed_available` 表示本构建是否内置托管登录服务：发行版本为 `true`；开源默认构建恒为 `false`（此时不存在可登录的托管服务，客户端应隐藏登录入口、引导用户配置自带 API Key 的第三方供应商；旧版守护进程可能不返回此字段，缺省按 `false` 处理）。
+身份完全本地化，不依赖任何外部平台：
 
-**响应示例（发行版本）：**
-
-```json
-{
-  "managed_available": true,
-  "logged_in": true,
-  "expired": false,
-  "auth_path": "/home/user/.rustcode/auth.toml",
-  "user": {
-    "username": "example_user",
-    "email": "user@example.com"
-  },
-  "token": {
-    "token_type": "Bearer",
-    "expires_in": 3600,
-    "created_at": 1715000000,
-    "has_refresh_token": true
-  }
-}
-```
-
-#### `POST /auth/login/start`
-
-启动 OAuth 登录流程（仅发行版本可用）。
-
-**请求体：**
-
-```json
-{
-  "open_browser": true
-}
-```
-
-- `open_browser`：是否自动打开浏览器（默认 `true`）
-
-**响应示例（发行版本）：**
-
-```json
-{
-  "login_id": "uuid-of-login-session",
-  "url": "https://auth.example.com/login?code=xxx",
-  "expires_in_seconds": 600,
-  "daemon_instance_id": "uuid-of-daemon-process"
-}
-```
-
-**开源默认构建：** 该端点快速失败，返回 HTTP 501 与错误码 `managed_login_unavailable`（`retryable: false`），提示客户端引导用户改用自带 API Key 的第三方供应商配置：
-
-```json
-{
-  "success": false,
-  "error": "This build has no managed sign-in service. Configure a third-party provider with your own API key in provider settings instead.",
-  "code": "managed_login_unavailable",
-  "retryable": false
-}
-```
-
-#### `POST /auth/login/:login_id/poll`
-
-轮询登录会话状态。
-
-**响应示例（等待中）：**
-
-```json
-{
-  "status": "pending",
-  "user": null,
-  "retry_after_ms": 2000
-}
-```
-
-`pending`、`authorized` 使用 HTTP 200。`expired`、`cancelled` 使用 HTTP 410，
-`failed` 使用 HTTP 500；这些终态附带稳定的 `code`/`error` 和 `retryable: false`。
-可重试的临时错误使用 HTTP 503 和 `retryable: true`。登录会话只属于创建它的 daemon
-实例，实例重启后客户端必须重新发起登录，不能重放旧 `login_id`。
-
-**响应示例（已授权）：**
-
-```json
-{
-  "status": "authorized",
-  "user": {
-    "username": "example_user"
-  }
-}
-```
-
-#### `DELETE /auth/login/:login_id`
-
-幂等取消登录会话。终态会短暂保留，保证并发请求和响应重试能读取一致结果。
-
-#### `POST /auth/logout`
-
-登出（删除本地存储的认证信息）。
+- 模型供应商凭据通过 `~/.rustcode/config.toml` 的 `[providers.*]` 段或 CLI `/provider` 命令配置，仅持用户自带 API Key。
+- `/whoami`、`/status` 是 CLI 斜杠命令（输出本地运行身份与配置状态），不是 HTTP 端点。
+- 扩展（vscode / jetbrains）不应再请求 `/auth/*`；检测守护进程存活请使用 `GET /health`（见上文「健康检查」）。
 
 ---
 
@@ -717,14 +630,12 @@ rustcode-daemon/
 ├── README.md
 └── src/
     ├── main.rs            # 主入口、路由定义、聊天流处理
-    ├── api_auth.rs        # 认证相关接口（登录/登出/状态）
     ├── api_config.rs      # 配置相关接口及共享工具函数
     ├── api_provider.rs    # Provider 管理接口
     └── api_codingplan.rs  # CodingPlan 初始化接口（#[cfg(feature = "codingplan")] 门控，开源默认构建不编译）
 ```
 
-> 注：上面目录树最后一行的 api_codingplan.rs 已于 2026-09-09 随 codingplan 一并删除，源码树中
-> 不再有该文件，也不再有 codingplan Cargo feature；此处保留仅为与历史文档对照。
+> 注：上面目录树曾列出的 `api_auth.rs` 与末行的 `api_codingplan.rs` 均已删除——`api_auth.rs` 随本地身份体系改造与 `rustcode-auth` crate 一并移除，daemon 不再提供 `/auth/*` 登录端点；`api_codingplan.rs` 于 2026-09-09 随 codingplan 一并移除（无 codingplan Cargo feature）。此处保留仅为与历史文档对照。
 
 ## 配置文件
 

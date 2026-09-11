@@ -227,7 +227,7 @@ cargo build -p rustcode-daemon
 ./target/debug/rustcode-daemon --host 127.0.0.1 --port 13456 --idle-timeout 0 --client jetbrains
 curl -sS http://127.0.0.1:13456/health
 curl -sS -X POST http://127.0.0.1:13456/cd -H "Content-Type: application/json" -d '{"path":"/path/to/project"}'
-curl -sS http://127.0.0.1:13456/auth/status
+curl -sS http://127.0.0.1:13456/health
 curl -sS http://127.0.0.1:13456/providers
 curl -sS http://127.0.0.1:13456/models
 curl -sS http://127.0.0.1:13456/sessions
