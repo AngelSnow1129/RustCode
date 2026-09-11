@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 
 private const val DEFAULT_LOGIN_POLL_DELAY_MS = 2_000L
 
-/** Application-wide single-flight owner for daemon OAuth attempts. */
+/** Application-wide single-flight owner for daemon account/credential attempts. */
 @Service(Service.Level.APP)
 class RustCodeLoginCoordinator {
     private val attempts = mutableMapOf<String, LoginAttempt>()

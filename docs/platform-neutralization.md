@@ -54,7 +54,7 @@ RustCode 是上游项目的二次开发 fork。中立化的目标是:
   `#[cfg(feature = "atomgit")]` 门控,默认成员不启用。这是刻意保留的上游开关,不是
   残留。
 - **[DONE] OAuth 与登录中立化**:loopback 回调的错误分支不再 302 跳转到厂商站点,
-  改为与成功分支同构的本地中性 HTML 错误页;`/login` 在无 `RUSTCODE_PLATFORM_SERVER`
+  改为与成功分支同构的本地中性 HTML 错误页;`/login` 已移除，改为提示用户直接配置 provider
   时提示用户直接配置 provider;`friendly_http_error` 的 403 提示去掉 `/login` 引导,
   改为"检查 API key 权限与账户状态"。
 - **[DONE] 夹具与示例中立化**:测试夹具 URL 统一改 `example.com` / `127.0.0.1` 桩;

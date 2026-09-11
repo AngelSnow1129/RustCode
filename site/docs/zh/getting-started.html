@@ -82,7 +82,7 @@
       <ul>
         <li><strong>操作系统</strong>:macOS (Apple Silicon 或 Intel)、Linux、Windows、HarmonyOS PC</li>
         <li><strong>Rust 工具链</strong>:1.75+(仅在从源码构建时需要)</li>
-        <li><strong>LLM 模型</strong>:任一受支持的第三方 provider API Key(自带密钥,BYO);部分发行版也提供可选的托管端点账号登录</li>
+        <li><strong>LLM 模型</strong>:任一受支持的第三方 provider API Key(自带密钥,BYO)</li>
       </ul>
 
       <h2 id="安装">安装</h2>
@@ -165,7 +165,7 @@ rustcode completion powershell</code></pre>
         <li><strong>手动配置</strong> —— 推荐路径,等价于 <code>/provider</code>:添加一个第三方供应商账号 (Claude、OpenAI、DeepSeek、GLM、Qwen、Ollama,或任意 OpenAI 风格 API),填入你自己的 API Key,再为它添加模型。无需在 RustCode 注册任何账号。</li>
         <li><strong>跳过</strong> —— 直接进 TUI 探索,之后再用 <code>/provider</code> 完成配置。</li>
       </ul>
-      <p>内置托管服务的发行版本可能会在这一步额外显示一行 <strong>一键登录</strong> (等价于 <code>/login</code>,浏览器 OAuth,自动配好 provider)。开源默认构建没有托管账号,因此不显示这一行,默认走自带 Key。任何时候可以用 <code>/welcome</code> 重新打开这个向导。</p>
+      <p>开源默认构建只走自带 Key 这一条路径。任何时候可以用 <code>/welcome</code> 重新打开这个向导。</p>
 
       <h2 id="第一个任务">第一个任务</h2>
       <p>进入一个你熟悉的项目目录,启动 rustcode,然后直接描述你想做的事:</p>
@@ -207,7 +207,7 @@ rustcode uninstall --dry-run</code></pre>
 
       <div class="callout callout-warn">
         <strong>注意</strong>
-        <p><code>--purge</code> 会连带删除<strong>所有会话历史、记忆、自定义 provider 配置、OAuth token</strong>;不可逆。如果以后还可能用 RustCode,优先用默认交互式或 <code>--keep-data</code>。</p>
+        <p><code>--purge</code> 会连带删除<strong>所有会话历史、记忆、自定义 provider 配置</strong>;不可逆。如果以后还可能用 RustCode,优先用默认交互式或 <code>--keep-data</code>。</p>
       </div>
 
       <h2 id="下一步">下一步</h2>

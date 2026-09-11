@@ -91,7 +91,7 @@
       <h2 id="three-steps-to-start">Three steps to start</h2>
       <ol>
         <li><strong>Install</strong> — one curl command or build from source. See <a href="./getting-started.html">Quickstart</a>.</li>
-        <li><strong>Configure a model</strong> — bring your own API key for any third-party provider (Claude, OpenAI, DeepSeek, GLM, Qwen, Ollama, or any OpenAI-compatible endpoint) via <code>/provider</code> or <code>~/.rustcode/config.toml</code>. That is the default and needs no account or signup; distribution builds may additionally offer one-click OAuth via <code>/login</code>. See <a href="./login.html">Login Methods</a> and <a href="./configuration.html">Configuration</a>.</li>
+        <li><strong>Configure a model</strong> — bring your own API key for any third-party provider (Claude, OpenAI, DeepSeek, GLM, Qwen, Ollama, or any OpenAI-compatible endpoint) via <code>/provider</code> or <code>~/.rustcode/config.toml</code>. That is the default and needs no account or signup. See <a href="./login.html">Provider credentials</a> and <a href="./configuration.html">Configuration</a>.</li>
         <li><strong>Ask away</strong> — run <code>rustcode</code> inside any project directory and describe your task in natural language.</li>
       </ol>
 
@@ -111,8 +111,8 @@
           <p>Every <code>~/.rustcode/config.toml</code> field, per-provider examples, plus the vision preprocessor (so non-vision models can still answer about images).</p>
         </a>
         <a class="doc-card" href="./login.html">
-          <h3 id="login-methods">Login Methods</h3>
-          <p>Bring-your-own API key (the default) versus optional one-click OAuth in distribution builds, side by side.</p>
+          <h3 id="provider-credentials">Provider credentials</h3>
+          <p>Bring-your-own API key (the default) — configure a third-party provider via /provider or ~/.rustcode/config.toml.</p>
         </a>
         <a class="doc-card" href="./basic-usage.html">
           <h3 id="basic-usage">Basic Usage</h3>

@@ -315,12 +315,12 @@ class JBCefMessageView(
                 ),
                 docsTitle = "连接与帮助",
                 docsText = if (managedAvailable) {
-                    "还没配置模型时，先打开设置或登录平台账号；遇到问题可查看文档。"
+                    "还没配置模型时，先打开设置或配置第三方供应商凭据；遇到问题可查看文档。"
                 } else {
                     "还没配置模型时，请通过齿轮菜单（供应商 -> 创建供应商）添加自带 API Key 的第三方供应商；遇到问题可查看文档。"
                 },
                 settings = "RustCode 设置",
-                login = "登录平台账号",
+                login = "配置凭据",
                 showLogin = !loggedIn && managedAvailable,
                 docs = "查看文档",
                 languageLabel = "语言",

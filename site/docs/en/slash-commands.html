@@ -84,7 +84,6 @@
           <tr><th>Command</th><th>Purpose</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/login</code></td><td><strong>Distribution builds only</strong> — in builds that ship a managed service, one command runs OAuth and auto-configures a provider from the granted model list; re-running while signed in idempotently re-syncs it. The default open-source build has no managed account, so this command is unavailable there — use <code>/provider</code> to bring your own key instead</td></tr>
           <tr><td><code>/resume</code></td><td>Open the session picker to restore any previously persisted session (messages, directory, and model state)</td></tr>
           <tr><td><code>/session</code></td><td>Start a fresh, clean session</td></tr>
           <tr><td><code>/bg</code></td><td>Send the current session to the background and open a new foreground; subcommands: <code>/bg list</code>, <code>/bg &lt;N&gt;</code>, <code>/bg drop &lt;N&gt;</code>, <code>/bg help</code>. See <a href="./sessions.html#bg">Background sessions</a></td></tr>
@@ -107,7 +106,7 @@
           <tr><td><code>/diff</code></td><td>Show the git diff of uncommitted changes in the working directory (the file list shows up to 5 rows at a time with a "more files" scroll indicator)</td></tr>
           <tr><td><code>/review</code></td><td>Code review the current changes: <code>/review</code> reviews uncommitted changes, <code>/review staged</code> the staged diff, <code>/review &lt;base&gt;</code> against a base ref</td></tr>
           <tr><td><code>/paste</code></td><td>Attach an image from the clipboard (Windows fallback for when <code>Ctrl+V</code> is captured by the terminal)</td></tr>
-          <tr><td><code>/cost</code></td><td>Prompt, completion, and cached tokens accumulated per model in the current session. Distinct from <code>/usage</code>, which in distribution builds queries the managed service for the account quota (unavailable in the default open-source build, where <code>/cost</code> shows all usage)</td></tr>
+          <tr><td><code>/cost</code></td><td>Prompt, completion, and cached tokens accumulated per model in the current session</td></tr>
           <tr><td><code>/context</code></td><td>Show this turn's context budget breakdown: system prompt, tool defs, cold-zone compaction, total messages, and context-window usage</td></tr>
           <tr><td><code>/compact</code></td><td>Compact history: summarise earlier messages to free up context budget</td></tr>
           <tr><td><code>/rewind</code></td><td>Choose an earlier prompt and roll back the conversation, code, or both; see <a href="./sessions.html">Sessions &amp; Undo</a></td></tr>
@@ -122,8 +121,8 @@
       </table>
 
       <div class="callout callout-info">
-        <strong>Managed-platform issues are tools, not slash commands</strong>
-        <p><code>/issue</code> has been removed. In distributions that ship managed-platform support, after <code>/login</code> you can ask in natural language — for example, “Create an issue for this bug on our platform.” RustCode will select the built-in <code>platform_issue</code> tool; write actions still require approval. See <a href="./tools.html#platform">Built-in Tools</a>.</p>
+        <strong>Platform issues are no longer built in</strong>
+        <p><code>/issue</code> and the built-in <code>platform_issue</code> tool have both been removed. The upstream managed-platform issue feature is not part of this open-source build. See <a href="./tools.html">Built-in Tools</a>.</p>
       </div>
 
       <div class="callout callout-info">
@@ -208,7 +207,7 @@
           <tr><td><code>/webui stop</code></td><td>Stop the webui server</td></tr>
           <tr><td><code>/sync</code></td><td>Attach the current TUI to a running webui session (run <code>/webui</code> first). Both ends sync live in both directions; multiple browsers / terminals can watch the same session</td></tr>
           <tr><td><code>/sync off</code></td><td>Leave sync and return to a standalone session</td></tr>
-          <tr><td><code>/app</code></td><td>Distribution builds that ship a managed relay: expose the current session to the <strong>mobile App</strong> — a QR code is printed right in the terminal, scan it with the App to pair, then view and drive this conversation live from your phone (same source as <code>/webui</code> — one shared session, two-way live sync; the difference is no browser, and it goes over the relay rather than the LAN). Requires the distribution's <code>/login</code> first; unavailable in the default open-source build</td></tr>
+          <tr><td><code>/app</code></td><td>Distribution builds that ship a managed relay: expose the current session to the <strong>mobile App</strong> — a QR code is printed right in the terminal, scan it with the App to pair, then view and drive this conversation live from your phone (same source as <code>/webui</code> — one shared session, two-way live sync; the difference is no browser, and it goes over the relay rather than the LAN). Unavailable in the default open-source build (no managed relay)</td></tr>
           <tr><td><code>/app stop</code></td><td>Stop App remote access, disconnect the relay, and return to a local session</td></tr>
         </tbody>
       </table>
@@ -220,14 +219,12 @@
           <tr><th>Command</th><th>Purpose</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/status</code></td><td>Show provider and authentication status, current provider, model, and context budget (distribution builds also show managed-account usage and reset time)</td></tr>
-          <tr><td><code>/whoami</code></td><td>Show the username / email of the current managed-platform user (distribution builds only)</td></tr>
+          <tr><td><code>/status</code></td><td>Show provider and authentication status, current provider, model, and context budget</td></tr>
           <tr><td><code>/config</code></td><td>Show the path of <code>~/.rustcode/config.toml</code></td></tr>
           <tr><td><code>/reload</code></td><td>Hot-reload <code>~/.rustcode/config.toml</code> from disk — external edits (or provider/credential changes made in another terminal) take effect without restarting rustcode</td></tr>
           <tr><td><code>/proxy</code></td><td>Switch outbound proxy mode: follow the system proxy (default) / force a specific proxy / connect directly with no proxy. For corporate proxy networks or when you need to force a proxy or force a direct connection; the choice is written back to config</td></tr>
           <tr><td><code>/language</code></td><td>Switch UI language: auto-detect (<code>LC_ALL</code> / <code>LANG</code>), English, or Simplified Chinese. Takes effect immediately and is written back to <code>~/.rustcode/config.toml</code></td></tr>
           <tr><td><code>/welcome</code></td><td>Re-open the 3-step first-run wizard (welcome → language → setup). Non-empty sessions are confirmed with a <code>y/N</code> before clearing the screen. Both language and default onboarding path can be revisited here</td></tr>
-          <tr><td><code>/logout</code></td><td>Clear stored managed-account login credentials (distribution builds; bring-your-own-key providers keep their API keys in config)</td></tr>
           <tr><td><code>/upgrade</code></td><td>Auto-upgrade to the latest version; <code>/upgrade rollback</code> reverts to the previous version</td></tr>
           <tr><td><code>/guide</code></td><td>Built-in onboarding guide: <code>/guide</code> lists topics you can ask about (quickstart, switch model, MCP, Skills, memory, background tasks, context, keybindings, config); <code>/guide &lt;topic&gt;</code> explains it right in the chat (first run auto-installs the <code>rustcode-skills</code> plugin)</td></tr>
           <tr><td><code>/help</code></td><td>List every available slash command</td></tr>
@@ -255,7 +252,7 @@
 &gt; /model
   ✔ default model set
 &gt; hello</code></pre>
-      <p>That is the whole setup in the open-source build — no account or signup. Distribution builds that ship a managed service can instead run <code>/login</code> for one-click OAuth.</p>
+      <p>That is the whole setup in the open-source build — no account or signup.</p>
 
       <h3 id="check-token-usage-before-wrapping-up">Check token usage before wrapping up</h3>
       <pre><code>&gt; refactor src/db to use a connection pool

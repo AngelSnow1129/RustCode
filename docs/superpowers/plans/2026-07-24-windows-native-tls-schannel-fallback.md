@@ -21,7 +21,7 @@
 ### Task 1: Windows SChannel 默认后端 + Windows 跳过 add_trusted_roots
 
 **文件：**
-- 修改：`crates/rustcode-auth/Cargo.toml`（已有 windows target 段，约 31 行）
+- 修改：`crates/auth/Cargo.toml`（auth crate 已于基线移除；本条仅作历史指引）
 - 修改：`crates/rustcode-core/Cargo.toml`（已有 windows target 段，约 87 行）
 - 修改：`crates/rustcode-capabilities/Cargo.toml`（已有 windows target 段，约 228 行）
 - 修改：`crates/rustcode-codingplan/Cargo.toml`（**无** windows target 段 → 文件末尾新增）
@@ -34,7 +34,7 @@
 
 - [ ] **步骤 1：auth — 给 windows target 的 reqwest 加 native-tls**
 
-在 `crates/rustcode-auth/Cargo.toml` 的 `[target.'cfg(target_os = "windows")'.dependencies]` 段内（`windows-sys = ...` 那行后面）追加：
+在 `crates/auth/Cargo.toml` 的 `[target.'cfg(target_os = "windows")'.dependencies]` 段内（`windows-sys = ...` 那行后面）追加：
 
 ```toml
 # Windows: enable reqwest's native-tls backend (SChannel). Some networks RST the
@@ -151,7 +151,7 @@ rustup target list --installed | grep -q windows && \
 - [ ] **步骤 10：提交**
 
 ```bash
-git add crates/rustcode-auth/Cargo.toml \
+git add crates/auth/Cargo.toml \
         crates/rustcode-core/Cargo.toml \
         crates/rustcode-capabilities/Cargo.toml \
         crates/rustcode-codingplan/Cargo.toml \

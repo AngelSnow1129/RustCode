@@ -156,12 +156,12 @@ CLI/headless、clix 和 daemon 对无法交互处理的非 approval request 统�
 
 ### 3.5 AtomGit/GitCode 网关认证
 
-请求签名逻辑从 bridge/core 下沉到 `rustcode-auth` 和 capabilities provider：
+请求签名逻辑从 bridge/core 下沉到 auth crate（已移除）和 capabilities provider：
 
 - 网关识别按 HTTPS scheme 和精确 host 判断；
 - OAuth token、user id、timestamp 和随机 nonce 统一参与签名；
 - 源码构建暴露 unavailable signer，不伪造签名成功；
-- 官方构建通过 `rustcode-core/codingplan-crypto -> rustcode-auth/codingplan-crypto` 启用闭源 overlay；
+- 官方构建通过 `rustcode-core/codingplan-crypto -> auth/codingplan-crypto`（auth crate 已移除）启用闭源 overlay；
 - `81985e9c` 恢复了迁移中遗漏的 feature 声明和依赖透传。
 
 ### 3.6 TUI 与 VSCode
@@ -235,7 +235,7 @@ bridge stream timeout、core turn runner、hook integration 等旧链路测试�
 | 范围 | 结果 |
 |---|---|
 | CLI | 50 个 lib、25 个 main、12 个 integration 测试通过 |
-| rustcode-auth | 33 项通过 |
+| auth crate（已移除） | 33 项通过 |
 | rustcode-capabilities | 748 项通过；唯一 askpass Unix socket 用例因沙箱权限失败，沙箱外单独复核通过 |
 | rustcode-coding | 161 个单测通过 |
 | coding integration | assemble、cache prefix、full assembly、overflow recovery、plan mode、sensitive path 通过 |

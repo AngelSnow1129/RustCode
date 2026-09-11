@@ -48,15 +48,16 @@ L2  specialize      |             +----> rustcode-coding (CodingRuntime)
                     |                          |     `-- rustcode-review
 L1  capabilities    rustcode-capabilities <----+
 L0  neutral         rustcode-kernel <----------+
-leaf                rustcode-config / rustcode-auth / rustcode-updater
+leaf                rustcode-config / rustcode-updater
                     rustcode-codingplan / rustcode-codingplan-crypto
 ```
 
 > 上图 leaf 行的 rustcode-codingplan 与 rustcode-codingplan-crypto 两个 crate 已于 2026-09-09
 > 按用户裁决 Q1=B 删除,图中保留仅为与历史交接件对照;现工作区 crates 目录下只有 11 个成员。
+> 原 `auth` leaf crate（即旧 `rustcode` 的 auth 子 crate）已随本批次基线删除,故已从 leaf 行移除,不保留对照。
 
 - **出站 HTTP 只有一个入口**:`capabilities/src/egress/`(`egress` feature,由 `provider` / `web` / `atomgit` / `mcp` 拉起)。`egress::client::build_http_client` 是唯一工厂,统一承载信任根分层、代理策略、超时、UA、pool-idle。**新增任何出站调用都必须走它,禁止再写 `reqwest::Client::new()`。**
-- 依赖只向下:`kernel`(无内部依赖) <- `capabilities`(禁止反向依赖 coding / driver / 已退役 core) <- `coding`(另依赖 kernel、config、review) <- `tuix`(另依赖 daemon、updater、auth) <- `cli`(唯一同时依赖 tuix + daemon)。`clix -> review, coding, capabilities, kernel, config`。
+- 依赖只向下:`kernel`(无内部依赖) <- `capabilities`(禁止反向依赖 coding / driver / 已退役 core) <- `coding`(另依赖 kernel、config、review) <- `tuix`(另依赖 daemon、updater) <- `cli`(唯一同时依赖 tuix + daemon)。`clix -> review, coding, capabilities, kernel, config`。
 - 工作区 `members = ["crates/*"]`,`default-members` 为 cli / daemon / tuix;`rustcode-codingplan-crypto` 曾是闭源签名占位桩(默认成员故意不含它,官方构建用 `--features rustcode/codingplan-crypto` 开启),该 crate 与该 feature 已于 2026-09-09 一并删除,现无此成员、无此开关。
 - **[SUPERSEDED 2026-09-09,整条作废]** 以下 feature 传递链已随 codingplan 删除而不复存在,保留原文仅作沿革;现状是该 crate、其 client feature、驱动侧 codingplan feature 与相应 cfg 门控全部不存在,原先必跑的七种 feature 组合校验不再适用。原文——**`rustcode-codingplan` 的网关 HTTP client 默认不链接**:`client` / `setup` 模块(以及 reqwest 依赖)由 `client` Cargo feature 门控、默认 `default = []`;纯数据/usage 模块(`types` / `usage` / `sync_marker`)始终编译,供 TUI 用量面板在无网关 client 时也能渲染形状。驱动 crate 的 `codingplan` feature **必须**向上传递 `rustcode-codingplan/client`(daemon: `codingplan = ["dep:rustcode-codingplan", "rustcode-codingplan/client"]`;cli 另加 `rustcode-tuix/codingplan`),否则 `#[cfg(feature="codingplan")]` 代码会引用被 cfg 掉的 `Client`/`run`/`is_auth_expired` 而编译失败。注意:默认 feature 下 `cargo test -p rustcode-codingplan` **不编译** `client.rs`/`setup.rs`,改动这两个文件后要显式 `cargo check -p rustcode-codingplan --features client --all-targets`。跨 crate 复用 `format_duration_secs` 走 crate 根重导出(`rustcode_codingplan::format_duration_secs`),`setup::format_duration_secs` 是私有 `use`,外部不可达。
 - **`CodingRuntime`**(`coding/src/runtime.rs`)是 coding agent 的唯一运行时所有者,对外暴露 `CodingRuntimeHandle`。Driver 通过 `DriverCommand` 驱动,读 `CodingRuntimeEvent`;不得自建第二套 live agent 生命周期。
@@ -98,7 +99,7 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 - 三个适配器在 `capabilities/src/provider/`:`anthropic.rs`、`openai_compat.rs`、`ollama.rs`。
 - 工厂是 **trait** `CodingProviderFactory`(`coding/src/provider_factory.rs:74`),默认实现按 `provider_type` 分发。ACP / daemon / clix 都通过它注入。
 - 配置(`config/src/config/provider.rs`)已支持:`base_url`、`api_key`(支持 `$VAR` / `${VAR}` / `${VAR:-default}` 展开)、`extra_headers`、`proxy`、`skip_tls_verify`、`retry_max_attempts`、`thinking_*` / `reasoning_*` 系列等。
-- **平台中立**:默认不绑定任何平台。签名网关识别器 `is_codingplan_llm_gateway` 与其唯一开关 `RUSTCODE_CODINGPLAN_LLM_BASE_URL` 已于 2026-09-09 一并删除——现在没有任何 base_url 会被判为签名网关,所有 provider 一律走纯 `bearer_auth(api_key)`,该环境变量设置后被直接忽略、不再报错。`/login` 在无 `RUSTCODE_PLATFORM_SERVER` 时提示用户直接配置 provider。AtomGit REST 工具(`atomgit_repo/pr/issue`)由 `atomgit` Cargo feature 门控,默认成员不启用。
+- **平台中立**:默认不绑定任何平台。签名网关识别器 `is_codingplan_llm_gateway` 与其唯一开关 `RUSTCODE_CODINGPLAN_LLM_BASE_URL` 已于 2026-09-09 一并删除——现在没有任何 base_url 会被判为签名网关,所有 provider 一律走纯 `bearer_auth(api_key)`,该环境变量设置后被直接忽略、不再报错。AtomGit REST 工具(`atomgit_repo/pr/issue`)由 `atomgit` Cargo feature 门控,默认成员不启用。
 - **不向第三方模型厂商外发产品身份(默认关闭)**:`capabilities/src/provider/openai_compat.rs` 的 OpenRouter app 归因头(`X-OpenRouter-Title` / `X-OpenRouter-Categories` / `HTTP-Referer`)**默认全部不发**,需 `RUSTCODE_OPENROUTER_ATTRIBUTION=1|true|on|yes` 显式 opt-in(解析抽为纯函数 `attribution_enabled_from`,便于不改动进程级 env 地单测);`HTTP-Referer` 永不硬编码 host,由 `RUSTCODE_OPENROUTER_REFERER` 单独 opt-in。默认出站只携带第三方配置(`base_url` / `api_key` / `model` / `extra_headers`)本身。host 门禁 `is_openrouter_url` 保留(含 `openrouter.ai:x@evil.com` userinfo 冒用防护),即使 opt-in 也不会泄漏到非 OpenRouter 端点。落实 `docs/REFACTOR_DESIGN_PHASE1.md` §4.3 G6。
 - 强类型错误分类器已就位:`capabilities/src/provider/error.rs` 的 `LlmError`(thiserror,`retryable()` 单点判定);**新代码必须经 `LlmError` 转换,存量按 `docs/phase1-refactor-design.md` 第 3 节渐进迁移**。
 
@@ -113,7 +114,7 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 - **默认语言为简体中文**。事实源:`rustcode-config/src/locale.rs` 的 `Default for Locale` 与 `i18n/mod.rs`(static `LOCALE` 初值、`current_locale` 毒锁回退、`resolve_initial_locale_with_env` 终值)三处默认均为 `Locale::ZhCn`。优先级仍是 CLI `--lang` > config `language` > `LC_ALL/LC_MESSAGES/LANG` > 默认。`LANG=C`/`POSIX`/空值视为"无偏好"→ 中文;显式但不支持的 locale(如 `fr_FR`)→ 英文回退。WebUI(`webui/src/settings.tsx` `readLang`)默认本就是 `zh`。
 - Agent 对话默认语言:persona 装配时按 `preferred_language` 注入 `## LANGUAGE` 段(`coding/src/persona.rs` `conversation_language_guidance`),用户语言不明时中文回复;显式英文 locale 则英文。
 - **扩展旧名清零**:`extensions/vscode`(`_atomCode*Watcher` 字段、测试名、package-lock 根 name)与 `extensions/jetbrains`(`commonAtomcodePaths`/`guardAtomcodeHome`、临时目录前缀)已全部改为 rustcode;`packages/*` 无旧名。
-- **平台残留注释泛化**:oauth/tls/proxy/codingplan/persona/kernel 等处硬编码 `*.atomgit.com` 的注释改为"managed endpoint"中性表述;`friendly_http_error` 的 403 提示去掉 `/login` 引导,改为"检查 API key 权限与账户状态";测试夹具 URL 改 `example.com`。OAuth loopback 回调的**错误分支不再 302 跳转 `atomgit.com`**,改为与成功分支同构的本地中性 HTML 错误页(本构建无附属平台站点);`strip_force_login` 等测试夹具 URL 改 `example.com`。`atomgit` Cargo feature(REST 工具、`api.atomgit.com/api/v5` 装配、push-label 中间件)整体 `#[cfg(feature = "atomgit")]` 门控、默认成员不启用——这是刻意保留的上游开关,不是残留;旧前缀兼容逻辑(`is_codingplan_provider_name`)及其测试夹具已于 2026-09-09 删除,生产代码中不再有由它承载的 `AtomGit*` 字样。
+- **平台残留注释泛化**:oauth/tls/proxy/codingplan/persona/kernel 等处硬编码 `*.atomgit.com` 的注释改为"managed endpoint"中性表述;`friendly_http_error` 的 403 提示改为"检查 API key 权限与账户状态";测试夹具 URL 改 `example.com`。OAuth loopback 回调的**错误分支不再 302 跳转 `atomgit.com`**,改为与成功分支同构的本地中性 HTML 错误页(本构建无附属平台站点);`strip_force_login` 等测试夹具 URL 改 `example.com`。`atomgit` Cargo feature(REST 工具、`api.atomgit.com/api/v5` 装配、push-label 中间件)整体 `#[cfg(feature = "atomgit")]` 门控、默认成员不启用——这是刻意保留的上游开关,不是残留;旧前缀兼容逻辑(`is_codingplan_provider_name`)及其测试夹具已于 2026-09-09 删除,生产代码中不再有由它承载的 `AtomGit*` 字样。
 - **遥测注释收尾**:失实的"telemetry-tracked/telemetry sink"注释已改为实际行为;纯 hook seam 注释(datalog/cache-RCA 可挂载点)保留,无上报逻辑。`openai_compat.rs` UA 注释中的 "analytics" 措辞已改为中性的路由/缓存说明。**G6 复核为 0 命中**(sentry/posthog/segment/analytics,含 extensions)。
 - **tuix 测试编译修复**:`event_loop/mod.rs` 测试模块中历史机械重命名残留 `atomgit_configcodingplan_config("model-b")`(E0425,函数不存在)已改为 `codingplan_config("model-b")`。此修复让 tuix lib-test 重新能编译,也因此暴露了一批存量红测试(见已知剩余项)。**该夹具已于 2026-09-09 随 tuix 侧 codingplan 剥离一并删除,本条仅作沿革。**
 

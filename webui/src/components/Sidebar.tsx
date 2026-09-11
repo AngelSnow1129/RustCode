@@ -1057,8 +1057,7 @@ export function Sidebar({
         </button>
         {/* 远程访问入口已移到侧栏底部栏（见下方 sidebar-bottom 的 Remote Btn）。 */}
 
-        {/* 退出登录：放在组最下面，仅托管构建且登录后显示（头像/登录入口在侧栏底部栏）。
-            中立构建无托管账号服务，整行不渲染。 */}
+        {/* 退出登录：放在组最下面，仅在有账号服务且已登录时显示（中立/开源构建无托管账号服务，整行不渲染）。 */}
         {auth.managedAvailable && auth.loggedIn && (
           <>
             <div class="settings-menu-divider" />
@@ -1495,7 +1494,7 @@ export function Sidebar({
       </div>
 
       <div class="sidebar-bottom">
-        {/* 账号区仅托管构建渲染：中立/开源构建没有托管登录服务，登录按钮只会走向
+        {/* 账号区仅在有账号服务时渲染：中立/开源构建没有托管登录服务，登录按钮只会走向
             500 死路（与 TUI 的 command_visible / onboarding 门控同一谓词，由
             /auth/status 的 managed_available 下发）。 */}
         {auth.managedAvailable

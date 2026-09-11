@@ -97,8 +97,8 @@
 
       <h2 id="登录与模型">登录与模型</h2>
 
-      <h3 id="oauth-登录时浏览器打不开">OAuth 登录时浏览器打不开</h3>
-      <p><strong>仅发行版本。</strong> 开源默认构建没有 OAuth 登录,请直接自带 API Key(参见 <a href="./login.html">登录方式</a>)。如果你的发行版本提供 <code>/login</code> 而浏览器打不开,先确认是否在无 GUI 的远程服务器上:可在本地完成 OAuth 后把 <code>~/.rustcode/auth.toml</code> 拷贝到服务器同路径,或直接在该机器上使用 API Key。</p>
+      <h3 id="托管登录已移除">托管登录已移除</h3>
+      <p>原发行版可选的托管登录(<code>/login</code>)及其 OAuth 流程已于 2026-09-09 移除。开源构建自始就是自带 Key;任何构建都不再提供 OAuth 登录。请改用 <code>/provider</code> 或 <code>~/.rustcode/config.toml</code> 配置 provider(参见 <a href="./login.html">供应商凭据</a>)。</p>
 
       <h3 id="连不上模型-一直转圈-报-timeout">连不上模型 / 一直转圈 / 报 timeout</h3>
       <ul>

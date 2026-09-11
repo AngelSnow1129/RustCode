@@ -998,7 +998,7 @@ export function RemoteAccessDialog({ onClose }: { onClose: () => void }) {
   const pgy = status?.pgy;
   // 服务端未给 remote_url（绑回环）时，展示一个「示意」地址。注意：token 现在只存在
   // 于 HttpOnly Cookie 中，前端 JS 读不到（防插件拦截，CWE-598），所以这里无法拼出
-  // 可直接登录的链接——要可分享的真实链接需把 webui 绑到局域网，由服务端下发
+  // 可直接打开的链接——要可分享的真实链接需把 webui 绑到局域网，由服务端下发
   // remote_url（带 token）。回环示意地址因此不带 token。
   const fallbackUrl =
     pgy?.ipv4 && status

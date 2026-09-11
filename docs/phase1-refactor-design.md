@@ -61,7 +61,7 @@ L2  specialize      |             +----> rustcode-coding (CodingRuntime)
                     |                          |     `-- rustcode-review
 L1  capabilities    rustcode-capabilities <----+
 L0  neutral         rustcode-kernel <----------+
-leaf                rustcode-config / rustcode-auth / rustcode-updater
+leaf                rustcode-config / rustcode-updater
                     rustcode-codingplan / rustcode-codingplan-crypto
 ```
 
@@ -81,7 +81,7 @@ leaf                rustcode-config / rustcode-auth / rustcode-updater
 | `capabilities/src/provider/openai_compat.rs:342` | async | [否] | 自建；`egress` 的信任根逻辑正是从此处泛化而来 |
 | `capabilities/src/provider/anthropic.rs:150` | async | [否] | 自建 UA/代理 |
 | `capabilities/src/provider/ollama.rs:110` | async | [否] | 自建 |
-| `rustcode-auth/src/oauth.rs:116,120` | **blocking** | [否] | 有自己的 `apply_blocking_proxy_policy`；**已确认**在独立 `std::thread` 上调用（`tuix/src/event_loop/oauth_poll.rs:67`），未污染 tokio worker |
+| auth crate `oauth.rs`（已移除） | **blocking** | [否] | 原登录 gateway 的同步 client；该 crate 已于基线移除，无 OAuth、无外部平台 |
 | `rustcode-codingplan/src/client.rs:103` | **blocking** | [否] | 已于 2026-09-09 随 codingplan 一并删除（原为含 TLS 1.2 强制降级逻辑的同步登录流程），该自建 blocking client 已归零 |
 | `rustcode-tuix/src/version_check.rs:77` | async | [否] | 自建 builder + `apply_async_proxy_policy`；是**升级检查**不是埋点 |
 | `rustcode-updater/src/lib.rs` | async | [否] | 30s / 600s 超时是刻意设计 |

@@ -91,7 +91,7 @@
       <h2 id="三步开始">三步开始</h2>
       <ol>
         <li><strong>安装</strong> —— 一条 curl 命令或者从源码构建，参见 <a href="./getting-started.html">快速开始</a>。</li>
-        <li><strong>配置模型</strong> —— 用 <code>/provider</code> 或 <code>~/.rustcode/config.toml</code> 为任一第三方供应商(Claude、OpenAI、DeepSeek、GLM、Qwen、Ollama,或任意 OpenAI 兼容接口)填入你自己的 API Key。这是默认方式,无需注册账号;发行版本也可能额外提供 <code>/login</code> 一键 OAuth。参见 <a href="./login.html">登录方式</a> 和 <a href="./configuration.html">配置文件</a>。</li>
+        <li><strong>配置模型</strong> —— 用 <code>/provider</code> 或 <code>~/.rustcode/config.toml</code> 为任一第三方供应商(Claude、OpenAI、DeepSeek、GLM、Qwen、Ollama,或任意 OpenAI 兼容接口)填入你自己的 API Key。这是默认方式,无需注册账号。参见 <a href="./login.html">供应商凭据</a> 和 <a href="./configuration.html">配置文件</a>。</li>
         <li><strong>开始提问</strong> —— 在项目目录下运行 <code>rustcode</code>，用自然语言描述你的任务即可。</li>
       </ol>
 
@@ -111,8 +111,8 @@
           <p><code>~/.rustcode/config.toml</code> 字段说明、各家 provider 配置示例,含视觉预处理器(非视觉模型也能问图)。</p>
         </a>
         <a class="doc-card" href="./login.html">
-          <h3 id="登录方式">登录方式</h3>
-          <p>自带 API Key(默认)与发行版本可选的一键 OAuth 登录,两者对比。</p>
+          <h3 id="供应商凭据">供应商凭据</h3>
+          <p>自带 API Key(默认)—— 用 /provider 或 ~/.rustcode/config.toml 配置第三方 provider。</p>
         </a>
         <a class="doc-card" href="./basic-usage.html">
           <h3 id="基本使用">基本使用</h3>

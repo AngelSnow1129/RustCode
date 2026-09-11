@@ -39,7 +39,7 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 你可以把它理解为 Claude Code / Cursor Agent 的开源替代品，完全运行在终端里，并且可以接入任何兼容 OpenAI 接口的模型。
 
-> **Fork 声明。** 本仓库是上游项目的二次开发 fork。相对上游：(1) 将产品重命名为 `rustcode`（crate、二进制、配置目录 `~/.rustcode`、`RUSTCODE_*` 环境变量）；(2) **完整移除**遥测/分析上报——`rustcode-telemetry` crate 及所有上报调用点均已删除；(3) **完全解除平台绑定**——不硬编码任何签名网关 host，默认不注册平台专属 REST 工具，`/login` 可选：直接在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key` 即可开始使用；(4) **默认简体中文**——TUI/CLI 界面与 Agent 回复均默认中文（可通过 `--lang en`、配置项 `language` 或 `LANG`/`LC_ALL` 切换为英文）。原始 MIT 许可证与版权（© 2026 Yubang Xu）保留于 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)，完整归属见 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)。
+> **Fork 声明。** 本仓库是上游项目的二次开发 fork。相对上游：(1) 将产品重命名为 `rustcode`（crate、二进制、配置目录 `~/.rustcode`、`RUSTCODE_*` 环境变量）；(2) **完整移除**遥测/分析上报——`rustcode-telemetry` crate 及所有上报调用点均已删除；(3) **完全解除平台绑定**——不硬编码任何签名网关 host，默认不注册平台专属 REST 工具，凭据通过 `~/.rustcode/config.toml` 的 `[providers.*]` 配置（或用 TUI 内的 `/provider`），无需注册账号、无 OAuth、无外部平台；(4) **默认简体中文**——TUI/CLI 界面与 Agent 回复均默认中文（可通过 `--lang en`、配置项 `language` 或 `LANG`/`LC_ALL` 切换为英文）。原始 MIT 许可证与版权（© 2026 Yubang Xu）保留于 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md)，完整归属见 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)。
 
 ## 功能特性
 
@@ -93,12 +93,10 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 | Ollama（本地）       |     部分支持     | Llama 3、Qwen2 等                                  |
 | 任意 OpenAI 兼容接口 |       支持       | —                                                  |
 
-### 会话与登录
+### 会话
 
 - **持久化会话** —— 每次对话都会保存；命令行可用 `rustcode --continue` 或 `-c` 继续上一次会话，在 TUI 内可用 `/resume` 恢复或切换
 - **第三方供应商（BYO）** —— 在 `~/.rustcode/config.toml` 配置自己的 `base_url` 和 `api_key`（或用 `/provider`），无需注册账号。这是开源默认构建的使用方式
-- **OAuth 登录** —— `/login`（或 `rustcode login`）将 CLI 与平台账号绑定；需要配置 RUSTCODE_PLATFORM_SERVER（可指向自建网关），未配置时请改用 /provider 自带 Key
-- **SSO 登录** —— `/login-with-sso`，供支持 SSO 的托管部署使用（仅发行版本）
 - **Headless 模式** —— `rustcode -p "..."` 非交互式跑一条 prompt，结果直接输出到 stdout（类似 Claude Code 的 `-p`）；需要确认的 `bash` 会自动批准，其他需要确认的工具会被拒绝
 - **Daemon 模式** —— `rustcode-daemon` 提供 HTTP API，用于查询会话历史和 SSE 流式对话
 
@@ -127,7 +125,7 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 - **`/app`**（TUI 内）开启移动端远程访问，终端打印二维码，用手机 App 扫码即可在任意网络下连入当前对话
 - **任意网络可达** —— 电脑通过反向 WSS 隧道连接到公网中继，手机经中继访问电脑，不需要公网 IP、DDNS 或路由器端口映射
 - **双向实时同步** —— 任一端发消息，另一端实时显示（AI 流式回复、工具调用卡片、token 用量）
-- **远程命令** —— 手机端支持 `/status`、`/cost`、`/diff`、`/whoami` 等斜杠命令，在桌面端执行并回显
+- **远程命令** —— 手机端支持 `/status`、`/cost`、`/diff` 等斜杠命令，在桌面端执行并回显
 - **切项目 / 切会话** —— 手机端切换项目或点开历史对话，桌面端跟随切换
 - **模型双向同步** —— 任一端切换模型，另一端同步跟随
 - **`/app stop`** 断开远程访问
@@ -174,8 +172,8 @@ RUSTCODE_RELEASE_BASE=https://example.com/your-host/releases/download sh install
 ```
 
 脚本会下载最新版本的预编译二进制（当渠道提供发布 API 时自动探测最新版本），
-安装并写入 `PATH`。托管订阅套餐网关已于 2026-09-09 移除，`/login`
-不再领取任何托管额度；第三方 provider 一律使用自带密钥（BYO）配置。
+安装并写入 `PATH`。托管订阅套餐网关已于 2026-09-09 移除，第三方 provider
+一律使用自带密钥（BYO）配置。
 
 环境变量覆盖项：`RUSTCODE_RELEASE_BASE` 指定托管发布二进制的下载根目录
 （shell 安装器必填），`RUSTCODE_VERSION` 用于固定某个发布版本，`RUSTCODE_PREFIX`
@@ -240,7 +238,7 @@ cargo build --release -p rustcode
 `crates/rustcode-codingplan-crypto/`、对应的 Cargo feature 与分发渠道覆盖注入机制均已删除，
 本仓库不再包含任何托管端点。实际影响：
 
-- `/login` 不再领取任何托管额度或托管模型；构建来源（自行构建或渠道构建）不再造成能力差异。
+- 构建来源（自行构建或渠道构建）不再造成能力差异，全部走本地身份体系。
 - 连接**你自己的第三方 API 提供商**（自带密钥 / BYO）是唯一方式，且行为不变：在
   `~/.rustcode/config.toml` 的 `providers.*` 下配置的任意提供商（DeepSeek、OpenAI 或任意
   OpenAI 兼容端点）都可直接使用。
@@ -280,7 +278,7 @@ Invoke-Expression`. Run `rustcode completion --help` 可查看完整 Shell 列�
 ### 依赖
 
 - Rust 1.88+（用于构建；更旧的 Cargo 无法解析当前 lock 文件）
-- 任一支持的模型提供方的 API Key（自带密钥 / BYO；托管网关已于 2026-09-09 移除，`/login` 不再提供托管模型，见上文「关于曾经可选的托管网关」）
+- 任一支持的模型提供方的 API Key（自带密钥 / BYO；托管网关已于 2026-09-09 移除，见上文「关于曾经可选的托管网关」）
 
 ### 权限 —— 不要用 `sudo` 启动
 
@@ -492,10 +490,7 @@ rustcode --prompt-file task.md
 | `/model`    | 切换模型 / provider                                                             |
 | `/provider` | 管理 provider（添加 / 编辑 / 删除）                                             |
 | `/proxy`    | 切换出站代理模式                                                                |
-| `/login`    | OAuth 登录平台账号；未配置 RUSTCODE_PLATFORM_SERVER 时改用 `/provider` 自带 Key |
-| `/logout`   | 清除本地平台凭证并停用当前 provider（无凭证时为空操作）                         |
-| `/whoami`   | 查看已登录账号；未登录时提示 /login（未配置平台时提示 /provider）               |
-| `/status`   | 查看 provider、模型与上下文文件状态；已登录时追加托管账号与套餐段               |
+| `/status`   | 查看 provider、模型与上下文文件状态                                             |
 
 **文件、编辑与上下文**
 
@@ -542,7 +537,7 @@ rustcode --prompt-file task.md
 | `/help` | 查看命令与快捷键 |
 | `/quit`、`/exit` | 退出 RustCode（或连按 Ctrl+C） |
 
-> **平台 Issue**：`/issue` 已移除。在附带托管平台支持的发行版中，执行 `/login` 后直接用自然语言提出需求即可，例如“为这个 Bug 在平台上创建一个 Issue”，RustCode 会选择内置的 `platform_issue` 工具。读取 Issue 可直接执行；创建 Issue，以及新增、编辑或删除评论仍需权限确认。
+> **平台 Issue**：`/issue` 与内置的 `platform_issue` 工具均已移除。上游的托管平台 Issue 功能不在本开源构建中提供。
 >
 > **插件命令**：除了上面的内置命令，插件还能注册自己的斜杠命令。先添加你的分发渠道提供的插件市场（通过配置/环境变量设置市场 URL，或从分发渠道的插件索引安装），再从中安装插件。例如渠道社区插件可能提供 `/wechat` 命令（显示社区群二维码）：
 >

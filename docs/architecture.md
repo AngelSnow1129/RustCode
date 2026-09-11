@@ -65,7 +65,7 @@ L0                     rustcode-kernel
 | `rustcode-capabilities` | L1 | 具体 provider、文件与 shell 工具、MCP、skills、plugin、memory、session persistence、compaction 等可复用能力 |
 | `rustcode-coding` | L2 | coding persona、能力装配、`CodingRuntime`、provider/session/controller、goal/loop、team/subagent 与产品执行策略 |
 | `rustcode-config` | leaf | 配置模型、加载与产品配置策略 |
-| `rustcode-auth` | leaf | 登录、OAuth 与凭据生命周期 |
+| auth crate（已移除） | 已移除 | 原平台账号/OAuth 与凭据生命周期；已于基线移除，凭据改由 `~/.rustcode/config.toml` 的 `[providers.*]` 配置，无 OAuth、无外部平台 |
 | `rustcode-cli` | L3 | 可执行程序入口、参数解析、headless/TUI/ACP 等入口协调 |
 | `rustcode-tuix` | L3 | retained-mode 终端 UI、事件循环、modal、命令与 runtime 事件投影 |
 | `rustcode-daemon` | L3 | HTTP/WebUI/live hub、headless runtime 接入及历史 session 单向导入 |

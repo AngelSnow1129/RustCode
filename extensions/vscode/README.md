@@ -40,7 +40,7 @@ RustCode 提供面向开发流程的辅助能力，包括代码理解、上下�
 1. 安装扩展并打开 Activity Bar 中的 RustCode 面板
 2. 首次使用在欢迎卡片中配置第三方模型服务（自带 API Key）：
    - 填写 provider name / model / base URL / API key 即可开始
-   - 开源构建不包含托管账号入口；部分发行构建会额外提供平台登录，可一键同步托管模型
+   - 凭据通过第三方供应商（自带 API Key）或 ~/.rustcode/config.toml 的 [providers.*] 配置，无 OAuth、无外部平台账号
 3. 在输入框描述任务，或选中代码使用右键菜单
 4. 查看建议并手动确认是否应用变更
 
@@ -77,7 +77,7 @@ RustCode 提供面向开发流程的辅助能力，包括代码理解、上下�
 
 `/status` · `/config` · `/reload`
 
-> 内置托管登录服务的发行版本还会显示 `/login` · `/logout` · `/whoami`；开源默认构建隐藏这些命令，手敲时会提示改用第三方供应商（自带 API Key）配置。
+> 凭据通过 `/provider` 或 ~/.rustcode/config.toml 的 [providers.*] 配置，无 OAuth、无外部平台账号；`/whoami` 显示本地运行身份，未知命令会提示改用第三方供应商（自带 API Key）配置。
 
 ---
 

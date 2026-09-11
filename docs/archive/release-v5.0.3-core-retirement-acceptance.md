@@ -66,12 +66,12 @@ crates/rustcode-daemon/tests/fixtures/session/legacy_minimal.json
 --features rustcode-core/codingplan-crypto
 ```
 
-间接激活 `rustcode-auth/codingplan-crypto`。删除 core 前必须建立由最终发布二进制拥有的明确 feature，例如：
+间接激活 auth crate 的 `codingplan-crypto`。删除 core 前必须建立由最终发布二进制拥有的明确 feature，例如：
 
 ```toml
 # crates/rustcode-cli/Cargo.toml
 [features]
-codingplan-crypto = ["rustcode-auth/codingplan-crypto"]
+codingplan-crypto = ["auth/codingplan-crypto"]  # auth crate 已于基线移除
 ```
 
 正式构建改为：

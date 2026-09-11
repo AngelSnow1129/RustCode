@@ -226,16 +226,16 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
         </tbody>
       </table>
 
-      <h4>认证与托管账号(仅发行版本)</h4>
-      <p>这些端点用于发行版本提供的托管服务。开源默认构建不内置任何托管端点 —— 请通过上面的 <strong>配置 / providers</strong> 路由 (<code>POST /providers</code>) 或 <code>~/.rustcode/config.toml</code> 用你自己的 API Key 配置第三方供应商。在默认构建中 <code>/auth/*</code> 路由虽已注册,但 OAuth 无法完成(没有可登录的服务)。<code>/codingplan/*</code> 路由已于 2026-09-09 移除,任何构建中都不再注册,访问将返回 404。</p>
+      <h4>认证(托管登录已移除)</h4>
+      <p>原发行版可选的托管登录已于 2026-09-09 移除。任何当前构建都不内置托管服务,因此没有账号体系,也没有 OAuth 流程。请用上面的 <strong>配置 / providers</strong> 路由 (<code>POST /providers</code>) 或 <code>~/.rustcode/config.toml</code> 填入你自己的 API Key 来配置第三方供应商。<code>/auth/*</code> 登录路由保留为 no-op:<code>GET /auth/status</code> 始终返回 <code>managed_available: false</code>,WebUI 据此隐藏账号/登录入口;<code>POST /auth/login/start</code> 快速失败返回 <code>501</code>(<code>managed_login_unavailable</code>,不可重试)。<code>/codingplan/*</code> 路由同样已于 2026-09-09 移除,任何构建访问都返回 404。</p>
       <table>
         <thead><tr><th>Method + Path</th><th>说明</th></tr></thead>
         <tbody>
-          <tr><td><code>GET /auth/status</code></td><td>当前托管账号登录状态。其中 <code>managed_available</code> 字段表示此构建是否内置登录服务(开源默认为 <code>false</code>);WebUI 在该字段为 false 时直接隐藏账号/登录入口,而不是给出注定失败的登录按钮。</td></tr>
-          <tr><td><code>POST /auth/login/start</code></td><td>向托管服务发起 OAuth 登录。开源构建中会快速失败,返回 <code>501</code> 与错误码 <code>managed_login_unavailable</code>(不可重试),提示客户端引导用户改用自带 API Key 的第三方供应商配置</td></tr>
-          <tr><td><code>POST /auth/login/:login_id/poll</code></td><td>轮询登录结果</td></tr>
-          <tr><td><code>DELETE /auth/login/:login_id</code></td><td>取消正在进行的登录</td></tr>
-          <tr><td><code>POST /auth/logout</code></td><td>登出托管账号</td></tr>
+          <tr><td><code>GET /auth/status</code></td><td>当前构建始终返回 <code>managed_available: false</code>(无登录服务)。WebUI 据此隐藏账号/登录入口,而不是给出注定失败的登录按钮。</td></tr>
+          <tr><td><code>POST /auth/login/start</code></td><td>No-op —— 返回 <code>501</code> 与错误码 <code>managed_login_unavailable</code>(不可重试),引导客户端改用自带 API Key 的第三方供应商配置</td></tr>
+          <tr><td><code>POST /auth/login/:login_id/poll</code></td><td>No-op —— 属于已移除的托管登录流程</td></tr>
+          <tr><td><code>DELETE /auth/login/:login_id</code></td><td>No-op —— 属于已移除的托管登录流程</td></tr>
+          <tr><td><code>POST /auth/logout</code></td><td>No-op —— 属于已移除的托管登录流程</td></tr>
         </tbody>
       </table>
 

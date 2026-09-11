@@ -226,16 +226,16 @@ rustcode-daemon --host 127.0.0.1 --port 13456 \
         </tbody>
       </table>
 
-      <h4>Auth &amp; managed account (distribution builds only)</h4>
-      <p>These endpoints drive a distribution-provided managed service. The default open-source build ships no managed endpoint — configure third-party providers with your own API key via the <strong>Config / providers</strong> routes above (<code>POST /providers</code>) or <code>~/.rustcode/config.toml</code>. In that build the <code>/auth/*</code> routes are registered but OAuth cannot complete (there is no service to log into), and the <code>/codingplan/*</code> routes were removed on 2026-09-09 and are no longer registered in any build, so requests to them return 404.</p>
+      <h4>Auth (managed sign-in removed)</h4>
+      <p>The optional distribution-provided managed sign-in was removed on 2026-09-09. No current build ships a managed service, so there is no account system or OAuth flow. Configure third-party providers with your own API key via the <strong>Config / providers</strong> routes above (<code>POST /providers</code>) or <code>~/.rustcode/config.toml</code>. The <code>/auth/*</code> sign-in routes are retained as no-ops: <code>GET /auth/status</code> reports <code>managed_available: false</code> and the WebUI hides its account/sign-in surfaces; <code>POST /auth/login/start</code> fails fast with <code>501</code> (<code>managed_login_unavailable</code>, non-retryable). The <code>/codingplan/*</code> routes were also removed on 2026-09-09 and return 404 in every build.</p>
       <table>
         <thead><tr><th>Method + Path</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>GET /auth/status</code></td><td>Current managed-account login status. The <code>managed_available</code> field reports whether this build ships a sign-in service at all (<code>false</code> in the open build); the WebUI hides its account/sign-in surfaces when false rather than offering a login that can only fail.</td></tr>
-          <tr><td><code>POST /auth/login/start</code></td><td>Kick off OAuth login against the managed service. In the open build this fails fast with <code>501</code> and error code <code>managed_login_unavailable</code> (non-retryable), telling clients to steer users to bring-your-own-key provider setup instead</td></tr>
-          <tr><td><code>POST /auth/login/:login_id/poll</code></td><td>Poll for the login result</td></tr>
-          <tr><td><code>DELETE /auth/login/:login_id</code></td><td>Cancel an in-flight login</td></tr>
-          <tr><td><code>POST /auth/logout</code></td><td>Log out of the managed account</td></tr>
+          <tr><td><code>GET /auth/status</code></td><td>Always reports <code>managed_available: false</code> in the current build (no sign-in service). The WebUI hides its account/sign-in surfaces rather than offering a login that can only fail.</td></tr>
+          <tr><td><code>POST /auth/login/start</code></td><td>No-op — returns <code>501</code> with error code <code>managed_login_unavailable</code> (non-retryable), steering clients to bring-your-own-key provider setup</td></tr>
+          <tr><td><code>POST /auth/login/:login_id/poll</code></td><td>No-op — part of the removed managed sign-in flow</td></tr>
+          <tr><td><code>DELETE /auth/login/:login_id</code></td><td>No-op — part of the removed managed sign-in flow</td></tr>
+          <tr><td><code>POST /auth/logout</code></td><td>No-op — part of the removed managed sign-in flow</td></tr>
         </tbody>
       </table>
 

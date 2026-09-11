@@ -104,7 +104,7 @@ aws-lc-rs  aws-lc-sys  nix  oauth2  process-wrap  rmcp  rustls-platform-verifier
 rmcp 3.1.0 要求 `reqwest = "0.13.2"`（`rmcp-3.1.0/Cargo.toml:759`）。本仓 8 个 crate pin 0.12：
 
 ```
-rustcode-auth:16,41   rustcode-cli:52          rustcode-capabilities:47,239
+rustcode-cli:52          rustcode-capabilities:47,239
 rustcode-codingplan:12,19   rustcode-telemetry:10   rustcode-tuix:39   rustcode-updater:21
 ```
 

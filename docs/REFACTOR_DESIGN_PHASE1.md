@@ -38,7 +38,6 @@ rustcode/                              (workspace root, resolver = "2")
     rustcode-cli/           L3  TUI + headless entry point (bin `rustcode`)
     rustcode-daemon/        L3  HTTP/SSE/WebSocket transport + legacy session importer
     rustcode-config/        leaf  disk/TOML config + endpoints + distribution names
-    rustcode-auth/          leaf  OAuth login + gateway request signer
     rustcode-codingplan/    leaf  CodingPlan REST business layer
     rustcode-codingplan-crypto/  closed-source overlay stub (optional feature)
     rustcode-clix/          standalone bin `rustcodex`
@@ -94,7 +93,7 @@ fail-closed 规则。
 
 | 旧名 | 新名 | 备注 |
 |-----|-----|------|
-| `rustcode-auth` | `rustcode-auth` | |
+| auth crate（已移除） | （已移除） | 平台账号/OAuth 体系已于基线移除；凭据改由本地 config.toml `[providers.*]` 配置 |
 | `rustcode-capabilities` | `rustcode-capabilities` | |
 | `rustcode-cli` | `rustcode-cli` | `[package] name` + `[[bin]] name` + `[lib] name` |
 | `rustcode-clix` | `rustcode-clix` | |

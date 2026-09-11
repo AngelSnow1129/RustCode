@@ -97,15 +97,15 @@
 
       <h2 id="login-models">Login &amp; models</h2>
 
-      <h3 id="the-browser-doesnt-open-during-oauth-login">The browser doesn't open during OAuth login</h3>
-      <p><strong>Distribution builds only.</strong> The open-source build has no OAuth login — bring your own API key instead (see <a href="./login.html">Login Methods</a>). If your distribution ships <code>/login</code> and the browser doesn't open, check whether you're on a remote server without a desktop session: finish OAuth locally and copy <code>~/.rustcode/auth.toml</code> to the same path on the server, or just use an API key there.</p>
+      <h3 id="managed-sign-in-removed">Managed sign-in has been removed</h3>
+      <p>The optional distribution-provided managed sign-in (<code>/login</code>) and its OAuth flow were removed on 2026-09-09. The open-source build has always been bring-your-own-key; no build offers OAuth login anymore. Configure a provider via <code>/provider</code> or <code>~/.rustcode/config.toml</code> instead (see <a href="./login.html">Provider credentials</a>).</p>
 
       <h3 id="cant-reach-the-model-hangs-forever-timeouts">Can't reach the model / hangs forever / timeouts</h3>
       <ul>
         <li>First check that <code>base_url</code> in <code>~/.rustcode/config.toml</code> is reachable — <code>curl</code> the matching <code>/v1/models</code> endpoint;</li>
         <li>On corporate networks it's usually a proxy issue — set <code>HTTPS_PROXY</code> and retry;</li>
         <li>On Windows, v5.0.7 uses the system SChannel certificate store by default, including enterprise roots. If it still fails, check the system certificate, proxy, and overrides such as <code>SSL_CERT_FILE</code> separately;</li>
-        <li>If you're in mainland China hitting an overseas model, verify your egress network. You can run <code>/model</code> to switch to a provider you can reach — or the managed endpoint your distribution provides — first to prove the whole pipeline works.</li>
+        <li>If you're in mainland China hitting an overseas model, verify your egress network. You can run <code>/model</code> to switch to a provider you can reach first to prove the whole pipeline works.</li>
       </ul>
 
       <h3 id="how-do-i-switch-models">How do I switch models?</h3>

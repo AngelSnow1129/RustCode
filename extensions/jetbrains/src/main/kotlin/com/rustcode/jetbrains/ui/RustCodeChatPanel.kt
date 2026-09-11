@@ -256,8 +256,8 @@ class RustCodeChatPanel(
     private var welcomeLanguage: String = defaultWelcomeLanguage()
     private var loggedIn = false
     // Mirrors /auth/status `managed_available`: open builds have no managed
-    // sign-in service, so account entry points are hidden and /login answers
-    // with bring-your-own-key guidance. Fail-closed until a snapshot arrives.
+    // account service, so account entry points are hidden and unknown commands
+    // answer with bring-your-own-key guidance. Fail-closed until a snapshot arrives.
     private var managedLogin = false
     private val setupRefreshTimer = Timer(2_000) {
         if (isShowing && !disposed && service.connectionState is ConnectionState.Ready) {
@@ -1871,7 +1871,7 @@ class RustCodeChatPanel(
         providerMenu.add(JSeparator())
         providerMenu.add(JMenuItem(labels.thinkingSettings).apply { addActionListener { showThinkingDialog() } })
         menu.add(providerMenu); menu.add(JSeparator())
-        // Open builds ship no managed account service: hide the sign-in entry
+        // Open builds ship no managed account service: hide the account entry
         // entirely (the daemon would only return 501 for it).
         if (managedLogin) {
             menu.add(JMenuItem(labels.login).apply { addActionListener { login() } })
@@ -1890,7 +1890,7 @@ class RustCodeChatPanel(
 
     private fun showCommandMenu() {
         val menu = JPopupMenu()
-        // /login is a managed-account command: hidden from discovery in open
+        // /login was a managed-account command: hidden from discovery in open
         // builds (typed /login still dispatches and prints BYO guidance).
         val items = buildList {
             if (managedLogin) add(SlashCommand("/login", RustCodeBundle.message("slash.login")))

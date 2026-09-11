@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>登录方式 · RustCode 文档</title>
-<meta name="description" content="如何把 RustCode 接入 LLM:默认自带 API Key(BYO),或使用发行版可选提供的托管登录。">
+<title>供应商凭据 · RustCode 文档</title>
+<meta name="description" content="如何用自己的第三方 LLM API Key 配置 RustCode:通过 /provider 或 ~/.rustcode/config.toml。无需账号、无外部平台。">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
 <script>(function(){try{var s=localStorage.getItem('rustcode_theme')||localStorage.getItem('rustcode-theme');if(s==='light'){document.documentElement.classList.add('light');document.documentElement.setAttribute('data-theme','light')}}catch(e){}})();</script>
@@ -75,22 +75,15 @@
   </aside>
 
   <main class="dmain prose-docs">
-<h1 id="登录方式">登录方式</h1>
-      <p class="lede">RustCode 默认采用自带密钥(BYO)方式:填入任一第三方 LLM provider 的 API Key 即可使用 —— 不需要账号,也不需要登录。部分发行版会额外提供可选的托管登录(<code>/login</code>),用于授权托管端点并自动配置 provider 和模型。本页分别说明这两条路径。</p>
+<h1 id="供应商凭据">供应商凭据</h1>
+      <p class="lede">RustCode 默认采用自带密钥(BYO)方式:填入任一第三方 LLM provider 的 API Key 即可使用 —— 不需要账号,也不需要登录,更没有外部平台。凭据保存在本地 <code>~/.rustcode/config.toml</code>(部分基于 OAuth 的 provider 存在 <code>~/.rustcode/auth.toml</code>)。本页说明如何配置。</p>
 
-      <h2 id="两种方式速览">两条路径速览</h2>
-      <table>
-        <thead>
-          <tr><th>路径</th><th>命令</th><th>适合人群</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>API Key(默认)</td><td><code>/provider</code> 或手动编辑配置</td><td>开源构建的所有用户 —— 使用你自有的 OpenAI / Claude / DeepSeek 密钥,或本地 Ollama 端点,无需账号</td></tr>
-          <tr><td>托管登录(可选)</td><td><code>/login</code></td><td>仅存在于附带托管网关支持的发行版 —— 通过浏览器/设备流程授权你所用发行渠道的托管端点,可申领额度并自动配置 provider</td></tr>
-        </tbody>
-      </table>
-      <p class="callout"><em>开源构建不包含任何托管网关,也没有账号体系。如果 <code>/login</code> 在你的构建中不可用或报错,这是正常现象 —— 使用下面的 API Key 路径即可。任何托管登录、免费额度或套餐体系都由你的发行渠道定义,与 RustCode 本身无关。</em></p>
+      <div class="callout callout-info">
+        <strong>托管登录已移除</strong>
+        <p>原发行版可选的托管登录(<code>/login</code>)及其账号 / 额度体系已于 2026-09-09 移除。开源构建自始就是 BYO;任何构建都不再存在托管登录路径。请改用下面的 provider 凭据配置。</p>
+      </div>
 
-      <h2 id="api-key-方式">API Key 方式(默认,BYO)</h2>
+      <h2 id="api-key-方式">配置 provider(BYO)</h2>
       <p>如果你想使用自有的 OpenAI / Claude / DeepSeek / GLM 等密钥,有三种做法:</p>
 
       <h3 id="方式-atui-内-provider">方式 A:TUI 内 <code>/provider</code></h3>
@@ -108,44 +101,12 @@
       <pre><code>rustcode --provider deepseek --model deepseek-reasoner</code></pre>
       <p>完全离线使用?配置一个本地 <strong>Ollama</strong> provider —— 不需要密钥,也不需要登录。</p>
 
-      <h2 id="托管登录可选">托管登录(可选,由发行版提供)</h2>
-      <p>部分 RustCode 发行版会提供托管端点:一个带自有账号体系、额度和模型列表的托管网关。在这些构建中,<code>/login</code> 会唤起浏览器/设备流程,在<em>你的发行渠道</em>的授权页面完成授权 —— RustCode 本身不内置任何账号主机。授权后,构建会按该发行渠道授予的额度自动申领并写入 provider 配置;重复执行 <code>/login</code> 会幂等地重新同步已授权的模型列表。</p>
-      <p>权益、免费额度和计量窗口均由发行渠道设定,具体包含什么、如何申领,请查阅你所用发行版的文档。</p>
-
-      <h3 id="从首次运行启动向导接入">从首次运行启动向导接入</h3>
-      <ol>
-        <li>首次启动 <code>rustcode</code>,会自动弹出 3 步启动向导。</li>
-        <li>第 1 步(欢迎)按 Enter,第 2 步(语言)按 <code>1</code>/<code>2</code>/<code>3</code> 选语言。</li>
-        <li>第 3 步(配置):如果你的发行版提供托管登录,选择对应选项;否则选择手动配置(API Key)或暂时跳过。</li>
-        <li>浏览器会打开你的发行渠道的授权页面,点击允许即可。</li>
-        <li>授权完成后 TUI 会自动写入 provider 配置,无需再动 <code>config.toml</code>,直接开始发消息。</li>
-      </ol>
-      <p>如果跳过过了想重新跑一遍向导,任何时候执行 <code>/welcome</code> 即可。</p>
-
-      <h3 id="在已有会话里接入">在已有会话里接入</h3>
-      <p>已经进入 TUI 后,任意时刻执行:</p>
-      <pre><code>/login</code></pre>
-      <p>会唤起浏览器完成授权并刷新 provider 列表。再次执行会重新同步模型列表,把本地的托管 provider 更新到最新的授权模型。该命令需要构建附带托管网关支持。</p>
-
-      <h3 id="从命令行接入">从命令行接入</h3>
-      <pre><code>rustcode login</code></pre>
-      <p>适合在脚本、远程服务器、容器镜像等场景一次性完成接入。CLI 子命令和 TUI <code>/login</code> 走同一套流程,输出同样的报告。在不含托管网关支持的构建中没有此命令 —— 请改用配置文件或环境变量。</p>
-
-      <h3 id="查看状态-退出">查看状态 / 退出</h3>
-      <pre><code>rustcode status     # 或 TUI 内 /status — 包含托管端点的使用量和过期时间
-rustcode logout     # 或 TUI 内 /logout — 清除 OAuth token</code></pre>
-
-      <h2 id="选哪个">选哪个?</h2>
-      <ul>
-        <li>开源构建 / 第一次使用 &rarr; <strong>API Key</strong>(<code>/provider</code> 或手动编辑配置)—— 自带密钥,无需账号。</li>
-        <li>你的发行版附带托管网关 &rarr; <strong>托管登录</strong>(<code>/login</code>)最省事;它只存在于这类构建中。</li>
-        <li>需要在 CI / 脚本里跑 &rarr; <strong>API Key</strong> + 配置文件或环境变量。</li>
-        <li>完全离线 &rarr; 配置一个 <strong>Ollama</strong> provider,不需要任何登录。</li>
-      </ul>
+      <h2 id="查看状态">查看状态</h2>
+      <pre><code>rustcode status     # 或 TUI 内 /status — 显示当前 provider 与模型</code></pre>
 
       <h2 id="下一步">下一步</h2>
       <ul>
-        <li><a href="./basic-usage.html">基本使用</a> —— 登录后第一件事:学怎么描述任务。</li>
+        <li><a href="./basic-usage.html">基本使用</a> —— 配置完成后的第一件事:学怎么描述任务。</li>
         <li><a href="./slash-commands.html">斜杠命令</a> —— <code>/provider</code>、<code>/model</code>、<code>/status</code> 详解。</li>
       </ul>
 

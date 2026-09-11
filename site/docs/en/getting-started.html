@@ -82,7 +82,7 @@
       <ul>
         <li><strong>OS</strong>: macOS (Apple Silicon or Intel), Linux, Windows, or HarmonyOS PC</li>
         <li><strong>Rust toolchain</strong>: 1.75+ (only required when building from source)</li>
-        <li><strong>LLM</strong>: an API key for any supported third-party provider (bring your own key); some distributions also offer an optional managed-endpoint account login</li>
+        <li><strong>LLM</strong>: an API key for any supported third-party provider (bring your own key)</li>
       </ul>
 
       <h2 id="install">Install</h2>
@@ -165,7 +165,7 @@ rustcode completion powershell</code></pre>
         <li><strong>Configure manually</strong> — the recommended path; equivalent to <code>/provider</code>: add a third-party provider account (Claude, OpenAI, DeepSeek, GLM, Qwen, Ollama, or any OpenAI-style API) with your own API key, then add models under it. No account or signup with RustCode is required.</li>
         <li><strong>Skip</strong> — jump straight into the TUI and run <code>/provider</code> later.</li>
       </ul>
-      <p>Distribution builds that ship a managed service may additionally show a <strong>one-click login</strong> row on this step (equivalent to <code>/login</code>, browser OAuth, provider auto-configured). The default open-source build has no managed account, so that row is absent and bring-your-own-key is the default path. You can re-open the wizard any time with <code>/welcome</code>.</p>
+      <p>The default open-source build uses bring-your-own-key as the only path. You can re-open the wizard any time with <code>/welcome</code>.</p>
 
       <h2 id="your-first-task">Your first task</h2>
       <p><code>cd</code> into a project you know, launch rustcode, and just describe what you want:</p>
@@ -207,7 +207,7 @@ rustcode uninstall --dry-run</code></pre>
 
       <div class="callout callout-warn">
         <strong>Heads up</strong>
-        <p><code>--purge</code> also deletes <strong>all session history, memories, custom provider configs, and OAuth tokens</strong>. It is irreversible. If you might use RustCode again, prefer the interactive default or <code>--keep-data</code>.</p>
+        <p><code>--purge</code> also deletes <strong>all session history, memories, and custom provider configs</strong>. It is irreversible. If you might use RustCode again, prefer the interactive default or <code>--keep-data</code>.</p>
       </div>
 
       <h2 id="next-steps">Next steps</h2>

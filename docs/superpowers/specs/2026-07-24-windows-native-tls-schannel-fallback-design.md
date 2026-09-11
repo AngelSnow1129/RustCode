@@ -51,7 +51,7 @@ reqwest = { version = "0.12", features = ["native-tls"], default-features = fals
 
 - Cargo 对同一依赖在 `[dependencies]` 与 `[target.*.dependencies]` 的 feature 取**并集**：Windows 构建 = `rustls-tls` + `native-tls`（默认后端翻为 SChannel）；Linux/macOS = 仅 `rustls-tls`（不变）。
 - `native-tls` 在 Windows = `schannel` crate（纯 Windows API，无 OpenSSL、无额外系统依赖，交叉编译到 windows target 亦可）。
-- 涉及 crate：`rustcode-auth`、`rustcode-codingplan`、`rustcode-core`、`rustcode-capabilities`（v2 聊天在此）。
+- 涉及 crate：`auth`（已移除）、`codingplan`（已移除）、`core`、`capabilities`（v2 聊天在此）。
 - **Cargo feature unification 提醒**：feature 按 crate 全局取并集。只要任一 crate 在 Windows 启用 reqwest `native-tls`，**整个 Windows 构建的 reqwest 都带 native-tls** → Windows 上**所有** reqwest client（含 telemetry/updater/tuix version_check 等未在上表的 crate）都默认 SChannel。这与 Option A 方向一致（这些也都是 atomgit-adjacent 流量，SChannel 更兼容），是**有意接受**的效果，非意外。在这 4 个 crate 显式声明是为表达意图；即便只声明一个，unification 的最终效果相同。
 
 ### 2. Windows 跳过 `add_trusted_roots`（SChannel 原生信任系统库）
@@ -76,7 +76,7 @@ reqwest = { version = "0.12", features = ["native-tls"], default-features = fals
 
 | crate / 文件 | client | 种类 |
 |---|---|---|
-| `rustcode-auth/src/oauth.rs` | 登录 gateway.example.com | blocking |
+| auth crate `oauth.rs`（已移除） | 原登录 gateway（已移除） | blocking |
 | `rustcode-codingplan/src/client.rs` | api.gitcode.com | blocking（阻塞式） |
 | `rustcode-capabilities/src/provider/openai_compat.rs` | v2 聊天 gateway.example.com | async(SSE) |
 | `rustcode-core/src/provider/mod.rs`+`openai.rs` | core provider | async（异步） |

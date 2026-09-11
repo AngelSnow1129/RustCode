@@ -221,7 +221,7 @@ const zh = {
   'settings.language': '语言',
   'settings.modelsTitle': '模型',
   'settings.modelsIntro': '配置提供方凭据与模型。第三方供应商使用自带 API Key，可在下方添加或编辑。',
-  'settings.modelsIntroManaged': '官方托管模型随托管登录状态同步，无需手动配置凭据。',
+  'settings.modelsIntroManaged': '凭据通过 /provider 或 ~/.rustcode/config.toml 的 [providers.*] 配置，无 OAuth、无外部平台；模型随 provider 同步。',
   'settings.noProviderHint': '尚未配置任何 provider。点击下方按钮添加你的第一个 provider。',
   'settings.close': '关闭',
   'settings.loadFailed': '加载失败',
@@ -409,9 +409,9 @@ const zh = {
   'cmd.memory.desc': '显示已保存的记忆',
   'cmd.memory.header': '已保存的记忆：',
   'cmd.memory.empty': '暂无保存的记忆',
-  'cmd.whoami.desc': '显示当前登录用户',
-  'cmd.whoami.body': '已登录：{name}（{user}）· {email}',
-  'cmd.whoami.none': '未登录',
+  'cmd.whoami.desc': '显示当前本地身份',
+  'cmd.whoami.body': '本地身份：{name}（{user}）· {email}',
+  'cmd.whoami.none': '未配置本地身份',
   'cmd.status.desc': '显示会话状态',
   'cmd.config.desc': '显示配置文件路径',
   'cmd.config.body': '配置文件：{path}（默认提供方 {provider}）',
@@ -435,12 +435,12 @@ const zh = {
   'notify.status.stopped': '已停止',
   'notify.status.finished': '已结束',
 
-  // 托管账号登录（中立构建不渲染入口；仅托管构建可见）
-  'login.signIn': '登录',
-  'login.signingIn': '登录中…',
-  'login.signOut': '退出登录',
-  'login.hint': '已在浏览器打开登录页…',
-  'login.expired': '登录已过期，点击重新登录',
+  // 凭据配置入口（中立/开源构建无托管账号服务，不渲染入口）
+  'login.signIn': '配置凭据',
+  'login.signingIn': '配置中…',
+  'login.signOut': '清除凭据',
+  'login.hint': '已在浏览器打开配置页…',
+  'login.expired': '凭据已过期，点击重新配置',
 
   // Common
   'common.cancel': '取消',
