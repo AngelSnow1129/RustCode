@@ -4552,16 +4552,8 @@ pub enum Msg<'a> {
     DaemonEpProviderThinking,
     /// Endpoint description: GET /skills.
     DaemonEpSkills,
-    /// Endpoint description: GET /auth/status.
-    DaemonEpAuthStatus,
-    /// Endpoint description: POST /auth/login/start.
-    DaemonEpLoginStart,
-    /// Endpoint description: POST /auth/login/:login_id/poll.
-    DaemonEpLoginPoll,
     /// Endpoint description: DELETE /auth/login/:login_id.
     DaemonEpLoginCancel,
-    /// Endpoint description: POST /auth/logout.
-    DaemonEpLogout,
     /// "Change directory body:" example heading.
     DaemonCdBodyHeading,
     /// Hint after the /cd JSON example: `or {"path": "-"} to go back`.
