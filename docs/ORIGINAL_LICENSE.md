@@ -21,7 +21,7 @@ An earlier revision of this file archived the **predecessor's** license
 (Copyright (c) 2026 Yubang Xu) — that is this repository's immediate parent, not
 the ultimate upstream. That text has been moved to its accurate home:
 
-- **Predecessor license (RustCode, Yubang Xu 2026):**
+- **Predecessor license (AtomCode, Yubang Xu 2026):**
   [`docs/UPSTREAM_RUSTCODE_LICENSE.md`](./UPSTREAM_RUSTCODE_LICENSE.md)
 
 The true upstream text was never independently archived, and it must not be

@@ -1,6 +1,8 @@
 # 异步 Webhook 和批量发送指南
 
-> [WARN] **当前状态警告**：异步 Webhook 的定时 flush 机制尚未完全激活（参见 issue #914）。目前 batcher 已创建但不会自动定期发送。在定时 flush 完成之前，请使用同步 Webhook 替代异步模式。关注后续更新以获取可用通知。
+> [STATUS] 本文档描述的 TOML `[[async_webhooks]]` 与异步批量发送能力，属于**已移除**的上游 `rustcode-core` `HookEngine` 体系（`AsyncWebhookBatcher` 等源码已不存在）。当前 RustCode 的 hook 机制是 Claude-Code 兼容的 `hooks.json`（由 `rustcode_capabilities::cc_hooks` 承载，feature `cc-hooks`），**不提供**基于 `hooks.toml` 的 Webhook / 异步批量 Webhook 能力。本文档作为历史参考保留，内容可能与当前实现不符。
+
+> [WARN] **历史遗留警告**：本文档早先版本提示"异步 Webhook 的定时 flush 机制尚未完全激活（issue #914）"。该能力所依附的 `HookEngine` 体系已在 fork 中移除，故该提示已失效。
 
 ## 概述
 

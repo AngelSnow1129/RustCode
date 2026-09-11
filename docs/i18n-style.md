@@ -17,7 +17,7 @@
 
 ```
 请输入你的 API key，然后点击「确认」。
-该功能需要 Provider 配置（详见 CodingPlan 文档）。
+该功能需要 Provider 配置（详见 Skill 文档）。
 错误信息：连接超时，请稍后重试。
 ```
 
@@ -25,7 +25,7 @@
 
 ```
 请输入你的 API key,然后点击"确认".     ← 半角逗号、句号
-该功能需要 Provider 配置(详见 CodingPlan 文档)  ← 中文语境用了半角括号
+该功能需要 Provider 配置(详见 Skill 文档)  ← 中文语境用了半角括号
 ```
 
 ---
@@ -44,8 +44,8 @@
 **规则：** 英文术语前后必须加半角空格，使其与中文文字视觉分离。
 
 ```
-使用 CodingPlan 配置你的工作流。       ← 正确
-使用CodingPlan配置你的工作流。         ← 错误，缺少空格
+使用 Skill 配置你的工作流。       ← 正确
+使用Skill配置你的工作流。         ← 错误，缺少空格
 ```
 
 > 注：上例只示范半角空格规则，其中的 CodingPlan 是已于 2026-09-09 退役的旧模块名，
@@ -172,7 +172,7 @@ ErrLoginFailed(&'a str)
 4. **编译验证**
 
    ```bash
-   cargo build -p rustcode-core
+   cargo build -p rustcode-config
    ```
 
    如果任一语言文件遗漏了新 variant，编译将失败并明确指出缺少的分支，从而杜绝翻译遗漏。

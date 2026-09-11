@@ -1,5 +1,7 @@
 # Hook CLI 命令使用指南
 
+> [STATUS] 本文档中 `rustcode hooks list` / `rustcode hooks paths` / `rustcode hooks test` 三个子命令真实存在，但请注意：它们现在报告与测试的是 Claude-Code 兼容的 `hooks.json`（`$RUSTCODE_HOME/hooks.json` + `<root>/.hooks.json`，由 `rustcode_capabilities::cc_hooks` 承载，feature `cc-hooks`）。本文档其余部分关于 TOML `[[hooks]]` / `[[webhooks]]` / `[[async_webhooks]]`、13 个 trait 与"内置 Hook"的内容，描述的是**已移除**的上游 `rustcode-core` `HookEngine` 体系，在本 fork 中已不存在，作为历史参考保留。
+
 ## 概述
 
 RustCode 提供了 `rustcode hooks` 系列 CLI 命令来管理、测试和验证 Hook 配置。

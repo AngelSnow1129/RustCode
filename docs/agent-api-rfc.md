@@ -16,7 +16,7 @@ RustCode 当前的能力以**交互式前端**为中心：
 - `rustcode-cli` / `rustcode-tuix` / WebUI 通过 `rustcode-daemon` 的 `/live` SSE
   协议驱动 `CodingRuntime`。
 - `rustcode-daemon` 已暴露 `run_server`（库函数）+ `CodingRuntime` 装配逻辑
-  （`runtime_host.rs` 的 `coding_provider_factory` / `start_native_runtime_with_session`），
+  （`runtime_host.rs` 的 `coding_provider_factory` 与 `kernel_runtime.rs` 的 `start_native_runtime_with_session`），
   具备被程序调用的**基础**，但 `/live` 协议是为 WebUI 设计的**交互协议**，
   不是"程序调用 agent 完成任务"的**编程式 Task API**。
 

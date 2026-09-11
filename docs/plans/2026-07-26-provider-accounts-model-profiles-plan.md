@@ -147,7 +147,7 @@
 
 1. 枚举当前 `ProviderConfig` 的生产消费方，并记录哪些需要连接字段、哪些需要模型字段、哪些需要展示字段。
 2. 新增失败测试，证明模型切换会保持会话绑定、工作目录、审批、generation 隔离，以及构造失败时保留先前的运行时。
-3. 通过既有的编码运行时 build/prepare/assemble 接缝传递 `ResolvedModelConfig`。把约 12 个文件中约 230 处直接的 provider 字段读取，按消费方集群（runtime/factory、daemon API、TUI、CLI、codingplan）逐集群、逐提交迁移，每个集群各自跑测试 —— 而不是一次性大爆炸式改动（§14.5）。
+3. 通过既有的编码运行时 build/prepare/assemble 接缝传递 `ResolvedModelConfig`。把约 12 个文件中约 230 处直接的 provider 字段读取，按消费方集群（runtime/factory、daemon API、TUI、CLI、codingplan）逐集群、逐提交迁移 —— **注：codingplan（rustcode-codingplan）已于 2026-09-09 移除，不再是迁移目标；此列表为历史遗留描述** —— 每个集群各自跑测试 —— 而不是一次性大爆炸式改动（§14.5）。
 4. 移除 driver 中重复的 provider/模型查找；不要创建第二个运行时所有者。
 5. 改造子 agent 分层：`resolve_tier_keys` 在解析后的模型目录（含遗留投影）上按每个模型档案的 `capable_model` 排序，`provider_factory` 通过 `resolve_model(<selection-id>)` 而不是 `config.providers.get` 构建每一层（§14.2）。增加一个测试，证明遗留配置保持相同的 fast/capable 路由。
 6. 在受影响处验证 CLI、TUI、daemon、ACP、headless/后台与子 agent 的路由行为。

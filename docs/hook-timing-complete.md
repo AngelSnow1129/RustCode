@@ -1,5 +1,7 @@
 # Hook 系统完整时机列表
 
+> [STATUS] 本文档描述的 13 个 trait / 完整时机列表，对应**已移除**的上游 `rustcode-core` `HookEngine` 体系，在本 fork 的代码库中已不存在。当前 RustCode 的 hook 机制是 Claude-Code 兼容的 `hooks.json`（`$RUSTCODE_HOME/hooks.json` + `<root>/.hooks.json`，由 `rustcode_capabilities::cc_hooks` 承载，feature `cc-hooks`），其事件集为 `PreToolUse` / `PostToolUse` / `PostToolUseFailure` / `SessionStart` / `SessionEnd` / `UserPromptSubmit` / `Stop` / `StopFailure`。本文档作为历史参考保留，内容可能与当前实现不符。
+
 ## 概述
 
 RustCode Hook 系统提供了 **13 个关键时机** 的扩展点，覆盖用户消息接收、Turn 执行、工具调用、会话管理等全生命周期。

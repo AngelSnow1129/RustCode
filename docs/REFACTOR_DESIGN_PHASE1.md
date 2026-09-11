@@ -2,6 +2,12 @@
 
 > [SUPERSEDED BY docs/phase1-refactor-design.md] 本文档已被取代
 
+> [INFO] 本稿取证基线为 `main/287bff70`（重命名与零遥测改造前）。其中提到的
+> `rustcode-codingplan` / `rustcode-codingplan-crypto` 已于 2026-09-09 删除，
+> `rustcode-telemetry` 已于零遥测改造中删除，`rustcode-bridge` / `rustcode-core` / auth
+> crate 也已退役；它们均不再属于本 fork，详见 `docs/phase1-refactor-design.md` 与
+> `docs/platform-neutralization.md`。
+
 > [INFO] 编排者设计文档，属于 GATEWAY 交付件。
 > [INFO] 本设计经评审确认之前，不改动任何生产源码。
 > [INFO] 源码根目录：`/workspace/gitCode/SecLab/RustCode`

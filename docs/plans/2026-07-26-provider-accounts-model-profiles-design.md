@@ -362,11 +362,11 @@ provider/模型 reload 仍由 `CodingRuntime` 拥有。driver 提交解析后的
 
 ### 14.5 解析值的完备性与增量迁移
 
-1. `ResolvedModelConfig`（§3.4）除已列字段外，还必须携带**每个模型动态的 `base_url`**（CodingPlan 会从服务端选择模型专属端点，而非账号的静态 base URL）与 `system_prompt`。
+1. `ResolvedModelConfig`（§3.4）除已列字段外，还必须携带**每个模型动态的 `base_url`**（CodingPlan 会从服务端选择模型专属端点，而非账号的静态 base URL；**注：此处 CodingPlan 即已移除的 rustcode-codingplan crate**）与 `system_prompt`。
 2. 任务 5 的影响半径是真实的：约 230 处直接的 provider 字段读取分布在约 12 个文件中
    （尤以 `rustcode-tuix/src/event_loop/mod.rs`、`rustcode-coding/src/{runtime,
    config,provider_factory,parts}.rs`, `rustcode-daemon/src/api_provider.rs` 等文件为主，
-   `rustcode-codingplan/src/setup.rs` 亦在其列）。必须**增量**迁移，藏在
+   `rustcode-codingplan/src/setup.rs` 亦在其列 —— **注：rustcode-codingplan（含 codingplan-crypto）已于 2026-09-09 移除，不再是迁移目标；此列表为历史遗留描述**）。必须**增量**迁移，藏在
    `active_provider()` 兼容包装之后（计划任务 4 第 3 步），一次转换一个消费方集群
    并各自跑测试 —— 而不是一次性大爆炸式提交。
 

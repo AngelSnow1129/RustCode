@@ -1,5 +1,7 @@
 # Webhook Hook 使用指南
 
+> [STATUS] 本文档描述的 TOML `[[webhooks]]` / `[[async_webhooks]]` 与 `WebhookHook` 属于**已移除**的上游 `rustcode-core` `HookEngine` 体系，在本 fork 的代码库中已不存在；RustCode 当前**不提供**基于 `hooks.toml` 的 Webhook / 异步批量 Webhook 能力。当前 hook 机制是 Claude-Code 兼容的 `hooks.json`（由 `rustcode_capabilities::cc_hooks` 承载，feature `cc-hooks`）。本文档作为历史参考保留，内容可能与当前实现不符。
+
 ## 概述
 
 Webhook Hook 允许你通过 HTTP 远程调用 Hook，实现：

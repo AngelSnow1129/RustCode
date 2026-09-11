@@ -1,5 +1,7 @@
 # Hook 系统技术架构
 
+> [STATUS] 本文档描述的是上游 `rustcode-core` 的 `HookEngine` 体系（`ScriptHook` / `WebhookHook` / `ShellCommandHook`，以及 TOML `hooks.toml` 的 `[[hooks]]` / `[[webhooks]]` / `[[async_webhooks]]`、13 个 trait 与内置 Hook）。该体系属于**已移除**的 `rustcode-core` 运行时，在本 fork 的代码库中已不存在。当前 RustCode 的 hook 机制是 Claude-Code 兼容的 `hooks.json`（用户 `$RUSTCODE_HOME/hooks.json` + 项目 `<root>/.hooks.json`），由 `rustcode_capabilities::cc_hooks`（feature `cc-hooks`）承载，并通过 `rustcode hooks list` / `rustcode hooks paths` / `rustcode hooks test` 查看与测试。本文档作为历史参考保留，内容可能与当前实现不符。
+
 > 重构后：`HookEngine` 统一调度，三种 Hook 实现共存在同一个引擎下。
 
 ## 宏观架构

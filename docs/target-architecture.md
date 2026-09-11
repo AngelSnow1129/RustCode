@@ -31,7 +31,7 @@ CLI / TUI / daemon / background / ACP / clix code
 ```text
 kernel ← capabilities ← L2 specialization ← frontend/transport
 
-叶子基础设施：config、auth、updater 等按职责被上层依赖
+叶子基础设施：config、updater 等按职责被上层依赖（凭据改由 `config` 的 `[providers.*]` 承载，原 `auth` crate 已移除）
 兼容边界：legacy session importer，只允许从旧格式流向当前模型
 ```
 
@@ -97,7 +97,7 @@ core 中仍有 plugin、live、MCP、LSP、provider、tool、graph、semantic �
 拆分前应先证明现有 kernel/coding 中立类型不能满足需求，且新 crate 会删除现有重复协议，而不是
 再增加一套类型。
 
-不创建大而全的 `rustcode-foundation`。config、auth、plugin、session、transport、process utilities
+不创建大而全的 `rustcode-foundation`。config、plugin、session、transport、process utilities（原 `auth` crate 已移除，凭据经 `config` 的 `[providers.*]` 配置）
 应按内聚职责复用现有叶子 crate 或单独拆分；目标是减少耦合，不是把 core 改名。
 
 ## 6. 收口顺序

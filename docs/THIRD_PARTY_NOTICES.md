@@ -28,7 +28,7 @@ MIT terms under which the upstream *code* was received.
 ## Modifications
 
 Modifications made in this fork:
-- Product rename `rustcode` -> `rustcode` (crates, binaries, config dir, env vars).
+- Product rename `atomcode` -> `rustcode` (crates, binaries, config dir, env vars).
 - Removal of the `rustcode-telemetry` crate and all telemetry/analytics call sites.
 - Full decoupling of the LLM provider layer from any platform-specific signing gateway;
   added `extra_headers` / `proxy` provider config and explicit `openai-compatible`

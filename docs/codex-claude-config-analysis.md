@@ -1,7 +1,7 @@
 # Codex / Claude 配置分析与建议
 
 ## 1. 当前 Untitled-1 内容解析
-- 提供商: 一个自定义 OpenAI-compatible 托管网关（第三方自带端点，平台中立）
+- 提供商: 一个自定义 OpenAI-compatible 网关（第三方自带端点，平台中立）
 - 端点: `https://gateway.example.com/v2`
 - 模型: 该网关服务的任意模型 id（示例：`glm-5.2` / `your-model-id`）
 - 协议: `openai` (`apiFormat`)

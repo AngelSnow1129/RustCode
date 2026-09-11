@@ -277,8 +277,10 @@ Invoke-Expression`. Run `rustcode completion --help` 可查看完整 Shell 列�
 
 ### 依赖
 
-- Rust 1.88+（用于构建；更旧的 Cargo 无法解析当前 lock 文件）
-- 任一支持的模型提供方的 API Key（自带密钥 / BYO；托管网关已于 2026-09-09 移除，见上文「关于曾经可选的托管网关」）
+- **Rust 1.88+** —— 用于构建；更旧的 Cargo 无法解析当前 lock 文件（`rustup update stable` 即可升级）
+- **Node.js >= 22.6** —— **仅当需要从源码构建 WebUI 时**需要（`webui/package.json` 的 `engines.node` 约束；运行预编译二进制或纯 TUI 不需要 Node）。推荐 LTS
+- 任一支持的模型提供方的 **API Key**（自带密钥 / BYO；托管网关已于 2026-09-09 移除，见上文「关于曾经可选的托管网关」）
+- **不要用 `sudo` 运行**（见下方「权限」小节）
 
 ### 权限 —— 不要用 `sudo` 启动
 
@@ -616,14 +618,19 @@ RustCode 是一个分层的 Rust workspace：
 ```
 rustcode/
   crates/
-    rustcode-kernel/        # Neutral agent loop and runtime traits
-    rustcode-capabilities/  # Providers, tools, MCP, skills, sessions, memory
-    rustcode-coding/        # Coding specialization and CodingRuntime lifecycle
-    rustcode-review/        # Review specialization
-    rustcode-tuix/          # Terminal UI
-    rustcode-cli/           # TUI and headless entry point
-    rustcode-daemon/        # HTTP/SSE/WebSocket transport + legacy session importer
+    rustcode-kernel/        # L0 中立 Agent 循环、运行时 trait 与执行边界
+    rustcode-capabilities/  # L1 Providers、工具、MCP、skills、session、memory
+    rustcode-coding/        # L2 Coding 特化与 CodingRuntime 生命周期
+    rustcode-review/        # L2/L3 独立的代码审查 agent
+    rustcode-config/        # leaf 配置模型、加载与产品配置策略
+    rustcode-updater/       # service 安装包与版本更新能力
+    rustcode-tuix/          # L3 终端 UI（ratatui）
+    rustcode-cli/           # L3 TUI 与 headless 入口（二进制 `rustcode`）
+    rustcode-daemon/        # L3 HTTP/SSE/WebSocket 传输 + 历史 session 单向导入
+    rustcode-clix/          # L3 独立 `code`/`review` 命令行驱动（二进制 `rustcodex`）
 ```
+
+> 工作区 `members = ["crates/*"]`，`default-members` 仅含 `rustcode-cli` / `rustcode-daemon` / `rustcode-tuix`；`rustcode-clix`、`rustcode-review`、`rustcode-config`、`rustcode-updater` 不在默认构建目标内，需用 `-p` 显式指定（如 `cargo build -p rustcode-clix`）。
 
 coding 主调用链是 `CLI/TUI/daemon → CodingRuntime → kernel`。已经退役的 core agent
 协议和 `rustcode-bridge` 不再位于运行时路径中。
@@ -815,6 +822,71 @@ RustCode 是免费的开源软件，可搭配任意你自带密钥的第三方�
 <p align="center">
   <em>[ 赞赏码图片（支付宝 / 微信支付）—— 由你的分发渠道提供 ]</em>
 </p>
+
+## 常见问题与故障排查
+
+### WebUI 打开后空白 / 提示 `webui not built`
+
+`webui/dist/` 由前端构建产出且被 gitignore，Rust 构建本身不触发 `npm`。如果没构建前端就编译，所有 webui 页面都会返回 `webui not built`。修复：
+
+```bash
+./scripts/build-webui.sh          # 等价于 cd webui && npm ci && npm run build
+cargo clean -p rustcode-daemon     # 必须：让 daemon 重新嵌入新 bundle
+cargo build --release -p rustcode  # 重新构建
+```
+
+`scripts/build-webui.sh --if-missing` 仅在 `webui/dist/index.html` 不存在时才构建，可重复执行。
+
+### 启动报 `Permission denied (os error 13)` / `coding runtime assemble failed`
+
+几乎都是用 `sudo` 跑过一次，在 `~/.rustcode` 留下了 root 属主文件。收回属主并**永远用普通用户**运行：
+
+```bash
+sudo chown -R "$(id -un):$(id -gn)" ~/.rustcode
+rustcode        # 不要加 sudo
+```
+
+Linux 客户机若工作目录在 VirtualBox 共享文件夹（`/media/sf_*`），改用 `sudo usermod -aG vboxsf "$USER"` 加组，而非 `sudo`。
+
+### 改了 `~/.rustcode/config.toml` 不生效
+
+在 TUI 内执行 `/reload` 即可热加载，无需重启；或重启进程。配置文件路径可用 `/config` 查看。
+
+### Headless 模式下某些工具被拒绝
+
+`rustcode -p "..."` 中，需要确认的 `bash` 会自动批准并写 stderr；**其他需要确认的工具会被拒绝**（例如会改文件的写操作）。这是设计内的安全行为，不是 bug。
+
+### 换行快捷键（Shift+Enter / Ctrl+Enter）没反应，直接发送了消息
+
+这两个组合依赖终端支持 Kitty 键盘协议（kitty、WezTerm、Alacritty、iTerm2 ≥3.5、Windows Terminal ≥1.21）。不支持的终端会退化成普通 `Enter`。**通用解法：输入一个 `\` 再按 `Enter`**（`\` 会被自动删除），在所有终端都生效。详见上方「换行快捷键的终端兼容性」。
+
+### 怎么接入自己的模型（BYO）
+
+- 编辑 `~/.rustcode/config.toml` 的 `[providers.*]`（最小样例见上方「配置」）；或
+- 在 TUI 内用 `/provider` 可视化添加；或
+- 首次运行的无参数向导会引导你填写。
+
+本分支不内置任何网关或账号，**所有** provider 都走你自己的第三方密钥，无需注册、无 OAuth、无外部平台。
+
+### 界面 / Agent 回复是英文，想用中文
+
+默认即简体中文。若显示英文，多半是环境变量 `LANG`/`LC_ALL` 显式设成了不支持的 locale（如 `fr_FR`），会回退英文；改为 `zh_CN.UTF-8` 或清空该变量即可。也可显式 `--lang zh` 或 TUI 内 `/language`。
+
+### 编译报错 `failed to parse lock file` 或解析失败
+
+Cargo 版本过旧，无法解析当前 `Cargo.lock`。升级工具链：`rustup update stable`，要求 Rust 1.88+。
+
+### Windows 下 `Ctrl+V` 粘贴不了图片
+
+Windows Terminal / conhost 把 `Ctrl+V` 绑给了自身 `paste`（只读文本），应用收不到图片事件。改用 **`/paste`** 斜杠命令，在所有终端都正常；或在 Windows Terminal 设置里解除 `ctrl+v` 绑定。
+
+### WebUI 局域网可访问但不安全
+
+`rustcode webui` 与 `rustcode daemon` 默认绑定 `0.0.0.0`，仅靠一次性 token 保护、**无 TLS**。暴露到公网有风险，需要远程访问时建议改 `127.0.0.1` 后用 SSH 隧道，或仅本机使用。TUI 内的 `/webui` 默认仍是 `127.0.0.1`。
+
+### `cargo install` 与 `cargo build` 产物名字
+
+`rustcode-cli` 的**包名是 `rustcode`**，因此 `-p rustcode-cli` 会失败；发布版 CLI 用 `cargo install --path crates/rustcode-cli --locked` 或 `cargo build --release -p rustcode`，产物都是 `target/release/rustcode`。独立 `code`/`review` 命令行驱动是 `rustcode-clix`（二进制 `rustcodex`），不在默认成员中。
 
 ## 许可证
 

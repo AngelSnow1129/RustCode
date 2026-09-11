@@ -1,5 +1,7 @@
 # Webhook 支持实现总结
 
+> [STATUS] 本文档描述的 `WebhookHook`（`crates/rustcode-core/src/hook/webhook.rs` 等）属于**已移除**的上游 `rustcode-core` `HookEngine` 体系，相关源码已不存在。当前 RustCode 的 hook 机制是 Claude-Code 兼容的 `hooks.json`（由 `rustcode_capabilities::cc_hooks` 承载，feature `cc-hooks`），不提供基于 `hooks.toml` 的 Webhook 能力。本文档作为历史参考保留，内容可能与当前实现不符。
+
 ## 概述
 
 已成功实现 Webhook 支持，允许通过 HTTP 远程调用 Hook，实现与外部系统的集成。

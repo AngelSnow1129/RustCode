@@ -1,5 +1,7 @@
 # RustCode Hook 文档全面梳理更新需求
 
+> [STATUS] 本规格书第二章以 `crates/rustcode-core/src/hook/` 为"代码真相"，但 `rustcode-core` 运行时**已在本 fork 中移除**，相关源码不复存在。因此本规格书要求的"以 `HookEngine` 重写各 hook 文档"已不再适用，需由架构负责人重新界定范围。当前 RustCode 的 hook 机制是 Claude-Code 兼容的 `hooks.json`（用户 `$RUSTCODE_HOME/hooks.json` + 项目 `<root>/.hooks.json`），由 `rustcode_capabilities::cc_hooks`（feature `cc-hooks`）承载，并通过 `rustcode hooks list` / `rustcode hooks paths` / `rustcode hooks test` 查看与测试。保留本文档作为历史需求记录。
+
 > 供文档专家全面梳理各文档，确保与代码一致。请忽略现有文档内容，以如下 **代码真相** 为准重写/修订。
 
 ---

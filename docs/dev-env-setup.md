@@ -34,6 +34,8 @@ bash scripts/dev-env-quickstart.sh --with-opencode
 
 > codex / claude / opencode 都是可选的第三方 agent CLI，仅用于对照/调试，**不是** RustCode 的构建或运行依赖。
 
+> **最低版本要求**：Rust 1.88+（本 quickstart 经 rustup 安装 1.98.0）；WebUI 前端构建需 Node.js >= 22.6（见 webui/package.json 的 engines 字段，本 quickstart 经 nvm 安装 v24.20.0 作为测试版本）。
+
 ## 2. 加速配置（可选，按网络环境选用）
 
 以下镜像均为公共社区加速源，仅加速工具链/依赖下载，与任何模型服务商无关；

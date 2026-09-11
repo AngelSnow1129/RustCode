@@ -108,12 +108,12 @@ TUI 里等价的是 `/mcp login <server>` / `/mcp logout <server>`。token 存 `
 
 ## 3. 运行时行为
 
-**单一装配路径**：TUI / 无头 / clix 都走 `McpRegistry::from_config_background_with_events`（`rustcode-coding/src/parts.rs:490`）——后台并行连接，不阻塞启动。区别只在要不要等：
+**单一装配路径**：TUI / 无头 / clix 都经 `McpRegistry::from_config_background_with_extra`（`rustcode-coding/src/parts.rs:846`，内部调用 `rustcode-capabilities/src/mcp/registry.rs` 的 `from_config_background_with_events`）——后台并行连接，不阻塞启动。区别只在要不要等：
 
 | 模式 | 是否等待 |
 |---|---|
 | TUI | 不等。每个 server `initialize` 成功后，`mount()` 原子发布该 server 的工具供下一轮使用 |
-| 无头 / clix | `runtime.wait_mcp_ready(CONNECT_TIMEOUT)`（30s，`rustcode-cli/src/main.rs:2251`）等到初次连接尝试全部落定 |
+| 无头 / clix | `runtime.wait_mcp_ready(CONNECT_TIMEOUT)`（30s，`rustcode-cli/src/main.rs:2951`）等到初次连接尝试全部落定 |
 
 单个 server 失败不拖垮进程；失败通过 `McpConnectEvent::Failed` 进入会话区，并保留在 `/mcp` 列表里显示为 `failed: <error>`。
 

@@ -1,6 +1,6 @@
 # Hook 系统扩展实现总结（历史快照）
 
-> [WARN] **本文档是历史快照**，记录扩展阶段的实现细节（12 个时机）。当前系统已进一步演进（新增 `OnUserPromptSubmit`，共 13 个时机）。请以 [Hook 系统总览](./hooks.md) | [实现总结](./hook-implementation-summary.md) | [完整时机列表](./hook-timing-complete.md) 为权威参考。
+> [WARN] **本文档是历史快照**，记录扩展阶段的实现细节（12 个时机，后增至 13 个）。其所描述的 `ScriptHook` / `WebhookHook` / 内置 Hook 与 13 个 trait，属于**已移除**的上游 `rustcode-core` `HookEngine` 体系，引用的 `crates/rustcode-core/src/hook/*` 文件已不存在。当前 RustCode 的 hook 机制是 Claude-Code 兼容的 `hooks.json`（由 `rustcode_capabilities::cc_hooks` 承载，feature `cc-hooks`）。请以 [Hook 系统总览](./hooks.md) 等现行文档为权威参考。
 
 ## 本次扩展内容
 

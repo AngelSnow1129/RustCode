@@ -1,23 +1,23 @@
-# PR: 实现 `hook test <name>` 命令
+# PR: 实现 `hooks test <name>` 命令
 
 ## 改动概述
 
-实现了 `rustcode hook test <name>` 命令，目前该命令只是一个打印 TODO 的空壳，现改为实际执行指定 hook 并展示详细结果。
+实现了 `rustcode hooks test <name>` 命令，目前该命令只是一个打印 TODO 的空壳，现改为实际执行指定 hook 并展示详细结果。
 
 ## 涉及文件
 
 | 文件 | 改动 |
 |------|------|
-| `crates/rustcode-core/src/hook/json_config.rs` | 新增 `load_hooks_config_with_names()` 公共函数，保留 hook 名称信息 |
-| `crates/rustcode-core/src/hook/config_loader.rs` | 新增 `load_script_hooks_with_names()` 函数，支持按名称查找 TOML 配置的 hook |
-| `crates/rustcode-core/src/hook/engine.rs` | 新增 `list_hook_names()` 方法，为测试命令提供可用 hook 列表 |
-| `crates/rustcode-cli/src/main.rs` | 替换 `HookCommands::Test` 存根为完整实现 |
+| `crates/rustcode-cli/src/main.rs` | `rustcode hooks test` 子命令实现（`HookCommands::Test` → `handle_hooks`） |
+| `crates/rustcode-capabilities/src/cc_hooks.rs` | CC 兼容 hook 的加载与单条测试执行（`load_hooks_config` / `run_hook_for_test` / 路径解析 `global_hooks_path` / `project_hooks_path`） |
+
+> [NOTE] 原实现文档将相关改动归到 `crates/rustcode-core/src/hook/*`，但 `rustcode-core` 运行时已在本 fork 中移除，上述文件不复存在；当前 `rustcode hooks` 命令的实现位于 `rustcode-cli` 与 `rustcode_capabilities::cc_hooks`。
 
 ## 改动的价值
 
-### 1. `rustcode hook test <name>` 命令
+### 1. `rustcode hooks test <name>` 命令
 
-**之前**：执行 `rustcode hook test my-hook` 只会打印：
+**之前**：执行 `rustcode hooks test my-hook` 只会打印：
 ```
 Testing hook: my-hook
 (TODO: Implement hook testing)
@@ -26,7 +26,7 @@ Testing hook: my-hook
 
 **之后**：该命令会：
 
-- 从 `hooks.json`（全局）和 `.hooks.json`（项目）加载所有已配置的 JSON hook，同时从 `hooks.toml`（全局 + 项目）加载 TOML 格式的 script hook
+- 从 `$RUSTCODE_HOME/hooks.json`（全局）和 `<项目>/.hooks.json`（项目）加载所有已配置的 Claude-Code 兼容 JSON hook（`hooks.toml` 的 script/webhook 配置属于已移除的 `rustcode-core` 体系，当前不加载）
 - 按名称查找目标 hook
 - 显示 hook 的完整元信息（事件类型、命令、超时时间、matcher、plugin 路径）
 - 构建模拟的 `HookContext` 环境（含测试用的 session_id、tool_name、tool_args）
@@ -46,7 +46,7 @@ Testing hook: my-hook
 
 ```bash
 # 测试一个名为 "check-bash" 的 hook
-$ rustcode hook test check-bash
+$ rustcode hooks test check-bash
 
 [*] Testing Hook: check-bash
   Event:     pre_tool_use
@@ -65,7 +65,7 @@ $ rustcode hook test check-bash
 
 ```bash
 # 查找不存在的 hook 时
-$ rustcode hook test nonexistent
+$ rustcode hooks test nonexistent
 
 [-] Hook 'nonexistent' not found.
 
@@ -76,7 +76,7 @@ Available hooks:
 
 ```bash
 # 超时场景
-$ rustcode hook test slow-hook
+$ rustcode hooks test slow-hook
 
 [*] Testing Hook: slow-hook
   Event:     pre_tool_use
@@ -90,10 +90,8 @@ $ rustcode hook test slow-hook
 
 ## 改动行数
 
-- `crates/rustcode-core/src/hook/json_config.rs`: +48 行
-- `crates/rustcode-core/src/hook/config_loader.rs`: +34 行
-- `crates/rustcode-core/src/hook/engine.rs`: +29 行
-- `crates/rustcode-cli/src/main.rs`: -5 行 / +133 行（后续修复 +219 行 / -44 行）
+- `crates/rustcode-cli/src/main.rs`: `rustcode hooks test` 子命令实现（具体增删以当前代码为准）
+- `crates/rustcode-capabilities/src/cc_hooks.rs`: CC 兼容 hook 加载与测试执行（具体增删以当前代码为准）
 
 ## 兼容性
 
