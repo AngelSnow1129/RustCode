@@ -1,7 +1,6 @@
 package com.rustcode.jetbrains.services
 
 import com.rustcode.jetbrains.daemon.ApprovalMode
-import com.rustcode.jetbrains.daemon.AuthStatusResponse
 import com.rustcode.jetbrains.daemon.ProviderInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -22,19 +21,12 @@ class RustCodeProjectServiceTest {
             thinkingKeep = null,
         )
 
-    private val signedOut = AuthStatusResponse(
-        loggedIn = false,
-        expired = false,
-        authPath = "/tmp/auth.toml",
-        userName = null,
-    )
-
     @Test
     fun `setup is required only when the selected provider depends on login`() {
-        assertEquals(false, providerSetupRequired(listOf(provider("custom", false)), "custom", signedOut))
-        assertEquals(true, providerSetupRequired(listOf(provider("gateway", true)), "gateway", signedOut))
-        assertEquals(true, providerSetupRequired(listOf(provider("legacy", null)), "legacy", signedOut))
-        assertEquals(true, providerSetupRequired(emptyList(), "", signedOut))
+        assertEquals(false, providerSetupRequired(listOf(provider("custom", false)), "custom"))
+        assertEquals(true, providerSetupRequired(listOf(provider("gateway", true)), "gateway"))
+        assertEquals(true, providerSetupRequired(listOf(provider("legacy", null)), "legacy"))
+        assertEquals(true, providerSetupRequired(emptyList(), ""))
     }
 
     @Test

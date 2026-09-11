@@ -188,12 +188,12 @@ def hello():
 
     @Test
     fun `slashCommandPrefix returns command while typing`() {
-        assertEquals("/login", slashCommandPrefix("/login"))
+        assertEquals("/review", slashCommandPrefix("/review"))
     }
 
     @Test
     fun `slashCommandPrefix stops after completed command inserts trailing space`() {
-        assertNull(slashCommandPrefix("/login "))
+        assertNull(slashCommandPrefix("/review "))
     }
 
     @Test

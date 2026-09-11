@@ -2,7 +2,6 @@ package com.rustcode.jetbrains.services
 
 import com.rustcode.jetbrains.daemon.RustCodeDaemonClient
 import com.rustcode.jetbrains.daemon.ApprovalMode
-import com.rustcode.jetbrains.daemon.AuthStatusResponse
 import com.rustcode.jetbrains.daemon.ChatEvent
 import com.rustcode.jetbrains.daemon.ChatRequest
 import com.rustcode.jetbrains.daemon.ChatStreamListener
@@ -54,15 +53,13 @@ internal fun shouldResetBackgroundConnection(
 internal fun providerSetupRequired(
     providers: List<ProviderInfo>,
     defaultProvider: String,
-    auth: AuthStatusResponse?,
 ): Boolean {
     if (providers.isEmpty()) return true
     val selected = providers.firstOrNull { it.name == defaultProvider }
         ?: providers.firstOrNull { it.isDefault }
-    val authUnavailable = auth?.loggedIn != true || auth.expired
-    // Older daemons do not expose requires_login. Keep the previous
-    // fail-closed behaviour until both sides speak the new protocol.
-    return selected?.requiresLogin?.let { it && authUnavailable } ?: authUnavailable
+    // With managed sign-in removed, setup is only required when the
+    // selected provider explicitly depends on an external login.
+    return selected?.requiresLogin ?: true
 }
 
 internal class ApprovalModeRuntimeState(initialMode: ApprovalMode = ApprovalMode.Build) {
@@ -469,12 +466,10 @@ class RustCodeProjectService(private val project: Project) : Disposable {
     }
 
     private fun loadSetupSnapshot(client: RustCodeDaemonClient): CompletableFuture<SetupSnapshot> {
-        val authFuture = client.authStatus().exceptionally { null }
         val providersFuture = client.listProviders().exceptionally { null }
         val modelsFuture = client.listModels().exceptionally { emptyList() }
 
-        return CompletableFuture.allOf(authFuture, providersFuture, modelsFuture).thenApply {
-            val auth = authFuture.get()
+        return CompletableFuture.allOf(providersFuture, modelsFuture).thenApply {
             val providers = providersFuture.get()
             val models = modelsFuture.get()
             val defaultProvider = providers?.defaultProvider.orEmpty()
@@ -482,7 +477,6 @@ class RustCodeProjectService(private val project: Project) : Disposable {
                 ?: models.firstOrNull { it.isDefault }?.model
                 ?: ""
             SetupSnapshot(
-                auth = auth,
                 providers = providers?.providers.orEmpty(),
                 models = models,
                 defaultProvider = defaultProvider,
@@ -490,21 +484,8 @@ class RustCodeProjectService(private val project: Project) : Disposable {
                 setupRequired = providerSetupRequired(
                     providers = providers?.providers.orEmpty(),
                     defaultProvider = defaultProvider,
-                    auth = auth,
                 ),
             )
-        }
-    }
-
-    fun loginWithBrowser(onStatus: (String) -> Unit): CompletableFuture<SetupSnapshot> {
-        val settings = settingsService.state.copy()
-        return daemonSupervisor.ensureReady(settings, auth).thenCompose {
-            val client = newClient(settings)
-            RustCodeLoginCoordinator.getInstance().login(client, onStatus).thenCompose {
-                loadSetupSnapshot(client)
-            }.whenComplete { _, error ->
-                if (error == null) ensureConnected()
-            }
         }
     }
 
@@ -742,7 +723,6 @@ private fun ConnectionState.isConnecting(): Boolean =
         this == ConnectionState.CheckingProvider
 
 private fun emptySetupSnapshot(): SetupSnapshot = SetupSnapshot(
-    auth = null,
     providers = emptyList(),
     models = emptyList(),
     defaultProvider = "",

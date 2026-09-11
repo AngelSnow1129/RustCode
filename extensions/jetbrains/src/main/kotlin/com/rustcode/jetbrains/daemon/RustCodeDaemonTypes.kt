@@ -26,32 +26,6 @@ data class ConfigResponse(
     val providerCount: Int,
 )
 
-data class AuthStatusResponse(
-    val loggedIn: Boolean,
-    val expired: Boolean = false,
-    // Whether the bundled daemon ships a managed sign-in service. Open
-    // builds return false; older daemons omit the field -> fail closed
-    // (hide managed account UI) unless explicitly advertised.
-    val managedAvailable: Boolean = false,
-    val authPath: String,
-    val userName: String?,
-)
-
-data class LoginStartResponse(
-    val loginId: String,
-    val url: String,
-    val expiresInSeconds: Int,
-    val daemonInstanceId: String? = null,
-)
-
-data class LoginPollResponse(
-    val status: String,
-    val userName: String?,
-    val code: String? = null,
-    val message: String? = null,
-    val retryAfterMs: Int? = null,
-)
-
 data class ProviderInfo(
     val name: String,
     val type: String,
@@ -116,7 +90,6 @@ data class ModelInfo(
 }
 
 data class SetupSnapshot(
-    val auth: AuthStatusResponse?,
     val providers: List<ProviderInfo>,
     val models: List<ModelInfo>,
     val defaultProvider: String,

@@ -20,8 +20,6 @@ class RustCodeDaemonClient(
 
     private val baseUrl = "http://$host:$port"
 
-    internal fun loginCoordinatorKey(): String = baseUrl
-
     fun health(): CompletableFuture<HealthResponse> =
         send("GET", "/health").thenApply {
             HealthResponse(
@@ -63,47 +61,6 @@ class RustCodeDaemonClient(
                 defaultProvider = it.jsonString("default_provider"),
                 providerCount = it.jsonArrayObjects("providers").size,
             )
-        }
-
-    fun authStatus(): CompletableFuture<AuthStatusResponse> =
-        send("GET", "/auth/status").thenApply { raw ->
-            AuthStatusResponse(
-                loggedIn = raw.jsonBoolean("logged_in") ?: false,
-                expired = raw.jsonBoolean("expired") ?: false,
-                managedAvailable = raw.jsonBoolean("managed_available") ?: false,
-                authPath = raw.jsonString("auth_path").orEmpty(),
-                userName = raw.jsonNestedObject("user")?.let {
-                    it.jsonString("name") ?: it.jsonString("username") ?: it.jsonString("email")
-                },
-            )
-        }
-
-    fun startLogin(openBrowser: Boolean = true): CompletableFuture<LoginStartResponse> =
-        send("POST", "/auth/login/start", """{"open_browser":$openBrowser}""").thenApply { raw ->
-            LoginStartResponse(
-                loginId = raw.jsonString("login_id").orEmpty(),
-                url = raw.jsonString("url").orEmpty(),
-                expiresInSeconds = raw.jsonInt("expires_in_seconds") ?: 600,
-                daemonInstanceId = raw.jsonString("daemon_instance_id"),
-            )
-        }
-
-    fun pollLogin(loginId: String): CompletableFuture<LoginPollResponse> =
-        send("POST", "/auth/login/${loginId.urlPathEncoded()}/poll").thenApply { raw ->
-            LoginPollResponse(
-                status = raw.jsonString("status").orEmpty(),
-                userName = raw.jsonNestedObject("user")?.let {
-                    it.jsonString("name") ?: it.jsonString("username") ?: it.jsonString("email")
-                },
-                code = raw.jsonString("code"),
-                message = raw.jsonString("message"),
-                retryAfterMs = raw.jsonInt("retry_after_ms"),
-            )
-        }
-
-    fun cancelLogin(loginId: String): CompletableFuture<Boolean> =
-        send("DELETE", "/auth/login/${loginId.urlPathEncoded()}").thenApply {
-            it.jsonBoolean("success") ?: false
         }
 
     fun listProviders(): CompletableFuture<ProvidersResponse> =

@@ -255,10 +255,6 @@ class RustCodeChatPanel(
     private var currentSession: SessionRefView? = null
     private var welcomeLanguage: String = defaultWelcomeLanguage()
     private var loggedIn = false
-    // Mirrors /auth/status `managed_available`: open builds have no managed
-    // account service, so account entry points are hidden and unknown commands
-    // answer with bring-your-own-key guidance. Fail-closed until a snapshot arrives.
-    private var managedLogin = false
     private val setupRefreshTimer = Timer(2_000) {
         if (isShowing && !disposed && service.connectionState is ConnectionState.Ready) {
             refreshSetupSnapshot(silent = true)
@@ -370,7 +366,7 @@ class RustCodeChatPanel(
     }
 
     fun showWelcomePage() {
-        messageView.showWelcomePage(welcomeLanguage, loggedIn, managedLogin)
+        messageView.showWelcomePage(welcomeLanguage, loggedIn)
     }
 
     fun submitPrompt(prompt: String) {
@@ -387,7 +383,6 @@ class RustCodeChatPanel(
     private fun handleWelcomeAction(action: String) {
         when {
             action == "settings" -> showGearMenu()
-            action == "login" -> if (managedLogin) login() else addSystemMessage(managedLoginUnavailableMessage())
             action == "docs" -> BrowserUtil.browse(currentDocsUrl())
             action == "review" -> composePrompt("/review ")
             action.startsWith("prompt:") -> composePrompt(action.removePrefix("prompt:"))
@@ -471,8 +466,6 @@ class RustCodeChatPanel(
 
     private fun renderSetupSnapshot(snapshot: SetupSnapshot) {
         setupSnapshot = snapshot
-        loggedIn = snapshot.auth?.let { it.loggedIn && !it.expired } == true
-        managedLogin = snapshot.auth?.managedAvailable == true
 
         loadingModels = true
         modelPicker.removeAllItems()
@@ -490,27 +483,6 @@ class RustCodeChatPanel(
         inputPanel.setModelName(currentModel)
         if (currentSession == null && !generating) {
             showWelcomePage()
-        }
-    }
-
-    private fun login() {
-        service.loginWithBrowser { message ->
-            SwingUtilities.invokeLater {
-                header.updateLoginStatus(message)
-            }
-        }.whenComplete { snapshot, error ->
-            SwingUtilities.invokeLater {
-                if (error != null) {
-                    header.updateLoginStatus(
-                        RustCodeBundle.message("chat.loginFailed", error.cause?.message ?: error.message ?: RustCodeBundle.message("chat.failedFallback")),
-                        failed = true,
-                    )
-                    refreshSetupSnapshot()
-                    return@invokeLater
-                }
-                renderSetupSnapshot(snapshot)
-                header.updateConnectionState(service.connectionState)
-            }
         }
     }
 
@@ -859,8 +831,8 @@ class RustCodeChatPanel(
             appendLine("Send with Ctrl+Enter: ${state.sendWithCtrlEnter}"); appendLine("Chat font size: ${state.chatFontSize}")
             appendLine("Pending context items: ${pendingContext.size}"); appendLine("Queued prompts: ${queuedPrompts.size}")
             if (snapshot != null) {
-                appendLine("Setup required: ${snapshot.setupRequired}"); appendLine("Signed in: ${snapshot.auth?.loggedIn ?: false}")
-                appendLine("User: ${snapshot.auth?.userName ?: "(none)"}"); appendLine("Providers: ${snapshot.providers.size}")
+                appendLine("Setup required: ${snapshot.setupRequired}")
+                appendLine("Providers: ${snapshot.providers.size}")
                 appendLine("Default provider: ${snapshot.defaultProvider.ifBlank { "(none)" }}")
                 appendLine("Current model: ${snapshot.currentModel.ifBlank { "(none)" }}")
             } else { appendLine("Setup snapshot: not loaded") }
@@ -1840,22 +1812,9 @@ class RustCodeChatPanel(
     private fun handleLocalInputCommand(prompt: String): Boolean {
         val command = prompt.split(Regex("\\s+"), limit = 2).firstOrNull()?.lowercase() ?: return false
         return when (command) {
-            "/login" -> {
-                if (managedLogin) {
-                    login()
-                } else {
-                    // Hidden from menus in open builds, but still dispatchable
-                    // when typed: answer with BYO provider guidance.
-                    addSystemMessage(managedLoginUnavailableMessage())
-                }
-                true
-            }
             else -> false
         }
     }
-
-    private fun managedLoginUnavailableMessage(): String =
-        RustCodeBundle.message("login.unavailable")
 
     // ── Gear menu ──
 
@@ -1871,12 +1830,6 @@ class RustCodeChatPanel(
         providerMenu.add(JSeparator())
         providerMenu.add(JMenuItem(labels.thinkingSettings).apply { addActionListener { showThinkingDialog() } })
         menu.add(providerMenu); menu.add(JSeparator())
-        // Open builds ship no managed account service: hide the account entry
-        // entirely (the daemon would only return 501 for it).
-        if (managedLogin) {
-            menu.add(JMenuItem(labels.login).apply { addActionListener { login() } })
-            menu.add(JSeparator())
-        }
         menu.add(JMenuItem(labels.sessionHistory).apply { addActionListener { showSessionHistory() } })
         menu.add(JMenuItem(labels.renameSession).apply { addActionListener { renameSelectedSession() } })
         menu.add(JMenuItem(labels.deleteSession).apply { addActionListener { deleteSelectedSession() } })
@@ -1890,10 +1843,7 @@ class RustCodeChatPanel(
 
     private fun showCommandMenu() {
         val menu = JPopupMenu()
-        // /login was a managed-account command: hidden from discovery in open
-        // builds (typed /login still dispatches and prints BYO guidance).
         val items = buildList {
-            if (managedLogin) add(SlashCommand("/login", RustCodeBundle.message("slash.login")))
             add(SlashCommand("/review", RustCodeBundle.message("slash.review")))
         }
         items.forEach { command ->
