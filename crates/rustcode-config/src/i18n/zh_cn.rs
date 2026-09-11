@@ -13,11 +13,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::WelcomeOptionSkipHint => "稍后再说".into(),
 
         // ── /login（完整配置流程） ──
-        Msg::LoginManagedUnavailable =>
-            "  [*] 当前构建未包含托管登录。\n  \
-             请直接在 ~/.rustcode/config.toml 配置第三方 provider（base_url + api_key），\n  \
-             或使用 /provider 添加自带密钥的模型。\n"
-                .into(),
+
         Msg::ChatAuthExpired =>
             "认证已过期，请执行 /login 重新登录".into(),
         Msg::ProviderErrEntitlement403 =>
@@ -192,10 +188,8 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
                 "  模型：    {}\n  目录：    {}\n  配置文件：{}\n",
                 model, dir, config,
             ).into(),
-        Msg::StatusLoginLoggedIn { user } =>
-            format!("  登录：  {}\n", user).into(),
-        Msg::StatusLoginNotSignedIn =>
-            "  登录：  未登录（运行 /login）\n".into(),
+
+
         Msg::StatusInstructionFilesHeader =>
             "  指令文件：\n".into(),
         Msg::StatusInstructionScopeGlobal => "用户全局".into(),
@@ -502,8 +496,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("再按 Ctrl+D 确认删除「{name}」").into(),
         Msg::SessionDeleteFailed { error } =>
             format!("删除会话失败：{error}").into(),
-        Msg::SessionRenameEditing { buffer } =>
-            format!("> {buffer}_  [Enter: 确认, Esc: 取消]").into(),
+
 
         // ── 目录选择器 ──
         Msg::DirPickerTitle { n, total } =>
@@ -547,7 +540,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── 欢迎屏幕提示 ──
         Msg::WelcomeTipsHeading => "上手提示".into(),
-        Msg::WelcomeTipLogin => "领取免费额度".into(),
+
         Msg::WelcomeTipProvider => "添加自定义模型".into(),
         Msg::WelcomeTipModel => "设置默认模型".into(),
         Msg::WelcomeTipResume => "恢复上次会话".into(),
@@ -587,8 +580,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("未知命令：/{name}").into(),
         Msg::CmdCustomArgRequired { name } =>
             format!("/{name} 需要提供参数。用法：/{name} <你的输入>").into(),
-        Msg::CmdLoginFailed { error } =>
-            format!("登录失败：{error}").into(),
+
         Msg::CmdLogoutDone =>
             "  已退出登录。权限已刷新。\n".into(),
         Msg::CmdLogoutFailed { error } =>
@@ -643,8 +635,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "正在切换 Provider/模型，请等待切换完成后再发送。".into(),
         Msg::SubmitHeldUntilProviderReady =>
             "  ↳ provider 尚未就绪，消息已排队，就绪后将自动发送\n".into(),
-        Msg::SubmitHeldUntilLogin =>
-            "  ↳ 尚未登录，消息已排队，执行 /login 登录后将自动发送\n".into(),
+
 
         // ── 审批提示 ──
         Msg::ApprovalPromptAlt { tool, detail } =>
@@ -723,31 +714,27 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("提示：待应用的升级未能执行（{error}）。继续使用当前版本。").into(),
         Msg::CliUpgradeDevDisabled => "[dev] 已禁用自动更新".into(),
         Msg::CliFatalError { error } => format!("\nRustCode 错误：{error}").into(),
-        Msg::CliStartingAfterLogin => "\n  正在启动 RustCode...\n".into(),
+
         Msg::CliDaemonStarting { port } =>
             format!("正在端口 {port} 上启动 RustCode 守护进程...").into(),
         Msg::CliDaemonStopHint => "按 Ctrl+C 停止。".into(),
         Msg::CliDaemonFatal { error } => format!("致命错误：守护进程服务器错误：{error}").into(),
-        Msg::CliLoginSetupFailed { error } => format!("登录初始化失败：{error}").into(),
+
         Msg::CliLoggedOut => "  已退出登录。".into(),
         Msg::CliStatusLoggedIn { username, id } =>
             format!("\n  已登录：{username}（{id}）").into(),
         Msg::CliStatusName { name } => format!("  姓名：{name}").into(),
         Msg::CliStatusEmail { email } => format!("  邮箱：{email}").into(),
-        Msg::CliStatusAuthFile { path } => format!("  认证文件：{path}\n").into(),
-        Msg::CliStatusNotLoggedInManaged => "\n  尚未登录。".into(),
-        Msg::CliStatusLoginHint => "  运行 'rustcode login' 进行认证。\n".into(),
+
+
+
         Msg::CliStatusHintNeutral =>
             "\n  [*] 本构建不含托管登录 -- 使用自带密钥（BYO）的第三方服务商。\n\
 请在 ~/.rustcode/config.toml 中配置第三方服务商，填入你自己的\n\
 base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
                 .into(),
-        Msg::CliManagedLoginNotBuilt =>
-            "\n  [*] 本构建未包含托管登录功能。\n\
-无需使用 `/login`，直接在 ~/.rustcode/config.toml 中配置第三方\n\
-服务商，填入你自己的 base_url 和 api_key。\n"
-                .into(),
-        Msg::CliReauthFailed { error } => format!("重新认证失败：{error}").into(),
+
+
         Msg::CliConfigSaveFailed { path, error } =>
             format!("  [!] 保存配置到 {path} 失败：{error}").into(),
         Msg::CliUpgradeLatest { version } => format!("==> 最新版本：{version}").into(),
@@ -1435,10 +1422,7 @@ Msg::CmdDescSetup =>
 "扫描项目、安装种子文件并运行 setup skill [hooks|mcp|skills|all]".into(),
         Msg::CmdDescResume => "恢复上次会话".into(),
         Msg::CmdDescRename => "重命名当前会话".into(),
-        Msg::CmdDescLogin => "使用 {oauth} 登录并领取托管套餐模型".into(),
-        Msg::CmdDescLoginNeutral =>
-            "托管登录(仅发行版本提供) -- 此开源构建使用自带 API Key 的第三方供应商,请在 config.toml 中配置".into(),
-        Msg::CmdDescLogout => "退出登录".into(),
+
         Msg::CmdDescWhoami => "显示当前登录用户".into(),
         Msg::CmdDescModel => "设置默认 Provider / 模型，并切换当前会话".into(),
         Msg::CmdDescProvider => "管理 Provider（添加、编辑、删除、设为全局默认）".into(),
@@ -1779,8 +1763,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             format!("绑定 {host}:{port} 失败（{error}）").into(),
         Msg::AppRemoteUsage =>
             "用法：/app <中继地址>；或先设置 RUSTCODE_APP_RELAY 指定默认中继后直接 /app".into(),
-        Msg::AppRemoteLoginRequired =>
-            "远程访问需要先登录。输入 /login 完成登录后，再执行 /app。".into(),
+
         Msg::AppServerStartFailed { error } => format!("App server 启动失败：{error}").into(),
         Msg::AppRelayClientStartFailed { error } =>
             format!("启动 relay-client 失败：{error}").into(),
@@ -1804,8 +1787,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::TeamPanelCleared => "团队面板已清空。".into(),
         Msg::TeamPanelUsage => "用法：/team [show|hide|status|clear]".into(),
         Msg::InternalError { error } => format!("内部错误：{error}").into(),
-        Msg::LoginFailedHint { reason } =>
-            format!("登录失败：{reason}。运行 /login 可重试。").into(),
+
         Msg::SteerQueuedLine { prompt } => format!("  ↳ 已排队：{prompt}\n").into(),
         Msg::EmptyCompletionReasoningOnly =>
             "本轮模型只输出了推理、未给出正文。按 Ctrl+O 可查看推理内容；可直接重试或换个问法。".into(),
@@ -1897,29 +1879,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::EffortStatusDefault => "默认（API 默认）".into(),
         Msg::EffortSet { level } => format!("  o 推理强度已设为：{level}\n").into(),
         Msg::EffortSetDefault => "  o 推理强度：默认（API 选择；保留能力）\n".into(),
-        Msg::LoginQrHeader =>
-            "  登录 -- 使用微信扫描下方二维码：\n\n".into(),
-        Msg::LoginUrlAfterQr =>
-            "\n\n  或在浏览器打开下方链接：\n  ".into(),
-        Msg::LoginNoQrNoUrl =>
-            "  当前终端无法渲染二维码，\n  \
-             且该平台不支持基于 URL 的登录。\n  \
-             请改用支持 Unicode 的终端以显示二维码。".into(),
-        Msg::LoginUrlOnly =>
-            "  在浏览器中打开此链接以登录：\n  ".into(),
-        Msg::LoginCancelHint => "\n\n  按 ESC 取消\n".into(),
-        Msg::AuthLoginBrowserHint =>
-            "  浏览器没有自动打开？请在任意浏览器中打开下方网址进行登录：".into(),
-        Msg::AuthLoginEscHint => "  按 ESC 取消".into(),
-        Msg::AuthLoginPollerStopped => "登录轮询线程意外停止".into(),
-        Msg::AuthLoginCancelled => "登录已被用户取消".into(),
-        Msg::AuthInvalidFilePath => "认证文件路径无效 -- 请重新登录".into(),
-        Msg::AuthNotLoggedIn => "尚未登录 -- 请先使用 /login 登录".into(),
-        Msg::AuthInvalidAuthToml => "auth.toml 无效 -- 请先使用 /login 登录".into(),
-        Msg::AuthAccountChanged => "登录账号已变更 -- 请重试该请求".into(),
-        Msg::AuthTokenRefreshFailed { error } => {
-            format!("令牌已过期且刷新失败：{error}").into()
-        }
+
         Msg::McpCfgCommentsWouldDelete { path } => format!(
             "{path} 中包含注释，重写该文件会删除这些注释。\
              请手动编辑该文件，或先移除注释后重试。"
@@ -2023,7 +1983,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::PluginGitRevParseFailed { stderr } => {
             format!("git rev-parse 失败：{stderr}").into()
         }
-        Msg::PluginReloginHintManaged => "可运行 /login 重新登录后重试".into(),
+
         Msg::PluginReloginHintNeutral =>
             "本构建无托管登录服务；请改用 SSH 地址或更新本地 git 凭证后重试".into(),
         Msg::PluginGitAuthUntrusted { verb, stderr } => format!(
@@ -2031,19 +1991,9 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
              或先用 git 配置好凭证后重试。\n原始错误：{stderr}"
         )
         .into(),
-        Msg::PluginGitAuthExpired { verb, stderr } => format!(
-            "{verb}失败：登录已过期或凭证无效，请运行 /login 重新登录后重试。\n原始错误：{stderr}"
-        )
-        .into(),
-        Msg::PluginGitAuthLoginRequired { verb, stderr } => format!(
-            "{verb}失败：该私有仓库需要认证。请先运行 /login 登录\
-             （配置凭证后可自动使用），或改用 SSH 地址（git@...）。\n原始错误：{stderr}"
-        )
-        .into(),
-        Msg::PluginGitAuthRetryFailed { verb, hint, stderr } => format!(
-            "{verb}失败：使用已登录凭证仍无法访问该仓库（{hint}）。\n原始错误：{stderr}"
-        )
-        .into(),
+
+
+
         Msg::PluginUrlMalformed { url } => format!("git 网址格式不正确：{url}").into(),
         Msg::PluginUrlUnsupported { url } => {
             format!("不支持或格式不正确的 git 网址：{url}").into()
@@ -2258,10 +2208,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::BgTaskNoSummary => "任务完成（无摘要文本）。".into(),
         // ── CLI rustcode --help i18n ──
         Msg::CliAbout => "终端中的 AI 编程助手".into(),
-        Msg::CliAboutLogin => "通过 OAuth 登录并领取托管套餐模型".into(),
-        Msg::CliAboutLoginNeutral =>
-            "托管登录(仅发行版本提供) -- 此开源构建使用自带 API Key 的第三方供应商,请在 config.toml 中配置".into(),
-        Msg::CliAboutLogout => "退出登录".into(),
+
         Msg::CliAboutStatus => "查看当前供应商与登录状态".into(),
         Msg::CliAboutUpgrade => "就地升级 rustcode 到最新发布版本".into(),
         Msg::CliAboutRollback => "回退到上一个版本（与 .bak 交换）".into(),

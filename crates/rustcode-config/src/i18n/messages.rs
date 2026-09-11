@@ -9,10 +9,6 @@ pub enum Msg<'a> {
     WelcomeOptionSkipHint,
 
     // ── /login (full setup flow) ──
-    /// Neutral-build `/login`: the managed gateway client is not compiled in,
-    /// so direct the operator to configure their own third-party provider
-    /// instead of running a managed login.
-    LoginManagedUnavailable,
     /// Emitted by the OpenAI provider when a gateway chat
     /// request returns 401 and our one automatic refresh_token attempt
     /// either failed or the retried request still came back 401. The
@@ -342,12 +338,7 @@ pub enum Msg<'a> {
         dir: &'a str,
         config: &'a str,
     },
-    /// `/status` login line -- signed in, showing the account display name/username.
-    StatusLoginLoggedIn {
-        user: &'a str,
-    },
-    /// `/status` login line -- not signed in.
-    StatusLoginNotSignedIn,
+
     StatusInstructionFilesHeader,
     StatusInstructionScopeGlobal,
     StatusInstructionScopeProject,
@@ -660,9 +651,6 @@ pub enum Msg<'a> {
     SessionPickerEmptyFilterQuery {
         query: &'a str,
     },
-    SessionRenameEditing {
-        buffer: &'a str,
-    },
 
     // ── Dir picker ──
     DirPickerTitle {
@@ -722,8 +710,7 @@ pub enum Msg<'a> {
     // ── Welcome screen tips ──
     /// Heading above the tips list on the welcome screen.
     WelcomeTipsHeading,
-    /// Welcome tip: /login command description.
-    WelcomeTipLogin,
+
     /// Welcome tip: /provider command description.
     WelcomeTipProvider,
     /// Welcome tip: /model command description.
@@ -776,9 +763,7 @@ pub enum Msg<'a> {
     CmdCustomArgRequired {
         name: &'a str,
     },
-    CmdLoginFailed {
-        error: &'a str,
-    },
+
     CmdLogoutDone,
     CmdLogoutFailed {
         error: &'a str,
@@ -840,7 +825,6 @@ pub enum Msg<'a> {
     CmdProviderUnsupportedBuild,
     CmdProviderReloading,
     SubmitHeldUntilProviderReady,
-    SubmitHeldUntilLogin,
 
     // ── Approval prompt ──
     ApprovalPromptAlt {
@@ -988,8 +972,7 @@ pub enum Msg<'a> {
     CliFatalError {
         error: &'a str,
     },
-    /// "Starting RustCode..." banner after a login setup before TUI launch.
-    CliStartingAfterLogin,
+
     /// `rustcode daemon` startup banner.
     CliDaemonStarting {
         port: u16,
@@ -1000,10 +983,7 @@ pub enum Msg<'a> {
     CliDaemonFatal {
         error: &'a str,
     },
-    /// First-run login setup failed (non-fatal, falls through to TUI).
-    CliLoginSetupFailed {
-        error: &'a str,
-    },
+
     /// `rustcode logout` confirmation.
     CliLoggedOut,
     /// `rustcode status` logged-in header.
@@ -1019,22 +999,10 @@ pub enum Msg<'a> {
     CliStatusEmail {
         email: &'a str,
     },
-    /// `rustcode status` auth-file line (trailing newline kept in template).
-    CliStatusAuthFile {
-        path: &'a str,
-    },
-    /// `rustcode status` not-logged-in line (managed build only).
-    CliStatusNotLoggedInManaged,
-    /// `rustcode status` login hint (managed build only).
-    CliStatusLoginHint,
+
     /// `rustcode status` neutral-build hint: BYO providers, no managed account.
     CliStatusHintNeutral,
-    /// Neutral-build fallback replacing the managed `login` flow output.
-    CliManagedLoginNotBuilt,
-    /// Re-OAuth failed inside the managed setup orchestrator (feature-gated).
-    CliReauthFailed {
-        error: &'a str,
-    },
+
     /// Persisting config after the managed setup flow failed (feature-gated).
     CliConfigSaveFailed {
         path: &'a str,
@@ -2088,13 +2056,7 @@ pub enum Msg<'a> {
     CmdDescSetup,
     CmdDescResume,
     CmdDescRename,
-    /// `/login` description in a distribution build that ships a managed sign-in
-    /// service (mentions the managed models flow).
-    CmdDescLogin,
-    /// `/login` description in a neutral, bring-your-own-key build -- no managed
-    /// service is compiled in, so the text points the user at config.toml.
-    CmdDescLoginNeutral,
-    CmdDescLogout,
+
     CmdDescWhoami,
     CmdDescModel,
     CmdDescProvider,
@@ -2781,8 +2743,7 @@ pub enum Msg<'a> {
     },
     /// `/app`: usage hint when no relay is configured.
     AppRemoteUsage,
-    /// `/app`: sign-in required before remote access.
-    AppRemoteLoginRequired,
+
     /// `/app`: local App server failed to start.
     AppServerStartFailed {
         error: &'a str,
@@ -2825,10 +2786,7 @@ pub enum Msg<'a> {
     InternalError {
         error: &'a str,
     },
-    /// OAuth login failure hint.
-    LoginFailedHint {
-        reason: &'a str,
-    },
+
     /// Mid-turn steer queued behind a running turn.
     SteerQueuedLine {
         prompt: &'a str,
@@ -3090,53 +3048,6 @@ pub enum Msg<'a> {
     /// Confirmation after resetting to the API default.
     EffortSetDefault,
 
-    // ── OAuth login chrome (/login) ──
-    /// Header above the QR block when scanning with WeChat is the
-    /// expected flow. Includes the leading "  " indent and trailing
-    /// "\n\n" paragraph break that the caller used to inline.
-    LoginQrHeader,
-    /// Separator + URL prelude shown below the QR block when both
-    /// QR and URL fallback are available. Leading "\n\n  " and
-    /// trailing "\n  " are part of the template.
-    LoginUrlAfterQr,
-    /// QR + URL both unavailable (Unicode-incapable terminal AND a
-    /// platform where URL-based login doesn't work, e.g. OHOS).
-    LoginNoQrNoUrl,
-    /// URL-only header when QR can't render but URL login works.
-    /// Leading "  " indent and trailing "\n  " before the URL.
-    LoginUrlOnly,
-    /// Footer line: "Press ESC to cancel" with surrounding
-    /// blank-line padding.
-    LoginCancelHint,
-
-    // ── Local credential store: stdout login flow + credential guidance ──
-    /// Stdout OAuth flow: line printed above the login URL when the
-    /// browser may not have opened. Leading "  " indent is part of
-    /// the template.
-    AuthLoginBrowserHint,
-    /// Stdout OAuth flow: "Press ESC to cancel" line (the TUI uses
-    /// [`LoginCancelHint`] with its own padding). Leading "  " indent
-    /// is part of the template.
-    AuthLoginEscHint,
-    /// Stdout OAuth flow: background poller thread vanished mid-login.
-    AuthLoginPollerStopped,
-    /// Stdout OAuth flow: user pressed ESC to cancel.
-    AuthLoginCancelled,
-    /// Windows-only: auth file path has no parent directory.
-    AuthInvalidFilePath,
-    /// Stored credentials missing/invalid; directs the user to /login.
-    AuthNotLoggedIn,
-    /// auth.toml parsed but holds no usable token; directs to /login.
-    AuthInvalidAuthToml,
-    /// The stored account identity no longer matches the session the
-    /// request was started under.
-    AuthAccountChanged,
-    /// Access token expired and the refresh attempt failed. `error`
-    /// is the pre-rendered refresh error.
-    AuthTokenRefreshFailed {
-        error: &'a str,
-    },
-
     // ── rustcode-capabilities: MCP config validation ──
     /// Rewriting an MCP config file would erase its JSON comments.
     /// `path` is the pre-rendered file path.
@@ -3271,9 +3182,7 @@ pub enum Msg<'a> {
     PluginGitRevParseFailed {
         stderr: &'a str,
     },
-    /// Parenthetical hint inside the "still inaccessible after
-    /// re-login" message: managed build -> re-run /login.
-    PluginReloginHintManaged,
+
     /// Parenthetical hint: neutral build has no managed sign-in; use
     /// SSH or local git credentials. Must NOT pitch /login.
     PluginReloginHintNeutral,
@@ -3284,24 +3193,7 @@ pub enum Msg<'a> {
         verb: &'a str,
         stderr: &'a str,
     },
-    /// Auth failure despite stored credentials: session expired.
-    PluginGitAuthExpired {
-        verb: &'a str,
-        stderr: &'a str,
-    },
-    /// Trusted host, not logged in: pitch /login, offer SSH as
-    /// alternative.
-    PluginGitAuthLoginRequired {
-        verb: &'a str,
-        stderr: &'a str,
-    },
-    /// Retry with signed-in credentials still failed. `hint` is the
-    /// localized relogin hint sentence.
-    PluginGitAuthRetryFailed {
-        verb: &'a str,
-        hint: &'a str,
-        stderr: &'a str,
-    },
+
     /// Plugin git URL validation failed.
     PluginUrlMalformed {
         url: &'a str,
@@ -3678,13 +3570,7 @@ pub enum Msg<'a> {
 
     // CLI rustcode --help i18n
     CliAbout,
-    CliAboutLogin,
-    /// Neutral-build `rustcode login` help text: managed sign-in does not
-    /// exist in this build, so the about line must not pitch it; point to the
-    /// bring-your-own-key provider config instead. Selected at the call site
-    /// for neutral builds (no managed sign-in is configured).
-    CliAboutLoginNeutral,
-    CliAboutLogout,
+
     CliAboutStatus,
     CliAboutUpgrade,
     CliAboutRollback,

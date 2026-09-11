@@ -13,11 +13,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::WelcomeOptionSkipHint => "explore first".into(),
 
         // ── /login (full setup flow) ──
-        Msg::LoginManagedUnavailable =>
-            "  [*] Managed login is not built into this build.\n  \
-             Configure a third-party provider directly in ~/.rustcode/config.toml \
-             (base_url + api_key), or add a model with its own key via /provider.\n"
-                .into(),
+
         Msg::ChatAuthExpired =>
             "Authentication expired -- please run /login to sign in again".into(),
         Msg::ProviderErrEntitlement403 =>
@@ -208,10 +204,8 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
                 "  Model:  {}\n  Dir:    {}\n  Config: {}\n",
                 model, dir, config,
             ).into(),
-        Msg::StatusLoginLoggedIn { user } =>
-            format!("  Login:  {}\n", user).into(),
-        Msg::StatusLoginNotSignedIn =>
-            "  Login:  not signed in (run /login)\n".into(),
+
+
         Msg::StatusInstructionFilesHeader =>
             "  Instruction files:\n".into(),
         Msg::StatusInstructionScopeGlobal => "User global".into(),
@@ -529,8 +523,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("Press Ctrl+D again to delete \"{name}\"").into(),
         Msg::SessionDeleteFailed { error } =>
             format!("Failed to delete session: {error}").into(),
-        Msg::SessionRenameEditing { buffer } =>
-            format!("> {buffer}_  [Enter: confirm, Esc: cancel]").into(),
+
 
         // ── Dir picker ──
         Msg::DirPickerTitle { n, total } =>
@@ -574,7 +567,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── Welcome screen tips ──
         Msg::WelcomeTipsHeading => "Tips for getting started".into(),
-        Msg::WelcomeTipLogin => "claim a free token quota".into(),
+
         Msg::WelcomeTipProvider => "add a custom model".into(),
         Msg::WelcomeTipModel => "set the default model".into(),
         Msg::WelcomeTipResume => "resume your last session".into(),
@@ -614,8 +607,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("Unknown command: /{name}").into(),
         Msg::CmdCustomArgRequired { name } =>
             format!("/{name} requires an argument. Usage: /{name} <your-input>").into(),
-        Msg::CmdLoginFailed { error } =>
-            format!("login failed: {error}").into(),
+
         Msg::CmdLogoutDone =>
             "  Signed out. Permissions refreshed.\n".into(),
         Msg::CmdLogoutFailed { error } =>
@@ -671,8 +663,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "Provider/model is switching. Send after the switch completes.".into(),
         Msg::SubmitHeldUntilProviderReady =>
             "  ↳ provider not ready yet -- message queued, will send automatically once ready\n".into(),
-        Msg::SubmitHeldUntilLogin =>
-            "  ↳ not signed in -- message queued; run /login and it will send automatically\n".into(),
+
 
         // ── Approval prompt ──
         Msg::ApprovalPromptAlt { tool, detail } =>
@@ -751,31 +742,27 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("Note: pending upgrade could not be applied ({error}). Continuing with current version.").into(),
         Msg::CliUpgradeDevDisabled => "[dev] auto-update disabled".into(),
         Msg::CliFatalError { error } => format!("\nRustCode error: {error}").into(),
-        Msg::CliStartingAfterLogin => "\n  Starting RustCode...\n".into(),
+
         Msg::CliDaemonStarting { port } =>
             format!("Starting RustCode daemon on port {port}...").into(),
         Msg::CliDaemonStopHint => "Press Ctrl+C to stop.".into(),
         Msg::CliDaemonFatal { error } => format!("Fatal: daemon server error: {error}").into(),
-        Msg::CliLoginSetupFailed { error } => format!("login setup failed: {error}").into(),
+
         Msg::CliLoggedOut => "  You have been logged out.".into(),
         Msg::CliStatusLoggedIn { username, id } =>
             format!("\n  Logged in as: {username} ({id})").into(),
         Msg::CliStatusName { name } => format!("  Name: {name}").into(),
         Msg::CliStatusEmail { email } => format!("  Email: {email}").into(),
-        Msg::CliStatusAuthFile { path } => format!("  Auth file: {path}\n").into(),
-        Msg::CliStatusNotLoggedInManaged => "\n  Not logged in.".into(),
-        Msg::CliStatusLoginHint => "  Run 'rustcode login' to authenticate.\n".into(),
+
+
+
         Msg::CliStatusHintNeutral =>
             "\n  [*] No managed login in this build -- it uses bring-your-own-key providers.\n\
 Configure a third-party provider in ~/.rustcode/config.toml with your own\n\
 base_url and api_key, or run rustcode with --provider <name>.\n"
                 .into(),
-        Msg::CliManagedLoginNotBuilt =>
-            "\n  [*] Managed login is not built into this build.\n\
-Skip `/login` and configure a third-party provider directly in\n\
-~/.rustcode/config.toml with your own base_url and api_key.\n"
-                .into(),
-        Msg::CliReauthFailed { error } => format!("re-authentication failed: {error}").into(),
+
+
         Msg::CliConfigSaveFailed { path, error } =>
             format!("  [!] Failed to save config to {path}: {error}").into(),
         Msg::CliUpgradeLatest { version } => format!("==> Latest: {version}").into(),
@@ -1474,10 +1461,7 @@ Msg::CmdDescSetup =>
 "Scan project, install seeds, and run setup skill [hooks|mcp|skills|all]".into(),
         Msg::CmdDescResume => "Resume a previous session".into(),
         Msg::CmdDescRename => "Rename current session".into(),
-        Msg::CmdDescLogin => "Sign in with {oauth} and claim managed-plan models".into(),
-        Msg::CmdDescLoginNeutral =>
-            "Managed sign-in (distribution builds only) -- this open build uses bring-your-own-key providers; configure config.toml".into(),
-        Msg::CmdDescLogout => "Sign out".into(),
+
         Msg::CmdDescWhoami => "Show current logged-in user".into(),
         Msg::CmdDescModel =>
             "Set the default provider / model and switch this session".into(),
@@ -1825,8 +1809,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::AppRemoteUsage =>
             "Usage: /app <relay-address>; or set RUSTCODE_APP_RELAY to a default relay and run /app"
                 .into(),
-        Msg::AppRemoteLoginRequired =>
-            "Remote access requires sign-in first. Run /login to sign in, then run /app.".into(),
+
         Msg::AppServerStartFailed { error } =>
             format!("App server failed to start: {error}").into(),
         Msg::AppRelayClientStartFailed { error } =>
@@ -1851,8 +1834,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::TeamPanelCleared => "Team panel cleared.".into(),
         Msg::TeamPanelUsage => "Usage: /team [show|hide|status|clear]".into(),
         Msg::InternalError { error } => format!("internal error: {error}").into(),
-        Msg::LoginFailedHint { reason } =>
-            format!("Login failed: {reason}. Run /login to retry.").into(),
+
         Msg::SteerQueuedLine { prompt } => format!("  ↳ queued: {prompt}\n").into(),
         Msg::EmptyCompletionReasoningOnly =>
             "The model produced only reasoning this turn, no answer. Press Ctrl+O to view the reasoning; retry or rephrase to continue.".into(),
@@ -1948,29 +1930,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::EffortSet { level } => format!("  o Reasoning effort set to: {level}\n").into(),
         Msg::EffortSetDefault =>
             "  o Reasoning effort: default (API-selected; capability kept)\n".into(),
-        Msg::LoginQrHeader =>
-            "  Sign in -- scan the QR code with your WeChat:\n\n".into(),
-        Msg::LoginUrlAfterQr =>
-            "\n\n  OR open the URL below in a browser:\n  ".into(),
-        Msg::LoginNoQrNoUrl =>
-            "  Cannot render a QR code in this terminal,\n  \
-             and URL-based login is unavailable on this platform.\n  \
-             Try a Unicode-capable terminal to display the QR.".into(),
-        Msg::LoginUrlOnly =>
-            "  Open this URL in any browser to sign in:\n  ".into(),
-        Msg::LoginCancelHint => "\n\n  Press ESC to cancel\n".into(),
-        Msg::AuthLoginBrowserHint =>
-            "  Browser didn't open? Open the URL below in any browser to sign in:".into(),
-        Msg::AuthLoginEscHint => "  Press ESC to cancel".into(),
-        Msg::AuthLoginPollerStopped => "login poller stopped unexpectedly".into(),
-        Msg::AuthLoginCancelled => "login cancelled by user".into(),
-        Msg::AuthInvalidFilePath => "Invalid auth file path -- please sign in again".into(),
-        Msg::AuthNotLoggedIn => "Not logged in -- please use /login first".into(),
-        Msg::AuthInvalidAuthToml => "Invalid auth.toml -- please use /login first".into(),
-        Msg::AuthAccountChanged => "Login account changed -- please retry the request".into(),
-        Msg::AuthTokenRefreshFailed { error } => {
-            format!("Token expired and refresh failed: {error}").into()
-        }
+
         Msg::McpCfgCommentsWouldDelete { path } => format!(
             "{path} contains comments, and rewriting it would delete them. \
              Edit the file by hand, or remove the comments and retry."
@@ -2077,7 +2037,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::PluginGitRevParseFailed { stderr } => {
             format!("git rev-parse failed: {stderr}").into()
         }
-        Msg::PluginReloginHintManaged => "re-run /login to sign in again".into(),
+
         Msg::PluginReloginHintNeutral =>
             "this build has no managed sign-in service; use an SSH URL or update \
              your local git credentials and retry"
@@ -2088,25 +2048,9 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
              Original error: {stderr}"
         )
         .into(),
-        Msg::PluginGitAuthExpired { verb, stderr } => format!(
-            "{verb} failed: login expired or credentials are invalid -- run /login to sign \
-             in again, then retry.\n\
-             Original error: {stderr}"
-        )
-        .into(),
-        Msg::PluginGitAuthLoginRequired { verb, stderr } => format!(
-            "{verb} failed: this private repository requires authentication. Sign in with \
-             /login first (credentials are then used automatically), or use an SSH URL \
-             (git@...).\n\
-             Original error: {stderr}"
-        )
-        .into(),
-        Msg::PluginGitAuthRetryFailed { verb, hint, stderr } => format!(
-            "{verb} failed: the repository is still inaccessible with the signed-in \
-             credentials ({hint}).\n\
-             Original error: {stderr}"
-        )
-        .into(),
+
+
+
         Msg::PluginUrlMalformed { url } => format!("malformed git url: {url}").into(),
         Msg::PluginUrlUnsupported { url } => {
             format!("unsupported or malformed git url: {url}").into()
@@ -2332,10 +2276,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::BgTaskNoSummary => "Task completed (no summary text).".into(),
         // -- CLI rustcode --help i18n --
         Msg::CliAbout => "AI coding assistant in your terminal".into(),
-        Msg::CliAboutLogin => "Sign in with OAuth and claim managed-plan models in one flow".into(),
-        Msg::CliAboutLoginNeutral =>
-            "Managed sign-in (distribution builds only) -- this open build uses bring-your-own-key providers; configure config.toml".into(),
-        Msg::CliAboutLogout => "Sign out".into(),
+
         Msg::CliAboutStatus => "Show current provider and sign-in status".into(),
         Msg::CliAboutUpgrade => "Upgrade rustcode in-place to the latest released version".into(),
         Msg::CliAboutRollback => "Roll back to the previous version (swap with .bak on disk)".into(),

@@ -723,7 +723,7 @@ mod tests {
             }};
         }
         check!(Msg::WelcomeTipsHeading);
-        check!(Msg::WelcomeTipLogin);
+
         check!(Msg::WelcomeTipGoal);
         check!(Msg::WelcomeTipLoop);
         check!(Msg::WelcomeTipSession);
@@ -951,17 +951,6 @@ mod tests {
         // OnboardingPanelTitle is just the brand name, so the rendered value
         // is whatever was settled (or "RustCode" default) -- never the raw token.
         assert!(!en.is_empty(), "OnboardingPanelTitle rendered empty");
-    }
-
-    /// `{oauth}` placeholder in login command descriptions is replaced with
-    /// the settled OAuth provider name (or upstream default `"RustCode OAuth"`).
-    #[test]
-    fn oauth_placeholder_is_replaced() {
-        let _g = test_lock();
-        let en = t_with(Locale::En, Msg::CmdDescLogin);
-        let zh = t_with(Locale::ZhCn, Msg::CmdDescLogin);
-        assert!(!en.contains("{oauth}"), "en leaked oauth placeholder: {en}");
-        assert!(!zh.contains("{oauth}"), "zh leaked oauth placeholder: {zh}");
     }
 
     /// The authoritative `set_brand` call (from the full `Config` load) MUST
