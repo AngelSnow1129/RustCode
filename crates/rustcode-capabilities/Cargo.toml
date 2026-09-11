@@ -19,7 +19,6 @@ tar = "0.4"
 [dependencies]
 # L0 only. NEVER add rustcode-core or any L2/L3 crate here (layering is compile-enforced).
 rustcode-kernel = { path = "../rustcode-kernel" }
-rustcode-auth = { path = "../rustcode-auth", optional = true }
 # Leaf config crate (sits below core). The `notify` capability reads NotificationConfig;
 # the config crate is explicitly designed so every stack layer can read config without an
 # rustcode-core dep. Optional + behind the `notify` feature so a provider-only / lean
@@ -229,7 +228,7 @@ offline = ["dep:rustcode-config"]
 plugin = [
     "dep:anyhow", "dep:sha2", "dep:url", "dep:toml", "dep:dirs", "dep:tempfile",
     "dep:chrono",
-    "dep:rustcode-auth", "dep:rustcode-config",
+    "dep:rustcode-config",
     "skills",
 ]
 

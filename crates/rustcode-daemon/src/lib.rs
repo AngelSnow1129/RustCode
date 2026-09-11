@@ -56,6 +56,8 @@ pub use live_api::live_switch_session;
 pub mod auth_token;
 mod daemon_token_file;
 pub mod permission_bridge;
+/// 通用小工具：打开系统浏览器等平台适配（见 `util::open_browser`）。
+mod util;
 pub mod webui;
 
 /// 解析 daemon 本地 token：`RUSTCODE_DAEMON_TOKEN`（非空则原样用）否则随机 mint。
@@ -5367,7 +5369,7 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
         "http://{}:{}/?token={}{}",
         open_host, actual_port, token, sync_suffix
     );
-    let opened = rustcode_auth::oauth::open_browser(&local_url).is_ok();
+    let opened = util::open_browser(&local_url).is_ok();
     let mut msg = if opened {
         t(Msg::WebuiOpenedBrowser { url: &local_url }).into_owned()
     } else {
