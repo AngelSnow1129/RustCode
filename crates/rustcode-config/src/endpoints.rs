@@ -30,7 +30,6 @@
 use std::sync::OnceLock;
 
 /// Address overrides. Each takes a complete URL.
-pub const PLATFORM_SERVER_ENV: &str = "RUSTCODE_PLATFORM_SERVER";
 pub const UPDATE_MANIFEST_URL_ENV: &str = "RUSTCODE_UPDATE_MANIFEST_URL";
 pub const UPDATE_DOWNLOAD_BASE_ENV: &str = "RUSTCODE_UPDATE_DOWNLOAD_BASE";
 pub const DESKTOP_DOWNLOAD_URL_ENV: &str = "RUSTCODE_DESKTOP_DOWNLOAD_URL";
@@ -59,10 +58,6 @@ pub const TRUSTED_HOSTS_ENV: &str = "RUSTCODE_TRUSTED_HOSTS";
 // build with nothing configured behaves exactly as before.
 // ---------------------------------------------------------------------------
 
-/// Empty by default: this build is platform-neutral and does not assume any
-/// hosted platform server. A deployment that runs its own platform sets
-/// `RUSTCODE_PLATFORM_SERVER` to point `/login` at it.
-const HOSTED_PLATFORM_SERVER: &str = "";
 /// Empty by default: auto-update is disabled. A deployment that publishes its
 /// own releases sets `RUSTCODE_UPDATE_MANIFEST_URL` to the manifest URL.
 const HOSTED_UPDATE_MANIFEST_URL: &str = "";
@@ -155,13 +150,6 @@ fn resolve_list(key: &str, hosted: &[&str]) -> Vec<String> {
 // ---------------------------------------------------------------------------
 // Addresses
 // ---------------------------------------------------------------------------
-
-/// Auth broker base -- serves `/auth/login`, `/auth/check`, `/auth/token` and
-/// `/oauth/refresh`. The client secret stays on the broker.
-pub fn platform_server() -> &'static str {
-    static URL: OnceLock<String> = OnceLock::new();
-    URL.get_or_init(|| resolve(PLATFORM_SERVER_ENV, HOSTED_PLATFORM_SERVER))
-}
 
 /// Version manifest (`latest.json`) for self-update.
 pub fn update_manifest_url() -> &'static str {
@@ -285,18 +273,12 @@ mod tests {
     // are covered through the pure helpers rather than by mutating a variable a
     // parallel test may already have observed.
 
-    /// Skipped when the process has an override set -- the claim is about the
-    /// unconfigured default, and a harness that sets one is testing something
-    /// else. A build that replaces the `HOSTED_*` values still runs it, and
-    /// still passes: both sides of each assertion move together.
+    /// A build that replaces the `HOSTED_*` values still runs this and still
+    /// passes: both sides of each assertion move together.
     #[test]
     fn nothing_configured_keeps_the_hosted_addresses() {
-        if std::env::var(PLATFORM_SERVER_ENV).is_ok() {
-            return;
-        }
         // The central promise of this module: it is additive. With no variable
         // set, every address is byte-identical to the const it replaced.
-        assert_eq!(platform_server(), HOSTED_PLATFORM_SERVER);
         assert_eq!(update_manifest_url(), HOSTED_UPDATE_MANIFEST_URL);
         assert_eq!(update_download_base(), HOSTED_UPDATE_DOWNLOAD_BASE);
         assert_eq!(desktop_download_url(), HOSTED_DESKTOP_DOWNLOAD_URL);

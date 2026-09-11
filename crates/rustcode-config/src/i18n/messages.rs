@@ -788,7 +788,7 @@ pub enum Msg<'a> {
     /// exists and `/login` cannot work, so the copy points at `/provider`
     /// (bring-your-own-key) instead. Also used for the provider
     /// `AuthenticationRequired` hint in a neutral build. Selected at the call
-    /// site via `rustcode_auth::managed_login_available()`.
+    /// site for neutral builds (no managed sign-in is configured).
     CmdWhoamiNotSignedInNeutral,
     CmdReloadDone {
         provider: &'a str,
@@ -3109,7 +3109,7 @@ pub enum Msg<'a> {
     /// blank-line padding.
     LoginCancelHint,
 
-    // ── rustcode-auth: stdout login flow + credential guidance ──
+    // ── Local credential store: stdout login flow + credential guidance ──
     /// Stdout OAuth flow: line printed above the login URL when the
     /// browser may not have opened. Leading "  " indent is part of
     /// the template.
@@ -3682,7 +3682,7 @@ pub enum Msg<'a> {
     /// Neutral-build `rustcode login` help text: managed sign-in does not
     /// exist in this build, so the about line must not pitch it; point to the
     /// bring-your-own-key provider config instead. Selected at the call site
-    /// via `rustcode_auth::managed_login_available()`.
+    /// for neutral builds (no managed sign-in is configured).
     CliAboutLoginNeutral,
     CliAboutLogout,
     CliAboutStatus,

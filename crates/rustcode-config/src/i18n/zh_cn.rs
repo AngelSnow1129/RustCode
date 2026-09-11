@@ -16,7 +16,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::LoginManagedUnavailable =>
             "  [*] 当前构建未包含托管登录。\n  \
              请直接在 ~/.rustcode/config.toml 配置第三方 provider（base_url + api_key），\n  \
-             或使用 /provider 添加自带密钥的模型；设置 RUSTCODE_PLATFORM_SERVER 可指向自建网关。\n"
+             或使用 /provider 添加自带密钥的模型。\n"
                 .into(),
         Msg::ChatAuthExpired =>
             "认证已过期，请执行 /login 重新登录".into(),
@@ -745,8 +745,7 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
         Msg::CliManagedLoginNotBuilt =>
             "\n  [*] 本构建未包含托管登录功能。\n\
 无需使用 `/login`，直接在 ~/.rustcode/config.toml 中配置第三方\n\
-服务商，填入你自己的 base_url 和 api_key\n\
-（或设置 RUSTCODE_PLATFORM_SERVER 使用托管网关）。\n"
+服务商，填入你自己的 base_url 和 api_key。\n"
                 .into(),
         Msg::CliReauthFailed { error } => format!("重新认证失败：{error}").into(),
         Msg::CliConfigSaveFailed { path, error } =>

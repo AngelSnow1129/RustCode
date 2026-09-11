@@ -16,8 +16,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::LoginManagedUnavailable =>
             "  [*] Managed login is not built into this build.\n  \
              Configure a third-party provider directly in ~/.rustcode/config.toml \
-             (base_url + api_key), or add a model with its own key via /provider; set \
-             RUSTCODE_PLATFORM_SERVER to point at a self-hosted gateway.\n"
+             (base_url + api_key), or add a model with its own key via /provider.\n"
                 .into(),
         Msg::ChatAuthExpired =>
             "Authentication expired -- please run /login to sign in again".into(),
@@ -774,8 +773,7 @@ base_url and api_key, or run rustcode with --provider <name>.\n"
         Msg::CliManagedLoginNotBuilt =>
             "\n  [*] Managed login is not built into this build.\n\
 Skip `/login` and configure a third-party provider directly in\n\
-~/.rustcode/config.toml with your own base_url and api_key\n\
-(or set RUSTCODE_PLATFORM_SERVER for a managed gateway).\n"
+~/.rustcode/config.toml with your own base_url and api_key.\n"
                 .into(),
         Msg::CliReauthFailed { error } => format!("re-authentication failed: {error}").into(),
         Msg::CliConfigSaveFailed { path, error } =>
