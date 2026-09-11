@@ -1397,6 +1397,16 @@ async fn async_main() {
     // Wire `tracing::` diagnostics to `<config_dir>/logs/rustcode.log` (file-only,
     // TUI-safe). Must run before anything that emits traces so nothing is lost.
     init_file_logging();
+    // 一次性清除已废弃的平台凭证文件（rustcode-auth 已移除）。
+    // 该文件来自已删除的 rustcode-auth，现既不被读取也无意义；启动时静默删除，
+    // 让老用户机器干净。失败静默，不阻断启动。
+    let legacy_auth = Config::config_dir().join("auth.toml");
+    if legacy_auth.exists() {
+        match std::fs::remove_file(&legacy_auth) {
+            Ok(()) => tracing::info!("已清除遗留的平台凭证文件 auth.toml"),
+            Err(e) => tracing::info!("跳过清理遗留 auth.toml: {e}"),
+        }
+    }
     // Set Windows console to UTF-8 so CJK and other multi-byte characters
     // render correctly instead of showing garbled output (mojibake).
     #[cfg(target_os = "windows")]
