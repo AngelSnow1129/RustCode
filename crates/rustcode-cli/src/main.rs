@@ -37,8 +37,6 @@ use rustcode_capabilities::mcp::{
 };
 use rustcode_config::config::Config;
 
-use rustcode_auth as auth;
-
 /// Set to `true` at the start of `run_headless` so the panic hook and the
 /// top-level error handler can skip TUI cleanup. In headless mode raw mode
 /// was never enabled, so calling `disable_raw_mode` would be a wasted ioctl
@@ -380,218 +378,194 @@ fn build_i18n_command() -> clap::Command {
 
     // Mutate subcommand about texts
 
-    // Build-aware: a neutral build has no sign-in service, so `rustcode
-    // login --help` must not pitch the managed flow (running it prints a BYO
-    // fallback). Same predicate as the TUI command gate / daemon /auth/status.
-    // In a neutral build the two subcommands are also hidden from top-level
-    // help and shell completion -- they stay runnable (like the TUI's hidden
-    // commands) but never advertised, so BYO users aren't pitched a dead-end.
-    let managed = auth::managed_login_available();
-    let login_about = if managed {
-        t(Msg::CliAboutLogin).into_owned()
-    } else {
-        t(Msg::CliAboutLoginNeutral).into_owned()
-    };
-    cmd.mut_subcommand("login", move |s| {
-        let s = s.about(login_about);
-        if managed {
-            s
-        } else {
-            s.hide(true)
-        }
-    })
-    .mut_subcommand("logout", move |s| {
-        let s = s.about(t(Msg::CliAboutLogout).into_owned());
-        if managed {
-            s
-        } else {
-            s.hide(true)
-        }
-    })
-    .mut_subcommand("status", |s| s.about(t(Msg::CliAboutStatus).into_owned()))
-    .mut_subcommand("upgrade", |s| {
-        s.about(t(Msg::CliAboutUpgrade).into_owned())
-            .mut_arg("force", |a| a.help(t(Msg::CliHelpForce).into_owned()))
-    })
-    .mut_subcommand("rollback", |s| {
-        s.about(t(Msg::CliAboutRollback).into_owned())
-    })
-    .mut_subcommand("resume", |s| {
-        s.about(t(Msg::CliAboutResume).into_owned())
-            .mut_arg("session", |a| {
-                a.help(t(Msg::CliHelpResumeSession).into_owned())
-            })
-    })
-    .mut_subcommand("mcp", |s| {
-        s.about(t(Msg::CliAboutMcp).into_owned())
-            .mut_subcommand("add", |s| {
-                s.about(t(Msg::CliAboutMcpAdd).into_owned())
-                    .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
-                    .mut_arg("command", |a| {
-                        a.help(t(Msg::CliHelpMcpCommand).into_owned())
-                    })
-                    .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
-                    .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
-            })
-            .mut_subcommand("add-oauth", |s| {
-                s.about(t(Msg::CliAboutMcpAddOauth).into_owned())
-                    .mut_arg("url", |a| a.help(t(Msg::CliHelpMcpUrl).into_owned()))
-                    .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
-                    .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
-                    .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
-            })
-            .mut_subcommand("add-github-oauth", |s| {
-                // Retained for backward compatibility but no longer advertised:
-                // the provider-neutral `add-oauth <url>` covers any OAuth MCP server.
-                s.about(t(Msg::CliAboutMcpAddGithubOauth).into_owned())
-                    .hide(true)
-                    .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
-                    .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
-                    .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
-            })
-            .mut_subcommand("login", |s| {
-                s.about(t(Msg::CliAboutMcpLogin).into_owned())
-                    .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
-                    .mut_arg("provider", |a| {
-                        a.help(t(Msg::CliHelpMcpProvider).into_owned())
-                    })
-                    .mut_arg("client_id", |a| {
-                        a.help(t(Msg::CliHelpMcpClientId).into_owned())
-                    })
-            })
-            .mut_subcommand("logout", |s| {
-                s.about(t(Msg::CliAboutMcpLogout).into_owned())
-                    .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
-            })
-    })
-    .mut_subcommand("daemon", |s| {
-        s.about(t(Msg::CliAboutDaemon).into_owned())
-            .mut_arg("port", |a| a.help(t(Msg::CliHelpPortDaemon).into_owned()))
-            .mut_arg("host", |a| a.help(t(Msg::CliHelpHost).into_owned()))
-            .mut_arg("idle_timeout", |a| {
-                a.help(t(Msg::CliHelpIdleTimeout).into_owned())
-            })
-    })
-    .mut_subcommand("webui", |s| {
-        s.about(t(Msg::CliAboutWebui).into_owned())
-            .mut_arg("port", |a| a.help(t(Msg::CliHelpPortWebui).into_owned()))
-            .mut_arg("host", |a| a.help(t(Msg::CliHelpHost).into_owned()))
-    })
-    .mut_subcommand("plugin", |s| {
-        s.about(t(Msg::CliAboutPlugin).into_owned())
-            .mut_subcommand("marketplace", |s| {
-                s.about(t(Msg::CliAboutPluginMarketplace).into_owned())
-                    .mut_subcommand("add", |s| {
-                        s.about(t(Msg::CliAboutMarketplaceAdd).into_owned())
-                            .mut_arg("url", |a| {
-                                a.help(t(Msg::CliHelpMarketplaceUrl).into_owned())
-                            })
-                    })
-                    .mut_subcommand("remove", |s| {
-                        s.about(t(Msg::CliAboutMarketplaceRemove).into_owned())
-                            .mut_arg("name", |a| {
-                                a.help(t(Msg::CliHelpMarketplaceName).into_owned())
-                            })
-                    })
-                    .mut_subcommand("update", |s| {
-                        s.about(t(Msg::CliAboutMarketplaceUpdate).into_owned())
-                            .mut_arg("name", |a| {
-                                a.help(t(Msg::CliHelpMarketplaceName).into_owned())
-                            })
-                    })
-                    .mut_subcommand("list", |s| {
-                        s.about(t(Msg::CliAboutMarketplaceList).into_owned())
-                    })
-            })
-            .mut_subcommand("install", |s| {
-                s.about(t(Msg::CliAboutPluginInstall).into_owned())
-                    .mut_arg("spec", |a| a.help(t(Msg::CliHelpPluginSpec).into_owned()))
-            })
-            .mut_subcommand("uninstall", |s| {
-                s.about(t(Msg::CliAboutPluginUninstall).into_owned())
-                    .mut_arg("spec", |a| a.help(t(Msg::CliHelpPluginSpec).into_owned()))
-            })
-            .mut_subcommand("list", |s| s.about(t(Msg::CliAboutPluginList).into_owned()))
-    })
-    .mut_subcommand("uninstall", |s| {
-        s.about(t(Msg::CliAboutUninstall).into_owned())
-            .mut_arg("yes", |a| a.help(t(Msg::CliHelpUninstallYes).into_owned()))
-            .mut_arg("purge", |a| {
-                a.help(t(Msg::CliHelpUninstallPurge).into_owned())
-            })
-            .mut_arg("keep_data", |a| {
-                a.help(t(Msg::CliHelpUninstallKeepData).into_owned())
-            })
-            .mut_arg("dry_run", |a| {
-                a.help(t(Msg::CliHelpUninstallDryRun).into_owned())
-            })
-    })
-    .mut_subcommand("setup", |s| s.about(t(Msg::CliAboutSetup).into_owned()))
-    .mut_subcommand("completion", |s| {
-        s.about(t(Msg::CliAboutCompletion).into_owned())
-            .mut_arg("shell", |a| {
-                a.help(t(Msg::CliHelpCompletionShell).into_owned())
-            })
-    })
-    .mut_subcommand("hooks", |s| {
-        s.about(t(Msg::CliAboutHooks).into_owned())
-            .mut_subcommand("list", |s| s.about(t(Msg::CliAboutHooksList).into_owned()))
-            .mut_subcommand("test", |s| {
-                s.about(t(Msg::CliAboutHooksTest).into_owned())
-                    .mut_arg("name", |a| {
-                        a.help(t(Msg::CliHelpHooksTestName).into_owned())
-                    })
-            })
-            .mut_subcommand("paths", |s| {
-                s.about(t(Msg::CliAboutHooksPaths).into_owned())
-            })
-    })
-    .mut_subcommand("schedule", |s| {
-        s.about(t(Msg::CliAboutSchedule).into_owned())
-            .mut_subcommand("add", |s| {
-                s.about(t(Msg::CliAboutScheduleAdd).into_owned())
-                    .mut_arg("title", |a| a.help(t(Msg::CliHelpSchedTitle).into_owned()))
-                    .mut_arg("prompt", |a| {
-                        a.help(t(Msg::CliHelpSchedPrompt).into_owned())
-                    })
-                    .mut_arg("cwd", |a| a.help(t(Msg::CliHelpSchedCwd).into_owned()))
-                    .mut_arg("daily", |a| a.help(t(Msg::CliHelpSchedDaily).into_owned()))
-                    .mut_arg("weekly", |a| {
-                        a.help(t(Msg::CliHelpSchedWeekly).into_owned())
-                    })
-                    .mut_arg("every", |a| a.help(t(Msg::CliHelpSchedEvery).into_owned()))
-                    .mut_arg("hourly", |a| {
-                        a.help(t(Msg::CliHelpSchedHourly).into_owned())
-                    })
-                    .mut_arg("cron", |a| a.help(t(Msg::CliHelpSchedCron).into_owned()))
-                    .mut_arg("mode", |a| a.help(t(Msg::CliHelpSchedMode).into_owned()))
-                    .mut_arg("notify", |a| {
-                        a.help(t(Msg::CliHelpSchedNotify).into_owned())
-                    })
-            })
-            .mut_subcommand("list", |s| {
-                s.about(t(Msg::CliAboutScheduleList).into_owned())
-            })
-            .mut_subcommand("remove", |s| {
-                s.about(t(Msg::CliAboutScheduleRemove).into_owned())
-                    .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
-            })
-            .mut_subcommand("enable", |s| {
-                s.about(t(Msg::CliAboutScheduleEnable).into_owned())
-                    .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
-            })
-            .mut_subcommand("disable", |s| {
-                s.about(t(Msg::CliAboutScheduleDisable).into_owned())
-                    .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
-            })
-            .mut_subcommand("run", |s| {
-                s.about(t(Msg::CliAboutScheduleRun).into_owned())
-                    .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
-            })
-            .mut_subcommand("sync", |s| {
-                s.about(t(Msg::CliAboutScheduleSync).into_owned())
-            })
-    })
+    // There is no managed sign-in service and therefore no `login`/`logout`
+    // subcommand at all: credentials come from `[providers.*]` in
+    // ~/.rustcode/config.toml (or `--provider`), so nothing here may advertise
+    // a sign-in flow. `status` is localized to say exactly that.
+    cmd.mut_subcommand("status", |s| s.about(t(Msg::CliAboutStatus).into_owned()))
+        .mut_subcommand("upgrade", |s| {
+            s.about(t(Msg::CliAboutUpgrade).into_owned())
+                .mut_arg("force", |a| a.help(t(Msg::CliHelpForce).into_owned()))
+        })
+        .mut_subcommand("rollback", |s| {
+            s.about(t(Msg::CliAboutRollback).into_owned())
+        })
+        .mut_subcommand("resume", |s| {
+            s.about(t(Msg::CliAboutResume).into_owned())
+                .mut_arg("session", |a| {
+                    a.help(t(Msg::CliHelpResumeSession).into_owned())
+                })
+        })
+        .mut_subcommand("mcp", |s| {
+            s.about(t(Msg::CliAboutMcp).into_owned())
+                .mut_subcommand("add", |s| {
+                    s.about(t(Msg::CliAboutMcpAdd).into_owned())
+                        .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+                        .mut_arg("command", |a| {
+                            a.help(t(Msg::CliHelpMcpCommand).into_owned())
+                        })
+                        .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
+                        .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
+                })
+                .mut_subcommand("add-oauth", |s| {
+                    s.about(t(Msg::CliAboutMcpAddOauth).into_owned())
+                        .mut_arg("url", |a| a.help(t(Msg::CliHelpMcpUrl).into_owned()))
+                        .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+                        .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
+                        .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
+                })
+                .mut_subcommand("add-github-oauth", |s| {
+                    // Retained for backward compatibility but no longer advertised:
+                    // the provider-neutral `add-oauth <url>` covers any OAuth MCP server.
+                    s.about(t(Msg::CliAboutMcpAddGithubOauth).into_owned())
+                        .hide(true)
+                        .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+                        .mut_arg("global", |a| a.help(t(Msg::CliHelpMcpGlobal).into_owned()))
+                        .mut_arg("dir", |a| a.help(t(Msg::CliHelpMcpDir).into_owned()))
+                })
+                .mut_subcommand("login", |s| {
+                    s.about(t(Msg::CliAboutMcpLogin).into_owned())
+                        .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+                        .mut_arg("provider", |a| {
+                            a.help(t(Msg::CliHelpMcpProvider).into_owned())
+                        })
+                        .mut_arg("client_id", |a| {
+                            a.help(t(Msg::CliHelpMcpClientId).into_owned())
+                        })
+                })
+                .mut_subcommand("logout", |s| {
+                    s.about(t(Msg::CliAboutMcpLogout).into_owned())
+                        .mut_arg("name", |a| a.help(t(Msg::CliHelpMcpName).into_owned()))
+                })
+        })
+        .mut_subcommand("daemon", |s| {
+            s.about(t(Msg::CliAboutDaemon).into_owned())
+                .mut_arg("port", |a| a.help(t(Msg::CliHelpPortDaemon).into_owned()))
+                .mut_arg("host", |a| a.help(t(Msg::CliHelpHost).into_owned()))
+                .mut_arg("idle_timeout", |a| {
+                    a.help(t(Msg::CliHelpIdleTimeout).into_owned())
+                })
+        })
+        .mut_subcommand("webui", |s| {
+            s.about(t(Msg::CliAboutWebui).into_owned())
+                .mut_arg("port", |a| a.help(t(Msg::CliHelpPortWebui).into_owned()))
+                .mut_arg("host", |a| a.help(t(Msg::CliHelpHost).into_owned()))
+        })
+        .mut_subcommand("plugin", |s| {
+            s.about(t(Msg::CliAboutPlugin).into_owned())
+                .mut_subcommand("marketplace", |s| {
+                    s.about(t(Msg::CliAboutPluginMarketplace).into_owned())
+                        .mut_subcommand("add", |s| {
+                            s.about(t(Msg::CliAboutMarketplaceAdd).into_owned())
+                                .mut_arg("url", |a| {
+                                    a.help(t(Msg::CliHelpMarketplaceUrl).into_owned())
+                                })
+                        })
+                        .mut_subcommand("remove", |s| {
+                            s.about(t(Msg::CliAboutMarketplaceRemove).into_owned())
+                                .mut_arg("name", |a| {
+                                    a.help(t(Msg::CliHelpMarketplaceName).into_owned())
+                                })
+                        })
+                        .mut_subcommand("update", |s| {
+                            s.about(t(Msg::CliAboutMarketplaceUpdate).into_owned())
+                                .mut_arg("name", |a| {
+                                    a.help(t(Msg::CliHelpMarketplaceName).into_owned())
+                                })
+                        })
+                        .mut_subcommand("list", |s| {
+                            s.about(t(Msg::CliAboutMarketplaceList).into_owned())
+                        })
+                })
+                .mut_subcommand("install", |s| {
+                    s.about(t(Msg::CliAboutPluginInstall).into_owned())
+                        .mut_arg("spec", |a| a.help(t(Msg::CliHelpPluginSpec).into_owned()))
+                })
+                .mut_subcommand("uninstall", |s| {
+                    s.about(t(Msg::CliAboutPluginUninstall).into_owned())
+                        .mut_arg("spec", |a| a.help(t(Msg::CliHelpPluginSpec).into_owned()))
+                })
+                .mut_subcommand("list", |s| s.about(t(Msg::CliAboutPluginList).into_owned()))
+        })
+        .mut_subcommand("uninstall", |s| {
+            s.about(t(Msg::CliAboutUninstall).into_owned())
+                .mut_arg("yes", |a| a.help(t(Msg::CliHelpUninstallYes).into_owned()))
+                .mut_arg("purge", |a| {
+                    a.help(t(Msg::CliHelpUninstallPurge).into_owned())
+                })
+                .mut_arg("keep_data", |a| {
+                    a.help(t(Msg::CliHelpUninstallKeepData).into_owned())
+                })
+                .mut_arg("dry_run", |a| {
+                    a.help(t(Msg::CliHelpUninstallDryRun).into_owned())
+                })
+        })
+        .mut_subcommand("setup", |s| s.about(t(Msg::CliAboutSetup).into_owned()))
+        .mut_subcommand("completion", |s| {
+            s.about(t(Msg::CliAboutCompletion).into_owned())
+                .mut_arg("shell", |a| {
+                    a.help(t(Msg::CliHelpCompletionShell).into_owned())
+                })
+        })
+        .mut_subcommand("hooks", |s| {
+            s.about(t(Msg::CliAboutHooks).into_owned())
+                .mut_subcommand("list", |s| s.about(t(Msg::CliAboutHooksList).into_owned()))
+                .mut_subcommand("test", |s| {
+                    s.about(t(Msg::CliAboutHooksTest).into_owned())
+                        .mut_arg("name", |a| {
+                            a.help(t(Msg::CliHelpHooksTestName).into_owned())
+                        })
+                })
+                .mut_subcommand("paths", |s| {
+                    s.about(t(Msg::CliAboutHooksPaths).into_owned())
+                })
+        })
+        .mut_subcommand("schedule", |s| {
+            s.about(t(Msg::CliAboutSchedule).into_owned())
+                .mut_subcommand("add", |s| {
+                    s.about(t(Msg::CliAboutScheduleAdd).into_owned())
+                        .mut_arg("title", |a| a.help(t(Msg::CliHelpSchedTitle).into_owned()))
+                        .mut_arg("prompt", |a| {
+                            a.help(t(Msg::CliHelpSchedPrompt).into_owned())
+                        })
+                        .mut_arg("cwd", |a| a.help(t(Msg::CliHelpSchedCwd).into_owned()))
+                        .mut_arg("daily", |a| a.help(t(Msg::CliHelpSchedDaily).into_owned()))
+                        .mut_arg("weekly", |a| {
+                            a.help(t(Msg::CliHelpSchedWeekly).into_owned())
+                        })
+                        .mut_arg("every", |a| a.help(t(Msg::CliHelpSchedEvery).into_owned()))
+                        .mut_arg("hourly", |a| {
+                            a.help(t(Msg::CliHelpSchedHourly).into_owned())
+                        })
+                        .mut_arg("cron", |a| a.help(t(Msg::CliHelpSchedCron).into_owned()))
+                        .mut_arg("mode", |a| a.help(t(Msg::CliHelpSchedMode).into_owned()))
+                        .mut_arg("notify", |a| {
+                            a.help(t(Msg::CliHelpSchedNotify).into_owned())
+                        })
+                })
+                .mut_subcommand("list", |s| {
+                    s.about(t(Msg::CliAboutScheduleList).into_owned())
+                })
+                .mut_subcommand("remove", |s| {
+                    s.about(t(Msg::CliAboutScheduleRemove).into_owned())
+                        .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
+                })
+                .mut_subcommand("enable", |s| {
+                    s.about(t(Msg::CliAboutScheduleEnable).into_owned())
+                        .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
+                })
+                .mut_subcommand("disable", |s| {
+                    s.about(t(Msg::CliAboutScheduleDisable).into_owned())
+                        .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
+                })
+                .mut_subcommand("run", |s| {
+                    s.about(t(Msg::CliAboutScheduleRun).into_owned())
+                        .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
+                })
+                .mut_subcommand("sync", |s| {
+                    s.about(t(Msg::CliAboutScheduleSync).into_owned())
+                })
+        })
     // NOTE: clap only instantiates the built-in `help` subcommand during
     // `build()` (i.e. at parse time), so `mut_subcommand("help", ..)` here
     // panics with "Command `help` is undefined". Its about text stays the
@@ -663,9 +637,7 @@ fn should_try_sync_upgrade() -> bool {
     if args.iter().skip(1).any(|a| {
         matches!(
             a.as_str(),
-            "login"
-                | "logout"
-                | "status"
+            "status"
                 | "upgrade"
                 | "rollback"
                 | "uninstall"
@@ -997,12 +969,6 @@ enum HeadlessOutputFormat {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Managed sign-in (distribution builds only); hidden in open builds,
-    /// where running it prints the bring-your-own-key provider notice.
-    Login,
-    /// Sign out of the managed account (distribution builds only); hidden
-    /// in open builds, where it is a safe no-op.
-    Logout,
     /// Show current provider and sign-in status
     Status,
     /// Resume a session by id or name (launches the TUI on it). With no
@@ -1200,10 +1166,9 @@ fn is_completion_invocation(args: impl IntoIterator<Item = std::ffi::OsString>) 
 
 fn completion_command() -> clap::Command {
     // Source from the i18n-built command, not the raw derive: this is where the
-    // neutral build hides the managed-only `login`/`logout` subcommands
-    // (and sets localized abouts), so shell completion must mirror the same
-    // visibility filter as `rustcode --help` -- a hidden command is one the
-    // completion script must not advertise.
+    // neutral build hides subcommands (and sets localized abouts), so shell
+    // completion must mirror the same visibility filter as `rustcode --help`
+    // -- a hidden command is one the completion script must not advertise.
     let source = build_i18n_command();
     let visible_subcommands = source
         .get_subcommands()
@@ -1666,8 +1631,8 @@ async fn run() -> Result<i32> {
     // ── End early config / offline seed ──────────────────────────────────────
 
     // Handle subcommands. Most are self-contained (`handle_command` runs
-    // and exits); `Login` prints its notice and then falls through to the
-    // TUI.
+    // and exits); a few (e.g. `Resume`) fall through to the TUI/headless
+    // launch below.
 
     let force_verbose = false;
     // Capture the resume intent BEFORE the dispatch below moves `cli.command`.
@@ -1692,23 +1657,6 @@ async fn run() -> Result<i32> {
             // `resume_selector` already captured above (interactive by default; add
             // `-p` to run headless resumed).
             Commands::Resume { .. } => {}
-            Commands::Login => {
-                // Neutral build: there is no managed sign-in service, so
-                // `login` prints the bring-your-own-key provider notice
-                // and falls through to TUI startup (see the `Login`
-                // variant's docs). Kept explicit -- never a silent no-op.
-                HEADLESS_MODE.store(true, Ordering::Relaxed);
-                print!(
-                    "{}",
-                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliManagedLoginNotBuilt)
-                );
-                println!(
-                    "{}",
-                    rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliStartingAfterLogin)
-                );
-                HEADLESS_MODE.store(false, Ordering::Relaxed);
-                // Fall through to TUI startup below
-            }
             Commands::Daemon {
                 port,
                 host,
@@ -3474,7 +3422,8 @@ fn run_setup_command(force: bool) -> i32 {
     }
 }
 
-/// Handle subcommands (login, logout, status)
+/// Handle the subcommands that run to completion and exit; the ones `run()`
+/// intercepts inline (Resume, Daemon, Webui, Setup) never reach this match.
 async fn handle_command(cmd: Commands) -> Result<()> {
     // Subcommands never enter TUI, so tell the panic hook to skip terminal
     // cleanup -- otherwise `disable_raw_mode` panics on Windows with
@@ -3482,47 +3431,19 @@ async fn handle_command(cmd: Commands) -> Result<()> {
     HEADLESS_MODE.store(true, Ordering::Relaxed);
 
     match cmd {
-        Commands::Login => {
-            // `run()` intercepts Login before
-            // handle_command is called, running the full OAuth + setup
-            // flow and falling through to the TUI. This arm is
-            // unreachable in normal execution but kept defensive.
-            unreachable!("Login is handled inline in run() before handle_command")
-        }
         Commands::Resume { .. } => {
             // Resume falls through to the TUI/headless launch in run() before
-            // handle_command is reached; kept defensive like the Login arm.
+            // handle_command is reached; kept defensive.
             unreachable!("Resume is handled inline in run() before handle_command")
         }
-        Commands::Logout => {
-            auth::logout()?;
+        Commands::Status => {
+            // There is no stored platform identity to print, so `status`
+            // reports where credentials actually come from instead of
+            // inventing a sign-in state.
             println!(
                 "{}",
-                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliLoggedOut)
+                rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliStatusHintNeutral)
             );
-            Ok(())
-        }
-        Commands::Status => {
-            use rustcode_config::i18n::{t, Msg};
-            if let Some(auth) = auth::get_stored_auth() {
-                println!(
-                    "{}",
-                    t(Msg::CliStatusLoggedIn {
-                        username: &auth.user.username,
-                        id: &auth.user.id,
-                    })
-                );
-                if let Some(name) = auth.user.name {
-                    println!("{}", t(Msg::CliStatusName { name: &name }));
-                }
-                if let Some(email) = auth.user.email {
-                    println!("{}", t(Msg::CliStatusEmail { email: &email }));
-                }
-                let path = auth::auth_file_path().display().to_string();
-                println!("{}", t(Msg::CliStatusAuthFile { path: &path }));
-            } else {
-                print_status_auth_hint();
-            }
             Ok(())
         }
         Commands::Upgrade { force } => run_upgrade_cli(force).await,
@@ -4473,14 +4394,6 @@ fn run_rollback_cli() -> Result<()> {
     Ok(())
 }
 
-/// `rustcode status` auth hint: there is no managed account to sign into, so
-/// steer to bring-your-own-key provider config rather than a dead-end
-/// `rustcode login`.
-fn print_status_auth_hint() {
-    use rustcode_config::i18n::{t, Msg};
-    println!("{}", t(Msg::CliStatusHintNeutral));
-}
-
 /// Guard so the two-link panic-hook chain (installed hook + install-aware
 /// hook that chains to it) writes the crash log exactly once.
 static CRASH_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -4753,9 +4666,9 @@ mod tests {
                 !script.contains("codingplan"),
                 "{shell:?} script should not expose deprecated hidden aliases"
             );
-            // The managed top-level `login`/`logout` subcommands are hidden in
-            // this build; the only auth commands that may appear are the
-            // unrelated `mcp login`/`mcp logout` OAuth pair. A flat substring
+            // There is no managed `login`/`logout` in this build; the only
+            // auth commands that may appear are the unrelated `mcp login`/
+            // `mcp logout` OAuth pair. A flat substring
             // check cannot separate the two, so track the enclosing context
             // (bash function headers, zsh curcontext, elvish/powershell map
             // paths) and require every mention to sit in an mcp context.
@@ -4787,34 +4700,19 @@ mod tests {
     }
 
     #[test]
-    fn neutral_build_hides_managed_login_subcommands() {
-        // Mirrors the TUI command_visible gate: in a neutral build the
-        // `login`/`logout` subcommands stay runnable (login prints the BYO
-        // notice; logout is a no-op) but are hidden from `--help` and their
-        // about text never pitches the managed flow.
+    fn neutral_build_has_no_managed_login_subcommands() {
+        // There is no managed sign-in service, so `rustcode login` / `rustcode
+        // logout` must not exist at all -- neither in `--help` nor in shell
+        // completion. A hidden-but-runnable variant would be a dead end that
+        // only pretends to sign the user in or out.
         let cmd = build_i18n_command();
-        let login = cmd
-            .find_subcommand("login")
-            .expect("login subcommand still exists (dispatchable)");
-        let logout = cmd
-            .find_subcommand("logout")
-            .expect("logout subcommand still exists (dispatchable)");
         assert!(
-            login.is_hide_set(),
-            "neutral build must hide `rustcode login` from help/completion"
+            cmd.find_subcommand("login").is_none(),
+            "`rustcode login` must not exist in a neutral build"
         );
         assert!(
-            logout.is_hide_set(),
-            "neutral build must hide `rustcode logout` from help/completion"
-        );
-        let about = login.get_about().map(|s| s.to_string()).unwrap_or_default();
-        assert!(
-            about.contains("config.toml"),
-            "neutral login help must steer to provider config: {about}"
-        );
-        assert!(
-            !about.contains("CodingPlan"),
-            "neutral login help must not pitch managed models: {about}"
+            cmd.find_subcommand("logout").is_none(),
+            "`rustcode logout` must not exist in a neutral build"
         );
         // `status` stays visible -- in a neutral build it prints the BYO hint.
         assert!(!cmd
