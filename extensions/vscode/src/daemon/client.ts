@@ -7,13 +7,10 @@ import {
   ChatStreamCallbacks,
   ApprovalMode,
   ApprovalModeResponse,
-  AuthStatusResponse,
   ConfigResponse,
   ChatEvent,
   CreateProviderRequest,
   HealthResponse,
-  LoginPollResponse,
-  LoginStartResponse,
   ModelInfo,
   PatchProviderRequest,
   PatchThinkingRequest,
@@ -344,30 +341,6 @@ export class DaemonClient {
 
   patchThinking(name: string, req: PatchThinkingRequest): Promise<ProviderInfo> {
     return this.patch<ProviderInfo>(`/providers/${encodeURIComponent(name)}/thinking`, req);
-  }
-
-  // ── Auth ──────────────────────────────────────────────────────
-
-  authStatus(): Promise<AuthStatusResponse> {
-    return this.get<AuthStatusResponse>('/auth/status');
-  }
-
-  startLogin(openBrowser = true): Promise<LoginStartResponse> {
-    return this.post<LoginStartResponse>('/auth/login/start', {
-      open_browser: openBrowser,
-    });
-  }
-
-  pollLogin(loginId: string): Promise<LoginPollResponse> {
-    return this.post<LoginPollResponse>(`/auth/login/${encodeURIComponent(loginId)}/poll`);
-  }
-
-  cancelLogin(loginId: string): Promise<{ success: boolean }> {
-    return this.delete<{ success: boolean }>(`/auth/login/${encodeURIComponent(loginId)}`);
-  }
-
-  logout(): Promise<AuthStatusResponse> {
-    return this.post<AuthStatusResponse>('/auth/logout');
   }
 
   // ── Sessions ──────────────────────────────────────────────────

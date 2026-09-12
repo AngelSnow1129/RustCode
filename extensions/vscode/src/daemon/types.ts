@@ -104,46 +104,7 @@ export interface ModelInfo {
   thinking_budget?: number;
 }
 
-// Auth / config / providers
-export interface UserInfo {
-  id: string;
-  username: string;
-  name?: string;
-  email?: string;
-  avatar_url?: string;
-}
-
-export interface AuthStatusResponse {
-  logged_in: boolean;
-  expired: boolean;
-  // Whether this daemon build ships a managed sign-in service at all.
-  // Absent on older daemons: fail closed (treat as unavailable); the
-  // extension bundles its matched daemon, so version skew is not expected.
-  managed_available?: boolean;
-  auth_path: string;
-  user: UserInfo | null;
-  token: {
-    token_type: string;
-    expires_in?: number;
-    created_at: number;
-    has_refresh_token: boolean;
-  } | null;
-}
-
-export interface LoginStartResponse {
-  login_id: string;
-  url: string;
-  expires_in_seconds: number;
-  daemon_instance_id?: string;
-}
-
-export interface LoginPollResponse {
-  status: 'pending' | 'authorized' | 'expired' | 'cancelled' | 'failed';
-  user: UserInfo | null;
-  code?: string;
-  message?: string;
-  retry_after_ms?: number;
-}
+// Config / providers
 
 export interface ProviderInfo {
   name: string;

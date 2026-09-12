@@ -12,26 +12,7 @@ export interface ModelInfo {
   reasoning_effort?: string | null;
 }
 
-export interface UserInfo {
-  id: string;
-  username: string;
-  name?: string;
-  email?: string;
-  avatar_url?: string;
-}
 
-export interface AuthStatus {
-  logged_in: boolean;
-  expired?: boolean;
-  /**
-   * Build capability: false (or absent) in open builds -- the webview hides
-   * managed sign-in UI and makes BYO provider setup the primary path.
-   * Wire format (snake_case, straight from GET /auth/status).
-   */
-  managed_available?: boolean;
-  auth_path: string;
-  user: UserInfo | null;
-}
 
 export interface ProviderInfo {
   name: string;
@@ -194,7 +175,6 @@ export interface ChatState {
   currentProvider: string;
   models: ModelInfo[];
   providers: ProviderInfo[];
-  auth?: AuthStatus;
   setupRequired: boolean;
   setupStatus?: string;
   setupError?: string;
@@ -254,8 +234,7 @@ export type ChatAction =
   | { type: 'CLEAR_CHAT' }
   | { type: 'SET_MODELS'; models: ModelInfo[] }
   | { type: 'SET_PROVIDERS'; providers: ProviderInfo[]; defaultProvider?: string }
-  | { type: 'SET_AUTH'; auth: AuthStatus }
-  | { type: 'SET_SETUP_STATE'; auth?: AuthStatus; providers: ProviderInfo[]; defaultProvider?: string; currentModel?: string; setupRequired: boolean }
+  | { type: 'SET_SETUP_STATE'; providers: ProviderInfo[]; defaultProvider?: string; currentModel?: string; setupRequired: boolean }
   | { type: 'SET_SETUP_STATUS'; status?: string; error?: string; loginUrl?: string }
   | { type: 'SET_CURRENT_MODEL'; model: string }
   | { type: 'SET_CURRENT_PROVIDER'; provider: string; model?: string }
@@ -318,11 +297,7 @@ export type ExtensionMessage =
   | { type: 'approvalMode'; mode: ApprovalMode; pending?: boolean }
   | { type: 'providers'; providers: ProviderInfo[]; defaultProvider?: string }
   | { type: 'runtimeInfo'; provider: string; model?: string }
-  | { type: 'authStatus'; auth: AuthStatus }
-  | { type: 'setupState'; auth?: AuthStatus; providers: ProviderInfo[]; defaultProvider?: string; currentModel?: string; setupRequired: boolean }
-  | { type: 'loginStarted'; loginId: string; url: string }
-  | { type: 'loginPending' }
-  | { type: 'loginAuthorized'; user: UserInfo | null }
+  | { type: 'setupState'; providers: ProviderInfo[]; defaultProvider?: string; currentModel?: string; setupRequired: boolean }
   | { type: 'setupWorking'; message: string }
   | { type: 'setupError'; message: string }
   | { type: 'context'; filePath: string; fileName: string; selection?: string; language?: string; startLine?: number; endLine?: number }

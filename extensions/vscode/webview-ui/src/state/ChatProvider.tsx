@@ -246,27 +246,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         case 'runtimeInfo':
           dispatch({ type: 'SET_CURRENT_PROVIDER', provider: msg.provider, model: msg.model });
           break;
-        case 'authStatus':
-          dispatch({ type: 'SET_AUTH', auth: msg.auth });
-          break;
         case 'setupState':
           dispatch({
             type: 'SET_SETUP_STATE',
-            auth: msg.auth,
             providers: msg.providers,
             defaultProvider: msg.defaultProvider,
             currentModel: msg.currentModel,
             setupRequired: msg.setupRequired,
           });
-          break;
-        case 'loginStarted':
-          dispatch({ type: 'SET_SETUP_STATUS', status: createTranslator(stateRef.current.locale)('setup.waitingForBrowser'), loginUrl: msg.url });
-          break;
-        case 'loginPending':
-          dispatch({ type: 'SET_SETUP_STATUS', status: createTranslator(stateRef.current.locale)('setup.waitingForBrowser') });
-          break;
-        case 'loginAuthorized':
-          dispatch({ type: 'SET_SETUP_STATUS', status: createTranslator(stateRef.current.locale)('setup.signedInNextStep') });
           break;
         case 'setupWorking':
           dispatch({ type: 'SET_SETUP_STATUS', status: msg.message });

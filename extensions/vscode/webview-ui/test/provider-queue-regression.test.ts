@@ -1152,82 +1152,27 @@ function testRecoveryLockRemainsVisibleAndCannotQueueAnotherTurn() {
   assert.match(inputSource, /state\.isGenerating && !state\.recoveryLocked/);
 }
 
-async function testAuthFileWatcherRefreshesSetupState() {
+async function testConfigFileWatcherRefreshesSetupState() {
   fileWatchers.length = 0;
   const provider = new ChatViewProvider({ fsPath: '/extension' } as never, {} as never);
   const unsafeProvider = provider as unknown as {
-    _watchRustCodeAuth: (path: string) => void;
+    _watchRustCodeConfig: (path: string) => void;
     _sendSetupState: () => Promise<void>;
   };
   let refreshes = 0;
   unsafeProvider._sendSetupState = async () => { refreshes += 1; };
 
-  unsafeProvider._watchRustCodeAuth('/tmp/rustcode/auth.toml');
+  unsafeProvider._watchRustCodeConfig('/tmp/rustcode/config.toml');
 
   assert.equal(fileWatchers.length, 1);
   assert.equal(fileWatchers[0].pattern.base, '/tmp/rustcode');
-  assert.equal(fileWatchers[0].pattern.pattern, 'auth.toml');
+  assert.equal(fileWatchers[0].pattern.pattern, 'config.toml');
   fileWatchers[0].delete?.();
   await new Promise((resolve) => setTimeout(resolve, 150));
   assert.equal(refreshes, 1);
 
   provider.dispose();
   assert.equal(fileWatchers[0].disposed, true);
-}
-
-async function testStaleSetupRefreshCannotOverwriteNewerAuthState() {
-  let resolveFirstAuth!: (value: unknown) => void;
-  const firstAuth = new Promise((resolve) => { resolveFirstAuth = resolve; });
-  let authCalls = 0;
-  const client = {
-    authStatus: () => {
-      authCalls += 1;
-      if (authCalls === 1) return firstAuth;
-      return Promise.resolve({
-        logged_in: true,
-        expired: false,
-        auth_path: '/tmp/rustcode/auth.toml',
-        user: { id: 'new-user' },
-      });
-    },
-    listProviders: () => Promise.resolve({
-      default_provider: 'main',
-      providers: [{
-        name: 'main', type: 'openai', model: 'new-model', has_api_key: false,
-        requires_login: true, is_default: true, context_window: 128_000,
-        skip_tls_verify: false,
-      }],
-    }),
-    getConfig: () => Promise.resolve({
-      path: '/tmp/rustcode/config.toml', default_provider: 'main', provider_count: 1,
-      providers: [], network: {},
-    }),
-    listModels: () => Promise.resolve([]),
-  };
-  const provider = new ChatViewProvider({ fsPath: '/extension' } as never, client as never);
-  const unsafeProvider = provider as unknown as {
-    _sendSetupState: () => Promise<void>;
-    _broadcastMessage: (message: unknown) => void;
-  };
-  const messages: Array<{ type?: string; auth?: { logged_in?: boolean } }> = [];
-  unsafeProvider._broadcastMessage = (message) => {
-    messages.push(message as { type?: string; auth?: { logged_in?: boolean } });
-  };
-
-  const staleRefresh = unsafeProvider._sendSetupState();
-  await unsafeProvider._sendSetupState();
-  resolveFirstAuth({
-    logged_in: false,
-    expired: false,
-    auth_path: '/tmp/rustcode/auth.toml',
-    user: null,
-  });
-  await staleRefresh;
-
-  const authMessages = messages.filter((message) => message.type === 'authStatus');
-  assert.equal(authMessages.at(-1)?.auth?.logged_in, true);
-  assert.equal(authMessages.some((message) => message.auth?.logged_in === false), false);
-  provider.dispose();
 }
 
 async function testDisposedPanelCannotBlockNewPanelSetupState() {
@@ -1279,12 +1224,6 @@ async function testDisposedPanelCannotBlockNewPanelSetupState() {
   }
 
   const client = {
-    authStatus: async () => ({
-      logged_in: true,
-      expired: false,
-      auth_path: '/tmp/rustcode/auth.toml',
-      user: { id: 'user-1' },
-    }),
     listProviders: async () => ({
       default_provider: 'main',
       providers: [{
@@ -1334,7 +1273,6 @@ async function testDisposedPanelCannotBlockNewPanelSetupState() {
     await unsafeProvider._sendSetupState(current.webview);
 
     const messageTypes = newPosted.map((message) => (message as { type?: string }).type);
-    assert.ok(messageTypes.includes('authStatus'));
     assert.ok(messageTypes.includes('providers'));
     assert.ok(messageTypes.includes('setupState'));
     current.panel.dispose();
@@ -2603,8 +2541,7 @@ Promise.resolve()
   .then(testStopTargetsTheOwningSessionInsteadOfTheFocusedFallback)
   .then(testStopKeepsRecoveryLockUntilDaemonConfirmsCancellation)
   .then(testRecoveryLockRemainsVisibleAndCannotQueueAnotherTurn)
-  .then(testAuthFileWatcherRefreshesSetupState)
-  .then(testStaleSetupRefreshCannotOverwriteNewerAuthState)
+  .then(testConfigFileWatcherRefreshesSetupState)
   .then(testDisposedPanelCannotBlockNewPanelSetupState)
   .then(testQueuedMessageDrainsForCompletedSessionWithoutFocusedPanel)
   .then(testQueuedMessageDoesNotDrainWhileApprovalModeIsPending)

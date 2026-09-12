@@ -2,10 +2,8 @@ import * as vscode from 'vscode';
 import { parseOpenFileSelection } from './filePosition';
 import * as path from 'path';
 import * as fs from 'fs';
-import { classifyAuthDisplayState, managedLoginAvailable } from '../auth/status';
 import { DaemonClient, DaemonHttpError } from '../daemon/client';
 import {
-  AuthStatusResponse,
   ChatRequest,
   ChatStopReason,
   ConfigResponse,
@@ -164,24 +162,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private _focusedPanelId?: string;
   private _sessionRuntimes = new Map<string, SessionRuntime>();
   private _pendingMessages = new Map<string, PendingPanelMessage[]>();
-  private _loginId?: string;
-  private _loginGeneration = 0;
-  private _loginInFlight = false;
-  private _loginStartedFromCommand = false;
-  // Build capability mirrored from GET /auth/status `managed_available`:
-  // open builds have no managed sign-in service, so every managed-login
-  // entry point short-circuits to BYO provider guidance instead of
-  // hitting a dead-end 501/404. Fail-closed default.
-  private _managedLoginAvailable = false;
   private _workspacePathCache?: { root: string; builtAt: number; items: WorkspacePathItem[] };
   private _approvalModeState: ApprovalModeState = initApprovalModeState('build');
   public onModelSelected?: (model: string) => void;
 
   private _settingsWatcher?: vscode.Disposable;
   private _rustCodeConfigWatcher?: vscode.FileSystemWatcher;
-  private _rustCodeAuthWatcher?: vscode.FileSystemWatcher;
   private _watchedConfigPath?: string;
-  private _watchedAuthPath?: string;
   private _setupRefreshTimer?: NodeJS.Timeout;
   private _setupStateGeneration = 0;
 
@@ -249,13 +236,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   public dispose() {
     this._setupStateGeneration += 1;
-    this._loginGeneration += 1;
-    const loginId = this._loginId;
-    this._loginId = undefined;
-    if (loginId) void this._client.cancelLogin(loginId).catch(() => undefined);
     this._settingsWatcher?.dispose();
     this._rustCodeConfigWatcher?.dispose();
-    this._rustCodeAuthWatcher?.dispose();
     if (this._setupRefreshTimer) clearTimeout(this._setupRefreshTimer);
   }
 
@@ -668,12 +650,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'permissionResponse':
           await this._handlePermissionResponse(msg);
-          break;
-        case 'authLoginStart':
-          await this._startLogin();
-          break;
-        case 'authLoginCancel':
-          await this._cancelLogin();
           break;
         case 'providerCreate':
           await this._createProvider(msg.provider);
@@ -1826,7 +1802,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private async _sendSetupState(webview?: vscode.Webview) {
     const generation = ++this._setupStateGeneration;
     const isCurrent = () => generation === this._setupStateGeneration;
-    let auth: AuthStatusResponse | undefined;
     let providers: ProvidersResponse | undefined;
     let config: ConfigResponse | undefined;
     let models: ModelInfo[] | undefined;
@@ -1843,17 +1818,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       );
       if (webview && !tracked) this._postMessage(msg, webview);
     };
-
-    try {
-      auth = await this._client.authStatus();
-      if (!isCurrent()) return;
-      this._managedLoginAvailable = managedLoginAvailable(auth);
-      post({ type: 'authStatus', auth });
-      this._watchRustCodeAuth(auth.auth_path);
-    } catch (e) {
-      if (!isCurrent()) return;
-      post({ type: 'setupError', message: this._messageFromError(e) });
-    }
 
     try {
       providers = await this._client.listProviders();
@@ -1883,11 +1847,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     const defaultProvider = providers?.providers.find((p) => p.is_default);
-    const authUnavailable = !auth?.logged_in || auth.expired === true;
+    // Local identity builds expose no managed sign-in service, so the
+    // auth-gated setup path is always treated as unavailable (BYO provider
+    // is the primary setup path).
+    const authUnavailable = true;
     const selectedRequiresLogin = defaultProvider?.requires_login;
     post({
       type: 'setupState',
-      auth,
       providers: providers?.providers ?? [],
       defaultProvider: providers?.default_provider ?? config?.default_provider ?? '',
       currentModel: defaultProvider?.model || models?.find((m) => m.is_default)?.model || '',
@@ -1912,202 +1878,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this._rustCodeConfigWatcher = watcher;
   }
 
-  private _watchRustCodeAuth(authPath: string) {
-    if (!authPath || this._watchedAuthPath === authPath) return;
-    this._rustCodeAuthWatcher?.dispose();
-    this._watchedAuthPath = authPath;
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(path.dirname(authPath), path.basename(authPath)),
-    );
-    const scheduleRefresh = () => this._scheduleSetupStateRefresh();
-    watcher.onDidCreate(scheduleRefresh);
-    watcher.onDidChange(scheduleRefresh);
-    watcher.onDidDelete(scheduleRefresh);
-    this._rustCodeAuthWatcher = watcher;
-  }
-
   private _scheduleSetupStateRefresh() {
     if (this._setupRefreshTimer) clearTimeout(this._setupRefreshTimer);
     this._setupRefreshTimer = setTimeout(() => {
       this._setupRefreshTimer = undefined;
       void this._sendSetupState();
     }, 100);
-  }
-
-  /**
-   * Neutral-build guidance used wherever a managed login would otherwise
-   * dead-end on a 501 (`managed_login_unavailable`) or a 404.
-   */
-  private _managedLoginUnavailableMessage(): string {
-    return vscode.l10n.t(
-      'This build has no managed sign-in service. Add a third-party provider with your own API key in setup instead.',
-    );
-  }
-
-  private async _startLogin() {
-    if (this._loginInFlight) return;
-    if (!this._managedLoginAvailable) {
-      this._broadcastMessage({ type: 'setupError', message: this._managedLoginUnavailableMessage() });
-      return;
-    }
-    this._loginInFlight = true;
-    try {
-      await this._cancelLogin();
-      const login = await this._client.startLogin(true);
-      this._loginId = login.login_id;
-      const generation = ++this._loginGeneration;
-      this._broadcastMessage({ type: 'loginStarted', loginId: login.login_id, url: login.url });
-      await this._pollLogin(login.login_id, generation, login.expires_in_seconds);
-    } catch (e) {
-      this._broadcastMessage({ type: 'setupError', message: this._messageFromError(e) });
-    } finally {
-      this._loginInFlight = false;
-    }
-  }
-
-  private async _pollLogin(loginId: string, generation: number, expiresInSeconds: number) {
-    const deadline = Date.now() + Math.max(1, expiresInSeconds) * 1000;
-    try {
-      while (this._loginId === loginId && this._loginGeneration === generation) {
-        if (Date.now() >= deadline) {
-          await this._client.cancelLogin(loginId).catch(() => undefined);
-          throw new Error(vscode.l10n.t('Login timed out; start a new login.'));
-        }
-
-        let result;
-        try {
-          result = await this._client.pollLogin(loginId);
-        } catch (error) {
-          if (error instanceof DaemonHttpError && error.retryable && Date.now() < deadline) {
-            this._broadcastMessage({ type: 'loginPending' });
-            await delay(2000);
-            continue;
-          }
-          throw error;
-        }
-
-        if (result.status === 'pending') {
-          this._broadcastMessage({ type: 'loginPending' });
-          await delay(result.retry_after_ms ?? 2000);
-          continue;
-        }
-        if (result.status !== 'authorized') {
-          throw new Error(result.message || vscode.l10n.t('Login {status}; start a new login.', { status: result.status }));
-        }
-
-        if (this._loginId !== loginId || this._loginGeneration !== generation) return;
-        this._loginId = undefined;
-        this._broadcastMessage({ type: 'loginAuthorized', user: result.user });
-        if (this._loginStartedFromCommand) {
-          this._postMessage({
-            type: 'assistantMessage',
-            text: vscode.l10n.t('Signed in as {name}.', { name: result.user?.name || result.user?.username || vscode.l10n.t('Platform user') }),
-          });
-          this._loginStartedFromCommand = false;
-        }
-        await this._sendSetupState();
-        return;
-      }
-    } catch (e) {
-      if (this._loginGeneration !== generation) return;
-      this._loginGeneration += 1;
-      this._loginId = undefined;
-      this._broadcastMessage({ type: 'setupError', message: this._messageFromError(e) });
-      if (this._loginStartedFromCommand) {
-        this._postMessage({ type: 'error', message: this._messageFromError(e) });
-        this._loginStartedFromCommand = false;
-      }
-    }
-  }
-
-  private async _cancelLogin() {
-    this._loginGeneration += 1;
-    if (this._loginId) {
-      const id = this._loginId;
-      this._loginId = undefined;
-      await this._client.cancelLogin(id).catch(() => undefined);
-    }
-  }
-
-  private async _ensureLoggedIn(announceInChat = false): Promise<boolean> {
-    let ownsLogin = false;
-    try {
-      const auth = await this._client.authStatus();
-      if (auth.logged_in && !auth.expired) {
-        return true;
-      }
-      if (this._loginInFlight) {
-        while (this._loginInFlight) await delay(100);
-        const refreshed = await this._client.authStatus();
-        return refreshed.logged_in && !refreshed.expired;
-      }
-      this._loginInFlight = true;
-      ownsLogin = true;
-
-      if (announceInChat) {
-        this._postMessage({
-          type: 'assistantMessage',
-          text: vscode.l10n.t('Opening platform sign-in in your browser. Complete authorization there, then return to VS Code.'),
-        });
-      }
-      this._broadcastMessage({ type: 'setupWorking', message: vscode.l10n.t('Waiting for platform sign-in...') });
-
-      await this._cancelLogin();
-      const login = await this._client.startLogin(true);
-      this._loginId = login.login_id;
-      const generation = ++this._loginGeneration;
-      const deadline = Date.now() + Math.max(1, login.expires_in_seconds) * 1000;
-      this._broadcastMessage({ type: 'loginStarted', loginId: login.login_id, url: login.url });
-
-      while (this._loginId === login.login_id && this._loginGeneration === generation) {
-        if (Date.now() >= deadline) {
-          await this._cancelLogin();
-          throw new Error('Login timed out; start a new login.');
-        }
-        let result;
-        try {
-          result = await this._client.pollLogin(login.login_id);
-        } catch (error) {
-          if (error instanceof DaemonHttpError && error.retryable && Date.now() < deadline) {
-            await delay(2000);
-            continue;
-          }
-          throw error;
-        }
-        if (result.status === 'pending') {
-          this._broadcastMessage({ type: 'loginPending' });
-          await delay(result.retry_after_ms ?? 2000);
-          continue;
-        }
-        if (result.status !== 'authorized') {
-          throw new Error(result.message || `Login ${result.status}; start a new login.`);
-        }
-
-        this._loginId = undefined;
-        this._broadcastMessage({ type: 'loginAuthorized', user: result.user });
-        if (announceInChat) {
-          this._postMessage({
-            type: 'assistantMessage',
-            text: vscode.l10n.t('Signed in as {name}.', { name: result.user?.name || result.user?.username || vscode.l10n.t('Platform user') }),
-          });
-        }
-        await this._sendSetupState();
-        return true;
-      }
-
-      return false;
-    } catch (e) {
-      this._loginGeneration += 1;
-      this._loginId = undefined;
-      const message = this._messageFromError(e);
-      this._broadcastMessage({ type: 'setupError', message });
-      if (announceInChat) {
-        this._postMessage({ type: 'error', message });
-      }
-      return false;
-    } finally {
-      if (ownsLogin) this._loginInFlight = false;
-    }
   }
 
   private async _createProvider(provider: CreateProviderRequest) {
@@ -2605,93 +2381,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const [command] = text.split(/\s+/, 1);
     switch (command.toLowerCase()) {
       case '/login':
-        if (!this._managedLoginAvailable) {
-          // Hidden from the picker in open builds, but still dispatchable
-          // when typed: answer with BYO guidance instead of a dead flow.
-          this._postSlashInfo(this._managedLoginUnavailableMessage(), sessionId, text);
-          return true;
-        }
-        {
-          const loggedIn = await this._ensureLoggedIn(true);
-          this._postSlashInfo(
-            loggedIn
-              ? vscode.l10n.t('Signed in. Run /whoami to see account details.')
-              : vscode.l10n.t('Sign-in did not complete; run /login to try again.'),
-            sessionId,
-            text,
-          );
-        }
+        // Managed sign-in is gone in local-identity builds. Steer users to the
+        // bring-your-own-key provider flow instead of a dead endpoint.
+        this._postSlashInfo(
+          vscode.l10n.t('Use /provider to configure a third-party provider with your own API key.'),
+          sessionId,
+          text,
+        );
         return true;
       case '/logout':
-        if (!this._managedLoginAvailable) {
-          this._postSlashInfo(
-            vscode.l10n.t('This build has no managed account; nothing to sign out of. Configure third-party providers in setup.'),
-            sessionId,
-            text,
-          );
-          return true;
-        }
-        try {
-          const auth = await this._client.logout();
-          this._broadcastMessage({ type: 'authStatus', auth });
-          this._postSlashInfo(vscode.l10n.t('Signed out.'), sessionId, text);
-        } catch (e) {
-          this._postSlashInfo(vscode.l10n.t('Unable to sign out: {message}', { message: this._messageFromError(e) }), sessionId, text);
-        }
+        this._postSlashInfo(
+          vscode.l10n.t('This build has no managed account, so there is nothing to sign out of. Configure third-party providers via /provider or setup.'),
+          sessionId,
+          text,
+        );
         return true;
       case '/whoami':
-        try {
-          const auth = await this._client.authStatus();
-          const authState = classifyAuthDisplayState(auth);
-          if (authState === 'expired') {
-            this._postSlashInfo(vscode.l10n.t('Session expired. Sign in again.'), sessionId, text);
-          } else if (authState === 'signed_in' && auth.user) {
-            const name = auth.user.name || auth.user.username || auth.user.email || auth.user.id;
-            const lines = [
-              `${name} (${auth.user.username || auth.user.id})`,
-              auth.user.email || vscode.l10n.t('Email: not provided'),
-              `User ID: ${auth.user.id}`,
-              `Auth: ${auth.auth_path}`,
-            ];
-            if (auth.token) {
-              lines.push(`Token: ${auth.token.token_type}`);
-              lines.push(`Created: ${new Date(auth.token.created_at * 1000).toLocaleString()}`);
-              if (auth.token.expires_in !== undefined) {
-                lines.push(`Expires in: ${auth.token.expires_in}s`);
-              }
-              lines.push(`Refresh token: ${auth.token.has_refresh_token ? vscode.l10n.t('yes') : vscode.l10n.t('no')}`);
-            }
-            this._postSlashInfo(lines.join('\n'), sessionId, text);
-          } else if (managedLoginAvailable(auth)) {
-            this._postSlashInfo(vscode.l10n.t('Not signed in.'), sessionId, text);
-          } else {
-            this._postSlashInfo(
-              vscode.l10n.t('Not signed in. This build has no managed account -- add a third-party provider with your own API key in setup.'),
-              sessionId,
-              text,
-            );
-          }
-        } catch (e) {
-          this._postSlashInfo(vscode.l10n.t('Unable to read auth status: {message}', { message: this._messageFromError(e) }), sessionId, text);
-        }
+        this._postSlashInfo(
+          vscode.l10n.t('Local build: no managed account. Configure a third-party provider with your own API key via /provider or the setup panel.'),
+          sessionId,
+          text,
+        );
         return true;
       case '/status':
         try {
-          const [health, auth, providers] = await Promise.all([
+          const [health, providers] = await Promise.all([
             this._client.health(),
-            this._client.authStatus().catch(() => undefined),
             this._client.listProviders().catch(() => undefined),
           ]);
           const provider = providers?.providers.find((p) => p.name === providers.default_provider || p.is_default);
-          const authState = classifyAuthDisplayState(auth);
-          const authLabel = authState === 'expired'
-            ? vscode.l10n.t('expired')
-            : authState === 'signed_in'
-              ? vscode.l10n.t('signed in')
-              : vscode.l10n.t('not signed in');
           this._postSlashInfo([
             `Daemon: ${health.service} ${health.version}`,
-            `Auth: ${authLabel}`,
+            `Auth: ${vscode.l10n.t('local build (no managed account)')}`,
             `Provider: ${provider ? `${provider.name} (${provider.model})` : vscode.l10n.t('not configured')}`,
           ].join('\n'), sessionId, text);
         } catch (e) {

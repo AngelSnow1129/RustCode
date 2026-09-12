@@ -21,7 +21,6 @@ const quickActions: QuickAction[] = [
 export function WelcomeScreen() {
   const { state } = useChatContext();
   const t = useT();
-  const [manualOpen, setManualOpen] = useState(false);
   const [providerName, setProviderName] = useState('openai');
   const [providerType, setProviderType] = useState('openai');
   const [model, setModel] = useState('gpt-4o');
@@ -32,18 +31,6 @@ export function WelcomeScreen() {
 
   function handleAction(action: string) {
     postMessage({ type: 'quickAction', action });
-  }
-
-  function startLogin() {
-    postMessage({ type: 'authLoginStart' });
-  }
-
-  function cancelLogin() {
-    postMessage({ type: 'authLoginCancel' });
-  }
-
-  function refreshSetupState() {
-    postMessage({ type: 'refreshSetupState' });
   }
 
   function submitProvider(e: React.FormEvent) {
@@ -65,18 +52,12 @@ export function WelcomeScreen() {
     setModel('gpt-4o');
     setBaseUrl('');
     setApiKey('');
-    setManualOpen(false);
   }
 
   const needsSetup = state.setupRequired || state.providers.length === 0;
-  // Build capability from GET /auth/status; fail closed until confirmed.
-  // Open builds skip the account/sync steps entirely and show the
-  // bring-your-own-key provider form as the primary (and expanded) path.
-  const managed = state.auth?.managed_available === true;
-  const authUsable =
-    managed && state.auth?.logged_in === true && state.auth.expired !== true;
-  const signedInName = state.auth?.user?.name || state.auth?.user?.username || t('setup.platformUser');
-  const manualFormExpanded = managed ? manualOpen : true;
+  // Local identity: no managed sign-in service. The bring-your-own-key
+  // provider form is always the primary (and expanded) setup path.
+  const manualFormExpanded = true;
 
   return (
     <div className="welcome-screen">
@@ -88,52 +69,16 @@ export function WelcomeScreen() {
 
         {needsSetup && (
           <section className="setup-card">
-            {managed && (
-              <div className="setup-step">
-                <div className="setup-copy">
-                  <div className="setup-title">{t('setup.account')}</div>
-                  <div className="setup-subtitle">
-                    {authUsable
-                      ? t('setup.signedInAs', { name: signedInName })
-                      : t('setup.signInHint')}
-                  </div>
-                </div>
-                <div className="setup-actions">
-                  {authUsable ? (
-                    <button type="button" className="setup-secondary" onClick={refreshSetupState}>{t('setup.refreshAccount')}</button>
-                  ) : (
-                    <button type="button" className="setup-primary" onClick={startLogin}>{t('setup.signInWithPlatform')}</button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {managed && state.loginUrl && (
-              <div className="setup-url">
-                <span>{state.loginUrl}</span>
-                <button type="button" onClick={() => navigator.clipboard.writeText(state.loginUrl || '')}>{t('setup.copy')}</button>
-                <button type="button" onClick={cancelLogin}>{t('setup.cancel')}</button>
-              </div>
-            )}
-
             <div className="setup-step">
               <div className="setup-copy">
                 <div className="setup-title">{t('setup.models')}</div>
                 <div className="setup-subtitle">
                   {state.providers.length > 0
                     ? t('setup.providersConfigured', { count: state.providers.length })
-                    : managed
-                      ? t('setup.syncOrAddProvider')
-                      : t('setup.addProviderHint')}
+                    : t('setup.addProviderHint')}
                 </div>
               </div>
             </div>
-
-            {managed && (
-              <button type="button" className="setup-secondary setup-wide" onClick={() => setManualOpen(!manualOpen)}>
-                {t('setup.addProviderManually')}
-              </button>
-            )}
 
             {manualFormExpanded && (
               <form className="provider-form" onSubmit={submitProvider}>

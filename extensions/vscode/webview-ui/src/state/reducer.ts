@@ -9,7 +9,6 @@ import type {
   PermissionRequestData,
   StatusData,
   SearchState,
-  AuthStatus,
   ProviderInfo,
   SessionTerminalState,
 } from './types';
@@ -25,14 +24,15 @@ function nextId(): string {
 function providerSetupRequired(
   providers: ProviderInfo[],
   currentProvider: string,
-  auth?: AuthStatus,
 ): boolean {
   if (providers.length === 0) return true;
   const current = providers.find((provider) => provider.name === currentProvider)
     ?? providers.find((provider) => provider.is_default);
-  const authUnavailable = !auth?.logged_in || auth.expired === true;
-  // Older daemons did not expose requires_login. Preserve their previous
-  // conservative behaviour until the daemon is upgraded.
+  // Local identity builds expose no managed sign-in service, so the
+  // auth-gated setup path is always treated as unavailable (BYO provider
+  // is the primary setup path). Preserve the conservative behaviour for
+  // daemons that do not expose requires_login.
+  const authUnavailable = true;
   return current?.requires_login === undefined
     ? authUnavailable
     : current.requires_login && authUnavailable;
@@ -447,7 +447,6 @@ export const initialState: ChatState = {
   currentProvider: '',
   models: [],
   providers: [],
-  auth: undefined,
   setupRequired: false,
   setupStatus: undefined,
   setupError: undefined,
@@ -909,24 +908,15 @@ function chatReducerInner(state: ChatState, action: ChatAction): ChatState {
         setupRequired: providerSetupRequired(
           action.providers,
           current?.name ?? state.currentProvider,
-          state.auth,
         ),
       };
     }
-
-    case 'SET_AUTH':
-      return {
-        ...state,
-        auth: action.auth,
-        setupRequired: providerSetupRequired(state.providers, state.currentProvider, action.auth),
-      };
 
     case 'SET_SETUP_STATE': {
       const current = action.providers.find((p) => p.name === action.defaultProvider)
         ?? action.providers.find((p) => p.is_default);
       return {
         ...state,
-        auth: action.auth ?? state.auth,
         providers: action.providers,
         currentProvider: current?.name ?? action.defaultProvider ?? state.currentProvider,
         currentModel: action.currentModel ?? current?.model ?? state.currentModel,
@@ -953,7 +943,7 @@ function chatReducerInner(state: ChatState, action: ChatAction): ChatState {
         ...state,
         currentProvider: action.provider,
         currentModel: action.model ?? provider?.model ?? state.currentModel,
-        setupRequired: providerSetupRequired(state.providers, action.provider, state.auth),
+        setupRequired: providerSetupRequired(state.providers, action.provider),
       };
     }
 

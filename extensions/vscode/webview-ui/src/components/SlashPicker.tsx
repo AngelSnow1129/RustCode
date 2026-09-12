@@ -1,21 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { SkillInfo } from '../state/types';
 import { MsgKey, useT } from '../i18n';
-import { useChatContext } from '../state/ChatProvider';
 import { ensureActiveDescendantVisible } from '../utils/atMention';
 
 interface SlashCommand {
   name: string;
   label: string;
   descriptionKey: MsgKey;
-  /** Managed-account commands: hidden from discovery in open builds. */
-  managedOnly?: boolean;
 }
 
 const slashCommands: SlashCommand[] = [
-  { name: 'login', label: '/login', descriptionKey: 'slash.login', managedOnly: true },
-  { name: 'logout', label: '/logout', descriptionKey: 'slash.logout', managedOnly: true },
-  { name: 'whoami', label: '/whoami', descriptionKey: 'slash.whoami', managedOnly: true },
+  { name: 'whoami', label: '/whoami', descriptionKey: 'slash.whoami' },
   { name: 'status', label: '/status', descriptionKey: 'slash.status' },
   { name: 'config', label: '/config', descriptionKey: 'slash.config' },
   { name: 'reload', label: '/reload', descriptionKey: 'slash.reload' },
@@ -33,11 +28,6 @@ export function SlashPicker({ filter, skills = [], onSelect, onClose }: SlashPic
   const [allowHoverHighlight, setAllowHoverHighlight] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
   const t = useT();
-  const { state } = useChatContext();
-  // Open builds have no managed account: hide /login, /logout, /whoami from
-  // discovery (they remain dispatchable when typed, and answer with BYO
-  // guidance). Fail closed until /auth/status confirms the capability.
-  const managed = state.auth?.managed_available === true;
 
   const localNames = new Set(slashCommands.map((cmd) => cmd.name));
   const skillCommands: Array<{ name: string; label: string; description: string }> = skills
@@ -48,9 +38,7 @@ export function SlashPicker({ filter, skills = [], onSelect, onClose }: SlashPic
       description: skill.description || t('slash.skill'),
     }));
   const commands = [
-    ...slashCommands
-      .filter((cmd) => managed || !cmd.managedOnly)
-      .map((cmd) => ({ name: cmd.name, label: cmd.label, description: t(cmd.descriptionKey) })),
+    ...slashCommands.map((cmd) => ({ name: cmd.name, label: cmd.label, description: t(cmd.descriptionKey) })),
     ...skillCommands,
   ];
   const lowerFilter = filter.toLowerCase();

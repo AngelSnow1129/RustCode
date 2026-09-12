@@ -53,8 +53,7 @@ export function ModelSelector({ placement = 'down', onOpen }: ModelSelectorProps
     currentProvider?.model
     ?? state.models.find((m) => m.provider === state.currentProvider)?.model
     ?? state.currentModel;
-  const loginRequired = currentProvider?.requires_login === true
-    && (!state.auth?.logged_in || state.auth.expired === true);
+  const loginRequired = currentProvider?.requires_login === true;
   const currentDisplayLabel = loginRequired
     ? `${currentLabel} · ${t('model.loginRequired')}`
     : currentLabel;
