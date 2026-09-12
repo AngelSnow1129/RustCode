@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
-use crate::protocol::{decode, Frame, TOKEN_QUERY_PARAM};
+use crate::protocol::{decode, percent_decode, Frame, TOKEN_QUERY_PARAM};
 
 /// Read buffer size for the public->client direction.
 const BUF_SIZE: usize = 16 * 1024;
@@ -34,7 +34,8 @@ pub async fn run_relay(control_addr: &str, public_addr: &str, token: &str) -> Re
     let public = TcpListener::bind(public_addr)
         .await
         .with_context(|| format!("bind public address {public_addr}"))?;
-    info!("relay: control={control_addr} public={public_addr}");
+    // No startup log here: `run_relay_with` logs the ACTUALLY bound addresses,
+    // which matters when the caller asked for an ephemeral port (`:0`).
     run_relay_with(control, public, token).await
 }
 
@@ -77,7 +78,8 @@ pub async fn run_relay_with(
                     let mut it = kv.splitn(2, '=');
                     let key = it.next()?;
                     let value = it.next().unwrap_or("");
-                    (key == TOKEN_QUERY_PARAM).then_some(value.to_string())
+                    // The client percent-encodes the token; decode before comparing.
+                    (key == TOKEN_QUERY_PARAM).then(|| percent_decode(value))
                 })
             })
             .unwrap_or_default();

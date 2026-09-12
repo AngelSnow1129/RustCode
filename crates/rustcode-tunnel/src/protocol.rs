@@ -113,6 +113,40 @@ pub fn decode(msg: &[u8]) -> Result<Frame, ProtocolError> {
     }
 }
 
+/// Percent-decode a string (`%XX` -> byte).
+///
+/// The client percent-encodes the tunnel token before putting it in the
+/// control-channel query string, so the relay MUST decode before comparing --
+/// otherwise any token containing `/`, `=`, space or `%` would never match and
+/// every handshake would fail with a bogus "bad token".
+pub fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
+                out.push(hi * 16 + lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Value of a single hex digit, or `None` when `b` is not a hex digit.
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +207,29 @@ mod tests {
             decode(&[9, 0, 0, 0, 1]),
             Err(ProtocolError::UnknownFrameType(9))
         );
+    }
+
+    #[test]
+    fn percent_decodes_reserved_characters() {
+        assert_eq!(percent_decode("a%2Fb"), "a/b");
+        assert_eq!(percent_decode("a%20b"), "a b");
+        assert_eq!(percent_decode("plain"), "plain");
+    }
+
+    #[test]
+    fn token_survives_encode_then_decode() {
+        // The realistic failure: a strong random token containing '/' and '='.
+        let token = "sec/ret =x";
+        let url = crate::client::with_token("ws://h/t", token);
+        let presented = url.split("token=").nth(1).unwrap();
+        assert_ne!(presented, token, "client must encode it");
+        assert_eq!(percent_decode(presented), token, "relay must decode it back");
+    }
+
+    #[test]
+    fn percent_decode_leaves_malformed_escapes_alone() {
+        assert_eq!(percent_decode("100%%"), "100%%");
+        assert_eq!(percent_decode("%ZZ"), "%ZZ");
     }
 
     #[test]

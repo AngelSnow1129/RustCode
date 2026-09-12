@@ -30,6 +30,15 @@ ENV:
 ";
 
 fn main() -> Result<()> {
+    // Without a subscriber every tracing call in the relay is a no-op, which
+    // would leave operators with a completely silent relay.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
     let mut control =
         std::env::var("RUSTCODE_RELAY_CONTROL").unwrap_or_else(|_| DEFAULT_CONTROL.to_string());
     let mut public =
