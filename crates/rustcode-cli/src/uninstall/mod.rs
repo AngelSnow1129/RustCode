@@ -16,7 +16,7 @@ use std::path::PathBuf;
 pub enum Group {
     /// Binary + PATH edit. Required: declining = abort.
     Binary,
-    /// Credentials & global config (auth.toml, mcp.json, config.toml, RUSTCODE.md).
+    /// Credentials & global config (mcp.json, mcp_auth.toml, config.toml, RUSTCODE.md).
     Credentials,
     /// Local state & extensions (history, telemetry, plugins, commands, skills, staged).
     State,

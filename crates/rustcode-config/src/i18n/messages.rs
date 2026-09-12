@@ -3571,6 +3571,10 @@ pub enum Msg<'a> {
     /// A generated wiki file was left untouched because the user had manually
     /// edited it; {path} is the preserved file.
     WikiFilePreserved { path: &'a str },
+    /// A stale generated wiki file was deleted because its module no longer
+    /// exists; {path} is the removed file (a module page or its orphaned LLM
+    /// summary sidecar).
+    WikiFileRemoved { path: &'a str },
     /// When a sync finds no changes.
     WikiSyncUpToDate,
     /// When LLM enrichment begins.

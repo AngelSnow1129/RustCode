@@ -162,7 +162,7 @@ mod tests {
 
         let data = tmp.path().join(".rustcode");
         fs::create_dir(&data).unwrap();
-        fs::write(data.join("auth.toml"), b"k=1").unwrap();
+        fs::write(data.join("mcp.json"), b"k=1").unwrap();
         fs::write(data.join("config.toml"), b"x=1").unwrap();
         fs::write(data.join("history"), b"hi").unwrap();
         fs::create_dir(data.join("plugins")).unwrap();
@@ -198,7 +198,7 @@ mod tests {
             .filter(|i| i.group == Group::Credentials)
             .map(|i| i.path.clone())
             .collect();
-        assert!(creds.contains(&data.join("auth.toml")));
+        assert!(creds.contains(&data.join("mcp.json")));
         assert!(creds.contains(&data.join("config.toml")));
 
         let state: Vec<_> = plan

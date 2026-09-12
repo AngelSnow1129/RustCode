@@ -2222,6 +2222,9 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::WikiFilePreserved { path } => {
             format!("已保留你对 {path} 的手动修改（使用 --force 可覆盖）").into()
         }
+        Msg::WikiFileRemoved { path } => {
+            format!("已移除 {path}（对应模块已不存在）").into()
+        }
         Msg::WikiSyncUpToDate => "wiki 已是最新（未检测到源码变更）".into(),
         Msg::WikiEnriching => "正在用已配置的 LLM 充实模块文档...".into(),
         Msg::WikiEnriched { count } => {

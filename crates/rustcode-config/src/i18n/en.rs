@@ -2288,6 +2288,9 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::WikiFilePreserved { path } => {
             format!("Preserved your manual edits in {path} (run with --force to overwrite)").into()
         }
+        Msg::WikiFileRemoved { path } => {
+            format!("Removed {path} (its module no longer exists)").into()
+        }
         Msg::WikiSyncUpToDate => "Wiki is up to date (no source changes detected)".into(),
         Msg::WikiEnriching => "Enriching module pages with the configured LLM...".into(),
         Msg::WikiEnriched { count } => {

@@ -69,6 +69,8 @@ pub struct WikiResult {
     pub created: Vec<PathBuf>,
     pub updated: Vec<PathBuf>,
     pub unchanged: usize,
+    /// Files deleted during this run: generated pages whose module no longer
+    /// exists, plus their orphaned LLM summary sidecars.
     pub removed: Vec<PathBuf>,
     /// Generated files whose on-disk content was manually edited by the user and
     /// therefore left untouched (preserved) during this run. Only populated when
@@ -311,6 +313,20 @@ impl WikiEngine {
                         let _ = std::fs::remove_file(&p);
                         result.removed.push(p);
                     }
+                    // Also prune the LLM enrichment sidecar of a removed module
+                    // page. Sidecars (`<lang>/Modules/<base>.summary.md`) are
+                    // written by the enrichment pass and are deliberately NOT in
+                    // `targets`/`wiki_files`, so the loop above cannot see them;
+                    // without this a deleted module would leave its summary
+                    // behind and a same-named module reappearing later would
+                    // wrongly reuse the stale text.
+                    if let Some(sidecar_rel) = summary_sidecar_path(f) {
+                        let sp = out_dir.join(&sidecar_rel);
+                        if sp.exists() {
+                            let _ = std::fs::remove_file(&sp);
+                            result.removed.push(sp);
+                        }
+                    }
                 }
             }
         }
@@ -362,6 +378,26 @@ fn resolve_out_dir(root: &Path, override_dir: Option<&Path>) -> PathBuf {
         Some(d) => root.join(d),
         None => root.join(".rustcode").join("wiki"),
     }
+}
+
+/// The LLM summary sidecar path corresponding to a generated module page, or
+/// `None` when `rel` is not a module page.
+///
+/// `zh/Modules/foo.md` -> `Some("zh/Modules/foo.summary.md")`. Returns `None`
+/// for anything else (non-module pages, non-`.md` files, and summary sidecars
+/// themselves), so the prune loop never chases a sidecar of a sidecar. Rel
+/// paths produced by this engine always use `/` separators, so string handling
+/// is safe on every platform.
+fn summary_sidecar_path(rel: &str) -> Option<String> {
+    let (dir, file) = rel.rsplit_once('/')?;
+    if dir != "Modules" && !dir.ends_with("/Modules") {
+        return None;
+    }
+    let base = file.strip_suffix(".md")?;
+    if base.ends_with(".summary") {
+        return None;
+    }
+    Some(format!("{dir}/{base}.summary.md"))
 }
 
 fn now_string() -> String {

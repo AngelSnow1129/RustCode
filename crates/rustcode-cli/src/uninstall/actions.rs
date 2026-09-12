@@ -588,7 +588,7 @@ mod execute_tests {
         std::fs::write(&exe, b"x").unwrap();
         let data = tmp.path().join(".rustcode");
         std::fs::create_dir(&data).unwrap();
-        std::fs::write(data.join("auth.toml"), b"k").unwrap();
+        std::fs::write(data.join("mcp.json"), b"k").unwrap();
         std::fs::write(data.join("history"), b"h").unwrap();
         std::fs::create_dir(data.join("plugins")).unwrap();
         (exe, data)
@@ -602,7 +602,7 @@ mod execute_tests {
         let outcome = execute(&plan, Decisions::KEEP_DATA, &NoopSelfDelete, None).unwrap();
         // NoopSelfDelete doesn't actually delete the file, but execute() records it.
         // Our assertions: data files preserved.
-        assert!(data.join("auth.toml").exists());
+        assert!(data.join("mcp.json").exists());
         assert!(data.join("history").exists());
         assert!(outcome.failed.is_empty());
     }
@@ -613,7 +613,7 @@ mod execute_tests {
         let (exe, data) = fake_install(&tmp);
         let plan = scan::scan(&exe, &data).unwrap();
         execute(&plan, Decisions::PURGE, &NoopSelfDelete, None).unwrap();
-        assert!(!data.join("auth.toml").exists());
+        assert!(!data.join("mcp.json").exists());
         assert!(!data.join("history").exists());
         assert!(!data.join("plugins").exists());
     }
@@ -624,7 +624,7 @@ mod execute_tests {
         let (exe, data) = fake_install(&tmp);
         let plan = scan::scan(&exe, &data).unwrap();
         execute(&plan, Decisions::DEFAULTS, &NoopSelfDelete, None).unwrap();
-        assert!(data.join("auth.toml").exists()); // kept
+        assert!(data.join("mcp.json").exists()); // kept
         assert!(!data.join("history").exists());
         assert!(!data.join("plugins").exists());
     }
@@ -636,7 +636,7 @@ mod execute_tests {
         let plan = scan::scan(&exe, &data).unwrap();
         let outcome = execute(&plan, Decisions::PURGE, &NoopSelfDelete, None).unwrap();
         // Removed list ordering proves the spec-mandated order.
-        // history (state) must appear before auth.toml (credentials), which
+        // history (state) must appear before mcp.json (credentials), which
         // must appear before the binary path itself.
         let pos_history = outcome
             .removed
@@ -646,8 +646,8 @@ mod execute_tests {
         let pos_auth = outcome
             .removed
             .iter()
-            .position(|p| p.file_name().and_then(|n| n.to_str()) == Some("auth.toml"))
-            .expect("auth.toml was not removed");
+            .position(|p| p.file_name().and_then(|n| n.to_str()) == Some("mcp.json"))
+            .expect("mcp.json was not removed");
         let pos_bin = outcome
             .removed
             .iter()

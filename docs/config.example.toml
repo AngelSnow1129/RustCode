@@ -412,7 +412,8 @@ theme = "auto"
 # 调用已配置 Provider 为模块页补充自然语言摘要（best-effort，失败仅告警）。
 #
 # TUI：/wiki   CLI：rustcode wiki [PATH] [--sync|--watch|--llm|--force|
-#        --out-dir <dir>|--title <t>|--exclude <dir>|--interval <秒>]
+#        --provider <id>|--model <m>|--out-dir <dir>|--title <t>|
+#        --exclude <dir>|--interval <秒>]
 # 产出默认位于 <root>/.rustcode/wiki（Home.md / Architecture.md /
 # Modules/<模块名>.md / README.md）。
 
@@ -423,6 +424,11 @@ auto_generate_on_init = false
 out_dir = ".rustcode/wiki"
 # 是否调用已配置 Provider 为模块页补充自然语言摘要
 use_llm = false
+# LLM 充实（use_llm/--llm）使用的 Provider（模型选择 id）。省略时用全局活动 Provider；
+# 可单独指定，使 wiki 用与当前会话不同的 Provider/模型（如更便宜的摘要模型）。
+# provider = "deepseek"
+# LLM 充实的模型覆盖；省略时用该 Provider 的默认模型。
+# model = "deepseek-chat"
 # 额外排除扫描的目录名（除默认忽略项外）
 exclude_dirs = ["target"]
 # TUI 后台自动同步间隔（秒）；>0 时 TUI 启动后周期性重新 sync 已存在的 wiki

@@ -19,7 +19,11 @@ fn _isolate_rustcode_home() {
 fn make_fake_data(tmp: &TempDir) -> std::path::PathBuf {
     let data = tmp.path().join("rustcode-data");
     fs::create_dir(&data).unwrap();
-    fs::write(data.join("auth.toml"), b"k=1").unwrap();
+    // NB: `auth.toml` is deliberately NOT used here -- it is a removed-crate
+    // legacy file that the binary deletes on startup (see the B7 migration), so
+    // it can never survive to the assertions below. `mcp.json` is a live
+    // credential and stands in for the "credentials must be preserved" case.
+    fs::write(data.join("mcp.json"), b"k=1").unwrap();
     fs::write(data.join("config.toml"), b"x=1").unwrap();
     fs::write(data.join("history"), b"hi").unwrap();
     fs::create_dir(data.join("plugins")).unwrap();
@@ -38,7 +42,7 @@ fn dry_run_makes_no_changes() {
         .success()
         .stdout(predicates::str::contains("DRY RUN"));
     // All files still present.
-    assert!(data.join("auth.toml").exists());
+    assert!(data.join("mcp.json").exists());
     assert!(data.join("history").exists());
     assert!(data.join("plugins").exists());
 }
@@ -60,7 +64,7 @@ fn no_tty_no_flag_exits_2() {
                 .or(predicates::str::contains("拒绝交互式运行")),
         );
     // Nothing touched.
-    assert!(data.join("auth.toml").exists());
+    assert!(data.join("mcp.json").exists());
 }
 
 #[test]

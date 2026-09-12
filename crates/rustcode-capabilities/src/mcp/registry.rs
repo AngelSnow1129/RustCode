@@ -56,6 +56,10 @@ pub enum McpConnectEvent {
 /// 5. Hash as `PathBuf` via `DefaultHasher` (component-prefix hashing -- NOT `str::hash`).
 /// 6. Format as `{:016x}`.
 ///
+/// The golden's literal is part of the contract: the constant is the hash OF that
+/// exact string, so renaming it requires re-deriving the constant (see the test's
+/// [INFO] note). A stale constant here silently rots until `--features mcp` runs.
+///
 /// The shared config helper pins the same ordinary-path literal used by session
 /// buckets; this function additionally strips Windows verbatim prefixes.
 pub fn project_trust_key(project_dir: &std::path::Path) -> String {
@@ -1499,14 +1503,30 @@ mod tests {
     /// for a fixed Unix path so any change to the base algorithm (hasher / format /
     /// PathBuf component hashing) fails CI in this crate.
     ///
-    /// The same literal is pinned by the shared session-bucket helper.
+    /// The same literal is pinned by the shared session-bucket helper
+    /// (`rustcode_config::util::stable_project_hash`, the real on-disk bucket name).
+    /// On Unix both normalize identically, so the two pins MUST stay byte-identical:
+    /// if they drift, core and capabilities disagree on trust state at runtime.
+    ///
+    /// [INFO] The golden is LITERAL-SPECIFIC: it is the `DefaultHasher` output for
+    /// this exact path string, so renaming the pinned literal requires re-deriving
+    /// the constant or the test rots. That is precisely what happened here -- the
+    /// previous constant `8b6a67e0b2c06dae` is still, on this exact toolchain, the
+    /// hash of the pre-rename literal `/tmp/atomcode-trust-golden`; the
+    /// `atomcode-*` -> `rustcode-*` rename updated the literal but left the
+    /// constant behind. It was NOT `DefaultHasher` cross-toolchain instability:
+    /// re-hashing that old literal with the current std reproduces it bit-for-bit,
+    /// and `/tmp/rustcode-trust-golden` has always hashed to the value below.
+    ///
+    /// Needs `--features mcp`: `mcp` is not a default feature, so a plain
+    /// `cargo test -p rustcode-capabilities --lib` never compiles this module.
     #[cfg(unix)]
     #[test]
     fn trust_key_golden_matches_core_algorithm() {
         use std::path::Path;
         assert_eq!(
             project_trust_key(Path::new("/tmp/rustcode-trust-golden")),
-            "8b6a67e0b2c06dae"
+            "e07a86b0ce8a1c59"
         );
     }
 

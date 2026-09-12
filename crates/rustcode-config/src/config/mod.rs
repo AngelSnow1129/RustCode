@@ -617,6 +617,13 @@ pub struct WikiConfig {
     pub out_dir: Option<String>,
     /// Use the configured LLM to enrich module pages with natural-language summaries.
     pub use_llm: bool,
+    /// Provider (model-selection id) to use for LLM enrichment. `None` means the
+    /// globally active provider. Lets the wiki enrich with a *different*
+    /// provider/model than the interactive session (e.g. a cheap summariser).
+    pub provider: Option<String>,
+    /// Model override for LLM enrichment. `None` keeps the provider's configured
+    /// model. Only consulted when `use_llm` (or `--llm`) is on.
+    pub model: Option<String>,
     /// Additional directory names to exclude from scanning.
     pub exclude_dirs: Vec<String>,
     /// Poll interval (seconds) for automatic wiki sync after file changes (0 = off).

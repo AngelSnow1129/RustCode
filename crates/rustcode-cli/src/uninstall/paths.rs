@@ -28,7 +28,7 @@ pub struct UninstallManifest {
 
 pub fn uninstall_manifest() -> UninstallManifest {
     UninstallManifest {
-        credential_files: &["auth.toml", "mcp.json", "config.toml", "RUSTCODE.md"],
+        credential_files: &["mcp.json", "mcp_auth.toml", "config.toml", "RUSTCODE.md"],
         state_files: &[
             "history",
             "input_history.txt",
@@ -135,9 +135,13 @@ mod tests {
     #[test]
     fn manifest_groups_credentials_correctly() {
         let m = uninstall_manifest();
-        for f in ["auth.toml", "mcp.json", "config.toml", "RUSTCODE.md"] {
+        for f in ["mcp.json", "mcp_auth.toml", "config.toml", "RUSTCODE.md"] {
             assert!(m.credential_files.contains(&f), "missing {f}");
         }
+        // `auth.toml` came from the removed `rustcode-auth` crate and is no longer
+        // a live credential (a startup migration deletes any legacy copy), so the
+        // uninstaller must not treat it as one.
+        assert!(!m.credential_files.contains(&"auth.toml"));
     }
 
     #[test]

@@ -41,7 +41,7 @@ function startAssistantState() {
   }, { type: 'START_GENERATION' });
 }
 
-function testLogoutRequiresSetupOnlyForLoginDependentProvider() {
+function testSetupRequiredOnlyForLoginDependentProvider() {
   const provider = (name: string, requiresLogin: boolean) => ({
     name,
     type: 'openai',
@@ -52,19 +52,12 @@ function testLogoutRequiresSetupOnlyForLoginDependentProvider() {
     context_window: 128_000,
     skip_tls_verify: false,
   });
-  const signedOut = {
-    logged_in: false,
-    expired: false,
-    auth_path: '/tmp/auth.toml',
-    user: null,
-  };
 
   let state = chatReducer(initialState, {
     type: 'SET_PROVIDERS',
     providers: [provider('custom', false)],
     defaultProvider: 'custom',
   });
-  state = chatReducer(state, { type: 'SET_AUTH', auth: signedOut });
   assert.equal(state.setupRequired, false);
 
   state = chatReducer(state, {
@@ -1300,7 +1293,7 @@ testMarkdownTableRepairDoesNotChangeFencedCodeSamples();
 testMarkdownTableRepairDoesNotChangeHtmlBlocks();
 testMarkdownTableRepairKeepsMarkedOneColumnRows();
 testGenerationDoneReloadsFinishedSessionHistory();
-testLogoutRequiresSetupOnlyForLoginDependentProvider();
+testSetupRequiredOnlyForLoginDependentProvider();
 testToolDurationFormattingUsesMillisecondsBelowOneSecond();
 testWarningAddsStatusBlockToStreamingAssistantMessage();
 testRateLimitedStatusBlockIsUpdatedInPlace();

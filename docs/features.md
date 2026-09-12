@@ -98,16 +98,21 @@ MCP 配置:
   与逐模块文档 **100% 确定性离线生成**，任何环境都能产出。
 - TUI 命令 `/wiki` 与 CLI 子命令
   `rustcode wiki [PATH] [--sync | --watch | --llm | --force | --yes | --out-dir <dir> |
-  --title <t> | --exclude <dir> | --interval <秒> | --lang <zh|en>]`
+  --title <t> | --exclude <dir> | --interval <秒> | --lang <zh|en> |
+  --provider <id> | --model <m>]`
   （`PATH` 为位置参数，默认当前目录）。
 - 产出 `Home.md` / `Architecture.md`(含 Mermaid) / `Modules/<模块名>.md` / `README.md`，
   默认 `<root>/.rustcode/wiki`。
 - 可选 `--llm`(或配置 `use_llm`)调用已配置 Provider(OpenAI 兼容网关)仅为模块页
   补充自然语言摘要，属 best-effort「充实」层，失败仅告警；摘要写入
   `<lang>/Modules/<模块>.summary.md` 侧车，后续 `sync`/`generate` 会保留，不被占位文本覆盖。
-- 配置段 `[wiki]`(`auto_generate_on_init` / `out_dir` / `use_llm` / `exclude_dirs`
-  / `auto_sync_interval_secs` / `langs`)可控制 `/init` 自动生成、输出目录、LLM 充实、
-  TUI 后台自动同步与生成语言。`wiki` 内容默认以**中文为主**，并按 `zh`/`en` 分目录
+  **充实（`--llm`）不依赖任何平台登录**：只需已配置的 Provider（`[providers.*]` 的 API key）。
+  可用 `--provider <id>` / `[wiki] provider` 与 `--model <m>` / `[wiki] model`
+  **为 wiki 单独选择 Provider/模型**（省略则用全局活动 Provider 及其默认模型），
+  例如用更便宜的模型做摘要，而不影响当前交互会话。
+- 配置段 `[wiki]`(`auto_generate_on_init` / `out_dir` / `use_llm` / `provider` / `model`
+  / `exclude_dirs` / `auto_sync_interval_secs` / `langs`)可控制 `/init` 自动生成、输出目录、
+  LLM 充实（含独立模型选择）、TUI 后台自动同步与生成语言。`wiki` 内容默认以**中文为主**，并按 `zh`/`en` 分目录
   同时产出中英文两份文档，分别保存为 `<out>/zh/` 与 `<out>/en/`（`langs` 省略即双语言；
   也可用 CLI `--lang zh|en` 或 `[wiki] langs` 指定单一语言）。`auto_sync_interval_secs > 0`
   时 TUI 启动后周期性重新 `sync` 已存在的 wiki（仅在已生成过时生效，不凭空新建），

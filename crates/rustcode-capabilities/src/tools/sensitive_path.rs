@@ -41,8 +41,7 @@ const SENSITIVE_MARKERS: &[&str] = &[
     "/.config/gcloud",
     ".netrc",
     ".git-credentials",
-    "/.rustcode/auth.toml",
-    "/.rustcode/auth/",
+    "/.rustcode/mcp_auth.toml",
     "/.docker/config",
     ".npmrc",
     ".pypirc",
@@ -120,7 +119,7 @@ fn credential_markers_for(config_dir: &Path) -> Vec<String> {
     if dir.is_empty() {
         return Vec::new();
     }
-    vec![format!("{dir}/auth.toml"), format!("{dir}/auth/")]
+    vec![format!("{dir}/mcp_auth.toml")]
 }
 
 fn decoded_json_references_sensitive_path(value: &serde_json::Value) -> bool {
@@ -169,14 +168,15 @@ fn home_dir() -> Option<PathBuf> {
 /// True iff `path` is the rustcode credential store under `config_dir`.
 ///
 /// Anchored on the resolved config dir rather than a literal `~/.rustcode`: with
-/// `$RUSTCODE_HOME` set, the old form guarded a path that does not exist while
-/// the real `auth.toml` stayed unguarded. Pure (dir passed in) so the rule is
-/// testable without mutating the process-global env.
+/// `$RUSTCODE_HOME` set, a literal spelling would guard a path that does not
+/// exist while the real credential stayed unguarded. Pure (dir passed in) so the
+/// rule is testable without mutating the process-global env.
 ///
-/// `starts_with` is component-wise, so the second arm covers the `auth/`
-/// DIRECTORY and not the `auth.toml` file -- hence the explicit first arm.
+/// The store is `<config_dir>/mcp_auth.toml` (the MCP OAuth token file). The old
+/// `auth.toml` / `auth/` entries came from the removed `rustcode-auth` crate and
+/// are no longer written or read anywhere, so guarding them was dead weight.
 fn is_credential_path(path: &Path, config_dir: &Path) -> bool {
-    path == config_dir.join("auth.toml") || path.starts_with(config_dir.join("auth"))
+    path == config_dir.join("mcp_auth.toml")
 }
 
 /// True iff a RESOLVED (absolute, cwd-joined) `path` is sensitive -- a system-protected
@@ -374,13 +374,13 @@ mod tests {
             "real secret variant"
         );
         assert!(references_sensitive_path(
-            r#"{"file_path":"/home/u/.rustcode/auth.toml"}"#
+            r#"{"file_path":"/home/u/.rustcode/mcp_auth.toml"}"#
         ));
         assert!(references_sensitive_path(
-            r#"{"command":"cat ~/.rustcode/auth.toml"}"#
+            r#"{"command":"cat ~/.rustcode/mcp_auth.toml"}"#
         ));
         assert!(references_sensitive_path(
-            r#"{"file_path":"C:\\Users\\u\\.rustcode\\auth.toml"}"#
+            r#"{"file_path":"C:\\Users\\u\\.rustcode\\mcp_auth.toml"}"#
         ));
         // Placeholder templates (committed to VCS, no real secrets) -> NOT flagged.
         assert!(
@@ -474,25 +474,23 @@ mod tests {
     #[test]
     fn the_credential_guard_follows_a_relocated_config_dir() {
         let moved = Path::new("/opt/ac");
-        assert!(is_credential_path(Path::new("/opt/ac/auth.toml"), moved));
-        assert!(is_credential_path(
-            Path::new("/opt/ac/auth/token.json"),
-            moved
-        ));
+        assert!(is_credential_path(Path::new("/opt/ac/mcp_auth.toml"), moved));
         // The default location is NOT special-cased: with the tree moved, that
         // path is an ordinary file. `SENSITIVE_MARKERS` still covers the raw-arg
         // spelling -- see `the_default_credential_markers_survive_relocation`.
         assert!(!is_credential_path(
-            Path::new("/home/u/.rustcode/auth.toml"),
+            Path::new("/home/u/.rustcode/mcp_auth.toml"),
             moved
         ));
-        // Prefix-of-a-name must not count: `auth.toml.bak` is a different file,
-        // and `authors/` is not the credential dir.
-        assert!(!is_credential_path(Path::new("/opt/ac/authors"), moved));
+        // Prefix-of-a-name must not count: `mcp_auth.toml.bak` is a different file.
+        assert!(!is_credential_path(
+            Path::new("/opt/ac/mcp_auth.toml.bak"),
+            moved
+        ));
 
         let default = Path::new("/home/u/.rustcode");
         assert!(is_credential_path(
-            Path::new("/home/u/.rustcode/auth.toml"),
+            Path::new("/home/u/.rustcode/mcp_auth.toml"),
             default
         ));
     }
@@ -501,18 +499,18 @@ mod tests {
     fn markers_are_derived_from_the_configured_dir() {
         assert_eq!(
             credential_markers_for(Path::new("/opt/AC")),
-            vec!["/opt/ac/auth.toml".to_string(), "/opt/ac/auth/".to_string()],
+            vec!["/opt/ac/mcp_auth.toml".to_string()],
             "lowercased so it matches the lowercased args"
         );
         // Windows dirs reach the matcher `/`-normalized, like every other marker.
         assert_eq!(
             credential_markers_for(Path::new(r"C:\ac")),
-            vec!["c:/ac/auth.toml".to_string(), "c:/ac/auth/".to_string()]
+            vec!["c:/ac/mcp_auth.toml".to_string()]
         );
         // A trailing separator must not double up.
         assert_eq!(
             credential_markers_for(Path::new("/opt/ac/")),
-            vec!["/opt/ac/auth.toml".to_string(), "/opt/ac/auth/".to_string()]
+            vec!["/opt/ac/mcp_auth.toml".to_string()]
         );
         assert!(credential_markers_for(Path::new("")).is_empty());
     }
@@ -531,16 +529,12 @@ mod tests {
             dir.display()
         );
 
-        let auth = dir.join("auth.toml");
+        let auth = dir.join("mcp_auth.toml");
         let args = serde_json::json!({ "file_path": auth.to_string_lossy() }).to_string();
         assert!(
             references_sensitive_path(&args),
             "credentials at the configured location must gate a Safe read: {args}"
         );
-
-        let token = dir.join("auth").join("token.json");
-        let args = serde_json::json!({ "command": format!("cat {}", token.display()) }).to_string();
-        assert!(references_sensitive_path(&args), "{args}");
 
         // Same tree, ordinary file -> still no prompt. Pins that the new markers
         // are path-shaped and did not widen into "anything under the config dir".
@@ -555,10 +549,7 @@ mod tests {
     #[test]
     fn the_default_credential_markers_survive_relocation() {
         assert!(references_sensitive_path(
-            r#"{"file_path":"/home/u/.rustcode/auth.toml"}"#
-        ));
-        assert!(references_sensitive_path(
-            r#"{"command":"cat ~/.rustcode/auth/token.json"}"#
+            r#"{"file_path":"/home/u/.rustcode/mcp_auth.toml"}"#
         ));
     }
 }

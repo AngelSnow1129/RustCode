@@ -162,7 +162,9 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
   [wiki]
   auto_generate_on_init = false   # /init 时自动生成 wiki（默认关）
   out_dir = ".rustcode/wiki"      # 输出目录（相对项目根）
-  use_llm = false                 # 是否用 LLM 充实模块页
+  use_llm = false                 # 是否用 LLM 充实模块页（等价 --llm）
+  provider = "deepseek"           # 可选：充实用 Provider（省略=全局活动 Provider）
+  model = "deepseek-chat"         # 可选：充实用模型（省略=该 Provider 默认模型）
   exclude_dirs = ["target"]       # 额外排除扫描的目录
   auto_sync_interval_secs = 0     # 文件变更后自动同步的轮询间隔（秒，0 = 关）
   ```
@@ -345,7 +347,7 @@ sh uninstall.sh
 ./uninstall.ps1
 ```
 
-默认保留凭据（`auth.toml`、`mcp.json`、`config.toml`、`RUSTCODE.md`），传 `--purge` 才会一起清除。
+默认保留凭据（`mcp.json`、`mcp_auth.toml`、`config.toml`、`RUSTCODE.md`），传 `--purge` 才会一起清除。
 
 ## 快速开始
 

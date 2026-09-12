@@ -645,5 +645,5 @@ daemon 使用以下配置文件（位于 `~/.rustcode/` 目录）：
 |------|------|
 | `config.toml` | 主配置（Provider、默认工作目录等） |
 | `mcp.json` | MCP 服务器配置 |
-| `auth.toml` | 认证信息（OAuth token） |
+| `mcp_auth.toml` | MCP OAuth 令牌（由 `/mcp login` 写入，0600） |
 | `sessions/` | 会话数据存储目录 |

@@ -372,6 +372,88 @@ fn test_sync_removes_deleted_module() {
     );
 }
 
+/// GAP ②: deleting a module must also delete its LLM summary sidecar(s)
+/// (`<lang>/Modules/<base>.summary.md`). Left behind, a stale sidecar would be
+/// silently re-embedded should a same-named module reappear later.
+#[test]
+fn test_sync_removes_deleted_module_summary_sidecar() {
+    let proj = TempProject::new("removesidecar");
+    write_sample_project(&proj);
+    WikiEngine::generate(&opts_for(&proj.root)).expect("generate");
+
+    let opts = opts_for(&proj.root);
+    let model = WikiEngine::analyze(&opts).expect("analyze");
+    let name_map = module_file_names(&model);
+    let out = proj.root.join(".rustcode").join("wiki");
+    let mypkg = model
+        .modules
+        .iter()
+        .find(|m| m.name == "mypkg")
+        .expect("mypkg module");
+    let mycrate = model
+        .modules
+        .iter()
+        .find(|m| m.name == "mycrate")
+        .expect("mycrate module");
+
+    // Simulate the `--llm` enrichment pass: per-language sidecars for the module
+    // that will be deleted, plus one for the module that survives.
+    for lang in [WikiLang::Zh, WikiLang::En] {
+        write_module_summary(&out, &model, &name_map, lang, mypkg, "MYPKG_STALE_SUMMARY")
+            .expect("write mypkg summary");
+    }
+    write_module_summary(
+        &out,
+        &model,
+        &name_map,
+        WikiLang::Zh,
+        mycrate,
+        "MYCRATE_KEEP_SUMMARY",
+    )
+    .expect("write mycrate summary");
+
+    for lang in ["zh", "en"] {
+        assert!(
+            proj.exists(&format!(".rustcode/wiki/{lang}/Modules/mypkg.summary.md")),
+            "mypkg {lang} sidecar should exist before removal"
+        );
+    }
+
+    // Delete the npm package module entirely (manifest + sources).
+    proj.remove("web/package.json");
+    proj.remove("web/index.js");
+    proj.remove("web");
+
+    let result = WikiEngine::sync(&opts).expect("sync");
+
+    for lang in ["zh", "en"] {
+        let sidecar = format!(".rustcode/wiki/{lang}/Modules/mypkg.summary.md");
+        assert!(
+            !proj.exists(&sidecar),
+            "removed module's {lang} summary sidecar must be deleted, still at {sidecar}"
+        );
+        assert!(
+            result
+                .removed
+                .iter()
+                .any(|p| p.ends_with("Modules/mypkg.summary.md")),
+            "removed sidecar should be reported in `removed`, got {:?}",
+            result.removed
+        );
+    }
+
+    // The surviving module's sidecar and embedded summary must be untouched.
+    assert!(
+        proj.exists(".rustcode/wiki/zh/Modules/mycrate.summary.md"),
+        "surviving module's sidecar must remain on disk"
+    );
+    assert!(
+        proj.read(".rustcode/wiki/zh/Modules/mycrate.md")
+            .contains("MYCRATE_KEEP_SUMMARY"),
+        "surviving module's page must still embed its summary"
+    );
+}
+
 #[test]
 fn test_user_edit_preserved_unless_forced() {
     let proj = TempProject::new("preserve");
@@ -568,6 +650,45 @@ fn test_sync_stats_detect_real_change() {
     assert!(
         manifest.source_stats.contains_key("web/index.js"),
         "source_stats should track the changed file"
+    );
+}
+
+/// Failure-mode guard for the cheap fast path: when a *generated* page is deleted
+/// but no source file changed, the fast path must NOT report "up to date" -- the
+/// missing page has to be regenerated.
+///
+/// Both fast paths in `engine::run` gate on every recorded `wiki_files` entry still
+/// existing on disk; this test pins that guard.
+#[test]
+fn test_sync_regenerates_deleted_generated_page() {
+    let proj = TempProject::new("regenmissing");
+    write_sample_project(&proj);
+
+    WikiEngine::generate(&opts_for(&proj.root)).expect("generate");
+
+    let page = ".rustcode/wiki/zh/Home.md";
+    let original = proj.read(page);
+
+    // Delete a generated page without touching any source file, so the recorded
+    // `source_stats` snapshot still matches and only the existence/hash guard can
+    // force a real regeneration.
+    proj.remove(page);
+    assert!(!proj.exists(page), "page should be gone before sync");
+
+    let res = WikiEngine::sync(&opts_for(&proj.root)).expect("sync");
+
+    let page_path = proj.root.join(page);
+    assert!(
+        res.created.contains(&page_path),
+        "deleted generated page must be recreated, got created={:?} updated={:?}",
+        res.created,
+        res.updated
+    );
+    assert!(proj.exists(page), "page must exist again after sync");
+    assert_eq!(
+        proj.read(page),
+        original,
+        "regenerated page must be byte-identical to the original"
     );
 }
 

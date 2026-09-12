@@ -17,7 +17,7 @@
 set -eu
 
 # ---- manifest (must mirror crates/rustcode-cli/src/uninstall/paths.rs) ----
-RUSTCODE_GROUP2_FILES="auth.toml mcp.json config.toml RUSTCODE.md"
+RUSTCODE_GROUP2_FILES="mcp.json mcp_auth.toml config.toml RUSTCODE.md"
 RUSTCODE_GROUP3_FILES="history input_history.txt recent_dirs.txt codingplan_sync.json device_id"
 RUSTCODE_GROUP3_DIRS="staged telemetry plugins commands skills"
 RUSTCODE_GROUP3_PREFIXES="notice."

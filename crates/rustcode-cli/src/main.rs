@@ -1111,6 +1111,13 @@ struct WikiArgs {
     /// Force full regeneration even if nothing changed.
     #[arg(long)]
     force: bool,
+    /// Provider (model-selection id) to use for `--llm` enrichment
+    /// (default: the globally active provider).
+    #[arg(long)]
+    provider: Option<String>,
+    /// Model override for `--llm` enrichment (default: the provider's model).
+    #[arg(long)]
+    model: Option<String>,
     /// Output directory (default: <root>/.rustcode/wiki).
     #[arg(long)]
     out_dir: Option<PathBuf>,
@@ -1143,6 +1150,11 @@ async fn run_wiki_command(args: WikiArgs) -> i32 {
         .unwrap_or_default();
     let config = rustcode_config::Config::load(&rustcode_config::Config::default_path())
         .unwrap_or_default();
+
+    // LLM enrichment is opt-in via `--llm` or `[wiki] use_llm`. The provider and
+    // model can be chosen independently of the interactive session (flags win
+    // over the `[wiki]` config, which wins over the globally active provider).
+    let (use_llm, wiki_provider, wiki_model) = resolve_wiki_llm_selection(&args, &config);
 
     let cfg_out = config.wiki.out_dir.clone().map(PathBuf::from);
     let cfg_exclude = config.wiki.exclude_dirs.clone();
@@ -1221,8 +1233,10 @@ async fn run_wiki_command(args: WikiArgs) -> i32 {
                 Ok(res) => print_wiki_result(&res),
                 Err(e) => eprintln!("wiki error: {e}"),
             }
-            if args.llm {
-                if let Some(provider) = build_wiki_provider(&config) {
+            if use_llm {
+                if let Some(provider) =
+                    build_wiki_provider(&config, wiki_provider.as_deref(), wiki_model.as_deref())
+                {
                     match enrich_wiki(&opts, &provider).await {
                         Ok(n) => println!("{}", t(Msg::WikiEnriched { count: n }).into_owned()),
                         Err(e) => {
@@ -1252,8 +1266,10 @@ async fn run_wiki_command(args: WikiArgs) -> i32 {
     };
     print_wiki_result(&result);
 
-    if args.llm {
-        if let Some(provider) = build_wiki_provider(&config) {
+    if use_llm {
+        if let Some(provider) =
+            build_wiki_provider(&config, wiki_provider.as_deref(), wiki_model.as_deref())
+        {
             eprintln!("{}", t(Msg::WikiEnriching).into_owned());
             match enrich_wiki(&opts, &provider).await {
                 Ok(n) => println!("{}", t(Msg::WikiEnriched { count: n }).into_owned()),
@@ -1272,11 +1288,36 @@ async fn run_wiki_command(args: WikiArgs) -> i32 {
     0
 }
 
+/// Whether a wiki run should be reported as "up to date": nothing was created,
+/// updated, preserved, or removed. Extracted from [`print_wiki_result`] so the
+/// removed-files path is unit-testable without capturing stdout.
+fn wiki_run_is_up_to_date(res: &rustcode_wiki::WikiResult) -> bool {
+    res.created.is_empty()
+        && res.updated.is_empty()
+        && res.preserved.is_empty()
+        && res.removed.is_empty()
+}
+
+/// Human-facing lines for the files a wiki run removed (stale module pages and
+/// their orphaned LLM summary sidecars). Empty when nothing was removed.
+fn wiki_removed_lines(res: &rustcode_wiki::WikiResult) -> Vec<String> {
+    use rustcode_config::i18n::{t, Msg};
+    res.removed
+        .iter()
+        .map(|p| {
+            t(Msg::WikiFileRemoved {
+                path: &p.display().to_string(),
+            })
+            .into_owned()
+        })
+        .collect()
+}
+
 /// Print a one-line summary of a wiki run to stdout.
 fn print_wiki_result(res: &rustcode_wiki::WikiResult) {
     use rustcode_config::i18n::{t, Msg};
     let changed = res.created.len() + res.updated.len();
-    if changed == 0 && res.preserved.is_empty() {
+    if wiki_run_is_up_to_date(res) {
         println!("{}", t(Msg::WikiSyncUpToDate).into_owned());
     } else {
         if changed > 0 {
@@ -1299,6 +1340,9 @@ fn print_wiki_result(res: &rustcode_wiki::WikiResult) {
                 })
                 .into_owned()
             );
+        }
+        for line in wiki_removed_lines(res) {
+            println!("{line}");
         }
     }
 }
@@ -1325,12 +1369,45 @@ fn confirm_overwrite(path: &str, yes: bool) -> bool {
     matches!(line.as_str(), "y" | "yes" | "是")
 }
 
-/// Build an OpenAI-compatible provider from the active provider config, for LLM
-/// enrichment. Returns `None` when no usable provider is configured.
-fn build_wiki_provider(config: &rustcode_config::Config) -> Option<OpenAiCompatProvider> {
-    let provider = config.active_provider(None).ok()?;
+/// Resolve the wiki's LLM enrichment selection as
+/// `(use_llm, provider, model)`.
+///
+/// Precedence is CLI flag > `[wiki]` config > globally active provider (the
+/// last one is represented by `None`, letting `build_wiki_provider` fall back
+/// to `Config::active_provider(None)`). Extracted as a pure function so the
+/// precedence can be unit-tested without building an `OpenAiCompatProvider`
+/// (which needs a real base URL and API key).
+fn resolve_wiki_llm_selection(
+    args: &WikiArgs,
+    config: &rustcode_config::Config,
+) -> (bool, Option<String>, Option<String>) {
+    let use_llm = args.llm || config.wiki.use_llm;
+    let provider = args
+        .provider
+        .clone()
+        .or_else(|| config.wiki.provider.clone());
+    let model = args.model.clone().or_else(|| config.wiki.model.clone());
+    (use_llm, provider, model)
+}
+
+/// Build an OpenAI-compatible provider for wiki LLM enrichment.
+///
+/// `provider_name` selects a specific provider (model-selection id); `None`
+/// falls back to the globally active provider. `model_override` replaces the
+/// provider's configured model, so the wiki can enrich with a model of its own
+/// choosing, independent of the interactive session. Returns `None` when no
+/// usable provider is configured.
+fn build_wiki_provider(
+    config: &rustcode_config::Config,
+    provider_name: Option<&str>,
+    model_override: Option<&str>,
+) -> Option<OpenAiCompatProvider> {
+    let mut provider = config.active_provider(provider_name).ok()?;
     let base_url = provider.base_url.as_deref()?.to_string();
     let api_key = provider.resolved_api_key().unwrap_or_default();
+    if let Some(m) = model_override.filter(|s| !s.trim().is_empty()) {
+        provider.model = m.to_string();
+    }
     let model = provider.model.clone();
     let cfg = OpenAiCompatConfig::new(api_key, base_url, model);
     OpenAiCompatProvider::new(cfg).ok()
@@ -1713,15 +1790,16 @@ async fn async_main() {
     // Wire `tracing::` diagnostics to `<config_dir>/logs/rustcode.log` (file-only,
     // TUI-safe). Must run before anything that emits traces so nothing is lost.
     init_file_logging();
-    // NOTE: A previous build deleted `<config_dir>/auth.toml` here as a "legacy"
-    // file left behind by the removed `rustcode-auth` crate. That deletion ran on
-    // *every* startup and conflicted with the rest of the codebase, which treats
-    // `auth.toml` as a live credential (uninstall preserves it, the capabilities
-    // layer guards it as sensitive). Unconditionally removing a file that other
-    // subsystems still treat as a credential risks wiping real credentials, and
-    // it also broke the uninstall integration tests (the binary nuked the data
-    // dir before the subcommand could run). We no longer delete it here; any
-    // truly-legacy `auth.toml` is left in place and is simply never read.
+    // 一次性清除已废弃的平台凭证文件（rustcode-auth 已移除）。
+    // 该文件来自已删除的 rustcode-auth，现既不被读取也无意义；启动时静默删除，
+    // 让老用户机器干净。失败静默，不阻断启动。
+    let legacy_auth = Config::config_dir().join("auth.toml");
+    if legacy_auth.exists() {
+        match std::fs::remove_file(&legacy_auth) {
+            Ok(()) => tracing::info!("已清除遗留的平台凭证文件 auth.toml"),
+            Err(e) => tracing::info!("跳过清理遗留 auth.toml: {e}"),
+        }
+    }
     // Set Windows console to UTF-8 so CJK and other multi-byte characters
     // render correctly instead of showing garbled output (mojibake).
     #[cfg(target_os = "windows")]
@@ -4829,9 +4907,10 @@ mod tests {
         headless_completion_notify_reason, headless_denial_exit_code,
         headless_missing_provider_message, interactive_provider_bootstrap,
         is_completion_invocation, merge_startup_notices, print_shell_completion,
-        resolve_in_catalog, resolve_working_dir, resume_hint_line, runtime_config_from,
-        rustcode_log_path, should_fork_busy_continue, truncate_log_line, Cli, Commands,
-        HeadlessOutputFormat, DEFAULT_LOG_DIRECTIVES,
+        resolve_in_catalog, resolve_working_dir, resolve_wiki_llm_selection, resume_hint_line,
+        runtime_config_from, rustcode_log_path, should_fork_busy_continue, truncate_log_line,
+        wiki_removed_lines, wiki_run_is_up_to_date, Cli, Commands, HeadlessOutputFormat, WikiArgs,
+        DEFAULT_LOG_DIRECTIVES,
     };
     use clap::Parser;
     use clap_complete::Shell;
@@ -5622,6 +5701,161 @@ mod tests {
         assert_eq!(
             buf,
             "[thinking] I should check the file\n[tool-> read_file]\n"
+        );
+    }
+
+    // --- wiki LLM selection precedence -----------------------------------
+    //
+    // `resolve_wiki_llm_selection` is the pure core of `run_wiki_command`'s
+    // "flag > `[wiki]` config > globally active provider" contract. The
+    // provider itself (`build_wiki_provider`) needs a real base URL / API key
+    // to construct, so the precedence is asserted here instead.
+
+    /// Minimal `WikiArgs` with everything off/empty.
+    fn wiki_args() -> WikiArgs {
+        WikiArgs {
+            path: None,
+            sync: false,
+            watch: false,
+            llm: false,
+            force: false,
+            provider: None,
+            model: None,
+            out_dir: None,
+            title: None,
+            exclude: Vec::new(),
+            interval: 30,
+            lang: Vec::new(),
+            yes: false,
+        }
+    }
+
+    /// `Config::default()` with the `[wiki]` LLM knobs set as given.
+    fn config_with_wiki_llm(
+        use_llm: bool,
+        provider: Option<&str>,
+        model: Option<&str>,
+    ) -> rustcode_config::Config {
+        let mut config = rustcode_config::Config::default();
+        config.wiki.use_llm = use_llm;
+        config.wiki.provider = provider.map(str::to_string);
+        config.wiki.model = model.map(str::to_string);
+        config
+    }
+
+    /// CLI `--provider` / `--model` win over `[wiki] provider` / `[wiki] model`.
+    #[test]
+    fn wiki_llm_selection_flags_override_wiki_config() {
+        let mut args = wiki_args();
+        args.provider = Some("flag-provider".to_string());
+        args.model = Some("flag-model".to_string());
+        let config = config_with_wiki_llm(false, Some("cfg-provider"), Some("cfg-model"));
+
+        let (use_llm, provider, model) = resolve_wiki_llm_selection(&args, &config);
+        assert!(
+            !use_llm,
+            "no --llm and [wiki].use_llm=false -> enrichment stays off"
+        );
+        assert_eq!(provider.as_deref(), Some("flag-provider"));
+        assert_eq!(model.as_deref(), Some("flag-model"));
+    }
+
+    /// With no flags, the `[wiki]` section supplies both provider and model
+    /// (and turns enrichment on).
+    #[test]
+    fn wiki_llm_selection_uses_wiki_config_without_flags() {
+        let args = wiki_args();
+        let config = config_with_wiki_llm(true, Some("cfg-provider"), Some("cfg-model"));
+
+        let (use_llm, provider, model) = resolve_wiki_llm_selection(&args, &config);
+        assert!(use_llm);
+        assert_eq!(provider.as_deref(), Some("cfg-provider"));
+        assert_eq!(model.as_deref(), Some("cfg-model"));
+    }
+
+    /// Nothing configured anywhere -> enrichment off and `None` provider /
+    /// model, so `build_wiki_provider` falls back to the globally active
+    /// provider instead of pinning an override.
+    #[test]
+    fn wiki_llm_selection_defaults_to_off_and_no_override() {
+        let args = wiki_args();
+        let config = rustcode_config::Config::default();
+
+        let (use_llm, provider, model) = resolve_wiki_llm_selection(&args, &config);
+        assert!(!use_llm);
+        assert_eq!(provider, None);
+        assert_eq!(model, None);
+    }
+
+    /// `[wiki] use_llm = true` alone enables enrichment, with no provider or
+    /// model override layered on top.
+    #[test]
+    fn wiki_llm_selection_use_llm_comes_from_config() {
+        let args = wiki_args();
+        let config = config_with_wiki_llm(true, None, None);
+
+        let (use_llm, provider, model) = resolve_wiki_llm_selection(&args, &config);
+        assert!(use_llm);
+        assert_eq!(provider, None);
+        assert_eq!(model, None);
+    }
+
+    /// Flags and config mix field-by-field: a flag on one field must not
+    /// discard the configured value of the other.
+    #[test]
+    fn wiki_llm_selection_mixes_flag_provider_with_config_model() {
+        let mut args = wiki_args();
+        args.llm = true;
+        args.provider = Some("flag-provider".to_string());
+        let config = config_with_wiki_llm(false, Some("cfg-provider"), Some("cfg-model"));
+
+        let (use_llm, provider, model) = resolve_wiki_llm_selection(&args, &config);
+        assert!(use_llm, "--llm alone is enough to enable enrichment");
+        assert_eq!(provider.as_deref(), Some("flag-provider"));
+        assert_eq!(model.as_deref(), Some("cfg-model"));
+    }
+
+    /// GAP ① regression: a run whose only effect was removing stale files must
+    /// NOT be reported as up to date, and each removed file must surface on its
+    /// own line (naming the file) so module deletions are visible on the CLI.
+    #[test]
+    fn wiki_removed_files_are_surfaced_and_not_up_to_date() {
+        let gone = PathBuf::from("/w/.rustcode/wiki/zh/Modules/gone.md");
+        let run = rustcode_wiki::WikiResult {
+            out_dir: PathBuf::from("/w/.rustcode/wiki"),
+            modules: 1,
+            created: Vec::new(),
+            updated: Vec::new(),
+            unchanged: 0,
+            removed: vec![gone.clone()],
+            preserved: Vec::new(),
+            diagram: String::new(),
+        };
+
+        assert!(
+            !wiki_run_is_up_to_date(&run),
+            "a run with removals must not be reported as up to date"
+        );
+        let lines = wiki_removed_lines(&run);
+        assert_eq!(lines.len(), 1, "one line per removed file, got {lines:?}");
+        assert!(
+            lines[0].contains("gone.md"),
+            "the removed line must name the file, got {:?}",
+            lines[0]
+        );
+
+        // An entirely empty run stays on the up-to-date path.
+        let clean = rustcode_wiki::WikiResult {
+            removed: Vec::new(),
+            ..run
+        };
+        assert!(
+            wiki_run_is_up_to_date(&clean),
+            "a run with no created/updated/preserved/removed work is up to date"
+        );
+        assert!(
+            wiki_removed_lines(&clean).is_empty(),
+            "no removals => no removal lines"
         );
     }
 }
