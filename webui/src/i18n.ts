@@ -20,7 +20,6 @@ const zh = {
   'sidebar.collapse': '收起侧栏',
   'sidebar.newChat': '新建对话',
   'sidebar.newInProject': '在此目录新建对话',
-  'sidebar.accountFallback': '账号',
   'sidebar.skills': '技能',
   'sidebar.skillsEmpty': '暂无可用技能',
   'sidebar.skillsLoading': '加载中…',
@@ -221,7 +220,6 @@ const zh = {
   'settings.language': '语言',
   'settings.modelsTitle': '模型',
   'settings.modelsIntro': '配置提供方凭据与模型。第三方供应商使用自带 API Key，可在下方添加或编辑。',
-  'settings.modelsIntroManaged': '凭据通过 /provider 或 ~/.rustcode/config.toml 的 [providers.*] 配置，无 OAuth、无外部平台；模型随 provider 同步。',
   'settings.noProviderHint': '尚未配置任何 provider。点击下方按钮添加你的第一个 provider。',
   'settings.close': '关闭',
   'settings.loadFailed': '加载失败',
@@ -435,13 +433,6 @@ const zh = {
   'notify.status.stopped': '已停止',
   'notify.status.finished': '已结束',
 
-  // 凭据配置入口（中立/开源构建无托管账号服务，不渲染入口）
-  'login.signIn': '配置凭据',
-  'login.signingIn': '配置中…',
-  'login.signOut': '清除凭据',
-  'login.hint': '已在浏览器打开配置页…',
-  'login.expired': '凭据已过期，点击重新配置',
-
   // Common
   'common.cancel': '取消',
 } as const;
@@ -458,7 +449,6 @@ const en: Record<MsgKey, string> = {
   'sidebar.collapse': 'Collapse sidebar',
   'sidebar.newChat': 'New chat',
   'sidebar.newInProject': 'New chat in this directory',
-  'sidebar.accountFallback': 'account',
   'sidebar.skills': 'Skills',
   'sidebar.skillsEmpty': 'No skills available',
   'sidebar.skillsLoading': 'Loading…',
@@ -649,7 +639,6 @@ const en: Record<MsgKey, string> = {
   'settings.language': 'Language',
   'settings.modelsTitle': 'Models',
   'settings.modelsIntro': 'Configure provider credentials and models. Third-party providers use your own API key -- add or edit them below.',
-  'settings.modelsIntroManaged': 'Official managed models stay in sync with your managed sign-in -- no credentials to configure.',
   'settings.noProviderHint': 'No provider configured yet. Click the button below to add your first provider.',
   'settings.close': 'Close',
   'settings.loadFailed': 'Load failed',
@@ -860,13 +849,6 @@ const en: Record<MsgKey, string> = {
   'notify.status.failed': 'Failed',
   'notify.status.stopped': 'Stopped',
   'notify.status.finished': 'Finished',
-
-  // Managed account sign-in (entry points hidden in neutral builds)
-  'login.signIn': 'Sign in',
-  'login.signingIn': 'Signing in…',
-  'login.signOut': 'Sign out',
-  'login.hint': 'Opened sign-in in your browser…',
-  'login.expired': 'Session expired — click to sign in again',
 
   'common.cancel': 'Cancel',
 };

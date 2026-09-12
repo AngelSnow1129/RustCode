@@ -44,7 +44,7 @@ import {
   type SlashHandlers,
 } from './slashCommands.ts';
 
-function fakeHandlers(managedAvailable = false): { h: SlashHandlers; calls: string[] } {
+function fakeHandlers(): { h: SlashHandlers; calls: string[] } {
   const calls: string[] = [];
   const h: SlashHandlers = {
     setMode: (m) => { calls.push(`setMode:${m}`); },
@@ -56,7 +56,6 @@ function fakeHandlers(managedAvailable = false): { h: SlashHandlers; calls: stri
     openSlashSkillsMenu: () => { calls.push('openSlashSkillsMenu'); },
     notice: (t) => { calls.push(`notice:${t}`); },
     execServerCommand: (cmd, arg) => { calls.push(`exec:${cmd}:${arg}`); },
-    managedAvailable,
     t: (k) => k,
   };
   return { h, calls };
@@ -143,7 +142,6 @@ test('/undo /remember /forget /memory dispatch to execServerCommand', async () =
     changeDir: () => {}, openSessionSidebar: () => {}, reloadConfig: () => {},
     openSlashSkillsMenu: () => {}, notice: (t) => { calls.push(`notice:${t}`); },
     execServerCommand: (cmd, arg) => { calls.push(`exec:${cmd}:${arg}`); },
-    managedAvailable: false,
     t: (k) => k,
   };
   const map = buildCommandMap(FRONTEND_COMMANDS);
@@ -160,7 +158,7 @@ test('/context and /compact dispatch to execServerCommand', async () => {
     setMode: () => {}, openModelPicker: () => {}, setProvider: () => {}, changeDir: () => {},
     openSessionSidebar: () => {}, reloadConfig: () => {}, openSlashSkillsMenu: () => {},
     notice: () => {}, execServerCommand: (cmd, arg) => { calls.push(`exec:${cmd}:${arg}`); },
-    managedAvailable: false, t: (k) => k,
+    t: (k) => k,
   };
   const map = buildCommandMap(FRONTEND_COMMANDS);
   await dispatchSlashCommand('/context', map, h);
@@ -174,7 +172,7 @@ test('display commands dispatch to execServerCommand', async () => {
     setMode: () => {}, openModelPicker: () => {}, setProvider: () => {}, changeDir: () => {},
     openSessionSidebar: () => {}, reloadConfig: () => {}, openSlashSkillsMenu: () => {},
     notice: () => {}, execServerCommand: (cmd, arg) => { calls.push(`${cmd}:${arg}`); },
-    managedAvailable: false, t: (k) => k,
+    t: (k) => k,
   };
   const map = buildCommandMap(FRONTEND_COMMANDS);
   for (const c of ['whoami','status','config','diff','cost','todo']) await dispatchSlashCommand(`/${c}`, map, h);
@@ -188,7 +186,6 @@ test('/remember and /forget without arg emit a notice', async () => {
     changeDir: () => {}, openSessionSidebar: () => {}, reloadConfig: () => {},
     openSlashSkillsMenu: () => {}, notice: (t) => { calls.push(t); },
     execServerCommand: (cmd, arg) => { calls.push(`exec:${cmd}:${arg}`); },
-    managedAvailable: false,
     t: (k) => k,
   };
   const map = buildCommandMap(FRONTEND_COMMANDS);
@@ -204,7 +201,7 @@ test('/review dispatches an explicit code_review scope through chat', async () =
     changeDir: () => {}, openSessionSidebar: () => {}, reloadConfig: () => {},
     openSlashSkillsMenu: () => {}, notice: () => {},
     submitPrompt: (text) => { prompts.push(text); },
-    execServerCommand: () => {}, managedAvailable: false, t: (k) => k,
+    execServerCommand: () => {}, t: (k) => k,
   };
   const map = buildCommandMap(FRONTEND_COMMANDS);
   await dispatchSlashCommand('/review staged', map, h);
@@ -219,53 +216,44 @@ test('/review range JSON-escapes the ref without duplicating it into prose', asy
     changeDir: () => {}, openSessionSidebar: () => {}, reloadConfig: () => {},
     openSlashSkillsMenu: () => {}, notice: () => {},
     submitPrompt: (text) => { prompts.push(text); },
-    execServerCommand: () => {}, managedAvailable: false, t: (k) => k,
+    execServerCommand: () => {}, t: (k) => k,
   };
   await dispatchSlashCommand('/review odd"ref', buildCommandMap(FRONTEND_COMMANDS), h);
   assert.match(prompts[0], /"base":"odd\\"ref"/);
   assert.doesNotMatch(prompts[0], /odd"ref\.\.HEAD/);
 });
 
-// ── Build-aware command visibility (managed-only commands) ──────────────────
-// Mirrors the TUI's command_visible(): managed-account commands (/whoami) are
-// hidden from discovery surfaces in a neutral/open build but stay dispatchable
-// when typed explicitly.
+// ── Command visibility (managed-only commands) ───────────────────────────────
+// Mirrors the TUI's command_visible(): managed-only commands (/whoami) are
+// hidden from discovery surfaces but stay dispatchable when typed explicitly.
 
 import { visibleCommands } from './slashCommands.ts';
 
 test('neutral build hides /whoami from the advertised command list', () => {
-  const neutral = visibleCommands(false);
+  const neutral = visibleCommands();
   assert.ok(!neutral.some((d) => d.name === 'whoami'), 'neutral menu must not list /whoami');
   // BYO-relevant commands stay visible (no /provider in the webui -- provider
   // management lives in the settings dialog; /model and /cost are the leads).
   assert.ok(neutral.some((d) => d.name === 'model'));
   assert.ok(neutral.some((d) => d.name === 'cost'));
-  const managed = visibleCommands(true);
-  assert.ok(managed.some((d) => d.name === 'whoami'), 'managed build keeps /whoami');
 });
 
-test('/help in a neutral build omits /whoami; managed build includes it', async () => {
-  const neutral = fakeHandlers(false);
+test('/help omits /whoami from the advertised list', async () => {
+  const neutral = fakeHandlers();
   await dispatchSlashCommand('/help', buildCommandMap(FRONTEND_COMMANDS), neutral.h);
   assert.doesNotMatch(neutral.calls[0], /\/whoami/);
   assert.match(neutral.calls[0], /\/model/);
-
-  const managed = fakeHandlers(true);
-  await dispatchSlashCommand('/help', buildCommandMap(FRONTEND_COMMANDS), managed.h);
-  assert.match(managed.calls[0], /\/whoami/);
 });
 
-test('slash menu hides /whoami in neutral but shows it in managed builds', () => {
-  const items = buildSlashMenuItems(visibleCommands(false), [], '', (k) => k);
+test('slash menu hides /whoami', () => {
+  const items = buildSlashMenuItems(visibleCommands(), [], '', (k) => k);
   assert.ok(!items.some((i) => i.name === 'whoami'));
-  const managedItems = buildSlashMenuItems(visibleCommands(true), [], 'who', (k) => k);
-  assert.ok(managedItems.some((i) => i.name === 'whoami'));
 });
 
 test('/whoami stays dispatchable when typed explicitly in a neutral build', async () => {
   // The dispatch map is the FULL list (TUI parity: hidden != removed), so an
   // explicit /whoami still reaches the server, which returns neutral copy.
-  const { h, calls } = fakeHandlers(false);
+  const { h, calls } = fakeHandlers();
   const r = await dispatchSlashCommand('/whoami', buildCommandMap(FRONTEND_COMMANDS), h);
   assert.deepEqual(r, { handled: true });
   assert.deepEqual(calls, ['exec:whoami:']);

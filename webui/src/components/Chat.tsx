@@ -1853,21 +1853,9 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
   // runs it); only the advertised menu/help list is build-filtered.
   const slashCommandMap = useMemo(() => buildCommandMap(FRONTEND_COMMANDS), []);
 
-  // Build capability from the daemon: managed sign-in service present?
-  // Neutral/open builds report false -> managed-only commands (/whoami) are
-  // hidden from the slash menu and /help. One fetch per mount, fail-closed.
-  const [managedAvailable, setManagedAvailable] = useState(false);
-  useEffect(() => {
-    let active = true;
-    fetch('/auth/status')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((s) => { if (active) setManagedAvailable(s?.managed_available === true); })
-      .catch(() => undefined);
-    return () => { active = false; };
-  }, []);
   const advertisedCommands = useMemo(
-    () => visibleCommands(managedAvailable),
-    [managedAvailable],
+    () => visibleCommands(),
+    [],
   );
 
   // Reload one session's transcript from disk into the view, guarded against a
@@ -2111,10 +2099,9 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
         }
       },
       t,
-      managedAvailable,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [t, modeState, sync, onCwdChanged, slashSkills, slashLoading, sessionId, cwd, activeSession, provider, messages.length, managedAvailable],
+    [t, modeState, sync, onCwdChanged, slashSkills, slashLoading, sessionId, cwd, activeSession, provider, messages.length],
   );
 
   // Append a non-fatal advisory as its OWN notice part (never merged into a text run,

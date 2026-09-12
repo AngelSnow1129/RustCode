@@ -33,10 +33,6 @@ export interface SlashHandlers {
   notice(text: string): void;
   submitPrompt?(text: string): void | Promise<void>;
   execServerCommand(command: string, arg: string): void | Promise<void>;
-  /** Whether the build ships a managed sign-in service (/auth/status ->
-   *  managed_available). False in neutral/open builds: managed-only commands
-   *  are hidden from the slash menu and /help (still dispatchable when typed). */
-  managedAvailable: boolean;
   t(key: string, params?: Record<string, string | number>): string;
 }
 
@@ -55,8 +51,8 @@ export interface SlashCommandDef {
 }
 
 /** Commands safe to advertise (slash menu + /help) for the running build. */
-export function visibleCommands(managedAvailable: boolean): SlashCommandDef[] {
-  return FRONTEND_COMMANDS.filter((d) => managedAvailable || !d.managedOnly);
+export function visibleCommands(): SlashCommandDef[] {
+  return FRONTEND_COMMANDS.filter((d) => !d.managedOnly);
 }
 
 export const FRONTEND_COMMANDS: SlashCommandDef[] = [
@@ -80,7 +76,7 @@ export const FRONTEND_COMMANDS: SlashCommandDef[] = [
   { name: 'resume', descKey: 'cmd.resume.desc', run: (_a, h) => h.openSessionSidebar() },
   { name: 'reload', descKey: 'cmd.reload.desc', run: (_a, h) => h.reloadConfig() },
   { name: 'skills', descKey: 'cmd.skills.desc', run: (_a, h) => h.openSlashSkillsMenu() },
-  { name: 'help', descKey: 'cmd.help.desc', run: (_a, h) => h.notice(buildHelpText(h.t, h.managedAvailable)) },
+  { name: 'help', descKey: 'cmd.help.desc', run: (_a, h) => h.notice(buildHelpText(h.t)) },
   {
     name: 'review',
     descKey: 'cmd.review.desc',
@@ -137,10 +133,9 @@ export function buildCommandMap(defs: SlashCommandDef[]): Map<string, SlashComma
 
 export function buildHelpText(
   t: (key: string, params?: Record<string, string | number>) => string,
-  managedAvailable = false,
 ): string {
   const lines = [t('cmd.help.title')];
-  for (const d of visibleCommands(managedAvailable)) {
+  for (const d of visibleCommands()) {
     lines.push(`/${d.name}${d.argHint ? ' ' + d.argHint : ''} — ${t(d.descKey)}`);
   }
   return lines.join('\n');

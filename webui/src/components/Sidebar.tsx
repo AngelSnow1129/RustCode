@@ -8,7 +8,6 @@ import { listSessions, listProjectSessions, searchSessions, getSkills, getMcpSta
 import { useT, useSettings, SettingsSection, Theme } from '../settings';
 import { MsgKey, Lang } from '../i18n';
 import { RenameDialog, DeleteDialog } from './SessionDialogs';
-import { useAuth } from './LoginButton';
 import { mergeOptimisticSession } from '../lib/sessionList';
 import { sessionMessagesToMarkdownLines } from '../lib/historyMessages';
 import { sidebarRelativeTime } from '../lib/sidebarTime';
@@ -285,16 +284,6 @@ function LangGlyph() {
   );
 }
 
-/** Account glyph (head + shoulders). */
-function AccountGlyph() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.2" />
-      <path d="M3.5 13.5a4.5 4.5 0 0 1 9 0" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-    </svg>
-  );
-}
-
 /** Model glyph (chip). */
 function ModelGlyph() {
   return (
@@ -337,11 +326,6 @@ export function Sidebar({
 }: SidebarProps) {
   const t = useT();
   const { theme, setTheme, lang, setLang } = useSettings();
-  const auth = useAuth();
-  // Bottom-bar login button's idle label: distinct copy when credentials are
-  // present-but-dead vs signed-out. Shared by the tooltip and the visible text
-  // (they only diverge while a login is in flight).
-  const loginIdleLabel = auth.expired ? auth.labels.expired : auth.labels.signIn;
   const [sessions, setSessions] = useState<SessionMetaWithProject[]>([]);
   const [loading, setLoading] = useState(true);
   const sessionListBodyRef = useRef<HTMLDivElement | null>(null);
@@ -1056,17 +1040,6 @@ export function Sidebar({
           <span>{t('settings.menuNotifications')}</span>
         </button>
         {/* 远程访问入口已移到侧栏底部栏（见下方 sidebar-bottom 的 Remote Btn）。 */}
-
-        {/* 退出登录：放在组最下面，仅在有账号服务且已登录时显示（中立/开源构建无托管账号服务，整行不渲染）。 */}
-        {auth.managedAvailable && auth.loggedIn && (
-          <>
-            <div class="settings-menu-divider" />
-            <button class="item-menu-row" onClick={auth.doLogout}>
-              <AccountGlyph />
-              <span>{auth.labels.signOut}</span>
-            </button>
-          </>
-        )}
       </div>,
           document.body,
         )
@@ -1494,43 +1467,6 @@ export function Sidebar({
       </div>
 
       <div class="sidebar-bottom">
-        {/* 账号区仅在有账号服务时渲染：中立/开源构建没有托管登录服务，登录按钮只会走向
-            500 死路（与 TUI 的 command_visible / onboarding 门控同一谓词，由
-            /auth/status 的 managed_available 下发）。 */}
-        {auth.managedAvailable
-          && (auth.loggedIn && !auth.expired ? (
-          <div
-            class="sidebar-account"
-            title={auth.user?.name || auth.user?.username || t('sidebar.accountFallback')}
-          >
-            <span class="login-avatar">
-              {auth.user?.avatar_url ? (
-                <img
-                  class="login-avatar-img"
-                  src={auth.user.avatar_url}
-                  alt=""
-                  referrerpolicy="no-referrer"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              ) : (
-                (auth.user?.name || auth.user?.username || 'A').slice(0, 1).toUpperCase()
-              )}
-            </span>
-            <span class="login-name">{auth.user?.name || auth.user?.username || t('sidebar.accountFallback')}</span>
-          </div>
-        ) : (
-          <button
-            class={auth.expired ? 'sidebar-account-btn sidebar-account-btn--expired' : 'sidebar-account-btn'}
-            onClick={auth.startLogin}
-            disabled={auth.busy}
-            title={auth.busy ? auth.labels.hint : loginIdleLabel}
-          >
-            <AccountGlyph />
-            <span class="login-name">{auth.busy ? auth.labels.signingIn : loginIdleLabel}</span>
-          </button>
-        ))}
         <span class="sidebar-bottom-spacer" />
         {onOpenRemote && (
           <button
