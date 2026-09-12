@@ -267,3 +267,70 @@ async fn raw_handshake_status(control_port: u16, token: &str) -> u16 {
         .and_then(|code| code.parse().ok())
         .unwrap_or(0)
 }
+
+/// A "local endpoint" that replies once and then immediately closes, used to
+/// check that a close on one end reaches the other end of the tunnel.
+async fn echo_once_then_close(listener: TcpListener) {
+    while let Ok((mut sock, _peer)) = listener.accept().await {
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 4096];
+            if let Ok(n) = sock.read(&mut buf).await {
+                if n > 0 {
+                    let _ = sock.write_all(&buf[..n]).await;
+                }
+            }
+            let _ = sock.shutdown().await;
+        });
+    }
+}
+
+/// A close on the local side must reach the remote peer: the public client sees
+/// EOF instead of hanging forever on a half-closed stream.
+#[tokio::test]
+async fn half_close_is_propagated_to_the_remote_peer() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let once = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind echo-once endpoint");
+        let once_port = once.local_addr().expect("echo-once addr").port();
+        tokio::spawn(echo_once_then_close(once));
+
+        let control = TcpListener::bind("127.0.0.1:0").await.expect("bind control port");
+        let public = TcpListener::bind("127.0.0.1:0").await.expect("bind public port");
+        let control_port = control.local_addr().expect("control addr").port();
+        let public_port = public.local_addr().expect("public addr").port();
+        tokio::spawn(async move {
+            let _ = server::run_relay_with(control, public, TOKEN).await;
+        });
+        let relay_client = tokio::spawn(async move {
+            let url = format!("ws://127.0.0.1:{control_port}/tunnel");
+            let _ = client::start_tunnel_client(&url, TOKEN, once_port).await;
+        });
+
+        // Wait for the tunnel to come up.
+        assert_eq!(
+            roundtrip_when_ready(public_port, b"bye").await,
+            b"bye".to_vec()
+        );
+
+        // Then check that a fresh connection gets its reply and then EOF.
+        let mut sock = TcpStream::connect(("127.0.0.1", public_port))
+            .await
+            .expect("connect to public port");
+        sock.write_all(b"bye").await.expect("write payload");
+        let mut got = vec![0u8; 3];
+        sock.read_exact(&mut got).await.expect("read reply");
+        assert_eq!(got, b"bye".to_vec());
+
+        let eof = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut sink = Vec::new();
+            sock.read_to_end(&mut sink).await
+        })
+        .await
+        .expect("EOF never arrived -- half-close was not propagated");
+        assert!(eof.is_ok(), "reading to EOF failed: {eof:?}");
+        relay_client.abort();
+    })
+    .await
+    .expect("half-close test timed out");
+}

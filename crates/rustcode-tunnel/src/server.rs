@@ -4,13 +4,25 @@
 //! connected tunnel client over a single WebSocket control channel. The client
 //! authenticates with the tunnel token on the handshake. See `docs/relay.md`.
 //!
-//! Lifecycle: the relay is a long-running process. It accepts control
-//! connections in a loop, so a rejected handshake or a client that simply
-//! disconnects never takes the relay down -- it just waits for the next client.
+//! # Lifecycle
+//!
+//! The relay is a long-running process: it accepts control connections in a
+//! loop, so a rejected handshake or a client that simply disconnects never
+//! takes it down -- it cleans up and waits for the next client.
+//!
+//! # One client at a time
+//!
+//! The relay serves **one** tunnel client at a time (single-tenant by design).
+//! A second dev machine connecting while one is active simply waits in the
+//! backlog until the first disconnects; it does NOT get a second tunnel, and
+//! the relay never multiplexes two clients onto the same public port. Clients
+//! therefore use a connect timeout so they fail fast rather than waiting
+//! indefinitely.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
@@ -18,6 +30,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
@@ -26,8 +39,31 @@ use crate::protocol::{decode, percent_decode, Frame, TOKEN_QUERY_PARAM};
 /// Read buffer size for the public->client direction.
 const BUF_SIZE: usize = 16 * 1024;
 
+/// Queue depth for the control channel and for each stream. Bounded on purpose.
+const QUEUE_DEPTH: usize = 64;
+
+/// Maximum number of concurrent streams.
+const MAX_STREAMS: usize = 512;
+
+/// How often we ping the client to keep an idle (but healthy) tunnel alive.
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+
+/// After one side hits EOF, give the other direction this long to drain.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// stream id -> sender that feeds bytes into that stream's public socket.
-type Streams = Arc<Mutex<HashMap<u32, mpsc::UnboundedSender<Vec<u8>>>>>;
+type Streams = Arc<Mutex<HashMap<u32, mpsc::Sender<Vec<u8>>>>>;
+
+/// Bounded send queue + frame cap, so one peer cannot exhaust memory.
+fn ws_config() -> WebSocketConfig {
+    WebSocketConfig {
+        // NOTE: `max_send_queue` is deprecated in tungstenite 0.24; backpressure
+        // is provided by the bounded mpsc queues in front of the socket instead.
+        max_message_size: Some(1 << 20), // 1 MiB
+        max_frame_size: Some(1 << 20),
+        ..Default::default()
+    }
+}
 
 /// Run the relay.
 ///
@@ -41,22 +77,11 @@ pub async fn run_relay(control_addr: &str, public_addr: &str, token: &str) -> Re
     let public = TcpListener::bind(public_addr)
         .await
         .with_context(|| format!("bind public address {public_addr}"))?;
-    // No startup log here: `run_relay_with` logs the ACTUALLY bound addresses,
-    // which matters when the caller asked for an ephemeral port (`:0`).
     run_relay_with(control, public, token).await
 }
 
-/// Run the relay on already-bound listeners.
-///
-/// Same as [`run_relay`] minus the `bind` step: callers that bind ephemeral
-/// ports (`127.0.0.1:0`) can read the OS-assigned addresses with
-/// [`TcpListener::local_addr`] before handing the listeners over. This is what
-/// the end-to-end test uses.
-pub async fn run_relay_with(
-    control: TcpListener,
-    public: TcpListener,
-    token: &str,
-) -> Result<()> {
+/// Run the relay on already-bound listeners (see [`run_relay`]).
+pub async fn run_relay_with(control: TcpListener, public: TcpListener, token: &str) -> Result<()> {
     // An empty token would compare equal to a *missing* token below, letting
     // unauthenticated clients in. Refuse to start instead.
     if token.is_empty() {
@@ -82,7 +107,7 @@ pub async fn run_relay_with(
         debug!("relay: control connection from {peer}");
 
         let expected = token.to_string();
-        let handshake = tokio_tungstenite::accept_hdr_async(
+        let handshake = tokio_tungstenite::accept_hdr_async_with_config(
             stream,
             move |req: &Request, resp: Response| {
                 // `None` when the parameter is absent -- an absent token must
@@ -105,6 +130,7 @@ pub async fn run_relay_with(
                         .expect("a fixed 401 response is always valid"))
                 }
             },
+            Some(ws_config()),
         )
         .await;
 
@@ -130,7 +156,7 @@ async fn serve_control(
 ) {
     let (mut sink, mut stream) = ws.split();
 
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
+    let (out_tx, mut out_rx) = mpsc::channel::<Message>(QUEUE_DEPTH);
     let writer = tokio::spawn(async move {
         while let Some(msg) = out_rx.recv().await {
             if sink.send(msg).await.is_err() {
@@ -152,14 +178,22 @@ async fn serve_control(
                 Ok((sock, peer)) => {
                     let id = pub_ids.fetch_add(1, Ordering::Relaxed);
                     debug!("relay: public connection from {peer} as stream {id}");
-                    // Register the stream BEFORE announcing it: the client may
-                    // answer with Data immediately (any protocol where the local
-                    // side speaks first), and data for an unregistered id would
+                    // Register BEFORE announcing: the client may answer with
+                    // Data immediately, and data for an unregistered id would
                     // be dropped.
-                    let (in_tx, in_rx) = mpsc::unbounded_channel();
-                    pub_streams.lock().await.insert(id, in_tx);
+                    let (in_tx, in_rx) = mpsc::channel(QUEUE_DEPTH);
+                    {
+                        let mut guard = pub_streams.lock().await;
+                        if guard.len() >= MAX_STREAMS {
+                            warn!("relay: stream limit reached, dropping connection from {peer}");
+                            drop(sock);
+                            continue;
+                        }
+                        guard.insert(id, in_tx);
+                    }
                     if pub_out
                         .send(Message::Binary(Frame::Open(id).encode()))
+                        .await
                         .is_err()
                     {
                         break;
@@ -174,17 +208,42 @@ async fn serve_control(
         }
     });
 
-    while let Some(msg) = stream.next().await {
+    let mut keepalive = tokio::time::interval(KEEPALIVE_INTERVAL);
+    keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        let msg = tokio::select! {
+            m = stream.next() => match m {
+                Some(m) => m,
+                None => {
+                    info!("relay: tunnel client disconnected");
+                    break;
+                }
+            },
+            _ = keepalive.tick() => {
+                // Keepalive: an idle tunnel must not look dead. A failure to
+                // send here means the client really is gone.
+                if out_tx.send(Message::Ping(Vec::new())).await.is_err() {
+                    warn!("relay: keepalive failed, dropping the client");
+                    break;
+                }
+                continue;
+            }
+        };
         match msg {
             Ok(Message::Binary(bytes)) => match decode(&bytes) {
                 Ok(Frame::Data(id, payload)) => {
                     let tx = streams.lock().await.get(&id).cloned();
                     if let Some(tx) = tx {
-                        if tx.send(payload).is_err() {
+                        // try_send keeps one stalled stream from head-of-line
+                        // blocking the whole tunnel.
+                        if tx.try_send(payload).is_err() {
+                            warn!("relay: stream {id}: queue full or gone, closing it");
                             streams.lock().await.remove(&id);
+                            let _ = out_tx.try_send(Message::Binary(Frame::Close(id).encode()));
                         }
                     } else {
-                        debug!("relay: stream {id}: data for an unknown stream, dropping");
+                        debug!("relay: stream {id}: data for an unknown stream");
+                        let _ = out_tx.try_send(Message::Binary(Frame::Close(id).encode()));
                     }
                 }
                 Ok(Frame::Close(id)) => {
@@ -218,9 +277,9 @@ async fn serve_control(
 fn spawn_public_stream(
     id: u32,
     sock: TcpStream,
-    out_tx: mpsc::UnboundedSender<Message>,
+    out_tx: mpsc::Sender<Message>,
     streams: Streams,
-    mut in_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    mut in_rx: mpsc::Receiver<Vec<u8>>,
 ) {
     tokio::spawn(async move {
         let (mut rd, mut wr) = sock.into_split();
@@ -234,7 +293,7 @@ fn spawn_public_stream(
                     Ok(0) => break,
                     Ok(n) => {
                         let frame = Frame::Data(id, buf[..n].to_vec()).encode();
-                        if out_tx_client.send(Message::Binary(frame)).is_err() {
+                        if out_tx_client.send(Message::Binary(frame)).await.is_err() {
                             break;
                         }
                     }
@@ -254,8 +313,16 @@ fn spawn_public_stream(
         });
 
         let _ = to_client.await;
-        let _ = from_client.await;
+        // Half-close: the public side is done. Announce it now and only give the
+        // reverse direction a bounded grace period so the remote peer can never
+        // hang forever waiting on us.
+        let _ = out_tx.send(Message::Binary(Frame::Close(id).encode())).await;
+        if tokio::time::timeout(DRAIN_TIMEOUT, from_client)
+            .await
+            .is_err()
+        {
+            warn!("relay: stream {id}: drain timed out, forcing close");
+        }
         streams.lock().await.remove(&id);
-        let _ = out_tx.send(Message::Binary(Frame::Close(id).encode()));
     });
 }
