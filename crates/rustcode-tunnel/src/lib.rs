@@ -12,4 +12,5 @@
 //!
 //! See `docs/relay.md` for the full design and the self-hosting guide.
 
+pub mod client;
 pub mod protocol;
