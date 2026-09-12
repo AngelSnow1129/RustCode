@@ -2945,6 +2945,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustcode-tunnel"
+version = "5.0.10"
+
+[[package]]
 name = "rustcode-updater"
 version = "5.0.10"
 dependencies = [

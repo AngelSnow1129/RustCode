@@ -1,0 +1,8 @@
+[package]
+name = "rustcode-tunnel"
+version.workspace = true
+edition = "2021"
+description = "Minimal self-hosted frp-style reverse tunnel: shared wire protocol, daemon client (frpc) and relay server (frps)."
+publish = false
+
+[dependencies]
