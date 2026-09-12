@@ -61,6 +61,7 @@ use crossterm::{
 };
 use rustcode_config::config::Config;
 use std::io;
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::commands::CommandRegistry;
@@ -805,6 +806,13 @@ pub async fn run(
     }
 
     let file_index_root = working_dir.clone();
+    let (wiki_sync_tx, wiki_sync_rx) = mpsc::unbounded_channel();
+    // Capture wiki auto-sync settings before `config`/`working_dir` are moved
+    // into `LoopCtx`, so the background task can own its own copies.
+    let wiki_auto_sync_interval = config.wiki.auto_sync_interval_secs;
+    let wiki_auto_sync_out_dir = config.wiki.out_dir.clone().map(PathBuf::from);
+    let wiki_auto_sync_exclude = config.wiki.exclude_dirs.clone();
+    let wiki_root = working_dir.clone();
     let ctx = LoopCtx {
         interaction_publisher,
         config,
@@ -855,6 +863,8 @@ pub async fn run(
         upgrade_rx,
         plugin_job_tx,
         plugin_job_rx,
+        wiki_sync_tx: wiki_sync_tx.clone(),
+        wiki_sync_rx,
         pending_open_provider_wizard: false,
         worktree_original_dir: None,
         custom_commands,
@@ -895,6 +905,55 @@ pub async fn run(
         askpass_rx,
         loop_ctrl: None,
     };
+
+    // Background wiki auto-sync: only when the user opted in via
+    // `[wiki] auto_sync_interval_secs > 0`. Maintains an existing wiki by
+    // periodically re-syncing; it never auto-creates one (the manifest guard
+    // skips until the wiki has been generated at least once via /wiki or /init).
+    if wiki_auto_sync_interval > 0 {
+        let root = wiki_root;
+        let out_dir = wiki_auto_sync_out_dir;
+        let exclude = wiki_auto_sync_exclude;
+        let interval = wiki_auto_sync_interval;
+        let tx = wiki_sync_tx.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval));
+            ticker.tick().await; // skip the immediate first tick
+            loop {
+                ticker.tick().await;
+                let out = match &out_dir {
+                    Some(d) if d.is_absolute() => d.clone(),
+                    Some(d) => root.join(d),
+                    None => root.join(".rustcode").join("wiki"),
+                };
+                // Only maintain a wiki that already exists; never create one.
+                if !out.join("manifest.json").exists() {
+                    continue;
+                }
+                let opts = rustcode_wiki::WikiOptions {
+                    root: root.clone(),
+                    out_dir: out_dir.clone(),
+                    title: None,
+                    force: false,
+                    max_files: 20000,
+                    exclude_dirs: exclude.clone(),
+                    langs: Vec::new(),
+                    assume_yes: true,
+                };
+                if let Ok(res) =
+                    tokio::task::block_in_place(|| rustcode_wiki::WikiEngine::sync(&opts))
+                {
+                    if !res.created.is_empty() || !res.updated.is_empty() {
+                        let _ = tx.send(crate::event_loop::WikiSyncEvent::Updated {
+                            path: res.out_dir.display().to_string(),
+                            modules: res.modules,
+                            files: res.created.len() + res.updated.len(),
+                        });
+                    }
+                }
+            }
+        });
+    }
 
     crate::tuix_trace!(
         "START",

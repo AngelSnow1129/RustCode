@@ -92,6 +92,68 @@ MCP 配置:
   显式不支持 locale(如 `fr_FR`)→ 英文回退。
 - 权威对照源见 `docs/i18n-field-mapping.md`。
 
+### 5. 项目 Wiki 自动生成(rustcode-wiki)
+
+- 分析当前项目并离线产出 OpenWiki 风格 wiki：结构分析、架构图(Mermaid 依赖图)
+  与逐模块文档 **100% 确定性离线生成**，任何环境都能产出。
+- TUI 命令 `/wiki` 与 CLI 子命令
+  `rustcode wiki [PATH] [--sync | --watch | --llm | --force | --yes | --out-dir <dir> |
+  --title <t> | --exclude <dir> | --interval <秒> | --lang <zh|en>]`
+  （`PATH` 为位置参数，默认当前目录）。
+- 产出 `Home.md` / `Architecture.md`(含 Mermaid) / `Modules/<模块名>.md` / `README.md`，
+  默认 `<root>/.rustcode/wiki`。
+- 可选 `--llm`(或配置 `use_llm`)调用已配置 Provider(OpenAI 兼容网关)仅为模块页
+  补充自然语言摘要，属 best-effort「充实」层，失败仅告警；摘要写入
+  `<lang>/Modules/<模块>.summary.md` 侧车，后续 `sync`/`generate` 会保留，不被占位文本覆盖。
+- 配置段 `[wiki]`(`auto_generate_on_init` / `out_dir` / `use_llm` / `exclude_dirs`
+  / `auto_sync_interval_secs` / `langs`)可控制 `/init` 自动生成、输出目录、LLM 充实、
+  TUI 后台自动同步与生成语言。`wiki` 内容默认以**中文为主**，并按 `zh`/`en` 分目录
+  同时产出中英文两份文档，分别保存为 `<out>/zh/` 与 `<out>/en/`（`langs` 省略即双语言；
+  也可用 CLI `--lang zh|en` 或 `[wiki] langs` 指定单一语言）。`auto_sync_interval_secs > 0`
+  时 TUI 启动后周期性重新 `sync` 已存在的 wiki（仅在已生成过时生效，不凭空新建），
+  变更仅在确实改动页面时提示。
+- **双语策略示例**（默认双语言，中文为主）：
+
+  ```text
+  <root>/.rustcode/wiki/
+  ├── manifest.json          # 工具生成的清单（源文件 sha256 + 各生成文件内容哈希）
+  ├── zh/                    # 中文（主文档）
+  │   ├── Home.md
+  │   ├── Architecture.md    # 含 ```mermaid 依赖图
+  │   ├── README.md
+  │   └── Modules/<模块名>.md
+  └── en/                    # 英文
+      ├── Home.md
+      ├── Architecture.md
+      ├── README.md
+      └── Modules/<模块名>.md
+  ```
+
+  常用命令：
+
+  ```bash
+  rustcode wiki                       # 默认双语言生成到 .rustcode/wiki
+  rustcode wiki --lang en             # 仅英文
+  rustcode wiki --sync                # 增量同步（源码变化才重写页面）
+  rustcode wiki --watch --interval 60 # 监听并每 60s 同步
+  rustcode wiki --llm                 # 额外用 LLM 充实模块摘要（需已配置 Provider）
+  rustcode wiki --yes                 # 对已存在的本工具 wiki 跳过交互确认直接更新
+  rustcode wiki --force               # 强制全量重写，覆盖用户手动修改（见下）
+  ```
+
+- **wiki 写入安全护栏**：生成/同步前先 `precheck` 目标目录。`manifest.json` 中
+  `generator == "rustcode-wiki"`（或旧版 `version`）才视为本工具生成的 wiki；其余情况
+  （目录不存在/为空 → 安全生成；目录存在但非本工具生成 → **拒绝覆盖**，保护用户内容，
+  提示改用其它 `--out-dir` 或先手动删除）。对已存在的本工具 wiki 二次更新前会**再次确认**
+  （CLI 交互环境询问 `[y/N]`，非交互环境需 `--yes`；TUI 中以显式 `/wiki` 作为确认；
+  后台自动同步仅维护本工具已有 wiki，遇外来目录自动跳过）。
+- **手动修改保留（默认安全）**：对已生成 `.md` 的手动编辑，默认在后续 `sync`/`generate`
+  中**被保留而非覆盖**——引擎比对 `manifest.json` 中记录的文件内容哈希，发现页面被改动即跳过
+  该文件，并在 CLI 输出 `已保留你对 <path> 的手动修改（使用 --force 可覆盖）` 提示。
+  传入 `--force` 才会以重新生成的内容覆盖你的修改（同时用于「强制全量重写」）。
+  LLM 摘要侧车 `<lang>/Modules/<模块>.summary.md` 与网页本体分离，始终按用户提供内容保留。
+
+
 ## 本地检索工具(内置)
 
 | 工具 | 用途 |

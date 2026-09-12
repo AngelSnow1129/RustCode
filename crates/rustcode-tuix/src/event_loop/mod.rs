@@ -3815,6 +3815,15 @@ impl AuthObservation {
     }
 }
 
+/// Event emitted by the background wiki auto-sync task (started when
+/// `[wiki] auto_sync_interval_secs > 0`). The detached task periodically runs
+/// `WikiEngine::sync` and pushes here when pages actually change, so the main
+/// `select!` can surface a status line without blocking the UI.
+pub enum WikiSyncEvent {
+    /// The wiki was re-synced and pages changed; surface a status line.
+    Updated { path: String, modules: usize, files: usize },
+}
+
 pub struct LoopCtx {
     pub(crate) interaction_publisher: crate::render::interaction::InteractionPublisher,
     pub config: Config,
@@ -3922,6 +3931,12 @@ pub struct LoopCtx {
     /// `select!` arm. Unbounded -- events are tiny terminal results.
     pub plugin_job_tx: mpsc::UnboundedSender<rustcode_capabilities::plugin::PluginJobEvent>,
     pub plugin_job_rx: mpsc::UnboundedReceiver<rustcode_capabilities::plugin::PluginJobEvent>,
+    /// Background wiki auto-sync: a detached task (spawned from `run()` when
+    /// `[wiki] auto_sync_interval_secs > 0`) periodically runs `WikiEngine::sync`
+    /// and pushes a `WikiSyncEvent` here when pages change. Consumed by the
+    /// main `select!` so the result renders without blocking the event loop.
+    pub wiki_sync_tx: mpsc::UnboundedSender<WikiSyncEvent>,
+    pub wiki_sync_rx: mpsc::UnboundedReceiver<WikiSyncEvent>,
     /// Set by `OnboardingWizard` (step 3, Setup) when the user picks
     /// option 1 (Configure manually). The event loop drains this on
     /// modal close and swaps in `ProviderWizard::MainMenu` -- a
@@ -9658,6 +9673,26 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                 }
             }
 
+            // ── Wiki background auto-sync ──
+            // Pushed by the detached task started in `run()` when
+            // `[wiki] auto_sync_interval_secs > 0`. Renders a status line only
+            // when pages actually changed; no-op otherwise.
+            Some(ev) = ctx.wiki_sync_rx.recv() => {
+                if let WikiSyncEvent::Updated { path, modules, files } = ev {
+                    renderer.render(UiLine::CommandOutput(
+                        crate::i18n::t(crate::i18n::Msg::WikiAutoSynced {
+                            modules,
+                            files,
+                            path: &path,
+                        })
+                        .into_owned(),
+                    ));
+                    if matches!(app.state.phase, UiPhase::Idle) {
+                        redraw_idle_plain(&app.buf, &app.state, &ctx, renderer);
+                    }
+                }
+            }
+
             // ── Agent events ──
             // Consumed regardless of phase. A diagnostic Error may precede the
             // authoritative TurnFinished, so terminal and queue decisions are
@@ -10018,6 +10053,26 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                     if let Some(m) = app.active_modal.as_ref() {
                         m.draw(&app.buf, &app.state, &ctx, renderer);
                     } else if matches!(app.state.phase, UiPhase::Idle) {
+                        redraw_idle_plain(&app.buf, &app.state, &ctx, renderer);
+                    }
+                }
+            }
+
+            // ── Wiki background auto-sync ──
+            // Pushed by the detached task started in `run()` when
+            // `[wiki] auto_sync_interval_secs > 0`. Renders a status line only
+            // when pages actually changed; no-op otherwise.
+            Some(ev) = ctx.wiki_sync_rx.recv() => {
+                if let WikiSyncEvent::Updated { path, modules, files } = ev {
+                    renderer.render(UiLine::CommandOutput(
+                        crate::i18n::t(crate::i18n::Msg::WikiAutoSynced {
+                            modules,
+                            files,
+                            path: &path,
+                        })
+                        .into_owned(),
+                    ));
+                    if matches!(app.state.phase, UiPhase::Idle) {
                         redraw_idle_plain(&app.buf, &app.state, &ctx, renderer);
                     }
                 }

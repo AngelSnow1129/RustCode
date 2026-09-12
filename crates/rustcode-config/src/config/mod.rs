@@ -394,6 +394,10 @@ pub struct Config {
     #[serde(default)]
     pub offline_note: Option<String>,
 
+    /// `[wiki]` settings for the auto-generated project wiki (`rustcode-wiki`).
+    #[serde(default)]
+    pub wiki: WikiConfig,
+
     /// Provider sections that failed strict validation during a *tolerant* load
     /// (see [`Self::parse_disk_content_tolerant`]). Held verbatim as raw TOML so
     /// a later write-back (`/model`, theme change, ...) re-emits the user's
@@ -598,6 +602,26 @@ pub enum ImageAttachSupport {
     PreprocessorUnresolvable(String),
 }
 
+/// `[wiki]` configuration for the auto-generated project wiki (`rustcode-wiki`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct WikiConfig {
+    /// Auto-generate the wiki when a project is initialized (e.g. via `/init`).
+    pub auto_generate_on_init: bool,
+    /// Output directory for wiki files, relative to the project root.
+    /// Defaults to `.rustcode/wiki`.
+    pub out_dir: Option<String>,
+    /// Use the configured LLM to enrich module pages with natural-language summaries.
+    pub use_llm: bool,
+    /// Additional directory names to exclude from scanning.
+    pub exclude_dirs: Vec<String>,
+    /// Poll interval (seconds) for automatic wiki sync after file changes (0 = off).
+    pub auto_sync_interval_secs: u64,
+    /// Output languages for the generated wiki. Recognized values: `zh` (Chinese,
+    /// primary) and `en` (English). Empty means "both `zh` and `en`" (the default).
+    pub langs: Vec<String>,
+}
+
 impl Config {
     /// True iff attaching an image to the active turn will reach a model
     /// that can process it -- either the active provider accepts images
@@ -706,6 +730,7 @@ impl Default for Config {
             offline_mode: offline::OfflineMode::default(),
             offline_note: None,
             quarantined_providers: std::collections::BTreeMap::new(),
+            wiki: WikiConfig::default(),
         };
         // Honour env overrides for [ui] display fields even on the default
         // fallback path (no config file / parse failure), so a distribution
@@ -3013,6 +3038,7 @@ model = "missing-type"
             offline_mode: Default::default(),
             offline_note: None,
             quarantined_providers: std::collections::BTreeMap::new(),
+            wiki: WikiConfig::default(),
         };
         cfg.providers.insert(
             "p".to_string(),

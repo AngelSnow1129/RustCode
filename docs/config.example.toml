@@ -370,3 +370,31 @@ theme = "auto"
 #
 # 首次连接 MCP 时自动启动共享 daemon;默认本地 embedding（无需 GPU）,
 # 数据不外传。远程 embedding 需显式 zg auth 授权。
+
+# =============================================================================
+# 项目 Wiki 自动生成（rustcode-wiki）
+# =============================================================================
+# 分析当前项目并离线产出 OpenWiki 风格 wiki：结构分析、架构图（Mermaid 依赖图）
+# 与逐模块文档 100% 确定性离线生成，任何环境都能产出；可选 --llm（或 use_llm）
+# 调用已配置 Provider 为模块页补充自然语言摘要（best-effort，失败仅告警）。
+#
+# TUI：/wiki   CLI：rustcode wiki [PATH] [--sync|--watch|--llm|--force|
+#        --out-dir <dir>|--title <t>|--exclude <dir>|--interval <秒>]
+# 产出默认位于 <root>/.rustcode/wiki（Home.md / Architecture.md /
+# Modules/<模块名>.md / README.md）。
+
+[wiki]
+# /init 时是否自动生成 wiki（best-effort，失败不影响初始化）
+auto_generate_on_init = false
+# 输出目录（相对项目根）；省略时默认 <root>/.rustcode/wiki
+out_dir = ".rustcode/wiki"
+# 是否调用已配置 Provider 为模块页补充自然语言摘要
+use_llm = false
+# 额外排除扫描的目录名（除默认忽略项外）
+exclude_dirs = ["target"]
+# TUI 后台自动同步间隔（秒）；>0 时 TUI 启动后周期性重新 sync 已存在的 wiki
+# （仅在 wiki 已生成过时生效，不会凭空新建；0 表示关闭）
+auto_sync_interval_secs = 0
+# 生成哪些语言版本：可填 "zh"（中文，主版本）和/或 "en"（英文）。
+# 省略时默认同时生成中英文，分别保存为 <out>/zh/ 与 <out>/en/。
+langs = []

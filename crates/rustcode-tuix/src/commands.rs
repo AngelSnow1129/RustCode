@@ -228,6 +228,7 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "build",   desc: "Switch to Build mode (full execution)", needs_args: false, hidden: false, acp: true },
     Command { name: "auto",    desc: "Switch to Auto mode (auto-approve all tools)", needs_args: false, hidden: false, acp: true },
     Command { name: "review",  desc: "Code review the current changes (/review · /review staged · /review <base>)", needs_args: false, hidden: false, acp: false },
+    Command { name: "wiki",    desc: "Analyze the project and generate a wiki (architecture + module docs)", needs_args: false, hidden: false, acp: false },
     Command { name: "think",   desc: "Extended thinking control (on/off/budget N)", needs_args: false, hidden: false, acp: false },
     // Gateway entry: opens a second-level palette (low / medium / high / xhigh / max / default).
     // needs_args=true so Enter rewrites the buffer to `/effort ` and the
@@ -339,6 +340,7 @@ pub fn cmd_desc_i18n(name: &str) -> Option<std::borrow::Cow<'static, str>> {
         "app" => Msg::CmdDescApp,
         "sync" => Msg::CmdDescSync,
         "review" => Msg::CmdDescReview,
+        "wiki" => Msg::CmdDescWiki,
         "goal" => Msg::CmdDescGoal,
         "proxy" => Msg::CmdDescProxy,
         "todo" => Msg::CmdDescTodo,

@@ -146,6 +146,29 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 - **零遥测** —— 本分支已删除 `rustcode-telemetry` crate 及全部上报调用点，不采集、不发送任何使用事件；详见 [docs/telemetry.md](docs/telemetry.md)，溯源见 [docs/ORIGINAL_LICENSE.md](docs/ORIGINAL_LICENSE.md) 与 [docs/UPSTREAM_CREDITS.md](docs/UPSTREAM_CREDITS.md)
 
+### 项目 Wiki 自动生成
+
+`rustcode-wiki` 模块提供 OpenWiki 风格的项目 wiki 自动生成：分析当前项目，离线产出结构化的项目文档，可选调用 LLM 为模块页补充自然语言摘要。
+
+- **TUI 命令** —— 在 TUI 内输入 `/wiki`，分析当前项目并生成/同步 wiki，默认输出到 `<root>/.rustcode/wiki`。
+- **CLI 子命令** —— `rustcode wiki [PATH] [--sync | --watch | --llm | --force | --out-dir <dir> | --title <t> | --exclude <dir> | --interval <秒>]`。其中 `PATH` 为**位置参数**（待分析的项目根目录，默认当前目录），其余为可选 flag：`--sync` 增量同步（仅更新变更页）、`--watch` 监听变更并按 `--interval`（默认 30 秒）重新同步、`--llm` 用已配置 Provider 充实模块页、`--force` 强制全量重建、`--out-dir` / `--title` / `--exclude` 覆盖输出目录、标题与排除目录。
+- **产出物** —— 默认位于 `<root>/.rustcode/wiki`，包含：
+  - `Home.md`：项目概览（模块数、文件数、代码行数、语言分布）。
+  - `Architecture.md`：含 **Mermaid** 依赖图的架构页。
+  - `Modules/<模块名>.md`：逐模块页（路径、类型、依赖、文件清单）。
+  - `README.md`：wiki 索引（指向上述页面）。
+- **确定性离线生成** —— 结构分析、架构图与模块文档 **100% 离线确定性产出**，任何环境都能生成；`--llm`（或配置 `use_llm`）调用已配置的 Provider（OpenAI 兼容网关，如 GLM / DeepSeek）仅为每个模块页补充自然语言摘要，属于「充实」层，**best-effort**：失败仅告警，不影响离线产物。
+- **配置（`~/.rustcode/config.toml` 的 `[wiki]` 段）**：
+
+  ```toml
+  [wiki]
+  auto_generate_on_init = false   # /init 时自动生成 wiki（默认关）
+  out_dir = ".rustcode/wiki"      # 输出目录（相对项目根）
+  use_llm = false                 # 是否用 LLM 充实模块页
+  exclude_dirs = ["target"]       # 额外排除扫描的目录
+  auto_sync_interval_secs = 0     # 文件变更后自动同步的轮询间隔（秒，0 = 关）
+  ```
+
 ## 安装
 
 ### 安装脚本（推荐）
@@ -528,6 +551,7 @@ rustcode --prompt-file task.md
 | 命令 | 动作 |
 |---------|--------|
 | `/init` | 按当前语言及可选自定义提示词，创建或完善当前生效的项目指令文件 |
+| `/wiki` | 分析当前项目并生成/同步项目 wiki（架构图 + 模块文档），默认输出到 `<root>/.rustcode/wiki` |
 | `/config` | 显示配置文件路径 |
 | `/reload` | 从磁盘重新加载 `~/.rustcode/config.toml` |
 | `/upgrade` | 升级 rustcode 到最新版（子命令：`rollback`） |

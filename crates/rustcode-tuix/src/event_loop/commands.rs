@@ -2895,6 +2895,124 @@ fn execute_slash_command_impl(
             };
             submit_agent_turn(ctx, state, prompt);
             renderer.render(UiLine::CommandOutput(t(Msg::InitKickoff).into_owned()));
+            // Optional: auto-generate the project wiki when configured. Best-effort and
+            // never fatal -- a wiki failure must not break project initialization.
+            if ctx.config.wiki.auto_generate_on_init {
+                let wroot = std::env::current_dir().unwrap_or_default();
+                let wout = ctx.config.wiki.out_dir.clone().map(PathBuf::from);
+                let wiki_langs: Vec<rustcode_wiki::WikiLang> = ctx
+                    .config
+                    .wiki
+                    .langs
+                    .iter()
+                    .filter_map(|s| rustcode_wiki::WikiLang::parse(s))
+                    .collect();
+                let wpath = match &wout {
+                    Some(d) if d.is_absolute() => d.clone(),
+                    Some(d) => wroot.join(d),
+                    None => wroot.join(".rustcode").join("wiki"),
+                }
+                .display()
+                .to_string();
+                let mut wopts = rustcode_wiki::WikiOptions {
+                    root: wroot,
+                    out_dir: wout,
+                    title: None,
+                    force: false,
+                    max_files: 20000,
+                    exclude_dirs: ctx.config.wiki.exclude_dirs.clone(),
+                    langs: wiki_langs,
+                    assume_yes: false,
+                };
+                // Never clobber a directory the user created by hand. Auto-generated
+                // wikis are safe to refresh (this is a non-interactive context, so we
+                // do not prompt -- we just keep refreshing our own output).
+                match rustcode_wiki::WikiEngine::precheck(&wopts) {
+                    rustcode_wiki::WikiTargetState::Foreign => {
+                        renderer.render(UiLine::CommandOutput(
+                            t(Msg::WikiForeignConflict { path: &wpath }).into_owned(),
+                        ));
+                    }
+                    _ => {
+                        wopts.assume_yes = true;
+                        if let Ok(wres) = tokio::task::block_in_place(|| {
+                            rustcode_wiki::WikiEngine::generate(&wopts)
+                        }) {
+                            if !(wres.created.is_empty() && wres.updated.is_empty()) {
+                                let wpath = wres.out_dir.display().to_string();
+                                renderer.render(UiLine::CommandOutput(
+                                    t(Msg::WikiSummary {
+                                        modules: wres.modules,
+                                        files: wres.created.len() + wres.updated.len(),
+                                        path: &wpath,
+                                    })
+                                    .into_owned(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            renderer.flush();
+        }
+        "wiki" => {
+            // Deterministic, offline wiki generation: analyze the project and write an
+            // OpenWiki-style wiki (Home / Architecture / Modules) under <root>/.rustcode/wiki.
+            // `sync` mode is change-detected: it is a no-op when nothing changed.
+            let root = std::env::current_dir().unwrap_or_default();
+            let out_dir = ctx.config.wiki.out_dir.clone().map(PathBuf::from);
+            let wiki_langs: Vec<rustcode_wiki::WikiLang> = ctx
+                .config
+                .wiki
+                .langs
+                .iter()
+                .filter_map(|s| rustcode_wiki::WikiLang::parse(s))
+                .collect();
+            let out_display = match &out_dir {
+                Some(d) if d.is_absolute() => d.clone(),
+                Some(d) => root.join(d),
+                None => root.join(".rustcode").join("wiki"),
+            }
+            .display()
+            .to_string();
+            let mut opts = rustcode_wiki::WikiOptions {
+                root,
+                out_dir,
+                title: None,
+                force: false,
+                max_files: 20000,
+                exclude_dirs: ctx.config.wiki.exclude_dirs.clone(),
+                langs: wiki_langs,
+                assume_yes: false,
+            };
+            match rustcode_wiki::WikiEngine::precheck(&opts) {
+                rustcode_wiki::WikiTargetState::Foreign => {
+                    renderer.render(UiLine::CommandOutput(
+                        t(Msg::WikiForeignConflict { path: &out_display }).into_owned(),
+                    ));
+                }
+                _ => {
+                    // The explicit `/wiki` command is the user's confirmation to refresh.
+                    opts.assume_yes = true;
+                    match tokio::task::block_in_place(|| rustcode_wiki::WikiEngine::sync(&opts)) {
+                        Ok(res) => {
+                            let msg = if res.created.is_empty() && res.updated.is_empty() {
+                                t(Msg::WikiSyncUpToDate).into_owned()
+                            } else {
+                                let wpath = res.out_dir.display().to_string();
+                                t(Msg::WikiSummary {
+                                    modules: res.modules,
+                                    files: res.created.len() + res.updated.len(),
+                                    path: &wpath,
+                                })
+                                .into_owned()
+                            };
+                            renderer.render(UiLine::CommandOutput(msg));
+                        }
+                        Err(e) => renderer.render(UiLine::Error(format!("wiki error: {e}"))),
+                    }
+                }
+            }
             renderer.flush();
         }
         "mcp" => {

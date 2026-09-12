@@ -2681,6 +2681,7 @@ dependencies = [
  "crossterm",
  "ctor",
  "dirs",
+ "futures",
  "is-terminal",
  "libc",
  "mimalloc",
@@ -2693,6 +2694,7 @@ dependencies = [
  "rustcode-kernel",
  "rustcode-tuix",
  "rustcode-updater",
+ "rustcode-wiki",
  "serde",
  "serde_json",
  "serial_test",
@@ -2925,6 +2927,7 @@ dependencies = [
  "rustcode-daemon",
  "rustcode-kernel",
  "rustcode-updater",
+ "rustcode-wiki",
  "serde",
  "serde_json",
  "serial_test",
@@ -2956,6 +2959,17 @@ dependencies = [
  "tempfile",
  "tokio",
  "wiremock",
+]
+
+[[package]]
+name = "rustcode-wiki"
+version = "5.0.9"
+dependencies = [
+ "ignore",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml 0.8.23",
 ]
 
 [[package]]

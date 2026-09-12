@@ -36,6 +36,7 @@ use rustcode_capabilities::mcp::{
     McpTransportConfig,
 };
 use rustcode_config::config::Config;
+use rustcode_capabilities::provider::{OpenAiCompatConfig, OpenAiCompatProvider};
 
 /// Set to `true` at the start of `run_headless` so the panic hook and the
 /// top-level error handler can skip TUI cleanup. In headless mode raw mode
@@ -501,6 +502,18 @@ fn build_i18n_command() -> clap::Command {
                 })
         })
         .mut_subcommand("setup", |s| s.about(t(Msg::CliAboutSetup).into_owned()))
+        .mut_subcommand("wiki", |s| {
+            s.about(t(Msg::CliAboutWiki).into_owned())
+                .mut_arg("path", |a| a.help("Project root to analyze (default: current directory)"))
+                .mut_arg("sync", |a| a.help("Incremental sync: only update changed pages"))
+                .mut_arg("watch", |a| a.help("Watch for changes and re-sync every --interval seconds"))
+                .mut_arg("llm", |a| a.help("Enrich module pages with natural-language summaries via the configured LLM"))
+                .mut_arg("force", |a| a.help("Force full regeneration"))
+                .mut_arg("out_dir", |a| a.help("Output directory (default: <root>/.rustcode/wiki)"))
+                .mut_arg("title", |a| a.help("Wiki title (default: project name)"))
+                .mut_arg("exclude", |a| a.help("Extra directories to exclude (repeatable)"))
+                .mut_arg("interval", |a| a.help("Watch interval in seconds (with --watch)"))
+        })
         .mut_subcommand("completion", |s| {
             s.about(t(Msg::CliAboutCompletion).into_owned())
                 .mut_arg("shell", |a| {
@@ -1053,6 +1066,8 @@ enum Commands {
     /// Manage local scheduled tasks (add/list/remove/enable/disable).
     #[command(subcommand)]
     Schedule(schedule_cmd::ScheduleCli),
+    /// Generate a project wiki (architecture diagram + module docs) and sync on change.
+    Wiki(WikiArgs),
     /// Generate a shell completion script on stdout.
     Completion(CompletionCommand),
     /// Internal: askpass helper invoked by sudo/ssh via SUDO_ASKPASS / SSH_ASKPASS.
@@ -1077,6 +1092,307 @@ struct CompletionCommand {
     /// Shell to generate completions for.
     #[arg(value_enum, default_value_t = Shell::Bash)]
     shell: Shell,
+}
+
+/// `rustcode wiki` — generate / sync the project wiki.
+#[derive(clap::Args)]
+struct WikiArgs {
+    /// Project root to analyze (default: current directory).
+    path: Option<PathBuf>,
+    /// Incremental sync: only update pages whose source changed (default behavior of `/wiki`).
+    #[arg(long)]
+    sync: bool,
+    /// Watch for changes and re-sync every `--interval` seconds.
+    #[arg(long)]
+    watch: bool,
+    /// Enrich module pages with natural-language summaries via the configured LLM.
+    #[arg(long)]
+    llm: bool,
+    /// Force full regeneration even if nothing changed.
+    #[arg(long)]
+    force: bool,
+    /// Output directory (default: <root>/.rustcode/wiki).
+    #[arg(long)]
+    out_dir: Option<PathBuf>,
+    /// Wiki title (default: project name).
+    #[arg(long)]
+    title: Option<String>,
+    /// Extra directories to exclude (repeatable).
+    #[arg(long = "exclude")]
+    exclude: Vec<String>,
+    /// Watch interval in seconds (with --watch).
+    #[arg(long, default_value_t = 30)]
+    interval: u64,
+    /// Output language(s): `zh` and/or `en` (repeatable). Default: both.
+    #[arg(long = "lang", value_name = "ZH|EN")]
+    lang: Vec<String>,
+    /// Assume yes: update an existing auto-generated wiki without prompting.
+    #[arg(short = 'y', long = "yes")]
+    yes: bool,
+}
+
+/// Run the `rustcode wiki` subcommand: generate / sync the project wiki, optionally
+/// enrich with the configured LLM, and optionally watch for changes.
+async fn run_wiki_command(args: WikiArgs) -> i32 {
+    use rustcode_config::i18n::{t, Msg};
+
+    let root = args
+        .path
+        .clone()
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_default();
+    let config = rustcode_config::Config::load(&rustcode_config::Config::default_path())
+        .unwrap_or_default();
+
+    let cfg_out = config.wiki.out_dir.clone().map(PathBuf::from);
+    let cfg_exclude = config.wiki.exclude_dirs.clone();
+    let out_dir = if args.out_dir.is_some() {
+        args.out_dir.clone()
+    } else {
+        cfg_out
+    };
+    let exclude = if !args.exclude.is_empty() {
+        args.exclude.clone()
+    } else {
+        cfg_exclude
+    };
+    // Resolve output languages: explicit `--lang` flags win, then the
+    // `[wiki] langs` config, then the engine default (both zh + en).
+    let wiki_langs: Vec<rustcode_wiki::WikiLang> = if !args.lang.is_empty() {
+        args.lang
+            .iter()
+            .filter_map(|s| rustcode_wiki::WikiLang::parse(s))
+            .collect()
+    } else if !config.wiki.langs.is_empty() {
+        config
+            .wiki
+            .langs
+            .iter()
+            .filter_map(|s| rustcode_wiki::WikiLang::parse(s))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let mut opts = rustcode_wiki::WikiOptions {
+        root,
+        out_dir,
+        title: args.title.clone(),
+        force: args.force,
+        max_files: 20000,
+        exclude_dirs: exclude,
+        langs: wiki_langs,
+        assume_yes: false,
+    };
+
+    let out_display = match &opts.out_dir {
+        Some(d) if d.is_absolute() => d.clone(),
+        Some(d) => opts.root.join(d),
+        None => opts.root.join(".rustcode").join("wiki"),
+    }
+    .display()
+    .to_string();
+
+    // Safety guard: never clobber a directory the user created by hand.
+    match rustcode_wiki::WikiEngine::precheck(&opts) {
+        rustcode_wiki::WikiTargetState::Foreign => {
+            eprintln!(
+                "{}",
+                t(Msg::WikiForeignConflict {
+                    path: &out_display
+                })
+                .into_owned()
+            );
+            return 1;
+        }
+        rustcode_wiki::WikiTargetState::AutoGenerated => {
+            if !confirm_overwrite(&out_display, args.yes) {
+                eprintln!("已取消，未改动现有 wiki。");
+                return 0;
+            }
+            opts.assume_yes = true;
+        }
+        rustcode_wiki::WikiTargetState::Missing => {}
+    }
+
+    if args.watch {
+        println!("{}", t(Msg::WikiGenerating).into_owned());
+        loop {
+            match rustcode_wiki::WikiEngine::sync(&opts) {
+                Ok(res) => print_wiki_result(&res),
+                Err(e) => eprintln!("wiki error: {e}"),
+            }
+            if args.llm {
+                if let Some(provider) = build_wiki_provider(&config) {
+                    match enrich_wiki(&opts, &provider).await {
+                        Ok(n) => println!("{}", t(Msg::WikiEnriched { count: n }).into_owned()),
+                        Err(e) => {
+                            eprintln!(
+                                "{}",
+                                t(Msg::WikiEnrichSkipped { reason: &e }).into_owned()
+                            )
+                        }
+                    }
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(args.interval)).await;
+        }
+    }
+
+    let result = if args.sync {
+        rustcode_wiki::WikiEngine::sync(&opts)
+    } else {
+        rustcode_wiki::WikiEngine::generate(&opts)
+    };
+    let result = match result {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("wiki error: {e}");
+            return 1;
+        }
+    };
+    print_wiki_result(&result);
+
+    if args.llm {
+        if let Some(provider) = build_wiki_provider(&config) {
+            eprintln!("{}", t(Msg::WikiEnriching).into_owned());
+            match enrich_wiki(&opts, &provider).await {
+                Ok(n) => println!("{}", t(Msg::WikiEnriched { count: n }).into_owned()),
+                Err(e) => eprintln!("{}", t(Msg::WikiEnrichSkipped { reason: &e }).into_owned()),
+            }
+        } else {
+            eprintln!(
+                "{}",
+                t(Msg::WikiEnrichSkipped {
+                    reason: "no usable provider configured"
+                })
+                .into_owned()
+            );
+        }
+    }
+    0
+}
+
+/// Print a one-line summary of a wiki run to stdout.
+fn print_wiki_result(res: &rustcode_wiki::WikiResult) {
+    use rustcode_config::i18n::{t, Msg};
+    let changed = res.created.len() + res.updated.len();
+    if changed == 0 && res.preserved.is_empty() {
+        println!("{}", t(Msg::WikiSyncUpToDate).into_owned());
+    } else {
+        if changed > 0 {
+            let path = res.out_dir.display().to_string();
+            println!(
+                "{}",
+                t(Msg::WikiSummary {
+                    modules: res.modules,
+                    files: changed,
+                    path: &path,
+                })
+                .into_owned()
+            );
+        }
+        for p in &res.preserved {
+            eprintln!(
+                "{}",
+                t(Msg::WikiFilePreserved {
+                    path: &p.display().to_string()
+                })
+                .into_owned()
+            );
+        }
+    }
+}
+
+/// Ask the user whether to update an existing auto-generated wiki. Returns `true`
+/// when the user (or `--yes`) confirms. In a non-interactive context (no TTY) it
+/// refuses unless `--yes` is given, so automated runs never silently overwrite.
+fn confirm_overwrite(path: &str, yes: bool) -> bool {
+    use std::io::{BufRead, IsTerminal, Write};
+    if yes {
+        return true;
+    }
+    if !std::io::stdin().is_terminal() {
+        eprintln!("[WARN] 检测到 {path} 下已有自动生成的 wiki；非交互环境请加 --yes 以确认更新。");
+        return false;
+    }
+    eprint!("检测到 {path} 下已有由 rustcode-wiki 生成的 wiki，是否更新（将覆盖现有生成内容）？[y/N] ");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    if std::io::stdin().lock().read_line(&mut line).is_err() {
+        return false;
+    }
+    let line = line.trim().to_ascii_lowercase();
+    matches!(line.as_str(), "y" | "yes" | "是")
+}
+
+/// Build an OpenAI-compatible provider from the active provider config, for LLM
+/// enrichment. Returns `None` when no usable provider is configured.
+fn build_wiki_provider(config: &rustcode_config::Config) -> Option<OpenAiCompatProvider> {
+    let provider = config.active_provider(None).ok()?;
+    let base_url = provider.base_url.as_deref()?.to_string();
+    let api_key = provider.resolved_api_key().unwrap_or_default();
+    let model = provider.model.clone();
+    let cfg = OpenAiCompatConfig::new(api_key, base_url, model);
+    OpenAiCompatProvider::new(cfg).ok()
+}
+
+/// Enrich each module page with a natural-language summary from the LLM.
+///
+/// Takes `&dyn LlmProvider` (not a concrete `OpenAiCompatProvider`) so the
+/// enrichment logic is testable with a mock provider instead of a live network.
+async fn enrich_wiki(
+    opts: &rustcode_wiki::WikiOptions,
+    provider: &dyn rustcode_kernel::provider::LlmProvider,
+) -> Result<usize, String> {
+    use futures::StreamExt;
+    use rustcode_kernel::message::Message;
+    use rustcode_kernel::provider::ChatOptions;
+    use rustcode_kernel::stream::StreamEvent;
+
+    let model = rustcode_wiki::WikiEngine::analyze(opts).map_err(|e| e.to_string())?;
+    let out_dir = match &opts.out_dir {
+        Some(d) if d.is_absolute() => d.clone(),
+        Some(d) => opts.root.join(d),
+        None => opts.root.join(".rustcode").join("wiki"),
+    };
+    // Never write sidecar summaries into a directory the user created by hand.
+    if let rustcode_wiki::WikiTargetState::Foreign = rustcode_wiki::WikiEngine::precheck(opts) {
+        return Err(
+            "wiki 目录已存在但不是由 rustcode-wiki 生成，已停止以免覆盖你的内容。".to_string(),
+        );
+    }
+    let langs = rustcode_wiki::resolve_langs(opts);
+    let mut count = 0usize;
+    let name_map = rustcode_wiki::module_file_names(&model);
+    for m in &model.modules {
+        for &lang in &langs {
+            let prompt = rustcode_wiki::module_enrich_prompt(&model, m, lang);
+            let messages = vec![Message::user(prompt)];
+            let stream = provider
+                .chat_stream(&messages, &[], &ChatOptions::default())
+                .await
+                .map_err(|e| format!("{e:?}"))?;
+            let mut summary = String::new();
+            let mut s = stream;
+            while let Some(ev) = s.next().await {
+                match ev {
+                    StreamEvent::TextDelta(t) => summary.push_str(&t),
+                    StreamEvent::Error(e) => return Err(format!("{e:?}")),
+                    _ => {}
+                }
+            }
+            let summary = summary.trim();
+            if summary.is_empty() {
+                continue;
+            }
+            // Persist the enriched text in a per-language sidecar (so future
+            // `sync` keeps it) and rewrite the module page to embed it.
+            rustcode_wiki::write_module_summary(&out_dir, &model, &name_map, lang, m, summary)
+                .map_err(|e| e.to_string())?;
+        }
+        count += 1;
+    }
+    Ok(count)
 }
 
 /// Parse and serve `rustcode completion [SHELL]` before normal startup.
@@ -1397,16 +1713,15 @@ async fn async_main() {
     // Wire `tracing::` diagnostics to `<config_dir>/logs/rustcode.log` (file-only,
     // TUI-safe). Must run before anything that emits traces so nothing is lost.
     init_file_logging();
-    // 一次性清除已废弃的平台凭证文件（rustcode-auth 已移除）。
-    // 该文件来自已删除的 rustcode-auth，现既不被读取也无意义；启动时静默删除，
-    // 让老用户机器干净。失败静默，不阻断启动。
-    let legacy_auth = Config::config_dir().join("auth.toml");
-    if legacy_auth.exists() {
-        match std::fs::remove_file(&legacy_auth) {
-            Ok(()) => tracing::info!("已清除遗留的平台凭证文件 auth.toml"),
-            Err(e) => tracing::info!("跳过清理遗留 auth.toml: {e}"),
-        }
-    }
+    // NOTE: A previous build deleted `<config_dir>/auth.toml` here as a "legacy"
+    // file left behind by the removed `rustcode-auth` crate. That deletion ran on
+    // *every* startup and conflicted with the rest of the codebase, which treats
+    // `auth.toml` as a live credential (uninstall preserves it, the capabilities
+    // layer guards it as sensitive). Unconditionally removing a file that other
+    // subsystems still treat as a credential risks wiping real credentials, and
+    // it also broke the uninstall integration tests (the binary nuked the data
+    // dir before the subcommand could run). We no longer delete it here; any
+    // truly-legacy `auth.toml` is left in place and is simply never read.
     // Set Windows console to UTF-8 so CJK and other multi-byte characters
     // render correctly instead of showing garbled output (mojibake).
     #[cfg(target_os = "windows")]
@@ -1667,6 +1982,11 @@ async fn run() -> Result<i32> {
             // `resume_selector` already captured above (interactive by default; add
             // `-p` to run headless resumed).
             Commands::Resume { .. } => {}
+            Commands::Wiki(args) => {
+                HEADLESS_MODE.store(true, Ordering::Relaxed);
+                let code = run_wiki_command(args).await;
+                return Ok(code);
+            }
             Commands::Daemon {
                 port,
                 host,
@@ -3478,6 +3798,9 @@ async fn handle_command(cmd: Commands) -> Result<()> {
         Commands::Setup { .. } => {
             unreachable!("Setup is handled inline in run() before handle_command")
         }
+        Commands::Wiki(_) => {
+            unreachable!("Wiki is handled inline in run() before handle_command")
+        }
         Commands::Plugin(sub) => handle_plugin_cli(sub),
         Commands::Mcp(McpCli::Add {
             name,
@@ -5123,6 +5446,76 @@ mod tests {
             read_back, content,
             "--prompt-file must preserve trailing newline (unlike bash $(...))"
         );
+    }
+
+    /// End-to-end enrichment with a *mock* `LlmProvider` (no network): confirms
+    /// `enrich_wiki` calls the provider, persists the summary sidecar, and rewrites
+    /// the module page to embed it. Closes the R2 gap (LLM path was previously
+    /// only best-effort and untested).
+    #[tokio::test]
+    async fn wiki_enrich_writes_summary_via_mock_provider() {
+        use async_trait::async_trait;
+        use futures::stream::{self, BoxStream};
+        use rustcode_kernel::message::Message;
+        use rustcode_kernel::provider::ChatOptions;
+        use rustcode_kernel::stream::{ProviderError, StreamEvent};
+        use rustcode_kernel::tool::ToolDef;
+
+        struct StaticProvider(&'static str);
+        #[async_trait]
+        impl rustcode_kernel::provider::LlmProvider for StaticProvider {
+            fn model_name(&self) -> &str {
+                "static"
+            }
+            async fn chat_stream(
+                &self,
+                _messages: &[Message],
+                _tools: &[ToolDef],
+                _options: &ChatOptions,
+            ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
+                let text = self.0;
+                Ok(Box::pin(stream::iter(vec![
+                    StreamEvent::TextDelta(text.to_string()),
+                    StreamEvent::Done { truncated: false },
+                ])))
+            }
+        }
+
+        // A minimal crate under a unique temp root.
+        let root =
+            std::env::temp_dir().join(format!("rustcode_wiki_enrich_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/lib.rs"), "pub fn hi() {}\n").unwrap();
+
+        let opts = rustcode_wiki::WikiOptions {
+            root: root.clone(),
+            out_dir: None,
+            title: None,
+            force: false,
+            max_files: 10_000,
+            exclude_dirs: vec![],
+            langs: vec![],
+            assume_yes: true,
+        };
+        rustcode_wiki::WikiEngine::generate(&opts).expect("generate");
+
+        let count =
+            super::enrich_wiki(&opts, &StaticProvider("MOCK_SUMMARY_XYZ")).await.expect("enrich");
+        assert!(count >= 1, "expected at least one module enriched");
+
+        let page =
+            std::fs::read_to_string(root.join(".rustcode/wiki/zh/Modules/demo.md")).expect("read page");
+        assert!(
+            page.contains("MOCK_SUMMARY_XYZ"),
+            "module page should embed the mock summary, got: {page}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     // ---- format_thinking_chunk / close_thinking_chunk ----

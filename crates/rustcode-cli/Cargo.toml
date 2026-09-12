@@ -37,8 +37,11 @@ rustcode-daemon = { path = "../rustcode-daemon" }
 agent-client-protocol = { workspace = true, features = ["unstable_protocol_v2", "unstable_elicitation"] }
 rustcode-kernel = { path = "../rustcode-kernel" }
 rustcode-coding = { path = "../rustcode-coding" }
-rustcode-capabilities = { path = "../rustcode-capabilities", features = ["notify", "setup", "plugin", "mcp", "cc-hooks"] }
+rustcode-capabilities = { path = "../rustcode-capabilities", features = ["notify", "setup", "plugin", "mcp", "cc-hooks", "provider"] }
+# Auto-generated project wiki (`rustcode wiki` / `/wiki`).
+rustcode-wiki = { path = "../rustcode-wiki" }
 anyhow = "1"
+futures = "0.3"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 crossterm = "0.29"

@@ -1481,6 +1481,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CmdDescApp => "通过中继将当前会话暴露给手机 App（扫码配对；/app stop 断开）".into(),
         Msg::CmdDescSync => "接入实时 webui 会话（/sync off 断开）".into(),
         Msg::CmdDescReview => "审查当前代码改动（/review . /review staged . /review <基准>）".into(),
+        Msg::CmdDescWiki => "分析项目并生成 wiki（架构图 + 模块文档）".into(),
         Msg::CmdDescGoal => "设定完成目标（自主循环直到达成）".into(),
         Msg::CmdDescProxy => "切换出站代理模式".into(),
         Msg::CmdDescTodo => "显示当前任务清单；`/todo add <任务>` 追加一条，`/todo clear` 清空".into(),
@@ -2230,6 +2231,26 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliAboutMarketplaceRemove => "删除已注册的市场".into(),
         Msg::CliAboutMarketplaceUpdate => "重新拉取已注册的市场并刷新插件索引".into(),
         Msg::CliAboutMarketplaceList => "列出已注册的市场".into(),
+        Msg::CliAboutWiki => "生成项目 wiki：架构图与模块文档".into(),
+        Msg::WikiGenerating => "正在生成项目 wiki...".into(),
+        Msg::WikiSummary { modules, files, path } => {
+            format!("已生成 wiki：{modules} 个模块、{files} 个文件，写入 {path}").into()
+        }
+        Msg::WikiAutoSynced { modules, files, path } => {
+            format!("wiki 已自动同步：{modules} 个模块、{files} 个文件更新于 {path}").into()
+        }
+        Msg::WikiForeignConflict { path } => {
+            format!("检测到目录 {path} 已存在且不是由 rustcode-wiki 自动生成；为安全起见已忽略，未改动你的内容。如需重新生成，请改用其它 --out-dir 或先手动删除该目录。").into()
+        }
+        Msg::WikiFilePreserved { path } => {
+            format!("已保留你对 {path} 的手动修改（使用 --force 可覆盖）").into()
+        }
+        Msg::WikiSyncUpToDate => "wiki 已是最新（未检测到源码变更）".into(),
+        Msg::WikiEnriching => "正在用已配置的 LLM 充实模块文档...".into(),
+        Msg::WikiEnriched { count } => {
+            format!("LLM 充实完成，共 {count} 个模块").into()
+        }
+        Msg::WikiEnrichSkipped { reason } => format!("已跳过 LLM 充实：{reason}").into(),
         Msg::CliAboutMcpAdd => "添加或替换 stdio MCP 服务器".into(),
         Msg::CliAboutMcpAddOauth => "按 URL 添加远程 OAuth MCP 服务器（任意服务商）".into(),
         Msg::CliAboutMcpAddGithubOauth => "使用 OAuth 添加 GitHub 远程 MCP 服务器".into(),

@@ -46,14 +46,14 @@ L3  drivers   rustcode-cli(pkg `rustcode`)  rustcode-tuix  rustcode-daemon
                     |             |                |
 L2  specialize      |             +----> rustcode-coding (CodingRuntime)
                     |                          |     `-- rustcode-review
-L1  capabilities    rustcode-capabilities <----+
+L1  capabilities    rustcode-capabilities / rustcode-wiki <----+
 L0  neutral         rustcode-kernel <----------+
 leaf                rustcode-config / rustcode-updater
                     rustcode-codingplan / rustcode-codingplan-crypto
 ```
 
 > 上图 leaf 行的 rustcode-codingplan 与 rustcode-codingplan-crypto 两个 crate 已于 2026-09-09
-> 按用户裁决 Q1=B 删除,图中保留仅为与历史交接件对照;现工作区 crates 目录下只有 11 个成员。
+> 按用户裁决 Q1=B 删除,图中保留仅为与历史交接件对照;现工作区 crates 目录下只有 12 个成员(`rustcode-wiki` 为 2026-09-11 新增的项目 wiki 自动生成模块)。
 > 原 `auth` leaf crate（即旧 `rustcode` 的 auth 子 crate）已随本批次基线删除,故已从 leaf 行移除,不保留对照。
 
 - **出站 HTTP 只有一个入口**:`capabilities/src/egress/`(`egress` feature,由 `provider` / `web` / `atomgit` / `mcp` 拉起)。`egress::client::build_http_client` 是唯一工厂,统一承载信任根分层、代理策略、超时、UA、pool-idle。**新增任何出站调用都必须走它,禁止再写 `reqwest::Client::new()`。**
