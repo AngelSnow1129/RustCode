@@ -2,9 +2,9 @@
 //!
 //! Two halves share one wire protocol (see [`protocol`]):
 //!
-//! * `client` (frpc) runs on the dev machine: opens a WebSocket control channel
+//! * [`client`] (frpc) runs on the dev machine: opens a WebSocket control channel
 //!   to the relay and forwards inbound streams to a local port.
-//! * `server` (frps) is the relay: exposes a public port and multiplexes inbound
+//! * [`server`] (frps) is the relay: exposes a public port and multiplexes inbound
 //!   connections to the connected client over the control channel.
 //!
 //! Wire format (binary WebSocket messages, big-endian):
@@ -14,3 +14,4 @@
 
 pub mod client;
 pub mod protocol;
+pub mod server;

@@ -9,5 +9,5 @@ publish = false
 anyhow = "1"
 futures-util = "0.3"
 tokio = { version = "1", features = ["full"] }
-tokio-tungstenite = { version = "0.24", features = ["connect", "rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.24", features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
 tracing = "0.1"

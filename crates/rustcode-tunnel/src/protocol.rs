@@ -24,6 +24,9 @@ pub const FRAME_DATA: u8 = 2;
 /// `Close` -- an existing stream is finished.
 pub const FRAME_CLOSE: u8 = 3;
 
+/// Query parameter that carries the tunnel token on the control-channel handshake.
+pub const TOKEN_QUERY_PARAM: &str = "token";
+
 /// Header size: 1 byte type + 4 byte big-endian stream id.
 pub const HEADER_LEN: usize = 5;
 

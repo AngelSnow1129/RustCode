@@ -18,10 +18,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{error, info, warn};
 
-use crate::protocol::{decode, Frame};
-
-/// Query parameter carrying the tunnel token on the control-channel handshake.
-pub const TOKEN_QUERY_PARAM: &str = "token";
+use crate::protocol::{decode, Frame, TOKEN_QUERY_PARAM};
 
 /// Local address the relay streams are forwarded to.
 pub const LOCAL_HOST: &str = "127.0.0.1";
