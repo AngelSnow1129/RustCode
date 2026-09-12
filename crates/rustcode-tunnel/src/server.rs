@@ -22,7 +22,7 @@ use crate::protocol::{decode, Frame, TOKEN_QUERY_PARAM};
 /// Read buffer size for the public->client direction.
 const BUF_SIZE: usize = 16 * 1024;
 
-/// Run the relay.
+/// Run the relay on freshly bound listeners.
 ///
 /// * `control_addr` -- where the tunnel client connects (e.g. `0.0.0.0:7000`)
 /// * `public_addr`  -- the port remote clients hit (e.g. `0.0.0.0:8080`)
@@ -35,6 +35,31 @@ pub async fn run_relay(control_addr: &str, public_addr: &str, token: &str) -> Re
         .await
         .with_context(|| format!("bind public address {public_addr}"))?;
     info!("relay: control={control_addr} public={public_addr}");
+    run_relay_with(control, public, token).await
+}
+
+/// Run the relay on already-bound listeners.
+///
+/// Same as [`run_relay`] minus the `bind` step: it takes ownership of two
+/// listeners, so callers that bind ephemeral ports (`127.0.0.1:0`) can read the
+/// OS-assigned addresses with [`TcpListener::local_addr`] before handing the
+/// listeners over. This is what the end-to-end test uses.
+pub async fn run_relay_with(
+    control: TcpListener,
+    public: TcpListener,
+    token: &str,
+) -> Result<()> {
+    info!(
+        "relay: control={} public={}",
+        control
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_else(|_| "?".to_string()),
+        public
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_else(|_| "?".to_string())
+    );
 
     // Accept the tunnel client, validating its token on the handshake.
     let (stream, peer) = control
@@ -113,10 +138,13 @@ pub async fn run_relay(control_addr: &str, public_addr: &str, token: &str) -> Re
             Ok(Message::Binary(bytes)) => match decode(&bytes) {
                 Ok(Frame::Data(id, payload)) => {
                     let tx = streams.lock().await.get(&id).cloned();
-                    if let Some(tx) = tx {
-                        if tx.send(payload).is_err() {
-                            streams.lock().await.remove(&id);
+                    match tx {
+                        Some(tx) => {
+                            if tx.send(payload).is_err() {
+                                streams.lock().await.remove(&id);
+                            }
                         }
+                        None => warn!("relay: stream {id}: data for an unknown stream, dropping"),
                     }
                 }
                 Ok(Frame::Close(id)) => {

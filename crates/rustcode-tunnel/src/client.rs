@@ -66,7 +66,15 @@ pub async fn start_tunnel_client(relay_url: &str, token: &str, local_port: u16) 
                     }
                 };
                 match frame {
-                    Frame::Open(id) => spawn_stream(id, local_port, out_tx.clone(), streams.clone()),
+                    Frame::Open(id) => {
+                        // Register the stream *before* handing it to a task: the
+                        // relay can push data for `id` immediately after Open,
+                        // and data for an id we have not registered yet is
+                        // dropped (and the stream killed) by the arm below.
+                        let (in_tx, in_rx) = mpsc::unbounded_channel();
+                        streams.lock().await.insert(id, in_tx);
+                        spawn_stream(id, local_port, in_rx, out_tx.clone(), streams.clone());
+                    }
                     Frame::Data(id, payload) => {
                         let tx = streams.lock().await.get(&id).cloned();
                         match tx {
@@ -77,6 +85,7 @@ pub async fn start_tunnel_client(relay_url: &str, token: &str, local_port: u16) 
                             }
                             // Late data for a stream we no longer hold: tell the relay to close it.
                             None => {
+                                warn!("tunnel: stream {id}: data for an unknown stream, closing it");
                                 let _ = out_tx.send(Message::Binary(Frame::Close(id).encode()));
                             }
                         }
@@ -116,23 +125,29 @@ pub fn with_token(relay_url: &str, token: &str) -> String {
 }
 
 /// Bridge one relay stream to a fresh local TCP connection.
+///
+/// `in_rx` is already registered in `streams` by the caller, so bytes that
+/// arrive before the local connection is established are buffered, not lost.
+/// On failure the caller's registration is removed and the relay is told to
+/// close the stream.
 fn spawn_stream(
     id: u32,
     local_port: u16,
+    in_rx: mpsc::UnboundedReceiver<Vec<u8>>,
     out_tx: mpsc::UnboundedSender<Message>,
     streams: Arc<Mutex<HashMap<u32, mpsc::UnboundedSender<Vec<u8>>>>>,
 ) {
     tokio::spawn(async move {
+        let mut in_rx = in_rx;
         let local = match TcpStream::connect((LOCAL_HOST, local_port)).await {
             Ok(s) => s,
             Err(e) => {
                 warn!("tunnel: stream {id}: local endpoint unreachable: {e}");
+                streams.lock().await.remove(&id);
                 let _ = out_tx.send(Message::Binary(Frame::Close(id).encode()));
                 return;
             }
         };
-        let (in_tx, mut in_rx) = mpsc::unbounded_channel::<Vec<u8>>();
-        streams.lock().await.insert(id, in_tx);
 
         let (mut rd, mut wr) = local.into_split();
 
