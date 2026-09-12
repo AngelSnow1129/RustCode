@@ -23,23 +23,12 @@ pub struct Command {
     pub acp: bool,
 }
 
-/// Managed-account commands that only existed in distribution builds which
-/// shipped a managed service (a sign-in gateway / account-usage backend). They
-/// stay *dispatchable* -- typing one prints a bring-your-own-key "managed
-/// service unavailable" message -- but are hidden from every discovery surface
-/// (the `/` slash menu, Tab completion, `/help`, the ACP `available_commands`
-/// set) so a BYO user is never pitched a sign-in / free-model flow the build
-/// does not ship. Keep in sync with the `whoami` / `usage` rows below.
-const MANAGED_ONLY_COMMANDS: &[&str] = &["whoami", "usage"];
-
 /// Whether a built-in command should appear in discovery surfaces for the
-/// running build. Deprecated aliases (`hidden`) and managed-account commands
-/// are always excluded. Dispatch is unaffected either way.
+/// running build. Deprecated aliases (`hidden`) are always excluded; a few
+/// endpoint-dependent commands are hidden when their hosted endpoint is not
+/// configured (see the `match` below). Dispatch is unaffected either way.
 fn command_visible(cmd: &Command) -> bool {
     if cmd.hidden {
-        return false;
-    }
-    if MANAGED_ONLY_COMMANDS.contains(&cmd.name) {
         return false;
     }
     // Endpoint-dependent commands only make sense in a distribution build that
@@ -49,7 +38,6 @@ fn command_visible(cmd: &Command) -> bool {
     // only errors against an empty manifest URL (/upgrade). The command arms
     // themselves also short-circuit with a neutral message when typed directly.
     match cmd.name {
-        "desktop" if rustcode_config::endpoints::desktop_download_url().is_empty() => false,
         "upgrade" if !rustcode_updater::update_endpoint_configured() => false,
         _ => true,
     }
@@ -188,11 +176,11 @@ const BUILTIN_COMMANDS: &[Command] = &[
     // before Enter. A bare `/webui ` + Enter still launches on 127.0.0.1.
     Command { name: "webui",   desc: "Launch the browser webui (subcommands: stop, lan, --host <addr>)", needs_args: true, hidden: false, acp: false },
     Command { name: "sync",    desc: "Attach to live webui session (/sync off to detach)", needs_args: false, hidden: false, acp: false },
-    Command { name: "app", desc: "Expose this session to the mobile App via relay (QR pairing; /app stop to detach)", needs_args: true, hidden: false, acp: false },
+    Command { name: "tunnel",  desc: "Open or view the remote-access tunnel (frp-style reverse proxy exposing local services through a relay)", needs_args: false, hidden: false, acp: false },
     Command { name: "setup",      desc: "First run: install recommender skill + run it. Extra text forwarded as a steering hint", needs_args: true, hidden: false, acp: false },
     Command { name: "resume",  desc: "Resume a previous session", needs_args: false, hidden: false, acp: false },
     Command { name: "rename",  desc: "Rename current session", needs_args: true, hidden: false, acp: false },
-    Command { name: "whoami",  desc: "Show current logged-in user", needs_args: false, hidden: false, acp: false },
+    Command { name: "whoami",  desc: "Show local runtime & identity", needs_args: false, hidden: false, acp: false },
     Command { name: "model",   desc: "Switch provider / model", needs_args: false, hidden: false, acp: true },
     Command { name: "provider", desc: "Manage providers (add / edit / delete)", needs_args: false, hidden: false, acp: false },
     Command { name: "proxy",   desc: "Switch outbound proxy mode", needs_args: false, hidden: false, acp: false },
@@ -206,7 +194,8 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "diff",    desc: "Show git diff", needs_args: false, hidden: false, acp: true },
     Command { name: "clear",   desc: "Start a new conversation (clears context + screen)", needs_args: false, hidden: false, acp: false },
     Command { name: "session", desc: "Start a new session (clears conversation)", needs_args: false, hidden: false, acp: false },
-    // Same neutral-variant fallback as the managed-account rows above.
+    // `/usage` shows local token accounting; its neutral description is used
+    // directly (no hosted usage endpoint exists in this build).
     Command { name: "usage",   desc: "Show token usage (tabs: current / overview / models)", needs_args: false, hidden: false, acp: true },
     // `/cost` reports THIS SESSION's local token accounting for any model,
     // including self-integrated ones the gateway-only `/usage` modal can't see.
@@ -276,7 +265,6 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "view",    desc: "View file content in an overlay modal", needs_args: true, hidden: false, acp: false },
     Command { name: "todo",    desc: "Show the todo list; /todo add <task> appends one, /todo clear wipes it", needs_args: false, hidden: false, acp: true },
     Command { name: "schedule", desc: "List scheduled tasks and next run times", needs_args: false, hidden: false, acp: false },
-    Command { name: "desktop", desc: "Open the RustCode desktop app (or show the download link)", needs_args: false, hidden: false, acp: false },
 ];
 
 /// Look up the i18n translation for a built-in command description.
@@ -286,14 +274,13 @@ pub fn cmd_desc_i18n(name: &str) -> Option<std::borrow::Cow<'static, str>> {
     use crate::i18n::{t, Msg};
     let msg = match name {
         "webui" => Msg::CmdDescWebui,
+        "tunnel" => Msg::CmdDescTunnel,
         "setup" => Msg::CmdDescSetup,
         "resume" => Msg::CmdDescResume,
         "rename" => Msg::CmdDescRename,
-        // Managed-account commands: advertise the managed flow only in a
-        // distribution build that ships a sign-in gateway; a neutral
-        // bring-your-own-key build gets a neutral description. The command is
-        // hidden from discovery in a neutral build via `command_visible`, but
-        // keep the desc itself neutral too so no surface leaks the brand.
+        // `/whoami` reports the local runtime & identity (provider / model /
+        // base_url / credential / RUSTCODE_HOME / session / turns). Its
+        // description is neutral (no sign-in / account branding).
         "whoami" => Msg::CmdDescWhoami,
         "model" => Msg::CmdDescModel,
         "provider" => Msg::CmdDescProvider,
@@ -337,7 +324,6 @@ pub fn cmd_desc_i18n(name: &str) -> Option<std::borrow::Cow<'static, str>> {
         "copy" => Msg::CmdDescCopy,
         "save" => Msg::CmdDescSave,
         "view" => Msg::CmdDescView,
-        "app" => Msg::CmdDescApp,
         "sync" => Msg::CmdDescSync,
         "review" => Msg::CmdDescReview,
         "wiki" => Msg::CmdDescWiki,
@@ -347,7 +333,6 @@ pub fn cmd_desc_i18n(name: &str) -> Option<std::borrow::Cow<'static, str>> {
         "team" => Msg::CmdDescTeam,
         "loop" => Msg::CmdDescLoop,
         "schedule" => Msg::CmdDescSchedule,
-        "desktop" => Msg::CmdDescDesktop,
         _ => return None,
     };
     Some(t(msg))
@@ -775,8 +760,7 @@ mod tests {
         let help = reg.help_text();
         for c in reg.all() {
             if !command_visible(c) {
-                // Hidden aliases, and managed-account commands in a neutral
-                // build, are intentionally excluded from /help output.
+                // Hidden aliases are intentionally excluded from /help output.
                 assert!(
                     !help.contains(&format!("/{} ", c.name)),
                     "non-visible command /{} must not appear in help",
@@ -789,37 +773,13 @@ mod tests {
     }
 
     #[test]
-    fn neutral_build_hides_managed_account_commands() {
-        // In a neutral build (no compiled-in platform server) the
-        // managed-account commands must be absent from every discovery surface
-        // -- /help, the `/` slash menu, Tab completion, and the ACP command
-        // set -- even though they remain dispatchable (typing one prints a
-        // bring-your-own-key "managed unavailable" message).
+    fn neutral_build_hides_endpoint_dependent_commands() {
+        // Endpoint-dependent commands are hidden in a build that ships neither
+        // endpoint: /desktop only leads to a blank download link and /upgrade
+        // only errors against an empty manifest URL. Both stay dispatchable
+        // (their arms print a neutral message) but are unadvertised.
         let reg = CommandRegistry::builtin();
         let help = reg.help_text();
-        for managed in MANAGED_ONLY_COMMANDS {
-            assert!(
-                !help.contains(&format!("/{managed} ")),
-                "neutral /help must not pitch /{managed}"
-            );
-            assert!(
-                reg.matching_prefix(managed).is_empty(),
-                "slash menu must not surface /{managed} in a neutral build"
-            );
-        }
-        // The BYO provider path must remain visible (it is the neutral lead).
-        assert!(
-            help.contains("/provider"),
-            "neutral /help must lead with /provider"
-        );
-        assert!(
-            !reg.acp_commands().iter().any(|c| c.name == "usage"),
-            "ACP must not advertise the gateway-only /usage in a neutral build"
-        );
-        // Endpoint-dependent commands are likewise hidden: /desktop only leads
-        // to a blank download link and /upgrade only errors against an empty
-        // manifest URL when the build ships neither endpoint. Both stay
-        // dispatchable (their arms print a neutral message) but are unadvertised.
         for gated in ["desktop", "upgrade"] {
             assert!(
                 !help.contains(&format!("/{gated} ")),
@@ -830,6 +790,11 @@ mod tests {
                 "slash menu must not surface /{gated} in a neutral build"
             );
         }
+        // The BYO provider path must remain visible (it is the neutral lead).
+        assert!(
+            help.contains("/provider"),
+            "neutral /help must lead with /provider"
+        );
     }
 
     #[test]

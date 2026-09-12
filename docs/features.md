@@ -153,6 +153,22 @@ MCP 配置:
   传入 `--force` 才会以重新生成的内容覆盖你的修改（同时用于「强制全量重写」）。
   LLM 摘要侧车 `<lang>/Modules/<模块>.summary.md` 与网页本体分离，始终按用户提供内容保留。
 
+### 6. 守护进程客户端鉴权（静态访问密钥）
+
+- daemon 的 HTTP/SSE API 采用**静态访问密钥**鉴权，不再有任何托管登录 / 托管账号体系（`/auth/*` 登录流程与移动端 App 均已移除）。
+- 客户端在请求头中以 `Authorization: Bearer <key>` 携带密钥；密钥来源为配置文件 `~/.rustcode/config.toml` 的静态访问密钥字段 `access_key`（本变更已实现，详见 `docs/config.example.toml`），或环境变量 `RUSTCODE_ACCESS_KEY` / `RUSTCODE_DAEMON_TOKEN`。
+- 这是本地身份体系的一部分：密钥由用户自行持有，不依赖任何外部平台、OAuth 或第三方账号；`access_key` 与 `RUSTCODE_ACCESS_KEY` / `RUSTCODE_DAEMON_TOKEN` 的优先级以 `docs/config.example.toml` 的配置契约为准。
+
+### 7. 远程访问（frp 风格反向隧道）
+
+- daemon 可通过可配置的**反向隧道中继**把本地 webui / HTTP·SSE API 暴露到公网：由环境变量 `RUSTCODE_ENABLE_TUNNEL=1` 开启（默认关闭），并由 `RUSTCODE_TUNNEL_RELAY` 指定中继地址（如 `wss://your-relay.example.com`）。开启后 daemon 作为反向代理，把中继转发来的请求回源到本地 webui / API。
+- 远程客户端以 `Authorization: Bearer <access_key>` 鉴权（与第 6 节静态访问密钥同一套密钥），未携带有效 Bearer 的远程请求被拒绝。
+- TUI 内执行 `/tunnel` 命令启动本地隧道端点，并在终端打印：中继 URL（`RUSTCODE_TUNNEL_RELAY`）、当前 `access_key`、以及本地回源端口。
+- **本能力取代已移除的移动端 App 远程访问**（原 `/app <中继>` + `RUSTCODE_APP_RELAY` 方案，随移动端 App 一并移除）：隧道是平台中立、用户自托管中继的反向代理，无任何托管账号或移动端依赖。
+
+#### UDP 打洞（未来 P2P 模式）
+
+- 未来可选模式：借助 STUN 风格信令服务器 + UDP 打洞，让两端点对点直连，绕过中继以降低延迟。该 P2P 模式**当前不在范围内**，仅作为下一步规划记录，不在本变更实现。
 
 ## 本地检索工具(内置)
 

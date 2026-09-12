@@ -13,7 +13,7 @@ pub struct Tip {
     pub desc: Msg<'static>,
 }
 
-/// The pinned first tip: bring-your-own-key `/provider`. Managed sign-in
+/// The pinned first tip: bring-your-own-key `/provider`. The sign-in step
 /// (`/login`) and its welcome tip are gone, so the BYO setup step is the real
 /// first step in every build -- there is no sign-in tip to lead with.
 fn pinned() -> Tip {
@@ -88,17 +88,6 @@ pub const POOL: &[Tip] = &[
     },
 ];
 
-/// Tips for commands that only existed in managed distributions. These
-/// commands are hidden from every discovery surface (see
-/// `commands::command_visible`), so advertising them as tips would be a
-/// dead-end: the typed command answers with a "not available in this build"
-/// notice. Always filtered from the random pool (and defensively from cached
-/// indices).
-const MANAGED_ONLY_TIP_CMDS: &[&str] = &["/usage"];
-
-fn tip_allowed(tip: &Tip) -> bool {
-    !MANAGED_ONLY_TIP_CMDS.contains(&tip.cmd)
-}
 
 /// How many random tips to show below the pinned one.
 const RANDOM_COUNT: usize = 3;
@@ -108,7 +97,7 @@ const RANDOM_COUNT: usize = 3;
 pub fn choose_pool_indices(rng: &mut impl Rng) -> Vec<usize> {
     let pin_cmd = pinned().cmd;
     let mut idx: Vec<usize> = (0..POOL.len())
-        .filter(|&i| POOL[i].cmd != pin_cmd && tip_allowed(&POOL[i]))
+        .filter(|&i| POOL[i].cmd != pin_cmd)
         .collect();
     idx.shuffle(rng);
     idx.truncate(RANDOM_COUNT.min(idx.len()));
@@ -124,9 +113,6 @@ pub fn tips_from_indices(indices: &[usize]) -> Vec<Tip> {
         if let Some(t) = POOL.get(i) {
             if t.cmd == pin.cmd {
                 continue; // never duplicate the pinned tip
-            }
-            if !tip_allowed(t) {
-                continue; // managed-only tip cached by a different build kind
             }
             out.push(*t);
         }
@@ -200,30 +186,6 @@ mod tests {
         ];
         for t in POOL {
             assert!(!banned.contains(&t.cmd), "{} must not be in POOL", t.cmd);
-        }
-    }
-
-    #[test]
-    fn managed_only_tips_never_surface_in_neutral_build() {
-        // Tests run with no platform server -> neutral build. /usage is a
-        // managed-account command (hidden from discovery; answers with a
-        // "not available in this build" notice), so it must never be shown as
-        // a tip -- neither fresh-picked nor resolved through cached indices.
-        for seed in 0..64u64 {
-            let tips = choose_tips(&mut fixed(seed));
-            for tip in &tips {
-                assert_ne!(
-                    tip.cmd, "/usage",
-                    "neutral build surfaced /usage tip (seed {seed})"
-                );
-            }
-            let indices = choose_pool_indices(&mut fixed(seed));
-            for tip in tips_from_indices(&indices) {
-                assert_ne!(
-                    tip.cmd, "/usage",
-                    "neutral build resolved /usage tip (seed {seed})"
-                );
-            }
         }
     }
 }

@@ -22,7 +22,6 @@ async fn chat_requires_token_health_is_public() {
             working_dir_override: Some(tmp_for_spawn),
             quiet: true,
             prebound_listener: None,
-            app_user_id: None,
             daemon_token_file: Some("it-token".to_string()),
         })
         .await

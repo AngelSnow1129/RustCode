@@ -77,8 +77,8 @@ pub const DAEMON_PORT: u16 = 13456;
 /// extension with 401s or no response at all.
 pub const WEBUI_PORT: u16 = 13457;
 
-/// `/app` remote-access pairing.
-pub const APP_PORT: u16 = 13458;
+/// 通用远程访问隧道的默认端口。
+pub const TUNNEL_PORT: u16 = 13458;
 
 // ---------------------------------------------------------------------------
 // Executables and install locations
@@ -237,9 +237,9 @@ mod tests {
 
     #[test]
     fn the_ports_are_distinct() {
-        // Two of these on one port means the webui or /app silently answers
+        // Two of these on one port means the webui or tunnel silently answers
         // requests the extension's daemon was meant to get.
-        let ports = [DAEMON_PORT, WEBUI_PORT, APP_PORT];
+        let ports = [DAEMON_PORT, WEBUI_PORT, TUNNEL_PORT];
         for (i, a) in ports.iter().enumerate() {
             for b in &ports[i + 1..] {
                 assert_ne!(a, b, "ports must not collide");

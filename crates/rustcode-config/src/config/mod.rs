@@ -295,6 +295,10 @@ pub struct Config {
     /// so legacy configs (`default_provider` only) keep working unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
+    /// 静态访问密钥:非空时 daemon 启动时将其注册为有效 Bearer token,
+    /// 取代/补充一次性随机 token(对应前端读取 daemon-<port>.json 的鉴权方式)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_key: Option<String>,
     /// Per-turn datalog settings. Missing from older configs -> defaults to
     /// enabled=false, dir="$RUSTCODE_HOME/datalog" (project slug appended underneath).
     ///
@@ -704,6 +708,7 @@ impl Default for Config {
     fn default() -> Self {
         let mut cfg = Self {
             default_provider: String::new(),
+            access_key: None,
             evaluator_provider: None,
             default_workdir: None,
             providers: HashMap::new(),
@@ -3004,6 +3009,7 @@ model = "missing-type"
         let tmp = std::env::temp_dir().join(format!("rustcode_cfg_rt_{}.toml", std::process::id()));
         let mut cfg = Config {
             default_provider: "p".to_string(),
+            access_key: None,
             evaluator_provider: None,
             default_workdir: None,
             providers: HashMap::new(),

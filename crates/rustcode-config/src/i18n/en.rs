@@ -1457,12 +1457,13 @@ Msg::PluginMgrInstallingLabel => "Installing...".into(),
 
         // ── Command descriptions ──
         Msg::CmdDescWebui => "Launch the browser webui (subcommands: stop, lan, --host <addr>)".into(),
+        Msg::CmdDescTunnel => "Expose this session for remote access via a relay (frp-style reverse tunnel; subcommands: stop)".into(),
 Msg::CmdDescSetup =>
 "Scan project, install seeds, and run setup skill [hooks|mcp|skills|all]".into(),
         Msg::CmdDescResume => "Resume a previous session".into(),
         Msg::CmdDescRename => "Rename current session".into(),
 
-        Msg::CmdDescWhoami => "Show current logged-in user".into(),
+        Msg::CmdDescWhoami => "Show local runtime & identity".into(),
         Msg::CmdDescModel =>
             "Set the default provider / model and switch this session".into(),
         Msg::CmdDescProvider =>
@@ -1478,7 +1479,6 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CmdDescClear => "Clear screen".into(),
         Msg::CmdDescSession => "Start a new session (clears conversation)".into(),
         Msg::CmdDescCost => "Show session token usage".into(),
-        Msg::CmdDescUsage => "Show managed-plan usage (tabs: current / overview / models)".into(),
         Msg::CmdDescUsageNeutral =>
             "Show token usage (tabs: current / overview / models)".into(),
         Msg::CmdDescContext => "Show context budget breakdown".into(),
@@ -1519,7 +1519,6 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CodeBlockCopied => "[+] Copied code block to clipboard".into(),
         Msg::CmdDescGuide => "Ask rustcode-guide how to use".into(),
         Msg::CmdDescView => "View file content in an overlay modal".into(),
-        Msg::CmdDescApp => "Expose this session to the mobile App via relay (QR pairing; /app stop to detach)".into(),
         Msg::CmdDescSync => "Attach to live webui session (/sync off to detach)".into(),
         Msg::CmdDescReview => "Code review the current changes (/review . /review staged . /review <base>)".into(),
         Msg::CmdDescWiki => "Analyze the project and generate a wiki (architecture + module docs)".into(),
@@ -1528,8 +1527,6 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CmdDescTodo => "Show the current todo list; `/todo add <task>` appends one, `/todo clear` wipes it".into(),
         Msg::CmdDescTeam => "Show or control the Team Agent progress panel".into(),
         Msg::CmdDescSchedule => "List scheduled tasks and next run times".into(),
-        Msg::CmdDescDesktop =>
-            "Open the {brand} desktop app (launch it if installed, else show the download link)".into(),
         // ── /proxy picker ──
         Msg::ProxyTitleFollowSystem => "follow_system".into(),
         Msg::ProxyTitleDefaultProxy => "default_proxy".into(),
@@ -1788,10 +1785,6 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             format!("refresh context stats failed: {error}").into(),
         Msg::SyncStoppedSharing => "Stopped sharing the current session.".into(),
         Msg::SyncNotActive => "Not currently in sync mode.".into(),
-        Msg::AppRemoteStopped => "Stopped App remote access.".into(),
-        Msg::AppRemoteNotRunning => "App remote access is not running.".into(),
-        Msg::AppRemoteDetachSuffix { error } =>
-            format!("\n{error}; the TUI stays in sync for now").into(),
         Msg::WebuiOpenedBrowser { url } => format!("Opened webui in your browser: {url}").into(),
         Msg::WebuiOpenManually { url } =>
             format!("Open this URL manually in your browser: {url}").into(),
@@ -1807,24 +1800,6 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::WebuiNotRunning => "webui server is not running".into(),
         Msg::AppServerBindFailed { host, port, error } =>
             format!("bind {host}:{port} failed ({error})").into(),
-        Msg::AppRemoteUsage =>
-            "Usage: /app <relay-address>; or set RUSTCODE_APP_RELAY to a default relay and run /app"
-                .into(),
-
-        Msg::AppServerStartFailed { error } =>
-            format!("App server failed to start: {error}").into(),
-        Msg::AppRelayClientStartFailed { error } =>
-            format!("Failed to start relay-client: {error}").into(),
-        Msg::AppRelayClientSpawnFailed { error, bin, cache } => format!(
-            "Failed to start relay-client ({error}). Tried path `{bin}`. Make sure relay-client is under {cache}, or delete that directory and retry /app to auto-download it."
-        )
-        .into(),
-        Msg::AppPairQrBlock { qr, encoded } => format!(
-            "[*] Mobile pairing\n\nThe companion mobile app is provided by your relay operator:\n1. Open the scan feature in the mobile app\n2. Point it at the QR code below to pair\n\n{qr}\n\nOr copy this token to connect in the app:\n{encoded}\n\n(/app stop to disconnect)"
-        )
-        .into(),
-        Msg::AppPairLinkFallback { pair_uri } =>
-            format!("Pairing link (QR generation failed, paste manually): {pair_uri}").into(),
         Msg::BgSessionLoadFailed { error } =>
             format!("background session could not be loaded: {error}").into(),
         Msg::McpToolsHeader => "tools:\n".into(),

@@ -2053,6 +2053,8 @@ pub enum Msg<'a> {
 
     // ── Command descriptions (for help_text dynamic lookup) ──
     CmdDescWebui,
+    /// `/tunnel` description -- generic frp-style remote access via a relay.
+    CmdDescTunnel,
     CmdDescSetup,
     CmdDescResume,
     CmdDescRename,
@@ -2071,9 +2073,6 @@ pub enum Msg<'a> {
     CmdDescClear,
     CmdDescSession,
     CmdDescCost,
-    /// `/usage` description in a distribution build that ships a managed
-    /// account-usage backend (mentions the managed usage modal).
-    CmdDescUsage,
     /// `/usage` description in a neutral, bring-your-own-key build -- phrased
     /// around provider/model agnostic usage rather than a managed service.
     CmdDescUsageNeutral,
@@ -2162,8 +2161,6 @@ pub enum Msg<'a> {
     CmdDescGuide,
     /// Description for the `/view` slash command -- opens an overlay modal showing file content.
     CmdDescView,
-    /// Description for the `/app` slash command -- expose the session to the mobile App via relay.
-    CmdDescApp,
     /// Description for the `/sync` slash command -- attach to a live webui session.
     CmdDescSync,
     /// Description for the `/review` slash command -- code review the current changes.
@@ -2179,8 +2176,6 @@ pub enum Msg<'a> {
     CmdDescTeam,
     /// Description for the `/schedule` slash command -- list local scheduled tasks.
     CmdDescSchedule,
-    /// Description for the `/desktop` slash command.
-    CmdDescDesktop,
     // ── /proxy picker ──
     /// Proxy picker row titles (double as the localized mode word).
     ProxyTitleFollowSystem,
@@ -2704,13 +2699,6 @@ pub enum Msg<'a> {
     /// `/sync off` outcomes.
     SyncStoppedSharing,
     SyncNotActive,
-    /// `/desktop` (App remote access) stop outcomes.
-    AppRemoteStopped,
-    AppRemoteNotRunning,
-    /// Extra suffix when detach left the TUI synced.
-    AppRemoteDetachSuffix {
-        error: &'a str,
-    },
     /// `/webui` server: browser opened automatically.
     WebuiOpenedBrowser {
         url: &'a str,
@@ -2742,32 +2730,6 @@ pub enum Msg<'a> {
         host: &'a str,
         port: u16,
         error: &'a str,
-    },
-    /// `/app`: usage hint when no relay is configured.
-    AppRemoteUsage,
-
-    /// `/app`: local App server failed to start.
-    AppServerStartFailed {
-        error: &'a str,
-    },
-    /// `/app`: relay-client binary could not be prepared.
-    AppRelayClientStartFailed {
-        error: &'a str,
-    },
-    /// `/app`: relay-client process could not spawn.
-    AppRelayClientSpawnFailed {
-        error: &'a str,
-        bin: &'a str,
-        cache: &'a str,
-    },
-    /// `/app`: pairing QR block (QR text + manual token).
-    AppPairQrBlock {
-        qr: &'a str,
-        encoded: &'a str,
-    },
-    /// `/app`: QR generation failed, raw pairing link fallback.
-    AppPairLinkFallback {
-        pair_uri: &'a str,
     },
     /// Background session projection could not be loaded for the live panel.
     BgSessionLoadFailed {

@@ -33,7 +33,7 @@ use std::sync::OnceLock;
 pub const UPDATE_MANIFEST_URL_ENV: &str = "RUSTCODE_UPDATE_MANIFEST_URL";
 pub const UPDATE_DOWNLOAD_BASE_ENV: &str = "RUSTCODE_UPDATE_DOWNLOAD_BASE";
 pub const DESKTOP_DOWNLOAD_URL_ENV: &str = "RUSTCODE_DESKTOP_DOWNLOAD_URL";
-pub const RELAY_URL_ENV: &str = "RUSTCODE_APP_RELAY";
+pub const RELAY_URL_ENV: &str = "RUSTCODE_TUNNEL_RELAY";
 
 /// Marketplace git URLs, comma-separated. Replaces the default list; an
 /// explicitly empty value registers none.
@@ -43,8 +43,8 @@ pub const PLUGIN_MARKETPLACES_ENV: &str = "RUSTCODE_PLUGIN_MARKETPLACES";
 /// Replaces the default; an explicitly empty value installs none.
 pub const PLUGIN_AUTO_INSTALL_ENV: &str = "RUSTCODE_PLUGIN_AUTO_INSTALL";
 
-/// Whether `/app` remote access is offered. Defaults to on.
-pub const ENABLE_RELAY_ENV: &str = "RUSTCODE_ENABLE_RELAY";
+/// Whether the generic remote-access tunnel relay is offered. Defaults to off.
+pub const ENABLE_RELAY_ENV: &str = "RUSTCODE_ENABLE_TUNNEL";
 
 /// Hosts to treat as first-party, comma-separated. **Replaces** the default
 /// set rather than adding to it: a deployment that has moved off the hosted
@@ -68,8 +68,8 @@ const HOSTED_UPDATE_DOWNLOAD_BASE: &str = "";
 /// `RUSTCODE_DESKTOP_DOWNLOAD_URL` to its own desktop release URL.
 const HOSTED_DESKTOP_DOWNLOAD_URL: &str = "";
 /// Empty by default: this build operates no relay of its own. A deployment
-/// that stands up its own relay sets `RUSTCODE_APP_RELAY` (and
-/// `RUSTCODE_ENABLE_RELAY=1`) to turn it back on.
+/// that stands up its own tunnel relay sets `RUSTCODE_TUNNEL_RELAY` (and
+/// `RUSTCODE_ENABLE_TUNNEL=1`) to turn it back on.
 const HOSTED_RELAY_URL: &str = "";
 /// Empty on purpose: this fork does not ship an official plugin/skills
 /// repository, so a first run must not clone one from a namespace it does not
@@ -83,13 +83,14 @@ const HOSTED_AUTO_INSTALL: &[&str] = &[];
 /// Empty by default: this build trusts no platform domain. A deployment that
 /// operates its own platform sets `RUSTCODE_TRUSTED_DOMAINS` (comma-separated).
 const HOSTED_TRUSTED_DOMAINS: &[&str] = &[];
-/// Whether `/app` remote access is offered when nothing overrides it.
+/// Whether the generic remote-access tunnel relay is offered when nothing
+/// overrides it.
 ///
 /// Off on purpose: this fork operates no relay of its own, so the default has
-/// to be the same reasoning as [`ENABLE_RELAY_ENV`] -- do not let `/app` reach
-/// an unrelated relay and download a client binary from a host this build does
-/// not run. A deployment that stands up its own relay sets
-/// `RUSTCODE_ENABLE_RELAY=1` (and `RUSTCODE_APP_RELAY`) to turn it back on.
+/// to be the same reasoning as [`ENABLE_RELAY_ENV`] -- do not let a local
+/// tunnel endpoint reach an unrelated relay. A deployment that stands up its
+/// own tunnel relay sets `RUSTCODE_ENABLE_TUNNEL=1` (and
+/// `RUSTCODE_TUNNEL_RELAY`) to turn it back on.
 const HOSTED_RELAY_ENABLED: bool = false;
 /// Empty by default: no TLS-1.2 fallback domain is assumed. A deployment that
 /// needs the SChannel TLS-1.2 fallback sets `RUSTCODE_TLS_FALLBACK_DOMAINS`.
@@ -169,18 +170,18 @@ pub fn desktop_download_url() -> &'static str {
     URL.get_or_init(|| resolve(DESKTOP_DOWNLOAD_URL_ENV, HOSTED_DESKTOP_DOWNLOAD_URL))
 }
 
-/// Relay base URL. Only meaningful when [`relay_enabled`] is true.
+/// Remote-access tunnel relay base URL. Only meaningful when the relay is
+/// enabled (see [`relay_enabled`]).
 pub fn relay_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
     URL.get_or_init(|| resolve(RELAY_URL_ENV, HOSTED_RELAY_URL))
 }
 
-/// Whether `/app` remote access is offered.
+/// Whether the generic remote-access tunnel relay is offered.
 ///
-/// On by default, so this changes nothing unless asked. A deployment with no
-/// relay of its own sets [`ENABLE_RELAY_ENV`] to `0`, which is better than
-/// letting `/app` reach an unrelated relay and download a client binary from a
-/// host the operator does not run.
+/// Off by default, so this changes nothing unless asked. A deployment with no
+/// relay of its own leaves [`ENABLE_RELAY_ENV`] unset (or `0`), which is better
+/// than letting a local tunnel endpoint reach an unrelated relay.
 pub fn relay_enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| env_bool(ENABLE_RELAY_ENV).unwrap_or(HOSTED_RELAY_ENABLED))

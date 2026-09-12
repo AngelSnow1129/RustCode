@@ -32,6 +32,29 @@ offline_mode = "off"
 # offline_note = "npm 私服 registry=http://nexus.internal:8081（可正常 npm install）；Maven 走内部仓库；pip index 已配"
 
 # =============================================================================
+# 静态访问密钥（IDE / webui 客户端 Bearer 鉴权）
+# =============================================================================
+# daemon 启动时将其注册为有效 Bearer token（对应前端读取 daemon-<port>.json
+# 的鉴权方式），取代/补充一次性随机 token。IDE / webui 客户端随后以
+# `Authorization: Bearer <key>` 方式鉴权。
+# 优先级：环境变量 RUSTCODE_ACCESS_KEY > 本配置 > 历史别名 RUSTCODE_DAEMON_TOKEN。
+# 修改后需重启 daemon 才能生效（不支持热加载，与 RUSTCODE_DAEMON_TOKEN 一致）。
+# access_key = "替换为你的强随机密钥"
+
+# =============================================================================
+# 远程访问隧道（frp 风格反向隧道，env 驱动，非 config.toml 字段）
+# =============================================================================
+# 将本地 webui / HTTP·SSE API 经可配置中继暴露到公网。仅由环境变量控制，
+# 不在 config.toml 里设键（与 endpoints.rs 设计一致）：
+#
+#   RUSTCODE_ENABLE_TUNNEL=1            # 开启隧道（默认关闭）
+#   RUSTCODE_TUNNEL_RELAY=wss://your-relay.example.com   # 中继地址
+#
+# 远程客户端以 `Authorization: Bearer <access_key>` 鉴权（与上方 access_key 同一套密钥）。
+# 在 TUI 内执行 /tunnel 启动本地隧道端点并打印中继 URL + access_key + 本地端口。
+# 该隧道取代已移除的移动端 App 远程访问，无托管账号或移动端依赖。
+
+# =============================================================================
 # Provider 示例
 # =============================================================================
 

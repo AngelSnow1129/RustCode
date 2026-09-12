@@ -1418,12 +1418,13 @@ Msg::PluginActionBackDesc => "返回已安装插件列表".into(),
 
         // ── 命令描述 ──
         Msg::CmdDescWebui => "启动浏览器 webui（子命令：stop / lan / --host <地址>）".into(),
+        Msg::CmdDescTunnel => "通过中继将当前会话暴露为远程访问（frp 风格反向隧道；子命令：stop）".into(),
 Msg::CmdDescSetup =>
 "扫描项目、安装种子文件并运行 setup skill [hooks|mcp|skills|all]".into(),
         Msg::CmdDescResume => "恢复上次会话".into(),
         Msg::CmdDescRename => "重命名当前会话".into(),
 
-        Msg::CmdDescWhoami => "显示当前登录用户".into(),
+        Msg::CmdDescWhoami => "显示本地运行时与身份（provider / model / base_url / 凭据 / RUSTCODE_HOME / 会话 / turns）".into(),
         Msg::CmdDescModel => "设置默认 Provider / 模型，并切换当前会话".into(),
         Msg::CmdDescProvider => "管理 Provider（添加、编辑、删除、设为全局默认）".into(),
         Msg::CmdDescStatus => "显示会话状态".into(),
@@ -1437,7 +1438,6 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CmdDescClear => "清屏".into(),
         Msg::CmdDescSession => "开始新会话（清除对话）".into(),
         Msg::CmdDescCost => "显示本会话 Token 用量".into(),
-        Msg::CmdDescUsage => "显示托管套餐用量（标签：当前窗口 / 总览 / 模型）".into(),
         Msg::CmdDescUsageNeutral =>
             "显示令牌用量（标签：当前窗口 / 总览 / 模型）".into(),
         Msg::CmdDescContext => "显示上下文预算明细".into(),
@@ -1478,7 +1478,6 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CodeBlockCopied => "[+] 代码块已复制到剪贴板".into(),
         Msg::CmdDescGuide => "向 rustcode-guide 提问使用方法".into(),
         Msg::CmdDescView => "在浮层窗口中查看文件内容".into(),
-        Msg::CmdDescApp => "通过中继将当前会话暴露给手机 App（扫码配对；/app stop 断开）".into(),
         Msg::CmdDescSync => "接入实时 webui 会话（/sync off 断开）".into(),
         Msg::CmdDescReview => "审查当前代码改动（/review . /review staged . /review <基准>）".into(),
         Msg::CmdDescWiki => "分析项目并生成 wiki（架构图 + 模块文档）".into(),
@@ -1487,8 +1486,6 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CmdDescTodo => "显示当前任务清单；`/todo add <任务>` 追加一条，`/todo clear` 清空".into(),
         Msg::CmdDescTeam => "显示或控制 Team Agent 进度面板".into(),
         Msg::CmdDescSchedule => "查看定时任务列表和下次运行时间".into(),
-        Msg::CmdDescDesktop =>
-            "打开 {brand} 桌面端（已安装则启动，否则显示下载地址）".into(),
         // ── /proxy 选择器 ──
         Msg::ProxyTitleFollowSystem => "跟随系统".into(),
         Msg::ProxyTitleDefaultProxy => "默认代理".into(),
@@ -1744,10 +1741,6 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             format!("刷新上下文统计失败：{error}").into(),
         Msg::SyncStoppedSharing => "已停止共享当前会话".into(),
         Msg::SyncNotActive => "当前未处于同步模式".into(),
-        Msg::AppRemoteStopped => "已停止 App 远程访问".into(),
-        Msg::AppRemoteNotRunning => "App 远程访问未在运行".into(),
-        Msg::AppRemoteDetachSuffix { error } =>
-            format!("\n{error}；TUI 暂时保持同步").into(),
         Msg::WebuiOpenedBrowser { url } => format!("已在浏览器打开 webui：{url}").into(),
         Msg::WebuiOpenManually { url } => format!("请手动在浏览器打开：{url}").into(),
         Msg::WebuiBindFailed { host, port, error } =>
@@ -1762,22 +1755,6 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::WebuiNotRunning => "webui server 未在运行".into(),
         Msg::AppServerBindFailed { host, port, error } =>
             format!("绑定 {host}:{port} 失败（{error}）").into(),
-        Msg::AppRemoteUsage =>
-            "用法：/app <中继地址>；或先设置 RUSTCODE_APP_RELAY 指定默认中继后直接 /app".into(),
-
-        Msg::AppServerStartFailed { error } => format!("App server 启动失败：{error}").into(),
-        Msg::AppRelayClientStartFailed { error } =>
-            format!("启动 relay-client 失败：{error}").into(),
-        Msg::AppRelayClientSpawnFailed { error, bin, cache } => format!(
-            "启动 relay-client 失败（{error}）。已尝试路径 `{bin}`。请确认 relay-client 在 {cache} 目录下，或删除该目录后重试 /app 自动下载。"
-        )
-        .into(),
-        Msg::AppPairQrBlock { qr, encoded } => format!(
-            "[*] 移动端配对连接\n\n配套的移动端 App 由你的中继部署方提供：\n1. 打开移动端 App 的扫一扫功能\n2. 对准下方二维码即可配对连接\n\n{qr}\n\n也可复制以下口令在 App 中连接：\n{encoded}\n\n（/app stop 断开连接）"
-        )
-        .into(),
-        Msg::AppPairLinkFallback { pair_uri } =>
-            format!("配对链接（二维码生成失败，手动填）：{pair_uri}").into(),
         Msg::BgSessionLoadFailed { error } =>
             format!("无法加载后台会话：{error}").into(),
         Msg::McpToolsHeader => "工具列表：\n".into(),

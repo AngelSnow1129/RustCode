@@ -596,10 +596,6 @@ pub struct AppState {
     /// 仅 webui 模式（启动时提供了 token store）强制 token 鉴权；
     /// 独立 daemon / VSCode 实例不强制，保持原行为。
     pub enforce_token: bool,
-    /// App 远程访问模式的期望 user_id（来自二维码 token 前缀）。
-    /// 非空时强制校验每条请求的 `X-Atom-User-Id` 头，与桌面端登录账号一致才放行。
-    /// 空串表示不校验（未登录 / 非 app 模式）。
-    pub app_user_id: String,
     /// webui 交互式权限：session_id -> decider response 发送端
     pub pending_permissions: permission_bridge::PermissionResponders,
     /// `/chat` structured user-input answers, keyed by (session_id, native request_id).
@@ -5315,8 +5311,6 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
             working_dir_override: std::env::current_dir().ok(),
             // 预绑定的监听器：run_server 直接复用，跳过内部 bind。
             prebound_listener: Some(listener),
-            // webui 模式不需要 app user_id 校验。
-            app_user_id: None,
             // 进程内 webui 不写 token 文件（token 通过 WebuiTokenStore 共享）。
             daemon_token_file: None,
         };
@@ -5411,49 +5405,53 @@ pub fn stop_server() -> String {
 }
 
 // ============================================================================
-// App 远程访问：进程内 server（无 token / 不开浏览器），配合 TUI `/app` 命令
+// 通用远程访问隧道：进程内 server（无 token 文件 / 不开浏览器），作为本地隧道端点
+// 经中继对外暴露，供远程客户端通过 bearer 访问令牌访问。
 // ============================================================================
 
-/// `/app` 进程内 server 的默认端口。刻意错开 webui(13457)与独立守护(13456)，
+/// 通用远程访问隧道 server 的默认端口。刻意错开 webui(13457)与独立守护(13456)，
 /// 三者各占一端口、互不踩；被占时由 [bind_scanning] 向上扫描。
-pub const APP_DEFAULT_PORT: u16 = rustcode_config::distribution::APP_PORT;
+pub const TUNNEL_PORT: u16 = rustcode_config::distribution::TUNNEL_PORT;
 
-struct AppServerHandle {
+struct TunnelServerHandle {
     port: u16,
     host: String,
+    /// 该实例实际生效的访问令牌：复用运行中实例时要把同一个令牌交还调用方，
+    /// 否则调用方无从展示可连入的凭证（隧道以 quiet 启动且不写 token 文件）。
+    key: String,
     abort: tokio::task::AbortHandle,
 }
 
-static APP_SERVER: std::sync::Mutex<Option<AppServerHandle>> = std::sync::Mutex::new(None);
+static TUNNEL_SERVER: std::sync::Mutex<Option<TunnelServerHandle>> = std::sync::Mutex::new(None);
 
-/// 起一个进程内 server 供移动端 App 经中继访问，返回 `(bound_host, actual_port)`。
+/// 起一个进程内 server 作为本地隧道端点，经中继对外暴露，返回
+/// `(bound_host, actual_port, effective_key)`。
 ///
 /// 与 `/webui` 的关键区别：
-/// - **daemon 模式**（`webui_tokens=None` -> `enforce_token=false`）：App 的 Cloud 模式
-///   只发 `X-Atom-Token`（中继路由用），不发 `Authorization: Bearer`；鉴权边界落在
-///   中继的 route token + 本机回环绑定（server 只听 127.0.0.1，仅本机隧道可达）。
-/// - **不开浏览器**：App 用二维码配对，不需要打开网页。
+/// - **强制 bearer 访问令牌**：鉴权边界落在 `Authorization: Bearer <access_key>`，
+///   远程客户端必须持有效令牌（令牌由静态访问密钥解析并登记进 `WebuiTokenStore`）。
+///   `effective_key` 是**实际生效**的令牌：静态密钥优先，未配置时本次会话随机 mint。
+///   调用方必须把它展示给用户 —— 隧道以 `quiet` 启动且不写 token 文件，
+///   未展示的令牌对远程客户端等于必然 401。
+/// - **不开浏览器**：隧道由远程客户端直接连入，不需要打开网页。
 ///
-/// `user_id`：可选，桌面端当前登录用户 id。传入后将启用 `X-Atom-User-Id` 请求头校验，
-/// 确保请求来自同一账号的手机 App。
-///
-/// 与 `/webui` 共用 live hub 绑定的 Coding Runtime，所以 TUI / 浏览器 / App
-/// 看到的是同一段对话并双向实时同步。
-pub async fn ensure_app_server(
+/// 是否与 TUI 当前会话双向同步，取决于调用方**在调用本函数前**是否已把 TUI 的
+/// live runtime 注册进 live hub（`/webui` 走 `attach_live_runtime`）；本函数自身
+/// 不注册 runtime，未注册时远程客户端会落到另一个 headless runtime。
+pub async fn ensure_tunnel_server(
     host: &str,
     port: u16,
-    user_id: Option<String>,
-) -> Result<(String, u16), String> {
-    // 复用仍在运行的实例（含其绑定地址/端口）。
+) -> Result<(String, u16, String), String> {
+    // 复用仍在运行的实例（含其绑定地址/端口与生效令牌）。
     let reuse = {
-        let guard = APP_SERVER.lock().unwrap();
+        let guard = TUNNEL_SERVER.lock().unwrap();
         guard
             .as_ref()
             .filter(|h| !h.abort.is_finished())
-            .map(|h| (h.port, h.host.clone()))
+            .map(|h| (h.port, h.host.clone(), h.key.clone()))
     };
-    if let Some((p, h)) = reuse {
-        return Ok((h, p));
+    if let Some((p, h, k)) = reuse {
+        return Ok((h, p, k));
     }
 
     let (listener, actual_port) = bind_scanning(host, port, 100).await.map_err(|e| {
@@ -5464,41 +5462,65 @@ pub async fn ensure_app_server(
         })
         .into_owned()
     })?;
+
+    // 静态访问密钥解析优先级（同 main.rs）：
+    //   1. RUSTCODE_ACCESS_KEY 环境变量
+    //   2. 配置文件 access_key
+    //   3. RUSTCODE_DAEMON_TOKEN 环境变量（历史别名）
+    //   4. 以上皆空 -> 随机 mint
+    // 解析到的密钥登记进 WebuiTokenStore（静态密钥亦在其中，无静态密钥时
+    // mint 出的随机令牌已在 store 内），使远程客户端必须持
+    // `Authorization: Bearer <access_key>` 才能访问（enforce_token=true）。
+    // 同一个 key 原样返回调用方：它是唯一可连入的凭证，必须被展示。
+    let store = auth_token::WebuiTokenStore::new();
+    let key = std::env::var("RUSTCODE_ACCESS_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            Config::load(&Config::default_path())
+                .ok()
+                .and_then(|c| c.access_key)
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| std::env::var("RUSTCODE_DAEMON_TOKEN").ok().filter(|s| !s.is_empty()))
+        .unwrap_or_else(|| store.mint());
+    store.insert(key.clone());
+
     let opts = ServerOpts {
         host: host.to_string(),
         port: actual_port,
         // 随主程序常驻，关闭 idle 看门狗。
         idle_timeout_secs: 0,
         startup_mode: ClientMode::Webui,
-        // None -> enforce_token=false（daemon 模式，不要 Bearer）。
-        webui_tokens: None,
+        // 远程客户端必须持 bearer 访问令牌（enforce_token=true）。
+        webui_tokens: Some(store),
         // 进程内启动：抑制启动横幅，避免污染 TUI 画面。
         quiet: true,
         working_dir_override: std::env::current_dir().ok(),
         prebound_listener: Some(listener),
-        app_user_id: user_id,
-        // App 进程内启动器不写 token 文件（使用 require_app_user_id 校验）。
+        // 隧道端点不写 token 文件（令牌由 WebuiTokenStore 共享校验）。
         daemon_token_file: None,
     };
     let task = tokio::spawn(async move {
         if let Err(e) = run_server(opts).await {
-            eprintln!("app server error: {e}");
+            eprintln!("tunnel server error: {e}");
         }
     });
     {
-        let mut guard = APP_SERVER.lock().unwrap();
-        *guard = Some(AppServerHandle {
+        let mut guard = TUNNEL_SERVER.lock().unwrap();
+        *guard = Some(TunnelServerHandle {
             port: actual_port,
             host: host.to_string(),
+            key: key.clone(),
             abort: task.abort_handle(),
         });
     }
-    Ok((host.to_string(), actual_port))
+    Ok((host.to_string(), actual_port, key))
 }
 
-/// 停止 `/app` 进程内 server（若在运行）。返回是否确实停了一个。
-pub fn stop_app_server() -> bool {
-    let mut guard = APP_SERVER.lock().unwrap();
+/// 停止进程内隧道 server（若在运行）。返回是否确实停了一个。
+pub fn stop_tunnel_server() -> bool {
+    let mut guard = TUNNEL_SERVER.lock().unwrap();
     if let Some(handle) = guard.take() {
         handle.abort.abort();
         true
@@ -6044,8 +6066,6 @@ pub struct ServerOpts {
     /// 预绑定的监听器。进程内 webui 启动器先绑定端口（拿到真实端口、支持动态端口）
     /// 再传入，`run_server` 直接复用、跳过内部 bind。独立二进制传 None，照旧自行 bind。
     pub prebound_listener: Option<tokio::net::TcpListener>,
-    /// App 远程访问模式期望的 user_id。非空时 daemon 启用 `X-Atom-User-Id` 请求头校验。
-    pub app_user_id: Option<String>,
     /// 独立/IDE daemon 模式：写入 `~/.rustcode/daemon-<port>.json` 的 token。
     /// `Some(token)` 时 `run_server` bind 成功后写文件、退出时删除。
     /// 进程内 webui / App 启动器传 None（不写文件）。
@@ -6117,7 +6137,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         active_connections: active_connections.clone(),
         enforce_token: webui_tokens.is_some(),
         webui_tokens: webui_tokens.unwrap_or_default(),
-        app_user_id: opts.app_user_id.unwrap_or_default(),
         pending_permissions: permission_bridge::PermissionResponders::new(),
         pending_user_inputs: permission_bridge::UserInputResponders::new(),
         bind_host: host.clone(),
@@ -6140,8 +6159,9 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         .route("/", axum::routing::get(serve_webui_index))
         .fallback(webui::serve_webui);
 
-    // 受保护路由：所有数据/API 端点。仅 webui 模式（enforce_token=true）强制 token 鉴权；
-    // 独立 daemon/VSCode（enforce_token=false）中间件直接放行（见 auth_token.rs）。
+    // 受保护路由：所有数据/API 端点。独立 daemon（main.rs 以 `webui_tokens=Some(..)` 启动）
+    // enforce_token=true，强制 Bearer/Cookie 鉴权；仅 VSCode 扩展自带守护
+    // （enforce_token=false）中间件直接放行（见 auth_token.rs）。
     let protected = Router::new()
         // Shutdown endpoint (R7.1)
         .route("/shutdown", post(shutdown_handler))
@@ -6249,11 +6269,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_token::require_webui_token,
-        ))
-        // App 远程访问 user_id 校验（仅 /app 模式启用）。
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            auth_token::require_app_user_id,
         ));
 
     let active_chats = state.active_chats.clone();
@@ -7175,7 +7190,6 @@ mod tests {
             active_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             webui_tokens: auth_token::WebuiTokenStore::default(),
             enforce_token: false,
-            app_user_id: String::new(),
             pending_permissions: permission_bridge::PermissionResponders::new(),
             pending_user_inputs: permission_bridge::UserInputResponders::new(),
             bind_host: "127.0.0.1".into(),

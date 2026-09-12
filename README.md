@@ -120,16 +120,6 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 - **无需预先配置 provider** —— 没有 provider 也能打开 Web UI；可在网页「设置」中可视化配置 provider：新增、编辑、删除、设为默认，以及发现模型
 - **`/webui stop`** 停止进程内 server（之后再次 `/webui` 会重新启动）
 
-### App 远程访问
-
-- **`/app`**（TUI 内）开启移动端远程访问，终端打印二维码，用手机 App 扫码即可在任意网络下连入当前对话
-- **任意网络可达** —— 电脑通过反向 WSS 隧道连接到公网中继，手机经中继访问电脑，不需要公网 IP、DDNS 或路由器端口映射
-- **双向实时同步** —— 任一端发消息，另一端实时显示（AI 流式回复、工具调用卡片、token 用量）
-- **远程命令** —— 手机端支持 `/status`、`/cost`、`/diff` 等斜杠命令，在桌面端执行并回显
-- **切项目 / 切会话** —— 手机端切换项目或点开历史对话，桌面端跟随切换
-- **模型双向同步** —— 任一端切换模型，另一端同步跟随
-- **`/app stop`** 断开远程访问
-
 ### 安全性
 
 - **破坏性命令检测** —— `rm -rf`、`git push --force`、`DROP TABLE` 等需要显式确认
@@ -141,6 +131,12 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 - **撤销** —— `/undo` 通过文件历史快照回滚上一轮的所有文件编辑
 
 完整设计与当前边界见 [权限模型](./docs/security/permission-model.md)。
+
+### 远程访问（隧道）
+
+- daemon 可通过可配置的反向隧道中继把本地 webui / API 暴露到公网：环境变量 `RUSTCODE_ENABLE_TUNNEL=1` 开启（默认关闭），`RUSTCODE_TUNNEL_RELAY` 指定中继地址（如 `wss://your-relay.example.com`）。
+- 在 TUI 内执行 `/tunnel` 启动本地隧道端点，打印中继 URL、当前 `access_key` 与本地回源端口。
+- 远程客户端以 `Authorization: Bearer <access_key>` 鉴权（与 daemon 静态访问密钥同一套密钥）；该隧道取代已移除的移动端 App 远程访问，无托管账号或移动端依赖。
 
 ### 隐私
 

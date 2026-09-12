@@ -499,8 +499,8 @@ mod bg_live_guard_tests {
 }
 
 // Historical note: there was a `const OAUTH_PROVIDER_NAME = "AtomGit"`
-// and a `build_oauth_provider` helper here. Both are owned by the managed
-// setup flow now -- `/login` runs the full managed-login orchestrator
+// and a `build_oauth_provider` helper here. Both are owned by the sign-in
+// setup flow now -- `/login` runs the full login orchestrator
 // (sign-in + provider registration), so there is no need for a separately
 // maintained hardcoded fallback provider.
 
@@ -658,7 +658,7 @@ pub(crate) fn attach_live_runtime(
     // `default_provider`, with a catalog fallback when both raw fields are
     // empty. Reuse that exact selection for the live binding. In particular,
     // first login can leave `default_provider == ""` while the runtime already
-    // runs the newly published managed model.
+    // runs the newly published model.
     let provider_selection = live_provider_selection(&ctx.config)?;
     let provider_fingerprint =
         rustcode_daemon::native_live::provider_fingerprint(&ctx.config, &provider_selection)?;
@@ -672,8 +672,9 @@ pub(crate) fn attach_live_runtime(
     )
     .map_err(|error| format!("共享当前 runtime 失败：{error:?}"))?;
     // Binding the already-running TUI runtime starts a fresh live hub. Seed
-    // its initial Goal state from the TUI presentation so `/app` can include
-    // it in the first snapshot even when no GoalChanged event is replayable.
+    // its initial Goal state from the TUI presentation so remote views
+    // (webui / tunnel) can include it in the first snapshot even when no
+    // GoalChanged event is replayable.
     if let Some(goal) = current_live_goal(state) {
         rustcode_daemon::native_live::seed_goal_progress(&binding, goal)
             .map_err(|error| format!("同步当前 Goal 状态失败：{error:?}"))?;
@@ -700,7 +701,7 @@ pub(crate) fn attach_live_runtime(
             }
         }
     });
-    // 取消旧 observation 转发任务，避免多次 /app 连接后转发重复
+    // 取消旧 observation 转发任务，避免多次 /tunnel 连接后转发重复
     if let Some(old_task) = ctx.live_observation_task.take() {
         old_task.abort();
     }
@@ -834,7 +835,7 @@ impl Renderer for CaptureRenderer<'_> {
 
 /// 同步模式下输出**不**镜像到手机的命令：它们的输出是桌面侧的接入引导
 /// （二维码、浏览器地址、同步提示），对手机端没有意义甚至是噪音。
-const MIRROR_EXCLUDED: &[&str] = &["app", "webui", "sync"];
+const MIRROR_EXCLUDED: &[&str] = &["webui", "sync", "tunnel"];
 
 fn command_output_should_mirror(
     live_binding: bool,
@@ -1082,406 +1083,6 @@ pub(super) fn execute_slash_command(
     result
 }
 
-/// Relay-client manifest URL.
-///
-/// The platform-neutral fork ships NO official relay and NO hard-coded client
-/// download host: the relay is self-hosted by the operator (`endpoints::relay_url()`
-/// / `RUSTCODE_APP_RELAY`), and the matching relay-client binary is fetched from
-/// THAT relay by convention. An operator may point elsewhere via the
-/// `RUSTCODE_RELAY_CLIENT_MANIFEST_URL` override (non-empty wins).
-///
-/// Convention: `<relay>/relay-latest.json`. Returns `None` when neither the
-/// override nor a usable relay base is available.
-fn relay_client_manifest_url(relay_base: &str) -> Option<String> {
-    if let Ok(u) = std::env::var("RUSTCODE_RELAY_CLIENT_MANIFEST_URL") {
-        if !u.trim().is_empty() {
-            return Some(u.trim().to_string());
-        }
-    }
-    let base = relay_base.trim().trim_end_matches('/');
-    (!base.is_empty()).then(|| format!("{base}/relay-latest.json"))
-}
-
-/// Relay-client binary download root. Convention: `<relay>/releases/download`,
-/// overridable via `RUSTCODE_RELAY_CLIENT_DOWNLOAD_BASE` (non-empty wins).
-fn relay_client_download_base(relay_base: &str) -> Option<String> {
-    if let Ok(u) = std::env::var("RUSTCODE_RELAY_CLIENT_DOWNLOAD_BASE") {
-        if !u.trim().is_empty() {
-            return Some(u.trim().trim_end_matches('/').to_string());
-        }
-    }
-    let base = relay_base.trim().trim_end_matches('/');
-    (!base.is_empty()).then(|| format!("{base}/releases/download"))
-}
-
-/// Shared egress HTTP client for relay downloads. All outbound HTTP goes through
-/// the one `capabilities::egress` factory (proxy / TLS / UA policy) -- never a
-/// hand-rolled `reqwest::Client::builder()` here. The binary is a long stream,
-/// so drop the whole-request deadline (connect timeout still bounds the dial).
-fn relay_http_client() -> Result<reqwest::Client, String> {
-    use rustcode_capabilities::egress::client::{build_http_client, HttpClientSpec};
-    let spec = HttpClientSpec {
-        request_timeout: None,
-        ..HttpClientSpec::default()
-    }
-    .with_user_agent(concat!("rustcode/", env!("CARGO_PKG_VERSION")));
-    build_http_client(&spec).map_err(|e| format!("创建 HTTP 客户端失败：{e}"))
-}
-
-/// Neutral guidance shown when the relay-client can't be obtained automatically.
-/// Points at operator/self-serve options -- never a fixed vendor release host.
-fn relay_client_manual_hint(cache_dir: &std::path::Path) -> String {
-    format!(
-        "无法自动获取 relay-client，请任选一种方式提供后重试 /app：\n\
-         \n\
-         1. 由中继随版本清单发布客户端（默认从中继地址读取 relay-latest.json）；\n\
-         2. 用环境变量显式指定下载地址：\n\
-            RUSTCODE_RELAY_CLIENT_MANIFEST_URL=<清单 URL>\n\
-            RUSTCODE_RELAY_CLIENT_DOWNLOAD_BASE=<下载根 URL>；\n\
-         3. 手动放置二进制：保存为 {cache}/rustcode-relay-client 并 chmod +x，\n\
-            或用 RUSTCODE_RELAY_CLIENT_BIN=<路径> 直接指向它。",
-        cache = cache_dir.display()
-    )
-}
-
-/// relay-client 版本清单结构。
-#[derive(serde::Deserialize)]
-struct RelayManifest {
-    version: String,
-    binaries: std::collections::BTreeMap<String, RelayBinaryEntry>,
-}
-
-#[derive(serde::Deserialize)]
-struct RelayBinaryEntry {
-    sha256: String,
-    size: u64,
-}
-
-/// 获取 relay-client 远端版本清单（由部署方中继发布；不依赖任何平台登录态）。
-async fn fetch_relay_manifest(manifest_url: &str) -> Result<RelayManifest, String> {
-    let client = relay_http_client()?;
-
-    let resp = client
-        .get(manifest_url)
-        .send()
-        .await
-        .map_err(|e| format!("获取版本清单失败：{e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("获取版本清单返回 HTTP {}", resp.status().as_u16()));
-    }
-
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| format!("读取版本清单失败：{e}"))?;
-    let manifest: RelayManifest =
-        serde_json::from_str(&body).map_err(|e| format!("解析版本清单失败：{e}"))?;
-
-    Ok(manifest)
-}
-
-/// 检测当前平台对应的目标标识，用于构建下载文件名。
-/// 格式：{arch}-{os}，与 Release 实际文件名一致。
-fn relay_client_target() -> &'static str {
-    // HarmonyOS / OpenHarmony 在运行时 OS 显示为 "linux"，
-    // 用编译时 cfg 区分
-    #[cfg(target_env = "ohos")]
-    {
-        return match std::env::consts::ARCH {
-            "aarch64" | "arm64" => "ohos-arm64",
-            _ => "unknown",
-        };
-    }
-    #[cfg(not(target_env = "ohos"))]
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => "aarch64-macos",
-        ("macos", "x86_64") => "x86_64-macos",
-        ("linux", "x86_64") => "x86_64-linux",
-        ("linux", "aarch64") => "aarch64-linux",
-        ("windows", "x86_64") => "x86_64-win",
-        _ => "unknown",
-    }
-}
-
-/// 根据平台名构建下载文件名（含版本号，Windows 加 .exe 后缀）。
-fn relay_client_filename(target: &str, version: &str) -> String {
-    if target.starts_with("x86_64-win") {
-        format!("rustcode-relay-client-{}-{}.exe", version, target)
-    } else {
-        format!("rustcode-relay-client-{}-{}", version, target)
-    }
-}
-
-/// 字节数组转小写 hex 字符串。
-fn hex_encode(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        out.push_str(&format!("{:02x}", b));
-    }
-    out
-}
-
-/// 解析 semver 版本号 `vMAJOR.MINOR.PATCH`，返回 (major, minor, patch)。
-/// 无法解析时返回 None。
-fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
-    let s = s.trim().strip_prefix('v')?.split('-').next()?;
-    let parts: Vec<&str> = s.split('.').collect();
-    if parts.len() != 3 {
-        return None;
-    }
-    Some((
-        parts[0].parse().ok()?,
-        parts[1].parse().ok()?,
-        parts[2].parse().ok()?,
-    ))
-}
-
-/// 判断 latest 是否比 current 新（semver 比较）。
-fn is_newer_version(latest: &str, current: &str) -> bool {
-    match (parse_version(latest), parse_version(current)) {
-        (Some(a), Some(b)) => a > b,
-        _ => latest.trim() != current.trim(),
-    }
-}
-
-/// 解析 relay-client 二进制路径。优先级：
-/// 1. `RUSTCODE_RELAY_CLIENT_BIN` 环境变量 ---- 开发者/特殊部署覆盖。
-/// 2. 与 rustcode 自身可执行文件同目录 ---- 安装包捆绑分发。
-fn resolve_relay_client_bin() -> Option<String> {
-    // 1) 显式环境变量覆盖（非空才采纳）。
-    if let Ok(p) = std::env::var("RUSTCODE_RELAY_CLIENT_BIN") {
-        if !p.is_empty() && std::path::Path::new(&p).is_file() {
-            return Some(p);
-        }
-    }
-
-    // 2) 与自身同目录。Windows 带 .exe 后缀；命中文件才返回绝对路径。
-    let exe_name = if cfg!(windows) {
-        "rustcode-relay-client.exe"
-    } else {
-        "rustcode-relay-client"
-    };
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(sibling) = exe.parent().map(|dir| dir.join(exe_name)) {
-            if sibling.is_file() {
-                return Some(sibling.to_string_lossy().into_owned());
-            }
-        }
-    }
-
-    None
-}
-
-/// relay-client 的缓存目录：`$RUSTCODE_HOME/bin`。
-///
-/// 走 `Config::config_dir()` 而不是硬拼 `~/.rustcode`：设了 `$RUSTCODE_HOME`
-/// 时,下载的二进制本该和其它数据落在同一棵树里 ---- 否则 `uninstall` 扫不到它,
-/// 而且提示语指的目录和实际写入的目录会对不上。
-fn relay_client_cache_dir() -> PathBuf {
-    rustcode_config::config::Config::config_dir().join("bin")
-}
-
-/// 确保 relay-client 二进制可用。
-/// 先尝试本地查找（环境变量 -> 同目录 -> 缓存），都不存在则从【部署方中继的发布地址】
-/// 自动下载到缓存目录（`relay_base` 为中继 https 根，可用环境变量覆盖，见
-/// [`relay_client_manifest_url`] / [`relay_client_download_base`]）。
-fn ensure_relay_client_bin(relay_base: &str) -> Result<String, String> {
-    // 先尝试环境变量和同目录
-    if let Some(bin) = resolve_relay_client_bin() {
-        return Ok(bin);
-    }
-
-    let bare_name = if cfg!(windows) {
-        "rustcode-relay-client.exe"
-    } else {
-        "rustcode-relay-client"
-    };
-
-    let cache_dir = relay_client_cache_dir();
-    let cache_path = cache_dir.join(bare_name);
-    let version_path = cache_dir.join(".version");
-
-    // 缓存已存在 -> 直接使用
-    if cache_path.is_file() {
-        return Ok(cache_path.to_string_lossy().into_owned());
-    }
-
-    // 跳过下载标志
-    if std::env::var("RUSTCODE_RELAY_CLIENT_SKIP_DOWNLOAD").is_ok_and(|v| v == "1") {
-        return Err(format!(
-            "自动下载已禁用（RUSTCODE_RELAY_CLIENT_SKIP_DOWNLOAD=1），\
-             请手动将 relay-client 放入 {} 目录",
-            cache_dir.display()
-        ));
-    }
-
-    // 检测平台
-    let target = relay_client_target();
-    if target == "unknown" {
-        return Err(format!(
-            "不支持的平台：{}/{}。请手动编译 relay-client 并放到 {} 中",
-            std::env::consts::OS,
-            std::env::consts::ARCH,
-            cache_dir.display()
-        ));
-    }
-
-    // 6) 解析清单地址（环境变量覆盖 > 中继发布约定），再获取远端版本清单。
-    let manifest_url = match relay_client_manifest_url(relay_base) {
-        Some(u) => u,
-        None => {
-            // 没有任何下载源：有缓存先用缓存，否则给出手动放置指引。
-            if cache_path.is_file() {
-                return Ok(cache_path.to_string_lossy().into_owned());
-            }
-            return Err(relay_client_manual_hint(&cache_dir));
-        }
-    };
-    let manifest = match tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(fetch_relay_manifest(&manifest_url))
-    }) {
-        Ok(m) => m,
-        Err(_) => {
-            // 清单获取失败（离线 / 中继暂不可达）：有缓存先用缓存，否则报错指引。
-            if cache_path.is_file() {
-                return Ok(cache_path.to_string_lossy().into_owned());
-            }
-            return Err(relay_client_manual_hint(&cache_dir));
-        }
-    };
-
-    // 7) 检查缓存版本是否最新
-    let cached_version = std::fs::read_to_string(&version_path).ok();
-    if let Some(ref ver) = cached_version {
-        let ver = ver.trim();
-        if !is_newer_version(&manifest.version, ver) && cache_path.is_file() {
-            return Ok(cache_path.to_string_lossy().into_owned());
-        }
-    }
-
-    // 8) 获取当前平台的 binary entry
-    let entry = match manifest.binaries.get(target) {
-        Some(e) => e,
-        None => {
-            return Err(format!(
-                "版本 {} 不支持当前平台 {}",
-                manifest.version, target
-            ));
-        }
-    };
-
-    // 9) 自动下载 + SHA256 校验（下载根同样支持环境变量覆盖）。
-    let download_base = match relay_client_download_base(relay_base) {
-        Some(b) => b,
-        None => return Err(relay_client_manual_hint(&cache_dir)),
-    };
-    let filename = relay_client_filename(target, &manifest.version);
-    let url = format!("{download_base}/{}/{}", manifest.version, filename);
-
-    // 使用 block_in_place 执行异步下载（当前在同步上下文中）
-    let download_result = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(download_relay_client(
-            &url,
-            &cache_path,
-            &entry.sha256,
-            entry.size,
-        ))
-    });
-
-    match download_result {
-        Ok(()) => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    std::fs::set_permissions(&cache_path, std::fs::Permissions::from_mode(0o755));
-            }
-            // 写入缓存版本号
-            let _ = std::fs::write(&version_path, manifest.version.as_bytes());
-            Ok(cache_path.to_string_lossy().into_owned())
-        }
-        Err(e) => Err(format!(
-            "自动下载 relay-client 失败：{e}\n\n{}",
-            relay_client_manual_hint(&cache_dir)
-        )),
-    }
-}
-
-/// 从指定 URL 下载 relay-client 二进制到缓存路径。
-/// 客户端由部署方中继发布；下载完成后校验 SHA256 和文件大小。
-async fn download_relay_client(
-    url: &str,
-    dest: &std::path::Path,
-    expected_sha256: &str,
-    expected_size: u64,
-) -> Result<(), String> {
-    use futures::StreamExt;
-    use tokio::io::AsyncWriteExt;
-
-    // SHA256 计算
-    use sha2::{Digest, Sha256};
-
-    // 确保缓存目录存在
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建缓存目录失败：{e}"))?;
-    }
-
-    // 统一走 egress HTTP 工厂（代理 / TLS / UA 策略），不在此自建客户端。
-    let client = relay_http_client()?;
-
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("下载请求失败：{e}（请检查网络连接）"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!(
-            "下载返回 HTTP {}（客户端二进制可能不存在或无权访问）",
-            resp.status().as_u16()
-        ));
-    }
-
-    // 流式下载 + SHA256 累积
-    let mut file = tokio::fs::File::create(dest)
-        .await
-        .map_err(|e| format!("创建文件失败：{e}"))?;
-    let mut hasher = Sha256::new();
-    let mut written: u64 = 0;
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("读取下载流失败：{e}"))?;
-        hasher.update(&chunk);
-        file.write_all(&chunk)
-            .await
-            .map_err(|e| format!("写入文件失败：{e}"))?;
-        written += chunk.len() as u64;
-    }
-    file.flush().await.map_err(|e| format!("刷盘失败：{e}"))?;
-    drop(file);
-
-    // 校验文件大小
-    if expected_size > 0 && written != expected_size {
-        let _ = std::fs::remove_file(dest);
-        return Err(format!(
-            "文件大小不匹配：预期 {} 字节，实际下载 {} 字节",
-            expected_size, written
-        ));
-    }
-
-    // 校验 SHA256
-    let got = hex_encode(&hasher.finalize());
-    if !got.eq_ignore_ascii_case(expected_sha256) {
-        let _ = std::fs::remove_file(dest);
-        return Err(format!(
-            "SHA256 校验失败：\n  预期: {}\n  实际: {}",
-            expected_sha256, got
-        ));
-    }
-
-    Ok(())
-}
 
 fn execute_slash_command_impl(
     cmd: &str,
@@ -1937,7 +1538,7 @@ fn execute_slash_command_impl(
             *active_modal = Some(Box::new(ProxyPicker::open(&ctx.config)));
         }
         "status" => {
-            // Interactive `/status` shows the Proxy line (after the managed-plan
+            // Interactive `/status` shows the Proxy line (after the plan
             // section); the remote/phone view omits it. Order is owned by
             // `assemble_status`.
             let proxy = format!("  Proxy:  {}\n", ctx.config.network.proxy.summary());
@@ -1986,7 +1587,7 @@ fn execute_slash_command_impl(
             if matches!(state.phase, crate::state::UiPhase::Streaming) {
                 // Mid-turn there is no interactive report to install (live token
                 // redraws own the footer), so the footer snapshot is the
-                // managed-usage-unavailable notice.
+                // usage-unavailable notice.
                 state.footer_command_output = Some(t(Msg::UsageUnavailableNeutral).into_owned());
             } else {
                 open_usage(renderer, active_modal);
@@ -2217,269 +1818,67 @@ fn execute_slash_command_impl(
             }
             renderer.flush();
         }
-        "desktop" => {
-            // Detect an installed RustCode desktop app (new "Desktop" preferred
-            // over old "Air"); launch it, or point the user at the download page.
-            let home = crate::platform::home_dir().unwrap_or_default();
-            let env = |k: &str| std::env::var(k).ok();
-            let cands = super::desktop::candidate_apps(&home, &env);
-            let line = match super::desktop::detect(&cands, |p| p.exists()) {
-                Some(c) => {
-                    let path = c.path.display().to_string();
-                    match super::desktop::launch(c) {
-                        Ok(()) => t(Msg::DesktopOpening {
-                            name: c.display_name,
-                            path: &path,
-                        })
-                        .into_owned(),
-                        Err(e) => t(Msg::DesktopLaunchFailed {
-                            path: &path,
-                            err: &e.to_string(),
-                        })
-                        .into_owned(),
-                    }
-                }
-                None => {
-                    let url = super::desktop::download_url();
-                    if url.is_empty() {
-                        // Neutral build with no desktop release: say so plainly
-                        // instead of printing a dangling "download:" line.
-                        t(Msg::DesktopNotInstalledNoUrl).into_owned()
-                    } else {
-                        t(Msg::DesktopNotInstalled { url }).into_owned()
-                    }
-                }
-            };
-            renderer.render(UiLine::CommandOutput(line));
-            renderer.flush();
-        }
-        "app" => {
-            // 把当前会话经【自建多租户中继】暴露给手机 App，二维码配对。
-            // 与 /webui 共用当前 Coding Runtime 和 live hub，
-            // 区别：① 不开浏览器，吐终端二维码；② 本机 server 走 daemon 模式
-            // （无 token，仅回环绑定），鉴权边界落在中继的 route token。
-            //
-            // 远程访问要连中继、并从中继的发布地址下载 relay-client 二进制。
-            // 没有自己中继的部署可设 RUSTCODE_ENABLE_RELAY=0 关掉整条链路。
-            if !rustcode_config::endpoints::relay_enabled() {
-                renderer.render(UiLine::CommandOutput(
-                    "远程访问在本部署中未启用（RUSTCODE_ENABLE_RELAY=0）。".to_string(),
-                ));
-                renderer.flush();
-                return Ok(());
-            }
-
-            // 中继地址 -> (ws 拨号 URL, App 用的 https 根)。
-            fn derive_relay_urls(base: &str) -> (String, String) {
-                let trimmed = base.trim().trim_end_matches('/');
-                // 用户可能直接给 wss://.../ws/daemon：剥掉路径还原成根。
-                let https_base = if let Some(rest) = trimmed.strip_prefix("wss://") {
-                    format!("https://{}", rest.trim_end_matches("/ws/daemon"))
-                } else if let Some(rest) = trimmed.strip_prefix("ws://") {
-                    format!("http://{}", rest.trim_end_matches("/ws/daemon"))
-                } else {
-                    trimmed.to_string()
-                };
-                let ws_url = if let Some(rest) = https_base.strip_prefix("https://") {
-                    format!("wss://{rest}/ws/daemon")
-                } else if let Some(rest) = https_base.strip_prefix("http://") {
-                    format!("ws://{rest}/ws/daemon")
-                } else {
-                    // 没写 scheme：默认按 TLS 处理。
-                    format!("wss://{https_base}/ws/daemon")
-                };
-                (ws_url, https_base)
-            }
-            // 最小百分号编码：query value 里除 unreserved 外全部转义，
-            // App 端 Uri.queryParameters 会自动解码还原。
-            fn pct(s: &str) -> String {
-                let mut out = String::with_capacity(s.len() * 3);
-                for b in s.bytes() {
-                    match b {
-                        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                            out.push(b as char)
-                        }
-                        _ => out.push_str(&format!("%{b:02X}")),
-                    }
-                }
-                out
-            }
-
-            let a = arg.trim();
-            let msg = if a == "stop" {
-                // Remote access must stop immediately even when the live session
-                // is busy. A failed handoff keeps only the TUI attached so it can
-                // continue receiving the in-flight turn safely.
-                let detach_error = detach_live_runtime(ctx).err();
-                let killed = ctx
-                    .app_relay_child
-                    .take()
-                    .map(|mut c| {
-                        let _ = c.start_kill();
-                    })
-                    .is_some();
-                let server_stopped = rustcode_daemon::stop_app_server();
-                let mut output = if killed || server_stopped {
-                    t(Msg::AppRemoteStopped).into_owned()
-                } else {
-                    t(Msg::AppRemoteNotRunning).into_owned()
-                };
-                if let Some(error) = detach_error {
-                    output.push_str(&t(Msg::AppRemoteDetachSuffix {
-                        error: &error.to_string(),
-                    }));
-                }
-                output
-            } else {
-                // 中继地址：命令参数 > endpoints（RUSTCODE_APP_RELAY）。平台中立 fork
-                // 不内置官方中继；两者都为空时落到下面的用法提示。
-                // relay-client 二进制同样从该中继的发布地址获取（见 ensure_relay_client_bin）。
-                let relay_base = if a.is_empty() {
-                    Some(rustcode_config::endpoints::relay_url().to_string())
-                } else {
-                    Some(a.trim_start_matches("--relay").trim().to_string())
-                };
-                match relay_base.filter(|s| !s.is_empty()) {
-                    // 仅在显式给了空参数（如 `/app --relay`）时可达。
-                    None => t(Msg::AppRemoteUsage).into_owned(),
-                    Some(relay) => {
-                        // 1) 起本机 App server（daemon 模式、不开浏览器、回环绑定）。
-                        //    Keep any current sync attachment until startup succeeds;
-                        //    attach_live_session replaces it atomically on the success path.
-                        rustcode_daemon::stop_app_server();
-                        //    本地中立构建没有平台账号概念：不传 user_id，daemon 侧
-                        //    相应关闭 `X-Atom-User-Id` 请求头校验。
-                        let started = tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(
-                                rustcode_daemon::ensure_app_server(
-                                    "127.0.0.1",
-                                    rustcode_daemon::APP_DEFAULT_PORT,
-                                    None,
-                                ),
-                            )
-                        });
-                        match started {
-                            Err(e) => t(Msg::AppServerStartFailed {
-                                error: &e.to_string(),
-                            })
-                            .into_owned(),
-                            Ok((_h, port)) => {
-                                // 2) route token（中继路由 key + 凭证）+ 中继 URL。
-                                //    纯 128bit 随机 hex：token 只做路由 key 与凭证，
-                                //    不编码任何平台身份（本地构建无账号概念）。
-                                let token = hex_encode(&rand::random::<[u8; 16]>());
-                                let (ws_url, https_base) = derive_relay_urls(&relay);
-                                let machine = std::env::var("HOSTNAME")
-                                    .ok()
-                                    .or_else(|| std::env::var("COMPUTERNAME").ok());
-                                // 3) 确保 relay-client 二进制可用（查找本地或自动下载），
-                                //    然后拉起子进程。自身即 daemon，故
-                                //    --no-supervise-daemon。kill_on_drop：TUI 退出随之清理。
-                                let daemon_url = format!("http://127.0.0.1:{port}");
-                                let spawn_result = match ensure_relay_client_bin(&https_base) {
-                                    Err(e) => t(Msg::AppRelayClientStartFailed {
-                                        error: &e.to_string(),
-                                    })
-                                    .into_owned(),
-                                    Ok(bin) => {
-                                        let mut cmd = tokio::process::Command::new(&bin);
-                                        cmd.arg("run")
-                                            .arg("--relay")
-                                            .arg(&ws_url)
-                                            .arg("--token")
-                                            .arg(&token)
-                                            .arg("--daemon")
-                                            .arg(&daemon_url)
-                                            .arg("--supervise-daemon")
-                                            .arg("false")
-                                            .kill_on_drop(true)
-                                            .stdout(std::process::Stdio::null())
-                                            .stderr(std::process::Stdio::null());
-                                        if let Some(m) = &machine {
-                                            cmd.arg("--machine-name").arg(m);
-                                        }
-                                        if let Some(secret) =
-                                            std::env::var("RUSTCODE_APP_RELAY_SECRET")
-                                                .ok()
-                                                .or_else(|| {
-                                                    std::env::var("ATOM_RELAY_REGISTER_SECRET").ok()
-                                                })
-                                                .filter(|s| !s.is_empty())
-                                        {
-                                            cmd.arg("--register-secret").arg(secret);
-                                        }
-                                        match cmd.spawn() {
-                                            Err(e) => t(Msg::AppRelayClientSpawnFailed {
-                                                error: &e.to_string(),
-                                                bin: &bin,
-                                                cache: &relay_client_cache_dir()
-                                                    .display()
-                                                    .to_string(),
-                                            })
-                                            .into_owned(),
-                                            Ok(child) => {
-                                                if let Some(mut old) = ctx.app_relay_child.take() {
-                                                    let _ = old.start_kill();
-                                                }
-                                                ctx.app_relay_child = Some(child);
-                                                // 5) 配对 URI（App 扫码解析 r= / t= / m=）。
-                                                let m_param = machine
-                                                    .as_deref()
-                                                    .map(|m| format!("&m={}", pct(m)))
-                                                    .unwrap_or_default();
-                                                let pair_uri = format!(
-                                                    "rustcode-link://pair?r={}&t={}{}",
-                                                    pct(&https_base),
-                                                    token,
-                                                    m_param
-                                                );
-                                                // 6) 手机视图复用 TUI 当前 CodingRuntime。
-                                                if let Err(error) = attach_live_runtime(
-                                                    ctx,
-                                                    state.agent_mode,
-                                                    state,
-                                                    renderer,
-                                                ) {
-                                                    if let Some(mut child) =
-                                                        ctx.app_relay_child.take()
-                                                    {
-                                                        let _ = child.start_kill();
-                                                    }
-                                                    return Err(anyhow::anyhow!(error));
-                                                }
-                                                use base64::Engine;
-                                                let encoded =
-                                                    base64::engine::general_purpose::STANDARD
-                                                        .encode(pair_uri.as_bytes());
-                                                match crate::render::qr::render_login_qr(
-                                                    &pair_uri,
-                                                    crate::render::qr::QrStyle::Dense1x2,
-                                                ) {
-                                                    Some(q) => t(Msg::AppPairQrBlock {
-                                                        qr: &q,
-                                                        encoded: &encoded,
-                                                    })
-                                                    .into_owned(),
-                                                    None => t(Msg::AppPairLinkFallback {
-                                                        pair_uri: &pair_uri,
-                                                    })
-                                                    .into_owned(),
-                                                }
-                                            }
-                                        }
-                                    }
-                                };
-                                spawn_result
-                            }
-                        }
-                    }
-                }
-            };
-            renderer.render(UiLine::CommandOutput(msg));
-            renderer.flush();
-        }
         "whoami" => {
             renderer.render(UiLine::CommandOutput(build_whoami_text(ctx)));
+            renderer.flush();
+        }
+        "tunnel" => {
+            // Generic frp-style reverse proxy: expose the local daemon endpoint
+            // through the user's relay so they can reach it from outside.
+            let a = arg.trim();
+            if a == "stop" {
+                rustcode_daemon::stop_tunnel_server();
+                renderer.render(UiLine::CommandOutput(
+                    "Stopped the remote-access tunnel.".into(),
+                ));
+            } else {
+                // 与 `/webui` 一致：先把 TUI 当前会话的 live runtime 绑到 live hub，
+                // 否则远程客户端连进的是另一个 headless runtime，看不到当前对话。
+                // 绑定失败即中止 —— 宁可报错，也不给一个连错会话的隧道。
+                if let Err(error) = attach_live_runtime(ctx, state.agent_mode, state, renderer) {
+                    renderer.render(UiLine::Error(error));
+                    renderer.flush();
+                    return Ok(());
+                }
+                let bind = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(rustcode_daemon::ensure_tunnel_server(
+                        "127.0.0.1",
+                        rustcode_daemon::TUNNEL_PORT,
+                    ))
+                });
+                match bind {
+                    Ok((host, port, key)) => {
+                        let relay = rustcode_config::endpoints::relay_url();
+                        let static_key = std::env::var("RUSTCODE_ACCESS_KEY")
+                            .ok()
+                            .filter(|s| !s.is_empty())
+                            .or_else(|| ctx.config.access_key.clone())
+                            .or_else(|| {
+                                std::env::var("RUSTCODE_DAEMON_TOKEN")
+                                    .ok()
+                                    .filter(|s| !s.is_empty())
+                            });
+                        // 只有与静态配置一致时才算持久凭证；否则它是 daemon 本次会话
+                        // mint 出的一次性令牌（quiet 启动不打印、也不写 token 文件），
+                        // 不在此展示的话远程客户端必然 401 —— 那才是假成功。
+                        let key_line = if static_key.as_deref() == Some(key.as_str()) {
+                            format!("  access_key:    {key}  (configured)\n")
+                        } else {
+                            format!(
+                                "  access_key:    {key}  (session-only, minted for this run; \
+                                 not persisted -- save it now)\n"
+                            )
+                        };
+                        let msg = format!(
+                            "Remote-access tunnel is live.\n  relay:         {relay}\n  local endpoint: {host}:{port}\n{key_line}  Connect your relay client to the daemon with the above.\n",
+                        );
+                        renderer.render(UiLine::CommandOutput(msg));
+                    }
+                    Err(error) => {
+                        renderer.render(UiLine::Error(error));
+                    }
+                }
+            }
             renderer.flush();
         }
         "upgrade" => {
@@ -3587,13 +2986,6 @@ fn execute_slash_command_impl(
                 .map(|(h, r)| (h, r.trim()))
                 .unwrap_or((trimmed, ""));
             match head {
-                "__app_arm" => {
-                    // Mobile App selected Goal mode but has not supplied the
-                    // condition yet. The next idle TUI submit becomes the
-                    // condition and is executed through this same command arm.
-                    state.goal_armed = true;
-                    renderer.flush();
-                }
                 "" | "status" => {
                     if let Some(ref cond) = state.goal_condition {
                         // Display 1-based, consistent with the footer goal row.
@@ -4945,10 +4337,10 @@ pub(super) fn render_context_report(state: &UiState, ctx: &LoopCtx, show_prompt:
     format_context_report(state.last_context.as_ref(), &ctx.model_name, show_prompt)
 }
 
-/// The `/status` login line. The managed account system is gone (`/login` and
+/// The `/status` login line. The account system is gone (`/login` and
 /// `/logout` were removed), so there is no platform identity left to render and
 /// the line is always omitted. Rendering "not signed in (run /login)" here
-/// would steer the operator at a removed command -- BYO providers are managed
+/// would steer the operator at a removed command -- BYO providers are configured
 /// via `/provider` and already surface in the status body's model line. Shared
 /// by both `/status` renderers so the interactive and remote outputs can't
 /// drift.
@@ -4956,7 +4348,7 @@ fn render_login_line_from_stored_auth() -> String {
     String::new()
 }
 
-/// No managed plan section is appended to `/status`: there is no managed
+/// No plan section is appended to `/status`: there is no hosted
 /// usage endpoint compiled into this build.
 fn render_plan_section_for_status_cmd() -> String {
     String::new()
@@ -5260,8 +4652,8 @@ pub(super) fn build_diff_stat_text(ctx: &LoopCtx) -> Result<String, String> {
     Ok(crate::git_diff::format_compact_snapshot(&snapshot))
 }
 
-/// `/usage` (idle). There is no managed usage endpoint compiled into this build, so
-/// the command always renders the "managed usage unavailable" notice instead of
+/// `/usage` (idle). This build ships no hosted usage endpoint, so the command
+/// always renders a neutral "usage endpoint unavailable" notice instead of
 /// opening a modal that could never be populated.
 fn open_usage(renderer: &mut dyn Renderer, _active_modal: &mut Option<Box<dyn Modal>>) {
     renderer.render(UiLine::CommandOutput(
@@ -6279,14 +5671,14 @@ mod status_login_tests {
     use super::*;
 
     #[test]
-    fn neutral_status_omits_managed_login_line() {
-        // The managed account system is gone (`/login` / `/logout` removed), so
+    fn neutral_status_omits_login_line() {
+        // The account system is gone (`/login` / `/logout` removed), so
         // /status must never render a "Login: not signed in (run /login)" line
         // -- that would point at a command that no longer exists.
         let line = render_login_line_from_stored_auth();
         assert!(
             line.is_empty(),
-            "neutral /status must omit the managed login line, got: {line:?}"
+            "neutral /status must omit the login line, got: {line:?}"
         );
     }
 

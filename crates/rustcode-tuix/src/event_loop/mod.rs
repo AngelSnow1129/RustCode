@@ -15,7 +15,6 @@
 
 pub(crate) mod bg_runtime;
 pub(crate) mod commands;
-pub(crate) mod desktop;
 pub(crate) mod file_index;
 pub(crate) mod loop_ctrl;
 pub(crate) mod loop_parse;
@@ -4039,9 +4038,6 @@ pub struct LoopCtx {
     /// 实时观察转发任务（将 hub 的 InputAccepted 转发为 UserEcho 给 TUI 事件循环）。
     /// 每次 /app 连接时重新创建，旧任务自动取消，避免重复转发导致消息重复。
     pub live_observation_task: Option<tokio::task::JoinHandle<()>>,
-    /// `/app` 拉起的 relay-client 子进程。`kill_on_drop(true)`，所以 TUI 退出或
-    /// `/app stop` 时随之清理，不留僵尸进程。None=未开启 App 远程访问。
-    pub app_relay_child: Option<tokio::process::Child>,
     /// `true` when the TUI was launched with `PlainRenderer` (CI / pipe
     /// / non-TTY). The onboarding wizard checks this -- plain mode can't
     /// run interactive multi-step flows, so first-run falls through to

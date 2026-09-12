@@ -124,11 +124,11 @@ async fn main() {
     // through t(). It has no --lang flag, so resolve from config `language`
     // then LC_* env (default Simplified Chinese, like the other binaries).
     // A missing/malformed config simply falls through to the default.
+    // 全量加载 Config（而非仅取 language），供下方静态访问密钥解析复用。
+    let loaded_config =
+        rustcode_config::config::Config::load(&rustcode_config::config::Config::default_path()).ok();
     {
-        let language =
-            rustcode_config::config::Config::load(&rustcode_config::config::Config::default_path())
-                .ok()
-                .and_then(|c| c.language);
+        let language = loaded_config.as_ref().and_then(|c| c.language.clone());
         rustcode_config::i18n::set_locale(rustcode_config::i18n::resolve_initial_locale(
             None, language,
         ));
@@ -154,10 +154,23 @@ async fn main() {
     let (host, port, idle_timeout_secs, startup_mode) = parse_daemon_args();
 
     let token_store = rustcode_daemon::auth_token::WebuiTokenStore::new();
-    let daemon_token = rustcode_daemon::resolve_daemon_token(
-        std::env::var("RUSTCODE_DAEMON_TOKEN").ok(),
-        &token_store,
-    );
+    // 静态访问密钥解析优先级:
+    //   1. 环境变量 RUSTCODE_ACCESS_KEY
+    //   2. 配置文件 access_key（loaded_config）
+    //   3. 环境变量 RUSTCODE_DAEMON_TOKEN（历史别名）
+    //   4. 以上皆空 -> 随机 mint
+    // 解析到的密钥会同时登记进 WebuiTokenStore 并写入 daemon-<port>.json。
+    let static_key = std::env::var("RUSTCODE_ACCESS_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            loaded_config
+                .as_ref()
+                .and_then(|c| c.access_key.clone())
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| std::env::var("RUSTCODE_DAEMON_TOKEN").ok().filter(|s| !s.is_empty()));
+    let daemon_token = rustcode_daemon::resolve_daemon_token(static_key, &token_store);
 
     if let Err(e) = run_server(ServerOpts {
         host,
@@ -171,8 +184,6 @@ async fn main() {
         working_dir_override: None,
         // 独立二进制自行 bind host:port，不预绑定。
         prebound_listener: None,
-        // 独立 daemon 模式不需要 app user_id 校验。
-        app_user_id: None,
         daemon_token_file: Some(daemon_token),
     })
     .await
