@@ -2670,7 +2670,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -2715,7 +2715,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-capabilities"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2779,7 +2779,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-clix"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2799,7 +2799,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-coding"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2822,7 +2822,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-config"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "anyhow",
  "dirs",
@@ -2840,7 +2840,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-daemon"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2872,7 +2872,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-kernel"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "async-trait",
  "futures",
@@ -2884,7 +2884,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-review"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "async-trait",
  "futures",
@@ -2900,7 +2900,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-tuix"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2946,7 +2946,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-updater"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2963,7 +2963,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-wiki"
-version = "5.0.9"
+version = "5.0.10"
 dependencies = [
  "ignore",
  "serde",

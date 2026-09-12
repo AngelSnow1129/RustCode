@@ -142,8 +142,11 @@ codearts.zip
 .zvec-grep/
 CODEBUDDY.md
 
-# CodeBuddy 的**运行时**目录(与 .codebuddy/agents、rules、artifacts 相对):
-# memory/ 是本机跨会话工作笔记、teams/ 是子代理会话邮箱,均随机器/会话变化,
-# 不随仓库共享。注意只忽略这两个子路径,勿写整个 `.codebuddy/`(见上方 2026-09-03 注记)。
+# CodeBuddy 的**运行时**目录(与 .codebuddy/agents、rules 相对):
+# memory/ 是本机跨会话工作笔记、teams/ 是子代理会话邮箱、artifacts/ 是 Agent 运行产物
+# (实现报告、交付清单、审计看板等),均随机器/会话变化,不随仓库共享。
+# 注意只忽略这些子路径,勿写整个 `.codebuddy/`(见上方 2026-09-03 注记:agents/、rules 仍随仓库跟踪)。
+# [2026-09-12] artifacts/ 改回忽略(2026-09-03 曾决定跟踪,现按团队口径仅共享 agents/rules 源码)。
 .codebuddy/memory/
 .codebuddy/teams/
+.codebuddy/artifacts/
