@@ -147,7 +147,6 @@ const zh = {
   'image.closePreview': '关闭预览',
 
   'provider.settingsTitle': 'RustCode 设置',
-  'provider.notSignedIn': '未配置凭据',
   'provider.providers': 'Providers',
   'provider.noneConfigured': '未配置 Provider。',
   'provider.keySet': '已设置 key',
@@ -315,7 +314,6 @@ const en: Record<MsgKey, string> = {
   'image.closePreview': 'Close preview',
 
   'provider.settingsTitle': 'RustCode Settings',
-  'provider.notSignedIn': 'Not signed in',
   'provider.providers': 'Providers',
   'provider.noneConfigured': 'No providers configured.',
   'provider.keySet': 'key set',
