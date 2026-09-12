@@ -136,7 +136,7 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 - daemon 可通过可配置的反向隧道中继把本地 webui / API 暴露到公网：环境变量 `RUSTCODE_ENABLE_TUNNEL=1` 开启（默认关闭），`RUSTCODE_TUNNEL_RELAY` 指定中继地址（如 `wss://your-relay.example.com`）。
 - 在 TUI 内执行 `/tunnel` 启动本地隧道端点，打印中继 URL、当前 `access_key` 与本地回源端口；子命令：`lan`、`stop`。
-- **内置中继客户端（frpc 半边）—— 设计已定，尚未实现**：两个变量都设好时，`/tunnel` 将启动内置 WebSocket 隧道客户端（连中继 → 用隧道 token 鉴权 → 把中继侧入站流量转发到本地端点）；线路协议是带 stream id 的 `Open` / `Data` / `Close` 帧，中继据此即可独立实现。当前尚未实现，请先使用 `/tunnel lan`（同网），或用自己的 frp 指向 `/tunnel` 打印的本地回源端口。
+- **内置中继客户端（frpc 半边）—— 设计已定，尚未实现**：两个变量都设好时，`/tunnel` 将启动内置 WebSocket 隧道客户端（连中继 → 用隧道 token 鉴权 → 把中继侧入站流量转发到本地端点）；线路协议是带 stream id 的 `Open` / `Data` / `Close` 帧，中继据此即可独立实现。当前尚未实现，请先使用 `/tunnel lan`（同网），或用自己的 frp 指向 `/tunnel` 打印的本地回源端口。自建中继方案见 `docs/relay.md`。
 - **`/tunnel lan`（局域网模式）** —— 把隧道端点绑定到 `0.0.0.0`，同一局域网内的设备用同一个 `Authorization: Bearer <access_key>` 就能访问：不需要中继、也不需要额外依赖，可立即使用（建议在可信网络下使用）。不带子命令的 `/tunnel` 仍绑定回环地址，仅本机可达。
 - 远程客户端以 `Authorization: Bearer <access_key>` 鉴权（与 daemon 静态访问密钥同一套密钥）；该隧道取代已移除的移动端 App 远程访问，无托管账号或移动端依赖。
 
