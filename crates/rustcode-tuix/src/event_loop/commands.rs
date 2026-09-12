@@ -1832,6 +1832,9 @@ fn execute_slash_command_impl(
                     "Stopped the remote-access tunnel.".into(),
                 ));
             } else {
+                // `lan` 绑到全部网卡，让同网设备直接用 access_key 访问；
+                // 不带参数时仍只监听回环（仅本机 / 中继可达）。
+                let host = if a == "lan" { "0.0.0.0" } else { "127.0.0.1" };
                 // 与 `/webui` 一致：先把 TUI 当前会话的 live runtime 绑到 live hub，
                 // 否则远程客户端连进的是另一个 headless runtime，看不到当前对话。
                 // 绑定失败即中止 —— 宁可报错，也不给一个连错会话的隧道。
@@ -1842,7 +1845,7 @@ fn execute_slash_command_impl(
                 }
                 let bind = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(rustcode_daemon::ensure_tunnel_server(
-                        "127.0.0.1",
+                        host,
                         rustcode_daemon::TUNNEL_PORT,
                     ))
                 });

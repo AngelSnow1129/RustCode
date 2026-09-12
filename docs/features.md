@@ -163,8 +163,20 @@ MCP 配置:
 
 - daemon 可通过可配置的**反向隧道中继**把本地 webui / HTTP·SSE API 暴露到公网：由环境变量 `RUSTCODE_ENABLE_TUNNEL=1` 开启（默认关闭），并由 `RUSTCODE_TUNNEL_RELAY` 指定中继地址（如 `wss://your-relay.example.com`）。开启后 daemon 作为反向代理，把中继转发来的请求回源到本地 webui / API。
 - 远程客户端以 `Authorization: Bearer <access_key>` 鉴权（与第 6 节静态访问密钥同一套密钥），未携带有效 Bearer 的远程请求被拒绝。
-- TUI 内执行 `/tunnel` 命令启动本地隧道端点，并在终端打印：中继 URL（`RUSTCODE_TUNNEL_RELAY`）、当前 `access_key`、以及本地回源端口。
+- TUI 内执行 `/tunnel` 命令启动本地隧道端点，并在终端打印：中继 URL（`RUSTCODE_TUNNEL_RELAY`）、当前 `access_key`、以及本地回源端口。子命令：`lan`（见「`/tunnel lan` 局域网模式」）、`stop`（停止隧道端点）。
 - **本能力取代已移除的移动端 App 远程访问**（原 `/app <中继>` + `RUSTCODE_APP_RELAY` 方案，随移动端 App 一并移除）：隧道是平台中立、用户自托管中继的反向代理，无任何托管账号或移动端依赖。
+
+#### 内置隧道客户端（frpc 半边）—— 设计已定，**尚未实现**
+
+- 目标形态：当 `RUSTCODE_ENABLE_TUNNEL=1` **且** `RUSTCODE_TUNNEL_RELAY` 已设置时，`/tunnel` 在启动本地端点的同时启动内置 WebSocket 隧道客户端（frp 的 frpc 半边）：连接中继、用隧道 token 鉴权，并把中继侧入站流量转发到本地端点——无需再额外部署/运行外部客户端进程。
+- 线路协议已定：`Open` / `Data` / `Close` 三种帧，均携带 stream id（`Open` 建立流、`Data` 双向搬运字节、`Close` 关闭流）。中继只按 stream id 转发字节、不解析应用数据，因此任何中继都可据此独立实现。
+- **当前状态：未实现**（daemon 尚未引入 WebSocket 客户端依赖）。现阶段远程接入的可行做法是：① 同网直接用 `/tunnel lan`（见下）；② 把你自己的 frp / 外部客户端指向 `/tunnel` 打印的本地回源端口。
+
+#### `/tunnel lan`（局域网模式）
+
+- `/tunnel lan` 把隧道端点绑定到 `0.0.0.0`，同一局域网内的其它设备用同一套 `Authorization: Bearer <access_key>` 即可访问 webui / API。
+- **不需要中继，也不需要任何额外依赖**（不依赖上面的内置 WebSocket 客户端），可立即使用；不带子命令的 `/tunnel` 仍绑定回环地址，仅本机可达。
+- 绑定 `0.0.0.0` 会把端点暴露给整个局域网，请仅在可信网络中使用，并确保 `access_key` 是足够强的随机密钥。
 
 #### UDP 打洞（未来 P2P 模式）
 

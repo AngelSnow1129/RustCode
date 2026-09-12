@@ -1457,7 +1457,7 @@ Msg::PluginMgrInstallingLabel => "Installing...".into(),
 
         // ── Command descriptions ──
         Msg::CmdDescWebui => "Launch the browser webui (subcommands: stop, lan, --host <addr>)".into(),
-        Msg::CmdDescTunnel => "Expose this session for remote access via a relay (frp-style reverse tunnel; subcommands: stop)".into(),
+        Msg::CmdDescTunnel => "Expose this session for remote access via a relay (frp-style reverse tunnel; subcommands: lan, stop)".into(),
 Msg::CmdDescSetup =>
 "Scan project, install seeds, and run setup skill [hooks|mcp|skills|all]".into(),
         Msg::CmdDescResume => "Resume a previous session".into(),

@@ -1418,7 +1418,7 @@ Msg::PluginActionBackDesc => "返回已安装插件列表".into(),
 
         // ── 命令描述 ──
         Msg::CmdDescWebui => "启动浏览器 webui（子命令：stop / lan / --host <地址>）".into(),
-        Msg::CmdDescTunnel => "通过中继将当前会话暴露为远程访问（frp 风格反向隧道；子命令：stop）".into(),
+        Msg::CmdDescTunnel => "通过中继将当前会话暴露为远程访问（frp 风格反向隧道；子命令：lan / stop）".into(),
 Msg::CmdDescSetup =>
 "扫描项目、安装种子文件并运行 setup skill [hooks|mcp|skills|all]".into(),
         Msg::CmdDescResume => "恢复上次会话".into(),
