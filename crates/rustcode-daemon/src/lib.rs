@@ -5419,7 +5419,11 @@ struct TunnelServerHandle {
     /// 该实例实际生效的访问令牌：复用运行中实例时要把同一个令牌交还调用方，
     /// 否则调用方无从展示可连入的凭证（隧道以 quiet 启动且不写 token 文件）。
     key: String,
+    /// 本地端点 server 的终止句柄。
     abort: tokio::task::AbortHandle,
+    /// frpc（中继客户端）任务的终止句柄。`/tunnel stop` 必须一并停掉它，否则它
+    /// 会继续占着中继唯一的槽位，使下一次 `/tunnel` 永久挂起。
+    tunnel_abort: Option<tokio::task::AbortHandle>,
 }
 
 static TUNNEL_SERVER: std::sync::Mutex<Option<TunnelServerHandle>> = std::sync::Mutex::new(None);
@@ -5506,6 +5510,42 @@ pub async fn ensure_tunnel_server(
             eprintln!("tunnel server error: {e}");
         }
     });
+    // frpc 半边：若配置了自建中继，就连上去，把中继侧入站流转到刚绑定的端点。
+    // 中继重启、网络抖动都会让控制通道断开，所以这里退避重连，而不是一去不回
+    // （旧实现断线即任务结束且静默，隧道会永久下线却仍被报告为健康）。
+    let tunnel_abort = if rustcode_config::endpoints::relay_enabled() {
+        let relay = rustcode_config::endpoints::relay_url();
+        let token = rustcode_config::endpoints::tunnel_token();
+        if !relay.is_empty() && !token.is_empty() {
+            let relay = relay.to_string();
+            let token = token.to_string();
+            let port = actual_port;
+            let relay_task = tokio::spawn(async move {
+                let mut backoff_secs: u64 = 1;
+                loop {
+                    match rustcode_tunnel::client::start_tunnel_client(&relay, &token, port).await
+                    {
+                        Ok(()) => tracing::warn!(
+                            "tunnel: relay control channel closed, reconnecting in {backoff_secs}s"
+                        ),
+                        Err(e) => tracing::error!(
+                            "tunnel: relay client failed: {e}; retrying in {backoff_secs}s"
+                        ),
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                    backoff_secs = (backoff_secs * 2).min(60);
+                }
+            });
+            Some(relay_task.abort_handle())
+        } else {
+            tracing::warn!(
+                "tunnel: RUSTCODE_ENABLE_TUNNEL is set but the relay URL or token is missing; only the local endpoint was started"
+            );
+            None
+        }
+    } else {
+        None
+    };
     {
         let mut guard = TUNNEL_SERVER.lock().unwrap();
         *guard = Some(TunnelServerHandle {
@@ -5513,28 +5553,8 @@ pub async fn ensure_tunnel_server(
             host: host.to_string(),
             key: key.clone(),
             abort: task.abort_handle(),
+            tunnel_abort,
         });
-    }
-    // frpc 半边：若配置了自建中继，就连上去，把中继侧入站流转到刚绑定的端点。
-    if rustcode_config::endpoints::relay_enabled() {
-        let relay = rustcode_config::endpoints::relay_url();
-        let token = rustcode_config::endpoints::tunnel_token();
-        if !relay.is_empty() && !token.is_empty() {
-            let relay = relay.to_string();
-            let token = token.to_string();
-            let port = actual_port;
-            tokio::spawn(async move {
-                if let Err(e) =
-                    rustcode_tunnel::client::start_tunnel_client(&relay, &token, port).await
-                {
-                    tracing::error!("tunnel: relay client stopped: {e}");
-                }
-            });
-        } else {
-            tracing::warn!(
-                "tunnel: RUSTCODE_ENABLE_TUNNEL is set but the relay URL or token is missing; only the local endpoint was started"
-            );
-        }
     }
     Ok((host.to_string(), actual_port, key))
 }
@@ -5543,6 +5563,11 @@ pub async fn ensure_tunnel_server(
 pub fn stop_tunnel_server() -> bool {
     let mut guard = TUNNEL_SERVER.lock().unwrap();
     if let Some(handle) = guard.take() {
+        // Stop the relay client first so it releases the relay's single slot,
+        // then tear down the local endpoint.
+        if let Some(tunnel) = handle.tunnel_abort {
+            tunnel.abort();
+        }
         handle.abort.abort();
         true
     } else {

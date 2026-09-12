@@ -6,6 +6,10 @@ default-members = [
     "crates/rustcode-cli",
     "crates/rustcode-daemon",
     "crates/rustcode-tuix",
+    # 自带中继二进制 rustcode-relay：加入 default-members，让 `cargo build --release`
+    # 直接产出它（否则需要 -p rustcode-tunnel，用户很容易漏掉）。lib 本身已随
+    # daemon 依赖编译，这里只多编译一个 bin，增量成本很小。
+    "crates/rustcode-tunnel",
 ]
 
 [profile.release]
