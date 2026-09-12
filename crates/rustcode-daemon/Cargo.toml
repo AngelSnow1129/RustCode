@@ -18,6 +18,7 @@ default = []
 [dependencies]
 # Config system used directly by the daemon.
 rustcode-config = { path = "../rustcode-config" }
+rustcode-tunnel = { path = "../rustcode-tunnel" }
 # `tools` is required directly by the `/fs/search` handler (the `file_index`
 # module is gated on it). Declare it so the dependency is explicit.
 rustcode-capabilities = { path = "../rustcode-capabilities", features = ["plugin", "mcp", "tools", "egress"] }

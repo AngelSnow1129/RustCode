@@ -5515,6 +5515,27 @@ pub async fn ensure_tunnel_server(
             abort: task.abort_handle(),
         });
     }
+    // frpc 半边：若配置了自建中继，就连上去，把中继侧入站流转到刚绑定的端点。
+    if rustcode_config::endpoints::relay_enabled() {
+        let relay = rustcode_config::endpoints::relay_url();
+        let token = rustcode_config::endpoints::tunnel_token();
+        if !relay.is_empty() && !token.is_empty() {
+            let relay = relay.to_string();
+            let token = token.to_string();
+            let port = actual_port;
+            tokio::spawn(async move {
+                if let Err(e) =
+                    rustcode_tunnel::client::start_tunnel_client(&relay, &token, port).await
+                {
+                    tracing::error!("tunnel: relay client stopped: {e}");
+                }
+            });
+        } else {
+            tracing::warn!(
+                "tunnel: RUSTCODE_ENABLE_TUNNEL is set but the relay URL or token is missing; only the local endpoint was started"
+            );
+        }
+    }
     Ok((host.to_string(), actual_port, key))
 }
 

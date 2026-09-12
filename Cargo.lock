@@ -2868,6 +2868,7 @@ dependencies = [
  "rustcode-coding",
  "rustcode-config",
  "rustcode-kernel",
+ "rustcode-tunnel",
  "serde",
  "serde_json",
  "serial_test",

@@ -46,6 +46,11 @@ pub const PLUGIN_AUTO_INSTALL_ENV: &str = "RUSTCODE_PLUGIN_AUTO_INSTALL";
 /// Whether the generic remote-access tunnel relay is offered. Defaults to off.
 pub const ENABLE_RELAY_ENV: &str = "RUSTCODE_ENABLE_TUNNEL";
 
+/// Shared secret the daemon presents to the tunnel relay when opening the
+/// control channel. Needed alongside [`RELAY_URL_ENV`] / [`ENABLE_RELAY_ENV`];
+/// the relay rejects a handshake without it (see `docs/relay.md`).
+pub const TUNNEL_TOKEN_ENV: &str = "RUSTCODE_TUNNEL_TOKEN";
+
 /// Hosts to treat as first-party, comma-separated. **Replaces** the default
 /// set rather than adding to it: a deployment that has moved off the hosted
 /// service should stop trusting it, not accumulate both.
@@ -185,6 +190,18 @@ pub fn relay_url() -> &'static str {
 pub fn relay_enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| env_bool(ENABLE_RELAY_ENV).unwrap_or(HOSTED_RELAY_ENABLED))
+}
+
+/// Tunnel token presented to the relay on the control-channel handshake.
+/// Empty when unset -- the relay must reject an empty token.
+pub fn tunnel_token() -> &'static str {
+    static TOKEN: OnceLock<String> = OnceLock::new();
+    TOKEN.get_or_init(|| {
+        std::env::var(TUNNEL_TOKEN_ENV)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .unwrap_or_default()
+    })
 }
 
 /// Git URLs of the marketplaces registered on first run, in order.

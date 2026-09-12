@@ -1,7 +1,7 @@
 # 自建中继（frp 风格反向隧道）方案
 
-> **状态：方案已定，代码待实现。**
-> 目前没有可用的现成中继，因此本方案给出**随仓库自带的最小中继**（frps 半边），与 daemon 内置的隧道客户端（frpc 半边）配对使用。两端协议由我们自己定义，不依赖任何外部平台、账号或运营商服务。
+> **状态：已实现（frpc + frps 两半均已落地），待端到端联调。**
+> 由于没有可用的现成中继，本仓库自带一个最小中继 `rustcode-relay`（frps 半边），与 daemon 内置的隧道客户端（frpc 半边）配对使用。两端协议由我们自己定义，不依赖任何外部平台、账号或运营商服务。
 
 ## 1. 背景
 
@@ -87,10 +87,10 @@
 
 后续可选：借助 STUN 风格信令 + UDP 打洞让两端点对点直连，绕过中继降低延迟。需要额外一个信令服务器，当前不在范围内。
 
-## 9. 实现清单（待办）
+## 9. 实现清单
 
-- [ ] 新建 `crates/rustcode-tunnel`：`protocol`（帧编解码 + 单测）、`client`（frpc）、`server`（frps）
-- [ ] `rustcode-relay` 二进制（`--control` / `--public` / `--token`）
-- [ ] daemon 接线：`RUSTCODE_ENABLE_TUNNEL=1` 且中继已配置时，`/tunnel` 一并启动客户端
-- [ ] 新增依赖：`tokio-tungstenite`（daemon 目前没有 WebSocket 客户端）
-- [ ] 端到端验证：本机起中继 -> `/tunnel` -> 远程带 Bearer 访问
+- [x] 新建 `crates/rustcode-tunnel`：`protocol`（帧编解码 + 单测）、`client`（frpc）、`server`（frps）
+- [x] `rustcode-relay` 二进制（`--control` / `--public` / `--token`，亦支持环境变量）
+- [x] daemon 接线：`RUSTCODE_ENABLE_TUNNEL=1` 且中继 URL 与 token 齐备时，`/tunnel` 一并启动客户端
+- [x] 新增依赖：`tokio-tungstenite`（仅落在本 crate，不污染 daemon）
+- [ ] **端到端联调**：本机起中继 -> `/tunnel` -> 远程带 Bearer 访问（尚未实机验证）

@@ -166,12 +166,12 @@ MCP 配置:
 - TUI 内执行 `/tunnel` 命令启动本地隧道端点，并在终端打印：中继 URL（`RUSTCODE_TUNNEL_RELAY`）、当前 `access_key`、以及本地回源端口。子命令：`lan`（见「`/tunnel lan` 局域网模式」）、`stop`（停止隧道端点）。
 - **本能力取代已移除的移动端 App 远程访问**（原 `/app <中继>` + `RUSTCODE_APP_RELAY` 方案，随移动端 App 一并移除）：隧道是平台中立、用户自托管中继的反向代理，无任何托管账号或移动端依赖。
 
-#### 内置隧道客户端（frpc 半边）—— 设计已定，**尚未实现**
+#### 内置隧道客户端（frpc 半边）与自建中继（frps）
 
-- 目标形态：当 `RUSTCODE_ENABLE_TUNNEL=1` **且** `RUSTCODE_TUNNEL_RELAY` 已设置时，`/tunnel` 在启动本地端点的同时启动内置 WebSocket 隧道客户端（frp 的 frpc 半边）：连接中继、用隧道 token 鉴权，并把中继侧入站流量转发到本地端点——无需再额外部署/运行外部客户端进程。
-- 线路协议已定：`Open` / `Data` / `Close` 三种帧，均携带 stream id（`Open` 建立流、`Data` 双向搬运字节、`Close` 关闭流）。中继只按 stream id 转发字节、不解析应用数据，因此任何中继都可据此独立实现。
-- **当前状态：未实现**（daemon 尚未引入 WebSocket 客户端依赖）。现阶段远程接入的可行做法是：① 同网直接用 `/tunnel lan`（见下）；② 把你自己的 frp / 外部客户端指向 `/tunnel` 打印的本地回源端口。
-- **自建中继方案**：由于目前没有现成中继，方案给出随仓库自带的最小中继 `rustcode-relay`（frps 半边）——架构、帧协议（Open / Data / Close + stream id）、部署步骤，以及「隧道 token 与 access_key 两个密钥」的区分，详见 [`docs/relay.md`](relay.md)。
+- 当 `RUSTCODE_ENABLE_TUNNEL=1` **且** `RUSTCODE_TUNNEL_RELAY` 与 `RUSTCODE_TUNNEL_TOKEN` 齐备时，`/tunnel` 在启动本地端点的同时启动内置 WebSocket 隧道客户端（frp 的 frpc 半边）：连接中继、用隧道 token 鉴权，并把中继侧入站流量转发到本地端点——无需再额外部署/运行外部客户端进程。
+- 线路协议：`Open` / `Data` / `Close` 三种帧，均携带 stream id（`Open` 建立流、`Data` 双向搬运字节、`Close` 关闭流）；中继只按 stream id 转发字节、不解析应用数据。纯双向字节泵，SSE 长连接可用。
+- 自建中继 `rustcode-relay`（frps 半边）随仓库提供，完整方案（架构、部署、两个密钥的区别）见 [`docs/relay.md`](relay.md)。
+- 只设开关但未配齐中继 URL / token 时，仅启动本地端点并告警，不会误报"已连通"。
 
 #### `/tunnel lan`（局域网模式）
 
