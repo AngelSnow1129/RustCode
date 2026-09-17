@@ -88,7 +88,6 @@ pub const POOL: &[Tip] = &[
     },
 ];
 
-
 /// How many random tips to show below the pinned one.
 const RANDOM_COUNT: usize = 3;
 

@@ -15,6 +15,7 @@
 
 pub(crate) mod bg_runtime;
 pub(crate) mod commands;
+pub(crate) mod desktop;
 pub(crate) mod file_index;
 pub(crate) mod loop_ctrl;
 pub(crate) mod loop_parse;
@@ -3820,7 +3821,11 @@ impl AuthObservation {
 /// `select!` can surface a status line without blocking the UI.
 pub enum WikiSyncEvent {
     /// The wiki was re-synced and pages changed; surface a status line.
-    Updated { path: String, modules: usize, files: usize },
+    Updated {
+        path: String,
+        modules: usize,
+        files: usize,
+    },
 }
 
 pub struct LoopCtx {

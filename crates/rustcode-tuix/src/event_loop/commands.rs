@@ -1083,7 +1083,6 @@ pub(super) fn execute_slash_command(
     result
 }
 
-
 fn execute_slash_command_impl(
     cmd: &str,
     arg: &str,
@@ -1844,10 +1843,9 @@ fn execute_slash_command_impl(
                     return Ok(());
                 }
                 let bind = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(rustcode_daemon::ensure_tunnel_server(
-                        host,
-                        rustcode_daemon::TUNNEL_PORT,
-                    ))
+                    tokio::runtime::Handle::current().block_on(
+                        rustcode_daemon::ensure_tunnel_server(host, rustcode_daemon::TUNNEL_PORT),
+                    )
                 });
                 match bind {
                     Ok((host, port, key)) => {
@@ -1946,6 +1944,44 @@ fn execute_slash_command_impl(
                     }
                 });
             }
+        }
+        "desktop" => {
+            // Detect an installed RustCode desktop app (new "Desktop" preferred
+            // over old "Air"); launch it, or point the user at the download page.
+            // Neutral build ships no download URL: say so plainly instead of
+            // printing a dangling "download:" line with an empty address.
+            let url = super::desktop::download_url();
+            if url.is_empty() {
+                renderer.render(UiLine::CommandOutput(
+                    t(Msg::DesktopNotInstalledNoUrl).into_owned(),
+                ));
+                renderer.flush();
+                return Ok(());
+            }
+            let home = crate::platform::home_dir().unwrap_or_default();
+            let env = |k: &str| std::env::var(k).ok();
+            let cands = super::desktop::candidate_apps(&home, &env);
+            let line = match super::desktop::detect(&cands, |p| p.exists()) {
+                Some(c) => {
+                    let path = c.path.display().to_string();
+                    match super::desktop::launch(c) {
+                        Ok(()) => t(Msg::DesktopOpening {
+                            name: c.display_name,
+                            path: &path,
+                        })
+                        .into_owned(),
+                        Err(e) => t(Msg::DesktopLaunchFailed {
+                            path: &path,
+                            err: &e.to_string(),
+                        })
+                        .into_owned(),
+                    }
+                }
+                None => t(Msg::DesktopNotInstalled { url }).into_owned(),
+            };
+            renderer.render(UiLine::CommandOutput(line));
+            renderer.flush();
+            return Ok(());
         }
         "cd" => {
             // Bare `/cd` opens a searchable project picker. The complete native
