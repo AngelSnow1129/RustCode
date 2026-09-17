@@ -1450,7 +1450,7 @@ pub(crate) async fn live_stream(
             let _ = tx.send((projector.session_id.clone(), w));
         }
     }
-    let binding_id = join.binding.id;
+    let mut binding_id = join.binding.id;
     let mut rx = join.receiver;
     tokio::spawn(async move {
         loop {
@@ -1465,13 +1465,62 @@ pub(crate) async fn live_stream(
                 }
                 Ok(_) => break,
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    // The client was too slow to drain BROADCAST_CAPACITY (1024)
+                    // buffered events. Instead of breaking the SSE connection and
+                    // forcing a client-side reconnect with 1-15s exponential
+                    // backoff (during which all events are lost), transparently
+                    // rejoin the hub: a fresh broadcast receiver + the current
+                    // authoritative snapshot + the in-flight turn's replay window
+                    // are resent on this same HTTP response. The client sees a
+                    // Warning + a new Snapshot and keeps going -- no reconnect,
+                    // no backoff, no event gap beyond the Lagged window itself.
                     let _ = tx.send((
                         projector.session_id.clone(),
-                        LiveWireEvent::Error {
+                        LiveWireEvent::Warning {
                             message: t(Msg::LiveApiStreamLagged { skipped }).into_owned(),
                         },
                     ));
-                    break;
+                    match crate::native_live::hub().join_for_provider(Some(&projector.session_id)) {
+                        Ok(rejoin) => {
+                            binding_id = rejoin.binding.id;
+                            rx = rejoin.receiver;
+                            let snapshot_messages: Vec<crate::MessageInfo> = rejoin
+                                .snapshot
+                                .messages
+                                .iter()
+                                .map(crate::MessageInfo::from_kernel)
+                                .collect();
+                            let project_hash =
+                                rustcode_capabilities::session::SessionManager::project_hash(
+                                    &rejoin.binding.working_dir,
+                                );
+                            projector.session_id = rejoin.binding.session_id.clone();
+                            let _ = tx.send((
+                                projector.session_id.clone(),
+                                LiveWireEvent::Snapshot {
+                                    messages: snapshot_messages,
+                                    session_id: rejoin.binding.session_id.clone(),
+                                    session_name: String::new(),
+                                    project_hash,
+                                    provider: rejoin.binding.provider.clone(),
+                                    mode: live_current_mode_wire(),
+                                    working_dir: rejoin
+                                        .binding
+                                        .working_dir
+                                        .to_string_lossy()
+                                        .to_string(),
+                                    goal: rejoin.goal_progress.as_ref().map(goal_snapshot),
+                                },
+                            ));
+                            for observation in rejoin.replay {
+                                if let Some(w) = projector.project(observation.event) {
+                                    let _ = tx.send((projector.session_id.clone(), w));
+                                }
+                            }
+                            continue;
+                        }
+                        Err(_) => break,
+                    }
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
             }

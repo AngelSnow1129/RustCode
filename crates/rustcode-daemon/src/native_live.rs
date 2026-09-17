@@ -20,7 +20,7 @@ struct HeadlessRuntime {
     handle: rustcode_coding::CodingRuntimeHandle,
 }
 
-fn hub() -> &'static Arc<LiveViewHub> {
+pub(crate) fn hub() -> &'static Arc<LiveViewHub> {
     HUB.get_or_init(|| Arc::new(LiveViewHub::new()))
 }
 

@@ -1294,7 +1294,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
   }, []);
 
   // 实时流保活看门狗：daemon 每 15s 发一次 keepalive ping，健康连接至少每
-  // 15s 有字节。若 45s（约 3 个 ping）无任何字节，说明连接已「静默半开」
+  // 15s 有字节。若 20s（约 1.3 个 ping）无任何字节，说明连接已「静默半开」
   // （长时间空闲后被代理/OS 掐断却没有 FIN，reader.read() 会一直挂着，既不
   // 报错也收不到消息 —— 正是「隔很久后发消息 webui 不显示、TUI 却有」的成因）。
   // 此时主动重连：abort 会解开挂起的 read，新连接的 snapshot 重绘整段对话，
@@ -1302,11 +1302,11 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
   useEffect(() => {
     if (!sync) return;
     const id = setInterval(() => {
-      if (Date.now() - lastLiveActivityRef.current > 45000) {
+      if (Date.now() - lastLiveActivityRef.current > 20000) {
         // startLiveStream 会先 abort 旧流再重连（内部已处理重入）。
         startLiveStream();
       }
-    }, 15000);
+    }, 10000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync]);
