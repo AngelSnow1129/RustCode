@@ -212,6 +212,24 @@ sh install.sh --url https://my-gw.example.com/v1 --key sk-xxx --model deepseek-v
 
 PowerShell 侧同名参数为 `-Url` / `-Key` / `-Model` / `-Provider`。
 
+### 发布资产
+
+每个 Release 附带以下预编译二进制(命名格式 `rustcode-<tag>-<os>-<arch>[.exe]`):
+
+| 资产名后缀 | 目标 Triple | 说明 |
+|---|---|---|
+| `linux-x64` | `x86_64-unknown-linux-musl` | 静态链接,任意 Linux 发行版 |
+| `linux-arm64` | `aarch64-unknown-linux-musl` | 静态链接,ARM 服务器 / 树莓派 |
+| `windows-x64.exe` | `x86_64-pc-windows-gnu` | Windows 10 / 11 x64 |
+| `darwin-x64` | `x86_64-apple-darwin` | Intel Mac(GitHub Actions 构建) |
+| `darwin-arm64` | `aarch64-apple-darwin` | Apple Silicon(GitHub Actions 构建) |
+
+每个 Release 还附带 `sha256sums.txt` 校验文件。下载后建议校验:
+
+```bash
+sha256sum -c sha256sums.txt --ignore-missing
+```
+
 ### 从源码构建
 
 ```bash
@@ -264,6 +282,25 @@ cargo build --release -p rustcode
 ```
 
 编译产物会在 `target/release/rustcode` 生成。
+
+本地交叉构建多架构发布资产(Linux x64 runner):
+
+```bash
+# 先构建 webui(见上文),然后:
+scripts/build-webui.sh
+
+# 构建全部默认 target(linux-x64 / linux-arm64 / windows-x64):
+scripts/cross-build.sh
+
+# 或只构建单个 target:
+scripts/cross-build.sh linux-arm64
+
+# 产物输出到 dist/v<version>/,含 sha256sums.txt
+```
+
+macOS 资产需在 macOS 上原生构建,使用 `scripts/macos-release-linux.sh`(Intel)或
+`scripts/macos-release-windows.sh`(Apple Silicon),或通过 GitHub Actions 的
+`macos-latest` runner。
 
 ### 关于曾经可选的托管网关（已于 2026-09-09 移除）
 

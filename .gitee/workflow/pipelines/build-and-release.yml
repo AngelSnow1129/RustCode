@@ -23,63 +23,67 @@ stages:
         memory: "4"
   - step: build@rust
     name: ""
-    displayName: Rust 双架构构建 (linux-x64 / linux-arm64, musl 静态链接)
-    rustVersion: "1.75"
+    displayName: Rust 多架构交叉构建 (linux-x64 / linux-arm64 / windows-x64)
+    rustVersion: "1.88"
     commands:
     - |
       set -eu
-      # 静态链接 musl，产出可在任意 Linux 发行版运行的 x64 / arm64 两个资产，
-      # 与 GitHub Actions build-linux 矩阵（.github/workflows/build.yml）对齐。
-      rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
-      # x86_64 musl 链接器（Debian/Ubuntu 的 musl-tools 提供 musl-gcc）
-      if ! command -v musl-gcc >/dev/null 2>&1; then
-        apt-get update
-        apt-get install -y musl-tools
-      fi
-      # aarch64 musl 交叉编译器（musl.cc 官方工具链）
-      if ! command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
-        curl -fsSL https://musl.cc/aarch64-linux-musl-cross.tgz | tar xz -C /opt
-        export PATH="/opt/aarch64-linux-musl-cross/bin:${PATH}"
-      fi
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
-        cargo build --release --target x86_64-unknown-linux-musl -p rustcode
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc \
-        cargo build --release --target aarch64-unknown-linux-musl -p rustcode
+      # 多架构交叉构建:Linux x64/arm64 musl 静态 + Windows x64 mingw。
+      # macOS 走 .github/workflows/build.yml 的 macos-latest runner(Linux
+      # 上交叉编译 macOS 需要专有 SDK,不在本流水线范围内)。
+      #
+      # 脚本 scripts/cross-build.sh 统一处理:
+      #   - 工具链安装(musl-tools / musl.cc / mingw-w64)
+      #   - rustup target add
+      #   - cargo build --release --target <TRIPLE>
+      #   - strip + sha256sums.txt
+      bash scripts/cross-build.sh
     artifacts:
     - name: BUILD_ARTIFACT
       path:
-      - ./target/x86_64-unknown-linux-musl/release/rustcode
-      - ./target/aarch64-unknown-linux-musl/release/rustcode
+      - ./dist
       type: .tar.gz
     notify: []
     strategy:
       retry: "0"
       resource:
-        cpu: "2"
-        memory: "4"
+        cpu: "4"
+        memory: "8"
   - step: shell@1
     name: ""
-    displayName: 上传 GitCode Release (linux-x64 / linux-arm64)
+    displayName: 上传 GitCode Release (多架构资产 + checksums)
     commands:
     - |
       set -eu
       VERSION=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)
       TAG="v${VERSION}"
-      mkdir -p dist
-      upload() {
-        ARCH="$1"
-        SRC="$2"
-        BIN="rustcode-${TAG}-linux-${ARCH}"
-        cp "${SRC}" "dist/${BIN}"
-        chmod +x "dist/${BIN}"
-        strip "dist/${BIN}" || true
+      DIST="dist/${TAG}"
+      
+      echo "=== Uploading ${TAG} release assets ==="
+      
+      # Upload each binary
+      for BIN in "${DIST}"/*; do
+        [ -f "$BIN" ] || continue
+        NAME=$(basename "$BIN")
+        # Skip checksums file — uploaded last
+        [ "$NAME" = "sha256sums.txt" ] && continue
+        echo "[*] Uploading ${NAME}..."
         python3 scripts/gitcode_release.py \
           --tag-name "${TAG}" \
-          --attach "dist/${BIN}" \
-          --file-name "${BIN}"
-      }
-      upload x64   "target/x86_64-unknown-linux-musl/release/rustcode"
-      upload arm64 "target/aarch64-unknown-linux-musl/release/rustcode"
+          --attach "${BIN}" \
+          --file-name "${NAME}"
+      done
+      
+      # Upload checksums
+      if [ -f "${DIST}/sha256sums.txt" ]; then
+        echo "[*] Uploading sha256sums.txt..."
+        python3 scripts/gitcode_release.py \
+          --tag-name "${TAG}" \
+          --attach "${DIST}/sha256sums.txt" \
+          --file-name "sha256sums.txt"
+      fi
+      
+      echo "=== Release ${TAG} upload complete ==="
     notify: []
     strategy:
       retry: "0"
