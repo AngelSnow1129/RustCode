@@ -109,12 +109,14 @@ if [ -z "$RELEASE_BASE" ]; then
     echo "Error: no release download source configured." >&2
     echo "       Set RUSTCODE_RELEASE_BASE to the directory that hosts the" >&2
     echo "       rustcode-<tag>-<os>-<arch> binaries, then re-run, e.g.:" >&2
-    echo "         RUSTCODE_RELEASE_BASE=https://<your-distribution-host>/releases/download \\" >&2
+    echo "         RUSTCODE_RELEASE_BASE=https://gitcode.com/SecLab/RustCode/releases/download \\" >&2
     echo "           sh install.sh" >&2
     echo "       Optionally set RUSTCODE_RELEASE_LATEST_API for automatic" >&2
-    echo "       latest-version detection, or pin RUSTCODE_VERSION=<tag>." >&2
+    echo "         latest-version detection, e.g.:" >&2
+    echo "         RUSTCODE_RELEASE_LATEST_API=https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest" >&2
+    echo "       or pin RUSTCODE_VERSION=<tag>." >&2
     echo "       You can also download the binary for your platform directly" >&2
-    echo "       from your distribution channel." >&2
+    echo "       from https://gitcode.com/SecLab/RustCode/releases" >&2
     exit 1
 fi
 RELEASE_BASE="${RELEASE_BASE%/}"

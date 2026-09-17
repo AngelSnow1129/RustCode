@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-5.0.9-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-5.0.11-blue" alt="version">
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange" alt="rust">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
@@ -171,34 +171,35 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 ### 安装脚本（推荐）
 
-安装脚本不内置任何发布站点 host：请从你的分发渠道（即你获取 RustCode 的渠道，
-例如其发布资产页面）获取 `install.ps1`（Windows PowerShell）或 `install.sh`
-（Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC），然后按以下方式运行。
+从 [Release 页面](https://gitcode.com/SecLab/RustCode/releases) 获取 `install.ps1`
+（Windows PowerShell）或 `install.sh`（Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC），
+然后按以下方式运行。
 
 Windows PowerShell 用户：
 
 ```powershell
-# Obtain install.ps1 from your distribution channel's release assets, then
-# point it at that channel's release downloads directory:
-$env:RUSTCODE_RELEASE_BASE = "https://example.com/your-host/releases/download"
+$env:RUSTCODE_RELEASE_BASE = "https://gitcode.com/SecLab/RustCode/releases/download"
 ./install.ps1
 ```
 
 Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC 用户：
 
 ```bash
-# Obtain install.sh from your distribution channel, then point it at that
-# channel's release downloads directory:
-RUSTCODE_RELEASE_BASE=https://example.com/your-host/releases/download sh install.sh
+RUSTCODE_RELEASE_BASE=https://gitcode.com/SecLab/RustCode/releases/download sh install.sh
 ```
 
-脚本会下载最新版本的预编译二进制（当渠道提供发布 API 时自动探测最新版本），
+脚本会下载最新版本的预编译二进制（通过 GitCode API 自动探测最新版本），
 安装并写入 `PATH`。托管订阅套餐网关已于 2026-09-09 移除，第三方 provider
 一律使用自带密钥（BYO）配置。
 
-环境变量覆盖项：`RUSTCODE_RELEASE_BASE` 指定托管发布二进制的下载根目录
-（shell 安装器必填），`RUSTCODE_VERSION` 用于固定某个发布版本，`RUSTCODE_PREFIX`
-用于指定安装目录（详见脚本头部注释）。
+环境变量覆盖项：
+
+- `RUSTCODE_RELEASE_BASE` —— 发布二进制下载根目录（必填），本仓库为
+  `https://gitcode.com/SecLab/RustCode/releases/download`
+- `RUSTCODE_RELEASE_LATEST_API` —— 最新版本自动探测 API（可选），本仓库为
+  `https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest`
+- `RUSTCODE_VERSION` —— 固定某个发布版本（如 `v5.0.11`），未设则自动探测最新
+- `RUSTCODE_PREFIX` —— 安装目录（详见脚本头部注释）
 
 安装器还支持在安装成功后注入一个自定义 BYO provider（对应 `config.toml` 的
 `[providers.<name>]`、`type = "openai-compatible"`）——在脚本后追加

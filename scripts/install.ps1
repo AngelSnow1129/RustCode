@@ -1,9 +1,9 @@
 # RustCode installer for Windows — PowerShell
 #
-# Obtain install.ps1 from your distribution channel, then point it at the
+# Obtain install.ps1 from the Release page, then point it at the
 # location that hosts the rustcode binaries:
 #
-#   $env:RUSTCODE_RELEASE_BASE = "https://<your-distribution-host>/releases/download"
+#   $env:RUSTCODE_RELEASE_BASE = "https://gitcode.com/SecLab/RustCode/releases/download"
 #   powershell -ExecutionPolicy Bypass -File install.ps1
 #
 # Env overrides:
@@ -11,6 +11,7 @@
 #                                       "rustcode-<tag>-windows-<arch>.exe" (required)
 #   $env:RUSTCODE_RELEASE_LATEST_API  optional JSON endpoint whose "tag_name" field
 #                                       gives the latest release tag (auto-detection)
+#                                       e.g. https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest
 #   $env:RUSTCODE_VERSION             release tag to install (default: latest release,
 #                                       auto-detected from RUSTCODE_RELEASE_LATEST_API when set)
 #   $env:RUSTCODE_PREFIX              install dir (default: %LOCALAPPDATA%\RustCode)
@@ -74,10 +75,12 @@ if (-not $RepoBase) {
     Write-Host "Error: no release download source configured." -ForegroundColor Red
     Write-Host "       Set `$env:RUSTCODE_RELEASE_BASE to the directory that hosts the" -ForegroundColor Red
     Write-Host "       rustcode-<tag>-windows-<arch>.exe binaries, then re-run, e.g.:" -ForegroundColor Red
-    Write-Host "         `$env:RUSTCODE_RELEASE_BASE = 'https://<your-distribution-host>/releases/download'" -ForegroundColor Red
+    Write-Host "         `$env:RUSTCODE_RELEASE_BASE = 'https://gitcode.com/SecLab/RustCode/releases/download'" -ForegroundColor Red
     Write-Host "         powershell -ExecutionPolicy Bypass -File install.ps1" -ForegroundColor Red
     Write-Host "       Optionally set `$env:RUSTCODE_RELEASE_LATEST_API for automatic" -ForegroundColor Red
-    Write-Host "       latest-version detection, or pin `$env:RUSTCODE_VERSION = '<tag>'." -ForegroundColor Red
+    Write-Host "         latest-version detection, e.g.:" -ForegroundColor Red
+    Write-Host "         `$env:RUSTCODE_RELEASE_LATEST_API = 'https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest'" -ForegroundColor Red
+    Write-Host "       or pin `$env:RUSTCODE_VERSION = '<tag>'." -ForegroundColor Red
     exit 1
 }
 $RepoBase = $RepoBase.TrimEnd('/')
