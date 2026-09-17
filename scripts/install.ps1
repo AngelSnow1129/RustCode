@@ -1,19 +1,14 @@
 # RustCode installer for Windows — PowerShell
 #
-# Obtain install.ps1 from the Release page, then point it at the
-# location that hosts the rustcode binaries:
+#   irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref=main | iex
 #
-#   $env:RUSTCODE_RELEASE_BASE = "https://gitcode.com/SecLab/RustCode/releases/download"
-#   powershell -ExecutionPolicy Bypass -File install.ps1
+# Detects architecture automatically, downloads the latest release binary
+# from GitCode, and installs it to PATH.
 #
-# Env overrides:
-#   $env:RUSTCODE_RELEASE_BASE        download root hosting
-#                                       "rustcode-<tag>-windows-<arch>.exe" (required)
-#   $env:RUSTCODE_RELEASE_LATEST_API  optional JSON endpoint whose "tag_name" field
-#                                       gives the latest release tag (auto-detection)
-#                                       e.g. https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest
-#   $env:RUSTCODE_VERSION             release tag to install (default: latest release,
-#                                       auto-detected from RUSTCODE_RELEASE_LATEST_API when set)
+# Env overrides (optional):
+#   $env:RUSTCODE_RELEASE_BASE        override download root
+#   $env:RUSTCODE_RELEASE_LATEST_API  override latest-version API endpoint
+#   $env:RUSTCODE_VERSION             pin a specific release tag (default: latest)
 #   $env:RUSTCODE_PREFIX              install dir (default: %LOCALAPPDATA%\RustCode)
 # IMPORTANT: when changing install paths, registry edits, or filenames here,
 # also update scripts/uninstall.ps1 AND
@@ -44,10 +39,10 @@ if ((-not $ProviderModel) -and ($ProviderUrl -or $ProviderKey)) {
     exit 1
 }
 
-# Release source: provided by the operator/distribution channel via env; there
-# is no compiled-in vendor host.
-$RepoBase = $env:RUSTCODE_RELEASE_BASE
-$RepoLatestApi = $env:RUSTCODE_RELEASE_LATEST_API
+# Release source: defaults to the GitCode repository so `irm | iex` works
+# zero-config. Override via env for alternative distribution channels.
+$RepoBase = if ($env:RUSTCODE_RELEASE_BASE) { $env:RUSTCODE_RELEASE_BASE } else { "https://gitcode.com/SecLab/RustCode/releases/download" }
+$RepoLatestApi = if ($env:RUSTCODE_RELEASE_LATEST_API) { $env:RUSTCODE_RELEASE_LATEST_API } else { "https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest" }
 
 # --- detect arch ---
 # Prefer PROCESSOR_ARCHITEW6432 (set only when a 32-bit process runs on a 64-bit
@@ -68,21 +63,6 @@ switch ($RealArch) {
     }
 }
 
-# This build ships no compiled-in release host. The download root must be
-# supplied by the operator/distribution channel; fail with guidance instead of
-# guessing a vendor URL.
-if (-not $RepoBase) {
-    Write-Host "Error: no release download source configured." -ForegroundColor Red
-    Write-Host "       Set `$env:RUSTCODE_RELEASE_BASE to the directory that hosts the" -ForegroundColor Red
-    Write-Host "       rustcode-<tag>-windows-<arch>.exe binaries, then re-run, e.g.:" -ForegroundColor Red
-    Write-Host "         `$env:RUSTCODE_RELEASE_BASE = 'https://gitcode.com/SecLab/RustCode/releases/download'" -ForegroundColor Red
-    Write-Host "         powershell -ExecutionPolicy Bypass -File install.ps1" -ForegroundColor Red
-    Write-Host "       Optionally set `$env:RUSTCODE_RELEASE_LATEST_API for automatic" -ForegroundColor Red
-    Write-Host "         latest-version detection, e.g.:" -ForegroundColor Red
-    Write-Host "         `$env:RUSTCODE_RELEASE_LATEST_API = 'https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest'" -ForegroundColor Red
-    Write-Host "       or pin `$env:RUSTCODE_VERSION = '<tag>'." -ForegroundColor Red
-    exit 1
-}
 $RepoBase = $RepoBase.TrimEnd('/')
 
 # --- resolve version ---

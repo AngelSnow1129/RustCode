@@ -27,28 +27,26 @@
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
 </p>
 
-<h3 align="center">一键安装最新版</h3>
+<h3 align="center">一键安装</h3>
 
-Linux / macOS / WSL（自动检测架构，安装到 <code>~/.local/bin/rustcode</code>）：
+macOS / Linux / HarmonyOS PC（自动检测系统与架构）：
 
 ```bash
-VER=$(curl -fsSL https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest | sed -n 's/.*"tag_name":"\([^"]*\)".*/\1/p') && \
-mkdir -p ~/.local/bin && \
-curl -fsSL "https://gitcode.com/SecLab/RustCode/releases/download/$VER/rustcode-$VER-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64\|amd64/x64/;s/aarch64\|arm64/arm64/')" -o ~/.local/bin/rustcode && \
-chmod +x ~/.local/bin/rustcode && echo "[OK] rustcode $VER -> ~/.local/bin/rustcode"
+curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=main | sh
 ```
 
-Windows PowerShell（安装到 <code>%LOCALAPPDATA%\RustCode</code>）：
+Windows（PowerShell）：
 
 ```powershell
-$ver = (Invoke-RestMethod "https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest").tag_name
-$dir = "$env:LOCALAPPDATA\RustCode"; New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Invoke-WebRequest "https://gitcode.com/SecLab/RustCode/releases/download/$ver/rustcode-$ver-windows-x64.exe" -OutFile "$dir\rustcode.exe"
-Write-Host "[OK] rustcode $ver installed to $dir"
+irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref=main | iex
 ```
 
-> 安装后请确保 `~/.local/bin`(Linux/macOS)或 `%LOCALAPPDATA%\RustCode`(Windows)在 `PATH` 中。
-> 更多安装方式见 [安装](#安装) 章节。
+或通过包管理器：
+
+```bash
+npm install -g @rustcode/rustcode      # npm
+brew install --cask rustcode            # Homebrew (macOS)
+```
 
 ---
 
@@ -192,35 +190,27 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 
 ## 安装
 
-### 安装脚本（推荐）
+### 一键安装（推荐）
 
-从 [Release 页面](https://gitcode.com/SecLab/RustCode/releases) 获取 `install.ps1`
-（Windows PowerShell）或 `install.sh`（Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC），
-然后按以下方式运行。
-
-Windows PowerShell 用户：
-
-```powershell
-$env:RUSTCODE_RELEASE_BASE = "https://gitcode.com/SecLab/RustCode/releases/download"
-./install.ps1
-```
-
-Linux / macOS / WSL / MSYS / Git-Bash / HarmonyOS PC 用户：
+macOS / Linux / HarmonyOS PC：
 
 ```bash
-RUSTCODE_RELEASE_BASE=https://gitcode.com/SecLab/RustCode/releases/download sh install.sh
+curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=main | sh
 ```
 
-脚本会下载最新版本的预编译二进制（通过 GitCode API 自动探测最新版本），
-安装并写入 `PATH`。托管订阅套餐网关已于 2026-09-09 移除，第三方 provider
-一律使用自带密钥（BYO）配置。
+Windows（PowerShell）：
 
-环境变量覆盖项：
+```powershell
+irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref=main | iex
+```
 
-- `RUSTCODE_RELEASE_BASE` —— 发布二进制下载根目录（必填），本仓库为
-  `https://gitcode.com/SecLab/RustCode/releases/download`
-- `RUSTCODE_RELEASE_LATEST_API` —— 最新版本自动探测 API（可选），本仓库为
-  `https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest`
+脚本自动检测系统与架构，下载最新版预编译二进制并写入 `PATH`。
+也可从 [Release 页面](https://gitcode.com/SecLab/RustCode/releases) 手动下载。
+
+环境变量覆盖项（可选，脚本已内置 GitCode 默认值）：
+
+- `RUSTCODE_RELEASE_BASE` —— 覆盖下载根目录
+- `RUSTCODE_RELEASE_LATEST_API` —— 覆盖最新版本探测 API
 - `RUSTCODE_VERSION` —— 固定某个发布版本（如 `v5.0.11`），未设则自动探测最新
 - `RUSTCODE_PREFIX` —— 安装目录（详见脚本头部注释）
 
@@ -231,7 +221,8 @@ RUSTCODE_RELEASE_BASE=https://gitcode.com/SecLab/RustCode/releases/download sh i
 会 fail-closed 退出（`model` 是该 provider 的必填字段，无合理默认）。例如：
 
 ```bash
-sh install.sh --url https://my-gw.example.com/v1 --key sk-xxx --model deepseek-v4.1-flash
+curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=main | sh -s -- \
+  --url https://my-gw.example.com/v1 --key sk-xxx --model deepseek-v4.1-flash
 ```
 
 PowerShell 侧同名参数为 `-Url` / `-Key` / `-Model` / `-Provider`。

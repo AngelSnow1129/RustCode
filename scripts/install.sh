@@ -1,22 +1,17 @@
 #!/bin/sh
 # RustCode installer — curl | sh
 #
-#   curl -fsSL <installer-url-from-your-distribution-channel>/install.sh | sh
+#   curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=main | sh
 #
-# This build ships no built-in release host. Point it at the location that
-# distributes rustcode binaries for your channel:
+# Detects OS and architecture automatically, downloads the latest release
+# binary from GitCode, and installs it to PATH.
 #
-#   RUSTCODE_RELEASE_BASE=https://<host>/releases/download sh install.sh
-#
-# Env overrides:
-#   RUSTCODE_RELEASE_BASE        download root that hosts
-#                                  "<tag>/rustcode-<tag>-<os>-<arch>" binaries (required)
-#   RUSTCODE_RELEASE_LATEST_API  optional JSON endpoint whose "tag_name" field gives
-#                                  the latest release tag (for auto-detection)
-#   RUSTCODE_VERSION             release tag to install (default: latest release,
-#                                  auto-detected from RUSTCODE_RELEASE_LATEST_API when set)
-#   RUSTCODE_PREFIX              install dir (absolute path; default: /usr/local/bin if writable,
-#                                  else ~/.local/bin). On HarmonyOS as non-root, default is ~/.local/bin.
+# Env overrides (optional):
+#   RUSTCODE_RELEASE_BASE        override download root
+#   RUSTCODE_RELEASE_LATEST_API  override latest-version API endpoint
+#   RUSTCODE_VERSION             pin a specific release tag (default: latest)
+#   RUSTCODE_PREFIX              install dir (default: /usr/local/bin if writable,
+#                                  else ~/.local/bin)
 # IMPORTANT: when changing install paths, the PATH-rc edit format, or filenames here,
 # also update scripts/uninstall.sh AND
 # crates/rustcode-cli/src/uninstall/paths.rs. The CI parity test guards
@@ -59,10 +54,10 @@ if [ -z "$PROVIDER_MODEL" ] && [ -n "$PROVIDER_URL$PROVIDER_KEY" ]; then
     exit 1
 fi
 
-# Release source: provided by the operator/distributor via env; there is no
-# compiled-in vendor host.
-RELEASE_BASE="${RUSTCODE_RELEASE_BASE:-}"
-RELEASE_LATEST_API="${RUSTCODE_RELEASE_LATEST_API:-}"
+# Release source: defaults to the GitCode repository so `curl | sh` works
+# zero-config. Override via env for alternative distribution channels.
+RELEASE_BASE="${RUSTCODE_RELEASE_BASE:-https://gitcode.com/SecLab/RustCode/releases/download}"
+RELEASE_LATEST_API="${RUSTCODE_RELEASE_LATEST_API:-https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest}"
 
 # --- detect platform ---
 uname_s=$(uname -s)
@@ -101,24 +96,7 @@ else
     PREFIX="$HOME/.local/bin"
 fi
 
-# This build ships no compiled-in release host. The download root must be
-# supplied by the operator/distribution channel; fail with actionable guidance
-# instead of guessing a vendor URL. This runs before creating the install dir
-# so a misconfigured invocation leaves no empty directory behind.
-if [ -z "$RELEASE_BASE" ]; then
-    echo "Error: no release download source configured." >&2
-    echo "       Set RUSTCODE_RELEASE_BASE to the directory that hosts the" >&2
-    echo "       rustcode-<tag>-<os>-<arch> binaries, then re-run, e.g.:" >&2
-    echo "         RUSTCODE_RELEASE_BASE=https://gitcode.com/SecLab/RustCode/releases/download \\" >&2
-    echo "           sh install.sh" >&2
-    echo "       Optionally set RUSTCODE_RELEASE_LATEST_API for automatic" >&2
-    echo "         latest-version detection, e.g.:" >&2
-    echo "         RUSTCODE_RELEASE_LATEST_API=https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest" >&2
-    echo "       or pin RUSTCODE_VERSION=<tag>." >&2
-    echo "       You can also download the binary for your platform directly" >&2
-    echo "       from https://gitcode.com/SecLab/RustCode/releases" >&2
-    exit 1
-fi
+# Release base is set (default or env). Strip trailing slash.
 RELEASE_BASE="${RELEASE_BASE%/}"
 
 mkdir -p "$PREFIX"
