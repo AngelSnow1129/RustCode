@@ -523,6 +523,21 @@ fn build_i18n_command() -> clap::Command {
                     a.help(t(Msg::CliHelpCompletionShell).into_owned())
                 })
         })
+        .mut_subcommand("ide", |s| {
+            s.about(t(Msg::CliAboutIde).into_owned())
+                .mut_subcommand("list", |s| {
+                    s.about(t(Msg::CliAboutIdeList).into_owned())
+                })
+                .mut_subcommand("install", |s| {
+                    s.about(t(Msg::CliAboutIdeInstall).into_owned())
+                        .mut_arg("ide", |a| {
+                            a.help(t(Msg::CliHelpIdeInstallIde).into_owned())
+                        })
+                        .mut_arg("all", |a| {
+                            a.help(t(Msg::CliHelpIdeInstallAll).into_owned())
+                        })
+                })
+        })
         .mut_subcommand("hooks", |s| {
             s.about(t(Msg::CliAboutHooks).into_owned())
                 .mut_subcommand("list", |s| s.about(t(Msg::CliAboutHooksList).into_owned()))
@@ -1120,6 +1135,10 @@ enum Commands {
     Wiki(WikiArgs),
     /// Generate a shell completion script on stdout.
     Completion(CompletionCommand),
+    /// Detect installed IDEs (VS Code / Cursor / JetBrains etc.) and install
+    /// the matching RustCode extension.
+    #[command(subcommand)]
+    Ide(IdeCli),
     /// Internal: askpass helper invoked by sudo/ssh via SUDO_ASKPASS / SSH_ASKPASS.
     /// Not intended for direct user invocation.
     #[command(name = "__askpass", hide = true)]
@@ -1142,6 +1161,303 @@ struct CompletionCommand {
     /// Shell to generate completions for.
     #[arg(value_enum, default_value_t = Shell::Bash)]
     shell: Shell,
+}
+
+/// `rustcode ide` — detect IDEs and install extensions.
+#[derive(clap::Subcommand)]
+enum IdeCli {
+    /// List detected IDEs and their extension status.
+    List,
+    /// Install the RustCode extension into an IDE.
+    Install {
+        /// IDE to install into: vscode | cursor | vscodium | jetbrains
+        ide: Option<String>,
+        /// Install into all detected IDEs (ignores the positional).
+        #[arg(long)]
+        all: bool,
+    },
+}
+
+/// Supported IDE kinds for detection and install.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IdeKind {
+    Vscode,
+    Cursor,
+    Vscodium,
+    Jetbrains,
+}
+
+impl IdeKind {
+    /// Display name shown in `ide list` output.
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::Vscode => "VS Code",
+            Self::Cursor => "Cursor",
+            Self::Vscodium => "VSCodium",
+            Self::Jetbrains => "JetBrains",
+        }
+    }
+
+    /// Wire tag used in CLI positional args.
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Vscode => "vscode",
+            Self::Cursor => "cursor",
+            Self::Vscodium => "vscodium",
+            Self::Jetbrains => "jetbrains",
+        }
+    }
+
+    /// Parse a user-provided tag.
+    fn from_tag(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "vscode" | "code" => Some(Self::Vscode),
+            "cursor" => Some(Self::Cursor),
+            "vscodium" => Some(Self::Vscodium),
+            "jetbrains" | "idea" | "intellij" => Some(Self::Jetbrains),
+            _ => None,
+        }
+    }
+
+    /// Executable names to probe on PATH (first hit wins).
+    fn exe_names(self) -> &'static [&'static str] {
+        match self {
+            // `code` on all platforms; Windows also has `code.cmd`.
+            Self::Vscode => &["code"],
+            Self::Cursor => &["cursor"],
+            Self::Vscodium => &["vscodium", "codium"],
+            // `idea` is the launcher script; not always on PATH.
+            Self::Jetbrains => &["idea", "idea.sh"],
+        }
+    }
+
+    /// The extension / plugin id to install.
+    fn extension_id(self) -> &'static str {
+        match self {
+            // VS Code family shares the same VSIX.
+            Self::Vscode | Self::Cursor | Self::Vscodium => "rustcode-tools.rustcode",
+            // JetBrains plugin id from plugin.xml.
+            Self::Jetbrains => "com.rustcode.jetbrains",
+        }
+    }
+
+    /// Whether this IDE supports `--install-extension` (VS Code CLI) or
+    /// requires manual install (JetBrains marketplace).
+    fn supports_cli_install(self) -> bool {
+        matches!(self, Self::Vscode | Self::Cursor | Self::Vscodium)
+    }
+
+    /// Marketplace URL for manual install guidance.
+    fn marketplace_url(self) -> &'static str {
+        match self {
+            Self::Vscode | Self::Cursor | Self::Vscodium => {
+                "https://gitcode.com/SecLab/RustCode/extensions/vscode"
+            }
+            Self::Jetbrains => "https://gitcode.com/SecLab/RustCode/extensions/jetbrains",
+        }
+    }
+}
+
+/// Probe PATH for an executable. Returns the resolved path if found.
+fn which(exe: &str) -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(exe);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        // Windows: check .exe / .cmd / .bat extensions
+        #[cfg(target_os = "windows")]
+        {
+            for ext in &["exe", "cmd", "bat"] {
+                let with_ext = dir.join(format!("{exe}.{ext}"));
+                if with_ext.is_file() {
+                    return Some(with_ext);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Detect all installed IDEs. Returns a list of (IdeKind, resolved exe path).
+fn detect_ides() -> Vec<(IdeKind, PathBuf)> {
+    let mut found = Vec::new();
+    for kind in [
+        IdeKind::Vscode,
+        IdeKind::Cursor,
+        IdeKind::Vscodium,
+        IdeKind::Jetbrains,
+    ] {
+        for exe in kind.exe_names() {
+            if let Some(path) = which(exe) {
+                found.push((kind, path));
+                break;
+            }
+        }
+    }
+    found
+}
+
+/// Check whether the VS Code-family extension is already installed.
+/// Returns true if installed (or indeterminate — treat as not-installed to be safe).
+fn vscode_extension_installed(exe: &std::path::Path, ext_id: &str) -> bool {
+    let output = std::process::Command::new(exe)
+        .args(["--list-extensions"])
+        .output();
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            stdout.lines().any(|line| line.trim() == ext_id)
+        }
+        Err(_) => false,
+    }
+}
+
+/// Run `code --install-extension <id>` for the VS Code family.
+fn install_vscode_extension(exe: &std::path::Path, ext_id: &str) -> Result<(), String> {
+    let output = std::process::Command::new(exe)
+        .args(["--install-extension", ext_id])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let err = if !stderr.is_empty() { stderr } else { stdout };
+        Err(err.trim().to_string())
+    }
+}
+
+/// Handle `rustcode ide list`.
+fn run_ide_list() -> Result<()> {
+    let t = rustcode_config::i18n::t;
+    let ides = detect_ides();
+    if ides.is_empty() {
+        println!("{}", t(rustcode_config::i18n::Msg::CliIdeNoneDetected));
+        return Ok(());
+    }
+    println!("{}", t(rustcode_config::i18n::Msg::CliIdeHeader));
+    for (kind, path) in &ides {
+        let path_str = path.display().to_string();
+        let ext_status: String = if kind.supports_cli_install() {
+            if vscode_extension_installed(path, kind.extension_id()) {
+                "installed".to_string()
+            } else {
+                "not installed".to_string()
+            }
+        } else {
+            "n/a".to_string()
+        };
+        println!(
+            "{}",
+            t(rustcode_config::i18n::Msg::CliIdeDetected {
+                ide: kind.display_name(),
+                path: &path_str,
+                ext: &ext_status,
+            })
+            .into_owned()
+        );
+    }
+    Ok(())
+}
+
+/// Handle `rustcode ide install [--all] [ide]`.
+fn run_ide_install(all: bool, ide: Option<&str>) -> Result<()> {
+    let t = rustcode_config::i18n::t;
+
+    let targets: Vec<IdeKind> = if all {
+        detect_ides().into_iter().map(|(k, _)| k).collect()
+    } else {
+        match ide {
+            Some(name) => match IdeKind::from_tag(name) {
+                Some(kind) => vec![kind],
+                None => {
+                    println!(
+                        "{}",
+                        t(rustcode_config::i18n::Msg::CliIdeUnknown { ide: name })
+                    );
+                    anyhow::bail!("unknown ide: {name}");
+                }
+            },
+            None => {
+                // No positional and no --all: install into all detected.
+                detect_ides().into_iter().map(|(k, _)| k).collect()
+            }
+        }
+    };
+
+    if targets.is_empty() {
+        println!("{}", t(rustcode_config::i18n::Msg::CliIdeNoneDetected));
+        anyhow::bail!("no ide detected");
+    }
+
+    let mut had_failure = false;
+    for kind in targets {
+        let name = kind.display_name();
+        println!(
+            "{}",
+            t(rustcode_config::i18n::Msg::CliIdeInstalling { ide: name })
+        );
+
+        if !kind.supports_cli_install() {
+            println!(
+                "{}",
+                t(rustcode_config::i18n::Msg::CliIdeManualRequired {
+                    ide: name,
+                    marketplace_url: kind.marketplace_url(),
+                })
+            );
+            continue;
+        }
+
+        // Resolve exe path
+        let exe_path = kind.exe_names().iter().find_map(|exe| which(exe));
+
+        match exe_path {
+            Some(exe) => {
+                let ext_id = kind.extension_id();
+                // Skip if already installed
+                if vscode_extension_installed(&exe, ext_id) {
+                    println!(
+                        "{}",
+                        t(rustcode_config::i18n::Msg::CliIdeInstallOk { ide: name })
+                    );
+                    continue;
+                }
+                match install_vscode_extension(&exe, ext_id) {
+                    Ok(()) => println!(
+                        "{}",
+                        t(rustcode_config::i18n::Msg::CliIdeInstallOk { ide: name })
+                    ),
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        println!(
+                            "{}",
+                            t(rustcode_config::i18n::Msg::CliIdeInstallFailed {
+                                ide: name,
+                                error: &err_str,
+                            })
+                            .into_owned()
+                        );
+                        had_failure = true;
+                    }
+                }
+            }
+            None => {
+                println!(
+                    "{}",
+                    t(rustcode_config::i18n::Msg::CliIdeNotFound { ide: name })
+                );
+                had_failure = true;
+            }
+        }
+    }
+    if had_failure {
+        anyhow::bail!("one or more ide installs failed");
+    }
+    Ok(())
 }
 
 /// `rustcode wiki` — generate / sync the project wiki.
@@ -4114,6 +4430,10 @@ async fn handle_command(cmd: Commands) -> Result<()> {
         Commands::Completion(_) => {
             unreachable!("completion is handled before runtime startup")
         }
+        Commands::Ide(sub) => match sub {
+            IdeCli::List => run_ide_list(),
+            IdeCli::Install { ide, all } => run_ide_install(all, ide.as_deref()),
+        },
         Commands::Hooks(subcmd) => handle_hooks(subcmd).await,
         Commands::Schedule(_) => {
             unreachable!("Schedule is handled inline in run() so its exit code survives")

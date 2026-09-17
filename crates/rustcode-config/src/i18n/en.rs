@@ -2359,6 +2359,28 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliHelpSchedMode => "Permission mode: plan | accept_edits | auto".into(),
         Msg::CliHelpSchedNotify => "Notify level: off | important | all".into(),
 
+        // ── rustcode ide ──
+        Msg::CliAboutIde => "Detect installed IDEs and install the RustCode extension".into(),
+        Msg::CliAboutIdeList => "List detected IDEs and their extension status".into(),
+        Msg::CliAboutIdeInstall => "Install the RustCode extension into an IDE".into(),
+        Msg::CliHelpIdeInstallIde => "IDE to install into: vscode | cursor | vscodium | jetbrains".into(),
+        Msg::CliHelpIdeInstallAll => "Install into all detected IDEs (ignores the positional)".into(),
+        Msg::CliIdeHeader => "Detected IDEs:".into(),
+        Msg::CliIdeDetected { ide, path, ext } => format!(
+            "  {ide:<14} {path}  [{ext}]"
+        ).into(),
+        Msg::CliIdeNoneDetected => "No supported IDE detected on PATH.".into(),
+        Msg::CliIdeInstalling { ide } => format!("[*] Installing RustCode extension for {ide}...").into(),
+        Msg::CliIdeInstallOk { ide } => format!("[+] {ide}: extension installed.").into(),
+        Msg::CliIdeInstallFailed { ide, error } => format!("[!] {ide}: install failed: {error}").into(),
+        Msg::CliIdeNotFound { ide } => format!("[!] {ide}: executable not found on PATH.").into(),
+        Msg::CliIdeManualRequired { ide, marketplace_url } => format!(
+            "[*] {ide}: auto-install is not supported. Install manually from:\n    {marketplace_url}"
+        ).into(),
+        Msg::CliIdeUnknown { ide } => format!(
+            "[!] Unknown IDE \"{ide}\". Supported: vscode, cursor, vscodium, jetbrains."
+        ).into(),
+
         // ── rustcodex standalone CLI (rustcode-clix) ──
         // clap `about` strings mirror the pre-i18n derive docs byte-for-byte.
         Msg::ClixAbout => "RustCode standalone CLI (new stack)".into(),

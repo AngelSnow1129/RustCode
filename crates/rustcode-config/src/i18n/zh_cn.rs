@@ -2293,6 +2293,28 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliHelpSchedMode => "权限模式：plan | accept_edits | auto".into(),
         Msg::CliHelpSchedNotify => "通知级别：off | important | all".into(),
 
+        // ── rustcode ide ──
+        Msg::CliAboutIde => "检测已安装的 IDE 并安装 RustCode 扩展".into(),
+        Msg::CliAboutIdeList => "列出已检测到的 IDE 及其扩展状态".into(),
+        Msg::CliAboutIdeInstall => "将 RustCode 扩展安装到 IDE 中".into(),
+        Msg::CliHelpIdeInstallIde => "目标 IDE：vscode | cursor | vscodium | jetbrains".into(),
+        Msg::CliHelpIdeInstallAll => "安装到所有检测到的 IDE（忽略位置参数）".into(),
+        Msg::CliIdeHeader => "已检测到的 IDE：".into(),
+        Msg::CliIdeDetected { ide, path, ext } => format!(
+            "  {ide:<14} {path}  [{ext}]"
+        ).into(),
+        Msg::CliIdeNoneDetected => "PATH 上未检测到受支持的 IDE。".into(),
+        Msg::CliIdeInstalling { ide } => format!("[*] 正在为 {ide} 安装 RustCode 扩展...").into(),
+        Msg::CliIdeInstallOk { ide } => format!("[+] {ide}：扩展已安装。").into(),
+        Msg::CliIdeInstallFailed { ide, error } => format!("[!] {ide}：安装失败：{error}").into(),
+        Msg::CliIdeNotFound { ide } => format!("[!] {ide}：PATH 上未找到可执行文件。").into(),
+        Msg::CliIdeManualRequired { ide, marketplace_url } => format!(
+            "[*] {ide}：不支持自动安装。请手动从以下地址安装：\n    {marketplace_url}"
+        ).into(),
+        Msg::CliIdeUnknown { ide } => format!(
+            "[!] 未知的 IDE \"{ide}\"。支持：vscode、cursor、vscodium、jetbrains。"
+        ).into(),
+
         // ── rustcodex 独立 CLI（rustcode-clix）──
         Msg::ClixAbout => "RustCode 独立命令行（新栈）".into(),
         Msg::ClixAboutCode => "交互式编码代理（完整装配：工具 + 代码索引 + Web + 技能 + MCP + 会话 + 记忆）。".into(),

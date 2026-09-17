@@ -3671,6 +3671,62 @@ pub enum Msg<'a> {
     CliHelpSchedMode,
     CliHelpSchedNotify,
 
+    // ── rustcode ide ──
+    // Detect installed IDEs and install the matching RustCode extension.
+    /// clap `about`: the `ide` subcommand.
+    CliAboutIde,
+    /// `rustcode ide` with no args: header line.
+    CliIdeHeader,
+    /// `rustcode ide`: one detected IDE row.
+    /// `ide` is the display name (VS Code / Cursor / JetBrains IDEA etc.),
+    /// `path` is the executable path, `ext` is the extension status
+    /// ("installed" / "not installed" / "n/a").
+    CliIdeDetected {
+        ide: &'a str,
+        path: &'a str,
+        ext: &'a str,
+    },
+    /// `rustcode ide`: no IDE detected.
+    CliIdeNoneDetected,
+    /// `rustcode ide install <ide>`: installing extension.
+    CliIdeInstalling {
+        ide: &'a str,
+    },
+    /// `rustcode ide install <ide>`: install succeeded.
+    CliIdeInstallOk {
+        ide: &'a str,
+    },
+    /// `rustcode ide install <ide>`: install failed.
+    /// `error` is the raw command stderr/stdout (kept as-is).
+    CliIdeInstallFailed {
+        ide: &'a str,
+        error: &'a str,
+    },
+    /// `rustcode ide install <ide>`: IDE executable not found.
+    CliIdeNotFound {
+        ide: &'a str,
+    },
+    /// `rustcode ide install <ide>`: this IDE has no auto-install path
+    /// (e.g. JetBrains needs manual install via plugin marketplace).
+    /// `marketplace_url` is the URL to open.
+    CliIdeManualRequired {
+        ide: &'a str,
+        marketplace_url: &'a str,
+    },
+    /// `rustcode ide`: unknown IDE name.
+    /// `ide` is what the user typed.
+    CliIdeUnknown {
+        ide: &'a str,
+    },
+    /// `rustcode ide install`: `--all` flag help.
+    CliHelpIdeInstallAll,
+    /// `rustcode ide install <ide>`: positional help.
+    CliHelpIdeInstallIde,
+    /// `rustcode ide list`: about line.
+    CliAboutIdeList,
+    /// `rustcode ide install`: about line.
+    CliAboutIdeInstall,
+
     // ── rustcodex standalone CLI (rustcode-clix) ──
     // Human-facing lines for `rustcodex code|sessions|review`. Model-facing text
     // (review task prompts, persona overrides) and stable ASCII trace tags
