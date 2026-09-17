@@ -7,20 +7,6 @@ stages:
   strategy: naturally
   trigger: auto
   steps:
-  - step: nodejs@1
-    name: ""
-    displayName: WebUI 前端构建
-    nodeVersion: "22.6"
-    commands:
-    - cd webui
-    - npm ci
-    - npm run build
-    notify: []
-    strategy:
-      retry: "0"
-      resource:
-        cpu: "2"
-        memory: "4"
   - step: build@rust
     name: ""
     displayName: Rust 多架构交叉构建 (linux-x64 / linux-arm64 / windows-x64)
@@ -28,15 +14,17 @@ stages:
     commands:
     - |
       set -eu
-      # 多架构交叉构建:Linux x64/arm64 musl 静态 + Windows x64 mingw。
-      # macOS 走 .github/workflows/build.yml 的 macos-latest runner(Linux
-      # 上交叉编译 macOS 需要专有 SDK,不在本流水线范围内)。
-      #
-      # 脚本 scripts/cross-build.sh 统一处理:
+      # WebUI 前端构建(webui/dist 被 gitignore,必须先构建否则二进制 /webui 返回 404)
+      cd webui
+      npm ci
+      npm run build
+      cd ..
+      # 多架构交叉构建:统一由 scripts/cross-build.sh 处理
       #   - 工具链安装(musl-tools / musl.cc / mingw-w64)
       #   - rustup target add
       #   - cargo build --release --target <TRIPLE>
       #   - strip + sha256sums.txt
+      # macOS 走 GitHub Actions macos-latest(Linux 交叉需专有 SDK)
       bash scripts/cross-build.sh
     artifacts:
     - name: BUILD_ARTIFACT
@@ -49,23 +37,28 @@ stages:
       resource:
         cpu: "4"
         memory: "8"
+- name: 发布
+  displayName: 发布
+  strategy: naturally
+  trigger: auto
+  steps:
   - step: shell@1
     name: ""
-    displayName: 上传 GitCode Release (多架构资产 + checksums)
+    displayName: 上传 GitCode Release 多架构资产
     commands:
     - |
       set -eu
       VERSION=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)
       TAG="v${VERSION}"
       DIST="dist/${TAG}"
-      
+
       echo "=== Uploading ${TAG} release assets ==="
-      
-      # Upload each binary
+
+      # 上传每个二进制资产
       for BIN in "${DIST}"/*; do
         [ -f "$BIN" ] || continue
         NAME=$(basename "$BIN")
-        # Skip checksums file — uploaded last
+        # checksums 文件最后上传
         [ "$NAME" = "sha256sums.txt" ] && continue
         echo "[*] Uploading ${NAME}..."
         python3 scripts/gitcode_release.py \
@@ -73,8 +66,8 @@ stages:
           --attach "${BIN}" \
           --file-name "${NAME}"
       done
-      
-      # Upload checksums
+
+      # 上传校验文件
       if [ -f "${DIST}/sha256sums.txt" ]; then
         echo "[*] Uploading sha256sums.txt..."
         python3 scripts/gitcode_release.py \
@@ -82,30 +75,9 @@ stages:
           --attach "${DIST}/sha256sums.txt" \
           --file-name "sha256sums.txt"
       fi
-      
+
       echo "=== Release ${TAG} upload complete ==="
     notify: []
-    strategy:
-      retry: "0"
-      resource:
-        cpu: "2"
-        memory: "4"
-- name: 部署
-  displayName: 部署
-  strategy: naturally
-  trigger: auto
-  steps:
-  - step: release@gitee
-    name: 6aff5c0c
-    displayName: Gitee Release
-    releaseName: "RustCode-V{}"
-    description: "{描述}"
-    tagName: "{描述}"
-    upstreamArtifact:
-    - BUILD_ARTIFACT
-    assertFiles: []
-    prerelease: false
-    allowUpdate: true
     strategy:
       retry: "0"
       resource:
