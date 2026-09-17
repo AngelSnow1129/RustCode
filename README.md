@@ -27,6 +27,29 @@
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
 </p>
 
+<h3 align="center">一键安装最新版</h3>
+
+Linux / macOS / WSL（自动检测架构，安装到 <code>~/.local/bin/rustcode</code>）：
+
+```bash
+VER=$(curl -fsSL https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest | sed -n 's/.*"tag_name":"\([^"]*\)".*/\1/p') && \
+mkdir -p ~/.local/bin && \
+curl -fsSL "https://gitcode.com/SecLab/RustCode/releases/download/$VER/rustcode-$VER-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64\|amd64/x64/;s/aarch64\|arm64/arm64/')" -o ~/.local/bin/rustcode && \
+chmod +x ~/.local/bin/rustcode && echo "[OK] rustcode $VER -> ~/.local/bin/rustcode"
+```
+
+Windows PowerShell（安装到 <code>%LOCALAPPDATA%\RustCode</code>）：
+
+```powershell
+$ver = (Invoke-RestMethod "https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest").tag_name
+$dir = "$env:LOCALAPPDATA\RustCode"; New-Item -ItemType Directory -Force -Path $dir | Out-Null
+Invoke-WebRequest "https://gitcode.com/SecLab/RustCode/releases/download/$ver/rustcode-$ver-windows-x64.exe" -OutFile "$dir\rustcode.exe"
+Write-Host "[OK] rustcode $ver installed to $dir"
+```
+
+> 安装后请确保 `~/.local/bin`(Linux/macOS)或 `%LOCALAPPDATA%\RustCode`(Windows)在 `PATH` 中。
+> 更多安装方式见 [安装](#安装) 章节。
+
 ---
 
 > **本项目 100% 由 AI 生成。** 每一行代码、每一个架构决策的实现、每一次提交都由 AI 完成。人类开发者仅担任决策者和产品经理的角色——定义"要做什么"，而不是"怎么做"。
