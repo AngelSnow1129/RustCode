@@ -2247,6 +2247,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliHelpVerbose => "在 stderr 上显示工具调用、token 用量和回合摘要".into(),
         Msg::CliHelpDev => "禁用本次启动的自动更新".into(),
         Msg::CliHelpDangerouslySkipPermissions => "跳过所有权限提示 -- 自动批准每个工具调用".into(),
+        Msg::CliHelpPermissionMode => "权限/沙箱模式：default、accept-edits、auto、plan、bypass-permissions（auto / bypass-permissions 等价于 --dangerously-skip-permissions / --yolo）".into(),
         Msg::CliHelpForce => "即使已是最新版本也重新安装".into(),
         Msg::CliHelpPortDaemon => "监听端口（默认：13456）".into(),
         Msg::CliHelpIdleTimeout => "空闲关闭超时（秒）；0 禁用".into(),

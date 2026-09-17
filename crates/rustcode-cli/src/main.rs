@@ -35,8 +35,8 @@ use rustcode_capabilities::mcp::{
     merge_stdio_mcp_server_into_json_file, McpHttpAuthConfig, McpOAuthLoginOptions, McpTokenStore,
     McpTransportConfig,
 };
-use rustcode_config::config::Config;
 use rustcode_capabilities::provider::{OpenAiCompatConfig, OpenAiCompatProvider};
+use rustcode_config::config::Config;
 
 /// Set to `true` at the start of `run_headless` so the panic hook and the
 /// top-level error handler can skip TUI cleanup. In headless mode raw mode
@@ -375,6 +375,9 @@ fn build_i18n_command() -> clap::Command {
         .mut_arg("dev", |a| a.help(t(Msg::CliHelpDev).into_owned()))
         .mut_arg("dangerously_skip_permissions", |a| {
             a.help(t(Msg::CliHelpDangerouslySkipPermissions).into_owned())
+        })
+        .mut_arg("permission_mode", |a| {
+            a.help(t(Msg::CliHelpPermissionMode).into_owned())
         });
 
     // Mutate subcommand about texts
@@ -968,9 +971,21 @@ struct Cli {
     #[arg(
         short = 'y',
         long = "dangerously-skip-permissions",
+        visible_alias = "yolo",
         default_value_t = false
     )]
     pub dangerously_skip_permissions: bool,
+
+    /// Permission / sandbox mode, mirroring the common cross-tool flags:
+    /// Claude Code's `--permission-mode <default|acceptEdits|plan|bypassPermissions>`,
+    /// Codex's `--sandbox`, and opencode's `--mode <read-only|accept-edits|auto|bypass-permissions>`.
+    /// `auto` and `bypass-permissions` are equivalent to
+    /// `--dangerously-skip-permissions` / `--yolo`.
+    /// Interactive runs apply the mode at startup; headless runs treat
+    /// `auto` / `bypass-permissions` as auto-approve and keep the default
+    /// fail-closed behavior for `default` / `accept-edits` / `plan`.
+    #[arg(long = "permission-mode", value_enum, value_name = "MODE")]
+    pub permission_mode: Option<PermissionModeArg>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -978,6 +993,41 @@ enum HeadlessOutputFormat {
     #[default]
     Text,
     Jsonl,
+}
+
+/// Cross-tool permission mode, merging Claude Code's `--permission-mode`,
+/// Codex's `--sandbox`, and opencode's `--mode <read-only|accept-edits|auto|bypass-permissions>`.
+/// The clap value names are kebab-case: `default`, `accept-edits`, `auto`,
+/// `plan`, `bypass-permissions`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+enum PermissionModeArg {
+    /// Prompt before every write (the fail-closed default).
+    #[default]
+    Default,
+    /// Auto-accept file edits, still gated elsewhere.
+    AcceptEdits,
+    /// Full autonomy: auto-approve writes and keep looping (equivalent to
+    /// --dangerously-skip-permissions / --yolo).
+    Auto,
+    /// Read-only planning: no writes, no approvals needed.
+    Plan,
+    /// Bypass approvals entirely (equivalent to `auto` / --dangerously-skip-permissions / --yolo).
+    BypassPermissions,
+}
+
+impl PermissionModeArg {
+    /// Map onto the runtime's execution mode. `auto` and `bypass-permissions`
+    /// become `Auto` (full autonomy); the others map 1:1 onto `Build` /
+    /// `AcceptEdits` / `Plan`.
+    fn runtime_mode(self) -> rustcode_coding::RuntimeMode {
+        match self {
+            Self::Default => rustcode_coding::RuntimeMode::Build,
+            Self::AcceptEdits => rustcode_coding::RuntimeMode::AcceptEdits,
+            Self::Auto => rustcode_coding::RuntimeMode::Auto,
+            Self::Plan => rustcode_coding::RuntimeMode::Plan,
+            Self::BypassPermissions => rustcode_coding::RuntimeMode::Auto,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -1148,8 +1198,8 @@ async fn run_wiki_command(args: WikiArgs) -> i32 {
         .clone()
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_default();
-    let config = rustcode_config::Config::load(&rustcode_config::Config::default_path())
-        .unwrap_or_default();
+    let config =
+        rustcode_config::Config::load(&rustcode_config::Config::default_path()).unwrap_or_default();
 
     // LLM enrichment is opt-in via `--llm` or `[wiki] use_llm`. The provider and
     // model can be chosen independently of the interactive session (flags win
@@ -1209,10 +1259,7 @@ async fn run_wiki_command(args: WikiArgs) -> i32 {
         rustcode_wiki::WikiTargetState::Foreign => {
             eprintln!(
                 "{}",
-                t(Msg::WikiForeignConflict {
-                    path: &out_display
-                })
-                .into_owned()
+                t(Msg::WikiForeignConflict { path: &out_display }).into_owned()
             );
             return 1;
         }
@@ -1240,10 +1287,7 @@ async fn run_wiki_command(args: WikiArgs) -> i32 {
                     match enrich_wiki(&opts, &provider).await {
                         Ok(n) => println!("{}", t(Msg::WikiEnriched { count: n }).into_owned()),
                         Err(e) => {
-                            eprintln!(
-                                "{}",
-                                t(Msg::WikiEnrichSkipped { reason: &e }).into_owned()
-                            )
+                            eprintln!("{}", t(Msg::WikiEnrichSkipped { reason: &e }).into_owned())
                         }
                     }
                 }
@@ -1359,7 +1403,9 @@ fn confirm_overwrite(path: &str, yes: bool) -> bool {
         eprintln!("[WARN] 检测到 {path} 下已有自动生成的 wiki；非交互环境请加 --yes 以确认更新。");
         return false;
     }
-    eprint!("检测到 {path} 下已有由 rustcode-wiki 生成的 wiki，是否更新（将覆盖现有生成内容）？[y/N] ");
+    eprint!(
+        "检测到 {path} 下已有由 rustcode-wiki 生成的 wiki，是否更新（将覆盖现有生成内容）？[y/N] "
+    );
     let _ = std::io::stdout().flush();
     let mut line = String::new();
     if std::io::stdin().lock().read_line(&mut line).is_err() {
@@ -1982,6 +2028,22 @@ async fn run() -> Result<i32> {
     // No --help was passed. Parse normally to get the Cli struct.
     let cli = Cli::parse();
 
+    // Merge the cross-tool permission flags into one effective posture.
+    // `--yolo` / `--dangerously-skip-permissions` and
+    // `--permission-mode bypass-permissions` all mean "auto-approve everything";
+    // the remaining `--permission-mode` values select a run-time execution mode
+    // applied at startup (and mirrored by TUI re-spawns).
+    let skip_permissions = cli.dangerously_skip_permissions
+        || matches!(
+            cli.permission_mode,
+            Some(PermissionModeArg::Auto | PermissionModeArg::BypassPermissions)
+        );
+    let initial_mode = match cli.permission_mode {
+        Some(mode) => mode.runtime_mode(),
+        None if cli.dangerously_skip_permissions => rustcode_coding::RuntimeMode::Auto,
+        None => rustcode_coding::RuntimeMode::Build,
+    };
+
     // ── Askpass early exit ────────────────────────────────────────────────────
     // Handle `rustcode __askpass <prompt>` before ANY TUI/daemon setup.
     // sudo/ssh invoke this helper synchronously; it must not spawn async
@@ -2171,7 +2233,7 @@ async fn run() -> Result<i32> {
                     &config,
                     &working_dir,
                     cli.provider.as_deref(),
-                    cli.dangerously_skip_permissions,
+                    skip_permissions,
                     // ACP sessions are interactive: approval prompts park until the
                     // client answers (not fail-closed like headless -p).
                     true,
@@ -2275,7 +2337,7 @@ async fn run() -> Result<i32> {
                         let base = config.clone();
                         let provider = cli.provider.clone();
                         let dir = working_dir.clone();
-                        let skip = cli.dangerously_skip_permissions;
+                        let skip = skip_permissions;
                         let resolver: Arc<rustcode::acp::SessionModelResolver> = Arc::new(
                             move |model: &str| -> Option<rustcode_coding::CodingAgentConfig> {
                                 let mut cfg = base.clone();
@@ -2300,7 +2362,7 @@ async fn run() -> Result<i32> {
                         let base = config.clone();
                         let provider = cli.provider.clone();
                         let dir = working_dir.clone();
-                        let skip = cli.dangerously_skip_permissions;
+                        let skip = skip_permissions;
                         let resolver: Arc<rustcode::acp::SessionModelResolver> = Arc::new(
                             move |effort: &str| -> Option<rustcode_coding::CodingAgentConfig> {
                                 let mut cfg = base.clone();
@@ -2516,7 +2578,7 @@ async fn run() -> Result<i32> {
         &config,
         &working_dir,
         cli.provider.as_deref(),
-        cli.dangerously_skip_permissions,
+        skip_permissions,
         // Interactive (TUI) ⇒ approvals park until answered; headless (`-p`) keeps the
         // fail-closed timeout so an unanswered approval can't park the run forever.
         !is_headless,
@@ -2552,6 +2614,7 @@ async fn run() -> Result<i32> {
         // TUI-only: the interactive checkpoint replaces the hard round-cap
         // error. Headless (`-p`) keeps the fail-closed hard error (no picker).
         !is_headless,
+        initial_mode,
     )
     .await?;
     // The active session id (fresh or resumed) for the on-exit resume hint,
@@ -2610,7 +2673,7 @@ async fn run() -> Result<i32> {
     let runtime_spawn_override: rustcode_tuix::RuntimeSpawnOverride = {
         // Capture the bypass flag so in-TUI re-spawns also honor
         // --dangerously-skip-permissions -- not just the launch handle.
-        let skip_perms = cli.dangerously_skip_permissions;
+        let skip_perms = skip_permissions;
         std::sync::Arc::new(
             move |config: &rustcode_config::config::Config,
                   working_dir: &std::path::Path,
@@ -2685,7 +2748,7 @@ async fn run() -> Result<i32> {
                 cli.output_format,
                 capture,
                 working_dir.clone(),
-                cli.dangerously_skip_permissions,
+                skip_permissions,
                 is_admin,
                 false, // strict_unattended=false: preserve -p behaviour exactly
             )
@@ -2767,7 +2830,7 @@ async fn run() -> Result<i32> {
                 working_dir,
                 session_to_continue,
                 startup_notice,
-                cli.dangerously_skip_permissions,
+                skip_permissions,
                 is_admin,
             )
             .await
@@ -3143,6 +3206,10 @@ pub(crate) async fn spawn_native_cli_runtime(
     // event loop, so headless (`-p`) callers pass `false` -- otherwise the
     // kernel would emit a checkpoint Request with no requester and fail-closed.
     round_cap_checkpoint: bool,
+    // Initial run-time execution mode derived from `--permission-mode` (or
+    // `--dangerously-skip-permissions`). Applied to the live runtime right
+    // after startup; `Build` is the fail-closed default.
+    initial_mode: rustcode_coding::RuntimeMode,
 ) -> anyhow::Result<(
     rustcode_coding::CodingRuntime,
     rustcode_coding::CodingAgentConfig,
@@ -3243,13 +3310,11 @@ pub(crate) async fn spawn_native_cli_runtime(
         None => rustcode_coding::CodingRuntime::start_with_bootstrap(start, bootstrap).await,
     }
     .map_err(anyhow::Error::new)?;
-    if cfg.dangerously_skip_permissions {
-        runtime
-            .handle
-            .set_mode(rustcode_coding::RuntimeMode::Auto)
-            .await
-            .map_err(anyhow::Error::new)?;
-    }
+    runtime
+        .handle
+        .set_mode(initial_mode)
+        .await
+        .map_err(anyhow::Error::new)?;
     Ok((runtime, agent, continued_session))
 }
 
@@ -4907,7 +4972,7 @@ mod tests {
         headless_completion_notify_reason, headless_denial_exit_code,
         headless_missing_provider_message, interactive_provider_bootstrap,
         is_completion_invocation, merge_startup_notices, print_shell_completion,
-        resolve_in_catalog, resolve_working_dir, resolve_wiki_llm_selection, resume_hint_line,
+        resolve_in_catalog, resolve_wiki_llm_selection, resolve_working_dir, resume_hint_line,
         runtime_config_from, rustcode_log_path, should_fork_busy_continue, truncate_log_line,
         wiki_removed_lines, wiki_run_is_up_to_date, Cli, Commands, HeadlessOutputFormat, WikiArgs,
         DEFAULT_LOG_DIRECTIVES,
@@ -5583,12 +5648,13 @@ mod tests {
         };
         rustcode_wiki::WikiEngine::generate(&opts).expect("generate");
 
-        let count =
-            super::enrich_wiki(&opts, &StaticProvider("MOCK_SUMMARY_XYZ")).await.expect("enrich");
+        let count = super::enrich_wiki(&opts, &StaticProvider("MOCK_SUMMARY_XYZ"))
+            .await
+            .expect("enrich");
         assert!(count >= 1, "expected at least one module enriched");
 
-        let page =
-            std::fs::read_to_string(root.join(".rustcode/wiki/zh/Modules/demo.md")).expect("read page");
+        let page = std::fs::read_to_string(root.join(".rustcode/wiki/zh/Modules/demo.md"))
+            .expect("read page");
         assert!(
             page.contains("MOCK_SUMMARY_XYZ"),
             "module page should embed the mock summary, got: {page}"

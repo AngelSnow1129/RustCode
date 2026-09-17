@@ -613,6 +613,7 @@ async fn run_task(id: &str) -> Result<i32> {
         false,
         false,
         false,
+        rustcode_coding::RuntimeMode::Build,
     )
     .await?;
 

@@ -19,7 +19,29 @@
 # crates/rustcode-cli/src/uninstall/paths.rs. The CI parity test guards
 # the manifest, but binary path / PATH edit are not checked.
 
+param(
+    [string]$Url = "",
+    [string]$Key = "",
+    [string]$Model = "",
+    [string]$Provider = ""
+)
+
 $ErrorActionPreference = "Stop"
+
+# --- optional provider injection: -Url/-Key/-Model flags or RUSTCODE_PROVIDER_* env ---
+# Maps to the [providers.<name>] block in config.toml (type = "openai-compatible").
+$ProviderUrl = if ($Url) { $Url } else { $env:RUSTCODE_PROVIDER_URL }
+$ProviderKey = if ($Key) { $Key } else { $env:RUSTCODE_PROVIDER_KEY }
+$ProviderModel = if ($Model) { $Model } else { $env:RUSTCODE_PROVIDER_MODEL }
+$ProviderName = if ($Provider) { $Provider } else { "custom" }
+
+# `model` is a required field in config.toml's [providers.<name>] block (there is
+# no sensible default for an OpenAI-compatible endpoint). Fail closed before any
+# download when a provider is being injected without a model.
+if ((-not $ProviderModel) -and ($ProviderUrl -or $ProviderKey)) {
+    Write-Host "Error: -Model is required when injecting a provider (-Url/-Key given)." -ForegroundColor Red
+    exit 1
+}
 
 # Release source: provided by the operator/distribution channel via env; there
 # is no compiled-in vendor host.
@@ -183,6 +205,41 @@ try {
     & $Dest --version
 } catch {
     # ignore
+}
+
+# --- write custom provider config (optional -Url/-Key/-Model) ---
+if ($ProviderUrl -or $ProviderKey -or $ProviderModel) {
+    $CfgDir = if ($env:RUSTCODE_HOME) { $env:RUSTCODE_HOME } else { Join-Path $HOME ".rustcode" }
+    $Cfg = Join-Path $CfgDir "config.toml"
+    if (-not (Test-Path $CfgDir)) { New-Item -ItemType Directory -Path $CfgDir -Force | Out-Null }
+
+    $Esc = { param($s) ($s -replace '\\', '\\' -replace '"', '\"') }
+
+    $Existing = $false
+    if (Test-Path $Cfg) {
+        $Content = Get-Content -Path $Cfg -Raw -ErrorAction SilentlyContinue
+        $Marker = "[providers.""$ProviderName""]"
+        $Existing = ($Content -match [regex]::Escape($Marker))
+    }
+
+    if ($Existing) {
+        Write-Host "[INFO] provider '$ProviderName' already present in $Cfg; skipped."
+    } else {
+        $Lines = New-Object System.Collections.Generic.List[string]
+        if (-not (Test-Path $Cfg)) {
+            $Lines.Add("default_provider = `"$ProviderName`"")
+            $Lines.Add("")
+        }
+        $Lines.Add("[providers.`"$ProviderName`"]")
+        $Lines.Add('type = "openai-compatible"')
+        if ($ProviderUrl)   { $Lines.Add("base_url = `"$(& $Esc $ProviderUrl)`"") }
+        if ($ProviderKey)   { $Lines.Add("api_key = `"$(& $Esc $ProviderKey)`"") }
+        if ($ProviderModel) { $Lines.Add("model = `"$(& $Esc $ProviderModel)`"") }
+        $Lines.Add("")
+        Add-Content -Path $Cfg -Value $Lines -Encoding utf8
+        Write-Host "[INFO] wrote provider '$ProviderName' to $Cfg"
+        Write-Host "[INFO] run 'rustcode' and use /provider to add more models if needed."
+    }
 }
 
 Write-Host ""

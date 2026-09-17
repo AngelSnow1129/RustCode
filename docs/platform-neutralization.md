@@ -80,6 +80,16 @@ RustCode 是上游项目的二次开发 fork。中立化的目标是:
   或环境变量 `RUSTCODE_RELEASE_API_HOST` / `RUSTCODE_RELEASE_OWNER` /
   `RUSTCODE_RELEASE_REPO` / `RUSTCODE_RELEASE_ACCESS_TOKEN`(GitLab-v5 兼容
   releases / `upload_url` 方言),缺失即列出缺什么并退出。
+- **[DONE] GitCode 发布脚本** `scripts/gitcode_release.py`:新增,经 GitCode 官方
+  OpenAPI `POST /api/v5/repos/{owner}/{repo}/releases` 创建 release 并按 GitLab-v5
+  `releases/{tag}/upload_url` 方言上传附件;支持 `--dry-run` / `--attach` /
+  `--file-name`;主机 / owner / repo / token 一律由 env `RUSTCODE_RELEASE_API_HOST` /
+  `RUSTCODE_RELEASE_OWNER` / `RUSTCODE_RELEASE_REPO` / `RUSTCODE_RELEASE_ACCESS_TOKEN`
+  或 CLI flags 注入,脚本不带任何厂商默认;unittest 见 `scripts/test_gitcode_release.py`。
+- **[DONE] Gitee 流水线** `.gitee/workflow/pipelines/build-and-release.yml`:新增
+  `shell@1` 步骤,在 `build@rust` 产物后从 `Cargo.toml` 派生版本号 → tag `v{version}`,
+  按 `uname -m` 命名 `rustcode-{tag}-linux-{x64|arm64}` 并调用 `gitcode_release.py`
+  上传;凭据 / 主机全部依赖流水线环境变量,不在 YAML 硬编码。
 - **[DONE] CI** `.github/workflows/build.yml`:删除 4 处 "Add hosts" 步骤(macOS /
   linux / windows / distro-pm-check)——它们用 sudo 把 `api.gitcode.com` /
   `file.gitcode.com` 钉到厂商 IP `159.138.147.37`,属厂商 DNS 绕行;发行主机改为
@@ -243,5 +253,5 @@ G8  docs/architecture.md 无 atomcode 残留
 | read 分页上限(1500) | `crates/rustcode-capabilities/src/tools/read.rs:25` |
 | ETXTBSY 重试 spawn | `crates/rustcode-capabilities/src/process_utils.rs:204` |
 | Docker APT 镜像注入 | `docker/Dockerfile-Daemon-Tosslib:6` |
-| release 上传 env 装配 | `.github/workflows/create_tag_release.py:14` |
+| release 上传 env 装配 | `.github/workflows/create_tag_release.py:14` / `scripts/gitcode_release.py:35` |
 | 安装器发行根 env | `scripts/install.sh` / `scripts/install.ps1`(`RUSTCODE_RELEASE_BASE`) |

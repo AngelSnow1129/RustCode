@@ -23,6 +23,42 @@
 # the manifest, but binary path / rc-edit format are not checked.
 set -eu
 
+# --- optional arguments: inject a custom bring-your-own-key provider after a
+# successful install. Maps to the [providers.<name>] block in config.toml
+# (type = "openai-compatible"). Example:
+#   curl -fsSL <url>/install.sh | sh -s -- \
+#     --url https://my-gw.example.com/v1 --key sk-xxx --model "deepseek-v4.1-flash"
+PROVIDER_NAME=""
+PROVIDER_URL=""
+PROVIDER_KEY=""
+PROVIDER_MODEL=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --url|--key|--model|--provider)
+            [ $# -ge 2 ] || { echo "Error: $1 requires a value" >&2; exit 1; }
+            case "$1" in
+                --url)      PROVIDER_URL="$2" ;;
+                --key)      PROVIDER_KEY="$2" ;;
+                --model)    PROVIDER_MODEL="$2" ;;
+                --provider) PROVIDER_NAME="$2" ;;
+            esac
+            shift 2
+            ;;
+        *)
+            echo "Error: unknown option: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# `model` is a required field in config.toml's [providers.<name>] block (there is
+# no sensible default for an OpenAI-compatible endpoint). Fail closed before any
+# download when a provider is being injected without a model.
+if [ -z "$PROVIDER_MODEL" ] && [ -n "$PROVIDER_URL$PROVIDER_KEY" ]; then
+    echo "Error: --model is required when injecting a provider (--url/--key given)." >&2
+    exit 1
+fi
+
 # Release source: provided by the operator/distributor via env; there is no
 # compiled-in vendor host.
 RELEASE_BASE="${RUSTCODE_RELEASE_BASE:-}"
@@ -170,6 +206,47 @@ fi
 echo ""
 echo "Installed: $TARGET"
 "$TARGET" --version 2>/dev/null || true
+
+# --- write custom provider config (optional --url/--key/--model) ---
+write_custom_provider() {
+    [ -n "$PROVIDER_URL$PROVIDER_KEY$PROVIDER_MODEL" ] || return 0
+    NAME="${PROVIDER_NAME:-custom}"
+    CFG_DIR="${RUSTCODE_HOME:-$HOME/.rustcode}"
+    CFG="$CFG_DIR/config.toml"
+    mkdir -p "$CFG_DIR"
+
+    # Minimal TOML basic-string escape (backslash and double quote).
+    esc_toml() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+    # Compute this BEFORE the >> redirection below, which would otherwise
+    # create the file and make a later -f always true.
+    CFG_NEW=0
+    [ -f "$CFG" ] || CFG_NEW=1
+
+    # Idempotent: never clobber an existing provider of the same name.
+    if [ -f "$CFG" ] && \
+        { grep -Fqs "[providers.\"$NAME\"]" "$CFG" || grep -Fqs "[providers.$NAME]" "$CFG"; }; then
+        echo "[INFO] provider '$NAME' already present in $CFG; skipped."
+        return 0
+    fi
+
+    {
+        if [ "$CFG_NEW" -eq 1 ]; then
+            printf 'default_provider = "%s"\n\n' "$NAME"
+        fi
+        printf '[providers."%s"]\n' "$NAME"
+        printf 'type = "openai-compatible"\n'
+        [ -n "$PROVIDER_URL" ]   && printf 'base_url = "%s"\n' "$(esc_toml "$PROVIDER_URL")"
+        [ -n "$PROVIDER_KEY" ]   && printf 'api_key = "%s"\n' "$(esc_toml "$PROVIDER_KEY")"
+        [ -n "$PROVIDER_MODEL" ] && printf 'model = "%s"\n' "$(esc_toml "$PROVIDER_MODEL")"
+        printf '\n'
+    } >> "$CFG"
+
+    chmod 600 "$CFG" 2>/dev/null || true
+    echo "[INFO] wrote provider '$NAME' to $CFG"
+    echo "[INFO] run 'rustcode' and use /provider to add more models if needed."
+}
+write_custom_provider
 
 if [ "$os" = "windows" ]; then
     echo ""

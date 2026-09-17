@@ -2313,6 +2313,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliHelpVerbose => "Show tool calls, token usage, and turn summary on stderr".into(),
         Msg::CliHelpDev => "Disable auto-update for this launch".into(),
         Msg::CliHelpDangerouslySkipPermissions => "Skip all permission prompts -- auto-approve every tool call".into(),
+        Msg::CliHelpPermissionMode => "Permission/sandbox mode: default, accept-edits, auto, plan, or bypass-permissions (auto / bypass-permissions equal --dangerously-skip-permissions / --yolo)".into(),
         Msg::CliHelpForce => "Reinstall even when already on the latest version".into(),
         Msg::CliHelpPortDaemon => "Port to listen on (default: 13456)".into(),
         Msg::CliHelpIdleTimeout => "Idle-shutdown timeout in seconds; 0 disables".into(),

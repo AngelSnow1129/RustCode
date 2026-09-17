@@ -16,6 +16,7 @@
 - WebUI 需先构建前端:`cd webui && npm ci && npm run build` 产出 `webui/dist/`(gitignored)。重建前端后必须 `cargo clean -p rustcode-daemon`,cargo 不追踪 `webui/dist/` 变化;缺失时所有 webui 页面返回 `webui not built`。
 - scripts/build-webui.sh —— WebUI 前端一键构建(等价 cd webui && npm ci && npm run build,可重复执行)。--if-missing 仅在 webui/dist/index.html 不存在时才构建(已存在则跳过并 exit 0);成功结尾会主动打印上一条要求的 cargo clean -p rustcode-daemon。前置检查 fail-closed:缺 node / 缺 npm / 缺 webui/package-lock.json / node 版本低于 webui/package.json 的 engines.node 时,打印可执行的修复指引并 exit 2;npm ci 或 npm run build 失败 exit 1;构建命令返回 0 但 dist/index.html 仍缺失(半产出)同样判失败。环境不足时绝不降级为警告继续。
 - 发布打包:`scripts/release*.sh`、`scripts/macOS-release-*.sh`、`scripts/linux-release-*.sh`、`scripts/sign-macos.sh`;矩阵见 `.github/workflows/build.yml`。
+- GitCode 发布:`scripts/gitcode_release.py`(GitCode 官方 OpenAPI `POST /api/v5/repos/{owner}/{repo}/releases` + GitLab-v5 `releases/{tag}/upload_url` 附件上传;`--dry-run`/`--attach`/`--file-name`;主机/owner/repo/token 全部由 env `RUSTCODE_RELEASE_API_HOST`/`OWNER`/`REPO`/`ACCESS_TOKEN` 注入,脚本不带厂商默认)。Gitee Go 流水线 `.gitee/workflow/pipelines/build-and-release.yml` 在 `build@rust` 后加 `shell@1` 步骤:从 `Cargo.toml` 派生 version → tag `v{version}`,按 `uname -m` 命名 `rustcode-{tag}-linux-{x64|arm64}` 并调 `gitcode_release.py` 上传;凭据/主机走流水线环境变量,不在 YAML 硬编码。
 - `RUSTCODE_HOME` 覆盖配置目录(默认 `~/.rustcode`)。**禁止 `sudo` 运行**——`~/.rustcode` 一旦出现 root 属主文件,后续非 root 启动在 runtime 初始化即失败。
 
 测试:
@@ -25,6 +26,7 @@
 - `./scripts/test-all.sh` — 全量测试并产出 `test-report.md`,能区分"编译失败 / 测试失败 / 全部通过"。
 - `./scripts/test-headless.sh` — headless 冒烟(需先 `cargo build`);未设 `RUSTCODE_TEST_PROVIDER` 时跳过联网用例。
 - `./scripts/smoke-test-all.sh`(校验 test-all.sh 自身)、`python3 scripts/acp_smoke.py`(ACP stdio 冒烟)、`python3 scripts/analyze_datalogs.py`(turn datalog 分析)。
+- `python3 scripts/test_gitcode_release.py` — `gitcode_release.py` 的 unittest(等价 `python3 -m unittest scripts.test_gitcode_release`)。
 - python3 scripts/check-zh-docs.py gate —— 中文文档门禁(全量,判定全仓 md 的英文化残留);check --files <path> 只查指定文件,inventory 产出 md 清单,hostscan 仅产出「默认绑定语义」的 127.0.0.1 / localhost 叙述清单(清单工具,非门禁,恒返回 0)。
 - 测试隔离:`coding` / `tuix` / `daemon` / `capabilities` / `cli` 的入口文件顶部有 `#[ctor]` 把 `RUSTCODE_HOME` 重定向到临时目录。新增测试不得依赖真实 `~/.rustcode`;**重命名这批目录/变量名时同步修改,否则测试隔离失效**。
 
@@ -718,6 +720,7 @@ i18n 三件套(messages.rs / en.rs / zh_cn.rs)的 Cp 前缀变体与 kernel 注�
     **G3 与 T3 落地前完全一致**,双方改动共存无损。
   - **[WARN] G2 口径澄清**:`AGENTS.md` 的 G2 真义是 `cargo clippy --workspace --all-targets`,
     本轮全程只跑了 `cargo check`。`clippy` 全量**尚未验证**,不得记为 G2 通过。
+- **[WARN] `scripts/check-zh-docs.py` 中文文档门禁 AC-4 恒红(非本轮引入,已裁决「维持现状」)**:门禁基带 `ZH_BASE=3ee655e3` 自 zh-docs 中文 feature(`3c8df5cc feat(docs): zh-CN docs` 删 `README.zh-CN.md`、汉化 README 等)落地后从未推进,其后 20+ 个 commit(tunnel/wiki/auth 移除/账号命令等)持续改写 README/AGENTS/docs,造成大量未登记 code span,故 `check --files README.md AGENTS.md docs/platform-neutralization.md` 恒 FAIL(AC-4 code span 多重集不等)。该门禁未被任何 CI 引用,属本地人工门禁;AC-4 判据冻结、扩登 `AC4_ALLOWED_ADDED_BY_FILE` 需裁决,不阻塞发行链路交付。
 
 ## 高信号文档索引
 

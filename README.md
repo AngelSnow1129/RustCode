@@ -17,9 +17,7 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#功能特性">功能</a> ·
   <a href="#架构">架构</a> ·
-  <a href="#开发">开发</a> ·
-  <a href="#贡献指南">贡献</a> ·
-  <a href="#社区交流">社区</a>
+  <a href="#开发">开发</a>
 </p>
 
 <p align="center">
@@ -202,11 +200,23 @@ RUSTCODE_RELEASE_BASE=https://example.com/your-host/releases/download sh install
 （shell 安装器必填），`RUSTCODE_VERSION` 用于固定某个发布版本，`RUSTCODE_PREFIX`
 用于指定安装目录（详见脚本头部注释）。
 
+安装器还支持在安装成功后注入一个自定义 BYO provider（对应 `config.toml` 的
+`[providers.<name>]`、`type = "openai-compatible"`）——在脚本后追加
+`--url <base_url> --key <api_key> --model <model>`（可选 `--provider <name>`，
+默认 `custom`）即可在安装时一并写入配置；提供了 `--url`/`--key` 但缺 `--model`
+会 fail-closed 退出（`model` 是该 provider 的必填字段，无合理默认）。例如：
+
+```bash
+sh install.sh --url https://my-gw.example.com/v1 --key sk-xxx --model deepseek-v4.1-flash
+```
+
+PowerShell 侧同名参数为 `-Url` / `-Key` / `-Model` / `-Provider`。
+
 ### 从源码构建
 
 ```bash
 # Clone from your distribution channel, e.g.:
-git clone https://example.com/<your-org>/rustcode.git
+git clone https://gitcode.com/SecLab/RustCode.git
 cd rustcode
 ```
 
@@ -565,10 +575,10 @@ rustcode --prompt-file task.md
 
 > **平台 Issue**：`/issue` 与内置的 `platform_issue` 工具均已移除。上游的托管平台 Issue 功能不在本开源构建中提供。
 >
-> **插件命令**：除了上面的内置命令，插件还能注册自己的斜杠命令。先添加你的分发渠道提供的插件市场（通过配置/环境变量设置市场 URL，或从分发渠道的插件索引安装），再从中安装插件。例如渠道社区插件可能提供 `/wechat` 命令（显示社区群二维码）：
+> **插件命令**：除了上面的内置命令，插件还能注册自己的斜杠命令。先添加你的分发渠道提供的插件市场（通过配置/环境变量设置市场 URL，或从分发渠道的插件索引安装），再从中安装插件：
 >
 > ```text
-> /plugin marketplace add https://example.com/<your-org>/rustcode-plugins
+> /plugin marketplace add https://gitcode.com/SecLab/rustcode-plugins
 > /plugin install <plugin>@<channel>
 > ```
 
@@ -701,7 +711,7 @@ RustCode 会自动读取这个文件并注入到系统提示中。RustCode 也�
 
 ```bash
 # Clone from your distribution channel, e.g.:
-git clone https://example.com/<your-org>/rustcode.git
+git clone https://gitcode.com/SecLab/RustCode.git
 cd rustcode
 
 # Debug build (fast compilation, slower runtime)
@@ -757,85 +767,6 @@ cargo clippy
 # Build and install to ~/.cargo/bin
 cargo install --path crates/rustcode-cli
 ```
-
-## 贡献指南
-
-欢迎贡献！RustCode 正在积极迭代中。
-
-### 如何贡献
-
-1. **Fork** 仓库
-2. 克隆你的 fork（使用你分发渠道的 host）：
-   ```bash
-   git clone https://example.com/<your-username>/rustcode.git
-   cd rustcode
-   ```
-3. 创建分支：
-   ```bash
-   git checkout -b feat/your-feature
-   # or
-   git checkout -b fix/your-bugfix
-   ```
-4. 修改代码，确保能编译、测试通过：
-   ```bash
-   cargo build && cargo test && cargo clippy
-   ```
-5. 清晰地写 commit：
-   ```bash
-   git commit -m "feat: add xxx support"
-   ```
-6. **Push** 并向 `main` 分支提交 **Pull Request**
-
-### 分支命名
-
-| 前缀        | 用途               |
-| ----------- | ------------------ |
-| `feat/`     | 新功能             |
-| `fix/`      | Bug 修复           |
-| `refactor/` | 重构（不改变行为） |
-| `docs/`     | 仅文档             |
-| `chore/`    | 构建、CI、工具链   |
-
-### 约定
-
-- 遵守项目的核心原则，尤其是 **技术栈中立**
-  （核心引擎中不写任何针对特定语言/框架的逻辑；通过
-  `package.json` / `Cargo.toml` / `pom.xml` 等探测，并通过 adapter 分发）
-- 工具失败必须优雅处理——把错误作为 observation 返回给模型，绝不 panic
-- 破坏性操作必须需要用户确认
-- 系统提示保持紧凑（约 1.5K tokens）
-- 提交前先跑 `cargo fmt` 和 `cargo clippy`
-
-### 从哪里上手
-
-- **新增工具** —— 在 `crates/rustcode-capabilities/src/tools/` 下实现 `Tool` trait
-- **新增模型提供方** —— 在 `crates/rustcode-capabilities/src/provider/` 下实现 `LlmProvider`
-- **改进 UI** —— 渲染相关代码在 `crates/rustcode-tuix/src/render/`
-- **修 Bug** —— 到你的分发渠道的 issue 跟踪器上挑一个
-
-### 非 Rust 贡献者
-
-不会 Rust？没关系！有很多方式可以不写 Rust 代码就能参与贡献：
-
-- **[*] 文档** — 改进 README、修正错别字、完善[文档站](site/docs/en/index.html)、添加使用示例。文档位于仓库根目录的 `docs/` 目录、`site/docs/` 以及 README 文件中。
-- **[*] 本地化与翻译** — 帮助将文档站、README 或界面文案翻译成更多语言。查看 `site/docs/` 了解现有翻译。
-- **[*] Skills 与插件** — 创建新的 skill（Markdown + JSON，无需 Rust），扩展 RustCode 的能力，或为分发渠道的插件索引打包插件。Skill 从 `~/.rustcode/skills/` 加载。
-- **[*] Bug 报告** — 发现 Bug？在你的分发渠道的 issue 跟踪器中提交清晰的复现步骤、截图和环境信息。高质量的 Bug 报告非常宝贵。
-- **[*] 测试用例与示例** — 添加测试场景、示例项目或使用演示，帮助验证功能并帮助新用户上手。
-- **[*] 社区支持** — 在社区群中回答问题、编写教程或制作视频指南。
-
-每一份贡献，无论是代码还是非代码，都能让 RustCode 变得更好。不确定从哪里开始？开一个 Issue 或发起讨论吧！
-
-## 社区交流
-
----
-
-扫描你的分发渠道提供的社区二维码（例如微信群二维码）加入 RustCode 用户群，反馈问题、
-分享使用心得，和其他用户、维护者一起交流。二维码图片资源由你的渠道发布：
-
-<p align="center">
-  <em>[ 社区二维码图片 —— 该资源由你的分发渠道发布 ]</em>
-</p>
 
 ## 打赏
 

@@ -23,15 +23,63 @@ stages:
         memory: "4"
   - step: build@rust
     name: ""
-    displayName: Rust 构建
+    displayName: Rust 双架构构建 (linux-x64 / linux-arm64, musl 静态链接)
     rustVersion: "1.75"
     commands:
-    - cargo build --release -p rustcode
+    - |
+      set -eu
+      # 静态链接 musl，产出可在任意 Linux 发行版运行的 x64 / arm64 两个资产，
+      # 与 GitHub Actions build-linux 矩阵（.github/workflows/build.yml）对齐。
+      rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+      # x86_64 musl 链接器（Debian/Ubuntu 的 musl-tools 提供 musl-gcc）
+      if ! command -v musl-gcc >/dev/null 2>&1; then
+        apt-get update
+        apt-get install -y musl-tools
+      fi
+      # aarch64 musl 交叉编译器（musl.cc 官方工具链）
+      if ! command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
+        curl -fsSL https://musl.cc/aarch64-linux-musl-cross.tgz | tar xz -C /opt
+        export PATH="/opt/aarch64-linux-musl-cross/bin:${PATH}"
+      fi
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
+        cargo build --release --target x86_64-unknown-linux-musl -p rustcode
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc \
+        cargo build --release --target aarch64-unknown-linux-musl -p rustcode
     artifacts:
     - name: BUILD_ARTIFACT
       path:
-      - ./target/release/rustcode
+      - ./target/x86_64-unknown-linux-musl/release/rustcode
+      - ./target/aarch64-unknown-linux-musl/release/rustcode
       type: .tar.gz
+    notify: []
+    strategy:
+      retry: "0"
+      resource:
+        cpu: "2"
+        memory: "4"
+  - step: shell@1
+    name: ""
+    displayName: 上传 GitCode Release (linux-x64 / linux-arm64)
+    commands:
+    - |
+      set -eu
+      VERSION=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)
+      TAG="v${VERSION}"
+      mkdir -p dist
+      upload() {
+        ARCH="$1"
+        SRC="$2"
+        BIN="rustcode-${TAG}-linux-${ARCH}"
+        cp "${SRC}" "dist/${BIN}"
+        chmod +x "dist/${BIN}"
+        strip "dist/${BIN}" || true
+        python3 scripts/gitcode_release.py \
+          --tag-name "${TAG}" \
+          --attach "dist/${BIN}" \
+          --file-name "${BIN}"
+      }
+      upload x64   "target/x86_64-unknown-linux-musl/release/rustcode"
+      upload arm64 "target/aarch64-unknown-linux-musl/release/rustcode"
     notify: []
     strategy:
       retry: "0"
