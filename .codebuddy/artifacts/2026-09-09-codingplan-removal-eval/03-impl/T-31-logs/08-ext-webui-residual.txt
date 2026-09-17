@@ -1,1 +1,0 @@
-extensions/jetbrains/CHANGELOG.md:7:- Added Provider create/edit/delete, CodingPlan setup, and default model switching.

@@ -1,7 +1,0 @@
-crates/rustcode-capabilities/src/provider/mod.rs:145:            .contains("user has no codingplan")
-crates/rustcode-capabilities/src/provider/openai_compat.rs:3615:            friendly_http_error(403, "user has no codingplan"),
-crates/rustcode-capabilities/src/provider/openai_compat.rs:3619:            friendly_http_error(403, "USER HAS NO CODINGPLAN"),
-crates/rustcode-cli/src/uninstall/paths.rs:36:            "codingplan_sync.json",
-crates/rustcode-cli/src/uninstall/paths.rs:150:            "codingplan_sync.json",
-crates/rustcode-cli/src/main.rs:4753:                !script.contains("codingplan"),
-crates/rustcode-cli/src/main.rs:4816:            !about.contains("CodingPlan"),

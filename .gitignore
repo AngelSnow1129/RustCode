@@ -85,9 +85,12 @@ backend.log
 # and sample projects. The whole directory lives on disk for reruns
 # but never ships.
 scripts/eval/
-dist/
 docs/superpowers
 .mcp.json
+
+# Release artifacts. Matches any `dist/` directory (incl. `webui/dist`):
+# the release/upload scripts copy built binaries here but never check them in.
+dist/
 
 # v2 (kernel-spike) local design specs / backlog — working docs kept on disk for
 # the contributor, NEVER committed (turn-end auto-commit would otherwise sweep them).
@@ -150,3 +153,28 @@ CODEBUDDY.md
 .codebuddy/memory/
 .codebuddy/teams/
 .codebuddy/artifacts/
+
+# Other AI coding assistant / CLI local workspaces (defensive — never tracked).
+# These are machine/session-local artifacts produced by various AI coding tools;
+# rustcode's own project config (AGENTS.md, config examples) is intentionally
+# NOT ignored here — only third-party assistant working dirs are.
+.cursor/
+.cursorignore
+.aider*
+.windsurf/
+.continue/
+.continuerc
+.tabnine/
+.cody/
+.gemini/
+.trae/
+.qoder/
+.amp/
+.augment/
+.devin/
+.copilot/
+.github/copilot/
+.agent*
+.droid/
+.pulumi/env/
+.dummy/
