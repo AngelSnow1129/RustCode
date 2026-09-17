@@ -1,0 +1,66 @@
+version: "1.0"
+name: RustCode 构建与发布
+displayName: RustCode 构建与发布
+stages:
+- name: 构建
+  displayName: 构建
+  strategy: naturally
+  trigger: auto
+  steps:
+  - step: nodejs@1
+    name: ""
+    displayName: WebUI 前端构建
+    nodeVersion: "22.6"
+    commands:
+    - cd webui
+    - npm ci
+    - npm run build
+    notify: []
+    strategy:
+      retry: "0"
+      resource:
+        cpu: "2"
+        memory: "4"
+  - step: build@rust
+    name: ""
+    displayName: Rust 构建
+    rustVersion: "1.75"
+    commands:
+    - cargo build --release -p rustcode
+    artifacts:
+    - name: BUILD_ARTIFACT
+      path:
+      - ./target/release/rustcode
+      type: .tar.gz
+    notify: []
+    strategy:
+      retry: "0"
+      resource:
+        cpu: "2"
+        memory: "4"
+- name: 部署
+  displayName: 部署
+  strategy: naturally
+  trigger: auto
+  steps:
+  - step: release@gitee
+    name: 6aff5c0c
+    displayName: Gitee Release
+    releaseName: "RustCode-V{}"
+    description: "{描述}"
+    tagName: "{描述}"
+    upstreamArtifact:
+    - BUILD_ARTIFACT
+    assertFiles: []
+    prerelease: false
+    allowUpdate: true
+    strategy:
+      retry: "0"
+      resource:
+        cpu: "2"
+        memory: "4"
+triggers:
+  trigger: manual
+notify: []
+strategy:
+  blocking: true
