@@ -32,13 +32,13 @@
 macOS / Linux / HarmonyOS PC（自动检测系统与架构）：
 
 ```bash
-curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=main | sh
+curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=dev | sh
 ```
 
 Windows（PowerShell）：
 
 ```powershell
-irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref=main | iex
+irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref=dev | iex
 ```
 
 或通过包管理器：
@@ -195,13 +195,13 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 macOS / Linux / HarmonyOS PC：
 
 ```bash
-curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=main | sh
+curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=dev | sh
 ```
 
 Windows（PowerShell）：
 
 ```powershell
-irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref=main | iex
+irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref=dev | iex
 ```
 
 脚本自动检测系统与架构，下载最新版预编译二进制并写入 `PATH`。
@@ -221,7 +221,7 @@ irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref
 会 fail-closed 退出（`model` 是该 provider 的必填字段，无合理默认）。例如：
 
 ```bash
-curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=main | sh -s -- \
+curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=dev | sh -s -- \
   --url https://my-gw.example.com/v1 --key sk-xxx --model deepseek-v4.1-flash
 ```
 

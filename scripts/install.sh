@@ -1,7 +1,7 @@
 #!/bin/sh
 # RustCode installer — curl | sh
 #
-#   curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=main | sh
+#   curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=dev | sh
 #
 # Detects OS and architecture automatically, downloads the latest release
 # binary from GitCode, and installs it to PATH.

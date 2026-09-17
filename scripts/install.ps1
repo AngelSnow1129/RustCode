@@ -1,6 +1,6 @@
 # RustCode installer for Windows — PowerShell
 #
-#   irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref=main | iex
+#   irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref=dev | iex
 #
 # Detects architecture automatically, downloads the latest release binary
 # from GitCode, and installs it to PATH.
