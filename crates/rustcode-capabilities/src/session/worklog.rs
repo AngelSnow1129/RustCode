@@ -151,8 +151,8 @@ fn fmt_duration(ms: i64) -> String {
 
 /// Build the prompt injected as the user's turn: a localized template instruction
 /// + the deterministic day data grouped by project, with pre-aggregated durations
-/// so the `时长` / duration column is accurate (an agent-active proxy). Rendered
-/// turns are capped to protect the model's context window. Pure ⇒ unit-testable.
+///   so the `时长` / duration column is accurate (an agent-active proxy). Rendered
+///   turns are capped to protect the model's context window. Pure ⇒ unit-testable.
 pub fn build_worklog_prompt(date_label: &str, turns: &[WorklogTurn], english: bool) -> String {
     let mut s = String::new();
     if english {

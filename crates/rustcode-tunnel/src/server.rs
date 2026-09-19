@@ -81,6 +81,7 @@ pub async fn run_relay(control_addr: &str, public_addr: &str, token: &str) -> Re
 }
 
 /// Run the relay on already-bound listeners (see [`run_relay`]).
+#[allow(clippy::result_large_err)]
 pub async fn run_relay_with(control: TcpListener, public: TcpListener, token: &str) -> Result<()> {
     // An empty token would compare equal to a *missing* token below, letting
     // unauthenticated clients in. Refuse to start instead.

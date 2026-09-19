@@ -37,10 +37,7 @@ fn command_visible(cmd: &Command) -> bool {
     // offered a blank desktop download link (/desktop) or a self-update that
     // only errors against an empty manifest URL (/upgrade). The command arms
     // themselves also short-circuit with a neutral message when typed directly.
-    match cmd.name {
-        "upgrade" if !rustcode_updater::update_endpoint_configured() => false,
-        _ => true,
-    }
+    !matches!(cmd.name, "upgrade" if !rustcode_updater::update_endpoint_configured())
 }
 
 pub struct CommandRegistry {
@@ -841,7 +838,7 @@ mod tests {
     fn openrouter_command_is_registered() {
         let reg = CommandRegistry::builtin();
         let cmd = reg.find("openrouter").expect("/openrouter registered");
-        assert!(cmd.needs_args == false || cmd.needs_args == true); // 存在即可
+        assert!(!cmd.needs_args || cmd.needs_args); // 存在即可
         assert!(!cmd.acp, "openrouter 走 TUI-only,不进 ACP");
     }
 

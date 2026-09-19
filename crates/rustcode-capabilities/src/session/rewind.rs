@@ -364,6 +364,7 @@ impl WorkspaceCheckpoint {
         }
         let process_lock = fs::OpenOptions::new()
             .create(true)
+            .truncate(true)
             .read(true)
             .write(true)
             .open(&process_lock_path)
@@ -402,6 +403,7 @@ impl WorkspaceCheckpoint {
         let process_lock_path = git_dir.join("operation.lock");
         let process_lock = fs::OpenOptions::new()
             .create(true)
+            .truncate(true)
             .read(true)
             .write(true)
             .open(&process_lock_path)
@@ -1746,7 +1748,7 @@ mod bounded_capture_tests {
         // earlier subset only — this DELETES point2's refs (had_deletions=true)
         // and triggers gc --prune=now.  Under the old bug the recovery tree
         // (loose, no ref) would be pruned here.
-        cp.retain_points(&[point1.clone()]).unwrap();
+        cp.retain_points(std::slice::from_ref(&point1)).unwrap();
 
         // Assert: the recovery tree is still reachable in the shadow store.
         let cat_file = git_command()

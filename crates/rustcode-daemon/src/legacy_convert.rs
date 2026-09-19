@@ -696,6 +696,7 @@ fn adopt_unconfirmed_native(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn import_metadata_only_with_cas(
     manager: &SessionManager,
     lease: &SessionLease,
@@ -1303,6 +1304,7 @@ fn classify_preview_error(error: &SessionStoreError) -> CatalogSessionPreviewErr
 
 fn sanitize_preview_line(line: &str) -> String {
     #[derive(Clone, Copy)]
+    #[allow(clippy::enum_variant_names)]
     enum Escape {
         Text,
         Start,
@@ -3113,7 +3115,7 @@ mod tests {
             stat.position_valid = false;
         }
         let expected_stat_count = meta.turn_stats.len();
-        let mut presentation = PresentationFile {
+        let presentation = PresentationFile {
             v: PRESENTATION_VERSION,
             entries: vec![PresentationEntry {
                 anchor: DisplayAnchor::AtStart,
@@ -3154,7 +3156,7 @@ mod tests {
             stat.position_valid = false;
         }
         let expected_stat_count = meta.turn_stats.len();
-        let mut presentation = PresentationFile {
+        let presentation = PresentationFile {
             v: PRESENTATION_VERSION,
             entries: vec![PresentationEntry {
                 anchor: DisplayAnchor::AtStart,
@@ -3255,7 +3257,7 @@ mod tests {
         for stat in &mut meta.turn_stats {
             stat.position_valid = false;
         }
-        let mut presentation = converted.presentation;
+        let presentation = converted.presentation;
         let original_meta = meta.clone();
         let original_presentation = presentation.clone();
 
@@ -3300,7 +3302,7 @@ mod tests {
             },
         );
         let original_meta = meta.clone();
-        let mut presentation = PresentationFile::default();
+        let presentation = PresentationFile::default();
 
         let diagnostic =
             repair_metadata_only_sidecars(legacy_bytes, 1, &mut meta, &presentation).unwrap();
@@ -3326,7 +3328,7 @@ mod tests {
             kind: ImportKind::MetadataOnly,
         });
         let original_meta = meta.clone();
-        let mut presentation = PresentationFile::default();
+        let presentation = PresentationFile::default();
 
         let diagnostic =
             repair_metadata_only_sidecars(legacy_bytes, usize::MAX, &mut meta, &presentation)
@@ -3450,7 +3452,7 @@ mod tests {
             kind: ImportKind::MetadataOnly,
         });
         let original_meta = meta.clone();
-        let mut presentation = converted.presentation;
+        let presentation = converted.presentation;
         let original_presentation = presentation.clone();
 
         let diagnostic = repair_metadata_only_sidecars(
@@ -3492,7 +3494,7 @@ mod tests {
             importer_version: 1,
             kind: ImportKind::MetadataOnly,
         });
-        let mut presentation = converted.presentation;
+        let presentation = converted.presentation;
         let original_presentation = presentation.clone();
 
         let diagnostic =

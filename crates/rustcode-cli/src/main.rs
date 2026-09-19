@@ -1199,6 +1199,7 @@ impl IdeKind {
     }
 
     /// Wire tag used in CLI positional args.
+    #[allow(dead_code)]
     fn tag(self) -> &'static str {
         match self {
             Self::Vscode => "vscode",
@@ -3510,6 +3511,7 @@ pub(crate) fn headless_missing_provider_message(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn spawn_native_cli_runtime(
     cfg: &rustcode_coding::CodingRuntimeConfig,
     resume_session_id: Option<String>,

@@ -788,8 +788,10 @@ mod tests {
     #[test]
     fn non_background_only_keeps_system_fallback_for_unknown_focus() {
         let _guard = focus_state_test_lock();
-        let mut cfg = NotificationConfig::default();
-        cfg.background_only = false;
+        let cfg = NotificationConfig {
+            background_only: false,
+            ..Default::default()
+        };
         set_terminal_focus_state(None);
         let plan = build_notification_plan(
             &cfg,

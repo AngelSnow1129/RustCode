@@ -1050,8 +1050,10 @@ mod tests {
     #[test]
     fn dedup_skipped_when_pin_set() {
         let url = "https://example.com/r.git";
-        let mut pin = GitPin::default();
-        pin.branch = Some("dev".into());
+        let pin = GitPin {
+            branch: Some("dev".into()),
+            ..Default::default()
+        };
         let ext = ExternalSource::Url {
             url: url.into(),
             pin,

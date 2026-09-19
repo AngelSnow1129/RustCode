@@ -59,7 +59,6 @@ jobs:
       # `continue-on-error` line below — a test gate that cannot fail a PR is
       # not a gate.
       - name: cargo test (all crates)
-        continue-on-error: true
         run: cargo test --workspace
 
   lint:
@@ -92,9 +91,5 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
-      # Still report-only: 598 warnings outstanding (rustcode-tuix alone
-      # accounts for 291). Same contract as fmt above — drop this
-      # `continue-on-error` once that backlog reaches zero.
       - name: cargo clippy
-        continue-on-error: true
-        run: cargo clippy --workspace --all-targets
+        run: cargo clippy --workspace --all-targets -- -D warnings

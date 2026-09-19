@@ -101,6 +101,7 @@ pub(crate) fn host_is_trusted(url: &str) -> bool {
 /// `scheme://host` prefix (no path), for scoping git's per-URL
 /// `http.<base>.extraHeader` so an injected credential header can't leak on a
 /// cross-host redirect. None for unparseable URLs / hostless (ssh shorthand).
+#[allow(dead_code)]
 pub(crate) fn scheme_host_prefix(url: &str) -> Option<String> {
     let parsed = url::Url::parse(url).ok()?;
     let host = parsed.host_str()?;

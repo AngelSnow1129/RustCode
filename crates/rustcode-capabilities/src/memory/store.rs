@@ -343,9 +343,9 @@ mod tests {
     fn append_deduped_skips_exact_case_insensitive_duplicate() {
         let tmp = tempfile::tempdir().unwrap();
         let store = MemoryStore::new(tmp.path().join("memory.md"));
-        assert_eq!(store.append_deduped("Uses tabs").unwrap(), true);
-        assert_eq!(store.append_deduped("uses tabs").unwrap(), false); // 大小写不敏感完全重复 → 跳
-        assert_eq!(store.append_deduped("uses spaces").unwrap(), true); // 不同内容 → 写
+        assert!(store.append_deduped("Uses tabs").unwrap());
+        assert!(!store.append_deduped("uses tabs").unwrap()); // 大小写不敏感完全重复 → 跳
+        assert!(store.append_deduped("uses spaces").unwrap()); // 不同内容 → 写
         assert_eq!(store.load().len(), 2);
     }
 

@@ -45,7 +45,7 @@ pub enum SearchProvider {
 impl SearchProvider {
     /// Parse a config string: `"exa"` -> Exa (opt-in); anything else (including
     /// `"duckduckgo"`/`"ddg"`, empty, or unknown) -> DuckDuckGo, the keyless default.
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s.trim().to_ascii_lowercase().as_str() {
             "exa" => SearchProvider::Exa,
             _ => SearchProvider::DuckDuckGo,
@@ -98,7 +98,7 @@ impl WebSearchTool {
     /// values, Exa only when explicitly requested. `EXA_API_KEY` is picked up for Exa.
     pub fn with_provider(provider: &str) -> Self {
         Self {
-            provider: SearchProvider::from_str(provider),
+            provider: SearchProvider::parse(provider),
             exa_api_key: env_exa_key(),
         }
     }
@@ -528,23 +528,23 @@ mod tests {
             WebSearchTool::duckduckgo().provider,
             SearchProvider::DuckDuckGo
         );
-        assert_eq!(SearchProvider::from_str("ddg"), SearchProvider::DuckDuckGo);
+        assert_eq!(SearchProvider::parse("ddg"), SearchProvider::DuckDuckGo);
         assert_eq!(
-            SearchProvider::from_str("DuckDuckGo"),
+            SearchProvider::parse("DuckDuckGo"),
             SearchProvider::DuckDuckGo
         );
         assert_eq!(
-            SearchProvider::from_str(""),
+            SearchProvider::parse(""),
             SearchProvider::DuckDuckGo,
             "empty -> keyless default"
         );
         assert_eq!(
-            SearchProvider::from_str("exa"),
+            SearchProvider::parse("exa"),
             SearchProvider::Exa,
             "Exa only when explicitly selected"
         );
         assert_eq!(
-            SearchProvider::from_str("anything"),
+            SearchProvider::parse("anything"),
             SearchProvider::DuckDuckGo,
             "unknown -> keyless default"
         );

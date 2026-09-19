@@ -6,6 +6,11 @@
 //! black-on-white polarity with a four-module quiet zone and reject output that
 //! cannot fit in the available rectangle.
 
+// Managed QR login renderer: retained for distribution builds that gate the
+// managed-login surface. The default neutral build never calls these, so the
+// dead-code lint is suppressed at the module level.
+#![allow(dead_code)]
+
 use qrcode::{Color as QrColor, QrCode};
 
 const QUIET_ZONE: usize = 4;

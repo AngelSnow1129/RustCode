@@ -1,6 +1,6 @@
 //! Project-level advisory file lock for setup. Dual-rail: `fs2::FileExt::try_lock_exclusive`
 //! + PID/start_time sentinel JSON. Sentinel handles sandbox/NFS/container edge cases
-//! where flock alone is unreliable.
+//!   where flock alone is unreliable.
 //!
 //! Acquire order:
 //! 1. Read `.rustcode/.setup.lock.sentinel` if present. If recorded PID is alive **and**

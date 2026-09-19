@@ -1359,7 +1359,7 @@ fn list_projects() -> std::io::Result<Vec<ProjectInfo>> {
         project.last_updated = project.last_updated.max(updated_at);
     }
     let mut projects: Vec<_> = by_project.into_values().collect();
-    projects.sort_by(|a, b| b.last_updated.cmp(&a.last_updated));
+    projects.sort_by_key(|a| std::cmp::Reverse(a.last_updated));
     Ok(projects)
 }
 
@@ -4503,6 +4503,7 @@ fn resolve_chat_session(
 }
 
 /// Process a chat request and stream events
+#[allow(clippy::too_many_arguments)]
 async fn process_chat_request(
     req: ChatRequest,
     event_tx: mpsc::UnboundedSender<ChatEvent>,
@@ -4760,14 +4761,6 @@ fn publish_chat_session_assignment(
     });
     Ok(())
 }
-
-/// Build system prompt for daemon/API mode.
-///
-/// Aligned with TUI's `AgentLoop::build_system_prompt` to provide the same
-/// capabilities (model identity, layered instructions, memory, git snapshot,
-/// full rules). The only omission is plan mode (not applicable in API mode).
-///
-/// This function is self-contained -- it does NOT touch any TUI code path.
 
 /// Request to stop a chat session
 #[derive(Debug, Deserialize)]

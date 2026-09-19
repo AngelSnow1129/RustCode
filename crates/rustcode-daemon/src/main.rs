@@ -129,7 +129,7 @@ async fn main() {
         rustcode_config::config::Config::load(&rustcode_config::config::Config::default_path())
             .ok();
     {
-        let language = loaded_config.as_ref().and_then(|c| c.language.clone());
+        let language = loaded_config.as_ref().and_then(|c| c.language);
         rustcode_config::i18n::set_locale(rustcode_config::i18n::resolve_initial_locale(
             None, language,
         ));

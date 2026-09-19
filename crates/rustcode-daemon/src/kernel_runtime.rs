@@ -230,6 +230,7 @@ pub fn spawn_native_runtime_for_session_deferred_with_preprocessor(
     let (state_tx, state_rx) = watch::channel(rustcode_coding::DeferredRuntimeState::Starting);
     tokio::spawn(async move {
         let mut output_sequence = 0u64;
+        #[allow(clippy::result_large_err)]
         let send_event =
             |event_tx: &mpsc::UnboundedSender<rustcode_coding::SequencedRuntimeEvent>,
              output_sequence: &mut u64,

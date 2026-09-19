@@ -1377,7 +1377,7 @@ mod tests {
                 &manager,
                 worktree.path(),
                 cp,
-                &[point.clone()],
+                std::slice::from_ref(&point),
             );
 
             let receipt = hook.begin_rewind(&point, true, None).unwrap();
@@ -1420,7 +1420,7 @@ mod tests {
                 &manager,
                 worktree.path(),
                 cp,
-                &[point.clone()],
+                std::slice::from_ref(&point),
             );
 
             let receipt = hook.begin_rewind(&point, true, None).unwrap();

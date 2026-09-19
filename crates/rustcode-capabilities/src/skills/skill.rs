@@ -151,10 +151,7 @@ fn match_substitution<'a>(
 /// unclosed backtick.
 fn expand_shell_injections(template: &str) -> String {
     let mut result = template.to_string();
-    loop {
-        let Some(start) = result.find("!`") else {
-            break;
-        };
+    while let Some(start) = result.find("!`") {
         let search_from = start + 2;
         let Some(rel_end) = result[search_from..].find('`') else {
             break; // unclosed -- leave as-is

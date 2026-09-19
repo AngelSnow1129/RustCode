@@ -2864,7 +2864,7 @@ impl SessionManager {
                 }
             }
         }
-        out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        out.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         out
     }
 
@@ -3568,6 +3568,7 @@ fn valid_project_bucket(bucket: &str) -> bool {
     bucket.len() == 16 && bucket.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+#[allow(dead_code)]
 fn migrate_sessions_from(legacy_root: &Path, target_root: &Path) -> SessionResult<usize> {
     if !legacy_root.exists() {
         return Ok(0);

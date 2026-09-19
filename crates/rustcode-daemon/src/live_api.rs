@@ -396,6 +396,7 @@ async fn await_chat_user_input_response(
 /// `/chat` consumer. `perm_rx` carries interactive approval decisions from `/chat/permission`
 /// (`None` = apply [`fallback_approval_decision`] for the selected mode). The kernel
 /// snapshot is written back to `conv` so the caller persists the completed turn.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_chat_turn_v2(
     session_id: String,
     conv: Arc<Mutex<Vec<KernelMessage>>>,
@@ -2726,8 +2727,10 @@ mod tests {
 
     #[test]
     fn resolve_provider_name_prefers_override_then_default() {
-        let mut config = Config::default();
-        config.default_provider = "default-prov".to_string();
+        let config = Config {
+            default_provider: "default-prov".to_string(),
+            ..Default::default()
+        };
 
         // Explicit override wins.
         assert_eq!(resolve_provider_name(&config, Some("chosen")), "chosen");

@@ -9745,18 +9745,17 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
             // `[wiki] auto_sync_interval_secs > 0`. Renders a status line only
             // when pages actually changed; no-op otherwise.
             Some(ev) = ctx.wiki_sync_rx.recv() => {
-                if let WikiSyncEvent::Updated { path, modules, files } = ev {
-                    renderer.render(UiLine::CommandOutput(
-                        crate::i18n::t(crate::i18n::Msg::WikiAutoSynced {
-                            modules,
-                            files,
-                            path: &path,
-                        })
-                        .into_owned(),
-                    ));
-                    if matches!(app.state.phase, UiPhase::Idle) {
-                        redraw_idle_plain(&app.buf, &app.state, &ctx, renderer);
-                    }
+                let WikiSyncEvent::Updated { path, modules, files } = ev;
+                renderer.render(UiLine::CommandOutput(
+                    crate::i18n::t(crate::i18n::Msg::WikiAutoSynced {
+                        modules,
+                        files,
+                        path: &path,
+                    })
+                    .into_owned(),
+                ));
+                if matches!(app.state.phase, UiPhase::Idle) {
+                    redraw_idle_plain(&app.buf, &app.state, &ctx, renderer);
                 }
             }
 
@@ -10134,18 +10133,17 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
             // `[wiki] auto_sync_interval_secs > 0`. Renders a status line only
             // when pages actually changed; no-op otherwise.
             Some(ev) = ctx.wiki_sync_rx.recv() => {
-                if let WikiSyncEvent::Updated { path, modules, files } = ev {
-                    renderer.render(UiLine::CommandOutput(
-                        crate::i18n::t(crate::i18n::Msg::WikiAutoSynced {
-                            modules,
-                            files,
-                            path: &path,
-                        })
-                        .into_owned(),
-                    ));
-                    if matches!(app.state.phase, UiPhase::Idle) {
-                        redraw_idle_plain(&app.buf, &app.state, &ctx, renderer);
-                    }
+                let WikiSyncEvent::Updated { path, modules, files } = ev;
+                renderer.render(UiLine::CommandOutput(
+                    crate::i18n::t(crate::i18n::Msg::WikiAutoSynced {
+                        modules,
+                        files,
+                        path: &path,
+                    })
+                    .into_owned(),
+                ));
+                if matches!(app.state.phase, UiPhase::Idle) {
+                    redraw_idle_plain(&app.buf, &app.state, &ctx, renderer);
                 }
             }
 

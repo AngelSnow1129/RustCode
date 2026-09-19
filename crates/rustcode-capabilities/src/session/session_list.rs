@@ -31,18 +31,13 @@ struct ListArgs {
 }
 
 /// The `list_sessions` tool.
+#[derive(Default)]
 pub struct ListSessionsTool {
     /// PINNED sessions dir — same rationale as [`super::recall::RecallTool`]: the
     /// live `ToolContext.working_dir` MOVES when the model runs `cd`, so an
     /// assembly that owns a `SessionManager` pins its `root()` here to stay on the
     /// bucket the session hooks actually write.
     sessions_dir: Option<PathBuf>,
-}
-
-impl Default for ListSessionsTool {
-    fn default() -> Self {
-        Self { sessions_dir: None }
-    }
 }
 
 impl ListSessionsTool {

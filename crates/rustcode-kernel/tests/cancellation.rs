@@ -720,6 +720,7 @@ async fn cancel_preserves_turn_when_keep_interrupted_context() {
 /// A provider that HANGS on its first `chat_stream` (the OPEN never resolves, so the
 /// first turn is cancellable with ZERO assistant output), then responds normally on
 /// every later call. Drives the "empty cancel, then a fresh unrelated message".
+#[allow(dead_code)]
 struct HangFirstThenRespondProvider {
     calls: std::sync::atomic::AtomicUsize,
 }

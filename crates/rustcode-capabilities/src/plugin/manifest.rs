@@ -265,8 +265,8 @@ pub fn load_marketplace_manifest(marketplace_root: &Path) -> Result<Option<Marke
 ///   1. `<plugin-dir>/.rustcode-plugin/plugin.json`  rustcode native
 ///   2. `<plugin-dir>/.claude-plugin/plugin.json`    Claude Code compat
 ///   3. `<plugin-dir>/plugin.json`                   legacy flat layout
-/// First file that exists wins. Returns the default manifest when none
-/// exist; returns `Err` when a file exists but cannot be parsed (fail closed).
+///      First file that exists wins. Returns the default manifest when none
+///      exist; returns `Err` when a file exists but cannot be parsed (fail closed).
 pub fn load_plugin_manifest(plugin_dir: &Path) -> Result<PluginManifest> {
     for rel in [
         ".rustcode-plugin/plugin.json",

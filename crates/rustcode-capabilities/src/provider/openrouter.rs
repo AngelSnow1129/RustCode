@@ -263,7 +263,7 @@ impl LocalCallback {
                         let _ = stream.write_all(
                             format!(
                                 "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                                success_body.as_bytes().len(),
+                                success_body.len(),
                                 success_body,
                             )
                             .as_bytes(),
@@ -274,7 +274,7 @@ impl LocalCallback {
                     let _ = stream.write_all(
                         format!(
                             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                            waiting_body.as_bytes().len(),
+                            waiting_body.len(),
                             waiting_body,
                         )
                         .as_bytes(),
@@ -356,7 +356,7 @@ pub fn open_browser(url: &str) -> Result<()> {
             .stderr(std::process::Stdio::null())
             .spawn()
             .context("Failed to open browser")?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(target_os = "windows")]
     {

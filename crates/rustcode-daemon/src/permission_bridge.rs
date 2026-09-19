@@ -20,6 +20,7 @@ pub struct PermissionResponders {
 /// The runtime remains the request owner; this registry is only the HTTP response route.
 #[derive(Clone, Default)]
 pub struct UserInputResponders {
+    #[allow(clippy::type_complexity)]
     inner: Arc<RwLock<HashMap<(String, u64), oneshot::Sender<serde_json::Value>>>>,
 }
 

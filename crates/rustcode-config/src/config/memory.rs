@@ -10,6 +10,7 @@ pub struct MemoryStore {
     /// Marks the machine-local store: `append` drops a wildcard-only `.gitignore`
     /// sentinel into the store's directory on first write, so machine-specific entries
     /// never reach version control.
+    #[allow(dead_code)]
     local: bool,
 }
 
@@ -89,11 +90,9 @@ impl MemoryStore {
             .lines()
             .filter_map(|line| {
                 let trimmed = line.trim();
-                if let Some(stripped) = trimmed.strip_prefix("- ") {
-                    Some(stripped.to_string())
-                } else {
-                    None
-                }
+                trimmed
+                    .strip_prefix("- ")
+                    .map(|stripped| stripped.to_string())
             })
             .collect()
     }

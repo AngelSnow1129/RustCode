@@ -2793,8 +2793,8 @@ model = "missing-type"
     /// Migration: on-disk config that looks like it was auto-written by
     /// the OLD setup wizard (enabled=true + auto_detect=true + delay=150
     /// + no custom servers) must be silently reset to disabled. Without
-    /// this, users installed before commit 5b07e2a keep spawning
-    /// rust-analyzer / gopls every startup despite the new default.
+    ///   this, users installed before commit 5b07e2a keep spawning
+    ///   rust-analyzer / gopls every startup despite the new default.
     #[test]
     fn migrate_resets_auto_written_lsp_to_disabled() {
         let mut cfg = blank_config_with_lsp(LspConfig {
