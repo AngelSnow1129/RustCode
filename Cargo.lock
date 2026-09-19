@@ -2682,7 +2682,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -2727,7 +2727,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-capabilities"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2776,6 +2776,7 @@ dependencies = [
  "tree-sitter-html",
  "tree-sitter-java",
  "tree-sitter-javascript",
+ "tree-sitter-kotlin-sg",
  "tree-sitter-php",
  "tree-sitter-python",
  "tree-sitter-rust",
@@ -2791,7 +2792,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-clix"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2811,7 +2812,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-coding"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2834,7 +2835,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-config"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "anyhow",
  "dirs",
@@ -2852,7 +2853,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-daemon"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2885,7 +2886,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-kernel"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -2897,7 +2898,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-review"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -2913,7 +2914,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-tuix"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2959,7 +2960,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-tunnel"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -2971,7 +2972,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-updater"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2988,7 +2989,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-wiki"
-version = "5.0.11"
+version = "5.1.0"
 dependencies = [
  "ignore",
  "serde",
@@ -4074,6 +4075,16 @@ name = "tree-sitter-javascript"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68204f2abc0627a90bdf06e605f5c470aa26fdcb2081ea553a04bdad756693f5"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-kotlin-sg"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c06ec43ae3c12165d4ac08afe4e1f5fc6757ffe274fa7bd5af9007ef11ba4319"
 dependencies = [
  "cc",
  "tree-sitter-language",

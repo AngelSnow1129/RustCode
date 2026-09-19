@@ -218,6 +218,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::StatusMemoryFilesHeader => "  Memory files:\n".into(),
         Msg::StatusMemoryScopeGlobal => "User global".into(),
         Msg::StatusMemoryScopeProject => "Project memory".into(),
+        Msg::StatusMemoryScopeLocal => "Machine-local".into(),
         Msg::StatusMemoryPresent { path, scope } =>
             format!("    [+] {scope}: {path}\n").into(),
         Msg::StatusMemoryMissing { path, scope } =>
@@ -1174,6 +1175,18 @@ base_url and api_key, or run rustcode with --provider <name>.\n"
             "  Usage: /mcp tools <server>\n  Example: /mcp tools filesystem\n".into(),
         Msg::McpServersHeader =>
             "  MCP Servers:\n".into(),
+        Msg::McpUnknownServer { name, available } =>
+            format!("  no MCP server named '{name}' — available: {available}\n").into(),
+        Msg::McpHelp =>
+            "  /mcp usage:\n    \
+             /mcp                 list configured MCP servers and status\n    \
+             /mcp tools <server>  list a server's tools\n    \
+             /mcp reload          reload MCP configuration\n    \
+             /mcp trust           trust this project's MCP servers\n    \
+             /mcp untrust         untrust this project's MCP servers\n    \
+             /mcp login <server>  OAuth-login to a remote server\n    \
+             /mcp logout <server> log out of OAuth\n    \
+             /mcp help            show this help\n".into(),
         Msg::McpBlockedTrustHint { count } =>
             format!(
                 "  {count} server(s) blocked because this project is untrusted.\n  Run /mcp trust to load this project's MCP servers.\n"
@@ -1490,6 +1503,9 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CmdDescUndo => "Undo: roll conversation memory back a turn (/undo or /undo N)".into(),
         Msg::CmdDescRewind => "Rewind: restore the conversation to an earlier checkpoint".into(),
         Msg::CmdDescWorktree => "Git worktree isolation (create/list/done/cleanup)".into(),
+        Msg::CmdDescWorklog => "Daily work recap across all projects (/worklog [today|yesterday|M/D])".into(),
+        Msg::CmdDescOpenrouter =>
+            "Connect to OpenRouter free models (/openrouter for OAuth, /openrouter <key> with existing key)".into(),
         Msg::CmdDescUpgrade => "Upgrade rustcode to latest (subcommand: rollback)".into(),
         Msg::CmdDescPlan => "Switch to Plan mode (read-only exploration)".into(),
         Msg::CmdDescBuild => "Switch to Build mode (full execution)".into(),

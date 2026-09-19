@@ -7,6 +7,10 @@ const DEFAULT_CHAR_LIMIT: usize = 4000;
 
 pub struct MemoryStore {
     path: PathBuf,
+    /// Marks the machine-local store: `append` drops a wildcard-only `.gitignore`
+    /// sentinel into the store's directory on first write, so machine-specific entries
+    /// never reach version control.
+    local: bool,
 }
 
 /// Resolve the project-scope memory file. `override_dir` = the value of
@@ -20,9 +24,19 @@ fn project_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathB
     project_root.join(dir).join("memory.md")
 }
 
+/// Resolve the machine-local, project-scoped memory file. `override_dir` = the value of
+/// `RUSTCODE_LOCAL_MEMORY_DIR` (None/empty -> default ".rustcode/local"). A relative value
+/// nests under `project_root`; an absolute value is used as-is.
+fn local_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathBuf {
+    let dir = override_dir
+        .filter(|s| !s.is_empty())
+        .unwrap_or(".rustcode/local");
+    project_root.join(dir).join("memory.md")
+}
+
 impl MemoryStore {
     pub fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self { path, local: false }
     }
 
     pub fn global() -> Self {
@@ -35,6 +49,17 @@ impl MemoryStore {
     pub fn project(project_root: &Path) -> Self {
         let override_dir = std::env::var("RUSTCODE_PROJECT_MEMORY_DIR").ok();
         Self::new(project_memory_path(project_root, override_dir.as_deref()))
+    }
+
+    /// Machine-local, project-scoped store. Honors `RUSTCODE_LOCAL_MEMORY_DIR`; default
+    /// `.rustcode/local`. Best home for facts unique to this machine that should not be
+    /// committed (`.rustcode/local/` is gitignored).
+    pub fn local(project_root: &Path) -> Self {
+        let override_dir = std::env::var("RUSTCODE_LOCAL_MEMORY_DIR").ok();
+        Self {
+            path: local_memory_path(project_root, override_dir.as_deref()),
+            local: true,
+        }
     }
 
     pub fn path(&self) -> &Path {

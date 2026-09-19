@@ -1512,8 +1512,8 @@ mod tests {
     /// this exact path string, so renaming the pinned literal requires re-deriving
     /// the constant or the test rots. That is precisely what happened here -- the
     /// previous constant `8b6a67e0b2c06dae` is still, on this exact toolchain, the
-    /// hash of the pre-rename literal `/tmp/atomcode-trust-golden`; the
-    /// `atomcode-*` -> `rustcode-*` rename updated the literal but left the
+    /// hash of the pre-rename literal `/tmp/rustcode-trust-golden`; the
+    /// `rustcode-*` -> `rustcode-*` rename updated the literal but left the
     /// constant behind. It was NOT `DefaultHasher` cross-toolchain instability:
     /// re-hashing that old literal with the current std reproduces it bit-for-bit,
     /// and `/tmp/rustcode-trust-golden` has always hashed to the value below.

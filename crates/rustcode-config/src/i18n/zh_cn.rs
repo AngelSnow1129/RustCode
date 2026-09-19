@@ -202,6 +202,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::StatusMemoryFilesHeader => "  记忆文件：\n".into(),
         Msg::StatusMemoryScopeGlobal => "用户全局".into(),
         Msg::StatusMemoryScopeProject => "项目记忆".into(),
+        Msg::StatusMemoryScopeLocal => "本机记忆".into(),
         Msg::StatusMemoryPresent { path, scope } =>
             format!("    [+] {scope}：{path}\n").into(),
         Msg::StatusMemoryMissing { path, scope } =>
@@ -1136,6 +1137,18 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
             "  用法：/mcp tools <服务器名>\n  示例：/mcp tools filesystem\n".into(),
         Msg::McpServersHeader =>
             "  MCP 服务器：\n".into(),
+        Msg::McpUnknownServer { name, available } =>
+            format!("  未找到名为 '{name}' 的 MCP 服务器 —— 可用：{available}\n").into(),
+        Msg::McpHelp =>
+            "  /mcp 用法：\n    \
+             /mcp                    列出已配置的 MCP 服务器及状态\n    \
+             /mcp tools <服务器名>    列出某个服务器的工具\n    \
+             /mcp reload             重新加载 MCP 配置\n    \
+             /mcp trust              信任本项目的 MCP 服务器\n    \
+             /mcp untrust            取消信任本项目的 MCP 服务器\n    \
+             /mcp login <服务器名>    对远程服务器进行 OAuth 登录\n    \
+             /mcp logout <服务器名>   注销 OAuth 登录\n    \
+             /mcp help               显示本帮助\n".into(),
         Msg::McpBlockedTrustHint { count } =>
             format!(
                 "  有 {count} 个服务器因本项目未被信任而被拦截。\n  运行 /mcp trust 可加载本项目的 MCP 服务器。\n"
@@ -1449,6 +1462,9 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CmdDescUndo => "撤销：把对话记忆回退一轮（/undo 或 /undo N）".into(),
         Msg::CmdDescRewind => "回退：把对话恢复到更早的检查点".into(),
         Msg::CmdDescWorktree => "Git 工作树隔离（create/list/done/cleanup）".into(),
+        Msg::CmdDescWorklog => "跨所有项目的每日工作复盘（/worklog [today|yesterday|月/日]）".into(),
+        Msg::CmdDescOpenrouter =>
+            "接入 OpenRouter 免费模型（/openrouter 走 OAuth，/openrouter <key> 直传已有密钥）".into(),
         Msg::CmdDescUpgrade => "升级到最新版本（子命令：rollback）".into(),
         Msg::CmdDescPlan => "切换到 Plan 模式（只读探索）".into(),
         Msg::CmdDescBuild => "切换到 Build 模式（完整执行）".into(),

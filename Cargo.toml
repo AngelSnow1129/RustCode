@@ -23,7 +23,7 @@ panic = "abort"        # Remove panic unwinding code — saves ~200-500KB
 debug = "line-tables-only" # Smaller binaries, faster linker
 
 [workspace.package]
-version = "5.0.11"
+version = "5.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://gitcode.com/SecLab/RustCode"

@@ -1,8 +1,8 @@
-//! `MemoryStore` -- ported VERBATIM from `rustcode_core::config::memory` (the only
+//! `MemoryStore` — ported VERBATIM from `rustcode_core::config::memory` (the only
 //! change: `global()` resolves the root via [`super::config_dir`] instead of
 //! `Config::config_dir`, the standard L1 decoupling). Byte-compatible with
 //! production's `memory.md` files: same `- ` bullet format, same 64KB tail-read cap,
-//! same merged-prompt header and 4000-char truncation -- old and new stacks read and
+//! same merged-prompt header and 4000-char truncation — old and new stacks read and
 //! write the same memory (caveat for `sudo`: see [`super::config_dir`]).
 
 use std::fs;
@@ -14,10 +14,15 @@ const DEFAULT_CHAR_LIMIT: usize = 4000;
 
 pub struct MemoryStore {
     path: PathBuf,
+    /// Marks the machine-local store: `append` drops a wildcard-only `.gitignore`
+    /// sentinel into the store's directory on first write, so machine-specific
+    /// entries never reach version control even in repos where `rustcode setup`
+    /// never appended the repo-root marker.
+    local: bool,
 }
 
 /// Resolve the project-scope memory file. `override_dir` = the value of
-/// `RUSTCODE_PROJECT_MEMORY_DIR` (None/empty -> default ".rustcode"). A relative value
+/// `RUSTCODE_PROJECT_MEMORY_DIR` (None/empty → default ".rustcode"). A relative value
 /// nests under `project_root`; an absolute value is used as-is (std `Path::join`
 /// semantics). `memory.md` is appended in either case.
 fn project_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathBuf {
@@ -27,9 +32,66 @@ fn project_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathB
     project_root.join(dir).join("memory.md")
 }
 
+/// Resolve the machine-local, project-scoped memory file. `override_dir` = the value of
+/// `RUSTCODE_LOCAL_MEMORY_DIR` (None/empty → default ".rustcode/local"). A relative value
+/// nests under `project_root`; an absolute value is used as-is — the same path-join
+/// semantics as `project_memory_path`. `memory.md` is appended in either case.
+fn local_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathBuf {
+    let dir = override_dir
+        .filter(|s| !s.is_empty())
+        .unwrap_or(".rustcode/local");
+    project_root.join(dir).join("memory.md")
+}
+
+/// True when `store_path` is already excluded by some `.gitignore` layer between its
+/// directory and the filesystem root. Git precedence: the DEEPEST matching pattern
+/// wins, so layers are evaluated shallow → deep and the last non-None match decides.
+/// Directory patterns (`.rustcode/local/`) only match the directory itself, hence the
+/// any-parents matcher — a file under an excluded directory counts as excluded.
+fn path_is_gitignored(store_path: &Path) -> bool {
+    // Collect existing layers walking up (deep → shallow), then reverse: shallow → deep.
+    let mut layers = Vec::new();
+    let mut dir = store_path.parent();
+    while let Some(d) = dir {
+        let gi = d.join(".gitignore");
+        if gi.is_file() {
+            layers.push((d.to_path_buf(), ignore::gitignore::Gitignore::new(&gi).0));
+        }
+        dir = d.parent();
+    }
+    let mut covered = false;
+    for (root, matcher) in layers.iter().rev() {
+        let Ok(rel) = store_path.strip_prefix(root) else {
+            continue;
+        };
+        match matcher.matched_path_or_any_parents(rel, false) {
+            ignore::Match::None => {}
+            ignore::Match::Ignore(_) => covered = true,
+            ignore::Match::Whitelist(_) => covered = false,
+        }
+    }
+    covered
+}
+
+/// Drop a wildcard-only `.gitignore` next to the store file so the machine-local
+/// memory never reaches version control — even in repos where `rustcode setup` never
+/// appended the repo-root marker. Never clobbers an existing `.gitignore`. Propagates a
+/// genuine write failure: for a local store, "couldn't protect" MUST surface to the
+/// caller rather than silently proceeding to write committable memory (the whole point
+/// of this scope is not-leaking, so leak-prevention wins over write-at-all-costs).
+fn ensure_gitignore_sentinel(store_path: &Path) -> io::Result<()> {
+    if let Some(dir) = store_path.parent() {
+        let sentinel = dir.join(".gitignore");
+        if !sentinel.exists() {
+            fs::write(sentinel, "*\n")?;
+        }
+    }
+    Ok(())
+}
+
 impl MemoryStore {
     pub fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self { path, local: false }
     }
 
     pub fn global() -> Self {
@@ -42,6 +104,18 @@ impl MemoryStore {
     pub fn project(project_root: &Path) -> Self {
         let override_dir = std::env::var("RUSTCODE_PROJECT_MEMORY_DIR").ok();
         Self::new(project_memory_path(project_root, override_dir.as_deref()))
+    }
+
+    /// Machine-local, project-scoped store. Honors `RUSTCODE_LOCAL_MEMORY_DIR` (host
+    /// rebrand parity with the project scope's `RUSTCODE_PROJECT_MEMORY_DIR`); default
+    /// `.rustcode/local` is unchanged. Best home for facts unique to this machine that
+    /// should not be committed (`.rustcode/local/` is gitignored).
+    pub fn local(project_root: &Path) -> Self {
+        let override_dir = std::env::var("RUSTCODE_LOCAL_MEMORY_DIR").ok();
+        Self {
+            path: local_memory_path(project_root, override_dir.as_deref()),
+            local: true,
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -77,6 +151,9 @@ impl MemoryStore {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
+        if self.local && !path_is_gitignored(&self.path) {
+            ensure_gitignore_sentinel(&self.path)?;
+        }
 
         // Read existing content to check if we need a leading newline
         let existing = fs::read_to_string(&self.path).unwrap_or_default();
@@ -95,7 +172,7 @@ impl MemoryStore {
 
     /// Append `content` only if no existing entry equals it (trimmed, ASCII-case-insensitive;
     /// non-ASCII compares exactly). Returns `Ok(true)` if written, `Ok(false)` if skipped as a
-    /// duplicate. Near-duplicates are NOT detected -- only exact repeats are skipped, so a
+    /// duplicate. Near-duplicates are NOT detected — only exact repeats are skipped, so a
     /// genuinely new fact is never silently swallowed.
     pub fn append_deduped(&self, content: &str) -> io::Result<bool> {
         let trimmed = content.trim();
@@ -147,12 +224,14 @@ impl MemoryStore {
     pub fn merged_for_prompt(
         global: &MemoryStore,
         project: &MemoryStore,
+        local: &MemoryStore,
         project_name: &str,
     ) -> String {
         let global_entries = global.load();
         let project_entries = project.load();
+        let local_entries = local.load();
 
-        if global_entries.is_empty() && project_entries.is_empty() {
+        if global_entries.is_empty() && project_entries.is_empty() && local_entries.is_empty() {
             return String::new();
         }
 
@@ -170,6 +249,13 @@ impl MemoryStore {
         if !project_entries.is_empty() {
             result.push_str(&format!("\n[Project: {}]\n", project_name));
             for entry in &project_entries {
+                result.push_str(&format!("- {}\n", entry));
+            }
+        }
+
+        if !local_entries.is_empty() {
+            result.push_str("\n[Local]\n");
+            for entry in &local_entries {
                 result.push_str(&format!("- {}\n", entry));
             }
         }
@@ -257,9 +343,9 @@ mod tests {
     fn append_deduped_skips_exact_case_insensitive_duplicate() {
         let tmp = tempfile::tempdir().unwrap();
         let store = MemoryStore::new(tmp.path().join("memory.md"));
-        assert!(store.append_deduped("Uses tabs").unwrap());
-        assert!(!store.append_deduped("uses tabs").unwrap()); // 大小写不敏感完全重复 -> 跳
-        assert!(store.append_deduped("uses spaces").unwrap()); // 不同内容 -> 写
+        assert_eq!(store.append_deduped("Uses tabs").unwrap(), true);
+        assert_eq!(store.append_deduped("uses tabs").unwrap(), false); // 大小写不敏感完全重复 → 跳
+        assert_eq!(store.append_deduped("uses spaces").unwrap(), true); // 不同内容 → 写
         assert_eq!(store.load().len(), 2);
     }
 
@@ -289,6 +375,95 @@ mod tests {
     }
 
     #[test]
+    fn local_memory_path_resolves_override() {
+        use std::path::Path;
+        let root = Path::new("/proj");
+        // Default (unset/empty) resolves under `.rustcode/local`.
+        assert_eq!(
+            super::local_memory_path(root, None),
+            Path::new("/proj/.rustcode/local/memory.md")
+        );
+        assert_eq!(
+            super::local_memory_path(root, Some("")),
+            Path::new("/proj/.rustcode/local/memory.md")
+        );
+        // Relative override nests under project_root.
+        assert_eq!(
+            super::local_memory_path(root, Some(".myapp/local")),
+            Path::new("/proj/.myapp/local/memory.md")
+        );
+        // Absolute override is used as-is (Path::join replaces the base).
+        assert_eq!(
+            super::local_memory_path(root, Some("/opt/brand/mem")),
+            Path::new("/opt/brand/mem/memory.md")
+        );
+    }
+
+    #[test]
+    fn local_append_skips_sentinel_when_already_gitignored() {
+        let dir = tempfile::tempdir().unwrap();
+        // A repo-root layer already covers `.rustcode/local/` (as `rustcode setup`
+        // would have appended): the wildcard sentinel must NOT be written.
+        fs::write(dir.path().join(".gitignore"), ".rustcode/local/\n").unwrap();
+        let store = MemoryStore::local(dir.path());
+        store.append("machine only").unwrap();
+        let sentinel = store.path().parent().unwrap().join(".gitignore");
+        assert!(
+            !sentinel.exists(),
+            "covered path must not grow a redundant sentinel"
+        );
+    }
+
+    #[test]
+    fn local_append_writes_gitignore_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MemoryStore::local(dir.path());
+        store.append("machine only").unwrap();
+        // Sentinel lands NEXT TO the store file (env-neutral: derive from the
+        // resolved path, not from a hardcoded `.rustcode/local` guess).
+        let sentinel = store.path().parent().unwrap().join(".gitignore");
+        assert_eq!(fs::read_to_string(&sentinel).unwrap(), "*\n");
+        // Idempotent: an existing sentinel (user-customized or prior run) is never
+        // clobbered by a later append.
+        fs::write(&sentinel, "# custom\n").unwrap();
+        store.append("more").unwrap();
+        assert_eq!(fs::read_to_string(&sentinel).unwrap(), "# custom\n");
+    }
+
+    #[test]
+    fn non_local_append_writes_no_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        MemoryStore::project(dir.path())
+            .append("committed fact")
+            .unwrap();
+        let sentinel = MemoryStore::project(dir.path())
+            .path()
+            .parent()
+            .unwrap()
+            .join(".gitignore");
+        assert!(
+            !sentinel.exists(),
+            "project/global stores must not grow a gitignore sentinel"
+        );
+    }
+
+    #[test]
+    fn ensure_gitignore_sentinel_propagates_write_failure() {
+        // A failed sentinel write must NOT be swallowed: for a machine-local store,
+        // "couldn't protect" must surface rather than silently leave memory writable.
+        // Make the store's parent a FILE so writing `<parent>/.gitignore` fails with
+        // ENOTDIR — deterministic across OS/user/permissions (root included).
+        let dir = tempfile::tempdir().unwrap();
+        let parent_as_file = dir.path().join("local");
+        fs::write(&parent_as_file, b"x").unwrap();
+        let store_path = parent_as_file.join("memory.md");
+        assert!(
+            super::ensure_gitignore_sentinel(&store_path).is_err(),
+            "a failed sentinel write must be propagated, not swallowed"
+        );
+    }
+
+    #[test]
     fn test_merged_for_prompt_truncation() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("memory.md");
@@ -296,7 +471,7 @@ mod tests {
         fs::write(&path, format!("- {}\n", long_entry)).unwrap();
         let store = MemoryStore::new(path);
         let empty = MemoryStore::new(PathBuf::from("/none"));
-        let result = MemoryStore::merged_for_prompt(&store, &empty, "p");
+        let result = MemoryStore::merged_for_prompt(&store, &empty, &empty, "p");
         assert!(result.contains("[...truncated"));
         assert!(result.chars().count() < 5000);
     }

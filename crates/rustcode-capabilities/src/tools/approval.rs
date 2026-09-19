@@ -39,6 +39,11 @@ pub struct ApprovalRequest {
     pub tool: String,
     /// The EXACT argument bytes that will execute (approve-what-runs contract).
     pub args: String,
+    /// Human-readable "why is this being asked" line shown above the options.
+    /// `None` for a plain approval; set by gates that re-confirm despite a session
+    /// grant (destructive / out-of-workspace / sensitive path).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// The driver's answer. `decision` is `"allow"` / `"allow_always"` / `"deny"`
@@ -72,6 +77,10 @@ impl ApprovalResponse {
     }
 }
 
+/// Sentinel key for the session-scoped "allow all Bash (incl. destructive)" grant,
+/// stored in the shared allow-all `PermissionStore` and checked by both Bash gates.
+pub const BASH_ALLOW_ALL_KEY: &str = "bash::*";
+
 /// The decision a driver returns for an approval round-trip.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PermissionDecision {
@@ -80,6 +89,10 @@ pub enum PermissionDecision {
     /// Allow AND remember -- the store caches the grant so the identical call is not
     /// asked again this session.
     AllowAlways,
+    /// Allow AND remember for ALL Bash this session (the explicit "allow all Bash,
+    /// incl. destructive" option). Recorded in the shared allow-all store under
+    /// [`BASH_ALLOW_ALL_KEY`]; honored by both BashWorkspaceGate and ApprovalMiddleware.
+    AllowAlwaysAll,
     /// Deny -- the middleware blocks the call with `Err`.
     Deny,
 }
@@ -91,7 +104,9 @@ impl PermissionDecision {
     pub fn from_value(v: &serde_json::Value) -> Self {
         let decision = v.get("decision").and_then(|x| x.as_str()).unwrap_or("deny");
         let remember = v.get("remember").and_then(|x| x.as_bool()).unwrap_or(false);
+        let scope = v.get("grant_scope").and_then(|x| x.as_str()).unwrap_or("");
         match decision {
+            "allow" if remember && scope == "all" => PermissionDecision::AllowAlwaysAll,
             "allow_always" => PermissionDecision::AllowAlways,
             "allow" if remember => PermissionDecision::AllowAlways,
             "allow" => PermissionDecision::AllowOnce,
@@ -226,6 +241,7 @@ pub async fn request_approval_decision(
         call_id: call.id.clone(),
         tool: tool_name.to_string(),
         args: call.arguments.clone(),
+        reason: None,
     })
     .unwrap_or(serde_json::Value::Null);
     let response = rt.request(kind, payload).await;
@@ -256,6 +272,10 @@ impl ToolMiddleware for ApprovalMiddleware {
             Err(degraded) => degraded, // Null -> fail closed (channel failure, not a user deny).
             Ok(PermissionDecision::AllowOnce) => BeforeOutcome::Proceed,
             Ok(PermissionDecision::AllowAlways) => {
+                self.store.grant(&key);
+                BeforeOutcome::Proceed
+            }
+            Ok(PermissionDecision::AllowAlwaysAll) => {
                 self.store.grant(&key);
                 BeforeOutcome::Proceed
             }
@@ -440,6 +460,7 @@ mod tests {
             call_id: "call_1".into(),
             tool: "bash".into(),
             args: "{\"cmd\":\"ls\"}".into(),
+            reason: None,
         })
         .unwrap();
         assert_eq!(

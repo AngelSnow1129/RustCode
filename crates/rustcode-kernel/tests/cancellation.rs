@@ -717,6 +717,41 @@ async fn cancel_preserves_turn_when_keep_interrupted_context() {
     );
 }
 
+/// A provider that HANGS on its first `chat_stream` (the OPEN never resolves, so the
+/// first turn is cancellable with ZERO assistant output), then responds normally on
+/// every later call. Drives the "empty cancel, then a fresh unrelated message".
+struct HangFirstThenRespondProvider {
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait]
+impl rustcode_kernel::provider::LlmProvider for HangFirstThenRespondProvider {
+    fn model_name(&self) -> &str {
+        "hang-first-then-respond"
+    }
+    async fn chat_stream(
+        &self,
+        _: &[Message],
+        _: &[rustcode_kernel::tool::ToolDef],
+        _: &rustcode_kernel::provider::ChatOptions,
+    ) -> Result<
+        futures::stream::BoxStream<'static, StreamEvent>,
+        rustcode_kernel::stream::ProviderError,
+    > {
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            futures::future::pending().await // first turn: hang → cancelled empty
+        } else {
+            use futures::StreamExt;
+            Ok(futures::stream::iter(vec![
+                StreamEvent::TextDelta("second turn done".into()),
+                StreamEvent::Done { truncated: false },
+            ])
+            .boxed())
+        }
+    }
+}
+
+// REGRESSION (empty-cancel contamination): in PRESERVE mode, a turn cancelled BEFORE the
 // CLAIM 17f: in preserve mode, finish_cancelled appends a synthetic USER-role marker so
 // the next turn's request explicitly tells the model the prior turn was user-interrupted.
 // User role is wire-safe on all adapters (non-leading system messages are rejected/dropped

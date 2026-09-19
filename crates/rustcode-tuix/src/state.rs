@@ -87,6 +87,12 @@ pub struct ApprovalPanel {
     /// Optional advisory line rendered under the header (e.g. a credential-exposure
     /// warning). `None` for ordinary approvals.
     pub note: Option<String>,
+    /// Optional "why is this being asked" line from `ApprovalRequest.reason`.
+    pub reason: Option<String>,
+    /// Full, UNTRUNCATED command text for a Bash approval.
+    pub full_command: Option<String>,
+    /// Whether the full-command block is expanded. Default collapsed.
+    pub expanded: bool,
 }
 
 impl ApprovalPanel {
@@ -3373,6 +3379,9 @@ mod tests {
             selected: 0,
             cache_key: String::new(),
             note: None,
+            reason: None,
+            full_command: None,
+            expanded: false,
         };
         p.move_up();
         assert_eq!(p.selected, 2, "up from 0 wraps to last");

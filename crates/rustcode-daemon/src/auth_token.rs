@@ -143,8 +143,6 @@ pub async fn require_webui_token(
     }
 }
 
-
-
 #[cfg(test)]
 mod token_store_tests {
     use super::*;

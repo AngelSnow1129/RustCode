@@ -10654,6 +10654,8 @@ mod tests {
                     activity: "running".into(),
                     started_at: None,
                     output_tokens: 0,
+                    finished_at: None,
+                    tool_uses: 0,
                     status: SubtaskStatus::Running,
                 })
                 .collect(),
@@ -12192,6 +12194,7 @@ mod tests {
     fn status_basic() -> StatusLine {
         StatusLine {
             model: "glm-5".into(),
+            model_channel: None,
             cwd: "~/project/rustcode".into(),
             history: None,
             search: None,
@@ -12201,6 +12204,7 @@ mod tests {
             hint: None,
             mode_indicator: None,
             bypass_indicator: None,
+            cache_indicator: None,
             session_name: None,
             reasoning_effort: None,
             goal: None,
@@ -12592,6 +12596,7 @@ mod tests {
         r.caps.unicode_symbols = true;
         let status = StatusLine {
             model: "glm-5".into(),
+            model_channel: None,
             cwd: "~/proj".into(),
             history: None,
             search: None,
@@ -12604,6 +12609,7 @@ mod tests {
                 colour: BadgeColour::Mode,
             }),
             bypass_indicator: None,
+            cache_indicator: None,
             session_name: None,
             reasoning_effort: None,
             goal: None,
@@ -12648,6 +12654,7 @@ mod tests {
         let shell_fg = role(r.caps, Role::Shell);
         let status = StatusLine {
             model: "glm-5".into(),
+            model_channel: None,
             cwd: "~/proj".into(),
             history: None,
             search: None,
@@ -12660,6 +12667,7 @@ mod tests {
                 colour: BadgeColour::Mode,
             }),
             bypass_indicator: None,
+            cache_indicator: None,
             session_name: None,
             reasoning_effort: None,
             goal: None,
@@ -12723,6 +12731,7 @@ mod tests {
         r.caps.unicode_symbols = true;
         let status = StatusLine {
             model: "glm-5".into(),
+            model_channel: None,
             cwd: "~/proj".into(),
             history: None,
             search: None,
@@ -12735,6 +12744,7 @@ mod tests {
                 colour: BadgeColour::Mode,
             }),
             bypass_indicator: Some("\u{26a0} BYPASS".into()),
+            cache_indicator: None,
             session_name: None,
             reasoning_effort: None,
             goal: None,
@@ -12774,6 +12784,7 @@ mod tests {
         r.caps.unicode_symbols = true;
         let status = StatusLine {
             model: "glm-5".into(),
+            model_channel: None,
             cwd: "~/proj".into(),
             history: None,
             search: None,
@@ -12786,6 +12797,7 @@ mod tests {
                 colour: BadgeColour::Mode,
             }),
             bypass_indicator: None,
+            cache_indicator: None,
             session_name: None,
             reasoning_effort: None,
             goal: None,
@@ -12829,6 +12841,7 @@ mod tests {
         let plan_fg = role(r.caps, Role::Plan);
         let status = StatusLine {
             model: "glm-5".into(),
+            model_channel: None,
             cwd: "~/proj".into(),
             history: None,
             search: None,
@@ -12841,6 +12854,7 @@ mod tests {
                 colour: BadgeColour::Plan,
             }),
             bypass_indicator: None,
+            cache_indicator: None,
             session_name: None,
             reasoning_effort: None,
             goal: None,
@@ -12884,6 +12898,7 @@ mod tests {
         r.caps.unicode_symbols = true;
         let status = StatusLine {
             model: "glm-5".into(),
+            model_channel: None,
             cwd: "~/proj".into(),
             history: None,
             search: None,
@@ -12896,6 +12911,7 @@ mod tests {
                 colour: BadgeColour::Secondary,
             }),
             bypass_indicator: None,
+            cache_indicator: None,
             session_name: None,
             reasoning_effort: None,
             goal: None,
@@ -12926,6 +12942,7 @@ mod tests {
         r.caps.unicode_symbols = true;
         let status = StatusLine {
             model: "glm-5".into(),
+            model_channel: None,
             cwd: "~/proj".into(),
             history: None,
             search: None,
@@ -12935,6 +12952,7 @@ mod tests {
             hint: None,
             mode_indicator: None,
             bypass_indicator: Some("\u{26a0} BYPASS".into()),
+            cache_indicator: None,
             session_name: None,
             reasoning_effort: None,
             goal: None,
@@ -14779,6 +14797,8 @@ mod tests {
                 activity: "analyzing".into(),
                 started_at: Some(std::time::Instant::now()),
                 output_tokens: 1000,
+                finished_at: None,
+                tool_uses: 0,
                 status: SubtaskStatus::Running,
             }],
         };
@@ -19120,6 +19140,8 @@ mod tests {
                     activity: "completed".into(),
                     started_at: Some(std::time::Instant::now()),
                     output_tokens: 900,
+                    finished_at: None,
+                    tool_uses: 0,
                     status: SubtaskStatus::Completed,
                 },
                 SubtaskItem {
@@ -19129,6 +19151,8 @@ mod tests {
                     activity: "reading files".into(),
                     started_at: Some(std::time::Instant::now()),
                     output_tokens: 420,
+                    finished_at: None,
+                    tool_uses: 0,
                     status: SubtaskStatus::Running,
                 },
                 SubtaskItem {
@@ -19138,6 +19162,8 @@ mod tests {
                     activity: "thinking".into(),
                     started_at: Some(std::time::Instant::now()),
                     output_tokens: 210,
+                    finished_at: None,
+                    tool_uses: 0,
                     status: SubtaskStatus::Running,
                 },
             ],
@@ -19211,6 +19237,8 @@ mod tests {
                     activity: "已定位命令注册入口，正在核对补全与权限机制".into(),
                     started_at: Some(std::time::Instant::now()),
                     output_tokens: 12_345,
+                    finished_at: None,
+                    tool_uses: 0,
                     status: SubtaskStatus::Running,
                 })
                 .collect(),
@@ -19248,6 +19276,8 @@ mod tests {
             activity: String::new(),
             started_at: Some(std::time::Instant::now()),
             output_tokens: 0,
+            finished_at: None,
+            tool_uses: 0,
             status: state,
         };
         status.subtasks = Some(SubtaskProgress {
@@ -19298,6 +19328,8 @@ mod tests {
             activity: String::new(),
             started_at: None,
             output_tokens: 0,
+            finished_at: None,
+            tool_uses: 0,
             status: state,
         };
         status.subtasks = Some(SubtaskProgress {
@@ -19339,6 +19371,8 @@ mod tests {
             activity: "正在分析结果".into(),
             started_at: Some(std::time::Instant::now()),
             output_tokens: 128,
+            finished_at: None,
+            tool_uses: 0,
             status: state,
         };
         let progress = SubtaskProgress {
@@ -19387,6 +19421,8 @@ mod tests {
             activity: "working".into(),
             started_at: Some(std::time::Instant::now()),
             output_tokens: 128,
+            finished_at: None,
+            tool_uses: 0,
             status: state,
         };
         for call_id in ["call-task", "team:runtime"] {
@@ -19434,6 +19470,8 @@ mod tests {
                     activity: "thinking".into(),
                     started_at: Some(std::time::Instant::now()),
                     output_tokens: 128,
+                    finished_at: None,
+                    tool_uses: 0,
                     status: SubtaskStatus::Running,
                 },
                 SubtaskItem {
@@ -19443,6 +19481,8 @@ mod tests {
                     activity: "queued".into(),
                     started_at: None,
                     output_tokens: 0,
+                    finished_at: None,
+                    tool_uses: 0,
                     status: SubtaskStatus::Pending,
                 },
             ],
@@ -19569,6 +19609,8 @@ mod tests {
                 activity: label.into(),
                 started_at: None,
                 output_tokens: 0,
+                finished_at: None,
+                tool_uses: 0,
                 status,
             })
             .collect(),
@@ -19602,6 +19644,8 @@ mod tests {
                 activity: "thinking".into(),
                 started_at: Some(std::time::Instant::now()),
                 output_tokens: 0,
+                finished_at: None,
+                tool_uses: 0,
                 status: SubtaskStatus::Running,
             }],
         };
@@ -19658,6 +19702,8 @@ mod tests {
                         activity: "thinking".into(),
                         started_at: None,
                         output_tokens: 0,
+                        finished_at: None,
+                        tool_uses: 0,
                         status: SubtaskStatus::Running,
                     }],
                 },
@@ -19700,6 +19746,8 @@ mod tests {
                 activity: "thinking".into(),
                 started_at: None,
                 output_tokens: 0,
+                finished_at: None,
+                tool_uses: 0,
                 status: SubtaskStatus::Running,
             }],
         };
@@ -19740,6 +19788,8 @@ mod tests {
                 activity: "thinking".into(),
                 started_at: None,
                 output_tokens: 0,
+                finished_at: None,
+                tool_uses: 0,
                 status: SubtaskStatus::Running,
             }],
         };
@@ -19804,6 +19854,8 @@ mod tests {
                     activity: "thinking".into(),
                     started_at: Some(std::time::Instant::now()),
                     output_tokens: 0,
+                    finished_at: None,
+                    tool_uses: 0,
                     status: SubtaskStatus::Running,
                 })
                 .collect(),
@@ -19845,6 +19897,8 @@ mod tests {
                 activity: String::new(),
                 started_at: None,
                 output_tokens: 0,
+                finished_at: None,
+                tool_uses: 0,
                 status: SubtaskStatus::Pending,
             }],
         };
@@ -19882,6 +19936,8 @@ mod tests {
                 activity: "thinking".into(),
                 started_at: Some(std::time::Instant::now()),
                 output_tokens: 0,
+                finished_at: None,
+                tool_uses: 0,
                 status: SubtaskStatus::Running,
             }],
         });
@@ -19918,6 +19974,8 @@ mod tests {
                 activity: "thinking".into(),
                 started_at: Some(std::time::Instant::now()),
                 output_tokens: 0,
+                finished_at: None,
+                tool_uses: 0,
                 status: SubtaskStatus::Running,
             }],
         });
@@ -19957,6 +20015,8 @@ mod tests {
                 activity: "waiting".into(),
                 started_at: Some(std::time::Instant::now()),
                 output_tokens: 0,
+                finished_at: None,
+                tool_uses: 0,
                 status: SubtaskStatus::Running,
             }],
         });
@@ -19966,6 +20026,9 @@ mod tests {
             options: vec!["Allow".into(), "Deny".into()],
             selected: 0,
             note: None,
+            reason: None,
+            full_command: None,
+            expanded: false,
         });
         r.render(UiLine::InputPrompt {
             buf: String::new(),
@@ -19999,6 +20062,9 @@ mod tests {
             ],
             selected: 0,
             note: None,
+            reason: None,
+            full_command: None,
+            expanded: false,
         });
         r.render(UiLine::InputPrompt {
             buf: String::new(),
@@ -20050,6 +20116,9 @@ mod tests {
             options: vec!["Allow once".into(), "Deny".into()],
             selected: 0,
             note: Some("may send credentials to the provider".into()),
+            reason: None,
+            full_command: None,
+            expanded: false,
         });
         r.render(UiLine::InputPrompt {
             buf: String::new(),
@@ -20734,6 +20803,9 @@ mod tests {
             ],
             selected: 0,
             note: None,
+            reason: None,
+            full_command: None,
+            expanded: false,
         };
         status.approval = Some(panel.clone());
         r.render(UiLine::InputPrompt {
@@ -20801,6 +20873,9 @@ mod tests {
         // 5b. An advisory note adds exactly one row (must track build_approval_rows).
         let with_note = crate::render::ApprovalPanelView {
             note: Some("[!] warn".into()),
+            reason: None,
+            full_command: None,
+            expanded: false,
             ..panel.clone()
         };
         assert_eq!(
@@ -20840,6 +20915,9 @@ mod tests {
             selected: 0,
             cache_key: String::new(),
             note: None,
+            reason: None,
+            full_command: None,
+            expanded: false,
         };
         // Digit routing: index = (c as usize) - ('1' as usize).
         // '1' -> idx 0 -> AllowOnce
@@ -25422,6 +25500,9 @@ mod tests {
             ],
             selected: 0,
             note: None,
+            reason: None,
+            full_command: None,
+            expanded: false,
         });
 
         r.render(UiLine::InputPrompt {
@@ -25609,6 +25690,7 @@ mod tests {
         // 3 options + 1 hint = approval_rows=4.
         let mut status = StatusLine {
             model: String::new(), // no status row (has_status=false -> status_rows=0)
+            model_channel: None,
             cwd: String::new(),
             history: None,
             search: None,
@@ -25618,6 +25700,7 @@ mod tests {
             hint: None,
             mode_indicator: None,
             bypass_indicator: None,
+            cache_indicator: None,
             session_name: None,
             reasoning_effort: None,
             goal: None,
@@ -25636,6 +25719,9 @@ mod tests {
             options: vec!["Allow once".into(), "Always allow".into(), "Deny".into()],
             selected: 0,
             note: None,
+            reason: None,
+            full_command: None,
+            expanded: false,
         });
 
         r.render(UiLine::InputPrompt {

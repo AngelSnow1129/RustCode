@@ -5,9 +5,27 @@ use crate::error::WikiError;
 use crate::model::*;
 
 const DEFAULT_EXCLUDES: &[&str] = &[
-    "node_modules", "target", ".git", "dist", "build", "vendor", ".rustcode", "out", "bin",
-    "obj", "__pycache__", ".venv", "venv", ".idea", ".vscode", ".next", ".turbo", "coverage",
-    ".cache", "tmp", "temp",
+    "node_modules",
+    "target",
+    ".git",
+    "dist",
+    "build",
+    "vendor",
+    ".rustcode",
+    "out",
+    "bin",
+    "obj",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".idea",
+    ".vscode",
+    ".next",
+    ".turbo",
+    "coverage",
+    ".cache",
+    "tmp",
+    "temp",
 ];
 
 /// Options controlling how a project is scanned.
@@ -95,8 +113,8 @@ pub fn scan(root: &Path, opts: &ScanOptions) -> Result<ProjectModel, WikiError> 
                             files: Vec::new(),
                             loc: 0,
                             depends_on: parse_go_requires(&text),
-                            });
-                            module_roots.push((dir, nm, modules.len() - 1));
+                        });
+                        module_roots.push((dir, nm, modules.len() - 1));
                         if project_name.is_none() {
                             project_name = Some(modpath);
                         }
@@ -119,8 +137,8 @@ pub fn scan(root: &Path, opts: &ScanOptions) -> Result<ProjectModel, WikiError> 
                     files: Vec::new(),
                     loc: 0,
                     depends_on: Vec::new(),
-                    });
-                    module_roots.push((dir, nm, modules.len() - 1));
+                });
+                module_roots.push((dir, nm, modules.len() - 1));
                 kinds.insert("Python");
             }
             _ => {}
@@ -146,7 +164,9 @@ pub fn scan(root: &Path, opts: &ScanOptions) -> Result<ProjectModel, WikiError> 
     for f in &files {
         let ext = lang_ext(f);
         let loc = count_loc(f);
-        *languages.entry(language_name(&ext).to_string()).or_insert(0) += 1;
+        *languages
+            .entry(language_name(&ext).to_string())
+            .or_insert(0) += 1;
         total_loc += loc;
         let relf = rel(root, f);
         let mut mod_idx = None;

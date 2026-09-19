@@ -183,6 +183,7 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "whoami",  desc: "Show local runtime & identity", needs_args: false, hidden: false, acp: false },
     Command { name: "model",   desc: "Switch provider / model", needs_args: false, hidden: false, acp: true },
     Command { name: "provider", desc: "Manage providers (add / edit / delete)", needs_args: false, hidden: false, acp: false },
+    Command { name: "openrouter", desc: "接入 OpenRouter 免费模型(/openrouter 或 /openrouter <key>)", needs_args: false, hidden: false, acp: false },
     Command { name: "proxy",   desc: "Switch outbound proxy mode", needs_args: false, hidden: false, acp: false },
     Command { name: "status",  desc: "Show session status", needs_args: false, hidden: false, acp: true },
     Command { name: "config",  desc: "Show config path", needs_args: false, hidden: false, acp: true },
@@ -201,6 +202,7 @@ const BUILTIN_COMMANDS: &[Command] = &[
     // including self-integrated ones the gateway-only `/usage` modal can't see.
     Command { name: "cost",    desc: "Show this session's token usage (any model)", needs_args: false, hidden: false, acp: true },
     Command { name: "context", desc: "Show context budget breakdown", needs_args: false, hidden: false, acp: true },
+    Command { name: "worklog", desc: "Daily work recap across all projects (/worklog [today|yesterday|M/D])", needs_args: true, hidden: false, acp: false },
     Command { name: "compact", desc: "Compact conversation history", needs_args: false, hidden: false, acp: true },
     Command { name: "remember", desc: "Save a fact to memory (/remember --global for global)", needs_args: true, hidden: false, acp: false },
     Command { name: "forget", desc: "Remove matching memories", needs_args: true, hidden: false, acp: false },
@@ -297,6 +299,7 @@ pub fn cmd_desc_i18n(name: &str) -> Option<std::borrow::Cow<'static, str>> {
         "cost" => Msg::CmdDescCost,
         "usage" => Msg::CmdDescUsageNeutral,
         "context" => Msg::CmdDescContext,
+        "worklog" => Msg::CmdDescWorklog,
         "compact" => Msg::CmdDescCompact,
         "remember" => Msg::CmdDescRemember,
         "forget" => Msg::CmdDescForget,
@@ -328,6 +331,7 @@ pub fn cmd_desc_i18n(name: &str) -> Option<std::borrow::Cow<'static, str>> {
         "review" => Msg::CmdDescReview,
         "wiki" => Msg::CmdDescWiki,
         "goal" => Msg::CmdDescGoal,
+        "openrouter" => Msg::CmdDescOpenrouter,
         "proxy" => Msg::CmdDescProxy,
         "todo" => Msg::CmdDescTodo,
         "team" => Msg::CmdDescTeam,
@@ -831,6 +835,14 @@ mod tests {
                 .any(|c| c.name == "review" && !c.is_custom),
             "/review must be a built-in command"
         );
+    }
+
+    #[test]
+    fn openrouter_command_is_registered() {
+        let reg = CommandRegistry::builtin();
+        let cmd = reg.find("openrouter").expect("/openrouter registered");
+        assert!(cmd.needs_args == false || cmd.needs_args == true); // 存在即可
+        assert!(!cmd.acp, "openrouter 走 TUI-only,不进 ACP");
     }
 
     #[test]

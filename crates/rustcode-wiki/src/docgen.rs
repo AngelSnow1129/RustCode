@@ -6,10 +6,7 @@ use crate::safe_name;
 /// Resolve a module name to its on-disk file base name (no extension), keeping it
 /// unique and free of `/` or `\` so it can never escape `Modules/`.
 fn file_of(name_map: &BTreeMap<String, String>, n: &str) -> String {
-    name_map
-        .get(n)
-        .cloned()
-        .unwrap_or_else(|| safe_name(n))
+    name_map.get(n).cloned().unwrap_or_else(|| safe_name(n))
 }
 
 /// All human-facing prose for a wiki page, in one language.
@@ -258,7 +255,10 @@ pub fn render_module(
         m.files.iter().collect()
     };
     for f in &top {
-        s.push_str(&format!("- `{}` ({} {}, {})\n", f.rel_path, f.loc, l.loc, f.lang));
+        s.push_str(&format!(
+            "- `{}` ({} {}, {})\n",
+            f.rel_path, f.loc, l.loc, f.lang
+        ));
     }
     if m.files.len() > top.len() {
         let more = l

@@ -222,12 +222,16 @@ fn spawn_stream(
             Ok(Ok(s)) => s,
             Ok(Err(e)) => {
                 warn!("tunnel: stream {id}: local endpoint unreachable: {e}");
-                let _ = out_tx.send(Message::Binary(Frame::Close(id).encode())).await;
+                let _ = out_tx
+                    .send(Message::Binary(Frame::Close(id).encode()))
+                    .await;
                 return;
             }
             Err(_) => {
                 warn!("tunnel: stream {id}: local connect timed out");
-                let _ = out_tx.send(Message::Binary(Frame::Close(id).encode())).await;
+                let _ = out_tx
+                    .send(Message::Binary(Frame::Close(id).encode()))
+                    .await;
                 return;
             }
         };
@@ -265,7 +269,9 @@ fn spawn_stream(
         // Half-close: the local side is finished. Announce it now and only give
         // the reverse direction a bounded grace period, so the remote peer can
         // never hang forever waiting on us.
-        let _ = out_tx.send(Message::Binary(Frame::Close(id).encode())).await;
+        let _ = out_tx
+            .send(Message::Binary(Frame::Close(id).encode()))
+            .await;
         if tokio::time::timeout(DRAIN_TIMEOUT, from_relay)
             .await
             .is_err()

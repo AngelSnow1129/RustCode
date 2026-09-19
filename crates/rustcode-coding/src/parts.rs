@@ -587,6 +587,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
                     model: cfg.model.clone(),
                     context_window: cfg.context_window,
                     stream_timeout: cfg.stream_timeout,
+                    first_token_timeout: cfg.first_token_timeout,
                     request_timeout: cfg
                         .request_timeout
                         .unwrap_or_else(|| std::time::Duration::from_secs(300)),
@@ -3243,14 +3244,29 @@ mod tests {
             .expect("turn markdown");
         let jsonl = files
             .iter()
-            .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
+            .find(|path| {
+                path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+                    && !path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.ends_with(".cas.jsonl"))
+            })
             .expect("per-round request jsonl");
         assert!(std::fs::read_to_string(markdown)
             .unwrap()
             .contains("**Response:**\nlooks good"));
         let request = std::fs::read_to_string(jsonl).unwrap();
         assert!(request.contains("\"model\":\"logged-model\""));
-        assert!(request.contains("record this turn"));
+        let cas = files
+            .iter()
+            .find(|path| {
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.ends_with(".cas.jsonl"))
+            })
+            .expect("per-round cas jsonl");
+        let cas_content = std::fs::read_to_string(cas).unwrap();
+        assert!(cas_content.contains("record this turn"));
     }
 
     #[tokio::test]

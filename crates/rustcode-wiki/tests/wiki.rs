@@ -10,7 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use rustcode_wiki::{
     module_enrich_prompt, module_file_names, module_page, safe_name, write_module_summary,
-    WikiEngine, WikiManifest, WikiOptions, FileInfo, ModuleInfo, ProjectKind, ProjectModel, WikiLang,
+    FileInfo, ModuleInfo, ProjectKind, ProjectModel, WikiEngine, WikiLang, WikiManifest,
+    WikiOptions,
 };
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -99,10 +100,7 @@ fn write_sample_project(p: &TempProject) {
         "web/package.json",
         "{\n  \"name\": \"mypkg\",\n  \"version\": \"1.0.0\"\n}\n",
     );
-    p.write(
-        "web/index.js",
-        "// mypkg entry\nconsole.log('hi');\n",
-    );
+    p.write("web/index.js", "// mypkg entry\nconsole.log('hi');\n");
 }
 
 #[test]
@@ -144,7 +142,10 @@ fn test_generate_creates_wiki_files_and_default_out_dir() {
         arch.contains("```mermaid"),
         "Architecture.md should contain a mermaid fenced block"
     );
-    assert!(arch.contains("graph TD"), "mermaid diagram should be `graph TD`");
+    assert!(
+        arch.contains("graph TD"),
+        "mermaid diagram should be `graph TD`"
+    );
     assert!(
         arch.contains("mycrate"),
         "diagram should mention the mycrate module"
@@ -309,7 +310,10 @@ fn test_module_page_summary_vs_placeholder() {
         !with.contains("自然语言摘要"),
         "a supplied summary should replace the placeholder"
     );
-    assert_ne!(without, with, "summary vs no-summary renderings must differ");
+    assert_ne!(
+        without, with,
+        "summary vs no-summary renderings must differ"
+    );
 }
 
 #[test]
@@ -571,11 +575,19 @@ fn test_module_summary_survives_sync() {
         .find(|m| m.name == "mycrate")
         .expect("mycrate module");
     let out = proj.root.join(".rustcode").join("wiki");
-    write_module_summary(&out, &model, &name_map, WikiLang::Zh, mycrate, "PERSIST_ME_XYZ")
-        .expect("write_module_summary");
+    write_module_summary(
+        &out,
+        &model,
+        &name_map,
+        WikiLang::Zh,
+        mycrate,
+        "PERSIST_ME_XYZ",
+    )
+    .expect("write_module_summary");
 
     assert!(
-        proj.read(".rustcode/wiki/zh/Modules/mycrate.md").contains("PERSIST_ME_XYZ"),
+        proj.read(".rustcode/wiki/zh/Modules/mycrate.md")
+            .contains("PERSIST_ME_XYZ"),
         "page should contain the summary right after writing it"
     );
 
@@ -600,8 +612,8 @@ fn test_sync_records_source_stats_and_is_cheap_when_unchanged() {
     WikiEngine::generate(&opts_for(&proj.root)).expect("generate");
 
     // The manifest must now carry the cheap source snapshot.
-    let manifest = WikiManifest::load(&proj.path(".rustcode/wiki/manifest.json"))
-        .expect("manifest loads");
+    let manifest =
+        WikiManifest::load(&proj.path(".rustcode/wiki/manifest.json")).expect("manifest loads");
     assert!(
         !manifest.source_stats.is_empty(),
         "source_stats should be recorded after generate"
@@ -637,16 +649,14 @@ fn test_sync_stats_detect_real_change() {
 
     let res = WikiEngine::sync(&opts_for(&proj.root)).expect("sync");
     assert!(
-        res.updated
-            .iter()
-            .any(|p| p.ends_with("Modules/mypkg.md")),
+        res.updated.iter().any(|p| p.ends_with("Modules/mypkg.md")),
         "the changed module page should be regenerated, got {:?}",
         res.updated
     );
 
     // The updated manifest must continue to track the changed file's stats.
-    let manifest = WikiManifest::load(&proj.path(".rustcode/wiki/manifest.json"))
-        .expect("manifest loads");
+    let manifest =
+        WikiManifest::load(&proj.path(".rustcode/wiki/manifest.json")).expect("manifest loads");
     assert!(
         manifest.source_stats.contains_key("web/index.js"),
         "source_stats should track the changed file"
@@ -691,4 +701,3 @@ fn test_sync_regenerates_deleted_generated_page() {
         "regenerated page must be byte-identical to the original"
     );
 }
-

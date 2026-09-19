@@ -126,7 +126,8 @@ async fn main() {
     // A missing/malformed config simply falls through to the default.
     // 全量加载 Config（而非仅取 language），供下方静态访问密钥解析复用。
     let loaded_config =
-        rustcode_config::config::Config::load(&rustcode_config::config::Config::default_path()).ok();
+        rustcode_config::config::Config::load(&rustcode_config::config::Config::default_path())
+            .ok();
     {
         let language = loaded_config.as_ref().and_then(|c| c.language.clone());
         rustcode_config::i18n::set_locale(rustcode_config::i18n::resolve_initial_locale(
@@ -169,7 +170,11 @@ async fn main() {
                 .and_then(|c| c.access_key.clone())
                 .filter(|s| !s.is_empty())
         })
-        .or_else(|| std::env::var("RUSTCODE_DAEMON_TOKEN").ok().filter(|s| !s.is_empty()));
+        .or_else(|| {
+            std::env::var("RUSTCODE_DAEMON_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty())
+        });
     let daemon_token = rustcode_daemon::resolve_daemon_token(static_key, &token_store);
 
     if let Err(e) = run_server(ServerOpts {

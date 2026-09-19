@@ -41,8 +41,12 @@ async fn spawn_stack(token: &str) -> u16 {
     tokio::spawn(echo_forever(echo));
 
     // 2. The relay, on OS-assigned ports we can read back with `local_addr()`.
-    let control = TcpListener::bind("127.0.0.1:0").await.expect("bind control port");
-    let public = TcpListener::bind("127.0.0.1:0").await.expect("bind public port");
+    let control = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind control port");
+    let public = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind public port");
     let control_port = control.local_addr().expect("control addr").port();
     let public_port = public.local_addr().expect("public addr").port();
 
@@ -146,9 +150,7 @@ async fn tunnel_keeps_sequential_streams_independent() {
         // Distinct payloads, including one bigger than a single read buffer, so
         // a mix-up between stream ids or a truncated pump is visible.
         for (i, len) in [1usize, 1_024, 64 * 1024].iter().enumerate() {
-            let payload: Vec<u8> = (0..*len)
-                .map(|b| (b as u8).wrapping_add(i as u8))
-                .collect();
+            let payload: Vec<u8> = (0..*len).map(|b| (b as u8).wrapping_add(i as u8)).collect();
             let got = roundtrip(public_port, &payload)
                 .await
                 .unwrap_or_else(|e| panic!("stream {i} ({len} bytes) failed: {e}"));
@@ -217,8 +219,12 @@ async fn relay_rejects_a_wrong_tunnel_token() {
 
 /// Start a relay on ephemeral ports; returns its control port.
 async fn spawn_relay(token: &str) -> u16 {
-    let control = TcpListener::bind("127.0.0.1:0").await.expect("bind control port");
-    let public = TcpListener::bind("127.0.0.1:0").await.expect("bind public port");
+    let control = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind control port");
+    let public = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind public port");
     let control_port = control.local_addr().expect("control addr").port();
     let token = token.to_string();
     tokio::spawn(async move {
@@ -295,8 +301,12 @@ async fn half_close_is_propagated_to_the_remote_peer() {
         let once_port = once.local_addr().expect("echo-once addr").port();
         tokio::spawn(echo_once_then_close(once));
 
-        let control = TcpListener::bind("127.0.0.1:0").await.expect("bind control port");
-        let public = TcpListener::bind("127.0.0.1:0").await.expect("bind public port");
+        let control = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind control port");
+        let public = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind public port");
         let control_port = control.local_addr().expect("control addr").port();
         let public_port = public.local_addr().expect("public addr").port();
         tokio::spawn(async move {

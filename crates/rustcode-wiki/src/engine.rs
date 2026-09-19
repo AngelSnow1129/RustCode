@@ -5,10 +5,10 @@ use crate::diagram::render_mermaid;
 use crate::docgen;
 use crate::error::WikiError;
 use crate::manifest::{hash_file, hash_tree, WikiManifest};
-use sha2::{Digest, Sha256};
 use crate::model::{ProjectModel, WikiLang};
-use crate::scanner::{scan, ScanOptions};
 use crate::safe_name;
+use crate::scanner::{scan, ScanOptions};
+use sha2::{Digest, Sha256};
 
 /// Identifier written into `manifest.json` by this engine.
 const WIKI_GENERATOR: &str = "rustcode-wiki";
@@ -241,9 +241,7 @@ impl WikiEngine {
                 let unchanged_source = old_m.source_hashes == new_hashes;
                 let all_present = old_m.wiki_files.iter().all(|f| out_dir.join(f).exists());
                 let files_intact = old_m.wiki_file_hashes.iter().all(|(rel, h)| {
-                    out_dir
-                        .join(rel)
-                        .exists()
+                    out_dir.join(rel).exists()
                         && hash_file(&out_dir.join(rel)).ok().as_deref() == Some(h.as_str())
                 });
                 if unchanged_source

@@ -112,4 +112,3 @@ pub fn safe_name(s: &str) -> String {
         })
         .collect()
 }
-

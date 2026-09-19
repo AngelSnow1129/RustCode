@@ -5442,10 +5442,7 @@ static TUNNEL_SERVER: std::sync::Mutex<Option<TunnelServerHandle>> = std::sync::
 /// 是否与 TUI 当前会话双向同步，取决于调用方**在调用本函数前**是否已把 TUI 的
 /// live runtime 注册进 live hub（`/webui` 走 `attach_live_runtime`）；本函数自身
 /// 不注册 runtime，未注册时远程客户端会落到另一个 headless runtime。
-pub async fn ensure_tunnel_server(
-    host: &str,
-    port: u16,
-) -> Result<(String, u16, String), String> {
+pub async fn ensure_tunnel_server(host: &str, port: u16) -> Result<(String, u16, String), String> {
     // 复用仍在运行的实例（含其绑定地址/端口与生效令牌）。
     let reuse = {
         let guard = TUNNEL_SERVER.lock().unwrap();
@@ -5486,7 +5483,11 @@ pub async fn ensure_tunnel_server(
                 .and_then(|c| c.access_key)
                 .filter(|s| !s.is_empty())
         })
-        .or_else(|| std::env::var("RUSTCODE_DAEMON_TOKEN").ok().filter(|s| !s.is_empty()))
+        .or_else(|| {
+            std::env::var("RUSTCODE_DAEMON_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or_else(|| store.mint());
     store.insert(key.clone());
 
@@ -5523,8 +5524,7 @@ pub async fn ensure_tunnel_server(
             let relay_task = tokio::spawn(async move {
                 let mut backoff_secs: u64 = 1;
                 loop {
-                    match rustcode_tunnel::client::start_tunnel_client(&relay, &token, port).await
-                    {
+                    match rustcode_tunnel::client::start_tunnel_client(&relay, &token, port).await {
                         Ok(()) => tracing::warn!(
                             "tunnel: relay control channel closed, reconnecting in {backoff_secs}s"
                         ),

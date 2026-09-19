@@ -29,10 +29,12 @@ pub mod manager;
 pub mod presentation;
 pub mod recall;
 pub mod rewind;
+pub mod session_list;
 pub mod snapshot;
 pub mod status_reminder;
 pub mod transcript;
 mod usage_provider;
+pub mod worklog;
 pub use context::SessionContextHook;
 pub use manager::{
     aggregate_session_cost, CatalogDiagnostic, CatalogDiagnosticKind, CatalogEntry,
@@ -50,10 +52,12 @@ pub use rewind::{
     FileChangeSummary, RewindPoint, WorkspaceCheckpoint, WorkspaceCheckpointError,
     WorkspaceRestoreReceipt,
 };
+pub use session_list::ListSessionsTool;
 pub use snapshot::{RewindTransactionReceipt, SnapshotHook};
 pub use status_reminder::StatusReminderHook;
 pub use transcript::{ToolRecord, TranscriptHook, TurnRecord, TurnTimestamp, UsageRecord};
 pub use usage_provider::UsageRecordingProvider;
+pub use worklog::{build_worklog_prompt, collect_day_turns, resolve_worklog_date, WorklogTurn};
 
 /// Current wall-clock as epoch MILLISECONDS, UTC. The single L1 time source the
 /// persistence hooks stamp records with (the kernel stays clock-free).

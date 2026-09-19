@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<title>RustCode · 在你的终端中运行的 AI 编程助手</title>
-<meta name="description" content="RustCode — Claude Code 的开源平替。连接任意大模型，自主多步执行，30 秒上手。">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23b45309'/%3E%3Cpath d='M6 8l3.5 2.5L6 13M12 14h5' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
+<title>AtomCode · 在你的终端中运行的 AI 编程助手</title>
+<meta name="description" content="AtomCode — Claude Code 的开源平替。连接任意大模型，自主多步执行，30 秒上手。">
+<link rel="icon" type="image/png" href="https://cdn-static.gitcode.host/static/images/logo-favicon.png">
 <style>
   *,*::before,*::after{box-sizing:border-box}
   html,body{margin:0;padding:0;background:#0a0a0a;color:#fff;font-family:"PingFang SC","Microsoft YaHei",Inter,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
@@ -48,6 +48,14 @@
   .hdr-nav a::after{content:"";position:absolute;bottom:0;left:0;right:0;height:1px;background:var(--accent);transform:scaleX(0);transform-origin:left;transition:transform .25s}
   .hdr-nav a:hover,.hdr-nav a.active{color:#fff}
   .hdr-nav a.active::after{transform:scaleX(1)}
+  .hdr-nav a.nav-cp{color:var(--accent);position:relative;padding-left:14px;display:inline-flex;align-items:center;gap:8px}
+  .hdr-nav a.nav-cp::before{content:"";position:absolute;left:4px;top:50%;width:5px;height:5px;border-radius:50%;background:var(--accent);transform:translateY(-50%);box-shadow:0 0 6px var(--accent);animation:dotPulse 2s ease-in-out infinite}
+  .hdr-nav a.nav-cp:hover{color:#fff}
+  .hdr-nav a.nav-cp .free-badge{padding:1px 6px;font-size:9px;font-weight:600;letter-spacing:1px;background:rgba(232,160,80,.18);color:var(--accent);border:1px solid rgba(232,160,80,.4);border-radius:3px;text-transform:uppercase}
+  html.light .hdr-nav a.nav-cp{color:#c87618}
+  html.light .hdr-nav a.nav-cp::before{background:#c87618;box-shadow:0 0 6px #c87618}
+  html.light .hdr-nav a.nav-cp:hover{color:#0d0d0d}
+  html.light .hdr-nav a.nav-cp .free-badge{background:rgba(200,118,24,.12);color:#c87618;border-color:rgba(200,118,24,.4)}
   .hdr-right{display:flex;gap:10px;align-items:center}
   .btn-pill{height:32px;padding:0 14px;display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.25);font-size:11px;letter-spacing:1.5px;color:#fff;font-family:var(--mono);transition:background .2s,color .2s,border-color .2s}
   .btn-pill:hover{background:#fff;color:#000;border-color:#fff}
@@ -121,6 +129,10 @@
   .install-cmd-section:hover .cp-btn{opacity:1}
   .install-cmd-section .cp-btn:hover{background:var(--accent);color:#000;border-color:var(--accent)}
   .install-cmd-section .cp-btn.copied{opacity:1;background:var(--green);color:#000;border-color:var(--green)}
+  .install-cmd-section.detected{border-color:rgba(232,160,80,.35);background:rgba(232,160,80,.05)}
+  .install-cmd-section.detected .cp-bar{background:rgba(232,160,80,.08);border-bottom-color:rgba(232,160,80,.18)}
+  .install-cmd-section.detected .cp-bar .label{color:rgba(255,255,255,.7)}
+  .det-badge{display:inline-block;margin-right:8px;padding:1px 7px;border-radius:20px;background:var(--green);color:#000;font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.5px;vertical-align:middle}
   .install-actions{margin-top:14px;display:flex;align-items:center;justify-content:space-between;font-size:11px;letter-spacing:.5px;color:rgba(255,255,255,.45)}
   .install-actions .left{display:flex;align-items:center;gap:10px}
   .cp-btn{padding:7px 14px;background:rgba(232,160,80,.18);border:1px solid rgba(232,160,80,.4);color:var(--accent);font-family:var(--mono);font-size:11px;letter-spacing:1.5px;transition:all .2s}
@@ -299,7 +311,7 @@
   .ftab-wrap{border:1px solid var(--line);overflow-x:auto;position:relative}
   .ftab{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px;min-width:600px}
   .ftab th{background:#000;text-align:left;padding:14px 18px;font-size:11px;font-weight:500;letter-spacing:1.5px;color:rgba(255,255,255,.55);text-transform:uppercase;border-bottom:1px solid var(--line)}
-  .ftab th.rustcode{color:var(--accent)}
+  .ftab th.atom{color:var(--accent)}
   .ftab th.claude{color:rgba(255,255,255,.7)}
   .ftab td{padding:14px 18px;border-bottom:1px solid var(--line);color:rgba(255,255,255,.8);transition:background .2s}
   .ftab tr:hover td{background:rgba(232,160,80,.04)}
@@ -330,13 +342,6 @@
   .dl-btn{padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid var(--line);font-family:var(--mono);font-size:12px;color:#fff;letter-spacing:.5px;display:flex;justify-content:space-between;align-items:center;transition:all .2s}
   .dl-btn:hover{border-color:var(--accent);color:var(--accent)}
   .dl-btn small{color:rgba(255,255,255,.4);font-size:10px}
-  /* Placeholder download buttons: the neutral build has no compiled-in release
-     host, so these never navigate (the href would point at example.com). */
-  .dl-btn[aria-disabled="true"]{cursor:not-allowed;opacity:.55}
-  .dl-btn[aria-disabled="true"]:hover{border-color:var(--line);color:#fff}
-  .dl-note{margin-top:10px;font-size:12px;color:rgba(255,255,255,.5);line-height:1.6}
-  html.light .dl-note{color:rgba(0,0,0,.55)}
-  html.light .dl-btn[aria-disabled="true"]:hover{border-color:rgba(0,0,0,.10);color:#0d0d0d}
 
   /* wizard panel */
   .wiz{background:#000;border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:13px;color:#d8d8d8;overflow:hidden}
@@ -454,7 +459,7 @@
   html.light .gitcmd .l2{color:#2e8a4e}
 
   html.light .ftab th{background:#fff;color:rgba(0,0,0,.55);border-bottom-color:rgba(0,0,0,.10)}
-  html.light .ftab th.rustcode{color:#c87618}
+  html.light .ftab th.atom{color:#c87618}
   html.light .ftab th.claude{color:rgba(0,0,0,.7)}
   html.light .ftab td{color:rgba(0,0,0,.85);border-bottom-color:rgba(0,0,0,.08)}
   html.light .ftab tr:hover td{background:rgba(232,160,80,.06)}
@@ -602,6 +607,11 @@
       text-transform:uppercase;display:flex;align-items:center;gap:8px;
     }
     .mb-drawer a:hover,.mb-drawer a:active{color:var(--accent)}
+    .mb-drawer a.cp{color:var(--accent)}
+    .mb-drawer a .free-badge{padding:1px 6px;font-size:9px;font-weight:600;letter-spacing:1px;
+      background:rgba(232,160,80,.18);color:var(--accent);
+      border:1px solid rgba(232,160,80,.4);border-radius:3px;text-transform:uppercase;
+    }
     .mb-drawer a.cta{
       margin-top:10px;background:var(--accent);color:#000;font-weight:600;
       border:1px solid var(--accent);justify-content:center;border-bottom:none;
@@ -611,6 +621,7 @@
     html.light .mb-drawer{background:rgba(246,243,236,.96)}
     html.light .mb-drawer a{color:rgba(0,0,0,.78);border-bottom-color:rgba(0,0,0,.10)}
     html.light .mb-drawer a:hover,html.light .mb-drawer a:active{color:#c87618}
+    html.light .mb-drawer a.cp{color:#c87618}
     html.light .mb-drawer a.cta{background:#c87618;color:#fff;border-color:#c87618}
     html.light .mb-drawer a.cta:hover,html.light .mb-drawer a.cta:active{background:#0d0d0d;color:#fff}
     .plugin-grid{grid-template-columns:1fr}
@@ -635,23 +646,26 @@
 <!-- header -->
 <header class="hdr" id="hdr">
   <a class="hdr-logo" href="#top">
-    <svg width="24" height="24" viewBox="0 0 24 24" style="border-radius:6px;flex-shrink:0" role="img" aria-label="RustCode"><rect width="24" height="24" rx="5" fill="#b45309"/><path d="M6 8l3.5 2.5L6 13M12 14h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-    <span data-scramble>RustCode</span>
-    <span class="ver" id="verBadge" title="当前版本">v5.0.9</span>
+    <img src="https://cdn-news.gitcode.com/news/atomcode-icon1.png" alt="AtomCode">
+    <span data-scramble>AtomCode</span>
+    <span class="ver" id="verBadge" title="当前版本">v5.1.0</span>
   </a>
   <nav class="hdr-nav" id="hdrNav">
     <a href="#features" data-section="features" data-i18n="nav.features">功能</a>
     <a href="#editor-plugins" data-section="editor-plugins" data-i18n="nav.plugins">IDE插件</a>
     <a href="#install" data-section="install" data-i18n="nav.install">安装</a>
     <a href="/docs/index.html" target="_blank" rel="noopener" data-i18n="nav.docs">文档</a>
-    <a href="/docs/en/plugins.html" data-i18n="nav.marketplace">Skills</a>
+    <a href="https://atomcode-plugin.atomgit.com" target="_blank" rel="noopener" data-i18n="nav.marketplace">Skills</a>
+    <a class="nav-cp" href="https://ai.atomgit.com/serverless-api" target="_blank" rel="noopener">
+      <span data-i18n="nav.codingplan">Coding Plan</span>
+    </a>
   </nav>
   <div class="hdr-right">
     <button class="icon-btn" id="themeBtn" aria-label="主题">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
     </button>
     <button class="icon-btn" id="langBtn" aria-label="语言">中</button>
-    <a class="btn-pill" href="#install" data-i18n="btn.repo">发行渠道</a>
+    <a class="btn-pill" href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener" data-i18n="btn.repo">开源仓库</a>
     <a class="btn-pill primary" href="#install" data-i18n="btn.start">立即开始</a>
     <button class="icon-btn mb-toggle" id="mbToggle" aria-label="菜单" aria-expanded="false">☰</button>
   </div>
@@ -663,8 +677,11 @@
   <a href="#editor-plugins" data-i18n="nav.plugins">IDE插件</a>
   <a href="#install" data-i18n="nav.install">安装</a>
   <a href="/docs/index.html" target="_blank" rel="noopener" data-i18n="nav.docs">文档</a>
-  <a href="/docs/en/plugins.html" data-i18n="nav.marketplace">Skills</a>
-  <a href="#install" data-i18n="btn.repo">发行渠道</a>
+  <a href="https://atomcode-plugin.atomgit.com" target="_blank" rel="noopener" data-i18n="nav.marketplace">Skills</a>
+  <a class="cp" href="https://ai.atomgit.com/serverless-api" target="_blank" rel="noopener">
+    <span data-i18n="nav.codingplan">Coding Plan</span>
+  </a>
+  <a href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener" data-i18n="btn.repo">开源仓库</a>
   <a class="cta" href="#install" data-i18n="btn.start.arrow">立即开始 →</a>
 </nav>
 
@@ -686,13 +703,7 @@
           <div class="install-tab" data-method="brew"><span>brew</span></div>
         </div>
         <div class="install-body">
-          <pre class="install-cmd" id="osCmd"></pre>
-          <div class="install-actions">
-            <div class="left">
-              <span id="osHint">自动检测 · 已选 macOS</span>
-            </div>
-            <button class="cp-btn" id="copyInstall" data-magnetic data-i18n="install.copy">复制命令</button>
-          </div>
+          <div class="install-cmd-list" id="osCmd"></div>
         </div>
       </div>
 
@@ -706,7 +717,7 @@
     <div class="terminal" id="terminal">
       <div class="term-head">
         <div class="term-dots"><span></span><span></span><span></span></div>
-        <div class="term-title">rustcode · ~/repo</div>
+        <div class="term-title">atomcode · ~/repo</div>
         <div class="term-tag">LIVE DEMO</div>
       </div>
       <div class="term-chips" id="termChips">
@@ -803,18 +814,20 @@
       <h3 data-i18n="feat.images.t">图片附件与 VL 预处理</h3>
       <p data-i18n="feat.images.d">Ctrl+V 粘贴截图、Finder 拖拽、iTerm2 路径自动识别 —— 主模型不支持图片时，自动 VL 预处理 OCR 给主模型。</p>
       <div class="demo">
-        <div class="vis-drop" data-i18n-html="feat.images.demo"><b>Ctrl + V</b> 粘贴截图  ·  或拖入图片</div>
+        <div class="vis-drop" data-i18n-html="feat.images.demo">📎 <b>Ctrl + V</b> 粘贴截图  ·  或拖入图片</div>
       </div>
     </article>
 
     <article class="feat">
       <div class="icon">⎇</div>
-      <h3 data-i18n="feat.platform.t">托管端点集成(可选)</h3>
-      <p data-i18n="feat.platform.d">发行渠道可选提供 OAuth 一键登录与内置 Issue / PR / 仓库工具;开源默认构建使用第三方 BYO provider,无需账号。</p>
+      <h3 data-i18n="feat.atomgit.t">AtomGit 原生集成</h3>
+      <p data-i18n="feat.atomgit.d">内置工具直接创建仓库、提交 PR、创建 Issue,OAuth 一键登录 · 微信扫码领 CodingPlan 免费额度 —— 与开源生态无缝对接。</p>
       <div class="demo">
         <div class="gitcmd">
-          <div class="l1">› 为 auth callback 404 创建一个 Issue</div>
-          <div class="l2">✓ example.com/.../rustcode/issues/124</div>
+          <div class="l1" data-i18n="feat.atomgit.demo.q1">› 为 auth callback 404 创建 AtomGit Issue</div>
+          <div class="l2" data-i18n="feat.atomgit.demo.a1">✓ atomgit.com/.../issues/124</div>
+          <div class="l1" data-i18n="feat.atomgit.demo.q2">› 提交修复 PR 到 main</div>
+          <div class="l2" data-i18n="feat.atomgit.demo.a2">✓ atomgit.com/.../pulls/57</div>
         </div>
       </div>
     </article>
@@ -875,7 +888,7 @@
         <article class="plugin-feat">
           <div class="icon">▣</div>
           <h3 data-i18n="plug.sidebar.t">侧边栏聊天</h3>
-          <p data-i18n="plug.sidebar.d">在编辑器侧边栏打开 RustCode 面板，不离开上下文即可与 AI 对话</p>
+          <p data-i18n="plug.sidebar.d">在编辑器侧边栏打开 AtomCode 面板，不离开上下文即可与 AI 对话</p>
         </article>
 
         <article class="plugin-feat">
@@ -897,15 +910,15 @@
         </article>
 
         <article class="plugin-feat">
-          <div class="icon">▭</div>
+          <div class="icon">💬</div>
           <h3 data-i18n="plug.session.t">会话管理</h3>
           <p data-i18n="plug.session.d">按时间分组的历史会话，支持搜索、重命名、删除、恢复</p>
         </article>
 
         <article class="plugin-feat">
           <div class="icon">★</div>
-          <h3 data-i18n="plug.platform.t">托管端点集成(可选)</h3>
-          <p data-i18n="plug.platform.d">发行渠道可选提供 OAuth 一键登录与 /login 命令;开源默认构建使用第三方 BYO provider</p>
+          <h3 data-i18n="plug.atomgit.t">AtomGit 集成</h3>
+          <p data-i18n="plug.atomgit.d">OAuth 一键登录，CodingPlan 免费额度，/login /codingplan 命令</p>
         </article>
 
       </div>
@@ -913,31 +926,31 @@
       <!-- right: install -->
       <div class="plugin-install-stack">
         <div class="plugin-install">
-          <div class="pi-head">●●● <span data-i18n="plug.install.head">安装 RustCode for VS Code</span></div>
+          <div class="pi-head">●●● <span data-i18n="plug.install.head">安装 AtomCode for VS Code</span></div>
           <div class="pi-body">
             <div class="pi-item">
               <div class="pi-label" data-i18n="plug.install.mkt"># 从 Marketplace 安装（推荐）</div>
-              <a class="pi-url" href="https://marketplace.visualstudio.com/items?itemName=rustcode-tools.rustcode-tools" target="_blank" rel="noopener">marketplace.visualstudio.com/items?itemName=rustcode-tools.rustcode-tools</a>
+              <a class="pi-url" href="https://marketplace.visualstudio.com/items?itemName=atomcode-tools.atomcode-tools" target="_blank" rel="noopener">marketplace.visualstudio.com/items?itemName=atomcode-tools.atomcode-tools</a>
             </div>
             <div class="pi-item">
               <div class="cp-bar">
                 <span class="label" data-i18n="plug.install.cmd"># 或通过命令行安装</span>
-                <button class="cp-btn pi-cp" type="button" data-i18n="install.copy.short">复制</button>
+                <button class="cp-btn pi-cp" type="button" data-i18n="install.copy.short">📋 复制</button>
               </div>
-              <pre class="pi-cmd">code --install-extension rustcode-tools.rustcode-tools</pre>
+              <pre class="pi-cmd">code --install-extension atomcode-tools.atomcode-tools</pre>
             </div>
           </div>
         </div>
 
         <div class="plugin-install">
-          <div class="pi-head">●●● <span data-i18n="plug.install.jb.head">安装 RustCode for JetBrains</span></div>
+          <div class="pi-head">●●● <span data-i18n="plug.install.jb.head">安装 AtomCode for JetBrains</span></div>
           <div class="pi-body">
             <div class="jb-market-card">
               <div class="jb-market-top">
                 <div class="jb-logo" aria-hidden="true"></div>
                 <div class="jb-title">
                   <span class="jb-kicker">JetBrains Marketplace</span>
-                  <h3>RustCode</h3>
+                  <h3>AtomCode</h3>
                 </div>
                 <span class="jb-status" data-i18n="plug.install.jb.free">FREE</span>
               </div>
@@ -949,7 +962,7 @@
                 <span class="jb-chip">GoLand</span>
               </div>
               <div class="jb-actions">
-                <a class="jb-action-primary" href="https://plugins.jetbrains.com/plugin/32455-rustcode" target="_blank" rel="noopener noreferrer" data-i18n="plug.install.jb.open">打开 Marketplace</a>
+                <a class="jb-action-primary" href="https://plugins.jetbrains.com/plugin/32455-atomcode" target="_blank" rel="noopener noreferrer" data-i18n="plug.install.jb.open">打开 Marketplace</a>
               </div>
             </div>
           </div>
@@ -980,7 +993,7 @@
 <!-- comparison -->
 <section class="compare" id="compare">
   <div class="section-head">
-    <h2><span class="mono" data-i18n="sec.cmp.tag">// 03 · 对比</span><span data-i18n="sec.cmp.title">RustCode 与 Claude Code 对比</span></h2>
+    <h2><span class="mono" data-i18n="sec.cmp.tag">// 03 · 对比</span><span data-i18n="sec.cmp.title">AtomCode 与 Claude Code 对比</span></h2>
     <div class="hint" data-i18n="sec.cmp.hint">相同模型基准测试 · 基于真实编程任务测量</div>
   </div>
 
@@ -991,7 +1004,7 @@
       <h3 data-i18n="perf.title">任务性能（相同模型）</h3>
       <div class="desc" data-i18n="perf.desc">越短越好 · 完成同一任务平均步骤数</div>
       <div class="perf-legend">
-        <span><span class="sw a"></span>RustCode</span>
+        <span><span class="sw a"></span>AtomCode</span>
         <span><span class="sw c"></span>Claude Code</span>
       </div>
       <div id="perfList"></div>
@@ -1018,7 +1031,7 @@
         <thead>
           <tr>
             <th style="width:42%" data-i18n="ftab.feature">功能</th>
-            <th class="rustcode" style="width:29%">RustCode</th>
+            <th class="atom" style="width:29%">AtomCode</th>
             <th class="claude" style="width:29%">Claude Code</th>
           </tr>
         </thead>
@@ -1028,8 +1041,8 @@
 
     <div class="gap-note" data-i18n-html="gap.body">
       <b>关于"复杂任务多 30% 步骤"</b><br>
-      RustCode 更倾向"小步快跑 + 自我验证"：每个动作可单独 <b>/undo</b>，对话上下文更细更易干预；Claude Code 在复杂场景偏好"大刀阔斧"一步到位。
-      —— 两种工程哲学，并非孰优孰劣。需要稳健与可干预，选 RustCode；需要速度与一气呵成，选 Claude Code。
+      AtomCode 更倾向"小步快跑 + 自我验证"：每个动作可单独 <b>/undo</b>，对话上下文更细更易干预；Claude Code 在复杂场景偏好"大刀阔斧"一步到位。
+      —— 两种工程哲学，并非孰优孰劣。需要稳健与可干预，选 AtomCode；需要速度与一气呵成，选 Claude Code。
     </div>
 
   </div>
@@ -1066,7 +1079,6 @@
         </div>
 
         <div class="download-row" id="downloadRow"></div>
-        <p class="dl-note" data-i18n="install.dl.note"></p>
       </div>
 
       <!-- right: 3 步骤（置顶）+ 首次运行向导 -->
@@ -1081,27 +1093,27 @@
           <div class="step">
             <div class="ch">›</div>
             <div class="n">02</div>
-            <div class="t" data-i18n="step2.t">配置 provider</div>
-            <div class="d" data-i18n="step2.d">Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama 等第三方 API 任一 · 自带 Key</div>
+            <div class="t" data-i18n="step2.t">配置 API Key</div>
+            <div class="d" data-i18n="step2.d">OpenAI / Claude / CodingPlan 任一即可</div>
           </div>
           <div class="step">
             <div class="n">03</div>
-            <div class="t" data-i18n="step3.t">cd 进项目跑 rustcode</div>
+            <div class="t" data-i18n="step3.t">cd 进项目跑 atomcode</div>
             <div class="d" data-i18n="step3.d">第一次会进 3 步启动向导</div>
           </div>
         </div>
         <div class="wiz" id="wiz">
           <div class="wiz-head">
-            <span>●●●</span>&nbsp;<span data-i18n="wiz.head">rustcode · 首次运行 — 3 步启动向导</span>
+            <span>●●●</span>&nbsp;<span data-i18n="wiz.head">atomcode · 首次运行 — 3 步启动向导</span>
           </div>
           <div class="wiz-body">
             <div class="wiz-step active" data-step="1">
               <div class="tt" data-i18n="wiz.s1.tt">第 1/3 步 · 欢迎</div>
-              <div class="qq" data-i18n="wiz.s1.qq">版本 v5.0.9 · 在终端里运行的 AI 编程代理</div>
+              <div class="qq" data-i18n="wiz.s1.qq">版本 v5.1.0 · 在终端里运行的 AI 编程代理</div>
               <ul class="intro-list">
                 <li data-i18n="wiz.s1.b1">多步骤 agent loop · 内置代码图工具</li>
                 <li data-i18n="wiz.s1.b2">兼容所有 OpenAI 风格 API</li>
-                <li data-i18n="wiz.s1.b3">自带 API Key，无需注册账号</li>
+                <li data-i18n="wiz.s1.b3">通过 CodingPlan 获取免费额度</li>
               </ul>
               <div class="intro-hint" data-i18n="wiz.s1.hint">按 Enter 继续 · Ctrl+C 可随时退出</div>
             </div>
@@ -1116,8 +1128,9 @@
             <div class="wiz-step" data-step="3">
               <div class="tt" data-i18n="wiz.s3.tt">第 3/3 步 · 配置</div>
               <div class="qq" data-i18n="wiz.s3.qq">想怎么开始？</div>
-              <div class="opt sel"><span data-i18n="wiz.s3.manual">手动配置</span> <small data-i18n="wiz.s3.manual.hint">自带 API Key · 推荐</small></div>
-              <div class="opt"><span data-i18n="wiz.s3.skip">暂时跳过</span> <small data-i18n="wiz.s3.skip.hint">稍后再说</small></div>
+              <div class="opt sel"><span data-i18n="wiz.s3.o1">配置 CodingPlan</span> <small data-i18n="wiz.s3.o1.hint">免费额度 · 推荐</small></div>
+              <div class="opt"><span data-i18n="wiz.s3.o2">手动配置</span> <small data-i18n="wiz.s3.o2.hint">使用 API key</small></div>
+              <div class="opt"><span data-i18n="wiz.s3.o3">暂时跳过</span> <small data-i18n="wiz.s3.o3.hint">稍后再说</small></div>
             </div>
             <div class="wiz-nav-hint" data-i18n="wiz.nav">1-3 选择 · Enter 确认 · ← 返回 · Esc 跳过</div>
             <div class="wiz-nav">
@@ -1136,9 +1149,9 @@
 <!-- footer -->
 <footer class="ftr">
   <div class="ftr-row" data-i18n-html="ftr.links">
-    <a href="#top">官网</a> · <a href="/docs/index.html" target="_blank" rel="noopener">文档</a> · <span>源码与 Issue 请通过你的发行渠道获取</span>
+    <a href="#top">官网</a> · <a href="/docs/index.html" target="_blank" rel="noopener">文档</a> · <a href="https://ai.atomgit.com/serverless-api" target="_blank" rel="noopener">CodingPlan</a> · <a href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener">开源仓库</a> · <a href="https://atomgit.com/atomgit_atomcode/atomcode/issues" target="_blank" rel="noopener">Issue</a>
   </div>
-  <div data-i18n="ftr.copy">© 2026 RustCode · MIT 许可证</div>
+  <div data-i18n="ftr.copy">© 2026 AtomCode · MIT 许可证</div>
   <div class="ftr-tag" data-i18n="ftr.rust">⚙ 用 Rust 构建</div>
 </footer>
 
@@ -1148,12 +1161,12 @@
 /* ========== i18n ========== */
 var LANG='zh';
 try{
-  const s=localStorage.getItem('rustcode_lang');
+  const s=localStorage.getItem('atomcode_lang');
   if(s==='zh'||s==='en') LANG=s;
   else LANG=(navigator.language||'').toLowerCase().startsWith('zh')?'zh':'en';
 }catch(e){}
 
-const VERSION='v5.0.9';
+const VERSION='v5.1.0';
 
 const T={
   'nav.features':{zh:'功能',en:'Features'},
@@ -1162,7 +1175,8 @@ const T={
 'nav.docs':{zh:'文档',en:'Docs'},
 'nav.marketplace':{zh:'Skills',en:'Skills'},
 'nav.plugins':{zh:'IDE插件',en:'IDE Plugins'},
-  'btn.repo':{zh:'发行渠道',en:'Distribution'},
+  'nav.codingplan':{zh:'Coding Plan',en:'Coding Plan'},
+  'btn.repo':{zh:'开源仓库',en:'Repository'},
   'btn.start':{zh:'立即开始',en:'Get Started'},
   'btn.start.arrow':{zh:'立即开始 →',en:'Get Started →'},
   'btn.viewcompare':{zh:'查看对比',en:'View Comparison'},
@@ -1171,9 +1185,9 @@ const T={
   'hero.t2':{zh:'在你的终端中运行',en:'in Your Terminal'},
   'hero.sub':{zh:'Claude Code / Cursor Agent 的<b>开源平替</b>，住在你的终端里。连接任意 OpenAI 兼容大模型，自主读文件、改代码、跑测试、自我验证 —— 用 Rust 构建。本项目<b>100% 由 AI 生成</b>。',
               en:"<b>Open-source alternative</b> to Claude Code / Cursor Agent, living in your terminal. Connect any OpenAI-compatible LLM, autonomously read, edit, test, self-verify — built with Rust. <b>100% AI-generated codebase.</b>"},
-  'install.copy':{zh:'复制命令',en:'Copy command'},
-  'install.copy.short':{zh:'复制',en:'Copy'},
-  'install.dl.note':{zh:'预编译二进制不内置发布站点：请从你的分发渠道 Releases 页面下载，或使用上方安装脚本。',en:'No release host is built in — download prebuilt binaries from your distribution channel\'s releases page, or use the install script above.'},
+  'install.copy':{zh:'📋 复制命令',en:'📋 Copy command'},
+  'install.copy.short':{zh:'📋 复制',en:'📋 Copy'},
+  'install.detected':{zh:'✓ 已检测',en:'✓ Detected'},
   'flow.bug':{zh:'修复登录 bug',en:'Fix login bug'},
   'flow.refactor':{zh:'模块重构',en:'Module refactor'},
   'flow.devserver':{zh:'启动 Dev Server',en:'Start dev server'},
@@ -1200,7 +1214,7 @@ const T={
   'sec.plug.title':{zh:'终端之外，在 IDE 里也能用',en:'Beyond the terminal, inside your IDE'},
   'sec.plug.hint':{zh:'VS Code / JetBrains 插件可用 · 终端级 AI 能力无缝接入编辑器',en:'VS Code / JetBrains plugins available · terminal-grade AI inside your editor'},
   'sec.cmp.tag':{zh:'// 03 · 对比',en:'// 03 · Compare'},
-  'sec.cmp.title':{zh:'RustCode 与 Claude Code 对比',en:'RustCode vs Claude Code'},
+  'sec.cmp.title':{zh:'AtomCode 与 Claude Code 对比',en:'AtomCode vs Claude Code'},
   'sec.cmp.hint':{zh:'相同模型基准测试 · 基于真实编程任务测量',en:'Same-model benchmarks · measured on real coding tasks'},
   'sec.inst.tag':{zh:'// 04 · 安装',en:'// 04 · Install'},
   'sec.inst.title':{zh:'30 秒快速开始',en:'30-second quickstart'},
@@ -1217,10 +1231,14 @@ const T={
   'feat.images.t':{zh:'图片附件与 VL 预处理',en:'Image Attachment & VL Preprocess'},
   'feat.images.d':{zh:'Ctrl+V 粘贴截图、Finder 拖拽、iTerm2 路径自动识别 —— 主模型不支持图片时，自动 VL 预处理 OCR 给主模型。',
                    en:'Ctrl+V paste, Finder drag, iTerm2 path auto-detect — when the main model lacks vision, falls back to VL preprocessor (OCR + describe).'},
-  'feat.images.demo':{zh:'<b>Ctrl + V</b> 粘贴截图  ·  或拖入图片',en:'<b>Ctrl + V</b> paste screenshot · or drop an image'},
-  'feat.platform.t':{zh:'托管端点集成(可选)',en:'Managed Endpoint Integration (optional)'},
-  'feat.platform.d':{zh:'发行渠道可选提供 OAuth 一键登录与内置 Issue / PR / 仓库工具;开源默认构建使用第三方 BYO provider,无需账号。',
-                    en:'Distributions may offer one-click OAuth login and built-in Issue / PR / repository tools; the default open build uses third-party BYO providers — no account needed.'},
+  'feat.images.demo':{zh:'📎 <b>Ctrl + V</b> 粘贴截图  ·  或拖入图片',en:'📎 <b>Ctrl + V</b> paste screenshot · or drop an image'},
+  'feat.atomgit.t':{zh:'AtomGit 原生集成',en:'AtomGit Native Integration'},
+  'feat.atomgit.d':{zh:'内置工具直接创建仓库、提交 PR、创建 Issue,OAuth 一键登录 · 微信扫码领 CodingPlan 免费额度 —— 与开源生态无缝对接。',
+                    en:'Built-in tools create repos, open PRs and file Issues directly — plus OAuth login and WeChat QR sign-in for free CodingPlan credits, seamless with the open-source ecosystem.'},
+  'feat.atomgit.demo.q1':{zh:'› 为 auth callback 404 创建 AtomGit Issue',en:'› Create an AtomGit Issue for the auth callback 404'},
+  'feat.atomgit.demo.a1':{zh:'✓ atomgit.com/.../issues/124',en:'✓ atomgit.com/.../issues/124'},
+  'feat.atomgit.demo.q2':{zh:'› 提交修复 PR 到 main',en:'› Open a fix PR to main'},
+  'feat.atomgit.demo.a2':{zh:'✓ atomgit.com/.../pulls/57',en:'✓ atomgit.com/.../pulls/57'},
   'feat.eco.t':{zh:'Skills + Plugin 生态',en:'Skills + Plugin Ecosystem'},
   'feat.eco.d':{zh:'Skills 写你自己的斜杠命令；/plugin install <git-repo> 一键拿别人的命令、hook、skill —— 与 Claude Code 生态兼容。',
                 en:'Write your own slash commands as Skills; /plugin install <git-repo> grabs packs of commands, hooks, skills — Claude Code ecosystem compatible.'},
@@ -1233,7 +1251,7 @@ const T={
                 en:'/app prints a QR code — scan with your phone to watch and drive the current session live; /webui mirrors it in the browser, switch devices anytime.'},
   'feat.app.demo':{zh:'扫码配对 · 手机实时同步',en:'scan to pair · live phone sync'},
   'plug.sidebar.t':{zh:'侧边栏聊天',en:'Sidebar Chat'},
-  'plug.sidebar.d':{zh:'在编辑器侧边栏打开 RustCode 面板，不离开上下文即可与 AI 对话',en:'Open RustCode in the editor sidebar and chat with AI without leaving context'},
+  'plug.sidebar.d':{zh:'在编辑器侧边栏打开 AtomCode 面板，不离开上下文即可与 AI 对话',en:'Open AtomCode in the editor sidebar and chat with AI without leaving context'},
   'plug.context.t':{zh:'右键菜单',en:'Context Menu'},
   'plug.context.d':{zh:'选中代码 → 右键 Explain / Fix / Optimize / Add to Chat，全语言支持',en:'Select code → right-click Explain / Fix / Optimize / Add to Chat, all languages'},
   'plug.diff.t':{zh:'Diff 代码预览',en:'Diff Preview'},
@@ -1242,12 +1260,12 @@ const T={
   'plug.model.d':{zh:'Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama，支持 thinking 参数配置',en:'Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama, with thinking parameter support'},
   'plug.session.t':{zh:'会话管理',en:'Session Management'},
   'plug.session.d':{zh:'按时间分组的历史会话，支持搜索、重命名、删除、恢复',en:'Time-grouped session history with search, rename, delete, and restore'},
-  'plug.platform.t':{zh:'托管端点集成(可选)',en:'Managed Endpoint (optional)'},
-  'plug.platform.d':{zh:'发行渠道可选提供 OAuth 一键登录与 /login 命令;开源默认构建使用第三方 BYO provider',en:'Optional distribution-provided OAuth login via /login; the default open build uses third-party BYO providers'},
-  'plug.install.head':{zh:'安装 RustCode for VS Code',en:'Install RustCode for VS Code'},
+  'plug.atomgit.t':{zh:'AtomGit 集成',en:'AtomGit Integration'},
+  'plug.atomgit.d':{zh:'OAuth 一键登录，CodingPlan 免费额度，/login /codingplan 命令',en:'OAuth one-click login, CodingPlan free tier, /login /codingplan commands'},
+  'plug.install.head':{zh:'安装 AtomCode for VS Code',en:'Install AtomCode for VS Code'},
   'plug.install.mkt':{zh:'# 从 Marketplace 安装（推荐）',en:'# Install from Marketplace (recommended)'},
   'plug.install.cmd':{zh:'# 或通过命令行安装',en:'# Or install via command line'},
-  'plug.install.jb.head':{zh:'安装 RustCode for JetBrains',en:'Install RustCode for JetBrains'},
+  'plug.install.jb.head':{zh:'安装 AtomCode for JetBrains',en:'Install AtomCode for JetBrains'},
   'plug.install.jb.free':{zh:'免费',en:'FREE'},
   'plug.install.jb.desc':{zh:'本地 AI coding agent 接入 IntelliJ 系 IDE：侧边栏会话、编辑器上下文菜单、Diff 预览与多模型配置保持一致。',
                           en:'Bring a local AI coding agent into IntelliJ-based IDEs: sidebar chat, editor context actions, diff preview, and multi-model configuration.'},
@@ -1270,23 +1288,23 @@ const T={
   'cmp.integration':{zh:'集成',en:'Integration'},
   'cmp.diffonly':{zh:'只看差异',en:'Diff only'},
   'ftab.feature':{zh:'功能',en:'Feature'},
-  'gap.body':{zh:'<b>关于"复杂任务多 30% 步骤"</b><br>RustCode 更倾向"小步快跑 + 自我验证"：每个动作可单独 <b>/undo</b>，对话上下文更细更易干预；Claude Code 在复杂场景偏好"大刀阔斧"一步到位。 —— 两种工程哲学，并非孰优孰劣。需要稳健与可干预，选 RustCode；需要速度与一气呵成，选 Claude Code。',
-              en:'<b>About the "30% more steps on complex tasks"</b><br>RustCode favors "small steps + self-verify": each action is independently <b>/undo</b>-able and context is fine-grained, easy to steer mid-flight. Claude Code prefers "one bold sweep" on complex jobs. — Two engineering philosophies, neither inherently better. Want safety and intervention? RustCode. Want speed and one-shot? Claude Code.'},
+  'gap.body':{zh:'<b>关于"复杂任务多 30% 步骤"</b><br>AtomCode 更倾向"小步快跑 + 自我验证"：每个动作可单独 <b>/undo</b>，对话上下文更细更易干预；Claude Code 在复杂场景偏好"大刀阔斧"一步到位。 —— 两种工程哲学，并非孰优孰劣。需要稳健与可干预，选 AtomCode；需要速度与一气呵成，选 Claude Code。',
+              en:'<b>About the "30% more steps on complex tasks"</b><br>AtomCode favors "small steps + self-verify": each action is independently <b>/undo</b>-able and context is fine-grained, easy to steer mid-flight. Claude Code prefers "one bold sweep" on complex jobs. — Two engineering philosophies, neither inherently better. Want safety and intervention? AtomCode. Want speed and one-shot? Claude Code.'},
   'inst.oneclick':{zh:'一键脚本',en:'One-click script'},
   'inst.source':{zh:'从源码构建',en:'From source'},
   'inst.binary':{zh:'下载二进制',en:'Binary download'},
   'step1.t':{zh:'运行命令',en:'Run command'},
   'step1.d':{zh:'脚本自动下载到 /usr/local/bin 或 ~/.local/bin',en:'Script installs to /usr/local/bin or ~/.local/bin'},
   'step2.t':{zh:'配置 provider',en:'Configure provider'},
-  'step2.d':{zh:'Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama 等第三方 API 任一 · 自带 Key',en:'Bring your own key for any provider · Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama'},
-  'step3.t':{zh:'cd 进项目跑 rustcode',en:'cd into project, run rustcode'},
-  'step3.d':{zh:'第一次会进 3 步启动向导 · 配置存 ~/.rustcode/config.toml',en:'First run launches a 3-step wizard · config at ~/.rustcode/config.toml'},
-  'wiz.head':{zh:'rustcode · 首次运行 — 3 步启动向导',en:'rustcode · First run — 3-step wizard'},
+  'step2.d':{zh:'Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama 任一 · 或 /login 走 AtomGit OAuth',en:'Pick any provider · Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama · or /login via AtomGit OAuth'},
+  'step3.t':{zh:'cd 进项目跑 atomcode',en:'cd into project, run atomcode'},
+  'step3.d':{zh:'第一次会进 3 步启动向导 · 配置存 ~/.atomcode/config.toml',en:'First run launches a 3-step wizard · config at ~/.atomcode/config.toml'},
+  'wiz.head':{zh:'atomcode · 首次运行 — 3 步启动向导',en:'atomcode · First run — 3-step wizard'},
   'wiz.s1.tt':{zh:'第 1/3 步 · 欢迎',en:'Step 1/3 · Welcome'},
   'wiz.s1.qq':{zh:`版本 ${VERSION}  ·  在终端里运行的 AI 编程代理`,en:`Version ${VERSION}  ·  AI coding agent in your terminal`},
   'wiz.s1.b1':{zh:'多步骤 agent loop · 内置代码图工具',en:'Multi-step agent loop · built-in code-graph tools'},
   'wiz.s1.b2':{zh:'兼容所有 OpenAI 风格 API',en:'Connects to any OpenAI-compatible API'},
-  'wiz.s1.b3':{zh:'自带 API Key，无需注册账号',en:'Bring your own API key -- no account or signup'},
+  'wiz.s1.b3':{zh:'通过 CodingPlan 获取免费额度',en:'Free tokens via CodingPlan'},
   'wiz.s1.hint':{zh:'按 Enter 继续 · Ctrl+C 可随时退出',en:'Press Enter to continue · Ctrl+C exits at any point'},
   'wiz.s2.tt':{zh:'第 2/3 步 · 语言',en:'Step 2/3 · Language'},
   'wiz.s2.qq':{zh:'Choose your language / 选择语言',en:'Choose your language / 选择语言'},
@@ -1296,17 +1314,19 @@ const T={
   'wiz.s2.o3':{zh:'English',en:'English'},
   'wiz.s3.tt':{zh:'第 3/3 步 · 配置',en:'Step 3/3 · Setup'},
   'wiz.s3.qq':{zh:'想怎么开始？',en:'How would you like to set up?'},
-  'wiz.s3.manual':{zh:'手动配置',en:'Configure manually'},
-  'wiz.s3.manual.hint':{zh:'自带 API Key · 推荐',en:'Bring your own API key · recommended'},
-  'wiz.s3.skip':{zh:'暂时跳过',en:'Skip for now'},
-  'wiz.s3.skip.hint':{zh:'稍后再说',en:'Set up later'},
+  'wiz.s3.o1':{zh:'配置 CodingPlan',en:'Set up CodingPlan'},
+  'wiz.s3.o1.hint':{zh:'免费额度 · 推荐',en:'Free tokens · recommended'},
+  'wiz.s3.o2':{zh:'手动配置',en:'Configure manually'},
+  'wiz.s3.o2.hint':{zh:'使用 API key',en:'API key'},
+  'wiz.s3.o3':{zh:'暂时跳过',en:'Skip for now'},
+  'wiz.s3.o3.hint':{zh:'稍后再说',en:'explore first'},
   'wiz.nav':{zh:'1-3 选择 · Enter 确认 · ← 返回 · Esc 跳过',en:'1-3 select · Enter confirm · ← back · Esc skip'},
   'wiz.prev':{zh:'← 上一步',en:'← Back'},
   'wiz.next':{zh:'下一步 →',en:'Next →'},
   'wiz.done':{zh:'✓ 完成',en:'✓ Done'},
-  'ftr.links':{zh:'<a href="#top">官网</a> · <a href="/docs/index.html" target="_blank" rel="noopener">文档</a> · <span>源码与 Issue 请通过你的发行渠道获取</span>',
-                en:'<a href="#top">Website</a> · <a href="/docs/index.html" target="_blank" rel="noopener">Docs</a> · <span>Source &amp; issues via your distribution channel</span>'},
-  'ftr.copy':{zh:'© 2026 RustCode · MIT 许可证',en:'© 2026 RustCode · MIT License'},
+  'ftr.links':{zh:'<a href="#top">官网</a> · <a href="/docs/index.html" target="_blank" rel="noopener">文档</a> · <a href="https://ai.atomgit.com/serverless-api" target="_blank" rel="noopener">CodingPlan</a> · <a href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener">开源仓库</a> · <a href="https://atomgit.com/atomgit_atomcode/atomcode/issues" target="_blank" rel="noopener">Issue</a>',
+                en:'<a href="#top">Website</a> · <a href="/docs/index.html" target="_blank" rel="noopener">Docs</a> · <a href="https://ai.atomgit.com/serverless-api" target="_blank" rel="noopener">CodingPlan</a> · <a href="https://atomgit.com/atomgit_atomcode/atomcode" target="_blank" rel="noopener">Repository</a> · <a href="https://atomgit.com/atomgit_atomcode/atomcode/issues" target="_blank" rel="noopener">Issues</a>'},
+  'ftr.copy':{zh:'© 2026 AtomCode · MIT 许可证',en:'© 2026 AtomCode · MIT License'},
   'ftr.rust':{zh:'⚙ 用 Rust 构建',en:'⚙ Built with Rust'},
   'toast.install.copied':{zh:'✓ 安装命令已复制 · 粘贴到终端运行',en:'✓ Install command copied · paste into your terminal'},
   'toast.copied':{zh:'✓ 已复制 · 粘贴到终端运行',en:'✓ Copied · paste into your terminal'},
@@ -1314,8 +1334,8 @@ const T={
   'toast.theme.dark':{zh:'☾ 已切换到 Dark',en:'☾ Switched to Dark'},
   'toast.lang.zh':{zh:'已切换到 简体中文',en:'Switched to 简体中文'},
   'toast.lang.en':{zh:'已切换到 English',en:'Switched to English'},
-  'meta.title':{zh:'RustCode · 在你的终端中运行的 AI 编程助手',en:'RustCode · AI Coding Agent in Your Terminal'},
-  'meta.desc':{zh:'RustCode — Claude Code 的开源平替。连接任意大模型，自主多步执行，30 秒上手。',en:'RustCode — open-source alternative to Claude Code. Connect any LLM, autonomous multi-step execution, 30-second setup.'},
+  'meta.title':{zh:'AtomCode · 在你的终端中运行的 AI 编程助手',en:'AtomCode · AI Coding Agent in Your Terminal'},
+  'meta.desc':{zh:'AtomCode — Claude Code 的开源平替。连接任意大模型，自主多步执行，30 秒上手。',en:'AtomCode — open-source alternative to Claude Code. Connect any LLM, autonomous multi-step execution, 30-second setup.'},
   'aria.theme':{zh:'切换主题',en:'Toggle theme'},
   'aria.lang':{zh:'切换语言',en:'Toggle language'},
   'tip.ver':{zh:'当前版本',en:'Current version'},
@@ -1329,7 +1349,7 @@ const T={
   'method.curl':{zh:'macOS / Linux / HarmonyOS · 脚本自动识别系统与架构',en:'macOS / Linux / HarmonyOS · script auto-detects OS + arch'},
   'method.npm':{zh:'跨平台 · 需要 Node.js 环境',en:'Cross-platform · needs Node.js'},
   'method.brew':{zh:'仅 macOS / Linux · Homebrew Cask',en:'macOS / Linux only · Homebrew Cask'},
-  'method.source':{zh:'需要 Rust 1.88+ · cargo install 到 ~/.cargo/bin/rustcode',en:'Rust 1.88+ required · cargo install to ~/.cargo/bin/rustcode'},
+  'method.source':{zh:'需要 Rust 1.88+ · cargo install 到 ~/.cargo/bin/atomcode',en:'Rust 1.88+ required · cargo install to ~/.cargo/bin/atomcode'},
   'method.binary':{zh:'6 个平台 · 预编译 · 单文件运行',en:'6 platforms · prebuilt · single-file run'},
 };
 function t(k){const v=T[k];if(!v)return k;return v[LANG]||v.zh||k;}
@@ -1347,31 +1367,48 @@ function applyI18n(){
 }
 
 /* ========== data ========== */
-// This build ships no compiled-in release host. Distributors point users at
-// their own release base; the placeholders below are documentation examples.
-const RELEASE_BASE='https://example.com/your-org/rustcode/releases/download/'+VERSION;
+const RELEASE_BASE='https://atomgit.com/atomgit_atomcode/atomcode/releases/download/'+VERSION;
+// Install scripts are served version-free from the repo (raw host); the scripts
+// auto-detect the latest release themselves, so no version is pinned in the URL.
+const SCRIPT_BASE='https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts';
+const INVITE_PARAM=(()=>{
+  const q=new URLSearchParams(window.location.search).get('invite');
+  if(q)return q;
+  const m=window.location.pathname.match(/^\/invite\/([A-Za-z0-9]{8})$/);
+  return m?m[1]:'';
+})();
+const INVITE_CODE=/^[A-Za-z0-9]{8}$/.test(INVITE_PARAM)?INVITE_PARAM:'';
 function unixInstallCmd(){
-  // Obtain install.sh from your distribution channel first, then point it at
-  // that channel's release host:
-  return 'RUSTCODE_RELEASE_BASE=https://example.com/your-host/releases/download sh install.sh';
+  return `curl -fsSL ${SCRIPT_BASE}/install.sh | sh${INVITE_CODE?` -s -- --invite=${INVITE_CODE}`:''}`;
 }
 function winInstallCmd(){
-  // Obtain install.ps1 from your distribution channel first, then point it at
-  // that channel's release host:
-  return "$env:RUSTCODE_RELEASE_BASE='https://example.com/your-host/releases/download'; powershell -ExecutionPolicy Bypass -File install.ps1";
+  return INVITE_CODE
+    ? `$env:ATOMCODE_INVITE='${INVITE_CODE}'; irm ${SCRIPT_BASE}/install.ps1 | iex`
+    : `irm ${SCRIPT_BASE}/install.ps1 | iex`;
 }
-function npmInstallCmd(){return 'npm install -g @rustcode/rustcode';}
-function brewInstallCmd(){return 'brew install --cask rustcode';}
-// Hero box renders ONE detected line per method. `install.sh` auto-detects OS +
-// CPU arch itself, so the same curl line serves macOS / Linux / HarmonyOS /
-// Git-Bash; only NATIVE Windows (no Unix shell) needs the PowerShell `install.ps1`
-// path — so `os==='win'` is the sole branch that diverges.
-function heroMethodCmd(method,os){
-  if(method==='npm') return npmInstallCmd();
-  if(method==='brew') return brewInstallCmd();
-  return os==='win' ? winInstallCmd() : unixInstallCmd();
+function npmInstallCmd(){return 'npm install -g @atomgit.com/atomcode';}
+function brewInstallCmd(){return 'brew install --cask atomcode';}
+// Split a METHOD_CMDS string into per-`# header + commands` sections on blank
+// lines; trim edge newlines and drop empties. Shared by the hero box and the
+// reference section so both render identical `install-cmd-section` blocks.
+function splitInstallSections(raw){
+  return raw.split(/\n[ \t]*\n/).map(s=>s.replace(/^\n+|\n+$/g,'')).filter(s=>s.length>0);
 }
-function osHint(os){return t('os.'+os);}
+// Hoist leading whole-line `#` comments into the section label (joined with
+// ` · `); the remaining lines are the executable body that renders + copies.
+function extractInstallLabel(text){
+  const lines=text.split('\n');
+  const labelParts=[];
+  let i=0;
+  while(i<lines.length){
+    if(/^\s*$/.test(lines[i])){i++;continue;}
+    if(/^\s*#/.test(lines[i])){labelParts.push(lines[i].replace(/^\s*#\s*/,'').trim());i++;continue;}
+    break;
+  }
+  const label=labelParts.filter(s=>s.length>0).join(' · ');
+  const body=lines.slice(i).join('\n').replace(/^\n+|\n+$/g,'');
+  return [label,body];
+}
 const METHOD_CMDS={
   // Reference section (bottom) shows ALL platforms at once, so curl carries both
   // the universal Unix line and the Windows PowerShell line — no OS detection
@@ -1382,19 +1419,19 @@ const METHOD_CMDS={
        en:`# Cross-platform · global npm\n${npmInstallCmd()}`},
   brew:{zh:`# 仅 macOS / Linux\n${brewInstallCmd()}`,
         en:`# macOS / Linux only\n${brewInstallCmd()}`},
-  source:{zh:`# 需要 Rust 1.88+ · 源码从你的发行渠道获取\ngit clone https://example.com/your-org/rustcode.git\ncd rustcode\ncargo build --release\ncp target/release/rustcode ~/.local/bin/\nrustcode --version  # 验证安装`,
-          en:`# Requires Rust 1.88+ · get the source from your distribution channel\ngit clone https://example.com/your-org/rustcode.git\ncd rustcode\ncargo build --release\ncp target/release/rustcode ~/.local/bin/\nrustcode --version  # verify install`},
-  binary:{zh:`# 从你的发行渠道 Releases 页面下载\nhttps://example.com/your-org/rustcode/releases/latest\n\n# 或直接 curl 取对应平台(替换为你的发行地址)\ncurl -L -o rustcode \\\n  ${RELEASE_BASE}/rustcode-${VERSION}-darwin-arm64\nchmod +x rustcode && mv rustcode /usr/local/bin/`,
-          en:`# Download from your distribution channel's releases page\nhttps://example.com/your-org/rustcode/releases/latest\n\n# Or curl for your platform (use your distribution's URL)\ncurl -L -o rustcode \\\n  ${RELEASE_BASE}/rustcode-${VERSION}-darwin-arm64\nchmod +x rustcode && mv rustcode /usr/local/bin/`},
+  source:{zh:`# 需要 Rust 1.88+\ngit clone https://atomgit.com/atomgit_atomcode/atomcode.git\ncd atomcode\ncargo build --release\ncp target/release/atomcode ~/.local/bin/\natomcode --version  # 验证安装`,
+          en:`# Requires Rust 1.88+\ngit clone https://atomgit.com/atomgit_atomcode/atomcode.git\ncd atomcode\ncargo build --release\ncp target/release/atomcode ~/.local/bin/\natomcode --version  # verify install`},
+  binary:{zh:`# 从 Releases 页面下载\nhttps://atomgit.com/atomgit_atomcode/atomcode/releases/latest\n\n# 或直接 curl 取对应平台\ncurl -L -o atomcode \\\n  ${RELEASE_BASE}/atomcode-${VERSION}-darwin-arm64\nchmod +x atomcode && mv atomcode /usr/local/bin/`,
+          en:`# Download from Releases page\nhttps://atomgit.com/atomgit_atomcode/atomcode/releases/latest\n\n# Or curl for your platform\ncurl -L -o atomcode \\\n  ${RELEASE_BASE}/atomcode-${VERSION}-darwin-arm64\nchmod +x atomcode && mv atomcode /usr/local/bin/`},
 };
 function methodHint(m){return t('method.'+m);}
 const DOWNLOADS=[
-  {os:'macOS · Apple Silicon',arch:'darwin-arm64',file:`rustcode-${VERSION}-darwin-arm64`},
-  {os:'macOS · Intel',arch:'darwin-x64',file:`rustcode-${VERSION}-darwin-x64`},
-  {os:'Linux x64',arch:'linux-x64',file:`rustcode-${VERSION}-linux-x64`},
-  {os:'Linux arm64',arch:'linux-arm64',file:`rustcode-${VERSION}-linux-arm64`},
-  {os:'HarmonyOS PC',arch:'ohos-arm64',file:`rustcode-${VERSION}-ohos-arm64`},
-  {os:'Windows',arch:'windows-x64',file:`rustcode-${VERSION}-windows-x64.exe`},
+  {os:'macOS · Apple Silicon',arch:'darwin-arm64',file:`atomcode-${VERSION}-darwin-arm64`},
+  {os:'macOS · Intel',arch:'darwin-x64',file:`atomcode-${VERSION}-darwin-x64`},
+  {os:'Linux x64',arch:'linux-x64',file:`atomcode-${VERSION}-linux-x64`},
+  {os:'Linux arm64',arch:'linux-arm64',file:`atomcode-${VERSION}-linux-arm64`},
+  {os:'HarmonyOS PC',arch:'ohos-arm64',file:`atomcode-${VERSION}-ohos-arm64`},
+  {os:'Windows',arch:'windows-x64',file:`atomcode-${VERSION}-windows-x64.exe`},
 ];
 
 const FLOWS={
@@ -1461,10 +1498,10 @@ const FEAT=[
   {cat:'model',     catL:{zh:'模型',en:'Model'},   f:{zh:'本地模型 (Ollama)',en:'Local model (Ollama)'},  a:{zh:'✓ 已支持',en:'✓ Supported'},   c:{zh:'✗ 不支持',en:'✗ Not supported'}, win:'a'},
   {cat:'tools',     catL:{zh:'工具',en:'Tools'},   f:{zh:'代码图谱工具',en:'Code graph tools'}, a:{zh:'✓ 8 个内置',en:'✓ 8 built-in'},   c:{zh:'基础文本检索',en:'Basic text search'}, win:'a'},
   {cat:'tools',     catL:{zh:'工具',en:'Tools'},   f:{zh:'/undo 一键回滚',en:'/undo one-click rollback'}, a:{zh:'✓ 已支持',en:'✓ Supported'}, c:{zh:'手动 git',en:'Manual git'}, win:'a'},
-  {cat:'integration',catL:{zh:'集成',en:'Integration'}, f:{zh:'托管端点集成(可选)',en:'managed endpoint integration (optional)'}, a:{zh:'✓ 第三方 BYO · 可选托管登录',en:'✓ Third-party BYO · optional managed login'}, c:{zh:'✗ 不支持',en:'✗ Not supported'}, win:'a'},
+  {cat:'integration',catL:{zh:'集成',en:'Integration'}, f:{zh:'AtomGit 原生集成',en:'AtomGit native integration'}, a:{zh:'✓ OAuth + 内置 AtomGit 工具',en:'✓ OAuth + built-in AtomGit tools'}, c:{zh:'✗ 不支持',en:'✗ Not supported'}, win:'a'},
   {cat:'tools',     catL:{zh:'工具',en:'Tools'},   f:{zh:'MCP 支持',en:'MCP support'},      a:{zh:'✓ 已支持',en:'✓ Supported'},     c:{zh:'✓ 已支持',en:'✓ Supported'},  win:'='},
   {cat:'tools',     catL:{zh:'工具',en:'Tools'},   f:{zh:'视觉 / 截图',en:'Vision / screenshot'}, a:{zh:'✓ 已支持',en:'✓ Supported'},  c:{zh:'✓ 已支持',en:'✓ Supported'},  win:'='},
-  {cat:'price',     catL:{zh:'价格',en:'Price'},   f:{zh:'费用',en:'Pricing'},              a:{zh:'免费开源 · 自带 API (BYO)',en:'Free open source · BYO API'}, c:{zh:'订阅 + API',en:'Subscription + API'}, win:'a'},
+  {cat:'price',     catL:{zh:'价格',en:'Price'},   f:{zh:'费用',en:'Pricing'},              a:{zh:'CodingPlan 限免 · 自带 API',en:'CodingPlan free tier · BYO API'}, c:{zh:'订阅 + API',en:'Subscription + API'}, win:'a'},
 ];
 
 /* ========== robust clipboard copy ========== */
@@ -1504,7 +1541,6 @@ let HERO_METHOD='curl',HERO_OS='mac';
 (function(){
   const tabs=document.getElementById('osTabs');
   const cmd=document.getElementById('osCmd');
-  const hint=document.getElementById('osHint');
   const toast=document.getElementById('toast');
   function detect(){
     const ua=navigator.userAgent||'';
@@ -1523,25 +1559,43 @@ let HERO_METHOD='curl',HERO_OS='mac';
     text=text.replace(/\b(curl|irm|iex|bash|wget|git|cd|cargo|npm|brew|export)\b/g,'<span class="accent">$1</span>');
     return text.replace(/\x00(\d+)\x00/g,(_,i)=>`<span class="${stash[i][0]}">${stash[i][1]}</span>`);
   }
-  function heroHint(){
-    if(HERO_METHOD==='npm') return t('hint.npm');
-    if(HERO_METHOD==='brew') return t('hint.brew');
-    // curl: show the detected OS (only Windows changes the actual command).
-    return t('os.auto')+osHint(HERO_OS);
-  }
+  // Render ALL platform commands (curl for macOS/Linux/HarmonyOS/Git-Bash AND
+  // the Windows PowerShell `irm`), each as its own `install-cmd-section` — same
+  // layout as the reference section below. The block matching the visitor's
+  // detected OS is hoisted to the top and tagged with a "detected" badge, so we
+  // prioritise the detected platform without hiding the others.
   window.applyHeroInstall=function(){
     tabs.querySelectorAll('.install-tab').forEach(t=>t.classList.toggle('active',t.dataset.method===HERO_METHOD));
-    cmd.innerHTML=highlight(heroMethodCmd(HERO_METHOD,HERO_OS));
-    hint.textContent=heroHint();
+    const parsed=splitInstallSections(tx(METHOD_CMDS[HERO_METHOD])).map(extractInstallLabel);
+    // curl carries two blocks (Unix + PowerShell); lead with the one that
+    // matches the detected OS — native Windows → PowerShell first.
+    if(HERO_METHOD==='curl' && parsed.length>1){
+      const isPs=([lbl])=>/PowerShell/i.test(lbl);
+      const detIdx=HERO_OS==='win' ? parsed.findIndex(isPs) : parsed.findIndex(p=>!isPs(p));
+      if(detIdx>0){const [d]=parsed.splice(detIdx,1);parsed.unshift(d);}
+    }
+    const copyLabel=t('install.copy.short');
+    const badge=HERO_METHOD==='curl'?`<span class="det-badge">${t('install.detected')}</span>`:'';
+    cmd.innerHTML=parsed.map(([lbl,body],i)=>
+      `<div class="install-cmd-section${i===0&&badge?' detected':''}">`
+      +`<div class="cp-bar"><span class="label">${i===0?badge:''}${lbl}</span>`
+      +`<button class="cp-btn cp-section" type="button">${copyLabel}</button></div>`
+      +`<pre class="install-cmd">${highlight(body)}</pre>`
+      +`</div>`).join('');
+    cmd.querySelectorAll('.cp-section').forEach((btn,i)=>{btn.__copy=parsed[i][1]});
   };
   HERO_OS=detect();applyHeroInstall();
   tabs.addEventListener('click',e=>{const tb=e.target.closest('.install-tab');if(!tb)return;HERO_METHOD=tb.dataset.method;applyHeroInstall();});
-  document.getElementById('copyInstall').addEventListener('click',()=>{
-    copyText(heroMethodCmd(HERO_METHOD,HERO_OS));
-    const btn=document.getElementById('copyInstall');btn.classList.add('copied');btn.textContent=LANG==='zh'?'✓ 已复制':'✓ Copied';
+  // Delegated copy — the section button is re-rendered on every tab
+  // switch and language toggle, so bind on the stable container.
+  cmd.addEventListener('click',e=>{
+    const btn=e.target.closest('.cp-section');
+    if(!btn)return;
+    copyText(btn.__copy||'');
+    btn.classList.add('copied');btn.textContent=LANG==='zh'?'✓ 已复制':'✓ Copied';
     toast.textContent=t('toast.install.copied');toast.classList.add('show');
     setTimeout(()=>{toast.classList.remove('show')},1800);
-    setTimeout(()=>{btn.classList.remove('copied');btn.textContent=t('install.copy')},1800);
+    setTimeout(()=>{btn.classList.remove('copied');btn.textContent=t('install.copy.short')},1800);
   });
 })();
 
@@ -1718,41 +1772,25 @@ window.applyWizardNav=null;
   // HarmonyOS PC") — they get hoisted into the action bar and dropped
   // from the rendered code area so the clipboard ends up with only
   // executable command lines. Inline trailing comments (e.g.
-  // `rustcode --version  # 验证安装`) stay on their command line —
+  // `atomcode --version  # 验证安装`) stay on their command line —
   // they're context for that specific call, not a section header,
   // and paste harmlessly into a shell.
   //
   // Multiple consecutive leading `#` lines are joined with ` · ` so a
   // future METHOD_CMDS entry that splits its header across lines
   // still produces one readable label.
-  function extractLabel(text){
-    const lines=text.split('\n');
-    const labelParts=[];
-    let i=0;
-    while(i<lines.length){
-      if(/^\s*$/.test(lines[i])){i++;continue;}
-      if(/^\s*#/.test(lines[i])){labelParts.push(lines[i].replace(/^\s*#\s*/,'').trim());i++;continue;}
-      break;
-    }
-    const label=labelParts.filter(s=>s.length>0).join(' · ');
-    const body=lines.slice(i).join('\n').replace(/^\n+|\n+$/g,'');
-    return [label,body];
-  }
   function show(m){
     CUR_METHOD=m;
     tabs.querySelectorAll('.install-tab').forEach(tb=>tb.classList.toggle('active',tb.dataset.method===m));
     const raw=tx(METHOD_CMDS[m]);
     // Split on blank lines so each `# header + commands` group gets
-    // its own copy button. Trim per-section to drop stray edge
-    // newlines that would render as visible empty lines inside the
-    // <pre>. Empty sections are dropped (defensive — current strings
-    // don't produce any, but a future edit might).
-    const sections=raw.split(/\n[ \t]*\n/).map(s=>s.replace(/^\n+|\n+$/g,'')).filter(s=>s.length>0);
+    // its own copy button (shared helper; see splitInstallSections).
+    const sections=splitInstallSections(raw);
     const label=t('install.copy.short');
     // Parse each section once into [label, body]; the label rides in
     // the action bar (left of the copy button) and the body is what
     // both the <pre> renders and the button copies.
-    const parsed=sections.map(extractLabel);
+    const parsed=sections.map(extractInstallLabel);
     cmd.innerHTML=parsed.map(([lbl,body])=>
       `<div class="install-cmd-section">`
       +`<div class="cp-bar"><span class="label">${lbl}</span>`
@@ -1798,15 +1836,9 @@ window.applyWizardNav=null;
     });
   })();
 
-  // downloads — the neutral build ships no compiled-in release host, so render
-  // non-navigating placeholders (a real href would point at the example.com
-  // doc domain). Prebuilt binaries come from the distribution channel's own
-  // releases page; see the .dl-note caption below.
-  const dlTitle=LANG==='zh'
-    ? '预编译二进制由你的分发渠道发布，请从该渠道的 Releases 页面获取'
-    : 'Prebuilt binaries are published by your distribution channel — get them from its releases page';
+  // downloads — actual release URLs
   document.getElementById('downloadRow').innerHTML=DOWNLOADS.map(d=>`
-    <span class="dl-btn" role="button" aria-disabled="true" title="${dlTitle}"><span>↓ ${d.os}</span><small>${d.arch}</small></span>`).join('');
+    <a class="dl-btn" href="${RELEASE_BASE}/${d.file}" target="_blank" rel="noopener"><span>↓ ${d.os}</span><small>${d.arch}</small></a>`).join('');
 
   // wizard
   const next=document.getElementById('wizNext'),prev=document.getElementById('wizPrev');
@@ -1911,14 +1943,14 @@ window.applyWizardNav=null;
     html.classList.toggle('light',light);
     btn.innerHTML=light?SUN:MOON;
     btn.setAttribute('aria-label',light?'Switch to dark':'Switch to light');
-    try{localStorage.setItem('rustcode_theme',theme)}catch(e){}
+    try{localStorage.setItem('atomcode_theme',theme)}catch(e){}
     if(announce){
       toastEl.textContent=t(light?'toast.theme.light':'toast.theme.dark');
       toastEl.classList.add('show');setTimeout(()=>toastEl.classList.remove('show'),1200);
     }
   }
   let saved='dark';
-  try{saved=localStorage.getItem('rustcode_theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}catch(e){}
+  try{saved=localStorage.getItem('atomcode_theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}catch(e){}
   apply(saved,false);
   btn.addEventListener('click',()=>{apply(html.classList.contains('light')?'dark':'light',true);});
 })();
@@ -1941,7 +1973,7 @@ window.applyWizardNav=null;
   applyAll();
   btn.addEventListener('click',()=>{
     LANG=LANG==='zh'?'en':'zh';
-    try{localStorage.setItem('rustcode_lang',LANG)}catch(e){}
+    try{localStorage.setItem('atomcode_lang',LANG)}catch(e){}
     applyAll();
     toastEl.textContent=t('toast.lang.'+LANG);
     toastEl.classList.add('show');setTimeout(()=>toastEl.classList.remove('show'),1200);

@@ -51,6 +51,7 @@ pub(crate) enum CommandResult {
     Memory {
         global: Vec<String>,
         project: Vec<String>,
+        local: Vec<String>,
     },
     Context {
         used_tokens: usize,
@@ -447,6 +448,7 @@ fn exec_forget(working_dir: &Path, arg: &str) -> anyhow::Result<CommandResult> {
     }
     let mut removed = MemoryStore::global().remove_matching(keyword)?;
     removed.extend(MemoryStore::project(working_dir).remove_matching(keyword)?);
+    removed.extend(MemoryStore::local(working_dir).remove_matching(keyword)?);
     Ok(CommandResult::Forget { removed })
 }
 
@@ -454,6 +456,7 @@ fn exec_memory(working_dir: &Path) -> anyhow::Result<CommandResult> {
     Ok(CommandResult::Memory {
         global: MemoryStore::global().load(),
         project: MemoryStore::project(working_dir).load(),
+        local: MemoryStore::local(working_dir).load(),
     })
 }
 
@@ -540,6 +543,10 @@ fn render_context_file_status_block(working_dir: &std::path::Path) -> String {
         (
             Msg::StatusMemoryScopeProject,
             rustcode_config::config::memory::MemoryStore::project(working_dir),
+        ),
+        (
+            Msg::StatusMemoryScopeLocal,
+            rustcode_config::config::memory::MemoryStore::local(working_dir),
         ),
     ] {
         let scope = t(scope_msg);

@@ -9,7 +9,9 @@ use anyhow::Result;
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let relay = args.next().expect("usage: smoke_client <relay_url> <token> <local_port>");
+    let relay = args
+        .next()
+        .expect("usage: smoke_client <relay_url> <token> <local_port>");
     let token = args.next().expect("missing <token>");
     let port: u16 = args
         .next()

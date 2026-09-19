@@ -223,7 +223,11 @@ mod tests {
         let url = crate::client::with_token("ws://h/t", token);
         let presented = url.split("token=").nth(1).unwrap();
         assert_ne!(presented, token, "client must encode it");
-        assert_eq!(percent_decode(presented), token, "relay must decode it back");
+        assert_eq!(
+            percent_decode(presented),
+            token,
+            "relay must decode it back"
+        );
     }
 
     #[test]

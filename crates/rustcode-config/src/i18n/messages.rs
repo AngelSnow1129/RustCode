@@ -356,6 +356,7 @@ pub enum Msg<'a> {
     StatusMemoryFilesHeader,
     StatusMemoryScopeGlobal,
     StatusMemoryScopeProject,
+    StatusMemoryScopeLocal,
     StatusMemoryPresent {
         path: &'a str,
         scope: &'a str,
@@ -1671,6 +1672,13 @@ pub enum Msg<'a> {
     McpClearedNoServers,
     McpToolsUsage,
     McpServersHeader,
+    /// `/mcp tools <name>` referenced a server key that is not configured.
+    McpUnknownServer {
+        name: &'a str,
+        available: &'a str,
+    },
+    /// `/mcp help` — the full list of `/mcp` subcommands.
+    McpHelp,
     /// Discoverability hint appended to `/mcp` status when one or more
     /// project-source servers are withheld because the project is untrusted.
     McpBlockedTrustHint {
@@ -2087,6 +2095,8 @@ pub enum Msg<'a> {
     /// picker (same as the double-Esc gesture) to restore an earlier point.
     CmdDescRewind,
     CmdDescWorktree,
+    CmdDescWorklog,
+    CmdDescOpenrouter,
     CmdDescUpgrade,
     CmdDescPlan,
     CmdDescBuild,

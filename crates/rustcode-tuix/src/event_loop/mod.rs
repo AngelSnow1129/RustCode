@@ -21429,7 +21429,9 @@ fn subtask_progress_from_args(
                 model: String::new(),
                 activity: String::new(),
                 started_at: None,
+                finished_at: None,
                 output_tokens: 0,
+                tool_uses: 0,
                 status: crate::render::SubtaskStatus::Pending,
             }
         })
@@ -21799,6 +21801,8 @@ mod subtask_progress_projection_tests {
                     activity: "done".into(),
                     started_at: None,
                     output_tokens: 10,
+                    finished_at: None,
+                    tool_uses: 0,
                     status: SubtaskStatus::Completed,
                 }],
             },
@@ -22838,7 +22842,7 @@ fn handle_runtime_event(
                     handle_agent_event(
                         AgentEvent::ApprovalNeeded {
                             tool_name: approval.tool.clone(),
-                            reason: "Requires approval".into(),
+                            reason: Some("Requires approval".to_string()),
                             call: rustcode_kernel::tool::ToolCall {
                                 id: approval.call_id,
                                 name: approval.tool,
@@ -25806,9 +25810,9 @@ fn handle_agent_event(
         }
         AgentEvent::ApprovalNeeded {
             tool_name,
+            reason: approval_reason,
             call,
             snapshot,
-            ..
         } => {
             let cache_key = get_approval_cache_key(&tool_name, &call.arguments);
             let already_allowed = {
@@ -25907,6 +25911,18 @@ fn handle_agent_event(
                     &call.arguments,
                 ))
             .then(|| crate::i18n::t(crate::i18n::Msg::CredentialApprovalNote).into_owned());
+            let full_command = matches!(call.name.as_str(), "bash" | "bash_start")
+                .then(|| {
+                    serde_json::from_str::<serde_json::Value>(&call.arguments)
+                        .ok()
+                        .and_then(|v| {
+                            v.get("command")
+                                .and_then(|c| c.as_str())
+                                .map(str::to_string)
+                        })
+                })
+                .flatten()
+                .filter(|c| !c.trim().is_empty());
             state.approval_panel = Some(crate::state::ApprovalPanel {
                 tool: display.clone(),
                 detail: detail.clone(),
@@ -25914,6 +25930,9 @@ fn handle_agent_event(
                 selected: 0,
                 cache_key,
                 note,
+                reason: approval_reason,
+                full_command,
+                expanded: false,
             });
             renderer.flush();
             rustcode_capabilities::notify::notify(
@@ -27996,6 +28015,9 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
             options: p.options.iter().map(|o| o.label.clone()).collect(),
             selected: p.selected,
             note: p.note.clone(),
+            reason: p.reason.clone(),
+            full_command: p.full_command.clone(),
+            expanded: p.expanded,
         });
     // A pending batch takes precedence over a single panel (mutually exclusive in
     // practice). The view carries the CURRENT question's fields plus batch navigator
@@ -28064,8 +28086,18 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
                 batch: None,
             })
     };
+    let model_channel: Option<String> = None;
+    let cache_indicator = {
+        let (_, cached_pct) = crate::state::turn_token_summary(
+            state.prompt_tokens,
+            state.completion_tokens,
+            state.cached_tokens,
+        );
+        cached_pct.map(|pct| format!("cache {}%", pct))
+    };
     crate::render::StatusLine {
         model,
+        model_channel,
         cwd,
         pending_messages: state
             .pending_steers
@@ -28081,6 +28113,7 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
         hint,
         mode_indicator,
         bypass_indicator,
+        cache_indicator,
         reasoning_effort: if reasoning_effort_applicable_on_provider(ctx) {
             ctx.reasoning_effort.clone()
         } else {

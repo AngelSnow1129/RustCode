@@ -1424,6 +1424,7 @@ impl SubtaskProgressHook {
                 member_id: self.member_id.clone(),
                 activity: event_activity,
                 output_tokens: event_tokens,
+                tool_uses: 0,
             });
         }
     }

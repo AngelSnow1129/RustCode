@@ -316,7 +316,9 @@ fn spawn_public_stream(
         // Half-close: the public side is done. Announce it now and only give the
         // reverse direction a bounded grace period so the remote peer can never
         // hang forever waiting on us.
-        let _ = out_tx.send(Message::Binary(Frame::Close(id).encode())).await;
+        let _ = out_tx
+            .send(Message::Binary(Frame::Close(id).encode()))
+            .await;
         if tokio::time::timeout(DRAIN_TIMEOUT, from_client)
             .await
             .is_err()

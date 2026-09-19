@@ -32,6 +32,7 @@ const MEMORY_HEADER: &str = "=== MEMORY ===";
 pub struct MemoryHook {
     global: MemoryStore,
     project: MemoryStore,
+    local: MemoryStore,
     project_name: String,
 }
 
@@ -47,6 +48,7 @@ impl MemoryHook {
         Self {
             global: MemoryStore::global(),
             project: MemoryStore::project(project_root),
+            local: MemoryStore::local(project_root),
             project_name,
         }
     }
@@ -55,11 +57,13 @@ impl MemoryHook {
     pub fn with_stores(
         global: MemoryStore,
         project: MemoryStore,
+        local: MemoryStore,
         project_name: impl Into<String>,
     ) -> Self {
         Self {
             global,
             project,
+            local,
             project_name: project_name.into(),
         }
     }
@@ -68,8 +72,12 @@ impl MemoryHook {
 #[async_trait]
 impl LifecycleHooks for MemoryHook {
     async fn session_start(&self, convo: &mut Conversation, resumed: bool) {
-        let merged =
-            MemoryStore::merged_for_prompt(&self.global, &self.project, &self.project_name);
+        let merged = MemoryStore::merged_for_prompt(
+            &self.global,
+            &self.project,
+            &self.local,
+            &self.project_name,
+        );
 
         if !resumed {
             if !merged.is_empty() {
@@ -128,7 +136,8 @@ mod tests {
 
     fn hook(dir: &Path, global: &str, project: &str) -> MemoryHook {
         let (g, p) = stores(dir, global, project);
-        MemoryHook::with_stores(g, p, "myproj")
+        let l = MemoryStore::new(dir.join("local.md"));
+        MemoryHook::with_stores(g, p, l, "myproj")
     }
 
     /// Guards `MEMORY_HEADER` against drift from `merged_for_prompt`'s real output.
@@ -136,7 +145,8 @@ mod tests {
     fn header_const_matches_store_output() {
         let dir = tempfile::tempdir().unwrap();
         let (g, p) = stores(dir.path(), "x", "");
-        let merged = MemoryStore::merged_for_prompt(&g, &p, "n");
+        let l = MemoryStore::new(dir.path().join("local.md"));
+        let merged = MemoryStore::merged_for_prompt(&g, &p, &l, "n");
         assert!(merged.starts_with(MEMORY_HEADER));
     }
 
@@ -162,6 +172,7 @@ mod tests {
         let h = MemoryHook::with_stores(
             MemoryStore::new(PathBuf::from("/nonexistent/g.md")),
             MemoryStore::new(PathBuf::from("/nonexistent/p.md")),
+            MemoryStore::new(PathBuf::from("/nonexistent/l.md")),
             "myproj",
         );
         let mut convo = Conversation::new();
@@ -202,7 +213,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let h = hook(dir.path(), "same fact", "");
 
-        let frozen = MemoryStore::merged_for_prompt(&h.global, &h.project, &h.project_name);
+        let l = MemoryStore::new(dir.path().join("local.md"));
+        let frozen = MemoryStore::merged_for_prompt(&h.global, &h.project, &l, &h.project_name);
         let mut convo = Conversation::new();
         convo.push(Message::system("persona"));
         convo.push(Message::system(frozen.clone()));

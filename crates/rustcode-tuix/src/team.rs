@@ -27,7 +27,9 @@ struct MemberProjection {
     activity: String,
     status: SubtaskStatus,
     started_at: Option<std::time::Instant>,
+    finished_at: Option<std::time::Instant>,
     output_tokens: u64,
+    tool_uses: u64,
 }
 
 impl Default for MemberProjection {
@@ -39,7 +41,9 @@ impl Default for MemberProjection {
             activity: String::new(),
             status: SubtaskStatus::Pending,
             started_at: None,
+            finished_at: None,
             output_tokens: 0,
+            tool_uses: 0,
         }
     }
 }
@@ -99,6 +103,7 @@ impl TeamProjection {
                 member_id,
                 activity,
                 output_tokens,
+                tool_uses,
             } => {
                 let member = run.members.entry(member_id.to_string()).or_default();
                 if member.label.is_empty() {
@@ -107,6 +112,7 @@ impl TeamProjection {
                 member.activity = activity;
                 // Estimates are monotonic; a reordered/late event can't lower the count.
                 member.output_tokens = member.output_tokens.max(output_tokens);
+                member.tool_uses = member.tool_uses.max(tool_uses);
                 if member.status == SubtaskStatus::Pending {
                     member.status = SubtaskStatus::Running;
                     member.started_at = Some(std::time::Instant::now());
@@ -134,6 +140,11 @@ impl TeamProjection {
                 } else {
                     SubtaskStatus::Failed
                 };
+                // Freeze elapsed at the terminal transition so a finished member's
+                // row stops ticking while sibling members keep the group live.
+                member
+                    .finished_at
+                    .get_or_insert_with(std::time::Instant::now);
                 run.total = run.total.max(run.members.len());
             }
             TeamEventPayload::RunFinished { total, .. } => {
@@ -218,7 +229,9 @@ impl TeamProjection {
                     model: member.model.clone(),
                     activity: member.activity.clone(),
                     started_at: member.started_at,
+                    finished_at: member.finished_at,
                     output_tokens: member.output_tokens,
+                    tool_uses: member.tool_uses,
                     status: member.status,
                 });
             }
@@ -249,7 +262,9 @@ impl TeamProjection {
                 model: member.model.clone(),
                 activity: member.activity.clone(),
                 started_at: member.started_at,
+                finished_at: member.finished_at,
                 output_tokens: member.output_tokens,
+                tool_uses: member.tool_uses,
                 status: member.status,
             })
             .collect::<Vec<_>>();
@@ -510,6 +525,7 @@ mod tests {
                     member_id: TeamMemberId::new("a#1"),
                     activity: "using read_file".into(),
                     output_tokens: 300,
+                    tool_uses: 0,
                 },
             ),
         );
@@ -522,6 +538,7 @@ mod tests {
                     member_id: TeamMemberId::new("a#1"),
                     activity: "using grep".into(),
                     output_tokens: 500,
+                    tool_uses: 0,
                 },
             ),
         );
@@ -535,6 +552,7 @@ mod tests {
                     member_id: TeamMemberId::new("a#1"),
                     activity: "done".into(),
                     output_tokens: 100,
+                    tool_uses: 0,
                 },
             ),
         );
@@ -577,6 +595,7 @@ mod tests {
                     member_id: TeamMemberId::new("a#1"),
                     activity: "late".into(),
                     output_tokens: 999,
+                    tool_uses: 0,
                 },
             ),
         );

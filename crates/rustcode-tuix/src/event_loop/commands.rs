@@ -1738,12 +1738,13 @@ fn execute_slash_command_impl(
         "memory" => {
             let global = MemoryStore::global();
             let project = MemoryStore::project(&ctx.working_dir);
+            let local = MemoryStore::local(&ctx.working_dir);
             let name = ctx
                 .working_dir
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "project".into());
-            let merged = MemoryStore::merged_for_prompt(&global, &project, &name);
+            let merged = MemoryStore::merged_for_prompt(&global, &project, &local, &name);
             let out = if merged.trim().is_empty() {
                 t(Msg::MemoryEmpty).into_owned()
             } else {

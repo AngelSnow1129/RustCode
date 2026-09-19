@@ -503,6 +503,23 @@ where
     }
 }
 
+/// Argument keys whose values name a target path/URL. Used by the sensitive-path
+/// gate to extract targets from a tool call's JSON arguments so a single call's
+/// multiple targets can be checked individually (a call that names two files must
+/// not look like a different target). Empty when the call names no target, in which
+/// case callers fall back to the raw arguments.
+pub(crate) const TARGET_ARG_KEYS: &[&str] = &["file_path", "path", "pattern", "url", "query"];
+
+pub(crate) fn target_arg_values(args: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(args) else {
+        return Vec::new();
+    };
+    TARGET_ARG_KEYS
+        .iter()
+        .filter_map(|key| value.get(*key).and_then(|v| v.as_str()).map(String::from))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
