@@ -64,7 +64,7 @@ docker run --rm -it \
 然后构建 Docker 镜像：
 
 ```bash
-docker build -t rustcode-daemon:v5.0.3 -f docker/Dockerfile-Daemon .
+docker build -t rustcode-daemon:v6.0.0 -f docker/Dockerfile-Daemon .
 ```
 
 ### 多架构构建（amd64 + arm64）
@@ -87,14 +87,14 @@ BUILD_ONLY=1 docker/build-multiarch.sh         # 构建并加载当前主机架�
 
 ```bash
 # 标记镜像
-docker tag rustcode-daemon:v5.0.3 your-registry.example.com/rustcode-daemon:v5.0.3
+docker tag rustcode-daemon:v6.0.0 your-registry.example.com/rustcode-daemon:v6.0.0
 
 # 使用 buildx 构建并推送（推荐）
-docker buildx build --platform linux/amd64 -t your-registry.example.com/rustcode-daemon:v5.0.3 --push -f docker/Dockerfile-Daemon .
+docker buildx build --platform linux/amd64 -t your-registry.example.com/rustcode-daemon:v6.0.0 --push -f docker/Dockerfile-Daemon .
 
 # 或者先构建再推送
-docker build -t your-registry.example.com/rustcode-daemon:v5.0.3 -f docker/Dockerfile-Daemon .
-docker push your-registry.example.com/rustcode-daemon:v5.0.3
+docker build -t your-registry.example.com/rustcode-daemon:v6.0.0 -f docker/Dockerfile-Daemon .
+docker push your-registry.example.com/rustcode-daemon:v6.0.0
 ```
 
 > **注意**: 部分不支持完整 OCI 规范的仓库，用较新版本 Docker（BuildKit）推送时会报
@@ -107,7 +107,7 @@ docker push your-registry.example.com/rustcode-daemon:v5.0.3
 ```bash
 docker run -d --name rustcode-daemon \
   -p 13456:13456 \
-  rustcode-daemon:v5.0.3
+  rustcode-daemon:v6.0.0
 ```
 
 ### 挂载配置文件
@@ -116,7 +116,7 @@ docker run -d --name rustcode-daemon \
 docker run -d --name rustcode-daemon \
   -p 13456:13456 \
   -v /path/to/config.toml:/root/.rustcode/config.toml \
-  rustcode-daemon:v5.0.3
+  rustcode-daemon:v6.0.0
 ```
 
 ### 挂载项目目录
@@ -126,7 +126,7 @@ docker run -d --name rustcode-daemon \
   -p 13456:13456 \
   -v /path/to/config.toml:/root/.rustcode/config.toml \
   -v /path/to/project:/workspace \
-  rustcode-daemon:v5.0.3
+  rustcode-daemon:v6.0.0
 ```
 
 ### 传递环境变量
@@ -136,7 +136,7 @@ docker run -d --name rustcode-daemon \
   -p 13456:13456 \
   -e ANTHROPIC_API_KEY=your-api-key \
   -v $(pwd)/config.toml:/root/.rustcode/config.toml \
-  rustcode-daemon:v5.0.3
+  rustcode-daemon:v6.0.0
 ```
 
 ## 验证服务

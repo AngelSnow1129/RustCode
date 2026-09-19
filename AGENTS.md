@@ -9,7 +9,7 @@
 ## 常用命令
 
 构建:
-- `cargo build` — 构建 `default-members`(`rustcode-cli` / `rustcode-daemon` / `rustcode-tuix`),产物 `target/debug/rustcode`。
+- `cargo build` — 构建 `default-members`(`rustcode-cli` / `rustcode-daemon` / `rustcode-tuix` / `rustcode-tunnel`),产物 `target/debug/rustcode`。
 - `cargo build --release -p rustcode` — 只构建发布版 CLI。`rustcode-cli` 的**包名是 `rustcode`**(`-p rustcode-cli` 会失败),产物 `target/release/rustcode`。
 - `cargo build --workspace` — 构建全部 `crates/*`(含默认成员外的 `clix`、`review`;原并列于此的 `codingplan` 已于 2026-09-09 按用户裁决 Q1=B 整体移除)。
 - `cargo install --path crates/rustcode-cli --locked` — 安装到 `~/.cargo/bin`。
@@ -50,18 +50,17 @@ L2  specialize      |             +----> rustcode-coding (CodingRuntime)
                     |                          |     `-- rustcode-review
 L1  capabilities    rustcode-capabilities / rustcode-wiki <----+
 L0  neutral         rustcode-kernel <----------+
-leaf                rustcode-config / rustcode-updater
-                    rustcode-codingplan / rustcode-codingplan-crypto
+leaf                rustcode-config / rustcode-updater / rustcode-tunnel
 ```
 
-> 上图 leaf 行的 rustcode-codingplan 与 rustcode-codingplan-crypto 两个 crate 已于 2026-09-09
-> 按用户裁决 Q1=B 删除,图中保留仅为与历史交接件对照;现工作区 crates 目录下只有 12 个成员(`rustcode-wiki` 为 2026-09-11 新增的项目 wiki 自动生成模块)。
+> 上图 leaf 行的 `rustcode-codingplan` 与 `rustcode-codingplan-crypto` 两个 crate 已于 2026-09-09
+> 按用户裁决 Q1=B 删除,图中已移除;`rustcode-tunnel`(内置反向隧道中继客户端)为新增 leaf 成员。现工作区 crates 目录下有 13 个成员(`rustcode-wiki` 为 2026-09-11 新增的项目 wiki 自动生成模块)。
 > 原 `auth` leaf crate（即旧 `rustcode` 的 auth 子 crate）已随本批次基线删除,故已从 leaf 行移除,不保留对照。
 
 - **出站 HTTP 只有一个入口**:`capabilities/src/egress/`(`egress` feature,由 `provider` / `web` / `atomgit` / `mcp` 拉起)。`egress::client::build_http_client` 是唯一工厂,统一承载信任根分层、代理策略、超时、UA、pool-idle。**新增任何出站调用都必须走它,禁止再写 `reqwest::Client::new()`。**
 - 依赖只向下:`kernel`(无内部依赖) <- `capabilities`(禁止反向依赖 coding / driver / 已退役 core) <- `coding`(另依赖 kernel、config、review) <- `tuix`(另依赖 daemon、updater) <- `cli`(唯一同时依赖 tuix + daemon)。`clix -> review, coding, capabilities, kernel, config`。
-- 工作区 `members = ["crates/*"]`,`default-members` 为 cli / daemon / tuix;`rustcode-codingplan-crypto` 曾是闭源签名占位桩(默认成员故意不含它,官方构建用 `--features rustcode/codingplan-crypto` 开启),该 crate 与该 feature 已于 2026-09-09 一并删除,现无此成员、无此开关。
-- **[SUPERSEDED 2026-09-09,整条作废]** 以下 feature 传递链已随 codingplan 删除而不复存在,保留原文仅作沿革;现状是该 crate、其 client feature、驱动侧 codingplan feature 与相应 cfg 门控全部不存在,原先必跑的七种 feature 组合校验不再适用。原文——**`rustcode-codingplan` 的网关 HTTP client 默认不链接**:`client` / `setup` 模块(以及 reqwest 依赖)由 `client` Cargo feature 门控、默认 `default = []`;纯数据/usage 模块(`types` / `usage` / `sync_marker`)始终编译,供 TUI 用量面板在无网关 client 时也能渲染形状。驱动 crate 的 `codingplan` feature **必须**向上传递 `rustcode-codingplan/client`(daemon: `codingplan = ["dep:rustcode-codingplan", "rustcode-codingplan/client"]`;cli 另加 `rustcode-tuix/codingplan`),否则 `#[cfg(feature="codingplan")]` 代码会引用被 cfg 掉的 `Client`/`run`/`is_auth_expired` 而编译失败。注意:默认 feature 下 `cargo test -p rustcode-codingplan` **不编译** `client.rs`/`setup.rs`,改动这两个文件后要显式 `cargo check -p rustcode-codingplan --features client --all-targets`。跨 crate 复用 `format_duration_secs` 走 crate 根重导出(`rustcode_codingplan::format_duration_secs`),`setup::format_duration_secs` 是私有 `use`,外部不可达。
+- 工作区 `members = ["crates/*"]`,`default-members` 为 cli / daemon / tuix / tunnel;`rustcode-codingplan-crypto` 曾是闭源签名占位桩(默认成员故意不含它,官方构建用 `--features rustcode/codingplan-crypto` 开启),该 crate 与该 feature 已于 2026-09-09 一并删除,现无此成员、无此开关。
+- **[SUPERSEDED 2026-09-09,整条作废]** codingplan 的网关 HTTP client feature 传递链(`client` Cargo feature、驱动侧 `codingplan` feature 向上传递 `rustcode-codingplan/client`、原先必跑的七种 feature 组合校验)已随 crate 删除而不复存在,详见 `docs/archive/`。
 - **`CodingRuntime`**(`coding/src/runtime.rs`)是 coding agent 的唯一运行时所有者,对外暴露 `CodingRuntimeHandle`。Driver 通过 `DriverCommand` 驱动,读 `CodingRuntimeEvent`;不得自建第二套 live agent 生命周期。
 - 启动路径:CLI `spawn_native_cli_runtime`、ACP `spawn_native_runtime_for_session_deferred_with_preprocessor`、daemon `kernel_runtime::start_native_runtime*`,三者最终都落到 `CodingRuntime::start_with_session_lease` / `start_with_bootstrap`。**TUI 不自己启动 runtime**:外部把已启动的 `SpawnedRuntime` 传进 `tuix::run`。
 - kernel `Agent` + `AgentBuilder` / `AgentHandle` / `AgentCommand` / `AgentEvent` 是中立循环,不得承载 coding 产品语义。`rustcode-review` 是独立业务 agent,以 `code_review` 子 agent 工具挂进 coding。
@@ -260,10 +259,7 @@ atomgit 系列工具,以及 persona/parts 里按该 feature 门控的工具装�
 而非豁免。两条 grep 模式本身(atomcode)不变,G7/G8 判据不受影响。
 
 **[SUPERSEDED 2026-09-09] 本文件中所有「codingplan 相关面按 fork 铁律保留、门控不删除」的结论整体作废。**
-被推翻的结论包括:codingplan Cargo feature 与其 cfg 门控块、LEGACY_CODINGPLAN_PREFIX 前缀识别器
-与 is_codingplan_provider_name、签名网关识别器 is_codingplan_llm_gateway 与三个环境变量
-RUSTCODE_CODINGPLAN_API_BASE / RUSTCODE_CODINGPLAN_LLM_BASE_URL / RUSTCODE_CODINGPLAN_PROVIDER_PREFIX、
-Cp 前缀签名 i18n 族、扩展侧 /codingplan/setup 客户端方法与类型。
+被推翻的结论包括:codingplan Cargo feature/cfg 门控、`LEGACY_CODINGPLAN_PREFIX`/`is_codingplan_provider_name`、签名网关识别器 `is_codingplan_llm_gateway` 及三个 `RUSTCODE_CODINGPLAN_*` 环境变量、Cp 前缀 i18n 族、扩展侧 `/codingplan/setup` 客户端方法——均已于 2026-09-09 删除,详见 `docs/archive/`。
 **边界(勿扩大解读)**:托管 QR 登录流**已随 `rustcode-auth` 删除**——`platform_server()` 与
 `managed_login_available()` 一并移除,OAuth 扫码登录屏不再有可达入口(`onboarding_wizard.rs`
 明示 "QR sign-in fast path is gone with managed `/login`");`render/qr.rs` 的 QR 渲染器保留,
@@ -282,7 +278,7 @@ i18n 三件套(messages.rs / en.rs / zh_cn.rs)的 Cp 前缀变体与 kernel 注�
 早先记在 ③ 的 capabilities/src/provider/error.rs 与 cli/src/vision.rs 两处现已 0 命中。
 全量验证(T-31)尚未完成,最终残留清单以测试工程师的报告为准。
 
-**[CHECK] CI 已补齐**:`.github/workflows/ci.yml` 已创建,在 push/PR 到 `main`/`dev` 时触发 G1(`cargo fmt --check`)、G2(`cargo clippy --workspace --all-targets`)、G3(`cargo test --workspace`)三个 job。G2 暂不 `-D warnings`(约 420 条存量 warning,见下方已知剩余项),待收敛后收紧。`build.yml` 仍只管 release 构建。
+**[CHECK] CI 已补齐**:`.github/workflows/ci.yml` 已创建,在 push/PR 到 `main`/`dev` 时触发 G1(`cargo fmt --check`)、G2(`cargo clippy --workspace --all-targets -- -D warnings`)、G3(`cargo test --workspace`)三个核心 job,并补齐 G4(`headless-smoke`)、G5(`acp-smoke`)、G6/G7(`no-telemetry`)、G8(`no-stale-naming`)四个 CI job。G2 已收紧为 `-D warnings`(clippy warnings 已全部收敛为 0)。`build.yml` 仍只管 release 构建。
 
 ## 已知剩余项 (follow-up, 非重命名必须)
 
@@ -327,7 +323,7 @@ i18n 三件套(messages.rs / en.rs / zh_cn.rs)的 Cp 前缀变体与 kernel 注�
   - **示例配置是第三方模板**:`docs/config.example.toml`/`docker/config-example.toml` 演示第三方 BYO(`api_key="sk-..."` 用户自带、deepseek/glm 为可选第三方;原 codingplan 网关示例段已于 2026-09-09 删除,现存的 `gateway.example.com` 占位只作第三方自建网关示例),属"只保留第三方配置"目标要求保留,不视为绑定。
 - **[FIXED] i18n 文案测试对齐中立口径**(2026-09-01):上轮把 `Msg::CpOfficialBuildRequired` 改写为"第三方 BYO 或用带 CodingPlan 支持的发行版本"后,两个 i18n 内容测试仍断言旧厂商口径关键词(en 要求 `official`+`releases`、zh 要求 `官方`+`releases/发布`)——`cargo test -p rustcode-config --lib` 因此 2 failed。开放构建无"官方 releases"主机,旧断言绑定了厂商框架;改为断言**中立解决路径**:en 含 `bring your own key` + `distribution`,zh 含 `第三方提供商` + `发行`(`en_/zh_official_build_required_guides_byo_or_distribution`)。这是按去厂商化后的正确文案重新瞄准,非削弱断言。修正后 `rustcode-config` 328 passed / 0 failed。**教训:改 i18n 文案后跑整个 crate 的 `--lib`(内容测试散落在 en.rs/zh_cn.rs 末尾的 `codingplan_crypto_tests` 等模块),不要只跑受影响功能测试。**
 - **[DONE] 多 agent 复核校准:首启引导 / 文案 / egress / 文档站中立化**(2026-09-01,多 agent 协助方案逐条 triage 并落地):
-  - **[SUPERSEDED] 首启引导已无托管登录分支**:`platform_server()` 与 `managed_login_available()` 随 `rustcode-auth` 删除,`onboarding_wizard.rs` 的 `SetupChoice` 仅含 `Manual`/`Skip`(中立构建恒为 BYO),`/login` 命令已移除。原记录(2026-09-01)作沿革保留:引导第 3 条 bullet 分 `OnboardingIntroBullet3`(托管)/`OnboardingIntroBullet3Neutral`(自带 key 无需注册账号)。新增 `OnboardingSetupNavHint`("数字键选择",菜单条数 2/3 可变),语言步仍用 `OnboardingNavHint`("1-3 选择",语言恒为 3 项)。`welcome_tips.rs` pinned tip:空 `platform_server` 置顶 `/provider` 而非 `/login`(`LOGIN_TIP` 仅托管构建)。测试重瞄中立口径,断言未被削弱:9 个 onboarding + welcome_tip 单元测试断言 2 行 BYO 菜单;`render/retained.rs` 另有 **9 处** 把 pinned tip 当 `/login` 标记的欢迎屏 vterm 断言(`found_hint`/窄终端 reflow/首启 scrollback 计数/mascot 开关/resize 不重摇/colors-off 堆叠)改判 `/provider`——`/provider` 在中立构建是 pinned 且被随机池排除,故仍满足"恰好出现一次";`welcome_wide_*_pinned_login` 改名 `..._pinned_provider_tip` 并加"中立构建不出现 /login"负断言。顺带修一处**既有 locale 竞态**:`event_loop/commands.rs::todo_command_text_with_and_without_list` 两次全局 `t()` 未持 `i18n::test_lock()`,与并发 `set_locale` 测试竞争时两次读到不同语种 → 全量并行跑偶发红(单跑绿);补 `let _g = crate::i18n::test_lock();`(符合 AGENTS.md 既定模式)。
+  - **[SUPERSEDED] 首启引导已无托管登录分支**:`platform_server()` / `managed_login_available()` / `/login` 命令已随 `rustcode-auth` 删除,`onboarding_wizard.rs` 的 `SetupChoice` 仅含 `Manual`/`Skip`(中立构建恒为 BYO);`welcome_tips.rs` pinned tip 改置顶 `/provider` 而非 `/login`。原 2026-09-01 记录(托管/中立两套 bullet、9 个 onboarding + welcome_tip 单元测试、9 处欢迎屏 vterm 断言重瞄 `/provider`、`event_loop/commands.rs` locale 竞态补 `i18n::test_lock()`)作沿革保留,详见 `docs/archive/`。
   - **"official build / 官方版本" 口径中立化**(en+zh):`CpUpgradeRequired`、`ProviderInitSourceBuild`、`GatewayAuthUnavailable`、`CmdProviderUnsupportedBuild`、`StatusOfficialBuildRequired`、`ProviderPanelManagedAccountHint` 去掉 "official releases / official binary / 官方版本 / 免费网关 / 官方 CodingPlan 账号",统一为"用带网关(托管签名)支持的**发行版构建**,或用 `/provider` 配第三方 BYO provider";`ProviderInitSourceBuild` 不再谎称"source build / 免费网关"。`i18n/mod.rs` 的 `GatewayAuthUnavailable` 测试只断言 `gateway/网关` + 回显 url,改后保持绿。
   - **clix 签名网关报错去厂商举例**:`rustcode-clix/src/main.rs` 把 "a closed-source overlay in the official binary" 改为"只在某些发行版构建中提供的闭源覆盖层",举例 `--provider openrouter` 改为通用 `--provider <name>`(选中具名 `[providers.<name>]` 表项,或 `RUSTCODE_API_KEY/BASE_URL/MODEL`)。
   - **egress 单一工厂补齐**:`rustcode-daemon/src/api_provider.rs` 模型发现(fetch_discovery_body)不再 `reqwest::Client::builder()` 自建,改 `rustcode_capabilities::egress::{build_http_client,HttpClientSpec}`(timeout/skip_tls_verify/user_agent 映射到 spec),与 provider/web/mcp/atomgit 共用同一 TLS 信任根 / proxy / UA / redirect 策略;egress 由 daemon 已启用的 `mcp` feature 拉入。
@@ -503,7 +499,7 @@ i18n 三件套(messages.rs / en.rs / zh_cn.rs)的 Cp 前缀变体与 kernel 注�
   - **跨 crate CJK 直扫定位真 bug**:cli/daemon/clix 生产区 grep CJK 字面量——coding/capabilities 的绝大多数是 persona/工具描述/工具结果(模型面、默认中文、随快照持久化重放,按 scope 规则 STAY),cli/clix 命中除 `vision.rs` 外全是 test 夹具;真·半迁移在 **/webui 与 /app 远程访问**状态串:daemon `lib.rs ensure_server_and_open/stop_server/ensure_app_server` 与 tuix `event_loop/commands.rs` 的 /app handler 把中文 `format!` 直接返回/渲染(英文用户在 `/webui`、`/app` 看到整屏中文),而同文件早已 `use …i18n::{t, Msg}` 且 AppRemoteStopped 等就走 Msg。
   - **修复(16 新 Msg 变体,en/zh 编译期 parity)**:
     - Webui 面 8 个:`WebuiOpenedBrowser{url}`(已在浏览器打开/Opened webui)、`WebuiOpenManually{url}`(请手动打开/Open manually)、`WebuiBindFailed{host,port,error}`(webui 启动失败…端口绑定失败)、`WebuiRebindHint{bound_host,host}`(已在运行…先 /webui stop)、`WebuiLanWarning`、`WebuiNonLoopbackWarning`(两条 `[!]` 无 TLS/token 安全提示)、`WebuiStopped`、`WebuiNotRunning`。
-    - **[SUPERSEDED] App 面 8 个** —— 移动端 App 远程访问(含 `/app <中继>`、`RUSTCODE_APP_RELAY`、`AppRelayClient*`、`AppRemoteLoginRequired`、移动端配对 QR)已随移动端 App 一并移除;`docs/features.md` 现以 frp 风格反向隧道(`RUSTCODE_ENABLE_TUNNEL` + `RUSTCODE_TUNNEL_RELAY` + `/tunnel` 命令)取代之。以下 8 个 Msg 变体仅作沿革新:`AppServerBindFailed{host,port,error}`(daemon map_err)、`AppRemoteUsage`(用法:/app <中继>;或设 RUSTCODE_APP_RELAY)、`AppRemoteLoginRequired`(远程访问需先 /login)、`AppServerStartFailed{error}`(tuix 包裹 daemon bind err)、`AppRelayClientStartFailed{error}`(relay-client 二进制准备失败)、`AppRelayClientSpawnFailed{error,bin,cache}`(spawn 失败多行)、`AppPairQrBlock{qr,encoded}`(`[*] 移动端配对连接`扫码引导多行块)、`AppPairLinkFallback{pair_uri}`(二维码生成失败手动填)。
+    - **[SUPERSEDED] App 面 8 个** —— 移动端 App 远程访问(含 `/app <中继>`、`RUSTCODE_APP_RELAY`、`AppRelayClient*`、`AppRemoteLoginRequired`、移动端配对 QR)已随移动端 App 一并移除;`docs/features.md` 现以 frp 风格反向隧道(`RUSTCODE_ENABLE_TUNNEL` + `RUSTCODE_TUNNEL_RELAY` + `/tunnel` 命令)取代之。原 8 个 `App*` Msg 变体(`AppServerBindFailed`/`AppRemoteUsage`/`AppRemoteLoginRequired`/`AppServerStartFailed`/`AppRelayClientStartFailed`/`AppRelayClientSpawnFailed`/`AppPairQrBlock`/`AppPairLinkFallback`)仅作沿革,详见 `docs/archive/`。
   - **要点**:daemon 的 bind err 现在也 `t()` 本地化,tuix 再用 `AppServerStartFailed{error}` 包一层(进程内 webui 同 locale,双层 t() 一致;独立 `rustcode webui` 子命令用 daemon 进程 locale,默认 ZhCn 可覆盖)。en 臂用 ASCII 标点/括号;`[*]`/`[!]` ASCII tag 保留;技术词 webui/token/relay-client/cloudflared/Tailscale/TLS/RUSTCODE_APP_RELAY/`/webui stop`/`/app stop`/`/login`/`rustcode-link://` 两语皆保留。`bin` 实为 String(非 PathBuf),字段直接 `bin: &bin`。
   - **明确 LEAVE(本轮 triage,勿再上报)**:① vision 预处理的载荷标记 `[图片内容（由 {vl_model} 识别）]`/`[图片识别失败]`(cli `vision.rs` 与 daemon `live_api.rs` 各一份)是**折进 UserInput.text 的模型面会话载荷**(类比工具结果输出,默认 persona 中文、随快照持久化、像消息体一样原样渲染),STAY;真正面向用户的 toast 已本地化(zh 1590/1592 `VL 识别图片成功`/`VL 预处理失败`),daemon `lib.rs:832` 把这俩标记当识别配对做剥离。② daemon `live_api.rs:467/475` 的 webui 运行时错误自由文本(切换模式失败/发送用户消息失败)是**已知架构 backlog**:daemon 不掌握浏览器语言,按服务器 locale `t()` 只是把硬编码挪个位置,正解是机器错误码由 webui 按自身语言映射(daemon→webui),本轮不动。③ `api_codingplan.rs` 的 `reset_label` 等在 codingplan 托管特性门后(中立构建关闭),LEAVE——**2026-09-09 补注:该文件已随裁决 Q1=B 删除,本 LEAVE 项自然消解**。
   - **验证**:`cargo fmt --check` 干净;`cargo check -p config/daemon/tuix` 通过(仅 1 条既有 usage_render 括号 warning);config 测试绿、tuix lib 2063/0、daemon lib 307/0(zh 臂逐字复刻旧中文,默认 ZhCn 下既有断言不破);clippy daemon 9/tuix 55 均为 legacy 基线、新 t() 块零新 lint;G4 headless 2 过 5 跳 0 失败;G5 acp_smoke SMOKE OK(CLI bin 已重链)。
@@ -707,12 +703,12 @@ i18n 三件套(messages.rs / en.rs / zh_cn.rs)的 Cp 前缀变体与 kernel 注�
   - **产物已生成**:`05-test-report.md`(验证基线/逐门禁/逐套件/存量红演进/失败归因/零回归论证/未验证范围)、
     `06-release.md`(四段式交付清单 + 回滚方案 + 唯一下一步)、`03-impl/T6/T7/T8.md`、
     `HANDOFF-codingplan-legacy.md`。均位于 `.codebuddy/artifacts/2026-09-02-g1-fmt-gate/`。
-  - **流水线核查(`.github/`)**:**无任何改动**(本会话与对方会话均未触碰)。现有 job 仅
-    `cargo fmt --all -- --check` / `cargo clippy --workspace --all-targets` / `cargo test --workspace`,
-    对应 G1–G3;**G6/G7/G8 无 CI job**,仅本地人工门禁。**影响推论**:① 本 feature 修好 19 处
-    格式违规,**使 CI 的 `fmt` job 由红转绿**;② CI `test` job 跑裸 `cargo test --workspace`,
-    而 `trust_key` 确定性失败,**该 job 仍将为红**(既有状态,非本轮引入);③ `clippy` job 未加
-    `-D warnings`,不会失败。是否补 G6–G8 的 CI job 需用户裁决,本轮未改流水线。
+  - **流水线核查(`.github/`)**:本会话与对方会话均未触碰流水线。**[2026-09-20 更新]** ci.yml 现有
+    job 除 G1–G3 外,已补齐 G4(`headless-smoke`)、G5(`acp-smoke`)、G6/G7(`no-telemetry`)、
+    G8(`no-stale-naming`)四个 CI job;G2 已收紧为 `-D warnings`(clippy warnings 收敛为 0)。
+    **影响推论**(历史口径):① 本 feature 修好 19 处格式违规,使 CI 的 `fmt` job 由红转绿;
+    ② CI `test` job 跑裸 `cargo test --workspace`,而 `trust_key` 确定性失败,该 job 仍将为红
+    (既有状态,非本轮引入);③ `clippy` job 现加 `-D warnings`,warnings 已清零。
   - **对方 T3 已落地,恢复验证通过**:`crates/` 下 `Commands::Codingplan` **0 命中**(由 `doc-writer`
     实测发现并上报「编排者数据已过期」,核验属实)。恢复验证:**我的 fmt hunk
     (`cli/src/main.rs:3363`)存活**,与对方删除在同一文件共存;G1 **exit=0 / 0 差异**;

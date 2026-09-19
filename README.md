@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-5.0.11-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-6.0.0-blue" alt="version">
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange" alt="rust">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
@@ -211,7 +211,7 @@ irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref
 
 - `RUSTCODE_RELEASE_BASE` —— 覆盖下载根目录
 - `RUSTCODE_RELEASE_LATEST_API` —— 覆盖最新版本探测 API
-- `RUSTCODE_VERSION` —— 固定某个发布版本（如 `v5.0.11`），未设则自动探测最新
+- `RUSTCODE_VERSION` —— 固定某个发布版本（如 `v6.0.0`），未设则自动探测最新
 - `RUSTCODE_PREFIX` —— 安装目录（详见脚本头部注释）
 
 安装器还支持在安装成功后注入一个自定义 BYO provider（对应 `config.toml` 的
@@ -714,9 +714,11 @@ rustcode/
     rustcode-cli/           # L3 TUI 与 headless 入口（二进制 `rustcode`）
     rustcode-daemon/        # L3 HTTP/SSE/WebSocket 传输 + 历史 session 单向导入
     rustcode-clix/          # L3 独立 `code`/`review` 命令行驱动（二进制 `rustcodex`）
+    rustcode-tunnel/        # service 内置反向隧道中继客户端（二进制 `rustcode-relay`）
+    rustcode-wiki/          # service 项目 wiki 自动生成（架构图 + 模块文档）
 ```
 
-> 工作区 `members = ["crates/*"]`，`default-members` 仅含 `rustcode-cli` / `rustcode-daemon` / `rustcode-tuix`；`rustcode-clix`、`rustcode-review`、`rustcode-config`、`rustcode-updater` 不在默认构建目标内，需用 `-p` 显式指定（如 `cargo build -p rustcode-clix`）。
+> 工作区 `members = ["crates/*"]`，`default-members` 含 `rustcode-cli` / `rustcode-daemon` / `rustcode-tuix` / `rustcode-tunnel`；`rustcode-clix`、`rustcode-review`、`rustcode-config`、`rustcode-updater`、`rustcode-wiki` 不在默认构建目标内，需用 `-p` 显式指定（如 `cargo build -p rustcode-clix`）。
 
 coding 主调用链是 `CLI/TUI/daemon → CodingRuntime → kernel`。已经退役的 core agent
 协议和 `rustcode-bridge` 不再位于运行时路径中。

@@ -38,7 +38,7 @@ L2                     rustcode-coding
                   runtime owner + coding assembly
                        │                 │
                        ▼                 ▼
-L1            rustcode-capabilities   rustcode-config/auth/...
+L1            rustcode-capabilities   rustcode-config
               providers/tools/session
                        │
                        ▼
@@ -72,6 +72,8 @@ L0                     rustcode-kernel
 | `rustcode-clix` | L3 | 独立 coding CLI driver |
 | `rustcode-review` | L2/L3 | 基于 kernel + capabilities 的独立代码审查 agent |
 | `rustcode-updater` | service | 安装包与版本更新能力 |
+| `rustcode-tunnel` | service | 内置反向隧道中继客户端（`rustcode-relay` 二进制），frp 风格远程访问 |
+| `rustcode-wiki` | service | OpenWiki 风格项目 wiki 自动生成（架构图 + 模块文档） |
 | `rustcode-codingplan` | 已移除 | 已于 2026-09-09 随 codingplan 一并移除；工作区不再包含该 crate |
 | `rustcode-codingplan-crypto` | 已移除 | 已于 2026-09-09 随 codingplan 一并移除；闭源签名覆盖层与 `--features rustcode/codingplan-crypto` 开关同时退役 |
 

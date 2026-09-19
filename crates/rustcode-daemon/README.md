@@ -60,7 +60,7 @@ cargo run -p rustcode-daemon -- --host 0.0.0.0 --port 8080
 ```json
 {
   "status": "ok",
-  "version": "5.0.9",
+  "version": "6.0.0",
   "service": "rustcode-daemon"
 }
 ```
