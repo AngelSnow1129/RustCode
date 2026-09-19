@@ -1465,6 +1465,15 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CmdDescWorklog => "跨所有项目的每日工作复盘（/worklog [today|yesterday|月/日]）".into(),
         Msg::CmdDescOpenrouter =>
             "接入 OpenRouter 免费模型（/openrouter 走 OAuth，/openrouter <key> 直传已有密钥）".into(),
+        Msg::OpenrouterConnecting => "正在连接 OpenRouter...".into(),
+        Msg::OpenrouterAwaitingBrowser { auth_url } =>
+            format!("浏览器未自动打开?手动访问完成授权:{auth_url}").into(),
+        Msg::OpenrouterReady { count } =>
+            format!("已接入 OpenRouter,新增 {count} 个免费模型。/model 可切换。").into(),
+        Msg::OpenrouterFailed { reason } =>
+            format!("OpenRouter 接入失败: {reason}。可重试 /openrouter,或 /openrouter <你的key> 直接接入。").into(),
+        Msg::OpenrouterConfigSaveFailed { error } =>
+            format!("OpenRouter 配置保存失败: {error}").into(),
         Msg::CmdDescUpgrade => "升级到最新版本（子命令：rollback）".into(),
         Msg::CmdDescPlan => "切换到 Plan 模式（只读探索）".into(),
         Msg::CmdDescBuild => "切换到 Build 模式（完整执行）".into(),

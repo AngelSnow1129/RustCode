@@ -236,6 +236,11 @@ plugin = [
     "dep:rustcode-config",
     "skills",
 ]
+# OpenRouter free-model quick connect: OAuth PKCE key exchange + free model
+# discovery. Powers the `/openrouter` TUI command. Requires the provider stack
+# (for the shared proxy policy + config leaf) and `reqwest/blocking` for the
+# one-shot OAuth callback + key/model HTTP calls on a background thread.
+openrouter = ["provider", "reqwest/blocking", "dep:anyhow", "dep:sha2"]
 
 [target.'cfg(unix)'.dependencies]
 # Askpass (the `askpass` module): a Unix-socket server + wrapper script that route

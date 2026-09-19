@@ -19,6 +19,7 @@ pub(crate) mod desktop;
 pub(crate) mod file_index;
 pub(crate) mod loop_ctrl;
 pub(crate) mod loop_parse;
+pub(crate) mod openrouter_connect;
 pub(crate) mod pointer_select;
 pub(crate) mod ui_event;
 use commands::{execute_slash_command, format_rate_limited_line};
@@ -3865,6 +3866,13 @@ pub struct LoopCtx {
     pub runtime_spawn_override: RuntimeSpawnOverride,
     pub bg_manager: bg_runtime::BgRuntimeManager,
     pub foreground_runtime_id: bg_runtime::RuntimeId,
+    /// OpenRouter connect background task event channel. One event per
+    /// `/openrouter` invocation (AwaitingBrowser / Ready / Failed).
+    pub openrouter_event_rx: mpsc::UnboundedReceiver<openrouter_connect::OpenRouterConnectEvent>,
+    pub openrouter_event_tx: mpsc::UnboundedSender<openrouter_connect::OpenRouterConnectEvent>,
+    /// Cancel flag shared with the background connect thread; reset per
+    /// `/openrouter` invocation so prior-task cancellation does not stop a new one.
+    pub openrouter_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub runtime_event_tx: mpsc::UnboundedSender<bg_runtime::RuntimeEvent>,
     pub runtime_event_rx: mpsc::UnboundedReceiver<bg_runtime::RuntimeEvent>,
     /// Events captured while a runtime was backgrounded. `/bg <slot>` moves
@@ -9138,6 +9146,64 @@ pub enum ExitReason {
 ///   collapses into a single catch-up fire on the next idle edge, never a
 ///   backlog.
 /// - `Stop`  -> round/max or 3 consecutive failures: tear the loop down and
+/// Handle one background OpenRouter connect event. Shared by the Unix/Windows
+/// `select!` blocks so Ready/Failed/AwaitingBrowser logic is not duplicated.
+fn handle_openrouter_connect_event(
+    ctx: &mut LoopCtx,
+    ev: openrouter_connect::OpenRouterConnectEvent,
+    renderer: &mut dyn Renderer,
+) {
+    use openrouter_connect::OpenRouterConnectEvent;
+    match ev {
+        OpenRouterConnectEvent::AwaitingBrowser { auth_url } => {
+            renderer.render(UiLine::Muted(
+                crate::i18n::t(crate::i18n::Msg::OpenrouterAwaitingBrowser {
+                    auth_url: &auth_url,
+                })
+                .into_owned(),
+            ));
+            renderer.flush();
+        }
+        OpenRouterConnectEvent::Ready { api_key, models } => {
+            let mut added_count = 0usize;
+            match ctx.config_store.update(|latest| {
+                let out = openrouter_connect::provision_openrouter(latest, &api_key, &models);
+                added_count = out.added.len();
+                Ok(())
+            }) {
+                Ok(commit) => {
+                    apply_persisted_config(
+                        ctx,
+                        commit.snapshot.config,
+                        commit.snapshot.revision,
+                        renderer,
+                    );
+                    renderer.render(UiLine::CommandOutput(
+                        crate::i18n::t(crate::i18n::Msg::OpenrouterReady { count: added_count })
+                            .into_owned(),
+                    ));
+                    renderer.flush();
+                }
+                Err(e) => {
+                    renderer.render(UiLine::Error(
+                        crate::i18n::t(crate::i18n::Msg::OpenrouterConfigSaveFailed {
+                            error: &e.to_string(),
+                        })
+                        .into_owned(),
+                    ));
+                    renderer.flush();
+                }
+            }
+        }
+        OpenRouterConnectEvent::Failed(reason) => {
+            renderer.render(UiLine::Error(
+                crate::i18n::t(crate::i18n::Msg::OpenrouterFailed { reason: &reason }).into_owned(),
+            ));
+            renderer.flush();
+        }
+    }
+}
+
 ///   surface a notice.
 ///
 /// `idle` is derived from `UiPhase::Idle` so "the agent finished its turn"
@@ -9694,6 +9760,10 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                 }
             }
 
+            // ── OpenRouter connect events ──
+            Some(ev) = ctx.openrouter_event_rx.recv() => {
+                handle_openrouter_connect_event(&mut ctx, ev, renderer);
+            }
             // ── Agent events ──
             // Consumed regardless of phase. A diagnostic Error may precede the
             // authoritative TurnFinished, so terminal and queue decisions are
@@ -10079,6 +10149,10 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                 }
             }
 
+            // ── OpenRouter connect events ──
+            Some(ev) = ctx.openrouter_event_rx.recv() => {
+                handle_openrouter_connect_event(&mut ctx, ev, renderer);
+            }
             // ── Agent events ──
             // Consumed regardless of phase. A diagnostic Error may precede the
             // authoritative TurnFinished, so terminal and queue decisions are
@@ -11441,6 +11515,18 @@ fn desired_config_from_snapshot(ctx: &LoopCtx, persisted: Config, manual_reload:
         persisted,
         manual_reload,
     )
+}
+
+pub(crate) fn apply_persisted_config(
+    ctx: &mut LoopCtx,
+    config: Config,
+    revision: ConfigRevision,
+    renderer: &mut dyn Renderer,
+) {
+    if let Err(error) = reconcile_persisted_config(ctx, ConfigSnapshot { config, revision }, true) {
+        renderer.render(UiLine::Error(error.to_string()));
+        renderer.flush();
+    }
 }
 
 fn reconcile_persisted_config(

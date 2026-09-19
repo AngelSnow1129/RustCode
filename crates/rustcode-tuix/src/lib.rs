@@ -745,6 +745,9 @@ pub async fn run(
         event_rx,
         runtime_event_tx.clone(),
     );
+    let (openrouter_event_tx, openrouter_event_rx) = tokio::sync::mpsc::unbounded_channel::<
+        event_loop::openrouter_connect::OpenRouterConnectEvent,
+    >();
     let (session_preview_request_tx, session_preview_request_rx) =
         tokio::sync::watch::channel(None);
     event_loop::bg_runtime::spawn_session_preview_loader(
@@ -842,6 +845,9 @@ pub async fn run(
         runtime_spawn_override,
         bg_manager,
         foreground_runtime_id,
+        openrouter_event_rx,
+        openrouter_event_tx,
+        openrouter_cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         runtime_event_tx,
         runtime_event_rx,
         foreground_replay_events: std::collections::VecDeque::new(),

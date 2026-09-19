@@ -2097,6 +2097,24 @@ pub enum Msg<'a> {
     CmdDescWorktree,
     CmdDescWorklog,
     CmdDescOpenrouter,
+    /// Connecting to OpenRouter (background task started).
+    OpenrouterConnecting,
+    /// Browser did not auto-open; user should copy-paste the auth URL.
+    OpenrouterAwaitingBrowser {
+        auth_url: &'a str,
+    },
+    /// OpenRouter connected, {count} free models added.
+    OpenrouterReady {
+        count: usize,
+    },
+    /// OpenRouter connect failed: {reason}.
+    OpenrouterFailed {
+        reason: &'a str,
+    },
+    /// OpenRouter config save failed: {error}.
+    OpenrouterConfigSaveFailed {
+        error: &'a str,
+    },
     CmdDescUpgrade,
     CmdDescPlan,
     CmdDescBuild,

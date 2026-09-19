@@ -4262,6 +4262,23 @@ fn handle_worktree(arg: &str, ctx: &mut LoopCtx, renderer: &mut dyn Renderer) ->
             }
             renderer.flush();
         }
+        Some("openrouter") => {
+            use crate::event_loop::openrouter_connect::{
+                parse_connect_mode, spawn_openrouter_connect,
+            };
+            let mode = parse_connect_mode(arg);
+            let cancel = ctx.openrouter_cancel.clone();
+            cancel.store(false, std::sync::atomic::Ordering::Relaxed);
+            ctx.openrouter_cancel = cancel.clone();
+            spawn_openrouter_connect(
+                mode,
+                ctx.openrouter_event_tx.clone(),
+                ctx.wake_tx.clone(),
+                cancel,
+            );
+            renderer.render(UiLine::Muted(t(Msg::OpenrouterConnecting).into_owned()));
+            renderer.flush();
+        }
         _ => {
             renderer.render(UiLine::CommandOutput(t(Msg::WorktreeUsage).into_owned()));
             renderer.flush();

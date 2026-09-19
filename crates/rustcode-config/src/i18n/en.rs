@@ -1506,6 +1506,15 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CmdDescWorklog => "Daily work recap across all projects (/worklog [today|yesterday|M/D])".into(),
         Msg::CmdDescOpenrouter =>
             "Connect to OpenRouter free models (/openrouter for OAuth, /openrouter <key> with existing key)".into(),
+        Msg::OpenrouterConnecting => "Connecting to OpenRouter...".into(),
+        Msg::OpenrouterAwaitingBrowser { auth_url } =>
+            format!("Browser not opening? Visit manually to authorize: {auth_url}").into(),
+        Msg::OpenrouterReady { count } =>
+            format!("OpenRouter connected, added {count} free models. Use /model to switch.").into(),
+        Msg::OpenrouterFailed { reason } =>
+            format!("OpenRouter connect failed: {reason}. Retry /openrouter, or /openrouter <your-key>.").into(),
+        Msg::OpenrouterConfigSaveFailed { error } =>
+            format!("OpenRouter config save failed: {error}").into(),
         Msg::CmdDescUpgrade => "Upgrade rustcode to latest (subcommand: rollback)".into(),
         Msg::CmdDescPlan => "Switch to Plan mode (read-only exploration)".into(),
         Msg::CmdDescBuild => "Switch to Build mode (full execution)".into(),

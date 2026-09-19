@@ -19,6 +19,8 @@ mod anthropic;
 mod error;
 mod ollama;
 mod openai_compat;
+#[cfg(feature = "openrouter")]
+pub mod openrouter;
 mod reasoning;
 mod retry;
 mod sign;
