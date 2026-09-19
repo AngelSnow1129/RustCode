@@ -12,19 +12,37 @@ set -euo pipefail
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   if [[ "$remote_ref" == "refs/heads/main" ]]; then
-    # Ensure origin/dev is available for comparison
-    if ! git rev-parse --verify origin/dev >/dev/null 2>&1; then
-      git fetch origin dev >/dev/null 2>&1 || true
+    # Find the dev remote-tracking ref across all remotes.
+    # Tries: refs/remotes/*/dev — picks the first that exists.
+    dev_ref=""
+    for ref in $(git for-each-ref --format='%(refname)' refs/remotes/*/dev 2>/dev/null); do
+      dev_ref="$ref"
+      break
+    done
+
+    # Also check local dev branch as fallback
+    if [ -z "$dev_ref" ]; then
+      if git rev-parse --verify dev >/dev/null 2>&1; then
+        dev_ref="dev"
+      fi
     fi
 
-    # Count commits on local main that are not in origin/dev
-    ahead=$(git rev-list --count origin/dev.."$local_sha" 2>/dev/null || echo "0")
+    if [ -z "$dev_ref" ]; then
+      echo "" >&2
+      echo "[WARN] Could not find a dev branch (remote or local) to compare." >&2
+      echo "       Skipping branch protection check." >&2
+      echo "" >&2
+      continue
+    fi
+
+    # Count commits on local main that are not in dev
+    ahead=$(git rev-list --count "$dev_ref".."$local_sha" 2>/dev/null || echo "0")
 
     if [ "$ahead" -gt 0 ]; then
       echo "" >&2
       echo "[ERROR] Branch protection violation detected." >&2
       echo "" >&2
-      echo "  main branch has $ahead commit(s) not in dev." >&2
+      echo "  main branch has $ahead commit(s) not in dev ($dev_ref)." >&2
       echo "  main is a mirror of dev only; direct modifications are prohibited." >&2
       echo "  All development must happen on the dev branch." >&2
       echo "" >&2
@@ -32,10 +50,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       echo "    1. Move your commits to dev:" >&2
       echo "       git checkout dev && git cherry-pick <commit-sha>" >&2
       echo "    2. Push dev:" >&2
-      echo "       git push origin dev" >&2
+      echo "       git push <remote> dev" >&2
       echo "    3. Sync main from dev:" >&2
       echo "       git checkout main && git merge dev --ff-only" >&2
-      echo "       git push origin main" >&2
+      echo "       git push <remote> main" >&2
       echo "" >&2
       echo "  To bypass this check (NOT recommended): git push --no-verify" >&2
       echo "" >&2
