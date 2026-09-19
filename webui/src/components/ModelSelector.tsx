@@ -39,12 +39,18 @@ export function ModelSelector({
   onChange,
   onDefaultChange,
   onOpenSettings,
+  refreshSignal,
 }: {
   value: string | null;
   liveEffort?: string | null;
   onChange: (p: string) => void;
   onDefaultChange?: (p: string) => void;
   onOpenSettings?: (section: string) => void;
+  // Increment to force a refresh (e.g. after SSE provider event or config
+  // reload). Replaces the old 2s polling loop: provider/model list changes
+  // are now event-driven instead of polled, eliminating 2s latency and
+  // redundant requests during idle.
+  refreshSignal?: number;
 }) {
   const t = useT();
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -78,17 +84,15 @@ export function ModelSelector({
       }).catch(() => {});
     };
     refresh();
-    const timer = window.setInterval(refresh, 2_000);
     const onVisibility = () => {
       if (document.visibilityState === 'visible') refresh();
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       active = false;
-      window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [onDefaultChange]);
+  }, [onDefaultChange, refreshSignal]);
   useEffect(() => {
     if (!open && !effortOpen) return;
     const h = (e: MouseEvent) => {

@@ -549,6 +549,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
   const [loading, setLoading] = useState(false);
   const [provider, setProvider] = useState<string | null>(null);
   const [noProvider, setNoProvider] = useState(false);
+  const [modelRefreshSignal, setModelRefreshSignal] = useState(0);
   const [reasoningEffort, setReasoningEffort] = useState<{
     provider: string;
     effort: string | null;
@@ -1516,6 +1517,9 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
       providerRef.current = e.provider;
       setProvider(e.provider);
       providerPinnedRef.current = false;
+      // Provider change may also update the default model / effort config —
+      // nudge ModelSelector to re-fetch instead of waiting for the old 2s poll.
+      setModelRefreshSignal((n) => n + 1);
       return;
     }
     if (e.type === 'reasoning_effort') {
@@ -1949,6 +1953,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
       reloadConfig: async () => {
         await postConfigReload();
         pushCommandNotice(t('cmd.reload.done'));
+        setModelRefreshSignal((n) => n + 1);
       },
       openSlashSkillsMenu: () => {
         // Open a pure SKILLS browser (not the full '/' command list — that's what
@@ -3284,6 +3289,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
             onChange={(p) => switchProvider(p)}
             onDefaultChange={followDefaultProvider}
             onOpenSettings={onOpenSettings}
+            refreshSignal={modelRefreshSignal}
           />
           <div class="input-turn-controls">
             {busy || recoveryPolicy.allowStop ? (

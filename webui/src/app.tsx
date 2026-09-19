@@ -496,7 +496,13 @@ export function App() {
             onCwdChanged={handleCwdChanged}
             onLanding={setIsLanding}
             skillInsert={skillInsert}
-            onSessionRenamed={(name) => setActiveSession((prev) => prev ? { ...prev, name } : prev)}
+            onSessionRenamed={(name) => {
+              setActiveSession((prev) => prev ? { ...prev, name } : prev);
+              // SSE session_renamed (AI auto-named a session) must also refresh
+              // the sidebar list — otherwise the stale title lingers until the
+              // next turn completes or a manual reload.
+              setSessionListVersion((v) => v + 1);
+            }}
             onOpenSettings={(section) => setSettingsSection(section as SettingsSection)}
           />
         </div>
