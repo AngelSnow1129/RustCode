@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# pre-push hook: enforce branch protection policy
+#
+# main branch must not receive direct commits; it is a mirror of dev only.
+# All development must happen on the dev branch.
+#
+# Install: git config core.hooksPath .githooks
+# (or run: scripts/install-hooks.sh)
+#
+# Bypass (NOT recommended): git push --no-verify
+set -euo pipefail
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "$remote_ref" == "refs/heads/main" ]]; then
+    # Ensure origin/dev is available for comparison
+    if ! git rev-parse --verify origin/dev >/dev/null 2>&1; then
+      git fetch origin dev >/dev/null 2>&1 || true
+    fi
+
+    # Count commits on local main that are not in origin/dev
+    ahead=$(git rev-list --count origin/dev.."$local_sha" 2>/dev/null || echo "0")
+
+    if [ "$ahead" -gt 0 ]; then
+      echo "" >&2
+      echo "[ERROR] Branch protection violation detected." >&2
+      echo "" >&2
+      echo "  main branch has $ahead commit(s) not in dev." >&2
+      echo "  main is a mirror of dev only; direct modifications are prohibited." >&2
+      echo "  All development must happen on the dev branch." >&2
+      echo "" >&2
+      echo "  To fix:" >&2
+      echo "    1. Move your commits to dev:" >&2
+      echo "       git checkout dev && git cherry-pick <commit-sha>" >&2
+      echo "    2. Push dev:" >&2
+      echo "       git push origin dev" >&2
+      echo "    3. Sync main from dev:" >&2
+      echo "       git checkout main && git merge dev --ff-only" >&2
+      echo "       git push origin main" >&2
+      echo "" >&2
+      echo "  To bypass this check (NOT recommended): git push --no-verify" >&2
+      echo "" >&2
+      exit 1
+    fi
+  fi
+done
+
+exit 0

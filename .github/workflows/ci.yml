@@ -10,6 +10,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Branch protection: main is a mirror of dev only.
+  # Direct commits to main are prohibited; all development must happen on dev.
+  # This job verifies that main has no commits outside the dev branch history.
+  branch-protection:
+    name: main branch protection
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify main has no commits outside dev
+        run: |
+          git fetch origin dev
+          # main must be a subset of dev (no independent commits)
+          ahead=$(git rev-list --count origin/dev..HEAD)
+          if [ "$ahead" -gt 0 ]; then
+            echo "::error::main branch has $ahead commit(s) not in dev -- direct modifications to main are prohibited"
+            echo ""
+            echo "main is a mirror of dev; all development must happen on the dev branch."
+            echo "To fix: move these commits to dev, then sync main from dev:"
+            echo "  git checkout dev && git cherry-pick <commit-sha>"
+            echo "  git push origin dev"
+            echo "  git checkout main && git merge dev --ff-only"
+            echo "  git push origin main"
+            exit 1
+          fi
+          echo "[OK] main has no commits outside dev"
+
   fmt:
     name: cargo fmt --check
     runs-on: ubuntu-latest

@@ -19,6 +19,42 @@
 - GitCode 发布:`scripts/gitcode_release.py`(GitCode 官方 OpenAPI `POST /api/v5/repos/{owner}/{repo}/releases` + GitLab-v5 `releases/{tag}/upload_url` 附件上传;`--dry-run`/`--attach`/`--file-name`;主机/owner/repo/token 全部由 env `RUSTCODE_RELEASE_API_HOST`/`OWNER`/`REPO`/`ACCESS_TOKEN` 注入,脚本不带厂商默认)。Gitee Go 流水线 `.gitee/workflow/pipelines/build-and-release.yml` 在 `build@rust` 后加 `shell@1` 步骤:从 `Cargo.toml` 派生 version → tag `v{version}`,按 `uname -m` 命名 `rustcode-{tag}-linux-{x64|arm64}` 并调 `gitcode_release.py` 上传;凭据/主机走流水线环境变量,不在 YAML 硬编码。
 - `RUSTCODE_HOME` 覆盖配置目录(默认 `~/.rustcode`)。**禁止 `sudo` 运行**——`~/.rustcode` 一旦出现 root 属主文件,后续非 root 启动在 runtime 初始化即失败。
 
+## 分支策略 (强制门禁)
+
+**dev 是唯一的开发分支;main 是 dev 的镜像,只接受从 dev 同步,禁止直接修改。**
+
+| 分支 | 用途 | 允许操作 |
+|------|------|---------|
+| `dev` | 主开发分支,所有功能/修复在此提交 | 直接 push、PR 合并 |
+| `main` | dev 的镜像,用于上游同步与 release tag | 仅接受从 dev 的 fast-forward merge |
+
+### 三层保护
+
+1. **CI 门禁**(`ci.yml` `branch-protection` job):push 到 main 时触发,检查 `git rev-list --count origin/dev..HEAD` 是否为 0;不为 0 则 CI 失败。
+2. **本地 pre-push hook**(`.githooks/pre-push`):推送到 main 前检查是否有 dev 不存在的提交;有则拒绝推送。安装:`./scripts/install-hooks.sh`(等价 `git config core.hooksPath .githooks`)。
+3. **平台分支保护**:在 GitCode 仓库设置中将 main 设为 protected branch,限制 push 权限(需仓库管理员在 Web 界面操作)。
+
+### 正确的 main 同步流程
+
+```bash
+git checkout dev
+# ... 开发、提交、推送 ...
+git push devspace dev
+
+# 同步到 main(fast-forward only)
+git checkout main
+git merge dev --ff-only
+git push devspace main
+```
+
+### 违规处理
+
+如果 main 上出现了 dev 不存在的提交:
+1. 将这些提交 cherry-pick 到 dev:`git checkout dev && git cherry-pick <sha>`
+2. 推送 dev:`git push devspace dev`
+3. 重置 main 为 dev:`git checkout main && git reset --hard devspace/dev`
+4. 推送 main:`git push devspace main --force`(仅此场景允许 force push main)
+
 测试:
 - `cargo test` — 默认成员;`cargo test --workspace` — 全量(跨 crate 改动必跑)。
 - `cargo test -p rustcode-capabilities` — 单 crate;`cargo test -p rustcode-coding <filter>` — 按测试名过滤;`--` 后接 `--nocapture` / `--test-threads=1`。
