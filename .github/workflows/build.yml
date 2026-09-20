@@ -1,263 +1,262 @@
 name: build
 
+# 路径 B：在 GitHub Actions 上按 Tag 触发，构建 macOS / Linux / Windows 三个平台
+# （每平台 2 架构，共 6 个二进制），统一创建 GitHub Release 并上传全部产物
+# （零自定义 Secret，用默认 GITHUB_TOKEN + permissions: contents: write）。
+#
+# 原 GitCode 上传逻辑保留为「可选冗余」：仅当仓库配置了 RUSTCODE_RELEASE_ACCESS_TOKEN
+# 等 GitCode Secret（RUSTCODE_RELEASE_ACCESS_TOKEN / _API_HOST / _OWNER）时才执行；
+# 未配置时跳过，不影响 GitHub Release 的创建。
+#
+# 前置：推送形如 vX.Y.Z 的 Tag（或手动 workflow_dispatch）才会触发本流水线。
+
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build-macos:
     runs-on: macos-latest
-
+    # GitCode 冗余发布凭据：先落到 job 级 env，供步骤 if 里的 env.* 判断使用
+    # （GitHub Actions 的 secrets 上下文在 if 中不可用，必须经 env 中转）。
+    env:
+      RUSTCODE_RELEASE_ACCESS_TOKEN: ${{ secrets.RUSTCODE_RELEASE_ACCESS_TOKEN }}
     steps:
-      # [1] 拉代码
       - name: Checkout
         uses: actions/checkout@v4
 
-      # [2] 安装 Rust
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # [3] 添加 macOS 双架构 target
+      - name: Setup Node (build embedded webui)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build webui
+        run: |
+          cd webui && npm ci && npm run build && cd ..
+
       - name: Add macOS targets
         run: |
           rustup target add aarch64-apple-darwin
           rustup target add x86_64-apple-darwin
 
-      # [4] 编译 ARM64
-      - name: Build ARM64
-        run: cargo build --release --target aarch64-apple-darwin
+      - name: Build (CLI embeds webui via rustcode-daemon)
+        run: |
+          cargo build --release -p rustcode --target aarch64-apple-darwin
+          cargo build --release -p rustcode --target x86_64-apple-darwin
 
-      # [5] 编译 x86_64
-      - name: Build x86_64
-        run: cargo build --release --target x86_64-apple-darwin
-
-      # [6] 生成带版本号的二进制
-      - name: Prepare binaries
+      - name: Package
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-
           mkdir -p dist
-
           cp target/aarch64-apple-darwin/release/rustcode dist/rustcode-${TAG_NAME}-darwin-arm64
           cp target/x86_64-apple-darwin/release/rustcode dist/rustcode-${TAG_NAME}-darwin-x64
-
           chmod +x dist/*
+          strip dist/rustcode-${TAG_NAME}-darwin-arm64 || true
+          strip dist/rustcode-${TAG_NAME}-darwin-x64 || true
+          tar -czf dist/rustcode-${TAG_NAME}-darwin-arm64.tar.gz -C dist rustcode-${TAG_NAME}-darwin-arm64
+          tar -czf dist/rustcode-${TAG_NAME}-darwin-x64.tar.gz -C dist rustcode-${TAG_NAME}-darwin-x64
 
-      # [7] 可选：减小体积（推荐）
-      - name: Strip binaries
-        run: |
-          strip dist/* || true
-
-      # [8] 安装 Python（GitHub 已自带，但显式写更稳）
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          python-version: "3.x"
+          name: macos
+          path: dist/*.tar.gz
 
-      # [9] 如果你的脚本有依赖，在这里装（按需开启）
-      # - name: Install Python deps
-      #   run: pip install requests
-
-      # [10] 上传 ARM64
-      - name: Upload ARM64
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload to GitCode (optional, needs secrets)
+        if: ${{ startsWith(github.ref, 'refs/tags/') && env.RUSTCODE_RELEASE_ACCESS_TOKEN != '' }}
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
             --file-name=rustcode-${TAG_NAME}-darwin-arm64 \
             --file-path=dist/rustcode-${TAG_NAME}-darwin-arm64 \
-            --access-token="${{ secrets.RELEASE_ACCESS_TOKEN }}" \
-            --api-host="${{ secrets.RELEASE_API_HOST }}" \
-            --owner="${{ secrets.RELEASE_OWNER }}"
-
-      # [11] 上传 x86_64
-      - name: Upload x86_64
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-
+            --access-token="${RUSTCODE_RELEASE_ACCESS_TOKEN}"
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
             --file-name=rustcode-${TAG_NAME}-darwin-x64 \
             --file-path=dist/rustcode-${TAG_NAME}-darwin-x64 \
-            --access-token="${{ secrets.RELEASE_ACCESS_TOKEN }}" \
-            --api-host="${{ secrets.RELEASE_API_HOST }}" \
-            --owner="${{ secrets.RELEASE_OWNER }}"
+            --access-token="${RUSTCODE_RELEASE_ACCESS_TOKEN}"
 
   build-linux:
     runs-on: ubuntu-latest
-
+    # GitCode 冗余发布凭据（见 build-macos 说明）。
+    env:
+      RUSTCODE_RELEASE_ACCESS_TOKEN: ${{ secrets.RUSTCODE_RELEASE_ACCESS_TOKEN }}
     steps:
-      # [1] 拉代码
       - name: Checkout
         uses: actions/checkout@v4
 
-      # [2] 安装 Rust
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # [3] 安装 musl 交叉编译工具链
-      - name: Install cross-compilation tools
+      - name: Setup Node (build embedded webui)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build webui
+        run: |
+          cd webui && npm ci && npm run build && cd ..
+
+      - name: Install musl cross toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
-          # 下载 aarch64 musl 交叉编译器
           curl -fsSL https://musl.cc/aarch64-linux-musl-cross.tgz | sudo tar xz -C /opt
-          echo "/opt/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
+          echo "/opt/aarch64-linux-musl-cross/bin" >> "$GITHUB_PATH"
 
-      # [4] 添加 Linux 双架构 musl target
       - name: Add Linux targets
         run: |
           rustup target add x86_64-unknown-linux-musl
           rustup target add aarch64-unknown-linux-musl
 
-      # [5] 编译 x86_64（静态链接 musl）
-      - name: Build x86_64
-        run: cargo build --release --target x86_64-unknown-linux-musl
+      - name: Build (CLI embeds webui via rustcode-daemon)
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
-
-      # [6] 编译 ARM64（静态链接 musl）
-      - name: Build ARM64
-        run: cargo build --release --target aarch64-unknown-linux-musl
-        env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-musl-gcc
+        run: |
+          cargo build --release -p rustcode --target x86_64-unknown-linux-musl
+          cargo build --release -p rustcode --target aarch64-unknown-linux-musl
 
-      # [7] 生成带版本号的二进制
-      - name: Prepare binaries
+      - name: Package
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-
           mkdir -p dist
-
           cp target/x86_64-unknown-linux-musl/release/rustcode dist/rustcode-${TAG_NAME}-linux-x64
           cp target/aarch64-unknown-linux-musl/release/rustcode dist/rustcode-${TAG_NAME}-linux-arm64
-
           chmod +x dist/*
+          strip dist/rustcode-${TAG_NAME}-linux-x64
+          /opt/aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip dist/rustcode-${TAG_NAME}-linux-arm64
+          tar -czf dist/rustcode-${TAG_NAME}-linux-x64.tar.gz -C dist rustcode-${TAG_NAME}-linux-x64
+          tar -czf dist/rustcode-${TAG_NAME}-linux-arm64.tar.gz -C dist rustcode-${TAG_NAME}-linux-arm64
 
-      # [8] 减小体积
-      - name: Strip binaries
-        run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          strip dist/rustcode-${TAG_NAME}-linux-x64 || true
-          aarch64-linux-musl-strip dist/rustcode-${TAG_NAME}-linux-arm64 || true
-
-      # [9] 安装 Python
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          python-version: "3.x"
+          name: linux
+          path: dist/*.tar.gz
 
-      # [10] 上传 x86_64
-      - name: Upload x86_64
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload to GitCode (optional, needs secrets)
+        if: ${{ startsWith(github.ref, 'refs/tags/') && env.RUSTCODE_RELEASE_ACCESS_TOKEN != '' }}
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
             --file-name=rustcode-${TAG_NAME}-linux-x64 \
             --file-path=dist/rustcode-${TAG_NAME}-linux-x64 \
-            --access-token="${{ secrets.RELEASE_ACCESS_TOKEN }}" \
-            --api-host="${{ secrets.RELEASE_API_HOST }}" \
-            --owner="${{ secrets.RELEASE_OWNER }}"
-
-      # [11] 上传 ARM64
-      - name: Upload ARM64
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-
+            --access-token="${RUSTCODE_RELEASE_ACCESS_TOKEN}"
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
             --file-name=rustcode-${TAG_NAME}-linux-arm64 \
             --file-path=dist/rustcode-${TAG_NAME}-linux-arm64 \
-            --access-token="${{ secrets.RELEASE_ACCESS_TOKEN }}" \
-            --api-host="${{ secrets.RELEASE_API_HOST }}" \
-            --owner="${{ secrets.RELEASE_OWNER }}"
+            --access-token="${RUSTCODE_RELEASE_ACCESS_TOKEN}"
 
   build-windows:
     runs-on: windows-latest
-
+    # GitCode 冗余发布凭据（见 build-macos 说明）。
+    env:
+      RUSTCODE_RELEASE_ACCESS_TOKEN: ${{ secrets.RUSTCODE_RELEASE_ACCESS_TOKEN }}
     steps:
-      # [1] 拉代码
       - name: Checkout
         uses: actions/checkout@v4
 
-      # [2] 安装 Rust
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # [3] 添加 Windows targets
+      - name: Setup Node (build embedded webui)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build webui
+        shell: bash
+        run: |
+          cd webui && npm ci && npm run build && cd ..
+
       - name: Add Windows targets
         run: |
           rustup target add aarch64-pc-windows-msvc
-          # x86_64 is usually available by default on windows-latest, but keep
-          # it explicit so the release matrix is self-documenting and stable.
           rustup target add x86_64-pc-windows-msvc
 
-      # [4] 编译 ARM64
-      - name: Build ARM64
-        run: cargo build --release --target aarch64-pc-windows-msvc
+      - name: Build (CLI embeds webui via rustcode-daemon)
+        shell: bash
+        run: |
+          cargo build --release -p rustcode --target aarch64-pc-windows-msvc
+          cargo build --release -p rustcode --target x86_64-pc-windows-msvc
 
-      # [5] 编译 x86_64
-      - name: Build x86_64
-        run: cargo build --release --target x86_64-pc-windows-msvc
-
-      # [6] 生成带版本号的二进制
-      - name: Prepare binaries
+      - name: Package
         shell: bash
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-
           mkdir -p dist
-
           cp target/aarch64-pc-windows-msvc/release/rustcode.exe dist/rustcode-${TAG_NAME}-windows-arm64.exe
           cp target/x86_64-pc-windows-msvc/release/rustcode.exe dist/rustcode-${TAG_NAME}-windows-x64.exe
+          cd dist
+          tar -czf rustcode-${TAG_NAME}-windows-arm64.tar.gz rustcode-${TAG_NAME}-windows-arm64.exe
+          tar -czf rustcode-${TAG_NAME}-windows-x64.tar.gz rustcode-${TAG_NAME}-windows-x64.exe
 
-      # [7] 安装 Python
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          python-version: "3.x"
+          name: windows
+          path: dist/*.tar.gz
 
-      # [8] 上传 ARM64
-      - name: Upload ARM64
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload to GitCode (optional, needs secrets)
+        if: ${{ startsWith(github.ref, 'refs/tags/') && env.RUSTCODE_RELEASE_ACCESS_TOKEN != '' }}
         shell: bash
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
             --file-name=rustcode-${TAG_NAME}-windows-arm64.exe \
             --file-path=dist/rustcode-${TAG_NAME}-windows-arm64.exe \
-            --access-token="${{ secrets.RELEASE_ACCESS_TOKEN }}" \
-            --api-host="${{ secrets.RELEASE_API_HOST }}" \
-            --owner="${{ secrets.RELEASE_OWNER }}"
-
-      # [9] 上传 x86_64
-      - name: Upload x86_64
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-
+            --access-token="${RUSTCODE_RELEASE_ACCESS_TOKEN}"
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
             --file-name=rustcode-${TAG_NAME}-windows-x64.exe \
             --file-path=dist/rustcode-${TAG_NAME}-windows-x64.exe \
-            --access-token="${{ secrets.RELEASE_ACCESS_TOKEN }}" \
-            --api-host="${{ secrets.RELEASE_API_HOST }}" \
-            --owner="${{ secrets.RELEASE_OWNER }}"
+            --access-token="${RUSTCODE_RELEASE_ACCESS_TOKEN}"
 
+  github-release:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > sha256sums.txt
+          ls -lh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 保留：distro-pm 特性门禁（与发布无关，仅验证 feature 可构建/测试）。
   distro-pm-check:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4

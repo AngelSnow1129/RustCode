@@ -18,13 +18,16 @@ displayName: RustCode 构建与发布
 #      以及交叉工具链：musl-tools、mingw-w64，以及 aarch64-linux-musl-cross
 #      （cross-build.sh 会自动补装缺失项，但主机需有 sudo/网络）。
 #   2) 在流水线「变量/全局参数」里配置（建议标记为保密）：
-#        RUSTCODE_RELEASE_API_HOST   GitCode API host，如 https://api.gitcode.com
-#        RUSTCODE_RELEASE_OWNER      GitCode 仓库 owner（命名空间）
-#        RUSTCODE_RELEASE_ACCESS_TOKEN  GitCode 有写权限的 PAT
-#        GITEE_OWNER                  Gitee 仓库 owner
-#        GITEE_REPO                   Gitee 仓库名（默认 rustcode）
-#        GITEE_ACCESS_TOKEN           Gitee 有 repo 权限的 PAT
-#        （可选）GITEE_API_HOST        默认 https://gitee.com
+#        必填（只需这两个 token）：
+#          RUSTCODE_RELEASE_ACCESS_TOKEN  GitCode 有写权限的 PAT
+#          GITEE_ACCESS_TOKEN             Gitee 有 repo 权限的 PAT
+#        其余均为固定默认值（需要时才覆盖）：
+#          RUSTCODE_RELEASE_API_HOST  默认 https://api.gitcode.com
+#          RUSTCODE_RELEASE_OWNER     默认 SecLab
+#          RUSTCODE_RELEASE_REPO      默认 RustCode
+#          GITEE_OWNER                默认 SecLab
+#          GITEE_REPO                 默认 RustCode
+#          GITEE_API_HOST             默认 https://gitee.com
 #
 # 说明：本流水线只覆盖 linux/win（Gitee 无 macOS runner）；macOS 由
 # .github/workflows/build.yml 在 GitHub Actions 上构建并发布到 GitCode。
@@ -35,7 +38,6 @@ stages:
 - name: build-and-release
   displayName: 构建并发布(linux/win -> GitCode + Gitee)
   strategy: naturally
-  trigger: auto
   steps:
   # ── 1) 前端 WebUI 构建：必须在 Rust 编译之前（二进制编译期嵌入 webui/dist）──
   - step: shell@agent
@@ -113,9 +115,9 @@ stages:
         exit 1
       fi
       TAG=$(basename "$DIST")
+      # 只需提供 GITEE_ACCESS_TOKEN；owner/repo 使用 gitee_release.py 内置固定
+      # 默认值（SecLab / RustCode），如需覆盖可设 GITEE_OWNER / GITEE_REPO。
       : "${GITEE_ACCESS_TOKEN:?set GITEE_ACCESS_TOKEN as a pipeline variable}"
-      : "${GITEE_OWNER:?set GITEE_OWNER as a pipeline variable}"
-      : "${GITEE_REPO:?set GITEE_REPO as a pipeline variable}"
 
       echo "=== Uploading ${TAG} release assets to GITEE (commit ${CI_COMMIT_SHA:-unknown}) ==="
       found=0

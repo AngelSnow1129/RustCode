@@ -54,20 +54,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--api-host",
         default=API_HOST,
         help=(
-            "Release API host, e.g. https://gitlab.example.com (a trailing "
+            "Release API host, e.g. https://api.gitcode.com (a trailing "
             "/api/v5 is also accepted and normalized); "
-            "env RUSTCODE_RELEASE_API_HOST; required"
+            "env RUSTCODE_RELEASE_API_HOST; default: https://api.gitcode.com"
         ),
     )
     parser.add_argument(
         "--owner",
         default=REPO_OWNER,
-        help="Repository owner or namespace (env RUSTCODE_RELEASE_OWNER); required",
+        help="Repository owner or namespace (env RUSTCODE_RELEASE_OWNER); default: SecLab",
     )
     parser.add_argument(
         "--repo",
         default=REPO_NAME,
-        help="Repository name (env RUSTCODE_RELEASE_REPO); default: rustcode",
+        help="Repository name (env RUSTCODE_RELEASE_REPO); default: RustCode",
     )
     parser.add_argument(
         "--access-token",

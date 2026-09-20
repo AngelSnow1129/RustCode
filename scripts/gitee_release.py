@@ -30,9 +30,11 @@ import ssl
 import sys
 from urllib import error, parse, request
 
+# 固定默认值：默认发布只要求提供 GITEE_ACCESS_TOKEN，其余三项均有可用默认值，
+# 仍可用 CLI 参数 / 对应环境变量覆盖。
 API_HOST = os.environ.get("GITEE_API_HOST", "https://gitee.com")
-REPO_OWNER = os.environ.get("GITEE_OWNER", "")
-REPO_NAME = os.environ.get("GITEE_REPO", "rustcode")
+REPO_OWNER = os.environ.get("GITEE_OWNER", "SecLab")
+REPO_NAME = os.environ.get("GITEE_REPO", "RustCode")
 ACCESS_TOKEN = os.environ.get("GITEE_ACCESS_TOKEN", "")
 
 DEFAULT_BODY_TEMPLATE = """## 更新内容
@@ -59,12 +61,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--owner",
         default=REPO_OWNER,
-        help="Repository owner or namespace (env GITEE_OWNER); required",
+        help="Repository owner or namespace (env GITEE_OWNER); default: SecLab",
     )
     parser.add_argument(
         "--repo",
         default=REPO_NAME,
-        help="Repository name (env GITEE_REPO); default: rustcode",
+        help="Repository name (env GITEE_REPO); default: RustCode",
     )
     parser.add_argument(
         "--access-token",
