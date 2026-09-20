@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # pre-push hook: enforce branch protection policy
 #
-# main branch must not receive direct commits; it is a mirror of dev only.
+# main branch must not receive fork-authored commits; it is an upstream mirror
+# (https://gitcode.com/atomgit_atomcode/atomcode) and only accepts upstream sync.
 # All development must happen on the dev branch.
 #
 # Install: git config core.hooksPath .githooks
@@ -17,48 +18,46 @@ fi
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   if [[ "$remote_ref" == "refs/heads/main" ]]; then
-    # Find the dev remote-tracking ref across all remotes.
-    # Tries: refs/remotes/*/dev — picks the first that exists.
-    dev_ref=""
-    for ref in $(git for-each-ref --format='%(refname)' refs/remotes/*/dev 2>/dev/null); do
-      dev_ref="$ref"
-      break
-    done
+    # main is an upstream mirror: the ONLY allowed source of change is
+    # upstream/main. Any commit on main that upstream does not contain is a
+    # policy violation (see AGENTS.md "分支策略").
+    upstream_ref="refs/remotes/upstream/main"
 
-    # Also check local dev branch as fallback
-    if [ -z "$dev_ref" ]; then
-      if git rev-parse --verify dev >/dev/null 2>&1; then
-        dev_ref="dev"
-      fi
+    if ! git rev-parse --verify --quiet "$upstream_ref" >/dev/null 2>&1; then
+      echo "" >&2
+      echo "[ERROR] Upstream tracking ref '$upstream_ref' is missing." >&2
+      echo "        main must sync from upstream, so this check is fail-closed." >&2
+      echo "" >&2
+      echo "  Configure the upstream remote once, then retry:" >&2
+      echo "    git remote add upstream https://gitcode.com/atomgit_atomcode/atomcode" >&2
+      echo "    git fetch upstream main --no-tags" >&2
+      echo "    git branch --set-upstream-to=upstream/main main" >&2
+      echo "" >&2
+      echo "  To bypass this check (NOT recommended): git push --no-verify" >&2
+      echo "" >&2
+      exit 1
     fi
 
-    if [ -z "$dev_ref" ]; then
-      echo "" >&2
-      echo "[WARN] Could not find a dev branch (remote or local) to compare." >&2
-      echo "       Skipping branch protection check." >&2
-      echo "" >&2
-      continue
-    fi
-
-    # Count commits on local main that are not in dev
-    ahead=$(git rev-list --count "$dev_ref".."$local_sha" 2>/dev/null || echo "0")
+    # Count commits on local main that upstream does not contain
+    ahead=$(git rev-list --count "$upstream_ref".."$local_sha" 2>/dev/null || echo "0")
 
     if [ "$ahead" -gt 0 ]; then
       echo "" >&2
       echo "[ERROR] Branch protection violation detected." >&2
       echo "" >&2
-      echo "  main branch has $ahead commit(s) not in dev ($dev_ref)." >&2
-      echo "  main is a mirror of dev only; direct modifications are prohibited." >&2
+      echo "  main branch has $ahead commit(s) not in upstream/main ($upstream_ref)." >&2
+      echo "  main is an upstream mirror; merging dev into it is prohibited." >&2
       echo "  All development must happen on the dev branch." >&2
       echo "" >&2
       echo "  To fix:" >&2
       echo "    1. Move your commits to dev:" >&2
       echo "       git checkout dev && git cherry-pick <commit-sha>" >&2
       echo "    2. Push dev:" >&2
-      echo "       git push <remote> dev" >&2
-      echo "    3. Sync main from dev:" >&2
-      echo "       git checkout main && git merge dev --ff-only" >&2
-      echo "       git push <remote> main" >&2
+      echo "       git push origin dev" >&2
+      echo "    3. Reset main to upstream:" >&2
+      echo "       git fetch upstream main --no-tags" >&2
+      echo "       git checkout main && git reset --hard upstream/main" >&2
+      echo "       git push origin main --force   # one-off correction only" >&2
       echo "" >&2
       echo "  To bypass this check (NOT recommended): git push --no-verify" >&2
       echo "" >&2
@@ -70,25 +69,35 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   # Policy: what is pushed must already carry a build-passing artifact COMMITTED
   # under release/<version>/ (version read from the pushed Cargo.toml).
   #
+  # dev branches only: main is an upstream mirror whose commits never carry fork
+  # release artifacts -- applying the gate there would reject every upstream sync.
+  #
   # This gate VERIFIES only; it never builds. A build here would block every push
   # for minutes and can OOM a small machine. Enabled by default:
   #   RUSTCODE_PREPUSH_RELEASE=off     skip the gate
   #   RUSTCODE_PREPUSH_RELEASE=strict  also require the artifact to come from
   #                                    this exact code (see the script header)
-  case "$local_sha" in
-    "" | 0000000000000000000000000000000000000000)
-      # Deleting a remote ref: there is nothing to build.
+  case "$remote_ref" in
+    refs/heads/main)
+      # Upstream mirror: no fork release artifact is expected on it.
       ;;
     *)
-      if [ -f "$ROOT/scripts/prepush-release-check.sh" ]; then
-        if ! bash "$ROOT/scripts/prepush-release-check.sh" --sha "$local_sha" --root "$ROOT"; then
-          echo "" >&2
-          echo "[ERROR] Push rejected by the release artifact gate." >&2
-          exit 1
-        fi
-      else
-        echo "[WARN] scripts/prepush-release-check.sh missing; release gate skipped." >&2
-      fi
+      case "$local_sha" in
+        "" | 0000000000000000000000000000000000000000)
+          # Deleting a remote ref: there is nothing to build.
+          ;;
+        *)
+          if [ -f "$ROOT/scripts/prepush-release-check.sh" ]; then
+            if ! bash "$ROOT/scripts/prepush-release-check.sh" --sha "$local_sha" --root "$ROOT"; then
+              echo "" >&2
+              echo "[ERROR] Push rejected by the release artifact gate." >&2
+              exit 1
+            fi
+          else
+            echo "[WARN] scripts/prepush-release-check.sh missing; release gate skipped." >&2
+          fi
+          ;;
+      esac
       ;;
   esac
 done

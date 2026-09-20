@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# 定时 dev 分支同步：提交本地改动 -> 快进同步 -> 推送 origin/dev -> 创建/查找 PR(dev -> main)
+# 定时 dev 分支同步：提交本地改动 -> 快进同步 -> 推送 origin/dev
+# （不再创建 dev -> main 的 PR —— main 只接受上游同步，见 AGENTS.md 分支策略）
 #
 # 用法:
 #   scripts/scheduled-dev-sync.sh              # dry-run，只检查并打印将要执行的操作
-#   APPLY=1 scripts/scheduled-dev-sync.sh      # 实际执行（提交/推送/PR）
+#   APPLY=1 scripts/scheduled-dev-sync.sh      # 实际执行（提交/推送）
 #
 # 可覆盖环境变量:
 #   REPO           仓库路径，默认脚本所在目录的上一级
 #   TARGET_BRANCH  目标分支，默认 dev
-#   BASE_BRANCH    基线分支，默认 main
+#   BASE_BRANCH    基线分支，默认 main（仅供报告；不再向它发 PR）
 #   COMMIT_MESSAGE 提交信息，默认 "chore($TARGET_BRANCH): scheduled sync <时间戳>"
 #   RUSTCODE_PR_TOKEN  可选；用于通过远程仓库的 v5 兼容 API 创建 PR，
 #                      缺失或无法从 origin 推断托管地址时降级为输出手工创建提示
@@ -118,7 +119,7 @@ else
   log "$TARGET_BRANCH 与 origin/$TARGET_BRANCH 一致，无需推送"
 fi
 
-# ---------- 7. PR: dev -> main ----------
+# ---------- 7. PR（默认关闭）: dev -> BASE_BRANCH ----------
 ahead_base="$(git rev-list --count "$BASE_BRANCH..$TARGET_BRANCH" 2>/dev/null || echo 0)"
 behind_base="$(git rev-list --count "$TARGET_BRANCH..$BASE_BRANCH" 2>/dev/null || echo 0)"
 
@@ -141,7 +142,11 @@ else
   manual_url=""
 fi
 
-if [ "$ahead_base" = "0" ]; then
+# BASE_BRANCH(main) 只接受上游同步(见 AGENTS.md 分支策略)，默认不再向它提 PR。
+# 需要旧行为时显式设 PR_TO_BASE=1。
+if [ "${PR_TO_BASE:-0}" != "1" ]; then
+  log "$BASE_BRANCH 只接受上游同步，默认不创建 PR（如确需，设 PR_TO_BASE=1）"
+elif [ "$ahead_base" = "0" ]; then
   log "$TARGET_BRANCH 相对 $BASE_BRANCH 无新增提交，无需创建 PR"
 elif [ "$DRY" = "1" ]; then
   log "DRY-RUN 跳过 PR 创建；正式执行将创建 PR: $TARGET_BRANCH -> $BASE_BRANCH (新增 $ahead_base 个提交)"

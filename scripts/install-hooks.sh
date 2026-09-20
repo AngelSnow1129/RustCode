@@ -28,11 +28,36 @@ fi
 # Configure git to use the .githooks directory
 git config core.hooksPath "$HOOKS_DIR"
 
+# main is an upstream mirror (see AGENTS.md branch policy). The upstream remote
+# and main's tracking relationship live in .git/config, i.e. they are not
+# versioned, so make them idempotently present here.
+UPSTREAM_URL="https://gitcode.com/atomgit_atomcode/atomcode"
+if ! git remote get-url upstream >/dev/null 2>&1; then
+  git remote add upstream "$UPSTREAM_URL"
+  echo "[OK] Added remote 'upstream' -> $UPSTREAM_URL"
+fi
+if [ -z "$(git config --get remote.upstream.tagOpt || true)" ]; then
+  git config remote.upstream.tagOpt --no-tags
+fi
+if git rev-parse --verify --quiet refs/heads/main >/dev/null 2>&1; then
+  if git rev-parse --verify --quiet refs/remotes/upstream/main >/dev/null 2>&1; then
+    if git branch --set-upstream-to=upstream/main main >/dev/null 2>&1; then
+      echo "[OK] main now tracks upstream/main"
+    else
+      echo "[WARN] could not set main to track upstream/main"
+    fi
+  else
+    echo "[WARN] refs/remotes/upstream/main not fetched yet; run:"
+    echo "       git fetch upstream main --no-tags && git branch --set-upstream-to=upstream/main main"
+  fi
+fi
+
 echo "[OK] Git hooks installed."
 echo "     core.hooksPath = $HOOKS_DIR"
 echo ""
-echo "  pre-push: blocks direct commits to main (dev-only development)"
+echo "  pre-push: blocks fork-authored commits on main (upstream-only sync)"
 echo "  pre-push: requires a committed release/<version>/ artifact for this host"
+echo "            (non-main branches only; main is an upstream mirror)"
 echo "            (RUSTCODE_PREPUSH_RELEASE=off to skip, =strict for exact-code proof;"
 echo "             scripts/prepush-release-check.sh --self-test to verify the gate)"
 echo ""

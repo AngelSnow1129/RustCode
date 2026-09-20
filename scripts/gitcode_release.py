@@ -32,9 +32,12 @@ import ssl
 import sys
 from urllib import error, parse, request
 
-API_HOST = os.environ.get("RUSTCODE_RELEASE_API_HOST", "")
-REPO_OWNER = os.environ.get("RUSTCODE_RELEASE_OWNER", "")
-REPO_NAME = os.environ.get("RUSTCODE_RELEASE_REPO", "rustcode")
+API_HOST = os.environ.get("RUSTCODE_RELEASE_API_HOST", "https://api.gitcode.com")
+REPO_OWNER = os.environ.get("RUSTCODE_RELEASE_OWNER", "SecLab")
+# 仓库路径取实际 URL 路径: https://gitcode.com/SecLab/RustCode -> "RustCode".
+# 官方文档未说明 owner/repo 是否大小写敏感, 故默认值与 URL 保持一致; 如实际
+# 调用报找不到仓库, 显式传 --repo / RUSTCODE_RELEASE_REPO 覆盖即可.
+REPO_NAME = os.environ.get("RUSTCODE_RELEASE_REPO", "RustCode")
 ACCESS_TOKEN = os.environ.get("RUSTCODE_RELEASE_ACCESS_TOKEN", "")
 
 ALLOWED_RELEASE_STATUSES = ("latest", "pre")

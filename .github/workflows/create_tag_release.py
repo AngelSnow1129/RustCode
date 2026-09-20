@@ -11,10 +11,15 @@ from urllib import error, parse, request
 # Release-target configuration. This build ships no compiled-in release host or
 # namespace: the operator/distributor supplies them via env or CLI flags.
 # The API dialect is GitLab-v5-compatible (releases + upload_url endpoints).
-REPO_OWNER = os.environ.get("RUSTCODE_RELEASE_OWNER", "")
-REPO_NAME = os.environ.get("RUSTCODE_RELEASE_REPO", "rustcode")
+REPO_OWNER = os.environ.get("RUSTCODE_RELEASE_OWNER", "SecLab")
+# 仓库路径取实际 URL 路径: https://gitcode.com/SecLab/RustCode -> "RustCode".
+# 官方文档未说明 owner/repo 是否大小写敏感, 故默认值与 URL 保持一致; 如实际
+# 调用报找不到仓库, 显式传 --repo / RUSTCODE_RELEASE_REPO 覆盖即可.
+REPO_NAME = os.environ.get("RUSTCODE_RELEASE_REPO", "RustCode")
 ACCESS_TOKEN = os.environ.get("RUSTCODE_RELEASE_ACCESS_TOKEN", "")
-API_HOST = os.environ.get("RUSTCODE_RELEASE_API_HOST", "")
+API_HOST = os.environ.get("RUSTCODE_RELEASE_API_HOST", "https://api.gitcode.com")
+# GitCode 官方文档仅为 release_status 定义两个值: latest(最新) / pre(预发布).
+ALLOWED_RELEASE_STATUSES = ("latest", "pre")
 BODY_TEMPLATE = """
 Release  Note
 
@@ -70,7 +75,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Release API access token (env RUSTCODE_RELEASE_ACCESS_TOKEN); required",
     )
     parser.add_argument("--tag-name", required=True, help="Tag name to create")
-    parser.add_argument("--body", default="", help="Release description, optional")
+    parser.add_argument(
+        "--body", default="", help="Release description (Markdown); required by the GitCode API, falls back to BODY_TEMPLATE"
+    )
+    # 官方文档: target_commitish 非必填. tag 不存在时用于新建 tag; 省略则
+    # 默认取默认分支的最新提交.
+    parser.add_argument(
+        "--target-commitish",
+        default="",
+        help="Branch name or commit SHA; auto-creates the tag if it does not exist (defaults to the default branch's latest commit)",
+    )
+    # 官方文档: release_status 非必填, 仅允许 pre / latest.
+    parser.add_argument(
+        "--release-status",
+        default="",
+        choices=ALLOWED_RELEASE_STATUSES,
+        help="Release status: latest (default at API level) or pre (prerelease)",
+    )
     parser.add_argument(
         "--file-name",
         required=True,
@@ -116,13 +137,29 @@ def create_tag_release(args: argparse.Namespace) -> dict:
     host = args.api_host.rstrip("/").removesuffix("/api/v5")
     base_url = f"{host}/api/v5/repos/{args.owner}/{args.repo}/releases"
     url = f"{base_url}?access_token={parse.quote(args.access_token)}"
-    body = args.body or BODY_TEMPLATE
 
-    payload = {
+    # 官方文档: tag_name / name / body 均为 required. body 缺失时回退到模板,
+    # 但仍须保证非空, 否则按文档属不合格请求.
+    body = args.body or BODY_TEMPLATE
+    if not body.strip():
+        raise ValueError("release body is required by the GitCode API but is empty")
+
+    payload: dict = {
         "tag_name": args.tag_name,
         "name": args.tag_name,
         "body": body,
     }
+    # 官方文档: target_commitish / release_status 均为非必填, 仅在提供时加入.
+    # tag 不存在时 target_commitish 用于新建 tag; 省略则默认默认分支最新提交.
+    if args.target_commitish:
+        payload["target_commitish"] = args.target_commitish
+    if args.release_status:
+        if args.release_status not in ALLOWED_RELEASE_STATUSES:
+            raise ValueError(
+                f"release_status must be one of {ALLOWED_RELEASE_STATUSES}, "
+                f"got {args.release_status!r}"
+            )
+        payload["release_status"] = args.release_status
     return send_request(url, method="POST", payload=payload)
 
 

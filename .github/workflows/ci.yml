@@ -10,41 +10,45 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Branch protection: main is a mirror of dev only.
-  # Direct commits to main are prohibited; all development must happen on dev.
-  # This job verifies that main has no commits outside the dev branch history.
+  # Branch protection: main is the upstream mirror only.
+  # Upstream sync (atomgit_atomcode/atomcode) is the ONLY allowed source of change;
+  # fork-authored commits (e.g. `git merge dev`) must never land on main.
+  # This job verifies that main has no commits outside the upstream branch history.
   branch-protection:
-    name: main branch protection
+    name: main upstream-only protection
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify main has no commits outside dev
+      - name: Verify main has no commits outside upstream/main
         run: |
-          git fetch origin dev
-          # main must be a subset of dev (no independent commits)
-          ahead=$(git rev-list --count origin/dev..HEAD)
+          # Upstream sync target is fixed; the fork's own remote is `origin`.
+          git remote add upstream https://gitcode.com/atomgit_atomcode/atomcode
+          git fetch upstream main --no-tags
+          # main must equal upstream/main or be behind it (no fork-authored commits)
+          ahead=$(git rev-list --count upstream/main..HEAD)
           if [ "$ahead" -gt 0 ]; then
-            echo "::error::main branch has $ahead commit(s) not in dev -- direct modifications to main are prohibited"
+            echo "::error::main branch has $ahead commit(s) not in upstream/main -- main only accepts upstream sync"
             echo ""
-            echo "main is a mirror of dev; all development must happen on the dev branch."
-            echo "To fix: move these commits to dev, then sync main from dev:"
+            echo "main is an upstream mirror; merging dev into it is prohibited."
+            echo "To fix: move these commits to dev, then reset main to upstream:"
             echo "  git checkout dev && git cherry-pick <commit-sha>"
             echo "  git push origin dev"
-            echo "  git checkout main && git merge dev --ff-only"
-            echo "  git push origin main"
+            echo "  git fetch upstream main --no-tags"
+            echo "  git checkout main && git reset --hard upstream/main"
+            echo "  git push origin main --force   # one-off correction only"
             exit 1
           fi
-          echo "[OK] main has no commits outside dev"
+          echo "[OK] main has no commits outside upstream/main"
 
   release-gate:
     name: release artifact gate
     runs-on: ubuntu-latest
-    # dev only, deliberately. main is a mirror of dev and must never receive an
-    # independent change -- including an artifact-only one -- so this gate is
-    # never widened to main. Sync path stays: dev -> main fast-forward only.
+    # dev only, deliberately. main is an upstream mirror and must never receive a
+    # fork-authored change -- including an artifact-only one -- so this gate is
+    # never widened to main. Sync path stays: upstream/main -> main only.
     if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +59,7 @@ jobs:
       - name: Assert this job never runs against main
         run: |
           if [ "${GITHUB_REF:-}" = "refs/heads/main" ]; then
-            echo "::error::release-gate must never run on main (main is a mirror of dev)"
+            echo "::error::release-gate must never run on main (main is an upstream mirror)"
             exit 1
           fi
       # Same predicate as the local pre-push hook, so `git push --no-verify`

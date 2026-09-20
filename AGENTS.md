@@ -23,40 +23,62 @@
 
 ## 分支策略 (强制门禁)
 
-**dev 是唯一的开发分支;main 是 dev 的镜像,只接受从 dev 同步,禁止直接修改。**
+**dev 是唯一的开发分支;main 只是上游 `atomgit_atomcode/atomcode` 的同步镜像,只接受上游单向流入——禁止从 dev 合并、禁止任何 fork 自造的提交。**
+
+### 远程约定
+
+| remote | 地址 | 角色 |
+|--------|------|------|
+| `origin` | `https://gitcode.com/SecLab/RustCode` | 本 fork(推送目标) |
+| `upstream` | `https://gitcode.com/atomgit_atomcode/atomcode` | **上游同步目标(只读)** |
+
+`main` 的 upstream 跟踪目标**必须是 `upstream/main`**,不得设置为 `origin/main`、`dev` 或任何其它分支。
+`upstream` remote 与跟踪关系都不在版本控制内,新克隆需手动建立(或跑 `./scripts/install-hooks.sh`,它已幂等包含这几步):
+
+```bash
+git remote add upstream https://gitcode.com/atomgit_atomcode/atomcode
+git config remote.upstream.tagOpt --no-tags   # 不抓上游 tag
+git fetch upstream main --no-tags
+git branch --set-upstream-to=upstream/main main
+```
 
 | 分支 | 用途 | 允许操作 |
 |------|------|---------|
 | `dev` | 主开发分支,所有功能/修复在此提交 | 直接 push、PR 合并 |
-| `main` | dev 的镜像,用于上游同步与 release tag | 仅接受从 dev 的 fast-forward merge |
+| `main` | 上游镜像,与 `upstream/main` 对齐 | **仅上游同步**(不得含 fork 自造提交) |
+
+fork 的全部改动只存在于 `dev`(及特性分支);**release tag 从 `dev` 打**,不再假定 `main` 带有 fork 代码。
 
 ### 四层保护
 
-1. **CI 门禁**(`ci.yml` `branch-protection` job):push 到 main 时触发,检查 `git rev-list --count origin/dev..HEAD` 是否为 0;不为 0 则 CI 失败。
-2. **本地 pre-push hook**(`.githooks/pre-push`):推送到 main 前检查是否有 dev 不存在的提交;有则拒绝推送。安装:`./scripts/install-hooks.sh`(等价 `git config core.hooksPath .githooks`)。
+1. **CI 门禁**(`ci.yml` `branch-protection` job):push 到 main 时触发,先 `git remote add upstream` 再 `git fetch upstream main --no-tags`,检查 `git rev-list --count upstream/main..HEAD` 是否为 0;不为 0 则 CI 失败。
+2. **本地 pre-push hook**(`.githooks/pre-push`):推送到 main 前检查 `upstream/main..<local_sha>` 是否有提交;有则拒绝推送。**未配置 `upstream` 跟踪 ref 时 fail-closed 拒绝**(不再像旧的 dev 判据那样「找不到就跳过」)。安装:`./scripts/install-hooks.sh`(等价 `git config core.hooksPath .githooks`)。
 3. **平台分支保护**:在 GitCode 仓库设置中将 main 设为 protected branch,限制 push 权限(需仓库管理员在 Web 界面操作)。
-4. **发布产物门禁**(`.githooks/pre-push` → `scripts/prepush-release-check.sh`):推送前要求被推送提交内**已提交** `release/<version>/manifest.json` 与该推送主机 OS/ARCH 的产物,`<version>` 取自被推送的 `Cargo.toml`——版本号 bump 必须配套产物,同版本内迭代不阻塞。`RUSTCODE_PREPUSH_RELEASE=strict` 额外要求 `manifest.source.sha` 是被推送提交的祖先、其间除 `release/` 外无源码改动、且 `source.dirty=false`(即产物确由该代码构建);`=off` 跳过。门禁**只校验不编译**(钩子内编译会阻塞每次 push 且可能 OOM)。产物未提交时按提示跑 `scripts/release-host.sh`(`RUSTCODE_PUBLISH_COMMIT=1` 可让它自动 `git add release/` 并提交,不卷入他人 WIP)。注意 `source.sha` **不可能等于**被推送 sha——manifest 在构建时写、产物之后才提交,那会构成自指哈希,故 strict 取「祖先 + 其间无源码漂移」这一可满足的最强判据。
+4. **发布产物门禁**(`.githooks/pre-push` → `scripts/prepush-release-check.sh`):**仅对非 main 分支生效**——main 是上游镜像,其提交不含 fork 的 `release/` 产物,把门禁套在 main 上会拒绝每一次上游同步。推送前要求被推送提交内**已提交** `release/<version>/manifest.json` 与该推送主机 OS/ARCH 的产物,`<version>` 取自被推送的 `Cargo.toml`——版本号 bump 必须配套产物,同版本内迭代不阻塞。`RUSTCODE_PREPUSH_RELEASE=strict` 额外要求 `manifest.source.sha` 是被推送提交的祖先、其间除 `release/` 外无源码改动、且 `source.dirty=false`(即产物确由该代码构建);`=off` 跳过。门禁**只校验不编译**(钩子内编译会阻塞每次 push 且可能 OOM)。产物未提交时按提示跑 `scripts/release-host.sh`(`RUSTCODE_PUBLISH_COMMIT=1` 可让它自动 `git add release/` 并提交,不卷入他人 WIP)。注意 `source.sha` **不可能等于**被推送 sha——manifest 在构建时写、产物之后才提交,那会构成自指哈希,故 strict 取「祖先 + 其间无源码漂移」这一可满足的最强判据。
 
 ### 正确的 main 同步流程
 
 ```bash
-git checkout dev
-# ... 开发、提交、推送 ...
-git push devspace dev
+# 1. 拉上游(只读)
+git fetch upstream main --no-tags
 
-# 同步到 main(fast-forward only)
+# 2. 本地 main 前进到上游(fast-forward only)
 git checkout main
-git merge dev --ff-only
-git push devspace main
+git merge --ff-only upstream/main    # 纯镜像等价写法: git reset --hard upstream/main
+
+# 3. 推送 fork 的 main
+git push origin main
 ```
+
+本地 main 若含 fork 自造提交,第 2 步会失败——那不是命令的问题,而是违规,按下一节处理。
 
 ### 违规处理
 
-如果 main 上出现了 dev 不存在的提交:
-1. 将这些提交 cherry-pick 到 dev:`git checkout dev && git cherry-pick <sha>`
-2. 推送 dev:`git push devspace dev`
-3. 重置 main 为 dev:`git checkout main && git reset --hard devspace/dev`
-4. 推送 main:`git push devspace main --force`(仅此场景允许 force push main)
+如果 main 上出现了 `upstream/main` 不存在的提交(例如又把 dev 合并了进来):
+1. 把这些提交搬到 dev:`git checkout dev && git cherry-pick <sha>`(若本来就来自 dev,确认 dev 已包含即可)
+2. 推送 dev:`git push origin dev`
+3. 重置 main 为上游:`git fetch upstream main --no-tags && git checkout main && git reset --hard upstream/main`
+4. 推送 main:`git push origin main --force`(**仅此一次性纠正场景允许 force push main**,且必须先确认这些提交都已进入 dev)
 
 测试:
 - `cargo test` — 默认成员;`cargo test --workspace` — 全量(跨 crate 改动必跑)。
