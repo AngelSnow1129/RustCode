@@ -1,0 +1,38 @@
+name: Resolve release tag
+description: >-
+  Resolve the release tag that names the artifacts, for both triggers of
+  build.yml. A tag push uses the tag itself; a manual workflow_dispatch run has
+  no tag ref, so it derives v<version> from the workspace Cargo.toml.
+  Exports TAG_NAME to the calling job.
+
+  Single source of truth by design: this used to be an inline
+  `TAG_NAME=${GITHUB_REF#refs/tags/}` in every job, which on a manual run
+  yields "refs/heads/<branch>" and makes the Package step write
+  dist/rustcode-refs/heads/dev-linux-x64 -- no such parent directory, so cp
+  fails and the job dies. Keep this the only place that derives the name.
+
+runs:
+  using: composite
+  steps:
+    # bash explicitly: the default shell on Windows runners is pwsh. Runs from
+    # the workspace root, so Cargo.toml is the workspace manifest.
+    - name: Resolve TAG_NAME
+      shell: bash
+      run: |
+        if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+          TAG_NAME="${GITHUB_REF_NAME}"
+        else
+          VERSION=$(awk -F'"' '
+              /^\[workspace\.package\]/ { in_section = 1; next }
+              /^\[/ { in_section = 0 }
+              in_section && /^version *=/ { print $2; exit }
+          ' Cargo.toml)
+          if [ -z "$VERSION" ]; then
+            echo "[ERROR] Could not determine version from Cargo.toml." >&2
+            exit 1
+          fi
+          TAG_NAME="v${VERSION}"
+          echo "[INFO] No tag ref (${GITHUB_REF_TYPE:-none}) -- using Cargo.toml version: ${TAG_NAME}"
+        fi
+        echo "[CHECK] release tag: ${TAG_NAME}"
+        echo "TAG_NAME=${TAG_NAME}" >> "$GITHUB_ENV"

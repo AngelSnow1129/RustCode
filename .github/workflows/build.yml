@@ -9,6 +9,9 @@ name: build
 # 未配置时跳过，不影响 GitHub Release 的创建。
 #
 # 前置：推送形如 vX.Y.Z 的 Tag（或手动 workflow_dispatch）才会触发本流水线。
+# 两种触发的差别：Tag 推送产出命名后的产物、创建 GitHub Release、并按需冗余上传
+# GitCode；手动 workflow_dispatch 没有 tag 可挂 Release，故只做一次全平台构建验证
+# （产物名取 Cargo.toml 的 v<version>，Release 与 GitCode 上传两个 job/步骤跳过）。
 
 on:
   push:
@@ -45,6 +48,10 @@ jobs:
         run: |
           cd webui && npm ci && npm run build && cd ..
 
+      # Artifact-name single source of truth for both triggers: a tag push uses
+      # the tag, a manual dispatch derives v<version> from Cargo.toml.
+      - uses: ./.github/actions/resolve-release-tag
+
       - name: Add macOS targets
         run: |
           rustup target add aarch64-apple-darwin
@@ -57,7 +64,6 @@ jobs:
 
       - name: Package
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
           mkdir -p dist
           cp target/aarch64-apple-darwin/release/rustcode dist/rustcode-${TAG_NAME}-darwin-arm64
           cp target/x86_64-apple-darwin/release/rustcode dist/rustcode-${TAG_NAME}-darwin-x64
@@ -81,7 +87,6 @@ jobs:
       - name: Upload to GitCode (optional, needs secrets)
         if: ${{ startsWith(github.ref, 'refs/tags/') && env.RUSTCODE_RELEASE_ACCESS_TOKEN != '' }}
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
             --file-name=rustcode-${TAG_NAME}-darwin-arm64 \
@@ -113,6 +118,9 @@ jobs:
       - name: Build webui
         run: |
           cd webui && npm ci && npm run build && cd ..
+
+      # Artifact-name single source of truth (see the action for the rationale).
+      - uses: ./.github/actions/resolve-release-tag
 
       - name: Install musl toolchain
         run: |
@@ -149,7 +157,6 @@ jobs:
 
       - name: Package
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
           mkdir -p dist
           cp target/x86_64-unknown-linux-musl/release/rustcode dist/rustcode-${TAG_NAME}-linux-x64
           cp target/aarch64-unknown-linux-musl/release/rustcode dist/rustcode-${TAG_NAME}-linux-arm64
@@ -172,7 +179,6 @@ jobs:
       - name: Upload to GitCode (optional, needs secrets)
         if: ${{ startsWith(github.ref, 'refs/tags/') && env.RUSTCODE_RELEASE_ACCESS_TOKEN != '' }}
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
             --file-name=rustcode-${TAG_NAME}-linux-x64 \
@@ -206,6 +212,9 @@ jobs:
         run: |
           cd webui && npm ci && npm run build && cd ..
 
+      # Artifact-name single source of truth (see the action for the rationale).
+      - uses: ./.github/actions/resolve-release-tag
+
       - name: Add Windows targets
         run: |
           rustup target add aarch64-pc-windows-msvc
@@ -220,7 +229,6 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
           mkdir -p dist
           cp target/aarch64-pc-windows-msvc/release/rustcode.exe dist/rustcode-${TAG_NAME}-windows-arm64.exe
           cp target/x86_64-pc-windows-msvc/release/rustcode.exe dist/rustcode-${TAG_NAME}-windows-x64.exe
@@ -242,7 +250,6 @@ jobs:
         if: ${{ startsWith(github.ref, 'refs/tags/') && env.RUSTCODE_RELEASE_ACCESS_TOKEN != '' }}
         shell: bash
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
           python3 .github/workflows/create_tag_release.py \
             --tag-name=${TAG_NAME} \
             --file-name=rustcode-${TAG_NAME}-windows-arm64.exe \
@@ -256,6 +263,11 @@ jobs:
 
   github-release:
     needs: [build-macos, build-linux, build-windows]
+    # Tag-only: a manual workflow_dispatch run has no tag to attach a Release to
+    # (softprops/action-gh-release fails on a branch ref), so a manual run stays
+    # a pure build verification of all 6 artifacts. The GitCode upload steps are
+    # tag-gated the same way.
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
