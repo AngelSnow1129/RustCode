@@ -4393,6 +4393,120 @@ async fn chat_stream(
         .into_response()
 }
 
+/// One-shot prompt enhancement for the webui "增强提示词" (Qoder-style star) button.
+///
+/// Runs the user's draft through the configured default provider with a
+/// structured-enhancement system prompt and returns the improved prompt. It is a
+/// stateless, session-less completion: it never touches the chat runtime or the
+/// session transcript, so it cannot disturb an in-flight turn.
+#[derive(Deserialize)]
+struct EnhancePromptRequest {
+    /// The user's draft prompt to improve.
+    prompt: String,
+    /// Optional lightweight context (e.g. current working directory / focused file)
+    /// the model may use to make the enhancement more targeted.
+    #[serde(default)]
+    context: Option<String>,
+}
+
+#[derive(Serialize)]
+struct EnhancePromptResponse {
+    success: bool,
+    enhanced: Option<String>,
+    error: Option<String>,
+}
+
+/// System prompt that turns a terse draft into a structured, production-ready task
+/// spec. Kept terse and prescriptive so the model returns ONLY the enhanced prompt
+/// (no preamble, no markdown fences, no "here is your improved prompt").
+const ENHANCE_SYSTEM_PROMPT: &str = "你是一个提示词增强引擎，服务于 Agentic Coding 场景。\
+用户会给你一段原始、可能含糊的开发提示词。请在不改变其真实意图的前提下，把它改写成一份清晰、可执行、生产级的中文任务说明书。\n\
+增强维度：\n\
+1. 需求明确化：识别模糊描述，转化为具体、可执行的任务；补全语言/框架/输入输出等关键信息。\n\
+2. 场景上下文化：若用户提供了可选上下文（当前工作目录、聚焦文件等），据此让提示词更具针对性。\n\
+3. 约束条件完善化：补充易忽略的关键约束——性能要求、边界条件、错误处理、安全性（如防注入）、代码规范。\n\
+4. 结构化输出：按「任务目标 / 输入与输出 / 约束条件 / 示例参考」等模块组织，便于 AI 精准解析。\n\
+规则：只输出增强后的提示词本身；不要解释、不要前后缀、不要用 ``` 代码围栏包裹；若原文已足够完善，可在原意上做最小润色。";
+
+async fn enhance_prompt(
+    State(state): State<AppState>,
+    Json(req): Json<EnhancePromptRequest>,
+) -> impl IntoResponse {
+    let draft = req.prompt.trim().to_string();
+    if draft.is_empty() {
+        return Json(EnhancePromptResponse {
+            success: false,
+            enhanced: None,
+            error: Some("empty prompt".into()),
+        })
+        .into_response();
+    }
+
+    let config = match Config::load(&Config::default_path()) {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(EnhancePromptResponse {
+                success: false,
+                enhanced: None,
+                error: Some(format!("config load failed: {e}")),
+            })
+            .into_response();
+        }
+    };
+    let working_dir = {
+        let project = state.project.read().await;
+        project.working_dir.clone()
+    };
+    let rt_cfg = rustcode_coding::config::CodingRuntimeConfig::from_config(
+        &config,
+        &working_dir,
+        None,
+        false,
+        false,
+    );
+    let agent_cfg = rt_cfg.agent_config();
+    let provider = match coding_provider_factory().build(&agent_cfg, None) {
+        Ok(p) => p,
+        Err(e) => {
+            return Json(EnhancePromptResponse {
+                success: false,
+                enhanced: None,
+                error: Some(format!("provider build failed: {e}")),
+            })
+            .into_response();
+        }
+    };
+
+    let mut messages = Vec::new();
+    messages.push(rustcode_kernel::message::Message::system(
+        ENHANCE_SYSTEM_PROMPT,
+    ));
+    let user_text = match req.context.filter(|c| !c.trim().is_empty()) {
+        Some(ctx) => format!("【可选上下文】\n{ctx}\n\n【待增强的提示词】\n{draft}"),
+        None => draft,
+    };
+    messages.push(rustcode_kernel::message::Message::user(user_text));
+
+    let options = rustcode_kernel::provider::ChatOptions::default();
+    match rustcode_kernel::provider::LlmProvider::chat(&*provider, &messages, &[], &options).await {
+        Ok(resp) => {
+            let enhanced = resp.text.trim().to_string();
+            Json(EnhancePromptResponse {
+                success: true,
+                enhanced: Some(enhanced),
+                error: None,
+            })
+            .into_response()
+        }
+        Err(e) => Json(EnhancePromptResponse {
+            success: false,
+            enhanced: None,
+            error: Some(e.message),
+        })
+        .into_response(),
+    }
+}
+
 /// Await the inner chat task, translating its outcome into SSE events and
 /// always calling `active_chats.complete()` afterwards -- even on panic.
 async fn finalize_chat_task(
@@ -6278,6 +6392,7 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         .route("/chat/active", get(active_chat_sessions))
         .route("/chat/permission", post(chat_permission))
         .route("/chat/user-input", post(chat_user_input))
+        .route("/enhance_prompt", post(enhance_prompt))
         .route(
             "/approval_mode",
             get(live_api::approval_mode_get).post(live_api::approval_mode_set),
