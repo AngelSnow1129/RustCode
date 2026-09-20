@@ -639,7 +639,7 @@ use axum::{
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive, Sse},
-        IntoResponse, Json,
+        IntoResponse, Json, Response,
     },
 };
 use futures::stream::StreamExt;
@@ -2599,6 +2599,142 @@ pub(crate) async fn live_mcp_trust(State(state): State<AppState>) -> impl IntoRe
             Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
         )
             .into_response(),
+    }
+}
+
+// ============================================================================
+// Task API: one-shot background tasks for external programmatic callers.
+// Each task gets its own isolated CodingRuntime + LiveViewHub, fully
+// independent of the interactive /live binding.
+// ============================================================================
+
+#[derive(serde::Deserialize)]
+pub(crate) struct LiveTaskCreateReq {
+    pub prompt: String,
+    pub working_dir: Option<String>,
+    pub provider: Option<String>,
+    pub session_id: Option<String>,
+}
+
+pub(crate) async fn live_tasks_create(
+    State(state): State<AppState>,
+    Json(req): Json<LiveTaskCreateReq>,
+) -> Response {
+    let working_dir = match req.working_dir {
+        Some(dir) => std::path::PathBuf::from(dir),
+        None => state.project.read().await.working_dir.clone(),
+    };
+    let provider_name = req.provider.unwrap_or_else(live_current_provider);
+    match crate::native_live::create_task(working_dir, provider_name, req.prompt, req.session_id)
+        .await
+    {
+        Ok(info) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(&info).unwrap_or_default()),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response(),
+    }
+}
+
+pub(crate) async fn live_tasks_list() -> impl IntoResponse {
+    let tasks = crate::native_live::list_tasks().await;
+    Json(serde_json::json!({ "tasks": tasks }))
+}
+
+pub(crate) async fn live_tasks_stream(
+    axum::extract::Path(task_id): axum::extract::Path<String>,
+) -> Response {
+    let join = match crate::native_live::task_join(&task_id).await {
+        Some(join) => join,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "task not found" })),
+            )
+                .into_response()
+        }
+    };
+    let (tx, out_rx) = mpsc::unbounded_channel::<(String, LiveWireEvent)>();
+    let snapshot_messages: Vec<crate::MessageInfo> = join
+        .snapshot
+        .messages
+        .iter()
+        .map(crate::MessageInfo::from_kernel)
+        .collect();
+    let project_hash =
+        rustcode_capabilities::session::SessionManager::project_hash(&join.binding.working_dir);
+    let _ = tx.send((
+        join.binding.session_id.clone(),
+        LiveWireEvent::Snapshot {
+            messages: snapshot_messages,
+            session_id: join.binding.session_id.clone(),
+            session_name: String::new(),
+            project_hash,
+            provider: join.binding.provider.clone(),
+            mode: live_current_mode_wire(),
+            working_dir: join.binding.working_dir.to_string_lossy().to_string(),
+            goal: join.goal_progress.as_ref().map(goal_snapshot),
+        },
+    ));
+    let mut projector = NativeLiveWireProjector {
+        session_id: join.binding.session_id.clone(),
+        ..Default::default()
+    };
+    if let Some(goal) = join.goal_progress {
+        if let Some(w) = projector.project(crate::live_hub::LiveViewEvent::Runtime(
+            rustcode_coding::CodingRuntimeEvent::GoalChanged(goal),
+        )) {
+            let _ = tx.send((projector.session_id.clone(), w));
+        }
+    }
+    for observation in join.replay {
+        if let Some(w) = projector.project(observation.event) {
+            let _ = tx.send((projector.session_id.clone(), w));
+        }
+    }
+    let binding_id = join.binding.id;
+    let mut rx = join.receiver;
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(observation) if observation.binding_id == binding_id => {
+                    if let Some(w) = projector.project(observation.event) {
+                        if tx.send((projector.session_id.clone(), w)).is_err() {
+                            break;
+                        }
+                    }
+                }
+                Ok(_) => break,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+    let stream =
+        tokio_stream::wrappers::UnboundedReceiverStream::new(out_rx).map(|(session_id, event)| {
+            let json = serialize_scoped_live_event(session_id, &event);
+            Ok::<_, std::convert::Infallible>(Event::default().data(json))
+        });
+    Sse::new(stream)
+        .keep_alive(
+            KeepAlive::new()
+                .interval(std::time::Duration::from_secs(15))
+                .text("ping"),
+        )
+        .into_response()
+}
+
+pub(crate) async fn live_tasks_stop(
+    axum::extract::Path(task_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match crate::native_live::stop_task(&task_id).await {
+        Ok(()) => Json(serde_json::json!({ "stopped": true })),
+        Err(error) => Json(serde_json::json!({ "stopped": false, "error": error })),
     }
 }
 

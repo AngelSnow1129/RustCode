@@ -6303,6 +6303,13 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         .route("/live/compact", post(live_api::live_compact))
         .route("/live/command", post(live_api::live_command))
         .route("/live/mcp/trust", post(live_api::live_mcp_trust))
+        // Task API: one-shot background tasks for external callers
+        .route(
+            "/live/tasks",
+            post(live_api::live_tasks_create).get(live_api::live_tasks_list),
+        )
+        .route("/live/tasks/:id/stream", get(live_api::live_tasks_stream))
+        .route("/live/tasks/:id/stop", post(live_api::live_tasks_stop))
         .route("/command", post(commands::run_command))
         .route(
             "/live/switch_session",

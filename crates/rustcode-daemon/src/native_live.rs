@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
@@ -513,6 +514,247 @@ pub async fn ensure_headless_runtime(
     *owner = Some(HeadlessRuntime { binding, handle });
     drop(owner);
     join().map_err(|error| format!("live hub join failed: {error:?}"))
+}
+
+// --- Multi-task support ---
+//
+// Each task runs in its own `LiveViewHub` + `CodingRuntime`, fully isolated
+// from the interactive `/live` binding. This lets external programs submit
+// one-shot prompts and stream progress via `POST /live/tasks` without
+// interfering with the shared interactive session.
+
+static TASK_RUNTIMES: OnceLock<Mutex<HashMap<String, TaskRuntime>>> = OnceLock::new();
+
+struct TaskRuntime {
+    hub: Arc<LiveViewHub>,
+    binding: LiveBinding,
+    handle: rustcode_coding::CodingRuntimeHandle,
+    event_forwarder: tokio::task::JoinHandle<()>,
+    created_at: i64,
+    prompt: String,
+    session_id: String,
+    working_dir: PathBuf,
+    provider: String,
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct TaskInfo {
+    pub task_id: String,
+    pub session_id: String,
+    pub working_dir: String,
+    pub provider: String,
+    pub status: String,
+    pub created_at: i64,
+    pub prompt: String,
+}
+
+fn task_runtimes() -> &'static Mutex<HashMap<String, TaskRuntime>> {
+    TASK_RUNTIMES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn generate_task_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("task-{now}")
+}
+
+fn task_status(handle: &rustcode_coding::CodingRuntimeHandle) -> String {
+    match handle.status().phase {
+        RuntimePhase::Ready => "ready".into(),
+        RuntimePhase::InTurn => "running".into(),
+        RuntimePhase::WaitingApproval => "waiting_approval".into(),
+        RuntimePhase::Reconfiguring => "reconfiguring".into(),
+        RuntimePhase::ShuttingDown => "shutting_down".into(),
+        RuntimePhase::Stopped => "stopped".into(),
+        RuntimePhase::Failed => "failed".into(),
+        RuntimePhase::AwaitingProvider => "awaiting_provider".into(),
+    }
+}
+
+/// Create an isolated background task. The prompt is auto-submitted in
+/// `Build` mode (auto-approve safe operations). Progress is streamed via
+/// `GET /live/tasks/{id}/stream`.
+pub async fn create_task(
+    working_dir: PathBuf,
+    provider_name: String,
+    prompt: String,
+    session_id: Option<String>,
+) -> Result<TaskInfo, String> {
+    let config =
+        rustcode_config::config::Config::load(&rustcode_config::config::Config::default_path())
+            .map_err(|error| error.to_string())?;
+    if !config.selection_exists(&provider_name) {
+        return Err(format!("provider {provider_name:?} not found"));
+    }
+    let provider_fingerprint = provider_fingerprint(&config, &provider_name)?;
+    let runtime_config =
+        crate::live_api::live_runtime_config(&config, &provider_name, &working_dir);
+    let (session_mode, initial_snapshot) = match &session_id {
+        Some(id) => {
+            let snapshot = load_snapshot(&working_dir, id)?;
+            (
+                rustcode_coding::SessionMode::ExternalSnapshot {
+                    id: id.clone(),
+                    snapshot: snapshot.clone(),
+                },
+                snapshot,
+            )
+        }
+        None => (
+            rustcode_coding::SessionMode::Fresh,
+            SessionSnapshot::new(Vec::new()),
+        ),
+    };
+    let (runtime, _) = crate::start_native_runtime_with_session(runtime_config, session_mode)
+        .await
+        .map_err(|error| error.to_string())?;
+    let CodingRuntime {
+        handle,
+        mut events,
+        task,
+        session,
+        ..
+    } = runtime;
+    handle
+        .set_mode(RuntimeMode::Build)
+        .await
+        .map_err(|error| format!("failed to set task mode: {error}"))?;
+    let resolved_session_id = session
+        .map(|session| session.id)
+        .ok_or_else(|| "task runtime started without a persistent session".to_string())?;
+    let task_hub = Arc::new(LiveViewHub::new());
+    let binding = bind_after_mcp_ready(
+        handle.wait_mcp_ready(rustcode_capabilities::mcp::CONNECT_TIMEOUT),
+        || {
+            task_hub
+                .bind_with_provider(
+                    resolved_session_id.clone(),
+                    working_dir.clone(),
+                    provider_name.clone(),
+                    provider_fingerprint.clone(),
+                    initial_snapshot,
+                    Arc::new(handle.clone()),
+                )
+                .map_err(|error| format!("task hub bind failed: {error:?}"))
+        },
+    )
+    .await?;
+    let event_binding = binding.clone();
+    let event_hub = Arc::clone(&task_hub);
+    let event_handle = handle.clone();
+    let event_forwarder = tokio::spawn(async move {
+        while let Some(event) = events.recv().await {
+            let session_change = match &event.event {
+                rustcode_coding::CodingRuntimeEvent::SessionChanged(changed) => {
+                    Some((changed.session_id.clone(), changed.working_dir.clone()))
+                }
+                _ => None,
+            };
+            match event_hub.publish(&event_binding, event) {
+                Ok(()) => {}
+                Err(HubError::StaleEvent) => {
+                    continue;
+                }
+                Err(error) => {
+                    tracing::warn!("stopping task event forwarding: {error:?}");
+                    break;
+                }
+            }
+            if let Some((Some(sid), wdir)) = session_change {
+                match event_handle.snapshot().await {
+                    Ok(snapshot) => {
+                        if let Err(error) = event_hub.commit_runtime_snapshot(
+                            &event_binding,
+                            sid,
+                            wdir,
+                            snapshot.as_ref().clone(),
+                        ) {
+                            tracing::warn!("task snapshot commit failed: {error:?}");
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!("task snapshot unavailable: {error}");
+                    }
+                }
+            }
+        }
+        let _ = task.await;
+    });
+    let input = UserInput {
+        text: prompt.clone(),
+        images: Vec::new(),
+    };
+    task_hub
+        .submit_confirmed(input)
+        .await
+        .map_err(|error| format!("task prompt submission failed: {error:?}"))?;
+    let task_id = generate_task_id();
+    let created_at = rustcode_capabilities::session::now_ms();
+    let info = TaskInfo {
+        task_id: task_id.clone(),
+        session_id: resolved_session_id.clone(),
+        working_dir: working_dir.to_string_lossy().to_string(),
+        provider: provider_name.clone(),
+        status: task_status(&handle),
+        created_at,
+        prompt: prompt.clone(),
+    };
+    task_runtimes().lock().await.insert(
+        task_id.clone(),
+        TaskRuntime {
+            hub: task_hub,
+            binding,
+            handle,
+            event_forwarder,
+            created_at,
+            prompt,
+            session_id: resolved_session_id,
+            working_dir,
+            provider: provider_name,
+        },
+    );
+    Ok(info)
+}
+
+pub async fn list_tasks() -> Vec<TaskInfo> {
+    task_runtimes()
+        .lock()
+        .await
+        .iter()
+        .map(|(id, rt)| TaskInfo {
+            task_id: id.clone(),
+            session_id: rt.session_id.clone(),
+            working_dir: rt.working_dir.to_string_lossy().to_string(),
+            provider: rt.provider.clone(),
+            status: task_status(&rt.handle),
+            created_at: rt.created_at,
+            prompt: rt.prompt.clone(),
+        })
+        .collect()
+}
+
+pub async fn stop_task(task_id: &str) -> Result<(), String> {
+    let runtime = {
+        let mut map = task_runtimes().lock().await;
+        map.remove(task_id).ok_or("task not found")?
+    };
+    let _ = runtime.handle.shutdown().await;
+    let _ = runtime.hub.unbind(&runtime.binding);
+    let _ = runtime.event_forwarder.await;
+    Ok(())
+}
+
+/// Acquire a `LiveJoin` for SSE streaming of a specific task's events.
+pub async fn task_join(task_id: &str) -> Option<LiveJoin> {
+    let hub = {
+        let map = task_runtimes().lock().await;
+        map.get(task_id).map(|rt| Arc::clone(&rt.hub))
+    };
+    hub?.join().ok()
 }
 
 #[cfg(test)]
