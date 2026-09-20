@@ -34,7 +34,7 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
-use crate::protocol::{decode, percent_decode, Frame, TOKEN_QUERY_PARAM};
+use crate::protocol::{decode, Frame, TOKEN_HEADER};
 
 /// Read buffer size for the public->client direction.
 const BUF_SIZE: usize = 16 * 1024;
@@ -63,6 +63,45 @@ fn ws_config() -> WebSocketConfig {
         max_frame_size: Some(1 << 20),
         ..Default::default()
     }
+}
+
+/// Constant-time byte comparison, so a timing side channel cannot reveal how
+/// much of the tunnel token an attacker has right (CWE-208). `None` (absent
+/// header) never matches a present expected token.
+fn constant_time_eq(a: Option<&[u8]>, b: &[u8]) -> bool {
+    match a {
+        None => false,
+        Some(x) => {
+            if x.len() != b.len() {
+                return false;
+            }
+            let mut diff = 0u8;
+            for (p, q) in x.iter().zip(b.iter()) {
+                diff |= p ^ q;
+            }
+            diff == 0
+        }
+    }
+}
+
+/// Allocate the next unused stream id.
+///
+/// The 32-bit counter wraps; we keep scanning forward (skipping `0`, which is
+/// never assigned) so a long-lived stream from a previous cycle can never
+/// collide with a freshly allocated id. `next` and `used` are read under the
+/// caller's lock, so two concurrent accepts cannot grab the same id.
+fn next_free_stream_id<V>(next: &AtomicU32, used: &HashMap<u32, V>) -> u32 {
+    let mut candidate = next.fetch_add(1, Ordering::Relaxed);
+    if candidate == 0 {
+        candidate = 1;
+    }
+    while used.contains_key(&candidate) {
+        candidate = candidate.wrapping_add(1);
+        if candidate == 0 {
+            candidate = 1;
+        }
+    }
+    candidate
 }
 
 /// Run the relay.
@@ -111,17 +150,16 @@ pub async fn run_relay_with(control: TcpListener, public: TcpListener, token: &s
         let handshake = tokio_tungstenite::accept_hdr_async_with_config(
             stream,
             move |req: &Request, resp: Response| {
-                // `None` when the parameter is absent -- an absent token must
-                // never be treated as an empty (valid) one.
-                let presented = req.uri().query().and_then(|q| {
-                    q.split('&').find_map(|kv| {
-                        let mut it = kv.splitn(2, '=');
-                        let key = it.next()?;
-                        let value = it.next().unwrap_or("");
-                        (key == TOKEN_QUERY_PARAM).then(|| percent_decode(value))
-                    })
-                });
-                if presented.as_deref() == Some(expected.as_str()) {
+                // Read the token from the `x-tunnel-token` handshake header; an
+                // absent header is never a valid (empty) token. Compare in
+                // constant time so a timing side channel cannot leak the secret
+                // (CWE-208).
+                let presented = req
+                    .headers()
+                    .get(TOKEN_HEADER)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.as_bytes());
+                if constant_time_eq(presented, expected.as_bytes()) {
                     Ok(resp)
                 } else {
                     warn!("relay: rejected control handshake (bad or missing token)");
@@ -177,21 +215,27 @@ async fn serve_control(
         loop {
             match public.accept().await {
                 Ok((sock, peer)) => {
-                    let id = pub_ids.fetch_add(1, Ordering::Relaxed);
-                    debug!("relay: public connection from {peer} as stream {id}");
                     // Register BEFORE announcing: the client may answer with
                     // Data immediately, and data for an unregistered id would
-                    // be dropped.
-                    let (in_tx, in_rx) = mpsc::channel(QUEUE_DEPTH);
-                    {
+                    // be dropped. Allocate a free id under the same lock so two
+                    // connections can never grab the same one, and skip ids that
+                    // are still in use (including across a u32 wraparound).
+                    let id = {
                         let mut guard = pub_streams.lock().await;
                         if guard.len() >= MAX_STREAMS {
                             warn!("relay: stream limit reached, dropping connection from {peer}");
                             drop(sock);
                             continue;
                         }
-                        guard.insert(id, in_tx);
-                    }
+                        let (in_tx, in_rx) = mpsc::channel(QUEUE_DEPTH);
+                        let candidate = next_free_stream_id(&pub_ids, &guard);
+                        guard.insert(candidate, in_tx);
+                        (candidate, in_rx)
+                    };
+                    // `in_rx` only exists once the id is reserved, so the channel
+                    // is never allocated on the rejected (over-limit) path.
+                    let (id, in_rx) = id;
+                    debug!("relay: public connection from {peer} as stream {id}");
                     if pub_out
                         .send(Message::Binary(Frame::Open(id).encode()))
                         .await
@@ -328,4 +372,55 @@ fn spawn_public_stream(
         }
         streams.lock().await.remove(&id);
     });
+}
+
+#[cfg(test)]
+mod id_alloc_tests {
+    use super::*;
+
+    #[test]
+    fn allocates_first_id_from_one() {
+        let next = AtomicU32::new(1);
+        let used: HashMap<u32, ()> = HashMap::new();
+        assert_eq!(next_free_stream_id(&next, &used), 1);
+        // counter advanced past the allocated id.
+        assert_eq!(next.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn skips_ids_still_in_use() {
+        let next = AtomicU32::new(1);
+        let mut used: HashMap<u32, ()> = HashMap::new();
+        used.insert(1, ());
+        used.insert(2, ());
+        assert_eq!(next_free_stream_id(&next, &used), 3);
+    }
+
+    #[test]
+    fn never_assigns_zero() {
+        let next = AtomicU32::new(0);
+        let used: HashMap<u32, ()> = HashMap::new();
+        assert_eq!(next_free_stream_id(&next, &used), 1);
+    }
+
+    #[test]
+    fn wraps_past_u32_max_without_colliding_live_stream() {
+        let next = AtomicU32::new(u32::MAX);
+        let mut used: HashMap<u32, ()> = HashMap::new();
+        used.insert(u32::MAX, ());
+        // counter returns MAX (still live), so we skip it and wrap to 1.
+        assert_eq!(next_free_stream_id(&next, &used), 1);
+    }
+
+    #[test]
+    fn constant_time_eq_is_false_for_absent_token() {
+        assert!(!constant_time_eq(None, b"secret"));
+    }
+
+    #[test]
+    fn constant_time_eq_matches_on_equal_bytes() {
+        assert!(constant_time_eq(Some(b"sec/ret=x"), b"sec/ret=x"));
+        assert!(!constant_time_eq(Some(b"sec/ret=x"), b"sec/ret!x"));
+        assert!(!constant_time_eq(Some(b"short"), b"longer-token"));
+    }
 }

@@ -19,5 +19,5 @@ async fn main() -> Result<()> {
         .parse()
         .expect("local_port must be a number");
     println!("smoke client: {relay} -> 127.0.0.1:{port}");
-    rustcode_tunnel::client::start_tunnel_client(&relay, &token, port).await
+    rustcode_tunnel::client::start_tunnel_client(&relay, &token, port, None).await
 }

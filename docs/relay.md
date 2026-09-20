@@ -27,7 +27,7 @@
 
 ## 2. 协议规范
 
-- **控制连接**：客户端连 `RUSTCODE_TUNNEL_RELAY`（如 `ws://host:7000/tunnel`），token 以查询参数 `?token=` 传递；不匹配则中继在握手阶段直接返回 **401**。
+- **控制连接**：客户端连 `RUSTCODE_TUNNEL_RELAY`（如 `ws://host:7000/tunnel`），token 以 **`x-tunnel-token` 握手头**传递（**不放进 URL 查询参数**——URL 会进中继/proxy 访问日志，造成令牌泄露，CWE-598）；不匹配或缺头则中继在握手阶段直接返回 **401**。
 - **帧格式**（binary WebSocket 消息，整数大端）：
 
   | 字段 | 长度 | 说明 |
@@ -155,7 +155,7 @@ ws.example.com {
 
 两者互不相干：隧道 token 只保证"这台开发机有权占用这条隧道"；access_key 才是对外服务的凭证。
 
-> token 可以包含任意字符：客户端会做百分号编码、中继会解码后再比对，因此含 `/`、`=`、空格 的强随机串都能正常使用（若两端都被误改成"一致但不编码"的写法，这类 token 才会认证失败）。
+> token 可以包含任意字符：令牌走 `x-tunnel-token` 握手头（HTTP 头值天然允许 `/`、`=` 等字符，且不再做百分号编解码），因此含 `/`、`=` 的强随机串都能正常鉴权；空令牌始终被拒绝。
 
 ## 9. 故障排查
 
@@ -194,4 +194,4 @@ ws.example.com {
 - [x] `rustcode-relay` 二进制（`--control` / `--public` / `--token`，亦支持环境变量）
 - [x] daemon 接线：开关 + URL + token 齐备时自动拉起 frpc，缺配置仅告警
 - [x] 依赖 `tokio-tungstenite`（仅落在本 crate，不污染 daemon）
-- [x] **端到端验证**：`tests/e2e_tunnel.rs` 4 个用例（转发、错误 token 拒绝、并发多流、顺序流），`cargo test -p rustcode-tunnel` 15 passed / 0 failed
+- [x] **端到端验证**：`tests/e2e_tunnel.rs` 5 个用例（转发、错误 token 拒绝、并发多流、顺序流、半关闭传播），`cargo test -p rustcode-tunnel` 16 单测 + 5 e2e passed / 0 failed

@@ -60,7 +60,7 @@ async fn spawn_stack(token: &str) -> u16 {
     let client_token = token.to_string();
     tokio::spawn(async move {
         let url = format!("ws://127.0.0.1:{control_port}/tunnel");
-        let _ = client::start_tunnel_client(&url, &client_token, echo_port).await;
+        let _ = client::start_tunnel_client(&url, &client_token, echo_port, None).await;
     });
 
     public_port
@@ -204,7 +204,7 @@ async fn relay_rejects_a_wrong_tunnel_token() {
         // (b) Our own client cannot establish a tunnel with the wrong token.
         let control_port = spawn_relay(TOKEN).await;
         let url = format!("ws://127.0.0.1:{control_port}/tunnel");
-        let err = client::start_tunnel_client(&url, WRONG_TOKEN, 1)
+        let err = client::start_tunnel_client(&url, WRONG_TOKEN, 1, None)
             .await
             .expect_err("start_tunnel_client must fail with a wrong token");
         let rendered = format!("{err:?}");
@@ -243,6 +243,7 @@ async fn raw_handshake_status(control_port: u16, token: &str) -> u16 {
          Connection: Upgrade\r\n\
          Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
          Sec-WebSocket-Version: 13\r\n\
+         x-tunnel-token: {token}\r\n\
          \r\n"
     );
     let read_status = async {
@@ -314,7 +315,7 @@ async fn half_close_is_propagated_to_the_remote_peer() {
         });
         let relay_client = tokio::spawn(async move {
             let url = format!("ws://127.0.0.1:{control_port}/tunnel");
-            let _ = client::start_tunnel_client(&url, TOKEN, once_port).await;
+            let _ = client::start_tunnel_client(&url, TOKEN, once_port, None).await;
         });
 
         // Wait for the tunnel to come up.

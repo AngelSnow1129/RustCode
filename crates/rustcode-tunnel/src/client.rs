@@ -24,7 +24,9 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
-use crate::protocol::{decode, Frame, TOKEN_QUERY_PARAM};
+use crate::protocol::{decode, Frame, TOKEN_HEADER};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue};
 
 /// Local address the relay streams are forwarded to.
 pub const LOCAL_HOST: &str = "127.0.0.1";
@@ -70,16 +72,39 @@ fn ws_config() -> WebSocketConfig {
 /// * `relay_url`  -- e.g. `ws://host:7000/tunnel` or `wss://host:7000/tunnel`
 /// * `token`      -- shared secret the relay checks before granting the tunnel
 /// * `local_port` -- the daemon's local endpoint that inbound streams reach
-pub async fn start_tunnel_client(relay_url: &str, token: &str, local_port: u16) -> Result<()> {
-    let url = with_token(relay_url, token);
+/// * `connected`  -- when `Some`, flipped to `true` the moment the control-channel
+///   WebSocket upgrade succeeds, so an external watcher (e.g. the daemon's
+///   `/tunnel/status`) can report real relay connectivity instead of guessing
+///   from whether the client loop is merely alive. Pass `None` to ignore it.
+pub async fn start_tunnel_client(
+    relay_url: &str,
+    token: &str,
+    local_port: u16,
+    connected: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<()> {
+    // The tunnel token travels in the `x-tunnel-token` handshake header -- never
+    // the URL, so it cannot leak into relay/proxy access logs (CWE-598).
+    let mut request = relay_url
+        .into_client_request()
+        .with_context(|| format!("invalid relay url: {relay_url}"))?;
+    let header_val = HeaderValue::from_str(token).with_context(|| {
+        "tunnel token is not a valid HTTP header value (avoid spaces and control \
+         chars; use a base64url/hex secret)"
+    })?;
+    request
+        .headers_mut()
+        .insert(HeaderName::from_static(TOKEN_HEADER), header_val);
     info!("tunnel: connecting to relay {relay_url}");
     let (ws, _resp) = tokio::time::timeout(
         CONNECT_TIMEOUT,
-        tokio_tungstenite::connect_async_with_config(url.as_str(), Some(ws_config()), false),
+        tokio_tungstenite::connect_async_with_config(request, Some(ws_config()), false),
     )
     .await
     .with_context(|| format!("timed out connecting to relay {relay_url}"))?
     .with_context(|| format!("connect to relay {relay_url}"))?;
+    if let Some(flag) = &connected {
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
     info!("tunnel: relay connected, forwarding to {LOCAL_HOST}:{local_port}");
 
     let (mut sink, mut stream) = ws.split();
@@ -189,21 +214,6 @@ pub async fn start_tunnel_client(relay_url: &str, token: &str, local_port: u16) 
     Ok(())
 }
 
-/// Append the (percent-encoded) tunnel token as a query parameter.
-pub fn with_token(relay_url: &str, token: &str) -> String {
-    let encoded: String = token
-        .bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            other => format!("%{other:02X}"),
-        })
-        .collect();
-    let sep = if relay_url.contains('?') { '&' } else { '?' };
-    format!("{relay_url}{sep}{TOKEN_QUERY_PARAM}={encoded}")
-}
-
 /// Bridge one relay stream to a fresh local TCP connection.
 fn spawn_stream(
     id: u32,
@@ -287,23 +297,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn token_is_appended_as_query_param() {
-        assert_eq!(
-            with_token("ws://h:7000/tunnel", "abc"),
-            "ws://h:7000/tunnel?token=abc"
-        );
-    }
-
-    #[test]
-    fn existing_query_is_preserved() {
-        assert_eq!(
-            with_token("ws://h:7000/tunnel?x=1", "abc"),
-            "ws://h:7000/tunnel?x=1&token=abc"
-        );
-    }
-
-    #[test]
-    fn unsafe_token_chars_are_percent_encoded() {
-        assert_eq!(with_token("ws://h/t", "a b/c"), "ws://h/t?token=a%20b%2Fc");
+    fn connect_request_carries_no_token_by_default() {
+        // Sanity: a bare relay url (as built before the token header is added)
+        // carries no tunnel-token header; the production path inserts one.
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let req = "ws://h:7000/tunnel".into_client_request().unwrap();
+        assert!(req.headers().get(TOKEN_HEADER).is_none());
     }
 }

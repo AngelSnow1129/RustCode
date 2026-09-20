@@ -2482,8 +2482,23 @@ async fn run() -> Result<i32> {
                     client.as_deref().unwrap_or("ide"),
                 );
                 let token_store = rustcode_daemon::auth_token::WebuiTokenStore::new();
+                // The standalone `rustcode daemon` must honor the same access-key
+                // priority as the rest of the auth surface: a user who sets
+                // `RUSTCODE_ACCESS_KEY` to lock down the WebUI must not be silently
+                // ignored (would leave the daemon unauthenticated). `RUSTCODE_DAEMON_TOKEN`
+                // still wins so a bridge-launched daemon keeps using its parent's token.
+                let config_path = cli.config.clone().unwrap_or_else(Config::default_path);
+                let config_access_key = if config_path.exists() {
+                    Config::load(&config_path)
+                        .ok()
+                        .and_then(|c| c.access_key.filter(|s| !s.is_empty()))
+                } else {
+                    None
+                };
                 let daemon_token = rustcode_daemon::resolve_daemon_token(
                     std::env::var("RUSTCODE_DAEMON_TOKEN").ok(),
+                    std::env::var("RUSTCODE_ACCESS_KEY").ok(),
+                    config_access_key,
                     &token_store,
                 );
                 let res = rustcode_daemon::run_server(rustcode_daemon::ServerOpts {

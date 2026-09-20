@@ -19,7 +19,9 @@ use uuid::Uuid;
 
 /// 通用隧道路由头。中继据此将请求路由到对应的隧道端点；本模块仅作为约定常量
 /// 供中继/客户端共享，daemon 端不在鉴权层解析此头。
-pub const TUNNEL_TOKEN_HEADER: &str = "x-tunnel-token";
+/// 与 `rustcode_tunnel::protocol::TOKEN_HEADER` 共用同一字面量（单一事实源），
+/// 避免隧道握手头名与路由头名漂移。
+pub const TUNNEL_TOKEN_HEADER: &str = rustcode_tunnel::protocol::TOKEN_HEADER;
 
 /// Name of the HttpOnly cookie that carries the webui token after the
 /// `/?token=` handoff (see `serve_webui_index` in lib.rs). Keeping the

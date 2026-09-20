@@ -60,13 +60,28 @@ pub mod permission_bridge;
 mod util;
 pub mod webui;
 
-/// 解析 daemon 本地 token：`RUSTCODE_DAEMON_TOKEN`（非空则原样用）否则随机 mint。
-/// 无论哪种来源，都会登记进 `store` 使其有效，并返回 token 字符串。
+/// 解析 daemon 本地 WebUI token 的优先级链：
+///   1. `RUSTCODE_DAEMON_TOKEN`（桥接令牌：主进程拉起 daemon 时显式下发，主进程用它鉴权）
+///   2. `RUSTCODE_ACCESS_KEY`（独立 `rustcode daemon` 部署时由用户设定，用于保护 WebUI）
+///   3. `config.access_key`（持久化配置）
+///   4. 以上皆空则随机 mint 一个一次性 token
+///
+/// `RUSTCODE_DAEMON_TOKEN` 必须优先于 `RUSTCODE_ACCESS_KEY`：桥接启动时主进程用桥接
+/// 令牌鉴权，若 access_key 优先，用户 shell 里一旦设了 access_key，主进程就再也无法连上
+/// 自己拉起的 daemon（鉴权边界整段崩溃）。独立部署时 daemon_token 通常未设置，则落到
+/// access_key —— 这正是“独立 daemon 用 access_key 保护 WebUI”的契约。
+/// 无论哪种来源都会登记进 `store` 使其对 `require_webui_token` 有效。
 pub fn resolve_daemon_token(
-    env_token: Option<String>,
+    daemon_token_env: Option<String>,
+    access_key_env: Option<String>,
+    config_access_key: Option<String>,
     store: &auth_token::WebuiTokenStore,
 ) -> String {
-    match env_token.filter(|s| !s.is_empty()) {
+    let token = daemon_token_env
+        .filter(|s| !s.is_empty())
+        .or_else(|| access_key_env.filter(|s| !s.is_empty()))
+        .or_else(|| config_access_key.filter(|s| !s.is_empty()));
+    match token {
         Some(t) => {
             store.insert(t.clone());
             t
@@ -5417,6 +5432,9 @@ struct TunnelServerHandle {
     /// frpc（中继客户端）任务的终止句柄。`/tunnel stop` 必须一并停掉它，否则它
     /// 会继续占着中继唯一的槽位，使下一次 `/tunnel` 永久挂起。
     tunnel_abort: Option<tokio::task::AbortHandle>,
+    /// 中继真实连通性：frpc 任务在握手成功时置 true、每次重连前清零。`/tunnel/status`
+    /// 据此报告中继是否真正在线，而非仅靠“frpc 循环还活着”误判健康（M1/M3 审计项）。
+    relay_connected: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 static TUNNEL_SERVER: std::sync::Mutex<Option<TunnelServerHandle>> = std::sync::Mutex::new(None);
@@ -5507,6 +5525,8 @@ pub async fn ensure_tunnel_server(host: &str, port: u16) -> Result<(String, u16,
     // frpc 半边：若配置了自建中继，就连上去，把中继侧入站流转到刚绑定的端点。
     // 中继重启、网络抖动都会让控制通道断开，所以这里退避重连，而不是一去不回
     // （旧实现断线即任务结束且静默，隧道会永久下线却仍被报告为健康）。
+    // `relay_connected` 反映中继真实连通性，供 `/tunnel/status` 上报（M1/M3 审计项）。
+    let relay_connected = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let tunnel_abort = if rustcode_config::endpoints::relay_enabled() {
         let relay = rustcode_config::endpoints::relay_url();
         let token = rustcode_config::endpoints::tunnel_token();
@@ -5514,10 +5534,21 @@ pub async fn ensure_tunnel_server(host: &str, port: u16) -> Result<(String, u16,
             let relay = relay.to_string();
             let token = token.to_string();
             let port = actual_port;
+            let rc = relay_connected.clone();
             let relay_task = tokio::spawn(async move {
                 let mut backoff_secs: u64 = 1;
                 loop {
-                    match rustcode_tunnel::client::start_tunnel_client(&relay, &token, port).await {
+                    // 每次重连前先清零：只有成功握手才置 true，避免“frpc 循环还活着”
+                    // 被误判为“中继在线”。
+                    rc.store(false, std::sync::atomic::Ordering::SeqCst);
+                    match rustcode_tunnel::client::start_tunnel_client(
+                        &relay,
+                        &token,
+                        port,
+                        Some(rc.clone()),
+                    )
+                    .await
+                    {
                         Ok(()) => tracing::warn!(
                             "tunnel: relay control channel closed, reconnecting in {backoff_secs}s"
                         ),
@@ -5547,6 +5578,7 @@ pub async fn ensure_tunnel_server(host: &str, port: u16) -> Result<(String, u16,
             key: key.clone(),
             abort: task.abort_handle(),
             tunnel_abort,
+            relay_connected,
         });
     }
     Ok((host.to_string(), actual_port, key))
@@ -5587,6 +5619,9 @@ struct TunnelStatus {
     port: u16,
     /// 是否绑定到非回环地址（手机/其它设备可达的前提）。
     reachable: bool,
+    /// 中继是否真正连通（frpc 已成功握手）。仅在启用隧道时可能为 true；
+    /// 据此区分“frpc 循环还活着”与“中继确实在线”。
+    relay_connected: bool,
     pgy: PgyInfo,
     /// 推荐的远程访问 URL（蒲公英 IP + 当前 token）；不可用时 None。
     remote_url: Option<String>,
@@ -5760,10 +5795,20 @@ async fn get_tunnel_status(
         _ => (None, None),
     };
 
+    // 中继真实连通性：仅当启用隧道且 frpc 已成功握手时为 true。
+    let relay_connected = rustcode_config::endpoints::relay_enabled() && {
+        let guard = TUNNEL_SERVER.lock().unwrap_or_else(|e| e.into_inner());
+        guard
+            .as_ref()
+            .map(|h| h.relay_connected.load(std::sync::atomic::Ordering::SeqCst))
+            .unwrap_or(false)
+    };
+
     Json(TunnelStatus {
         bind_host: state.bind_host.clone(),
         port: state.bind_port,
         reachable,
+        relay_connected,
         pgy,
         remote_url,
         qr_svg,
@@ -8915,17 +8960,41 @@ mod resolve_daemon_token_tests {
     use super::*;
 
     #[test]
-    fn env_token_takes_priority_and_registers() {
+    fn daemon_token_env_wins_over_access_key() {
+        // The bridge token must win so a parent process can always reach the
+        // daemon it spawned, even if RUSTCODE_ACCESS_KEY is set in the env.
         let store = auth_token::WebuiTokenStore::new();
-        let t = resolve_daemon_token(Some("env-tok".to_string()), &store);
-        assert_eq!(t, "env-tok");
-        assert!(store.is_valid("env-tok"));
+        let t = resolve_daemon_token(
+            Some("bridge-tok".to_string()),
+            Some("access-tok".to_string()),
+            None,
+            &store,
+        );
+        assert_eq!(t, "bridge-tok");
+        assert!(store.is_valid("bridge-tok"));
+        assert!(!store.is_valid("access-tok"));
     }
 
     #[test]
-    fn empty_env_falls_back_to_random_mint() {
+    fn access_key_used_when_bridge_token_absent() {
         let store = auth_token::WebuiTokenStore::new();
-        let t = resolve_daemon_token(None, &store);
+        let t = resolve_daemon_token(None, Some("access-tok".to_string()), None, &store);
+        assert_eq!(t, "access-tok");
+        assert!(store.is_valid("access-tok"));
+    }
+
+    #[test]
+    fn config_access_key_used_when_envs_absent() {
+        let store = auth_token::WebuiTokenStore::new();
+        let t = resolve_daemon_token(None, None, Some("cfg-tok".to_string()), &store);
+        assert_eq!(t, "cfg-tok");
+        assert!(store.is_valid("cfg-tok"));
+    }
+
+    #[test]
+    fn empty_falls_back_to_random_mint() {
+        let store = auth_token::WebuiTokenStore::new();
+        let t = resolve_daemon_token(None, None, None, &store);
         assert!(!t.is_empty());
         assert!(store.is_valid(&t));
     }

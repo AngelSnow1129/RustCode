@@ -155,27 +155,19 @@ async fn main() {
     let (host, port, idle_timeout_secs, startup_mode) = parse_daemon_args();
 
     let token_store = rustcode_daemon::auth_token::WebuiTokenStore::new();
-    // 静态访问密钥解析优先级:
-    //   1. 环境变量 RUSTCODE_ACCESS_KEY
-    //   2. 配置文件 access_key（loaded_config）
-    //   3. 环境变量 RUSTCODE_DAEMON_TOKEN（历史别名）
-    //   4. 以上皆空 -> 随机 mint
-    // 解析到的密钥会同时登记进 WebuiTokenStore 并写入 daemon-<port>.json。
-    let static_key = std::env::var("RUSTCODE_ACCESS_KEY")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            loaded_config
-                .as_ref()
-                .and_then(|c| c.access_key.clone())
-                .filter(|s| !s.is_empty())
-        })
-        .or_else(|| {
-            std::env::var("RUSTCODE_DAEMON_TOKEN")
-                .ok()
-                .filter(|s| !s.is_empty())
-        });
-    let daemon_token = rustcode_daemon::resolve_daemon_token(static_key, &token_store);
+    // WebUI 访问密钥优先级链（与 `resolve_daemon_token` 内部顺序一致）：
+    //   1. RUSTCODE_DAEMON_TOKEN —— 桥接令牌：主进程拉起本 daemon 时显式下发，必须优先。
+    //      否则主进程 shell 里一旦设了 RUSTCODE_ACCESS_KEY 就会连不上自己拉起的 daemon。
+    //   2. RUSTCODE_ACCESS_KEY —— 独立 `rustcode-daemon` 部署时由用户设定，用于保护 WebUI。
+    //   3. config.access_key —— 持久化配置。
+    //   4. 以上皆空 -> 随机 mint 一次性 token。
+    // 解析到的密钥会登记进 WebuiTokenStore 并写入 daemon-<port>.json。
+    let daemon_token = rustcode_daemon::resolve_daemon_token(
+        std::env::var("RUSTCODE_DAEMON_TOKEN").ok(),
+        std::env::var("RUSTCODE_ACCESS_KEY").ok(),
+        loaded_config.as_ref().and_then(|c| c.access_key.clone()),
+        &token_store,
+    );
 
     if let Err(e) = run_server(ServerOpts {
         host,
