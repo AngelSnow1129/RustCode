@@ -652,8 +652,23 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "  Checking for updates...\n".into(),
         Msg::CmdNoActiveProvider =>
             "No active provider configured. Use /provider to add one.".into(),
+        // Keep in sync with the webui `chat.configureNow` ("Configure Provider")
+        // landing page: this message only appears in a /webui warning, so the
+        // in-page button is the primary action.
         Msg::CmdNoModelConfigured =>
-            "no model is configured; run /provider to add a third-party API key first".into(),
+            "No provider is configured; click \"Configure Provider\" on the web page to add your API key.".into(),
+        Msg::WebuiLiveBindSkipped { reason } =>
+            format!("the webui server is up; the current session was not mirrored: {reason}").into(),
+        Msg::LiveBindMidTurn =>
+            "the current session is mid-turn and cannot be shared to the webui/tunnel yet; retry after this turn".into(),
+        Msg::LiveBindDeferred =>
+            "the server is up; the current session is mid-turn, so it will be shared automatically once this turn ends (no need to re-run the command)".into(),
+        Msg::LiveSyncAutoCompleted =>
+            "turn finished: the current session is now shared with the webui/tunnel".into(),
+        Msg::LiveSyncAutoFailed { reason } => format!(
+            "could not share the current session automatically: {reason}; re-run /webui to retry"
+        )
+        .into(),
         Msg::CmdProviderUnavailable =>
             "Provider is unavailable. Use /login to sign in or /provider to configure one.".into(),
         Msg::CmdProviderUnavailableNeutral =>

@@ -335,7 +335,13 @@ pub(super) fn setup_choices() -> Vec<SetupChoice> {
 
 pub struct OnboardingWizard {
     pub(super) step: Step,
-    /// 0=Auto-detect, 1=English, 2=ZhCn
+    /// 0=Auto-detect, 1=English, 2=ZhCn.
+    ///
+    /// Defaults to 2: the product default locale is Simplified Chinese
+    /// (`rustcode_config::locale::Locale::default()`), so the wizard's
+    /// pre-selected row must match what the rest of the UI already
+    /// renders. Auto-detect is still reachable with Up/Up (it clears
+    /// `config.language` and re-derives from env).
     pub(super) language_idx: usize,
     /// Index into [`setup_choices`] for the running build (0 = first row).
     pub(super) setup_idx: usize,
@@ -354,7 +360,11 @@ impl OnboardingWizard {
     pub fn new() -> Self {
         Self {
             step: Step::Intro,
-            language_idx: 0,
+            // ZhCn, not Auto-detect: see `language_idx`. The product
+            // default is Simplified Chinese, so a first-launch user who
+            // just presses Enter lands on the same language the rest of
+            // the UI is already showing.
+            language_idx: 2,
             setup_idx: 0,
             needs_confirm: false,
         }
@@ -366,7 +376,7 @@ impl OnboardingWizard {
     pub fn new_with_confirm() -> Self {
         Self {
             step: Step::Confirm,
-            language_idx: 0,
+            language_idx: 2,
             setup_idx: 0,
             needs_confirm: true,
         }
@@ -374,13 +384,15 @@ impl OnboardingWizard {
 
     /// Pre-select the language idx based on existing config. Used by
     /// `/welcome` so a user who already picked ZhCn lands on row 3 of
-    /// step 2 instead of Auto-detect.
+    /// step 2 instead of Auto-detect. `None` means the user never set a
+    /// language -- that resolves to the product default, so it seeds the
+    /// ZhCn row (2), not Auto-detect.
     pub fn with_initial_language(
         mut self,
         config_lang: Option<rustcode_config::locale::Locale>,
     ) -> Self {
         self.language_idx = match config_lang {
-            None => 0,
+            None => 2,
             Some(rustcode_config::locale::Locale::En) => 1,
             Some(rustcode_config::locale::Locale::ZhCn) => 2,
         };
@@ -1014,7 +1026,9 @@ mod tests {
         let w = make_wizard();
         assert_eq!(w.step, Step::Intro);
         assert_eq!(w.setup_idx, 0);
-        assert_eq!(w.language_idx, 0);
+        // Product default is Simplified Chinese, so the pre-selected
+        // language row is 2 (ZhCn) -- never Auto-detect.
+        assert_eq!(w.language_idx, 2);
         assert!(!w.needs_confirm);
     }
 
@@ -1028,7 +1042,10 @@ mod tests {
     #[test]
     fn with_initial_language_seeds_idx() {
         use rustcode_config::locale::Locale;
-        assert_eq!(make_wizard().with_initial_language(None).language_idx, 0);
+        // Unset config language means "no explicit preference", which
+        // resolves to the product default (ZhCn), so it seeds row 2
+        // rather than falling back to Auto-detect.
+        assert_eq!(make_wizard().with_initial_language(None).language_idx, 2);
         assert_eq!(
             make_wizard()
                 .with_initial_language(Some(Locale::En))

@@ -4048,6 +4048,14 @@ pub struct LoopCtx {
     pub clipboard_check: std::sync::Arc<std::sync::Mutex<ClipboardCheckState>>,
     /// Bound live-view identity when web/app views share the foreground runtime.
     pub live_binding: Option<rustcode_daemon::live_hub::LiveBinding>,
+    /// `/webui` / `/sync` / `/tunnel` 在会话执行中被 hub 拒绝（`HubError::ActiveTurn`）
+    /// 时置位：服务照常启动，绑定推迟到本轮结束由 `complete_pending_live_attach`
+    /// 自动补做，用户不必重跑命令。
+    ///
+    /// 补绑重新走一遍 `attach_live_runtime`，绑的是**补绑那一刻的当前会话**，而不是
+    /// 当初发命令时的会话：若这期间 `/session` 切了会话，隧道/网页镜像的是新会话。
+    /// 这是刻意的 —— 用户期望看到"当前在聊的那个"，回放旧会话更反直觉。
+    pub live_attach_pending: bool,
     /// 实时观察转发任务（将 hub 的 InputAccepted 转发为 UserEcho 给 TUI 事件循环）。
     /// 每次 /app 连接时重新创建，旧任务自动取消，避免重复转发导致消息重复。
     pub live_observation_task: Option<tokio::task::JoinHandle<()>>,
@@ -9445,7 +9453,11 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
         // complete that QR handshake is deleted, so the branch would
         // paint a QR code the user can never finish. Setup leads with
         // the bring-your-own-key /provider path instead.
-        let wizard = crate::modals::OnboardingWizard::new();
+        // Seed step 2 from `config.language` so a returning user lands on
+        // their own choice instead of ZhCn. Unset config language falls
+        // through to the product default (ZhCn) inside the builder.
+        let wizard =
+            crate::modals::OnboardingWizard::new().with_initial_language(ctx.config.language);
         wizard.draw(&app.buf, &app.state, &ctx, renderer);
         app.active_modal = Some(Box::new(wizard));
     } else {
@@ -9797,9 +9809,16 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                         renderer.render(UiLine::Error(error));
                         renderer.flush();
                     }
+                    // 会话执行中启动的 `/webui` / `/sync` 会把绑定推迟到本轮结束自动补做。
+                    let live_attach_due =
+                        ctx.live_attach_pending && is_live_attach_terminal(&runtime_event.event);
                     let pre_phase = app.state.phase;
                     apply_fixed_interval_loop_action(loop_action, &mut app.state, &mut ctx);
                     handle_runtime_event(runtime_event.event, &mut app.state, &mut app.think, renderer, &mut app.pending_tools, &mut ctx, &mut app.setup_pending, &mut app.reasoning_buffer, &mut app.buf);
+                    // 会话状态已按本轮终态更新，此时补绑拿到的快照是完整的。
+                    if live_attach_due {
+                        complete_pending_live_attach(&mut ctx, &app.state, renderer);
+                    }
                     hold_interrupt_wait_phase(&mut app.state, app.interrupt_drain_pending);
                     if interrupt_was_armed
                         && matches!(queue_action, TypeAheadQueueAction::Clear)
@@ -10185,9 +10204,16 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
                         renderer.render(UiLine::Error(error));
                         renderer.flush();
                     }
+                    // 会话执行中启动的 `/webui` / `/sync` 会把绑定推迟到本轮结束自动补做。
+                    let live_attach_due =
+                        ctx.live_attach_pending && is_live_attach_terminal(&runtime_event.event);
                     let pre_phase = app.state.phase;
                     apply_fixed_interval_loop_action(loop_action, &mut app.state, &mut ctx);
                     handle_runtime_event(runtime_event.event, &mut app.state, &mut app.think, renderer, &mut app.pending_tools, &mut ctx, &mut app.setup_pending, &mut app.reasoning_buffer, &mut app.buf);
+                    // 会话状态已按本轮终态更新，此时补绑拿到的快照是完整的。
+                    if live_attach_due {
+                        complete_pending_live_attach(&mut ctx, &app.state, renderer);
+                    }
                     hold_interrupt_wait_phase(&mut app.state, app.interrupt_drain_pending);
                     if interrupt_was_armed
                         && matches!(queue_action, TypeAheadQueueAction::Clear)
@@ -24004,6 +24030,199 @@ fn publish_live_runtime_event(
     }
 }
 
+/// 该 runtime 事件是否是 turn 的**权威终态**。
+///
+/// 只在 `LoopCtx::live_attach_pending` 为真时才调用（调用点用 `&&` 短路），所以
+/// 这里的克隆不会出现在普通热路径上。
+fn is_live_attach_terminal(event: &bg_runtime::RuntimeEventPayload) -> bool {
+    match event {
+        bg_runtime::RuntimeEventPayload::SequencedNative(envelope) => is_live_attach_terminal(
+            &bg_runtime::RuntimeEventPayload::Native(envelope.event.clone()),
+        ),
+        bg_runtime::RuntimeEventPayload::Native(CodingRuntimeEvent::RuntimeStopped(_)) => true,
+        // Only a *completed* turn carries a full snapshot. A `SnapshotUnavailable`
+        // turn finished without one, so deferring the live attach to it would mirror
+        // an incomplete session -- exactly the partial mirror the deferred-bind
+        // mechanism exists to avoid. Wait for the next `Completed` turn or the
+        // runtime stop instead.
+        bg_runtime::RuntimeEventPayload::Native(CodingRuntimeEvent::TurnFinished(completion)) => {
+            matches!(completion, rustcode_coding::TurnCompletion::Completed { .. })
+        }
+        _ => false,
+    }
+}
+
+/// 是否应该尝试补做被推迟的 live 绑定：必须处于 pending 且尚未绑定成功
+/// （早先一次成功的绑定会消费掉这个意图）。抽成纯函数便于单测。
+fn deferred_attach_should_proceed(pending: bool, already_bound: bool) -> bool {
+    pending && !already_bound
+}
+
+/// 把一次补绑尝试的结果分类为事件循环应执行的动作。纯函数，便于在没有
+/// 真实 daemon 的情况下单测终态决策。
+#[derive(Debug, PartialEq, Eq)]
+enum DeferredAttachOutcome {
+    /// 绑定成功，会话已共享。
+    Bound,
+    /// hub 仍因会话执行中拒绝：继续等下一个终态事件。
+    RetryLater,
+    /// 真正的失败：清掉 pending 标记并警告用户。
+    Failed(String),
+}
+
+fn classify_deferred_attach(result: Result<(), commands::LiveAttachError>) -> DeferredAttachOutcome {
+    match result {
+        Ok(()) => DeferredAttachOutcome::Bound,
+        Err(error) if error.is_mid_turn() => DeferredAttachOutcome::RetryLater,
+        Err(error) => DeferredAttachOutcome::Failed(error.text()),
+    }
+}
+
+/// 补做被推迟的 live 绑定（见 `LoopCtx::live_attach_pending`）。
+///
+/// `/webui` / `/sync` 在会话执行中启动时，hub 会拒绝绑定（`HubError::ActiveTurn`）——
+/// 那是"这一轮还没结束"，不是故障。这里在权威 turn 终态之后重试一次：绑定发生时
+/// hub 已复位 `turn_active` 且快照是完整的，语义与空闲时手动 `/webui` 完全一致，
+/// 用户无需重跑命令。
+fn complete_pending_live_attach(ctx: &mut LoopCtx, state: &UiState, renderer: &mut dyn Renderer) {
+    if !deferred_attach_should_proceed(ctx.live_attach_pending, ctx.live_binding.is_some()) {
+        return;
+    }
+    match classify_deferred_attach(commands::attach_live_runtime(
+        ctx,
+        state.agent_mode,
+        state,
+        renderer,
+    )) {
+        DeferredAttachOutcome::Bound => renderer.render(UiLine::CommandOutput(
+            crate::i18n::t(crate::i18n::Msg::LiveSyncAutoCompleted).into_owned(),
+        )),
+        // 终态事件可能先于 runtime phase 翻转到达：继续等下一个终态，不打扰用户。
+        DeferredAttachOutcome::RetryLater => return,
+        DeferredAttachOutcome::Failed(reason) => {
+            ctx.live_attach_pending = false;
+            renderer.render(UiLine::Warning(
+                crate::i18n::t(crate::i18n::Msg::LiveSyncAutoFailed {
+                    reason: &reason,
+                })
+                .into_owned(),
+            ));
+        }
+    }
+    renderer.flush();
+}
+
+#[cfg(test)]
+mod pending_live_attach_tests {
+    use super::*;
+
+    fn turn_finished(
+        reason: rustcode_kernel::event::StopReason,
+    ) -> bg_runtime::RuntimeEventPayload {
+        bg_runtime::RuntimeEventPayload::Native(CodingRuntimeEvent::TurnFinished(
+            rustcode_coding::TurnCompletion::Completed {
+                turn_id: 1,
+                reason,
+                snapshot: std::sync::Arc::new(rustcode_kernel::message::SessionSnapshot::new(
+                    Vec::new(),
+                )),
+                stats: Default::default(),
+            },
+        ))
+    }
+
+    fn snapshot_unavailable() -> bg_runtime::RuntimeEventPayload {
+        bg_runtime::RuntimeEventPayload::Native(CodingRuntimeEvent::TurnFinished(
+            rustcode_coding::TurnCompletion::SnapshotUnavailable {
+                turn_id: 1,
+                reason: rustcode_kernel::event::StopReason::MaxRounds,
+                error: rustcode_coding::RuntimeSnapshotError {
+                    message: "snapshot failed".into(),
+                },
+                stats: Default::default(),
+            },
+        ))
+    }
+
+    fn runtime_stopped() -> bg_runtime::RuntimeEventPayload {
+        bg_runtime::RuntimeEventPayload::Native(CodingRuntimeEvent::RuntimeStopped(
+            rustcode_coding::RuntimeExit {
+                reason: rustcode_coding::RuntimeExitReason::OwnerStopped,
+                forced: false,
+            },
+        ))
+    }
+
+    #[test]
+    fn authoritative_turn_terminals_release_the_deferred_live_attach() {
+        let completed = turn_finished(rustcode_kernel::event::StopReason::Stopped);
+        assert!(is_live_attach_terminal(&completed));
+        assert!(is_live_attach_terminal(&runtime_stopped()));
+    }
+
+    #[test]
+    fn snapshot_unavailable_turn_does_not_release_the_deferred_live_attach() {
+        // A turn that ended without a snapshot must not trigger the mirror: binding
+        // then would expose an incomplete session. The next `Completed` turn or the
+        // runtime stop is the safe terminal.
+        assert!(!is_live_attach_terminal(&snapshot_unavailable()));
+    }
+
+    #[test]
+    fn sequenced_envelope_unwraps_to_the_same_verdict() {
+        let envelope = rustcode_coding::SequencedRuntimeEvent {
+            generation: 1,
+            sequence: 7,
+            event: CodingRuntimeEvent::RuntimeStopped(rustcode_coding::RuntimeExit {
+                reason: rustcode_coding::RuntimeExitReason::ShutdownRequested,
+                forced: false,
+            }),
+        };
+        let wrapped = bg_runtime::RuntimeEventPayload::SequencedNative(envelope);
+        assert_eq!(
+            is_live_attach_terminal(&wrapped),
+            is_live_attach_terminal(&runtime_stopped()),
+            "a sequenced envelope must not change the terminal verdict"
+        );
+        assert!(is_live_attach_terminal(&wrapped));
+    }
+
+    #[test]
+    fn mid_turn_events_do_not_release_the_deferred_live_attach() {
+        // 序行进一半的事件不做绑定：hub 还没复位 turn_active，绑定照样会被拒。
+        let in_flight =
+            bg_runtime::RuntimeEventPayload::Driver(bg_runtime::DriverEvent::LocalShellFinished {
+                output: "ls".into(),
+                failed: false,
+            });
+        assert!(!is_live_attach_terminal(&in_flight));
+    }
+
+    #[test]
+    fn deferred_attach_proceeds_only_when_pending_and_unbound() {
+        assert!(deferred_attach_should_proceed(true, false));
+        assert!(!deferred_attach_should_proceed(false, false));
+        assert!(!deferred_attach_should_proceed(true, true));
+        assert!(!deferred_attach_should_proceed(false, true));
+    }
+
+    #[test]
+    fn deferred_attach_result_maps_to_loop_action() {
+        assert_eq!(
+            classify_deferred_attach(Ok(())),
+            DeferredAttachOutcome::Bound
+        );
+        assert_eq!(
+            classify_deferred_attach(Err(commands::LiveAttachError::MidTurn)),
+            DeferredAttachOutcome::RetryLater
+        );
+        assert_eq!(
+            classify_deferred_attach(Err(commands::LiveAttachError::Other("boom".into()))),
+            DeferredAttachOutcome::Failed("boom".into())
+        );
+    }
+}
+
 /// Publish the provider selected by a successfully committed `/model` reload.
 ///
 /// The runtime emits `ProviderChanged` asynchronously, while the TUI receives
@@ -24260,6 +24479,10 @@ fn commit_native_session_changed(
     sync_todo_titles(state);
     state.approval_panel = None;
     ctx.current_session = session;
+    // 切换到新会话：本轮结束自动补绑的意图只针对旧会话，不要带到新会话
+    // （见 `LoopCtx::live_attach_pending`）。已建立的 live 绑定由上面
+    // `replace_snapshot` 重指向新会话。
+    ctx.live_attach_pending = false;
     ctx.bg_manager
         .set_foreground_session(ctx.current_session.clone(), ctx.working_dir.clone());
     if let Some(binding) = next_live_binding {

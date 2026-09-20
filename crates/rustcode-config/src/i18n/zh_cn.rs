@@ -624,8 +624,20 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "  正在检查更新...\n".into(),
         Msg::CmdNoActiveProvider =>
             "未配置活跃的 Provider。使用 /provider 添加一个。".into(),
+        // 与前端 `chat.configureNow`（「立即配置 Provider」）落地页保持一致：
+        // 该信息只出现在 /webui 警告里，用户正看着网页，首要动作就是点页面内按钮。
         Msg::CmdNoModelConfigured =>
-            "未配置模型；请先运行 /provider 添加第三方 API 密钥".into(),
+            "尚未配置 Provider；请在网页内点击「立即配置 Provider」添加你的 API Key。".into(),
+        Msg::WebuiLiveBindSkipped { reason } =>
+            format!("网页服务已启动；当前会话未镜像到网页：{reason}").into(),
+        Msg::LiveBindMidTurn =>
+            "当前会话正在执行中，暂时无法共享给网页/隧道；请等本轮结束后重试".into(),
+        Msg::LiveBindDeferred =>
+            "服务已启动；当前会话正在执行中，本轮结束后会自动共享当前会话（无需重跑命令）".into(),
+        Msg::LiveSyncAutoCompleted => "本轮结束，当前会话已共享给网页/隧道".into(),
+        Msg::LiveSyncAutoFailed { reason } => {
+            format!("自动共享当前会话失败：{reason}；请重新运行 /webui 重试").into()
+        }
         Msg::CmdProviderUnavailable =>
             "Provider 当前不可用。请使用 /login 登录，或用 /provider 配置。".into(),
         Msg::CmdProviderUnavailableNeutral =>

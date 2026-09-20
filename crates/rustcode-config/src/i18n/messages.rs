@@ -818,7 +818,30 @@ pub enum Msg<'a> {
     CmdCheckingUpdate,
     CmdNoActiveProvider,
     /// Live/sync binding requested but no model selection is configured yet.
+    /// Rendered as a `/webui` warning: the server still starts, and the page
+    /// itself can configure a provider.
     CmdNoModelConfigured,
+    /// `/webui` opened the server but could not mirror the current TUI session
+    /// onto the live hub. `reason` is the underlying failure text; the page is
+    /// still usable (fresh session / in-page provider setup).
+    WebuiLiveBindSkipped {
+        reason: &'a str,
+    },
+    /// Live binding refused because the session is mid-turn
+    /// (`HubError::ActiveTurn`). A recoverable state, not a fault.
+    LiveBindMidTurn,
+    /// `/webui` / `/sync` started the service while the session was mid-turn:
+    /// the mirror is **deferred**, not lost -- it is retried automatically at
+    /// the end of this turn.
+    LiveBindDeferred,
+    /// A deferred live binding (see [`LiveBindDeferred`]) succeeded once the
+    /// turn ended: the session is now shared, with no command re-run.
+    LiveSyncAutoCompleted,
+    /// A deferred live binding failed after the turn ended. `reason` is the
+    /// underlying failure text; the user must retry explicitly.
+    LiveSyncAutoFailed {
+        reason: &'a str,
+    },
     CmdProviderUnavailable,
     /// Neutral-build variant of [`CmdProviderUnavailable`]: no managed sign-in
     /// exists, so steer to `/provider` (bring-your-own-key) instead of `/login`.

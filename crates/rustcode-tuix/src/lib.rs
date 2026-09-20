@@ -903,6 +903,7 @@ pub async fn run(
         is_admin,
         pending_guide_topic: None,
         live_binding: None,
+        live_attach_pending: false,
         live_observation_task: None,
         reasoning_effort: None,
         transient_hint: std::sync::Arc::new(std::sync::Mutex::new(None)),

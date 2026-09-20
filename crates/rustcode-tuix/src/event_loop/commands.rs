@@ -614,7 +614,11 @@ fn render_context_file_status_block(working_dir: &std::path::Path) -> String {
     out
 }
 
-/// 将当前 TUI Coding Runtime 绑定到 live hub，供 `/webui` 和 `/sync` 共用。
+/// 当前 live 绑定所用的 Provider 选择 id，**严格版**：解析不出 Provider 时返回
+/// 面向用户的提示文本。
+///
+/// 只用于给 `/webui` 生成「网页已开、但还没配 Provider」的警告 —— 真正的绑定走
+/// [`live_binding_provider`]（宽容解析，绝不因缺 Provider 失败）。
 fn live_provider_selection(config: &Config) -> Result<String, String> {
     let selection = super::resolved_provider_and_model(config).0;
     if selection.is_empty() {
@@ -622,6 +626,19 @@ fn live_provider_selection(config: &Config) -> Result<String, String> {
     } else {
         Ok(selection)
     }
+}
+
+/// live 绑定用的 `(provider 选择 id, provider 指纹)`。
+///
+/// **宽容解析**：目录为空（一个 Provider 都没配）时返回两个空串而不是错误 ——
+/// 缺 Provider 只是「还不能发消息」，不能连「把当前 TUI 会话镜像给网页」一起否掉，
+/// 否则用户会被挡在唯一能就地配置 Provider 的页面之外（鸡生蛋）。语义与理由详见
+/// [`attach_live_runtime`]。
+fn live_binding_provider(config: &Config) -> (String, String) {
+    let selection = super::resolved_provider_and_model(config).0;
+    let fingerprint =
+        rustcode_daemon::native_live::provider_fingerprint(config, &selection).unwrap_or_default();
+    (selection, fingerprint)
 }
 
 fn current_live_goal(state: &UiState) -> Option<rustcode_coding::GoalProgress> {
@@ -647,21 +664,49 @@ fn current_live_goal(state: &UiState) -> Option<rustcode_coding::GoalProgress> {
     })
 }
 
+/// live 绑定失败的原因。
+///
+/// 单独区分"会话执行中"是因为 `/webui`、`/sync` 会把它**推迟**到本轮结束自动重试
+/// （见 `LoopCtx::live_attach_pending`），其余失败必须立刻让用户知道。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LiveAttachError {
+    /// hub 因会话执行中（`HubError::ActiveTurn`）拒绝绑定：可恢复状态，不是故障。
+    MidTurn,
+    Other(String),
+}
+
+impl LiveAttachError {
+    pub(crate) fn text(&self) -> String {
+        match self {
+            Self::MidTurn => t(Msg::LiveBindMidTurn).into_owned(),
+            Self::Other(text) => text.clone(),
+        }
+    }
+
+    pub(crate) fn is_mid_turn(&self) -> bool {
+        matches!(self, Self::MidTurn)
+    }
+}
+
 pub(crate) fn attach_live_runtime(
     ctx: &mut LoopCtx,
     mode: AgentMode,
     state: &UiState,
     renderer: &mut dyn Renderer,
-) -> Result<(), String> {
+) -> Result<(), LiveAttachError> {
     let snapshot = ctx.current_session.to_conversation_snapshot();
     // The running TUI resolves `default_model` before the legacy
     // `default_provider`, with a catalog fallback when both raw fields are
     // empty. Reuse that exact selection for the live binding. In particular,
     // first login can leave `default_provider == ""` while the runtime already
     // runs the newly published model.
-    let provider_selection = live_provider_selection(&ctx.config)?;
-    let provider_fingerprint =
-        rustcode_daemon::native_live::provider_fingerprint(&ctx.config, &provider_selection)?;
+    //
+    // 宽容解析（见 [`live_binding_provider`]）：目录为空时以空串绑定而不是报错。
+    // live 绑定自身不校验 Provider（`live_hub::bind_with_provider` 接受
+    // `RuntimePhase::AwaitingProvider`），所以"未配 Provider"永远不该让绑定失败 ——
+    // 用户配好后首个选择与空 provider 不符，会经 provider_fingerprint 比对走一次
+    // 正常的 reload 补齐；在此之前网页里也能就地配置 Provider。
+    let (provider_selection, provider_fingerprint) = live_binding_provider(&ctx.config);
     let binding = rustcode_daemon::native_live::register_embedded_runtime(
         ctx.current_session.id.to_string(),
         ctx.working_dir.clone(),
@@ -670,14 +715,21 @@ pub(crate) fn attach_live_runtime(
         snapshot,
         std::sync::Arc::new(ctx.runtime.clone()),
     )
-    .map_err(|error| format!("共享当前 runtime 失败：{error:?}"))?;
+    .map_err(|error| match error {
+        // 会话执行中（InTurn / WaitingApproval / Reconfiguring）时 hub 拒绝建立
+        // 绑定。这是可恢复状态而非故障，/webui、/sync、/tunnel 三个调用方共用
+        // 这条措辞，故只讲原因、不讲该用哪个命令。
+        rustcode_daemon::live_hub::HubError::ActiveTurn => LiveAttachError::MidTurn,
+        other => LiveAttachError::Other(format!("共享当前 runtime 失败：{other:?}")),
+    })?;
     // Binding the already-running TUI runtime starts a fresh live hub. Seed
     // its initial Goal state from the TUI presentation so remote views
     // (webui / tunnel) can include it in the first snapshot even when no
     // GoalChanged event is replayable.
     if let Some(goal) = current_live_goal(state) {
-        rustcode_daemon::native_live::seed_goal_progress(&binding, goal)
-            .map_err(|error| format!("同步当前 Goal 状态失败：{error:?}"))?;
+        rustcode_daemon::native_live::seed_goal_progress(&binding, goal).map_err(|error| {
+            LiveAttachError::Other(format!("同步当前 Goal 状态失败：{error:?}"))
+        })?;
     }
     // The runtime binding owns execution; the process-level mode seeds the first
     // live snapshot before any ModeChanged event exists.
@@ -729,6 +781,8 @@ pub(crate) fn attach_live_runtime(
     renderer.render(UiLine::CommandOutput(
         "已共享当前会话（与浏览器实时互通）".to_string(),
     ));
+    // 绑定成功即兑现（可能是本轮结束后自动补做的那一次）。
+    ctx.live_attach_pending = false;
     Ok(())
 }
 
@@ -750,6 +804,8 @@ fn project_live_view_event(
 }
 
 fn detach_live_runtime(ctx: &mut LoopCtx) -> Result<bool, String> {
+    // 用户主动取消共享，顺带撤销"本轮结束后自动补绑"的待办。
+    ctx.live_attach_pending = false;
     // 取消 observation 转发任务
     if let Some(task) = ctx.live_observation_task.take() {
         task.abort();
@@ -1755,9 +1811,11 @@ fn execute_slash_command_impl(
         }
         "webui" => {
             let a = arg.trim();
-            let msg = if a == "stop" {
-                // 同步停止，无需 block_on。
-                rustcode_daemon::stop_server()
+            if a == "stop" {
+                // 同步停止，无需 block_on。同时撤销待补的绑定（`stop` 是明确的用户意图）。
+                ctx.live_attach_pending = false;
+                renderer.render(UiLine::CommandOutput(rustcode_daemon::stop_server()));
+                renderer.flush();
             } else {
                 // 解析绑定地址：默认 127.0.0.1；支持 `--host <addr>` / `--host=<addr>`，
                 // 以及快捷词 `lan`（= 0.0.0.0，暴露到局域网/外网）。
@@ -1781,10 +1839,30 @@ fn execute_slash_command_impl(
                     "127.0.0.1".to_string()
                 }
                 let host = parse_host(a);
-                if let Err(error) = attach_live_runtime(ctx, state.agent_mode, state, renderer) {
-                    renderer.render(UiLine::Error(error));
-                    renderer.flush();
-                    return Ok(());
+                // 任何绑定失败都降级为警告并继续起 server，绝不中止：webui 服务
+                // 本身不依赖 live 绑定（`/config`、`/providers`、`/models` 无条件
+                // 注册；`/live/message` 在没有绑定时会自起 headless runtime），中止
+                // 只会让用户既开不了网页、也进不去唯一能就地配置 Provider 的页面。
+                // 会话执行中（`HubError::ActiveTurn`）同样放行 —— 绑定改为推迟到
+                // 本轮结束自动补做，用户不用重跑 `/webui`。
+                let mut warnings: Vec<String> = Vec::new();
+                match attach_live_runtime(ctx, state.agent_mode, state, renderer) {
+                    Ok(()) => {}
+                    // 会话执行中：绑定推迟到本轮结束自动补做（`LoopCtx::live_attach_pending`），
+                    // 服务照常可用。
+                    Err(error) if error.is_mid_turn() => {
+                        ctx.live_attach_pending = true;
+                        warnings.push(t(Msg::LiveBindDeferred).into_owned());
+                    }
+                    Err(error) => warnings.push(
+                        t(Msg::WebuiLiveBindSkipped {
+                            reason: &error.text(),
+                        })
+                        .into_owned(),
+                    ),
+                }
+                if let Err(error) = live_provider_selection(&ctx.config) {
+                    warnings.push(error);
                 }
                 let open_msg = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(
@@ -1795,10 +1873,14 @@ fn execute_slash_command_impl(
                         ),
                     )
                 });
-                open_msg
-            };
-            renderer.render(UiLine::CommandOutput(msg));
-            renderer.flush();
+                // 服务已起/已复用，先给打开信息，再逐条说明降级原因（黄色警告，
+                // 与 `Error` 区分：网页可用，只是少了一部分能力）。
+                renderer.render(UiLine::CommandOutput(open_msg));
+                for warning in warnings {
+                    renderer.render(UiLine::Warning(warning));
+                }
+                renderer.flush();
+            }
         }
         "sync" => {
             if arg.trim() == "off" {
@@ -1812,8 +1894,14 @@ fn execute_slash_command_impl(
                     Err(error) => renderer.render(UiLine::Error(error)),
                 }
             } else {
-                if let Err(error) = attach_live_runtime(ctx, state.agent_mode, state, renderer) {
-                    renderer.render(UiLine::Error(error));
+                match attach_live_runtime(ctx, state.agent_mode, state, renderer) {
+                    Ok(()) => {}
+                    // 与 `/webui` 一致：本轮结束后自动补绑，用户不用重跑 `/sync`。
+                    Err(error) if error.is_mid_turn() => {
+                        ctx.live_attach_pending = true;
+                        renderer.render(UiLine::Warning(t(Msg::LiveBindDeferred).into_owned()));
+                    }
+                    Err(error) => renderer.render(UiLine::Error(error.text())),
                 }
             }
             renderer.flush();
@@ -1837,11 +1925,23 @@ fn execute_slash_command_impl(
                 let host = if a == "lan" { "0.0.0.0" } else { "127.0.0.1" };
                 // 与 `/webui` 一致：先把 TUI 当前会话的 live runtime 绑到 live hub，
                 // 否则远程客户端连进的是另一个 headless runtime，看不到当前对话。
-                // 绑定失败即中止 —— 宁可报错，也不给一个连错会话的隧道。
-                if let Err(error) = attach_live_runtime(ctx, state.agent_mode, state, renderer) {
-                    renderer.render(UiLine::Error(error));
-                    renderer.flush();
-                    return Ok(());
+                match attach_live_runtime(ctx, state.agent_mode, state, renderer) {
+                    Ok(()) => {}
+                    // 会话执行中：与 `/webui`、`/sync` 对齐，绑定推迟到本轮结束自动
+                    // 补做，用户不用重跑 `/tunnel`。
+                    // （这里原本直接中止，理由是「宁可报错也不给连错会话的隧道」。
+                    //   延迟补绑并不违背该原则：补绑发生在终态，绑的是当时的当前
+                    //   会话，见 `LoopCtx::live_attach_pending`。）
+                    Err(error) if error.is_mid_turn() => {
+                        ctx.live_attach_pending = true;
+                        renderer.render(UiLine::Warning(t(Msg::LiveBindDeferred).into_owned()));
+                    }
+                    // 真正的失败仍中止：给一个连错会话的隧道比不开隧道更糟。
+                    Err(error) => {
+                        renderer.render(UiLine::Error(error.text()));
+                        renderer.flush();
+                        return Ok(());
+                    }
                 }
                 let bind = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(
@@ -2087,6 +2187,9 @@ fn execute_slash_command_impl(
                     ctx.runtime = endpoint.native;
                     ctx.foreground_runtime_id = runtime_id;
                     ctx.current_session = new_session;
+                    // 切换到新会话：本轮结束自动补绑的意图只针对旧会话，
+                    // 不要把它带到新会话上（见 `LoopCtx::live_attach_pending`）。
+                    ctx.live_attach_pending = false;
                     state.on_turn_complete();
                     state.on_session_replaced();
                     // The todo panel is per-session and is NOT cleared at turn end;
@@ -2175,6 +2278,9 @@ fn execute_slash_command_impl(
                     ctx.runtime = endpoint.native;
                     ctx.foreground_runtime_id = outcome.resumed_runtime_id;
                     ctx.current_session = outcome.resumed_session;
+                    // 切换到新会话：本轮结束自动补绑的意图只针对旧会话（见
+                    // `LoopCtx::live_attach_pending`）。
+                    ctx.live_attach_pending = false;
                     apply_resumed_runtime_state(state, outcome.resumed_state);
                     state.last_context = None;
                     state.on_model_window_changed(outcome.resumed_context_window);
@@ -6741,6 +6847,23 @@ mod tests {
         let config = Config::default();
         let error = live_provider_selection(&config).unwrap_err();
         assert_eq!(error, t(Msg::CmdNoModelConfigured));
+    }
+
+    #[test]
+    fn live_binding_provider_stays_empty_instead_of_failing_without_catalog() {
+        // 一个 Provider 都没配时也必须能绑定（空串照绑）：否则 `/webui` 既开不了
+        // 网页，也进不去能在网页里就地配置 Provider 的页面。
+        let config = Config::default();
+        assert_eq!(
+            live_binding_provider(&config),
+            (String::new(), String::new())
+        );
+    }
+
+    #[test]
+    fn live_binding_provider_reuses_the_runtime_catalog_selection() {
+        let config = new_schema_config(None);
+        assert_eq!(live_binding_provider(&config).0, "RustCode-Qwen");
     }
 
     #[test]
