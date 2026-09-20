@@ -127,7 +127,9 @@ fi
 # If no explicit version is pinned, candidates are: the API "latest", then every
 # version listed in release/index.json (already newest-first), de-duplicated.
 # We then try each candidate against each source until one yields a real binary.
-RELEASE_RAW_BASE="${RUSTCODE_RELEASE_RAW_BASE:-https://gitcode.com/SecLab/RustCode/raw}"
+# GitCode's raw-file endpoint is <base>/<path>?ref=<ref> (ref as a QUERY param).
+# The path-segment form (/raw/<ref>/<path>) returns the SPA HTML shell, not the file.
+RELEASE_RAW_BASE="${RUSTCODE_RELEASE_RAW_BASE:-https://gitcode.com/api/v5/repos/SecLab/RustCode/raw}"
 RELEASE_RAW_REF="${RUSTCODE_RELEASE_RAW_REF:-dev}"
 
 LATEST_VER=""
@@ -147,7 +149,7 @@ if [ "$PINNED" = "1" ]; then
 else
     # Fetch the repo index.json (sorted newest-first by release-publish.sh).
     IDX_TMP="$TMP/index.json"
-    if $_fetch "$RELEASE_RAW_BASE/$RELEASE_RAW_REF/release/index.json" > "$IDX_TMP" 2>/dev/null \
+    if $_fetch "$RELEASE_RAW_BASE/release/index.json?ref=$RELEASE_RAW_REF" > "$IDX_TMP" 2>/dev/null \
         && [ -s "$IDX_TMP" ] && grep -q '"version"' "$IDX_TMP"; then
         for v in $(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\(v[0-9.]*\)".*/\1/p' "$IDX_TMP"); do
             case " $CANDIDATES " in
@@ -183,7 +185,7 @@ for VER in $CANDIDATES; do
     # Source 1: online Release (primary)
     URL_ONLINE="${RELEASE_BASE%/}/${VER}/${BIN}"
     # Source 2: repo-committed release/ (pipeline-independent fallback)
-    URL_REPO="${RELEASE_RAW_BASE%/}/${RELEASE_RAW_REF}/release/${VER}/${BIN}"
+    URL_REPO="${RELEASE_RAW_BASE%/}/release/${VER}/${BIN}?ref=${RELEASE_RAW_REF}"
     for SRC in "$URL_ONLINE" "$URL_REPO"; do
         ATTEMPTED="${ATTEMPTED:+$ATTEMPTED; }$SRC"
         echo "==> Trying $SRC"

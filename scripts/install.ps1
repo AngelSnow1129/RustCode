@@ -96,7 +96,9 @@ if ($env:RUSTCODE_VERSION) {
 }
 
 # --- repo-committed fallback source (pipeline-independent) ---
-$RepoRawBase = if ($env:RUSTCODE_RELEASE_RAW_BASE) { $env:RUSTCODE_RELEASE_RAW_BASE } else { "https://gitcode.com/SecLab/RustCode/raw" }
+# GitCode's raw-file endpoint is <base>/<path>?ref=<ref> (ref as a QUERY param).
+# The path-segment form (/raw/<ref>/<path>) returns the SPA HTML shell, not the file.
+$RepoRawBase = if ($env:RUSTCODE_RELEASE_RAW_BASE) { $env:RUSTCODE_RELEASE_RAW_BASE } else { "https://gitcode.com/api/v5/repos/SecLab/RustCode/raw" }
 $RepoRawRef  = if ($env:RUSTCODE_RELEASE_RAW_REF)  { $env:RUSTCODE_RELEASE_RAW_REF }  else { "dev" }
 
 # --- candidate version list ---
@@ -111,7 +113,7 @@ if ($env:RUSTCODE_VERSION) {
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $ProgressPreference = 'SilentlyContinue'
-        $IdxUrl = "$RepoRawBase/$RepoRawRef/release/index.json"
+        $IdxUrl = "$RepoRawBase/release/index.json?ref=$RepoRawRef"
         $Idx = Invoke-RestMethod -Uri $IdxUrl -UseBasicParsing -TimeoutSec 10
         if ($Idx -and $Idx.versions) {
             foreach ($e in $Idx.versions) {
@@ -150,7 +152,7 @@ $Attempted = @()
 foreach ($Ver in $Candidates) {
     $Bin = "rustcode-$Ver-windows-$ArchTag.exe"
     $SrcOnline = "$($RepoBase.TrimEnd('/'))/$Ver/$Bin"
-    $SrcRepo   = "$($RepoRawBase.TrimEnd('/'))/$RepoRawRef/release/$Ver/$Bin"
+    $SrcRepo   = "$($RepoRawBase.TrimEnd('/'))/release/$Ver/$Bin?ref=$RepoRawRef"
     foreach ($Src in @($SrcOnline, $SrcRepo)) {
         $Attempted += $Src
         Write-Host "==> Trying $Src"
