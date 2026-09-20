@@ -114,12 +114,23 @@ jobs:
         run: |
           cd webui && npm ci && npm run build && cd ..
 
-      - name: Install musl cross toolchain
+      - name: Install musl toolchain
         run: |
+          # x86_64 musl: the distro package is enough (it provides musl-gcc).
+          # xz-utils is needed to unpack the aarch64 toolchain archive.
           sudo apt-get update
-          sudo apt-get install -y musl-tools
-          curl -fsSL https://musl.cc/aarch64-linux-musl-cross.tgz | sudo tar xz -C /opt
-          echo "/opt/aarch64-linux-musl-cross/bin" >> "$GITHUB_PATH"
+          sudo apt-get install -y musl-tools xz-utils
+
+          # aarch64 musl: Ubuntu ships no aarch64 musl cross gcc, and the glibc
+          # cross gcc is NOT a substitute -- the C dependencies (tree-sitter,
+          # zstd) would then be compiled against glibc headers and fail to link
+          # against musl libc (undefined __memcpy_chk / __fprintf_chk references).
+          #
+          # The pinned source (cross-tools/musl-cross GitHub Release, pinned by
+          # tag + sha256, replacing the dead musl.cc host) and the downstream
+          # linker / cc / ar / strip paths live in the script below, which
+          # scripts/cross-build.sh calls too -- one pin, two callers, no drift.
+          bash scripts/install-musl-cross.sh --github-env
 
       - name: Add Linux targets
         run: |
@@ -128,8 +139,10 @@ jobs:
 
       - name: Build (CLI embeds webui via rustcode-daemon)
         env:
+          # The aarch64 musl linker / cc / ar come from the "Install musl
+          # toolchain" step via $GITHUB_ENV, so the toolchain paths live in one
+          # place only. musl-gcc is on PATH from the distro package.
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-musl-gcc
         run: |
           cargo build --release -p rustcode --target x86_64-unknown-linux-musl
           cargo build --release -p rustcode --target aarch64-unknown-linux-musl
@@ -142,7 +155,7 @@ jobs:
           cp target/aarch64-unknown-linux-musl/release/rustcode dist/rustcode-${TAG_NAME}-linux-arm64
           chmod +x dist/*
           strip dist/rustcode-${TAG_NAME}-linux-x64
-          /opt/aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip dist/rustcode-${TAG_NAME}-linux-arm64
+          "$MUSL_AARCH64_STRIP" dist/rustcode-${TAG_NAME}-linux-arm64
           tar -czf dist/rustcode-${TAG_NAME}-linux-x64.tar.gz -C dist rustcode-${TAG_NAME}-linux-x64
           tar -czf dist/rustcode-${TAG_NAME}-linux-arm64.tar.gz -C dist rustcode-${TAG_NAME}-linux-arm64
 

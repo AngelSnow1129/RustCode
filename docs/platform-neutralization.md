@@ -93,8 +93,10 @@ RustCode 是上游项目的二次开发 fork。中立化的目标是:
 - **[DONE] CI** `.github/workflows/build.yml`:删除 4 处 "Add hosts" 步骤(macOS /
   linux / windows / distro-pm-check)——它们用 sudo 把 `api.gitcode.com` /
   `file.gitcode.com` 钉到厂商 IP `159.138.147.37`,属厂商 DNS 绕行;发行主机改为
-  运营方注入后这些步骤无意义。上传步骤改传 `secrets.RELEASE_API_HOST` /
-  `RELEASE_OWNER` / `RELEASE_ACCESS_TOKEN`。
+  运营方注入后这些步骤无意义。上传步骤只从 `secrets.RUSTCODE_RELEASE_ACCESS_TOKEN`
+  取令牌——GitHub Secret 名必须带 `RUSTCODE_` 前缀且与工作流逐字一致(无前缀的
+  `ACCESS_TOKEN` 是错的);API host / owner / repo 不由 Secret 注入,走脚本默认值或
+  `RUSTCODE_RELEASE_API_HOST/OWNER/REPO` env。
 - **[DONE] 打包脚本** `packages/npm/scripts/build_npm_package.sh`、
   `packages/homebrew/scripts/package-tar-gz.sh`:GitCode v5 API 地址 / 账号改 env
   注入,不在脚本内写死厂商主机。

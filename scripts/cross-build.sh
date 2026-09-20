@@ -7,12 +7,16 @@
 #
 # Targets (Linux runner, no macOS SDK needed):
 #   linux-x64       x86_64-unknown-linux-musl    (musl-gcc, static)
-#   linux-arm64     aarch64-unknown-linux-musl   (aarch64-linux-musl-gcc, static)
+#   linux-arm64     aarch64-unknown-linux-musl   (pinned musl cross gcc, static)
 #   windows-x64     x86_64-pc-windows-gnu        (x86_64-w64-mingw32-gcc, cross)
 #
 # macOS targets (aarch64/x86_64-apple-darwin) require a native macOS runner
 # (or osxcross + proprietary SDK) and are intentionally NOT built here —
 # they are produced by .github/workflows/build.yml on macos-latest.
+#
+# Host requirement: the pinned aarch64 musl toolchain ships as a .tar.xz, so the
+# build host needs `xz` (Ubuntu/Debian: sudo apt-get install -y xz-utils);
+# install-musl-cross.sh fails with that exact hint when it is missing.
 #
 # Usage:
 #   scripts/cross-build.sh                      # build all default targets
@@ -20,7 +24,8 @@
 #   RUSTCODE_BUILD_TARGETS="linux-x64 linux-arm64" scripts/cross-build.sh
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "${SCRIPT_DIR}/.."
 
 # ── Version ────────────────────────────────────────────────────────────────
 VERSION=$(awk -F'"' '
@@ -36,10 +41,16 @@ fi
 # ── Target registry ────────────────────────────────────────────────────────
 # Each entry: SUFFIX|TRIPLE|LINKER|STRIP|INSTALL
 # LINKER is the env var name (CARGO_TARGET_*_LINKER) + value, or empty for native.
-# INSTALL is the apt/curl commands to provision the cross toolchain.
+# INSTALL is the shell command that provisions the cross toolchain; it is eval'd,
+# so it may also export env via `eval "$(<script>)"` (see the linux-arm64 entry).
 ALL_TARGETS=(
     "linux-x64|x86_64-unknown-linux-musl|CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc|musl-gcc|sudo apt-get update && sudo apt-get install -y musl-tools"
-    "linux-arm64|aarch64-unknown-linux-musl|CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc|aarch64-linux-musl-strip|curl -fsSL https://musl.cc/aarch64-linux-musl-cross.tgz | sudo tar xz -C /opt && export PATH=/opt/aarch64-linux-musl-cross/bin:$PATH"
+    # aarch64 musl has no distro cross compiler. The pin + sha256 gate live in
+    # scripts/install-musl-cross.sh, shared with .github/workflows/build.yml so
+    # the two callers cannot drift apart again (the workflow was fixed to the
+    # pinned source while this script kept the dead musl.cc URL). That script
+    # also exports the linker / cc / ar paths, hence the empty LINKER_ENV here.
+    "linux-arm64|aarch64-unknown-linux-musl||aarch64-unknown-linux-musl-strip|eval \"\$(bash '${SCRIPT_DIR}/install-musl-cross.sh')\""
     "windows-x64|x86_64-pc-windows-gnu|CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc|x86_64-w64-mingw32-strip|sudo apt-get update && sudo apt-get install -y mingw-w64"
 )
 
@@ -100,10 +111,8 @@ for REQUEST in $REQUESTED; do
         eval "$INSTALL_CMD"
     fi
 
-    # Re-export PATH for musl.cc toolchains (needed after tar extraction)
-    if [ "$SUFFIX" = "linux-arm64" ]; then
-        export PATH="/opt/aarch64-linux-musl-cross/bin:${PATH}"
-    fi
+    # The aarch64 toolchain PATH / linker / cc / ar exports come from
+    # install-musl-cross.sh above, so nothing target-specific is patched in here.
 
     # Add Rust target
     rustup target add "$TRIPLE" 2>/dev/null || true
