@@ -16,6 +16,15 @@ Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 
+# Crash dumps
+# kernel.core_pattern is "core" with core_uses_pid=1 here, so any process that
+# crashes while its CWD is inside this repo drops a core.<pid> file (one was
+# 351 MB). The sysctl is read-only inside this container, so ignore the pid form
+# instead. Deliberately does NOT match core.rs / core.py.
+/core
+core.[0-9]*
+*.core
+
 # Environment variables (may contain secrets)
 .env
 
