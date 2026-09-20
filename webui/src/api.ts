@@ -224,6 +224,30 @@ export async function respondPermission(
   return resp.json();
 }
 
+export interface EnhancePromptResponse {
+  success: boolean;
+  enhanced?: string | null;
+  error?: string | null;
+}
+
+/**
+ * One-shot prompt enhancement (webui "增强提示词" star button). Sent to the daemon,
+ * which runs the draft through the configured default provider and returns the
+ * improved prompt. Stateless: never touches the session transcript.
+ */
+export async function enhancePrompt(body: {
+  prompt: string;
+  context?: string;
+}): Promise<EnhancePromptResponse> {
+  const resp = await fetch('/enhance_prompt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(`enhance prompt failed: ${resp.status}`);
+  return (await resp.json()) as EnhancePromptResponse;
+}
+
 // --- Session types ---
 
 export interface SessionMeta {

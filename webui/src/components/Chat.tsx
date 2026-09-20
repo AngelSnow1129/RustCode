@@ -27,7 +27,7 @@
 
 import { VNode } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { streamChat, stopChat, cancelDetachedChat, getActiveChatSessions, SSEEvent, getSession, SessionMetaWithProject, getModels, ImageData, streamLive, postLiveMessage, postLiveStop, postLivePermission, postLiveProvider, postLiveMode, getApprovalMode, ApprovalMode, postLiveSwitchSession, LiveWireEvent, SessionMessage, getSkills, SkillInfo, listDir, searchFiles, changeDir, postConfigReload, postCommand, postLiveCompact, postUserInputAnswer, postLivePolicyInterventionResolution, openWorkspaceFile, type CommandResult, type RoutedUserInputRequest, type PolicyInterventionEvent, type TurnStats } from '../api';
+import { streamChat, stopChat, cancelDetachedChat, getActiveChatSessions, SSEEvent, getSession, SessionMetaWithProject, getModels, ImageData, streamLive, postLiveMessage, postLiveStop, postLivePermission, postLiveProvider, postLiveMode, getApprovalMode, ApprovalMode, postLiveSwitchSession, LiveWireEvent, SessionMessage, getSkills, SkillInfo, listDir, searchFiles, changeDir, postConfigReload, postCommand, postLiveCompact, postUserInputAnswer, postLivePolicyInterventionResolution, openWorkspaceFile, enhancePrompt, type CommandResult, type RoutedUserInputRequest, type PolicyInterventionEvent, type TurnStats } from '../api';
 import {
   parseSlashCommand,
   buildCommandMap,
@@ -445,6 +445,42 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
   const t = useT();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  // "增强提示词" 交互状态：加载中 / 上一次增强前的原文（用于撤销）/ 错误文案。
+  const [enhancing, setEnhancing] = useState(false);
+  const [enhancePrev, setEnhancePrev] = useState<string | null>(null);
+  const [enhanceError, setEnhanceError] = useState<string | null>(null);
+
+  /** "增强提示词"：把当前输入框草稿交给后端 LLM 改写，原地替换并保留撤销点。 */
+  async function handleEnhance() {
+    const draft = input.trim();
+    if (!draft || enhancing) return;
+    setEnhancing(true);
+    setEnhanceError(null);
+    try {
+      const res = await enhancePrompt({
+        prompt: draft,
+        context: cwd ? `当前工作目录：${cwd}` : undefined,
+      });
+      if (!res.success || !res.enhanced) {
+        throw new Error(res.error || t('enhance.failed'));
+      }
+      setEnhancePrev(input);
+      setInput(res.enhanced);
+      requestAnimationFrame(() => {
+        const ta = textareaRef.current;
+        if (!ta) return;
+        ta.focus();
+        const end = ta.value.length;
+        ta.setSelectionRange(end, end);
+        ta.style.height = 'auto';
+        ta.style.height = `${ta.scrollHeight}px`;
+      });
+    } catch (e) {
+      setEnhanceError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEnhancing(false);
+    }
+  }
   // 组合期标记：仅用于 handleKeyDown 的守卫（菜单导航 / Enter 发送不得窃取
   // IME 候选窗的按键）。输入值本身始终受控同步，见 handleInput。
   const composingRef = useRef(false);
@@ -2699,6 +2735,8 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
 
     // 清空输入框（无论立即发送还是排队）。
     setInput('');
+    setEnhancePrev(null);
+    setEnhanceError(null);
     setPendingImages([]);
     // 重置输入框高度：清空 value 不会复位之前 auto-resize 撑高的内联 height
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -2958,6 +2996,8 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
     const ta = e.target as HTMLTextAreaElement;
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+    // 用户手动编辑后，"增强提示词"的撤销点过期，移除撤销条。
+    if (enhancePrev !== null) setEnhancePrev(null);
     // 始终把 DOM 值镜像进 state（包括组合期的中间草稿）。textarea 保持受控
     // (value={input})，而 Preact 只在 state 与 DOM 值不同时才写回，因此：
     //   - 组合期 state 永远等于 DOM，写回不会发生，IME 预编辑缓冲不受干扰；
@@ -3270,6 +3310,54 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
               <path d="M20 17H4" />
             </svg>
           </button>
+          <button
+            class={'btn-enhance' + (enhancing ? ' enhancing' : '')}
+            onClick={handleEnhance}
+            disabled={!input.trim() || enhancing}
+            title={enhancing ? t('enhance.running') : t('enhance.title')}
+            aria-label={t('enhance.title')}
+          >
+            {/* lucide `star` — one-click prompt enhancement (Qoder-style). */}
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 18.9 6.2 20.9l1.1-6.5L2.6 9.8l6.5-.9z" />
+            </svg>
+          </button>
+          {enhancePrev !== null && !enhancing && (
+            <span class="enhance-chip">
+              <span class="enhance-chip-label">{t('enhance.enhanced')}</span>
+              <button
+                class="enhance-undo"
+                onClick={() => {
+                  if (enhancePrev !== null) setInput(enhancePrev);
+                  setEnhancePrev(null);
+                  requestAnimationFrame(() => {
+                    const ta = textareaRef.current;
+                    if (!ta) return;
+                    ta.focus();
+                    const end = ta.value.length;
+                    ta.setSelectionRange(end, end);
+                  });
+                }}
+              >
+                {t('enhance.undo')}
+              </button>
+            </span>
+          )}
+          {enhanceError && (
+            <span class="enhance-error" title={enhanceError}>
+              {t('enhance.failed')}
+            </span>
+          )}
           <span class="footer-spacer" />
           {tokens && (
             <span class="footer-tokens">

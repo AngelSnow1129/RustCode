@@ -1188,6 +1188,66 @@ body {
 .footer-spacer { flex: 1; }
 .footer-tokens { opacity: 0.7; font-size: 0.75rem; white-space: nowrap; }
 
+/* "增强提示词" star button + undo chip. */
+.btn-enhance {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary, #8b8b8b);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-enhance:hover:not(:disabled) {
+  background: var(--hover-bg, #e8e8e8);
+  color: #f5b301;
+}
+.btn-enhance:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn-enhance.enhancing {
+  color: #f5b301;
+  animation: enhance-pulse 1s ease-in-out infinite;
+}
+@keyframes enhance-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.enhance-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft, #fff4d6);
+  color: var(--accent, #b8860b);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.enhance-chip-label { line-height: 1; }
+.enhance-undo {
+  border: none;
+  background: var(--accent, #b8860b);
+  color: #fff;
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.enhance-undo:hover { filter: brightness(1.08); }
+.enhance-error {
+  font-size: 0.75rem;
+  color: #d9534f;
+  white-space: nowrap;
+  cursor: help;
+}
+
 .btn-send {
   width: 34px;
   height: 34px;
