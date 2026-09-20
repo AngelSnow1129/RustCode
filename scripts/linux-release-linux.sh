@@ -97,3 +97,10 @@ sha256sum *${SUFFIX}*.tar.gz | tee -a checksums.txt
 echo ""
 echo "Done. Release artifacts:"
 ls -lh *${SUFFIX}*.tar.gz
+
+# --- publish to repo-backed release/ (offline / pipeline-down fallback source) ---
+echo ""
+echo "=== Publishing to release/ (repo fallback) ==="
+_SCRIPT_DIR_P="$(cd "$(dirname "$0")" && pwd)"
+"$_SCRIPT_DIR_P/release-publish.sh" "$_SCRIPT_DIR_P/../$DIST" "$VERSION" || \
+    echo "[WARN] publish to release/ failed; the CI/CD online release is still the primary source."

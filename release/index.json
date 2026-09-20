@@ -1,0 +1,7 @@
+{
+  "updated_at": "2026-09-20T13:45:53Z",
+  "ref": "dev",
+  "versions": [
+    { "version": "v6.0.0", "targets": ["linux-x64"] }
+  ]
+}

@@ -106,6 +106,9 @@ docs/v2-port-backlog.md
 .plan_docs
 extensions/vscode/resources/bin/
 .kiro
+# Staging dir for atomic release publishing (scripts/release-publish.sh).
+# The release/<version>/ committed dirs themselves are NOT ignored.
+release/.tmp/
 # RustCode local-scope configs (machine-specific)
 .rustcode/local/
 crates/rustcode-codingplan-crypto/

@@ -119,43 +119,97 @@ else
     exit 1
 fi
 
-# --- resolve version ---
-# Honor RUSTCODE_VERSION if set; otherwise auto-detect the latest release tag
-# from RUSTCODE_RELEASE_LATEST_API. Without either, we cannot guess a tag (this
-# build has no built-in release host), so fail with guidance.
+# --- resolve version + candidate list ---
+# Layer 1 (online Release) is always tried first. Layer 2 is the repo-committed
+# release/ directory (raw file URL) — it does NOT depend on the CI/CD pipeline,
+# so a pipeline failure never blocks a download (see release-redundancy plan).
+#
+# If no explicit version is pinned, candidates are: the API "latest", then every
+# version listed in release/index.json (already newest-first), de-duplicated.
+# We then try each candidate against each source until one yields a real binary.
+RELEASE_RAW_BASE="${RUSTCODE_RELEASE_RAW_BASE:-https://gitcode.com/SecLab/RustCode/raw}"
+RELEASE_RAW_REF="${RUSTCODE_RELEASE_RAW_REF:-dev}"
+
+LATEST_VER=""
+PINNED=0
 if [ -n "${RUSTCODE_VERSION:-}" ]; then
-    VERSION="$RUSTCODE_VERSION"
+    LATEST_VER="$RUSTCODE_VERSION"
+    PINNED=1
 elif [ -n "$RELEASE_LATEST_API" ]; then
     echo "==> Detecting latest version"
-    VERSION=$($_fetch "$RELEASE_LATEST_API" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-    if [ -z "$VERSION" ]; then
-        echo "Error: could not determine the latest release from:" >&2
-        echo "       $RELEASE_LATEST_API" >&2
-        echo "       Set RUSTCODE_VERSION explicitly (e.g. RUSTCODE_VERSION=vX.Y.Z)." >&2
-        exit 1
-    fi
+    LATEST_VER=$($_fetch "$RELEASE_LATEST_API" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+fi
+
+# Build candidate version list.
+CANDIDATES=""
+if [ "$PINNED" = "1" ]; then
+    CANDIDATES="$LATEST_VER"
 else
-    echo "Error: no version specified and no release API configured." >&2
-    echo "       Pin a tag with RUSTCODE_VERSION=<tag>, or set" >&2
-    echo "       RUSTCODE_RELEASE_LATEST_API to a JSON endpoint that returns" >&2
-    echo "       a \"tag_name\" field for automatic latest-release detection." >&2
+    # Fetch the repo index.json (sorted newest-first by release-publish.sh).
+    IDX_TMP="$TMP/index.json"
+    if $_fetch "$RELEASE_RAW_BASE/$RELEASE_RAW_REF/release/index.json" > "$IDX_TMP" 2>/dev/null \
+        && [ -s "$IDX_TMP" ] && grep -q '"version"' "$IDX_TMP"; then
+        for v in $(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\(v[0-9.]*\)".*/\1/p' "$IDX_TMP"); do
+            case " $CANDIDATES " in
+                *" $v "*) ;;
+                *) CANDIDATES="${CANDIDATES:+$CANDIDATES }$v" ;;
+            esac
+        done
+    fi
+    # Ensure the API latest is tried first (in case it is newer than the index).
+    if [ -n "$LATEST_VER" ]; then
+        case " $CANDIDATES " in
+            *" $LATEST_VER "*) ;;
+            *) CANDIDATES="$LATEST_VER${CANDIDATES:+ $CANDIDATES}" ;;
+        esac
+    fi
+fi
+
+if [ -z "$CANDIDATES" ]; then
+    echo "Error: no version resolved." >&2
+    echo "       Set RUSTCODE_VERSION explicitly (e.g. RUSTCODE_VERSION=vX.Y.Z)," >&2
+    echo "       or ensure RUSTCODE_RELEASE_LATEST_API / the repo release/index.json is reachable." >&2
     exit 1
 fi
 
-BIN_NAME="rustcode-${VERSION}-${os}-${arch}${ext}"
-URL="${RELEASE_BASE}/${VERSION}/${BIN_NAME}"
+echo "==> Candidate versions: $CANDIDATES"
 
-echo "==> Downloading $BIN_NAME"
-echo "    from $URL"
-$_down "$DEST" "$URL"
+# --- download with multi-source / multi-version fallback ---
+DEST="$TMP/rustcode${ext}"
+ATTEMPTED=""
+DOWNLOADED=0
+for VER in $CANDIDATES; do
+    BIN="rustcode-${VER}-${os}-${arch}${ext}"
+    # Source 1: online Release (primary)
+    URL_ONLINE="${RELEASE_BASE%/}/${VER}/${BIN}"
+    # Source 2: repo-committed release/ (pipeline-independent fallback)
+    URL_REPO="${RELEASE_RAW_BASE%/}/${RELEASE_RAW_REF}/release/${VER}/${BIN}"
+    for SRC in "$URL_ONLINE" "$URL_REPO"; do
+        ATTEMPTED="${ATTEMPTED:+$ATTEMPTED; }$SRC"
+        echo "==> Trying $SRC"
+        if $_down "$DEST" "$SRC" 2>/dev/null && [ -s "$DEST" ] \
+            && ! head -c 4 "$DEST" | grep -q "<" 2>/dev/null; then
+            echo "    -> got $BIN ($(stat -c%s "$DEST" 2>/dev/null || stat -f%z "$DEST") bytes)"
+            DOWNLOADED=1
+            break 2
+        fi
+        rm -f "$DEST"
+    done
+done
 
-# Sanity check: must be a real binary, not an HTML 404 page
-if head -c 4 "$DEST" | grep -q "<" 2>/dev/null; then
-    echo "Error: download looks like an HTML page, not a binary."
-    echo "       The release may not exist for your platform, or the URL is wrong."
-    echo "       URL: $URL"
+if [ "$DOWNLOADED" != "1" ]; then
+    echo "Error: could not download a usable rustcode binary." >&2
+    echo "       OS=$os  ARCH=$arch" >&2
+    echo "       Tried versions: $CANDIDATES" >&2
+    echo "       Tried sources:" >&2
+    echo "       $ATTEMPTED" >&2
+    echo "       A pipeline failure should not block download; the repo release/" >&2
+    echo "       directory may simply be empty. Populate it by running a release" >&2
+    echo "       script (e.g. scripts/release.sh) on a dev host and committing it." >&2
     exit 1
 fi
+
+chmod +x "$DEST"
 
 chmod +x "$DEST"
 

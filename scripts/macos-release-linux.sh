@@ -226,3 +226,10 @@ shasum -a 256 rustcode-*linux-* 2>/dev/null | tee checksums-linux.txt
 echo ""
 echo "Done. Linux artifacts:"
 ls -lh rustcode-*linux-* checksums-linux.txt 2>/dev/null
+
+# --- publish to repo-backed release/ (offline / pipeline-down fallback source) ---
+echo ""
+echo "=== Publishing to release/ (repo fallback) ==="
+_SCRIPT_DIR_P="$(cd "$(dirname "$0")" && pwd)"
+"$_SCRIPT_DIR_P/release-publish.sh" "$DIST" "$VERSION" || \
+    echo "[WARN] publish to release/ failed; the CI/CD online release is still the primary source."

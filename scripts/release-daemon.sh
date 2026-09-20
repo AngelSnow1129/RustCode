@@ -145,3 +145,10 @@ EOF
 echo ""
 echo "Done. Daemon artifacts in ${DIST}/"
 ls -lh "${DIST}"/rustcode-daemon-*
+
+# --- publish to repo-backed release/ (offline / pipeline-down fallback source) ---
+echo ""
+echo "=== Publishing to release/ (repo fallback) ==="
+_SCRIPT_DIR_P="$(cd "$(dirname "$0")" && pwd)"
+"$_SCRIPT_DIR_P/release-publish.sh" "$_SCRIPT_DIR_P/../$DIST" "$VERSION" || \
+    echo "[WARN] publish to release/ failed; the CI/CD online release is still the primary source."

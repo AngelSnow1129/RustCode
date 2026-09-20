@@ -95,8 +95,40 @@ if ($env:RUSTCODE_VERSION) {
     exit 1
 }
 
-$BinName = "rustcode-$Version-windows-$ArchTag.exe"
-$Url = "$RepoBase/$Version/$BinName"
+# --- repo-committed fallback source (pipeline-independent) ---
+$RepoRawBase = if ($env:RUSTCODE_RELEASE_RAW_BASE) { $env:RUSTCODE_RELEASE_RAW_BASE } else { "https://gitcode.com/SecLab/RustCode/raw" }
+$RepoRawRef  = if ($env:RUSTCODE_RELEASE_RAW_REF)  { $env:RUSTCODE_RELEASE_RAW_REF }  else { "dev" }
+
+# --- candidate version list ---
+# Layer 1 (online Release) is tried first; Layer 2 is the repo-committed
+# release/ directory (raw file URL), which does NOT depend on the CI/CD
+# pipeline, so a pipeline failure never blocks a download.
+$Candidates = @()
+if ($env:RUSTCODE_VERSION) {
+    $Candidates = @($env:RUSTCODE_VERSION)
+} else {
+    if ($Version) { $Candidates = @($Version) }
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $ProgressPreference = 'SilentlyContinue'
+        $IdxUrl = "$RepoRawBase/$RepoRawRef/release/index.json"
+        $Idx = Invoke-RestMethod -Uri $IdxUrl -UseBasicParsing -TimeoutSec 10
+        if ($Idx -and $Idx.versions) {
+            foreach ($e in $Idx.versions) {
+                if ($e.version -and $Candidates -notcontains $e.version) { $Candidates += $e.version }
+            }
+        }
+    } catch {
+        # index unreachable; rely on the API latest only
+    }
+}
+if ($Candidates.Count -eq 0) {
+    Write-Host "Error: no version resolved." -ForegroundColor Red
+    Write-Host "       Set `$env:RUSTCODE_VERSION (e.g. 'vX.Y.Z'), or ensure" -ForegroundColor Red
+    Write-Host "       RUSTCODE_RELEASE_LATEST_API / the repo release/index.json is reachable." -ForegroundColor Red
+    exit 1
+}
+Write-Host "==> Candidate versions: $($Candidates -join ', ')"
 
 # --- pick install dir ---
 $Prefix = if ($env:RUSTCODE_PREFIX) {
@@ -109,31 +141,52 @@ if (-not (Test-Path $Prefix)) {
     New-Item -ItemType Directory -Path $Prefix -Force | Out-Null
 }
 
-# --- download ---
+# --- download with multi-source / multi-version fallback ---
 $Dest = Join-Path $Prefix "rustcode.exe"
 $TmpFile = Join-Path $env:TEMP "rustcode-download.exe"
 
-Write-Host "==> Downloading $BinName"
-Write-Host "    from $Url"
-
-try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $ProgressPreference = 'SilentlyContinue'
-    Invoke-WebRequest -Uri $Url -OutFile $TmpFile -UseBasicParsing
-} catch {
-    Write-Host "Error: download failed." -ForegroundColor Red
-    Write-Host "       $_" -ForegroundColor Red
-    Write-Host "       URL: $Url" -ForegroundColor Red
-    exit 1
+$Downloaded = $false
+$Attempted = @()
+foreach ($Ver in $Candidates) {
+    $Bin = "rustcode-$Ver-windows-$ArchTag.exe"
+    $SrcOnline = "$($RepoBase.TrimEnd('/'))/$Ver/$Bin"
+    $SrcRepo   = "$($RepoRawBase.TrimEnd('/'))/$RepoRawRef/release/$Ver/$Bin"
+    foreach ($Src in @($SrcOnline, $SrcRepo)) {
+        $Attempted += $Src
+        Write-Host "==> Trying $Src"
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri $Src -OutFile $TmpFile -UseBasicParsing
+        } catch {
+            Remove-Item $TmpFile -Force -ErrorAction SilentlyContinue
+            continue
+        }
+        if (-not (Test-Path $TmpFile) -or (Get-Item $TmpFile).Length -eq 0) {
+            Remove-Item $TmpFile -Force -ErrorAction SilentlyContinue
+            continue
+        }
+        $Header = [System.IO.File]::ReadAllBytes($TmpFile)[0..3]
+        if ([char]$Header[0] -eq '<') {
+            Remove-Item $TmpFile -Force -ErrorAction SilentlyContinue
+            continue
+        }
+        Write-Host "    -> got $Bin ($(Get-Item $TmpFile).Length bytes)"
+        $Downloaded = $true
+        break
+    }
+    if ($Downloaded) { break }
 }
 
-# Sanity check: must not be an HTML page
-$Header = [System.IO.File]::ReadAllBytes($TmpFile)[0..3]
-if ([char]$Header[0] -eq '<') {
-    Write-Host "Error: download looks like an HTML page, not a binary." -ForegroundColor Red
-    Write-Host "       The release may not exist, or the URL is wrong." -ForegroundColor Red
-    Write-Host "       URL: $Url" -ForegroundColor Red
-    Remove-Item $TmpFile -Force -ErrorAction SilentlyContinue
+if (-not $Downloaded) {
+    Write-Host "Error: could not download a usable rustcode binary." -ForegroundColor Red
+    Write-Host "       ARCH=$ArchTag" -ForegroundColor Red
+    Write-Host "       Tried versions: $($Candidates -join ', ')" -ForegroundColor Red
+    Write-Host "       Tried sources:" -ForegroundColor Red
+    foreach ($a in $Attempted) { Write-Host "         $a" -ForegroundColor Red }
+    Write-Host "       A pipeline failure should not block download; the repo release/" -ForegroundColor Red
+    Write-Host "       directory may simply be empty. Populate it by running a release" -ForegroundColor Red
+    Write-Host "       script on a dev host and committing it." -ForegroundColor Red
     exit 1
 }
 

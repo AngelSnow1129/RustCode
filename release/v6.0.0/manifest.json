@@ -1,0 +1,7 @@
+{
+  "version": "v6.0.0",
+  "ref": "dev",
+  "binaries": {
+    "linux-x64": { "file": "rustcode-v6.0.0-linux-x64", "sha256": "5338a245c92b10371a6b42300fef38195c97a69ef21baf8d5c3fefc4849cb866", "size": 39614832 }
+  }
+}
