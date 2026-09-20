@@ -1,112 +1,147 @@
 version: "1.0"
 name: RustCode 构建与发布
 displayName: RustCode 构建与发布
+# ─────────────────────────────────────────────────────────────────────────────
+# 修复说明（原流水线报 "不支持的插件类型: shell@1"）
+#
+# 根因：Gitee Go 没有“容器版 shell”插件。其“任意命令”插件只有 shell@agent，
+# 且必须在你「自托管注册的主机组」上执行（hostGroupID）。云端编译插件仅有
+# Maven/Gradle/Ant/Golang/Node.js/PHP/Python/GCC —— 没有 build@rust，所以 Rust
+# 构建也只能走 shell@agent。
+#
+# 本流水线因此整体运行在主机组 gitee-go 上。单 stage 多 step：shell@agent 步骤
+# 在同一主机组的同一工作区顺序执行，dist/ 在步骤间天然复用，无需跨 stage 传制品。
+#
+# 前置条件（一次性，在 Gitee 仓库「设置 → 主机组」里完成）：
+#   1) 注册一台主机组，名称必须叫 gitee-go（或改下面的 hostGroupID）。
+#      该机器需预装：git、node>=22.6 + npm、rustup/cargo(stable)、python3；
+#      以及交叉工具链：musl-tools、mingw-w64，以及 aarch64-linux-musl-cross
+#      （cross-build.sh 会自动补装缺失项，但主机需有 sudo/网络）。
+#   2) 在流水线「变量/全局参数」里配置（建议标记为保密）：
+#        RUSTCODE_RELEASE_API_HOST   GitCode API host，如 https://api.gitcode.com
+#        RUSTCODE_RELEASE_OWNER      GitCode 仓库 owner（命名空间）
+#        RUSTCODE_RELEASE_ACCESS_TOKEN  GitCode 有写权限的 PAT
+#        GITEE_OWNER                  Gitee 仓库 owner
+#        GITEE_REPO                   Gitee 仓库名（默认 rustcode）
+#        GITEE_ACCESS_TOKEN           Gitee 有 repo 权限的 PAT
+#        （可选）GITEE_API_HOST        默认 https://gitee.com
+#
+# 说明：本流水线只覆盖 linux/win（Gitee 无 macOS runner）；macOS 由
+# .github/workflows/build.yml 在 GitHub Actions 上构建并发布到 GitCode。
+# 两者都发布到 GitCode + Gitee，互为冗余。重跑本流水线可能让 Gitee 同一
+# Release 重复挂载同名资产（GitCode 侧幂等），属已知小限制。
+# ─────────────────────────────────────────────────────────────────────────────
 stages:
-- name: 构建
-  displayName: 构建
+- name: build-and-release
+  displayName: 构建并发布(linux/win -> GitCode + Gitee)
   strategy: naturally
   trigger: auto
   steps:
-  # ── 1) 前端 WebUI 构建：必须在 Rust 编译之前，二进制编译期嵌入 webui/dist ──
-  # build@rust 镜像不含 node/npm，故单独用 node 镜像步骤。
-  - step: shell@1
+  # ── 1) 前端 WebUI 构建：必须在 Rust 编译之前（二进制编译期嵌入 webui/dist）──
+  - step: shell@agent
     name: webui
     displayName: WebUI 前端构建 (npm ci + build)
-    image: node:22-bullseye      # webui/package.json engines.node 要求 >=22.6
-    commands:
-    - |
+    hostGroupID: gitee-go
+    script: |
       set -eu
       cd webui
       npm ci
       npm run build
       cd ..
-  # ── 2) Rust 多架构交叉构建 ──
-  - step: build@rust
+
+  # ── 2) Rust 多架构交叉构建（linux-x64/arm64 musl 静态 + windows-x64 gnu）──
+  # cross-build.sh 自备交叉工具链、产物落 dist/<version>/ 并生成 sha256sums.txt。
+  - step: shell@agent
     name: cross
     displayName: Rust 多架构交叉构建 (linux-x64 / linux-arm64 / windows-x64)
-    rustVersion: "1.88"
-    commands:
-    - |
+    hostGroupID: gitee-go
+    script: |
       set -eu
-      # cross-build.sh 统一处理：musl 静态链接 linux-x64/arm64 + mingw 交叉 windows-x64，
-      # 产物落 dist/<version>/ 并生成 sha256sums.txt。
-      # macOS(darwin) 需专有 SDK，Gitee Linux Runner 无法构建，由 GitHub Actions 单独产出。
       bash scripts/cross-build.sh
-    artifacts:
-    - name: BUILD_ARTIFACT
-      path:
-      - ./dist
-      type: .tar.gz
-    notify: []
-    strategy:
-      retry: "0"
-      resource:
-        cpu: "4"
-        memory: "8"
-- name: 发布
-  displayName: 发布
-  strategy: naturally
-  trigger: auto
-  steps:
-  - step: shell@1
-    name: publish
+
+  # ── 3) 发布到 GitCode（GitCode 自身无流水线，由本流水线代发）──
+  - step: shell@agent
+    name: publish-gitcode
     displayName: 上传 GitCode Release 多架构资产
-    # 关键：必须显式取回构建产物，否则跨 stage 后 dist/ 不在工作区，会发布空 Release。
-    upstreamArtifact:
-    - BUILD_ARTIFACT
-    commands:
-    - |
+    hostGroupID: gitee-go
+    script: |
       set -eu
-      VERSION=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)
-      TAG="v${VERSION}"
-      DIST="dist/${TAG}"
-
-      echo "=== Uploading ${TAG} release assets (commit ${CI_COMMIT_SHA:-unknown}) ==="
-      echo "DIST=${DIST}"
-
-      # 产物必须通过 upstreamArtifact 取得，否则此处目录不存在。
-      if [ ! -d "${DIST}" ]; then
-        echo "[ERROR] ${DIST} not found. Was BUILD_ARTIFACT passed via upstreamArtifact?" >&2
+      DIST=$(ls -d dist/v* | head -n1)
+      if [ -z "$DIST" ] || [ ! -d "$DIST" ]; then
+        echo "[ERROR] dist/<version> not found — cross-build step must run first." >&2
         exit 1
       fi
+      TAG=$(basename "$DIST")
+      : "${RUSTCODE_RELEASE_ACCESS_TOKEN:?set RUSTCODE_RELEASE_ACCESS_TOKEN as a pipeline variable}"
 
-      # 上传每个二进制资产（sha256sums.txt 最后单独传）
+      echo "=== Uploading ${TAG} release assets to GITCODE (commit ${CI_COMMIT_SHA:-unknown}) ==="
       found=0
       for BIN in "${DIST}"/*; do
         [ -f "$BIN" ] || continue
         NAME=$(basename "$BIN")
         [ "$NAME" = "sha256sums.txt" ] && continue
-        echo "[*] Uploading ${NAME}..."
+        echo "[*] Uploading ${NAME} to GitCode..."
         python3 scripts/gitcode_release.py \
-          --tag-name "${TAG}" \
-          --attach "${BIN}" \
-          --file-name "${NAME}" \
+          --tag-name "$TAG" \
+          --attach "$BIN" \
           --target-commitish "${CI_COMMIT_SHA:-}"
         found=1
       done
-
-      # 没有任何二进制就拒绝创建“空 Release”，避免静默成功。
       if [ "$found" -eq 0 ]; then
         echo "[ERROR] No binaries found in ${DIST}; refusing to create an empty release." >&2
         exit 1
       fi
-
       if [ -f "${DIST}/sha256sums.txt" ]; then
-        echo "[*] Uploading sha256sums.txt..."
+        echo "[*] Uploading sha256sums.txt to GitCode..."
         python3 scripts/gitcode_release.py \
-          --tag-name "${TAG}" \
+          --tag-name "$TAG" \
           --attach "${DIST}/sha256sums.txt" \
-          --file-name "sha256sums.txt" \
           --target-commitish "${CI_COMMIT_SHA:-}"
       fi
+      echo "=== GitCode Release ${TAG} upload complete ==="
 
-      echo "=== Release ${TAG} upload complete ==="
-    notify: []
-    strategy:
-      retry: "0"
-      resource:
-        cpu: "2"
-        memory: "4"
+  # ── 4) 发布到 Gitee（源仓库；一次流水线双发，资产与 GitCode 同源）──
+  - step: shell@agent
+    name: publish-gitee
+    displayName: 上传 Gitee Release 多架构资产
+    hostGroupID: gitee-go
+    script: |
+      set -eu
+      DIST=$(ls -d dist/v* | head -n1)
+      if [ -z "$DIST" ] || [ ! -d "$DIST" ]; then
+        echo "[ERROR] dist/<version> not found — cross-build step must run first." >&2
+        exit 1
+      fi
+      TAG=$(basename "$DIST")
+      : "${GITEE_ACCESS_TOKEN:?set GITEE_ACCESS_TOKEN as a pipeline variable}"
+      : "${GITEE_OWNER:?set GITEE_OWNER as a pipeline variable}"
+      : "${GITEE_REPO:?set GITEE_REPO as a pipeline variable}"
+
+      echo "=== Uploading ${TAG} release assets to GITEE (commit ${CI_COMMIT_SHA:-unknown}) ==="
+      found=0
+      for BIN in "${DIST}"/*; do
+        [ -f "$BIN" ] || continue
+        NAME=$(basename "$BIN")
+        [ "$NAME" = "sha256sums.txt" ] && continue
+        echo "[*] Uploading ${NAME} to Gitee..."
+        python3 scripts/gitee_release.py \
+          --tag-name "$TAG" \
+          --attach "$BIN" \
+          --target-commitish "${CI_COMMIT_SHA:-}"
+        found=1
+      done
+      if [ "$found" -eq 0 ]; then
+        echo "[ERROR] No binaries found in ${DIST}; refusing to create an empty Gitee release." >&2
+        exit 1
+      fi
+      if [ -f "${DIST}/sha256sums.txt" ]; then
+        echo "[*] Uploading sha256sums.txt to Gitee..."
+        python3 scripts/gitee_release.py \
+          --tag-name "$TAG" \
+          --attach "${DIST}/sha256sums.txt" \
+          --target-commitish "${CI_COMMIT_SHA:-}"
+      fi
+      echo "=== Gitee Release ${TAG} upload complete ==="
 triggers:
   trigger: manual
 notify: []

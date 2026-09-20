@@ -235,6 +235,34 @@ def build_upload_url(
     )
 
 
+def list_release_links(
+    host: str, owner: str, repo: str, token: str, tag_name: str
+) -> list[dict]:
+    """List a release's asset links (GitLab-v5 compatible) for de-dup/overwrite."""
+    base = (
+        f"{normalize_host(host)}/api/v5/repos/{parse.quote(owner)}/"
+        f"{parse.quote(repo)}/releases/{parse.quote(tag_name)}/assets/links"
+    )
+    url = f"{base}?access_token={parse.quote(token)}"
+    try:
+        data = send_request(url)
+    except error.HTTPError:
+        return []
+    return data if isinstance(data, list) else data.get("assets", []) or []
+
+
+def delete_release_link(
+    host: str, owner: str, repo: str, token: str, tag_name: str, link_id: str
+) -> None:
+    base = (
+        f"{normalize_host(host)}/api/v5/repos/{parse.quote(owner)}/"
+        f"{parse.quote(repo)}/releases/{parse.quote(tag_name)}/assets/links/"
+        f"{parse.quote(str(link_id))}"
+    )
+    url = f"{base}?access_token={parse.quote(token)}"
+    send_request(url, method="DELETE")
+
+
 def upload_release_asset(upload_result: dict, file_path: str) -> dict:
     upload_url = upload_result.get("url")
     upload_headers = upload_result.get("headers", {})
@@ -363,6 +391,38 @@ def main() -> int:
     result: dict = {"release": release_result}
 
     if args.attach:
+        # Idempotent overwrite: drop any existing asset link with the same file
+        # name so re-running the pipeline does not append duplicate assets.
+        try:
+            for lk in list_release_links(
+                args.api_host,
+                args.owner,
+                args.repo,
+                args.access_token,
+                args.tag_name,
+            ):
+                if lk.get("name") == file_name:
+                    lid = lk.get("id")
+                    print(
+                        f"[*] Removing existing asset link '{file_name}' "
+                        f"(id={lid}) before re-upload (overwrite)...",
+                        file=sys.stderr,
+                    )
+                    delete_release_link(
+                        args.api_host,
+                        args.owner,
+                        args.repo,
+                        args.access_token,
+                        args.tag_name,
+                        lid,
+                    )
+                    break
+        except error.HTTPError as exc:
+            print(
+                f"[WARN] pre-upload de-dup check failed: HTTP {exc.code}; "
+                "proceeding with upload (may duplicate).",
+                file=sys.stderr,
+            )
         try:
             upload_url = build_upload_url(
                 args.api_host,

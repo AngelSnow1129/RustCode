@@ -258,6 +258,7 @@ class MainIntegrationTest(unittest.TestCase):
         try:
             with mock.patch.object(gr, "send_request", side_effect=[
                 RELEASE_RESPONSE,                      # POST /releases
+                [],                                   # GET assets/links (de-dup, empty)
                 {"url": "https://cdn.example.com/up", "headers": {}},  # upload_url
             ]) as send_request, mock.patch.object(
                 gr, "upload_release_asset", return_value={"status_code": 201, "body": "ok"}
@@ -266,7 +267,7 @@ class MainIntegrationTest(unittest.TestCase):
                     [*self.BASE, "--attach", tmp, "--file-name", "fixture.bin"]
                 )
                 self.assertEqual(code, 0)
-                self.assertEqual(send_request.call_count, 2)
+                self.assertEqual(send_request.call_count, 3)
                 payload = send_request.call_args_list[0].kwargs["payload"]
                 self.assertEqual(payload["tag_name"], "v1.0.0")
                 upload.assert_called_once()
