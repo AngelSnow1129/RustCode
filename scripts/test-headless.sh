@@ -112,8 +112,8 @@ elif [ "$rc" -eq 124 ]; then
     fail "$T5B — process hung (timed out)"
 elif grep -qiE "unexpected argument|unrecognized|unknown argument" "$err"; then
     fail "$T5B — failed at clap parse, not at runtime (stderr: $(head -2 "$err" | tr '\n' ' '))"
-elif ! grep -qiE "provider.*(not found|missing|unknown)" "$err"; then
-    fail "$T5B — stderr missing 'Provider not found' style message (got: $(head -3 "$err" | tr '\n' ' '))"
+elif ! grep -qiE "(provider[^\n]*?(not found|missing|unknown)|未找到[^\n]*?provider|provider[^\n]*?未找到)" "$err"; then
+    fail "$T5B — stderr missing 'Provider not found' style message (zh/en) (got: $(head -3 "$err" | tr '\n' ' '))"
 else
     pass "$T5B (exit=$rc)"
 fi

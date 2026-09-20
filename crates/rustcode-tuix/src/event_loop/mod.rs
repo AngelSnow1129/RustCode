@@ -24046,7 +24046,10 @@ fn is_live_attach_terminal(event: &bg_runtime::RuntimeEventPayload) -> bool {
         // mechanism exists to avoid. Wait for the next `Completed` turn or the
         // runtime stop instead.
         bg_runtime::RuntimeEventPayload::Native(CodingRuntimeEvent::TurnFinished(completion)) => {
-            matches!(completion, rustcode_coding::TurnCompletion::Completed { .. })
+            matches!(
+                completion,
+                rustcode_coding::TurnCompletion::Completed { .. }
+            )
         }
         _ => false,
     }
@@ -24070,7 +24073,9 @@ enum DeferredAttachOutcome {
     Failed(String),
 }
 
-fn classify_deferred_attach(result: Result<(), commands::LiveAttachError>) -> DeferredAttachOutcome {
+fn classify_deferred_attach(
+    result: Result<(), commands::LiveAttachError>,
+) -> DeferredAttachOutcome {
     match result {
         Ok(()) => DeferredAttachOutcome::Bound,
         Err(error) if error.is_mid_turn() => DeferredAttachOutcome::RetryLater,
@@ -24102,10 +24107,8 @@ fn complete_pending_live_attach(ctx: &mut LoopCtx, state: &UiState, renderer: &m
         DeferredAttachOutcome::Failed(reason) => {
             ctx.live_attach_pending = false;
             renderer.render(UiLine::Warning(
-                crate::i18n::t(crate::i18n::Msg::LiveSyncAutoFailed {
-                    reason: &reason,
-                })
-                .into_owned(),
+                crate::i18n::t(crate::i18n::Msg::LiveSyncAutoFailed { reason: &reason })
+                    .into_owned(),
             ));
         }
     }

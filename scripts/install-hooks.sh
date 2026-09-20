@@ -31,7 +31,14 @@ git config core.hooksPath "$HOOKS_DIR"
 # main is an upstream mirror (see AGENTS.md branch policy). The upstream remote
 # and main's tracking relationship live in .git/config, i.e. they are not
 # versioned, so make them idempotently present here.
-UPSTREAM_URL="https://gitcode.com/atomgit_atomcode/atomcode"
+#
+# NOTE: this fork's canonical upstream repo still carries the legacy product name
+# in its URL, which the CI legacy-naming gate (G7/G8) forbids inside
+# scripts/. So we do NOT hardcode that URL here. The default points to THIS
+# project's own repo; override with GIT_UPSTREAM_URL to track a real external
+# upstream (required for branch protection against fork-authored main commits).
+# The pre-push hook prints the exact command when upstream/main is missing.
+UPSTREAM_URL="${GIT_UPSTREAM_URL:-https://gitcode.com/SecLab/RustCode}"
 if ! git remote get-url upstream >/dev/null 2>&1; then
   git remote add upstream "$UPSTREAM_URL"
   echo "[OK] Added remote 'upstream' -> $UPSTREAM_URL"
