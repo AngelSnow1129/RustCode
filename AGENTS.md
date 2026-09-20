@@ -17,6 +17,7 @@
 - scripts/build-webui.sh —— WebUI 前端一键构建(等价 cd webui && npm ci && npm run build,可重复执行)。--if-missing 仅在 webui/dist/index.html 不存在时才构建(已存在则跳过并 exit 0);成功结尾会主动打印上一条要求的 cargo clean -p rustcode-daemon。前置检查 fail-closed:缺 node / 缺 npm / 缺 webui/package-lock.json / node 版本低于 webui/package.json 的 engines.node 时,打印可执行的修复指引并 exit 2;npm ci 或 npm run build 失败 exit 1;构建命令返回 0 但 dist/index.html 仍缺失(半产出)同样判失败。环境不足时绝不降级为警告继续。
 - 发布打包:`scripts/release*.sh`、`scripts/macOS-release-*.sh`、`scripts/linux-release-*.sh`、`scripts/sign-macos.sh`;矩阵见 `.github/workflows/build.yml`。
 - **仓库内发布兜底目录 `release/`(新增,与流水线解耦)**:每个成功构建的完整版本提交为 `release/<version>/`(如 `release/v5.1.0/`),目录**只按版本区分,不在层级上拆分 OS/ARCH**——OS/ARCH 由文件名 `rustcode-<version>-<os>-<arch>[.exe]` 体现(沿用既有命名)。发布脚本在构建成功后统一调用 `scripts/release-publish.sh` 把 `dist/<version>/` 里**已验证通过**的二进制原子合并进 `release/<version>/`(先写入 `release/.tmp/<version>` 再 rename,绝不删除已提交的其它平台二进制,故流水线/单机部分失败不会破坏既有成功版本),并生成 `release/<version>/manifest.json` 与顶层 `release/index.json`(版本降序 + 每版本 targets 清单)。开发者主机手动跑发布脚本即会填充 `release/` 并提交,作为 `install.sh` / `install.ps1` 的**二级回退源**(一级为 GitCode 在线 Release,二级为 `release/` 的 raw 文件 URL)。下载脚本多级回退顺序:在线 Release → `release/` 同版本 → `release/` 更旧版本(按 `index.json` 降序)→ 明确报错(并列出 OS/ARCH、试过的版本与来源)。
+- `scripts/prepush-release-check.sh` — 推送前发布产物门禁(由 `.githooks/pre-push` 调用,CI `release-gate` job 复用同一判据);`--self-test` 跑内建回归;`--sha <sha>` / `--root <dir>` / `--target <os-arch|any>` 可覆盖,`RUSTCODE_PREPUSH_RELEASE=on|strict|off` 控制强度。
 - GitCode 发布:`scripts/gitcode_release.py`(GitCode 官方 OpenAPI `POST /api/v5/repos/{owner}/{repo}/releases` + GitLab-v5 `releases/{tag}/upload_url` 附件上传;`--dry-run`/`--attach`/`--file-name`;主机/owner/repo/token 全部由 env `RUSTCODE_RELEASE_API_HOST`/`OWNER`/`REPO`/`ACCESS_TOKEN` 注入,脚本不带厂商默认)。Gitee Go 流水线 `.gitee/workflow/pipelines/build-and-release.yml` 在 `build@rust` 后加 `shell@1` 步骤:从 `Cargo.toml` 派生 version → tag `v{version}`,按 `uname -m` 命名 `rustcode-{tag}-linux-{x64|arm64}` 并调 `gitcode_release.py` 上传;凭据/主机走流水线环境变量,不在 YAML 硬编码。
 - `RUSTCODE_HOME` 覆盖配置目录(默认 `~/.rustcode`)。**禁止 `sudo` 运行**——`~/.rustcode` 一旦出现 root 属主文件,后续非 root 启动在 runtime 初始化即失败。
 
@@ -29,11 +30,12 @@
 | `dev` | 主开发分支,所有功能/修复在此提交 | 直接 push、PR 合并 |
 | `main` | dev 的镜像,用于上游同步与 release tag | 仅接受从 dev 的 fast-forward merge |
 
-### 三层保护
+### 四层保护
 
 1. **CI 门禁**(`ci.yml` `branch-protection` job):push 到 main 时触发,检查 `git rev-list --count origin/dev..HEAD` 是否为 0;不为 0 则 CI 失败。
 2. **本地 pre-push hook**(`.githooks/pre-push`):推送到 main 前检查是否有 dev 不存在的提交;有则拒绝推送。安装:`./scripts/install-hooks.sh`(等价 `git config core.hooksPath .githooks`)。
 3. **平台分支保护**:在 GitCode 仓库设置中将 main 设为 protected branch,限制 push 权限(需仓库管理员在 Web 界面操作)。
+4. **发布产物门禁**(`.githooks/pre-push` → `scripts/prepush-release-check.sh`):推送前要求被推送提交内**已提交** `release/<version>/manifest.json` 与该推送主机 OS/ARCH 的产物,`<version>` 取自被推送的 `Cargo.toml`——版本号 bump 必须配套产物,同版本内迭代不阻塞。`RUSTCODE_PREPUSH_RELEASE=strict` 额外要求 `manifest.source.sha` 是被推送提交的祖先、其间除 `release/` 外无源码改动、且 `source.dirty=false`(即产物确由该代码构建);`=off` 跳过。门禁**只校验不编译**(钩子内编译会阻塞每次 push 且可能 OOM)。产物未提交时按提示跑 `scripts/release-host.sh`(`RUSTCODE_PUBLISH_COMMIT=1` 可让它自动 `git add release/` 并提交,不卷入他人 WIP)。注意 `source.sha` **不可能等于**被推送 sha——manifest 在构建时写、产物之后才提交,那会构成自指哈希,故 strict 取「祖先 + 其间无源码漂移」这一可满足的最强判据。
 
 ### 正确的 main 同步流程
 

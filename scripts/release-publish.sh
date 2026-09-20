@@ -16,6 +16,11 @@
 #   * Emits two manifests:
 #       release/<version>/manifest.json  — binaries for this version
 #       release/index.json               — top-level index of all versions + targets
+#   * Records build provenance in the per-version manifest
+#     (`source.sha` / `source.branch` / `source.dirty` / `source.built_at`) so
+#     scripts/prepush-release-check.sh can tell a fresh artifact from a stale one.
+#     NOTE: this is an additive field — install.sh / install.ps1 only read
+#     `binaries`, so older readers keep working.
 #
 # Usage (sourced or executed):
 #   scripts/release-publish.sh <dist_dir> <version> [ref]
@@ -127,6 +132,24 @@ publish_release() {
         ref="${ref:-dev}"
     fi
 
+    # Source provenance for the pre-push gate (scripts/prepush-release-check.sh):
+    # which commit produced these binaries, and whether the source tree was dirty
+    # at build time. A dirty build is NOT reproducible, so the strict gate refuses
+    # to treat it as proof that "this commit compiles".
+    #
+    # release/ itself is excluded from the dirty probe -- publishing is precisely
+    # what makes it dirty (fresh untracked binaries), so counting it would make
+    # every build look dirty.
+    local src_sha="" src_branch="" src_dirty="false" built_at
+    src_sha="$(git -C "$RELEASE_PUBLISH_ROOT" rev-parse HEAD 2>/dev/null || true)"
+    src_branch="$(git -C "$RELEASE_PUBLISH_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    if [ -n "$src_sha" ]; then
+        if [ -n "$(git -C "$RELEASE_PUBLISH_ROOT" status --porcelain -- . ':(exclude)release' 2>/dev/null || true)" ]; then
+            src_dirty="true"
+        fi
+    fi
+    built_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
     local REL_DIR="$RELEASE_PUBLISH_ROOT/release"
     local TMP_DIR="$REL_DIR/.tmp/$version"
     mkdir -p "$REL_DIR" "$TMP_DIR"
@@ -175,6 +198,12 @@ publish_release() {
             printf '{\n'
             printf '  "version": "%s",\n' "$version"
             printf '  "ref": "%s",\n' "$ref"
+            printf '  "source": {\n'
+            printf '    "sha": "%s",\n' "$src_sha"
+            printf '    "branch": "%s",\n' "$src_branch"
+            printf '    "dirty": %s,\n' "$src_dirty"
+            printf '    "built_at": "%s"\n' "$built_at"
+            printf '  },\n'
             printf '  "binaries": {\n'
             local first=1
             local bin

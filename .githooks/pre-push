@@ -10,6 +10,11 @@
 # Bypass (NOT recommended): git push --no-verify
 set -euo pipefail
 
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$ROOT" ]; then
+  ROOT="$(pwd)"
+fi
+
 while read -r local_ref local_sha remote_ref remote_sha; do
   if [[ "$remote_ref" == "refs/heads/main" ]]; then
     # Find the dev remote-tracking ref across all remotes.
@@ -60,6 +65,32 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       exit 1
     fi
   fi
+
+  # ---- release artifact gate -------------------------------------------------
+  # Policy: what is pushed must already carry a build-passing artifact COMMITTED
+  # under release/<version>/ (version read from the pushed Cargo.toml).
+  #
+  # This gate VERIFIES only; it never builds. A build here would block every push
+  # for minutes and can OOM a small machine. Enabled by default:
+  #   RUSTCODE_PREPUSH_RELEASE=off     skip the gate
+  #   RUSTCODE_PREPUSH_RELEASE=strict  also require the artifact to come from
+  #                                    this exact code (see the script header)
+  case "$local_sha" in
+    "" | 0000000000000000000000000000000000000000)
+      # Deleting a remote ref: there is nothing to build.
+      ;;
+    *)
+      if [ -f "$ROOT/scripts/prepush-release-check.sh" ]; then
+        if ! bash "$ROOT/scripts/prepush-release-check.sh" --sha "$local_sha" --root "$ROOT"; then
+          echo "" >&2
+          echo "[ERROR] Push rejected by the release artifact gate." >&2
+          exit 1
+        fi
+      else
+        echo "[WARN] scripts/prepush-release-check.sh missing; release gate skipped." >&2
+      fi
+      ;;
+  esac
 done
 
 exit 0

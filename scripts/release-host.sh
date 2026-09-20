@@ -12,6 +12,8 @@
 #   RUSTCODE_VERSION        override the version (default: [workspace.package].version)
 #   RUSTCODE_INCLUDE_DAEMON 1 to also build + publish rustcode-daemon
 #   RUSTCODE_BUILD_WEBUI    0 to skip the embedded-UI build (default 1)
+#   RUSTCODE_PUBLISH_COMMIT 1 to stage + commit release/ after a successful publish
+#                           (the pre-push gate requires COMMITTED artifacts)
 #
 # Usage: scripts/release-host.sh
 
@@ -75,3 +77,24 @@ fi
 echo ""
 echo "=== Publishing to release/ (repo fallback) ==="
 "$ROOT/scripts/release-publish.sh" "$ROOT/$DIST" "$VERSION"
+
+# --- optional: commit the artifacts -----------------------------------------
+# The pre-push gate requires the artifact to be COMMITTED, not merely built.
+# Opt in with RUSTCODE_PUBLISH_COMMIT=1: only release/ is staged, so unrelated
+# work-in-progress in the tree is never swept into the commit.
+if [ "${RUSTCODE_PUBLISH_COMMIT:-0}" = "1" ]; then
+    echo ""
+    echo "=== Committing published artifacts (release/ only) ==="
+    git -C "$ROOT" add -- release
+    if git -C "$ROOT" diff --cached --quiet -- release; then
+        echo "  -> nothing to commit (release/ already matches the index)"
+    else
+        git -C "$ROOT" commit -m "chore(release): publish ${VERSION} artifacts" -- release
+        echo "  -> committed: chore(release): publish ${VERSION} artifacts"
+    fi
+else
+    echo ""
+    echo "[CHECK] Required before pushing (the pre-push gate checks COMMITTED artifacts):"
+    echo "  git add release/ && git commit -m \"chore(release): publish ${VERSION} artifacts\""
+    echo "  (or re-run with RUSTCODE_PUBLISH_COMMIT=1 to let this script do it)"
+fi

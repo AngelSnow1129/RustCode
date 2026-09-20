@@ -45,6 +45,37 @@ build. That helper:
 - writes `manifest.json` and a sorted `index.json` via an atomic temp-dir rename,
   so a crash never leaves a half-written version behind.
 
+## Publish-before-push gate (required)
+
+`.githooks/pre-push` refuses a push that does not carry a **committed**,
+build-passing artifact for the version being pushed. The gate never builds —
+building inside a hook blocks every push for minutes and can OOM a small host —
+it only verifies what you committed and prints the exact fix.
+
+Two strengths, selected with `RUSTCODE_PREPUSH_RELEASE`:
+
+| Value | Requires |
+|---|---|
+| `on` (default) | The pushed commit contains `release/<version>/manifest.json` **and** a committed binary for the pushing host's OS/ARCH. `<version>` is read from the pushed `Cargo.toml`, so a version bump always forces a fresh artifact while iterating inside a version does not. |
+| `strict` | Additionally: `manifest.source.sha` is an ancestor of the pushed commit, the only changes in between are under `release/`, and `manifest.source.dirty == false`. This proves the artifact was built from this exact code. |
+| `off` | Skip the gate entirely. |
+
+`manifest.source.sha` can never *equal* the pushed sha: the manifest is written at
+build time and the artifact is committed afterwards, so it would have to contain
+its own commit hash. "Ancestor, with no source drift in between" is the strongest
+satisfiable predicate, and it is what `strict` checks.
+
+Run it by hand at any time:
+
+```sh
+bash scripts/prepush-release-check.sh            # check HEAD
+bash scripts/prepush-release-check.sh --self-test
+```
+
+CI enforces the same predicate (the `release-gate` job in
+`.github/workflows/ci.yml`), so `git push --no-verify` does not get an
+artifact-less commit onto `dev` either.
+
 ## How the download script falls back
 
 `install.sh` (and `install.ps1`) resolve candidate versions

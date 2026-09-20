@@ -39,6 +39,31 @@ jobs:
           fi
           echo "[OK] main has no commits outside dev"
 
+  release-gate:
+    name: release artifact gate
+    runs-on: ubuntu-latest
+    # dev only, deliberately. main is a mirror of dev and must never receive an
+    # independent change -- including an artifact-only one -- so this gate is
+    # never widened to main. Sync path stays: dev -> main fast-forward only.
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Guard rail: if someone later widens the `if` above, fail loudly instead of
+      # letting this job silently run against main.
+      - name: Assert this job never runs against main
+        run: |
+          if [ "${GITHUB_REF:-}" = "refs/heads/main" ]; then
+            echo "::error::release-gate must never run on main (main is a mirror of dev)"
+            exit 1
+          fi
+      # Same predicate as the local pre-push hook, so `git push --no-verify`
+      # cannot land an artifact-less commit on dev either. `--target any`
+      # because the runner is not the host that pushed (see the script header).
+      - name: Verify a committed release artifact exists for this version
+        run: bash scripts/prepush-release-check.sh --sha "$GITHUB_SHA" --target any
+
   fmt:
     name: cargo fmt --check
     runs-on: ubuntu-latest
