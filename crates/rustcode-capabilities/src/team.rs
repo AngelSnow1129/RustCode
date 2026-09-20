@@ -377,6 +377,8 @@ pub enum TeamEventPayload {
 pub struct TeamEvent {
     pub run_id: TeamRunId,
     pub seq: u64,
+    #[serde(default)]
+    pub depth: u8,
     pub payload: TeamEventPayload,
 }
 
@@ -385,8 +387,14 @@ impl TeamEvent {
         Self {
             run_id,
             seq,
+            depth: 0,
             payload,
         }
+    }
+
+    pub fn with_depth(mut self, depth: u8) -> Self {
+        self.depth = depth;
+        self
     }
 }
 

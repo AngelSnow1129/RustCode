@@ -32,6 +32,9 @@ pub struct TeamRuntimeConfig {
     pub cancel_grace: Duration,
     pub max_result_chars: usize,
     pub max_completed_runs: usize,
+    /// Maximum delegation depth for hierarchical team dispatch.
+    /// 0 = flat (no sub-dispatch), 2 = three-tier (root -> child -> grandchild).
+    pub max_depth: u8,
 }
 
 impl Default for TeamRuntimeConfig {
@@ -42,6 +45,7 @@ impl Default for TeamRuntimeConfig {
             cancel_grace: Duration::from_secs(2),
             max_result_chars: 12_000,
             max_completed_runs: 32,
+            max_depth: 2,
         }
     }
 }
@@ -111,6 +115,8 @@ struct Inner {
     external_runs: Mutex<BTreeMap<String, u64>>,
     config: TeamRuntimeConfig,
     run_counter: AtomicU64,
+    /// Dispatch depth of this manager (0 = root, 1 = child, 2 = grandchild).
+    depth: u8,
 }
 
 impl Drop for Inner {
@@ -135,6 +141,10 @@ impl Drop for Inner {
 
 impl TeamRunManager {
     pub fn new(config: TeamRuntimeConfig) -> Self {
+        Self::with_depth(0, config)
+    }
+
+    pub fn with_depth(depth: u8, config: TeamRuntimeConfig) -> Self {
         Self {
             inner: Arc::new(Inner {
                 store: Mutex::new(TeamRunStore::default()),
@@ -145,8 +155,43 @@ impl TeamRunManager {
                 external_runs: Mutex::new(BTreeMap::new()),
                 config,
                 run_counter: AtomicU64::new(1),
+                depth,
             }),
         }
+    }
+
+    pub fn depth(&self) -> u8 {
+        self.inner.depth
+    }
+
+    pub fn max_depth(&self) -> u8 {
+        self.inner.config.max_depth
+    }
+
+    /// Create a child TeamRunManager for sub-dispatch at depth+1.
+    /// Returns None if depth+1 > max_depth.
+    pub fn child_manager(&self) -> Option<Self> {
+        let next_depth = self.inner.depth + 1;
+        if next_depth > self.inner.config.max_depth {
+            return None;
+        }
+        let child = Self::with_depth(next_depth, self.inner.config.clone());
+        // Bridge event channel so child events propagate to the same consumer.
+        if let Some(tx) = self
+            .inner
+            .event_tx
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+        {
+            let _ = child
+                .inner
+                .event_tx
+                .write()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(tx.clone());
+        }
+        Some(child)
     }
 
     pub fn generation(&self) -> u64 {
@@ -235,6 +280,13 @@ impl TeamRunManager {
         factory: TeamJobFactory,
         models: TeamModelFactory,
     ) -> Result<TeamRunId, String> {
+        if self.inner.depth >= self.inner.config.max_depth {
+            return Err(format!(
+                "team delegation depth limit reached (max_depth={}, current depth={}); \
+                 subagents at this depth cannot further dispatch",
+                self.inner.config.max_depth, self.inner.depth
+            ));
+        }
         validate_tasks(&tasks)?;
         let generation = self.generation();
         let root = self
@@ -402,6 +454,19 @@ impl TeamRunManager {
 
     pub fn snapshot(&self, run_id: Option<&TeamRunId>) -> Option<TeamSnapshot> {
         self.lock_store().snapshot(run_id)
+    }
+
+    /// Snapshot a single run as a tree node, tagged with this manager's depth.
+    /// `children` is empty for leaf managers; a hierarchical driver may populate
+    /// it from child managers built via [`TeamRunManager::child_manager`].
+    pub fn snapshot_tree(&self, run_id: &TeamRunId) -> Option<TreeSnapshot> {
+        let snapshot = self.snapshot(Some(run_id))?;
+        let base = snapshot.runs.into_iter().next()?;
+        Some(TreeSnapshot {
+            base,
+            depth: self.inner.depth,
+            children: vec![],
+        })
     }
 
     async fn finish_cancelled_after_grace(
@@ -653,7 +718,8 @@ impl TeamRunManager {
                 .lock()
                 .unwrap_or_else(|p| p.into_inner());
             let event =
-                TeamEvent::new(run_id.clone(), seq.fetch_add(1, Ordering::Relaxed), payload);
+                TeamEvent::new(run_id.clone(), seq.fetch_add(1, Ordering::Relaxed), payload)
+                    .with_depth(self.inner.depth);
             let _ = sender.send(GenerationTeamEvent { generation, event });
         }
     }
@@ -843,6 +909,16 @@ impl TeamRunStore {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TeamSnapshot {
     pub runs: Vec<TeamRunSnapshot>,
+}
+
+/// A hierarchical snapshot node for tree-style team dispatch. Each node carries
+/// the dispatch depth of its originating manager; `children` holds sub-trees
+/// produced by deeper child managers (depth+1, depth+2, ...).
+#[derive(Debug, Clone)]
+pub struct TreeSnapshot {
+    pub base: TeamRunSnapshot,
+    pub depth: u8,
+    pub children: Vec<TreeSnapshot>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TeamRunSnapshot {

@@ -126,7 +126,7 @@ impl Tool for TeamTool {
     }
 
     fn description(&self) -> &str {
-        "Run and manage a persistent team of specialized child agents. Use `delegate` with one or more independent tasks, then `status`, `wait`, or `result` with the returned run_id; use `stop` to cancel a run. Roles determine read-only vs scoped-write authority and fast vs capable model routing. Worker roles require a non-empty working-directory-relative scope and cannot run Bash."
+        "Run and manage a persistent team of specialized child agents. Use `delegate` with one or more independent tasks, then `status`, `wait`, or `result` with the returned run_id; use `stop` to cancel a run. Roles determine read-only vs scoped-write authority and fast vs capable model routing. Worker roles require a non-empty working-directory-relative scope and cannot run Bash. Supports hierarchical dispatch: a child agent may itself delegate to a deeper tier up to the configured max_depth, enabling three-tier blackboard tree fan-out."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -197,9 +197,13 @@ impl Tool for TeamTool {
             }
             TeamArgs::Status { run_id } => {
                 let selected = run_id.as_deref().map(TeamRunId::new);
+                let depth = self.manager.depth();
                 self.manager.snapshot(selected.as_ref()).map(|snapshot| {
-                    json!({"runs": snapshot.runs.iter().map(|run| snapshot_json(run, false)).collect::<Vec<_>>()})
-                }).or_else(|| run_id.is_none().then(|| json!({"runs": []})))
+                    json!({
+                        "depth": depth,
+                        "runs": snapshot.runs.iter().map(|run| snapshot_json(run, false)).collect::<Vec<_>>()
+                    })
+                }).or_else(|| run_id.is_none().then(|| json!({"depth": depth, "runs": []})))
                   .ok_or_else(|| format!("unknown team run: {}", run_id.unwrap_or_default()))
             }
             TeamArgs::Wait {

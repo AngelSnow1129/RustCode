@@ -34,6 +34,10 @@ pub struct TeamRunnerFactory {
     request_timeout: Option<Duration>,
     inherited_worker_middlewares: Vec<Arc<dyn ToolMiddleware>>,
     credential_shell_policy: rustcode_capabilities::tools::CredentialShellPolicy,
+    /// Dispatch depth of runners produced by this factory (0 = root).
+    depth: u8,
+    /// Maximum delegation depth (0 = flat, 2 = three-tier).
+    max_depth: u8,
 }
 
 impl TeamRunnerFactory {
@@ -52,7 +56,23 @@ impl TeamRunnerFactory {
             request_timeout: None,
             inherited_worker_middlewares: Vec::new(),
             credential_shell_policy: Default::default(),
+            depth: 0,
+            max_depth: 2,
         }
+    }
+
+    pub fn with_depth(mut self, depth: u8, max_depth: u8) -> Self {
+        self.depth = depth;
+        self.max_depth = max_depth;
+        self
+    }
+
+    pub fn depth(&self) -> u8 {
+        self.depth
+    }
+
+    pub fn max_depth(&self) -> u8 {
+        self.max_depth
     }
 
     pub fn with_runtime_policy(

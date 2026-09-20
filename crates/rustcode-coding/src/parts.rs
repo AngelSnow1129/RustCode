@@ -746,7 +746,11 @@ async fn prepare_with_plugin_hooks_reusing_lease(
 
         let mut child_registry = rustcode_kernel::tool::ToolRegistry::new();
         rustcode_capabilities::tools::register_coding_tools_with_vision(&mut child_registry, false);
-        let child_registry = Arc::new(child_registry);
+        // Clone the registry for the tools closure BEFORE registering the child
+        // TeamTool below. ToolRegistry wraps an Arc<RwLock<BTreeMap>>, so the
+        // clone shares the underlying tool map -- a later register on the
+        // original is visible to the closure's mount().
+        let tools_registry = child_registry.clone();
         let provider_slot = slot.clone();
         let fast_cell = cfg.subagent_fast_provider.clone();
         let capable_cell = cfg.subagent_capable_provider.clone();
@@ -763,13 +767,14 @@ async fn prepare_with_plugin_hooks_reusing_lease(
                     .expect("team provider slot filled at assemble before any turn")
             })
         });
-        let tools_registry = Arc::clone(&child_registry);
+        let max_depth = team_manager.max_depth();
+        let can_sub_dispatch = 1u8 < max_depth;
         let tools = Arc::new(move |permission| {
-            let names: &[&str] = match permission {
-                TeamPermission::Explore => &["read_file", "grep", "glob", "list_directory"],
+            let mut names: Vec<&str> = match permission {
+                TeamPermission::Explore => vec!["read_file", "grep", "glob", "list_directory"],
                 // Bash is intentionally absent. DenyTeamBash remains a second
                 // fail-closed gate if this registry is broadened later.
-                TeamPermission::Worker => &[
+                TeamPermission::Worker => vec![
                     "read_file",
                     "edit_file",
                     "write_file",
@@ -779,7 +784,10 @@ async fn prepare_with_plugin_hooks_reusing_lease(
                     "list_directory",
                 ],
             };
-            tools_registry.mount(names)
+            if can_sub_dispatch {
+                names.push("team");
+            }
+            tools_registry.mount(&names)
         });
         let runner = crate::team::TeamRunnerFactory::new(providers, tools, cfg.working_dir.clone())
             .with_runtime_policy(
@@ -790,6 +798,22 @@ async fn prepare_with_plugin_hooks_reusing_lease(
             )
             .with_credential_shell_policy(cfg.credential_shell_policy)
             .with_worker_middleware(turn_execution_policy.clone());
+        // Register a child TeamTool (depth=1) in the child registry so sub-agents
+        // at depth 1 can hierarchically dispatch to depth 2. The child manager's
+        // delegate() enforces the max_depth gate. Because tools_registry shares
+        // the internal map, the tools closure's mount() will see this tool.
+        if can_sub_dispatch {
+            let child_team_config = crate::team::TeamRuntimeConfig {
+                max_depth,
+                ..Default::default()
+            };
+            let child_team_manager = crate::team::TeamRunManager::with_depth(1, child_team_config);
+            child_registry.register(Arc::new(crate::team::TeamTool::new(
+                child_team_manager,
+                runner.job_factory(),
+                runner.model_factory(),
+            )));
+        }
         registry.register(Arc::new(crate::team::TeamTool::new(
             team_manager.clone(),
             runner.job_factory(),

@@ -5,7 +5,7 @@ mod tool;
 pub use manager::{
     GenerationTeamEvent, TeamActivitySink, TeamJobFactory, TeamMemberOutcome, TeamMemberSnapshot,
     TeamMemberStatus, TeamModelFactory, TeamRunManager, TeamRunSnapshot, TeamRuntimeConfig,
-    TeamSnapshot, TeamWaitOutcome,
+    TeamSnapshot, TeamWaitOutcome, TreeSnapshot,
 };
 pub use runner::TeamRunnerFactory;
 pub use tool::TeamTool;
