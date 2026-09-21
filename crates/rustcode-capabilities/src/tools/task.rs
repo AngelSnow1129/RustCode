@@ -17,7 +17,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Conservative bound for WRITE (`worker`) subtasks: they edit the live tree and are
@@ -385,6 +385,19 @@ impl ToolMiddleware for WorkerScopeGate {
     }
 }
 
+/// Single construction point for a child's credential gate: children are always
+/// non-interactive, plus the parent's Auto-mode flag when one is wired.
+fn credential_shell_gate(
+    policy: super::CredentialShellPolicy,
+    bypass: Option<Arc<AtomicBool>>,
+) -> super::CredentialBashGate {
+    let gate = super::CredentialBashGate::non_interactive(policy);
+    match bypass {
+        Some(flag) => gate.with_bypass(flag),
+        None => gate,
+    }
+}
+
 /// The middleware stack for a subagent child: terminal credential/sensitive-path guards for
 /// everyone, plus a `WorkerScopeGate` confining a `worker`'s writes to its `scope`. `explore`
 /// children mount only read tools, so the latter gate is unnecessary.
@@ -394,12 +407,13 @@ pub fn subagent_child_middlewares(
     working_dir: &Path,
     inherited_worker_middlewares: &[Arc<dyn ToolMiddleware>],
 ) -> Vec<Arc<dyn ToolMiddleware>> {
-    subagent_child_middlewares_for_policy(
+    subagent_child_middlewares_with_bypass(
         is_worker,
         scope,
         working_dir,
         inherited_worker_middlewares,
         Default::default(),
+        None,
     )
 }
 
@@ -410,6 +424,26 @@ pub fn subagent_child_middlewares_for_policy(
     inherited_worker_middlewares: &[Arc<dyn ToolMiddleware>],
     credential_shell_policy: super::CredentialShellPolicy,
 ) -> Vec<Arc<dyn ToolMiddleware>> {
+    subagent_child_middlewares_with_bypass(
+        is_worker,
+        scope,
+        working_dir,
+        inherited_worker_middlewares,
+        credential_shell_policy,
+        None,
+    )
+}
+
+/// Same as [`subagent_child_middlewares_for_policy`] plus the parent's live Auto-mode
+/// flag, which lets the credential gate allow instead of failing closed / terminating.
+pub fn subagent_child_middlewares_with_bypass(
+    is_worker: bool,
+    scope: &[String],
+    working_dir: &Path,
+    inherited_worker_middlewares: &[Arc<dyn ToolMiddleware>],
+    credential_shell_policy: super::CredentialShellPolicy,
+    credential_shell_bypass: Option<Arc<AtomicBool>>,
+) -> Vec<Arc<dyn ToolMiddleware>> {
     subagent_child_middlewares_with_policy(
         is_worker,
         scope,
@@ -417,6 +451,7 @@ pub fn subagent_child_middlewares_for_policy(
         inherited_worker_middlewares,
         false,
         credential_shell_policy,
+        credential_shell_bypass,
     )
 }
 
@@ -427,12 +462,15 @@ fn subagent_child_middlewares_with_policy(
     inherited_worker_middlewares: &[Arc<dyn ToolMiddleware>],
     confine_reads: bool,
     credential_shell_policy: super::CredentialShellPolicy,
+    credential_shell_bypass: Option<Arc<AtomicBool>>,
 ) -> Vec<Arc<dyn ToolMiddleware>> {
     let mut mw: Vec<Arc<dyn ToolMiddleware>> = vec![
         // Children run `AutoRespond::AllowAll`, so a prompt would auto-approve itself --
         // the non-interactive gate fails `Prompt` closed to a call-only deny instead.
-        Arc::new(super::CredentialBashGate::non_interactive(
+        // The parent's Auto flag overrides both that and the `Strict` terminal.
+        Arc::new(credential_shell_gate(
             credential_shell_policy,
+            credential_shell_bypass,
         )),
         Arc::new(DenySensitivePaths),
     ];
@@ -459,12 +497,13 @@ pub fn team_child_middlewares(
     working_dir: &Path,
     inherited_worker_middlewares: &[Arc<dyn ToolMiddleware>],
 ) -> Vec<Arc<dyn ToolMiddleware>> {
-    team_child_middlewares_for_policy(
+    team_child_middlewares_with_bypass(
         is_worker,
         scope,
         working_dir,
         inherited_worker_middlewares,
         Default::default(),
+        None,
     )
 }
 
@@ -475,6 +514,25 @@ pub fn team_child_middlewares_for_policy(
     inherited_worker_middlewares: &[Arc<dyn ToolMiddleware>],
     credential_shell_policy: super::CredentialShellPolicy,
 ) -> Vec<Arc<dyn ToolMiddleware>> {
+    team_child_middlewares_with_bypass(
+        is_worker,
+        scope,
+        working_dir,
+        inherited_worker_middlewares,
+        credential_shell_policy,
+        None,
+    )
+}
+
+/// Same as [`team_child_middlewares_for_policy`] plus the parent's live Auto-mode flag.
+pub fn team_child_middlewares_with_bypass(
+    is_worker: bool,
+    scope: &[String],
+    working_dir: &Path,
+    inherited_worker_middlewares: &[Arc<dyn ToolMiddleware>],
+    credential_shell_policy: super::CredentialShellPolicy,
+    credential_shell_bypass: Option<Arc<AtomicBool>>,
+) -> Vec<Arc<dyn ToolMiddleware>> {
     subagent_child_middlewares_with_policy(
         is_worker,
         scope,
@@ -482,6 +540,7 @@ pub fn team_child_middlewares_for_policy(
         inherited_worker_middlewares,
         true,
         credential_shell_policy,
+        credential_shell_bypass,
     )
 }
 
@@ -552,6 +611,8 @@ pub struct TaskTool {
     inherited_worker_middlewares: Vec<Arc<dyn ToolMiddleware>>,
     team_event_sink: Option<Arc<dyn Fn(crate::team::TeamEvent) + Send + Sync>>,
     credential_shell_policy: super::CredentialShellPolicy,
+    /// Parent's live Auto-mode flag, cloned into every child's credential gate.
+    credential_shell_bypass: Option<Arc<AtomicBool>>,
 }
 
 impl TaskTool {
@@ -576,6 +637,7 @@ impl TaskTool {
             inherited_worker_middlewares: Vec::new(),
             team_event_sink: None,
             credential_shell_policy: Default::default(),
+            credential_shell_bypass: None,
         }
     }
 
@@ -639,6 +701,13 @@ impl TaskTool {
 
     pub fn with_credential_shell_policy(mut self, policy: super::CredentialShellPolicy) -> Self {
         self.credential_shell_policy = policy;
+        self
+    }
+
+    /// Wire the parent's live Auto-mode flag. While it is set, a child's credential
+    /// gate allows instead of failing closed / terminating the child's turn.
+    pub fn with_credential_shell_bypass(mut self, bypass: Arc<AtomicBool>) -> Self {
+        self.credential_shell_bypass = Some(bypass);
         self
     }
 
@@ -948,6 +1017,7 @@ parallel workers NON-OVERLAPPING scopes."
             ));
 
             let credential_shell_policy = self.credential_shell_policy;
+            let credential_shell_bypass = self.credential_shell_bypass.clone();
             set.spawn(async move {
                 let _permit = sem.acquire_owned().await.expect("semaphore not closed");
                 if let Some(events) = &member_events {
@@ -976,12 +1046,13 @@ parallel workers NON-OVERLAPPING scopes."
                 // The child runs AutoRespond::AllowAll (no human in its loop), so the parent's
                 // prompting gates wouldn't protect it. Hard-deny sensitive-path ops for every
                 // child (#1); additionally confine a `worker`'s WRITES to its declared scope.
-                let child_middlewares = subagent_child_middlewares_for_policy(
+                let child_middlewares = subagent_child_middlewares_with_bypass(
                     is_worker,
                     &scope,
                     &wd,
                     &inherited_worker_middlewares,
                     credential_shell_policy,
+                    credential_shell_bypass,
                 );
                 let child = build_task_child(
                     provider,

@@ -7,7 +7,7 @@ use rustcode_capabilities::team::{
 };
 #[cfg(test)]
 use rustcode_capabilities::tools::team_child_middlewares;
-use rustcode_capabilities::tools::team_child_middlewares_for_policy;
+use rustcode_capabilities::tools::team_child_middlewares_with_bypass;
 use rustcode_kernel::agent::{Agent, AutoRespond, ToolLoopPolicy};
 use rustcode_kernel::event::StopReason;
 use rustcode_kernel::hook::{LifecycleHooks, TurnCtx};
@@ -34,6 +34,8 @@ pub struct TeamRunnerFactory {
     request_timeout: Option<Duration>,
     inherited_worker_middlewares: Vec<Arc<dyn ToolMiddleware>>,
     credential_shell_policy: rustcode_capabilities::tools::CredentialShellPolicy,
+    /// Parent's live Auto-mode flag, cloned into every member's credential gate.
+    credential_shell_bypass: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// Dispatch depth of runners produced by this factory (0 = root).
     depth: u8,
     /// Maximum delegation depth (0 = flat, 2 = three-tier).
@@ -56,6 +58,7 @@ impl TeamRunnerFactory {
             request_timeout: None,
             inherited_worker_middlewares: Vec::new(),
             credential_shell_policy: Default::default(),
+            credential_shell_bypass: None,
             depth: 0,
             max_depth: 2,
         }
@@ -102,6 +105,16 @@ impl TeamRunnerFactory {
         self
     }
 
+    /// Wire the parent's live Auto-mode flag: while it is set, a member's credential
+    /// gate allows instead of failing closed / terminating the member's turn.
+    pub fn with_credential_shell_bypass(
+        mut self,
+        bypass: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
+        self.credential_shell_bypass = Some(bypass);
+        self
+    }
+
     pub fn job_factory(&self) -> TeamJobFactory {
         let runner = self.clone();
         Arc::new(move |task, cancel, activity| {
@@ -135,12 +148,13 @@ impl TeamRunnerFactory {
             .cancel_token(cancel)
             .hook(progress.clone())
             .middleware(Arc::new(DenyTeamBash));
-        for middleware in team_child_middlewares_for_policy(
+        for middleware in team_child_middlewares_with_bypass(
             task.permission == TeamPermission::Worker,
             &task.scope,
             &self.working_dir,
             &self.inherited_worker_middlewares,
             self.credential_shell_policy,
+            self.credential_shell_bypass.clone(),
         ) {
             builder = builder.middleware(middleware);
         }

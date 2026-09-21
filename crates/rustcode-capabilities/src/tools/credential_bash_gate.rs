@@ -7,6 +7,7 @@ use rustcode_kernel::middleware::{BeforeOutcome, ToolMiddleware};
 use rustcode_kernel::request::RequestCtx;
 use rustcode_kernel::tool::{Tool, ToolCall};
 use serde::Deserialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -33,7 +34,8 @@ pub enum CredentialShellPolicy {
     #[default]
     Prompt,
     /// Hard boundary: block credentials in the generic shell and terminate the
-    /// turn where retrying another shell spelling would be unsafe.
+    /// turn where retrying another shell spelling would be unsafe. Auto mode
+    /// (`CredentialBashGate::with_bypass`) overrides it -- absolute trust wins.
     Strict,
 }
 const SEARCH_COMMANDS: &[&str] = &["rg", "grep", "findstr", "select-string"];
@@ -416,6 +418,13 @@ pub struct CredentialBashGate {
     // team children run `AutoRespond::AllowAll`, so a prompt would auto-approve itself) ⇒
     // under `Prompt`, fail closed to a call-only deny, mirroring `DenySensitivePaths`.
     approval_store: Option<Arc<dyn PermissionStore>>,
+    /// Live "Auto / absolute trust" flag (`CodingParts::bypass_mode`). While set, this
+    /// gate ALLOWS instead of prompting / denying / terminating the turn -- the user
+    /// took the wheel, so a detected access must never surface as `policy_denied`.
+    /// Shared (mirrors `WriteApprovalGate::with_accept_edits`) so a mid-session
+    /// Shift+Tab / `/mode auto` switch takes effect without a respawn. `None` ⇒ no
+    /// Auto-bypass source was wired (minimal assembly, tests, library callers).
+    bypass: Option<Arc<AtomicBool>>,
 }
 
 impl Default for CredentialBashGate {
@@ -430,6 +439,7 @@ impl CredentialBashGate {
         Self {
             policy,
             approval_store: Some(Arc::new(InMemoryPermissionStore::new())),
+            bypass: None,
         }
     }
 
@@ -438,6 +448,7 @@ impl CredentialBashGate {
         Self {
             policy,
             approval_store: Some(store),
+            bypass: None,
         }
     }
 
@@ -447,7 +458,17 @@ impl CredentialBashGate {
         Self {
             policy,
             approval_store: None,
+            bypass: None,
         }
+    }
+
+    /// Wire the shared Auto-mode flag. While it is set, every detection short-circuits
+    /// to [`BeforeOutcome::Proceed`] -- no approval prompt, no call-only deny, and no
+    /// turn-terminal intervention even under [`CredentialShellPolicy::Strict`]. Builder
+    /// so the existing constructors stay source-compatible.
+    pub fn with_bypass(mut self, bypass: Arc<AtomicBool>) -> Self {
+        self.bypass = Some(bypass);
+        self
     }
 
     /// Interactive approval round-trip for a detected access (mirrors `SensitivePathGate`).
@@ -491,6 +512,16 @@ impl ToolMiddleware for CredentialBashGate {
         rt: &RequestCtx,
     ) -> BeforeOutcome {
         if tool.name() != "bash" {
+            return BeforeOutcome::Proceed;
+        }
+        // Auto mode = absolute trust: the user has taken the wheel, so a detected access
+        // must not prompt, deny, or terminate the turn. Checked before detection so the
+        // bypass is a true short-circuit (no regex, no approval round-trip).
+        if self
+            .bypass
+            .as_deref()
+            .is_some_and(|flag| flag.load(Ordering::Acquire))
+        {
             return BeforeOutcome::Proceed;
         }
         let Ok(args) = serde_json::from_str::<BashArgs>(&call.arguments) else {
@@ -703,6 +734,71 @@ mod tests {
         store.grant(&key);
         let gate = CredentialBashGate::with_store(CredentialShellPolicy::Prompt, store);
         assert_eq!(run(&gate, DETECTED).await, BeforeOutcome::Proceed);
+    }
+
+    #[tokio::test]
+    async fn auto_mode_allows_instead_of_terminating_the_turn() {
+        // Auto = absolute trust: even `Strict` must not produce a `policy_denied`
+        // terminal. The flag is the SAME shared cell the runtime toggles, so flipping
+        // it off live restores the hard wall without rebuilding the gate.
+        let bypass = Arc::new(AtomicBool::new(true));
+        let gate =
+            CredentialBashGate::new(CredentialShellPolicy::Strict).with_bypass(bypass.clone());
+        assert_eq!(run(&gate, DETECTED).await, BeforeOutcome::Proceed);
+        assert_eq!(run(&gate, EXFIL).await, BeforeOutcome::Proceed);
+        assert_eq!(
+            run(&gate, "grep '^sasl_password' config/prod.toml").await,
+            BeforeOutcome::Proceed
+        );
+        bypass.store(false, Ordering::Release);
+        assert!(
+            matches!(
+                run(&gate, EXFIL).await,
+                BeforeOutcome::DenyTurnWithIntervention { .. }
+            ),
+            "bypass off must restore the strict terminal"
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_mode_allows_without_an_approval_round_trip() {
+        // Under `Prompt` a silent driver degrades the round-trip to a call-only deny;
+        // with Auto set the gate must not even ask (`rt` is never touched).
+        let gate = CredentialBashGate::new(CredentialShellPolicy::Prompt)
+            .with_bypass(Arc::new(AtomicBool::new(true)));
+        assert_eq!(run(&gate, DETECTED).await, BeforeOutcome::Proceed);
+        assert_eq!(run(&gate, EXFIL).await, BeforeOutcome::Proceed);
+    }
+
+    #[tokio::test]
+    async fn auto_mode_child_allows_instead_of_failing_closed() {
+        // Subagent / team children have no human to prompt; Auto must let them through
+        // under BOTH the fail-closed `Prompt` path and the `Strict` terminal.
+        let bypass = Arc::new(AtomicBool::new(true));
+        for policy in [CredentialShellPolicy::Prompt, CredentialShellPolicy::Strict] {
+            let gate = CredentialBashGate::non_interactive(policy).with_bypass(bypass.clone());
+            assert_eq!(
+                run(&gate, DETECTED).await,
+                BeforeOutcome::Proceed,
+                "{policy:?}"
+            );
+            assert_eq!(
+                run(&gate, EXFIL).await,
+                BeforeOutcome::Proceed,
+                "{policy:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn auto_mode_off_leaves_the_gate_unchanged() {
+        // A wired-but-clear flag must behave exactly like no flag at all.
+        let gate = CredentialBashGate::new(CredentialShellPolicy::Strict)
+            .with_bypass(Arc::new(AtomicBool::new(false)));
+        assert!(matches!(
+            run(&gate, EXFIL).await,
+            BeforeOutcome::DenyTurnWithIntervention { .. }
+        ));
     }
 
     #[tokio::test]

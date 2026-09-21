@@ -636,6 +636,11 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         max_concurrent_explore: subagent_explore_concurrent,
         ..Default::default()
     });
+    // Auto-mode flag, created HERE because the credential gate needs the SAME cell in
+    // three places: the primary agent's middleware (assemble), and the `task` /
+    // `team` child gates built below. One cell = one truth, so a mid-session mode
+    // switch is visible to the children without rebuilding them.
+    let bypass_mode = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let subagent_provider: Option<SharedReviewProvider> = if subagents_enabled {
         use rustcode_capabilities::tools::TaskTool;
 
@@ -727,6 +732,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         .with_stream_timeout(cfg.stream_timeout)
         .with_tool_loop_policy(cfg.tool_loop_policy)
         .with_credential_shell_policy(cfg.credential_shell_policy)
+        .with_credential_shell_bypass(bypass_mode.clone())
         .with_worker_middleware(turn_execution_policy.clone())
         .with_team_event_sink(Arc::new(move |event| {
             task_team_manager.publish_external(event);
@@ -797,6 +803,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
                 cfg.request_timeout,
             )
             .with_credential_shell_policy(cfg.credential_shell_policy)
+            .with_credential_shell_bypass(bypass_mode.clone())
             .with_worker_middleware(turn_execution_policy.clone());
         // Register a child TeamTool (depth=1) in the child registry so sub-agents
         // at depth 1 can hierarchically dispatch to depth 2. The child manager's
@@ -1113,7 +1120,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     Ok(CodingParts {
         shared_cwd: std::sync::Arc::new(std::sync::RwLock::new(cfg.working_dir.clone())),
         plan_mode: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        bypass_mode: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        bypass_mode,
         accept_edits: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         turn_execution_policy,
         mcp_plan_grants: std::sync::Arc::new(
@@ -1722,11 +1729,14 @@ pub fn assemble(
         // Credentials are a product-wide security boundary. It must run before the
         // approval-oriented SensitivePathGate so an explicit extraction cannot be
         // downgraded from terminal denial into a retryable approval denial.
+        // `with_bypass`: Auto mode is absolute trust, so a detected access allows
+        // instead of prompting / terminating -- no `policy_denied` while Auto is on.
         .middleware(Arc::new(
             rustcode_capabilities::tools::CredentialBashGate::with_store(
                 cfg.credential_shell_policy,
                 parts.credential_shell_grants.clone(),
-            ),
+            )
+            .with_bypass(parts.bypass_mode.clone()),
         ))
         // Sensitive-path read gate: read tools are Safe (skip approval), so without this an
         // agent could silently read ~/.ssh / .env / creds and leak them to the provider.
