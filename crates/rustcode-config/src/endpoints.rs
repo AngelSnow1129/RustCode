@@ -54,6 +54,7 @@ pub const TUNNEL_TOKEN_ENV: &str = "RUSTCODE_TUNNEL_TOKEN";
 /// Hosts to treat as first-party, comma-separated. **Replaces** the default
 /// set rather than adding to it: a deployment that has moved off the hosted
 /// service should stop trusting it, not accumulate both.
+/// Matches itself and its subdomains; also feeds [`tls_fallback_domains`].
 pub const TRUSTED_HOSTS_ENV: &str = "RUSTCODE_TRUSTED_HOSTS";
 
 /// Opt-in switch that lets the webui/daemon serve WITHOUT an access token
@@ -240,7 +241,7 @@ fn normalized_list(key: &str, hosted: &[&str]) -> Vec<String> {
 }
 
 /// Domains whose hosts may receive an OAuth token. Each matches itself and its
-/// subdomains.
+/// subdomains. Set via [`TRUSTED_HOSTS_ENV`].
 pub fn trusted_domains() -> &'static [String] {
     static DOMAINS: OnceLock<Vec<String>> = OnceLock::new();
     DOMAINS.get_or_init(|| normalized_list(TRUSTED_HOSTS_ENV, HOSTED_TRUSTED_DOMAINS))
@@ -270,6 +271,8 @@ pub fn is_trusted_host(host: &str) -> bool {
 
 /// Hosts eligible for the automatic TLS-1.2 downgrade retry. Follows
 /// [`TRUSTED_HOSTS_ENV`] when set; otherwise the narrower hosted set.
+/// (Shares the switch with [`trusted_domains`] on purpose -- one trust boundary,
+/// one knob. It is NOT a separate `RUSTCODE_TLS_FALLBACK_DOMAINS`.)
 pub fn tls_fallback_domains() -> &'static [String] {
     static DOMAINS: OnceLock<Vec<String>> = OnceLock::new();
     DOMAINS.get_or_init(|| normalized_list(TRUSTED_HOSTS_ENV, HOSTED_TLS_FALLBACK_DOMAINS))
