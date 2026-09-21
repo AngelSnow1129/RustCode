@@ -1790,6 +1790,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::WebuiNonLoopbackWarning => "\n[!] 已绑定非回环地址：凡能访问该地址者凭此 token 即可进入，请仅在可信网络使用（无 TLS）。".into(),
         Msg::WebuiStopped => "已停止 webui server".into(),
         Msg::WebuiNotRunning => "webui server 未在运行".into(),
+        Msg::WebuiNoAuthNotice => "\n[!] 免密访问已开启：不再校验访问令牌，凡能连到该端口的人都可直接使用（含 shell 工具）。仅在可信网络下使用；想收紧需关闭 webui_no_auth 后重启。".into(),
         Msg::AppServerBindFailed { host, port, error } =>
             format!("绑定 {host}:{port} 失败（{error}）").into(),
         Msg::BgSessionLoadFailed { error } =>
@@ -2290,6 +2291,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliHelpIdleTimeout => "空闲关闭超时（秒）；0 禁用".into(),
         Msg::CliHelpPortWebui => "端口（默认：13457）".into(),
         Msg::CliHelpHost => "绑定地址（默认：0.0.0.0；改 127.0.0.1 则仅本机可访问）".into(),
+        Msg::CliHelpNoAuth => "免密访问：不校验访问令牌，浏览器打开即用（仅在可信网络下使用；也可用配置项 webui_no_auth 或环境变量 RUSTCODE_WEBUI_NO_AUTH 开启）".into(),
         Msg::CliHelpUninstallYes => "跳过提示；使用每组的默认决定".into(),
         Msg::CliHelpUninstallPurge => "完全清除 ~/.rustcode/".into(),
         Msg::CliHelpUninstallKeepData => "完全保留 ~/.rustcode/".into(),
@@ -2671,6 +2673,13 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::ProviderPanelDiscoveryTitle => "发现的模型：".into(),
         Msg::ProviderPanelDiscoveryHint =>
             "Space 切换  Enter 添加  Ctrl+A 全选  Ctrl+N 取消全选  Esc 取消".into(),
+        Msg::ProviderPanelDiscoveryEmpty => "该 provider 未返回任何模型".into(),
+        Msg::ProviderPanelDiscoveryFailed { reason } =>
+            format!("模型列表加载失败：{reason}").into(),
+        Msg::ProviderPanelDiscoveryWorkerStopped =>
+            "模型列表加载失败：后台任务已退出".into(),
+        Msg::ProviderPanelModelsAdded { count } =>
+            format!("已从发现结果添加 {count} 个模型").into(),
         Msg::MenuPlaceholderSearchSessions => "搜索会话...".into(),
         Msg::MenuPlaceholderSearchDirs => "搜索历史目录或输入路径...".into(),
         Msg::MenuPlaceholderFilter => "输入以筛选...".into(),

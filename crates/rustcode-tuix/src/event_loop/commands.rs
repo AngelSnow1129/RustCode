@@ -1870,6 +1870,9 @@ fn execute_slash_command_impl(
                             &host,
                             rustcode_daemon::WEBUI_DEFAULT_PORT,
                             true,
+                            // TUI 没有 --no-auth 参数；是否免密由配置 `webui_no_auth`
+                            // 与环境变量 RUSTCODE_WEBUI_NO_AUTH 决定。
+                            false,
                         ),
                     )
                 });

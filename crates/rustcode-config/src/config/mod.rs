@@ -299,6 +299,14 @@ pub struct Config {
     /// 取代/补充一次性随机 token(对应前端读取 daemon-<port>.json 的鉴权方式)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_key: Option<String>,
+    /// 免密访问开关:true 时 webui / daemon 的受保护路由不再校验 Bearer token
+    /// 与 Cookie,浏览器打开即用(详见 [`webui_no_auth_enabled`])。
+    ///
+    /// 默认 false —— 保持 token 鉴权。开启等于把这个端口上的全部能力(含 shell
+    /// 工具)交给任何能连到它的人,只在可信网络(回环 / 家庭内网 / 隧道之后)使用;
+    /// 且事后想收紧必须重启(与 access_key 一样不支持热加载)。
+    #[serde(default)]
+    pub webui_no_auth: bool,
     /// Per-turn datalog settings. Missing from older configs -> defaults to
     /// enabled=false, dir="$RUSTCODE_HOME/datalog" (project slug appended underneath).
     ///
@@ -410,6 +418,28 @@ pub struct Config {
     /// serde (`skip`); populated on load and re-emitted by `serialize_for_disk`.
     #[serde(skip)]
     pub quarantined_providers: std::collections::BTreeMap<String, toml::Value>,
+}
+
+/// 环境变量名:免密开放 webui / daemon 的 HTTP 访问(`1`/`0`)。
+///
+/// 单独摆在这里而不是散落在各 driver,是因为三个入口都要问同一个问题:
+/// `rustcode webui`、`rustcode daemon`、独立 `rustcode-daemon` 二进制。
+pub const WEBUI_NO_AUTH_ENV: &str = "RUSTCODE_WEBUI_NO_AUTH";
+
+/// 免密访问的最终取值:是否跳过 webui / daemon 的 Bearer token 与 Cookie 校验。
+///
+/// 优先级:**环境变量 `RUSTCODE_WEBUI_NO_AUTH` > 命令行 `--no-auth` >
+/// 配置 `webui_no_auth`**;三者都未开启时返回 false(保持 token 鉴权)。
+/// 环境变量给的是**显式值**,所以 `=0` 能压住配置里已开的开关 —— 运维想临时
+/// 收紧时不必去改 config.toml。命令行开关与配置只是"任一为真即免密"的并联。
+///
+/// 免密意味着任何能连到该端口的人都能驱动 agent(含 shell 工具),只应在可信
+/// 网络里开;想收紧必须重启进程(与 `access_key` 一致,不支持热加载)。
+pub fn webui_no_auth_enabled(cli_flag: bool, config: Option<&Config>) -> bool {
+    match crate::endpoints::env_bool(WEBUI_NO_AUTH_ENV) {
+        Some(explicit) => explicit,
+        None => cli_flag || config.is_some_and(|c| c.webui_no_auth),
+    }
 }
 
 /// Web search backend configuration. Persisted as the `[web_search]` table.
@@ -750,6 +780,7 @@ impl Default for Config {
         let mut cfg = Self {
             default_provider: String::new(),
             access_key: None,
+            webui_no_auth: false,
             evaluator_provider: None,
             default_workdir: None,
             providers: HashMap::new(),
@@ -3060,6 +3091,7 @@ model = "missing-type"
         let mut cfg = Config {
             default_provider: "p".to_string(),
             access_key: None,
+            webui_no_auth: false,
             evaluator_provider: None,
             default_workdir: None,
             providers: HashMap::new(),
@@ -3141,6 +3173,55 @@ model = "missing-type"
             crate::proxy::ProxyMode::FollowSystem
         );
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn webui_no_auth_is_off_until_something_opts_in() {
+        let cfg = Config::default();
+        assert!(
+            !webui_no_auth_enabled(false, Some(&cfg)),
+            "默认必须保持 token 鉴权"
+        );
+        assert!(!webui_no_auth_enabled(false, None));
+        // 命令行开关与配置是并联的"任一为真即免密"。
+        assert!(webui_no_auth_enabled(true, Some(&cfg)));
+        let mut opt_in = Config::default();
+        opt_in.webui_no_auth = true;
+        assert!(webui_no_auth_enabled(false, Some(&opt_in)));
+    }
+
+    #[test]
+    fn webui_no_auth_env_is_explicit_and_beats_the_other_two() {
+        // 环境变量是**显式值**:`0` 能压住配置里已开的开关,运维临时收紧不必改配置。
+        let mut opt_in = Config::default();
+        opt_in.webui_no_auth = true;
+        std::env::set_var(WEBUI_NO_AUTH_ENV, "0");
+        assert!(!webui_no_auth_enabled(true, Some(&opt_in)));
+        // `1` 反过来无需任何配置/开关即可免密。
+        std::env::set_var(WEBUI_NO_AUTH_ENV, "1");
+        assert!(webui_no_auth_enabled(false, None));
+        // 拼错的取值不猜测意图:交回调用方的默认(此处为 false)。
+        std::env::set_var(WEBUI_NO_AUTH_ENV, "maybe");
+        assert!(!webui_no_auth_enabled(false, None));
+        std::env::remove_var(WEBUI_NO_AUTH_ENV);
+    }
+
+    #[test]
+    fn saved_config_roundtrips_webui_no_auth() {
+        let tmp =
+            std::env::temp_dir().join(format!("rustcode_cfg_noauth_{}.toml", std::process::id()));
+        let mut cfg = Config::default();
+        cfg.webui_no_auth = true;
+        cfg.save(&tmp).unwrap();
+        let reloaded = Config::load(&tmp).unwrap();
+        assert!(reloaded.webui_no_auth);
+        // 旧配置没有这个键时必须回落到 false(免密绝不能由缺省值打开)。
+        let legacy =
+            std::env::temp_dir().join(format!("rustcode_cfg_legacy_{}.toml", std::process::id()));
+        std::fs::write(&legacy, "default_provider = \"p\"\n").unwrap();
+        assert!(!Config::load(&legacy).unwrap().webui_no_auth);
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(&legacy);
     }
 
     #[test]

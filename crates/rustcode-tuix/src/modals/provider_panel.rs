@@ -19,30 +19,98 @@ struct DiscoveredModel {
     max_tokens: Option<usize>,
 }
 
-/// State for async model discovery.
+/// Lifecycle of the panel's one-shot model discovery.
+///
+/// Only `Pending` refuses a new request: a finished attempt leaves a `Notice`
+/// behind (so the panel can say WHY nothing was loaded -- a silent failure was
+/// indistinguishable from "this provider has no models") while a later add/edit
+/// is still allowed to try again. The selection itself lives in
+/// `Mode::DiscoveryResults`, never duplicated here.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum DiscoveryState {
-    /// No discovery in progress.
+    /// Nothing in flight, no notice to show.
     Idle,
-    /// Discovery request has been sent, waiting for response.
+    /// Request sent, waiting for the answer.
     Pending {
         account_id: String,
         base_url: String,
     },
-    /// Discovery completed with results, showing selection UI.
-    Completed {
-        account_id: String,
-        models: Vec<DiscoveredModel>,
-        selected: Vec<bool>, // Selection state for each model
-    },
-    /// Discovery failed.
-    Failed { account_id: String, error: String },
+    /// Terminal notice about the last attempt, rendered in the panel.
+    Notice { message: String },
 }
 
 /// Result from async discovery thread.
 struct DiscoveryResult {
     account_id: String,
     result: Result<Vec<DiscoveredModel>, String>,
+}
+
+/// The network facts one discovery request needs, resolved at SAVE time.
+///
+/// Discovery must NOT read `LoopCtx::config` right after a save: the add/edit
+/// handlers stage an ASYNCHRONOUS provider reload (`stage_committed_config_reload`
+/// only records `ctx.pending_provider_reload`; `ctx.config` is rewritten when the
+/// runtime reports the reload finished). A freshly added account is therefore
+/// absent from `ctx.config` for at least one event-loop turn, so the old
+/// `start_discovery(&account_id, &ctx.config)` call found no account, returned
+/// early and left the panel on an empty model list with no error at all.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DiscoveryTarget {
+    account_id: String,
+    /// Discovery protocol: OpenAI-compatible `/models` or Ollama `/api/tags`.
+    provider_type: &'static str,
+    base_url: String,
+    api_key: Option<String>,
+}
+
+impl DiscoveryTarget {
+    /// An account with no endpoint (neither its own nor the preset default) has
+    /// nothing to discover.
+    fn is_discoverable(&self) -> bool {
+        !self.base_url.trim().is_empty()
+    }
+
+    fn pending_state(&self) -> DiscoveryState {
+        DiscoveryState::Pending {
+            account_id: self.account_id.clone(),
+            base_url: self.base_url.clone(),
+        }
+    }
+}
+
+/// Whether a new discovery request may start. A request already in flight wins;
+/// every terminal state (including a notice) stays re-tryable.
+fn can_start_discovery(state: &DiscoveryState) -> bool {
+    !matches!(state, DiscoveryState::Pending { .. })
+}
+
+/// Discovery speaks exactly two list endpoints; Anthropic accounts are probed
+/// over the OpenAI-compatible listing, matching the daemon's discovery handler.
+fn discovery_protocol(ty: provider_preset::ProviderType) -> &'static str {
+    match ty {
+        provider_preset::ProviderType::Ollama => "ollama",
+        provider_preset::ProviderType::OpenAi | provider_preset::ProviderType::Anthropic => {
+            "openai"
+        }
+    }
+}
+
+/// Resolve the discovery target of one persisted account row.
+fn discovery_target_for_account(
+    account: &ProviderAccountConfig,
+    account_id: &str,
+) -> DiscoveryTarget {
+    let preset = provider_preset::preset_or_compatible(&account.provider);
+    DiscoveryTarget {
+        account_id: account_id.to_string(),
+        provider_type: discovery_protocol(preset.provider_type),
+        base_url: account
+            .base_url
+            .clone()
+            .or_else(|| preset.default_base_url.map(str::to_string))
+            .unwrap_or_default(),
+        api_key: account.api_key.clone(),
+    }
 }
 
 use super::{tab_chip, Modal, ModalAction};
@@ -1010,67 +1078,41 @@ impl ProviderPanel {
         self.pending_delete = None;
     }
 
-    /// Start async model discovery for an account.
-    /// Returns true if discovery was started, false if already in progress.
-    fn start_discovery(&mut self, account_id: &str, config: &Config) -> bool {
-        // Don't start if already discovering
-        if self.discovery_state != DiscoveryState::Idle {
+    /// Start async model discovery for one already-resolved target.
+    /// Returns true if discovery was started, false when a request is already in
+    /// flight or the target has no endpoint to probe.
+    fn start_discovery(&mut self, target: DiscoveryTarget) -> bool {
+        if !can_start_discovery(&self.discovery_state) || !target.is_discoverable() {
             return false;
         }
-
-        // Get account info
-        let account = match config.provider_accounts.get(account_id) {
-            Some(a) => a.clone(),
-            None => return false,
-        };
-
-        // Get effective base_url
-        let preset = provider_preset::preset_or_compatible(&account.provider);
-        let base_url = match account
-            .base_url
-            .clone()
-            .or_else(|| preset.default_base_url.map(str::to_string))
-        {
-            Some(url) => url,
-            None => return false,
-        };
-
-        // Determine provider type for discovery
-        let provider_type = match preset.provider_type {
-            provider_preset::ProviderType::OpenAi => "openai",
-            provider_preset::ProviderType::Anthropic => "openai", // Anthropic uses OpenAI-compatible for discovery
-            provider_preset::ProviderType::Ollama => "ollama",
-        };
 
         // Create channel for async result
         let (tx, rx) = std::sync::mpsc::channel();
 
         // Set pending state
-        self.discovery_state = DiscoveryState::Pending {
-            account_id: account_id.to_string(),
-            base_url: base_url.clone(),
-        };
+        self.discovery_state = target.pending_state();
         self.discovery_rx = Some(rx);
 
         // Spawn background task
-        let account_id_owned = account_id.to_string();
-        let api_key = account.api_key.clone();
-        let base_url_owned = base_url;
-        let provider_type_owned = provider_type.to_string();
+        let DiscoveryTarget {
+            account_id,
+            provider_type,
+            base_url,
+            api_key,
+        } = target;
 
         std::thread::spawn(move || {
-            let result = Self::discover_models_sync(
-                &base_url_owned,
-                api_key.as_deref(),
-                &provider_type_owned,
-            );
-            let _ = tx.send(DiscoveryResult {
-                account_id: account_id_owned,
-                result,
-            });
+            let result = Self::discover_models_sync(&base_url, api_key.as_deref(), provider_type);
+            let _ = tx.send(DiscoveryResult { account_id, result });
         });
 
         true
+    }
+
+    /// Record why the last discovery attempt loaded nothing, so the panel does not
+    /// look like it silently ignored the request.
+    fn note_discovery(&mut self, message: String) {
+        self.discovery_state = DiscoveryState::Notice { message };
     }
 
     /// Synchronous model discovery (runs in background thread).
@@ -1173,32 +1215,37 @@ impl ProviderPanel {
         Ok(models)
     }
 
-    /// Poll discovery results (call from main loop).
+    /// Poll discovery results (call from main loop). The outcome is handed back to
+    /// the caller and the state left re-tryable -- parking it in a terminal variant
+    /// is what used to block every later attempt for the rest of the panel's life.
     fn poll_discovery(&mut self) -> Option<(String, Result<Vec<DiscoveredModel>, String>)> {
-        if let Some(rx) = &self.discovery_rx {
-            if let Ok(result) = rx.try_recv() {
-                self.discovery_rx = None;
-                let outcome = match &result.result {
-                    Ok(models) => {
-                        self.discovery_state = DiscoveryState::Completed {
-                            account_id: result.account_id.clone(),
-                            models: models.clone(),
-                            selected: vec![true; models.len()], // All selected by default
-                        };
-                        Ok(models.clone())
-                    }
-                    Err(e) => {
-                        self.discovery_state = DiscoveryState::Failed {
-                            account_id: result.account_id.clone(),
-                            error: e.clone(),
-                        };
-                        Err(e.clone())
-                    }
-                };
-                return Some((result.account_id, outcome));
+        let rx = self.discovery_rx.take()?;
+        let outcome = match rx.try_recv() {
+            Ok(outcome) => outcome,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                self.discovery_rx = Some(rx);
+                return None;
             }
-        }
-        None
+            // The worker died without answering (panic / killed thread). Report it
+            // instead of leaving `Pending` behind, which would refuse every later
+            // discovery request.
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                let account_id =
+                    match std::mem::replace(&mut self.discovery_state, DiscoveryState::Idle) {
+                        DiscoveryState::Pending { account_id, .. } => account_id,
+                        _ => String::new(),
+                    };
+                return Some((
+                    account_id,
+                    Err(
+                        crate::i18n::t(crate::i18n::Msg::ProviderPanelDiscoveryWorkerStopped)
+                            .into_owned(),
+                    ),
+                ));
+            }
+        };
+        self.discovery_state = DiscoveryState::Idle;
+        Some((outcome.account_id, outcome.result))
     }
 
     /// Arm a row on the first Ctrl+D and confirm it on the second. Returning
@@ -1248,14 +1295,15 @@ impl ProviderPanel {
     }
 
     /// Persist the add form as one provider ACCOUNT (no model -- models are added
-    /// on the 模型 tab). Returns the new account id when saved so the caller can
-    /// drill into its model list; `None` keeps the add form open.
+    /// on the 模型 tab). Returns the account's discovery target when saved, so the
+    /// caller can drill into its model list AND auto-load that list; `None` keeps
+    /// the add form open.
     fn save_add(
         &self,
         form: &AddForm,
         ctx: &mut LoopCtx,
         renderer: &mut dyn Renderer,
-    ) -> Option<String> {
+    ) -> Option<DiscoveryTarget> {
         let preset = form.preset();
         // A fully-custom provider requires a name (it becomes the account id).
         let base_id = sanitize_account_name(form.name.trim());
@@ -1296,13 +1344,18 @@ impl ProviderPanel {
             ConfigReloadSelection::KeepCurrent,
             move |persisted| {
                 let account_id = unique_account_id(&base_id, persisted);
-                persisted
-                    .provider_accounts
-                    .insert(account_id.clone(), account);
-                Ok(account_id)
+                // Resolve discovery from the values being committed, BEFORE the
+                // account is moved into the map -- `ctx.config` still holds the
+                // pre-save snapshot here (see [`DiscoveryTarget`]).
+                let target = discovery_target_for_account(&account, &account_id);
+                persisted.provider_accounts.insert(account_id, account);
+                Ok(target)
             },
-            |account_id| {
-                crate::i18n::t(crate::i18n::Msg::ProviderAdded { name: account_id }).into_owned()
+            |target: &DiscoveryTarget| {
+                crate::i18n::t(crate::i18n::Msg::ProviderAdded {
+                    name: &target.account_id,
+                })
+                .into_owned()
             },
         )
     }
@@ -1360,8 +1413,16 @@ impl ProviderPanel {
         }
     }
 
-    /// Apply an account edit in place (blank fields keep the current value), save.
-    fn save_edit(&self, form: &EditForm, ctx: &mut LoopCtx, renderer: &mut dyn Renderer) -> bool {
+    /// Apply an account edit in place (blank fields keep the current value), save,
+    /// and return the committed account's discovery target so the caller can
+    /// auto-load the (possibly repointed) model list. See [`DiscoveryTarget`] for
+    /// why the target is resolved from the commit and not from `ctx.config`.
+    fn save_edit(
+        &self,
+        form: &EditForm,
+        ctx: &mut LoopCtx,
+        renderer: &mut dyn Renderer,
+    ) -> Option<DiscoveryTarget> {
         let form = form.clone();
         let account_id = form.id.clone();
         update_config_and_reload(
@@ -1376,13 +1437,41 @@ impl ProviderPanel {
                     anyhow::bail!("provider account {:?} changed; reopen /provider", form.id);
                 }
                 Self::apply_account_edit(&form, persisted);
-                Ok(())
+                Ok(Self::discovery_target_after_edit(&form, persisted))
             },
             |_| {
                 crate::i18n::t(crate::i18n::Msg::ProviderUpdated { name: &account_id }).into_owned()
             },
         )
-        .is_some()
+    }
+
+    /// Discovery target of a just-edited account. The committed account row wins
+    /// because it carries the MERGED credential -- a blank api_key edit keeps the
+    /// saved key, so the form alone cannot reconstruct it. A pure-legacy
+    /// `[providers.*]` row has no account entry and falls back to its own fields.
+    fn discovery_target_after_edit(form: &EditForm, persisted: &Config) -> DiscoveryTarget {
+        if let Some(account) = persisted.provider_accounts.get(&form.id) {
+            return discovery_target_for_account(account, &form.id);
+        }
+        let preset = form.preset();
+        let (provider_type, base_url, api_key) = match persisted.providers.get(&form.id) {
+            Some(provider) => (
+                provider_preset::preset_or_compatible(&provider.provider_type).provider_type,
+                provider.base_url.clone(),
+                provider.resolved_api_key(),
+            ),
+            // Unreachable after a successful save (the store closure bails first);
+            // keep the form's own protocol so the caller still gets a usable target.
+            None => (preset.provider_type, None, None),
+        };
+        DiscoveryTarget {
+            account_id: form.id.clone(),
+            provider_type: discovery_protocol(provider_type),
+            base_url: base_url
+                .or_else(|| preset.default_base_url.map(str::to_string))
+                .unwrap_or_default(),
+            api_key,
+        }
     }
 
     fn apply_account_edit(form: &EditForm, desired: &mut Config) {
@@ -1680,6 +1769,92 @@ impl ProviderPanel {
     }
 }
 
+/// Selection-id plan for one discovery batch: the ids still free in `config`,
+/// each paired with the model it will persist. Taken ids are skipped so re-running
+/// discovery on an account is idempotent instead of an overwrite.
+fn plan_discovered_models(
+    account_id: &str,
+    models: &[DiscoveredModel],
+    config: &Config,
+) -> Vec<(String, DiscoveredModel)> {
+    models
+        .iter()
+        .filter_map(|model| {
+            let selection_id = format!("{account_id}/{}", model.id);
+            let taken = config.models.contains_key(&selection_id)
+                || config.providers.contains_key(&selection_id);
+            (!taken).then(|| (selection_id, model.clone()))
+        })
+        .collect()
+}
+
+/// Persist a discovery selection as model profiles under `account_id`, through the
+/// same CAS path as every other provider write. Returns true when the config was
+/// committed (a refused commit is rendered by `update_config_and_reload`).
+///
+/// The panel owns this write: `Modal::poll_background` only reports "needs redraw"
+/// and exposes no channel for the event loop to read the selection, so the old
+/// "return to list mode, models will be added by event loop" hand-off had no
+/// consumer -- a confirmed selection was silently dropped.
+fn commit_discovered_models(
+    account_id: &str,
+    models: &[DiscoveredModel],
+    ctx: &mut LoopCtx,
+    renderer: &mut dyn Renderer,
+) -> bool {
+    let account_id = account_id.to_string();
+    let models = models.to_vec();
+    update_config_and_reload(
+        ctx,
+        renderer,
+        ConfigReloadSelection::KeepCurrent,
+        move |persisted| {
+            let preset_id = persisted
+                .logical_accounts()
+                .get(&account_id)
+                .map(|account| account.provider.clone())
+                .unwrap_or_else(|| account_id.clone());
+            let wire = provider_preset::preset_or_compatible(&preset_id)
+                .provider_type
+                .wire();
+            let default_window =
+                rustcode_config::config::provider::default_context_window_for(wire);
+            let plan = plan_discovered_models(&account_id, &models, persisted);
+            let added = plan.len();
+            for (selection_id, model) in plan {
+                persisted.models.insert(
+                    selection_id,
+                    ModelProfileConfig {
+                        account: account_id.clone(),
+                        model: model.id,
+                        display_name: model.name,
+                        model_mapping: rustcode_config::config::provider::ModelMapping::default(),
+                        system_prompt: None,
+                        supports_vision: None,
+                        context_window: model.context_window.unwrap_or(default_window),
+                        max_tokens: model.max_tokens,
+                        capable_model: None,
+                        thinking_type: None,
+                        thinking_keep: None,
+                        reasoning_history: None,
+                        reasoning_effort: None,
+                        reasoning_effort_levels: None,
+                        thinking_enabled: None,
+                        thinking_budget: None,
+                        retry_max_attempts: None,
+                    },
+                );
+            }
+            Ok(added)
+        },
+        |added| {
+            crate::i18n::t(crate::i18n::Msg::ProviderPanelModelsAdded { count: *added })
+                .into_owned()
+        },
+    )
+    .is_some()
+}
+
 impl Modal for ProviderPanel {
     fn handle_key(
         &mut self,
@@ -1756,9 +1931,13 @@ impl Modal for ProviderPanel {
                 },
                 KeyCode::Enter => {
                     let form = form.clone();
-                    if let Some(account_id) = self.save_add(&form, ctx, renderer) {
-                        // Start async model discovery
-                        self.start_discovery(&account_id, &ctx.config);
+                    if let Some(target) = self.save_add(&form, ctx, renderer) {
+                        // Auto-load the new account's model list. Discovery runs on
+                        // the target resolved DURING the save because `ctx.config`
+                        // still holds the pre-save snapshot here (the provider
+                        // reload the save staged lands on a later event-loop turn).
+                        let account_id = target.account_id.clone();
+                        self.start_discovery(target);
                         self.show_models_for_account(&account_id);
                     } else {
                         // Save refused (missing endpoint): keep editing.
@@ -1824,11 +2003,14 @@ impl Modal for ProviderPanel {
                 },
                 KeyCode::Enter => {
                     let form = form.clone();
-                    if self.save_edit(&form, ctx, renderer) {
-                        // Mirror the add flow: land on this account's model list
-                        // instead of exiting the panel. Editing keeps `form.id`,
-                        // so it is the account we just saved.
-                        self.show_models_for_account(&form.id);
+                    if let Some(target) = self.save_edit(&form, ctx, renderer) {
+                        // Mirror the add flow: land on this account's model list and
+                        // auto-load it. The edit may have repointed the endpoint or
+                        // credential, so discovery uses the committed target rather
+                        // than anything read back from the not-yet-reloaded config.
+                        let account_id = target.account_id.clone();
+                        self.start_discovery(target);
+                        self.show_models_for_account(&account_id);
                     } else {
                         // Save refused (managed account / stale config): keep editing.
                         self.mode = Mode::EditAccount(form);
@@ -1977,7 +2159,6 @@ impl Modal for ProviderPanel {
                     }
                 }
                 KeyCode::Enter => {
-                    // Add selected models to account
                     let models_to_add: Vec<_> = models
                         .iter()
                         .zip(selected.iter())
@@ -1986,16 +2167,17 @@ impl Modal for ProviderPanel {
                         .collect();
 
                     if !models_to_add.is_empty() {
-                        // Store models for later addition
-                        self.discovery_state = DiscoveryState::Completed {
-                            account_id: account_id.clone(),
-                            models: models_to_add,
-                            selected: selected.clone(),
-                        };
-                        // Return to list mode, models will be added by event loop
-                        self.mode = Mode::List;
-                        self.account_filter = Some(account_id);
-                        return Ok(ModalAction::Continue);
+                        // Persist HERE. The old code only stashed the pick in
+                        // `discovery_state` and promised "models will be added by
+                        // event loop", but the panel exposes no accessor for that
+                        // state and `Modal::poll_background` returns only a redraw
+                        // flag -- the selection was silently dropped. On a refused
+                        // commit the picker stays open (`update_config_and_reload`
+                        // has already rendered the reason) so nothing is lost.
+                        if commit_discovered_models(&account_id, &models_to_add, ctx, renderer) {
+                            self.mode = Mode::List;
+                            self.account_filter = Some(account_id);
+                        }
                     }
                 }
                 _ => {}
@@ -2539,6 +2721,13 @@ impl Modal for ProviderPanel {
             }
         }
 
+        // Surface the last discovery outcome (failure reason / empty listing). A
+        // silent failure was indistinguishable from "this provider has no models",
+        // which is how the auto-load flow used to look simply broken.
+        if let DiscoveryState::Notice { message } = &self.discovery_state {
+            items.push((message.clone(), String::new()));
+        }
+
         items.push((format!("— {hint} —"), String::new()));
 
         downgrade_panel_items(&mut items, ctx.caps.unicode_symbols);
@@ -2577,31 +2766,37 @@ impl Modal for ProviderPanel {
     }
 
     fn poll_background(&mut self) -> bool {
-        if let Some((account_id, result)) = self.poll_discovery() {
-            match result {
-                Ok(models) if !models.is_empty() => {
-                    // Switch to discovery results mode
-                    let selected = vec![true; models.len()];
-                    self.mode = Mode::DiscoveryResults {
-                        account_id,
-                        models,
-                        selected,
-                        cursor: 0,
-                    };
-                    self.tab = Tab::Models;
-                    true
-                }
-                Ok(_) => {
-                    // No models discovered - show message
-                    false
-                }
-                Err(_e) => {
-                    // Discovery failed - stay in list mode, error will be shown
-                    false
-                }
+        let Some((account_id, result)) = self.poll_discovery() else {
+            return false;
+        };
+        match result {
+            Ok(models) if !models.is_empty() => {
+                // Switch to discovery results mode (every row preselected).
+                let selected = vec![true; models.len()];
+                self.mode = Mode::DiscoveryResults {
+                    account_id,
+                    models,
+                    selected,
+                    cursor: 0,
+                };
+                self.tab = Tab::Models;
+                true
             }
-        } else {
-            false
+            Ok(_) => {
+                self.note_discovery(
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelDiscoveryEmpty).into_owned(),
+                );
+                true
+            }
+            Err(error) => {
+                self.note_discovery(
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelDiscoveryFailed {
+                        reason: &error,
+                    })
+                    .into_owned(),
+                );
+                true
+            }
         }
     }
 }
@@ -3435,5 +3630,130 @@ mod tests {
 
         // An account and model with the same id are still distinct targets.
         assert!(!panel.confirm_double_delete("account-b", false));
+    }
+
+    fn account(
+        provider: &str,
+        base_url: Option<&str>,
+        api_key: Option<&str>,
+    ) -> ProviderAccountConfig {
+        let mut json = serde_json::json!({ "provider": provider });
+        if let Some(url) = base_url {
+            json["base_url"] = serde_json::json!(url);
+        }
+        if let Some(key) = api_key {
+            json["api_key"] = serde_json::json!(key);
+        }
+        serde_json::from_value(json).unwrap()
+    }
+
+    fn discovered(id: &str, name: &str) -> DiscoveredModel {
+        DiscoveredModel {
+            id: id.to_string(),
+            name: Some(name.to_string()),
+            context_window: Some(64_000),
+            max_tokens: None,
+        }
+    }
+
+    #[test]
+    fn discovery_target_prefers_the_account_endpoint_and_credential() {
+        let target = discovery_target_for_account(
+            &account("openai", Some("https://mirror.test/v1"), Some("sk-acc")),
+            "acc",
+        );
+        assert_eq!(target.account_id, "acc");
+        assert_eq!(target.provider_type, "openai");
+        assert_eq!(target.base_url, "https://mirror.test/v1");
+        assert_eq!(target.api_key.as_deref(), Some("sk-acc"));
+        assert!(target.is_discoverable());
+    }
+
+    #[test]
+    fn discovery_target_falls_back_to_the_preset_endpoint_and_protocol() {
+        // No stored endpoint: the preset default is authoritative (DeepSeek ships
+        // one) and the protocol follows the preset.
+        let deepseek = discovery_target_for_account(&account("deepseek", None, None), "ds");
+        assert_eq!(deepseek.base_url, "https://api.deepseek.com/v1");
+        assert_eq!(deepseek.provider_type, "openai");
+
+        // Ollama is keyless and lists through its own tags endpoint.
+        let ollama = discovery_target_for_account(&account("ollama", None, None), "local");
+        assert_eq!(ollama.provider_type, "ollama");
+        assert_eq!(ollama.base_url, "http://localhost:11434");
+
+        // Anthropic is probed over the OpenAI-compatible listing, as before.
+        let anthropic =
+            discovery_target_for_account(&account("anthropic", None, Some("sk-ant")), "an");
+        assert_eq!(anthropic.provider_type, "openai");
+    }
+
+    #[test]
+    fn discovery_target_without_any_endpoint_is_not_discoverable() {
+        // The generic compatible presets ship no default endpoint; an account that
+        // never set one has nothing to probe.
+        let target = discovery_target_for_account(&account("openai-compatible", None, None), "c");
+        assert_eq!(target.base_url, "");
+        assert!(!target.is_discoverable());
+
+        // ...and starting discovery for it must neither spawn a worker nor move the
+        // panel out of Idle.
+        let mut panel = ProviderPanel::open();
+        assert!(!panel.start_discovery(target));
+        assert_eq!(panel.discovery_state, DiscoveryState::Idle);
+        assert!(panel.discovery_rx.is_none());
+    }
+
+    #[test]
+    fn only_an_in_flight_request_blocks_the_next_discovery() {
+        assert!(can_start_discovery(&DiscoveryState::Idle));
+        // A failure/empty notice must stay re-tryable: the old terminal states
+        // refused every later request for the rest of the panel's life.
+        assert!(can_start_discovery(&DiscoveryState::Notice {
+            message: "boom".into()
+        }));
+        assert!(!can_start_discovery(&DiscoveryState::Pending {
+            account_id: "acc".into(),
+            base_url: "https://example.test/v1".into(),
+        }));
+    }
+
+    #[test]
+    fn a_just_saved_account_yields_a_target_before_the_config_reload_lands() {
+        // Regression: the add flow resolved discovery from `ctx.config`, which does
+        // not contain a just-saved account until the asynchronous provider reload
+        // lands -- so discovery never started and the panel showed an empty list
+        // with no error. The target is now built from the values being committed.
+        let pre_save = Config::default();
+        assert!(!pre_save.provider_accounts.contains_key("deepseek"));
+
+        let target =
+            discovery_target_for_account(&account("deepseek", None, Some("sk-test")), "deepseek");
+
+        assert_eq!(target.account_id, "deepseek");
+        assert!(target.is_discoverable());
+        assert_eq!(target.api_key.as_deref(), Some("sk-test"));
+    }
+
+    #[test]
+    fn discovery_plan_skips_models_the_catalog_already_has() {
+        let cfg: Config = serde_json::from_value(serde_json::json!({
+            "provider_accounts": { "acc": { "provider": "deepseek" } },
+            "models": { "acc/deepseek-chat": { "account": "acc", "model": "deepseek-chat" } }
+        }))
+        .unwrap();
+        let models = vec![
+            discovered("deepseek-chat", "DeepSeek Chat"),
+            discovered("deepseek-reasoner", "DeepSeek Reasoner"),
+        ];
+
+        let plan = plan_discovered_models("acc", &models, &cfg);
+
+        // Re-discovering an account is idempotent: the already-configured model is
+        // skipped, the new one keeps the "<account>/<wire id>" selection id.
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].0, "acc/deepseek-reasoner");
+        assert_eq!(plan[0].1.id, "deepseek-reasoner");
+        assert_eq!(plan[0].1.name.as_deref(), Some("DeepSeek Reasoner"));
     }
 }

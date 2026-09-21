@@ -2,9 +2,35 @@
 
 本文件是二次开发 fork 的长期约束与高信号上下文。历史方案、旧基线和上游 core 退役过程留在 `docs/`。
 
-**维护规则:文件内容变更时同步更新,不得滞后。** 若与代码冲突,以代码为准,先修正文档。
+**维护规则:文件内容变更时同步更新,不得滞后。** 项目结构、构建/测试/检查命令、架构边界、开发约定或本文件记录的任何事实发生变化时,**必须在同一次改动里同步改本文件**,不得留待后续轮次。
+
+**现状以本文件前半部分的活章节为准**:`常用命令` / `环境约束与已知坑` / `分支策略` / `架构总览` / `架构方向` / `Runtime 生命周期不变量` / `编码约束` / `门禁`。下方「已知剩余项」是按时间倒序的沿革流水,**其中的结论会被更晚的轮次推翻**——凡是标注 `[SUPERSEDED]`、`[已过期]`、`[CORRECTION]` 的条目,或与代码/实测冲突的条目,一律以代码与实测为准,不要据其行动。
 
 `rustcode` 在本文件与 `docs/architecture.md` 中均为**历史名引用**,不代表现役 crate。现役 crate 一律 `rustcode-*`。
+
+## 新参与者速查 (先看这几处入口)
+
+| 想改什么 | 落点 |
+|---------|------|
+| CLI 子命令 / 参数 / help 文案 | `crates/rustcode-cli/src/main.rs`(包名 `rustcode`) |
+| TUI 命令、渲染、模态 | `crates/rustcode-tuix/src/`(`event_loop/`、`render/`、`modals/`) |
+| 守护进程 / HTTP API / WebUI 后端 | `crates/rustcode-daemon/src/{main.rs,lib.rs,live_api.rs}` |
+| agent 运行时生命周期 | `crates/rustcode-coding/src/runtime.rs`(`CodingRuntime`,唯一 owner) |
+| 中立 agent 循环(**零文案**) | `crates/rustcode-kernel/src/agent.rs` |
+| 出站 HTTP 唯一工厂 | `crates/rustcode-capabilities/src/egress/client.rs` |
+| 目录名 / 环境变量前缀 / 端口 | `crates/rustcode-config/src/distribution.rs` |
+| 托管端点 / `RUSTCODE_*` 变量名 | `crates/rustcode-config/src/endpoints.rs` |
+| 用户可见文案 | `crates/rustcode-config/src/i18n/{messages,en,zh_cn}.rs` |
+| 独立评审 CLI / `rustcodex` | `crates/rustcode-clix/src/`、`crates/rustcode-review/` |
+| 反向隧道中继 | `crates/rustcode-tunnel/`(bin `rustcode-relay`) |
+
+## 仓库结构与工具链事实
+
+顶层目录:`crates/`(12 个成员 crate,`rustcode-wiki` 在列)、`webui/`(Preact 前端,`npm ci && npm run build` 产出 gitignored 的 `webui/dist/`)、`site/`(静态文档站,索引由 `cd site && node build-search-index.mjs` 重生成,勿手改 JSON)、`extensions/`(VS Code / JetBrains 插件)、`scripts/`(32 个构建/发布/测试脚本;**无** Makefile/justfile/Taskfile,不要去找)、`release/`(已提交的发布产物兜底源)、`docker/`、`packages/`(npm / homebrew 打包)、`examples/`、`docs/`、`evals/`(headless 配对评测,`evals/deepseek-v4-flash/` 含 `eval.py`/`benchmark.json`)。`Knowledge/` 是空目录且**未纳入 git**,勿依赖其内容;`target/`、`dist/` 为构建产物(gitignored)。
+
+根文件:`Cargo.toml`(workspace `version = "6.1.0"`)、`Cargo.lock`、`CONTEXT.md`(运行时术语)、`DEVENV.md`、`latest.json`(自更新 manifest,由 `scripts/release.sh` 与 `release/index.json` 同批生成)、`.mcp.json.example`。
+
+工具链:全仓 `edition = "2021"` + `resolver = "2"`;**无** `rust-toolchain` 文件,也**无** `rust-version` / MSRV 约束——不要臆断或新增版本钉。`.cargo/config.toml` 只做交叉构建底座:两个 musl target(`x86_64-`/`aarch64-unknown-linux-musl`)配各自 `*-linux-musl-gcc` linker,两个 windows-msvc target 配 `crt-static`;无其它全局配置。WebUI 需 Node `>= 22.6`(`webui/package.json` 的 engines,`scripts/build-webui.sh` 会 fail-closed 前置检查)。
 
 ## 常用命令
 
@@ -14,6 +40,9 @@
 - `cargo build --workspace` — 构建全部 `crates/*`(含默认成员外的 `clix`、`review`;原并列于此的 `codingplan` 已于 2026-09-09 按用户裁决 Q1=B 整体移除)。
 - `cargo install --path crates/rustcode-cli --locked` — 安装到 `~/.cargo/bin`。
 - WebUI 需先构建前端:`cd webui && npm ci && npm run build` 产出 `webui/dist/`(gitignored)。重建前端后必须 `cargo clean -p rustcode-daemon`,cargo 不追踪 `webui/dist/` 变化;缺失时所有 webui 页面返回 `webui not built`。
+  - 前端校验三件套:`npm run typecheck`(`tsc --noEmit`)、`npm test`(`node --experimental-strip-types --test "src/**/*.test.ts"`)、`npm run build`。**需 Node >= 22.6**(`package.json` `engines`)。
+  - 非 React 模块之间做值导入**必须带 `.ts` 扩展名**(如 `import { translate } from '../i18n.ts'`)——node 的 strip-types 无打包器解析,tsconfig 已开 `allowImportingTsExtensions`。`import type` 不受影响。
+  - 断言英文镜像文案的前端测试要在 stub localStorage 里 `setItem(LANG_STORAGE_KEY,'en')` 钉死语言(无 storage 时 `translate` 回落 zh)。
 - scripts/build-webui.sh —— WebUI 前端一键构建(等价 cd webui && npm ci && npm run build,可重复执行)。--if-missing 仅在 webui/dist/index.html 不存在时才构建(已存在则跳过并 exit 0);成功结尾会主动打印上一条要求的 cargo clean -p rustcode-daemon。前置检查 fail-closed:缺 node / 缺 npm / 缺 webui/package-lock.json / node 版本低于 webui/package.json 的 engines.node 时,打印可执行的修复指引并 exit 2;npm ci 或 npm run build 失败 exit 1;构建命令返回 0 但 dist/index.html 仍缺失(半产出)同样判失败。环境不足时绝不降级为警告继续。
 - 发布打包:`scripts/release*.sh`、`scripts/macOS-release-*.sh`、`scripts/linux-release-*.sh`、`scripts/sign-macos.sh`;矩阵见 `.github/workflows/build.yml`。
 - **仓库内发布兜底目录 `release/`(新增,与流水线解耦)**:每个成功构建的完整版本提交为 `release/<version>/`(如 `release/v5.1.0/`),目录**只按版本区分,不在层级上拆分 OS/ARCH**——OS/ARCH 由文件名 `rustcode-<version>-<os>-<arch>[.exe]` 体现(沿用既有命名)。发布脚本在构建成功后统一调用 `scripts/release-publish.sh` 把 `dist/<version>/` 里**已验证通过**的二进制原子合并进 `release/<version>/`(先写入 `release/.tmp/<version>` 再 rename,绝不删除已提交的其它平台二进制,故流水线/单机部分失败不会破坏既有成功版本),并生成 `release/<version>/manifest.json` 与顶层 `release/index.json`(版本降序 + 每版本 targets 清单)。开发者主机手动跑发布脚本即会填充 `release/` 并提交,作为 `install.sh` / `install.ps1` 的**二级回退源**(一级为 GitCode 在线 Release,二级为 `release/` 的 raw 文件 URL)。下载脚本多级回退顺序:在线 Release → `release/` 同版本 → `release/` 更旧版本(按 `index.json` 降序)→ 明确报错(并列出 OS/ARCH、试过的版本与来源)。
@@ -48,6 +77,20 @@ git branch --set-upstream-to=upstream/main main
 | `main` | 上游镜像,与 `upstream/main` 对齐 | **仅上游同步**(不得含 fork 自造提交) |
 
 fork 的全部改动只存在于 `dev`(及特性分支);**release tag 从 `dev` 打**,不再假定 `main` 带有 fork 代码。
+
+### 环境约束与已知坑 (先读这条,能省掉几轮返工)
+
+- **cgroup 内存上限 8GB**:默认并发下 rustc 会 SIGBUS(曾在 `rustcode-coding` 与 CLI 的 `acp_end_to_end` 目标崩溃)。**全量测试必须 `cargo test -j 1 --workspace --no-fail-fast`**。
+- **磁盘会被打满**:`target/debug/incremental` 能涨到 15G+ 并致链接器 `No space left on device`。该目录与 `target/debug/examples` 是**可弃缓存**,直接删恢复;**保留 `deps/` 下的 `.rlib/.rmeta/.d/.o`**,否则全量重编。
+- **工具会话超时约 60–90s**,长任务须 `setsid nohup ... &` 脱离会话后轮询。**同一日志路径绝不可被两个进程共用**,且启动全量前先确认 `pgrep -c cargo = 0`——并发全量测试会争用 daemon 固定端口 **13456-13458** 而假红(`daemon_token_auth` 尤甚)。
+- **CLI 包名是 `rustcode` 不是 `rustcode-cli`**:`-p rustcode-cli` 直接失败,用 `-p rustcode`。
+- **测试隔离靠 `#[ctor]`**:`coding`/`tuix`/`daemon`/`capabilities`/`cli` 入口文件顶部把 `RUSTCODE_HOME` 重定向到临时目录。**重命名这批目录/变量名时必须同步改,否则隔离失效**(会污染真实 `~/.rustcode`)。
+- **改动 i18n 文案后要跑整个 crate 的 `--lib`**:内容断言散落在 `en.rs`/`zh_cn.rs` 末尾的测试模块里,不是只有受影响的功能测试。
+- **断言本地化输出的测试必须持锁**:`i18n::test_lock()` + `set_locale(...)`。漏锁在默认中文下**确定性失败**(曾把 6 个存量红误诊为"locale 竞态")。
+  **但注意分两种锁**:`summarise_*` 类测试是**刻意与 locale 无关**的——它用 `t()` 现算期望值再比对,只持 `test_lock()` 取稳定性,**绝不能 `set_locale`**(两次调用间 locale 被翻转会制造新红)。
+- **统计残留面必须用 shell 精确计数**:`grep -rIoi ... | wc -l`。搜索工具的聚合 `count` 会低估(曾据此漏报 92 处的实际规模)。
+- **已跟踪文件不受 `.gitignore` 约束**:判断是否入库必须 `git ls-files` / `git status` 实测,别只读 `.gitignore`。
+- **子代理通道不稳定**:涉及编译的任务派发 `code-implementer` 易 idle timeout(编译期无输出触发空闲);纯文档任务(`doc-writer`,不跑构建)可正常派发。长编译任务宜直接执行或先拆小。
 
 ### 四层保护
 
@@ -101,6 +144,15 @@ WebUI 默认绑定地址(改这里前必读,默认值按入口而不同):
 - 独立 rustcode-daemon 二进制与 TUI 的 /webui 默认仍是 127.0.0.1:前者见 crates/rustcode-daemon/src/main.rs:21 的 DEFAULT_HOST,后者见 crates/rustcode-tuix/src/event_loop/commands.rs:2207。这是刻意保留的安全边界,**不要为了「统一默认值」把它们也改成 0.0.0.0**。
 - 非回环风险提示:旧的启动横幅 Msg::DaemonWarnNonLoopback 已从 run_server 移除,改由 Msg::WebuiLanWarning(0.0.0.0 或 ::)与 Msg::WebuiNonLoopbackWarning(其它非回环地址)承担 —— run_server 在非 quiet 分支(crates/rustcode-daemon/src/lib.rs:6381)绑定非回环时补发,回环绑定保持静默。判定谓词是 is_loopback_bind_host(crates/rustcode-daemon/src/lib.rs:1300,在 is_loopback_authority 之外额外认 ::1 与 ::ffff:127.0.0.1),故 IPv6 回环写法不告警;该谓词**只用于是否打印提示,不得用于任何鉴权判定**。Msg::DaemonWarnNonLoopback 变体本身按契约保留在 crates/rustcode-config/src/i18n/messages.rs:4903,勿当死码清理。
 
+免密访问 webui(不输入密码/令牌,打开即用):
+- 开关只有一个解析入口:`rustcode_config::config::webui_no_auth_enabled(cli_flag, Option<&Config>)`(crates/rustcode-config/src/config/mod.rs)。优先级**环境变量 `RUSTCODE_WEBUI_NO_AUTH` > 命令行 `--no-auth` > 配置 `webui_no_auth`**,默认 false(保持 token 鉴权)。环境变量取的是**显式值**,`=0` 能压住配置里已开的开关。**任何新入口都必须调它,禁止各自 `std::env::var` 再判一次**——否则两套真相。
+- 三个 driver 的接线:`rustcode webui --no-auth` 与 `rustcode daemon --no-auth`(crates/rustcode-cli/src/main.rs,两处 help 共用 `Msg::CliHelpNoAuth`);独立 `rustcode-daemon` 二进制没有该参数,只读 env + 配置(crates/rustcode-daemon/src/main.rs);TUI 的 `/webui` 同样不带开关,由 `ensure_server_and_open(host, port, sync, no_auth_flag)` 内部解析(第 4 参)。
+- 免密的落点是 `ServerOpts.webui_no_auth` → `AppState.webui_no_auth`,**鉴权判据是 `enforce_token = webui_tokens.is_some() && !webui_no_auth`**(crates/rustcode-daemon/src/lib.rs)。免密时 token store 仍在、token 文件照写(IDE 客户端行为不变),只是 `require_webui_token` 不再拦。
+- `client_interactive_permission()` 额外把 `webui_no_auth` 计入交互式权限:免密是**用户主动放弃鉴权**,不等于「没有 UI 可应答」。只看 `enforce_token` 会让绑 0.0.0.0 的免密 webui 因非回环被判成不可交互,权限请求无人应答。
+- 进程内 webui 复用判定额外要求鉴权姿态一致(`WebuiHandle.no_auth`):正在跑的实例若与本次要求的免密/带密相反,先 `abort` 旧的再重新起,绝不静默复用出与用户要求相反的访问方式。
+- 免密时 URL 不再 mint/携带 `?token=`,并在 URL 后与 daemon 启动横幅各补一条 `Msg::WebuiNoAuthNotice`。
+- `/tunnel`(经中继暴露到公网)**刻意不受本开关影响**(`ensure_tunnel_server` 硬写 `webui_no_auth: false`),远程接入始终要 token。
+
 ## 架构总览(分层与 crate 地图)
 
 ```text
@@ -115,10 +167,11 @@ leaf                rustcode-config / rustcode-updater / rustcode-tunnel
 ```
 
 > 上图 leaf 行的 `rustcode-codingplan` 与 `rustcode-codingplan-crypto` 两个 crate 已于 2026-09-09
-> 按用户裁决 Q1=B 删除,图中已移除;`rustcode-tunnel`(内置反向隧道中继客户端)为新增 leaf 成员。现工作区 crates 目录下有 13 个成员(`rustcode-wiki` 为 2026-09-11 新增的项目 wiki 自动生成模块)。
+> 按用户裁决 Q1=B 删除,图中已移除;`rustcode-tunnel`(内置反向隧道中继客户端)为新增 leaf 成员。现工作区 crates 目录下有 **12 个成员**,`members = ["crates/*"]` 全量纳入;`rustcode-wiki`(2026-09-11 新增的项目 wiki 自动生成模块)是其中之一。`default-members` 为 cli / daemon / tuix / **tunnel**——tunnel 特意列入,好让 `cargo build --release` 直接产出中继二进制 `rustcode-relay`(`crates/rustcode-tunnel/src/bin/rustcode-relay.rs`),否则需 `-p rustcode-tunnel` 而容易被漏掉。
 > 原 `auth` leaf crate（即旧 `rustcode` 的 auth 子 crate）已随本批次基线删除,故已从 leaf 行移除,不保留对照。
 
 - **出站 HTTP 只有一个入口**:`capabilities/src/egress/`(`egress` feature,由 `provider` / `web` / `atomgit` / `mcp` 拉起)。`egress::client::build_http_client` 是唯一工厂,统一承载信任根分层、代理策略、超时、UA、pool-idle。**新增任何出站调用都必须走它,禁止再写 `reqwest::Client::new()`。**
+  - **两类结构性豁免,别当违规上报**:① leaf crate 无法依赖 capabilities(`rustcode-updater` / `rustcode-tunnel`);② LLM 适配器(`provider/{anthropic,openai_compat,ollama}.rs`)打的是**用户自供的 base_url**,属 BYO 语义,不走工厂。
 - 依赖只向下:`kernel`(无内部依赖) <- `capabilities`(禁止反向依赖 coding / driver / 已退役 core) <- `coding`(另依赖 kernel、config、review) <- `tuix`(另依赖 daemon、updater) <- `cli`(唯一同时依赖 tuix + daemon)。`clix -> review, coding, capabilities, kernel, config`。
 - 工作区 `members = ["crates/*"]`,`default-members` 为 cli / daemon / tuix / tunnel;`rustcode-codingplan-crypto` 曾是闭源签名占位桩(默认成员故意不含它,官方构建用 `--features rustcode/codingplan-crypto` 开启),该 crate 与该 feature 已于 2026-09-09 一并删除,现无此成员、无此开关。
 - **[SUPERSEDED 2026-09-09,整条作废]** codingplan 的网关 HTTP client feature 传递链(`client` Cargo feature、驱动侧 `codingplan` feature 向上传递 `rustcode-codingplan/client`、原先必跑的七种 feature 组合校验)已随 crate 删除而不复存在,详见 `docs/archive/`。
@@ -264,6 +317,11 @@ CLI / TUI / daemon / background / ACP / clix code
 - [STREAMING] LLM client 必须原生支持 SSE 流式与非流式;Anthropic 与 OpenAI chunk 差异统一映射为内部 `StreamEvent`。
 - [ERROR] 用 `thiserror` 定义模块级强类型错误,顶层用 `anyhow` 包装;禁止裸 `.unwrap()`/`.expect()` 导致 panic(测试与明确不变量处除外)。
 - [DEP] 清理遥测后同步检查 `Cargo.toml`/`Cargo.lock`,最小化 `reqwest`/`tokio` 等共用依赖 feature。
+- **[I18N] 用户可见文案一律走 `rustcode-config` 的 i18n 目录**(`src/i18n/{messages.rs,en.rs,zh_cn.rs}`),**默认语言是简体中文**。`Msg` 变体在两个语言文件里都有 arm,漏一个就编译不过——**parity 由编译器强制,这就是这套设计的目的**,不要绕开它:
+  - **禁止新建 `fn l(en, zh)` / `if zh {...} else {...}` 之类临时双语 helper**,也不要在 `format!` 里直接写中文散文。需按终端能力选语言时用 `t_with(locale, msg)`。
+  - **Rust 侧三件套的边界(改错地方会制造跨层污染)**:L0 `rustcode-kernel` **零文案**——它只发结构化枚举(`RetryReason` / `AgentNotice` 等,带 `machine_token()` 与英文 diagnostic),**不得调 `t()`**;本地化在 L2 `rustcode-coding` 的单点 chokepoint(`localize_agent_notice` / `retry_reason_label` / `localize_kernel_event`)和 driver 边缘完成。kernel 之外各层按此分层,别把中文塞回低层。
+  - **不译的固定面**:机器码 / `code` 字段与稳定 token、工具名与 JSON 键值、HTTP 方法与路径、配置键名与路径、模型面文本(persona、工具描述与结果)、CLI 命令名与 shell 示例、`y/yes/always/n` 判定 token、各文件格式约定。**原始错误串与 `{error}` 一律原样透传**,只在外面包一层本地化前缀。
+  - 细节(锁的两种用法、改文案后要跑整个 crate 的 `--lib` 等)见「环境约束与已知坑」。
 
 ## 修改前检查
 
@@ -307,6 +365,9 @@ G8  grep -rni "atomcode" docs/architecture.md   0 命中(描述已退役 core �
 ```
 
 **[G7 条文修订 2026-09-09] 上面代码块第 (2) 类豁免已作废;执行 G7 时该类一律以本节为准。**
+
+**改门禁前必读**:G1–G3 三行是**可执行真值**,但 **G6/G7/G8 代码块的字面受 `scripts/check-zh-docs.py` 的 AC-4 code span 判据冻结,不得直接改动块内文本**——需要修订时按上面 G7 的做法,在块外写一节修订说明覆盖块内条文。
+
 上方代码块受文档门禁冻结(scripts/check-zh-docs.py 的 AC-4 code span 判据不允许改动其字面),
 故修订以本节形式落地:读到代码块第 (2) 类「旧 AtomGit- 前缀兼容…旧配置键仍需识别,勿删」时,
 必须替换为本节结论。依据是用户裁决 Q1=B 与 Q2'(裁决原文见
@@ -339,7 +400,16 @@ i18n 三件套(messages.rs / en.rs / zh_cn.rs)的 Cp 前缀变体与 kernel 注�
 早先记在 ③ 的 capabilities/src/provider/error.rs 与 cli/src/vision.rs 两处现已 0 命中。
 全量验证(T-31)尚未完成,最终残留清单以测试工程师的报告为准。
 
-**[CHECK] CI 已补齐**:`.github/workflows/ci.yml` 已创建,在 push/PR 到 `main`/`dev` 时触发 G1(`cargo fmt --check`)、G2(`cargo clippy --workspace --all-targets -- -D warnings`)、G3(`cargo test --workspace`)三个核心 job,并补齐 G4(`headless-smoke`)、G5(`acp-smoke`)、G6/G7(`no-telemetry`)、G8(`no-stale-naming`)四个 CI job。G2 已收紧为 `-D warnings`(clippy warnings 已全部收敛为 0)。`build.yml` 仍只管 release 构建。
+**[CHECK] CI 已补齐**:`.github/workflows/ci.yml` 已创建,在 push/PR 到 `main`/`dev` 时触发 G1(`cargo fmt --check`)、G2(`cargo clippy --workspace --all-targets -- -D warnings`)、G3(`cargo test --workspace`)三个核心 job,并补齐 G4(`headless-smoke`)、G5(`acp-smoke`)、G6/G7(`no-telemetry`)、G8(`no-stale-naming`)四个 CI job。`ci.yml` 共 **9 个 job**——上述 7 个(覆盖 G1–G8)之外还有 `branch-protection`(见上文四层保护 1)与 `release-gate`(见四层保护 4),别把 `ci.yml` 记成只有门禁那 7 个。G2 已收紧为 `-D warnings`(clippy warnings 已全部收敛为 0)。`build.yml` 仍只管 release 构建。
+   注意仓库里有**两个** CI 入口,别只看一个:`check.yml`(`name: check`,push 到 `main`/`release/**` + 任意 PR + 手动触发)另跑一套——`gate` job(`cargo check --workspace --all-targets` + `cargo test --workspace`)与 `lint` job(`cargo fmt --all -- --check` + `cargo clippy --workspace --all-targets -- -D warnings`,两步都**无** `continue-on-error`,即都阻塞)。**注意 `lint` job 的显示名写作 "fmt (blocking) + clippy (report only)" 是过期措辞**:实测 clippy 步骤没有任何豁免开关,`-D warnings` 会真红,别据 job 名以为 clippy 可忽略。两份工作流的重叠命令以 `ci.yml` 为对外口径;`check.yml` 里的 `cargo test --workspace` 不带 `-j 1`(CI runner 内存足够),**本地复现其红必须自己补 `-j 1`**,否则会撞上本文件的 8GB cgroup 限制而拿到假红。另外 `.github/workflows/` 下不全是工作流:`create_tag_release.py` 是被 `build.yml` 调用(6 处)的 Release 上传脚本,读 `RUSTCODE_RELEASE_*` env、缺省用脚本内置默认(即本 fork 自己的发行主页),别把它当成本仓库的 workflow 入口。
+
+### 门禁执行要点
+
+- **G1 会因未提交的 WIP 而红**——先 `git status` 看清是谁的改动,别把别人(或并发会话)的未格式化文件当成自己的问题;格式化用 `cargo fmt -p <包名>`,裸 `cargo fmt` 会波及全工作区。注意 **cli 的包名是 `rustcode`**。
+- **`trust_key_golden_matches_core_algorithm` 已不再是恒红**。历史上它因 `project_trust_key` 用 `std::collections::hash_map::DefaultHasher` 而被判"跨工具链不稳定、铁律禁改",但现实现已换成**固定 golden**(`"e07a86b0ce8a1c59"`),实测通过。本文件下方多处把它记为「唯一失败 / 文档化已知红」的条目**均已过期**,若它变红请当作真回归排查,不要以"已知红"为由跳过。
+  另注意该测试是 `#[cfg(unix)]` 且**位于 `mcp` feature 之后**(`mcp` 非默认 feature)——`cargo test -p rustcode-capabilities --lib` 根本不编译这个模块,要复现/验证必须 `--features mcp`。
+- **G3 必须 `-j 1`**(见「环境约束与已知坑」的内存与端口两条),且 `--no-fail-fast` 才能拿到完整失败清单。
+- **纯格式证明用去空白比对**:`git diff -w` **不能**用来证明格式改动无语义影响(它不忽略 rustfmt 的换行合并)。正确做法是剥离**全部**空白字符后比对字符序列(`''.join(text.split())`)。
 
 ## 已知剩余项 (follow-up, 非重命名必须)
 

@@ -126,7 +126,10 @@ fn resolve(key: &str, hosted: &str) -> String {
 
 /// Parse a boolean switch. Anything unrecognised is `None` so the caller keeps
 /// its own default rather than guessing at a typo's intent.
-fn env_bool(key: &str) -> Option<bool> {
+///
+/// `pub(crate)` because the WebUI no-auth opt-in (`config::webui_no_auth_enabled`)
+/// asks the same question and must not re-invent the spelling table.
+pub(crate) fn env_bool(key: &str) -> Option<bool> {
     let raw = std::env::var(key).ok()?;
     match raw.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => Some(true),

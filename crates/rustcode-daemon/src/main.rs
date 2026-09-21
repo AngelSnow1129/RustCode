@@ -168,6 +168,11 @@ async fn main() {
         loaded_config.as_ref().and_then(|c| c.access_key.clone()),
         &token_store,
     );
+    // 免密开关（本二进制没有 --no-auth 参数，走配置 `webui_no_auth` 或环境变量
+    // RUSTCODE_WEBUI_NO_AUTH）。开启后上面解析出的密钥仍然登记进 store、token 文件
+    // 照写，但中间件不再校验 —— IDE 客户端不带头也能连。
+    let webui_no_auth =
+        rustcode_config::config::webui_no_auth_enabled(false, loaded_config.as_ref());
 
     if let Err(e) = run_server(ServerOpts {
         host,
@@ -175,6 +180,7 @@ async fn main() {
         idle_timeout_secs,
         startup_mode,
         webui_tokens: Some(token_store),
+        webui_no_auth,
         // 独立二进制：保留完整启动横幅。
         quiet: false,
         // 独立二进制 / VSCode：沿用 config 的 default_workdir，不覆盖。

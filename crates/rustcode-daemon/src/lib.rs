@@ -611,6 +611,12 @@ pub struct AppState {
     /// 仅 webui 模式（启动时提供了 token store）强制 token 鉴权；
     /// 独立 daemon / VSCode 实例不强制，保持原行为。
     pub enforce_token: bool,
+    /// 免密模式：由用户显式开启（`--no-auth` / `webui_no_auth` /
+    /// `RUSTCODE_WEBUI_NO_AUTH`），受保护路由不再校验 Bearer 与 Cookie。
+    /// 与 `enforce_token=false` 的区别在于**成因**：本字段为 true 表示用户主动
+    /// 放弃了鉴权，因此 webui 客户端仍应保有交互式权限（见
+    /// [`client_interactive_permission`]），不能因为没了 token 就退化成无人应答。
+    pub webui_no_auth: bool,
     /// webui 交互式权限：session_id -> decider response 发送端
     pub pending_permissions: permission_bridge::PermissionResponders,
     /// `/chat` structured user-input answers, keyed by (session_id, native request_id).
@@ -1281,12 +1287,19 @@ fn is_loopback_bind_host(host: &str) -> bool {
 /// Whether this client can receive interactive approval prompts.
 /// Token-protected webui mode is always interactive. Local known clients are
 /// also allowed on loopback because their UI can answer `/chat/permission`.
+///
+/// `webui_no_auth` 单独计入：免密是**用户主动放弃鉴权**，不是"没有 UI 可应答",
+/// 若只看 `enforce_token`，一个绑在 0.0.0.0 的免密 webui 会因非回环而被判成
+/// 不可交互 —— 于是权限请求无人应答、工具调用被静默拦掉，正是免密模式最常用的
+/// 部署形态（`--host 0.0.0.0` 给同网设备用）。
 fn client_interactive_permission(
     client_mode: ClientMode,
     enforce_token: bool,
+    webui_no_auth: bool,
     bind_host: &str,
 ) -> bool {
     enforce_token
+        || (webui_no_auth && matches!(client_mode, ClientMode::Webui))
         || (matches!(
             client_mode,
             ClientMode::Channel | ClientMode::Webui | ClientMode::Vscode | ClientMode::Jetbrains
@@ -4324,8 +4337,12 @@ async fn chat_stream(
     let mcp_cache = state.mcp_cache.clone();
     let pending_permissions = state.pending_permissions.clone();
     let pending_user_inputs = state.pending_user_inputs.clone();
-    let interactive_permission =
-        client_interactive_permission(client_mode, state.enforce_token, &state.bind_host);
+    let interactive_permission = client_interactive_permission(
+        client_mode,
+        state.enforce_token,
+        state.webui_no_auth,
+        &state.bind_host,
+    );
     // Only the WebUI currently implements the typed `/chat/user-input` response endpoint.
     let interactive_user_input = matches!(client_mode, ClientMode::Webui);
 
@@ -5311,6 +5328,8 @@ struct WebuiHandle {
     port: u16,
     /// server 绑定的地址（如 `127.0.0.1` / `0.0.0.0`）；换绑前需先 stop。
     host: String,
+    /// 该实例启动时的鉴权姿态（true = 免密）。复用时必须一致，否则先停后起。
+    no_auth: bool,
     /// server task 的 abort handle；用于 `/webui stop` 停止。
     abort: tokio::task::AbortHandle,
 }
@@ -5383,19 +5402,43 @@ pub const WEBUI_DEFAULT_PORT: u16 = rustcode_config::distribution::WEBUI_PORT;
 /// 默认 `0.0.0.0`；TUI `/webui` 默认 `127.0.0.1`，见设计 O-1。`0.0.0.0` 暴露到局域网/外网）。
 /// `port` 为首选端口（CLI 子命令可自定义；TUI 传 13456）；被占用时自动向上扫描。
 ///
+/// `no_auth_flag` 是调用方的命令行开关（`--no-auth`）。最终是否免密由
+/// [`rustcode_config::config::webui_no_auth_enabled`] 在「env > CLI 开关 > 配置」
+/// 三者间定夺，本函数只负责照结果执行 —— 免密时不再 mint token、URL 里也不带
+/// `?token=`，浏览器打开即用。
+///
 /// 不再轮询等待绑定：先在本函数内同步绑定端口（亚毫秒级，且借此拿到真实端口、
 /// 支持动态端口），再把已绑定的 listener 交给后台 `run_server`。浏览器随即打开，
 /// 页面靠 SPA 自带 loading 态在 server bootstrap 完成前过渡。
-pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String {
+pub async fn ensure_server_and_open(
+    host: &str,
+    port: u16,
+    sync: bool,
+    no_auth_flag: bool,
+) -> String {
+    let no_auth = rustcode_config::config::webui_no_auth_enabled(
+        no_auth_flag,
+        Config::load(&Config::default_path()).ok().as_ref(),
+    );
     // 1) 短临界区判定能否复用仍在运行的 server（std Mutex guard 不可跨 .await）。
     //    复用时连同其绑定地址一起取出：换绑需先 /webui stop。
+    //    额外要求鉴权姿态一致：正在跑的实例若与本次要求相反（一个免密一个带密），
+    //    直接复用会给出与用户要求相反的访问方式 —— 要免密却仍 401，或要带密却
+    //    免密开放。此时先停掉旧实例，再按本次姿态重新起。
     let reuse = {
-        let guard = WEBUI.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = WEBUI.lock().unwrap_or_else(|e| e.into_inner());
         match guard.as_ref() {
-            Some(handle) if !handle.abort.is_finished() => {
+            Some(handle) if !handle.abort.is_finished() && handle.no_auth == no_auth => {
                 Some((handle.tokens.clone(), handle.port, handle.host.clone()))
             }
-            _ => None,
+            Some(_) => {
+                // 姿态不同：先关掉旧的，否则它会继续占着端口并保持旧姿态。
+                if let Some(handle) = guard.take() {
+                    handle.abort.abort();
+                }
+                None
+            }
+            None => None,
         }
     };
 
@@ -5427,6 +5470,8 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
             startup_mode: ClientMode::Webui,
             // 传入同一 store：server 进入 webui 模式（enforce_token=true）并用它校验 token。
             webui_tokens: Some(tokens.clone()),
+            // 免密时 store 仍在、但中间件不再拦（见 run_server）。
+            webui_no_auth: no_auth,
             // 进程内启动：抑制启动横幅，避免污染 TUI 画面。
             quiet: true,
             // `rustcode webui` 的初始目录应是用户运行命令的目录，而非 config 默认。
@@ -5447,13 +5492,15 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
                 tokens: tokens.clone(),
                 port: actual_port,
                 host: host.to_string(),
+                no_auth,
                 abort: task.abort_handle(),
             });
         }
         (tokens, actual_port, host.to_string())
     };
 
-    let token = tokens.mint();
+    // 免密时不 mint：URL 里不带 token，任何拿到该地址的人都能直接用（见下方提示）。
+    let token = if no_auth { None } else { Some(tokens.mint()) };
     // 选择自动打开浏览器用的本机地址：
     // - 回环（127.0.0.1/localhost/::1）或通配（0.0.0.0/::）绑定时，回环都在监听集合内，用 127.0.0.1；
     // - 绑定到具体非回环地址（如 Tailscale 100.x）时，socket 只监听那一个地址，127.0.0.1 不在
@@ -5481,16 +5528,30 @@ pub async fn ensure_server_and_open(host: &str, port: u16, sync: bool) -> String
     } else {
         bound_host.clone()
     };
-    let local_url = format!(
-        "http://{}:{}/?token={}{}",
-        open_host, actual_port, token, sync_suffix
-    );
+    let local_url = match token {
+        Some(token) => format!(
+            "http://{}:{}/?token={}{}",
+            open_host, actual_port, token, sync_suffix
+        ),
+        // 免密：URL 里没有可泄漏的凭证，同网设备/收藏夹直接复用这个地址即可。
+        None => format!(
+            "http://{}:{}/{}",
+            open_host,
+            actual_port,
+            if sync { "?sync=1" } else { "" }
+        ),
+    };
     let opened = util::open_browser(&local_url).is_ok();
     let mut msg = if opened {
         t(Msg::WebuiOpenedBrowser { url: &local_url }).into_owned()
     } else {
         t(Msg::WebuiOpenManually { url: &local_url }).into_owned()
     };
+
+    // 免密：把"没有密码"这件事说清楚，别让用户在不知情下把 agent 暴露出去。
+    if no_auth {
+        msg.push_str(&t(Msg::WebuiNoAuthNotice));
+    }
 
     // 复用了一个绑定地址不同的运行实例：提示如何换绑。
     if bound_host.as_str() != host {
@@ -5624,6 +5685,9 @@ pub async fn ensure_tunnel_server(host: &str, port: u16) -> Result<(String, u16,
         startup_mode: ClientMode::Webui,
         // 远程客户端必须持 bearer 访问令牌（enforce_token=true）。
         webui_tokens: Some(store),
+        // 隧道**刻意不受免密开关影响**：它经中继把端口暴露到公网，免密等于把 agent
+        // 交给任何拿到中继地址的人。`webui_no_auth` 只作用域以内的 webui/daemon。
+        webui_no_auth: false,
         // 进程内启动：抑制启动横幅，避免污染 TUI 画面。
         quiet: true,
         working_dir_override: std::env::current_dir().ok(),
@@ -6253,6 +6317,11 @@ pub struct ServerOpts {
     pub startup_mode: ClientMode,
     /// webui token 存储；进程内启动器传入以共享同一 store，独立二进制传 None。
     pub webui_tokens: Option<auth_token::WebuiTokenStore>,
+    /// 免密模式：`true` 时受保护路由不校验 Bearer token 与 Cookie（`enforce_token`
+    /// 因此为 false），浏览器直接打开即可用。由 driver 经
+    /// [`rustcode_config::config::webui_no_auth_enabled`] 解析后传入，本函数不再
+    /// 自行读配置 —— 解析规则（env > CLI > config）只有一处，避免两个真相。
+    pub webui_no_auth: bool,
     /// 启动时的工作目录覆盖。进程内 `rustcode webui` 传入其启动 cwd，使 daemon
     /// 初始项目目录为用户实际运行命令的目录，而非 config 里陈旧的 default_workdir。
     /// 独立二进制 / VSCode 传 None（沿用 config 默认）。
@@ -6288,6 +6357,7 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         port,
         idle_timeout_secs,
         webui_tokens,
+        webui_no_auth,
         quiet,
         working_dir_override,
         prebound_listener,
@@ -6333,7 +6403,10 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         shutdown_tx: shutdown_tx.clone(),
         last_activity: last_activity.clone(),
         active_connections: active_connections.clone(),
-        enforce_token: webui_tokens.is_some(),
+        // 免密模式下「有 token store」不再等于「要鉴权」：store 仍在（别的 driver
+        // 可能共享它、token 文件也照写），但中间件不再拦。
+        enforce_token: webui_tokens.is_some() && !webui_no_auth,
+        webui_no_auth,
         webui_tokens: webui_tokens.unwrap_or_default(),
         pending_permissions: permission_bridge::PermissionResponders::new(),
         pending_user_inputs: permission_bridge::UserInputResponders::new(),
@@ -6542,6 +6615,11 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
             } else {
                 println!("{}", t(Msg::WebuiNonLoopbackWarning));
             }
+        }
+        // 免密是用户在配置/命令行里显式开的，但每次启动都要看得见：这是唯一能
+        // 提醒"这个端口没有门禁"的时机（横幅 quiet 时由 ensure_server_and_open 承担）。
+        if webui_no_auth {
+            println!("{}", t(Msg::WebuiNoAuthNotice));
         }
         println!();
         println!("{}", t(Msg::DaemonApiEndpoints));
@@ -7396,6 +7474,7 @@ mod tests {
             active_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             webui_tokens: auth_token::WebuiTokenStore::default(),
             enforce_token: false,
+            webui_no_auth: false,
             pending_permissions: permission_bridge::PermissionResponders::new(),
             pending_user_inputs: permission_bridge::UserInputResponders::new(),
             bind_host: "127.0.0.1".into(),
@@ -9016,37 +9095,63 @@ mod channel_mode_tests {
         assert!(client_interactive_permission(
             ClientMode::Ide,
             true,
+            false,
             "0.0.0.0"
         ));
         assert!(client_interactive_permission(
             ClientMode::Channel,
             false,
+            false,
             "127.0.0.1"
         ));
         assert!(client_interactive_permission(
             ClientMode::Vscode,
+            false,
             false,
             "127.0.0.1"
         ));
         assert!(client_interactive_permission(
             ClientMode::Jetbrains,
             false,
+            false,
             "localhost:17321"
         ));
         assert!(!client_interactive_permission(
             ClientMode::Channel,
+            false,
             false,
             "0.0.0.0"
         ));
         assert!(!client_interactive_permission(
             ClientMode::Vscode,
             false,
+            false,
             "0.0.0.0"
         ));
         assert!(!client_interactive_permission(
             ClientMode::Ide,
             false,
+            false,
             "127.0.0.1"
+        ));
+    }
+
+    #[test]
+    fn no_auth_webui_stays_interactive_off_loopback() {
+        // 免密是用户主动放弃鉴权，不是"没有 UI 可应答"：绑到 0.0.0.0 的免密
+        // webui 是最常见的部署形态（给同网设备用），必须仍能应答权限请求。
+        assert!(client_interactive_permission(
+            ClientMode::Webui,
+            false,
+            true,
+            "0.0.0.0"
+        ));
+        // 免密只给 webui 客户端兜底：不带 token 文件的 IDE/JS 客户端不在契约内。
+        assert!(!client_interactive_permission(
+            ClientMode::Ide,
+            false,
+            true,
+            "0.0.0.0"
         ));
     }
 

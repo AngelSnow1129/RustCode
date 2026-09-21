@@ -2776,6 +2776,8 @@ pub enum Msg<'a> {
     /// `/webui stop` outcomes.
     WebuiStopped,
     WebuiNotRunning,
+    /// `/webui` / daemon: token auth is OFF (no password needed to get in).
+    WebuiNoAuthNotice,
     /// `/app` server: port bind failed.
     AppServerBindFailed {
         host: &'a str,
@@ -3674,6 +3676,8 @@ pub enum Msg<'a> {
     CliHelpIdleTimeout,
     CliHelpPortWebui,
     CliHelpHost,
+    /// `webui` / `daemon` `--no-auth`: serve without the bearer token.
+    CliHelpNoAuth,
     CliHelpUninstallYes,
     CliHelpUninstallPurge,
     CliHelpUninstallKeepData,
@@ -4443,6 +4447,18 @@ pub enum Msg<'a> {
     ProviderPanelDiscoveryTitle,
     /// Provider panel: discovery results hint.
     ProviderPanelDiscoveryHint,
+    /// Provider panel: discovery answered with an empty model list.
+    ProviderPanelDiscoveryEmpty,
+    /// Provider panel: discovery failed; `reason` is the transport/parse error.
+    ProviderPanelDiscoveryFailed {
+        reason: &'a str,
+    },
+    /// Provider panel: the discovery worker exited without answering.
+    ProviderPanelDiscoveryWorkerStopped,
+    /// Provider panel: a discovery selection was persisted as model profiles.
+    ProviderPanelModelsAdded {
+        count: usize,
+    },
     /// Menu search-box placeholder: session list.
     MenuPlaceholderSearchSessions,
     /// Menu search-box placeholder: saved-directory list.

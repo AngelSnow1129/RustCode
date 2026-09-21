@@ -1838,6 +1838,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::WebuiNonLoopbackWarning => "\n[!] Bound to a non-loopback address: anyone who can reach it can get in with this token. Use only on a trusted network (no TLS).".into(),
         Msg::WebuiStopped => "webui server stopped".into(),
         Msg::WebuiNotRunning => "webui server is not running".into(),
+        Msg::WebuiNoAuthNotice => "\n[!] No-auth mode is ON: no access token is checked, so anyone who can reach this port can drive the agent (shell tools included). Trusted networks only; turn webui_no_auth off and restart to lock it back down.".into(),
         Msg::AppServerBindFailed { host, port, error } =>
             format!("bind {host}:{port} failed ({error})").into(),
         Msg::BgSessionLoadFailed { error } =>
@@ -2359,6 +2360,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliHelpIdleTimeout => "Idle-shutdown timeout in seconds; 0 disables".into(),
         Msg::CliHelpPortWebui => "Port (default: 13457)".into(),
         Msg::CliHelpHost => "Bind address (default: 0.0.0.0; use 127.0.0.1 for local-only)".into(),
+        Msg::CliHelpNoAuth => "Serve without an access token: open the URL and go (trusted networks only; also settable via config webui_no_auth or RUSTCODE_WEBUI_NO_AUTH)".into(),
         Msg::CliHelpUninstallYes => "Skip prompts; use per-group default decisions".into(),
         Msg::CliHelpUninstallPurge => "Wipe ~/.rustcode/ entirely".into(),
         Msg::CliHelpUninstallKeepData => "Keep ~/.rustcode/ entirely".into(),
@@ -2772,6 +2774,14 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::ProviderPanelDiscoveryTitle => "Discovered Models:".into(),
         Msg::ProviderPanelDiscoveryHint =>
             "Space Toggle  Enter Add  Ctrl+A All  Ctrl+N None  Esc Cancel".into(),
+        Msg::ProviderPanelDiscoveryEmpty =>
+            "discovery returned no models for this provider".into(),
+        Msg::ProviderPanelDiscoveryFailed { reason } =>
+            format!("model list discovery failed: {reason}").into(),
+        Msg::ProviderPanelDiscoveryWorkerStopped =>
+            "model list discovery failed: the background worker exited".into(),
+        Msg::ProviderPanelModelsAdded { count } =>
+            format!("added {count} model(s) from discovery").into(),
         Msg::MenuPlaceholderSearchSessions => "Search sessions...".into(),
         Msg::MenuPlaceholderSearchDirs =>
             "Search saved directories or enter a path...".into(),

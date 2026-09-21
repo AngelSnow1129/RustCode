@@ -23,6 +23,7 @@ async fn chat_requires_token_health_is_public() {
             quiet: true,
             prebound_listener: None,
             daemon_token_file: Some("it-token".to_string()),
+            webui_no_auth: false,
         })
         .await
         .ok();
@@ -58,6 +59,60 @@ async fn chat_requires_token_health_is_public() {
     // token file written with 0600
     let tf = tmp.join(format!("daemon-{port}.json"));
     assert!(tf.exists(), "daemon token file must exist");
+
+    handle.abort();
+    std::env::remove_var("RUSTCODE_HOME");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// 免密模式（`--no-auth` / `webui_no_auth` 的最终落点）：`webui_no_auth=true`
+/// 时 store 里那个 token 不再被校验，匿名请求必须放行。
+///
+/// 反向锁定也在这里：同一套路由在 `webui_no_auth=false` 下必须 401（见上一条测试），
+/// 否则"免密"就变成了"鉴权整体失效"。
+#[tokio::test]
+async fn no_auth_mode_serves_protected_routes_without_token() {
+    let tmp = std::env::temp_dir().join(format!("rustcode_it_noauth_{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::env::set_var("RUSTCODE_HOME", &tmp);
+
+    let port = 18098u16;
+    let tmp_for_spawn = tmp.clone();
+    let handle = tokio::spawn(async move {
+        rustcode_daemon::run_server(rustcode_daemon::ServerOpts {
+            host: "127.0.0.1".into(),
+            port,
+            idle_timeout_secs: 0,
+            startup_mode: rustcode_daemon::client_mode::ClientMode::Webui,
+            webui_tokens: {
+                let store = rustcode_daemon::auth_token::WebuiTokenStore::new();
+                store.insert("it-token".to_string());
+                Some(store)
+            },
+            webui_no_auth: true,
+            working_dir_override: Some(tmp_for_spawn),
+            quiet: true,
+            prebound_listener: None,
+            daemon_token_file: None,
+        })
+        .await
+        .ok();
+    });
+
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let base = format!("http://127.0.0.1:{port}");
+
+    // 关键断言：不带任何凭证也必须放行（免密的定义）。
+    let anon = reqwest::Client::new()
+        .get(format!("{base}/models"))
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(
+        anon.status(),
+        401,
+        "no-auth mode must serve protected routes anonymously"
+    );
 
     handle.abort();
     std::env::remove_var("RUSTCODE_HOME");

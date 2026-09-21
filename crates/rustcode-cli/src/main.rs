@@ -449,11 +449,13 @@ fn build_i18n_command() -> clap::Command {
                 .mut_arg("idle_timeout", |a| {
                     a.help(t(Msg::CliHelpIdleTimeout).into_owned())
                 })
+                .mut_arg("no_auth", |a| a.help(t(Msg::CliHelpNoAuth).into_owned()))
         })
         .mut_subcommand("webui", |s| {
             s.about(t(Msg::CliAboutWebui).into_owned())
                 .mut_arg("port", |a| a.help(t(Msg::CliHelpPortWebui).into_owned()))
                 .mut_arg("host", |a| a.help(t(Msg::CliHelpHost).into_owned()))
+                .mut_arg("no_auth", |a| a.help(t(Msg::CliHelpNoAuth).into_owned()))
         })
         .mut_subcommand("plugin", |s| {
             s.about(t(Msg::CliAboutPlugin).into_owned())
@@ -1084,6 +1086,11 @@ enum Commands {
         /// RUSTCODE_DAEMON_IDLE_TIMEOUT overrides. Default 1800 (30 min).
         #[arg(long)]
         idle_timeout: Option<u64>,
+        /// Serve without an access token: any client that can reach the port is
+        /// let in. Trusted networks only (config `webui_no_auth` /
+        /// env RUSTCODE_WEBUI_NO_AUTH also work).
+        #[arg(long)]
+        no_auth: bool,
     },
     /// Start the local in-process browser webui server (no separate binary needed)
     Webui {
@@ -1095,6 +1102,11 @@ enum Commands {
         /// restrict to this machine. Token-protected only, with no TLS)
         #[arg(long, default_value = "0.0.0.0")]
         host: String,
+        /// Serve without an access token: open the printed URL and go, no
+        /// password prompt. Trusted networks only (config `webui_no_auth` /
+        /// env RUSTCODE_WEBUI_NO_AUTH also work).
+        #[arg(long)]
+        no_auth: bool,
     },
     /// Manage skill/command plugins (mirrors `claude plugin ...`).
     /// Operates on `$RUSTCODE_HOME/plugins/` shared with the TUI's `/plugin`
@@ -2449,6 +2461,7 @@ async fn run() -> Result<i32> {
                 host,
                 client,
                 idle_timeout,
+                no_auth,
             } => {
                 HEADLESS_MODE.store(true, Ordering::Relaxed);
                 eprintln!(
@@ -2501,12 +2514,18 @@ async fn run() -> Result<i32> {
                     config_access_key,
                     &token_store,
                 );
+                // 免密优先级与 webui 一致：env > `--no-auth` > 配置 `webui_no_auth`。
+                let webui_no_auth = rustcode_config::config::webui_no_auth_enabled(
+                    no_auth,
+                    Config::load(&config_path).ok().as_ref(),
+                );
                 let res = rustcode_daemon::run_server(rustcode_daemon::ServerOpts {
                     host,
                     port,
                     idle_timeout_secs: idle,
                     startup_mode,
                     webui_tokens: Some(token_store),
+                    webui_no_auth,
                     quiet: false,
                     working_dir_override: None,
                     prebound_listener: None,
@@ -2524,7 +2543,11 @@ async fn run() -> Result<i32> {
                 }
                 return Ok(0);
             }
-            Commands::Webui { port, host } => {
+            Commands::Webui {
+                port,
+                host,
+                no_auth,
+            } => {
                 HEADLESS_MODE.store(true, Ordering::Relaxed);
                 // Fail before binding a port and opening a browser: without the
                 // assets every page would be a 404, and the cause is a build
@@ -2533,7 +2556,9 @@ async fn run() -> Result<i32> {
                     eprint!("{}", rustcode_daemon::webui::not_built_help());
                     return Ok(1);
                 }
-                let msg = rustcode_daemon::ensure_server_and_open(&host, port, false).await;
+                // 是否真的免密由 ensure_server_and_open 按 env > 本开关 > 配置定夺。
+                let msg =
+                    rustcode_daemon::ensure_server_and_open(&host, port, false, no_auth).await;
                 eprintln!("{msg}");
                 // server 是后台 task；保持进程存活直到用户 Ctrl+C
                 let _ = tokio::signal::ctrl_c().await;
@@ -5532,6 +5557,24 @@ mod tests {
             .find_subcommand("status")
             .expect("status subcommand")
             .is_hide_set());
+    }
+
+    #[test]
+    fn webui_and_daemon_expose_the_no_auth_flag() {
+        // 免密开关必须在两个 driver 上都存在，且要能被 build_i18n_command 的
+        // `mut_arg("no_auth", ...)` 找到 —— clap 的 mut_arg 遇未知 id 会 panic，
+        // 这条测试同时锁住「参数存在」与「help 本地化钩子对得上」。
+        let cmd = build_i18n_command();
+        for name in ["webui", "daemon"] {
+            let sub = cmd
+                .find_subcommand(name)
+                .unwrap_or_else(|| panic!("`rustcode {name}` must exist"));
+            assert!(
+                sub.get_arguments()
+                    .any(|a| a.get_id().as_str() == "no_auth"),
+                "`rustcode {name} --no-auth` must exist"
+            );
+        }
     }
 
     #[test]
