@@ -45,10 +45,11 @@ impl TeamTool {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 enum TeamArgs {
     Delegate {
+        #[serde(deserialize_with = "de_tasks_lenient")]
         tasks: Vec<DelegateTask>,
     },
     Status {
@@ -68,17 +69,65 @@ enum TeamArgs {
     },
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct DelegateTask {
     description: String,
     prompt: String,
     role: TeamRoleId,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_scope_lenient")]
     scope: Vec<String>,
 }
 
 fn default_wait_secs() -> u64 {
     DEFAULT_WAIT_SECS
+}
+
+fn json_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        Value::Array(_) => "an array",
+        Value::Object(_) => "an object",
+    }
+}
+
+fn de_tasks_lenient<'de, D>(deserializer: D) -> Result<Vec<DelegateTask>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    de_vec_lenient(deserializer, "tasks")
+}
+
+fn de_scope_lenient<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    de_vec_lenient(deserializer, "scope")
+}
+
+fn de_vec_lenient<'de, D, T>(deserializer: D, field: &str) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let value = Value::deserialize(deserializer)?;
+    match value {
+        Value::Array(_) => {
+            serde_json::from_value::<Vec<T>>(value).map_err(serde::de::Error::custom)
+        }
+        Value::String(text) => serde_json::from_str::<Vec<T>>(text.trim()).map_err(|error| {
+            let snippet: String = text.chars().take(80).collect();
+            serde::de::Error::custom(format!(
+                "expected a JSON array or a JSON-encoded array string in `{field}`, got \"{snippet}\": {error}"
+            ))
+        }),
+        other => Err(serde::de::Error::custom(format!(
+            "expected a JSON array or a JSON-encoded array string in `{field}`, got {}",
+            json_type_name(&other)
+        ))),
+    }
 }
 
 fn parse_args(args: &str) -> Result<TeamArgs, String> {
@@ -419,5 +468,48 @@ mod tests {
             .execute(r#"{"action":"delegate","tasks":[]}"#, &ctx())
             .await;
         assert!(no_tasks.is_error);
+    }
+
+    #[test]
+    fn delegate_tasks_accepts_real_array() {
+        let args: TeamArgs = serde_json::from_str(
+            r#"{"action":"delegate","tasks":[{"description":"read","prompt":"inspect","role":"explorer"}]}"#,
+        )
+        .unwrap();
+        match args {
+            TeamArgs::Delegate { tasks } => {
+                assert_eq!(tasks.len(), 1);
+                assert_eq!(tasks[0].description, "read");
+                assert_eq!(tasks[0].prompt, "inspect");
+                assert_eq!(tasks[0].role.as_str(), "explorer");
+                assert!(tasks[0].scope.is_empty());
+            }
+            _ => panic!("expected delegate args"),
+        }
+    }
+
+    #[test]
+    fn delegate_tasks_accepts_json_encoded_string() {
+        let args: TeamArgs = serde_json::from_str(
+            r#"{"action":"delegate","tasks":"[{\"description\":\"read\",\"prompt\":\"inspect\",\"role\":\"explorer\",\"scope\":[\"src/**\"]}]"}"#,
+        )
+        .unwrap();
+        match args {
+            TeamArgs::Delegate { tasks } => {
+                assert_eq!(tasks.len(), 1);
+                assert_eq!(tasks[0].description, "read");
+                assert_eq!(tasks[0].prompt, "inspect");
+                assert_eq!(tasks[0].role.as_str(), "explorer");
+                assert_eq!(tasks[0].scope, vec!["src/**".to_string()]);
+            }
+            _ => panic!("expected delegate args"),
+        }
+    }
+
+    #[test]
+    fn delegate_tasks_reject_malformed_string_with_field_name() {
+        let error = serde_json::from_str::<TeamArgs>(r#"{"action":"delegate","tasks":"not json"}"#)
+            .unwrap_err();
+        assert!(error.to_string().contains("tasks"), "{}", error);
     }
 }
