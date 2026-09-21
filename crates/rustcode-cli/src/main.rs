@@ -5440,6 +5440,36 @@ mod tests {
     }
 
     #[test]
+    fn no_auth_flag_parses_into_both_servers() {
+        // Existence-only coverage above would still pass if the flag were
+        // defined but never bound. Parse it: `--no-auth` must land in BOTH the
+        // `webui` variant (whose dispatch passes it as the 4th argument of
+        // `ensure_server_and_open`, i.e. the no_auth_flag) and the `daemon`
+        // variant (which feeds `webui_no_auth_enabled` -> ServerOpts).
+        let c = Cli::try_parse_from(["rustcode", "webui", "--no-auth"]).unwrap();
+        assert!(
+            matches!(c.command, Some(Commands::Webui { no_auth: true, .. })),
+            "`rustcode webui --no-auth` must bind the flag"
+        );
+        let c = Cli::try_parse_from(["rustcode", "daemon", "--no-auth"]).unwrap();
+        assert!(
+            matches!(c.command, Some(Commands::Daemon { no_auth: true, .. })),
+            "`rustcode daemon --no-auth` must bind the flag"
+        );
+        // Absent => false (token auth stays the default; opt-in, never opt-out).
+        let c = Cli::try_parse_from(["rustcode", "webui"]).unwrap();
+        assert!(matches!(
+            c.command,
+            Some(Commands::Webui { no_auth: false, .. })
+        ));
+        let c = Cli::try_parse_from(["rustcode", "daemon"]).unwrap();
+        assert!(matches!(
+            c.command,
+            Some(Commands::Daemon { no_auth: false, .. })
+        ));
+    }
+
+    #[test]
     fn completion_subcommand_defaults_to_bash_and_accepts_all_supported_shells() {
         let default = Cli::try_parse_from(["rustcode", "completion"]).unwrap();
         assert!(matches!(
