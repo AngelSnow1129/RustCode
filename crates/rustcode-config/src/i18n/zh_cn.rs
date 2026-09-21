@@ -1791,6 +1791,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::WebuiStopped => "已停止 webui server".into(),
         Msg::WebuiNotRunning => "webui server 未在运行".into(),
         Msg::WebuiNoAuthNotice => "\n[!] 免密访问已开启：不再校验访问令牌，凡能连到该端口的人都可直接使用（含 shell 工具）。仅在可信网络下使用；想收紧需关闭 webui_no_auth 后重启。".into(),
+        Msg::WebuiNoAuthKeyIgnored => "\n[!] 已配置静态访问密钥（RUSTCODE_ACCESS_KEY / access_key），但免密模式下它被忽略：仍会登记并写入 token 文件，却不会被校验。别指望它守住这个端口。".into(),
         Msg::AppServerBindFailed { host, port, error } =>
             format!("绑定 {host}:{port} 失败（{error}）").into(),
         Msg::BgSessionLoadFailed { error } =>

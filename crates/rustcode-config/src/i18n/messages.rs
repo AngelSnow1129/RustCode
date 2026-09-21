@@ -2778,6 +2778,9 @@ pub enum Msg<'a> {
     WebuiNotRunning,
     /// `/webui` / daemon: token auth is OFF (no password needed to get in).
     WebuiNoAuthNotice,
+    /// `/webui` / daemon: no-auth is ON *and* a static access key is configured,
+    /// so that key is registered but never checked (port is effectively open).
+    WebuiNoAuthKeyIgnored,
     /// `/app` server: port bind failed.
     AppServerBindFailed {
         host: &'a str,

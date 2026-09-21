@@ -1839,6 +1839,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::WebuiStopped => "webui server stopped".into(),
         Msg::WebuiNotRunning => "webui server is not running".into(),
         Msg::WebuiNoAuthNotice => "\n[!] No-auth mode is ON: no access token is checked, so anyone who can reach this port can drive the agent (shell tools included). Trusted networks only; turn webui_no_auth off and restart to lock it back down.".into(),
+        Msg::WebuiNoAuthKeyIgnored => "\n[!] A static access key is configured (RUSTCODE_ACCESS_KEY / access_key) but no-auth mode ignores it: it is still registered and written to the token file, yet never checked. Do not rely on it to guard this port.".into(),
         Msg::AppServerBindFailed { host, port, error } =>
             format!("bind {host}:{port} failed ({error})").into(),
         Msg::BgSessionLoadFailed { error } =>

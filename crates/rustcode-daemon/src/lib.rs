@@ -5416,10 +5416,9 @@ pub async fn ensure_server_and_open(
     sync: bool,
     no_auth_flag: bool,
 ) -> String {
-    let no_auth = rustcode_config::config::webui_no_auth_enabled(
-        no_auth_flag,
-        Config::load(&Config::default_path()).ok().as_ref(),
-    );
+    let loaded_config = Config::load(&Config::default_path()).ok();
+    let no_auth =
+        rustcode_config::config::webui_no_auth_enabled(no_auth_flag, loaded_config.as_ref());
     // 1) 短临界区判定能否复用仍在运行的 server（std Mutex guard 不可跨 .await）。
     //    复用时连同其绑定地址一起取出：换绑需先 /webui stop。
     //    额外要求鉴权姿态一致：正在跑的实例若与本次要求相反（一个免密一个带密），
@@ -5551,6 +5550,10 @@ pub async fn ensure_server_and_open(
     // 免密：把"没有密码"这件事说清楚，别让用户在不知情下把 agent 暴露出去。
     if no_auth {
         msg.push_str(&t(Msg::WebuiNoAuthNotice));
+        // 免密 + 配了静态密钥 = 密钥被架空。用户很可能以为 access_key 还在守门。
+        if rustcode_config::config::webui_no_auth_masks_access_key(loaded_config.as_ref()) {
+            msg.push_str(&t(Msg::WebuiNoAuthKeyIgnored));
+        }
     }
 
     // 复用了一个绑定地址不同的运行实例：提示如何换绑。

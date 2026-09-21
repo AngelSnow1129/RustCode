@@ -138,6 +138,7 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 - **TUI 内的 /webui 启动路径默认仍是 127.0.0.1** —— 跨设备访问要显式加 --host 0.0.0.0（等价写法 lan）
 - **无需预先配置 provider** —— 没有 provider 也能打开 Web UI；可在网页「设置」中可视化配置 provider：新增、编辑、删除、设为默认，以及发现模型
 - **`/webui stop`** 停止进程内 server（之后再次 `/webui` 会重新启动）
+- **免密访问（可选，默认关闭）** —— 正常情况要带一次性 token（URL 里的 `?token=`）。想在可信网络里「打开即用、不输密码」，三选一：环境变量 `RUSTCODE_WEBUI_NO_AUTH=1`（`=0` 强制关闭，优先级最高，可临时压过配置）、命令行 `--no-auth`（`rustcode webui` / `rustcode daemon`）、配置 `webui_no_auth = true`。免密 = 该端口上全部能力（含 shell 工具）对任何能连到它的人开放，**不支持热加载**，收紧必须改回并重启；`/tunnel`（经中继暴露到公网）刻意不受此开关影响，始终要求 token。完整注释见 `docs/config.example.toml`
 
 ### 安全性
 
@@ -892,6 +893,8 @@ Windows Terminal / conhost 把 `Ctrl+V` 绑给了自身 `paste`（只读文本�
 ### WebUI 局域网可访问但不安全
 
 `rustcode webui` 与 `rustcode daemon` 默认绑定 `0.0.0.0`，仅靠一次性 token 保护、**无 TLS**。暴露到公网有风险，需要远程访问时建议改 `127.0.0.1` 后用 SSH 隧道，或仅本机使用。TUI 内的 `/webui` 默认仍是 `127.0.0.1`。
+
+若开了免密（`webui_no_auth` / `--no-auth` / `RUSTCODE_WEBUI_NO_AUTH=1`），连一次性 token 也不要了：任何能连到该端口的人都能直接驱动 agent。误开时用 `RUSTCODE_WEBUI_NO_AUTH=0` 压回去并重启进程即可恢复 token 鉴权。
 
 ### `cargo install` 与 `cargo build` 产物名字
 

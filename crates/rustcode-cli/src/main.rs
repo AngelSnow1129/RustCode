@@ -2515,10 +2515,19 @@ async fn run() -> Result<i32> {
                     &token_store,
                 );
                 // 免密优先级与 webui 一致：env > `--no-auth` > 配置 `webui_no_auth`。
-                let webui_no_auth = rustcode_config::config::webui_no_auth_enabled(
-                    no_auth,
-                    Config::load(&config_path).ok().as_ref(),
-                );
+                let cli_config = Config::load(&config_path).ok();
+                let webui_no_auth =
+                    rustcode_config::config::webui_no_auth_enabled(no_auth, cli_config.as_ref());
+                // 免密 + 静态密钥并存：密钥仍登记、token 文件照写，但不再校验。
+                // run_server 的横幅只讲"免密开着"，这里补一句"你的密钥守不住"。
+                if webui_no_auth
+                    && rustcode_config::config::webui_no_auth_masks_access_key(cli_config.as_ref())
+                {
+                    eprintln!(
+                        "{}",
+                        rustcode_config::i18n::t(rustcode_config::i18n::Msg::WebuiNoAuthKeyIgnored)
+                    );
+                }
                 let res = rustcode_daemon::run_server(rustcode_daemon::ServerOpts {
                     host,
                     port,

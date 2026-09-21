@@ -173,6 +173,16 @@ async fn main() {
     // 照写，但中间件不再校验 —— IDE 客户端不带头也能连。
     let webui_no_auth =
         rustcode_config::config::webui_no_auth_enabled(false, loaded_config.as_ref());
+    // 免密时上面那把密钥守不住端口（仍登记、仍写文件，但不校验）—— 说清楚，
+    // 免得运维以为配了 access_key 就安全。
+    if webui_no_auth
+        && rustcode_config::config::webui_no_auth_masks_access_key(loaded_config.as_ref())
+    {
+        println!(
+            "{}",
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::WebuiNoAuthKeyIgnored)
+        );
+    }
 
     if let Err(e) = run_server(ServerOpts {
         host,
