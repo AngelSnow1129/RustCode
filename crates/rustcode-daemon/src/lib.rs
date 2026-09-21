@@ -5395,6 +5395,16 @@ fn primary_lan_ipv4() -> Option<String> {
 /// （webui 的访问 URL 是生成的，端口号对用户无感；被占时仍会向上扫描）。
 pub const WEBUI_DEFAULT_PORT: u16 = rustcode_config::distribution::WEBUI_PORT;
 
+/// 纯判定：能否复用正在跑的进程内 webui？
+///
+/// 抽取成纯函数只为可测性——这条判据是安全不变量，不是普通的分支判断：
+/// 正在跑的实例若与本次要求的**鉴权姿态相反**（一个免密、一个带密），直接复用
+/// 会给出与用户要求相反的访问方式——要免密却仍 401，或要带密却免密开放端口。
+/// 编排处（见调用方）据此在返回 false 时先 `abort` 旧实例再重新起。
+fn can_reuse_webui(alive: bool, running_no_auth: bool, wanted_no_auth: bool) -> bool {
+    alive && running_no_auth == wanted_no_auth
+}
+
 /// 确保进程内 webui server 已起（已停止则重启），mint 一次性 token，开浏览器。
 ///
 /// 返回给用户展示的状态串。在 `rustcode` 主程序（已有 tokio runtime）内调用。
@@ -5427,7 +5437,9 @@ pub async fn ensure_server_and_open(
     let reuse = {
         let mut guard = WEBUI.lock().unwrap_or_else(|e| e.into_inner());
         match guard.as_ref() {
-            Some(handle) if !handle.abort.is_finished() && handle.no_auth == no_auth => {
+            Some(handle)
+                if can_reuse_webui(!handle.abort.is_finished(), handle.no_auth, no_auth) =>
+            {
                 Some((handle.tokens.clone(), handle.port, handle.host.clone()))
             }
             Some(_) => {
@@ -6882,6 +6894,32 @@ mod fs_list_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webui_reuse_requires_the_same_auth_stance() {
+        // Security invariant, not an ordinary branch: silently reusing a running
+        // instance with the OPPOSITE stance would hand the user the opposite of
+        // what they asked for (no-auth wanted but still 401, or token wanted but
+        // the port left wide open).
+        assert!(can_reuse_webui(true, false, false), "token+token reuses");
+        assert!(can_reuse_webui(true, true, true), "no-auth+no-auth reuses");
+        assert!(
+            !can_reuse_webui(true, true, false),
+            "running no-auth must NOT be reused for a tokened request"
+        );
+        assert!(
+            !can_reuse_webui(true, false, true),
+            "running tokened must NOT be reused for a no-auth request"
+        );
+    }
+
+    #[test]
+    fn webui_reuse_rejects_a_dead_handle() {
+        // A finished task holds no port; treating it as reusable would return a
+        // stale port/host pair and the browser would open a dead address.
+        assert!(!can_reuse_webui(false, false, false));
+        assert!(!can_reuse_webui(false, true, true));
+    }
 
     #[test]
     fn chat_projector_keeps_output_truncation_recovery_visible() {
