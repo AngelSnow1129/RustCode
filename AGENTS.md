@@ -152,6 +152,12 @@ WebUI 默认绑定地址(改这里前必读,默认值按入口而不同):
 - 进程内 webui 复用判定额外要求鉴权姿态一致(`WebuiHandle.no_auth`):正在跑的实例若与本次要求的免密/带密相反,先 `abort` 旧的再重新起,绝不静默复用出与用户要求相反的访问方式。
 - 免密时 URL 不再 mint/携带 `?token=`,并在 URL 后与 daemon 启动横幅各补一条 `Msg::WebuiNoAuthNotice`。
 - `/tunnel`(经中继暴露到公网)**刻意不受本开关影响**(`ensure_tunnel_server` 硬写 `webui_no_auth: false`),远程接入始终要 token。
+- 环境变量名的事实源是 `endpoints::WEBUI_NO_AUTH_ENV`(crates/rustcode-config/src/endpoints.rs),与其它 `RUSTCODE_*` 同处一处;`config::WEBUI_NO_AUTH_ENV` 只是它的再导出,**不要再在 config 里另写字面量**。
+
+WebUI 前端三条约定(改这块前必读):
+- **剪贴板必须走 `webui/src/lib/clipboard.ts` 的 `copyText()`**,禁止在组件里直接 `navigator.clipboard.writeText`。webui 默认绑 0.0.0.0、通常经局域网 `http://192.168.x.x` 打开,那是**非安全上下文**,`navigator.clipboard` 为 `undefined` —— 直接调用要么同步抛 TypeError(按钮完全没反应),要么 optional chaining 静默短路却仍显示「已复制」。`copyText` 的顺序是:Clipboard API → `document.execCommand('copy')` 回退 → 返回 `boolean`;**调用点必须按返回值区分成功/失败并给出可见反馈**(`copy.failed`),不要吞掉。
+- **模型列表刷新是事件驱动,不是轮询**:`ModelConfigDialog` 关闭 → `app.tsx` 的 `modelsVersion` 自增 → `Chat` 转 `modelRefreshSignal` → `ModelSelector` 重拉 `/models`;此外每次**打开**下拉也会强制重拉(刚新增的模型必须能在同一次交互里选中)。`loadModels(interactive)` 里 `seqRef` 是「最新响应胜出」的竞态守卫,`onDefaultChangeRef` 用来保持回调 identity 稳定——**不要把父组件回调直接放进 `useCallback` 依赖**,否则 effect 会在每次父级 render 重新拉一次。
+- **回合级「回退 / 重新生成」建立在 `/undo N` 之上**:目标由 `webui/src/lib/turnActions.ts` 的 `assistantTurnActions()` 计算(`promptN` 就是 `/undo N` 的 N),动作在 `Chat.tsx` 的 `undoTurn()`(走 `POST /command` 的 `command:'undo'`,已白名单、会落盘并修正 token 统计)。约束:sync 模式与 busy 时**明确拒绝**(前者 `/command` 直接改磁盘快照会与 live runtime 的 lease 冲突);`Rewind`(代码回滚)目前在 v5.0.5 默认关闭,不要拿它当 restore 的落点。sync 模式支持需新增 `/live/undo` 路由 + `UndoFinished(Ok)` 的 wire 投影(当前 projector 只转发 Err,Ok 被丢弃),属独立后续项。
 
 ## 架构总览(分层与 crate 地图)
 

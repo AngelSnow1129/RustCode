@@ -5,6 +5,7 @@ import { useMemo } from 'preact/hooks';
 // outside the React tree, so it uses the framework-free translate() rather
 // than a hook. It reads the same persisted language preference as the app.
 import { translate } from '../i18n.ts';
+import { copyText } from '../lib/clipboard.ts';
 
 marked.setOptions({ gfm: true, breaks: false });
 
@@ -87,12 +88,15 @@ export function Markdown({ content, search }: { content: string; search?: string
   function onClick(e: MouseEvent) {
     const t = (e.target as HTMLElement)?.closest('.copy-button') as HTMLElement | null;
     if (t?.dataset.copy) {
-      navigator.clipboard?.writeText(decodeURIComponent(t.dataset.copy)).catch(() => {});
       const prev = t.textContent;
-      t.textContent = translate('copy.copied');
-      setTimeout(() => {
-        t.textContent = prev;
-      }, 1200);
+      // 只有真的复制成功才显示「已复制」：局域网 http 下 clipboard API 不可用，
+      // 无条件改文案会让按钮假装成功（用户粘贴到的还是上一次的剪贴板内容）。
+      void copyText(decodeURIComponent(t.dataset.copy)).then((ok) => {
+        t.textContent = ok ? translate('copy.copied') : translate('copy.failed');
+        setTimeout(() => {
+          t.textContent = prev;
+        }, 1200);
+      });
     }
   }
 

@@ -103,6 +103,8 @@ import { randomId } from '../lib/randomId';
 import { completedTurnStats, formatTurnDuration, formatTurnTokens, turnCacheHit } from '../lib/turnStats';
 import { disposeNotifications, maybeNotifyTurnFinished } from '../lib/notifications';
 import { artifactsByAssistantIndex, type TurnArtifact } from '../lib/turnArtifacts';
+import { assistantTurnActions, type TurnActionTarget } from '../lib/turnActions';
+import { copyText } from '../lib/clipboard';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -286,6 +288,9 @@ interface ChatProps {
   skillInsert?: { name: string; seq: number } | null;
   /** 打开设置弹窗的指定分区（如 'model' 打开 provider 配置）。 */
   onOpenSettings?: (section: string) => void;
+  /** 模型配置弹窗被关闭时自增：其中可能新增/删除/改默认了模型，底部模型选择器
+   *  必须重新拉取——否则「刚加的模型」在已有对话里根本选不到。 */
+  modelsVersion?: number;
 }
 
 function formatArgs(args: unknown): string {
@@ -441,7 +446,7 @@ function detectSkillContent(text: string): string | null {
   return title || null;
 }
 
-export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermission, onPermissionResolved, activeSession, restoring, onLiveTurnDone, onOptimisticSession, onOpenCwd, onCwdChanged, onLanding, skillInsert, onSessionRenamed, onOpenSettings }: ChatProps) {
+export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermission, onPermissionResolved, activeSession, restoring, onLiveTurnDone, onOptimisticSession, onOpenCwd, onCwdChanged, onLanding, skillInsert, onSessionRenamed, onOpenSettings, modelsVersion }: ChatProps) {
   const t = useT();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -598,6 +603,15 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
       setProvider(name);
     }
   }, []);
+  // 模型配置弹窗改过配置（新增/删除/改默认）后自增的外部信号 → 让底部选择器重新
+  // 拉取 /models。首次挂载不触发（选择器 mount 时自己会拉一次）。
+  const modelsVersionRef = useRef(modelsVersion ?? 0);
+  useEffect(() => {
+    if (modelsVersion === undefined) return;
+    if (modelsVersion === modelsVersionRef.current) return;
+    modelsVersionRef.current = modelsVersion;
+    setModelRefreshSignal((n) => n + 1);
+  }, [modelsVersion]);
   // Detect whether any provider is configured so the landing page can show a
   // friendly setup nudge instead of silently letting the user send into a void.
   useEffect(() => {
@@ -2695,6 +2709,50 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
     return !keepStopAlias;
   }
 
+  // ── Per-turn restore / regenerate (the toolbar on an assistant turn) ──────
+  // Both ride the same `/undo N` primitive as the `/undo` slash command: the
+  // daemon truncates the session to everything BEFORE user prompt N. So
+  // "regenerate" is literally "undo this turn, then resend that prompt".
+  async function undoTurn(promptN: number): Promise<boolean> {
+    if (!sessionId) return false;
+    if (busyRef.current) { pushCommandNotice(t('cmd.session.busy')); return false; }
+    if (sync) { pushCommandNotice(t('cmd.session.syncUnsupported')); return false; }
+    try {
+      const res = await postCommand({
+        command: 'undo',
+        arg: String(promptN),
+        session_id: sessionId,
+        working_dir: cwd || undefined,
+        project_hash: activeSession?.project_hash ?? undefined,
+        provider: provider ?? undefined,
+      });
+      if (res.kind === 'error') { pushCommandNotice(res.message); return false; }
+      if (res.kind === 'undo' && res.undone > 0) {
+        await reloadSessionTranscript(sessionId);
+        pushCommandNotice(t('cmd.undo.done', { n: res.undone }));
+        return true;
+      }
+      pushCommandNotice(t('cmd.undo.none'));
+      return false;
+    } catch (e) {
+      pushCommandNotice(t('chat.connError', { msg: e instanceof Error ? e.message : String(e) }));
+      return false;
+    }
+  }
+
+  /** 回退到该轮之前：删除该轮及其之后的所有消息（非末轮需确认）。 */
+  async function handleRestoreTurn(target: TurnActionTarget) {
+    if (!target.isLastTurn && !window.confirm(t('msg.restoreConfirm'))) return;
+    await undoTurn(target.promptN);
+  }
+
+  /** 重新生成：先回退掉这一轮，再把同一条提示词（含图片）重新发一遍。 */
+  async function handleRegenerateTurn(target: TurnActionTarget) {
+    const undone = await undoTurn(target.promptN);
+    if (!undone) return;
+    await deliver(target.promptText, target.promptImages, modeState.confirmedMode);
+  }
+
   function sendMessage() {
     const text = input.trim();
     const images = pendingImages;
@@ -3666,6 +3724,9 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
 
           const assistantTurnEnds = assistantTurnEndFlags(messages.map((message) => message.role));
           const turnArtifacts = artifactsByAssistantIndex(messages);
+          // Per-turn restore/regenerate targets, keyed by the same assistant
+          // turn-end index the copy button uses.
+          const turnActions = assistantTurnActions(messages, assistantTurnEnds);
 
           return visibleMessages.map(({ msg, origIdx }, idx) => {
             const isLast = idx === lastVisibleIdx;
@@ -3715,6 +3776,9 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
                 turnText={turnTexts.get(origIdx) ?? ''}
                 artifacts={turnArtifacts.get(origIdx) ?? []}
                 sessionId={sessionId}
+                turnAction={turnActions.get(origIdx)}
+                onRestore={handleRestoreTurn}
+                onRegenerate={handleRegenerateTurn}
                 searchRef={setMatchRef}
                 timeLabel={timeLabel}
                 search={search}
@@ -3964,6 +4028,9 @@ function AssistantMessageView({
   turnText,
   artifacts,
   sessionId,
+  turnAction,
+  onRestore,
+  onRegenerate,
   searchRef,
   timeLabel,
   search,
@@ -3977,6 +4044,10 @@ function AssistantMessageView({
   turnText: string;
   artifacts: TurnArtifact[];
   sessionId: string | null;
+  /** Restore/regenerate target for this turn (absent ⇒ no such actions). */
+  turnAction?: TurnActionTarget;
+  onRestore?: (target: TurnActionTarget) => void;
+  onRegenerate?: (target: TurnActionTarget) => void;
   searchRef?: (el: HTMLElement | null) => void;
   timeLabel?: string;
   search: string;
@@ -4006,21 +4077,59 @@ function AssistantMessageView({
   // Copy button: only shown on the last assistant message in a turn.
   // Copies the entire turn's text (all assistant messages in this turn joined).
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [artifactError, setArtifactError] = useState('');
 
-  function handleCopy() {
-    navigator.clipboard.writeText(turnText).then(() => {
+  async function handleCopy() {
+    const ok = await copyText(turnText);
+    if (ok) {
       setCopied(true);
+      setCopyFailed(false);
       setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {});
+    } else {
+      // 非安全上下文（局域网 http 访问）下 clipboard API 不可用；失败必须可见，
+      // 否则按钮看起来就是「点了没反应」。
+      setCopyFailed(true);
+      setTimeout(() => setCopyFailed(false), 2000);
+    }
   }
 
+  // Per-turn restore / regenerate. Only meaningful once the turn is settled:
+  // during streaming there is nothing to judge yet, and an error turn is not a
+  // candidate answer. `turnAction` is absent for turns with no user prompt
+  // behind them (system notices), so those rows get no toolbar either.
+  const restoreBtn =
+    turnAction && !streaming && !isError ? (
+      <button
+        class="msg-action-btn"
+        type="button"
+        onClick={() => onRestore?.(turnAction)}
+        title={t('msg.restore')}
+        aria-label={t('msg.restore')}
+      >
+        {t('msg.restore')}
+      </button>
+    ) : null;
+  const regenerateBtn =
+    turnAction?.isLastTurn && !streaming && !isError ? (
+      <button
+        class="msg-action-btn"
+        type="button"
+        onClick={() => onRegenerate?.(turnAction)}
+        title={t('msg.regenerate')}
+        aria-label={t('msg.regenerate')}
+      >
+        {t('msg.regenerate')}
+      </button>
+    ) : null;
+
+  const copyLabel = copyFailed ? t('copy.failed') : copied ? t('copy.copied') : t('copy.copy');
   const copyBtn = isLastInTurn && !isError && !streaming && turnText ? (
     <button
-      class={'msg-copy-btn' + (copied ? ' copied' : '')}
-      onClick={handleCopy}
-      title={copied ? t('copy.copied') : t('copy.copy')}
-      aria-label={copied ? t('copy.copied') : t('copy.copy')}
+      class={'msg-copy-btn' + (copied ? ' copied' : '') + (copyFailed ? ' failed' : '')}
+      onClick={() => void handleCopy()}
+      title={copyLabel}
+      aria-label={copyLabel}
     >
       {copied ? (
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -4092,9 +4201,11 @@ function AssistantMessageView({
           {artifactError && <div class="turn-artifact-error" role="status">{artifactError}</div>}
         </div>
       )}
-      {(copyBtn || showTimestamp) && (
+      {(copyBtn || restoreBtn || regenerateBtn || showTimestamp) && (
         <div class="msg-actions msg-actions-left">
           {copyBtn}
+          {restoreBtn}
+          {regenerateBtn}
           {/* One timestamp per user turn: intermediate assistant/tool rounds share
               the turn's persisted timestamp but must not repeat it in the timeline. */}
           {showTimestamp && <div class="msg-time">{timeLabel}</div>}
@@ -4199,12 +4310,17 @@ function UserMessageView({
   const skillTitle = detectSkillContent(text);
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
-  function handleCopy() {
-    navigator.clipboard.writeText(text).then(() => {
+  async function handleCopy() {
+    if (await copyText(text)) {
       setCopied(true);
+      setCopyFailed(false);
       setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {});
+    } else {
+      setCopyFailed(true);
+      setTimeout(() => setCopyFailed(false), 2000);
+    }
   }
 
   const images = msg.images && msg.images.length > 0 && (
@@ -4215,12 +4331,14 @@ function UserMessageView({
     </div>
   );
 
-  const copyBtn = (
+  const copyLabel = copyFailed ? t('copy.failed') : copied ? t('copy.copied') : t('copy.copy');
+  // 空消息（例如纯图片）不渲染复制按钮——复制空串是纯粹的无效操作。
+  const copyBtn = text ? (
     <button
-      class={'msg-copy-btn' + (copied ? ' copied' : '')}
-      onClick={handleCopy}
-      title={copied ? t('copy.copied') : t('copy.copy')}
-      aria-label={copied ? t('copy.copied') : t('copy.copy')}
+      class={'msg-copy-btn' + (copied ? ' copied' : '') + (copyFailed ? ' failed' : '')}
+      onClick={() => void handleCopy()}
+      title={copyLabel}
+      aria-label={copyLabel}
     >
       {copied ? (
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -4233,7 +4351,7 @@ function UserMessageView({
         </svg>
       )}
     </button>
-  );
+  ) : null;
 
   const wrapperClass = 'user-message-wrapper'
     + (isActiveSearchMatch ? ' is-active-search-match' : '')

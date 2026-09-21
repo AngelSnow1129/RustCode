@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'preact/hooks';
+import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 import { getModels, ModelInfo, postLiveReasoningEffort } from '../api';
 import { useT } from '../settings';
 import { MsgKey } from '../i18n';
@@ -56,6 +56,10 @@ export function ModelSelector({
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [open, setOpen] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false);
+  // In-flight indicator for the OPEN-triggered fetch below (the only refresh
+  // the user can actually see), so "click -> list is stale" is diagnosable
+  // instead of silent.
+  const [refreshing, setRefreshing] = useState(false);
   // undefined = "show the provider's persisted value"; a string/null is a
   // local override after the user picks one (config isn't re-fetched).
   const [effortOverride, setEffortOverride] = useState<string | null | undefined>(undefined);
@@ -68,31 +72,83 @@ export function ModelSelector({
   openRef.current = open;
   const effortOpenRef = useRef(effortOpen);
   effortOpenRef.current = effortOpen;
+  const activeRef = useRef(true);
+  // Latest-response-wins guard: two fetches can be in flight at once (open the
+  // picker while a background refresh is still running) and the daemon may
+  // answer out of order. Without this, a slow earlier response could overwrite
+  // a newer list and re-hide a model the user just added.
+  const seqRef = useRef(0);
+  // Handlers come from the parent on every render; keeping them in a ref keeps
+  // `applyModels`/`loadModels` identity STABLE, so the fetch effect below runs
+  // on mount and on `refreshSignal` only — never on an unrelated re-render.
+  const onDefaultChangeRef = useRef(onDefaultChange);
+  onDefaultChangeRef.current = onDefaultChange;
+
+  const applyModels = useCallback((next: ModelInfo[]) => {
+    if (areModelsEqual(modelsRef.current, next)) return;
+    setModels(next);
+    const defaultModel = next.find((model) => model.is_default) ?? next[0];
+    if (defaultModel) onDefaultChangeRef.current?.(defaultModel.provider);
+  }, []);
+
+  /**
+   * ONE list fetch. `interactive = true` is the user just opening this picker
+   * (or tapping "refresh"): always re-request and allow the update even while a
+   * dropdown is open, because a model added in another tab / another client /
+   * the settings dialog must be selectable in the very interaction that
+   * switches to it. The background path (mount / `refreshSignal` / tab
+   * refocus) keeps its hands-off guard so the list never shifts under the
+   * cursor mid-selection.
+   */
+  const loadModels = useCallback(
+    async (interactive: boolean) => {
+      if (interactive) setRefreshing(true);
+      const seq = seqRef.current + 1;
+      seqRef.current = seq;
+      try {
+        const next = await getModels();
+        if (!activeRef.current) return;
+        if (seq !== seqRef.current) return;
+        if (!interactive && (openRef.current || effortOpenRef.current)) return;
+        applyModels(next);
+      } catch {
+        // Keep the last known list: a transient daemon hiccup must not blank
+        // the picker. The refresh action stays available for a retry.
+      } finally {
+        if (interactive && activeRef.current) setRefreshing(false);
+      }
+    },
+    [applyModels],
+  );
 
   useEffect(() => {
-    let active = true;
-    const refresh = () => {
-      if (openRef.current || effortOpenRef.current) return;
-      getModels().then((next) => {
-        if (!active) return;
-        if (openRef.current || effortOpenRef.current) return;
-        if (!areModelsEqual(modelsRef.current, next)) {
-          setModels(next);
-          const defaultModel = next.find((model) => model.is_default) ?? next[0];
-          if (defaultModel) onDefaultChange?.(defaultModel.provider);
-        }
-      }).catch(() => {});
-    };
-    refresh();
+    activeRef.current = true;
+    void loadModels(false);
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') refresh();
+      if (document.visibilityState === 'visible') void loadModels(false);
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      active = false;
+      activeRef.current = false;
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [onDefaultChange, refreshSignal]);
+  }, [loadModels, refreshSignal]);
+
+  // Every open re-fetches: the model list is config-derived and can change
+  // (new/renamed/deleted model) while this conversation stays open, and a
+  // stale list reads as "I cannot switch to the model I just added".
+  const toggleModels = () => {
+    const next = !open;
+    setOpen(next);
+    setEffortOpen(false);
+    if (next) void loadModels(true);
+  };
+  const toggleEffort = () => {
+    const next = !effortOpen;
+    setEffortOpen(next);
+    setOpen(false);
+    if (next) void loadModels(true);
+  };
   useEffect(() => {
     if (!open && !effortOpen) return;
     const h = (e: MouseEvent) => {
@@ -146,7 +202,7 @@ export function ModelSelector({
         <div class="model-selector effort-selector model-selector-up" ref={effortRef}>
           <button
             class="model-selector-trigger"
-            onClick={() => { setEffortOpen((o) => !o); setOpen(false); }}
+            onClick={toggleEffort}
             type="button"
             title={t('effort.label')}
           >
@@ -176,7 +232,7 @@ export function ModelSelector({
         </div>
       )}
       <div class="model-selector model-selector-up" ref={ref}>
-        <button class="model-selector-trigger" onClick={() => { setOpen((o) => !o); setEffortOpen(false); }} type="button">
+        <button class="model-selector-trigger" onClick={toggleModels} type="button">
           <span class="model-selector-label">{current ? current.model : t('model.label')}</span>
           {current && isDup(current.model) && (
             <span class="model-selector-provider">{providerLabel(current)}</span>
@@ -207,6 +263,22 @@ export function ModelSelector({
                 {isDup(m.model) && <span class="model-item-provider">{providerLabel(m)}</span>}
               </button>
             ))}
+            {/* Manual retry / liveness: the open-triggered fetch already ran, but
+                a long-lived page can still be stale (config edited elsewhere
+                without an SSE echo), so keep an explicit refresh one click away. */}
+            <div class="model-dropdown-footer">
+              {refreshing ? (
+                <span class="model-refreshing">{t('model.refreshing')}</span>
+              ) : (
+                <button
+                  class="model-refresh-action"
+                  type="button"
+                  onClick={() => void loadModels(true)}
+                >
+                  {t('model.refresh')}
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

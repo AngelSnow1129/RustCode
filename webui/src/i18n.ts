@@ -88,6 +88,8 @@ const zh = {
   'model.label': '模型',
   'model.noProvider': '尚未配置 provider',
   'model.goSettings': '去设置',
+  'model.refresh': '刷新模型列表',
+  'model.refreshing': '正在刷新模型列表…',
 
   // Approval mode selector (Build / Accept Edits / Auto / Plan)
   'mode.label': '模式',
@@ -373,6 +375,8 @@ const zh = {
   // Copy button
   'copy.copy': '复制',
   'copy.copied': '已复制',
+  // 复制失败（非安全上下文 / 剪贴板被拒）：必须可见，否则按钮像「点了没反应」。
+  'copy.failed': '复制失败',
 
   // Slash commands
   'cmd.plan.desc': '切换到 Plan 模式（只读探索）',
@@ -404,6 +408,10 @@ const zh = {
   'cmd.compact.syncNoRuntime': '当前没有可压缩的实时会话',
   'cmd.session.busy': '请先停止当前回合，再执行该命令',
   'cmd.session.syncUnsupported': '同步模式下暂不支持该命令',
+  // 每轮操作条：回退到该轮之前 / 重新生成本轮（底层都是 /undo N）。
+  'msg.restore': '回退到此轮之前',
+  'msg.regenerate': '重新生成本轮',
+  'msg.restoreConfirm': '回退会删除该轮及其之后的所有消息，确定继续？',
   'cmd.remember.desc': '记住一条事实（--global 存全局）',
   'cmd.remember.needArg': '用法：/remember <要记住的内容>',
   'cmd.remember.done': '已记住（{scope}）',
@@ -518,6 +526,8 @@ const en: Record<MsgKey, string> = {
   'model.label': 'Model',
   'model.noProvider': 'No provider configured',
   'model.goSettings': 'Settings',
+  'model.refresh': 'Refresh model list',
+  'model.refreshing': 'Refreshing model list…',
 
   // Approval mode selector (Build / Accept Edits / Auto / Plan)
   'mode.label': 'Mode',
@@ -795,6 +805,7 @@ const en: Record<MsgKey, string> = {
   // Copy button
   'copy.copy': 'Copy',
   'copy.copied': 'Copied',
+  'copy.failed': 'Copy failed',
 
   // Slash commands
   'cmd.plan.desc': 'Switch to Plan mode (read-only exploration)',
@@ -826,6 +837,9 @@ const en: Record<MsgKey, string> = {
   'cmd.compact.syncNoRuntime': 'No live session to compact',
   'cmd.session.busy': 'Stop the current turn before running this command',
   'cmd.session.syncUnsupported': 'This command is not supported in sync mode',
+  'msg.restore': 'Restore to before this turn',
+  'msg.regenerate': 'Regenerate this turn',
+  'msg.restoreConfirm': 'Restoring deletes this turn and everything after it. Continue?',
   'cmd.remember.desc': 'Remember a fact (--global for global memory)',
   'cmd.remember.needArg': 'Usage: /remember <fact to remember>',
   'cmd.remember.done': 'Remembered ({scope})',

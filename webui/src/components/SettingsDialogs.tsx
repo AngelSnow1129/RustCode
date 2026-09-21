@@ -21,6 +21,7 @@ import {
 } from '../api';
 import { useSettings, Theme, FontScale } from '../settings';
 import { Lang } from '../i18n';
+import { copyText } from '../lib/clipboard.ts';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Select } from './Select';
 import {
@@ -980,6 +981,7 @@ export function RemoteAccessDialog({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<TunnelStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   const reload = () => {
     setLoading(true);
@@ -1003,7 +1005,14 @@ export function RemoteAccessDialog({ onClose }: { onClose: () => void }) {
   function copy() {
     const url = status?.remote_url ?? fallbackUrl;
     if (!url) return;
-    navigator.clipboard?.writeText(url).then(() => {
+    // 走统一 copyText：局域网 http 下 clipboard API 不存在，原实现会静默无反馈
+    // 且留下未捕获的 rejection。
+    void copyText(url).then((ok) => {
+      if (!ok) {
+        setCopyFailed(true);
+        setTimeout(() => setCopyFailed(false), 2000);
+        return;
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -1048,7 +1057,11 @@ export function RemoteAccessDialog({ onClose }: { onClose: () => void }) {
                 <code class="remote-url">{status.remote_url}</code>
                 <div class="remote-actions">
                   <button class="btn" onClick={copy}>
-                    {copied ? t('remote.copied') : t('remote.copy')}
+                    {copyFailed
+                      ? t('copy.failed')
+                      : copied
+                        ? t('remote.copied')
+                        : t('remote.copy')}
                   </button>
                 </div>
                 <p class="field-hint remote-warn">⚠ {t('remote.warnToken')}</p>

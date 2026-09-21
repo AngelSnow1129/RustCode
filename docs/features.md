@@ -164,6 +164,20 @@ MCP 配置:
 - 客户端在请求头中以 `Authorization: Bearer <key>` 携带密钥；密钥来源为配置文件 `~/.rustcode/config.toml` 的静态访问密钥字段 `access_key`（本变更已实现，详见 `docs/config.example.toml`），或环境变量 `RUSTCODE_ACCESS_KEY` / `RUSTCODE_DAEMON_TOKEN`。
 - 这是本地身份体系的一部分：密钥由用户自行持有，不依赖任何外部平台、OAuth 或第三方账号；`access_key` 与 `RUSTCODE_ACCESS_KEY` / `RUSTCODE_DAEMON_TOKEN` 的优先级以 `docs/config.example.toml` 的配置契约为准。
 
+#### 6.1 免密访问 webui（可选开关，默认关闭）
+
+- 面向「同一台机器上打开网页就想直接用、不想输密码/令牌」的场景：`webui_no_auth` 打开后，webui / daemon 的受保护路由**不再校验 Bearer token 与 Cookie**，打印出的地址不带 `?token=`，浏览器打开即用。
+- 三种开启方式，**优先级固定为：环境变量 `RUSTCODE_WEBUI_NO_AUTH` > 命令行 `--no-auth` > 配置 `webui_no_auth`**，默认 false（保持上面的静态密钥 / 一次性 token 鉴权）。环境变量取的是**显式值**：`=0` 可以强制关闭、压住已开启的配置或命令行开关，便于临时收紧而无需改配置文件；`=1` 则无需任何配置即可免密。取值拼错（如 `maybe`）不猜测意图，回落到调用方默认。
+- 解析只有**一个入口**（配置层 `webui_no_auth_enabled`），三个 driver（`rustcode webui`、`rustcode daemon`、独立 daemon 二进制 / TUI `/webui`）都问它，避免出现两套真相。
+- 与密钥一样**不支持热加载**：开关变更必须重启进程才生效。免密等于把该端口上的全部能力（含 shell 工具）交给任何能连到它的人，只在可信网络（回环 / 家庭内网）开启。
+- `/tunnel`（经中继暴露到公网）**刻意不受本开关影响**，远程接入始终要求 token。
+
+#### 6.2 webui 会话能力（模型列表刷新 / 复制 / 每轮回退与重新生成）
+
+- **模型列表即时刷新**：在对话页里通过「模型配置」新增/删除/改默认模型后，底部模型选择器会立刻重新拉取 `/models`，无需刷新页面；此外每次**打开**下拉列表也会重新拉取，保证「刚添加的模型」在同一次交互里就能被选中。列表刷新是事件驱动（配置弹窗关闭信号 + 打开下拉 + 标签页重新可见），不再有定时轮询；并发请求以「最新响应胜出」为准，避免慢响应覆盖新列表。
+- **复制按钮在非安全上下文下仍可用**：webui 默认绑 `0.0.0.0`，通常经局域网 `http://192.168.x.x` 打开，该环境没有 `navigator.clipboard`。复制统一走 `lib/clipboard.ts` 的 `copyText()`：优先 Clipboard API，不可用时回退 `document.execCommand('copy')`，并**返回成功与否**——失败时按钮显示「复制失败」而不是静默无反应或假装已复制。
+- **每轮「回退 / 重新生成」**：助手回合结束后，该轮工具条提供「回退到此轮之前」与（仅末轮）「重新生成本轮」。二者都建立在 `/undo N` 原语上——服务端把会话截断到**第 N 个用户提示之前**，重新生成即「回退该轮 + 用同一条提示词（含图片）重发」。回退会真实删除消息并同步修正 token 统计；非末轮回退有二次确认。当前**仅在非 sync（非共享实时会话）模式下可用**：sync 模式下 `/command` 直接改写磁盘快照会与实时运行时的会话租约冲突，因此明确拒绝；busy 时也拒绝。
+
 ### 7. 远程访问（frp 风格反向隧道）
 
 - daemon 可通过可配置的**反向隧道中继**把本地 webui / HTTP·SSE API 暴露到公网：由环境变量 `RUSTCODE_ENABLE_TUNNEL=1` 开启（默认关闭），并由 `RUSTCODE_TUNNEL_RELAY` 指定中继地址（如 `wss://your-relay.example.com`）。开启后 daemon 作为反向代理，把中继转发来的请求回源到本地 webui / API。

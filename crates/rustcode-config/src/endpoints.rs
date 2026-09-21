@@ -56,6 +56,13 @@ pub const TUNNEL_TOKEN_ENV: &str = "RUSTCODE_TUNNEL_TOKEN";
 /// service should stop trusting it, not accumulate both.
 pub const TRUSTED_HOSTS_ENV: &str = "RUSTCODE_TRUSTED_HOSTS";
 
+/// Opt-in switch that lets the webui/daemon serve WITHOUT an access token
+/// ("open the URL and go"). Explicit boolean: `1|true|on|yes` enables,
+/// `0|false|no|off` disables — the latter also overrides an enabled
+/// `webui_no_auth` in config. Unset/unrecognised defers to the flag and config
+/// (see `config::webui_no_auth_enabled`). Default is OFF, i.e. token auth.
+pub const WEBUI_NO_AUTH_ENV: &str = "RUSTCODE_WEBUI_NO_AUTH";
+
 // ---------------------------------------------------------------------------
 // Hosted-service addresses
 //

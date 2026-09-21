@@ -48,6 +48,9 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sessionListVersion, setSessionListVersion] = useState(0);
+  // 模型配置弹窗关闭后自增：通知 Chat 的模型选择器重新拉 /models（新增的模型
+  // 才能在已有对话里被选中）。
+  const [modelsVersion, setModelsVersion] = useState(0);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   // 表头会话菜单改用 fixed 定位，避免被祖先 overflow/层叠裁剪；记录锚点坐标。
   const [headerMenuPos, setHeaderMenuPos] = useState<{ top: number; left: number } | null>(null);
@@ -504,6 +507,7 @@ export function App() {
               setSessionListVersion((v) => v + 1);
             }}
             onOpenSettings={(section) => setSettingsSection(section as SettingsSection)}
+            modelsVersion={modelsVersion}
           />
         </div>
       </div>
@@ -523,7 +527,7 @@ export function App() {
         <LanguageDialog onClose={() => setSettingsSection(null)} />
       )}
       {settingsSection === 'model' && (
-        <ModelConfigDialog onClose={() => setSettingsSection(null)} />
+        <ModelConfigDialog onClose={() => { setSettingsSection(null); setModelsVersion((v) => v + 1); }} />
       )}
       {settingsSection === 'remote' && (
         <RemoteAccessDialog onClose={() => setSettingsSection(null)} />

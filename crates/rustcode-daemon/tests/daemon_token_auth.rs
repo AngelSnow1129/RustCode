@@ -76,6 +76,13 @@ async fn no_auth_mode_serves_protected_routes_without_token() {
     std::fs::create_dir_all(&tmp).unwrap();
     std::env::set_var("RUSTCODE_HOME", &tmp);
 
+    // `/models` reads the on-disk config; a bare temp HOME would answer 500 and
+    // a weak `!= 401` assertion would happily accept that. Seed one so the
+    // assertion below proves the route really served, not merely "not 401".
+    rustcode_config::config::Config::default()
+        .save(&tmp.join("config.toml"))
+        .expect("seed config for /models");
+
     let port = 18098u16;
     let tmp_for_spawn = tmp.clone();
     let handle = tokio::spawn(async move {
@@ -103,15 +110,26 @@ async fn no_auth_mode_serves_protected_routes_without_token() {
     let base = format!("http://127.0.0.1:{port}");
 
     // 关键断言：不带任何凭证也必须放行（免密的定义）。
+    //
+    // 断言 200 而不是 `!= 401`：后者会被 404/500 一并满足，"鉴权失效"和
+    // "免密生效"看起来一样绿。这里同时校验响应体是有效 JSON 数组，证明路由
+    // 确实被服务了，而不是被静默跳过。
     let anon = reqwest::Client::new()
         .get(format!("{base}/models"))
         .send()
         .await
         .unwrap();
-    assert_ne!(
+    assert_eq!(
         anon.status(),
-        401,
+        200,
         "no-auth mode must serve protected routes anonymously"
+    );
+    let body = anon.text().await.unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&body)
+        .unwrap_or_else(|e| panic!("/models returned non-JSON ({e}): {body}"));
+    assert!(
+        parsed.is_array(),
+        "/models must answer with the model list, got: {body}"
     );
 
     handle.abort();

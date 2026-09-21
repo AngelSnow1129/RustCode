@@ -422,9 +422,11 @@ pub struct Config {
 
 /// 环境变量名:免密开放 webui / daemon 的 HTTP 访问(`1`/`0`)。
 ///
-/// 单独摆在这里而不是散落在各 driver,是因为三个入口都要问同一个问题:
-/// `rustcode webui`、`rustcode daemon`、独立 `rustcode-daemon` 二进制。
-pub const WEBUI_NO_AUTH_ENV: &str = "RUSTCODE_WEBUI_NO_AUTH";
+/// 事实源在 [`crate::endpoints::WEBUI_NO_AUTH_ENV`](crate::endpoints::WEBUI_NO_AUTH_ENV)
+/// —— 与其它 `RUSTCODE_*` 变量名同处一处,便于分发改造时一次替换;这里只做
+/// 再导出,三个 driver(`rustcode webui`、`rustcode daemon`、独立
+/// `rustcode-daemon`)都从这里取,不再各写一份字面量。
+pub use crate::endpoints::WEBUI_NO_AUTH_ENV;
 
 /// 免密访问的最终取值:是否跳过 webui / daemon 的 Bearer token 与 Cookie 校验。
 ///
@@ -440,6 +442,24 @@ pub fn webui_no_auth_enabled(cli_flag: bool, config: Option<&Config>) -> bool {
         Some(explicit) => explicit,
         None => cli_flag || config.is_some_and(|c| c.webui_no_auth),
     }
+}
+
+/// 免密与"用户配了静态访问密钥"同时成立:密钥仍会登记进 token store、token 文件
+/// 照写,但中间件不再校验 —— 端口实际是无门禁的。
+///
+/// 用途只是**补一条提示**,不改变任何判据(免密与否仍由 [`webui_no_auth_enabled`]
+/// 单独决定),防止用户以为 `access_key` 还在保护这个端口。
+///
+/// 刻意**不看 `RUSTCODE_DAEMON_TOKEN`**:那是主进程拉起 daemon 时下发的桥接令牌
+/// (多为随机值),不是用户配置的门禁,拿它判定会一开免密就误报。
+pub fn webui_no_auth_masks_access_key(config: Option<&Config>) -> bool {
+    let env_key = std::env::var("RUSTCODE_ACCESS_KEY")
+        .ok()
+        .is_some_and(|v| !v.trim().is_empty());
+    env_key
+        || config
+            .and_then(|c| c.access_key.as_deref())
+            .is_some_and(|k| !k.trim().is_empty())
 }
 
 /// Web search backend configuration. Persisted as the `[web_search]` table.
@@ -3222,6 +3242,25 @@ model = "missing-type"
         assert!(!Config::load(&legacy).unwrap().webui_no_auth);
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(&legacy);
+    }
+
+    #[test]
+    fn webui_no_auth_masks_access_key_only_when_a_key_exists() {
+        let mut cfg = Config::default();
+        assert!(
+            !webui_no_auth_masks_access_key(Some(&cfg)),
+            "没配密钥就不该提示"
+        );
+        cfg.access_key = Some("k".to_string());
+        assert!(webui_no_auth_masks_access_key(Some(&cfg)));
+        // 空串视为未配置（与 resolve_daemon_token 的过滤一致）。
+        cfg.access_key = Some(String::new());
+        assert!(!webui_no_auth_masks_access_key(Some(&cfg)));
+        assert!(!webui_no_auth_masks_access_key(None));
+        // 环境变量算数：即使配置里没有，免密同样会架空它。
+        std::env::set_var("RUSTCODE_ACCESS_KEY", "k");
+        assert!(webui_no_auth_masks_access_key(None));
+        std::env::remove_var("RUSTCODE_ACCESS_KEY");
     }
 
     #[test]
