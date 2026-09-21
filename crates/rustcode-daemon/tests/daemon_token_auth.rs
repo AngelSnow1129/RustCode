@@ -1,6 +1,12 @@
 use std::time::Duration;
 
+use serial_test::serial;
+
+// 本文件两条用例都改写进程级 `RUSTCODE_HOME`，并发跑会互相踩：`set_var` 之后
+// 对方的 `remove_var` 会让本测试的 daemon 把 token 文件落进别的临时目录，断言
+// 随之假红。全局环境变量是进程共享的单例，故整文件序列化。
 #[tokio::test]
+#[serial]
 async fn chat_requires_token_health_is_public() {
     let tmp = std::env::temp_dir().join(format!("rustcode_it_{}", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
@@ -71,6 +77,7 @@ async fn chat_requires_token_health_is_public() {
 /// 反向锁定也在这里：同一套路由在 `webui_no_auth=false` 下必须 401（见上一条测试），
 /// 否则"免密"就变成了"鉴权整体失效"。
 #[tokio::test]
+#[serial]
 async fn no_auth_mode_serves_protected_routes_without_token() {
     let tmp = std::env::temp_dir().join(format!("rustcode_it_noauth_{}", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
