@@ -66,12 +66,15 @@ offline_mode = "off"
 #
 #   RUSTCODE_ENABLE_TUNNEL=1            # 开启隧道（默认关闭）
 #   RUSTCODE_TUNNEL_RELAY=wss://your-relay.example.com   # 中继地址
+#   RUSTCODE_TUNNEL_TOKEN=<强随机串>    # 隧道令牌（daemon 与中继握手用）
 #
-# 注：内置 WebSocket 隧道客户端（frp 的 frpc 半边：连中继 → 用隧道 token 鉴权 →
-# 把中继侧入站流量转发到本地端点）目前【设计已定、尚未实现】。协议为带 stream id
-# 的 Open / Data / Close 帧，可据此独立实现中继。
-# 现阶段远程接入请用下面的 `/tunnel lan`（同网直连），或用自己的 frp / 外部客户端
-# 指向 /tunnel 打印的本地回源端口。
+# 注：内置 WebSocket 隧道客户端（frp 的 frpc 半边）【已实现】：开启隧道且上述
+# 中继地址与隧道令牌齐备时，/tunnel 在绑定本地端点的同时自动连上中继、用隧道
+# token 鉴权，并把中继侧入站流量转发到本地端点，无需再额外部署外部客户端进程。
+# 协议为带 stream id 的 Open / Data / Close 帧（见 docs/relay.md）。
+# 只设开关但未配齐中继地址 / 令牌时，仅启动本地端点并告警，不会误报"已连通"。
+# 注意：隧道令牌（daemon↔中继）与访问密钥 access_key（远程客户端↔端点）是两个
+# 不同用途的密钥，不要混用。
 #
 # 不想用中继时，用 `/tunnel lan` 把隧道端点绑定到 0.0.0.0，同一局域网内的设备即可
 # 直连（无需中继、无需额外依赖，建议在可信网络下使用）；不带子命令的 /tunnel 仍
