@@ -151,6 +151,7 @@ WebUI 默认绑定地址(改这里前必读,默认值按入口而不同):
 - `client_interactive_permission()` 额外把 `webui_no_auth` 计入交互式权限:免密是**用户主动放弃鉴权**,不等于「没有 UI 可应答」。只看 `enforce_token` 会让绑 0.0.0.0 的免密 webui 因非回环被判成不可交互,权限请求无人应答。
 - 进程内 webui 复用判定额外要求鉴权姿态一致(`WebuiHandle.no_auth`):正在跑的实例若与本次要求的免密/带密相反,先 `abort` 旧的再重新起,绝不静默复用出与用户要求相反的访问方式。
 - 免密时 URL 不再 mint/携带 `?token=`,并在 URL 后与 daemon 启动横幅各补一条 `Msg::WebuiNoAuthNotice`。
+- **免密 + 已配静态密钥 = 密钥被架空**,必须额外提示:密钥仍登记进 token store、token 文件照写,但中间件不校验,运维容易误以为 `access_key` 还在守门。判据是 `webui_no_auth_masks_access_key(Option<&Config>)`(config 层),三个 driver 都补一条 `Msg::WebuiNoAuthKeyIgnored`(cli daemon 子命令 stderr、独立 daemon 二进制 stdout、`ensure_server_and_open` 追加到返回消息)。**刻意不看 `RUSTCODE_DAEMON_TOKEN`** —— 那是主进程拉起 daemon 的桥接令牌(多为随机值),拿它判定会一开免密就误报。
 - `/tunnel`(经中继暴露到公网)**刻意不受本开关影响**(`ensure_tunnel_server` 硬写 `webui_no_auth: false`),远程接入始终要 token。
 - 环境变量名的事实源是 `endpoints::WEBUI_NO_AUTH_ENV`(crates/rustcode-config/src/endpoints.rs),与其它 `RUSTCODE_*` 同处一处;`config::WEBUI_NO_AUTH_ENV` 只是它的再导出,**不要再在 config 里另写字面量**。
 
@@ -158,6 +159,12 @@ WebUI 前端三条约定(改这块前必读):
 - **剪贴板必须走 `webui/src/lib/clipboard.ts` 的 `copyText()`**,禁止在组件里直接 `navigator.clipboard.writeText`。webui 默认绑 0.0.0.0、通常经局域网 `http://192.168.x.x` 打开,那是**非安全上下文**,`navigator.clipboard` 为 `undefined` —— 直接调用要么同步抛 TypeError(按钮完全没反应),要么 optional chaining 静默短路却仍显示「已复制」。`copyText` 的顺序是:Clipboard API → `document.execCommand('copy')` 回退 → 返回 `boolean`;**调用点必须按返回值区分成功/失败并给出可见反馈**(`copy.failed`),不要吞掉。
 - **模型列表刷新是事件驱动,不是轮询**:`ModelConfigDialog` 关闭 → `app.tsx` 的 `modelsVersion` 自增 → `Chat` 转 `modelRefreshSignal` → `ModelSelector` 重拉 `/models`;此外每次**打开**下拉也会强制重拉(刚新增的模型必须能在同一次交互里选中)。`loadModels(interactive)` 里 `seqRef` 是「最新响应胜出」的竞态守卫,`onDefaultChangeRef` 用来保持回调 identity 稳定——**不要把父组件回调直接放进 `useCallback` 依赖**,否则 effect 会在每次父级 render 重新拉一次。
 - **回合级「回退 / 重新生成」建立在 `/undo N` 之上**:目标由 `webui/src/lib/turnActions.ts` 的 `assistantTurnActions()` 计算(`promptN` 就是 `/undo N` 的 N),动作在 `Chat.tsx` 的 `undoTurn()`(走 `POST /command` 的 `command:'undo'`,已白名单、会落盘并修正 token 统计)。约束:sync 模式与 busy 时**明确拒绝**(前者 `/command` 直接改磁盘快照会与 live runtime 的 lease 冲突);`Rewind`(代码回滚)目前在 v5.0.5 默认关闭,不要拿它当 restore 的落点。sync 模式支持需新增 `/live/undo` 路由 + `UndoFinished(Ok)` 的 wire 投影(当前 projector 只转发 Err,Ok 被丢弃),属独立后续项。
+
+凭据闸门与 Auto 模式(改这块前必读):
+- `CredentialBashGate`(crates/rustcode-capabilities/src/tools/credential_bash_gate.rs)拦截 bash 里的凭据字面量/配置读取:`Prompt` 走审批、`Strict` 直接终止回合。
+- **Auto 模式(绝对信任)会绕过该闸门**:`CodingParts::bypass_mode` 这个 `Arc<AtomicBool>` 经 `CredentialBashGate::with_bypass()` 注入主 agent 与 `task` / `team` 子代理的 gate;置位时直接 `Proceed`,既不弹审批、也不降级为 call-only deny,连 `Strict` 也不终止回合。这是刻意的——用户自己接管了方向盘,凭据检测不该冒出 `policy_denied`。
+- 该 flag 在 `parts.rs` 的 `prepare` 里**创建一次**并克隆到主 gate 与两个子代理 gate(`subagent_child_middlewares_with_bypass` / `team_child_middlewares_with_bypass`),共享同一 cell 才能让中途 Shift+Tab / `/mode auto` 立即生效而无需重建 gate。**新增子代理入口时务必传同一个 cell**,各自 `new` 一个就退化成两套真相。
+- 回归防线:`crates/rustcode-coding/tests/credential_bash_auto.rs` 走完整 `prepare` + `assemble`(不只测 gate 本身),断言 Auto 开时放行、关时 `Strict` 仍终止回合。
 
 ## 架构总览(分层与 crate 地图)
 
