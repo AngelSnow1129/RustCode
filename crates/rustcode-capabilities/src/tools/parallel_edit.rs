@@ -770,13 +770,21 @@ mod tests {
         }
     }
 
-    /// Models attempted, in first-appearance order: the kernel retries a retryable
-    /// failure inside one child, so the raw log repeats a model before the walk
-    /// moves on. The contract is the ORDER, not the call count.
+    /// Models attempted, in FIRST-APPEARANCE order.
+    ///
+    /// Two reasons the raw log repeats a model, and only first-appearance order is
+    /// stable against both: (1) the kernel retries a retryable failure INSIDE one
+    /// child, so the log repeats a model before the walk moves on; (2) the per-file
+    /// children run CONCURRENTLY and share this log, so their retries INTERLEAVE --
+    /// a consecutive-run collapse splits under interleaving (observed as
+    /// `primary, hop-1, primary, ...` under load) and flakes. First appearance is
+    /// the sound contract: every child walks the chain in order, so each model's
+    /// first appearance IS the chain order, and no model outside the chain can
+    /// appear at all.
     fn models_tried(attempted: &Arc<std::sync::Mutex<Vec<String>>>) -> Vec<String> {
         let mut seen: Vec<String> = Vec::new();
         for model in attempted.lock().unwrap().iter() {
-            if seen.last() != Some(model) {
+            if !seen.contains(model) {
                 seen.push(model.clone());
             }
         }
