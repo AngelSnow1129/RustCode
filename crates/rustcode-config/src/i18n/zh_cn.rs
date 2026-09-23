@@ -365,7 +365,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderPanelModelCount { count } => format!("{count} 个模型").into(),
         Msg::ProviderPanelAddModelRow => "＋ 添加模型".into(),
         Msg::ProviderPanelAccountsHint =>
-            "筛选 . ↑↓选择 . ↵模型 . Ctrl+A添加 . Ctrl+E编辑 . Ctrl+Dx2 删除 . Tab切换 . Esc关闭".into(),
+            "筛选 . ↑↓选择 . ↵获取模型 . Ctrl+A添加 . Ctrl+E编辑 . Ctrl+Dx2 删除 . Tab切换 . Esc关闭".into(),
         Msg::ProviderPanelModelsHint =>
             "筛选 . ↑↓选择 . ↵默认/添加 . Ctrl+A添加 . Ctrl+E编辑 . Ctrl+Dx2 删除 . Tab切换 . Esc关闭".into(),
         Msg::ProviderPanelFilteredModelsHint { account } =>
@@ -2689,6 +2689,13 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             "Tab 下一项  ←-> 切协议  ↵ 保存  Esc 返回".into(),
         Msg::ProviderPanelProviderNotConfigured => "该 provider 尚未配置".into(),
         Msg::ProviderPanelDiscoveryTitle => "发现的模型：".into(),
+        Msg::ProviderPanelDiscoveryPending { account } =>
+            format!("正在获取 {account} 的模型列表...").into(),
+        Msg::ProviderPanelDiscoveryNoEndpoint { account } =>
+            format!("{account} 没有可用的接口地址，无法获取模型列表（请先设置 base URL）").into(),
+        Msg::ProviderPanelRefreshModelsRow => "＋ 刷新模型列表".into(),
+        Msg::ProviderPanelRefreshModelsRowDetail { account } =>
+            format!("获取 {account} 提供的全部模型").into(),
         Msg::ProviderPanelDiscoveryHint =>
             "Space 切换  Enter 添加  Ctrl+A 全选  Ctrl+N 取消全选  Esc 取消".into(),
         Msg::ProviderPanelDiscoveryEmpty => "该 provider 未返回任何模型".into(),

@@ -61,6 +61,13 @@ struct DiscoveryTarget {
     provider_type: &'static str,
     base_url: String,
     api_key: Option<String>,
+    /// Transport settings copied off the ACCOUNT, mirroring the daemon's discovery
+    /// handler (`stored_discovery_transport`). The panel used to hardcode these,
+    /// so an account that worked from the WebUI (self-signed gateway behind a
+    /// corporate proxy, custom UA allowlist) silently failed from the TUI.
+    user_agent: Option<String>,
+    proxy: Option<String>,
+    skip_tls_verify: bool,
 }
 
 impl DiscoveryTarget {
@@ -110,6 +117,9 @@ fn discovery_target_for_account(
             .or_else(|| preset.default_base_url.map(str::to_string))
             .unwrap_or_default(),
         api_key: account.api_key.clone(),
+        user_agent: account.user_agent.clone(),
+        proxy: account.proxy.clone().filter(|p| !p.trim().is_empty()),
+        skip_tls_verify: account.skip_tls_verify,
     }
 }
 
@@ -850,12 +860,67 @@ const LIST_HEADER_ROWS: usize = 4;
 /// never collides with an account; selecting it opens the add-account form.
 const ADD_PROVIDER_ROW: &str = "\u{1}add-provider";
 const ADD_MODEL_ROW: &str = "\u{1}add-model";
+/// Virtual row on the 模型 tab: re-load the drilled-in account's model list from
+/// its endpoint and open the picker. Offered only when there is exactly one
+/// unambiguous target (the account the user drilled into), so Enter never has to
+/// guess which provider to ask.
+const REFRESH_MODELS_ROW: &str = "\u{1}refresh-models";
 
 fn is_add_shortcut(code: &KeyCode, mods: KeyModifiers) -> bool {
     matches!(
         code,
         KeyCode::Char('a' | 'A') if mods.contains(KeyModifiers::CONTROL)
     ) || matches!(code, KeyCode::Char('\u{1}'))
+}
+
+/// Multi-select transitions of the discovery picker, kept as free functions on
+/// the raw state so they can be tested without a `LoopCtx` (the panel's key
+/// handler is a thin dispatcher over these). Each one is total: an out-of-range
+/// cursor is a no-op rather than a panic, because the cursor and the toggle list
+/// are updated by different keystrokes.
+fn pick_cursor_up(cursor: &mut usize) {
+    *cursor = cursor.saturating_sub(1);
+}
+
+fn pick_cursor_down(cursor: &mut usize, len: usize) {
+    if *cursor + 1 < len {
+        *cursor += 1;
+    }
+}
+
+fn pick_toggle(selected: &mut [bool], cursor: usize) {
+    if let Some(flag) = selected.get_mut(cursor) {
+        *flag = !*flag;
+    }
+}
+
+fn pick_select_all(selected: &mut [bool]) {
+    for flag in selected.iter_mut() {
+        *flag = true;
+    }
+}
+
+fn pick_deselect_all(selected: &mut [bool]) {
+    for flag in selected.iter_mut() {
+        *flag = false;
+    }
+}
+
+/// The chosen models in listing order. `selected` shorter than `models` (a stale
+/// pick next to a refreshed listing) means the missing tail is NOT chosen --
+/// zipping is deliberate, so a shorter list can never invent selections.
+fn pick_chosen(models: &[DiscoveredModel], selected: &[bool]) -> Vec<DiscoveredModel> {
+    models
+        .iter()
+        .zip(selected.iter())
+        .filter(|(_, &flag)| flag)
+        .map(|(model, _)| model.clone())
+        .collect()
+}
+
+/// Actions that are not rows of the config: Ctrl+E / Ctrl+D must skip them.
+fn is_virtual_row(id: &str) -> bool {
+    id == ADD_PROVIDER_ROW || id == ADD_MODEL_ROW || id == REFRESH_MODELS_ROW
 }
 
 impl ProviderPanel {
@@ -865,8 +930,116 @@ impl ProviderPanel {
         self.account_filter.is_some() || !Self::account_ids(config).is_empty()
     }
 
-    fn has_add_row(&self, config: &Config) -> bool {
-        self.tab == Tab::Accounts || self.can_add_model(config)
+    /// The account the refresh row would re-load, when that row is offered.
+    ///
+    /// Requires a drill-in (so the target is unambiguous) AND a resolvable
+    /// endpoint (so the row is never a no-op). A virtual preset row has no
+    /// persisted account, hence no credential to ask with -- excluded.
+    fn refresh_account(&self, config: &Config) -> Option<String> {
+        if self.tab != Tab::Models {
+            return None;
+        }
+        let account_id = self.account_filter.as_deref()?;
+        let account = config.provider_accounts.get(account_id)?;
+        discovery_target_for_account(account, account_id)
+            .is_discoverable()
+            .then(|| account_id.to_string())
+    }
+
+    /// Re-load one account's model list, reporting WHY when it cannot start.
+    ///
+    /// Both entry points (the account row's Enter and the models-tab refresh row)
+    /// go through here so they cannot drift. A request already in flight is left
+    /// alone rather than replaced: the answer belongs to the account the user
+    /// asked about a moment ago.
+    fn start_discovery_for_account(&mut self, account_id: &str, config: &Config) -> bool {
+        if !can_start_discovery(&self.discovery_state) {
+            return false;
+        }
+        let Some(account) = config.provider_accounts.get(account_id) else {
+            // A virtual preset row has no persisted account and no credential.
+            self.note_discovery(
+                crate::i18n::t(crate::i18n::Msg::ProviderPanelDiscoveryNoEndpoint {
+                    account: account_id,
+                })
+                .into_owned(),
+            );
+            return false;
+        };
+        let target = discovery_target_for_account(account, account_id);
+        if !target.is_discoverable() {
+            // No base_url on the account and none from its preset: the request
+            // would go nowhere. Say so instead of doing nothing visible -- a
+            // silent no-op is what made the old flow look broken.
+            self.note_discovery(
+                crate::i18n::t(crate::i18n::Msg::ProviderPanelDiscoveryNoEndpoint {
+                    account: account_id,
+                })
+                .into_owned(),
+            );
+            return false;
+        }
+        self.start_discovery(target)
+    }
+
+    /// Virtual rows appended after the real rows, in draw order. Keeping them in
+    /// ONE place is what lets `selected_id` and `current_len` agree with the
+    /// renderer; the old single-sentinel check had to be duplicated per row.
+    fn virtual_rows(&self, config: &Config) -> Vec<String> {
+        match self.tab {
+            Tab::Accounts => vec![ADD_PROVIDER_ROW.to_string()],
+            Tab::Models => {
+                let mut rows = Vec::new();
+                if self.can_add_model(config) {
+                    rows.push(ADD_MODEL_ROW.to_string());
+                }
+                if self.refresh_account(config).is_some() {
+                    rows.push(REFRESH_MODELS_ROW.to_string());
+                }
+                rows
+            }
+        }
+    }
+
+    /// The virtual rows as they are RENDERED, in display order. Derived from
+    /// [`Self::virtual_rows`] so the selectable rows and the drawn rows cannot
+    /// drift -- an off-by-one between them would make Enter act on a row the user
+    /// is not looking at. `ids` are the real rows above them; they only drive the
+    /// add row's empty-state detail.
+    fn virtual_row_items(&self, config: &Config, ids: &[String]) -> Vec<(String, String)> {
+        self.virtual_rows(config)
+            .into_iter()
+            .filter_map(|id| match id.as_str() {
+                ADD_PROVIDER_ROW => Some((
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelAddAccountRow).into_owned(),
+                    String::new(),
+                )),
+                ADD_MODEL_ROW => {
+                    let detail = if ids.is_empty() {
+                        if self.query.trim().is_empty() {
+                            crate::i18n::t(crate::i18n::Msg::ProviderPanelEmptyModels).into_owned()
+                        } else {
+                            crate::i18n::t(crate::i18n::Msg::ProviderPanelNoMatchingModels)
+                                .into_owned()
+                        }
+                    } else {
+                        String::new()
+                    };
+                    Some((
+                        crate::i18n::t(crate::i18n::Msg::ProviderPanelAddModelRow).into_owned(),
+                        detail,
+                    ))
+                }
+                REFRESH_MODELS_ROW => Some((
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelRefreshModelsRow).into_owned(),
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelRefreshModelsRowDetail {
+                        account: &self.refresh_account(config).unwrap_or_default(),
+                    })
+                    .into_owned(),
+                )),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Apply a single-line paste to the field currently being edited.
@@ -1099,10 +1272,20 @@ impl ProviderPanel {
             provider_type,
             base_url,
             api_key,
+            user_agent,
+            proxy,
+            skip_tls_verify,
         } = target;
 
         std::thread::spawn(move || {
-            let result = Self::discover_models_sync(&base_url, api_key.as_deref(), provider_type);
+            let result = Self::discover_models_sync(
+                &base_url,
+                api_key.as_deref(),
+                provider_type,
+                user_agent.as_deref(),
+                proxy.as_deref(),
+                skip_tls_verify,
+            );
             let _ = tx.send(DiscoveryResult { account_id, result });
         });
 
@@ -1116,15 +1299,38 @@ impl ProviderPanel {
     }
 
     /// Synchronous model discovery (runs in background thread).
+    ///
+    /// The transport settings come from the ACCOUNT, mirroring the daemon's
+    /// discovery handler: a self-signed gateway, a corporate proxy or a UA
+    /// allowlist that works from the WebUI must work here too. The shared egress
+    /// factory is async-only (it drives the non-blocking client), so this
+    /// blocking path applies the same policy by hand -- the same reason
+    /// `capabilities`' MCP-OAuth flow builds its own blocking client.
+    #[allow(clippy::too_many_arguments)]
     fn discover_models_sync(
         base_url: &str,
         api_key: Option<&str>,
         provider_type: &str,
+        user_agent: Option<&str>,
+        proxy: Option<&str>,
+        skip_tls_verify: bool,
     ) -> Result<Vec<DiscoveredModel>, String> {
         // Build HTTP client (blocking)
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .danger_accept_invalid_certs(false)
+        let mut builder =
+            reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(30));
+        if let Some(agent) = user_agent.map(str::trim).filter(|a| !a.is_empty()) {
+            builder = builder.user_agent(agent);
+        }
+        if let Some(url) = proxy.map(str::trim).filter(|p| !p.is_empty()) {
+            builder = builder.proxy(
+                reqwest::Proxy::all(url).map_err(|e| format!("invalid proxy `{url}`: {e}"))?,
+            );
+        }
+        // Diagnostic escape hatch, only for an account that asked for it.
+        if skip_tls_verify {
+            builder = builder.danger_accept_invalid_certs(true);
+        }
+        let client = builder
             .build()
             .map_err(|e| format!("HTTP client error: {e}"))?;
 
@@ -1261,22 +1467,20 @@ impl ProviderPanel {
         }
     }
 
-    /// Selectable row count, including the trailing add row on both tabs.
+    /// Selectable row count, including the trailing virtual rows on both tabs.
     fn current_len(&self, config: &Config) -> usize {
-        self.filtered_ids(config).len() + usize::from(self.has_add_row(config))
+        self.filtered_ids(config).len() + self.virtual_rows(config).len()
     }
 
     fn selected_id(&self, config: &Config) -> Option<String> {
         let ids = self.filtered_ids(config);
-        // The virtual add row sits just past the real rows on either tab.
-        if self.selected == ids.len() && self.has_add_row(config) {
-            return Some(
-                match self.tab {
-                    Tab::Accounts => ADD_PROVIDER_ROW,
-                    Tab::Models => ADD_MODEL_ROW,
-                }
-                .to_string(),
-            );
+        // Virtual rows sit just past the real ones. Index and count both come from
+        // `virtual_rows`, so the mapping can never drift from what is rendered.
+        if self.selected >= ids.len() {
+            return self
+                .virtual_rows(config)
+                .get(self.selected - ids.len())
+                .cloned();
         }
         ids.get(self.selected).cloned()
     }
@@ -1454,16 +1658,34 @@ impl ProviderPanel {
             return discovery_target_for_account(account, &form.id);
         }
         let preset = form.preset();
-        let (provider_type, base_url, api_key) = match persisted.providers.get(&form.id) {
-            Some(provider) => (
-                provider_preset::preset_or_compatible(&provider.provider_type).provider_type,
-                provider.base_url.clone(),
-                provider.resolved_api_key(),
-            ),
-            // Unreachable after a successful save (the store closure bails first);
-            // keep the form's own protocol so the caller still gets a usable target.
-            None => (preset.provider_type, None, None),
-        };
+        let (provider_type, base_url, api_key, user_agent, proxy, skip_tls_verify) =
+            match persisted.provider_accounts.get(&form.id) {
+                // Prefer the COMMITTED account: it carries the transport settings
+                // (UA / proxy / TLS) the user just saved.
+                Some(account) => (
+                    provider_preset::preset_or_compatible(&account.provider).provider_type,
+                    account.base_url.clone(),
+                    account.api_key.clone(),
+                    account.user_agent.clone(),
+                    account.proxy.clone().filter(|p| !p.trim().is_empty()),
+                    account.skip_tls_verify,
+                ),
+                None => match persisted.providers.get(&form.id) {
+                    Some(provider) => (
+                        provider_preset::preset_or_compatible(&provider.provider_type)
+                            .provider_type,
+                        provider.base_url.clone(),
+                        provider.resolved_api_key(),
+                        provider.user_agent.clone(),
+                        provider.proxy.clone().filter(|p| !p.trim().is_empty()),
+                        provider.skip_tls_verify,
+                    ),
+                    // Unreachable after a successful save (the store closure bails
+                    // first); keep the form's own protocol so the caller still gets
+                    // a usable target.
+                    None => (preset.provider_type, None, None, None, None, false),
+                },
+            };
         DiscoveryTarget {
             account_id: form.id.clone(),
             provider_type: discovery_protocol(provider_type),
@@ -1471,6 +1693,9 @@ impl ProviderPanel {
                 .or_else(|| preset.default_base_url.map(str::to_string))
                 .unwrap_or_default(),
             api_key,
+            user_agent,
+            proxy,
+            skip_tls_verify,
         }
     }
 
@@ -2136,39 +2361,17 @@ impl Modal for ProviderPanel {
                     self.mode = Mode::List;
                     self.account_filter = Some(account_id);
                 }
-                KeyCode::Up => {
-                    *cursor = cursor.saturating_sub(1);
-                }
-                KeyCode::Down => {
-                    if *cursor + 1 < models.len() {
-                        *cursor += 1;
-                    }
-                }
-                KeyCode::Char(' ') => {
-                    // Toggle selection
-                    if *cursor < selected.len() {
-                        selected[*cursor] = !selected[*cursor];
-                    }
-                }
+                KeyCode::Up => pick_cursor_up(cursor),
+                KeyCode::Down => pick_cursor_down(cursor, models.len()),
+                KeyCode::Char(' ') => pick_toggle(selected, *cursor),
                 KeyCode::Char('a') if mods.contains(KeyModifiers::CONTROL) => {
-                    // Select all
-                    for s in selected.iter_mut() {
-                        *s = true;
-                    }
+                    pick_select_all(selected);
                 }
                 KeyCode::Char('n') if mods.contains(KeyModifiers::CONTROL) => {
-                    // Deselect all
-                    for s in selected.iter_mut() {
-                        *s = false;
-                    }
+                    pick_deselect_all(selected);
                 }
                 KeyCode::Enter => {
-                    let models_to_add: Vec<_> = models
-                        .iter()
-                        .zip(selected.iter())
-                        .filter(|(_, &sel)| sel)
-                        .map(|(m, _)| m.clone())
-                        .collect();
+                    let models_to_add = pick_chosen(models, selected);
 
                     if !models_to_add.is_empty() {
                         // Persist HERE. The old code only stashed the pick in
@@ -2223,10 +2426,7 @@ impl Modal for ProviderPanel {
             // Ctrl+E: edit the selected row.
             KeyCode::Char('e') if ctrl => {
                 self.pending_delete = None;
-                if let Some(id) = self
-                    .selected_id(&ctx.config)
-                    .filter(|i| i != ADD_PROVIDER_ROW && i != ADD_MODEL_ROW)
-                {
+                if let Some(id) = self.selected_id(&ctx.config).filter(|i| !is_virtual_row(i)) {
                     self.mode = match self.tab {
                         Tab::Accounts => Mode::EditAccount(Self::open_edit(&ctx.config, &id)),
                         Tab::Models => match ModelForm::new_edit(&ctx.config, &id) {
@@ -2239,10 +2439,7 @@ impl Modal for ProviderPanel {
             // Ctrl+D twice: the first press arms the selected logical row; the
             // second deletes it without leaving the list for a confirmation UI.
             KeyCode::Char('d') if ctrl => {
-                if let Some(id) = self
-                    .selected_id(&ctx.config)
-                    .filter(|i| i != ADD_PROVIDER_ROW && i != ADD_MODEL_ROW)
-                {
+                if let Some(id) = self.selected_id(&ctx.config).filter(|i| !is_virtual_row(i)) {
                     let is_account = self.tab == Tab::Accounts;
                     // Unconfigured preset rows have no persisted object to
                     // delete.
@@ -2301,6 +2498,14 @@ impl Modal for ProviderPanel {
                         Tab::Models if id == ADD_MODEL_ROW => {
                             self.begin_add_for_current_tab(&ctx.config);
                         }
+                        // Re-load the drilled-in account's list and open the picker.
+                        // Same helper the account row uses, so both entry points
+                        // report an unreachable endpoint identically.
+                        Tab::Models if id == REFRESH_MODELS_ROW => {
+                            if let Some(account_id) = self.refresh_account(&ctx.config) {
+                                self.start_discovery_for_account(&account_id, &ctx.config);
+                            }
+                        }
                         Tab::Models => {
                             if set_default_provider_and_reload(ctx, &id, renderer) {
                                 return Ok(ModalAction::Close);
@@ -2309,16 +2514,13 @@ impl Modal for ProviderPanel {
                         Tab::Accounts if id == ADD_PROVIDER_ROW => {
                             self.mode = Mode::Add(AddForm::new());
                         }
-                        // Drill into the account: switch to the Models tab
-                        // filtered to just this account. Manual Tab / Esc clears
-                        // the filter to show all models again.
+                        // Drill in AND load this account's model list -- the same
+                        // thing saving a new account does, so the two paths cannot
+                        // disagree about what "open an account" means. Manual Tab /
+                        // Esc clears the filter to show all models again.
                         Tab::Accounts => {
-                            self.tab = Tab::Models;
-                            self.account_filter = Some(id);
-                            self.query.clear();
-                            self.query_cursor_byte = 0;
-                            self.search_focused = false;
-                            self.selected = 0;
+                            self.show_models_for_account(&id);
+                            self.start_discovery_for_account(&id, &ctx.config);
                         }
                     }
                 }
@@ -2398,27 +2600,14 @@ impl Modal for ProviderPanel {
                             };
                             items.push((Self::account_label(&ctx.config, id), desc));
                         }
-                        // Trailing "+ 添加自定义 provider" affordance (also Ctrl+A).
-                        items.push((
-                            crate::i18n::t(crate::i18n::Msg::ProviderPanelAddAccountRow)
-                                .into_owned(),
-                            String::new(),
-                        ));
+                        // Trailing virtual rows (add account), drawn from the same
+                        // source `selected_id` indexes into.
+                        items.extend(self.virtual_row_items(&ctx.config, &ids));
                         hint = crate::i18n::t(crate::i18n::Msg::ProviderPanelAccountsHint)
                             .into_owned();
                     }
                     Tab::Models => {
                         let ids = self.filtered_ids(&ctx.config);
-                        let empty_description = if ids.is_empty() {
-                            let msg = if self.query.trim().is_empty() {
-                                crate::i18n::t(crate::i18n::Msg::ProviderPanelEmptyModels)
-                            } else {
-                                crate::i18n::t(crate::i18n::Msg::ProviderPanelNoMatchingModels)
-                            };
-                            msg.into_owned()
-                        } else {
-                            String::new()
-                        };
                         for id in &ids {
                             let m = models.get(id);
                             let mark = if *id == cur {
@@ -2437,13 +2626,9 @@ impl Modal for ProviderPanel {
                                 .unwrap_or_default();
                             items.push((id.clone(), desc));
                         }
-                        if self.can_add_model(&ctx.config) {
-                            items.push((
-                                crate::i18n::t(crate::i18n::Msg::ProviderPanelAddModelRow)
-                                    .into_owned(),
-                                empty_description,
-                            ));
-                        }
+                        // Trailing virtual rows (add model, refresh list), drawn from
+                        // the same source `selected_id` indexes into.
+                        items.extend(self.virtual_row_items(&ctx.config, &ids));
                         hint = if let Some(acct) = &self.account_filter {
                             crate::i18n::t(crate::i18n::Msg::ProviderPanelFilteredModelsHint {
                                 account: acct,
@@ -2728,8 +2913,18 @@ impl Modal for ProviderPanel {
         // Surface the last discovery outcome (failure reason / empty listing). A
         // silent failure was indistinguishable from "this provider has no models",
         // which is how the auto-load flow used to look simply broken.
-        if let DiscoveryState::Notice { message } = &self.discovery_state {
-            items.push((message.clone(), String::new()));
+        match &self.discovery_state {
+            DiscoveryState::Notice { message } => items.push((message.clone(), String::new())),
+            // An in-flight request must be visible: the user just pressed Enter and
+            // the list does not change until the answer lands.
+            DiscoveryState::Pending { account_id, .. } => items.push((
+                crate::i18n::t(crate::i18n::Msg::ProviderPanelDiscoveryPending {
+                    account: account_id,
+                })
+                .into_owned(),
+                String::new(),
+            )),
+            DiscoveryState::Idle => {}
         }
 
         items.push((format!("— {hint} —"), String::new()));
@@ -2808,6 +3003,582 @@ impl Modal for ProviderPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Serve exactly one HTTP response on an ephemeral port, returning the base
+    /// URL to point discovery at.
+    ///
+    /// A real socket (not a mocked transport) is the point: the panel's discovery
+    /// path builds its OWN client and URL, so only a round trip proves the whole
+    /// chain -- URL join, auth header, status check, body read, parse.
+    fn serve_once(
+        status_line: &'static str,
+        body: &'static str,
+        expect_path: &'static str,
+        expect_auth: Option<&'static str>,
+    ) -> (String, std::thread::JoinHandle<String>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            use std::io::{Read, Write};
+            let mut buf = [0u8; 4096];
+            let n = socket.read(&mut buf).unwrap();
+            let request = String::from_utf8_lossy(&buf[..n]).to_string();
+            let head = format!(
+                "{status_line}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(head.as_bytes()).unwrap();
+            socket.write_all(body.as_bytes()).unwrap();
+            socket.flush().unwrap();
+            let path = request
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or_default()
+                .to_string();
+            let auth = request
+                .lines()
+                .find(|line| line.to_ascii_lowercase().starts_with("authorization:"))
+                .unwrap_or_default()
+                .to_string();
+            assert_eq!(
+                path, expect_path,
+                "discovery must hit the protocol's list endpoint"
+            );
+            if let Some(expected) = expect_auth {
+                assert!(
+                    auth.to_ascii_lowercase()
+                        .contains(&expected.to_ascii_lowercase()),
+                    "expected `{expected}` in the request, got `{auth}`"
+                );
+            } else {
+                assert!(
+                    auth.is_empty(),
+                    "no api_key ⇒ no Authorization header, got `{auth}`"
+                );
+            }
+            let _ = (path, auth);
+            request
+        });
+        (format!("http://{addr}/v1"), handle)
+    }
+
+    /// The auto-load path must actually work end to end: adding an account fires a
+    /// real request at `<base_url>/models`, and a 200 yields selectable models.
+    #[test]
+    fn discovery_round_trips_an_openai_compatible_listing() {
+        let body = r#"{"data":[
+            {"id":"vendor/model-a","name":"Model A","context_length":131072,"max_output_tokens":8192},
+            {"id":"vendor/model-b"}
+        ]}"#;
+        let (base_url, server) = serve_once(
+            "HTTP/1.1 200 OK",
+            body,
+            "/v1/models",
+            Some("Bearer sk-test"),
+        );
+
+        let models = ProviderPanel::discover_models_sync(
+            &base_url,
+            Some("sk-test"),
+            "openai",
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["vendor/model-a", "vendor/model-b"],
+            "every id in the listing must become a selectable model"
+        );
+        // Metadata is carried through, not just the id.
+        assert_eq!(models[0].name.as_deref(), Some("Model A"));
+        assert_eq!(models[0].context_window, Some(131072));
+        assert_eq!(models[0].max_tokens, Some(8192));
+        assert_eq!(models[1].context_window, None, "absent metadata stays None");
+        server.join().unwrap();
+    }
+
+    /// Ollama speaks a different endpoint AND a different body shape; a regression
+    /// in either would silently produce an empty picker.
+    #[test]
+    fn discovery_round_trips_an_ollama_tag_listing() {
+        let body = r#"{"models":[{"name":"llama3:8b","model":"llama3:8b"}]}"#;
+        let (base_url, server) = serve_once("HTTP/1.1 200 OK", body, "/api/tags", None);
+
+        // Note the base URL carries `/v1`: discovery must NOT inherit that suffix
+        // for Ollama... it appends to whatever it was given, so assert what the
+        // protocol actually requires -- the tags endpoint off the given base.
+        let base = base_url.trim_end_matches("/v1").to_string();
+        let models =
+            ProviderPanel::discover_models_sync(&base, None, "ollama", None, None, false).unwrap();
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "llama3:8b");
+        assert_eq!(models[0].name.as_deref(), Some("llama3:8b"));
+        server.join().unwrap();
+    }
+
+    /// A failed discovery must surface the HTTP status, because "no models" and
+    /// "the request was rejected" are indistinguishable to the user otherwise.
+    /// The point of the fix: transport settings saved on the ACCOUNT must reach
+    /// the request. A custom UA allowlist (or proxy) that works from the WebUI
+    /// used to be ignored here, so discovery failed only in the TUI.
+    #[test]
+    fn discovery_sends_the_account_user_agent() {
+        let (base_url, server) = serve_once(
+            "HTTP/1.1 200 OK",
+            r#"{"data":[{"id":"m"}]}"#,
+            "/v1/models",
+            None,
+        );
+        let models = ProviderPanel::discover_models_sync(
+            &base_url,
+            None,
+            "openai",
+            Some("my-gateway-agent/9"),
+            None,
+            false,
+        )
+        .unwrap();
+        assert_eq!(models.len(), 1);
+        let request = server.join().unwrap();
+        assert!(
+            request.to_ascii_lowercase().contains("my-gateway-agent/9"),
+            "the account's User-Agent must be sent, got request:\n{request}"
+        );
+    }
+
+    /// Without a UA on the account nothing custom is injected -- reqwest's own
+    /// default applies, which is what every other call site relies on.
+    #[test]
+    fn discovery_omits_a_user_agent_the_account_never_set() {
+        let (base_url, server) = serve_once(
+            "HTTP/1.1 200 OK",
+            r#"{"data":[{"id":"m"}]}"#,
+            "/v1/models",
+            None,
+        );
+        ProviderPanel::discover_models_sync(&base_url, None, "openai", Some("  "), None, false)
+            .unwrap();
+        let request = server.join().unwrap();
+        assert!(
+            !request.to_ascii_lowercase().contains("my-gateway-agent"),
+            "blank UA must not be forwarded, got request:\n{request}"
+        );
+    }
+
+    #[test]
+    fn discovery_reports_a_non_success_status() {
+        let (base_url, server) = serve_once(
+            "HTTP/1.1 401 Unauthorized",
+            r#"{"error":"nope"}"#,
+            "/v1/models",
+            None,
+        );
+        let err = ProviderPanel::discover_models_sync(&base_url, None, "openai", None, None, false)
+            .unwrap_err();
+        assert!(
+            err.contains("401"),
+            "the status must reach the user, got `{err}`"
+        );
+        server.join().unwrap();
+    }
+
+    /// A 200 with an unparseable body is its own failure mode: it must be an
+    /// error, not an empty list (which would render as "provider has no models").
+    #[test]
+    fn discovery_rejects_a_malformed_body_instead_of_claiming_no_models() {
+        let (base_url, server) = serve_once("HTTP/1.1 200 OK", "not json", "/v1/models", None);
+        let err = ProviderPanel::discover_models_sync(&base_url, None, "openai", None, None, false)
+            .unwrap_err();
+        assert!(
+            err.to_lowercase().contains("json"),
+            "a malformed body must be reported as a parse failure, got `{err}`"
+        );
+        server.join().unwrap();
+    }
+
+    /// The refresh row is the ONLY way to re-load an existing account's list, so
+    /// its visibility rules are the feature's contract.
+    #[test]
+    fn refresh_row_needs_a_drilled_in_account_with_an_endpoint() {
+        let cfg: Config = serde_json::from_value(serde_json::json!({
+            "provider_accounts": {
+                "acc": { "provider": "deepseek" },
+                "nourl": { "provider": "openai-compatible" }
+            }
+        }))
+        .unwrap();
+
+        let mut p = ProviderPanel::open();
+        // Accounts tab: nothing to refresh -- Enter there drills in instead.
+        p.tab = Tab::Accounts;
+        p.account_filter = Some("acc".into());
+        assert!(p.refresh_account(&cfg).is_none());
+
+        // Models tab but no drill-in: which account would we ask? Refuse.
+        p.tab = Tab::Models;
+        p.account_filter = None;
+        assert!(p.refresh_account(&cfg).is_none());
+
+        // Drilled in, and the preset supplies the endpoint (`deepseek` has one).
+        p.account_filter = Some("acc".into());
+        assert_eq!(p.refresh_account(&cfg).as_deref(), Some("acc"));
+
+        // A `*-compatible` account has no default endpoint and no base_url, so the
+        // row must not appear (it would be a guaranteed no-op).
+        p.account_filter = Some("nourl".into());
+        assert!(p.refresh_account(&cfg).is_none());
+
+        // An id with no persisted account (a virtual preset row) is never a target.
+        p.account_filter = Some("not-configured".into());
+        assert!(p.refresh_account(&cfg).is_none());
+    }
+
+    /// The refresh row must be selectable and carry its own sentinel -- otherwise
+    /// Enter would fall through to "set as default".
+    #[test]
+    fn refresh_row_is_selectable_after_the_add_row() {
+        let cfg: Config = serde_json::from_value(serde_json::json!({
+            "provider_accounts": { "acc": { "provider": "deepseek" } },
+            "models": { "acc/deepseek-chat": { "account": "acc", "model": "deepseek-chat", "context_window": 8000 } }
+        }))
+        .unwrap();
+        let mut p = ProviderPanel::open();
+        p.tab = Tab::Models;
+        p.account_filter = Some("acc".into());
+
+        // Rows: the one real model, then add-model, then refresh.
+        assert_eq!(p.filtered_ids(&cfg), vec!["acc/deepseek-chat".to_string()]);
+        assert_eq!(p.current_len(&cfg), 3);
+
+        p.selected = 0;
+        assert_eq!(p.selected_id(&cfg).as_deref(), Some("acc/deepseek-chat"));
+        p.selected = 1;
+        assert_eq!(p.selected_id(&cfg).as_deref(), Some(ADD_MODEL_ROW));
+        p.selected = 2;
+        assert_eq!(p.selected_id(&cfg).as_deref(), Some(REFRESH_MODELS_ROW));
+
+        // Past the end resolves to nothing rather than repeating the last row.
+        p.selected = 3;
+        assert_eq!(p.selected_id(&cfg), None);
+    }
+
+    /// Without a drill-in the refresh row is absent, so the add row stays last --
+    /// an off-by-one here would make Enter add a model instead of asking the
+    /// provider, or vice versa.
+    #[test]
+    fn add_row_stays_last_when_the_refresh_row_is_not_offered() {
+        let cfg: Config = serde_json::from_value(serde_json::json!({
+            "provider_accounts": { "acc": { "provider": "deepseek" } },
+            "models": { "acc/a": { "account": "acc", "model": "a", "context_window": 8000 } }
+        }))
+        .unwrap();
+        let mut p = ProviderPanel::open();
+        p.tab = Tab::Models;
+        p.account_filter = None;
+
+        assert_eq!(p.current_len(&cfg), 2);
+        p.selected = 1;
+        assert_eq!(p.selected_id(&cfg).as_deref(), Some(ADD_MODEL_ROW));
+    }
+
+    /// Ctrl+E / Ctrl+D must skip the refresh row: it is an action, not a config
+    /// row, so deleting it must not arm a delete on some unrelated id.
+    #[test]
+    fn refresh_row_is_never_editable_or_deletable() {
+        assert!(is_virtual_row(REFRESH_MODELS_ROW));
+        assert!(is_virtual_row(ADD_MODEL_ROW));
+        assert!(is_virtual_row(ADD_PROVIDER_ROW));
+        assert!(!is_virtual_row("acc/deepseek-chat"));
+    }
+
+    /// Entering the refresh row must start a real request for the drilled-in
+    /// account, and the panel must report it as in flight.
+    #[test]
+    fn enter_on_the_refresh_row_starts_discovery_for_the_drilled_in_account() {
+        // A LOCAL endpoint, not the `deepseek` preset default: this test used to
+        // point at api.deepseek.com and really fire a request at the internet.
+        let (base_url, server) = serve_once(
+            "HTTP/1.1 200 OK",
+            r#"{"data":[{"id":"m"}]}"#,
+            "/v1/models",
+            None,
+        );
+        let cfg: Config = serde_json::from_value(serde_json::json!({
+            "provider_accounts": { "acc": { "provider": "deepseek", "base_url": base_url } }
+        }))
+        .unwrap();
+        let mut p = ProviderPanel::open();
+        p.tab = Tab::Models;
+        p.account_filter = Some("acc".into());
+        p.selected = 1; // the refresh row (only virtual row here)
+
+        let account_id = p.refresh_account(&cfg).unwrap();
+        assert!(p.start_discovery_for_account(&account_id, &cfg));
+
+        match &p.discovery_state {
+            DiscoveryState::Pending { account_id, .. } => assert_eq!(account_id, "acc"),
+            other => panic!("expected an in-flight request, got {other:?}"),
+        }
+        // A second press must not stack requests on the same panel.
+        assert!(!p.start_discovery_for_account("acc", &cfg));
+        server.join().unwrap();
+    }
+
+    /// The account row's Enter is the entry point the user asked for: it must both
+    /// drill in AND load the list, matching what saving a new account does.
+    #[test]
+    fn account_enter_drills_in_and_loads_the_model_list() {
+        let (base_url, server) = serve_once(
+            "HTTP/1.1 200 OK",
+            r#"{"data":[{"id":"m"}]}"#,
+            "/v1/models",
+            None,
+        );
+        let cfg: Config = serde_json::from_value(serde_json::json!({
+            "provider_accounts": { "acc": { "provider": "deepseek", "base_url": base_url } }
+        }))
+        .unwrap();
+
+        let mut p = ProviderPanel::open();
+        p.tab = Tab::Accounts;
+        let ids = p.filtered_ids(&cfg);
+        p.selected = ids.iter().position(|id| id == "acc").unwrap();
+
+        // Exactly what the Enter arm does.
+        let id = p.selected_id(&cfg).unwrap();
+        p.show_models_for_account(&id);
+        assert!(p.start_discovery_for_account(&id, &cfg));
+
+        assert!(
+            matches!(p.tab, Tab::Models),
+            "Enter must drill into the account"
+        );
+        assert_eq!(p.account_filter.as_deref(), Some("acc"));
+        assert!(
+            p.virtual_rows(&cfg)
+                .contains(&REFRESH_MODELS_ROW.to_string()),
+            "the drilled-in list offers a manual refresh"
+        );
+        match &p.discovery_state {
+            DiscoveryState::Pending { account_id, .. } => assert_eq!(account_id, "acc"),
+            other => panic!("Enter must start loading, got {other:?}"),
+        }
+        server.join().unwrap();
+    }
+
+    /// An account with no endpoint (no base_url, no preset default) cannot be
+    /// asked for models. The panel must SAY so -- the old silent no-op is exactly
+    /// what made this look like a missing feature.
+    #[test]
+    fn start_discovery_for_account_reports_a_missing_endpoint() {
+        let cfg: Config = serde_json::from_value(serde_json::json!({
+            // `openai-compatible` carries no default base URL.
+            "provider_accounts": { "nourl": { "provider": "openai-compatible" } }
+        }))
+        .unwrap();
+        let mut p = ProviderPanel::open();
+        p.tab = Tab::Accounts;
+
+        assert!(!p.start_discovery_for_account("nourl", &cfg));
+        match &p.discovery_state {
+            DiscoveryState::Notice { message } => assert!(
+                message.contains("nourl"),
+                "the notice must name the account, got `{message}`"
+            ),
+            other => panic!("expected a notice, got {other:?}"),
+        }
+        // Noticed, not stuck: a later attempt is still allowed.
+        assert!(can_start_discovery(&p.discovery_state));
+    }
+
+    /// A virtual preset row (no persisted account, hence no credential) is refused
+    /// the same way rather than silently doing nothing.
+    #[test]
+    fn start_discovery_for_an_unconfigured_row_reports_a_missing_endpoint() {
+        let cfg = Config::default();
+        let mut p = ProviderPanel::open();
+        assert!(!p.start_discovery_for_account("not-configured", &cfg));
+        assert!(matches!(p.discovery_state, DiscoveryState::Notice { .. }));
+    }
+
+    /// A request already in flight belongs to the account the user asked about a
+    /// moment ago; a second Enter must not silently replace it with another
+    /// account's answer.
+    #[test]
+    fn in_flight_discovery_is_not_replaced_by_another_account() {
+        let (a_url, server_a) = serve_once(
+            "HTTP/1.1 200 OK",
+            r#"{"data":[{"id":"a"}]}"#,
+            "/v1/models",
+            None,
+        );
+        let cfg: Config = serde_json::from_value(serde_json::json!({
+            "provider_accounts": {
+                "a": { "provider": "deepseek", "base_url": a_url },
+                // A dead port on purpose: no server thread, because this account's
+                // request must never be sent -- joining a listener that expects a
+                // connection would hang the suite forever.
+                "b": { "provider": "deepseek", "base_url": "http://127.0.0.1:1/v1" }
+            }
+        }))
+        .unwrap();
+
+        let mut p = ProviderPanel::open();
+        assert!(p.start_discovery_for_account("a", &cfg));
+        assert!(
+            !p.start_discovery_for_account("b", &cfg),
+            "a second account must not displace the in-flight request"
+        );
+        match &p.discovery_state {
+            DiscoveryState::Pending { account_id, .. } => assert_eq!(account_id, "a"),
+            other => panic!("expected the FIRST request to still be pending, got {other:?}"),
+        }
+        server_a.join().unwrap();
+    }
+
+    /// The drawn virtual rows and the selectable ones must be the SAME list: an
+    /// off-by-one here makes Enter act on a row the user is not looking at. This
+    /// locks the invariant the old duplicated pushes could only hope to maintain.
+    #[test]
+    fn drawn_virtual_rows_match_the_selectable_ones() {
+        let cfg: Config = serde_json::from_value(serde_json::json!({
+            "provider_accounts": { "acc": { "provider": "deepseek" } },
+            "models": { "acc/a": { "account": "acc", "model": "a", "context_window": 8000 } }
+        }))
+        .unwrap();
+
+        let mut p = ProviderPanel::open();
+        p.tab = Tab::Models;
+        p.account_filter = Some("acc".into());
+        let ids = p.filtered_ids(&cfg);
+
+        // Drilled in: add row + refresh row, same order as `virtual_rows`.
+        assert_eq!(p.virtual_rows(&cfg).len(), 2);
+        let drawn = p.virtual_row_items(&cfg, &ids);
+        assert_eq!(drawn.len(), p.virtual_rows(&cfg).len());
+        for (row, (label, _)) in p.virtual_rows(&cfg).iter().zip(drawn.iter()) {
+            let expected = match row.as_str() {
+                ADD_MODEL_ROW => crate::i18n::t(crate::i18n::Msg::ProviderPanelAddModelRow),
+                REFRESH_MODELS_ROW => {
+                    crate::i18n::t(crate::i18n::Msg::ProviderPanelRefreshModelsRow)
+                }
+                other => panic!("unexpected virtual row {other}"),
+            };
+            assert_eq!(*label, expected, "row {row} must render its own label");
+        }
+
+        // Every selectable index must land on the row drawn at that position.
+        let total = p.current_len(&cfg);
+        assert_eq!(total, ids.len() + drawn.len());
+        for i in 0..total {
+            p.selected = i;
+            let id = p.selected_id(&cfg).expect("every row is selectable");
+            let label = if i < ids.len() {
+                id.clone()
+            } else {
+                drawn[i - ids.len()].0.clone()
+            };
+            assert!(!label.is_empty(), "row {i} ({id}) must have a label");
+        }
+
+        // Accounts tab: exactly the add-account row, no refresh affordance.
+        p.tab = Tab::Accounts;
+        p.account_filter = None;
+        let acc_ids = p.filtered_ids(&cfg);
+        let acc_drawn = p.virtual_row_items(&cfg, &acc_ids);
+        assert_eq!(acc_drawn.len(), 1);
+        assert_eq!(
+            acc_drawn[0].0,
+            crate::i18n::t(crate::i18n::Msg::ProviderPanelAddAccountRow)
+        );
+        p.selected = acc_ids.len();
+        assert_eq!(p.selected_id(&cfg).as_deref(), Some(ADD_PROVIDER_ROW));
+    }
+
+    /// The multi-select state machine behind the discovery picker. It is easy to
+    /// get wrong in a way no compile error catches -- an off-by-one cursor, a
+    /// toggle that writes past the list, or a Confirm that adds rows the user
+    /// unchecked -- and the picker writes to the user's config, so the wrong
+    /// answer is persisted, not just displayed.
+    #[test]
+    fn discovery_picker_multiselect_state_machine() {
+        let models = vec![
+            discovered("a", "A"),
+            discovered("b", "B"),
+            discovered("c", "C"),
+        ];
+
+        // Starts fully selected (poll_background preselects every row).
+        let mut selected = vec![true; models.len()];
+        let mut cursor = 0usize;
+        assert_eq!(pick_chosen(&models, &selected).len(), 3);
+
+        // Space toggles ONLY the row under the cursor.
+        pick_toggle(&mut selected, cursor);
+        assert_eq!(selected, vec![false, true, true]);
+        assert_eq!(
+            pick_chosen(&models, &selected)
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b", "c"]
+        );
+        pick_toggle(&mut selected, cursor);
+        assert_eq!(selected, vec![true, true, true], "toggling twice restores");
+
+        // Ctrl+N clears everything: Confirm then has nothing to persist, which is
+        // how the caller knows to stay open instead of writing an empty batch.
+        pick_deselect_all(&mut selected);
+        assert_eq!(selected, vec![false, false, false]);
+        assert!(pick_chosen(&models, &selected).is_empty());
+
+        // Ctrl+A restores all.
+        pick_select_all(&mut selected);
+        assert!(selected.iter().all(|&s| s));
+
+        // Cursor movement is bounded at BOTH ends: a cursor past the end would
+        // make Space a silent no-op and Enter add the wrong row.
+        pick_cursor_up(&mut cursor);
+        assert_eq!(cursor, 0, "Up at the top stays at the top");
+        pick_cursor_down(&mut cursor, models.len());
+        assert_eq!(cursor, 1);
+        pick_cursor_down(&mut cursor, models.len());
+        assert_eq!(cursor, 2);
+        pick_cursor_down(&mut cursor, models.len());
+        assert_eq!(cursor, 2, "Down at the bottom stays at the bottom");
+
+        // A cursor left stale by a shorter listing is a no-op, never a panic.
+        let mut stale = vec![true, true];
+        pick_toggle(&mut stale, 5);
+        assert_eq!(stale, vec![true, true]);
+        pick_toggle(&mut stale, 1);
+        assert_eq!(stale, vec![true, false]);
+    }
+
+    /// A stale pick shorter than the listing must not invent selections for the
+    /// missing tail -- silently adding unchecked models is the failure that
+    /// matters, since it writes to the user's config.
+    #[test]
+    fn discovery_picker_never_selects_beyond_a_short_stale_pick() {
+        let models = vec![
+            discovered("a", "A"),
+            discovered("b", "B"),
+            discovered("c", "C"),
+        ];
+        let chosen = pick_chosen(&models, &[true, false]);
+        assert_eq!(
+            chosen.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["a"],
+            "the third model has no flag, so it is NOT chosen"
+        );
+        assert!(pick_chosen(&models, &[]).is_empty());
+    }
 
     #[test]
     fn provider_panel_chrome_downgrades_for_legacy_conhost() {

@@ -4489,6 +4489,20 @@ pub enum Msg<'a> {
     ProviderPanelProviderNotConfigured,
     /// Provider panel: discovery results title.
     ProviderPanelDiscoveryTitle,
+    /// Provider panel: a discovery request is in flight; `account` is its id.
+    ProviderPanelDiscoveryPending {
+        account: &'a str,
+    },
+    /// Provider panel: discovery cannot start; `account` has no endpoint.
+    ProviderPanelDiscoveryNoEndpoint {
+        account: &'a str,
+    },
+    /// Provider panel: models-tab trailing "refresh model list" row.
+    ProviderPanelRefreshModelsRow,
+    /// Provider panel: detail text for that row; `account` is its id.
+    ProviderPanelRefreshModelsRowDetail {
+        account: &'a str,
+    },
     /// Provider panel: discovery results hint.
     ProviderPanelDiscoveryHint,
     /// Provider panel: discovery answered with an empty model list.

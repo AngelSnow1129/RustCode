@@ -387,7 +387,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("{count} model{}", if count == 1 { "" } else { "s" }).into(),
         Msg::ProviderPanelAddModelRow => "+ Add model".into(),
         Msg::ProviderPanelAccountsHint =>
-            "Filter . ↑↓ select . ↵ models . Ctrl+A add . Ctrl+E edit . Ctrl+Dx2 delete . Tab switch . Esc close".into(),
+            "Filter . ↑↓ select . ↵ load models . Ctrl+A add . Ctrl+E edit . Ctrl+Dx2 delete . Tab switch . Esc close".into(),
         Msg::ProviderPanelModelsHint =>
             "Filter . ↑↓ select . ↵ default/add . Ctrl+A add . Ctrl+E edit . Ctrl+Dx2 delete . Tab switch . Esc close".into(),
         Msg::ProviderPanelFilteredModelsHint { account } =>
@@ -2796,6 +2796,13 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             "Tab Next  \u{2190}-> Switch protocol  \u{21b5} Save  Esc Back".into(),
         Msg::ProviderPanelProviderNotConfigured => "this provider is not configured yet".into(),
         Msg::ProviderPanelDiscoveryTitle => "Discovered Models:".into(),
+        Msg::ProviderPanelDiscoveryPending { account } =>
+            format!("loading model list for {account}...").into(),
+        Msg::ProviderPanelDiscoveryNoEndpoint { account } =>
+            format!("{account} has no endpoint to load models from (set a base URL first)").into(),
+        Msg::ProviderPanelRefreshModelsRow => "+ Refresh model list".into(),
+        Msg::ProviderPanelRefreshModelsRowDetail { account } =>
+            format!("load every model {account} offers").into(),
         Msg::ProviderPanelDiscoveryHint =>
             "Space Toggle  Enter Add  Ctrl+A All  Ctrl+N None  Esc Cancel".into(),
         Msg::ProviderPanelDiscoveryEmpty =>
