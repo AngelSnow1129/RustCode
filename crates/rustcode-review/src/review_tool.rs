@@ -207,6 +207,10 @@ impl Default for ReviewToolConfig {
     }
 }
 
+/// Explicit fallback candidates for a review pass, resolved by the layer that
+/// owns `Config` (see `parts.rs`). Empty = no chain = one attempt, as before.
+type ReviewChainProviderFn = dyn Fn() -> Vec<Arc<dyn LlmProvider>> + Send + Sync;
+
 /// The `code_review` tool. Mount it in any host agent's registry to give that agent a
 /// read-only "review the current changes" capability.
 pub struct ReviewTool {
@@ -215,6 +219,107 @@ pub struct ReviewTool {
     max_rounds: Option<u32>,
     max_turn_duration: Option<Duration>,
     tool_loop_policy: Option<ToolLoopPolicy>,
+    /// Model fallback chain (FR-6.2). The reviewer runs in-process against the
+    /// host's provider rather than through the owner loop, so without this a
+    /// single flaky model fails the whole review.
+    make_chain_providers: Option<Arc<ReviewChainProviderFn>>,
+}
+
+/// Candidate providers for one review pass, in priority order: the host's live
+/// provider first, then the explicit chain (FR-6.2). De-duped by provider
+/// IDENTITY -- two configured providers may legitimately serve the same raw model
+/// name, so display text cannot decide this.
+fn review_candidates(
+    host: Arc<dyn LlmProvider>,
+    chain: Option<&ReviewChainProviderFn>,
+) -> Vec<Arc<dyn LlmProvider>> {
+    let mut candidates = vec![Arc::clone(&host)];
+    if let Some(chain) = chain {
+        for candidate in chain() {
+            if !Arc::ptr_eq(&candidate, &host)
+                && !candidates.iter().any(|seen| Arc::ptr_eq(seen, &candidate))
+            {
+                candidates.push(candidate);
+            }
+        }
+    }
+    candidates
+}
+
+/// Result of one review pass after walking the candidate chain.
+struct ReviewPass {
+    stop: StopReason,
+    error: Option<String>,
+    /// Findings reported by the attempt that ended the walk.
+    findings: Vec<Finding>,
+}
+
+/// Run one review pass, walking the candidate chain (FR-6.2).
+///
+/// A hop happens ONLY when the shared
+/// [`fallback_eligible`](rustcode_capabilities::fallback::fallback_eligible)
+/// predicate says a DIFFERENT model could survive the failure. That predicate is
+/// content-free by design, which is exactly what a review pass needs: once the
+/// reviewer has called `report_finding`, replaying the pass on another model would
+/// re-report the same findings instead of recovering. A terminal error (401) is
+/// likewise not a model-availability problem, so the walk stops there too.
+async fn run_review_pass(
+    candidates: &[Arc<dyn LlmProvider>],
+    cfg: &ReviewAgentConfig,
+    task: &str,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> ReviewPass {
+    let mut pass = ReviewPass {
+        stop: StopReason::Stopped,
+        error: None,
+        findings: Vec::new(),
+    };
+    let total = candidates.len();
+    for (index, provider) in candidates.iter().enumerate() {
+        if index > 0 {
+            let from = candidates[index - 1].model_name().to_string();
+            let to = provider.model_name().to_string();
+            let reason = pass
+                .error
+                .clone()
+                .unwrap_or_else(|| format!("{:?}", pass.stop));
+            if let Some(progress) = cfg.progress.as_ref() {
+                progress.emit(format!(
+                    "{REVIEW_ACTIVITY_MARKER}{}",
+                    t(Msg::ModelFallbackStarted {
+                        from: &from,
+                        to: &to,
+                        reason: &reason,
+                    })
+                ));
+            }
+        }
+        let (agent, report) = build_review_agent_with(cfg, Arc::clone(provider));
+        let outcome = tokio::select! {
+            _ = cancel.cancelled() => None,
+            outcome = agent.run_to_completion(task.to_string(), AutoRespond::AllowAll) => Some(outcome),
+        };
+        let Some(outcome) = outcome else {
+            pass = ReviewPass {
+                stop: StopReason::Cancelled,
+                error: Some("cancelled by user".to_string()),
+                findings: report.findings(),
+            };
+            break;
+        };
+        let clean = outcome.stop == StopReason::Stopped && outcome.error.is_none();
+        let eligible =
+            rustcode_capabilities::fallback::fallback_eligible(&outcome, cancel.is_cancelled());
+        pass = ReviewPass {
+            stop: outcome.stop,
+            error: outcome.error.clone(),
+            findings: report.findings(),
+        };
+        if clean || !eligible || index + 1 == total {
+            break;
+        }
+    }
+    pass
 }
 
 impl ReviewTool {
@@ -238,7 +343,22 @@ impl ReviewTool {
                     .ok()
                     .as_deref(),
             ),
+            make_chain_providers: None,
         }
+    }
+
+    /// Wire the reviewer's explicit model fallback chain (FR-6.2 / FR-6.3).
+    ///
+    /// The reviewer reuses the HOST's provider (a signing gateway keeps working
+    /// that way), so this only adds candidates to try *after* that provider fails
+    /// before producing anything. Leaving it unset keeps the historic single-attempt
+    /// behaviour exactly.
+    pub fn with_chain_providers(
+        mut self,
+        make_chain: impl Fn() -> Vec<Arc<dyn LlmProvider>> + Send + Sync + 'static,
+    ) -> Self {
+        self.make_chain_providers = Some(Arc::new(make_chain));
+        self
     }
 
     /// Inherit the embedding product's exact-loop policy so disabling or raising
@@ -568,26 +688,25 @@ impl Tool for ReviewTool {
             cfg
         };
 
+        // Candidates in priority order: the host's provider (a signing gateway keeps
+        // working that way), then the explicit chain when one is configured (FR-6.2).
+        let provider_candidates =
+            review_candidates(Arc::clone(&provider), self.make_chain_providers.as_deref());
+
         if !a.is_deep() {
-            // --- single-agent path (unchanged behavior) ---
-            let (agent, report) = build_review_agent_with(&make_cfg(), provider);
-            let (stop, run_error) = tokio::select! {
-                _ = ctx.cancel.cancelled() => (StopReason::Cancelled, Some("cancelled by user".to_string())),
-                outcome = agent.run_to_completion(task, AutoRespond::AllowAll) => {
-                    (outcome.stop, outcome.error)
-                }
-            };
-            let mut findings = report.findings();
+            // --- single-agent path ---
+            let pass = run_review_pass(&provider_candidates, &make_cfg(), &task, &ctx.cancel).await;
+            let mut findings = pass.findings;
             findings.retain(|f| files.iter().any(|cf| paths_match(cf, &f.file_path)));
             sort_findings(&mut findings);
-            return if stop == StopReason::Stopped && run_error.is_none() {
+            return if pass.stop == StopReason::Stopped && pass.error.is_none() {
                 ok(render_findings(&findings, files.len()))
             } else {
                 err(render_incomplete_review(
                     &findings,
                     files.len(),
-                    stop,
-                    run_error.as_deref(),
+                    pass.stop,
+                    pass.error.as_deref(),
                 ))
             };
         }
@@ -595,25 +714,19 @@ impl Tool for ReviewTool {
         // --- deep fan-out path ---
         let outcomes = run_deep_review(REVIEW_DIMENSIONS, |dim| {
             // Clone everything so each dimension future is Send + 'static.
-            let provider = provider.clone();
+            let candidates = provider_candidates.clone();
             let task = task.clone();
             let mut cfg = make_cfg();
             let cancel = ctx.cancel.clone();
             async move {
                 cfg.progress_label = Some(dim.id.to_string());
                 cfg = cfg.with_persona_append(dim.lens);
-                let (agent, report) = build_review_agent_with(&cfg, provider);
-                let (stop, run_error) = tokio::select! {
-                    _ = cancel.cancelled() => (StopReason::Cancelled, Some("cancelled by user".to_string())),
-                    outcome = agent.run_to_completion(task, AutoRespond::AllowAll) => {
-                        (outcome.stop, outcome.error)
-                    }
-                };
+                let pass = run_review_pass(&candidates, &cfg, &task, &cancel).await;
                 DimensionOutcome {
                     dimension: dim.id,
-                    findings: report.findings(),
-                    completed: stop == StopReason::Stopped && run_error.is_none(),
-                    error: run_error,
+                    findings: pass.findings,
+                    completed: pass.stop == StopReason::Stopped && pass.error.is_none(),
+                    error: pass.error,
                 }
             }
         })
@@ -631,8 +744,10 @@ impl Tool for ReviewTool {
             // which embeds the whole diff -- is rendered lazily inside each closure, so
             // at most `VERIFY_CONCURRENCY` copies of the diff are live at once.
             let candidates: Vec<Finding> = merged.iter().map(|m| m.finding.clone()).collect();
+            let verify_providers = provider_candidates.clone();
             let keep = run_verify(merged.len(), VERIFY_CONCURRENCY, |i| {
-                let provider = provider.clone();
+                let candidates = candidates.clone();
+                let verify_providers = verify_providers.clone();
                 let candidate = candidates[i].clone();
                 let vtask = render_verify_task(&candidate, &rules, &annotated);
                 let mut cfg = make_cfg();
@@ -640,18 +755,12 @@ impl Tool for ReviewTool {
                 async move {
                     cfg.progress_label = Some(t(Msg::ReviewStageVerify).into_owned());
                     cfg = cfg.with_persona_append(VERIFY_LENS);
-                    let (agent, report) = build_review_agent_with(&cfg, provider);
-                    let (stop, run_error) = tokio::select! {
-                        _ = cancel.cancelled() => (StopReason::Cancelled, Some("cancelled by user".to_string())),
-                        outcome = agent.run_to_completion(vtask, AutoRespond::AllowAll) => {
-                            (outcome.stop, outcome.error)
-                        }
-                    };
+                    let pass = run_review_pass(&verify_providers, &cfg, &vtask, &cancel).await;
                     // Fail-open: keep on error/cancel; else keep iff the verifier
                     // re-reported a finding corresponding to THIS candidate.
-                    let clean = stop == StopReason::Stopped && run_error.is_none();
+                    let clean = pass.stop == StopReason::Stopped && pass.error.is_none();
                     let kept = if clean {
-                        verify_reconfirms(&candidate, &report.findings())
+                        verify_reconfirms(&candidate, &pass.findings)
                     } else {
                         true
                     };
@@ -926,6 +1035,7 @@ mod tests {
     use async_trait::async_trait;
     use futures::stream::{self, BoxStream};
     use futures::StreamExt;
+    use rustcode_kernel::agent::Outcome;
     use rustcode_kernel::message::{Message, Role};
     use rustcode_kernel::provider::ChatOptions;
     use rustcode_kernel::stream::{ProviderError, StreamEvent};
@@ -1795,5 +1905,220 @@ mod tests {
             "{}",
             res.content
         );
+    }
+
+    /// Records which model was asked. `reply` = `Some` answers in one round;
+    /// `None` fails transiently (retryable 503) -- the failure shape a fallback
+    /// hop can survive.
+    struct ChainReviewProvider {
+        model: &'static str,
+        reply: Option<&'static str>,
+        attempted: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for ChainReviewProvider {
+        fn model_name(&self) -> &str {
+            self.model
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: &[Message],
+            _t: &[ToolDef],
+            _o: &ChatOptions,
+        ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
+            self.attempted.lock().unwrap().push(self.model.to_string());
+            if let Some(text) = self.reply {
+                return Ok(stream::iter(vec![
+                    StreamEvent::TextDelta(text.to_string()),
+                    StreamEvent::Done { truncated: false },
+                ])
+                .boxed());
+            }
+            Err(ProviderError {
+                retryable: true,
+                http_status: Some(503),
+                message: "down".into(),
+                ..Default::default()
+            })
+        }
+    }
+
+    /// Models attempted, in first-appearance order. The kernel retries a retryable
+    /// failure INSIDE one pass, so the raw call log repeats a model before the walk
+    /// moves on -- the contract is the ORDER, not the call count (fallback fires
+    /// only after the retry budget is spent).
+    fn models_tried(attempted: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
+        let mut seen: Vec<String> = Vec::new();
+        for model in attempted.lock().unwrap().iter() {
+            if seen.last() != Some(model) {
+                seen.push(model.clone());
+            }
+        }
+        seen
+    }
+
+    fn chain_review(
+        attempted: Arc<Mutex<Vec<String>>>,
+        chain: Vec<(&'static str, Option<&'static str>)>,
+    ) -> ReviewTool {
+        let primary = Arc::clone(&attempted);
+        let host: SharedReviewProvider =
+            Arc::new(RwLock::new(Some(Arc::new(ChainReviewProvider {
+                model: "primary",
+                reply: None,
+                attempted: Arc::clone(&primary),
+            }))));
+        ReviewTool::new(
+            host,
+            ReviewToolConfig {
+                model: "mock-model".into(),
+                ..Default::default()
+            },
+        )
+        .with_chain_providers(move || {
+            chain
+                .iter()
+                .map(|(model, reply)| {
+                    Arc::new(ChainReviewProvider {
+                        model,
+                        reply: *reply,
+                        attempted: Arc::clone(&attempted),
+                    }) as Arc<dyn LlmProvider>
+                })
+                .collect()
+        })
+    }
+
+    /// FR-6.2: the reviewer runs in-process on the HOST provider, so without a chain
+    /// a single flaky model fails the whole review. With one it walks the candidates
+    /// in order and finishes on the first that answers.
+    #[tokio::test]
+    async fn review_walks_its_chain_in_order() {
+        let _g = pin_en();
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        let dir = repo_with_working_tree_change();
+        let attempted = Arc::new(Mutex::new(Vec::new()));
+        let tool = chain_review(
+            Arc::clone(&attempted),
+            vec![("hop-1", None), ("hop-2", Some("Review complete."))],
+        );
+        let ctx = ToolContext {
+            working_dir: dir.path().to_path_buf(),
+            cancel: Default::default(),
+            progress: ProgressSink::noop(),
+            requester: None,
+        };
+
+        let res = tool.execute("{}", &ctx).await;
+
+        assert_eq!(
+            models_tried(&attempted),
+            vec!["primary", "hop-1", "hop-2"],
+            "the chain must be walked in order"
+        );
+        assert!(
+            !res.is_error,
+            "a chain that recovers must not report an incomplete review: {}",
+            res.content
+        );
+    }
+
+    /// A-10: with no chain wired the reviewer gets exactly one model, so an
+    /// unconfigured call behaves as it did before fallback existed.
+    #[tokio::test]
+    async fn an_absent_review_chain_attempts_only_the_host_provider() {
+        let _g = pin_en();
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        let dir = repo_with_working_tree_change();
+        let attempted = Arc::new(Mutex::new(Vec::new()));
+        let primary = Arc::clone(&attempted);
+        let host: SharedReviewProvider =
+            Arc::new(RwLock::new(Some(Arc::new(ChainReviewProvider {
+                model: "primary",
+                reply: None,
+                attempted: Arc::clone(&primary),
+            }))));
+        let tool = ReviewTool::new(
+            host,
+            ReviewToolConfig {
+                model: "mock-model".into(),
+                ..Default::default()
+            },
+        );
+        let ctx = ToolContext {
+            working_dir: dir.path().to_path_buf(),
+            cancel: Default::default(),
+            progress: ProgressSink::noop(),
+            requester: None,
+        };
+
+        let res = tool.execute("{}", &ctx).await;
+
+        assert_eq!(models_tried(&attempted), vec!["primary"]);
+        assert!(
+            res.is_error,
+            "an unwired review fails loudly: {}",
+            res.content
+        );
+    }
+
+    /// FR-6.1 / A-5: once the reviewer has reported a finding, replaying the pass on
+    /// another model would re-report it rather than recover, so the walk must stop.
+    /// Asserted on the shared predicate the walk consults: a mid-pass tool call
+    /// cannot be scripted to fail here, but the rule is what decides the walk.
+    #[test]
+    fn a_review_that_reported_findings_is_never_replayed() {
+        let mut with_findings = Outcome {
+            stop: rustcode_kernel::event::StopReason::ProviderError,
+            http_status: Some(503),
+            ..Default::default()
+        };
+        with_findings.tool_results.push(Default::default());
+        assert!(
+            !rustcode_capabilities::fallback::fallback_eligible(&with_findings, false),
+            "a pass that produced a tool result must not be replayed"
+        );
+
+        let content_free = Outcome {
+            stop: rustcode_kernel::event::StopReason::ProviderError,
+            http_status: Some(503),
+            ..Default::default()
+        };
+        assert!(rustcode_capabilities::fallback::fallback_eligible(
+            &content_free,
+            false
+        ));
+    }
+
+    /// FR-5.3: a terminal failure (401) is not a model-availability question, so the
+    /// chain must not be walked even though a candidate remains.
+    #[test]
+    fn a_terminal_review_failure_is_not_eligible_for_fallback() {
+        let terminal = Outcome {
+            stop: rustcode_kernel::event::StopReason::ProviderError,
+            provider_retryable: Some(false),
+            http_status: Some(401),
+            ..Default::default()
+        };
+        assert!(
+            !rustcode_capabilities::fallback::fallback_eligible(&terminal, false),
+            "a 401 must not be replayed on another model"
+        );
+        // Cancellation likewise ends the walk regardless of the failure shape.
+        let retryable = Outcome {
+            stop: rustcode_kernel::event::StopReason::ProviderError,
+            provider_retryable: Some(true),
+            http_status: Some(503),
+            ..Default::default()
+        };
+        assert!(!rustcode_capabilities::fallback::fallback_eligible(
+            &retryable, true
+        ));
     }
 }

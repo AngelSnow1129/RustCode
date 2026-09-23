@@ -580,26 +580,47 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     // so the reviewer reuses the host's correctly-built -- possibly signed -- provider.
     let review_provider: Option<SharedReviewProvider> = if opts.tools && opts.review {
         let slot: SharedReviewProvider = Arc::new(std::sync::RwLock::new(None));
-        registry.register(Arc::new(
-            ReviewTool::new(
-                slot.clone(),
-                ReviewToolConfig {
-                    model: cfg.model.clone(),
-                    context_window: cfg.context_window,
-                    stream_timeout: cfg.stream_timeout,
-                    first_token_timeout: cfg.first_token_timeout,
-                    request_timeout: cfg
-                        .request_timeout
-                        .unwrap_or_else(|| std::time::Duration::from_secs(300)),
-                    max_commits_without_confirmation: 20,
-                    max_files_without_confirmation: 40,
-                    max_changed_lines_without_confirmation: 4_000,
-                    max_diff_bytes_without_confirmation: 256 * 1024,
-                    rules_dir: None,
-                },
-            )
-            .with_tool_loop_policy(cfg.tool_loop_policy),
-        ));
+        let mut review_tool = ReviewTool::new(
+            slot.clone(),
+            ReviewToolConfig {
+                model: cfg.model.clone(),
+                context_window: cfg.context_window,
+                stream_timeout: cfg.stream_timeout,
+                first_token_timeout: cfg.first_token_timeout,
+                request_timeout: cfg
+                    .request_timeout
+                    .unwrap_or_else(|| std::time::Duration::from_secs(300)),
+                max_commits_without_confirmation: 20,
+                max_files_without_confirmation: 40,
+                max_changed_lines_without_confirmation: 4_000,
+                max_diff_bytes_without_confirmation: 256 * 1024,
+                rules_dir: None,
+            },
+        )
+        .with_tool_loop_policy(cfg.tool_loop_policy);
+        // FR-6.2: the reviewer runs in-process against the HOST provider (so a
+        // signing gateway keeps working), which means it never passes through the
+        // owner loop's fallback and a single flaky model fails the whole review.
+        // Give it the host model's explicit chain as extra candidates to try AFTER
+        // that provider fails before reporting anything. Resolved HERE -- the layer
+        // that owns `Config` -- exactly like the `task`/`team` wiring below, so
+        // `rustcode-review` never grows a `rustcode-config` dependency.
+        if let Some(registry_config) = cfg.subagent_config.clone() {
+            let chain_models = cfg.subagent_model_providers.clone();
+            let review_key = cfg.provider_name.clone();
+            review_tool = review_tool.with_chain_providers(move || {
+                registry_config
+                    .model_fallback_chain(&review_key)
+                    .into_iter()
+                    .filter_map(|id| {
+                        chain_models
+                            .as_ref()
+                            .and_then(|models| models.get(&id).ok().flatten())
+                    })
+                    .collect()
+            });
+        }
+        registry.register(Arc::new(review_tool));
         names.push("code_review".into());
         Some(slot)
     } else {
