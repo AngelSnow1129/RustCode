@@ -264,4 +264,22 @@ mod tests {
         assert!(stop_reason(K::ProviderError).is_err());
         assert!(stop_reason(K::Timeout).is_err());
     }
+
+    /// FR-7.4: ACP inherits the failover MECHANISM (its turns are owned by the
+    /// same `CodingRuntime`, so a model outage is survived rather than surfaced
+    /// as a provider error), but the protocol has no advisory channel mapped for
+    /// it -- `Warning` is deliberately NOT projected.
+    ///
+    /// This locks the *scope decision* rather than a coincidence: a future
+    /// change that starts emitting warnings to ACP clients must be a conscious
+    /// one, because it alters what every client renders mid-turn.
+    #[test]
+    fn failover_advisory_is_deliberately_not_projected_to_acp_clients() {
+        let notice = "`primary` failed (HTTP 503); continuing this turn on `fb1`";
+        assert!(
+            event_to_update(&AgentEvent::Warning(notice.into()), None).is_none(),
+            "FR-7.4: the failover advisory has no ACP projection; adding one is a \
+             scope change, not a bug fix"
+        );
+    }
 }

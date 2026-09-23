@@ -740,6 +740,36 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         if let Some(models) = cfg.subagent_model_providers.clone() {
             task_tool = task_tool.with_named_provider(move |selection| models.get(selection));
         }
+        // FR-6.2: a child that fails before producing output walks the model's
+        // EXPLICIT chain first; the implicit single host provider installed above
+        // stays the last resort. The chain is resolved HERE (the layer that owns
+        // `Config`) and handed over as ready-to-run providers, so `capabilities`
+        // never grows a `rustcode-config` dependency on its `tools` feature.
+        if let Some(registry_config) = cfg.subagent_config.clone() {
+            let chain_models = cfg.subagent_model_providers.clone();
+            let registry_for_chain = registry_config.clone();
+            task_tool = task_tool.with_chain_provider(move |key: &str| {
+                registry_for_chain
+                    .model_fallback_chain(key)
+                    .into_iter()
+                    .filter_map(|id| {
+                        chain_models
+                            .as_ref()
+                            .and_then(|m| m.get(&id).ok().flatten())
+                    })
+                    .collect()
+            });
+            // Tier-routed subtasks never name a `model`, so they need their tier's
+            // selection id to find their own chain. When routing is OFF both tiers
+            // run on the host, so the host selection id is the right key -- a
+            // model-less subtask must still be able to fail over.
+            let (fast_key, capable_key) = crate::subagent_tiers::tier_chain_keys(
+                &registry_config,
+                &cfg.model,
+                &cfg.provider_name,
+            );
+            task_tool = task_tool.with_tier_selection_ids(fast_key, capable_key);
+        }
         registry.register(Arc::new(task_tool));
         names.push("task".to_string());
         Some(slot)

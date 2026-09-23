@@ -77,6 +77,10 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::RetryReasonUpstream => "上游服务暂时不可用".into(),
         Msg::RetryReasonTimeout => "模型响应超时".into(),
         Msg::RetryReasonNetwork => "网络连接失败".into(),
+        Msg::ModelFallbackStarted { from, to, reason } =>
+            format!("`{from}` 失败（{reason}），改用 `{to}` 继续本轮").into(),
+        Msg::ModelFallbackExhausted { attempts } =>
+            format!("回退链上的模型全部失败：{attempts}").into(),
         Msg::TuixProviderRetry {
             reason,
             backoff_secs,
@@ -2978,5 +2982,38 @@ mod message_text_tests {
         let s = zh_cn(Msg::ConhostScrollHint);
         assert!(s.contains("Windows Terminal"));
         assert!(s.contains("滚"));
+    }
+
+    /// A-11 (human face), zh side: mirror of the en assertion. The default
+    /// locale is Chinese, so this is the text most users actually read.
+    #[test]
+    fn zh_fallback_notice_names_both_models_and_the_reason() {
+        let s = zh_cn(Msg::ModelFallbackStarted {
+            from: "primary",
+            to: "backup",
+            reason: "上游 503",
+        });
+        // Model ids are identifiers and stay verbatim in both languages.
+        assert!(s.contains("primary"), "必须点名失败的模型: {s}");
+        assert!(s.contains("backup"), "必须点名接手的模型: {s}");
+        assert!(s.contains("上游 503"), "必须带上失败原因: {s}");
+        // A failover continues the turn; the wording must not read as fatal.
+        assert!(
+            !s.contains("回合失败") && !s.contains("已终止"),
+            "回退是继续而非终结: {s}"
+        );
+    }
+
+    #[test]
+    fn zh_exhausted_notice_lists_every_attempt() {
+        let s = zh_cn(Msg::ModelFallbackExhausted {
+            attempts: "primary, backup",
+        });
+        assert!(s.contains("primary"), "{s}");
+        assert!(s.contains("backup"), "{s}");
+        assert!(
+            s.contains("回退") || s.contains("全部"),
+            "必须表达整条链已试尽: {s}"
+        );
     }
 }

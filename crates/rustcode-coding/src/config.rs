@@ -170,6 +170,15 @@ pub struct CodingAgentConfig {
     pub retry_max_attempts: Option<u32>,
     /// Full provider registry used to resolve task-tool fast/capable tiers.
     pub subagent_config: Option<Arc<rustcode_config::config::Config>>,
+    /// Ordered fallback chain of model selection ids for this runtime generation,
+    /// already sanitized by [`rustcode_config::config::Config::model_fallback_chain`]
+    /// (trimmed, duplicate-free, self-references and unknown targets dropped).
+    /// Empty (the default) means "no fallback": a provider failure ends the turn
+    /// exactly as it does today.
+    ///
+    /// Resolved once at construction so the turn path never re-reads config, and
+    /// so a mid-session `/model` swap carries the new model's own chain.
+    pub provider_fallback: Vec<String>,
     /// Swap-aware, lazily-built FAST-tier provider for the `task` tool. `None` ⇒ the fast
     /// tier reuses the host provider slot. Set by the runtime as a SHARED cell ([`TierProvider`])
     /// so a mid-session `/model` swap can `reset()` it -- re-resolve the tier against the new
@@ -223,6 +232,9 @@ pub struct CodingRuntimeConfig {
     pub loop_max_rounds: u32,
     pub turn_max_rounds: u32,
     pub subagent_config: Option<Arc<rustcode_config::config::Config>>,
+    /// Sanitized model fallback chain for the resolved selection (empty = none).
+    /// See [`CodingAgentConfig::provider_fallback`].
+    pub provider_fallback: Vec<String>,
     /// Enables TUI-owned interactive safety checkpoints. A `max_rounds` hit
     /// sends `ROUND_CAP_CHECKPOINT_KIND`; exhausted output-limit recovery sends
     /// `OUTPUT_TRUNCATION_CHECKPOINT_KIND`. This must stay `false` for headless /
@@ -347,6 +359,13 @@ impl CodingRuntimeConfig {
                 std::env::var("RUSTCODE_TURN_MAX_ROUNDS").ok().as_deref(),
             ),
             subagent_config: Some(Arc::new(config.clone())),
+            // Resolve the chain for the selection this runtime actually uses, so
+            // a `/model` swap to a model with its own chain carries that chain.
+            provider_fallback: config
+                .model_fallback_chain(&requested)
+                .into_iter()
+                .filter(|id| *id != requested)
+                .collect(),
             // Default off; only the interactive TUI opts in (see the CLI's
             // TUI spawn sites and `event_loop::reload_runtime_provider_from`).
             round_cap_checkpoint: false,
@@ -389,6 +408,7 @@ impl CodingRuntimeConfig {
         config.loop_max_rounds = self.loop_max_rounds;
         config.max_rounds = self.turn_max_rounds;
         config.subagent_config = self.subagent_config.clone();
+        config.provider_fallback = self.provider_fallback.clone();
         config.interactive = self.interactive;
         if self.interactive {
             config.request_timeout = None;
@@ -400,6 +420,50 @@ impl CodingRuntimeConfig {
         config.lsp = self.lsp.clone();
         config
     }
+}
+
+/// Re-point an already-assembled runtime config at a different resolved model
+/// selection, preserving the wiring that is NOT a property of the model: the
+/// provider registry and subagent tier cells, driver-owned checkpoint flags,
+/// loop/goal budgets, and the pinned working directory.
+///
+/// Turn-scoped model fallback uses this so a failover re-resolves the target
+/// instead of carrying any residual `base_url` / `api_key` / `model` from the
+/// model that just failed (FR-3.5 of `docs/model-fallback-requirements.md`).
+/// The field mapping mirrors [`CodingRuntimeConfig::agent_config`] so a failover
+/// lands on the same shape a fresh build for that selection would produce --
+/// minus the runtime-owned fields listed above.
+pub fn repoint_to_selection(
+    config: &mut CodingAgentConfig,
+    resolved: &rustcode_config::config::provider::ResolvedModelConfig,
+) {
+    config.model = resolved.model.clone();
+    config.supports_vision = resolved.supports_vision;
+    config.provider_name = resolved.selection_id.clone();
+    if let Some(base_url) = &resolved.base_url {
+        config.base_url = base_url.clone();
+    }
+    if let Some(api_key) = &resolved.api_key {
+        config.api_key = api_key.clone();
+    }
+    config.provider_type = resolved.provider_type.clone();
+    config.context_window = resolved.context_window as u32;
+    config.chat_options.max_tokens = resolved.max_tokens.map(|value| value as u32);
+    config.thinking_type = resolved.thinking_type.clone();
+    config.thinking_keep = resolved.thinking_keep.clone();
+    config.reasoning_history = resolved.reasoning_history.clone();
+    config.chat_options.reasoning_effort = rustcode_kernel::provider::ReasoningEffort::from_config(
+        resolved.reasoning_effort.as_deref(),
+    );
+    config.supports_reasoning_effort = rustcode_config::config::endpoint_supports_reasoning_effort(
+        resolved.reasoning_effort.as_deref(),
+        resolved.reasoning_effort_levels.as_deref(),
+    );
+    config.thinking_enabled = resolved.thinking_enabled;
+    config.user_agent = resolved.user_agent.clone();
+    config.skip_tls_verify = resolved.skip_tls_verify;
+    config.retry_max_attempts = resolved.retry_max_attempts;
+    config.model_mapping = resolved.model_mapping.clone();
 }
 
 pub fn apply_provider_config(
@@ -819,6 +883,8 @@ impl CodingAgentConfig {
             proxy: None,
             retry_max_attempts: None,
             subagent_config: None,
+            // No fallback by default: a failure ends the turn as it always has.
+            provider_fallback: Vec::new(),
             subagent_fast_provider: None,
             subagent_capable_provider: None,
             subagent_model_providers: None,

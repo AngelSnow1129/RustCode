@@ -40,6 +40,10 @@ fn _isolate_rustcode_home() {
 pub mod config;
 mod controllers;
 pub mod discipline;
+/// Turn-scoped model fallback bookkeeping (which model to try next, and why the
+/// chain ended). Decision-only and pure; the owner loop drives it. Spec:
+/// `docs/model-fallback-requirements.md`.
+pub mod fallback;
 pub mod parts;
 pub mod persona;
 pub mod plan_mode;

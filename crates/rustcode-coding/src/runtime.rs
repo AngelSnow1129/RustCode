@@ -21,7 +21,7 @@ use rustcode_capabilities::tools::request_user_input::{
     UserInputResponse, REQUEST_USER_INPUT_KIND,
 };
 use rustcode_capabilities::tools::{ApprovalResponse, APPROVAL_KIND};
-use rustcode_kernel::agent::AgentHandle;
+use rustcode_kernel::agent::{AgentHandle, Outcome};
 use rustcode_kernel::checkpoint::CompactionCheckpointError;
 use rustcode_kernel::event::{
     AgentCommand, AgentEvent, PolicyIntervention, PolicyRecoveryAction, RequestId, StopReason,
@@ -39,6 +39,7 @@ use crate::controllers::{
     summarize_for_goal, EvalOutcome, FollowupClass, GoalPhase, GoalProgress, GoalResult, GoalState,
     GoalTerminal, LoopProgress, LoopState, ScheduleWakeupTool, WakeupRequest, MAX_UNPRODUCTIVE,
 };
+use crate::fallback::{attempt_reason, FallbackWalk};
 use crate::parts::prepare_with_plugin_hook_source_reusing_lease;
 #[cfg(test)]
 use crate::prepare_with_plugin_hook_source;
@@ -2185,6 +2186,12 @@ pub struct RuntimeExit {
 #[derive(Debug)]
 pub struct CodingRuntimeControlReceiver {
     rx: mpsc::UnboundedReceiver<CodingRuntimeControl>,
+    /// A clone of the handle's sender so the owner loop can post ITSELF a control
+    /// it owns the state for. Used by turn-scoped model fallback, which decides to
+    /// fail over while holding the turn/snapshot/generation state and then reuses
+    /// the existing `ReassembleProvider` arm rather than duplicating its 400-line
+    /// reassemble/replay logic (FR-3.1 of `docs/model-fallback-requirements.md`).
+    self_tx: mpsc::UnboundedSender<CodingRuntimeControl>,
     state: Arc<AtomicU64>,
     provider_unavailable_reason: Arc<AtomicU8>,
     terminal_tx: watch::Sender<Option<RuntimeExit>>,
@@ -2193,6 +2200,13 @@ pub struct CodingRuntimeControlReceiver {
 impl CodingRuntimeControlReceiver {
     pub async fn recv(&mut self) -> Option<CodingRuntimeControl> {
         self.rx.recv().await
+    }
+
+    /// Sender for self-directed controls (see [`Self::self_tx`]). A dropped
+    /// receiver means the owner is shutting down, which the caller treats as a
+    /// delivery failure -- never as a silent no-op.
+    pub fn self_sender(&self) -> mpsc::UnboundedSender<CodingRuntimeControl> {
+        self.self_tx.clone()
     }
 }
 
@@ -2388,6 +2402,10 @@ pub fn coding_runtime_control_channel() -> (CodingRuntimeHandle, CodingRuntimeCo
     // this flag at spawn time when startup produced only a degraded placeholder.
     let state = Arc::new(AtomicU64::new(runtime_state(0, true)));
     let provider_unavailable_reason = Arc::new(AtomicU8::new(0));
+    // Cloned BEFORE `tx` moves into the handle: the owner needs its own sender to
+    // post itself controls (turn-scoped model fallback reuses the existing
+    // `ReassembleProvider` arm rather than duplicating its reassemble/replay logic).
+    let self_tx = tx.clone();
     (
         CodingRuntimeHandle {
             tx,
@@ -2397,6 +2415,7 @@ pub fn coding_runtime_control_channel() -> (CodingRuntimeHandle, CodingRuntimeCo
         },
         CodingRuntimeControlReceiver {
             rx,
+            self_tx,
             state,
             provider_unavailable_reason,
             terminal_tx,
@@ -2715,6 +2734,11 @@ fn spawn_runtime_owner_with_optional_agent(
     let (kernel_command_tx, mut kernel_command_rx) = mpsc::unbounded_channel();
     let (kernel_event_tx, kernel_event_rx) = mpsc::unbounded_channel();
     let (owner_tx, mut owner_rx) = mpsc::unbounded_channel();
+    // Self-send channel: lets the owner loop dispatch a control whose state it
+    // alone holds. Turn-scoped model fallback uses it to reuse the existing
+    // `ReassembleProvider` arm instead of duplicating that arm's reassemble/replay
+    // logic (and thereby inventing a second provider-lifecycle owner).
+    let owner_self_tx = controls.self_sender();
     let (_closed_wakeup_tx, closed_wakeup_rx) = mpsc::unbounded_channel();
     let mut wakeup_rx = wakeup_rx.unwrap_or(closed_wakeup_rx);
     let (goal_eval_tx, mut goal_eval_rx) = mpsc::unbounded_channel::<EvalOutcome>();
@@ -2788,6 +2812,20 @@ fn spawn_runtime_owner_with_optional_agent(
         let mut loop_state: Option<LoopState> = None;
         let mut pending_wakeup: Option<WakeupRequest> = None;
         let mut held_turn: Option<(u64, StopReason, Arc<SessionSnapshot>, RuntimeTurnStats)> = None;
+        // Turn-scoped model fallback (FR-1..FR-4 of
+        // `docs/model-fallback-requirements.md`). Chain for the model this
+        // generation runs; rebuilt per turn so a `/model` swap picks up the new
+        // model's own chain. The structured failure facts plus the
+        // produced-output flag are what make the eligibility decision
+        // evidence-based instead of a guess at the terminal seam.
+        let mut fallback_walk: Option<crate::fallback::FallbackWalk> = None;
+        let mut turn_fail_status: Option<u16> = None;
+        let mut turn_fail_retryable: Option<bool> = None;
+        let mut turn_produced_output = false;
+        // The input that started (or last steered) the active turn, kept so an
+        // eligible failure can replay the SAME question on the next model
+        // (FR-3.3) rather than asking the user to retype it.
+        let mut active_turn_prompt: Option<(String, Vec<ImageContent>)> = None;
         let mut ai_name_attempted = false;
         let mut persistence_failure = None;
         if agent_available {
@@ -3513,6 +3551,13 @@ fn spawn_runtime_owner_with_optional_agent(
                             next_turn_id = next_turn_id.wrapping_add(1);
                             active_turn = Some(next_turn_id);
                             turn_stats = RuntimeTurnStats::default();
+                            // A NEW turn starts a fresh fallback walk: the previous
+                            // walk's chain belonged to the previous question, and the
+                            // produced-output/failure facts must not leak across turns.
+                            fallback_walk = None;
+                            turn_produced_output = false;
+                            turn_fail_status = None;
+                            turn_fail_retryable = None;
                             controls.state.store(
                                 runtime_phase_state(generation, RuntimePhase::InTurn),
                                 Ordering::Release,
@@ -3583,6 +3628,14 @@ fn spawn_runtime_owner_with_optional_agent(
                                     None => {}
                                 }
                             }
+                        }
+                        // Remember what this turn was asked, so an eligible
+                        // provider failure can replay the SAME question on the next
+                        // fallback target instead of ending the turn (FR-3.3). A
+                        // context-bearing goal-recovery submit is excluded on
+                        // purpose: replaying it would re-inject stale goal progress.
+                        if recovery_context.is_none() && !input.text.trim().is_empty() {
+                            active_turn_prompt = Some((input.text.clone(), input.images.clone()));
                         }
                         let command = match recovery_context {
                             Some(context) => AgentCommand::SendMessageWithContext {
@@ -6063,11 +6116,48 @@ fn spawn_runtime_owner_with_optional_agent(
                                     .take()
                                     .or_else(|| cancel_pending.then_some(StopReason::Cancelled))
                                 {
+                                    // A cancel can land while a provider failure is
+                                    // already recorded: the failure set
+                                    // `terminal_reason`, so the `or_else` above never
+                                    // consults `cancel_pending`. Capture the flag
+                                    // BEFORE clearing it -- otherwise the failover
+                                    // below would continue a turn the user withdrew.
+                                    let cancelled =
+                                        cancel_pending || reason == StopReason::Cancelled;
                                     cancel_pending = false;
                                     pending_requests.clear();
                                     let stats = std::mem::take(&mut turn_stats);
                                     let turn_id = active_turn.unwrap_or_default();
                                     let mut completion_reason = reason;
+                                    // Model fallback (FR-2/FR-3): an eligible failure
+                                    // that produced no output is replayed on the next
+                                    // chain target, so the turn continues rather than
+                                    // ending. When this fires the terminal path below is
+                                    // skipped entirely -- the reassemble arm owns the
+                                    // replay.
+                                    if try_model_fallback(
+                                        &mut fallback_walk,
+                                        reason,
+                                        turn_fail_status,
+                                        turn_fail_retryable,
+                                        turn_produced_output,
+                                        cancelled,
+                                        active_turn_prompt.as_ref(),
+                                        &mut resources,
+                                        &owner_self_tx,
+                                        generation,
+                                        &runtime_event_tx,
+                                    ) {
+                                        // The replacement turn starts with clean facts;
+                                        // carry the chain forward so the walk stays
+                                        // monotonic (FR-3.4).
+                                        turn_produced_output = false;
+                                        turn_fail_status = None;
+                                        turn_fail_retryable = None;
+                                        terminal_reason = None;
+                                        snapshot_in_flight = false;
+                                        continue;
+                                    }
                                     if reason != StopReason::Cancelled && !ai_name_attempted {
                                         if let Some(conversation) =
                                             crate::session_title::first_exchange_text(&snapshot.messages)
@@ -6386,8 +6476,35 @@ fn spawn_runtime_owner_with_optional_agent(
                                 ));
                             }
                             event @ AgentEvent::ToolStarted { .. } => {
+                                // A tool call is about to run, so the turn has
+                                // already had effects: from here a failover must
+                                // not replay it (FR-2.3).
+                                turn_produced_output = true;
                                 turn_stats.tool_call_count =
                                     turn_stats.tool_call_count.saturating_add(1);
+                                let _ = runtime_event_tx.send(CodingRuntimeEvent::Agent(event));
+                            }
+                            AgentEvent::TextDelta(text) => {
+                                if !text.is_empty() {
+                                    turn_produced_output = true;
+                                }
+                                let _ = runtime_event_tx.send(CodingRuntimeEvent::Agent(
+                                    AgentEvent::TextDelta(text),
+                                ));
+                            }
+                            event @ AgentEvent::Error { .. } => {
+                                // Keep the provider's STRUCTURED classification: the
+                                // failover decision at the terminal seam must not
+                                // re-derive it from prose.
+                                if let AgentEvent::Error {
+                                    http_status,
+                                    retryable,
+                                    ..
+                                } = &event
+                                {
+                                    turn_fail_status = *http_status;
+                                    turn_fail_retryable = *retryable;
+                                }
                                 let _ = runtime_event_tx.send(CodingRuntimeEvent::Agent(event));
                             }
                             AgentEvent::Steered { count, inputs } => {
@@ -6767,6 +6884,150 @@ fn send_agent_command(agent: &Option<AgentHandle>, command: AgentCommand) -> boo
 fn request_cancel_snapshot(agent: &Option<AgentHandle>) -> bool {
     send_agent_command(agent, AgentCommand::Cancel)
         && send_agent_command(agent, AgentCommand::Snapshot)
+}
+
+/// Turn-scoped model fallback (FR-1..FR-4 of
+/// `docs/model-fallback-requirements.md`). Returns `true` when a failover was
+/// dispatched, in which case the caller must NOT run its terminal path: the
+/// self-sent `ReassembleProvider` control reuses that arm to rebuild the agent
+/// and replay the staged prompt, so `CodingRuntime` stays the single lifecycle
+/// owner.
+///
+/// Returns `false` (caller ends the turn as usual) when the failure is not
+/// eligible, the chain is exhausted, or the target cannot be resolved -- every
+/// such case is already surfaced by the caller's normal error path, so nothing
+/// is swallowed.
+#[allow(clippy::too_many_arguments)]
+fn try_model_fallback(
+    walk: &mut Option<FallbackWalk>,
+    reason: StopReason,
+    http_status: Option<u16>,
+    retryable: Option<bool>,
+    produced_output: bool,
+    cancelled: bool,
+    prompt: Option<&(String, Vec<ImageContent>)>,
+    resources: &mut Option<RuntimeResources>,
+    self_tx: &mpsc::UnboundedSender<CodingRuntimeControl>,
+    generation: u64,
+    runtime_event_tx: &RuntimeEventEmitter,
+) -> bool {
+    use rustcode_config::i18n::{t, Msg};
+
+    if !rustcode_capabilities::fallback::fallback_eligible_for_stop(
+        reason,
+        retryable,
+        http_status,
+        produced_output,
+        cancelled,
+    ) {
+        return false;
+    }
+    // Without the original input there is nothing to replay; the user's turn
+    // cannot be reconstructed, so fail over would lose the question.
+    let Some((text, images)) = prompt else {
+        return false;
+    };
+    let Some(runtime) = resources.as_mut() else {
+        return false;
+    };
+    let Some(config) = runtime.config.subagent_config.clone() else {
+        return false;
+    };
+    let from = runtime.config.provider_name.clone();
+    let failure_reason = attempt_reason(&Outcome {
+        stop: reason,
+        http_status,
+        provider_retryable: retryable,
+        ..Default::default()
+    });
+
+    // Build the walk lazily so it covers exactly the model this turn started on.
+    if walk.is_none() {
+        *walk = FallbackWalk::new(&from, &runtime.config.provider_fallback);
+    }
+    let Some(walk) = walk.as_mut() else {
+        return false;
+    };
+    let next = match walk.record_failure(failure_reason.clone()) {
+        Some(next) => next.to_string(),
+        None => {
+            // Exhausted: name every attempt so the terminal error is actionable
+            // instead of an opaque provider failure (FR-4.4).
+            let attempts = walk.failures_diagnostic();
+            let _ = runtime_event_tx.send(CodingRuntimeEvent::Agent(AgentEvent::Error {
+                message: t(Msg::ModelFallbackExhausted {
+                    attempts: &attempts,
+                })
+                .into_owned(),
+                http_status: None,
+                code: Some(crate::fallback::tokens::EXHAUSTED.to_string()),
+                retryable: Some(false),
+            }));
+            return false;
+        }
+    };
+    let Ok(resolved) = config.resolve_model(Some(&next)) else {
+        return false;
+    };
+    // Re-resolve the whole provider surface from the target selection, so no
+    // `base_url` / `api_key` / `model` residue from the failed model survives
+    // (FR-3.5), while preserved wiring (registry, tier cells, working dir)
+    // stays put.
+    let mut next_config = runtime.config.clone();
+    crate::config::repoint_to_selection(&mut next_config, &resolved);
+    next_config.provider_fallback = config.model_fallback_chain(&next);
+    // Verify the target is actually buildable BEFORE handing the turn to it. The
+    // reassemble arm builds this same config, so a target that cannot be built
+    // would otherwise leave the turn with no live agent and no terminal -- a
+    // hang. Failing here instead lets the caller end the turn with the original
+    // provider error, which is the honest outcome.
+    let session_id = runtime
+        .parts
+        .session
+        .as_ref()
+        .map(|binding| binding.id.as_str());
+    if runtime
+        .provider_factory
+        .build(&next_config, session_id)
+        .is_err()
+    {
+        return false;
+    }
+    // Stage the question for the reassemble arm to replay. Staging (rather than
+    // sending here) keeps generation handling and the agent swap in one place.
+    let staged = {
+        let Some(binding) = runtime.parts.session.as_mut() else {
+            return false;
+        };
+        binding.pending_resume_prompt =
+            Some(Message::user_with_images(text.clone(), images.clone()));
+        true
+    };
+    if !staged {
+        return false;
+    }
+    let _ = runtime_event_tx.send(CodingRuntimeEvent::Agent(AgentEvent::Warning(
+        t(Msg::ModelFallbackStarted {
+            from: &from,
+            to: &next,
+            reason: &failure_reason,
+        })
+        .into_owned(),
+    )));
+    let (done, _result) = oneshot::channel();
+    if self_tx
+        .send(CodingRuntimeControl::ReassembleProvider {
+            generation,
+            next: next_config,
+            done,
+        })
+        .is_err()
+    {
+        // The owner is shutting down; report failure so the caller ends the turn
+        // explicitly rather than pretending the failover happened.
+        return false;
+    }
+    true
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -8984,6 +9245,732 @@ mod tests {
             .expect("runtime event timeout")
             .expect("runtime event stream closed")
             .event
+    }
+
+    // ── turn-scoped model fallback ──────────────────────────────────────────
+    //
+    // `docs/model-fallback-requirements.md`. These drive the real owner loop
+    // through the failure seams (Error -> TurnComplete -> Snapshot) so the
+    // decision, the reassemble dispatch and the terminal suppression are all
+    // exercised end to end, not just the predicate.
+
+    /// A fallback registry exposing a `primary` model and two targets, so
+    /// `resolve_model` can re-resolve the chain step by step. `retry_max_attempts`
+    /// is pinned to 1 so a rebuilt agent surfaces its provider error immediately --
+    /// the kernel reads this as "total OPEN budget = 1" and disables its own
+    /// 3/6/9s transient retries, keeping a chained test fast and deterministic.
+    fn fallback_registry() -> rustcode_config::config::Config {
+        serde_json::from_value(serde_json::json!({
+            "provider_accounts": {
+                "acct": {
+                    "provider": "openai-compatible",
+                    "base_url": "https://fallback.example.test/v1",
+                    "api_key": "sk-fallback"
+                }
+            },
+            "models": {
+                "primary": {
+                    "account": "acct", "model": "primary-wire",
+                    "context_window": 128000, "retry_max_attempts": 1
+                },
+                "fb1": {
+                    "account": "acct", "model": "fb-1-wire",
+                    "context_window": 128000, "retry_max_attempts": 1
+                },
+                "fb2": {
+                    "account": "acct", "model": "fb-2-wire",
+                    "context_window": 128000, "retry_max_attempts": 1
+                }
+            }
+        }))
+        .expect("fallback registry parses")
+    }
+
+    /// Builds a FAILING provider for the named models and a succeeding one for
+    /// everything else. A chained failover is decided by what the REBUILT agent's
+    /// provider does, so the factory is the only place that can make step 2 fail.
+    struct ChainFactory {
+        /// Wire `config.model` values that must fail to open.
+        fail_models: Vec<String>,
+    }
+
+    impl CodingProviderFactory for ChainFactory {
+        fn build(
+            &self,
+            config: &CodingAgentConfig,
+            _session_id: Option<&str>,
+        ) -> Result<Arc<dyn LlmProvider>, crate::ProviderBuildError> {
+            if self.fail_models.iter().any(|m| m == &config.model) {
+                return Ok(Arc::new(
+                    rustcode_kernel::testkit::ScriptedProvider::open_error(
+                        rustcode_kernel::stream::ProviderError {
+                            retryable: true,
+                            message: format!("{} is down", config.model),
+                            http_status: Some(503),
+                            ..Default::default()
+                        },
+                    ),
+                ));
+            }
+            Ok(Arc::new(rustcode_kernel::testkit::MockProvider::new(vec![
+                vec![
+                    rustcode_kernel::stream::StreamEvent::TextDelta("answer".into()),
+                    rustcode_kernel::stream::StreamEvent::Done { truncated: false },
+                ],
+            ])))
+        }
+    }
+
+    /// Runtime whose agent answers `Shutdown` with a VERIFIED terminal, which the
+    /// reassemble arm requires before it will swap providers mid-turn.
+    ///
+    /// Returns the temporary `RUSTCODE_HOME` guard: `RUSTCODE_HOME` is a
+    /// PROCESS-GLOBAL env var, so callers must keep the guard alive for the whole
+    /// test and mark the test `#[serial_test::serial(rustcode_home)]`. Without
+    /// that, a sibling test's `set_var` + `TempDir` drop lands under this runtime
+    /// and its session files vanish mid-turn.
+    async fn fallback_harness(
+        config: CodingAgentConfig,
+    ) -> (
+        CodingRuntimeHandle,
+        mpsc::UnboundedReceiver<AgentCommand>,
+        mpsc::UnboundedSender<AgentEvent>,
+        mpsc::UnboundedReceiver<CodingRuntimeEvent>,
+        KernelRuntimeAdapter,
+        tempfile::TempDir,
+    ) {
+        let provider_factory = native_start(false).provider_factory;
+        fallback_harness_with_factory(config, provider_factory).await
+    }
+
+    /// Same harness with a caller-supplied factory. A CHAINED failover needs the
+    /// REBUILT agent (not the injected fake one) to fail as well, and only the
+    /// factory decides what the rebuilt provider does.
+    async fn fallback_harness_with_factory(
+        config: CodingAgentConfig,
+        provider_factory: Arc<dyn CodingProviderFactory>,
+    ) -> (
+        CodingRuntimeHandle,
+        mpsc::UnboundedReceiver<AgentCommand>,
+        mpsc::UnboundedSender<AgentEvent>,
+        mpsc::UnboundedReceiver<CodingRuntimeEvent>,
+        KernelRuntimeAdapter,
+        tempfile::TempDir,
+    ) {
+        // Own, isolated home for this test (see the doc comment above).
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("RUSTCODE_HOME", home.path());
+        let (commands, mut agent_commands) = mpsc::unbounded_channel();
+        let (observed_tx, observed_rx) = mpsc::unbounded_channel();
+        let (event_tx, events) = mpsc::unbounded_channel();
+        // The task owns one clone so the harness can still inject kernel events.
+        let agent_event_tx = event_tx.clone();
+        let task = tokio::spawn(async move {
+            while let Some(command) = agent_commands.recv().await {
+                let shutting_down = matches!(command, AgentCommand::Shutdown);
+                if observed_tx.send(command).is_err() {
+                    break;
+                }
+                if shutting_down {
+                    // A verified terminal keeps the reassemble honest: without it
+                    // the arm correctly refuses to swap and the turn would hang.
+                    // Then EXIT the task: a cooperative agent lets the reassemble
+                    // proceed immediately, whereas a task that stays alive would
+                    // force the 5s forced-stop path and never exercise the swap.
+                    let _ = agent_event_tx.send(AgentEvent::TurnComplete {
+                        reason: StopReason::Cancelled,
+                    });
+                    let _ = agent_event_tx.send(AgentEvent::Snapshot {
+                        snapshot: SessionSnapshot::new(vec![Message::user("interrupted")]),
+                    });
+                    break;
+                }
+            }
+        });
+        let agent = AgentHandle {
+            commands,
+            events,
+            task,
+        };
+        let (handle, controls) = coding_runtime_control_channel();
+        let (runtime_tx, runtime_events) = mpsc::unbounded_channel();
+        let (wakeup_tx, wakeup_rx) = mpsc::unbounded_channel();
+        let CodingRuntimeStart {
+            prepare,
+            plugin_hooks,
+            ..
+        } = native_start(false);
+        // A session binding is REQUIRED for a failover: the staged prompt and the
+        // replay both live on it. `Disabled` (the shared fixture's default) has no
+        // binding, so fallback would correctly refuse to run.
+        let mut prepare = prepare;
+        prepare.session = crate::SessionMode::Fresh;
+        let parts =
+            prepare_with_plugin_hook_source(&config, prepare.clone(), plugin_hooks.as_ref())
+                .await
+                .unwrap();
+        let resources = RuntimeResources {
+            config,
+            prepare,
+            provider_factory,
+            plugin_hooks,
+            parts,
+            wakeup_tx,
+            loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            image_preprocessor: None,
+        };
+        let adapter = spawn_runtime_owner_with_protocol(
+            agent,
+            controls,
+            runtime_tx,
+            true,
+            true,
+            None,
+            Some(resources),
+            Some(wakeup_rx),
+        );
+        (handle, observed_rx, event_tx, runtime_events, adapter, home)
+    }
+
+    fn fallback_config() -> CodingAgentConfig {
+        let mut config = native_start(false).agent;
+        config.provider_name = "primary".into();
+        config.provider_fallback = vec!["fb1".into()];
+        config.subagent_config = Some(Arc::new(fallback_registry()));
+        config
+    }
+
+    /// Drive a turn to a provider failure and stop at the snapshot request, so the
+    /// caller decides what the terminal looks like.
+    async fn fail_the_active_turn(
+        observed: &mut mpsc::UnboundedReceiver<AgentCommand>,
+        kernel_events: &mpsc::UnboundedSender<AgentEvent>,
+        http_status: Option<u16>,
+        retryable: Option<bool>,
+    ) {
+        assert!(
+            matches!(
+                observed.recv().await,
+                Some(AgentCommand::SendMessage { .. })
+            ),
+            "the turn must be dispatched to the agent"
+        );
+        if retryable.is_some() || http_status.is_some() {
+            kernel_events
+                .send(AgentEvent::Error {
+                    message: "provider exploded".into(),
+                    http_status,
+                    code: None,
+                    retryable,
+                })
+                .unwrap();
+        }
+        kernel_events
+            .send(AgentEvent::TurnComplete {
+                reason: StopReason::ProviderError,
+            })
+            .unwrap();
+        assert!(
+            matches!(observed.recv().await, Some(AgentCommand::Snapshot)),
+            "a failed turn must request a snapshot before terminating"
+        );
+    }
+
+    /// What [`drain_until_turn_settles`] observed on the way to the terminal.
+    struct DrainOutcome {
+        completion: TurnCompletion,
+        /// Ordered failover notices (one per failover), naming the model pair.
+        fallback_warnings: Vec<String>,
+        saw_reconfiguring: bool,
+        /// Number of `SessionChanged` events: must be 0 across a failover.
+        session_changes: usize,
+        /// Number of swap-induced `Cancelled` terminals skipped past.
+        swap_stops: usize,
+    }
+
+    /// Collect runtime events until the turn SETTLES, reporting what happened.
+    ///
+    /// A failover must stop the outgoing agent to swap providers, so the turn that
+    /// was active when the failure hit closes as `Cancelled` -- a *stop* terminal,
+    /// not the answer to the user's question. Once a failover has been observed
+    /// that terminal is skipped and draining continues to the replayed turn's real
+    /// terminal. Without this the assertions would stop one terminal early and
+    /// "prove" a replay that never actually ran.
+    async fn drain_until_turn_settles(
+        runtime_events: &mut mpsc::UnboundedReceiver<CodingRuntimeEvent>,
+    ) -> DrainOutcome {
+        // Ordered failover notices, so a chain can be asserted step by step.
+        let mut fallback_warnings: Vec<String> = Vec::new();
+        let mut saw_reconfiguring = false;
+        // A session switch/create is the ONE thing a failover must never do: it
+        // would answer the question in a different conversation.
+        let mut session_changes = 0usize;
+        let mut swap_stops = 0usize;
+        let mut seen: Vec<String> = Vec::new();
+        loop {
+            let next =
+                tokio::time::timeout(std::time::Duration::from_secs(10), runtime_events.recv())
+                    .await;
+            let event = match next {
+                Ok(Some(event)) => event,
+                Ok(None) => panic!("runtime event stream closed; saw {seen:?}"),
+                Err(_) => panic!("turn terminal was not reached; saw {seen:?}"),
+            };
+            seen.push(match &event {
+                CodingRuntimeEvent::Agent(AgentEvent::Warning(message)) => {
+                    format!("Warning({message})")
+                }
+                CodingRuntimeEvent::Reconfiguring { operation } => {
+                    format!("Reconfiguring({operation:?})")
+                }
+                CodingRuntimeEvent::TurnFinished(c) => format!("TurnFinished({c:?})"),
+                other => format!("{other:?}").chars().take(80).collect(),
+            });
+            match event {
+                CodingRuntimeEvent::Agent(AgentEvent::Warning(message)) => {
+                    if message.contains("fb1") || message.contains("fb2") {
+                        fallback_warnings.push(message.clone());
+                    }
+                }
+                CodingRuntimeEvent::Reconfiguring { .. } => saw_reconfiguring = true,
+                CodingRuntimeEvent::SessionChanged(_) => session_changes += 1,
+                CodingRuntimeEvent::TurnFinished(completion) => {
+                    let failover_seen = !fallback_warnings.is_empty() || saw_reconfiguring;
+                    let is_swap_stop = matches!(
+                        completion,
+                        TurnCompletion::Completed {
+                            reason: StopReason::Cancelled,
+                            ..
+                        }
+                    );
+                    if failover_seen && is_swap_stop {
+                        // The provider swap's own stop; the replayed turn follows.
+                        swap_stops += 1;
+                        continue;
+                    }
+                    return DrainOutcome {
+                        completion,
+                        fallback_warnings,
+                        saw_reconfiguring,
+                        session_changes,
+                        swap_stops,
+                    };
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// A transient, content-free provider failure is handed to the next chain
+    /// target instead of ending the turn as a provider error (FR-2/FR-3).
+    ///
+    /// The observable contract: the failover is ANNOUNCED, it goes through the
+    /// runtime's provider-reconfigure path, and the turn does NOT end as
+    /// `ProviderError` -- the staged question is replayed on the new model. (The
+    /// provider swap must stop the old agent, so the pre-swap turn closes as
+    /// `Cancelled`; that is the existing reconfigure semantic, shared with
+    /// `/model`, not a fallback-specific terminal.)
+    #[tokio::test]
+    #[serial_test::serial(rustcode_home)]
+    async fn transient_provider_failure_fails_over_and_replays_the_question() {
+        let (handle, mut observed, kernel_events, mut runtime_events, _adapter, _home) =
+            fallback_harness(fallback_config()).await;
+
+        handle.submit(UserInput::from("my question")).await.unwrap();
+        fail_the_active_turn(&mut observed, &kernel_events, Some(429), Some(true)).await;
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::user("my question")]),
+            })
+            .unwrap();
+
+        let outcome = drain_until_turn_settles(&mut runtime_events).await;
+        let DrainOutcome {
+            completion,
+            fallback_warnings,
+            saw_reconfiguring,
+            session_changes,
+            swap_stops,
+        } = outcome;
+        let saw_warning = !fallback_warnings.is_empty();
+
+        assert!(
+            saw_warning,
+            "a failover must be visible to the user, not silent"
+        );
+        assert_eq!(
+            session_changes, 0,
+            "a failover swaps the provider, never the session"
+        );
+        assert!(
+            saw_reconfiguring,
+            "the provider swap must go through the runtime's reassemble path"
+        );
+        assert_eq!(
+            swap_stops, 1,
+            "the replayed turn must survive the swap, not stop with it"
+        );
+        // The decisive availability claim: the turn did NOT die as a provider
+        // error, so the question survives the model outage.
+        assert!(
+            !matches!(
+                completion,
+                TurnCompletion::Completed {
+                    reason: StopReason::ProviderError,
+                    ..
+                }
+            ),
+            "fallback must absorb the provider failure, got {completion:?}"
+        );
+        // And it ended on its own terms, not by the swap's stop terminal.
+        assert!(
+            matches!(
+                completion,
+                TurnCompletion::Completed {
+                    reason: StopReason::Stopped,
+                    ..
+                }
+            ),
+            "the replayed turn must reach a real terminal, got {completion:?}"
+        );
+        handle.shutdown().await.unwrap();
+    }
+
+    /// A-6: cancelling must suppress the failover even when the failure that
+    /// landed is otherwise perfectly eligible.
+    ///
+    /// The race is narrow but real: the provider already failed and the runtime
+    /// already recorded that terminal, and the user cancels while the closing
+    /// snapshot is still in flight. The cancel must win -- silently continuing
+    /// the turn on another model after the user asked to stop would answer a
+    /// question they withdrew.
+    #[tokio::test]
+    #[serial_test::serial(rustcode_home)]
+    async fn cancelling_after_a_failure_suppresses_the_failover() {
+        let (handle, mut observed, kernel_events, mut runtime_events, _adapter, _home) =
+            fallback_harness(fallback_config()).await;
+
+        handle.submit(UserInput::from("my question")).await.unwrap();
+        // The provider fails (eligible: content-free + transient), so the runtime
+        // records the terminal and asks for the closing snapshot.
+        fail_the_active_turn(&mut observed, &kernel_events, Some(503), Some(true)).await;
+        // The user cancels while that snapshot is still outstanding.
+        handle.cancel().await.unwrap();
+
+        // The kernel closes the turn the runtime asked about.
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::user("my question")]),
+            })
+            .unwrap();
+
+        let outcome = drain_until_turn_settles(&mut runtime_events).await;
+        assert!(
+            outcome.fallback_warnings.is_empty(),
+            "a cancelled turn must not fail over, got {:?}",
+            outcome.fallback_warnings
+        );
+        assert_eq!(
+            outcome.swap_stops, 0,
+            "a cancelled turn must not swap providers"
+        );
+        assert!(
+            matches!(
+                outcome.completion,
+                TurnCompletion::Completed {
+                    reason: StopReason::Cancelled | StopReason::ProviderError,
+                    ..
+                }
+            ),
+            "the turn must end where it was, got {:?}",
+            outcome.completion
+        );
+        handle.shutdown().await.unwrap();
+    }
+
+    /// A-2: two consecutive failovers walk the chain in order. Step 1 fails
+    /// `fb1`; the walk must then reach `fb2` rather than reuse or re-enter `fb1`
+    /// (FR-3.4 monotonic movement).
+    ///
+    /// Only the SECOND failure can be driven through the factory: after the first
+    /// swap the runtime runs a real kernel agent, not the injected fake. The
+    /// registry pins `retry_max_attempts = 1` so that agent surfaces its provider
+    /// error immediately instead of sitting through the kernel's 3/6/9s retries.
+    #[tokio::test]
+    #[serial_test::serial(rustcode_home)]
+    async fn chained_fallback_walks_to_the_next_target_in_order() {
+        let mut config = fallback_config();
+        config.provider_fallback = vec!["fb1".into(), "fb2".into()];
+        // fb1 is down; fb2 answers. The fake agent stands in for `primary`.
+        let factory: Arc<dyn CodingProviderFactory> = Arc::new(ChainFactory {
+            fail_models: vec!["fb-1-wire".into()],
+        });
+        let (handle, mut observed, kernel_events, mut runtime_events, _adapter, _home) =
+            fallback_harness_with_factory(config, factory).await;
+
+        handle.submit(UserInput::from("my question")).await.unwrap();
+        // Step 0: the primary model fails.
+        fail_the_active_turn(&mut observed, &kernel_events, Some(503), Some(true)).await;
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::user("my question")]),
+            })
+            .unwrap();
+
+        // Steps 1 and 2 run on rebuilt agents and need no harness input: the real
+        // kernel agent answers its own `Snapshot` requests and reports its own
+        // provider failures.
+        let DrainOutcome {
+            completion,
+            fallback_warnings,
+            session_changes,
+            swap_stops,
+            ..
+        } = drain_until_turn_settles(&mut runtime_events).await;
+        assert_eq!(
+            session_changes, 0,
+            "a chained failover stays inside one session"
+        );
+
+        assert_eq!(
+            fallback_warnings.len(),
+            2,
+            "the chain must move twice, got {fallback_warnings:?}"
+        );
+        // Order matters: fb1 first, then fb2 -- never fb2 first, never fb1 twice.
+        assert!(
+            fallback_warnings[0].contains("fb1") && fallback_warnings[0].contains("primary"),
+            "first hop must be primary -> fb1, got {:?}",
+            fallback_warnings[0]
+        );
+        assert!(
+            fallback_warnings[1].contains("fb2") && fallback_warnings[1].contains("fb1"),
+            "second hop must be fb1 -> fb2, got {:?}",
+            fallback_warnings[1]
+        );
+        assert_eq!(
+            swap_stops, 2,
+            "each hop stops the outgoing agent exactly once"
+        );
+        // fb2 answered, so the question survived TWO model outages.
+        assert!(
+            matches!(
+                completion,
+                TurnCompletion::Completed {
+                    reason: StopReason::Stopped,
+                    ..
+                }
+            ),
+            "the third model must complete the turn, got {completion:?}"
+        );
+        handle.shutdown().await.unwrap();
+    }
+
+    /// A-7/A-8: a failover is a provider swap INSIDE the same session, and it
+    /// advances the runtime generation so stale events from the replaced agent are
+    /// already filtered by the existing guard.
+    #[tokio::test]
+    #[serial_test::serial(rustcode_home)]
+    async fn failover_preserves_the_session_and_advances_the_generation() {
+        let (handle, mut observed, kernel_events, mut runtime_events, _adapter, _home) =
+            fallback_harness(fallback_config()).await;
+
+        let generation_before = handle.status().generation;
+        handle.submit(UserInput::from("my question")).await.unwrap();
+        fail_the_active_turn(&mut observed, &kernel_events, Some(429), Some(true)).await;
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::user("my question")]),
+            })
+            .unwrap();
+
+        let outcome = drain_until_turn_settles(&mut runtime_events).await;
+        assert_eq!(outcome.swap_stops, 1, "expected exactly one provider swap");
+        // A-7: the swap must NOT have started or switched a session -- that is
+        // the difference between "the question survived" and "the question was
+        // asked somewhere else".
+        assert_eq!(
+            outcome.session_changes, 0,
+            "a failover must not create or switch the session"
+        );
+        let completion = outcome.completion;
+        assert!(
+            handle.status().generation > generation_before,
+            "the swap must advance the generation so late events from the replaced \
+             agent are dropped"
+        );
+        // Same session, not a fresh one: the replayed turn is a continuation.
+        assert!(
+            !matches!(
+                completion,
+                TurnCompletion::Completed {
+                    reason: StopReason::ProviderError,
+                    ..
+                }
+            ),
+            "got {completion:?}"
+        );
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[serial_test::serial(rustcode_home)]
+    async fn produced_output_suppresses_fallback() {
+        let (handle, mut observed, kernel_events, mut runtime_events, _adapter, _home) =
+            fallback_harness(fallback_config()).await;
+
+        handle.submit(UserInput::from("my question")).await.unwrap();
+        assert!(matches!(
+            observed.recv().await,
+            Some(AgentCommand::SendMessage { .. })
+        ));
+        kernel_events
+            .send(AgentEvent::TextDelta("half an answer".into()))
+            .unwrap();
+        kernel_events
+            .send(AgentEvent::TurnComplete {
+                reason: StopReason::ProviderError,
+            })
+            .unwrap();
+        assert!(matches!(
+            observed.recv().await,
+            Some(AgentCommand::Snapshot)
+        ));
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::user("my question")]),
+            })
+            .unwrap();
+
+        let DrainOutcome {
+            completion,
+            fallback_warnings,
+            saw_reconfiguring,
+            ..
+        } = drain_until_turn_settles(&mut runtime_events).await;
+        let saw_warning = !fallback_warnings.is_empty();
+        assert!(!saw_warning && !saw_reconfiguring, "must not fail over");
+        assert!(
+            matches!(
+                completion,
+                TurnCompletion::Completed {
+                    reason: StopReason::ProviderError,
+                    ..
+                }
+            ),
+            "an unsafe replay must end the turn with the real error, got {completion:?}"
+        );
+        handle.shutdown().await.unwrap();
+    }
+
+    /// A provider that classified the failure as TERMINAL must not be replayed on
+    /// another model (FR-2.1.2) -- even when the HTTP status looks transient.
+    #[tokio::test]
+    #[serial_test::serial(rustcode_home)]
+    async fn terminal_provider_classification_suppresses_fallback() {
+        let (handle, mut observed, kernel_events, mut runtime_events, _adapter, _home) =
+            fallback_harness(fallback_config()).await;
+
+        handle.submit(UserInput::from("my question")).await.unwrap();
+        fail_the_active_turn(&mut observed, &kernel_events, Some(503), Some(false)).await;
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::user("my question")]),
+            })
+            .unwrap();
+
+        let DrainOutcome {
+            completion,
+            fallback_warnings,
+            saw_reconfiguring,
+            ..
+        } = drain_until_turn_settles(&mut runtime_events).await;
+        let saw_warning = !fallback_warnings.is_empty();
+        assert!(
+            !saw_warning && !saw_reconfiguring,
+            "a terminal classification must win over the HTTP status"
+        );
+        assert!(matches!(
+            completion,
+            TurnCompletion::Completed {
+                reason: StopReason::ProviderError,
+                ..
+            }
+        ));
+        handle.shutdown().await.unwrap();
+    }
+
+    /// With no chain configured, behaviour is unchanged: the turn simply ends
+    /// (FR-1.2 / A-10 regression baseline).
+    #[tokio::test]
+    #[serial_test::serial(rustcode_home)]
+    async fn absent_chain_keeps_the_single_model_behaviour() {
+        let mut config = fallback_config();
+        config.provider_fallback = Vec::new();
+        let (handle, mut observed, kernel_events, mut runtime_events, _adapter, _home) =
+            fallback_harness(config).await;
+
+        handle.submit(UserInput::from("my question")).await.unwrap();
+        fail_the_active_turn(&mut observed, &kernel_events, Some(429), Some(true)).await;
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::user("my question")]),
+            })
+            .unwrap();
+
+        let DrainOutcome {
+            completion,
+            fallback_warnings,
+            saw_reconfiguring,
+            ..
+        } = drain_until_turn_settles(&mut runtime_events).await;
+        let saw_warning = !fallback_warnings.is_empty();
+        assert!(
+            !saw_warning && !saw_reconfiguring,
+            "no chain means no failover"
+        );
+        assert!(matches!(
+            completion,
+            TurnCompletion::Completed {
+                reason: StopReason::ProviderError,
+                ..
+            }
+        ));
+        handle.shutdown().await.unwrap();
+    }
+
+    /// Once the chain is exhausted the turn ends with the real provider error;
+    /// the walk never wraps around to an already-failed model (FR-3.4).
+    #[tokio::test]
+    #[serial_test::serial(rustcode_home)]
+    async fn exhausted_chain_ends_the_turn_explicitly() {
+        let mut config = fallback_config();
+        // The only target cannot be built, so the failover is refused and the
+        // original error surfaces instead of a hang.
+        config.provider_fallback = vec!["missing-target".into()];
+        let (handle, mut observed, kernel_events, mut runtime_events, _adapter, _home) =
+            fallback_harness(config).await;
+
+        handle.submit(UserInput::from("my question")).await.unwrap();
+        fail_the_active_turn(&mut observed, &kernel_events, Some(500), None).await;
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::user("my question")]),
+            })
+            .unwrap();
+
+        let DrainOutcome { completion, .. } = drain_until_turn_settles(&mut runtime_events).await;
+        assert!(
+            matches!(
+                completion,
+                TurnCompletion::Completed {
+                    reason: StopReason::ProviderError,
+                    ..
+                }
+            ),
+            "an unresolvable target must end the turn, not hang it, got {completion:?}"
+        );
+        handle.shutdown().await.unwrap();
     }
 
     #[tokio::test]

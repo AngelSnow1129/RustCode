@@ -161,6 +161,21 @@ pub enum Msg<'a> {
     RetryReasonTimeout,
     /// Retry reason: generic network/transport failure.
     RetryReasonNetwork,
+    // ── model fallback (runtime turn-scoped failover; see
+    //    docs/model-fallback-requirements.md FR-4) ──
+    /// A model failed and the runtime is continuing the same turn on the next
+    /// configured model. `from`/`to` are model selection ids (values, not
+    /// prose); `reason` is an already-localized retry-reason label.
+    ModelFallbackStarted {
+        from: &'a str,
+        to: &'a str,
+        reason: &'a str,
+    },
+    /// Every model in the fallback chain failed; the turn ends. `attempts` is
+    /// the locale-free `model: reason` list built by the runtime.
+    ModelFallbackExhausted {
+        attempts: &'a str,
+    },
     /// Interactive (TUI) provider-retry notice framing.
     TuixProviderRetry {
         reason: &'a str,

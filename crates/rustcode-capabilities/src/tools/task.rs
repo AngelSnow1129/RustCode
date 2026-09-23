@@ -613,6 +613,20 @@ pub struct TaskTool {
     credential_shell_policy: super::CredentialShellPolicy,
     /// Parent's live Auto-mode flag, cloned into every child's credential gate.
     credential_shell_bypass: Option<Arc<AtomicBool>>,
+    /// Resolve a selection id into that model's ORDERED fallback targets, already
+    /// built into providers by the coding layer.
+    ///
+    /// The chain is keyed by selection id and resolved here rather than read from
+    /// `Config` directly, because `capabilities` must not grow a `rustcode-config`
+    /// dependency on its `tools` feature (see `Cargo.toml`): the owning layer
+    /// resolves, this layer receives ready-to-run providers.
+    #[allow(clippy::type_complexity)]
+    make_chain_provider: Option<Box<dyn Fn(&str) -> Vec<Arc<dyn LlmProvider>> + Send + Sync>>,
+    /// Selection ids of the fast/capable tiers, so a subtask that got its provider
+    /// from a tier (rather than an explicit `model`) can still look up its chain.
+    /// `None` means the host does not participate in tier routing, in which case
+    /// both tiers ARE the host and there is no distinct key to look up.
+    tier_selection_ids: Option<(String, String)>,
 }
 
 impl TaskTool {
@@ -638,7 +652,30 @@ impl TaskTool {
             team_event_sink: None,
             credential_shell_policy: Default::default(),
             credential_shell_bypass: None,
+            make_chain_provider: None,
+            tier_selection_ids: None,
         }
+    }
+
+    /// Install the parent's configured fallback chains (FR-6.2).
+    ///
+    /// `resolve` maps a selection id to that model's ordered targets, already
+    /// built into providers. A subtask that fails before producing output walks
+    /// these FIRST; the implicit single host provider (see [`Self::with_host_provider`])
+    /// remains the last resort, so an explicit chain always takes precedence.
+    pub fn with_chain_provider(
+        mut self,
+        resolve: impl Fn(&str) -> Vec<Arc<dyn LlmProvider>> + Send + Sync + 'static,
+    ) -> Self {
+        self.make_chain_provider = Some(Box::new(resolve));
+        self
+    }
+
+    /// Name the fast/capable tier selection ids so tier-routed subtasks (the ones
+    /// that never named a `model`) can look up their own chain.
+    pub fn with_tier_selection_ids(mut self, fast: String, capable: String) -> Self {
+        self.tier_selection_ids = Some((fast, capable));
+        self
     }
 
     /// Install the current host provider as the safe fallback target for a
@@ -920,7 +957,34 @@ parallel workers NON-OVERLAPPING scopes."
             } else {
                 (self.make_fast_provider)()
             };
-            let fallback = (requested_model.is_none()
+            // The candidate list, in priority order: the parent's EXPLICIT chain
+            // for this selection first (FR-6.2), then the implicit single host
+            // provider as the last resort. Every candidate is de-duped by provider
+            // IDENTITY -- a different configured provider may legitimately expose
+            // the same raw model name (two gateways serving GLM), so display text
+            // cannot decide this.
+            let selection_key = requested_model.map(str::to_string).or_else(|| {
+                self.tier_selection_ids.as_ref().map(|(fast, capable)| {
+                    if spec.difficulty == crate::team::TeamDifficulty::Hard {
+                        capable.clone()
+                    } else {
+                        fast.clone()
+                    }
+                })
+            });
+            let mut fallbacks: Vec<Arc<dyn LlmProvider>> = Vec::new();
+            if let (Some(resolve), Some(key)) =
+                (self.make_chain_provider.as_ref(), selection_key.as_deref())
+            {
+                for candidate in resolve(key) {
+                    if !Arc::ptr_eq(&candidate, &provider)
+                        && !fallbacks.iter().any(|seen| Arc::ptr_eq(seen, &candidate))
+                    {
+                        fallbacks.push(candidate);
+                    }
+                }
+            }
+            let implicit_host = (requested_model.is_none()
                 && spec.permission == crate::team::TeamPermission::Explore
                 && spec.difficulty == crate::team::TeamDifficulty::Hard)
                 .then(|| {
@@ -928,13 +992,15 @@ parallel workers NON-OVERLAPPING scopes."
                         .as_ref()
                         .map(|make_host| make_host())
                 })
-                .flatten()
-                // A different configured provider may legitimately expose the
-                // same raw model name (for example two gateways serving GLM).
-                // Provider identity, not display text, determines whether this
-                // is a real fallback target.
-                .filter(|host| !Arc::ptr_eq(host, &provider));
-            prepared.push((spec, provider, fallback));
+                .flatten();
+            if let Some(host) = implicit_host {
+                if !Arc::ptr_eq(&host, &provider)
+                    && !fallbacks.iter().any(|seen| Arc::ptr_eq(seen, &host))
+                {
+                    fallbacks.push(host);
+                }
+            }
+            prepared.push((spec, provider, fallbacks));
         }
 
         // Independent scheduling lanes: read-only (`explore`) subtasks fan out wider
@@ -969,7 +1035,7 @@ parallel workers NON-OVERLAPPING scopes."
         ctx.progress
             .emit(format!("dispatching {} subtask(s)...", prepared.len()));
 
-        for (idx, (t, provider, fallback_provider)) in prepared.into_iter().enumerate() {
+        for (idx, (t, provider, fallback_providers)) in prepared.into_iter().enumerate() {
             let is_worker = t.permission == crate::team::TeamPermission::Worker;
             let scope = t.scope.clone();
             // Capture the actual model this subtask runs on (for display + routing proof)
@@ -1092,48 +1158,54 @@ parallel workers NON-OVERLAPPING scopes."
                     },
                 };
                 let mut final_model = model.clone();
-                if let Some(fallback) = &fallback_provider {
-                    if retryable_content_free_failure(&outcome) && !child_cancel.is_cancelled() {
-                        let fallback_model = fallback.model_name().to_string();
-                        // `MemberStarted` is attempt-scoped: publishing the retry
-                        // keeps typed Team projections aligned with the provider
-                        // that is actually running. Existing consumers already
-                        // update an existing member in place on repeated starts.
-                        if let Some(events) = &member_events {
-                            events.emit(crate::team::TeamEventPayload::MemberStarted {
-                                member_id: member_id.clone(),
-                                role: t.role,
-                                model: fallback_model.clone(),
-                                description: desc.clone(),
-                            });
-                        }
-                        progress_hook.publish(
-                            Some(format!(
-                            "{model} failed before producing output; retrying with {fallback_model}"
-                        )),
-                            true,
-                        );
-                        let fallback_child = build_task_child(
-                            fallback.clone(),
-                            tools,
-                            persona,
-                            wd,
-                            child_cancel,
-                            progress_hook.clone(),
-                            tool_loop_policy,
-                            max_rounds,
-                            stream_timeout,
-                            child_middlewares,
-                        );
-                        outcome = run_child_to_completion(
-                            fallback_child,
-                            prompt,
-                            AutoRespond::AllowAll,
-                            progress_hook,
-                        )
-                        .await;
-                        final_model = fallback_model;
+                // Walk the candidate list (FR-6.2): the explicit chain first, the
+                // implicit host provider last. Each hop is only taken while the
+                // previous one failed BEFORE producing anything -- repeating a
+                // child that already wrote files or printed an answer would
+                // duplicate its side effects rather than recover from them.
+                for fallback in &fallback_providers {
+                    if !retryable_content_free_failure(&outcome) || child_cancel.is_cancelled() {
+                        break;
                     }
+                    let fallback_model = fallback.model_name().to_string();
+                    // `MemberStarted` is attempt-scoped: publishing the retry
+                    // keeps typed Team projections aligned with the provider
+                    // that is actually running. Existing consumers already
+                    // update an existing member in place on repeated starts.
+                    if let Some(events) = &member_events {
+                        events.emit(crate::team::TeamEventPayload::MemberStarted {
+                            member_id: member_id.clone(),
+                            role: t.role,
+                            model: fallback_model.clone(),
+                            description: desc.clone(),
+                        });
+                    }
+                    progress_hook.publish(
+                        Some(format!(
+                        "{final_model} failed before producing output; retrying with {fallback_model}"
+                    )),
+                        true,
+                    );
+                    let fallback_child = build_task_child(
+                        fallback.clone(),
+                        tools.clone(),
+                        persona.clone(),
+                        wd.clone(),
+                        child_cancel.clone(),
+                        progress_hook.clone(),
+                        tool_loop_policy,
+                        max_rounds,
+                        stream_timeout,
+                        child_middlewares.clone(),
+                    );
+                    outcome = run_child_to_completion(
+                        fallback_child,
+                        prompt.clone(),
+                        AutoRespond::AllowAll,
+                        progress_hook.clone(),
+                    )
+                    .await;
+                    final_model = fallback_model;
                 }
                 // Include the failure reason on the terminal [x] line. Retained UIs
                 // commit terminal child events to scrollback while keeping only
@@ -1635,24 +1707,12 @@ fn build_task_child(
 }
 
 /// A hard/explore retry is safe only before the child produced any semantic
-/// output or tool result. Restrict provider failures to structured transient
-/// HTTP classes; an unclassified error may be auth/config and must not silently
-/// switch models. A stream idle timeout is intrinsically transient.
+/// output or tool result. Delegates to the SHARED predicate so the subagent and
+/// the main-agent runtime cannot drift apart on what counts as recoverable
+/// (FR-6.1 of `docs/model-fallback-requirements.md`); the rationale for each
+/// clause lives with that function.
 fn retryable_content_free_failure(outcome: &Outcome) -> bool {
-    if !outcome.text.is_empty() || !outcome.tool_results.is_empty() {
-        return false;
-    }
-    match outcome.stop {
-        StopReason::Timeout | StopReason::RateLimited => true,
-        StopReason::ProviderError => match outcome.provider_retryable {
-            // A provider's structured classification is authoritative. In
-            // particular, do not replay a terminal failure merely because a
-            // compatible endpoint attached a nominally transient status.
-            Some(retryable) => retryable,
-            None => matches!(outcome.http_status, Some(408 | 425 | 429) | Some(500..=599)),
-        },
-        _ => false,
-    }
+    crate::fallback::fallback_eligible(outcome, false)
 }
 
 /// One-shot child driver with the same aggregation/failure semantics as
@@ -2453,6 +2513,209 @@ mod tests {
             calls.load(Ordering::SeqCst),
             0,
             "model validation must finish before any sibling starts"
+        );
+    }
+
+    /// FR-6.2: the parent's EXPLICIT chain must be tried BEFORE the implicit
+    /// single host provider, and the walk must reach the later chain hop when the
+    /// first one also fails.
+    ///
+    /// Reaching for the host first would silently ignore a user's configured
+    /// chain, so the ordering is the actual contract here -- hence the assertion
+    /// on the ORDER of attempted models, not just on eventual success.
+    #[tokio::test]
+    async fn explicit_chain_is_tried_before_the_implicit_host_fallback() {
+        struct NamedProvider {
+            model: &'static str,
+            reply: Option<&'static str>,
+        }
+        #[async_trait::async_trait]
+        impl LlmProvider for NamedProvider {
+            fn model_name(&self) -> &str {
+                self.model
+            }
+
+            async fn chat_stream(
+                &self,
+                _messages: &[Message],
+                _tools: &[ToolDef],
+                _options: &ChatOptions,
+            ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
+                if let Some(reply) = self.reply {
+                    return Ok(stream::iter(vec![
+                        StreamEvent::TextDelta(reply.to_string()),
+                        StreamEvent::Done { truncated: false },
+                    ])
+                    .boxed());
+                }
+                Err(ProviderError {
+                    retryable: true,
+                    http_status: Some(503),
+                    message: "down".into(),
+                    ..Default::default()
+                })
+            }
+        }
+        // A plain fn, not a closure: the builder closures below must be
+        // `'static`, and capturing `make` by reference would not compile.
+        fn make(model: &'static str, reply: Option<&'static str>) -> Arc<dyn LlmProvider> {
+            Arc::new(NamedProvider { model, reply })
+        }
+
+        let reg = Arc::new(ToolRegistry::new());
+        let r1 = reg.clone();
+        let r2 = reg.clone();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured_events = events.clone();
+        let tool = TaskTool::new(
+            || make("fast", Some("FAST")),
+            // The capable tier is the one that fails, so the walk starts here.
+            || make("capable", None),
+            move || r1.mount(&[]),
+            move || r2.mount(&[]),
+        )
+        // The implicit host provider is the LAST resort -- it answers, so if the
+        // chain were skipped entirely this test would still "pass" on content.
+        // Only the ORDER assertion below can tell the two apart.
+        .with_host_provider(|| make("host-model", Some("HOST ANSWER")))
+        // Explicit chain for the capable tier: hop 1 also fails, hop 2 answers.
+        // The tier ids are what let a subtask that named no `model` find its own
+        // chain, so installing them here mirrors the production wiring.
+        .with_chain_provider(|_key| {
+            vec![
+                make("chain-hop-1", None),
+                make("chain-hop-2", Some("CHAIN")),
+            ]
+        })
+        .with_tier_selection_ids("fast-tier".to_string(), "capable-tier".to_string())
+        .with_team_event_sink(Arc::new(move |event| {
+            captured_events.lock().unwrap().push(event);
+        }));
+
+        let out = tool
+            .execute(
+                r#"{"tasks":[{"description":"hop","prompt":"run","subagent_type":"explore","difficulty":"hard"}]}"#,
+                &ctx(),
+            )
+            .await;
+
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("CHAIN"), "{}", out.content);
+        let attempts = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|event| match &event.payload {
+                crate::team::TeamEventPayload::MemberStarted { model, .. } => Some(model.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            attempts,
+            vec![
+                "capable".to_string(),
+                "chain-hop-1".to_string(),
+                "chain-hop-2".to_string(),
+            ],
+            "the explicit chain must be walked in order, and the implicit host \
+             provider must NOT be reached while the chain can still answer"
+        );
+    }
+
+    /// The gap this closes: a model-less subtask that is NOT (`Explore && Hard`)
+    /// previously had NO fallback at all -- the implicit host provider only
+    /// applies to that one combo, so the identity de-dupe left the candidate list
+    /// empty. With tier chain keys wired, such a subtask now fails over along its
+    /// tier's configured chain.
+    #[tokio::test]
+    async fn model_less_non_hard_subtask_still_fails_over_along_its_tier_chain() {
+        struct NamedProvider {
+            model: &'static str,
+            reply: Option<&'static str>,
+        }
+        #[async_trait::async_trait]
+        impl LlmProvider for NamedProvider {
+            fn model_name(&self) -> &str {
+                self.model
+            }
+
+            async fn chat_stream(
+                &self,
+                _messages: &[Message],
+                _tools: &[ToolDef],
+                _options: &ChatOptions,
+            ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
+                if let Some(reply) = self.reply {
+                    return Ok(stream::iter(vec![
+                        StreamEvent::TextDelta(reply.to_string()),
+                        StreamEvent::Done { truncated: false },
+                    ])
+                    .boxed());
+                }
+                Err(ProviderError {
+                    retryable: true,
+                    http_status: Some(503),
+                    message: "down".into(),
+                    ..Default::default()
+                })
+            }
+        }
+        fn make(model: &'static str, reply: Option<&'static str>) -> Arc<dyn LlmProvider> {
+            Arc::new(NamedProvider { model, reply })
+        }
+
+        let reg = Arc::new(ToolRegistry::new());
+        let r1 = reg.clone();
+        let r2 = reg.clone();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured_events = events.clone();
+        let tool = TaskTool::new(
+            // The FAST tier is what a `simple` subtask runs on. It fails.
+            || make("fast", None),
+            || make("capable", Some("CAPABLE")),
+            move || r1.mount(&[]),
+            move || r2.mount(&[]),
+        )
+        // Deliberately NO host provider: the old code had nothing to fall back to
+        // for this combo, so its absence proves the chain is what recovers here.
+        .with_chain_provider(|key| {
+            assert_eq!(
+                key, "fast-tier",
+                "a `simple` subtask must look up the FAST key"
+            );
+            vec![make("fast-chain", Some("RECOVERED VIA CHAIN"))]
+        })
+        .with_tier_selection_ids("fast-tier".to_string(), "capable-tier".to_string())
+        .with_team_event_sink(Arc::new(move |event| {
+            captured_events.lock().unwrap().push(event);
+        }));
+
+        let out = tool
+            .execute(
+                r#"{"tasks":[{"description":"simple","prompt":"run","subagent_type":"explore","difficulty":"simple"}]}"#,
+                &ctx(),
+            )
+            .await;
+
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("RECOVERED VIA CHAIN"),
+            "the tier chain must recover a model-less non-hard subtask: {}",
+            out.content
+        );
+        let attempts = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|event| match &event.payload {
+                crate::team::TeamEventPayload::MemberStarted { model, .. } => Some(model.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            attempts,
+            vec!["fast".to_string(), "fast-chain".to_string()],
+            "the walk must start on the fast tier and move along its chain"
         );
     }
 

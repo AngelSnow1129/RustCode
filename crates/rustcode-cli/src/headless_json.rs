@@ -107,4 +107,63 @@ mod tests {
         assert_eq!(decoded["type"], "message.delta");
         assert_eq!(decoded["text"], "a\nb");
     }
+
+    /// A-11: the model-fallback machine token must reach the machine channel
+    /// VERBATIM, while the human-facing prose stays in `message`.
+    ///
+    /// This is the machine half of FR-4.5: a `--json` consumer keys off `code`,
+    /// so the token is a wire contract and must never be localized, translated,
+    /// or rewritten -- the stability of the constant is the contract.
+    #[test]
+    fn model_fallback_token_is_carried_verbatim_in_the_code_field() {
+        for token in [
+            rustcode_coding::fallback::tokens::STARTED,
+            rustcode_coding::fallback::tokens::EXHAUSTED,
+        ] {
+            let line = line(&HeadlessEvent::Error {
+                // The rendered prose a user would see; the token beside it must
+                // not be affected by it.
+                message: "provider exploded".into(),
+                http_status: None,
+                code: Some(token.to_string()),
+                retryable: Some(false),
+            })
+            .unwrap();
+            let decoded: serde_json::Value = serde_json::from_slice(&line).unwrap();
+            assert_eq!(decoded["type"], "error");
+            assert_eq!(
+                decoded["code"], token,
+                "the fallback token must be emitted byte-for-byte"
+            );
+            assert_eq!(decoded["retryable"], false);
+        }
+    }
+
+    /// The tokens themselves are stable ASCII identifiers with the documented
+    /// `model_fallback_` namespace -- a consumer's switch statement depends on it,
+    /// so this locks the literal values rather than merely their existence.
+    #[test]
+    fn model_fallback_tokens_are_stable_ascii_identifiers() {
+        assert_eq!(
+            rustcode_coding::fallback::tokens::STARTED,
+            "model_fallback_started"
+        );
+        assert_eq!(
+            rustcode_coding::fallback::tokens::EXHAUSTED,
+            "model_fallback_exhausted"
+        );
+        for token in [
+            rustcode_coding::fallback::tokens::STARTED,
+            rustcode_coding::fallback::tokens::EXHAUSTED,
+        ] {
+            assert!(
+                token.is_ascii(),
+                "a wire token must be ASCII, got {token:?}"
+            );
+            assert!(
+                token.starts_with("model_fallback_"),
+                "tokens live in one namespace, got {token:?}"
+            );
+        }
+    }
 }

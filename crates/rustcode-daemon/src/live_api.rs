@@ -341,6 +341,9 @@ pub(crate) fn chat_runtime_config(
             std::env::var("RUSTCODE_TURN_MAX_ROUNDS").ok().as_deref(),
         ),
         subagent_config: Some(Arc::new(config.clone())),
+        // Sanitized chain for this selection (empty = no fallback), same
+        // resolution rule as `CodingRuntimeConfig::from_config`.
+        provider_fallback: config.model_fallback_chain(provider_name),
         // Daemon path has no TUI checkpoint picker; keep the hard round-cap.
         round_cap_checkpoint: false,
         // WebUI/daemon projection is intentionally deferred; avoid a hidden
@@ -3507,6 +3510,32 @@ mod tests {
         let json = serde_json::to_value(progress).unwrap();
         assert_eq!(json["type"], "tool_progress");
         assert_eq!(json["id"], "c1");
+    }
+
+    /// FR-7.1: a failover notice must reach the live wire as a warning the WebUI
+    /// can render, with the notice text intact -- not swallowed, not reshaped
+    /// into a terminal error.
+    ///
+    /// The text is deliberately the real localized shape (model ids wrapped in
+    /// backticks plus a reason), so this also proves non-ASCII payloads survive
+    /// the projector untouched.
+    #[test]
+    fn native_live_projector_carries_a_failover_notice_verbatim() {
+        let notice = "`primary` 失败（上游 503），改用 `backup` 继续本轮";
+        let mut projector = NativeLiveWireProjector::default();
+        let projected = projector
+            .project(crate::live_hub::LiveViewEvent::Runtime(
+                CodingRuntimeEvent::Agent(rustcode_kernel::event::AgentEvent::Warning(
+                    notice.into(),
+                )),
+            ))
+            .expect("a failover notice must reach the live wire");
+        let json = serde_json::to_value(&projected).unwrap();
+        assert_eq!(json["type"], "warning", "a failover is advisory, not fatal");
+        assert_eq!(
+            json["message"], notice,
+            "the notice must be carried byte-for-byte"
+        );
     }
 
     #[test]

@@ -42,9 +42,33 @@ pub fn resolve_tier_keys(config: &Config, host_model: &str) -> Option<(String, S
     ))
 }
 
+/// Selection ids to use as FALLBACK-CHAIN lookup keys for the two tiers.
+///
+/// [`resolve_tier_keys`] answers "which model does each tier run on?" and
+/// deliberately returns `None` when routing is off, because both tiers then
+/// collapse to the host. That is the right answer for *provider selection* but
+/// the wrong one for *chain lookup*: with routing off, a subtask that names no
+/// `model` still runs on a real selection (the host's), and that selection can
+/// carry its own `fallback` chain.
+///
+/// Returning `None` there would leave every model-less subtask with no chain key
+/// -- and since the host provider is also the implicit fallback, the identity
+/// de-dupe would then strip it too, leaving NO fallback at all even though the
+/// user configured one. So the host selection id is the correct key.
+pub fn tier_chain_keys(
+    config: &Config,
+    host_model: &str,
+    host_selection_id: &str,
+) -> (String, String) {
+    match resolve_tier_keys(config, host_model) {
+        Some(keys) => keys,
+        None => (host_selection_id.to_string(), host_selection_id.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::resolve_tier_keys;
+    use super::{resolve_tier_keys, tier_chain_keys};
     use rustcode_config::config::provider::ProviderConfig;
     use rustcode_config::config::Config;
 
@@ -133,6 +157,39 @@ mod tests {
         c.providers.insert("mine".into(), pc("x", None));
         c.default_provider = "mine".into();
         assert_eq!(resolve_tier_keys(&c, "x"), None);
+    }
+
+    /// The chain-lookup keys must degrade to the HOST selection id when routing
+    /// is off: both tiers then run on the host, and the host is exactly the model
+    /// whose `fallback` chain applies. Returning `None` here (as the provider
+    /// resolver correctly does) would leave model-less subtasks with no key, and
+    /// the identity de-dupe would then also strip the host provider -- ending up
+    /// with NO fallback despite a configured chain.
+    #[test]
+    fn chain_keys_fall_back_to_the_host_selection_when_routing_is_off() {
+        // Single participant: no tier routing, but the host still has a chain.
+        let mut c = Config::default();
+        c.providers
+            .insert("mine".into(), pc("my-local-model", None));
+        c.default_provider = "mine".into();
+        assert_eq!(resolve_tier_keys(&c, "my-local-model"), None);
+        assert_eq!(
+            tier_chain_keys(&c, "my-local-model", "mine"),
+            ("mine".to_string(), "mine".to_string())
+        );
+    }
+
+    #[test]
+    fn chain_keys_mirror_the_tier_ids_when_routing_is_on() {
+        let mut c = Config::default();
+        c.providers.insert("a".into(), pc("m-a", Some(0)));
+        c.providers.insert("b".into(), pc("m-b", Some(5)));
+        c.default_provider = "b".into();
+        // Routing on ⇒ the chain keys are the tier ids, NOT the host id.
+        assert_eq!(
+            tier_chain_keys(&c, "m-b", "b"),
+            ("a".to_string(), "b".to_string())
+        );
     }
 
     #[test]

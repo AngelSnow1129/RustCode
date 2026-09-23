@@ -88,6 +88,13 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::RetryReasonUpstream => "upstream service temporarily unavailable".into(),
         Msg::RetryReasonTimeout => "model response timed out".into(),
         Msg::RetryReasonNetwork => "network connection failed".into(),
+        Msg::ModelFallbackStarted { from, to, reason } =>
+            format!(
+                "`{from}` failed ({reason}); continuing this turn on `{to}`"
+            )
+            .into(),
+        Msg::ModelFallbackExhausted { attempts } =>
+            format!("every model in the fallback chain failed: {attempts}").into(),
         Msg::TuixProviderRetry {
             reason,
             backoff_secs,
@@ -3132,5 +3139,39 @@ mod message_text_tests {
         let s = en(Msg::ConhostScrollHint);
         assert!(s.contains("Windows Terminal"));
         assert!(s.to_lowercase().contains("scroll"));
+    }
+
+    /// A-11 (human face): the failover notice must name BOTH models and the
+    /// reason, so a user can tell what broke and where the turn continued.
+    #[test]
+    fn en_fallback_notice_names_both_models_and_the_reason() {
+        let s = en(Msg::ModelFallbackStarted {
+            from: "primary",
+            to: "backup",
+            reason: "upstream 503",
+        });
+        assert!(s.contains("primary"), "must name the failed model: {s}");
+        assert!(s.contains("backup"), "must name the target model: {s}");
+        assert!(s.contains("upstream 503"), "must carry the reason: {s}");
+        // The failure is survivable, so the wording must not read as fatal.
+        assert!(
+            !s.to_lowercase().contains("failed the turn"),
+            "a failover is a continuation, not a terminal: {s}"
+        );
+    }
+
+    /// The exhausted notice is the terminal counterpart: it must say the whole
+    /// chain was tried and list the attempts, rather than a bare provider error.
+    #[test]
+    fn en_exhausted_notice_lists_every_attempt() {
+        let s = en(Msg::ModelFallbackExhausted {
+            attempts: "primary, backup",
+        });
+        assert!(s.contains("primary"), "{s}");
+        assert!(s.contains("backup"), "{s}");
+        assert!(
+            s.to_lowercase().contains("chain") || s.to_lowercase().contains("all"),
+            "must convey that the chain was exhausted: {s}"
+        );
     }
 }
