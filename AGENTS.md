@@ -868,5 +868,7 @@ i18n 三件套(messages.rs / en.rs / zh_cn.rs)的 Cp 前缀变体与 kernel 注�
 - **`docs/CONTEXT.md`** — 运行时领域术语定义(注意:旧 `RustCode` 命名,但术语有效)
 - **`docs/architecture.md`** — 架构描述(已更新为 `rustcode-*` 命名)
 - **`docs/REFACTOR_DESIGN_PHASE1.md`** — 重命名前的基线设计(历史决策记录)
+- **`docs/model-fallback-requirements.md`** — 模型回退能力需求与实施记录(触发判据 / 回退链配置面 / 验收标准 / 落点与不变量 / §10 实测契约与诚实边界)
+- **`crates/rustcode-capabilities/src/fallback.rs`** — 可回退失败的**共享判定**单点(`fallback_eligible` / `fallback_eligible_for_stop`);主 agent(`coding/src/runtime.rs` 的 `try_model_fallback`)与子代理(`tools/task.rs` 的 `retryable_content_free_failure`)**共用**它,禁止调用点各写一份 `if`。L2 侧的链游走器在 `crates/rustcode-coding/src/fallback.rs`(`FallbackWalk`,单调前进 + 显式耗尽)。
 - **`rustcode-config/src/distribution.rs`** — 重命名事实源(HOME_ENV / 端口 / 进程名)
 - **`rustcode-config/src/endpoints.rs`** — 环境变量名与托管端点
