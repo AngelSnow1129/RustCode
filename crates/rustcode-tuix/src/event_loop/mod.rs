@@ -18100,7 +18100,9 @@ fn handle_streaming_key(
         }
         match code {
             KeyCode::Up => {
-                app.menu.selected = app.menu.selected.saturating_sub(1);
+                // Wrap, matching the idle menu: this menu is fully modal, so
+                // stepping up from the first item must not dead-end.
+                app.menu.selected = crate::modals::step_up(app.menu.selected, items.len());
                 draw_spinner_now(
                     &mut app.state,
                     &app.buf,
@@ -18112,9 +18114,7 @@ fn handle_streaming_key(
                 return Ok(());
             }
             KeyCode::Down => {
-                if app.menu.selected + 1 < items.len() {
-                    app.menu.selected += 1;
-                }
+                app.menu.selected = crate::modals::step_down(app.menu.selected, items.len());
                 draw_spinner_now(
                     &mut app.state,
                     &app.buf,

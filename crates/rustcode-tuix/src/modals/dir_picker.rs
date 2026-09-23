@@ -95,7 +95,8 @@ impl DirPicker {
     }
 
     fn up(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
+        // Wraps: from the first entry to the last.
+        self.selected = crate::modals::step_up(self.selected, self.filtered().len());
     }
 
     fn down(&mut self) {
@@ -104,7 +105,8 @@ impl DirPicker {
             self.selected = 0;
             return;
         }
-        self.select_index(self.selected.saturating_add(1));
+        // Wraps: from the last entry back to the first.
+        self.select_index(crate::modals::step_down(self.selected, n));
     }
 
     fn select_index(&mut self, index: usize) -> bool {
@@ -770,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn down_clamps_to_filtered_results_not_all_dirs() {
+    fn down_wraps_within_filtered_results_not_all_dirs() {
         let mut p = DirPicker::open(
             vec![pb("/tmp/alpha"), pb("/tmp/beta"), pb("/tmp/alphabeta")],
             pb("/x"),
@@ -782,8 +784,8 @@ mod tests {
         assert_eq!(p.selected, 1);
         p.down();
         assert_eq!(
-            p.selected, 1,
-            "clamps to the 2 filtered results, not all 3 dirs"
+            p.selected, 0,
+            "wraps within the 2 filtered results, not all 3 dirs"
         );
     }
 
@@ -817,16 +819,16 @@ mod tests {
     }
 
     #[test]
-    fn down_and_up_stay_within_bounds() {
+    fn down_and_up_wrap_across_entries() {
         let mut p = DirPicker::open(vec![pb("/a"), pb("/b")], pb("/a"));
         p.down();
         assert_eq!(p.selected, 1);
         p.down();
-        assert_eq!(p.selected, 1, "down at end stays put");
+        assert_eq!(p.selected, 0, "down at the end wraps to the first entry");
+        p.up();
+        assert_eq!(p.selected, 1, "up at the first entry wraps to the last");
         p.up();
         assert_eq!(p.selected, 0);
-        p.up();
-        assert_eq!(p.selected, 0, "up at top stays put");
     }
 
     #[test]

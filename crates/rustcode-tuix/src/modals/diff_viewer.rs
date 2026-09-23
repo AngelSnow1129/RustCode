@@ -325,9 +325,12 @@ impl Modal for DiffViewer {
                     .map(|snapshot| snapshot.files.len())
                     .unwrap_or(0);
                 match code {
-                    KeyCode::Up | KeyCode::Char('k') => *selected = selected.saturating_sub(1),
+                    // The changed-file list is a choice list, so it wraps.
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        *selected = crate::modals::step_up(*selected, len)
+                    }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        *selected = selected.saturating_add(1).min(len.saturating_sub(1))
+                        *selected = crate::modals::step_down(*selected, len)
                     }
                     KeyCode::Home | KeyCode::Char('g') => *selected = 0,
                     KeyCode::End | KeyCode::Char('G') => *selected = len.saturating_sub(1),

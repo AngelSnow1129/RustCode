@@ -140,12 +140,13 @@ impl Picker {
     }
 
     fn move_up(&mut self, n: usize) {
-        self.selected = self.selected.saturating_sub(n);
+        // Wraps: from the first file to the last.
+        self.selected = crate::modals::step_up_by(self.selected, self.len(), n);
     }
 
     fn move_down(&mut self, n: usize) {
-        let max = self.len().saturating_sub(1);
-        self.selected = (self.selected + n).min(max);
+        // Wraps: from the last file back to the first.
+        self.selected = crate::modals::step_down_by(self.selected, self.len(), n);
     }
 
     /// Display label + special-row flag for combined selection index `i`

@@ -1137,14 +1137,13 @@ impl Modal for PluginManager {
         match code {
             KeyCode::Up => {
                 self.search_focused = false;
-                self.selected = self.selected.saturating_sub(1);
+                // Wraps: from the first row to the last.
+                self.selected = crate::modals::step_up(self.selected, self.current_len());
             }
             KeyCode::Down => {
                 self.search_focused = false;
-                let max = self.current_len().saturating_sub(1);
-                if self.selected < max {
-                    self.selected += 1;
-                }
+                // Wraps: from the last row back to the first.
+                self.selected = crate::modals::step_down(self.selected, self.current_len());
             }
             KeyCode::BackTab => {
                 if matches!(

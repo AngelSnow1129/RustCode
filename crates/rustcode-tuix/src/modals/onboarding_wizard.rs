@@ -437,13 +437,13 @@ impl OnboardingWizard {
 
             // Language
             (Language, KeyCode::Up) => {
-                self.language_idx = self.language_idx.saturating_sub(1);
+                // Wraps: three languages, so Up at the top lands on the last.
+                self.language_idx = crate::modals::step_up(self.language_idx, 3);
                 PureOutcome::Redraw
             }
             (Language, KeyCode::Down) => {
-                if self.language_idx < 2 {
-                    self.language_idx += 1;
-                }
+                // Wraps back to the first language from the last.
+                self.language_idx = crate::modals::step_down(self.language_idx, 3);
                 PureOutcome::Redraw
             }
             // Number keys are shortcuts: pick AND commit in one
@@ -471,13 +471,15 @@ impl OnboardingWizard {
 
             // Setup
             (Setup, KeyCode::Up) => {
-                self.setup_idx = self.setup_idx.saturating_sub(1);
+                // Wraps: the choice count varies with the optional managed-login
+                // row, so derive it rather than hardcoding a maximum.
+                let n = setup_choices().len();
+                self.setup_idx = crate::modals::step_up(self.setup_idx, n);
                 PureOutcome::Redraw
             }
             (Setup, KeyCode::Down) => {
-                if self.setup_idx + 1 < setup_choices().len() {
-                    self.setup_idx += 1;
-                }
+                let n = setup_choices().len();
+                self.setup_idx = crate::modals::step_down(self.setup_idx, n);
                 PureOutcome::Redraw
             }
             (Setup, KeyCode::Char('1')) if !setup_choices().is_empty() => {
@@ -1083,23 +1085,29 @@ mod tests {
     }
 
     #[test]
-    fn language_up_down_moves_idx() {
+    fn language_up_down_wraps_idx() {
         let mut w = make_wizard();
         w.step = Step::Language;
         w.language_idx = 1;
         w.handle_key_for_test(KeyCode::Down);
         assert_eq!(w.language_idx, 2);
         w.handle_key_for_test(KeyCode::Down);
-        assert_eq!(w.language_idx, 2, "should not exceed last index");
+        assert_eq!(
+            w.language_idx, 0,
+            "down at the last language wraps to the first"
+        );
         w.handle_key_for_test(KeyCode::Up);
-        assert_eq!(w.language_idx, 1);
+        assert_eq!(
+            w.language_idx, 2,
+            "up at the first language wraps to the last"
+        );
         w.handle_key_for_test(KeyCode::Up);
         w.handle_key_for_test(KeyCode::Up);
-        assert_eq!(w.language_idx, 0, "saturating_sub keeps idx at 0");
+        assert_eq!(w.language_idx, 0);
     }
 
     #[test]
-    fn setup_up_down_bounded() {
+    fn setup_up_down_wraps() {
         let mut w = make_wizard();
         w.step = Step::Setup;
         // Setup rows are [Configure manually, Skip] (2 rows).
@@ -1110,11 +1118,14 @@ mod tests {
         );
         w.setup_idx = 0;
         w.handle_key_for_test(KeyCode::Up);
-        assert_eq!(w.setup_idx, 0);
+        assert_eq!(
+            w.setup_idx, 1,
+            "up at the first row wraps to the last row (Skip)"
+        );
+        w.handle_key_for_test(KeyCode::Down);
+        assert_eq!(w.setup_idx, 0, "down at the last row wraps to the first");
         w.handle_key_for_test(KeyCode::Down);
         assert_eq!(w.setup_idx, 1);
-        w.handle_key_for_test(KeyCode::Down);
-        assert_eq!(w.setup_idx, 1, "bounded at last row (Skip)");
     }
 
     #[test]

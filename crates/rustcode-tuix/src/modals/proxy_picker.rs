@@ -34,14 +34,14 @@ impl Modal for ProxyPicker {
     ) -> Result<ModalAction> {
         match code {
             KeyCode::Up => {
-                self.selected = self.selected.saturating_sub(1);
+                // Wraps: three options (direct / env / manual).
+                self.selected = crate::modals::step_up(self.selected, 3);
                 self.draw(buf, state, ctx, renderer);
                 Ok(ModalAction::Continue)
             }
             KeyCode::Down => {
-                if self.selected < 2 {
-                    self.selected += 1;
-                }
+                // Wraps: three options.
+                self.selected = crate::modals::step_down(self.selected, 3);
                 self.draw(buf, state, ctx, renderer);
                 Ok(ModalAction::Continue)
             }

@@ -126,14 +126,13 @@ impl ConfigPanel {
     }
 
     fn move_up(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
+        // Wraps: from the first setting to the last.
+        self.selected = crate::modals::step_up(self.selected, self.filtered().len());
     }
 
     fn move_down(&mut self) {
-        let len = self.filtered().len();
-        if self.selected + 1 < len {
-            self.selected += 1;
-        }
+        // Wraps: from the last setting back to the first.
+        self.selected = crate::modals::step_down(self.selected, self.filtered().len());
     }
 
     fn selected_setting(&self) -> Option<PanelSetting> {
@@ -496,17 +495,22 @@ mod tests {
     }
 
     #[test]
-    fn navigation_stays_inside_filtered_results() {
+    fn navigation_wraps_across_filtered_results() {
         let mut panel = ConfigPanel::open();
         panel.query = "ui.".into();
+        let len = panel.filtered().len();
+        assert!(len > 1, "this test needs a multi-row filtered list");
         for _ in 0..100 {
             panel.move_down();
         }
-        assert_eq!(panel.selected + 1, panel.filtered().len());
+        // 100 steps over `len` rows lands back inside the list, never past it.
+        assert!(panel.selected < len, "down must stay in range");
+        assert_eq!(panel.selected, 100 % len, "down wraps around the list");
         for _ in 0..100 {
             panel.move_up();
         }
-        assert_eq!(panel.selected, 0);
+        assert!(panel.selected < len, "up must stay in range");
+        assert_eq!(panel.selected, (100 % len + len - (100 % len)) % len);
     }
 
     #[test]

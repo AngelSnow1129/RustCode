@@ -202,7 +202,8 @@ impl ModelPicker {
             self.selected = 0;
             return;
         }
-        self.selected = self.selected.saturating_sub(1);
+        // Wraps: from the first entry to the last.
+        self.selected = crate::modals::step_up(self.selected, self.filtered.len());
     }
 
     pub fn down(&mut self) {
@@ -210,10 +211,8 @@ impl ModelPicker {
             self.selected = 0;
             return;
         }
-        let max = self.filtered.len().saturating_sub(1);
-        if self.selected < max {
-            self.selected += 1;
-        }
+        // Wraps: from the last entry back to the first.
+        self.selected = crate::modals::step_down(self.selected, self.filtered.len());
     }
 
     /// Return the provider name at the current filtered selection.
@@ -601,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn down_and_up_stay_within_filtered_bounds() {
+    fn down_and_up_wrap_across_filtered_results() {
         let config = make_config(
             vec![
                 ("a", "openai", "gpt-4"),
@@ -617,11 +616,11 @@ mod tests {
         assert_eq!(p.filtered.len(), 2);
         p.down();
         assert_eq!(p.selected, 1);
-        p.down(); // should clamp
+        p.down(); // wraps back to the first match
+        assert_eq!(p.selected, 0);
+        p.up(); // wraps from the first match to the last
         assert_eq!(p.selected, 1);
         p.up();
-        assert_eq!(p.selected, 0);
-        p.up(); // should clamp
         assert_eq!(p.selected, 0);
     }
 

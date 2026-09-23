@@ -48,15 +48,14 @@ impl Modal for LanguagePicker {
     ) -> Result<ModalAction> {
         match code {
             KeyCode::Up => {
-                self.selected = self.selected.saturating_sub(1);
+                // Wraps: from the first language to the last.
+                self.selected = crate::modals::step_up(self.selected, self.options.len());
                 self.draw(buf, state, ctx, renderer);
                 Ok(ModalAction::Continue)
             }
             KeyCode::Down => {
-                let max = self.options.len().saturating_sub(1);
-                if self.selected < max {
-                    self.selected += 1;
-                }
+                // Wraps: from the last language back to the first.
+                self.selected = crate::modals::step_down(self.selected, self.options.len());
                 self.draw(buf, state, ctx, renderer);
                 Ok(ModalAction::Continue)
             }

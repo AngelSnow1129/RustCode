@@ -222,14 +222,18 @@ impl Modal for RewindModal {
     ) -> Result<ModalAction> {
         match self.stage {
             Stage::Target => match code {
+                // The list holds the checkpoints PLUS one trailing "close" row, so
+                // it has `points.len() + 1` selectable entries and wraps over all of
+                // them.
                 KeyCode::Up | KeyCode::Char('k') => {
-                    self.selected_target = self.selected_target.saturating_sub(1);
+                    self.selected_target =
+                        crate::modals::step_up(self.selected_target, self.catalog.points.len() + 1);
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
-                    self.selected_target = self
-                        .selected_target
-                        .saturating_add(1)
-                        .min(self.catalog.points.len());
+                    self.selected_target = crate::modals::step_down(
+                        self.selected_target,
+                        self.catalog.points.len() + 1,
+                    );
                 }
                 KeyCode::Enter if self.selected_target == self.catalog.points.len() => {
                     return Ok(Self::close(renderer));
@@ -242,11 +246,12 @@ impl Modal for RewindModal {
                 _ => {}
             },
             Stage::Scope => match code {
+                // Three scope choices (conversation / code / both), wrapping.
                 KeyCode::Up | KeyCode::Char('k') => {
-                    self.selected_scope = self.selected_scope.saturating_sub(1);
+                    self.selected_scope = crate::modals::step_up(self.selected_scope, 3);
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
-                    self.selected_scope = self.selected_scope.saturating_add(1).min(2);
+                    self.selected_scope = crate::modals::step_down(self.selected_scope, 3);
                 }
                 KeyCode::Left | KeyCode::Backspace => self.stage = Stage::Target,
                 KeyCode::Esc | KeyCode::Char('q') => return Ok(Self::close(renderer)),

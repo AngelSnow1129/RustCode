@@ -256,6 +256,42 @@ pub trait Modal: Send {
     }
 }
 
+/// Step a selection index DOWN the list, wrapping from the last entry back to the
+/// first. `len` is the number of selectable rows.
+///
+/// Wrapping applies to CHOICE lists (which row is highlighted), never to a text
+/// cursor or a scroll offset: there, moving past the end is meaningless and
+/// wrapping would jump the view somewhere unrelated. A list of one (or none) is a
+/// no-op rather than a modulo-by-zero.
+pub(crate) fn step_down(selected: usize, len: usize) -> usize {
+    step_down_by(selected, len, 1)
+}
+
+/// Step a selection index UP the list, wrapping from the first entry to the last.
+/// See [`step_down`] for why wrapping is limited to choice lists.
+pub(crate) fn step_up(selected: usize, len: usize) -> usize {
+    step_up_by(selected, len, 1)
+}
+
+/// Multi-step forms of [`step_up`] / [`step_down`], for navigators that move more
+/// than one row per key press (e.g. PageUp/PageDown). `steps >= len` is fine: the
+/// modulo keeps the result in range and the motion still reads as wrapping.
+pub(crate) fn step_down_by(selected: usize, len: usize, steps: usize) -> usize {
+    if len == 0 {
+        0
+    } else {
+        (selected % len + steps % len) % len
+    }
+}
+
+pub(crate) fn step_up_by(selected: usize, len: usize, steps: usize) -> usize {
+    if len == 0 {
+        0
+    } else {
+        (selected % len + len - steps % len) % len
+    }
+}
+
 #[cfg(test)]
 mod text_edit_tests {
     use super::*;
@@ -283,5 +319,51 @@ mod text_edit_tests {
         assert_eq!(previous_grapheme_boundary(text, emoji_end), 1);
         assert_eq!(next_grapheme_boundary(text, 1), emoji_end);
         assert_eq!(next_grapheme_boundary(text, emoji_end), text.len());
+    }
+}
+
+#[cfg(test)]
+mod selection_step_tests {
+    use super::{step_down, step_down_by, step_up, step_up_by};
+
+    #[test]
+    fn up_at_the_top_lands_on_the_last_entry() {
+        assert_eq!(step_up(0, 5), 4);
+        assert_eq!(step_up(3, 5), 2);
+    }
+
+    #[test]
+    fn down_at_the_bottom_returns_to_the_first_entry() {
+        assert_eq!(step_down(4, 5), 0);
+        assert_eq!(step_down(0, 5), 1);
+    }
+
+    #[test]
+    fn a_single_entry_list_stays_put_instead_of_dividing_by_zero() {
+        assert_eq!(step_up(0, 1), 0);
+        assert_eq!(step_down(0, 1), 0);
+    }
+
+    #[test]
+    fn an_empty_list_is_a_safe_no_op() {
+        assert_eq!(step_up(0, 0), 0);
+        assert_eq!(step_down(0, 0), 0);
+        // A stale index (list shrank under the cursor) must not overflow either.
+        assert_eq!(step_up(9, 0), 0);
+        assert_eq!(step_down(9, 0), 0);
+    }
+
+    #[test]
+    fn multi_step_moves_wrap_and_are_modulo_safe() {
+        assert_eq!(step_down_by(3, 4, 2), 1);
+        assert_eq!(step_up_by(1, 4, 2), 3);
+        // A page-sized jump on a short list still lands in range.
+        assert_eq!(step_down_by(0, 3, 100), 1);
+        assert_eq!(step_up_by(0, 3, 100), 2);
+        assert_eq!(step_up_by(0, 0, 7), 0);
+        assert_eq!(step_down_by(0, 0, 7), 0);
+        // A stale index beyond `len` is normalised rather than panicking.
+        assert_eq!(step_up_by(9, 4, 1), 0);
+        assert_eq!(step_down_by(9, 4, 1), 2);
     }
 }

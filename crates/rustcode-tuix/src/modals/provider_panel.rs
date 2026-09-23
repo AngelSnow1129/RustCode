@@ -878,14 +878,12 @@ fn is_add_shortcut(code: &KeyCode, mods: KeyModifiers) -> bool {
 /// handler is a thin dispatcher over these). Each one is total: an out-of-range
 /// cursor is a no-op rather than a panic, because the cursor and the toggle list
 /// are updated by different keystrokes.
-fn pick_cursor_up(cursor: &mut usize) {
-    *cursor = cursor.saturating_sub(1);
+fn pick_cursor_up(cursor: &mut usize, len: usize) {
+    *cursor = crate::modals::step_up(*cursor, len);
 }
 
 fn pick_cursor_down(cursor: &mut usize, len: usize) {
-    if *cursor + 1 < len {
-        *cursor += 1;
-    }
+    *cursor = crate::modals::step_down(*cursor, len);
 }
 
 fn pick_toggle(selected: &mut [bool], cursor: usize) {
@@ -2361,7 +2359,7 @@ impl Modal for ProviderPanel {
                     self.mode = Mode::List;
                     self.account_filter = Some(account_id);
                 }
-                KeyCode::Up => pick_cursor_up(cursor),
+                KeyCode::Up => pick_cursor_up(cursor, models.len()),
                 KeyCode::Down => pick_cursor_down(cursor, models.len()),
                 KeyCode::Char(' ') => pick_toggle(selected, *cursor),
                 KeyCode::Char('a') if mods.contains(KeyModifiers::CONTROL) => {
@@ -2409,14 +2407,14 @@ impl Modal for ProviderPanel {
             }
             KeyCode::Up => {
                 self.search_focused = false;
-                self.selected = self.selected.saturating_sub(1);
+                // Wraps: from the first row to the last.
+                self.selected = crate::modals::step_up(self.selected, len);
                 self.pending_delete = None;
             }
             KeyCode::Down => {
                 self.search_focused = false;
-                if self.selected + 1 < len {
-                    self.selected += 1;
-                }
+                // Wraps: from the last row back to the first.
+                self.selected = crate::modals::step_down(self.selected, len);
                 self.pending_delete = None;
             }
             // Ctrl+A: add. Letter keys are reserved for the search filter.
@@ -3542,16 +3540,20 @@ mod tests {
         pick_select_all(&mut selected);
         assert!(selected.iter().all(|&s| s));
 
-        // Cursor movement is bounded at BOTH ends: a cursor past the end would
-        // make Space a silent no-op and Enter add the wrong row.
-        pick_cursor_up(&mut cursor);
-        assert_eq!(cursor, 0, "Up at the top stays at the top");
+        // Cursor movement WRAPS at both ends: a choice list must not dead-end at
+        // the first or last entry. (A cursor left stale by a shorter list is still
+        // a no-op -- see the step_* helpers.)
+        assert_eq!(cursor, 0);
+        pick_cursor_up(&mut cursor, models.len());
+        assert_eq!(cursor, 2, "Up at the top goes to the LAST entry");
+        pick_cursor_down(&mut cursor, models.len());
+        assert_eq!(cursor, 0, "Down at the bottom returns to the FIRST entry");
         pick_cursor_down(&mut cursor, models.len());
         assert_eq!(cursor, 1);
         pick_cursor_down(&mut cursor, models.len());
         assert_eq!(cursor, 2);
         pick_cursor_down(&mut cursor, models.len());
-        assert_eq!(cursor, 2, "Down at the bottom stays at the bottom");
+        assert_eq!(cursor, 0, "and wraps again");
 
         // A cursor left stale by a shorter listing is a no-op, never a panic.
         let mut stale = vec![true, true];

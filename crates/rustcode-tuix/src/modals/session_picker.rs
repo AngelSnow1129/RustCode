@@ -97,7 +97,10 @@ impl SessionPicker {
             return;
         }
         if self.search_focused {
-            // Already at the top -- stay in the search box.
+            // Wrap: the search box sits above the list, so stepping up from it
+            // lands on the LAST session instead of dead-ending.
+            self.search_focused = false;
+            self.selected = self.filtered.len().saturating_sub(1);
             return;
         }
         if self.selected == 0 {
@@ -124,6 +127,10 @@ impl SessionPicker {
         let max = self.filtered.len().saturating_sub(1);
         if self.selected < max {
             self.select_index(self.selected + 1);
+        } else {
+            // Wrap: stepping down past the last session closes the ring by
+            // returning to the search box that sits above the list.
+            self.search_focused = true;
         }
     }
 
@@ -1372,16 +1379,23 @@ mod tests {
     }
 
     #[test]
-    fn down_and_up_stay_within_filtered_bounds() {
+    fn down_and_up_walk_the_search_box_ring() {
+        // The navigable stops form a ring: [search box] -> session 0 -> session 1
+        // -> back to the box. Nothing dead-ends at either end.
         let mut p = SessionPicker::open(vec![meta("a", 1), meta("b", 1)]);
         p.down();
         assert_eq!(p.selected, 1);
         p.down();
-        assert_eq!(p.selected, 1, "down at end stays put");
+        assert!(
+            p.search_focused,
+            "down past the last session reaches the box"
+        );
+        assert_eq!(p.selected, 1, "the box does not move the row cursor");
+        p.up();
+        assert!(!p.search_focused, "up from the box leaves it");
+        assert_eq!(p.selected, 1, "and lands on the last session");
         p.up();
         assert_eq!(p.selected, 0);
-        p.up();
-        assert_eq!(p.selected, 0, "up at top stays put");
     }
 
     #[test]
@@ -1400,7 +1414,14 @@ mod tests {
         );
         assert_eq!(p.selected, 0);
         p.up();
-        assert!(p.search_focused, "up again stays in the search box");
+        assert!(
+            !p.search_focused,
+            "up from the search box wraps around to the last session"
+        );
+        assert_eq!(
+            p.selected, 1,
+            "the wrap lands on the last session, not the first"
+        );
     }
 
     #[test]
