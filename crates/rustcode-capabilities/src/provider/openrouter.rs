@@ -289,16 +289,18 @@ impl LocalCallback {
     }
 }
 
-/// Build a blocking reqwest client that shares the process-wide proxy policy
-/// (RUSTCODE_PROXY_MODE / no_proxy) and a consistent user-agent. OpenRouter is
-/// a standard TLS 1.3 endpoint, so no TLS 1.2 cap (force_tls12 = false).
+/// Build a blocking reqwest client via the SHARED egress factory: proxy policy,
+/// trust-root layering (#514) and UA all match every other egress call site. The
+/// one-shot key-exchange/verification budget stays at the historic 5s/10s instead
+/// of the shared 10s/120s defaults; the process-wide TLS-ceiling policy still
+/// applies inside the factory.
 fn blocking_client() -> Result<reqwest::blocking::Client> {
-    crate::proxy::apply_blocking_proxy_policy(reqwest::blocking::Client::builder())
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(10))
-        .user_agent(crate::egress::client::DEFAULT_USER_AGENT)
-        .build()
-        .context("failed to build OpenRouter HTTP client")
+    crate::egress::build_blocking_http_client(&crate::egress::HttpClientSpec {
+        connect_timeout: Duration::from_secs(5),
+        request_timeout: Some(Duration::from_secs(10)),
+        ..crate::egress::HttpClientSpec::default()
+    })
+    .context("failed to build OpenRouter HTTP client")
 }
 
 /// POST /api/v1/auth/keys {code, code_verifier, code_challenge_method:"S256"} -> key.

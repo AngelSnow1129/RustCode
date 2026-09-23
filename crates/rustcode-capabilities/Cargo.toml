@@ -218,7 +218,7 @@ e2e = ["provider"]
 # listener is std::net (no tokio/net needed).
 mcp = [
     "dep:anyhow", "dep:sha2", "dep:uuid", "dep:dirs", "dep:toml", "dep:tempfile",
-    "egress", "dep:reqwest", "reqwest/blocking", "dep:url",
+    "egress", "egress-blocking", "dep:reqwest", "reqwest/blocking", "dep:url",
     "tokio/process", "tokio/io-util",
 ]
 # Session persistence + cross-session recall: two-tier on-disk store
@@ -251,7 +251,7 @@ plugin = [
 # discovery. Powers the `/openrouter` TUI command. Requires the provider stack
 # (for the shared proxy policy + config leaf) and `reqwest/blocking` for the
 # one-shot OAuth callback + key/model HTTP calls on a background thread.
-openrouter = ["provider", "reqwest/blocking", "dep:anyhow", "dep:sha2"]
+openrouter = ["provider", "egress-blocking", "dep:anyhow", "dep:sha2"]
 
 [target.'cfg(unix)'.dependencies]
 # Askpass (the `askpass` module): a Unix-socket server + wrapper script that route
