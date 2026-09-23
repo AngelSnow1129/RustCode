@@ -97,20 +97,13 @@ pub struct ApprovalPanel {
 
 impl ApprovalPanel {
     pub fn move_up(&mut self) {
-        if self.options.is_empty() {
-            return;
-        }
-        self.selected = if self.selected == 0 {
-            self.options.len() - 1
-        } else {
-            self.selected - 1
-        };
+        // Wraps: from the first option up to the last. Shares the `step_*` helpers
+        // with the other panels and the modal choice lists so the three in-turn
+        // panels cannot drift apart again.
+        self.selected = crate::modals::step_up(self.selected, self.options.len());
     }
     pub fn move_down(&mut self) {
-        if self.options.is_empty() {
-            return;
-        }
-        self.selected = (self.selected + 1) % self.options.len();
+        self.selected = crate::modals::step_down(self.selected, self.options.len());
     }
     /// Index of the option whose accelerator matches `c` (case-insensitive).
     pub fn accel_index(&self, c: char) -> Option<usize> {
@@ -256,16 +249,19 @@ impl UserInputPanel {
         self.is_other_row()
     }
     pub fn move_up(&mut self) {
-        if self.cursor > 0 {
-            self.cursor -= 1;
-            self.scroll_offset = 0;
-        }
+        // Wraps across `0..=last_row()` (concrete options, then the "Other" row and,
+        // in multiple mode, the Submit row). Stepping up from the first option lands
+        // on the last row instead of dead-ending -- matching the approval panel and
+        // the modal choice lists.
+        let rows = self.last_row() + 1;
+        self.cursor = crate::modals::step_up(self.cursor, rows);
+        self.scroll_offset = 0;
     }
     pub fn move_down(&mut self) {
-        if self.cursor < self.last_row() {
-            self.cursor += 1;
-            self.scroll_offset = 0;
-        }
+        // Wraps: from the last row (Submit in multiple mode) back to the first option.
+        let rows = self.last_row() + 1;
+        self.cursor = crate::modals::step_down(self.cursor, rows);
+        self.scroll_offset = 0;
     }
     pub fn page_up(&mut self) {
         self.scroll_offset = self.scroll_offset.saturating_sub(5);
@@ -903,6 +899,10 @@ mod user_input_batch_tests {
     }
 }
 
+/// The round-cap checkpoint offers exactly two rows (0 = 继续, 1 = 停止). Named so
+/// the wrap arithmetic has a single source instead of a bare `2`.
+const ROUND_CAP_OPTIONS: usize = 2;
+
 /// Round-cap checkpoint panel state (kernel-initiated; distinct from UserInputPanel
 /// which is model-initiated). Two fixed options: 0 = 继续, 1 = 停止.
 #[derive(Debug, Clone)]
@@ -940,10 +940,12 @@ impl RoundCapPanel {
         self.cursor == 0
     }
     pub fn move_up(&mut self) {
-        self.cursor = 0;
+        // Wraps over the two options: from 继续 up to 停止.
+        self.cursor = crate::modals::step_up(self.cursor, ROUND_CAP_OPTIONS);
     }
     pub fn move_down(&mut self) {
-        self.cursor = 1;
+        // Wraps: from 停止 back down to 继续.
+        self.cursor = crate::modals::step_down(self.cursor, ROUND_CAP_OPTIONS);
     }
 }
 
@@ -3425,22 +3427,25 @@ mod tests {
         assert_eq!(p.request_id, 7);
         assert_eq!(p.cursor, 0);
         // Single: cursor spans concrete options (0..3) and the always-appended
-        // "Other" row (3). No submit row. move_down clamps at the "Other" row.
+        // "Other" row (3). No submit row. Navigation WRAPS over those 4 rows, so
+        // neither end dead-ends.
+        p.move_up(); // first option -> up wraps to the last row
+        assert!(
+            p.is_other_row(),
+            "up at the first option wraps to the Other row"
+        );
+        p.move_down(); // last row -> down wraps back to the first option
+        assert_eq!(
+            p.cursor, 0,
+            "down at the last row wraps to the first option"
+        );
         for _ in 0..10 {
             p.move_down();
         }
-        assert_eq!(
-            p.cursor, 3,
-            "single move_down clamps at the Other row (options.len())"
-        );
-        assert!(p.is_other_row(), "single cursor clamps at the Other row");
-        // move_up clamps at 0.
-        for _ in 0..10 {
-            p.move_up();
-        }
-        assert_eq!(p.cursor, 0, "move_up clamps at 0");
+        // 10 steps over 4 rows = 4*2 + 2. The ring held; nothing clamped.
+        assert_eq!(p.cursor, 2, "repeated steps stay inside the ring");
         // Single is cursor-as-radio: chosen() reads the cursor row's label.
-        p.move_down(); // cursor → "API key"
+        p.move_up(); // cursor 2 -> 1 ("API key")
         assert_eq!(p.chosen(), vec!["API key".to_string()]);
         let resp = p
             .build_response()
@@ -3448,7 +3453,7 @@ mod tests {
         assert_eq!(resp.selected, vec!["API key".to_string()]);
         assert_eq!(resp.text, None);
         // Moving the cursor changes the radio selection.
-        p.move_up();
+        p.move_up(); // cursor 1 -> 0 ("OAuth")
         assert_eq!(
             p.chosen(),
             vec!["OAuth".to_string()],
@@ -3456,9 +3461,7 @@ mod tests {
         );
 
         // Single: cursor on the "Other" row + typed custom text submits it.
-        for _ in 0..10 {
-            p.move_down();
-        }
+        p.move_up(); // cursor 0 -> wraps to 3, the Other row
         assert!(p.is_other_row());
         p.push_custom('h');
         p.push_custom('i');
@@ -3466,14 +3469,37 @@ mod tests {
         assert_eq!(resp.selected, vec!["hi".to_string()]);
         // "Other" row with empty custom text → no-op.
         let mut other_empty = UserInputPanel::new(12, &single_req);
-        for _ in 0..10 {
-            other_empty.move_down();
-        }
+        other_empty.move_up(); // wrap: first option -> last row (Other)
         assert!(other_empty.is_other_row());
         assert!(
             other_empty.build_response().is_none(),
             "empty Other on single does not submit"
         );
+
+        // Multiple: cursor spans options (0..3), the Other row (3) and the Submit
+        // row (4). Navigation wraps over all 5 rows.
+        let mut nav = UserInputPanel::new(
+            13,
+            &UserInputRequest {
+                mode: UserInputMode::Multiple,
+                ..single_req.clone()
+            },
+        );
+        nav.move_up(); // first option -> up wraps to the Submit row
+        assert!(
+            nav.is_submit_row(),
+            "up at the first option wraps to the Submit row"
+        );
+        nav.move_down(); // Submit row -> down wraps back to the first option
+        assert_eq!(
+            nav.cursor, 0,
+            "down at the Submit row wraps to the first option"
+        );
+        for _ in 0..12 {
+            nav.move_down();
+        }
+        // 12 steps over 5 rows = 5*2 + 2; the ring held.
+        assert_eq!(nav.cursor, 2, "repeated steps stay inside the 5-row ring");
 
         // Multiple: toggle flips the highlighted option; chosen() = all checked.
         let mut m = UserInputPanel::new(
@@ -3763,6 +3789,26 @@ mod tests {
         assert!(!p.chosen_continue());
         p.move_up();
         assert!(p.chosen_continue());
+    }
+
+    /// The round-cap checkpoint is a two-row choice list, so it wraps like every
+    /// other one: neither end dead-ends.
+    #[test]
+    fn round_cap_panel_navigation_wraps() {
+        let mut p = crate::state::RoundCapPanel::new(7, 200, 200);
+        p.move_up();
+        assert!(!p.chosen_continue(), "up at 继续 wraps to 停止");
+        p.move_down();
+        assert!(p.chosen_continue(), "down at 停止 wraps back to 继续");
+        // Repeated steps keep alternating rather than clamping.
+        for _ in 0..7 {
+            p.move_down();
+        }
+        assert!(!p.chosen_continue(), "odd step count lands on 停止");
+        // The output-truncation checkpoint shares the same navigation.
+        let mut t = crate::state::RoundCapPanel::output_truncation(11, 2, 2);
+        t.move_up();
+        assert!(!t.chosen_continue(), "output-truncation panel wraps too");
     }
 
     #[test]

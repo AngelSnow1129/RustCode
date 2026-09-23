@@ -18989,19 +18989,28 @@ mod user_input_key_tests {
         );
     }
 
-    // Single: move_down() stops at the "Other" row (options.len()); no submit row.
+    // Single: navigation wraps over the concrete options + the "Other" row, and
+    // there is still no Submit row.
     #[test]
     fn single_has_no_submit_row() {
         let mut p = panel(UserInputMode::Single);
+        // The ring is [A, B, Other]; 10 steps = 3*3 + 1.
         for _ in 0..10 {
             p.move_down();
         }
+        assert_eq!(p.cursor, 1, "repeated steps stay inside the ring");
+        // Down from the Other row wraps back to the first option.
+        p.move_down(); // cursor 1 -> 2 (Other)
+        assert!(p.is_other_row(), "cursor reaches the Other row");
+        p.move_down(); // Other -> wraps to A
         assert_eq!(
-            p.cursor,
-            p.options.len(),
-            "single cursor must stop at Other row"
+            p.cursor, 0,
+            "down at the Other row wraps to the first option"
         );
-        assert!(p.is_other_row(), "last row is the Other row");
+        // Up from the first option wraps to the Other row.
+        p.move_up();
+        assert!(p.is_other_row(), "up at the first option wraps to Other");
+        assert!(!p.is_submit_row(), "single has no Submit row");
     }
 
     // Single: typing a custom answer on the "Other" row submits custom_text.
@@ -19280,18 +19289,16 @@ mod user_input_key_tests {
         );
     }
 
-    // Multiple: move_down() can reach the Submit row (last row = options.len()+1).
+    // Multiple: every row including Submit is reachable, and the ring closes.
     #[test]
     fn multiple_move_down_reaches_submit_row() {
         let mut p = panel(UserInputMode::Multiple);
-        // 2 options + Other + Submit -> last navigable index = 3.
-        for _ in 0..10 {
-            p.move_down();
-        }
+        // 2 options + Other + Submit -> 4 rows; up from the first wraps to Submit.
+        p.move_up();
         let expected = p.options.len() + 1;
         assert_eq!(
             p.cursor, expected,
-            "cursor must stop at Submit row (index {expected})"
+            "up at the first option wraps to the Submit row (index {expected})"
         );
         assert!(
             p.is_submit_row(),
@@ -19301,21 +19308,23 @@ mod user_input_key_tests {
             !p.is_other_row(),
             "is_other_row() must be false at Submit row"
         );
+        // ...and down from Submit wraps back to the first option.
+        p.move_down();
+        assert_eq!(
+            p.cursor, 0,
+            "down at the Submit row wraps to the first option"
+        );
     }
 
-    // Single: unchanged -- has no Submit row; cursor stops at Other (options.len()).
+    // Single: navigation wraps over the 3 rows and never grows a Submit row.
     #[test]
     fn single_move_down_stops_at_other_no_submit_row() {
         let mut p = panel(UserInputMode::Single);
-        for _ in 0..10 {
-            p.move_down();
-        }
-        assert_eq!(
-            p.cursor,
-            p.options.len(),
-            "single cursor must stop at Other row"
-        );
+        // Down from the Other row wraps to the first option, then forward again.
+        p.move_up(); // first option -> Other
         assert!(p.is_other_row(), "is_other_row() must be true");
+        p.move_down(); // Other -> wraps to the first option
+        assert_eq!(p.cursor, 0, "single wraps at the Other row");
         assert!(!p.is_submit_row(), "single must have no Submit row");
         assert!(
             p.submit_index().is_none(),
@@ -19347,14 +19356,15 @@ mod user_input_key_tests {
             custom: true,
         };
         let p_multi = UserInputPanel::new(1, &req);
-        // last_row for multiple = options.len()+1 = 3
-        assert_eq!(p_multi.options.len() + 1, 3);
-        // last navigable row must be Submit
+        // The multiple panel has 4 rows: 2 options + Other + Submit.
+        assert_eq!(p_multi.options.len() + 2, 4);
+        // Every row is reachable by wrapping: up from the first lands on Submit.
         let mut pm = p_multi;
-        for _ in 0..10 {
-            pm.move_down();
-        }
-        assert!(pm.is_submit_row());
+        pm.move_up();
+        assert!(
+            pm.is_submit_row(),
+            "up from the first option reaches Submit"
+        );
 
         let req_single = UserInputRequest {
             mode: UserInputMode::Single,
@@ -19376,10 +19386,12 @@ mod user_input_key_tests {
             }
         };
         let mut ps = UserInputPanel::new(2, &req_single);
-        for _ in 0..10 {
-            ps.move_down();
-        }
-        assert!(ps.is_other_row(), "single stops at Other");
+        // The single panel has 3 rows (2 options + Other) and no Submit row; the
+        // Other row is reachable, and the ring wraps rather than clamping.
+        ps.move_up(); // first option -> Other
+        assert!(ps.is_other_row(), "single reaches the Other row");
+        ps.move_down();
+        assert_eq!(ps.cursor, 0, "single wraps back to the first option");
         assert!(!ps.is_submit_row(), "single has no Submit row");
     }
 }
@@ -31090,9 +31102,9 @@ mod round_cap_key_tests {
         assert_eq!(state.phase, UiPhase::Streaming, "phase -> Streaming");
     }
 
-    /// Navigation: Up always clamps to cursor=0 (continue).
+    /// Navigation: Up wraps from 继续 to 停止, and back again.
     #[test]
-    fn round_cap_move_up_clamps_to_continue() {
+    fn round_cap_move_up_wraps_to_stop() {
         let mut p = RoundCapPanel::new(7, 100, 100);
         p.move_down(); // cursor -> 1
         p.move_up(); // cursor -> 0
@@ -31100,17 +31112,23 @@ mod round_cap_key_tests {
             p.chosen_continue(),
             "move_up brings cursor back to 'continue'"
         );
-        p.move_up(); // clamped: cursor stays 0
-        assert!(p.chosen_continue(), "move_up at 0 is idempotent");
+        p.move_up(); // wraps: cursor -> 1
+        assert!(
+            !p.chosen_continue(),
+            "move_up at 'continue' wraps to 'stop'"
+        );
     }
 
-    /// Navigation: Down always clamps to cursor=1 (stop).
+    /// Navigation: Down wraps from 停止 back to 继续 (the two-row ring).
     #[test]
-    fn round_cap_move_down_clamps_to_stop() {
+    fn round_cap_move_down_wraps_to_continue() {
         let mut p = RoundCapPanel::new(7, 100, 100);
         p.move_down(); // cursor -> 1
         assert!(!p.chosen_continue(), "move_down sets cursor to 'stop'");
-        p.move_down(); // clamped: cursor stays 1
-        assert!(!p.chosen_continue(), "move_down at 1 is idempotent");
+        p.move_down(); // wraps: cursor -> 0
+        assert!(
+            p.chosen_continue(),
+            "move_down at 'stop' wraps back to 'continue'"
+        );
     }
 }
