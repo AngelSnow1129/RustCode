@@ -437,10 +437,14 @@ default = ["glm-4-plus"]
      `a_terminal_review_failure_is_not_eligible_for_fallback`（FR-5.3 + 取消不重放）。
      每跳经 `Msg::ModelFallbackStarted` 发到评审的 activity 通道（`REVIEW_ACTIVITY_MARKER`
      前缀，与既有进度行同面），复用既有 i18n 变体，不新增文案。
-  - 注：`team` 的成员**已不再**与 `task` 各写一份候选去重逻辑——两处都按 provider **身份**
-    （`Arc::ptr_eq`）去重，而非显示名：两个不同 provider 合法地可能暴露同一个原始模型名。
-    这条规则目前是两处同构实现（编码上未抽公共函数，因两者候选来源与 tier 语义不同），
-    若要进一步收敛应抽到 `capabilities` 的共享位置。
+  - 注：候选链的「按 provider 身份去重」规则**已收敛到单一实现**——
+    `rustcode_capabilities::fallback::chain_candidates(primary, extras)`
+    （2026-09-23 落地；单测 `chain_candidates_dedupe_by_identity_in_priority_order`
+    锁定：同显示名的不同 provider 必须存活、primary 重列被丢弃、身份重复被丢弃）。
+    `task` / `team` / `parallel_edit_files` / `code_review` 四处游走的候选列表全部
+    改走它，各自手写的去重循环已删除——这与 FR-6.1 把「是否可回退」收敛到
+    `fallback_eligible` 是同一防漂移理由；`task` 的「fallbacks 不含 primary」
+    语义由 `skip(1)` 表达。
 - **ACP 通道 = 机制已继承、事件面刻意不投影**：ACP 回合由同一 `CodingRuntime` 拥有
   （`rustcode-cli/src/acp/engine.rs` 的 `CodingRuntime::start` → `acp/turn.rs` 用
   `CodingRuntimeHandle` 驱动），故**模型中断可被吸收**；但协议侧无 advisory 通道，
