@@ -399,7 +399,7 @@ default = ["glm-4-plus"]
     也非本需求范围。
   - `load_with_diagnostics` 的通道本身**不是**缺陷（它确实可用且已被 CLI 消费）；本轮补的是
     「链校验结果没进这条通道」。
-- **子代理链的覆盖现状（本轮补 1、2；3 仍存）**：
+- **子代理链的覆盖现状（1、2、3 已全部覆盖）**：
   1. **[已覆盖] `team` 成员** —— 此前 `rustcode-coding/src/team/runner.rs` 自建 agent 后直接
      `run_to_completion`，既无显式链也无隐式宿主回退，一个模型抖动就会让整次委派失败。
      现 `TeamRunnerFactory` 新增 `with_chain_providers(...)`：`run()` 按
@@ -420,10 +420,21 @@ default = ["glm-4-plus"]
      它自己的 `#[cfg(test)]` 里；模块文档即写明它是 opt-in、"constructed by the embedder"）。
      故本轮补的是**能力面**——embedder 一旦把它挂起来就自带回退；本仓既有的 CLI/TUI/daemon
      路径不会因此改变行为（它们根本不注册该工具）。
-  3. **[仍存] `code_review` 子 agent** —— 它经 `ReviewTool` 进程内直连 kernel
+  3. **[已覆盖] `code_review` 子 agent** —— 它经 `ReviewTool` 进程内直连 kernel
      （`rustcode-review/src/review_tool.rs` 的 `Agent::run_to_completion`），不经过 owner 循环，
-     因而复用宿主那台失败 provider。本轮未覆盖：给它加链需要把 chain 解析注入 `ReviewTool`
-     的构造面，属独立改动，不在本次范围。
+     因而复用宿主那台失败 provider，一个模型抖动就让整个评审失败。现 `ReviewTool` 新增
+     `with_chain_providers(...)`：三个执行路径（single / deep fan-out / verify）统一改走
+     `run_review_pass(...)`，按 `[宿主 provider, 宿主模型的显式链...]`（按 provider **身份**
+     去重）逐跳尝试；换跳判据仍是共享的 `fallback_eligible`（已报告过 finding 的 pass
+     **不重放**，否则会重复报告——评审工具的「产出」就是 finding 本身，比文本更严格）。
+     宿主 provider 的取法不变（assemble 时经 `SharedReviewProvider` 槽注入，签名网关语义
+     保持），链只是**追加**的候选。链由 `parts.rs` 用宿主 selection id 解析后注入，
+     `rustcode-review` 不新增 `rustcode-config` 依赖。测试：`review_walks_its_chain_in_order`
+     （**顺序**断言）、`an_absent_review_chain_attempts_only_the_host_provider`（A-10）、
+     `a_review_that_reported_findings_is_never_replayed`（A-5）、
+     `a_terminal_review_failure_is_not_eligible_for_fallback`（FR-5.3 + 取消不重放）。
+     每跳经 `Msg::ModelFallbackStarted` 发到评审的 activity 通道（`REVIEW_ACTIVITY_MARKER`
+     前缀，与既有进度行同面），复用既有 i18n 变体，不新增文案。
   - 注：`team` 的成员**已不再**与 `task` 各写一份候选去重逻辑——两处都按 provider **身份**
     （`Arc::ptr_eq`）去重，而非显示名：两个不同 provider 合法地可能暴露同一个原始模型名。
     这条规则目前是两处同构实现（编码上未抽公共函数，因两者候选来源与 tier 语义不同），
@@ -434,9 +445,10 @@ default = ["glm-4-plus"]
   `AgentEvent::Warning` 在 `acp/translate.rs::event_to_update` 中**刻意不投影**（FR-7.4）。
   该决定由 `failover_advisory_is_deliberately_not_projected_to_acp_clients` 锁定：
   将来若改为投影，属**范围变更**而非修 bug。
-- **`team` 成员与 `parallel_edit_files` 的回退已在能力层补齐**（本轮），故本条原先"未逐一验证、
-  判定同上"的说法已过期；两者各自的恢复条件与断言见上方第 1、2 项。仍与 `code_review` 同形、
-  未覆盖的只有 `code_review` 自身（第 3 项）。
+- **子代理回退覆盖至此闭环**：主回合（owner 循环）、`task`、`team` 成员、
+  `parallel_edit_files`、`code_review` 五条执行路径全部接通同一个
+  `fallback_eligible` 与同一套链解析（`parts.rs`），没有任何进程内直连 kernel
+  的子 agent 仍留在单次尝试语义上（在本仓已知的执行路径范围内）。
 
 ### 10.6 仍待用户裁决
 
