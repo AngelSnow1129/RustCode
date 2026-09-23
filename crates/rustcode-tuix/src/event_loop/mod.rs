@@ -13043,24 +13043,20 @@ fn handle_input(
                 // bypassing `handle_pointer_hit`, so the reset must live here.
                 app.pointer_click = None;
                 apply_pointer_event(pointer, renderer);
-            } else {
-                if let Some(interaction) = interaction.as_deref() {
-                    handle_pointer_hit(app, ctx, renderer, pointer, interaction)?;
-                } else {
-                    if app.buf.pointer_selection_active() {
-                        let _ = finish_composer_pointer_capture(app, ctx, renderer, pointer);
-                    } else if app
-                        .transcript_selection
-                        .as_ref()
-                        .is_some_and(|selection| selection.dragging)
-                    {
-                        let route = finish_transcript_pointer_capture(
-                            &mut app.transcript_selection,
-                            &ctx.interaction_publisher,
-                        );
-                        let _ = apply_transcript_pointer_route(app, ctx, renderer, route)?;
-                    }
-                }
+            } else if let Some(interaction) = interaction.as_deref() {
+                handle_pointer_hit(app, ctx, renderer, pointer, interaction)?;
+            } else if app.buf.pointer_selection_active() {
+                let _ = finish_composer_pointer_capture(app, ctx, renderer, pointer);
+            } else if app
+                .transcript_selection
+                .as_ref()
+                .is_some_and(|selection| selection.dragging)
+            {
+                let route = finish_transcript_pointer_capture(
+                    &mut app.transcript_selection,
+                    &ctx.interaction_publisher,
+                );
+                let _ = apply_transcript_pointer_route(app, ctx, renderer, route)?;
             }
         }
         InputEvent::Resize(mut cols, mut rows) => {
@@ -18586,13 +18582,11 @@ fn deliver_approval(ctx: &mut LoopCtx, choice: ApprovalChoice) {
             if let Err(error) = rustcode_daemon::native_live::respond(id, value) {
                 crate::tuix_trace!("LIVE", "approval response failed: {error:?}");
             }
-        } else {
-            if let Err(error) = ctx
-                .runtime
-                .dispatch(rustcode_coding::DriverCommand::Respond { id, value })
-            {
-                crate::tuix_trace!("LIVE", "approval response failed: {error:?}");
-            }
+        } else if let Err(error) = ctx
+            .runtime
+            .dispatch(rustcode_coding::DriverCommand::Respond { id, value })
+        {
+            crate::tuix_trace!("LIVE", "approval response failed: {error:?}");
         }
     }
 }
@@ -18611,13 +18605,11 @@ fn deliver_user_input(
         if let Err(error) = rustcode_daemon::native_live::respond(id, value) {
             crate::tuix_trace!("LIVE", "user-input response failed: {error:?}");
         }
-    } else {
-        if let Err(error) = ctx
-            .runtime
-            .dispatch(rustcode_coding::DriverCommand::Respond { id, value })
-        {
-            crate::tuix_trace!("LIVE", "user-input response failed: {error:?}");
-        }
+    } else if let Err(error) = ctx
+        .runtime
+        .dispatch(rustcode_coding::DriverCommand::Respond { id, value })
+    {
+        crate::tuix_trace!("LIVE", "user-input response failed: {error:?}");
     }
 }
 
@@ -18631,16 +18623,14 @@ fn deliver_user_input_null(ctx: &mut LoopCtx, id: u64) {
         if let Err(error) = rustcode_daemon::native_live::respond(id, serde_json::Value::Null) {
             crate::tuix_trace!("LIVE", "null user-input response failed: {error:?}");
         }
-    } else {
-        if let Err(error) = ctx
-            .runtime
-            .dispatch(rustcode_coding::DriverCommand::Respond {
-                id,
-                value: serde_json::Value::Null,
-            })
-        {
-            crate::tuix_trace!("LIVE", "null user-input response failed: {error:?}");
-        }
+    } else if let Err(error) = ctx
+        .runtime
+        .dispatch(rustcode_coding::DriverCommand::Respond {
+            id,
+            value: serde_json::Value::Null,
+        })
+    {
+        crate::tuix_trace!("LIVE", "null user-input response failed: {error:?}");
     }
 }
 

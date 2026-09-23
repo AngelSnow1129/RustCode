@@ -483,10 +483,8 @@ impl PluginManager {
             self.url_input.clear();
             self.url_cursor = 0;
             self.goto(Screen::AddUrl);
-        } else {
-            if let Some(m) = self.marketplaces.get(self.selected - 1) {
-                self.goto(Screen::MarketplaceDetails { mp: m.name.clone() });
-            }
+        } else if let Some(m) = self.marketplaces.get(self.selected - 1) {
+            self.goto(Screen::MarketplaceDetails { mp: m.name.clone() });
         }
     }
 

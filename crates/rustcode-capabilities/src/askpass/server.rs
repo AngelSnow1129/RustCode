@@ -1,5 +1,3 @@
-#![cfg(unix)]
-
 use super::cache::PasswordCache;
 use std::io;
 use std::path::PathBuf;

@@ -415,7 +415,9 @@ fn git_capture(
     allow_truncated: bool,
 ) -> Result<(Vec<u8>, bool), String> {
     let output = run_git(repo_root, args, stdout_limit)?;
-    if !output.status.success() && !(allow_truncated && output.stdout_truncated) {
+    // De Morgan form per clippy::nonminimal_bool -- identical to
+    // `!success && !(allow_truncated && truncated)`.
+    if !(output.status.success() || allow_truncated && output.stdout_truncated) {
         let detail = String::from_utf8_lossy(&output.stderr);
         return Err(crate::i18n::t(crate::i18n::Msg::GitCmdFailed {
             cmd: args.first().copied().unwrap_or("command"),
