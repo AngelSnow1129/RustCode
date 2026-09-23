@@ -251,6 +251,8 @@ default = ["glm-4-plus"]
 
 ### 待用户裁决的开放项
 
+> 2026-09-23 已由用户逐项裁决：三项均维持现状，裁决记录见 §10.6。
+
 - **O-1 默认行为**：未配置时是否应默认启用「回退到 `default_model`」？（当前需求定为**不启用**，
   零行为变更。若希望「开箱即用」，需明确默认链的确定规则。）
 - **O-2 触发时机**：是否允许在**已产出部分文本**的回合回退（会重放并让用户看到重复前缀）？
@@ -450,9 +452,30 @@ default = ["glm-4-plus"]
   `fallback_eligible` 与同一套链解析（`parts.rs`），没有任何进程内直连 kernel
   的子 agent 仍留在单次尝试语义上（在本仓已知的执行路径范围内）。
 
-### 10.6 仍待用户裁决
+### 10.6 开放项裁决（2026-09-23，用户逐项裁决）
 
-§8 的三个开放项（O-1 默认是否启用 / O-2 已产出文本是否回退 / O-3 链粒度）**仍未裁决**，
-当前实现按需求文档的既定选择冻结：不默认启用、不重放已产出回合、模型 id 级粒度。
+§8 的三个开放项已于 2026-09-23 经用户弹窗逐项裁决，三项均**维持现状**，开放项就此关闭：
+
+- **O-1 默认行为 = 不默认启用**：回退仅在用户显式配置 `fallback` 链后生效；未配置时
+  行为与无回退能力逐字相同（A-10）。不引入「默认回退到 `default_model`」的开箱行为。
+- **O-2 触发时机 = 不允许重放已产出回合**：已产出文本或工具结果的回合终态后不换模型
+  重放（A-5），避免重复副作用与用户可见的重复前缀。
+- **O-3 链粒度 = 仅模型 id 级**：链由模型 selection id 组成；provider 级故障由用户显式
+  列出多个 id 表达，不引入 provider 维度的跳转。
+
+冻结证据（既有测试锁定，无需新增代码）：
+- O-1 —— 五条执行路径各有 absent-chain 测试：`absent_chain_keeps_the_single_model_behaviour`
+  （主回合）、`explicit_chain_is_tried_before_the_implicit_host_fallback` 与
+  `model_less_non_hard_subtask_still_fails_over_along_its_tier_chain`（task）、
+  `an_absent_chain_keeps_the_single_attempt_behaviour`（team）、
+  `an_absent_chain_attempts_only_the_primary`（parallel_edit）、
+  `an_absent_review_chain_attempts_only_the_host_provider`（code_review）。
+- O-2 —— 各层 produced-output 不重放断言：`produced_output_suppresses_fallback`（主回合）、
+  `a_member_that_produced_output_is_never_replayed`（team）、
+  `a_child_that_produced_output_is_never_replayed`（parallel_edit）、
+  `a_review_that_reported_findings_is_never_replayed`（code_review）、
+  `produced_output_blocks_fallback`（共享判定单点）。
+- O-3 —— `fallback_chain_flags_an_unknown_target`（链目标必须是已注册的模型 id）。
+
 
 
