@@ -8,7 +8,7 @@ use rustcode_capabilities::team::{
 #[cfg(test)]
 use rustcode_capabilities::tools::team_child_middlewares;
 use rustcode_capabilities::tools::team_child_middlewares_with_bypass;
-use rustcode_kernel::agent::{Agent, AutoRespond, ToolLoopPolicy};
+use rustcode_kernel::agent::{Agent, AutoRespond, Outcome, ToolLoopPolicy};
 use rustcode_kernel::event::StopReason;
 use rustcode_kernel::hook::{LifecycleHooks, TurnCtx};
 use rustcode_kernel::message::Message;
@@ -18,15 +18,24 @@ use rustcode_kernel::request::RequestCtx;
 use rustcode_kernel::tool::{MountedTools, Tool, ToolCall};
 use tokio_util::sync::CancellationToken;
 
+use rustcode_config::i18n::{t, Msg};
+
 use super::{TeamActivitySink, TeamJobFactory, TeamMemberOutcome, TeamModelFactory};
 
 pub type TeamProviderFactory = Arc<dyn Fn(TeamDifficulty) -> Arc<dyn LlmProvider> + Send + Sync>;
 pub type TeamToolsFactory = Arc<dyn Fn(TeamPermission) -> MountedTools + Send + Sync>;
+/// Fallback candidates for a tier, in the order they should be tried (FR-6.2).
+/// Empty means "no chain", which keeps the single-shot behaviour intact.
+pub type TeamChainProviderFactory =
+    Arc<dyn Fn(TeamDifficulty) -> Vec<Arc<dyn LlmProvider>> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct TeamRunnerFactory {
     providers: TeamProviderFactory,
     tools: TeamToolsFactory,
+    /// Explicit per-tier fallback chain, resolved by the layer that owns `Config`
+    /// (see `parts.rs`); `None` = no chain configured = one attempt per member.
+    chain_providers: Option<TeamChainProviderFactory>,
     working_dir: std::path::PathBuf,
     max_rounds: Option<u32>,
     tool_loop_policy: Option<ToolLoopPolicy>,
@@ -51,6 +60,7 @@ impl TeamRunnerFactory {
         Self {
             providers,
             tools,
+            chain_providers: None,
             working_dir,
             max_rounds: None,
             tool_loop_policy: None,
@@ -115,6 +125,20 @@ impl TeamRunnerFactory {
         self
     }
 
+    /// Wire members' explicit per-tier fallback chain (FR-6.2 / FR-6.3).
+    ///
+    /// The chain is resolved by the layer that owns `Config` and handed over as
+    /// ready-to-run providers, so this crate stays the only one that knows about
+    /// config shape. Leaving it unset is the default and restores the historic
+    /// single-attempt behaviour exactly.
+    pub fn with_chain_providers(
+        mut self,
+        chain: impl Fn(TeamDifficulty) -> Vec<Arc<dyn LlmProvider>> + Send + Sync + 'static,
+    ) -> Self {
+        self.chain_providers = Some(Arc::new(chain));
+        self
+    }
+
     pub fn job_factory(&self) -> TeamJobFactory {
         let runner = self.clone();
         Arc::new(move |task, cancel, activity| {
@@ -128,25 +152,27 @@ impl TeamRunnerFactory {
         Arc::new(move |task| (providers)(task.difficulty).model_name().to_string())
     }
 
-    async fn run(
+    /// Assemble one attempt's agent.
+    ///
+    /// Extracted so a fallback hop builds a *fresh* agent on the next provider
+    /// rather than reusing a builder that already failed -- the previous attempt's
+    /// provider must leave no residue behind (FR-3.5).
+    fn build_member(
         &self,
-        task: TeamTaskSpec,
+        provider: Arc<dyn LlmProvider>,
+        tools: MountedTools,
+        task: &TeamTaskSpec,
+        profile: &TeamRoleProfile,
         cancel: CancellationToken,
-        activity: TeamActivitySink,
-    ) -> TeamMemberOutcome {
-        let Some(profile) = role_by_id(task.role.as_str()) else {
-            return TeamMemberOutcome::failed(format!("unknown team role: {}", task.role));
-        };
-        let provider = (self.providers)(task.difficulty);
-        let tools = (self.tools)(task.permission);
-        let progress = Arc::new(TeamProgressHook::new(activity));
+        progress: Arc<TeamProgressHook>,
+    ) -> Agent {
         let mut builder = Agent::builder()
             .provider(provider)
             .tools(tools)
             .persona(team_member_persona(profile, &task.scope))
             .working_dir(self.working_dir.clone())
             .cancel_token(cancel)
-            .hook(progress.clone())
+            .hook(progress)
             .middleware(Arc::new(DenyTeamBash));
         for middleware in team_child_middlewares_with_bypass(
             task.permission == TeamPermission::Worker,
@@ -170,10 +196,104 @@ impl TeamRunnerFactory {
         if let Some(timeout) = self.request_timeout {
             builder = builder.request_timeout(timeout);
         }
-        let outcome = builder
-            .build()
-            .run_to_completion(task.prompt, AutoRespond::AllowAll)
-            .await;
+        builder.build()
+    }
+
+    async fn run(
+        &self,
+        task: TeamTaskSpec,
+        cancel: CancellationToken,
+        activity: TeamActivitySink,
+    ) -> TeamMemberOutcome {
+        let Some(profile) = role_by_id(task.role.as_str()) else {
+            return TeamMemberOutcome::failed(format!("unknown team role: {}", task.role));
+        };
+        // The activity sink is also the member's only rendering channel, so the
+        // failover notice goes out through it (FR-6.3). Keep a handle before the
+        // hook takes ownership.
+        let activity_sink = Arc::clone(&activity);
+        let progress = Arc::new(TeamProgressHook::new(activity));
+        // Candidates, in priority order: this tier's own provider first, then its
+        // explicit chain (FR-6.2). De-duped by provider IDENTITY -- two configured
+        // providers may legitimately expose the same raw model name, so display
+        // text cannot decide this.
+        let primary = (self.providers)(task.difficulty);
+        let mut candidates: Vec<Arc<dyn LlmProvider>> = vec![Arc::clone(&primary)];
+        if let Some(chain) = &self.chain_providers {
+            for candidate in chain(task.difficulty) {
+                if !Arc::ptr_eq(&candidate, &primary)
+                    && !candidates.iter().any(|seen| Arc::ptr_eq(seen, &candidate))
+                {
+                    candidates.push(candidate);
+                }
+            }
+        }
+        let total = candidates.len();
+        let mut outcome = Outcome::default();
+        let mut failures: Vec<String> = Vec::new();
+        let mut exhausted = false;
+        for (index, provider) in candidates.iter().enumerate() {
+            if index > 0 {
+                let from = candidates[index - 1].model_name().to_string();
+                let to = provider.model_name().to_string();
+                let reason = crate::fallback::attempt_reason(&outcome);
+                (activity_sink)(
+                    t(Msg::ModelFallbackStarted {
+                        from: &from,
+                        to: &to,
+                        reason: &reason,
+                    })
+                    .into_owned(),
+                    progress.live_tokens(),
+                );
+            }
+            let agent = self.build_member(
+                Arc::clone(provider),
+                (self.tools)(task.permission),
+                &task,
+                profile,
+                cancel.clone(),
+                Arc::clone(&progress),
+            );
+            outcome = agent
+                .run_to_completion(task.prompt.clone(), AutoRespond::AllowAll)
+                .await;
+            if outcome.stop == StopReason::Stopped {
+                break;
+            }
+            failures.push(format!(
+                "{}: {}",
+                provider.model_name(),
+                crate::fallback::attempt_reason(&outcome)
+            ));
+            // The shared predicate decides whether a DIFFERENT model could survive
+            // this failure (FR-6.1). A terminal 401 or an already-produced answer
+            // stops the walk here rather than replaying it on the next candidate.
+            if !rustcode_capabilities::fallback::fallback_eligible(&outcome, cancel.is_cancelled())
+            {
+                break;
+            }
+            if index + 1 == total {
+                // Eligible failure but nothing left to walk to. Only call this
+                // "exhausted" when there WAS a chain: with no chain configured the
+                // member simply failed once, and the notice would be new behaviour
+                // on a config that never asked for fallback (A-10).
+                exhausted = total > 1;
+                break;
+            }
+        }
+        if exhausted {
+            // Say the chain is spent instead of letting the last provider error
+            // stand in for the whole walk (FR-3.6 / FR-4.4).
+            let attempts = failures.join("; ");
+            (activity_sink)(
+                t(Msg::ModelFallbackExhausted {
+                    attempts: &attempts,
+                })
+                .into_owned(),
+                progress.live_tokens(),
+            );
+        }
         let output = if !outcome.text.is_empty() {
             outcome.text
         } else if let Some(error) = outcome.error {
@@ -530,5 +650,251 @@ mod tests {
         let persona = team_member_persona(explorer, &[]);
         assert!(persona.contains("read-only"), "{persona}");
         assert!(!persona.contains("Do not run shell commands"), "{persona}");
+    }
+
+    /// Scripted member provider: `Some(text)` answers in one turn; `None` fails.
+    /// `transient` picks a retryable 503 (another model could survive it) versus a
+    /// terminal 401 (no model would), which is what the walk branches on.
+    struct ScriptedProvider {
+        model: &'static str,
+        reply: Option<&'static str>,
+        transient: bool,
+        attempts: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for ScriptedProvider {
+        fn model_name(&self) -> &str {
+            self.model
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: &[Message],
+            _tools: &[ToolDef],
+            _options: &ChatOptions,
+        ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
+            self.attempts.lock().unwrap().push(self.model.to_string());
+            if let Some(text) = self.reply {
+                return Ok(Box::pin(futures::stream::iter(vec![
+                    StreamEvent::TextDelta(text.to_string()),
+                    StreamEvent::Done { truncated: false },
+                ])));
+            }
+            Err(ProviderError {
+                retryable: self.transient,
+                http_status: Some(if self.transient { 503 } else { 401 }),
+                message: "down".into(),
+                ..Default::default()
+            })
+        }
+    }
+
+    /// Build a member task + a recording activity sink.
+    fn spec() -> TeamTaskSpec {
+        TeamTaskSpec {
+            description: "d".into(),
+            prompt: "p".into(),
+            role: TeamRoleId::Explorer,
+            permission: TeamPermission::Explore,
+            difficulty: TeamDifficulty::Simple,
+            scope: vec![],
+        }
+    }
+
+    fn make(
+        model: &'static str,
+        reply: Option<&'static str>,
+        transient: bool,
+        attempts: &Arc<std::sync::Mutex<Vec<String>>>,
+    ) -> Arc<dyn LlmProvider> {
+        Arc::new(ScriptedProvider {
+            model,
+            reply,
+            transient,
+            attempts: Arc::clone(attempts),
+        })
+    }
+
+    /// The models attempted, in first-appearance order.
+    ///
+    /// The kernel retries a retryable failure INSIDE one `run_to_completion`, so the
+    /// raw call log repeats a model several times before the walk moves on. That
+    /// layering is deliberate (fallback fires only after the retry budget is spent),
+    /// so the contract to assert is the ORDER of models, not the call count.
+    fn models_tried(attempts: &Arc<std::sync::Mutex<Vec<String>>>) -> Vec<String> {
+        let mut seen: Vec<String> = Vec::new();
+        for model in attempts.lock().unwrap().iter() {
+            if seen.last() != Some(model) {
+                seen.push(model.clone());
+            }
+        }
+        seen
+    }
+
+    /// FR-6.2: a member walks its explicit chain in order and stops at the first
+    /// model that answers. The ORDER is the contract -- asserting only the final
+    /// text would pass even if the chain were skipped entirely.
+    #[tokio::test]
+    async fn member_walks_its_chain_in_order_and_stops_at_the_first_success() {
+        let attempts = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let a = Arc::clone(&attempts);
+        let for_chain = Arc::clone(&attempts);
+        let runner = TeamRunnerFactory::new(
+            Arc::new(move |_| make("primary", None, true, &a)),
+            Arc::new(|_| ToolRegistry::new().mount(&[])),
+            std::env::temp_dir(),
+        )
+        .with_chain_providers(move |_| {
+            vec![
+                make("hop-1", None, true, &for_chain),
+                make("hop-2", Some("RECOVERED"), true, &for_chain),
+            ]
+        });
+        let activities = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = {
+            let captured = Arc::clone(&activities);
+            Arc::new(move |text: String, _tokens: u64| {
+                captured.lock().unwrap().push(text);
+            }) as TeamActivitySink
+        };
+
+        let outcome = runner.run(spec(), CancellationToken::new(), sink).await;
+
+        assert_eq!(
+            models_tried(&attempts),
+            vec!["primary", "hop-1", "hop-2"],
+            "the chain must be walked in order"
+        );
+        assert!(outcome.success, "{outcome:?}");
+        assert_eq!(outcome.output, "RECOVERED");
+        // The failover is visible to the member's rendering channel (FR-6.3).
+        let logs = activities.lock().unwrap().join("\n");
+        assert!(logs.contains("primary") && logs.contains("hop-1"), "{logs}");
+    }
+
+    /// FR-3.6 / FR-4.4: when every model in the chain fails, say so -- the last
+    /// provider error must not silently stand in for the whole walk.
+    #[tokio::test]
+    async fn exhausted_chain_reports_every_attempt() {
+        let attempts = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let a = Arc::clone(&attempts);
+        let for_chain = Arc::clone(&attempts);
+        let runner = TeamRunnerFactory::new(
+            Arc::new(move |_| make("primary", None, true, &a)),
+            Arc::new(|_| ToolRegistry::new().mount(&[])),
+            std::env::temp_dir(),
+        )
+        .with_chain_providers(move |_| vec![make("hop-1", None, true, &for_chain)]);
+        let activities = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = {
+            let captured = Arc::clone(&activities);
+            Arc::new(move |text: String, _tokens: u64| {
+                captured.lock().unwrap().push(text);
+            }) as TeamActivitySink
+        };
+
+        let outcome = runner.run(spec(), CancellationToken::new(), sink).await;
+
+        assert!(!outcome.success, "{outcome:?}");
+        // Locale-free assertion: the diagnostic list itself is `model: reason`, so
+        // this holds without pinning a language.
+        let logs = activities.lock().unwrap().join("\n");
+        assert!(
+            logs.contains("primary: HTTP 503") && logs.contains("hop-1: HTTP 503"),
+            "every attempt must be listed: {logs}"
+        );
+    }
+
+    /// A-10: with NO chain configured the member keeps the historic single-attempt
+    /// behaviour -- one try, and no fallback notice on a plain failure.
+    #[tokio::test]
+    async fn an_absent_chain_keeps_the_single_attempt_behaviour() {
+        let attempts = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let a = Arc::clone(&attempts);
+        let runner = TeamRunnerFactory::new(
+            Arc::new(move |_| make("primary", None, true, &a)),
+            Arc::new(|_| ToolRegistry::new().mount(&[])),
+            std::env::temp_dir(),
+        );
+        let activities = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = {
+            let captured = Arc::clone(&activities);
+            Arc::new(move |text: String, _tokens: u64| {
+                captured.lock().unwrap().push(text);
+            }) as TeamActivitySink
+        };
+
+        let outcome = runner.run(spec(), CancellationToken::new(), sink).await;
+
+        assert_eq!(models_tried(&attempts), vec!["primary"]);
+        assert!(!outcome.success, "{outcome:?}");
+        // The exhaustion diagnostic carries the `model: reason` list; on an
+        // unconfigured member it must NOT appear -- that would be new behaviour.
+        let logs = activities.lock().unwrap().join("\n");
+        assert!(
+            !logs.contains("primary: HTTP 503"),
+            "an unconfigured member must not report a spent chain: {logs}"
+        );
+    }
+
+    /// FR-5.3: a terminal failure (401) is not a model-availability problem, so the
+    /// chain must NOT be walked even though candidates remain.
+    #[tokio::test]
+    async fn a_terminal_failure_does_not_walk_the_chain() {
+        let attempts = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let a = Arc::clone(&attempts);
+        let for_chain = Arc::clone(&attempts);
+        let runner = TeamRunnerFactory::new(
+            Arc::new(move |_| make("primary", None, false, &a)),
+            Arc::new(|_| ToolRegistry::new().mount(&[])),
+            std::env::temp_dir(),
+        )
+        .with_chain_providers(move |_| {
+            vec![make("hop-1", Some("SHOULD NOT RUN"), true, &for_chain)]
+        });
+
+        let outcome = runner
+            .run(
+                spec(),
+                CancellationToken::new(),
+                Arc::new(|_: String, _: u64| {}),
+            )
+            .await;
+
+        assert_eq!(
+            *attempts.lock().unwrap(),
+            vec!["primary"],
+            "a 401 must not be replayed on another model"
+        );
+        assert!(!outcome.success, "{outcome:?}");
+    }
+
+    /// FR-6.1 / A-5: a member that already produced output must not be replayed --
+    /// the second attempt would duplicate whatever the first one did.
+    #[tokio::test]
+    async fn a_member_that_produced_output_is_never_replayed() {
+        // `produced_output` comes from the kernel Outcome, which the scripted
+        // provider cannot fake mid-failure, so assert the shared predicate that
+        // the walk consults directly.
+        let mut with_text = Outcome {
+            stop: StopReason::ProviderError,
+            text: "half a change".into(),
+            ..Default::default()
+        };
+        with_text.http_status = Some(503);
+        assert!(
+            !rustcode_capabilities::fallback::fallback_eligible(&with_text, false),
+            "producing output must suppress the walk"
+        );
+        let content_free = Outcome {
+            stop: StopReason::ProviderError,
+            http_status: Some(503),
+            ..Default::default()
+        };
+        assert!(rustcode_capabilities::fallback::fallback_eligible(
+            &content_free,
+            false
+        ));
     }
 }

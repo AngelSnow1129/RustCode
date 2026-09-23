@@ -835,6 +835,38 @@ async fn prepare_with_plugin_hooks_reusing_lease(
             .with_credential_shell_policy(cfg.credential_shell_policy)
             .with_credential_shell_bypass(bypass_mode.clone())
             .with_worker_middleware(turn_execution_policy.clone());
+        // FR-6.2 / FR-6.3: members get the same explicit fallback chain `task` uses.
+        // Without this a `team` member is a single-attempt agent, so one flaky
+        // model fails the whole delegation even though the user configured a
+        // backup. Resolved HERE (the layer that owns `Config`) exactly like the
+        // `task` wiring above -- `capabilities` stays free of `rustcode-config`
+        // on its `tools` feature.
+        let runner = match cfg.subagent_config.clone() {
+            Some(registry_config) => {
+                let chain_models = cfg.subagent_model_providers.clone();
+                let (fast_key, capable_key) = crate::subagent_tiers::tier_chain_keys(
+                    &registry_config,
+                    &cfg.model,
+                    &cfg.provider_name,
+                );
+                runner.with_chain_providers(move |difficulty| {
+                    let key = match difficulty {
+                        TeamDifficulty::Hard => &capable_key,
+                        TeamDifficulty::Simple => &fast_key,
+                    };
+                    registry_config
+                        .model_fallback_chain(key)
+                        .into_iter()
+                        .filter_map(|id| {
+                            chain_models
+                                .as_ref()
+                                .and_then(|models| models.get(&id).ok().flatten())
+                        })
+                        .collect()
+                })
+            }
+            None => runner,
+        };
         // Register a child TeamTool (depth=1) in the child registry so sub-agents
         // at depth 1 can hierarchically dispatch to depth 2. The child manager's
         // delegate() enforces the max_depth gate. Because tools_registry shares
