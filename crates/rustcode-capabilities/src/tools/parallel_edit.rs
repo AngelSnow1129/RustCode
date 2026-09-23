@@ -30,13 +30,22 @@ edit is complete, stop with a one-line summary of what you changed.";
 
 const DEFAULT_MAX_FILES: usize = 12;
 
+/// Fallback candidates for a child, in the order they should be tried (FR-6.2).
+/// Named so the field below stays readable (clippy::type_complexity).
+type ChainProviderFn = dyn Fn() -> Vec<Arc<dyn LlmProvider>> + Send + Sync;
+
 /// Edit multiple files in parallel via child agents. Construct with a provider factory
 /// (a fresh provider per child -- a session consumes its provider) and a tools factory
 /// (a fresh `MountedTools` per child -- it is not `Clone`); typically mount the L1
 /// `read_file`/`edit_file`/`write_file` tools for the children.
 pub struct ParallelEditTool {
-    make_provider: Box<dyn Fn() -> Arc<dyn LlmProvider> + Send + Sync>,
-    make_tools: Box<dyn Fn() -> MountedTools + Send + Sync>,
+    // `Arc` rather than `Box`: each spawned per-file task needs its own handle, and
+    // a fallback hop consults the factories again inside that task.
+    make_provider: Arc<dyn Fn() -> Arc<dyn LlmProvider> + Send + Sync>,
+    make_tools: Arc<dyn Fn() -> MountedTools + Send + Sync>,
+    /// Explicit fallback chain (FR-6.2), resolved by the layer that owns
+    /// `Config`. `None` = no chain = one attempt per file, exactly as before.
+    make_chain_providers: Option<Arc<ChainProviderFn>>,
     persona: String,
     max_files: usize,
     max_rounds: Option<u32>,
@@ -49,13 +58,28 @@ impl ParallelEditTool {
         make_tools: impl Fn() -> MountedTools + Send + Sync + 'static,
     ) -> Self {
         Self {
-            make_provider: Box::new(make_provider),
-            make_tools: Box::new(make_tools),
+            make_provider: Arc::new(make_provider),
+            make_tools: Arc::new(make_tools),
+            make_chain_providers: None,
             persona: DEFAULT_PERSONA.to_string(),
             max_files: DEFAULT_MAX_FILES,
             max_rounds: Some(super::DEFAULT_CHILD_MAX_ROUNDS),
             tool_loop_policy: Some(ToolLoopPolicy::default()),
         }
+    }
+
+    /// Wire the explicit fallback chain for the per-file child agents (FR-6.2).
+    ///
+    /// A file whose child failed BEFORE producing anything is retried on the next
+    /// candidate instead of being reported as a hard failure -- the same
+    /// content-free rule the main turn and `task` follow (FR-6.1). Leaving this
+    /// unset keeps the historic single-attempt behaviour.
+    pub fn with_chain_providers(
+        mut self,
+        make_chain: impl Fn() -> Vec<Arc<dyn LlmProvider>> + Send + Sync + 'static,
+    ) -> Self {
+        self.make_chain_providers = Some(Arc::new(make_chain));
+        self
     }
     /// Override the per-child system prompt.
     pub fn with_persona(mut self, persona: impl Into<String>) -> Self {
@@ -217,32 +241,99 @@ impl Tool for ParallelEditTool {
             }
         });
         let mut handles = Vec::with_capacity(a.files.len());
+        // Shared handles for the spawned per-file tasks: the tools factory and the
+        // chain resolver are consulted again inside the task, once per attempt.
+        let make_tools = Arc::clone(&self.make_tools);
+        let chain_providers = self.make_chain_providers.clone();
+        let persona = self.persona.clone();
         for f in &a.files {
             let task = format!(
                 "File to edit: {}\n\nInstruction:\n{}{}\n\nEdit ONLY this file using your tools, then stop.",
                 f.path, f.instruction, contract_block
             );
-            let mut builder = Agent::builder()
-                .provider((self.make_provider)())
-                .tools((self.make_tools)())
-                .persona(self.persona.clone())
-                .working_dir(ctx.working_dir.clone())
-                .cancel_token(ctx.cancel.child_token());
-            if let Some(policy) = self.tool_loop_policy {
-                builder = builder.tool_loop_policy(policy);
+            // Candidates in priority order: this file's own provider first, then the
+            // explicit chain (FR-6.2), de-duped by provider IDENTITY -- two providers
+            // may legitimately serve the same raw model name.
+            let primary = (self.make_provider)();
+            let mut candidates: Vec<Arc<dyn LlmProvider>> = vec![Arc::clone(&primary)];
+            if let Some(chain) = &chain_providers {
+                for candidate in chain() {
+                    if !Arc::ptr_eq(&candidate, &primary)
+                        && !candidates.iter().any(|seen| Arc::ptr_eq(seen, &candidate))
+                    {
+                        candidates.push(candidate);
+                    }
+                }
             }
-            if let Some(max_rounds) = self.max_rounds {
-                builder = builder.max_rounds(max_rounds);
-            }
-            let child = builder.build();
             let path = f.path.clone();
+            let persona = persona.clone();
+            let make_tools = Arc::clone(&make_tools);
+            let tool_loop_policy = self.tool_loop_policy;
+            let max_rounds = self.max_rounds;
             // Cheap clone (Arc inside); moved into the child task so it can report the
             // moment THIS child settles -- concurrent, so lines interleave by real
             // completion order, giving live per-file progress instead of a black box.
             let progress = ctx.progress.clone();
+            let cancel = ctx.cancel.child_token();
+            let working_dir = ctx.working_dir.clone();
             handles.push(tokio::spawn(async move {
                 progress.emit(format!("↻ {path}"));
-                let outcome = child.run_to_completion(task, AutoRespond::AllowAll).await;
+                let total = candidates.len();
+                let mut outcome = rustcode_kernel::agent::Outcome::default();
+                for (index, provider) in candidates.iter().enumerate() {
+                    let mut builder = Agent::builder()
+                        .provider(Arc::clone(provider))
+                        .tools((make_tools)())
+                        .persona(persona.clone())
+                        .working_dir(working_dir.clone())
+                        .cancel_token(cancel.clone());
+                    if let Some(policy) = tool_loop_policy {
+                        builder = builder.tool_loop_policy(policy);
+                    }
+                    if let Some(max_rounds) = max_rounds {
+                        builder = builder.max_rounds(max_rounds);
+                    }
+                    outcome = builder
+                        .build()
+                        .run_to_completion(task.clone(), AutoRespond::AllowAll)
+                        .await;
+                    if outcome.stop == StopReason::Stopped {
+                        break;
+                    }
+                    // Same content-free rule as the main turn and `task` (FR-6.1): a
+                    // child that already edited the file must NOT be replayed on the
+                    // next model, or the edit lands twice. A terminal failure (401)
+                    // is not a model problem either, so the walk stops there too.
+                    if !crate::fallback::fallback_eligible(&outcome, cancel.is_cancelled()) {
+                        break;
+                    }
+                    if index + 1 == total {
+                        break;
+                    }
+                    let from = candidates[index].model_name().to_string();
+                    let to = candidates[index + 1].model_name().to_string();
+                    let reason = outcome
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| format!("{:?}", outcome.stop));
+                    progress.emit({
+                        #[cfg(feature = "provider")]
+                        {
+                            rustcode_config::i18n::t(
+                                rustcode_config::i18n::Msg::ModelFallbackStarted {
+                                    from: &from,
+                                    to: &to,
+                                    reason: &reason,
+                                },
+                            )
+                            .into_owned()
+                        }
+                        #[cfg(not(feature = "provider"))]
+                        {
+                            format!("`{from}` failed ({reason}); retrying on `{to}`")
+                        }
+                    });
+                }
                 let icon = if outcome.stop == StopReason::Stopped {
                     "[+]"
                 } else {
@@ -640,5 +731,157 @@ mod tests {
             tool(Some("x")).risk("{}"),
             rustcode_kernel::tool::RiskLevel::Risky
         );
+    }
+
+    /// Scripted provider that records which model was asked and fails transiently
+    /// (retryable 503) when it has no reply -- the shape a fallback hop can survive.
+    struct ChainProvider {
+        model: &'static str,
+        reply: Option<&'static str>,
+        attempted: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for ChainProvider {
+        fn model_name(&self) -> &str {
+            self.model
+        }
+
+        async fn chat_stream(
+            &self,
+            _m: &[Message],
+            _t: &[ToolDef],
+            _o: &ChatOptions,
+        ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
+            self.attempted.lock().unwrap().push(self.model.to_string());
+            if let Some(text) = self.reply {
+                return Ok(stream::iter(vec![
+                    StreamEvent::TextDelta(text.to_string()),
+                    StreamEvent::Done { truncated: false },
+                ])
+                .boxed());
+            }
+            Err(ProviderError {
+                retryable: true,
+                http_status: Some(503),
+                message: "down".into(),
+                ..Default::default()
+            })
+        }
+    }
+
+    /// Models attempted, in first-appearance order: the kernel retries a retryable
+    /// failure inside one child, so the raw log repeats a model before the walk
+    /// moves on. The contract is the ORDER, not the call count.
+    fn models_tried(attempted: &Arc<std::sync::Mutex<Vec<String>>>) -> Vec<String> {
+        let mut seen: Vec<String> = Vec::new();
+        for model in attempted.lock().unwrap().iter() {
+            if seen.last() != Some(model) {
+                seen.push(model.clone());
+            }
+        }
+        seen
+    }
+
+    fn chain_tool(
+        attempted: Arc<std::sync::Mutex<Vec<String>>>,
+        chain: Vec<(&'static str, Option<&'static str>)>,
+    ) -> ParallelEditTool {
+        let primary = Arc::clone(&attempted);
+        ParallelEditTool::new(
+            move || {
+                Arc::new(ChainProvider {
+                    model: "primary",
+                    reply: None,
+                    attempted: Arc::clone(&primary),
+                }) as Arc<dyn LlmProvider>
+            },
+            || ToolRegistry::new().mount(&[]),
+        )
+        .with_chain_providers(move || {
+            chain
+                .iter()
+                .map(|(model, reply)| {
+                    Arc::new(ChainProvider {
+                        model,
+                        reply: *reply,
+                        attempted: Arc::clone(&attempted),
+                    }) as Arc<dyn LlmProvider>
+                })
+                .collect()
+        })
+    }
+
+    /// FR-6.2: a file whose child failed BEFORE editing is retried on the next chain
+    /// candidate, so one flaky model no longer fails the whole batch. The ORDER of
+    /// attempted models is the contract -- a final success could come from anywhere.
+    #[tokio::test]
+    async fn a_failed_child_walks_the_chain_in_order() {
+        let attempted = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let tool = chain_tool(
+            Arc::clone(&attempted),
+            vec![("hop-1", None), ("hop-2", Some("recovered"))],
+        );
+        let r = tool
+            .execute(
+                r#"{"files":[{"path":"a.rs","instruction":"x"},{"path":"b.rs","instruction":"y"}]}"#,
+                &ctx(),
+            )
+            .await;
+        assert_eq!(
+            models_tried(&attempted),
+            vec!["primary", "hop-1", "hop-2"],
+            "the chain must be walked in order"
+        );
+        assert!(!r.is_error, "{}", r.content);
+        assert!(r.content.contains("2 ok, 0 fail (of 2)"), "{}", r.content);
+    }
+
+    /// A-10: with no chain configured the child gets exactly one model, so an
+    /// unconfigured call behaves as it did before fallback existed.
+    #[tokio::test]
+    async fn an_absent_chain_attempts_only_the_primary() {
+        let attempted = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let primary = Arc::clone(&attempted);
+        let tool = ParallelEditTool::new(
+            move || {
+                Arc::new(ChainProvider {
+                    model: "primary",
+                    reply: None,
+                    attempted: Arc::clone(&primary),
+                }) as Arc<dyn LlmProvider>
+            },
+            || ToolRegistry::new().mount(&[]),
+        );
+        let r = tool
+            .execute(
+                r#"{"files":[{"path":"a.rs","instruction":"x"},{"path":"b.rs","instruction":"y"}]}"#,
+                &ctx(),
+            )
+            .await;
+        assert_eq!(models_tried(&attempted), vec!["primary"]);
+        assert!(r.is_error, "{}", r.content);
+    }
+
+    /// FR-6.1 / A-5: a child that already produced output is NOT replayed on the
+    /// next model -- its edit would land twice. Asserted on the shared predicate the
+    /// walk consults, since a mid-failure text delta cannot be scripted here.
+    #[test]
+    fn a_child_that_produced_output_is_never_replayed() {
+        let mut with_text = rustcode_kernel::agent::Outcome {
+            stop: StopReason::ProviderError,
+            text: "edited the file".into(),
+            http_status: Some(503),
+            ..Default::default()
+        };
+        with_text.tool_results.push(Default::default());
+        assert!(!crate::fallback::fallback_eligible(&with_text, false));
+
+        let content_free = rustcode_kernel::agent::Outcome {
+            stop: StopReason::ProviderError,
+            http_status: Some(503),
+            ..Default::default()
+        };
+        assert!(crate::fallback::fallback_eligible(&content_free, false));
     }
 }
