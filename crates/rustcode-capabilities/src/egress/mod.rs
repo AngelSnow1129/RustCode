@@ -35,6 +35,10 @@ pub mod client;
 pub mod config;
 pub mod error;
 
+/// Blocking flavour of [`build_http_client`] for one-shot flows off the async
+/// runtime (TUI model discovery, OAuth login). Same spec, same policy.
+#[cfg(feature = "egress-blocking")]
+pub use client::build_blocking_http_client;
 pub use client::{
     browser_spec, build_http_client, HttpClientSpec, BROWSER_UA, DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_REQUEST_TIMEOUT, DEFAULT_USER_AGENT, POOL_IDLE_TIMEOUT,

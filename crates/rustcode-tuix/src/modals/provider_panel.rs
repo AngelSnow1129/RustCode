@@ -1300,10 +1300,11 @@ impl ProviderPanel {
     ///
     /// The transport settings come from the ACCOUNT, mirroring the daemon's
     /// discovery handler: a self-signed gateway, a corporate proxy or a UA
-    /// allowlist that works from the WebUI must work here too. The shared egress
-    /// factory is async-only (it drives the non-blocking client), so this
-    /// blocking path applies the same policy by hand -- the same reason
-    /// `capabilities`' MCP-OAuth flow builds its own blocking client.
+    /// allowlist that works from the WebUI must work here too. The client comes
+    /// from the SHARED egress factory's blocking flavour
+    /// (`egress::build_blocking_http_client`), so this path gets the same trust
+    /// roots, proxy policy and timeout discipline as every other egress call
+    /// site instead of a hand-rolled builder that drifted from them.
     #[allow(clippy::too_many_arguments)]
     fn discover_models_sync(
         base_url: &str,
@@ -1313,24 +1314,22 @@ impl ProviderPanel {
         proxy: Option<&str>,
         skip_tls_verify: bool,
     ) -> Result<Vec<DiscoveredModel>, String> {
-        // Build HTTP client (blocking)
-        let mut builder =
-            reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(30));
-        if let Some(agent) = user_agent.map(str::trim).filter(|a| !a.is_empty()) {
-            builder = builder.user_agent(agent);
-        }
-        if let Some(url) = proxy.map(str::trim).filter(|p| !p.is_empty()) {
-            builder = builder.proxy(
-                reqwest::Proxy::all(url).map_err(|e| format!("invalid proxy `{url}`: {e}"))?,
-            );
-        }
-        // Diagnostic escape hatch, only for an account that asked for it.
-        if skip_tls_verify {
-            builder = builder.danger_accept_invalid_certs(true);
-        }
-        let client = builder
-            .build()
-            .map_err(|e| format!("HTTP client error: {e}"))?;
+        // One-shot discovery budget (historic 30s) on top of the shared policy.
+        let spec = rustcode_capabilities::egress::HttpClientSpec {
+            user_agent: user_agent
+                .map(str::trim)
+                .filter(|a| !a.is_empty())
+                .map(str::to_string),
+            proxy: proxy
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .map(str::to_string),
+            skip_tls_verify,
+            request_timeout: Some(std::time::Duration::from_secs(30)),
+            ..rustcode_capabilities::egress::HttpClientSpec::default()
+        };
+        let client = rustcode_capabilities::egress::build_blocking_http_client(&spec)
+            .map_err(|e| format!("HTTP client error: {}", e.detail()))?;
 
         // Construct discovery URL
         let suffix = if provider_type == "ollama" {
@@ -3150,8 +3149,9 @@ mod tests {
         );
     }
 
-    /// Without a UA on the account nothing custom is injected -- reqwest's own
-    /// default applies, which is what every other call site relies on.
+    /// Without a UA on the account nothing custom is injected -- the shared egress
+    /// factory's `DEFAULT_USER_AGENT` applies, the same one every other egress call
+    /// site gets.
     #[test]
     fn discovery_omits_a_user_agent_the_account_never_set() {
         let (base_url, server) = serve_once(

@@ -75,7 +75,7 @@ pub(crate) fn apply_async_proxy_policy(builder: reqwest::ClientBuilder) -> reqwe
 
 /// Apply the process proxy policy to a blocking reqwest client builder
 /// (the one-shot MCP OAuth / OpenRouter PKCE flow), then cap TLS as above.
-#[cfg(any(feature = "mcp", feature = "openrouter"))]
+#[cfg(any(feature = "mcp", feature = "openrouter", feature = "egress-blocking"))]
 pub(crate) fn apply_blocking_proxy_policy(
     builder: reqwest::blocking::ClientBuilder,
 ) -> reqwest::blocking::ClientBuilder {

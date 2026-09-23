@@ -214,6 +214,97 @@ pub fn build_pinned_http_client(
     build_with(spec, |b| b.resolve_to_addrs(host, addrs))
 }
 
+/// Blocking flavour of [`build_http_client`] for one-shot flows that run OFF the
+/// async runtime (TUI model discovery, OAuth login/refresh).
+///
+/// Applies EXACTLY the same spec mapping -- proxy policy, timeouts, UA, TLS
+/// ceiling, trust-root layering (#514), redirect policy, `skip_tls_verify`, and
+/// the build-once-then-webpki-backstop retry. Sharing the spec and the root
+/// collector is the point: a second hand-rolled blocking builder is precisely the
+/// divergence this module exists to kill. Gated behind the `egress-blocking`
+/// feature so a lean async-only build skips `reqwest/blocking`.
+#[cfg(feature = "egress-blocking")]
+pub fn build_blocking_http_client(
+    spec: &HttpClientSpec,
+) -> Result<reqwest::blocking::Client, EgressError> {
+    match blocking_spec_builder(spec, spec.trust_os_roots).and_then(build_blocking) {
+        Ok(client) => Ok(client),
+        Err(first) if spec.trust_os_roots => {
+            // Same #514 backstop as the async path: rather than a total outage,
+            // retry ONCE on the infallible webpki base only.
+            tracing::warn!(
+                "blocking http client build failed with the OS/SSL_CERT_FILE trust roots ({}); \
+                 retrying with the webpki base only -- a custom/corporate root may be ignored (issue #514)",
+                first
+            );
+            blocking_spec_builder(spec, false).and_then(build_blocking)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// The blocking mirror of [`spec_builder`]: assemble the blocking builder for
+/// `spec` with the same field-for-field policy. `trust_os_roots = false` is the
+/// #514 backstop path (base roots only).
+#[cfg(feature = "egress-blocking")]
+fn blocking_spec_builder(
+    spec: &HttpClientSpec,
+    trust_os_roots: bool,
+) -> Result<reqwest::blocking::ClientBuilder, EgressError> {
+    let mut builder = match spec.proxy.as_deref().filter(|p| !p.is_empty()) {
+        // An explicit proxy overrides the process-wide env policy.
+        Some(proxy_url) => {
+            let p = reqwest::Proxy::all(proxy_url).map_err(|e| {
+                EgressError::Config(format!("invalid proxy url `{proxy_url}`: {e}"))
+            })?;
+            reqwest::blocking::Client::builder().proxy(p)
+        }
+        None => crate::proxy::apply_blocking_proxy_policy(reqwest::blocking::Client::builder()),
+    }
+    .connect_timeout(spec.connect_timeout)
+    .pool_idle_timeout(spec.pool_idle_timeout)
+    .user_agent(spec.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT));
+
+    if let Some(timeout) = spec.request_timeout {
+        builder = builder.timeout(timeout);
+    }
+    if let Some(version) = spec.max_tls_version {
+        builder = builder.max_tls_version(version);
+    }
+    // Same Windows carve-out as the async side: the native-tls (SChannel) backend
+    // trusts the Windows store natively, and re-feeding certs through rustls risks
+    // rejecting one SChannel would accept. A runtime `cfg!` keeps this referenced.
+    if trust_os_roots && !cfg!(target_os = "windows") {
+        for cert in collect_extra_root_certs() {
+            builder = builder.add_root_certificate(cert);
+        }
+    }
+    if spec.skip_tls_verify {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+    if !spec.follow_redirects {
+        builder = builder.redirect(reqwest::redirect::Policy::none());
+    }
+    Ok(builder)
+}
+
+/// [`build`] for the blocking builder: walk the source chain so the error is not
+/// a bare "builder error".
+#[cfg(feature = "egress-blocking")]
+fn build_blocking(
+    builder: reqwest::blocking::ClientBuilder,
+) -> Result<reqwest::blocking::Client, EgressError> {
+    builder.build().map_err(|e| {
+        let mut msg = e.to_string();
+        let mut source = e.source();
+        while let Some(s) = source {
+            msg.push_str(&format!(": {s}"));
+            source = s.source();
+        }
+        EgressError::Build(msg)
+    })
+}
+
 /// Shared build loop: assemble the builder for `spec`, let `decorate` apply the
 /// caller's extras, then build -- retrying ONCE on the infallible webpki base if the
 /// OS-rooted build fails.
@@ -311,7 +402,21 @@ fn build(builder: reqwest::ClientBuilder) -> Result<reqwest::Client, EgressError
 /// certs, an unreadable/malformed `SSL_CERT_FILE`, or native-store load errors are
 /// warned and skipped -- NEVER fatal (the webpki base guarantees a working client).
 /// Codex-style graceful `load_native_certs`. See issue #514.
-fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+fn add_trusted_roots(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    let certs = collect_extra_root_certs();
+    certs
+        .into_iter()
+        .fold(builder, |b, cert| b.add_root_certificate(cert))
+}
+
+/// The extra TLS root certs to layer on top of the webpki base: the OS native
+/// store (each cert pre-filtered through rustls so one bad root cannot abort the
+/// whole client build) plus `SSL_CERT_FILE`. SHARED by the async and blocking
+/// builders -- both take the same `reqwest::Certificate` but expose different
+/// builder types, so the gathering must live here rather than in either applier.
+/// See issue #514.
+fn collect_extra_root_certs() -> Vec<reqwest::Certificate> {
+    let mut extra = Vec::new();
     // 1) OS native roots (corporate MITM CAs live here).
     let native = rustls_native_certs::load_native_certs();
     if !native.errors.is_empty() {
@@ -333,7 +438,7 @@ fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuil
             continue;
         }
         if let Ok(cert) = reqwest::Certificate::from_der(der.as_ref()) {
-            builder = builder.add_root_certificate(cert);
+            extra.push(cert);
         }
     }
     if rejected > 0 {
@@ -350,18 +455,16 @@ fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuil
     //    on the webpki base (never a panic; the file is then ignored with a warning
     //    rather than killing the client). See #514.
     let Some(path) = std::env::var_os("SSL_CERT_FILE").filter(|p| !p.is_empty()) else {
-        return builder;
+        return extra;
     };
     let Ok(pem) = std::fs::read(&path) else {
         tracing::warn!("SSL_CERT_FILE={path:?} could not be read; ignoring (issue #514)");
-        return builder;
+        return extra;
     };
     match reqwest::Certificate::from_pem_bundle(&pem) {
         Ok(certs) => {
             let count = certs.len();
-            for c in certs {
-                builder = builder.add_root_certificate(c);
-            }
+            extra.extend(certs);
             tracing::info!("Loaded {count} TLS root(s) from SSL_CERT_FILE={path:?} (issue #514)");
         }
         Err(e) => {
@@ -370,7 +473,7 @@ fn add_trusted_roots(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuil
             );
         }
     }
-    builder
+    extra
 }
 
 #[cfg(test)]
@@ -445,6 +548,57 @@ mod tests {
         assert!(spec.follow_redirects, "redirects are followed by default");
         assert!(!spec.skip_tls_verify, "verification stays ON by default");
         assert_eq!(spec.proxy, None, "unset ⇒ the process proxy policy applies");
+    }
+
+    // ---- blocking flavour: same spec, same policy (feature-gated) ----
+
+    #[cfg(feature = "egress-blocking")]
+    #[test]
+    #[serial(ssl_cert_file_env)]
+    fn build_blocking_http_client_builds_with_webpki_base_no_ssl_cert_file() {
+        std::env::remove_var("SSL_CERT_FILE");
+        assert!(
+            build_blocking_http_client(&HttpClientSpec::default()).is_ok(),
+            "the default spec must build a blocking client on the webpki base roots"
+        );
+    }
+
+    #[cfg(feature = "egress-blocking")]
+    #[test]
+    #[serial(ssl_cert_file_env)]
+    fn build_blocking_http_client_skip_tls_verify_still_builds() {
+        std::env::remove_var("SSL_CERT_FILE");
+        let spec = HttpClientSpec {
+            skip_tls_verify: true,
+            ..HttpClientSpec::default()
+        };
+        assert!(
+            build_blocking_http_client(&spec).is_ok(),
+            "skip_tls_verify must still build the blocking client"
+        );
+    }
+
+    // The blocking path shares collect_extra_root_certs() with the async one, so a
+    // poisoned SSL_CERT_FILE must hit the same ONE-retry webpki backstop instead of
+    // killing one-shot flows (TUI discovery, OAuth login) at startup.
+    #[cfg(feature = "egress-blocking")]
+    #[test]
+    #[serial(ssl_cert_file_env)]
+    fn build_blocking_http_client_recovers_from_malformed_ssl_cert_file_via_backstop() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let cert_path = tmp.path().join("roots.pem");
+        std::fs::write(
+            &cert_path,
+            "-----BEGIN CERTIFICATE-----\nZm9v\n-----END CERTIFICATE-----\n",
+        )
+        .expect("write poisoned bundle");
+        std::env::set_var("SSL_CERT_FILE", &cert_path);
+        let built = build_blocking_http_client(&HttpClientSpec::default());
+        std::env::remove_var("SSL_CERT_FILE");
+        assert!(
+            built.is_ok(),
+            "a malformed SSL_CERT_FILE must fall back to the webpki base, not abort the blocking client"
+        );
     }
 
     #[test]
