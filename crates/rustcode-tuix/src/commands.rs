@@ -838,7 +838,6 @@ mod tests {
     fn openrouter_command_is_registered() {
         let reg = CommandRegistry::builtin();
         let cmd = reg.find("openrouter").expect("/openrouter registered");
-        assert!(!cmd.needs_args || cmd.needs_args); // 存在即可
         assert!(!cmd.acp, "openrouter 走 TUI-only,不进 ACP");
     }
 
