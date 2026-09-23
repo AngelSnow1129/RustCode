@@ -2004,6 +2004,16 @@ impl Config {
                 ));
             }
         }
+        // A fallback chain is a hand-written link between models: a typo'd or
+        // circular target silently leaves the user with LESS redundancy than they
+        // believe they have, which is exactly the failure they configured a chain
+        // to survive. Surface the diagnostics on the same startup channel as the
+        // provider-load warnings above (`Msg::CliConfigLoadWarnings`) rather than
+        // letting them expire inside the validator.
+        //
+        // These arrive already localized (the validator renders `CfgDiagFallback*`)
+        // because they are user-facing copy, unlike the raw parser errors above.
+        warnings.extend(config.validate_model_fallback_chains());
         Ok((config, warnings))
     }
 
@@ -4362,6 +4372,132 @@ context_window = 131072
                 .lines()
                 .any(|line| line.trim_start().starts_with("fallback")),
             "an empty chain must not be written to disk:\n{rendered}"
+        );
+    }
+
+    /// A-9: a broken chain is a user-visible startup diagnostic, not a fact that
+    /// expires inside the validator. FR-5 asks for an explicit report because a
+    /// chain that quietly lost an entry is the case where the user believes they
+    /// have redundancy and does not.
+    #[test]
+    fn fallback_chain_diagnostics_reach_the_startup_warning_channel() {
+        use crate::i18n::{t, Msg};
+        // Locale-agnostic: the expectation is recomputed with the same `t()` the
+        // loader used. The lock only keeps the two calls on one locale.
+        let _locale = crate::i18n::test_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+default_provider = ""
+[provider_accounts.a]
+provider = "aliyun"
+api_key = "sk-secret"
+
+[models."a/primary"]
+account = "a"
+model = "primary"
+context_window = 131072
+fallback = ["a/typo"]
+"#,
+        )
+        .unwrap();
+
+        let (_config, warnings) = Config::load_with_diagnostics(&path).unwrap();
+        let expected = t(Msg::CfgDiagFallbackUnknownTarget {
+            id: "a/primary",
+            target: "a/typo",
+        });
+        assert!(
+            warnings.iter().any(|w| w.contains(expected.as_ref())),
+            "a dangling chain target must be reported at startup: {warnings:?}"
+        );
+    }
+
+    /// A-9 converse: a well-formed chain stays quiet, so the channel does not cry
+    /// wolf on the ordinary configured case.
+    #[test]
+    fn a_valid_fallback_chain_adds_no_startup_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+default_provider = ""
+[provider_accounts.a]
+provider = "aliyun"
+api_key = "sk-secret"
+
+[models."a/primary"]
+account = "a"
+model = "primary"
+context_window = 131072
+fallback = ["a/secondary"]
+
+[models."a/secondary"]
+account = "a"
+model = "secondary"
+context_window = 131072
+"#,
+        )
+        .unwrap();
+
+        let (_config, warnings) = Config::load_with_diagnostics(&path).unwrap();
+        assert!(
+            warnings.is_empty(),
+            "a valid chain must not warn: {warnings:?}"
+        );
+    }
+
+    /// A-9: the chain check is ADDITIVE. The pre-existing provider-load warnings
+    /// keep their slot -- no early return, no replacement.
+    #[test]
+    fn chain_warnings_are_appended_to_provider_load_warnings() {
+        use crate::i18n::{t, Msg};
+        let _locale = crate::i18n::test_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+default_provider = "RustCode"
+
+[providers.RustCode]
+type = "openai"
+base_url = "https://example.com/v1"
+api_key = "valid"
+model = "glm-5.2"
+
+[providers.MyDeepSeek]
+base_url = "https://example.com/v1"
+api_key = "also-secret"
+model = "m"
+capable_model = 1
+
+[models."RustCode/primary"]
+account = "RustCode"
+model = "primary"
+context_window = 131072
+fallback = ["RustCode/typo"]
+"#,
+        )
+        .unwrap();
+
+        let (_config, warnings) = Config::load_with_diagnostics(&path).unwrap();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[providers.MyDeepSeek]")),
+            "the provider-load warning must survive: {warnings:?}"
+        );
+        let expected = t(Msg::CfgDiagFallbackUnknownTarget {
+            id: "RustCode/primary",
+            target: "RustCode/typo",
+        });
+        assert!(
+            warnings.iter().any(|w| w.contains(expected.as_ref())),
+            "the chain warning must be appended alongside it: {warnings:?}"
         );
     }
 }

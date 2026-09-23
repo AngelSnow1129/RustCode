@@ -218,6 +218,8 @@ default = ["glm-4-plus"]
 7. **A-7 回合连续性**：回退后断言会话 id、工作目录、既有会话上下文不变；用户问题无需重发。
 8. **A-8 生成隔离**：回退后旧 generation 的迟到事件被丢弃，不污染新 runtime。
 9. **A-9 解析 fail-closed**：链含不存在 id / 自引用 / 超长链时，配置解析显式报错。
+   **实现口径**：诊断经既有 CLI 启动警告通道（`Msg::CliConfigLoadWarnings`）呈现给用户，
+   见 §10.5 的 A-9 行。
 10. **A-10 默认关闭**：未配 `fallback` 时行为与改动前**逐字一致**（回归基线）。
 11. **A-11 driver 面**：headless `--json` 发机器 token + 结构化字段且**不含**中文散文；
     TUI/daemon/WebUI 各自能渲染回退通知。
@@ -373,20 +375,27 @@ default = ["glm-4-plus"]
 | **A-12 子代理显式链优先** | `explicit_chain_is_tried_before_the_implicit_host_fallback` | 断言**尝试顺序**为 `capable → chain-hop-1 → chain-hop-2`：显式链优先，且链还能应答时**不得**触碰隐式宿主兜底 |
 | **A-12 补：tier 链键** | `chain_keys_fall_back_to_the_host_selection_when_routing_is_off`、`chain_keys_mirror_the_tier_ids_when_routing_is_on`、`model_less_non_hard_subtask_still_fails_over_along_its_tier_chain` | 无路由时链键塌陷到**宿主 selection id**（而非无键）；有路由时用 tier id；模型缺失且非 `Explore && Hard` 的子任务仍能靠链恢复（测试**不装宿主 provider**，故证明是链在起作用） |
 
+| **A-9 诊断通道** | `fallback_chain_diagnostics_reach_the_startup_warning_channel`、`a_valid_fallback_chain_adds_no_startup_warning`、`chain_warnings_are_appended_to_provider_load_warnings` | 坏链的 `CfgDiagFallback*` 诊断确实经 `load_with_diagnostics` 的 `Vec<String>` 抵达启动警告通道（CLI 后续以 `Msg::CliConfigLoadWarnings` 打印）；合法链零新增警告；既有 `[providers.*]` 隔离警告不被顶替（**追加**语义） |
+
 仍未覆盖（诚实边界）：
 
-- **A-9 解析 fail-closed 的写盘路径 —— 实测为「未接通」**：`validate_model_fallback_chains` 与
-  既有 `validate_provider_accounts_and_models` 都**没有任何生产调用点**（全仓 grep 只命中定义、
-  文档注释与 `#[cfg(test)]`）；`Config::save` → `ConfigStore::replace` → `persist_locked` 全链路
-  不调校验。
-  **注意区分**：`load_with_diagnostics` **确实**有一条可用的诊断通道——CLI 启动时经
-  `Msg::CliConfigLoadWarnings` 打印（`crates/rustcode-cli/src/main.rs` 的配置加载分支），
-  但那条通道目前只装两类内容：`[providers.*]` 段隔离信息，以及 `default_provider` 指向被隔离
-  provider 时的回退提示（`config/mod.rs` 的 `parse_disk_content_tolerant` 末尾）。
-  **回退链校验不在其中**，故 FR-5 的「显式报错、不落盘」当前**只在校验函数内部成立**，
-  没有任何 driver 会把链的问题呈现给用户。
-  这是与既有 provider 校验同形的**存量架构缺口**，非本轮引入；补法是复用上述既有通道
-  （在 tolerant 解析里追加链校验结果），属独立后续项，不在本需求范围。
+- **A-9 诊断通道已接通（本轮补）**：`validate_model_fallback_chains` 此前**没有生产调用点**
+  （全仓 grep 只命中定义、文档注释与 `#[cfg(test)]`），回退链的问题因此无法呈现给用户——
+  「显式报错」只在校验函数内部成立。现已在 `Config::parse_disk_content_tolerant` 的收尾处
+  追加 `warnings.extend(config.validate_model_fallback_chains())`，复用既有
+  `Msg::CliConfigLoadWarnings` 通道（`crates/rustcode-cli/src/main.rs` 的配置加载分支打印），
+  与 `[providers.*]` 段隔离信息、`default_provider` 回退提示同源。
+  - 三个测试锁定：`fallback_chain_diagnostics_reach_the_startup_warning_channel`（悬空目标
+    确实出现在启动警告里）、`a_valid_fallback_chain_adds_no_startup_warning`（合法链零新增
+    警告，通道不误报）、`chain_warnings_are_appended_to_provider_load_warnings`（**追加**语义
+    ——既有 provider 警告不被顶替、无提前返回）。
+  - **仍未覆盖（诚实边界）**：这不等于「不落盘」。`Config::save` → `ConfigStore::replace` →
+    `persist_locked` 全链路仍然**不调**校验，故用户可以把一条坏链写进磁盘；本轮的落点是
+    「写盘后重新加载时**显式报出来**」，而非「写入时拒绝」。`validate_provider_accounts_and_models`
+    同样是零生产调用点——这是与既有 provider 校验同形的**存量架构缺口**，非本轮引入，
+    也非本需求范围。
+  - `load_with_diagnostics` 的通道本身**不是**缺陷（它确实可用且已被 CLI 消费）；本轮补的是
+    「链校验结果没进这条通道」。
 - **子代理链的三个已知缺口**（FR-6.2 已在 `task` 落地，但覆盖面有界）：
   1. **`team` 成员完全无回退** —— `rustcode-coding/src/team/runner.rs` 自建 agent 后直接
      `run_to_completion`，既无显式链也无隐式宿主回退（`grep fallback team/` = 0 命中）。
