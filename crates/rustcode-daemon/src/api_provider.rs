@@ -528,6 +528,8 @@ fn insert_account_models(
                 thinking_enabled: None,
                 thinking_budget: None,
                 retry_max_attempts: None,
+                // Discovery seeds no chain; the user adds fallback targets.
+                fallback: Vec::new(),
             },
         );
         created.push(selection_id);

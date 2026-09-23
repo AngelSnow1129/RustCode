@@ -2406,6 +2406,32 @@ pub enum Msg<'a> {
     CfgDiagModelCollision {
         id: &'a str,
     },
+    /// Validation: model fallback chain names a selection id that does not
+    /// exist in this config. Fail-closed -- a typo must not silently retarget
+    /// the chain at nothing.
+    CfgDiagFallbackUnknownTarget {
+        id: &'a str,
+        target: &'a str,
+    },
+    /// Validation: model fallback chain contains the model's own id.
+    CfgDiagFallbackSelfReference {
+        id: &'a str,
+    },
+    /// Validation: model fallback chains form a cycle (`a -> b -> a`).
+    CfgDiagFallbackCycle {
+        id: &'a str,
+    },
+    /// Validation: model fallback chain exceeds the allowed length.
+    CfgDiagFallbackChainTooLong {
+        id: &'a str,
+        len: usize,
+        max: usize,
+    },
+    /// Validation: model fallback chain lists the same target twice; the
+    /// duplicate is ignored at runtime.
+    CfgDiagFallbackDuplicates {
+        id: &'a str,
+    },
 
     // ── OnboardingWizard (multi-step first-run + `/welcome`). Spec:
     //    docs/superpowers/specs/2026-05-11-welcome-wizard-redesign-design.md

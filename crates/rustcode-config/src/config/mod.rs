@@ -12,7 +12,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::proxy::ProxyConfig;
-use provider::{ModelProfileConfig, ProviderAccountConfig, ProviderConfig, ResolvedModelConfig};
+use provider::{
+    ModelProfileConfig, ProviderAccountConfig, ProviderConfig, ResolvedModelConfig,
+    MAX_MODEL_FALLBACK_CHAIN,
+};
 
 // DEFAULT_SYSTEM_PROMPT removed -- single source of truth is now
 // config/prompt_sections.rs::UNIFIED_PROMPT (~500 tok).
@@ -910,6 +913,108 @@ impl Config {
         diags
     }
 
+    /// Validate every configured model fallback chain (FR-1 of
+    /// `docs/model-fallback-requirements.md`). Chains are checked over the
+    /// *unified* catalog so a chain may point at either a new-schema model or a
+    /// legacy `[providers.*]` entry (which projects to a synthetic model).
+    ///
+    /// Fail-closed by design: a misspelled target is a diagnostic, never a
+    /// silent no-op -- a chain that quietly lost an entry is exactly the case
+    /// where the user believes they have redundancy and does not.
+    pub fn validate_model_fallback_chains(&self) -> Vec<String> {
+        use crate::i18n::{t, Msg};
+        let mut diags = Vec::new();
+        let catalog = self.logical_models();
+        for (id, model) in &catalog {
+            if model.fallback.is_empty() {
+                continue;
+            }
+            if model.fallback.len() > MAX_MODEL_FALLBACK_CHAIN {
+                diags.push(
+                    t(Msg::CfgDiagFallbackChainTooLong {
+                        id,
+                        len: model.fallback.len(),
+                        max: MAX_MODEL_FALLBACK_CHAIN,
+                    })
+                    .into_owned(),
+                );
+            }
+            // Per-entry checks. Duplicates are reported once per model: the
+            // user fixes the list, not an individual line.
+            let mut deduped: Vec<&str> = Vec::new();
+            let mut reported_dup = false;
+            for raw in &model.fallback {
+                let target = raw.trim();
+                if target.is_empty() {
+                    continue;
+                }
+                if target == id.as_str() {
+                    diags.push(t(Msg::CfgDiagFallbackSelfReference { id }).into_owned());
+                    continue;
+                }
+                if !catalog.contains_key(target) {
+                    diags.push(t(Msg::CfgDiagFallbackUnknownTarget { id, target }).into_owned());
+                    continue;
+                }
+                if deduped.contains(&target) {
+                    if !reported_dup {
+                        reported_dup = true;
+                        diags.push(t(Msg::CfgDiagFallbackDuplicates { id }).into_owned());
+                    }
+                    continue;
+                }
+                deduped.push(target);
+            }
+            // A chain must be a one-way path: walking it may not revisit any
+            // node, or fallback becomes an unbounded loop across models.
+            let mut seen: Vec<&str> = vec![id.as_str()];
+            let mut cursor = id.as_str();
+            loop {
+                let Some(next) = catalog.get(cursor).and_then(|m| m.fallback.first()) else {
+                    break;
+                };
+                let next = next.trim();
+                if next.is_empty() {
+                    break;
+                }
+                if seen.contains(&next) {
+                    diags.push(t(Msg::CfgDiagFallbackCycle { id }).into_owned());
+                    break;
+                }
+                seen.push(next);
+                cursor = next;
+            }
+        }
+        diags
+    }
+
+    /// The sanitized fallback chain for `selection_id`: trimmed, duplicate-free,
+    /// self-references and unknown targets dropped. Order is preserved (first
+    /// target is tried first).
+    ///
+    /// Diagnostics belong to [`Self::validate_model_fallback_chains`]; this
+    /// accessor is the runtime's read path and deliberately never fails -- a
+    /// partially-broken chain still contributes the entries that *do* resolve,
+    /// rather than disabling fallback entirely.
+    pub fn model_fallback_chain(&self, selection_id: &str) -> Vec<String> {
+        let catalog = self.logical_models();
+        let Some(model) = catalog.get(selection_id) else {
+            return Vec::new();
+        };
+        let mut out: Vec<String> = Vec::new();
+        for raw in &model.fallback {
+            let target = raw.trim();
+            if target.is_empty() || target == selection_id || !catalog.contains_key(target) {
+                continue;
+            }
+            if out.iter().any(|seen| seen == target) {
+                continue;
+            }
+            out.push(target.to_string());
+        }
+        out
+    }
+
     /// The unified account catalog: real `provider_accounts` plus one account
     /// projected from each legacy `[providers.*]`, keyed by the legacy provider
     /// name (design §5). Every `[providers.*]` entry is an ordinary, editable
@@ -1346,6 +1451,9 @@ fn project_legacy_model(account_id: &str, p: &ProviderConfig) -> ModelProfileCon
         thinking_budget: p.thinking_budget,
         retry_max_attempts: p.retry_max_attempts,
         model_mapping: p.model_mapping.clone(),
+        // A legacy provider projects to a single model with no chain of its
+        // own; the user opts in by naming targets on the new-schema entry.
+        fallback: Vec::new(),
     }
 }
 
@@ -3865,6 +3973,7 @@ capable_model = 5
                 thinking_enabled: None,
                 thinking_budget: None,
                 model_mapping: Default::default(),
+                fallback: Vec::new(),
             },
         );
         let rendered = cfg.serialize_for_disk(None).unwrap();
@@ -3922,6 +4031,7 @@ capable_model = 5
                 thinking_enabled: None,
                 thinking_budget: None,
                 model_mapping: Default::default(),
+                fallback: Vec::new(),
             },
         );
         cfg.default_model = Some("nope".into()); // unresolvable default -> error
@@ -3977,6 +4087,281 @@ capable_model = 5
             cfg.validate_provider_accounts_and_models().is_empty(),
             "{:?}",
             cfg.validate_provider_accounts_and_models()
+        );
+    }
+
+    /// A well-formed chain validates clean, and the runtime read path returns
+    /// exactly the configured order.
+    #[test]
+    fn fallback_chain_accepts_a_well_formed_list() {
+        let cfg: Config = toml::from_str(
+            r#"
+default_provider = ""
+default_model = "a/primary"
+
+[provider_accounts.a]
+provider = "aliyun"
+api_key = "sk-secret"
+
+[models."a/primary"]
+account = "a"
+model = "primary"
+context_window = 131072
+fallback = ["a/secondary", "a/tertiary"]
+
+[models."a/secondary"]
+account = "a"
+model = "secondary"
+context_window = 131072
+
+[models."a/tertiary"]
+account = "a"
+model = "tertiary"
+context_window = 131072
+"#,
+        )
+        .unwrap();
+        assert!(
+            cfg.validate_model_fallback_chains().is_empty(),
+            "{:?}",
+            cfg.validate_model_fallback_chains()
+        );
+        assert_eq!(
+            cfg.model_fallback_chain("a/primary"),
+            vec!["a/secondary".to_string(), "a/tertiary".to_string()]
+        );
+    }
+
+    /// An unknown target is a diagnostic, not a silent no-op: a chain that
+    /// quietly lost an entry is the case where the user believes they have
+    /// redundancy and does not (FR-1.3).
+    #[test]
+    fn fallback_chain_flags_an_unknown_target() {
+        use crate::i18n::{t, Msg};
+        let cfg: Config = toml::from_str(
+            r#"
+default_provider = ""
+[provider_accounts.a]
+provider = "aliyun"
+api_key = "sk-secret"
+
+[models."a/primary"]
+account = "a"
+model = "primary"
+context_window = 131072
+fallback = ["a/typo"]
+"#,
+        )
+        .unwrap();
+        let diags = cfg.validate_model_fallback_chains();
+        assert!(
+            diags.iter().any(|d| d.contains(
+                t(Msg::CfgDiagFallbackUnknownTarget {
+                    id: "a/primary",
+                    target: "a/typo",
+                })
+                .as_ref()
+            )),
+            "{diags:?}"
+        );
+    }
+
+    /// Self-reference and a two-model cycle are both rejected: fallback must be
+    /// a one-way path (FR-1.3 / FR-3.4).
+    #[test]
+    fn fallback_chain_rejects_self_reference_and_cycles() {
+        use crate::i18n::{t, Msg};
+        let cfg: Config = toml::from_str(
+            r#"
+default_provider = ""
+[provider_accounts.a]
+provider = "aliyun"
+api_key = "sk-secret"
+
+[models."a/primary"]
+account = "a"
+model = "primary"
+context_window = 131072
+fallback = ["a/primary"]
+
+[models."a/loop-a"]
+account = "a"
+model = "loop-a"
+context_window = 131072
+fallback = ["a/loop-b"]
+
+[models."a/loop-b"]
+account = "a"
+model = "loop-b"
+context_window = 131072
+fallback = ["a/loop-a"]
+"#,
+        )
+        .unwrap();
+        let diags = cfg.validate_model_fallback_chains();
+        assert!(
+            diags
+                .iter()
+                .any(|d| d
+                    .contains(t(Msg::CfgDiagFallbackSelfReference { id: "a/primary" }).as_ref())),
+            "self-reference missing: {diags:?}"
+        );
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.contains(t(Msg::CfgDiagFallbackCycle { id: "a/loop-a" }).as_ref())),
+            "cycle missing: {diags:?}"
+        );
+    }
+
+    /// Chain length is bounded so a config cannot quietly multiply request
+    /// volume on the user's behalf (FR-1.4).
+    #[test]
+    fn fallback_chain_flags_an_over_long_list() {
+        use crate::i18n::{t, Msg};
+        let cfg: Config = toml::from_str(
+            r#"
+default_provider = ""
+[provider_accounts.a]
+provider = "aliyun"
+api_key = "sk-secret"
+
+[models."a/primary"]
+account = "a"
+model = "primary"
+context_window = 131072
+fallback = ["a/t1", "a/t2", "a/t3", "a/t4", "a/t5"]
+
+[models."a/t1"]
+account = "a"
+model = "t1"
+context_window = 131072
+[models."a/t2"]
+account = "a"
+model = "t2"
+context_window = 131072
+[models."a/t3"]
+account = "a"
+model = "t3"
+context_window = 131072
+[models."a/t4"]
+account = "a"
+model = "t4"
+context_window = 131072
+[models."a/t5"]
+account = "a"
+model = "t5"
+context_window = 131072
+"#,
+        )
+        .unwrap();
+        let diags = cfg.validate_model_fallback_chains();
+        assert!(
+            diags.iter().any(|d| d.contains(
+                t(Msg::CfgDiagFallbackChainTooLong {
+                    id: "a/primary",
+                    len: 5,
+                    max: MAX_MODEL_FALLBACK_CHAIN,
+                })
+                .as_ref()
+            )),
+            "{diags:?}"
+        );
+    }
+
+    /// Duplicates are diagnosed once and ignored at runtime rather than
+    /// retried twice.
+    #[test]
+    fn fallback_chain_flags_duplicates_and_dedupes_at_runtime() {
+        use crate::i18n::{t, Msg};
+        let cfg: Config = toml::from_str(
+            r#"
+default_provider = ""
+[provider_accounts.a]
+provider = "aliyun"
+api_key = "sk-secret"
+
+[models."a/primary"]
+account = "a"
+model = "primary"
+context_window = 131072
+fallback = ["a/t1", "a/t1"]
+
+[models."a/t1"]
+account = "a"
+model = "t1"
+context_window = 131072
+"#,
+        )
+        .unwrap();
+        let diags = cfg.validate_model_fallback_chains();
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.contains(t(Msg::CfgDiagFallbackDuplicates { id: "a/primary" }).as_ref())),
+            "{diags:?}"
+        );
+        assert_eq!(
+            cfg.model_fallback_chain("a/primary"),
+            vec!["a/t1".to_string()],
+            "duplicates must collapse"
+        );
+    }
+
+    /// The runtime read path never fails: unusable entries are skipped while
+    /// the entries that do resolve still contribute, in order.
+    #[test]
+    fn fallback_chain_read_path_skips_unusable_entries() {
+        let cfg: Config = toml::from_str(
+            r#"
+default_provider = ""
+[provider_accounts.a]
+provider = "aliyun"
+api_key = "sk-secret"
+
+[models."a/primary"]
+account = "a"
+model = "primary"
+context_window = 131072
+fallback = ["a/primary", "  ", "a/missing", "a/t1", "a/t1", "a/t2"]
+
+[models."a/t1"]
+account = "a"
+model = "t1"
+context_window = 131072
+[models."a/t2"]
+account = "a"
+model = "t2"
+context_window = 131072
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.model_fallback_chain("a/primary"),
+            vec!["a/t1".to_string(), "a/t2".to_string()]
+        );
+        // An unknown selection id has no chain rather than an error.
+        assert!(cfg.model_fallback_chain("a/nope").is_empty());
+    }
+
+    /// FR-1.2 / A-10: absent `fallback` keys mean "no fallback", so a config
+    /// written before this feature behaves exactly as before -- no diagnostics,
+    /// an empty chain, and the field is omitted again when serialized.
+    #[test]
+    fn absent_fallback_chain_is_the_silent_default() {
+        let cfg: Config = toml::from_str(NEW_SCHEMA).unwrap();
+        assert!(cfg.validate_model_fallback_chains().is_empty());
+        assert!(cfg
+            .model_fallback_chain("aliyun-default/qwen3-coder-plus")
+            .is_empty());
+        let rendered = cfg.serialize_for_disk(None).unwrap();
+        // Match the `fallback = [...]` KEY, not the bare word: the serialized
+        // template carries unrelated prose ("OS-native fallback") in comments.
+        assert!(
+            !rendered
+                .lines()
+                .any(|line| line.trim_start().starts_with("fallback")),
+            "an empty chain must not be written to disk:\n{rendered}"
         );
     }
 }

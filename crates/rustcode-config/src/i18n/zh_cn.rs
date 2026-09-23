@@ -1616,6 +1616,19 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
                 "Provider 账号 `{id}` 与同名旧版 provider 冲突；以新结构账号为准"
             )
             .into(),
+        Msg::CfgDiagFallbackUnknownTarget { id, target } =>
+            format!(
+                "模型 `{id}` 的回退链指向 `{target}`，但配置里没有这个模型；请改正 id 或先添加该模型"
+            )
+            .into(),
+        Msg::CfgDiagFallbackSelfReference { id } =>
+            format!("模型 `{id}` 的回退链包含了它自己").into(),
+        Msg::CfgDiagFallbackCycle { id } =>
+            format!("模型 `{id}` 的回退链构成了环；回退必须是单向路径").into(),
+        Msg::CfgDiagFallbackChainTooLong { id, len, max } =>
+            format!("模型 `{id}` 的回退链有 {len} 项，超过上限 {max}").into(),
+        Msg::CfgDiagFallbackDuplicates { id } =>
+            format!("模型 `{id}` 的回退链重复列了同一目标；重复项会被忽略").into(),
         Msg::CfgDiagModelCollision { id } =>
             format!("模型 `{id}` 与同名旧版 provider 冲突；以新结构模型为准").into(),
 

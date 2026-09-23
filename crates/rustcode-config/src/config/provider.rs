@@ -247,6 +247,19 @@ pub struct ModelProfileConfig {
     /// backing account at resolution time when absent here.
     #[serde(default, skip_serializing_if = "ModelMapping::is_empty")]
     pub model_mapping: ModelMapping,
+    /// Ordered fallback chain of model selection ids. When this model fails in a
+    /// way that another model could survive (rate limit, upstream 5xx, timeout,
+    /// auth), the runtime walks the chain and continues the same turn on the
+    /// first target that works. Empty (the default) means "no fallback" -- the
+    /// turn fails exactly as it does today.
+    ///
+    /// Order is meaningful: `["a", "b"]` tries `a` before `b`. Entries must be
+    /// resolvable selection ids in the same config, must not name this model,
+    /// and the chain is bounded by [`MAX_MODEL_FALLBACK_CHAIN`]. Validated by
+    /// [`super::Config::validate_model_fallback_chains`]; see
+    /// `docs/model-fallback-requirements.md` FR-1.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fallback: Vec<String>,
 }
 
 /// One flattened, immutable resolution of a model selection (design §3.4). This
@@ -531,6 +544,12 @@ impl ProviderKind {
         }
     }
 }
+
+/// Upper bound on a model fallback chain length. Bounded on purpose: a long
+/// chain multiplies request volume on the user's behalf, and almost every real
+/// setup needs two or three targets at most. See FR-1.4 of
+/// `docs/model-fallback-requirements.md`.
+pub const MAX_MODEL_FALLBACK_CHAIN: usize = 4;
 
 /// Maps a requested model alias to the wire model name sent to the provider.
 /// Resolved once at the provider factory so adapters and drivers never see

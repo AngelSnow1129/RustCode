@@ -1660,6 +1660,22 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
                 "provider account `{id}` collides with a legacy provider of the same name; the new-schema account wins"
             )
             .into(),
+        Msg::CfgDiagFallbackUnknownTarget { id, target } =>
+            format!(
+                "model `{id}` fallback chain names `{target}`, which is not a model in this config; fix the id or add the model first"
+            )
+            .into(),
+        Msg::CfgDiagFallbackSelfReference { id } =>
+            format!("model `{id}` fallback chain contains the model itself").into(),
+        Msg::CfgDiagFallbackCycle { id } =>
+            format!(
+                "model `{id}` fallback chain forms a cycle; fallback must be a one-way path"
+            )
+            .into(),
+        Msg::CfgDiagFallbackChainTooLong { id, len, max } =>
+            format!("model `{id}` fallback chain has {len} entries, over the limit of {max}").into(),
+        Msg::CfgDiagFallbackDuplicates { id } =>
+            format!("model `{id}` fallback chain lists the same target more than once; duplicates are ignored").into(),
         Msg::CfgDiagModelCollision { id } =>
             format!(
                 "model `{id}` collides with a legacy provider of the same name; the new-schema model wins"

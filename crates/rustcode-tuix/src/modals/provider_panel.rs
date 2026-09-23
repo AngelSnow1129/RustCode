@@ -1681,6 +1681,8 @@ impl ProviderPanel {
                             reasoning_effort_levels: reasoning_effort_levels.clone(),
                             thinking_enabled: None,
                             thinking_budget: None,
+                            // A newly added model starts with no chain.
+                            fallback: Vec::new(),
                         },
                     );
                     model_id
@@ -1842,6 +1844,8 @@ fn commit_discovered_models(
                         thinking_enabled: None,
                         thinking_budget: None,
                         retry_max_attempts: None,
+                        // Discovered models start with no chain.
+                        fallback: Vec::new(),
                     },
                 );
             }

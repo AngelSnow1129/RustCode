@@ -301,6 +301,56 @@ base_url = "https://my-anthropic-gw.example.com"
 #   api_key = "${MY_KEY:-fallback}"  # ${VAR:-default}，VAR 未设时用 fallback
 
 # =============================================================================
+# 模型回退链（fallback）—— 一个模型挂了，本轮问题仍能问完
+# =============================================================================
+# 语义：某个模型发生**另一个模型可能幸存**的失败（限流 / 上游 5xx / 超时 / 鉴权）且
+#       **本轮尚未产出任何内容**时，runtime 沿链换模型**继续同一个回合**，不会丢问题。
+#
+# 关键约束（决定了它长什么样）：
+#   - 链挂在 **[models."<id>"]** 上，**不是** [providers.*] —— 旧 `[providers.*]`
+#     写法没有该字段，写了也不生效。链的每一项是**本配置里能解析的另一个模型选择 id**。
+#   - 仅在**重试预算耗尽后**才触发，不是每次请求都换（避免放大请求量与双倍消耗）。
+#   - 已经产出文本或工具结果的回合**不回退**：重跑会重复副作用。此时按原有方式报错终止。
+#   - 未配置 = 行为与改动前**逐字一致**（默认关闭）；链最长 4 跳，可自行列出更少。
+#   - 校验（存在性 / 自引用 / 环 / 超长 / 重复）由 `Config::validate_model_fallback_chains`
+#     提供；该诊断目前**尚未接到任何 driver 的启动提示里**，配错不会有人提醒你。
+#
+# 示例：主用 deepseek，挂了依次退到 glm、再退到 claude。
+# 注意这些 id 必须与下面的 [models."..."] 键**逐字一致**。
+#
+# [provider_accounts.deepseek-acct]
+# provider  = "deepseek"
+# api_key   = "${DEEPSEEK_API_KEY}"
+#
+# [provider_accounts.glm-acct]
+# provider  = "openai-compatible"
+# api_key   = "${GLM_API_KEY}"
+# base_url  = "https://open.bigmodel.cn/api/paas/v4"
+#
+# [models."deepseek/main"]
+# account        = "deepseek-acct"
+# model          = "deepseek-chat"
+# context_window = 131072
+# fallback       = ["glm/backup", "claude/last"]   # 顺序有意义：先试 glm，再试 claude
+#
+# [models."glm/backup"]
+# account        = "glm-acct"
+# model          = "glm-4-plus"
+# context_window = 131072
+#
+# [models."claude/last"]
+# account        = "claude-acct"
+# model          = "claude-sonnet-4-6"
+# context_window = 200000
+#
+# 子代理（task 工具）同样受益：子任务失败且未产出内容时，先走它所用**那一层**
+# （fast / capable / 宿主模型）的链，最后才退到宿主的单一 provider 兜底。
+#
+# 每次回退与链耗尽都会给出可见提示（人类面本地化，headless `--json` 走
+# `model_fallback_started` / `model_fallback_exhausted` 机器码）。
+# 完整需求与实测边界见 docs/model-fallback-requirements.md。
+
+# =============================================================================
 # Agent 循环保险（环境变量）
 # =============================================================================
 # 普通 coding 回合默认不设模型轮次上限；精确无进展防护仍然生效。

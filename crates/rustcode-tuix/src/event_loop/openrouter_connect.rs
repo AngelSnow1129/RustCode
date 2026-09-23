@@ -166,6 +166,8 @@ pub fn provision_openrouter(
                 thinking_budget: None,
                 retry_max_attempts: None,
                 model_mapping: Default::default(),
+                // Discovered models start with no chain; the user opts in.
+                fallback: Vec::new(),
             },
         );
         added.push(selection_id);
