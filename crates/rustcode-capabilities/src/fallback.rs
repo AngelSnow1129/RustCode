@@ -12,8 +12,11 @@
 //! `Outcome`/`StopReason`), not the policy of when to change models. It is
 //! feature-gate-free so a tools-only build and the provider runtime both get it.
 
+use std::sync::Arc;
+
 use rustcode_kernel::agent::Outcome;
 use rustcode_kernel::event::StopReason;
+use rustcode_kernel::provider::LlmProvider;
 
 /// The predicate in its typing-friendly form: the runtime knows a terminal
 /// [`StopReason`] plus the structured classification it observed, not a whole
@@ -73,10 +76,85 @@ pub fn fallback_eligible(outcome: &Outcome, cancelled: bool) -> bool {
     )
 }
 
+/// Candidate models for a fallback walk, in priority order: `primary` first, then
+/// `extras` (the configured explicit chain, FR-6.2), de-duplicated by provider
+/// IDENTITY (`Arc::ptr_eq`).
+///
+/// Why identity and not the display name: two configured providers may legitimately
+/// expose the same raw model name (two gateways serving the same model), and a
+/// dedupe on `model_name()` would silently drop a WORKING second route. Why here
+/// and not at the call sites: the drivers (main turn, `task`, `team`,
+/// `parallel_edit`, `code_review`) used to carry identical hand-rolled dedupe
+/// loops -- the same drift this module exists to prevent for the eligibility
+/// predicate (FR-6.1).
+pub fn chain_candidates(
+    primary: Arc<dyn LlmProvider>,
+    extras: impl IntoIterator<Item = Arc<dyn LlmProvider>>,
+) -> Vec<Arc<dyn LlmProvider>> {
+    let mut candidates = vec![primary];
+    for candidate in extras {
+        if !candidates.iter().any(|seen| Arc::ptr_eq(seen, &candidate)) {
+            candidates.push(candidate);
+        }
+    }
+    candidates
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rustcode_kernel::event::StopReason;
+
+    /// A stand-in provider whose only meaningful property is its IDENTITY: two
+    /// instances sharing a display name are still different configured routes.
+    struct NamedProvider(&'static str);
+
+    #[async_trait::async_trait]
+    impl LlmProvider for NamedProvider {
+        fn model_name(&self) -> &str {
+            self.0
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: &[rustcode_kernel::message::Message],
+            _tools: &[rustcode_kernel::tool::ToolDef],
+            _options: &rustcode_kernel::provider::ChatOptions,
+        ) -> Result<
+            futures::stream::BoxStream<'static, rustcode_kernel::stream::StreamEvent>,
+            rustcode_kernel::stream::ProviderError,
+        > {
+            // Never called: the helper under test only compares identities.
+            Err(rustcode_kernel::stream::ProviderError::default())
+        }
+    }
+
+    #[test]
+    fn chain_candidates_dedupe_by_identity_in_priority_order() {
+        let primary: Arc<dyn LlmProvider> = Arc::new(NamedProvider("same-model"));
+        let twin: Arc<dyn LlmProvider> = Arc::new(NamedProvider("same-model"));
+        let backup: Arc<dyn LlmProvider> = Arc::new(NamedProvider("backup"));
+
+        let candidates = chain_candidates(
+            Arc::clone(&primary),
+            [
+                Arc::clone(&primary), // the primary re-listed as an extra: dropped
+                Arc::clone(&twin),    // SAME display name, DIFFERENT route: kept
+                Arc::clone(&backup),  // first appearance: kept
+                Arc::clone(&backup),  // identity repeat: dropped
+            ],
+        );
+
+        assert_eq!(candidates.len(), 3);
+        assert!(Arc::ptr_eq(&candidates[0], &primary), "primary stays first");
+        assert!(
+            Arc::ptr_eq(&candidates[1], &twin),
+            "a second route sharing the display name must SURVIVE: dedupe is by identity, not model_name()"
+        );
+        assert!(Arc::ptr_eq(&candidates[2], &backup));
+        // No extras: the list is exactly the primary.
+        assert_eq!(chain_candidates(Arc::clone(&primary), []).len(), 1);
+    }
 
     fn outcome(stop: StopReason) -> Outcome {
         Outcome {

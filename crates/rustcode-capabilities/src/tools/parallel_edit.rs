@@ -252,19 +252,17 @@ impl Tool for ParallelEditTool {
                 f.path, f.instruction, contract_block
             );
             // Candidates in priority order: this file's own provider first, then the
-            // explicit chain (FR-6.2), de-duped by provider IDENTITY -- two providers
-            // may legitimately serve the same raw model name.
+            // explicit chain (FR-6.2). The SHARED helper de-dupes by provider
+            // IDENTITY -- two providers may legitimately serve the same raw model
+            // name, so display text cannot decide this.
             let primary = (self.make_provider)();
-            let mut candidates: Vec<Arc<dyn LlmProvider>> = vec![Arc::clone(&primary)];
-            if let Some(chain) = &chain_providers {
-                for candidate in chain() {
-                    if !Arc::ptr_eq(&candidate, &primary)
-                        && !candidates.iter().any(|seen| Arc::ptr_eq(seen, &candidate))
-                    {
-                        candidates.push(candidate);
-                    }
-                }
-            }
+            let candidates = crate::fallback::chain_candidates(
+                primary,
+                chain_providers
+                    .as_deref()
+                    .map(|chain| chain())
+                    .unwrap_or_default(),
+            );
             let path = f.path.clone();
             let persona = persona.clone();
             let make_tools = Arc::clone(&make_tools);

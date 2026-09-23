@@ -214,20 +214,16 @@ impl TeamRunnerFactory {
         let activity_sink = Arc::clone(&activity);
         let progress = Arc::new(TeamProgressHook::new(activity));
         // Candidates, in priority order: this tier's own provider first, then its
-        // explicit chain (FR-6.2). De-duped by provider IDENTITY -- two configured
-        // providers may legitimately expose the same raw model name, so display
-        // text cannot decide this.
+        // explicit chain (FR-6.2). The SHARED helper de-dupes by provider IDENTITY
+        // -- two configured providers may legitimately expose the same raw model
+        // name, so display text cannot decide this.
         let primary = (self.providers)(task.difficulty);
-        let mut candidates: Vec<Arc<dyn LlmProvider>> = vec![Arc::clone(&primary)];
-        if let Some(chain) = &self.chain_providers {
-            for candidate in chain(task.difficulty) {
-                if !Arc::ptr_eq(&candidate, &primary)
-                    && !candidates.iter().any(|seen| Arc::ptr_eq(seen, &candidate))
-                {
-                    candidates.push(candidate);
-                }
-            }
-        }
+        let chain = self
+            .chain_providers
+            .as_ref()
+            .map(|resolve| resolve(task.difficulty))
+            .unwrap_or_default();
+        let candidates = rustcode_capabilities::fallback::chain_candidates(primary, chain);
         let total = candidates.len();
         let mut outcome = Outcome::default();
         let mut failures: Vec<String> = Vec::new();

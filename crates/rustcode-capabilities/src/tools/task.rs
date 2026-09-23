@@ -972,19 +972,11 @@ parallel workers NON-OVERLAPPING scopes."
                     }
                 })
             });
-            let mut fallbacks: Vec<Arc<dyn LlmProvider>> = Vec::new();
-            if let (Some(resolve), Some(key)) =
-                (self.make_chain_provider.as_ref(), selection_key.as_deref())
-            {
-                for candidate in resolve(key) {
-                    if !Arc::ptr_eq(&candidate, &provider)
-                        && !fallbacks.iter().any(|seen| Arc::ptr_eq(seen, &candidate))
-                    {
-                        fallbacks.push(candidate);
-                    }
-                }
-            }
-            let implicit_host = (requested_model.is_none()
+            let mut extras = (self.make_chain_provider.as_ref())
+                .zip(selection_key.as_deref())
+                .map(|(resolve, key)| resolve(key))
+                .unwrap_or_default();
+            if let Some(host) = (requested_model.is_none()
                 && spec.permission == crate::team::TeamPermission::Explore
                 && spec.difficulty == crate::team::TeamDifficulty::Hard)
                 .then(|| {
@@ -992,14 +984,18 @@ parallel workers NON-OVERLAPPING scopes."
                         .as_ref()
                         .map(|make_host| make_host())
                 })
-                .flatten();
-            if let Some(host) = implicit_host {
-                if !Arc::ptr_eq(&host, &provider)
-                    && !fallbacks.iter().any(|seen| Arc::ptr_eq(seen, &host))
-                {
-                    fallbacks.push(host);
-                }
+                .flatten()
+            {
+                extras.push(host);
             }
+            // The SHARED helper de-dupes [provider + extras] by provider IDENTITY --
+            // a different configured provider may legitimately expose the same raw
+            // model name (two gateways serving GLM), so display text cannot decide
+            // this. The walk list excludes the primary itself, hence the skip(1).
+            let fallbacks = crate::fallback::chain_candidates(Arc::clone(&provider), extras)
+                .into_iter()
+                .skip(1)
+                .collect::<Vec<Arc<dyn LlmProvider>>>();
             prepared.push((spec, provider, fallbacks));
         }
 

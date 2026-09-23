@@ -225,27 +225,6 @@ pub struct ReviewTool {
     make_chain_providers: Option<Arc<ReviewChainProviderFn>>,
 }
 
-/// Candidate providers for one review pass, in priority order: the host's live
-/// provider first, then the explicit chain (FR-6.2). De-duped by provider
-/// IDENTITY -- two configured providers may legitimately serve the same raw model
-/// name, so display text cannot decide this.
-fn review_candidates(
-    host: Arc<dyn LlmProvider>,
-    chain: Option<&ReviewChainProviderFn>,
-) -> Vec<Arc<dyn LlmProvider>> {
-    let mut candidates = vec![Arc::clone(&host)];
-    if let Some(chain) = chain {
-        for candidate in chain() {
-            if !Arc::ptr_eq(&candidate, &host)
-                && !candidates.iter().any(|seen| Arc::ptr_eq(seen, &candidate))
-            {
-                candidates.push(candidate);
-            }
-        }
-    }
-    candidates
-}
-
 /// Result of one review pass after walking the candidate chain.
 struct ReviewPass {
     stop: StopReason,
@@ -690,8 +669,14 @@ impl Tool for ReviewTool {
 
         // Candidates in priority order: the host's provider (a signing gateway keeps
         // working that way), then the explicit chain when one is configured (FR-6.2).
-        let provider_candidates =
-            review_candidates(Arc::clone(&provider), self.make_chain_providers.as_deref());
+        // The SHARED helper de-dupes by provider identity.
+        let provider_candidates = rustcode_capabilities::fallback::chain_candidates(
+            provider,
+            self.make_chain_providers
+                .as_deref()
+                .map(|chain| chain())
+                .unwrap_or_default(),
+        );
 
         if !a.is_deep() {
             // --- single-agent path ---
