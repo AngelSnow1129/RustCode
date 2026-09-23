@@ -345,14 +345,17 @@ default = ["glm-4-plus"]
 - `cargo clippy -p rustcode-coding -p rustcode-capabilities -p rustcode-config -p rustcode --all-targets`
   → 本轮改动**零**新增告警（逐条核对 `-->` 指向，无一处落在 `fallback.rs` / `headless_json.rs` /
   `task.rs` / `parts.rs` / `runtime.rs` / `translate.rs`）
-- `cargo test -p rustcode-config --lib` → **329 passed / 0 failed**（含 4 条回退文案断言）
-- `cargo test -p rustcode-coding --lib` → **452 passed / 0 failed / 8 ignored**（含 8 个回退端到端
-  测试与 `tier_chain_keys` 的 2 条单测）
-- `cargo test -p rustcode-capabilities --lib` → **847 passed / 0 failed**；其中 `tools::task`
-  → **42 passed / 0 failed**（原 40 条 + FR-6.2 顺序断言 + 模型缺失子任务的 tier 链断言）
+- `cargo test -p rustcode-config --lib` → **332 passed / 0 failed**（含 4 条回退文案断言 +
+  3 条 A-9 诊断通道断言）
+- `cargo test -p rustcode-coding --lib` → **457 passed / 0 failed / 8 ignored**（含 8 个回退端到端
+  测试、`tier_chain_keys` 的 2 条单测，以及本轮新增的 5 条 team 成员回退断言）
+- `cargo test -p rustcode-capabilities --lib` → **850 passed / 0 failed**；其中 `tools::task`
+  → **42 passed / 0 failed**（原 40 条 + FR-6.2 顺序断言 + 模型缺失子任务的 tier 链断言）、
+  `tools::parallel_edit` → **14 passed / 0 failed**（原 11 条 + 本轮 3 条链断言）
 - `cargo test -p rustcode --lib` → **117 passed / 0 failed**；`--bins` → **102 passed / 0 failed**
   （含 A-11 的 jsonl 契约断言与 ACP 投影边界断言）
 - `cargo test -p rustcode-daemon --lib` → **291 passed / 0 failed**（含回退通知线协议投影断言）
+- `cargo test -j 1 --workspace --no-fail-fast` → **5540 passed / 0 failed / 12 ignored**（94 套件全绿）
 
 ### 10.5 端到端覆盖现状
 
@@ -396,21 +399,44 @@ default = ["glm-4-plus"]
     也非本需求范围。
   - `load_with_diagnostics` 的通道本身**不是**缺陷（它确实可用且已被 CLI 消费）；本轮补的是
     「链校验结果没进这条通道」。
-- **子代理链的三个已知缺口**（FR-6.2 已在 `task` 落地，但覆盖面有界）：
-  1. **`team` 成员完全无回退** —— `rustcode-coding/src/team/runner.rs` 自建 agent 后直接
-     `run_to_completion`，既无显式链也无隐式宿主回退（`grep fallback team/` = 0 命中）。
-     `task` 与 `team` **不共用**构建路径，本轮只覆盖前者。
-  2. **`parallel_edit_files` 子代理同样无回退**（`tools/parallel_edit.rs`，`grep fallback` = 0）。
-  3. **`code_review` 子 agent 确实绕过**：它经 `ReviewTool` 进程内直连 kernel
+- **子代理链的覆盖现状（本轮补 1、2；3 仍存）**：
+  1. **[已覆盖] `team` 成员** —— 此前 `rustcode-coding/src/team/runner.rs` 自建 agent 后直接
+     `run_to_completion`，既无显式链也无隐式宿主回退，一个模型抖动就会让整次委派失败。
+     现 `TeamRunnerFactory` 新增 `with_chain_providers(...)`：`run()` 按
+     `[本 tier provider, 该 tier 的显式链...]` 去重成候选列表后逐跳尝试，跳与跳之间
+     **重建 agent**（不复用失败 attempt 的 builder，杜绝旧 provider 残留，对应 FR-3.5）；
+     每跳发一条 `Msg::ModelFallbackStarted`，链走完仍失败则发 `ModelFallbackExhausted`
+     并列出每次尝试的 `model: reason`（复用既有 i18n 变体，不新增文案）。链由
+     `parts.rs` 用既有的 `tier_chain_keys` 解析后注入，`capabilities` 不新增 `rustcode-config`
+     依赖。测试：`member_walks_its_chain_in_order_and_stops_at_the_first_success`（**顺序**断言）、
+     `exhausted_chain_reports_every_attempt`、`an_absent_chain_keeps_the_single_attempt_behaviour`
+     （A-10）、`a_terminal_failure_does_not_walk_the_chain`（FR-5.3）、
+     `a_member_that_produced_output_is_never_replayed`（A-5）。
+  2. **[已覆盖] `parallel_edit_files`** —— `ParallelEditTool` 新增 `with_chain_providers(...)`：
+     每个文件的子代理在**未产出任何内容**的失败后沿链换模型重试，规则与主回合、`task` 共用
+     同一个 `fallback_eligible`（FR-6.1）。测试：`a_failed_child_walks_the_chain_in_order`、
+     `an_absent_chain_attempts_only_the_primary`、`a_child_that_produced_output_is_never_replayed`。
+     **诚实边界**：该工具在本仓**没有任何生产构造点**（全仓 `ParallelEditTool::new` 只出现在
+     它自己的 `#[cfg(test)]` 里；模块文档即写明它是 opt-in、"constructed by the embedder"）。
+     故本轮补的是**能力面**——embedder 一旦把它挂起来就自带回退；本仓既有的 CLI/TUI/daemon
+     路径不会因此改变行为（它们根本不注册该工具）。
+  3. **[仍存] `code_review` 子 agent** —— 它经 `ReviewTool` 进程内直连 kernel
      （`rustcode-review/src/review_tool.rs` 的 `Agent::run_to_completion`），不经过 owner 循环，
-     因而复用宿主那台失败 provider。它与 `parallel_edit_files`、`team` 成员同形。
+     因而复用宿主那台失败 provider。本轮未覆盖：给它加链需要把 chain 解析注入 `ReviewTool`
+     的构造面，属独立改动，不在本次范围。
+  - 注：`team` 的成员**已不再**与 `task` 各写一份候选去重逻辑——两处都按 provider **身份**
+    （`Arc::ptr_eq`）去重，而非显示名：两个不同 provider 合法地可能暴露同一个原始模型名。
+    这条规则目前是两处同构实现（编码上未抽公共函数，因两者候选来源与 tier 语义不同），
+    若要进一步收敛应抽到 `capabilities` 的共享位置。
 - **ACP 通道 = 机制已继承、事件面刻意不投影**：ACP 回合由同一 `CodingRuntime` 拥有
   （`rustcode-cli/src/acp/engine.rs` 的 `CodingRuntime::start` → `acp/turn.rs` 用
   `CodingRuntimeHandle` 驱动），故**模型中断可被吸收**；但协议侧无 advisory 通道，
   `AgentEvent::Warning` 在 `acp/translate.rs::event_to_update` 中**刻意不投影**（FR-7.4）。
   该决定由 `failover_advisory_is_deliberately_not_projected_to_acp_clients` 锁定：
   将来若改为投影，属**范围变更**而非修 bug。
-- **其余进程内直连 kernel 的子 agent**（`parallel_edit_files` 等）未逐一验证，判定同上。
+- **`team` 成员与 `parallel_edit_files` 的回退已在能力层补齐**（本轮），故本条原先"未逐一验证、
+  判定同上"的说法已过期；两者各自的恢复条件与断言见上方第 1、2 项。仍与 `code_review` 同形、
+  未覆盖的只有 `code_review` 自身（第 3 项）。
 
 ### 10.6 仍待用户裁决
 
