@@ -294,9 +294,18 @@ project,回答回发同一会话。首发平台**钉钉 Stream 长连接**(客�
   HTTP-only 不拉 WS 栈,出站走 `build_http_client` 单一工厂)。CLI 适配器委托它,
   daemon 测试路由也消费它——**禁止再写第二份握手**。WS 栈全仓只此一条
   (`tokio-tungstenite 0.24`,与 tunnel 同版本线,勿再引第二套)。
-- **`rustcode im` 子命令**:`serve/add/list/check/remove/register/unregister`(2026-09-23 起;
-  `serve` 是原前台服务循环,`--platform`/`--project` 过滤,run() 内联分发保退出码同
-  Schedule 模式,断线自动重连 1s/5s)。管理处理器在 bin 侧 `im_admin.rs`。
+- **`rustcode im` 子命令**:`serve/add/list/check/remove/register/unregister/setup`
+  (2026-09-23 起;`serve` 是原前台服务循环,`--platform`/`--project` 过滤,
+  run() 内联分发保退出码同 Schedule 模式,断线自动重连 1s/5s)。管理处理器在
+  bin 侧 `im_admin.rs`。
+  - `setup` 三步向导(对标 AgentCore 流程:建机器人 -> 配渠道 -> 验证):
+    平台+project(project 缺省取 cwd,须为已存在的绝对路径) -> 逐字段收集
+    凭据并过 `normalize_credential_input` -> **复用** `handle_im_add` 保存 +
+    `handle_im_check` 实测网关;`退出码 0 仅当保存与检查都成功**,否则 1 并给
+    可操作提示(凭据失败时说明 add 只做结构校验、实测交给 check/serve,
+    且环境变量须在 `rustcode im serve` 的运行环境里设置)。纯校验函数可测,
+    测试**不碰** `$RUSTCODE_HOME`;支持 `--platform/--project` 与凭据 flag
+    非交互驱动。
   - `add <platform> <project>` 按 `(platform, project)` **upsert**(平台拼写归一化,
     否则 `DingTalk`/`dingtalk` 会被 validate 判重复);整渠道**替换**而非合并字段
     (用户最后传的即所存,无陈旧字段残留)。

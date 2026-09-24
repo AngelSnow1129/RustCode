@@ -140,12 +140,29 @@
 
 | 平台 | 结论 | 证据强度 |
 |------|------|---------|
-| 钉钉 | 支持 Stream 长连接，无需公网 | **已证实**（官方 SDK README 原文 + 示例代码） |
-| 飞书 | 高置信支持长连接 | **未取得一手证据** —— 官方 SDK 的 WS 源码路径逐个 404，GitHub API 触发限流。飞书文档站为纯 JS 渲染，抓取无正文 |
-| 企业微信 | 高置信为 webhook 回调（需公网） | **未验证** —— 同理未取得一手材料 |
+| 钉钉 | 支持 Stream 长连接，无需公网 | **已证实**（官方 SDK README 原文 + `stream.py` 的 `open_connection` 实现） |
+| 飞书 | **未验证** —— 是否存在长连接模式未知 | **两轮取证均未取得一手证据**（官方 SDK 的 `ws` 模块路径逐个 404、GitHub API 限流；飞书文档站纯 JS 渲染无正文；取证 agent 无网络工具）。代码侧仅有配置占位（`app_id`/`app_secret`、消息上限 4000），**不构成协议证据** |
+| 企业微信 | **未验证** —— 是否必须 webhook 回调未知 | **两轮取证均未取得一手证据**。仓库内唯一的企微 URL（`docs/webhook-guide.md` 的 `qyapi.weixin.qq.com/cgi-bin/webhook/send?key=XXX`）是**出站**群机器人通知，与入站机制无关，不可作为证据 |
 
-> **[待办] 实施 P-IM1 前必须补齐飞书与企业微信的一手文档核实**，
-> 不得依据"高置信"直接进入实现（本仓铁律：不臆断库/平台 API）。
+> **[待办] 补齐飞书与企业微信的一手文档核实后，才可进入适配器实现。**
+> 本仓铁律：不臆断平台 API。在此之前二者维持**仅配置面**状态——
+> 代码现状已与该结论一致：`ImPlatform::has_verified_long_connection()`
+> 仅对钉钉为真，`im_runner.rs` 对未实现平台显式报错，
+> daemon 的 test 路由对飞书/企微返回 `unsupported` 而非假装失败。
+
+> **措辞修正说明（2026-09-23）**：本表原将二者记为「高置信」。第二次取证
+> 仍失败后，该措辞已无证据支撑——「高置信」会诱导后来者跳过取证直接实现。
+> 现统一降级为**未验证 / 不可实现**，与代码已编码的保守语义对齐。
+
+**待验证时优先尝试的一手来源**（前两轮因工具限制未取到，非来源不存在）：
+- 飞书：`api.github.com/repos/larksuite/oapi-sdk-python/contents/lark_oapi/ws`、
+  `raw.githubusercontent.com/larksuite/oapi-sdk-go/main/README.md`（找 `ws` 长连接入口）
+- 企微：PyPI 上腾讯官方 SDK 的项目描述（静态文本）、
+  `raw.githubusercontent.com/sbzhu/weworkapi_python/master/README.md`（含 `WXBizMsgCrypt` 回调加解密形状；
+  **仅在确认属厂商自有仓库时才可视为一手**）
+
+> **建议**：本任务须由**具备 bash/curl 或 web_search 的**进程执行；前两轮失败均在工具层，
+> 非来源不可用。
 
 **本节结论（对 AgentCore 模式的关键修正）**：
 
