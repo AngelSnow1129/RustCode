@@ -366,6 +366,10 @@ pub enum SessionOrigin {
     /// Started by the scheduled-tasks runner. Hidden from normal `/resume`
     /// and sidebar pickers; visible in a dedicated scheduled-tasks view.
     Scheduled,
+    /// Driven by an IM channel (DingTalk / Feishu / WeCom). Kept distinct so a
+    /// chat-driven conversation can be told apart from one the user typed, and
+    /// so future pickers can filter or label it without guessing from content.
+    Im,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
