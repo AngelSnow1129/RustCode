@@ -23,6 +23,7 @@
 | 用户可见文案 | `crates/rustcode-config/src/i18n/{messages,en,zh_cn}.rs` |
 | 独立评审 CLI / `rustcodex` | `crates/rustcode-clix/src/`、`crates/rustcode-review/` |
 | 反向隧道中继 | `crates/rustcode-tunnel/`(bin `rustcode-relay`) |
+| IM 渠道接入(钉钉 Stream 等) | `crates/rustcode-cli/src/im/`、`crates/rustcode-cli/src/im_runner.rs`、`crates/rustcode-capabilities/src/im_probe.rs` |
 
 ## 仓库结构与工具链事实
 
@@ -276,6 +277,100 @@ CLI / TUI / daemon / background / ACP / clix code
 - 上游 core legacy `AgentClient`/v1 engine/`rustcode-bridge` 已退役;生产代码不得重建同名兼容层。历史 core JSON 只由 daemon 私有 DTO 单向导入。
 - `rustcode-kernel`/`rustcode-capabilities`/`rustcode-coding` 生产依赖必须保持 core-free。
 - native `SessionManager/SessionMeta/SessionSnapshot/PresentationFile` 是唯一 session 持久化模型。
+
+## IM 渠道 (2026-09-23 落地,改这块前必读)
+
+IM 接入让用户在钉钉/飞书/企业微信的聊天里驱动本项目 agent:消息转发给渠道绑定的
+project,回答回发同一会话。首发平台**钉钉 Stream 长连接**(客户端外连 WebSocket,
+**零公网/零隧道依赖**;协议取自官方 dingtalk-stream SDK 一手材料,未臆断)。
+参考 AgentCore 对照分析与分期方案见 `docs/plans/2026-09-23-im-integration-design.md`;
+持续任务(schedule/loop/wakeup)见 `docs/plans/2026-09-23-continuous-agent-design.md`。
+
+- **分层**:传输/协议/分片/续聊在 `crates/rustcode-cli/src/im/`(`mod.rs` trait +
+  `dingtalk.rs` 适配器 + `bridge.rs` 分片与去重 + `runner.rs` 单渠道服务循环);
+  进程级接线(`CliAgentRunner` 调 headless capture)在 bin 侧 `im_runner.rs`,
+  因 `run_native_headless` 是 bin 的 `pub(crate)`——**lib 不准反向调 bin**。
+- **网关握手单一实现**:`capabilities/src/im_probe.rs`(feature `im = ["egress"]`,
+  HTTP-only 不拉 WS 栈,出站走 `build_http_client` 单一工厂)。CLI 适配器委托它,
+  daemon 测试路由也消费它——**禁止再写第二份握手**。WS 栈全仓只此一条
+  (`tokio-tungstenite 0.24`,与 tunnel 同版本线,勿再引第二套)。
+- **`rustcode im` 子命令**:`serve/add/list/check/remove/register/unregister`(2026-09-23 起;
+  `serve` 是原前台服务循环,`--platform`/`--project` 过滤,run() 内联分发保退出码同
+  Schedule 模式,断线自动重连 1s/5s)。管理处理器在 bin 侧 `im_admin.rs`。
+  - `add <platform> <project>` 按 `(platform, project)` **upsert**(平台拼写归一化,
+    否则 `DingTalk`/`dingtalk` 会被 validate 判重复);整渠道**替换**而非合并字段
+    (用户最后传的即所存,无陈旧字段残留)。
+  - **凭据归一化是安全卡点**(`normalize_credential_input`):只接受 `$VAR`/`${VAR}`
+    引用或裸环境变量名(自动补 `$`);`${VAR:-default}` 回退写法**显式拒绝**——
+    回退值本身就是明文密钥,接受它会击穿"明文不落盘";其余字面量一律拒绝。
+  - `add` **刻意只做结构校验**(凭据展开检查要求本 shell 已设变量,而 add 是
+    staging 步骤);凭据实测由 `check`(网关探针,与 daemon test 路由同一实现)
+    与 `serve` 负责,`list` 只回显 `env:` 引用永不展开。
+- 凭据运行时走 config 的 `env:VAR` 展开,总开关 env `RUSTCODE_IM_ENABLED`(默认关,
+  显式 `=0` 压制配置,解析单点 `config::im::im_enabled_from`,禁止各自读 env)。
+- **OS 服务注册**(`im_service_os.rs`,`im register/unregister`):把渠道注册为
+  **常驻服务**而非定时器——`serve` 是长连接,timer 形状会每 tick 拉起重复进程抢
+  同一条平台连接。三平台形状:launchd `KeepAlive=true`+`RunAtLoad=true`;
+  systemd user unit `Restart=on-failure`+`RestartSec=5`+`WantedBy=default.target`;
+  schtasks `/SC ONLOGON`(Task Scheduler 无崩溃自启,崩溃后等下次登录——已知限制,
+  不是 bug)。服务名按 platform 拼(`rustcode-im-<platform>.service` 等),platform
+  拼写经 `checked_platform` 白名单(小写字母/数字/`_`/`-`)才进文件名。
+  `CommandRunner`/`run_checked`/`xml_escape` 复用 `schedule_os.rs`(单一实现,
+  勿复制);register 前先 `resolve_project` 校验目录存在,否则单元会在每次登录
+  crash-loop。重装已有服务时明确报 `ImAdminReRegistered`(静默成功会掩盖
+  已有单元在跑)。
+- **config `[im]` 段**:`[[im.channels]]`(platform/project/enabled/各平台凭据),
+  `validate()` 拒绝未知平台、缺 project、缺凭据、重复 `(project, platform)`
+  (不静默 last-wins),并接入配置加载告警路径;`skip_serializing_if` 保证未启用
+  的老配置零变化。
+- **身份映射**:`rustcode-config/src/im_store.rs`,存储
+  `$RUSTCODE_HOME/im/bindings/<platform>-<sha256(chat_id) 前16hex>.json`
+  (**文件名必须是 hash**:chat_id 来自网络不可信,拼路径会路径穿越)。
+  `upsert_preserving_session` 是续聊核心:已有绑定保 `session_id`,只刷
+  `updated_at`——丢了它 IM 对话每次都失忆。群聊按 `chat_id` 而非 `sender_id`
+  映射(同群所有人同会话)。会话打 `SessionOrigin::Im`(`manager.rs`)。
+- **daemon API**(`api_im.rs`,凭据只回显 `env:` 拼写、永不展开回显):
+  `GET /im/channels`(列表)、`PUT /im/channels`(整表替换+服务端 validate)、
+  `DELETE /im/channels/:index`(update 锁内重验索引)、`POST /im/enabled`(只翻总开关)、
+  `POST /im/channels/test {index}`(网关握手探针,响应只含
+  `ok/platform/message/endpoint_host?`;`endpoint_host` 剥查询串,**dial ticket
+  与展开凭据绝不进响应**;404 索引越界/400 平台未知或凭据缺失/200+ok:false 测试失败)、
+  外加既有只读 `GET /im/status`、`GET /im/overview`。写路径全走
+  `update_config()` compare-and-write(providers 同款)。
+- **client 标识**:`client_mode.rs` 的 `CLIENT_HEADER = "x-rustcode-client"` 是
+  单一事实源(`resolve_client_mode`/`ClientMode::wire()` 互逆,有 round-trip 测试);
+  IM 侧发 `channel` tag,使 daemon 把该请求计入可交互权限
+  (`client_interactive_permission` 白名单含 `Channel`)。**新增 client 类型改这里,
+  别在中间件里再写字面量**。
+- **WebUI**:侧栏设置菜单「IM 渠道」入口 -> `ImChannelsDialog`
+  (`SettingsDialogs.tsx`),API 在 `webui/src/api.ts`(`getImChannels`/
+  `putImChannels`/`deleteImChannel`/`postImEnabled`/`testImChannel`),文案键
+  `im.*` + `settings.menuIm` 双语;「测试连接」对**已保存**配置实测
+  (服务端读盘,非表单草稿),保存/删除/重排后旧判定作废。配置改动需重启
+  `rustcode im` 进程(启动时读盘),面板有 restartHint 提示。
+- **WebUI IM 记录栏目**(只读查看,2026-09-23 落地):侧栏 `ImGlyph` 入口(含折叠态
+  图标栏),仿 MCP 栏目的**懒加载 + 计数徽标**;三级面包屑
+  `平台 -> 项目 -> 会话`(`webui/src/lib/imRecords.ts` 纯函数 + 单测),
+  点击叶子会话走既有 `resolveSession` -> `onSelect` 复用会话查看器。
+  后端 `GET /im/bindings?platform=&project=&session_id=` 返回
+  `{enabled,total,platforms:[{platform,known_platform,configured,channel_enabled,
+  binding_count,project_count,last_active_at,projects:[{project,binding_count,
+  session_count,last_active_at,bindings}]}]}`——**platforms 取「config 已配渠道」∪
+  「im_store 实际绑定」的并集**,否则配置过但从未收到消息的渠道会从侧栏消失
+  (应显示 binding_count=0);排序确定性(平台名升序/项目路径升序/绑定按
+  updated_at 降序);纯函数 `build_im_bindings_response` 承载分组与过滤,handler
+  只做读盘,测试完全不碰 `$RUSTCODE_HOME`。**只读,无增删**。
+- **审批边界**:IM turn 背后有人(只是异步),`strict_unattended=false`,
+  模式封顶 `AcceptEdits`(禁 `auto`)。P-IM2 交互式审批往返**已落地(2026-09-23)**:
+  `run_native_headless` 收 `Option<&mut dyn ApprovalPort>`(main.rs Request 臂的
+  决策序:skip_permissions 放行 -> strict 拒绝**不问** port -> 有 port 则一切升级
+  **含 bash** 走聊天(legacy 的 bash 静默放行不得绕过可应答的人)-> 无 port 才回落
+  legacy 规则);lib 侧 `im/approval.rs` 的 `ImApprovalRelay` 把 `ApprovalRequest`
+  渲染成聊天卡片、轮询回复(`y/allow/允许`、`always/总是`、`n/deny/拒绝`,
+  **严格全字匹配**,散文不解析)、120s 超时 fail-closed(刻意短于 kernel 默认 300s,
+  让用户先从我们这里看到结果);exit 2(有拒绝)时把 agent 的解释文本回发聊天而非抛错。
+  `-p` 与 schedule 路径传 `None`,行为不变。飞书/企业微信**仅配置面**,适配器未实现
+  (其长连接机制未取得一手文档,按铁律不臆断),serve 时显式报"未实现"。
 
 ## 架构方向
 
