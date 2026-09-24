@@ -98,6 +98,14 @@ pub mod pathnorm;
 #[cfg(feature = "egress")]
 pub mod egress;
 
+/// IM channel connectivity probe (DingTalk gateway handshake) -- one
+/// implementation shared by the CLI adapter and the daemon's
+/// `/im/channels/test` route. HTTP-only: the WebSocket long connection stays in
+/// the CLI driver. Pulled in by the opt-in `im` feature (which implies
+/// `egress`).
+#[cfg(feature = "im")]
+pub mod im_probe;
+
 /// Proxy policy for outbound HTTP clients -- a self-contained mirror of
 /// `core::proxy` (reads the process `RUSTCODE_PROXY_MODE` env) so native clients
 /// honor `no_proxy` without `capabilities` depending on `core`. Compiled
