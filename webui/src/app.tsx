@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Chat } from './components/Chat';
 import { Sidebar } from './components/Sidebar';
-import { ThemeDialog, LanguageDialog, ModelConfigDialog, RemoteAccessDialog, NotificationsDialog } from './components/SettingsDialogs';
+import { ThemeDialog, LanguageDialog, ModelConfigDialog, RemoteAccessDialog, NotificationsDialog, ImChannelsDialog } from './components/SettingsDialogs';
 import { RenameDialog, DeleteDialog } from './components/SessionDialogs';
 import { CwdPicker } from './components/CwdPicker';
 import { resolvePendingAfterDecision } from './lib/pendingPermission';
@@ -534,6 +534,9 @@ export function App() {
       )}
       {settingsSection === 'notifications' && (
         <NotificationsDialog onClose={() => setSettingsSection(null)} />
+      )}
+      {settingsSection === 'im' && (
+        <ImChannelsDialog onClose={() => setSettingsSection(null)} />
       )}
       {headerDialog === 'rename' && activeSession && (
         <RenameDialog

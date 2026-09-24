@@ -16,8 +16,16 @@ import {
   deleteProvider,
   discoverProviderModels,
   DiscoveredModelInfo,
+  getImChannels,
+  putImChannels,
+  deleteImChannel,
+  testImChannel,
   getTunnelStatus,
   TunnelStatus,
+  ImChannelsInfo,
+  ImChannelInfo,
+  ImChannelInput,
+  ImTestResult,
 } from '../api';
 import { useSettings, Theme, FontScale } from '../settings';
 import { Lang } from '../i18n';
@@ -1085,6 +1093,300 @@ export function RemoteAccessDialog({ onClose }: { onClose: () => void }) {
           </a>
         </div>
       </div>
+    </SettingsModal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// IM channels: bind a chat on DingTalk / Feishu / WeCom to a project, so the
+// agent can be driven from that conversation. Credential fields hold the raw
+// `env:` reference spelling -- the server never accepts (nor echoes) expanded
+// secrets.
+// ---------------------------------------------------------------------------
+
+const IM_PLATFORMS = [
+  { value: 'dingtalk', label: 'DingTalk / 钉钉' },
+  { value: 'feishu', label: 'Feishu / Lark / 飞书' },
+  { value: 'wecom', label: 'WeCom / 企业微信' },
+] as const;
+
+/// Credential fields per platform, in display order. Keys match the server's
+/// `required_credentials()` list so gaps can be highlighted per row.
+const IM_CREDENTIAL_FIELDS: Record<string, { key: string; label: string }[]> = {
+  dingtalk: [
+    { key: 'client_id', label: 'Client ID' },
+    { key: 'client_secret', label: 'Client Secret' },
+  ],
+  feishu: [
+    { key: 'app_id', label: 'App ID' },
+    { key: 'app_secret', label: 'App Secret' },
+  ],
+  wecom: [
+    { key: 'bot_id', label: 'Bot ID' },
+    { key: 'secret', label: 'Secret' },
+  ],
+};
+
+type ImDraftChannel = {
+  platform: string;
+  project: string;
+  enabled: boolean;
+  credentials: Record<string, string>;
+};
+
+function imDraftFromChannel(info: ImChannelInfo): ImDraftChannel {
+  return {
+    platform: info.platform,
+    project: info.project,
+    enabled: info.enabled,
+    credentials: { ...info.credentials },
+  };
+}
+
+function imChannelInputFromDraft(draft: ImDraftChannel): ImChannelInput {
+  const input: ImChannelInput = {
+    platform: draft.platform,
+    project: draft.project,
+    enabled: draft.enabled,
+  };
+  // Only send fields the platform knows, so an edit that switches platform does
+  // not leave stale credentials behind in the config file.
+  const fields = IM_CREDENTIAL_FIELDS[draft.platform] ?? [];
+  for (const { key } of fields) {
+    const value = draft.credentials[key]?.trim();
+    // Assign through a narrowed record view of the input shape; every platform
+    // credential key exists on ImChannelInput as `string | null | undefined`.
+    const record = input as unknown as Record<string, string | null>;
+    record[key] = value || null;
+  }
+  return input;
+}
+
+export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useSettings();
+  const [info, setInfo] = useState<ImChannelsInfo | null>(null);
+  const [drafts, setDrafts] = useState<ImDraftChannel[]>([]);
+  const [masterEnabled, setMasterEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
+  // Connectivity test: which row is probing, and the latest verdict per row.
+  // The test runs against the SAVED config (the server reads it), so results
+  // stay valid across draft edits until a save/reorder re-renders the list.
+  const [testing, setTesting] = useState<number | null>(null);
+  const [testResult, setTestResult] = useState<{ index: number; result: ImTestResult } | null>(null);
+
+  const apply = (next: ImChannelsInfo) => {
+    setInfo(next);
+    setDrafts(next.channels.map(imDraftFromChannel));
+    setMasterEnabled(next.enabled);
+    // The list may have been reordered/replaced -- old row indices no longer
+    // address the same channel, so a stale verdict must not linger.
+    setTestResult(null);
+  };
+
+  const reload = () => {
+    setLoading(true);
+    getImChannels()
+      .then(apply)
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { reload(); }, []);
+
+  const flashSaved = () => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  const patchDraft = (index: number, patch: Partial<ImDraftChannel>) => {
+    setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...patch } : d)));
+  };
+
+  const addChannel = () => {
+    setDrafts((prev) => [
+      ...prev,
+      { platform: 'dingtalk', project: '', enabled: true, credentials: {} },
+    ]);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const body = {
+        enabled: masterEnabled,
+        channels: drafts.map(imChannelInputFromDraft),
+      };
+      apply(await putImChannels(body));
+      flashSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeChannel = async (index: number) => {
+    try {
+      apply(await deleteImChannel(index));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const runTest = async (index: number) => {
+    setTesting(index);
+    setTestResult(null);
+    setError(null);
+    try {
+      const result = await testImChannel(index);
+      setTestResult({ index, result });
+    } catch (e) {
+      // 400/404 carry a server-localized `{error}` body; network failures are
+      // plain messages. Both render in the failing row, not a global banner,
+      // so the user sees WHICH channel failed.
+      setTestResult({
+        index,
+        result: {
+          ok: false,
+          platform: drafts[index]?.platform ?? '',
+          message: e instanceof Error ? e.message : String(e),
+        },
+      });
+    } finally {
+      setTesting(null);
+    }
+  };
+
+  return (
+    <SettingsModal title={t('im.title')} onClose={onClose}>
+      <div class="field-group im-channels">
+        <p class="field-hint">{t('im.intro')}</p>
+
+        <label class="field-row">
+          <input
+            type="checkbox"
+            checked={masterEnabled}
+            onChange={(e) => setMasterEnabled(e.currentTarget.checked)}
+          />
+          <span>{t('im.masterEnabled')}</span>
+        </label>
+
+        {loading && <div class="modal-loading">{t('im.loading')}</div>}
+        {error && <div class="remote-state remote-warn">{error}</div>}
+
+        {!loading && drafts.map((draft, index) => {
+          const fields = IM_CREDENTIAL_FIELDS[draft.platform] ?? [];
+          const missing = fields.filter(({ key }) => !(draft.credentials[key] ?? '').trim());
+          return (
+            <div class="im-channel" key={info?.channels[index]?.index ?? `new-${index}`}>
+              <div class="im-channel-head">
+                <span class="im-channel-pos">#{index + 1}</span>
+                <Select
+                  value={draft.platform}
+                  options={IM_PLATFORMS.map((p) => ({ value: p.value, label: p.label }))}
+                  onChange={(v) => patchDraft(index, { platform: v })}
+                />
+                <label class="field-row im-channel-enabled">
+                  <input
+                    type="checkbox"
+                    checked={draft.enabled}
+                    onChange={(e) => patchDraft(index, { enabled: e.currentTarget.checked })}
+                  />
+                  <span>{t('im.channelEnabled')}</span>
+                </label>
+                <button
+                  class="btn"
+                  disabled={testing !== null || loading}
+                  onClick={() => runTest(index)}
+                  title={t('im.testHint')}
+                >
+                  {testing === index ? t('im.testing') : t('im.test')}
+                </button>
+                <button
+                  class="btn btn-danger"
+                  onClick={() => setDeleteTarget(index)}
+                  title={t('im.remove')}
+                >
+                  {t('im.remove')}
+                </button>
+              </div>
+
+              <label class="im-channel-field">
+                <span>{t('im.project')}</span>
+                <input
+                  type="text"
+                  placeholder="/abs/path/to/workdir"
+                  value={draft.project}
+                  onChange={(e) => patchDraft(index, { project: e.currentTarget.value })}
+                />
+              </label>
+
+              {fields.map(({ key, label }) => (
+                <label class="im-channel-field" key={key}>
+                  <span>{label}</span>
+                  <input
+                    type="text"
+                    placeholder="$ENV_VAR"
+                    value={draft.credentials[key] ?? ''}
+                    onChange={(e) => patchDraft(index, {
+                      credentials: { ...draft.credentials, [key]: e.currentTarget.value },
+                    })}
+                  />
+                </label>
+              ))}
+
+              {missing.length > 0 && (
+                <p class="field-hint im-channel-missing">
+                  {t('im.missingCredentials', { fields: missing.join(', ') })}
+                </p>
+              )}
+
+              {testResult?.index === index && (
+                <p class={testResult.result.ok ? 'im-test-ok' : 'im-test-failed'}>
+                  {testResult.result.message}
+                </p>
+              )}
+            </div>
+          );
+        })}
+
+        {!loading && (
+          <div class="remote-actions">
+            <button class="btn" onClick={addChannel}>{t('im.add')}</button>
+          </div>
+        )}
+
+        {!loading && drafts.length === 0 && (
+          <p class="field-hint">{t('im.empty')}</p>
+        )}
+
+        <div class="remote-actions">
+          <button class="btn btn-primary" onClick={save} disabled={saving || loading}>
+            {saving ? t('im.saving') : t('im.save')}
+          </button>
+          {saved && <span class="im-saved">{t('im.saved')}</span>}
+        </div>
+        <p class="field-hint">{t('im.restartHint')}</p>
+      </div>
+
+      {deleteTarget !== null && (
+        <ConfirmDialog
+          title={t('im.removeTitle')}
+          body={t('im.removeConfirm', { position: String(deleteTarget + 1) })}
+          confirmLabel={t('im.remove')}
+          cancelLabel={t('common.cancel')}
+          onConfirm={async () => {
+            const target = deleteTarget;
+            setDeleteTarget(null);
+            if (target !== null) await removeChannel(target);
+          }}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
     </SettingsModal>
   );
 }

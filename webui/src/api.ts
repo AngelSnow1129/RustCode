@@ -569,6 +569,183 @@ export async function getMcpStatus(): Promise<McpStatusInfo> {
   return resp.json();
 }
 
+// --- IM channel bindings (read-only views of `rustcode_config::im_store`) ---
+
+export interface ImBindingInfo {
+  platform: string;
+  chat_id: string;
+  project: string;
+  session_id: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ImOverviewInfo {
+  enabled: boolean;
+  total: number;
+  by_platform: Record<string, number>;
+}
+
+export async function getImStatus(): Promise<ImBindingInfo[]> {
+  const resp = await fetch('/im/status', { headers: authHeaders() });
+  if (!resp.ok) throw new Error(`im status failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getImOverview(): Promise<ImOverviewInfo> {
+  const resp = await fetch('/im/overview', { headers: authHeaders() });
+  if (!resp.ok) throw new Error(`im overview failed: ${resp.status}`);
+  return resp.json();
+}
+
+// --- IM records tree (platform -> project -> session_id), read-only ---
+
+/** One project node of an IM platform: the bound sessions live under it. */
+export interface ImProjectNode {
+  project: string;
+  binding_count: number;
+  session_count: number;
+  last_active_at?: number | null;
+  bindings: ImBindingInfo[];
+}
+
+/** One platform node: configured even with zero bindings, so the records
+ *  browser can show "known/configured but unused" channels. */
+export interface ImPlatformNode {
+  platform: string;
+  known_platform: boolean;
+  configured: boolean;
+  channel_enabled: boolean;
+  binding_count: number;
+  project_count: number;
+  last_active_at?: number | null;
+  projects: ImProjectNode[];
+}
+
+export interface ImBindingsInfo {
+  enabled: boolean;
+  total: number;
+  platforms: ImPlatformNode[];
+}
+
+/** Query filters for the records tree; empty/undefined means "no filter". */
+export interface ImBindingsQuery {
+  platform?: string;
+  project?: string;
+  session_id?: string;
+}
+
+export async function getImBindings(query: ImBindingsQuery = {}): Promise<ImBindingsInfo> {
+  const params = new URLSearchParams();
+  if (query.platform) params.set('platform', query.platform);
+  if (query.project) params.set('project', query.project);
+  if (query.session_id) params.set('session_id', query.session_id);
+  const qs = params.toString();
+  const url = qs ? `/im/bindings?${qs}` : '/im/bindings';
+  const resp = await fetch(url, { headers: authHeaders() });
+  if (!resp.ok) throw new Error(`im bindings failed: ${resp.status}`);
+  return resp.json();
+}
+
+// ---------------------------------------------------------------------------
+// IM channel configuration API
+// ---------------------------------------------------------------------------
+
+/// One configured IM channel, exactly as it is stored (credential fields hold
+/// the raw `env:` reference spelling, never an expanded secret).
+export interface ImChannelInfo {
+  index: number;
+  position: number;
+  platform: string;
+  known_platform: boolean;
+  credentials: Record<string, string>;
+  required: string[];
+  project: string;
+  enabled: boolean;
+}
+
+export interface ImChannelsInfo {
+  enabled: boolean;
+  channels: ImChannelInfo[];
+}
+
+export interface ImChannelInput {
+  platform: string;
+  project: string;
+  enabled: boolean;
+  client_id?: string | null;
+  client_secret?: string | null;
+  app_id?: string | null;
+  app_secret?: string | null;
+  bot_id?: string | null;
+  secret?: string | null;
+}
+
+export async function getImChannels(): Promise<ImChannelsInfo> {
+  const resp = await fetch('/im/channels', { headers: authHeaders() });
+  if (!resp.ok) throw new Error(`im channels failed: ${resp.status}`);
+  return resp.json();
+}
+
+/// Replace the whole channel list. Mirrors the config file: the UI edits a
+/// document, the server validates the result.
+export async function putImChannels(body: {
+  enabled: boolean;
+  channels: ImChannelInput[];
+}): Promise<ImChannelsInfo> {
+  const resp = await fetch('/im/channels', {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(`im channels save failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function deleteImChannel(index: number): Promise<ImChannelsInfo> {
+  const resp = await fetch(`/im/channels/${index}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!resp.ok) throw new Error(`im channel delete failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function postImEnabled(enabled: boolean): Promise<ImChannelsInfo> {
+  const resp = await fetch('/im/enabled', {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!resp.ok) throw new Error(`im enabled failed: ${resp.status}`);
+  return resp.json();
+}
+
+/// Verdict of one connectivity test (`POST /im/channels/test`). The server
+/// message is already localized server-side; `endpoint_host` is display-only.
+export interface ImTestResult {
+  ok: boolean;
+  platform: string;
+  message: string;
+  endpoint_host?: string;
+}
+
+export async function testImChannel(index: number): Promise<ImTestResult> {
+  const resp = await fetch('/im/channels/test', {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ index }),
+  });
+  // 400/404 carry a localized `{error}` body (missing credential / stale
+  // index) -- surface that instead of a bare status code.
+  if (!resp.ok) {
+    const body = (await resp.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error || `im channel test failed: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+
 /** Trust the current project for MCP servers, then rebuild the MCP registry. */
 export async function postLiveMcpTrust(): Promise<{ ok: boolean; error?: string }> {
   const resp = await fetch('/live/mcp/trust', {

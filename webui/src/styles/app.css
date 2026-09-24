@@ -2135,6 +2135,74 @@ body {
   color: #ef4444;
 }
 
+/* IM records browser (platform -> project -> session_id). Same popover shell as
+   the MCP menu; rows are clickable drill-down/leaf entries, never create/delete. */
+.im-menu { max-height: 360px; overflow-y: auto; max-width: 360px; min-height: 0; }
+.im-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--app-menu-border);
+  font-family: var(--app-monospace-font-family);
+  font-size: 0.75rem;
+  color: var(--app-secondary-foreground);
+}
+.im-crumb {
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+.im-crumb:hover { color: var(--app-brand); }
+.im-crumb.current { color: var(--app-primary-foreground); font-weight: 600; cursor: default; }
+.im-crumb-sep { color: var(--app-secondary-foreground); opacity: 0.6; }
+.im-menu-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-height: 0;
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--corner-radius-small);
+  background: transparent;
+  color: var(--app-menu-foreground, var(--app-primary-foreground));
+  cursor: pointer;
+  font-size: 0.8125rem;
+  text-align: left;
+}
+.im-menu-row:hover { background: var(--app-list-hover-background); }
+.im-menu-name {
+  font-size: 0.8125rem;
+  font-family: var(--app-monospace-font-family);
+  color: var(--app-primary-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.im-menu-row.leaf { border-left: 2px solid transparent; }
+.im-menu-row.leaf:hover { border-left-color: var(--app-brand); }
+.im-menu-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--app-secondary-foreground);
+}
+.im-menu-count {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--app-secondary-foreground);
+  opacity: 0.7;
+}
+.im-menu-note { padding: 8px 10px; font-size: 0.75rem; color: var(--app-secondary-foreground); }
+
 /* Settings button at the bottom of the collapsed icon rail (inside rail-bottom). */
 .rail-btn-settings {
   margin: 0;
@@ -2604,6 +2672,8 @@ body {
 }
 .remote-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .remote-warn { color: var(--app-warning-accent); }
+.im-test-ok { color: var(--app-success-foreground); font-size: 0.75rem; }
+.im-test-failed { color: var(--app-warning-accent); font-size: 0.75rem; }
 
 /* Directory browser */
 .dir-browser {

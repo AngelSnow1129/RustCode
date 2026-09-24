@@ -23,7 +23,13 @@ const FONT_SCALE_FACTORS: Record<FontScale, number> = {
 };
 
 /** Which settings dialog to open from the sidebar settings menu. */
-export type SettingsSection = 'theme' | 'language' | 'model' | 'remote' | 'notifications';
+export type SettingsSection =
+  | 'theme'
+  | 'language'
+  | 'model'
+  | 'remote'
+  | 'notifications'
+  | 'im';
 
 interface SettingsCtx {
   theme: Theme;
