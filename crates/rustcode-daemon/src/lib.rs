@@ -26,6 +26,7 @@ fn _isolate_rustcode_home() {
 }
 
 mod api_config;
+mod api_im;
 mod api_provider;
 pub mod approval_mode;
 pub mod client_mode;
@@ -94,7 +95,7 @@ use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, request::Parts as RequestParts, HeaderValue, Method, StatusCode},
     response::{sse::Sse, IntoResponse, Json},
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use futures::stream::StreamExt;
@@ -1227,7 +1228,7 @@ async fn activity_tracker_middleware(
     // Resolve client mode from X-RustCode-Client header
     let client_mode = req
         .headers()
-        .get("x-rustcode-client")
+        .get(crate::client_mode::CLIENT_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(resolve_client_mode)
         .unwrap_or(ClientMode::Ide);
@@ -5122,7 +5123,293 @@ async fn mcp_status(State(state): State<AppState>) -> Json<McpStatusResponse> {
     })
 }
 
-/// Build the `/mcp` status server rows from raw registry statuses.
+/// One IM binding, rendered for the WebUI list (never exposes the raw `chat_id`
+/// string beyond what is needed to identify the row; the platform is minted by us,
+/// the project is the user's own configured path, and `session_id` is needed by
+/// the frontend to drill into the conversation history).
+#[derive(Debug, Clone, Serialize)]
+pub struct ImBindingView {
+    pub platform: String,
+    pub chat_id: String,
+    pub project: String,
+    pub session_id: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// `GET /im/status` — read-only view of every IM chat binding on this machine.
+///
+/// Mirrors `/mcp/status`: a single GET with no side effects, so the WebUI can poll
+/// it on the same lazy-load cadence. Reads straight from `im_store`, which already
+/// skips corrupt files, so a half-written binding can never 500 this endpoint.
+pub async fn im_status() -> Json<Vec<ImBindingView>> {
+    let bindings = rustcode_config::im_store::list()
+        .into_iter()
+        .map(|b| ImBindingView {
+            platform: b.platform,
+            chat_id: b.chat_id,
+            project: b.project,
+            session_id: b.session_id,
+            created_at: b.created_at,
+            updated_at: b.updated_at,
+        })
+        .collect();
+    Json(bindings)
+}
+
+/// `GET /im/overview` — per-platform counts, driving the sidebar badge without
+/// forcing the WebUI to compute the aggregation itself.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImOverview {
+    pub enabled: bool,
+    pub total: usize,
+    /// platform -> count of bindings for that platform.
+    pub by_platform: std::collections::HashMap<String, usize>,
+}
+
+pub async fn im_overview(State(_state): State<AppState>) -> Json<ImOverview> {
+    // Config is needed only to know whether IM is enabled at all (a count of zero
+    // could mean "off" or "just unused"; the badge should reflect intent). Read it
+    // from the global ConfigStore -- AppState does not hold a config field, and
+    // `state.project` is the live ProjectState (working dir + recents), not config.
+    let enabled = rustcode_config::ConfigStore::default_store()
+        .read()
+        .ok()
+        .map(|s| rustcode_config::config::im::im_enabled_from(Some(&s.config.im)))
+        .unwrap_or(false);
+    let mut by_platform: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for b in rustcode_config::im_store::list() {
+        *by_platform.entry(b.platform).or_insert(0) += 1;
+    }
+    let total = by_platform.values().sum();
+    Json(ImOverview {
+        enabled,
+        total,
+        by_platform,
+    })
+}
+
+/// Optional filters for `GET /im/bindings`. All are exact matches (the platform
+/// one is case-insensitive because platform spellings come from two different
+/// sources -- user TOML and our own store -- and must line up); omitted ⇒ no
+/// filter on that axis.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ImBindingsQuery {
+    pub platform: Option<String>,
+    pub project: Option<String>,
+    pub session_id: Option<String>,
+}
+
+/// One project inside one platform in the `/im/bindings` tree.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImProjectGroup {
+    pub project: String,
+    /// Bindings (chats) under this project.
+    pub binding_count: usize,
+    /// Distinct session ids, so the UI can show "3 chats / 2 sessions".
+    pub session_count: usize,
+    /// Most recent `updated_at` in the group; 0 when the group is empty.
+    pub last_active_at: i64,
+    pub bindings: Vec<ImBindingView>,
+}
+
+/// One platform in the `/im/bindings` tree.
+///
+/// A platform is listed when it is **either** configured in `[im].channels`
+/// **or** has at least one stored binding. The union matters: a channel that was
+/// configured but never messaged would otherwise silently vanish from the IM
+/// records sidebar, and a binding whose channel was later removed from config
+/// would vanish from the only place the user can see (and delete) it.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImPlatformGroup {
+    pub platform: String,
+    /// `ImPlatform::parse` recognises the spelling.
+    pub known_platform: bool,
+    /// Present in `[im].channels`.
+    pub configured: bool,
+    /// Master switch **and** the channel's own switch are on.
+    pub channel_enabled: bool,
+    pub binding_count: usize,
+    pub project_count: usize,
+    pub last_active_at: i64,
+    pub projects: Vec<ImProjectGroup>,
+}
+
+/// `GET /im/bindings` — the platform → project → session tree.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImBindingsResponse {
+    pub enabled: bool,
+    /// Bindings **after** the query filters, not the unfiltered store size.
+    pub total: usize,
+    pub platforms: Vec<ImPlatformGroup>,
+}
+
+/// Canonical platform key: the two sources (user TOML and our own store) may
+/// differ in case/whitespace, so grouping and filtering both normalise first.
+fn im_platform_key(raw: &str) -> String {
+    raw.trim().to_ascii_lowercase()
+}
+
+/// Intermediate shape while grouping: `platform -> project -> bindings`.
+type ImGroupedProjects = Vec<(String, Vec<ImBindingView>)>;
+type ImGroupedPlatforms = Vec<(String, ImGroupedProjects)>;
+
+/// Pure tree builder, kept out of the handler so the ordering/union rules are
+/// unit-testable with in-memory inputs (no `$RUSTCODE_HOME`, no filesystem).
+fn build_im_bindings_response(
+    bindings: &[rustcode_config::im_store::ImBinding],
+    cfg: &rustcode_config::config::im::ImConfig,
+    enabled: bool,
+    q: &ImBindingsQuery,
+) -> ImBindingsResponse {
+    let platform_filter = q
+        .platform
+        .as_deref()
+        .map(im_platform_key)
+        .filter(|v| !v.is_empty());
+    let project_filter = q.project.as_deref().filter(|v| !v.is_empty());
+    let session_filter = q.session_id.as_deref().filter(|v| !v.is_empty());
+
+    // platform -> project -> bindings, built from the *filtered* bindings so
+    // every count below agrees with `total`.
+    let mut grouped: ImGroupedPlatforms = Vec::new();
+    for b in bindings {
+        let platform = im_platform_key(&b.platform);
+        if platform.is_empty() {
+            continue;
+        }
+        if platform_filter.as_deref().is_some_and(|f| f != platform) {
+            continue;
+        }
+        if project_filter.is_some_and(|f| f != b.project) {
+            continue;
+        }
+        if session_filter.is_some_and(|f| f != b.session_id) {
+            continue;
+        }
+        let view = ImBindingView {
+            platform: platform.clone(),
+            chat_id: b.chat_id.clone(),
+            project: b.project.clone(),
+            session_id: b.session_id.clone(),
+            created_at: b.created_at,
+            updated_at: b.updated_at,
+        };
+        let platform_idx = match grouped.iter().position(|(p, _)| *p == platform) {
+            Some(i) => i,
+            None => {
+                grouped.push((platform.clone(), Vec::new()));
+                grouped.len() - 1
+            }
+        };
+        let projects = &mut grouped[platform_idx].1;
+        match projects.iter_mut().find(|(p, _)| *p == b.project) {
+            Some((_, list)) => list.push(view),
+            None => projects.push((b.project.clone(), vec![view])),
+        }
+    }
+
+    // Union with the configured channels: a channel that has never been
+    // messaged must still appear (binding_count 0).
+    for channel in &cfg.channels {
+        let platform = im_platform_key(&channel.platform);
+        if platform.is_empty() {
+            continue;
+        }
+        if platform_filter.as_deref().is_some_and(|f| f != platform) {
+            continue;
+        }
+        if grouped.iter().any(|(p, _)| *p == platform) {
+            continue;
+        }
+        grouped.push((platform, Vec::new()));
+    }
+
+    let mut platforms: Vec<ImPlatformGroup> = grouped
+        .into_iter()
+        .map(|(platform, mut projects)| {
+            projects.sort_by(|(a, _), (b, _)| a.cmp(b));
+            let mut last_active_at = 0i64;
+            let mut binding_count = 0usize;
+            let project_groups: Vec<ImProjectGroup> = projects
+                .into_iter()
+                .map(|(project, mut bindings)| {
+                    bindings.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                    let mut sessions: Vec<&str> = Vec::new();
+                    for b in &bindings {
+                        if !sessions.contains(&b.session_id.as_str()) {
+                            sessions.push(b.session_id.as_str());
+                        }
+                    }
+                    let group = ImProjectGroup {
+                        project,
+                        binding_count: bindings.len(),
+                        session_count: sessions.len(),
+                        last_active_at: bindings.iter().map(|b| b.updated_at).max().unwrap_or(0),
+                        bindings,
+                    };
+                    binding_count += group.binding_count;
+                    last_active_at = last_active_at.max(group.last_active_at);
+                    group
+                })
+                .collect();
+            let matching: Vec<&rustcode_config::config::im::ImChannelConfig> = cfg
+                .channels
+                .iter()
+                .filter(|c| im_platform_key(&c.platform) == platform)
+                .collect();
+            ImPlatformGroup {
+                known_platform: rustcode_config::config::im::ImPlatform::parse(&platform).is_some(),
+                configured: !matching.is_empty(),
+                channel_enabled: matching
+                    .iter()
+                    .any(|c| rustcode_config::config::im::channel_is_active(cfg, c)),
+                platform,
+                binding_count,
+                project_count: project_groups.len(),
+                last_active_at,
+                projects: project_groups,
+            }
+        })
+        .collect();
+    platforms.sort_by(|a, b| a.platform.cmp(&b.platform));
+
+    let total = platforms.iter().map(|p| p.binding_count).sum();
+    ImBindingsResponse {
+        enabled,
+        total,
+        platforms,
+    }
+}
+
+/// `GET /im/bindings` — the platform → project → session drilldown tree for the
+/// WebUI IM records page.
+///
+/// Read-only and un-cached: it is a fresh `im_store::list()` plus the current
+/// `[im]` config on every call, so a binding deleted elsewhere shows up on the
+/// next poll. `/im/status` keeps its flat `Vec` shape (its contract is
+/// unchanged); this route exists because "all configured platforms with counts"
+/// cannot be derived from the flat list alone -- a configured but never-messaged
+/// channel has no row there at all.
+pub async fn im_bindings(Query(q): Query<ImBindingsQuery>) -> Json<ImBindingsResponse> {
+    // Single resolution point for `enabled`, shared with `im_overview`. A
+    // unreadable config store must not 500 the page: fall back to the env-only
+    // resolution (`im_enabled_from(None)`).
+    let bindings = rustcode_config::im_store::list();
+    let (cfg, enabled) = match rustcode_config::ConfigStore::default_store().read() {
+        Ok(s) => {
+            let cfg = s.config.im.clone();
+            let enabled = rustcode_config::config::im::im_enabled_from(Some(&cfg));
+            (cfg, enabled)
+        }
+        Err(_) => (
+            rustcode_config::config::im::ImConfig::default(),
+            rustcode_config::config::im::im_enabled_from(None),
+        ),
+    };
+    Json(build_im_bindings_response(&bindings, &cfg, enabled, &q))
+}
 ///
 /// Blocked (untrusted-project) servers are surfaced ONLY via the response's
 /// `blocked[]` list -- never as a server row. The capabilities `McpRegistry`
@@ -6532,6 +6819,19 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         // MCP API
         .route("/mcp/status", get(mcp_status))
         .route("/mcp/reload", post(mcp_reload))
+        // IM channel records (read-only; the WebUI IM section drills into these)
+        .route("/im/status", get(im_status))
+        .route("/im/overview", get(im_overview))
+        // Tree drilldown (platform -> project -> session) for the IM records page.
+        .route("/im/bindings", get(im_bindings))
+        // IM channel configuration API (WebUI edits these)
+        .route(
+            "/im/channels",
+            get(api_im::get_im_channels).put(api_im::put_im_channels),
+        )
+        .route("/im/channels/:index", delete(api_im::delete_im_channel))
+        .route("/im/enabled", post(api_im::post_im_enabled))
+        .route("/im/channels/test", post(api_im::test_im_channel))
         // Config API (P0)
         .route("/config", get(api_config::get_config))
         .route("/config/reload", post(api_config::reload_config))
@@ -9265,5 +9565,301 @@ mod resolve_daemon_token_tests {
         let t = resolve_daemon_token(None, None, None, &store);
         assert!(!t.is_empty());
         assert!(store.is_valid(&t));
+    }
+}
+
+#[cfg(test)]
+mod im_bindings_tests {
+    use super::{
+        build_im_bindings_response, ImBindingsQuery, ImBindingsResponse, ImPlatformGroup,
+        ImProjectGroup,
+    };
+    use rustcode_config::config::im::{ImChannelConfig, ImConfig};
+    use rustcode_config::im_store::ImBinding;
+
+    fn binding(
+        platform: &str,
+        chat_id: &str,
+        project: &str,
+        session: &str,
+        updated: i64,
+    ) -> ImBinding {
+        ImBinding {
+            platform: platform.into(),
+            chat_id: chat_id.into(),
+            project: project.into(),
+            session_id: session.into(),
+            created_at: 1,
+            updated_at: updated,
+        }
+    }
+
+    fn channel(platform: &str, project: &str, enabled: bool) -> ImChannelConfig {
+        ImChannelConfig {
+            platform: platform.into(),
+            project: project.into(),
+            enabled,
+            ..Default::default()
+        }
+    }
+
+    fn build(bindings: Vec<ImBinding>, cfg: ImConfig, q: ImBindingsQuery) -> ImBindingsResponse {
+        build_im_bindings_response(&bindings, &cfg, cfg.enabled, &q)
+    }
+
+    fn platform<'a>(resp: &'a ImBindingsResponse, name: &str) -> &'a ImPlatformGroup {
+        resp.platforms
+            .iter()
+            .find(|p| p.platform == name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "platform {name} missing; got {:?}",
+                    resp.platforms
+                        .iter()
+                        .map(|p| p.platform.clone())
+                        .collect::<Vec<_>>()
+                )
+            })
+    }
+
+    fn project<'a>(group: &'a ImPlatformGroup, path: &str) -> &'a ImProjectGroup {
+        group
+            .projects
+            .iter()
+            .find(|p| p.project == path)
+            .unwrap_or_else(|| panic!("project {path} missing"))
+    }
+
+    #[test]
+    fn empty_store_and_no_channels_yields_no_platforms() {
+        let resp = build(Vec::new(), ImConfig::default(), ImBindingsQuery::default());
+        assert!(resp.platforms.is_empty());
+        assert_eq!(resp.total, 0);
+        assert!(!resp.enabled);
+    }
+
+    #[test]
+    fn configured_channel_without_bindings_still_appears() {
+        let cfg = ImConfig {
+            enabled: true,
+            channels: vec![channel("dingtalk", "/srv/app", true)],
+        };
+        let resp = build(Vec::new(), cfg, ImBindingsQuery::default());
+        assert_eq!(resp.platforms.len(), 1);
+        let p = platform(&resp, "dingtalk");
+        assert_eq!(p.binding_count, 0);
+        assert!(p.configured);
+        assert!(p.known_platform);
+        assert!(
+            p.channel_enabled,
+            "master switch + channel switch are both on"
+        );
+        assert!(p.projects.is_empty());
+        assert_eq!(resp.total, 0);
+    }
+
+    #[test]
+    fn bindings_group_into_platform_then_project() {
+        let cfg = ImConfig {
+            enabled: true,
+            channels: vec![channel("feishu", "/srv/app", true)],
+        };
+        let bindings = vec![
+            binding("feishu", "c1", "/srv/app", "s1", 10),
+            binding("feishu", "c2", "/srv/app", "s1", 30),
+            binding("feishu", "c3", "/srv/app", "s2", 20),
+            binding("feishu", "c4", "/srv/other", "s3", 5),
+        ];
+        let resp = build(bindings, cfg, ImBindingsQuery::default());
+        assert_eq!(resp.total, 4);
+        let p = platform(&resp, "feishu");
+        assert_eq!(p.binding_count, 4);
+        assert_eq!(p.project_count, 2);
+        assert_eq!(p.last_active_at, 30);
+        let app = project(p, "/srv/app");
+        assert_eq!(app.binding_count, 3);
+        assert_eq!(app.session_count, 2, "distinct session ids only");
+        assert_eq!(app.last_active_at, 30);
+        // Within a project, newest first.
+        assert_eq!(
+            app.bindings
+                .iter()
+                .map(|b| b.updated_at)
+                .collect::<Vec<_>>(),
+            vec![30, 20, 10]
+        );
+        assert_eq!(project(p, "/srv/other").binding_count, 1);
+    }
+
+    #[test]
+    fn platform_filter_is_case_insensitive_and_drops_others() {
+        let bindings = vec![
+            binding("DingTalk", "c1", "/srv/app", "s1", 7),
+            binding("feishu", "c2", "/srv/app", "s2", 7),
+        ];
+        let q = ImBindingsQuery {
+            platform: Some("dingtalk".into()),
+            project: None,
+            session_id: None,
+        };
+        let resp = build(bindings, ImConfig::default(), q);
+        assert_eq!(resp.total, 1);
+        assert_eq!(resp.platforms.len(), 1);
+        // Grouping normalises the spelling from the store too.
+        let p = platform(&resp, "dingtalk");
+        assert_eq!(p.binding_count, 1);
+        assert_eq!(p.projects[0].bindings[0].platform, "dingtalk");
+    }
+
+    #[test]
+    fn project_filter_narrows_the_tree() {
+        let bindings = vec![
+            binding("wecom", "c1", "/srv/app", "s1", 1),
+            binding("wecom", "c2", "/srv/other", "s2", 1),
+        ];
+        let q = ImBindingsQuery {
+            platform: None,
+            project: Some("/srv/app".into()),
+            session_id: None,
+        };
+        let resp = build(bindings, ImConfig::default(), q);
+        assert_eq!(resp.total, 1);
+        let p = platform(&resp, "wecom");
+        assert_eq!(p.project_count, 1);
+        assert_eq!(p.projects[0].project, "/srv/app");
+    }
+
+    #[test]
+    fn session_filter_is_a_leaf_lookup() {
+        let bindings = vec![
+            binding("wecom", "c1", "/srv/app", "s1", 1),
+            binding("wecom", "c2", "/srv/app", "s2", 1),
+        ];
+        let q = ImBindingsQuery {
+            platform: None,
+            project: None,
+            session_id: Some("s2".into()),
+        };
+        let resp = build(bindings, ImConfig::default(), q);
+        assert_eq!(resp.total, 1);
+        let p = platform(&resp, "wecom");
+        assert_eq!(p.projects.len(), 1);
+        assert_eq!(p.projects[0].bindings.len(), 1);
+        assert_eq!(p.projects[0].bindings[0].session_id, "s2");
+        assert_eq!(p.projects[0].session_count, 1);
+    }
+
+    #[test]
+    fn ordering_is_deterministic() {
+        let bindings = vec![
+            binding("wecom", "c1", "/srv/z", "s1", 1),
+            binding("feishu", "c2", "/srv/b", "s2", 1),
+            binding("dingtalk", "c3", "/srv/a", "s3", 1),
+            binding("feishu", "c4", "/srv/a", "s4", 1),
+            binding("wecom", "c5", "/srv/a", "s5", 1),
+        ];
+        let cfg = ImConfig {
+            enabled: true,
+            channels: vec![
+                channel("wecom", "/srv/a", true),
+                channel("dingtalk", "/srv/a", true),
+            ],
+        };
+        let resp = build(bindings, cfg, ImBindingsQuery::default());
+        let names: Vec<&str> = resp.platforms.iter().map(|p| p.platform.as_str()).collect();
+        assert_eq!(names, vec!["dingtalk", "feishu", "wecom"]);
+        let feishu = platform(&resp, "feishu");
+        assert_eq!(
+            feishu
+                .projects
+                .iter()
+                .map(|p| p.project.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/srv/a", "/srv/b"]
+        );
+        // A platform present only in the store is still reported unconfigured.
+        let wecom = platform(&resp, "wecom");
+        assert!(wecom.configured);
+        assert!(wecom.channel_enabled);
+        assert!(!feishu.configured);
+        assert!(!feishu.channel_enabled);
+    }
+
+    #[test]
+    fn query_deserialises_from_optional_keys() {
+        // Guards `Query<ImBindingsQuery>`'s shape: every key is optional and
+        // omitted keys mean "no filter" (never `""`, which would filter out
+        // everything). Mirrors the query-string case the WebUI sends without
+        // needing a urlencoded parser in this test.
+        let q: ImBindingsQuery = serde_json::from_str(
+            r#"{"platform":"DingTalk","project":"/srv/app","session_id":"s1"}"#,
+        )
+        .expect("all keys parse");
+        assert_eq!(q.platform.as_deref(), Some("DingTalk"));
+        assert_eq!(q.project.as_deref(), Some("/srv/app"));
+        assert_eq!(q.session_id.as_deref(), Some("s1"));
+        let empty: ImBindingsQuery = serde_json::from_str("{}").expect("empty parses");
+        assert!(empty.platform.is_none() && empty.project.is_none() && empty.session_id.is_none());
+        // And those filters actually apply (case-insensitive platform included).
+        let bindings = vec![
+            binding("DingTalk", "c1", "/srv/app", "s1", 1),
+            binding("feishu", "c2", "/srv/app", "s2", 1),
+        ];
+        let resp = build(bindings, ImConfig::default(), q);
+        assert_eq!(resp.total, 1);
+        assert_eq!(resp.platforms.len(), 1);
+        assert_eq!(resp.platforms[0].platform, "dingtalk");
+    }
+
+    #[test]
+    fn disabled_master_switch_reports_channel_disabled() {
+        let cfg = ImConfig {
+            enabled: false,
+            channels: vec![channel("feishu", "/srv/app", true)],
+        };
+        let resp = build(
+            vec![binding("feishu", "c1", "/srv/app", "s1", 1)],
+            cfg,
+            ImBindingsQuery::default(),
+        );
+        let p = platform(&resp, "feishu");
+        assert!(p.configured);
+        assert!(
+            !p.channel_enabled,
+            "master switch off disables every channel"
+        );
+        assert_eq!(p.binding_count, 1);
+    }
+
+    #[test]
+    fn unknown_platform_spelling_is_flagged() {
+        let cfg = ImConfig {
+            enabled: true,
+            channels: vec![channel("slack", "/srv/app", true)],
+        };
+        let resp = build(Vec::new(), cfg, ImBindingsQuery::default());
+        let p = platform(&resp, "slack");
+        assert!(p.configured);
+        assert!(!p.known_platform);
+    }
+
+    #[test]
+    fn response_serialises_with_the_webui_field_names() {
+        let bindings = vec![binding("feishu", "c1", "/srv/app", "s1", 42)];
+        let cfg = ImConfig {
+            enabled: true,
+            channels: vec![channel("feishu", "/srv/app", true)],
+        };
+        let resp = build(bindings, cfg, ImBindingsQuery::default());
+        let json = serde_json::to_value(&resp).expect("serialises");
+        assert!(json["enabled"].as_bool().unwrap());
+        assert_eq!(json["total"], 1);
+        assert_eq!(json["platforms"][0]["platform"], "feishu");
+        assert_eq!(json["platforms"][0]["projects"][0]["project"], "/srv/app");
+        assert_eq!(
+            json["platforms"][0]["projects"][0]["bindings"][0]["chat_id"],
+            "c1"
+        );
+        assert_eq!(json["platforms"][0]["channel_enabled"], true);
     }
 }

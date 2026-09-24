@@ -21,7 +21,7 @@ rustcode-config = { path = "../rustcode-config" }
 rustcode-tunnel = { path = "../rustcode-tunnel" }
 # `tools` is required directly by the `/fs/search` handler (the `file_index`
 # module is gated on it). Declare it so the dependency is explicit.
-rustcode-capabilities = { path = "../rustcode-capabilities", features = ["plugin", "mcp", "tools", "egress"] }
+rustcode-capabilities = { path = "../rustcode-capabilities", features = ["plugin", "mcp", "tools", "egress", "im"] }
 # Unified native runtime used by daemon live/chat/session paths.
 rustcode-kernel = { path = "../rustcode-kernel" }
 rustcode-coding = { path = "../rustcode-coding" }

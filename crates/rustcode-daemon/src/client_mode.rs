@@ -9,6 +9,13 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Request header carrying the client tag.
+///
+/// The spelling lives here so the middleware that *reads* it and any client that
+/// *sends* it cannot drift apart. Header names are matched case-insensitively by
+/// axum, so the lowercase form is canonical.
+pub const CLIENT_HEADER: &str = "x-rustcode-client";
+
 /// Daemon-side client identity, parsed from the `x-rustcode-client` request
 /// header (startup: `--client <value>`).
 ///
@@ -52,6 +59,25 @@ pub fn resolve_client_mode(header: &str) -> ClientMode {
     }
 }
 
+impl ClientMode {
+    /// Reverse of [`resolve_client_mode`]: the wire tag a client should send in
+    /// the [`CLIENT_HEADER`] request header.
+    ///
+    /// Kept beside the parser so the two directions cannot diverge.
+    pub fn wire(self) -> &'static str {
+        match self {
+            Self::Headless => "headless",
+            Self::Tui => "tui",
+            Self::Ide => "ide",
+            Self::Channel => "channel",
+            Self::Vscode => "vscode",
+            Self::Jetbrains => "jetbrains",
+            Self::Webui => "webui",
+            Self::RustcodeAir => "rustcode-air",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,6 +92,39 @@ mod tests {
         assert_eq!(resolve_client_mode("jetbrains"), ClientMode::Jetbrains);
         assert_eq!(resolve_client_mode("webui"), ClientMode::Webui);
         assert_eq!(resolve_client_mode("rustcode-air"), ClientMode::RustcodeAir);
+    }
+
+    /// The parser and `wire()` must stay exact inverses, or a client would send
+    /// a tag the daemon resolves to a different mode (silently downgrading an IM
+    /// channel to `Ide`, which changes approval behaviour).
+    #[test]
+    fn wire_is_the_exact_inverse_of_parsing() {
+        for mode in [
+            ClientMode::Headless,
+            ClientMode::Tui,
+            ClientMode::Ide,
+            ClientMode::Channel,
+            ClientMode::Vscode,
+            ClientMode::Jetbrains,
+            ClientMode::Webui,
+            ClientMode::RustcodeAir,
+        ] {
+            assert_eq!(
+                resolve_client_mode(mode.wire()),
+                mode,
+                "`{}` did not round-trip",
+                mode.wire()
+            );
+        }
+    }
+
+    #[test]
+    fn channel_mode_is_conveyed_by_its_own_wire_tag() {
+        // IM adapters must tag themselves `channel` so the daemon treats the
+        // request as interactive-capable (there is a human, just an async one)
+        // instead of falling back to the default `ide`.
+        assert_eq!(ClientMode::Channel.wire(), "channel");
+        assert_ne!(ClientMode::Channel.wire(), ClientMode::default().wire());
     }
 
     #[test]
