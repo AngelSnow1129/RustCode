@@ -26,7 +26,14 @@ impl CommandRunner for RealCommandRunner {
 }
 
 /// Run a command and bail if it exits non-zero.
-fn run_checked(runner: &dyn CommandRunner, prog: &str, args: &[String]) -> anyhow::Result<()> {
+///
+/// `pub(crate)`: shared with `im_service_os.rs`, which registers the IM serve
+/// services through the same checked-run discipline (single implementation).
+pub(crate) fn run_checked(
+    runner: &dyn CommandRunner,
+    prog: &str,
+    args: &[String],
+) -> anyhow::Result<()> {
     let out = runner.run(prog, args)?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -365,7 +372,7 @@ impl OsScheduler for TaskSched {
 // ---- Platform UID helper ----
 
 #[cfg(any(test, target_os = "macos"))]
-fn get_uid() -> u32 {
+pub(crate) fn get_uid() -> u32 {
     #[cfg(unix)]
     {
         // SAFETY: getuid() is always safe to call
@@ -427,7 +434,7 @@ pub fn current() -> anyhow::Result<Box<dyn OsScheduler + Send + Sync>> {
 /// Replaces `&`, `<`, `>`, and `"` with their XML entity equivalents so that
 /// paths containing those characters produce well-formed plist XML.
 #[cfg(any(test, target_os = "macos"))]
-fn xml_escape(s: &str) -> String {
+pub(crate) fn xml_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
