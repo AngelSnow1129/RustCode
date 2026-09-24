@@ -64,6 +64,14 @@ pub const TRUSTED_HOSTS_ENV: &str = "RUSTCODE_TRUSTED_HOSTS";
 /// (see `config::webui_no_auth_enabled`). Default is OFF, i.e. token auth.
 pub const WEBUI_NO_AUTH_ENV: &str = "RUSTCODE_WEBUI_NO_AUTH";
 
+/// Master switch for IM channels (`1|true|on|yes` / `0|false|no|off`).
+///
+/// Explicit boolean, resolved by `config::im::im_enabled_from` — an explicit
+/// `0` overrides an `enabled = true` in config, so channels can be turned off
+/// in a container without editing the user's file. Unset defers to config.
+/// Default OFF: an unconfigured build is unaffected.
+pub const IM_ENABLED_ENV: &str = "RUSTCODE_IM_ENABLED";
+
 // ---------------------------------------------------------------------------
 // Hosted-service addresses
 //

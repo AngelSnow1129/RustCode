@@ -53,6 +53,11 @@ pub mod system_proxy;
 /// Local scheduled-task model, file store, and next-run calculator.
 pub mod schedule;
 
+/// IM channel identity mapping: which `(platform, chat_id)` drives which
+/// project + session. File-backed, one binding per chat, hash-named so an
+/// untrusted chat id can never escape the store directory.
+pub mod im_store;
+
 /// Pure helpers for session/client tagging and git repo-origin detection.
 /// No network I/O; re-homes the survivors of the removed `telemetry_legacy`
 /// module.

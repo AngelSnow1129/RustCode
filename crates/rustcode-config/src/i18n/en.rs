@@ -1651,6 +1651,121 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
                 "provider account `{id}` uses `{provider}`, which has no default endpoint; set `base_url`"
             )
             .into(),
+        Msg::CfgDiagImUnknownPlatform { position, platform } =>
+            format!(
+                "IM channel #{position} names unknown platform `{platform}`; expected one of `dingtalk`, `feishu`, `wecom`"
+            )
+            .into(),
+        Msg::CfgDiagImMissingProject { position, platform } =>
+            format!("IM channel #{position} (`{platform}`) is missing `project`").into(),
+        Msg::CfgDiagImMissingCredential { position, platform, field } =>
+            format!(
+                "IM channel #{position} (`{platform}`) is missing credential `{field}` (unset, or its environment variable expands to empty)"
+            )
+            .into(),
+        Msg::CfgDiagImDuplicateChannel { platform, project } =>
+            format!(
+                "duplicate IM channel: `{platform}` is configured more than once for project `{project}`"
+            )
+            .into(),
+        Msg::DaemonImChannelIndexOutOfRange { index } =>
+            format!("IM channel index {index} is out of range; refresh and retry").into(),
+        Msg::DaemonImUnknownPlatform { position, platform } =>
+            format!(
+                "IM channel #{position} names unknown platform `{platform}`; expected one of `dingtalk`, `feishu`, `wecom`"
+            )
+            .into(),
+        Msg::DaemonImTestOk { platform, endpoint_host } =>
+            format!(
+                "IM channel test succeeded for `{platform}`; the gateway issued a connection endpoint at `{endpoint_host}`"
+            )
+            .into(),
+        Msg::DaemonImTestFailed { platform, error } =>
+            format!("IM channel test failed for `{platform}`: {error}").into(),
+        Msg::DaemonImTestUnsupported { platform } =>
+            format!("connectivity test is not implemented for `{platform}` yet (only `dingtalk`)").into(),
+        Msg::ImAdminCredentialEmpty { field } =>
+            format!(
+                "credential `{field}` is empty; pass an environment-variable reference like $DINGTALK_CLIENT_SECRET"
+            )
+            .into(),
+        Msg::ImAdminCredentialBadVarName { field } =>
+            format!(
+                "credential `{field}`: `$...` must name a valid environment variable (letters, digits, `_`; not starting with a digit)"
+            )
+            .into(),
+        Msg::ImAdminCredentialDefaultDenied { field } =>
+            format!(
+                "credential `{field}`: the `:-default` fallback form embeds a literal value in the config; use `$VAR` (or a bare variable name) so only the reference is stored"
+            )
+            .into(),
+        Msg::ImAdminCredentialMustBeEnvRef { field } =>
+            format!(
+                "credential `{field}` must be an environment-variable reference ($VAR, or a bare variable name which gets a $ prefix); literal secrets are never written to config"
+            )
+            .into(),
+        Msg::ImAdminUnknownPlatform { platform } =>
+            format!("unknown platform `{platform}`; expected one of `dingtalk`, `feishu`, `wecom`").into(),
+        Msg::ImAdminProjectRequired =>
+            "`im add` requires a project path (the absolute directory this chat drives)".into(),
+        Msg::ImAdminUpdated { platform, project } =>
+            format!("IM channel updated: `{platform}` -> `{project}`").into(),
+        Msg::ImAdminAdded { platform, project } =>
+            format!("IM channel added: `{platform}` -> `{project}`").into(),
+        Msg::ImAdminListEmpty =>
+            "no IM channels configured; add one with `rustcode im add`".into(),
+        Msg::ImAdminChannelHeader { position } =>
+            format!("IM channel #{position}").into(),
+        Msg::ImAdminNoMatch => "no IM channels match the given filters".into(),
+        Msg::ImAdminCheckOk { position, platform, endpoint_host } =>
+            format!(
+                "IM channel #{position} (`{platform}`) check passed; gateway endpoint host `{endpoint_host}`"
+            )
+            .into(),
+        Msg::ImAdminCheckFailed { position, error } =>
+            format!("IM channel #{position} check failed: {error}").into(),
+        Msg::ImAdminCheckUnsupported { platform } =>
+            format!("connectivity check is not implemented for `{platform}` yet (only `dingtalk`)").into(),
+        Msg::ImAdminNotFound { platform } =>
+            format!("no IM channel found for platform `{platform}`; run `rustcode im list`").into(),
+        Msg::ImAdminRemoved { platform, project } =>
+            format!("IM channel removed: `{platform}` -> `{project}`").into(),
+        Msg::ImAdminRegistered { platform } =>
+            format!("IM service registered for `{platform}` (starts at login, kept alive)").into(),
+        Msg::ImAdminReRegistered { platform } =>
+            format!(
+                "IM service for `{platform}` was already installed; the unit has been re-registered"
+            )
+            .into(),
+        Msg::ImAdminUnregistered { platform } =>
+            format!("IM service removed for `{platform}`").into(),
+        Msg::CliAboutImRegister =>
+            "Register the channel as an OS service (starts at login, kept alive)".into(),
+        Msg::CliAboutImUnregister => "Unregister the OS service for a platform".into(),
+        Msg::CliAboutIm => "Manage and serve IM channels (serve/add/list/check/remove)".into(),
+        Msg::CliAboutImServe =>
+            "Serve IM channels in the foreground (chat messages drive the agent)".into(),
+        Msg::CliAboutImAdd =>
+            "Add or update one channel binding (credentials must be $VAR references)".into(),
+        Msg::CliAboutImList =>
+            "List configured IM channels (credential references only)".into(),
+        Msg::CliAboutImCheck =>
+            "Run the connectivity probe against configured channels".into(),
+        Msg::CliAboutImRemove => "Remove one channel binding".into(),
+        Msg::CliHelpImPlatform => "Only this platform (e.g. dingtalk)".into(),
+        Msg::CliHelpImProject => "Only the channel bound to this exact absolute path".into(),
+        Msg::CliHelpImCredential =>
+            "Environment-variable reference (e.g. $DINGTALK_CLIENT_SECRET); literals are rejected".into(),
+        Msg::ImApprovalAsk { tool } =>
+            format!("The agent requests approval to run tool `{tool}`:").into(),
+        Msg::ImApprovalReason { reason } =>
+            format!("reason: {reason}").into(),
+        Msg::ImApprovalHint =>
+            "reply `y`/`allow` to allow once, `always` to allow for this turn, `n`/`deny` to refuse".into(),
+        Msg::ImApprovalTimeout { secs } =>
+            format!("approval timed out after {secs}s; treated as denied").into(),
+        Msg::ImApprovalUnparsed =>
+            "could not parse the reply; answer `y` (allow), `always` (allow for this turn) or `n` (deny)".into(),
         Msg::CfgDiagModelMissingModel { id } =>
             format!("model `{id}` is missing `model`").into(),
         Msg::CfgDiagModelMissingAccount { id } =>

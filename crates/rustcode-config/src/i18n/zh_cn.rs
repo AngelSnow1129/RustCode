@@ -1604,6 +1604,102 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
                 "Provider 账号 `{id}` 使用的 `{provider}` 没有默认端点；请设置 `base_url`"
             )
             .into(),
+        Msg::CfgDiagImUnknownPlatform { position, platform } =>
+            format!(
+                "IM 渠道 #{position} 指定了未知平台 `{platform}`；应为 `dingtalk`、`feishu`、`wecom` 之一"
+            )
+            .into(),
+        Msg::CfgDiagImMissingProject { position, platform } =>
+            format!("IM 渠道 #{position}（`{platform}`）缺少 `project` 字段").into(),
+        Msg::CfgDiagImMissingCredential { position, platform, field } =>
+            format!(
+                "IM 渠道 #{position}（`{platform}`）缺少凭据 `{field}`（未设置，或其环境变量展开为空）"
+            )
+            .into(),
+        Msg::CfgDiagImDuplicateChannel { platform, project } =>
+            format!("IM 渠道重复：项目 `{project}` 配置了不止一个 `{platform}` 渠道").into(),
+        Msg::DaemonImChannelIndexOutOfRange { index } =>
+            format!("IM 渠道序号 {index} 超出范围；请刷新后重试").into(),
+        Msg::DaemonImUnknownPlatform { position, platform } =>
+            format!(
+                "IM 渠道 #{position} 指定了未知平台 `{platform}`；应为 `dingtalk`、`feishu`、`wecom` 之一"
+            )
+            .into(),
+        Msg::DaemonImTestOk { platform, endpoint_host } =>
+            format!("IM 渠道测试成功（`{platform}`）；网关已签发连接端点 `{endpoint_host}`").into(),
+        Msg::DaemonImTestFailed { platform, error } =>
+            format!("IM 渠道测试失败（`{platform}`）：{error}").into(),
+        Msg::DaemonImTestUnsupported { platform } =>
+            format!("暂不支持 `{platform}` 的连通性测试（仅支持 `dingtalk`）").into(),
+        Msg::ImAdminCredentialEmpty { field } =>
+            format!("凭据 `{field}` 为空；请传环境变量引用，如 $DINGTALK_CLIENT_SECRET").into(),
+        Msg::ImAdminCredentialBadVarName { field } =>
+            format!(
+                "凭据 `{field}`：`$...` 必须是合法环境变量名（字母/下划线开头，仅字母、数字、下划线）"
+            )
+            .into(),
+        Msg::ImAdminCredentialDefaultDenied { field } =>
+            format!(
+                "凭据 `{field}`：`:-default` 回退写法会把明文默认值写进配置；请用 `$VAR`（或裸变量名），只存引用"
+            )
+            .into(),
+        Msg::ImAdminCredentialMustBeEnvRef { field } =>
+            format!(
+                "凭据 `{field}` 必须是环境变量引用（$VAR，或自动补 $ 的裸变量名）；明文密钥绝不写入配置"
+            )
+            .into(),
+        Msg::ImAdminUnknownPlatform { platform } =>
+            format!("未知平台 `{platform}`；应为 `dingtalk`、`feishu`、`wecom` 之一").into(),
+        Msg::ImAdminProjectRequired =>
+            "`im add` 必须提供 project 路径（该聊天驱动的绝对目录）".into(),
+        Msg::ImAdminUpdated { platform, project } =>
+            format!("IM 渠道已更新：`{platform}` -> `{project}`").into(),
+        Msg::ImAdminAdded { platform, project } =>
+            format!("IM 渠道已添加：`{platform}` -> `{project}`").into(),
+        Msg::ImAdminListEmpty => "尚未配置任何 IM 渠道；用 `rustcode im add` 添加".into(),
+        Msg::ImAdminChannelHeader { position } => format!("IM 渠道 #{position}").into(),
+        Msg::ImAdminNoMatch => "没有匹配筛选条件的 IM 渠道".into(),
+        Msg::ImAdminCheckOk { position, platform, endpoint_host } =>
+            format!(
+                "IM 渠道 #{position}（`{platform}`）检查通过；网关端点主机 `{endpoint_host}`"
+            )
+            .into(),
+        Msg::ImAdminCheckFailed { position, error } =>
+            format!("IM 渠道 #{position} 检查失败：{error}").into(),
+        Msg::ImAdminCheckUnsupported { platform } =>
+            format!("暂不支持 `{platform}` 的连通性检查（仅支持 `dingtalk`）").into(),
+        Msg::ImAdminNotFound { platform } =>
+            format!("未找到平台 `{platform}` 的 IM 渠道；请先 `rustcode im list`").into(),
+        Msg::ImAdminRemoved { platform, project } =>
+            format!("IM 渠道已删除：`{platform}` -> `{project}`").into(),
+        Msg::ImAdminRegistered { platform } =>
+            format!("`{platform}` 的 IM 服务已注册（登录自启、崩溃自拉起）").into(),
+        Msg::ImAdminReRegistered { platform } =>
+            format!("`{platform}` 的 IM 服务此前已存在，单元已重新注册").into(),
+        Msg::ImAdminUnregistered { platform } =>
+            format!("`{platform}` 的 IM 服务已移除").into(),
+        Msg::CliAboutImRegister => "把渠道注册为系统服务（登录自启、保活）".into(),
+        Msg::CliAboutImUnregister => "移除某平台的 IM 系统服务".into(),
+        Msg::CliAboutIm => "管理与托管 IM 渠道（serve/add/list/check/remove）".into(),
+        Msg::CliAboutImServe => "前台托管 IM 渠道（聊天消息驱动 agent）".into(),
+        Msg::CliAboutImAdd => "添加或更新一个渠道绑定（凭据必须是 $VAR 引用）".into(),
+        Msg::CliAboutImList => "列出已配置的 IM 渠道（仅凭据引用，不含明文）".into(),
+        Msg::CliAboutImCheck => "对已配置渠道运行连通性探针".into(),
+        Msg::CliAboutImRemove => "删除一个渠道绑定".into(),
+        Msg::CliHelpImPlatform => "仅处理该平台（如 dingtalk）".into(),
+        Msg::CliHelpImProject => "仅处理绑定到该绝对路径的渠道".into(),
+        Msg::CliHelpImCredential =>
+            "环境变量引用（如 $DINGTALK_CLIENT_SECRET）；拒绝明文".into(),
+        Msg::ImApprovalAsk { tool } =>
+            format!("Agent 请求批准运行工具 `{tool}`：").into(),
+        Msg::ImApprovalReason { reason } =>
+            format!("原因：{reason}").into(),
+        Msg::ImApprovalHint =>
+            "回复 `y`/`允许` 批准一次，`always`/`总是` 本回合总是允许，`n`/`拒绝` 拒绝".into(),
+        Msg::ImApprovalTimeout { secs } =>
+            format!("审批超时（{secs} 秒），已按拒绝处理").into(),
+        Msg::ImApprovalUnparsed =>
+            "无法识别回复；请回复 `y`（允许）、`always`（总是允许）或 `n`（拒绝）".into(),
         Msg::CfgDiagModelMissingModel { id } =>
             format!("模型 `{id}` 缺少 `model` 字段").into(),
         Msg::CfgDiagModelMissingAccount { id } =>

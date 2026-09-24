@@ -2386,6 +2386,173 @@ pub enum Msg<'a> {
         id: &'a str,
         provider: &'a str,
     },
+    /// Validation: an `[[im.channels]]` entry names a platform that is not
+    /// recognized. `position` is the 1-based index in the file.
+    CfgDiagImUnknownPlatform {
+        position: usize,
+        platform: &'a str,
+    },
+    /// Validation: an IM channel has no `project`, so it cannot be bound to
+    /// any agent.
+    CfgDiagImMissingProject {
+        position: usize,
+        platform: &'a str,
+    },
+    /// Validation: an IM channel's required credential is unset, or expands to
+    /// empty. `field` is the config key name (e.g. `client_secret`).
+    CfgDiagImMissingCredential {
+        position: usize,
+        platform: &'a str,
+        field: &'a str,
+    },
+    /// Validation: the same `(project, platform)` pair is configured twice,
+    /// which would leave the effective channel ambiguous.
+    CfgDiagImDuplicateChannel {
+        platform: &'a str,
+        project: &'a str,
+    },
+    /// IM channel API: the delete index pointed past the end of the list.
+    DaemonImChannelIndexOutOfRange {
+        index: usize,
+    },
+    /// IM channel API: a channel names a platform this build does not know.
+    DaemonImUnknownPlatform {
+        position: usize,
+        platform: &'a str,
+    },
+    /// IM channel test: the connectivity probe succeeded. `endpoint_host` is
+    /// the host of the issued WebSocket endpoint (never the ticket itself).
+    DaemonImTestOk {
+        platform: &'a str,
+        endpoint_host: &'a str,
+    },
+    /// IM channel test: the probe failed. `error` is the raw probe diagnostic,
+    /// passed through verbatim (secrets never appear in it).
+    DaemonImTestFailed {
+        platform: &'a str,
+        error: &'a str,
+    },
+    /// IM channel test: no probe exists for this platform yet.
+    DaemonImTestUnsupported {
+        platform: &'a str,
+    },
+    /// `rustcode im add`: a credential flag was empty.
+    ImAdminCredentialEmpty {
+        field: &'a str,
+    },
+    /// `rustcode im add`: a `$...` credential does not name a valid
+    /// environment variable.
+    ImAdminCredentialBadVarName {
+        field: &'a str,
+    },
+    /// `rustcode im add`: the `:-default` fallback form embeds a literal value
+    /// in the config, so it is denied outright.
+    ImAdminCredentialDefaultDenied {
+        field: &'a str,
+    },
+    /// `rustcode im add`: a credential is a literal, not an env reference
+    /// (rejected so plaintext secrets never reach config).
+    ImAdminCredentialMustBeEnvRef {
+        field: &'a str,
+    },
+    /// `rustcode im add|remove|check`: unknown platform spelling.
+    ImAdminUnknownPlatform {
+        platform: &'a str,
+    },
+    /// `rustcode im add`: the project path is required.
+    ImAdminProjectRequired,
+    /// `rustcode im add`: an existing channel was replaced.
+    ImAdminUpdated {
+        platform: &'a str,
+        project: &'a str,
+    },
+    /// `rustcode im add`: a new channel was appended.
+    ImAdminAdded {
+        platform: &'a str,
+        project: &'a str,
+    },
+    /// `rustcode im list`: no channels configured.
+    ImAdminListEmpty,
+    /// `rustcode im list`: header for one channel block.
+    ImAdminChannelHeader {
+        position: usize,
+    },
+    /// `rustcode im check`: nothing matched the filters.
+    ImAdminNoMatch,
+    /// `rustcode im check`: a channel passed the gateway probe.
+    ImAdminCheckOk {
+        position: usize,
+        platform: &'a str,
+        endpoint_host: &'a str,
+    },
+    /// `rustcode im check`: a channel failed (probe error or missing credential).
+    ImAdminCheckFailed {
+        position: usize,
+        error: &'a str,
+    },
+    /// `rustcode im check`: the platform has no probe yet.
+    ImAdminCheckUnsupported {
+        platform: &'a str,
+    },
+    /// `rustcode im remove`: no channel matched.
+    ImAdminNotFound {
+        platform: &'a str,
+    },
+    /// `rustcode im remove`: the channel was removed.
+    ImAdminRemoved {
+        platform: &'a str,
+        project: &'a str,
+    },
+    /// `rustcode im register`: the OS service was installed and enabled.
+    ImAdminRegistered {
+        platform: &'a str,
+    },
+    /// `rustcode im register`: the service already existed and was replaced.
+    ImAdminReRegistered {
+        platform: &'a str,
+    },
+    /// `rustcode im unregister`: the OS service was removed.
+    ImAdminUnregistered {
+        platform: &'a str,
+    },
+    /// `rustcode im register` about.
+    CliAboutImRegister,
+    /// `rustcode im unregister` about.
+    CliAboutImUnregister,
+    /// `rustcode im` subcommand group about.
+    CliAboutIm,
+    /// `rustcode im serve` about.
+    CliAboutImServe,
+    /// `rustcode im add` about.
+    CliAboutImAdd,
+    /// `rustcode im list` about.
+    CliAboutImList,
+    /// `rustcode im check` about.
+    CliAboutImCheck,
+    /// `rustcode im remove` about.
+    CliAboutImRemove,
+    /// Help for `--platform` on `im` subcommands.
+    CliHelpImPlatform,
+    /// Help for `--project` on `im` subcommands.
+    CliHelpImProject,
+    /// Help for the credential flags on `im add`.
+    CliHelpImCredential,
+    /// IM approval card header: the agent asks to run a tool.
+    ImApprovalAsk {
+        tool: &'a str,
+    },
+    /// IM approval card: why the gate escalated.
+    ImApprovalReason {
+        reason: &'a str,
+    },
+    /// IM approval card: how to answer.
+    ImApprovalHint,
+    /// IM approval: the wait timed out, treated as denied.
+    ImApprovalTimeout {
+        secs: u64,
+    },
+    /// IM approval: the reply was not a recognizable decision token.
+    ImApprovalUnparsed,
     /// Validation: model profile has empty `model` field.
     CfgDiagModelMissingModel {
         id: &'a str,

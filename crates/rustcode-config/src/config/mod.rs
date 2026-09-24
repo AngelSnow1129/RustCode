@@ -1,3 +1,4 @@
+pub mod im;
 pub mod instructions;
 pub mod memory;
 pub mod offline;
@@ -412,6 +413,13 @@ pub struct Config {
     /// `[wiki]` settings for the auto-generated project wiki (`rustcode-wiki`).
     #[serde(default)]
     pub wiki: WikiConfig,
+
+    /// `[im]` channels: drive this project's agent from an IM chat (DingTalk /
+    /// Feishu / WeCom). Off by default, and every credential is bring-your-own
+    /// (`$VAR`-expanded), so an existing config is unaffected. See
+    /// [`im::ImConfig`].
+    #[serde(default, skip_serializing_if = "im::ImConfig::is_empty")]
+    pub im: im::ImConfig,
 
     /// Provider sections that failed strict validation during a *tolerant* load
     /// (see [`Self::parse_disk_content_tolerant`]). Held verbatim as raw TOML so
@@ -831,6 +839,7 @@ impl Default for Config {
             offline_note: None,
             quarantined_providers: std::collections::BTreeMap::new(),
             wiki: WikiConfig::default(),
+            im: im::ImConfig::default(),
         };
         // Honour env overrides for [ui] display fields even on the default
         // fallback path (no config file / parse failure), so a distribution
@@ -2014,6 +2023,11 @@ impl Config {
         // These arrive already localized (the validator renders `CfgDiagFallback*`)
         // because they are user-facing copy, unlike the raw parser errors above.
         warnings.extend(config.validate_model_fallback_chains());
+        // IM channels are a hand-written binding between a chat and a project:
+        // a typo'd platform or an environment variable that expands to empty
+        // would leave the user believing their bot is wired up while it can
+        // never authenticate. Surface it on the same startup channel.
+        warnings.extend(config.im.validate());
         Ok((config, warnings))
     }
 
@@ -3265,6 +3279,7 @@ model = "missing-type"
             offline_note: None,
             quarantined_providers: std::collections::BTreeMap::new(),
             wiki: WikiConfig::default(),
+            im: im::ImConfig::default(),
         };
         cfg.providers.insert(
             "p".to_string(),
