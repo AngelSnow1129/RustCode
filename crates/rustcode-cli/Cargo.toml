@@ -37,7 +37,7 @@ rustcode-daemon = { path = "../rustcode-daemon" }
 agent-client-protocol = { workspace = true, features = ["unstable_protocol_v2", "unstable_elicitation"] }
 rustcode-kernel = { path = "../rustcode-kernel" }
 rustcode-coding = { path = "../rustcode-coding" }
-rustcode-capabilities = { path = "../rustcode-capabilities", features = ["notify", "setup", "plugin", "mcp", "cc-hooks", "provider"] }
+rustcode-capabilities = { path = "../rustcode-capabilities", features = ["notify", "setup", "plugin", "mcp", "cc-hooks", "provider", "im"] }
 # Auto-generated project wiki (`rustcode wiki` / `/wiki`).
 rustcode-wiki = { path = "../rustcode-wiki" }
 anyhow = "1"
@@ -52,6 +52,11 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 toml_edit = "0.22"
 serde_json = "1"
+# DingTalk Stream mode: the IM adapter dials the platform's gateway over a
+# WebSocket long connection, so no public endpoint (and no tunnel) is needed.
+# Pinned to the same 0.24 line the tunnel crate already uses, so the workspace
+# keeps ONE WebSocket stack rather than two.
+tokio-tungstenite = { version = "0.24", features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
 dirs = "6"
 uuid = { version = "1", features = ["v4"] }
 is-terminal = "0.4"

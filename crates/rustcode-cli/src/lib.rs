@@ -16,6 +16,14 @@ fn _isolate_rustcode_home() {
 pub mod askpass;
 pub mod uninstall;
 
+/// IM channel adapters -- drive this project's agent from a chat.
+///
+/// Currently DingTalk Stream mode (a WebSocket long connection, so no public
+/// endpoint or tunnel is required). The chat -> project+session mapping lives in
+/// `rustcode_config::im_store`; the agent invocation itself is wired by the
+/// binary, which owns the headless entry points.
+pub mod im;
+
 /// ACP (Agent Client Protocol) stdio server -- lets rustcode be driven by Zed /
 /// multi-agent orchestrators over stdin/stdout. Wired up by the `rustcode acp`
 /// subcommand in `main.rs`; the engine/dispatch/translate/permission internals
