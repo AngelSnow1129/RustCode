@@ -673,6 +673,7 @@ async fn run_task(id: &str) -> Result<i32> {
         false, // skip_permissions=false -- never bypass for scheduled runs
         false, // is_admin=false
         true,  // strict_unattended=true -- deny risky/out-of-workspace bash
+        None,  // no approval broker: strict runs never consult one
     )
     .await?;
 

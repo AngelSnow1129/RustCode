@@ -15,6 +15,9 @@ use clap::{ArgGroup, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
 mod headless_json;
+mod im_admin;
+mod im_runner;
+mod im_service_os;
 mod schedule_cmd;
 mod schedule_os;
 mod vision;
@@ -599,6 +602,81 @@ fn build_i18n_command() -> clap::Command {
                     s.about(t(Msg::CliAboutScheduleSync).into_owned())
                 })
         })
+        .mut_subcommand("im", |s| {
+            s.about(t(Msg::CliAboutIm).into_owned())
+                .mut_subcommand("serve", |s| {
+                    s.about(t(Msg::CliAboutImServe).into_owned())
+                        .mut_arg("platform", |a| {
+                            a.help(t(Msg::CliHelpImPlatform).into_owned())
+                        })
+                        .mut_arg("project", |a| {
+                            a.help(t(Msg::CliHelpImProject).into_owned())
+                        })
+                })
+                .mut_subcommand("add", |s| {
+                    s.about(t(Msg::CliAboutImAdd).into_owned())
+                        .mut_arg("platform", |a| {
+                            a.help(t(Msg::CliHelpImPlatform).into_owned())
+                        })
+                        .mut_arg("project", |a| {
+                            a.help(t(Msg::CliHelpImProject).into_owned())
+                        })
+                        .mut_arg("client_id", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("client_secret", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("app_id", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("app_secret", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("bot_id", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("secret", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                })
+                .mut_subcommand("list", |s| {
+                    s.about(t(Msg::CliAboutImList).into_owned())
+                })
+                .mut_subcommand("check", |s| {
+                    s.about(t(Msg::CliAboutImCheck).into_owned())
+                        .mut_arg("platform", |a| {
+                            a.help(t(Msg::CliHelpImPlatform).into_owned())
+                        })
+                        .mut_arg("project", |a| {
+                            a.help(t(Msg::CliHelpImProject).into_owned())
+                        })
+                })
+                .mut_subcommand("remove", |s| {
+                    s.about(t(Msg::CliAboutImRemove).into_owned())
+                        .mut_arg("platform", |a| {
+                            a.help(t(Msg::CliHelpImPlatform).into_owned())
+                        })
+                        .mut_arg("project", |a| {
+                            a.help(t(Msg::CliHelpImProject).into_owned())
+                        })
+                })
+                .mut_subcommand("register", |s| {
+                    s.about(t(Msg::CliAboutImRegister).into_owned())
+                        .mut_arg("platform", |a| {
+                            a.help(t(Msg::CliHelpImPlatform).into_owned())
+                        })
+                        .mut_arg("project", |a| {
+                            a.help(t(Msg::CliHelpImProject).into_owned())
+                        })
+                })
+                .mut_subcommand("unregister", |s| {
+                    s.about(t(Msg::CliAboutImUnregister).into_owned())
+                        .mut_arg("platform", |a| {
+                            a.help(t(Msg::CliHelpImPlatform).into_owned())
+                        })
+                })
+        })
     // NOTE: clap only instantiates the built-in `help` subcommand during
     // `build()` (i.e. at parse time), so `mut_subcommand("help", ..)` here
     // panics with "Command `help` is undefined". Its about text stays the
@@ -1143,6 +1221,9 @@ enum Commands {
     /// Manage local scheduled tasks (add/list/remove/enable/disable).
     #[command(subcommand)]
     Schedule(schedule_cmd::ScheduleCli),
+    /// Manage and serve IM channels (serve/add/list/check/remove).
+    #[command(subcommand)]
+    Im(ImCommand),
     /// Generate a project wiki (architecture diagram + module docs) and sync on change.
     Wiki(WikiArgs),
     /// Generate a shell completion script on stdout.
@@ -1471,6 +1552,131 @@ fn run_ide_install(all: bool, ide: Option<&str>) -> Result<()> {
         anyhow::bail!("one or more ide installs failed");
     }
     Ok(())
+}
+
+/// `rustcode im` — serve an IM channel (chat drives this project's agent).
+///
+/// `rustcode im` subcommands: manage channel bindings, then serve them.
+#[derive(clap::Subcommand)]
+enum ImCommand {
+    /// Serve IM channels: chat messages drive the agent in the bound project.
+    Serve(ImServeArgs),
+    /// Add (or update) one channel binding from CLI arguments.
+    Add(ImAddArgs),
+    /// List configured channels (credential references only, never secrets).
+    List,
+    /// Run the platform connectivity probe against configured channels.
+    Check(ImCheckArgs),
+    /// Remove one channel binding.
+    Remove(ImRemoveArgs),
+    /// Register the channel as an OS service (starts at login, kept alive).
+    Register(ImRegisterArgs),
+    /// Unregister the OS service for a platform.
+    Unregister(ImUnregisterArgs),
+}
+
+/// Args for `rustcode im serve` — the foreground service loop.
+///
+/// Deliberately foreground: the channel is served for as long as this process
+/// lives, so an operator sees the logs and can stop it with Ctrl-C. Making it
+/// self-daemonizing would hide the failure mode this feature is most likely to
+/// hit (expired or wrong credentials), which surfaces as repeated connect
+/// failures rather than a clean exit.
+#[derive(clap::Args)]
+struct ImServeArgs {
+    /// Only serve the channel for this platform (e.g. `dingtalk`). Default:
+    /// the first active channel in config.
+    #[arg(long)]
+    platform: Option<String>,
+    /// Only serve the channel bound to this exact project path. Default: any.
+    #[arg(long)]
+    project: Option<String>,
+}
+
+/// Args for `rustcode im add <platform> <project>` — upsert one binding.
+///
+/// Credential values must be environment-variable references (`$VAR`) or bare
+/// variable names (prefixed automatically); literals are rejected so a pasted
+/// secret can never reach config.toml. Structural checks only — credential
+/// expansion is verified for real by `rustcode im check`.
+#[derive(clap::Args)]
+struct ImAddArgs {
+    /// Platform: dingtalk | feishu | wecom.
+    platform: String,
+    /// Absolute project path this chat drives.
+    project: String,
+    #[arg(long)]
+    client_id: Option<String>,
+    #[arg(long)]
+    client_secret: Option<String>,
+    #[arg(long)]
+    app_id: Option<String>,
+    #[arg(long)]
+    app_secret: Option<String>,
+    #[arg(long)]
+    bot_id: Option<String>,
+    /// WeCom app secret (config key `secret`).
+    #[arg(long)]
+    secret: Option<String>,
+}
+
+impl ImAddArgs {
+    /// Collect the present credential flags as (config-key, raw-value) pairs.
+    ///
+    /// Only the flags the user actually passed are sent, so an upsert that
+    /// switches platform cannot leave stale credential fields behind.
+    fn credentials(&self) -> Vec<(String, String)> {
+        [
+            ("client_id", &self.client_id),
+            ("client_secret", &self.client_secret),
+            ("app_id", &self.app_id),
+            ("app_secret", &self.app_secret),
+            ("bot_id", &self.bot_id),
+            ("secret", &self.secret),
+        ]
+        .into_iter()
+        .filter_map(|(key, value)| value.as_ref().map(|v| (key.to_string(), v.clone())))
+        .collect()
+    }
+}
+
+/// Args for `rustcode im check` — connectivity probe over saved channels.
+#[derive(clap::Args)]
+struct ImCheckArgs {
+    /// Only check channels on this platform. Default: all.
+    #[arg(long)]
+    platform: Option<String>,
+    /// Only check the channel bound to this exact project path. Default: all.
+    #[arg(long)]
+    project: Option<String>,
+}
+
+/// Args for `rustcode im remove` — delete one binding.
+#[derive(clap::Args)]
+struct ImRemoveArgs {
+    /// Platform of the channel to remove (e.g. `dingtalk`).
+    platform: String,
+    /// Disambiguate when several channels share the platform.
+    #[arg(long)]
+    project: Option<String>,
+}
+
+/// Args for `rustcode im register` — install the OS service for one channel.
+#[derive(clap::Args)]
+struct ImRegisterArgs {
+    /// Platform to register (e.g. `dingtalk`).
+    platform: String,
+    /// Project the channel drives. Default: the first active channel's
+    /// project for this platform in config (same selection rule as `serve`).
+    #[arg(long)]
+    project: Option<String>,
+}
+
+/// Args for `rustcode im unregister` — remove the OS service.
+#[derive(clap::Args)]
+struct ImUnregisterArgs {
+    /// Platform whose service should be removed (e.g. `dingtalk`).
+    platform: String,
 }
 
 /// `rustcode wiki` — generate / sync the project wiki.
@@ -2774,6 +2980,39 @@ async fn run() -> Result<i32> {
                 let code = schedule_cmd::handle_schedule(sub).await?;
                 return Ok(code);
             }
+            Commands::Im(command) => {
+                // Headless posture: IM subcommands have no TTY, so anything that
+                // would prompt must go through the approval path instead of
+                // trying to read stdin. Handled inline for the same reason as
+                // `Schedule` -- the exit code has to survive.
+                HEADLESS_MODE.store(true, Ordering::Relaxed);
+                let code = match command {
+                    ImCommand::Serve(args) => {
+                        im_runner::run_im_command(args.platform.as_deref(), args.project.as_deref())
+                            .await?
+                    }
+                    ImCommand::Add(args) => {
+                        im_admin::handle_im_add(&args.platform, &args.project, &args.credentials())
+                            .await?
+                    }
+                    ImCommand::List => im_admin::handle_im_list().await?,
+                    ImCommand::Check(args) => {
+                        im_admin::handle_im_check(args.platform.as_deref(), args.project.as_deref())
+                            .await?
+                    }
+                    ImCommand::Remove(args) => {
+                        im_admin::handle_im_remove(&args.platform, args.project.as_deref()).await?
+                    }
+                    ImCommand::Register(args) => {
+                        im_admin::handle_im_register(&args.platform, args.project.as_deref())
+                            .await?
+                    }
+                    ImCommand::Unregister(args) => {
+                        im_admin::handle_im_unregister(&args.platform).await?
+                    }
+                };
+                return Ok(code);
+            }
             other => {
                 let result = handle_command(other).await.map(|_| 0);
                 return result;
@@ -3117,6 +3356,7 @@ async fn run() -> Result<i32> {
                 skip_permissions,
                 is_admin,
                 false, // strict_unattended=false: preserve -p behaviour exactly
+                None,  // no approval broker on the interactive `-p` path
             )
             .await
             {
@@ -3727,7 +3967,7 @@ fn write_headless_json_event(event: &headless_json::HeadlessEvent) -> io::Result
     output.flush()
 }
 
-#[allow(clippy::too_many_arguments)] // 12 params thread the headless session config into the runtime; callers are few and stable
+#[allow(clippy::too_many_arguments)] // 13 params thread the headless session config into the runtime; callers are few and stable
 pub(crate) async fn run_native_headless(
     notifications_cfg: rustcode_config::config::NotificationConfig,
     runtime: rustcode_coding::CodingRuntime,
@@ -3741,7 +3981,9 @@ pub(crate) async fn run_native_headless(
     skip_permissions: bool,
     is_admin: bool,
     strict_unattended: bool,
+    mut approval_port: Option<&mut dyn rustcode::im::ApprovalPort>,
 ) -> Result<(i32, Option<String>)> {
+    use rustcode::im::{ApprovalCard, ApprovalReply};
     use rustcode_capabilities::tools::{ApprovalRequest, ApprovalResponse, APPROVAL_KIND};
     use rustcode_coding::{CodingRuntimeEvent, TurnCompletion, UserInput};
     use rustcode_config::i18n::{t, Msg};
@@ -4082,35 +4324,89 @@ pub(crate) async fn run_native_headless(
                 }
             }
             CodingRuntimeEvent::Request(request) => {
-                let response = if request.kind == APPROVAL_KIND {
-                    serde_json::from_value::<ApprovalRequest>(request.payload)
-                        .ok()
-                        .map(|approval| {
-                            if headless_auto_approve(
-                                strict_unattended,
-                                skip_permissions,
-                                &approval.tool,
-                            ) {
-                                eprintln!(
-                                    "[headless] {}",
-                                    t(Msg::CliHeadlessAutoApproved {
-                                        tool: &approval.tool,
-                                    })
-                                );
-                                ApprovalResponse::allow()
-                            } else {
-                                had_denial = true;
-                                eprintln!(
-                                    "[denied] {}",
-                                    t(Msg::CliHeadlessDenied {
-                                        tool: &approval.tool,
-                                    })
-                                );
-                                ApprovalResponse::deny()
-                            }
-                        })
+                let approval = if request.kind == APPROVAL_KIND {
+                    serde_json::from_value::<ApprovalRequest>(request.payload).ok()
                 } else {
                     None
+                };
+                // Decision order matters and is deliberate:
+                // 1. skip_permissions blanket-bypasses (unchanged `-p` semantics);
+                // 2. strict_unattended denies without consulting any broker
+                //    (scheduled runs are genuinely unattended -- nobody to ask);
+                // 3. a broker (IM chat) sees EVERY escalation, bash included --
+                //    the legacy bash auto-approve must not silently bypass a
+                //    human who is available to answer;
+                // 4. no broker falls back to the legacy in-process verdict.
+                // Any None/timeout/unparseable answer fail-closes to Deny.
+                let response: Option<ApprovalResponse> = match approval {
+                    Some(approval) => {
+                        if skip_permissions {
+                            eprintln!(
+                                "[headless] {}",
+                                t(Msg::CliHeadlessAutoApproved {
+                                    tool: &approval.tool,
+                                })
+                            );
+                            Some(ApprovalResponse::allow())
+                        } else if strict_unattended {
+                            had_denial = true;
+                            eprintln!(
+                                "[denied] {}",
+                                t(Msg::CliHeadlessDenied {
+                                    tool: &approval.tool,
+                                })
+                            );
+                            Some(ApprovalResponse::deny())
+                        } else if let Some(port) = approval_port.as_mut() {
+                            let card = ApprovalCard::from_request(
+                                approval.tool.clone(),
+                                &approval.args,
+                                approval.reason.as_deref(),
+                            );
+                            match port.request_decision(card).await {
+                                Some(reply) => {
+                                    eprintln!(
+                                        "[approval] tool={} decision={}",
+                                        approval.tool,
+                                        reply.as_token()
+                                    );
+                                    Some(match reply {
+                                        ApprovalReply::Allow => ApprovalResponse::allow(),
+                                        ApprovalReply::AllowAlways => {
+                                            ApprovalResponse::allow_always()
+                                        }
+                                        ApprovalReply::Deny => ApprovalResponse::deny(),
+                                    })
+                                }
+                                None => {
+                                    had_denial = true;
+                                    Some(ApprovalResponse::deny())
+                                }
+                            }
+                        } else if headless_auto_approve(
+                            strict_unattended,
+                            skip_permissions,
+                            &approval.tool,
+                        ) {
+                            eprintln!(
+                                "[headless] {}",
+                                t(Msg::CliHeadlessAutoApproved {
+                                    tool: &approval.tool,
+                                })
+                            );
+                            Some(ApprovalResponse::allow())
+                        } else {
+                            had_denial = true;
+                            eprintln!(
+                                "[denied] {}",
+                                t(Msg::CliHeadlessDenied {
+                                    tool: &approval.tool,
+                                })
+                            );
+                            Some(ApprovalResponse::deny())
+                        }
+                    }
+                    None => None,
                 };
                 let value = response
                     .and_then(|response| serde_json::to_value(response).ok())
@@ -4488,6 +4784,9 @@ async fn handle_command(cmd: Commands) -> Result<()> {
         Commands::Hooks(subcmd) => handle_hooks(subcmd).await,
         Commands::Schedule(_) => {
             unreachable!("Schedule is handled inline in run() so its exit code survives")
+        }
+        Commands::Im(_) => {
+            unreachable!("Im is handled inline in run() so its exit code survives")
         }
         Commands::Askpass { .. } => {
             unreachable!("__askpass is handled early in run() before handle_command")
