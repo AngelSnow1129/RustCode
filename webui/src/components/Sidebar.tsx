@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
-import { listSessions, listProjectSessions, searchSessions, getSkills, getMcpStatus, postLiveMcpTrust, getSession, getProjects, SkillInfo, McpStatusInfo, SessionMetaWithProject, ProjectInfo } from '../api';
+import { listSessions, listProjectSessions, searchSessions, getSkills, getMcpStatus, postLiveMcpTrust, getSession, getProjects, resolveSession, getImBindings, SkillInfo, McpStatusInfo, SessionMetaWithProject, ProjectInfo, ImBindingsInfo } from '../api';
 import { useT, useSettings, SettingsSection, Theme } from '../settings';
 import { MsgKey, Lang } from '../i18n';
 import { RenameDialog, DeleteDialog } from './SessionDialogs';
@@ -18,6 +18,15 @@ import {
   decrementProjectSessionCount,
   SidebarViewMode,
 } from '../lib/sidebarView';
+import {
+  IM_ROOT_SELECTION,
+  imBreadcrumbs,
+  imPlatformRows,
+  imProjectRows,
+  imSessionRows,
+  imTotalBindings,
+  type ImRecordSelection,
+} from '../lib/imRecords';
 
 interface SidebarProps {
   activeSessionId: string | null;
@@ -304,6 +313,18 @@ function BellGlyph() {
   );
 }
 
+// IM 渠道入口：聊天气泡 + 一个小节点，与 Bell/Model 同尺寸风格。
+function ImGlyph() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2.5 4.2c0-.9.7-1.7 1.7-1.7h7.6c1 0 1.7.8 1.7 1.7v5.1c0 .9-.7 1.7-1.7 1.7H6.7l-2.9 2.4v-2.4h-.4c-.9 0-1.7-.8-1.7-1.7V4.2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+      <circle cx="5.7" cy="6.8" r="0.9" fill="currentColor" />
+      <circle cx="8.4" cy="6.8" r="0.9" fill="currentColor" />
+      <circle cx="11.1" cy="6.8" r="0.9" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function Sidebar({
   activeSessionId,
   onSelect,
@@ -365,6 +386,18 @@ export function Sidebar({
   const [mcpMenuPos, setMcpMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const mcpMenuRef = useRef<HTMLDivElement | null>(null);
   const mcpBtnRef = useRef<HTMLButtonElement | null>(null);
+  // IM records menu: the platform -> project -> session tree, fetched lazily on
+  // first open (same shape as MCP); the count badge shows once loaded.
+  const [imTree, setImTree] = useState<ImBindingsInfo | null>(null);
+  const [imLoading, setImLoading] = useState(false);
+  const [imMenuOpen, setImMenuOpen] = useState(false);
+  const [imMenuPos, setImMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  // Where the user has drilled to: null platform = level 0, platform = level 1,
+  // platform + project = level 2 (session leaves).
+  const [imSelection, setImSelection] = useState<ImRecordSelection>(IM_ROOT_SELECTION);
+  const [imOpening, setImOpening] = useState<string | null>(null);
+  const imMenuRef = useRef<HTMLDivElement | null>(null);
+  const imBtnRef = useRef<HTMLButtonElement | null>(null);
   // Trust flow: in-flight POST + error for the "Trust this project" button.
   const [trusting, setTrusting] = useState(false);
   const [trustError, setTrustError] = useState<string | null>(null);
@@ -910,6 +943,84 @@ export function Sidebar({
     setMcpMenuOpen(true);
   }
 
+  // --- IM records (read-only browser: platform -> project -> session_id) ---
+
+  // Fetch the records tree for the count badge + the menu. Lazy: only the first
+  // open hits the daemon; a later open refetches so newly-bound chats show up.
+  function refreshImRecords() {
+    if (imLoading) return;
+    setImLoading(true);
+    getImBindings()
+      .then(setImTree)
+      // Keep whatever we had on a transient error; only fall back to an empty
+      // tree when we never got one, so a blip doesn't wipe a populated panel.
+      .catch(() => setImTree((cur) => cur ?? { enabled: false, total: 0, platforms: [] }))
+      .finally(() => setImLoading(false));
+  }
+
+  // IM menu is fixed-positioned; close on outside click / scroll / resize.
+  // Scrolls inside the menu itself are ignored so the list can be scrolled.
+  useEffect(() => {
+    if (!imMenuOpen) return;
+    const close = () => setImMenuOpen(false);
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement;
+      if (imMenuRef.current?.contains(el)) return;
+      if (imBtnRef.current?.contains(el)) return;
+      close();
+    };
+    const onScroll = (e: Event) => {
+      if (imMenuRef.current?.contains(e.target as Node)) return;
+      close();
+    };
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [imMenuOpen]);
+
+  // Closing rewinds the drill-down so the next open starts at the platform list.
+  useEffect(() => {
+    if (imMenuOpen) return;
+    setImSelection(IM_ROOT_SELECTION);
+    setImOpening(null);
+  }, [imMenuOpen]);
+
+  function toggleImMenu(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (imMenuOpen) {
+      setImMenuOpen(false);
+      return;
+    }
+    refreshImRecords();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setImMenuPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    setImMenuOpen(true);
+  }
+
+  /** Open a session leaf: resolve its (possibly short) id to a full record, then
+   *  hand it to the existing session-open callback. Read-only — nothing here
+   *  creates or deletes a binding. */
+  async function openImSession(sessionId: string) {
+    if (imOpening) return;
+    setImOpening(sessionId);
+    try {
+      const found = await resolveSession(sessionId);
+      if (!found) return;
+      setImMenuOpen(false);
+      onSelect(found);
+    } catch {
+      /* 找不到就停留在列表，不做其它副作用 */
+    } finally {
+      setImOpening(null);
+    }
+  }
+
   // Close the search dialog on Escape (backdrop click is handled on the overlay).
   useEffect(() => {
     if (!searchOpen) return;
@@ -1039,6 +1150,11 @@ export function Sidebar({
           <BellGlyph />
           <span>{t('settings.menuNotifications')}</span>
         </button>
+        {/* IM 渠道：钉钉/飞书/企微 会话绑定，用弹窗 */}
+        <button class="item-menu-row" onClick={() => chooseSettings('im')}>
+          <ImGlyph />
+          <span>{t('settings.menuIm')}</span>
+        </button>
         {/* 远程访问入口已移到侧栏底部栏（见下方 sidebar-bottom 的 Remote Btn）。 */}
       </div>,
           document.body,
@@ -1130,6 +1246,104 @@ export function Sidebar({
           document.body,
         )
       : null;
+
+  // IM records popover (opens downward below the IM action). Portaled to <body>
+  // so the mobile drawer's transform/overflow can't clip it. Read-only browser:
+  // level 0 platform -> level 1 project -> level 2 session leaf; the leaf opens
+  // that session's chat history. No create/delete action exists anywhere here.
+  const renderImMenu = () => {
+    if (!imMenuOpen || !imMenuPos) return null;
+    const crumbs = imBreadcrumbs(imSelection, { root: t('im.records') });
+    const platforms = imSelection.platform ? [] : imPlatformRows(imTree);
+    const projects = imSelection.platform && !imSelection.project ? imProjectRows(imTree, imSelection) : [];
+    const sessions = imSelection.project ? imSessionRows(imTree, imSelection) : [];
+    const isEmptyRowList = platforms.length === 0 && projects.length === 0 && sessions.length === 0;
+    return createPortal(
+      <div
+        class="item-menu im-menu"
+        ref={imMenuRef}
+        style={{
+          top: `${imMenuPos.top}px`,
+          left: `${imMenuPos.left}px`,
+          minWidth: `${Math.max(imMenuPos.width, 260)}px`,
+        }}
+      >
+        <div class="im-breadcrumb">
+          {crumbs.map((crumb, i) => (
+            <span key={crumb.level} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+              <span
+                class={'im-crumb' + (i === crumbs.length - 1 ? ' current' : '')}
+                onClick={() => {
+                  if (i === crumbs.length - 1) return;
+                  setImSelection(crumb.selection);
+                }}
+                title={crumb.label}
+              >
+                {crumb.label || t('im.records')}
+              </span>
+              {i < crumbs.length - 1 && <span class="im-crumb-sep">/</span>}
+            </span>
+          ))}
+        </div>
+        {imLoading && <div class="im-menu-note">{t('sidebar.imLoading')}</div>}
+        {!imLoading && imTree && !imTree.enabled && (
+          <div class="im-menu-note">{t('im.disabledHint')}</div>
+        )}
+        {!imLoading && (imTree?.enabled ?? true) && isEmptyRowList && (
+          <div class="im-menu-note">
+            {imSelection.platform ? t('sidebar.imNoBindings') : t('sidebar.imEmpty')}
+          </div>
+        )}
+        {!imLoading &&
+          platforms.map((p) => (
+            <button
+              key={p.platform}
+              class="im-menu-row"
+              onClick={() => setImSelection({ platform: p.platform, project: null })}
+              title={t('sidebar.imProjects')}
+            >
+              <span class="im-menu-name">{p.platform}</span>
+              <span class="im-menu-meta">
+                <span>{t('im.lastActive', { time: formatTime(p.last_active_at, t, timeNow) || '-' })}</span>
+                <span class="im-menu-count">{p.binding_count}</span>
+              </span>
+            </button>
+          ))}
+        {!imLoading &&
+          projects.map((p) => (
+            <button
+              key={p.project}
+              class="im-menu-row"
+              onClick={() => setImSelection({ platform: imSelection.platform, project: p.project })}
+              title={p.project}
+            >
+              <span class="im-menu-name">{dirName(p.project) || p.project}</span>
+              <span class="im-menu-meta">
+                <span>{t('im.lastActive', { time: formatTime(p.last_active_at, t, timeNow) || '-' })}</span>
+                <span class="im-menu-count">{p.session_count}</span>
+              </span>
+            </button>
+          ))}
+        {!imLoading &&
+          sessions.map((s) => (
+            <button
+              key={s.session_id}
+              class="im-menu-row leaf"
+              disabled={imOpening !== null}
+              onClick={() => void openImSession(s.session_id)}
+              title={t('im.openSession')}
+            >
+              <span class="im-menu-name">{s.session_id}</span>
+              <span class="im-menu-meta">
+                <span>{t('im.bindingSince', { time: formatTime(s.created_at, t, timeNow) || '-' })}</span>
+                <span class="im-menu-count">{s.chat_id}</span>
+              </span>
+            </button>
+          ))}
+      </div>,
+      document.body,
+    );
+  };
 
   // 乐观会话并入列表：仅当后端列表尚无对应条目时置顶插入。后端落盘后列表刷新带出
   // 真实会话，此处便不再插入，真实条目（含自动命名标题）自然取而代之。注意乐观条目
@@ -1261,6 +1475,14 @@ export function Sidebar({
           >
             <McpIcon />
           </button>
+          <button
+            class="rail-btn"
+            onClick={(e) => toggleImMenu(e as unknown as MouseEvent)}
+            title={t('sidebar.im')}
+            aria-label={t('sidebar.im')}
+          >
+            <ImGlyph />
+          </button>
         </nav>
         <div class="sidebar-rail-bottom">
           {onOpenRemote && (
@@ -1283,12 +1505,15 @@ export function Sidebar({
           </button>
         </div>
         {renderSettingsMenu()}
+        {renderImMenu()}
       </aside>
     );
   }
 
   const skillCount = skills?.length ?? 0;
   const mcpCount = mcpStatus?.servers?.length ?? 0;
+  // Badge = number of bound IM conversations (0 → hidden). Shows once loaded.
+  const imCount = imTotalBindings(imTree);
 
   return (
     <aside class={'session-list app-sidebar' + (open ? ' open' : '')}>
@@ -1343,6 +1568,18 @@ export function Sidebar({
           <span class="sidebar-action-icon"><McpIcon /></span>
           <span class="sidebar-action-label">{t('sidebar.mcp')}</span>
           {mcpCount > 0 && <span class="sidebar-action-badge">{mcpCount}</span>}
+          <span class="sidebar-action-caret"><ChevronDownIcon /></span>
+        </button>
+        <button
+          ref={imBtnRef}
+          class={'sidebar-action' + (imMenuOpen ? ' open' : '')}
+          onClick={(e) => toggleImMenu(e as unknown as MouseEvent)}
+          aria-haspopup="menu"
+          aria-expanded={imMenuOpen}
+        >
+          <span class="sidebar-action-icon"><ImGlyph /></span>
+          <span class="sidebar-action-label">{t('sidebar.im')}</span>
+          {imCount > 0 && <span class="sidebar-action-badge">{imCount}</span>}
           <span class="sidebar-action-caret"><ChevronDownIcon /></span>
         </button>
       </div>
@@ -1490,6 +1727,7 @@ export function Sidebar({
       {renderSettingsMenu()}
       {renderSkillsMenu()}
       {renderMcpMenu()}
+      {renderImMenu()}
 
       {/* Session search dialog (centered modal) */}
       {searchOpen && createPortal(
