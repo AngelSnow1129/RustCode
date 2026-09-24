@@ -1,4 +1,4 @@
-//! `rustcode im add|list|check|remove` — CLI management of IM channels.
+//! `rustcode im setup|add|list|check|remove` — CLI management of IM channels.
 //!
 //! Lives beside `im_runner.rs` in the binary: these handlers are driver logic
 //! (argument parsing, process output, exit codes). The pure helpers are kept
@@ -27,6 +27,8 @@
 //! non-empty, no duplicate `(platform, project)`), and credentials are verified
 //! for real by `rustcode im check`, which shares the gateway probe with the
 //! daemon's `/im/channels/test` route.
+
+use std::io::{self, Write};
 
 use rustcode_config::config::im::{ImChannelConfig, ImConfig, ImPlatform};
 use rustcode_config::config::Config;
@@ -85,6 +87,60 @@ fn is_env_name(value: &str) -> bool {
         && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Credential keys required by a platform, in config-key spelling.
+pub fn credential_fields_for(platform: ImPlatform) -> &'static [&'static str] {
+    platform.required_credentials()
+}
+
+/// Fully validated setup input. Validation is side-effect free; in particular,
+/// no config is opened until an instance of this type has been produced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ValidatedImSetup {
+    platform: ImPlatform,
+    project: String,
+    credentials: Vec<(String, String)>,
+}
+
+fn validate_setup_platform_project(
+    platform: &str,
+    project: &str,
+) -> Result<(ImPlatform, String), String> {
+    let parsed = ImPlatform::parse(platform)
+        .ok_or_else(|| t(Msg::ImAdminUnknownPlatform { platform }).into_owned())?;
+    let project = project.trim();
+    rustcode::im::resolve_project(project)
+        .map_err(|_| t(Msg::ImAdminSetupProjectInvalid { project }).into_owned())?;
+    Ok((parsed, project.to_string()))
+}
+
+/// Validate and normalize every input needed by `im setup` without reading or
+/// writing config. Callers can therefore reject bad paths or literal secrets
+/// before delegating persistence to [`handle_im_add`].
+pub(crate) fn validate_im_setup_inputs(
+    platform: &str,
+    project: &str,
+    credentials: &[(String, String)],
+) -> Result<ValidatedImSetup, String> {
+    let (platform, project) = validate_setup_platform_project(platform, project)?;
+    let mut normalized = Vec::with_capacity(credential_fields_for(platform).len());
+
+    for &field in credential_fields_for(platform) {
+        let raw = credentials
+            .iter()
+            .find(|(candidate, _)| candidate == field)
+            .map(|(_, value)| value.as_str())
+            .ok_or_else(|| t(Msg::ImAdminSetupCredentialRequired { field }).into_owned())?;
+        let (value, _) = normalize_credential_input(field, raw)?;
+        normalized.push((field.to_string(), value));
+    }
+
+    Ok(ValidatedImSetup {
+        platform,
+        project,
+        credentials: normalized,
+    })
+}
+
 /// Store one credential on a channel, keyed by config-key spelling.
 fn set_credential(channel: &mut ImChannelConfig, field: &str, value: String) {
     match field {
@@ -101,8 +157,8 @@ fn set_credential(channel: &mut ImChannelConfig, field: &str, value: String) {
 /// Insert or update one channel, keyed by the normalized `(platform, project)`.
 ///
 /// The credential field names a CLI user may set for each platform are exactly
-/// [`ImPlatform::required_credentials`] -- no wrapper is kept here so there is
-/// never a second list to drift.
+/// [`ImPlatform::required_credentials`], exposed through
+/// [`credential_fields_for`] so the setup wizard and validation share one list.
 ///
 /// Returns `true` when an existing channel was replaced (update), `false` when
 /// a new one was appended. The platform spelling is normalized (`DingTalk` ->
@@ -157,6 +213,148 @@ pub fn matching_channels<'a>(
 // ---------------------------------------------------------------------------
 // Handlers (process output + exit codes)
 // ---------------------------------------------------------------------------
+
+fn prompt_for_setup_value(prompt: &str) -> anyhow::Result<String> {
+    print!("{prompt} ");
+    io::stdout().flush()?;
+    let mut value = String::new();
+    io::stdin().read_line(&mut value)?;
+    Ok(value.trim().to_string())
+}
+
+fn print_setup_credential_hint(platform: ImPlatform) {
+    let message = match platform {
+        ImPlatform::Dingtalk => Msg::ImAdminSetupCredentialHintDingtalk,
+        ImPlatform::Feishu => Msg::ImAdminSetupCredentialHintFeishu,
+        ImPlatform::Wecom => Msg::ImAdminSetupCredentialHintWecom,
+    };
+    println!("{}", t(message));
+}
+
+/// `rustcode im setup` — interactively collect, save, and verify one channel.
+///
+/// Every value is validated before [`handle_im_add`] is called, so a rejected
+/// literal credential or invalid project cannot cause a partial config write.
+/// The optional arguments make the same flow usable without a TTY.
+pub async fn handle_im_setup(
+    platform: Option<&str>,
+    project: Option<&str>,
+    credentials: &[(String, String)],
+) -> anyhow::Result<i32> {
+    println!("{}", t(Msg::ImAdminSetupStepOne));
+
+    let platform = match platform {
+        Some(platform) => platform.trim().to_string(),
+        None => {
+            let prompt = t(Msg::ImAdminSetupPlatformPrompt);
+            prompt_for_setup_value(prompt.as_ref())?
+        }
+    };
+    let project = match project {
+        Some(project) => project.to_string(),
+        None => match std::env::current_dir() {
+            Ok(project) => {
+                let project = project.to_string_lossy().into_owned();
+                println!(
+                    "{}",
+                    t(Msg::ImAdminSetupProjectDefault { project: &project })
+                );
+                project
+            }
+            Err(error) => {
+                let error = error.to_string();
+                eprintln!("{}", t(Msg::CliSetupCwdError { error: &error }));
+                return Ok(1);
+            }
+        },
+    };
+
+    // Validate step 1 before asking for credentials. The complete validation is
+    // repeated below over all collected values and remains the write barrier.
+    let parsed = match validate_setup_platform_project(&platform, &project) {
+        Ok((parsed, _)) => parsed,
+        Err(problem) => {
+            eprintln!("{problem}");
+            return Ok(1);
+        }
+    };
+
+    println!("{}", t(Msg::ImAdminSetupStepTwo));
+    print_setup_credential_hint(parsed);
+    let mut collected = Vec::with_capacity(credential_fields_for(parsed).len());
+    for &field in credential_fields_for(parsed) {
+        let value = if let Some((_, value)) =
+            credentials.iter().find(|(candidate, _)| candidate == field)
+        {
+            value.clone()
+        } else {
+            let prompt = t(Msg::ImAdminSetupCredentialPrompt { field });
+            prompt_for_setup_value(prompt.as_ref())?
+        };
+        collected.push((field.to_string(), value));
+    }
+
+    run_im_setup(&platform, &project, &collected).await
+}
+
+/// Complete setup from already-collected values, without reading stdin.
+///
+/// The side-effect-free validation pass is the write barrier: only after every
+/// project and credential check succeeds do we call the shared add/check
+/// handlers.
+async fn run_im_setup(
+    platform: &str,
+    project: &str,
+    credentials: &[(String, String)],
+) -> anyhow::Result<i32> {
+    let validated = match validate_im_setup_inputs(platform, project, credentials) {
+        Ok(validated) => validated,
+        Err(problem) => {
+            eprintln!("{problem}");
+            return Ok(1);
+        }
+    };
+
+    println!("{}", t(Msg::ImAdminSetupStepThree));
+    let platform = validated.platform.as_str();
+    let add_code = match handle_im_add(platform, &validated.project, &validated.credentials).await {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("{error:#}");
+            return Ok(1);
+        }
+    };
+    if add_code != 0 {
+        return Ok(1);
+    }
+
+    let check_code = match handle_im_check(Some(platform), Some(&validated.project)).await {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("{error:#}");
+            return Ok(1);
+        }
+    };
+    if check_code == 0 {
+        println!(
+            "{}",
+            t(Msg::ImAdminSetupSuccess {
+                platform,
+                project: &validated.project,
+            })
+        );
+        Ok(0)
+    } else {
+        eprintln!(
+            "{}",
+            t(Msg::ImAdminSetupCheckRemediation {
+                platform,
+                project: &validated.project,
+            })
+        );
+        Ok(1)
+    }
+}
 
 fn load_config() -> Result<Config, String> {
     ConfigStore::default_store()
@@ -578,6 +776,58 @@ mod tests {
         assert!(normalize_credential_input("client_id", "$").is_err());
         assert!(normalize_credential_input("client_id", "${}").is_err());
         assert!(normalize_credential_input("client_id", "$1VAR").is_err());
+    }
+
+    // -- setup validation ----------------------------------------------------
+
+    fn dingtalk_setup_credentials(secret: &str) -> Vec<(String, String)> {
+        vec![
+            ("client_id".into(), "DINGTALK_CLIENT_ID".into()),
+            ("client_secret".into(), secret.into()),
+        ]
+    }
+
+    #[test]
+    fn setup_validation_rejects_literal_before_execution() {
+        let project = std::env::current_dir().unwrap();
+        let error = validate_im_setup_inputs(
+            "dingtalk",
+            &project.to_string_lossy(),
+            &dingtalk_setup_credentials("pasted-secret"),
+        )
+        .unwrap_err();
+        assert!(error.contains("client_secret"));
+    }
+
+    #[test]
+    fn setup_validation_rejects_relative_and_missing_projects() {
+        let credentials = dingtalk_setup_credentials("DINGTALK_CLIENT_SECRET");
+        assert!(validate_im_setup_inputs("dingtalk", "relative/project", &credentials).is_err());
+
+        let missing = std::env::current_dir()
+            .unwrap()
+            .join("rustcode-im-setup-path-that-must-not-exist");
+        assert!(
+            validate_im_setup_inputs("dingtalk", &missing.to_string_lossy(), &credentials).is_err()
+        );
+    }
+
+    #[test]
+    fn setup_validation_normalizes_only_platform_credentials() {
+        let project = std::env::current_dir().unwrap();
+        let mut credentials = dingtalk_setup_credentials("$DINGTALK_CLIENT_SECRET");
+        credentials.push(("app_secret".into(), "irrelevant-literal".into()));
+
+        let validated =
+            validate_im_setup_inputs("DingTalk", &project.to_string_lossy(), &credentials).unwrap();
+        assert_eq!(validated.platform, ImPlatform::Dingtalk);
+        assert_eq!(
+            validated.credentials,
+            vec![
+                ("client_id".into(), "$DINGTALK_CLIENT_ID".into()),
+                ("client_secret".into(), "$DINGTALK_CLIENT_SECRET".into()),
+            ]
+        );
     }
 
     // -- upsert_channel ------------------------------------------------------

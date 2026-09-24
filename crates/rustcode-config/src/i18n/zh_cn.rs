@@ -1652,6 +1652,31 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             format!("未知平台 `{platform}`；应为 `dingtalk`、`feishu`、`wecom` 之一").into(),
         Msg::ImAdminProjectRequired =>
             "`im add` 必须提供 project 路径（该聊天驱动的绝对目录）".into(),
+        Msg::ImAdminSetupStepOne =>
+            "第 1/3 步：在 IM 平台创建机器人，然后选择平台和项目。".into(),
+        Msg::ImAdminSetupPlatformPrompt => "平台（dingtalk、feishu 或 wecom）：".into(),
+        Msg::ImAdminSetupProjectDefault { project } =>
+            format!("未提供项目路径；使用当前目录 `{project}`。").into(),
+        Msg::ImAdminSetupProjectInvalid { project } =>
+            format!("项目 `{project}` 必须是已存在的绝对目录").into(),
+        Msg::ImAdminSetupStepTwo =>
+            "第 2/3 步：使用凭据环境变量引用配置渠道。".into(),
+        Msg::ImAdminSetupCredentialHintDingtalk =>
+            "凭据来源：钉钉开放平台 -> 应用凭证 -> Client ID / Client Secret。请先导出为环境变量，此处只输入变量名或 $VAR 引用。".into(),
+        Msg::ImAdminSetupCredentialHintFeishu =>
+            "凭据来源：飞书开放平台 -> 应用凭证 -> App ID / App Secret。请先导出为环境变量，此处只输入变量名或 $VAR 引用。".into(),
+        Msg::ImAdminSetupCredentialHintWecom =>
+            "凭据来源：企业微信管理后台 -> 机器人凭证 -> Bot ID / Secret。请先导出为环境变量，此处只输入变量名或 $VAR 引用。".into(),
+        Msg::ImAdminSetupCredentialPrompt { field } =>
+            format!("`{field}` 的环境变量引用：").into(),
+        Msg::ImAdminSetupCredentialRequired { field } =>
+            format!("所选平台必须提供凭据 `{field}`").into(),
+        Msg::ImAdminSetupStepThree =>
+            "第 3/3 步：保存渠道并连接平台验证机器人。".into(),
+        Msg::ImAdminSetupSuccess { platform, project } =>
+            format!("`{platform}` -> `{project}` 设置完成。现在请在聊天中向机器人发送消息，验证完整对话流程。").into(),
+        Msg::ImAdminSetupCheckRemediation { platform, project } =>
+            format!("渠道 `{platform}` -> `{project}` 已保存，但实时验证失败。`im add` 有意只做结构校验；`im check`/`im serve` 才会真实验证凭据。请在运行 `rustcode im serve` 的环境中设置凭据环境变量，修正错误凭据后重试 `rustcode im check --platform {platform} --project {project}`。").into(),
         Msg::ImAdminUpdated { platform, project } =>
             format!("IM 渠道已更新：`{platform}` -> `{project}`").into(),
         Msg::ImAdminAdded { platform, project } =>
@@ -1680,8 +1705,9 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             format!("`{platform}` 的 IM 服务已移除").into(),
         Msg::CliAboutImRegister => "把渠道注册为系统服务（登录自启、保活）".into(),
         Msg::CliAboutImUnregister => "移除某平台的 IM 系统服务".into(),
-        Msg::CliAboutIm => "管理与托管 IM 渠道（serve/add/list/check/remove）".into(),
+        Msg::CliAboutIm => "管理与托管 IM 渠道（setup/serve/add/list/check/remove）".into(),
         Msg::CliAboutImServe => "前台托管 IM 渠道（聊天消息驱动 agent）".into(),
+        Msg::CliAboutImSetup => "通过三步向导配置并验证一个 IM 渠道".into(),
         Msg::CliAboutImAdd => "添加或更新一个渠道绑定（凭据必须是 $VAR 引用）".into(),
         Msg::CliAboutImList => "列出已配置的 IM 渠道（仅凭据引用，不含明文）".into(),
         Msg::CliAboutImCheck => "对已配置渠道运行连通性探针".into(),

@@ -1708,6 +1708,32 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             format!("unknown platform `{platform}`; expected one of `dingtalk`, `feishu`, `wecom`").into(),
         Msg::ImAdminProjectRequired =>
             "`im add` requires a project path (the absolute directory this chat drives)".into(),
+        Msg::ImAdminSetupStepOne =>
+            "Step 1/3: Create a bot on the IM platform, then select its platform and project.".into(),
+        Msg::ImAdminSetupPlatformPrompt =>
+            "Platform (dingtalk, feishu, or wecom):".into(),
+        Msg::ImAdminSetupProjectDefault { project } =>
+            format!("Project was not supplied; using current directory `{project}`.").into(),
+        Msg::ImAdminSetupProjectInvalid { project } =>
+            format!("project `{project}` must be an existing absolute directory").into(),
+        Msg::ImAdminSetupStepTwo =>
+            "Step 2/3: Configure the channel with credential environment-variable references.".into(),
+        Msg::ImAdminSetupCredentialHintDingtalk =>
+            "Credential source: DingTalk Open Platform -> application credentials -> Client ID / Client Secret. Export them as environment variables and enter only the variable names or $VAR references.".into(),
+        Msg::ImAdminSetupCredentialHintFeishu =>
+            "Credential source: Feishu Open Platform -> app credentials -> App ID / App Secret. Export them as environment variables and enter only the variable names or $VAR references.".into(),
+        Msg::ImAdminSetupCredentialHintWecom =>
+            "Credential source: WeCom administration console -> bot credentials -> Bot ID / Secret. Export them as environment variables and enter only the variable names or $VAR references.".into(),
+        Msg::ImAdminSetupCredentialPrompt { field } =>
+            format!("Environment-variable reference for `{field}`:").into(),
+        Msg::ImAdminSetupCredentialRequired { field } =>
+            format!("credential `{field}` is required for the selected platform").into(),
+        Msg::ImAdminSetupStepThree =>
+            "Step 3/3: Save the channel and verify the bot against the platform.".into(),
+        Msg::ImAdminSetupSuccess { platform, project } =>
+            format!("Setup complete for `{platform}` -> `{project}`. Now message the bot in the chat to verify the full conversation flow.").into(),
+        Msg::ImAdminSetupCheckRemediation { platform, project } =>
+            format!("Channel `{platform}` -> `{project}` was saved, but live verification failed. `im add` intentionally performs structural validation only; credentials are verified for real by `im check`/`im serve`. Set the credential environment variables where the `rustcode im serve` process will run, correct any wrong credentials, then rerun `rustcode im check --platform {platform} --project {project}`.").into(),
         Msg::ImAdminUpdated { platform, project } =>
             format!("IM channel updated: `{platform}` -> `{project}`").into(),
         Msg::ImAdminAdded { platform, project } =>
@@ -1742,9 +1768,11 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliAboutImRegister =>
             "Register the channel as an OS service (starts at login, kept alive)".into(),
         Msg::CliAboutImUnregister => "Unregister the OS service for a platform".into(),
-        Msg::CliAboutIm => "Manage and serve IM channels (serve/add/list/check/remove)".into(),
+        Msg::CliAboutIm => "Manage and serve IM channels (setup/serve/add/list/check/remove)".into(),
         Msg::CliAboutImServe =>
             "Serve IM channels in the foreground (chat messages drive the agent)".into(),
+        Msg::CliAboutImSetup =>
+            "Configure and verify one IM channel with a three-step wizard".into(),
         Msg::CliAboutImAdd =>
             "Add or update one channel binding (credentials must be $VAR references)".into(),
         Msg::CliAboutImList =>

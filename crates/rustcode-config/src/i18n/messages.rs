@@ -2461,6 +2461,46 @@ pub enum Msg<'a> {
     },
     /// `rustcode im add`: the project path is required.
     ImAdminProjectRequired,
+    /// `rustcode im setup`: first wizard step.
+    ImAdminSetupStepOne,
+    /// `rustcode im setup`: prompt for a platform.
+    ImAdminSetupPlatformPrompt,
+    /// `rustcode im setup`: report the current-directory project default.
+    ImAdminSetupProjectDefault {
+        project: &'a str,
+    },
+    /// `rustcode im setup`: project must be an existing absolute directory.
+    ImAdminSetupProjectInvalid {
+        project: &'a str,
+    },
+    /// `rustcode im setup`: second wizard step.
+    ImAdminSetupStepTwo,
+    /// `rustcode im setup`: DingTalk credential source guidance.
+    ImAdminSetupCredentialHintDingtalk,
+    /// `rustcode im setup`: Feishu credential source guidance.
+    ImAdminSetupCredentialHintFeishu,
+    /// `rustcode im setup`: WeCom credential source guidance.
+    ImAdminSetupCredentialHintWecom,
+    /// `rustcode im setup`: prompt for one credential reference.
+    ImAdminSetupCredentialPrompt {
+        field: &'a str,
+    },
+    /// `rustcode im setup`: a required platform credential was not supplied.
+    ImAdminSetupCredentialRequired {
+        field: &'a str,
+    },
+    /// `rustcode im setup`: third wizard step.
+    ImAdminSetupStepThree,
+    /// `rustcode im setup`: save and live probe both succeeded.
+    ImAdminSetupSuccess {
+        platform: &'a str,
+        project: &'a str,
+    },
+    /// `rustcode im setup`: save succeeded but the live probe failed.
+    ImAdminSetupCheckRemediation {
+        platform: &'a str,
+        project: &'a str,
+    },
     /// `rustcode im add`: an existing channel was replaced.
     ImAdminUpdated {
         platform: &'a str,
@@ -2523,6 +2563,8 @@ pub enum Msg<'a> {
     CliAboutIm,
     /// `rustcode im serve` about.
     CliAboutImServe,
+    /// `rustcode im setup` about.
+    CliAboutImSetup,
     /// `rustcode im add` about.
     CliAboutImAdd,
     /// `rustcode im list` about.

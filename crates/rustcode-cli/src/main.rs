@@ -613,6 +613,33 @@ fn build_i18n_command() -> clap::Command {
                             a.help(t(Msg::CliHelpImProject).into_owned())
                         })
                 })
+                .mut_subcommand("setup", |s| {
+                    s.about(t(Msg::CliAboutImSetup).into_owned())
+                        .mut_arg("platform", |a| {
+                            a.help(t(Msg::CliHelpImPlatform).into_owned())
+                        })
+                        .mut_arg("project", |a| {
+                            a.help(t(Msg::CliHelpImProject).into_owned())
+                        })
+                        .mut_arg("client_id", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("client_secret", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("app_id", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("app_secret", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("bot_id", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("secret", |a| {
+                            a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                })
                 .mut_subcommand("add", |s| {
                     s.about(t(Msg::CliAboutImAdd).into_owned())
                         .mut_arg("platform", |a| {
@@ -1221,7 +1248,7 @@ enum Commands {
     /// Manage local scheduled tasks (add/list/remove/enable/disable).
     #[command(subcommand)]
     Schedule(schedule_cmd::ScheduleCli),
-    /// Manage and serve IM channels (serve/add/list/check/remove).
+    /// Manage and serve IM channels (setup/serve/add/list/check/remove).
     #[command(subcommand)]
     Im(ImCommand),
     /// Generate a project wiki (architecture diagram + module docs) and sync on change.
@@ -1561,6 +1588,8 @@ fn run_ide_install(all: bool, ide: Option<&str>) -> Result<()> {
 enum ImCommand {
     /// Serve IM channels: chat messages drive the agent in the bound project.
     Serve(ImServeArgs),
+    /// Configure and verify one channel with an interactive three-step wizard.
+    Setup(ImSetupArgs),
     /// Add (or update) one channel binding from CLI arguments.
     Add(ImAddArgs),
     /// List configured channels (credential references only, never secrets).
@@ -1591,6 +1620,48 @@ struct ImServeArgs {
     /// Only serve the channel bound to this exact project path. Default: any.
     #[arg(long)]
     project: Option<String>,
+}
+
+/// Args for `rustcode im setup` — interactive setup with optional flag input.
+#[derive(clap::Args)]
+struct ImSetupArgs {
+    /// Platform: dingtalk | feishu | wecom. Prompted when omitted.
+    #[arg(long, value_name = "p")]
+    platform: Option<String>,
+    /// Absolute project path this chat drives. Default: current directory.
+    #[arg(long, value_name = "dir")]
+    project: Option<String>,
+    #[arg(long)]
+    client_id: Option<String>,
+    #[arg(long)]
+    client_secret: Option<String>,
+    #[arg(long)]
+    app_id: Option<String>,
+    #[arg(long)]
+    app_secret: Option<String>,
+    #[arg(long)]
+    bot_id: Option<String>,
+    /// WeCom app secret (config key `secret`).
+    #[arg(long)]
+    secret: Option<String>,
+}
+
+impl ImSetupArgs {
+    /// Collect credential flags for the wizard; it selects the keys required by
+    /// the chosen platform and prompts only for missing ones.
+    fn credentials(&self) -> Vec<(String, String)> {
+        [
+            ("client_id", &self.client_id),
+            ("client_secret", &self.client_secret),
+            ("app_id", &self.app_id),
+            ("app_secret", &self.app_secret),
+            ("bot_id", &self.bot_id),
+            ("secret", &self.secret),
+        ]
+        .into_iter()
+        .filter_map(|(key, value)| value.as_ref().map(|v| (key.to_string(), v.clone())))
+        .collect()
+    }
 }
 
 /// Args for `rustcode im add <platform> <project>` — upsert one binding.
@@ -2981,15 +3052,23 @@ async fn run() -> Result<i32> {
                 return Ok(code);
             }
             Commands::Im(command) => {
-                // Headless posture: IM subcommands have no TTY, so anything that
-                // would prompt must go through the approval path instead of
-                // trying to read stdin. Handled inline for the same reason as
-                // `Schedule` -- the exit code has to survive.
+                // IM commands run outside the TUI. `setup` is the deliberate
+                // exception that may read stdin when flags do not provide all
+                // wizard values; all other subcommands remain non-interactive.
+                // Handled inline, like `Schedule`, so exit codes survive.
                 HEADLESS_MODE.store(true, Ordering::Relaxed);
                 let code = match command {
                     ImCommand::Serve(args) => {
                         im_runner::run_im_command(args.platform.as_deref(), args.project.as_deref())
                             .await?
+                    }
+                    ImCommand::Setup(args) => {
+                        im_admin::handle_im_setup(
+                            args.platform.as_deref(),
+                            args.project.as_deref(),
+                            &args.credentials(),
+                        )
+                        .await?
                     }
                     ImCommand::Add(args) => {
                         im_admin::handle_im_add(&args.platform, &args.project, &args.credentials())
