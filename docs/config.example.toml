@@ -375,6 +375,30 @@ max_rounds = 0
 [loop_config]
 max_rounds = 100
 
+# =============================================================================
+# 定时任务的触发策略（P2，daemon tick）
+# =============================================================================
+# 默认全部关闭 = 与旧行为完全一致：定时任务只由系统调度器（launchd / systemd
+# timer / schtasks）冷启动 `rustcode schedule run <id>` 触发。
+#
+# 打开 daemon_tick 会把"到期即触发"搬进常驻 daemon（或前台
+# `rustcode schedule tick`），但**不会**卸掉系统调度器里已注册的条目 —— 两边都会
+# 触发。因此 `schedule add` 在 daemon_tick 打开时会打印显式警告；一次性迁移用
+# `rustcode schedule sync --unregister-os`（它刻意不走 reconcile，否则会立刻装回去）。
+#
+# 环境变量（显式值优先于本文件，`0` 可压住已开的开关）：
+#   RUSTCODE_SCHEDULE_ENABLED / RUSTCODE_SCHEDULE_DAEMON_TICK
+#   RUSTCODE_SCHEDULE_TICK_SECS / RUSTCODE_SCHEDULE_CATCHUP_SECS
+#   RUSTCODE_SCHEDULE_HISTORY
+#   RUSTCODE_SCHEDULE_TICK_BIN  —— 重命名安装时指定 `rustcode` 可执行文件
+# 未设置的键不会写回本文件（跳过一次保存即恢复"从未配置"）。
+[schedule]
+enabled = false            # 一切非 OS 触发（daemon tick / schedule tick）的总开关
+daemon_tick = false        # 是否在常驻 daemon 内跑到期调度（需 enabled 也为 true）
+tick_interval_secs = 60    # 轮询周期，夹取到 [10, 3600]
+catch_up_window_secs = 3600 # 错过多久以内仍补跑；超出记 skipped；0 = 永不判超窗
+max_run_history = 20       # 每个任务保留的运行台账条数，夹取到 [1, 1000]
+
 # Todo 任务跟踪。RUSTCODE_TODO 环境变量仍可覆盖 enabled；修改 enabled 后需重启当前 runtime。
 # eager: auto（DeepSeek V4 Flash 自动增强）| preferred（复杂任务优先提醒）| always（provider 支持时强制先建表）
 [tools.todo]

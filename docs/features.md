@@ -204,6 +204,18 @@ MCP 配置:
 
 - 未来可选模式：借助 STUN 风格信令服务器 + UDP 打洞，让两端点对点直连，绕过中继以降低延迟。该 P2P 模式**当前不在范围内**，仅作为下一步规划记录，不在本变更实现。
 
+### 8. 定时任务与持续工作（schedule）
+
+- `rustcode schedule add/list/enable/disable/remove/sync/run/history` 管理持久化的定时任务；任务定义落在 `$RUSTCODE_HOME/schedules/<id>.json`，每次运行的台账落在 `<id>/runs/<run_id>.json`（`schedule history <id>` 可查，`status` 为 `running` / `success` / `error` / `cancelled` / `skipped` 机器 token，不翻译）。
+- **两种触发方式，默认只用第一种**：
+  1. 系统调度器（launchd / systemd timer / schtasks）冷启动 `rustcode schedule run <id>`——`schedule add` 即注册，`schedule sync` 对账；无需常驻进程，但每次都是**全新会话**。
+  2. daemon tick（P2，默认关闭）——常驻 `rustcode daemon` 每 `tick_interval_secs` 检查到期任务并执行，或前台 `rustcode schedule tick [--once]`（`--once` 供外部 cron 调用）。开关是 `[schedule]` 的 `enabled` + `daemon_tick`。
+- **不要同时开两种**：`daemon_tick` 打开时 `schedule add` 会打印显式警告；一次性迁移用 `rustcode schedule sync --unregister-os` 卸掉全部系统调度器注册。
+- **补跑有窗口**：错过的运行只在 `catch_up_window_secs` 之内才补跑，超出则记为 `skipped`（`0` 表示永不判超窗）。这样"开机时把昨天积压的任务全部跑一遍"不会发生。
+- **不会并发跑同一任务两次**：`schedule run` 与 tick 共用一把单飞锁（`<task-id>/.lock`），拿不到锁的一方直接跳过；被中断（崩溃 / 断电）留下 `running` 记录的运行会在下次调度时回收为 `error`，台账里不会永久停留"运行中"。
+- 调度触发**一律不允许全量绕过权限**：任务以 `strict_unattended` 运行——任何被升级到审批的工具调用直接被拒绝，`auto` 权限模式也会被降级为 `accept_edits`。
+- 设计、分期（P0–P3）与残留见 `docs/plans/2026-09-23-continuous-agent-design.md`；配置项见 `docs/config.example.toml` 的 `[schedule]` 段。
+
 ## 本地检索工具(内置)
 
 | 工具 | 用途 |

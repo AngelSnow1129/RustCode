@@ -408,7 +408,7 @@ sleep 期间退出时，`delay_seconds` 无法回答"还剩多久"。落盘时�
 
 ---
 
-### 5.2 P1 —— 任务运行台账（任务持久化）
+### 5.2 P1 —— 任务运行台账（任务持久化）（已落地 2026-09-25，见本节末尾）
 
 **目标**：消除 G2、G8、G9 的存储侧。**本阶段不新增任何触发路径**，只让既有
 OS 调度器路径产出可审计的记录。
@@ -440,6 +440,21 @@ OS 调度器路径产出可审计的记录。
 
 **回滚**：新增字段均为 `#[serde(default)]`，旧任务 JSON 无字段仍可解析；
 删除新目录即回到 P0 状态。
+
+**落地记录（2026-09-25，与设计的偏差如实登记）**：
+
+- 全部验收判据达成：roundtrip/两次运行记录递增、失败 run `status=Error`+`exit_code=1`
+  且进程退出码仍 1（`schedule_run_exit_code.rs` 绿）、prune 保留最新 N、
+  config `--lib` **371/0** + cli `--bins` **130/0** + tuix `--lib` **2029/0**。
+- **偏差 1**：`max_run_history` **未做成 config 键**——实测 `[schedule]` 配置段不存在，
+  P1 按最小面用常量 `DEFAULT_MAX_RUN_HISTORY = 20`；`prune_runs(keep)` 签名已参数化，
+  P2 引入 `[schedule]` 段时直接接线即可。
+- **偏差 2**：`run_id` 用 `<secs>-<nanos九位>`（config crate 无 uuid 依赖，不为其新增）；
+  字典序即时间序，比 uuid 更利于排序，连续运行必不同。
+- **偏差 3**：OS 调度器与手动 `schedule run` 共用同一命令行，`trigger` 一律记
+  `Manual`（`OsScheduler`/`Daemon` 变体留给 P2）；已在 AGENTS.md 登记为残留。
+- **偏差 4**：TUI `/schedule` 的摘要行放 `ScheduleLastRun`（状态+耗时）而非完整行，
+  避免与既有 `ScheduleRow` 列宽耦合。
 
 ---
 
@@ -477,6 +492,34 @@ OS 调度器路径产出可审计的记录。
 
 **回滚**：`daemon_tick` 默认 `false`，未显式开启时**零行为变化**；
 删除 `spawn_schedule_tick` 调用点即回滚。
+
+**落地记录（2026-09-27，与设计的偏差如实登记）**：
+
+- 全部验收判据达成：单飞锁互斥（`try_claim_is_exclusive_and_released_on_drop`）、
+  补跑超窗记 `Skipped` 且前移锚点（`catch_up_outside_window_records_skipped_and_advances_the_anchor`）、
+  `daemon_tick` 关闭时零行为（`schedule_config_defaults_keep_every_trigger_off`）、
+  陈旧 `Running` 回收（`stale_running_run_is_reaped_only_when_the_lock_is_free`）。
+  门禁：config `--lib` **383/0**、cli `--bins` **131/0**、daemon `--lib` **320/0**、
+  `cargo fmt --check` 三 crate 干净、clippy 对改动文件 0 新增命中。
+- **偏差 1（架构，重要）**：设计 §3.1/§3.2 把 `ScheduleRunner` 放在
+  `rustcode-capabilities`（L1）并"装配一次 CodingRuntime"。**这在本仓依赖方向下不可能**：
+  `CodingRuntime` 属 `rustcode-coding`（L2），L1 不得依赖 L2。实际落法改为两段：
+  (1) **due / 单飞锁 / 补跑窗口 / 陈旧回收**全部下沉到 `rustcode-config/src/schedule.rs`
+  （leaf，cli 与 daemon 都能用，且与 `RunRecord` 存储同址，避免第二份真相）；
+  (2) **执行**留在 CLI（`spawn_native_cli_runtime` / `run_native_headless` 本就在 bin 侧），
+  daemon tick 通过 `schedule tick --once` 子进程复用同一入口。这同时满足
+  "不新建第二套 CodingRuntime owner" 与"不制造 L3↔L3 依赖"。
+- **偏差 2**：设计 §4.1 的 `skipped_because_of` 字段未新增，超窗原因写进既有的
+  `summary`（`CATCH_UP_MISSED_SUMMARY`），使 `RunRecord` 的加性面为零。
+- **偏差 3**：设计 §5.3 把 `[schedule]` 段写成 `enabled` 门控 + `daemon_tick` 开关；
+  实现额外用 `skip_serializing_if` 让**未触碰**的 `[schedule]` 不写回用户 config.toml
+  （否则每次保存都给所有用户的文件加一段无意义内容）。配置表已在
+  `docs/config.example.toml` 与 `AGENTS.md` 登记。
+- **偏差 4**：设计要求的 `schedule add` 显式互斥警告与
+  `schedule sync --unregister-os` 均已实现；后者刻意与 `handle_sync_with` 分离，
+  因为 reconcile 会把刚卸下的任务立即重装。
+- **未做（属 P2.5/P3 范围）**：DAG / `schedule_task` 工具 / 事件触发（P2.5）、
+  可持久化唤醒（P3）。`OnFileChange` 的 O1 裁决（轮询 stat）仍待 P2.5 落地。
 
 ---
 

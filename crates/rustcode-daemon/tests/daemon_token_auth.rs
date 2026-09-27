@@ -30,6 +30,8 @@ async fn chat_requires_token_health_is_public() {
             prebound_listener: None,
             daemon_token_file: Some("it-token".to_string()),
             webui_no_auth: false,
+            // Tests must never own background scheduling.
+            schedule_tick: false,
         })
         .await
         .ok();
@@ -108,6 +110,8 @@ async fn no_auth_mode_serves_protected_routes_without_token() {
             quiet: true,
             prebound_listener: None,
             daemon_token_file: None,
+            // Tests must never own background scheduling.
+            schedule_tick: false,
         })
         .await
         .ok();

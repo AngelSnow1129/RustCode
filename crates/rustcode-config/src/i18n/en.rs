@@ -1004,6 +1004,13 @@ base_url and api_key, or run rustcode with --provider <name>.\n"
         Msg::CliSchedDisabled { id } => format!("  Disabled task {id}").into(),
         Msg::CliSchedRunSkipped { id } =>
             format!("  schedule run: task {id} is disabled, skipping").into(),
+        Msg::CliSchedHistoryEmpty { id } =>
+            format!("  No runs recorded yet for task {id}").into(),
+        Msg::CliSchedHistoryHeader { id } =>
+            format!("  Recent runs of {id} (newest first):").into(),
+        Msg::CliSchedHistoryRow { run_id, status, started, duration, exit } =>
+            format!("  {run_id} | {status} | started:{started} | took:{duration} | exit:{exit}")
+                .into(),
         Msg::CliSchedBadCwd { cwd, id } =>
             format!("[schedule] working directory {cwd} does not exist for task {id}").into(),
         Msg::CliSchedListRow { id, title, next, last, state, reg } =>
@@ -1013,6 +1020,16 @@ base_url and api_key, or run rustcode with --provider <name>.\n"
         Msg::CliSchedRegRegistered => "registered".into(),
         Msg::CliSchedRegMissing => "missing".into(),
         Msg::CliSchedRegUnknown => "unknown".into(),
+        Msg::CliSchedDaemonTickConflict { id } =>
+            format!("  warning: task {id} is also registered with the OS scheduler, but [schedule].daemon_tick is on -- both will fire it; run `rustcode schedule sync --unregister-os` to let the tick own it").into(),
+        Msg::CliSchedTickDisabled =>
+            "  [schedule] is disabled; nothing to tick (set [schedule].enabled = true to enable)".into(),
+        Msg::CliSchedTickSkippedWindow { id, due } =>
+            format!("  {id}: skipped a run that was due at {due} -- older than the catch-up window").into(),
+        Msg::CliSchedTickBusy { id } =>
+            format!("  {id}: already running; not starting a second concurrent run").into(),
+        Msg::CliSchedUnregisteredAll { errors } =>
+            format!("  schedule sync --unregister-os: removed the OS registration of every task ({errors} errors)").into(),
 
         // ── `rustcode uninstall` ──
         Msg::CliUninstallPurgeConflict =>
@@ -1142,6 +1159,9 @@ base_url and api_key, or run rustcode with --provider <name>.\n"
         Msg::ScheduleListHeader => "  Scheduled tasks:\n\n".into(),
         Msg::ScheduleRow { id, title, next, last, state } => format!(
             "  {id} | {title} | next:{next} | last:{last} | {state}\n"
+        ).into(),
+        Msg::ScheduleLastRun { status, duration } => format!(
+            "    last run: {status} · took {duration}\n"
         ).into(),
 
         // ── /background ──
@@ -2556,6 +2576,8 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliAboutScheduleDisable => "Disable a scheduled task (it will no longer fire)".into(),
         Msg::CliAboutScheduleRun => "Run a scheduled task immediately".into(),
         Msg::CliAboutScheduleSync => "Sync OS scheduler registrations with the stored task list".into(),
+        Msg::CliAboutScheduleHistory => "Show recent runs of a scheduled task".into(),
+        Msg::CliAboutScheduleTick => "Run the due-task tick (--once for a single pass)".into(),
         Msg::CliHelpSchedId => "Task id".into(),
         Msg::CliHelpSchedTitle => "Human-readable name for the task".into(),
         Msg::CliHelpSchedPrompt => "Prompt text to send to the agent when the task fires".into(),
@@ -2567,6 +2589,9 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliHelpSchedCron => "Cron expression (e.g. \"0 9 * * 1-5\")".into(),
         Msg::CliHelpSchedMode => "Permission mode: plan | accept_edits | auto".into(),
         Msg::CliHelpSchedNotify => "Notify level: off | important | all".into(),
+        Msg::CliHelpSchedOnce => "Run a single tick pass and exit".into(),
+        Msg::CliHelpSchedUnregisterOs =>
+            "Remove every OS scheduler registration instead of installing".into(),
 
         // ── rustcode ide ──
         Msg::CliAboutIde => "Detect installed IDEs and install the RustCode extension".into(),

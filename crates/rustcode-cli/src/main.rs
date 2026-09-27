@@ -598,8 +598,21 @@ fn build_i18n_command() -> clap::Command {
                     s.about(t(Msg::CliAboutScheduleRun).into_owned())
                         .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
                 })
+                .mut_subcommand("history", |s| {
+                    s.about(t(Msg::CliAboutScheduleHistory).into_owned())
+                        .mut_arg("id", |a| a.help(t(Msg::CliHelpSchedId).into_owned()))
+                })
                 .mut_subcommand("sync", |s| {
                     s.about(t(Msg::CliAboutScheduleSync).into_owned())
+                        // `mut_arg` matches the clap **id** (the field name /
+                        // snake_case), not the `--long` spelling.
+                        .mut_arg("unregister_os", |a| {
+                            a.help(t(Msg::CliHelpSchedUnregisterOs).into_owned())
+                        })
+                })
+                .mut_subcommand("tick", |s| {
+                    s.about(t(Msg::CliAboutScheduleTick).into_owned())
+                        .mut_arg("once", |a| a.help(t(Msg::CliHelpSchedOnce).into_owned()))
                 })
         })
         .mut_subcommand("im", |s| {
@@ -2816,6 +2829,9 @@ async fn run() -> Result<i32> {
                     working_dir_override: None,
                     prebound_listener: None,
                     daemon_token_file: Some(daemon_token),
+                    // P2: only a real daemon owns the scheduled-task tick; the
+                    // in-process `/webui` server passes false.
+                    schedule_tick: true,
                 })
                 .await;
                 if let Err(e) = res {

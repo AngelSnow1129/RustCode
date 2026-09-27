@@ -962,6 +962,13 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
         Msg::CliSchedDisabled { id } => format!("  已禁用任务 {id}").into(),
         Msg::CliSchedRunSkipped { id } =>
             format!("  schedule run：任务 {id} 已禁用，跳过").into(),
+        Msg::CliSchedHistoryEmpty { id } =>
+            format!("  任务 {id} 暂无运行记录").into(),
+        Msg::CliSchedHistoryHeader { id } =>
+            format!("  任务 {id} 的最近运行（新的在前）：").into(),
+        Msg::CliSchedHistoryRow { run_id, status, started, duration, exit } =>
+            format!("  {run_id} | {status} | 开始：{started} | 耗时：{duration} | 退出码：{exit}")
+                .into(),
         Msg::CliSchedBadCwd { cwd, id } =>
             format!("[schedule] 任务 {id} 的工作目录 {cwd} 不存在").into(),
         Msg::CliSchedListRow { id, title, next, last, state, reg } =>
@@ -971,6 +978,16 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
         Msg::CliSchedRegRegistered => "已注册".into(),
         Msg::CliSchedRegMissing => "缺失".into(),
         Msg::CliSchedRegUnknown => "未知".into(),
+        Msg::CliSchedDaemonTickConflict { id } =>
+            format!("  警告：任务 {id} 同时已注册到系统调度器，但 [schedule].daemon_tick 已开启，两侧都会触发；如需交由 tick 独占触发，请运行 `rustcode schedule sync --unregister-os`").into(),
+        Msg::CliSchedTickDisabled =>
+            "  [schedule] 未启用，无任务需要触发（如需启用请设置 [schedule].enabled = true）".into(),
+        Msg::CliSchedTickSkippedWindow { id, due } =>
+            format!("  {id}：已跳过原定于 {due} 的运行——超出补跑窗口").into(),
+        Msg::CliSchedTickBusy { id } =>
+            format!("  {id}：已在运行中，不再并发启动第二次").into(),
+        Msg::CliSchedUnregisteredAll { errors } =>
+            format!("  schedule sync --unregister-os：已移除所有任务的系统调度器注册（{errors} 个错误）").into(),
 
         // ── `rustcode uninstall` ──
         Msg::CliUninstallPurgeConflict =>
@@ -1098,6 +1115,9 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
         Msg::ScheduleListHeader => "  定时任务：\n\n".into(),
         Msg::ScheduleRow { id, title, next, last, state } => format!(
             "  {id} | {title} | 下次：{next} | 上次：{last} | {state}\n"
+        ).into(),
+        Msg::ScheduleLastRun { status, duration } => format!(
+            "    最近运行：{status} · 耗时 {duration}\n"
         ).into(),
 
         // ── /background ──
@@ -2460,6 +2480,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliAboutScheduleDisable => "禁用定时任务（不再触发）".into(),
         Msg::CliAboutScheduleRun => "立即运行一次定时任务".into(),
         Msg::CliAboutScheduleSync => "将系统调度器注册状态与已存储的任务列表同步".into(),
+        Msg::CliAboutScheduleHistory => "查看定时任务的最近运行记录".into(),
+        Msg::CliAboutScheduleTick => "运行到期任务调度（--once 只跑一轮）".into(),
         Msg::CliHelpSchedId => "任务 id".into(),
         Msg::CliHelpSchedTitle => "任务的可读名称".into(),
         Msg::CliHelpSchedPrompt => "任务触发时发送给代理的提示文本".into(),
@@ -2471,6 +2493,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliHelpSchedCron => "cron 表达式（如 \"0 9 * * 1-5\"）".into(),
         Msg::CliHelpSchedMode => "权限模式：plan | accept_edits | auto".into(),
         Msg::CliHelpSchedNotify => "通知级别：off | important | all".into(),
+        Msg::CliHelpSchedOnce => "只运行一轮后退出".into(),
+        Msg::CliHelpSchedUnregisterOs => "不安装，而是移除全部系统调度器注册".into(),
 
         // ── rustcode ide ──
         Msg::CliAboutIde => "检测已安装的 IDE 并安装 RustCode 扩展".into(),

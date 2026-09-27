@@ -1455,6 +1455,24 @@ pub enum Msg<'a> {
     CliSchedRunSkipped {
         id: &'a str,
     },
+    /// `schedule history`: the task exists but has no runs yet.
+    CliSchedHistoryEmpty {
+        id: &'a str,
+    },
+    /// `schedule history`: header line above the run rows.
+    CliSchedHistoryHeader {
+        id: &'a str,
+    },
+    /// One run-ledger row. `{status}` is the ledger's stable machine token
+    /// (running/success/error/cancelled/skipped) and stays untranslated, like
+    /// other config keys and codes.
+    CliSchedHistoryRow {
+        run_id: &'a str,
+        status: &'a str,
+        started: &'a str,
+        duration: &'a str,
+        exit: &'a str,
+    },
     /// Scheduled task whose working directory is gone.
     CliSchedBadCwd {
         cwd: &'a str,
@@ -1474,6 +1492,28 @@ pub enum Msg<'a> {
     CliSchedRegRegistered,
     CliSchedRegMissing,
     CliSchedRegUnknown,
+    /// P2: `schedule add` while `[schedule].daemon_tick` is on — the task is
+    /// also registered with the OS scheduler, so both would fire it.
+    CliSchedDaemonTickConflict {
+        id: &'a str,
+    },
+    /// P2: the tick ran but `[schedule].enabled` is false.
+    CliSchedTickDisabled,
+    /// P2: a missed run older than the catch-up window was recorded `skipped`
+    /// instead of executed. `due` is a pre-formatted timestamp.
+    CliSchedTickSkippedWindow {
+        id: &'a str,
+        due: &'a str,
+    },
+    /// P2: the single-flight lock was held elsewhere, so this trigger declined
+    /// to start a second concurrent run of the same task.
+    CliSchedTickBusy {
+        id: &'a str,
+    },
+    /// P2: `schedule sync --unregister-os` summary.
+    CliSchedUnregisteredAll {
+        errors: usize,
+    },
 
     // ── `rustcode uninstall` interactive flow ──
     CliUninstallPurgeConflict,
@@ -1652,6 +1692,13 @@ pub enum Msg<'a> {
         next: &'a str,
         last: &'a str,
         state: &'a str,
+    },
+    /// `/schedule`: per-task last-run line (P1 ledger). `{status}` is the
+    /// ledger's stable machine token (running/success/error/cancelled) and
+    /// stays untranslated, like other config keys and codes.
+    ScheduleLastRun {
+        status: &'a str,
+        duration: &'a str,
     },
 
     // ── /background ──
@@ -3966,6 +4013,10 @@ pub enum Msg<'a> {
     /// `--help` parity even though it is not advertised.
     CliAboutScheduleRun,
     CliAboutScheduleSync,
+    /// `schedule history` (P1 run ledger).
+    CliAboutScheduleHistory,
+    /// `schedule tick` (P2: the daemon/cron-driven due-task loop).
+    CliAboutScheduleTick,
     /// `rustcode schedule ...` argument help texts.
     CliHelpSchedId,
     CliHelpSchedTitle,
@@ -3978,6 +4029,10 @@ pub enum Msg<'a> {
     CliHelpSchedCron,
     CliHelpSchedMode,
     CliHelpSchedNotify,
+    /// `schedule tick --once` (P2).
+    CliHelpSchedOnce,
+    /// `schedule sync --unregister-os` (P2).
+    CliHelpSchedUnregisterOs,
 
     // ── rustcode ide ──
     // Detect installed IDEs and install the matching RustCode extension.

@@ -138,6 +138,107 @@ impl Default for LoopConfig {
     }
 }
 
+/// `[schedule]` — trigger policy for persistent scheduled tasks. See
+/// `docs/plans/2026-09-23-continuous-agent-design.md` §4.3 (P2).
+///
+/// Every switch defaults to OFF, so a config file without a `[schedule]` table
+/// behaves exactly as it did before P2: the OS scheduler (launchd / systemd
+/// timer / schtasks) stays the only trigger. Turning `daemon_tick` on moves
+/// triggering into a long-lived `rustcode-daemon` **without** unregistering
+/// those OS entries, so both would fire — that is why the master switch is
+/// explicit and why `schedule add` warns when `daemon_tick` is on
+/// (`schedule sync --unregister-os` is the one-shot migration).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScheduleConfig {
+    /// Master switch for every non-OS trigger (daemon tick / `schedule tick`).
+    /// Default `false` = today's behaviour; zero regression risk.
+    pub enabled: bool,
+    /// Run the due-task tick inside a long-lived `rustcode-daemon`. Requires
+    /// `enabled` too. Default `false`.
+    pub daemon_tick: bool,
+    /// Tick poll period in seconds, clamped to `[10, 3600]` by [`Self::resolved`].
+    pub tick_interval_secs: u64,
+    /// How late a missed run may still execute. Anything older is recorded as
+    /// `skipped` instead of silently running hours-old work. `0` disables the
+    /// window (always catch up). Deliberately one shared predicate ([`crate::schedule::within_catch_up_window`])
+    /// so the later persistent-wakeup restoring path cannot grow a second truth.
+    pub catch_up_window_secs: u64,
+    /// Per-task run-ledger retention, clamped to `[1, 1000]`.
+    pub max_run_history: usize,
+}
+
+impl Default for ScheduleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            daemon_tick: false,
+            tick_interval_secs: 60,
+            catch_up_window_secs: 3600,
+            max_run_history: crate::schedule::DEFAULT_MAX_RUN_HISTORY,
+        }
+    }
+}
+
+impl ScheduleConfig {
+    /// Clamp the numeric knobs into their documented ranges. Applied *after*
+    /// env overrides so a bad env value cannot escape the bounds either.
+    pub fn clamped(&self) -> Self {
+        Self {
+            enabled: self.enabled,
+            daemon_tick: self.daemon_tick,
+            tick_interval_secs: self.tick_interval_secs.clamp(10, 3600),
+            catch_up_window_secs: self.catch_up_window_secs,
+            max_run_history: self.max_run_history.clamp(1, 1000),
+        }
+    }
+
+    /// Resolve the effective policy: `RUSTCODE_SCHEDULE_*` (an explicit value
+    /// wins, matching `webui_no_auth_enabled`) > config file > defaults, then
+    /// clamp. The CLI tick and the daemon tick must both go through this — a
+    /// second `std::env::var` per call site is the two-truths defect this repo
+    /// keeps re-learning.
+    pub fn resolved(&self) -> Self {
+        use crate::endpoints as ep;
+        let mut out = self.clone();
+        if let Some(v) = ep::env_bool(ep::SCHEDULE_ENABLED_ENV) {
+            out.enabled = v;
+        }
+        if let Some(v) = ep::env_bool(ep::SCHEDULE_DAEMON_TICK_ENV) {
+            out.daemon_tick = v;
+        }
+        if let Some(v) = env_u64(ep::SCHEDULE_TICK_SECS_ENV) {
+            out.tick_interval_secs = v;
+        }
+        if let Some(v) = env_u64(ep::SCHEDULE_CATCHUP_SECS_ENV) {
+            out.catch_up_window_secs = v;
+        }
+        if let Some(v) = env_u64(ep::SCHEDULE_HISTORY_ENV) {
+            out.max_run_history = v as usize;
+        }
+        out.clamped()
+    }
+
+    /// Tick period as a `Duration` (already clamped).
+    pub fn tick_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.clamped().tick_interval_secs)
+    }
+
+    /// True when every knob is at its default — used by `skip_serializing_if`
+    /// so saving a config that never touched `[schedule]` does not rewrite the
+    /// user's file with a block that changes nothing.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Parse an integer env override. Unset / blank / unparseable -> `None`, so a
+/// typo keeps the config value instead of guessing at its intent (same policy
+/// as [`crate::endpoints::env_bool`]).
+fn env_u64(key: &str) -> Option<u64> {
+    std::env::var(key).ok()?.trim().parse::<u64>().ok()
+}
+
 /// `[subagent]` execution policy for the in-process `task` and `team` child-agent tools.
 ///
 /// `max_concurrent` (write/worker lane), `max_concurrent_explore` (read-only/explore lane),
@@ -349,6 +450,11 @@ pub struct Config {
     /// TOML section is `[loop_config]` (bare `loop` is a Rust keyword).
     #[serde(default)]
     pub loop_config: LoopConfig,
+    /// Persistent scheduled tasks (`[schedule]`): daemon tick / catch-up window
+    /// / run-ledger retention. Missing from older configs -> everything OFF,
+    /// so the OS scheduler stays the only trigger.
+    #[serde(default, skip_serializing_if = "ScheduleConfig::is_default")]
+    pub schedule: ScheduleConfig,
     /// `[coding]` turn-level policy. Missing from older configs -> max_rounds=0 (unbounded).
     #[serde(default)]
     pub coding: CodingConfig,
@@ -826,6 +932,7 @@ impl Default for Config {
             auto_commit: false,
             subagent: Default::default(),
             loop_config: Default::default(),
+            schedule: ScheduleConfig::default(),
             coding: CodingConfig::default(),
             tools: ToolsConfig::default(),
             vision_preprocessor_provider: None,
@@ -2210,6 +2317,10 @@ pub enum SeedOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::endpoints::{
+        SCHEDULE_CATCHUP_SECS_ENV, SCHEDULE_ENABLED_ENV, SCHEDULE_HISTORY_ENV,
+        SCHEDULE_TICK_SECS_ENV,
+    };
 
     #[test]
     fn subagent_external_entries_deserialize_with_defaults() {
@@ -3261,6 +3372,7 @@ model = "missing-type"
             auto_commit: false,
             subagent: Default::default(),
             loop_config: Default::default(),
+            schedule: ScheduleConfig::default(),
             coding: CodingConfig::default(),
             tools: ToolsConfig {
                 todo: TodoToolConfig {
@@ -3375,6 +3487,115 @@ model = "missing-type"
         assert!(!Config::load(&legacy).unwrap().webui_no_auth);
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(&legacy);
+    }
+
+    // ── `[schedule]` (P2) ──────────────────────────────────────────────────
+
+    #[test]
+    fn schedule_config_defaults_keep_every_trigger_off() {
+        // A config that never mentioned `[schedule]` must behave exactly as it
+        // did before P2: no daemon tick, OS scheduler still the only trigger.
+        // Asserts on the *file* values (`clamped`, no env read) -- `resolved()`
+        // reads process-global env and is covered by the single env test below,
+        // so these cannot race each other under the parallel harness.
+        let cfg = Config::default();
+        let s = cfg.schedule.clamped();
+        assert!(!s.enabled);
+        assert!(!s.daemon_tick);
+        assert_eq!(s.tick_interval_secs, 60);
+        assert_eq!(s.catch_up_window_secs, 3600);
+        assert_eq!(s.max_run_history, crate::schedule::DEFAULT_MAX_RUN_HISTORY);
+        assert_eq!(s.tick_interval(), std::time::Duration::from_secs(60));
+        assert!(cfg.schedule.is_default());
+    }
+
+    #[test]
+    fn schedule_config_clamped_bounds_numeric_knobs() {
+        let raw = ScheduleConfig {
+            enabled: true,
+            daemon_tick: true,
+            tick_interval_secs: 0, // below the 10s floor
+            catch_up_window_secs: 0,
+            max_run_history: 0, // below the 1 floor
+        };
+        let s = raw.clamped();
+        assert_eq!(s.tick_interval_secs, 10, "tick floor");
+        assert_eq!(s.max_run_history, 1, "history floor");
+        // 0 stays 0 for the window: it means "always catch up", not "never".
+        assert_eq!(s.catch_up_window_secs, 0);
+        assert_eq!(s.tick_interval(), std::time::Duration::from_secs(10));
+        assert!(!raw.is_default());
+
+        let raw = ScheduleConfig {
+            enabled: true,
+            daemon_tick: false,
+            tick_interval_secs: u64::MAX,
+            catch_up_window_secs: 0,
+            max_run_history: usize::MAX,
+        };
+        let s = raw.clamped();
+        assert_eq!(s.tick_interval_secs, 3600, "tick ceiling");
+        assert_eq!(s.max_run_history, 1000, "history ceiling");
+    }
+
+    #[test]
+    fn schedule_config_env_is_explicit_and_wins_over_the_file() {
+        let raw = ScheduleConfig {
+            enabled: false,
+            daemon_tick: false,
+            tick_interval_secs: 60,
+            catch_up_window_secs: 3600,
+            max_run_history: 20,
+        };
+        // `1` turns the master switch on without touching the file.
+        std::env::set_var(SCHEDULE_ENABLED_ENV, "1");
+        std::env::set_var(SCHEDULE_TICK_SECS_ENV, "120");
+        std::env::set_var(SCHEDULE_HISTORY_ENV, "5");
+        std::env::set_var(SCHEDULE_CATCHUP_SECS_ENV, "0");
+        let s = raw.resolved();
+        assert!(s.enabled);
+        assert_eq!(s.tick_interval_secs, 120);
+        assert_eq!(s.max_run_history, 5);
+        assert_eq!(s.catch_up_window_secs, 0, "0 = always catch up");
+
+        // An explicit `0` suppresses it again (ops can tighten without editing
+        // config.toml), and a typo keeps the file's value rather than guessing.
+        std::env::set_var(SCHEDULE_ENABLED_ENV, "0");
+        assert!(!raw.resolved().enabled);
+        std::env::set_var(SCHEDULE_ENABLED_ENV, "maybe");
+        std::env::set_var(SCHEDULE_TICK_SECS_ENV, "not-a-number");
+        let s = raw.resolved();
+        assert!(!s.enabled);
+        assert_eq!(s.tick_interval_secs, 60);
+        // A bad env value must not escape the clamp either.
+        std::env::set_var(SCHEDULE_TICK_SECS_ENV, "1");
+        assert_eq!(raw.resolved().tick_interval_secs, 10);
+
+        std::env::remove_var(SCHEDULE_ENABLED_ENV);
+        std::env::remove_var(SCHEDULE_TICK_SECS_ENV);
+        std::env::remove_var(SCHEDULE_HISTORY_ENV);
+        std::env::remove_var(SCHEDULE_CATCHUP_SECS_ENV);
+    }
+
+    #[test]
+    fn saved_config_omits_schedule_when_it_was_never_touched() {
+        let tmp =
+            std::env::temp_dir().join(format!("rustcode_cfg_sched_{}.toml", std::process::id()));
+        Config::default().save(&tmp).unwrap();
+        let text = std::fs::read_to_string(&tmp).unwrap();
+        assert!(
+            !text.contains("[schedule]"),
+            "an untouched [schedule] table must not be written into the user's config"
+        );
+        // Opting in does persist it, though.
+        let mut cfg = Config::default();
+        cfg.schedule.enabled = true;
+        cfg.schedule.daemon_tick = true;
+        cfg.save(&tmp).unwrap();
+        let text = std::fs::read_to_string(&tmp).unwrap();
+        assert!(text.contains("[schedule]"), "opted-in policy must persist");
+        assert!(Config::load(&tmp).unwrap().schedule.daemon_tick);
+        let _ = std::fs::remove_file(&tmp);
     }
 
     #[test]

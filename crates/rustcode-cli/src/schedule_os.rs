@@ -789,6 +789,7 @@ mod tests {
             created_at: 0,
             last_run_at: None,
             last_status: None,
+            last_run_id: None,
         }
     }
 

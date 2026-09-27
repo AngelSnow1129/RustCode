@@ -5008,6 +5008,21 @@ pub(crate) fn build_schedule_list_text(
             last: task.last_status.as_deref().unwrap_or("-"),
             state: &state,
         }));
+        // P1 ledger: append the most recent run's status + duration under the
+        // task row. Best-effort display -- a missing/corrupt ledger simply
+        // contributes no extra line, exactly like a missing `last_status`.
+        if let Some(record) = rustcode_config::schedule::latest_run(&task.id) {
+            let duration = record
+                .finished_at
+                .map(|f| format!("{}s", f - record.started_at))
+                .unwrap_or_else(|| "-".to_string());
+            // `status` is the ledger's stable machine token
+            // (running/success/error/cancelled) and stays untranslated.
+            out.push_str(&t(Msg::ScheduleLastRun {
+                status: record.status.as_str(),
+                duration: &duration,
+            }));
+        }
     }
     out
 }
@@ -5032,6 +5047,7 @@ mod schedule_list_text_tests {
             created_at: 0,
             last_run_at: None,
             last_status: last_status.map(|s| s.to_string()),
+            last_run_id: None,
         }
     }
 
@@ -5040,6 +5056,51 @@ mod schedule_list_text_tests {
         let _g = crate::i18n::test_lock();
         let out = build_schedule_list_text(&[], 0);
         assert_eq!(out, crate::i18n::t(crate::i18n::Msg::ScheduleListEmpty));
+    }
+
+    /// P1 ledger: a task with a recorded run gets a "last run" line under its
+    /// row; a task without one does not. The ledger lives under the test
+    /// binary's ctor-isolated RUSTCODE_HOME; the unique id keeps this hermetic
+    /// against parallel tests.
+    #[test]
+    fn last_run_line_appears_only_when_the_ledger_has_a_record() {
+        let _g = crate::i18n::test_lock();
+        let unique = format!("ledger-{}", std::process::id());
+        let task = make_task(&unique, "Ledger probe", true, None);
+        let now = 1785657600_i64;
+
+        // No ledger yet -> no extra line.
+        let before = build_schedule_list_text(std::slice::from_ref(&task), now);
+        assert!(
+            !before.contains("took") && !before.contains("耗时"),
+            "no ledger record must not render a last-run line: {before}"
+        );
+
+        // Record one finished run -> the line appears under the task row.
+        rustcode_config::schedule::save_run(
+            &unique,
+            &rustcode_config::schedule::RunRecord {
+                run_id: "1000-000000001".into(),
+                task_id: unique.clone(),
+                status: rustcode_config::schedule::RunStatus::Success,
+                trigger: rustcode_config::schedule::RunTrigger::Manual,
+                started_at: 1785657500,
+                finished_at: Some(1785657560),
+                exit_code: Some(0),
+                session_id: None,
+                summary: None,
+            },
+        )
+        .unwrap();
+        let after = build_schedule_list_text(std::slice::from_ref(&task), now);
+        assert!(
+            after.contains("1000-000000001") || after.contains("success"),
+            "ledger record should surface in /schedule: {after}"
+        );
+        assert!(
+            after.contains("60s"),
+            "duration (finished - started = 60s) should be shown: {after}"
+        );
     }
 
     #[test]

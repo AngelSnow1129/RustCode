@@ -1,14 +1,15 @@
-//! `rustcode schedule` subcommand -- add / list / remove / enable / disable / sync.
+//! `rustcode schedule` subcommand -- add / list / remove / enable / disable / sync / run.
 //!
-//! Task 4 will fill in the `Run` arm; for now it returns a non-zero exit
-//! code with an informational message so callers can detect the stub.
+//! All arms are implemented, including `Run` (`run_task`, wired at
+//! `ScheduleCli::Run`). An earlier revision of this header described `Run` as a
+//! non-zero-exit stub; that was superseded when the arm was filled in.
 
 use anyhow::{Context, Result};
 use clap::Subcommand;
 
 use crate::schedule_os::{InstallState, OsScheduler};
 use rustcode_config::i18n::{t, Msg};
-use rustcode_config::schedule::{self, Schedule, ScheduleTask};
+use rustcode_config::schedule::{self, RunRecord, RunStatus, RunTrigger, Schedule, ScheduleTask};
 
 // ── CLI enum ──────────────────────────────────────────────────────────────────
 
@@ -89,7 +90,34 @@ pub enum ScheduleCli {
     ///
     /// Installs enabled tasks that are not yet registered and unregisters
     /// disabled tasks that are still registered.  Safe to run repeatedly.
-    Sync,
+    Sync {
+        /// Remove EVERY OS registration instead of installing. Use this once
+        /// when switching to `[schedule].daemon_tick = true`: otherwise the OS
+        /// entry and the tick would both fire the same task.
+        #[arg(long)]
+        unregister_os: bool,
+    },
+
+    /// Run the due-task tick: execute every task whose time has arrived (--once
+    /// for a single pass; `[schedule].enabled` must be true).
+    //
+    // Keep this doc comment to ONE line: clap turns a multi-paragraph doc into
+    // `long_about`, which `--help` prefers over the `about` this driver sets
+    // from i18n -- so a second paragraph would silently un-localize `--help`.
+    Tick {
+        /// Run one pass and exit (exit code 1 if any executed run failed).
+        #[arg(long)]
+        once: bool,
+    },
+
+    /// Show recent runs of a scheduled task (the P1 run ledger).
+    History {
+        /// Task id (shown in `rustcode schedule list`).
+        id: String,
+        /// How many recent runs to show (newest first).
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
@@ -215,6 +243,7 @@ pub fn build_task(
         created_at,
         last_run_at: None,
         last_status: None,
+        last_run_id: None,
     }
 }
 
@@ -388,6 +417,33 @@ fn handle_sync_with(os: &dyn OsScheduler) -> Result<usize> {
     Ok(errors)
 }
 
+/// Core logic for `schedule sync --unregister-os`: remove **every** OS
+/// registration so a daemon tick can own triggering on its own.
+///
+/// Deliberately separate from [`handle_sync_with`], which reconciles — that one
+/// would immediately re-install every enabled task and defeat the migration.
+/// Returns the number of errors so the caller can set the exit code.
+fn handle_unregister_all_with(os: &dyn OsScheduler) -> Result<usize> {
+    let mut errors = 0usize;
+    for task in schedule::list() {
+        match os.uninstall(&task.id) {
+            Ok(()) => println!("{}", t(Msg::CliSchedSyncUninstalled { id: &task.id })),
+            Err(e) => {
+                eprintln!(
+                    "{}",
+                    t(Msg::CliSchedSyncUninstallFailed {
+                        id: &task.id,
+                        error: &format!("{e:#}"),
+                    })
+                );
+                errors += 1;
+            }
+        }
+    }
+    println!("{}", t(Msg::CliSchedUnregisteredAll { errors }));
+    Ok(errors)
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 /// Dispatch `rustcode schedule <subcommand>`.  Returns an exit code.
@@ -427,6 +483,12 @@ pub async fn handle_schedule(cli: ScheduleCli) -> Result<i32> {
             })?;
             let os = crate::schedule_os::current()?;
             handle_add_with(os.as_ref(), &task)?;
+            // P2 mutual exclusion: with the daemon tick owning triggering, the
+            // OS entry we just installed fires the same task a second time.
+            // Warn explicitly rather than silently double-running.
+            if schedule_config().daemon_tick {
+                eprintln!("{}", t(Msg::CliSchedDaemonTickConflict { id: &task.id }));
+            }
             println!(
                 "{}",
                 t(Msg::CliSchedAdded {
@@ -505,9 +567,17 @@ pub async fn handle_schedule(cli: ScheduleCli) -> Result<i32> {
 
         ScheduleCli::Run { id } => run_task(&id).await,
 
-        ScheduleCli::Sync => {
+        ScheduleCli::History { id, limit } => handle_history(&id, limit),
+
+        ScheduleCli::Tick { once } => tick_loop(once).await,
+
+        ScheduleCli::Sync { unregister_os } => {
             let os = crate::schedule_os::current()?;
-            let errors = handle_sync_with(os.as_ref())?;
+            let errors = if unregister_os {
+                handle_unregister_all_with(os.as_ref())?
+            } else {
+                handle_sync_with(os.as_ref())?
+            };
             Ok(if errors > 0 { 1 } else { 0 })
         }
     }
@@ -543,7 +613,27 @@ pub(crate) fn last_status_for(exit_code: i32) -> &'static str {
 /// If the task is disabled this returns 0 immediately.  If the task's working
 /// directory does not exist the task's `last_status` is set to "error" and the
 /// function returns non-zero.
+/// Outcome of one attempted run, so the tick can tell "ran" from "someone else
+/// already holds the single-flight lock" without inspecting the ledger.
+enum RunAttempt {
+    /// The task ran; carries the headless exit code.
+    Ran(i32),
+    /// The run lock was held elsewhere: skipped, never queued.
+    Busy,
+}
+
+/// `rustcode schedule run <id>` — the OS scheduler's and the user's entry point.
 async fn run_task(id: &str) -> Result<i32> {
+    match run_task_with(id, RunTrigger::Manual).await? {
+        RunAttempt::Ran(code) => Ok(code),
+        RunAttempt::Busy => {
+            println!("{}", t(Msg::CliSchedTickBusy { id }));
+            Ok(0)
+        }
+    }
+}
+
+async fn run_task_with(id: &str, trigger: RunTrigger) -> Result<RunAttempt> {
     use rustcode_capabilities::session::manager::SessionOrigin;
     use rustcode_capabilities::session::SessionManager;
     use rustcode_coding::ProviderBootstrap;
@@ -560,16 +650,50 @@ async fn run_task(id: &str) -> Result<i32> {
     // 2. Skip if disabled.
     if !task.enabled {
         println!("{}", t(Msg::CliSchedRunSkipped { id: &task.id }));
-        return Ok(0);
+        return Ok(RunAttempt::Ran(0));
     }
 
-    // 3. Load user config from default path.
+    // 2.2 Single-flight claim, taken BEFORE any ledger write so an attempt that
+    // loses the race leaves no trace. `run` (the OS scheduler's cold start) and
+    // `tick` share this lock, so a daemon tick and a systemd timer can never
+    // execute the same task at the same time -- the loser records nothing and
+    // exits 0, i.e. "not my run", rather than queueing a duplicate.
+    let Some(_run_guard) = schedule::try_claim_run(&task.id) else {
+        return Ok(RunAttempt::Busy);
+    };
+
+    // 2.4 Load user config from the default path. Done before the ledger write
+    // because the `[schedule]` retention policy is one of its knobs.
     let config_path = Config::default_path();
     let config = if config_path.exists() {
         Config::load(&config_path).unwrap_or_default()
     } else {
         Config::default()
     };
+
+    // 2.5 P1 run ledger: open a Running record before anything can fail.
+    // Best-effort by contract -- a ledger failure must never fail the task
+    // itself (the OS scheduler judges runs by the process exit code, not by
+    // bookkeeping). The trigger is recorded honestly: `Manual` for the OS
+    // scheduler's cold start / a user invocation (they share one command line,
+    // a registered residual in AGENTS.md), `Daemon` for the tick.
+    let (started_at, started_nanos) = unix_now();
+    let run_id = schedule::mint_run_id(started_at, started_nanos);
+    let mut record = RunRecord {
+        run_id: run_id.clone(),
+        task_id: task.id.clone(),
+        status: RunStatus::Running,
+        trigger,
+        started_at,
+        finished_at: None,
+        exit_code: None,
+        session_id: None,
+        summary: None,
+    };
+    let _ = schedule::save_run(&task.id, &record);
+    // 2.6 Retention is the `[schedule]` policy's call (P2 wires the knob P1
+    // deliberately left as a constant).
+    let _ = schedule::prune_runs(&task.id, config.schedule.resolved().max_run_history);
 
     // 4. Resolve working directory.
     let cwd = std::path::PathBuf::from(&task.cwd);
@@ -587,8 +711,16 @@ async fn run_task(id: &str) -> Result<i32> {
             .unwrap_or(0);
         task.last_run_at = Some(now);
         task.last_status = Some("error".to_string());
+        task.last_run_id = Some(run_id);
         let _ = schedule::save(&task);
-        return Ok(1);
+        // Close the ledger record: the failure happened before the runtime even
+        // spawned, so the record goes straight to a terminal state.
+        record.status = RunStatus::Error;
+        record.finished_at = Some(now);
+        record.exit_code = Some(1);
+        record.summary = Some(format!("working directory does not exist: {cwd:?}"));
+        let _ = schedule::save_run(&task.id, &record);
+        return Ok(RunAttempt::Ran(1));
     }
 
     // 5. Build runtime config.
@@ -618,8 +750,10 @@ async fn run_task(id: &str) -> Result<i32> {
     .await?;
 
     // 7. Mark session origin = Scheduled.
+    let mut run_session_id: Option<String> = None;
     if let Some(ref session_info) = runtime.session {
         let sid = session_info.id.clone();
+        run_session_id = Some(sid.clone());
         let manager = SessionManager::for_project(&agent.working_dir);
         // Best-effort -- don't abort the run if meta update fails.
         let _ = manager.update_meta(&sid, |m| {
@@ -660,7 +794,7 @@ async fn run_task(id: &str) -> Result<i32> {
     //    auto permission_mode is equivalent to accept-edits + strict bash gating.
     let provider_name = runtime_cfg.provider_name.clone();
     let model_name = runtime_cfg.model.clone();
-    let (exit_code, _captured) = crate::run_native_headless(
+    let (exit_code, captured) = crate::run_native_headless(
         notifications_cfg,
         runtime,
         task.prompt.clone(),
@@ -677,16 +811,189 @@ async fn run_task(id: &str) -> Result<i32> {
     )
     .await?;
 
-    // 11. Write back last_run_at and last_status.
+    // 11. Write back last_run_at / last_status / last_run_id, then close the
+    // P1 run-ledger record. Both writes stay best-effort: the exit code below
+    // is the ONLY failure signal the OS scheduler consumes, and it must not
+    // depend on bookkeeping.
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     task.last_run_at = Some(now);
     task.last_status = Some(last_status_for(exit_code).to_string());
+    task.last_run_id = Some(run_id);
     let _ = schedule::save(&task);
 
-    Ok(exit_code)
+    record.status = match last_status_for(exit_code) {
+        "ok" => RunStatus::Success,
+        "cancelled" => RunStatus::Cancelled,
+        _ => RunStatus::Error,
+    };
+    record.finished_at = Some(now);
+    record.exit_code = Some(exit_code);
+    record.session_id = run_session_id;
+    record.summary = summary_from_capture(captured.as_deref());
+    let _ = schedule::save_run(&task.id, &record);
+
+    Ok(RunAttempt::Ran(exit_code))
+}
+
+// ── Tick (P2) ─────────────────────────────────────────────────────────────────
+
+/// Resolve the effective `[schedule]` policy (env > config file > defaults,
+/// then clamped). Every entry point goes through this one function so the
+/// daemon tick and the CLI tick can never disagree.
+fn schedule_config() -> rustcode_config::config::ScheduleConfig {
+    use rustcode_config::config::Config;
+    let path = Config::default_path();
+    let cfg = if path.exists() {
+        Config::load(&path).unwrap_or_default()
+    } else {
+        Config::default()
+    };
+    cfg.schedule.resolved()
+}
+
+/// One pass over the store: run everything that is due.
+///
+/// Returns 1 when any executed run exited non-zero (so an external cron entry
+/// can alert), else 0. A disabled policy is a no-op, not an error.
+async fn tick_once() -> Result<i32> {
+    let cfg = schedule_config();
+    if !cfg.enabled {
+        println!("{}", t(Msg::CliSchedTickDisabled));
+        return Ok(0);
+    }
+    let now = unix_now().0;
+    let mut failed = false;
+
+    for (task, due_at) in schedule::due_tasks(now) {
+        // A miss older than the catch-up window must NOT run: hours-old work
+        // firing at boot is worse than a visible gap. Record it as `skipped`
+        // and advance the anchor so the same instant is not re-evaluated (and
+        // re-recorded) on every single tick.
+        if !schedule::within_catch_up_window(due_at, now, cfg.catch_up_window_secs) {
+            if schedule::record_catch_up_skip(&task.id, now).is_some() {
+                println!(
+                    "{}",
+                    t(Msg::CliSchedTickSkippedWindow {
+                        id: &task.id,
+                        due: &format_epoch(due_at),
+                    })
+                );
+            }
+            continue;
+        }
+
+        // Flip any `Running` record a crashed process left behind to `Error`
+        // first, so history never shows a phantom in-flight run once we start
+        // the next one. No-ops while a live runner holds the lock.
+        let _ = schedule::reap_stale_running(&task.id, now);
+
+        match run_task_with(&task.id, RunTrigger::Daemon).await? {
+            RunAttempt::Ran(code) => {
+                if code != 0 {
+                    failed = true;
+                }
+            }
+            RunAttempt::Busy => {
+                println!("{}", t(Msg::CliSchedTickBusy { id: &task.id }));
+            }
+        }
+    }
+    Ok(if failed { 1 } else { 0 })
+}
+
+/// `rustcode schedule tick`: apply [`tick_once`] once, or stay in the
+/// foreground and re-check on the configured interval.
+async fn tick_loop(once: bool) -> Result<i32> {
+    if once {
+        return tick_once().await;
+    }
+    let cfg = schedule_config();
+    if !cfg.enabled {
+        println!("{}", t(Msg::CliSchedTickDisabled));
+        return Ok(0);
+    }
+    let interval = cfg.tick_interval();
+    loop {
+        // A failing run must not kill the loop; it is reported through the
+        // ledger and by `--once`'s exit code, not by tearing the tick down.
+        let _ = tick_once().await?;
+        tokio::time::sleep(interval).await;
+    }
+}
+
+/// Wall-clock `(seconds, subsec_nanos)` since the Unix epoch; `(0, 0)` when the
+/// clock is before the epoch (mirrors the `unwrap_or(0)` idiom used above).
+fn unix_now() -> (i64, u32) {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(d) => (d.as_secs() as i64, d.subsec_nanos()),
+        Err(_) => (0, 0),
+    }
+}
+
+/// Last non-empty line of the captured agent output, truncated -- a short note
+/// of how the run ended. `None` when nothing was captured (`schedule run` does
+/// not capture by default), which is a valid summary-less record.
+fn summary_from_capture(captured: Option<&str>) -> Option<String> {
+    const MAX_CHARS: usize = 200;
+    let line = captured?
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())?;
+    let mut out: String = line.chars().take(MAX_CHARS).collect();
+    if line.chars().count() > MAX_CHARS {
+        out.push('…');
+    }
+    Some(out)
+}
+
+/// Print the run ledger for a task (`rustcode schedule history <id>`).
+/// Exit 0 with rows (or the empty note); exit 1 when the task does not exist --
+/// the same not-found message and exit semantics as `schedule run`.
+fn handle_history(id: &str, limit: usize) -> Result<i32> {
+    // Existence + id-shape check: `load` rejects traversal ids and unknown ids
+    // with the same error the other subcommands surface.
+    schedule::load(id).with_context(|| {
+        t(Msg::CliSchedTaskNotFound {
+            id: &format!("{id:?}"),
+        })
+        .into_owned()
+    })?;
+
+    let runs = schedule::list_runs(id);
+    if runs.is_empty() {
+        println!("{}", t(Msg::CliSchedHistoryEmpty { id }));
+        return Ok(0);
+    }
+    println!("{}", t(Msg::CliSchedHistoryHeader { id }));
+    for record in runs.into_iter().take(limit) {
+        // `status` is the ledger's stable machine token
+        // (running/success/error/cancelled) and stays untranslated, like other
+        // config keys and codes.
+        let started = format_epoch(record.started_at);
+        let duration = record
+            .finished_at
+            .map(|f| format!("{}s", f - record.started_at))
+            .unwrap_or_else(|| "-".to_string());
+        let exit = record
+            .exit_code
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        println!(
+            "{}",
+            t(Msg::CliSchedHistoryRow {
+                run_id: &record.run_id,
+                status: record.status.as_str(),
+                started: &started,
+                duration: &duration,
+                exit: &exit,
+            })
+        );
+    }
+    Ok(0)
 }
 
 /// Format an epoch-seconds timestamp as a human-readable UTC string.
@@ -970,6 +1277,7 @@ mod tests {
             created_at: 0,
             last_run_at: None,
             last_status: None,
+            last_run_id: None,
         }
     }
 
@@ -1109,6 +1417,34 @@ mod tests {
                 errors > 0,
                 "expected non-zero error count when install fails"
             );
+        });
+    }
+
+    /// P2 migration helper: unlike `sync`, `--unregister-os` must remove the OS
+    /// entry of every task — including enabled ones — and must NOT re-install
+    /// anything (a plain `sync` would put them all straight back).
+    #[test]
+    fn unregister_all_removes_every_os_registration_without_reinstalling() {
+        with_temp_home(|| {
+            let fake = FakeScheduler::default();
+            let on = make_task("unreg-on-abc123", true);
+            let off = make_task("unreg-off-abc123", false);
+            rustcode_config::schedule::save(&on).unwrap();
+            rustcode_config::schedule::save(&off).unwrap();
+            // Move them into the "installed" state first, so removing is visible.
+            fake.install(&on).unwrap();
+            fake.install(&off).unwrap();
+            assert_eq!(fake.installed().len(), 2);
+
+            let errors = handle_unregister_all_with(&fake).unwrap();
+            assert_eq!(errors, 0, "a fake scheduler never fails");
+            let removed = fake.uninstalled();
+            // The shared per-process store may hold tasks from sibling tests, so
+            // assert containment rather than an exact set.
+            assert!(removed.contains(&"unreg-on-abc123".to_string()));
+            assert!(removed.contains(&"unreg-off-abc123".to_string()));
+            // The task definitions themselves stay put -- only OS entries go.
+            assert!(rustcode_config::schedule::load("unreg-on-abc123").is_ok());
         });
     }
 

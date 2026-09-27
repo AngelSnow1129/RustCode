@@ -5563,6 +5563,104 @@ fn now_unix_ms() -> i64 {
         .unwrap_or(0)
 }
 
+// ── P2 scheduled-task tick ────────────────────────────────────────────────────
+
+/// Spawn the scheduled-task due-tick (P2, design §5.3).
+///
+/// Gated on **both** `[schedule].enabled` and `[schedule].daemon_tick` (default
+/// off), so a daemon that was never told about scheduling does no extra work at
+/// all: the function returns before spawning anything.
+///
+/// Execution deliberately goes through the `rustcode schedule tick --once`
+/// **command line** instead of re-assembling a runtime here:
+///   - `spawn_native_cli_runtime` / `run_native_headless` live in the CLI
+///     binary, and `rustcode-daemon` must not depend on `rustcode-cli`
+///     (L3 ↔ L3 is forbidden by AGENTS.md);
+///   - it is the same entry point an OS scheduler cold start uses, so there is
+///     exactly ONE implementation of "run a scheduled task" (strict unattended
+///     approver, fresh session, `SessionOrigin::Scheduled`);
+///   - the child's `try_claim_run` single-flight lock is what makes a double
+///     trigger (tick + OS timer) impossible rather than merely unlikely.
+///
+/// The tick only spawns a child when something is actually due *and* no run of
+/// it is already in flight, so an idle daemon pays one readdir per interval.
+fn spawn_schedule_tick() {
+    let path = Config::default_path();
+    if !path.exists() {
+        return; // no config file -> all-off defaults
+    }
+    let Ok(cfg) = Config::load(&path) else {
+        return;
+    };
+    let cfg = cfg.schedule.resolved();
+    if !cfg.enabled || !cfg.daemon_tick {
+        return;
+    }
+    let Some(exe) = schedule_tick_binary() else {
+        tracing::warn!(
+            "[schedule].daemon_tick is enabled but no `rustcode` binary could be \
+             located, so the tick is disabled; set RUSTCODE_SCHEDULE_TICK_BIN"
+        );
+        return;
+    };
+    let interval = cfg.tick_interval();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(interval);
+        tick.tick().await; // consume the immediate first tick (same as the idle watchdog)
+        loop {
+            tick.tick().await;
+            let now_secs = now_unix_ms() / 1000;
+            let pending = rustcode_config::schedule::due_tasks(now_secs)
+                .into_iter()
+                .any(|(task, _)| !rustcode_config::schedule::run_lock_is_held(&task.id));
+            if !pending {
+                continue;
+            }
+            match tokio::process::Command::new(&exe)
+                .args(["schedule", "tick", "--once"])
+                .status()
+                .await
+            {
+                Ok(status) if !status.success() => {
+                    tracing::warn!(code = ?status.code(), "schedule tick reported a failing run")
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "failed to spawn `schedule tick`"),
+            }
+        }
+    });
+}
+
+/// The `rustcode` binary the tick invokes, or `None` when this process is not
+/// the CLI. `RUSTCODE_SCHEDULE_TICK_BIN` overrides the lookup so a renamed or
+/// relocated install still works.
+fn schedule_tick_binary() -> Option<std::path::PathBuf> {
+    if let Some(raw) = std::env::var_os(rustcode_config::endpoints::SCHEDULE_TICK_BIN_ENV) {
+        let path = std::path::PathBuf::from(raw);
+        if !path.as_os_str().is_empty() {
+            return Some(path);
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    let stem = exe.file_stem()?.to_string_lossy().to_ascii_lowercase();
+    if stem == "rustcode" {
+        return Some(exe);
+    }
+    // The standalone `rustcode-daemon` has no `schedule` subcommand; the usual
+    // install layout puts the CLI right next to it.
+    if stem == "rustcode-daemon" {
+        let sibling = exe.with_file_name(if cfg!(windows) {
+            "rustcode.exe"
+        } else {
+            "rustcode"
+        });
+        if sibling.is_file() {
+            return Some(sibling);
+        }
+    }
+    None
+}
+
 /// Spawn a background task that checks for idle timeout and triggers shutdown.
 fn spawn_idle_timeout_task(
     idle_timeout_secs: u64,
@@ -5778,6 +5876,9 @@ pub async fn ensure_server_and_open(
             prebound_listener: Some(listener),
             // 进程内 webui 不写 token 文件（token 通过 WebuiTokenStore 共享）。
             daemon_token_file: None,
+            // 进程内 webui（TUI `/webui`、`rustcode webui`）生命周期较短，
+            // 不承担后台调度；定时任务 tick 只属于常驻 daemon。
+            schedule_tick: false,
         };
         let task = tokio::spawn(async move {
             if let Err(e) = run_server(opts).await {
@@ -5996,6 +6097,8 @@ pub async fn ensure_tunnel_server(host: &str, port: u16) -> Result<(String, u16,
         prebound_listener: Some(listener),
         // 隧道端点不写 token 文件（令牌由 WebuiTokenStore 共享校验）。
         daemon_token_file: None,
+        // 隧道服务器由用户按需开关，不是常驻调度宿主。
+        schedule_tick: false,
     };
     let task = tokio::spawn(async move {
         if let Err(e) = run_server(opts).await {
@@ -6801,6 +6904,12 @@ pub struct ServerOpts {
     /// 端点清单等）。TUI 内 `/webui` 进程内启动时为 true，避免污染 ratatui 画面；
     /// 独立二进制为 false，保留完整启动信息。
     pub quiet: bool,
+    /// P2：在本进程内运行定时任务的到期调度（daemon tick）。只由 daemon 驱动
+    /// （`rustcode daemon` / 独立 `rustcode-daemon`）置 true —— 进程内 `/webui`
+    /// 与隧道服务器一律 false，因为 TUI 附带的 server 生命周期短暂，不该拥有
+    /// 后台调度。真正的门控还在配置里：必须 `[schedule].enabled` 与
+    /// `[schedule].daemon_tick` 同时为真，默认两者皆关，故零行为变化。
+    pub schedule_tick: bool,
     /// 预绑定的监听器。进程内 webui 启动器先绑定端口（拿到真实端口、支持动态端口）
     /// 再传入，`run_server` 直接复用、跳过内部 bind。独立二进制传 None，照旧自行 bind。
     pub prebound_listener: Option<tokio::net::TcpListener>,
@@ -6833,6 +6942,7 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         working_dir_override,
         prebound_listener,
         daemon_token_file: token_file_token,
+        schedule_tick: schedule_tick_enabled,
         ..
     } = opts;
 
@@ -7054,6 +7164,11 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         active_chats,
         shutdown_tx,
     );
+    // P2: the daemon-hosted scheduled-task tick. No-op unless the driver asked
+    // for it AND `[schedule].enabled && daemon_tick` are set in config.
+    if schedule_tick_enabled {
+        spawn_schedule_tick();
+    }
     if !quiet {
         if idle_timeout_secs > 0 {
             println!(

@@ -198,6 +198,8 @@ async fn main() {
         // 独立二进制自行 bind host:port，不预绑定。
         prebound_listener: None,
         daemon_token_file: Some(daemon_token),
+        // P2：独立守护进程同样是常驻 daemon，可承担定时任务到期调度。
+        schedule_tick: true,
     })
     .await
     {

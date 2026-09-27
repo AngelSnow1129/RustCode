@@ -72,6 +72,35 @@ pub const WEBUI_NO_AUTH_ENV: &str = "RUSTCODE_WEBUI_NO_AUTH";
 /// Default OFF: an unconfigured build is unaffected.
 pub const IM_ENABLED_ENV: &str = "RUSTCODE_IM_ENABLED";
 
+/// Master switch for every non-OS scheduled-task trigger (daemon tick /
+/// `rustcode schedule tick`). Explicit boolean, resolved by
+/// `config::ScheduleConfig::resolved` — an explicit `0` overrides an
+/// `enabled = true` in config. Unset defers to config. Default OFF, so a
+/// config without a `[schedule]` table keeps the OS scheduler as the only
+/// trigger (see `docs/plans/2026-09-23-continuous-agent-design.md` §4.3).
+pub const SCHEDULE_ENABLED_ENV: &str = "RUSTCODE_SCHEDULE_ENABLED";
+
+/// Whether a long-lived `rustcode-daemon` runs the due-task tick. Subordinate
+/// to [`SCHEDULE_ENABLED_ENV`]. Explicit boolean; default OFF.
+pub const SCHEDULE_DAEMON_TICK_ENV: &str = "RUSTCODE_SCHEDULE_DAEMON_TICK";
+
+/// Tick poll period in seconds. Parsed as an integer and clamped by
+/// `ScheduleConfig::resolved` to `[10, 3600]`.
+pub const SCHEDULE_TICK_SECS_ENV: &str = "RUSTCODE_SCHEDULE_TICK_SECS";
+
+/// How late a missed run may still execute, in seconds. `0` = always catch up.
+/// One predicate shared by the tick and (later) restored wakeups.
+pub const SCHEDULE_CATCHUP_SECS_ENV: &str = "RUSTCODE_SCHEDULE_CATCHUP_SECS";
+
+/// Per-task run-ledger retention (clamped to `[1, 1000]`).
+pub const SCHEDULE_HISTORY_ENV: &str = "RUSTCODE_SCHEDULE_HISTORY";
+
+/// Path of the `rustcode` binary the daemon tick executes
+/// (`<bin> schedule tick --once`). Only needed for a renamed / relocated
+/// install: by default the tick uses `current_exe()`, and the standalone
+/// `rustcode-daemon` falls back to a sibling `rustcode` next to itself.
+pub const SCHEDULE_TICK_BIN_ENV: &str = "RUSTCODE_SCHEDULE_TICK_BIN";
+
 // ---------------------------------------------------------------------------
 // Hosted-service addresses
 //

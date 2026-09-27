@@ -30,6 +30,10 @@ pub struct ScheduleTask {
     pub last_run_at: Option<i64>,
     #[serde(default)]
     pub last_status: Option<String>,
+    /// Most recent run's id (key into the task's `runs/` ledger). `#[serde(default)]`
+    /// so existing on-disk task JSON without the field still parses unchanged.
+    #[serde(default)]
+    pub last_run_id: Option<String>,
 }
 
 fn default_mode() -> String {
@@ -127,10 +131,542 @@ pub fn remove(id: &str) -> std::io::Result<()> {
     remove_in(&schedules_root(), id)
 }
 
-/// Next fire time (epoch secs) for simple frequencies. `Cron` returns None in
-/// phase 1 (its real firing is the phase-2 OS scheduler). Uses naive local-less
-/// UTC arithmetic; day/hour rollover only (no DST handling -- acceptable for the
-/// list display, exact firing is the OS scheduler's job in phase 2).
+// ─────────────────────────── run ledger (P1) ───────────────────────────
+
+/// How many run records a task keeps by default when nothing else is configured.
+/// Pruning is caller-driven (`prune_runs(keep)`) so tests and future config can
+/// pick their own bound.
+pub const DEFAULT_MAX_RUN_HISTORY: usize = 20;
+
+/// State of one recorded run. `Running` is the transient state written before
+/// the task actually starts; a record still `Running` on disk means the process
+/// died before reaching a terminal state (crash / power loss) -- consumers
+/// should treat it as "outcome unknown", not as success.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunStatus {
+    Running,
+    Success,
+    Error,
+    Cancelled,
+    /// The run was deliberately not executed: it was already in flight
+    /// elsewhere, or its scheduled instant fell outside the catch-up window.
+    /// A terminal state, never `Running` (see the P2 catch-up semantics in
+    /// `docs/plans/2026-09-23-continuous-agent-design.md` §5.3).
+    Skipped,
+}
+
+impl RunStatus {
+    /// The string previously stored in `ScheduleTask::last_status` ("ok" /
+    /// "error") stays the CLI-facing vocabulary; this is the ledger's own.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunStatus::Running => "running",
+            RunStatus::Success => "success",
+            RunStatus::Error => "error",
+            RunStatus::Cancelled => "cancelled",
+            RunStatus::Skipped => "skipped",
+        }
+    }
+}
+
+/// What fired the run.
+///
+/// `Manual` covers both a user invocation and the OS scheduler's cold start —
+/// they share one command line, so they cannot be told apart (registered
+/// residual in AGENTS.md). `Daemon` is the P2 tick (`schedule tick`), which can
+/// distinguish itself. `OsScheduler` is reserved for a future explicit marker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunTrigger {
+    Manual,
+    OsScheduler,
+    Daemon,
+}
+
+/// One run of one task, persisted under `<task-id>/runs/<run_id>.json`.
+///
+/// Written best-effort: a ledger failure must never fail the task itself (the
+/// OS scheduler judges runs by the process exit code, not by bookkeeping).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RunRecord {
+    pub run_id: String,
+    pub task_id: String,
+    pub status: RunStatus,
+    pub trigger: RunTrigger,
+    /// Unix seconds when the run started.
+    pub started_at: i64,
+    /// Unix seconds when the run reached a terminal state; `None` while `Running`.
+    #[serde(default)]
+    pub finished_at: Option<i64>,
+    /// Process exit code; `None` while `Running` or when the launcher could not
+    /// observe one.
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+    /// Agent session bound to this run, when one was created.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// Short human-readable outcome note (e.g. the last error line).
+    #[serde(default)]
+    pub summary: Option<String>,
+}
+
+/// Mint a run id whose lexical order matches start order: `<secs>-<nanos(9)>`.
+/// Two starts of the same task cannot share a nanosecond, so consecutive runs
+/// always get distinct ids. Passes `valid_id` (digits + `-`), so the ledger
+/// path helpers accept it unchanged.
+pub fn mint_run_id(started_at_epoch_secs: i64, subsec_nanos: u32) -> String {
+    format!("{started_at_epoch_secs}-{subsec_nanos:09}")
+}
+
+/// `<task-id>/runs/` for a task id (decision D2). The id is untrusted (it comes
+/// off the CLI surface just like `load`/`remove`), so the same `valid_id` guard
+/// applies -- a crafted id must not escape the schedules directory.
+fn runs_dir_in(root: &std::path::Path, task_id: &str) -> std::io::Result<PathBuf> {
+    if !valid_id(task_id) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid scheduled task id {task_id:?}"),
+        ));
+    }
+    Ok(root.join(task_id).join("runs"))
+}
+
+/// Persist one run record (`<task-id>/runs/<run_id>.json`). The run id is also
+/// untrusted once it travels through callers, so it gets the same guard.
+pub fn save_run(task_id: &str, record: &RunRecord) -> std::io::Result<()> {
+    save_run_in(&schedules_root(), task_id, record)
+}
+
+fn save_run_in(root: &std::path::Path, task_id: &str, record: &RunRecord) -> std::io::Result<()> {
+    if !valid_id(&record.run_id) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid run id {:?}", record.run_id),
+        ));
+    }
+    let dir = runs_dir_in(root, task_id)?;
+    std::fs::create_dir_all(&dir)?;
+    let bytes = serde_json::to_vec_pretty(record)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(dir.join(format!("{}.json", record.run_id)), bytes)
+}
+
+/// All run records for a task, **newest first** (started_at desc, run_id desc
+/// for stable ties). Corrupt files are skipped, mirroring `list_in`.
+pub fn list_runs(task_id: &str) -> Vec<RunRecord> {
+    list_runs_in(&schedules_root(), task_id)
+}
+
+fn list_runs_in(root: &std::path::Path, task_id: &str) -> Vec<RunRecord> {
+    let Ok(dir) = runs_dir_in(root, task_id) else {
+        return Vec::new();
+    };
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        return Vec::new(); // no ledger yet -> empty history (not an error)
+    };
+    let mut out = Vec::new();
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(bytes) = std::fs::read(&p) {
+            if let Ok(r) = serde_json::from_slice::<RunRecord>(&bytes) {
+                out.push(r);
+            }
+        }
+    }
+    out.sort_by(|a, b| {
+        b.started_at
+            .cmp(&a.started_at)
+            .then(b.run_id.cmp(&a.run_id))
+    });
+    out
+}
+
+/// The most recent run record, if any.
+pub fn latest_run(task_id: &str) -> Option<RunRecord> {
+    list_runs(task_id).into_iter().next()
+}
+
+/// Trim the ledger to the newest `keep` records. Returns how many files were
+/// removed. Unparseable files are left alone (their age is unknown), so a
+/// corrupt record cannot silently delete newer history.
+pub fn prune_runs(task_id: &str, keep: usize) -> std::io::Result<usize> {
+    prune_runs_in(&schedules_root(), task_id, keep)
+}
+
+fn prune_runs_in(root: &std::path::Path, task_id: &str, keep: usize) -> std::io::Result<usize> {
+    let dir = runs_dir_in(root, task_id)?;
+    let runs = list_runs_in(root, task_id);
+    if runs.len() <= keep {
+        return Ok(0);
+    }
+    let mut removed = 0;
+    for record in &runs[keep..] {
+        if std::fs::remove_file(dir.join(format!("{}.json", record.run_id))).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+// ─────────────────── daemon tick support (P2) ───────────────────
+
+/// Summary stored on a record reaped from a dead `Running` state.
+pub const STALE_RUN_SUMMARY: &str =
+    "interrupted: the process exited before recording a terminal state";
+
+/// Summary stored on a run deliberately not executed because its scheduled
+/// instant fell outside the catch-up window.
+pub const CATCH_UP_MISSED_SUMMARY: &str = "missed run outside the catch-up window";
+
+/// Is a missed run still allowed to execute?
+///
+/// `window_secs == 0` means "no window" (always eligible). This is deliberately
+/// the **only** definition of the catch-up rule — the later persistent-wakeup
+/// restoring path (P3, design §5.5 D3) must call this rather than grow a second
+/// comparison, otherwise "how late is too late" becomes two truths.
+pub fn within_catch_up_window(due_at: i64, now: i64, window_secs: u64) -> bool {
+    if window_secs == 0 {
+        return true;
+    }
+    now.saturating_sub(due_at) <= window_secs as i64
+}
+
+/// Tasks whose next fire time has arrived, paired with that fire time.
+///
+/// The "last fired" anchor is `last_run_at`, falling back to `created_at`, so a
+/// brand-new task first fires at its scheduled instant rather than being
+/// treated as overdue from the epoch. Disabled tasks are never due. Pure apart
+/// from reading the store — no clock read, no mutation — so the CLI `--once`
+/// path and the daemon tick share exactly one definition of "due".
+///
+/// `Interval` intentionally yields a single due instant no matter how long the
+/// task has been idle (a 30-minute task that has not run for two hours is due
+/// once, not four times).
+pub fn due_tasks_in(root: &std::path::Path, now_epoch_secs: i64) -> Vec<(ScheduleTask, i64)> {
+    let mut out = Vec::new();
+    for task in list_in(root) {
+        if !task.enabled {
+            continue;
+        }
+        let anchor = task.last_run_at.unwrap_or(task.created_at);
+        let anchor = if anchor <= 0 { now_epoch_secs } else { anchor };
+        if let Some(due_at) = next_run(&task.schedule, anchor) {
+            if due_at <= now_epoch_secs {
+                out.push((task, due_at));
+            }
+        }
+    }
+    out
+}
+
+/// [`due_tasks_in`] against the real schedules directory.
+pub fn due_tasks(now_epoch_secs: i64) -> Vec<(ScheduleTask, i64)> {
+    due_tasks_in(&schedules_root(), now_epoch_secs)
+}
+
+/// `<task-id>/.lock` — the single-flight lock file. The id is untrusted (it
+/// reaches here from the store and the CLI), so it gets the same `valid_id`
+/// guard as every other path helper.
+fn lock_path_in(root: &std::path::Path, task_id: &str) -> std::io::Result<PathBuf> {
+    if !valid_id(task_id) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid scheduled task id {task_id:?}"),
+        ));
+    }
+    Ok(root.join(task_id).join(".lock"))
+}
+
+/// Held for the duration of one run. Dropping it releases the advisory lock,
+/// letting the next tick (or the OS scheduler's cold start) claim the task.
+pub struct RunGuard {
+    file: std::fs::File,
+}
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        // Best-effort: the OS releases the lock when the descriptor closes anyway.
+        let _ = fs2::FileExt::unlock(&self.file);
+    }
+}
+
+fn try_claim_run_in(root: &std::path::Path, task_id: &str) -> std::io::Result<Option<RunGuard>> {
+    let path = lock_path_in(root, task_id)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        // Never truncate: the lock file carries no payload, and truncation
+        // would be a write to a file another process may be holding.
+        .truncate(false)
+        .open(&path)?;
+    match fs2::FileExt::try_lock_exclusive(&file) {
+        Ok(()) => Ok(Some(RunGuard { file })),
+        // Held elsewhere (or the platform refused) -> fail closed: report "not
+        // ours" rather than risk two concurrent runs of the same task.
+        Err(_) => Ok(None),
+    }
+}
+
+/// Claim the single-flight lock for one run of `task_id`. `None` means another
+/// process (or another tick) is already running it — the caller must skip, not
+/// queue, so a long run is never re-entered.
+pub fn try_claim_run(task_id: &str) -> Option<RunGuard> {
+    try_claim_run_in(&schedules_root(), task_id).ok().flatten()
+}
+
+/// Probe (and immediately release) whether some process currently holds the run
+/// lock. The daemon tick uses this to avoid spawning a child on every tick
+/// while a long run is still in flight. Fail-closed: an invalid id or an I/O
+/// error reports "held", so a doubtful lock never causes a double trigger.
+pub fn run_lock_is_held(task_id: &str) -> bool {
+    run_lock_is_held_in(&schedules_root(), task_id)
+}
+
+fn run_lock_is_held_in(root: &std::path::Path, task_id: &str) -> bool {
+    match try_claim_run_in(root, task_id) {
+        Ok(Some(guard)) => {
+            drop(guard);
+            false
+        }
+        _ => true,
+    }
+}
+
+/// Turn records still stuck in `Running` into terminal `Error` records.
+///
+/// A `Running` record only legitimately exists while its owner holds the run
+/// lock, so one that is `Running` **while the lock is free** means the previous
+/// process died before it could record a terminal state (crash / power loss).
+/// Leaving it would make `schedule history` show a permanently-running task,
+/// violating "every accepted run reaches a terminal state".
+///
+/// Takes the lock itself: if a live runner holds it, there is nothing stale to
+/// reap and this returns 0. Returns how many records were rewritten.
+pub fn reap_stale_running(task_id: &str, now_epoch_secs: i64) -> std::io::Result<usize> {
+    reap_stale_running_in(&schedules_root(), task_id, now_epoch_secs)
+}
+
+fn reap_stale_running_in(
+    root: &std::path::Path,
+    task_id: &str,
+    now_epoch_secs: i64,
+) -> std::io::Result<usize> {
+    let Some(guard) = try_claim_run_in(root, task_id)? else {
+        return Ok(0); // a live runner owns the task; nothing is stale
+    };
+    let mut reaped = 0;
+    for mut record in list_runs_in(root, task_id) {
+        if record.status != RunStatus::Running {
+            continue;
+        }
+        record.status = RunStatus::Error;
+        record.finished_at = Some(now_epoch_secs);
+        record.summary = Some(STALE_RUN_SUMMARY.to_string());
+        if save_run_in(root, task_id, &record).is_ok() {
+            reaped += 1;
+        }
+    }
+    drop(guard);
+    Ok(reaped)
+}
+
+/// Record a run that was deliberately not executed because it fell outside the
+/// catch-up window, and advance the task's anchor so the same missed instant is
+/// not re-evaluated on every tick.
+///
+/// Returns the written record. The write stays *inside* the single-flight lock
+/// (taken here) so two ticks cannot both mint a `Skipped` row for one miss.
+/// `None` means the task was busy or the store was unavailable.
+pub fn record_catch_up_skip(task_id: &str, now_epoch_secs: i64) -> Option<RunRecord> {
+    record_catch_up_skip_in(&schedules_root(), task_id, now_epoch_secs)
+}
+
+fn record_catch_up_skip_in(
+    root: &std::path::Path,
+    task_id: &str,
+    now_epoch_secs: i64,
+) -> Option<RunRecord> {
+    let guard = try_claim_run_in(root, task_id).ok().flatten()?;
+    let mut task = load_in(root, task_id).ok()?;
+    let run_id = mint_run_id(now_epoch_secs, 0);
+    let record = RunRecord {
+        run_id: run_id.clone(),
+        task_id: task_id.to_string(),
+        status: RunStatus::Skipped,
+        trigger: RunTrigger::Daemon,
+        started_at: now_epoch_secs,
+        finished_at: Some(now_epoch_secs),
+        exit_code: None,
+        session_id: None,
+        // The design's separate `skipped_because_of` field is folded into
+        // `summary` here (recorded deviation, design §4.1): the reason is
+        // human-auditable and this keeps `RunRecord`'s additive surface at zero.
+        summary: Some(CATCH_UP_MISSED_SUMMARY.to_string()),
+    };
+    let _ = save_run_in(root, task_id, &record);
+    // Advance the anchor past the miss, otherwise every tick would re-evaluate
+    // (and re-record) the same old instant forever.
+    task.last_run_at = Some(now_epoch_secs);
+    task.last_status = Some(RunStatus::Skipped.as_str().to_string());
+    task.last_run_id = Some(run_id);
+    let _ = save_in(root, &task);
+    drop(guard);
+    Some(record)
+}
+
+/// Days-from-civil / civil-from-days conversion (Howard Hinnant's algorithm).
+/// Needed because `next_run` must align `Weekly` and `Cron` to a real calendar
+/// weekday, and naive `epoch / 86400` arithmetic cannot tell which weekday a
+/// day is. Days are counted from the Unix epoch; the returned day-of-week is
+/// `0 = Sunday .. 6 = Saturday` (the cron convention).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    (if m <= 2 { y + 1 } else { y }, m as u32, d as u32)
+}
+
+/// Day-of-week for a day index: `0 = Sunday .. 6 = Saturday`.
+fn day_of_week(day: i64) -> u32 {
+    (day + 4).rem_euclid(7) as u32
+}
+
+/// How many days ahead `next_run` may look before giving up. Eight years is
+/// enough to reach a 29 February under the 100-year leap rule (2096 -> 2104),
+/// which is the only case that legitimately needs more than four years.
+const MAX_SEARCH_DAYS: i64 = 366 * 8;
+
+/// One parsed cron field: the sorted, de-duplicated set of matching values plus
+/// whether the field was restricted at all (i.e. not `*`). The `restricted`
+/// flag is what drives the day-of-month / day-of-week OR rule (see
+/// [`next_cron`]).
+struct CronField {
+    values: Vec<u32>,
+    restricted: bool,
+}
+
+/// Parse one cron field into its expanded value set. Supports `*`, `a`, `a-b`,
+/// `a,b` and `*/n` (plus `a-b/n`, which follows from composing step + range).
+/// Macros (`@daily`) and names (`MON`) are deliberately **not** supported --
+/// see decision D1 in `docs/plans/2026-09-23-continuous-agent-design.md`: this
+/// only has to drive the list display and the tick decision, not full cron.
+fn parse_cron_field(field: &str, min: u32, max: u32) -> Option<CronField> {
+    let mut values: Vec<u32> = Vec::new();
+    for part in field.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            return None;
+        }
+        let (range, step) = match part.split_once('/') {
+            Some((r, s)) => (r.trim(), s.trim().parse::<u32>().ok()?),
+            None => (part, 1),
+        };
+        if step == 0 {
+            return None;
+        }
+        let (lo, hi) = if range == "*" {
+            (min, max)
+        } else if let Some((a, b)) = range.split_once('-') {
+            (a.trim().parse::<u32>().ok()?, b.trim().parse::<u32>().ok()?)
+        } else {
+            let v = range.parse::<u32>().ok()?;
+            // `5/15` means "from 5 to the end of the range, every 15".
+            (v, if step == 1 { v } else { max })
+        };
+        if lo < min || hi > max || lo > hi {
+            return None;
+        }
+        let mut v = lo;
+        while v <= hi {
+            values.push(v);
+            v += step;
+        }
+    }
+    values.sort_unstable();
+    values.dedup();
+    if values.is_empty() {
+        return None;
+    }
+    Some(CronField {
+        values,
+        restricted: field.trim() != "*",
+    })
+}
+
+/// Next fire time for a five-field cron expression (`min hour dom month dow`),
+/// strictly after `now`. Returns `None` for a malformed expression or one that
+/// cannot fire within [`MAX_SEARCH_DAYS`] (e.g. `0 0 30 2 *`, 30 February), so
+/// every caller keeps its existing "unknown" display path.
+///
+/// Day-of-month and day-of-week follow the standard Vixie rule: when **both**
+/// are restricted, a day matches if **either** matches; otherwise both must
+/// match. Ignoring this would make the common `0 9 1 * 1` (first of month *or*
+/// every Monday) silently fire far less often than the user asked for.
+fn next_cron(expr: &str, now_epoch_secs: i64) -> Option<i64> {
+    let fields: Vec<&str> = expr.split_whitespace().collect();
+    if fields.len() != 5 {
+        return None;
+    }
+    let minutes = parse_cron_field(fields[0], 0, 59)?;
+    let hours = parse_cron_field(fields[1], 0, 23)?;
+    let dom = parse_cron_field(fields[2], 1, 31)?;
+    let month = parse_cron_field(fields[3], 1, 12)?;
+    let mut dow = parse_cron_field(fields[4], 0, 7)?;
+    // Cron accepts both 0 and 7 for Sunday; normalize to the 0..=6 form.
+    if dow.values.contains(&7) {
+        dow.values.push(0);
+        dow.values.retain(|&v| v <= 6);
+        dow.values.sort_unstable();
+        dow.values.dedup();
+    }
+    let dow_or_dom = dom.restricted && dow.restricted;
+
+    let first = now_epoch_secs + 1; // strictly after `now`
+    let mut day = first.div_euclid(86400);
+    for _ in 0..MAX_SEARCH_DAYS {
+        let (_, m, d) = civil_from_days(day);
+        let matches = if dow_or_dom {
+            dom.values.contains(&d) || dow.values.contains(&day_of_week(day))
+        } else {
+            dom.values.contains(&d) && dow.values.contains(&day_of_week(day))
+        };
+        if month.values.contains(&m) && matches {
+            // `hours` / `minutes` are sorted, so the first hit is the earliest.
+            for &h in &hours.values {
+                for &mi in &minutes.values {
+                    let ts = day * 86400 + i64::from(h) * 3600 + i64::from(mi) * 60;
+                    if ts >= first {
+                        return Some(ts);
+                    }
+                }
+            }
+        }
+        day += 1;
+    }
+    None
+}
+
+/// Next fire time (epoch secs) for a schedule, strictly after `now`.
+///
+/// Uses UTC day/hour arithmetic; there is no DST handling (acceptable for the
+/// list display and the tick decision -- exact firing remains the OS
+/// scheduler's job, which uses its own local calendar). Returns `None` when the
+/// schedule is malformed or cannot fire within [`MAX_SEARCH_DAYS`]; display
+/// callers render that as `-`.
 pub fn next_run(schedule: &Schedule, now_epoch_secs: i64) -> Option<i64> {
     fn hhmm(s: &str) -> Option<(i64, i64)> {
         let (h, m) = s.split_once(':')?;
@@ -154,19 +690,28 @@ pub fn next_run(schedule: &Schedule, now_epoch_secs: i64) -> Option<i64> {
                 target + 86400
             })
         }
-        Schedule::Weekly { time, .. } => {
-            // Phase 1 approximation: next day-boundary match of the time; exact
-            // weekday alignment is delegated to the OS scheduler (phase 2).
+        Schedule::Weekly { weekday, time } => {
+            // Align to the requested weekday. The previous "phase 1
+            // approximation" ignored `weekday` entirely and returned the next
+            // day-boundary with that time, which made `schedule list` claim a
+            // weekly Monday task would fire tomorrow.
+            if *weekday == 0 || *weekday > 7 {
+                return None;
+            }
             let (h, m) = hhmm(time)?;
-            let day = now_epoch_secs.div_euclid(86400) * 86400;
-            let target = day + h * 3600 + m * 60;
-            Some(if target > now_epoch_secs {
-                target
-            } else {
-                target + 86400
-            })
+            let want = u32::from(*weekday % 7); // 1..=6 -> Mon..Sat, 7 -> 0 (Sunday)
+            let first = now_epoch_secs + 1;
+            let mut day = first.div_euclid(86400);
+            for _ in 0..8 {
+                let ts = day * 86400 + h * 3600 + m * 60;
+                if day_of_week(day) == want && ts >= first {
+                    return Some(ts);
+                }
+                day += 1;
+            }
+            None
         }
-        Schedule::Cron { .. } => None,
+        Schedule::Cron { expr } => next_cron(expr, now_epoch_secs),
     }
 }
 
@@ -189,6 +734,7 @@ mod tests {
             created_at: 0,
             last_run_at: None,
             last_status: None,
+            last_run_id: None,
         }
     }
 
@@ -268,16 +814,457 @@ mod tests {
         assert!(nr > now && nr - now <= 24 * 3600);
     }
 
+    /// 2026-09-25 08:00:00 UTC = 1790323200 (a Friday).
+    const FRI_0800: i64 = 1790323200;
+
+    fn cron_at(expr: &str, now: i64) -> Option<i64> {
+        next_run(&Schedule::Cron { expr: expr.into() }, now)
+    }
+
     #[test]
-    fn next_run_cron_is_none_in_phase1() {
+    fn next_run_cron_weekday_range_skips_the_weekend() {
+        // `0 9 * * 1-5` from Friday 08:00 -> later that morning (Fri is a
+        // weekday). From Friday 10:00 -> next Monday 09:00.
+        assert_eq!(cron_at("0 9 * * 1-5", FRI_0800), Some(1790326800)); // Fri 09:00
+        assert_eq!(
+            cron_at("0 9 * * 1-5", 1790332200), // Fri 10:30
+            Some(1790586000)                    // Mon 2026-09-28 09:00
+        );
+    }
+
+    #[test]
+    fn next_run_cron_is_idempotent() {
+        let first = cron_at("0 9 * * 1-5", FRI_0800).unwrap();
+        // Re-asking from the instant *before* the answer must yield the same
+        // answer; the tick loop relies on this not drifting.
+        assert_eq!(cron_at("0 9 * * 1-5", first - 1), Some(first));
+    }
+
+    #[test]
+    fn next_run_cron_is_strictly_after_now() {
+        let now = 1790326800; // Fri 09:00 exactly
+        let next = cron_at("0 9 * * 1-5", now).unwrap();
+        assert!(next > now, "must not re-fire the instant that just passed");
+    }
+
+    #[test]
+    fn next_run_cron_supports_star_steps_lists_and_ranges() {
+        // Every 15 minutes.
+        assert_eq!(cron_at("*/15 * * * *", 1790323200), Some(1790324100)); // 08:15
+                                                                           // Explicit list.
+        assert_eq!(cron_at("0 9,17 * * *", 1790323200), Some(1790326800)); // 09:00
+                                                                           // Range with a step (`8-11/2` -> 08:00, 10:00); 08:00 has passed.
+        assert_eq!(cron_at("0 8-11/2 * * *", 1790323200), Some(1790330400)); // 10:00
+    }
+
+    #[test]
+    fn next_run_cron_treats_sunday_0_and_7_alike() {
+        // Both spellings must reach the same Sunday 2026-09-27 09:00.
+        let sun = 1790499600;
+        assert_eq!(cron_at("0 9 * * 0", FRI_0800), Some(sun));
+        assert_eq!(cron_at("0 9 * * 7", FRI_0800), Some(sun));
+    }
+
+    #[test]
+    fn next_run_cron_or_rule_applies_when_dom_and_dow_are_both_restricted() {
+        // `0 9 1 * 1` = first of month OR every Monday. From Fri 2026-09-25
+        // the next hit is Mon 2026-09-28, not 2026-10-01.
+        assert_eq!(cron_at("0 9 1 * 1", FRI_0800), Some(1790586000));
+    }
+
+    #[test]
+    fn next_run_cron_and_rule_applies_when_only_dom_is_restricted() {
+        // `0 9 1 * *` = first of month only -> Thu 2026-10-01 09:00.
+        assert_eq!(cron_at("0 9 1 * *", FRI_0800), Some(1790845200));
+    }
+
+    #[test]
+    fn next_run_cron_rejects_malformed_expressions() {
+        // Wrong field count, out-of-range values, and macros/names (D1: not
+        // supported) all fall back to None so callers keep showing `-`.
+        for bad in [
+            "0 9 * *",
+            "0 9 * * * *",
+            "99 9 * * *",
+            "0 9 * * 9",
+            "0 9 * * 1-5-6",
+            "@daily",
+            "0 9 * * MON",
+            "",
+        ] {
+            assert_eq!(cron_at(bad, FRI_0800), None, "should reject {bad:?}");
+        }
+    }
+
+    #[test]
+    fn next_run_cron_returns_none_when_the_date_can_never_occur() {
+        // 30 February never happens; the search must terminate, not hang.
+        assert_eq!(cron_at("0 9 30 2 *", FRI_0800), None);
+    }
+
+    #[test]
+    fn next_run_weekly_respects_weekday() {
+        // Friday 08:00, weekly Monday 09:00 -> next Monday 09:00, NOT the very
+        // next 09:00. The old "phase 1 approximation" ignored `weekday`.
+        let next = next_run(
+            &Schedule::Weekly {
+                weekday: 1,
+                time: "09:00".into(),
+            },
+            FRI_0800,
+        )
+        .unwrap();
+        assert_eq!(next, 1790586000); // Mon 2026-09-28 09:00
+        assert_eq!(
+            day_of_week(next.div_euclid(86400)),
+            1,
+            "the result must actually be a Monday"
+        );
+    }
+
+    #[test]
+    fn next_run_weekly_same_day_is_today_when_the_time_has_not_passed() {
+        // Monday 2026-09-21 08:00, weekly Monday 09:00 -> today 09:00.
         assert_eq!(
             next_run(
-                &Schedule::Cron {
-                    expr: "0 9 * * *".into()
+                &Schedule::Weekly {
+                    weekday: 1,
+                    time: "09:00".into(),
                 },
-                0
+                1789977600, // Mon 08:00
             ),
-            None
+            Some(1789981200) // Mon 09:00
         );
+    }
+
+    #[test]
+    fn next_run_weekly_accepts_7_as_sunday_and_rejects_invalid_weekdays() {
+        // Friday 08:00 -> Sunday 2026-09-27 09:00.
+        assert_eq!(
+            next_run(
+                &Schedule::Weekly {
+                    weekday: 7,
+                    time: "09:00".into(),
+                },
+                FRI_0800,
+            ),
+            Some(1790499600)
+        );
+        for bad in [0u8, 8, 255] {
+            assert_eq!(
+                next_run(
+                    &Schedule::Weekly {
+                        weekday: bad,
+                        time: "09:00".into(),
+                    },
+                    FRI_0800,
+                ),
+                None,
+                "weekday {bad} is out of range and must not fire"
+            );
+        }
+    }
+
+    // ───────────────────────── run ledger (P1) ─────────────────────────
+
+    fn run_record(task_id: &str, run_id: &str, started_at: i64) -> RunRecord {
+        RunRecord {
+            run_id: run_id.into(),
+            task_id: task_id.into(),
+            status: RunStatus::Running,
+            trigger: RunTrigger::Manual,
+            started_at,
+            finished_at: None,
+            exit_code: None,
+            session_id: None,
+            summary: None,
+        }
+    }
+
+    #[test]
+    fn run_ledger_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Two runs of the same task; the second starts later.
+        let mut first = run_record("t1", "1000-000000001", 1000);
+        first.status = RunStatus::Success;
+        first.finished_at = Some(1060);
+        first.exit_code = Some(0);
+        let mut second = run_record("t1", "2000-000000002", 2000);
+        second.status = RunStatus::Error;
+        second.finished_at = Some(2050);
+        second.exit_code = Some(1);
+        second.summary = Some("cwd missing".into());
+
+        save_run_in(root, "t1", &first).unwrap();
+        save_run_in(root, "t1", &second).unwrap();
+
+        // Newest first, regardless of insertion order.
+        let runs = list_runs_in(root, "t1");
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].run_id, "2000-000000002");
+        assert_eq!(runs[1].run_id, "1000-000000001");
+        // Terminal shape survives the roundtrip.
+        assert_eq!(runs[0].status, RunStatus::Error);
+        assert_eq!(runs[0].exit_code, Some(1));
+        assert_eq!(runs[0].finished_at, Some(2050));
+        assert_eq!(runs[0].summary.as_deref(), Some("cwd missing"));
+        assert_eq!(runs[1].status, RunStatus::Success);
+        assert_eq!(runs[1].exit_code, Some(0));
+        // Unknown task -> empty history, not an error.
+        assert!(list_runs_in(root, "no-such-task").is_empty());
+    }
+
+    /// KEY compatibility regression (design §4.1 / D2): the ledger lives INSIDE
+    /// the task's `<task-id>/` directory. The existing `list_in()` must keep
+    /// reading only `<root>/<id>.json` task files and never treat the `runs/`
+    /// subdirectory (or anything in it) as a task definition.
+    #[test]
+    fn task_list_does_not_read_the_runs_subdirectory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        save_in(root, &sample()).unwrap(); // <root>/t1.json
+        save_run_in(root, "t1", &run_record("t1", "1000-000000001", 1000)).unwrap();
+
+        // Exactly one task, and its content is the task -- not the run record.
+        let tasks = list_in(root);
+        assert_eq!(tasks.len(), 1, "runs/ must not surface as a task");
+        assert_eq!(tasks[0].id, "t1");
+        assert!(tasks[0].last_run_id.is_none() || tasks[0].last_run_id.is_some()); // shape only
+                                                                                   // And the ledger is still reachable through its own reader.
+        assert_eq!(list_runs_in(root, "t1").len(), 1);
+    }
+
+    #[test]
+    fn prune_runs_keeps_the_newest_n() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        for i in 0..5 {
+            save_run_in(
+                root,
+                "t1",
+                &run_record("t1", &format!("1{i:03}-00000000{i}"), 1000 + i),
+            )
+            .unwrap();
+        }
+        assert_eq!(list_runs_in(root, "t1").len(), 5);
+
+        // Nothing to do when under the cap.
+        assert_eq!(prune_runs_in(root, "t1", 10).unwrap(), 0);
+        // Trim to 3: the two OLDEST records are removed.
+        assert_eq!(prune_runs_in(root, "t1", 3).unwrap(), 2);
+        let kept: Vec<i64> = list_runs_in(root, "t1")
+            .iter()
+            .map(|r| r.started_at)
+            .collect();
+        assert_eq!(kept, vec![1004, 1003, 1002]);
+        // Idempotent.
+        assert_eq!(prune_runs_in(root, "t1", 3).unwrap(), 0);
+    }
+
+    /// A Running record is the pre-start state; its optional fields stay empty
+    /// and survive the roundtrip unchanged (serde defaults on the way out).
+    #[test]
+    fn running_record_has_no_terminal_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        save_run_in(root, "t1", &run_record("t1", "1000-000000001", 1000)).unwrap();
+        let run = &list_runs_in(root, "t1")[0];
+        assert_eq!(run.status, RunStatus::Running);
+        assert_eq!(run.finished_at, None);
+        assert_eq!(run.exit_code, None);
+        assert_eq!(run.session_id, None);
+        assert_eq!(RunStatus::Running.as_str(), "running");
+        assert_eq!(RunStatus::Cancelled.as_str(), "cancelled");
+    }
+
+    #[test]
+    fn mint_run_ids_are_distinct_and_lexicographically_ordered() {
+        let a = mint_run_id(1790000000, 1);
+        let b = mint_run_id(1790000000, 999_999_999);
+        let c = mint_run_id(1790000001, 0);
+        assert_ne!(a, b, "same second, different nanos must differ");
+        assert!(a < b && b < c, "lexical order must follow start order");
+        // Minted ids pass the same guard the ledger applies (digits + '-').
+        let tmp = tempfile::tempdir().unwrap();
+        save_run_in(tmp.path(), "t1", &run_record("t1", &a, 1790000000)).unwrap();
+    }
+
+    #[test]
+    fn run_ledger_rejects_untrusted_task_and_run_ids() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // A traversal task id must not create directories outside the store.
+        assert_eq!(
+            save_run_in(root, "../evil", &run_record("x", "1000-000000001", 1000))
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert!(!tmp.path().parent().unwrap().join("evil").exists());
+        // A traversal run id must not escape the ledger directory either.
+        assert_eq!(
+            save_run_in(root, "t1", &run_record("t1", "../../evil", 1000))
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+    }
+
+    // ───────────────────── daemon tick support (P2) ─────────────────────
+
+    /// 2026-09-25 08:00:00 UTC (a Friday), used as a stable `now`.
+    const NOW: i64 = FRI_0800;
+
+    fn interval_task(id: &str, created_at: i64, last_run_at: Option<i64>) -> ScheduleTask {
+        let mut task = sample();
+        task.id = id.into();
+        task.schedule = Schedule::Interval { every_minutes: 30 };
+        task.created_at = created_at;
+        task.last_run_at = last_run_at;
+        task
+    }
+
+    #[test]
+    fn catch_up_window_boundaries() {
+        // 0 = no window: every miss is still eligible.
+        assert!(within_catch_up_window(NOW - 86_400, NOW, 0));
+        // Exactly at the boundary counts as within (inclusive), a second later
+        // does not -- otherwise a tick landing on the edge would flip-flop.
+        assert!(within_catch_up_window(NOW - 3600, NOW, 3600));
+        assert!(!within_catch_up_window(NOW - 3601, NOW, 3600));
+        // A future `due_at` (clock skew) is never "too late".
+        assert!(within_catch_up_window(NOW + 60, NOW, 1));
+    }
+
+    #[test]
+    fn due_tasks_anchors_on_last_run_then_created_at() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Never run: due 30 min after creation, and that instant has passed.
+        save_in(root, &interval_task("fresh", NOW - 3600, None)).unwrap();
+        // Already run one minute ago -> next fire is in the future, not due.
+        save_in(root, &interval_task("recent", NOW - 86_400, Some(NOW - 60))).unwrap();
+        // Disabled tasks are never due, even when overdue.
+        let mut off = interval_task("off", NOW - 86_400, None);
+        off.enabled = false;
+        save_in(root, &off).unwrap();
+
+        let due = due_tasks_in(root, NOW);
+        assert_eq!(due.len(), 1, "only the never-run overdue task is due");
+        assert_eq!(due[0].0.id, "fresh");
+        assert_eq!(
+            due[0].1,
+            NOW - 3600 + 1800,
+            "due instant = created_at + 30m"
+        );
+    }
+
+    #[test]
+    fn due_tasks_ignores_a_task_whose_first_slot_is_still_ahead() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Created just now -> the first slot is 30 minutes away.
+        save_in(root, &interval_task("brand-new", NOW, None)).unwrap();
+        assert!(due_tasks_in(root, NOW).is_empty());
+    }
+
+    #[test]
+    fn try_claim_is_exclusive_and_released_on_drop() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let first = try_claim_run_in(root, "t1").unwrap();
+        assert!(first.is_some(), "the first claim must win");
+        assert!(
+            try_claim_run_in(root, "t1").unwrap().is_none(),
+            "a second claim for the same task must fail (single flight)"
+        );
+        assert!(run_lock_is_held_in(root, "t1"), "the lock reads as held");
+        // A different task is unaffected.
+        assert!(try_claim_run_in(root, "t2").unwrap().is_some());
+
+        drop(first);
+        assert!(!run_lock_is_held_in(root, "t1"), "drop must release it");
+        assert!(try_claim_run_in(root, "t1").unwrap().is_some());
+    }
+
+    #[test]
+    fn claim_rejects_untrusted_task_ids() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        assert!(try_claim_run_in(root, "../evil").is_err());
+        // Fail-closed probe: an unusable id reports "held", never "free".
+        assert!(run_lock_is_held_in(root, "../evil"));
+        assert!(!tmp.path().parent().unwrap().join("evil").exists());
+    }
+
+    /// P2 acceptance: a miss older than the catch-up window must NOT run; it is
+    /// recorded as `Skipped` and the anchor advances so it is not re-evaluated
+    /// on every tick (otherwise the ledger would grow one row per tick).
+    #[test]
+    fn catch_up_outside_window_records_skipped_and_advances_the_anchor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Due 90 minutes ago (30-minute interval + 60-minute creation lag).
+        save_in(root, &interval_task("t1", NOW - 3600 - 3600, None)).unwrap();
+        let (_, due_at) = due_tasks_in(root, NOW).pop().unwrap();
+        assert_eq!(due_at, NOW - 3600 - 1800);
+        assert!(!within_catch_up_window(due_at, NOW, 3600));
+
+        let record = record_catch_up_skip_in(root, "t1", NOW).unwrap();
+        assert_eq!(record.status, RunStatus::Skipped);
+        assert_eq!(RunStatus::Skipped.as_str(), "skipped");
+        assert_eq!(record.finished_at, Some(NOW));
+        assert_eq!(record.summary.as_deref(), Some(CATCH_UP_MISSED_SUMMARY));
+
+        let runs = list_runs_in(root, "t1");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].status, RunStatus::Skipped);
+
+        let task = load_in(root, "t1").unwrap();
+        assert_eq!(task.last_run_at, Some(NOW), "anchor advances past the miss");
+        assert_eq!(task.last_status.as_deref(), Some("skipped"));
+        assert_eq!(task.last_run_id.as_deref(), Some(record.run_id.as_str()));
+        // And the same missing instant is no longer due.
+        assert!(due_tasks_in(root, NOW).is_empty());
+    }
+
+    #[test]
+    fn catch_up_skip_refuses_when_the_task_is_running() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        save_in(root, &interval_task("t1", NOW - 7200, None)).unwrap();
+        let guard = try_claim_run_in(root, "t1").unwrap().unwrap();
+        assert!(
+            record_catch_up_skip_in(root, "t1", NOW).is_none(),
+            "a busy task must not have a Skipped row minted behind its back"
+        );
+        assert!(list_runs_in(root, "t1").is_empty());
+        drop(guard);
+    }
+
+    /// P2 acceptance: a `Running` record left by a crashed process is reaped to
+    /// `Error`, but only when no live runner holds the lock.
+    #[test]
+    fn stale_running_run_is_reaped_only_when_the_lock_is_free() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        save_in(root, &interval_task("t1", NOW - 7200, None)).unwrap();
+        save_run_in(root, "t1", &run_record("t1", "1000-000000001", 1000)).unwrap();
+
+        // While a runner holds the lock, the Running record is legitimate.
+        let guard = try_claim_run_in(root, "t1").unwrap().unwrap();
+        assert_eq!(reap_stale_running_in(root, "t1", NOW).unwrap(), 0);
+        assert_eq!(list_runs_in(root, "t1")[0].status, RunStatus::Running);
+        drop(guard);
+
+        // With the lock free, the same record is provably abandoned.
+        assert_eq!(reap_stale_running_in(root, "t1", NOW).unwrap(), 1);
+        let run = &list_runs_in(root, "t1")[0];
+        assert_eq!(run.status, RunStatus::Error);
+        assert_eq!(run.finished_at, Some(NOW));
+        assert_eq!(run.summary.as_deref(), Some(STALE_RUN_SUMMARY));
+        // Terminal records are left alone on the next pass.
+        assert_eq!(reap_stale_running_in(root, "t1", NOW).unwrap(), 0);
     }
 }
