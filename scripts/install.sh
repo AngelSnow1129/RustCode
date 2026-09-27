@@ -12,6 +12,10 @@
 #   RUSTCODE_VERSION             pin a specific release tag (default: latest)
 #   RUSTCODE_PREFIX              install dir (default: /usr/local/bin if writable,
 #                                  else ~/.local/bin)
+#   RUSTCODE_DOWNLOAD_CONCURRENCY  parallel slots for the download race
+#                                  (default: 4; set 1 for sequential fallback)
+#   RUSTCODE_DOWNLOAD_TIMEOUT      per-attempt download timeout in seconds
+#                                  (default: 300)
 # IMPORTANT: when changing install paths, the PATH-rc edit format, or filenames here,
 # also update scripts/uninstall.sh AND
 # crates/rustcode-cli/src/uninstall/paths.rs. The CI parity test guards
@@ -107,13 +111,20 @@ trap 'rm -rf "$TMP"' EXIT
 DEST="$TMP/rustcode${ext}"
 
 # Pick download tool: $_fetch streams a URL to stdout (for the API lookup),
-# $_down saves a URL to a file (for the binary).
+# $_down saves a URL to a file (for the binary). Binary downloads race
+# concurrently, so $_down is quiet (parallel progress bars would garble the
+# terminal) and carries a hard per-attempt timeout: one stalled source must
+# not pin its slot for the whole race.
+DOWN_TIMEOUT="${RUSTCODE_DOWNLOAD_TIMEOUT:-300}"
+case "$DOWN_TIMEOUT" in ''|*[!0-9]*) DOWN_TIMEOUT=300 ;; esac
 if command -v curl >/dev/null 2>&1; then
     _fetch="curl -sL --connect-timeout 5 --max-time 10"
-    _down="curl -fL --progress-bar -o"
+    # --speed-limit/--speed-time: abort when stalled (<1KB/s for 30s) instead of
+    # burning the full --max-time on a hung source occupying a race slot.
+    _down="curl -fsSL --connect-timeout 5 --speed-limit 1024 --speed-time 30 --max-time $DOWN_TIMEOUT -o"
 elif command -v wget >/dev/null 2>&1; then
     _fetch="wget -qO- --timeout=10 --tries=1"
-    _down="wget --show-progress -O"
+    _down="wget -q --timeout=$DOWN_TIMEOUT --read-timeout=30 --tries=1 -O"
 else
     echo "Error: need curl or wget." >&2
     exit 1
@@ -126,7 +137,8 @@ fi
 #
 # If no explicit version is pinned, candidates are: the API "latest", then every
 # version listed in release/index.json (already newest-first), de-duplicated.
-# We then try each candidate against each source until one yields a real binary.
+# Candidate URLs are then raced in bounded concurrent waves (priority order
+# preserved: the highest-priority URL yielding a real binary wins).
 # GitCode's raw-file endpoint is <base>/<path>?ref=<ref> (ref as a QUERY param).
 # The path-segment form (/raw/<ref>/<path>) returns the SPA HTML shell, not the file.
 RELEASE_RAW_BASE="${RUSTCODE_RELEASE_RAW_BASE:-https://gitcode.com/api/v5/repos/SecLab/RustCode/raw}"
@@ -176,27 +188,73 @@ fi
 
 echo "==> Candidate versions: $CANDIDATES"
 
-# --- download with multi-source / multi-version fallback ---
-DEST="$TMP/rustcode${ext}"
+# --- download with multi-source / multi-version fallback (concurrent race) ---
+# Candidate URLs keep the documented priority order (online Release first,
+# then the repo-committed release/ raw URL; newest version first), but they
+# are raced in bounded waves instead of one-by-one: within a wave every
+# source downloads in parallel and the highest-priority URL that yields a
+# usable binary wins, so the fallback ORDER is unchanged -- only wall-clock
+# latency improves, and a single stalled source can no longer block the
+# rest (each attempt carries a hard timeout).
+# RUSTCODE_DOWNLOAD_CONCURRENCY=1 restores strictly sequential attempts.
 ATTEMPTED=""
 DOWNLOADED=0
+
+MAXPAR="${RUSTCODE_DOWNLOAD_CONCURRENCY:-4}"
+case "$MAXPAR" in ''|*[!0-9]*|0) MAXPAR=4 ;; esac
+
+# Flatten the (version x source) matrix into one URL per line, priority
+# order top-to-bottom.
+URLFILE="$TMP/urls.txt"
+: > "$URLFILE"
 for VER in $CANDIDATES; do
     BIN="rustcode-${VER}-${os}-${arch}${ext}"
-    # Source 1: online Release (primary)
-    URL_ONLINE="${RELEASE_BASE%/}/${VER}/${BIN}"
-    # Source 2: repo-committed release/ (pipeline-independent fallback)
-    URL_REPO="${RELEASE_RAW_BASE%/}/release/${VER}/${BIN}?ref=${RELEASE_RAW_REF}"
-    for SRC in "$URL_ONLINE" "$URL_REPO"; do
-        ATTEMPTED="${ATTEMPTED:+$ATTEMPTED; }$SRC"
-        echo "==> Trying $SRC"
-        if $_down "$DEST" "$SRC" 2>/dev/null && [ -s "$DEST" ] \
-            && ! head -c 4 "$DEST" | grep -q "<" 2>/dev/null; then
+    printf '%s\n' "${RELEASE_BASE%/}/${VER}/${BIN}" >> "$URLFILE"
+    printf '%s\n' "${RELEASE_RAW_BASE%/}/release/${VER}/${BIN}?ref=${RELEASE_RAW_REF}" >> "$URLFILE"
+done
+NUML=$(grep -c . "$URLFILE" || :)
+echo "==> Racing $NUML candidate URLs (up to $MAXPAR downloads in parallel)"
+
+WAVE_START=1
+while [ "$DOWNLOADED" != 1 ] && [ "$WAVE_START" -le "$NUML" ]; do
+    WAVE_END=$((WAVE_START + MAXPAR - 1))
+    PIDSFILE="$TMP/pids.txt"
+    : > "$PIDSFILE"
+
+    # Launch one wave: slot i downloads to $TMP/dl.i.
+    i="$WAVE_START"
+    while [ "$i" -le "$NUML" ] && [ "$i" -le "$WAVE_END" ]; do
+        U=$(sed -n "${i}p" "$URLFILE")
+        BIN=$(basename "${U%%\?*}")
+        ATTEMPTED="${ATTEMPTED:+$ATTEMPTED; }$U"
+        echo "==> Trying $U"
+        rm -f "$TMP/dl.$i"
+        $_down "$TMP/dl.$i" "$U" 2>/dev/null &
+        printf '%s %s %s\n' "$i" "$!" "$BIN" >> "$PIDSFILE"
+        i=$((i + 1))
+    done
+
+    # Wait in priority order: the first usable slot wins immediately and
+    # the rest of the wave is stopped below.
+    while IFS=" " read -r SLOT PID BIN; do
+        if wait "$PID" && [ -s "$TMP/dl.$SLOT" ] \
+            && ! head -c 4 "$TMP/dl.$SLOT" | grep -q "<" 2>/dev/null; then
+            mv "$TMP/dl.$SLOT" "$DEST"
             echo "    -> got $BIN ($(stat -c%s "$DEST" 2>/dev/null || stat -f%z "$DEST") bytes)"
             DOWNLOADED=1
-            break 2
+            break
         fi
-        rm -f "$DEST"
-    done
+        rm -f "$TMP/dl.$SLOT"
+    done < "$PIDSFILE"
+
+    if [ "$DOWNLOADED" = "1" ]; then
+        # Stop the remaining (possibly still-running) wave jobs.
+        while IFS=" " read -r SLOT PID BIN; do
+            kill "$PID" 2>/dev/null || :
+        done < "$PIDSFILE"
+    fi
+    wait 2>/dev/null || :
+    WAVE_START=$((WAVE_END + 1))
 done
 
 if [ "$DOWNLOADED" != "1" ]; then
@@ -210,8 +268,6 @@ if [ "$DOWNLOADED" != "1" ]; then
     echo "       script (e.g. scripts/release.sh) on a dev host and committing it." >&2
     exit 1
 fi
-
-chmod +x "$DEST"
 
 chmod +x "$DEST"
 

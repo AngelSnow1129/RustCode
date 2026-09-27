@@ -214,6 +214,10 @@ irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref
 - `RUSTCODE_RELEASE_LATEST_API` —— 覆盖最新版本探测 API
 - `RUSTCODE_VERSION` —— 固定某个发布版本（如 `v6.0.0`），未设则自动探测最新
 - `RUSTCODE_PREFIX` —— 安装目录（详见脚本头部注释）
+- `RUSTCODE_DOWNLOAD_CONCURRENCY` —— 候选源并发竞速的并行度(仅 Unix 安装器
+  `install.sh`;默认 4,设为 1 退回严格串行回退)
+- `RUSTCODE_DOWNLOAD_TIMEOUT` —— 单次下载尝试的硬超时秒数(仅 Unix 安装器
+  `install.sh`;默认 300,避免单个停滞的源拖住整波)
 
 安装器还支持在安装成功后注入一个自定义 BYO provider（对应 `config.toml` 的
 `[providers.<name>]`、`type = "openai-compatible"`）——在脚本后追加
