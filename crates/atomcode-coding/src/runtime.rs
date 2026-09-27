@@ -13004,6 +13004,106 @@ mod tests {
         handle.shutdown().await.unwrap();
     }
 
+    /// A note is not a nudge: it must not re-engage a goal the person paused.
+    ///
+    /// Pausing is somebody saying "not now", and a job reporting back is not them
+    /// saying "go on". The positive half is the point of the last step: had the
+    /// note woken the goal, the person's own next message would have had nothing
+    /// left to resume — and the recovery recap that message exists for would
+    /// already be spent (`resume_paused` clears it).
+    #[tokio::test]
+    #[serial_test::serial(atomcode_home)]
+    async fn a_note_does_not_re_engage_a_paused_goal() {
+        let (
+            handle,
+            mut kernel_commands,
+            kernel_events,
+            mut runtime_events,
+            _wakeup_tx,
+            _loop_active,
+            _adapter,
+        ) = controller_test_runtime(Arc::new(TestProviderFactory { fail: false })).await;
+
+        handle.start_goal("finish the task").await.unwrap();
+        let _ = runtime_events.recv().await;
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::SendMessage { .. })
+        ));
+
+        handle.pause_goal().await.unwrap();
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::Cancel)
+        ));
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::Snapshot)
+        ));
+        assert!(matches!(
+            runtime_events.recv().await,
+            Some(CodingRuntimeEvent::GoalChanged(GoalProgress {
+                active: false,
+                phase: GoalPhase::Paused,
+                ..
+            }))
+        ));
+        // 停下来的那一趟要落地:在它落地之前,任何提交(包括下面这条注)都是 Busy。
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::user("start work")]),
+            })
+            .unwrap();
+        loop {
+            if matches!(
+                runtime_events.recv().await,
+                Some(CodingRuntimeEvent::TurnFinished(_))
+            ) {
+                break;
+            }
+        }
+
+        // 后台那趟干完,结果投回家:它照旧开一趟(是一条注,不是没人理),但它不是人。
+        handle
+            .note("bg-7".into(), "the review came back".into())
+            .await
+            .unwrap();
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::PeerNote { from, .. }) if from == "bg-7"
+        ));
+
+        // 内核命令已经发出去,那一臂里该发的事件此刻都在队列上:唤醒的话它就在这里。
+        let mut woken = false;
+        while let Ok(event) = runtime_events.try_recv() {
+            woken |= matches!(
+                event,
+                CodingRuntimeEvent::GoalChanged(GoalProgress { active: true, .. })
+            );
+        }
+        assert!(!woken, "一条注把被人暂停的 goal 唤醒了");
+
+        // 而人的下一句话仍然唤得醒 —— 暂停还在,摘要也还留着。
+        handle.submit(UserInput::from("continue")).await.unwrap();
+        assert!(
+            matches!(
+                runtime_events.recv().await,
+                Some(CodingRuntimeEvent::GoalChanged(GoalProgress {
+                    active: true,
+                    phase: GoalPhase::Pursuing,
+                    ..
+                }))
+            ),
+            "the person's own message is what re-engages a paused goal"
+        );
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::SendMessage { text, .. }) if text == "continue"
+        ));
+
+        handle.shutdown().await.unwrap();
+    }
+
     #[tokio::test]
     async fn pause_goal_cancels_only_the_turn_and_next_submit_resumes_goal() {
         let (
