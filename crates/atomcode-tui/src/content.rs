@@ -1263,10 +1263,11 @@ const GENERIC: Look = Look {
 
 pub fn look(tool: &str) -> Look {
     match tool {
-        // Foldable, and folded the moment its result lands
-        // (`Host::fold_finished_call`). What is left is the row that says a skill
-        // was loaded and which one; what folds away is the body — an SKILL.md the
-        // agent fetched, not a change it made. See `Look::always_open`.
+        // Foldable, and folded like every other call — from the moment it opens
+        // (`Host::fold`, through `Presentation::fold_by_default`). What is left is
+        // the row that says a skill was loaded and which one; what folds away is
+        // the body — an SKILL.md the agent fetched, not a change it made. See
+        // `Look::always_open`.
         "use_skill" => Look {
             verb: Some(Verb::Skill),
             subject: &["name", "skill"],

@@ -85,7 +85,15 @@ fn tells_of_the_turn(kind: &str) -> bool {
 /// either on its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ToolOutput {
-    /// Every call in full — the default, and what `b5006d77` settled on.
+    /// What the screen shows by default, and what `b5006d77` settled on: every
+    /// call as its one row, each of them openable.
+    ///
+    /// It still reads as "every call in full" and no longer means it — a call is
+    /// a lid from the moment it opens and its full form is a hand move (see
+    /// [`Presentation::fold_by_default`]). What separates it from
+    /// [`ToolOutput::Each`], whose rows are the same ones, is that this one lets a
+    /// call be opened: `Each`'s arm in [`Presentation::tool_show`] answers
+    /// `Folded` whatever the person has said about the call.
     #[default]
     Full,
     /// Expanded, but only just: the first and last twenty rows of each call,
@@ -334,7 +342,7 @@ impl Presentation {
     ///
     /// A hand fold (`by_block`) wins over everything: it is what a click said
     /// about *this* call.
-    /// Whether a finished tool call recedes to its one-row summary by default.
+    /// Whether a tool call recedes to its one-row summary by default.
     ///
     /// The paint ([`tool_show`]) and the row count ([`is_block_folded`]) both
     /// ask, through this one predicate, so the two cannot drift: a call measured
@@ -342,6 +350,10 @@ impl Presentation {
     /// default [`ToolOutput::Full`] view auto-folds; the compact modes decide for
     /// every call themselves. A hand fold/unfold in `by_block` sits on top and is
     /// checked by each caller first, so it is not consulted here.
+    ///
+    /// Every call of the stream is recorded here as it opens
+    /// ([`Presentation::fold_by_default`]), not as its result lands: a lid is
+    /// what a call is, and opening one is a move the reader makes by hand.
     ///
     /// [`tool_show`]: Self::tool_show
     /// [`is_block_folded`]: Self::is_block_folded
@@ -353,10 +365,10 @@ impl Presentation {
         if self.by_block.get(&id).copied().unwrap_or(false) {
             return ToolShow::Folded;
         }
-        // A finished call recedes to one summary row in the default view — unless
-        // the reader has spoken about it by hand (`by_block`: `unwrap_or(false)`
-        // above returns only on a hand *fold*, so the guard here keeps a
-        // hand-*opened* call, present with `false`, from being re-folded).
+        // A call is one summary row in the default view — unless the reader has
+        // spoken about it by hand (`by_block`: `unwrap_or(false)` above returns
+        // only on a hand *fold*, so the guard here keeps a hand-*opened* call,
+        // present with `false`, from being re-folded).
         if !self.by_block.contains_key(&id) && self.auto_folds(id) {
             return ToolShow::Folded;
         }
@@ -407,8 +419,8 @@ impl Presentation {
         if let Some(folded) = self.by_block.get(&id) {
             return *folded;
         }
-        // A finished call recedes to one row in the default view; a hand fold
-        // above already took precedence (`by_block.get` returns for any entry).
+        // A call is one row in the default view; a hand fold above already took
+        // precedence (`by_block.get` returns for any entry).
         if kind == "tool_call" && self.auto_folds(id) {
             return true;
         }
@@ -495,22 +507,34 @@ impl Presentation {
         self.bump();
     }
 
-    /// Collapse a block by default the moment a tool call finishes: it was
-    /// expanded while running (so its command was in view), and once the result
-    /// is in there is nothing to watch, so it recedes to one row.
+    /// Collapse a tool call to its one-row lid by default, from the moment it
+    /// opens rather than the moment its result lands.
+    ///
+    /// It used to be the landing that folded it: a call was drawn expanded while
+    /// it ran (so its command was in view) and receded once the result was in.
+    /// What that bought was a shape that arrives and leaves inside one frame for
+    /// a call that finishes in tens of milliseconds — expanded and collapsed
+    /// again before either form could be read. The lid says the whole of what the
+    /// expansion said, and says it throughout: the command, the `运行中` note
+    /// while it runs, and the result once it lands (see
+    /// `ToolCallBlock::summary`). Opening one is a click.
     ///
     /// `auto_folded` is the *default* layer, distinct from `by_block`. A hand
     /// fold/unfold sits on top and wins at paint time while it is present (both
-    /// [`tool_show`] and [`is_block_folded`] check `by_block` first). So the
-    /// finished call is recorded here regardless of what the reader has said by
-    /// hand: while their choice stands it is overruled, but once a mode cycle
-    /// clears `by_block` the call falls back to its one-row default rather than
+    /// [`tool_show`] and [`is_block_folded`] check `by_block` first). So the call
+    /// is recorded here regardless of what the reader has said by hand: while
+    /// their choice stands it is overruled, but once a mode cycle clears
+    /// `by_block` the call falls back to its one-row default rather than
     /// springing open — the "a full cycle comes back to the same screen" property
     /// that `auto_folded` exists to keep, held for hand-touched calls too.
     ///
+    /// Recorded in every mode (it is only *read* in the default `Full` view; the
+    /// compact modes decide for themselves), so a call that opened under another
+    /// mode is still one row if the person later cycles to the default.
+    ///
     /// [`tool_show`]: Self::tool_show
     /// [`is_block_folded`]: Self::is_block_folded
-    pub fn fold_finished(&mut self, id: BlockId) {
+    pub fn fold_by_default(&mut self, id: BlockId) {
         if self.auto_folded.insert(id) {
             self.bump();
         }
@@ -1310,16 +1334,6 @@ pub struct Host {
     /// instead of one somebody has to remember — and the two revisions are
     /// bumped by every writer, not by the call sites that happen to exist today.
     row_index: Mutex<RowIndex>,
-    /// Which block a tool call opened, by call id.
-    ///
-    /// [`Host::fold_finished_call`] needs the block a result belongs to, and
-    /// the stream is indexed by [`BlockId`], not by call id. Searching for it
-    /// there was a pass over the whole conversation **per result**, which a
-    /// replay pays once per call in the log — the second quadratic term in
-    /// switching sessions. Filled as blocks appear (a fold may append a batch
-    /// of calls at once) and cleared with the stream, because a call id is the
-    /// session's own.
-    call_blocks: Mutex<std::collections::HashMap<String, BlockId>>,
     /// The in-flow user bar shown while a picture is being recognised for a
     /// text-only model, before the message that carries it is logged.
     ///
@@ -1553,7 +1567,6 @@ impl Host {
                 skip_from: Vec::new(),
                 total: 0,
             }),
-            call_blocks: Mutex::new(std::collections::HashMap::new()),
             pending_echo: Mutex::new(None),
         }
     }
@@ -1602,12 +1615,6 @@ impl Host {
             skip_from: Vec::new(),
             total: 0,
         };
-        // The call ids went with the blocks: nothing is left for a result of
-        // this session to fold, and an id from it must not reach into the next.
-        self.call_blocks
-            .lock()
-            .expect("call blocks poisoned")
-            .clear();
         for producer in self.modules.producers() {
             producer.reset();
         }
@@ -1876,37 +1883,15 @@ impl Host {
 
         // Pinned while the reader is holding a position: what the fact does to
         // the conversation is what moves the reading, and the reading has to
-        // move with it or the same words slide out from under the same eyes.
-        // The finished-call fold rides inside the pin too: it changes the row
-        // count (the call drops from full to one row), so it must be measured
-        // the same way everything else that moves the conversation is.
+        // move with it or the same words slide out from under the same eyes. The
+        // call's fold needs no pin of its own any more — it is a lid from the
+        // moment it opens ([`Presentation::fold_by_default`]), so folding it is
+        // not a height a fact changes. The pin stays for the other half: the
+        // result landing on that lid can still change how many rows the lid
+        // draws, since it carries the result (`summary_lines`).
         self.pinned(true, || {
             self.fold(logged);
-            if let SessionEvent::ToolResultLogged { call_id, .. } = fact {
-                self.fold_finished_call(call_id);
-            }
         });
-    }
-
-    /// Remember a tool call as auto-folded the moment its result lands — the way
-    /// the reference does it: expanded while running, one row once done. Recorded
-    /// in every mode (it is only *read* in the default `Full` view; the compact
-    /// modes decide for themselves), so switching to the default later still
-    /// shows a call that finished under another mode as one row. A hand
-    /// fold/unfold still wins (see [`Presentation::fold_finished`]).
-    fn fold_finished_call(&self, call_id: &str) {
-        let id = self
-            .call_blocks
-            .lock()
-            .expect("call blocks poisoned")
-            .get(call_id)
-            .copied();
-        if let Some(id) = id {
-            self.presentation
-                .write()
-                .expect("presentation poisoned")
-                .fold_finished(id);
-        }
     }
 
     /// Fold one fact into every module, and into the few things the host keeps
@@ -1916,9 +1901,11 @@ impl Host {
     /// "measure, change, measure again", and the change is this.
     fn fold(&self, logged: &LoggedEvent) {
         let fact = &logged.event;
-        // What this fold appended, remembered as blocks rather than as calls:
-        // a fact may open several at once (one per tool call in a message).
-        let mut opened: Vec<(String, BlockId)> = Vec::new();
+        // What this fold appended, as the blocks themselves: a fact may open
+        // several at once (one per tool call in a message), and each of them is a
+        // one-row lid from here rather than from its result — see
+        // [`Presentation::fold_by_default`].
+        let mut opened: Vec<BlockId> = Vec::new();
         {
             let mut stream = self.stream.write().expect("stream poisoned");
             let before = stream.len();
@@ -1927,15 +1914,15 @@ impl Host {
                 p.absorb(logged, &mut w);
             }
             for slot in &stream.slots()[before..] {
-                if let Some(call) = slot.block().content.as_tool_call() {
-                    opened.push((call.call_id.clone(), slot.block().id));
+                if slot.block().content.as_tool_call().is_some() {
+                    opened.push(slot.block().id);
                 }
             }
         }
         if !opened.is_empty() {
-            let mut calls = self.call_blocks.lock().expect("call blocks poisoned");
-            for (call_id, id) in opened {
-                calls.insert(call_id, id);
+            let mut pres = self.presentation.write().expect("presentation poisoned");
+            for id in opened {
+                pres.fold_by_default(id);
             }
         }
         for id in self.modules.view_ids() {
@@ -8759,7 +8746,9 @@ mod tests {
     /// 那份超线性来自两个全表扫描:`StreamWriter::settle`(每个 `emit` 都扫一遍,
     /// 而 transcript 每个块都 `emit`)与 `Host::fold_finished_call`(每个工具结果
     /// 扫一遍找它的调用块)。两处都改成了索引,见 `block.rs` 的 `position_of` 与
-    /// `host.rs` 的 `call_blocks`;改完这两条曲线都贴着线性。
+    /// `host.rs` 的 `call_blocks`;改完这两条曲线都贴着线性。第二处后来连索引一起
+    /// 没了:调用一登场就是一行 lid(`Presentation::fold_by_default`),按结果去找
+    /// 它的调用块这件事不再存在,`call_blocks` 已删除。
     ///
     /// **首帧没动,而且它是现在的大头。** 重放重建了每一个 `Slot`,于是每个块
     /// 自己的「量过多宽多少行」缓存都是空的,行索引只好把整段会话重渲染一遍
@@ -10475,12 +10464,20 @@ mod tests {
         );
     }
 
-    /// A call is expanded while it runs — its command is worth watching — and
-    /// collapses to one summary row the moment its result lands, the way the
-    /// reference does it. The default (`Full`) view, no `ctrl-t` needed.
+    /// A call is its one-row lid from the moment it opens, and the result lands
+    /// on that same row.
+    ///
+    /// It used to open expanded and recede once the result was in: `● ReadFile(a.rs)`
+    /// over a `⎿ 运行中` gutter row, collapsing to one row on the result. For a
+    /// call that finishes in tens of milliseconds that is a shape that arrives
+    /// and leaves inside one frame — drawn and collapsed again before either form
+    /// could be read, which is what a fast `bash` looked like. Judged as the two
+    /// heights, because the flicker *is* a height that moves: nothing else here
+    /// can see it.
     #[test]
-    fn a_call_is_open_while_running_and_folds_once_it_finishes() {
+    fn a_call_is_its_lid_from_the_moment_it_opens() {
         let h = host();
+        let size = (64, 40);
         let call = SessionEvent::AssistantMessage {
             turn: 1,
             round: 1,
@@ -10495,14 +10492,20 @@ mod tests {
             meta: None,
         };
         h.absorb(&call);
-        // Running: expanded, so the result gutter (`⎿ 运行中`) is on its own row.
-        let running = h.compose((64, 40)).rows();
+        let running = h.compose(size).rows();
         assert!(
-            running.iter().any(|r| r.contains('⎿')),
-            "a running call is expanded:\n{running:#?}"
+            !running.iter().any(|r| r.contains('⎿')),
+            "a running call is its one row, not an expanded block:\n{running:#?}"
         );
+        assert!(
+            running
+                .iter()
+                .any(|r| r.contains("ReadFile(a.rs)") && r.contains("运行中")),
+            "and that row says what is running:\n{running:#?}"
+        );
+        let running_height = h.stream_height(size, &h.moment.read().unwrap().clone());
 
-        // The result lands — the call collapses to a single summary row.
+        // The result lands — on the row that was already there.
         h.absorb(&SessionEvent::ToolResultLogged {
             turn: 1,
             round: 1,
@@ -10511,15 +10514,20 @@ mod tests {
             is_error: false,
             images: Vec::new(),
         });
-        let done = h.compose((64, 40)).rows();
+        let done = h.compose(size).rows();
         assert!(
             !done.iter().any(|r| r.contains('⎿')),
-            "a finished call folds to one row:\n{done:#?}"
+            "the result does not open the call up:\n{done:#?}"
         );
         assert!(
             done.iter()
                 .any(|r| r.contains("ReadFile(a.rs)") && r.contains("fn main")),
-            "the summary carries the result:\n{done:#?}"
+            "it lands on the same row, which now carries it:\n{done:#?}"
+        );
+        assert_eq!(
+            h.stream_height(size, &h.moment.read().unwrap().clone()),
+            running_height,
+            "and the row is the same height, which is the flicker this is about"
         );
     }
 
@@ -10699,20 +10707,20 @@ mod tests {
     }
 
     /// `auto_folded` is the *default* layer under the hand fold, so it survives a
-    /// mode cycle. A call the reader folds by hand while it runs must therefore
-    /// come back to its one-row default — not spring open — once a full
+    /// mode cycle. A call the reader folds by hand must therefore come back to its
+    /// one-row default — not spring open — once a full
     /// `Full → Head → Each → Group → Full` cycle has cleared the hand state. If
-    /// `fold_finished` skipped hand-touched calls the finished call would be in
-    /// neither `by_block` nor `auto_folded` after the cycle and draw expanded,
-    /// breaking the "a full cycle comes back to the same screen" invariant.
+    /// `fold_by_default` skipped hand-touched calls, the call would be in neither
+    /// `by_block` nor `auto_folded` after the cycle and draw expanded, breaking the
+    /// "a full cycle comes back to the same screen" invariant.
     #[test]
-    fn a_hand_folded_finished_call_keeps_its_default_after_a_mode_cycle() {
+    fn a_hand_folded_call_keeps_its_default_after_a_mode_cycle() {
         let mut p = Presentation::default_folds();
         let id = BlockId(7);
 
-        // Running: the reader folds it by hand, then it finishes.
+        // The reader folds it by hand while the default layer already holds it.
         p.set_block(id, true);
-        p.fold_finished(id);
+        p.fold_by_default(id);
         assert!(
             p.is_block_folded(id, "tool_call"),
             "the hand fold folds it while it stands"
@@ -11668,9 +11676,9 @@ mod tests {
     /// (`ToolCallBlock::diff_view`) — which is what the row is for. Folded it was
     /// the call and never its result: `● …` over one `⎿ EditFile(path)` line.
     ///
-    /// Both calls are put in the state a finished call recedes into, the one the
-    /// plugin writes the moment a result lands (`fold_finished`), so what is
-    /// compared is two calls of the same age on the same screen.
+    /// Both calls are the same age on the same screen, and neither is folded by
+    /// hand: every call is a lid from the moment it opens, which is the state the
+    /// comparison needs.
     #[test]
     fn an_edit_refuses_the_fold_a_read_takes() {
         let h = host();
@@ -11714,22 +11722,15 @@ mod tests {
             images: Vec::new(),
         });
 
-        let ids: Vec<BlockId> = {
+        let calls = {
             let stream = h.stream.read().expect("stream poisoned");
             stream
                 .slots()
                 .iter()
                 .filter(|slot| slot.block().kind() == "tool_call")
-                .map(|slot| slot.block().id)
-                .collect()
+                .count()
         };
-        assert_eq!(ids.len(), 2, "two calls to judge");
-        for id in &ids {
-            h.presentation
-                .write()
-                .expect("presentation poisoned")
-                .fold_finished(*id);
-        }
+        assert_eq!(calls, 2, "two calls to judge");
 
         let screen = h.compose((90, 40)).rows().join("\n");
         assert!(
@@ -11752,9 +11753,8 @@ mod tests {
         // fetched body — the same shape of thing as a `read_file` result, which
         // has always folded.
         //
-        // Nothing is folded by hand here: this is the path a real result takes
-        // (`fold_finished_call`, on the fact landing), which is the thing that
-        // was being blocked at paint time.
+        // Nothing is folded by hand here: every call is a lid from the moment it
+        // opens, which is the thing that was being blocked at paint time.
         let h = host();
         h.absorb(&SessionEvent::AssistantMessage {
             turn: 1,
