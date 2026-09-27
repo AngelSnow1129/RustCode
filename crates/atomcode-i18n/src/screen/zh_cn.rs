@@ -329,6 +329,11 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             percent,
             resets_at,
         } => format!("Token使用量 {percent}%，{label}滚动窗口 重置于 {resets_at}").into(),
+        Msg::AllowanceNearWithCountdown {
+            label,
+            percent,
+            duration,
+        } => format!("Token使用量 {percent}%，{label}滚动窗口 {duration}后重置").into(),
         Msg::AllowanceExhaustedOpenRouter { label } => {
             format!("{label}额度已用尽 —— 输入 /openrouter 一键接入 OpenRouter 免费模型").into()
         }

@@ -496,6 +496,12 @@ pub enum Msg<'a> {
         percent: u8,
         resets_at: &'a str,
     },
+    /// The same reading, for a host that reports a countdown and no clock.
+    AllowanceNearWithCountdown {
+        label: &'a str,
+        percent: u8,
+        duration: &'a str,
+    },
     /// Said once, when a window is actually spent: where model access can come
     /// from instead, and the command that gets it.
     AllowanceExhaustedOpenRouter {

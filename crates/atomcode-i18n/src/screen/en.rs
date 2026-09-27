@@ -361,6 +361,11 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             percent,
             resets_at,
         } => format!("{percent}% of the {label} window used  resets at {resets_at}").into(),
+        Msg::AllowanceNearWithCountdown {
+            label,
+            percent,
+            duration,
+        } => format!("{percent}% of the {label} window used  resets in {duration}").into(),
         Msg::AllowanceExhaustedOpenRouter { label } => {
             format!("{label} allowance used up — type /openrouter to connect OpenRouter's free models").into()
         }

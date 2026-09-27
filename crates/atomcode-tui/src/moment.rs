@@ -277,9 +277,13 @@ pub struct Allowance {
     /// Whole percent spent, 0..=100.
     pub percent: u8,
     /// When it comes back, in the host's own words — "19:41". Empty when the
-    /// host did not say, and the row then says nothing about when either rather
-    /// than counting down to nothing.
+    /// host did not say, and the row then falls back to the countdown below
+    /// rather than saying nothing about when.
     pub resets_at: String,
+    /// Seconds until it comes back, for a host that reports a countdown without
+    /// a clock. The same fallback `/usage` and the settings page use, so the row
+    /// and the page say the same thing about the same window.
+    pub resets_in_seconds: i64,
 }
 
 impl Allowance {
@@ -298,6 +302,7 @@ impl Allowance {
                 label: w.label.clone(),
                 percent: percent.min(100),
                 resets_at: w.resets_at.clone(),
+                resets_in_seconds: w.resets_in_seconds,
             })
     }
 

@@ -529,24 +529,30 @@ fn allowance_badge(left: &crate::moment::Allowance) -> Option<String> {
     if left.percent < ALLOWANCE_NEAR {
         return None;
     }
-    // When it comes back, and only when the host said: a window with nothing
-    // waiting would otherwise read as "comes back in 0 seconds", which is the
-    // opposite of what it means.
-    let back = (!left.resets_at.is_empty()).then_some(left.resets_at.as_str());
-    Some(
-        match back {
-            Some(at) => t(Msg::AllowanceNearWithReset {
-                label: &left.label,
-                percent: left.percent,
-                resets_at: at,
-            }),
-            None => t(Msg::AllowanceNear {
-                label: &left.label,
-                percent: left.percent,
-            }),
-        }
-        .into_owned(),
-    )
+    // When it comes back. The host's own clock first — "19:41" is what a person
+    // can act on; failing that its countdown, the same fallback `/usage` and the
+    // settings page use, so the row and the page agree about one window. A window
+    // with nothing waiting says nothing about when: "comes back in 0 seconds" is
+    // the opposite of what that means.
+    let line = if !left.resets_at.is_empty() {
+        t(Msg::AllowanceNearWithReset {
+            label: &left.label,
+            percent: left.percent,
+            resets_at: &left.resets_at,
+        })
+    } else if left.resets_in_seconds > 0 {
+        t(Msg::AllowanceNearWithCountdown {
+            label: &left.label,
+            percent: left.percent,
+            duration: &crate::text::spoken_duration(left.resets_in_seconds as u64),
+        })
+    } else {
+        t(Msg::AllowanceNear {
+            label: &left.label,
+            percent: left.percent,
+        })
+    };
+    Some(line.into_owned())
 }
 
 fn autonomy_badge(running: &atomcode_host_api::Running) -> String {
@@ -763,6 +769,7 @@ mod tests {
             label: "5 小时".into(),
             percent,
             resets_at: resets_at.into(),
+            resets_in_seconds: 0,
         };
         assert_eq!(allowance_badge(&left(0, "")), None, "fresh: nothing to say");
         assert_eq!(
@@ -785,6 +792,21 @@ mod tests {
         assert!(
             waiting.contains("90") && waiting.contains("19:41"),
             "it adds when the window comes back: {waiting}"
+        );
+
+        // A host that reports the countdown and no clock still gets a "when":
+        // the same fallback `/usage` and the settings page use.
+        let counted = allowance_badge(&crate::moment::Allowance {
+            label: "5 小时".into(),
+            percent: 90,
+            resets_at: String::new(),
+            resets_in_seconds: 3600,
+        })
+        .expect("speaks");
+        assert!(counted.contains("90"), "{counted}");
+        assert!(
+            Some(counted) != allowance_badge(&left(90, "")),
+            "a countdown is still something to say about when"
         );
 
         // Spent is still said — it is the one figure that changes what happens
