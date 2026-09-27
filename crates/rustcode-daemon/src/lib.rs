@@ -6459,6 +6459,15 @@ pub struct FsOpenRequest {
     pub session_id: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+pub struct FsReadQuery {
+    pub path: String,
+    /// Owning session; its `working_dir` is the containment root (decision Q4).
+    /// Absent/blank falls back to the active project directory.
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
 /// Resolve a file to open: canonicalize (resolving `..` / symlinks) and require
 /// the result to be an existing regular file. Deliberately matches the agent's
 /// `open_file` reach -- a turn can legitimately write files outside the session
@@ -6499,7 +6508,24 @@ fn resolve_session_workspace_file(
     session_id: Option<&str>,
     active_binding: Option<(&str, &std::path::Path)>,
 ) -> std::io::Result<PathBuf> {
-    let root = match session_id.filter(|id| !id.trim().is_empty()) {
+    let root =
+        resolve_session_workspace_root(sessions_root, current_root, session_id, active_binding)?;
+    resolve_workspace_file(&root, requested)
+}
+
+/// Resolve ONLY the working directory a request is bound to (decision Q4: the
+/// session working directory is the containment root for content-exposing
+/// endpoints). Split out of [`resolve_session_workspace_file`] so `/fs/read` can
+/// hand the same root to `fs_boundary::authorize_file_access` instead of
+/// re-deriving it -- two derivations could disagree about which directory is the
+/// boundary.
+fn resolve_session_workspace_root(
+    sessions_root: &std::path::Path,
+    current_root: &std::path::Path,
+    session_id: Option<&str>,
+    active_binding: Option<(&str, &std::path::Path)>,
+) -> std::io::Result<PathBuf> {
+    Ok(match session_id.filter(|id| !id.trim().is_empty()) {
         Some(session_id) => match active_binding {
             Some((id, working_dir)) if id == session_id.trim() => working_dir.to_path_buf(),
             _ => {
@@ -6518,8 +6544,119 @@ fn resolve_session_workspace_file(
             }
         },
         None => current_root.to_path_buf(),
-    };
-    resolve_workspace_file(&root, requested)
+    })
+}
+
+/// Map a [`rustcode_capabilities::fs_boundary::FileDeny`] to its localized text.
+///
+/// The boundary enum is deliberately string-free (L1 cannot depend on
+/// `rustcode-config`), so the daemon edge owns this mapping. A new `FileDeny`
+/// variant makes this match non-exhaustive -> compile error -> the variant must
+/// get BOTH languages before it can ship.
+fn file_deny_message(deny: rustcode_capabilities::fs_boundary::FileDeny) -> String {
+    use rustcode_capabilities::fs_boundary::FileDeny;
+    match deny {
+        FileDeny::EmptyPath => t(Msg::DaemonApiFsDeniedEmpty),
+        FileDeny::NoAuthMode => t(Msg::DaemonApiFsDeniedNoAuth),
+        FileDeny::EscapesRoot => t(Msg::DaemonApiFsDeniedEscapesRoot),
+        FileDeny::Sensitive => t(Msg::DaemonApiFsDeniedSensitive),
+        FileDeny::TooLarge => t(Msg::DaemonApiFsDeniedTooLarge {
+            max_bytes: rustcode_capabilities::fs_boundary::DEFAULT_MAX_FILE_BYTES,
+        }),
+        FileDeny::Binary => t(Msg::DaemonApiFsDeniedBinary),
+        FileDeny::NotRegularFile => t(Msg::DaemonApiFsDeniedNotFile),
+        FileDeny::NotADirectory => t(Msg::DaemonApiFsDeniedNotDir),
+        FileDeny::Unreadable => t(Msg::DaemonApiFsDeniedUnreadable),
+    }
+    .into_owned()
+}
+
+/// Every refusal is a client-visible 4xx; nothing here is a server fault.
+fn file_deny_status(deny: rustcode_capabilities::fs_boundary::FileDeny) -> StatusCode {
+    use rustcode_capabilities::fs_boundary::FileDeny;
+    match deny {
+        // Explicit "you may not" answers, not malformed requests.
+        FileDeny::NoAuthMode | FileDeny::Sensitive => StatusCode::FORBIDDEN,
+        _ => StatusCode::BAD_REQUEST,
+    }
+}
+
+/// Read a text file from the WebUI, for the file-preview pane.
+///
+/// Contained by design: the path must resolve inside the owning session's working
+/// directory, may not be a protected/secret file, must be a regular file, must be
+/// under the preview size cap, and must not be binary. With `webui_no_auth` the
+/// whole endpoint refuses (user decision: viewing only, no downloads, and no
+/// out-of-workspace or unauthenticated reads).
+async fn fs_read(State(state): State<AppState>, Query(q): Query<FsReadQuery>) -> impl IntoResponse {
+    let current_root = state.project.read().await.working_dir.clone();
+    let session_id = q.session_id.filter(|id| !id.trim().is_empty());
+    let no_auth = state.webui_no_auth;
+    let requested = q.path;
+    // Kept for the response label; the closure needs its own copy.
+    let requested_label_source = requested.clone();
+    let active_binding = crate::native_live::binding().ok();
+    let resolved = tokio::task::spawn_blocking(move || {
+        // An unresolvable session/root cannot establish a containment boundary, so
+        // it fails closed as `EscapesRoot` rather than serving anything.
+        let root = resolve_session_workspace_root(
+            &NativeSessionManager::sessions_root(),
+            &current_root,
+            session_id.as_deref(),
+            active_binding
+                .as_ref()
+                .map(|binding| (binding.session_id.as_str(), binding.working_dir.as_path())),
+        )
+        .map_err(|_| rustcode_capabilities::fs_boundary::FileDeny::EscapesRoot)?;
+        let policy = rustcode_capabilities::fs_boundary::FilePolicy {
+            no_auth,
+            ..Default::default()
+        };
+        // One resolution + one read, inside the boundary predicate.
+        rustcode_capabilities::fs_boundary::read_text_file(&root, &requested, &policy)
+            .map(|content| (root, content))
+    })
+    .await;
+    match resolved {
+        Ok(Ok((root, content))) => {
+            // Path is echoed back relative to the root when possible: the pane
+            // shows which file it is, and the absolute host path stays out of the
+            // response.
+            let display = root
+                .file_name()
+                .map(|name| {
+                    format!(
+                        "{}/{}",
+                        name.to_string_lossy(),
+                        requested_label(&requested_label_source)
+                    )
+                })
+                .unwrap_or_else(|| requested_label(&requested_label_source));
+            Json(serde_json::json!({
+                "success": true,
+                "path": display,
+                "content": content,
+            }))
+            .into_response()
+        }
+        Ok(Err(deny)) => {
+            json_error(file_deny_status(deny), file_deny_message(deny)).into_response()
+        }
+        Err(error) => json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            t(Msg::DaemonApiFileResolveFailed {
+                error: &error.to_string(),
+            })
+            .into_owned(),
+        )
+        .into_response(),
+    }
+}
+
+/// The caller-supplied path as a display label (trailing slashes trimmed). Never
+/// the resolved host path -- that would leak the daemon's directory layout.
+fn requested_label(requested: &str) -> String {
+    requested.trim().trim_matches('/').to_string()
 }
 
 /// Open a generated file from the WebUI. Like the agent's `open_file` tool, this
@@ -6576,6 +6713,15 @@ async fn fs_open(
             .into_response();
         }
     };
+    // Refuse protected/secret targets even though `/fs/open` deliberately keeps its
+    // reach outside the session working directory (it returns no content, and a
+    // turn may legitimately write artifacts outside the workspace). The auth
+    // posture is NOT enforced here: opening a local GUI viewer is not a content or
+    // write operation, so `webui_no_auth` must not disable it.
+    if rustcode_capabilities::tools::sensitive_path::path_is_sensitive(&target) {
+        let deny = rustcode_capabilities::fs_boundary::FileDeny::Sensitive;
+        return json_error(file_deny_status(deny), file_deny_message(deny)).into_response();
+    }
     match rustcode_capabilities::tools::open_local_path(&target).await {
         Ok(message) => {
             Json(serde_json::json!({ "success": true, "message": message })).into_response()
@@ -6584,11 +6730,34 @@ async fn fs_open(
     }
 }
 
+/// Create a directory.
+///
+/// Reach is intentionally NOT confined to the session working directory: this
+/// backs the project picker, which browses and creates directories anywhere
+/// (user decision, see §0 of `docs/plans/2026-09-25-file-surface-security.md`).
+/// Enforced here: refuse with auth off (a write primitive on a `--host 0.0.0.0`
+/// no-auth daemon), and refuse protected/secret locations.
 async fn fs_mkdir(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(req): Json<FsMkdirRequest>,
 ) -> impl IntoResponse {
+    // Normalize FIRST (`~` expansion): the boundary walks existing ancestors and
+    // cannot resolve a bare `~`, so authorizing the raw spelling would reject a
+    // perfectly valid `~/new-dir` as unreadable.
     let dir = normalize_dir_arg(&req.path);
+    let policy = rustcode_capabilities::fs_boundary::FilePolicy {
+        no_auth: state.webui_no_auth,
+        ..Default::default()
+    };
+    match rustcode_capabilities::fs_boundary::authorize_directory_creation(
+        &dir.to_string_lossy(),
+        &policy,
+    ) {
+        Ok(_) => {}
+        Err(deny) => {
+            return json_error(file_deny_status(deny), file_deny_message(deny)).into_response()
+        }
+    }
     match std::fs::create_dir_all(&dir) {
         Ok(()) => {
             let canon = dir.canonicalize().unwrap_or(dir);
@@ -6816,6 +6985,10 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         .route("/fs/search", get(fs_search))
         .route("/fs/mkdir", post(fs_mkdir))
         .route("/fs/open", post(fs_open))
+        // Text preview for the webui file pane. Contained in the session working
+        // directory; refuses with auth off. See
+        // `docs/plans/2026-09-25-file-surface-security.md` (F4).
+        .route("/fs/read", get(fs_read))
         // MCP API
         .route("/mcp/status", get(mcp_status))
         .route("/mcp/reload", post(mcp_reload))
@@ -7052,6 +7225,154 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod fs_read_tests {
+    use super::*;
+
+    /// Minimal state whose project working directory is the containment root.
+    fn state_for(working_dir: &std::path::Path, no_auth: bool) -> AppState {
+        let (shutdown_tx, _) = watch::channel(false);
+        AppState {
+            project: Arc::new(RwLock::new(ProjectState {
+                working_dir: working_dir.to_path_buf(),
+                previous_dir: None,
+                recent_dirs: Vec::new(),
+                name: "fs-read-test".into(),
+            })),
+            active_chats: ActiveChatRegistry::default(),
+            mcp_registry: Arc::new(RwLock::new(Arc::new(McpRegistry::new()))),
+            mcp_cache: Arc::new(RwLock::new(HashMap::new())),
+            daemon_instance_id: Arc::from("fs-read-test-instance"),
+            shutdown_tx,
+            last_activity: Arc::new(std::sync::atomic::AtomicI64::new(now_unix_ms())),
+            active_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            webui_tokens: auth_token::WebuiTokenStore::default(),
+            enforce_token: !no_auth,
+            webui_no_auth: no_auth,
+            pending_permissions: permission_bridge::PermissionResponders::new(),
+            pending_user_inputs: permission_bridge::UserInputResponders::new(),
+            bind_host: "127.0.0.1".into(),
+            bind_port: 13456,
+            webui_cookie_name: auth_token::webui_cookie_name(13456),
+        }
+    }
+
+    fn query(path: &str) -> Query<FsReadQuery> {
+        Query(FsReadQuery {
+            path: path.to_string(),
+            session_id: None,
+        })
+    }
+
+    /// Call the handler the way axum would and return (status, body json).
+    async fn call(state: AppState, path: &str) -> (StatusCode, serde_json::Value) {
+        let resp = fs_read(State(state), query(path)).await.into_response();
+        let status = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn reads_a_text_file_inside_the_working_directory() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("main.rs"), "fn main() {}").unwrap();
+        let (status, body) = call(state_for(d.path(), false), "main.rs").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["content"], "fn main() {}");
+        assert_eq!(body["success"], true);
+    }
+
+    #[tokio::test]
+    async fn refuses_paths_outside_the_working_directory() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = d.path().join("ws");
+        std::fs::create_dir(&ws).unwrap();
+        std::fs::write(d.path().join("outside.txt"), "secret").unwrap();
+        let absolute_outside = d.path().join("outside.txt").to_string_lossy().to_string();
+        for bad in ["../outside.txt".to_string(), absolute_outside] {
+            let (status, body) = call(state_for(&ws, false), &bad).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "should refuse {bad:?}");
+            assert_eq!(body["success"], false);
+        }
+    }
+
+    /// The response must not contain the file's bytes once the boundary refuses.
+    #[tokio::test]
+    async fn refusal_never_leaks_file_content() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = d.path().join("ws");
+        std::fs::create_dir(&ws).unwrap();
+        let ssh = ws.join(".ssh");
+        std::fs::create_dir(&ssh).unwrap();
+        std::fs::write(ssh.join("id_rsa"), "PRIVATE KEY MATERIAL").unwrap();
+        let (status, body) = call(state_for(&ws, false), ".ssh/id_rsa").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(
+            !body.to_string().contains("PRIVATE KEY MATERIAL"),
+            "refusal leaked content: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn refuses_everything_when_the_webui_runs_without_auth() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("main.rs"), "fn main() {}").unwrap();
+        let (status, body) = call(state_for(d.path(), true), "main.rs").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(body["success"], false);
+        assert!(!body.to_string().contains("fn main"), "leaked: {body}");
+    }
+
+    #[tokio::test]
+    async fn refuses_binary_files() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("blob.bin"), [0u8, 1, 2]).unwrap();
+        let (status, _) = call(state_for(d.path(), false), "blob.bin").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn deny_status_separates_forbidden_from_bad_request() {
+        use rustcode_capabilities::fs_boundary::FileDeny;
+        assert_eq!(
+            file_deny_status(FileDeny::NoAuthMode),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(file_deny_status(FileDeny::Sensitive), StatusCode::FORBIDDEN);
+        assert_eq!(
+            file_deny_status(FileDeny::EscapesRoot),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(file_deny_status(FileDeny::Binary), StatusCode::BAD_REQUEST);
+    }
+
+    /// Every deny variant must render non-empty text in both languages; the match
+    /// is exhaustive, so this guards the mapping rather than the parity.
+    #[test]
+    fn every_deny_variant_maps_to_localized_text() {
+        use rustcode_capabilities::fs_boundary::FileDeny;
+        for deny in [
+            FileDeny::EmptyPath,
+            FileDeny::NoAuthMode,
+            FileDeny::EscapesRoot,
+            FileDeny::Sensitive,
+            FileDeny::TooLarge,
+            FileDeny::Binary,
+            FileDeny::NotRegularFile,
+            FileDeny::NotADirectory,
+            FileDeny::Unreadable,
+        ] {
+            assert!(
+                !file_deny_message(deny).trim().is_empty(),
+                "{deny:?} rendered empty"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

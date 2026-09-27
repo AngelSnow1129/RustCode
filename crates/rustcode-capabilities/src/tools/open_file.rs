@@ -365,14 +365,11 @@ impl OpenFileWorkspaceGate {
         {
             return true;
         }
-        let Ok(root) = std::fs::canonicalize(working_dir) else {
-            return false;
-        };
+        // Shared predicate (not a local `starts_with`): both sides are
+        // canonicalized first, so a `..` escape or a symlink out of the workspace
+        // is rejected. See `pathnorm::path_within_root`.
         let target = resolve_path(&parsed.file_path, working_dir);
-        let Ok(canon) = std::fs::canonicalize(&target) else {
-            return false; // missing / unreadable file -> let approval handle it
-        };
-        canon.starts_with(&root)
+        crate::pathnorm::path_within_root(working_dir, &target)
     }
 }
 

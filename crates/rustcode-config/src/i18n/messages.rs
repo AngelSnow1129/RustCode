@@ -5193,4 +5193,29 @@ pub enum Msg<'a> {
     DaemonApiFileResolveFailed {
         error: &'a str,
     },
+    /// fs/read (and any later content-exposing file endpoint): the request was
+    /// refused by the file-surface boundary. `rustcode-capabilities`'s
+    /// `fs_boundary::FileDeny` is a machine-shaped enum with no strings (L1 must
+    /// not depend on config), so the daemon edge maps each variant onto one of
+    /// these. Adding a `FileDeny` variant therefore forces a compile error here
+    /// until it has both languages -- which is the point.
+    DaemonApiFsDeniedNoAuth,
+    /// Empty / whitespace-only path.
+    DaemonApiFsDeniedEmpty,
+    /// Missing, unresolvable, or outside the session working directory.
+    DaemonApiFsDeniedEscapesRoot,
+    /// Resolved into a protected location or a secret file.
+    DaemonApiFsDeniedSensitive,
+    /// Binary content; previews are text-only.
+    DaemonApiFsDeniedBinary,
+    /// Needs a regular file but the path is not one.
+    DaemonApiFsDeniedNotFile,
+    /// Needs a directory but the path is not one.
+    DaemonApiFsDeniedNotDir,
+    /// Could not be opened or read.
+    DaemonApiFsDeniedUnreadable,
+    /// Larger than the preview cap. `{max_bytes}` is the effective limit.
+    DaemonApiFsDeniedTooLarge {
+        max_bytes: u64,
+    },
 }

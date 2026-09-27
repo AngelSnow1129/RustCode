@@ -3260,6 +3260,21 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::DaemonApiFileResolveFailed { error } => {
             format!("file resolution task failed: {error}").into()
         }
+        Msg::DaemonApiFsDeniedNoAuth => {
+            "file preview is disabled while the webui runs without authentication".into()
+        }
+        Msg::DaemonApiFsDeniedEmpty => "file path is empty".into(),
+        Msg::DaemonApiFsDeniedEscapesRoot => {
+            "file must be inside the session working directory".into()
+        }
+        Msg::DaemonApiFsDeniedSensitive => "refusing to read a protected or secret file".into(),
+        Msg::DaemonApiFsDeniedBinary => "binary files cannot be shown as text".into(),
+        Msg::DaemonApiFsDeniedNotFile => "path is not a regular file".into(),
+        Msg::DaemonApiFsDeniedNotDir => "path is not a directory".into(),
+        Msg::DaemonApiFsDeniedUnreadable => "file could not be read".into(),
+        Msg::DaemonApiFsDeniedTooLarge { max_bytes } => {
+            format!("file is larger than the {max_bytes} byte preview limit").into()
+        }
     }
 }
 

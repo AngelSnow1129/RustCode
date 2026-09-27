@@ -104,6 +104,7 @@ impl Tool for LspTool {
             _ => None,
         };
         let requested = resolve_path(&args.file_path, &ctx.working_dir);
+        // Still needed for `display_path` / diagnostics refresh below (display only).
         let root =
             std::fs::canonicalize(&ctx.working_dir).unwrap_or_else(|_| ctx.working_dir.clone());
         let path = match std::fs::canonicalize(&requested) {
@@ -115,7 +116,10 @@ impl Tool for LspTool {
                 ))
             }
         };
-        if !path.starts_with(&root) {
+        // Shared predicate (not a local `starts_with`): canonicalize-first, and
+        // fail-closed when the workspace itself cannot be resolved. See
+        // `pathnorm::path_within_root`.
+        if !crate::pathnorm::path_within_root(&ctx.working_dir, &requested) {
             return err(format!(
                 "lsp: file must be inside the workspace: {}",
                 path.display()

@@ -302,16 +302,17 @@ pub(crate) async fn not_found_hint(missing: &Path, working_dir: &Path) -> String
 /// Pure, blocking core of [`not_found_hint`] (kept separate so the boundary logic is unit-
 /// testable without a runtime). MUST run off the async worker -- see the wrapper.
 fn not_found_hint_blocking(missing: &Path, working_dir: &Path) -> String {
-    let Ok(root) = crate::pathnorm::canonicalize(working_dir) else {
-        return String::new();
-    };
-    // Walk up from the parent -- `missing` itself is the thing that does not exist.
+    // `path_within_root` canonicalizes the workspace itself and fails closed, so a
+    // missing/unresolvable working dir needs no separate guard here.
     let mut cur = missing.parent();
     while let Some(candidate) = cur {
         // `canonicalize` succeeds only for paths that exist, so this doubles as the
         // existence test for each ancestor.
         if let Ok(real) = crate::pathnorm::canonicalize(candidate) {
-            if !real.starts_with(&root) {
+            // Shared predicate (not a local `starts_with`): canonicalize first,
+            // then compare prefixes, so a symlinked ancestor cannot walk the
+            // check out of the workspace. See `pathnorm::path_within_root`.
+            if !crate::pathnorm::path_within_root(working_dir, &real) {
                 return String::new(); // left the workspace -- say nothing
             }
             if !real.is_dir() {

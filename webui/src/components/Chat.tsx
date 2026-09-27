@@ -291,6 +291,9 @@ interface ChatProps {
   /** 模型配置弹窗被关闭时自增：其中可能新增/删除/改默认了模型，底部模型选择器
    *  必须重新拉取——否则「刚加的模型」在已有对话里根本选不到。 */
   modelsVersion?: number;
+  /** 上报**最近一个助手回合**改动的文件，供右侧文件面板列出「本轮改动」。
+   *  清空时传空数组（新建会话/切换会话）。 */
+  onTurnArtifacts?: (artifacts: TurnArtifact[]) => void;
 }
 
 function formatArgs(args: unknown): string {
@@ -446,7 +449,7 @@ function detectSkillContent(text: string): string | null {
   return title || null;
 }
 
-export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermission, onPermissionResolved, activeSession, restoring, onLiveTurnDone, onOptimisticSession, onOpenCwd, onCwdChanged, onLanding, skillInsert, onSessionRenamed, onOpenSettings, modelsVersion }: ChatProps) {
+export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermission, onPermissionResolved, activeSession, restoring, onLiveTurnDone, onOptimisticSession, onOpenCwd, onCwdChanged, onLanding, skillInsert, onSessionRenamed, onOpenSettings, modelsVersion, onTurnArtifacts }: ChatProps) {
   const t = useT();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -3224,6 +3227,26 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
     onLanding?.(landing);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landing]);
+
+  // 上报**最近一个助手回合**改动的文件给 App（右侧文件面板的「本轮改动」）。
+  // 只取最后一个回合：面板要回答的是「刚才改了什么」，把所有历史回合的文件
+  // 堆在一起反而看不出重点。落地态（无消息）显式上报空数组，避免上一个会话的
+  // 文件残留在新会话面板里。
+  useEffect(() => {
+    if (!onTurnArtifacts) return;
+    if (messages.length === 0) {
+      onTurnArtifacts([]);
+      return;
+    }
+    const byTurn = artifactsByAssistantIndex(messages);
+    // 取索引最大的那个助手回合（Map 保持插入顺序，故取最后一个键即可）。
+    let latest: TurnArtifact[] = [];
+    for (const [, artifacts] of byTurn) {
+      if (artifacts.length > 0) latest = artifacts;
+    }
+    onTurnArtifacts(latest);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
 
   // 侧栏「技能」菜单选中 → 把 `/name ` 插入输入框（按 seq 去重，避免重复插入）。
   // replaceSkill=true 会先清除已有的技能前缀，避免反复选择时累加。

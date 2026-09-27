@@ -3086,6 +3086,17 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::DaemonChatOperationInactive => "聊天操作已不再处于活动状态".into(),
         Msg::DaemonApiCannotOpenFile { error } => format!("无法打开文件：{error}").into(),
         Msg::DaemonApiFileResolveFailed { error } => format!("文件解析任务失败：{error}").into(),
+        Msg::DaemonApiFsDeniedNoAuth => "webui 免密运行时不提供文件预览".into(),
+        Msg::DaemonApiFsDeniedEmpty => "文件路径为空".into(),
+        Msg::DaemonApiFsDeniedEscapesRoot => "文件必须位于会话工作目录内".into(),
+        Msg::DaemonApiFsDeniedSensitive => "拒绝读取受保护或含密钥的文件".into(),
+        Msg::DaemonApiFsDeniedBinary => "二进制文件无法以文本方式显示".into(),
+        Msg::DaemonApiFsDeniedNotFile => "该路径不是普通文件".into(),
+        Msg::DaemonApiFsDeniedNotDir => "该路径不是目录".into(),
+        Msg::DaemonApiFsDeniedUnreadable => "无法读取该文件".into(),
+        Msg::DaemonApiFsDeniedTooLarge { max_bytes } => {
+            format!("文件超过 {max_bytes} 字节的预览上限").into()
+        }
     }
 }
 

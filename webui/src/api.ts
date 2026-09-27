@@ -913,6 +913,31 @@ export async function listDir(path: string): Promise<FsListResult> {
   return resp.json();
 }
 
+export interface FsReadResult {
+  path: string;
+  content: string;
+}
+
+/**
+ * Read a text file for the file-panel preview.
+ *
+ * Server-side containment is the real boundary (`/fs/read` refuses anything
+ * outside the session working directory, any protected/secret path, oversized or
+ * binary content, and refuses outright when the webui runs without auth). This
+ * wrapper only surfaces the server's localized message, so callers must render
+ * the thrown error rather than treating a failure as a silent no-op.
+ */
+export async function readFile(path: string, sessionId?: string): Promise<FsReadResult> {
+  const params = new URLSearchParams({ path });
+  if (sessionId) params.set('session_id', sessionId);
+  const r = await fetch('/fs/read?' + params.toString(), { headers: authHeaders() });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error((e as { error?: string }).error || `HTTP ${r.status}`);
+  }
+  return r.json();
+}
+
 /** One `@`-mention search hit: `path` is relative to the searched dir,
  * forward-slashed; directories end with `/`. */
 export interface FsSearchMatch {

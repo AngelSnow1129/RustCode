@@ -118,6 +118,14 @@ pub(crate) mod proxy;
 /// [`pathutil`]. Free of any feature `cfg` because `codeintel` is independent of `tools`.
 pub(crate) mod pathutil;
 
+/// File-surface boundary predicates for the daemon `/fs/*` endpoints: the ONE
+/// predicate for "may this request touch this path?" (root confinement +
+/// sensitive paths + no-auth fail-closed + size/binary caps). Gated on `tools`
+/// because it reuses the tools-side `looks_binary` / `path_is_sensitive`.
+/// See `docs/plans/2026-09-25-file-surface-security.md`.
+#[cfg(feature = "tools")]
+pub mod fs_boundary;
+
 /// Cross-platform atomic file write (tempfile -> fsync -> persist -> parent-dir fsync).
 /// Ported from `rustcode-core`'s `fs_atomic` for the `plugin` feature (trust store).
 /// Opt-in behind `feature = "plugin"` or `feature = "mcp"` (the mcp trust store

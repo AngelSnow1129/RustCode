@@ -70,6 +70,11 @@ pub struct CatalogEntry {
 /// before the variable is settled (and for tests that do not set it), which is
 /// also what keeps this byte-identical on a build whose home IS `~/.rustcode`.
 pub fn source_rank(path: &Path) -> u8 {
+    // Deliberately a LEXICAL prefix test, NOT `pathnorm::path_within_root`: this is a
+    // ranking heuristic over catalog entries, and a candidate skill path need not
+    // exist yet (or at all) -- `path_within_root` canonicalizes, so it would return
+    // false for every symlinked/nonexistent path and silently flatten the ranking.
+    // This is not a security boundary; do not "unify" it.
     if native_config_root().is_some_and(|root| path.starts_with(&root)) {
         return 0;
     }

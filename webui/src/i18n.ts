@@ -188,6 +188,23 @@ const zh = {
   'at.loading': '加载中…',
   'at.noFiles': '未找到文件',
 
+  // 右侧文件面板(目录浏览 + 本轮产物 + 预览)
+  'filePanel.title': '文件',
+  'filePanel.show': '显示文件面板',
+  'filePanel.hide': '隐藏文件面板',
+  'filePanel.recent': '本轮改动',
+  'filePanel.noRecent': '本轮暂无文件改动',
+  'filePanel.outside': '工作目录外,无法预览',
+  'filePanel.browse': '浏览',
+  'filePanel.preview': '预览',
+  'filePanel.previewHint': '选择文件以查看内容',
+  'filePanel.loading': '加载中…',
+  'filePanel.emptyDir': '空目录',
+  'filePanel.up': '上级目录',
+  'filePanel.refresh': '刷新',
+  'filePanel.closePreview': '关闭预览',
+  'filePanel.openExternal': '用本机程序打开',
+
   // 会话内浮动搜索框 (Cmd/Ctrl+F 呼出,Esc 关闭,反查定位)
   'chat.searchPlaceholder': '搜索本会话消息…',
   'chat.searchNoMatch': '无匹配消息',
@@ -663,6 +680,23 @@ const en: Record<MsgKey, string> = {
   // @ file-mention popover
   'at.loading': 'Loading…',
   'at.noFiles': 'No files found',
+
+  // Right-hand file panel (directory browser + turn artifacts + preview)
+  'filePanel.title': 'Files',
+  'filePanel.show': 'Show file panel',
+  'filePanel.hide': 'Hide file panel',
+  'filePanel.recent': 'Changed this turn',
+  'filePanel.noRecent': 'No file changes this turn',
+  'filePanel.outside': 'Outside the working directory — cannot preview',
+  'filePanel.browse': 'Browse',
+  'filePanel.preview': 'Preview',
+  'filePanel.previewHint': 'Select a file to view its contents',
+  'filePanel.loading': 'Loading…',
+  'filePanel.emptyDir': 'Empty directory',
+  'filePanel.up': 'Parent directory',
+  'filePanel.refresh': 'Refresh',
+  'filePanel.closePreview': 'Close preview',
+  'filePanel.openExternal': 'Open with a local app',
 
   // 会话内浮动搜索框 (Cmd/Ctrl+F 呼出,Esc 关闭,反查定位)
   'chat.searchPlaceholder': 'Search this conversation…',

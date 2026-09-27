@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Chat } from './components/Chat';
 import { Sidebar } from './components/Sidebar';
+import { FilePanel, type FilePanelArtifact } from './components/FilePanel';
 import { ThemeDialog, LanguageDialog, ModelConfigDialog, RemoteAccessDialog, NotificationsDialog, ImChannelsDialog } from './components/SettingsDialogs';
 import { RenameDialog, DeleteDialog } from './components/SessionDialogs';
 import { CwdPicker } from './components/CwdPicker';
@@ -37,6 +38,10 @@ export function App() {
   // 覆盖它（Sidebar 按 id 去重，真实条目优先），标题随之从「前 10 字」换成自动命名。
   const [optimisticSession, setOptimisticSession] = useState<SessionMetaWithProject | null>(null);
   const [cwd, setCwd] = useState('');
+  // Right-hand file panel: open/closed, and the files the latest assistant turn
+  // changed (reported by Chat; the panel answers "what did it just touch?").
+  const [filePanelOpen, setFilePanelOpen] = useState(false);
+  const [turnArtifacts, setTurnArtifacts] = useState<FilePanelArtifact[]>([]);
   // Physical session-bucket hash of the current project. The sidebar scopes its
   // list by this (see Sidebar `projectHash`), not by the `cwd` string, so a
   // session whose stored `working_dir` was restamped by the daemon's global
@@ -508,9 +513,33 @@ export function App() {
             }}
             onOpenSettings={(section) => setSettingsSection(section as SettingsSection)}
             modelsVersion={modelsVersion}
+            onTurnArtifacts={setTurnArtifacts}
           />
         </div>
+
+        {/* Toggle for the file panel. Kept inside the main column so it stays
+            reachable on narrow viewports, where the panel overlays the chat. */}
+        <button
+          type="button"
+          class={'file-panel-toggle' + (filePanelOpen ? ' active' : '')}
+          onClick={() => setFilePanelOpen((open) => !open)}
+          aria-label={filePanelOpen ? t('filePanel.hide') : t('filePanel.show')}
+          aria-expanded={filePanelOpen}
+          title={filePanelOpen ? t('filePanel.hide') : t('filePanel.show')}
+        >
+          {t('filePanel.title')}
+        </button>
       </div>
+
+      {/* ===== Right column: file browser + preview (read-only) ===== */}
+      {filePanelOpen && (
+        <FilePanel
+          cwd={cwd}
+          artifacts={turnArtifacts}
+          sessionId={sessionId ?? undefined}
+          onClose={() => setFilePanelOpen(false)}
+        />
+      )}
 
       {/* ===== Modals ===== */}
       {showCwd && (

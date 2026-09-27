@@ -67,6 +67,28 @@ pub fn path_case_key(path: &Path) -> String {
     }
 }
 
+/// True iff `target` is `root` itself or lives underneath it.
+///
+/// Canonicalization happens FIRST: a symlink inside `root` that points outside
+/// resolves to a path that no longer starts with `root`, so a lexical prefix test
+/// is trivially bypassed. Any canonicalization failure yields `false` -- fail
+/// closed, never "probably in".
+///
+/// This lives in `pathnorm` (not just in `fs_boundary`) because it is needed by
+/// capability features that do not enable `tools` (`lsp`, `skills`) and by the
+/// daemon; `pathnorm` is ungated, so every feature can share ONE implementation
+/// instead of writing its own `starts_with(root)`. See
+/// `docs/plans/2026-09-25-file-surface-security.md`.
+pub fn path_within_root(root: &Path, target: &Path) -> bool {
+    let Ok(root) = canonicalize(root) else {
+        return false;
+    };
+    let Ok(target) = canonicalize(target) else {
+        return false;
+    };
+    target.starts_with(&root)
+}
+
 /// `std::fs::canonicalize` with the Windows `\\?\` verbatim prefix stripped, so the
 /// result is a stable NATIVE path safe to store, hash, compare, or hand to another
 /// tool. The single source of path identity -- prefer this over raw `canonicalize`
