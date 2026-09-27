@@ -355,6 +355,14 @@ fn quiet_for(state: &State, moment: &Moment) -> Option<u64> {
 const QUIET_AFTER_MS: u64 = 30_000;
 
 fn doing(state: &State, moment: &Moment) -> Option<String> {
+    // A compaction's summary is being written, and the request is waiting on it.
+    // It takes the line over wherever it happens — mid-turn or from idle for a
+    // `/compact` — because the ordinary verb would be a lie: nothing is being
+    // thought, and the tools are not running. The same takeover the other front
+    // end settled on.
+    if moment.compacting_since.is_some() {
+        return Some(t(Msg::LiveCompacting).into_owned());
+    }
     // No turn yet: the only thing to say is that a picture is being recognised
     // for a text-only model (the message that opens the turn is not logged until
     // that finishes). Once the turn DOES exist, its own status wins — a lingering
@@ -418,6 +426,14 @@ fn doing(state: &State, moment: &Moment) -> Option<String> {
 /// of two readings the host injected.
 fn parts(state: &State, moment: &Moment) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
+    // Compacting: its own clock and nothing else. Every other figure here
+    // describes the request that is NOT running — the generation the summary is
+    // replacing — so drawing them beside it would report work that stopped.
+    if let Some(since) = moment.compacting_since {
+        let ms = moment.now.as_millis().saturating_sub(since.as_millis());
+        out.push(t(Msg::LiveElapsed { took: &short(ms) }).into_owned());
+        return out;
+    }
     // Recognising, before any turn: its own clock, shown the same 耗时 way the
     // turn's is. There is no turn to read figures off, so this is the whole group.
     if state.turn.is_none() {
@@ -833,6 +849,46 @@ mod tests {
         assert!(
             !blank.iter().any(|l| l.contains("正在识别图片")),
             "gone once recognition ends: {blank:?}"
+        );
+    }
+
+    /// **The compaction line takes over, with its own clock.**
+    ///
+    /// It has to win over the ordinary verb: while a summary is being written
+    /// nothing is being thought and no tool is running, so 正在思考 beside a
+    /// paused request would be a lie. It wins mid-turn too — the turn's own
+    /// figures describe the request that is not running, so none of them belong
+    /// next to it.
+    #[test]
+    fn the_compaction_line_takes_over_with_its_own_clock() {
+        let mut state = State::default();
+        // A turn is open, as it is for an auto-compaction: the line must still
+        // hand over.
+        state.turn = Some(1);
+        state.prompt = 300_000;
+        let mut moment = Moment::default().at_tick(0);
+        moment.activity = Activity::Working;
+        moment.turn_started = Some(Timestamp::millis(0));
+        moment.compacting_since = Some(Timestamp::millis(1_000));
+        moment.now = Timestamp::millis(5_000);
+
+        let line = draw(&state, &moment, 80, 1);
+        let drawn = line.join(" ");
+        assert!(drawn.contains("正在压缩"), "{line:?}");
+        assert!(drawn.contains("耗时 4s"), "its own clock: {line:?}");
+        assert!(
+            !drawn.contains("正在思考") && !drawn.contains("入 "),
+            "the paused request's verb and figures stay out: {line:?}"
+        );
+
+        // Over → the ordinary line is back, from the same state: the turn's own
+        // clock rather than the compaction's.
+        moment.compacting_since = None;
+        let after = draw(&state, &moment, 80, 1).join(" ");
+        assert!(!after.contains("正在压缩"), "{after:?}");
+        assert!(
+            after.contains("耗时 5s"),
+            "the turn's clock is back: {after:?}"
         );
     }
 

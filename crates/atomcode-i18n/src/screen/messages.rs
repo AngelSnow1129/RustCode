@@ -1386,6 +1386,10 @@ pub enum Msg<'a> {
     /// for a non-vision model — before the turn's first fact, so the screen is
     /// not blank during the seconds that recognition takes.
     LiveRecognizingImage,
+    /// Shown while a compaction's summary is being written and the request waits
+    /// on it — the slow tier only: a cheap fold of tool output is instant and
+    /// says nothing.
+    LiveCompacting,
     LiveWaiting,
     LiveThinking,
     LiveWriting,

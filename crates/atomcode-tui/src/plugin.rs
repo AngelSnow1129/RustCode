@@ -4422,12 +4422,20 @@ impl Tui {
                 self.check_allowance();
                 self.set_activity(Activity::Idle)
             }
+            // A summary is being written and the request waits on it. Only the
+            // slow tier announces this (a cheap fold is instant), so this is the
+            // one thing that puts 正在压缩 on the live strip.
+            AgentEvent::CompactionStarted { .. } => {
+                let _ = self.host.start_compacting();
+                true
+            }
             AgentEvent::Compacted {
                 committed,
                 bytes_before,
                 bytes_after,
                 ..
             } => {
+                let _ = self.host.stop_compacting();
                 if committed {
                     // The window just emptied, and no request has reported it yet:
                     // hand the sizes to the status row so its reading scales down
@@ -4451,6 +4459,7 @@ impl Tui {
             // not answer. Nothing else reports it — there is no notice kind for
             // it, and the runtime's own event is this one.
             AgentEvent::CompactionFailed { error, .. } => {
+                let _ = self.host.stop_compacting();
                 self.set_activity(Activity::Idle);
                 self.say_refused(&t(Msg::CompactFailed {
                     error: &error.to_string(),
@@ -4534,6 +4543,10 @@ impl Tui {
         // the `正在识别图片` line still has to come down (activity is Idle there, so
         // the `Working` branch below would never reach it).
         self.host.stop_recognizing();
+        // A compaction stopped mid-summary is the one ending that arrives as a
+        // said line rather than as an event of its own (`CompactionCompletion::
+        // Interrupted`), so the stop itself is what takes 正在压缩 down.
+        let _ = self.host.stop_compacting();
         let working = self.host.moment.read().expect("moment poisoned").activity
             == crate::moment::Activity::Working;
         if working {

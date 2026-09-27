@@ -534,6 +534,22 @@ pub struct Moment {
     /// start; read only while `recognizing_image` is true, so a stale value after
     /// it clears is harmless (the next start overwrites it).
     pub recognizing_since: Option<Timestamp>,
+    /// A compaction's summary is being written, and the request waits on it.
+    ///
+    /// Only the SLOW tier announces this: a cheap fold of tool output is instant
+    /// and model-free, and deliberately says nothing (`will_summarize` in the
+    /// kernel). So this being `None` does not mean "nothing is folding" — it
+    /// means nothing is taking long enough to watch.
+    ///
+    /// Set from `CompactionStarted`; cleared by any way a compaction can end
+    /// (`Compacted`, `CompactionFailed`), by a stop, and by leaving the session.
+    /// Read only while `Some`, so a stale value is harmless.
+    ///
+    /// This is the reading, not a promise about progress: the summary is written
+    /// inside the kernel and reports nothing until it is done, so a figure beside
+    /// it could only be a frozen leftover from the pre-compaction generation —
+    /// the ticking clock is the liveness proof.
+    pub compacting_since: Option<Timestamp>,
     /// The mounted cell-grid bitmaps, **as of the frame this moment was taken
     /// for**.
     ///

@@ -1628,6 +1628,10 @@ impl Host {
         // common case, but that fact is dropped for an off-screen session, so
         // the switch is what takes it down here.)
         m.recognizing_image = false;
+        // Same rule for a compaction running in the view being left: its summary
+        // belongs to that session's log, and 正在压缩 over the arriving
+        // conversation would claim it is the one waiting on a summary.
+        m.compacting_since = None;
         // Both belong to the view being left, not the one arriving: the `已中断`
         // note is about a turn this session stopped, and `last_sent` is what to
         // hand back on the next Escape. Carried across a `/clear` or a member
@@ -2030,6 +2034,38 @@ impl Host {
                 .recognizing_image = false;
         });
         self.clear_echo();
+        true
+    }
+
+    /// A compaction's summary started. Stamps the live strip so it can say
+    /// 正在压缩 with a clock on it while the request waits.
+    ///
+    /// Not pinned, unlike the recognising line: a compaction moves no content on
+    /// screen, it only changes what the row is waiting for.
+    pub fn start_compacting(&self) -> bool {
+        let mut m = self.moment.write().expect("moment poisoned");
+        let now = m.now;
+        m.compacting_since = Some(now);
+        true
+    }
+
+    /// The compaction is over, whichever way it ended — committed, refused, or
+    /// interrupted by a stop. Takes the line down; `false` when nothing was up,
+    /// which is the common case: a cheap fold never raises it at all.
+    pub fn stop_compacting(&self) -> bool {
+        if self
+            .moment
+            .read()
+            .expect("moment poisoned")
+            .compacting_since
+            .is_none()
+        {
+            return false;
+        }
+        self.moment
+            .write()
+            .expect("moment poisoned")
+            .compacting_since = None;
         true
     }
 
