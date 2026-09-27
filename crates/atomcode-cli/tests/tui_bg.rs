@@ -154,10 +154,27 @@ fn start(
     )
 }
 
+/// One `Rig` at a time, because `ATOMCODE_HOME` is the process's and not the
+/// test's.
+///
+/// `Rig::new` points that variable at its own temp home to start a host from it.
+/// With the file's tests on parallel threads, two of them overlap: the second
+/// retargets the first's host mid-flight, and whichever rig finishes first drops
+/// its `TempDir` — the directory the other one is still writing a session into.
+/// What that looks like from outside is a handful of unrelated tests failing in
+/// a run of `cargo test`, and passing one at a time.
+///
+/// The guard travels inside the `Rig` for exactly as long as the home it
+/// protects, so a test holds it from its first line to its `quit`.
+static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// A screen with `/bg`, over a first runtime and a way to start more.
 struct Rig {
     _home: tempfile::TempDir,
     _project: tempfile::TempDir,
+    /// Held for as long as this rig's home has to keep being the process's
+    /// `ATOMCODE_HOME`. See [`ONE_AT_A_TIME`].
+    _one_at_a_time: tokio::sync::MutexGuard<'static, ()>,
     gate: watch::Sender<bool>,
     script: Script,
     term: Arc<atomcode_tui::surface::Headless>,
@@ -170,6 +187,8 @@ struct Rig {
 
 impl Rig {
     async fn new() -> Self {
+        // Taken before the home exists, let go when this rig does.
+        let one_at_a_time = ONE_AT_A_TIME.lock().await;
         let home = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         atomcode_config::i18n::set_locale(atomcode_config::locale::Locale::ZhCn);
@@ -234,6 +253,7 @@ impl Rig {
         let rig = Self {
             _home: home,
             _project: project,
+            _one_at_a_time: one_at_a_time,
             gate,
             script,
             term,
@@ -482,6 +502,44 @@ async fn a_review_runs_in_a_background_session_by_default() {
         rig.client.root() == review
     })
     .await;
+    rig.quit().await;
+}
+
+/// **The review's result comes home labelled as the job's, not the person's.**
+///
+/// `/review` runs in a session of its own; when that session finishes,
+/// `deliver_home` puts what it said back into the conversation that started it.
+/// What this pins is whose words they read as: the block says「来自后台」because
+/// the fact says the sender is outside this tree. Sent as a plain submit — which
+/// is what this path used to do — the screen would have shown the person typing
+/// a report they never wrote.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_review_result_comes_home_labelled_as_the_background_job() {
+    let rig = Rig::new().await;
+    let first = rig.client.root();
+    rig.term.type_line("/review staged");
+    rig.until_screen(&t(Msg::ReviewStarted {
+        what: &t(Msg::ReviewWhatStaged),
+        files: None,
+    }))
+    .await;
+
+    rig.until_background("the review finished", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Done)
+    })
+    .await;
+
+    // The content arrives in the conversation that started it, and it arrives
+    // named for what it is. The foreground never moved to the review's session:
+    // this is the conversation on screen.
+    rig.until_screen(&t(Msg::InjectedFromBackground)).await;
+    assert_eq!(rig.client.root(), first, "the foreground never moved");
+    assert!(
+        rig.term.text().contains("结果回来了"),
+        "the result itself is here, not only a chip:\n{}",
+        rig.term.text()
+    );
     rig.quit().await;
 }
 
