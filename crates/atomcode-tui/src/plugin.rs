@@ -4720,9 +4720,8 @@ impl Tui {
     /// front end.
     ///
     /// The change goes out as the command a person would type, so the key, the
-    /// word and `/mode` are one implementation. `deliver` reads the command's
-    /// own line back, which is also how the person is told what happened — the
-    /// same sentence `/mode` prints.
+    /// word and `/mode` are one implementation — delivered without the prose,
+    /// the mode shows on the status row (`run_command_quietly`).
     fn cycle_mode(&self) -> bool {
         // A mode the host has not reported cannot be stepped from: the next one
         // is the *following* mode, and guessing `ask` as the starting point would
@@ -4734,7 +4733,7 @@ impl Tui {
             return false;
         };
         let line = format!("/mode {}", crate::commands::mode_word(mode.next()));
-        self.run_command(&line);
+        self.run_command_quietly(&line);
         false
     }
 
@@ -6273,6 +6272,22 @@ impl Tui {
     /// On its own task: a command may reconfigure the tree or call a model, and
     /// the loop must keep painting and keep accepting keys while it does.
     fn run_command(&self, line: &str) {
+        self.spawn_command(line, false);
+    }
+
+    /// Run a slash command and put what it said on the screen, unless it
+    /// succeeded — the gesture behind Shift+Tab. The new mode is already
+    /// drawn on the status row, and a line of prose per keypress reads as
+    /// news. A refusal still says itself: there the person would otherwise
+    /// be left thinking the change had landed.
+    fn run_command_quietly(&self, line: &str) {
+        self.spawn_command(line, true);
+    }
+
+    /// The one spawn/dispatch/deliver body both callers share; `quiet_success`
+    /// folds a success's `Said` into `Quiet` so the success stays off the
+    /// screen while a refusal keeps talking.
+    fn spawn_command(&self, line: &str, quiet_success: bool) {
         let (Some(ctx), Some(keys)) = (
             self.ctx.lock().expect("ctx poisoned").clone(),
             self.wake.lock().expect("wake poisoned").clone(),
@@ -6283,7 +6298,10 @@ impl Tui {
         let host = self.host.clone();
         let line = line.to_string();
         tokio::spawn(async move {
-            let outcome = commands.dispatch(&line, &ctx).await;
+            let outcome = match commands.dispatch(&line, &ctx).await {
+                crate::command::Outcome::Said(_) if quiet_success => crate::command::Outcome::Quiet,
+                other => other,
+            };
             deliver(&host, &keys, outcome);
         });
     }

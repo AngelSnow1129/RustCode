@@ -459,6 +459,9 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::EffortCurrent { now, levels } => {
             format!("reasoning effort · now {now} · pick one: {levels}").into()
         }
+        Msg::EffortPickAfterModel { model } => {
+            format!("switched to {model}; pick a reasoning effort (esc keeps the default)").into()
+        }
         Msg::UndoLeadOnly => "undo is the lead's: switch back to the lead first".into(),
         Msg::NotATurnNumber { what } => format!("`{what}` is not a turn number").into(),
         Msg::RewindScopeUnknown { what } => format!("`{what}` is not a scope; it takes conversation, code or both").into(),

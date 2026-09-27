@@ -667,6 +667,9 @@ pub enum Msg<'a> {
         now: &'a str,
         levels: &'a str,
     },
+    EffortPickAfterModel {
+        model: &'a str,
+    },
     UndoLeadOnly,
     NotATurnNumber {
         what: &'a str,

@@ -1473,7 +1473,54 @@ impl CommandSet for SessionCommands {
                     Ok(HostReply::DoneWithNote { note }) => {
                         Outcome::Said(format!("{}\n{note}", t(Msg::ModelSet { wanted })))
                     }
-                    Ok(_) => Outcome::Said(t(Msg::ModelSet { wanted }).into_owned()),
+                    Ok(_) => {
+                        // 换成了:新模型若声明了思考强度,顺手把档位递上来
+                        // 让人挑。面板选择也派发成这条命令,所以一个入口盖住
+                        // 面板和手打两条路。端口里 levels 为空是「没截短,全部
+                        // 都行」,effort 有值才说明这个模型真的吃这套;两头都
+                        // 没有的,端点默认就够,不多问。
+                        let offered = ctx
+                            .service::<crate::plugin::ProvidersSvc>()
+                            .map(|port| {
+                                port.rows()
+                                    .models()
+                                    .iter()
+                                    .find(|m| m.id == wanted || m.model == wanted)
+                                    .map(|row| match row.levels.is_empty() {
+                                        true if row.effort.is_some() => {
+                                            atomcode_harness::REASONING_EFFORT_LEVELS
+                                                .iter()
+                                                .map(|l| l.to_string())
+                                                .collect::<Vec<_>>()
+                                        }
+                                        true => Vec::new(),
+                                        false => row.levels.clone(),
+                                    })
+                                    .unwrap_or_default()
+                            })
+                            .unwrap_or_default();
+                        if offered.is_empty() {
+                            return Outcome::Said(t(Msg::ModelSet { wanted }).into_owned());
+                        }
+                        let mut choices: Vec<crate::overlay::Choice> = offered
+                            .iter()
+                            .map(|level| {
+                                crate::overlay::Choice::new(
+                                    format!("/effort {level}"),
+                                    level.clone(),
+                                )
+                            })
+                            .collect();
+                        choices.push(
+                            crate::overlay::Choice::new("/effort default", "default")
+                                .about(t(Msg::EffortDefaultAbout).into_owned()),
+                        );
+                        Outcome::Open(crate::overlay::Picker::new(
+                            "effort",
+                            t(Msg::EffortPickAfterModel { model: wanted }),
+                            choices,
+                        ))
+                    }
                     Err(error) => Outcome::Refused(refusal(error)),
                 }
             }
@@ -2931,6 +2978,116 @@ mod tests {
             Outcome::Said(said) => {
                 assert!(said.contains("glm-5"), "换成了哪个:{said}");
                 assert!(said.contains("PERM-DENIED"), "以及没存下来:{said}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// 换到一个声明了思考强度的模型,屏上要把档位递上来让人挑;
+    /// 没声明的,一句「模型 → X」就够,不多问。
+    #[tokio::test]
+    async fn a_model_that_declares_effort_levels_offers_them_to_pick() {
+        struct Declares;
+        impl crate::providers::Providers for Declares {
+            fn rows(&self) -> crate::providers::ProvidersView {
+                let row = |id: &str, levels: Vec<String>, effort: Option<String>| {
+                    crate::providers::ModelRow {
+                        id: id.into(),
+                        account: "a".into(),
+                        model: id.into(),
+                        window: 1000,
+                        vision: None,
+                        effort,
+                        levels,
+                        current: false,
+                        managed: false,
+                    }
+                };
+                crate::providers::ProvidersView::new(
+                    Vec::new(),
+                    vec![
+                        row("glm", vec!["low".into(), "high".into()], None),
+                        row("plain", Vec::new(), None),
+                        // 声明了吃思考强度、却没截短档位的:全量档位都递上来。
+                        row("reasons", Vec::new(), Some("high".into())),
+                    ],
+                    Vec::new(),
+                    Vec::new(),
+                )
+            }
+            fn add_account(&self, _: &crate::providers::AccountDraft) -> Result<String, String> {
+                Ok("x".into())
+            }
+            fn edit_account(
+                &self,
+                _: &str,
+                _: &crate::providers::AccountDraft,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+            fn delete_account(&self, _: &str) -> Result<(), String> {
+                Ok(())
+            }
+            fn add_model(&self, _: &crate::providers::ModelDraft) -> Result<String, String> {
+                Ok("x".into())
+            }
+            fn edit_model(&self, _: &str, _: &crate::providers::ModelDraft) -> Result<(), String> {
+                Ok(())
+            }
+            fn delete_model(&self, _: &str) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        let _ = app
+            .context()
+            .provide::<crate::plugin::ProvidersSvc>(Arc::new(Declares));
+
+        // 声明了 levels 的:picker 一张,档位一行一个,default 收尾。
+        match all.dispatch("/model glm", &app.context()).await {
+            Outcome::Open(picker) => {
+                assert_eq!(picker.id(), "effort");
+                let text = picker
+                    .render(&crate::moment::Viewport::new(
+                        crate::frame::Rect::sized(80, 20),
+                        &crate::moment::Moment::default(),
+                    ))
+                    .iter()
+                    .map(|l| l.plain())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                assert!(text.contains("low"), "{text}");
+                assert!(text.contains("high"), "{text}");
+                assert!(text.contains("default"), "{text}");
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // 没声明的:还是那一句,不开 picker。
+        match all.dispatch("/model plain", &app.context()).await {
+            Outcome::Said(said) => assert!(said.contains("plain"), "{said}"),
+            other => panic!("{other:?}"),
+        }
+
+        // 吃思考强度、没截短档位的:全量档位一行一个,default 收尾。
+        match all.dispatch("/model reasons", &app.context()).await {
+            Outcome::Open(picker) => {
+                assert_eq!(picker.id(), "effort");
+                let text = picker
+                    .render(&crate::moment::Viewport::new(
+                        crate::frame::Rect::sized(80, 20),
+                        &crate::moment::Moment::default(),
+                    ))
+                    .iter()
+                    .map(|l| l.plain())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                for level in atomcode_harness::REASONING_EFFORT_LEVELS {
+                    assert!(text.contains(level), "{level}: {text}");
+                }
+                assert!(text.contains("default"), "{text}");
             }
             other => panic!("{other:?}"),
         }

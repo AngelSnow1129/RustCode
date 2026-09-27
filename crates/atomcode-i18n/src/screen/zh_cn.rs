@@ -419,6 +419,9 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::EffortCurrent { now, levels } => {
             format!("思考强度 · 当前 {now} · 可选:{levels}").into()
         }
+        Msg::EffortPickAfterModel { model } => {
+            format!("已切到 {model}  选一个思考强度;esc 保持默认").into()
+        }
         Msg::UndoLeadOnly => "撤销只对主会话:先切回「主」".into(),
         Msg::NotATurnNumber { what } => format!("`{what}` 不是回合号").into(),
         Msg::RewindScopeUnknown { what } => format!("`{what}` 不是范围;可选:对话、代码、全部").into(),
