@@ -532,8 +532,8 @@ pub struct Moment {
     /// mid-turn is folded in at the next *round* boundary, so until then no
     /// `UserMessage` fact exists to fold. The words are in the agent's inbox and
     /// nowhere else, which is exactly what this struct is for. The front end
-    /// appends on submit and clears on `AgentEvent::Steered`; see
-    /// `modules::steering`.
+    /// appends on submit and clears on `AgentEvent::Accepted` — the turn's own
+    /// answer, naming the send it took; see `modules::steering`.
     pub steering: String,
     /// The same words as [`steering`](Self::steering), **one entry per
     /// message** — the receipt id it was sent under, and the text as sent
@@ -543,8 +543,10 @@ pub struct Moment {
     /// with a newline of its own cannot be told from two. The id is what ties a
     /// line to the runtime's answer about it: a stop withdraws what is still
     /// waiting and answers each withdrawn send `Rejected { NotRunning }`, and
-    /// only a line named by such an answer is one the model will never get.
-    /// Kept and cleared with `steering`.
+    /// only a line named by such an answer is one the model will never get. The
+    /// other direction: the turn that took a line answers `Accepted` under this
+    /// same id, and that is what takes it off the panel. Kept and cleared with
+    /// `steering`.
     pub queued: Vec<Queued>,
     /// The ticket the next queued line takes: its place in the order lines
     /// were typed, which is the order they are handed back or sent again in.

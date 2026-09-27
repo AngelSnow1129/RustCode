@@ -330,6 +330,15 @@ fn message(text: &str) -> AgentCommand {
     }
 }
 
+/// 一条消息,带着驱动器自己给它的回执 —— 终端上 `AgentClient::send_with`
+/// 就是这个形状(`crates/atomcode-tui/src/plugin.rs:338-366`)。
+fn tagged(id: &str, text: &str) -> AgentCommand {
+    AgentCommand::Tagged {
+        id: id.to_string(),
+        command: Box::new(message(text)),
+    }
+}
+
 fn subscribe(session: &str) -> AgentCommand {
     AgentCommand::Subscribe {
         session: session.into(),
@@ -2903,4 +2912,141 @@ model = "vendor-a"
         "and it can be stopped"
     );
     assert!(!atomcode::tui_share::sharing());
+}
+
+/// 出厂 `--tui` 那条接线上,一句中途插进去的话拿得到它自己的回执。
+///
+/// TUI 的 steer 面板按回执对账:被某个回合收下(`AgentEvent::Accepted`,
+/// `crates/atomcode-tui/src/plugin.rs:4179-4190`)就摘行,被停止收走
+/// (`Rejected { NotRunning }`,同文件 `4203-4219`)就交还输入框。终端上 TUI 发的
+/// 正是 `AgentCommand::Tagged { id: "tui-N" }`(`plugin.rs:338-366`)。
+///
+/// 这一条量前半:回执里"折进了正在跑的哪个回合"是不是真话 —— `steered` 与
+/// `turn` 都得有,而且要和开回合的那句分得开。
+#[tokio::test]
+async fn a_mid_turn_submit_is_acknowledged_by_the_turn_that_folds_it() {
+    let env = env();
+    let mut connection = connected(&env).await;
+
+    // 一个停在等人答话上的回合:模型要一个答案,回合就走不下去 —— 这是"回合在
+    // 跑、而还有空档能插话"的确定性写法,比等一个 sleep 稳。
+    connection.commands.send(tagged("tui-1", "ask me")).unwrap();
+    let mut said = Vec::new();
+    let id = loop {
+        match tokio::time::timeout(Duration::from_secs(10), connection.events.recv()).await {
+            Ok(Some(AgentEvent::Request { id, .. })) => break id,
+            Ok(Some(event)) => said.push(event),
+            other => panic!("no question: {other:?}"),
+        }
+    };
+
+    // 回合中插一句,再把那个答案给回去:下一个 step 才会来领它。
+    connection
+        .commands
+        .send(tagged("tui-2", "QUEUED-b2"))
+        .unwrap();
+    connection
+        .commands
+        .send(AgentCommand::Respond {
+            id,
+            value: serde_json::json!({ "declined": false, "selected": ["pistachio"] }),
+        })
+        .unwrap();
+
+    said.extend(
+        until(&mut connection, |e| {
+            matches!(
+                e,
+                AgentEvent::Accepted { command, steered: true, turn: Some(_), .. }
+                    if command == "tui-2"
+            )
+        })
+        .await,
+    );
+    said.extend(through_turn(&mut connection).await);
+
+    let claimed: Vec<(String, Option<u64>, bool)> = said
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Accepted {
+                command,
+                turn,
+                steered,
+            } => Some((command.clone(), *turn, *steered)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        claimed
+            .iter()
+            .any(|(command, turn, steered)| command == "tui-1" && !*steered && turn.is_some()),
+        "开回合的那句要说「我开的」(`steered: false`)并带回回合号;\
+         它和下面那句必须分得开,而旧回执两边都是 `turn: None, steered: false`。\
+         这条出厂接线上实际收到的:\n{claimed:#?}\n全部事件:\n{said:#?}"
+    );
+}
+
+/// 被停止收走的那句,回执会有人认领 —— 面板靠这一条把话交还输入框。
+///
+/// 这正是出厂路径上一直缺的一条:`Moment::withdrawn` 只有 `Rejected` 一个来源
+/// (`crates/atomcode-tui/src/plugin.rs:4203-4219` → `host.rs` 的
+/// `withdraw_queued`),没有它,停止时排队的几行是被 `clear_steering` 丢掉,
+/// 而不是交还。
+#[tokio::test]
+async fn a_stop_answers_the_send_it_withdrew_on_the_shipped_front_end() {
+    let env = env();
+    let mut connection = connected(&env).await;
+
+    // 一个不会结束的回合:provider 对 `hang` 的流永不产出,所以后面那一句一定
+    // 还在 inbox 里等着 —— 停止收走的正是它。`turn: Some(..)` 是"有回合把它
+    // 收下了"的诚实信号,比等投影出来的 `TurnStarted` 稳。
+    connection.commands.send(tagged("tui-1", "hang")).unwrap();
+    let mut said = until(
+        &mut connection,
+        |e| matches!(e, AgentEvent::Accepted { command, turn: Some(_), .. } if command == "tui-1"),
+    )
+    .await;
+
+    connection
+        .commands
+        .send(tagged("tui-2", "QUEUED-b2"))
+        .unwrap();
+    connection.commands.send(AgentCommand::Cancel).unwrap();
+    said.extend(
+        until(&mut connection, |e| {
+            matches!(e, AgentEvent::TurnComplete { .. })
+        })
+        .await,
+    );
+    said.extend(quiet(&mut connection).await);
+
+    let refused: Vec<(String, String)> = said
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Rejected { command, error } => {
+                Some((command.clone(), format!("{error:?}")))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        refused
+            .iter()
+            .any(|(command, error)| command == "tui-2" && error.contains("NotRunning")),
+        "被收走的那句该被 `Rejected {{ NotRunning }}` 认领,不然驱动器手里那本\
+         `Moment::withdrawn` 永远是空的,面板上的话就是丢而不是交还。\
+         这条出厂接线上实际收到的:\n{refused:#?}\n全部事件:\n{said:#?}"
+    );
+    // 而且它是被收走的,不是被某个回合收下的:认领它的只能是停止。若这里出现
+    // 一条 `Accepted`,面板会把它当"已经给过模型"摘掉 —— 话照样丢。
+    assert!(
+        !said
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Accepted { command, .. } if command == "tui-2")),
+        "它没被任何回合收下:\n{said:#?}"
+    );
+    assert!(
+        !refused.iter().any(|(command, _)| command == "tui-1"),
+        "还在跑的那句不是被收走的:\n{refused:#?}"
+    );
 }

@@ -529,7 +529,8 @@ impl LiveViewHub {
         })?;
         let receipt_generation = match receipt {
             SubmitReceipt::Started { generation, .. }
-            | SubmitReceipt::Steered { generation, .. } => generation,
+            | SubmitReceipt::Steered { generation, .. }
+            | SubmitReceipt::NotSent { generation, .. } => generation,
         };
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let (current_binding_id, current_generation) = state
@@ -558,16 +559,25 @@ impl LiveViewHub {
             if correlation_registered {
                 remove_pending_web_steer_locked(&mut state, client_input_id.as_deref());
             }
+        } else if matches!(receipt, SubmitReceipt::NotSent { .. }) && correlation_registered {
+            // 这一句没进 agent:等着 fold 来认领它的人(网页端)不该再等下去。
+            remove_pending_web_steer_locked(&mut state, client_input_id.as_deref());
         }
         state.turn_active = true;
-        self.publish_view_locked(
-            &mut state,
-            LiveViewEvent::InputAccepted {
-                input: echo_input,
-                client_input_id,
-            },
-            true,
-        );
+        // 没送达的那句不进任何人的对话视图:`InputAccepted` 的意思是"别人的话被收下
+        // 了",而回执的另一边(HTTP 的 `accepted:false`)已经说了实话 —— 别的驱动器
+        // (CLI 适配器)也不回显。照发就是让每个视图都以为这句话送达了,而且它进
+        // replay,连重连的标签页也会这样看。
+        if !matches!(receipt, SubmitReceipt::NotSent { .. }) {
+            self.publish_view_locked(
+                &mut state,
+                LiveViewEvent::InputAccepted {
+                    input: echo_input,
+                    client_input_id,
+                },
+                true,
+            );
+        }
         Ok(receipt)
     }
 
@@ -1559,6 +1569,110 @@ mod tests {
             }),
             commands,
         )
+    }
+
+    /// A control whose handle is a *real* runtime (the coding testkit's fake
+    /// agent behind it), for the hub paths that need the runtime's own answers
+    /// rather than a recorded command.
+    struct RealControl {
+        handle: atomcode_coding::CodingRuntimeHandle,
+    }
+
+    impl LiveRuntimeControl for RealControl {
+        fn status(&self) -> RuntimeStatus {
+            // The runtime's own reading, not a constant: the hub checks the
+            // receipt's generation against this one, and a fresh owner is 0.
+            atomcode_coding::CodingRuntimeHandle::status(&self.handle)
+        }
+
+        fn dispatch(&self, command: DriverCommand) -> Result<(), RuntimeUnavailable> {
+            self.handle.dispatch(command)
+        }
+
+        fn handle(&self) -> Option<atomcode_coding::CodingRuntimeHandle> {
+            Some(self.handle.clone())
+        }
+    }
+
+    /// A submit the stop caught before anything was sent reaches no view as an
+    /// accepted message.
+    ///
+    /// The hub is the one driver that could still say otherwise: its HTTP reply
+    /// for such a submit is `accepted: false` (`live_api`), and every other
+    /// driver — the CLI adapter — answers its receipt `NotRunning` without
+    /// echoing. The view projection used to be published regardless, which put
+    /// the words into every open conversation *and* into the replay a
+    /// reconnecting tab reads.
+    #[tokio::test]
+    async fn a_submit_stopped_before_anything_was_sent_is_not_echoed_to_the_view() {
+        let project = tempfile::tempdir().unwrap();
+        let reading = Arc::new(atomcode_coding::runtime::testkit::ReadingThatNeverEnds::new());
+        let runtime = atomcode_coding::runtime::testkit::runtime_with_a_fake_agent(
+            project.path(),
+            Some(reading.clone()),
+        )
+        .await;
+        let hub = Arc::new(LiveViewHub::new());
+        hub.bind(
+            "session-1",
+            project.path().to_path_buf(),
+            snapshot("one"),
+            Arc::new(RealControl {
+                handle: runtime.handle.clone(),
+            }),
+        )
+        .unwrap();
+        let mut watch = hub.join().unwrap();
+
+        // A turn is already running: that is the shape this reaches. The web's
+        // own stop is gated on `turn_active`, so only a message that joins a
+        // running turn can be stopped while its picture is being read.
+        hub.accept_local_input(UserInput::from("already running"))
+            .unwrap();
+        while watch.receiver.try_recv().is_ok() {}
+
+        let submitting = tokio::spawn({
+            let hub = hub.clone();
+            async move {
+                let picture = UserInput {
+                    text: "what is this".into(),
+                    images: vec![atomcode_kernel::message::ImageContent {
+                        media_type: "image/png".into(),
+                        data: "x".into(),
+                    }],
+                };
+                hub.submit_confirmed_with_echo(picture.clone(), picture, Some("web-1".into()))
+                    .await
+            }
+        });
+        // The picture is being read now — the window a stop has to land in.
+        for _ in 0..200 {
+            if reading.entered() > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(reading.entered(), 1, "the picture is being read");
+
+        hub.cancel_confirmed().await.expect("the stop is taken");
+        let receipt = submitting
+            .await
+            .expect("the submit task")
+            .expect("the submit was taken");
+        assert!(
+            matches!(receipt, atomcode_coding::SubmitReceipt::NotSent { .. }),
+            "nothing reached the agent, and the receipt has to say so: {receipt:?}"
+        );
+
+        let said: Vec<_> = std::iter::from_fn(|| watch.receiver.try_recv().ok())
+            .map(|observation| observation.event)
+            .collect();
+        assert!(
+            !said
+                .iter()
+                .any(|event| matches!(event, LiveViewEvent::InputAccepted { .. })),
+            "a message that never went was echoed as accepted: {said:#?}"
+        );
     }
 
     fn snapshot(text: &str) -> SessionSnapshot {

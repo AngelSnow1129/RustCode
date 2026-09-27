@@ -4178,7 +4178,14 @@ impl Tui {
             }
             AgentEvent::Accepted { command, .. } => {
                 self.client.answered(&command);
-                false
+                // The turn has the message, so what was waiting has stopped
+                // waiting: off the panel, by the receipt this screen sent it
+                // under. The transcript draws it from here on — for a line that
+                // folded into the running turn and for one that turned out to
+                // open a turn of its own alike, which is why this does not read
+                // `steered`. (`AgentEvent::Steered` tells the log's readers the
+                // same moment; the panel no longer reads it.)
+                self.host.claimed(&command)
             }
             AgentEvent::Rejected { command, error } => {
                 self.client.answered(&command);
@@ -4391,23 +4398,6 @@ impl Tui {
                 // moment the figure changed. Rate-limited inside.
                 self.check_allowance();
                 self.set_activity(Activity::Idle)
-            }
-            AgentEvent::Steered { inputs, count, .. } => {
-                // The model has been handed what it names. This is the moment
-                // the transcript starts drawing it too, so those lines leave the
-                // panel as they arrive rather than showing the same sentence
-                // twice — and only those: the lines still in the inbox are still
-                // waiting, and a stop must still find them to hand back. The
-                // `true` is the panel changing — the transcript's half of the
-                // exchange comes to the screen as the fact itself.
-                let texts: Vec<&str> = if inputs.is_empty() {
-                    // An older runtime says how many, not which.
-                    vec![""; count]
-                } else {
-                    inputs.iter().map(|input| input.text.as_str()).collect()
-                };
-                self.host.steered(&texts);
-                true
             }
             AgentEvent::Compacted {
                 committed,

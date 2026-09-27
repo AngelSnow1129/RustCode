@@ -15,9 +15,9 @@
 //! **It says "sent to the model" as a fact about your words, and nothing else.**
 //! The panel is up exactly while the person has said something and the model has
 //! not been handed it — so it goes away at the moment the model gets it, which
-//! is when [`AgentEvent::Steered`](atomcode_kernel::event::AgentEvent::Steered)
-//! arrives. Keeping it until the turn ended would show the same sentence twice,
-//! because the transcript draws the folded `UserMessage` from that same
+//! is when [`AgentEvent::Accepted`](atomcode_kernel::event::AgentEvent::Accepted)
+//! names that send. Keeping it until the turn ended would show the same sentence
+//! twice, because the transcript draws the folded `UserMessage` from that same
 //! boundary onward.
 //!
 //! # Rendering: a compact queue preview

@@ -1884,6 +1884,17 @@ pub(crate) async fn live_message(
             "provider": provider_name,
             "provider_change_applied": provider_change_applied,
         })),
+        Ok(atomcode_coding::SubmitReceipt::NotSent {
+            generation,
+            turn_id,
+        }) => Json(serde_json::json!({
+            "accepted": false,
+            "disposition": "not_sent",
+            "generation": generation,
+            "turn_id": turn_id,
+            "provider": provider_name,
+            "provider_change_applied": provider_change_applied,
+        })),
         Err(error) => Json(serde_json::json!({
             "accepted": false,
             "error": format!("live submit rejected: {error:?}"),

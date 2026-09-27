@@ -2168,43 +2168,46 @@ impl Host {
     /// The model has been handed everything waiting, so nothing is waiting.
     ///
     /// The whole point of the panel: it is up exactly while the person has said
-    /// something and the model has not seen it. `AgentEvent::Steered` is that
-    /// moment — it is emitted at the round boundary the inputs were folded at,
-    /// which is when the transcript starts drawing them too. Clearing at the end
-    /// of the turn instead would show every steering line twice.
+    /// something and the model has not seen it. `AgentEvent::Accepted` is that
+    /// moment — the turn that took a send answers under its receipt, at the
+    /// boundary the inputs were folded at, which is when the transcript starts
+    /// drawing them too. Clearing at the end of the turn instead would show every
+    /// steering line twice.
     pub fn clear_steering(&self) {
         self.moment.write().expect("moment poisoned").queued.clear();
         self.set_steering(String::new());
     }
 
-    /// The model has been handed `inputs` — these lines, and only these, stop
-    /// waiting.
+    /// The model has been handed the line sent under `id`, so it stops waiting.
     ///
     /// The runtime folds one message per step (`inbox().claim()`), so one
-    /// `Steered` names one of the lines queued, not all of them. Clearing the
-    /// whole list here is what lost words: with A, B and C queued, A folded and
-    /// took B and C off the list while they still sat in the inbox, so a stop
+    /// acknowledgement names one of the lines queued, not all of them. Clearing
+    /// the whole list here is what lost words: with A, B and C queued, A folded
+    /// and took B and C off the list while they still sat in the inbox, so a stop
     /// that withdrew them found no queued line to claim, and only the last one
-    /// came back. Each input takes off the first queued line with its text; an
-    /// input that matches none (the text was rewritten on the way — an expanded
-    /// paste) takes off the oldest, which is the one the inbox hands out first.
-    pub fn steered(&self, inputs: &[&str]) {
+    /// came back.
+    ///
+    /// By receipt and not by text: the words can be rewritten on the way (an
+    /// expanded paste, a picture recognised for a model that cannot see them),
+    /// so pairing them back up by content took the *first* line saying something
+    /// like it — which could be one still waiting, and could be the wrong one of
+    /// two that say the same thing.
+    ///
+    /// `false` when `id` is not a queued line: some other send of this front end
+    /// was taken (one this screen did not queue — a member's, a turn it did not
+    /// start), and the panel does not change.
+    pub fn claimed(&self, id: &str) -> bool {
         let rest = {
             let mut m = self.moment.write().expect("moment poisoned");
-            for input in inputs {
-                let input = input.trim();
-                let at = m
-                    .queued
-                    .iter()
-                    .position(|queued| queued.text == input)
-                    .or_else(|| (!m.queued.is_empty()).then_some(0));
-                if let Some(at) = at {
-                    m.queued.remove(at);
-                }
+            let before = m.queued.len();
+            m.queued.retain(|queued| queued.id != id);
+            if m.queued.len() == before {
+                return false;
             }
             waiting(&m.queued)
         };
         self.set_steering(rest);
+        true
     }
 
     /// A queued line the runtime has withdrawn (`id` is the receipt it was sent
@@ -5872,13 +5875,17 @@ mod tests {
         h.add_steering("tui-2", "b");
         h.add_steering("tui-3", "c");
 
-        h.steered(&["a"]);
+        assert!(h.claimed("tui-1"));
         let queued = |h: &Host| -> Vec<String> {
             let m = h.moment.read().unwrap();
             m.queued.iter().map(|q| q.text.clone()).collect()
         };
         assert_eq!(queued(&h), vec!["b", "c"], "one fold, one line off");
         assert_eq!(h.moment.read().unwrap().steering, "b\nc");
+
+        // A send this screen never queued changes nothing.
+        assert!(!h.claimed("elsewhere-1"), "not this panel's line");
+        assert_eq!(queued(&h), vec!["b", "c"]);
 
         // The stop withdraws the two still waiting: both are claimed, the
         // folded one is not.
@@ -5897,6 +5904,28 @@ mod tests {
             .map(|w| w.text.clone())
             .collect();
         assert_eq!(withdrawn, vec!["b", "c"]);
+    }
+
+    /// The words cannot tell two sends apart — a person may type the same line
+    /// twice — so the receipt is what pairs an acknowledgement with the line it
+    /// is about. Matching by text took the *first* line that said it, whatever
+    /// the turn had actually taken.
+    #[test]
+    fn two_lines_that_say_the_same_thing_are_told_apart_by_their_receipts() {
+        let h = host();
+        h.add_steering("tui-1", "same");
+        h.add_steering("tui-2", "same");
+
+        assert!(h.claimed("tui-2"), "the one the turn took, not the first");
+        let queued: Vec<String> = h
+            .moment
+            .read()
+            .unwrap()
+            .queued
+            .iter()
+            .map(|q| q.id.clone())
+            .collect();
+        assert_eq!(queued, vec!["tui-1"], "the other is still waiting");
     }
 
     fn mark_fg_of(h: &Host, tick: u64) -> Option<crate::frame::Color> {

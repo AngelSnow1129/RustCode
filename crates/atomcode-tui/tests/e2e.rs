@@ -1572,15 +1572,18 @@ async fn esc_hands_back_a_queued_line_the_turn_was_still_taking_in() {
     let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
 }
 
-/// A `ctrl-x` that found nothing to withdraw does not turn a later cancel —
-/// one no key asked for, like a model switch reconfiguring the turn — into a
-/// resend: what that cancel withdraws comes back to the composer.
+/// A `ctrl-x` on a line the turn has already taken sets nothing for the next
+/// cancel to resend: the screen hears the fold — the turn answers the send under
+/// its own receipt (`AgentEvent::Accepted`), which is what takes the line off the
+/// panel — so by the time the key goes down there is nothing left to take back,
+/// and the flag that makes a stop resend never goes up. The later cancel, which
+/// no key asked for, hands its own line back the ordinary way.
 ///
-/// "Nothing to withdraw" is the screen not having heard the fold yet: the line
-/// is still on its panel when the key goes down, but the runtime has already
-/// handed it to the model. Here the connection never passes the fold on, which
-/// makes that moment last. The key then asked for a resend nothing consumed,
-/// and the flag stood until the next cancel of any kind.
+/// The construction used to be different: the connection withheld the fold
+/// (`Steered` only, its older spelling), so the line sat on a panel the runtime
+/// had already emptied, and the key set the flag with nothing to consume it. That
+/// state cannot be built any more — the acknowledgement *is* the receipt, and a
+/// screen that has not heard it has not heard the turn either.
 #[tokio::test]
 async fn a_ctrl_x_that_withdrew_nothing_does_not_make_a_later_cancel_resend() {
     let dir = scratch("ctrl-x-stale");
@@ -1590,32 +1593,7 @@ async fn a_ctrl_x_that_withdrew_nothing_does_not_make_a_later_cancel_resend() {
            { text = "three", calls = [ { name = "bash", args = { command = "sleep 5" } } ] },
            { text = "four" }, { text = "five" }, { text = "six" }"#,
     );
-    let s = start_with_connection(tree(&dir, &script, &[]), |connection| {
-        let atomcode_host_api::HostConnection {
-            session,
-            commands,
-            mut events,
-            control,
-        } = connection;
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            while let Some(event) = events.recv().await {
-                if matches!(event, atomcode_kernel::event::AgentEvent::Steered { .. }) {
-                    continue;
-                }
-                if tx.send(event).is_err() {
-                    break;
-                }
-            }
-        });
-        atomcode_host_api::HostConnection {
-            session,
-            commands,
-            events: rx,
-            control,
-        }
-    })
-    .await;
+    let s = start(tree(&dir, &script, &[])).await;
     let task = s.open().await;
 
     s.term.type_line("first");
@@ -1630,7 +1608,12 @@ async fn a_ctrl_x_that_withdrew_nothing_does_not_make_a_later_cancel_resend() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(
         s.screen().contains("LATE-s1"),
-        "the fold was not heard, so the line is still listed:\n{}",
+        "the line is in the conversation now:\n{}",
+        s.screen()
+    );
+    assert!(
+        s.term.last().expect("a frame").part("steering").is_none(),
+        "and off the panel, because the turn answered that send:\n{}",
         s.screen()
     );
     s.term.press(KeyPress::ctrl('x'));

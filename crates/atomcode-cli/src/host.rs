@@ -408,9 +408,33 @@ pub(crate) fn attach(
                 }
                 other => other,
             };
+            // A message is answered by the turn that claims it, under the id its
+            // command carried (`AgentEvent::Accepted`, or `Rejected` for what a
+            // stop withdrew). A reply here as well would be a second, earlier
+            // answer naming the same command — and the one a front end believes,
+            // because it arrives first. A refusal still says so below: that is
+            // the half `run` cannot defer.
+            //
+            // The two message commands are claimed at different moments, and
+            // that difference is the whole of this window: a plain `SendMessage`
+            // enters the running turn's steer buffer and is claimed at that
+            // turn's next step, while a context-bearing one is queued for the
+            // *next* turn (the runtime says why at its own
+            // `SendMessageWithContext` arm). Both end up answered — by the claim,
+            // or by the stop that withdraws a message still in the inbox — so
+            // the wait runs to the next turn's start at the latest, and a front
+            // end's "sent and not yet taken" set is telling the truth while it
+            // lasts.
+            let answered_by_the_turn = matches!(
+                command,
+                AgentCommand::SendMessage { .. } | AgentCommand::SendMessageWithContext { .. }
+            );
             let stop = matches!(command, AgentCommand::Shutdown);
-            let answered = run(&handle, &front, &out, command).await;
-            reply(&out, receipt, answered);
+            let answered = run(&handle, &front, &out, command, receipt.as_ref()).await;
+            match answered {
+                Ok(_) if answered_by_the_turn => {}
+                other => reply(&out, receipt, other),
+            }
             if stop {
                 break;
             }
@@ -683,11 +707,29 @@ mod refusal_tests {
     }
 }
 
+/// Deliver one message through the runtime, naming the driver's send when it has
+/// a name.
+///
+/// The name is what the harness answers the claimed message by — the turn that
+/// took it, or the withdrawal a stop made — so a front end that gave one is told
+/// about its own send instead of having to recognise it by the words it sent.
+async fn submit_named(
+    handle: &CodingRuntimeHandle,
+    receipt: Option<&CommandId>,
+    input: UserInput,
+) -> Result<atomcode_coding::SubmitReceipt, RuntimeError> {
+    match receipt {
+        Some(id) => handle.submit_tagged(id.clone(), input).await,
+        None => handle.submit(input).await,
+    }
+}
+
 async fn run(
     handle: &CodingRuntimeHandle,
     front: &FrontEnd,
     out: &mpsc::UnboundedSender<AgentEvent>,
     command: AgentCommand,
+    receipt: Option<&CommandId>,
 ) -> Answered {
     let refused = |error: RuntimeError| {
         let message = error.to_string();
@@ -696,14 +738,21 @@ async fn run(
     match command {
         AgentCommand::SendMessage { text, images } => {
             let input = UserInput { text, images };
-            // 终端里打的这句,网页端是从 hub 的「输入被接受」看到的——不回显,
-            // 那边就只见回答不见问题。提交成功才回显:没送出去的话不该出现在
-            // 别人的屏幕上。
-            let sent = handle.submit(input.clone()).await;
-            if sent.is_ok() {
-                crate::tui_share::echo_local_input(&input);
+            match submit_named(handle, receipt, input.clone()).await {
+                // 收下了,但这条消息一步都没进 agent(识图途中被停)。回执的终态就答
+                // 在调用方这一趟:拿着回执的驱动器等的是它,而不是一个永远不会来
+                // 认领这条消息的回合。不回显 —— 没送出去的话不该出现在别人的屏上。
+                Ok(atomcode_coding::SubmitReceipt::NotSent { .. }) => {
+                    Err((CommandError::NotRunning, None))
+                }
+                // 终端里打的这句,网页端是从 hub 的「输入被接受」看到的——不回显,
+                // 那边就只见回答不见问题。提交成功才回显。
+                Ok(_) => {
+                    crate::tui_share::echo_local_input(&input);
+                    Ok(None)
+                }
+                Err(error) => Err(refused(error)),
             }
-            sent.map(|_| None).map_err(refused)
         }
         AgentCommand::SendMessageWithContext {
             text,
@@ -716,11 +765,13 @@ async fn run(
                 })
                 .await
                 .map_err(refused)?;
-            handle
-                .submit(UserInput { text, images })
-                .await
-                .map(|_| None)
-                .map_err(refused)
+            match submit_named(handle, receipt, UserInput { text, images }).await {
+                Ok(atomcode_coding::SubmitReceipt::NotSent { .. }) => {
+                    Err((CommandError::NotRunning, None))
+                }
+                Ok(_) => Ok(None),
+                Err(error) => Err(refused(error)),
+            }
         }
         AgentCommand::Respond { id, value } => handle
             .respond(id, value)

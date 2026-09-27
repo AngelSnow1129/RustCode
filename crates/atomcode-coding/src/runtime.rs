@@ -855,8 +855,25 @@ pub trait RuntimeCommands: Send + Sync {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubmitReceipt {
-    Started { generation: u64, turn_id: u64 },
-    Steered { generation: u64, turn_id: u64 },
+    Started {
+        generation: u64,
+        turn_id: u64,
+    },
+    Steered {
+        generation: u64,
+        turn_id: u64,
+    },
+    /// The submit was taken — it opened a turn, or was aimed at the running one —
+    /// and then was stopped before anything reached the agent (a picture still
+    /// being read when the person pressed stop). The stop that overtook it is
+    /// still what ends the turn it opened; what this says is that the message
+    /// itself never went anywhere, so whoever holds a receipt for it must be
+    /// answered "not delivered" instead of waiting for a turn that will never
+    /// claim it.
+    NotSent {
+        generation: u64,
+        turn_id: u64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1610,6 +1627,7 @@ impl CodingRuntimeHandle {
                 CodingRuntimeControl::Submit {
                     generation,
                     input,
+                    receipt: None,
                     done,
                 }
             }
@@ -1741,12 +1759,35 @@ impl CodingRuntimeHandle {
     }
 
     pub async fn submit(&self, input: UserInput) -> Result<SubmitReceipt, RuntimeError> {
+        self.deliver(None, input).await
+    }
+
+    /// As [`Self::submit`], carrying the driver's own id for this message.
+    ///
+    /// The harness answers a claimed message under the id its command arrived
+    /// with, so a front end that named its send is told which turn took it — and
+    /// which of its sends a stop withdrew — without comparing the words it sent
+    /// against the words the model saw.
+    pub async fn submit_tagged(
+        &self,
+        receipt: atomcode_kernel::event::CommandId,
+        input: UserInput,
+    ) -> Result<SubmitReceipt, RuntimeError> {
+        self.deliver(Some(receipt), input).await
+    }
+
+    async fn deliver(
+        &self,
+        receipt: Option<atomcode_kernel::event::CommandId>,
+        input: UserInput,
+    ) -> Result<SubmitReceipt, RuntimeError> {
         let state = self.state.load(Ordering::Acquire);
         let (done, result) = oneshot::channel();
         self.tx
             .send(CodingRuntimeControl::Submit {
                 generation: runtime_state_generation(state),
                 input,
+                receipt,
                 done,
             })
             .map_err(|_| RuntimeError::Unavailable)?;
@@ -2943,6 +2984,12 @@ pub enum CodingRuntimeControl {
     Submit {
         generation: u64,
         input: UserInput,
+        /// The driver's own id for this submit, when it has one. Carried into the
+        /// harness so the turn can name the same message back: the fold
+        /// (`AgentEvent::Accepted`) and what a stop withdrew
+        /// (`AgentEvent::Rejected`, `docs/adr/0021` §7). `None` for a driver that
+        /// does not correlate its sends.
+        receipt: Option<atomcode_kernel::event::CommandId>,
         done: oneshot::Sender<Result<SubmitReceipt, RuntimeError>>,
     },
     Respond {
@@ -4208,6 +4255,7 @@ fn spawn_runtime_owner_with_optional_agent(
                     Some(CodingRuntimeControl::Submit {
                         generation: request_generation,
                         mut input,
+                        receipt: driver_receipt,
                         done,
                     }) => {
                         if !native_protocol || request_generation != generation {
@@ -4405,7 +4453,20 @@ fn spawn_runtime_owner_with_optional_agent(
                                             reason: "stopped before the picture was read".into(),
                                         },
                                     );
-                                    let _ = done.send(Ok(receipt));
+                                    // 提交到此为止、什么都没进 agent。这件事只说一趟:
+                                    // 回执在调用方那趟换成 `NotSent`,由拿着回执的人去答
+                                    // 它背后的驱动器 —— 这里再发一条事件,同一张回执就会
+                                    // 得到两个互相矛盾的答复(调用方说"开了回合",驱动器说
+                                    // "没送达"),而开着共享时调用方那趟还会把这条消息回显
+                                    // 成"已接受"。
+                                    let not_sent = match receipt {
+                                        SubmitReceipt::Started { generation, turn_id }
+                                        | SubmitReceipt::Steered { generation, turn_id } => {
+                                            SubmitReceipt::NotSent { generation, turn_id }
+                                        }
+                                        other => other,
+                                    };
+                                    let _ = done.send(Ok(not_sent));
                                     continue;
                                 };
                                 input = new_input;
@@ -4451,6 +4512,20 @@ fn spawn_runtime_owner_with_optional_agent(
                             original_steer_input.as_ref(),
                             &command,
                         );
+                        // The driver's own id for this submit rides along when it
+                        // has one: it is what the harness answers a claimed message
+                        // by (`InputClaimed` → `AgentEvent::Accepted`) and what a
+                        // stop's withdrawal names (→ `Rejected`), so a front end
+                        // that named its send never has to compare words. Wrapped
+                        // last, because the registration above is about the message
+                        // — the inner command — and not about the envelope.
+                        let command = match driver_receipt {
+                            Some(id) => AgentCommand::Tagged {
+                                id,
+                                command: Box::new(command),
+                            },
+                            None => command,
+                        };
                         if send_agent_command(&agent, command) {
                             // The agent opens a turn for it (or folds it into
                             // the one it has): as far as a stop is concerned it
@@ -7304,6 +7379,7 @@ fn spawn_runtime_owner_with_optional_agent(
                             let _ = recovery_tx.send(CodingRuntimeControl::Submit {
                                 generation: request_generation,
                                 input: UserInput { text: condition, images },
+                                receipt: None,
                                 done: started,
                             });
                             // Only spawn the quota fetch when it could actually change the cap:
@@ -7435,6 +7511,7 @@ fn spawn_runtime_owner_with_optional_agent(
                             let _ = recovery_tx.send(CodingRuntimeControl::Submit {
                                 generation: request_generation,
                                 input: UserInput::from(prompt),
+                                receipt: None,
                                 done: started,
                             });
                         }
@@ -10778,6 +10855,199 @@ async fn resolve_goal_round_cap(
     match call_limit {
         Some(limit) => crate::config::derive_goal_max_rounds(None, Some(limit)),
         None => config_default,
+    }
+}
+
+/// A runtime owner driven by a fake agent, for the crates that hold one instead
+/// of rebuilding the bed.
+///
+/// The kernel has had a door like this for its own seams
+/// ([`atomcode_kernel::testkit`](atomcode_kernel::testkit)); this is the coding
+/// runtime's. The daemon's live hub is its first user: it has to put a real
+/// [`CodingRuntimeHandle`] behind its `LiveRuntimeControl` to reach paths that
+/// exist only in here — a submit whose picture is still being read when the stop
+/// lands, say — and the bed for that has always lived in this file's
+/// `#[cfg(test)]` module, which another crate cannot see.
+///
+/// Deliberately bare: the fake agent answers nothing, so a caller drives the
+/// runtime's own side (submit, stop, snapshot) and reads what the runtime said
+/// ([`testkit::FakeRuntime::events`]) and what reached the agent
+/// ([`testkit::FakeRuntime::commands`]).
+pub mod testkit {
+    use super::*;
+
+    use atomcode_kernel::message::Message;
+    use atomcode_kernel::provider::ChatOptions;
+    use atomcode_kernel::stream::{ProviderError, StreamEvent};
+    use atomcode_kernel::tool::ToolDef;
+
+    /// A runtime owner, and the two ends a caller drives it through.
+    pub struct FakeRuntime {
+        /// The runtime, as a driver holds it.
+        pub handle: CodingRuntimeHandle,
+        /// What reached the (fake) agent.
+        pub commands: mpsc::UnboundedReceiver<AgentCommand>,
+        /// What the runtime said.
+        pub events: mpsc::UnboundedReceiver<CodingRuntimeEvent>,
+        /// The fake agent's own voice, for a caller that wants it to answer
+        /// something. Held either way: the runtime reads the far end.
+        pub agent_events: mpsc::UnboundedSender<AgentEvent>,
+        /// Kept for its `Drop`: the owner task this bed spawned.
+        _keeper: KernelRuntimeAdapter,
+    }
+
+    /// A picture that is never finished being read.
+    ///
+    /// The window a stop has to land in to catch a submit before anything
+    /// reaches the agent. Hand it to [`runtime_with_a_fake_agent`] as the vision
+    /// seam to hold a submit there, and watch [`Self::entered`] to know the
+    /// submit is in it rather than guessing with a sleep.
+    pub struct ReadingThatNeverEnds {
+        entered: std::sync::atomic::AtomicUsize,
+    }
+
+    impl ReadingThatNeverEnds {
+        pub fn new() -> Self {
+            Self {
+                entered: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        /// How many pictures have been handed to it and not read.
+        pub fn entered(&self) -> usize {
+            self.entered.load(Ordering::Acquire)
+        }
+    }
+
+    impl Default for ReadingThatNeverEnds {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ImagePreprocessor for ReadingThatNeverEnds {
+        async fn preprocess(
+            &self,
+            _text: String,
+            _images: Vec<ImageContent>,
+            _supports_vision: bool,
+            _session_id: Option<String>,
+        ) -> (UserInput, Option<VisionNotice>) {
+            self.entered.fetch_add(1, Ordering::AcqRel);
+            std::future::pending().await
+        }
+    }
+
+    /// Build one: a runtime whose agent is a pair of channels, with `working_dir`
+    /// as its project and `image_preprocessor` as its vision seam (`None` leaves
+    /// pictures alone).
+    pub async fn runtime_with_a_fake_agent(
+        working_dir: &std::path::Path,
+        image_preprocessor: Option<Arc<dyn ImagePreprocessor>>,
+    ) -> FakeRuntime {
+        let (agent_commands, commands) = mpsc::unbounded_channel();
+        let (agent_events, events) = mpsc::unbounded_channel();
+        let agent = AgentHandle {
+            commands: agent_commands,
+            events,
+            task: tokio::spawn(async {}),
+        };
+        let (handle, controls) = coding_runtime_control_channel();
+        let (runtime_tx, runtime_events) = mpsc::unbounded_channel();
+        let (wakeup_tx, wakeup_rx) = mpsc::unbounded_channel();
+        let config = crate::config::CodingAgentConfig::new(
+            "testkit",
+            "https://example.test/v1",
+            "testkit",
+            working_dir,
+        );
+        let prepare = crate::parts::PrepareOptions {
+            request_user_input: true,
+            session: crate::parts::SessionMode::Disabled,
+            tools: true,
+            skill_dirs: Some(Vec::new()),
+            plugin_skill_dirs: Vec::new(),
+            mcp: false,
+            extra_mcp_servers: Vec::new(),
+            external_subagents: Vec::new(),
+            memory: false,
+            web: false,
+            review: false,
+            subagents: crate::parts::SubagentPolicy::Disabled,
+            rate_limit_source: None,
+            front_end: None,
+        };
+        let plugin_hooks = Arc::new(crate::plugin_hooks::StaticPluginHookSource::default());
+        let parts = crate::parts::prepare_with_plugin_hook_source(
+            &config,
+            prepare.clone(),
+            plugin_hooks.as_ref(),
+        )
+        .await
+        .expect("the testkit's parts prepare");
+        let resources = RuntimeResources {
+            config,
+            prepare,
+            provider_factory: Arc::new(SilentProviders),
+            plugin_hooks,
+            parts,
+            harness_app: None,
+            harness_providers: None,
+            wakeup_tx,
+            loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            image_preprocessor,
+        };
+        let keeper = spawn_runtime_owner_with_protocol(
+            agent,
+            controls,
+            runtime_tx,
+            true,
+            true,
+            None,
+            Some(resources),
+            Some(wakeup_rx),
+        );
+        FakeRuntime {
+            handle,
+            commands,
+            events: runtime_events,
+            agent_events,
+            _keeper: keeper,
+        }
+    }
+
+    /// The testkit's agent is fake, so nothing here is expected to reach a model.
+    struct SilentProviders;
+
+    struct Silent;
+
+    #[async_trait::async_trait]
+    impl LlmProvider for Silent {
+        fn model_name(&self) -> &str {
+            "testkit"
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: &[Message],
+            _tools: &[ToolDef],
+            _options: &ChatOptions,
+        ) -> Result<futures::stream::BoxStream<'static, StreamEvent>, ProviderError> {
+            Ok(Box::pin(futures::stream::iter(vec![StreamEvent::Done {
+                truncated: false,
+            }])))
+        }
+    }
+
+    impl crate::provider_factory::CodingProviderFactory for SilentProviders {
+        fn build(
+            &self,
+            _config: &crate::config::CodingAgentConfig,
+            _session_id: Option<&str>,
+        ) -> Result<Arc<dyn LlmProvider>, crate::provider_factory::ProviderBuildError> {
+            Ok(Arc::new(Silent))
+        }
     }
 }
 
@@ -15237,7 +15507,7 @@ mod tests {
 
         let (agent, mut kernel_commands, _kernel_events) = fake_agent();
         let (handle, controls) = coding_runtime_control_channel();
-        let (runtime_tx, _runtime_events) = mpsc::unbounded_channel();
+        let (runtime_tx, mut runtime_events) = mpsc::unbounded_channel();
         let (wakeup_tx, wakeup_rx) = mpsc::unbounded_channel();
         let CodingRuntimeStart {
             agent: config,
@@ -15273,13 +15543,18 @@ mod tests {
             Some(wakeup_rx),
         );
 
-        let submitted = handle.submit(UserInput {
-            text: "what is in this".into(),
-            images: vec![atomcode_kernel::message::ImageContent {
-                media_type: "image/png".into(),
-                data: "x".into(),
-            }],
-        });
+        // 带驱动器自己那张回执提交：这条回执必须拿到终态，否则前端会一直等一个
+        // 永远不会来认领它的回合。
+        let submitted = handle.submit_tagged(
+            "tui-img".into(),
+            UserInput {
+                text: "what is in this".into(),
+                images: vec![atomcode_kernel::message::ImageContent {
+                    media_type: "image/png".into(),
+                    data: "x".into(),
+                }],
+            },
+        );
         // The submit itself does not come back until recognition does — it is
         // the same await. What must not wait is the stop.
         tokio::pin!(submitted);
@@ -15302,6 +15577,33 @@ mod tests {
                 ),
             "the turn the person stopped must not reach the agent"
         );
+
+        // 没送达这件事只说一趟：回执换成 `NotSent`，由拿着回执的人去答它背后的
+        // 驱动器。不答它，前端手里的 `outstanding` 会一直挂着（`atomcode-tui` 的
+        // `SessionView::settled` 永远为假），那一屏的"agent 说空闲"兜底和 esc 的
+        // 空闲档就一起废了。
+        let receipt = tokio::time::timeout(std::time::Duration::from_secs(2), &mut submitted)
+            .await
+            .expect("the submit must come back once the stop lands")
+            .expect("the submit was taken, so this is not a delivery failure");
+        assert!(
+            matches!(receipt, SubmitReceipt::NotSent { .. }),
+            "一条什么都没送达的消息要说出来，而不是声称开了个回合：{receipt:?}"
+        );
+        // 而且不再另发一条事件：同一张回执两个答案（一个说"开了回合"、一个说
+        // "没送达"），任谁拿到都会左右为难。
+        while let Ok(Some(event)) =
+            tokio::time::timeout(std::time::Duration::from_millis(200), runtime_events.recv()).await
+        {
+            assert!(
+                !matches!(
+                    event,
+                    CodingRuntimeEvent::Agent(AgentEvent::Rejected { .. })
+                ),
+                "终态跟着回执走，不是第二条事件：{event:?}"
+            );
+        }
+
         handle.shutdown().await.unwrap();
     }
 
