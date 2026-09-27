@@ -32,7 +32,7 @@
 
 顶层目录:`crates/`(12 个成员 crate,`rustcode-wiki` 在列)、`webui/`(Preact 前端,`npm ci && npm run build` 产出 gitignored 的 `webui/dist/`)、`site/`(静态文档站,索引由 `cd site && node build-search-index.mjs` 重生成,勿手改 JSON)、`extensions/`(VS Code / JetBrains 插件)、`scripts/`(**31 个**脚本 + `__pycache__`;**无** Makefile/justfile/Taskfile,不要去找)、`release/`(已提交的发布产物兜底源)、`docker/`、`packages/`(npm / homebrew 打包)、`examples/`、`docs/`、`evals/`(headless 配对评测,`evals/deepseek-v4-flash/` 含 `eval.py`/`benchmark.json`)。`Knowledge/` 是空目录且**未纳入 git**,勿依赖其内容;`target/`、`dist/` 为构建产物(gitignored)。
 
-根文件:`Cargo.toml`(workspace `version = "6.1.0"`)、`Cargo.lock`、`CONTEXT.md`(运行时术语)、`DEVENV.md`、`latest.json`(自更新 manifest,由 `scripts/release.sh` 与 `release/index.json` 同批生成)、`.mcp.json.example`。
+根文件:`Cargo.toml`(workspace `version = "6.2.0"`)、`Cargo.lock`、`CONTEXT.md`(运行时术语)、`DEVENV.md`、`latest.json`(自更新 manifest,由 `scripts/release.sh` 与 `release/index.json` 同批生成)、`.mcp.json.example`。
 
 工具链:全仓 `edition = "2021"` + `resolver = "2"`;**无** `rust-toolchain` 文件,也**无** `rust-version` / MSRV 约束——不要臆断或新增版本钉。`.cargo/config.toml` 只做交叉构建底座:两个 musl target(`x86_64-`/`aarch64-unknown-linux-musl`)配各自 `*-linux-musl-gcc` linker,两个 windows-msvc target 配 `crt-static`;无其它全局配置。WebUI 需 Node `>= 22.6`(`webui/package.json` 的 engines,`scripts/build-webui.sh` 会 fail-closed 前置检查)。
 
