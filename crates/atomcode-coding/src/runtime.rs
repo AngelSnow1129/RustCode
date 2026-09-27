@@ -984,6 +984,16 @@ struct RuntimeEventEmitter {
     raw: mpsc::UnboundedSender<CodingRuntimeEvent>,
     tagged: Option<mpsc::UnboundedSender<GenerationTaggedRuntimeEvent>>,
     generation: Arc<AtomicU64>,
+    /// Driver receipts handed to the agent and not yet answered.
+    ///
+    /// The agent answers a message's receipt when a turn claims it
+    /// (`Accepted`) or a stop withdraws it (`Rejected`), and both answers leave
+    /// through [`Self::send`], which is where they are crossed off. What is
+    /// left when the agent itself goes — a rebuild, a replacement, a failure —
+    /// sat in an inbox nobody will read again, and
+    /// [`Self::withdraw_unclaimed`] answers it: without that, the driver holding
+    /// the receipt waits for an answer that is never coming.
+    unclaimed: Mutex<Vec<atomcode_kernel::event::CommandId>>,
 }
 
 fn project_team_event(
@@ -1004,7 +1014,56 @@ fn project_team_event(
 }
 
 impl RuntimeEventEmitter {
+    fn new(
+        raw: mpsc::UnboundedSender<CodingRuntimeEvent>,
+        tagged: Option<mpsc::UnboundedSender<GenerationTaggedRuntimeEvent>>,
+        generation: Arc<AtomicU64>,
+    ) -> Self {
+        Self {
+            raw,
+            tagged,
+            generation,
+            unclaimed: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// A message went to the agent under the driver's `receipt`: it is owed an
+    /// answer from here on.
+    fn receipt_sent(&self, receipt: atomcode_kernel::event::CommandId) {
+        self.unclaimed
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(receipt);
+    }
+
+    /// The agent that held the unanswered receipts is gone, and so is its
+    /// inbox: none of those messages reached a turn, so each is answered the
+    /// way a stop answers what it withdrew.
+    fn withdraw_unclaimed(&self) {
+        let withdrawn = std::mem::take(
+            &mut *self
+                .unclaimed
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
+        );
+        for command in withdrawn {
+            let _ = self.send(CodingRuntimeEvent::Agent(AgentEvent::Rejected {
+                command,
+                error: atomcode_kernel::event::CommandError::NotRunning,
+            }));
+        }
+    }
+
     fn send(&self, event: CodingRuntimeEvent) -> Result<(), ()> {
+        if let CodingRuntimeEvent::Agent(
+            AgentEvent::Accepted { command, .. } | AgentEvent::Rejected { command, .. },
+        ) = &event
+        {
+            self.unclaimed
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .retain(|owed| owed != command);
+        }
         let raw_sent = self.raw.send(event.clone()).is_ok();
         let tagged_sent = self
             .tagged
@@ -3613,11 +3672,11 @@ fn spawn_runtime_owner_with_optional_agent(
     }
     let mut generation = 0;
     let event_generation = Arc::new(AtomicU64::new(generation));
-    let runtime_event_tx = RuntimeEventEmitter {
-        raw: runtime_event_tx,
-        tagged: tagged_event_tx,
-        generation: Arc::clone(&event_generation),
-    };
+    let runtime_event_tx = RuntimeEventEmitter::new(
+        runtime_event_tx,
+        tagged_event_tx,
+        Arc::clone(&event_generation),
+    );
     controls.state.store(
         runtime_phase_state(generation, initial_phase),
         Ordering::Release,
@@ -3699,6 +3758,12 @@ fn spawn_runtime_owner_with_optional_agent(
             });
         }
         loop {
+            // No agent, no inbox: whatever was still waiting in the one that
+            // went is answered now (a stop-and-rebuild answers it itself, in
+            // `stop_current_agent`; this is every other way an agent is lost).
+            if agent.is_none() {
+                runtime_event_tx.withdraw_unclaimed();
+            }
             tokio::select! {
                 biased;
                 team_event = team_event_rx.recv() => {
@@ -4519,7 +4584,7 @@ fn spawn_runtime_owner_with_optional_agent(
                         // that named its send never has to compare words. Wrapped
                         // last, because the registration above is about the message
                         // — the inner command — and not about the envelope.
-                        let command = match driver_receipt {
+                        let command = match driver_receipt.clone() {
                             Some(id) => AgentCommand::Tagged {
                                 id,
                                 command: Box::new(command),
@@ -4527,6 +4592,9 @@ fn spawn_runtime_owner_with_optional_agent(
                             None => command,
                         };
                         if send_agent_command(&agent, command) {
+                            if let Some(id) = driver_receipt {
+                                runtime_event_tx.receipt_sent(id);
+                            }
                             // The agent opens a turn for it (or folds it into
                             // the one it has): as far as a stop is concerned it
                             // has work from here, not from its `TurnStarted`,
@@ -8369,6 +8437,9 @@ fn spawn_runtime_owner_with_optional_agent(
                 },
             }
         }
+        // However the owner ends, nothing is left to claim what the agent had
+        // not yet taken.
+        runtime_event_tx.withdraw_unclaimed();
         if let Some(task) = next_prompt_task.take() {
             task.abort();
         }
@@ -10448,6 +10519,9 @@ async fn stop_current_agent(
                             report.snapshot = Some(snapshot);
                             report.snapshot_after_turn_terminal = report.reason.is_some();
                         }
+                        Some(answer @ (AgentEvent::Accepted { .. } | AgentEvent::Rejected { .. })) => {
+                            forward_receipt_answer(answer, runtime_event_tx);
+                        }
                         _ => {}
                     }
                 }
@@ -10475,14 +10549,39 @@ async fn stop_current_agent(
                 report.snapshot = Some(snapshot);
                 report.snapshot_after_turn_terminal = report.reason.is_some();
             }
+            Some(answer @ (AgentEvent::Accepted { .. } | AgentEvent::Rejected { .. })) => {
+                forward_receipt_answer(answer, runtime_event_tx);
+            }
             _ => {}
         }
     }
+    // The agent is gone with its inbox. A message it claimed on the way out
+    // was answered just above; the rest never reached a turn.
+    runtime_event_tx.withdraw_unclaimed();
     compactions.interrupt_all(reason, runtime_event_tx);
     emit_terminal_persistence_warnings(persistence_status.as_ref(), runtime_event_tx);
     report.persistence_failure =
         persistence_status.and_then(|status| status.take_uncertain_commit());
     report
+}
+
+/// An answer the stopping agent gave about one of the driver's messages — a
+/// turn claimed it on the way out, or the stop withdrew it. Only answers to a
+/// receipt the runtime delivered are passed on: the agent's reply to the
+/// runtime's own `Shutdown` names nothing a driver sent.
+fn forward_receipt_answer(answer: AgentEvent, runtime_event_tx: &RuntimeEventEmitter) {
+    let (AgentEvent::Accepted { command, .. } | AgentEvent::Rejected { command, .. }) = &answer
+    else {
+        return;
+    };
+    let owed = runtime_event_tx
+        .unclaimed
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .contains(command);
+    if owed {
+        let _ = runtime_event_tx.send(CodingRuntimeEvent::Agent(answer));
+    }
 }
 
 fn emit_terminal_persistence_warnings(
@@ -11450,11 +11549,7 @@ mod tests {
         status.report_auxiliary_warning("transcript write failed");
         status.report_cost_warning("cost write failed");
         let (raw, mut events) = mpsc::unbounded_channel();
-        let event_tx = RuntimeEventEmitter {
-            raw,
-            tagged: None,
-            generation: Arc::new(AtomicU64::new(0)),
-        };
+        let event_tx = RuntimeEventEmitter::new(raw, None, Arc::new(AtomicU64::new(0)));
 
         emit_terminal_persistence_warnings(Some(&status), &event_tx);
         emit_terminal_persistence_warnings(Some(&status), &event_tx);
@@ -14442,6 +14537,115 @@ mod tests {
         adapter.shutdown().await.unwrap();
     }
 
+    /// A message the agent had not yet taken when it was replaced is answered:
+    /// its inbox went with it, so the driver holding the receipt hears
+    /// `Rejected { NotRunning }` — the same answer a stop gives what it
+    /// withdrew — instead of waiting for a claim that is never coming.
+    ///
+    /// The one it *had* taken is not withdrawn: its turn already answered it.
+    #[tokio::test]
+    async fn a_message_still_in_a_replaced_agents_inbox_is_answered() {
+        let (first, mut first_commands, first_events) = fake_agent();
+        let (handle, controls) = coding_runtime_control_channel();
+        let (runtime_tx, mut runtime_rx) = mpsc::unbounded_channel();
+        let adapter = spawn_runtime_owner_with_protocol(
+            first, controls, runtime_tx, true, true, None, None, None,
+        );
+
+        handle
+            .submit_tagged("tui-1".into(), UserInput::from("taken"))
+            .await
+            .unwrap();
+        handle
+            .submit_tagged("tui-2".into(), UserInput::from("still waiting"))
+            .await
+            .unwrap();
+        for expected in ["tui-1", "tui-2"] {
+            assert!(matches!(
+                first_commands.recv().await,
+                Some(AgentCommand::Tagged { id, .. }) if id == expected
+            ));
+        }
+        // The turn claims the first; the answer reaches the driver.
+        first_events
+            .send(AgentEvent::Accepted {
+                command: "tui-1".into(),
+                turn: Some(1),
+                steered: false,
+            })
+            .unwrap();
+        loop {
+            match runtime_rx.recv().await {
+                Some(CodingRuntimeEvent::Agent(AgentEvent::Accepted { command, .. }))
+                    if command == "tui-1" =>
+                {
+                    break
+                }
+                Some(_) => {}
+                None => panic!("the runtime closed before the claim"),
+            }
+        }
+
+        let (second, _second_commands, _second_events) = fake_agent();
+        adapter.replace_agent(second).await.unwrap();
+
+        let mut answered = Vec::new();
+        while let Ok(Some(event)) =
+            tokio::time::timeout(std::time::Duration::from_millis(200), runtime_rx.recv()).await
+        {
+            if let CodingRuntimeEvent::Agent(AgentEvent::Rejected { command, error }) = event {
+                answered.push((command, error));
+            }
+        }
+        assert_eq!(
+            answered,
+            vec![(
+                "tui-2".to_string(),
+                atomcode_kernel::event::CommandError::NotRunning
+            )],
+            "only the message the old agent never took is withdrawn"
+        );
+        adapter.shutdown().await.unwrap();
+    }
+
+    /// The same when the agent is lost rather than replaced: its event stream
+    /// closes and the owner ends, and the receipt it held is still answered.
+    #[tokio::test]
+    async fn a_message_in_a_lost_agents_inbox_is_answered() {
+        let (first, mut first_commands, first_events) = fake_agent();
+        let (handle, controls) = coding_runtime_control_channel();
+        let (runtime_tx, mut runtime_rx) = mpsc::unbounded_channel();
+        let _adapter = spawn_runtime_owner_with_protocol(
+            first, controls, runtime_tx, true, true, None, None, None,
+        );
+
+        handle
+            .submit_tagged("tui-1".into(), UserInput::from("never taken"))
+            .await
+            .unwrap();
+        assert!(matches!(
+            first_commands.recv().await,
+            Some(AgentCommand::Tagged { .. })
+        ));
+        drop(first_events);
+
+        let mut withdrawn = false;
+        while let Ok(Some(event)) =
+            tokio::time::timeout(std::time::Duration::from_secs(2), runtime_rx.recv()).await
+        {
+            if matches!(
+                &event,
+                CodingRuntimeEvent::Agent(AgentEvent::Rejected { command, .. }) if command == "tui-1"
+            ) {
+                withdrawn = true;
+            }
+        }
+        assert!(
+            withdrawn,
+            "the receipt the lost agent held was never answered"
+        );
+    }
+
     #[tokio::test]
     async fn stable_handle_targets_replacement_agent() {
         let (first, mut first_commands, _first_events) = fake_agent();
@@ -14569,11 +14773,7 @@ mod tests {
         compactions.accepted_manual(trigger);
         let mut observed_tokens = None;
         let (raw, _events) = mpsc::unbounded_channel();
-        let emitter = RuntimeEventEmitter {
-            raw,
-            tagged: None,
-            generation: Arc::new(AtomicU64::new(0)),
-        };
+        let emitter = RuntimeEventEmitter::new(raw, None, Arc::new(AtomicU64::new(0)));
 
         let report = stop_current_agent(
             &mut agent,
@@ -14640,11 +14840,7 @@ mod tests {
         let mut compactions = CompactionTracker::default();
         let mut observed_tokens = None;
         let (raw, _events) = mpsc::unbounded_channel();
-        let emitter = RuntimeEventEmitter {
-            raw,
-            tagged: None,
-            generation: Arc::new(AtomicU64::new(4)),
-        };
+        let emitter = RuntimeEventEmitter::new(raw, None, Arc::new(AtomicU64::new(4)));
         stop_current_agent(
             &mut agent,
             &mut compactions,
@@ -14700,11 +14896,7 @@ mod tests {
         let mut compactions = CompactionTracker::default();
         let mut observed_tokens = None;
         let (raw, _events) = mpsc::unbounded_channel();
-        let emitter = RuntimeEventEmitter {
-            raw,
-            tagged: None,
-            generation: Arc::new(AtomicU64::new(4)),
-        };
+        let emitter = RuntimeEventEmitter::new(raw, None, Arc::new(AtomicU64::new(4)));
         // A `/model` reassemble passes `None` for the manager: the session
         // continues, so the detached member must NOT be terminated.
         stop_current_agent(
