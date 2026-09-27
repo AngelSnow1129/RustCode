@@ -9,7 +9,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use fs2::FileExt;
 use sha2::{Digest, Sha256};
 use toml_edit::DocumentMut;
@@ -71,7 +71,7 @@ impl ConfigStore {
     /// comments, ordering, unknown keys, or quarantined provider text.
     pub(crate) fn remove_legacy_pricing(&self) -> Result<bool> {
         self.with_lock(false, |disk| {
-            let Some(_disk) = disk else {
+            let Some(snapshot) = disk else {
                 return Ok(false);
             };
             let source = std::fs::read_to_string(&self.path).with_context(|| {
@@ -99,7 +99,7 @@ impl ConfigStore {
                 }
             }
             if changed {
-                self.persist_document_locked(&document.to_string())?;
+                self.persist_document_locked(&document.to_string(), Some(&snapshot.config))?;
             }
             Ok(changed)
         })
@@ -148,7 +148,8 @@ impl ConfigStore {
             })?;
             mutate(&mut document)?;
             let content = document.to_string();
-            let snapshot = self.persist_document_locked(&content)?;
+            let snapshot =
+                self.persist_document_locked(&content, disk.as_ref().map(|s| &s.config))?;
 
             // Keep the snapshot observed by `with_lock` alive until after the
             // mutation. This makes it explicit that the document was patched
@@ -171,7 +172,7 @@ impl ConfigStore {
             if &disk.revision != expected_revision {
                 return Ok(None);
             }
-            let snapshot = self.persist_document_locked(content)?;
+            let snapshot = self.persist_document_locked(content, Some(&disk.config))?;
             Ok(Some(ConfigCommit { snapshot }))
         })
     }
@@ -257,22 +258,65 @@ impl ConfigStore {
     fn persist_locked(&self, next: &Config, disk: Option<&Config>) -> Result<ConfigSnapshot> {
         ensure_parent(&self.path)?;
         let content = next.serialize_for_disk(disk)?;
-        atomic_replace(&self.path, content.as_bytes())?;
-        // Parse tolerantly: the content we just wrote may legitimately carry a
+        // Parse BEFORE the write: the snapshot needs it anyway, and it lets the
+        // FR-5 gate below reject the transaction before anything touches the disk.
+        // Tolerant parsing is required because the content may legitimately carry a
         // preserved-but-invalid `[providers.<name>]` section (round-tripped from
         // `quarantined_providers`), which a strict parse would reject.
         let (config, _warnings) = Config::parse_disk_content_tolerant(&content, &self.path)?;
+        Self::reject_new_fallback_diagnostics(&config, disk)?;
+        atomic_replace(&self.path, content.as_bytes())?;
         Ok(ConfigSnapshot {
             config,
             revision: ConfigRevision::from_bytes(content.as_bytes()),
         })
     }
 
-    fn persist_document_locked(&self, content: &str) -> Result<ConfigSnapshot> {
+    /// FR-5, write side: a transaction whose serialized form would carry a
+    /// fallback-chain diagnostic that the disk baseline does not already have is
+    /// rejected, so a newly-broken chain can never reach the disk. Diagnostics
+    /// that were already on disk stay a startup warning instead of blocking
+    /// unrelated writes (same philosophy as quarantined provider sections), and
+    /// fixing a chain only shrinks the set, so it always passes.
+    ///
+    /// The diagnostics are already localized user-facing copy (the validator
+    /// renders `CfgDiagFallback*`); they pass through verbatim in the error.
+    ///
+    /// Deliberately NOT gated here: `validate_provider_accounts_and_models`. No
+    /// requirement asks for write-time rejection of those states, and interactive
+    /// flows legitimately persist accounts/models in intermediate states (the
+    /// tolerant loader's quarantine already covers the malformed-provider case).
+    /// Wiring it in would be a user-facing behavior change of its own.
+    fn reject_new_fallback_diagnostics(next: &Config, disk: Option<&Config>) -> Result<()> {
+        let baseline = match disk {
+            Some(disk) => disk.validate_model_fallback_chains(),
+            None => Vec::new(),
+        };
+        let fresh: Vec<String> = next
+            .validate_model_fallback_chains()
+            .into_iter()
+            .filter(|diag| !baseline.contains(diag))
+            .collect();
+        if fresh.is_empty() {
+            return Ok(());
+        }
+        Err(anyhow!(
+            "fallback chain validation failed:\n{}",
+            fresh.join("\n")
+        ))
+    }
+
+    fn persist_document_locked(
+        &self,
+        content: &str,
+        disk: Option<&Config>,
+    ) -> Result<ConfigSnapshot> {
         // Validate before replacement. Tolerant parsing intentionally accepts
         // and quarantines malformed provider entries, matching all other store
         // transactions, while syntax errors and invalid ordinary fields fail.
         let (config, _warnings) = Config::parse_disk_content_tolerant(content, &self.path)?;
+        // Same FR-5 gate as the typed path (see `persist_locked`).
+        Self::reject_new_fallback_diagnostics(&config, disk)?;
         ensure_parent(&self.path)?;
         atomic_replace(&self.path, content.as_bytes())?;
         Ok(ConfigSnapshot {
@@ -489,5 +533,154 @@ custom_provider_key = 42
             .unwrap();
         assert!(stale.is_none());
         assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+    }
+
+    /// Two resolvable models and no fallback lines.
+    const TWO_MODELS: &str = r#"
+default_provider = ""
+[provider_accounts.a]
+provider = "aliyun"
+api_key = "sk-secret"
+
+[models."a/primary"]
+account = "a"
+model = "primary"
+context_window = 131072
+
+[models."a/secondary"]
+account = "a"
+model = "secondary"
+context_window = 131072
+"#;
+
+    /// FR-5 write side: a NEWLY-broken chain must not reach the disk -- the
+    /// transaction fails and the diagnostic is visible in the error.
+    #[test]
+    fn a_newly_broken_chain_is_rejected_and_never_reaches_the_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, TWO_MODELS).unwrap();
+        let store = ConfigStore::new(&path);
+
+        let result = store.update(|cfg| {
+            cfg.models
+                .get_mut("a/primary")
+                .expect("fixture model exists")
+                .fallback = vec!["a/typo".into()];
+            Ok(())
+        });
+
+        let error = result.expect_err("a dangling chain target must fail the write");
+        // The interpolated ids are raw (locale-free), so this holds under any locale.
+        let rendered = format!("{error:#}");
+        assert!(
+            rendered.contains("a/typo"),
+            "the diagnostic must name the bad target: {rendered}"
+        );
+        assert!(
+            rendered.contains("fallback"),
+            "the error must say what failed: {rendered}"
+        );
+        // The disk is untouched: no fallback line was persisted.
+        let disk = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !disk.contains("fallback"),
+            "a rejected transaction must not reach the disk:\n{disk}"
+        );
+    }
+
+    /// A well-formed chain persists normally -- the gate is fail-closed for broken
+    /// chains only, not a blanket restriction on the fallback key.
+    #[test]
+    fn a_valid_chain_persists_normally() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, TWO_MODELS).unwrap();
+        let store = ConfigStore::new(&path);
+
+        store
+            .update(|cfg| {
+                cfg.models
+                    .get_mut("a/primary")
+                    .expect("fixture model exists")
+                    .fallback = vec!["a/secondary".into()];
+                Ok(())
+            })
+            .expect("a resolvable chain must pass the write gate");
+
+        let disk = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            disk.contains("a/secondary"),
+            "the chain must be persisted:\n{disk}"
+        );
+    }
+
+    /// Baseline semantics: a chain-less config keeps accepting unrelated writes
+    /// unchanged (A-10), and a chain that was ALREADY broken on disk does not block
+    /// unrelated writes either -- it stays a startup warning, matching the
+    /// quarantine philosophy for provider sections. Repairing it only shrinks the
+    /// diagnostic set, so the fix passes too.
+    #[test]
+    fn unrelated_writes_pass_on_chainless_and_prebroken_configs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, TWO_MODELS).unwrap();
+        let store = ConfigStore::new(&path);
+
+        // Chain-less config: an unrelated typed edit persists as before.
+        store
+            .update(|cfg| {
+                cfg.models
+                    .get_mut("a/secondary")
+                    .expect("fixture model exists")
+                    .context_window = 999;
+                Ok(())
+            })
+            .expect("an unrelated edit on a chain-less config must keep working");
+        assert!(
+            std::fs::read_to_string(&path).unwrap().contains("999"),
+            "the unrelated edit must persist"
+        );
+
+        // Pre-broken chain on disk (written directly, bypassing the gate): an
+        // unrelated edit must STILL succeed, and the broken chain survives verbatim.
+        let prebroken = TWO_MODELS.replace(
+            "context_window = 131072\n\n[models.\"a/secondary\"]",
+            "context_window = 131072\nfallback = [\"a/typo\"]\n\n[models.\"a/secondary\"]",
+        );
+        assert!(prebroken.contains("a/typo"), "fixture must carry the chain");
+        std::fs::write(&path, prebroken).unwrap();
+
+        store
+            .update(|cfg| {
+                cfg.models
+                    .get_mut("a/secondary")
+                    .expect("fixture model exists")
+                    .context_window = 1000;
+                Ok(())
+            })
+            .expect("a pre-existing broken chain must not block unrelated writes");
+
+        let disk = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            disk.contains("a/typo") && disk.contains("1000"),
+            "the broken chain and the edit must both survive:\n{disk}"
+        );
+
+        // Fixing the chain only shrinks the diagnostic set, so it passes too.
+        store
+            .update(|cfg| {
+                cfg.models
+                    .get_mut("a/primary")
+                    .expect("fixture model exists")
+                    .fallback = vec!["a/secondary".into()];
+                Ok(())
+            })
+            .expect("repairing a chain must always pass");
+        let disk = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            disk.contains("a/secondary") && !disk.contains("a/typo"),
+            "the repair must be persisted:\n{disk}"
+        );
     }
 }

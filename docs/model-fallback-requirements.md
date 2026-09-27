@@ -394,11 +394,21 @@ default = ["glm-4-plus"]
     确实出现在启动警告里）、`a_valid_fallback_chain_adds_no_startup_warning`（合法链零新增
     警告，通道不误报）、`chain_warnings_are_appended_to_provider_load_warnings`（**追加**语义
     ——既有 provider 警告不被顶替、无提前返回）。
-  - **仍未覆盖（诚实边界）**：这不等于「不落盘」。`Config::save` → `ConfigStore::replace` →
-    `persist_locked` 全链路仍然**不调**校验，故用户可以把一条坏链写进磁盘；本轮的落点是
-    「写盘后重新加载时**显式报出来**」，而非「写入时拒绝」。`validate_provider_accounts_and_models`
-    同样是零生产调用点——这是与既有 provider 校验同形的**存量架构缺口**，非本轮引入，
-    也非本需求范围。
+  - **写侧已接通（本轮补）**：`ConfigStore` 的两条持久化路径——typed 的
+    `persist_locked`（`save` / `replace` / `update`）与文档态的 `persist_document_locked`
+    （`update_document` / `replace_document_if_revision` / legacy pricing 清理）——现在都在
+    **写盘之前**执行 `reject_new_fallback_diagnostics`：相对磁盘基线**新增**的坏链诊断会让
+    整个事务失败并返回诊断文本，磁盘保持原样。边界设计：
+    - 只拒绝**新增**诊断。坏链已在盘上时不阻塞无关写入（与 provider 段隔离同哲学，
+      仍走启动警告通道）；修链只会缩小诊断集合，故恒放行。
+    - 校验对象是**序列化后的落盘形态**（`serialize_for_disk` 会剥离 ephemeral 账号，
+      可能使链目标悬空），而非内存态 `Config`。
+    - **刻意不门控** `validate_provider_accounts_and_models`：没有需求要求写盘时拒绝那些
+      状态，且交互式流程会合法地保存中间态的账号/模型（畸形 provider 已由隔离机制覆盖）；
+      接入它属独立的用户可见行为变更，已在 `store.rs` 注释记录边界。
+  - 测试（`store.rs`）：`a_newly_broken_chain_is_rejected_and_never_reaches_the_disk`、
+    `a_valid_chain_persists_normally`、`unrelated_writes_pass_on_chainless_and_prebroken_configs`
+    （无链配置的无关写入零变化 + 盘上既有坏链不阻塞无关写入 + 修链恒放行）。
   - `load_with_diagnostics` 的通道本身**不是**缺陷（它确实可用且已被 CLI 消费）；本轮补的是
     「链校验结果没进这条通道」。
 - **子代理链的覆盖现状（1、2、3 已全部覆盖）**：
