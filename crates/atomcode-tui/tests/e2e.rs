@@ -7167,6 +7167,59 @@ async fn a_compaction_that_could_not_be_written_says_so() {
     task.abort();
 }
 
+/// A compaction the turn outlived stops saying 正在压缩.
+///
+/// `Compacted`/`CompactionFailed` are not the only way a summary ends. When the
+/// runtime reconfigures, the agent goes away, or the turn is cancelled, the
+/// ending arrives as a said line and neither event ever comes — so the turn's
+/// own end is the only fact left to take the row down. `stop_turn` did it for
+/// the person's own stop and nothing else did, which left an idle screen
+/// claiming a summary was being written until the next compaction or a session
+/// switch. Nothing takes `正在压缩` down on its own once the facts stop.
+#[tokio::test]
+async fn a_compaction_the_turn_outlived_stops_saying_it_is_compacting() {
+    let dir = scratch("compact-line-taken-down");
+    let (s, agent) = start_with_agent_events(tree(&dir, &replay(r#"{ text = "ok" }"#), &[])).await;
+    let task = s.open().await;
+    s.quiet().await;
+
+    // From idle, which is the `/compact` case: the row was not up before this.
+    agent
+        .send(atomcode_kernel::event::AgentEvent::CompactionStarted {
+            trigger: atomcode_kernel::message::CompactTrigger::Manual { focus: None },
+        })
+        .expect("the screen is listening");
+    for _ in 0..100 {
+        if part_text(&s, "live").contains("正在压缩") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let live = part_text(&s, "live");
+    assert!(
+        live.contains("正在压缩"),
+        "a summary being written has to say so: {live:?}"
+    );
+
+    // Its own ending never comes — the turn ends instead.
+    agent
+        .send(atomcode_kernel::event::AgentEvent::Cancelled)
+        .expect("the screen is listening");
+    for _ in 0..100 {
+        if !part_text(&s, "live").contains("正在压缩") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let live = part_text(&s, "live");
+    assert!(
+        !live.contains("正在压缩"),
+        "a turn that ended takes the compaction row with it: {live:?}"
+    );
+    task.abort();
+}
+
 /// A resumed session remembers what was typed into it.
 ///
 /// Written to settle a claim rather than to add a feature: the remaining-gaps

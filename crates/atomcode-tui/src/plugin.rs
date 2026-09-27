@@ -4420,6 +4420,12 @@ impl Tui {
                 // A turn just spent some of the allowance, so this is the
                 // moment the figure changed. Rate-limited inside.
                 self.check_allowance();
+                // A summary the turn outlived would leave 正在压缩 up on an idle
+                // screen. An interrupted one arrives as a said line rather than
+                // as `Compacted`/`CompactionFailed`, so the turn's own end is
+                // the only fact left to take the line down. `stop_turn` covers
+                // the person's stop; this covers every other way a turn ends.
+                let _ = self.host.stop_compacting();
                 self.set_activity(Activity::Idle)
             }
             // A summary is being written and the request waits on it. Only the
@@ -4486,6 +4492,12 @@ impl Tui {
                 );
                 if !working {
                     self.set_activity(Activity::Idle);
+                    // An error that has taken the turn down takes the compaction
+                    // line with it: nothing is waiting on that summary any more.
+                    // Gated like the claim above, because not every error ends a
+                    // turn — a cost or persistence warning landing mid-summary
+                    // must not withdraw a line that is still true.
+                    let _ = self.host.stop_compacting();
                 }
                 // 这次收尾自己会把这句话画出来(transcript 的收尾块画 `TurnEnd::error`),
                 // 所以带标记的那条不再说第二遍 —— 同一段文字在同一个视图里出现两次,

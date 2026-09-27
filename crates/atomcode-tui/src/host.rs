@@ -2040,12 +2040,18 @@ impl Host {
     /// A compaction's summary started. Stamps the live strip so it can say
     /// 正在压缩 with a clock on it while the request waits.
     ///
-    /// Not pinned, unlike the recognising line: a compaction moves no content on
-    /// screen, it only changes what the row is waiting for.
+    /// Pinned, like the recognising line, and for the same reason: the live row
+    /// is content of the stream, and this raises it from nothing to the two rows
+    /// ⌜live⌟ draws. That happens mid-turn as well as from idle for a
+    /// `/compact` — `modules::live::doing` says so where it takes the line over
+    /// — and in the idle case the row was not up before, so the height really
+    /// does change. A reader scrolled back has to be moved by it.
     pub fn start_compacting(&self) -> bool {
-        let mut m = self.moment.write().expect("moment poisoned");
-        let now = m.now;
-        m.compacting_since = Some(now);
+        self.pinned(true, || {
+            let mut m = self.moment.write().expect("moment poisoned");
+            let now = m.now;
+            m.compacting_since = Some(now);
+        });
         true
     }
 
@@ -2062,10 +2068,12 @@ impl Host {
         {
             return false;
         }
-        self.moment
-            .write()
-            .expect("moment poisoned")
-            .compacting_since = None;
+        self.pinned(true, || {
+            self.moment
+                .write()
+                .expect("moment poisoned")
+                .compacting_since = None;
+        });
         true
     }
 
@@ -9005,6 +9013,57 @@ mod tests {
             lines_of(&grown, "stream"),
             rows_at_rest,
             "and the rows under the eyes are the ones that were there"
+        );
+    }
+
+    /// What `modules::live` asks for while its row is up: the blank row above
+    /// and the words (`ROWS` there, which is private to that module).
+    const ROWS_OF_THE_LIVE_LINE: u16 = 2;
+
+    #[test]
+    fn the_compaction_line_is_pinned_like_the_recognising_one() {
+        // The live row rides the stream, so it *is* height — and a `/compact`
+        // takes the row over from idle (`modules::live::doing`), where it was
+        // not up at all. That is the case a "a compaction moves no content"
+        // reading misses: mid-turn the row is already there, from idle it is
+        // not. Two rows are still two rows, and unpinned they slide the
+        // conversation down under a reader who is scrolled back.
+        let h = host_with_the_shipped_tail();
+        let size = (80, 24);
+        fed_and_scrollable(&h);
+        h.moment.write().unwrap().scroll = crate::moment::ScrollPos::BOTTOM;
+        let _ = h.compose(size);
+
+        // The instrument first: with the line up the tail really is taller, so
+        // what follows is a claim about a move that happened. Were it not, this
+        // says so rather than passing on nothing.
+        let down = h.stream_height(size, &h.moment.read().unwrap().clone());
+        let _ = h.start_compacting();
+        let up = h.stream_height(size, &h.moment.read().unwrap().clone());
+        assert_eq!(
+            up,
+            down + ROWS_OF_THE_LIVE_LINE as usize,
+            "the compaction line does not change the sum, so nothing here is being judged"
+        );
+        let _ = h.stop_compacting();
+
+        // Now the claim. The scroll is measured from the bottom of the pane, so
+        // the two new rows have to be added to it.
+        h.moment.write().unwrap().scroll = crate::moment::ScrollPos(5);
+        let _ = h.compose(size);
+        let _ = h.start_compacting();
+        assert_eq!(
+            h.moment.read().unwrap().scroll.0,
+            5 + ROWS_OF_THE_LIVE_LINE as usize,
+            "the compaction line came up and the reading was not moved to match"
+        );
+
+        // And back the other way, the half a one-directional pin misses.
+        let _ = h.stop_compacting();
+        assert_eq!(
+            h.moment.read().unwrap().scroll.0,
+            5,
+            "the line went away and the reading was left where it was"
         );
     }
 
