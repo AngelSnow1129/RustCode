@@ -439,6 +439,15 @@ fn next_path(s: &str) -> Option<(usize, usize)> {
     None
 }
 
+/// Whether the byte offset `at` in `text` sits inside a bare URL.
+///
+/// An emphasis marker inside a link (`atomgit_atomcode` in a merge-request
+/// address) is part of the address, not the prose around it — styling it as
+/// italics would eat the underscores out of the very URL a person must copy.
+fn in_bare_url(text: &str, at: usize) -> bool {
+    next_url(text).is_some_and(|(start, len)| start <= at && at < start + len)
+}
+
 /// The first bare openable URL in `s`, as `(byte offset, byte length)`.
 ///
 /// A URL runs from its scheme to the first whitespace or control char, then has
@@ -512,6 +521,13 @@ fn inline(text: &str, base: Style) -> Vec<Span> {
     let mut out: Vec<Span> = Vec::new();
     let mut buf = String::new();
     let chars: Vec<char> = text.chars().collect();
+    // Char index → byte offset, for the URL-span tests below.
+    let offsets: Vec<usize> = std::iter::once(0usize)
+        .chain(chars.iter().scan(0usize, |acc, c| {
+            *acc += c.len_utf8();
+            Some(*acc)
+        }))
+        .collect();
     let mut i = 0usize;
 
     let flush = |buf: &mut String, out: &mut Vec<Span>| {
@@ -535,7 +551,11 @@ fn inline(text: &str, base: Style) -> Vec<Span> {
                     continue;
                 }
             }
-            '*' | '_' if i + 1 < chars.len() && chars[i + 1] == chars[i] => {
+            '*' | '_'
+                if i + 1 < chars.len()
+                    && chars[i + 1] == chars[i]
+                    && !in_bare_url(text, offsets[i]) =>
+            {
                 let marker = chars[i];
                 if let Some(end) = find_pair(&chars, i + 2, marker) {
                     flush(&mut buf, &mut out);
@@ -545,7 +565,7 @@ fn inline(text: &str, base: Style) -> Vec<Span> {
                     continue;
                 }
             }
-            '*' | '_' => {
+            '*' | '_' if !in_bare_url(text, offsets[i]) => {
                 let marker = chars[i];
                 if let Some(end) = find(&chars, i + 1, marker) {
                     if end > i + 1 {
@@ -1218,6 +1238,26 @@ mod tests {
         let spans = spans_of("the scheme is https:// e.g. https://real.example/x", 200);
         let links: Vec<&str> = spans.iter().filter_map(|s| s.link.as_deref()).collect();
         assert_eq!(links, ["https://real.example/x"], "{spans:?}");
+    }
+
+    #[test]
+    fn underscores_in_a_bare_url_stay_in_the_address() {
+        // `atomgit_atomcode/merge_requests` — the underscores are part of the
+        // URL a person must copy, not italics in the prose around it. Pairs of
+        // them must not vanish into a bold run either.
+        let url = "https://gitcode.com/atomgit_atomcode/atomcode/merge_requests/new?source_branch=release/v5.2.0";
+        let spans = spans_of(&format!("如需建 MR:{url}"), 200);
+        let link = spans
+            .iter()
+            .find(|s| s.link.is_some())
+            .expect("a linked run");
+        assert_eq!(link.text, url, "whole address, underscores included");
+        assert_eq!(link.link.as_deref(), Some(url));
+        // And no italic/bold span swallowed a piece of it.
+        assert!(
+            spans.iter().all(|s| !s.style.italic && !s.style.bold),
+            "the URL is not a style boundary: {spans:?}"
+        );
     }
 
     #[test]
