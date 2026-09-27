@@ -1055,6 +1055,60 @@ async fn a_synthetic_message_runs_a_turn_without_becoming_something_the_user_sai
     );
 }
 
+/// A job this conversation started elsewhere reports back: it runs a turn like
+/// anything else that wakes the agent, and the log says WHOSE words they are —
+/// the session that sent them, never the person.
+///
+/// The provenance is the whole point of the command: the same words sent as a
+/// `SendMessage` would be read, replayed and obeyed as something the user said,
+/// which is what a driver writing `deliver_home` used to do.
+#[tokio::test]
+async fn a_note_from_another_session_is_logged_as_that_sessions_and_runs_a_turn() {
+    let dir = scratch("peer-note");
+    let app = start(tree(&dir, &replay(r#"{ text = "Noted." }"#), &[])).await;
+    let mut handle = handle_of(&app);
+
+    handle
+        .commands
+        .send(AgentCommand::PeerNote {
+            from: "bg-7".into(),
+            text: "the review came back".into(),
+        })
+        .unwrap();
+    let events = drain_turn(&mut handle).await;
+    assert_eq!(text_of(&events), "Noted.", "it really ran a turn");
+
+    let log = app.context().only_session().unwrap();
+    let logged = log.events();
+    assert!(
+        logged.iter().any(|e| matches!(
+            &e.event,
+            atomcode_harness::session::SessionEvent::Injected {
+                text,
+                origin: atomcode_harness::session::InjectionOrigin::Peer { from, outside },
+                ..
+            } if text == "the review came back" && from == "bg-7" && *outside
+        )),
+        "the note is logged as the sending session's, named by session id"
+    );
+    assert!(
+        !logged.iter().any(|e| matches!(
+            &e.event,
+            atomcode_harness::session::SessionEvent::UserMessage { text, .. }
+                if text == "the review came back"
+        )),
+        "and never as something the person typed"
+    );
+    // Still model-visible, and framed as another session's word rather than the
+    // person's: hiding it would leave the turn it woke with nothing to answer.
+    assert!(
+        log.derive_messages()
+            .iter()
+            .any(|m| m.text.contains("the review came back") && m.text.contains("bg-7")),
+        "a peer note reaches the model, and says who sent it"
+    );
+}
+
 // ---- one conversation ---------------------------------------------------
 
 #[tokio::test]

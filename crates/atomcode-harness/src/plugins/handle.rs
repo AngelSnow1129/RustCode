@@ -496,7 +496,7 @@ impl Projector {
                 vec![AgentEvent::ContextAdded {
                     text: text.clone(),
                     source: match origin {
-                        In::Peer { from } => Out::Peer { from: from.clone() },
+                        In::Peer { from, .. } => Out::Peer { from: from.clone() },
                         In::Memory => Out::Memory,
                         In::Reminder => Out::Reminder,
                         In::Continuation => Out::Continuation,
@@ -1473,6 +1473,18 @@ async fn pump(
             }
             AgentCommand::SendSyntheticMessage { text } => {
                 agent.send_receipted(text, MessageOrigin::Harness, Vec::new(), receipt.clone());
+            }
+            // A job this conversation started elsewhere, reporting back. It wakes
+            // like any other message and is logged as the sender's — the person
+            // never said it, and a transcript that cannot tell the two apart shows
+            // them saying things they never said.
+            AgentCommand::PeerNote { from, text } => {
+                agent.send_receipted(
+                    text,
+                    MessageOrigin::PeerSession(from),
+                    Vec::new(),
+                    receipt.clone(),
+                );
             }
             AgentCommand::Respond { id, value } => {
                 if asker.answer(id, value) {

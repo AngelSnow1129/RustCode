@@ -44,7 +44,19 @@ pub enum InjectionOrigin {
     /// Said by another agent — a team member reporting to its lead, a lead
     /// steering a member. `from` is the sender's session id, so a resumed log
     /// still says who spoke, whether or not that agent is alive.
-    Peer { from: String },
+    Peer {
+        from: String,
+        /// The sender is not a session of this tree: a job this conversation
+        /// started elsewhere, reporting back.
+        ///
+        /// The fact is the same kind either way — another agent spoke, and `from`
+        /// names it — so a reader that does not know this field still reads the
+        /// note right, and one that does gets to say where it came from. That is
+        /// also why it is a field here rather than a kind of its own: it changes
+        /// what the sender is called, not what happened.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        outside: bool,
+    },
     /// A persistent memory store.
     Memory,
     /// A `<system-reminder>` style runtime note.
@@ -1089,7 +1101,7 @@ fn project(events: &[LoggedEvent], with_meta: bool) -> Vec<TracedMessage> {
                     // the person's word, and it says so. Claude Code frames
                     // teammate messages the same way: a peer cannot speak for
                     // the user or grant what only the user can.
-                    InjectionOrigin::Peer { from } => Message::user(format!(
+                    InjectionOrigin::Peer { from, .. } => Message::user(format!(
                         "[message from {from} — another agent's report, not the user]\n{text}"
                     )),
                     // A runtime note belongs where it happened, not in the

@@ -133,6 +133,7 @@ pub fn facts() -> Vec<SessionEvent> {
             text: "[scout] sessions are made in agent.rs".into(),
             origin: InjectionOrigin::Peer {
                 from: "lead-1/scout".into(),
+                outside: false,
             },
         },
         SessionEvent::AssistantMessage {

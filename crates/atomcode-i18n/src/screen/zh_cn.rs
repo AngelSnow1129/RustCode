@@ -200,6 +200,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::TranscriptShortened { count } => {
             format!("模型看到的 {count} 处工具输出被就地换短了;这里显示的仍是原文").into()
         }
+        Msg::InjectedFromBackground => "来自后台".into(),
         Msg::TranscriptDropped { through } => {
             format!("到 #{through} 为止的工具结果没有再发给模型").into()
         }
@@ -319,12 +320,18 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::SavedTo { path } => format!("存到 {path}").into(),
         Msg::SaveWouldOverwrite { path } => format!("{path} 已经在那儿了,而且不是 .md —— 换个名字,或者自己先删掉").into(),
         Msg::SaveFailed { error } => format!("存不下:{error}").into(),
-        Msg::AllowanceNear { label, percent } => format!("{label}额度已用 {percent}%").into(),
+        // 与经典界面同一句话(`atomcode-tuix` 的 `usage_monitor`):同一个人在两边看到
+        // 的是同一个数字、同一个窗口、同一个恢复时刻。
+        Msg::AllowanceNear { label, percent } =>
+            format!("Token使用量 {percent}%，{label}滚动窗口").into(),
         Msg::AllowanceNearWithReset {
             label,
             percent,
-            resets_in,
-        } => format!("{label}额度已用 {percent}% · {resets_in}后恢复").into(),
+            resets_at,
+        } => format!("Token使用量 {percent}%，{label}滚动窗口 重置于 {resets_at}").into(),
+        Msg::AllowanceExhaustedOpenRouter { label } => {
+            format!("{label}额度已用尽 —— 输入 /openrouter 一键接入 OpenRouter 免费模型").into()
+        }
         Msg::ViewWhichFile => "要看哪个文件?`/view 路径`".into(),
         Msg::ViewNotText { path } => format!("{path} 不是文本文件").into(),
         Msg::ViewTooBig { mb } => format!("只读了开头 {mb} MB").into(),
@@ -393,10 +400,10 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::BgWaitingTip { slot, title } => format!("后台 [{slot}] {title} 在等你回答 · /bg {slot} 打开").into(),
         Msg::BgSlotsFull { most } => format!("后台已经放了 {most} 个会话,先丢掉一个(/bg drop <N>)").into(),
 
-        Msg::BackgroundResult { title, answer } => format!(
-            "后台「{title}」的结果回来了:\n\n{answer}\n\n逐条核实一遍,把该改的列出来;拿不准的指出来。"
-        )
-        .into(),
+        // 只交内容,不交指令:那句"逐条核实一遍…"是替那段对话里的人做的决定,而且是以
+        // 人的口吻说出来的。要不要接着核实,由那段对话自己看上下文决定。
+        Msg::BackgroundResult { title, answer } =>
+            format!("后台「{title}」的结果回来了:\n\n{answer}").into(),
 
         // ── reasoning effort, undo and rewind (`commands.rs`) ──
         Msg::EffortAbout => "这个会话的思考强度".into(),

@@ -510,8 +510,9 @@ impl Background {
 
     /// 一个 runtime 的事件到了。
     fn arrived(&self, id: u64, event: AgentEvent, changed: bool) {
-        // 替别的会话干活的那个,干完了把结果投回去 —— 内容落在发起它的那段对话里,
-        // 模型接着逐条核实。这是"结果回来了"在那段对话里的形状。
+        // 替别的会话干活的那个,干完了把结果投回去 —— 内容落在发起它的那段对话里。
+        // 这是"结果回来了"在那段对话里的形状。**只投内容**:要不要接着逐条核实,是那段
+        // 对话看了上下文自己决定的事,不由这里替它下令。
         if let AgentEvent::TurnComplete { reason, .. } = &event {
             if ended_state(reason) == BackgroundState::Done {
                 self.deliver_home(id);
@@ -540,9 +541,10 @@ impl Background {
     ///
     /// 投的是**内容**而不是一句通知。发起时说的是"结果回来后我会逐条核实",而那次
     /// 核实要真发生,就得让那段对话拿到结果 —— "去 /bg 读"是把这件事留给了一个人。
+    /// 指令不跟着投:核实与否由那段对话自己定(`Msg::BackgroundResult`)。
     fn deliver_home(&self, id: u64) {
         use atomcode_i18n::screen::{t as tr, Msg as SMsg};
-        let (origin, frame) = {
+        let (origin, sender, frame) = {
             let state = self.state.lock().expect("background poisoned");
             let Some(live) = state.slots.iter().find(|slot| slot.id == id) else {
                 return;
@@ -565,7 +567,7 @@ impl Background {
                 answer: &answer,
             })
             .into_owned();
-            (live.origin.clone(), frame)
+            (live.origin.clone(), live.control.session_id(), frame)
         };
         // 发起它的那个会话可能已经被丢了、或被换掉了:那就不投 —— 面板里还有它。
         let handle = {
@@ -582,7 +584,9 @@ impl Background {
         };
         let Some(handle) = handle else { return };
         tokio::spawn(async move {
-            let _ = handle.submit(UserInput::from(frame)).await;
+            // 一条注,不是一次用户提交:日志里说话的是那个后台会话,不是人。屏上的内容
+            // 一字不少 —— 变的只是**谁说的**。
+            let _ = handle.note(sender, frame).await;
         });
     }
 

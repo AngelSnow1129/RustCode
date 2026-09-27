@@ -529,17 +529,16 @@ fn allowance_badge(left: &crate::moment::Allowance) -> Option<String> {
     if left.percent < ALLOWANCE_NEAR {
         return None;
     }
-    // The countdown only when there is one: a window with nothing waiting
-    // would otherwise read as "comes back in 0 seconds", which is the opposite
-    // of what it means.
-    let back = (left.resets_in_seconds > 0)
-        .then(|| crate::text::spoken_duration(left.resets_in_seconds as u64));
+    // When it comes back, and only when the host said: a window with nothing
+    // waiting would otherwise read as "comes back in 0 seconds", which is the
+    // opposite of what it means.
+    let back = (!left.resets_at.is_empty()).then_some(left.resets_at.as_str());
     Some(
         match back {
-            Some(back) => t(Msg::AllowanceNearWithReset {
+            Some(at) => t(Msg::AllowanceNearWithReset {
                 label: &left.label,
                 percent: left.percent,
-                resets_in: &back,
+                resets_at: at,
             }),
             None => t(Msg::AllowanceNear {
                 label: &left.label,
@@ -760,33 +759,98 @@ mod tests {
     /// would stop meaning anything when it mattered.
     #[test]
     fn the_allowance_is_only_said_once_it_is_worth_saying() {
-        let left = |percent, resets| crate::moment::Allowance {
+        let left = |percent, resets_at: &str| crate::moment::Allowance {
             label: "5 小时".into(),
             percent,
-            resets_in_seconds: resets,
+            resets_at: resets_at.into(),
         };
-        assert_eq!(allowance_badge(&left(0, 0)), None, "fresh: nothing to say");
+        assert_eq!(allowance_badge(&left(0, "")), None, "fresh: nothing to say");
         assert_eq!(
-            allowance_badge(&left(ALLOWANCE_NEAR - 1, 0)),
+            allowance_badge(&left(ALLOWANCE_NEAR - 1, "")),
             None,
             "one short of the step is still nothing to say"
         );
 
-        let near = allowance_badge(&left(ALLOWANCE_NEAR, 0)).expect("at the step it speaks");
+        let near = allowance_badge(&left(ALLOWANCE_NEAR, "")).expect("at the step it speaks");
         assert!(near.contains("80"), "it says how much: {near}");
         assert!(near.contains("5 小时"), "and which window: {near}");
+        assert_eq!(
+            near, "Token使用量 80%，5 小时滚动窗口",
+            "the same sentence the classic screen says, word for word"
+        );
 
-        // With a reset to report it says when it comes back; without one it
-        // must not, or it reads as "back in 0 seconds".
-        let waiting = allowance_badge(&left(90, 3600)).expect("speaks");
+        // With a reset to report it says when it comes back; without one it must
+        // not, or it reads as "back in 0 seconds".
+        let waiting = allowance_badge(&left(90, "19:41")).expect("speaks");
         assert!(
-            waiting.len() > near.len() && waiting.contains("90"),
+            waiting.contains("90") && waiting.contains("19:41"),
             "it adds when the window comes back: {waiting}"
         );
 
         // Spent is still said — it is the one figure that changes what happens
         // next. The colour is the row's business; the words are the same.
-        assert!(allowance_badge(&left(100, 60)).is_some());
+        assert!(allowance_badge(&left(100, "19:41")).is_some());
+    }
+
+    /// Which window the "out of quota" line names, and that a window nobody put
+    /// a number on is not one: saying it was would send somebody looking for a
+    /// wall they have not hit.
+    #[test]
+    fn the_window_that_is_spent_is_the_one_that_reports_it() {
+        use atomcode_host_api::UsageWindow;
+        let window = |label: &str, exhausted: bool, percent: Option<u8>| UsageWindow {
+            label: label.into(),
+            exhausted,
+            resets_at: String::new(),
+            resets_in_seconds: 60,
+            window_seconds: 0,
+            used_percent: percent,
+            calls_used: None,
+            call_limit: None,
+        };
+        let spent = |w: Option<&UsageWindow>| w.map(|w| w.label.clone());
+
+        assert_eq!(
+            spent(crate::moment::Allowance::exhausted(&[window(
+                "5 小时",
+                false,
+                Some(99)
+            )])),
+            None,
+            "one short of spent is not spent"
+        );
+        // The flag is the host's own word for it, and it counts even when the
+        // percentage is missing.
+        assert_eq!(
+            spent(crate::moment::Allowance::exhausted(&[window(
+                "每周", true, None
+            )])),
+            Some("每周".into())
+        );
+        assert_eq!(
+            spent(crate::moment::Allowance::exhausted(&[window(
+                "5 小时",
+                false,
+                Some(100)
+            )])),
+            Some("5 小时".into()),
+            "a host that reports 100% without flagging it has still run out"
+        );
+        // Two of them: the one deeper into its window is the one that matters.
+        assert_eq!(
+            spent(crate::moment::Allowance::exhausted(&[
+                window("每周", true, Some(0)),
+                window("5 小时", true, Some(100)),
+            ])),
+            Some("5 小时".into())
+        );
+        assert_eq!(
+            spent(crate::moment::Allowance::exhausted(&[window(
+                "每日", false, None
+            )])),
+            None,
+            "no flag, no number: nothing to say"
+        );
     }
 
     /// Which of several windows the row talks about: the one that will stop the

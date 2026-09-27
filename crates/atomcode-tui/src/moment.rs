@@ -276,8 +276,10 @@ pub struct Allowance {
     pub label: String,
     /// Whole percent spent, 0..=100.
     pub percent: u8,
-    /// Seconds until it comes back. `0` when nothing is waiting.
-    pub resets_in_seconds: i64,
+    /// When it comes back, in the host's own words — "19:41". Empty when the
+    /// host did not say, and the row then says nothing about when either rather
+    /// than counting down to nothing.
+    pub resets_at: String,
 }
 
 impl Allowance {
@@ -295,8 +297,23 @@ impl Allowance {
             .map(|(w, percent)| Self {
                 label: w.label.clone(),
                 percent: percent.min(100),
-                resets_in_seconds: w.resets_in_seconds,
+                resets_at: w.resets_at.clone(),
             })
+    }
+
+    /// The window that has actually run out, out of what the host answered.
+    ///
+    /// The host's own flag first; a percentage of 100 is the fallback, for a host
+    /// that reports a spent window without flagging it. Neither ⇒ nothing: a
+    /// window nobody could put a number on is not an exhausted one, and saying it
+    /// was would send somebody looking for a wall they have not hit.
+    pub fn exhausted(
+        windows: &[atomcode_host_api::UsageWindow],
+    ) -> Option<&atomcode_host_api::UsageWindow> {
+        windows
+            .iter()
+            .filter(|w| w.exhausted || w.used_percent.is_some_and(|percent| percent >= 100))
+            .max_by_key(|w| w.used_percent.unwrap_or(100))
     }
 }
 

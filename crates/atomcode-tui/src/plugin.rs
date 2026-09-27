@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashSet};
 /// A name rather than a tuple in the field: three anonymous parts, two of them
 /// numbers, is a type whose meaning lives in a comment somewhere else.
 type ClickStreak = (std::time::Instant, (u16, u16), u8);
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -918,6 +918,10 @@ pub struct Tui {
     /// When the allowance was last asked about, so it is not asked again for
     /// [`ALLOWANCE_EVERY`]. `None` until the first turn ends.
     allowance_checked: Mutex<Option<std::time::Instant>>,
+    /// Whether the "out of quota — here is `/openrouter`" line has been said.
+    /// Once per screen: the account stays out until the window turns over, and a
+    /// line that came back every turn would be one more thing to read past.
+    allowance_nudged: Arc<AtomicBool>,
     /// Whether this project's older sessions have been folded into the history
     /// yet. Once per screen.
     history_asked: Mutex<bool>,
@@ -3626,6 +3630,7 @@ impl Tui {
         };
         let session = self.client.session();
         let host = self.host.clone();
+        let nudged = self.allowance_nudged.clone();
         let repaint = ctx.service::<RepaintSvc>();
         tokio::spawn(async move {
             // The cheap form — the windows and nothing else. The plan behind
@@ -3643,6 +3648,24 @@ impl Tui {
                 // it on a failed question would read as "you are back to zero".
                 _ => return,
             };
+            // Out of quota: the alternative is a command most people do not know
+            // exists, and the other front end says the same thing on the same
+            // condition (`atomcode-tuix`'s `openrouter_connect::quota_exhausted`).
+            // Once per screen — the account stays out until the window turns
+            // over, and the row keeps carrying the figure meanwhile.
+            let mut said = false;
+            if let Some(spent) = crate::moment::Allowance::exhausted(&windows) {
+                if !nudged.swap(true, Ordering::SeqCst) {
+                    host.say(
+                        t(Msg::AllowanceExhaustedOpenRouter {
+                            label: &spent.label,
+                        })
+                        .into_owned(),
+                        false,
+                    );
+                    said = true;
+                }
+            }
             let nearest = crate::moment::Allowance::nearest(&windows);
             let changed = {
                 let mut m = host.moment.write().expect("moment poisoned");
@@ -3650,7 +3673,7 @@ impl Tui {
                 m.allowance = nearest;
                 changed
             };
-            if changed {
+            if changed || said {
                 if let Some(repaint) = repaint {
                     repaint.now();
                 }
@@ -6717,6 +6740,7 @@ pub fn assemble(surface: Arc<dyn Surface>) -> (Arc<Host>, Tui) {
             ctx: Mutex::new(None),
             wake: Mutex::new(None),
             allowance_checked: Mutex::new(None),
+            allowance_nudged: Arc::new(AtomicBool::new(false)),
             history_asked: Mutex::new(false),
             files: Mutex::new(None),
             pressed_at: Mutex::new(None),

@@ -1596,6 +1596,32 @@ impl RunningAgent {
                         break;
                     }
                 }
+                // A session outside this tree reporting back. Same path as a
+                // synthetic prompt — this engine cannot name the sender, and the
+                // harness, which can, is where the sender is logged.
+                AgentCommand::PeerNote { text, .. } => {
+                    let shutdown = self
+                        .process_send_message(
+                            &mut convo,
+                            &mut cmd_rx,
+                            &mut pending,
+                            &mut tool_loop_state,
+                            PromptKind::Synthetic,
+                            text,
+                            Vec::new(),
+                            None,
+                        )
+                        .await;
+                    if shutdown {
+                        break;
+                    }
+                    if self
+                        .drain_pending(&mut convo, &mut cmd_rx, &mut pending, &mut tool_loop_state)
+                        .await
+                    {
+                        break;
+                    }
+                }
             }
         }
         self.hooks.session_end(&convo).await;
@@ -1735,6 +1761,11 @@ impl RunningAgent {
                     Some(c @ AgentCommand::SendSyntheticMessage { .. }) => {
                         pending.push_back(c);
                     }
+                    // A note from outside is queued for the same reason: it is its
+                    // own turn, not something to fold into this one.
+                    Some(c @ AgentCommand::PeerNote { .. }) => {
+                        pending.push_back(c);
+                    }
                     // Context-bearing real input must remain one atomic future turn;
                     // steering only carries text/images and would silently discard its
                     // recovery context. Queue it at the next turn boundary instead.
@@ -1848,6 +1879,23 @@ impl RunningAgent {
                     }
                 }
                 AgentCommand::SendSyntheticMessage { text } => {
+                    if self
+                        .process_send_message(
+                            convo,
+                            cmd_rx,
+                            pending,
+                            tool_loop_state,
+                            PromptKind::Synthetic,
+                            text,
+                            Vec::new(),
+                            None,
+                        )
+                        .await
+                    {
+                        return true;
+                    }
+                }
+                AgentCommand::PeerNote { text, .. } => {
                     if self
                         .process_send_message(
                             convo,

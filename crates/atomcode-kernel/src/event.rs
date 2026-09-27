@@ -190,6 +190,17 @@ pub enum AgentCommand {
     SendSyntheticMessage {
         text: String,
     },
+    /// A note from a session this tree does not hold — a job this conversation
+    /// started elsewhere, reporting back.
+    ///
+    /// This engine runs it as a synthetic prompt, because a prompt is what it is,
+    /// and it has no registry to name the sender with. The assembly that knows
+    /// about senders does: the harness logs it as `from`'s note rather than as
+    /// the person's words, which is the difference the log exists to keep.
+    PeerNote {
+        from: String,
+        text: String,
+    },
     /// Answer a pending AgentEvent::Request, correlated by id.
     Respond {
         id: RequestId,

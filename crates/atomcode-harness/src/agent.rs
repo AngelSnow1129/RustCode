@@ -344,7 +344,7 @@ pub use atomcode_kernel::agent::{AgentDescription, AgentStatus};
 /// work — it wakes an idle agent exactly like a typed message does. What it is
 /// not is something the user said, and a transcript that cannot tell the two
 /// apart shows the user saying things they never said.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum MessageOrigin {
     /// A person, or whatever is standing in for one.
     #[default]
@@ -359,6 +359,15 @@ pub enum MessageOrigin {
     Internal,
     /// Another agent, by registry id. Logged with the sender's session id.
     Peer(AgentId),
+    /// Another session, by its own session id — one this tree's registry has
+    /// never held: a job this conversation started elsewhere, reporting back.
+    ///
+    /// [`MessageOrigin::Peer`] cannot say it: that one carries a registry id,
+    /// which is resolved to a session id at the moment it is logged, so an id
+    /// from outside the registry would be written down as nobody. The log's own
+    /// fact is the same either way — `InjectionOrigin::Peer { from }` — because
+    /// it has always been keyed by session id rather than by registry id.
+    PeerSession(String),
 }
 
 /// One item waiting for an agent.
@@ -893,14 +902,37 @@ impl Agent {
             };
             stood.messages += 1;
             stood.receipts.extend(receipt);
-            if let MessageOrigin::Peer(sender) = origin {
-                let from = self
-                    .ctx
-                    .service::<crate::seams::AgentsSvc>()
-                    .and_then(|agents| agents.get(sender))
-                    .map(|agent| agent.session_id().to_string())
-                    .unwrap_or_else(|| format!("agent-{sender}"));
-                self.note(text, InjectionOrigin::Peer { from });
+            // A peer's report is kept, as a note for the next turn rather than a
+            // reason to start one: it is information the person did not write and
+            // has not seen. A job reporting from outside this tree is the same
+            // thing by that measure — and a stop is exactly when nobody is
+            // watching for it, so dropping it here loses it for good.
+            match origin {
+                MessageOrigin::Peer(sender) => {
+                    let from = self
+                        .ctx
+                        .service::<crate::seams::AgentsSvc>()
+                        .and_then(|agents| agents.get(sender))
+                        .map(|agent| agent.session_id().to_string())
+                        .unwrap_or_else(|| format!("agent-{sender}"));
+                    self.note(
+                        text,
+                        InjectionOrigin::Peer {
+                            from,
+                            outside: false,
+                        },
+                    );
+                }
+                MessageOrigin::PeerSession(from) => {
+                    self.note(
+                        text,
+                        InjectionOrigin::Peer {
+                            from,
+                            outside: true,
+                        },
+                    );
+                }
+                _ => {}
             }
         }
         stood

@@ -598,7 +598,7 @@ fn from_lead_in(event: &SessionEvent, turn: u64, lead_session: &str) -> bool {
         event,
         SessionEvent::Injected {
             turn: t,
-            origin: crate::session::InjectionOrigin::Peer { from },
+            origin: crate::session::InjectionOrigin::Peer { from, .. },
             ..
         } if *t == turn && from == lead_session
     )

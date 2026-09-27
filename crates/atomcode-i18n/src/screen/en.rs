@@ -229,6 +229,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::TranscriptShortened { count } => {
             format!("{count} tool outputs were shortened for the model; what is shown here is still the original").into()
         }
+        Msg::InjectedFromBackground => "from the background".into(),
         Msg::TranscriptDropped { through } => {
             format!("tool results through #{through} are no longer sent to the model").into()
         }
@@ -350,12 +351,19 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::SavedTo { path } => format!("saved to {path}").into(),
         Msg::SaveWouldOverwrite { path } => format!("{path} already exists and is not a .md — pick another name, or remove it first").into(),
         Msg::SaveFailed { error } => format!("could not save: {error}").into(),
-        Msg::AllowanceNear { label, percent } => format!("{label} {percent}% used").into(),
+        // The same sentence the other front end says (`atomcode-tuix`'s
+        // `usage_monitor`): one person on two screens reads one number, one
+        // window and one reset time.
+        Msg::AllowanceNear { label, percent } =>
+            format!("{percent}% of the {label} window used").into(),
         Msg::AllowanceNearWithReset {
             label,
             percent,
-            resets_in,
-        } => format!("{label} {percent}% used · back in {resets_in}").into(),
+            resets_at,
+        } => format!("{percent}% of the {label} window used  resets at {resets_at}").into(),
+        Msg::AllowanceExhaustedOpenRouter { label } => {
+            format!("{label} allowance used up — type /openrouter to connect OpenRouter's free models").into()
+        }
         Msg::ViewWhichFile => "which file? `/view <path>`".into(),
         Msg::ViewNotText { path } => format!("{path} is not a text file").into(),
         Msg::ViewTooBig { mb } => format!("first {mb} MB").into(),
@@ -430,10 +438,11 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::BgWaitingTip { slot, title } => format!("background [{slot}] {title} is waiting for your answer · /bg {slot} opens it").into(),
         Msg::BgSlotsFull { most } => format!("{most} sessions are already in the background — drop one first (/bg drop <N>)").into(),
 
-        Msg::BackgroundResult { title, answer } => format!(
-            "“{title}” is back from the background. Its result:\n\n{answer}\n\nGo through it item by item, list what needs changing, and flag anything you are unsure about."
-        )
-        .into(),
+        // Content only, no instruction: the sentence that used to follow was a
+        // decision made on the conversation's behalf, spoken in the person's own
+        // voice. Whether to go through it now is that conversation's to make.
+        Msg::BackgroundResult { title, answer } =>
+            format!("“{title}” is back from the background. Its result:\n\n{answer}").into(),
 
         // ── reasoning effort, undo and rewind (`commands.rs`) ──
         Msg::EffortAbout => "this session's reasoning effort".into(),

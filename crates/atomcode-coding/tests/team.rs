@@ -105,7 +105,7 @@ fn peers(agent: &Agent) -> Vec<(String, String)> {
         .filter_map(|e| match e.event {
             SessionEvent::Injected {
                 text,
-                origin: InjectionOrigin::Peer { from },
+                origin: InjectionOrigin::Peer { from, .. },
                 ..
             } => Some((from, text)),
             _ => None,

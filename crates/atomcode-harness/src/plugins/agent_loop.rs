@@ -417,7 +417,7 @@ impl PluginAgentLoop {
                 _ => None,
             };
             let folded = match (&claimed.message, step > 0) {
-                (Some(text), true) => Some((text.clone(), claimed.origin)),
+                (Some(text), true) => Some((text.clone(), claimed.origin.clone())),
                 _ => None,
             };
             let mut decision = StepDecision {
@@ -455,14 +455,34 @@ impl PluginAgentLoop {
                 for (context, from) in std::mem::take(&mut decision.injections) {
                     agent.note(context, from);
                 }
-                if let MessageOrigin::Peer(sender) = origin {
-                    let from = self
-                        .ctx
-                        .service::<crate::seams::AgentsSvc>()
-                        .and_then(|a| a.get(*sender))
-                        .map(|a| a.session_id().to_string())
-                        .unwrap_or_else(|| format!("agent-{sender}"));
-                    agent.note(text.clone(), InjectionOrigin::Peer { from });
+                match origin {
+                    MessageOrigin::Peer(sender) => {
+                        let from = self
+                            .ctx
+                            .service::<crate::seams::AgentsSvc>()
+                            .and_then(|a| a.get(*sender))
+                            .map(|a| a.session_id().to_string())
+                            .unwrap_or_else(|| format!("agent-{sender}"));
+                        agent.note(
+                            text.clone(),
+                            InjectionOrigin::Peer {
+                                from,
+                                outside: false,
+                            },
+                        );
+                    }
+                    // The same rule for a report from outside this tree: a stop
+                    // must not be the thing that loses the result.
+                    MessageOrigin::PeerSession(from) => {
+                        agent.note(
+                            text.clone(),
+                            InjectionOrigin::Peer {
+                                from: from.clone(),
+                                outside: true,
+                            },
+                        );
+                    }
+                    _ => {}
                 }
                 outcome.stop = StopReason::Cancelled;
                 break;
@@ -554,6 +574,19 @@ impl PluginAgentLoop {
                                 .and_then(|a| a.get(sender))
                                 .map(|a| a.session_id().to_string())
                                 .unwrap_or_else(|| format!("agent-{sender}")),
+                            outside: false,
+                        },
+                    },
+                    // A sender from outside the registry, already named by its
+                    // session id — nothing to resolve, and the same fact either
+                    // way: the log says which session spoke, not which slot it
+                    // held in a tree that may be gone by the time this is read.
+                    MessageOrigin::PeerSession(from) => SessionEvent::Injected {
+                        turn,
+                        text: text.clone(),
+                        origin: InjectionOrigin::Peer {
+                            from,
+                            outside: true,
                         },
                     },
                 };

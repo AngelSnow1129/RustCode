@@ -322,6 +322,9 @@ pub enum Msg<'a> {
     TranscriptShortened {
         count: usize,
     },
+    /// The chip on an injected block: another session — one this tree has never
+    /// held — reporting back (`modules/transcript.rs`).
+    InjectedFromBackground,
     TranscriptDropped {
         through: u64,
     },
@@ -491,7 +494,12 @@ pub enum Msg<'a> {
     AllowanceNearWithReset {
         label: &'a str,
         percent: u8,
-        resets_in: &'a str,
+        resets_at: &'a str,
+    },
+    /// Said once, when a window is actually spent: where model access can come
+    /// from instead, and the command that gets it.
+    AllowanceExhaustedOpenRouter {
+        label: &'a str,
     },
     ViewWhichFile,
     ViewNotText {
@@ -619,8 +627,9 @@ pub enum Msg<'a> {
         slot: usize,
         title: &'a str,
     },
-    /// 一个后台会话的成果,投回发起它的那段对话(`background.rs`):内容本身,加上
-    /// 该拿它做什么。不是一句"去 /bg 读" —— 那句把核实这件事留给了一个人。
+    /// 一个后台会话的成果,投回发起它的那段对话(`background.rs`):就是内容本身。
+    /// 不是一句"去 /bg 读" —— 那句把读它这件事留给了一个人;也不再附一句指令 ——
+    /// 要不要接着核实,是那段对话看了上下文自己决定的事。
     BackgroundResult {
         title: &'a str,
         answer: &'a str,

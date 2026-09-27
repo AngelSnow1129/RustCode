@@ -1687,6 +1687,7 @@ impl CodingRuntimeHandle {
                     generation,
                     input,
                     receipt: None,
+                    from: None,
                     done,
                 }
             }
@@ -1847,6 +1848,28 @@ impl CodingRuntimeHandle {
                 generation: runtime_state_generation(state),
                 input,
                 receipt,
+                from: None,
+                done,
+            })
+            .map_err(|_| RuntimeError::Unavailable)?;
+        result.await.map_err(|_| RuntimeError::Unavailable)?
+    }
+
+    /// Tell this runtime something a session it does not hold said: a job this
+    /// conversation started elsewhere, reporting back (`deliver_home`).
+    ///
+    /// Its own road rather than a parameter on `deliver`: a receipt (which send
+    /// this is) and a sender (whose words these are) are two different
+    /// questions, and only a note has an answer to the second.
+    pub async fn note(&self, from: String, text: String) -> Result<SubmitReceipt, RuntimeError> {
+        let state = self.state.load(Ordering::Acquire);
+        let (done, result) = oneshot::channel();
+        self.tx
+            .send(CodingRuntimeControl::Submit {
+                generation: runtime_state_generation(state),
+                input: UserInput::from(text),
+                receipt: None,
+                from: Some(from),
                 done,
             })
             .map_err(|_| RuntimeError::Unavailable)?;
@@ -3049,6 +3072,12 @@ pub enum CodingRuntimeControl {
         /// (`AgentEvent::Rejected`, `docs/adr/0021` §7). `None` for a driver that
         /// does not correlate its sends.
         receipt: Option<atomcode_kernel::event::CommandId>,
+        /// Who is talking, when it is not the person: the session id of a job
+        /// this conversation started elsewhere, reporting back. It rides the
+        /// submit because a note is a submit in every other respect — the same
+        /// execution policy, receipt and turn accounting — and differs in the one
+        /// thing `input` cannot carry: whose words these are.
+        from: Option<String>,
         done: oneshot::Sender<Result<SubmitReceipt, RuntimeError>>,
     },
     Respond {
@@ -4321,6 +4350,7 @@ fn spawn_runtime_owner_with_optional_agent(
                         generation: request_generation,
                         mut input,
                         receipt: driver_receipt,
+                        from,
                         done,
                     }) => {
                         if !native_protocol || request_generation != generation {
@@ -4556,13 +4586,23 @@ fn spawn_runtime_owner_with_optional_agent(
                                 }
                             }
                         }
-                        let command = match recovery_context {
-                            Some(context) => AgentCommand::SendMessageWithContext {
+                        // A note from another session is not a prompt anybody typed:
+                        // it enters the kernel as that session's report, so the log
+                        // — and everything that replays it — never reads it as the
+                        // person's word. Everything else about it is a plain submit,
+                        // which is why it arrives on this path rather than one of
+                        // its own.
+                        let command = match (from, recovery_context) {
+                            (Some(from), _) => AgentCommand::PeerNote {
+                                from,
+                                text: input.text,
+                            },
+                            (None, Some(context)) => AgentCommand::SendMessageWithContext {
                                 text: input.text,
                                 images: input.images,
                                 context,
                             },
-                            None => AgentCommand::SendMessage {
+                            (None, None) => AgentCommand::SendMessage {
                                 text: input.text,
                                 images: input.images,
                             },
@@ -7448,6 +7488,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                 generation: request_generation,
                                 input: UserInput { text: condition, images },
                                 receipt: None,
+                                from: None,
                                 done: started,
                             });
                             // Only spawn the quota fetch when it could actually change the cap:
@@ -7580,6 +7621,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                 generation: request_generation,
                                 input: UserInput::from(prompt),
                                 receipt: None,
+                                from: None,
                                 done: started,
                             });
                         }
@@ -12901,6 +12943,37 @@ mod tests {
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { text, .. }) if text == "continue after cancel"
+        ));
+        handle.shutdown().await.unwrap();
+    }
+
+    /// A job run elsewhere reports back through `note`: the agent is woken with
+    /// the words, and what reaches the kernel says whose they are.
+    ///
+    /// The negative half is the point. `SendMessage` is the shape the log — and
+    /// everything that replays it, the model included — reads as something a
+    /// person typed, and that is exactly what a driver delivering a background
+    /// result used to send.
+    #[tokio::test]
+    async fn a_note_reaches_the_agent_as_the_sending_sessions_words() {
+        let (
+            handle,
+            mut kernel_commands,
+            _kernel_events,
+            _runtime_events,
+            _wakeup_tx,
+            _loop_active,
+            _adapter,
+        ) = controller_test_runtime(Arc::new(TestProviderFactory { fail: false })).await;
+
+        handle
+            .note("bg-7".into(), "the review came back".into())
+            .await
+            .unwrap();
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::PeerNote { from, text })
+                if from == "bg-7" && text == "the review came back"
         ));
         handle.shutdown().await.unwrap();
     }

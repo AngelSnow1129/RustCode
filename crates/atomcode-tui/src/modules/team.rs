@@ -236,7 +236,7 @@ impl View for Team {
             // takes the prefix off rather than saying it twice.
             SessionEvent::Injected {
                 text,
-                origin: InjectionOrigin::Peer { from },
+                origin: InjectionOrigin::Peer { from, .. },
                 ..
             } => {
                 let name = from.rsplit('/').next().unwrap_or(from).to_string();
@@ -589,6 +589,7 @@ mod tests {
                 text: "[scout] sessions are made in agent.rs".into(),
                 origin: InjectionOrigin::Peer {
                     from: "lead-1/scout".into(),
+                    outside: false,
                 },
             },
         ]);
@@ -744,6 +745,7 @@ mod tests {
                 text: "[lib] 列了 12 个文档,还有一些很长很长很长的中文说明文字".into(),
                 origin: InjectionOrigin::Peer {
                     from: "l/lib".into(),
+                    outside: false,
                 },
             },
         ]);

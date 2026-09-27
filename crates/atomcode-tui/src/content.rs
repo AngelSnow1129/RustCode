@@ -4396,6 +4396,7 @@ mod tests {
             InjectionOrigin::CompactionSummary,
             InjectionOrigin::Peer {
                 from: "lead-1/scout".into(),
+                outside: false,
             },
         ];
         for origin in &every {

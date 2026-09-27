@@ -105,6 +105,11 @@ impl Transcript {
 /// every report, which is a struct dump, not a label.
 fn origin_label(origin: &InjectionOrigin) -> String {
     match origin {
+        // A sender this tree has never held is a job run elsewhere reporting
+        // back. Calling it `peer` would put it in the same breath as a team
+        // member, and the person reading the block has no way to tell the two
+        // apart — the log has always been able to say which it was.
+        InjectionOrigin::Peer { outside: true, .. } => t(Msg::InjectedFromBackground).into_owned(),
         InjectionOrigin::Peer { .. } => "peer".into(),
         InjectionOrigin::Memory => "memory".into(),
         InjectionOrigin::Reminder => "reminder".into(),
