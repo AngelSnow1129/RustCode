@@ -1438,6 +1438,11 @@ impl RuntimeControl {
     fn list(&self, working_dir: Option<String>) -> Vec<StoredSession> {
         use atomcode_capabilities::session::SessionManager;
         let scan = SessionManager::scan_all();
+        // 不按 fork 谱系折叠(`collapse_fork_lineages`,daemon 的目录调了它)。那条
+        // 规矩只留谱系里最新的一条,而被藏起来的那条分叉**可能带着独有内容**:两个
+        // runtime 同时接着一段对话跑(自动分叉的成因就是这个)时,两条都往前走了,
+        // 藏掉哪条都是从选择器里再也选不回来。两行同名的麻烦是能读出来的,选不回来
+        // 的会话是看不见的——选择器宁可多列一行。
         let all: Vec<StoredSession> = scan
             .entries
             .into_iter()

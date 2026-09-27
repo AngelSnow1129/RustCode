@@ -22,6 +22,17 @@ pub const ID: &str = "resume";
 const NAME: &str = "resume";
 /// 列表最多画这么多条,和别的面板占同一块地方。
 const MOST: usize = 12;
+/// 预览那一块占几行,**固定**,与选中的会话无关。
+///
+/// 预览的长短是宿主的事:有的会话最后聊了七句,有的只聊过一句,有的还没有可预览
+/// 的东西。而这块面板是**贴底**的——它占住输入框那几行、从底下往上长(`Region::Stream`
+/// 的尾行从下往上扣),于是预览多一行,面板的上沿就抬一行,里面整张列表跟着在屏幕上
+/// 跳。上下选会话时看到的就是这个:列表本身一行没变,是框在动。
+///
+/// 所以按宿主能给的最多行数预留:等答案和答案回来同高,答案长短不一也同高,空出来
+/// 的行是空行。宿主那边是「模型一行 + 三来三回」(`preview_of` 的 `TURNS`);比这多
+/// 就截掉——它自己的注释写着「够认出来就行,一眼读完」。
+const PREVIEW_ROWS: usize = 7;
 
 #[derive(Default)]
 pub struct State;
@@ -155,15 +166,19 @@ fn layout(
     }
     // 选中那个会话最后聊了什么。列表下面、图例上面:它说的是「这一行是不是我要
     // 找的那个会话」,所以贴着列表;而它是读的,不是操作的,所以不进列表本身。
+    //
+    // 这一块的行数是**固定**的,与选中的会话无关——理由见 [`PREVIEW_ROWS`]。
     match preview {
-        Some(None) => rows.push(Row::PreviewWaiting),
-        Some(Some(lines)) if !lines.is_empty() => {
+        Some(None) => {
             rows.push(Row::Blank);
-            for at in 0..lines.len() {
-                rows.push(Row::Preview(at));
-            }
+            rows.push(Row::PreviewWaiting);
+            rows.extend((1..PREVIEW_ROWS).map(|_| Row::Blank));
         }
-        _ => {}
+        Some(Some(_)) => {
+            rows.push(Row::Blank);
+            rows.extend((0..PREVIEW_ROWS).map(Row::Preview));
+        }
+        None => {}
     }
     rows.push(Row::Blank);
     rows.push(Row::Legend);
@@ -419,6 +434,34 @@ mod tests {
         // 不在列表里的会话:一行都不标,而不是退回去标第一条。
         let none = text_as(&view, &panel, None, 60, "somewhere-else").join("\n");
         assert!(!none.contains("（当前）"), "{none}");
+    }
+
+    /// 预览长短不一,面板一样高。
+    ///
+    /// 这块面板贴着输入框从底下长上来,高度一变,里面整张列表就换一个位置——上下
+    /// 选会话时看着就是「跳」。列表的行数是同一份,变的只能是框。
+    #[test]
+    fn the_panel_is_as_tall_however_long_the_preview_is() {
+        let (view, panel) = (view(), Panel::new());
+        let waiting = text_with(&view, &panel, Some(None), 60).len();
+        let one = vec!["你: 一句".to_string()];
+        let many: Vec<String> = (0..PREVIEW_ROWS)
+            .map(|at| format!("你: 第 {at} 句"))
+            .collect();
+        assert_eq!(
+            text_with(&view, &panel, Some(Some(&one)), 60).len(),
+            waiting,
+            "一句和没回来同高"
+        );
+        assert_eq!(
+            text_with(&view, &panel, Some(Some(&many)), 60).len(),
+            waiting,
+            "七句也一样高"
+        );
+        assert!(
+            text_with(&view, &panel, None, 60).len() < waiting,
+            "没有预览会话时这块不占地方"
+        );
     }
 
     /// 还没问到的时候说一句,而不是先空着再突然长出几行。
