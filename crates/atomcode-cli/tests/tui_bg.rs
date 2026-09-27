@@ -154,27 +154,16 @@ fn start(
     )
 }
 
-/// One `Rig` at a time, because `ATOMCODE_HOME` is the process's and not the
-/// test's.
-///
-/// `Rig::new` points that variable at its own temp home to start a host from it.
-/// With the file's tests on parallel threads, two of them overlap: the second
-/// retargets the first's host mid-flight, and whichever rig finishes first drops
-/// its `TempDir` — the directory the other one is still writing a session into.
-/// What that looks like from outside is a handful of unrelated tests failing in
-/// a run of `cargo test`, and passing one at a time.
-///
-/// The guard travels inside the `Rig` for exactly as long as the home it
-/// protects, so a test holds it from its first line to its `quit`.
-static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 /// A screen with `/bg`, over a first runtime and a way to start more.
+///
+/// `Rig::new` points the *process's* `ATOMCODE_HOME` at this rig's temp home,
+/// which is why every test that builds one is
+/// `#[serial_test::serial(atomcode_home)]`: two at once and the second retargets
+/// the first's host mid-flight, while whichever finishes first drops the
+/// `TempDir` the other is still writing a session into.
 struct Rig {
     _home: tempfile::TempDir,
     _project: tempfile::TempDir,
-    /// Held for as long as this rig's home has to keep being the process's
-    /// `ATOMCODE_HOME`. See [`ONE_AT_A_TIME`].
-    _one_at_a_time: tokio::sync::MutexGuard<'static, ()>,
     gate: watch::Sender<bool>,
     script: Script,
     term: Arc<atomcode_tui::surface::Headless>,
@@ -187,8 +176,6 @@ struct Rig {
 
 impl Rig {
     async fn new() -> Self {
-        // Taken before the home exists, let go when this rig does.
-        let one_at_a_time = ONE_AT_A_TIME.lock().await;
         let home = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         atomcode_config::i18n::set_locale(atomcode_config::locale::Locale::ZhCn);
@@ -253,7 +240,6 @@ impl Rig {
         let rig = Self {
             _home: home,
             _project: project,
-            _one_at_a_time: one_at_a_time,
             gate,
             script,
             term,
@@ -341,6 +327,7 @@ impl Rig {
 /// the moved one is working, then that it is done; Esc brings it back and the
 /// answer that was written while nobody was looking is on screen.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn a_turn_keeps_running_after_bg_and_its_result_is_there_on_return() {
     let rig = Rig::new().await;
     let first = rig.client.root();
@@ -398,6 +385,7 @@ async fn a_turn_keeps_running_after_bg_and_its_result_is_there_on_return() {
 /// running never finishes — the model is let go afterwards and nothing is
 /// written — and the slot is gone.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn bg_drop_cancels_a_running_one() {
     let rig = Rig::new().await;
     let first = rig.client.root();
@@ -434,6 +422,7 @@ async fn bg_drop_cancels_a_running_one() {
 /// screen stays on the session it was on; the task runs in a session of its
 /// own; `/bg 1` then brings that one forward with its answer.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn background_task_runs_without_changing_the_foreground() {
     let rig = Rig::new().await;
     let first = rig.client.root();
@@ -468,6 +457,7 @@ async fn background_task_runs_without_changing_the_foreground() {
 /// and the scope — which is what `/review` *is*. `/bg 1` brings it forward to
 /// read.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn a_review_runs_in_a_background_session_by_default() {
     let rig = Rig::new().await;
     let first = rig.client.root();
@@ -514,6 +504,7 @@ async fn a_review_runs_in_a_background_session_by_default() {
 /// is what this path used to do — the screen would have shown the person typing
 /// a report they never wrote.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn a_review_result_comes_home_labelled_as_the_background_job() {
     let rig = Rig::new().await;
     let first = rig.client.root();
@@ -548,6 +539,7 @@ async fn a_review_result_comes_home_labelled_as_the_background_job() {
 /// row starts a whole session, and somebody who opened the menu and took it is
 /// about to say *which* changes. Enter without an argument still runs it.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn taking_the_review_row_leaves_it_on_the_line() {
     let rig = Rig::new().await;
     rig.term.type_text("/rev");
@@ -584,6 +576,7 @@ async fn taking_the_review_row_leaves_it_on_the_line() {
 /// this screen can only be the delivered content (the background session's own
 /// transcript is not on screen), and `answer 2` is the turn that followed it.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn a_finished_background_run_delivers_its_answer_home() {
     let rig = Rig::new().await;
     rig.term.type_line("/background quiet job");
@@ -608,6 +601,7 @@ async fn a_finished_background_run_delivers_its_answer_home() {
 /// and says nothing once it is done; with nothing typed, ← opens the panel —
 /// and with nothing in the background it opens nothing.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn bg_takes_a_task_the_row_counts_it_and_left_opens_the_panel() {
     let rig = Rig::new().await;
     let first = rig.client.root();
@@ -667,6 +661,7 @@ async fn bg_takes_a_task_the_row_counts_it_and_left_opens_the_panel() {
 /// **The panel's box starts a task, and the list shows it.** Typed into the
 /// panel rather than as a command — the same host command underneath.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn a_task_typed_into_the_panel_starts_a_background_session() {
     let rig = Rig::new().await;
     rig.term.type_line("/bg list");
@@ -688,6 +683,7 @@ async fn a_task_typed_into_the_panel_starts_a_background_session() {
 /// log, so replaying the log alone would show the words and leave nothing to
 /// answer.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn a_question_asked_in_the_background_is_asked_again_on_return() {
     let rig = Rig::new().await;
     rig.term.type_line("/background ask me");
@@ -727,6 +723,7 @@ async fn a_question_asked_in_the_background_is_asked_again_on_return() {
 /// selected session — its log has them and the model answered — and the screen
 /// stays where it was.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn space_in_the_panel_replies_without_switching() {
     let rig = Rig::new().await;
     let first = rig.client.root();
@@ -760,6 +757,7 @@ async fn space_in_the_panel_replies_without_switching() {
 /// **`/bg` is refused while the conversation waits for an answer**, and
 /// nothing moves: moving it would leave the question with nobody to ask.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn bg_is_refused_while_a_question_waits() {
     let rig = Rig::new().await;
     let first = rig.client.root();
@@ -785,6 +783,7 @@ async fn bg_is_refused_while_a_question_waits() {
 /// running and the screen up; saying yes quits, and the background runtime is
 /// stopped — its held turn never finishes even once the model lets go.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn quitting_with_background_sessions_running_asks_first() {
     let rig = Rig::new().await;
     rig.term.type_line("slow task");
@@ -833,6 +832,7 @@ async fn quitting_with_background_sessions_running_asks_first() {
 
 /// **With nothing running in the background, quitting is not asked about.**
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn quitting_with_nothing_running_does_not_ask() {
     let rig = Rig::new().await;
     rig.term.type_line("/background hello");
@@ -852,6 +852,7 @@ async fn quitting_with_nothing_running_does_not_ask() {
 /// on the row above the composer, with the way to open it; once it is
 /// answered the line is gone.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn a_background_session_waiting_for_an_answer_is_told_on_the_foreground() {
     let rig = Rig::new().await;
     rig.term.type_line("/background ask me");
@@ -887,6 +888,7 @@ async fn a_background_session_waiting_for_an_answer_is_told_on_the_foreground() 
 /// — the foreground's `resume` line, then one per background session, in the
 /// same words.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn quitting_says_how_to_resume_the_background_sessions_it_stopped() {
     let rig = Rig::new().await;
     let first = rig.client.root();
@@ -939,6 +941,7 @@ async fn quitting_says_how_to_resume_the_background_sessions_it_stopped() {
 /// foreground, then quitting — the line names the new session, and the one
 /// it started on is named once, as the background session it now is.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn the_resume_line_on_exit_names_the_session_in_front_then() {
     let rig = Rig::new().await;
     let first = rig.client.root();
@@ -997,6 +1000,7 @@ async fn the_resume_line_on_exit_names_the_session_in_front_then() {
 /// **Space on a session waiting for an answer does not reply to it.** Nothing
 /// is sent; the panel says the session is waiting and Enter opens it.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn space_on_a_session_waiting_for_an_answer_says_to_open_it() {
     let rig = Rig::new().await;
     rig.term.type_line("/background ask me");
@@ -1032,6 +1036,7 @@ async fn space_on_a_session_waiting_for_an_answer_says_to_open_it() {
 /// a second click on the selected row opens it; the wheel walks the list — so
 /// after scrolling away, a click on that row only selects it again.
 #[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
 async fn the_panel_is_worked_with_the_mouse() {
     let rig = Rig::new().await;
     let first = rig.client.root();
