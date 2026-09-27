@@ -3,11 +3,12 @@
   "ref": "dev",
   "source": {
     "sha": "bd6c070d6036ffbfeed0ee68a814737123b79ca5",
-    "branch": "dev",
+    "branch": "HEAD",
     "dirty": false,
-    "built_at": "2026-09-20T20:44:59Z"
+    "built_at": "2026-09-27T01:59:21Z"
   },
   "binaries": {
+    "linux-arm64": { "file": "rustcode-v6.1.0-linux-arm64", "sha256": "d80a7ab1779106853ebf6350488a160dfed2e476f5d9056ebd021ea73933780b", "size": 36023944 },
     "linux-x64": { "file": "rustcode-v6.1.0-linux-x64", "sha256": "19ad12d9827628ae29da58e07196f5475de530d6fb41512f7d42ac92a99a3c36", "size": 39681488 }
   }
 }
