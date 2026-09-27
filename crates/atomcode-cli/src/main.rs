@@ -3442,6 +3442,8 @@ pub(crate) async fn run_native_headless(
                 http_status,
                 code,
                 retryable,
+                // 这道标记与 headless 的输出无关(它要的是原因本身),模式吃掉即可。
+                ends_turn: _,
             }) => {
                 close_native_thinking(&mut thinking_line_open);
                 if jsonl {

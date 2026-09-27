@@ -1129,6 +1129,8 @@ impl Agent {
                     http_status,
                     code,
                     retryable,
+                    // 这道标记与 outcome 无关(它抓的是原因本身),模式吃掉即可。
+                    ends_turn: _,
                 } => {
                     outcome.error = Some(message);
                     outcome.http_status = http_status;
@@ -1649,6 +1651,11 @@ impl RunningAgent {
                 http_status: None,
                 code: None,
                 retryable: None,
+                // NO turn ran (see `hook::LifecycleHooks::turn_complete`): this path emits
+                // its bare `TurnComplete` without `finish_turn`, so no `TurnEnd::error`
+                // will ever repeat this sentence. Claiming otherwise would make a
+                // front end that honours the flag drop the only copy.
+                ends_turn: false,
             });
             self.rt.emit(AgentEvent::TurnComplete {
                 turn: None,
@@ -2224,6 +2231,7 @@ impl RunningAgent {
                             http_status: None,
                             code: None,
                             retryable: None,
+                            ends_turn: true,
                         });
                         self.finish_turn(convo, StopReason::MaxRounds, &turn_ctx)
                             .await;
@@ -2602,6 +2610,9 @@ impl RunningAgent {
                         http_status: e.http_status,
                         code: e.code,
                         retryable: Some(e.retryable),
+                        // 紧接着就是 finish_turn(ProviderError):这句话会同时落进
+                        // `TurnEnd::error`,所以画了收尾块的前端不必再画事件这一条。
+                        ends_turn: true,
                     });
                     self.finish_turn(convo, StopReason::ProviderError, &turn_ctx)
                         .await;
@@ -2801,6 +2812,7 @@ impl RunningAgent {
                             http_status: None,
                             code: None,
                             retryable: None,
+                        ends_turn: true,
                         });
                         self.finish_turn(convo, StopReason::Timeout, &turn_ctx).await;
                         return;
@@ -3065,6 +3077,8 @@ impl RunningAgent {
                             http_status: e.http_status,
                             code: e.code,
                             retryable: Some(e.retryable),
+                            // 同上:紧接着 finish_turn(ProviderError)。
+                            ends_turn: true,
                         });
                         self.finish_turn(convo, StopReason::ProviderError, &turn_ctx)
                             .await;
@@ -3190,6 +3204,7 @@ impl RunningAgent {
                     http_status: None,
                     code: None,
                     retryable: None,
+                    ends_turn: true,
                 });
                 self.finish_turn(convo, StopReason::ProviderError, &turn_ctx)
                     .await;
@@ -3384,6 +3399,7 @@ impl RunningAgent {
                                 http_status: None,
                                 code: None,
                                 retryable: None,
+                                ends_turn: true,
                             });
                             self.finish_turn(convo, StopReason::MaxContinuations, &turn_ctx)
                                 .await;
@@ -4232,6 +4248,7 @@ impl RunningAgent {
                     http_status: None,
                     code: None,
                     retryable: None,
+                    ends_turn: true,
                 });
                 self.finish_turn(convo, StopReason::RepeatLoop, &turn_ctx)
                     .await;

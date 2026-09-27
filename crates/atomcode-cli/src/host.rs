@@ -505,6 +505,8 @@ fn reply(out: &mpsc::UnboundedSender<AgentEvent>, receipt: Option<CommandId>, an
                 http_status: None,
                 code: None,
                 retryable: None,
+                // 一条被拒的命令:没有回合收尾会再说一遍它。
+                ends_turn: false,
             });
         }
         (None, Ok(_)) => {}
@@ -1081,6 +1083,8 @@ fn translate(event: CodingRuntimeEvent) -> Option<AgentEvent> {
             http_status: None,
             code: None,
             retryable: None,
+            // 警告:回合照跑,收尾块不会再说它一遍。
+            ends_turn: false,
         }),
         // 识图失败。此前屏上只剩一个 `[图片识别失败]` 标记,原因和怎么
         // 办都在这条事件里,而这条事件掉进了 `_ => None`。
@@ -1237,6 +1241,8 @@ fn said(message: std::borrow::Cow<'_, str>) -> AgentEvent {
         http_status: None,
         code: None,
         retryable: None,
+        // 一句"给人看的话"(识图失败、压缩被打断…):它不是回合的收尾错误。
+        ends_turn: false,
     }
 }
 

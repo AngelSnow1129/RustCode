@@ -4457,7 +4457,9 @@ impl Tui {
                 }));
                 true
             }
-            AgentEvent::Error { message, .. } => {
+            AgentEvent::Error {
+                message, ends_turn, ..
+            } => {
                 // An error can end the turn before its message is ever logged, so
                 // the pre-turn recognising line has nothing to take it down — do
                 // it here (a no-op when nothing is being recognised).
@@ -4476,7 +4478,12 @@ impl Tui {
                 if !working {
                     self.set_activity(Activity::Idle);
                 }
-                self.say_refused(&message);
+                // 这次收尾自己会把这句话画出来(transcript 的收尾块画 `TurnEnd::error`),
+                // 所以带标记的那条不再说第二遍 —— 同一段文字在同一个视图里出现两次,
+                // 读起来像两件事,其实是一件。
+                if !ends_turn {
+                    self.say_refused(&message);
+                }
                 true
             }
             _ => false,

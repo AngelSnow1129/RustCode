@@ -933,6 +933,7 @@ impl BgRuntimeManager {
                                         http_status: None,
                                         code: None,
                                         retryable: None,
+                                        ends_turn: false,
                                     },
                                 ),
                             ));
@@ -1737,6 +1738,7 @@ mod tests {
                     http_status: None,
                     code: None,
                     retryable: None,
+                    ends_turn: false,
                 },
             )),
         );

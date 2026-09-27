@@ -269,6 +269,7 @@ pub fn spawn_native_runtime_for_session_deferred_with_preprocessor(
                         http_status: None,
                         code: None,
                         retryable: None,
+                        ends_turn: false,
                     }),
                 );
                 while let Some(control) = control_rx.recv().await {
@@ -284,6 +285,7 @@ pub fn spawn_native_runtime_for_session_deferred_with_preprocessor(
                             http_status: None,
                             code: None,
                             retryable: None,
+                            ends_turn: false,
                         }),
                     );
                 }
@@ -346,6 +348,7 @@ pub fn spawn_native_runtime_for_session_deferred_with_preprocessor(
                                         http_status: None,
                                         code: None,
                                         retryable: None,
+                    ends_turn: false,
                                     }),
                                 );
                             }

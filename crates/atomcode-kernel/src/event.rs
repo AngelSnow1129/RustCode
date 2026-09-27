@@ -528,6 +528,16 @@ pub enum AgentEvent {
         /// classification.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         retryable: Option<bool>,
+        /// 这条错误**同时就是这次收尾的错误**(会话日志里 `TurnEnd::error` 的那一句)。
+        ///
+        /// 这是给读者的一道选择题,不是给生产者省事:同一段文字会从两条通道到达
+        /// —— 这条事件(流式、不重放)和回合事实(落盘、可重放,由 transcript 画成收尾
+        /// 块)。**两条通道的服务对象不同,所以一条都不能删**:删掉事件,只看流的前端
+        /// 当场就看不到原因;从事实里删,重开会话时原因就没了。但一个前端把两条都画进
+        /// 同一个视图,就会看到两段一模一样的文字 —— 带上这个标记,认它的读者就能只画
+        /// 一份(画事实那份:它在记录里,能重放);不认它的前端行为一点不变。
+        #[serde(default)]
+        ends_turn: bool,
     },
     /// The turn was cooperatively cancelled (AgentCommand::Cancel mid-turn).
     /// Emitted immediately before the terminal TurnComplete on a cancel path;
@@ -928,6 +938,7 @@ mod tests {
             http_status: None,
             code: None,
             retryable: Some(true),
+            ends_turn: false,
         };
         let json = serde_json::to_string(&event).unwrap();
         let decoded: AgentEvent = serde_json::from_str(&json).unwrap();

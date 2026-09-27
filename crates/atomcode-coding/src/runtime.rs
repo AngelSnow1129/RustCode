@@ -4392,10 +4392,17 @@ fn spawn_runtime_owner_with_optional_agent(
                         let mut recovery_context = None;
                         // PausedAtCap and Paused resume even on an empty submit: neither
                         // is done, so any nudge should let it keep going.
-                        let reengage = matches!(
-                            goal.as_ref().map(|state| state.phase),
-                            Some(GoalPhase::Paused | GoalPhase::PausedAtCap)
-                        );
+                        //
+                        // A note is not a nudge. Nobody asked this conversation to carry
+                        // on — a job it started elsewhere is reporting back — and
+                        // re-engaging here would both restart a goal the person paused and
+                        // spend the recovery recap that exists for their next real turn
+                        // (`resume_paused` clears it, and this is the only copy).
+                        let reengage = from.is_none()
+                            && matches!(
+                                goal.as_ref().map(|state| state.phase),
+                                Some(GoalPhase::Paused | GoalPhase::PausedAtCap)
+                            );
                         if reengage {
                             if let Some(state) = goal.as_mut() {
                                 let was_user_paused = state.phase == GoalPhase::Paused;
@@ -4420,12 +4427,18 @@ fn spawn_runtime_owner_with_optional_agent(
                         // Skip an empty-text submit (e.g. an image-only steer): it carries no
                         // new intent and must not clear a restriction the user set earlier in
                         // this turn.
-                        if let Some(runtime) = resources.as_ref() {
-                            if !input.text.trim().is_empty() {
-                                runtime
-                                    .parts
-                                    .turn_execution_policy
-                                    .update_from_user_text(&input.text);
+                        // A note reads as intent only if somebody said it: its text is a
+                        // report, and a phrase inside it ("别跑命令") would otherwise set
+                        // this conversation's policy for a turn the person never asked
+                        // for.
+                        if from.is_none() {
+                            if let Some(runtime) = resources.as_ref() {
+                                if !input.text.trim().is_empty() {
+                                    runtime
+                                        .parts
+                                        .turn_execution_policy
+                                        .update_from_user_text(&input.text);
+                                }
                             }
                         }
                         // A HELD turn is one the agent has already finished — the runtime
@@ -4490,7 +4503,10 @@ fn spawn_runtime_owner_with_optional_agent(
                         let original_steer_input = (matches!(receipt, SubmitReceipt::Steered { .. })
                             && held_turn.is_none())
                             .then(|| input.clone());
-                        if !pending_local_context.is_empty() {
+                        // Local context is what the driver queued to ride the person's
+                        // next turn. A note is not that turn: spending the queue on a
+                        // message nobody typed would hand it to the wrong request.
+                        if from.is_none() && !pending_local_context.is_empty() {
                             let prefix = pending_local_context.drain(..).collect::<Vec<_>>().join("\n\n");
                             input.text = if input.text.is_empty() {
                                 prefix
@@ -6162,6 +6178,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                                 http_status: None,
                                                 code: None,
                                                 retryable: None,
+                    ends_turn: false,
                                             }),
                                         );
                                     }
@@ -6942,6 +6959,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                             http_status: None,
                                             code: None,
                                             retryable: None,
+                    ends_turn: false,
                                         },
                                     ));
                                 }
@@ -7095,6 +7113,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                             http_status: None,
                                             code: None,
                                             retryable: None,
+                    ends_turn: false,
                                         },
                                     ));
                                 } else {
@@ -7128,6 +7147,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                                     http_status: None,
                                                     code: None,
                                                     retryable: None,
+                    ends_turn: false,
                                                 }),
                                             );
                                         }
@@ -7367,6 +7387,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                             http_status: None,
                                             code: None,
                                             retryable: None,
+                    ends_turn: false,
                                         },
                                     ));
                                 } else {
@@ -7400,6 +7421,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                                     http_status: None,
                                                     code: None,
                                                     retryable: None,
+                    ends_turn: false,
                                                 }),
                                             );
                                         }
@@ -7835,6 +7857,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                     http_status: None,
                                     code: None,
                                     retryable: None,
+                    ends_turn: false,
                                 },
                             ));
                             if let Some(turn_id) = active_turn.take() {
@@ -7982,6 +8005,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                             http_status: None,
                                             code: None,
                                             retryable: None,
+                    ends_turn: false,
                                         },
                                     ));
                                     let _ = runtime_event_tx.send(
@@ -10804,6 +10828,7 @@ fn fail_close_after_stopped_persistence(
         http_status: None,
         code: None,
         retryable: None,
+        ends_turn: false,
     }));
     Some(RuntimeError::ReconfigureFailed(message))
 }
@@ -10874,6 +10899,7 @@ fn fail_close_after_forced_provider_stop(
         http_status: None,
         code: None,
         retryable: None,
+        ends_turn: false,
     }));
 }
 

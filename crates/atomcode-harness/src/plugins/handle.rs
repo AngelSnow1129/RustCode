@@ -435,6 +435,9 @@ impl Projector {
                         http_status: None,
                         code: None,
                         retryable: None,
+                        // 这就是那次收尾的错误(`TurnEnd::error` 的同一句话):画了回合
+                        // 结尾的前端不必再画这一条,否则同一段文字会出现两次。
+                        ends_turn: true,
                     });
                 }
                 if matches!(stop, crate::seams::StopReason::Cancelled) {
@@ -1259,6 +1262,8 @@ async fn pump(
             http_status: None,
             code: None,
             retryable: Some(false),
+            // 连回合都跑不起来:不会有哪次收尾再说它一遍。
+            ends_turn: false,
         });
         return;
     };

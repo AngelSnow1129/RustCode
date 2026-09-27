@@ -1869,6 +1869,15 @@ async fn a_turn_the_model_never_answers_says_so_and_stops_spinning() {
         screen.contains("nodename nor servname"),
         "the cause, wrapped rather than dropped:\n{screen}"
     );
+    // And exactly once. 这句话有两条通道：带 `ends_turn` 标记的事件（消费端认它，抑制
+    // 自己那一份）和回合收尾块（画事实，`TurnEnd::error`）。两边都画，读起来就像两件事。
+    // 反过来也在这儿钉住：生产者若在一条**没有**收尾事实的路径上标了这个标记，两份都不画，
+    // 计数会掉到 0。
+    assert_eq!(
+        screen.matches("nodename nor servname").count(),
+        1,
+        "the cause is said exactly once:\n{screen}"
+    );
     // The status line says "working" with the cat now, so this control names the
     // cat rather than the words it replaced: `运行中` is *also* what a pending
     // tool row says (`content.rs`), which would have kept this passing for a
@@ -5298,6 +5307,8 @@ async fn an_error_mid_turn_does_not_take_the_working_line_away() {
             http_status: None,
             code: None,
             retryable: None,
+            // 回合中的告警:回合还没有收尾,所以没有第二处会画它。
+            ends_turn: false,
         })
         .unwrap();
     until(&s, "本回合已经花了不少").await;
@@ -5310,6 +5321,24 @@ async fn an_error_mid_turn_does_not_take_the_working_line_away() {
             || live.contains("正在回复")
             || live.contains("正在运行"),
         "the turn is still running, and its own row must still say so: {live:?}"
+    );
+
+    // 而带标记的那条**不再说第二遍**:同一段文字会由回合收尾那块画出来
+    // (`TurnEnd::error`),一个视图里出现两次,读起来像两件事,其实是一件。
+    agent_said
+        .send(atomcode_kernel::event::AgentEvent::Error {
+            message: "响应中断:这一次不再说第二遍".into(),
+            http_status: None,
+            code: None,
+            retryable: None,
+            ends_turn: true,
+        })
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !s.screen().contains("这一次不再说第二遍"),
+        "带标记的错误由收尾块画,屏幕不该出现第二遍:\n{}",
+        s.screen()
     );
 
     s.term.press(KeyPress::ctrl('d'));

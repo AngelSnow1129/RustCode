@@ -385,6 +385,7 @@ fn send_chat_runtime_error(
             http_status: None,
             code: None,
             retryable: None,
+            ends_turn: false,
         },
     ));
 }

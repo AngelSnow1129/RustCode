@@ -3878,6 +3878,7 @@ mod chat_event_type_tests {
                 http_status: Some(500),
                 code: None,
                 retryable: Some(true),
+                ends_turn: false,
             }),
             "session-1",
         );

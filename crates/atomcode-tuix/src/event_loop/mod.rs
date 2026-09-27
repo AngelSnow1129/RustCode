@@ -1932,6 +1932,7 @@ mod submit_hold_tests {
                 http_status: None,
                 code: None,
                 retryable: None,
+                ends_turn: false,
             },
         ));
         assert_eq!(type_ahead_queue_action(&event), TypeAheadQueueAction::None);
@@ -2202,6 +2203,7 @@ mod submit_hold_tests {
                 http_status: None,
                 code: None,
                 retryable: None,
+                ends_turn: false,
             },
         ));
         let mut state = UiState::new();
@@ -2529,6 +2531,7 @@ impl ReadyRuntimeControl {
                 http_status: None,
                 code: None,
                 retryable: None,
+                ends_turn: false,
             }),
         ));
     }
