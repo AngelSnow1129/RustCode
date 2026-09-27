@@ -1224,13 +1224,22 @@ pub struct Look {
     pub subject: &'static [&'static str],
     /// Never fold this one.
     ///
-    /// Loading a skill is not output, it is a change in how the agent will
-    /// behave for the rest of the turn. Collapsing it to a summary hides the
-    /// most consequential thing that happened.
+    /// A write or an edit: a file changed, and the diff it draws when open is
+    /// the whole of what a person wants from the row. Folded, it was the call
+    /// and never its result.
     ///
-    /// A write or an edit is the same shape of thing: a file changed, and the
-    /// diff it draws when open is the whole of what a person wants from the row.
-    /// Folded, it was the call and never its result.
+    /// A question: what the person decided is not one more step of the agent's
+    /// work to be counted, and a run's lid over it would hide the one row in
+    /// the run that they wrote.
+    ///
+    /// **Not a loaded skill**, which is what this used to be written around.
+    /// Loading one *is* a change in how the agent behaves for the rest of the
+    /// turn — but what says so is the summary row (`技能(name)`, still drawn,
+    /// still naming which one), and what folding takes away is the fetched
+    /// body: a document that sits on disk and that `/skills` reads too, which
+    /// is the same content `read_file` already folds under `GENERIC`. The old
+    /// reading — "collapsing hides the most consequential thing that happened"
+    /// — is true of an edit's diff and not of a document the agent fetched.
     pub always_open: bool,
 }
 
@@ -1254,10 +1263,14 @@ const GENERIC: Look = Look {
 
 pub fn look(tool: &str) -> Look {
     match tool {
+        // Foldable, and folded the moment its result lands
+        // (`Host::fold_finished_call`). What is left is the row that says a skill
+        // was loaded and which one; what folds away is the body — an SKILL.md the
+        // agent fetched, not a change it made. See `Look::always_open`.
         "use_skill" => Look {
             verb: Some(Verb::Skill),
             subject: &["name", "skill"],
-            always_open: true,
+            always_open: false,
         },
         "list_skills" => Look {
             verb: Some(Verb::Skill),

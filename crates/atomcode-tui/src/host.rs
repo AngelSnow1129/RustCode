@@ -62,10 +62,10 @@ fn hideable(kind: &str) -> bool {
 /// Those two are drawn even when the turn they sit in was taken back or
 /// cancelled — they are the whole of what the screen has left to say about it.
 /// Nothing else is, and that includes a call that refuses to fold: `always_open`
-/// answers a question about *folding* (`use_skill`, and a write or an edit that
-/// must show its diff), and a turn the person took back must not leave that
-/// diff on the screen. It used to be read as this predicate too, which is how a
-/// taken-back edit came to draw its whole diff.
+/// answers a question about *folding* (a write or an edit that must show its
+/// diff, a question the person answered), and a turn the person took back must
+/// not leave that diff on the screen. It used to be read as this predicate too,
+/// which is how a taken-back edit came to draw its whole diff.
 fn tells_of_the_turn(kind: &str) -> bool {
     matches!(kind, "welcome" | "rewound")
 }
@@ -755,9 +755,17 @@ fn window_into(
 
 /// Whether a call may be shown behind the same lid as its neighbours.
 ///
-/// A skill is out: it is drawn open (`always_open`), so it is not behind a lid
-/// of its own and cannot be behind somebody else's. A hidden block is out too,
-/// but it is *transparent* rather than a divider — see [`run_from`].
+/// What is out is what `always_open` refuses to fold: a write or an edit, whose
+/// diff while open is the whole of what the row is for, and a question the
+/// person answered, which is not one more step of the agent's work to be
+/// counted. A hidden block is out too, but it is *transparent* rather than a
+/// divider — see [`run_from`].
+///
+/// A loaded skill is *in*, and it is the one this rule used to be written
+/// around. With its body folded to a row, a run of calls can put that row behind
+/// its lid in the compact modes. That is the trade the row's content asks for:
+/// the skill is named on the summary row, and what recedes is a document the
+/// agent fetched, not a change it made — see `Look::always_open`.
 fn behind_a_lid(block: &crate::block::Block) -> bool {
     block.kind() == "tool_call" && !block.content.always_open()
 }
@@ -11731,6 +11739,74 @@ mod tests {
         assert!(
             !screen.contains("SECOND_LINE_MARKER"),
             "and the read receded to its summary:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn a_loaded_skill_takes_the_fold_a_read_takes() {
+        // It used to refuse the fold, in the same sentence as a write and an
+        // edit: loading a skill was read as "a change in how the agent will
+        // behave", and collapsing it as hiding "the most consequential thing
+        // that happened". What the screen has to keep is that a skill was loaded
+        // and *which one*, and that is on the row. What folds away is the
+        // fetched body — the same shape of thing as a `read_file` result, which
+        // has always folded.
+        //
+        // Nothing is folded by hand here: this is the path a real result takes
+        // (`fold_finished_call`, on the fact landing), which is the thing that
+        // was being blocked at paint time.
+        let h = host();
+        h.absorb(&SessionEvent::AssistantMessage {
+            turn: 1,
+            round: 1,
+            text: "加载一个技能,再读一个".into(),
+            reasoning: String::new(),
+            tool_calls: vec![
+                atomcode_kernel::tool::ToolCall {
+                    id: "s1".into(),
+                    name: "use_skill".into(),
+                    arguments: r#"{"name":"ponytail"}"#.into(),
+                },
+                atomcode_kernel::tool::ToolCall {
+                    id: "r1".into(),
+                    name: "read_file".into(),
+                    arguments: r#"{"file_path":"b.rs"}"#.into(),
+                },
+            ],
+            reasoning_blocks: Vec::new(),
+            meta: None,
+        });
+        h.absorb(&SessionEvent::ToolResultLogged {
+            turn: 1,
+            round: 1,
+            call_id: "s1".into(),
+            // Two lines, so the folded form can only say how many there are: a
+            // one-line body rides the summary itself, which would prove less.
+            content: "# Ponytail\nSKILL_BODY_MARKER\n".into(),
+            is_error: false,
+            images: Vec::new(),
+        });
+        h.absorb(&SessionEvent::ToolResultLogged {
+            turn: 1,
+            round: 1,
+            call_id: "r1".into(),
+            content: "first line\nSECOND_LINE_MARKER\n".into(),
+            is_error: false,
+            images: Vec::new(),
+        });
+
+        let screen = h.compose((90, 40)).rows().join("\n");
+        assert!(
+            !screen.contains("SKILL_BODY_MARKER"),
+            "the skill's body receded to its row:\n{screen}"
+        );
+        assert!(
+            !screen.contains("SECOND_LINE_MARKER"),
+            "and so did the read's:\n{screen}"
+        );
+        assert!(
+            screen.contains("ponytail"),
+            "and the row still says which skill was loaded:\n{screen}"
         );
     }
 
