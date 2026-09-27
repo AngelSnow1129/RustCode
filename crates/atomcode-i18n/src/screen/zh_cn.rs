@@ -369,12 +369,11 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ReviewWhatUncommitted => "审查未提交的改动".into(),
         Msg::ReviewWhatStaged => "审查已暂存的改动".into(),
         Msg::ReviewWhatRange { base } => format!("审查 {base} 之后的提交").into(),
+        // 不在这里许诺"结果回来我会逐条核实":投递只交内容,要不要接着核实由那段对话自己
+        // 看上下文定(见 `Msg::BackgroundResult`)。
         Msg::ReviewStarted { what, files } => match files {
-            Some(files) => format!(
-                "已经在后台启动{what};这次有 {files} 个文件在变。结果回来后,我会在这里逐条核实再告诉你。"
-            )
-            .into(),
-            None => format!("已经在后台启动{what}。结果回来后,我会在这里逐条核实再告诉你。").into(),
+            Some(files) => format!("已经在后台启动{what};这次有 {files} 个文件在变。").into(),
+            None => format!("已经在后台启动{what}。").into(),
         },
         Msg::BgUsage => "用法:/bg · /bg <任务> · /bg list · /bg <N> · /bg drop <N>(/bg 即 /background)".into(),
         Msg::BgNoSuchSlot { slot, count } => format!("没有第 {slot} 号后台会话(一共 {count} 个)").into(),

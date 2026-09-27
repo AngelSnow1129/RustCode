@@ -574,8 +574,11 @@ pub enum Msg<'a> {
     ReviewWhatRange {
         base: &'a str,
     },
-    /// `/review` 起来时的那一句:在做什么、有几个文件在变、以及结果回来之后会怎样。
-    /// `files` 是宿主量出来的;量不出来(不在 git 仓库里之类)就只说范围。
+    /// `/review` 起来时的那一句:在做什么、有几个文件在变。`files` 是宿主量出来的;
+    /// 量不出来(不在 git 仓库里之类)就只说范围。
+    ///
+    /// 不在这里许诺「结果回来我会逐条核实」:投递只交内容,要不要接着核实由那段对话自己定
+    /// (见 [`Msg::BackgroundResult`])。
     ReviewStarted {
         what: &'a str,
         files: Option<usize>,

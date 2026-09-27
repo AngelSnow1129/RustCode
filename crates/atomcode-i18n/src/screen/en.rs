@@ -404,15 +404,15 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ReviewWhatUncommitted => "reviewing the uncommitted changes".into(),
         Msg::ReviewWhatStaged => "reviewing the staged changes".into(),
         Msg::ReviewWhatRange { base } => format!("reviewing the commits after {base}").into(),
+        // No promise of an item-by-item pass here: the delivery carries content
+        // only, and what to do with it is that conversation's to decide (see
+        // `Msg::BackgroundResult`).
         Msg::ReviewStarted { what, files } => match files {
             Some(files) => format!(
-                "I started {what} in the background — {files} files change in this scope. When the result comes back I will go through it here, item by item."
+                "I started {what} in the background — {files} files change in this scope."
             )
             .into(),
-            None => format!(
-                "I started {what} in the background. When the result comes back I will go through it here, item by item."
-            )
-            .into(),
+            None => format!("I started {what} in the background.").into(),
         },
         Msg::BgUsage => "usage: /bg · /bg <task> · /bg list · /bg <N> · /bg drop <N> (/bg is /background)".into(),
         Msg::BgNoSuchSlot { slot, count } => format!("there is no background session #{slot} ({count} in all)").into(),
