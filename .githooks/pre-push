@@ -65,6 +65,25 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
   fi
 
+  # ---- auto release (bump + build + publish + tag) ----------------------------
+  # Runs BEFORE the artifact gate while we still hold the pre-push transaction.
+  # Optional: disabled when RUSTCODE_AUTO_RELEASE=off. On dev with source changes
+  # since the last vX.Y.Z tag it bumps the patch, cross-builds, publishes into
+  # release/<version>/, commits the version+artifacts, and creates the tag that
+  # build.yml's tag-triggered Release depends on. Git decides the pushed commits
+  # before this hook runs, so the bump commit rides the NEXT push; the tag is
+  # pushed explicitly by the script (or by the user via --follow-tags).
+  #
+  # NOTE: this builds, so it can take minutes and is skipped off-dev /
+  # RUSTCODE_AUTO_RELEASE=off. The artifact gate below still verifies the result.
+  if [ "$remote_ref" != "refs/heads/main" ] && [ -f "$ROOT/scripts/release-auto.sh" ]; then
+    if ! bash "$ROOT/scripts/release-auto.sh"; then
+      echo "" >&2
+      echo "[ERROR] auto-release failed; aborting push. Fix the build, then push again." >&2
+      exit 1
+    fi
+  fi
+
   # ---- release artifact gate -------------------------------------------------
   # Policy: what is pushed must already carry a build-passing artifact COMMITTED
   # under release/<version>/ (version read from the pushed Cargo.toml).
