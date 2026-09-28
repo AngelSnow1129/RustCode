@@ -280,10 +280,15 @@ pub struct Allowance {
     /// host did not say, and the row then falls back to the countdown below
     /// rather than saying nothing about when.
     pub resets_at: String,
-    /// Seconds until it comes back, for a host that reports a countdown without
-    /// a clock. The same fallback `/usage` and the settings page use, so the row
-    /// and the page say the same thing about the same window.
-    pub resets_in_seconds: i64,
+    /// When it comes back, on [`Moment::now`]'s clock, for a host that reports a
+    /// countdown without a clock time. The same fallback `/usage` and the
+    /// settings page use, so the row and the page say the same thing about the
+    /// same window.
+    ///
+    /// A deadline, not the host's seconds: the figure is fetched at turn end and
+    /// then drawn for as long as the screen sits idle. Kept as seconds, "3 小时后
+    /// 重置" read the same for hours — and still after the window had reset.
+    pub resets_by: Option<Timestamp>,
 }
 
 impl Allowance {
@@ -293,7 +298,10 @@ impl Allowance {
     /// judged without a host or a network. A window the host cannot put a
     /// number on is skipped rather than counted as zero — saying "0% used"
     /// because nobody knew would be inventing an answer.
-    pub fn nearest(windows: &[atomcode_host_api::UsageWindow]) -> Option<Self> {
+    ///
+    /// `now` is when the host answered, on [`Moment::now`]'s clock: a countdown
+    /// is turned into the moment it runs out.
+    pub fn nearest(windows: &[atomcode_host_api::UsageWindow], now: Timestamp) -> Option<Self> {
         windows
             .iter()
             .filter_map(|w| w.used_percent.map(|percent| (w, percent)))
@@ -302,7 +310,12 @@ impl Allowance {
                 label: w.label.clone(),
                 percent: percent.min(100),
                 resets_at: w.resets_at.clone(),
-                resets_in_seconds: w.resets_in_seconds,
+                resets_by: (w.resets_in_seconds > 0).then(|| {
+                    Timestamp::millis(
+                        now.as_millis()
+                            .saturating_add((w.resets_in_seconds as u64).saturating_mul(1000)),
+                    )
+                }),
             })
     }
 

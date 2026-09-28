@@ -3698,9 +3698,9 @@ impl Tui {
                     said = true;
                 }
             }
-            let nearest = crate::moment::Allowance::nearest(&windows);
             let changed = {
                 let mut m = host.moment.write().expect("moment poisoned");
+                let nearest = crate::moment::Allowance::nearest(&windows, m.now);
                 let changed = m.allowance != nearest;
                 m.allowance = nearest;
                 changed

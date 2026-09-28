@@ -202,11 +202,10 @@ impl View for Status {
         // change what a person does. Below that it is a number nobody acts on,
         // and a row that always carries one has that much less room for the
         // things that change.
-        let allowance = vp
-            .moment
-            .allowance
-            .as_ref()
-            .and_then(|left| allowance_badge(left).map(|text| (text, left.percent)));
+        let allowance =
+            vp.moment.allowance.as_ref().and_then(|left| {
+                allowance_badge(left, vp.moment.now).map(|text| (text, left.percent))
+            });
         if let Some((text, _)) = &allowance {
             reserved += width::str_width(text) + sep_w;
         }
@@ -525,10 +524,23 @@ const ALLOWANCE_SPENT: u8 = 95;
 ///
 /// Its own function, and pure, so the whole decision — *whether* to speak, and
 /// what with — is judged without a host, a network or a frame.
-fn allowance_badge(left: &crate::moment::Allowance) -> Option<String> {
+///
+/// `now` is the screen's clock: a countdown is what is left of it now, not what
+/// was left when the host answered. Past it the window has turned over and the
+/// figure is about a window that no longer exists, so the row says nothing
+/// rather than "90%" of an allowance that is back to full.
+fn allowance_badge(
+    left: &crate::moment::Allowance,
+    now: crate::moment::Timestamp,
+) -> Option<String> {
     if left.percent < ALLOWANCE_NEAR {
         return None;
     }
+    let remaining = match left.resets_by {
+        Some(by) if by <= now => return None,
+        Some(by) => (by.as_millis() - now.as_millis()).div_ceil(1000),
+        None => 0,
+    };
     // When it comes back. The host's own clock first — "19:41" is what a person
     // can act on; failing that its countdown, the same fallback `/usage` and the
     // settings page use, so the row and the page agree about one window. A window
@@ -540,11 +552,11 @@ fn allowance_badge(left: &crate::moment::Allowance) -> Option<String> {
             percent: left.percent,
             resets_at: &left.resets_at,
         })
-    } else if left.resets_in_seconds > 0 {
+    } else if remaining > 0 {
         t(Msg::AllowanceNearWithCountdown {
             label: &left.label,
             percent: left.percent,
-            duration: &crate::text::spoken_duration(left.resets_in_seconds as u64),
+            duration: &crate::text::spoken_duration(remaining),
         })
     } else {
         t(Msg::AllowanceNear {
@@ -765,20 +777,25 @@ mod tests {
     /// would stop meaning anything when it mattered.
     #[test]
     fn the_allowance_is_only_said_once_it_is_worth_saying() {
+        let now = crate::moment::Timestamp::millis(0);
         let left = |percent, resets_at: &str| crate::moment::Allowance {
             label: "5 小时".into(),
             percent,
             resets_at: resets_at.into(),
-            resets_in_seconds: 0,
+            resets_by: None,
         };
-        assert_eq!(allowance_badge(&left(0, "")), None, "fresh: nothing to say");
         assert_eq!(
-            allowance_badge(&left(ALLOWANCE_NEAR - 1, "")),
+            allowance_badge(&left(0, ""), now),
+            None,
+            "fresh: nothing to say"
+        );
+        assert_eq!(
+            allowance_badge(&left(ALLOWANCE_NEAR - 1, ""), now),
             None,
             "one short of the step is still nothing to say"
         );
 
-        let near = allowance_badge(&left(ALLOWANCE_NEAR, "")).expect("at the step it speaks");
+        let near = allowance_badge(&left(ALLOWANCE_NEAR, ""), now).expect("at the step it speaks");
         assert!(near.contains("80"), "it says how much: {near}");
         assert!(near.contains("5 小时"), "and which window: {near}");
         assert_eq!(
@@ -788,7 +805,7 @@ mod tests {
 
         // With a reset to report it says when it comes back; without one it must
         // not, or it reads as "back in 0 seconds".
-        let waiting = allowance_badge(&left(90, "19:41")).expect("speaks");
+        let waiting = allowance_badge(&left(90, "19:41"), now).expect("speaks");
         assert!(
             waiting.contains("90") && waiting.contains("19:41"),
             "it adds when the window comes back: {waiting}"
@@ -796,22 +813,61 @@ mod tests {
 
         // A host that reports the countdown and no clock still gets a "when":
         // the same fallback `/usage` and the settings page use.
-        let counted = allowance_badge(&crate::moment::Allowance {
-            label: "5 小时".into(),
-            percent: 90,
-            resets_at: String::new(),
-            resets_in_seconds: 3600,
-        })
+        let counted = allowance_badge(
+            &crate::moment::Allowance {
+                label: "5 小时".into(),
+                percent: 90,
+                resets_at: String::new(),
+                resets_by: Some(crate::moment::Timestamp::millis(3_600_000)),
+            },
+            now,
+        )
         .expect("speaks");
         assert!(counted.contains("90"), "{counted}");
         assert!(
-            Some(counted) != allowance_badge(&left(90, "")),
+            Some(counted) != allowance_badge(&left(90, ""), now),
             "a countdown is still something to say about when"
         );
 
         // Spent is still said — it is the one figure that changes what happens
         // next. The colour is the row's business; the words are the same.
-        assert!(allowance_badge(&left(100, "19:41")).is_some());
+        assert!(allowance_badge(&left(100, "19:41"), now).is_some());
+    }
+
+    /// A countdown is counted from when the host said it, not frozen at it: the
+    /// figure is fetched at turn end and then sits on an idle screen for hours.
+    /// Past the reset the window it describes is gone, and so is the badge.
+    #[test]
+    fn the_countdown_runs_down_while_the_screen_sits_idle() {
+        use crate::moment::Timestamp;
+        use atomcode_host_api::UsageWindow;
+        let window = UsageWindow {
+            label: "5 小时".into(),
+            exhausted: false,
+            resets_at: String::new(),
+            resets_in_seconds: 3 * 3600,
+            window_seconds: 0,
+            used_percent: Some(90),
+            calls_used: None,
+            call_limit: None,
+        };
+        let answered = Timestamp::millis(10_000);
+        let left = crate::moment::Allowance::nearest(&[window], answered).unwrap();
+
+        let fresh = allowance_badge(&left, answered).expect("speaks");
+        let later = allowance_badge(&left, Timestamp::millis(10_000 + 2 * 3_600_000))
+            .expect("still speaks an hour before the reset");
+        assert_ne!(fresh, later, "two hours on, it does not say the same thing");
+        assert!(
+            later.contains(&crate::text::spoken_duration(3600)),
+            "{later}"
+        );
+
+        assert_eq!(
+            allowance_badge(&left, Timestamp::millis(10_000 + 3 * 3_600_000)),
+            None,
+            "the window has turned over: its 90% is no longer true"
+        );
     }
 
     /// Which window the "out of quota" line names, and that a window nobody put
@@ -890,20 +946,29 @@ mod tests {
             calls_used: None,
             call_limit: None,
         };
-        let nearest = crate::moment::Allowance::nearest(&[
-            window("每周", Some(20)),
-            window("5 小时", Some(91)),
-            window("每日", Some(45)),
-        ])
+        let nearest = crate::moment::Allowance::nearest(
+            &[
+                window("每周", Some(20)),
+                window("5 小时", Some(91)),
+                window("每日", Some(45)),
+            ],
+            crate::moment::Timestamp::default(),
+        )
         .expect("one of them is nearest");
         assert_eq!(nearest.label, "5 小时");
         assert_eq!(nearest.percent, 91);
 
         // A window the host could not put a number on is skipped, not counted
         // as zero: "0% used" nobody said is an invented answer.
-        let unknown = crate::moment::Allowance::nearest(&[window("每周", None)]);
+        let unknown = crate::moment::Allowance::nearest(
+            &[window("每周", None)],
+            crate::moment::Timestamp::default(),
+        );
         assert_eq!(unknown, None);
-        assert_eq!(crate::moment::Allowance::nearest(&[]), None);
+        assert_eq!(
+            crate::moment::Allowance::nearest(&[], crate::moment::Timestamp::default()),
+            None
+        );
     }
 
     /// Every mode but the default says which one it is, and the default says
