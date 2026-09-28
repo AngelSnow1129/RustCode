@@ -580,13 +580,40 @@ fn model_field(
             false,
             0,
         ),
-        ModelField::Window => (
-            t(Msg::FieldWindow).into_owned(),
-            form.window.clone(),
-            focused,
-            true,
-            form.caret,
-        ),
+        ModelField::Window => match &form.window_typed {
+            // The custom stop is a text field while it has the keyboard, and
+            // says what it holds (or that it is the custom one) when it has not.
+            Some(typed) if focused => (
+                t(Msg::FieldWindow).into_owned(),
+                typed.clone(),
+                focused,
+                true,
+                form.caret,
+            ),
+            Some(typed) => (
+                t(Msg::FieldWindow).into_owned(),
+                match typed.trim().is_empty() {
+                    true => t(Msg::WindowCustom).into_owned(),
+                    false => typed.clone(),
+                },
+                focused,
+                false,
+                0,
+            ),
+            None => (
+                t(Msg::FieldWindow).into_owned(),
+                cycled(
+                    &match form.window {
+                        Some(window) => crate::providers::window_label(window),
+                        None => t(Msg::WindowAutomatic).into_owned(),
+                    },
+                    focused,
+                ),
+                focused,
+                false,
+                0,
+            ),
+        },
         ModelField::Default => (
             t(Msg::FieldUseAfterSaving).into_owned(),
             cycled(
@@ -662,6 +689,38 @@ fn levels_text(
 fn legend(panel: &Panel) -> Vec<(String, String)> {
     let key = |k: &str, msg: Msg<'_>| (k.to_string(), t(msg).into_owned());
     match &panel.form {
+        // On the levels row the keys do something the other fields' legend
+        // does not say: Space turns the bracketed level on or off, and the
+        // arrows move between levels rather than change a value. Said where
+        // the eye is, the way the other front end says it on that row.
+        Some(Form::Model(form)) if form.focus == ModelField::Levels => {
+            vec![
+                key("space", Msg::LegendToggleLevel),
+                key("←→", Msg::LegendPickLevel),
+                key("⇥", Msg::LegendNextField),
+                key("⏎", Msg::LegendSave),
+                key("esc", Msg::LegendCancel),
+            ]
+        }
+        // The window row: typing a number is a custom window, and the legend
+        // has to say so — on a preset nothing else would tell a person that the
+        // digits keys do anything here, and in the custom field the arrows
+        // leave it rather than move the caret.
+        Some(Form::Model(form)) if form.focus == ModelField::Window => match form.window_typed {
+            Some(_) => vec![
+                (t(Msg::LegendTypeWindow).into_owned(), String::new()),
+                key("←→", Msg::LegendBackToPresets),
+                key("⏎", Msg::LegendSave),
+                key("esc", Msg::LegendCancel),
+            ],
+            None => vec![
+                key("←→", Msg::LegendChangeValue),
+                key("0-9", Msg::WindowCustom),
+                key("⇥", Msg::LegendNextField),
+                key("⏎", Msg::LegendSave),
+                key("esc", Msg::LegendCancel),
+            ],
+        },
         Some(Form::Account(_)) | Some(Form::Model(_)) => {
             vec![
                 key("⇥", Msg::LegendNextField),
@@ -912,6 +971,57 @@ mod tests {
         let dot = crate::caps::Caps::default().g(crate::caps::Glyph::Bullet);
         assert!(out.contains(&dot.to_string().repeat(5)), "{out}");
         assert!(out.contains("密钥"), "{out}");
+    }
+
+    /// On the levels row the legend says what Space does there — turn the
+    /// bracketed level on or off — which the other fields' legend does not.
+    /// Off that row it is the ordinary legend again.
+    #[test]
+    fn the_levels_row_says_space_turns_a_level_on_or_off() {
+        let mut form = ModelForm::add(&view(), None).expect("an account to add to");
+        form.focus = ModelField::Levels;
+        let m = moment(Some(Panel {
+            form: Some(Form::Model(form.clone())),
+            ..Panel::new()
+        }));
+        let out = drawn(&m, 100, 24);
+        assert!(out.contains("启用/停用这一档"), "{out}");
+        assert!(out.contains("space"), "{out}");
+
+        form.focus = ModelField::Window;
+        let m = moment(Some(Panel {
+            form: Some(Form::Model(form)),
+            ..Panel::new()
+        }));
+        let out = drawn(&m, 100, 24);
+        assert!(!out.contains("启用/停用这一档"), "{out}");
+        assert!(
+            out.contains("‹ 自动（按协议默认） ›"),
+            "the window is a choice, automatic to begin with: {out}"
+        );
+    }
+
+    /// The window row says that typing a number makes a custom window, and
+    /// the custom field says what it takes and how to leave it.
+    #[test]
+    fn the_window_row_says_how_to_type_a_custom_one() {
+        let mut form = ModelForm::add(&view(), None).expect("an account to add to");
+        form.focus = ModelField::Window;
+        let panel = |form: &ModelForm| {
+            moment(Some(Panel {
+                form: Some(Form::Model(form.clone())),
+                ..Panel::new()
+            }))
+        };
+        let out = drawn(&panel(&form), 100, 24);
+        assert!(out.contains("0-9"), "{out}");
+
+        form.window_typed = Some("200k".into());
+        form.caret = 4;
+        let out = drawn(&panel(&form), 100, 24);
+        assert!(out.contains("200k"), "{out}");
+        assert!(out.contains("200k、1m"), "{out}");
+        assert!(out.contains("换回预设"), "{out}");
     }
 
     #[test]

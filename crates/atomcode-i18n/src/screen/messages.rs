@@ -1512,6 +1512,18 @@ pub enum Msg<'a> {
     KeyLeaveBlankToKeep,
     LegendNextField,
     LegendChangeValue,
+    /// Space on the levels row: turn the level under the brackets on or off.
+    LegendToggleLevel,
+    /// The arrows on the levels row: move between the levels.
+    LegendPickLevel,
+    /// A model form's context window left to the protocol's own default.
+    WindowAutomatic,
+    /// The last stop on a model form's window row: a window typed by hand.
+    WindowCustom,
+    /// What the custom window field takes.
+    LegendTypeWindow,
+    /// The arrows on the custom window field: leave it for the presets.
+    LegendBackToPresets,
     LegendPressAgainToDelete,
     LegendSeeItsModels,
     LegendSwitchToIt,
