@@ -462,11 +462,23 @@ fn url_spans(text: &str) -> Vec<(usize, usize)> {
 
 /// The first bare openable URL in `s`, as `(byte offset, byte length)`.
 ///
-/// A URL runs from its scheme to the first whitespace or control char, then has
-/// trailing sentence punctuation trimmed (`https://x/issues/5).` → the URL, not
-/// the `).`). A rare URL that genuinely ends in one of those characters loses
-/// it — the accepted cost of not needing a full grammar. `None` when nothing but
-/// a bare scheme is present (`https://` with no host is not a link).
+/// A URL runs from its scheme to the first whitespace, control char or CJK /
+/// full-width punctuation mark, then has trailing sentence punctuation trimmed
+/// (`https://x/issues/5).` → the URL, not the `).`). A rare URL that genuinely
+/// ends in one of those characters loses it — the accepted cost of not needing a
+/// full grammar. `None` when nothing but a bare scheme is present (`https://`
+/// with no host is not a link).
+///
+/// **CJK punctuation ends it.** Chinese is written without spaces, so a URL is
+/// routinely followed straight by `）`, `，` or `。` and then more text — and a
+/// URL that ran to the next whitespace took all of it: `…/issues/1602)（已关联
+/// 里程碑` was one link, and a click opened an address that does not exist. No
+/// URL's text contains those marks (they are percent-encoded when a path needs
+/// them), so stopping there loses nothing.
+///
+/// **A closing `)` is trimmed only when it has no opening one in the URL**, so
+/// `https://en.wikipedia.org/wiki/Rust_(programming_language)` keeps its own and
+/// `(see https://x/y)` does not take the sentence's.
 fn next_url(s: &str) -> Option<(usize, usize)> {
     // Scan forward: a scheme that trims to a non-openable candidate (a bare
     // `https://` with no host) must not hide a real URL later in the same run, so
@@ -489,40 +501,74 @@ fn next_url(s: &str) -> Option<(usize, usize)> {
         let tail = &s[start..];
         let end = tail
             .char_indices()
-            .find(|(_, c)| c.is_whitespace() || c.is_control())
+            .find(|(_, c)| c.is_whitespace() || c.is_control() || ends_a_url(*c))
             .map(|(i, _)| i)
             .unwrap_or(tail.len());
         #[allow(
             clippy::string_slice,
             reason = "`end` is a char boundary from `char_indices`"
         )]
-        let trimmed = tail[..end].trim_end_matches(|c: char| {
-            matches!(
-                c,
-                '.' | ','
-                    | ';'
-                    | ':'
-                    | '!'
-                    | '?'
-                    | ')'
-                    | ']'
-                    | '}'
-                    | '>'
-                    | '"'
-                    | '\''
-                    | '，'
-                    | '。'
-                    | '、'
-                    | '」'
-                    | '』'
-                    | '）'
-            )
-        });
+        let trimmed = trim_url_tail(&tail[..end]);
         if openable(trimmed) {
             return Some((start, trimmed.len()));
         }
         // Past this scheme's first byte (ASCII, so a boundary) to find the next.
         cursor = start + 1;
+    }
+    None
+}
+
+/// A character no URL's text holds, so one ends where it appears: CJK symbols
+/// and punctuation (`、。「」【】`…), the full-width forms (`（），：！？`…) and
+/// the curly quotes Chinese text is written with.
+fn ends_a_url(c: char) -> bool {
+    matches!(c, '\u{3000}'..='\u{303F}' | '\u{FF00}'..='\u{FFEF}' | '\u{2018}'..='\u{201F}')
+}
+
+/// Sentence punctuation off the end of a URL candidate; a `)` only when the URL
+/// holds no `(` it would close.
+fn trim_url_tail(url: &str) -> &str {
+    let mut url = url;
+    loop {
+        let Some(last) = url.chars().next_back() else {
+            return url;
+        };
+        let drop = match last {
+            '.' | ',' | ';' | ':' | '!' | '?' | ']' | '}' | '>' | '"' | '\'' => true,
+            ')' => url.matches('(').count() < url.matches(')').count(),
+            _ => false,
+        };
+        if !drop {
+            return url;
+        }
+        #[allow(
+            clippy::string_slice,
+            reason = "cut before the last char, which is ASCII here — a char boundary"
+        )]
+        {
+            url = &url[..url.len() - last.len_utf8()];
+        }
+    }
+}
+
+/// Where the bracket opened at `open` closes, counting the ones nested inside
+/// it. `None` when it never does.
+///
+/// A link's text may hold brackets of its own (`[#1602 [Bug] 输出区](…)`), and
+/// its address parentheses (`…/Rust_(language)`); taking the first closer found
+/// cut both short — the link was not a link, and its URL was left bare for the
+/// linkifier to run on into the text after it.
+fn matching(chars: &[char], open: usize, opener: char, closer: char) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, c) in chars.iter().enumerate().skip(open) {
+        if *c == opener {
+            depth += 1;
+        } else if *c == closer {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+        }
     }
     None
 }
@@ -616,9 +662,9 @@ fn inline(text: &str, base: Style) -> Vec<Span> {
                 }
             }
             '[' => {
-                if let Some(close) = find(&chars, i + 1, ']') {
+                if let Some(close) = matching(&chars, i, '[', ']') {
                     if chars.get(close + 1) == Some(&'(') {
-                        if let Some(paren) = find(&chars, close + 2, ')') {
+                        if let Some(paren) = matching(&chars, close + 1, '(', ')') {
                             flush(&mut buf, &mut out);
                             let label: String = chars[i + 1..close].iter().collect();
                             let url: String = chars[close + 2..paren].iter().collect();
@@ -1349,6 +1395,70 @@ mod tests {
         assert_eq!(italic, ["this"], "{spans:?}");
         let text: String = spans.iter().map(|s| s.text.as_str()).collect();
         assert!(text.contains("snake_case"), "{spans:?}");
+    }
+
+    /// The reported line: a link whose text holds brackets of its own, followed
+    /// straight by `（…）` with no space. It is one link to the issue, and nothing
+    /// after it is part of the address.
+    #[test]
+    fn a_link_with_brackets_in_its_text_is_one_link_and_ends_at_its_paren() {
+        let url = "https://gitcode.com/atomgit_atomcode/atomcode/issues/1602";
+        let line = format!("Issue: [#1602 [Bug] [新TUI] 输出区滚动]({url})（已关联里程碑 v5.2.0）");
+        let spans = spans_of(&line, 300);
+        // Drawn in word-sized runs, every one of them the same link.
+        let linked: Vec<_> = spans.iter().filter(|s| s.link.is_some()).collect();
+        let label: String = linked.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(label, "#1602 [Bug] [新TUI] 输出区滚动", "{spans:?}");
+        assert!(
+            linked.iter().all(|s| s.link.as_deref() == Some(url)),
+            "{spans:?}"
+        );
+        let text: String = spans.iter().map(|s| s.text.as_str()).collect();
+        assert!(
+            !text.contains("]("),
+            "the markdown is not drawn raw: {text}"
+        );
+        assert!(text.ends_with("（已关联里程碑 v5.2.0）"), "{text}");
+    }
+
+    /// A bare URL stops at the Chinese punctuation written right after it.
+    #[test]
+    fn a_bare_url_stops_at_cjk_punctuation() {
+        let url = "https://example.com/x";
+        for line in [
+            format!("详见 {url}）说明"),
+            format!("详见 {url}，然后"),
+            format!("详见{url}。下一句"),
+            format!("（{url}）"),
+        ] {
+            let spans = spans_of(&line, 200);
+            let links: Vec<&str> = spans.iter().filter_map(|s| s.link.as_deref()).collect();
+            assert_eq!(links, [url], "{line}: {spans:?}");
+        }
+    }
+
+    /// A `)` the URL opened is its own; one it did not is the sentence's.
+    #[test]
+    fn a_closing_paren_stays_only_when_the_url_opened_it() {
+        let wiki = "https://en.wikipedia.org/wiki/Rust_(programming_language)";
+        for (line, want) in [
+            (format!("see {wiki} for more"), wiki),
+            (format!("(see {wiki})"), wiki),
+            ("(see https://x.org/y).".to_string(), "https://x.org/y"),
+        ] {
+            let spans = spans_of(&line, 200);
+            let links: Vec<&str> = spans.iter().filter_map(|s| s.link.as_deref()).collect();
+            assert_eq!(links, [want], "{line}: {spans:?}");
+        }
+        // And in a markdown link's address, a paren pair is part of it.
+        let spans = spans_of(&format!("[Rust]({wiki})"), 200);
+        assert_eq!(
+            spans
+                .iter()
+                .filter_map(|s| s.link.as_deref())
+                .collect::<Vec<_>>(),
+            [wiki]
+        );
     }
 
     #[test]
