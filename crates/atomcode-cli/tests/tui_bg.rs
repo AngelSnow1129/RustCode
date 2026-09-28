@@ -524,7 +524,9 @@ async fn a_review_result_comes_home_labelled_as_the_background_job() {
     // The content arrives in the conversation that started it, and it arrives
     // named for what it is. The foreground never moved to the review's session:
     // this is the conversation on screen.
-    rig.until_screen(&t(Msg::InjectedFromBackground)).await;
+    // Folded to its one line (`● 后台「…」的结果回来了`), which is the result
+    // arriving: the conversation that started it answers under it.
+    rig.until_screen("结果回来了").await;
     assert_eq!(rig.client.root(), first, "the foreground never moved");
     assert!(
         rig.term.text().contains("结果回来了"),
@@ -584,14 +586,22 @@ async fn a_finished_background_run_delivers_its_answer_home() {
     let list = rig.background().await;
     assert_eq!(list.len(), 1, "{list:#?}");
 
+    // It arrives folded to its one line — the report (`answer 1`) waits behind
+    // a click, because the conversation that started it answers right under it
+    // (`answer 2`) and saying both at full length is saying it twice.
     rig.until("后台的结果回到这段对话里", |rig| {
-        rig.term.text().contains("answer 1")
+        rig.term.text().contains("结果回来了")
     })
     .await;
     rig.until("而且它真的接着干了", |rig| {
         rig.term.text().contains("answer 2")
     })
     .await;
+    assert!(
+        !rig.term.text().contains("answer 1"),
+        "the report is folded, not printed a second time:\n{}",
+        rig.term.text()
+    );
     rig.quit().await;
 }
 

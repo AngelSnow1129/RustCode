@@ -636,6 +636,12 @@ pub enum Msg<'a> {
         slot: usize,
         title: &'a str,
     },
+    /// A background session stopped without finishing: nothing comes home, so
+    /// the conversation that may be waiting for it is told here.
+    BgFailedTip {
+        slot: usize,
+        title: &'a str,
+    },
     /// 一个后台会话的成果,投回发起它的那段对话(`background.rs`):就是内容本身。
     /// 不是一句"去 /bg 读" —— 那句把读它这件事留给了一个人;也不再附一句指令 ——
     /// 要不要接着核实,是那段对话看了上下文自己决定的事。

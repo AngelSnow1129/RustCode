@@ -132,6 +132,9 @@ fn origin_label(origin: &InjectionOrigin) -> String {
 /// [`Presentation`]: crate::host::Presentation
 pub(crate) fn origin_kind(origin: &InjectionOrigin) -> &'static str {
     match origin {
+        // A job run elsewhere reporting back is its own kind: it folds to the
+        // one line that says it finished, which a teammate's note does not.
+        InjectionOrigin::Peer { outside: true, .. } => "injected:background",
         InjectionOrigin::Peer { .. } => "injected:peer",
         InjectionOrigin::Memory => "injected:memory",
         InjectionOrigin::Reminder => "injected:reminder",
@@ -430,6 +433,9 @@ impl Producer for Transcript {
                         kind: origin_kind(origin),
                         origin: origin_label(origin),
                         text: text.clone(),
+                        // What a background session sent home is the result it
+                        // was started for; the rest are asides.
+                        result: matches!(origin, InjectionOrigin::Peer { outside: true, .. }),
                     }),
                 );
             }

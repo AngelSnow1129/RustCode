@@ -1853,6 +1853,11 @@ pub struct InjectedBlock {
     pub kind: &'static str,
     pub origin: String,
     pub text: String,
+    /// A result a background session sent home, not context the harness
+    /// slipped in. It is what the person started that session *for*, so it is
+    /// drawn the way an answer is — a marked head, then the text as markdown —
+    /// rather than as a muted aside the reply that follows buries.
+    pub result: bool,
 }
 
 impl Content for InjectedBlock {
@@ -1864,14 +1869,51 @@ impl Content for InjectedBlock {
     }
     fn lines(&self, ctx: &RenderCtx) -> Vec<Line> {
         let w = ctx.width;
+        if self.result {
+            let (_, body) = self.result_parts();
+            let mut out = vec![self.result_head(ctx)];
+            out.extend(crate::markdown::render(body, w, Style::new()));
+            return out;
+        }
         wrapped(&self.text, w, muted(), &format!("[{}] ", self.origin))
     }
     fn summary(&self, ctx: &RenderCtx) -> Line {
         let w = ctx.width;
+        if self.result {
+            // Folded, the way a finished job is announced: its one line, and a
+            // dim tail that says the row opens. The conversation that started
+            // the job answers right under it in its own words, so the report
+            // itself waits behind a click instead of being said twice.
+            let mut line = self.result_head(ctx);
+            let hint = format!("  {}", pt(PMsg::VlCaptionExpandHint));
+            let room = (w as usize).saturating_sub(line.width());
+            line.push(Span::styled(width::take_width(&hint, room), muted()));
+            return line;
+        }
         Line::styled(
             width::take_width(&format!("[{}]", self.origin), w as usize),
             muted(),
         )
+    }
+}
+
+impl InjectedBlock {
+    /// A background result's first line — the host's 「后台「…」的结果回来了」 —
+    /// and the report under it.
+    fn result_parts(&self) -> (&str, &str) {
+        let text = self.text.trim_start();
+        let (head, body) = text.split_once('\n').unwrap_or((text, ""));
+        let head = head.trim().trim_end_matches([':', '：']).trim_end();
+        (head, body.trim_start_matches('\n'))
+    }
+
+    /// `● 后台「…」的结果回来了`, in the terminal's own foreground — white on a
+    /// dark screen — the way an answer's text is: it says "this is a result",
+    /// it is neither chrome to recede nor an accent to shout.
+    fn result_head(&self, ctx: &RenderCtx) -> Line {
+        let (head, _) = self.result_parts();
+        let head = format!("{} {head}", ctx.caps.g(Glyph::ToolMark));
+        Line::styled(width::take_width(&head, ctx.width as usize), Style::new())
     }
 }
 
@@ -1890,6 +1932,7 @@ pub const INJECTIONS: &[(&str, &str)] = &[
     ("continuation", "injected:continuation"),
     ("compaction", "injected:compaction"),
     ("peer", "injected:peer"),
+    ("background", "injected:background"),
     ("to-member", "injected:to-member"),
     ("team-note", "injected:team-note"),
 ];
@@ -4515,6 +4558,7 @@ mod tests {
             kind: "injected:reminder",
             origin: "reminder".into(),
             text: "keep going".into(),
+            result: false,
         };
         assert_eq!(b.kind(), "injected:reminder");
         assert_eq!(
@@ -4524,6 +4568,44 @@ mod tests {
         assert_eq!(
             b.summary(&crate::block::RenderCtx::bare(40)).plain(),
             "[reminder]"
+        );
+    }
+
+    /// A background result is announced in one line and read behind a fold:
+    /// `● 后台「…」的结果回来了` in the plain foreground, the report under it
+    /// drawn as an answer is — not a muted `[来自后台]` aside with the markdown
+    /// left raw.
+    #[test]
+    fn a_background_result_is_one_line_and_opens_into_the_report() {
+        let b = InjectedBlock {
+            kind: "injected:background",
+            origin: "来自后台".into(),
+            text: "后台「审查」的结果回来了:\n\n**没有发现问题**".into(),
+            result: true,
+        };
+        let ctx = crate::block::RenderCtx::bare(60);
+        let folded = b.summary(&ctx).plain();
+        assert!(
+            folded.starts_with("● 后台「审查」的结果回来了"),
+            "{folded:?}"
+        );
+        assert!(
+            !folded.contains("没有发现问题"),
+            "the report waits: {folded:?}"
+        );
+        assert!(!folded.contains("回来了:"), "no dangling colon: {folded:?}");
+
+        let open: Vec<String> = b.lines(&ctx).iter().map(|l| l.plain()).collect();
+        assert_eq!(open[0], "● 后台「审查」的结果回来了");
+        assert!(
+            open.iter()
+                .any(|l| l.contains("没有发现问题") && !l.contains("**")),
+            "the report is markdown, drawn: {open:?}"
+        );
+        assert_eq!(
+            open.iter().filter(|l| l.contains("结果回来了")).count(),
+            1,
+            "the head is said once: {open:?}"
         );
     }
 

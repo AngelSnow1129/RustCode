@@ -228,6 +228,10 @@ impl Presentation {
             // recognition is the model's crutch for a picture it cannot see, not
             // the conversation, so it stays out of the way until a click asks.
             ("vl_caption", Showing::Folded),
+            // A background job's report folds to `● 后台「…」的结果回来了`: the
+            // conversation that started it answers right under it in its own
+            // words, so the report itself is a click away, not said twice.
+            ("injected:background", Showing::Folded),
         ];
         by_kind.extend(
             crate::content::ENVIRONMENTAL_INJECTIONS

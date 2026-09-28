@@ -1508,7 +1508,19 @@ impl UserInterface for Tui {
                     // (`background.rs` 的 `deliver_home`),那才是这一屏该出现的消息。
                     // 这里再报一次"做完了、去 /bg 读",同一件事说两遍,而第二遍还把看
                     // 结果这件事留给人自己去开面板。
-                    stale |= self.host.show_bg(crate::bg::BgView::from_host(sessions));
+                    //
+                    // 没干完的例外:它什么都不投回来,不说这一句,发起它的人就一直
+                    // 在等一个不会来的结果。
+                    let view = crate::bg::BgView::from_host(sessions);
+                    let before = self.host.moment.read().expect("moment poisoned").bg.clone();
+                    for (slot, title) in view.newly_failed(&before) {
+                        self.say(&t(Msg::BgFailedTip {
+                            slot,
+                            title: &title,
+                        }));
+                        stale = true;
+                    }
+                    stale |= self.host.show_bg(view);
                 }
                 Wake::Host(HostEvent::PersistenceFailed { message, .. }) => {
                     self.host.say(
