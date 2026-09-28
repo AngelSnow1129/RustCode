@@ -4425,7 +4425,14 @@ impl Tui {
             // turn's first fact is folded (`AgentEvent::Fact`), so "正在等待模型"
             // never paints a frame ahead of the message that started the turn.
             AgentEvent::TurnStarted { .. } => {
-                self.host.moment.write().expect("moment poisoned").turn_open = true;
+                let mut m = self.host.moment.write().expect("moment poisoned");
+                m.turn_open = true;
+                // A guess about what follows the LAST turn. The composer's own
+                // submit clears it, but a turn can start without one — a
+                // background result coming home, a resend, `/init`, a loop
+                // wake-up — and the guess then outlived the turn it was about.
+                m.suggestion = None;
+                drop(m);
                 self.host.arm_working()
             }
             // A cancel (whoever asked for it) or a failure can end the turn with
@@ -6652,8 +6659,13 @@ pub fn took_suggestion(
 ///
 /// The one place that writes it, so `→` and Tab cannot come to mean two
 /// different things.
+///
+/// Taken only where it is drawn (`modules::input::suggested`): idle, and not
+/// while a secret is being typed. A guess not on screen is not one to insert —
+/// Tab mid-turn put invisible words into the field, and with Tab as the mode
+/// key it swallowed the key press as well.
 fn take_suggestion(m: &mut crate::moment::Moment) -> bool {
-    if !m.input.is_empty() {
+    if !m.input.is_empty() || m.activity != crate::moment::Activity::Idle || m.secret.is_some() {
         return false;
     }
     let Some(words) = m.suggestion.take() else {
@@ -7331,6 +7343,20 @@ mod suggestion_tests {
         // → 在同一个位置仍旧接历史补全:两种手势的差别正在这里。
         assert!(accept_ghost(&mut m));
         assert_eq!(m.input, "接着把登录那条补上");
+    }
+
+    /// 屏上没画出来的那句话,也收不进来:回合在跑时它不画,Tab/→ 就不能把它塞进
+    /// 编辑区 —— 那是一行看不见就冒出来的字,Tab 当模式键时还吞掉了这一下。
+    #[test]
+    fn a_guess_not_drawn_is_not_taken() {
+        let moment = idle("lead");
+        assert!(took_suggestion(&moment, "lead", "接着把登录那条补上"));
+        let mut m = moment.write().unwrap();
+        m.activity = crate::moment::Activity::Working;
+        assert!(!take_suggestion(&mut m), "回合在跑");
+        assert!(m.input.is_empty());
+        m.activity = crate::moment::Activity::Idle;
+        assert!(take_suggestion(&mut m), "空闲了就照常收");
     }
 
     /// 编辑区空着的时候,→ 收下那句话 —— 和它收下历史 ghost 是同一个手势。
