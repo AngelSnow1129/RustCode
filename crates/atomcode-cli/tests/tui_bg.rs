@@ -17,7 +17,9 @@ use atomcode_coding::{
     CodingAgentConfig, CodingProviderFactory, CodingRuntime, CodingRuntimeStart, PrepareOptions,
     ProviderBuildError, SessionMode, StaticPluginHookSource, SubagentPolicy,
 };
-use atomcode_host_api::{BackgroundSession, BackgroundState, HostCommand, HostControl, HostReply};
+use atomcode_host_api::{
+    BackgroundSession, BackgroundState, HostCommand, HostControl, HostError, HostReply,
+};
 use atomcode_i18n::screen::{t, Msg};
 use atomcode_kernel::message::{Message, Role};
 use atomcode_kernel::provider::{ChatOptions, LlmProvider};
@@ -1136,5 +1138,77 @@ async fn a_background_question_comes_back_whole() {
     assert!(!kind.is_empty(), "kind 要说得出是什么问法");
     assert!(payload.is_object(), "载荷要原样带回来: {payload:?}");
     assert!(!facts.is_empty(), "尾巴不能是空的");
+    rig.quit().await;
+}
+
+/// 答了,那个后台会话就不再等它了 —— 而且挂着的那个确实被这一次答掉了。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn answering_a_background_question_clears_what_it_was_waiting_on() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let target = rig.background().await[0].session.clone();
+    let HostReply::BackgroundQuestion { id, .. } = rig
+        .control()
+        .call(HostCommand::BackgroundQuestion {
+            target: target.clone(),
+        })
+        .await
+        .expect("在等的会话有问询可取")
+    else {
+        panic!("不是一条问询");
+    };
+
+    // `Value::Null` 是任何 kind 都收得下的「没有答案」,与屏幕画不出来时的答复一致
+    // (`plugin.rs:4020-4024`)。这一条测的是**送达与记账**;答的语义由端到端那条测。
+    rig.control()
+        .call(HostCommand::AnswerBackground {
+            target: target.clone(),
+            id,
+            value: serde_json::Value::Null,
+        })
+        .await
+        .expect("挂着的就是它,答得进去");
+
+    rig.until_background("it moved on", |list| {
+        list.first()
+            .is_some_and(|s| s.state != BackgroundState::Waiting)
+    })
+    .await;
+
+    // 同一个 id 再答一次:挂着的已经不是它了,明说,而不是塞给一个等着别的东西的 runtime。
+    assert!(matches!(
+        rig.control()
+            .call(HostCommand::AnswerBackground {
+                target: target.clone(),
+                id,
+                value: serde_json::Value::Null,
+            })
+            .await,
+        Err(HostError::Busy { .. })
+    ));
+    rig.quit().await;
+}
+
+/// 不在后台的会话没得答:如实说找不到。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn answering_a_session_that_is_not_in_the_background_is_not_found() {
+    let rig = Rig::new().await;
+    assert!(matches!(
+        rig.control()
+            .call(HostCommand::AnswerBackground {
+                target: "nobody".into(),
+                id: 1,
+                value: serde_json::Value::Null,
+            })
+            .await,
+        Err(HostError::NotFound)
+    ));
     rig.quit().await;
 }

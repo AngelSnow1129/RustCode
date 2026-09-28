@@ -1039,6 +1039,38 @@ impl Background {
         })
     }
 
+    /// 把那个后台会话挂着的那个请求答了。答不进去就明说。
+    ///
+    /// 答案走的是**那个 runtime 自己的命令通道**(`Live.commands`),与屏幕答自己那个
+    /// 会话时走的 `AgentCommand::Respond` 是同一条路 —— 变的只是它去的 runtime。
+    fn answer(
+        &self,
+        target: String,
+        id: atomcode_kernel::event::RequestId,
+        value: serde_json::Value,
+    ) -> Result<HostReply, HostError> {
+        use atomcode_i18n::screen::{t as tr, Msg as SMsg};
+        let state = self.state.lock().expect("background poisoned");
+        let live = state
+            .slots
+            .iter()
+            .find(|slot| slot.control.session_id() == target)
+            .ok_or(HostError::NotFound)?;
+        {
+            let mut track = live.track.lock().expect("track poisoned");
+            match track.pending.as_ref() {
+                Some(AgentEvent::Request { id: waiting, .. }) if *waiting == id => {
+                    track.pending = None;
+                }
+                // 挂着的已经不是它了(作废、被别处答过、回合结束):拒绝,而不是把
+                // 人的答案安在别的问题上。
+                _ => return Err(Self::busy(tr(SMsg::BgAnswerStale).into_owned())),
+            }
+        }
+        let _ = live.commands.send(AgentCommand::Respond { id, value });
+        Ok(HostReply::Done)
+    }
+
     fn in_background(&self, session: &str) -> bool {
         self.state
             .lock()
@@ -1062,6 +1094,7 @@ impl HostControl for Background {
             HostCommand::TellBackground { target, text } => self.tell(target, text).await,
             HostCommand::DropBackground { target } => self.drop_one(target).await,
             HostCommand::BackgroundQuestion { target } => self.question(target),
+            HostCommand::AnswerBackground { target, id, value } => self.answer(target, id, value),
             // 恢复一个正在后台跑的会话,就是把它带回来:租约本来就不让同一个会话
             // 开两份,与其答「在用」,不如照人的意思做。
             HostCommand::Resume { session, target } if self.in_background(&target) => {

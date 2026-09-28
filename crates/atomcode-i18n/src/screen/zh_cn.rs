@@ -402,6 +402,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::BgQuitConfirm => "退出,停掉它们".into(),
         Msg::BgQuitStay => "留下".into(),
         Msg::BgWaitingTip { slot, title } => format!("后台 [{slot}] {title} 在等你回答 · /bg {slot} 打开").into(),
+        Msg::BgAnswerStale => "那个后台会话已经不在等这个问题了".into(),
         Msg::BgSlotsFull { most } => format!("后台已经放了 {most} 个会话,先丢掉一个(/bg drop <N>)").into(),
 
         // 只交内容,不交指令:那句"逐条核实一遍…"是替那段对话里的人做的决定,而且是以
