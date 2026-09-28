@@ -5400,6 +5400,37 @@ impl Host {
                 frame.place("menu", rect, self.menu_lines(rect, &menu));
                 self.hits.lock().expect("hits poisoned").menu = Some(rect);
             }
+        } else {
+            // A `Ctrl+R` search's matches rise from the prompt the same way, in
+            // the same place: the two are never up together (typing a search
+            // query is not typing a command). Not left in `hits` — a click on a
+            // match is not a gesture this list answers yet, and the slash
+            // menu's slot would read one as a command.
+            let moment = self.moment.read().expect("moment poisoned");
+            if let Some(search) = moment.search.as_ref() {
+                let rows = crate::search::list_rows(search) as u16;
+                if rows > 0 {
+                    if let Some(rect) = self.menu_rect(&frame, Rect::sized(w, h), rows) {
+                        let room = (rect.h as usize).saturating_sub(1);
+                        let mut lines = crate::search::list_lines(
+                            &moment.history,
+                            search,
+                            rect.w as usize,
+                            room,
+                        );
+                        let style = crate::theme::bg(crate::theme::Role::PanelBg)
+                            .under(crate::theme::fg(crate::theme::Role::PanelFg));
+                        let width = rect.w as usize;
+                        // Top-aligned in the rect with its margin last, as the
+                        // menu is: the list hangs off the field's top edge.
+                        while lines.len() < room {
+                            lines.insert(0, Line::styled(" ".repeat(width), style));
+                        }
+                        lines.push(Line::styled(" ".repeat(width), style));
+                        frame.place("history-search", rect, lines);
+                    }
+                }
+            }
         }
 
         // Held back, so the conversation has moved on below the fold. Say how

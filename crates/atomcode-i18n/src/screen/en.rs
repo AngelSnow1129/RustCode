@@ -146,6 +146,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::InputSearchNth { query, nth, total } =>
             format!("search '{query}' {nth}/{total}").into(),
         Msg::InputSearchNone { query } => format!("search '{query}' no match").into(),
+        Msg::InputSearchPrompt => "search history · type a word".into(),
         Msg::ComposerInterrupted => "Interrupted · what next?".into(),
 
         // ── the status bar ──

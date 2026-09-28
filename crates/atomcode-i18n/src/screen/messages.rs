@@ -205,6 +205,9 @@ pub enum Msg<'a> {
     InputSearchNone {
         query: &'a str,
     },
+    /// The search, just opened: nothing typed yet, so nothing matched — say
+    /// what to do rather than show a count of nothing.
+    InputSearchPrompt,
     /// The dim line under the composer after you stop a turn yourself.
     ComposerInterrupted,
 

@@ -123,6 +123,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::InputSearchNth { query, nth, total } =>
             format!("搜索 '{query}' {nth}/{total}").into(),
         Msg::InputSearchNone { query } => format!("搜索 '{query}' 无匹配").into(),
+        Msg::InputSearchPrompt => "搜索历史 · 输入关键字".into(),
         Msg::ComposerInterrupted => "已中断 · 接下来做什么？".into(),
 
         // ── 状态栏 ──

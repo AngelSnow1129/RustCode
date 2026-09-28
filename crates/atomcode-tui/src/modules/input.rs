@@ -81,13 +81,20 @@ fn history_caption(moment: &crate::moment::Moment) -> Option<String> {
     // one shoulder would be two answers to "which one am I looking at". While
     // one is up the composer holds a *hit*, not a browsing position, and
     // `crate::search` keeps `history_at` at `None` to make that so.
+    //
+    // Counted over the MATCHES, not the history: "1/99" said where the hit sat
+    // among everything ever said, whatever was typed, and nothing about how many
+    // lines the word was in — which is the one number a search is asked for.
     if let Some(search) = moment.search.as_ref() {
+        if search.query.is_empty() {
+            return Some(t(Msg::InputSearchPrompt).into_owned());
+        }
         let query = ellipsize(&search.query, SEARCH_QUERY_CELLS);
-        return Some(match search.at {
-            Some(at) => t(Msg::InputSearchNth {
+        return Some(match search.at() {
+            Some(_) => t(Msg::InputSearchNth {
                 query: &query,
-                nth: total.saturating_sub(at),
-                total,
+                nth: search.sel + 1,
+                total: search.matches.len(),
             })
             .into_owned(),
             None => t(Msg::InputSearchNone { query: &query }).into_owned(),
@@ -586,6 +593,43 @@ mod tests {
             .iter()
             .map(|l| l.plain())
             .collect()
+    }
+
+    /// A search counts over what it matched: "搜索 'cargo' 2/3" is the second of
+    /// three matches. It used to be counted over the whole history — "1/99"
+    /// whatever was typed — which said nothing about how many lines had the
+    /// word in them. Just opened, nothing is typed and nothing counted.
+    #[test]
+    fn a_search_counts_its_matches_not_the_history() {
+        let mut m = Moment {
+            history: (0..99)
+                .map(|i| {
+                    if i % 30 == 0 {
+                        format!("cargo {i}")
+                    } else {
+                        format!("x {i}")
+                    }
+                })
+                .collect(),
+            ..Moment::default()
+        };
+        crate::search::begin(&mut m);
+        assert_eq!(
+            history_caption(&m).as_deref(),
+            Some("搜索历史 · 输入关键字")
+        );
+        for c in "cargo".chars() {
+            crate::search::key(
+                &mut m,
+                crate::surface::KeyPress::plain(crate::surface::Key::Char(c)),
+            );
+        }
+        assert_eq!(history_caption(&m).as_deref(), Some("搜索 'cargo' 1/4"));
+        crate::search::key(
+            &mut m,
+            crate::surface::KeyPress::plain(crate::surface::Key::Up),
+        );
+        assert_eq!(history_caption(&m).as_deref(), Some("搜索 'cargo' 2/4"));
     }
 
     /// The upper rule carries the history position on the left and the session's

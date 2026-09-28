@@ -2131,25 +2131,44 @@ async fn ctrl_r_finds_an_earlier_line_by_a_word_in_it() {
     s.term.type_line("check the parser again");
     s.quiet().await;
 
-    // Open the search and type a word that is in two of them.
+    // Open the search: nothing is filled in — the risk was `Ctrl+R`, Enter,
+    // Enter sending the last prompt again.
     s.term.press(KeyPress::ctrl('r'));
+    s.quiet().await;
+    assert!(
+        s.screen().contains("搜索历史"),
+        "the shoulder says a search is up:\n{}",
+        s.screen()
+    );
+    assert!(
+        !part_text(&s, "input").contains("parser again"),
+        "opening fills nothing in:\n{}",
+        s.screen()
+    );
+
+    // A word that is in two of them: both are listed, and counted as two.
     s.term.type_text("parser");
     s.quiet().await;
     let screen = s.screen();
     assert!(
-        screen.contains("搜索 'parser'"),
-        "the shoulder says what is being searched for:\n{screen}"
+        screen.contains("搜索 'parser' 1/2"),
+        "counted over the matches, not the history:\n{screen}"
+    );
+    let list = part_text(&s, "history-search");
+    assert!(
+        list.contains("check the parser again") && list.contains("run the parser tests"),
+        "every match is listed over the composer:\n{screen}"
     );
     assert!(
-        screen.contains("check the parser again"),
-        "and the composer shows the newest hit:\n{screen}"
+        !list.contains("width arithmetic"),
+        "and only the matches:\n{list}"
     );
 
-    // Again steps to the older of the two.
+    // Up (or Ctrl+R) lights the older of the two.
     s.term.press(KeyPress::ctrl('r'));
     s.quiet().await;
     assert!(
-        s.screen().contains("run the parser tests"),
+        s.screen().contains("搜索 'parser' 2/2"),
         "a second Ctrl+R steps further back:\n{}",
         s.screen()
     );
@@ -2164,8 +2183,8 @@ async fn ctrl_r_finds_an_earlier_line_by_a_word_in_it() {
         "accepting closes the search:\n{screen}"
     );
     assert!(
-        screen.contains("run the parser tests"),
-        "and leaves the hit in the composer to edit:\n{screen}"
+        part_text(&s, "input").contains("run the parser tests"),
+        "and leaves the lit one in the composer to edit:\n{screen}"
     );
     task.abort();
 }
@@ -2192,9 +2211,10 @@ async fn esc_out_of_a_search_gives_the_draft_back() {
     s.quiet().await;
     s.term.press(KeyPress::ctrl('r'));
     s.quiet().await;
+    let input = part_text(&s, "input");
     assert!(
-        s.screen().contains("something said earlier"),
-        "the search opened on the newest entry:\n{}",
+        !input.contains("half a thought") && !input.contains("something said earlier"),
+        "the draft is set aside and nothing is filled in:\n{}",
         s.screen()
     );
 
