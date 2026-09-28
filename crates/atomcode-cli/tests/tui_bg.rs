@@ -85,6 +85,32 @@ impl LlmProvider for Model {
                 StreamEvent::Done { truncated: false },
             ])));
         }
+        // `ask two`: 一次问两条 —— 批问询走的是 `{"questions": [...]}`
+        // (`crate::ask::batch_for`,形状见 `crates/atomcode-tui/src/ask.rs:1276-1334`)。
+        if !tools.is_empty() && last.is_some_and(|m| m.role == Role::User && m.text == "ask two") {
+            return Ok(Box::pin(futures::stream::iter(vec![
+                StreamEvent::ToolCall(ToolCall {
+                    id: "call-ask-two".into(),
+                    name: "request_user_input".into(),
+                    arguments: serde_json::json!({
+                        "questions": [
+                            {
+                                "header": "Flavour",
+                                "question": "Which one?",
+                                "mode": "single",
+                                "options": [{ "label": "vanilla" }, { "label": "pistachio" }],
+                            },
+                            {
+                                "header": "Count",
+                                "question": "How many?",
+                                "mode": "text",
+                            },
+                        ],
+                    })
+                    .to_string(),
+                }),
+            ])));
+        }
         let text = if slow {
             self.started.fetch_add(1, Ordering::SeqCst);
             let mut gate = self.gate.clone();
@@ -1302,4 +1328,30 @@ async fn a_background_question_comes_out_on_the_foreground() {
         Some(list[0].session.clone()),
         "它还在后台"
     );
+}
+
+/// 后台一次问两条，提到前台的**是那两条**（第一页先出），而不是只把第一条当成一条单问询。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn a_background_batch_comes_out_as_a_batch() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask two");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+
+    let title = rig.background().await[0]
+        .title
+        .clone()
+        .unwrap_or_default();
+    rig.until_screen(&t(Msg::BgAsker {
+        slot: 1,
+        title: &title,
+    }))
+    .await;
+    // 批是一块面板、一页一条：第一条在屏幕上就说明它整批都提上来了
+    // （只提第一条的话，`batch_for` 根本不会被走到）。
+    rig.until_screen("Which one?").await;
 }
