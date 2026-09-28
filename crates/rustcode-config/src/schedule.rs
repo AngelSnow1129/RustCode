@@ -176,12 +176,17 @@ impl RunStatus {
 /// they share one command line, so they cannot be told apart (registered
 /// residual in AGENTS.md). `Daemon` is the P2 tick (`schedule tick`), which can
 /// distinguish itself. `OsScheduler` is reserved for a future explicit marker.
+/// `Im` is a chat message driving the agent through an IM channel; its ledger
+/// lives under the IM tree (`im/runs/`), not the schedules tree, so the
+/// `task_id` field of those records carries the channel's hashed directory stem
+/// rather than a schedule id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RunTrigger {
     Manual,
     OsScheduler,
     Daemon,
+    Im,
 }
 
 /// One run of one task, persisted under `<task-id>/runs/<run_id>.json`.
@@ -310,6 +315,72 @@ fn prune_runs_in(root: &std::path::Path, task_id: &str, keep: usize) -> std::io:
         }
     }
     Ok(removed)
+}
+
+// ─────────────────── IM message ledger ───────────────────
+
+/// Root of the IM message run ledger: `<RUSTCODE_HOME>/im/runs/`.
+///
+/// The IM ledger is deliberately a **sibling** of the schedules tree rather than
+/// a child: its per-channel directories are keyed by a hash of the chat id
+/// (network input), and mixing that key space into `schedules/` would let a
+/// crafted channel directory shadow a real task's ledger.
+pub fn im_runs_root() -> PathBuf {
+    crate::config::Config::config_dir().join("im").join("runs")
+}
+
+/// Per-channel directory stem: `<platform>-<sha256(chat_id) first 16 hex>`.
+///
+/// The chat id comes off the network, so it is never used verbatim in a path --
+/// the same sha256-truncation the binding store uses. This is the parallel of
+/// `im_store::binding_stem_in`, kept here so the schedule module owns the whole
+/// ledger path story without exporting binding-store internals.
+pub fn im_channel_stem(platform: &str, chat_id: &str) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    if !crate::im_store::valid_platform(platform) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid IM platform {platform:?}"),
+        ));
+    }
+    if chat_id.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "empty IM chat id".to_string(),
+        ));
+    }
+    let digest = Sha256::digest(chat_id.as_bytes());
+    let mut hex = String::with_capacity(16);
+    for byte in digest.iter().take(8) {
+        use std::fmt::Write as _;
+        let _ = write!(hex, "{byte:02x}");
+    }
+    Ok(format!("{platform}-{hex}"))
+}
+
+/// Persist one IM message run record under
+/// `<RUSTCODE_HOME>/im/runs/<platform>-<sha256(chat_id)[..16]>/runs/<run_id>.json`.
+///
+/// Same best-effort contract as [`save_run`]: the caller decides whether a
+/// ledger failure may fail the turn (for IM it must not).
+pub fn save_im_run(platform: &str, chat_id: &str, record: &RunRecord) -> std::io::Result<()> {
+    let stem = im_channel_stem(platform, chat_id)?;
+    save_run_in(&im_runs_root(), &stem, record)
+}
+
+/// All run records for one IM chat, **newest first** (same ordering as
+/// [`list_runs`]). Unknown chat -> empty history, not an error.
+pub fn list_im_runs(platform: &str, chat_id: &str) -> Vec<RunRecord> {
+    match im_channel_stem(platform, chat_id) {
+        Ok(stem) => list_runs_in(&im_runs_root(), &stem),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Trim one IM chat's ledger to the newest `keep` records.
+pub fn prune_im_runs(platform: &str, chat_id: &str, keep: usize) -> std::io::Result<usize> {
+    let stem = im_channel_stem(platform, chat_id)?;
+    prune_runs_in(&im_runs_root(), &stem, keep)
 }
 
 // ─────────────────── daemon tick support (P2) ───────────────────
@@ -636,8 +707,8 @@ fn next_cron(expr: &str, now_epoch_secs: i64) -> Option<i64> {
     let dow_or_dom = dom.restricted && dow.restricted;
 
     let first = now_epoch_secs + 1; // strictly after `now`
-    let mut day = first.div_euclid(86400);
-    for _ in 0..MAX_SEARCH_DAYS {
+    let start_day = first.div_euclid(86400);
+    for day in start_day..start_day + MAX_SEARCH_DAYS {
         let (_, m, d) = civil_from_days(day);
         let matches = if dow_or_dom {
             dom.values.contains(&d) || dow.values.contains(&day_of_week(day))
@@ -655,7 +726,6 @@ fn next_cron(expr: &str, now_epoch_secs: i64) -> Option<i64> {
                 }
             }
         }
-        day += 1;
     }
     None
 }
@@ -701,13 +771,12 @@ pub fn next_run(schedule: &Schedule, now_epoch_secs: i64) -> Option<i64> {
             let (h, m) = hhmm(time)?;
             let want = u32::from(*weekday % 7); // 1..=6 -> Mon..Sat, 7 -> 0 (Sunday)
             let first = now_epoch_secs + 1;
-            let mut day = first.div_euclid(86400);
-            for _ in 0..8 {
+            let start_day = first.div_euclid(86400);
+            for day in start_day..start_day + 8 {
                 let ts = day * 86400 + h * 3600 + m * 60;
                 if day_of_week(day) == want && ts >= first {
                     return Some(ts);
                 }
-                day += 1;
             }
             None
         }
@@ -900,6 +969,90 @@ mod tests {
     fn next_run_cron_returns_none_when_the_date_can_never_occur() {
         // 30 February never happens; the search must terminate, not hang.
         assert_eq!(cron_at("0 9 30 2 *", FRI_0800), None);
+    }
+
+    // -- IM message ledger ---------------------------------------------------
+
+    fn im_run_record(run_id: &str, started_at: i64) -> RunRecord {
+        RunRecord {
+            run_id: run_id.into(),
+            task_id: "im".into(),
+            status: RunStatus::Running,
+            trigger: RunTrigger::Im,
+            started_at,
+            finished_at: None,
+            exit_code: None,
+            session_id: None,
+            summary: None,
+        }
+    }
+
+    #[test]
+    fn im_channel_stem_hashes_the_chat_id_never_verbatim() {
+        // The chat id is network input; the directory name must carry only the
+        // truncated sha256, never the raw id (no separators, no traversal).
+        let stem = im_channel_stem("dingtalk", "../../evil/chat id").unwrap();
+        assert!(stem.starts_with("dingtalk-"));
+        let hex = stem.trim_start_matches("dingtalk-");
+        assert_eq!(hex.len(), 16);
+        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(!stem.contains('/'));
+
+        // Same chat id on different platforms does not collide.
+        assert_ne!(
+            im_channel_stem("feishu", "c1").unwrap(),
+            im_channel_stem("dingtalk", "c1").unwrap()
+        );
+        // Bad platform / empty chat id are rejected, not coerced into a path.
+        assert!(im_channel_stem("bad platform", "c1").is_err());
+        assert!(im_channel_stem("dingtalk", "").is_err());
+    }
+
+    #[test]
+    fn im_run_ledger_roundtrips_and_prunes_per_chat() {
+        struct HomeGuard(Option<String>);
+        impl HomeGuard {
+            fn new(dir: &std::path::Path) -> Self {
+                let old = std::env::var("RUSTCODE_HOME").ok();
+                std::env::set_var("RUSTCODE_HOME", dir);
+                Self(old)
+            }
+        }
+        impl Drop for HomeGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(v) => std::env::set_var("RUSTCODE_HOME", v),
+                    None => std::env::remove_var("RUSTCODE_HOME"),
+                }
+            }
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let _guard = HomeGuard::new(tmp.path());
+        save_im_run("dingtalk", "chat-1", &im_run_record("1000-000000001", 1000)).unwrap();
+        save_im_run("dingtalk", "chat-1", &im_run_record("2000-000000002", 2000)).unwrap();
+        save_im_run("dingtalk", "chat-2", &im_run_record("1000-000000003", 1000)).unwrap();
+
+        let stem = im_channel_stem("dingtalk", "chat-1").unwrap();
+        let dir = im_runs_root().join(&stem).join("runs");
+        assert!(dir.join("1000-000000001.json").exists());
+        assert!(dir.join("2000-000000002.json").exists());
+
+        let runs = list_im_runs("dingtalk", "chat-1");
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].run_id, "2000-000000002");
+        assert!(matches!(runs[0].trigger, RunTrigger::Im));
+        // The other chat's history is separate.
+        assert_eq!(list_im_runs("dingtalk", "chat-2").len(), 1);
+        assert!(list_im_runs("feishu", "chat-1").is_empty());
+
+        // Pruning keeps the newest.
+        prune_im_runs("dingtalk", "chat-1", 1).unwrap();
+        let runs = list_im_runs("dingtalk", "chat-1");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].run_id, "2000-000000002");
+
+        // Unknown chat -> empty history, not an error.
+        assert!(list_im_runs("dingtalk", "never-seen").is_empty());
     }
 
     #[test]

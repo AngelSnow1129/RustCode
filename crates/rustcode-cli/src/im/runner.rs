@@ -37,6 +37,16 @@ use super::bridge::{BridgedReply, RecentMessages};
 use super::commands;
 use super::{ApprovalPort, ImAdapter, ImApprovalRelay, ImError, ImMessage, APPROVAL_WAIT};
 
+use rustcode_config::schedule::DEFAULT_MAX_RUN_HISTORY;
+
+/// Unix seconds, or 0 if the clock is before the epoch (ledger helper).
+fn now_epoch_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 /// Result of one agent turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentTurn {
@@ -219,6 +229,35 @@ pub async fn handle_message(
     // `'static`, so the task cannot borrow them. The reply below uses the same
     // target, so the shapes match.
     const PROCESSING_GRACE_SECS: u64 = 8;
+
+    // -- message run ledger (best-effort) ------------------------------------
+    //
+    // One record per chat message, written `Running` before the turn starts and
+    // rewritten to a terminal state when the turn ends. The ledger is pure
+    // bookkeeping: **every** failure here is swallowed (`let _ =`) so a broken
+    // or unwritable ledger can never fail the turn or the reply path -- the same
+    // contract the schedule ledger has with the process exit code.
+    let ledger_start = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| (d.as_secs() as i64, d.subsec_nanos()))
+        .unwrap_or((0, 0));
+    let ledger_run_id = rustcode_config::schedule::mint_run_id(ledger_start.0, ledger_start.1);
+    let _ = rustcode_config::schedule::save_im_run(
+        &message.platform,
+        &message.chat_id,
+        &rustcode_config::schedule::RunRecord {
+            run_id: ledger_run_id.clone(),
+            task_id: message.platform.clone(),
+            status: rustcode_config::schedule::RunStatus::Running,
+            trigger: rustcode_config::schedule::RunTrigger::Im,
+            started_at: ledger_start.0,
+            finished_at: None,
+            exit_code: None,
+            session_id: prior_session.clone(),
+            summary: None,
+        },
+    );
+
     let note_chat = message.chat_id.clone();
     let note_token = message.reply_token.clone();
     let note_adapter = adapter.clone();
@@ -257,6 +296,27 @@ pub async fn handle_message(
                 // The turn finished within the grace window: cancel the pending
                 // "working on it" note so it never arrives after the real answer.
                 processing_task.abort();
+                // Terminal ledger write (best-effort): the turn succeeded.
+                let _ = rustcode_config::schedule::save_im_run(
+                    &message.platform,
+                    &message.chat_id,
+                    &rustcode_config::schedule::RunRecord {
+                        run_id: ledger_run_id.clone(),
+                        task_id: message.platform.clone(),
+                        status: rustcode_config::schedule::RunStatus::Success,
+                        trigger: rustcode_config::schedule::RunTrigger::Im,
+                        started_at: ledger_start.0,
+                        finished_at: Some(now_epoch_secs()),
+                        exit_code: Some(0),
+                        session_id: Some(turn.session_id.clone()),
+                        summary: None,
+                    },
+                );
+                let _ = rustcode_config::schedule::prune_im_runs(
+                    &message.platform,
+                    &message.chat_id,
+                    DEFAULT_MAX_RUN_HISTORY,
+                );
                 Ok(turn)
             }
             Err(error) => {
@@ -266,6 +326,24 @@ pub async fn handle_message(
                 // is reported back to the chat so the user is not left with
                 // silence.
                 processing_task.abort();
+                // Terminal ledger write (best-effort): the turn failed. The
+                // failure detail goes in the summary, but the send below must
+                // still happen even if this write blew up.
+                let _ = rustcode_config::schedule::save_im_run(
+                    &message.platform,
+                    &message.chat_id,
+                    &rustcode_config::schedule::RunRecord {
+                        run_id: ledger_run_id.clone(),
+                        task_id: message.platform.clone(),
+                        status: rustcode_config::schedule::RunStatus::Error,
+                        trigger: rustcode_config::schedule::RunTrigger::Im,
+                        started_at: ledger_start.0,
+                        finished_at: Some(now_epoch_secs()),
+                        exit_code: Some(1),
+                        session_id: prior_session.clone(),
+                        summary: Some(error.to_string()),
+                    },
+                );
                 let notice = t(Msg::ImTurnFailed {
                     detail: &error.to_string(),
                 });
@@ -528,6 +606,100 @@ mod tests {
         assert_eq!(adapter.sent(), vec!["the answer"]);
         // A first message has no session to resume.
         assert_eq!(runner.calls(), vec![None]);
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn every_turn_writes_a_terminal_run_record_for_the_chat() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _home = HomeGuard::new(tmp.path());
+        let adapter = std::sync::Arc::new(FakeAdapter::with(vec![]));
+        let dedupe = tokio::sync::Mutex::new(RecentMessages::new(8));
+
+        // A successful turn records Success with the minted session.
+        dispatch_one(
+            &adapter,
+            &FakeRunner::ok("ok"),
+            tmp.path(),
+            &dedupe,
+            &msg("m1", "hello"),
+            &Vec::new(),
+        )
+        .await
+        .unwrap();
+        let runs = rustcode_config::schedule::list_im_runs("dingtalk", "chat-1");
+        assert_eq!(runs.len(), 1, "one message -> exactly one run record");
+        assert_eq!(
+            runs[0].status,
+            rustcode_config::schedule::RunStatus::Success
+        );
+        assert!(matches!(
+            runs[0].trigger,
+            rustcode_config::schedule::RunTrigger::Im
+        ));
+        assert_eq!(runs[0].exit_code, Some(0));
+        assert_eq!(runs[0].session_id.as_deref(), Some("sess-minted"));
+        assert!(runs[0].finished_at.is_some());
+        // The record lives under the hashed stem, never the raw chat id.
+        let stem = rustcode_config::schedule::im_channel_stem("dingtalk", "chat-1").unwrap();
+        assert!(rustcode_config::schedule::im_runs_root()
+            .join(stem)
+            .join("runs")
+            .join(format!("{}.json", runs[0].run_id))
+            .exists());
+        assert!(!rustcode_config::schedule::im_runs_root()
+            .join("chat-1")
+            .exists());
+
+        // A failing turn records Error and still reports back to the chat.
+        let adapter_err = std::sync::Arc::new(FakeAdapter::with(vec![]));
+        let outcome = dispatch_one(
+            &adapter_err,
+            &FakeRunner::failing(),
+            tmp.path(),
+            &dedupe,
+            &msg("m2", "boom"),
+            &Vec::new(),
+        )
+        .await;
+        assert!(outcome.is_err());
+        assert_eq!(
+            adapter_err.sent().len(),
+            1,
+            "failure is still reported back"
+        );
+        let runs = rustcode_config::schedule::list_im_runs("dingtalk", "chat-1");
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].status, rustcode_config::schedule::RunStatus::Error);
+        assert_eq!(runs[0].exit_code, Some(1));
+        assert!(runs[0].summary.is_some());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn a_broken_ledger_never_fails_the_turn() {
+        // Point the ledger at an unwritable location: the "runs" path of the
+        // ledger is shadowed by a regular file, so every save must fail -- and
+        // the turn must still succeed end-to-end (best-effort contract).
+        let tmp = tempfile::tempdir().unwrap();
+        let _home = HomeGuard::new(tmp.path());
+        let im_dir = tmp.path().join("im");
+        std::fs::create_dir_all(&im_dir).unwrap();
+        std::fs::write(im_dir.join("runs"), "not a directory").unwrap();
+
+        let adapter = std::sync::Arc::new(FakeAdapter::with(vec![]));
+        let outcome = dispatch_one(
+            &adapter,
+            &FakeRunner::ok("the answer"),
+            tmp.path(),
+            &tokio::sync::Mutex::new(RecentMessages::new(8)),
+            &msg("m1", "hello"),
+            &Vec::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, DispatchOutcome::Replied { chunks: 1 });
+        assert_eq!(adapter.sent(), vec!["the answer"]);
     }
 
     #[tokio::test]

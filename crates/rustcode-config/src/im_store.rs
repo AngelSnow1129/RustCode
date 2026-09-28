@@ -61,7 +61,7 @@ fn now_epoch_secs() -> i64 {
 /// Platforms are minted by us, not by the network, so a strict alphabet check is
 /// both sufficient and more debuggable than hashing: a typo shows up as an
 /// obviously-wrong file name rather than an opaque digest.
-fn valid_platform(platform: &str) -> bool {
+pub(super) fn valid_platform(platform: &str) -> bool {
     !platform.is_empty()
         && platform.len() <= 32
         && platform
