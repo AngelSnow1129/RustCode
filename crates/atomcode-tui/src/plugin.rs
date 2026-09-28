@@ -3025,13 +3025,17 @@ impl Tui {
                     replies.resize(n, None);
                     let answers: Vec<Value> =
                         replies.into_iter().map(crate::ask::declinable).collect();
-                    let _ = control
+                    let sent = control
                         .call(HostCommand::AnswerBackground {
                             target,
                             id,
                             value: serde_json::json!({ "responses": answers }),
                         })
                         .await;
+                    if let Err(error) = sent {
+                        host.say(bg_answer_failure(error), true);
+                        repaint();
+                    }
                 });
                 return;
             }
@@ -3054,9 +3058,14 @@ impl Tui {
                     return;
                 };
                 let value = crate::ask::response_for(&kind, chosen);
-                let _ = control
+                let sent = control
                     .call(HostCommand::AnswerBackground { target, id, value })
                     .await;
+                // 没送到就明说（设计 §7）：人以为答了，那个会话其实没收到。
+                if let Err(error) = sent {
+                    host.say(bg_answer_failure(error), true);
+                    repaint();
+                }
             });
         });
     }
@@ -6861,6 +6870,18 @@ fn recall_forward(m: &mut crate::moment::Moment) {
     m.caret = m.input.len();
 }
 
+/// 前台替一个后台会话答的那一下没送到时，屏幕上说的那句（设计 §7）。
+///
+/// `Busy` 带着宿主已经说好的原因（挂着的已经不是这个问题了）；`NotFound` 是那个会话
+/// 已经不在后台了；别的照宿主的拒绝原样说。
+fn bg_answer_failure(error: atomcode_host_api::HostError) -> String {
+    match error {
+        atomcode_host_api::HostError::Busy { reason } => reason,
+        atomcode_host_api::HostError::NotFound => t(Msg::BgAnswerGone).into_owned(),
+        other => crate::commands::refusal(other),
+    }
+}
+
 /// 把一个后台会话的问询放上屏幕时说清是谁在问。
 ///
 /// 没有这一句，人在自己那段对话底下看到一个「允许写文件吗」会以为是自己触发的。
@@ -8696,8 +8717,9 @@ mod provider_probe_tests {
 
 #[cfg(test)]
 mod bg_question_tests {
-    use super::{as_background_question, became_ready};
+    use super::{as_background_question, became_ready, bg_answer_failure};
     use crate::ask::Asked;
+    use crate::i18n::{t, Msg};
     use atomcode_harness::seams::Question;
 
     fn question(asker: Option<&str>) -> Asked {
@@ -8752,6 +8774,38 @@ mod bg_question_tests {
         frame();
         frame();
         assert_eq!(fired.get(), 3);
+        // 后台面板开着:键盘在面板手里,不算能接;收起的那一刻才算。
+        h.moment.write().unwrap().bg_panel = Some(crate::bg::Panel::new(None));
+        frame();
+        frame();
+        assert_eq!(fired.get(), 3);
+        assert!(h.close_bg());
+        frame();
+        frame();
+        assert_eq!(fired.get(), 4);
+    }
+
+    /// 前台答的那一下没送到,屏幕要明说(设计 §7):问题换了照宿主给的原因说,会话不在
+    /// 后台了说它不在了,别的照宿主的拒绝说 —— 都不是空话。
+    #[test]
+    fn a_background_answer_that_did_not_land_is_said() {
+        use atomcode_host_api::HostError;
+        assert_eq!(
+            bg_answer_failure(HostError::Busy {
+                reason: "stale".into()
+            }),
+            "stale"
+        );
+        assert_eq!(
+            bg_answer_failure(HostError::NotFound),
+            t(Msg::BgAnswerGone).into_owned()
+        );
+        assert_eq!(
+            bg_answer_failure(HostError::Failed {
+                message: "gone".into()
+            }),
+            "gone"
+        );
     }
 
     #[test]

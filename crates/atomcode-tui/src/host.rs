@@ -3910,16 +3910,37 @@ impl Host {
     }
 
     /// 这块屏幕现在能不能接一条后台的问询：没有别的问询在等（前台优先），输入框也
-    /// 是空的 —— 人正在打字时弹出一个面板，他接下来敲的键（连回车）就成了对一个他没
-    /// 看过的问题的回答。
+    /// 是空的，键盘也不在别处 —— 人正在打字、或正在一个面板里操作时弹出一个问询，
+    /// 他接下来敲的键（连回车、方向键、首字母）就成了对一个他没看过的问题的回答。
     pub fn bg_question_ready(&self) -> bool {
         !self.asks.is_waiting()
+            && !self.keyboard_held_elsewhere()
             && self
                 .moment
                 .read()
                 .expect("moment poisoned")
                 .input
                 .is_empty()
+    }
+
+    /// 键盘此刻是不是在一个问询之外的东西手里：密码框、modal、菜单、各个面板、反查、
+    /// 团队面板 —— 主循环分键时排在问询前面或会吃掉字母的那些（`plugin.rs` 的键路由）。
+    /// 一个地方列全，分键那边加了新的面板，这里跟着加一行。
+    pub fn keyboard_held_elsewhere(&self) -> bool {
+        self.secret_waiting()
+            || self.overlays.is_open()
+            || self.context_menu_open()
+            || self.settings_open()
+            || self.providers_open()
+            || self.plugins_open()
+            || self.tools_open()
+            || self.mcp_open()
+            || self.rewind_open()
+            || self.resume_open()
+            || self.bg_open()
+            || self.searching()
+            || self.menu_open()
+            || self.team_focused()
     }
 
     /// 要不要把一个后台会话的问询提上来 —— 提谁的。
@@ -3930,13 +3951,15 @@ impl Host {
         if self.asks.is_waiting() {
             return None;
         }
+        // 先于写锁读：各个面板的读者自己拿 moment 的读锁。
+        let held = self.keyboard_held_elsewhere();
         let mut m = self.moment.write().expect("moment poisoned");
         if matches!(m.bg_asked, Some((_, None))) {
             // 正在取：不要第二次，但记下这次被挡掉了（`take_bg_repull`）。
             m.bg_repull = true;
             return None;
         }
-        if !m.input.is_empty() || m.bg_asked.is_some() {
+        if held || !m.input.is_empty() || m.bg_asked.is_some() {
             return None;
         }
         let session = m.bg.sessions().iter().find(|s| s.waiting)?.id.clone();
@@ -4899,16 +4922,8 @@ impl Host {
         // is what makes the row a product's decision instead of a dependency of
         // the front end.
         if !self.ask_panel_mounted() {
-            if let Some(question) = self.asks.current().map(|a| a.question) {
-                let pending = crate::content::ChoiceBlock {
-                    question: crate::ask::recorded(&question),
-                    options: question
-                        .options
-                        .iter()
-                        .map(|a| crate::ask::answer_label(&a.value, &a.label))
-                        .collect(),
-                    answer: None,
-                };
+            if let Some(asked) = self.asks.current() {
+                let pending = fallback_question(&asked);
                 let mut lines =
                     crate::block::Content::lines(&pending, &crate::block::RenderCtx::bare(rect.w));
                 lines.reverse();
@@ -5731,19 +5746,11 @@ impl Host {
         // frame drew and this did not would be out of reach at the bottom of the
         // scroll, which is the whole failure `row_index` exists to prevent.
         let pending = match self.ask_panel_mounted() {
-            false => self.asks.current().map(|a| a.question),
+            false => self.asks.current(),
             true => None,
         };
-        let question = pending.map_or(0, |q| {
-            let block = crate::content::ChoiceBlock {
-                question: crate::ask::recorded(&q),
-                options: q
-                    .options
-                    .iter()
-                    .map(|a| crate::ask::answer_label(&a.value, &a.label))
-                    .collect(),
-                answer: None,
-            };
+        let question = pending.map_or(0, |asked| {
+            let block = fallback_question(&asked);
             crate::block::Content::lines(&block, &crate::block::RenderCtx::bare(width)).len()
         });
         (total + tail + question, tail)
@@ -5934,6 +5941,30 @@ fn asked_height(modules: &Modules, id: &str, moment: &Moment, width: u16) -> u16
         return 0;
     }
     asked
+}
+
+/// The question drawn at the foot of the stream when no ask panel is mounted.
+///
+/// One builder for the frame that draws it and the count that measures it
+/// (`stream_lines` / `stream_height`), so the two cannot disagree about its
+/// rows. A question brought up from a background session says which one here
+/// too (「后台 [N] <title> 在问」, the words the panel puts on its header) —
+/// without it a person reads someone else's question as their own.
+pub(crate) fn fallback_question(asked: &crate::ask::Asked) -> crate::content::ChoiceBlock {
+    let question = &asked.question;
+    let recorded = crate::ask::recorded(question);
+    crate::content::ChoiceBlock {
+        question: match &asked.from_background {
+            Some(bg) => format!("{bg} · {recorded}"),
+            None => recorded,
+        },
+        options: question
+            .options
+            .iter()
+            .map(|a| crate::ask::answer_label(&a.value, &a.label))
+            .collect(),
+        answer: None,
+    }
 }
 
 /// Whether what is on screen stands in the composer's place.
@@ -13118,6 +13149,35 @@ mod tests {
         assert!(!h.bg_question_ready());
         assert_eq!(h.bg_question_wanted(), None, "输入框有字,不提");
         h.moment.write().unwrap().input.clear();
+        assert!(h.bg_question_ready());
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+    }
+
+    /// 没挂问询面板时,流尾那条兜底问题也要说清是哪个后台会话在问;自己那段对话的
+    /// 问题照旧只有问题本身。
+    #[test]
+    fn the_fallback_question_says_which_background_session_asks() {
+        let mut asked: crate::ask::Asked =
+            atomcode_harness::seams::Question::plain("Allow?", &["yes", "no"]).into();
+        assert_eq!(fallback_question(&asked).question, "Allow?");
+        asked.from_background = Some("后台 [1] review 在问".into());
+        let block = fallback_question(&asked);
+        assert_eq!(block.question, "后台 [1] review 在问 · Allow?");
+        assert_eq!(block.options.len(), 2);
+    }
+
+    /// 人在后台面板里(打新任务、回复、方向键挑行)时不提:键路由里问询一出来就抢走
+    /// 所有键,首字母就成了回答。面板收起的那一刻才算能接。
+    #[test]
+    fn a_background_question_waits_while_the_background_panel_is_up() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        h.moment.write().unwrap().bg_panel = Some(crate::bg::Panel::new(None));
+        assert!(h.keyboard_held_elsewhere());
+        assert!(!h.bg_question_ready());
+        assert_eq!(h.bg_question_wanted(), None, "后台面板开着,不提");
+        assert!(h.close_bg());
+        assert!(!h.keyboard_held_elsewhere());
         assert!(h.bg_question_ready());
         assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
     }
