@@ -640,8 +640,6 @@ impl ActiveChatRegistry {
     }
 }
 
-const DANGEROUS_TOOLS_ENV: &str = "ATOMCODE_DAEMON_ENABLE_DANGEROUS_TOOLS";
-
 /// RAII guard that decrements `active_connections` on drop, ensuring the counter
 /// is always decremented even if the SSE client disconnects abruptly (TCP RST).
 struct SseConnectionGuard(Arc<std::sync::atomic::AtomicUsize>);
@@ -1253,9 +1251,6 @@ fn short_path(path: &str) -> String {
         2 => format!("{}/{}", parts[1], parts[0]),
         _ => format!(".../{}/{}", parts[1], parts[0]),
     }
-}
-fn dangerous_tools_enabled() -> bool {
-    std::env::var(DANGEROUS_TOOLS_ENV).ok().as_deref() == Some("1")
 }
 
 fn cors_layer() -> CorsLayer {
@@ -5592,13 +5587,15 @@ fn primary_lan_ipv4() -> Option<String> {
     }
 }
 
-/// 进程内 webui server 的默认端口。**刻意区别于独立守护进程的 13456**。
+/// 进程内 webui server 的默认端口。**刻意区别于 IDE 守护进程的 13456**。
 ///
-/// 进程内 webui（TUI `/webui`、`atomcode webui`）以 `enforce_token=true` 启动，而
-/// VSCode 扩展自带的守护进程以 `enforce_token=false`（不带 token）在 13456 上工作。
-/// 二者若共用 13456，会互相踩端口：webui 抢到后，VSCode 的 `/project`、`/models`、
-/// `/chat` 乃至 `/shutdown` 都会因缺 token 返回 401，扩展既用不了也停不掉它，表现为
-/// “daemon started but not responding”。让 webui 默认错开到 13457 即可彻底分离
+/// 进程内 webui（TUI `/webui`、`atomcode webui`）与 IDE（VSCode/JetBrains）自带的
+/// 守护进程**都默认 `enforce_token=true`**，各自把本地 token 写到按端口命名的
+/// `daemon-<port>.json`。二者若共用 13456，既会争抢同一个 socket，又会让两侧写入
+/// 同一个 token 文件、相互覆盖：后起的实例要么 bind 失败，要么让客户端携带到另一个
+/// 实例的 token，于是 `/project`、`/models`、`/chat` 乃至 `/shutdown` 都因 token 不匹配
+/// 返回 401，扩展既用不了也停不掉它，表现为“daemon started but not responding”。
+/// 让 webui 默认错开到 13457，端口与 token 文件一起分离，即可彻底避免
 /// （webui 的访问 URL 是生成的，端口号对用户无感；被占时仍会向上扫描）。
 pub const WEBUI_DEFAULT_PORT: u16 = atomcode_config::distribution::WEBUI_PORT;
 
@@ -6564,8 +6561,10 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         .route("/", axum::routing::get(serve_webui_index))
         .fallback(webui::serve_webui);
 
-    // 受保护路由：所有数据/API 端点。仅 webui 模式（enforce_token=true）强制 token 鉴权；
-    // 独立 daemon/VSCode（enforce_token=false）中间件直接放行（见 auth_token.rs）。
+    // 受保护路由：所有数据/API 端点。默认下独立 daemon 与 IDE 守护进程同为
+    // enforce_token=true（自持 token、写 `daemon-<port>.json`，客户端读该文件后作为
+    // Bearer 携带）；只有 `--no-auth` 或 App 中继路径（webui_tokens=None）才
+    // enforce_token=false，此时 auth_token.rs 的中间件直接放行。
     let protected = Router::new()
         // Shutdown endpoint (R7.1)
         .route("/shutdown", post(shutdown_handler))
@@ -6746,12 +6745,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
             The daemon exposes sensitive endpoints (chat, file-edit, tool-execution). \
             Ensure the network is trusted or use a reverse proxy with authentication.",
             host
-        );
-    }
-    if dangerous_tools_enabled() {
-        eprintln!(
-            "Warning: {}=1 enables bash and write-capable daemon tools.",
-            DANGEROUS_TOOLS_ENV
         );
     }
     // 启动横幅（监听地址 + API 端点清单）仅在非 quiet 模式打印。TUI 内 `/webui`

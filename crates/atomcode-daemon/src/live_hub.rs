@@ -358,9 +358,9 @@ impl LiveViewHub {
     /// that is running. Once the runtime is shut down there is no turn left to
     /// protect, and a flag still set then only means the terminal event never
     /// reached the hub (forwarding stopped first) — refusing would leave the
-    /// dead runtime bound and every later bind rejected. Unlike
-    /// [`force_unbind`](Self::force_unbind) this is scoped to `binding`: a
-    /// successor that is already bound is left alone (`StaleBinding`).
+    /// dead runtime bound and every later bind rejected. It is scoped to
+    /// `binding`, never an unconditional reset: a successor that is already
+    /// bound is left alone (`StaleBinding`).
     pub fn unbind_retired(&self, binding: &LiveBinding) -> Result<(), HubError> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let current_binding_id = state
@@ -381,28 +381,6 @@ impl LiveViewHub {
         state.last_runtime_sequence = None;
         state.turn_active = false;
         Ok(())
-    }
-
-    /// Clear the binding and ALL per-session state **including `turn_active`**,
-    /// unconditionally — the force-release path (feedback B12).
-    ///
-    /// Ordinary [`unbind`](Self::unbind) refuses while a turn is active, which is
-    /// exactly the wedge this must clear: an orphaned `InTurn`/`WaitingApproval`
-    /// turn whose consumer disconnected leaves `turn_active == true` forever, so
-    /// both `unbind` and the next `bind_with_provider` reject and every
-    /// `/live?session_id=` 404s. The caller has already torn down the runtime
-    /// handle, so there is no live turn to protect — reset the hub to match.
-    pub fn force_unbind(&self) {
-        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        state.binding = None;
-        state.snapshot = None;
-        state.snapshot_error = None;
-        state.replay.clear();
-        state.goal_progress = None;
-        state.pending_requests.clear();
-        state.pending_web_steers.clear();
-        state.last_runtime_sequence = None;
-        state.turn_active = false;
     }
 
     pub fn replace_snapshot(
@@ -707,9 +685,15 @@ impl LiveViewHub {
             .resume_session_with_lease(session_id, working_dir, lease)
             .await
             .map_err(map_session_transition_error)?;
-        wait_mcp_ready_after_transition(&handle).await;
+        // Commit FIRST, then wait for MCP: the runtime has already moved to the new
+        // generation, and until the hub commits it still holds the old identity. A
+        // submit in that window ran on the runtime while its caller was told
+        // `RuntimeGenerationChanged`, and the commit then cleared an approval that
+        // turn had raised. The caller still gets its answer only once the tools are
+        // published (`wait_mcp_ready_after_transition`).
         self.commit_changed_snapshot(&binding, &handle, &changed)
             .await?;
+        wait_mcp_ready_after_transition(&handle).await;
         Ok(changed)
     }
 
@@ -725,11 +709,12 @@ impl LiveViewHub {
             .fresh_session()
             .await
             .map_err(map_session_transition_error)?;
-        wait_mcp_ready_after_transition(&handle).await;
+        // Commit before waiting for MCP — see `resume_session_with_lease`.
         let projection_error = self
             .commit_changed_snapshot(expected, &handle, &changed)
             .await
             .err();
+        wait_mcp_ready_after_transition(&handle).await;
         Ok(FreshSessionOutcome {
             changed,
             projection_error,
@@ -748,9 +733,10 @@ impl LiveViewHub {
         if session_change_is_noop(&binding, &changed) {
             return Ok(changed);
         }
-        wait_mcp_ready_after_transition(&handle).await;
+        // Commit before waiting for MCP — see `resume_session_with_lease`.
         self.commit_changed_snapshot(&binding, &handle, &changed)
             .await?;
+        wait_mcp_ready_after_transition(&handle).await;
         Ok(changed)
     }
 
@@ -764,10 +750,11 @@ impl LiveViewHub {
             .map_err(|error| HubError::RuntimeRejected(error.to_string()))?;
         // A reload reconnects every server: returning before their tools are
         // published hands the next prompt a model with no MCP tools, which is what
-        // `/mcp/reload` followed by an immediate question used to get.
-        wait_mcp_ready_after_transition(&handle).await;
+        // `/mcp/reload` followed by an immediate question used to get. Commit
+        // before waiting — see `resume_session_with_lease`.
         self.commit_changed_snapshot(&binding, &handle, &changed)
             .await?;
+        wait_mcp_ready_after_transition(&handle).await;
         Ok(changed)
     }
 
@@ -2252,8 +2239,6 @@ mod tests {
     }
 
     /// Retiring is scoped to the binding named: it never clears a successor.
-    /// That is the difference from `force_unbind`, which clears whatever is
-    /// bound.
     #[test]
     fn retiring_a_runtime_does_not_unbind_its_successor() {
         let hub = LiveViewHub::new();

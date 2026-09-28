@@ -193,5 +193,6 @@ pub fn quiet_options() -> PrepareOptions {
         request_user_input: true,
         rate_limit_source: None,
         front_end: None,
+        review_delegate: None,
     }
 }

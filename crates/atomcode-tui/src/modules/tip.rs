@@ -381,7 +381,9 @@ mod tests {
                 group: crate::bg::Group::NeedsInput,
                 last: Some("Allow?".into()),
                 waiting: true,
+                failed: false,
                 stats: None,
+                origin: None,
             }]),
             ..Moment::default()
         };

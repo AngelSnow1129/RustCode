@@ -47,6 +47,14 @@ pub enum Msg<'a> {
         url: &'a str,
         detail: &'a str,
     },
+    /// The provider's content moderation refused the request or the reply
+    /// (DashScope `data_inspection_failed`, OpenAI `content_filter`, …).
+    /// `output`: `Some(true)` the reply was flagged, `Some(false)` the request,
+    /// `None` the provider did not say. `detail` is its own words, kept.
+    ProviderContentBlocked {
+        output: Option<bool>,
+        detail: &'a str,
+    },
     // ── provider probe (a saved account's endpoint, checked once) ──
     ProbeReachable {
         url: &'a str,

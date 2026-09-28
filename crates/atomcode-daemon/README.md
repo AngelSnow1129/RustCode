@@ -45,12 +45,6 @@ cargo run -p atomcode-daemon -- --no-auth
 
 > **无认证模式警告**：`--no-auth` 会让所有 API 接口无需 token 即可访问，并且不会生成 `daemon-<port>.json`。该参数可与任意绑定地址组合；使用者必须自行保证网络隔离。
 
-### 环境变量
-
-| 环境变量 | 说明 |
-|----------|------|
-| `ATOMCODE_DAEMON_ENABLE_DANGEROUS_TOOLS` | 设为 `1` 启用 bash 和写文件的 daemon 工具 |
-
 ## API 接口
 
 所有接口基础路径为 `http://<host>:<port>`，请求和响应均为 JSON 格式。

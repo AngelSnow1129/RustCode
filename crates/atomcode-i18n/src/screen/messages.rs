@@ -40,8 +40,29 @@ pub enum Msg<'a> {
 
     // ── overlays (`overlay.rs`) ──
     OverlayEmptyFile,
-    OverlayFilterHint,
     OverlayNoMatch,
+    /// The key legend under a list in the bottom sheet (`crate::sheet`).
+    /// `typed`: Enter on nothing matching takes what was typed (`/cd`).
+    SheetListLegend {
+        typed: bool,
+    },
+    /// The key legend under text being read in the bottom sheet. `back`: Esc
+    /// returns to the list it was opened from, rather than closing.
+    SheetReadLegend {
+        back: bool,
+    },
+    /// `/diff`'s list: what it lists, the agent's changes or the working tree's.
+    DiffListTitle {
+        workspace: bool,
+    },
+    /// `/diff`'s summary line, before the `+a -r` totals.
+    DiffFilesChanged {
+        count: usize,
+    },
+    /// Bare `/view`: the list of files to pick one from.
+    ViewPickerTitle,
+    /// Bare `/view` with nothing in the file index.
+    ViewPickerEmpty,
 
     // ── completion menu and policy interventions (`plugin.rs`) ──
     /// The one-word note beside a directory in the `@`-completion menu.
@@ -184,6 +205,9 @@ pub enum Msg<'a> {
     InputSearchNone {
         query: &'a str,
     },
+    /// The search, just opened: nothing typed yet, so nothing matched — say
+    /// what to do rather than show a count of nothing.
+    InputSearchPrompt,
     /// The dim line under the composer after you stop a turn yourself.
     ComposerInterrupted,
 
@@ -290,6 +314,7 @@ pub enum Msg<'a> {
     },
     NoRewindPanel,
     NoResumePanel,
+    NoSheetPanel,
     /// The launcher mounted the panel but no way to throw a session away.
     NoResumeStore,
     /// The launcher mounted no place to keep `/cd` bookmarks.
@@ -383,7 +408,6 @@ pub enum Msg<'a> {
 
     // ── what a command takes, as it is shown after the name (`commands.rs`) ──
     CmdTakesPath,
-    CmdTakesPathRequired,
     CmdTakesFilename,
     CmdTakesFile,
     CmdTakesSessionId,
@@ -507,7 +531,6 @@ pub enum Msg<'a> {
     AllowanceExhaustedOpenRouter {
         label: &'a str,
     },
-    ViewWhichFile,
     ViewNotText {
         path: &'a str,
     },
@@ -650,6 +673,12 @@ pub enum Msg<'a> {
     },
     /// 一个后台问询这个屏幕画不出来：已按拒绝答复，好让那个会话不永远挂着。
     BgQuestionUnanswerable,
+    /// A background session stopped without finishing: nothing comes home, so
+    /// the conversation that may be waiting for it is told here.
+    BgFailedTip {
+        slot: usize,
+        title: &'a str,
+    },
     /// 一个后台会话的成果,投回发起它的那段对话(`background.rs`):就是内容本身。
     /// 不是一句"去 /bg 读" —— 那句把读它这件事留给了一个人;也不再附一句指令 ——
     /// 要不要接着核实,是那段对话看了上下文自己决定的事。
@@ -731,11 +760,6 @@ pub enum Msg<'a> {
     },
     DiffNothingChanged,
     DiffBinary,
-    DiffPickerHint {
-        count: usize,
-        added: u64,
-        removed: u64,
-    },
     NoLanguageSetting,
     LanguageNow {
         value: &'a str,
@@ -1283,6 +1307,15 @@ pub enum Msg<'a> {
         error: &'a str,
     },
     ClipboardHasNoImage,
+    /// A link in the conversation was clicked and is being handed to the
+    /// browser — said on the tip row, since the browser may come up behind.
+    OpeningLink {
+        url: &'a str,
+    },
+    /// The desktop declined to open a clicked link (no display, over SSH, …).
+    OpenLinkFailed {
+        reason: &'a str,
+    },
     /// Opening an attached image in the desktop viewer did not work.
     ImagePreviewFailed {
         reason: &'a str,
@@ -1407,6 +1440,11 @@ pub enum Msg<'a> {
     /// on it — the slow tier only: a cheap fold of tool output is instant and
     /// says nothing.
     LiveCompacting,
+    /// The turn is over and work this conversation started is still running
+    /// out of view; its results will come back here.
+    LiveWaitingForBackground {
+        n: usize,
+    },
     LiveWaiting,
     LiveThinking,
     LiveWriting,
@@ -1515,6 +1553,18 @@ pub enum Msg<'a> {
     KeyLeaveBlankToKeep,
     LegendNextField,
     LegendChangeValue,
+    /// Space on the levels row: turn the level under the brackets on or off.
+    LegendToggleLevel,
+    /// The arrows on the levels row: move between the levels.
+    LegendPickLevel,
+    /// A model form's context window left to the protocol's own default.
+    WindowAutomatic,
+    /// The last stop on a model form's window row: a window typed by hand.
+    WindowCustom,
+    /// What the custom window field takes.
+    LegendTypeWindow,
+    /// The arrows on the custom window field: leave it for the presets.
+    LegendBackToPresets,
     LegendPressAgainToDelete,
     LegendSeeItsModels,
     LegendSwitchToIt,

@@ -35,6 +35,28 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "The upstream answered with an error instead of a stream: {detail} (POST {url}). Most likely a temporary outage or rate limit; try again shortly."
         )
         .into(),
+        Msg::ProviderContentBlocked { output, detail } => {
+            let (what, reword) = match output {
+                Some(true) => (
+                    "this reply (it judged the model's output may contain inappropriate content)",
+                    "rephrase, or ask it not to paste whole files, configs or logs",
+                ),
+                Some(false) => (
+                    "this request (it judged what was sent may contain inappropriate content)",
+                    "remove or reword what may have been misjudged (long logs, sensitive terms) and send again",
+                ),
+                None => (
+                    "this exchange",
+                    "rephrase, or remove what may have been misjudged and send again",
+                ),
+            };
+            format!(
+                "The model provider's content moderation blocked {what} — the provider's call, not an atomcode error. \
+                 You can: 1) simply send it again (the model words it differently each time, and it often passes); \
+                 2) {reword}; 3) use /model to switch to a model from another provider. Original error: {detail}"
+            )
+            .into()
+        }
         Msg::ProbeReachable { url } => {
             format!("✓ Connection check: {url} answers as an OpenAI-compatible endpoint.").into()
         }

@@ -26,8 +26,9 @@ use atomcode_config::proxy::{ProxyConfig, ProxyMode};
 use atomcode_host_api::HostCommand;
 use atomcode_plexus::{Context, Plugin};
 use atomcode_tui::command::{Command, CommandSet, Outcome};
-use atomcode_tui::overlay::{Choice, Picker};
+use atomcode_tui::keymap::Action;
 use atomcode_tui::plugin::{AgentClientSvc, CommandsSvc};
+use atomcode_tui::sheet::{List, Row, Sheet};
 use serde_json::Value;
 
 /// 行的名字。
@@ -94,7 +95,7 @@ impl CommandSet for ProxyCommands {
         let wanted = args.trim();
         let current = current(&self.config_path);
         if wanted.is_empty() {
-            return Outcome::Open(picker(&current));
+            return Outcome::Do(Action::OpenSheet(Sheet::list(picker(&current))));
         }
         let Some(next) = desired(&current, wanted) else {
             return Outcome::Refused(tr(SMsg::ProxyUnknown { wanted }).into_owned());
@@ -145,7 +146,7 @@ pub(crate) fn desired(current: &ProxyConfig, wanted: &str) -> Option<ProxyConfig
     }
 }
 
-fn picker(current: &ProxyConfig) -> Arc<Picker> {
+fn picker(current: &ProxyConfig) -> List {
     let captured = ProxyConfig::capture_from_env().summary();
     let choices = MODES
         .iter()
@@ -157,12 +158,12 @@ fn picker(current: &ProxyConfig) -> Arc<Picker> {
                 }),
                 ProxyMode::NoProxy => tr(SMsg::ProxyNoProxyAbout),
             };
-            Choice::new(format!("/{COMMAND} {}", mode.as_str()), mode.as_str())
+            Row::new(format!("/{COMMAND} {}", mode.as_str()), mode.as_str())
                 .about(about)
                 .marked(current.mode == *mode)
         })
         .collect();
-    Picker::new(
+    List::new(
         COMMAND,
         tr(SMsg::ProxyPickerTitle {
             current: &current.summary(),

@@ -144,6 +144,7 @@ pub mod tui_front {
             telemetry,
             opening_notice,
             None,
+            None,
         )
         .await
         .map(|(mounted, _)| mounted)
@@ -166,6 +167,7 @@ pub mod tui_front {
         telemetry: Option<Arc<atomcode_telemetry::Telemetry>>,
         opening_notice: Option<String>,
         spawn: Option<crate::background::Spawn>,
+        review_home: Option<crate::background::ReviewHome>,
     ) -> Result<(launch::Mounted, Option<Arc<crate::background::Background>>), String> {
         // Both additions belong: the host configuration is what makes
         // `HostCommand::Settings`/`SwitchModel` answerable, and the settings row
@@ -189,6 +191,11 @@ pub mod tui_front {
             Some(spawn) => {
                 let (connection, background) =
                     crate::background::connect(runtime, front_end, config, host_config, spawn)?;
+                // From here on the model's `code_review` in the conversation in
+                // front runs where `/review` does.
+                if let Some(home) = &review_home {
+                    home.bind(&background);
+                }
                 (connection, Some(background))
             }
             None => (connect(runtime, front_end, config, host_config)?, None),
@@ -846,6 +853,7 @@ model = "vendor-b"
         telemetry: Option<Arc<atomcode_telemetry::Telemetry>>,
         opening_notice: Option<String>,
         spawn: Option<crate::background::Spawn>,
+        review_home: Option<crate::background::ReviewHome>,
     ) -> Result<Option<Left>, String> {
         let (mounted, background) = mount_with_background(
             runtime,
@@ -857,6 +865,7 @@ model = "vendor-b"
             telemetry,
             opening_notice,
             spawn,
+            review_home,
         )
         .await?;
         let ctx = mounted.app.context();

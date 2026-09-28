@@ -348,6 +348,25 @@ impl FileIndex {
         filter_entries(entries, scope_dir, filter)
     }
 
+    /// Every **file** under `root` (directories left out), relative and
+    /// forward-slashed, shallowest first, then alphabetical — the same
+    /// gitignore-aware [`walk_inner`](Self::walk_inner) the index takes, for a
+    /// caller that lists them all and filters as it goes (the TUI's bare
+    /// `/view`) rather than asking for the 30 best matches. Blocks on the walk;
+    /// call it from `spawn_blocking` in async contexts.
+    pub fn files_blocking(root: &Path) -> Vec<String> {
+        let mut files: Vec<Entry> = Self::walk_inner(root.to_path_buf())
+            .into_iter()
+            .filter(|entry| !entry.is_dir)
+            .collect();
+        files.sort_by(|a, b| {
+            a.depth
+                .cmp(&b.depth)
+                .then_with(|| a.rel_path.cmp(&b.rel_path))
+        });
+        files.into_iter().map(|entry| entry.rel_path).collect()
+    }
+
     /// Synchronous full-tree search for one-shot callers that have no
     /// session-lived cache to amortize against — currently the daemon
     /// `/fs/search` endpoint that powers the webui `@`-mention picker. Walks
@@ -1410,6 +1429,30 @@ mod tests {
             !hits.iter().any(|p| p.contains("target/")),
             "gitignored match must be excluded: {hits:?}"
         );
+    }
+
+    // `files_blocking` lists every file (no directories), past any 30-row cap,
+    // shallowest first, and keeps the same gitignore rule.
+    #[test]
+    fn files_blocking_lists_every_file_and_respects_gitignore() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_file(&tmp.path().join(".gitignore"), "target/\n");
+        write_file(&tmp.path().join("target/built.rs"), "x");
+        for n in 0..40 {
+            write_file(&tmp.path().join(format!("src/f{n:02}.rs")), "y");
+        }
+        write_file(&tmp.path().join("Cargo.toml"), "z");
+
+        let files = FileIndex::files_blocking(tmp.path());
+        assert_eq!(files.iter().filter(|p| p.starts_with("src/")).count(), 40);
+        assert!(
+            !files.iter().any(|p| p.ends_with('/')),
+            "no directories: {files:?}"
+        );
+        assert!(!files.iter().any(|p| p.contains("target/")), "{files:?}");
+        let top = files.iter().position(|p| p == "Cargo.toml").unwrap();
+        let deep = files.iter().position(|p| p == "src/f00.rs").unwrap();
+        assert!(top < deep, "shallowest first: {files:?}");
     }
 
     #[test]

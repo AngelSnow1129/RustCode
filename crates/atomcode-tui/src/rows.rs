@@ -36,7 +36,7 @@ use crate::command::Commands;
 use crate::layout::{LayoutOp, Side};
 use crate::module::{Modules, Mounted, Producer};
 use crate::modules::{
-    ask, input, live, raster, status, steering, team, tip, todo, transcript, welcome,
+    ask, flow, input, live, raster, sheet, status, steering, team, tip, todo, transcript, welcome,
 };
 use crate::plugin::{CommandsSvc, LayoutSvc, ModulesSvc};
 
@@ -126,6 +126,18 @@ disabled = true
 [[insert]]
 name = "tui-panel-ask"
 
+# The bottom sheet: the list `/agents`, `/cd`, `/diff` and `/view` put up, and
+# the text `/view` and `/diff <file>` read, at the foot of the screen where every
+# other working panel is.
+[[insert]]
+name = "tui-panel-sheet"
+
+# A flow of several steps (the onboarding and pairing wizards), drawn at the foot
+# of the screen like the other working panels. Remove it and a flow is still
+# drawn — in a box over the conversation, the way modals used to be.
+[[insert]]
+name = "tui-panel-flow"
+
 # The keys, as a row. Remove it and the screen still runs — with nothing bound
 # but typing, which is what makes the row worth having rather than a constant.
 # A downstream build mounts its own after this one and names the presses it is
@@ -200,6 +212,8 @@ pub fn catalog() -> Vec<std::sync::Arc<dyn Plugin>> {
         Arc::new(TodoPanel),
         Arc::new(SteeringPanel),
         Arc::new(AskPanel),
+        Arc::new(SheetPanel),
+        Arc::new(FlowPanel),
         Arc::new(RasterPanel),
         Arc::new(DefaultKeysRow),
         Arc::new(ScreenCommandsRow),
@@ -280,6 +294,18 @@ panel!(
 );
 // A cell-grid bitmap, repainted in place. Off by default: what it draws is
 // whatever a row mounted, and a pane with nothing mounted is a column of chrome.
+panel!(
+    SheetPanel,
+    "tui-panel-sheet",
+    sheet::SheetView,
+    "the bottom sheet: a list to pick from, or a file or a diff to read"
+);
+panel!(
+    FlowPanel,
+    "tui-panel-flow",
+    flow::FlowView,
+    "a flow of several steps — onboarding, pairing — at the foot of the screen"
+);
 panel!(
     RasterPanel,
     "tui-panel-raster",

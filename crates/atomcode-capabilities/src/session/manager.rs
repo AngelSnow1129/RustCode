@@ -1130,6 +1130,7 @@ impl SessionManager {
         Self::write_project_marker(
             working_dir,
             &atomcode_config::util::stable_project_hash(working_dir),
+            false,
         );
     }
 
@@ -1142,23 +1143,43 @@ impl SessionManager {
     /// the resumed session's bucket makes that resume load AND makes later
     /// resumes and fresh sessions here land in the same place. Unlike
     /// [`Self::ensure_project_marker`], which freezes the current path hash, this
-    /// freezes a GIVEN bucket. No-op if a marker is already there (a folder with
-    /// its own identity is never hijacked) or if `bucket` is not a valid bucket
-    /// id. Best-effort, like `ensure_project_marker`.
+    /// freezes a GIVEN bucket. No-op if `bucket` is not a valid bucket id, or if
+    /// the folder already carries a DELIBERATE identity — a marker naming some
+    /// bucket other than its own path hash (an earlier pin, or a rename that kept
+    /// its marker): that is never hijacked.
+    ///
+    /// A marker holding the folder's OWN path hash is replaced. That is the one
+    /// [`Self::ensure_project_marker`] freezes at every fresh start — including
+    /// the start in a just-renamed folder, before the person has had a chance to
+    /// `/resume` anything. Treating it as an identity made the rename repair dead
+    /// on arrival: the pin found a marker and did nothing, and the resume looked
+    /// in the empty new bucket. Whether this folder owns real sessions under that
+    /// bucket is the caller's check (`bucket_to_pin_on_resume` refuses to repin a
+    /// folder that does). Best-effort, like `ensure_project_marker`.
     pub fn pin_project_bucket(working_dir: &Path, bucket: &str) {
         if !valid_project_bucket(bucket) {
             return;
         }
-        Self::write_project_marker(working_dir, bucket);
+        let own = atomcode_config::util::stable_project_hash(working_dir);
+        let current = fs::read_to_string(Self::project_marker_path(working_dir))
+            .ok()
+            .map(|content| content.trim().to_string())
+            .filter(|id| valid_project_bucket(id));
+        // No marker, or one `project_hash` ignores anyway (junk), or the
+        // startup-frozen own hash: write. Any other valid bucket: keep it.
+        if current.is_none_or(|id| id == own) {
+            Self::write_project_marker(working_dir, bucket, true);
+        }
     }
 
-    /// Write the pin marker `<working_dir>/.atomcode/local/id` = `bucket`,
-    /// no-op if one is already there. Also drops a `.gitignore` sentinel so the
-    /// marker never reaches version control. Best-effort: a write failure leaves
-    /// the plain path-hash behaviour unchanged rather than erroring the caller.
-    fn write_project_marker(working_dir: &Path, bucket: &str) {
+    /// Write the pin marker `<working_dir>/.atomcode/local/id` = `bucket`.
+    /// Without `replace`, a no-op if one is already there. Also drops a
+    /// `.gitignore` sentinel so the marker never reaches version control.
+    /// Best-effort: a write failure leaves the plain path-hash behaviour
+    /// unchanged rather than erroring the caller.
+    fn write_project_marker(working_dir: &Path, bucket: &str, replace: bool) {
         let marker = Self::project_marker_path(working_dir);
-        if marker.exists() {
+        if marker.exists() && !replace {
             return;
         }
         let Some(dir) = marker.parent() else {
@@ -1220,10 +1241,10 @@ impl SessionManager {
         let bytes = serialize_bounded(&sidecar, "todo sidecar", MAX_TODO_SIDECAR_BYTES)?;
         atomic_write(&self.todo_sidecar_path(id)?, &bytes)
     }
-    /// Read the todo-list sidecar. The sidecar is written ONLY on a normal
-    /// `turn_complete` — the cancel/undo path (`finish_cancelled`) never reaches
-    /// `turn_complete`, so a truncated history never leaves a freshly-written
-    /// stale list behind. Message count is intentionally NOT used as a staleness
+    /// Read the todo-list sidecar. The sidecar is written at `turn_complete` and,
+    /// mid-turn, whenever the list reflects a todo call it does not yet (so a
+    /// compaction later in the same turn cannot drain a plan the sidecar never
+    /// saw). Message count is intentionally NOT used as a staleness
     /// check here: a compaction ALSO shrinks the transcript (121 → 24 messages)
     /// and must NOT invalidate the todo list — that is exactly the scenario this
     /// sidecar exists for (issue #1503). `Ok(None)` when absent.
@@ -7879,6 +7900,32 @@ mod tests {
             atomcode_config::util::stable_project_hash(&fresh),
             "an invalid bucket writes no marker"
         );
+    }
+
+    /// The rename repair must survive the fresh start that comes first: opening
+    /// the renamed folder freezes its OWN path hash into a marker before the
+    /// person ever types `/resume`. That marker is not an identity to protect.
+    #[test]
+    fn a_marker_frozen_at_startup_does_not_block_the_rename_repair() {
+        let tmp = tempfile::tempdir().unwrap();
+        let renamed = tmp.path().join("proj-renamed");
+        std::fs::create_dir_all(&renamed).unwrap();
+
+        // The TUI starts here: a fresh session freezes the path hash.
+        SessionManager::ensure_project_marker(&renamed);
+        assert_eq!(
+            SessionManager::project_hash(&renamed),
+            atomcode_config::util::stable_project_hash(&renamed),
+        );
+
+        // `/resume` of a session under the old bucket repins the folder to it.
+        let session_bucket = "00112233445566ff";
+        SessionManager::pin_project_bucket(&renamed, session_bucket);
+        assert_eq!(SessionManager::project_hash(&renamed), session_bucket);
+
+        // …and that deliberate pin is then what a later pin must not overwrite.
+        SessionManager::pin_project_bucket(&renamed, "ffffffffffffffff");
+        assert_eq!(SessionManager::project_hash(&renamed), session_bucket);
     }
 
     #[test]

@@ -150,6 +150,28 @@ pub enum Action {
     /// `/provider` opens (which starts on the 账号 tab) — one surface, not a
     /// second popup that only lists models.
     OpenModels,
+    /// Put a sheet up at the foot of the screen: a list to pick a row from, or
+    /// text to read (`crate::sheet`). What `/agents`, `/cd`, `/diff` and `/view`
+    /// answer with — the panel every other working surface already is, rather
+    /// than a modal over the conversation.
+    OpenSheet(crate::sheet::Sheet),
+    /// Put the providers panel into its effort pick, for this model and these
+    /// levels. What a model switch lands on when the model declares levels.
+    ///
+    /// Carries the levels rather than asking the panel to look them up: what a
+    /// model offers is the configuration's answer, and the command that read it
+    /// hands it over — the panel draws the rows, the command knows what they
+    /// are.
+    PickEffort {
+        /// The selection id of the model the pick is for.
+        model: String,
+        /// The levels to offer, `default` last — the same words `/effort` takes.
+        levels: Vec<String>,
+        /// What the switch had to say before the pick opens — the host's note
+        /// that the choice was not saved. Said, not dropped: the pick replaces
+        /// the line the switch would otherwise have put on screen.
+        note: Option<String>,
+    },
     /// Step to the next configured model, or the previous one.
     ///
     /// The one-key form of `/model <id>`, and it runs exactly that — the panel

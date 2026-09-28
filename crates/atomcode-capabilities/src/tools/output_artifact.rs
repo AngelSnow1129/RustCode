@@ -591,7 +591,13 @@ artifact is unavailable, re-run the original command instead."
             Err(e) => return super::err(format!("invalid fetch_output args: {e}")),
         };
 
-        let limit = parsed.limit.unwrap_or(FETCH_MAX_LIMIT).min(FETCH_MAX_LIMIT);
+        // `0` is "no preference": an empty page whose hint names the same offset
+        // again is a page the model can only ask for forever.
+        let limit = parsed
+            .limit
+            .filter(|&limit| limit > 0)
+            .unwrap_or(FETCH_MAX_LIMIT)
+            .min(FETCH_MAX_LIMIT);
 
         match self.store.get(&parsed.artifact_id, parsed.offset, limit) {
             Ok(Some(bytes)) => {
@@ -605,9 +611,10 @@ artifact is unavailable, re-run the original command instead."
                 // Clamp the reported window to the artifact so an offset past the
                 // end yields a coherent "at end" hint (never "5000–5000 of 3000").
                 // `start <= total` holds, so `end` lands in `[start, total]`.
-                let start = parsed.offset.min(total);
-                let end = start.saturating_add(bytes.len()).min(total);
-                let body = String::from_utf8_lossy(&bytes);
+                let (skip, keep) = on_char_boundaries(&bytes, parsed.offset.saturating_add(bytes.len()) < total);
+                let start = parsed.offset.saturating_add(skip).min(total);
+                let end = start.saturating_add(keep.len()).min(total);
+                let body = String::from_utf8_lossy(keep);
                 let hint = if end < total {
                     format!(
                         "\n\n[showing bytes {start}–{end} of {total}; call fetch_output(artifact_id=\"{}\", offset={end}) for more]",
@@ -625,6 +632,38 @@ Re-run the original command to regenerate its output.",
             )),
             Err(e) => super::err(format!("fetch_output failed: {e}")),
         }
+    }
+}
+
+/// A page's bytes, cut back to whole UTF-8 characters: the continuation bytes an
+/// offset landed among are skipped (returned as the count), and — when more of the
+/// capture follows (`more`) — a character cut off at the page's end is left for the
+/// next page. Byte offsets are what the paging speaks, so a page edge fell inside a
+/// character wherever one straddled it: `�` at the end of one page, `��` at the start
+/// of the next, on nearly every edge of Chinese output.
+///
+/// Only ever at most 3 bytes either side, and never down to nothing: a capture that
+/// is not UTF-8 (or a limit smaller than one character) is returned as it came.
+fn on_char_boundaries(bytes: &[u8], more: bool) -> (usize, &[u8]) {
+    let is_continuation = |b: &u8| b & 0b1100_0000 == 0b1000_0000;
+    let skip = bytes
+        .iter()
+        .take(3)
+        .take_while(|b| is_continuation(b))
+        .count();
+    let rest = &bytes[skip..];
+    let rest = match std::str::from_utf8(rest) {
+        Err(error)
+            if more && error.error_len().is_none() && rest.len() - error.valid_up_to() <= 3 =>
+        {
+            &rest[..error.valid_up_to()]
+        }
+        _ => rest,
+    };
+    if rest.is_empty() {
+        (0, bytes)
+    } else {
+        (skip, rest)
     }
 }
 
@@ -682,6 +721,75 @@ mod fetch_output_tests {
         assert!(page.content.starts_with(&full[..FETCH_MAX_LIMIT]));
     }
 
+    /// The page after the page after the page, read back to back, is the capture —
+    /// not a capture with a `�` wherever a character straddled a page edge. Chinese
+    /// output (3 bytes a character) put one on nearly every edge.
+    #[tokio::test]
+    async fn pages_split_between_characters_not_inside_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(ArtifactStore::new(dir.path()));
+        let full = "收入同比增长百分之十二。".repeat(10_000); // 3 bytes a char, 360 000 bytes
+        let id = store.put(full.as_bytes()).unwrap();
+        let tool = FetchOutputTool::new(store);
+        let test_ctx = ctx(dir.path());
+
+        let mut read = String::new();
+        let mut offset = 0usize;
+        for _ in 0..20 {
+            let r = tool
+                .execute(
+                    &format!(r#"{{"artifact_id":"{id}","offset":{offset}}}"#),
+                    &test_ctx,
+                )
+                .await;
+            assert!(!r.is_error, "{}", r.content);
+            let (body, hint) = r.content.rsplit_once("\n\n[showing bytes ").unwrap();
+            assert!(
+                !body.contains('\u{FFFD}'),
+                "a character was cut at {offset}"
+            );
+            read.push_str(body);
+            match hint.split_once("offset=") {
+                Some((_, next)) => offset = next.trim_end_matches(") for more]").parse().unwrap(),
+                None => break,
+            }
+        }
+        assert_eq!(read, full);
+
+        // An offset that lands inside a character starts at the next one.
+        let r = tool
+            .execute(
+                &format!(r#"{{"artifact_id":"{id}","offset":1,"limit":9}}"#),
+                &test_ctx,
+            )
+            .await;
+        assert!(
+            r.content
+                .starts_with("入同\n\n[showing bytes 3–9 of 360000;"),
+            "{}",
+            r.content
+        );
+    }
+
+    /// `limit: 0` is "no preference", not an empty page pointing at the same offset.
+    #[tokio::test]
+    async fn a_zero_limit_reads_a_default_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(ArtifactStore::new(dir.path()));
+        let id = store.put(&b"B".repeat(100_000)).unwrap();
+        let r = FetchOutputTool::new(store)
+            .execute(
+                &format!(r#"{{"artifact_id":"{id}","offset":0,"limit":0}}"#),
+                &ctx(dir.path()),
+            )
+            .await;
+        assert!(
+            r.content.contains("[showing bytes 0–65536 of 100000;"),
+            "{}",
+            &r.content[65530..]
+        );
+    }
+
     #[tokio::test]
     async fn fetch_slices_paginates_and_reports_missing() {
         let dir = tempfile::tempdir().unwrap();
@@ -722,9 +830,12 @@ mod fetch_output_tests {
             r.content
         );
         assert!(
-            r.content.contains("65536") || r.content.contains("of 100000"),
-            "pagination hint should show the hard cap or total: {}",
-            r.content
+            r.content.starts_with(&format!(
+                "{}\n\n[showing bytes 0–65536 of 100000;",
+                "A".repeat(65536)
+            )),
+            "the page is exactly the 64 KiB cap, then the hint: {}",
+            &r.content[65530..]
         );
 
         // missing artifact → terminal, actionable error, no "fetch" retry wording

@@ -44,8 +44,16 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── overlays ──
         Msg::OverlayEmptyFile => "  (empty file)".into(),
-        Msg::OverlayFilterHint => "type to filter".into(),
         Msg::OverlayNoMatch => "  nothing matches".into(),
+        Msg::SheetListLegend { typed: false } => "↑↓ select · enter opens · type to filter · esc closes".into(),
+        Msg::SheetListLegend { typed: true } => "↑↓ select · enter opens (what you typed, when nothing matches) · tab completes · esc closes".into(),
+        Msg::SheetReadLegend { back: false } => "↑↓ scroll · PgUp/PgDn page · Home/End ends · esc closes".into(),
+        Msg::SheetReadLegend { back: true } => "↑↓ scroll · PgUp/PgDn page · Home/End ends · esc back to the list".into(),
+        Msg::DiffListTitle { workspace: false } => "files this session changed".into(),
+        Msg::DiffListTitle { workspace: true } => "uncommitted changes in the working tree (git)".into(),
+        Msg::DiffFilesChanged { count } => format!("{count} files changed  ").into(),
+        Msg::ViewPickerTitle => "pick a file to read · type to search".into(),
+        Msg::ViewPickerEmpty => "no files here to read yet".into(),
 
         // ── completion menu and policy interventions ──
         Msg::MenuFolder => "folder".into(),
@@ -138,6 +146,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::InputSearchNth { query, nth, total } =>
             format!("search '{query}' {nth}/{total}").into(),
         Msg::InputSearchNone { query } => format!("search '{query}' no match").into(),
+        Msg::InputSearchPrompt => "search history · type a word".into(),
         Msg::ComposerInterrupted => "Interrupted · what next?".into(),
 
         // ── the status bar ──
@@ -218,6 +227,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ResumeDeleted { id } => format!("Session {id} is gone").into(),
         Msg::ResumeDeleteFailed { why } => format!("It was not deleted: {why}").into(),
         Msg::NoResumePanel => "this screen has no resume panel: the launcher provided no `tui-panel-resume`".into(),
+        Msg::NoSheetPanel => "this screen has no bottom sheet: the launcher provided no `tui-panel-sheet`".into(),
         Msg::NoRewind => "this screen cannot go back: the launcher provided no `tui-rewind`".into(),
         Msg::ScreenNotConnectedRewind => "no agent on screen, so there are no turns to go back through".into(),
 
@@ -250,7 +260,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdAboutProviderPanel => "open the provider panel: accounts and models, add/edit/remove; ⏎ switches, esc closes".into(),
         Msg::CmdAboutCopy => "copy a code block from the model's last reply; N picks which one, all takes every one".into(),
         Msg::CmdAboutSave => "save this conversation as markdown".into(),
-        Msg::CmdAboutView => "open a file in a read-only overlay; costs no turn and does not enter the conversation".into(),
+        Msg::CmdAboutView => "read a file at the foot of the screen (no path: pick one); costs no turn and does not enter the conversation".into(),
         Msg::CmdAboutCompact => "fold the history to make room in the context".into(),
         Msg::CmdAboutCancelAll => "stop the turn running here and in every team member; the members stay on the team".into(),
         Msg::CmdAboutContext => {
@@ -288,7 +298,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── what a command takes, as it is shown after the name (`commands.rs`) ──
         Msg::CmdTakesPath => "[path]".into(),
-        Msg::CmdTakesPathRequired => "<path>".into(),
         Msg::CmdTakesFilename => "[filename]".into(),
         Msg::CmdTakesFile => "[file]".into(),
         Msg::CmdTakesSessionId => "[session id]".into(),
@@ -369,7 +378,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::AllowanceExhaustedOpenRouter { label } => {
             format!("{label} allowance used up — type /openrouter to connect OpenRouter's free models").into()
         }
-        Msg::ViewWhichFile => "which file? `/view <path>`".into(),
         Msg::ViewNotText { path } => format!("{path} is not a text file").into(),
         Msg::ViewTooBig { mb } => format!("first {mb} MB").into(),
         Msg::ViewOnlyFirstLines { lines } => format!("first {lines} lines").into(),
@@ -400,7 +408,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdAboutBg => "background sessions: bare, keep this one running in the background; with a task, start a new one on it; or list, switch to or drop them".into(),
         Msg::CmdTakesBg => "[<task> | list | <N> | drop <N>]".into(),
         Msg::CmdAboutReview => "have the current changes reviewed in a session of their own — it runs in the background, so this conversation keeps going".into(),
-        Msg::CmdTakesReview => "[deep | deep+verify] [staged | <base>]".into(),
+        Msg::CmdTakesReview => "[deep | deep+verify] [staged | <base>] [what to look at]".into(),
         Msg::ReviewWhatUncommitted => "reviewing the uncommitted changes".into(),
         Msg::ReviewWhatStaged => "reviewing the staged changes".into(),
         Msg::ReviewWhatRange { base } => format!("reviewing the commits after {base}").into(),
@@ -446,6 +454,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::BgAnswerUndelivered => "that background session has stopped — the answer was not delivered".into(),
         Msg::BgAsker { slot, title } => format!("background [{slot}] {title} is asking").into(),
         Msg::BgQuestionUnanswerable => "this screen cannot draw that background question — it was answered as a refusal".into(),
+        Msg::BgFailedTip { slot, title } => format!("background [{slot}] {title} stopped without finishing · /bg {slot} shows where").into(),
         Msg::BgSlotsFull { most } => format!("{most} sessions are already in the background — drop one first (/bg drop <N>)").into(),
 
         // Content only, no instruction: the sentence that used to follow was a
@@ -491,7 +500,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::DiffNoChangeIn { what } => format!("{what} has no changes").into(),
         Msg::DiffNothingChanged => "this session has not changed a file in the workspace yet".into(),
         Msg::DiffBinary => "binary".into(),
-        Msg::DiffPickerHint { count, added, removed } => format!("{count} files changed · +{added} -{removed} · enter opens one").into(),
         Msg::NoLanguageSetting => "this host has no language setting".into(),
         Msg::LanguageNow { value, accepts } => format!("language: {value} · it takes {accepts} · `/language <value>` changes it").into(),
         Msg::LanguageSet { wanted, applies } => format!("language: {wanted} (applies {applies})").into(),
@@ -783,6 +791,8 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::NothingWorthCompacting => "there is nothing worth folding yet".into(),
         Msg::CompactFailed { error } => format!("folding did not work: {error}").into(),
         Msg::ClipboardHasNoImage => "there is no image on the clipboard".into(),
+        Msg::OpeningLink { url } => format!("opening {url} in the browser").into(),
+        Msg::OpenLinkFailed { reason } => format!("could not open the link: {reason}").into(),
         Msg::ImagePreviewFailed { reason } => format!("could not open the image: {reason}").into(),
         Msg::NoOpener => "this front end cannot open files".into(),
         Msg::ImageGone => "that image is no longer available".into(),
@@ -876,6 +886,10 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::LiveStopping => "stopping".into(),
         Msg::LiveRecognizingImage => "recognizing image".into(),
         Msg::LiveCompacting => "compacting".into(),
+        Msg::LiveWaitingForBackground { n } => match n {
+            1 => "waiting for 1 background task to finish".into(),
+            n => format!("waiting for {n} background tasks to finish").into(),
+        },
         Msg::LiveWaiting => "waiting for the model".into(),
         Msg::LiveThinking => "thinking".into(),
         Msg::LiveWriting => "writing".into(),
@@ -947,6 +961,12 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::KeyLeaveBlankToKeep => "(leave blank to keep it)".into(),
         Msg::LegendNextField => "next field".into(),
         Msg::LegendChangeValue => "change".into(),
+        Msg::LegendToggleLevel => "turn this level on/off (✓ is on)".into(),
+        Msg::LegendPickLevel => "pick a level".into(),
+        Msg::WindowAutomatic => "automatic (protocol default)".into(),
+        Msg::WindowCustom => "custom".into(),
+        Msg::LegendTypeWindow => "type the tokens, e.g. 200000, 200k, 1m".into(),
+        Msg::LegendBackToPresets => "back to presets".into(),
         Msg::LegendPressAgainToDelete => "press again to delete".into(),
         Msg::LegendSeeItsModels => "see its models".into(),
         Msg::LegendSwitchToIt => "switch to it".into(),

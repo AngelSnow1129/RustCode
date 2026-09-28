@@ -169,7 +169,22 @@ impl View for Live {
             return Vec::new();
         }
         let Some(words) = showing(state, vp.moment) else {
-            return Vec::new();
+            return match waiting_on_background(state, vp.moment) {
+                Some(words) => {
+                    // `✻ 等待 1 个后台任务完成`: no spinner and no figures — nothing
+                    // here is running, the line only says results are on their
+                    // way. The terminal's own foreground, as the result line
+                    // they arrive as is (`InjectedBlock`).
+                    let head = format!("{} {words}", vp.moment.caps.g(Glyph::Sparkle));
+                    let mut out = Vec::with_capacity(ROWS as usize);
+                    if vp.rect.h >= ROWS {
+                        out.extend((0..MARGIN).map(|_| Line::empty()));
+                    }
+                    out.extend(El::row(vec![El::styled(head, Style::new())]).lay(w));
+                    out
+                }
+                None => Vec::new(),
+            };
         };
 
         let muted = theme::fg(Role::Muted);
@@ -264,7 +279,7 @@ impl View for Live {
         if moment.asking.is_some() {
             return Height::Hug(0);
         }
-        match showing(state, moment) {
+        match showing(state, moment).or_else(|| waiting_on_background(state, moment)) {
             Some(_) => Height::Hug(ROWS),
             None => Height::Hug(0),
         }
@@ -324,6 +339,23 @@ const ROWS: u16 = 1 + MARGIN;
 /// `moment.scroll` and withdrew. See `docs/adr/0020`.
 fn showing(state: &State, moment: &Moment) -> Option<String> {
     doing(state, moment)
+}
+
+/// Between turns, while work this conversation started runs out of view:
+/// `等待 N 个后台任务完成`. Its results come back into this conversation, so the
+/// line says there is something still on its way — the gap a person otherwise
+/// reads as "it forgot".
+///
+/// Only when nothing else is: a turn in flight has its own line, and a
+/// background session that is *waiting* or has *stopped* has its own tip.
+fn waiting_on_background(state: &State, moment: &Moment) -> Option<String> {
+    if doing(state, moment).is_some() || moment.activity != Activity::Idle {
+        return None;
+    }
+    match moment.bg.working_for(&moment.lead) {
+        0 => None,
+        n => Some(t(Msg::LiveWaitingForBackground { n }).into_owned()),
+    }
 }
 
 /// What the line says is happening, or `None` when nothing is.
@@ -543,6 +575,62 @@ mod tests {
     /// The line, or an empty string when there is none.
     fn line_at(state: &State, moment: &Moment, w: u16) -> String {
         draw(state, moment, w, 1).join("")
+    }
+
+    /// Between turns, work this conversation started that is still running out
+    /// of view gets one line — `✻ 等待 N 个后台任务完成` — and nothing else does:
+    /// someone else's background work, one that is waiting on a person, or a
+    /// turn in flight.
+    #[test]
+    fn idle_with_our_background_work_running_says_it_is_waiting() {
+        use crate::bg::{BgView, Group, Session};
+        let session = |id: &str, group: Group, origin: Option<&str>| Session {
+            id: id.into(),
+            title: id.into(),
+            group,
+            last: None,
+            waiting: group == Group::NeedsInput,
+            failed: false,
+            origin: origin.map(Into::into),
+            stats: None,
+        };
+        let mut moment = Moment::default().at_tick(0);
+        moment.lead = "me".into();
+        moment.bg = BgView::new(vec![
+            session("review", Group::Working, Some("me")),
+            session("theirs", Group::Working, Some("other")),
+            session("asking", Group::NeedsInput, Some("me")),
+            session("moved", Group::Working, None),
+        ]);
+        let idle = State::default();
+
+        assert_eq!(Live::height(&idle, &moment, 80), Height::Hug(ROWS));
+        let drawn = draw(&idle, &moment, 80, ROWS);
+        assert_eq!(
+            drawn.last().map(String::as_str),
+            Some(
+                format!(
+                    "{} {}",
+                    moment.caps.g(Glyph::Sparkle),
+                    t(Msg::LiveWaitingForBackground { n: 1 })
+                )
+                .as_str()
+            )
+        );
+
+        // Nothing of ours running: no line.
+        moment.bg = BgView::new(vec![session("theirs", Group::Working, Some("other"))]);
+        assert_eq!(Live::height(&idle, &moment, 80), Height::Hug(0));
+
+        // A turn in flight has its own line, and this one does not ride on it.
+        moment.bg = BgView::new(vec![session("review", Group::Working, Some("me"))]);
+        let busy = fold(&a_turn()[..1]);
+        let moment = moment.working();
+        assert!(
+            !line_at(&busy, &moment, 80).contains(&*t(Msg::LiveWaitingForBackground { n: 1 })),
+            "{}",
+            line_at(&busy, &moment, 80)
+        );
     }
 
     fn fold(facts: &[SessionEvent]) -> State {

@@ -331,6 +331,8 @@ mod tests {
             group,
             last: Some(last.into()),
             waiting: false,
+            failed: false,
+            origin: None,
             stats: None,
         }
     }

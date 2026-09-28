@@ -1290,6 +1290,13 @@ pub struct BackgroundSession {
     /// has run a request, and on hosts that do not read that log.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stats: Option<BackgroundStats>,
+    /// The session it is working for — the one that started it, where its
+    /// result goes when it finishes. `None` when it works for nobody but itself
+    /// (`/bg` moved that conversation there), and on hosts that do not say.
+    /// What lets a screen tell "my background work" from everything else the
+    /// host keeps out of view.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 /// 一条已提交的事实，过线时的形状。
@@ -2012,6 +2019,7 @@ mod tests {
             created_at: 1_758_000_000_000,
             last: Some("可以改 src/lib.rs 吗?".into()),
             stats: None,
+            origin: Some("a".into()),
         }
     }
 

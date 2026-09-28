@@ -13,8 +13,8 @@
 //! from `docs/plans/2026-09-18-tui-openness-inventory.md`: what a fork wants to
 //! change has to be data, or it is 165 strings to re-scan.
 //!
-//! **Waiting** is the one thing a wizard does that a [`crate::overlay::Picker`]
-//! does not. A step may be blocked on work only the host can finish — polling a
+//! **Waiting** is the one thing a wizard does that a list to pick from does
+//! not. A step may be blocked on work only the host can finish — polling a
 //! login, writing files — so the host keeps the `Arc`, calls [`Wizard::say`]
 //! while the work is still going and [`Wizard::resolve`] when it lands, the same
 //! way a picker whose contents change is refilled. Both are `&self`, and both

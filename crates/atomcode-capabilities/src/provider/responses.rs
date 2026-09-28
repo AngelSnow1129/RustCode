@@ -460,10 +460,11 @@ impl ResponsesSseDecoder {
             // Value directly (no serialize→re-parse round-trip).
             out.push(StreamEvent::Error(ProviderError {
                 retryable: false,
-                message: format!(
-                    "provider error: {}",
-                    super::openai_compat::parse_error_obj(err)
-                ),
+                message: {
+                    let detail = super::openai_compat::parse_error_obj(err);
+                    super::content_blocked(&detail)
+                        .unwrap_or_else(|| format!("provider error: {detail}"))
+                },
                 http_status: super::openai_compat::inband_error_http_status(err),
                 code: super::openai_compat::error_code(err),
                 retry_after_secs: None,

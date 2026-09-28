@@ -554,6 +554,29 @@ impl AgentClient {
     }
 }
 
+/// Put `picked`, a row of the `@` menu, in place of the `@…` token under the
+/// caret. See [`Tui::complete_path`]. False when the caret is not in one.
+///
+/// The token and what replaces it are the ones the classic screen uses
+/// (`atomcode_capabilities::file_index`), so the two cannot come to disagree
+/// about where a mention starts and ends: the whole token is replaced, bytes
+/// after the caret included; a folder keeps its separator last so the menu
+/// walks into it, and a file is finished with a space, so the next word is not
+/// taken as more path.
+fn put_path(m: &mut crate::moment::Moment, picked: &str) -> bool {
+    use atomcode_capabilities::file_index::{
+        detect_at_mention_range, format_at_mention_replacement,
+    };
+    let Some((at, end)) = detect_at_mention_range(&m.input, m.caret) else {
+        return false;
+    };
+    let with = format_at_mention_replacement(picked.strip_prefix('@').unwrap_or(picked));
+    m.input.replace_range(at..end, &with);
+    m.caret = at + with.len();
+    m.history_at = None;
+    true
+}
+
 /// What is on disk under `cwd` matching `prefix`, for the `@` menu.
 ///
 /// IO, and deliberately here rather than in a module: a module may not touch
@@ -975,6 +998,16 @@ pub struct Tui {
     /// on first open and reused after — the picture is decoded once, not on every
     /// click. Session-scoped, like the gallery it mirrors.
     image_files: Mutex<std::collections::HashMap<usize, std::path::PathBuf>>,
+    /// What a click hands a picture or a link to: this machine's desktop.
+    ///
+    /// [`LocalOpener`](atomcode_capabilities::tools::LocalOpener) directly, not
+    /// the `OpenerSvc` seam (see [`Tui::preview_image`]); a field so a test can
+    /// see what a click opened without a browser coming up.
+    opener: Arc<dyn atomcode_capabilities::tools::Opener>,
+    /// Every press of the button, counted — so a click on a link can wait out
+    /// the double-click window and stand down if a second press came, which is
+    /// the person selecting the address to copy it rather than opening it.
+    presses: Arc<AtomicU64>,
     /// How many provider checks have been started, so one that lands after a
     /// later save is dropped rather than said (see [`Tui::say_when_probed`]).
     probes: Arc<std::sync::atomic::AtomicU64>,
@@ -1514,7 +1547,19 @@ impl UserInterface for Tui {
                     // (`background.rs` 的 `deliver_home`),那才是这一屏该出现的消息。
                     // 这里再报一次"做完了、去 /bg 读",同一件事说两遍,而第二遍还把看
                     // 结果这件事留给人自己去开面板。
-                    stale |= self.host.show_bg(crate::bg::BgView::from_host(sessions));
+                    //
+                    // 没干完的例外:它什么都不投回来,不说这一句,发起它的人就一直
+                    // 在等一个不会来的结果。
+                    let view = crate::bg::BgView::from_host(sessions);
+                    let before = self.host.moment.read().expect("moment poisoned").bg.clone();
+                    for (slot, title) in view.newly_failed(&before) {
+                        self.say(&t(Msg::BgFailedTip {
+                            slot,
+                            title: &title,
+                        }));
+                        stale = true;
+                    }
+                    stale |= self.host.show_bg(view);
                     // 提上来的那条还站得住吗 —— 列表变了就是问它的时机。
                     stale |= self.host.drop_stale_bg_question();
                     self.pour_bg_question();
@@ -1669,6 +1714,10 @@ impl UserInterface for Tui {
                             stale = true;
                             continue;
                         }
+                        if self.host.sheet_wheel(x, y, by) {
+                            stale = true;
+                            continue;
+                        }
                         if self.host.bg_wheel(x, y, by) {
                             stale = true;
                             continue;
@@ -1682,6 +1731,7 @@ impl UserInterface for Tui {
                         Click::WheelUp => Some(Action::Scroll(-WHEEL_LINES)),
                         Click::WheelDown => Some(Action::Scroll(WHEEL_LINES)),
                         Click::Press => {
+                            self.presses.fetch_add(1, Ordering::SeqCst);
                             *self.pressed_at.lock().expect("press poisoned") = Some((x, y));
                             // How many presses have landed on this cell in a
                             // row: a second within the window is a word, a third
@@ -1848,6 +1898,18 @@ impl UserInterface for Tui {
                                     continue;
                                 }
                             }
+                            // And the bottom sheet's list: a click is Enter on
+                            // the row, the same as the resume panel.
+                            if self.host.sheet_open() {
+                                if let Some(row) = self.host.sheet_row_at(x, y) {
+                                    let _ = self.host.point_sheet_at(row);
+                                    self.run_sheet_key(crate::surface::KeyPress::plain(
+                                        crate::surface::Key::Enter,
+                                    ));
+                                    stale = true;
+                                    continue;
+                                }
+                            }
                             // The providers panel's header, on the same terms
                             // as the settings one: chrome first, so a stray row
                             // cannot answer a press aimed at a tab.
@@ -2002,6 +2064,11 @@ impl UserInterface for Tui {
                                     stale |= self.host.point_resume_at(row);
                                 }
                             }
+                            if self.host.sheet_open() {
+                                if let Some(row) = self.host.sheet_row_at(x, y) {
+                                    stale |= self.host.point_sheet_at(row);
+                                }
+                            }
                             continue;
                         }
                         // Handled above, and never reached.
@@ -2129,6 +2196,11 @@ impl UserInterface for Tui {
                 // in here means "put it away", not the composer's double-tap.
                 Wake::Input(Input::Key(press)) if self.host.resume_open() => {
                     stale |= self.run_resume_key(press);
+                }
+                // And the bottom sheet, on the same terms: while it is up it owns
+                // the keys, Esc included.
+                Wake::Input(Input::Key(press)) if self.host.sheet_open() => {
+                    stale |= self.run_sheet_key(press);
                 }
                 // And the background panel — except ctrl+c and ctrl+d, which
                 // keep their meaning everywhere: the screen quits on them, which
@@ -2439,11 +2511,20 @@ impl Tui {
         use crate::providers::Step;
         // Switching model is not a write at all: it is the gesture `/model <id>`
         // already is, dispatched as exactly that command so a panel and a typed
-        // command cannot come to mean different things.
-        if let Step::Use { id } = &step {
+        // command cannot come to mean different things. A thinking level picked
+        // one layer down rides the same road, as `/effort <level>` — the same
+        // line a person would type, in the order they would type them.
+        if let Step::Use { id, effort } = &step {
             let keys = self.wake.lock().expect("wake poisoned").clone();
             if let Some(keys) = keys {
-                let _ = keys.send(Wake::Chose(Some(format!("/model {id}"))));
+                // 一条命令把两件事说完。分两条派发是不行的:换模型那条自己会
+                // 把档位再问一遍(`Action::PickEffort`),面板刚被这一挑选关上
+                // 就又弹回来,永远收不了尾。
+                let line = match effort {
+                    Some(level) => format!("/model {id} {level}"),
+                    None => format!("/model {id}"),
+                };
+                let _ = keys.send(Wake::Chose(Some(line)));
             }
             self.host.close_providers();
             return Ok(None);
@@ -2828,6 +2909,59 @@ impl Tui {
         }
     }
 
+    /// One key against the bottom sheet. A pick is dispatched as the command the
+    /// row stands for ([`Self::pick_from_sheet`]).
+    fn run_sheet_key(&self, press: crate::surface::KeyPress) -> bool {
+        let (changed, picked) = self.host.sheet_key(press);
+        match picked {
+            Some((value, token)) => {
+                self.pick_from_sheet(value, token);
+                true
+            }
+            None => changed,
+        }
+    }
+
+    /// A row picked out of the sheet, run as the command it is — a pick and the
+    /// same command typed reach one implementation, the rule every panel keeps.
+    ///
+    /// The list stays up while the command runs, because what comes back is
+    /// usually the sheet's next page: a file's diff out of `/diff`'s list, the
+    /// next directory down out of `/cd`'s. When that page is text to read, the
+    /// list goes behind it — Esc comes back to it with the cursor on the row
+    /// that was picked. Anything else the command does (`/look`, `/cd` into a
+    /// directory, a refusal) is the end of the list.
+    ///
+    /// Both land through `token` ([`crate::host::Host::settle_sheet_pick`]):
+    /// only on the sheet that is still up and still waiting for this pick. A
+    /// page that comes back after the list was put away is dropped — the
+    /// person already said they were done with it. What the command said is
+    /// still said: the command did run.
+    fn pick_from_sheet(&self, value: String, token: u64) {
+        let Some(ctx) = self.ctx.lock().expect("ctx poisoned").clone() else {
+            return;
+        };
+        let Some(keys) = self.wake.lock().expect("wake poisoned").clone() else {
+            return;
+        };
+        let host = self.host.clone();
+        tokio::spawn(async move {
+            match host.commands.dispatch(&value, &ctx).await {
+                crate::command::Outcome::Do(crate::keymap::Action::OpenSheet(sheet)) => {
+                    if host.settle_sheet_pick(token, Some(sheet)) {
+                        let _ = keys.send(Wake::Fact);
+                    }
+                }
+                other => {
+                    if host.settle_sheet_pick(token, None) {
+                        let _ = keys.send(Wake::Fact);
+                    }
+                    deliver(&host, &keys, other);
+                }
+            }
+        });
+    }
+
     /// One key against the resume panel. The only thing it asks for is a resume,
     /// dispatched as the command `/resume <id>` already is — so a panel and a
     /// typed command cannot come to mean different things.
@@ -3145,6 +3279,9 @@ impl Tui {
             // 要把它退回来。
             m.last_sent = Some(text.clone());
             m.interrupted = false;
+            // 新的一句已经在路上:上一次停下欠着的撤回不再做 —— 撤回按回合往回退,
+            // 会连这一句一起退掉。
+            m.retract = None;
             // 图要再带一次:运行时撤回排队的那一条时,图是跟着一起撤的。
             // 按标记从本会话的图库里取,不经附件队列 —— 那里放的是输入框
             // 里正在写的那句的图,不是这句的。
@@ -3789,6 +3926,11 @@ impl Tui {
             let mut m = self.host.moment.write().expect("moment poisoned");
             crate::search::key(&mut m, press)
         };
+        // Every key the search takes changes the field (the query, or the
+        // entry it accepted, or the draft Esc gave back), and the menu is read
+        // off the field: a search that closed onto `/model` is a line with a
+        // menu again.
+        self.refresh_menu();
         match step {
             crate::search::Step::Took => false,
             crate::search::Step::Left => match self.keys.resolve(press) {
@@ -3898,9 +4040,9 @@ impl Tui {
                     said = true;
                 }
             }
-            let nearest = crate::moment::Allowance::nearest(&windows);
             let changed = {
                 let mut m = host.moment.write().expect("moment poisoned");
+                let nearest = crate::moment::Allowance::nearest(&windows, m.now);
                 let changed = m.allowance != nearest;
                 m.allowance = nearest;
                 changed
@@ -4170,6 +4312,71 @@ impl Tui {
 
     /// Tell the screen which turns were taken back, from the facts it has —
     /// and which of them a *rewind* took, which is drawn differently.
+    /// Take a stopped prompt back out of the conversation, once it is known
+    /// the model had not answered it (see [`crate::moment::Retract`]).
+    ///
+    /// Through `HostCommand::Undo`, the same road `/undo` takes: a `Rewound`
+    /// fact is appended, the log is not rewritten (`docs/adr/0024` §17), and the
+    /// screen stops drawing the turn when that fact folds in. The words are in
+    /// the composer already, so the undo's own hand-back is not used. A refusal
+    /// (the log moved on, the runtime was busy) leaves the turn as it was — what
+    /// happened before this existed.
+    fn try_retract(&self) {
+        let pending = {
+            let m = self.host.moment.read().expect("moment poisoned");
+            match &m.retract {
+                Some(retract) if retract.ended => retract.clone(),
+                _ => return,
+            }
+        };
+        // The log has not ended a stopped turn yet — or the stop took the words
+        // before a turn opened them, and there is none to end. Either way,
+        // nothing to decide; a next send or a switch drops the pending one.
+        let Some(turn) = pending.turn else {
+            return;
+        };
+        let root = self.client.root();
+        let decision = if self.client.session() == root {
+            retract_decision(&self.client.events(), turn, &pending.text)
+        } else {
+            // A screen on a member: nothing of the lead's to take back.
+            RetractDecision::Keep
+        };
+        let turn = match decision {
+            RetractDecision::Wait => return,
+            RetractDecision::Keep => None,
+            RetractDecision::Take(turn) => Some(turn),
+        };
+        self.host.moment.write().expect("moment poisoned").retract = None;
+        let (Some(turn), Some(control)) = (turn, self.client.control()) else {
+            return;
+        };
+        let based_on = self.client.root_high();
+        let host = self.host.clone();
+        let keys = self.wake.lock().expect("wake poisoned").clone();
+        tokio::spawn(async move {
+            let undone = control
+                .call(HostCommand::Undo {
+                    session: root,
+                    turn: Some(turn),
+                    based_on,
+                })
+                .await;
+            // Only once it is really gone is there nothing to say was stopped:
+            // the screen is then as it was before the words were sent, with the
+            // words in the field. A refused undo leaves the turn standing, and
+            // the `已中断` note stays with it — cleared early, a turn the model
+            // still has sat above the same words in the composer with nothing
+            // saying so, one Enter from asking it twice.
+            if matches!(undone, Ok(atomcode_host_api::HostReply::Undone { .. })) {
+                host.moment.write().expect("moment poisoned").interrupted = false;
+                if let Some(keys) = keys {
+                    let _ = keys.send(Wake::Fact);
+                }
+            }
+        });
+    }
+
     fn mark_undone(&self) -> bool {
         let events = self.client.events();
         self.host.mark_undone(
@@ -4350,6 +4557,27 @@ impl Tui {
                         | atomcode_kernel::session::SessionEvent::Interrupted { .. }
                 ) {
                     self.mark_undone();
+                }
+                // The other road a stopped turn ends on (see `Moment::retract`),
+                // and the one that names it: the runtime's `TurnComplete` does
+                // not carry the turn on every host.
+                if let atomcode_kernel::session::SessionEvent::TurnEnd {
+                    turn,
+                    stop: atomcode_kernel::event::StopReason::Cancelled,
+                    ..
+                } = committed.event
+                {
+                    if let Some(retract) = self
+                        .host
+                        .moment
+                        .write()
+                        .expect("moment poisoned")
+                        .retract
+                        .as_mut()
+                    {
+                        retract.turn = Some(turn);
+                    }
+                    self.try_retract();
                 }
                 // The turn's opening line is on screen now (its own message,
                 // normally; an assistant's first word for a turn nobody typed).
@@ -4625,7 +4853,14 @@ impl Tui {
             // turn's first fact is folded (`AgentEvent::Fact`), so "正在等待模型"
             // never paints a frame ahead of the message that started the turn.
             AgentEvent::TurnStarted { .. } => {
-                self.host.moment.write().expect("moment poisoned").turn_open = true;
+                let mut m = self.host.moment.write().expect("moment poisoned");
+                m.turn_open = true;
+                // A guess about what follows the LAST turn. The composer's own
+                // submit clears it, but a turn can start without one — a
+                // background result coming home, a resend, `/init`, a loop
+                // wake-up — and the guess then outlived the turn it was about.
+                m.suggestion = None;
+                drop(m);
                 self.host.arm_working()
             }
             // A cancel (whoever asked for it) or a failure can end the turn with
@@ -4646,8 +4881,15 @@ impl Tui {
                 // then `TurnComplete`, and a line resent at the first would be
                 // wiped off the panel by the second.
                 if matches!(event, AgentEvent::TurnComplete { .. }) {
-                    self.host.moment.write().expect("moment poisoned").turn_open = false;
+                    {
+                        let mut m = self.host.moment.write().expect("moment poisoned");
+                        m.turn_open = false;
+                        if let Some(retract) = m.retract.as_mut() {
+                            retract.ended = true;
+                        }
+                    }
                     self.settle_withdrawn();
+                    self.try_retract();
                 }
                 // A turn just spent some of the allowance, so this is the
                 // moment the figure changed. Rate-limited inside.
@@ -4837,11 +5079,54 @@ impl Tui {
         // Off the render loop: launching Preview.app (`open`, `xdg-open`, …) is a
         // process spawn, and `act` returns to paint. A failure here is rare and
         // not actionable, so it is left to the opener's own logging.
+        let opener = self.opener.clone();
         tokio::spawn(async move {
-            use atomcode_capabilities::tools::Opener as _;
-            let _ = atomcode_capabilities::tools::LocalOpener
+            let _ = opener
                 .open(&atomcode_capabilities::tools::OpenTarget::Path(path))
                 .await;
+        });
+    }
+
+    /// Hand a clicked link to the desktop's browser, and say so on the tip row:
+    /// the browser may come up behind the terminal, and a click that seemed to
+    /// do nothing gets clicked again. Off the render loop, like
+    /// [`preview_image`](Self::preview_image), and through the same opener.
+    ///
+    /// Not at once: the first click of a double-click is a click too, and a
+    /// double-click on an address is how a person selects it to copy — which
+    /// must not also throw a browser in front of them. So it waits out
+    /// [`MULTI_CLICK`] and opens only if no press came in the meantime.
+    ///
+    /// A refusal is said, not swallowed: over SSH or with no display the
+    /// opener declines, and "opening…" followed by nothing would be a screen
+    /// that says it did something it did not.
+    fn open_link(&self, url: String) {
+        let presses = self.presses.clone();
+        let seen = presses.load(Ordering::SeqCst);
+        let host = self.host.clone();
+        let opener = self.opener.clone();
+        let wake = self.wake.lock().expect("wake poisoned").clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(MULTI_CLICK).await;
+            if presses.load(Ordering::SeqCst) != seen {
+                return;
+            }
+            let said = |text: String, refused: bool| {
+                host.say(text, refused);
+                if let Some(wake) = &wake {
+                    let _ = wake.send(Wake::Fact);
+                }
+            };
+            said(t(Msg::OpeningLink { url: &url }).into_owned(), false);
+            if let Err(reason) = opener
+                .open(&atomcode_capabilities::tools::OpenTarget::Url(url))
+                .await
+            {
+                said(
+                    t(Msg::OpenLinkFailed { reason: &reason }).into_owned(),
+                    true,
+                );
+            }
         });
     }
 
@@ -5109,6 +5394,9 @@ impl Tui {
                     // instant a new prompt is on its way.
                     m.last_sent = Some(text.clone());
                     m.interrupted = false;
+                    // A retraction still owed by the last stop is off: an undo
+                    // goes back by turns, and would take this one with it.
+                    m.retract = None;
                     m.turn_in_flight()
                 };
                 // A picture bound for a text-only model is turned into text by the
@@ -5312,6 +5600,11 @@ impl Tui {
             Action::SearchHistory => {
                 crate::search::begin(&mut m);
                 drop(m);
+                // A slash menu left up from the line the search set aside would
+                // be drawn in the matches' place — and outlive the search, so
+                // the Enter after accepting ran its command instead of sending
+                // what was picked.
+                self.refresh_menu();
                 // The other moment the project's older history is worth paying
                 // for — the same reason as the first press of Up, and the same
                 // one-shot latch, so pressing both costs one scan and not two.
@@ -5574,6 +5867,19 @@ impl Tui {
                     }
                 }
                 drop(m);
+                // A click on a link opens it. The screen draws links as OSC 8
+                // for the terminal to open, but this screen captures the mouse,
+                // so the click comes here instead and the terminal never sees
+                // it — the same reason an `[Image #N]` is opened from here. Read
+                // off the frame as painted, so it is the text a person sees at
+                // that cell; asked before the fold, because a URL inside a tool
+                // result is something to open, not a reason to fold the call.
+                if let Some(url) = self.host.compose(self.surface.size()).link_at(x, y) {
+                    if let Some(url) = link_to_open(&url) {
+                        self.open_link(url);
+                        return false;
+                    }
+                }
                 let Some((id, kind)) = self.host.block_at(x, y) else {
                     return false;
                 };
@@ -5692,6 +5998,26 @@ impl Tui {
                 }
                 return false;
             }
+            // 换到声明了思考强度的模型:档位就列在 providers 面板里,和挑模型
+            // 同一张列表、同一套按键 —— 不是另开一个弹窗。
+            Action::PickEffort {
+                model,
+                levels,
+                note,
+            } => {
+                drop(m);
+                // 宿主说换成了、但没存下来:挑强度那一层顶掉了「换成了」那句,
+                // 这半句得先说,不然人不知道重启后这次选择就没了。
+                if let Some(note) = note {
+                    self.say(&note);
+                }
+                if !self.host.open_providers_for_effort(model, levels) {
+                    self.say(&t(Msg::NoProviderPanel));
+                    return false;
+                }
+                self.refresh_providers();
+                return false;
+            }
             Action::TogglePlugins => {
                 drop(m);
                 // Refused rather than silently opening a panel with no module to
@@ -5760,6 +6086,15 @@ impl Tui {
             Action::LookAt(session) => {
                 drop(m);
                 self.switch_to(&session);
+                return false;
+            }
+            // `/agents`, `/cd`, `/diff`, `/view`: a list to pick from or text to
+            // read, at the foot of the screen like every other working panel.
+            Action::OpenSheet(sheet) => {
+                drop(m);
+                if !self.host.open_sheet(sheet) {
+                    self.say(&t(Msg::NoSheetPanel));
+                }
                 return false;
             }
             // `/bg` brings the panel up on the list it just fetched: the list
@@ -5906,6 +6241,13 @@ impl Tui {
                     m.stopping = true;
                     if m.input.is_empty() && !queued {
                         if let Some(sent) = m.last_sent.clone() {
+                            // Back in the field — and, if the model had said
+                            // nothing yet, out of the conversation once the turn
+                            // is over (`Moment::retract`, `try_retract`).
+                            m.retract = Some(crate::moment::Retract {
+                                text: sent.clone(),
+                                ..Default::default()
+                            });
                             m.input = sent;
                             m.caret = m.input.len();
                             m.history_at = None;
@@ -6114,7 +6456,19 @@ impl Tui {
     /// cursor to the first of them — the row that was lit a keystroke ago is not
     /// the same command once the list has narrowed.
     fn refresh_menu(&self) {
-        let menu = match self.slash_prefix() {
+        // A `Ctrl+R` search owns the composer while it is up: what the field
+        // shows is a query, not a command being typed — a history search for
+        // `/model` must list the lines that said it, not open the command menu
+        // over them. And the search's matches are drawn in the menu's place.
+        let searching = self
+            .host
+            .moment
+            .read()
+            .expect("moment poisoned")
+            .search
+            .is_some();
+        let prefix = if searching { None } else { self.slash_prefix() };
+        let menu = match prefix {
             Some(rest) => {
                 let matches = self.host.commands.matching(&rest);
                 // The agent's description, for a command that expands its closed
@@ -6178,15 +6532,18 @@ impl Tui {
             }
             // Not a command being named. It may still be a path being typed
             // after `@` — the same discovery surface the slash menu is, for the
-            // other thing people type by name and get wrong. It lists and
-            // nothing more; finishing the word is still the typist's.
+            // other thing people type by name and get wrong. Taking a row puts
+            // the path on the line (`complete_path`).
             None => {
-                let (typed, cwd) = {
+                let (typed, caret, cwd) = {
                     let m = self.host.moment.read().expect("moment poisoned");
-                    (m.input.clone(), m.cwd.clone())
+                    (m.input.clone(), m.caret, m.cwd.clone())
                 };
-                match crate::text::being_pathed(&typed) {
-                    Some(prefix) => paths_under(&self.files, &cwd, prefix),
+                // Where the caret is, not the end of the line: `@` typed in
+                // the middle of a sentence is a mention too. The classic
+                // screen's rule, from the same place.
+                match atomcode_capabilities::file_index::detect_at_mention(&typed, caret) {
+                    Some(token) => paths_under(&self.files, &cwd, &token),
                     None => Vec::new(),
                 }
             }
@@ -6273,6 +6630,13 @@ impl Tui {
     /// leaving `/comp` behind a command that just ran is a composer still holding
     /// half a name, and it would recompute the menu from it.
     fn take_command(&self, name: &str, client: &AgentClient) -> bool {
+        // A row of the `@` menu is a path, not a command: taking it puts the
+        // path on the line (see `complete_path`). Sent as `/{name}` it was
+        // answered with 「没有 /@src/ 这条命令」.
+        if name.starts_with('@') {
+            self.complete_path(name);
+            return false;
+        }
         // A command with a closed set opens that set; one whose free-text
         // argument is required and has no bare form completes onto the line for
         // the argument to be typed (`/rename `). Both are `complete`, not a bare
@@ -6308,6 +6672,10 @@ impl Tui {
     /// against the name, which is where a person would type the space
     /// themselves — the difference between a completion and a spell-check.
     fn complete_command(&self, name: &str) {
+        if name.starts_with('@') {
+            self.complete_path(name);
+            return;
+        }
         let takes = self
             .host
             .commands
@@ -6323,6 +6691,24 @@ impl Tui {
         m.input = text;
         m.history_at = None;
         drop(m);
+        self.refresh_menu();
+    }
+
+    /// Put a path picked from the `@` menu on the line, in place of the `@…`
+    /// being typed.
+    ///
+    /// The `@` menu shares the slash menu's list and keys, so tab, enter and a
+    /// press all land here for its rows. A directory is put on the line with
+    /// its separator and the menu recomputes into what is under it — picking a
+    /// folder is walking into it, the way the menu's own rows say. A file is
+    /// finished: a space after it, so the next word is not taken as more path
+    /// and the menu goes away. Nothing is sent — what is typed around the path
+    /// is still the message being written.
+    fn complete_path(&self, picked: &str) {
+        put_path(
+            &mut self.host.moment.write().expect("moment poisoned"),
+            picked,
+        );
         self.refresh_menu();
     }
 
@@ -6757,6 +7143,76 @@ pub fn took_mode(
     true
 }
 
+/// What a stop that handed its prompt back owes the conversation.
+#[derive(Debug, PartialEq, Eq)]
+enum RetractDecision {
+    /// The turn's end is not in the log yet.
+    Wait,
+    /// Leave the turn standing.
+    Keep,
+    /// Take this turn back.
+    Take(u64),
+}
+
+/// Whether the stopped `turn` is one to take back: the last turn in the log,
+/// over, stopped by the person, opened by exactly the words handed back
+/// (`sent`), and with nothing from the model in it.
+///
+/// "Nothing from the model" is nothing a person could have read: no reply, no
+/// tool that started, no question, and no streamed text cut short. A reply that
+/// was all thinking still counts as nothing — thinking is folded away on this
+/// screen, so what the person saw was their own line and a spinner. Anything
+/// more, and the turn is theirs to keep or `/undo` themselves: they may be
+/// stopping *because* of what it said.
+fn retract_decision(
+    events: &[atomcode_kernel::session::LoggedEvent],
+    turn: u64,
+    sent: &str,
+) -> RetractDecision {
+    use atomcode_kernel::session::SessionEvent as E;
+    let ended = events
+        .iter()
+        .any(|logged| matches!(logged.event, E::TurnEnd { turn: t, .. } if t == turn));
+    if !ended {
+        return RetractDecision::Wait;
+    }
+    let last_turn = events
+        .iter()
+        .filter_map(|logged| match logged.event {
+            E::TurnStart { turn } => Some(turn),
+            _ => None,
+        })
+        .max();
+    if last_turn != Some(turn) {
+        return RetractDecision::Keep;
+    }
+    let mut prompts = 0;
+    let mut same_words = false;
+    let mut interrupted = false;
+    for logged in events.iter().filter(|logged| logged.event.turn() == turn) {
+        match &logged.event {
+            E::UserMessage { text, .. } => {
+                prompts += 1;
+                same_words = text.trim() == sent.trim();
+            }
+            E::Interrupted { .. } => interrupted = true,
+            E::PartialReply { text, .. } if text.trim().is_empty() => {}
+            E::AssistantMessage { .. }
+            | E::PartialReply { .. }
+            | E::ToolStarted { .. }
+            | E::ToolResultLogged { .. }
+            | E::Asked { .. }
+            | E::Rewound { .. } => return RetractDecision::Keep,
+            _ => {}
+        }
+    }
+    if prompts == 1 && same_words && interrupted {
+        RetractDecision::Take(turn)
+    } else {
+        RetractDecision::Keep
+    }
+}
+
 /// Take the host's guess at what might be said next. Returns whether anything
 /// moved.
 ///
@@ -6800,8 +7256,13 @@ pub fn took_suggestion(
 ///
 /// The one place that writes it, so `→` and Tab cannot come to mean two
 /// different things.
+///
+/// Taken only where it is drawn (`modules::input::suggested`): idle, and not
+/// while a secret is being typed. A guess not on screen is not one to insert —
+/// Tab mid-turn put invisible words into the field, and with Tab as the mode
+/// key it swallowed the key press as well.
 fn take_suggestion(m: &mut crate::moment::Moment) -> bool {
-    if !m.input.is_empty() {
+    if !m.input.is_empty() || m.activity != crate::moment::Activity::Idle || m.secret.is_some() {
         return false;
     }
     let Some(words) = m.suggestion.take() else {
@@ -6897,6 +7358,25 @@ fn as_background_question(mut asked: crate::ask::Asked, who: String) -> crate::a
 /// （设计 §6）。不论是怎么变的：键、鼠标、流尾兜底、收回、发出或清掉输入框里的字。
 fn became_ready(was: bool, is: bool) -> bool {
     !was && is
+}
+
+/// The address a click on `link` may open, or `None` for one it must not.
+///
+/// Web addresses only. A link is text the model wrote, and opening is a single
+/// click with no question asked, so the one kind that cannot do anything on
+/// this machine is the only kind taken: a `file://` link to a `.command` or an
+/// `.app` would run it, and any other scheme is some application's command.
+/// Those stay what they were before — OSC 8 for a terminal that opens links on
+/// its own gesture. A control byte refuses it outright, the same guard the OSC 8
+/// writer keeps (`ansi::write_line`).
+fn link_to_open(link: &str) -> Option<String> {
+    let lower = link.to_ascii_lowercase();
+    let web = lower.starts_with("https://") || lower.starts_with("http://");
+    let has_host = link
+        .split_once("://")
+        .is_some_and(|(_, rest)| !rest.is_empty());
+    let clean = !link.chars().any(char::is_control);
+    (web && has_host && clean).then(|| link.to_string())
 }
 
 /// Whether a picture attached to this conversation has somewhere to go. `Err` is
@@ -7059,6 +7539,8 @@ pub fn assemble(surface: Arc<dyn Surface>) -> (Arc<Host>, Tui) {
             members: Arc::new(Roster::default()),
             named: Mutex::new(None),
             image_files: Mutex::new(std::collections::HashMap::new()),
+            opener: Arc::new(atomcode_capabilities::tools::LocalOpener),
+            presses: Arc::default(),
             probes: Arc::default(),
         },
     )
@@ -7430,6 +7912,147 @@ mod history_tests {
 }
 
 #[cfg(test)]
+mod retract_tests {
+    use super::{retract_decision, RetractDecision};
+    use atomcode_kernel::event::StopReason;
+    use atomcode_kernel::session::{LoggedEvent, SessionEvent as E};
+
+    fn log(events: Vec<E>) -> Vec<LoggedEvent> {
+        events
+            .into_iter()
+            .enumerate()
+            .map(|(seq, event)| LoggedEvent {
+                seq: seq as u64 + 1,
+                at: 0,
+                event,
+            })
+            .collect()
+    }
+
+    fn said(turn: u64, text: &str) -> E {
+        E::UserMessage {
+            turn,
+            text: text.into(),
+            images: Vec::new(),
+        }
+    }
+
+    fn end(turn: u64) -> E {
+        E::TurnEnd {
+            turn,
+            stop: StopReason::Cancelled,
+            error: None,
+        }
+    }
+
+    fn stopped(turn: u64) -> E {
+        E::Interrupted {
+            turn,
+            undone: false,
+        }
+    }
+
+    fn partial(turn: u64, text: &str, reasoning: &str) -> E {
+        E::PartialReply {
+            turn,
+            round: 1,
+            text: text.into(),
+            reasoning: reasoning.into(),
+        }
+    }
+
+    /// The screenshot: `你好`, stopped before a word came back. Taken back.
+    #[test]
+    fn a_prompt_stopped_before_any_answer_is_taken_back() {
+        let events = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "你好"),
+            stopped(3),
+            end(3),
+        ]);
+        assert_eq!(
+            retract_decision(&events, 3, "你好"),
+            RetractDecision::Take(3)
+        );
+
+        // Thinking is folded away on this screen: a turn that only thought
+        // showed the person nothing of the model's.
+        let events = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "你好"),
+            partial(3, "", "用户在打招呼"),
+            stopped(3),
+            end(3),
+        ]);
+        assert_eq!(
+            retract_decision(&events, 3, "你好"),
+            RetractDecision::Take(3)
+        );
+    }
+
+    /// Once the model said something, the turn is the person's to keep.
+    #[test]
+    fn a_turn_the_model_answered_in_is_kept() {
+        let events = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "你好"),
+            partial(3, "你好!有什么", ""),
+            stopped(3),
+            end(3),
+        ]);
+        assert_eq!(retract_decision(&events, 3, "你好"), RetractDecision::Keep);
+    }
+
+    /// Only once the turn's end is in the log, only the last turn, only the
+    /// words handed back, and only a stop the person made.
+    #[test]
+    fn it_waits_for_the_end_and_takes_nothing_it_cannot_account_for() {
+        let open = log(vec![E::TurnStart { turn: 3 }, said(3, "你好")]);
+        assert_eq!(retract_decision(&open, 3, "你好"), RetractDecision::Wait);
+
+        let later = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "你好"),
+            stopped(3),
+            end(3),
+            E::TurnStart { turn: 4 },
+            said(4, "你好"),
+        ]);
+        assert_eq!(retract_decision(&later, 3, "你好"), RetractDecision::Keep);
+
+        let other_words = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "别的"),
+            stopped(3),
+            end(3),
+        ]);
+        assert_eq!(
+            retract_decision(&other_words, 3, "你好"),
+            RetractDecision::Keep
+        );
+
+        let not_a_stop = log(vec![E::TurnStart { turn: 3 }, said(3, "你好"), end(3)]);
+        assert_eq!(
+            retract_decision(&not_a_stop, 3, "你好"),
+            RetractDecision::Keep
+        );
+
+        // A steer added a second line to the turn: not one prompt to hand back.
+        let steered = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "你好"),
+            said(3, "再补一句"),
+            stopped(3),
+            end(3),
+        ]);
+        assert_eq!(
+            retract_decision(&steered, 3, "再补一句"),
+            RetractDecision::Keep
+        );
+    }
+}
+
+#[cfg(test)]
 mod suggestion_tests {
     use super::{accept_ghost, take_suggestion, took_suggestion};
     use crate::moment::Moment;
@@ -7508,6 +8131,20 @@ mod suggestion_tests {
         // → 在同一个位置仍旧接历史补全:两种手势的差别正在这里。
         assert!(accept_ghost(&mut m));
         assert_eq!(m.input, "接着把登录那条补上");
+    }
+
+    /// 屏上没画出来的那句话,也收不进来:回合在跑时它不画,Tab/→ 就不能把它塞进
+    /// 编辑区 —— 那是一行看不见就冒出来的字,Tab 当模式键时还吞掉了这一下。
+    #[test]
+    fn a_guess_not_drawn_is_not_taken() {
+        let moment = idle("lead");
+        assert!(took_suggestion(&moment, "lead", "接着把登录那条补上"));
+        let mut m = moment.write().unwrap();
+        m.activity = crate::moment::Activity::Working;
+        assert!(!take_suggestion(&mut m), "回合在跑");
+        assert!(m.input.is_empty());
+        m.activity = crate::moment::Activity::Idle;
+        assert!(take_suggestion(&mut m), "空闲了就照常收");
     }
 
     /// 编辑区空着的时候,→ 收下那句话 —— 和它收下历史 ghost 是同一个手势。
@@ -7848,6 +8485,50 @@ mod at_menu_tests {
 
     fn labels(items: &[crate::menu::Item]) -> Vec<String> {
         items.iter().map(|i| i.label.clone()).collect()
+    }
+
+    /// Taking a row of the `@` menu puts the path on the line; it is not a
+    /// command. Sent as `/{row}` it came back as 「没有 /@.cargo/ 这条命令」.
+    #[test]
+    fn taking_an_at_row_puts_the_path_on_the_line() {
+        use atomcode_capabilities::file_index::detect_at_mention;
+        let mut m = crate::moment::Moment::default();
+        let typing = |m: &mut crate::moment::Moment, text: &str| {
+            m.input = text.into();
+            m.caret = m.input.len();
+        };
+
+        // A folder: its separator stays last and the caret stays in the
+        // token, so the menu walks into it.
+        typing(&mut m, "看看 @.car");
+        assert!(put_path(&mut m, "@.cargo/"));
+        assert_eq!(m.input, "看看 @.cargo/");
+        assert_eq!(m.caret, m.input.len());
+        assert_eq!(
+            detect_at_mention(&m.input, m.caret).as_deref(),
+            Some(".cargo/")
+        );
+
+        // A file under it: finished with a space, and the caret past it is no
+        // longer in a mention — the menu has nothing left to offer, and what
+        // is typed next is the message, not more path.
+        assert!(put_path(&mut m, "@.cargo/config.toml"));
+        assert_eq!(m.input, "看看 @.cargo/config.toml ");
+        assert_eq!(m.caret, m.input.len());
+        assert_eq!(detect_at_mention(&m.input, m.caret), None);
+
+        // In the middle of the line: the whole token under the caret is
+        // replaced, and what follows it is kept.
+        m.input = "改 @sr 里的 bug".into();
+        m.caret = "改 @s".len();
+        assert!(put_path(&mut m, "@src/main.rs"));
+        assert_eq!(m.input, "改 @src/main.rs  里的 bug");
+        assert_eq!(m.caret, "改 @src/main.rs ".len());
+
+        // Not in a mention: nothing is touched.
+        typing(&mut m, "写信给 li@example.com");
+        assert!(!put_path(&mut m, "@x"));
+        assert_eq!(m.input, "写信给 li@example.com");
     }
 
     /// `@` finds a file by name wherever it is, and never offers an ignored one.
@@ -8687,6 +9368,27 @@ mod provider_probe_tests {
         );
     }
 
+    /// 选完档位派发出去的是**一条**命令:换模型和设强度同一句,与手打的
+    /// 一模一样。分两条是不行的 —— 换模型那条自己会把档位再问一遍
+    /// (`Action::PickEffort`),面板刚被那一挑选关上就又弹回来。
+    #[tokio::test]
+    async fn a_picked_level_goes_out_as_one_command_with_the_model() {
+        let (host, tui, mut woken) = screen_with(Arc::new(Checked));
+        tui.apply_provider_step(Step::Use {
+            id: "glm".into(),
+            effort: Some("high".into()),
+        })
+        .expect("it lands");
+        let line = match woken.try_recv() {
+            Ok(Wake::Chose(line)) => line,
+            Ok(_) => panic!("派发的不是一条命令"),
+            Err(error) => panic!("一条都没派发: {error}"),
+        };
+        assert_eq!(line.as_deref(), Some("/model glm high"));
+        assert!(woken.try_recv().is_err(), "只说了一句");
+        assert!(!host.providers_open(), "面板收起来了");
+    }
+
     /// A saved model is checked with the model named, so a wrong model name is
     /// caught as well as a wrong address.
     #[tokio::test]
@@ -8826,5 +9528,179 @@ mod bg_question_tests {
         let member = as_background_question(question(Some("scout")), who.clone());
         assert_eq!(member.from_background.as_deref(), Some(who.as_str()));
         assert_eq!(member.question.asker.as_deref(), Some("scout"));
+    }
+}
+
+#[cfg(test)]
+mod link_click_tests {
+    use super::*;
+    use crate::surface::Headless;
+
+    /// What a click handed to the desktop, instead of a browser.
+    #[derive(Default)]
+    struct Recorded(Mutex<Vec<String>>);
+
+    #[async_trait]
+    impl atomcode_capabilities::tools::Opener for Recorded {
+        fn describe(&self) -> String {
+            "recorded".into()
+        }
+        async fn open(
+            &self,
+            target: &atomcode_capabilities::tools::OpenTarget,
+        ) -> Result<String, String> {
+            if let atomcode_capabilities::tools::OpenTarget::Url(url) = target {
+                self.0.lock().unwrap().push(url.clone());
+            }
+            Ok(String::new())
+        }
+    }
+
+    /// An opener that declines, the way the desktop one does over SSH.
+    struct Declines;
+
+    #[async_trait]
+    impl atomcode_capabilities::tools::Opener for Declines {
+        fn describe(&self) -> String {
+            "declines".into()
+        }
+        async fn open(
+            &self,
+            _target: &atomcode_capabilities::tools::OpenTarget,
+        ) -> Result<String, String> {
+            Err("no display (SSH session)".into())
+        }
+    }
+
+    const SIZE: (u16, u16) = (60, 24);
+
+    fn screen_saying(text: &str) -> (Arc<Host>, Tui, Arc<Recorded>) {
+        let (host, mut tui) = assemble(Headless::new(SIZE.0, SIZE.1));
+        let recorded = Arc::new(Recorded::default());
+        tui.opener = recorded.clone();
+        {
+            let mut stream = host.stream.write().expect("stream poisoned");
+            let mut w = stream.writer("commands");
+            w.emit(
+                crate::block::Coord::default(),
+                // What the model said: the reply a link like this arrives in.
+                Arc::new(crate::content::ModelSaid(text.to_string())),
+            );
+        }
+        (host, tui, recorded)
+    }
+
+    /// Every cell the painted frame draws `url` on, top to bottom.
+    fn cells_of(host: &Host, url: &str) -> Vec<(u16, u16)> {
+        let frame = host.compose(SIZE);
+        (0..SIZE.1)
+            .flat_map(|y| (0..SIZE.0).map(move |x| (x, y)))
+            .filter(|&(x, y)| frame.link_at(x, y).as_deref() == Some(url))
+            .collect()
+    }
+
+    /// What was opened once the double-click window is over — on the paused
+    /// clock these tests run on, so the wait costs nothing.
+    async fn opened(recorded: &Recorded) -> Vec<String> {
+        tokio::time::sleep(MULTI_CLICK * 2).await;
+        recorded.0.lock().unwrap().clone()
+    }
+
+    fn tip(host: &Host) -> Option<(String, bool)> {
+        let m = host.moment.read().unwrap();
+        m.notice.as_ref().map(|n| (n.text.clone(), n.refused))
+    }
+
+    /// **The case this exists for.** The screen captures the mouse, so a click
+    /// on a link never reached the terminal that OSC 8 left it to — a link
+    /// drawn as a link that nothing opened. The click now opens it, from
+    /// either row of an address too long for one, and says so on the tip row.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_click_on_a_link_opens_the_whole_address() {
+        let url = "https://gitcode.com/atomgit_atomcode/atomcode/merge_requests/new?source_branch=release/v5.2.0";
+        for pick_last_row in [false, true] {
+            let (host, tui, recorded) = screen_saying(&format!("如需建 MR：{url}"));
+            let cells = cells_of(&host, url);
+            let rows: std::collections::BTreeSet<u16> = cells.iter().map(|c| c.1).collect();
+            assert!(rows.len() > 1, "at 60 columns the address wraps: {cells:?}");
+            let (x, y) = match pick_last_row {
+                false => cells[0],
+                true => *cells.last().unwrap(),
+            };
+            tui.act(Action::ClickAt(x, y), &tui.client);
+            assert_eq!(opened(&recorded).await, vec![url.to_string()]);
+            let (tip, refused) = tip(&host).unwrap_or_default();
+            assert!(
+                tip.contains(url),
+                "the tip row says what is opening: {tip:?}"
+            );
+            assert!(!refused);
+        }
+    }
+
+    /// A second press inside the double-click window is a double-click —
+    /// selecting the address to copy it — and the first click stands down
+    /// rather than also opening a browser.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_double_click_on_a_link_selects_it_and_opens_nothing() {
+        let url = "https://example.com/x";
+        let (host, tui, recorded) = screen_saying(&format!("见 {url}"));
+        let (x, y) = cells_of(&host, url)[0];
+        tui.act(Action::ClickAt(x, y), &tui.client);
+        // The second press, as the pointer loop counts it.
+        tui.presses.fetch_add(1, Ordering::SeqCst);
+        assert!(opened(&recorded).await.is_empty());
+        assert_eq!(tip(&host), None, "and says nothing about opening");
+    }
+
+    /// Over SSH or with no display the opener declines, and the tip row says
+    /// why rather than leaving "opening…" up over nothing.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_link_that_cannot_be_opened_says_why() {
+        let url = "https://example.com/x";
+        let (host, mut tui, _) = screen_saying(&format!("见 {url}"));
+        tui.opener = Arc::new(Declines);
+        let (x, y) = cells_of(&host, url)[0];
+        tui.act(Action::ClickAt(x, y), &tui.client);
+        tokio::time::sleep(MULTI_CLICK * 2).await;
+        let (tip, refused) = tip(&host).expect("something is said");
+        assert!(tip.contains("SSH"), "{tip:?}");
+        assert!(refused);
+    }
+
+    /// A click beside the link opens nothing.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_click_beside_a_link_opens_nothing() {
+        let url = "https://example.com/x";
+        let (host, tui, recorded) = screen_saying(&format!("见 {url}"));
+        let (x, y) = cells_of(&host, url)[0];
+        tui.act(Action::ClickAt(x.saturating_sub(3), y), &tui.client);
+        assert!(opened(&recorded).await.is_empty());
+    }
+
+    /// Only a web address opens on a click. A `file://` link to a script would
+    /// run it — one click, no question asked, on text the model wrote.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_click_on_a_file_link_opens_nothing() {
+        let url = "file:///tmp/run-me.command";
+        let (host, tui, recorded) = screen_saying(&format!("see {url}"));
+        let cells = cells_of(&host, url);
+        assert!(!cells.is_empty(), "it is drawn as a link all the same");
+        tui.act(Action::ClickAt(cells[0].0, cells[0].1), &tui.client);
+        assert!(opened(&recorded).await.is_empty());
+    }
+
+    #[test]
+    fn only_a_web_address_with_a_host_is_opened() {
+        assert_eq!(
+            link_to_open("https://a.example/b").as_deref(),
+            Some("https://a.example/b")
+        );
+        assert!(link_to_open("HTTP://a.example").is_some());
+        assert_eq!(link_to_open("https://"), None);
+        assert_eq!(link_to_open("file:///Applications/Calculator.app"), None);
+        assert_eq!(link_to_open("vscode://file/x"), None);
+        assert_eq!(link_to_open("javascript:alert(1)"), None);
+        assert_eq!(link_to_open("https://a.example/\u{1b}]52;c;x"), None);
     }
 }

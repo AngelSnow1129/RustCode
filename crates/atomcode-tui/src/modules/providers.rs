@@ -280,12 +280,64 @@ fn listed_line(
     } else {
         "  ".to_string()
     };
-    let (mark, label, about, dim) = match what {
+    let Some((mark, label, about, dim)) = listed_parts(view, panel, what, caps) else {
+        return Line::empty();
+    };
+    // The row a second ctrl-d would delete says so where the row's own
+    // description was: a person about to throw something away should read it on
+    // the thing being thrown away, not in a corner.
+    // `is_some_and`, not `==`: two `None`s compare equal, and an unarmed panel
+    // would then draw the warning on the add row, which has no id at all.
+    let armed = panel.pending_delete.as_deref().is_some_and(|armed| {
+        Some(armed)
+            == match what {
+                Listed::Account(i) => view.accounts().get(i).map(|r| r.id.as_str()),
+                Listed::Model(i) => view.models().get(i).map(|r| r.id.as_str()),
+                Listed::Effort(_) | Listed::Group(_) | Listed::Add => None,
+            }
+    });
+    let label_room = label_column(view, panel, w, caps);
+    let shown = width::take_width(&label, label_room);
+    let pad = label_room.saturating_sub(width::str_width(&shown));
+    let label_style = if dim {
+        base.under(theme::fg(Role::Muted))
+    } else {
+        base
+    };
+    let about_style = if armed {
+        base.under(theme::fg(Role::Warning))
+    } else {
+        base.under(theme::fg(Role::Muted))
+    };
+    let about = if armed {
+        t(Msg::ArmedDelete).into_owned()
+    } else {
+        about
+    };
+    let spans = vec![
+        Span::styled(pointer, base),
+        Span::styled(format!("{mark} "), label_style),
+        Span::styled(shown, label_style),
+        Span::styled(" ".repeat(pad + 2), base),
+        Span::styled(about, about_style),
+    ];
+    pad_to(Line::from_spans(spans), w, base)
+}
+
+/// What one listed row says: its mark, its label, what is worth knowing about
+/// it, and whether it is drawn dim. `None` for a row the view no longer has.
+fn listed_parts(
+    view: &ProvidersView,
+    panel: &Panel,
+    what: Listed,
+    caps: crate::caps::Caps,
+) -> Option<(String, String, String, bool)> {
+    Some(match what {
         // 一组的小标题:账号的名字,暗一档,没有标记也没有右侧说明——它不是
         // 一行可以做点什么的东西,是一条分界。
         Listed::Group(first) => {
             let Some(row) = view.models().get(first) else {
-                return Line::empty();
+                return None;
             };
             (" ".to_string(), row.account.clone(), String::new(), true)
         }
@@ -301,7 +353,7 @@ fn listed_line(
         ),
         Listed::Account(i) => {
             let Some(row) = view.accounts().get(i) else {
-                return Line::empty();
+                return None;
             };
             let mut about = vec![row.protocol.clone()];
             if row.configured {
@@ -331,9 +383,24 @@ fn listed_line(
                 !row.configured,
             )
         }
+        Listed::Effort(i) => {
+            let Some(pick) = panel.efforts.as_ref() else {
+                return None;
+            };
+            let Some(level) = pick.levels.get(i) else {
+                return None;
+            };
+            // 收尾那一行是把强度交回端点,它要说的正是「不指定」。
+            let about = if i + 1 == pick.levels.len() {
+                t(Msg::EffortDefaultAbout).into_owned()
+            } else {
+                String::new()
+            };
+            (" ".to_string(), level.clone(), about, false)
+        }
         Listed::Model(i) => {
             let Some(row) = view.models().get(i) else {
-                return Line::empty();
+                return None;
             };
             let mut about = vec![format!("{}k", row.window / 1000)];
             if panel.drill.is_none() {
@@ -355,46 +422,33 @@ fn listed_line(
                 false,
             )
         }
-    };
-    // The row a second ctrl-d would delete says so where the row's own
-    // description was: a person about to throw something away should read it on
-    // the thing being thrown away, not in a corner.
-    // `is_some_and`, not `==`: two `None`s compare equal, and an unarmed panel
-    // would then draw the warning on the add row, which has no id at all.
-    let armed = panel.pending_delete.as_deref().is_some_and(|armed| {
-        Some(armed)
-            == match what {
-                Listed::Account(i) => view.accounts().get(i).map(|r| r.id.as_str()),
-                Listed::Model(i) => view.models().get(i).map(|r| r.id.as_str()),
-                Listed::Group(_) | Listed::Add => None,
-            }
-    });
-    let label_room = w.saturating_sub(LEAD + 2).clamp(LABEL_MIN, LABEL_MAX);
-    let shown = width::take_width(&label, label_room);
-    let pad = label_room.saturating_sub(width::str_width(&shown));
-    let label_style = if dim {
-        base.under(theme::fg(Role::Muted))
-    } else {
-        base
-    };
-    let about_style = if armed {
-        base.under(theme::fg(Role::Warning))
-    } else {
-        base.under(theme::fg(Role::Muted))
-    };
-    let about = if armed {
-        t(Msg::ArmedDelete).into_owned()
-    } else {
-        about
-    };
-    let spans = vec![
-        Span::styled(pointer, base),
-        Span::styled(format!("{mark} "), label_style),
-        Span::styled(shown, label_style),
-        Span::styled(" ".repeat(pad + 2), base),
-        Span::styled(about, about_style),
-    ];
-    pad_to(Line::from_spans(spans), w, base)
+    })
+}
+
+/// How much room the descriptions keep at the right of a list row, at least.
+const ABOUT_MIN: usize = 20;
+
+/// How wide the label column of the list is drawn: as wide as the widest label
+/// listed, so every row lines up and none is cut — as long as the descriptions
+/// still keep [`ABOUT_MIN`] beside it.
+///
+/// Not the form's fixed [`LABEL_MAX`]: a form's labels are short field names,
+/// while a list's are model ids, and an OpenRouter id
+/// (`openrouter/thinkingmachines/…`) is past thirty columns before it says
+/// which model it is. Capped at thirty, every such row was cut to the same
+/// prefix on a terminal with a hundred columns to spare, and rows that differ
+/// only at the end could not be told apart.
+fn label_column(view: &ProvidersView, panel: &Panel, w: usize, caps: crate::caps::Caps) -> usize {
+    let widest = view
+        .listed(panel)
+        .into_iter()
+        .filter_map(|what| listed_parts(view, panel, what, caps))
+        .map(|(_, label, _, _)| width::str_width(&label))
+        .max()
+        .unwrap_or(0);
+    // Pointer and mark before the label, two spaces after it.
+    let room = w.saturating_sub(LEAD + 2 + 2 + ABOUT_MIN);
+    widest.clamp(LABEL_MIN, room.max(LABEL_MIN))
 }
 
 /// The mark on a row that is the one in use.
@@ -565,13 +619,40 @@ fn model_field(
             false,
             0,
         ),
-        ModelField::Window => (
-            t(Msg::FieldWindow).into_owned(),
-            form.window.clone(),
-            focused,
-            true,
-            form.caret,
-        ),
+        ModelField::Window => match &form.window_typed {
+            // The custom stop is a text field while it has the keyboard, and
+            // says what it holds (or that it is the custom one) when it has not.
+            Some(typed) if focused => (
+                t(Msg::FieldWindow).into_owned(),
+                typed.clone(),
+                focused,
+                true,
+                form.caret,
+            ),
+            Some(typed) => (
+                t(Msg::FieldWindow).into_owned(),
+                match typed.trim().is_empty() {
+                    true => t(Msg::WindowCustom).into_owned(),
+                    false => typed.clone(),
+                },
+                focused,
+                false,
+                0,
+            ),
+            None => (
+                t(Msg::FieldWindow).into_owned(),
+                cycled(
+                    &match form.window {
+                        Some(window) => crate::providers::window_label(window),
+                        None => t(Msg::WindowAutomatic).into_owned(),
+                    },
+                    focused,
+                ),
+                focused,
+                false,
+                0,
+            ),
+        },
         ModelField::Default => (
             t(Msg::FieldUseAfterSaving).into_owned(),
             cycled(
@@ -647,6 +728,38 @@ fn levels_text(
 fn legend(panel: &Panel) -> Vec<(String, String)> {
     let key = |k: &str, msg: Msg<'_>| (k.to_string(), t(msg).into_owned());
     match &panel.form {
+        // On the levels row the keys do something the other fields' legend
+        // does not say: Space turns the bracketed level on or off, and the
+        // arrows move between levels rather than change a value. Said where
+        // the eye is, the way the other front end says it on that row.
+        Some(Form::Model(form)) if form.focus == ModelField::Levels => {
+            vec![
+                key("space", Msg::LegendToggleLevel),
+                key("←→", Msg::LegendPickLevel),
+                key("⇥", Msg::LegendNextField),
+                key("⏎", Msg::LegendSave),
+                key("esc", Msg::LegendCancel),
+            ]
+        }
+        // The window row: typing a number is a custom window, and the legend
+        // has to say so — on a preset nothing else would tell a person that the
+        // digits keys do anything here, and in the custom field the arrows
+        // leave it rather than move the caret.
+        Some(Form::Model(form)) if form.focus == ModelField::Window => match form.window_typed {
+            Some(_) => vec![
+                (t(Msg::LegendTypeWindow).into_owned(), String::new()),
+                key("←→", Msg::LegendBackToPresets),
+                key("⏎", Msg::LegendSave),
+                key("esc", Msg::LegendCancel),
+            ],
+            None => vec![
+                key("←→", Msg::LegendChangeValue),
+                key("0-9", Msg::WindowCustom),
+                key("⇥", Msg::LegendNextField),
+                key("⏎", Msg::LegendSave),
+                key("esc", Msg::LegendCancel),
+            ],
+        },
         Some(Form::Account(_)) | Some(Form::Model(_)) => {
             vec![
                 key("⇥", Msg::LegendNextField),
@@ -656,6 +769,17 @@ fn legend(panel: &Panel) -> Vec<(String, String)> {
             ]
         }
         None => {
+            // 挑强度那一层:一句话说清这一层是干什么的,按键只有两个要记。
+            if let Some(pick) = &panel.efforts {
+                return vec![
+                    (
+                        t(Msg::EffortPickAfterModel { model: &pick.model }).into_owned(),
+                        String::new(),
+                    ),
+                    key("⏎", Msg::LegendThisOne),
+                    key("esc", Msg::LegendBack),
+                ];
+            }
             if panel.pending_delete.is_some() {
                 // Says what the next press does, because that is the only thing
                 // about this state a person has to know — and it is the press
@@ -862,6 +986,61 @@ mod tests {
         assert_eq!(lines(&m, 60, asked).len(), asked as usize);
     }
 
+    /// OpenRouter ids run past thirty columns before they say which model they
+    /// are. On a wide terminal each is drawn whole, and the descriptions still
+    /// line up; on a narrow one the ids give way first and the descriptions keep
+    /// their room.
+    #[test]
+    fn long_model_ids_are_drawn_whole_when_there_is_room() {
+        let ids = [
+            "openrouter/thinkingmachines/inkling-2-preview",
+            "openrouter/nvidia/nemotron-3-ultra-253b",
+            "openrouter/dots-studio/dots-3-large",
+        ];
+        let m = Moment {
+            providers: ProvidersView::new(
+                vec![account("openrouter", 3)],
+                ids.iter()
+                    .map(|id| model(id, "openrouter", false))
+                    .collect(),
+                Vec::new(),
+                Vec::new(),
+            ),
+            providers_panel: Some(Panel {
+                tab: Tab::Models,
+                ..Panel::new()
+            }),
+            ..Moment::default()
+        };
+
+        let wide = drawn(&m, 200, 24);
+        for id in ids {
+            assert!(wide.contains(id), "{id} is cut:\n{wide}");
+        }
+        let about_at: Vec<usize> = wide
+            .lines()
+            .filter(|l| ids.iter().any(|id| l.contains(id)))
+            .map(|l| {
+                let (before, _) = l.split_once("openrouter · ").expect("described");
+                width::str_width(before)
+            })
+            .collect();
+        assert_eq!(about_at.len(), ids.len());
+        assert!(
+            about_at.windows(2).all(|p| p[0] == p[1]),
+            "the descriptions line up: {about_at:?}\n{wide}"
+        );
+
+        let narrow = drawn(&m, 60, 24);
+        assert!(
+            narrow.contains("openrouter · 128k"),
+            "the description keeps its room when the ids cannot:\n{narrow}"
+        );
+        for line in lines(&m, 60, 24) {
+            assert!(line.width() <= 60);
+        }
+    }
+
     #[test]
     fn the_list_says_what_is_under_each_account() {
         let out = drawn(&moment(Some(Panel::new())), 80, 24);
@@ -886,6 +1065,57 @@ mod tests {
         let dot = crate::caps::Caps::default().g(crate::caps::Glyph::Bullet);
         assert!(out.contains(&dot.to_string().repeat(5)), "{out}");
         assert!(out.contains("密钥"), "{out}");
+    }
+
+    /// On the levels row the legend says what Space does there — turn the
+    /// bracketed level on or off — which the other fields' legend does not.
+    /// Off that row it is the ordinary legend again.
+    #[test]
+    fn the_levels_row_says_space_turns_a_level_on_or_off() {
+        let mut form = ModelForm::add(&view(), None).expect("an account to add to");
+        form.focus = ModelField::Levels;
+        let m = moment(Some(Panel {
+            form: Some(Form::Model(form.clone())),
+            ..Panel::new()
+        }));
+        let out = drawn(&m, 100, 24);
+        assert!(out.contains("启用/停用这一档"), "{out}");
+        assert!(out.contains("space"), "{out}");
+
+        form.focus = ModelField::Window;
+        let m = moment(Some(Panel {
+            form: Some(Form::Model(form)),
+            ..Panel::new()
+        }));
+        let out = drawn(&m, 100, 24);
+        assert!(!out.contains("启用/停用这一档"), "{out}");
+        assert!(
+            out.contains("‹ 自动（按协议默认） ›"),
+            "the window is a choice, automatic to begin with: {out}"
+        );
+    }
+
+    /// The window row says that typing a number makes a custom window, and
+    /// the custom field says what it takes and how to leave it.
+    #[test]
+    fn the_window_row_says_how_to_type_a_custom_one() {
+        let mut form = ModelForm::add(&view(), None).expect("an account to add to");
+        form.focus = ModelField::Window;
+        let panel = |form: &ModelForm| {
+            moment(Some(Panel {
+                form: Some(Form::Model(form.clone())),
+                ..Panel::new()
+            }))
+        };
+        let out = drawn(&panel(&form), 100, 24);
+        assert!(out.contains("0-9"), "{out}");
+
+        form.window_typed = Some("200k".into());
+        form.caret = 4;
+        let out = drawn(&panel(&form), 100, 24);
+        assert!(out.contains("200k"), "{out}");
+        assert!(out.contains("200k、1m"), "{out}");
+        assert!(out.contains("换回预设"), "{out}");
     }
 
     #[test]

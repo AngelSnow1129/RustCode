@@ -49,6 +49,76 @@ pub struct Spawned {
 /// `spawn_native_cli_runtime`),这里不另建一套。
 pub type Spawn = Arc<dyn Fn(PathBuf) -> BoxFuture<'static, Result<Spawned, String>> + Send + Sync>;
 
+/// 让前台那段对话里的 `code_review` 和 `/review` 走同一条路:开一个后台会话去审,
+/// 调用立刻返回,审完结果投回来(`deliver_home`)。
+///
+/// 端口得在 runtime 建起来**之前**交给它(`PrepareOptions::review_delegate`),而
+/// [`Background`] 要等屏幕接上才有 —— 所以是一个晚绑定的格子:启动器建一个,前台
+/// runtime 与 `/bg` 起的每个 runtime 都拿它造自己的端口,[`connect`] 之后
+/// [`Self::bind`]。没绑上、`Background` 已经没了,都是「不在这里」:就地审。
+///
+/// 只存 `Weak`:`Background` → `Live` → runtime → 工具 → 端口,存强引用就是一个环。
+#[derive(Clone, Debug, Default)]
+pub struct ReviewHome(Arc<Mutex<Weak<Background>>>);
+
+impl ReviewHome {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 屏幕接上了:从现在起,前台的审查交给它。
+    pub fn bind(&self, background: &Arc<Background>) {
+        *self.0.lock().expect("review home poisoned") = Arc::downgrade(background);
+    }
+
+    /// 一个 runtime 的端口。认的是它起的时候带的那个前端 —— 前台换了人(`/bg`
+    /// 把它挪走了),它就不再是替谁开后台会话的那一个。
+    pub fn delegate_for(
+        &self,
+        front_end: &Arc<FrontEnd>,
+    ) -> Arc<dyn atomcode_review::ReviewDelegate> {
+        Arc::new(ReviewElsewhere {
+            home: self.clone(),
+            front_end: Arc::downgrade(front_end),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct ReviewElsewhere {
+    home: ReviewHome,
+    front_end: Weak<FrontEnd>,
+}
+
+#[async_trait]
+impl atomcode_review::ReviewDelegate for ReviewElsewhere {
+    async fn delegate(
+        &self,
+        working_dir: &std::path::Path,
+        task: String,
+        scope: Option<String>,
+    ) -> Option<Result<atomcode_review::DelegatedReview, String>> {
+        let background = self
+            .home
+            .0
+            .lock()
+            .expect("review home poisoned")
+            .upgrade()?;
+        let front_end = self.front_end.upgrade()?;
+        match background
+            .start_for(&front_end, working_dir.to_path_buf(), task, scope)
+            .await
+        {
+            Ok(None) => None,
+            Ok(Some(HostReply::Backgrounded { slot, files, .. })) => {
+                Some(Ok(atomcode_review::DelegatedReview { slot, files }))
+            }
+            Ok(Some(other)) => Some(Err(format!("{other:?}"))),
+            Err(error) => Some(Err(format!("{error:?}"))),
+        }
+    }
+}
+
 /// 一个接上了的 runtime。
 struct Live {
     id: u64,
@@ -91,6 +161,11 @@ fn changed_files(dir: &std::path::Path, scope: &str) -> Option<usize> {
             // `status`,不是 `diff`:这次还没提交的包括还没被 git 看见的那些新文件。
             git.args(["status", "--porcelain"]);
         }
+        // `-` 开头的是 git 的选项,不是 ref:`/review --output=x` 会让 git 写一个
+        // 文件。TUI 已经不把它当范围,这里再挡一次 —— 这条命令收的是任何宿主。
+        // 挡在这里而不是加 `--end-of-options`:那是 git 2.24 才有的,更老的 git
+        // 会把整条命令拒掉,连正常的 ref 也量不出来。
+        base if base.starts_with('-') => return None,
         base => {
             let range = format!("{base}..HEAD");
             git.args(["diff", "--name-only", &range]);
@@ -108,16 +183,36 @@ fn changed_files(dir: &std::path::Path, scope: &str) -> Option<usize> {
 ///
 /// 一处判断两处用:面板那一行(`Track::saw`)与"要不要把结果投回去"看的是同一件事
 /// —— 被中断和出错都不是一次结果,投回去只会让人读一段没有结论的话。
+///
+/// 只有模型自己说完(`Stopped`)才算干完。被熔断(`RepeatLoop` / `ToolLoopDetected` /
+/// `RunawayFuse`)、轮数用尽、被策略拦下的,最后那句话往往只是"我来调一下 X"之类的开场白,
+/// 不是结论 —— 当成结果投回去,那段对话会被一句没说完的话唤醒。`StopReason` 是
+/// `non_exhaustive`,以后新加的结束方式也先算没干完,等有人看过再放进来。
 fn ended_state(reason: &StopReason) -> BackgroundState {
     match reason {
+        StopReason::Stopped => BackgroundState::Done,
         StopReason::Cancelled => BackgroundState::Cancelled,
-        StopReason::ProviderError
-        | StopReason::Timeout
-        | StopReason::PromptRejected
-        | StopReason::RateLimited
-        | StopReason::InvariantViolated => BackgroundState::Failed,
-        _ => BackgroundState::Done,
+        _ => BackgroundState::Failed,
     }
+}
+
+/// 最后一个回合说出的结论:最后一个 `TurnStart` 之后、最后一条有字的回复。
+///
+/// 只看最后一个回合:整份日志里倒着找,一个没出字的回合会把上一回合的旧答案再投一次。
+fn last_turn_answer(log: &[LoggedEvent]) -> Option<String> {
+    let start = log
+        .iter()
+        .rposition(|logged| matches!(logged.event, SessionEvent::TurnStart { .. }))
+        .unwrap_or(0);
+    log[start..]
+        .iter()
+        .rev()
+        .find_map(|logged| match &logged.event {
+            SessionEvent::AssistantMessage { text, .. } if !text.trim().is_empty() => {
+                Some(text.trim().to_string())
+            }
+            _ => None,
+        })
 }
 
 impl Track {
@@ -511,6 +606,9 @@ fn describe(live: &Live) -> BackgroundSession {
         created_at: live.since,
         last,
         stats: stats_of(&log),
+        // 替谁干活:等于它自己(`/bg` 把那段对话挪过来的)就是没有别的读者。
+        origin: (!live.origin.is_empty() && live.origin != live.control.session_id())
+            .then(|| live.origin.clone()),
     }
 }
 
@@ -585,12 +683,7 @@ impl Background {
                 return;
             }
             let log = log_of(live);
-            let Some(answer) = log.iter().rev().find_map(|logged| match &logged.event {
-                SessionEvent::AssistantMessage { text, .. } if !text.trim().is_empty() => {
-                    Some(text.trim().to_string())
-                }
-                _ => None,
-            }) else {
+            let Some(answer) = last_turn_answer(&log) else {
                 return;
             };
             let title = name_of(&log);
@@ -618,7 +711,28 @@ impl Background {
         tokio::spawn(async move {
             // 一条注,不是一次用户提交:日志里说话的是那个后台会话,不是人。屏上的内容
             // 一字不少 —— 变的只是**谁说的**。
-            let _ = handle.note(sender, frame).await;
+            //
+            // `Busy` 是那段对话正在收尾一次取消或一次策略介入,过一会儿就收得下:等一等
+            // 再投,而不是把结果扔了。别的拒绝(runtime 没了、换了代)不重试 —— 那时
+            // 这个 handle 背后未必还是发起它的那段对话;结果仍在 /bg 面板里。
+            const TRIES: u32 = 10;
+            for attempt in 1..=TRIES {
+                match handle.note(sender.clone(), frame.clone()).await {
+                    Ok(_) => return,
+                    Err(atomcode_coding::RuntimeError::Busy) if attempt < TRIES => {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            origin = %origin,
+                            from = %sender,
+                            %error,
+                            "background result not delivered to the conversation that started it; it is still in /bg"
+                        );
+                        return;
+                    }
+                }
+            }
         });
     }
 
@@ -954,6 +1068,52 @@ impl Background {
 
     async fn start(&self, text: String, scope: Option<String>) -> Result<HostReply, HostError> {
         let _op = self.op.lock().await;
+        let working_dir = {
+            let state = self.state.lock().expect("background poisoned");
+            state.front.control.clone()
+        }
+        .working_dir_now()
+        .await;
+        self.start_locked(working_dir, text, scope).await
+    }
+
+    /// [`Self::start`],替 `front_end` 那个 runtime —— 只在它**此刻**就是前台那个时。
+    ///
+    /// 模型在前台那段对话里调 `code_review` 时走这里(`ReviewHome`)。`Ok(None)` 是
+    /// 「不在这里」:它已经被挪到后台了(那就不是替谁干活,就地审),或者别的操作正
+    /// 拿着 `op`。后一种**不等**:这个调用发生在前台回合的一次工具调用里,而拿着 `op`
+    /// 的可能正等这个回合停下(退出时的 `shutdown_all`)—— 在这里等就是互相等死。
+    /// 就地审是能被取消的那条路。
+    ///
+    /// 目录由调用方给:它就是那次工具调用的目录。再去问前台 runtime 要,问的正是
+    /// 那个正在跑这次调用的 runtime。
+    async fn start_for(
+        &self,
+        front_end: &Arc<FrontEnd>,
+        working_dir: PathBuf,
+        text: String,
+        scope: Option<String>,
+    ) -> Result<Option<HostReply>, HostError> {
+        let Ok(_op) = self.op.try_lock() else {
+            return Ok(None);
+        };
+        let in_front = {
+            let state = self.state.lock().expect("background poisoned");
+            Arc::ptr_eq(state.front.control.front_end(), front_end)
+        };
+        if !in_front {
+            return Ok(None);
+        }
+        self.start_locked(working_dir, text, scope).await.map(Some)
+    }
+
+    /// 起一个后台会话去做 `text`,替前台那个。调用方拿着 `op`。
+    async fn start_locked(
+        &self,
+        working_dir: PathBuf,
+        text: String,
+        scope: Option<String>,
+    ) -> Result<HostReply, HostError> {
         let control = {
             let state = self.state.lock().expect("background poisoned");
             if state.slots.len() >= MOST {
@@ -961,7 +1121,6 @@ impl Background {
             }
             state.front.control.clone()
         };
-        let working_dir = control.working_dir_now().await;
         // 说得出范围的(审查就是),顺手把"这次有几个文件在变"算出来 —— 那行要说它。
         let files = scope
             .as_deref()
@@ -1188,6 +1347,9 @@ mod tests {
             Some(1),
             "已提交的那一段:HEAD~1..HEAD 只动了 b.txt"
         );
+        // 一个选项不是 ref:交给 git 就成了 `--output=…`,它会去写那个文件。
+        assert_eq!(changed_files(&dir, "--output=written"), None);
+        assert!(!dir.join("written..HEAD").exists(), "git 没把它当选项");
         // 问不出来的地方说"问不出来",而不是一个谁都没量过的零。
         assert_eq!(
             changed_files(std::path::Path::new("/"), "working_tree"),
@@ -1207,6 +1369,56 @@ mod tests {
         assert_eq!(track.ended, Some(BackgroundState::Failed));
         track.saw(&ended(StopReason::Stopped));
         assert_eq!(track.ended, Some(BackgroundState::Done));
+        // 被熔断、轮数用尽的不是一次结论 —— 不算干完,也就不会被投回去。
+        for reason in [
+            StopReason::RepeatLoop,
+            StopReason::ToolLoopDetected,
+            StopReason::MaxRounds,
+            StopReason::RunawayFuse,
+            StopReason::PolicyDenied,
+        ] {
+            track.saw(&ended(reason.clone()));
+            assert_eq!(track.ended, Some(BackgroundState::Failed), "{reason:?}");
+        }
+    }
+
+    /// 投回去的是最后一个回合的结论;最后一个回合没出字,就没有结论可投。
+    #[test]
+    fn the_answer_is_the_last_turns_own() {
+        let logged = |event| LoggedEvent {
+            seq: 0,
+            at: 0,
+            event,
+        };
+        let said = |turn: u64, text: &str| {
+            logged(SessionEvent::AssistantMessage {
+                turn,
+                round: 0,
+                text: text.into(),
+                reasoning: String::new(),
+                tool_calls: Vec::new(),
+                reasoning_blocks: Vec::new(),
+                meta: None,
+            })
+        };
+        let first = vec![
+            logged(SessionEvent::TurnStart { turn: 1 }),
+            said(1, "结论:两处要改"),
+            said(1, "  "),
+        ];
+        assert_eq!(last_turn_answer(&first).as_deref(), Some("结论:两处要改"));
+
+        // 第二个回合什么都没说:不能把第一回合的结论再投一次。
+        let mut second = first.clone();
+        second.push(logged(SessionEvent::TurnStart { turn: 2 }));
+        second.push(said(2, ""));
+        assert_eq!(last_turn_answer(&second), None);
+
+        second.push(said(2, "补充:第三处也要改"));
+        assert_eq!(
+            last_turn_answer(&second).as_deref(),
+            Some("补充:第三处也要改")
+        );
     }
 
     /// 回合结束,挂着的问题就不再挂着——回到前台时不该再问一次已经作废的问题。

@@ -193,6 +193,27 @@ fn resolve_in_catalog(
     find_catalog_entry(catalog, selector).map(|e| e.id.clone())
 }
 
+/// The sessions a `resume <id|name>` is matched against, across every project.
+///
+/// **An exact id is looked up in the raw catalog.** Fork lineages are collapsed
+/// to their newest member for display and for NAME matching — a name must not
+/// land on a stale fork sibling — but an id names one session, and the one a
+/// fork's exit hint prints (`atomcode resume <fork id>`) is exactly the one the
+/// collapse hides once the original has moved on. Collapsed first, that hint
+/// answered "no session matches id or name … in any project" for a session
+/// sitting on disk. (`collapse_fork_lineages` itself says exact-id loading is
+/// meant to see past it.)
+fn resume_candidates(
+    mut entries: Vec<atomcode_capabilities::session::CatalogEntry>,
+    selector: &str,
+) -> Vec<atomcode_capabilities::session::CatalogEntry> {
+    if let Some(at) = entries.iter().position(|e| e.id == selector) {
+        return vec![entries.swap_remove(at)];
+    }
+    atomcode_capabilities::session::SessionManager::collapse_fork_lineages(&mut entries);
+    entries
+}
+
 /// Outcome of resolving a `resume <id|name>` selector that was NOT found in the
 /// current project, against the GLOBAL (all-projects) catalog. Plan A: a session
 /// is anchored to its own directory (its recorded file paths only make sense
@@ -2224,14 +2245,12 @@ async fn run() -> Result<i32> {
                     let scan = atomcode_capabilities::session::SessionManager::scan_catalog(
                         &atomcode_capabilities::session::SessionManager::sessions_root(),
                     );
-                    // Collapse busy-continue fork lineages exactly like the
-                    // in-project view (`catalog_for_project`) so a cross-project
-                    // name match can't land on a hidden stale fork sibling.
-                    let mut entries = scan.entries;
-                    atomcode_capabilities::session::SessionManager::collapse_fork_lineages(
-                        &mut entries,
-                    );
+                    let entries = resume_candidates(scan.entries, sel);
                     match resolve_resume_elsewhere(&entries, sel, |p| p.is_dir()) {
+                        // Found by the raw catalog after all, and it is this
+                        // project's own — a fork the in-project views collapsed
+                        // away. Nothing to switch to.
+                        ResumeElsewhere::SwitchTo { id, dir } if dir == working_dir => Some(id),
                         ResumeElsewhere::SwitchTo { id, dir } => {
                             let notice = format!(
                                 "Resumed a session from another project — working directory switched to {} (was {}).",
@@ -2304,6 +2323,9 @@ async fn run() -> Result<i32> {
         == atomcode_config::config::Screen::Rows;
     let tui_front_end =
         (rows_screen && !is_headless).then(atomcode_coding::front_end::FrontEnd::new);
+    // Bound to the background sessions once the screen is up (`tui_front::run`);
+    // until then — and on any other screen — `code_review` runs inline.
+    let review_home = atomcode::background::ReviewHome::new();
     let (native_runtime, native_coding_cfg, continued_session) = spawn_native_cli_runtime(
         &runtime_cfg,
         resume_session_id,
@@ -2315,6 +2337,7 @@ async fn run() -> Result<i32> {
         // error. Headless (`-p`) keeps the fail-closed hard error (no picker).
         !is_headless,
         tui_front_end.clone(),
+        Some(&review_home),
     )
     .await?;
     // The active session id (fresh or resumed) for the on-exit resume hint,
@@ -2599,10 +2622,12 @@ async fn run() -> Result<i32> {
                     let provider = cli.provider.clone();
                     let skip_permissions = cli.dangerously_skip_permissions;
                     let no_tools = cli.no_tools;
+                    let review_home = review_home.clone();
                     std::sync::Arc::new(move |working_dir: std::path::PathBuf| {
                         let config_path = config_path.clone();
                         let telemetry = telemetry.clone();
                         let provider = provider.clone();
+                        let review_home = review_home.clone();
                         Box::pin(async move {
                             let config = if config_path.exists() {
                                 atomcode_config::config::Config::load(&config_path)
@@ -2629,6 +2654,7 @@ async fn run() -> Result<i32> {
                                 true,
                                 true,
                                 Some(front_end.clone()),
+                                Some(&review_home),
                             )
                             .await
                             .map_err(|e| e.to_string())?;
@@ -2657,6 +2683,7 @@ async fn run() -> Result<i32> {
                     // `screen_for`, not here.
                     startup_notice.clone(),
                     Some(spawn),
+                    Some(review_home.clone()),
                 )
                 .await
                 .map_err(|why| anyhow::anyhow!(why));
@@ -3066,6 +3093,11 @@ pub(crate) async fn spawn_native_cli_runtime(
     // A front end outside the runtime's App (`atomcode --tui`), fed from every
     // App the runtime builds. `None` when the driver reads the runtime's events.
     front_end: Option<Arc<atomcode_coding::front_end::FrontEnd>>,
+    // Where `code_review` may run out of view: the terminal's background
+    // sessions, bound once the screen is up. Only a runtime with a front end of
+    // its own can be told apart as "the one in front", so the port is built
+    // only for those; every other driver reviews inline.
+    review_home: Option<&atomcode::background::ReviewHome>,
 ) -> anyhow::Result<(
     atomcode_coding::CodingRuntime,
     atomcode_coding::CodingAgentConfig,
@@ -3136,6 +3168,10 @@ pub(crate) async fn spawn_native_cli_runtime(
     prepare.subagents = atomcode_coding::SubagentPolicy::Enabled;
     prepare.session = session;
     prepare.rate_limit_source = Some(atomcode_daemon::coding_plan_rate_limit_source());
+    prepare.review_delegate = match (review_home, &front_end) {
+        (Some(home), Some(front_end)) => Some(home.delegate_for(front_end)),
+        _ => None,
+    };
     prepare.front_end = front_end;
     let start = atomcode_coding::CodingRuntimeStart {
         agent: agent.clone(),
@@ -4841,8 +4877,9 @@ mod tests {
         headless_completion_notify_reason, headless_denial_exit_code,
         interactive_provider_bootstrap, is_completion_invocation, launch_warnings,
         merge_startup_notices, print_shell_completion, resolve_in_catalog, resolve_working_dir,
-        resume_hint_line, runtime_config_from, should_fork_busy_continue, startup_notices,
-        truncate_log_line, Cli, Commands, HeadlessOutputFormat, DEFAULT_LOG_DIRECTIVES,
+        resume_candidates, resume_hint_line, runtime_config_from, should_fork_busy_continue,
+        startup_notices, truncate_log_line, Cli, Commands, HeadlessOutputFormat,
+        DEFAULT_LOG_DIRECTIVES,
     };
     use clap::Parser;
     use clap_complete::Shell;
@@ -4866,6 +4903,31 @@ mod tests {
             presence: atomcode_capabilities::session::CatalogPresence::NativeOnly,
             needs_newer_version: false,
         }
+    }
+
+    /// A fork the original has since moved past is hidden from the lists — and
+    /// still resumable by the id its own exit hint printed. A name still lands
+    /// on the newest member of the lineage.
+    #[test]
+    fn a_fork_hidden_by_its_lineage_is_still_found_by_its_id() {
+        let root = catalog_entry("root", "读配置", 300);
+        let mut fork = catalog_entry("fork", "读配置", 100);
+        fork.fork_root_id = Some("root".into());
+        let all = vec![root, fork];
+
+        let by_id = resume_candidates(all.clone(), "fork");
+        assert_eq!(resolve_in_catalog(&by_id, "fork").as_deref(), Some("fork"));
+
+        let by_name = resume_candidates(all.clone(), "读配置");
+        assert_eq!(
+            resolve_in_catalog(&by_name, "读配置").as_deref(),
+            Some("root")
+        );
+
+        // The collapse is what hid it: through it alone the id matches nothing.
+        let mut collapsed = all;
+        atomcode_capabilities::session::SessionManager::collapse_fork_lineages(&mut collapsed);
+        assert_eq!(resolve_in_catalog(&collapsed, "fork"), None);
     }
 
     #[test]

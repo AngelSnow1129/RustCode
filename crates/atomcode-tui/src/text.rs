@@ -143,35 +143,6 @@ pub fn basename(path: &str) -> &str {
     }
 }
 
-/// The path being typed after an `@`, when one is.
-///
-/// The **last** `@` that opens a word, and only when the caret is still in that
-/// word — a person writes `看一下 @src/ma` and means the thing at the end. An
-/// `@` in the middle of a word is an email address or a decorator, not a path
-/// somebody is reaching for, so it takes a boundary in front of it.
-///
-/// `Some("")` — a bare `@` at the end — is a real answer: it lists the working
-/// directory, which is how a person finds out what is there.
-#[allow(
-    clippy::string_slice,
-    reason = "`at` is an `rfind('@')` on `typed`; `@` is one byte, so `at + 1` is a char boundary"
-)]
-pub fn being_pathed(typed: &str) -> Option<&str> {
-    let at = typed.rfind('@')?;
-    let opens = at == 0
-        || typed[..at]
-            .chars()
-            .next_back()
-            .is_some_and(char::is_whitespace);
-    if !opens {
-        return None;
-    }
-    let rest = &typed[at + 1..];
-    // Still one word: a space after it means the path was finished and
-    // something else is being written now.
-    (!rest.contains(char::is_whitespace)).then_some(rest)
-}
-
 /// 一段任意来源的文字,压成一行、去掉控制字符。
 ///
 /// 给的是模型写的东西:换行会把编辑区下面那一行撑成好几行,而 ESC / BEL 之类
@@ -627,28 +598,6 @@ mod tests {
         assert_eq!(spoken_duration(7500), "2 小时 5 分");
         assert_eq!(spoken_duration(7200), "2 小时");
         assert_eq!(spoken_duration(0), "0 秒");
-    }
-
-    /// `@` opens a path only where a path could start.
-    ///
-    /// The last one that opens a word, because a person writes the thing they
-    /// mean at the end; an `@` inside a word is an email address or a
-    /// decorator, not somebody reaching for a file.
-    #[test]
-    fn an_at_sign_opens_a_path_only_where_one_could_start() {
-        use super::being_pathed;
-        assert_eq!(being_pathed("@src/ma"), Some("src/ma"));
-        assert_eq!(being_pathed("看一下 @src/ma"), Some("src/ma"));
-        // A bare `@` lists where you are, which is how you find out.
-        assert_eq!(being_pathed("@"), Some(""));
-        // The last one wins.
-        assert_eq!(being_pathed("@a/b 和 @c/d"), Some("c/d"));
-        // Not an email, not a decorator.
-        assert_eq!(being_pathed("写信给 li@example.com"), None);
-        assert_eq!(being_pathed("#[serde(default)] x@y"), None);
-        // Finished: a space after it means something else is being written.
-        assert_eq!(being_pathed("@src/main.rs 改一下"), None);
-        assert_eq!(being_pathed("没有 at 符号"), None);
     }
 
     /// The title is the session name behind a status dot, falling back to the

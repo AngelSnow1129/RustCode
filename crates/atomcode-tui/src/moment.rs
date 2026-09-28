@@ -280,10 +280,15 @@ pub struct Allowance {
     /// host did not say, and the row then falls back to the countdown below
     /// rather than saying nothing about when.
     pub resets_at: String,
-    /// Seconds until it comes back, for a host that reports a countdown without
-    /// a clock. The same fallback `/usage` and the settings page use, so the row
-    /// and the page say the same thing about the same window.
-    pub resets_in_seconds: i64,
+    /// When it comes back, on [`Moment::now`]'s clock, for a host that reports a
+    /// countdown without a clock time. The same fallback `/usage` and the
+    /// settings page use, so the row and the page say the same thing about the
+    /// same window.
+    ///
+    /// A deadline, not the host's seconds: the figure is fetched at turn end and
+    /// then drawn for as long as the screen sits idle. Kept as seconds, "3 小时后
+    /// 重置" read the same for hours — and still after the window had reset.
+    pub resets_by: Option<Timestamp>,
 }
 
 impl Allowance {
@@ -293,7 +298,10 @@ impl Allowance {
     /// judged without a host or a network. A window the host cannot put a
     /// number on is skipped rather than counted as zero — saying "0% used"
     /// because nobody knew would be inventing an answer.
-    pub fn nearest(windows: &[atomcode_host_api::UsageWindow]) -> Option<Self> {
+    ///
+    /// `now` is when the host answered, on [`Moment::now`]'s clock: a countdown
+    /// is turned into the moment it runs out.
+    pub fn nearest(windows: &[atomcode_host_api::UsageWindow], now: Timestamp) -> Option<Self> {
         windows
             .iter()
             .filter_map(|w| w.used_percent.map(|percent| (w, percent)))
@@ -302,7 +310,12 @@ impl Allowance {
                 label: w.label.clone(),
                 percent: percent.min(100),
                 resets_at: w.resets_at.clone(),
-                resets_in_seconds: w.resets_in_seconds,
+                resets_by: (w.resets_in_seconds > 0).then(|| {
+                    Timestamp::millis(
+                        now.as_millis()
+                            .saturating_add((w.resets_in_seconds as u64).saturating_mul(1000)),
+                    )
+                }),
             })
     }
 
@@ -331,6 +344,26 @@ pub struct Queued {
     pub text: String,
     /// Its place in the order lines were typed ([`Moment::queued_seq`]).
     pub seq: u64,
+}
+
+/// A stop that handed the prompt back, and whether that prompt is still owed
+/// a retraction.
+///
+/// Handing the words back to the composer alone left them twice over: in the
+/// field, and in the conversation above it — on screen and in what the model is
+/// shown, so sending them again asked the same thing twice. When the model had
+/// not answered anything yet, the stop takes the message back the way `/undo`
+/// does. Decided only once the turn is over by both roads it ends on: the
+/// runtime's `TurnComplete` (the runtime is idle, so an undo is not `Busy`) and
+/// the log's `TurnEnd` (the facts the decision reads are all in).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Retract {
+    /// The words handed back — the retraction is only for the turn they opened.
+    pub text: String,
+    /// The turn the stop ended, once the log's `TurnEnd` (cancelled) names it.
+    pub turn: Option<u64>,
+    /// Whether `TurnComplete` has arrived.
+    pub ended: bool,
 }
 
 /// The non-derivable half of what a module renders from.
@@ -510,6 +543,9 @@ pub struct Moment {
     /// only restored when the field is empty at the moment of the stop, so an
     /// Escape never overwrites something you had already started typing.
     pub last_sent: Option<String>,
+    /// A prompt an Escape handed back to the composer, waiting to be taken out
+    /// of the conversation too — see [`Retract`]. `None` once decided either way.
+    pub retract: Option<Retract>,
     /// Whether the last turn ended because you stopped it. Drives the dim
     /// `已中断 · …` line under the composer, and is cleared the moment the next
     /// turn starts — screen state, not a fact, the same as the rest here.
@@ -814,6 +850,12 @@ pub struct Moment {
     /// 取的路上有一次列表变化被 `bg_question_wanted` 挡掉了（正在取，不要第二次）。
     /// 这一趟没提上来就得替它再取一次，否则那次变化就丢了。
     pub bg_repull: bool,
+    /// 底部那张单子(`/agents`、`/cd`、`/diff`、`/view`),`None` 是没升着。
+    pub sheet: Option<crate::sheet::Sheet>,
+    /// 一个多步的流程(引导、配对的向导),这一帧画出来的样子。宿主合成每一帧时
+    /// 从开着的那个 overlay 画进来(`Host::compose`),`crate::modules::flow` 把它
+    /// 画在底下 —— 和别的面板一样占住输入框的位置,而不是盖在对话上的一个框。
+    pub flow: Option<crate::overlay::Shown>,
     /// The sessions kept running in the background, as the host last pushed
     /// them (`HostEvent::BackgroundChanged`). A fact of the host's, not of the
     /// log, so it travels this road — see `crate::bg`.

@@ -2131,25 +2131,44 @@ async fn ctrl_r_finds_an_earlier_line_by_a_word_in_it() {
     s.term.type_line("check the parser again");
     s.quiet().await;
 
-    // Open the search and type a word that is in two of them.
+    // Open the search: nothing is filled in — the risk was `Ctrl+R`, Enter,
+    // Enter sending the last prompt again.
     s.term.press(KeyPress::ctrl('r'));
+    s.quiet().await;
+    assert!(
+        s.screen().contains("搜索历史"),
+        "the shoulder says a search is up:\n{}",
+        s.screen()
+    );
+    assert!(
+        !part_text(&s, "input").contains("parser again"),
+        "opening fills nothing in:\n{}",
+        s.screen()
+    );
+
+    // A word that is in two of them: both are listed, and counted as two.
     s.term.type_text("parser");
     s.quiet().await;
     let screen = s.screen();
     assert!(
-        screen.contains("搜索 'parser'"),
-        "the shoulder says what is being searched for:\n{screen}"
+        screen.contains("搜索 'parser' 1/2"),
+        "counted over the matches, not the history:\n{screen}"
+    );
+    let list = part_text(&s, "history-search");
+    assert!(
+        list.contains("check the parser again") && list.contains("run the parser tests"),
+        "every match is listed over the composer:\n{screen}"
     );
     assert!(
-        screen.contains("check the parser again"),
-        "and the composer shows the newest hit:\n{screen}"
+        !list.contains("width arithmetic"),
+        "and only the matches:\n{list}"
     );
 
-    // Again steps to the older of the two.
+    // Up (or Ctrl+R) lights the older of the two.
     s.term.press(KeyPress::ctrl('r'));
     s.quiet().await;
     assert!(
-        s.screen().contains("run the parser tests"),
+        s.screen().contains("搜索 'parser' 2/2"),
         "a second Ctrl+R steps further back:\n{}",
         s.screen()
     );
@@ -2164,9 +2183,61 @@ async fn ctrl_r_finds_an_earlier_line_by_a_word_in_it() {
         "accepting closes the search:\n{screen}"
     );
     assert!(
-        screen.contains("run the parser tests"),
-        "and leaves the hit in the composer to edit:\n{screen}"
+        part_text(&s, "input").contains("run the parser tests"),
+        "and leaves the lit one in the composer to edit:\n{screen}"
     );
+    task.abort();
+}
+
+/// A search opened over a half-typed command takes the command menu down: the
+/// matches are drawn in the menu's place, and a menu left up would hide them —
+/// and outlive the search, so the Enter after accepting ran `/model` instead of
+/// sending the line that was picked.
+#[tokio::test]
+async fn ctrl_r_over_a_slash_menu_takes_the_menu_down() {
+    let dir = scratch("reverse-search-over-menu");
+    let s = start(tree(
+        &dir,
+        &replay(r#"{ text = "a" }, { text = "b" }"#),
+        &[],
+    ))
+    .await;
+    let task = s.open().await;
+    s.quiet().await;
+
+    s.term.type_line("run the parser tests");
+    s.quiet().await;
+
+    s.term.type_text("/mo");
+    s.quiet().await;
+    assert!(
+        s.term.last().unwrap().part("menu").is_some(),
+        "the command menu is up:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('r'));
+    s.term.type_text("parser");
+    s.quiet().await;
+    assert!(
+        s.term.last().unwrap().part("menu").is_none(),
+        "the command menu went with the line it was about:\n{}",
+        s.screen()
+    );
+    assert!(
+        part_text(&s, "history-search").contains("run the parser tests"),
+        "and the matches are drawn in its place:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::plain(Key::Enter));
+    s.quiet().await;
+    assert!(
+        s.term.last().unwrap().part("menu").is_none(),
+        "no menu is left to take the next Enter:\n{}",
+        s.screen()
+    );
+    assert!(part_text(&s, "input").contains("run the parser tests"));
     task.abort();
 }
 
@@ -2192,9 +2263,10 @@ async fn esc_out_of_a_search_gives_the_draft_back() {
     s.quiet().await;
     s.term.press(KeyPress::ctrl('r'));
     s.quiet().await;
+    let input = part_text(&s, "input");
     assert!(
-        s.screen().contains("something said earlier"),
-        "the search opened on the newest entry:\n{}",
+        !input.contains("half a thought") && !input.contains("something said earlier"),
+        "the draft is set aside and nothing is filled in:\n{}",
         s.screen()
     );
 
@@ -5204,6 +5276,194 @@ async fn a_model_that_has_not_answered_yet_says_it_is_being_waited_for() {
     assert!(
         live.contains("正在等待模型"),
         "a turn waiting on the model must say so: {live:?}"
+    );
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
+/// A host that writes down every undo the screen asks of it, and passes the rest
+/// through. The e2e host takes no undo itself; what one does to the log is the
+/// host's criterion (`atomcode` `tests/host.rs`,
+/// `a_turn_stopped_before_any_answer_can_be_undone_by_its_number`). What is the
+/// screen's is *asking* for it — for which turn, and only when it should.
+struct UndoRecorder {
+    inner: Arc<dyn atomcode_host_api::HostControl>,
+    asked: Arc<std::sync::Mutex<Vec<Option<u64>>>>,
+    /// Answer every undo as the host does when the log moved on under it.
+    refuse: bool,
+}
+
+#[async_trait]
+impl atomcode_host_api::HostControl for UndoRecorder {
+    async fn call(
+        &self,
+        command: atomcode_host_api::HostCommand,
+    ) -> Result<atomcode_host_api::HostReply, atomcode_host_api::HostError> {
+        if let atomcode_host_api::HostCommand::Undo { turn, .. } = &command {
+            self.asked.lock().expect("asked poisoned").push(*turn);
+            if self.refuse {
+                return Err(atomcode_host_api::HostError::Stale { current: 0 });
+            }
+            return Ok(atomcode_host_api::HostReply::Undone {
+                prompt: None,
+                restored_files: Vec::new(),
+            });
+        }
+        self.inner.call(command).await
+    }
+    fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
+        self.inner.subscribe()
+    }
+}
+
+async fn start_recording_undo(
+    setup: Setup,
+    refuse: bool,
+) -> (Session, Arc<std::sync::Mutex<Vec<Option<u64>>>>) {
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let s = start_full(
+        setup,
+        {
+            let asked = asked.clone();
+            move |connection| atomcode_host_api::HostConnection {
+                control: Arc::new(UndoRecorder {
+                    inner: connection.control,
+                    asked,
+                    refuse,
+                }),
+                ..connection
+            }
+        },
+        Ports::default(),
+    )
+    .await;
+    (s, asked)
+}
+
+/// Sent, and stopped before the model said a word: the words come back to the
+/// composer AND the turn is taken back. Handed back alone they were there twice
+/// — in the field, and above it as a message nobody answered — and the model
+/// still had them, so resending asked the same thing twice.
+///
+/// Negative control: drop the `try_retract` calls and nothing is asked.
+#[tokio::test]
+async fn esc_before_the_model_says_anything_takes_the_turn_back() {
+    let dir = scratch("esc-retract");
+    let stalling = "[[patch]]\nid = \"llm\"\nname = \"test-stalling-llm\"\n";
+    let (s, asked) = start_recording_undo(
+        tree(&dir, &replay(r#"{ text = "unused" }"#), &[stalling]),
+        false,
+    )
+    .await;
+    let task = s.open().await;
+
+    s.term.type_line("你好");
+    for _ in 0..80 {
+        if part_text(&s, "live").contains("正在等待模型") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    s.term.press(KeyPress::plain(Key::Esc));
+    for _ in 0..80 {
+        if !asked.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    s.quiet().await;
+
+    assert_eq!(
+        *asked.lock().unwrap(),
+        vec![Some(1)],
+        "the stopped turn, by its number, once:\n{}",
+        s.screen()
+    );
+    assert!(
+        part_text(&s, "input").contains("你好"),
+        "and the words are in the composer:\n{}",
+        s.screen()
+    );
+    assert!(
+        !s.screen().contains("已中断"),
+        "nothing is left saying a turn was stopped — there is no turn:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
+/// A refused undo leaves the turn standing — and the `已中断` note with it.
+/// Cleared before the host answered, a turn the model still had sat over the
+/// same words in the composer with nothing saying it had been stopped.
+#[tokio::test]
+async fn a_refused_take_back_keeps_saying_the_turn_was_stopped() {
+    let dir = scratch("esc-retract-refused");
+    let stalling = "[[patch]]\nid = \"llm\"\nname = \"test-stalling-llm\"\n";
+    let (s, asked) = start_recording_undo(
+        tree(&dir, &replay(r#"{ text = "unused" }"#), &[stalling]),
+        true,
+    )
+    .await;
+    let task = s.open().await;
+
+    s.term.type_line("你好");
+    for _ in 0..80 {
+        if part_text(&s, "live").contains("正在等待模型") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    s.term.press(KeyPress::plain(Key::Esc));
+    for _ in 0..80 {
+        if !asked.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    s.quiet().await;
+
+    assert_eq!(*asked.lock().unwrap(), vec![Some(1)]);
+    assert!(
+        s.screen().contains("已中断"),
+        "the undo was refused, so the turn stands and says so:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
+/// Once the model has said something, the turn is the person's: a stop hands
+/// the words back as before and takes nothing out of the conversation.
+#[tokio::test]
+async fn esc_after_the_model_answered_takes_nothing_back() {
+    let dir = scratch("esc-keep-answered");
+    let script = replay(
+        r#"{ text = "Working.", calls = [ { name = "bash", args = { command = "sleep 0.4" } } ] },
+           { text = "Done." }"#,
+    );
+    let (s, asked) = start_recording_undo(tree(&dir, &script, &[]), false).await;
+    let task = s.open().await;
+
+    s.term.type_line("fix the parser");
+    until(&s, "Working.").await;
+    s.term.press(KeyPress::plain(Key::Esc));
+    s.quiet().await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    assert!(
+        asked.lock().unwrap().is_empty(),
+        "{:?}",
+        asked.lock().unwrap()
+    );
+    assert_eq!(
+        s.screen().matches("fix the parser").count(),
+        2,
+        "in the transcript and back in the composer:\n{}",
+        s.screen()
     );
 
     s.term.press(KeyPress::ctrl('d'));
@@ -8753,4 +9013,91 @@ async fn the_tab_setting_moves_the_cycle_onto_plain_tab() {
         "the tab setting did not move the cycle onto plain tab"
     );
     task.abort();
+}
+
+/// **`/view` with nothing named is a sheet at the foot of the screen**, not a
+/// modal over the conversation: the files here, filtered as they are typed.
+/// Picking one reads it in the same place; Esc goes back to the list with the
+/// cursor still on the file just read — the way reading one file and then the
+/// next one goes — and Esc again puts the sheet away.
+#[tokio::test]
+async fn view_picks_from_a_sheet_and_esc_comes_back_to_the_same_row() {
+    let dir = scratch("sheet-view");
+    std::fs::write(dir.join("alpha-note.txt"), "ALPHA-BODY\n").expect("write");
+    std::fs::write(dir.join("beta-note.txt"), "BETA-BODY\n").expect("write");
+    // The host is asked where the session works — the fixture does not answer
+    // that by itself, the launcher's host does.
+    let here = dir.display().to_string();
+    let s = start_with_host(
+        tree(&dir, &replay(r#"{ text = "hi" }"#), &[]),
+        move |inner| Arc::new(WorksIn { inner, here }),
+    )
+    .await;
+    let task = s.open().await;
+    let list_legend =
+        atomcode_i18n::screen::t(atomcode_i18n::screen::Msg::SheetListLegend { typed: false })
+            .into_owned();
+    let read_legend =
+        atomcode_i18n::screen::t(atomcode_i18n::screen::Msg::SheetReadLegend { back: true })
+            .into_owned();
+
+    s.term.type_line("/view");
+    until(&s, &list_legend).await;
+    for c in "-note".chars() {
+        s.term.press(KeyPress::ch(c));
+    }
+    until(&s, "beta-note.txt").await;
+    s.term.press(KeyPress::plain(Key::Down));
+    s.term.press(KeyPress::plain(Key::Enter));
+    until(&s, "BETA-BODY").await;
+    assert!(s.screen().contains(&read_legend), "{}", s.screen());
+
+    s.term.press(KeyPress::plain(Key::Esc));
+    until(&s, &list_legend).await;
+    let pointer = atomcode_tui::caps::Caps::default().g(atomcode_tui::caps::Glyph::Pointer);
+    let screen = s.screen();
+    let row = screen
+        .lines()
+        .find(|line| line.contains("beta-note.txt"))
+        .unwrap_or_else(|| panic!("the list is back:\n{screen}"));
+    assert!(
+        row.contains(pointer),
+        "the cursor is still on the file just read:\n{screen}"
+    );
+    assert!(!screen.contains("BETA-BODY"), "{screen}");
+
+    s.term.press(KeyPress::plain(Key::Esc));
+    until_gone(&s, &list_legend).await;
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
+/// A host that says where the session works, and otherwise is the fixture's.
+struct WorksIn {
+    inner: Arc<dyn atomcode_host_api::HostControl>,
+    here: String,
+}
+
+#[async_trait]
+impl atomcode_host_api::HostControl for WorksIn {
+    async fn call(
+        &self,
+        command: atomcode_host_api::HostCommand,
+    ) -> Result<atomcode_host_api::HostReply, atomcode_host_api::HostError> {
+        if matches!(command, atomcode_host_api::HostCommand::Context { .. }) {
+            return Ok(atomcode_host_api::HostReply::Context {
+                window: 200_000,
+                used: 0,
+                model: "replay".into(),
+                working_dir: self.here.clone(),
+                system_prompt: None,
+            });
+        }
+        self.inner.call(command).await
+    }
+
+    fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
+        self.inner.subscribe()
+    }
 }

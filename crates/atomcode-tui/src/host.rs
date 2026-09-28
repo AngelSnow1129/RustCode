@@ -228,6 +228,10 @@ impl Presentation {
             // recognition is the model's crutch for a picture it cannot see, not
             // the conversation, so it stays out of the way until a click asks.
             ("vl_caption", Showing::Folded),
+            // A background job's report folds to `● 后台「…」的结果回来了`: the
+            // conversation that started it answers right under it in its own
+            // words, so the report itself is a click away, not said twice.
+            ("injected:background", Showing::Folded),
         ];
         by_kind.extend(
             crate::content::ENVIRONMENTAL_INJECTIONS
@@ -1191,6 +1195,8 @@ pub struct Hits {
     rewind: Option<Rect>,
     /// And the resume panel's.
     resume: Option<Rect>,
+    /// Where the bottom sheet was drawn — the wheel and the pointer ask.
+    sheet: Option<Rect>,
     /// And the background panel's.
     bg: Option<Rect>,
     /// Where the slash menu was drawn, so a press or the pointer on a row finds
@@ -1287,6 +1293,9 @@ pub struct Host {
     /// `crate::providers::key` for one press and emptied whenever a form is
     /// left — see [`Host::providers_key`].
     providers_secret: Mutex<String>,
+    /// The next token a pick out of the bottom sheet is stamped with
+    /// ([`Host::sheet_key`], [`Host::settle_sheet_pick`]).
+    sheet_picks: std::sync::atomic::AtomicU64,
     /// The mounted cell-grid bitmaps. The host holds the table; a row writes
     /// through `RastersSvc`, and every frame takes a snapshot of it into
     /// `Moment` for the modules to draw. See `docs/adr/0027`.
@@ -1548,6 +1557,7 @@ impl Host {
             asks: crate::ask::Asks::new(),
             secrets: crate::secret::Secrets::new(),
             providers_secret: Mutex::new(String::new()),
+            sheet_picks: std::sync::atomic::AtomicU64::new(1),
             rasters: Arc::new(crate::raster::Rasters::new()),
             modules: modules.clone(),
             layout: layout_svc.clone(),
@@ -1658,6 +1668,11 @@ impl Host {
         // prompt into — a conversation that never saw either.
         m.interrupted = false;
         m.last_sent = None;
+        m.retract = None;
+        // The guess at what to say next was sampled from the conversation being
+        // left. Carried across `/resume`, `/clear` or a member switch it sat in the
+        // arriving session's empty composer, one Tab or → from being sent there.
+        m.suggestion = None;
     }
 
     /// Which team panel row a screen point is on, when it is a row that switches
@@ -2485,6 +2500,7 @@ impl Host {
                 m.rewind_panel = None;
                 m.mcp_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.settings_panel = Some(crate::settings::Panel::new());
                 true
             }
@@ -2762,6 +2778,7 @@ impl Host {
                 m.rewind_panel = None;
                 m.mcp_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.providers_panel = Some(crate::providers::Panel::new());
                 true
             }
@@ -2780,6 +2797,32 @@ impl Host {
             return false;
         }
         self.show_providers_tab(crate::providers::Tab::Models);
+        true
+    }
+
+    /// Open the providers panel on the effort levels a model declares, opening
+    /// the panel if it is not already up.
+    ///
+    /// What a model switch lands on when the model has levels to pick: the same
+    /// panel, one layer down — the rows are drawn by the panel's own list
+    /// (`Panel::efforts`), so this is a state to put it in, not a second
+    /// surface to open. Returns false only when there is nothing to draw the
+    /// panel with, the same refusal [`Self::toggle_providers`] gives.
+    pub fn open_providers_for_effort(&self, model: String, levels: Vec<String>) -> bool {
+        if !self.providers_open() && !self.toggle_providers() {
+            return false;
+        }
+        let mut m = self.moment.write().expect("moment poisoned");
+        let Some(panel) = m.providers_panel.as_mut() else {
+            return false;
+        };
+        // 页签先落到模型页:`show` 会顺手清掉挑强度那一层,所以它必须在
+        // `efforts` 之前跑 —— 否则手打 `/model <id>` 进来时页签停在账号页,
+        // Esc 退一层会落到账号列表上。
+        panel.show(crate::providers::Tab::Models);
+        panel.efforts = Some(crate::providers::EffortPick { model, levels });
+        panel.query.clear();
+        panel.cursor = 0;
         true
     }
 
@@ -3038,6 +3081,7 @@ impl Host {
                 m.rewind_panel = None;
                 m.mcp_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.plugins_panel = Some(crate::plugins::Panel::new());
                 true
             }
@@ -3233,6 +3277,7 @@ impl Host {
                 m.rewind_panel = None;
                 m.mcp_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.tools_panel = Some(crate::tools::Panel::new());
                 true
             }
@@ -3492,6 +3537,7 @@ impl Host {
                 }
                 m.mcp_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.rewind_panel = Some(crate::rewind::Panel::new());
                 true
             }
@@ -3670,6 +3716,7 @@ impl Host {
         m.rewind_panel = None;
         m.mcp_panel = None;
         m.bg_panel = None;
+        m.sheet = None;
         m.resume_panel = Some(crate::resume::Panel::new());
         true
     }
@@ -3847,6 +3894,178 @@ impl Host {
         }
     }
 
+    // ---- the bottom sheet: `/agents`, `/cd`, `/diff`, `/view` --------------------
+
+    /// Whether the bottom sheet is up.
+    pub fn sheet_open(&self) -> bool {
+        self.moment.read().expect("moment poisoned").sheet.is_some()
+    }
+
+    /// Put a sheet up, putting away any other panel a hand works in. False only
+    /// when there is nothing to draw it with (the module was not mounted).
+    ///
+    /// A sheet replaces whatever sheet was up — `/cd` stepping into a directory
+    /// is a new list in the old one's place. What goes *behind* a page (Esc's
+    /// way back) is decided by whoever opened it ([`crate::sheet::Sheet::back`]),
+    /// not here.
+    pub fn open_sheet(&self, sheet: crate::sheet::Sheet) -> bool {
+        if !self.modules.has_view(crate::modules::sheet::ID) {
+            return false;
+        }
+        let mut m = self.moment.write().expect("moment poisoned");
+        m.settings_panel = None;
+        if m.providers_panel.take().is_some() {
+            self.providers_secret
+                .lock()
+                .expect("provider secret poisoned")
+                .clear();
+        }
+        m.plugins_panel = None;
+        m.tools_panel = None;
+        m.rewind_panel = None;
+        m.mcp_panel = None;
+        m.resume_panel = None;
+        m.bg_panel = None;
+        m.sheet = Some(sheet);
+        true
+    }
+
+    /// Put the sheet away. True when it was up.
+    pub fn close_sheet(&self) -> bool {
+        self.moment
+            .write()
+            .expect("moment poisoned")
+            .sheet
+            .take()
+            .is_some()
+    }
+
+    /// How many rows of text the sheet drew last frame — what a page-down and
+    /// "scroll to the end" are measured in (`crate::sheet::read_room`). Before
+    /// the first frame, the most it ever draws.
+    fn sheet_room(&self) -> usize {
+        self.hits
+            .lock()
+            .expect("hits poisoned")
+            .sheet
+            .map(|rect| crate::sheet::read_room(rect.h as usize))
+            .unwrap_or(crate::sheet::READ_ROWS)
+    }
+
+    /// Run one key against the sheet: whether anything changed, and what was
+    /// picked — the command, and the token its answer has to bring back
+    /// ([`Self::settle_sheet_pick`]).
+    ///
+    /// A second Enter while a pick is still being answered picks nothing: the
+    /// command is already on its way, and running it twice is two answers to
+    /// one question.
+    pub fn sheet_key(&self, press: crate::surface::KeyPress) -> (bool, Option<(String, u64)>) {
+        let room = self.sheet_room();
+        let mut m = self.moment.write().expect("moment poisoned");
+        let Some(sheet) = m.sheet.as_mut() else {
+            return (false, None);
+        };
+        let before = sheet.clone();
+        match crate::sheet::key(sheet, press, room) {
+            crate::sheet::Step::Stay => {
+                let changed = *sheet != before;
+                (changed, None)
+            }
+            crate::sheet::Step::Close => {
+                m.sheet = None;
+                (true, None)
+            }
+            crate::sheet::Step::Chose(_) if sheet.pending.is_some() => (false, None),
+            crate::sheet::Step::Chose(value) => {
+                let token = self
+                    .sheet_picks
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                sheet.pending = Some(token);
+                (true, Some((value, token)))
+            }
+        }
+    }
+
+    /// A pick's command answered. `next` is the sheet it put up, if it put one
+    /// up; `None` is anything else — `/look`, `/cd` into a directory, a
+    /// refusal — which is the end of the list.
+    ///
+    /// Lands only on the sheet that is **still up and still waiting for this
+    /// pick**: an answer that comes back after the person has put the list
+    /// away, or opened something else, is not allowed to bring it back or to
+    /// close what is there now. True when the screen changed.
+    ///
+    /// Text to read goes *over* the list it was picked from: Esc comes back to
+    /// the list with the cursor on the row that was picked.
+    pub fn settle_sheet_pick(&self, token: u64, next: Option<crate::sheet::Sheet>) -> bool {
+        use crate::sheet::Page;
+        let mut m = self.moment.write().expect("moment poisoned");
+        let Some(current) = m.sheet.as_mut() else {
+            return false;
+        };
+        if current.pending != Some(token) {
+            return false;
+        }
+        current.pending = None;
+        m.sheet = match next {
+            Some(mut next) => {
+                let behind = m.sheet.take().map(|sheet| sheet.page);
+                if let (Page::Read(_), None, Some(list @ Page::List(_))) =
+                    (&next.page, &next.back, behind)
+                {
+                    if list.id() == next.page.id() {
+                        next.back = Some(Box::new(list));
+                    }
+                }
+                Some(next)
+            }
+            None => None,
+        };
+        true
+    }
+
+    /// The wheel over the sheet walks its list, or scrolls what is being read.
+    pub fn sheet_wheel(&self, x: u16, y: u16, by: i32) -> bool {
+        let over = self
+            .hits
+            .lock()
+            .expect("hits poisoned")
+            .sheet
+            .is_some_and(|rect| rect.contains(x, y));
+        if !over {
+            return false;
+        }
+        let room = self.sheet_room();
+        let mut m = self.moment.write().expect("moment poisoned");
+        match m.sheet.as_mut() {
+            Some(sheet) => {
+                crate::sheet::wheel(sheet, by, room);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Which row of the sheet's list is under the pointer.
+    pub fn sheet_row_at(&self, x: u16, y: u16) -> Option<usize> {
+        let rect = *self.hits.lock().expect("hits poisoned").sheet.as_ref()?;
+        if !rect.contains(x, y) {
+            return None;
+        }
+        let m = self.moment.read().expect("moment poisoned");
+        let vp = crate::moment::Viewport::new(rect, &m);
+        crate::modules::sheet::geometry(&m, &vp).listed_at((y - rect.y) as usize)
+    }
+
+    /// Point the sheet's list at a row. True when it moved.
+    pub fn point_sheet_at(&self, row: usize) -> bool {
+        let mut m = self.moment.write().expect("moment poisoned");
+        match m.sheet.as_mut().map(|sheet| &mut sheet.page) {
+            Some(crate::sheet::Page::List(list)) => list.point_at(row),
+            _ => false,
+        }
+    }
+
     // ---- the background panel ---------------------------------------------------
 
     /// Whether the background panel is up.
@@ -3879,6 +4098,7 @@ impl Host {
         m.rewind_panel = None;
         m.mcp_panel = None;
         m.resume_panel = None;
+        m.sheet = None;
         let mut panel = crate::bg::Panel::new(moved);
         let view = m.bg.clone();
         panel.settle(&view);
@@ -3937,6 +4157,7 @@ impl Host {
             || self.mcp_open()
             || self.rewind_open()
             || self.resume_open()
+            || self.sheet_open()
             || self.bg_open()
             || self.searching()
             || self.menu_open()
@@ -4201,6 +4422,7 @@ impl Host {
             crate::bg::Step::Stay => (changed, None),
             crate::bg::Step::Close => {
                 m.bg_panel = None;
+                m.sheet = None;
                 (true, None)
             }
             step => (true, Some(step)),
@@ -4248,6 +4470,7 @@ impl Host {
                 m.tools_panel = None;
                 m.resume_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.mcp_panel = Some(crate::mcp::Panel::new());
                 true
             }
@@ -5093,11 +5316,13 @@ impl Host {
                 if entry.preview {
                     let mut clipped: Vec<Line> = lines[..HEAD_ROWS.min(lines.len())].to_vec();
                     let hidden = lines.len() - 2 * HEAD_ROWS;
-                    // Muted text on the panel ground: a seam in the call, not
-                    // output — and quiet enough to read past.
+                    // On the panel ground, so it reads as a seam in the call
+                    // rather than as output; in the plain ink every `点击展开`
+                    // takes (`content::expand_hint`), because a click on it
+                    // opens the call and muted said so to nobody.
                     let note = Span::styled(
                         crate::i18n::t(crate::i18n::Msg::FoldedLines { hidden }).into_owned(),
-                        crate::theme::fg(crate::theme::Role::Muted)
+                        crate::content::expand_hint()
                             .bg(crate::frame::Color::role(crate::theme::Role::PanelBg)),
                     );
                     clipped.push(Line::from_spans(vec![note]).truncate(room as usize));
@@ -5212,6 +5437,22 @@ impl Host {
         // road `members` travels. One `Arc` bump per frame: the map is rebuilt on
         // a write, not on a draw.
         moment.rasters = self.rasters.view();
+        // A flow that is up (the onboarding or pairing wizard), drawn into the
+        // moment at this width so the bottom panel that shows it
+        // (`modules::flow`) is as tall as what it says. Here for the reason the
+        // rasters are: a module draws from the moment, and the flow is live
+        // state the host keeps. Without that module mounted, it is drawn in a
+        // box over the screen instead (below).
+        if self.modules.has_view(crate::modules::flow::ID) {
+            if let Some(modal) = self.overlays.current() {
+                let lines = modal.render(&crate::moment::Viewport::new(Rect::sized(w, h), &moment));
+                moment.flow = Some(crate::overlay::Shown {
+                    id: modal.id().to_string(),
+                    title: modal.title(),
+                    lines,
+                });
+            }
+        }
         // The shape half of what this terminal can draw, taken once from the
         // moment this frame was composed against and handed down. Built here
         // rather than read inside `rows_at` because `stream_height`'s contract is
@@ -5262,6 +5503,7 @@ impl Host {
                         mcp: None,
                         rewind: None,
                         resume: None,
+                        sheet: None,
                         bg: None,
                         menu: None,
                     };
@@ -5333,6 +5575,10 @@ impl Host {
                         if id == crate::modules::resume::ID {
                             self.hits.lock().expect("hits poisoned").resume = Some(*tail_rect);
                         }
+                        // And the bottom sheet (`/agents`, `/cd`, `/diff`, `/view`).
+                        if id == crate::modules::sheet::ID {
+                            self.hits.lock().expect("hits poisoned").sheet = Some(*tail_rect);
+                        }
                         // And the background panel.
                         if id == crate::modules::bg::ID {
                             self.hits.lock().expect("hits poisoned").bg = Some(*tail_rect);
@@ -5384,6 +5630,37 @@ impl Host {
                 frame.place("menu", rect, self.menu_lines(rect, &menu));
                 self.hits.lock().expect("hits poisoned").menu = Some(rect);
             }
+        } else {
+            // A `Ctrl+R` search's matches rise from the prompt the same way, in
+            // the same place: the two are never up together (typing a search
+            // query is not typing a command). Not left in `hits` — a click on a
+            // match is not a gesture this list answers yet, and the slash
+            // menu's slot would read one as a command.
+            let moment = self.moment.read().expect("moment poisoned");
+            if let Some(search) = moment.search.as_ref() {
+                let rows = crate::search::list_rows(search) as u16;
+                if rows > 0 {
+                    if let Some(rect) = self.menu_rect(&frame, Rect::sized(w, h), rows) {
+                        let room = (rect.h as usize).saturating_sub(1);
+                        let mut lines = crate::search::list_lines(
+                            &moment.history,
+                            search,
+                            rect.w as usize,
+                            room,
+                        );
+                        let style = crate::theme::bg(crate::theme::Role::PanelBg)
+                            .under(crate::theme::fg(crate::theme::Role::PanelFg));
+                        let width = rect.w as usize;
+                        // Top-aligned in the rect with its margin last, as the
+                        // menu is: the list hangs off the field's top edge.
+                        while lines.len() < room {
+                            lines.insert(0, Line::styled(" ".repeat(width), style));
+                        }
+                        lines.push(Line::styled(" ".repeat(width), style));
+                        frame.place("history-search", rect, lines);
+                    }
+                }
+            }
         }
 
         // Held back, so the conversation has moved on below the fold. Say how
@@ -5415,8 +5692,15 @@ impl Host {
             }
         }
 
-        // A modal is drawn last, over everything, in a box of its own.
-        if let Some(modal) = self.overlays.current() {
+        // A flow is at the foot of the screen, where the composer was: the
+        // keys are its, not the field's, so nothing puts a caret there.
+        if moment.flow.is_some() {
+            frame.cursor = None;
+        }
+        // Without the panel that draws it at the foot of the screen, a flow is
+        // drawn last, over everything, in a box of its own — still on screen,
+        // still answering its keys.
+        if let (None, Some(modal)) = (moment.flow.as_ref(), self.overlays.current()) {
             let rect = crate::overlay::modal_rect(Rect::sized(w, h), modal.size(), modal.rows());
             if !rect.is_empty() {
                 let vp = crate::moment::Viewport::new(
@@ -5940,6 +6224,15 @@ fn asked_height(modules: &Modules, id: &str, moment: &Moment, width: u16) -> u16
     if displaces_composer(moment) && COMPOSER.contains(&id) {
         return 0;
     }
+    // The status line goes too while a panel is up: a panel is a place a hand
+    // is working in — `/model`, `/provider`, `/settings`, `/mcp`, … — and the
+    // line under it (model, cwd, context, cache) is about the conversation it
+    // covers, read as one more row of the panel. Asked here for the same reason
+    // the composer is: it is what the screen does with the row, not what the
+    // row needs.
+    if id == crate::modules::status::ID && panel_is_up(moment) {
+        return 0;
+    }
     asked
 }
 
@@ -5967,6 +6260,23 @@ pub(crate) fn fallback_question(asked: &crate::ask::Asked) -> crate::content::Ch
     }
 }
 
+/// Whether one of the panels a person works in is up.
+///
+/// Every one of them, listed once: a panel added to [`Moment`] and not here
+/// would be the one panel that still has the status line under it.
+pub fn panel_is_up(moment: &Moment) -> bool {
+    moment.settings_panel.is_some()
+        || moment.providers_panel.is_some()
+        || moment.plugins_panel.is_some()
+        || moment.tools_panel.is_some()
+        || moment.rewind_panel.is_some()
+        || moment.mcp_panel.is_some()
+        || moment.resume_panel.is_some()
+        || moment.bg_panel.is_some()
+        || moment.sheet.is_some()
+        || moment.flow.is_some()
+}
+
 /// Whether what is on screen stands in the composer's place.
 ///
 /// The one question [`asked_height`] arbitrates on, named so that the two
@@ -5992,6 +6302,13 @@ pub fn displaces_composer(moment: &Moment) -> bool {
         || moment.settings_panel.is_some()
         || moment.providers_panel.is_some()
         || moment.bg_panel.is_some()
+        // A sheet has its own search box and takes the keys while it is up —
+        // the same reason as the background panel — and the text being read
+        // wants the rows the composer would take.
+        || moment.sheet.is_some()
+        // And a flow (a wizard): its keys are its own, and a field under it
+        // would be a second place that looks like it is being typed into.
+        || moment.flow.is_some()
 }
 
 /// The view modules whose rows ride at the foot of the conversation.
@@ -6038,6 +6355,8 @@ pub const TAIL: &[&str] = &[
     crate::modules::mcp::ID,
     crate::modules::rewind::ID,
     crate::modules::resume::ID,
+    crate::modules::sheet::ID,
+    crate::modules::flow::ID,
     crate::modules::bg::ID,
     crate::modules::ask::ID,
     crate::modules::steering::ID,
@@ -6344,8 +6663,9 @@ mod tests {
         );
     }
 
-    /// Switching the view leaves no `已中断` note or `last_sent` prompt behind
-    /// for the conversation that arrives: both belong to the one being left.
+    /// Switching the view leaves no `已中断` note, `last_sent` prompt or guess at
+    /// what to say next behind for the conversation that arrives: all belong to
+    /// the one being left.
     #[test]
     fn a_view_switch_clears_the_interrupted_note_and_the_kept_prompt() {
         let h = host();
@@ -6353,11 +6673,16 @@ mod tests {
             let mut m = h.moment.write().expect("moment poisoned");
             m.interrupted = true;
             m.last_sent = Some("fix the parser".into());
+            m.suggestion = Some("接着把登录那条补上".into());
         }
         h.switch_view();
         let m = h.moment.read().expect("moment poisoned");
         assert!(!m.interrupted, "the note does not follow the switch");
         assert_eq!(m.last_sent, None, "nor does the prompt to hand back");
+        assert_eq!(
+            m.suggestion, None,
+            "nor the guess sampled from the view left"
+        );
     }
 
     /// A host with the providers panel's module mounted, as a launcher that
@@ -7359,6 +7684,207 @@ mod tests {
             before,
             "and it is back as it was"
         );
+    }
+
+    /// The bottom sheet (`/agents`, `/cd`, `/diff`, `/view`) stands where the
+    /// composer does, the way the background panel does: it has a search box
+    /// of its own and the keys go there, and the text being read wants the rows.
+    ///
+    /// And it is one of the family: putting it up puts any other panel away,
+    /// and a pick is handed back as the command the row stands for.
+    #[test]
+    fn the_sheet_takes_the_composers_rows_and_a_pick_is_a_command() {
+        let h = host();
+        h.modules
+            .add_view(Arc::new(Mounted::<crate::modules::sheet::SheetView>::new()))
+            .unwrap();
+        let w = 60u16;
+        let rows = |id: &str| {
+            let mods = h.modules.clone();
+            let m = h.moment.read().unwrap().clone();
+            crate::host::asked_height(&mods, id, &m, w)
+        };
+        let before = rows(crate::modules::input::ID);
+        assert!(before > 0, "the field has rows to give");
+        h.moment.write().unwrap().bg_panel = Some(crate::bg::Panel::new(None));
+
+        let list = crate::sheet::List::new(
+            "agents",
+            "",
+            vec![
+                crate::sheet::Row::new("/look a", "a"),
+                crate::sheet::Row::new("/look b", "b"),
+            ],
+        );
+        assert!(h.open_sheet(crate::sheet::Sheet::list(list)));
+        assert!(
+            h.moment.read().unwrap().bg_panel.is_none(),
+            "one panel at a time"
+        );
+        assert_eq!(
+            rows(crate::modules::input::ID),
+            0,
+            "the composer stood aside"
+        );
+        assert!(
+            rows(crate::modules::sheet::ID) > 0,
+            "and the sheet has the rows"
+        );
+
+        let key = |k| crate::surface::KeyPress::plain(k);
+        assert_eq!(h.sheet_key(key(crate::surface::Key::Down)), (true, None));
+        let (_, picked) = h.sheet_key(key(crate::surface::Key::Enter));
+        let (value, token) = picked.expect("a pick");
+        assert_eq!(value, "/look b");
+        assert!(
+            h.sheet_open(),
+            "a pick leaves the list up until its command answers"
+        );
+        assert_eq!(
+            h.sheet_key(key(crate::surface::Key::Enter)),
+            (false, None),
+            "a second Enter while it is answered runs nothing twice"
+        );
+
+        // The answer is text to read: it goes over the list, and the list —
+        // cursor on the row picked — is behind it.
+        let read = crate::sheet::Sheet::read(crate::sheet::Read::file("agents", Vec::new(), "x"));
+        assert!(h.settle_sheet_pick(token, Some(read)));
+        {
+            let m = h.moment.read().unwrap();
+            let sheet = m.sheet.as_ref().expect("up");
+            assert!(matches!(sheet.page, crate::sheet::Page::Read(_)));
+            match sheet.back.as_deref() {
+                Some(crate::sheet::Page::List(list)) => assert_eq!(list.cursor, 1),
+                other => panic!("the list is behind it: {other:?}"),
+            }
+        }
+        // Esc: back to the list, then away.
+        assert_eq!(h.sheet_key(key(crate::surface::Key::Esc)), (true, None));
+        assert!(h.sheet_open(), "back on the list");
+
+        // An answer for a pick the person walked away from lands nowhere: it
+        // neither brings the sheet back nor closes what is up now.
+        let (_, picked) = h.sheet_key(key(crate::surface::Key::Enter));
+        let (_, late) = picked.expect("a pick");
+        assert_eq!(h.sheet_key(key(crate::surface::Key::Esc)), (true, None));
+        assert!(!h.sheet_open());
+        assert!(!h.settle_sheet_pick(late, None));
+        let other = crate::sheet::Sheet::list(crate::sheet::List::new("cd", "", Vec::new()));
+        assert!(h.open_sheet(other));
+        let stale = crate::sheet::Sheet::read(crate::sheet::Read::file("agents", Vec::new(), "x"));
+        assert!(!h.settle_sheet_pick(late, Some(stale)));
+        assert_eq!(
+            h.moment.read().unwrap().sheet.as_ref().map(|s| s.page.id()),
+            Some("cd"),
+            "the sheet that is up now is untouched"
+        );
+        assert!(h.close_sheet());
+        assert_eq!(
+            rows(crate::modules::input::ID),
+            before,
+            "and it is back as it was"
+        );
+    }
+
+    /// A flow (the onboarding or pairing wizard) is drawn at the foot of the
+    /// screen like the other working panels — where the composer was, with the
+    /// status line gone — and not in a framed box over the conversation.
+    #[test]
+    fn a_wizard_is_drawn_at_the_foot_where_the_composer_was() {
+        let h = host();
+        h.modules
+            .add_view(Arc::new(Mounted::<crate::modules::flow::FlowView>::new()))
+            .unwrap();
+        let wizard = crate::wizard::Wizard::new(
+            "setup",
+            "first-run",
+            vec![crate::wizard::StepDef::new(
+                "lang",
+                "pick a language",
+                crate::wizard::StepKind::Note,
+            )
+            .saying(vec!["one line of body".into()])],
+            Box::new(|_| {}),
+            "/done",
+        );
+        h.overlays.open(wizard, Box::new(|_| {}));
+
+        let frame = h.compose((60, 30));
+        let part = frame
+            .part(crate::modules::flow::ID)
+            .expect("the flow is drawn as a panel");
+        let drawn: Vec<String> = part.lines.iter().map(|l| l.plain()).collect();
+        assert!(drawn.iter().any(|l| l.contains("first-run")), "{drawn:?}");
+        assert!(
+            drawn.iter().any(|l| l.contains("one line of body")),
+            "{drawn:?}"
+        );
+        assert!(
+            frame.part("setup").is_none(),
+            "no box over the conversation"
+        );
+        let m = h.moment.read().unwrap().clone();
+        let mut shown = m.clone();
+        shown.flow = Some(crate::overlay::Shown::default());
+        assert!(displaces_composer(&shown) && panel_is_up(&shown));
+        assert!(
+            frame.cursor.is_none(),
+            "no caret in a field that is not there"
+        );
+    }
+
+    /// Every panel a person works in takes the status line's row while it is
+    /// up and gives it back when it closes — `/model` and `/provider` open the
+    /// providers panel, and the line under it read as one more row of it.
+    #[test]
+    fn a_panel_takes_the_status_line_away_and_gives_it_back() {
+        let h = host();
+        let rows = || {
+            let mods = h.modules.clone();
+            let m = h.moment.read().unwrap().clone();
+            crate::host::asked_height(&mods, crate::modules::status::ID, &m, 60)
+        };
+        let before = rows();
+        assert_eq!(before, 1, "the status line has its row");
+
+        let panels: [(&str, fn(&mut Moment, bool)); 9] = [
+            ("settings", |m, up| {
+                m.settings_panel = up.then(crate::settings::Panel::default)
+            }),
+            ("providers", |m, up| {
+                m.providers_panel = up.then(crate::providers::Panel::new)
+            }),
+            ("plugins", |m, up| {
+                m.plugins_panel = up.then(crate::plugins::Panel::default)
+            }),
+            ("tools", |m, up| {
+                m.tools_panel = up.then(crate::tools::Panel::default)
+            }),
+            ("rewind", |m, up| {
+                m.rewind_panel = up.then(crate::rewind::Panel::default)
+            }),
+            ("mcp", |m, up| {
+                m.mcp_panel = up.then(crate::mcp::Panel::default)
+            }),
+            ("resume", |m, up| {
+                m.resume_panel = up.then(crate::resume::Panel::default)
+            }),
+            ("bg", |m, up| {
+                m.bg_panel = up.then(|| crate::bg::Panel::new(None))
+            }),
+            ("sheet", |m, up| {
+                m.sheet = up.then(|| {
+                    crate::sheet::Sheet::list(crate::sheet::List::new("agents", "", Vec::new()))
+                })
+            }),
+        ];
+        for (name, set) in panels {
+            set(&mut h.moment.write().unwrap(), true);
+            assert_eq!(rows(), 0, "the {name} panel left the status line up");
+            set(&mut h.moment.write().unwrap(), false);
+            assert_eq!(rows(), before, "closing the {name} panel lost the line");
+        }
     }
 
     #[test]
@@ -10525,18 +11051,25 @@ mod tests {
         h.absorb(&call);
         h.absorb(&result);
 
-        let rows: Vec<String> = h
-            .compose((80, 80))
-            .part("stream")
-            .expect("the conversation")
-            .lines
-            .iter()
-            .map(|l| l.plain())
-            .collect();
+        let frame = h.compose((80, 80));
+        let lines = &frame.part("stream").expect("the conversation").lines;
+        let rows: Vec<String> = lines.iter().map(|l| l.plain()).collect();
         assert!(
             rows.iter()
                 .any(|r| r.contains("已折叠") && r.contains("点击展开")),
             "the fold note is not on screen:\n{rows:#?}"
+        );
+        // And it says "click here" the way every folded row does: in the
+        // terminal's own ink, not the muted grey that read as more of the
+        // call's output.
+        let note = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .find(|s| s.text.contains("已折叠"))
+            .expect("the fold note");
+        assert_eq!(
+            note.style.fg, None,
+            "the fold note is in the terminal's own ink, not the muted grey"
         );
         assert!(
             rows.iter().any(|r| r.contains("row 60")),
@@ -13033,6 +13566,7 @@ mod tests {
             created_at: 1,
             last: Some("Allow?".into()),
             stats: None,
+            origin: None,
         }])
     }
 
@@ -13129,6 +13663,7 @@ mod tests {
                 created_at: 1,
                 last: Some("done".into()),
                 stats: None,
+                origin: None,
             },
         ])));
         assert!(h.drop_stale_bg_question(), "还在列表里也收回去");

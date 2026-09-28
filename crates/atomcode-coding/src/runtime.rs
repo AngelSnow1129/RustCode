@@ -11144,6 +11144,7 @@ pub mod testkit {
             subagents: crate::parts::SubagentPolicy::Disabled,
             rate_limit_source: None,
             front_end: None,
+            review_delegate: None,
         };
         let plugin_hooks = Arc::new(crate::plugin_hooks::StaticPluginHookSource::default());
         let parts = crate::parts::prepare_with_plugin_hook_source(
@@ -12263,6 +12264,7 @@ mod tests {
                 subagents: crate::SubagentPolicy::Disabled,
                 rate_limit_source: None,
                 front_end: None,
+                review_delegate: None,
             },
             provider_factory: Arc::new(TestProviderFactory {
                 fail: fail_provider,

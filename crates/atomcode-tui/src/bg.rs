@@ -45,6 +45,10 @@ pub struct Session {
     pub last: Option<String>,
     /// 在等人回答(审批或提问)——前台那条提示只为这个出现,出错不算。
     pub waiting: bool,
+    /// 没干完就停了(出错、熔断、轮数用尽):什么都不会投回来,所以前台要说一句。
+    pub failed: bool,
+    /// 替哪个会话干活(发起它、结果要投回去的那个)。`None` = 不替谁干活。
+    pub origin: Option<String>,
     /// 这次活花掉的,宿主从它自己的日志折出来。`None` = 还没发过请求,或那个宿主
     /// 不读后台会话的日志——两种都没有可说的数。
     pub stats: Option<atomcode_host_api::BackgroundStats>,
@@ -62,6 +66,8 @@ impl Session {
             group: Group::of(session.state),
             last: session.last,
             waiting: session.state == atomcode_host_api::BackgroundState::Waiting,
+            failed: session.state == atomcode_host_api::BackgroundState::Failed,
+            origin: session.origin,
             stats: session.stats,
         }
     }
@@ -134,6 +140,17 @@ impl BgView {
             .count()
     }
 
+    /// 替 `session` 干活、还在干的有几个 —— 它的结果会回到那段对话里。
+    ///
+    /// 只数在干的(`Working`):在等人回答的有自己那条提示,停了的有自己那句话,
+    /// 这个数回答的是「还有多少结果在路上」。
+    pub fn working_for(&self, session: &str) -> usize {
+        self.sessions
+            .iter()
+            .filter(|s| s.group == Group::Working && s.origin.as_deref() == Some(session))
+            .count()
+    }
+
     /// 还在跑的里面,有几个在等人回答。
     pub fn waiting(&self) -> usize {
         self.sessions.iter().filter(|s| s.waiting).count()
@@ -151,6 +168,23 @@ impl BgView {
             })
             .into_owned(),
         )
+    }
+
+    /// 相对 `before`,刚刚停在「没干完」的那些:*(号, 标题)*。
+    ///
+    /// 干完的不在这里:它的内容由宿主投回发起它的那段对话,那才是该出现的消息。
+    /// 没干完的什么都不投,发起它的人要是不看面板,就永远不知道它停了 —— 这一句
+    /// 只说这件事,每个会话每次停下只说一次(之前已经是失败的不再说)。
+    pub fn newly_failed(&self, before: &BgView) -> Vec<(usize, String)> {
+        self.sessions
+            .iter()
+            .filter(|s| s.failed)
+            .filter(|s| !before.sessions.iter().any(|b| b.id == s.id && b.failed))
+            .filter_map(|s| {
+                let slot = self.slot_of(&s.id)?;
+                Some((slot, s.title.chars().take(40).collect()))
+            })
+            .collect()
     }
 
     /// 画的顺序里第几个是哪个会话的 id。
@@ -370,6 +404,8 @@ mod tests {
             group,
             last: None,
             waiting: false,
+            failed: false,
+            origin: None,
             stats: None,
         }
     }
@@ -390,6 +426,27 @@ mod tests {
         for c in text.chars() {
             key(view, panel, KeyPress::ch(c));
         }
+    }
+
+    /// 停在「没干完」的那一刻说一次:之前就失败的、干完的、还在跑的都不说。
+    #[test]
+    fn a_session_that_stops_unfinished_is_named_once() {
+        let failed = |id: &str| Session {
+            failed: true,
+            ..session(id, Group::NeedsInput)
+        };
+        let before = BgView::new(vec![session("a", Group::Working), failed("b")]);
+        let after = BgView::new(vec![
+            failed("a"),
+            failed("b"),
+            session("c", Group::Completed),
+        ]);
+        assert_eq!(
+            after.newly_failed(&before),
+            vec![(1, "title a".to_string())]
+        );
+        // 下一次列表变化时它还是失败的:不再说一遍。
+        assert!(after.newly_failed(&after).is_empty());
     }
 
     /// 画的顺序是按组的,而 `/bg <N>` 的号按放进后台的先后——两者不能混。

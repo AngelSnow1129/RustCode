@@ -71,6 +71,56 @@ pub struct Transcript {
     /// the rotation is the same on live, replay and resume (it re-folds the same
     /// facts in the same order). Reset with the stream.
     done_seq: Mutex<usize>,
+    /// What an undo of a stopped-before-answering turn is read against — see
+    /// [`Unanswered`].
+    unanswered: Mutex<Unanswered>,
+}
+
+/// Turns the person stopped before the model said anything, as far as the facts
+/// so far tell.
+///
+/// Esc on such a turn hands the words back to the composer and takes the turn
+/// back (`plugin::try_retract`). The undo draws nothing: the turn goes the way
+/// every taken-back turn goes, and the `已回到第 N 轮之前` line an undo normally
+/// leaves would be a trace of a message the person has in their hands again, in
+/// a conversation that, as far as they are concerned, never had it. Read off
+/// the log, so a resumed session draws the same thing.
+#[derive(Default)]
+struct Unanswered {
+    /// Turns something of the model's reached the person in.
+    answered: std::collections::HashSet<u64>,
+    /// Turns the person stopped.
+    stopped: std::collections::HashSet<u64>,
+    /// The last turn anybody said anything in.
+    last_said: Option<u64>,
+}
+
+impl Unanswered {
+    fn absorb(&mut self, fact: &SessionEvent) {
+        match fact {
+            SessionEvent::UserMessage { turn, .. } => self.last_said = Some(*turn),
+            SessionEvent::PartialReply { text, .. } if text.trim().is_empty() => {}
+            SessionEvent::AssistantMessage { turn, .. }
+            | SessionEvent::PartialReply { turn, .. }
+            | SessionEvent::ToolStarted { turn, .. }
+            | SessionEvent::Asked { turn, .. } => {
+                self.answered.insert(*turn);
+                self.last_said = Some(*turn);
+            }
+            SessionEvent::Interrupted { turn, .. } => {
+                self.stopped.insert(*turn);
+            }
+            _ => {}
+        }
+    }
+
+    /// Whether an undo back to before `turn` takes back only a turn the person
+    /// stopped before anything came back — the last one anybody said anything in.
+    fn only_a_stopped_prompt(&self, turn: u64) -> bool {
+        self.last_said == Some(turn)
+            && self.stopped.contains(&turn)
+            && !self.answered.contains(&turn)
+    }
 }
 
 /// The card a question draws, before or after it is answered.
@@ -132,6 +182,9 @@ fn origin_label(origin: &InjectionOrigin) -> String {
 /// [`Presentation`]: crate::host::Presentation
 pub(crate) fn origin_kind(origin: &InjectionOrigin) -> &'static str {
     match origin {
+        // A job run elsewhere reporting back is its own kind: it folds to the
+        // one line that says it finished, which a teammate's note does not.
+        InjectionOrigin::Peer { outside: true, .. } => "injected:background",
         InjectionOrigin::Peer { .. } => "injected:peer",
         InjectionOrigin::Memory => "injected:memory",
         InjectionOrigin::Reminder => "injected:reminder",
@@ -152,6 +205,7 @@ impl Producer for Transcript {
         *self.open.lock().expect("transcript poisoned") = Open::default();
         self.turns.lock().expect("transcript poisoned").clear();
         *self.done_seq.lock().expect("transcript poisoned") = 0;
+        *self.unanswered.lock().expect("transcript poisoned") = Unanswered::default();
     }
 
     fn absorb(&self, logged: &atomcode_harness::session::LoggedEvent, out: &mut StreamWriter<'_>) {
@@ -159,6 +213,27 @@ impl Producer for Transcript {
         let mut open = self.open.lock().expect("transcript poisoned");
         let at = Coord::new(fact.turn(), 0);
         open.plan.absorb(fact);
+        // Read before this fact is folded in, so a `Rewound` is judged by the
+        // turns before it.
+        let silent_undo = match fact {
+            SessionEvent::Rewound { to, scope, .. } if scope.takes_back_conversation() => self
+                .turns
+                .lock()
+                .expect("transcript poisoned")
+                .iter()
+                .find(|(seq, _)| seq == to)
+                .is_some_and(|(_, turn)| {
+                    self.unanswered
+                        .lock()
+                        .expect("transcript poisoned")
+                        .only_a_stopped_prompt(*turn)
+                }),
+            _ => false,
+        };
+        self.unanswered
+            .lock()
+            .expect("transcript poisoned")
+            .absorb(fact);
         match fact {
             // Where the turns start, so an undo can say which one it went back
             // to; and the undo itself, as a line in the stream that says so.
@@ -186,6 +261,9 @@ impl Producer for Transcript {
                 // as the panel's projection does.
                 if let Some(turn) = to_turn.filter(|_| scope.takes_back_conversation()) {
                     open.plan.retract_from(turn);
+                }
+                if silent_undo {
+                    return;
                 }
                 out.emit(
                     at,
@@ -430,6 +508,9 @@ impl Producer for Transcript {
                         kind: origin_kind(origin),
                         origin: origin_label(origin),
                         text: text.clone(),
+                        // What a background session sent home is the result it
+                        // was started for; the rest are asides.
+                        result: matches!(origin, InjectionOrigin::Peer { outside: true, .. }),
                     }),
                 );
             }
@@ -745,6 +826,68 @@ mod tests {
 
     fn kinds(s: &Stream) -> Vec<&'static str> {
         s.slots().iter().map(|x| x.block().kind()).collect()
+    }
+
+    /// Esc before the model said anything takes the turn back, and the undo that
+    /// does it leaves no line: the person has the words in the composer again,
+    /// and a `已回到第 N 轮之前` for a message nobody answered is a trace of
+    /// something that, for them, was never sent. An undo of a turn the model
+    /// did answer still says so.
+    #[test]
+    fn taking_back_a_prompt_stopped_before_any_answer_leaves_no_line() {
+        use atomcode_harness::session::RewindScope;
+        let said = |turn: u64, text: &str| SessionEvent::UserMessage {
+            turn,
+            text: text.into(),
+            images: Vec::new(),
+        };
+        let ended = |turn: u64| SessionEvent::TurnEnd {
+            turn,
+            stop: atomcode_kernel::event::StopReason::Cancelled,
+            error: None,
+        };
+        let undo = SessionEvent::Rewound {
+            turn: 2,
+            to: 3,
+            scope: RewindScope::Conversation,
+        };
+        let stopped = [
+            SessionEvent::TurnStart { turn: 1 },
+            said(1, "the first thing"),
+            SessionEvent::TurnStart { turn: 2 },
+            said(2, "你好"),
+            SessionEvent::Interrupted {
+                turn: 2,
+                undone: false,
+            },
+            ended(2),
+            undo.clone(),
+        ];
+        assert!(
+            !kinds(&fold(&stopped)).contains(&"rewound"),
+            "{:?}",
+            kinds(&fold(&stopped))
+        );
+
+        let answered = [
+            SessionEvent::TurnStart { turn: 1 },
+            said(1, "the first thing"),
+            SessionEvent::TurnStart { turn: 2 },
+            said(2, "你好"),
+            SessionEvent::PartialReply {
+                turn: 2,
+                round: 1,
+                text: "你好!".into(),
+                reasoning: String::new(),
+            },
+            SessionEvent::Interrupted {
+                turn: 2,
+                undone: false,
+            },
+            ended(2),
+            undo,
+        ];
+        assert!(kinds(&fold(&answered)).contains(&"rewound"));
     }
 
     /// An undo is a line in the conversation, and it says which turn the session

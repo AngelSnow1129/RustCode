@@ -309,6 +309,7 @@ async fn started(
             subagents,
             rate_limit_source: None,
             front_end: Some(front_end.clone()),
+            review_delegate: None,
         },
         provider_factory: Arc::new(Factory(env.script.clone())),
         plugin_hooks: Arc::new(StaticPluginHookSource::default()),
@@ -558,6 +559,7 @@ async fn a_finished_turn_offers_what_might_be_said_next() {
             subagents: SubagentPolicy::Disabled,
             rate_limit_source: None,
             front_end: Some(front_end.clone()),
+            review_delegate: None,
         },
         provider_factory: Arc::new(Factory(env.script.clone())),
         plugin_hooks: Arc::new(StaticPluginHookSource::default()),
@@ -1181,6 +1183,71 @@ async fn an_undo_through_host_control_hands_the_prompt_back_and_the_model_no_lon
             .await,
         Ok(HostReply::Undone {
             prompt: Some("second thing".into()),
+            restored_files: Vec::new(),
+        })
+    );
+    let _ = quiet(&mut connection).await;
+    connection.commands.send(message("third thing")).unwrap();
+    through_turn(&mut connection).await;
+    let (_, last) = env.script.requests.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(
+        user_texts_in(&last),
+        vec!["first thing".to_string(), "third thing".to_string()]
+    );
+}
+
+/// A turn stopped before the model answered can be taken back by its number —
+/// what the screen does when Esc hands such a prompt back to the composer. The
+/// turn is only the prompt and the interruption, and it must still be a point an
+/// undo reaches; afterwards the model does not see the prompt, so resending it
+/// does not ask the same thing twice.
+#[tokio::test]
+async fn a_turn_stopped_before_any_answer_can_be_undone_by_its_number() {
+    let env = env();
+    let mut connection = connected(&env).await;
+    let session = connection.session.clone();
+    connection.commands.send(subscribe(&session)).unwrap();
+    connection.commands.send(message("first thing")).unwrap();
+    through_turn(&mut connection).await;
+    let _ = quiet(&mut connection).await;
+
+    // `hang` never answers: the stop lands before a word comes back.
+    connection.commands.send(message("hang")).unwrap();
+    let _ = until(&mut connection, |e| {
+        matches!(e, AgentEvent::TurnStarted { .. })
+    })
+    .await;
+    connection.commands.send(AgentCommand::Cancel).unwrap();
+    let ended = until(&mut connection, |e| {
+        matches!(e, AgentEvent::TurnComplete { .. })
+    })
+    .await;
+    let seen = [ended, quiet(&mut connection).await].concat();
+    // Named by the log, as the screen reads it: the host's `TurnComplete` does
+    // not carry the turn.
+    let turn = seen
+        .iter()
+        .find_map(|e| match e {
+            AgentEvent::Fact(fact) => match fact.event {
+                SessionEvent::TurnEnd { turn, .. } if fact.session == session => Some(turn),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("the stopped turn's end is in the log");
+    let latest = last_seen(&seen, &session);
+
+    assert_eq!(
+        connection
+            .control
+            .call(HostCommand::Undo {
+                session: session.clone(),
+                turn: Some(turn),
+                based_on: latest,
+            })
+            .await,
+        Ok(HostReply::Undone {
+            prompt: Some("hang".into()),
             restored_files: Vec::new(),
         })
     );
@@ -3106,6 +3173,7 @@ async fn started_without_a_provider(
             subagents: SubagentPolicy::Disabled,
             rate_limit_source: None,
             front_end: Some(front_end.clone()),
+            review_delegate: None,
         },
         provider_factory: Arc::new(GatewayGap {
             script: env.script.clone(),

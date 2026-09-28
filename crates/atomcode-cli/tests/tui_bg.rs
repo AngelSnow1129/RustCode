@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use atomcode::background::{Spawn, Spawned};
+use atomcode::background::{ReviewHome, Spawn, Spawned};
 use atomcode::tui_front;
 use atomcode_coding::front_end::FrontEnd;
 use atomcode_coding::{
@@ -37,6 +37,11 @@ struct Model {
     started: Arc<AtomicUsize>,
     /// Slow turns the model finished — which a cancelled turn never does.
     finished: Arc<AtomicUsize>,
+    /// Turns that reached the model — requests that carry tools. The side
+    /// calls a session makes on its own (its title, the guess at what to say
+    /// next) are answered but not counted: they land whenever they land, and a
+    /// test waiting on this for "the reply reached the model" was satisfied by
+    /// one of them before the reply was sent.
     count: Arc<AtomicUsize>,
 }
 
@@ -111,12 +116,28 @@ impl LlmProvider for Model {
                 }),
             ])));
         }
+        // `review it`: the model reaches for `code_review` on its own, the way a
+        // person's "审查下代码改动" makes it.
+        if !tools.is_empty() && last.is_some_and(|m| m.role == Role::User && m.text == "review it")
+        {
+            return Ok(Box::pin(futures::stream::iter(vec![
+                StreamEvent::ToolCall(ToolCall {
+                    id: "call-review".into(),
+                    name: "code_review".into(),
+                    arguments: "{}".into(),
+                }),
+                StreamEvent::Done { truncated: false },
+            ])));
+        }
         let text = if slow {
             self.started.fetch_add(1, Ordering::SeqCst);
             let mut gate = self.gate.clone();
             let _ = gate.wait_for(|open| *open).await;
             self.finished.fetch_add(1, Ordering::SeqCst);
             "slow done".to_string()
+        } else if tools.is_empty() {
+            // A side call, not a turn: answered, and not counted (see `count`).
+            "side".to_string()
         } else {
             let n = self.count.fetch_add(1, Ordering::SeqCst) + 1;
             format!("answer {n}")
@@ -152,6 +173,7 @@ fn start(
     project: &std::path::Path,
     script: &Script,
     front_end: Arc<FrontEnd>,
+    review_home: &ReviewHome,
 ) -> (CodingRuntimeStart, CodingAgentConfig) {
     let mut agent = CodingAgentConfig::new("key", "https://example.test/v1", "scripted", project);
     agent.interactive = true;
@@ -169,9 +191,12 @@ fn start(
                 external_subagents: Vec::new(),
                 memory: false,
                 web: false,
-                review: false,
+                // Mounted, and handed the terminal's way to run it out of view —
+                // what the launcher does (`spawn_native_cli_runtime`).
+                review: true,
                 subagents: SubagentPolicy::Disabled,
                 rate_limit_source: None,
+                review_delegate: Some(review_home.delegate_for(&front_end)),
                 front_end: Some(front_end),
             },
             provider_factory: Arc::new(script.clone()),
@@ -191,7 +216,7 @@ fn start(
 /// `TempDir` the other is still writing a session into.
 struct Rig {
     _home: tempfile::TempDir,
-    _project: tempfile::TempDir,
+    project: tempfile::TempDir,
     gate: watch::Sender<bool>,
     script: Script,
     term: Arc<atomcode_tui::surface::Headless>,
@@ -276,15 +301,19 @@ impl Rig {
             count: Arc::new(AtomicUsize::new(0)),
         };
         let front_end = FrontEnd::new();
-        let (first, config) = start(project.path(), &script, front_end.clone());
+        let review_home = ReviewHome::new();
+        let (first, config) = start(project.path(), &script, front_end.clone(), &review_home);
         let runtime = CodingRuntime::start(first).await.expect("starts");
         let spawn: Spawn = {
             let script = script.clone();
+            let review_home = review_home.clone();
             Arc::new(move |working_dir: std::path::PathBuf| {
                 let script = script.clone();
+                let review_home = review_home.clone();
                 Box::pin(async move {
                     let front_end = FrontEnd::new();
-                    let (start, config) = start(&working_dir, &script, front_end.clone());
+                    let (start, config) =
+                        start(&working_dir, &script, front_end.clone(), &review_home);
                     let runtime = CodingRuntime::start(start)
                         .await
                         .map_err(|e| e.to_string())?;
@@ -310,6 +339,7 @@ impl Rig {
             None,
             None,
             Some(spawn),
+            Some(review_home),
         )
         .await
         .expect("the screen mounts");
@@ -344,7 +374,7 @@ impl Rig {
         });
         let rig = Self {
             _home: home,
-            _project: project,
+            project,
             gate,
             script,
             term,
@@ -422,6 +452,16 @@ impl Rig {
     }
 
     async fn stored(&self, session: &str) -> String {
+        match self.read_stored(session).await {
+            Ok(lines) => lines,
+            Err(other) => panic!("the log of {session} can be read: {other}"),
+        }
+    }
+
+    /// [`stored`](Self::stored), without giving up on a failed read — for a
+    /// poll that runs while the session is still writing, where the last line
+    /// can be caught half written.
+    async fn read_stored(&self, session: &str) -> Result<String, String> {
         match self
             .control()
             .call(HostCommand::PreviewSession {
@@ -429,8 +469,8 @@ impl Rig {
             })
             .await
         {
-            Ok(HostReply::SessionPreview { lines }) => lines.join("\n"),
-            other => panic!("the log of {session} can be read: {other:?}"),
+            Ok(HostReply::SessionPreview { lines }) => Ok(lines.join("\n")),
+            other => Err(format!("{other:?}")),
         }
     }
 
@@ -646,13 +686,56 @@ async fn a_review_result_comes_home_labelled_as_the_background_job() {
     // The content arrives in the conversation that started it, and it arrives
     // named for what it is. The foreground never moved to the review's session:
     // this is the conversation on screen.
-    rig.until_screen(&t(Msg::InjectedFromBackground)).await;
+    // Folded to its one line (`● 后台「…」的结果回来了`), which is the result
+    // arriving: the conversation that started it answers under it.
+    rig.until_screen("结果回来了").await;
     assert_eq!(rig.client.root(), first, "the foreground never moved");
     assert!(
         rig.term.text().contains("结果回来了"),
         "the result itself is here, not only a chip:\n{}",
         rig.term.text()
     );
+    rig.quit().await;
+}
+
+/// **The model's own `code_review` runs where `/review` does.** Asked in plain
+/// words, the model reaches for the tool; in the conversation in front, the
+/// tool hands the review to a background session and returns at once — the turn
+/// is not held for the minutes a review takes — and the review's result comes
+/// home the way `/review`'s does.
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn the_models_code_review_runs_in_a_background_session() {
+    let rig = Rig::new().await;
+    let first = rig.client.root();
+    // Something to review: a repository with an uncommitted change.
+    let dir = rig.project.path();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "t@example.com"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("a.rs"), "fn main() {}\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-qm", "init"]);
+    std::fs::write(dir.join("a.rs"), "fn main() { changed(); }\n").unwrap();
+
+    rig.term.type_line("review it");
+    // Out of view, working for this conversation: an inline review would have
+    // started no session at all.
+    rig.until_background("the review went to a background session", |list| {
+        list.len() == 1 && list[0].origin.as_deref() == Some(first.as_str())
+    })
+    .await;
+    assert_eq!(rig.client.root(), first, "the foreground never moved");
+    // And the review's own answer comes home, folded to its one line.
+    rig.until_screen("结果回来了").await;
     rig.quit().await;
 }
 
@@ -694,7 +777,8 @@ async fn taking_the_review_row_leaves_it_on_the_line() {
 /// conversation that started it — not a "go read /bg" pointer — and the model
 /// runs a turn on it, which is what the line promising to verify needs.
 ///
-/// The scripted provider answers `answer N` off one counter, so `answer 1` on
+/// The scripted provider answers `answer N` off one counter of turns (side
+/// calls are not counted, see `Model::count`), so `answer 1` on
 /// this screen can only be the delivered content (the background session's own
 /// transcript is not on screen), and `answer 2` is the turn that followed it.
 #[tokio::test(flavor = "multi_thread")]
@@ -706,14 +790,22 @@ async fn a_finished_background_run_delivers_its_answer_home() {
     let list = rig.background().await;
     assert_eq!(list.len(), 1, "{list:#?}");
 
+    // It arrives folded to its one line — the report (`answer 1`) waits behind
+    // a click, because the conversation that started it answers right under it
+    // (`answer 2`) and saying both at full length is saying it twice.
     rig.until("后台的结果回到这段对话里", |rig| {
-        rig.term.text().contains("answer 1")
+        rig.term.text().contains("结果回来了")
     })
     .await;
     rig.until("而且它真的接着干了", |rig| {
         rig.term.text().contains("answer 2")
     })
     .await;
+    assert!(
+        !rig.term.text().contains("answer 1"),
+        "the report is folded, not printed a second time:\n{}",
+        rig.term.text()
+    );
     rig.quit().await;
 }
 
@@ -846,6 +938,16 @@ async fn a_question_asked_in_the_background_is_asked_again_on_return() {
     rig.quit().await;
 }
 
+/// Whether a session's preview has `said` on a line and something after it —
+/// the answer to it, since the preview alternates what was said and answered.
+fn answered_after(preview: &str, said: &str) -> bool {
+    let lines: Vec<&str> = preview.lines().collect();
+    lines
+        .iter()
+        .position(|line| line.contains(said))
+        .is_some_and(|at| at + 1 < lines.len())
+}
+
 /// **Space replies to a background session in place.** The words go to the
 /// selected session — its log has them and the model answered — and the screen
 /// stays where it was.
@@ -861,22 +963,40 @@ async fn space_in_the_panel_replies_without_switching() {
     })
     .await;
     let task = rig.background().await[0].session.clone();
-    let before = rig.script.count.load(Ordering::SeqCst);
 
     rig.term.type_line("/bg list");
     rig.until_screen(&t(Msg::BgPlaceholder)).await;
     rig.term.press(KeyPress::ch(' '));
     rig.term.type_line("one more thing");
-    rig.until("the reply reached the model", |rig| {
-        rig.script.count.load(Ordering::SeqCst) > before
-    })
-    .await;
+    // Waited for in that session's own log, which is what is being asserted.
+    // Not on the model's turn counter, and not on the panel's `Done`: the first
+    // turn's result comes home and the foreground runs a turn on it, which moves
+    // the counter before the reply is sent; and the panel still says `Done`
+    // from the first turn until the reply's turn shows as running.
+    // Read while that session may still be writing, so a failed read (a last
+    // line caught half written) is "not yet", not a failure.
+    let mut stored = String::new();
+    for _ in 0..400 {
+        if let Ok(now) = rig.read_stored(&task).await {
+            stored = now;
+            if answered_after(&stored, "one more thing") {
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        answered_after(&stored, "one more thing"),
+        "the reply is in that session's log, and was answered there:\n{stored}"
+    );
+    // And the reply's turn is over before leaving — the `Done` now is that
+    // turn's, since its answer is already in the log. Leaving with it still
+    // running would stop at "background sessions are running, quit?".
     rig.until_background("the reply's turn is done", |list| {
         list.first()
             .is_some_and(|s| s.state == BackgroundState::Done)
     })
     .await;
-    assert!(rig.stored(&task).await.contains("one more thing"));
     assert_eq!(rig.client.root(), first, "the screen did not switch");
     rig.quit().await;
 }

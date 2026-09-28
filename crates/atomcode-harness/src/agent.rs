@@ -226,12 +226,29 @@ impl OnlySession for Context {
     }
 }
 
+/// Mint a session id: `<millis>-<pid>-<n>`.
+///
+/// The first component stays **milliseconds**, and stays first: `recall` reads a
+/// session's start time straight out of it (`plugins/recall.rs::started_at`,
+/// `split('-').next()`), so both the unit and the position are load-bearing.
+///
+/// The counter at the end is why this function has this shape at all. With only
+/// `<millis>-<pid>`, two agents created in one process within the same
+/// millisecond got the *same* id — and an id is a log file's name, so their
+/// facts interleaved in one conversation and a resume replayed it scrambled
+/// (`tests/harness.rs::the_log_reaches_the_disk_in_the_order_it_was_committed`).
+/// Not a test-only reach: every `task` subagent mints its own id
+/// (`plugins/subagent.rs`), and two started together land well inside one
+/// millisecond. A process-local counter is what keeps the id unique however
+/// fast they come.
 pub(crate) fn mint_session_id() -> String {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    format!("{now}-{}", std::process::id())
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{now}-{}-{n}", std::process::id())
 }
 
 /// Creation-time composition of an agent's world: runs on the agent's realm

@@ -98,6 +98,26 @@ pub struct ModelRow {
     pub managed: bool,
 }
 
+impl ModelRow {
+    /// 换到这个模型时递上来挑的思考强度,`default` 收尾;`None` 是不问。
+    ///
+    /// 面板回车和手打 `/model` 都按这一处判:`levels` 为空是「没截短,全部都
+    /// 行」,`effort` 有值才说明这个模型真的吃这套;两头都没有的,端点默认
+    /// 就够。两处各判一遍的话,面板不问、命令却问,面板就会关上又弹回来。
+    pub fn effort_pick(&self) -> Option<Vec<String>> {
+        let mut levels = match (self.levels.is_empty(), self.effort.is_some()) {
+            (false, _) => self.levels.clone(),
+            (true, true) => atomcode_harness::REASONING_EFFORT_LEVELS
+                .iter()
+                .map(|level| level.to_string())
+                .collect(),
+            (true, false) => return None,
+        };
+        levels.push("default".to_string());
+        Some(levels)
+    }
+}
+
 /// The providers, as of one frame.
 ///
 /// Immutable and cheap to clone, so a `Moment` can carry it and two renders
@@ -268,6 +288,14 @@ impl ProvidersView {
                     .any(|text| text.to_lowercase().contains(q.as_str()))
         };
         let mut out: Vec<Listed> = Vec::new();
+        // 挑强度:这一层列表就是他声明的档位,页签的行先让开。筛选用的是
+        // 同一把尺子,所以打到一半「high」也能把其它档收掉。
+        if let Some(pick) = &panel.efforts {
+            return (0..pick.levels.len())
+                .filter(|at| hit(&[&pick.levels[*at]]))
+                .map(Listed::Effort)
+                .collect();
+        }
         match panel.tab {
             Tab::Accounts => {
                 for (i, a) in self.accounts.iter().enumerate() {
@@ -338,6 +366,9 @@ impl ProvidersView {
 pub enum Listed {
     Account(usize),
     Model(usize),
+    /// 挑思考强度时的一行,索引进 [`Panel::efforts`] 的档位表。最后一行是
+    /// `default` —— 它和其它行一样是一档,只是一个把强度交回端点的选择。
+    Effort(usize),
     /// An account's name, over the models that belong to it — carried as the
     /// index of the first of them, so this stays `Copy` and the name is read
     /// where it is drawn. Not selectable: the cursor walks past it, because
@@ -623,6 +654,59 @@ impl AccountForm {
     }
 }
 
+/// The context windows a model is offered, in tokens, largest first, after
+/// "automatic" (see [`ModelForm::window`]).
+///
+/// Picked rather than typed: a window is one of a handful of sizes models
+/// actually come in, and a typed `12k` was a typo the form had to send back.
+/// Automatic comes first and is where a new model starts, because a window
+/// saved larger than the model's real one is worse than a cautious one:
+/// compaction is measured against it, so it never fires, and the provider
+/// refuses the overlong request instead.
+pub const WINDOW_PRESETS: [usize; 6] = [1_000_000, 512_000, 256_000, 128_000, 64_000, 32_000];
+
+/// The smallest and largest window [`parse_window`] takes. Below a thousand
+/// tokens is a typo for a larger number (`1.4` meant `1.4m`), and above a
+/// hundred million no model exists — a held-down `0` key would otherwise
+/// reach the configuration file, which stores the window as a signed integer.
+pub const WINDOW_TYPED_RANGE: std::ops::RangeInclusive<usize> = 1_000..=100_000_000;
+
+/// A typed window, in tokens: `200000`, `200k`, `1.5m` (either case). `None`
+/// for anything else, and for a size outside [`WINDOW_TYPED_RANGE`].
+pub fn parse_window(text: &str) -> Option<usize> {
+    let text = text.trim().to_ascii_lowercase();
+    let (number, scale) = match text.strip_suffix('k') {
+        Some(number) => (number, 1_000.0),
+        None => match text.strip_suffix('m') {
+            Some(number) => (number, 1_000_000.0),
+            None => (text.as_str(), 1.0),
+        },
+    };
+    // Digits and one dot only: `f64::from_str` would also take `1e9`, `inf`
+    // and a sign, none of which is a way anyone writes a window.
+    let number = number.trim();
+    if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return None;
+    }
+    let value = number.parse::<f64>().ok()? * scale;
+    if !value.is_finite() || value > *WINDOW_TYPED_RANGE.end() as f64 {
+        return None;
+    }
+    Some(value.round() as usize).filter(|window| WINDOW_TYPED_RANGE.contains(window))
+}
+
+/// A window as it reads on the form: `1m`, `512k`, or the plain count when it
+/// is neither a whole million nor a whole thousand.
+pub fn window_label(window: usize) -> String {
+    if window >= 1_000_000 && window.is_multiple_of(1_000_000) {
+        format!("{}m", window / 1_000_000)
+    } else if window >= 1000 && window.is_multiple_of(1000) {
+        format!("{}k", window / 1000)
+    } else {
+        window.to_string()
+    }
+}
+
 /// Which field of the model form has the keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModelField {
@@ -646,8 +730,18 @@ pub struct ModelForm {
     pub accounts: Vec<String>,
     pub account: usize,
     pub model: String,
-    /// Typed, so an empty field can mean "whatever this protocol usually holds".
-    pub window: String,
+    /// The context window, in tokens. `None` is "automatic": nothing is sent,
+    /// and whoever saves decides — a new model gets its protocol's default
+    /// (128k for most, 8k for ollama), an edited one keeps the window it has.
+    /// Else one of [`WINDOW_PRESETS`], or the value an edited model already had
+    /// when that is none of them.
+    pub window: Option<usize>,
+    /// `Some` while the window is the custom one, holding what is typed —
+    /// `200000`, `200k`, `1.5m`. It is the last stop the arrows reach after
+    /// the presets, and typing a digit on a preset lands here too. Read by
+    /// [`parse_window`] when the form is saved; [`ModelForm::window`] is not
+    /// used while this is set.
+    pub window_typed: Option<String>,
     pub vision: Option<bool>,
     /// `None` is a model that takes no effort setting at all.
     pub effort: Option<String>,
@@ -678,7 +772,8 @@ impl ModelForm {
             accounts,
             account,
             model: String::new(),
-            window: String::new(),
+            window: None,
+            window_typed: None,
             vision: None,
             effort: None,
             levels: vec![true; view.efforts().len()],
@@ -703,7 +798,9 @@ impl ModelForm {
             accounts,
             account: 0,
             model: row.model.clone(),
-            window: row.window.to_string(),
+            // A row the configuration gave no window stays automatic.
+            window: (row.window > 0).then_some(row.window),
+            window_typed: None,
             vision: row.vision,
             effort: row.effort.clone(),
             levels,
@@ -768,7 +865,7 @@ impl ModelForm {
     fn focused_len(&self) -> usize {
         match self.focus {
             ModelField::Model => self.model.len(),
-            ModelField::Window => self.window.len(),
+            ModelField::Window => self.window_typed.as_ref().map_or(0, String::len),
             _ => 0,
         }
     }
@@ -802,6 +899,76 @@ impl ModelForm {
         };
     }
 
+    /// The windows the arrows step through: automatic, then the presets
+    /// largest first, with the one this form holds added in its place when it
+    /// is none of them — an edited model keeps the window it had until a
+    /// person picks another.
+    pub fn window_choices(&self) -> Vec<Option<usize>> {
+        let mut presets = WINDOW_PRESETS.to_vec();
+        if let Some(window) = self.window.filter(|w| !presets.contains(w)) {
+            let at = presets
+                .iter()
+                .position(|preset| *preset < window)
+                .unwrap_or(presets.len());
+            presets.insert(at, window);
+        }
+        // Automatic is offered only where it does something. Saving an edited
+        // model with no window keeps the one it has (`Providers::edit_model`),
+        // so on an edit form it would be a stop that promises the protocol's
+        // default and delivers nothing — a 1m window picked by mistake would
+        // stay 1m under a label saying otherwise. A row that somehow has no
+        // window yet keeps the stop it is on.
+        let automatic = self.editing.is_none() || self.window.is_none();
+        automatic
+            .then_some(None)
+            .into_iter()
+            .chain(presets.into_iter().map(Some))
+            .collect()
+    }
+
+    /// Through [`window_choices`](Self::window_choices), then the custom
+    /// stop, then round. Leaving the custom stop drops what was typed there.
+    fn cycle_window(&mut self, forward: bool) {
+        let choices = self.window_choices();
+        // One more stop than there are choices: the custom one, last.
+        let stops = choices.len() + 1;
+        let at = match self.window_typed {
+            Some(_) => choices.len(),
+            None => choices.iter().position(|w| *w == self.window).unwrap_or(0),
+        };
+        let next = if forward {
+            (at + 1) % stops
+        } else {
+            (at + stops - 1) % stops
+        };
+        match choices.get(next) {
+            Some(window) => {
+                self.window = *window;
+                self.window_typed = None;
+            }
+            None => self.window_typed = Some(String::new()),
+        }
+        self.caret = self.focused_len();
+    }
+
+    /// A character typed on the window row: part of a custom window when it
+    /// can be one — a digit on a preset starts one — and nothing otherwise.
+    fn type_window(&mut self, c: char) {
+        if !(c.is_ascii_digit() || matches!(c.to_ascii_lowercase(), 'k' | 'm' | '.')) {
+            return;
+        }
+        if self.window_typed.is_none() {
+            if !c.is_ascii_digit() {
+                return;
+            }
+            self.window_typed = Some(String::new());
+            self.caret = 0;
+        }
+        if let Some((text, caret)) = self.text_and_caret() {
+            insert_at(text, caret, c);
+        }
+    }
+
     /// Off, then each level this build offers, then round.
     fn cycle_effort(&mut self, view: &ProvidersView, forward: bool) {
         let mut ring: Vec<Option<String>> = vec![None];
@@ -822,7 +989,7 @@ impl ModelForm {
         let caret = &mut self.caret;
         match self.focus {
             ModelField::Model => Some((&mut self.model, caret)),
-            ModelField::Window => Some((&mut self.window, caret)),
+            ModelField::Window => self.window_typed.as_mut().map(|typed| (typed, caret)),
             _ => None,
         }
     }
@@ -869,6 +1036,24 @@ pub struct Panel {
     /// else. Cleared by everything else, including moving off the row.
     pub pending_delete: Option<String>,
     pub form: Option<Form>,
+    /// 正在为某个模型挑思考强度,`None` 就是平常那两层列表。
+    ///
+    /// 挑强度不是第二块面板:档位用面板自己那张列表、自己那套按键画出来
+    /// (`Listed::Effort`),挑完这一层就收起来。刚在这张列表上选完模型,
+    /// 眼睛不用换地方,按键也不用换一套。
+    pub efforts: Option<EffortPick>,
+}
+
+/// 在面板里为一个刚选中的模型挑思考强度。
+///
+/// `levels` 已经带上收尾的 `default`(把强度交回端点),所以选中哪一行、
+/// 要说什么,是同一句话 —— 派发下去就是 `/effort <那一行>`。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EffortPick {
+    /// 正在为哪个模型挑 —— `/model` 收的那个选择 id。
+    pub model: String,
+    /// 它声明(或全量)的档位,最后一个是 `default`。
+    pub levels: Vec<String>,
 }
 
 impl Panel {
@@ -893,6 +1078,8 @@ impl Panel {
         self.query.clear();
         self.drill = None;
         self.pending_delete = None;
+        // 换页是离开:挑强度那一层只属于刚才那张列表。
+        self.efforts = None;
         true
     }
 
@@ -985,6 +1172,9 @@ pub enum Step {
     /// mean different things.
     Use {
         id: String,
+        /// 顺手要设的思考强度,正是 `/effort` 收的那个词(`default` 也在内);
+        /// `None` 是不动它。挑强度那一层选完就落在这里。
+        effort: Option<String>,
     },
     /// Write an account. `id` is `None` for one that does not exist yet.
     SaveAccount {
@@ -1042,6 +1232,24 @@ fn list_key(view: &ProvidersView, panel: &mut Panel, secret: &mut String, press:
     let at = listed.get(panel.cursor).copied();
     let armed = panel.pending_delete.take();
     match (press.key, press.mods) {
+        // 挑强度时 Esc 是「退一层」:回到刚选完模型的那张列表,面板留着 ——
+        // 和别的面板里 Esc 先退一步、再收起是同一个规矩。
+        (Key::Esc, _) if panel.efforts.is_some() => {
+            let chosen = panel.efforts.take().map(|pick| pick.model);
+            panel.query.clear();
+            // 光标落回刚选的那个模型:进这一层时它被归了零,不放回去的话
+            // Esc 再回车换到的是列表第一个模型,不是人刚挑的那个。
+            panel.cursor = view
+                .listed(panel)
+                .iter()
+                .position(|row| match row {
+                    Listed::Model(i) => view.models().get(*i).map(|m| &m.id) == chosen.as_ref(),
+                    _ => false,
+                })
+                .unwrap_or(0);
+            view.settle_cursor(panel);
+            Step::Stay
+        }
         (Key::Esc, _) | (Key::Char('c'), Mods::CTRL) => Step::Close,
         (Key::Tab, _) | (Key::BackTab, _) => {
             panel.show(panel.tab.other());
@@ -1098,7 +1306,33 @@ fn list_key(view: &ProvidersView, panel: &mut Panel, secret: &mut String, press:
                 Step::Stay
             }
             Some(Listed::Model(i)) => match view.models().get(i) {
-                Some(row) => Step::Use { id: row.id.clone() },
+                // 这个模型声明了思考强度就接着往下挑:面板不收,把档位换成
+                // 这一层的列表(`Panel::efforts`),挑完才一起派发。
+                Some(row) => match row.effort_pick() {
+                    Some(levels) => {
+                        panel.efforts = Some(EffortPick {
+                            model: row.id.clone(),
+                            levels,
+                        });
+                        panel.query.clear();
+                        panel.cursor = 0;
+                        Step::Stay
+                    }
+                    None => Step::Use {
+                        id: row.id.clone(),
+                        effort: None,
+                    },
+                },
+                None => Step::Stay,
+            },
+            Some(Listed::Effort(i)) => match panel.efforts.as_ref() {
+                Some(pick) => match pick.levels.get(i) {
+                    Some(level) => Step::Use {
+                        id: pick.model.clone(),
+                        effort: Some(level.clone()),
+                    },
+                    None => Step::Stay,
+                },
                 None => Step::Stay,
             },
             None => Step::Stay,
@@ -1124,6 +1358,10 @@ fn list_key(view: &ProvidersView, panel: &mut Panel, secret: &mut String, press:
 fn begin_add(view: &ProvidersView, panel: &mut Panel, secret: &mut String) {
     secret.clear();
     panel.pending_delete = None;
+    // 挑强度那一层没有「加」:档位是模型声明的,不是一个能新添的东西。
+    if panel.efforts.is_some() {
+        return;
+    }
     panel.form = match panel.tab {
         Tab::Accounts => Some(Form::Account(AccountForm::add(view))),
         // Nothing to hang a model off means no form at all — the row that
@@ -1139,6 +1377,8 @@ fn begin_edit(view: &ProvidersView, panel: &mut Panel, secret: &mut String, at: 
     panel.pending_delete = None;
     panel.form = match at {
         Some(Listed::Group(_)) => None,
+        // 档位不是配置项:没有表单可改,也没有东西可删。
+        Some(Listed::Effort(_)) => None,
         Some(Listed::Account(i)) => view
             .accounts()
             .get(i)
@@ -1164,6 +1404,8 @@ fn delete_key(
 ) -> Step {
     let (id, account, managed) = match at {
         Some(Listed::Group(_)) => return Step::Stay,
+        // 档位是模型声明的,删不掉 —— 一行 ctrl-d 不许碰到模型配置。
+        Some(Listed::Effort(_)) => return Step::Stay,
         Some(Listed::Account(i)) => match view.accounts().get(i) {
             // An offer that was never configured has nothing to delete.
             Some(row) => (row.id.clone(), true, row.managed || !row.configured),
@@ -1312,6 +1554,7 @@ fn model_key(
                 ModelField::Account => form.cycle_account(view, forward),
                 ModelField::Vision => form.cycle_vision(forward),
                 ModelField::Effort => form.cycle_effort(view, forward),
+                ModelField::Window => form.cycle_window(forward),
                 ModelField::Levels => {
                     let len = form.levels.len().max(1);
                     form.level = match forward {
@@ -1348,6 +1591,8 @@ fn model_key(
             ModelField::Default => form.default = !form.default,
             ModelField::Vision => form.cycle_vision(true),
             ModelField::Effort => form.cycle_effort(view, true),
+            ModelField::Window if form.window_typed.is_none() => form.cycle_window(true),
+            ModelField::Window => {}
             _ => {
                 if let Some((text, caret)) = form.text_and_caret() {
                     insert_at(text, caret, ' ');
@@ -1374,6 +1619,8 @@ fn model_key(
             if form.focus == ModelField::Key {
                 secret.push(c);
                 form.key_len = secret.chars().count();
+            } else if form.focus == ModelField::Window {
+                form.type_window(c);
             } else if let Some((text, caret)) = form.text_and_caret() {
                 insert_at(text, caret, c);
             }
@@ -1401,20 +1648,22 @@ fn save_model(
     if account.is_empty() {
         return Step::Stay;
     }
-    // A window that will not parse is a typo, not a zero: an empty field is how
-    // "let the protocol decide" is said, and `0` tokens is not a thing to save.
-    let window = form
-        .window
-        .trim()
-        .parse::<usize>()
-        .ok()
-        .filter(|window| *window > 0);
-    if !form.window.trim().is_empty() && window.is_none() {
-        let mut form = form.clone();
-        form.focus = ModelField::Window;
-        panel.form = Some(Form::Model(form));
-        return Step::Stay;
-    }
+    // A custom window that will not parse is a typo, not a zero, and not
+    // "automatic" either: the form goes back to it rather than saving a window
+    // nobody chose.
+    let window = match &form.window_typed {
+        Some(typed) => match parse_window(typed) {
+            Some(window) => Some(window),
+            None => {
+                let mut form = form.clone();
+                form.focus = ModelField::Window;
+                form.caret = typed.len();
+                panel.form = Some(Form::Model(form));
+                return Step::Stay;
+            }
+        },
+        None => form.window,
+    };
     let draft = ModelDraft {
         account,
         model,
@@ -1471,6 +1720,16 @@ pub fn paste(panel: &mut Panel, secret: &mut String, text: &str) -> bool {
                 secret.push_str(&line);
                 form.key_len = secret.chars().count();
                 return true;
+            }
+            // The window row takes a paste the way it takes typing — one
+            // character at a time through the same filter, which is also what
+            // starts a custom window when a preset has the keyboard.
+            if form.focus == ModelField::Window {
+                let before = form.window_typed.clone();
+                for c in line.trim().chars() {
+                    form.type_window(c);
+                }
+                return form.window_typed != before;
             }
             let Some((field, caret)) = form.text_and_caret() else {
                 return false;
@@ -1904,9 +2163,135 @@ mod tests {
         assert_eq!(
             step,
             Step::Use {
-                id: "deepseek/chat".into()
+                id: "deepseek/chat".into(),
+                effort: None,
             }
         );
+    }
+
+    #[test]
+    fn a_model_with_levels_asks_for_one_in_the_same_list() {
+        let view = ProvidersView::new(
+            vec![account("deepseek", 1)],
+            vec![ModelRow {
+                levels: vec!["low".into(), "high".into()],
+                ..model("deepseek/chat", "deepseek")
+            }],
+            Vec::new(),
+            vec!["low".into(), "high".into()],
+        );
+        let mut panel = Panel::new();
+        let mut secret = String::new();
+
+        // 在模型行上按回车:面板不收,列表换成它声明的档位,`default` 收尾 ——
+        // 挑强度是同一张列表的下一层,不是一个浮起来的弹窗。
+        assert_eq!(
+            run(
+                &view,
+                &mut panel,
+                &mut secret,
+                &[press(Key::Right), press(Key::Enter)]
+            ),
+            Step::Stay
+        );
+        assert_eq!(
+            view.listed(&panel),
+            vec![Listed::Effort(0), Listed::Effort(1), Listed::Effort(2)]
+        );
+
+        // 挑一档:模型和强度一起出去,人不用再打第二条命令。
+        assert_eq!(
+            run(
+                &view,
+                &mut panel,
+                &mut secret,
+                &[press(Key::Down), press(Key::Enter)]
+            ),
+            Step::Use {
+                id: "deepseek/chat".into(),
+                effort: Some("high".into()),
+            }
+        );
+
+        // Esc 是「退一层」:回到刚选完模型的那张列表,面板还开着。
+        assert_eq!(
+            run(&view, &mut panel, &mut secret, &[press(Key::Esc)]),
+            Step::Stay
+        );
+        assert!(panel.efforts.is_none());
+        assert!(
+            view.listed(&panel)
+                .iter()
+                .any(|row| matches!(row, Listed::Model(_))),
+            "退回到模型列表"
+        );
+    }
+
+    #[test]
+    fn backing_out_of_the_effort_pick_lands_on_the_model_just_chosen() {
+        let view = ProvidersView::new(
+            vec![account("deepseek", 2)],
+            vec![
+                model("deepseek/chat", "deepseek"),
+                ModelRow {
+                    levels: vec!["low".into(), "high".into()],
+                    ..model("deepseek/reasoner", "deepseek")
+                },
+            ],
+            Vec::new(),
+            vec!["low".into(), "high".into()],
+        );
+        let mut panel = Panel::new();
+        let mut secret = String::new();
+
+        // 挑第二个模型,进挑强度那一层,再 Esc 退回来。
+        run(
+            &view,
+            &mut panel,
+            &mut secret,
+            &[press(Key::Right), press(Key::Down), press(Key::Enter)],
+        );
+        assert!(panel.efforts.is_some(), "第二个模型声明了档位");
+        run(&view, &mut panel, &mut secret, &[press(Key::Esc)]);
+
+        // 光标得在刚挑的那个模型上:再回车进的是它的档位,不是第一个模型。
+        assert_eq!(
+            view.listed(&panel).get(panel.cursor),
+            Some(&Listed::Model(1))
+        );
+    }
+
+    #[test]
+    fn a_model_that_takes_effort_without_narrowing_it_offers_every_level() {
+        // 面板和 `/model` 对「要不要问强度」必须一个判法:这里不问而命令问,
+        // 面板就会先关、再被 `PickEffort` 弹回来。
+        let view = ProvidersView::new(
+            vec![account("deepseek", 1)],
+            vec![ModelRow {
+                effort: Some("high".into()),
+                ..model("deepseek/reasoner", "deepseek")
+            }],
+            Vec::new(),
+            Vec::new(),
+        );
+        let mut panel = Panel::new();
+        let mut secret = String::new();
+
+        assert_eq!(
+            run(
+                &view,
+                &mut panel,
+                &mut secret,
+                &[press(Key::Right), press(Key::Enter)]
+            ),
+            Step::Stay
+        );
+        let mut want: Vec<String> = atomcode_harness::REASONING_EFFORT_LEVELS
+            .iter()
+            .map(|level| level.to_string())
+            .collect();
+        want.push("default".into());
+        assert_eq!(panel.efforts.map(|pick| pick.levels), Some(want));
     }
 
     #[test]
@@ -2069,12 +2454,12 @@ mod tests {
             &mut secret,
             &[press(Key::Right), ctrl('a')],
         );
-        // The account cycles, the model name is typed, and the window with it.
+        // The account cycles, the model name is typed, and the window is picked.
         let Some(Form::Model(mut form)) = panel.form.clone() else {
             panic!("the model form is up");
         };
         form.model = "vendor-x".into();
-        form.window = "64000".into();
+        form.window = Some(64_000);
         form.vision = Some(true);
         panel.form = Some(Form::Model(form));
         let step = run(&view, &mut panel, &mut secret, &[press(Key::Enter)]);
@@ -2088,8 +2473,80 @@ mod tests {
         assert_eq!(draft.account, "deepseek");
     }
 
+    /// A window is picked, not typed: automatic first — where a new model
+    /// starts, and what saves as "the protocol decides" — then the sizes models
+    /// come in. The arrows and Space step through them.
     #[test]
-    fn a_window_that_will_not_parse_is_a_typo_not_a_zero() {
+    fn a_window_is_picked_and_a_new_model_starts_automatic() {
+        let view = view();
+        let mut panel = Panel::new();
+        let mut secret = String::new();
+        run(
+            &view,
+            &mut panel,
+            &mut secret,
+            &[press(Key::Right), ctrl('a')],
+        );
+        let Some(Form::Model(mut form)) = panel.form.clone() else {
+            panic!("the model form is up");
+        };
+        assert_eq!(form.window, None, "a new model starts automatic");
+        assert_eq!(
+            form.window_choices(),
+            vec![
+                None,
+                Some(1_000_000),
+                Some(512_000),
+                Some(256_000),
+                Some(128_000),
+                Some(64_000),
+                Some(32_000)
+            ]
+        );
+        form.focus = ModelField::Window;
+        panel.form = Some(Form::Model(form));
+        run(
+            &view,
+            &mut panel,
+            &mut secret,
+            &[press(Key::Right), press(Key::Char(' '))],
+        );
+        let Some(Form::Model(form)) = panel.form.clone() else {
+            panic!("the form stays open");
+        };
+        assert_eq!(form.window, Some(512_000), "two steps");
+        run(
+            &view,
+            &mut panel,
+            &mut secret,
+            &[press(Key::Left), press(Key::Left)],
+        );
+        let Some(Form::Model(mut form)) = panel.form.clone() else {
+            panic!("the form stays open");
+        };
+        assert_eq!(form.window, None, "and back round to automatic");
+
+        // Automatic saves as no window at all, for the protocol to fill in.
+        form.model = "vendor-x".into();
+        panel.form = Some(Form::Model(form));
+        let Step::SaveModel { draft, .. } =
+            run(&view, &mut panel, &mut secret, &[press(Key::Enter)])
+        else {
+            panic!("it saves");
+        };
+        assert_eq!(draft.window, None);
+
+        assert_eq!(window_label(1_000_000), "1m");
+        assert_eq!(window_label(512_000), "512k");
+        assert_eq!(window_label(131_072), "131072");
+    }
+
+    /// The last stop is a custom window, typed: reached by the arrows after
+    /// the smallest preset, or by typing a digit on any preset. `200k` and
+    /// `1.5m` are read the way they are written; what will not parse sends the
+    /// form back to the field instead of saving.
+    #[test]
+    fn a_custom_window_is_typed_after_the_presets() {
         let view = view();
         let mut panel = Panel::new();
         let mut secret = String::new();
@@ -2103,7 +2560,53 @@ mod tests {
             panic!("the model form is up");
         };
         form.model = "vendor-x".into();
-        form.window = "12k".into();
+        form.focus = ModelField::Window;
+        panel.form = Some(Form::Model(form));
+
+        // Left from automatic wraps round to the custom stop.
+        run(&view, &mut panel, &mut secret, &[press(Key::Left)]);
+        let Some(Form::Model(form)) = panel.form.clone() else {
+            panic!("the form stays open");
+        };
+        assert_eq!(form.window_typed.as_deref(), Some(""), "the custom stop");
+
+        let keys: Vec<KeyPress> = "200k".chars().map(|c| press(Key::Char(c))).collect();
+        run(&view, &mut panel, &mut secret, &keys);
+        let Step::SaveModel { draft, .. } =
+            run(&view, &mut panel, &mut secret, &[press(Key::Enter)])
+        else {
+            panic!("it saves");
+        };
+        assert_eq!(draft.window, Some(200_000));
+
+        // A digit on a preset starts a custom window with that digit.
+        let mut form = ModelForm::add(&view, None).expect("an account");
+        form.model = "vendor-x".into();
+        form.focus = ModelField::Window;
+        form.window = Some(128_000);
+        panel.form = Some(Form::Model(form));
+        let keys: Vec<KeyPress> = "8x000".chars().map(|c| press(Key::Char(c))).collect();
+        run(&view, &mut panel, &mut secret, &keys);
+        let Some(Form::Model(form)) = panel.form.clone() else {
+            panic!("the form stays open");
+        };
+        assert_eq!(
+            form.window_typed.as_deref(),
+            Some("8000"),
+            "what is not a number is not typed"
+        );
+
+        // And the arrows take it back to the presets, dropping what was typed.
+        run(&view, &mut panel, &mut secret, &[press(Key::Right)]);
+        let Some(Form::Model(form)) = panel.form.clone() else {
+            panic!("the form stays open");
+        };
+        assert_eq!(form.window_typed, None);
+        assert_eq!(form.window, None, "past the custom stop is automatic again");
+
+        // What will not parse is sent back, not saved.
+        let mut form = form;
+        form.window_typed = Some("1.2.3k".into());
         panel.form = Some(Form::Model(form));
         assert_eq!(
             run(&view, &mut panel, &mut secret, &[press(Key::Enter)]),
@@ -2113,6 +2616,86 @@ mod tests {
             panic!("the form stays open");
         };
         assert_eq!(form.focus, ModelField::Window);
+
+        assert_eq!(parse_window("200000"), Some(200_000));
+        assert_eq!(parse_window(" 1.5M "), Some(1_500_000));
+        assert_eq!(parse_window("32K"), Some(32_000));
+        assert_eq!(parse_window("0"), None);
+        assert_eq!(parse_window("k"), None);
+        assert_eq!(parse_window(""), None);
+        // Outside the range a model can have: a typo, not a window.
+        assert_eq!(parse_window("1.4"), None, "a thousand tokens at the least");
+        assert_eq!(parse_window("99999999999999999999"), None);
+        assert_eq!(parse_window("101m"), None);
+        assert_eq!(parse_window("100m"), Some(100_000_000));
+        // Nothing `f64` takes that nobody writes as a window.
+        assert_eq!(parse_window("1e9"), None);
+        assert_eq!(parse_window("-5k"), None);
+        assert_eq!(parse_window("inf"), None);
+    }
+
+    /// A paste on the window row is typing: it starts a custom window from a
+    /// preset, and only what a window can be written with gets in.
+    #[test]
+    fn a_paste_on_the_window_row_is_a_custom_window() {
+        let view = view();
+        let mut form = ModelForm::add(&view, None).expect("an account");
+        form.focus = ModelField::Window;
+        form.window = Some(128_000);
+        let mut panel = Panel {
+            form: Some(Form::Model(form)),
+            ..Panel::new()
+        };
+        let mut secret = String::new();
+        assert!(paste(&mut panel, &mut secret, " 200k\n"));
+        let Some(Form::Model(form)) = panel.form.clone() else {
+            panic!("the form stays open");
+        };
+        assert_eq!(form.window_typed.as_deref(), Some("200k"));
+
+        let mut form = form;
+        form.window_typed = Some(String::new());
+        panel.form = Some(Form::Model(form));
+        assert!(paste(&mut panel, &mut secret, "1e9"));
+        let Some(Form::Model(form)) = panel.form.clone() else {
+            panic!("the form stays open");
+        };
+        assert_eq!(
+            form.window_typed.as_deref(),
+            Some("19"),
+            "the `e` is not a window"
+        );
+    }
+
+    /// An edited model keeps a window none of the presets name, in its place
+    /// among them, until a person picks another — and one that had no window
+    /// stays automatic rather than being given one on an unrelated save.
+    #[test]
+    fn an_edited_window_is_kept_as_it_was() {
+        let view = view();
+        let mut row = model("vendor-x", "deepseek");
+        row.window = 200_000;
+        let mut form = ModelForm::edit(&view, &row).expect("the account is there");
+        assert_eq!(form.window, Some(200_000), "what it had is what it shows");
+        // No automatic stop: saved from an edit it would keep the window it
+        // has, which is not what "the protocol's default" says.
+        assert_eq!(
+            form.window_choices(),
+            vec![
+                Some(1_000_000),
+                Some(512_000),
+                Some(256_000),
+                Some(200_000),
+                Some(128_000),
+                Some(64_000),
+                Some(32_000)
+            ]
+        );
+        form.cycle_window(true);
+        assert_eq!(form.window, Some(128_000));
+        row.window = 0;
+        let form = ModelForm::edit(&view, &row).expect("the account is there");
+        assert_eq!(form.window, None, "no window configured stays automatic");
     }
 
     #[test]

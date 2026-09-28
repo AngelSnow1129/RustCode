@@ -144,6 +144,10 @@ pub struct PrepareOptions {
     /// (`crate::front_end`). `None` when the driver reads the runtime's own
     /// events instead.
     pub front_end: Option<Arc<crate::front_end::FrontEnd>>,
+    /// Where `code_review` may run out of view, when the host keeps sessions
+    /// running there (the terminal's background sessions). `None` reviews
+    /// inline, in the turn that asked.
+    pub review_delegate: Option<Arc<dyn atomcode_review::ReviewDelegate>>,
 }
 
 impl Default for PrepareOptions {
@@ -163,6 +167,7 @@ impl Default for PrepareOptions {
             request_user_input: true,
             rate_limit_source: None,
             front_end: None,
+            review_delegate: None,
         }
     }
 }
@@ -659,7 +664,8 @@ async fn prepare_with_plugin_hooks_reusing_lease(
                     rules_dir: None,
                 },
             )
-            .with_tool_loop_policy(cfg.tool_loop_policy),
+            .with_tool_loop_policy(cfg.tool_loop_policy)
+            .with_delegate(opts.review_delegate.clone()),
         ));
         names.push("code_review".into());
         host_only_tools.push("code_review".into());
@@ -2161,6 +2167,7 @@ mod tests {
             request_user_input: true,
             rate_limit_source: None,
             front_end: None,
+            review_delegate: None,
         };
 
         let prepared =
@@ -2410,6 +2417,7 @@ mod tests {
             request_user_input: true,
             rate_limit_source: None,
             front_end: None,
+            review_delegate: None,
         }
     }
 

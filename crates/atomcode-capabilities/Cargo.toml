@@ -246,7 +246,10 @@ plugin = [
 # Askpass (the `askpass` module): a Unix-socket server + wrapper script that route
 # sudo/ssh password prompts to the host UI. Unix-only — `*_ASKPASS` has no Windows
 # analogue. Needs the UDS server (tokio net/io-util, unioned onto the base tokio
-# features above), `umask`/`/dev/urandom` (libc), and a zeroized password cache.
+# features above) and a zeroized password cache; the token comes from
+# `/dev/urandom` via std. `libc` serves the crate's other unix callers
+# (O_NOFOLLOW, geteuid, getpwnam_r) — askpass guards its socket with a 0700
+# parent dir, not a process-wide umask.
 tokio = { version = "1", features = ["net", "io-util"] }
 libc = "0.2"
 zeroize = "1"
