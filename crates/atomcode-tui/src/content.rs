@@ -824,6 +824,21 @@ impl ToolCallBlock {
         tool()
     }
 
+    /// The colour a folded call's words are drawn in.
+    ///
+    /// A call is folded from the moment it opens (`Presentation::fold_by_default`),
+    /// so the folded shape is also the shape of a call in flight. The fold grey
+    /// says "done, scan past it" — right for a finished call, wrong for the one
+    /// the pulsing mark says is running now. Running, it keeps the open form's
+    /// colour; it recedes once its result lands.
+    fn folded_style(&self) -> Style {
+        if self.is_running() {
+            self.name_style()
+        } else {
+            fold()
+        }
+    }
+
     /// Whether this call failed. For the run lid, which shows the last call's
     /// result and would otherwise be silent about a failure earlier in it.
     pub fn is_failed(&self) -> bool {
@@ -1669,7 +1684,7 @@ impl Content for ToolCallBlock {
         // note survives folding too.
         if self.is_todo() && matches!(self.outcome, Outcome::Pending | Outcome::Ok(_)) {
             return self
-                .head(w, &lead, self.mark().1, fold())
+                .head(w, &lead, self.mark().1, self.folded_style())
                 .into_iter()
                 .take(FOLDED_ROWS)
                 .collect();
@@ -1678,7 +1693,7 @@ impl Content for ToolCallBlock {
         // failed / muted running), the same as the unexplained `summary`; the
         // reason text stays muted so the dot is the only lit thing on the row.
         let mut rows: Vec<Line> = self
-            .opening_rows(w, &lead, self.mark().1, fold())
+            .opening_rows(w, &lead, self.mark().1, self.folded_style())
             .into_iter()
             .take(FOLDED_ROWS)
             .collect();
@@ -1720,7 +1735,7 @@ impl Content for ToolCallBlock {
     /// to survive being folded.
     fn summary(&self, ctx: &RenderCtx) -> Line {
         let w = ctx.width;
-        let style = fold();
+        let style = self.folded_style();
         let name = self.display_name();
         // An answered question's note is what was answered, not the sentence the
         // model was told it in.
@@ -3945,17 +3960,21 @@ mod tests {
         );
     }
 
-    /// A folded call recedes: it is scaffolding over the answer rather than one
-    /// more thing being said, so its rows take the muted grey — and take it
-    /// *instead of* the state it is in. A run still going is yellow while it is
-    /// open; folded it is muted like the rest of the chrome, because the reader
-    /// has already been told it exists and the live line is where "still running"
-    /// is stated. (An accent here read as louder than the open call.)
+    /// A finished folded call recedes: it is scaffolding over the answer rather
+    /// than one more thing being said, so its rows take the muted grey — and
+    /// take it *instead of* the state it is in. (An accent here read as louder
+    /// than the open call.)
+    ///
+    /// A call still running does not: every call is folded from the moment it
+    /// opens (`Presentation::fold_by_default`), so the folded rows are the only
+    /// ones a call in flight has, and grey there read as "already done" under a
+    /// mark pulsing that it is not. It keeps the open form's colour until its
+    /// result lands.
     ///
     /// The note is the exception, and deliberately: `失败 · …` is the answer
     /// rather than the summary, and a fold must not swallow that.
     #[test]
-    fn a_folded_call_recedes_to_the_muted_grey_and_keeps_its_failure_note() {
+    fn a_folded_call_recedes_to_the_muted_grey_once_done_and_keeps_its_failure_note() {
         let receded = Some(crate::frame::Color::role(Role::Muted));
         let pending = ToolCallBlock::pending(
             "c",
@@ -3963,7 +3982,44 @@ mod tests {
             r#"{"file_path":"/Users/x/crates/atomcode-tui/src/content.rs"}"#,
         );
 
-        let folded = pending.summary_lines(&crate::block::RenderCtx::bare(80));
+        // In flight: the open form's colour, on the name and the subject both.
+        let running = pending.summary_lines(&crate::block::RenderCtx::bare(80));
+        for text in ["ReadFile", "content.rs"] {
+            let span = running
+                .iter()
+                .flat_map(|r| r.spans.iter())
+                .find(|s| s.text.contains(text))
+                .expect("the running call names itself");
+            assert_eq!(
+                span.style.fg,
+                tool().fg,
+                "a running call is drawn as if it were done: {running:?}"
+            );
+        }
+        // And so is an explained one, whose rows are the intent and the call —
+        // the shape in which this was reported.
+        let explained = ToolCallBlock::pending(
+            "c",
+            "bash",
+            r#"{"command":"cargo fmt --all","intent":"格式化并跑整个 tui 单测"}"#,
+        );
+        let rows = explained.summary_lines(&crate::block::RenderCtx::bare(80));
+        for text in ["格式化", "fmt"] {
+            let span = rows
+                .iter()
+                .flat_map(|r| r.spans.iter())
+                .find(|s| s.text.contains(text))
+                .unwrap_or_else(|| panic!("`{text}` is on the folded rows: {rows:?}"));
+            assert_eq!(span.style.fg, tool().fg, "grey while running: {rows:?}");
+        }
+
+        let finished = ToolCallBlock::pending(
+            "c",
+            "read_file",
+            r#"{"file_path":"/Users/x/crates/atomcode-tui/src/content.rs"}"#,
+        )
+        .with(Outcome::Ok("1 行".into()));
+        let folded = finished.summary_lines(&crate::block::RenderCtx::bare(80));
         let first = folded.first().expect("the folded call has a first row");
         let named = first
             .spans
