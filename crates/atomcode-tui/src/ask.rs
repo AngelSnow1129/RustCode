@@ -313,6 +313,18 @@ impl Asks {
         }
     }
 
+    /// 一条问询不必再问了：从队列里拿掉，**不回答**。
+    ///
+    /// 丢掉 `Pending` 就丢掉了应答通道，等着的那个人看到的是一次取消 —— 既不是
+    /// `finish(Vec::new())` 那个「拒绝」，更不是同意。给一条已经作废的问询用（它来自
+    /// 的那个会话不在等了），见 `crate::host::Host::withdraw_bg_question`。
+    pub fn withdraw(&self, id: u64) -> bool {
+        let mut q = self.queue.lock().expect("asks poisoned");
+        let before = q.len();
+        q.retain(|pending| pending.id != id);
+        q.len() != before
+    }
+
     /// Refuse everything still waiting. For shutdown: a caller blocked on an
     /// answer that is never coming would hold the turn open forever.
     pub fn refuse_all(&self) {
@@ -345,7 +357,25 @@ impl Asks {
         rx
     }
 
-    fn enqueue(&self, mut asked: Vec<Asked>, reply: Replier) {
+    /// 一次问询，外加它的 id —— 屏幕要记住自己提上来的是哪一条，好把它收回去。
+    pub(crate) fn push_with_id(
+        &self,
+        asked: impl Into<Asked>,
+    ) -> (u64, oneshot::Receiver<Option<Reply>>) {
+        let (reply, rx) = oneshot::channel();
+        (self.enqueue(vec![asked.into()], Replier::One(reply)), rx)
+    }
+
+    /// 同上，一次问几条、一起答。
+    pub(crate) fn push_batch_with_id(
+        &self,
+        asked: Vec<Asked>,
+    ) -> (u64, oneshot::Receiver<Vec<Option<Reply>>>) {
+        let (reply, rx) = oneshot::channel();
+        (self.enqueue(asked, Replier::Many(reply)), rx)
+    }
+
+    fn enqueue(&self, mut asked: Vec<Asked>, reply: Replier) -> u64 {
         for one in &mut asked {
             if one.form() == Form::Choice && one.question.options.is_empty() {
                 one.question.options = vec![Answer::new("yes"), Answer::new("no")];
@@ -361,6 +391,7 @@ impl Asks {
         if let Some(tx) = self.wake.lock().expect("asks poisoned").as_ref() {
             let _ = tx.send(());
         }
+        id
     }
 }
 
@@ -1841,6 +1872,47 @@ mod tests {
         assert_eq!(
             answer.await.unwrap(),
             vec![Some(Reply::from("pistachio")), None]
+        );
+    }
+
+    /// 收回去**不是**拒绝:等着的那个人看到的是取消,不是「答了 no」。
+    ///
+    /// 这两件事在屏幕上看起来一样（问询没了),在那个后台会话那里差得远:一个什么
+    /// 都没收到,一个收到了一次拒绝。屏幕收回时走的必须是前一条。
+    #[tokio::test]
+    async fn withdrawing_is_a_cancel_not_a_refusal() {
+        let asks = Asks::new();
+        let up = asks.push(Question::plain("Allow?", &["yes", "no"]));
+        let (id, _) = asks.peek().expect("它就在屏幕上");
+        assert!(asks.withdraw(id), "它在队列里");
+        assert!(up.await.is_err(), "取消:通道没了,而不是 Some(None)");
+
+        let refused = asks.push(Question::plain("Allow?", &["yes", "no"]));
+        let (id, _) = asks.peek().expect("它就在屏幕上");
+        asks.take_id(id).unwrap().finish(Vec::new());
+        assert_eq!(refused.await.unwrap(), None, "拒绝是一次答复,拿得到 None");
+
+        assert!(!asks.withdraw(999), "不在队列里的 id 什么都不做");
+    }
+
+    /// 提上来的时候要记住是哪一条,才收得回去。
+    #[tokio::test]
+    async fn a_pushed_question_reports_its_own_id() {
+        let asks = Asks::new();
+        let (id, answer) = asks.push_with_id(Question::plain("Allow?", &["yes", "no"]));
+        assert_eq!(asks.peek().map(|(up, _)| up), Some(id), "报的就是队首那条");
+        asks.take_id(id).unwrap().answer(Some(Reply::from("yes")));
+        assert_eq!(answer.await.unwrap(), Some(Reply::from("yes")));
+
+        let (id, answer) = asks.push_batch_with_id(vec![single(), text()]);
+        assert_eq!(asks.peek().map(|(up, _)| up), Some(id));
+        asks.take_id(id)
+            .unwrap()
+            .finish(vec![Some(Reply::from("vanilla"))]);
+        assert_eq!(
+            answer.await.unwrap(),
+            vec![Some(Reply::from("vanilla")), None],
+            "没答到的那条是否决"
         );
     }
 
