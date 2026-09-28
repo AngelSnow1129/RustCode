@@ -246,11 +246,12 @@ for VER in $CANDIDATES; do
     # space/comma-separated list of full download bases. Each is raced ahead of
     # the next so a fast mirror wins before a slow primary. Unset = no change.
     if [ -n "${RUSTCODE_RELEASE_MIRRORS:-}" ]; then
-        OLD_IFS="$IFS"; IFS=', ' read -r -a MIRRORS <<< "$RUSTCODE_RELEASE_MIRRORS"
-        for M in "${MIRRORS[@]}"; do
+        # POSIX-only (this script also runs under dash via curl|sh): turn
+        # commas into spaces and use unquoted word splitting to enumerate;
+        # no arrays / here-strings (those are bashisms dash rejects).
+        for M in $(printf '%s' "$RUSTCODE_RELEASE_MIRRORS" | tr ',' ' '); do
             [ -n "$M" ] && printf '%s\n' "${M%/}/${VER}/${BIN}" >> "$URLFILE"
         done
-        IFS="$OLD_IFS"
     fi
 done
 NUML=$(grep -c . "$URLFILE" || :)
