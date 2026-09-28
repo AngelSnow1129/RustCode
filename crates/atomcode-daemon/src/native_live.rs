@@ -191,11 +191,11 @@ pub async fn resolve_policy_intervention(
         .await
 }
 
-pub async fn respond_pending_kind_confirmed(
+/// The pending request of `kind` as the runtime raised it (id and payload).
+pub fn pending_of_kind(
     kind: &str,
-    value: serde_json::Value,
-) -> Result<u64, HubError> {
-    hub().respond_pending_kind_confirmed(kind, value).await
+) -> Option<(atomcode_kernel::event::RequestId, serde_json::Value)> {
+    hub().pending_of_kind(kind)
 }
 
 pub fn cancel() -> Result<(), HubError> {

@@ -122,6 +122,14 @@ struct BoundRuntime {
     control: Arc<dyn LiveRuntimeControl>,
 }
 
+/// A request the runtime is waiting on, as the runtime raised it. The payload is
+/// kept so an answer can act on what was actually asked (e.g. which tool an
+/// approval is for) rather than on what a client claims alongside its answer.
+struct PendingRequest {
+    kind: String,
+    payload: serde_json::Value,
+}
+
 #[derive(Default)]
 struct HubState {
     next_binding_id: u64,
@@ -131,7 +139,7 @@ struct HubState {
     snapshot_error: Option<String>,
     replay: Vec<LiveObservation>,
     goal_progress: Option<atomcode_coding::GoalProgress>,
-    pending_requests: HashMap<RequestId, String>,
+    pending_requests: HashMap<RequestId, PendingRequest>,
     turn_active: bool,
     last_runtime_sequence: Option<u64>,
     pending_web_steers: VecDeque<PendingWebSteer>,
@@ -867,28 +875,22 @@ impl LiveViewHub {
         let id = state
             .pending_requests
             .iter()
-            .find_map(|(id, pending_kind)| (pending_kind == kind).then_some(*id))
+            .find_map(|(id, pending)| (pending.kind == kind).then_some(*id))
             .ok_or(HubError::UnknownRequest(0))?;
         Self::dispatch_locked(&state, DriverCommand::Respond { id, value })?;
         self.resolve_request_locked(&mut state, id)?;
         Ok(id)
     }
 
-    pub async fn respond_pending_kind_confirmed(
-        &self,
-        kind: &str,
-        value: serde_json::Value,
-    ) -> Result<RequestId, HubError> {
-        let id = {
-            let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-            state
-                .pending_requests
-                .iter()
-                .find_map(|(id, pending_kind)| (pending_kind == kind).then_some(*id))
-                .ok_or(HubError::UnknownRequest(0))?
-        };
-        self.respond_confirmed(id, value).await?;
-        Ok(id)
+    /// The pending request of `kind`, as the runtime raised it: its id and
+    /// payload. `None` when nothing of that kind is waiting.
+    pub fn pending_of_kind(&self, kind: &str) -> Option<(RequestId, serde_json::Value)> {
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state
+            .pending_requests
+            .iter()
+            .find(|(_, pending)| pending.kind == kind)
+            .map(|(id, pending)| (*id, pending.payload.clone()))
     }
 
     pub fn cancel(&self) -> Result<(), HubError> {
@@ -1001,9 +1003,13 @@ impl LiveViewHub {
             }
             CodingRuntimeEvent::Request(request) => {
                 state.turn_active = true;
-                state
-                    .pending_requests
-                    .insert(request.id, request.kind.clone());
+                state.pending_requests.insert(
+                    request.id,
+                    PendingRequest {
+                        kind: request.kind.clone(),
+                        payload: request.payload.clone(),
+                    },
+                );
                 replay = true;
             }
             CodingRuntimeEvent::TurnFinished(TurnCompletion::Completed { snapshot, .. }) => {
@@ -1317,7 +1323,8 @@ impl LiveViewHub {
         let kind = state
             .pending_requests
             .remove(&id)
-            .ok_or(HubError::UnknownRequest(id))?;
+            .ok_or(HubError::UnknownRequest(id))?
+            .kind;
         state.replay.retain(|observation| {
             !matches!(
                 &observation.event,
@@ -1786,6 +1793,42 @@ mod tests {
             )
             .unwrap_err();
         assert_eq!(duplicate, HubError::StaleEvent);
+    }
+
+    #[test]
+    fn a_pending_request_is_read_back_as_the_runtime_raised_it() {
+        let hub = LiveViewHub::new();
+        let (control, _commands) = control();
+        let binding = hub
+            .bind("session-1", PathBuf::from("/one"), snapshot("one"), control)
+            .unwrap();
+        assert_eq!(hub.pending_of_kind("approval"), None);
+        hub.publish(
+            &binding,
+            SequencedRuntimeEvent {
+                generation: 1,
+                sequence: 1,
+                event: CodingRuntimeEvent::Request(atomcode_coding::RuntimeRequest {
+                    id: 42,
+                    kind: "approval".into(),
+                    payload: serde_json::json!({ "tool": "mcp__fs__read" }),
+                    snapshot: None,
+                }),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            hub.pending_of_kind("approval"),
+            Some((42, serde_json::json!({ "tool": "mcp__fs__read" })))
+        );
+        assert_eq!(hub.pending_of_kind("request_user_input"), None);
+        hub.respond(42, serde_json::json!({ "decision": "allow" }))
+            .unwrap();
+        assert_eq!(
+            hub.pending_of_kind("approval"),
+            None,
+            "an answered request is no longer something an answer can act on"
+        );
     }
 
     #[test]

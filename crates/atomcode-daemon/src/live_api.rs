@@ -2311,7 +2311,9 @@ pub(crate) async fn live_reasoning_effort(
 #[derive(serde::Deserialize)]
 pub(crate) struct LivePermissionReq {
     pub decision: String, // "allow" | "deny" | "always_allow" | "allow_persist"
-    /// Full MCP tool name (`mcp__{server}__{tool}`); required for `allow_persist`.
+    /// Full MCP tool name (`mcp__{server}__{tool}`) the client believes it is
+    /// answering. Informational only: `allow_persist` grants the tool named by
+    /// the pending approval itself, never this field.
     #[serde(default)]
     pub tool_name: Option<String>,
 }
@@ -2363,11 +2365,37 @@ fn report_mcp_tool_approval(alias: &str, approval: Option<atomcode_coding::McpTo
 ///   "always_allow" → PermissionDecision::AllowAlways (persisted for the session)
 ///   anything else  → PermissionDecision::Deny
 pub(crate) async fn live_permission(Json(req): Json<LivePermissionReq>) -> impl IntoResponse {
-    use atomcode_capabilities::tools::{parse_permission_decision, PermissionDecision};
+    use atomcode_capabilities::tools::{
+        parse_permission_decision, ApprovalRequest, PermissionDecision, APPROVAL_KIND,
+    };
+    // Answer the approval the runtime is actually waiting on — nothing pending,
+    // nothing to answer and nothing to grant. A stale tab replaying an answer
+    // must not leave a lasting "always allow" behind.
+    let Some((id, payload)) = crate::native_live::pending_of_kind(APPROVAL_KIND) else {
+        return Json(serde_json::json!({ "accepted": false }));
+    };
     let decision = if req.decision == "allow_persist" {
-        if let Some(full) = req.tool_name.as_deref().filter(|t| t.starts_with("mcp__")) {
-            match crate::native_live::approve_mcp_tool(full.to_string()).await {
-                Ok(approval) => report_mcp_tool_approval(full, approval),
+        // "Always allow this MCP tool" names the tool the request is for, not
+        // whatever the client sent alongside its answer (same as /chat).
+        let asked = serde_json::from_value::<ApprovalRequest>(payload)
+            .ok()
+            .map(|approval| approval.tool)
+            .filter(|tool| tool.starts_with("mcp__"));
+        if let Some(full) = asked {
+            if req
+                .tool_name
+                .as_deref()
+                .is_some_and(|claimed| claimed != full)
+            {
+                tracing::warn!(
+                    target: "atomcode::mcp",
+                    tool = %full,
+                    claimed = ?req.tool_name,
+                    "\"always allow\" names a different tool than the pending approval; using the pending one"
+                );
+            }
+            match crate::native_live::approve_mcp_tool(full.clone()).await {
+                Ok(approval) => report_mcp_tool_approval(&full, approval),
                 Err(error) => tracing::warn!(
                     target: "atomcode::mcp",
                     tool = %full,
@@ -2391,12 +2419,9 @@ pub(crate) async fn live_permission(Json(req): Json<LivePermissionReq>) -> impl 
         PermissionDecision::Deny => atomcode_capabilities::tools::ApprovalResponse::deny(),
     };
     let value = serde_json::to_value(response).unwrap_or(serde_json::Value::Null);
-    let ok = crate::native_live::respond_pending_kind_confirmed(
-        atomcode_capabilities::tools::APPROVAL_KIND,
-        value,
-    )
-    .await
-    .is_ok();
+    let ok = crate::native_live::respond_confirmed(id, value)
+        .await
+        .is_ok();
     Json(serde_json::json!({ "accepted": ok }))
 }
 
