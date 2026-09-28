@@ -1640,6 +1640,51 @@ pub(crate) fn inband_error_http_status(err: &serde_json::Value) -> Option<u16> {
     (100..=599).contains(&n).then_some(n)
 }
 
+/// Whether a JSON error a gateway sent with HTTP 200 is worth retrying, and the
+/// HTTP status it carries in-band when it names one.
+///
+/// A status in the error (`"code": 401`) decides it the way a real status would.
+/// Failing that, a code or type naming something no retry changes — the key, the
+/// balance, the model, the request itself — is not retried: retried, a wrong key
+/// cost the whole retry budget, with backoff, before the person was told. Anything
+/// else (an overload, a rate limit, an error with no code at all) is retried as
+/// before — a brief outage recovered that way.
+fn json_error_retry(body: &str) -> (bool, Option<u16>) {
+    const PERMANENT: &[&str] = &[
+        "invalid_api_key",
+        "authentication",
+        "unauthorized",
+        "permission",
+        "forbidden",
+        "quota",
+        "billing",
+        "balance",
+        "model_not_found",
+        "not_found",
+        "invalid_request",
+        "context_length",
+    ];
+    let Ok(envelope) = serde_json::from_str::<serde_json::Value>(body) else {
+        return (true, None);
+    };
+    let inner = envelope.get("error").unwrap_or(&envelope);
+    if let Some(status) = inband_error_http_status(inner) {
+        return (retry::is_retryable_status(status), Some(status));
+    }
+    let named = [
+        provider_error_code(&envelope),
+        inner
+            .get("type")
+            .and_then(|t| t.as_str())
+            .map(str::to_string),
+    ];
+    let permanent = named.iter().flatten().any(|name| {
+        let name = name.to_ascii_lowercase();
+        PERMANENT.iter().any(|mark| name.contains(mark))
+    });
+    (!permanent, None)
+}
+
 // `friendly_http_error` (was here) moved to the shared `provider` module so
 // every protocol wraps auth/billing codes identically; see `super::friendly_http_error`.
 
@@ -1792,13 +1837,16 @@ impl SseDecoder {
                 self.done = true;
                 // A JSON error where the stream should be is the API refusing —
                 // an overload or a rate limit some gateways send as 200. The
-                // address is right: say what the server said, and let the loop
-                // retry it, as it did when this decoded as an empty reply.
+                // address is right: say what the server said. Whether the loop
+                // retries it is the error's own business (`json_error_retry`):
+                // an overload may pass, a wrong key or an empty balance will not.
                 let body = self.stray.trim_start();
                 if body.starts_with('{') || body.starts_with('[') {
                     let detail = extract_error_detail(body);
+                    let (retryable, http_status) = json_error_retry(body);
                     out.push(StreamEvent::Error(ProviderError {
-                        retryable: true,
+                        retryable,
+                        http_status,
                         message: atomcode_config::i18n::t(
                             atomcode_config::i18n::Msg::ChatUpstreamErrorBody {
                                 url: &shown,
@@ -2387,6 +2435,74 @@ mod tests {
             err.message
         );
         assert!(!err.message.contains("base_url"), "{}", err.message);
+    }
+
+    /// A 200 with a JSON error is retried only when a retry could help: an
+    /// overload may pass, a wrong key, an empty balance or a missing model will not.
+    #[test]
+    fn a_json_error_sent_with_200_is_retried_only_when_a_retry_could_help() {
+        for (body, retry, status) in [
+            (r#"{"error":{"message":"upstream overloaded"}}"#, true, None),
+            (
+                r#"{"error":{"message":"slow down","type":"rate_limit_error"}}"#,
+                true,
+                None,
+            ),
+            (
+                r#"{"error":{"message":"busy","code":503}}"#,
+                true,
+                Some(503),
+            ),
+            (
+                r#"{"error":{"message":"too many","code":"429"}}"#,
+                true,
+                Some(429),
+            ),
+            (
+                r#"{"error":{"message":"bad key","code":401}}"#,
+                false,
+                Some(401),
+            ),
+            (
+                r#"{"error":{"message":"Incorrect API key","type":"invalid_request_error","code":"invalid_api_key"}}"#,
+                false,
+                None,
+            ),
+            (
+                r#"{"error":{"message":"no money","code":"insufficient_quota"}}"#,
+                false,
+                None,
+            ),
+            (
+                r#"{"error":{"message":"no such model","code":"model_not_found"}}"#,
+                false,
+                None,
+            ),
+            (
+                r#"{"code":"authentication_error","message":"denied"}"#,
+                false,
+                None,
+            ),
+            ("[1,2", true, None),
+        ] {
+            assert_eq!(json_error_retry(body), (retry, status), "{body}");
+        }
+    }
+
+    /// End to end: a wrong key sent with 200 reaches the loop as final.
+    #[tokio::test]
+    async fn a_wrong_key_sent_with_200_is_not_retried() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        let err = open_err(&format!("{}/v1", server.uri())).await;
+        assert!(!err.retryable, "{}", err.message);
+        assert!(err.message.contains("Incorrect API key"), "{}", err.message);
     }
 
     /// A reply with nothing in it at all is still the upstream flake it always was
