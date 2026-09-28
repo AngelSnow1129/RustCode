@@ -322,14 +322,25 @@ fn state_of(live: &Live) -> BackgroundState {
     if handle.is_stopped() {
         return BackgroundState::Failed;
     }
-    let ended = live.track.lock().expect("track poisoned").ended;
+    let (ended, pending) = {
+        let track = live.track.lock().expect("track poisoned");
+        (track.ended, track.pending.is_some())
+    };
     match handle.status().phase {
-        RuntimePhase::WaitingApproval => BackgroundState::Waiting,
+        // 阶段先翻、pump 记下 `pending` 后到(`Track::saw` 在 `Request` 事件送到时
+        // 才写):这一小段里还不能说「在等」——不然报出去的 `Waiting` 没有请求可答,
+        // `BackgroundQuestion` 只会落回 `NotFound`。等 `pending` 落地那一刻,
+        // `Track::saw` 自己会返回 changed=true 让 `announce_list` 立刻把它翻过来,
+        // 不会漏报,只是晚一拍。
+        RuntimePhase::WaitingApproval if pending => BackgroundState::Waiting,
         RuntimePhase::Failed | RuntimePhase::Stopped | RuntimePhase::ShuttingDown => {
             BackgroundState::Failed
         }
-        // 回合结束的事件先到、阶段后落的那一小段里,信事件。
-        RuntimePhase::InTurn => ended.unwrap_or(BackgroundState::Running),
+        // 回合结束的事件先到、阶段后落的那一小段里,信事件;`WaitingApproval` 但
+        // `pending` 还没落地的那一小段也按这条走。
+        RuntimePhase::InTurn | RuntimePhase::WaitingApproval => {
+            ended.unwrap_or(BackgroundState::Running)
+        }
         _ => ended.unwrap_or(BackgroundState::Idle),
     }
 }
