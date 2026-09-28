@@ -13073,6 +13073,42 @@ mod tests {
         assert!(!h.drop_stale_bg_question());
     }
 
+    /// 回合结束、被取消、失败最常见的样子：会话没有从列表里消失，只是不再
+    /// `waiting` 了（宿主把它标成 `Done`/`Cancelled`/`Failed`/`Running`）。
+    /// 收回不看它还在不在列表里，只看它还等不等人。
+    #[tokio::test]
+    async fn a_session_still_listed_but_no_longer_waiting_is_taken_back() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        let (id, answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        assert!(h.bg_question_shown("b", id, 7));
+
+        // 还在列表里，同一个 id —— 只是回合已经结束，不再 waiting。
+        assert!(h.show_bg(crate::bg::BgView::from_host(vec![
+            atomcode_host_api::BackgroundSession {
+                session: "b".into(),
+                title: Some("review".into()),
+                state: atomcode_host_api::BackgroundState::Done,
+                created_at: 1,
+                last: Some("done".into()),
+                stats: None,
+            },
+        ])));
+        assert!(h.drop_stale_bg_question(), "还在列表里也收回去");
+        assert!(answer.await.is_err(), "收回是取消，不是拒绝");
+        assert!(
+            !h.bg_question_answered("b", 7),
+            "收回去的不算答过，不该被记成已答"
+        );
+        assert!(!h.settle_bg_question(), "已经收回了，没有可放下的");
+    }
+
     /// 人在打字时不提:弹出来的面板会把他接下来敲的键(连回车)当成回答。
     #[test]
     fn a_background_question_waits_while_the_composer_has_text() {
