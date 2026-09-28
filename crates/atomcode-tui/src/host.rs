@@ -3905,16 +3905,29 @@ impl Host {
         true
     }
 
+    /// 这块屏幕现在能不能接一条后台的问询：没有别的问询在等（前台优先），输入框也
+    /// 是空的 —— 人正在打字时弹出一个面板，他接下来敲的键（连回车）就成了对一个他没
+    /// 看过的问题的回答。
+    pub fn bg_question_ready(&self) -> bool {
+        !self.asks.is_waiting()
+            && self
+                .moment
+                .read()
+                .expect("moment poisoned")
+                .input
+                .is_empty()
+    }
+
     /// 要不要把一个后台会话的问询提上来 —— 提谁的。
     ///
-    /// 只在屏幕上**没有**别的问询时要：前台优先（设计 §6）。同一时刻只提一条，
-    /// 已经在取、或已经提上来的不再要第二次。
+    /// 只在 [`Host::bg_question_ready`] 时要（设计 §6），这里是唯一的闸：列表变了那条路
+    /// 与主循环那条路都经过它。同一时刻只提一条，已经在取、或已经提上来的不再要第二次。
     pub fn bg_question_wanted(&self) -> Option<String> {
         if self.asks.is_waiting() {
             return None;
         }
         let mut m = self.moment.write().expect("moment poisoned");
-        if m.bg_asked.is_some() {
+        if !m.input.is_empty() || m.bg_asked.is_some() {
             return None;
         }
         let session = m.bg.sessions().iter().find(|s| s.waiting)?.id.clone();
@@ -3922,16 +3935,60 @@ impl Host {
         Some(session)
     }
 
-    /// 那条问询现在在屏幕上了，带着它的 ask id。
-    pub fn bg_question_shown(&self, session: &str, id: u64) -> bool {
+    /// 那条问询现在在屏幕上了：它在 `Asks` 里的 id，和那个会话自己那个请求的 id。
+    ///
+    /// `false` 是这一趟在路上已经被收回（列表变了）：调用方要把刚放上去的那条也收回。
+    pub fn bg_question_shown(
+        &self,
+        session: &str,
+        ask: u64,
+        request: atomcode_kernel::event::RequestId,
+    ) -> bool {
         let mut m = self.moment.write().expect("moment poisoned");
         match m.bg_asked.as_mut() {
             Some((shown, slot)) if shown == session => {
-                *slot = Some(id);
+                *slot = Some((ask, request));
                 true
             }
             _ => false,
         }
+    }
+
+    /// 提上来的那条已经不在队列里了（键、鼠标、流尾兜底答掉的）：放下它，记住答的
+    /// 是哪一个请求。每帧在 `sync_asking` 旁边叫一次，同步地 —— 不放下，下一条就永远
+    /// 提不上来。收回去的不经过这里（`withdraw_bg_question` 自己放下），也不算答过。
+    pub fn settle_bg_question(&self) -> bool {
+        let mut m = self.moment.write().expect("moment poisoned");
+        let Some((session, Some((ask, request)))) = m.bg_asked.clone() else {
+            return false;
+        };
+        if self.asks.holds(ask) {
+            return false;
+        }
+        m.bg_asked = None;
+        m.bg_answered = Some((session, request));
+        true
+    }
+
+    /// 记住这个会话的这个请求已经从这块屏幕答过了（画不出来、按拒绝回掉的那种也算）。
+    pub fn bg_question_done(&self, session: &str, request: atomcode_kernel::event::RequestId) {
+        self.moment.write().expect("moment poisoned").bg_answered =
+            Some((session.to_string(), request));
+    }
+
+    /// 取回来的这一条是不是刚在这块屏幕上答过的那一条 —— 答案还在路上，宿主报回来的
+    /// 仍是它。是就别再摆一次。
+    pub fn bg_question_answered(
+        &self,
+        session: &str,
+        request: atomcode_kernel::event::RequestId,
+    ) -> bool {
+        self.moment
+            .read()
+            .expect("moment poisoned")
+            .bg_answered
+            .as_ref()
+            .is_some_and(|(s, r)| s == session && *r == request)
     }
 
     /// 那条问询不必再问了：从屏幕上收回去。
@@ -3951,7 +4008,7 @@ impl Host {
             }
         };
         match ask {
-            Some(id) => self.asks.withdraw(id),
+            Some((id, _)) => self.asks.withdraw(id),
             // 还在取：没有可收的，把「在取」这件事忘掉就是全部。
             None => true,
         }
@@ -12887,7 +12944,7 @@ mod tests {
                 "Allow?",
                 &["yes", "no"],
             ));
-        assert!(h.bg_question_shown("b", id));
+        assert!(h.bg_question_shown("b", id, 7));
         assert_eq!(h.bg_name("b").map(|(slot, _)| slot), Some(1));
 
         assert!(h.withdraw_bg_question("b"), "收得回去");
@@ -12898,6 +12955,67 @@ mod tests {
             "收回去可以再提"
         );
         assert!(!h.withdraw_bg_question("z"), "不是它就没有可收的");
+    }
+
+    /// 人在打字时不提:弹出来的面板会把他接下来敲的键(连回车)当成回答。
+    #[test]
+    fn a_background_question_waits_while_the_composer_has_text() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        h.moment.write().unwrap().input = "half a".into();
+        assert!(!h.bg_question_ready());
+        assert_eq!(h.bg_question_wanted(), None, "输入框有字,不提");
+        h.moment.write().unwrap().input.clear();
+        assert!(h.bg_question_ready());
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+    }
+
+    /// 提上来的那条答掉(这里走鼠标那条路)之后,每帧的对账把它放下,并记住答的是
+    /// 哪一个请求:下一条提得上来,而那一个在答案送到之前再被取回时认得出来。
+    #[test]
+    fn an_answered_background_question_is_let_go_and_remembered() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        let (ask, _answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        assert!(h.bg_question_shown("b", ask, 7));
+        assert!(!h.settle_bg_question(), "还在屏幕上,不放");
+        assert_eq!(h.bg_question_wanted(), None);
+
+        h.asks.take_id(ask).expect("front").finish(vec![None]);
+        assert!(h.settle_bg_question(), "答掉了,放下");
+        assert!(!h.settle_bg_question(), "只放一次");
+        assert!(h.bg_question_answered("b", 7), "记得答的是它");
+        assert!(!h.bg_question_answered("b", 8), "别的请求不算");
+        assert!(!h.bg_question_answered("c", 7), "别的会话不算");
+        assert_eq!(
+            h.bg_question_wanted().as_deref(),
+            Some("b"),
+            "放下之后可以再要"
+        );
+    }
+
+    /// 收回去的不算答过:下一次取回来还是它,照样提。
+    #[test]
+    fn a_withdrawn_background_question_is_not_remembered_as_answered() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        h.bg_question_wanted();
+        let (ask, _answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        h.bg_question_shown("b", ask, 7);
+        assert!(h.withdraw_bg_question("b"));
+        assert!(!h.settle_bg_question());
+        assert!(!h.bg_question_answered("b", 7));
     }
 }
 

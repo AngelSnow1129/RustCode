@@ -87,6 +87,16 @@ impl Connection {
     fn take(&self) -> Option<HostConnection> {
         self.0.lock().expect("connection poisoned").take()
     }
+    /// Stand something between the screen and its host control, before the
+    /// screen runs and takes the connection. For a launcher — or a test rig —
+    /// that wants the screen to see a host that answers some commands
+    /// differently (e.g. one that does not know a newer command). A no-op once
+    /// the screen has taken it.
+    pub fn wrap_control(&self, wrap: impl FnOnce(Arc<dyn HostControl>) -> Arc<dyn HostControl>) {
+        if let Some(connection) = self.0.lock().expect("connection poisoned").as_mut() {
+            connection.control = wrap(connection.control.clone());
+        }
+    }
 }
 // Mounted cell-grid bitmaps. The host holds the table and puts a snapshot into
 // every frame's `Moment`; a row reaches it here to mount and repaint. See
@@ -1263,9 +1273,9 @@ impl UserInterface for Tui {
         let mut stale = true;
         // Wakes answered since that frame. See [`COALESCE_LIMIT`].
         let mut coalesced = 0usize;
-        // Whether the question queue had something in it at the last frame, so
-        // the moment it empties is seen once (see [`queue_emptied`]).
-        let mut had_asks = false;
+        // Whether the screen could take a background question at the last frame,
+        // so the moment it can is seen once (see [`became_ready`]).
+        let mut was_ready = false;
         while !quit {
             // The composer's menu is the one thing here that follows the
             // pointer, so free motion is on exactly while it is up: with it on,
@@ -1369,14 +1379,16 @@ impl UserInterface for Tui {
                 // where the two are reconciled — in one place, before any frame
                 // can be drawn from a disagreement.
                 self.host.sync_asking();
-                // 队列空出来的那一刻（不论是怎么空的）：前台优先，前台的空位一出现就
-                // 轮到后台的。判边沿不判电平 —— 每帧都叫，宿主不认识这条命令时每帧都会
-                // 重发一次取回。
-                let has_asks = self.host.asks.is_waiting();
-                if queue_emptied(had_asks, has_asks) {
+                // 提上来的那条答掉了（不论是怎么答的）：同步放下，下一条才提得上来。
+                self.host.settle_bg_question();
+                // 屏幕能接后台问询的那一刻（没有别的问询、输入框空了 —— 不论是怎么变成
+                // 这样的）：前台优先，空位一出现就轮到后台的。判边沿不判电平 —— 每帧都叫，
+                // 宿主不认识这条命令时每帧都会重发一次取回。
+                let ready = self.host.bg_question_ready();
+                if became_ready(was_ready, ready) {
                     self.pour_bg_question();
                 }
-                had_asks = has_asks;
+                was_ready = ready;
                 self.paint();
                 stale = false;
                 coalesced = 0;
@@ -2890,6 +2902,13 @@ impl Tui {
                 host.withdraw_bg_question(&session);
                 return;
             };
+            if host.bg_question_answered(&session, id) {
+                // 刚在这块屏幕上答过的那一条：答案还在去那个会话的路上，宿主报回来的
+                // 仍是它。别再摆一次 —— 下一条由那个会话自己的下一次变化（列表推过来）
+                // 带上来。
+                host.withdraw_bg_question(&session);
+                return;
+            }
             let events: Vec<LoggedEvent> = facts
                 .into_iter()
                 .map(|fact| LoggedEvent {
@@ -2914,7 +2933,7 @@ impl Tui {
                     .map(|one| as_background_question(one, who.clone()))
                     .collect();
                 let (ask, answer) = host.asks.push_batch_with_id(questions);
-                if !host.bg_question_shown(&session, ask) {
+                if !host.bg_question_shown(&session, ask, id) {
                     // 取的路上列表变了、这一趟已经被收回：刚放上去的也收回，不留
                     // 一条没人会送回去的问询在屏幕上。
                     host.asks.withdraw(ask);
@@ -2952,12 +2971,13 @@ impl Tui {
                     })
                     .await;
                 host.withdraw_bg_question(&session);
+                host.bg_question_done(&session, id);
                 host.say(t(Msg::BgQuestionUnanswerable).into_owned(), false);
                 repaint();
                 return;
             };
             let (ask, answer) = host.asks.push_with_id(as_background_question(asked, who));
-            if !host.bg_question_shown(&session, ask) {
+            if !host.bg_question_shown(&session, ask, id) {
                 host.asks.withdraw(ask);
                 repaint();
                 return;
@@ -6780,19 +6800,18 @@ fn recall_forward(m: &mut crate::moment::Moment) {
 /// 把一个后台会话的问询放上屏幕时说清是谁在问。
 ///
 /// 没有这一句，人在自己那段对话底下看到一个「允许写文件吗」会以为是自己触发的。
-/// 前缀式，不覆盖原来的问者：审批卡片上那个名字（是哪一个闸门在问）也有用。
+/// 记在 `from_background` 上而不是 `question.asker`：后者是成员的名字，面板会把它
+/// 套成「来自成员 …」；原来的问者（那个会话自己的成员）留着，面板画在后面。
 fn as_background_question(mut asked: crate::ask::Asked, who: String) -> crate::ask::Asked {
-    asked.question.asker = Some(match asked.question.asker.take() {
-        Some(asker) if !asker.trim().is_empty() => format!("{who} · {asker}"),
-        _ => who,
-    });
+    asked.from_background = Some(who);
     asked
 }
 
-/// 前台的问询队列是不是刚刚空出来 —— 判边沿不判电平：每帧都判，只有从有到无的
-/// 那一下才轮到后台的问询（设计 §6）。不论是怎么空的：键、鼠标、流尾兜底、收回。
-fn queue_emptied(had: bool, has: bool) -> bool {
-    had && !has
+/// 屏幕是不是刚刚变得能接一条后台问询（`Host::bg_question_ready`：没有别的问询在等、
+/// 输入框空）—— 判边沿不判电平：每帧都判，只有从不能到能的那一下才轮到后台的问询
+/// （设计 §6）。不论是怎么变的：键、鼠标、流尾兜底、收回、发出或清掉输入框里的字。
+fn became_ready(was: bool, is: bool) -> bool {
+    !was && is
 }
 
 /// Whether a picture attached to this conversation has somewhere to go. `Err` is
@@ -8613,8 +8632,8 @@ mod provider_probe_tests {
 
 #[cfg(test)]
 mod bg_question_tests {
-    use super::{as_background_question, queue_emptied};
-    use crate::ask::{Asked, Asks};
+    use super::{as_background_question, became_ready};
+    use crate::ask::Asked;
     use atomcode_harness::seams::Question;
 
     fn question(asker: Option<&str>) -> Asked {
@@ -8627,57 +8646,67 @@ mod bg_question_tests {
         .into()
     }
 
-    /// 前台那条问询不论怎么答掉(这里走鼠标那条路:`take_id(..).finish(..)`),队列
-    /// 空出来的那一刻就轮到后台 —— 且只有那一刻,下一帧不再轮一次。
+    /// 前台那条问询不论怎么答掉(这里走鼠标那条路:`take_id(..).finish(..)`),能接
+    /// 后台问询的那一刻就轮到后台 —— 且只有那一刻,下一帧不再轮一次;输入框里有字
+    /// 时不算能接,字清掉的那一刻才算。
     #[test]
-    fn the_moment_the_queue_empties_is_seen_once() {
-        let asks = Asks::new();
-        let mut had = asks.is_waiting();
+    fn the_moment_the_screen_can_take_one_is_seen_once() {
+        let h = crate::host::Host::new(
+            std::sync::Arc::new(crate::module::Modules::new()),
+            crate::host::default_layout(),
+        );
         let fired = std::cell::Cell::new(0);
-        let frame = |asks: &Asks, had: &mut bool| {
-            let has = asks.is_waiting();
-            if queue_emptied(*had, has) {
+        let mut was = h.bg_question_ready();
+        let mut frame = || {
+            let is = h.bg_question_ready();
+            if became_ready(was, is) {
                 fired.set(fired.get() + 1);
             }
-            *had = has;
+            was = is;
         };
-        frame(&asks, &mut had);
-        let (id, _answer) = asks.push_with_id(question(None));
-        frame(&asks, &mut had);
-        frame(&asks, &mut had);
-        asks.take_id(id).expect("front").finish(vec![None]);
-        frame(&asks, &mut had);
-        frame(&asks, &mut had);
+        frame();
+        let (id, _answer) = h.asks.push_with_id(question(None));
+        frame();
+        frame();
+        h.asks.take_id(id).expect("front").finish(vec![None]);
+        frame();
+        frame();
         assert_eq!(fired.get(), 1);
         // 收回也是空出来。
-        let (id, _answer) = asks.push_with_id(question(None));
-        frame(&asks, &mut had);
-        assert!(asks.withdraw(id));
-        frame(&asks, &mut had);
-        frame(&asks, &mut had);
+        let (id, _answer) = h.asks.push_with_id(question(None));
+        frame();
+        assert!(h.asks.withdraw(id));
+        frame();
+        frame();
         assert_eq!(fired.get(), 2);
+        // 人在打字:不算能接;发出去(输入框空了)的那一刻才算。
+        h.moment.write().unwrap().input = "half a thought".into();
+        frame();
+        frame();
+        assert_eq!(fired.get(), 2);
+        h.moment.write().unwrap().input.clear();
+        frame();
+        frame();
+        assert_eq!(fired.get(), 3);
     }
 
     #[test]
-    fn queue_emptied_is_an_edge_not_a_level() {
-        assert!(queue_emptied(true, false));
-        assert!(!queue_emptied(false, false));
-        assert!(!queue_emptied(true, true));
-        assert!(!queue_emptied(false, true));
+    fn became_ready_is_an_edge_not_a_level() {
+        assert!(became_ready(false, true));
+        assert!(!became_ready(true, true));
+        assert!(!became_ready(false, false));
+        assert!(!became_ready(true, false));
     }
 
-    /// 说清是谁在问,而且不抹掉原来的问者(是哪一道闸门在问)。
+    /// 说清是哪个后台会话在问,记在它自己的位置上;原来的问者(那个会话的成员)不动。
     #[test]
     fn a_background_question_says_who_is_asking() {
         let who = "background [1] x is asking".to_string();
         let plain = as_background_question(question(None), who.clone());
-        assert_eq!(plain.question.asker.as_deref(), Some(who.as_str()));
-        let blank = as_background_question(question(Some("  ")), who.clone());
-        assert_eq!(blank.question.asker.as_deref(), Some(who.as_str()));
-        let gated = as_background_question(question(Some("approval")), who.clone());
-        assert_eq!(
-            gated.question.asker.as_deref(),
-            Some("background [1] x is asking · approval")
-        );
+        assert_eq!(plain.from_background.as_deref(), Some(who.as_str()));
+        assert_eq!(plain.question.asker, None);
+        let member = as_background_question(question(Some("scout")), who.clone());
+        assert_eq!(member.from_background.as_deref(), Some(who.as_str()));
+        assert_eq!(member.question.asker.as_deref(), Some("scout"));
     }
 }

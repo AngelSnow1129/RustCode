@@ -176,8 +176,40 @@ struct Rig {
     host: Arc<atomcode::background::Background>,
 }
 
+/// A host that does not know `HostCommand::BackgroundQuestion` — a host from
+/// before background questions could be brought onto the foreground. Everything
+/// else goes through untouched.
+struct WithoutBackgroundQuestions(Arc<dyn HostControl>);
+
+#[async_trait::async_trait]
+impl HostControl for WithoutBackgroundQuestions {
+    async fn call(&self, command: HostCommand) -> Result<HostReply, HostError> {
+        match command {
+            HostCommand::BackgroundQuestion { .. } => Err(HostError::Failed {
+                message: "this host does not bring background questions forward".into(),
+            }),
+            other => self.0.call(other).await,
+        }
+    }
+
+    fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
+        self.0.subscribe()
+    }
+}
+
 impl Rig {
     async fn new() -> Self {
+        Self::build(false).await
+    }
+
+    /// The same rig on a host that refuses `HostCommand::BackgroundQuestion`
+    /// (design §9): the screen keeps today's tip line, and a background
+    /// question is answered by bringing its session forward with `/bg N`.
+    async fn without_background_questions() -> Self {
+        Self::build(true).await
+    }
+
+    async fn build(refuse_background_questions: bool) -> Self {
         let home = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         atomcode_config::i18n::set_locale(atomcode_config::locale::Locale::ZhCn);
@@ -228,6 +260,11 @@ impl Rig {
         .await
         .expect("the screen mounts");
         let ctx = mounted.app.context();
+        if refuse_background_questions {
+            ctx.service::<atomcode_tui::plugin::ConnectionSvc>()
+                .expect("the connection the screen will take")
+                .wrap_control(|control| Arc::new(WithoutBackgroundQuestions(control)));
+        }
         let term = ctx
             .service::<atomcode_tui::plugin::SurfaceSvc>()
             .and_then(|surface| surface.as_any_headless())
@@ -684,10 +721,15 @@ async fn a_task_typed_into_the_panel_starts_a_background_session() {
 /// it with Enter is what finishes the turn. The request is not a fact in the
 /// log, so replaying the log alone would show the words and leave nothing to
 /// answer.
+///
+/// On a host that does not bring background questions forward
+/// ([`Rig::without_background_questions`]): on one that does, the question
+/// comes up on the foreground by itself and `/bg 1` would be typed into it.
+/// Coming back to a waiting session is still how such a host gets it answered.
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial(atomcode_home)]
 async fn a_question_asked_in_the_background_is_asked_again_on_return() {
-    let rig = Rig::new().await;
+    let rig = Rig::without_background_questions().await;
     rig.term.type_line("/background ask me");
     rig.until_background("the background session is waiting for a person", |list| {
         list.first()
@@ -853,10 +895,13 @@ async fn quitting_with_nothing_running_does_not_ask() {
 /// **A background session waiting for an answer says so on the foreground**,
 /// on the row above the composer, with the way to open it; once it is
 /// answered the line is gone.
+///
+/// On a host that does not bring background questions forward (design §9): the
+/// screen keeps this line and does not put the question up itself.
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial(atomcode_home)]
 async fn a_background_session_waiting_for_an_answer_is_told_on_the_foreground() {
-    let rig = Rig::new().await;
+    let rig = Rig::without_background_questions().await;
     rig.term.type_line("/background ask me");
     rig.until_background("the background session is waiting", |list| {
         list.first()
@@ -871,6 +916,19 @@ async fn a_background_session_waiting_for_an_answer_is_told_on_the_foreground() 
     })
     .into_owned();
     rig.until_screen(&tip).await;
+    // A host that cannot hand the question over leaves it where it is: the
+    // screen does not claim to have brought it up.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let who = t(Msg::BgAsker {
+        slot: 1,
+        title: &title,
+    })
+    .into_owned();
+    assert!(
+        !rig.term.text().contains(&who),
+        "no background question on the foreground:\n{}",
+        rig.term.text()
+    );
 
     let before = rig.script.count.load(Ordering::SeqCst);
     rig.term.type_line("/bg 1");
@@ -1001,10 +1059,14 @@ async fn the_resume_line_on_exit_names_the_session_in_front_then() {
 
 /// **Space on a session waiting for an answer does not reply to it.** Nothing
 /// is sent; the panel says the session is waiting and Enter opens it.
+///
+/// On a host that does not bring background questions forward: on one that
+/// does, the question is already up on the foreground and `/bg list` would be
+/// typed into it.
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial(atomcode_home)]
 async fn space_on_a_session_waiting_for_an_answer_says_to_open_it() {
-    let rig = Rig::new().await;
+    let rig = Rig::without_background_questions().await;
     rig.term.type_line("/background ask me");
     rig.until_background("the background session is waiting", |list| {
         list.first()

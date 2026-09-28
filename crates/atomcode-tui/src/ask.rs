@@ -52,6 +52,12 @@ pub struct Asked {
     /// including a `request_user_input` the log already recorded, which is the
     /// seam's (every seam question is a choice between the answers it named).
     pub input: Option<UserInputRequest>,
+    /// 这条问询是从哪个后台会话提上来的，照屏幕要说的那句（「后台 [N] <title> 在问」）。
+    /// `None` 是这块屏幕自己那段对话的问询。
+    ///
+    /// 与 `question.asker` 分开：那一个是**成员**的名字（面板把它画成「来自成员 …」），
+    /// 后台会话不是成员，套上那个框就是说错了谁在问。
+    pub from_background: Option<String>,
 }
 
 impl From<Question> for Asked {
@@ -59,6 +65,7 @@ impl From<Question> for Asked {
         Self {
             question,
             input: None,
+            from_background: None,
         }
     }
 }
@@ -313,6 +320,15 @@ impl Asks {
         }
     }
 
+    /// 这条问询还在队列里（没答完、没收回）。
+    pub fn holds(&self, id: u64) -> bool {
+        self.queue
+            .lock()
+            .expect("asks poisoned")
+            .iter()
+            .any(|pending| pending.id == id)
+    }
+
     /// 一条问询不必再问了：从队列里拿掉，**不回答**。
     ///
     /// 丢掉 `Pending` 就丢掉了应答通道，等着的那个人看到的是一次取消 —— 既不是
@@ -435,6 +451,7 @@ pub fn question_for(kind: &str, payload: &Value, events: &[LoggedEvent]) -> Opti
                     about: None,
                 },
                 input: Some(request),
+                from_background: None,
             },
         });
     }
