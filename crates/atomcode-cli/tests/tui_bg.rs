@@ -1342,10 +1342,7 @@ async fn a_background_batch_comes_out_as_a_batch() {
     })
     .await;
 
-    let title = rig.background().await[0]
-        .title
-        .clone()
-        .unwrap_or_default();
+    let title = rig.background().await[0].title.clone().unwrap_or_default();
     rig.until_screen(&t(Msg::BgAsker {
         slot: 1,
         title: &title,
