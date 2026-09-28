@@ -747,15 +747,22 @@ async fn start_background(
 /// is judged without a session. `<base>` means the committed `base..HEAD` range,
 /// not the legacy top-level `base` field whose diff quietly included the working
 /// tree as a side effect.
-/// `/review` 的简写拆成 *(深度, 范围)*:`[deep|deep+verify] [staged|<base>]`。
+/// `/review` 的简写拆成 *(深度, 范围, 关注点)*:
+/// `[deep|deep+verify] [staged|<base>] [关注点…]`。
 ///
 /// 一处解析、两处用:[`review_prompt`] 把它翻成工具要的 schema,[`review_what`] 把它
 /// 说成人要读的那句话 —— 两个口径不会各拆一半而对不上。
-fn review_scope(arg: &str) -> (Option<&str>, &str) {
+///
+/// **只有像 ref 的第一个词才是范围。** 人会顺着说一句 `/review 下代码改动`,
+/// 原来那整句被当成 base,屏上说「审查 下代码改动 之后的提交」,后台那段对话
+/// 拿着一个不存在的 ref 去跑。git 的 ref 是 ASCII 写的、也不以 `-` 开头(那是
+/// 选项),所以不是这样的词、以及范围后面剩下的话,都是关注点:范围照旧按默认
+/// (未提交的改动),那句话交给评审去看重。
+fn review_scope(arg: &str) -> (Option<&str>, &str, &str) {
     let arg = arg.trim();
     // A leading `deep+verify` or `deep` keyword — alone or before a scope — sets
-    // the depth; anything else is the scope.
-    if let Some(rest) = arg
+    // the depth; what follows is the scope and the focus.
+    let (depth, rest) = if let Some(rest) = arg
         .strip_prefix("deep+verify")
         .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
     {
@@ -767,27 +774,39 @@ fn review_scope(arg: &str) -> (Option<&str>, &str) {
         (Some("deep"), rest.trim())
     } else {
         (None, arg)
+    };
+    let (word, after) = match rest.split_once(char::is_whitespace) {
+        Some((word, after)) => (word, after.trim()),
+        None => (rest, ""),
+    };
+    if word.is_ascii() && !word.starts_with('-') {
+        (depth, word, after)
+    } else {
+        (depth, "", rest)
     }
 }
 
-/// `/review` 那一行说它要干什么:范围,说得出深度时连深度一起。
+/// `/review` 那一行说它要干什么:范围,说得出深度时连深度一起,有关注点再跟上它。
 fn review_what(arg: &str) -> String {
-    let (depth, scope) = review_scope(arg);
-    let what = if scope.is_empty() {
+    let (depth, scope, focus) = review_scope(arg);
+    let mut what = if scope.is_empty() {
         t(Msg::ReviewWhatUncommitted).into_owned()
     } else if scope.eq_ignore_ascii_case("staged") {
         t(Msg::ReviewWhatStaged).into_owned()
     } else {
         t(Msg::ReviewWhatRange { base: scope }).into_owned()
     };
-    match depth {
-        Some(depth) => format!("{what}  {depth}"),
-        None => what,
+    if let Some(depth) = depth {
+        what = format!("{what}  {depth}");
     }
+    if !focus.is_empty() {
+        what = format!("{what} · {focus}");
+    }
+    what
 }
 
 fn review_prompt(arg: &str) -> String {
-    let (depth, scope) = review_scope(arg);
+    let (depth, scope, focus) = review_scope(arg);
     let scope_json = if scope.is_empty() {
         r#"{"kind":"working_tree"}"#.to_string()
     } else if scope.eq_ignore_ascii_case("staged") {
@@ -802,10 +821,15 @@ fn review_prompt(arg: &str) -> String {
         Some(depth) => format!(r#"{{"scope":{scope_json},"depth":"{depth}"}}"#),
         None => format!(r#"{{"scope":{scope_json}}}"#),
     };
-    format!(
+    let ask = format!(
         "Review the requested changes: call the `code_review` tool with {args}, then give me a \
          concise summary of its findings."
-    )
+    );
+    // 关注点是人的原话,不是参数:交给评审自己去读,而不是塞进工具的 schema。
+    match focus {
+        "" => ask,
+        focus => format!("{ask} The person also said: {focus}"),
+    }
 }
 
 fn session_catalogue() -> Vec<Command> {
@@ -1186,7 +1210,7 @@ impl CommandSet for SessionCommands {
                 };
                 // 范围按工具自己的词汇交给宿主 —— 量文件数要用它:`working_tree`
                 // 就是"没给参数"的那一个。
-                let (_, scope) = review_scope(args.trim());
+                let (_, scope, _) = review_scope(args.trim());
                 let scope = if scope.is_empty() {
                     "working_tree"
                 } else {
@@ -4740,6 +4764,30 @@ mod tests {
         let named = review_prompt("deeper");
         assert!(named.contains(r#""base":"deeper""#), "{named}");
         assert!(!named.contains("depth"), "{named}");
+
+        // Words that cannot be a ref are what to look at, not a base: the
+        // range stays the default, and the words reach the reviewer.
+        let said = review_prompt("下代码改动");
+        assert!(
+            said.contains(r#"{"scope":{"kind":"working_tree"}}"#),
+            "{said}"
+        );
+        assert!(said.contains("下代码改动"), "{said}");
+        assert!(!said.contains(r#""base""#), "{said}");
+        assert_eq!(
+            review_what("下代码改动"),
+            format!("{} · 下代码改动", t(Msg::ReviewWhatUncommitted))
+        );
+        // A ref, then words: both.
+        let both = review_prompt("deep main 看看鉴权");
+        assert!(
+            both.contains(r#""base":"main""#) && both.contains(r#""depth":"deep""#),
+            "{both}"
+        );
+        assert!(both.ends_with("看看鉴权"), "{both}");
+        // An option is never a ref: it would reach git as a flag.
+        let flag = review_prompt("--output=x");
+        assert!(!flag.contains(r#""base""#), "{flag}");
     }
 
     /// A set that carries `/review` the way the agent's catalog does — and, like

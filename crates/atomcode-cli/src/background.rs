@@ -91,6 +91,11 @@ fn changed_files(dir: &std::path::Path, scope: &str) -> Option<usize> {
             // `status`,不是 `diff`:这次还没提交的包括还没被 git 看见的那些新文件。
             git.args(["status", "--porcelain"]);
         }
+        // `-` 开头的是 git 的选项,不是 ref:`/review --output=x` 会让 git 写一个
+        // 文件。TUI 已经不把它当范围,这里再挡一次 —— 这条命令收的是任何宿主。
+        // 挡在这里而不是加 `--end-of-options`:那是 git 2.24 才有的,更老的 git
+        // 会把整条命令拒掉,连正常的 ref 也量不出来。
+        base if base.starts_with('-') => return None,
         base => {
             let range = format!("{base}..HEAD");
             git.args(["diff", "--name-only", &range]);
@@ -1117,6 +1122,9 @@ mod tests {
             Some(1),
             "已提交的那一段:HEAD~1..HEAD 只动了 b.txt"
         );
+        // 一个选项不是 ref:交给 git 就成了 `--output=…`,它会去写那个文件。
+        assert_eq!(changed_files(&dir, "--output=written"), None);
+        assert!(!dir.join("written..HEAD").exists(), "git 没把它当选项");
         // 问不出来的地方说"问不出来",而不是一个谁都没量过的零。
         assert_eq!(
             changed_files(std::path::Path::new("/"), "working_tree"),

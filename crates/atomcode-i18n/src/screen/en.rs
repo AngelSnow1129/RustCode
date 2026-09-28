@@ -400,7 +400,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdAboutBg => "background sessions: bare, keep this one running in the background; with a task, start a new one on it; or list, switch to or drop them".into(),
         Msg::CmdTakesBg => "[<task> | list | <N> | drop <N>]".into(),
         Msg::CmdAboutReview => "have the current changes reviewed in a session of their own — it runs in the background, so this conversation keeps going".into(),
-        Msg::CmdTakesReview => "[deep | deep+verify] [staged | <base>]".into(),
+        Msg::CmdTakesReview => "[deep | deep+verify] [staged | <base>] [what to look at]".into(),
         Msg::ReviewWhatUncommitted => "reviewing the uncommitted changes".into(),
         Msg::ReviewWhatStaged => "reviewing the staged changes".into(),
         Msg::ReviewWhatRange { base } => format!("reviewing the commits after {base}").into(),
