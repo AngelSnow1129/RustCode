@@ -872,6 +872,10 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::LiveStopping => "stopping".into(),
         Msg::LiveRecognizingImage => "recognizing image".into(),
         Msg::LiveCompacting => "compacting".into(),
+        Msg::LiveWaitingForBackground { n } => match n {
+            1 => "waiting for 1 background task to finish".into(),
+            n => format!("waiting for {n} background tasks to finish").into(),
+        },
         Msg::LiveWaiting => "waiting for the model".into(),
         Msg::LiveThinking => "thinking".into(),
         Msg::LiveWriting => "writing".into(),

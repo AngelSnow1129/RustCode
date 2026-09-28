@@ -47,6 +47,8 @@ pub struct Session {
     pub waiting: bool,
     /// 没干完就停了(出错、熔断、轮数用尽):什么都不会投回来,所以前台要说一句。
     pub failed: bool,
+    /// 替哪个会话干活(发起它、结果要投回去的那个)。`None` = 不替谁干活。
+    pub origin: Option<String>,
     /// 这次活花掉的,宿主从它自己的日志折出来。`None` = 还没发过请求,或那个宿主
     /// 不读后台会话的日志——两种都没有可说的数。
     pub stats: Option<atomcode_host_api::BackgroundStats>,
@@ -65,6 +67,7 @@ impl Session {
             last: session.last,
             waiting: session.state == atomcode_host_api::BackgroundState::Waiting,
             failed: session.state == atomcode_host_api::BackgroundState::Failed,
+            origin: session.origin,
             stats: session.stats,
         }
     }
@@ -134,6 +137,17 @@ impl BgView {
         self.sessions
             .iter()
             .filter(|s| s.group != Group::Completed)
+            .count()
+    }
+
+    /// 替 `session` 干活、还在干的有几个 —— 它的结果会回到那段对话里。
+    ///
+    /// 只数在干的(`Working`):在等人回答的有自己那条提示,停了的有自己那句话,
+    /// 这个数回答的是「还有多少结果在路上」。
+    pub fn working_for(&self, session: &str) -> usize {
+        self.sessions
+            .iter()
+            .filter(|s| s.group == Group::Working && s.origin.as_deref() == Some(session))
             .count()
     }
 
@@ -391,6 +405,7 @@ mod tests {
             last: None,
             waiting: false,
             failed: false,
+            origin: None,
             stats: None,
         }
     }

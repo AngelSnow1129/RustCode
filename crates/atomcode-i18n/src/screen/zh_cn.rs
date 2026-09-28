@@ -811,6 +811,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::LiveStopping => "正在停止".into(),
         Msg::LiveRecognizingImage => "正在识别图片".into(),
         Msg::LiveCompacting => "正在压缩".into(),
+        Msg::LiveWaitingForBackground { n } => format!("等待 {n} 个后台任务完成").into(),
         Msg::LiveWaiting => "正在等待模型".into(),
         Msg::LiveThinking => "正在思考".into(),
         Msg::LiveWriting => "正在回复".into(),

@@ -1399,6 +1399,11 @@ pub enum Msg<'a> {
     /// on it — the slow tier only: a cheap fold of tool output is instant and
     /// says nothing.
     LiveCompacting,
+    /// The turn is over and work this conversation started is still running
+    /// out of view; its results will come back here.
+    LiveWaitingForBackground {
+        n: usize,
+    },
     LiveWaiting,
     LiveThinking,
     LiveWriting,

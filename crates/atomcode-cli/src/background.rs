@@ -504,6 +504,9 @@ fn describe(live: &Live) -> BackgroundSession {
         created_at: live.since,
         last,
         stats: stats_of(&log),
+        // 替谁干活:等于它自己(`/bg` 把那段对话挪过来的)就是没有别的读者。
+        origin: (!live.origin.is_empty() && live.origin != live.control.session_id())
+            .then(|| live.origin.clone()),
     }
 }
 

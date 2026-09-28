@@ -722,6 +722,7 @@ mod tests {
             last: None,
             waiting,
             failed: false,
+            origin: None,
             stats: None,
         };
         let with = |sessions: Vec<Session>| Moment {
