@@ -154,28 +154,58 @@ elif [ -n "$RELEASE_LATEST_API" ]; then
     LATEST_VER=$($_fetch "$RELEASE_LATEST_API" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 fi
 
+# Order "vX.Y.Z" lines newest-first. Deliberately NOT `sort -V`: that is a GNU
+# extension and this script runs on BSD/macOS `sort` too. Emit zero-padded
+# numeric fields and reverse-sort lexicographically, which is well-defined for
+# fixed-width numeric keys.
+sort_versions_desc() {
+    awk -F. '{
+        v = $1; gsub(/^v/, "", v)
+        printf "%09d %09d %09d\t%s\n", v + 0, $2 + 0, $3 + 0, $0
+    }' | sort -r | cut -f2-
+}
+
 # Build candidate version list.
+#
+# BOTH sources are candidates, not authorities. The online `releases/latest`
+# API can lag the repository (observed: it answered v6.1.0 while the repo
+# already carried v6.2.0, because the v6.2.0 online Release did not exist yet),
+# and `release/index.json` can only list versions that actually have committed
+# artifacts. So collect both and order strictly by semantic version -- the
+# newest version wins regardless of which source reported it.
 CANDIDATES=""
 if [ "$PINNED" = "1" ]; then
     CANDIDATES="$LATEST_VER"
 else
     # Fetch the repo index.json (sorted newest-first by release-publish.sh).
     IDX_TMP="$TMP/index.json"
+    IDX_VERS=""
     if $_fetch "$RELEASE_RAW_BASE/release/index.json?ref=$RELEASE_RAW_REF" > "$IDX_TMP" 2>/dev/null \
         && [ -s "$IDX_TMP" ] && grep -q '"version"' "$IDX_TMP"; then
         for v in $(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\(v[0-9.]*\)".*/\1/p' "$IDX_TMP"); do
-            case " $CANDIDATES " in
+            case " $IDX_VERS " in
                 *" $v "*) ;;
-                *) CANDIDATES="${CANDIDATES:+$CANDIDATES }$v" ;;
+                *) IDX_VERS="${IDX_VERS:+$IDX_VERS }$v" ;;
             esac
         done
     fi
-    # Ensure the API latest is tried first (in case it is newer than the index).
+
+    # Merge the API's idea of latest into the index list (deduped).
+    CANDIDATES="$IDX_VERS"
     if [ -n "$LATEST_VER" ]; then
         case " $CANDIDATES " in
             *" $LATEST_VER "*) ;;
             *) CANDIDATES="$LATEST_VER${CANDIDATES:+ $CANDIDATES}" ;;
         esac
+    fi
+    CANDIDATES=$(printf '%s\n' $CANDIDATES | sort_versions_desc | tr '\n' ' ' | sed 's/ *$//')
+
+    # Diagnostics: a stale API answer used to silently win. Say so instead.
+    if [ -n "$LATEST_VER" ] && [ -n "$IDX_VERS" ]; then
+        IDX_TOP=$(printf '%s\n' $IDX_VERS | sort_versions_desc | head -1)
+        if [ "$IDX_TOP" != "$LATEST_VER" ]; then
+            echo "==> Note: latest-version API reports $LATEST_VER, repo index has $IDX_TOP; installing $IDX_TOP" >&2
+        fi
     fi
 fi
 
