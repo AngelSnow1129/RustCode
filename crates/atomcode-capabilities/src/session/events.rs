@@ -394,6 +394,7 @@ impl SessionManager {
         self.refuse_newer(id)?;
         if self.is_event_session(id) {
             self.move_snapshot_files_aside(id)?;
+            self.record_chosen_name(lease);
             return Ok(false);
         }
         self.convert(lease, self.load_native_session(id)?)?;
@@ -413,6 +414,7 @@ impl SessionManager {
         self.refuse_newer(id)?;
         if self.is_event_session(id) {
             self.move_snapshot_files_aside(id)?;
+            self.record_chosen_name(lease);
             return self.load_native_session_for_resume(lease);
         }
         let (loaded, pending) = self.load_native_session_for_resume(lease)?;
@@ -431,6 +433,19 @@ impl SessionManager {
         stamp_turn_times(&mut events, &times);
 
         let meta = loaded.meta;
+        // The name travels with the conversation. A snapshot kept it only in its
+        // meta, and the log is what a screen reads a session's name from — a
+        // session renamed before the log existed came back nameless, its `/rename`
+        // gone from the composer until it was renamed again.
+        if let Some(titled) = name_from_meta(&meta, &events) {
+            let seq = events.last().map_or(1, |last| last.seq + 1);
+            let at = events.last().map_or(0, |last| last.at);
+            events.push(LoggedEvent {
+                seq,
+                at,
+                event: titled,
+            });
+        }
         let mut header = SessionHeader::new(id);
         header.created_at = u64::try_from(meta.created_at).unwrap_or(0);
         header.cwd = Some(meta.working_dir.clone());
@@ -465,6 +480,41 @@ impl SessionManager {
             self.write_index_unlocked(&meta)
         })?;
         self.move_snapshot_files_aside(id)
+    }
+
+    /// Record in the log a name the index holds as the person's own but the log
+    /// never did — see [`missing_chosen_name`]. Once: after it the log holds it.
+    ///
+    /// Appended, not rewritten (`docs/adr/0024`), under the lease the opener
+    /// holds, before anything replays the log. Best-effort: a session that
+    /// cannot take the fact still opens, only without its name on the composer
+    /// — what it did before this existed.
+    fn record_chosen_name(&self, lease: &SessionLease) {
+        let id = lease.id();
+        // The index first: only a session the person named is worth reading the
+        // whole log for, and that is a handful — every other open costs nothing.
+        let Ok(meta) = self.read_meta(id) else {
+            return;
+        };
+        if !meta.user_renamed {
+            return;
+        }
+        let Ok(events) = self.load_events(id) else {
+            return;
+        };
+        let inherited = self
+            .read_event_header(id)
+            .map(|header| header.inherited)
+            .unwrap_or(0);
+        let Some(titled) = missing_chosen_name(&meta, &events, inherited) else {
+            return;
+        };
+        let fact = LoggedEvent {
+            seq: events.iter().map(|e| e.seq).max().unwrap_or(0) + 1,
+            at: u64::try_from(super::now_ms()).unwrap_or(0),
+            event: titled,
+        };
+        let _ = self.append_events(lease, &[fact]);
     }
 
     /// A session a newer build last wrote is listed, never opened here: its log
@@ -700,6 +750,69 @@ fn shift_turn(event: &mut SessionEvent, offset: u64) {
         | SessionEvent::TurnEnd { turn, .. } => *turn += offset,
         _ => {}
     }
+}
+
+/// The `Titled` fact a converted session's stored name becomes, if it has one.
+///
+/// Any real name — the person's, a model's, or one read off the first prompt —
+/// with `user_set` saying which it was, so a screen shows a name the person chose
+/// the way it shows one chosen now. A placeholder (`session-…`, `default`) is not
+/// a name and becomes nothing.
+fn name_from_meta(meta: &SessionMeta, events: &[LoggedEvent]) -> Option<SessionEvent> {
+    let name = meta.name.trim();
+    if name.is_empty() || SessionMeta::name_needs_fallback(name, &meta.id) {
+        return None;
+    }
+    Some(SessionEvent::Titled {
+        turn: last_turn(events),
+        title: name.to_string(),
+        user_set: meta.user_renamed,
+    })
+}
+
+/// The `Titled` fact a log is missing when its index says the person named the
+/// session (`user_renamed`) and the log's own last name is not that one, chosen.
+///
+/// How an index and its log come apart: a front end that renames by writing the
+/// index only (`SessionManager::rename`, the classic screen's `/rename`), while
+/// a screen that reads its session from the log — the name on its composer is
+/// the log's last `Titled` — sees none of it. `inherited` facts are a parent's:
+/// a fork's name is only the ones it committed itself.
+fn missing_chosen_name(
+    meta: &SessionMeta,
+    events: &[LoggedEvent],
+    inherited: usize,
+) -> Option<SessionEvent> {
+    let name = meta.name.trim();
+    if !meta.user_renamed || name.is_empty() {
+        return None;
+    }
+    let last = events
+        .iter()
+        .skip(inherited)
+        .rev()
+        .find_map(|logged| match &logged.event {
+            SessionEvent::Titled {
+                title, user_set, ..
+            } => Some((title.trim(), *user_set)),
+            _ => None,
+        });
+    if last == Some((name, true)) {
+        return None;
+    }
+    Some(SessionEvent::Titled {
+        turn: last_turn(events),
+        title: name.to_string(),
+        user_set: true,
+    })
+}
+
+fn last_turn(events: &[LoggedEvent]) -> u64 {
+    events
+        .iter()
+        .map(|logged| logged.event.turn())
+        .max()
+        .unwrap_or(0)
 }
 
 /// The facts a stored conversation is made of, numbered from `first_seq`.
@@ -1710,6 +1823,130 @@ mod tests {
         assert!(!manager.open_as_events(&lease).unwrap(), "only once");
         fs::remove_file(manager.path_for("s1", "snapshot.migrated").unwrap()).unwrap();
         assert_eq!(manager.load_events("s1").unwrap(), events);
+    }
+
+    fn titles(manager: &SessionManager, id: &str) -> Vec<(String, bool)> {
+        manager
+            .load_events(id)
+            .unwrap()
+            .into_iter()
+            .filter_map(|logged| match logged.event {
+                SessionEvent::Titled {
+                    title, user_set, ..
+                } => Some((title, user_set)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The reported case: a session renamed in a build that stored snapshots
+    /// kept its name in the meta only, and converting it dropped the name —
+    /// the screen that reads names from the log showed none until it was
+    /// renamed again. The name, and whose it was, now come across.
+    #[test]
+    fn a_converted_session_keeps_the_name_it_was_given() {
+        let (_dir, manager) = store();
+        let (lease, _) = snapshot_session(&manager, "s1");
+        manager.rename("s1", "验证缺陷5155修复效果").unwrap();
+
+        manager.open_for_resume(&lease).unwrap();
+        assert_eq!(
+            titles(&manager, "s1"),
+            vec![("验证缺陷5155修复效果".to_string(), true)]
+        );
+        // Opened again, nothing more is added.
+        manager.open_for_resume(&lease).unwrap();
+        assert_eq!(titles(&manager, "s1").len(), 1);
+    }
+
+    /// A placeholder is not a name, and a name nobody chose is carried as not
+    /// chosen.
+    #[test]
+    fn a_placeholder_is_not_carried_and_an_automatic_name_is_not_chosen() {
+        let (_dir, manager) = store();
+        let (lease, _) = snapshot_session(&manager, "s1");
+        assert!(manager.open_as_events(&lease).unwrap());
+        assert!(titles(&manager, "s1").is_empty(), "`session-s1` is no name");
+
+        let (_dir, manager) = store();
+        let (lease, _) = snapshot_session(&manager, "s2");
+        manager
+            .update_meta("s2", |meta| meta.name = "帮我读取下配置".into())
+            .unwrap();
+        assert!(manager.open_as_events(&lease).unwrap());
+        assert_eq!(
+            titles(&manager, "s2"),
+            vec![("帮我读取下配置".to_string(), false)]
+        );
+    }
+
+    /// An event session renamed where only the index is written (the classic
+    /// screen's `/rename`): the next open records the name in the log, once.
+    #[test]
+    fn a_name_only_the_index_knows_is_recorded_in_the_log_on_open() {
+        let (_dir, manager) = store();
+        let lease = created(&manager, "s1");
+        manager.append_events(&lease, &a_turn()).unwrap();
+        manager
+            .append_events(
+                &lease,
+                &[logged(
+                    100,
+                    0,
+                    SessionEvent::Titled {
+                        turn: 1,
+                        title: "hello".into(),
+                        user_set: false,
+                    },
+                )],
+            )
+            .unwrap();
+        manager.rename("s1", "我的会话").unwrap();
+
+        manager.open_for_resume(&lease).unwrap();
+        let named = titles(&manager, "s1");
+        assert_eq!(
+            named.last(),
+            Some(&("我的会话".to_string(), true)),
+            "{named:?}"
+        );
+        let seqs: Vec<u64> = manager
+            .load_events("s1")
+            .unwrap()
+            .iter()
+            .map(|e| e.seq)
+            .collect();
+        assert!(
+            seqs.windows(2).all(|w| w[0] < w[1]),
+            "appended in order: {seqs:?}"
+        );
+
+        manager.open_as_events(&lease).unwrap();
+        assert_eq!(titles(&manager, "s1").len(), named.len(), "only once");
+
+        // A session nobody renamed is left as it is.
+        let (_dir, manager) = store();
+        let lease = created(&manager, "s2");
+        manager.append_events(&lease, &a_turn()).unwrap();
+        manager.open_for_resume(&lease).unwrap();
+        assert!(titles(&manager, "s2").is_empty());
+    }
+
+    /// A fork's name is the ones it committed itself: a user-set name among
+    /// the parent's inherited facts does not count as the fork's.
+    #[test]
+    fn a_forks_own_facts_are_what_its_name_is_read_from() {
+        let named = |title: &str| SessionEvent::Titled {
+            turn: 1,
+            title: title.into(),
+            user_set: true,
+        };
+        let mut meta = meta("f1");
+        meta.name = "我的会话".into();
+        meta.user_renamed = true;
+        let inherited = vec![logged(1, 0, named("我的会话"))];
+        assert!(missing_chosen_name(&meta, &inherited, 0).is_none());
+        assert!(missing_chosen_name(&meta, &inherited, 1).is_some());
     }
 
     /// Making a log's conversation some other one appends facts and rewrites
