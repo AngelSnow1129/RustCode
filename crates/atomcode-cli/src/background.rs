@@ -108,16 +108,36 @@ fn changed_files(dir: &std::path::Path, scope: &str) -> Option<usize> {
 ///
 /// 一处判断两处用:面板那一行(`Track::saw`)与"要不要把结果投回去"看的是同一件事
 /// —— 被中断和出错都不是一次结果,投回去只会让人读一段没有结论的话。
+///
+/// 只有模型自己说完(`Stopped`)才算干完。被熔断(`RepeatLoop` / `ToolLoopDetected` /
+/// `RunawayFuse`)、轮数用尽、被策略拦下的,最后那句话往往只是"我来调一下 X"之类的开场白,
+/// 不是结论 —— 当成结果投回去,那段对话会被一句没说完的话唤醒。`StopReason` 是
+/// `non_exhaustive`,以后新加的结束方式也先算没干完,等有人看过再放进来。
 fn ended_state(reason: &StopReason) -> BackgroundState {
     match reason {
+        StopReason::Stopped => BackgroundState::Done,
         StopReason::Cancelled => BackgroundState::Cancelled,
-        StopReason::ProviderError
-        | StopReason::Timeout
-        | StopReason::PromptRejected
-        | StopReason::RateLimited
-        | StopReason::InvariantViolated => BackgroundState::Failed,
-        _ => BackgroundState::Done,
+        _ => BackgroundState::Failed,
     }
+}
+
+/// 最后一个回合说出的结论:最后一个 `TurnStart` 之后、最后一条有字的回复。
+///
+/// 只看最后一个回合:整份日志里倒着找,一个没出字的回合会把上一回合的旧答案再投一次。
+fn last_turn_answer(log: &[LoggedEvent]) -> Option<String> {
+    let start = log
+        .iter()
+        .rposition(|logged| matches!(logged.event, SessionEvent::TurnStart { .. }))
+        .unwrap_or(0);
+    log[start..]
+        .iter()
+        .rev()
+        .find_map(|logged| match &logged.event {
+            SessionEvent::AssistantMessage { text, .. } if !text.trim().is_empty() => {
+                Some(text.trim().to_string())
+            }
+            _ => None,
+        })
 }
 
 impl Track {
@@ -553,12 +573,7 @@ impl Background {
                 return;
             }
             let log = log_of(live);
-            let Some(answer) = log.iter().rev().find_map(|logged| match &logged.event {
-                SessionEvent::AssistantMessage { text, .. } if !text.trim().is_empty() => {
-                    Some(text.trim().to_string())
-                }
-                _ => None,
-            }) else {
+            let Some(answer) = last_turn_answer(&log) else {
                 return;
             };
             let title = name_of(&log);
@@ -586,7 +601,28 @@ impl Background {
         tokio::spawn(async move {
             // 一条注,不是一次用户提交:日志里说话的是那个后台会话,不是人。屏上的内容
             // 一字不少 —— 变的只是**谁说的**。
-            let _ = handle.note(sender, frame).await;
+            //
+            // `Busy` 是那段对话正在收尾一次取消或一次策略介入,过一会儿就收得下:等一等
+            // 再投,而不是把结果扔了。别的拒绝(runtime 没了、换了代)不重试 —— 那时
+            // 这个 handle 背后未必还是发起它的那段对话;结果仍在 /bg 面板里。
+            const TRIES: u32 = 10;
+            for attempt in 1..=TRIES {
+                match handle.note(sender.clone(), frame.clone()).await {
+                    Ok(_) => return,
+                    Err(atomcode_coding::RuntimeError::Busy) if attempt < TRIES => {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            origin = %origin,
+                            from = %sender,
+                            %error,
+                            "background result not delivered to the conversation that started it; it is still in /bg"
+                        );
+                        return;
+                    }
+                }
+            }
         });
     }
 
@@ -1100,6 +1136,56 @@ mod tests {
         assert_eq!(track.ended, Some(BackgroundState::Failed));
         track.saw(&ended(StopReason::Stopped));
         assert_eq!(track.ended, Some(BackgroundState::Done));
+        // 被熔断、轮数用尽的不是一次结论 —— 不算干完,也就不会被投回去。
+        for reason in [
+            StopReason::RepeatLoop,
+            StopReason::ToolLoopDetected,
+            StopReason::MaxRounds,
+            StopReason::RunawayFuse,
+            StopReason::PolicyDenied,
+        ] {
+            track.saw(&ended(reason.clone()));
+            assert_eq!(track.ended, Some(BackgroundState::Failed), "{reason:?}");
+        }
+    }
+
+    /// 投回去的是最后一个回合的结论;最后一个回合没出字,就没有结论可投。
+    #[test]
+    fn the_answer_is_the_last_turns_own() {
+        let logged = |event| LoggedEvent {
+            seq: 0,
+            at: 0,
+            event,
+        };
+        let said = |turn: u64, text: &str| {
+            logged(SessionEvent::AssistantMessage {
+                turn,
+                round: 0,
+                text: text.into(),
+                reasoning: String::new(),
+                tool_calls: Vec::new(),
+                reasoning_blocks: Vec::new(),
+                meta: None,
+            })
+        };
+        let first = vec![
+            logged(SessionEvent::TurnStart { turn: 1 }),
+            said(1, "结论:两处要改"),
+            said(1, "  "),
+        ];
+        assert_eq!(last_turn_answer(&first).as_deref(), Some("结论:两处要改"));
+
+        // 第二个回合什么都没说:不能把第一回合的结论再投一次。
+        let mut second = first.clone();
+        second.push(logged(SessionEvent::TurnStart { turn: 2 }));
+        second.push(said(2, ""));
+        assert_eq!(last_turn_answer(&second), None);
+
+        second.push(said(2, "补充:第三处也要改"));
+        assert_eq!(
+            last_turn_answer(&second).as_deref(),
+            Some("补充:第三处也要改")
+        );
     }
 
     /// 回合结束,挂着的问题就不再挂着——回到前台时不该再问一次已经作废的问题。
