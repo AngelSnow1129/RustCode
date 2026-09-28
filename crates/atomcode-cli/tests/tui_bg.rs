@@ -1491,3 +1491,102 @@ async fn a_dropped_background_question_is_withdrawn_not_refused() {
     assert_eq!(rig.answers_sent(), 0, "收回不是拒绝");
     rig.quit().await;
 }
+
+/// 前台答掉一个后台会话的问询,宿主**当场**告诉屏幕它不在等了 —— 不等那个会话
+/// 自己下一步跑出什么来。
+///
+/// 不说的话,屏幕手里的列表还当它在等:提示行指着它,下一次提问询又挑中它、拿回
+/// `NotFound`,排在后面那个真在等的会话就出不来。判的是 `AnswerBackground` 一返回,
+/// 订阅里**已经**有一条把它标成不在等的 `BackgroundChanged` —— 那个 runtime 自己
+/// 收到答复、跑下一步、再报列表,要晚得多。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn answering_it_tells_the_screen_at_once_that_it_is_not_waiting() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let target = rig.background().await[0].session.clone();
+    let HostReply::BackgroundQuestion { id, .. } = rig
+        .control()
+        .call(HostCommand::BackgroundQuestion {
+            target: target.clone(),
+        })
+        .await
+        .expect("在等的会话有问询可取")
+    else {
+        panic!("不是一条问询");
+    };
+    let mut events = rig.host.subscribe();
+    rig.control()
+        .call(HostCommand::AnswerBackground {
+            target: target.clone(),
+            id,
+            value: serde_json::Value::Null,
+        })
+        .await
+        .expect("挂着的就是它,答得进去");
+    let mut told = false;
+    while let Ok(event) = events.try_recv() {
+        if let atomcode_host_api::HostEvent::BackgroundChanged { sessions } = event {
+            told |= sessions
+                .iter()
+                .any(|s| s.session == target && s.state != BackgroundState::Waiting);
+        }
+    }
+    assert!(told, "答复一送出,列表就该说它不在等了");
+    rig.quit().await;
+}
+
+/// 两个后台会话都在等:前台答掉第一个,第二个的问询接着出现在前台 —— 而不是被
+/// 一张还当第一个在等的旧列表挡在后面。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn answering_one_background_question_brings_up_the_next_one() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the first background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    // 第一条问询一上屏,键就归它了 —— 第二个会话由宿主命令起,不经输入框。
+    rig.control()
+        .call(HostCommand::StartBackground {
+            text: "ask me".into(),
+            scope: None,
+        })
+        .await
+        .expect("第二个后台会话起得来");
+    rig.until_background("both background sessions are waiting", |list| {
+        list.len() == 2 && list.iter().all(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let list = rig.background().await;
+    let title = |at: usize| list[at].title.clone().unwrap_or_default();
+    let (first, second) = (title(0), title(1));
+    rig.until_screen(&t(Msg::BgAsker {
+        slot: 1,
+        title: &first,
+    }))
+    .await;
+
+    // 就地答掉第一个。
+    rig.term.press(KeyPress::plain(Key::Enter));
+
+    // 第二个的问询接着上来。
+    rig.until_screen(&t(Msg::BgAsker {
+        slot: 2,
+        title: &second,
+    }))
+    .await;
+    rig.term.press(KeyPress::plain(Key::Enter));
+    rig.until_background("both moved on", |list| {
+        list.len() == 2 && list.iter().all(|s| s.state != BackgroundState::Waiting)
+    })
+    .await;
+    rig.quit().await;
+}

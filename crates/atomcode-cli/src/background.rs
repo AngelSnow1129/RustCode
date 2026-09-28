@@ -1061,24 +1061,38 @@ impl Background {
         value: serde_json::Value,
     ) -> Result<HostReply, HostError> {
         use atomcode_i18n::screen::{t as tr, Msg as SMsg};
-        let state = self.state.lock().expect("background poisoned");
-        let live = state
-            .slots
-            .iter()
-            .find(|slot| slot.control.session_id() == target)
-            .ok_or(HostError::NotFound)?;
-        {
-            let mut track = live.track.lock().expect("track poisoned");
-            match track.pending.as_ref() {
-                Some(AgentEvent::Request { id: waiting, .. }) if *waiting == id => {
-                    track.pending = None;
+        let sent = {
+            let state = self.state.lock().expect("background poisoned");
+            let live = state
+                .slots
+                .iter()
+                .find(|slot| slot.control.session_id() == target)
+                .ok_or(HostError::NotFound)?;
+            {
+                let mut track = live.track.lock().expect("track poisoned");
+                match track.pending.as_ref() {
+                    Some(AgentEvent::Request { id: waiting, .. }) if *waiting == id => {
+                        // 送不送得进去都清:送不进去是那个 runtime 已经没了,留着它只会让
+                        // 列表继续说「在等」一个再也答不了的问题。
+                        track.pending = None;
+                    }
+                    // 挂着的已经不是它了(作废、被别处答过、回合结束):拒绝,而不是把
+                    // 人的答案安在别的问题上。
+                    _ => return Err(Self::busy(tr(SMsg::BgAnswerStale).into_owned())),
                 }
-                // 挂着的已经不是它了(作废、被别处答过、回合结束):拒绝,而不是把
-                // 人的答案安在别的问题上。
-                _ => return Err(Self::busy(tr(SMsg::BgAnswerStale).into_owned())),
             }
+            live.commands
+                .send(AgentCommand::Respond { id, value })
+                .is_ok()
+        };
+        // 它不再等了:列表要立刻跟着改,否则屏幕还当它在等 —— 提示行指着它,下一次
+        // 提问询又挑中它、拿回 `NotFound`,排在后面的那个在等的会话就一直出不来。
+        self.announce_list();
+        if !sent {
+            return Err(HostError::Failed {
+                message: tr(SMsg::BgAnswerUndelivered).into_owned(),
+            });
         }
-        let _ = live.commands.send(AgentCommand::Respond { id, value });
         Ok(HostReply::Done)
     }
 
