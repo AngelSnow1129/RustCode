@@ -88,10 +88,11 @@ impl ChatMailbox {
         if remaining.is_zero() {
             return None;
         }
-        match tokio::time::timeout(remaining, rx.recv()).await {
-            Ok(message) => message,
-            Err(_) => None,
-        }
+        // Timeout (`Err`) and a closed channel (`Ok(None)`) are both fail-closed
+        // `None` outcomes, hence the single unwrap_or_default.
+        tokio::time::timeout(remaining, rx.recv())
+            .await
+            .unwrap_or_default()
     }
 }
 

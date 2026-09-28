@@ -4,8 +4,7 @@
 //! (nonce token + prompt text), and reads back a `Response` frame that
 //! contains the password.  Uses blocking `std` I/O -- no async runtime --
 //! because the helper is a tiny short-lived process invoked by sudo/ssh.
-
-#![cfg(unix)]
+//! The whole module is gated at its `mod askpass;` declaration in lib.rs.
 
 use std::io::BufReader;
 use std::os::unix::net::UnixStream;

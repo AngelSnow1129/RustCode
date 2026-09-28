@@ -1085,10 +1085,7 @@ impl Config {
             // node, or fallback becomes an unbounded loop across models.
             let mut seen: Vec<&str> = vec![id.as_str()];
             let mut cursor = id.as_str();
-            loop {
-                let Some(next) = catalog.get(cursor).and_then(|m| m.fallback.first()) else {
-                    break;
-                };
+            while let Some(next) = catalog.get(cursor).and_then(|m| m.fallback.first()) {
                 let next = next.trim();
                 if next.is_empty() {
                     break;
@@ -3450,16 +3447,20 @@ model = "missing-type"
         assert!(!webui_no_auth_enabled(false, None));
         // 命令行开关与配置是并联的"任一为真即免密"。
         assert!(webui_no_auth_enabled(true, Some(&cfg)));
-        let mut opt_in = Config::default();
-        opt_in.webui_no_auth = true;
+        let opt_in = Config {
+            webui_no_auth: true,
+            ..Config::default()
+        };
         assert!(webui_no_auth_enabled(false, Some(&opt_in)));
     }
 
     #[test]
     fn webui_no_auth_env_is_explicit_and_beats_the_other_two() {
         // 环境变量是**显式值**:`0` 能压住配置里已开的开关,运维临时收紧不必改配置。
-        let mut opt_in = Config::default();
-        opt_in.webui_no_auth = true;
+        let opt_in = Config {
+            webui_no_auth: true,
+            ..Config::default()
+        };
         std::env::set_var(WEBUI_NO_AUTH_ENV, "0");
         assert!(!webui_no_auth_enabled(true, Some(&opt_in)));
         // `1` 反过来无需任何配置/开关即可免密。
@@ -3475,8 +3476,10 @@ model = "missing-type"
     fn saved_config_roundtrips_webui_no_auth() {
         let tmp =
             std::env::temp_dir().join(format!("rustcode_cfg_noauth_{}.toml", std::process::id()));
-        let mut cfg = Config::default();
-        cfg.webui_no_auth = true;
+        let cfg = Config {
+            webui_no_auth: true,
+            ..Config::default()
+        };
         cfg.save(&tmp).unwrap();
         let reloaded = Config::load(&tmp).unwrap();
         assert!(reloaded.webui_no_auth);

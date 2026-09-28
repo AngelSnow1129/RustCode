@@ -37,9 +37,8 @@
 // just "the terminal noticed but our model doesn't track it". When
 // retained starts emitting something new, extend this parser.
 //
-// Not thread-safe, not `Send` -- strictly a test helper.
-
-#![cfg(test)]
+// Not thread-safe, not `Send` -- strictly a test helper. The whole module is
+// gated at its `mod test_term;` declaration in lib.rs.
 
 use crossterm::style::Color;
 use vte::{Params, Parser, Perform};

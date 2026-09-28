@@ -19254,7 +19254,7 @@ mod tests {
             );
             assert!(
                 rows.iter()
-                    .all(|row| !row.last().is_some_and(|cell| cell.width > 1)),
+                    .all(|row| row.last().is_none_or(|cell| cell.width <= 1)),
                 "width={width}: wide glyph split at right edge"
             );
         }
