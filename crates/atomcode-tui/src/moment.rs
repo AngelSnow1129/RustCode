@@ -346,6 +346,26 @@ pub struct Queued {
     pub seq: u64,
 }
 
+/// A stop that handed the prompt back, and whether that prompt is still owed
+/// a retraction.
+///
+/// Handing the words back to the composer alone left them twice over: in the
+/// field, and in the conversation above it — on screen and in what the model is
+/// shown, so sending them again asked the same thing twice. When the model had
+/// not answered anything yet, the stop takes the message back the way `/undo`
+/// does. Decided only once the turn is over by both roads it ends on: the
+/// runtime's `TurnComplete` (the runtime is idle, so an undo is not `Busy`) and
+/// the log's `TurnEnd` (the facts the decision reads are all in).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Retract {
+    /// The words handed back — the retraction is only for the turn they opened.
+    pub text: String,
+    /// The turn the stop ended, once the log's `TurnEnd` (cancelled) names it.
+    pub turn: Option<u64>,
+    /// Whether `TurnComplete` has arrived.
+    pub ended: bool,
+}
+
 /// The non-derivable half of what a module renders from.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Moment {
@@ -523,6 +543,9 @@ pub struct Moment {
     /// only restored when the field is empty at the moment of the stop, so an
     /// Escape never overwrites something you had already started typing.
     pub last_sent: Option<String>,
+    /// A prompt an Escape handed back to the composer, waiting to be taken out
+    /// of the conversation too — see [`Retract`]. `None` once decided either way.
+    pub retract: Option<Retract>,
     /// Whether the last turn ended because you stopped it. Drives the dim
     /// `已中断 · …` line under the composer, and is cleared the moment the next
     /// turn starts — screen state, not a fact, the same as the rest here.

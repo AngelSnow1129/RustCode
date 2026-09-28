@@ -5210,6 +5210,141 @@ async fn a_model_that_has_not_answered_yet_says_it_is_being_waited_for() {
     let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
 }
 
+/// A host that writes down every undo the screen asks of it, and passes the rest
+/// through. The e2e host takes no undo itself; what one does to the log is the
+/// host's criterion (`atomcode` `tests/host.rs`,
+/// `a_turn_stopped_before_any_answer_can_be_undone_by_its_number`). What is the
+/// screen's is *asking* for it — for which turn, and only when it should.
+struct UndoRecorder {
+    inner: Arc<dyn atomcode_host_api::HostControl>,
+    asked: Arc<std::sync::Mutex<Vec<Option<u64>>>>,
+}
+
+#[async_trait]
+impl atomcode_host_api::HostControl for UndoRecorder {
+    async fn call(
+        &self,
+        command: atomcode_host_api::HostCommand,
+    ) -> Result<atomcode_host_api::HostReply, atomcode_host_api::HostError> {
+        if let atomcode_host_api::HostCommand::Undo { turn, .. } = &command {
+            self.asked.lock().expect("asked poisoned").push(*turn);
+            return Ok(atomcode_host_api::HostReply::Undone {
+                prompt: None,
+                restored_files: Vec::new(),
+            });
+        }
+        self.inner.call(command).await
+    }
+    fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
+        self.inner.subscribe()
+    }
+}
+
+async fn start_recording_undo(setup: Setup) -> (Session, Arc<std::sync::Mutex<Vec<Option<u64>>>>) {
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let s = start_full(
+        setup,
+        {
+            let asked = asked.clone();
+            move |connection| atomcode_host_api::HostConnection {
+                control: Arc::new(UndoRecorder {
+                    inner: connection.control,
+                    asked,
+                }),
+                ..connection
+            }
+        },
+        Ports::default(),
+    )
+    .await;
+    (s, asked)
+}
+
+/// Sent, and stopped before the model said a word: the words come back to the
+/// composer AND the turn is taken back. Handed back alone they were there twice
+/// — in the field, and above it as a message nobody answered — and the model
+/// still had them, so resending asked the same thing twice.
+///
+/// Negative control: drop the `try_retract` calls and nothing is asked.
+#[tokio::test]
+async fn esc_before_the_model_says_anything_takes_the_turn_back() {
+    let dir = scratch("esc-retract");
+    let stalling = "[[patch]]\nid = \"llm\"\nname = \"test-stalling-llm\"\n";
+    let (s, asked) =
+        start_recording_undo(tree(&dir, &replay(r#"{ text = "unused" }"#), &[stalling])).await;
+    let task = s.open().await;
+
+    s.term.type_line("你好");
+    for _ in 0..80 {
+        if part_text(&s, "live").contains("正在等待模型") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    s.term.press(KeyPress::plain(Key::Esc));
+    for _ in 0..80 {
+        if !asked.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    s.quiet().await;
+
+    assert_eq!(
+        *asked.lock().unwrap(),
+        vec![Some(1)],
+        "the stopped turn, by its number, once:\n{}",
+        s.screen()
+    );
+    assert!(
+        part_text(&s, "input").contains("你好"),
+        "and the words are in the composer:\n{}",
+        s.screen()
+    );
+    assert!(
+        !s.screen().contains("已中断"),
+        "nothing is left saying a turn was stopped — there is no turn:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
+/// Once the model has said something, the turn is the person's: a stop hands
+/// the words back as before and takes nothing out of the conversation.
+#[tokio::test]
+async fn esc_after_the_model_answered_takes_nothing_back() {
+    let dir = scratch("esc-keep-answered");
+    let script = replay(
+        r#"{ text = "Working.", calls = [ { name = "bash", args = { command = "sleep 0.4" } } ] },
+           { text = "Done." }"#,
+    );
+    let (s, asked) = start_recording_undo(tree(&dir, &script, &[])).await;
+    let task = s.open().await;
+
+    s.term.type_line("fix the parser");
+    until(&s, "Working.").await;
+    s.term.press(KeyPress::plain(Key::Esc));
+    s.quiet().await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    assert!(
+        asked.lock().unwrap().is_empty(),
+        "{:?}",
+        asked.lock().unwrap()
+    );
+    assert_eq!(
+        s.screen().matches("fix the parser").count(),
+        2,
+        "in the transcript and back in the composer:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
 /// The waiting row rises even when the turn's start arrives after its first fact.
 ///
 /// The facts come by the feed and the turn's start by the runtime: two roads,

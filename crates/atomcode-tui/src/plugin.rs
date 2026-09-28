@@ -2968,6 +2968,9 @@ impl Tui {
             // 要把它退回来。
             m.last_sent = Some(text.clone());
             m.interrupted = false;
+            // 新的一句已经在路上:上一次停下欠着的撤回不再做 —— 撤回按回合往回退,
+            // 会连这一句一起退掉。
+            m.retract = None;
             // 图要再带一次:运行时撤回排队的那一条时,图是跟着一起撤的。
             // 按标记从本会话的图库里取,不经附件队列 —— 那里放的是输入框
             // 里正在写的那句的图,不是这句的。
@@ -3993,6 +3996,65 @@ impl Tui {
 
     /// Tell the screen which turns were taken back, from the facts it has —
     /// and which of them a *rewind* took, which is drawn differently.
+    /// Take a stopped prompt back out of the conversation, once it is known
+    /// the model had not answered it (see [`crate::moment::Retract`]).
+    ///
+    /// Through `HostCommand::Undo`, the same road `/undo` takes: a `Rewound`
+    /// fact is appended, the log is not rewritten (`docs/adr/0024` §17), and the
+    /// screen stops drawing the turn when that fact folds in. The words are in
+    /// the composer already, so the undo's own hand-back is not used. A refusal
+    /// (the log moved on, the runtime was busy) leaves the turn as it was — what
+    /// happened before this existed.
+    fn try_retract(&self) {
+        let pending = {
+            let m = self.host.moment.read().expect("moment poisoned");
+            match &m.retract {
+                Some(retract) if retract.ended => retract.clone(),
+                _ => return,
+            }
+        };
+        // The log has not ended a stopped turn yet — or the stop took the words
+        // before a turn opened them, and there is none to end. Either way,
+        // nothing to decide; a next send or a switch drops the pending one.
+        let Some(turn) = pending.turn else {
+            return;
+        };
+        let root = self.client.root();
+        let decision = if self.client.session() == root {
+            retract_decision(&self.client.events(), turn, &pending.text)
+        } else {
+            // A screen on a member: nothing of the lead's to take back.
+            RetractDecision::Keep
+        };
+        let turn = match decision {
+            RetractDecision::Wait => return,
+            RetractDecision::Keep => None,
+            RetractDecision::Take(turn) => Some(turn),
+        };
+        {
+            let mut m = self.host.moment.write().expect("moment poisoned");
+            m.retract = None;
+            // Taken back, there is nothing to say was stopped: the screen is as
+            // it was before the words were sent, with the words in the field.
+            if turn.is_some() {
+                m.interrupted = false;
+            }
+        }
+        let (Some(turn), Some(control)) = (turn, self.client.control()) else {
+            return;
+        };
+        let based_on = self.client.root_high();
+        tokio::spawn(async move {
+            let _ = control
+                .call(HostCommand::Undo {
+                    session: root,
+                    turn: Some(turn),
+                    based_on,
+                })
+                .await;
+        });
+    }
+
     fn mark_undone(&self) -> bool {
         let events = self.client.events();
         self.host.mark_undone(
@@ -4173,6 +4235,27 @@ impl Tui {
                         | atomcode_kernel::session::SessionEvent::Interrupted { .. }
                 ) {
                     self.mark_undone();
+                }
+                // The other road a stopped turn ends on (see `Moment::retract`),
+                // and the one that names it: the runtime's `TurnComplete` does
+                // not carry the turn on every host.
+                if let atomcode_kernel::session::SessionEvent::TurnEnd {
+                    turn,
+                    stop: atomcode_kernel::event::StopReason::Cancelled,
+                    ..
+                } = committed.event
+                {
+                    if let Some(retract) = self
+                        .host
+                        .moment
+                        .write()
+                        .expect("moment poisoned")
+                        .retract
+                        .as_mut()
+                    {
+                        retract.turn = Some(turn);
+                    }
+                    self.try_retract();
                 }
                 // The turn's opening line is on screen now (its own message,
                 // normally; an assistant's first word for a turn nobody typed).
@@ -4476,8 +4559,15 @@ impl Tui {
                 // then `TurnComplete`, and a line resent at the first would be
                 // wiped off the panel by the second.
                 if matches!(event, AgentEvent::TurnComplete { .. }) {
-                    self.host.moment.write().expect("moment poisoned").turn_open = false;
+                    {
+                        let mut m = self.host.moment.write().expect("moment poisoned");
+                        m.turn_open = false;
+                        if let Some(retract) = m.retract.as_mut() {
+                            retract.ended = true;
+                        }
+                    }
                     self.settle_withdrawn();
+                    self.try_retract();
                 }
                 // A turn just spent some of the allowance, so this is the
                 // moment the figure changed. Rate-limited inside.
@@ -4982,6 +5072,9 @@ impl Tui {
                     // instant a new prompt is on its way.
                     m.last_sent = Some(text.clone());
                     m.interrupted = false;
+                    // A retraction still owed by the last stop is off: an undo
+                    // goes back by turns, and would take this one with it.
+                    m.retract = None;
                     m.turn_in_flight()
                 };
                 // A picture bound for a text-only model is turned into text by the
@@ -5812,6 +5905,13 @@ impl Tui {
                     m.stopping = true;
                     if m.input.is_empty() && !queued {
                         if let Some(sent) = m.last_sent.clone() {
+                            // Back in the field — and, if the model had said
+                            // nothing yet, out of the conversation once the turn
+                            // is over (`Moment::retract`, `try_retract`).
+                            m.retract = Some(crate::moment::Retract {
+                                text: sent.clone(),
+                                ..Default::default()
+                            });
                             m.input = sent;
                             m.caret = m.input.len();
                             m.history_at = None;
@@ -6695,6 +6795,76 @@ pub fn took_mode(
     true
 }
 
+/// What a stop that handed its prompt back owes the conversation.
+#[derive(Debug, PartialEq, Eq)]
+enum RetractDecision {
+    /// The turn's end is not in the log yet.
+    Wait,
+    /// Leave the turn standing.
+    Keep,
+    /// Take this turn back.
+    Take(u64),
+}
+
+/// Whether the stopped `turn` is one to take back: the last turn in the log,
+/// over, stopped by the person, opened by exactly the words handed back
+/// (`sent`), and with nothing from the model in it.
+///
+/// "Nothing from the model" is nothing a person could have read: no reply, no
+/// tool that started, no question, and no streamed text cut short. A reply that
+/// was all thinking still counts as nothing — thinking is folded away on this
+/// screen, so what the person saw was their own line and a spinner. Anything
+/// more, and the turn is theirs to keep or `/undo` themselves: they may be
+/// stopping *because* of what it said.
+fn retract_decision(
+    events: &[atomcode_kernel::session::LoggedEvent],
+    turn: u64,
+    sent: &str,
+) -> RetractDecision {
+    use atomcode_kernel::session::SessionEvent as E;
+    let ended = events
+        .iter()
+        .any(|logged| matches!(logged.event, E::TurnEnd { turn: t, .. } if t == turn));
+    if !ended {
+        return RetractDecision::Wait;
+    }
+    let last_turn = events
+        .iter()
+        .filter_map(|logged| match logged.event {
+            E::TurnStart { turn } => Some(turn),
+            _ => None,
+        })
+        .max();
+    if last_turn != Some(turn) {
+        return RetractDecision::Keep;
+    }
+    let mut prompts = 0;
+    let mut same_words = false;
+    let mut interrupted = false;
+    for logged in events.iter().filter(|logged| logged.event.turn() == turn) {
+        match &logged.event {
+            E::UserMessage { text, .. } => {
+                prompts += 1;
+                same_words = text.trim() == sent.trim();
+            }
+            E::Interrupted { .. } => interrupted = true,
+            E::PartialReply { text, .. } if text.trim().is_empty() => {}
+            E::AssistantMessage { .. }
+            | E::PartialReply { .. }
+            | E::ToolStarted { .. }
+            | E::ToolResultLogged { .. }
+            | E::Asked { .. }
+            | E::Rewound { .. } => return RetractDecision::Keep,
+            _ => {}
+        }
+    }
+    if prompts == 1 && same_words && interrupted {
+        RetractDecision::Take(turn)
+    } else {
+        RetractDecision::Keep
+    }
+}
+
 /// Take the host's guess at what might be said next. Returns whether anything
 /// moved.
 ///
@@ -7361,6 +7531,147 @@ mod history_tests {
         recall_back(&mut m);
         recall_forward(&mut m);
         assert_eq!(m.input, "mine");
+    }
+}
+
+#[cfg(test)]
+mod retract_tests {
+    use super::{retract_decision, RetractDecision};
+    use atomcode_kernel::event::StopReason;
+    use atomcode_kernel::session::{LoggedEvent, SessionEvent as E};
+
+    fn log(events: Vec<E>) -> Vec<LoggedEvent> {
+        events
+            .into_iter()
+            .enumerate()
+            .map(|(seq, event)| LoggedEvent {
+                seq: seq as u64 + 1,
+                at: 0,
+                event,
+            })
+            .collect()
+    }
+
+    fn said(turn: u64, text: &str) -> E {
+        E::UserMessage {
+            turn,
+            text: text.into(),
+            images: Vec::new(),
+        }
+    }
+
+    fn end(turn: u64) -> E {
+        E::TurnEnd {
+            turn,
+            stop: StopReason::Cancelled,
+            error: None,
+        }
+    }
+
+    fn stopped(turn: u64) -> E {
+        E::Interrupted {
+            turn,
+            undone: false,
+        }
+    }
+
+    fn partial(turn: u64, text: &str, reasoning: &str) -> E {
+        E::PartialReply {
+            turn,
+            round: 1,
+            text: text.into(),
+            reasoning: reasoning.into(),
+        }
+    }
+
+    /// The screenshot: `你好`, stopped before a word came back. Taken back.
+    #[test]
+    fn a_prompt_stopped_before_any_answer_is_taken_back() {
+        let events = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "你好"),
+            stopped(3),
+            end(3),
+        ]);
+        assert_eq!(
+            retract_decision(&events, 3, "你好"),
+            RetractDecision::Take(3)
+        );
+
+        // Thinking is folded away on this screen: a turn that only thought
+        // showed the person nothing of the model's.
+        let events = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "你好"),
+            partial(3, "", "用户在打招呼"),
+            stopped(3),
+            end(3),
+        ]);
+        assert_eq!(
+            retract_decision(&events, 3, "你好"),
+            RetractDecision::Take(3)
+        );
+    }
+
+    /// Once the model said something, the turn is the person's to keep.
+    #[test]
+    fn a_turn_the_model_answered_in_is_kept() {
+        let events = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "你好"),
+            partial(3, "你好!有什么", ""),
+            stopped(3),
+            end(3),
+        ]);
+        assert_eq!(retract_decision(&events, 3, "你好"), RetractDecision::Keep);
+    }
+
+    /// Only once the turn's end is in the log, only the last turn, only the
+    /// words handed back, and only a stop the person made.
+    #[test]
+    fn it_waits_for_the_end_and_takes_nothing_it_cannot_account_for() {
+        let open = log(vec![E::TurnStart { turn: 3 }, said(3, "你好")]);
+        assert_eq!(retract_decision(&open, 3, "你好"), RetractDecision::Wait);
+
+        let later = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "你好"),
+            stopped(3),
+            end(3),
+            E::TurnStart { turn: 4 },
+            said(4, "你好"),
+        ]);
+        assert_eq!(retract_decision(&later, 3, "你好"), RetractDecision::Keep);
+
+        let other_words = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "别的"),
+            stopped(3),
+            end(3),
+        ]);
+        assert_eq!(
+            retract_decision(&other_words, 3, "你好"),
+            RetractDecision::Keep
+        );
+
+        let not_a_stop = log(vec![E::TurnStart { turn: 3 }, said(3, "你好"), end(3)]);
+        assert_eq!(
+            retract_decision(&not_a_stop, 3, "你好"),
+            RetractDecision::Keep
+        );
+
+        // A steer added a second line to the turn: not one prompt to hand back.
+        let steered = log(vec![
+            E::TurnStart { turn: 3 },
+            said(3, "你好"),
+            said(3, "再补一句"),
+            stopped(3),
+            end(3),
+        ]);
+        assert_eq!(
+            retract_decision(&steered, 3, "再补一句"),
+            RetractDecision::Keep
+        );
     }
 }
 

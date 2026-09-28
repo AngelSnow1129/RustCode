@@ -1658,6 +1658,7 @@ impl Host {
         // prompt into — a conversation that never saw either.
         m.interrupted = false;
         m.last_sent = None;
+        m.retract = None;
         // The guess at what to say next was sampled from the conversation being
         // left. Carried across `/resume`, `/clear` or a member switch it sat in the
         // arriving session's empty composer, one Tab or → from being sent there.
