@@ -40,8 +40,29 @@ pub enum Msg<'a> {
 
     // ── overlays (`overlay.rs`) ──
     OverlayEmptyFile,
-    OverlayFilterHint,
     OverlayNoMatch,
+    /// The key legend under a list in the bottom sheet (`crate::sheet`).
+    /// `typed`: Enter on nothing matching takes what was typed (`/cd`).
+    SheetListLegend {
+        typed: bool,
+    },
+    /// The key legend under text being read in the bottom sheet. `back`: Esc
+    /// returns to the list it was opened from, rather than closing.
+    SheetReadLegend {
+        back: bool,
+    },
+    /// `/diff`'s list: what it lists, the agent's changes or the working tree's.
+    DiffListTitle {
+        workspace: bool,
+    },
+    /// `/diff`'s summary line, before the `+a -r` totals.
+    DiffFilesChanged {
+        count: usize,
+    },
+    /// Bare `/view`: the list of files to pick one from.
+    ViewPickerTitle,
+    /// Bare `/view` with nothing in the file index.
+    ViewPickerEmpty,
 
     // ── completion menu and policy interventions (`plugin.rs`) ──
     /// The one-word note beside a directory in the `@`-completion menu.
@@ -290,6 +311,7 @@ pub enum Msg<'a> {
     },
     NoRewindPanel,
     NoResumePanel,
+    NoSheetPanel,
     /// The launcher mounted the panel but no way to throw a session away.
     NoResumeStore,
     /// The launcher mounted no place to keep `/cd` bookmarks.
@@ -383,7 +405,6 @@ pub enum Msg<'a> {
 
     // ── what a command takes, as it is shown after the name (`commands.rs`) ──
     CmdTakesPath,
-    CmdTakesPathRequired,
     CmdTakesFilename,
     CmdTakesFile,
     CmdTakesSessionId,
@@ -507,7 +528,6 @@ pub enum Msg<'a> {
     AllowanceExhaustedOpenRouter {
         label: &'a str,
     },
-    ViewWhichFile,
     ViewNotText {
         path: &'a str,
     },
@@ -723,11 +743,6 @@ pub enum Msg<'a> {
     },
     DiffNothingChanged,
     DiffBinary,
-    DiffPickerHint {
-        count: usize,
-        added: u64,
-        removed: u64,
-    },
     NoLanguageSetting,
     LanguageNow {
         value: &'a str,

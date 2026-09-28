@@ -346,8 +346,8 @@ fn take_away_catalogue() -> Vec<Command> {
     vec![
         Command::said_taking("copy", "[N|all|msg]".into(), t(Msg::CmdAboutCopy)),
         Command::said_taking("save", t(Msg::CmdTakesFilename), t(Msg::CmdAboutSave)),
-        Command::said_taking("view", t(Msg::CmdTakesPathRequired), t(Msg::CmdAboutView))
-            .requiring(),
+        // Not `requiring`: a bare `/view` is the list of files to pick one from.
+        Command::said_taking("view", t(Msg::CmdTakesPath), t(Msg::CmdAboutView)),
     ]
 }
 
@@ -479,8 +479,29 @@ impl CommandSet for TakeAwayCommands {
             // nothing.
             "view" => {
                 let path = args.trim();
+                // Nothing named: every file here, to pick one from — filtered as
+                // it is typed, the way the classic screen's file picker does it.
+                // The pick is `/view <path>`, so the file opens where a typed
+                // path would, and Esc comes back to this list.
                 if path.is_empty() {
-                    return Outcome::Refused(t(Msg::ViewWhichFile).into_owned());
+                    let here = match working_dir(client.control(), client.root()).await {
+                        Ok(here) => here,
+                        Err(why) => return Outcome::Refused(why),
+                    };
+                    let root = std::path::PathBuf::from(&here);
+                    let files = tokio::task::spawn_blocking(move || {
+                        atomcode_capabilities::file_index::FileIndex::files_blocking(&root)
+                    })
+                    .await
+                    .unwrap_or_default();
+                    let rows = files
+                        .into_iter()
+                        .map(|file| crate::sheet::Row::new(format!("/view {file}"), file))
+                        .collect();
+                    return Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::list(
+                        crate::sheet::List::new("view", t(Msg::ViewPickerTitle), rows)
+                            .empty(t(Msg::ViewPickerEmpty)),
+                    )));
                 }
                 let full = match session_path(&client, path).await {
                     Ok(full) => full,
@@ -518,12 +539,18 @@ impl CommandSet for TakeAwayCommands {
                                 .into_owned(),
                             );
                         }
-                        let title = if notes.is_empty() {
-                            shown
-                        } else {
-                            format!("{shown} ({})", notes.join(" · "))
-                        };
-                        Outcome::Open(crate::overlay::Reading::new(title, &seen.body))
+                        let mut title =
+                            vec![crate::sheet::Piece::new(shown, crate::sheet::Tone::Plain)];
+                        if !notes.is_empty() {
+                            title.push(crate::sheet::Piece::new(
+                                format!("  ({})", notes.join(" · ")),
+                                crate::sheet::Tone::Warning,
+                            ));
+                        }
+                        Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::read(
+                            crate::sheet::Read::file("view", title, &seen.body)
+                                .empty(t(Msg::OverlayEmptyFile).trim()),
+                        )))
                     }
                     Ok(None) => Outcome::Refused(t(Msg::ViewNotText { path: &shown }).into_owned()),
                     Err(error) => Outcome::Refused(
@@ -908,6 +935,21 @@ fn session_catalogue() -> Vec<Command> {
 /// place. Staged **and** modified since is its own word, because a commit made
 /// from that state takes something other than what is on screen, and that is
 /// the single most expensive thing this listing can fail to say.
+/// The one letter `git status` would put in front of the file — the classic
+/// screen's `/diff` list leads each row with it.
+fn change_letter(change: atomcode_host_api::FileChange) -> &'static str {
+    use atomcode_host_api::FileChange as C;
+    match change {
+        C::Added => "A",
+        C::Deleted => "D",
+        C::Renamed => "R",
+        C::Copied => "C",
+        C::Untracked => "?",
+        C::Conflicted => "U",
+        C::Modified | C::Other => "M",
+    }
+}
+
 fn change_word(change: atomcode_host_api::FileChange, staged: bool) -> Msg<'static> {
     use atomcode_host_api::FileChange as C;
     match (change, staged) {
@@ -1235,10 +1277,10 @@ impl CommandSet for SessionCommands {
                 let Some(roster) = ctx.service::<crate::plugin::TeamRosterSvc>() else {
                     return Outcome::Refused(t(Msg::NoRoster).into_owned());
                 };
-                let mut choices: Vec<crate::overlay::Choice> = Vec::new();
+                let mut rows: Vec<crate::sheet::Row> = Vec::new();
                 if !root.is_empty() {
-                    choices.push(
-                        crate::overlay::Choice::new(
+                    rows.push(
+                        crate::sheet::Row::new(
                             format!("/look {root}"),
                             t(Msg::AgentsLead).into_owned(),
                         )
@@ -1246,8 +1288,8 @@ impl CommandSet for SessionCommands {
                     );
                 }
                 for (name, session, gone) in roster.members() {
-                    choices.push(
-                        crate::overlay::Choice::new(
+                    rows.push(
+                        crate::sheet::Row::new(
                             format!("/look {session}"),
                             // Where it stands is part of what the row is: a
                             // stopped member's conversation is still there and
@@ -1261,14 +1303,12 @@ impl CommandSet for SessionCommands {
                         .about(session.clone()),
                     );
                 }
-                if choices.is_empty() {
+                if rows.is_empty() {
                     return Outcome::Said(t(Msg::AgentsNoneYet).into_owned());
                 }
-                Outcome::Open(crate::overlay::Picker::new(
-                    "agents",
-                    t(Msg::AgentsPickerHint),
-                    choices,
-                ))
+                Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::list(
+                    crate::sheet::List::new("agents", t(Msg::AgentsPickerHint), rows),
+                )))
             }
             "resume" => {
                 let Some(control) = control else {
@@ -1667,7 +1707,7 @@ impl CommandSet for SessionCommands {
                             trimmed.to_string()
                         }
                     };
-                    let mut choices: Vec<crate::overlay::Choice> = Vec::new();
+                    let mut rows: Vec<crate::sheet::Row> = Vec::new();
                     // 标下的地方排在最前,其次是最近干活的目录:这两样是「我要去
                     // 哪儿」的答案,而底下那半是「这儿有什么」。只在最外面那一屏
                     // 给——走进子目录之后再列一遍,等于每一层都把同样的东西说一遍。
@@ -1677,8 +1717,8 @@ impl CommandSet for SessionCommands {
                             None => Vec::new(),
                         };
                         for dir in &pinned {
-                            choices.push(
-                                crate::overlay::Choice::new(
+                            rows.push(
+                                crate::sheet::Row::new(
                                     format!("/cd {dir}"),
                                     crate::text::collapse_home(dir),
                                 )
@@ -1686,8 +1726,8 @@ impl CommandSet for SessionCommands {
                             );
                         }
                         for dir in recent_places(control.clone(), &from, &pinned).await {
-                            choices.push(
-                                crate::overlay::Choice::new(
+                            rows.push(
+                                crate::sheet::Row::new(
                                     format!("/cd {dir}"),
                                     crate::text::collapse_home(&dir),
                                 )
@@ -1697,8 +1737,8 @@ impl CommandSet for SessionCommands {
                     }
                     // Up first: a browser you cannot back out of is a trap.
                     if let Some(up) = std::path::Path::new(&from).parent() {
-                        choices.push(
-                            crate::overlay::Choice::new(
+                        rows.push(
+                            crate::sheet::Row::new(
                                 format!("/cd {}/", up.display()),
                                 "..".to_string(),
                             )
@@ -1716,12 +1756,9 @@ impl CommandSet for SessionCommands {
                             here.sort();
                             for name in here {
                                 let at = std::path::Path::new(&from).join(&name);
-                                choices.push(
-                                    crate::overlay::Choice::new(
-                                        format!("/cd {}/", at.display()),
-                                        name,
-                                    )
-                                    .about(t(Msg::CdStepInto)),
+                                rows.push(
+                                    crate::sheet::Row::new(format!("/cd {}/", at.display()), name)
+                                        .about(t(Msg::CdStepInto)),
                                 );
                             }
                         }
@@ -1737,28 +1774,28 @@ impl CommandSet for SessionCommands {
                     }
                     // Staying is a choice too — and the only way to say "this
                     // one" once you have stepped into it.
-                    choices.insert(
+                    rows.insert(
                         0,
-                        crate::overlay::Choice::new(
+                        crate::sheet::Row::new(
                             format!("/cd {from}"),
                             t(Msg::CdStayHere).into_owned(),
                         )
                         .about(crate::text::collapse_home(&from)),
                     );
-                    return Outcome::Open(
-                        crate::overlay::Picker::new(
+                    return Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::list(
+                        crate::sheet::List::new(
                             "cd",
                             t(Msg::CdPickerHint {
                                 here: &crate::text::collapse_home(&from),
                             }),
-                            choices,
+                            rows,
                         )
                         // 打出来的那一条也算数。书签、最近、以及这一层底下的
                         // 东西答的是「我要去哪儿」的常见一半;另一半是人本来就
                         // 知道路径 —— 而那时候列表里一条都不会匹配,回车此前是
                         // 个死键,只能关掉列表重打一遍命令。
                         .accepting_typed("/cd {}"),
-                    );
+                    )));
                 }
                 let control = match host(control) {
                     Ok(control) => control,
@@ -1834,66 +1871,78 @@ impl CommandSet for SessionCommands {
                                 t(Msg::DiffNoChangeIn { what: &what }).into_owned(),
                             );
                         }
-                        // `esc` goes back to the list this file came out of,
-                        // in the scope it was listed in: reading one file's
-                        // diff is how you decide to read the next one's.
-                        let listing = match scope {
-                            atomcode_host_api::ChangeScope::Workspace => "/diff git",
-                            _ => "/diff",
-                        };
-                        Outcome::Open(
-                            crate::overlay::Reading::diff(what, &text).returning_to(listing),
-                        )
+                        // Picked out of the list, `esc` comes back to it with
+                        // the cursor where it was (the sheet keeps the list
+                        // behind this page) — reading one file's diff is how
+                        // you decide to read the next one's.
+                        Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::read(
+                            crate::sheet::Read::diff("diff", &what, &text),
+                        )))
                     }
                     Ok(HostReply::Changes { files, .. }) if files.is_empty() => {
                         Outcome::Said(t(Msg::DiffNothingChanged).into_owned())
                     }
                     Ok(HostReply::Changes { files, .. }) => {
+                        use crate::sheet::{Piece, Tone};
                         let count = files.len();
                         let (added, removed): (u64, u64) = files
                             .iter()
                             .fold((0, 0), |(a, r), f| (a + f.added, r + f.removed));
-                        let choices = files
+                        let rows = files
                             .into_iter()
                             .map(|f| {
-                                let counts = if f.binary {
-                                    t(Msg::DiffBinary).into_owned()
+                                // The numbers ride on the right, coloured, the way
+                                // the classic screen lays a file out: a letter for
+                                // what happened, the path, then `+a -r`.
+                                let figures = if f.binary {
+                                    vec![Piece::new(t(Msg::DiffBinary), Tone::Muted)]
                                 } else {
-                                    format!("+{} -{}", f.added, f.removed)
+                                    vec![
+                                        Piece::new(format!("+{}", f.added), Tone::Added),
+                                        Piece::new(format!(" -{}", f.removed), Tone::Removed),
+                                    ]
                                 };
-                                // What happened to it, when the scope knows —
-                                // and whether it is staged, because "what a
-                                // commit would take" and "what it would leave"
-                                // is the question this listing is usually read
-                                // for.
-                                let about = match f.change {
-                                    None => counts,
-                                    Some(change) => {
-                                        format!("{} · {counts}", t(change_word(change, f.staged)))
-                                    }
-                                };
-                                // The value is the command that opens it, and
-                                // it carries the scope: a row picked out of a
-                                // `git` listing has to open the `git` diff of
-                                // that file, not the session's.
+                                // The value is the command that opens it, and it
+                                // carries the scope: a row picked out of a `git`
+                                // listing has to open the `git` diff of that file,
+                                // not the session's.
                                 let open = match scope {
                                     atomcode_host_api::ChangeScope::Workspace => {
                                         format!("/diff git {}", f.path)
                                     }
                                     _ => format!("/diff {}", f.path),
                                 };
-                                crate::overlay::Choice::new(open, f.path.clone()).about(about)
+                                let row =
+                                    crate::sheet::Row::new(open, f.path.clone()).figures(figures);
+                                // What happened to it, when the scope knows — and
+                                // whether it is staged, because "what a commit
+                                // would take" and "what it would leave" is the
+                                // question this listing is usually read for.
+                                match f.change {
+                                    None => row,
+                                    Some(change) => row
+                                        .tag(Piece::new(change_letter(change), Tone::Muted))
+                                        .about(t(change_word(change, f.staged))),
+                                }
                             })
                             .collect();
-                        Outcome::Open(crate::overlay::Picker::new(
-                            "diff",
-                            t(Msg::DiffPickerHint {
-                                count,
-                                added,
-                                removed,
-                            }),
-                            choices,
-                        ))
+                        Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::list(
+                            crate::sheet::List::new(
+                                "diff",
+                                t(Msg::DiffListTitle {
+                                    workspace: matches!(
+                                        scope,
+                                        atomcode_host_api::ChangeScope::Workspace
+                                    ),
+                                }),
+                                rows,
+                            )
+                            .summary(vec![
+                                Piece::new(t(Msg::DiffFilesChanged { count }), Tone::Muted),
+                                Piece::new(format!("+{added}"), Tone::Added),
+                                Piece::new(format!(" -{removed}"), Tone::Removed),
+                            ]),
+                        )))
                     }
                     Ok(other) => Outcome::Refused(
                         t(Msg::HostSaidSomethingElse {
@@ -2756,6 +2805,33 @@ fn as_markdown(events: &[atomcode_kernel::session::LoggedEvent]) -> String {
 mod tests {
     use super::*;
 
+    /// The sheet a command put up at the foot of the screen.
+    fn sheet_of(outcome: Outcome) -> crate::sheet::Sheet {
+        match outcome {
+            Outcome::Do(Action::OpenSheet(sheet)) => sheet,
+            other => panic!("a sheet: {other:?}"),
+        }
+    }
+
+    /// What that sheet shows, drawn by the module that draws it.
+    fn sheet_text(sheet: &crate::sheet::Sheet) -> String {
+        use crate::module::View;
+        let moment = crate::moment::Moment {
+            sheet: Some(sheet.clone()),
+            ..Default::default()
+        };
+        let vp = crate::moment::Viewport::new(crate::frame::Rect::sized(100, 40), &moment);
+        crate::modules::sheet::SheetView::render(&crate::modules::sheet::State, &vp)
+            .iter()
+            .map(|line| line.plain())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn press(sheet: &mut crate::sheet::Sheet, key: crate::surface::Key) -> crate::sheet::Step {
+        crate::sheet::key(sheet, crate::surface::KeyPress::plain(key))
+    }
+
     /// A host that answers from a script and keeps what it was asked.
     #[derive(Default)]
     struct Recording {
@@ -3511,20 +3587,9 @@ mod tests {
         // The trailing slash is "browse from here", which is what picking a row
         // sends back in.
         let at = format!("/cd {}/", dir.path().display());
-        let picker = match all.dispatch(&at, &app.context()).await {
-            Outcome::Open(picker) => picker,
-            other => panic!("{other:?}"),
-        };
-        assert_eq!(picker.id(), "cd");
-        let text = picker
-            .render(&crate::moment::Viewport::new(
-                crate::frame::Rect::sized(80, 20),
-                &crate::moment::Moment::default(),
-            ))
-            .iter()
-            .map(|l| l.plain())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sheet = sheet_of(all.dispatch(&at, &app.context()).await);
+        assert_eq!(sheet.page.id(), "cd");
+        let text = sheet_text(&sheet);
 
         assert!(text.contains("src-alpha"), "{text}");
         assert!(text.contains("docs-beta"), "{text}");
@@ -3777,21 +3842,11 @@ mod tests {
         ]);
         let (app, _client, all) = following(&host);
 
-        let picker = match all.dispatch("/diff git", &app.context()).await {
-            Outcome::Open(picker) => picker,
-            other => panic!("{other:?}"),
-        };
-        assert_eq!(picker.id(), "diff");
+        let mut sheet = sheet_of(all.dispatch("/diff git", &app.context()).await);
+        assert_eq!(sheet.page.id(), "diff");
         // The row says what it is and whether it is staged — the difference
         // between what a commit would take and what it would leave.
-        let moment = crate::moment::Moment::default();
-        let vp = crate::moment::Viewport::new(crate::frame::Rect::sized(70, 12), &moment);
-        let drawn = picker
-            .render(&vp)
-            .iter()
-            .map(|line| line.plain())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let drawn = sheet_text(&sheet);
         assert!(
             drawn.contains("改过") && drawn.contains("已暂存"),
             "{drawn}"
@@ -3801,28 +3856,21 @@ mod tests {
         // it lives — not the label, which is just the path either way. Judged
         // by pressing Enter on it, because that is the only thing that reads
         // the value at all.
-        let picked = picker.key(crate::surface::KeyPress::plain(crate::surface::Key::Enter));
+        let picked = press(&mut sheet, crate::surface::Key::Enter);
         assert_eq!(
             picked,
-            crate::overlay::Step::Chose("/diff git src/a.rs".into()),
+            crate::sheet::Step::Chose("/diff git src/a.rs".into()),
             "a row listed from the checkout opens the checkout's diff of it, \
              not the session's — same file, silently a different answer"
         );
 
-        // And that command is the one that asks — and the reader it opens
-        // goes back to the listing **in the scope it came from**. A checkout
-        // row that backed out into the session's listing would be the same
-        // silent swap the row's value exists to prevent.
-        match all.dispatch("/diff git src/a.rs", &app.context()).await {
-            Outcome::Open(reader) => {
-                assert_eq!(reader.id(), "view");
-                assert_eq!(
-                    reader.key(crate::surface::KeyPress::plain(crate::surface::Key::Esc)),
-                    crate::overlay::Step::Chose("/diff git".into()),
-                );
-            }
-            other => panic!("{other:?}"),
-        }
+        // And that command is the one that asks, and it opens the diff to
+        // read. Going back to the listing is the sheet's (the list it was
+        // picked from stays behind it, cursor and all), so nothing is
+        // re-asked of the host and no scope can be swapped on the way back.
+        let read = sheet_of(all.dispatch("/diff git src/a.rs", &app.context()).await);
+        assert!(matches!(read.page, crate::sheet::Page::Read(_)), "{read:?}");
+        assert_eq!(read.page.id(), "diff");
         assert_eq!(
             *host.asked.lock().unwrap(),
             vec![
@@ -3912,24 +3960,17 @@ mod tests {
         ]);
         let (app, _client, all) = following(&host);
 
-        match all.dispatch("/diff", &app.context()).await {
-            Outcome::Open(picker) => assert_eq!(picker.id(), "diff"),
-            other => panic!("{other:?}"),
-        }
-        match all.dispatch("/diff src/parser.rs", &app.context()).await {
-            Outcome::Open(reader) => {
-                assert_eq!(reader.id(), "view");
-                // Back to the list, not away: reading one file's diff is how
-                // a person decides to read the next one's, and closing
-                // outright made that a retype — which also rebuilt the list
-                // with the cursor at the top.
-                assert_eq!(
-                    reader.key(crate::surface::KeyPress::plain(crate::surface::Key::Esc)),
-                    crate::overlay::Step::Chose("/diff".into()),
-                );
-            }
-            other => panic!("{other:?}"),
-        }
+        let list = sheet_of(all.dispatch("/diff", &app.context()).await);
+        assert_eq!(list.page.id(), "diff");
+        let read = sheet_of(all.dispatch("/diff src/parser.rs", &app.context()).await);
+        let crate::sheet::Page::Read(page) = &read.page else {
+            panic!("a diff to read: {read:?}");
+        };
+        // Numbered and signed the way the classic screen draws a diff, not
+        // the raw `@@` text.
+        let drawn = sheet_text(&read);
+        assert!(!drawn.contains("@@"), "{drawn}");
+        assert!(!page.lines.is_empty(), "{drawn}");
         // Changed nothing: said, not refused.
         match all.dispatch("/diff", &app.context()).await {
             Outcome::Said(text) => assert!(text.contains("还没有改过"), "{text}"),
@@ -4150,14 +4191,13 @@ mod tests {
             .dispatch(&format!("/view {}", file.display()), &app.context())
             .await
         {
-            Outcome::Open(overlay) => assert_eq!(overlay.id(), "view"),
+            Outcome::Do(Action::OpenSheet(sheet)) => {
+                assert_eq!(sheet.page.id(), "view");
+                assert!(sheet_text(&sheet).contains("fn main() {}"));
+            }
             other => panic!("{other:?}"),
         }
         // Nothing was said to the model and nothing was written.
-        assert!(matches!(
-            all.dispatch("/view", &app.context()).await,
-            Outcome::Refused(_)
-        ));
         assert!(matches!(
             all.dispatch("/view /nowhere/at/all", &app.context()).await,
             Outcome::Refused(_)
@@ -4173,10 +4213,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("note.txt"), "IN-THE-WORKING-DIR\n").expect("write");
         let (app, all, _surface) = answered_on("好了", working_in(dir.path()));
-        match all.dispatch("/view note.txt", &app.context()).await {
-            Outcome::Open(overlay) => assert_eq!(overlay.id(), "view"),
-            other => panic!("the file beside the code opens: {other:?}"),
-        }
+        let sheet = sheet_of(all.dispatch("/view note.txt", &app.context()).await);
+        assert!(
+            sheet_text(&sheet).contains("IN-THE-WORKING-DIR"),
+            "the file beside the code opens"
+        );
     }
 
     /// `/save` with a relative name — or none — writes into the working
@@ -4339,8 +4380,12 @@ mod tests {
             .dispatch(&format!("/view {}", file.display()), &app.context())
             .await
         {
-            Outcome::Open(overlay) => {
-                let title = overlay.title();
+            Outcome::Do(Action::OpenSheet(sheet)) => {
+                let title = sheet_text(&sheet)
+                    .lines()
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_string();
                 assert!(
                     title.contains(&VIEW_MAX_LINES.to_string()),
                     "the title must say how much is missing: {title}"
@@ -5127,19 +5172,9 @@ mod tests {
         let _ = app
             .context()
             .provide::<crate::plugin::PlacesSvc>(Arc::new(Marked));
-        let Outcome::Open(picker) = all.dispatch("/cd", &app.context()).await else {
-            panic!("a picker");
-        };
-        assert_eq!(picker.id(), "cd");
-        let text = picker
-            .render(&crate::moment::Viewport::new(
-                crate::frame::Rect::sized(80, 20),
-                &crate::moment::Moment::default(),
-            ))
-            .iter()
-            .map(|line| line.plain())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let mut sheet = sheet_of(all.dispatch("/cd", &app.context()).await);
+        assert_eq!(sheet.page.id(), "cd");
+        let text = sheet_text(&sheet);
         let marked = text
             .find("/w/marked")
             .unwrap_or_else(|| panic!("标过的在里面:{text}"));
@@ -5162,11 +5197,11 @@ mod tests {
         // 人本来就知道路径的那一半:列表里一条都不匹配时,回车去的就是打出来的
         // 那个地方。此前这是个死键,只能关掉列表重打一遍命令。
         for ch in "/srv/deploy".chars() {
-            picker.key(crate::surface::KeyPress::ch(ch));
+            crate::sheet::key(&mut sheet, crate::surface::KeyPress::ch(ch));
         }
         assert_eq!(
-            picker.key(crate::surface::KeyPress::plain(crate::surface::Key::Enter)),
-            crate::overlay::Step::Chose("/cd /srv/deploy".into()),
+            press(&mut sheet, crate::surface::Key::Enter),
+            crate::sheet::Step::Chose("/cd /srv/deploy".into()),
             "打出来的路径就是要去的地方"
         );
     }
@@ -5223,22 +5258,12 @@ mod tests {
             .context()
             .provide::<crate::plugin::AgentClientSvc>(client);
 
-        let picker = match c.dispatch("/agents", &app.context()).await {
-            Outcome::Open(picker) => picker,
-            other => panic!("{other:?}"),
-        };
-        assert_eq!(picker.id(), "agents", "the picker says what it is");
+        let sheet = sheet_of(c.dispatch("/agents", &app.context()).await);
+        assert_eq!(sheet.page.id(), "agents", "the sheet says what it is");
 
         // The lead is a row, and so is every member — the stopped one included,
         // saying that it has stopped so nobody wonders why the strip is bare.
-        let moment = crate::moment::Moment::default();
-        let vp = crate::moment::Viewport::new(crate::frame::Rect::sized(70, 12), &moment);
-        let said = picker
-            .render(&vp)
-            .iter()
-            .map(|line| line.plain())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let said = sheet_text(&sheet);
         assert!(said.contains('主'), "the lead is a row:\n{said}");
         assert!(said.contains("scout"), "the running one:\n{said}");
         assert!(

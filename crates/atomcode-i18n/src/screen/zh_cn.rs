@@ -30,8 +30,16 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── 浮层 ──
         Msg::OverlayEmptyFile => "  (空文件)".into(),
-        Msg::OverlayFilterHint => "输入以筛选".into(),
         Msg::OverlayNoMatch => "  没有匹配的".into(),
+        Msg::SheetListLegend { typed: false } => "↑↓ 选 · enter 打开 · 打字筛选 · esc 关闭".into(),
+        Msg::SheetListLegend { typed: true } => "↑↓ 选 · enter 打开(没有匹配时去打的那个)· tab 补全 · esc 关闭".into(),
+        Msg::SheetReadLegend { back: false } => "↑↓ 滚动 · PgUp/PgDn 翻页 · Home/End 首尾 · esc 关闭".into(),
+        Msg::SheetReadLegend { back: true } => "↑↓ 滚动 · PgUp/PgDn 翻页 · Home/End 首尾 · esc 回到列表".into(),
+        Msg::DiffListTitle { workspace: false } => "这个会话改过的文件".into(),
+        Msg::DiffListTitle { workspace: true } => "工作区里还没提交的改动(git)".into(),
+        Msg::DiffFilesChanged { count } => format!("{count} 个文件有改动  ").into(),
+        Msg::ViewPickerTitle => "挑一个文件看 · 打字搜索".into(),
+        Msg::ViewPickerEmpty => "这里还没有能看的文件".into(),
 
         // ── 补全菜单与策略介入 ──
         Msg::MenuFolder => "目录".into(),
@@ -190,6 +198,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ResumeDeleted { id } => format!("会话 {id} 已删除").into(),
         Msg::ResumeDeleteFailed { why } => format!("没删掉:{why}").into(),
         Msg::NoResumePanel => "这个屏幕没有恢复面板:启动器没有提供 `tui-panel-resume`".into(),
+        Msg::NoSheetPanel => "这个屏幕没有底部单子:启动器没有提供 `tui-panel-sheet`".into(),
         Msg::NoRewind => "这个屏幕回不了会话:启动器没有提供 `tui-rewind`".into(),
         Msg::ScreenNotConnectedRewind => "屏上没有 agent，没有回合可回".into(),
 
@@ -221,7 +230,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdAboutProviderPanel => "拉出 provider 面板:账号与模型,增改删;⏎ 换过去,esc 关".into(),
         Msg::CmdAboutCopy => "复制模型最后一条回复里的代码块;N 指定第几块,all 全要".into(),
         Msg::CmdAboutSave => "把这段对话存成 markdown".into(),
-        Msg::CmdAboutView => "开一个只读浮层看文件;不花一个回合,也不进对话".into(),
+        Msg::CmdAboutView => "在底部读一个文件(不带路径就先挑一个);不花一个回合,也不进对话".into(),
         Msg::CmdAboutCompact => "压缩历史,给上下文腾地方".into(),
         Msg::CmdAboutCancelAll => "停下这个会话与每个团队成员正在跑的回合;成员留在团队里".into(),
         Msg::CmdAboutContext => "这次会话用掉了多少；prompt 看它跑在哪份系统提示词上".into(),
@@ -257,7 +266,6 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── what a command takes, as it is shown after the name (`commands.rs`) ──
         Msg::CmdTakesPath => "[路径]".into(),
-        Msg::CmdTakesPathRequired => "<路径>".into(),
         Msg::CmdTakesFilename => "[文件名]".into(),
         Msg::CmdTakesFile => "[文件]".into(),
         Msg::CmdTakesSessionId => "[会话 id]".into(),
@@ -337,7 +345,6 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::AllowanceExhaustedOpenRouter { label } => {
             format!("{label}额度已用尽 —— 输入 /openrouter 一键接入 OpenRouter 免费模型").into()
         }
-        Msg::ViewWhichFile => "要看哪个文件?`/view 路径`".into(),
         Msg::ViewNotText { path } => format!("{path} 不是文本文件").into(),
         Msg::ViewTooBig { mb } => format!("只读了开头 {mb} MB").into(),
         Msg::ViewOnlyFirstLines { lines } => format!("只显示前 {lines} 行").into(),
@@ -447,7 +454,6 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::DiffNoChangeIn { what } => format!("{what} 没有改动").into(),
         Msg::DiffNothingChanged => "这个会话还没有改过工作区里的文件".into(),
         Msg::DiffBinary => "二进制".into(),
-        Msg::DiffPickerHint { count, added, removed } => format!("改过 {count} 个文件 · +{added} -{removed} · enter 看改动").into(),
         Msg::NoLanguageSetting => "这个宿主没有语言这一项".into(),
         Msg::LanguageNow { value, accepts } => format!("语言:{value} · 可选 {accepts} · `/language <值>` 改它").into(),
         Msg::LanguageSet { wanted, applies } => format!("语言:{wanted}({applies}生效)").into(),

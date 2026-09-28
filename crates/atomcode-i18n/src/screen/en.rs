@@ -44,8 +44,16 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── overlays ──
         Msg::OverlayEmptyFile => "  (empty file)".into(),
-        Msg::OverlayFilterHint => "type to filter".into(),
         Msg::OverlayNoMatch => "  nothing matches".into(),
+        Msg::SheetListLegend { typed: false } => "↑↓ select · enter opens · type to filter · esc closes".into(),
+        Msg::SheetListLegend { typed: true } => "↑↓ select · enter opens (what you typed, when nothing matches) · tab completes · esc closes".into(),
+        Msg::SheetReadLegend { back: false } => "↑↓ scroll · PgUp/PgDn page · Home/End ends · esc closes".into(),
+        Msg::SheetReadLegend { back: true } => "↑↓ scroll · PgUp/PgDn page · Home/End ends · esc back to the list".into(),
+        Msg::DiffListTitle { workspace: false } => "files this session changed".into(),
+        Msg::DiffListTitle { workspace: true } => "uncommitted changes in the working tree (git)".into(),
+        Msg::DiffFilesChanged { count } => format!("{count} files changed  ").into(),
+        Msg::ViewPickerTitle => "pick a file to read · type to search".into(),
+        Msg::ViewPickerEmpty => "no files here to read yet".into(),
 
         // ── completion menu and policy interventions ──
         Msg::MenuFolder => "folder".into(),
@@ -218,6 +226,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ResumeDeleted { id } => format!("Session {id} is gone").into(),
         Msg::ResumeDeleteFailed { why } => format!("It was not deleted: {why}").into(),
         Msg::NoResumePanel => "this screen has no resume panel: the launcher provided no `tui-panel-resume`".into(),
+        Msg::NoSheetPanel => "this screen has no bottom sheet: the launcher provided no `tui-panel-sheet`".into(),
         Msg::NoRewind => "this screen cannot go back: the launcher provided no `tui-rewind`".into(),
         Msg::ScreenNotConnectedRewind => "no agent on screen, so there are no turns to go back through".into(),
 
@@ -250,7 +259,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdAboutProviderPanel => "open the provider panel: accounts and models, add/edit/remove; ⏎ switches, esc closes".into(),
         Msg::CmdAboutCopy => "copy a code block from the model's last reply; N picks which one, all takes every one".into(),
         Msg::CmdAboutSave => "save this conversation as markdown".into(),
-        Msg::CmdAboutView => "open a file in a read-only overlay; costs no turn and does not enter the conversation".into(),
+        Msg::CmdAboutView => "read a file at the foot of the screen (no path: pick one); costs no turn and does not enter the conversation".into(),
         Msg::CmdAboutCompact => "fold the history to make room in the context".into(),
         Msg::CmdAboutCancelAll => "stop the turn running here and in every team member; the members stay on the team".into(),
         Msg::CmdAboutContext => {
@@ -288,7 +297,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── what a command takes, as it is shown after the name (`commands.rs`) ──
         Msg::CmdTakesPath => "[path]".into(),
-        Msg::CmdTakesPathRequired => "<path>".into(),
         Msg::CmdTakesFilename => "[filename]".into(),
         Msg::CmdTakesFile => "[file]".into(),
         Msg::CmdTakesSessionId => "[session id]".into(),
@@ -369,7 +377,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::AllowanceExhaustedOpenRouter { label } => {
             format!("{label} allowance used up — type /openrouter to connect OpenRouter's free models").into()
         }
-        Msg::ViewWhichFile => "which file? `/view <path>`".into(),
         Msg::ViewNotText { path } => format!("{path} is not a text file").into(),
         Msg::ViewTooBig { mb } => format!("first {mb} MB").into(),
         Msg::ViewOnlyFirstLines { lines } => format!("first {lines} lines").into(),
@@ -487,7 +494,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::DiffNoChangeIn { what } => format!("{what} has no changes").into(),
         Msg::DiffNothingChanged => "this session has not changed a file in the workspace yet".into(),
         Msg::DiffBinary => "binary".into(),
-        Msg::DiffPickerHint { count, added, removed } => format!("{count} files changed · +{added} -{removed} · enter opens one").into(),
         Msg::NoLanguageSetting => "this host has no language setting".into(),
         Msg::LanguageNow { value, accepts } => format!("language: {value} · it takes {accepts} · `/language <value>` changes it").into(),
         Msg::LanguageSet { wanted, applies } => format!("language: {wanted} (applies {applies})").into(),

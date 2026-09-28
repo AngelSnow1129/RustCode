@@ -157,6 +157,11 @@ pub enum Action {
     /// model offers is the configuration's answer, and the command that read it
     /// hands it over — the panel draws the rows, the command knows what they
     /// are.
+    /// Put a sheet up at the foot of the screen: a list to pick a row from, or
+    /// text to read (`crate::sheet`). What `/agents`, `/cd`, `/diff` and `/view`
+    /// answer with — the panel every other working surface already is, rather
+    /// than a modal over the conversation.
+    OpenSheet(crate::sheet::Sheet),
     PickEffort {
         /// The selection id of the model the pick is for.
         model: String,

@@ -1195,6 +1195,8 @@ pub struct Hits {
     rewind: Option<Rect>,
     /// And the resume panel's.
     resume: Option<Rect>,
+    /// Where the bottom sheet was drawn — the wheel and the pointer ask.
+    sheet: Option<Rect>,
     /// And the background panel's.
     bg: Option<Rect>,
     /// Where the slash menu was drawn, so a press or the pointer on a row finds
@@ -2490,6 +2492,7 @@ impl Host {
                 m.rewind_panel = None;
                 m.mcp_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.settings_panel = Some(crate::settings::Panel::new());
                 true
             }
@@ -2767,6 +2770,7 @@ impl Host {
                 m.rewind_panel = None;
                 m.mcp_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.providers_panel = Some(crate::providers::Panel::new());
                 true
             }
@@ -3069,6 +3073,7 @@ impl Host {
                 m.rewind_panel = None;
                 m.mcp_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.plugins_panel = Some(crate::plugins::Panel::new());
                 true
             }
@@ -3264,6 +3269,7 @@ impl Host {
                 m.rewind_panel = None;
                 m.mcp_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.tools_panel = Some(crate::tools::Panel::new());
                 true
             }
@@ -3523,6 +3529,7 @@ impl Host {
                 }
                 m.mcp_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.rewind_panel = Some(crate::rewind::Panel::new());
                 true
             }
@@ -3701,6 +3708,7 @@ impl Host {
         m.rewind_panel = None;
         m.mcp_panel = None;
         m.bg_panel = None;
+        m.sheet = None;
         m.resume_panel = Some(crate::resume::Panel::new());
         true
     }
@@ -3878,6 +3886,123 @@ impl Host {
         }
     }
 
+    // ---- the bottom sheet: `/agents`, `/cd`, `/diff`, `/view` --------------------
+
+    /// Whether the bottom sheet is up.
+    pub fn sheet_open(&self) -> bool {
+        self.moment.read().expect("moment poisoned").sheet.is_some()
+    }
+
+    /// Put a sheet up, putting away any other panel a hand works in. False only
+    /// when there is nothing to draw it with (the module was not mounted).
+    ///
+    /// A sheet replaces whatever sheet was up — `/cd` stepping into a directory
+    /// is a new list in the old one's place. What goes *behind* a page (Esc's
+    /// way back) is decided by whoever opened it ([`crate::sheet::Sheet::back`]),
+    /// not here.
+    pub fn open_sheet(&self, sheet: crate::sheet::Sheet) -> bool {
+        if !self.modules.has_view(crate::modules::sheet::ID) {
+            return false;
+        }
+        let mut m = self.moment.write().expect("moment poisoned");
+        m.settings_panel = None;
+        if m.providers_panel.take().is_some() {
+            self.providers_secret
+                .lock()
+                .expect("provider secret poisoned")
+                .clear();
+        }
+        m.plugins_panel = None;
+        m.tools_panel = None;
+        m.rewind_panel = None;
+        m.mcp_panel = None;
+        m.resume_panel = None;
+        m.bg_panel = None;
+        m.sheet = Some(sheet);
+        true
+    }
+
+    /// Put the sheet away. True when it was up.
+    pub fn close_sheet(&self) -> bool {
+        self.moment
+            .write()
+            .expect("moment poisoned")
+            .sheet
+            .take()
+            .is_some()
+    }
+
+    /// The list page that is up, for a pick to leave behind the page it opens.
+    pub fn sheet_list(&self) -> Option<crate::sheet::Page> {
+        let m = self.moment.read().expect("moment poisoned");
+        match &m.sheet.as_ref()?.page {
+            page @ crate::sheet::Page::List(_) => Some(page.clone()),
+            crate::sheet::Page::Read(_) => None,
+        }
+    }
+
+    /// Run one key against the sheet: whether anything changed, and what was
+    /// picked when the key picked something.
+    pub fn sheet_key(&self, press: crate::surface::KeyPress) -> (bool, Option<String>) {
+        let mut m = self.moment.write().expect("moment poisoned");
+        let Some(sheet) = m.sheet.as_mut() else {
+            return (false, None);
+        };
+        let before = sheet.clone();
+        match crate::sheet::key(sheet, press) {
+            crate::sheet::Step::Stay => {
+                let changed = *sheet != before;
+                (changed, None)
+            }
+            crate::sheet::Step::Close => {
+                m.sheet = None;
+                (true, None)
+            }
+            crate::sheet::Step::Chose(value) => (true, Some(value)),
+        }
+    }
+
+    /// The wheel over the sheet walks its list, or scrolls what is being read.
+    pub fn sheet_wheel(&self, x: u16, y: u16, by: i32) -> bool {
+        let over = self
+            .hits
+            .lock()
+            .expect("hits poisoned")
+            .sheet
+            .is_some_and(|rect| rect.contains(x, y));
+        if !over {
+            return false;
+        }
+        let mut m = self.moment.write().expect("moment poisoned");
+        match m.sheet.as_mut() {
+            Some(sheet) => {
+                crate::sheet::wheel(sheet, by);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Which row of the sheet's list is under the pointer.
+    pub fn sheet_row_at(&self, x: u16, y: u16) -> Option<usize> {
+        let rect = *self.hits.lock().expect("hits poisoned").sheet.as_ref()?;
+        if !rect.contains(x, y) {
+            return None;
+        }
+        let m = self.moment.read().expect("moment poisoned");
+        let vp = crate::moment::Viewport::new(rect, &m);
+        crate::modules::sheet::geometry(&m, &vp).listed_at((y - rect.y) as usize)
+    }
+
+    /// Point the sheet's list at a row. True when it moved.
+    pub fn point_sheet_at(&self, row: usize) -> bool {
+        let mut m = self.moment.write().expect("moment poisoned");
+        match m.sheet.as_mut().map(|sheet| &mut sheet.page) {
+            Some(crate::sheet::Page::List(list)) => list.point_at(row),
+            _ => false,
+        }
+    }
+
     // ---- the background panel ---------------------------------------------------
 
     /// Whether the background panel is up.
@@ -3910,6 +4035,7 @@ impl Host {
         m.rewind_panel = None;
         m.mcp_panel = None;
         m.resume_panel = None;
+        m.sheet = None;
         let mut panel = crate::bg::Panel::new(moved);
         let view = m.bg.clone();
         panel.settle(&view);
@@ -4001,6 +4127,7 @@ impl Host {
             crate::bg::Step::Stay => (changed, None),
             crate::bg::Step::Close => {
                 m.bg_panel = None;
+                m.sheet = None;
                 (true, None)
             }
             step => (true, Some(step)),
@@ -4048,6 +4175,7 @@ impl Host {
                 m.tools_panel = None;
                 m.resume_panel = None;
                 m.bg_panel = None;
+                m.sheet = None;
                 m.mcp_panel = Some(crate::mcp::Panel::new());
                 true
             }
@@ -5070,6 +5198,7 @@ impl Host {
                         mcp: None,
                         rewind: None,
                         resume: None,
+                        sheet: None,
                         bg: None,
                         menu: None,
                     };
@@ -5140,6 +5269,10 @@ impl Host {
                         // And the resume panel, worked with the same pointer.
                         if id == crate::modules::resume::ID {
                             self.hits.lock().expect("hits poisoned").resume = Some(*tail_rect);
+                        }
+                        // And the bottom sheet (`/agents`, `/cd`, `/diff`, `/view`).
+                        if id == crate::modules::sheet::ID {
+                            self.hits.lock().expect("hits poisoned").sheet = Some(*tail_rect);
                         }
                         // And the background panel.
                         if id == crate::modules::bg::ID {
@@ -5781,6 +5914,7 @@ pub fn panel_is_up(moment: &Moment) -> bool {
         || moment.mcp_panel.is_some()
         || moment.resume_panel.is_some()
         || moment.bg_panel.is_some()
+        || moment.sheet.is_some()
 }
 
 /// Whether what is on screen stands in the composer's place.
@@ -5808,6 +5942,10 @@ pub fn displaces_composer(moment: &Moment) -> bool {
         || moment.settings_panel.is_some()
         || moment.providers_panel.is_some()
         || moment.bg_panel.is_some()
+        // A sheet has its own search box and takes the keys while it is up —
+        // the same reason as the background panel — and the text being read
+        // wants the rows the composer would take.
+        || moment.sheet.is_some()
 }
 
 /// The view modules whose rows ride at the foot of the conversation.
@@ -5854,6 +5992,7 @@ pub const TAIL: &[&str] = &[
     crate::modules::mcp::ID,
     crate::modules::rewind::ID,
     crate::modules::resume::ID,
+    crate::modules::sheet::ID,
     crate::modules::bg::ID,
     crate::modules::ask::ID,
     crate::modules::steering::ID,
@@ -7183,6 +7322,70 @@ mod tests {
         );
     }
 
+    /// The bottom sheet (`/agents`, `/cd`, `/diff`, `/view`) stands where the
+    /// composer does, the way the background panel does: it has a search box
+    /// of its own and the keys go there, and the text being read wants the rows.
+    ///
+    /// And it is one of the family: putting it up puts any other panel away,
+    /// and a pick is handed back as the command the row stands for.
+    #[test]
+    fn the_sheet_takes_the_composers_rows_and_a_pick_is_a_command() {
+        let h = host();
+        h.modules
+            .add_view(Arc::new(Mounted::<crate::modules::sheet::SheetView>::new()))
+            .unwrap();
+        let w = 60u16;
+        let rows = |id: &str| {
+            let mods = h.modules.clone();
+            let m = h.moment.read().unwrap().clone();
+            crate::host::asked_height(&mods, id, &m, w)
+        };
+        let before = rows(crate::modules::input::ID);
+        assert!(before > 0, "the field has rows to give");
+        h.moment.write().unwrap().bg_panel = Some(crate::bg::Panel::new(None));
+
+        let list = crate::sheet::List::new(
+            "agents",
+            "",
+            vec![
+                crate::sheet::Row::new("/look a", "a"),
+                crate::sheet::Row::new("/look b", "b"),
+            ],
+        );
+        assert!(h.open_sheet(crate::sheet::Sheet::list(list)));
+        assert!(
+            h.moment.read().unwrap().bg_panel.is_none(),
+            "one panel at a time"
+        );
+        assert_eq!(
+            rows(crate::modules::input::ID),
+            0,
+            "the composer stood aside"
+        );
+        assert!(
+            rows(crate::modules::sheet::ID) > 0,
+            "and the sheet has the rows"
+        );
+
+        let key = |k| crate::surface::KeyPress::plain(k);
+        assert_eq!(h.sheet_key(key(crate::surface::Key::Down)), (true, None));
+        assert_eq!(
+            h.sheet_key(key(crate::surface::Key::Enter)),
+            (true, Some("/look b".to_string()))
+        );
+        assert!(
+            h.sheet_open(),
+            "a pick leaves the list up until its command answers"
+        );
+        assert_eq!(h.sheet_key(key(crate::surface::Key::Esc)), (true, None));
+        assert!(!h.sheet_open());
+        assert_eq!(
+            rows(crate::modules::input::ID),
+            before,
+            "and it is back as it was"
+        );
+    }
+
     /// Every panel a person works in takes the status line's row while it is
     /// up and gives it back when it closes — `/model` and `/provider` open the
     /// providers panel, and the line under it read as one more row of it.
@@ -7197,7 +7400,7 @@ mod tests {
         let before = rows();
         assert_eq!(before, 1, "the status line has its row");
 
-        let panels: [(&str, fn(&mut Moment, bool)); 8] = [
+        let panels: [(&str, fn(&mut Moment, bool)); 9] = [
             ("settings", |m, up| {
                 m.settings_panel = up.then(crate::settings::Panel::default)
             }),
@@ -7221,6 +7424,11 @@ mod tests {
             }),
             ("bg", |m, up| {
                 m.bg_panel = up.then(|| crate::bg::Panel::new(None))
+            }),
+            ("sheet", |m, up| {
+                m.sheet = up.then(|| {
+                    crate::sheet::Sheet::list(crate::sheet::List::new("agents", "", Vec::new()))
+                })
             }),
         ];
         for (name, set) in panels {

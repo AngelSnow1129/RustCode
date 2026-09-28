@@ -8942,3 +8942,90 @@ async fn the_tab_setting_moves_the_cycle_onto_plain_tab() {
     );
     task.abort();
 }
+
+/// **`/view` with nothing named is a sheet at the foot of the screen**, not a
+/// modal over the conversation: the files here, filtered as they are typed.
+/// Picking one reads it in the same place; Esc goes back to the list with the
+/// cursor still on the file just read — the way reading one file and then the
+/// next one goes — and Esc again puts the sheet away.
+#[tokio::test]
+async fn view_picks_from_a_sheet_and_esc_comes_back_to_the_same_row() {
+    let dir = scratch("sheet-view");
+    std::fs::write(dir.join("alpha-note.txt"), "ALPHA-BODY\n").expect("write");
+    std::fs::write(dir.join("beta-note.txt"), "BETA-BODY\n").expect("write");
+    // The host is asked where the session works — the fixture does not answer
+    // that by itself, the launcher's host does.
+    let here = dir.display().to_string();
+    let s = start_with_host(
+        tree(&dir, &replay(r#"{ text = "hi" }"#), &[]),
+        move |inner| Arc::new(WorksIn { inner, here }),
+    )
+    .await;
+    let task = s.open().await;
+    let list_legend =
+        atomcode_i18n::screen::t(atomcode_i18n::screen::Msg::SheetListLegend { typed: false })
+            .into_owned();
+    let read_legend =
+        atomcode_i18n::screen::t(atomcode_i18n::screen::Msg::SheetReadLegend { back: true })
+            .into_owned();
+
+    s.term.type_line("/view");
+    until(&s, &list_legend).await;
+    for c in "-note".chars() {
+        s.term.press(KeyPress::ch(c));
+    }
+    until(&s, "beta-note.txt").await;
+    s.term.press(KeyPress::plain(Key::Down));
+    s.term.press(KeyPress::plain(Key::Enter));
+    until(&s, "BETA-BODY").await;
+    assert!(s.screen().contains(&read_legend), "{}", s.screen());
+
+    s.term.press(KeyPress::plain(Key::Esc));
+    until(&s, &list_legend).await;
+    let pointer = atomcode_tui::caps::Caps::default().g(atomcode_tui::caps::Glyph::Pointer);
+    let screen = s.screen();
+    let row = screen
+        .lines()
+        .find(|line| line.contains("beta-note.txt"))
+        .unwrap_or_else(|| panic!("the list is back:\n{screen}"));
+    assert!(
+        row.contains(pointer),
+        "the cursor is still on the file just read:\n{screen}"
+    );
+    assert!(!screen.contains("BETA-BODY"), "{screen}");
+
+    s.term.press(KeyPress::plain(Key::Esc));
+    until_gone(&s, &list_legend).await;
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
+/// A host that says where the session works, and otherwise is the fixture's.
+struct WorksIn {
+    inner: Arc<dyn atomcode_host_api::HostControl>,
+    here: String,
+}
+
+#[async_trait]
+impl atomcode_host_api::HostControl for WorksIn {
+    async fn call(
+        &self,
+        command: atomcode_host_api::HostCommand,
+    ) -> Result<atomcode_host_api::HostReply, atomcode_host_api::HostError> {
+        if matches!(command, atomcode_host_api::HostCommand::Context { .. }) {
+            return Ok(atomcode_host_api::HostReply::Context {
+                window: 200_000,
+                used: 0,
+                model: "replay".into(),
+                working_dir: self.here.clone(),
+                system_prompt: None,
+            });
+        }
+        self.inner.call(command).await
+    }
+
+    fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
+        self.inner.subscribe()
+    }
+}

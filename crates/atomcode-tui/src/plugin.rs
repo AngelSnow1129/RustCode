@@ -1681,6 +1681,10 @@ impl UserInterface for Tui {
                             stale = true;
                             continue;
                         }
+                        if self.host.sheet_wheel(x, y, by) {
+                            stale = true;
+                            continue;
+                        }
                         if self.host.bg_wheel(x, y, by) {
                             stale = true;
                             continue;
@@ -1861,6 +1865,18 @@ impl UserInterface for Tui {
                                     continue;
                                 }
                             }
+                            // And the bottom sheet's list: a click is Enter on
+                            // the row, the same as the resume panel.
+                            if self.host.sheet_open() {
+                                if let Some(row) = self.host.sheet_row_at(x, y) {
+                                    let _ = self.host.point_sheet_at(row);
+                                    self.run_sheet_key(crate::surface::KeyPress::plain(
+                                        crate::surface::Key::Enter,
+                                    ));
+                                    stale = true;
+                                    continue;
+                                }
+                            }
                             // The providers panel's header, on the same terms
                             // as the settings one: chrome first, so a stray row
                             // cannot answer a press aimed at a tab.
@@ -2015,6 +2031,11 @@ impl UserInterface for Tui {
                                     stale |= self.host.point_resume_at(row);
                                 }
                             }
+                            if self.host.sheet_open() {
+                                if let Some(row) = self.host.sheet_row_at(x, y) {
+                                    stale |= self.host.point_sheet_at(row);
+                                }
+                            }
                             continue;
                         }
                         // Handled above, and never reached.
@@ -2142,6 +2163,11 @@ impl UserInterface for Tui {
                 // in here means "put it away", not the composer's double-tap.
                 Wake::Input(Input::Key(press)) if self.host.resume_open() => {
                     stale |= self.run_resume_key(press);
+                }
+                // And the bottom sheet, on the same terms: while it is up it owns
+                // the keys, Esc included.
+                Wake::Input(Input::Key(press)) if self.host.sheet_open() => {
+                    stale |= self.run_sheet_key(press);
                 }
                 // And the background panel — except ctrl+c and ctrl+d, which
                 // keep their meaning everywhere: the screen quits on them, which
@@ -2843,6 +2869,62 @@ impl Tui {
         if let Some(keys) = keys {
             let _ = keys.send(Wake::Chose(Some(line)));
         }
+    }
+
+    /// One key against the bottom sheet. A pick is dispatched as the command the
+    /// row stands for ([`Self::pick_from_sheet`]).
+    fn run_sheet_key(&self, press: crate::surface::KeyPress) -> bool {
+        let (changed, picked) = self.host.sheet_key(press);
+        match picked {
+            Some(value) => {
+                self.pick_from_sheet(value);
+                true
+            }
+            None => changed,
+        }
+    }
+
+    /// A row picked out of the sheet, run as the command it is — a pick and the
+    /// same command typed reach one implementation, the rule every panel keeps.
+    ///
+    /// The list stays up while the command runs, because what comes back is
+    /// usually the sheet's next page: a file's diff out of `/diff`'s list, the
+    /// next directory down out of `/cd`'s. When that page is text to read, the
+    /// list goes *behind* it — Esc comes back to it with the cursor on the row
+    /// that was picked, which is what reading one file's diff and then the
+    /// next one's needs. Anything else the command does (`/look`, `/cd` into a
+    /// directory, a refusal) is the end of the list, and the sheet goes away.
+    fn pick_from_sheet(&self, value: String) {
+        let Some(ctx) = self.ctx.lock().expect("ctx poisoned").clone() else {
+            return;
+        };
+        let Some(keys) = self.wake.lock().expect("wake poisoned").clone() else {
+            return;
+        };
+        let host = self.host.clone();
+        let behind = self.host.sheet_list();
+        tokio::spawn(async move {
+            let outcome = host.commands.dispatch(&value, &ctx).await;
+            let outcome = match outcome {
+                crate::command::Outcome::Do(crate::keymap::Action::OpenSheet(mut sheet)) => {
+                    if let (crate::sheet::Page::Read(_), None, Some(list)) =
+                        (&sheet.page, &sheet.back, behind)
+                    {
+                        if list.id() == sheet.page.id() {
+                            sheet.back = Some(Box::new(list));
+                        }
+                    }
+                    crate::command::Outcome::Do(crate::keymap::Action::OpenSheet(sheet))
+                }
+                other => {
+                    if host.close_sheet() {
+                        let _ = keys.send(Wake::Fact);
+                    }
+                    other
+                }
+            };
+            deliver(&host, &keys, outcome);
+        });
     }
 
     /// One key against the resume panel. The only thing it asks for is a resume,
@@ -5765,6 +5847,15 @@ impl Tui {
             Action::LookAt(session) => {
                 drop(m);
                 self.switch_to(&session);
+                return false;
+            }
+            // `/agents`, `/cd`, `/diff`, `/view`: a list to pick from or text to
+            // read, at the foot of the screen like every other working panel.
+            Action::OpenSheet(sheet) => {
+                drop(m);
+                if !self.host.open_sheet(sheet) {
+                    self.say(&t(Msg::NoSheetPanel));
+                }
                 return false;
             }
             // `/bg` brings the panel up on the list it just fetched: the list

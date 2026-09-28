@@ -12,6 +12,7 @@ pub mod raster;
 pub mod resume;
 pub mod rewind;
 pub mod settings;
+pub mod sheet;
 pub mod status;
 pub mod steering;
 pub mod team;
