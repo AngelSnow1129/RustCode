@@ -1164,16 +1164,27 @@ fn as_background_question(mut asked: crate::ask::Asked, who: String) -> crate::a
                     self.pour_bg_question();
 ```
 
-「一个问题在屏幕上」那个键臂（`:2117-2120`）里，答完之后：
+第二处**不挂在键臂上**，挂在主循环 `self.host.sync_asking()`（`:1368`）那里，判「队列从有
+变空」的边沿（设计 §6）。只挂键臂会漏掉鼠标点面板答完（`:5865`）、流尾兜底逐条答
+（`answer_current`）和 `withdraw`——而后台会话停在 Waiting 后不会再推 `BackgroundChanged`，
+漏一次就永远提不上来。循环外（`loop` 之前）加一个 `let mut had_asks = false;`，然后：
 
 ```rust
-                Wake::Input(Input::Key(press)) if self.host.asks.is_waiting() => {
-                    quit = self.answer_question(press);
-                    // 答完了可能腾出位置来：前台优先，前台的空位一出现就轮到后台的。
+                self.host.sync_asking();
+                // 队列空出来的那一刻（不论是怎么空的）：前台优先，前台的空位一出现就
+                // 轮到后台的。判边沿不判电平 —— 每帧都叫，宿主不认识这条命令时每帧都会
+                // 重发一次取回。
+                let has_asks = self.host.asks.is_waiting();
+                if had_asks && !has_asks {
                     self.pour_bg_question();
-                    stale = true;
                 }
+                had_asks = has_asks;
 ```
+
+判据加在 `crates/atomcode-tui/src/host.rs` 或 plugin 的 `mod tests`（跟着现有 `sync_asking`
+测试 `:7057-7087` 的装置走）：前台一条问询被 `take_id(..).finish(..)`（模拟鼠标那条路）清掉后，
+下一次循环检查叫到了 `pour_bg_question`——可以把「要不要提」抽成
+`fn queue_emptied(had: bool, has: bool) -> bool` 的纯函数来判，不必起整个循环。
 
 - [ ] **Step 7: 跑它，确认它过**
 
@@ -1535,6 +1546,43 @@ Expected: PASS
 
 若 `until_screen("Which one?")` 这一步等不到，先看 Task 6 的 `pour_bg_question` 是不是真的在
 `BackgroundChanged` 那个臂里被叫到了（`host.say` 与 `Wake::Fact` 那两处也在里面）。
+
+- [ ] **Step 2b: 收回的判据：`/bg drop` 之后一个答案都不送**
+
+设计 §6「等答案的任务必须分开 `Err` 与 `Ok(None)`」的判据。Task 6 的代码写的是
+`let Ok(chosen) = answer.await else { return };`，这一条防的是以后有人照前台 `ask()` 的
+`.ok().flatten()` / `unwrap_or_default()` 改回去——那样收回会变成一次拒绝发出去。
+
+```rust
+/// 屏幕上正问着一个后台会话，它被 `/bg drop` 了：问询收回，**没有任何答案**被送出去
+/// ——收回是取消，不是替人拒绝。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn a_dropped_background_question_is_withdrawn_not_refused() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_screen("Which one?").await;
+
+    rig.term.type_line("/bg drop 1");
+    rig.until_background("it is gone", |list| list.is_empty()).await;
+
+    // 问询不在屏幕上了。
+    rig.until_screen_lacks("Which one?").await;
+    // 并且一个 AnswerBackground 都没发过。
+    assert_eq!(rig.answers_sent(), 0, "收回不是拒绝");
+}
+```
+
+`Rig` 若没有 `until_screen_lacks` / `answers_sent`，照它现有 `until_screen` 的写法补：
+`answers_sent` 在 `Rig` 包的那一层 `HostControl` 上数 `HostCommand::AnswerBackground` 的次数
+（包一层计数的 `HostControl`，其余原样转发）。**不能**只断言「那个 runtime 没收到答案」：
+被 drop 的 runtime 已经停了，照抄出来的拒绝会被 `NotFound` 挡掉，这条判据会碰巧绿。
+
+注意 `/bg drop` 时问询面板亮着、`/bg drop 1` 要能打进输入框：若问询面板吃掉按键，改用
+`rig.drop_background(1)`（直接调 `HostCommand::DropBackground`）。
+
+Run: `cargo test -p atomcode-cli --test tui_bg a_dropped_background_question_is_withdrawn_not_refused`
+Expected: PASS
 
 - [ ] **Step 3: 反向判据：宿主不认识这条命令时，屏幕照旧**
 
