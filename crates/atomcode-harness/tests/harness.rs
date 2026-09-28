@@ -337,6 +337,26 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// The `id` a session log's header names, when this file is a session log at all.
+fn header_id(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let first = text.lines().next()?;
+    let value: serde_json::Value = serde_json::from_str(first).ok()?;
+    value.get("header")?.get("id")?.as_str().map(str::to_string)
+}
+
+/// This session's own log, found by the `id` its header carries.
+///
+/// Found by reading headers rather than by taking the root whole: the sessions
+/// root belongs to the *process* (`$ATOMCODE_HOME` is one per process), so it
+/// holds every test's sessions, not just this one's.
+fn own_log(root: &Path, session: &str) -> Option<PathBuf> {
+    let mut all = Vec::new();
+    walk(root, &mut all);
+    all.into_iter()
+        .find(|path| header_id(path).as_deref() == Some(session))
+}
+
 /// Facts reach the file in the order they were committed.
 ///
 /// A sequence number is minted when a fact commits, so the log's ORDER is the
@@ -378,65 +398,72 @@ async fn the_log_reaches_the_disk_in_the_order_it_was_committed() {
     run_turn(&app, "and again").await.unwrap();
 
     let root = atomcode_harness::home().join("sessions");
+    let mine = app
+        .context()
+        .only_session()
+        .expect("the app has one session")
+        .id()
+        .to_string();
     // Wait for the writer to drain rather than guessing how long it takes: the
     // queue is deliberately off the turn's path, so the last facts are still in
     // flight when the turn returns. A fixed sleep here was flaky under a full
     // parallel run — which is the one condition that matters, because that is
     // when the writer is slowest.
+    //
+    // **This session's log and no other.** Every test in this binary shares one
+    // `$ATOMCODE_HOME`, hence one sessions root, so reading the root whole made
+    // this test vouch for its neighbours: a session another test had only just
+    // created ("too few facts") and one still being written ("not in sequence
+    // order"). Neither is this conversation's log.
+    let settled = |path: &Path| {
+        std::fs::read_to_string(path)
+            .map(|t| t.lines().filter(|l| l.contains("turn_end")).count() >= 2)
+            .unwrap_or(false)
+    };
+    let mut path = None;
     for _ in 0..200 {
-        let mut seen = Vec::new();
-        walk(&root, &mut seen);
-        // EVERY file, not any: breaking as soon as one session had drained left
-        // a second one mid-write, and the assertions below read them all. It
-        // still flakes rarely under a full parallel run when read as `any`.
-        let settled = |p: &PathBuf| {
-            std::fs::read_to_string(p)
-                .map(|t| t.lines().filter(|l| l.contains("turn_end")).count() >= 2)
-                .unwrap_or(false)
-        };
-        if !seen.is_empty() && seen.iter().all(settled) {
+        path = own_log(&root, &mine);
+        if path.as_deref().is_some_and(settled) {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
-    let mut written: Vec<PathBuf> = Vec::new();
-    walk(&root, &mut written);
-    assert!(
-        !written.is_empty(),
-        "nothing was persisted under {root:?} — this scenario would pass on an \
-         empty directory otherwise, which is the failure it exists to catch"
-    );
+    let path = path.unwrap_or_else(|| {
+        panic!(
+            "nothing was persisted for session {mine} under {root:?} — this \
+             scenario would pass on an empty directory otherwise, which is the \
+             failure it exists to catch"
+        )
+    });
 
-    for path in written {
-        let text = std::fs::read_to_string(&path).expect("read the session back");
-        let mut seqs = Vec::new();
-        for line in text.lines().filter(|l| !l.trim().is_empty()) {
-            let value: serde_json::Value = serde_json::from_str(line)
-                .unwrap_or_else(|e| panic!("{}: not JSON: {e}", path.display()));
-            // The header carries no event and no sequence number.
-            if value.get("header").is_some() && value.get("event").is_none() {
-                continue;
-            }
-            seqs.push(
-                value
-                    .get("seq")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0),
-            );
+    let text = std::fs::read_to_string(&path).expect("read the session back");
+    let mut seqs = Vec::new();
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let value: serde_json::Value = serde_json::from_str(line)
+            .unwrap_or_else(|e| panic!("{}: not JSON: {e}", path.display()));
+        // The header carries no event and no sequence number.
+        if value.get("header").is_some() && value.get("event").is_none() {
+            continue;
         }
-        assert!(
-            seqs.len() > 4,
-            "{}: too few facts to mean anything",
-            path.display()
-        );
-        let mut sorted = seqs.clone();
-        sorted.sort_unstable();
-        assert_eq!(
-            seqs,
-            sorted,
-            "{}: the file is not in sequence order — a resume would replay this \
-             conversation scrambled",
-            path.display()
+        seqs.push(
+            value
+                .get("seq")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
         );
     }
+    assert!(
+        seqs.len() > 4,
+        "{}: too few facts to mean anything",
+        path.display()
+    );
+    let mut sorted = seqs.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        seqs,
+        sorted,
+        "{}: the file is not in sequence order — a resume would replay this \
+         conversation scrambled",
+        path.display()
+    );
 }
