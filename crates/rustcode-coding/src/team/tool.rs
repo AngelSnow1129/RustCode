@@ -74,6 +74,13 @@ struct DelegateTask {
     description: String,
     prompt: String,
     role: TeamRoleId,
+    /// Accepted as an alias for the lane the `role` belongs to, because the `task`
+    /// tool spells the same concept `subagent_type` and models carry that name
+    /// over. It is validated against `role`, never a second source of truth: a
+    /// disagreement is an explicit batch error rather than a silent downgrade
+    /// (the old behavior ignored the field entirely) or a silent escalation.
+    #[serde(default)]
+    subagent_type: Option<String>,
     #[serde(default, deserialize_with = "de_scope_lenient")]
     scope: Vec<String>,
 }
@@ -130,8 +137,66 @@ where
     }
 }
 
-fn parse_args(args: &str) -> Result<TeamArgs, String> {
-    serde_json::from_str(args).map_err(|error| format!("invalid team args: {error}"))
+/// Rebuild `TeamArgs`-shaped JSON from shapes serde cannot read directly.
+///
+/// `TeamArgs` is an internally tagged enum (`#[serde(tag = "action")]`), so it only
+/// deserializes from an object that carries `action`. A bare task array or a
+/// double-encoded string is a hard serde error whose message the model cannot learn
+/// from, so it keeps guessing. Returns `None` when genuinely unsalvageable -- the
+/// caller then replays the original parse error rather than faking success.
+fn salvage_team_args(args: &str) -> Option<Value> {
+    let mut value = serde_json::from_str::<Value>(args).ok()?;
+    // Rung 1: the whole payload arrived as a JSON-encoded string.
+    if let Value::String(inner) = &value {
+        value = serde_json::from_str::<Value>(inner.trim()).ok()?;
+    }
+    match value {
+        // Rung 2: a bare task array -> `delegate.tasks`.
+        Value::Array(items) => Some(json!({"action": "delegate", "tasks": items})),
+        Value::Object(mut map) => {
+            let action = map.get("action").and_then(Value::as_str).unwrap_or("");
+            if matches!(action, "delegate" | "status" | "wait" | "result" | "stop") {
+                return Some(Value::Object(map));
+            }
+            // Rung 3: task list present but `action` missing/misspelled -> delegate.
+            if map.contains_key("tasks") {
+                map.insert("action".into(), json!("delegate"));
+                return Some(Value::Object(map));
+            }
+            // Rung 4: a single task object -> wrap it in `tasks`.
+            if map.contains_key("description") || map.contains_key("prompt") {
+                return Some(json!({"action": "delegate", "tasks": [Value::Object(map)]}));
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Parse the team tool args, repairing malformed weak-model output on failure.
+/// Repairs ONLY on failure, so well-formed arguments are never altered.
+///
+/// Ladder: direct parse -> `repair_json` (control chars / trailing commas) ->
+/// `salvage_team_args` (shape rescue). Shared by `risk` and `execute` so both
+/// agree on whether a dispatch contains a write-authority role: if they disagreed,
+/// a scoped-write worker could be rated `Safe` at the approval gate and then run
+/// as a Worker (or be denied after being rated Risky).
+fn parse_team_args(args: &str) -> Result<TeamArgs, String> {
+    if let Ok(parsed) = serde_json::from_str::<TeamArgs>(args) {
+        return Ok(parsed);
+    }
+    if let Ok(parsed) =
+        serde_json::from_str::<TeamArgs>(&rustcode_capabilities::tools::repair::repair_json(args))
+    {
+        return Ok(parsed);
+    }
+    if let Some(salvaged) = salvage_team_args(args) {
+        if let Ok(parsed) = serde_json::from_value::<TeamArgs>(salvaged) {
+            return Ok(parsed);
+        }
+    }
+    // Reproduce the original parse error so the caller can surface it to the model.
+    serde_json::from_str::<TeamArgs>(args).map_err(|error| format!("invalid team args: {error}"))
 }
 
 fn task_spec(task: DelegateTask) -> Result<TeamTaskSpec, String> {
@@ -140,6 +205,23 @@ fn task_spec(task: DelegateTask) -> Result<TeamTaskSpec, String> {
     }
     let profile = role_by_id(task.role.as_str())
         .ok_or_else(|| format!("unknown team role: {}", task.role))?;
+    // `subagent_type` is an accepted alias, not a second authority: here it only
+    // has to AGREE with the role's lane. Rejecting the disagreement beats the
+    // silent alternatives -- ignoring it (the old behavior, which let a model
+    // believe it had escalated) or letting it override `role` (silent escalation).
+    if let Some(requested) = task.subagent_type.as_deref() {
+        let expected = match profile.permission {
+            rustcode_capabilities::team::TeamPermission::Worker => "worker",
+            rustcode_capabilities::team::TeamPermission::Explore => "explore",
+        };
+        if requested != expected {
+            return Err(format!(
+                "team task `{}`: subagent_type \"{requested}\" does not match role \"{}\" ({expected}); \
+                 drop subagent_type or use \"{expected}\"",
+                task.description, task.role
+            ));
+        }
+    }
     Ok(TeamTaskSpec {
         description: task.description,
         prompt: task.prompt,
@@ -175,7 +257,7 @@ impl Tool for TeamTool {
     }
 
     fn description(&self) -> &str {
-        "Run and manage a persistent team of specialized child agents. Use `delegate` with one or more independent tasks, then `status`, `wait`, or `result` with the returned run_id; use `stop` to cancel a run. Roles determine read-only vs scoped-write authority and fast vs capable model routing. Worker roles require a non-empty working-directory-relative scope and cannot run Bash. Supports hierarchical dispatch: a child agent may itself delegate to a deeper tier up to the configured max_depth, enabling three-tier blackboard tree fan-out."
+        "Run and manage a persistent team of specialized child agents. Use `delegate` with one or more independent tasks, then `status`, `wait`, or `result` with the returned run_id; use `stop` to cancel a run. SHAPE NOTE: unlike the `task` tool, every call is wrapped in an action envelope -- {\"action\":\"delegate\",\"tasks\":[...]} -- and each task's lane is chosen by its `role` alone (no `subagent_type`). Roles determine read-only vs scoped-write authority and fast vs capable model routing. Worker roles require a non-empty working-directory-relative scope and cannot run Bash. Supports hierarchical dispatch: a child agent may itself delegate to a deeper tier up to the configured max_depth, enabling three-tier blackboard tree fan-out."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -193,6 +275,7 @@ impl Tool for TeamTool {
                                     "description": {"type": "string"},
                                     "prompt": {"type": "string"},
                                     "role": {"type": "string", "enum": ["planner", "architect", "explorer", "implementer", "rust", "tui_ux", "reviewer", "tester", "debugger", "security", "performance", "docs_writer", "release_manager", "migration_compat"]},
+                                    "subagent_type": {"type": "string", "enum": ["explore", "worker"], "description": "Optional alias: must agree with `role`'s lane (read-only roles -> \"explore\", write roles -> \"worker\"). `role` alone is enough."},
                                     "scope": {"type": "array", "items": {"type": "string"}, "description": "Required for worker roles; ignored for read-only roles."}
                                 },
                                 "required": ["description", "prompt", "role"]
@@ -210,7 +293,7 @@ impl Tool for TeamTool {
     }
 
     fn risk(&self, args: &str) -> RiskLevel {
-        match parse_args(args) {
+        match parse_team_args(args) {
             Ok(TeamArgs::Delegate { tasks })
                 if tasks.iter().any(|task| {
                     role_by_id(task.role.as_str()).is_some_and(|profile| {
@@ -225,7 +308,7 @@ impl Tool for TeamTool {
     }
 
     async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
-        let parsed = match parse_args(args) {
+        let parsed = match parse_team_args(args) {
             Ok(parsed) => parsed,
             Err(error) => return Self::result(error, true),
         };
@@ -511,5 +594,131 @@ mod tests {
         let error = serde_json::from_str::<TeamArgs>(r#"{"action":"delegate","tasks":"not json"}"#)
             .unwrap_err();
         assert!(error.to_string().contains("tasks"), "{}", error);
+    }
+
+    // --- parse ladder: shapes a weak model actually emits (see salvage_team_args) ---
+
+    fn delegated(args: &str) -> Vec<rustcode_capabilities::team::TeamTaskSpec> {
+        match parse_team_args(args).expect("should parse") {
+            TeamArgs::Delegate { tasks } => tasks
+                .into_iter()
+                .map(task_spec)
+                .collect::<Result<Vec<_>, _>>()
+                .expect("tasks should validate"),
+            other => panic!("expected delegate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ladder_accepts_a_bare_task_array() {
+        let tasks = delegated(r#"[{"description":"read","prompt":"inspect","role":"explorer"}]"#);
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].description, "read");
+    }
+
+    #[test]
+    fn ladder_unwraps_a_double_encoded_payload() {
+        let inner = r#"{"action":"delegate","tasks":[{"description":"read","prompt":"inspect","role":"explorer"}]}"#;
+        let tasks = delegated(&serde_json::to_string(inner).unwrap());
+        assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn ladder_supplies_delegate_when_action_is_missing() {
+        let tasks =
+            delegated(r#"{"tasks":[{"description":"read","prompt":"inspect","role":"explorer"}]}"#);
+        assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn ladder_wraps_a_single_task_object() {
+        let tasks = delegated(r#"{"description":"read","prompt":"inspect","role":"explorer"}"#);
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].description, "read");
+    }
+
+    #[test]
+    fn ladder_still_fails_closed_on_unsalvageable_input() {
+        for hopeless in ["{", r#"{"action":"nonsense"}"#, r#"{"unrelated":1}"#] {
+            let error = parse_team_args(hopeless).unwrap_err();
+            assert!(
+                error.starts_with("invalid team args:"),
+                "{hopeless}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn risk_and_execute_share_one_parser_for_worker_dispatches() {
+        // A `rust` (write-authority) task reached through the ladder must still be
+        // rated Risky, or the approval gate would let a scoped write through.
+        let tool = tool(100);
+        let args = r#"[{"description":"edit","prompt":"change","role":"rust","scope":["src/**"]}]"#;
+        assert_eq!(tool.risk(args), RiskLevel::Risky);
+        assert!(matches!(
+            parse_team_args(args),
+            Ok(TeamArgs::Delegate { .. })
+        ));
+    }
+
+    // --- RC-5: `subagent_type` is accepted as an alias on `team` (the `task` tool
+    //     spells the lane that way), but `role` stays the single authority ---
+
+    #[test]
+    fn subagent_type_alias_is_accepted_when_it_agrees_with_the_role() {
+        let tasks = delegated(
+            r#"{"action":"delegate","tasks":[{"description":"edit","prompt":"change","role":"rust","subagent_type":"worker","scope":["src/**"]}]}"#,
+        );
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].role.as_str(), "rust");
+        assert_eq!(
+            tasks[0].permission,
+            rustcode_capabilities::team::TeamPermission::Worker
+        );
+    }
+
+    #[test]
+    fn subagent_type_alias_conflict_is_rejected_not_silently_ignored() {
+        // `reviewer` is read-only; claiming the write lane must fail loudly rather
+        // than run as Explore (silent downgrade) or as Worker (silent escalation).
+        let err = task_spec(single_task(
+            r#"{"description":"audit","prompt":"check","role":"reviewer","subagent_type":"worker"}"#,
+        ))
+        .unwrap_err();
+        assert!(
+            err.contains("does not match role"),
+            "expected an explicit lane mismatch, got: {err}"
+        );
+    }
+
+    #[test]
+    fn omitting_subagent_type_keeps_working_as_before() {
+        let tasks = delegated(
+            r#"{"action":"delegate","tasks":[{"description":"read","prompt":"inspect","role":"explorer"}]}"#,
+        );
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(
+            tasks[0].permission,
+            rustcode_capabilities::team::TeamPermission::Explore
+        );
+    }
+
+    fn single_task(json: &str) -> DelegateTask {
+        serde_json::from_str::<DelegateTask>(json).expect("fixture must deserialize")
+    }
+
+    #[test]
+    fn team_schema_advertises_the_subagent_type_alias() {
+        let schema = tool(100).parameters_schema();
+        let items = &schema["oneOf"][0]["properties"]["tasks"]["items"];
+        let alias = &items["properties"]["subagent_type"];
+        assert_eq!(alias["type"], "string");
+        let enum_values: Vec<&str> = alias["enum"]
+            .as_array()
+            .expect("subagent_type enum")
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(enum_values, vec!["explore", "worker"]);
     }
 }

@@ -586,9 +586,12 @@ NON-OVERLAPPING file scopes so they cannot clobber each other; (3) use `explore`
 for 'where/how' investigation and `worker` for edits; mark a subtask `hard` only when it \
 genuinely needs the stronger, slower model -- default to the fast model otherwise. After a \
 `worker` finishes, REVIEW its diff before continuing: you own the final result, not the \
-subagent. Use the optional `role` profile when specialist judgment matters (for example \
-`architect`, `reviewer`, `tester`, `rust`, or `tui_ux`); its permission must match \
-`subagent_type`.";
+subagent. Use the optional `role` profile when specialist judgment matters. A profile belongs to \
+EXACTLY ONE lane and the pairing is validated as a whole batch, so pick from the matching group: \
+read-only roles go with `subagent_type: \"explore\"` (for example `architect`, `reviewer`, \
+`security`, `performance`), write roles go with `subagent_type: \"worker\"` (for example `rust`, \
+`tui_ux`, `tester`, `docs_writer`). Mixing them -- say `reviewer` with `worker` -- rejects the \
+whole batch.";
 
 const TEAM_DELEGATION: &str = "\n\n## TEAM AGENT:\n\
 The `team` tool is available for asynchronous, longer-lived parallel work that you need to \

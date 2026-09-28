@@ -553,6 +553,19 @@ described -- no more, no less -- honoring the working directory. Make the change
 if cheap, then stop with a one-line summary of what you changed. Do not wander outside the \
 task's stated scope.";
 
+/// Built-in role ids belonging to one permission lane, in table order.
+///
+/// Derived from `BUILT_IN_ROLES` so the schema's `role` enums can never drift
+/// from the runtime's lane assignment (`resolve_subtask_spec` reads the same
+/// table to validate the pairing).
+fn role_ids_for_lane(permission: crate::team::TeamPermission) -> Vec<serde_json::Value> {
+    crate::team::built_in_roles()
+        .iter()
+        .filter(|role| role.permission == permission)
+        .map(|role| serde_json::Value::from(role.id.as_str()))
+        .collect()
+}
+
 fn default_subagent_type() -> String {
     "explore".to_string()
 }
@@ -774,10 +787,13 @@ impl Tool for TaskTool {
 
     fn description(&self) -> &str {
         "Dispatch one or more subtasks to isolated subagents. Each task: {description, \
-prompt, subagent_type: 'explore'|'worker', difficulty: 'simple'|'hard', model?: configured_model_id, role?: profile}. 'explore' = \
+prompt, subagent_type: 'explore'|'worker', difficulty: 'simple'|'hard', model?: configured_model_id, role?: profile}. \
+SHAPE NOTE: unlike the `team` tool there is NO action envelope -- the payload is just {\"tasks\":[...]} -- and the \
+lane is set by `subagent_type`, with `role` required to belong to that same lane. 'explore' = \
 read-only investigation returning findings; 'worker' = edits files then stops (you review \
-the diff afterward). Optional roles include architect, reviewer, tester, rust, and tui_ux; \
-the role permission must match subagent_type. 'simple' runs on the fast model, 'hard' on the capable model. Give \
+the diff afterward). Read-only roles (architect, reviewer, security, performance, ...) go with \
+'explore'; write roles (rust, tui_ux, tester, docs_writer, ...) go with 'worker'; mismatching them \
+rejects the whole batch. 'simple' runs on the fast model, 'hard' on the capable model. Give \
 each worker a TIGHTLY-specified task and non-overlapping file scopes when dispatching \
 several. Subagents run in parallel and cannot themselves dispatch. The WHOLE batch is \
 emitted as ONE JSON payload, so keep each `prompt` concise and dispatch in small batches \
@@ -802,6 +818,11 @@ parallel workers NON-OVERLAPPING scopes."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
+        // Role ids are derived from the built-in role table rather than spelled
+        // out, so the schema cannot drift from `BUILT_IN_ROLES` when a role is
+        // added or its lane changes.
+        let explore_roles = role_ids_for_lane(crate::team::TeamPermission::Explore);
+        let worker_roles = role_ids_for_lane(crate::team::TeamPermission::Worker);
         json!({
             "type": "object",
             "properties": {
@@ -818,17 +839,42 @@ parallel workers NON-OVERLAPPING scopes."
                                 "type": "string",
                                 "description": "Optional configured model selection id for this subtask; overrides difficulty tier routing"
                             },
-                            "role": {
-                                "type": "string",
-                                "enum": ["planner", "architect", "explorer", "implementer", "rust", "tui_ux", "reviewer", "tester", "debugger", "security", "performance", "docs_writer", "release_manager", "migration_compat"]
-                            },
                             "scope": {
                                 "type": "array",
                                 "items": { "type": "string" },
                                 "description": "Worker-only, REQUIRED for worker: working-directory-relative globs the worker may write within (e.g. [\"src/auth/**\", \"Cargo.toml\"]). The worker can only write files inside this scope; reads are unrestricted. Ignored for explore."
                             }
                         },
-                        "required": ["description", "prompt", "subagent_type"]
+                        "required": ["description", "prompt", "subagent_type"],
+                        // `role` is deliberately NOT a flat enum here. Each profile
+                        // belongs to exactly one lane, and `resolve_subtask_spec`
+                        // REJECTS THE WHOLE BATCH when a role's permission disagrees
+                        // with `subagent_type`. A mixed enum left that coupling
+                        // invisible, so models paired e.g. `reviewer` (read-only)
+                        // with `worker` and got a batch-wide failure they could not
+                        // self-correct. Branching on the lane states it up front.
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "subagent_type": { "const": "explore" },
+                                    "role": {
+                                        "type": "string",
+                                        "description": "Read-only profile. Any of these are valid for `explore`.",
+                                        "enum": explore_roles
+                                    }
+                                }
+                            },
+                            {
+                                "properties": {
+                                    "subagent_type": { "const": "worker" },
+                                    "role": {
+                                        "type": "string",
+                                        "description": "Write-authority profile. Any of these are valid for `worker`.",
+                                        "enum": worker_roles
+                                    }
+                                }
+                            }
+                        ]
                     }
                 }
             },
@@ -2370,6 +2416,64 @@ mod tests {
         let explore = r#"{"tasks":[{"description":"x","prompt":"p","subagent_type":"explore"}]}"#;
         assert!(matches!(t.risk(worker), RiskLevel::Risky));
         assert!(matches!(t.risk(explore), RiskLevel::Safe));
+    }
+
+    // --- RC-4: the `role` x `subagent_type` lane coupling is stated in the schema
+    //     (mixed enums left it invisible, producing batch-wide failures) ---
+
+    fn lane_schema() -> serde_json::Value {
+        dummy().parameters_schema()
+    }
+
+    fn roles_for(subagent_type: &str) -> Vec<String> {
+        let schema = lane_schema();
+        let branches = schema["properties"]["tasks"]["items"]["oneOf"]
+            .as_array()
+            .expect("task item schema should branch by lane");
+        let branch = branches
+            .iter()
+            .find(|b| b["properties"]["subagent_type"]["const"] == subagent_type)
+            .unwrap_or_else(|| panic!("no branch for {subagent_type}"));
+        branch["properties"]["role"]["enum"]
+            .as_array()
+            .expect("role enum")
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn schema_splits_roles_by_permission_lane() {
+        let explore = roles_for("explore");
+        let worker = roles_for("worker");
+        // The pairing the model previously got wrong: `reviewer` is read-only.
+        assert!(explore.contains(&"reviewer".to_string()));
+        assert!(worker.contains(&"rust".to_string()));
+        assert!(
+            !worker.contains(&"reviewer".to_string()),
+            "reviewer must not be offered on the write lane: {worker:?}"
+        );
+        assert!(
+            !explore.contains(&"rust".to_string()),
+            "rust must not be offered on the read-only lane: {explore:?}"
+        );
+    }
+
+    #[test]
+    fn schema_lane_roles_match_the_runtime_role_table() {
+        // Guards against drift: the schema is derived from BUILT_IN_ROLES, so the
+        // two lists must agree exactly.
+        for (lane, permission) in [
+            ("explore", crate::team::TeamPermission::Explore),
+            ("worker", crate::team::TeamPermission::Worker),
+        ] {
+            let expected: Vec<String> = crate::team::built_in_roles()
+                .iter()
+                .filter(|r| r.permission == permission)
+                .map(|r| r.id.as_str().to_string())
+                .collect();
+            assert_eq!(roles_for(lane), expected, "lane {lane} drifted");
+        }
     }
 
     #[tokio::test]
