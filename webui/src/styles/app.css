@@ -2156,10 +2156,23 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 140px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
 .im-crumb:hover { color: var(--app-brand); }
 .im-crumb.current { color: var(--app-primary-foreground); font-weight: 600; cursor: default; }
 .im-crumb-sep { color: var(--app-secondary-foreground); opacity: 0.6; }
+.im-menu-error {
+  font-size: 0.75rem;
+  color: #ef4444;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .im-menu-row {
   display: flex;
   flex-direction: column;
@@ -2675,6 +2688,41 @@ body {
 .im-test-ok { color: var(--app-success-foreground); font-size: 0.75rem; }
 .im-test-failed { color: var(--app-warning-accent); font-size: 0.75rem; }
 
+/* IM channels dialog (settings modal). */
+.im-channel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--app-input-border);
+  border-radius: var(--corner-radius-small);
+  background: var(--app-input-background);
+}
+.im-channel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.im-channel-pos {
+  flex-shrink: 0;
+  font-family: var(--app-monospace-font-family);
+  font-size: 0.75rem;
+  color: var(--app-tertiary-foreground);
+}
+.im-channel-head .custom-select { flex: 1 1 200px; min-width: 0; }
+.im-channel-enabled { flex-shrink: 0; }
+.im-channel-head .btn { flex-shrink: 0; }
+.im-channel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.im-channel-field > span { font-size: 0.75rem; color: var(--app-secondary-foreground); }
+.im-saved { font-size: 0.75rem; color: var(--app-success-foreground); }
+
 /* Directory browser */
 .dir-browser {
   border: 1px solid var(--app-input-border);
@@ -2835,6 +2883,10 @@ body {
   width: min(920px, 100%);
   height: min(760px, 85dvh);
 }
+.modal-card.im-channels-modal {
+  width: min(760px, 100%);
+  height: min(640px, 85dvh);
+}
 .model-config-page {
   display: flex;
   flex-direction: column;
@@ -2968,6 +3020,8 @@ body {
 
 @media (max-width: 700px) {
   .modal-card.model-config-modal { height: 85dvh; }
+  .modal-card.im-channels-modal { height: 85dvh; }
+  .im-channel-head { flex-wrap: wrap; }
   .model-config-intro { flex-direction: column; gap: 10px; }
   .model-config-path { max-width: 100%; width: 100%; box-sizing: border-box; }
   .model-provider-card .provider-card-head { flex-wrap: wrap; }

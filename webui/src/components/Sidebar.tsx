@@ -396,6 +396,9 @@ export function Sidebar({
   // platform + project = level 2 (session leaves).
   const [imSelection, setImSelection] = useState<ImRecordSelection>(IM_ROOT_SELECTION);
   const [imOpening, setImOpening] = useState<string | null>(null);
+  // Set when the bindings fetch fails with no prior tree: distinguishable from
+  // "no bindings yet" instead of silently showing an empty panel.
+  const [imError, setImError] = useState(false);
   const imMenuRef = useRef<HTMLDivElement | null>(null);
   const imBtnRef = useRef<HTMLButtonElement | null>(null);
   // Trust flow: in-flight POST + error for the "Trust this project" button.
@@ -951,10 +954,17 @@ export function Sidebar({
     if (imLoading) return;
     setImLoading(true);
     getImBindings()
-      .then(setImTree)
-      // Keep whatever we had on a transient error; only fall back to an empty
-      // tree when we never got one, so a blip doesn't wipe a populated panel.
-      .catch(() => setImTree((cur) => cur ?? { enabled: false, total: 0, platforms: [] }))
+      .then((tree) => {
+        setImTree(tree);
+        setImError(false);
+      })
+      // Keep whatever we had on a transient error; only flag the failure (and
+      // fall back to an empty tree) when we never got one, so a populated panel
+      // isn't wiped by a blip but a first-load failure isn't read as "empty".
+      .catch(() => {
+        setImTree((cur) => cur ?? { enabled: false, total: 0, platforms: [] });
+        setImError(true);
+      })
       .finally(() => setImLoading(false));
   }
 
@@ -988,6 +998,16 @@ export function Sidebar({
     if (imMenuOpen) return;
     setImSelection(IM_ROOT_SELECTION);
     setImOpening(null);
+  }, [imMenuOpen]);
+
+  // Close the IM menu on Escape (same contract as the search dialog).
+  useEffect(() => {
+    if (!imMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setImMenuOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, [imMenuOpen]);
 
   function toggleImMenu(e: MouseEvent) {
@@ -1254,6 +1274,10 @@ export function Sidebar({
   const renderImMenu = () => {
     if (!imMenuOpen || !imMenuPos) return null;
     const crumbs = imBreadcrumbs(imSelection, { root: t('im.records') });
+    // The project row in the list shows dirName(p.project); the breadcrumb must
+    // use the same short form so both views agree (full path stays in title).
+    const crumbLabel = (c: (typeof crumbs)[number]) =>
+      c.level === 2 ? (dirName(c.label) || c.label) : c.label;
     const platforms = imSelection.platform ? [] : imPlatformRows(imTree);
     const projects = imSelection.platform && !imSelection.project ? imProjectRows(imTree, imSelection) : [];
     const sessions = imSelection.project ? imSessionRows(imTree, imSelection) : [];
@@ -1271,7 +1295,8 @@ export function Sidebar({
         <div class="im-breadcrumb">
           {crumbs.map((crumb, i) => (
             <span key={crumb.level} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-              <span
+              <button
+                type="button"
                 class={'im-crumb' + (i === crumbs.length - 1 ? ' current' : '')}
                 onClick={() => {
                   if (i === crumbs.length - 1) return;
@@ -1279,13 +1304,16 @@ export function Sidebar({
                 }}
                 title={crumb.label}
               >
-                {crumb.label || t('im.records')}
-              </span>
+                {crumbLabel(crumb) || t('im.records')}
+              </button>
               {i < crumbs.length - 1 && <span class="im-crumb-sep">/</span>}
             </span>
           ))}
         </div>
         {imLoading && <div class="im-menu-note">{t('sidebar.imLoading')}</div>}
+        {!imLoading && imError && (
+          <div class="im-menu-error">{t('sidebar.imError')}</div>
+        )}
         {!imLoading && imTree && !imTree.enabled && (
           <div class="im-menu-note">{t('im.disabledHint')}</div>
         )}
@@ -1300,7 +1328,7 @@ export function Sidebar({
               key={p.platform}
               class="im-menu-row"
               onClick={() => setImSelection({ platform: p.platform, project: null })}
-              title={t('sidebar.imProjects')}
+              title={p.platform}
             >
               <span class="im-menu-name">{p.platform}</span>
               <span class="im-menu-meta">
@@ -1331,7 +1359,7 @@ export function Sidebar({
               class="im-menu-row leaf"
               disabled={imOpening !== null}
               onClick={() => void openImSession(s.session_id)}
-              title={t('im.openSession')}
+              title={s.session_id}
             >
               <span class="im-menu-name">{s.session_id}</span>
               <span class="im-menu-meta">

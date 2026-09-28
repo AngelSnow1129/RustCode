@@ -2,7 +2,7 @@
 // Each is opened on its own from the sidebar settings menu.
 
 import { ComponentChildren } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import {
   getConfig,
   ConfigInfo,
@@ -1172,6 +1172,9 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
+  // Keep the save-failure banner visible: the modal body scrolls and the error
+  // may render above the fold, so scroll it into view when a save fails.
+  const errorRef = useRef<HTMLDivElement | null>(null);
   // Connectivity test: which row is probing, and the latest verdict per row.
   // The test runs against the SAVED config (the server reads it), so results
   // stay valid across draft edits until a save/reorder re-renders the list.
@@ -1213,6 +1216,12 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
   };
 
   const save = async () => {
+    // Same gate as ProviderFormDialog: never submit a channel without a
+    // project directory (the server would reject it, but with a vaguer error).
+    if (drafts.some((d) => !d.project.trim())) {
+      setError(t('settings.allRequired'));
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -1224,14 +1233,24 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
       flashSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setTimeout(() => errorRef.current?.scrollIntoView({ block: 'nearest' }), 0);
     } finally {
       setSaving(false);
     }
   };
 
   const removeChannel = async (index: number) => {
+    // Draft rows are addressed by drafts index; server rows by the server's
+    // own index field. A not-yet-saved row (appended locally) has no server
+    // counterpart — deleting by drafts index there would hit the WRONG saved
+    // channel, so it is removed from drafts only.
+    const serverIndex = info?.channels[index]?.index;
+    if (serverIndex === undefined) {
+      setDrafts((prev) => prev.filter((_, i) => i !== index));
+      return;
+    }
     try {
-      apply(await deleteImChannel(index));
+      apply(await deleteImChannel(serverIndex));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -1262,7 +1281,7 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <SettingsModal title={t('im.title')} onClose={onClose}>
+    <SettingsModal title={t('im.title')} wide cardClass="im-channels-modal" onClose={onClose}>
       <div class="field-group im-channels">
         <p class="field-hint">{t('im.intro')}</p>
 
@@ -1276,15 +1295,20 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
         </label>
 
         {loading && <div class="modal-loading">{t('im.loading')}</div>}
-        {error && <div class="remote-state remote-warn">{error}</div>}
+        {error && <div class="modal-error" ref={errorRef}>{error}</div>}
 
         {!loading && drafts.map((draft, index) => {
           const fields = IM_CREDENTIAL_FIELDS[draft.platform] ?? [];
           const missing = fields.filter(({ key }) => !(draft.credentials[key] ?? '').trim());
           return (
-            <div class="im-channel" key={info?.channels[index]?.index ?? `new-${index}`}>
+            <div
+              class="im-channel"
+              key={info?.channels[index]?.index ?? `new-${index}`}
+              role="group"
+              aria-label={`${t('im.channel')} ${index + 1}`}
+            >
               <div class="im-channel-head">
-                <span class="im-channel-pos">#{index + 1}</span>
+                <span class="im-channel-pos" aria-hidden="true">#{index + 1}</span>
                 <Select
                   value={draft.platform}
                   options={IM_PLATFORMS.map((p) => ({ value: p.value, label: p.label }))}
@@ -1318,6 +1342,7 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
               <label class="im-channel-field">
                 <span>{t('im.project')}</span>
                 <input
+                  class="menu-input"
                   type="text"
                   placeholder="/abs/path/to/workdir"
                   value={draft.project}
@@ -1329,6 +1354,7 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
                 <label class="im-channel-field" key={key}>
                   <span>{label}</span>
                   <input
+                    class="menu-input"
                     type="text"
                     placeholder="$ENV_VAR"
                     value={draft.credentials[key] ?? ''}
@@ -1340,7 +1366,7 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
               ))}
 
               {missing.length > 0 && (
-                <p class="field-hint im-channel-missing">
+                <p class="modal-error im-channel-missing">
                   {t('im.missingCredentials', { fields: missing.join(', ') })}
                 </p>
               )}
@@ -1356,7 +1382,7 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
 
         {!loading && (
           <div class="remote-actions">
-            <button class="btn" onClick={addChannel}>{t('im.add')}</button>
+            <button class="btn" disabled={saving || loading} onClick={addChannel}>{t('im.add')}</button>
           </div>
         )}
 
