@@ -1293,6 +1293,9 @@ pub struct Host {
     /// `crate::providers::key` for one press and emptied whenever a form is
     /// left — see [`Host::providers_key`].
     providers_secret: Mutex<String>,
+    /// The next token a pick out of the bottom sheet is stamped with
+    /// ([`Host::sheet_key`], [`Host::settle_sheet_pick`]).
+    sheet_picks: std::sync::atomic::AtomicU64,
     /// The mounted cell-grid bitmaps. The host holds the table; a row writes
     /// through `RastersSvc`, and every frame takes a snapshot of it into
     /// `Moment` for the modules to draw. See `docs/adr/0027`.
@@ -1554,6 +1557,7 @@ impl Host {
             asks: crate::ask::Asks::new(),
             secrets: crate::secret::Secrets::new(),
             providers_secret: Mutex::new(String::new()),
+            sheet_picks: std::sync::atomic::AtomicU64::new(1),
             rasters: Arc::new(crate::raster::Rasters::new()),
             modules: modules.clone(),
             layout: layout_svc.clone(),
@@ -3932,24 +3936,33 @@ impl Host {
             .is_some()
     }
 
-    /// The list page that is up, for a pick to leave behind the page it opens.
-    pub fn sheet_list(&self) -> Option<crate::sheet::Page> {
-        let m = self.moment.read().expect("moment poisoned");
-        match &m.sheet.as_ref()?.page {
-            page @ crate::sheet::Page::List(_) => Some(page.clone()),
-            crate::sheet::Page::Read(_) => None,
-        }
+    /// How many rows of text the sheet drew last frame — what a page-down and
+    /// "scroll to the end" are measured in (`crate::sheet::read_room`). Before
+    /// the first frame, the most it ever draws.
+    fn sheet_room(&self) -> usize {
+        self.hits
+            .lock()
+            .expect("hits poisoned")
+            .sheet
+            .map(|rect| crate::sheet::read_room(rect.h as usize))
+            .unwrap_or(crate::sheet::READ_ROWS)
     }
 
     /// Run one key against the sheet: whether anything changed, and what was
-    /// picked when the key picked something.
-    pub fn sheet_key(&self, press: crate::surface::KeyPress) -> (bool, Option<String>) {
+    /// picked — the command, and the token its answer has to bring back
+    /// ([`Self::settle_sheet_pick`]).
+    ///
+    /// A second Enter while a pick is still being answered picks nothing: the
+    /// command is already on its way, and running it twice is two answers to
+    /// one question.
+    pub fn sheet_key(&self, press: crate::surface::KeyPress) -> (bool, Option<(String, u64)>) {
+        let room = self.sheet_room();
         let mut m = self.moment.write().expect("moment poisoned");
         let Some(sheet) = m.sheet.as_mut() else {
             return (false, None);
         };
         let before = sheet.clone();
-        match crate::sheet::key(sheet, press) {
+        match crate::sheet::key(sheet, press, room) {
             crate::sheet::Step::Stay => {
                 let changed = *sheet != before;
                 (changed, None)
@@ -3958,8 +3971,53 @@ impl Host {
                 m.sheet = None;
                 (true, None)
             }
-            crate::sheet::Step::Chose(value) => (true, Some(value)),
+            crate::sheet::Step::Chose(_) if sheet.pending.is_some() => (false, None),
+            crate::sheet::Step::Chose(value) => {
+                let token = self
+                    .sheet_picks
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                sheet.pending = Some(token);
+                (true, Some((value, token)))
+            }
         }
+    }
+
+    /// A pick's command answered. `next` is the sheet it put up, if it put one
+    /// up; `None` is anything else — `/look`, `/cd` into a directory, a
+    /// refusal — which is the end of the list.
+    ///
+    /// Lands only on the sheet that is **still up and still waiting for this
+    /// pick**: an answer that comes back after the person has put the list
+    /// away, or opened something else, is not allowed to bring it back or to
+    /// close what is there now. True when the screen changed.
+    ///
+    /// Text to read goes *over* the list it was picked from: Esc comes back to
+    /// the list with the cursor on the row that was picked.
+    pub fn settle_sheet_pick(&self, token: u64, next: Option<crate::sheet::Sheet>) -> bool {
+        use crate::sheet::Page;
+        let mut m = self.moment.write().expect("moment poisoned");
+        let Some(current) = m.sheet.as_mut() else {
+            return false;
+        };
+        if current.pending != Some(token) {
+            return false;
+        }
+        current.pending = None;
+        m.sheet = match next {
+            Some(mut next) => {
+                let behind = m.sheet.take().map(|sheet| sheet.page);
+                if let (Page::Read(_), None, Some(list @ Page::List(_))) =
+                    (&next.page, &next.back, behind)
+                {
+                    if list.id() == next.page.id() {
+                        next.back = Some(Box::new(list));
+                    }
+                }
+                Some(next)
+            }
+            None => None,
+        };
+        true
     }
 
     /// The wheel over the sheet walks its list, or scrolls what is being read.
@@ -3973,10 +4031,11 @@ impl Host {
         if !over {
             return false;
         }
+        let room = self.sheet_room();
         let mut m = self.moment.write().expect("moment poisoned");
         match m.sheet.as_mut() {
             Some(sheet) => {
-                crate::sheet::wheel(sheet, by);
+                crate::sheet::wheel(sheet, by, room);
                 true
             }
             None => false,
@@ -7369,16 +7428,53 @@ mod tests {
 
         let key = |k| crate::surface::KeyPress::plain(k);
         assert_eq!(h.sheet_key(key(crate::surface::Key::Down)), (true, None));
-        assert_eq!(
-            h.sheet_key(key(crate::surface::Key::Enter)),
-            (true, Some("/look b".to_string()))
-        );
+        let (_, picked) = h.sheet_key(key(crate::surface::Key::Enter));
+        let (value, token) = picked.expect("a pick");
+        assert_eq!(value, "/look b");
         assert!(
             h.sheet_open(),
             "a pick leaves the list up until its command answers"
         );
+        assert_eq!(
+            h.sheet_key(key(crate::surface::Key::Enter)),
+            (false, None),
+            "a second Enter while it is answered runs nothing twice"
+        );
+
+        // The answer is text to read: it goes over the list, and the list —
+        // cursor on the row picked — is behind it.
+        let read = crate::sheet::Sheet::read(crate::sheet::Read::file("agents", Vec::new(), "x"));
+        assert!(h.settle_sheet_pick(token, Some(read)));
+        {
+            let m = h.moment.read().unwrap();
+            let sheet = m.sheet.as_ref().expect("up");
+            assert!(matches!(sheet.page, crate::sheet::Page::Read(_)));
+            match sheet.back.as_deref() {
+                Some(crate::sheet::Page::List(list)) => assert_eq!(list.cursor, 1),
+                other => panic!("the list is behind it: {other:?}"),
+            }
+        }
+        // Esc: back to the list, then away.
+        assert_eq!(h.sheet_key(key(crate::surface::Key::Esc)), (true, None));
+        assert!(h.sheet_open(), "back on the list");
+
+        // An answer for a pick the person walked away from lands nowhere: it
+        // neither brings the sheet back nor closes what is up now.
+        let (_, picked) = h.sheet_key(key(crate::surface::Key::Enter));
+        let (_, late) = picked.expect("a pick");
         assert_eq!(h.sheet_key(key(crate::surface::Key::Esc)), (true, None));
         assert!(!h.sheet_open());
+        assert!(!h.settle_sheet_pick(late, None));
+        let other = crate::sheet::Sheet::list(crate::sheet::List::new("cd", "", Vec::new()));
+        assert!(h.open_sheet(other));
+        let stale = crate::sheet::Sheet::read(crate::sheet::Read::file("agents", Vec::new(), "x"));
+        assert!(!h.settle_sheet_pick(late, Some(stale)));
+        assert_eq!(
+            h.moment.read().unwrap().sheet.as_ref().map(|s| s.page.id()),
+            Some("cd"),
+            "the sheet that is up now is untouched"
+        );
+        assert!(h.close_sheet());
         assert_eq!(
             rows(crate::modules::input::ID),
             before,

@@ -10,7 +10,7 @@ use crate::i18n::{t, Msg};
 use crate::module::{Height, View};
 use crate::modules::chrome::{self, box_edge, pad_to, panel_edge, search_line};
 use crate::moment::{Moment, Viewport};
-use crate::sheet::{List, Mark, Page, Piece, Read, Sheet, Tone, READ_ROWS};
+use crate::sheet::{read_room, List, Mark, Page, Piece, Read, Sheet, Tone};
 use crate::theme::{self, Role};
 use crate::width;
 
@@ -41,9 +41,10 @@ impl View for SheetView {
             return Vec::new();
         }
         let caps = vp.moment.caps;
-        layout(sheet, vp.rect.h as usize)
+        let h = vp.rect.h as usize;
+        layout(sheet, h)
             .into_iter()
-            .map(|row| draw(sheet, row, w, caps))
+            .map(|row| draw(sheet, row, w, caps, read_room(h)))
             .collect()
     }
 
@@ -69,8 +70,13 @@ enum Row {
     Search,
     BoxBottom,
     Blank,
-    /// 单子上筛出行的第几行(不是原始下标):光标、命中测试都按这个走。
-    Item(usize),
+    /// 单子上的一行:`at` 是它在筛出行里的位置(光标、命中测试按这个走),`row`
+    /// 是它在整张单子里的下标。两个都在排版时定下来 —— 画每一行时再筛一遍,
+    /// `/view` 那张几万个文件的单子就要每一帧筛十几遍。
+    Item {
+        at: usize,
+        row: usize,
+    },
     Nothing,
     Scroll {
         above: usize,
@@ -108,7 +114,10 @@ fn layout(sheet: &Sheet, h: usize) -> Vec<Row> {
                 } else {
                     (0, listed.len())
                 };
-                rows.extend((from..to).map(Row::Item));
+                rows.extend((from..to).map(|at| Row::Item {
+                    at,
+                    row: listed[at],
+                }));
             }
         }
         Page::Read(read) => {
@@ -116,8 +125,7 @@ fn layout(sheet: &Sheet, h: usize) -> Vec<Row> {
             if read.lines.is_empty() {
                 rows.push(Row::Nothing);
             } else {
-                let room = h.saturating_sub(rows.len() + 2).min(READ_ROWS).max(1);
-                let (from, to) = read_window(read, room);
+                let (from, to) = read_window(read, read_room(h));
                 rows.extend((from..to).map(Row::Line));
             }
         }
@@ -144,11 +152,12 @@ fn read_window(read: &Read, room: usize) -> (usize, usize) {
     (from, (from + room).min(len))
 }
 
-fn draw(sheet: &Sheet, row: Row, w: usize, caps: Caps) -> Line {
+/// `room`:读的那页此刻画出来的正文行数,表头「看到哪儿」按它说。
+fn draw(sheet: &Sheet, row: Row, w: usize, caps: Caps, room: usize) -> Line {
     let muted = theme::fg(Role::Muted);
     match row {
         Row::Rule => panel_edge(w, caps),
-        Row::Header => header(sheet, w),
+        Row::Header => header(sheet, w, room),
         Row::Summary => match &sheet.page {
             Page::List(list) => pieces_line("  ", &list.summary, w),
             Page::Read(_) => Line::empty(),
@@ -174,8 +183,8 @@ fn draw(sheet: &Sheet, row: Row, w: usize, caps: Caps) -> Line {
         Row::Scroll { above, below } => {
             Line::styled(width::take_width(&format!("  ↑{above} ↓{below}"), w), muted)
         }
-        Row::Item(at) => match &sheet.page {
-            Page::List(list) => item_line(list, at, w, caps),
+        Row::Item { at, row } => match &sheet.page {
+            Page::List(list) => item_line(list, at, row, w, caps),
             Page::Read(_) => Line::empty(),
         },
         Row::Line(at) => match &sheet.page {
@@ -198,7 +207,7 @@ fn draw(sheet: &Sheet, row: Row, w: usize, caps: Caps) -> Line {
 
 /// 表头:命令的名字(品牌色),后面是这一页自己的话。读的那页再加上看到了哪儿:
 /// `起-止/共几行`。
-fn header(sheet: &Sheet, w: usize) -> Line {
+fn header(sheet: &Sheet, w: usize, room: usize) -> Line {
     let (mut spans, _) = chrome::header_parts(sheet.page.id(), &[], usize::MAX);
     match &sheet.page {
         Page::List(list) => spans.push(Span::styled(list.title.clone(), theme::fg(Role::Muted))),
@@ -206,7 +215,7 @@ fn header(sheet: &Sheet, w: usize) -> Line {
             spans.extend(read.title.iter().map(piece_span));
             let len = read.lines.len();
             if len > 0 {
-                let (from, to) = read_window(read, READ_ROWS);
+                let (from, to) = read_window(read, room);
                 spans.push(Span::styled(
                     format!("  {}-{}/{len}", from + 1, to),
                     theme::fg(Role::Muted),
@@ -238,9 +247,8 @@ fn pieces_line(lead: &str, pieces: &[Piece], w: usize) -> Line {
 }
 
 /// 单子上一行:指针、记号、标签、灰字,靠右是那几个数。光标所在的行铺一层选中底色。
-fn item_line(list: &List, at: usize, w: usize, caps: Caps) -> Line {
-    let listed = list.listed();
-    let Some(row) = listed.get(at).and_then(|&i| list.rows.get(i)) else {
+fn item_line(list: &List, at: usize, index: usize, w: usize, caps: Caps) -> Line {
+    let Some(row) = list.rows.get(index) else {
         return Line::empty();
     };
     let here = at == list.cursor;
@@ -370,7 +378,7 @@ pub fn geometry(moment: &Moment, vp: &Viewport<'_>) -> Geometry {
         rows: layout(sheet, vp.rect.h as usize)
             .into_iter()
             .map(|row| match row {
-                Row::Item(at) => Some(at),
+                Row::Item { at, .. } => Some(at),
                 _ => None,
             })
             .collect(),
@@ -385,7 +393,7 @@ mod tests {
     fn drawn(sheet: &Sheet, w: usize) -> Vec<String> {
         layout(sheet, usize::MAX)
             .into_iter()
-            .map(|row| draw(sheet, row, w, Caps::default()).plain())
+            .map(|row| draw(sheet, row, w, Caps::default(), read_room(usize::MAX)).plain())
             .collect()
     }
 
@@ -432,6 +440,21 @@ mod tests {
             .contains(&*t(Msg::SheetListLegend { typed: false })));
     }
 
+    /// 屏幕矮的时候,表头说的是**实际画出来**的那几行,不是按一整屏算的。
+    #[test]
+    fn a_short_reader_says_what_it_actually_shows() {
+        let text: String = (1..=100).map(|n| format!("line {n}\n")).collect();
+        let sheet = Sheet::read(Read::file("view", Vec::new(), &text));
+        let h = 20;
+        let room = read_room(h);
+        let lines: Vec<String> = layout(&sheet, h)
+            .into_iter()
+            .map(|row| draw(&sheet, row, 60, Caps::default(), room).plain())
+            .collect();
+        assert_eq!(lines.len(), h, "{lines:?}");
+        assert!(lines[1].contains(&format!("1-{room}/100")), "{lines:?}");
+    }
+
     /// 读的那页:表头有看到哪儿,行号一栏右对齐;diff 的行带 `+`/`-`,两段之间一个
     /// 省略号;esc 回不回得去,提示说的不一样。
     #[test]
@@ -443,7 +466,10 @@ mod tests {
             &text,
         ));
         let lines = drawn(&sheet, 60);
-        assert!(lines[1].contains(&format!("1-{READ_ROWS}/30")), "{lines:?}");
+        assert!(
+            lines[1].contains(&format!("1-{}/30", crate::sheet::READ_ROWS)),
+            "{lines:?}"
+        );
         assert!(
             lines.iter().any(|l| l.starts_with("   1  line 1")),
             "{lines:?}"
@@ -457,6 +483,7 @@ mod tests {
         let sheet = Sheet {
             page: Page::Read(Read::diff("diff", "x.rs", diff)),
             back: Some(Box::new(Page::List(List::new("diff", "t", Vec::new())))),
+            pending: None,
         };
         let lines = drawn(&sheet, 60);
         assert!(lines[1].contains("x.rs  +1 -1"), "{lines:?}");

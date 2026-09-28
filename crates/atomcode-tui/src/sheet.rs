@@ -23,6 +23,12 @@ use crate::surface::{Key, KeyPress, Mods};
 pub struct Sheet {
     pub page: Page,
     pub back: Option<Box<Page>>,
+    /// 挑中了一行、那条命令还没回话:回话时认的就是这个号(`Host::settle_sheet_pick`)。
+    ///
+    /// 命令可能慢(`/diff git` 要问 git),其间人可能已经 esc 掉这张单子、开了别的
+    /// 面板,或者又按了一次回车。回话只落在**还是这张、还在等这一次**的单子上;
+    /// 在等的时候再按回车不再派发第二次。
+    pub pending: Option<u64>,
 }
 
 impl Sheet {
@@ -30,6 +36,7 @@ impl Sheet {
         Self {
             page: Page::List(list),
             back: None,
+            pending: None,
         }
     }
 
@@ -37,6 +44,7 @@ impl Sheet {
         Self {
             page: Page::Read(read),
             back: None,
+            pending: None,
         }
     }
 }
@@ -328,13 +336,15 @@ impl Read {
         self
     }
 
-    /// 视野最多往下走到哪一行开始:最后一屏满着,而不是只剩最后一行。
-    fn last_top(&self) -> usize {
-        self.lines.len().saturating_sub(READ_ROWS)
+    /// 视野最多往下走到哪一行开始:最后一屏满着,而不是只剩最后一行。`room` 是
+    /// **实际画出来**的行数 —— 屏幕矮的时候比 [`READ_ROWS`] 少,按固定的数算,
+    /// 文件末尾那几行就永远滚不到。
+    fn last_top(&self, room: usize) -> usize {
+        self.lines.len().saturating_sub(room.max(1))
     }
 
-    fn scroll(&mut self, by: isize) {
-        self.top = self.top.saturating_add_signed(by).min(self.last_top());
+    fn scroll(&mut self, by: isize, room: usize) {
+        self.top = self.top.saturating_add_signed(by).min(self.last_top(room));
     }
 }
 
@@ -342,8 +352,14 @@ impl Read {
 /// 一样按能画下的算,不按屏幕给了多少。
 pub const READ_ROWS: usize = 24;
 
-/// 翻一页走多少行:比一屏少一行,翻过去还看得见上一页的最后一行,知道接在哪儿。
-const PAGE: isize = (READ_ROWS as isize) - 1;
+/// 读的那一页除了正文还占几行:规则线、表头、空行,底下空行加提示。
+pub const READ_CHROME: usize = 5;
+
+/// 高 `h` 行的一块里,正文能画几行。画的那一层(`crate::modules::sheet`)和按键
+/// 这一层用的是这同一个数 —— 两边各算各的,一矮就对不上。
+pub fn read_room(h: usize) -> usize {
+    h.saturating_sub(READ_CHROME).clamp(1, READ_ROWS)
+}
 
 /// 把一段统一 diff 拆成要画的行。
 ///
@@ -375,8 +391,21 @@ pub fn parse_diff(text: &str) -> Vec<ReadLine> {
             continue;
         }
         if !in_hunk {
-            // 一段改动之前的那些头。`Binary files … differ` 是唯一一句人要读的。
-            if line.starts_with("Binary files ") {
+            // 一段改动之前的那些头。给 git 看的(`index`、`---`、`+++`)不画;说出
+            // 「改了什么」的留着 —— 只改了名字或权限的文件没有一段内容改动,
+            // 这几句就是它全部的改动,丢了就成了一个空页。
+            const TOLD: [&str; 9] = [
+                "Binary files ",
+                "rename from ",
+                "rename to ",
+                "copy from ",
+                "copy to ",
+                "old mode ",
+                "new mode ",
+                "new file mode ",
+                "deleted file mode ",
+            ];
+            if TOLD.iter().any(|head| line.starts_with(head)) {
                 out.push(ReadLine {
                     number: None,
                     mark: Mark::Note,
@@ -441,7 +470,8 @@ pub enum Step {
 const LIST_PAGE: usize = 10;
 
 /// 跑一个键。自由函数、纯的:单子写回去,挑中什么由 [`Step::Chose`] 说出去。
-pub fn key(sheet: &mut Sheet, press: KeyPress) -> Step {
+/// `room` 是读的那页此刻画出来的正文行数([`read_room`]),翻页与滚到底按它算。
+pub fn key(sheet: &mut Sheet, press: KeyPress, room: usize) -> Step {
     // Ctrl-C 哪一页都是「不要了」:不回到背后那张,整个收起来。
     if matches!((press.key, press.mods), (Key::Char('c'), Mods::CTRL)) {
         return Step::Close;
@@ -463,7 +493,7 @@ pub fn key(sheet: &mut Sheet, press: KeyPress) -> Step {
                     None => Step::Close,
                 };
             }
-            read_key(read, press);
+            read_key(read, press, room);
             Step::Stay
         }
     }
@@ -531,28 +561,32 @@ fn list_key(list: &mut List, press: KeyPress) -> Step {
     }
 }
 
-fn read_key(read: &mut Read, press: KeyPress) {
+fn read_key(read: &mut Read, press: KeyPress, room: usize) {
+    // 翻一页走的比一屏少一行:翻过去还看得见上一页的最后一行,知道接在哪儿。
+    let page = room.saturating_sub(1).max(1) as isize;
     match (press.key, press.mods) {
-        (Key::Up, _) | (Key::Char('k'), Mods::NONE) => read.scroll(-1),
-        (Key::Down, _) | (Key::Char('j'), Mods::NONE) => read.scroll(1),
-        (Key::PageUp, _) => read.scroll(-PAGE),
-        (Key::PageDown, _) | (Key::Char(' '), Mods::NONE) => read.scroll(PAGE),
+        (Key::Up, _) | (Key::Char('k'), Mods::NONE) => read.scroll(-1, room),
+        (Key::Down, _) | (Key::Char('j'), Mods::NONE) => read.scroll(1, room),
+        (Key::PageUp, _) => read.scroll(-page, room),
+        (Key::PageDown, _) | (Key::Char(' '), Mods::NONE) => read.scroll(page, room),
         (Key::Home, _) | (Key::Char('g'), Mods::NONE) => read.top = 0,
-        (Key::End, _) | (Key::Char('G'), Mods::NONE | Mods::SHIFT) => read.top = read.last_top(),
+        (Key::End, _) | (Key::Char('G'), Mods::NONE | Mods::SHIFT) => {
+            read.top = read.last_top(room)
+        }
         // 别的键什么都不做 —— 原来的弹窗是按任何键都关掉,一个手滑就得从头打开。
         _ => {}
     }
 }
 
 /// 滚轮:列表挪光标,读的那页挪视野。
-pub fn wheel(sheet: &mut Sheet, by: i32) {
+pub fn wheel(sheet: &mut Sheet, by: i32, room: usize) {
     match &mut sheet.page {
         Page::List(list) => {
             let rows = list.listed().len();
             list.cursor =
                 (list.cursor as i64 + by as i64).clamp(0, rows.saturating_sub(1) as i64) as usize;
         }
-        Page::Read(read) => read.scroll(by as isize),
+        Page::Read(read) => read.scroll(by as isize, room),
     }
 }
 
@@ -566,7 +600,7 @@ mod tests {
 
     fn typed(sheet: &mut Sheet, text: &str) {
         for c in text.chars() {
-            key(sheet, KeyPress::ch(c));
+            key(sheet, KeyPress::ch(c), READ_ROWS);
         }
     }
 
@@ -593,19 +627,19 @@ mod tests {
     #[test]
     fn a_list_moves_picks_and_closes() {
         let mut sheet = list();
-        key(&mut sheet, press(Key::Up));
+        key(&mut sheet, press(Key::Up), READ_ROWS);
         assert_eq!(cursor(&sheet), 0, "不从顶上绕到底下");
-        key(&mut sheet, press(Key::Down));
-        key(&mut sheet, press(Key::Down));
-        key(&mut sheet, press(Key::Down));
+        key(&mut sheet, press(Key::Down), READ_ROWS);
+        key(&mut sheet, press(Key::Down), READ_ROWS);
+        key(&mut sheet, press(Key::Down), READ_ROWS);
         assert_eq!(cursor(&sheet), 2, "也不从底下绕回顶上");
         assert_eq!(
-            key(&mut sheet, press(Key::Enter)),
+            key(&mut sheet, press(Key::Enter), READ_ROWS),
             Step::Chose("/diff lib/c.rs".into())
         );
-        key(&mut sheet, press(Key::Home));
+        key(&mut sheet, press(Key::Home), READ_ROWS);
         assert_eq!(cursor(&sheet), 0);
-        assert_eq!(key(&mut sheet, press(Key::Esc)), Step::Close);
+        assert_eq!(key(&mut sheet, press(Key::Esc), READ_ROWS), Step::Close);
     }
 
     /// 输入即筛,标签和灰字都算;Tab 补到共有的开头;筛不出东西时认打的字的单子
@@ -615,14 +649,14 @@ mod tests {
         let mut sheet = list();
         typed(&mut sheet, "ADD");
         assert_eq!(
-            key(&mut sheet, press(Key::Enter)),
+            key(&mut sheet, press(Key::Enter), READ_ROWS),
             Step::Chose("/diff b.rs".into()),
             "灰字里命中也算,不分大小写"
         );
 
         let mut sheet = list();
         typed(&mut sheet, "l");
-        key(&mut sheet, press(Key::Tab));
+        key(&mut sheet, press(Key::Tab), READ_ROWS);
         match &sheet.page {
             Page::List(list) => assert_eq!(list.query, "lib/c.rs"),
             Page::Read(_) => unreachable!(),
@@ -630,12 +664,12 @@ mod tests {
 
         let mut sheet = list();
         typed(&mut sheet, "zzz");
-        assert_eq!(key(&mut sheet, press(Key::Enter)), Step::Stay);
+        assert_eq!(key(&mut sheet, press(Key::Enter), READ_ROWS), Step::Stay);
 
         let mut sheet = Sheet::list(List::new("cd", "t", Vec::new()).accepting_typed("/cd {}"));
         typed(&mut sheet, "/tmp/x");
         assert_eq!(
-            key(&mut sheet, press(Key::Enter)),
+            key(&mut sheet, press(Key::Enter), READ_ROWS),
             Step::Chose("/cd /tmp/x".into())
         );
     }
@@ -650,26 +684,38 @@ mod tests {
             Page::Read(read) => read.top,
             Page::List(_) => panic!("a reader"),
         };
-        key(&mut sheet, press(Key::Up));
+        key(&mut sheet, press(Key::Up), READ_ROWS);
         assert_eq!(top(&sheet), 0);
-        key(&mut sheet, press(Key::PageDown));
-        assert_eq!(top(&sheet), PAGE as usize);
-        key(&mut sheet, press(Key::End));
+        key(&mut sheet, press(Key::PageDown), READ_ROWS);
+        assert_eq!(top(&sheet), READ_ROWS - 1);
+        key(&mut sheet, press(Key::End), READ_ROWS);
         assert_eq!(top(&sheet), 100 - READ_ROWS, "最后一屏是满的");
-        key(&mut sheet, press(Key::Down));
+        key(&mut sheet, press(Key::Down), READ_ROWS);
         assert_eq!(top(&sheet), 100 - READ_ROWS);
-        key(&mut sheet, press(Key::Char('g')));
+        key(&mut sheet, press(Key::Char('g')), READ_ROWS);
         assert_eq!(top(&sheet), 0);
-        assert_eq!(key(&mut sheet, press(Key::Enter)), Step::Stay, "手滑不关");
-        assert_eq!(key(&mut sheet, press(Key::Esc)), Step::Close);
+        assert_eq!(
+            key(&mut sheet, press(Key::Enter), READ_ROWS),
+            Step::Stay,
+            "手滑不关"
+        );
+
+        // 屏幕矮、只画得下 15 行的时候,滚到底就是最后 15 行 —— 按固定的一屏
+        // 算,最后那几行永远到不了。
+        key(&mut sheet, press(Key::End), 15);
+        assert_eq!(top(&sheet), 100 - 15);
+        key(&mut sheet, press(Key::Up), 15);
+        assert_eq!(top(&sheet), 100 - 16, "从底下往回走,第一下就动");
+        assert_eq!(key(&mut sheet, press(Key::Esc), READ_ROWS), Step::Close);
 
         let mut behind = list();
-        key(&mut behind, press(Key::Down));
+        key(&mut behind, press(Key::Down), READ_ROWS);
         let mut sheet = Sheet {
             page: Page::Read(Read::diff("diff", "b.rs", "")),
             back: Some(Box::new(behind.page)),
+            pending: None,
         };
-        assert_eq!(key(&mut sheet, press(Key::Esc)), Step::Stay);
+        assert_eq!(key(&mut sheet, press(Key::Esc), READ_ROWS), Step::Stay);
         assert_eq!(cursor(&sheet), 1, "回到清单,光标还在读的那一行上");
         assert!(sheet.back.is_none());
     }
@@ -697,6 +743,14 @@ mod tests {
                 (None, Mark::Note, "\\ No newline at end of file"),
             ]
         );
+        // 只改了名字、没有一段内容改动的:说出改了什么的那几句留着,不是一个空页。
+        let renamed = parse_diff(
+            "diff --git a/old.rs b/new.rs\nsimilarity index 100%\nrename from old.rs\nrename to new.rs\n",
+        );
+        let told: Vec<&str> = renamed.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(told, vec!["rename from old.rs", "rename to new.rs"]);
+        assert!(renamed.iter().all(|l| l.mark == Mark::Note));
+
         let read = Read::diff("diff", "x", text);
         let title: String = read.title.iter().map(|p| p.text.as_str()).collect();
         assert_eq!(title, "x  +2 -1");

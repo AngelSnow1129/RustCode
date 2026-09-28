@@ -348,18 +348,6 @@ impl FileIndex {
         filter_entries(entries, scope_dir, filter)
     }
 
-    /// Synchronous full-tree search for one-shot callers that have no
-    /// session-lived cache to amortize against — currently the daemon
-    /// `/fs/search` endpoint that powers the webui `@`-mention picker. Walks
-    /// the tree gitignore-aware (the SAME [`walk_inner`](Self::walk_inner) the
-    /// async index uses) and applies the SAME [`filter_entries`] matching/sort,
-    /// so webui results are byte-identical to the TUI popup.
-    ///
-    /// Unlike [`filter`](Self::filter), this does the FULL walk before matching
-    /// (no shallow warm-up), because a per-request index has no later keystroke
-    /// on which to drain a background walk — the first call must be complete.
-    /// It blocks on the filesystem walk; call it from `spawn_blocking` in async
-    /// contexts. `MAX_INDEX_ENTRIES` still backstops a pathological tree.
     /// Every **file** under `root` (directories left out), relative and
     /// forward-slashed, shallowest first, then alphabetical — the same
     /// gitignore-aware [`walk_inner`](Self::walk_inner) the index takes, for a
@@ -379,6 +367,18 @@ impl FileIndex {
         files.into_iter().map(|entry| entry.rel_path).collect()
     }
 
+    /// Synchronous full-tree search for one-shot callers that have no
+    /// session-lived cache to amortize against — currently the daemon
+    /// `/fs/search` endpoint that powers the webui `@`-mention picker. Walks
+    /// the tree gitignore-aware (the SAME [`walk_inner`](Self::walk_inner) the
+    /// async index uses) and applies the SAME [`filter_entries`] matching/sort,
+    /// so webui results are byte-identical to the TUI popup.
+    ///
+    /// Unlike [`filter`](Self::filter), this does the FULL walk before matching
+    /// (no shallow warm-up), because a per-request index has no later keystroke
+    /// on which to drain a background walk — the first call must be complete.
+    /// It blocks on the filesystem walk; call it from `spawn_blocking` in async
+    /// contexts. `MAX_INDEX_ENTRIES` still backstops a pathological tree.
     pub fn search_blocking(root: &Path, scope_dir: &str, filter: &str) -> Vec<Entry> {
         let entries = Self::walk_inner(root.to_path_buf());
         filter_entries(&entries, scope_dir, filter)

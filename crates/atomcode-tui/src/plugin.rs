@@ -2876,8 +2876,8 @@ impl Tui {
     fn run_sheet_key(&self, press: crate::surface::KeyPress) -> bool {
         let (changed, picked) = self.host.sheet_key(press);
         match picked {
-            Some(value) => {
-                self.pick_from_sheet(value);
+            Some((value, token)) => {
+                self.pick_from_sheet(value, token);
                 true
             }
             None => changed,
@@ -2890,11 +2890,16 @@ impl Tui {
     /// The list stays up while the command runs, because what comes back is
     /// usually the sheet's next page: a file's diff out of `/diff`'s list, the
     /// next directory down out of `/cd`'s. When that page is text to read, the
-    /// list goes *behind* it — Esc comes back to it with the cursor on the row
-    /// that was picked, which is what reading one file's diff and then the
-    /// next one's needs. Anything else the command does (`/look`, `/cd` into a
-    /// directory, a refusal) is the end of the list, and the sheet goes away.
-    fn pick_from_sheet(&self, value: String) {
+    /// list goes behind it — Esc comes back to it with the cursor on the row
+    /// that was picked. Anything else the command does (`/look`, `/cd` into a
+    /// directory, a refusal) is the end of the list.
+    ///
+    /// Both land through `token` ([`crate::host::Host::settle_sheet_pick`]):
+    /// only on the sheet that is still up and still waiting for this pick. A
+    /// page that comes back after the list was put away is dropped — the
+    /// person already said they were done with it. What the command said is
+    /// still said: the command did run.
+    fn pick_from_sheet(&self, value: String, token: u64) {
         let Some(ctx) = self.ctx.lock().expect("ctx poisoned").clone() else {
             return;
         };
@@ -2902,28 +2907,20 @@ impl Tui {
             return;
         };
         let host = self.host.clone();
-        let behind = self.host.sheet_list();
         tokio::spawn(async move {
-            let outcome = host.commands.dispatch(&value, &ctx).await;
-            let outcome = match outcome {
-                crate::command::Outcome::Do(crate::keymap::Action::OpenSheet(mut sheet)) => {
-                    if let (crate::sheet::Page::Read(_), None, Some(list)) =
-                        (&sheet.page, &sheet.back, behind)
-                    {
-                        if list.id() == sheet.page.id() {
-                            sheet.back = Some(Box::new(list));
-                        }
-                    }
-                    crate::command::Outcome::Do(crate::keymap::Action::OpenSheet(sheet))
-                }
-                other => {
-                    if host.close_sheet() {
+            match host.commands.dispatch(&value, &ctx).await {
+                crate::command::Outcome::Do(crate::keymap::Action::OpenSheet(sheet)) => {
+                    if host.settle_sheet_pick(token, Some(sheet)) {
                         let _ = keys.send(Wake::Fact);
                     }
-                    other
                 }
-            };
-            deliver(&host, &keys, outcome);
+                other => {
+                    if host.settle_sheet_pick(token, None) {
+                        let _ = keys.send(Wake::Fact);
+                    }
+                    deliver(&host, &keys, other);
+                }
+            }
         });
     }
 

@@ -2829,7 +2829,11 @@ mod tests {
     }
 
     fn press(sheet: &mut crate::sheet::Sheet, key: crate::surface::Key) -> crate::sheet::Step {
-        crate::sheet::key(sheet, crate::surface::KeyPress::plain(key))
+        crate::sheet::key(
+            sheet,
+            crate::surface::KeyPress::plain(key),
+            crate::sheet::READ_ROWS,
+        )
     }
 
     /// A host that answers from a script and keeps what it was asked.
@@ -5197,7 +5201,11 @@ mod tests {
         // 人本来就知道路径的那一半:列表里一条都不匹配时,回车去的就是打出来的
         // 那个地方。此前这是个死键,只能关掉列表重打一遍命令。
         for ch in "/srv/deploy".chars() {
-            crate::sheet::key(&mut sheet, crate::surface::KeyPress::ch(ch));
+            crate::sheet::key(
+                &mut sheet,
+                crate::surface::KeyPress::ch(ch),
+                crate::sheet::READ_ROWS,
+            );
         }
         assert_eq!(
             press(&mut sheet, crate::surface::Key::Enter),
